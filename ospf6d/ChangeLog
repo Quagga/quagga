@@ -1,3 +1,9 @@
+2005-03-05 Vincent Jardin <Vincent.Jardin@6wind.com>
+
+	* ospf6_zebra.c: Fix core dump when router-id is provided with
+	  an empty ospf6d.conf file (no context router ospf6) because
+	  ospf6_create has not been called yet.
+
 2004-12-24 Hasso Tepper <hasso at quagga.net>
 
 	* *.c: Change level of debug messages to LOG_DEBUG.
