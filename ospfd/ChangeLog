@@ -1,3 +1,8 @@
+2005-03-05 Andrew J. Schorr <ajschorr@alumni.princeton.edu>
+
+	* ospf_network.c: (ospf_sock_init) Save errno before calling
+	  ospfd_privs.change.
+
 2005-02-19 Hasso Tepper <hasso at quagga.net>
 
 	* ospf_api.h: char isnt always signed, but it has to be it here.
