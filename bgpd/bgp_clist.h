@@ -137,6 +137,7 @@ struct community_list *
 community_list_lookup (struct community_list_handler *, char *, int);
 
 int community_list_match (struct community *, struct community_list *);
+int ecommunity_list_match (struct ecommunity *, struct community_list *);
 int community_list_exact_match (struct community *, struct community_list *);
 struct community *
 community_list_match_delete (struct community *,

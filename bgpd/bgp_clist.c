@@ -364,6 +364,26 @@ community_regexp_match (struct community *com, regex_t *reg)
   return 0;
 }
 
+static int
+ecommunity_regexp_match (struct ecommunity *ecom, regex_t *reg)
+{
+  char *str;
+
+  /* When there is no communities attribute it is treated as empty
+     string.  */
+  if (ecom == NULL || ecom->size == 0)
+    str = "";
+  else
+    str = ecommunity_str (ecom);
+
+  /* Regular expression match.  */
+  if (regexec (reg, str, 0, NULL, 0) == 0)
+    return 1;
+
+  /* No match.  */
+  return 0;
+}
+
 /* Delete community attribute using regular expression match.  Return
    modified communites attribute.  */
 static struct community *
@@ -435,6 +455,30 @@ community_list_match (struct community *com, struct community_list *list)
       else if (entry->style == COMMUNITY_LIST_EXPANDED)
 	{
 	  if (community_regexp_match (com, entry->reg))
+	    return entry->direct == COMMUNITY_PERMIT ? 1 : 0;
+	}
+    }
+  return 0;
+}
+
+int
+ecommunity_list_match (struct ecommunity *ecom, struct community_list *list)
+{
+  struct community_entry *entry;
+
+  for (entry = list->head; entry; entry = entry->next)
+    {
+      if (entry->any)
+	return entry->direct == COMMUNITY_PERMIT ? 1 : 0;
+
+      if (entry->style == EXTCOMMUNITY_LIST_STANDARD)
+	{
+	  if (ecommunity_match (ecom, entry->u.ecom))
+	    return entry->direct == COMMUNITY_PERMIT ? 1 : 0;
+	}
+      else if (entry->style == EXTCOMMUNITY_LIST_EXPANDED)
+	{
+	  if (ecommunity_regexp_match (ecom, entry->reg))
 	    return entry->direct == COMMUNITY_PERMIT ? 1 : 0;
 	}
     }

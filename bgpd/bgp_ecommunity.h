@@ -70,3 +70,5 @@ void ecommunity_unintern (struct ecommunity *);
 unsigned int ecommunity_hash_make (struct ecommunity *);
 struct ecommunity *ecommunity_str2com (char *, int, int);
 char *ecommunity_ecom2str (struct ecommunity *, int);
+int ecommunity_match (struct ecommunity *, struct ecommunity *);
+char *ecommunity_str (struct ecommunity *);

@@ -535,7 +535,7 @@ ripng_route_process (struct rte *rte, struct sockaddr_in6 *from,
       int ret;
       struct ripng_info newinfo;
 
-      memset (&rinfo, 0, sizeof (struct ripng_info));
+      memset (&newinfo, 0, sizeof (struct ripng_info));
       newinfo.metric = rte->metric;
 
       ret = route_map_apply (ri->routemap[RIPNG_FILTER_IN], 
