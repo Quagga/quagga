@@ -1,3 +1,13 @@
+2005-03-12 Hasso Tepper <hasso at quagga.net>
+
+	* connected.c, interface.c, interface.h: Revert secondary handling
+	  patch from Gilad Arnold commited in 2004-10-03. It wasn't possible
+	  to store ip addresses in zebra config any more for "dynamic"
+	  interfaces like vlans or ppp. "secondary" keyword for IPv4 addresses
+	  remains to be removed though. It isn't useful, because all kernels
+	  we support have their own views anyway what's primary and what's
+	  secondary.
+
 2005-03-07 Michael Sandee <voidptr@voidptr.sboost.org>
 
 	* if_proc.c, ipforward_proc.c, rtread_proc.c: Fix fd leaks.

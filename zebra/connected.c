@@ -32,7 +32,6 @@
 
 #include "zebra/zserv.h"
 #include "zebra/redistribute.h"
-#include "zebra/interface.h"
 
 /* If same interface address is already exist... */
 struct connected *
@@ -179,8 +178,6 @@ connected_add_ipv4 (struct interface *ifp, int flags, struct in_addr *addr,
   /* Update interface address information to protocol daemon. */
   if (! CHECK_FLAG (ifc->conf, ZEBRA_IFC_REAL))
     {
-      if_subnet_add (ifp, ifc);
-
       SET_FLAG (ifc->conf, ZEBRA_IFC_REAL);
 
       zebra_interface_address_add_update (ifp, ifc);
@@ -248,15 +245,16 @@ connected_delete_ipv4 (struct interface *ifp, int flags, struct in_addr *addr,
     {
       zebra_interface_address_delete_update (ifp, ifc);
 
-      if_subnet_delete (ifp, ifc);
-
       connected_down_ipv4 (ifp, ifc);
 
       UNSET_FLAG (ifc->conf, ZEBRA_IFC_REAL);
     }
 
-  listnode_delete (ifp->connected, ifc);
-  connected_free (ifc);
+  if (! CHECK_FLAG (ifc->conf, ZEBRA_IFC_CONFIGURED))
+    {
+      listnode_delete (ifp->connected, ifc);
+      connected_free (ifc);
+    }
 }
 
 #ifdef HAVE_IPV6
@@ -433,7 +431,10 @@ connected_delete_ipv6 (struct interface *ifp, struct in6_addr *address,
       UNSET_FLAG (ifc->conf, ZEBRA_IFC_REAL);
     }
 
-  listnode_delete (ifp->connected, ifc);
-  connected_free (ifc);
+  if (! CHECK_FLAG (ifc->conf, ZEBRA_IFC_CONFIGURED))
+    {
+      listnode_delete (ifp->connected, ifc);
+      connected_free (ifc);
+    }
 }
 #endif /* HAVE_IPV6 */
