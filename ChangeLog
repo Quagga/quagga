@@ -1,3 +1,8 @@
+2005-03-26 Hasso Tepper <hasso at quagga.net>
+
+	* doc/defines.texi.in, lib/version.h.in: Update copyright string to
+	  include year 2005.
+
 2005-03-12 Paul Jakma <paul.jakma@sun.com>
 
 	* configure.ac: Solaris 8 can use the newer lifreq based methods
