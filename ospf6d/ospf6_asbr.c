@@ -412,8 +412,9 @@ ospf6_asbr_external_lsa_refresh (void *data)
   struct ospf6_lsa_as_external *e;
   struct prefix prefix;
   struct route_node *node;
-  struct ospf6_external_route *route;
-  struct ospf6_external_info *info;
+  struct ospf6_external_route *route = NULL;
+  struct ospf6_external_info *info = NULL;
+  struct ospf6_external_info *match = NULL;
 
   if (IS_OSPF6_DUMP_ASBR)
     zlog_info ("ASBR: refresh %s", lsa->str);
@@ -424,6 +425,29 @@ ospf6_asbr_external_lsa_refresh (void *data)
   prefix.family = AF_INET6;
   apply_mask_ipv6 ((struct prefix_ipv6 *) &prefix);
 
+  for (node = route_top (external_table); node; node = route_next (node))
+    {
+      route = node->info;
+      if (route == NULL)
+        continue;
+
+      for (info = route->info_head; info; info = info->next)
+        {
+          if (lsa->header->id == htonl (info->id))
+            match = info;
+        }
+    }
+
+  if (match == NULL)
+    {
+      ospf6_lsa_premature_aging (lsa);
+      return 0;
+    }
+
+  ospf6_asbr_schedule_external (match);
+  return 0;
+
+#if 0
   node = route_node_lookup (external_table, &prefix);
   if (! node || ! node->info)
     {
@@ -450,6 +474,7 @@ ospf6_asbr_external_lsa_refresh (void *data)
     ospf6_lsa_premature_aging (lsa);
 
   return 0;
+#endif
 }
 
 void

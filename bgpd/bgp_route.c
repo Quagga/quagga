@@ -1780,6 +1780,7 @@ bgp_static_update (struct bgp *bgp, struct prefix *p,
   struct bgp_info *new;
   struct bgp_info info;
   struct attr attr;
+  struct attr attr_tmp;
   struct attr *attr_new;
   int ret;
 
@@ -1796,23 +1797,26 @@ bgp_static_update (struct bgp *bgp, struct prefix *p,
   /* Apply route-map. */
   if (bgp_static->rmap.name)
     {
+      attr_tmp = attr;
       info.peer = bgp->peer_self;
-      info.attr = &attr;
+      info.attr = &attr_tmp;
 
       ret = route_map_apply (bgp_static->rmap.map, p, RMAP_BGP, &info);
+
       if (ret == RMAP_DENYMATCH)
 	{    
 	  /* Free uninterned attribute. */
-	  bgp_attr_flush (&attr);
+	  bgp_attr_flush (&attr_tmp);
 
 	  /* Unintern original. */
 	  aspath_unintern (attr.aspath);
 	  bgp_static_withdraw (bgp, p, afi, safi);
 	  return;
 	}
+      attr_new = bgp_attr_intern (&attr_tmp);
     }
-
-  attr_new = bgp_attr_intern (&attr);
+  else
+    attr_new = bgp_attr_intern (&attr);
 
   for (ri = rn->info; ri; ri = ri->next)
     if (ri->peer == bgp->peer_self && ri->type == ZEBRA_ROUTE_BGP

@@ -1641,6 +1641,15 @@ bgp_create (as_t *as, char *name)
   return bgp;
 }
 
+/* Return master of BGP. */
+struct bgp_master *
+bgp_get_master ()
+{
+  if (bm)
+    return bm;
+  return NULL;
+}
+
 /* Return first entry of BGP. */
 struct bgp *
 bgp_get_default ()
