@@ -634,72 +634,85 @@ route_map_delete_set (struct route_map_index *index, char *set_name,
   return 1;
 }
 
-/* Apply route map's each index to the object. */
-/*
-** The matrix for a route-map looks like this:
-** (note, this includes the description for the "NEXT"
-** and "GOTO" frobs now
-**
-**            Match   |   No Match
-**                    |
-**  permit      a     |      c
-**                    |
-**  ------------------+---------------
-**                    |
-**  deny        b     |      d
-**                    |
-**
-** a)   Apply Set statements, accept route
-**      If NEXT is specified, goto NEXT statement
-**      If GOTO is specified, goto the first clause where pref > nextpref
-**      If nothing is specified, do as Cisco and finish
-** b)   Finish route-map processing, and deny route
-** c) & d)   Goto Next index
-**
-** If we get no matches after we've processed all updates, then the route
-** is dropped too.
-**
-** Some notes on the new "NEXT" and "GOTO"
-**   on-match next    - If this clause is matched, then the set statements
-**                      are executed and then we drop through to the next clause
-**   on-match goto n  - If this clause is matched, then the set statments
-**                      are executed and then we goto the nth clause, or the
-**                      first clause greater than this. In order to ensure
-**                      route-maps *always* exit, you cannot jump backwards.
-**                      Sorry ;)
-**
-** We need to make sure our route-map processing matches the above
+/* Apply route map's each index to the object.
+
+   The matrix for a route-map looks like this:
+   (note, this includes the description for the "NEXT"
+   and "GOTO" frobs now
+  
+              Match   |   No Match
+                      |
+    permit      a     |      c
+                      |
+    ------------------+---------------
+                      |
+    deny        b     |      d
+                      |
+  
+   a) Apply Set statements, accept route
+      If NEXT is specified, goto NEXT statement
+      If GOTO is specified, goto the first clause where pref > nextpref
+      If nothing is specified, do as Cisco and finish
+   b) If NEXT is specified, goto NEXT statement
+      If nothing is specified, finally will be denied by route-map.
+   c) & d)   Goto Next index
+  
+   If we get no matches after we've processed all updates, then the route
+   is dropped too.
+  
+   Some notes on the new "NEXT" and "GOTO"
+     on-match next    - If this clause is matched, then the set statements
+                        are executed and then we drop through to the next clause
+     on-match goto n  - If this clause is matched, then the set statments
+                        are executed and then we goto the nth clause, or the
+                        first clause greater than this. In order to ensure
+                        route-maps *always* exit, you cannot jump backwards.
+                        Sorry ;)
+  
+   We need to make sure our route-map processing matches the above
 */
 route_map_result_t
 route_map_apply_index (struct route_map_index *index, struct prefix *prefix,
                        route_map_object_t type, void *object)
 {
-  int ret;
+  int ret = 0;
   struct route_map_rule *match;
   struct route_map_rule *set;
-  
-  /* Check all match rule and if there is no match rule return 0. */
-  for (match = index->match_list.head; match; match = match->next)
+
+  /* Check all match rule and if there is no match rule, go to the
+     set statement. */
+  if (! index->match_list.head)
+    ret = RMAP_MATCH;
+  else
     {
-      /* Try each match statement in turn. If any return something
-       other than RM_MATCH then we don't need to check anymore and can
-       return */
-      ret = (*match->cmd->func_apply)(match->value, prefix, type, object);
-      if (ret != RMAP_MATCH)
-	return ret;
+      for (match = index->match_list.head; match; match = match->next)
+        {
+          /* Try each match statement in turn, If any return
+             RMAP_MATCH, go direct to set statement, otherwise, walk
+             to next match statement. */ 
+          ret = (*match->cmd->func_apply)(match->value, prefix, type, object);
+
+          if (ret == RMAP_MATCH)
+            break;
+	}
     }
 
+  /* If end of match statement, still can't get any RMAP_MATCH return,
+     just return to next rout-map statement. */
+
+  if (ret != RMAP_MATCH)
+    return ret;
+
   /* We get here if all match statements matched From the matrix
-   above, if this is PERMIT we go on and apply the SET functions.  If
-   we're deny, we return indicating we matched a deny */
+     above, if this is PERMIT we go on and apply the SET functions.
+     If we're deny, we return indicating we matched a deny */
 
   /* Apply set statement to the object. */
   if (index->type == RMAP_PERMIT)
     {
       for (set = index->set_list.head; set; set = set->next)
-	{
-	  ret = (*set->cmd->func_apply)(set->value, prefix, type, object);
-	}
+	ret = (*set->cmd->func_apply)(set->value, prefix, type, object);
+
       return RMAP_MATCH;
     }
   else 
@@ -726,11 +739,15 @@ route_map_apply (struct route_map *map, struct prefix *prefix,
       /* Apply this index. End here if we get a RM_NOMATCH */
       ret = route_map_apply_index (index, prefix, type, object);
 
+      if (ret == RMAP_MATCH || ret == RMAP_DENYMATCH)
+        return ret;
+
       if (ret != RMAP_NOMATCH)
 	{
 	  /* We now have to handle the NEXT and GOTO clauses */
 	  if(index->exitpolicy == RMAP_EXIT)
 	    return ret;
+
 	  if(index->exitpolicy == RMAP_GOTO)
 	    {
 	      /* Find the next clause to jump to */

@@ -99,39 +99,6 @@ struct bgp_synchronize
   struct bgp_advertise_fifo withdraw_low;
 };
 
-/* FIFO -- first in first out structure and macros.  */
-struct fifo
-{
-  struct fifo *next;
-  struct fifo *prev;
-};
-
-#define FIFO_INIT(F)                                  \
-  do {                                                \
-    struct fifo *Xfifo = (struct fifo *)(F);          \
-    Xfifo->next = Xfifo->prev = Xfifo;                \
-  } while (0)
-
-#define FIFO_ADD(F,N)                                 \
-  do {                                                \
-    struct fifo *Xfifo = (struct fifo *)(F);          \
-    struct fifo *Xnode = (struct fifo *)(N);          \
-    Xnode->next = Xfifo;                              \
-    Xnode->prev = Xfifo->prev;                        \
-    Xfifo->prev = Xfifo->prev->next = Xnode;          \
-  } while (0)
-
-#define FIFO_DEL(N)                                   \
-  do {                                                \
-    struct fifo *Xnode = (struct fifo *)(N);          \
-    Xnode->prev->next = Xnode->next;                  \
-    Xnode->next->prev = Xnode->prev;                  \
-  } while (0)
-
-#define FIFO_HEAD(F)                                  \
-  ((((struct fifo *)(F))->next == (struct fifo *)(F)) \
-  ? NULL : (F)->next)
-
 /* BGP adjacency linked list.  */
 #define BGP_INFO_ADD(N,A,TYPE)                        \
   do {                                                \

@@ -49,6 +49,8 @@ list client_list;
 int rtm_table_default = 0;
 
 void zebra_event (enum event event, int sock, struct zserv *client);
+
+extern struct thread_master *master;
 
 /* For logging of zebra meesages. */
 char *zebra_command_str [] =
@@ -74,6 +76,103 @@ char *zebra_command_str [] =
   "ZEBRA_IPV6_IMPORT_LOOKUP"
 };
 
+struct zebra_message_queue
+{
+  struct nsm_message_queue *next;
+  struct nsm_message_queue *prev;
+
+  u_char *buf;
+  u_int16_t length;
+  u_int16_t written;
+};
+
+struct thread *t_write;
+struct fifo message_queue;
+
+int
+zebra_server_dequeue (struct thread *t)
+{
+  int sock;
+  int nbytes;
+  struct zebra_message_queue *queue;
+
+  sock = THREAD_FD (t);
+  t_write = NULL;
+
+  queue = (struct zebra_message_queue *) FIFO_HEAD (&message_queue);
+  if (queue)
+    {
+      nbytes = write (sock, queue->buf + queue->written,
+		      queue->length - queue->written);
+
+      if (nbytes <= 0)
+        {
+          if (errno != EAGAIN)
+	    return -1;
+        }
+      else if (nbytes != (queue->length - queue->written))
+	{
+	  queue->written += nbytes;
+	}
+      else
+        {
+          FIFO_DEL (queue);
+          XFREE (MTYPE_TMP, queue->buf);
+          XFREE (MTYPE_TMP, queue);
+        }
+    }
+
+  if (FIFO_TOP (&message_queue))
+    THREAD_WRITE_ON (master, t_write, zebra_server_dequeue, NULL, sock);
+
+  return 0;
+}
+
+/* Enqueu message.  */
+void
+zebra_server_enqueue (int sock, u_char *buf, unsigned long length,
+		      unsigned long written)
+{
+  struct zebra_message_queue *queue;
+
+  queue = XCALLOC (MTYPE_TMP, sizeof (struct zebra_message_queue));
+  queue->buf = XMALLOC (MTYPE_TMP, length);
+  memcpy (queue->buf, buf, length);
+  queue->length = length;
+  queue->written = written;
+
+  FIFO_ADD (&message_queue, queue);
+
+  THREAD_WRITE_ON (master, t_write, zebra_server_dequeue, NULL, sock);
+}
+
+int
+zebra_server_send_message (int sock, u_char *buf, unsigned long length)
+{
+  int nbytes;
+
+  if (FIFO_TOP (&message_queue))
+    {
+      zebra_server_enqueue (sock, buf, length, 0);
+      return 0;
+    }
+
+  /* Send message.  */
+  nbytes = write (sock, buf, length);
+
+  if (nbytes <= 0)
+    {
+      if (errno == EAGAIN)
+        zebra_server_enqueue (sock, buf, length, 0);
+      else
+	return -1;
+    }
+  else if (nbytes != length)
+    zebra_server_enqueue (sock, buf, length, nbytes);
+
+  return 0;
+}
+
 /* Interface is added. Send ZEBRA_INTERFACE_ADD to client. */
 int
 zsend_interface_add (struct zserv *client, struct interface *ifp)
@@ -111,7 +210,9 @@ zsend_interface_add (struct zserv *client, struct interface *ifp)
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 /* Interface deletion from zebra daemon. */
@@ -142,7 +243,9 @@ zsend_interface_delete (struct zserv *client, struct interface *ifp)
   /* Write packet length. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 /* Interface address is added. Send ZEBRA_INTERFACE_ADDRESS_ADD to the
@@ -188,7 +291,9 @@ zsend_interface_address_add (struct zserv *client, struct interface *ifp,
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 /* Interface address is deleted. Send ZEBRA_INTERFACE_ADDRESS_DELETE
@@ -232,7 +337,9 @@ zsend_interface_address_delete (struct zserv *client, struct interface *ifp,
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -264,7 +371,9 @@ zsend_interface_up (struct zserv *client, struct interface *ifp)
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -296,7 +405,9 @@ zsend_interface_down (struct zserv *client, struct interface *ifp)
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -353,7 +464,9 @@ zsend_ipv4_add_multipath (struct zserv *client, struct prefix *p,
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -407,7 +520,9 @@ zsend_ipv4_delete_multipath (struct zserv *client, struct prefix *p,
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -446,7 +561,9 @@ zsend_ipv4_add (struct zserv *client, int type, int flags,
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -485,7 +602,9 @@ zsend_ipv4_delete (struct zserv *client, int type, int flags,
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 #ifdef HAVE_IPV6
@@ -525,7 +644,9 @@ zsend_ipv6_add (struct zserv *client, int type, int flags,
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -581,7 +702,9 @@ zsend_ipv6_add_multipath (struct zserv *client, struct prefix *p,
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -620,7 +743,9 @@ zsend_ipv6_delete (struct zserv *client, int type, int flags,
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -673,7 +798,9 @@ zsend_ipv6_delete_multipath (struct zserv *client, struct prefix *p,
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -734,7 +861,9 @@ zsend_ipv6_nexthop_lookup (struct zserv *client, struct in6_addr *addr)
 
   stream_putw_at (s, 0, stream_get_endp (s));
   
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 #endif /* HAVE_IPV6 */
 
@@ -791,7 +920,9 @@ zsend_ipv4_nexthop_lookup (struct zserv *client, struct in_addr addr)
 
   stream_putw_at (s, 0, stream_get_endp (s));
   
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 int
@@ -847,7 +978,9 @@ zsend_ipv4_import_lookup (struct zserv *client, struct prefix_ipv4 *p)
 
   stream_putw_at (s, 0, stream_get_endp (s));
   
-  return writen (client->sock, s->data, stream_get_endp (s));
+  zebra_server_send_message (client->sock, s->data, stream_get_endp (s));
+
+  return 0;
 }
 
 /* Register zebra server interface information.  Send current all
@@ -1430,6 +1563,7 @@ zebra_write (struct thread *thread)
 int
 zebra_accept (struct thread *thread)
 {
+  int val;
   int accept_sock;
   int client_sock;
   struct sockaddr_in client;
@@ -1445,6 +1579,11 @@ zebra_accept (struct thread *thread)
       zlog_warn ("Can't accept zebra socket: %s", strerror (errno));
       return -1;
     }
+
+  /* Make client socket non-blocking.  */
+
+  val = fcntl (client_sock, F_GETFL, 0);
+  fcntl (client_sock, F_SETFL, (val | O_NONBLOCK));
 
   /* Create new zebra client. */
   zebra_client_create (client_sock);
@@ -1803,4 +1942,7 @@ zebra_init ()
   install_element (ENABLE_NODE, &show_ipv6_forwarding_cmd);
   install_element (CONFIG_NODE, &no_ipv6_forwarding_cmd);
 #endif /* HAVE_IPV6 */
+
+  FIFO_INIT(&message_queue);
+  t_write = NULL;
 }

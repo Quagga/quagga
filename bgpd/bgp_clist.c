@@ -269,7 +269,7 @@ community_list_delete (struct community_list *list)
   community_list_free (list);
 }
 
-int 
+int
 community_list_empty_p (struct community_list *list)
 {
   return (list->head == NULL && list->tail == NULL) ? 1 : 0;
@@ -514,7 +514,7 @@ community_list_exact_match (struct community *com, struct community_list *list)
   return 0;
 }
 
-/* Delete all permitted communities in the list from com1 */
+/* Delete all permitted communities in the list from com.  */
 struct community *
 community_list_match_delete (struct community *com,
 			     struct community_list *list)

@@ -516,7 +516,7 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
     case BGPPEEROUTTOTALMESSAGES:
       return SNMP_INTEGER (peer->open_out + peer->update_out
 			   + peer->keepalive_out + peer->notify_out
-			   + peer->refresh_out, peer->dynamic_cap_out);
+			   + peer->refresh_out + peer->dynamic_cap_out);
       break;
     case BGPPEERLASTERROR:
       {
