@@ -1,3 +1,10 @@
+2005-03-09 Hasso Tepper <hasso at quagga.net>
+
+	* vtysh_config.c: Move password commands to the AAA_NODE. It
+	  quarantees that they will appear after SERVICE_NODE to make sure
+	  that encrypted passwords will work ("service password-encryption"
+	  command).
+
 2005-01-23 Hasso Tepper <hasso at quagga.net>
 
 	* vtysh.conf.sample: Fix typo "integrated-vtysh-conf" ->
