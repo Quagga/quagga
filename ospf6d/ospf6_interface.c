@@ -1098,9 +1098,10 @@ DEFUN (ipv6_ospf6_ifmtu,
     oi->ifmtu = ifmtu;
 
   /* re-establish adjacencies */
-  for (node = listhead (oi->neighbor_list); node; nextnode (node))
+  for (node = listhead (oi->neighbor_list); node;)
     {
       on = (struct ospf6_neighbor *) getdata (node);
+      nextnode (node);
       THREAD_OFF (on->inactivity_timer);
       thread_execute (master, inactivity_timer, on, 0);
     }
@@ -1147,9 +1148,10 @@ DEFUN (no_ipv6_ospf6_ifmtu,
     oi->ifmtu = ifp->mtu;
 
   /* re-establish adjacencies */
-  for (node = listhead (oi->neighbor_list); node; nextnode (node))
+  for (node = listhead (oi->neighbor_list); node;)
     {
       on = (struct ospf6_neighbor *) getdata (node);
+      nextnode (node);
       THREAD_OFF (on->inactivity_timer);
       thread_execute (master, inactivity_timer, on, 0);
     }
@@ -1383,9 +1385,10 @@ DEFUN (ipv6_ospf6_passive,
   SET_FLAG (oi->flag, OSPF6_INTERFACE_PASSIVE);
   THREAD_OFF (oi->thread_send_hello);
 
-  for (node = listhead (oi->neighbor_list); node; nextnode (node))
+  for (node = listhead (oi->neighbor_list); node;)
     {
       on = (struct ospf6_neighbor *) getdata (node);
+      nextnode (node);
       THREAD_OFF (on->inactivity_timer);
       thread_execute (master, inactivity_timer, on, 0);
     }

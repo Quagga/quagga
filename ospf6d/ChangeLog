@@ -1,3 +1,8 @@
+2005-03-27 Hasso Tepper <hasso at quagga.net>
+
+	* ospf6_interface.c: Fix crashes if elements is deleted in list loop
+	  and nextnode() call is attempted after that.
+
 2005-03-05 Vincent Jardin <Vincent.Jardin@6wind.com>
 
 	* ospf6_zebra.c: Fix core dump when router-id is provided with
