@@ -43,26 +43,29 @@
 void
 ospf_route_map_update (char *name)
 {
-  struct ospf *ospf = ospf_top;
+  struct ospf *ospf;
   int type;
 
   /* If OSPF instatnce does not exist, return right now. */
+  ospf = ospf_lookup ();
   if (ospf == NULL)
     return;
 
   /* Update route-map */
   for (type = 0; type <= ZEBRA_ROUTE_MAX; type++)
     {
-      if (ROUTEMAP_NAME (type) && strcmp (ROUTEMAP_NAME (type), name) == 0)
+      if (ROUTEMAP_NAME (ospf, type)
+	  && strcmp (ROUTEMAP_NAME (ospf, type), name) == 0)
 	{
 	  /* Keep old route-map. */
-	  struct route_map *old = ROUTEMAP (type);
+	  struct route_map *old = ROUTEMAP (ospf, type);
 
 	  /* Update route-map. */
-	  ROUTEMAP (type) = route_map_lookup_by_name (ROUTEMAP_NAME (type));
+	  ROUTEMAP (ospf, type) =
+	    route_map_lookup_by_name (ROUTEMAP_NAME (ospf, type));
 
 	  /* No update for this distribute type. */
-	  if (old == NULL && ROUTEMAP (type) == NULL)
+	  if (old == NULL && ROUTEMAP (ospf, type) == NULL)
 	    continue;
 
 	  ospf_distribute_list_update (ospf, type);
@@ -73,18 +76,19 @@ ospf_route_map_update (char *name)
 void
 ospf_route_map_event (route_map_event_t event, char *name)
 {
-  struct ospf *ospf = ospf_top;
+  struct ospf *ospf;
   int type;
 
   /* If OSPF instatnce does not exist, return right now. */
+  ospf = ospf_lookup ();
   if (ospf == NULL)
     return;
 
   /* Update route-map. */
   for (type = 0; type <= ZEBRA_ROUTE_MAX; type++)
     {
-      if (ROUTEMAP_NAME (type) &&  ROUTEMAP (type) &&
-          !strcmp (ROUTEMAP_NAME (type), name))
+      if (ROUTEMAP_NAME (ospf, type) &&  ROUTEMAP (ospf, type)
+	  && !strcmp (ROUTEMAP_NAME (ospf, type), name))
         {
           ospf_distribute_list_update (ospf, type);
         }

@@ -78,7 +78,5 @@ unsigned long ospf_lsdb_count_all (struct ospf_lsdb *);
 unsigned long ospf_lsdb_count (struct ospf_lsdb *, int);
 unsigned long ospf_lsdb_count_self (struct ospf_lsdb *, int);
 unsigned long ospf_lsdb_isempty (struct ospf_lsdb *);
-struct ospf_lsa *foreach_lsa (struct route_table *, void *, int,
-	              int (*callback) (struct ospf_lsa *, void *, int));
 
 #endif /* _ZEBRA_OSPF_LSDB_H */

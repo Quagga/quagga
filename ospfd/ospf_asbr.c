@@ -245,7 +245,7 @@ ospf_asbr_status_update (struct ospf *ospf, u_char status)
   if (status)
     {
       /* Already ASBR. */
-      if (OSPF_IS_ASBR)
+      if (IS_OSPF_ASBR (ospf))
 	{
 	  zlog_info ("ASBR[Status:%d]: Already ASBR", status);
 	  return;
@@ -255,7 +255,7 @@ ospf_asbr_status_update (struct ospf *ospf, u_char status)
   else
     {
       /* Already non ASBR. */
-      if (! OSPF_IS_ASBR)
+      if (! IS_OSPF_ASBR (ospf))
 	{
 	  zlog_info ("ASBR[Status:%d]: Already non ASBR", status);
 	  return;
@@ -272,9 +272,11 @@ ospf_asbr_status_update (struct ospf *ospf, u_char status)
 void
 ospf_redistribute_withdraw (u_char type)
 {
-  struct ospf *ospf = ospf_top;
+  struct ospf *ospf;
   struct route_node *rn;
   struct external_info *ei;
+
+  ospf = ospf_lookup ();
 
   /* Delete external info for specified type. */
   if (EXTERNAL_INFO (type))

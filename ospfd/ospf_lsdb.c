@@ -282,18 +282,3 @@ ospf_lsdb_isempty (struct ospf_lsdb *lsdb)
 {
   return (lsdb->total == 0);
 }
-
-struct ospf_lsa *
-foreach_lsa (struct route_table *table, void *p_arg, int int_arg, 
-	     int (*callback) (struct ospf_lsa *, void *, int))
-{
-  struct route_node *rn;
-  struct ospf_lsa *lsa;
-
-  for (rn = route_top (table); rn; rn = route_next (rn))
-    if ((lsa = rn->info) != NULL)
-      if (callback (lsa, p_arg, int_arg))
-	return lsa;
-
-  return NULL;
-}

@@ -676,9 +676,10 @@ ospf_route_table_dump (struct route_table *rt)
 void
 ospf_terminate ()
 {
-  struct ospf *ospf = ospf_top;
+  struct ospf *ospf;
+  listnode node;
 
-  if (ospf)
+  LIST_LOOP (om->ospf, ospf, node)
     {
       if (ospf->new_table)
 	ospf_route_delete (ospf->new_table);

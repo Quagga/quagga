@@ -1145,30 +1145,21 @@ ospf_abr_process_router_rt (struct ospf *ospf, struct route_table *rt)
 }
 
 #ifdef HAVE_NSSA
-int
-ospf_abr_unapprove_translates_apply (struct ospf_lsa *lsa, void *p_arg,
-				    int int_arg)
-{
-  /* Could be a mix of Normal Type-5's, self-originated, or Type-7s
-      that are Locally ABR Translated */
-
-  if (CHECK_FLAG (lsa->flags, OSPF_LSA_LOCAL_XLT))
-    UNSET_FLAG (lsa->flags, OSPF_LSA_APPROVED);
-  
-  return 0;
-}
-
 void
 ospf_abr_unapprove_translates (struct ospf *ospf) /* For NSSA Translations */
 {
+  struct ospf_lsa *lsa;
+  struct route_node *rn;
+
   if (IS_DEBUG_OSPF_NSSA)
     zlog_info ("ospf_abr_unapprove_translates(): Start");
 
   /* NSSA Translator is not checked, because it may have gone away,
     and we would want to flush any residuals anyway */
 
-  foreach_lsa (EXTERNAL_LSDB (ospf), NULL, 0,
-	       ospf_abr_unapprove_translates_apply);
+  LSDB_LOOP (EXTERNAL_LSDB (ospf), rn, lsa)
+    if (CHECK_FLAG (lsa->flags, OSPF_LSA_LOCAL_XLT))
+      UNSET_FLAG (lsa->flags, OSPF_LSA_APPROVED);
 
   if (IS_DEBUG_OSPF_NSSA)
     zlog_info ("ospf_abr_unapprove_translates(): Stop");
@@ -1390,7 +1381,7 @@ ospf_abr_announce_nssa_defaults (struct ospf *ospf) /* By ABR-Translator */
   struct ospf_area *area;
   struct prefix_ipv4 p;
 
-  if (! OSPF_IS_ABR)
+  if (! IS_OSPF_ABR (ospf))
     return;
 
   if (IS_DEBUG_OSPF_NSSA)
@@ -1432,7 +1423,7 @@ ospf_abr_announce_stub_defaults (struct ospf *ospf)
   struct ospf_area *area;
   struct prefix_ipv4 p;
 
-  if (! OSPF_IS_ABR)
+  if (! IS_OSPF_ABR (ospf))
     return;
 
   if (IS_DEBUG_OSPF_EVENT)
@@ -1471,11 +1462,9 @@ ospf_abr_announce_stub_defaults (struct ospf *ospf)
 
 #ifdef HAVE_NSSA
 int
-ospf_abr_remove_unapproved_translates_apply (struct ospf_lsa *lsa, void *p_arg,
-					     int int_arg)
+ospf_abr_remove_unapproved_translates_apply (struct ospf *ospf,
+					     struct ospf_lsa *lsa)
 {
-  struct ospf *ospf = ospf_top;
-
   if (CHECK_FLAG (lsa->flags, OSPF_LSA_LOCAL_XLT)
       && ! CHECK_FLAG (lsa->flags, OSPF_LSA_APPROVED))
     {
@@ -1492,15 +1481,18 @@ ospf_abr_remove_unapproved_translates_apply (struct ospf_lsa *lsa, void *p_arg,
 }
 
 void
-ospf_abr_remove_unapproved_translates (struct ospf *ospf) /* For NSSA Translations */
+ospf_abr_remove_unapproved_translates (struct ospf *ospf)
 {
+  struct route_node *rn;
+  struct ospf_lsa *lsa;
+
   /* All AREA PROCESS should have APPROVED necessary LSAs */
   /* Remove any left over and not APPROVED */
   if (IS_DEBUG_OSPF_NSSA)
     zlog_info ("ospf_abr_remove_unapproved_translates(): Start");
 
-  foreach_lsa (EXTERNAL_LSDB (ospf), NULL, 0,
-	       ospf_abr_remove_unapproved_translates_apply);
+  LSDB_LOOP (EXTERNAL_LSDB (ospf), rn, lsa)
+    ospf_abr_remove_unapproved_translates_apply (ospf, lsa);
  
   if (IS_DEBUG_OSPF_NSSA)
     zlog_info ("ospf_abr_remove_unapproved_translates(): Stop");
@@ -1595,7 +1587,7 @@ ospf_abr_nssa_task (struct ospf *ospf) /* called only if any_nssa */
   if (IS_DEBUG_OSPF_NSSA)
     zlog_info ("Check for NSSA-ABR Tasks():");
 
-  if (! OSPF_IS_ABR)
+  if (! IS_OSPF_ABR (ospf))
     return;
 
   if (! ospf->anyNSSA)
@@ -1673,7 +1665,7 @@ ospf_abr_task (struct ospf *ospf)
     zlog_info ("ospf_abr_task(): prepare aggregates");
   ospf_abr_prepare_aggregates (ospf);
 
-  if (OSPF_IS_ABR)
+  if (IS_OSPF_ABR (ospf))
     {
       if (IS_DEBUG_OSPF_EVENT)
 	zlog_info ("ospf_abr_task(): process network RT");

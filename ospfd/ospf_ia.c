@@ -617,7 +617,7 @@ ospf_ia_routing (struct ospf *ospf,
   if (IS_DEBUG_OSPF_EVENT)
     zlog_info ("ospf_ia_routing():start");
 
-  if (OSPF_IS_ABR)
+  if (IS_OSPF_ABR (ospf))
     {
       listnode node; 
       struct ospf_area *area;

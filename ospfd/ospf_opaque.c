@@ -530,7 +530,7 @@ register_opaque_info_per_type (struct ospf_opaque_functab *functab,
       listnode_add (new->area->opaque_lsa_self, oipt);
       break;
     case OSPF_OPAQUE_AS_LSA:
-      top = ospf_top;
+      top = ospf_lookup ();
       if (new->area != NULL && (top = new->area->ospf) == NULL)
         {
           free_opaque_info_per_type ((void *) oipt);
@@ -638,7 +638,7 @@ lookup_opaque_info_by_type (struct ospf_lsa *lsa)
         zlog_warn ("Type-10 Opaque-LSA: Reference to AREA is missing?");
       break;
     case OSPF_OPAQUE_AS_LSA:
-      top = ospf_top;
+      top = ospf_lookup ();
       if ((area = lsa->area) != NULL && (top = area->ospf) == NULL)
         {
           zlog_warn ("Type-11 Opaque-LSA: Reference to OSPF is missing?");
@@ -1165,7 +1165,8 @@ show_opaque_info_detail (struct vty *vty, struct ospf_lsa *lsa)
   /* Switch output functionality by vty address. */
   if (vty != NULL)
     {
-      vty_out (vty, "  Opaque-Type %u (%s)%s", opaque_type, ospf_opaque_type_name (opaque_type), VTY_NEWLINE);
+      vty_out (vty, "  Opaque-Type %u (%s)%s", opaque_type,
+	       ospf_opaque_type_name (opaque_type), VTY_NEWLINE);
       vty_out (vty, "  Opaque-ID   0x%x%s", opaque_id, VTY_NEWLINE);
 
       vty_out (vty, "  Opaque-Info: %u octets of data%s%s",
@@ -1175,7 +1176,8 @@ show_opaque_info_detail (struct vty *vty, struct ospf_lsa *lsa)
     }
   else
     {
-      zlog_info ("    Opaque-Type %u (%s)", opaque_type, ospf_opaque_type_name (opaque_type));
+      zlog_info ("    Opaque-Type %u (%s)", opaque_type,
+		 ospf_opaque_type_name (opaque_type));
       zlog_info ("    Opaque-ID   0x%x", opaque_id);
 
       zlog_info ("    Opaque-Info: %u octets of data%s",
@@ -1566,7 +1568,7 @@ ospf_opaque_lsa_install (struct ospf_lsa *lsa, int rt_recalc)
         }
       break;
     case OSPF_OPAQUE_AS_LSA:
-      top = ospf_top;
+      top = ospf_lookup ();
       if (lsa->area != NULL && (top = lsa->area->ospf) == NULL)
         {
           /* Above conditions must have passed. */
@@ -1589,8 +1591,10 @@ out:
 void
 ospf_opaque_lsa_refresh (struct ospf_lsa *lsa)
 {
-  struct ospf *ospf = ospf_top;
+  struct ospf *ospf;
   struct ospf_opaque_functab *functab;
+
+  ospf = ospf_lookup ();
 
   if ((functab = ospf_opaque_functab_lookup (lsa)) == NULL
   ||   functab->lsa_refresher == NULL)
@@ -1934,11 +1938,13 @@ extern int ospf_lsa_refresh_delay (struct ospf_lsa *); /* ospf_lsa.c */
 void
 ospf_opaque_lsa_refresh_schedule (struct ospf_lsa *lsa0)
 {
-  struct ospf *ospf = ospf_top;
+  struct ospf *ospf = ospf;
   struct opaque_info_per_type *oipt;
   struct opaque_info_per_id *oipi;
   struct ospf_lsa *lsa;
   int delay;
+
+  ospf = ospf_lookup ();
 
   if ((oipt = lookup_opaque_info_by_type (lsa0)) == NULL
   ||  (oipi = lookup_opaque_info_by_id (oipt, lsa0)) == NULL)
@@ -2011,10 +2017,12 @@ ospf_opaque_lsa_refresh_timer (struct thread *t)
 void
 ospf_opaque_lsa_flush_schedule (struct ospf_lsa *lsa0)
 {
-  struct ospf *ospf = ospf_top;
+  struct ospf *ospf = ospf;
   struct opaque_info_per_type *oipt;
   struct opaque_info_per_id *oipi;
   struct ospf_lsa *lsa;
+
+  ospf = ospf_lookup ();
 
   if ((oipt = lookup_opaque_info_by_type (lsa0)) == NULL
   ||  (oipi = lookup_opaque_info_by_id (oipt, lsa0)) == NULL)
