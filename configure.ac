@@ -5,7 +5,7 @@
 ##  Copyright (c) 1996, 97, 98, 99, 2000 Kunihiro Ishiguro <kunihiro@zebra.org>
 ##  Portions Copyright (c) 2003 Paul Jakma <paul@dishone.st>
 ##
-## $Id: configure.ac,v 1.85.2.4 2005/02/03 16:37:31 paul Exp $
+## $Id: configure.ac,v 1.85.2.5 2005/02/19 14:20:05 hasso Exp $
 AC_PREREQ(2.53)
 
 AC_INIT(Quagga, 0.98.2, [http://bugzilla.quagga.net])
@@ -296,7 +296,7 @@ case "$host" in
       AC_CHECK_LIB(nsl, main)
       CURSES=-lcurses
   ;;
-  *-linux-*)
+  *-linux*)
       opsys=gnu-linux
       AC_DEFINE(GNU_LINUX,,GNU Linux)
   ;;
