@@ -1,3 +1,7 @@
+2005-03-07 Michael Sandee <voidptr@voidptr.sboost.org>
+
+	* if_proc.c, ipforward_proc.c, rtread_proc.c: Fix fd leaks.
+
 2005-03-05 Andrew J. Schorr <ajschorr@alumni.princeton.edu>
 
 	* if_ioctl_solaris.c: (interface_list_ioctl) Save errno before calling
