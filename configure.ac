@@ -5,7 +5,7 @@
 ##  Copyright (c) 1996, 97, 98, 99, 2000 Kunihiro Ishiguro <kunihiro@zebra.org>
 ##  Portions Copyright (c) 2003 Paul Jakma <paul@dishone.st>
 ##
-## $Id: configure.ac,v 1.85.2.1 2005/01/17 15:31:08 hasso Exp $
+## $Id: configure.ac,v 1.85.2.2 2005/01/23 20:20:09 hasso Exp $
 AC_PREREQ(2.53)
 
 AC_INIT(Quagga, 0.98.0, [http://bugzilla.quagga.net])
@@ -1106,6 +1106,11 @@ if test "${enable_capabilities}" != "no"; then
   fi
 fi
 AC_SUBST(LIBCAP)
+
+dnl -------------------
+dnl test for ucontext.h
+dnl -------------------
+AC_CHECK_HEADERS(ucontext.h)
 
 dnl ---------------------------
 dnl check for glibc 'backtrace'
