@@ -1,3 +1,7 @@
+2005-01-31 Paul Jakma <paul@dishone.st>
+
+	* configure.ac: Bump version to 0.98.0
+
 2005-01-23 Andrew J. Schorr <ajschorr@alumni.princeton.edu>
 
 	* configure.ac: Test for header file <ucontext.h> (for use in
