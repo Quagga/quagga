@@ -1,5 +1,5 @@
 /*
- * $Id: bgp_view.c,v 1.1 2002/12/13 20:15:29 paul Exp $
+ * $Id: bgp_view.c,v 1.1.1.1 2002/12/13 20:15:29 paul Exp $
  *
  * Multiple view function for route server.
  * Copyright (C) 1997 Kunihiro Ishiguro

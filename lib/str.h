@@ -1,5 +1,5 @@
 /*
- * $Id: str.h,v 1.1 2002/12/13 20:15:29 paul Exp $
+ * $Id: str.h,v 1.1.1.1 2002/12/13 20:15:29 paul Exp $
  */
 
 #ifndef _ZEBRA_STR_H
