@@ -1,5 +1,5 @@
 /*
-   $Id: command.c,v 1.31.2.2 2005/01/17 17:21:30 hasso Exp $
+   $Id: command.c,v 1.31.2.3 2005/03/07 13:39:20 hasso Exp $
 
    Command interpreter routine for virtual terminal [aka TeletYpe]
    Copyright (C) 1997, 98, 99 Kunihiro Ishiguro
@@ -2446,7 +2446,8 @@ DEFUN (show_version,
        SHOW_STR
        "Displays zebra version\n")
 {
-  vty_out (vty, "Quagga %s (%s).%s", QUAGGA_VERSION, host.name, VTY_NEWLINE);
+  vty_out (vty, "Quagga %s (%s).%s", QUAGGA_VERSION, host.name?host.name:"",
+	   VTY_NEWLINE);
   vty_out (vty, "%s%s", QUAGGA_COPYRIGHT, VTY_NEWLINE);
 
   return CMD_SUCCESS;
