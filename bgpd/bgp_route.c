@@ -2859,7 +2859,7 @@ bgp_aggregate_increment (struct bgp *bgp, struct prefix *p,
     if ((aggregate = rn->info) != NULL && rn->p.prefixlen < p->prefixlen)
       {
 	bgp_aggregate_delete (bgp, &rn->p, afi, safi, aggregate);
-	bgp_aggregate_route (bgp, &rn->p, ri, safi, safi, NULL, aggregate);
+	bgp_aggregate_route (bgp, &rn->p, ri, afi, safi, NULL, aggregate);
       }
   bgp_unlock_node (child);
 }
@@ -2886,7 +2886,7 @@ bgp_aggregate_decrement (struct bgp *bgp, struct prefix *p,
     if ((aggregate = rn->info) != NULL && rn->p.prefixlen < p->prefixlen)
       {
 	bgp_aggregate_delete (bgp, &rn->p, afi, safi, aggregate);
-	bgp_aggregate_route (bgp, &rn->p, NULL, safi, safi, del, aggregate);
+	bgp_aggregate_route (bgp, &rn->p, NULL, afi, safi, del, aggregate);
       }
   bgp_unlock_node (child);
 }

@@ -797,6 +797,13 @@ peer_as_change (struct peer *peer, as_t as)
   type = peer_sort (peer);
   peer->as = as;
 
+  if (bgp_config_check (peer->bgp, BGP_CONFIG_CONFEDERATION)
+      && ! bgp_confederation_peers_check (peer->bgp, as)
+      && peer->bgp->as != as)
+    peer->local_as = peer->bgp->confed_id;
+  else
+    peer->local_as = peer->bgp->as;
+
   /* Advertisement-interval reset */
   if (peer_sort (peer) == BGP_PEER_IBGP)
     peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
