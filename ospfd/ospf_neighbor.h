@@ -93,9 +93,9 @@ void ospf_nbr_free (struct ospf_neighbor *);
 void ospf_nbr_delete (struct ospf_neighbor *);
 int ospf_nbr_bidirectional (struct in_addr *, struct in_addr *, int);
 void ospf_nbr_add_self (struct ospf_interface *);
-int ospf_nbr_count (struct route_table *, int);
+int ospf_nbr_count (struct ospf_interface *, int);
 #ifdef HAVE_OPAQUE_LSA
-int ospf_opaque_capable_nbr_count (struct route_table *nbrs, int status);
+int ospf_nbr_count_opaque_capable (struct ospf_interface *);
 #endif /* HAVE_OPAQUE_LSA */
 struct ospf_neighbor *ospf_nbr_lookup_by_addr (struct route_table *,
 					       struct in_addr *);

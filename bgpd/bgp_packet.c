@@ -238,7 +238,6 @@ bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
       bgp_packet_set_size (s);
       packet = bgp_packet_dup (s);
       bgp_packet_add (peer, packet);
-      BGP_WRITE_ON (peer->t_write, bgp_write, peer->fd);
       stream_reset (s);
       return packet;
     }

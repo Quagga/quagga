@@ -44,7 +44,7 @@ struct vertex_nexthop
   struct vertex *parent;
 };
 
-void ospf_spf_calculate_schedule ();
+void ospf_spf_calculate_schedule (struct ospf *);
 void ospf_rtrs_free (struct route_table *);
 
 /* void ospf_spf_calculate_timer_add (); */

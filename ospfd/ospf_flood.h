@@ -20,14 +20,17 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#ifndef _ZEBRA_OSPF_FLOODING_H
-#define _ZEBRA_OSPF_FLOODING_H
+#ifndef _ZEBRA_OSPF_FLOOD_H
+#define _ZEBRA_OSPF_FLOOD_H
 
-int ospf_flood (struct ospf_neighbor *, struct ospf_lsa *, struct ospf_lsa *);
-int ospf_flood_through (struct ospf_neighbor *, struct ospf_lsa *);
+int ospf_flood (struct ospf *, struct ospf_neighbor *, struct ospf_lsa *,
+		struct ospf_lsa *);
+int ospf_flood_through (struct ospf *, struct ospf_neighbor *,
+			struct ospf_lsa *);
 int ospf_flood_through_area (struct ospf_area *, struct ospf_neighbor *,
 			     struct ospf_lsa *);
-int ospf_flood_through_as (struct ospf_neighbor *, struct ospf_lsa *);
+int ospf_flood_through_as (struct ospf *, struct ospf_neighbor *,
+			   struct ospf_lsa *);
 
 unsigned long ospf_ls_request_count (struct ospf_neighbor *);
 int ospf_ls_request_isempty (struct ospf_neighbor *);
@@ -47,19 +50,18 @@ void ospf_ls_retransmit_delete (struct ospf_neighbor *, struct ospf_lsa *);
 void ospf_ls_retransmit_clear (struct ospf_neighbor *);
 struct ospf_lsa *ospf_ls_retransmit_lookup (struct ospf_neighbor *,
 					    struct ospf_lsa *);
-void ospf_ls_retransmit_delete_nbr_all (struct ospf_area *, struct ospf_lsa *);
+void ospf_ls_retransmit_delete_nbr_area (struct ospf_area *,
+					 struct ospf_lsa *);
+void ospf_ls_retransmit_delete_nbr_as (struct ospf *, struct ospf_lsa *);
 void ospf_ls_retransmit_add_nbr_all (struct ospf_interface *,
 				     struct ospf_lsa *);
 
 void ospf_flood_lsa_area (struct ospf_lsa *, struct ospf_area *);
 void ospf_flood_lsa_as (struct ospf_lsa *);
 void ospf_lsa_flush_area (struct ospf_lsa *, struct ospf_area *);
-void ospf_lsa_flush_as (struct ospf_lsa *);
-void ospf_flush_through_as (struct ospf_lsa *);
+void ospf_lsa_flush_as (struct ospf *, struct ospf_lsa *);
 struct external_info *ospf_external_info_check (struct ospf_lsa *);
-
-void debug_ospf_ls_retransmit (struct ospf_neighbor *);
 
 void ospf_lsdb_init (struct ospf_lsdb *);
 
-#endif /* _ZEBRA_OSPF_FLOODING_H */
+#endif /* _ZEBRA_OSPF_FLOOD_H */

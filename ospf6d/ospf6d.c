@@ -538,8 +538,8 @@ DEFUN (no_interface_area,
   return CMD_SUCCESS;
 }
 
-DEFUN (area_range,
-       area_range_cmd,
+DEFUN (ospf6_area_range,
+       ospf6_area_range_cmd,
        "area A.B.C.D range X:X::X:X/M",
        "OSPFv3 area parameters\n"
        "OSPFv3 area ID in IPv4 address format\n"
@@ -748,7 +748,7 @@ ospf6_init ()
   install_element (OSPF6_NODE, &no_interface_area_cmd);
   install_element (OSPF6_NODE, &passive_interface_cmd);
   install_element (OSPF6_NODE, &no_passive_interface_cmd);
-  install_element (OSPF6_NODE, &area_range_cmd);
+  install_element (OSPF6_NODE, &ospf6_area_range_cmd);
 
   /* Make empty list of top list. */
   if_init ();

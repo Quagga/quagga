@@ -43,10 +43,11 @@
 void
 ospf_route_map_update (char *name)
 {
+  struct ospf *ospf = ospf_top;
   int type;
 
   /* If OSPF instatnce does not exist, return right now. */
-  if (!ospf_top)
+  if (ospf == NULL)
     return;
 
   /* Update route-map */
@@ -64,7 +65,7 @@ ospf_route_map_update (char *name)
 	  if (old == NULL && ROUTEMAP (type) == NULL)
 	    continue;
 
-	  ospf_distribute_list_update (type);
+	  ospf_distribute_list_update (ospf, type);
 	}
     }
 }
@@ -72,10 +73,11 @@ ospf_route_map_update (char *name)
 void
 ospf_route_map_event (route_map_event_t event, char *name)
 {
+  struct ospf *ospf = ospf_top;
   int type;
 
   /* If OSPF instatnce does not exist, return right now. */
-  if (!ospf_top)
+  if (ospf == NULL)
     return;
 
   /* Update route-map. */
@@ -84,7 +86,7 @@ ospf_route_map_event (route_map_event_t event, char *name)
       if (ROUTEMAP_NAME (type) &&  ROUTEMAP (type) &&
           !strcmp (ROUTEMAP_NAME (type), name))
         {
-          ospf_distribute_list_update (type);
+          ospf_distribute_list_update (ospf, type);
         }
     }
 }

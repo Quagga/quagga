@@ -42,8 +42,9 @@ struct ospf_lsdb
 };
 
 /* Macros. */
-#define LSDB_LOOP(T,N,L) \
-  for ((N) = route_top ((T)); ((N)); ((N)) = route_next ((N))) \
+#define LSDB_LOOP(T,N,L)                                                      \
+  if ((T) != NULL)                                                            \
+  for ((N) = route_top ((T)); ((N)); ((N)) = route_next ((N)))                \
     if (((L) = (N)->info))
 
 #define ROUTER_LSDB(A)       ((A)->lsdb->type[OSPF_ROUTER_LSA].db)

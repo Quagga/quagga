@@ -148,6 +148,7 @@ rtm_flag_dump (int flag)
   struct message *mes;
   static char buf[BUFSIZ];
 
+  buf[0] = '0';
   for (mes = rtm_flag_str; mes->key != 0; mes++)
     {
       if (mes->key & flag)

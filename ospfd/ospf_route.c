@@ -206,22 +206,22 @@ ospf_route_delete_uniq (struct route_table *rt, struct route_table *cmprt)
 
 /* Install routes to table. */
 void
-ospf_route_install (struct route_table *rt)
+ospf_route_install (struct ospf *ospf, struct route_table *rt)
 {
   struct route_node *rn;
   struct ospf_route *or;
 
   /* rt contains new routing table, new_table contains an old one.
      updating pointers */
-  if (ospf_top->old_table)
-    ospf_route_table_free (ospf_top->old_table);
- 
-  ospf_top->old_table = ospf_top->new_table;
-  ospf_top->new_table = rt;
+  if (ospf->old_table)
+    ospf_route_table_free (ospf->old_table);
+
+  ospf->old_table = ospf->new_table;
+  ospf->new_table = rt;
 
   /* Delete old routes. */
-  if (ospf_top->old_table)
-    ospf_route_delete_uniq (ospf_top->old_table, rt);
+  if (ospf->old_table)
+    ospf_route_delete_uniq (ospf->old_table, rt);
 
   /* Install new routes. */
   for (rn = route_top (rt); rn; rn = route_next (rn))
@@ -229,12 +229,12 @@ ospf_route_install (struct route_table *rt)
       {
 	if (or->type == OSPF_DESTINATION_NETWORK)
 	  {
-	    if (! ospf_route_match_same (ospf_top->old_table,
+	    if (! ospf_route_match_same (ospf->old_table,
 					 (struct prefix_ipv4 *)&rn->p, or))
 	      ospf_zebra_add ((struct prefix_ipv4 *) &rn->p, or);
 	  }
 	else if (or->type == OSPF_DESTINATION_DISCARD)
-	  if (! ospf_route_match_same (ospf_top->old_table,
+	  if (! ospf_route_match_same (ospf->old_table,
 				       (struct prefix_ipv4 *) &rn->p, or))
 	    ospf_zebra_add_discard ((struct prefix_ipv4 *) &rn->p);
       }
@@ -595,7 +595,7 @@ ospf_intra_add_stub (struct route_table *rt, struct router_lsa_link *link,
       if (IS_DEBUG_OSPF_EVENT)
 	zlog_info ("ospf_intra_add_stub(): this network is on this router");
 
-      if ((oi = ospf_if_lookup_by_prefix (&p)))
+      if ((oi = ospf_if_lookup_by_prefix (area->ospf, &p)))
 	{
 	  if (IS_DEBUG_OSPF_EVENT)
 	    zlog_info ("ospf_intra_add_stub(): the interface is %s",
@@ -676,12 +676,14 @@ ospf_route_table_dump (struct route_table *rt)
 void
 ospf_terminate ()
 {
-  if (ospf_top)
+  struct ospf *ospf = ospf_top;
+
+  if (ospf)
     {
-      if (ospf_top->new_table)
-	ospf_route_delete (ospf_top->new_table);
-      if (ospf_top->old_external_route)
-	ospf_route_delete (ospf_top->old_external_route);
+      if (ospf->new_table)
+	ospf_route_delete (ospf->new_table);
+      if (ospf->old_external_route)
+	ospf_route_delete (ospf->old_external_route);
     }
 }
 
@@ -690,7 +692,8 @@ ospf_terminate ()
    o The other paths, intra-area backbone paths and inter-area paths,
      are of equal preference. */
 int
-ospf_asbr_route_cmp (struct ospf_route *r1, struct ospf_route *r2)
+ospf_asbr_route_cmp (struct ospf *ospf, struct ospf_route *r1,
+		     struct ospf_route *r2)
 {
   u_char r1_type, r2_type;
 
@@ -698,7 +701,7 @@ ospf_asbr_route_cmp (struct ospf_route *r1, struct ospf_route *r2)
   r2_type = r2->path_type;
 
   /* If RFC1583Compat flag is on -- all paths are equal. */
-  if (CHECK_FLAG (ospf_top->config, OSPF_RFC1583_COMPATIBLE))
+  if (CHECK_FLAG (ospf->config, OSPF_RFC1583_COMPATIBLE))
     return 0;
 
   /* r1/r2 itself is backbone, and it's Inter-area path. */
@@ -715,7 +718,8 @@ ospf_asbr_route_cmp (struct ospf_route *r1, struct ospf_route *r2)
  ret == 0 -- r1 and r2 are the same.
  ret >  0 -- r2 is better. */
 int
-ospf_route_cmp (struct ospf_route *r1, struct ospf_route *r2)
+ospf_route_cmp (struct ospf *ospf, struct ospf_route *r1,
+		struct ospf_route *r2)
 {
   int ret = 0;
 
@@ -732,9 +736,9 @@ ospf_route_cmp (struct ospf_route *r1, struct ospf_route *r2)
     case OSPF_PATH_INTER_AREA:
       break;
     case OSPF_PATH_TYPE1_EXTERNAL:
-      if (!CHECK_FLAG (ospf_top->config, OSPF_RFC1583_COMPATIBLE))
+      if (!CHECK_FLAG (ospf->config, OSPF_RFC1583_COMPATIBLE))
 	{
-	  ret = ospf_asbr_route_cmp (r1->u.ext.asbr, r2->u.ext.asbr);
+	  ret = ospf_asbr_route_cmp (ospf, r1->u.ext.asbr, r2->u.ext.asbr);
 	  if (ret != 0)
 	    return ret;
 	}
@@ -743,9 +747,9 @@ ospf_route_cmp (struct ospf_route *r1, struct ospf_route *r2)
       if ((ret = (r1->u.ext.type2_cost - r2->u.ext.type2_cost)))
 	return ret;
 
-      if (!CHECK_FLAG (ospf_top->config, OSPF_RFC1583_COMPATIBLE))
+      if (!CHECK_FLAG (ospf->config, OSPF_RFC1583_COMPATIBLE))
 	{
-	  ret = ospf_asbr_route_cmp (r1->u.ext.asbr, r2->u.ext.asbr);
+	  ret = ospf_asbr_route_cmp (ospf, r1->u.ext.asbr, r2->u.ext.asbr);
 	  if (ret != 0)
 	    return ret;
 	}

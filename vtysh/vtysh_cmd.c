@@ -589,7 +589,7 @@ DEFSH (VTYSH_BGPD, no_neighbor_remote_as_cmd_vtysh,
        "Specify a BGP neighbor\n"
        "AS number\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_prefix_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_prefix_cmd_vtysh, 
        "no ipv6 prefix-list WORD (deny|permit) (X:X::X:X/M|any)", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -828,7 +828,7 @@ DEFSH (VTYSH_BGPD, show_ip_bgp_ipv4_neighbor_received_prefix_filter_cmd_vtysh,
        "Display information received from a BGP neighbor\n"
        "Display the prefixlist filter\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_seq_le_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_seq_le_cmd_vtysh, 
        "ipv6 prefix-list WORD seq <1-4294967295> (deny|permit) X:X::X:X/M le <0-128>", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -965,7 +965,7 @@ DEFSH (VTYSH_BGPD, neighbor_update_source_cmd_vtysh,
        "Source of routing updates\n"
        "Interface name\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_sequence_number_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_sequence_number_cmd_vtysh, 
        "no ipv6 prefix-list sequence-number", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -1110,7 +1110,7 @@ DEFSH (VTYSH_RIPD, rip_split_horizon_cmd_vtysh,
        "IP information\n"
        "Perform split horizon\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ipv6_prefix_list_summary_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, show_ipv6_prefix_list_summary_cmd_vtysh, 
        "show ipv6 prefix-list summary", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -1517,7 +1517,7 @@ DEFSH (VTYSH_RIPNGD, ripng_redistribute_ospf6_metric_cmd_vtysh,
        "Metric\n"
        "Metric value\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_seq_le_ge_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_seq_le_ge_cmd_vtysh, 
        "no ipv6 prefix-list WORD seq <1-4294967295> (deny|permit) X:X::X:X/M le <0-128> ge <0-128>", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -1586,7 +1586,7 @@ DEFSH (VTYSH_BGPD, no_ipv6_aggregate_address_cmd_vtysh,
        "Configure BGP aggregate entries\n"
        "Aggregate prefix\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_seq_ge_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_seq_ge_cmd_vtysh, 
        "no ipv6 prefix-list WORD seq <1-4294967295> (deny|permit) X:X::X:X/M ge <0-128>", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -1717,6 +1717,13 @@ DEFSH (VTYSH_BGPD, clear_ip_bgp_peer_group_out_cmd_vtysh,
        "BGP peer-group name\n"
        "Soft reconfig outbound update\n")
 
+DEFSH (VTYSH_OSPF6D, ospf6_area_range_cmd_vtysh, 
+       "area A.B.C.D range X:X::X:X/M", 
+       "OSPFv3 area parameters\n"
+       "OSPFv3 area ID in IPv4 address format\n"
+       "Summarize routes matching address/mask (border routers only)\n"
+       "IPv6 address range\n")
+
 DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, no_match_ip_address_cmd_vtysh, 
        "no match ip address", 
        "Negate a command or set its defaults\n"
@@ -1775,7 +1782,7 @@ DEFSH (VTYSH_OSPFD, neighbor_priority_poll_interval_cmd_vtysh,
        "Dead Neighbor Polling interval\n"
        "Seconds\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_seq_le_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_seq_le_cmd_vtysh, 
        "no ipv6 prefix-list WORD seq <1-4294967295> (deny|permit) X:X::X:X/M le <0-128>", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -1936,7 +1943,7 @@ DEFSH (VTYSH_BGPD, show_ip_bgp_ipv4_cmd_vtysh,
        "Address Family modifier\n"
        "Address Family modifier\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ipv6_prefix_list_prefix_longer_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, show_ipv6_prefix_list_prefix_longer_cmd_vtysh, 
        "show ipv6 prefix-list WORD X:X::X:X/M longer", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -2143,7 +2150,7 @@ DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, match_ip_next_hop_prefix_list_cmd_vtys
        "Match entries of prefix-lists\n"
        "IP prefix-list name\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ipv6_prefix_list_detail_name_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, show_ipv6_prefix_list_detail_name_cmd_vtysh, 
        "show ipv6 prefix-list detail WORD", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -2357,7 +2364,7 @@ DEFSH (VTYSH_OSPFD, debug_ospf_zebra_sub_cmd_vtysh,
        "Zebra interface\n"
        "Zebra redistribute\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_cmd_vtysh, 
        "no ipv6 prefix-list WORD", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -2475,7 +2482,7 @@ DEFSH (VTYSH_BGPD, clear_bgp_ipv6_peer_group_in_prefix_filter_cmd_vtysh,
        "Soft reconfig inbound update\n"
        "Push out prefix-list ORF and do inbound soft reconfig\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_description_arg_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_description_arg_cmd_vtysh, 
        "no ipv6 prefix-list WORD description .LINE", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -2782,7 +2789,7 @@ DEFSH (VTYSH_BGPD, clear_ip_bgp_all_in_prefix_filter_cmd_vtysh,
        "Soft reconfig inbound update\n"
        "Push out prefix-list ORF and do inbound soft reconfig\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ipv6_prefix_list_detail_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, show_ipv6_prefix_list_detail_cmd_vtysh, 
        "show ipv6 prefix-list detail", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -2838,7 +2845,7 @@ DEFSH (VTYSH_RIPD, accept_lifetime_month_day_month_day_cmd_vtysh,
        "Day of th month to expire\n"
        "Year to expire\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_seq_ge_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_seq_ge_cmd_vtysh, 
        "ipv6 prefix-list WORD seq <1-4294967295> (deny|permit) X:X::X:X/M ge <0-128>", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -4018,7 +4025,7 @@ DEFSH (VTYSH_ZEBRA, ipv6_nd_prefix_advertisement_cmd_vtysh,
        "On link flag\n"
        "Autonomous address-configuration flag\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_seq_ge_le_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_seq_ge_le_cmd_vtysh, 
        "ipv6 prefix-list WORD seq <1-4294967295> (deny|permit) X:X::X:X/M ge <0-128> le <0-128>", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -4054,7 +4061,7 @@ DEFSH (VTYSH_BGPD, clear_ip_bgp_as_out_cmd_vtysh,
        "Clear peers with the AS number\n"
        "Soft reconfig outbound update\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ipv6_prefix_list_name_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, show_ipv6_prefix_list_name_cmd_vtysh, 
        "show ipv6 prefix-list WORD", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -4344,7 +4351,7 @@ DEFSH (VTYSH_RIPD, ip_rip_authentication_key_chain_cmd_vtysh,
        "Authentication key-chain\n"
        "name of key-chain\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_le_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_le_cmd_vtysh, 
        "no ipv6 prefix-list WORD (deny|permit) X:X::X:X/M le <0-128>", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -4606,7 +4613,7 @@ DEFSH (VTYSH_BGPD, no_bgp_bestpath_med3_cmd_vtysh,
        "Treat missing MED as the least preferred one\n"
        "Compare MED among confederation paths\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_description_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_description_cmd_vtysh, 
        "no ipv6 prefix-list WORD description", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -4737,7 +4744,7 @@ DEFSH (VTYSH_RIPD, no_rip_network_cmd_vtysh,
        "IP prefix <network>/<length>,  e.g.,  35.0.0.0/8\n"
        "Interface name\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ipv6_prefix_list_prefix_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, show_ipv6_prefix_list_prefix_cmd_vtysh, 
        "show ipv6 prefix-list WORD X:X::X:X/M", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -4753,7 +4760,7 @@ DEFSH (VTYSH_BGPD, show_ipv6_bgp_prefix_list_cmd_vtysh,
        "Display routes matching the prefix-list\n"
        "IPv6 prefix-list name\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_ge_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_ge_cmd_vtysh, 
        "ipv6 prefix-list WORD (deny|permit) X:X::X:X/M ge <0-128>", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -5074,7 +5081,7 @@ DEFSH (VTYSH_BGPD, set_originator_id_cmd_vtysh,
        "BGP originator ID attribute\n"
        "IP address of originator\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_description_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_description_cmd_vtysh, 
        "ipv6 prefix-list WORD description .LINE", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -5363,7 +5370,7 @@ DEFSH (VTYSH_BGPD, neighbor_local_as_cmd_vtysh,
        "Specify a local-as number\n"
        "AS number used as local AS\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, show_ipv6_access_list_name_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, show_ipv6_access_list_name_cmd_vtysh, 
        "show ipv6 access-list WORD", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -5508,7 +5515,7 @@ DEFSH (VTYSH_RIPD, rip_redistribute_type_cmd_vtysh,
        "Open Shortest Path First (OSPF)\n"
        "Border Gateway Protocol (BGP)\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ipv6_prefix_list_prefix_first_match_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, show_ipv6_prefix_list_prefix_first_match_cmd_vtysh, 
        "show ipv6 prefix-list WORD X:X::X:X/M first-match", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -5686,7 +5693,7 @@ DEFSH (VTYSH_RIPNGD, no_debug_ripng_zebra_cmd_vtysh,
        "RIPng configuration\n"
        "Debug option set for ripng and zebra communication\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, no_ipv6_access_list_any_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, no_ipv6_access_list_any_cmd_vtysh, 
        "no ipv6 access-list WORD (deny|permit) any", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -5696,7 +5703,7 @@ DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, no_ipv6_access_list_any_cmd_vtysh,
        "Specify packets to forward\n"
        "Any prefixi to match\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_ge_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_ge_cmd_vtysh, 
        "no ipv6 prefix-list WORD (deny|permit) X:X::X:X/M ge <0-128>", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -5938,7 +5945,7 @@ DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ip_prefix_list_prefix_cmd_vtysh,
        "Name of a prefix list\n"
        "IP prefix <network>/<length>,  e.g.,  35.0.0.0/8\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, clear_ipv6_prefix_list_name_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, clear_ipv6_prefix_list_name_cmd_vtysh, 
        "clear ipv6 prefix-list WORD", 
        "Reset functions\n"
        "IPv6 information\n"
@@ -6091,7 +6098,7 @@ DEFSH (VTYSH_BGPD, show_ip_bgp_community4_exact_cmd_vtysh,
        "Do not export to next AS (well-known community)\n"
        "Exact match of the communities")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, clear_ipv6_prefix_list_name_prefix_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, clear_ipv6_prefix_list_name_prefix_cmd_vtysh, 
        "clear ipv6 prefix-list WORD X:X::X:X/M", 
        "Reset functions\n"
        "IPv6 information\n"
@@ -6521,7 +6528,7 @@ DEFSH (VTYSH_OSPFD, ospf_default_information_originate_type_cmd_vtysh,
        "Set OSPF External Type 1 metrics\n"
        "Set OSPF External Type 2 metrics\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ipv6_prefix_list_name_seq_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, show_ipv6_prefix_list_name_seq_cmd_vtysh, 
        "show ipv6 prefix-list WORD seq <1-4294967295>", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -6802,7 +6809,7 @@ DEFSH (VTYSH_BGPD, show_ip_bgp_flap_filter_list_cmd_vtysh,
        "Display routes conforming to the filter-list\n"
        "Regular expression access list name\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ipv6_prefix_list_summary_name_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, show_ipv6_prefix_list_summary_name_cmd_vtysh, 
        "show ipv6 prefix-list summary WORD", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -7389,7 +7396,7 @@ DEFSH (VTYSH_BGPD, no_neighbor_attr_unchanged_cmd_vtysh,
        "Neighbor address\nNeighbor IPv6 address\nNeighbor tag\n"
        "BGP attribute is propagated unchanged to this neighbor\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_ge_le_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_ge_le_cmd_vtysh, 
        "no ipv6 prefix-list WORD (deny|permit) X:X::X:X/M ge <0-128> le <0-128>", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -7538,7 +7545,7 @@ DEFSH (VTYSH_BGPD, clear_ip_bgp_external_soft_cmd_vtysh,
        "Clear all external peers\n"
        "Soft reconfig\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, no_ipv6_access_list_all_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, no_ipv6_access_list_all_cmd_vtysh, 
        "no ipv6 access-list WORD", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -7849,7 +7856,7 @@ DEFSH (VTYSH_BGPD, clear_bgp_peer_out_cmd_vtysh,
        "BGP IPv6 neighbor to clear\n"
        "Soft reconfig outbound update\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_le_ge_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_le_ge_cmd_vtysh, 
        "no ipv6 prefix-list WORD (deny|permit) X:X::X:X/M le <0-128> ge <0-128>", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -8080,7 +8087,7 @@ DEFSH (VTYSH_OSPF6D, show_ipv6_ospf6_cmd_vtysh,
        "IPv6 Information\n"
        "Open Shortest Path First (OSPF) for IPv6\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, show_ipv6_prefix_list_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, show_ipv6_prefix_list_cmd_vtysh, 
        "show ipv6 prefix-list", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -8310,7 +8317,7 @@ DEFSH (VTYSH_BGPD, show_bgp_ipv6_community4_cmd_vtysh,
        "Do not advertise to any peer (well-known community)\n"
        "Do not export to next AS (well-known community)\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, no_ipv6_access_list_remark_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, no_ipv6_access_list_remark_cmd_vtysh, 
        "no ipv6 access-list WORD remark", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -8503,7 +8510,7 @@ DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, access_list_exact_cmd_vtysh,
        "Prefix to match. e.g. 10.0.0.0/8\n"
        "Exact match of the prefixes\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, no_ipv6_access_list_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, no_ipv6_access_list_cmd_vtysh, 
        "no ipv6 access-list WORD (deny|permit) X:X::X:X/M", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -8526,7 +8533,7 @@ DEFSH (VTYSH_BGPD, no_neighbor_soft_reconfiguration_cmd_vtysh,
        "Per neighbor soft reconfiguration\n"
        "Allow inbound soft reconfiguration for this neighbor\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, show_ipv6_access_list_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, show_ipv6_access_list_cmd_vtysh, 
        "show ipv6 access-list", 
        "Show running system information\n"
        "IPv6 information\n"
@@ -8840,7 +8847,7 @@ DEFSH (VTYSH_BGPD, clear_ip_bgp_peer_group_ipv4_soft_in_cmd_vtysh,
        "Soft reconfig\n"
        "Soft reconfig inbound update\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_sequence_number_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_sequence_number_cmd_vtysh, 
        "ipv6 prefix-list sequence-number", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -8852,7 +8859,7 @@ DEFSH (VTYSH_BGPD, bgp_default_ipv4_unicast_cmd_vtysh,
        "Configure BGP defaults\n"
        "Activate ipv4-unicast for a peer by default\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_seq_ge_le_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_seq_ge_le_cmd_vtysh, 
        "no ipv6 prefix-list WORD seq <1-4294967295> (deny|permit) X:X::X:X/M ge <0-128> le <0-128>", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -8945,7 +8952,7 @@ DEFSH (VTYSH_OSPFD, ospf_default_information_originate_cmd_vtysh,
        "Control distribution of default information\n"
        "Distribute a default route\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, ipv6_access_list_exact_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, ipv6_access_list_exact_cmd_vtysh, 
        "ipv6 access-list WORD (deny|permit) X:X::X:X/M exact-match", 
        "IPv6 information\n"
        "Add an access list entry\n"
@@ -9103,7 +9110,7 @@ DEFSH (VTYSH_BGPD, vpnv4_network_cmd_vtysh,
        "BGP tag\n"
        "tag value\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_ge_le_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_ge_le_cmd_vtysh, 
        "ipv6 prefix-list WORD (deny|permit) X:X::X:X/M ge <0-128> le <0-128>", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -9217,7 +9224,7 @@ DEFSH (VTYSH_BGPD, show_ip_bgp_ipv4_route_map_cmd_vtysh,
        "Display routes matching the route-map\n"
        "A route-map to match on\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, no_ipv6_access_list_remark_arg_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, no_ipv6_access_list_remark_arg_cmd_vtysh, 
        "no ipv6 access-list WORD remark .LINE", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -10007,7 +10014,7 @@ DEFSH (VTYSH_BGPD, clear_bgp_ipv6_external_soft_cmd_vtysh,
        "Clear all external peers\n"
        "Soft reconfig\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, no_ipv6_prefix_list_seq_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, no_ipv6_prefix_list_seq_cmd_vtysh, 
        "no ipv6 prefix-list WORD seq <1-4294967295> (deny|permit) (X:X::X:X/M|any)", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -10405,7 +10412,7 @@ DEFSH (VTYSH_BGPD, show_ipv6_bgp_community3_exact_cmd_vtysh,
        "Do not export to next AS (well-known community)\n"
        "Exact match of the communities")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, clear_ipv6_prefix_list_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, clear_ipv6_prefix_list_cmd_vtysh, 
        "clear ipv6 prefix-list", 
        "Reset functions\n"
        "IPv6 information\n"
@@ -10462,7 +10469,7 @@ DEFSH (VTYSH_OSPFD, debug_ospf_ism_sub_cmd_vtysh,
        "ISM Event Information\n"
        "ISM TImer Information\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, no_ipv6_access_list_exact_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, no_ipv6_access_list_exact_cmd_vtysh, 
        "no ipv6 access-list WORD (deny|permit) X:X::X:X/M exact-match", 
        "Negate a command or set its defaults\n"
        "IPv6 information\n"
@@ -10745,7 +10752,7 @@ DEFSH (VTYSH_BGPD, bgp_redistribute_ipv6_rmap_metric_cmd_vtysh,
        "Metric for redistributed routes\n"
        "Default metric\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_seq_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_seq_cmd_vtysh, 
        "ipv6 prefix-list WORD seq <1-4294967295> (deny|permit) (X:X::X:X/M|any)", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -10784,7 +10791,7 @@ DEFSH (VTYSH_RIPD, ip_rip_authentication_mode_cmd_vtysh,
        "Keyed message digest\n"
        "Clear text authentication\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_le_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_le_cmd_vtysh, 
        "ipv6 prefix-list WORD (deny|permit) X:X::X:X/M le <0-128>", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -10858,12 +10865,13 @@ DEFSH (VTYSH_BGPD, clear_bgp_external_soft_in_cmd_vtysh,
        "Soft reconfig\n"
        "Soft reconfig inbound update\n")
 
-DEFSH (VTYSH_OSPF6D, area_range_cmd_vtysh, 
-       "area A.B.C.D range X:X::X:X/M", 
-       "OSPFv3 area parameters\n"
-       "OSPFv3 area ID in IPv4 address format\n"
+DEFSH (VTYSH_OSPFD, area_range_cmd_vtysh, 
+       "area (A.B.C.D|<0-4294967295>) range A.B.C.D/M", 
+       "OSPF area parameters\n"
+       "OSPF area ID in IP address format\n"
+       "OSPF area ID as a decimal value\n"
        "Summarize routes matching address/mask (border routers only)\n"
-       "IPv6 address range\n")
+       "Area range prefix\n")
 
 DEFSH (VTYSH_OSPFD, no_area_stub_no_summary_cmd_vtysh, 
        "no area (A.B.C.D|<0-4294967295>) stub no-summary", 
@@ -11034,7 +11042,7 @@ DEFSH (VTYSH_BGPD, no_set_originator_id_val_cmd_vtysh,
        "BGP originator ID attribute\n"
        "IP address of originator\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_cmd_vtysh, 
        "ipv6 prefix-list WORD (deny|permit) (X:X::X:X/M|any)", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -11179,7 +11187,7 @@ DEFSH (VTYSH_BGPD, clear_ip_bgp_as_vpnv4_in_cmd_vtysh,
        "Address Family modifier\n"
        "Soft reconfig inbound update\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, ipv6_access_list_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, ipv6_access_list_cmd_vtysh, 
        "ipv6 access-list WORD (deny|permit) X:X::X:X/M", 
        "IPv6 information\n"
        "Add an access list entry\n"
@@ -11893,7 +11901,7 @@ DEFSH (VTYSH_RIPD, accept_lifetime_infinite_month_day_cmd_vtysh,
        "Year to start\n"
        "Never expires")
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_seq_le_ge_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_seq_le_ge_cmd_vtysh, 
        "ipv6 prefix-list WORD seq <1-4294967295> (deny|permit) X:X::X:X/M le <0-128> ge <0-128>", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -11987,7 +11995,7 @@ DEFSH (VTYSH_OSPF6D, show_ipv6_ospf6_area_spf_node_cmd_vtysh,
        "vertex infomation\n"
        )
 
-DEFSH (VTYSH_RIPD|VTYSH_BGPD, ipv6_prefix_list_le_ge_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_BGPD, ipv6_prefix_list_le_ge_cmd_vtysh, 
        "ipv6 prefix-list WORD (deny|permit) X:X::X:X/M le <0-128> ge <0-128>", 
        "IPv6 information\n"
        "Build a prefix list\n"
@@ -12092,7 +12100,7 @@ DEFSH (VTYSH_BGPD, clear_bgp_as_soft_in_cmd_vtysh,
        "Soft reconfig\n"
        "Soft reconfig inbound update\n")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, ipv6_access_list_any_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, ipv6_access_list_any_cmd_vtysh, 
        "ipv6 access-list WORD (deny|permit) any", 
        "IPv6 information\n"
        "Add an access list entry\n"
@@ -12276,7 +12284,7 @@ DEFSH (VTYSH_BGPD, show_ipv6_bgp_community2_exact_cmd_vtysh,
        "Do not export to next AS (well-known community)\n"
        "Exact match of the communities")
 
-DEFSH (VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD, ipv6_access_list_remark_cmd_vtysh, 
+DEFSH (VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD, ipv6_access_list_remark_cmd_vtysh, 
        "ipv6 access-list WORD remark .LINE", 
        "IPv6 information\n"
        "Add an access list entry\n"
@@ -14679,7 +14687,7 @@ vtysh_init_cmd ()
   install_element (BGP_NODE, &no_neighbor_filter_list_cmd_vtysh);
   install_element (ENABLE_NODE, &clear_ip_bgp_peer_vpnv4_out_cmd_vtysh);
   install_element (VIEW_NODE, &show_ipv6_bgp_regexp_cmd_vtysh);
-  install_element (OSPF6_NODE, &area_range_cmd_vtysh);
+  install_element (OSPF6_NODE, &ospf6_area_range_cmd_vtysh);
   install_element (OSPF6_NODE, &ospf6_redistribute_routemap_cmd_vtysh);
   install_element (ENABLE_NODE, &show_bgp_ipv6_neighbor_advertised_route_cmd_vtysh);
   install_element (RIP_NODE, &rip_distance_cmd_vtysh);
