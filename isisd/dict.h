@@ -14,7 +14,7 @@
  * into proprietary software; there is no requirement for such software to
  * contain a copyright notice related to this source.
  *
- * $Id: dict.h,v 1.1 2003/12/23 08:09:48 jardin Exp $
+ * $Id: dict.h,v 1.1.1.1 2003/12/23 08:09:48 jardin Exp $
  * $Name:  $
  */
 

@@ -14,7 +14,7 @@
  * into proprietary software; there is no requirement for such software to
  * contain a copyright notice related to this source.
  *
- * $Id: dict.c,v 1.1 2003/12/23 08:09:47 jardin Exp $
+ * $Id: dict.c,v 1.1.1.1 2003/12/23 08:09:47 jardin Exp $
  * $Name:  $
  */
 
@@ -25,7 +25,7 @@
 #include "dict.h"
 
 #ifdef KAZLIB_RCSID
-static const char rcsid[] = "$Id: dict.c,v 1.1 2003/12/23 08:09:47 jardin Exp $";
+static const char rcsid[] = "$Id: dict.c,v 1.1.1.1 2003/12/23 08:09:47 jardin Exp $";
 #endif
 
 /*
