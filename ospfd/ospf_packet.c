@@ -226,7 +226,12 @@ ospf_packet_dup (struct ospf_packet *op)
 {
   struct ospf_packet *new;
 
-  new = ospf_packet_new (op->length);
+  if (stream_get_endp(op->s) != op->length)
+    zlog_warn ("ospf_packet_dup stream %ld ospf_packet %d size mismatch",
+	       STREAM_SIZE(op->s), op->length);
+
+  /* Reserve space for MD5 authentication that may be added later. */
+  new = ospf_packet_new (stream_get_endp(op->s) + OSPF_AUTH_MD5_SIZE);
   ospf_stream_copy (new->s, op->s);
 
   new->dst = op->dst;
@@ -356,7 +361,10 @@ ospf_make_md5_digest (struct ospf_interface *oi, struct ospf_packet *op)
   stream_set_putp (op->s, oldputp);
 
   /* We do *NOT* increment the OSPF header length. */
-  op->length += OSPF_AUTH_MD5_SIZE;
+  op->length = ntohs (ospfh->length) + OSPF_AUTH_MD5_SIZE;
+
+  if (stream_get_endp(op->s) != op->length)
+    zlog_warn("ospf_make_md5_digest: length mismatch stream %ld ospf_packet %d", stream_get_endp(op->s), op->length);
 
   return OSPF_AUTH_MD5_SIZE;
 }

@@ -9,9 +9,9 @@
 
 @c Set variables
 @set EDITION 0.1
-@set VERSION 0.93b
-@set UPDATED 12 September 2002
-@set UPDATED-MONTH September 2002
+@set VERSION 0.94
+@set UPDATED 26 January 2003
+@set UPDATED-MONTH January 2003
 
 @c These may vary with installation environment.
 @set INSTALL_PREFIX_ETC /usr/local/etc

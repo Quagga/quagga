@@ -28,7 +28,7 @@ ospfd_LDADD = ../lib/libzebra.a
 
 sysconf_DATA = ospfd.conf.sample
 
-EXTRA_DIST = $(sysconf_DATA) OSPF-MIB.txt OSPF-TRAP-MIB.txt
+EXTRA_DIST = $(sysconf_DATA) OSPF-MIB.txt OSPF-TRAP-MIB.txt ChangeLog.opaque.txt
 
 install-sysconfDATA: $(sysconf_DATA)
 	@$(NORMAL_INSTALL)

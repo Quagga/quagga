@@ -317,24 +317,10 @@ if test x"$opsys" = x"gnu-linux"; then
     RT_METHOD=rt_ioctl.o
     netlink=no
   else
-    AC_EGREP_CPP(yes,
-    [#include <linux/autoconf.h>
-#include <linux/version.h>
-#if LINUX_VERSION_CODE > 131328  /* 2.1.0 or later */
-#ifdef CONFIG_RTNETLINK
-  yes
-#endif
-#endif
-#if LINUX_VERSION_CODE > 132112  /* 2.4.17 or later */
-  yes
-#endif
-    ],
-   [AC_MSG_RESULT(netlink)
+    AC_MSG_RESULT(netlink)
     RT_METHOD=rt_netlink.o
     AC_DEFINE(HAVE_NETLINK)
-    netlink=yes],
-   [AC_MSG_RESULT(ioctl)
-    RT_METHOD=rt_ioctl.o])
+    netlink=yes
   fi
 else
   if test "$opsys" = "sol2-6";then
