@@ -1,3 +1,10 @@
+2005-04-01 Hasso Tepper <hasso at quagga.net>
+
+	* rt_netlink.c (netlink_talk): Don't assume we use netlink_cmd
+	  although we do now actually.
+	* rt_netlink.c (netlink_route, netlink_route_multipath): Always use
+	  netlink_cmd to send messages to the kernel.
+
 2005-03-30 Andrew J. Schorr <ajschorr@alumni.princeton.edu>
 
 	* rt_netlink.c: (netlink_link_change) If the status of an
