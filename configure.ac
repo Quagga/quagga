@@ -5,7 +5,7 @@
 ##  Copyright (c) 1996, 97, 98, 99, 2000 Kunihiro Ishiguro <kunihiro@zebra.org>
 ##  Portions Copyright (c) 2003 Paul Jakma <paul@dishone.st>
 ##
-## $Id: configure.ac,v 1.85.2.7 2005/04/01 10:25:48 hasso Exp $
+## $Id: configure.ac,v 1.85.2.8 2005/05/06 08:41:56 hasso Exp $
 AC_PREREQ(2.53)
 
 AC_INIT(Quagga, 0.98.3, [http://bugzilla.quagga.net])
@@ -519,7 +519,7 @@ main()
     exit(0);
   exit (1);
 }],[AC_MSG_RESULT(yes - using workaround) AC_DEFINE(HAVE_BROKEN_CMSG_FIRSTHDR,,Broken CMSG_FIRSTHDR)],
-[AC_MSG_RESULT(no)])
+[AC_MSG_RESULT(no)],[AC_MSG_RESULT(no)])
 
 dnl ------------------------------
 dnl check kernel route read method
