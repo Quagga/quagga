@@ -1,5 +1,9 @@
 2005-05-27 Hasso Tepper <hasso at quagga.net>
 
+	* bgp_routemap.c: Stop leaking communities.
+
+2005-05-27 Hasso Tepper <hasso at quagga.net>
+
 	* bgpd.c: Fix obvious (routeserver patch) merge error. This makes "no
 	  neighbor x.x.x.x routemap [export|import] commands work again.
 
