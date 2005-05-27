@@ -1,3 +1,8 @@
+2005-05-27 Hasso Tepper <hasso at quagga.net>
+
+	* bgpd.c: Fix obvious (routeserver patch) merge error. This makes "no
+	  neighbor x.x.x.x routemap [export|import] commands work again.
+
 2005-03-21 Hasso Tepper <hasso at quagga.net>
 
 	* bgp_route.c: Don't crash while clearing route tables if there is
