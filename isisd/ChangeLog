@@ -1,3 +1,7 @@
+2005-05-27 Yossi Boaron <Yossi.Boaron@veraznetworks.com>
+
+	* isis_dr.c: Fix copy&paste error in isis_dr_resign().
+
 2005-03-07 Michael Sandee <voidptr@voidptr.sboost.org>
 
 	* isis_spf.c: host.name might be NULL.
