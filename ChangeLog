@@ -1,3 +1,7 @@
+2005-06-07 Hasso Tepper <hasso at quagga.net>
+
+	* solaris: Backported S10 packages directory from HEAD.
+
 2005-05-06 Hasso Tepper <hasso at quagga.net>
 
 	* configure.ac: Add action for case of crosscompiling to the

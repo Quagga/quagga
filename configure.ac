@@ -5,7 +5,7 @@
 ##  Copyright (c) 1996, 97, 98, 99, 2000 Kunihiro Ishiguro <kunihiro@zebra.org>
 ##  Portions Copyright (c) 2003 Paul Jakma <paul@dishone.st>
 ##
-## $Id: configure.ac,v 1.85.2.8 2005/05/06 08:41:56 hasso Exp $
+## $Id: configure.ac,v 1.85.2.9 2005/06/07 18:49:56 hasso Exp $
 AC_PREREQ(2.53)
 
 AC_INIT(Quagga, 0.98.3, [http://bugzilla.quagga.net])
@@ -1208,6 +1208,7 @@ AC_CONFIG_FILES([Makefile lib/Makefile zebra/Makefile ripd/Makefile
 	  pkgsrc/bgpd.sh pkgsrc/ospf6d.sh pkgsrc/ospfd.sh
 	  pkgsrc/ripd.sh pkgsrc/ripngd.sh pkgsrc/zebra.sh])
 AC_CONFIG_FILES([vtysh/extract.pl],[chmod +x vtysh/extract.pl])
+AC_CONFIG_FILES([solaris/Makefile])
 ## Hack, but working solution to avoid rebuilding of quagga.info.
 ## It's already in CVS until texinfo 4.7 is more common.
 AC_CONFIG_COMMANDS([info-time],[touch doc/quagga.info])
