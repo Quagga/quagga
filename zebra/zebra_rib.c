@@ -2184,6 +2184,9 @@ rib_weed_table (struct route_table *table)
 	      rib->table != RT_TABLE_MAIN)
 	    {
 	      rib_delnode (rn, rib);
+	      /* Make sure we recheck for what should be selected if we're
+	       * removing anything. */
+	      rib_process (rn, rib);
 	      newrib_free (rib);
 	      route_unlock_node (rn);
 	    }

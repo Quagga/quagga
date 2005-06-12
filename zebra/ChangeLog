@@ -1,3 +1,9 @@
+2005-06-12 Erik Muller <erikm@internap.com>
+
+	* zebra_rib.c (rib_weed_table): cat rib_process on deleted nodes so
+	  that if a selected route was removed, the new best route will be
+	  selected.
+
 2005-06-12 Hasso Tepper <hasso at quagga.net>
 
 	* rt_netlink.c (netlink_parse_info): Fix debug messages - nlmsg_pid is
