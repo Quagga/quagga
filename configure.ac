@@ -5,11 +5,19 @@
 ##  Copyright (c) 1996, 97, 98, 99, 2000 Kunihiro Ishiguro <kunihiro@zebra.org>
 ##  Portions Copyright (c) 2003 Paul Jakma <paul@dishone.st>
 ##
-## $Id: configure.ac,v 1.85.2.9 2005/06/07 18:49:56 hasso Exp $
+## $Id: configure.ac,v 1.85.2.10 2005/06/13 22:07:49 hasso Exp $
 AC_PREREQ(2.53)
 
 AC_INIT(Quagga, 0.98.3, [http://bugzilla.quagga.net])
 AC_CONFIG_SRCDIR(lib/zebra.h)
+
+dnl -----------------------------------
+dnl Get hostname and other information.
+dnl -----------------------------------
+AC_CANONICAL_BUILD()
+AC_CANONICAL_HOST()
+AC_CANONICAL_TARGET()
+
 AM_INIT_AUTOMAKE(1.6)
 AM_CONFIG_HEADER(config.h)
 
@@ -32,11 +40,6 @@ AC_ARG_ENABLE([pkgsrcrcdir],
 dnl XXX add --pkgsrcrcdir to autoconf standard directory list somehow
 AC_SUBST(pkgsrcdir)
 AC_SUBST(pkgsrcrcdir)
-
-dnl -----------------------------------
-dnl Get hostname and other information.
-dnl -----------------------------------
-AC_CANONICAL_HOST
 
 dnl ------------
 dnl Check CFLAGS
@@ -209,14 +212,12 @@ if test "${enable_user}" = "yes" || test x"${enable_user}" = x""; then
 elif test "${enable_user}" = "no"; then
   enable_user="root"
 fi
-AC_DEFINE_UNQUOTED(QUAGGA_USER, "${enable_user}", Quagga User)
 
 if test "${enable_group}" = "yes" || test x"${enable_group}" = x""; then
   enable_group="quagga"
 elif test "${enable_group}" = "no"; then
   enable_group="root"
 fi
-AC_DEFINE_UNQUOTED(QUAGGA_GROUP, "${enable_group}", Quagga Group)
 
 if test x"${enable_vty_group}" = x"yes" ; then
   AC_MSG_ERROR([--enable-vty-group requires a group as argument, not yes])
@@ -225,6 +226,11 @@ elif test x"${enable_vty_group}" != x""; then
     AC_DEFINE_UNQUOTED(VTY_GROUP, "${enable_vty_group}", VTY Sockets Group)
   fi
 fi
+AC_SUBST([enable_user])
+AC_SUBST([enable_group])
+AC_SUBST([enable_vty_group])
+AC_DEFINE_UNQUOTED(QUAGGA_USER, "${enable_user}", Quagga User)
+AC_DEFINE_UNQUOTED(QUAGGA_GROUP, "${enable_group}", Quagga Group)
 
 enable_configfile_mask=${enable_configfile_mask:-0600}
 AC_DEFINE_UNQUOTED(CONFIGFILE_MASK, ${enable_configfile_mask}, Mask for config files)
@@ -281,13 +287,18 @@ case "$host" in
       AC_CHECK_LIB(xnet, main)
       CURSES=-lcurses
   ;;
-  [*-sunos5.[8-9]] | [*-sunos5.1[0-9]] \
-  | [*-solaris2.[8-9]] | [*-solaris2.1[0-9]])
+  [*-sunos5.[8-9]] \
+  | [*-sunos5.1[0-9]] \
+  | [*-sunos5.1[0-9].[0-9]] \
+  | [*-solaris2.[8-9]] \
+  | [*-solaris2.1[0-9]] \
+  | [*-solaris2.1[0-9].[0-9]])
       opsys=sol8
       AC_DEFINE(SUNOS_59,,SunOS 5.8 up)
       AC_DEFINE(SUNOS_5, 1, SunOS 5)
       AC_CHECK_LIB(socket, main)
       AC_CHECK_LIB(nsl, main)
+      AC_CHECK_LIB(umem, main)
       CURSES=-lcurses
   ;;
   *-sunos5* | *-solaris2*)
@@ -1155,6 +1166,7 @@ else
   quagga_statedir=${localstatedir}
   AC_MSG_CHECKING(directory to use for state file)
   AC_MSG_RESULT(${quagga_statedir})
+  AC_SUBST(quagga_statedir)
 fi
 if test $quagga_statedir = "/dev/null"; then
     AC_MSG_ERROR('STATE DIRECTORY NOT FOUND! FIX OR SPECIFY --localstatedir!')
