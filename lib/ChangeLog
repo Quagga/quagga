@@ -1,3 +1,8 @@
+2005-08-01 Andrew J. Schorr <ajschorr@alumni.princeton.edu>
+
+	* prefix.c: (ip_masklen) While loop should test that 'pnt' pointer is
+	  in range before dereferencing it.
+
 2005-06-12 Hasso Tepper <hasso at quagga.net>
 
 	* prefix.[ch]: New utility function - inet6_ntoa. Backport from HEAD
