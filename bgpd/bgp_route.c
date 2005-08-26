@@ -1190,6 +1190,14 @@ bgp_process_rsclient (struct bgp *bgp, struct peer *rsclient,
     return 0;
   }
 
+  if (old_select)
+    UNSET_FLAG (old_select->flags, BGP_INFO_SELECTED);
+  if (new_select)
+    {
+      SET_FLAG (new_select->flags, BGP_INFO_SELECTED);
+      UNSET_FLAG (new_select->flags, BGP_INFO_ATTR_CHANGED);
+    }
+
   bgp_process_announce_selected (rsclient, new_select, rn, &attr, afi, safi);
 
   return 0;
