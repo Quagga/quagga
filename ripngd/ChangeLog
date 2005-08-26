@@ -1,3 +1,7 @@
+2005-08-26 Hasso Tepper <hasso at quagga.net>
+
+	* ripng_zebra.c, ripngd.[ch]: Pass metric info to the zebra daemon.
+
 2005-03-05 Andrew J. Schorr <ajschorr@alumni.princeton.edu>
 
 	* ripng_interface.c: (ripng_multicast_join) Save errno before calling
