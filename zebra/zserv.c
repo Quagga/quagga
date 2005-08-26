@@ -1036,9 +1036,11 @@ zread_ipv6_add (struct zserv *client, u_short length)
     api.metric = 0;
     
   if (IN6_IS_ADDR_UNSPECIFIED (&nexthop))
-    rib_add_ipv6 (api.type, api.flags, &p, NULL, ifindex, 0);
+    rib_add_ipv6 (api.type, api.flags, &p, NULL, ifindex, 0, api.metric,
+		  api.distance);
   else
-    rib_add_ipv6 (api.type, api.flags, &p, &nexthop, ifindex, 0);
+    rib_add_ipv6 (api.type, api.flags, &p, &nexthop, ifindex, 0, api.metric,
+		  api.distance);
 }
 
 /* Zebra server IPv6 prefix delete function. */
@@ -1140,7 +1142,7 @@ zebra_read_ipv6 (int command, struct zserv *client, u_short length)
         gate = &nexthop;
 
       if (command == ZEBRA_IPV6_ROUTE_ADD)
-        rib_add_ipv6 (type, flags, &p, gate, ifindex, 0);
+        rib_add_ipv6 (type, flags, &p, gate, ifindex, 0, 0, 0);
       else
         rib_delete_ipv6 (type, flags, &p, gate, ifindex, 0);
     }
