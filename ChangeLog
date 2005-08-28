@@ -1,3 +1,7 @@
+2005-08-28 Hasso Tepper <hasso at quagga.net>
+
+	* configure.ac: Bump version to 0.98.5.
+
 2005-06-30 Louis Lagendijk <louis.lagendijk@gmail.com>
 
 	* configure.ac: Actually test whether libc has IPv6 support.
