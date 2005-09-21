@@ -1783,6 +1783,20 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 	      break;
 	    }
 	}
+      else if (gate) 
+        {
+          nexthop = rib->nexthop;
+
+	  /* Make sure that the route found has the same gateway. */
+	  if (rib->type == type
+	      && nexthop &&
+	          (IPV6_ADDR_SAME (&nexthop->gate.ipv6, gate) || 
+		    IPV6_ADDR_SAME (&nexthop->rgate.ipv6, gate)) )
+	    {
+	      same = rib;
+	      break;
+	    }
+	}
       else
 	{
 	  if (rib->type == type)

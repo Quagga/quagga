@@ -1,3 +1,8 @@
+2005-09-21 David Young <dyoung@ojctech.com>
+
+	* zebra_rib.c: Fix rib_delete_ipv6() to match routes in the RIB by
+	  their gateway as well as by destination.
+
 2005-08-26 Hasso Tepper <hasso at quagga.net>
 
 	* zebra_rib.c, rib.h: Add distance and metric arguments to the
