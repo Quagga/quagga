@@ -8,6 +8,9 @@
   simple authentication will probably need to update their configuration
   manually.
 
+- RFC3721 stub-router, SPF adaptive timers and fast-hello support for
+  ospfd.
+
 * Changes in Quagga 0.99.1
 
 - Zserv is now buffered via threads and non-blocking in most cases for both
