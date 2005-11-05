@@ -28,3 +28,4 @@ libtool
 .arch-inventory
 .arch-ids
 {arch}
+build
