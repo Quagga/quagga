@@ -2048,7 +2048,7 @@ peer_rsclient_set_vty (struct vty *vty, const char *peer_str,
   if (ret < 0)
     return bgp_vty_return (vty, ret);
 
-  peer->rib[afi][safi] = bgp_table_init ();
+  peer->rib[afi][safi] = bgp_table_init (afi, safi);
   peer->rib[afi][safi]->type = BGP_TABLE_RSCLIENT;
   peer->rib[afi][safi]->owner = peer;
 
@@ -6532,6 +6532,8 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
 		vty_out (vty, " Idle (Admin)");
 	      else if (CHECK_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW))
 		vty_out (vty, " Idle (PfxCt)");
+              else if (CHECK_FLAG (peer->sflags, PEER_STATUS_CLEARING))
+                vty_out (vty, " Idle (Clrng)");
 	      else
 		vty_out (vty, " %-11s", LOOKUP(bgp_status_msg, peer->status));
 	    }
