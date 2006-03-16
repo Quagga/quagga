@@ -1236,6 +1236,24 @@ if test x"${ac_cv_header_execinfo_h}" = x"yes"; then
   )
 fi
 
+dnl -----------------------------------------
+dnl check for malloc mallinfo struct and call
+dnl this must try and link using LIBS, in
+dnl order to check no alternative allocator
+dnl has been specified, which might not provide
+dnl mallinfo, e.g. such as Umem on Solaris.
+dnl -----------------------------------------
+AC_CHECK_HEADERS(malloc.h,
+ [AC_MSG_CHECKING(whether mallinfo is available)
+  AC_LINK_IFELSE([AC_LANG_PROGRAM([[#include <malloc.h>]],
+                        [[struct mallinfo ac_x; ac_x = mallinfo ();]])],
+      [AC_MSG_RESULT(yes)
+       AC_DEFINE(HAVE_MALLINFO,,mallinfo)],
+       AC_MSG_RESULT(no)
+  )
+ ]
+)
+
 dnl ----------
 dnl configure date
 dnl ----------
