@@ -166,7 +166,6 @@ heavy_wq_init ()
   heavy_wq->spec.errorfunc = &slow_func_err;
   heavy_wq->spec.del_item_data = &slow_func_del;
   heavy_wq->spec.max_retries = 3;
-  heavy_wq->spec.delay = 10;
   heavy_wq->spec.hold = 1000;
   
   return 0;
