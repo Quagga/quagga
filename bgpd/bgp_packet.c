@@ -151,7 +151,7 @@ bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
   unsigned long pos;
   char buf[BUFSIZ];
   struct prefix_rd *prd = NULL;
-  char *tag = NULL;
+  unsigned char *tag = NULL;
 
   s = peer->work;
   stream_reset (s);
@@ -165,12 +165,10 @@ bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
       adj = adv->adj;
       if (adv->binfo)
         binfo = adv->binfo;
-#ifdef MPLS_VPN
       if (rn)
         prd = (struct prefix_rd *) &rn->prn->p;
-      if (binfo)
-        tag = binfo->tag;
-#endif /* MPLS_VPN */
+      if (binfo && binfo->extra)
+        tag = binfo->extra->tag;
 
       /* When remaining space can't include NLRI and it's length.  */
       if (rn && STREAM_REMAIN (s) <= BGP_NLRI_LENGTH + PSIZE (rn->p.prefixlen))
@@ -291,9 +289,7 @@ bgp_withdraw_packet (struct peer *peer, afi_t afi, safi_t safi)
     {
       adj = adv->adj;
       rn = adv->rn;
-#ifdef MPLS_VPN
       prd = (struct prefix_rd *) &rn->prn->p;
-#endif /* MPLS_VPN */
 
       if (STREAM_REMAIN (s) 
 	  < (BGP_NLRI_LENGTH + BGP_TOTAL_ATTR_LEN + PSIZE (rn->p.prefixlen)))
@@ -1710,12 +1706,16 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
     aspath_unintern (attr.aspath);
   if (attr.community)
     community_unintern (attr.community);
-  if (attr.ecommunity)
-    ecommunity_unintern (attr.ecommunity);
-  if (attr.cluster)
-    cluster_unintern (attr.cluster);
-  if (attr.transit)
-    transit_unintern (attr.transit);
+  if (attr.extra)
+    {
+      if (attr.extra->ecommunity)
+        ecommunity_unintern (attr.extra->ecommunity);
+      if (attr.extra->cluster)
+        cluster_unintern (attr.extra->cluster);
+      if (attr.extra->transit)
+        transit_unintern (attr.extra->transit);
+      bgp_attr_extra_free (&attr);
+    }
 
   /* If peering is stopped due to some reason, do not generate BGP
      event.  */
