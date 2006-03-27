@@ -44,13 +44,13 @@ BEGIN {
 # catch lines beginning with 'struct memory list ' and try snag the
 # memory_list name. Has to be 3rd field.
 ($0 ~ /^struct memory_list /) && (NF >= 3) {
-	mlists[lcount++] = gensub(mlistregex,"\\1",g,$3);
+	mlists[lcount++] = gensub(mlistregex, "\\1", "g",$3);
 }
 
 # snag the MTYPE, it must self-standing and the second field,
 # though we do manage to tolerate the , C seperator being appended
 ($1 !~ /^\/?\*/) && ($2 ~ /^MTYPE_/) { 
-	mtype[tcount++] = gensub(mtyperegex,"\\1",1, $2);
+	mtype[tcount++] = gensub(mtyperegex, "\\1", "g", $2);
 } 
 
 END {
