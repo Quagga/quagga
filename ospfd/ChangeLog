@@ -24,6 +24,8 @@
 
 	* ospf_zebra.c: (ospf_interface_address_delete) fix rare leak
 	  of struct connected in an error case.
+	* ospf_packet.c: (ospf_make_md5_digest) fix odd, if not
+	  undefined effect, assignment of an increment expression.
 
 2005-08-21 Hasso Tepper <hasso at quagga.net>
 
