@@ -13,6 +13,11 @@
 	* ospf_lsa.c: (ospf_lsa_install) Fix incorrect byte-order
 	  conversion of OSPF_MAX_SEQUENCE_NUMBER
 
+2006-01-10 Juris Kalnins <juris@mt.lv>
+
+	* ospf_zebra.c: (ospf_interface_address_delete) fix rare leak
+	  of struct connected in an error case.
+
 2005-08-21 Hasso Tepper <hasso at quagga.net>
 
 	* ospf_vty.c: Make "show ip ospf neighbor xxx" commands work.
