@@ -910,6 +910,7 @@ ospf_vl_shutdown (struct ospf_vl_data *vl_data)
 }
 
 void
+  ospf_nbr_add_self (voi);
 ospf_vl_add (struct ospf *ospf, struct ospf_vl_data *vl_data)
 {
   listnode_add (ospf->vlinks, vl_data);
