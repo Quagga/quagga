@@ -470,8 +470,20 @@ unauthenticated remote routers, but still can allow routes (I.e. the
 entire RIP routing table) to be queried remotely, potentially by anyone
 on the internet, via RIPv1.
 
-To prevent such unauthenticated querying of routes disable RIPv1,
+To prevent such unauthenticated querying of routes disable RIPv1, 
 @xref{RIP Version Control}.
+
+The default authentication mode is simple text password authentication
+when no authentication mode is specified explicitely. 
+
+This will change in the next major release of Quagga to default to no
+authentication mode. To retain forward compatibility @code{ripd}, this
+major release will always write out the authentication mode explicitely
+if the @code{write file} command is given, writing `no ip rip
+authentication mode' when required. If you maintain configuration files
+by some other means, and hence do not use @code{write file}, it would
+be a good idea to explicitely include the desired mode in your
+configuration file for ease of upgrades to future major releases.
 
 @deffn {Interface command} {ip rip authentication mode md5} {}
 @deffnx {Interface command} {no ip rip authentication mode md5} {}
@@ -481,6 +493,13 @@ Set the interface with RIPv2 MD5 authentication.
 @deffn {Interface command} {ip rip authentication mode text} {}
 @deffnx {Interface command} {no ip rip authentication mode text} {}
 Set the interface with RIPv2 simple password authentication.
+
+Simple password authentication is the default, if authentication mode
+is not explicitely specified.
+@end deffn
+
+@deffn {Interface command} {ip rip authentication mode md5} {}
+Disable RIPv2 authentication on this interface.
 @end deffn
 
 @deffn {Interface command} {ip rip authentication string @var{string}} {}
