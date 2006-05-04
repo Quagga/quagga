@@ -858,6 +858,7 @@ ospf_vl_new (struct ospf *ospf, struct ospf_vl_data *vl_data)
   if (IS_DEBUG_OSPF_EVENT)
     zlog_debug ("ospf_vl_new(): set associated area to the backbone");
 
+  ospf_nbr_add_self (voi);
   ospf_area_add_if (voi->area, voi);
 
   ospf_if_stream_set (voi);
@@ -910,7 +911,6 @@ ospf_vl_shutdown (struct ospf_vl_data *vl_data)
 }
 
 void
-  ospf_nbr_add_self (voi);
 ospf_vl_add (struct ospf *ospf, struct ospf_vl_data *vl_data)
 {
   listnode_add (ospf->vlinks, vl_data);

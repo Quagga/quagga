@@ -14,6 +14,7 @@
 	  (ospf_nbr_lookup_by_addr) Add an assert.
 	* ospf_nsm.c: (nsm_kill_nbr) Can never kill the nbr_self
 	  psuedo-neighbour.
+	* ospf_{nsm,interface}.c: Fix merge errors from previous commit.
 
 2006-03-27 Paul Jakma <paul.jakma@sun.com>
 
