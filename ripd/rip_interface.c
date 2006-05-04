@@ -1674,6 +1674,7 @@ DEFUN (ip_rip_authentication_mode,
 {
   struct interface *ifp;
   struct rip_interface *ri;
+  int auth_type;
 
   ifp = (struct interface *)vty->index;
   ri = ifp->info;
@@ -1685,9 +1686,9 @@ DEFUN (ip_rip_authentication_mode,
     }
     
   if (strncmp ("md5", argv[0], strlen (argv[0])) == 0)
-    ri->auth_type = RIP_AUTH_MD5;
+    auth_type = RIP_AUTH_MD5;
   else if (strncmp ("text", argv[0], strlen (argv[0])) == 0)
-    ri->auth_type = RIP_AUTH_SIMPLE_PASSWORD;
+    auth_type = RIP_AUTH_SIMPLE_PASSWORD;
   else
     {
       vty_out (vty, "mode should be md5 or text%s", VTY_NEWLINE);
@@ -1695,13 +1696,16 @@ DEFUN (ip_rip_authentication_mode,
     }
 
   if (argc == 1)
-  return CMD_SUCCESS;
+    {
+      ri->auth_type = auth_type;
+      return CMD_SUCCESS;
+    }
 
-  if ( (argc == 2) && (ri->auth_type != RIP_AUTH_MD5) )
+  if ( (argc == 2) && (auth_type != RIP_AUTH_MD5) )
     {
       vty_out (vty, "auth length argument only valid for md5%s", VTY_NEWLINE);
       return CMD_WARNING;
-}
+    }
 
   if (strncmp ("r", argv[1], 1) == 0)
     ri->md5_auth_len = RIP_AUTH_MD5_SIZE;
@@ -1709,7 +1713,9 @@ DEFUN (ip_rip_authentication_mode,
     ri->md5_auth_len = RIP_AUTH_MD5_COMPAT_SIZE;
   else 
     return CMD_WARNING;
-
+  
+  ri->auth_type = auth_type;
+  
   return CMD_SUCCESS;
 }
 
