@@ -13,7 +13,12 @@
 	  make an exception for RIPv1 REQUEST packets, to which we will
 	  reply as RIPv1 can now be disabled fully, to allow ripd to
 	  still provide routing /information/ to simple devices.
- 
+	* ripd_interface.c: (general) 0.98 specific command changes for
+	  authentication, to allow no-auth to be set, compatibly.
+	  (no_ip_rip_authentication_mode) should set RIP_NO_AUTH
+	  (rip_interface_config_write) Explicitely write out
+	  the authentication mode, including RIP_NO_AUTH.
+
 2005-05-31 Hasso Tepper <hasso at quagga.net>
 
 	* rip_routemap.c: Fix set_metric_addsub_cmd help, it's no about BGP
