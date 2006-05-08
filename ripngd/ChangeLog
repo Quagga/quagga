@@ -1,3 +1,9 @@
+2006-05-08 Paul Jakma <paul.jakma@sun.com>
+
+	* ripng_routemap.c: (route_set_ipv6_nexthop_local_compile) bug
+	  #242, s/in_addr/in6_addr to fix crash. 
+	  Thanks to jithinvachery+quagga@gmail.com.
+
 2005-08-26 Hasso Tepper <hasso at quagga.net>
 
 	* ripng_zebra.c, ripngd.[ch]: Pass metric info to the zebra daemon.
