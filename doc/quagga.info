@@ -1,4 +1,4 @@
-This is quagga.info, produced by makeinfo version 4.7 from quagga.texi.
+This is quagga.info, produced by makeinfo version 4.8 from quagga.texi.
 
      Permission is granted to make and distribute verbatim copies of
      this manual provided the copyright notice and this permission
@@ -22,8 +22,8 @@ END-INFO-DIR-ENTRY
    This file documents the Quagga Software Routing Suite which manages
 common TCP/IP routing protocols.
 
-   This is Edition 0.98.5, last updated 8 November 2004 of `The Quagga
-Manual', for Quagga Version 0.98.5.
+   This is Edition 0.98.6, last updated 15 June 2005 of `The Quagga
+Manual', for Quagga Version 0.98.6.
 
    Copyright (C) 1999-2005 Kunihiro Ishiguro, et al.
 
@@ -48,7 +48,7 @@ Quagga
 ******
 
 Quagga is an advanced routing software package that provides a suite of
-TCP/IP based routing protocols.  This is the Manual for quagga-0.98.5.
+TCP/IP based routing protocols.  This is the Manual for quagga-0.98.6.
 Quagga is a fork of GNU Zebra.
 
 * Menu:
@@ -1001,7 +1001,7 @@ all.
      Connected to localhost.
      Escape character is '^]'.
 
-     Hello, this is Quagga (version 0.98.5)
+     Hello, this is Quagga (version 0.98.6)
      Copyright (C) 1999-2005 Kunihiro Ishiguro, et al.
 
      User Access Verification
@@ -1399,6 +1399,7 @@ version 1 as described in RFC1058.
 
 * Starting and Stopping ripd::
 * RIP Configuration::
+* RIP Version Control::
 * How to Announce RIP route::
 * Filtering RIP Routes::
 * RIP Metric Manipulation::
@@ -1481,7 +1482,7 @@ old information will be suppressed.  Ripd does not currently support
 equal cost multipath routing.
 
 
-File: quagga.info,  Node: RIP Configuration,  Next: How to Announce RIP route,  Prev: Starting and Stopping ripd,  Up: RIP
+File: quagga.info,  Node: RIP Configuration,  Next: RIP Version Control,  Prev: Starting and Stopping ripd,  Up: RIP
 
 5.2 RIP Configuration
 =====================
@@ -1493,17 +1494,6 @@ File: quagga.info,  Node: RIP Configuration,  Next: How to Announce RIP route,  
 
  -- Command: no router rip
      Disable RIP.
-
-   RIP can be configured to process either Version 1 or Version 2
-packets, the default mode is Version 2.  If no version is specified,
-then the RIP daemon will default to Version 2.  If RIP is set to Version
-1, the setting "Version 1" will be displayed, but the setting "Version
-2" will not be displayed whether or not Version 2 is set explicitly as
-the version of RIP being used. The version can be specified globally,
-and also on a per-interface basis (see below).
-
- -- RIP Command: version VERSION
-     Set RIP process's version.  VERSION can be `1" or `2".
 
  -- RIP Command: network NETWORK
  -- RIP Command: no network NETWORK
@@ -1558,24 +1548,6 @@ interface which address match to `10.0.0.0/8' are RIP enabled.
 
      The default is to be passive on all interfaces.
 
-   RIP version handling
-
- -- Interface command: ip rip send version VERSION
-     VERSION can be `1', `2', `1 2'.  This configuration command
-     overrides the router's rip version setting.  The command will
-     enable the selected interface to send packets with RIP Version 1,
-     RIP Version 2, or both.  In the case of '1 2', packets will be
-     both broadcast and multicast.
-
-     The default is to send only version 2.
-
- -- Interface command: ip rip receive version VERSION
-     Version setting for incoming RIP packets.  This command will
-     enable the selected interface to receive packets in RIP Version 1,
-     RIP Version 2, or both.
-
-     The default is to receive both versions.
-
    RIP split-horizon
 
  -- Interface command: ip split-horizon
@@ -1585,9 +1557,62 @@ interface which address match to `10.0.0.0/8' are RIP enabled.
      interface, please specify `no ip split-horizon'.
 
 
-File: quagga.info,  Node: How to Announce RIP route,  Next: Filtering RIP Routes,  Prev: RIP Configuration,  Up: RIP
+File: quagga.info,  Node: RIP Version Control,  Next: How to Announce RIP route,  Prev: RIP Configuration,  Up: RIP
 
-5.3 How to Announce RIP route
+5.3 RIP Version Control
+=======================
+
+RIP can be configured to send either Version 1 or Version 2 packets.
+The default is to send RIPv2 while accepting both RIPv1 and RIPv2 (and
+replying with packets of the appropriate version for REQUESTS /
+triggered updates). The version to receive and send can be specified
+globally, and further overriden on a per-interface basis if needs be
+for send and receive seperately (see below).
+
+   It is important to note that RIPv1 can not be authenticated. Further,
+if RIPv1 is enabled then RIP will reply to REQUEST packets, sending the
+state of its RIP routing table to any remote routers that ask on
+demand. For a more detailed discussion on the security implications of
+RIPv1 see *Note RIP Authentication::.
+
+ -- RIP Command: version VERSION
+     Set RIP version to accept for reads and send.  VERSION can be
+     either `1" or `2".
+
+     Disabling RIPv1 by specifying version 2 is STRONGLY encouraged,
+     *Note RIP Authentication::. This may become the default in a future
+     release.
+
+     Default: Send Version 2, and accept either version.
+
+ -- RIP Command: no version
+     Reset the global version setting back to the default.
+
+ -- Interface command: ip rip send version VERSION
+     VERSION can be `1', `2' or `1 2'.
+
+     This interface command overrides the global rip version setting,
+     and selects which version of RIP to send packets with, for this
+     interface specifically. Choice of RIP Version 1, RIP Version 2, or
+     both versions.  In the latter case, where `1 2' is specified,
+     packets will be both broadcast and multicast.
+
+     Default: Send packets according to the global version (version 2)
+
+ -- Interface command: ip rip receive version VERSION
+     VERSION can be `1', `2' or `1 2'.
+
+     This interface command overrides the global rip version setting,
+     and selects which versions of RIP packets will be accepted on this
+     interface. Choice of RIP Version 1, RIP Version 2, or both.
+
+     Default: Accept packets according to the global setting (both 1
+     and 2).
+
+
+File: quagga.info,  Node: How to Announce RIP route,  Next: Filtering RIP Routes,  Prev: RIP Version Control,  Up: RIP
+
+5.4 How to Announce RIP route
 =============================
 
  -- RIP command: redistribute kernel
@@ -1647,7 +1672,7 @@ File: quagga.info,  Node: How to Announce RIP route,  Next: Filtering RIP Routes
 
 File: quagga.info,  Node: Filtering RIP Routes,  Next: RIP Metric Manipulation,  Prev: How to Announce RIP route,  Up: RIP
 
-5.4 Filtering RIP Routes
+5.5 Filtering RIP Routes
 ========================
 
 RIP routes can be filtered by a distribute-list.
@@ -1684,7 +1709,7 @@ RIP routes can be filtered by a distribute-list.
 
 File: quagga.info,  Node: RIP Metric Manipulation,  Next: RIP distance,  Prev: Filtering RIP Routes,  Up: RIP
 
-5.5 RIP Metric Manipulation
+5.6 RIP Metric Manipulation
 ===========================
 
 RIP metric is a value for distance for the network.  Usually `ripd'
@@ -1706,7 +1731,7 @@ Redistributed routes' metric is set to 1.
 
 File: quagga.info,  Node: RIP distance,  Next: RIP route-map,  Prev: RIP Metric Manipulation,  Up: RIP
 
-5.6 RIP distance
+5.7 RIP distance
 ================
 
 Distance value is used in zebra daemon.  Default RIP distance is 120.
@@ -1729,7 +1754,7 @@ Distance value is used in zebra daemon.  Default RIP distance is 120.
 
 File: quagga.info,  Node: RIP route-map,  Next: RIP Authentication,  Prev: RIP distance,  Up: RIP
 
-5.7 RIP route-map
+5.8 RIP route-map
 =================
 
 Usage of `ripd''s route-map support.
@@ -1790,8 +1815,42 @@ functionality.
 
 File: quagga.info,  Node: RIP Authentication,  Next: RIP Timers,  Prev: RIP route-map,  Up: RIP
 
-5.8 RIP Authentication
+5.9 RIP Authentication
 ======================
+
+RIPv2 allows packets to be authenticated via either an insecure plain
+text password, included with the packet, or via a more secure MD5 based
+HMAC (keyed-Hashing for Message AuthentiCation), RIPv1 can not be
+authenticated at all, thus when authentication is configured `ripd'
+will discard routing updates received via RIPv1 packets.
+
+   However, unless RIPv1 reception is disabled entirely, *Note RIP
+Version Control::, RIPv1 REQUEST packets which are received, which
+query the router for routing information, will still be honoured by
+`ripd', and `ripd' WILL reply to such packets. This allows `ripd' to
+honour such REQUESTs (which sometimes is used by old equipment and very
+simple devices to bootstrap their default route), while still providing
+security for route updates which are received.
+
+   In short: Enabling authentication prevents routes being updated by
+unauthenticated remote routers, but still can allow routes (I.e. the
+entire RIP routing table) to be queried remotely, potentially by anyone
+on the internet, via RIPv1.
+
+   To prevent such unauthenticated querying of routes disable RIPv1,
+*Note RIP Version Control::.
+
+   The default authentication mode is simple text password
+authentication when no authentication mode is specified explicitely.
+
+   This will change in the next major release of Quagga to default to no
+authentication mode. To retain forward compatibility `ripd', this major
+release will always write out the authentication mode explicitely if
+the `write file' command is given, writing `no ip rip authentication
+mode' when required. If you maintain configuration files by some other
+means, and hence do not use `write file', it would be a good idea to
+explicitely include the desired mode in your configuration file for
+ease of upgrades to future major releases.
 
  -- Interface command: ip rip authentication mode md5
  -- Interface command: no ip rip authentication mode md5
@@ -1800,6 +1859,12 @@ File: quagga.info,  Node: RIP Authentication,  Next: RIP Timers,  Prev: RIP rout
  -- Interface command: ip rip authentication mode text
  -- Interface command: no ip rip authentication mode text
      Set the interface with RIPv2 simple password authentication.
+
+     Simple password authentication is the default, if authentication
+     mode is not explicitely specified.
+
+ -- Interface command: ip rip authentication mode md5
+     Disable RIPv2 authentication on this interface.
 
  -- Interface command: ip rip authentication string STRING
  -- Interface command: no ip rip authentication string STRING
@@ -1824,8 +1889,8 @@ File: quagga.info,  Node: RIP Authentication,  Next: RIP Timers,  Prev: RIP rout
 
 File: quagga.info,  Node: RIP Timers,  Next: Show RIP Information,  Prev: RIP Authentication,  Up: RIP
 
-5.9 RIP Timers
-==============
+5.10 RIP Timers
+===============
 
  -- RIP command: timers basic UPDATE TIMEOUT GARBAGE
      RIP protocol has several timers.  User can configure those timers'
@@ -1858,7 +1923,7 @@ File: quagga.info,  Node: RIP Timers,  Next: Show RIP Information,  Prev: RIP Au
 
 File: quagga.info,  Node: Show RIP Information,  Next: RIP Debug Commands,  Prev: RIP Timers,  Up: RIP
 
-5.10 Show RIP Information
+5.11 Show RIP Information
 =========================
 
 To display RIP routes.
@@ -1896,7 +1961,7 @@ for routes redistributed into RIP.
 
 File: quagga.info,  Node: RIP Debug Commands,  Prev: Show RIP Information,  Up: RIP
 
-5.11 RIP Debug Commands
+5.12 RIP Debug Commands
 =======================
 
 Debug for RIP protocol.
@@ -5354,19 +5419,19 @@ Command Index
 * ip prefix-list sequence-number:        ip prefix-list sequential number control.
                                                               (line   7)
 * ip rip authentication key-chain KEY-CHAIN: RIP Authentication.
-                                                              (line  21)
-* ip rip authentication mode md5:        RIP Authentication.  (line   7)
-* ip rip authentication mode text:       RIP Authentication.  (line  11)
-* ip rip authentication string STRING:   RIP Authentication.  (line  15)
-* ip rip receive version VERSION:        RIP Configuration.   (line  90)
-* ip rip send version VERSION:           RIP Configuration.   (line  81)
+                                                              (line  61)
+* ip rip authentication mode md5:        RIP Authentication.  (line  41)
+* ip rip authentication mode text:       RIP Authentication.  (line  45)
+* ip rip authentication string STRING:   RIP Authentication.  (line  55)
+* ip rip receive version VERSION:        RIP Version Control. (line  44)
+* ip rip send version VERSION:           RIP Version Control. (line  33)
 * ip route NETWORK GATEWAY:              Static Route Commands.
                                                               (line  10)
 * ip route NETWORK GATEWAY DISTANCE:     Static Route Commands.
                                                               (line  36)
 * ip route NETWORK NETMASK GATEWAY:      Static Route Commands.
                                                               (line  25)
-* ip split-horizon:                      RIP Configuration.   (line  99)
+* ip split-horizon:                      RIP Configuration.   (line  70)
 * ip6 address ADDRESS/PREFIX:            Interface Commands.  (line  14)
 * ipv6 nd managed-config-flag:           Router Advertisement.
                                                               (line  72)
@@ -5450,7 +5515,7 @@ Command Index
 * multicast:                             Interface Commands.  (line  27)
 * neigbor {A.B.C.D|X.X::X.X|peer-group} route-map WORD {import|export}: Commands for configuring a Route Server.
                                                               (line  29)
-* neighbor A.B.C.D:                      RIP Configuration.   (line  45)
+* neighbor A.B.C.D:                      RIP Configuration.   (line  34)
 * neighbor A.B.C.D route-server-client:  Commands for configuring a Route Server.
                                                               (line  11)
 * neighbor PEER default-originate:       BGP Peer commands.   (line  47)
@@ -5489,10 +5554,10 @@ Command Index
 * network A.B.C.D/M area A.B.C.D:        OSPF router.         (line  56)
 * network IFNAME <1>:                    ripngd Configuration.
                                                               (line  18)
-* network IFNAME:                        RIP Configuration.   (line  38)
+* network IFNAME:                        RIP Configuration.   (line  27)
 * network NETWORK <1>:                   ripngd Configuration.
                                                               (line  15)
-* network NETWORK:                       RIP Configuration.   (line  26)
+* network NETWORK:                       RIP Configuration.   (line  15)
 * no aggregate-address A.B.C.D/M:        Route Aggregation.   (line  18)
 * no area <0-4294967295> authentication: OSPF area.           (line 109)
 * no area <0-4294967295> export-list NAME: OSPF area.         (line  72)
@@ -5586,11 +5651,11 @@ Command Index
 * no ip prefix-list sequence-number:     ip prefix-list sequential number control.
                                                               (line  11)
 * no ip rip authentication key-chain KEY-CHAIN: RIP Authentication.
-                                                              (line  22)
-* no ip rip authentication mode md5:     RIP Authentication.  (line   8)
-* no ip rip authentication mode text:    RIP Authentication.  (line  12)
-* no ip rip authentication string STRING: RIP Authentication. (line  16)
-* no ip split-horizon:                   RIP Configuration.   (line 100)
+                                                              (line  62)
+* no ip rip authentication mode md5:     RIP Authentication.  (line  42)
+* no ip rip authentication mode text:    RIP Authentication.  (line  46)
+* no ip rip authentication string STRING: RIP Authentication. (line  56)
+* no ip split-horizon:                   RIP Configuration.   (line  71)
 * no ip6 address ADDRESS/PREFIX:         Interface Commands.  (line  16)
 * no ipv6 nd managed-config-flag:        Router Advertisement.
                                                               (line  73)
@@ -5620,7 +5685,7 @@ Command Index
 * no log trap:                           Basic Config Commands.
                                                               (line  18)
 * no multicast:                          Interface Commands.  (line  28)
-* no neighbor A.B.C.D:                   RIP Configuration.   (line  46)
+* no neighbor A.B.C.D:                   RIP Configuration.   (line  35)
 * no neighbor PEER default-originate:    BGP Peer commands.   (line  48)
 * no neighbor PEER description ...:      BGP Peer commands.   (line  21)
 * no neighbor PEER dont-capability-negotiate: Capability Negotiation.
@@ -5640,13 +5705,13 @@ Command Index
 * no network A.B.C.D/M:                  BGP route.           (line  17)
 * no network A.B.C.D/M area <0-4294967295>: OSPF router.      (line  59)
 * no network A.B.C.D/M area A.B.C.D:     OSPF router.         (line  58)
-* no network IFNAME:                     RIP Configuration.   (line  39)
-* no network NETWORK:                    RIP Configuration.   (line  27)
+* no network IFNAME:                     RIP Configuration.   (line  28)
+* no network NETWORK:                    RIP Configuration.   (line  16)
 * no ospf abr-type TYPE:                 OSPF router.         (line  20)
 * no ospf rfc1583compatibility:          OSPF router.         (line  35)
 * no ospf router-id:                     OSPF router.         (line  17)
 * no passive interface INTERFACE:        OSPF router.         (line  44)
-* no passive-interface IFNAME:           RIP Configuration.   (line  69)
+* no passive-interface IFNAME:           RIP Configuration.   (line  58)
 * no redistribute (kernel|connected|static|rip|bgp): Redistribute routes to OSPF.
                                                               (line  22)
 * no redistribute bgp:                   How to Announce RIP route.
@@ -5673,6 +5738,7 @@ Command Index
                                                               (line  32)
 * no timers basic:                       RIP Timers.          (line  31)
 * no timers spf:                         OSPF router.         (line  47)
+* no version:                            RIP Version Control. (line  30)
 * offset-list ACCESS-LIST (in|out):      RIP Metric Manipulation.
                                                               (line  20)
 * offset-list ACCESS-LIST (in|out) IFNAME: RIP Metric Manipulation.
@@ -5681,7 +5747,7 @@ Command Index
 * ospf rfc1583compatibility:             OSPF router.         (line  34)
 * ospf router-id A.B.C.D:                OSPF router.         (line  16)
 * passive interface INTERFACE:           OSPF router.         (line  43)
-* passive-interface (IFNAME|default):    RIP Configuration.   (line  68)
+* passive-interface (IFNAME|default):    RIP Configuration.   (line  57)
 * password PASSWORD:                     Basic Config Commands.
                                                               (line  10)
 * redistribute (kernel|connected|static|rip|bgp): Redistribute routes to OSPF.
@@ -5939,7 +6005,7 @@ Command Index
 * timers basic UPDATE TIMEOUT GARBAGE:   RIP Timers.          (line   7)
 * timers spf <0-4294967295> <0-4294967295>: OSPF router.      (line  46)
 * username USERNAME nopassword:          VTY shell username.  (line   7)
-* version VERSION:                       RIP Configuration.   (line  23)
+* version VERSION:                       RIP Version Control. (line  20)
 * who:                                   Terminal Mode Commands.
                                                               (line  21)
 * write file:                            Terminal Mode Commands.
@@ -6000,157 +6066,158 @@ VTY Key Index
 
 
 Tag Table:
-Node: Top1889
-Node: Overview2484
-Node: About Quagga3885
-Node: System Architecture6138
-Node: Supported Platforms8828
-Node: Supported RFC9969
-Node: How to get Quagga11933
-Node: Mailing List12687
-Node: Bug Reports13134
-Node: Installation14012
-Node: Configure the Software14446
-Node: The Configure script and its options14694
-Node: Least-Privilege support17882
-Node: Linux notes19618
-Ref: Linux notes-Footnote-121476
-Node: Build the Software21542
-Node: Install the Software22090
-Node: Basic commands23550
-Node: Config Commands24325
-Node: Basic Config Commands25218
-Node: Sample Config File30316
-Node: Terminal Mode Commands31086
-Node: Common Invocation Options32183
-Node: Virtual Terminal Interfaces33590
-Node: VTY Overview34101
-Node: VTY Modes35352
-Node: VTY View Mode35802
-Node: VTY Enable Mode36052
-Node: VTY Other Modes36330
-Node: VTY CLI Commands36506
-Node: CLI Movement Commands36966
-Node: CLI Editing Commands37489
-Node: CLI Advanced Commands38077
-Node: Zebra38843
-Node: Invoking zebra39352
-Node: Interface Commands39931
-Node: Static Route Commands41463
-Node: zebra Terminal Mode Commands44736
-Node: RIP45701
-Node: Starting and Stopping ripd46638
-Node: RIP netmask48051
-Node: RIP Configuration49150
-Node: How to Announce RIP route53415
-Node: Filtering RIP Routes55978
-Node: RIP Metric Manipulation57445
-Node: RIP distance58358
-Node: RIP route-map59173
-Node: RIP Authentication61689
-Node: RIP Timers62796
-Node: Show RIP Information64082
-Node: RIP Debug Commands65455
-Node: RIPng66451
-Node: Invoking ripngd66771
-Node: ripngd Configuration67020
-Node: ripngd Terminal Mode Commands67771
-Node: ripngd Filtering Commands68135
-Node: OSPFv268644
-Node: Configuring ospfd69203
-Node: OSPF router69671
-Node: OSPF area72827
-Node: OSPF interface78009
-Node: Redistribute routes to OSPF81392
-Node: Showing OSPF information83555
-Node: Debugging OSPF84801
-Node: OSPFv385840
-Node: OSPF6 router86160
-Node: OSPF6 area86514
-Node: OSPF6 interface86692
-Node: Redistribute routes to OSPF687569
-Node: Showing OSPF6 information87885
-Node: BGP88705
-Node: Starting BGP89595
-Node: BGP router90172
-Node: BGP distance91416
-Node: BGP decision process91854
-Node: BGP network92124
-Node: BGP route92314
-Node: Route Aggregation92870
-Node: Redistribute to BGP93439
-Node: BGP Peer93966
-Node: Defining Peer94153
-Node: BGP Peer commands94766
-Node: Peer filtering97170
-Node: BGP Peer Group97678
-Node: BGP Address Family97991
-Node: Autonomous System98145
-Node: AS Path Regular Expression98982
-Node: Display BGP Routes by AS Path100229
-Node: AS Path Access List100669
-Node: Using AS Path in Route Map101136
-Node: Private AS Numbers101417
-Node: BGP Communities Attribute101575
-Node: BGP Community Lists104042
-Node: Numbered BGP Community Lists106696
-Node: BGP Community in Route Map108283
-Node: Display BGP Routes by Community110226
-Node: Using BGP Communities Attribute111395
-Node: BGP Extended Communities Attribute114963
-Node: BGP Extended Community Lists116735
-Node: BGP Extended Communities in Route Map118610
-Node: Displaying BGP routes119069
-Node: Show IP BGP119306
-Node: More Show IP BGP120006
-Node: Capability Negotiation121157
-Node: Route Reflector124461
-Node: Route Server124740
-Node: Multiple instance125806
-Node: BGP instance and view127617
-Node: Routing policy128997
-Node: Viewing the view129765
-Node: How to set up a 6-Bone connection130050
-Node: Dump BGP packets and table131422
-Node: Configuring Quagga as a Route Server131969
-Node: Description of the Route Server model132930
-Ref: fig:normal-processing134507
-Ref: fig:full-mesh134657
-Ref: fig:route-server134753
-Ref: filter-delegation135167
-Ref: Route Server tasks136351
-Ref: Route-server path filter process136722
-Ref: fig:rs-processing139036
-Node: Commands for configuring a Route Server139153
-Node: Example of Route Server Configuration142180
-Node: Configuration of the BGP routers without Route Server143101
-Node: Configuration of the BGP routers with Route Server145984
-Node: Configuration of the Route Server itself147285
-Node: Further considerations about Import and Export route-maps152284
-Node: VTY shell155328
-Node: VTY shell username155997
-Node: VTY shell integrated configuration156629
-Node: Filtering158077
-Node: IP Access List158430
-Node: IP Prefix List158816
-Node: ip prefix-list description161835
-Node: ip prefix-list sequential number control162362
-Node: Showing ip prefix-list162904
-Node: Clear counter of ip prefix-list164012
-Node: Route Map164451
-Node: Route Map Command164956
-Node: Route Map Match Command165153
-Node: Route Map Set Command165777
-Node: IPv6 Support166654
-Node: Router Advertisement167226
-Node: Kernel Interface171027
-Node: SNMP Support172984
-Node: Getting and installing an SNMP agent173556
-Node: SMUX configuration174129
-Node: MIB and command reference176265
-Node: Zebra Protocol177652
-Node: Packet Binary Dump Format179566
-Node: Command Index191176
-Node: VTY Key Index247369
+Node: Top1886
+Node: Overview2481
+Node: About Quagga3882
+Node: System Architecture6135
+Node: Supported Platforms8825
+Node: Supported RFC9966
+Node: How to get Quagga11930
+Node: Mailing List12684
+Node: Bug Reports13131
+Node: Installation14009
+Node: Configure the Software14443
+Node: The Configure script and its options14691
+Node: Least-Privilege support17879
+Node: Linux notes19615
+Ref: Linux notes-Footnote-121473
+Node: Build the Software21539
+Node: Install the Software22087
+Node: Basic commands23547
+Node: Config Commands24322
+Node: Basic Config Commands25215
+Node: Sample Config File30313
+Node: Terminal Mode Commands31083
+Node: Common Invocation Options32180
+Node: Virtual Terminal Interfaces33587
+Node: VTY Overview34098
+Node: VTY Modes35349
+Node: VTY View Mode35799
+Node: VTY Enable Mode36049
+Node: VTY Other Modes36327
+Node: VTY CLI Commands36503
+Node: CLI Movement Commands36963
+Node: CLI Editing Commands37486
+Node: CLI Advanced Commands38074
+Node: Zebra38840
+Node: Invoking zebra39349
+Node: Interface Commands39928
+Node: Static Route Commands41460
+Node: zebra Terminal Mode Commands44733
+Node: RIP45698
+Node: Starting and Stopping ripd46659
+Node: RIP netmask48072
+Node: RIP Configuration49171
+Node: RIP Version Control52171
+Node: How to Announce RIP route54353
+Node: Filtering RIP Routes56918
+Node: RIP Metric Manipulation58385
+Node: RIP distance59298
+Node: RIP route-map60113
+Node: RIP Authentication62629
+Node: RIP Timers65755
+Node: Show RIP Information67043
+Node: RIP Debug Commands68416
+Node: RIPng69412
+Node: Invoking ripngd69732
+Node: ripngd Configuration69981
+Node: ripngd Terminal Mode Commands70732
+Node: ripngd Filtering Commands71096
+Node: OSPFv271605
+Node: Configuring ospfd72164
+Node: OSPF router72632
+Node: OSPF area75788
+Node: OSPF interface80970
+Node: Redistribute routes to OSPF84353
+Node: Showing OSPF information86516
+Node: Debugging OSPF87762
+Node: OSPFv388801
+Node: OSPF6 router89121
+Node: OSPF6 area89475
+Node: OSPF6 interface89653
+Node: Redistribute routes to OSPF690530
+Node: Showing OSPF6 information90846
+Node: BGP91666
+Node: Starting BGP92556
+Node: BGP router93133
+Node: BGP distance94377
+Node: BGP decision process94815
+Node: BGP network95085
+Node: BGP route95275
+Node: Route Aggregation95831
+Node: Redistribute to BGP96400
+Node: BGP Peer96927
+Node: Defining Peer97114
+Node: BGP Peer commands97727
+Node: Peer filtering100131
+Node: BGP Peer Group100639
+Node: BGP Address Family100952
+Node: Autonomous System101106
+Node: AS Path Regular Expression101943
+Node: Display BGP Routes by AS Path103190
+Node: AS Path Access List103630
+Node: Using AS Path in Route Map104097
+Node: Private AS Numbers104378
+Node: BGP Communities Attribute104536
+Node: BGP Community Lists107003
+Node: Numbered BGP Community Lists109657
+Node: BGP Community in Route Map111244
+Node: Display BGP Routes by Community113187
+Node: Using BGP Communities Attribute114356
+Node: BGP Extended Communities Attribute117924
+Node: BGP Extended Community Lists119696
+Node: BGP Extended Communities in Route Map121571
+Node: Displaying BGP routes122030
+Node: Show IP BGP122267
+Node: More Show IP BGP122967
+Node: Capability Negotiation124118
+Node: Route Reflector127422
+Node: Route Server127701
+Node: Multiple instance128767
+Node: BGP instance and view130578
+Node: Routing policy131958
+Node: Viewing the view132726
+Node: How to set up a 6-Bone connection133011
+Node: Dump BGP packets and table134383
+Node: Configuring Quagga as a Route Server134930
+Node: Description of the Route Server model135891
+Ref: fig:normal-processing137468
+Ref: fig:full-mesh137618
+Ref: fig:route-server137714
+Ref: filter-delegation138128
+Ref: Route Server tasks139312
+Ref: Route-server path filter process139683
+Ref: fig:rs-processing141997
+Node: Commands for configuring a Route Server142114
+Node: Example of Route Server Configuration145141
+Node: Configuration of the BGP routers without Route Server146062
+Node: Configuration of the BGP routers with Route Server148945
+Node: Configuration of the Route Server itself150246
+Node: Further considerations about Import and Export route-maps155245
+Node: VTY shell158289
+Node: VTY shell username158958
+Node: VTY shell integrated configuration159590
+Node: Filtering161038
+Node: IP Access List161391
+Node: IP Prefix List161777
+Node: ip prefix-list description164796
+Node: ip prefix-list sequential number control165323
+Node: Showing ip prefix-list165865
+Node: Clear counter of ip prefix-list166973
+Node: Route Map167412
+Node: Route Map Command167917
+Node: Route Map Match Command168114
+Node: Route Map Set Command168738
+Node: IPv6 Support169615
+Node: Router Advertisement170187
+Node: Kernel Interface173988
+Node: SNMP Support175945
+Node: Getting and installing an SNMP agent176517
+Node: SMUX configuration177090
+Node: MIB and command reference179226
+Node: Zebra Protocol180613
+Node: Packet Binary Dump Format182527
+Node: Command Index194137
+Node: VTY Key Index250403
 
 End Tag Table
