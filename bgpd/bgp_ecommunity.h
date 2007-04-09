@@ -24,6 +24,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* High-order octet of the Extended Communities type field.  */
 #define ECOMMUNITY_ENCODE_AS                0x00
 #define ECOMMUNITY_ENCODE_IP                0x01
+#define ECOMMUNITY_ENCODE_AS4BYTE           0x02
 
 /* Low-order octet of the Extended Communityes type field.  */
 #define ECOMMUNITY_ROUTE_TARGET             0x02

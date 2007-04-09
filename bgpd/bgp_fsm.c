@@ -999,7 +999,8 @@ struct {
     {bgp_ignore,                  Clearing}, /* TCP_connection_open_failed   */
     {bgp_stop,                    Clearing}, /* TCP_fatal_error              */
     {bgp_ignore,                  Clearing}, /* ConnectRetry_timer_expired   */
-    {bgp_fsm_holdtime_expire,     Clearing}, /* Hold_Timer_expired           */
+    {bgp_fsm_holdtime_expire,     Established}, /* Hold_Timer_expired        */
+    /* JK above was clearing, set to Established, StuckinClearingBug */
     {bgp_fsm_keepalive_expire, Established}, /* KeepAlive_timer_expired      */
     {bgp_stop,                    Clearing}, /* Receive_OPEN_message         */
     {bgp_fsm_keepalive,        Established}, /* Receive_KEEPALIVE_message    */
