@@ -8718,6 +8718,10 @@ bgp_table_stats (struct vty *vty, struct bgp *bgp, afi_t afi, safi_t safi)
                      (float)ts.counts[BGP_STATS_SPACE] / 
                        (float)(1UL << (ts.counts[BGP_STATS_MAXBITLEN] - 24)));
             break;
+	  case BGP_STATS_ASN_HIGHEST:
+	    vty_out (vty, "%-30s: ", table_stats_strs[i]);
+	    vty_out (vty, "%12s", as2str(ts.counts[i]));
+	    break;
           default:
             vty_out (vty, "%-30s: ", table_stats_strs[i]);
             vty_out (vty, "%12llu", ts.counts[i]);
