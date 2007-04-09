@@ -1,3 +1,201 @@
+2006-12-07 Paul Jakma <paul.jakma@sun.com>
+
+	* bgp_fsm.c: Bug #302 fix, diagnosis, suggestions and testing
+	  by Juergen Kammer <j.kammer@eurodata.de>. Fix follows from
+	  his suggested fix, just made in a slightly different way.
+	  (bgp_event) Transitions into Clearing always must call
+	  bgp_clear_route_all().
+	  (bgp_stop) No need to clear routes here, BGP FSM should do
+	  it.
+ 
+2006-11-30 Andrew J. Schorr <ajschorr@alumni.princeton.edu>
+
+	* bgp_debug.h: Declare new bgp_debug_zebra conf and term flags,
+	  and define BGP_DEBUG_ZEBRA.
+	* bgp_debug.c: Declare conf_bgp_debug_zebra and term_bgp_debug_zebra.
+	  (debug_bgp_zebra, no_debug_bgp_zebra, undebug_bgp_zebra) New
+	  functions to enable/disable bgp zebra debugging.
+	  (no_debug_bgp_all) Turn off zebra debugging.
+	  (show_debugging_bgp) Show whether zebra debugging is on.
+	  (bgp_config_write_debug) Add 'debug bgp zebra' if configured.
+	  (bgp_debug_init) Add new zebra debugging commands.
+	* bgp_zebra.c: (bgp_router_id_update, bgp_interface_add,
+	  bgp_interface_delete, bgp_interface_up, bgp_interface_down,
+	  bgp_interface_address_add, bgp_interface_address_delete,
+	  zebra_read_ipv4, zebra_read_ipv6, bgp_zebra_announce,
+	  bgp_zebra_withdraw, bgp_redistribute_set, bgp_redistribute_unset)
+	  If zebra debugging is enabled, log an appropriate debug message.
+
+2006-11-28 Andrew J. Schorr <ajschorr@alumni.princeton.edu>
+
+	* bgp_route.c: (bgp_info_restore) New function that undoes
+	  the effects of a previous call to bgp_info_delete.  This is
+	  used when a route is deleted and quickly re-added before the
+	  deletion has been processed.
+	  (bgp_static_update_rsclient, bgp_static_update_main,
+	  bgp_redistribute_add) Check whether a pre-existing route
+	  has the BGP_INFO_REMOVED set, and, if so, we need to call
+	  bgp_info_restore to resurrect it.
+
+2006-10-27 Paul Jakma <paul.jakma@sun.com>
+
+	* bgp_route.c: (bgp_table_stats) oops, u_intXX_t should be
+	  uintXX_t
+
+2006-10-19 Paul Jakma <paul.jakma@sun.com>
+
+	* bgpd.c: (peer_new) bgp element of peer absolutely must be
+	  filled in, make peer_new() require it as argument and update
+	  all callers. Fixes a crash reported by Jan 'yanek' Bortl and
+	  Andrew Schorr where bgpd would crash in bgp_pcount_adjust
+	  trying to dereference the bgp member of bgp->peer_self,
+	  triggered through redistribution.
+	* bgp_route.c: (bgp_pcount_adjust) assert sanity of arguments.
+
+2006-10-15 Paul Jakma <paul.jakma@sun.com>
+
+	* bgp_route.c: (bgp_table_stats_walker) NULL deref if table is
+	  empty, bgp_table_top may return NULL, Coverity CID#73.
+	* bgp_packet.c: (bgp_update_packet) adv->rn can not be NULL,
+	  check is bogus - changed to assert(), CID#64.
+	  binfo is checked for NULL, but then dereferenced
+	  unconditionally, fix, CID #63.
+	  (bgp_withdraw_packet) Assert adv->rn is valid, as with
+	  bgp_update_packet().
+
+2006-10-14 Paul Jakma <paul.jakma@sun.com>
+
+	* bgp_fsm.h: Remove BGP_EVENT_FLUSH_ADD, dangerous and not
+	  needed.
+	* bgp_fsm.c: (bgp_stop) Move BGP_EVENT_FLUSH to the top of the
+	  of the function, otherwise it could flush a ClearingCompleted
+          event, bug #302.
+	* bgp_packet.c: Replace all BGP_EVENT_FLUSH_ADD with
+	  BGP_EVENT_ADD, fixing bug #302.
+
+2006-09-19 Andrew J. Schorr <ajschorr@alumni.princeton.edu>
+
+	* bgpd.c: (peer_uptime) Fix printf format/arg mismatch in
+	  zlog_warn message (%ld/size_t -> %lu/u_long).
+
+2006-09-14 Paul Jakma <paul.jakma@sun.com>
+
+	* bgp_route.c: (bgp_table_stats_walker) Address space announced
+	  should only count top-level unaggregateable prefixes, to
+	  avoid falling afoul of anti-dodgy-accounting regulations
+	  in various jurisdictions.. ;)
+	  (bgp_process_queue_init) process queue hold time too high,
+	  adds extra memory load. Change to be much lower, until such
+	  time as it's made configurable.
+
+2006-09-14 Paul Jakma <paul.jakma@sun.com>
+
+	* (general) fix the peer refcount issue exposed by previous, by
+	  just removing refcounting of peer threads, which is mostly
+	  senseless as they're references leading from struct peer,
+	  which peer_free cancels anyway. No need to muck around..
+	* bgp_fsm.h: Just remove the refcounting from the various
+	  TIMER/READ/WRITE/EVENT ON/OFF/ADD macros.
+	* bgp_fsm.c: (bgp_stop) use BGP_EVENT_FLUSH, no refcounts attached
+	  to events anymore.
+	  (bgp_event) remove peer_unlock, events not refcounted.
+	* bgpd.c: (peer_free) flush events before free.
+
+2006-09-14 Paul Jakma <paul.jakma@sun.com>
+
+	* (general) Fix some niggly issues around 'shutdown' and clearing
+	  by adding a Clearing FSM wait-state and a hidden 'Deleted'
+	  FSM state, to allow deleted peers to 'cool off' and hit 0
+	  references. This introduces a slow memory leak of struct peer,
+	  however that's more a testament to the fragility of the
+	  reference counting than a bug in this patch, cleanup of
+	  reference counting to fix this is to follow.
+	* bgpd.h: Add Clearing, Deleted states and Clearing_Completed
+	  and event.
+	* bgp_debug.c: (bgp_status_msg[]) Add strings for Clearing and
+	  Deleted.
+	* bgp_fsm.h: Don't allow timer/event threads to set anything
+	  for Deleted peers.
+	* bgp_fsm.c: (bgp_timer_set) Add Clearing and Deleted. Deleted
+	  needs to stop everything.
+	  (bgp_stop) Remove explicit fsm_change_status call, the
+	  general framework handles the transition.
+	  (bgp_start) Log a warning if a start is attempted on a peer
+	  that should stay down, trying to start a peer.
+	  (struct .. FSM) Add Clearing_Completed
+	  events, has little influence except when in state
+	  Clearing to signal wait-state can end.
+	  Add Clearing and Deleted states, former is a wait-state,
+	  latter is a placeholder state to allow peers to disappear
+	  quietly once refcounts settle.
+	  (bgp_event) Try reduce verbosity of FSM state-change debug, 
+	  changes to same state are not interesting (Established->Established)
+	  Allow NULL action functions in FSM.
+	* bgp_packet.c: (bgp_write) Use FSM events, rather than trying
+	  to twiddle directly with FSM state behind the back of FSM.
+	  (bgp_write_notify) ditto.
+	  (bgp_read) Remove the vague ACCEPT_PEER peer_unlock, or else
+	  this patch crashes, now it leaks instead.
+	* bgp_route.c: (bgp_clear_node_complete) Clearing_Completed
+	  event, to end clearing.
+	  (bgp_clear_route) See extensive comments.
+	* bgpd.c: (peer_free) should only be called while in Deleted,
+	  peer refcounting controls when peer_free is called.
+	  bgp_sync_delete should be here, not in peer_delete.
+	  (peer_delete) Initiate delete. 
+	  Transition to Deleted state manually.
+	  When removing peer from indices that provide visibility of it,
+	  take great care to be idempotent wrt the reference counting
+	  of struct peer through those indices.
+	  Use bgp_timer_set, rather than replicating.
+	  Call to bgp_sync_delete isn't appropriate here, sync can be
+	  referenced while shutting down and finishing deletion.
+	  (peer_group_bind) Take care to be idempotent wrt list references
+	  indexing peers.
+
+2006-09-13 Paul Jakma <paul.jakma@sun.com>
+
+	* bgp_aspath.c: (aspath_highest) new, return highest ASN in an
+	  aspath.
+	* bgp_route.c: (bgp_peer_count_walker) new, do the walk done
+	  in bgp_peer_counts as a thread.
+	  (bgp_peer_counts) move walk to previous and call it via
+	  thread_execute so this RIB walk shows up in thread stats.
+	  (bgp_table_stats) New, gather some statistics for a given
+	  RIB.
+	  (bgp_table_stats_walker) New, RIB walker thread for former.
+	  (bgp_table_stats_vty) Parsing front-end for 'show bgp ...',
+	  useful model for future rationalisation of 'show ... bgp'.
+	  (bgp_route_init) Add new RIB stats commands.
+	
+2006-09-06 Paul Jakma <paul.jakma@sun.com>
+
+	* (general) Squash any and all prefix-count issues by
+	  abstracting route flag changes, and maintaining count as and
+	  when flags are modified (rather than relying on explicit
+	  modifications of count being sprinkled in just the right
+	  places throughout the code).
+	* bgp_route.c: (bgp_pcount_{dec,inc}rement) removed.
+	  (bgp_pcount_adjust) new, update prefix count as
+	  needed for a given route.
+	  (bgp_info_{uns,s}et_flag) set/unset a BGP_INFO route status
+	  flag, calling previous function when appropriate.
+	  (general) Update all set/unsets of flags to use previous.
+	  Remove pcount_{dec,inc}rement calls.
+	  No need to unset BGP_INFO_VALID in places where
+	  bgp_info_delete is called, it does that anyway.
+	* bgp_{damp,nexthop}.c: Update to use bgp_info_{un,}set_flag.
+	* bgp_route.h: Export bgp_info_{un,}set_flag.
+	  Add a 'meta' BGP_INFO flag, BGP_INFO_UNUSEABLE.
+	  Move BGP_INFO_HOLDDOWN macro to here from bgpd.h
+
+2006-09-03 Paul Jakma <paul.jakma@sun.com>
+
+	* bgp_route.c: Add 'show ... bgp ... <neighbour> prefix-count'
+	  commands, to provide detailed counts of prefixes for a peer.
+	  Informative, and should help pin down to pfxcnt drift
+	  problems.
+
 2006-08-27 Paul Jakma <paul.jakma@sun.com>
 
 	* bgp_advertise.c: (bgp_sync_delete) fix mtype in XFREE.

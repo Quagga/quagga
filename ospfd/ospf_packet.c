@@ -216,8 +216,9 @@ ospf_packet_dup (struct ospf_packet *op)
   struct ospf_packet *new;
 
   if (stream_get_endp(op->s) != op->length)
-    zlog_warn ("ospf_packet_dup stream %ld ospf_packet %d size mismatch",
-	       STREAM_SIZE(op->s), op->length);
+    /* XXX size_t */
+    zlog_warn ("ospf_packet_dup stream %lu ospf_packet %u size mismatch",
+	       (u_long)STREAM_SIZE(op->s), op->length);
 
   /* Reserve space for MD5 authentication that may be added later. */
   new = ospf_packet_new (stream_get_endp(op->s) + OSPF_AUTH_MD5_SIZE);
@@ -371,7 +372,9 @@ ospf_make_md5_digest (struct ospf_interface *oi, struct ospf_packet *op)
   op->length = ntohs (ospfh->length) + OSPF_AUTH_MD5_SIZE;
 
   if (stream_get_endp(op->s) != op->length)
-    zlog_warn("ospf_make_md5_digest: length mismatch stream %ld ospf_packet %d", stream_get_endp(op->s), op->length);
+    /* XXX size_t */
+    zlog_warn("ospf_make_md5_digest: length mismatch stream %lu ospf_packet %u",
+	      (u_long)stream_get_endp(op->s), op->length);
 
   return OSPF_AUTH_MD5_SIZE;
 }
@@ -759,7 +762,7 @@ ospf_hello (struct ip *iph, struct ospf_header *ospfh,
     }
 
   /* If incoming interface is passive one, ignore Hello. */
-  if (OSPF_IF_PARAM (oi, passive_interface) == OSPF_IF_PASSIVE) {
+  if (OSPF_IF_PASSIVE_STATUS (oi) == OSPF_IF_PASSIVE) {
     char buf[3][INET_ADDRSTRLEN];
     zlog_debug ("ignoring HELLO from router %s sent to %s, "
 	        "received on a passive interface, %s",
@@ -796,8 +799,10 @@ ospf_hello (struct ip *iph, struct ospf_header *ospfh,
   /* Compare Router Dead Interval. */
   if (OSPF_IF_PARAM (oi, v_wait) != ntohl (hello->dead_interval))
     {
-      zlog_warn ("Packet %s [Hello:RECV]: RouterDeadInterval mismatch.",
-		 inet_ntoa (ospfh->router_id));
+      zlog_warn ("Packet %s [Hello:RECV]: RouterDeadInterval mismatch "
+      		 "(expected %u, but received %u).",
+		 inet_ntoa(ospfh->router_id),
+		 OSPF_IF_PARAM(oi, v_wait), ntohl(hello->dead_interval));
       return;
     }
 
@@ -806,8 +811,10 @@ ospf_hello (struct ip *iph, struct ospf_header *ospfh,
     {
       if (OSPF_IF_PARAM (oi, v_hello) != ntohs (hello->hello_interval))
         {
-          zlog_warn ("Packet %s [Hello:RECV]: HelloInterval mismatch.",
-                     inet_ntoa (ospfh->router_id));
+          zlog_warn ("Packet %s [Hello:RECV]: HelloInterval mismatch "
+		     "(expected %u, but received %u).",
+		     inet_ntoa(ospfh->router_id),
+		     OSPF_IF_PARAM(oi, v_hello), ntohs(hello->hello_interval));
           return;
         }
     }
@@ -2712,25 +2719,9 @@ ospf_make_db_desc (struct ospf_interface *oi, struct ospf_neighbor *nbr,
   /* Set DD Sequence Number. */
   stream_putl (s, nbr->dd_seqnum);
 
+  /* shortcut unneeded walk of (empty) summary LSDBs */
   if (ospf_db_summary_isempty (nbr))
-    {
-      /* Sanity check:
-       *
-       * Must be here either:
-       * - Initial DBD (ospf_nsm.c)
-       *   - M must be set
-       * or
-       * - finishing Exchange, and DB-Summary list empty
-       *   - from ospf_db_desc_proc()
-       *   - M must not be set
-       */
-      if (nbr->state >= NSM_Exchange)
-	assert (!IS_SET_DD_M(nbr->dd_flags));
-      else
-        assert (IS_SET_DD_M(nbr->dd_flags));
-
-      return length;
-    }
+    goto empty;
 
   /* Describe LSA Header from Database Summary List. */
   lsdb = &nbr->db_sum;
@@ -2785,9 +2776,17 @@ ospf_make_db_desc (struct ospf_interface *oi, struct ospf_neighbor *nbr,
   /* Update 'More' bit */
   if (ospf_db_summary_isempty (nbr))
     {
-      UNSET_FLAG (nbr->dd_flags, OSPF_DD_FLAG_M);
-      /* Rewrite DD flags */
-      stream_putc_at (s, pp, nbr->dd_flags);
+empty:
+      if (nbr->state >= NSM_Exchange)
+        {
+          UNSET_FLAG (nbr->dd_flags, OSPF_DD_FLAG_M);
+          /* Rewrite DD flags */
+          stream_putc_at (s, pp, nbr->dd_flags);
+        }
+      else
+        {
+          assert (IS_SET_DD_M(nbr->dd_flags));
+        }
     }
   return length;
 }
@@ -2979,7 +2978,7 @@ ospf_poll_send (struct ospf_nbr_nbma *nbr_nbma)
   assert(oi);
 
   /* If this is passive interface, do not send OSPF Hello. */
-  if (OSPF_IF_PARAM (oi, passive_interface) == OSPF_IF_PASSIVE)
+  if (OSPF_IF_PASSIVE_STATUS (oi) == OSPF_IF_PASSIVE)
     return;
 
   if (oi->type != OSPF_IFTYPE_NBMA)
@@ -3047,7 +3046,7 @@ ospf_hello_send (struct ospf_interface *oi)
   u_int16_t length = OSPF_HEADER_SIZE;
 
   /* If this is passive interface, do not send OSPF Hello. */
-  if (OSPF_IF_PARAM (oi, passive_interface) == OSPF_IF_PASSIVE)
+  if (OSPF_IF_PASSIVE_STATUS (oi) == OSPF_IF_PASSIVE)
     return;
 
   op = ospf_packet_new (oi->ifp->mtu);

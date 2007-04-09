@@ -167,6 +167,8 @@ ospf_new (void)
 
   new->default_originate = DEFAULT_ORIGINATE_NONE;
 
+  new->passive_interface_default = OSPF_IF_ACTIVE;
+  
   new->new_external_route = route_table_init ();
   new->old_external_route = route_table_init ();
   new->external_lsas = route_table_init ();
@@ -894,8 +896,6 @@ ospf_network_run (struct ospf *ospf, struct prefix *p, struct ospf_area *area)
 		if ((ospf->router_id.s_addr != 0)
 		    && if_is_operative (ifp)) 
 		  ospf_if_up (oi);
-
-		break;
 	      }
 	}
     }

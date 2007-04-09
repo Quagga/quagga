@@ -25,67 +25,48 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* Macro for BGP read, write and timer thread.  */
 #define BGP_READ_ON(T,F,V)			\
   do {						\
-    if (!T)					\
-      {						\
-        peer_lock (peer);			\
-        THREAD_READ_ON(master,T,F,peer,V);	\
-      }						\
+    if (!(T) && (peer->status != Deleted))	\
+      THREAD_READ_ON(master,T,F,peer,V);	\
   } while (0)
 
 #define BGP_READ_OFF(T)				\
   do {						\
     if (T)					\
-      {						\
-        peer_unlock (peer);			\
-        THREAD_READ_OFF(T);			\
-      }						\
+      THREAD_READ_OFF(T);			\
   } while (0)
 
 #define BGP_WRITE_ON(T,F,V)			\
   do {						\
-    if (!T)					\
-      {						\
-        peer_lock (peer);			\
-        THREAD_WRITE_ON(master,(T),(F),peer,(V)); \
-      }						\
+    if (!(T) && (peer->status != Deleted))	\
+      THREAD_WRITE_ON(master,(T),(F),peer,(V)); \
   } while (0)
     
 #define BGP_WRITE_OFF(T)			\
   do {						\
     if (T)					\
-      {						\
-        peer_unlock (peer);			\
-        THREAD_WRITE_OFF(T);			\
-      }						\
+      THREAD_WRITE_OFF(T);			\
   } while (0)
 
 #define BGP_TIMER_ON(T,F,V)			\
   do {						\
-    if (!T)					\
-      {						\
-        peer_lock (peer);			\
-        THREAD_TIMER_ON(master,(T),(F),peer,(V)); \
-      }						\
+    if (!(T) && (peer->status != Deleted))	\
+      THREAD_TIMER_ON(master,(T),(F),peer,(V)); \
   } while (0)
 
 #define BGP_TIMER_OFF(T)			\
   do {						\
     if (T)					\
-      { 					\
-        peer_unlock (peer);			\
-        THREAD_TIMER_OFF(T);			\
-      }						\
+      THREAD_TIMER_OFF(T);			\
   } while (0)
 
 #define BGP_EVENT_ADD(P,E)			\
   do {						\
-    peer_lock (peer); /* bgp event reference */ \
-    thread_add_event (master, bgp_event, (P), (E)); \
+    if ((P)->status != Deleted)			\
+      thread_add_event (master, bgp_event, (P), (E)); \
   } while (0)
 
-#define BGP_EVENT_DELETE(P)			\
+#define BGP_EVENT_FLUSH(P)			\
   do { 						\
-    peer_unlock (peer); /* bgp event peer reference */ \
     assert (peer); 				\
     thread_cancel_event (master, (P)); 		\
   } while (0)
