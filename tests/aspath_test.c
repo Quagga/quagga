@@ -508,7 +508,7 @@ make_aspath (const u_char *data, size_t len)
       s = stream_new (len);
       stream_put (s, data, len);
     }
-  as = aspath_parse (s, len);
+  as = aspath_parse (s, len, 0); /* jk: these are 16bit aspaths! */
   
   if (s)
     stream_free (s);

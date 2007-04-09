@@ -30,6 +30,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_table.h"
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_attr.h"
+#include "bgpd/bgp_aspath.h"
 #include "bgpd/bgp_mplsvpn.h"
 
 static u_int16_t
@@ -371,7 +372,7 @@ show_adj_route_vpn (struct vty *vty, struct peer *peer, struct prefix_rd *prd)
                     vty_out (vty, "Route Distinguisher: ");
 
                     if (type == RD_TYPE_AS)
-                      vty_out (vty, "%d:%d", rd_as.as, rd_as.val);
+                      vty_out (vty, "%s:%s", as2str(rd_as.as), as2str(rd_as.val));
                     else if (type == RD_TYPE_IP)
                       vty_out (vty, "%s:%d", inet_ntoa (rd_ip.ip), rd_ip.val);
 
@@ -478,7 +479,7 @@ bgp_show_mpls_vpn (struct vty *vty, struct prefix_rd *prd, enum bgp_show_type ty
 		    vty_out (vty, "Route Distinguisher: ");
 
 		    if (type == RD_TYPE_AS)
-		      vty_out (vty, "%d:%d", rd_as.as, rd_as.val);
+		      vty_out (vty, "%s:%s", as2str(rd_as.as), as2str(rd_as.val));
 		    else if (type == RD_TYPE_IP)
 		      vty_out (vty, "%s:%d", inet_ntoa (rd_ip.ip), rd_ip.val);
 		  

@@ -5499,7 +5499,7 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
       if (CHECK_FLAG (binfo->flags, BGP_INFO_STALE))
 	vty_out (vty, ", (stale)");
       if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_AGGREGATOR)))
-	vty_out (vty, ", (aggregated by %d %s)", attr->aggregator_as,
+	vty_out (vty, ", (aggregated by %s %s)", as2str(attr->aggregator_as),
 		 inet_ntoa (attr->aggregator_addr));
       if (CHECK_FLAG (binfo->peer->af_flags[afi][safi], PEER_FLAG_REFLECTOR_CLIENT))
 	vty_out (vty, ", (Received from a RR-client)");

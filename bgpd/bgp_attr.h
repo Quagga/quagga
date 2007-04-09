@@ -57,6 +57,9 @@ struct attr
   /* AS Path structure */
   struct aspath *aspath;
 
+  /* New AS Path structure */
+  struct aspath *as4_aspath;
+
   /* Community structure */
   struct community *community;	
 
@@ -80,11 +83,13 @@ struct attr
   u_int32_t med;
   u_int32_t local_pref;
   struct in_addr aggregator_addr;
+  struct in_addr as4_aggregator_addr;
   struct in_addr originator_id;
   struct in_addr mp_nexthop_global_in;
   struct in_addr mp_nexthop_local_in;
   u_int32_t weight;
   as_t aggregator_as;
+  as_t as4_aggregator_as;
   u_char origin;
   u_char mp_nexthop_len;
 };
@@ -128,7 +133,7 @@ extern bgp_size_t bgp_packet_withdraw (struct peer *peer, struct stream *s,
                                 struct prefix *p, afi_t, safi_t, 
                                 struct prefix_rd *, u_char *);
 extern void bgp_dump_routes_attr (struct stream *, struct attr *,
-				  struct prefix *);
+				  struct prefix *, int dump_small_mp_nlri);
 extern unsigned int attrhash_key_make (struct attr *);
 extern int attrhash_cmp (struct attr *, struct attr *);
 extern void attr_show_all (struct vty *);

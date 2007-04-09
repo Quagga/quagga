@@ -49,7 +49,7 @@ struct graceful_restart_af
 #define CAPABILITY_CODE_REFRESH         2 /* Route Refresh Capability */
 #define CAPABILITY_CODE_ORF             3 /* Cooperative Route Filtering Capability */
 #define CAPABILITY_CODE_RESTART        64 /* Graceful Restart Capability */
-#define CAPABILITY_CODE_4BYTE_AS       65 /* 4-octet AS number Capability */
+#define CAPABILITY_CODE_AS4            65 /* 4-octet AS number Capability */
 #define CAPABILITY_CODE_DYNAMIC        66 /* Dynamic Capability */
 #define CAPABILITY_CODE_REFRESH_OLD   128 /* Route Refresh Capability(cisco) */
 #define CAPABILITY_CODE_ORF_OLD       130 /* Cooperative Route Filtering Capability(cisco) */
@@ -59,6 +59,7 @@ struct graceful_restart_af
 #define CAPABILITY_CODE_REFRESH_LEN     0
 #define CAPABILITY_CODE_DYNAMIC_LEN     0
 #define CAPABILITY_CODE_RESTART_LEN     2 /* Receiving only case */
+#define CAPABILITY_CODE_AS4_LEN         4
 
 /* Cooperative Route Filtering Capability.  */
 
@@ -82,5 +83,6 @@ struct graceful_restart_af
 extern int bgp_open_option_parse (struct peer *, u_char, int *);
 extern void bgp_open_capability (struct stream *, struct peer *);
 extern void bgp_capability_vty_out (struct vty *, struct peer *);
+extern void peek_for_as4_capability (struct peer *, u_char);
 
 #endif /* _QUAGGA_BGP_OPEN_H */
