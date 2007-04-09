@@ -2985,7 +2985,114 @@ ALIAS (no_neighbor_weight,
        NEIGHBOR_ADDR_STR2
        "Set default weight for routes from this neighbor\n"
        "default weight\n")
-
+
+#ifdef SUPPORT_REALMS
+
+#define REALM_PEER_AS	0xFFFFA
+#define REALM_ORIGIN_AS	0xFFFFB
+
+/* neighbor realm.*/
+static int
+peer_realm_set_vty (struct vty *vty, const char *ip_str, 
+                     const char *realm_str)
+{
+  struct peer *peer;
+  u_int32_t realmid;
+  
+  if (strcmp(realm_str, "peer-as") == 0)
+  {
+    realmid = REALM_PEER_AS;
+  } 
+  else if (strcmp(realm_str, "origin-as") == 0)
+  {
+    realmid = REALM_ORIGIN_AS;
+  } 
+  else 
+  {
+    if (rtnl_rtrealm_a2n (&realmid, realm_str) < 0)
+    {
+       vty_out (vty, "%% Invalid realm value%s", VTY_NEWLINE);
+       return CMD_WARNING;
+    }
+  }
+
+
+  peer = peer_and_group_lookup_vty (vty, ip_str);
+  if (! peer)
+    return CMD_WARNING;
+
+  peer_realm_set (peer, realmid);
+
+  return CMD_SUCCESS;
+}
+
+static int
+peer_realm_unset_vty (struct vty *vty, const char *ip_str)
+{
+  struct peer *peer;
+
+  peer = peer_and_group_lookup_vty (vty, ip_str);
+  if (! peer)
+    return CMD_WARNING;
+
+  peer_realm_unset (peer);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (neighbor_realm,
+       neighbor_realm_cmd,
+       NEIGHBOR_CMD2 "realm (<0-255>|WORD)",
+       NEIGHBOR_STR
+       NEIGHBOR_ADDR_STR2
+       "Set default realm for routes from this neighbor\n"
+       "default realm id\n"
+       "default realm name\n")
+{
+  return peer_realm_set_vty (vty, argv[0], argv[1]);
+}
+
+ALIAS (neighbor_realm,
+       neighbor_realm_origin_peer_cmd,
+       NEIGHBOR_CMD2 "realm (origin-as|peer-as)",
+       NEIGHBOR_STR
+       NEIGHBOR_ADDR_STR2
+       "Set default realm for routes from this neighbor\n"
+       "Set default realm to received route origin AS\n"
+       "Set default realm to peer AS")
+
+DEFUN (no_neighbor_realm,
+       no_neighbor_realm_cmd,
+       NO_NEIGHBOR_CMD2 "realm",
+       NO_STR
+       NEIGHBOR_STR
+       NEIGHBOR_ADDR_STR2
+       "Set default realm for routes from this neighbor\n")
+{
+  return peer_realm_unset_vty (vty, argv[0]);
+}
+
+ALIAS (no_neighbor_realm,
+       no_neighbor_realm_val_cmd,
+       NO_NEIGHBOR_CMD2 "realm (<0-255>|WORD)",
+       NO_STR
+       NEIGHBOR_STR
+       NEIGHBOR_ADDR_STR2
+       "Set default realm for routes from this neighbor\n"
+       "default realm id\n"
+       "default realm name\n")
+
+ALIAS (no_neighbor_realm,
+       no_neighbor_realm_origin_peer_cmd,
+       NO_NEIGHBOR_CMD2 "realm (origin-as|peer-as)",
+       NO_STR
+       NEIGHBOR_STR
+       NEIGHBOR_ADDR_STR2
+       "Set default realm for routes from this neighbor\n"
+       "Set default realm to received route origin AS\n"
+       "Set default realm to peer AS")
+#endif
+
 /* Override capability negotiation. */
 DEFUN (neighbor_override_capability,
        neighbor_override_capability_cmd,
@@ -7431,6 +7538,27 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 
   vty_out (vty, "%s", VTY_NEWLINE);
 
+#ifdef SUPPORT_REALMS
+
+  /* Default realm */
+  if (CHECK_FLAG (p->config, PEER_CONFIG_REALM)) 
+  {
+    char realmbuf[64];
+    if (p->realm == REALM_PEER_AS)	  
+      vty_out (vty, "  Default realm is peer-as%s",
+  	   VTY_NEWLINE);	    	  
+    else if (p->realm == REALM_ORIGIN_AS)	  
+      vty_out (vty, "  Default realm is origin-as%s",
+	   VTY_NEWLINE);	  
+    else vty_out (vty, "  Default realm is %s%s", 
+       rtnl_rtrealm_n2a (p->realm, realmbuf, sizeof (realmbuf)), VTY_NEWLINE);
+  }
+
+  vty_out (vty, "%s", VTY_NEWLINE);
+
+
+#endif
+
   /* Address Family Information */
   for (afi = AFI_IP ; afi < AFI_MAX ; afi++)
     for (safi = SAFI_UNICAST ; safi < SAFI_MAX ; safi++)
@@ -9241,6 +9369,17 @@ bgp_vty_init (void)
   install_element (BGP_NODE, &neighbor_weight_cmd);
   install_element (BGP_NODE, &no_neighbor_weight_cmd);
   install_element (BGP_NODE, &no_neighbor_weight_val_cmd);
+
+#ifdef SUPPORT_REALMS
+
+  /* "neighbor realm" commands. */
+  install_element (BGP_NODE, &neighbor_realm_cmd);
+  install_element (BGP_NODE, &neighbor_realm_origin_peer_cmd);
+  install_element (BGP_NODE, &no_neighbor_realm_cmd);
+  install_element (BGP_NODE, &no_neighbor_realm_origin_peer_cmd);
+  install_element (BGP_NODE, &no_neighbor_realm_val_cmd);
+
+#endif
 
   /* "neighbor override-capability" commands. */
   install_element (BGP_NODE, &neighbor_override_capability_cmd);

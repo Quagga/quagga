@@ -87,6 +87,12 @@ struct attr
   as_t aggregator_as;
   u_char origin;
   u_char mp_nexthop_len;
+  
+#ifdef SUPPORT_REALMS
+  /* Realm used */  
+  u_int16_t realmto;
+#endif
+
 };
 
 /* Router Reflector related structure. */

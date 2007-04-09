@@ -299,6 +299,11 @@ attrhash_key_make (struct attr *attr)
   key += attr->aggregator_addr.s_addr;
   key += attr->weight;
 
+#ifdef SUPPORT_REALMS
+  key += attr->realmto;
+#endif
+
+
   key += attr->mp_nexthop_global_in.s_addr;
   if (attr->aspath)
     key += aspath_key_make (attr->aspath);
@@ -337,6 +342,11 @@ attrhash_cmp (struct attr *attr1, struct attr *attr2)
       && attr1->aggregator_as == attr2->aggregator_as
       && attr1->aggregator_addr.s_addr == attr2->aggregator_addr.s_addr
       && attr1->weight == attr2->weight
+
+#ifdef SUPPORT_REALMS
+      && attr1->realmto == attr2->realmto
+#endif
+
 #ifdef HAVE_IPV6
       && attr1->mp_nexthop_len == attr2->mp_nexthop_len
       && IPV6_ADDR_SAME (&attr1->mp_nexthop_global, &attr2->mp_nexthop_global)

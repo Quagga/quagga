@@ -483,6 +483,14 @@
 	* memtypes.c: Add MTYPE_BGP_PROCESS_QUEUE and
 	  MTYPE_BGP_CLEAR_NODE_QUEUE
 
+2005-04-24 Calin Velea <vcalinus@gemenii.ro>
+	
+ 	* rt_names.c, rt_names.h: Library for realm name support - original
+ 	  iproute2 version modified to support name database reloading
+ 	* zclient.c, zclient.h: API realmto message
+ 	* zebra.h: Include rt_names.h
+
+
 2005-05-24 Paul Jakma <paul@dishone.st>
 
 	* memtypes.h: update this auto-built file. (maybe we should just

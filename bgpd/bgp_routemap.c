@@ -1119,6 +1119,112 @@ struct route_map_rule_cmd route_set_metric_cmd =
   route_set_metric_compile,
   route_set_metric_free,
 };
+
+#ifdef SUPPORT_REALMS
+/* `set realm REALM' */
+
+#define REALM_PEER_AS	0xFFFFA
+#define REALM_ORIGIN_AS	0xFFFFB
+
+/* Attr. Flags and Attr. Type Code. */
+#define AS_HEADER_SIZE        2	 
+
+/* Two octet is used for AS value. */
+#define AS_VALUE_SIZE         sizeof (as_t)
+
+static route_map_result_t
+route_set_realm (void *rule, struct prefix *prefix, 
+		  route_map_object_t type, void *object)
+{
+  u_int32_t *realm;
+  u_int16_t realm_value = 0;
+  struct bgp_info *bgp_info;
+  struct aspath *aspath;
+
+  struct assegment *assegment;
+
+  if(type != RMAP_BGP)
+    return RMAP_OKAY;
+
+  bgp_info = object;
+  aspath = bgp_info->attr->aspath;
+  realm = (u_int32_t*) rule;
+  
+  if (*realm == REALM_PEER_AS)
+  {
+      if (aspath == NULL || aspath->segments == NULL)
+	return RMAP_OKAY;
+
+      realm_value = bgp_info->peer->as;
+
+  }
+  else if (*realm == REALM_ORIGIN_AS)
+  {
+      if (aspath == NULL || aspath->segments == NULL)
+	return RMAP_PERMIT;
+
+      assegment = aspath->segments;
+  
+      while (assegment) {
+        int i;
+	
+	for (i = 0; i < assegment->length; i++)
+	    realm_value = assegment->as[i];
+	
+	assegment = assegment->next;
+      }
+  }
+  else realm_value = (u_int16_t)(*realm & 0xFFFF);
+  
+  bgp_info->attr->realmto = realm_value;
+
+  return RMAP_OKAY;
+}
+
+/*
+ * set realm REALM - to set 'to' realm of route
+ */
+static void *
+route_set_realm_compile (char *arg)
+{
+  u_int32_t *realm;
+  u_int32_t realmid;
+
+  if (strcmp(arg, "peer-as") == 0) 
+  {
+    realmid = REALM_PEER_AS;
+  } 
+  else if (strcmp(arg, "origin-as") == 0) 
+  {
+    realmid = REALM_ORIGIN_AS;
+  } 
+  else if (rtnl_rtrealm_a2n (&realmid, arg) < 0) 
+  {
+    return NULL;
+  }
+
+  realm = XMALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (u_int32_t));
+  *realm = (u_int32_t)realmid;
+
+  return realm;
+}
+
+static void
+route_set_realm_free (void *rule)
+{
+  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+}
+
+/* Set realms rule structure. */
+struct route_map_rule_cmd route_set_realm_cmd = 
+{
+  "realm",
+  route_set_realm,
+  route_set_realm_compile,
+  route_set_realm_free,
+};
+#endif
+
 
 /* `set as-path prepend ASPATH' */
 
@@ -2827,6 +2933,59 @@ ALIAS (no_set_metric,
        "Metric value for destination routing protocol\n"
        "Metric value\n")
 
+#ifdef SUPPORT_REALMS
+DEFUN (set_realm,
+       set_realm_cmd,
+       "set realm (<1-255>|WORD)",
+       SET_STR
+       "Set realm id or name for Linux FIB routes\n"
+       "Realm id for Linux FIB routes\n"
+       "Realm name for Linux FIB routes\n")
+{
+  return bgp_route_set_add (vty, vty->index, "realm", argv[0]);
+}
+
+ALIAS (set_realm,
+       set_realm_origin_peer_cmd,
+       "set realm (origin-as|peer-as)",
+       MATCH_STR
+       "Set realm for Linux FIB routes\n"
+       "Use route origin AS as realm id\n"
+       "Use route peer AS as realm id\n")
+
+DEFUN (no_set_realm,
+       no_set_realm_cmd,
+       "no set realm",
+       NO_STR
+       SET_STR
+       "Realm value(s) for Linux FIB routes\n")
+{
+  if (argc == 0)
+    return bgp_route_set_delete (vty, vty->index, "realm", NULL);
+
+  return bgp_route_set_delete (vty, vty->index, "realm", argv[0]);
+}
+
+ALIAS (no_set_realm,
+       no_set_realm_val_cmd,
+       "no set realm (<0-255>|WORD)",
+       NO_STR
+       SET_STR
+       "Realm value(s) for Linux FIB routes\n"
+       "Realm value\n"
+       "Realm name\n")
+
+ALIAS (no_set_realm,
+       no_set_realm_origin_peer_cmd,
+       "no set realm (origin-as|peer-as)",
+       NO_STR
+       SET_STR
+       "Realm value(s) for Linux FIB routes\n"
+       "Origin AS - realm\n"
+       "Peer AS - realm\n")
+
+#endif
+
 DEFUN (set_local_pref,
        set_local_pref_cmd,
        "set local-preference <0-4294967295>",
@@ -3554,6 +3713,10 @@ bgp_route_map_init (void)
   route_map_install_set (&route_set_local_pref_cmd);
   route_map_install_set (&route_set_weight_cmd);
   route_map_install_set (&route_set_metric_cmd);
+#ifdef SUPPORT_REALMS
+  route_map_install_set (&route_set_realm_cmd);
+  
+#endif
   route_map_install_set (&route_set_aspath_prepend_cmd);
   route_map_install_set (&route_set_origin_cmd);
   route_map_install_set (&route_set_atomic_aggregate_cmd);
@@ -3622,6 +3785,13 @@ bgp_route_map_init (void)
   install_element (RMAP_NODE, &set_metric_addsub_cmd);
   install_element (RMAP_NODE, &no_set_metric_cmd);
   install_element (RMAP_NODE, &no_set_metric_val_cmd);
+#ifdef SUPPORT_REALMS
+  install_element (RMAP_NODE, &set_realm_cmd);
+  install_element (RMAP_NODE, &set_realm_origin_peer_cmd);
+  install_element (RMAP_NODE, &no_set_realm_cmd);
+  install_element (RMAP_NODE, &no_set_realm_val_cmd);
+  install_element (RMAP_NODE, &no_set_realm_origin_peer_cmd);
+#endif
   install_element (RMAP_NODE, &set_aspath_prepend_cmd);
   install_element (RMAP_NODE, &no_set_aspath_prepend_cmd);
   install_element (RMAP_NODE, &no_set_aspath_prepend_val_cmd);

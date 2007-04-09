@@ -108,6 +108,15 @@
 	* Makefile.am (EXTRA_DIST): add INSTALL.quagga.txt, because people
 	that patch releases need to know about autoconf required versions.
 
+2005-07-30 Calin Velea <vcalinus@gemenii.ro>
+	
+	* configure.ac: Modified to include realms --enable-realms which
+ 	  uses the realms patch to add suport for route realms under Linux. 
+ 	  This patch is an enhanced version of Arcady Stepanov's original
+ 	  realms patch for zebra-0.93b. It adds route-map and neighbor default
+ 	  realm setting in bgpd and static route realm setting in zebra
+
+
 2005-06-30 Louis Lagendijk <louis.lagendijk@gmail.com>
 
 	* configure.ac: Actually test whether libc has IPv6 support.

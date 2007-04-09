@@ -640,6 +640,15 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp)
 	  SET_FLAG (api.message, ZAPI_MESSAGE_DISTANCE);
 	  api.distance = distance;
 	}
+
+#ifdef SUPPORT_REALMS
+      if (info->attr->realmto)
+	{
+	  SET_FLAG (api.message, ZAPI_MESSAGE_REALMTO);
+	  api.realmto = info->attr->realmto;
+	}
+#endif
+
       zapi_ipv4_route (ZEBRA_IPV4_ROUTE_ADD, zclient, 
                        (struct prefix_ipv4 *) p, &api);
     }

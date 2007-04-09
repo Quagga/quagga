@@ -232,6 +232,10 @@ typedef int socklen_t;
 #include <libutil.h>
 #endif /* HAVE_LIBUTIL_H */
 
+#ifdef SUPPORT_REALMS
+#include <rt_names.h>
+#endif
+
 #ifdef HAVE_GLIBC_BACKTRACE
 #include <execinfo.h>
 #endif /* HAVE_GLIBC_BACKTRACE */

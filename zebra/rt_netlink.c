@@ -738,6 +738,12 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h)
   void *dest;
   void *gate;
 
+#ifdef SUPPORT_REALMS
+  u_int32_t rta_flow;
+  u_int16_t realmto = 0;
+#endif
+  
+
   rtm = NLMSG_DATA (h);
 
   if (h->nlmsg_type != RTM_NEWROUTE)
@@ -799,7 +805,19 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h)
       memcpy (&p.prefix, dest, 4);
       p.prefixlen = rtm->rtm_dst_len;
 
+#ifndef SUPPORT_REALMS
       rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, flags, &p, gate, index, table, metric, 0);
+#else
+      if (tb[RTA_FLOW])
+       {
+         rta_flow = *(u_int32_t *) RTA_DATA (tb[RTA_FLOW]);
+         realmto = rta_flow & 0xFFFF;
+       }
+
+      rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, flags, &p, gate, index, table, metric, 0,
+                   realmto);
+#endif
+	     
     }
 #ifdef HAVE_IPV6
   if (rtm->rtm_family == AF_INET6)
@@ -931,8 +949,20 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
                        inet_ntoa (p.prefix), p.prefixlen);
         }
 
-      if (h->nlmsg_type == RTM_NEWROUTE)
+      if (h->nlmsg_type == RTM_NEWROUTE) {
+#ifndef SUPPORT_REALMS
         rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, table, 0, 0);
+#else
+       if (tb[RTA_FLOW])
+     {
+       u_int32_t rta_flow = *(u_int32_t *) RTA_DATA (tb[RTA_FLOW]);
+       u_int16_t realmto = rta_flow & 0xFFFF;
+       rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, table, 0, 0,
+                     realmto);
+     }
+#endif
+		
+      }
       else
         rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, table);
     }
@@ -1330,7 +1360,13 @@ netlink_talk (struct nlmsghdr *n, struct nlsock *nl)
 /* Routing table change via netlink interface. */
 int
 netlink_route (int cmd, int family, void *dest, int length, void *gate,
+#ifdef SUPPORT_REALMS
+	       int index, int zebra_flags, int table,
+               u_int16_t realmto, u_int16_t realmfrom)
+#else
                int index, int zebra_flags, int table)
+#endif
+
 {
   int ret;
   int bytelen;
@@ -1389,6 +1425,17 @@ netlink_route (int cmd, int family, void *dest, int length, void *gate,
       if (index > 0)
         addattr32 (&req.n, sizeof req, RTA_OIF, index);
     }
+
+#ifdef SUPPORT_REALMS
+  if (realmto || realmfrom)
+    {
+      u_int32_t rta_flow;
+      rta_flow = ((u_int32_t) realmfrom) << 16;
+      rta_flow |= (u_int32_t) realmto;
+
+      addattr32 (&req.n, sizeof req, RTA_FLOW, rta_flow);
+    }
+#endif
 
   /* Destination netlink address. */
   memset (&snl, 0, sizeof snl);
@@ -1466,6 +1513,11 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
           SET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
       goto skip;
     }
+
+#ifdef SUPPORT_REALMS
+  if (rib->realmto)
+      addattr32 (&req.n, sizeof req, RTA_FLOW, rib->realmto);
+#endif
 
   /* Multipath case. */
   if (rib->nexthop_active_num == 1 || MULTIPATH_NUM == 1)
@@ -1813,7 +1865,11 @@ kernel_delete_ipv6_old (struct prefix_ipv6 *dest, struct in6_addr *gate,
                         unsigned int index, int flags, int table)
 {
   return netlink_route (RTM_DELROUTE, AF_INET6, &dest->prefix,
+#ifndef SUPPORT_REALMS
                         dest->prefixlen, gate, index, flags, table);
+#else
+			dest->prefixlen, gate, index, flags, table, 0, 0);
+#endif
 }
 #endif /* HAVE_IPV6 */
 

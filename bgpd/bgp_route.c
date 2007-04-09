@@ -493,6 +493,19 @@ bgp_cluster_filter (struct peer *peer, struct attr *attr)
     }
   return 0;
 }
+
+#ifdef SUPPORT_REALMS
+
+#define REALM_PEER_AS	0xFFFFA
+#define REALM_ORIGIN_AS	0xFFFFB
+
+/* Attr. Flags and Attr. Type Code. */
+#define AS_HEADER_SIZE        2	 
+
+/* Two octet is used for AS value. */
+#define AS_VALUE_SIZE         sizeof (as_t)
+
+#endif
 
 static int
 bgp_input_modifier (struct peer *peer, struct prefix *p, struct attr *attr,
@@ -501,6 +514,44 @@ bgp_input_modifier (struct peer *peer, struct prefix *p, struct attr *attr,
   struct bgp_filter *filter;
   struct bgp_info info;
   route_map_result_t ret;
+
+#ifdef SUPPORT_REALMS
+
+  u_int16_t realm_value = 0;
+  struct aspath *aspath;
+
+  struct assegment *assegment;
+
+
+  /* Apply default realm value. */
+  aspath = attr->aspath;
+
+  if (peer->realm == REALM_PEER_AS)
+  {
+      realm_value = peer->as;
+
+  }
+  else if (peer->realm == REALM_ORIGIN_AS)
+  {
+      if (aspath == NULL || aspath->segments == NULL)
+	return RMAP_PERMIT;
+
+      assegment = aspath->segments;
+  
+      while (assegment) {
+        int i;
+	
+	for (i = 0; i < assegment->length; i++)
+	    realm_value = assegment->as[i];
+	
+	assegment = assegment->next;
+      }
+  }
+  else realm_value = (u_int16_t)(peer->realm & 0xFFFF);
+  
+  attr->realmto = realm_value;
+
+#endif
 
   filter = &peer->filter[afi][safi];
 
@@ -572,6 +623,46 @@ bgp_import_modifier (struct peer *rsclient, struct peer *peer,
   struct bgp_filter *filter;
   struct bgp_info info;
   route_map_result_t ret;
+
+#ifdef SUPPORT_REALMS
+
+  u_int16_t realm_value = 0;
+  struct aspath *aspath;
+
+  struct assegment *assegment;
+
+
+  /* Apply default realm value. */
+  aspath = attr->aspath;
+
+  if (peer->realm == REALM_PEER_AS)
+  {
+      realm_value = peer->as;
+
+  }
+  else if (peer->realm == REALM_ORIGIN_AS)
+  {
+      if (aspath == NULL || aspath->segments == NULL)
+	return RMAP_PERMIT;
+
+      assegment = aspath->segments;
+  
+      while (assegment) {
+        int i;
+	
+	for (i = 0; i < assegment->length; i++)
+	    realm_value = assegment->as[i];
+	
+	assegment = assegment->next;
+      }
+  }
+  else realm_value = (u_int16_t)(peer->realm & 0xFFFF);
+  
+  attr->realmto = realm_value;
+
+#endif
+
+
 
   filter = &rsclient->filter[afi][safi];
 
@@ -5153,6 +5244,10 @@ route_vty_out (struct vty *vty, struct prefix *p,
 
       vty_out (vty, "%7u ",attr->weight);
     
+#ifdef SUPPORT_REALMS
+      vty_out (vty, "%7u    ", attr->realmto);
+#endif
+
       /* Print aspath */
       if (attr->aspath)
         aspath_print_vty (vty, "%s ", attr->aspath);
@@ -5214,6 +5309,10 @@ route_vty_out_tmp (struct vty *vty, struct prefix *p,
 
       vty_out (vty, "%7d ",attr->weight);
     
+#ifdef SUPPORT_REALMS
+      vty_out (vty, "%7u    ", attr->realmto);
+#endif
+
       /* Print aspath */
       if (attr->aspath)
         aspath_print_vty (vty, "%s ", attr->aspath);
@@ -5501,6 +5600,13 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
       if (CHECK_FLAG (binfo->flags, BGP_INFO_SELECTED))
 	vty_out (vty, ", best");
 
+#ifdef SUPPORT_REALMS
+      if (attr->realmto) {
+	char realmbuf[64];
+	vty_out (vty, ", realm %s", rtnl_rtrealm_n2a (attr->realmto, realmbuf, sizeof (realmbuf)));
+      }
+#endif
+
       vty_out (vty, "%s", VTY_NEWLINE);
 	  
       /* Line 4 display Community */
@@ -5541,7 +5647,11 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 
 #define BGP_SHOW_SCODE_HEADER "Status codes: s suppressed, d damped, h history, * valid, > best, i - internal,%s              r RIB-failure, S Stale, R Removed%s"
 #define BGP_SHOW_OCODE_HEADER "Origin codes: i - IGP, e - EGP, ? - incomplete%s%s"
+#ifdef SUPPORT_REALMS
+#define BGP_SHOW_HEADER "   Network          Next Hop            Metric LocPrf Weight   Realm    Path%s"
+#else
 #define BGP_SHOW_HEADER "   Network          Next Hop            Metric LocPrf Weight Path%s"
+#endif
 #define BGP_SHOW_DAMP_HEADER "   Network          From             Reuse    Path%s"
 #define BGP_SHOW_FLAP_HEADER "   Network          From            Flaps Duration Reuse    Path%s"
 

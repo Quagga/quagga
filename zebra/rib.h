@@ -73,6 +73,12 @@ struct rib
   u_char nexthop_num;
   u_char nexthop_active_num;
   u_char nexthop_fib_num;
+
+#ifdef SUPPORT_REALMS
+  /* Realm information */
+  u_int16_t realmto;
+#endif
+
 };
 
 /* Static route information. */
@@ -104,6 +110,11 @@ struct static_ipv4
  see ZEBRA_FLAG_REJECT
      ZEBRA_FLAG_BLACKHOLE
  */
+ 
+#ifdef SUPPORT_REALMS
+  u_int16_t realmto;
+#endif
+
 };
 
 #ifdef HAVE_IPV6
@@ -226,7 +237,11 @@ extern struct route_table *vrf_static_table (afi_t afi, safi_t safi, u_int32_t i
  * also implicitly withdraw equal prefix of same type. */
 extern int rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p, 
 			 struct in_addr *gate, unsigned int ifindex, 
+#ifndef SUPPORT_REALMS
 			 u_int32_t vrf_id, u_int32_t, u_char);
+#else
+			 u_int32_t vrf_id, u_int32_t, u_char, u_int16_t);
+#endif
 
 extern int rib_add_ipv4_multipath (struct prefix_ipv4 *, struct rib *);
 
@@ -246,7 +261,12 @@ extern void rib_init (void);
 
 extern int
 static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
+#ifndef SUPPORT_REALMS
        u_char flags, u_char distance, u_int32_t vrf_id);
+#else
+       u_char flags, u_char distance, u_int32_t vrf_id, u_int16_t realmto);
+#endif
+
 
 extern int
 static_delete_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,

@@ -200,8 +200,13 @@ connected_up_ipv4 (struct interface *ifp, struct connected *ifc)
   if (prefix_ipv4_any (&p))
     return;
 
+#ifndef SUPPORT_REALMS
   rib_add_ipv4 (ZEBRA_ROUTE_CONNECT, 0, &p, NULL, ifp->ifindex, RT_TABLE_MAIN, 
                 ifp->metric, 0);
+#else
+  rib_add_ipv4 (ZEBRA_ROUTE_CONNECT, 0, &p, NULL, ifp->ifindex, RT_TABLE_MAIN, 
+                ifp->metric, 0, 0);
+#endif
 
   rib_update ();
 }

@@ -558,7 +558,17 @@
 	  (remainder) Sanitise refcounting of route_node's. Convert to 
 	  rib_queue_add, rib_addnode and rib_delnode. Change XMALLOC/memset
 	  to XCALLOC. Remove calls to nexthop_delete and nexthop_free.
+
+2005-04-24 Calin Velea <vcalinus@gemenii.ro>
+	
+ 	* rt_netlink.c: Modified netlink_route(), netlink_routing_table(),
+ 	  netlink_route_change() to use realms when working with kernel 
+ 	  table
+ 	* zebra_rib.c, zebra_vty.c, zserv.c, connected.c: realm support 
+ 	  for static routes
+ 	* rib.h: Add realm attribute to rib and static_ipv4 structs
 	  
+
 2005-04-10 Paul Jakma <paul@dishone.st>
 
 	* if_ioctl_solaris.c: (if_lookup_linklocal) fix order of args

@@ -12,7 +12,7 @@ libzebra_la_SOURCES = \
 	sockunion.c prefix.c thread.c if.c memory.c buffer.c table.c hash.c \
 	filter.c routemap.c distribute.c stream.c str.c log.c plist.c \
 	zclient.c sockopt.c smux.c md5.c if_rmap.c keychain.c privs.c \
-	sigevent.c pqueue.c jhash.c memtypes.c workqueue.c
+	sigevent.c pqueue.c jhash.c memtypes.c workqueue.c rt_names.c
 
 BUILT_SOURCES = memtypes.h route_types.h
 
@@ -27,7 +27,7 @@ pkginclude_HEADERS = \
 	str.h stream.h table.h thread.h vector.h version.h vty.h zebra.h \
 	plist.h zclient.h sockopt.h smux.h md5.h if_rmap.h keychain.h \
 	privs.h sigevent.h pqueue.h jhash.h zassert.h memtypes.h \
-	workqueue.h route_types.h
+	workqueue.h route_types.h rt_names.h
 
 EXTRA_DIST = regex.c regex-gnu.h memtypes.awk route_types.awk route_types.txt
 
