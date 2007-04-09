@@ -1,3 +1,32 @@
+2007-01-15 Juergen Kammer <j.kammer@eurodata.de>
+	* Several changes to bgp_dump.[ch] to support asn32 compatible mrt dumps
+	  Thanks to Erik Romijn (RIPE NCC) for his help and testing efforts.
+
+2006-12-08 Juergen Kammer <j.kammer@eurodata.de>
+
+	* Many changes to support 4 byte asnumbers as defined in
+	  draft-ietf-idr-as4bytes-12.txt and to support as4octet
+	  extended communities as defined in
+	  draft-rekhter-as4octet-ext-community-01.txt
+	* bgp_aspath.c: Support asn32
+	* bgp_aspath.h: Support asn32
+	* bgp_attr.c: Support asn32
+	* bgp_attr.h: Support asn32
+	* bgp_debug.c: Support asn32, add 'debug asn32' and
+	  'debug asn32 segment'
+	* bgp_debug.h: Support asn32
+	* bgp_ecommunity.c: Support asn32, support ENCODE_AS4BYTE in extended
+	  communities
+	* bgp_mplsvpn.c: Support asn32
+	* bgp_open.c: Support asn32
+	* bgp_open.h: Support asn32
+	* bgp_packet.c: Support asn32
+	* bgp_route.c: Support asn32
+	* bgp_routemap.c: Support asn32
+	* bgp_vty.c: Support asn32
+	* bgpd.c: Support asn32
+	* bgpd.h: Support asn32
+
 2006-12-12 Andrew J. Schorr <ajschorr@alumni.princeton.edu>
 	
 	* bgp_nexthop.c: (bgp_connected_add, bgp_connected_delete)

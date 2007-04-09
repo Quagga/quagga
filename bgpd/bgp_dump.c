@@ -209,7 +209,16 @@ bgp_dump_routes_entry (struct prefix *p, struct bgp_info *info, int afi,
   /* We support MRT's old format. */
   if (type == MSG_TABLE_DUMP)
     {
-      bgp_dump_header (obuf, MSG_TABLE_DUMP, afi);
+      if (afi == AFI_IP)
+	{
+	  bgp_dump_header (obuf, MSG_TABLE_DUMP, AFI_IP_32BIT_AS);
+	}
+#ifdef HAVE_IPV6
+      else if (afi == AFI_IP6)
+	{
+	  bgp_dump_header (obuf, MSG_TABLE_DUMP, AFI_IP6_32BIT_AS);
+	}
+#endif /* HAVE_IPV6 */
       stream_putw (obuf, 0);	/* View # */
       stream_putw (obuf, seq);	/* Sequence number. */
     }
@@ -240,7 +249,7 @@ bgp_dump_routes_entry (struct prefix *p, struct bgp_info *info, int afi,
 	  stream_put_in_addr (obuf, &peer->su.sin.sin_addr);
 
 	  /* Peer's AS number. */
-	  stream_putw (obuf, peer->as);
+	  stream_putl (obuf, peer->as);
 
 	  /* Dump attribute. */
 	  bgp_dump_routes_attr (obuf, attr, p);
@@ -276,7 +285,7 @@ bgp_dump_routes_entry (struct prefix *p, struct bgp_info *info, int afi,
 			IPV6_MAX_BYTELEN);
 
 	  /* Peer's AS number. */
-	  stream_putw (obuf, peer->as);
+	  stream_putl (obuf, peer->as);
 
 	  /* Dump attribute. */
 	  bgp_dump_routes_attr (obuf, attr, p);
@@ -355,13 +364,21 @@ bgp_dump_interval_func (struct thread *t)
 
 /* Dump common information. */
 static void
-bgp_dump_common (struct stream *obuf, struct peer *peer)
+bgp_dump_common (struct stream *obuf, struct peer *peer, int forceasn32)
 {
   char empty[16] = {0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0};
 
   /* Source AS number and Destination AS number. */
-  stream_putw (obuf, peer->as);
-  stream_putw (obuf, peer->local_as);
+  if (forceasn32 || CHECK_FLAG (peer->cap, PEER_CAP_4BYTE_AS_RCV) )
+    {
+      stream_putl (obuf, peer->as);
+      stream_putl (obuf, peer->local_as);
+    }
+  else
+    {
+      stream_putw (obuf, peer->as);
+      stream_putw (obuf, peer->local_as);
+    }
 
   if (peer->su.sa.sa_family == AF_INET)
     {
@@ -407,8 +424,8 @@ bgp_dump_state (struct peer *peer, int status_old, int status_new)
   obuf = bgp_dump_obuf;
   stream_reset (obuf);
 
-  bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP, BGP4MP_STATE_CHANGE);
-  bgp_dump_common (obuf, peer);
+  bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP, BGP4MP_STATE_CHANGE_32BIT_AS);
+  bgp_dump_common (obuf, peer, 1);/* force this in asn32speak*/
 
   stream_putw (obuf, status_old);
   stream_putw (obuf, status_new);
@@ -436,8 +453,15 @@ bgp_dump_packet_func (struct bgp_dump *bgp_dump, struct peer *peer,
   stream_reset (obuf);
 
   /* Dump header and common part. */
-  bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP, BGP4MP_MESSAGE);
-  bgp_dump_common (obuf, peer);
+  if (CHECK_FLAG (peer->cap, PEER_CAP_4BYTE_AS_RCV) )
+    { 
+      bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP, BGP4MP_MESSAGE_32BIT_AS);
+    }
+  else
+    {
+      bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP, BGP4MP_MESSAGE);
+    }
+  bgp_dump_common (obuf, peer, 0);
 
   /* Packet contents. */
   stream_put (obuf, STREAM_DATA (packet), stream_get_endp (packet));

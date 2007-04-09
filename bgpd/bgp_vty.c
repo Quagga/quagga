@@ -265,6 +265,51 @@ DEFUN (bgp_config_type,
   return CMD_SUCCESS;
 }
 
+DEFUN (bgp_asnum_output_format,
+	bgp_asnum_output_format_cmd,
+	"bgp asnum format (asdot|asdot+|asplain|asip)",
+	"BGP_STR"
+	"ASnumber format"
+	)
+{
+  int lastasnumberformat, newasnumberformat;
+
+  lastasnumberformat = get_asnumber_format();
+
+  if (strcmp (argv[0], "asdot+") == 0)
+    newasnumberformat = BGP_ASNUMBER_FORMAT_ASDOTPLUS;
+  else if (strcmp (argv[0], "asdot") == 0)
+    newasnumberformat = BGP_ASNUMBER_FORMAT_ASDOT;
+  else if (strcmp (argv[0], "asplain") == 0)
+    newasnumberformat = BGP_ASNUMBER_FORMAT_ASPLAIN;
+  else if (strcmp (argv[0], "asip") == 0)
+    newasnumberformat = BGP_ASNUMBER_FORMAT_ASIP;
+  else
+   {
+      vty_out (vty, "%% %s is no valid asnumber format%s", argv[0],
+		      VTY_NEWLINE);
+      return CMD_WARNING;
+   }
+
+  setasnumber_format( newasnumberformat );
+  if ( lastasnumberformat != newasnumberformat )
+    {
+      /*
+       * This is new.  Maybe I annoy people by this, but maybe I also
+       * save someone from doing something foolish or having no clue about
+       * what happens. JK
+       */
+      vty_out (vty, "%% WARNING: Change of asnumber format.%s", VTY_NEWLINE );
+      vty_out (vty, "%% Newly learned aspaths will now be formatted in %s%s", argv[0], VTY_NEWLINE);
+      vty_out (vty, "%% You have to *hard-reset* your bgp sessions to get a consistent aspath format%s", VTY_NEWLINE);
+      vty_out (vty, "%%  on this system.  Only that way you ensure re-evaluation of all bgp%s", VTY_NEWLINE );
+      vty_out( vty, "%%  aspath access-lists you may have in use.%s", VTY_NEWLINE);
+      vty_out( vty, "%%  Remember that aspath access-lists depend on the asnumber format!%s", VTY_NEWLINE);
+    }
+
+  return CMD_SUCCESS;
+}
+
 DEFUN (no_bgp_config_type,
        no_bgp_config_type_cmd,
        "no bgp config-type",
@@ -308,17 +353,24 @@ DEFUN_DEPRECATED (neighbor_version,
 /* "router bgp" commands. */
 DEFUN (router_bgp, 
        router_bgp_cmd, 
-       "router bgp <1-65535>",
+       "router bgp ASNUMBER",
        ROUTER_STR
        BGP_STR
-       AS_STR)
+       AS_STR
+       )
 {
   int ret;
   as_t as;
   struct bgp *bgp;
   const char *name = NULL;
 
-  VTY_GET_INTEGER_RANGE ("AS", as, argv[0], 1, 65535);
+  as = str2asnum( argv[0], NULL );
+  if ( !as ) {
+      vty_out (vty, "%s is not a valid as number.%s", 
+	       argv[0],
+	       VTY_NEWLINE);
+      return CMD_WARNING;
+  }
 
   if (argc == 2)
     name = argv[1];
@@ -331,12 +383,12 @@ DEFUN (router_bgp,
 	       VTY_NEWLINE);
       return CMD_WARNING;
     case BGP_ERR_AS_MISMATCH:
-      vty_out (vty, "BGP is already running; AS is %d%s", as, VTY_NEWLINE);
+      vty_out (vty, "BGP is already running; AS is %s%s", as2str(as), VTY_NEWLINE);
       return CMD_WARNING;
     case BGP_ERR_INSTANCE_MISMATCH:
       vty_out (vty, "BGP view name and AS number mismatch%s", VTY_NEWLINE);
-      vty_out (vty, "BGP instance is already running; AS is %d%s",
-	       as, VTY_NEWLINE);
+      vty_out (vty, "BGP instance is already running; AS is %s%s",
+	       as2str(as), VTY_NEWLINE);
       return CMD_WARNING;
     }
 
@@ -348,7 +400,7 @@ DEFUN (router_bgp,
 
 ALIAS (router_bgp,
        router_bgp_view_cmd,
-       "router bgp <1-65535> view WORD",
+       "router bgp ASNUMBER view WORD",
        ROUTER_STR
        BGP_STR
        AS_STR
@@ -358,7 +410,7 @@ ALIAS (router_bgp,
 /* "no router bgp" commands. */
 DEFUN (no_router_bgp,
        no_router_bgp_cmd,
-       "no router bgp <1-65535>",
+       "no router bgp ASNUMBER",
        NO_STR
        ROUTER_STR
        BGP_STR
@@ -368,7 +420,13 @@ DEFUN (no_router_bgp,
   struct bgp *bgp;
   const char *name = NULL;
 
-  VTY_GET_INTEGER_RANGE ("AS", as, argv[0], 1, 65535);
+  as = str2asnum( argv[0], NULL );
+  if ( !as ) {
+      vty_out (vty, "%s is not a valid as number.%s", 
+	       argv[0],
+	       VTY_NEWLINE);
+      return CMD_WARNING;
+  }
 
   if (argc == 2)
     name = argv[1];
@@ -388,7 +446,7 @@ DEFUN (no_router_bgp,
 
 ALIAS (no_router_bgp,
        no_router_bgp_view_cmd,
-       "no router bgp <1-65535> view WORD",
+       "no router bgp ASNUMBER view WORD",
        NO_STR
        ROUTER_STR
        BGP_STR
@@ -539,7 +597,7 @@ ALIAS (no_bgp_cluster_id,
 
 DEFUN (bgp_confederation_identifier,
        bgp_confederation_identifier_cmd,
-       "bgp confederation identifier <1-65535>",
+       "bgp confederation identifier ASNUMBER",
        "BGP specific commands\n"
        "AS confederation parameters\n"
        "AS number\n"
@@ -550,7 +608,13 @@ DEFUN (bgp_confederation_identifier,
 
   bgp = vty->index;
 
-  VTY_GET_INTEGER ("AS", as, argv[0]);
+  as = str2asnum( argv[0], NULL );
+  if ( !as ) {
+      vty_out (vty, "%s is not a valid as number.%s", 
+	       argv[0],
+	       VTY_NEWLINE);
+      return CMD_WARNING;
+  }
 
   bgp_confederation_id_set (bgp, as);
 
@@ -570,8 +634,13 @@ DEFUN (no_bgp_confederation_identifier,
 
   bgp = vty->index;
 
-  if (argc == 1)
-    VTY_GET_INTEGER ("AS", as, argv[0]);
+  as = str2asnum( argv[0], NULL );
+  if ( !as ) {
+      vty_out (vty, "%s is not a valid as number.%s", 
+	       argv[0],
+	       VTY_NEWLINE);
+      return CMD_WARNING;
+  }
 
   bgp_confederation_id_unset (bgp);
 
@@ -580,7 +649,7 @@ DEFUN (no_bgp_confederation_identifier,
 
 ALIAS (no_bgp_confederation_identifier,
        no_bgp_confederation_identifier_arg_cmd,
-       "no bgp confederation identifier <1-65535>",
+       "no bgp confederation identifier ASNUMBER",
        NO_STR
        "BGP specific commands\n"
        "AS confederation parameters\n"
@@ -589,7 +658,7 @@ ALIAS (no_bgp_confederation_identifier,
 
 DEFUN (bgp_confederation_peers,
        bgp_confederation_peers_cmd,
-       "bgp confederation peers .<1-65535>",
+       "bgp confederation peers . ASNUMBER",
        "BGP specific commands\n"
        "AS confederation parameters\n"
        "Peer ASs in BGP confederation\n"
@@ -603,7 +672,13 @@ DEFUN (bgp_confederation_peers,
 
   for (i = 0; i < argc; i++)
     {
-      VTY_GET_INTEGER_RANGE ("AS", as, argv[i], 1, 65535);
+      as = str2asnum( argv[i], NULL );
+      if ( !as ) {
+	  vty_out (vty, "%s is not a valid as number.%s", 
+		   argv[i],
+		   VTY_NEWLINE);
+	  return CMD_WARNING;
+      }
 
       if (bgp->as == as)
 	{
@@ -619,7 +694,7 @@ DEFUN (bgp_confederation_peers,
 
 DEFUN (no_bgp_confederation_peers,
        no_bgp_confederation_peers_cmd,
-       "no bgp confederation peers .<1-65535>",
+       "no bgp confederation peers . ASNUMBER",
        NO_STR
        "BGP specific commands\n"
        "AS confederation parameters\n"
@@ -634,7 +709,13 @@ DEFUN (no_bgp_confederation_peers,
 
   for (i = 0; i < argc; i++)
     {
-      VTY_GET_INTEGER_RANGE ("AS", as, argv[i], 1, 65535);
+      as = str2asnum( argv[i], NULL );
+      if ( !as ) {
+	  vty_out (vty, "%s is not a valid as number.%s", 
+		   argv[i],
+		   VTY_NEWLINE);
+	  continue;
+      }
       
       bgp_confederation_peers_remove (bgp, as);
     }
@@ -1249,7 +1330,13 @@ peer_remote_as_vty (struct vty *vty, const char *peer_str,
   bgp = vty->index;
 
   /* Get AS number.  */
-  VTY_GET_INTEGER_RANGE ("AS", as, as_str, 1, 65535);
+  as = str2asnum( as_str, NULL );
+  if ( !as ) {
+      vty_out (vty, "%s is not a valid as number.%s", 
+	       as_str,
+	       VTY_NEWLINE);
+      return CMD_WARNING;
+  }
 
   /* If peer is peer group, call proper function.  */
   ret = str2sockunion (peer_str, &su);
@@ -1277,10 +1364,10 @@ peer_remote_as_vty (struct vty *vty, const char *peer_str,
   switch (ret)
     {
     case BGP_ERR_PEER_GROUP_MEMBER:
-      vty_out (vty, "%% Peer-group AS %d. Cannot configure remote-as for member%s", as, VTY_NEWLINE);
+      vty_out (vty, "%% Peer-group AS %s. Cannot configure remote-as for member%s", as2str(as), VTY_NEWLINE);
       return CMD_WARNING;
     case BGP_ERR_PEER_GROUP_PEER_TYPE_DIFFERENT:
-      vty_out (vty, "%% The AS# can not be changed from %d to %s, peer-group members must be all internal or all external%s", as, as_str, VTY_NEWLINE);
+      vty_out (vty, "%% The AS# can not be changed from %s to %s, peer-group members must be all internal or all external%s", as2str(as), as_str, VTY_NEWLINE);
       return CMD_WARNING;
     }
   return bgp_vty_return (vty, ret);
@@ -1288,7 +1375,7 @@ peer_remote_as_vty (struct vty *vty, const char *peer_str,
 
 DEFUN (neighbor_remote_as,
        neighbor_remote_as_cmd,
-       NEIGHBOR_CMD2 "remote-as <1-65535>",
+       NEIGHBOR_CMD2 "remote-as ASNUMBER",
        NEIGHBOR_STR
        NEIGHBOR_ADDR_STR2
        "Specify a BGP neighbor\n"
@@ -1352,7 +1439,7 @@ DEFUN (no_neighbor,
 
 ALIAS (no_neighbor,
        no_neighbor_remote_as_cmd,
-       NO_NEIGHBOR_CMD "remote-as <1-65535>",
+       NO_NEIGHBOR_CMD "remote-as ASNUMBER",
        NO_STR
        NEIGHBOR_STR
        NEIGHBOR_ADDR_STR
@@ -1382,7 +1469,7 @@ DEFUN (no_neighbor_peer_group,
 
 DEFUN (no_neighbor_peer_group_remote_as,
        no_neighbor_peer_group_remote_as_cmd,
-       "no neighbor WORD remote-as <1-65535>",
+       "no neighbor WORD remote-as ASNUMBER",
        NO_STR
        NEIGHBOR_STR
        "Neighbor tag\n"
@@ -1404,7 +1491,7 @@ DEFUN (no_neighbor_peer_group_remote_as,
 
 DEFUN (neighbor_local_as,
        neighbor_local_as_cmd,
-       NEIGHBOR_CMD2 "local-as <1-65535>",
+       NEIGHBOR_CMD2 "local-as ASNUMBER",
        NEIGHBOR_STR
        NEIGHBOR_ADDR_STR2
        "Specify a local-as number\n"
@@ -1417,13 +1504,13 @@ DEFUN (neighbor_local_as,
   if (! peer)
     return CMD_WARNING;
 
-  ret = peer_local_as_set (peer, atoi (argv[1]), 0);
+  ret = peer_local_as_set (peer, str2asnum(argv[1], NULL), 0);
   return bgp_vty_return (vty, ret);
 }
 
 DEFUN (neighbor_local_as_no_prepend,
        neighbor_local_as_no_prepend_cmd,
-       NEIGHBOR_CMD2 "local-as <1-65535> no-prepend",
+       NEIGHBOR_CMD2 "local-as ASNUMBER no-prepend",
        NEIGHBOR_STR
        NEIGHBOR_ADDR_STR2
        "Specify a local-as number\n"
@@ -1437,7 +1524,7 @@ DEFUN (neighbor_local_as_no_prepend,
   if (! peer)
     return CMD_WARNING;
 
-  ret = peer_local_as_set (peer, atoi (argv[1]), 1);
+  ret = peer_local_as_set (peer, str2asnum (argv[1], NULL), 1);
   return bgp_vty_return (vty, ret);
 }
 
@@ -1462,7 +1549,7 @@ DEFUN (no_neighbor_local_as,
 
 ALIAS (no_neighbor_local_as,
        no_neighbor_local_as_val_cmd,
-       NO_NEIGHBOR_CMD2 "local-as <1-65535>",
+       NO_NEIGHBOR_CMD2 "local-as ASNUMBER",
        NO_STR
        NEIGHBOR_STR
        NEIGHBOR_ADDR_STR2
@@ -1471,7 +1558,7 @@ ALIAS (no_neighbor_local_as,
 
 ALIAS (no_neighbor_local_as,
        no_neighbor_local_as_val2_cmd,
-       NO_NEIGHBOR_CMD2 "local-as <1-65535> no-prepend",
+       NO_NEIGHBOR_CMD2 "local-as ASNUMBER no-prepend",
        NO_STR
        NEIGHBOR_STR
        NEIGHBOR_ADDR_STR2
@@ -4124,12 +4211,11 @@ bgp_clear (struct vty *vty, struct bgp *bgp,  afi_t afi, safi_t safi,
     {
       as_t as;
       unsigned long as_ul;
-      char *endptr = NULL;
       int find = 0;
 
-      as_ul = strtoul(arg, &endptr, 10);
+      as_ul = str2asnum(arg, NULL);
 
-      if ((as_ul == ULONG_MAX) || (*endptr != '\0') || (as_ul > USHRT_MAX))
+      if (!as_ul)
 	{
 	  vty_out (vty, "Invalid AS number%s", VTY_NEWLINE); 
 	  return -1;
@@ -4328,7 +4414,7 @@ ALIAS (clear_ip_bgp_external,
 
 DEFUN (clear_ip_bgp_as,
        clear_ip_bgp_as_cmd,
-       "clear ip bgp <1-65535>",
+       "clear ip bgp ASNUMBER",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -4339,14 +4425,14 @@ DEFUN (clear_ip_bgp_as,
 
 ALIAS (clear_ip_bgp_as,
        clear_bgp_as_cmd,
-       "clear bgp <1-65535>",
+       "clear bgp ASNUMBER",
        CLEAR_STR
        BGP_STR
        "Clear peers with the AS number\n")
 
 ALIAS (clear_ip_bgp_as,
        clear_bgp_ipv6_as_cmd,
-       "clear bgp ipv6 <1-65535>",
+       "clear bgp ipv6 ASNUMBER",
        CLEAR_STR
        BGP_STR
        "Address family\n"
@@ -4858,7 +4944,7 @@ ALIAS (clear_bgp_external_soft_out,
 
 DEFUN (clear_ip_bgp_as_soft_out,
        clear_ip_bgp_as_soft_out_cmd,
-       "clear ip bgp <1-65535> soft out",
+       "clear ip bgp ASNUMBER soft out",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -4872,7 +4958,7 @@ DEFUN (clear_ip_bgp_as_soft_out,
 
 ALIAS (clear_ip_bgp_as_soft_out,
        clear_ip_bgp_as_out_cmd,
-       "clear ip bgp <1-65535> out",
+       "clear ip bgp ASNUMBER out",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -4881,7 +4967,7 @@ ALIAS (clear_ip_bgp_as_soft_out,
 
 DEFUN (clear_ip_bgp_as_ipv4_soft_out,
        clear_ip_bgp_as_ipv4_soft_out_cmd,
-       "clear ip bgp <1-65535> ipv4 (unicast|multicast) soft out",
+       "clear ip bgp ASNUMBER ipv4 (unicast|multicast) soft out",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -4902,7 +4988,7 @@ DEFUN (clear_ip_bgp_as_ipv4_soft_out,
 
 ALIAS (clear_ip_bgp_as_ipv4_soft_out,
        clear_ip_bgp_as_ipv4_out_cmd,
-       "clear ip bgp <1-65535> ipv4 (unicast|multicast) out",
+       "clear ip bgp ASNUMBER ipv4 (unicast|multicast) out",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -4914,7 +5000,7 @@ ALIAS (clear_ip_bgp_as_ipv4_soft_out,
 
 DEFUN (clear_ip_bgp_as_vpnv4_soft_out,
        clear_ip_bgp_as_vpnv4_soft_out_cmd,
-       "clear ip bgp <1-65535> vpnv4 unicast soft out",
+       "clear ip bgp ASNUMBER vpnv4 unicast soft out",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -4930,7 +5016,7 @@ DEFUN (clear_ip_bgp_as_vpnv4_soft_out,
 
 ALIAS (clear_ip_bgp_as_vpnv4_soft_out,
        clear_ip_bgp_as_vpnv4_out_cmd,
-       "clear ip bgp <1-65535> vpnv4 unicast out",
+       "clear ip bgp ASNUMBER vpnv4 unicast out",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -4941,7 +5027,7 @@ ALIAS (clear_ip_bgp_as_vpnv4_soft_out,
 
 DEFUN (clear_bgp_as_soft_out,
        clear_bgp_as_soft_out_cmd,
-       "clear bgp <1-65535> soft out",
+       "clear bgp ASNUMBER soft out",
        CLEAR_STR
        BGP_STR
        "Clear peers with the AS number\n"
@@ -4954,7 +5040,7 @@ DEFUN (clear_bgp_as_soft_out,
 
 ALIAS (clear_bgp_as_soft_out,
        clear_bgp_ipv6_as_soft_out_cmd,
-       "clear bgp ipv6 <1-65535> soft out",
+       "clear bgp ipv6 ASNUMBER soft out",
        CLEAR_STR
        BGP_STR
        "Address family\n"
@@ -4964,7 +5050,7 @@ ALIAS (clear_bgp_as_soft_out,
 
 ALIAS (clear_bgp_as_soft_out,
        clear_bgp_as_out_cmd,
-       "clear bgp <1-65535> out",
+       "clear bgp ASNUMBER out",
        CLEAR_STR
        BGP_STR
        "Clear peers with the AS number\n"
@@ -4972,7 +5058,7 @@ ALIAS (clear_bgp_as_soft_out,
 
 ALIAS (clear_bgp_as_soft_out,
        clear_bgp_ipv6_as_out_cmd,
-       "clear bgp ipv6 <1-65535> out",
+       "clear bgp ipv6 ASNUMBER out",
        CLEAR_STR
        BGP_STR
        "Address family\n"
@@ -5762,7 +5848,7 @@ ALIAS (clear_bgp_external_in_prefix_filter,
 
 DEFUN (clear_ip_bgp_as_soft_in,
        clear_ip_bgp_as_soft_in_cmd,
-       "clear ip bgp <1-65535> soft in",
+       "clear ip bgp ASNUMBER soft in",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -5776,7 +5862,7 @@ DEFUN (clear_ip_bgp_as_soft_in,
 
 ALIAS (clear_ip_bgp_as_soft_in,
        clear_ip_bgp_as_in_cmd,
-       "clear ip bgp <1-65535> in",
+       "clear ip bgp ASNUMBER in",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -5785,7 +5871,7 @@ ALIAS (clear_ip_bgp_as_soft_in,
 
 DEFUN (clear_ip_bgp_as_in_prefix_filter,
        clear_ip_bgp_as_in_prefix_filter_cmd,
-       "clear ip bgp <1-65535> in prefix-filter",
+       "clear ip bgp ASNUMBER in prefix-filter",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -5799,7 +5885,7 @@ DEFUN (clear_ip_bgp_as_in_prefix_filter,
 
 DEFUN (clear_ip_bgp_as_ipv4_soft_in,
        clear_ip_bgp_as_ipv4_soft_in_cmd,
-       "clear ip bgp <1-65535> ipv4 (unicast|multicast) soft in",
+       "clear ip bgp ASNUMBER ipv4 (unicast|multicast) soft in",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -5820,7 +5906,7 @@ DEFUN (clear_ip_bgp_as_ipv4_soft_in,
 
 ALIAS (clear_ip_bgp_as_ipv4_soft_in,
        clear_ip_bgp_as_ipv4_in_cmd,
-       "clear ip bgp <1-65535> ipv4 (unicast|multicast) in",
+       "clear ip bgp ASNUMBER ipv4 (unicast|multicast) in",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -5832,7 +5918,7 @@ ALIAS (clear_ip_bgp_as_ipv4_soft_in,
 
 DEFUN (clear_ip_bgp_as_ipv4_in_prefix_filter,
        clear_ip_bgp_as_ipv4_in_prefix_filter_cmd,
-       "clear ip bgp <1-65535> ipv4 (unicast|multicast) in prefix-filter",
+       "clear ip bgp ASNUMBER ipv4 (unicast|multicast) in prefix-filter",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -5853,7 +5939,7 @@ DEFUN (clear_ip_bgp_as_ipv4_in_prefix_filter,
 
 DEFUN (clear_ip_bgp_as_vpnv4_soft_in,
        clear_ip_bgp_as_vpnv4_soft_in_cmd,
-       "clear ip bgp <1-65535> vpnv4 unicast soft in",
+       "clear ip bgp ASNUMBER vpnv4 unicast soft in",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -5869,7 +5955,7 @@ DEFUN (clear_ip_bgp_as_vpnv4_soft_in,
 
 ALIAS (clear_ip_bgp_as_vpnv4_soft_in,
        clear_ip_bgp_as_vpnv4_in_cmd,
-       "clear ip bgp <1-65535> vpnv4 unicast in",
+       "clear ip bgp ASNUMBER vpnv4 unicast in",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -5880,7 +5966,7 @@ ALIAS (clear_ip_bgp_as_vpnv4_soft_in,
 
 DEFUN (clear_bgp_as_soft_in,
        clear_bgp_as_soft_in_cmd,
-       "clear bgp <1-65535> soft in",
+       "clear bgp ASNUMBER soft in",
        CLEAR_STR
        BGP_STR
        "Clear peers with the AS number\n"
@@ -5893,7 +5979,7 @@ DEFUN (clear_bgp_as_soft_in,
 
 ALIAS (clear_bgp_as_soft_in,
        clear_bgp_ipv6_as_soft_in_cmd,
-       "clear bgp ipv6 <1-65535> soft in",
+       "clear bgp ipv6 ASNUMBER soft in",
        CLEAR_STR
        BGP_STR
        "Address family\n"
@@ -5903,7 +5989,7 @@ ALIAS (clear_bgp_as_soft_in,
 
 ALIAS (clear_bgp_as_soft_in,
        clear_bgp_as_in_cmd,
-       "clear bgp <1-65535> in",
+       "clear bgp ASNUMBER in",
        CLEAR_STR
        BGP_STR
        "Clear peers with the AS number\n"
@@ -5911,7 +5997,7 @@ ALIAS (clear_bgp_as_soft_in,
 
 ALIAS (clear_bgp_as_soft_in,
        clear_bgp_ipv6_as_in_cmd,
-       "clear bgp ipv6 <1-65535> in",
+       "clear bgp ipv6 ASNUMBER in",
        CLEAR_STR
        BGP_STR
        "Address family\n"
@@ -5920,7 +6006,7 @@ ALIAS (clear_bgp_as_soft_in,
 
 DEFUN (clear_bgp_as_in_prefix_filter,
        clear_bgp_as_in_prefix_filter_cmd,
-       "clear bgp <1-65535> in prefix-filter",
+       "clear bgp ASNUMBER in prefix-filter",
        CLEAR_STR
        BGP_STR
        "Clear peers with the AS number\n"
@@ -5933,7 +6019,7 @@ DEFUN (clear_bgp_as_in_prefix_filter,
 
 ALIAS (clear_bgp_as_in_prefix_filter,
        clear_bgp_ipv6_as_in_prefix_filter_cmd,
-       "clear bgp ipv6 <1-65535> in prefix-filter",
+       "clear bgp ipv6 ASNUMBER in prefix-filter",
        CLEAR_STR
        BGP_STR
        "Address family\n"
@@ -6248,7 +6334,7 @@ ALIAS (clear_bgp_external_soft,
 
 DEFUN (clear_ip_bgp_as_soft,
        clear_ip_bgp_as_soft_cmd,
-       "clear ip bgp <1-65535> soft",
+       "clear ip bgp ASNUMBER soft",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -6261,7 +6347,7 @@ DEFUN (clear_ip_bgp_as_soft,
 
 DEFUN (clear_ip_bgp_as_ipv4_soft,
        clear_ip_bgp_as_ipv4_soft_cmd,
-       "clear ip bgp <1-65535> ipv4 (unicast|multicast) soft",
+       "clear ip bgp ASNUMBER ipv4 (unicast|multicast) soft",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -6281,7 +6367,7 @@ DEFUN (clear_ip_bgp_as_ipv4_soft,
 
 DEFUN (clear_ip_bgp_as_vpnv4_soft,
        clear_ip_bgp_as_vpnv4_soft_cmd,
-       "clear ip bgp <1-65535> vpnv4 unicast soft",
+       "clear ip bgp ASNUMBER vpnv4 unicast soft",
        CLEAR_STR
        IP_STR
        BGP_STR
@@ -6296,7 +6382,7 @@ DEFUN (clear_ip_bgp_as_vpnv4_soft,
 
 DEFUN (clear_bgp_as_soft,
        clear_bgp_as_soft_cmd,
-       "clear bgp <1-65535> soft",
+       "clear bgp ASNUMBER soft",
        CLEAR_STR
        BGP_STR
        "Clear peers with the AS number\n"
@@ -6308,7 +6394,7 @@ DEFUN (clear_bgp_as_soft,
 
 ALIAS (clear_bgp_as_soft,
        clear_bgp_ipv6_as_soft_cmd,
-       "clear bgp ipv6 <1-65535> soft",
+       "clear bgp ipv6 ASNUMBER soft",
        CLEAR_STR
        BGP_STR
        "Address family\n"
@@ -6609,6 +6695,7 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
   unsigned int count = 0;
   char timebuf[BGP_UPTIME_LEN];
   int len;
+  char *asstring;
 
   /* Header string for each address family. */
   static char header[] = "Neighbor        V    AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd";
@@ -6624,8 +6711,8 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
               
               /* Usage summary and header */
               vty_out (vty,
-                       "BGP router identifier %s, local AS number %d%s",
-                       inet_ntoa (bgp->router_id), bgp->as, VTY_NEWLINE);
+                       "BGP router identifier %s, local AS number %s%s",
+                       inet_ntoa (bgp->router_id), as2str(bgp->as), VTY_NEWLINE);
 
               ents = bgp_table_count (bgp->rib[afi][safi]);
               vty_out (vty, "RIB entries %ld, using %s of memory%s", ents,
@@ -6671,8 +6758,20 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
 
 	  vty_out (vty, "4 ");
 
-	  vty_out (vty, "%5d %7d %7d %8d %4d %4ld ",
-		   peer->as,
+	  asstring = as2str(peer->as);
+	  if ( strlen(asstring) <= 5 )
+	    vty_out (vty, "%5s %7d %7d %8d %4d %4ld ",
+		   asstring,
+		   peer->open_in + peer->update_in + peer->keepalive_in
+		   + peer->notify_in + peer->refresh_in + peer->dynamic_cap_in,
+		   peer->open_out + peer->update_out + peer->keepalive_out
+		   + peer->notify_out + peer->refresh_out
+		   + peer->dynamic_cap_out,
+		   0, 0, peer->obuf->count);
+	  else
+	    vty_out (vty, "%s%*s%11s %7d %7d %8d %4d %4ld ",
+		   VTY_NEWLINE, 12, " ",
+		   asstring,
 		   peer->open_in + peer->update_in + peer->keepalive_in
 		   + peer->notify_in + peer->refresh_in + peer->dynamic_cap_in,
 		   peer->open_out + peer->update_out + peer->keepalive_out
@@ -7181,9 +7280,9 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 
   /* Configured IP address. */
   vty_out (vty, "BGP neighbor is %s, ", p->host);
-  vty_out (vty, "remote AS %d, ", p->as);
-  vty_out (vty, "local AS %d%s, ",
-	   p->change_local_as ? p->change_local_as : p->local_as,
+  vty_out (vty, "remote AS %s, ", as2str(p->as));
+  vty_out (vty, "local AS %s%s, ",
+	   as2str(p->change_local_as ? p->change_local_as : p->local_as),
 	   CHECK_FLAG (p->flags, PEER_FLAG_LOCAL_AS_NO_PREPEND) ?
 	   " no-prepend" : "");
   vty_out (vty, "%s link%s",
@@ -7261,6 +7360,18 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 	{
 	  vty_out (vty, "  Neighbor capabilities:%s", VTY_NEWLINE);
 
+	  /* 4BYTEAS */
+	  if (CHECK_FLAG (p->cap, PEER_CAP_4BYTE_AS_RCV)
+	      || CHECK_FLAG (p->cap, PEER_CAP_4BYTE_AS_ADV))
+	    {
+	      vty_out (vty, "    4 Byte AS:");
+	      if (CHECK_FLAG (p->cap, PEER_CAP_4BYTE_AS_ADV))
+		vty_out (vty, " advertised");
+	      if (CHECK_FLAG (p->cap, PEER_CAP_4BYTE_AS_RCV))
+		vty_out (vty, " %sreceived",
+			 CHECK_FLAG (p->cap, PEER_CAP_4BYTE_AS_ADV) ? "and " : "");
+	      vty_out (vty, "%s", VTY_NEWLINE);
+	    }
 	  /* Dynamic */
 	  if (CHECK_FLAG (p->cap, PEER_CAP_DYNAMIC_RCV)
 	      || CHECK_FLAG (p->cap, PEER_CAP_DYNAMIC_ADV))
@@ -7897,7 +8008,7 @@ bgp_write_rsclient_summary (struct vty *vty, struct peer *rsclient,
 
   vty_out (vty, "4 ");
 
-  vty_out (vty, "%5d ", rsclient->as);
+  vty_out (vty, "%11s ", as2str(rsclient->as));
 
   rmname = ROUTE_MAP_EXPORT_NAME(&rsclient->filter[afi][safi]);
   if ( rmname && strlen (rmname) > 13 )
@@ -8765,6 +8876,9 @@ bgp_vty_init (void)
   /* "bgp config-type" commands. */
   install_element (CONFIG_NODE, &bgp_config_type_cmd);
   install_element (CONFIG_NODE, &no_bgp_config_type_cmd);
+
+  /* asnumber output format */
+  install_element (CONFIG_NODE, &bgp_asnum_output_format_cmd);
 
   /* Dummy commands (Currently not supported) */
   install_element (BGP_NODE, &no_synchronization_cmd);

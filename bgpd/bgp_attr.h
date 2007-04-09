@@ -57,6 +57,9 @@ struct attr
   /* AS Path structure */
   struct aspath *aspath;
 
+  /* New AS Path structure */
+  struct aspath *new_aspath;
+
   /* Community structure */
   struct community *community;	
 
@@ -80,11 +83,13 @@ struct attr
   u_int32_t med;
   u_int32_t local_pref;
   struct in_addr aggregator_addr;
+  struct in_addr new_aggregator_addr;
   struct in_addr originator_id;
   struct in_addr mp_nexthop_global_in;
   struct in_addr mp_nexthop_local_in;
   u_int32_t weight;
   as_t aggregator_as;
+  as_t new_aggregator_as;
   u_char origin;
   u_char mp_nexthop_len;
 };

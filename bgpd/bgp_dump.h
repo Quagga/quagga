@@ -25,13 +25,20 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* type value */
 #define MSG_PROTOCOL_BGP4MP  16
 /* subtype value */
-#define BGP4MP_STATE_CHANGE   0
-#define BGP4MP_MESSAGE        1
-#define BGP4MP_ENTRY          2
-#define BGP4MP_SNAPSHOT       3
+#define BGP4MP_STATE_CHANGE          0
+#define BGP4MP_MESSAGE               1
+#define BGP4MP_ENTRY                 2
+#define BGP4MP_SNAPSHOT              3
+#define BGP4MP_MESSAGE_32BIT_AS      4
+#define BGP4MP_STATE_CHANGE_32BIT_AS 5
 
 #define BGP_DUMP_HEADER_SIZE 12
 #define BGP_DUMP_MSG_HEADER  40
+
+/* ASN32 or ASN16 is encoded in the subtype (AFI) field of TABLE_DUMP */
+/* AFI_IP and AFI_IP6 are defined in zebra/zebra.h */
+#define AFI_IP_32BIT_AS  3
+#define AFI_IP6_32BIT_AS 4
 
 extern void bgp_dump_init (void);
 extern void bgp_dump_state (struct peer *, int, int);

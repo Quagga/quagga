@@ -1,3 +1,7 @@
+2006-12-01 Juergen Kammer <j.kammer@eurodata.de>
+
+	* aspath_test.c: Support asn32 changes, call aspath_parse with 16 bit.
+
 2006-08-26 Paul Jakma <paul.jakma@sun.com>
 
 	* heavy-wq.c: (slow_func_del,slow_func) update to match workqueue
