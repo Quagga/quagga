@@ -59,6 +59,7 @@ struct graceful_restart_af
 #define CAPABILITY_CODE_REFRESH_LEN     0
 #define CAPABILITY_CODE_DYNAMIC_LEN     0
 #define CAPABILITY_CODE_RESTART_LEN     2 /* Receiving only case */
+#define CAPABILITY_CODE_4BYTE_AS_LEN    4
 
 /* Cooperative Route Filtering Capability.  */
 
@@ -82,5 +83,6 @@ struct graceful_restart_af
 extern int bgp_open_option_parse (struct peer *, u_char, int *);
 extern void bgp_open_capability (struct stream *, struct peer *);
 extern void bgp_capability_vty_out (struct vty *, struct peer *);
+extern void peek_for_as32_capability (struct peer *, u_char);
 
 #endif /* _QUAGGA_BGP_OPEN_H */

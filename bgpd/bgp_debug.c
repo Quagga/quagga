@@ -36,6 +36,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_community.h"
 
+unsigned long conf_bgp_debug_asn32;
 unsigned long conf_bgp_debug_fsm;
 unsigned long conf_bgp_debug_events;
 unsigned long conf_bgp_debug_packet;
@@ -45,6 +46,7 @@ unsigned long conf_bgp_debug_update;
 unsigned long conf_bgp_debug_normal;
 unsigned long conf_bgp_debug_zebra;
 
+unsigned long term_bgp_debug_asn32;
 unsigned long term_bgp_debug_fsm;
 unsigned long term_bgp_debug_events;
 unsigned long term_bgp_debug_packet;
@@ -208,8 +210,8 @@ bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
     snprintf (buf + strlen (buf), size - strlen (buf), ", atomic-aggregate");
 
   if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_AGGREGATOR)))
-    snprintf (buf + strlen (buf), size - strlen (buf), ", aggregated by %d %s",
-	      attr->aggregator_as, inet_ntoa (attr->aggregator_addr));
+    snprintf (buf + strlen (buf), size - strlen (buf), ", aggregated by %s %s",
+	      as2str(attr->aggregator_as), inet_ntoa (attr->aggregator_addr));
 
   if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_ORIGINATOR_ID)))
     snprintf (buf + strlen (buf), size - strlen (buf), ", originator %s",
@@ -293,6 +295,92 @@ debug (unsigned int option)
 {
   return bgp_debug_option & option; 
 }
+
+DEFUN (debug_bgp_asn32,
+       debug_bgp_asn32_cmd,
+       "debug bgp asn32",
+       DEBUG_STR
+       BGP_STR
+       "BGP 4Byte Asnumber actions\n")
+{
+  if (vty->node == CONFIG_NODE)
+    DEBUG_ON (asn32, ASN32);
+  else
+    {
+      TERM_DEBUG_ON (asn32, ASN32);
+      vty_out (vty, "BGP asn32 debugging is on%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_bgp_asn32,
+       no_debug_bgp_asn32_cmd,
+       "no debug bgp asn32",
+       NO_STR
+       DEBUG_STR
+       BGP_STR
+       "BGP 4Byte Asnumber actions\n")
+{
+  if (vty->node == CONFIG_NODE)
+    DEBUG_OFF (asn32, ASN32);
+  else
+    {
+      TERM_DEBUG_OFF (asn32, ASN32);
+      vty_out (vty, "BGP asn32 debugging is off%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_debug_bgp_asn32,
+       undebug_bgp_asn32_cmd,
+       "undebug bgp asn32",
+       UNDEBUG_STR
+       DEBUG_STR
+       BGP_STR
+       "BGP 4Byte Asnumber actions\n")
+
+DEFUN (debug_bgp_asn32_segment,
+       debug_bgp_asn32_segment_cmd,
+       "debug bgp asn32 segment",
+       DEBUG_STR
+       BGP_STR
+       "BGP 4Byte Asnumber aspath segment handling\n")
+{
+  if (vty->node == CONFIG_NODE)
+    DEBUG_ON (asn32, ASN32_SEGMENT);
+  else
+    {
+      TERM_DEBUG_ON (asn32, ASN32_SEGMENT);
+      vty_out (vty, "BGP asn32 segment debugging is on%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_bgp_asn32_segment,
+       no_debug_bgp_asn32_segment_cmd,
+       "no debug bgp asn32 segment",
+       NO_STR
+       DEBUG_STR
+       BGP_STR
+       "BGP 4Byte Asnumber aspath segment handling\n")
+{
+  if (vty->node == CONFIG_NODE)
+    DEBUG_OFF (asn32, ASN32_SEGMENT);
+  else
+    {
+      TERM_DEBUG_OFF (asn32, ASN32_SEGMENT);
+      vty_out (vty, "BGP asn32 segment debugging is off%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_debug_bgp_asn32_segment,
+       undebug_bgp_asn32_segment_cmd,
+       "undebug bgp asn32 segment",
+       UNDEBUG_STR
+       DEBUG_STR
+       BGP_STR
+       "BGP 4Byte Asnumber aspath segment handling\n")
 
 DEFUN (debug_bgp_fsm,
        debug_bgp_fsm_cmd,
@@ -648,6 +736,8 @@ DEFUN (no_debug_bgp_all,
   TERM_DEBUG_OFF (keepalive, KEEPALIVE);
   TERM_DEBUG_OFF (update, UPDATE_IN);
   TERM_DEBUG_OFF (update, UPDATE_OUT);
+  TERM_DEBUG_OFF (asn32, ASN32);
+  TERM_DEBUG_OFF (asn32, ASN32_SEGMENT);
   TERM_DEBUG_OFF (fsm, FSM);
   TERM_DEBUG_OFF (filter, FILTER);
   TERM_DEBUG_OFF (zebra, ZEBRA);
@@ -690,6 +780,10 @@ DEFUN (show_debugging_bgp,
     vty_out (vty, "  BGP filter debugging is on%s", VTY_NEWLINE);
   if (BGP_DEBUG (zebra, ZEBRA))
     vty_out (vty, "  BGP zebra debugging is on%s", VTY_NEWLINE);
+  if (BGP_DEBUG (asn32, ASN32))
+    vty_out (vty, "  BGP asn32 debugging is on%s", VTY_NEWLINE);
+  if (BGP_DEBUG (asn32, ASN32_SEGMENT))
+    vty_out (vty, "  BGP asn32 aspath segment debugging is on%s", VTY_NEWLINE);
   vty_out (vty, "%s", VTY_NEWLINE);
   return CMD_SUCCESS;
 }
@@ -702,6 +796,18 @@ bgp_config_write_debug (struct vty *vty)
   if (CONF_BGP_DEBUG (normal, NORMAL))
     {
       vty_out (vty, "debug bgp%s", VTY_NEWLINE);
+      write++;
+    }
+
+  if (CONF_BGP_DEBUG (asn32, ASN32))
+    {
+      vty_out (vty, "debug bgp asn32%s", VTY_NEWLINE);
+      write++;
+    }
+
+  if (CONF_BGP_DEBUG (asn32, ASN32_SEGMENT))
+    {
+      vty_out (vty, "debug bgp asn32 segment%s", VTY_NEWLINE);
       write++;
     }
 
@@ -768,6 +874,11 @@ bgp_debug_init (void)
 
   install_element (ENABLE_NODE, &show_debugging_bgp_cmd);
 
+  install_element (ENABLE_NODE, &debug_bgp_asn32_cmd);
+  install_element (CONFIG_NODE, &debug_bgp_asn32_cmd);
+  install_element (ENABLE_NODE, &debug_bgp_asn32_segment_cmd);
+  install_element (CONFIG_NODE, &debug_bgp_asn32_segment_cmd);
+
   install_element (ENABLE_NODE, &debug_bgp_fsm_cmd);
   install_element (CONFIG_NODE, &debug_bgp_fsm_cmd);
   install_element (ENABLE_NODE, &debug_bgp_events_cmd);
@@ -784,6 +895,13 @@ bgp_debug_init (void)
   install_element (CONFIG_NODE, &debug_bgp_normal_cmd);
   install_element (ENABLE_NODE, &debug_bgp_zebra_cmd);
   install_element (CONFIG_NODE, &debug_bgp_zebra_cmd);
+
+  install_element (ENABLE_NODE, &no_debug_bgp_asn32_cmd);
+  install_element (ENABLE_NODE, &undebug_bgp_asn32_cmd);
+  install_element (CONFIG_NODE, &no_debug_bgp_asn32_cmd);
+  install_element (ENABLE_NODE, &no_debug_bgp_asn32_segment_cmd);
+  install_element (ENABLE_NODE, &undebug_bgp_asn32_segment_cmd);
+  install_element (CONFIG_NODE, &no_debug_bgp_asn32_segment_cmd);
 
   install_element (ENABLE_NODE, &no_debug_bgp_fsm_cmd);
   install_element (ENABLE_NODE, &undebug_bgp_fsm_cmd);
