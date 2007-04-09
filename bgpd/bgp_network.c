@@ -38,6 +38,34 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 extern struct zebra_privs_t bgpd_privs;
 
 
+#if defined(HAVE_TCP_MD5) && defined(GNU_LINUX)
+/* Set MD5 key to the socket.  */
+int
+bgp_md5_set (int sock, struct peer *peer, char *password)
+{
+  int ret;
+  struct tcp_md5sig md5sig;
+  int keylen = password ? strlen(password) : 0;
+
+  bzero((char *)&md5sig, sizeof(md5sig));
+  memcpy(&md5sig.tcpm_addr, &peer->su.sin, sizeof(peer->su.sin));
+  md5sig.tcpm_keylen = keylen;
+  if (keylen)
+    memcpy(md5sig.tcpm_key, password, keylen);
+
+  if ( bgpd_privs.change (ZPRIVS_RAISE) )
+    zlog_err ("bgp_md5_set: could not raise privs");
+
+  ret = setsockopt (sock, IPPROTO_TCP, TCP_MD5SIG, &md5sig, sizeof md5sig);
+
+  if (bgpd_privs.change (ZPRIVS_LOWER) )
+    zlog_err ("bgp_md5_set: could not lower privs");
+
+  return ret;
+}
+
+#endif /* defined(HAVE_TCP_MD5) && defined(GNU_LINUX) */
+
 /* Accept bgp connection. */
 static int
 bgp_accept (struct thread *thread)
@@ -238,6 +266,12 @@ bgp_connect (struct peer *peer)
   sockopt_reuseaddr (peer->fd);
   sockopt_reuseport (peer->fd);
 
+#ifdef HAVE_TCP_MD5
+  if (CHECK_FLAG (peer->flags, PEER_FLAG_PASSWORD))
+    if (sockunion_family (&peer->su) == AF_INET)
+      bgp_md5_set (peer->fd, peer, peer->password);
+#endif /* HAVE_TCP_MD5 */
+
   /* Bind socket. */
   bgp_bind (peer);
 
@@ -346,6 +380,10 @@ bgp_socket (struct bgp *bgp, unsigned short port)
 	  continue;
 	}
 
+#ifdef HAVE_TCP_MD5
+      bm->sock = sock;
+#endif /* HAVE_TCP_MD5 */
+
       thread_add_read (master, bgp_accept, bgp, sock);
     }
   while ((ainfo = ainfo->ai_next) != NULL);
@@ -406,6 +444,9 @@ bgp_socket (struct bgp *bgp, unsigned short port)
       close (sock);
       return ret;
     }
+#ifdef HAVE_TCP_MD5
+  bm->sock = sock;
+#endif /* HAVE_TCP_MD5 */
 
   thread_add_read (bm->master, bgp_accept, bgp, sock);
 

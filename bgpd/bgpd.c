@@ -788,6 +788,7 @@ peer_new (struct bgp *bgp)
   peer->status = Idle;
   peer->ostatus = Idle;
   peer->weight = 0;
+  peer->password = NULL;
   peer->bgp = bgp;
   peer = peer_lock (peer); /* initial reference */
 
@@ -1202,6 +1203,18 @@ peer_delete (struct peer *peer)
   peer->last_reset = PEER_DOWN_NEIGHBOR_DELETE;
   bgp_stop (peer);
   bgp_fsm_change_status (peer, Deleted);
+
+#ifdef HAVE_TCP_MD5
+  /* Password configuration */
+  if (peer->password)
+    {
+      if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP)
+          && sockunion_family (&peer->su) == AF_INET)
+       bgp_md5_set (bm->sock, peer, NULL);
+      free (peer->password);
+    }
+#endif /* HAVE_TCP_MD5 */
+ 
   bgp_timer_set (peer); /* stops all timers for Deleted */
   
   /* Delete from all peer list. */
@@ -1416,6 +1429,26 @@ peer_group2peer_config_copy (struct peer_group *group, struct peer *peer,
     peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
   else
     peer->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+
+#ifdef HAVE_TCP_MD5
+  /* password apply */
+  if (CHECK_FLAG (conf->flags, PEER_FLAG_PASSWORD))
+    {
+      if (peer->password)
+	free (peer->password);
+      peer->password = strdup (conf->password);
+
+      if (sockunion_family (&peer->su) == AF_INET)
+	bgp_md5_set (bm->sock, peer, peer->password);
+    }
+  else if (peer->password)
+    {
+      if (sockunion_family (&peer->su) == AF_INET)
+        bgp_md5_set (bm->sock, peer, NULL);
+      free (peer->password);
+      peer->password = NULL;
+    }
+#endif /* HAVE_TCP_MD5 */
 
   /* maximum-prefix */
   peer->pmax[afi][safi] = conf->pmax[afi][safi];
@@ -3379,6 +3412,121 @@ peer_local_as_unset (struct peer *peer)
   return 0;
 }
 
+#ifdef HAVE_TCP_MD5
+/* Set password for authenticating with the peer. */
+int
+peer_password_set (struct peer *peer, const char *password)
+{
+  struct peer_group *group;
+  struct listnode *nn, *nnode;
+
+  if (peer->password && strcmp (peer->password, password) == 0
+      && ! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
+	return 0;
+
+  SET_FLAG (peer->flags, PEER_FLAG_PASSWORD);
+  if (peer->password)
+    free (peer->password);
+  peer->password = strdup (password);
+
+  if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
+    {
+      if (peer->status == Established)
+          bgp_notify_send (peer, BGP_NOTIFY_CEASE, BGP_NOTIFY_CEASE_CONFIG_CHANGE);
+      else
+        BGP_EVENT_ADD (peer, BGP_Stop);
+
+      if (sockunion_family (&peer->su) == AF_INET)
+	bgp_md5_set (bm->sock, peer, peer->password);
+      return 0;
+    }
+
+  group = peer->group;
+  /* #42# LIST_LOOP (group->peer, peer, nn) */
+  for (ALL_LIST_ELEMENTS (group->peer, nn, nnode, peer))
+    {
+      if (peer->password && strcmp (peer->password, password) == 0)
+	continue;
+
+      SET_FLAG (peer->flags, PEER_FLAG_PASSWORD);
+      if (peer->password)
+        free (peer->password);
+      peer->password = strdup (password);
+
+      if (peer->status == Established)
+        bgp_notify_send (peer, BGP_NOTIFY_CEASE, BGP_NOTIFY_CEASE_CONFIG_CHANGE);
+      else
+        BGP_EVENT_ADD (peer, BGP_Stop);
+
+      if (sockunion_family (&peer->su) == AF_INET)
+	bgp_md5_set (bm->sock, peer, peer->password);
+    }
+
+  return 0;
+}
+
+int
+peer_password_unset (struct peer *peer)
+{
+  struct peer_group *group;
+  struct listnode *nn, *nnode;
+
+  if (! CHECK_FLAG (peer->flags, PEER_FLAG_PASSWORD)
+      && ! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
+    return 0;
+
+  if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
+    {
+      if (peer_group_active (peer)
+	  && CHECK_FLAG (peer->group->conf->flags, PEER_FLAG_PASSWORD))
+	return BGP_ERR_PEER_GROUP_HAS_THE_FLAG;
+
+      if (peer->status == Established)
+        bgp_notify_send (peer, BGP_NOTIFY_CEASE, BGP_NOTIFY_CEASE_CONFIG_CHANGE);
+      else
+        BGP_EVENT_ADD (peer, BGP_Stop);
+
+      if (sockunion_family (&peer->su) == AF_INET)
+	bgp_md5_set (bm->sock, peer, NULL);
+
+      UNSET_FLAG (peer->flags, PEER_FLAG_PASSWORD);
+      if (peer->password)
+	free (peer->password);
+      peer->password = NULL;
+
+      return 0;
+    }
+
+  UNSET_FLAG (peer->flags, PEER_FLAG_PASSWORD);
+  if (peer->password)
+    free (peer->password);
+  peer->password = NULL;
+
+  group = peer->group;
+  /* #42# LIST_LOOP (group->peer, peer, nn) */
+  for (ALL_LIST_ELEMENTS (group->peer, nn, nnode, peer))
+    {
+      if (! CHECK_FLAG (peer->flags, PEER_FLAG_PASSWORD))
+	continue;
+
+      if (peer->status == Established)
+        bgp_notify_send (peer, BGP_NOTIFY_CEASE, BGP_NOTIFY_CEASE_CONFIG_CHANGE);
+      else
+        BGP_EVENT_ADD (peer, BGP_Stop);
+
+      if (sockunion_family (&peer->su) == AF_INET)
+	bgp_md5_set (bm->sock, peer, NULL);
+
+      UNSET_FLAG (peer->flags, PEER_FLAG_PASSWORD);
+      if (peer->password)
+        free (peer->password);
+      peer->password = NULL;
+    }
+
+  return 0;
+}
+#endif /* HAVE_TCP_MD5 */
+
 /* Set distribute list to the peer. */
 int
 peer_distribute_set (struct peer *peer, afi_t afi, safi_t safi, int direct, 
@@ -4416,6 +4564,16 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
 	    ! CHECK_FLAG (g_peer->flags, PEER_FLAG_SHUTDOWN))
 	  vty_out (vty, " neighbor %s shutdown%s", addr, VTY_NEWLINE);
 
+#ifdef HAVE_TCP_MD5
+      /* Password. */
+      if (CHECK_FLAG (peer->flags, PEER_FLAG_PASSWORD))
+	if (! peer_group_active (peer)
+	    || ! CHECK_FLAG (g_peer->flags, PEER_FLAG_PASSWORD)
+	    || strcmp (peer->password, g_peer->password) != 0)
+	  vty_out (vty, " neighbor %s password %s%s", addr, peer->password,
+		   VTY_NEWLINE);
+#endif /* HAVE_TCP_MD5 */
+
       /* BGP port. */
       if (peer->port != BGP_PORT_DEFAULT)
 	vty_out (vty, " neighbor %s port %d%s", addr, peer->port, 
@@ -4943,6 +5101,9 @@ bgp_master_init (void)
   bm->port = BGP_PORT_DEFAULT;
   bm->master = thread_master_create ();
   bm->start_time = time (NULL);
+#ifdef HAVE_TCP_MD5
+  bm->sock = -1;
+#endif /* HAVE_TCP_MD5 */
 }
 
 
