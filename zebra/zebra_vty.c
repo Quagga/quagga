@@ -21,6 +21,7 @@
 
 #include <zebra.h>
 
+#include "memory.h"
 #include "if.h"
 #include "prefix.h"
 #include "command.h"
@@ -474,6 +475,81 @@ DEFUN (no_ip_route_mask_flags_distance2,
   return zebra_static_ipv4 (vty, 0, argv[0], argv[1], NULL, argv[2], argv[3]);
 }
 
+char *proto_rm[AFI_MAX][ZEBRA_ROUTE_MAX+1];	/* "any" == ZEBRA_ROUTE_MAX */
+
+static struct proto_map {
+   const char *pr_name;
+   int   pr_num;
+} proto_map[] = {
+  { "system", ZEBRA_ROUTE_SYSTEM },
+  { "kernel", ZEBRA_ROUTE_KERNEL },
+  { "connect", ZEBRA_ROUTE_CONNECT },
+  { "static", ZEBRA_ROUTE_STATIC },
+  { "rip", ZEBRA_ROUTE_RIP },
+  { "ripng", ZEBRA_ROUTE_RIPNG },
+  { "ospf", ZEBRA_ROUTE_OSPF },
+  { "ospf6", ZEBRA_ROUTE_OSPF6 },
+  { "isis", ZEBRA_ROUTE_ISIS },
+  { "bgp", ZEBRA_ROUTE_BGP },
+  { "hsls", ZEBRA_ROUTE_HSLS },
+  { "any", ZEBRA_ROUTE_MAX },
+  { 0, -1 },
+};
+
+static int
+proto_name2num(const char *s)
+{
+  struct proto_map *p;
+  for (p=proto_map; ; p++)
+    if (!p->pr_name || strcasecmp(s, p->pr_name) == 0)
+      return p->pr_num;
+}
+
+DEFUN (ip_protocol,
+       ip_protocol_cmd,
+       "ip protocol PROTO route-map ROUTE-MAP",
+       NO_STR
+       "Apply route map to PROTO\n"
+       "Protocol name\n"
+       "Route map name\n")
+{
+  int i;
+
+  i = proto_name2num(argv[0]);
+  if (i < 0)
+    {
+      vty_out (vty, "invalid protocol name \"%s\"%s", argv[0] ? argv[0] : "",
+               VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+  if (proto_rm[AFI_IP][i])
+    XFREE (MTYPE_ROUTE_MAP_NAME, proto_rm[AFI_IP][i]);
+  proto_rm[AFI_IP][i] = XSTRDUP (MTYPE_ROUTE_MAP_NAME, argv[1]);
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ip_protocol,
+       no_ip_protocol_cmd,
+       "no ip protocol PROTO",
+       NO_STR
+       "Remove route map from PROTO\n"
+       "Protocol name\n")
+{
+  int i;
+
+  i = proto_name2num(argv[0]);
+  if (i < 0)
+    {
+      vty_out (vty, "invalid protocol name \"%s\"%s", argv[0] ? argv[0] : "",
+               VTY_NEWLINE);
+     return CMD_WARNING;
+    }
+  if (proto_rm[AFI_IP][i])
+    XFREE (MTYPE_ROUTE_MAP_NAME, proto_rm[AFI_IP][i]);
+  proto_rm[AFI_IP][i] = NULL;
+  return CMD_SUCCESS;
+}
+
 /* New RIB.  Detailed information for IPv4 route. */
 static void
 vty_show_ip_route_detail (struct vty *vty, struct route_node *rn)
@@ -529,6 +605,8 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn)
 
       for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
 	{
+          char addrstr[32];
+
 	  vty_out (vty, "  %c",
 		   CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB) ? '*' : ' ');
 
@@ -575,6 +653,31 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn)
 		  break;
 		}
 	    }
+	  switch (nexthop->type)
+            {
+            case NEXTHOP_TYPE_IPV4:
+            case NEXTHOP_TYPE_IPV4_IFINDEX:
+            case NEXTHOP_TYPE_IPV4_IFNAME:
+              if (nexthop->src.ipv4.s_addr)
+                {
+		  if (inet_ntop(AF_INET, &nexthop->src.ipv4, addrstr,
+		      sizeof addrstr))
+                    vty_out (vty, ", src %s", addrstr);
+                }
+              break;
+            case NEXTHOP_TYPE_IPV6:
+            case NEXTHOP_TYPE_IPV6_IFINDEX:
+            case NEXTHOP_TYPE_IPV6_IFNAME:
+              if (!IPV6_ADDR_SAME(&nexthop->src.ipv6, &in6addr_any))
+                {
+		  if (inet_ntop(AF_INET6, &nexthop->src.ipv6, addrstr,
+		      sizeof addrstr))
+                    vty_out (vty, ", src %s", addrstr);
+                }
+              break;
+            default:
+	       break;
+            }
 	  vty_out (vty, "%s", VTY_NEWLINE);
 	}
       vty_out (vty, "%s", VTY_NEWLINE);
@@ -658,6 +761,29 @@ vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
 	      break;
 	    }
 	}
+      switch (nexthop->type)
+        {
+          case NEXTHOP_TYPE_IPV4:
+          case NEXTHOP_TYPE_IPV4_IFINDEX:
+          case NEXTHOP_TYPE_IPV4_IFNAME:
+            if (nexthop->src.ipv4.s_addr)
+              {
+		if (inet_ntop(AF_INET, &nexthop->src.ipv4, buf, sizeof buf))
+                  vty_out (vty, ", src %s", buf);
+              }
+            break;
+          case NEXTHOP_TYPE_IPV6:
+          case NEXTHOP_TYPE_IPV6_IFINDEX:
+          case NEXTHOP_TYPE_IPV6_IFNAME:
+            if (!IPV6_ADDR_SAME(&nexthop->src.ipv6, &in6addr_any))
+              {
+		if (inet_ntop(AF_INET6, &nexthop->src.ipv6, buf, sizeof buf))
+                  vty_out (vty, ", src %s", buf);
+              }
+            break;
+          default:
+	    break;
+        }
 
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_BLACKHOLE))
                vty_out (vty, ", bh");
@@ -1883,6 +2009,8 @@ zebra_vty_init (void)
 {
   install_node (&ip_node, zebra_ip_config);
 
+  install_element (CONFIG_NODE, &ip_protocol_cmd);
+  install_element (CONFIG_NODE, &no_ip_protocol_cmd);
   install_element (CONFIG_NODE, &ip_route_cmd);
   install_element (CONFIG_NODE, &ip_route_flags_cmd);
   install_element (CONFIG_NODE, &ip_route_flags2_cmd);
