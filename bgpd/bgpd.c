@@ -2104,10 +2104,20 @@ peer_lookup_with_open (union sockunion *su, as_t remote_as,
       if (sockunion_same (&peer->su, su)
 	  && ! CHECK_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER))
 	{
-	  if (peer->as == remote_as
+	  if ( (peer->as == remote_as
+			|| (peer->as == BGP_AS_TRANS &&
+				peer->as32cap == remote_as &&
+				CHECK_FLAG (peer->cap, PEER_CAP_4BYTE_AS_RCV))
+				  )
 	      && peer->remote_id.s_addr == remote_id->s_addr)
 	    return peer;
-	  if (peer->as == remote_as)
+	  if ( (peer->as == remote_as
+			|| (peer->as == BGP_AS_TRANS &&
+				peer->as32cap == remote_as &&
+				CHECK_FLAG (peer->cap, PEER_CAP_4BYTE_AS_RCV))
+
+	       )
+			  )
 	    *as = 1;
 	}
     }
@@ -2116,10 +2126,18 @@ peer_lookup_with_open (union sockunion *su, as_t remote_as,
       if (sockunion_same (&peer->su, su)
 	  &&  ! CHECK_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER))
 	{
-	  if (peer->as == remote_as
+	  if ( ( peer->as == remote_as
+			|| (peer->as == BGP_AS_TRANS &&
+				peer->as32cap == remote_as &&
+				CHECK_FLAG (peer->cap, PEER_CAP_4BYTE_AS_RCV))
+	       )
 	      && peer->remote_id.s_addr == 0)
 	    return peer;
-	  if (peer->as == remote_as)
+	  if ( peer->as == remote_as
+			|| (peer->as == BGP_AS_TRANS &&
+				peer->as32cap == remote_as &&
+				CHECK_FLAG (peer->cap, PEER_CAP_4BYTE_AS_RCV))
+			  )
 	    *as = 1;
 	}
     }
@@ -4384,13 +4402,13 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
 	    vty_out (vty, " neighbor %s peer-group%s", addr,
 		     VTY_NEWLINE);
 	  if (peer->as)
-	    vty_out (vty, " neighbor %s remote-as %d%s", addr, peer->as,
+	    vty_out (vty, " neighbor %s remote-as %s%s", addr, as2str(peer->as),
 		     VTY_NEWLINE);
 	}
       else
 	{
 	  if (! g_peer->as)
-	    vty_out (vty, " neighbor %s remote-as %d%s", addr, peer->as,
+	    vty_out (vty, " neighbor %s remote-as %s%s", addr, as2str(peer->as),
 		     VTY_NEWLINE);
 	  if (peer->af_group[AFI_IP][SAFI_UNICAST])
 	    vty_out (vty, " neighbor %s peer-group %s%s", addr,
@@ -4400,8 +4418,8 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
       /* local-as. */
       if (peer->change_local_as)
 	if (! peer_group_active (peer))
-	  vty_out (vty, " neighbor %s local-as %d%s%s", addr,
-		   peer->change_local_as,
+	  vty_out (vty, " neighbor %s local-as %s%s%s", addr,
+		   as2str(peer->change_local_as),
 		   CHECK_FLAG (peer->flags, PEER_FLAG_LOCAL_AS_NO_PREPEND) ?
 		   " no-prepend" : "", VTY_NEWLINE);
 
@@ -4769,6 +4787,34 @@ bgp_config_write (struct vty *vty)
       write++;
     }
 
+  {
+    /* Sigh.  Wish we woud not have had to do this....
+     */
+    int asnumber_format = get_asnumber_format();
+    if (asnumber_format != BGP_ASNUMBER_FORMAT_DEFAULT)
+    {
+      switch ( asnumber_format )
+        {
+	  case BGP_ASNUMBER_FORMAT_ASDOT:
+	    vty_out (vty, "bgp asnumber format asdot%s", VTY_NEWLINE);
+	    write++;
+	    break;
+	  case BGP_ASNUMBER_FORMAT_ASDOTPLUS:
+	    vty_out (vty, "bgp asnumber format asdot+%s", VTY_NEWLINE);
+	    write++;
+	    break;
+	  case BGP_ASNUMBER_FORMAT_ASPLAIN:
+	    vty_out (vty, "bgp asnumber format asplain%s", VTY_NEWLINE);
+	    write++;
+	    break;
+	  case BGP_ASNUMBER_FORMAT_ASIP:
+	    vty_out (vty, "bgp asnumber format asip%s", VTY_NEWLINE);
+	    write++;
+	    break;
+	}
+    }
+  }
+
   /* BGP configuration. */
   for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
     {
@@ -4776,7 +4822,7 @@ bgp_config_write (struct vty *vty)
 	vty_out (vty, "!%s", VTY_NEWLINE);
 
       /* Router bgp ASN */
-      vty_out (vty, "router bgp %d", bgp->as);
+      vty_out (vty, "router bgp %s", as2str(bgp->as) );
 
       if (bgp_option_check (BGP_OPT_MULTIPLE_INSTANCE))
 	{
@@ -4826,7 +4872,8 @@ bgp_config_write (struct vty *vty)
 
       /* Confederation identifier*/
       if (CHECK_FLAG (bgp->config, BGP_CONFIG_CONFEDERATION))
-       vty_out (vty, " bgp confederation identifier %i%s", bgp->confed_id,
+       vty_out (vty, " bgp confederation identifier %s%s",
+		       as2str(bgp->confed_id),
                 VTY_NEWLINE);
 
       /* Confederation peer */
@@ -4837,7 +4884,7 @@ bgp_config_write (struct vty *vty)
 	  vty_out (vty, " bgp confederation peers");
 
          for (i = 0; i < bgp->confed_peers_cnt; i++)
-           vty_out(vty, " %d", bgp->confed_peers[i]);
+           vty_out(vty, " %s", as2str(bgp->confed_peers[i]));
 
           vty_out (vty, "%s", VTY_NEWLINE);
 	}

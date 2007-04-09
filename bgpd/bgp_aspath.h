@@ -31,7 +31,10 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define BGP_PRIVATE_AS_MIN       64512U
 #define BGP_PRIVATE_AS_MAX       65535U
 
+/* we leave BGP_AS_MAX as the 16bit AS MAX number.  */
 #define BGP_AS_MAX		 65535U
+/* Transition 16Bit AS as defined by IANA */
+#define BGP_AS_TRANS		 23456U
 
 /* AS_PATH segment data in abstracted form, no limit is placed on length */
 struct assegment
@@ -58,10 +61,47 @@ struct aspath
 
 #define ASPATH_STR_DEFAULT_LEN 32
 
+/* stuffed this here, with asn32 we have different asnumber formats */
+enum bgp_asnumber_format
+{
+  BGP_ASNUMBER_FORMAT_ASDOT,
+  BGP_ASNUMBER_FORMAT_ASDOTPLUS,
+  BGP_ASNUMBER_FORMAT_ASPLAIN,
+  BGP_ASNUMBER_FORMAT_ASIP,
+
+  BGP_ASNUMBER_FORMAT_NOTUSED
+};
+
+/* This is the default definition for asnumber output
+ * It is used whenever an asnumber is turned into a string
+ * so it changes the string representation og aspaths as well as
+ * all configuration and command outputs.
+ * As of now, it is ASDOT.  It may well become ASPLAIN in the future
+ * if the net community should reach consensus for that.
+ * Aeh, ASIP is more like a joke, nobody wants this - lets say it is
+ * for testing purposes ;-)
+ * 
+ * As of now, the RIRs and Cisco already use ASPLAIN so we use that as
+ * default.
+ * For everybody, the summary (all <...> are given out as decimal value):
+ *
+ *     asdot   [<higher16bits>.]<lower16bits>
+ *              higher16bits ONLY given out if not 0.
+ *     asdot+  <higher16bits>.<lower16bits>
+ *              higher16bits ALWAYS given out.
+ *     asplain <32bits>
+ *     asip    <8highestbits><8bitsbelowthem><8bitsfurtherdown><lowest8bits>
+ *
+ * BTW, quagga automagically munges all of these formats as inputs, no
+ * change needed there.    -JK 20061114
+ */
+
+#define BGP_ASNUMBER_FORMAT_DEFAULT BGP_ASNUMBER_FORMAT_ASDOT
+
 /* Prototypes. */
 extern void aspath_init (void);
 extern void aspath_finish (void);
-extern struct aspath *aspath_parse (struct stream *, size_t);
+extern struct aspath *aspath_parse (struct stream *, size_t, int);
 extern struct aspath *aspath_dup (struct aspath *);
 extern struct aspath *aspath_aggregate (struct aspath *, struct aspath *);
 extern struct aspath *aspath_prepend (struct aspath *, struct aspath *);
@@ -88,9 +128,20 @@ extern unsigned int aspath_count_hops (struct aspath *);
 extern unsigned int aspath_count_confeds (struct aspath *);
 extern unsigned int aspath_size (struct aspath *);
 extern as_t aspath_highest (struct aspath *);
-extern void aspath_put (struct stream *, struct aspath *);
+extern void aspath_put (struct stream *, struct aspath *, int);
+
+extern void aspath_truncateathopsandjoin (struct aspath **, struct aspath **, int);
+extern unsigned int aspath_count_num32as (struct aspath *);
+extern unsigned int aspath_count_numas (struct aspath *);
+extern void aspath_cleanoutall_asconfeds( struct aspath **, unsigned int *);
 
 /* For SNMP BGP4PATHATTRASPATHSEGMENT, might be useful for debug */
 extern u_char *aspath_snmp_pathseg (struct aspath *, size_t *);
+
+/* asnumber format things */
+extern void setasnumber_format (int);
+extern int get_asnumber_format (void);
+extern char *as2str(as_t);
+extern as_t str2asnum (const char *, const char **);
 
 #endif /* _QUAGGA_BGP_ASPATH_H */
