@@ -33,6 +33,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_fsm.h"
 #include "bgpd/bgp_packet.h"
 #include "bgpd/bgp_open.h"
+#include "bgpd/bgp_aspath.h"
 #include "bgpd/bgp_vty.h"
 
 /* BGP-4 Multiprotocol Extentions lead us to the complex world. We can
@@ -483,6 +484,40 @@ bgp_capability_parse (struct peer *peer, u_char *pnt, u_char length,
 
 	  SET_FLAG (peer->cap, PEER_CAP_DYNAMIC_RCV);
 	}
+      else if (cap.code == CAPABILITY_CODE_AS4)
+	{
+	  /* Check length */
+	  if (cap.length != CAPABILITY_CODE_AS4_LEN)
+	    {
+	      zlog_info ("%s AS4 Capability length error %d",
+			 peer->host, cap.length);
+	      bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+	      return -1;
+	    }
+	  if (BGP_DEBUG (normal, NORMAL))
+	    zlog_debug ("%s OPEN has AS4 capability", peer->host);
+
+	  {
+	     /* 
+	      * We did not make a "stream_getl" but read into
+	      * the struct.
+	      * Do the byte swivveling now
+	      */
+	    u_char *gotthis = (char *) &cap.mpc;
+	    peer->as4cap = ((u_char) *gotthis++) << 24;
+	    peer->as4cap |= ((u_char) *gotthis++) << 16;
+	    peer->as4cap |= ((u_char) *gotthis++) << 8;
+	    peer->as4cap |= ((u_char) *gotthis);
+	  }
+
+	  if (BGP_DEBUG (as4, AS4))
+	    zlog_debug ("[AS4] %s about to set cap PEER_CAP_AS4_RCV at address %08x, value now %d, as4cap is %s", peer->host, &peer->cap, peer->cap,as2str(peer->as4cap));
+
+	  SET_FLAG (peer->cap, PEER_CAP_AS4_RCV);
+
+	  if (BGP_DEBUG (as4, AS4))
+	    zlog_debug ("[AS4] %s set cap PEER_CAP_AS4_RCV at address %08x, value now %d", peer->host, &peer->cap, peer->cap);
+	}
  
       else if (cap.code > 128)
 	{
@@ -523,6 +558,92 @@ strict_capability_same (struct peer *peer)
       if (peer->afc[i][j] != peer->afc_nego[i][j])
 	return 0;
   return 1;
+}
+
+/* peek into option, set as4 value if it is there */
+void peek_for_as4_capability( struct peer *peer, u_char length )
+{
+  u_char *pnt;
+  u_char *end;
+  u_char opt_type;
+  u_char opt_length;
+  struct capability cap;
+
+  pnt = stream_pnt (peer->ibuf);
+  end = pnt + length;
+
+  if (BGP_DEBUG (as4, AS4))
+    zlog_debug ("[AS4] %s rcv OPEN w/ OPTION parameter len: %u, peeking for as4",
+	       peer->host, length);
+  
+  /* the error cases we DONT handle, we ONLY try to read as4 out of
+   * correctly formatted options
+   */
+  while (pnt < end) 
+    {
+
+      /* Check the length. */
+      if (pnt + 2 > end)
+	return;
+
+      /* Fetch option type and length. */
+      opt_type = *pnt++;
+      opt_length = *pnt++;
+
+      /* Option length check. */
+      if (pnt + opt_length > end)
+	return;
+
+      if ( opt_type == BGP_OPEN_OPT_CAP )
+        {
+	  u_char *mypnt = pnt;
+	  u_char mylength = opt_length;
+	  u_char *myend ;
+
+	  myend = mypnt + mylength;
+	  while (mypnt < myend)
+	    {
+	      afi_t afi;
+	      safi_t safi;
+
+	      /* Fetch structure to the byte stream. */
+	      memcpy (&cap, mypnt, sizeof (struct capability));
+
+	      afi = ntohs(cap.mpc.afi);
+	      safi = cap.mpc.safi;
+
+	      if (mypnt + 2 > myend)
+		return;
+	      if (mypnt + (cap.length + 2) > myend)
+		return;
+
+	      if (cap.code == CAPABILITY_CODE_AS4)
+		{
+		  if (cap.length != CAPABILITY_CODE_AS4_LEN)
+		    return;
+		  if (BGP_DEBUG (as4, AS4))
+		    zlog_debug ("[AS4] %s OPEN peeking found AS4 capability", peer->host);
+
+		  {
+		     /* 
+		      * We did not make a "stream_getl"
+		      * Do the byte swivveling now
+		      */
+		    u_char *gotthis = (char *) &cap.mpc;
+		    peer->as4cap = ((u_char) *gotthis++) << 24;
+		    peer->as4cap |= ((u_char) *gotthis++) << 16;
+		    peer->as4cap |= ((u_char) *gotthis++) << 8;
+		    peer->as4cap |= ((u_char) *gotthis);
+
+		  }
+		  SET_FLAG (peer->cap, PEER_CAP_AS4_RCV);
+
+		}
+		mypnt += cap.length + 2;
+	    }
+	}
+        pnt += opt_length;
+    }
 }
 
 /* Parse open option */
@@ -733,6 +854,7 @@ bgp_open_capability (struct stream *s, struct peer *peer)
   unsigned long cp;
   afi_t afi;
   safi_t safi;
+  as_t local_as;
 
   /* Remember current pointer for Opt Parm Len. */
   cp = stream_get_endp (s);
@@ -818,6 +940,18 @@ bgp_open_capability (struct stream *s, struct peer *peer)
   stream_putc (s, CAPABILITY_CODE_REFRESH_LEN + 2);
   stream_putc (s, CAPABILITY_CODE_REFRESH);
   stream_putc (s, CAPABILITY_CODE_REFRESH_LEN);
+
+  /* AS4 */
+  SET_FLAG (peer->cap, PEER_CAP_AS4_ADV);
+  stream_putc (s, BGP_OPEN_OPT_CAP);
+  stream_putc (s, CAPABILITY_CODE_AS4_LEN + 2);
+  stream_putc (s, CAPABILITY_CODE_AS4);
+  stream_putc (s, CAPABILITY_CODE_AS4_LEN);
+  if ( peer->change_local_as )
+    local_as = peer->change_local_as;
+  else
+    local_as = peer->local_as;
+  stream_putl (s, local_as );
 
   /* ORF capability. */
   for (afi = AFI_IP ; afi < AFI_MAX ; afi++)

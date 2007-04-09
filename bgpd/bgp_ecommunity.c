@@ -27,6 +27,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_ecommunity.h"
+#include "bgpd/bgp_aspath.h"
 
 /* Hash of community attribute. */
 struct hash *ecomhash;
@@ -283,7 +284,8 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
   u_int32_t val_high = 0;
   const char *p = str;
   struct in_addr ip;
-  char ipstr[INET_ADDRSTRLEN + 1];
+  as_t as4;
+  char helpstr[INET_ADDRSTRLEN + 1];
 
   /* Skip white space. */
   while (isspace ((int) *p))
@@ -346,6 +348,7 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
       goto error;
     }
   
+  as4 = (as_t) 0;
   while (isdigit ((int) *p) || *p == ':' || *p == '.') 
     {
       if (*p == ':') 
@@ -361,12 +364,22 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
 	      if ((p - str) > INET_ADDRSTRLEN)
 		goto error;
 
-	      memset (ipstr, 0, INET_ADDRSTRLEN + 1);
-	      memcpy (ipstr, str, p - str);
+	      memset (helpstr, 0, INET_ADDRSTRLEN + 1);
+	      memcpy (helpstr, str, p - str);
 
-	      ret = inet_aton (ipstr, &ip);
-	      if (ret == 0)
-		goto error;
+	      if ( dot == 1 )
+		{
+		  /* ONE dot => 4 Byte AS number */
+		  as4 = str2asnum( helpstr, NULL);
+		  if ( !as4 )
+		    goto error;
+		}
+	      else
+		{
+	          ret = inet_aton (helpstr, &ip);
+	          if (ret == 0)
+		    goto error;
+		}
 	    }
 	  else
 	    val_high = val_low;
@@ -394,8 +407,27 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
   if (! digit || ! separator)
     goto error;
 
+  if ( !as4 && !dot && val_high > 65535 )
+    {
+      /* Ha.  someone using asplain for input
+       * Automagically switch to 4 byte as!
+       * Got it!
+       */
+      as4 = val_high;
+    }
   /* Encode result into routing distinguisher.  */
-  if (dot)
+  if (as4)
+    {
+      eval->val[0] = ECOMMUNITY_ENCODE_AS4;
+      eval->val[1] = 0;
+      eval->val[2] = (as4 >>24) & 0xff;
+      eval->val[3] = (as4 >>16) & 0xff;
+      eval->val[4] = (as4 >>8) & 0xff;
+      eval->val[5] = as4 & 0xff;
+      eval->val[6] = (val_low >> 8) & 0xff;
+      eval->val[7] = val_low & 0xff;
+    }
+  else if (dot)
     {
       eval->val[0] = ECOMMUNITY_ENCODE_IP;
       eval->val[1] = 0;
@@ -576,7 +608,8 @@ ecommunity_ecom2str (struct ecommunity *ecom, int format)
 
       /* High-order octet of type. */
       encode = *pnt++;
-      if (encode != ECOMMUNITY_ENCODE_AS && encode != ECOMMUNITY_ENCODE_IP)
+      if (encode != ECOMMUNITY_ENCODE_AS && encode != ECOMMUNITY_ENCODE_IP
+		      && encode != ECOMMUNITY_ENCODE_AS4)
 	{
 	  len = sprintf (str_buf + str_pnt, "?");
 	  str_pnt += len;
@@ -618,6 +651,29 @@ ecommunity_ecom2str (struct ecommunity *ecom, int format)
 	}
 
       /* Put string into buffer.  */
+      if (encode == ECOMMUNITY_ENCODE_AS4)
+	{
+	  eas.as = (*pnt++ << 24);
+	  eas.as |= (*pnt++ << 16);
+	  eas.as |= (*pnt++ << 8);
+	  eas.as |= (*pnt++);
+
+	  eas.val = (*pnt++ << 8);
+	  eas.val |= (*pnt++);
+
+	  /* Bad luck. Have to enforce asdot+ here, otherwise reading in
+	   * the values again from a config file will not work, and you
+	   * can not detect an as4 extcommunity if the asn is < 65536.
+	   * Probably this syntax is the wrong one to use after all,
+	   * having even one place to rely on a specific format does not
+	   * fit in a "configurable format".
+	   * So I can not use as2str here.
+	   */
+	  len = sprintf (str_buf + str_pnt, "%s%u.%u:%d", prefix,
+			 (eas.as>>16)&0xffff, eas.as&0xffff, eas.val);
+	  str_pnt += len;
+	  first = 0;
+	}
       if (encode == ECOMMUNITY_ENCODE_AS)
 	{
 	  eas.as = (*pnt++ << 8);
