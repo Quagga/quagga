@@ -121,6 +121,7 @@ struct bgp
   /* BGP Per AF flags */
   u_int16_t af_flags[AFI_MAX][SAFI_MAX];
 #define BGP_CONFIG_DAMPENING              (1 << 0)
+#define BGP_CONFIG_PGBGP                  (1 << 1)
 
   /* Static route configuration.  */
   struct bgp_table *route[AFI_MAX][SAFI_MAX];

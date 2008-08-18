@@ -63,6 +63,8 @@ struct bgp_node
 
   unsigned int lock;
 
+  struct bgp_pgbgp_hist *hist;
+
   u_char flags;
 #define BGP_NODE_PROCESS_SCHEDULED	(1 << 0)
 };

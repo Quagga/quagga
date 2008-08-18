@@ -37,6 +37,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* Transition 16Bit AS as defined by IANA */
 #define BGP_AS_TRANS		 23456U
 
+extern struct hash * ashash;
+
 /* AS_PATH segment data in abstracted form, no limit is placed on length */
 struct assegment
 {

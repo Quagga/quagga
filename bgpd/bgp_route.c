@@ -51,6 +51,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_mplsvpn.h"
 #include "bgpd/bgp_nexthop.h"
 #include "bgpd/bgp_damp.h"
+#include "bgpd/bgp_pgbgp.h"
 #include "bgpd/bgp_advertise.h"
 #include "bgpd/bgp_zebra.h"
 #include "bgpd/bgp_vty.h"
@@ -223,7 +224,7 @@ void
 bgp_info_delete (struct bgp_node *rn, struct bgp_info *ri)
 {
   bgp_info_set_flag (rn, ri, BGP_INFO_REMOVED);
-  /* set of previous already took care of pcount */
+  /* set of previoucs already took care of pcount */
   UNSET_FLAG (ri->flags, BGP_INFO_VALID);
 }
 
@@ -337,12 +338,19 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist)
   int confed_as_route = 0;
   int ret;
 
+
   /* 0. Null check. */
   if (new == NULL)
     return 0;
   if (exist == NULL)
     return 1;
 
+  /* 0.5 PGBGP Depref. Check */
+  if (ANOMALOUS(exist->flags) && !ANOMALOUS(new->flags))
+    return 1;
+  if (!ANOMALOUS(exist->flags) && ANOMALOUS(new->flags))
+    return 0;
+  
   /* 1. Weight check. */
   if (new->attr->extra)
     new_weight = new->attr->extra->weight;
@@ -1529,6 +1537,10 @@ bgp_process_main (struct work_queue *wq, void *data)
       bgp_info_unset_flag (rn, new_select, BGP_INFO_ATTR_CHANGED);
     }
 
+  /* PGBGP needs to know about selected routes  */
+  if (CHECK_FLAG (bgp->af_flags[afi][safi], BGP_CONFIG_PGBGP))
+    bgp_pgbgp_rib_updated(rn, old_select, new_select);
+
 
   /* Check each BGP peer. */
   for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
@@ -2101,9 +2113,17 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 
   attr_new = bgp_attr_intern (&new_attr);
 
+
+  
+  
   /* If the update is implicit withdraw. */
   if (ri)
     {
+      /* Update PGBGP state, and mark the route as anomalous if necessary */
+      if (CHECK_FLAG (bgp->af_flags[afi][safi], BGP_CONFIG_PGBGP)
+	  && peer_sort(peer) == BGP_PEER_EBGP) 
+	bgp_pgbgp_update(ri, attr_new, rn);
+      
       ri->uptime = time (NULL);
 
       /* Same attribute comes in. */
@@ -2277,6 +2297,11 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 
   /* Increment prefix */
   bgp_aggregate_increment (bgp, p, new, afi, safi);
+  
+  /* Update PGBGP state, and mark the route as anomalous if necessary */
+  if (CHECK_FLAG (bgp->af_flags[afi][safi], BGP_CONFIG_PGBGP)
+      && peer_sort(peer) == BGP_PEER_EBGP) 
+    bgp_pgbgp_update(new, attr_new, rn);
   
   /* Register new BGP information. */
   bgp_info_add (rn, new);
@@ -5604,6 +5629,20 @@ enum bgp_display_type
 static void
 route_vty_short_status_out (struct vty *vty, struct bgp_info *binfo)
 {
+  if (ANOMALOUS(binfo->flags))
+    {
+      vty_out(vty, "a[");
+      if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_P))
+	vty_out(vty, "i");
+      if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_O))
+	vty_out(vty, "p");
+      if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_E))
+	vty_out(vty, "e");
+      if (CHECK_FLAG(binfo->flags, BGP_INFO_IGNORED_P))
+	vty_out(vty, "s");
+      vty_out(vty, "] ");
+    }
+
  /* Route status display. */
   if (CHECK_FLAG (binfo->flags, BGP_INFO_REMOVED))
     vty_out (vty, "R");
@@ -6108,6 +6147,7 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 }  
 
 #define BGP_SHOW_SCODE_HEADER "Status codes: s suppressed, d damped, h history, * valid, > best, i - internal,%s              r RIB-failure, S Stale, R Removed%s"
+#define BGP_SHOW_PCODE_HEADER "Status code: a (anomalous) of:  [p] prefix hijack, [s] sub-prefix hijack,%s              [i] informant of sub-prefix [e] new edge%s"
 #define BGP_SHOW_OCODE_HEADER "Origin codes: i - IGP, e - EGP, ? - incomplete%s%s"
 #define BGP_SHOW_HEADER "   Network          Next Hop            Metric LocPrf Weight Path%s"
 #define BGP_SHOW_DAMP_HEADER "   Network          From             Reuse    Path%s"
@@ -6139,7 +6179,8 @@ enum bgp_show_type
   bgp_show_type_flap_route_map,
   bgp_show_type_flap_neighbor,
   bgp_show_type_dampend_paths,
-  bgp_show_type_damp_neighbor
+  bgp_show_type_damp_neighbor,
+  bgp_show_type_anomalous_paths
 };
 
 static int
@@ -6306,11 +6347,17 @@ bgp_show_table (struct vty *vty, struct bgp_table *table, struct in_addr *router
 		    || CHECK_FLAG (ri->flags, BGP_INFO_HISTORY))
 		  continue;
 	      }
+	    if (type == bgp_show_type_anomalous_paths)
+	      {
+		if (! ANOMALOUS(ri->flags))
+		  continue;
+	      }
 
 	    if (header)
 	      {
 		vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (*router_id), VTY_NEWLINE);
 		vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
+		vty_out (vty, BGP_SHOW_PCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		if (type == bgp_show_type_dampend_paths
 		    || type == bgp_show_type_damp_neighbor)
@@ -6387,6 +6434,7 @@ bgp_show (struct vty *vty, struct bgp *bgp, afi_t afi, safi_t safi,
 
   return bgp_show_table (vty, table, &bgp->router_id, type, output_arg);
 }
+
 
 /* Header of detailed BGP route information */
 static void
@@ -11176,6 +11224,64 @@ DEFUN (bgp_damp_set,
 			  half, reuse, suppress, max);
 }
 
+DEFUN (bgp_pgbgp_arg,
+       bgp_pgbgp_arg_cmd,
+       "bgp pgbgp <1-100> <1-100> <1-100> <1-365> <1-365> <1-365> WORD WORD",
+       "BGP Specific commands\n"
+       "Enable Pretty Good BGP\n"
+       "New origin depref time (in hours)\n"
+       "New edge depref time (in hours)\n"
+       "New sub-prefix depref time (in hours)\n"
+       "Origin history time (in days)\n"
+       "Prefix history time (in days)\n"
+       "Edge history time (in days)\n"
+       "Log file for history data\n"
+       "Log file of anomalies\n")
+{
+  struct bgp *bgp;
+
+  int ost = DEFAULT_ORIGIN_SUS;
+  int est = DEFAULT_EDGE_SUS;
+  int sst = DEFAULT_SUB_SUS;
+  int oht = DEFAULT_ORIGIN_HIST;
+  int pht = DEFAULT_PREFIX_HIST;
+  int eht = DEFAULT_EDGE_HIST;
+  const char* path = "/var/log/quagga/pgbgp_hist";
+  const char* anoms = "/var/log/quagga/pgbgp_anomalies";
+
+ if (argc == 8)
+    {
+      VTY_GET_INTEGER("origin depref time", ost, argv[0]);
+      VTY_GET_INTEGER("edge depref time", est, argv[1]);
+      VTY_GET_INTEGER("sub-prefix depref time", sst, argv[2]);
+      VTY_GET_INTEGER("origin history time", oht, argv[3]);
+      VTY_GET_INTEGER("prefix history time", pht, argv[4]);
+      VTY_GET_INTEGER("edge history time", eht, argv[5]);
+      path = argv[6];
+      anoms = argv[7];
+    }
+ 
+  bgp = vty->index;
+  return bgp_pgbgp_enable(bgp, bgp_node_afi (vty), bgp_node_safi (vty), 
+			  ost, est, sst, oht, pht, eht, path, anoms);
+}
+
+ALIAS (bgp_pgbgp_arg,
+       bgp_pgbgp_cmd,
+       "bgp pgbgp",
+       "BGP specific commands\n"
+       "Enable Pretty Good BGP\n")
+
+DEFUN (bgp_pgbgp_unset,
+       bgp_pgbgp_unset_cmd,
+       "no bgp pgbgp\n",
+       "BGP specific commands\n")
+{
+  struct bgp *bgp;
+  bgp = vty->index;
+  return bgp_pgbgp_disable (bgp, bgp_node_afi (vty), bgp_node_safi (vty));
+}
+
 ALIAS (bgp_damp_set,
        bgp_damp_set2_cmd,
        "bgp dampening <1-45>",
@@ -11224,6 +11330,19 @@ DEFUN (show_ip_bgp_dampened_paths,
   return bgp_show (vty, NULL, AFI_IP, SAFI_UNICAST, bgp_show_type_dampend_paths,
                    NULL);
 }
+
+DEFUN (show_ip_bgp_anomalous_paths,
+       show_ip_bgp_anomalous_paths_cmd,
+       "show ip bgp anomalous-paths",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Display anomalous paths (less likely to be used)\n")
+{
+  return bgp_show (vty, NULL, AFI_IP, SAFI_UNICAST, bgp_show_type_anomalous_paths,
+		   NULL);
+}
+
 
 DEFUN (show_ip_bgp_flap_statistics,
        show_ip_bgp_flap_statistics_cmd,
@@ -11770,6 +11889,7 @@ bgp_route_init ()
   install_element (VIEW_NODE, &show_ip_bgp_neighbor_received_prefix_filter_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_ipv4_neighbor_received_prefix_filter_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_dampened_paths_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_anomalous_paths_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_flap_statistics_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_flap_address_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_flap_prefix_cmd);
@@ -11844,6 +11964,7 @@ bgp_route_init ()
   install_element (ENABLE_NODE, &show_ip_bgp_neighbor_received_prefix_filter_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_ipv4_neighbor_received_prefix_filter_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_dampened_paths_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_anomalous_paths_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_flap_statistics_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_flap_address_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_flap_prefix_cmd);
@@ -12166,4 +12287,8 @@ bgp_route_init ()
   install_element (BGP_IPV4_NODE, &bgp_damp_set3_cmd);
   install_element (BGP_IPV4_NODE, &bgp_damp_unset_cmd);
   install_element (BGP_IPV4_NODE, &bgp_damp_unset2_cmd);
+  
+  install_element (BGP_NODE, &bgp_pgbgp_cmd);
+  install_element (BGP_NODE, &bgp_pgbgp_arg_cmd);
+  install_element (BGP_NODE, &bgp_pgbgp_unset_cmd);
 }
