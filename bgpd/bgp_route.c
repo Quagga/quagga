@@ -5629,20 +5629,6 @@ enum bgp_display_type
 static void
 route_vty_short_status_out (struct vty *vty, struct bgp_info *binfo)
 {
-  if (ANOMALOUS(binfo->flags))
-    {
-      vty_out(vty, "a[");
-      if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_P))
-	vty_out(vty, "i");
-      if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_O))
-	vty_out(vty, "p");
-      if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_E))
-	vty_out(vty, "e");
-      if (CHECK_FLAG(binfo->flags, BGP_INFO_IGNORED_P))
-	vty_out(vty, "s");
-      vty_out(vty, "] ");
-    }
-
  /* Route status display. */
   if (CHECK_FLAG (binfo->flags, BGP_INFO_REMOVED))
     vty_out (vty, "R");
@@ -5658,6 +5644,17 @@ route_vty_short_status_out (struct vty *vty, struct bgp_info *binfo)
   /* Selected */
   if (CHECK_FLAG (binfo->flags, BGP_INFO_HISTORY))
     vty_out (vty, "h");
+  else if (ANOMALOUS(binfo->flags))
+    {
+      if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_O)) 
+        vty_out(vty, "p");
+      else if (CHECK_FLAG(binfo->flags, BGP_INFO_IGNORED_P))
+        vty_out(vty, "P");
+      else if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_P))
+        vty_out(vty, "a");
+      if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_E))
+        vty_out(vty, "a");
+    }
   else if (CHECK_FLAG (binfo->flags, BGP_INFO_DAMPED))
     vty_out (vty, "d");
   else if (CHECK_FLAG (binfo->flags, BGP_INFO_SELECTED))
@@ -6140,14 +6137,30 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
       if (binfo->extra && binfo->extra->damp_info)
 	bgp_damp_info_vty (vty, binfo);
 
-      /* Line 7 display Uptime */
+      /* 8: PGBGP status */
+      if (ANOMALOUS(binfo->flags))
+        {
+          vty_out (vty, "      Anomalous:");
+          if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_P))
+            vty_out (vty, " divergent sub-prefixes,");
+          if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_O))
+            vty_out (vty, " origin AS (prefix hijack?),");
+          if (CHECK_FLAG(binfo->flags, BGP_INFO_SUSPICIOUS_E))
+            vty_out (vty, " new edge in path,");
+          if (CHECK_FLAG(binfo->flags, BGP_INFO_IGNORED_P))
+            vty_out (vty, " origin AS (sub-prefix hijack?),");
+          vty_out (vty, "%s", VTY_NEWLINE);
+        }
+      
+      /* Line 9 display Uptime */
       vty_out (vty, "      Last update: %s", ctime (&binfo->uptime));
     }
   vty_out (vty, "%s", VTY_NEWLINE);
-}  
+}
 
-#define BGP_SHOW_SCODE_HEADER "Status codes: s suppressed, d damped, h history, * valid, > best, i - internal,%s              r RIB-failure, S Stale, R Removed%s"
-#define BGP_SHOW_PCODE_HEADER "Status code: a (anomalous) of:  [p] prefix hijack, [s] sub-prefix hijack,%s              [i] informant of sub-prefix [e] new edge%s"
+#define BGP_SHOW_SCODE_HEADER "Status codes: s suppressed, d damped, h history, * valid, > best, i - internal,%s" \
+  "              r RIB-failure, S Stale, R Removed, %s" \
+  "              p prefix hijack, P sub-prefix hijack, a other anomaly%s"
 #define BGP_SHOW_OCODE_HEADER "Origin codes: i - IGP, e - EGP, ? - incomplete%s%s"
 #define BGP_SHOW_HEADER "   Network          Next Hop            Metric LocPrf Weight Path%s"
 #define BGP_SHOW_DAMP_HEADER "   Network          From             Reuse    Path%s"
@@ -6356,8 +6369,7 @@ bgp_show_table (struct vty *vty, struct bgp_table *table, struct in_addr *router
 	    if (header)
 	      {
 		vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (*router_id), VTY_NEWLINE);
-		vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
-		vty_out (vty, BGP_SHOW_PCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
+		vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 		vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		if (type == bgp_show_type_dampend_paths
 		    || type == bgp_show_type_damp_neighbor)
@@ -9622,7 +9634,7 @@ show_adj_route (struct vty *vty, struct peer *peer, afi_t afi, safi_t safi,
 			  PEER_STATUS_DEFAULT_ORIGINATE))
     {
       vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (bgp->router_id), VTY_NEWLINE);
-      vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
+      vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
       vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 
       vty_out (vty, "Originating default network 0.0.0.0%s%s",
@@ -9639,7 +9651,7 @@ show_adj_route (struct vty *vty, struct peer *peer, afi_t afi, safi_t safi,
 	      if (header1)
 		{
 		  vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (bgp->router_id), VTY_NEWLINE);
-		  vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
+		  vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 		  vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		  header1 = 0;
 		}
@@ -9663,7 +9675,7 @@ show_adj_route (struct vty *vty, struct peer *peer, afi_t afi, safi_t safi,
 	      if (header1)
 		{
 		  vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (bgp->router_id), VTY_NEWLINE);
-		  vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
+		  vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 		  vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		  header1 = 0;
 		}

@@ -225,7 +225,7 @@ static void
 edge_neighbor_iterator (struct hash_backet *backet, struct nsearch *pns)
 {
   struct bgp_pgbgp_edge *hedge = backet->data;
-  if ((hedge->e.a == pns->asn || hedge->e.b == pns->asn)
+  if ((!pns->asn || hedge->e.a == pns->asn || hedge->e.b == pns->asn)
       && hedge->e.a != hedge->e.b)
     {
       struct vty *vty = pns->pvty;
@@ -252,13 +252,39 @@ bgp_pgbgp_stats_neighbors (struct vty *vty, afi_t afi, safi_t safi, as_t asn)
   return CMD_SUCCESS;
 }
 
+static void
+bgp_pgbgp_stats_origin_one (struct vty *vty, struct bgp_node *rn,
+                            time_t t_now)
+{
+  char str[INET6_BUFSIZ];
+  
+  if (!rn->hist)
+    return;
+  
+  prefix2str (&rn->p, str, sizeof(str));
+  vty_out (vty, "%s%s", str, VTY_NEWLINE);
+  
+  for (struct bgp_pgbgp_origin * cur = rn->hist->o; cur != NULL;
+       cur = cur->next)
+    {
+      if (cur->deprefUntil > t_now)
+        vty_out (vty, "Untrusted Origin AS: %d%s", cur->originAS,
+                 VTY_NEWLINE);
+      else
+        vty_out (vty, "Trusted Origin AS: %d%s", cur->originAS,
+                 VTY_NEWLINE);
+    } 
+}
+
 static int
 bgp_pgbgp_stats_origins (struct vty *vty, afi_t afi, safi_t safi,
                          const char *prefix)
 {
   struct bgp *bgp;
   struct bgp_table *table;
+  struct bgp_node *rn;
   time_t t_now = time (NULL);
+  
   bgp = bgp_get_default ();
   if (bgp == NULL)
     return CMD_WARNING;
@@ -267,28 +293,22 @@ bgp_pgbgp_stats_origins (struct vty *vty, afi_t afi, safi_t safi,
   table = bgp->rib[afi][safi];
   if (table == NULL)
     return CMD_WARNING;
-
-  struct prefix p;
-  str2prefix (prefix, &p);
-  struct bgp_node *rn = bgp_node_match (table, &p);
-  vty_out (vty, "%s%s", prefix, VTY_NEWLINE);
-  if (rn)
+  
+  if (prefix)
     {
+      struct prefix p;
+      str2prefix (prefix, &p);
+      rn = bgp_node_match (table, &p);
       if (rn->hist)
-        {
-          for (struct bgp_pgbgp_origin * cur = rn->hist->o; cur != NULL;
-               cur = cur->next)
-            {
-              if (cur->deprefUntil > t_now)
-                vty_out (vty, "Untrusted Origin AS: %d%s", cur->originAS,
-                         VTY_NEWLINE);
-              else
-                vty_out (vty, "Trusted Origin AS: %d%s", cur->originAS,
-                         VTY_NEWLINE);
-            }
-        }
+        bgp_pgbgp_stats_origin_one (vty, rn, t_now);
       bgp_unlock_node (rn);
+      return CMD_SUCCESS;
     }
+  
+  for (rn = bgp_table_top (table); rn; rn = bgp_route_next (rn))
+    if (rn->hist)
+      bgp_pgbgp_stats_origin_one (vty, rn, t_now);
+
   return CMD_SUCCESS;
 }
 
@@ -375,7 +395,7 @@ bgp_pgbgp_stats (struct vty *vty, afi_t afi, safi_t safi)
 DEFUN (show_ip_bgp_pgbgp,
        show_ip_bgp_pgbgp_cmd,
        "show ip bgp pgbgp",
-       SHOW_STR IP_STR BGP_STR "Display PGBGP statistics\n")
+       SHOW_STR IP_STR BGP_STR "Pretty-Good BGP statistics\n")
 {
   return bgp_pgbgp_stats (vty, AFI_IP, SAFI_UNICAST);
 }
@@ -383,15 +403,23 @@ DEFUN (show_ip_bgp_pgbgp,
 DEFUN (show_ip_bgp_pgbgp_neighbors,
        show_ip_bgp_pgbgp_neighbors_cmd,
        "show ip bgp pgbgp neighbors WORD",
+       SHOW_STR IP_STR BGP_STR
+       "Pretty-Good BGP statistics\n"
+       "PG-BGP neighbor information\n"
+       "AS to show neighbors of\n")
+{
+  return bgp_pgbgp_stats_neighbors (vty, AFI_IP, SAFI_UNICAST,
+                                    argc == 1 ? atoi (argv[0]) : 0);
+}
+
+ALIAS (show_ip_bgp_pgbgp_neighbors,
+       show_ip_bgp_pgbgp_neighbors_all_cmd,
+       "show ip bgp pgbgp neighbors",
        SHOW_STR
        IP_STR
        BGP_STR
-       "BGP pgbgp\n"
-       "BGP pgbgp neighbors\n" "ASN whos neighbors should be displayed\n")
-{
-  return bgp_pgbgp_stats_neighbors (vty, AFI_IP, SAFI_UNICAST,
-                                    atoi (argv[0]));
-}
+       "Pretty-Good BGP statistics\n"
+       "PG-BGP neighbors information\n")
 
 DEFUN (show_ip_bgp_pgbgp_origins,
        show_ip_bgp_pgbgp_origins_cmd,
@@ -399,13 +427,22 @@ DEFUN (show_ip_bgp_pgbgp_origins,
        SHOW_STR
        IP_STR
        BGP_STR
-       "BGP pgbgp\n"
-       "BGP pgbgp neighbors\n" "Prefix to look up origin ASes of\n")
+       "Pretty-Good BGP statistics\n"
+       "PG-BGP prefix origin information\n"
+       "Prefix to look up origin ASes of\n")
 {
-  return bgp_pgbgp_stats_origins (vty, AFI_IP, SAFI_UNICAST, argv[0]);
+  return bgp_pgbgp_stats_origins (vty, AFI_IP, SAFI_UNICAST,
+                                  argc == 1 ? argv[0] : NULL);
 }
 
-
+ALIAS (show_ip_bgp_pgbgp_origins,
+       show_ip_bgp_pgbgp_origins_all_cmd,
+       "show ip bgp pgbgp origins",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Pretty-Good BGP statistics\n"
+       "PG-BGP prefixes origin information")
 
 
 /*! --------------- VTY (others exist in bgp_route.c)  ------------------ !*/
@@ -747,12 +784,19 @@ bgp_pgbgp_enable (struct bgp *bgp, afi_t afi, safi_t safi,
   pgbgp->lastgc = time (NULL);
   pgbgp->lastStore = time (NULL);
   pgbgp->startTime = time (NULL);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_pgbgp_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_pgbgp_neighbors_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_pgbgp_origins_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_pgbgp_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_pgbgp_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_pgbgp_neighbors_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_pgbgp_neighbors_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_pgbgp_origins_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_pgbgp_neighbors_all_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_pgbgp_origins_all_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_pgbgp_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_pgbgp_neighbors_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_pgbgp_origins_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_pgbgp_neighbors_all_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_pgbgp_origins_all_cmd);
   pgbgp->edgeT = hash_create_size (131072, edge_key_make, edge_cmp);
   bgp_pgbgp_restore ();
   return 0;
