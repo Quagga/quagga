@@ -265,10 +265,16 @@ vtysh_pager_init (void)
 
   pager_defined = getenv ("VTYSH_PAGER");
 
-  if (pager_defined)
+  if (pager_defined) {
     vtysh_pager_name = strdup (pager_defined);
-  else
-    vtysh_pager_name = strdup ("more");
+  } else {
+    struct stat pager_stat;
+    if (stat("/usr/bin/pager", &pager_stat) == 0) {
+      vtysh_pager_name = strdup ("/usr/bin/pager");
+    } else {
+      vtysh_pager_name = strdup ("more");
+    }
+  }
 }
 
 /* Command execution over the vty interface. */
