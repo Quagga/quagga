@@ -1248,9 +1248,8 @@ dnl ---------------------------
 dnl check system has PCRE regexp
 dnl ---------------------------
 if test "x$enable_pcreposix" = "xyes"; then
-  AC_MSG_CHECKING(whether system has PCRE regex)
-  AC_CHECK_LIB(pcreposix, pcreposix_regexec, ,enable_pcreposix=no)
-  AC_MSG_WARN([*** falling back to other regex library ***])
+  AC_CHECK_LIB(pcreposix, pcreposix_regexec, ,[enable_pcreposix=no
+  AC_MSG_WARN([*** falling back to other regex library ***]) ])
 fi
 
 if test "x$enable_pcreposix" != "xyes"; then
