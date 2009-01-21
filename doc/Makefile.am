@@ -12,6 +12,7 @@
 # TeX implementation, which we depend on already anyway.
 #
 # dia -> (dia) -> png -> (convert) -> eps -> (epstopdf) -> pdf
+SUFFIXES = .png .eps .dia .pdf
 DIATOPNG = dia -t png -e
 DIATOEPS = dia -t eps -e
 PNGTOEPS = convert -dither -antialias -contrast -despeckle
@@ -51,14 +52,13 @@ quagga_TEXINFOS = appendix.texi basic.texi bgpd.texi filter.texi install.texi \
 	vtysh.texi routeserver.texi defines.texi $(figures_png) snmptrap.texi \
 	$(figures_txt)
 
-SUFFIXES = .png .eps .dia
-.eps.png:
+.png.eps:
 	$(PNGTOEPS) $< "$@"
 
-.pdf.png:
+.png.pdf:
 	$(PNGTOPDF) $< "$@"
 
-.png.dia:
+.dia.png:
 	$(DIATOPNG) "$@" $<
 
 man_MANS = vtysh.1 bgpd.8 ospf6d.8 ospfd.8 ripd.8 ripngd.8 zebra.8 isisd.8
