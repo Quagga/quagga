@@ -21,11 +21,11 @@ EPSTOPDF = epstopdf
 # The figure sources
 figures_names_parts = -normal-processing -rs-processing \
 	_topologies_full _topologies_rs
-figures_sources := $(figures_names_parts:%=fig%.dia)
-figures_png := $(figures_names_parts:%=fig%.png)
-figures_pdf := $(figures_names_parts:%=fig%.pdf)
-figures_eps := $(figures_names_parts:%=fig%.eps)
-figures_txt := $(figures_names_parts:%=fig%.txt)
+figures_sources = $(figures_names_parts:%=fig%.dia)
+figures_png = $(figures_names_parts:%=fig%.png)
+figures_pdf = $(figures_names_parts:%=fig%.pdf)
+figures_eps = $(figures_names_parts:%=fig%.eps)
+figures_txt = $(figures_names_parts:%=fig%.txt)
 
 # rather twisted logic because we have to build PDFs of the EPS figures for
 # PDFTex and yet build one PDF, quagga.pdf, from texi source. Which means we
@@ -51,13 +51,14 @@ quagga_TEXINFOS = appendix.texi basic.texi bgpd.texi filter.texi install.texi \
 	vtysh.texi routeserver.texi defines.texi $(figures_png) snmptrap.texi \
 	$(figures_txt)
 
-%.eps: %.png
+SUFFIXES = .png .eps .dia
+.eps.png:
 	$(PNGTOEPS) $< "$@"
 
-%.pdf: %.png
+.pdf.png:
 	$(PNGTOPDF) $< "$@"
 
-%.png: %.dia
+.png.dia:
 	$(DIATOPNG) "$@" $<
 
 man_MANS = vtysh.1 bgpd.8 ospf6d.8 ospfd.8 ripd.8 ripngd.8 zebra.8 isisd.8
