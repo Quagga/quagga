@@ -821,29 +821,26 @@ main()
 dnl ------------------------------
 dnl check kernel route read method
 dnl ------------------------------
-AC_CACHE_CHECK(route read method check, zebra_rtread,
-[if test "$netlink" = yes; then
-  RTREAD_METHOD="rtread_netlink.o"
-  zebra_rtread="netlink"
+AC_CACHE_CHECK([route read method], [quagga_cv_rtread_method],
+[if test "x$netlink" = xyes; then
+  quagga_cv_rtread_method="netlink"
 else
-for zebra_rtread in /proc/net/route /dev/ip /dev/null;
+for quagga_cv_rtread_method in /proc/net/route /dev/ip /dev/null;
 do
-  test x`ls $zebra_rtread 2>/dev/null` = x"$zebra_rtread" && break
+  test x`ls $quagga_cv_rtread_method 2>/dev/null` = x"$quagga_cv_rtread_method" && break
 done
-case $zebra_rtread in
-  "/proc/net/route") RTREAD_METHOD="rtread_proc.o"
-                     zebra_rtread="proc";;
+case $quagga_cv_rtread_method in
+  "/proc/net/route") quagga_cv_rtread_method="proc";;
   "/dev/ip")
                      case "$host" in
-                       *-freebsd*)    RTREAD_METHOD=rtread_sysctl.o
-                                      zebra_rtread="sysctl";;
-                       *)             RTREAD_METHOD="rtread_getmsg.o"
-                                      zebra_rtread="getmsg";;
+                       *-freebsd*)    quagga_cv_rtread_method="sysctl";;
+                       *)             quagga_cv_rtread_method="getmsg";;
                      esac;;
-  *)                 RTREAD_METHOD="rtread_sysctl.o"
-                     zebra_rtread="sysctl";;
+	*)
+                     quagga_cv_rtread_method="sysctl";;
 esac
 fi])
+RTREAD_METHOD=rtread_${quagga_cv_rtread_method}.o
 AC_SUBST(RTREAD_METHOD)
 
 dnl -----------------------------
