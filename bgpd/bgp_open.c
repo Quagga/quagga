@@ -526,7 +526,7 @@ bgp_capability_parse (struct peer *peer, size_t length, u_char **error)
               if (caphdr.length < cap_minsizes[caphdr.code])
                 {
                   zlog_info ("%s %s Capability length error: got %u,"
-                             " expected at least %u",
+                             " expected at least %zu",
                              peer->host, 
                              LOOKUP (capcode_str, caphdr.code),
                              caphdr.length, cap_minsizes[caphdr.code]);
