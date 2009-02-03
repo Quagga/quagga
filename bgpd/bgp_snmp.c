@@ -1,5 +1,6 @@
 /* BGP4 SNMP support
    Copyright (C) 1999, 2000 Kunihiro Ishiguro
+   Copyright (C) 2008, 2009 Krzysztof Piotr Oledzki
 
 This file is part of GNU Zebra.
 
@@ -43,6 +44,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_fsm.h"
+#include "bgpd/bgp_vty.h"
 #include "bgpd/bgp_snmp.h"
 
 /* BGP4-MIB described in RFC1657. */
@@ -111,6 +113,22 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define BGP4PATHATTRBEST                     13
 #define BGP4PATHATTRUNKNOWN                  14
 
+/* CISCO-BGP4-MIB described in ?????. */
+#define CISCOBGP4MIB 1,3,6,1,4,1,9,9,187,1,2
+
+/* cbgpPeerAddrFamilyTable */
+#define CBGPPEERADDRFAMILYNAME                3
+
+/* cbgpPeerAddrFamilyPrefixTable */
+#define CBGPPEERACCEPTEDPREFIXES              1
+#define CBGPPEERDENIEDPREFIXES                2
+#define CBGPPEERPREFIXADMINLIMIT              3
+#define CBGPPEERPREFIXTHRESHOLD               4
+#define CBGPPEERPREFIXCLEARTHRESHOLD          5
+#define CBGPPEERADVERTISEDPREFIXES            6
+#define CBGPPEERSUPPRESSEDPREFIXES            7
+#define CBGPPEERWITHDRAWNPREFIXES             8
+
 /* SNMP value hack. */
 #define INTEGER ASN_INTEGER
 #define INTEGER32 ASN_INTEGER
@@ -124,6 +142,9 @@ SNMP_LOCAL_VARIABLES
 
 /* BGP-MIB instances. */
 oid bgp_oid [] = { BGP4MIB };
+
+/* CISCOBGP-MIB instances. */
+oid ciscobgp_oid[] = { CISCOBGP4MIB };
 
 /* IP address 0.0.0.0. */
 static struct in_addr bgp_empty_addr = {0};
@@ -142,6 +163,9 @@ static u_char *bgpIdentifier (struct variable *, oid [], size_t *,
 static u_char *bgp4PathAttrTable (struct variable *, oid [], size_t *,
 				  int, size_t *, WriteMethod **);
 /* static u_char *bgpTraps (); */
+
+static u_char *cbgpPeerAddrFamilyTable();
+static u_char *cbgpPeerAddrFamilyPrefixTable();
 
 struct variable bgp_variables[] = 
 {
@@ -247,6 +271,30 @@ struct variable bgp_variables[] =
    3, {6, 1, 14}},
 };
 
+struct variable ciscobgp_variables[] = {
+	/* Address families supported by a peer */
+	{CBGPPEERADDRFAMILYNAME, OCTET_STRING, RONLY, cbgpPeerAddrFamilyTable,
+		3, {3, 1, 3}},
+
+	/* Address families supported by a peer */
+	{CBGPPEERACCEPTEDPREFIXES, COUNTER32, RONLY, cbgpPeerAddrFamilyPrefixTable,
+		3, {4, 1, 1}},
+	{CBGPPEERDENIEDPREFIXES, GAUGE32, RONLY, cbgpPeerAddrFamilyPrefixTable,
+		3, {4, 1, 2}},
+	{CBGPPEERPREFIXADMINLIMIT, GAUGE32, RONLY, cbgpPeerAddrFamilyPrefixTable,
+		3, {4, 1, 3}},
+	{CBGPPEERPREFIXTHRESHOLD, GAUGE32, RONLY, cbgpPeerAddrFamilyPrefixTable,
+		3, {4, 1, 4}},
+	{CBGPPEERPREFIXCLEARTHRESHOLD, GAUGE32, RONLY, cbgpPeerAddrFamilyPrefixTable,
+		3, {4, 1, 5}},
+	{CBGPPEERADVERTISEDPREFIXES, GAUGE32, RONLY, cbgpPeerAddrFamilyPrefixTable,
+		3, {4, 1, 6}},
+	{CBGPPEERSUPPRESSEDPREFIXES, GAUGE32, RONLY, cbgpPeerAddrFamilyPrefixTable,
+		3, {4, 1, 7}},
+	{CBGPPEERWITHDRAWNPREFIXES, GAUGE32, RONLY, cbgpPeerAddrFamilyPrefixTable,
+		3, {4, 1, 8}},
+};
+
 
 static u_char *
 bgpVersion (struct variable *v, oid name[], size_t *length, int exact,
@@ -343,6 +391,64 @@ bgp_peer_lookup_next (struct in_addr *src)
 }
 
 static struct peer *
+bgp_peer_fam_afi_lookup_next(struct peer *peer, int *afi, int *safi) {
+
+	for(; *afi < AFI_MAX; ++*afi) {
+		for(++*safi; *safi < SAFI_MAX; ++*safi) {
+
+			if (peer->afc[*afi][*safi])
+				return peer;
+		}
+
+		*safi = -1;
+	}
+
+	return NULL;
+}
+
+struct peer *
+bgp_peer_fam_lookup_next(struct in_addr *src, int *afi, int *safi)
+{
+	struct bgp *bgp;
+	struct peer *peer;
+	struct listnode *node;
+	struct in_addr *p;
+	union sockunion su;
+	int ret;
+
+	memset(&su, 0, sizeof(union sockunion));
+
+	bgp = bgp_get_default();
+	if (!bgp)
+		return NULL;
+
+	for (ALL_LIST_ELEMENTS_RO(bgp->peer, node, peer)) {
+		ret = inet_pton(AF_INET, peer->host, &su.sin.sin_addr);
+
+	if (ret > 0) {
+		p = &su.sin.sin_addr;
+
+		if (ntohl(p->s_addr) == ntohl(src->s_addr)) {
+			if (bgp_peer_fam_afi_lookup_next(peer, afi, safi))
+				return peer;
+		}
+
+		if (ntohl(p->s_addr) > ntohl(src->s_addr)) {
+			src->s_addr = p->s_addr;
+
+			*afi = 0;
+			*safi = 0;
+
+			if (bgp_peer_fam_afi_lookup_next(peer, afi, safi))
+				return peer;
+			}
+		}
+	}
+
+	return NULL;
+}
+
+struct peer *
 bgpPeerTable_lookup (struct variable *v, oid name[], size_t *length, 
 		     struct in_addr *addr, int exact)
 {
@@ -378,6 +484,67 @@ bgpPeerTable_lookup (struct variable *v, oid name[], size_t *length,
       return peer;
     }
   return NULL;
+}
+
+struct peer *
+bgpPeerTableFam_lookup(struct variable *v, oid name[], size_t *length, 
+		     struct in_addr *addr, u_char *afi, u_char *safi, int exact) {
+
+	struct peer *peer = NULL;
+	int len, nafi = 0, nsafi = 0;
+
+	len = *length - v->namelen;
+
+	if (exact) {
+		/* Check the length */
+		if (len != sizeof (struct in_addr) + 2)
+			return NULL;
+
+		oid2in_addr(name + v->namelen, IN_ADDR_SIZE, addr);
+
+		peer = peer_lookup_addr_ipv4(addr);
+
+		if (!peer)
+			return NULL;
+
+		*afi = *(name + v->namelen + IN_ADDR_SIZE);
+		*safi = *(name + v->namelen + IN_ADDR_SIZE + 1);
+
+		if (*afi >= AFI_MAX || *safi >= SAFI_MAX)
+			return NULL;
+
+		if (!peer->afc[*afi][*safi])
+			return NULL;
+
+		return peer;
+
+	} else {
+		if (len >= 5)
+			nafi = *(name + v->namelen + IN_ADDR_SIZE);
+
+		if (len >= 6)
+			nsafi = *(name + v->namelen + IN_ADDR_SIZE + 1);
+
+		if (len > 4) len = 4;
+
+		oid2in_addr(name + v->namelen, len, addr);
+
+		peer = bgp_peer_fam_lookup_next(addr, &nafi, &nsafi);
+
+		if (!peer)
+			return NULL;
+
+		oid_copy_addr(name + v->namelen, addr, sizeof(struct in_addr));
+
+		*afi = *(name + v->namelen + IN_ADDR_SIZE) = nafi;
+		*safi = *(name + v->namelen + IN_ADDR_SIZE + 1) = nsafi;
+
+		*length = 2 + sizeof(struct in_addr) + v->namelen;
+
+		return peer;
+	}
+
+	return NULL;
 }
 
 /* BGP write methods. */
@@ -881,10 +1048,90 @@ bgpTrapBackwardTransition (struct peer *peer)
 	     bm->start_time - time (NULL), BGPBACKWARDTRANSITION);
 }
 
+static u_char *
+cbgpPeerAddrFamilyTable(struct variable *v, oid name[], size_t *length,
+	int exact, size_t *var_len, WriteMethod **write_method) {
+
+	static struct in_addr addr;
+	struct peer *peer;
+	u_char afi, safi;
+	u_char *famname;
+
+	*write_method = NULL;
+	memset (&addr, 0, sizeof(struct in_addr));
+
+	peer = bgpPeerTableFam_lookup(v, name, length, &addr, &afi, &safi, exact);
+	if (!peer)
+		return NULL;
+
+	switch (v->magic) {
+		case CBGPPEERADDRFAMILYNAME:	/* 3 */
+			famname = (u_char *)afi_safi_print(afi, safi);
+			*var_len = strlen(famname);
+			return famname;
+			break;
+	}
+
+	return NULL;
+}
+
+static u_char *
+cbgpPeerAddrFamilyPrefixTable(struct variable *v, oid name[], size_t *length,
+	int exact, size_t *var_len, WriteMethod **write_method) {
+
+	static struct in_addr addr;
+	struct peer *peer;
+	u_char afi, safi;
+
+	*write_method = NULL;
+	memset (&addr, 0, sizeof(struct in_addr));
+
+	peer = bgpPeerTableFam_lookup(v, name, length, &addr, &afi, &safi, exact);
+	if (!peer)
+		return NULL;
+
+	switch (v->magic) {
+		case CBGPPEERACCEPTEDPREFIXES:		/* 1 */
+			return SNMP_INTEGER(peer->pcount[afi][safi]);
+			break;
+
+		case CBGPPEERDENIEDPREFIXES:		/* 2 */
+			// FIXME: peer->denpcount[afi][safi]?
+			break;
+
+		case CBGPPEERPREFIXADMINLIMIT:		/* 3 */
+			return SNMP_INTEGER(peer->pmax[afi][safi]);
+			break;
+
+		case CBGPPEERPREFIXTHRESHOLD:		/* 4 */
+			return SNMP_INTEGER(peer->pmax_threshold[afi][safi]);
+			break;
+
+		case CBGPPEERPREFIXCLEARTHRESHOLD:	/* 5 */
+			return SNMP_INTEGER((peer->pmax_threshold[afi][safi] > 5)?(peer->pmax_threshold[afi][safi]-5):0);
+			break;
+
+		case CBGPPEERADVERTISEDPREFIXES:	/* 6 */
+			// FIXME: peer->advpcount[afi][safi]
+			break;
+
+		case CBGPPEERSUPPRESSEDPREFIXES:	/* 7 */
+			// FIXME: peer->spsdpcount[afi][safi]
+			break;
+
+		case CBGPPEERWITHDRAWNPREFIXES:		/* 8 */
+			// FIXME: peer->wthdrwnpcount[afi][safi]
+			break;
+	}
+
+	return NULL;
+}
+
 void
 bgp_snmp_init ()
 {
   smux_init (bm->master);
   REGISTER_MIB("mibII/bgp", bgp_variables, variable, bgp_oid);
+  REGISTER_MIB("CISCO-BGP4-MIB", ciscobgp_variables, variable, ciscobgp_oid);
 }
 #endif /* HAVE_SNMP */
