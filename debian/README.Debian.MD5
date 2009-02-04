@@ -1,0 +1,3 @@
+As of Quagga-0.99.11 the TCP MD5 Signature support of the linux kernel
+is used. This requires the Debian package linux-image-2.6.26-* or newer.
+Self compiled kernels must have CONFIG_TCP_MD5SIG enabled.

@@ -1,0 +1,205 @@
+#!/usr/bin/make -f
+
+export DH_VERBOSE=1
+export DEB_BUILD_HARDENING=1
+
+T=$(CURDIR)/debian/tmp/
+Z=$(CURDIR)/debian/quagga/
+ZD=$(CURDIR)/debian/quagga-doc/
+
+#ifeq ($(WANT_SNMP), 1)
+  USE_SNMP=--enable-snmp
+#  $(warning "DEBIAN: SNMP enabled, sorry for your inconvenience")
+#else
+#  $(warning "DEBIAN: SNMP disabled, see README.Debian")
+#endif
+
+configure: configure-stamp
+configure-stamp:
+	dh_testdir
+
+	# Quagga needs /proc to check some BSD vs Linux specific stuff.
+	# Else it fails with an obscure error message pointing out
+	# that IPCTL_FORWARDING is an undefined symbol which is not very
+	# helpful.
+	@if ! [ -d /proc/1 ]; then \
+	   echo "./configure needs a mounted /proc"; \
+	   exit 1; \
+	fi
+
+	# Update config.*
+#	cp /usr/share/misc/config.guess .
+#	cp /usr/share/misc/config.sub .
+
+	# according to redhad/quagga.spec as of 2003-08-18 with Debian hardening and PCRE-Posix
+	./configure \
+		--prefix=/usr \
+		--libexecdir=/usr/lib/quagga \
+		--sbindir=/usr/lib/quagga \
+		--sysconfdir=/etc/quagga \
+		--localstatedir=/var/run/quagga \
+		--enable-exampledir=$(T)/usr/share/doc/quagga/examples/ \
+		\
+		$(USE_SNMP) \
+		--enable-vtysh \
+		--enable-isisd \
+		--enable-watchquagga \
+		--enable-ospf-te \
+		--enable-opaque-lsa \
+		--enable-ipv6 \
+		--enable-ospfclient=yes \
+		--enable-ospfapi=yes \
+		--enable-multipath=64 \
+		--enable-user=quagga \
+		--enable-group=quagga \
+		--enable-vty-group=quaggavty \
+		--enable-configfile-mask=0640 \
+		--enable-logfile-mask=0640 \
+		--enable-rtadv \
+		--enable-tcp-md5 \
+		--enable-gcc-rdynamic \
+		--enable-pcreposix \
+		--disable-pie \
+		--with-libpam
+
+	if ! diff -b -IHAVE_SNMP -IHAVE_NETSNMP -IUCD_COMPAT -IGETIFADDR debian/my/config.h.reference config.h; then \
+	  echo; \
+	  echo "WARNING: Please compare with debian/my/config.h.reference"; \
+	  echo; \
+	  if [ "`hostname`" = "app109" ]; then exit 1; fi; \
+	fi
+
+	touch $@
+
+
+build: configure build-stamp
+build-stamp:
+	@echo "#42# entering build"
+	dh_testdir
+
+	$(MAKE) 
+
+	# doc/ is a bit crazy
+	$(MAKE) -C doc quagga.pdf
+	rm -vf doc/quagga.info
+	$(MAKE) -C doc quagga.info
+	rm -vf doc/quagga.info.html*
+
+	touch build-stamp
+
+
+clean: clean-patched
+clean-patched:
+	@echo "#42# entering clean"
+	dh_testdir
+	dh_testroot
+	rm -f configure-stamp build-stamp install-stamp
+	
+	# Those will be updated from /usr/share/misc
+	rm -f config.guess config.sub
+
+	[ ! -f Makefile ] || $(MAKE) distclean
+	@echo "BEGIN CRUFT"
+	@rm -vf */Makefile doc/quagga.fns doc/quagga.info doc/quagga.kys doc/quagga.tmp doc/quagga.pdf doc/quagga.info-*
+	@rm -vf lib/version.c doc/stamp-vti
+	@rm -vf vtysh/vtysh_cmd.c
+	@rm -vf doc/fig*.pdf doc/version.texi
+	@echo "END CRUFT"
+
+	# why?
+	@if [ -e config.log ]; then echo "CONFIG.LOG STILL THERE"; rm config.log; fi
+
+	debconf-updatepo
+	dh_clean
+
+
+install: build
+	@echo "#42# entering install"
+	dh_testdir
+	dh_testroot
+	dh_clean -k
+
+	$(MAKE) install \
+		prefix=$(T)/usr \
+		libexecdir=$(T)/usr/lib/quagga \
+		sbindir=$(T)/usr/lib/quagga \
+		sysconfdir=$(T)/etc/quagga \
+		mandir=$(T)/usr/share/man \
+		localstatedir=$(T)/var/run/quagga \
+		infodir=$(T)/usr/share/info
+
+	# cleaning up the info dir
+	rm -f $(T)/usr/share/info/dir*
+
+	# install config files
+	mkdir -p $(T)/etc/quagga/
+	cp debian/my/debian.conf $(T)/etc/quagga/
+	cp debian/my/daemons $(T)/etc/quagga/
+	perl -pi -e 's#^!log file #!log file /var/log/quagga/#' $(T)/usr/share/doc/quagga/examples/*sample*
+
+        # installing the Quagga specific SNMP MIB
+	mkdir -p $(T)/usr/share/snmp/mibs/
+	install -m 644 ./zebra/GNOME-PRODUCT-ZEBRA-MIB $(T)/usr/share/snmp/mibs/
+
+	# make lintian happy
+	mkdir -p $(T)/usr/share/lintian/overrides/
+	cp debian/quagga.lintian-overrides $(T)/usr/share/lintian/overrides/quagga
+
+# Build architecture-independent files here.
+binary-indep: build install
+	dh_testdir
+	dh_testroot 
+	
+	dh_installdirs -i
+	dh_movefiles -i
+	dh_link -i
+
+	dh_installchangelogs -i
+	dh_installdebconf -i
+	dh_installdocs -i
+	dh_installexamples -i
+	dh_installinfo -i
+	dh_installman -i
+
+	dh_compress -i
+	dh_fixperms -i
+	dh_installdeb -i
+	dh_shlibdeps -i
+	dh_gencontrol -i
+	dh_md5sums -i
+	dh_builddeb -i
+
+# Build architecture-dependent files here.
+binary-arch: build install
+	dh_testdir
+	dh_testroot
+
+	dh_installdirs -a
+	dh_movefiles -a
+	dh_link -a
+
+	dh_installchangelogs -a ChangeLog
+	dh_installdebconf -a
+	dh_installdocs -a
+	dh_installexamples -a
+	dh_installinit -a
+	dh_installpam -a
+	dh_installlogrotate
+	dh_installman -a
+	
+	dh_strip -a
+	dh_compress -a
+	dh_fixperms -a
+	dh_makeshlibs -a
+	dh_installdeb -a
+	# dh_shlibdeps: removed "-L quagga" for Woody backport compatibility.
+	dh_shlibdeps -a -l debian/quagga/usr/lib
+	dh_gencontrol -a
+	dh_md5sums -a
+	dh_builddeb -a
+
+source diff:                                                                  
+	@echo >&2 'source and diff are obsolete - use dpkg-source -b'; false
+
+binary: binary-indep binary-arch
+.PHONY: clean clean-patched configure build binary binary-indep binary-arch install
