@@ -6620,6 +6620,15 @@ DEFUN (show_ip_bgp_ipv4,
   return bgp_show (vty, NULL, AFI_IP, SAFI_UNICAST, bgp_show_type_normal, NULL);
 }
 
+ALIAS (show_ip_bgp_ipv4,
+       show_bgp_ipv4_safi_cmd,
+       "show bgp ipv4 (unicast|multicast)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n")
+
 DEFUN (show_ip_bgp_route,
        show_ip_bgp_route_cmd,
        "show ip bgp A.B.C.D",
@@ -6647,6 +6656,16 @@ DEFUN (show_ip_bgp_ipv4_route,
 
   return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 0);
 }
+
+ALIAS (show_ip_bgp_ipv4_route,
+       show_bgp_ipv4_safi_route_cmd,
+       "show bgp ipv4 (unicast|multicast) A.B.C.D",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Network in the BGP routing table to display\n")
 
 DEFUN (show_ip_bgp_vpnv4_all_route,
        show_ip_bgp_vpnv4_all_route_cmd,
@@ -6711,6 +6730,16 @@ DEFUN (show_ip_bgp_ipv4_prefix,
 
   return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 1);
 }
+
+ALIAS (show_ip_bgp_ipv4_prefix,
+       show_bgp_ipv4_safi_prefix_cmd,
+       "show bgp ipv4 (unicast|multicast) A.B.C.D/M",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 
 DEFUN (show_ip_bgp_vpnv4_all_prefix,
        show_ip_bgp_vpnv4_all_prefix_cmd,
@@ -6814,6 +6843,22 @@ ALIAS (show_bgp,
        BGP_STR
        "Address family\n")
 
+DEFUN (show_bgp_ipv6_safi,
+       show_bgp_ipv6_safi_cmd,
+       "show bgp ipv6 (unicast|multicast)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n")
+{
+  if (strncmp (argv[0], "m", 1) == 0)
+    return bgp_show (vty, NULL, AFI_IP6, SAFI_MULTICAST, bgp_show_type_normal,
+                     NULL);
+ 
+  return bgp_show (vty, NULL, AFI_IP6, SAFI_UNICAST, bgp_show_type_normal, NULL);
+}
+
 /* old command */
 DEFUN (show_ipv6_bgp,
        show_ipv6_bgp_cmd,
@@ -6844,6 +6889,22 @@ ALIAS (show_bgp_route,
        "Address family\n"
        "Network in the BGP routing table to display\n")
 
+DEFUN (show_bgp_ipv6_safi_route,
+       show_bgp_ipv6_safi_route_cmd,
+       "show bgp ipv6 (unicast|multicast) X:X::X:X",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Network in the BGP routing table to display\n")
+{
+  if (strncmp (argv[0], "m", 1) == 0)
+    return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 0);
+
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0);
+}
+
 /* old command */
 DEFUN (show_ipv6_bgp_route,
        show_ipv6_bgp_route_cmd,
@@ -6873,6 +6934,22 @@ ALIAS (show_bgp_prefix,
        BGP_STR
        "Address family\n"
        "IPv6 prefix <network>/<length>\n")
+
+DEFUN (show_bgp_ipv6_safi_prefix,
+       show_bgp_ipv6_safi_prefix_cmd,
+       "show bgp ipv6 (unicast|multicast) X:X::X:X/M",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
+{
+  if (strncmp (argv[0], "m", 1) == 0)
+    return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 1);
+
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1);
+}
 
 /* old command */
 DEFUN (show_ipv6_bgp_prefix,
@@ -10289,6 +10366,65 @@ ALIAS (show_ip_bgp_view_rsclient,
        "Information about Route Server Client\n"
        NEIGHBOR_ADDR_STR)
 
+DEFUN (show_bgp_view_ipv4_safi_rsclient,
+       show_bgp_view_ipv4_safi_rsclient_cmd,
+       "show bgp view WORD ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X)",
+       SHOW_STR
+       BGP_STR
+       "BGP view\n"
+       "BGP view name\n"
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR)
+{
+  struct bgp_table *table;
+  struct peer *peer;
+  safi_t safi;
+
+  if (argc == 3) {
+    peer = peer_lookup_in_view (vty, argv[0], argv[2]);
+    safi = (strncmp (argv[1], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  } else {
+    peer = peer_lookup_in_view (vty, NULL, argv[1]);
+    safi = (strncmp (argv[0], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  }
+
+  if (! peer)
+    return CMD_WARNING;
+
+  if (! peer->afc[AFI_IP][safi])
+    {
+      vty_out (vty, "%% Activate the neighbor for the address family first%s",
+            VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  if ( ! CHECK_FLAG (peer->af_flags[AFI_IP][safi],
+              PEER_FLAG_RSERVER_CLIENT))
+    {
+      vty_out (vty, "%% Neighbor is not a Route-Server client%s",
+            VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  table = peer->rib[AFI_IP][safi];
+
+  return bgp_show_table (vty, table, &peer->remote_id, bgp_show_type_normal, NULL);
+}
+
+ALIAS (show_bgp_view_ipv4_safi_rsclient,
+       show_bgp_ipv4_safi_rsclient_cmd,
+       "show bgp ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR)
+
 DEFUN (show_ip_bgp_view_rsclient_route,
        show_ip_bgp_view_rsclient_route_cmd,
        "show ip bgp view WORD rsclient (A.B.C.D|X:X::X:X) A.B.C.D",
@@ -10358,6 +10494,87 @@ ALIAS (show_ip_bgp_view_rsclient_route,
        SHOW_STR
        IP_STR
        BGP_STR
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR
+       "Network in the BGP routing table to display\n")
+
+DEFUN (show_bgp_view_ipv4_safi_rsclient_route,
+       show_bgp_view_ipv4_safi_rsclient_route_cmd,
+       "show bgp view WORD ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) A.B.C.D",
+       SHOW_STR
+       BGP_STR
+       "BGP view\n"
+       "BGP view name\n"
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR
+       "Network in the BGP routing table to display\n")
+{
+  struct bgp *bgp;
+  struct peer *peer;
+  safi_t safi;
+
+  /* BGP structure lookup. */
+  if (argc == 4)
+    {
+      bgp = bgp_lookup_by_name (argv[0]);
+      if (bgp == NULL)
+	{
+	  vty_out (vty, "Can't find BGP view %s%s", argv[0], VTY_NEWLINE);
+	  return CMD_WARNING;
+	}
+    }
+  else
+    {
+      bgp = bgp_get_default ();
+      if (bgp == NULL)
+	{
+	  vty_out (vty, "No BGP process is configured%s", VTY_NEWLINE);
+	  return CMD_WARNING;
+	}
+    }
+
+  if (argc == 4) {
+    peer = peer_lookup_in_view (vty, argv[0], argv[2]);
+    safi = (strncmp (argv[1], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  } else {
+    peer = peer_lookup_in_view (vty, NULL, argv[1]);
+    safi = (strncmp (argv[0], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  }
+
+  if (! peer)
+    return CMD_WARNING;
+
+  if (! peer->afc[AFI_IP][safi])
+    {
+      vty_out (vty, "%% Activate the neighbor for the address family first%s",
+            VTY_NEWLINE);
+      return CMD_WARNING;
+}
+
+  if ( ! CHECK_FLAG (peer->af_flags[AFI_IP][safi],
+              PEER_FLAG_RSERVER_CLIENT))
+    {
+      vty_out (vty, "%% Neighbor is not a Route-Server client%s",
+            VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+ 
+  return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP][safi], 
+                                  (argc == 4) ? argv[3] : argv[2],
+                                  AFI_IP, safi, NULL, 0);
+}
+
+ALIAS (show_bgp_view_ipv4_safi_rsclient_route,
+       show_bgp_ipv4_safi_rsclient_route_cmd,
+       "show bgp ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) A.B.C.D",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
        "Information about Route Server Client\n"
        NEIGHBOR_ADDR_STR
        "Network in the BGP routing table to display\n")
@@ -10435,6 +10652,86 @@ ALIAS (show_ip_bgp_view_rsclient_prefix,
        NEIGHBOR_ADDR_STR
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 
+DEFUN (show_bgp_view_ipv4_safi_rsclient_prefix,
+       show_bgp_view_ipv4_safi_rsclient_prefix_cmd,
+       "show bgp view WORD ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) A.B.C.D/M",
+       SHOW_STR
+       BGP_STR
+       "BGP view\n"
+       "BGP view name\n"
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
+{
+  struct bgp *bgp;
+  struct peer *peer;
+  safi_t safi;
+
+  /* BGP structure lookup. */
+  if (argc == 4)
+    {
+      bgp = bgp_lookup_by_name (argv[0]);
+      if (bgp == NULL)
+	{
+	  vty_out (vty, "Can't find BGP view %s%s", argv[0], VTY_NEWLINE);
+	  return CMD_WARNING;
+	}
+    }
+  else
+    {
+      bgp = bgp_get_default ();
+      if (bgp == NULL)
+	{
+	  vty_out (vty, "No BGP process is configured%s", VTY_NEWLINE);
+	  return CMD_WARNING;
+	}
+    }
+
+  if (argc == 4) {
+    peer = peer_lookup_in_view (vty, argv[0], argv[2]);
+    safi = (strncmp (argv[1], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  } else {
+    peer = peer_lookup_in_view (vty, NULL, argv[1]);
+    safi = (strncmp (argv[0], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  }
+
+  if (! peer)
+    return CMD_WARNING;
+    
+  if (! peer->afc[AFI_IP][safi])
+    {
+      vty_out (vty, "%% Activate the neighbor for the address family first%s",
+            VTY_NEWLINE);
+      return CMD_WARNING;
+}
+
+  if ( ! CHECK_FLAG (peer->af_flags[AFI_IP][safi],
+              PEER_FLAG_RSERVER_CLIENT))
+{
+      vty_out (vty, "%% Neighbor is not a Route-Server client%s",
+            VTY_NEWLINE);
+    return CMD_WARNING;
+    }
+    
+  return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP][safi], 
+                                  (argc == 4) ? argv[3] : argv[2],
+                                  AFI_IP, safi, NULL, 1);
+}
+
+ALIAS (show_bgp_view_ipv4_safi_rsclient_prefix,
+       show_bgp_ipv4_safi_rsclient_prefix_cmd,
+       "show bgp ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) A.B.C.D/M",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 
 #ifdef HAVE_IPV6
 DEFUN (show_bgp_view_neighbor_routes,
@@ -10701,6 +10998,65 @@ ALIAS (show_bgp_view_rsclient,
        "Information about Route Server Client\n"
        NEIGHBOR_ADDR_STR)
 
+DEFUN (show_bgp_view_ipv6_safi_rsclient,
+       show_bgp_view_ipv6_safi_rsclient_cmd,
+       "show bgp view WORD ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X)",
+       SHOW_STR
+       BGP_STR
+       "BGP view\n"
+       "BGP view name\n"
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR)
+{
+  struct bgp_table *table;
+  struct peer *peer;
+  safi_t safi;
+
+  if (argc == 3) {
+    peer = peer_lookup_in_view (vty, argv[0], argv[2]);
+    safi = (strncmp (argv[1], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  } else {
+    peer = peer_lookup_in_view (vty, NULL, argv[1]);
+    safi = (strncmp (argv[0], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  }
+
+  if (! peer)
+    return CMD_WARNING;
+
+  if (! peer->afc[AFI_IP6][safi])
+    {
+      vty_out (vty, "%% Activate the neighbor for the address family first%s",
+            VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  if ( ! CHECK_FLAG (peer->af_flags[AFI_IP6][safi],
+              PEER_FLAG_RSERVER_CLIENT))
+    {
+      vty_out (vty, "%% Neighbor is not a Route-Server client%s",
+            VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  table = peer->rib[AFI_IP6][safi];
+
+  return bgp_show_table (vty, table, &peer->remote_id, bgp_show_type_normal, NULL);
+}
+
+ALIAS (show_bgp_view_ipv6_safi_rsclient,
+       show_bgp_ipv6_safi_rsclient_cmd,
+       "show bgp ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR)
+
 DEFUN (show_bgp_view_rsclient_route,
        show_bgp_view_rsclient_route_cmd,
        "show bgp view WORD rsclient (A.B.C.D|X:X::X:X) X:X::X:X",
@@ -10768,6 +11124,87 @@ ALIAS (show_bgp_view_rsclient_route,
        "show bgp rsclient (A.B.C.D|X:X::X:X) X:X::X:X",
        SHOW_STR
        BGP_STR
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR
+       "Network in the BGP routing table to display\n")
+
+DEFUN (show_bgp_view_ipv6_safi_rsclient_route,
+       show_bgp_view_ipv6_safi_rsclient_route_cmd,
+       "show bgp view WORD ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) X:X::X:X",
+       SHOW_STR
+       BGP_STR
+       "BGP view\n"
+       "BGP view name\n"
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR
+       "Network in the BGP routing table to display\n")
+{
+  struct bgp *bgp;
+  struct peer *peer;
+  safi_t safi;
+
+  /* BGP structure lookup. */
+  if (argc == 4)
+    {
+      bgp = bgp_lookup_by_name (argv[0]);
+      if (bgp == NULL)
+	{
+	  vty_out (vty, "Can't find BGP view %s%s", argv[0], VTY_NEWLINE);
+	  return CMD_WARNING;
+	}
+    }
+  else
+    {
+      bgp = bgp_get_default ();
+      if (bgp == NULL)
+	{
+	  vty_out (vty, "No BGP process is configured%s", VTY_NEWLINE);
+	  return CMD_WARNING;
+	}
+    }
+
+  if (argc == 4) {
+    peer = peer_lookup_in_view (vty, argv[0], argv[2]);
+    safi = (strncmp (argv[1], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  } else {
+    peer = peer_lookup_in_view (vty, NULL, argv[1]);
+    safi = (strncmp (argv[0], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  }
+
+  if (! peer)
+    return CMD_WARNING;
+
+  if (! peer->afc[AFI_IP6][safi])
+    {
+      vty_out (vty, "%% Activate the neighbor for the address family first%s",
+            VTY_NEWLINE);
+      return CMD_WARNING;
+}
+
+  if ( ! CHECK_FLAG (peer->af_flags[AFI_IP6][safi],
+              PEER_FLAG_RSERVER_CLIENT))
+    {
+      vty_out (vty, "%% Neighbor is not a Route-Server client%s",
+            VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+ 
+  return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP6][safi], 
+                                  (argc == 4) ? argv[3] : argv[2],
+                                  AFI_IP6, safi, NULL, 0);
+}
+
+ALIAS (show_bgp_view_ipv6_safi_rsclient_route,
+       show_bgp_ipv6_safi_rsclient_route_cmd,
+       "show bgp ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) X:X::X:X",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
        "Information about Route Server Client\n"
        NEIGHBOR_ADDR_STR
        "Network in the BGP routing table to display\n")
@@ -10842,6 +11279,87 @@ ALIAS (show_bgp_view_rsclient_prefix,
        "Information about Route Server Client\n"
        NEIGHBOR_ADDR_STR
        "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
+
+DEFUN (show_bgp_view_ipv6_safi_rsclient_prefix,
+       show_bgp_view_ipv6_safi_rsclient_prefix_cmd,
+       "show bgp view WORD ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) X:X::X:X/M",
+       SHOW_STR
+       BGP_STR
+       "BGP view\n"
+       "BGP view name\n"
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR
+       "IP prefix <network>/<length>, e.g., 3ffe::/16\n")
+{
+  struct bgp *bgp;
+  struct peer *peer;
+  safi_t safi;
+
+  /* BGP structure lookup. */
+  if (argc == 4)
+    {
+      bgp = bgp_lookup_by_name (argv[0]);
+      if (bgp == NULL)
+	{
+	  vty_out (vty, "Can't find BGP view %s%s", argv[0], VTY_NEWLINE);
+	  return CMD_WARNING;
+	}
+    }
+  else
+    {
+      bgp = bgp_get_default ();
+      if (bgp == NULL)
+	{
+	  vty_out (vty, "No BGP process is configured%s", VTY_NEWLINE);
+	  return CMD_WARNING;
+	}
+    }
+
+  if (argc == 4) {
+    peer = peer_lookup_in_view (vty, argv[0], argv[2]);
+    safi = (strncmp (argv[1], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  } else {
+    peer = peer_lookup_in_view (vty, NULL, argv[1]);
+    safi = (strncmp (argv[0], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
+  }
+
+  if (! peer)
+    return CMD_WARNING;
+    
+  if (! peer->afc[AFI_IP6][safi])
+    {
+      vty_out (vty, "%% Activate the neighbor for the address family first%s",
+            VTY_NEWLINE);
+      return CMD_WARNING;
+}
+
+  if ( ! CHECK_FLAG (peer->af_flags[AFI_IP6][safi],
+              PEER_FLAG_RSERVER_CLIENT))
+{
+      vty_out (vty, "%% Neighbor is not a Route-Server client%s",
+            VTY_NEWLINE);
+    return CMD_WARNING;
+    }
+    
+  return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP6][safi], 
+                                  (argc == 4) ? argv[3] : argv[2],
+                                  AFI_IP6, safi, NULL, 1);
+}
+
+ALIAS (show_bgp_view_ipv6_safi_rsclient_prefix,
+       show_bgp_ipv6_safi_rsclient_prefix_cmd,
+       "show bgp ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) X:X::X:X/M",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Client\n"
+       NEIGHBOR_ADDR_STR
+       "IP prefix <network>/<length>, e.g., 3ffe::/16\n")
 
 #endif /* HAVE_IPV6 */
 
@@ -11716,12 +12234,15 @@ bgp_route_init ()
 
   install_element (VIEW_NODE, &show_ip_bgp_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_ipv4_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv4_safi_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_route_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_ipv4_route_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv4_safi_route_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_route_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_route_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_prefix_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_ipv4_prefix_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv4_safi_prefix_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_prefix_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_prefix_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_view_cmd);
@@ -11782,18 +12303,26 @@ bgp_route_init ()
   install_element (VIEW_NODE, &show_ip_bgp_neighbor_flap_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_neighbor_damp_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_rsclient_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv4_safi_rsclient_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_rsclient_route_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv4_safi_rsclient_route_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_rsclient_prefix_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv4_safi_rsclient_prefix_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_view_rsclient_cmd);
+  install_element (VIEW_NODE, &show_bgp_view_ipv4_safi_rsclient_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_view_rsclient_route_cmd);
+  install_element (VIEW_NODE, &show_bgp_view_ipv4_safi_rsclient_route_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_view_rsclient_prefix_cmd);
+  install_element (VIEW_NODE, &show_bgp_view_ipv4_safi_rsclient_prefix_cmd);
   
   /* Restricted node: VIEW_NODE - (set of dangerous commands) */
   install_element (RESTRICTED_NODE, &show_ip_bgp_route_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_ipv4_route_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv4_safi_route_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_vpnv4_rd_route_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_ipv4_prefix_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv4_safi_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_vpnv4_all_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_vpnv4_rd_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_view_route_cmd);
@@ -11815,18 +12344,25 @@ bgp_route_init ()
   install_element (RESTRICTED_NODE, &show_ip_bgp_ipv4_community3_exact_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_ipv4_community4_exact_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_rsclient_route_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv4_safi_rsclient_route_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_rsclient_prefix_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv4_safi_rsclient_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_view_rsclient_route_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_view_ipv4_safi_rsclient_route_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_view_rsclient_prefix_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_view_ipv4_safi_rsclient_prefix_cmd);
 
   install_element (ENABLE_NODE, &show_ip_bgp_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_ipv4_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv4_safi_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_route_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_ipv4_route_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv4_safi_route_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_route_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_route_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_prefix_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_ipv4_prefix_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv4_safi_prefix_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_prefix_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_prefix_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_view_cmd);
@@ -11887,11 +12423,17 @@ bgp_route_init ()
   install_element (ENABLE_NODE, &show_ip_bgp_neighbor_flap_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_neighbor_damp_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_rsclient_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv4_safi_rsclient_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_rsclient_route_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv4_safi_rsclient_route_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_rsclient_prefix_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv4_safi_rsclient_prefix_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_view_rsclient_cmd);
+  install_element (ENABLE_NODE, &show_bgp_view_ipv4_safi_rsclient_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_view_rsclient_route_cmd);
+  install_element (ENABLE_NODE, &show_bgp_view_ipv4_safi_rsclient_route_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_view_rsclient_prefix_cmd);
+  install_element (ENABLE_NODE, &show_bgp_view_ipv4_safi_rsclient_prefix_cmd);
 
  /* BGP dampening clear commands */
   install_element (ENABLE_NODE, &clear_ip_bgp_dampening_cmd);
@@ -11930,10 +12472,13 @@ bgp_route_init ()
 
   install_element (VIEW_NODE, &show_bgp_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_safi_cmd);
   install_element (VIEW_NODE, &show_bgp_route_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_route_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_safi_route_cmd);
   install_element (VIEW_NODE, &show_bgp_prefix_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_prefix_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_safi_prefix_cmd);
   install_element (VIEW_NODE, &show_bgp_regexp_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_regexp_cmd);
   install_element (VIEW_NODE, &show_bgp_prefix_list_cmd);
@@ -11979,8 +12524,11 @@ bgp_route_init ()
   install_element (VIEW_NODE, &show_bgp_neighbor_damp_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_neighbor_damp_cmd);
   install_element (VIEW_NODE, &show_bgp_rsclient_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_safi_rsclient_cmd);
   install_element (VIEW_NODE, &show_bgp_rsclient_route_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_safi_rsclient_route_cmd);
   install_element (VIEW_NODE, &show_bgp_rsclient_prefix_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_safi_rsclient_prefix_cmd);
   install_element (VIEW_NODE, &show_bgp_view_cmd);
   install_element (VIEW_NODE, &show_bgp_view_ipv6_cmd);
   install_element (VIEW_NODE, &show_bgp_view_route_cmd);
@@ -12000,16 +12548,21 @@ bgp_route_init ()
   install_element (VIEW_NODE, &show_bgp_view_neighbor_damp_cmd);
   install_element (VIEW_NODE, &show_bgp_view_ipv6_neighbor_damp_cmd); 
   install_element (VIEW_NODE, &show_bgp_view_rsclient_cmd);
+  install_element (VIEW_NODE, &show_bgp_view_ipv6_safi_rsclient_cmd);
   install_element (VIEW_NODE, &show_bgp_view_rsclient_route_cmd);
+  install_element (VIEW_NODE, &show_bgp_view_ipv6_safi_rsclient_route_cmd);
   install_element (VIEW_NODE, &show_bgp_view_rsclient_prefix_cmd);
+  install_element (VIEW_NODE, &show_bgp_view_ipv6_safi_rsclient_prefix_cmd);
   
   /* Restricted:
    * VIEW_NODE - (set of dangerous commands) - (commands dependent on prev) 
    */
   install_element (RESTRICTED_NODE, &show_bgp_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_route_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_prefix_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_community_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_community_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_community2_cmd);
@@ -12027,7 +12580,9 @@ bgp_route_init ()
   install_element (RESTRICTED_NODE, &show_bgp_community4_exact_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_community4_exact_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_rsclient_route_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_rsclient_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_rsclient_prefix_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_rsclient_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_view_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_view_ipv6_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_view_prefix_cmd);
@@ -12035,14 +12590,19 @@ bgp_route_init ()
   install_element (RESTRICTED_NODE, &show_bgp_view_neighbor_received_prefix_filter_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_view_ipv6_neighbor_received_prefix_filter_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_view_rsclient_route_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_view_ipv6_safi_rsclient_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_view_rsclient_prefix_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_view_ipv6_safi_rsclient_prefix_cmd);
 
   install_element (ENABLE_NODE, &show_bgp_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv6_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_safi_cmd);
   install_element (ENABLE_NODE, &show_bgp_route_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv6_route_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_safi_route_cmd);
   install_element (ENABLE_NODE, &show_bgp_prefix_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv6_prefix_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_safi_prefix_cmd);
   install_element (ENABLE_NODE, &show_bgp_regexp_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv6_regexp_cmd);
   install_element (ENABLE_NODE, &show_bgp_prefix_list_cmd);
@@ -12088,8 +12648,11 @@ bgp_route_init ()
   install_element (ENABLE_NODE, &show_bgp_neighbor_damp_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv6_neighbor_damp_cmd);
   install_element (ENABLE_NODE, &show_bgp_rsclient_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_safi_rsclient_cmd);
   install_element (ENABLE_NODE, &show_bgp_rsclient_route_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_safi_rsclient_route_cmd);
   install_element (ENABLE_NODE, &show_bgp_rsclient_prefix_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_safi_rsclient_prefix_cmd);
   install_element (ENABLE_NODE, &show_bgp_view_cmd);
   install_element (ENABLE_NODE, &show_bgp_view_ipv6_cmd);
   install_element (ENABLE_NODE, &show_bgp_view_route_cmd);
@@ -12109,8 +12672,11 @@ bgp_route_init ()
   install_element (ENABLE_NODE, &show_bgp_view_neighbor_damp_cmd);
   install_element (ENABLE_NODE, &show_bgp_view_ipv6_neighbor_damp_cmd);
   install_element (ENABLE_NODE, &show_bgp_view_rsclient_cmd);
+  install_element (ENABLE_NODE, &show_bgp_view_ipv6_safi_rsclient_cmd);
   install_element (ENABLE_NODE, &show_bgp_view_rsclient_route_cmd);
+  install_element (ENABLE_NODE, &show_bgp_view_ipv6_safi_rsclient_route_cmd);
   install_element (ENABLE_NODE, &show_bgp_view_rsclient_prefix_cmd);
+  install_element (ENABLE_NODE, &show_bgp_view_ipv6_safi_rsclient_prefix_cmd);
   
   /* Statistics */
   install_element (ENABLE_NODE, &show_bgp_statistics_cmd);
