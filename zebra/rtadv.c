@@ -263,6 +263,32 @@ rtadv_send_packet (int sock, struct interface *ifp)
       len += sizeof(struct nd_opt_homeagent_info);
     }
 
+  if (zif->rtadv.AdvRDNSSFlag)
+    {
+      char *addr_ptr;
+      struct nd_opt_rdnss *ndopt_rdnss;
+      struct prefix *rdnss_prefix;
+      unsigned int rdnss_entries = 1;
+
+      ndopt_rdnss = (struct nd_opt_rdnss *) (buf + len);
+      ndopt_rdnss->nd_opt_type = ND_OPT_RDNSS;
+      ndopt_rdnss->nd_opt_reserved = 0;
+      ndopt_rdnss->nd_opt_lifetime = htonl(zif->rtadv.AdvRDNSSLifetime);
+
+      len += sizeof(struct nd_opt_rdnss);
+
+      /* Fill in all RDNS server entries */
+      for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, rdnss_prefix))
+        {
+          addr_ptr = (char *)(buf + len);
+          memcpy(addr_ptr, &rdnss_prefix->u.prefix6, sizeof (struct in6_addr));
+          len += sizeof (struct in6_addr);
+          rdnss_entries += 2;
+        }
+
+	     ndopt_rdnss->nd_opt_len = rdnss_entries;
+    }
+
   if (zif->rtadv.AdvIntervalOption)
     {
       struct nd_opt_adv_interval *ndopt_adv = 
@@ -1529,6 +1555,115 @@ ALIAS (no_ipv6_nd_mtu,
        "Advertised MTU\n"
        "MTU in bytes\n")
 
+static struct prefix *
+rtadv_rdnss_lookup (struct list *list, struct prefix *p)
+{
+  struct listnode *node;
+  struct prefix *prefix;
+
+  for (ALL_LIST_ELEMENTS_RO (list, node, prefix))
+    if (prefix_same (prefix, p))
+      return prefix;
+  return NULL;
+}
+
+static void
+rtadv_rdnss_set (struct zebra_if *zif, struct prefix *p)
+{
+  struct prefix *prefix;
+  struct list *rdnsslist = zif->rtadv.AdvRDNSSList;
+
+  prefix = rtadv_rdnss_lookup (rdnsslist, p);
+  if (prefix)
+    return;
+
+  prefix = prefix_new ();
+  memcpy (prefix, p, sizeof (struct prefix));
+  listnode_add (rdnsslist, prefix);
+
+  return;
+}
+
+static int
+rtadv_rdnss_reset (struct zebra_if *zif, struct prefix *rp)
+{
+  struct prefix *prefix;
+
+  prefix = rtadv_rdnss_lookup(zif->rtadv.AdvRDNSSList, rp);
+  if (prefix != NULL)
+    {
+      listnode_delete (zif->rtadv.AdvRDNSSList, (void *) prefix);
+      prefix_free (prefix);
+      return 1;
+    }
+  else
+    return 0;
+}
+
+DEFUN (ipv6_nd_rdnss,
+       ipv6_nd_rdnss_cmd,
+       "ipv6 nd rdnss X:X::X:X (<0-4294967295>|infinite)",
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "RDNSS Option\n"
+       "IPv6 address of recursive DNS server\n")
+{
+  int ret;
+  char *pnt;
+  struct interface *ifp;
+  struct zebra_if *zif;
+  struct prefix rp;
+
+  ifp = (struct interface *) vty->index;
+  zif = ifp->info;
+
+  /* make sure no slash exists in the argument */
+  pnt = strchr (argv[0], '/');
+  if (pnt != NULL)
+    {
+	  vty_out (vty, "Malformed IPv6 RDNS address - no prefix notation allowed%s",
+			  VTY_NEWLINE);
+	  return CMD_WARNING;
+    }
+
+  /* now we can abuse str2prefix_ipv6 for a sanity check
+   * because IPv6 addresses with missing prefix
+   * slashes '/' are treated as host routes */
+  ret = str2prefix_ipv6 (argv[0], (struct prefix_ipv6 *) &rp);
+  if (!ret)
+    {
+      vty_out (vty, "Malformed IPv6 RDNS address%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  rtadv_rdnss_set(zif, &rp);
+  zif->rtadv.AdvRDNSSFlag = 1;
+
+  if (argc > 1)
+    {
+	  if ( strncmp (argv[1], "i", 1) == 0)
+	    {
+		  zif->rtadv.AdvRDNSSLifetime = RTADV_RDNSS_INFINITY_LIFETIME;
+	    }
+	  else
+	    {
+		  zif->rtadv.AdvRDNSSLifetime =
+			  (u_int32_t) strtoll (argv[1], (char **)NULL, 10);
+	    }
+    }
+
+  return CMD_SUCCESS;
+}
+
+ALIAS (ipv6_nd_rdnss,
+       ipv6_nd_rdnss_cmd_nolife,
+       "ipv6 nd rdnss X:X::X:X",
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "RDNSS Option\n"
+       "IPv6 address of recursive DNS server\n")
+
+
 /* Write configuration about router advertisement. */
 void
 rtadv_config_write (struct vty *vty, struct interface *ifp)
@@ -1731,6 +1866,8 @@ rtadv_init (void)
   install_element (INTERFACE_NODE, &ipv6_nd_mtu_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_mtu_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_mtu_val_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_rdnss_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_rdnss_cmd_nolife);
 }
 
 static int

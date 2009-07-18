@@ -69,6 +69,9 @@ extern void rtadv_init (void);
 #ifndef ND_OPT_HA_INFORMATION
 #define ND_OPT_HA_INFORMATION	8   /* HA Information Option */
 #endif
+#ifndef ND_OPT_RDNSS
+#define	ND_OPT_RDNSS 25 /* RDNSS option (RFC 5006) */
+#endif
 
 #ifndef HAVE_STRUCT_ND_OPT_ADV_INTERVAL
 struct nd_opt_adv_interval {   /* Advertisement interval option */
@@ -96,6 +99,15 @@ struct nd_opt_homeagent_info {  /* Home Agent info */
         u_int16_t       nd_opt_hai_lifetime;
 } __attribute__((__packed__));
 #endif
+
+/* see RFC 5006, section 5.1 */
+struct nd_opt_rdnss {
+	uint8_t  nd_opt_type;
+	uint8_t  nd_opt_len;
+	uint16_t nd_opt_reserved;
+	uint32_t nd_opt_lifetime;
+	/* followed by n (16 byte) entries */
+} __attribute__((__packed__));
 
 extern const char *rtadv_pref_strs[];
 
