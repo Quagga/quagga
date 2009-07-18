@@ -169,15 +169,25 @@ consistent with router interface MTU.
 Default: don't advertise any MTU option
 @end deffn
 
+@deffn {Interface Command} {ipv6 nd rdnss ipv6prefix [lifetime]} {} Include
+RDNSS options to advertise recursive DNS server addresses. Additionally a
+maximum lifetime (in seconds) can be specified to limit the lifetime of this
+option. The valid range is between @code{<0-4294967295>} where 0 means that the
+RDNSS address must no longer be used. The default lifetime - without explicitly
+specify a lifetime - is unlimited.
+@end deffn
+
 @example
 @group
 interface eth0
  no ipv6 nd suppress-ra
  ipv6 nd prefix 2001:0DB8:5009::/64
+ ipv6 nd rdnss 2001:0DB8:5009::1
 @end group
 @end example
 
 For more information see @cite{RFC2462 (IPv6 Stateless Address Autoconfiguration)}
 , @cite{RFC4861 (Neighbor Discovery for IP Version 6 (IPv6))}
 , @cite{RFC6275 (Mobility Support in IPv6)}
+, @cite{RFC5006 (IPv6 Router Advertisement Option for DNS Configuration)}
 and @cite{RFC4191 (Default Router Preferences and More-Specific Routes)}.
