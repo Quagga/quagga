@@ -138,7 +138,9 @@ ospf_ase_complete_direct_routes (struct ospf_route *ro, struct in_addr nexthop)
   struct interface *ifp;
 
   for (ALL_LIST_ELEMENTS_RO (ro->paths, node, op))
-    if (op->nexthop.s_addr == 0)
+    if (if_is_pointopoint (op->oi->ifp))
+      op->nexthop.s_addr = 0; /* PtoP I/F's are always directly connected */
+    else if (op->nexthop.s_addr == 0)
       op->nexthop.s_addr = nexthop.s_addr;
 }
 
