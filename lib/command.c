@@ -2762,13 +2762,15 @@ cmd_execute_command_strict (vector vline, struct vty *vty,
 
 /* Configration make from file. */
 int
-config_from_file (struct vty *vty, FILE *fp)
+config_from_file (struct vty *vty, FILE *fp, unsigned int *line_num)
 {
   int ret;
+  *line_num = 0;
   vector vline;
 
   while (fgets (vty->buf, VTY_BUFSIZ, fp))
     {
+      ++(*line_num);
       vline = cmd_make_strvec (vty->buf);
 
       /* In case of comment line */
