@@ -130,20 +130,6 @@ ospf_find_asbr_route_through_area (struct route_table *rtrs,
   return NULL;
 }
 
-static void
-ospf_ase_complete_direct_routes (struct ospf_route *ro, struct in_addr nexthop)
-{
-  struct listnode *node;
-  struct ospf_path *op;
-  struct interface *ifp;
-
-  for (ALL_LIST_ELEMENTS_RO (ro->paths, node, op))
-    if (if_is_pointopoint (op->oi->ifp))
-      op->nexthop.s_addr = 0; /* PtoP I/F's are always directly connected */
-    else if (op->nexthop.s_addr == 0)
-      op->nexthop.s_addr = nexthop.s_addr;
-}
-
 static int
 ospf_ase_forward_address_check (struct ospf *ospf, struct in_addr fwd_addr)
 {
@@ -451,8 +437,8 @@ ospf_ase_calculate_route (struct ospf *ospf, struct ospf_lsa * lsa)
 
   /* if there is a Intra/Inter area route to the N
      do not install external route */
-  if (rn = route_node_lookup (ospf->new_table,
-			      (struct prefix *) &p))
+  if ((rn = route_node_lookup (ospf->new_table,
+			      (struct prefix *) &p)))
     {
       route_unlock_node(rn);
       if (rn->info == NULL)
@@ -463,8 +449,8 @@ ospf_ase_calculate_route (struct ospf *ospf, struct ospf_lsa * lsa)
     }
   /* Find a route to the same dest */
   /* If there is no route, create new one. */
-  if (rn = route_node_lookup (ospf->new_external_route,
-			       (struct prefix *) &p))
+  if ((rn = route_node_lookup (ospf->new_external_route,
+			       (struct prefix *) &p)))
       route_unlock_node(rn);
 
   if (!rn || (or = rn->info) == NULL)
@@ -475,8 +461,6 @@ ospf_ase_calculate_route (struct ospf *ospf, struct ospf_lsa * lsa)
 
       ospf_route_add (ospf->new_external_route, &p, new, asbr_route);
 
-      if (al->e[0].fwd_addr.s_addr)
-	ospf_ase_complete_direct_routes (new, al->e[0].fwd_addr);
       return 0;
     }
   else
@@ -513,8 +497,7 @@ ospf_ase_calculate_route (struct ospf *ospf, struct ospf_lsa * lsa)
 	  if (IS_DEBUG_OSPF (lsa, LSA))
 	    zlog_debug ("Route[External]: New route is better");
 	  ospf_route_subst (rn, new, asbr_route);
-	  if (al->e[0].fwd_addr.s_addr)
-	    ospf_ase_complete_direct_routes (new, al->e[0].fwd_addr);
+
 	  or = new;
 	  new = NULL;
 	}
@@ -531,8 +514,6 @@ ospf_ase_calculate_route (struct ospf *ospf, struct ospf_lsa * lsa)
 	  if (IS_DEBUG_OSPF (lsa, LSA))
 	    zlog_debug ("Route[External]: Routes are equal");
 	  ospf_route_copy_nexthops (or, asbr_route->paths);
-	  if (al->e[0].fwd_addr.s_addr)
-	    ospf_ase_complete_direct_routes (or, al->e[0].fwd_addr);
 	}
     }
   /* Make sure setting newly calculated ASBR route.*/
