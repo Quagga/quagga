@@ -1015,6 +1015,53 @@ DEFUN (no_multicast,
   return CMD_SUCCESS;
 }
 
+DEFUN (unnumbered,
+       unnumbered_cmd,
+       "unnumbered",
+       "Set interface to IP Unnumbered mode\n")
+{
+  int ret;
+  struct interface *ifp;
+  struct zebra_if *if_data;
+
+  ifp = (struct interface *) vty->index;
+
+  zlog_debug("VTY: interface %s, Setting ZEBRA_INTERFACE_UNNUMBERED",
+	     ifp->name);
+
+  SET_FLAG (ifp->status, ZEBRA_INTERFACE_UNNUMBERED);
+
+  /* force protocols to recalculate routes due to IP change */
+  if (if_is_operative (ifp))
+    zebra_interface_up_update (ifp);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_unnumbered,
+       no_unnumbered_cmd,
+       "no unnumbered",
+       NO_STR
+       "Set interface to IP Numbered mode\n")
+{
+  int ret;
+  struct interface *ifp;
+  struct zebra_if *if_data;
+
+  ifp = (struct interface *) vty->index;
+
+  zlog_debug("VTY: interface %s, Unsetting ZEBRA_INTERFACE_UNNUMBERED;",
+	     ifp->name);
+
+  UNSET_FLAG (ifp->status, ZEBRA_INTERFACE_UNNUMBERED);
+
+  /* force protocols to recalculate routes due to IP change */
+  if (if_is_operative (ifp))
+    zebra_interface_up_update (ifp);
+
+  return CMD_SUCCESS;
+}
+
 DEFUN (linkdetect,
        linkdetect_cmd,
        "link-detect",
@@ -1544,6 +1591,9 @@ if_config_write (struct vty *vty)
       if (ifp->bandwidth != 0)
 	vty_out(vty, " bandwidth %u%s", ifp->bandwidth, VTY_NEWLINE); 
 
+      if (ifp->status & ZEBRA_INTERFACE_UNNUMBERED)
+        vty_out (vty, " unnumbered%s", VTY_NEWLINE);
+
       if (CHECK_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION))
 	vty_out(vty, " link-detect%s", VTY_NEWLINE);
 
@@ -1611,6 +1661,8 @@ zebra_if_init (void)
   install_element (INTERFACE_NODE, &no_interface_desc_cmd);
   install_element (INTERFACE_NODE, &multicast_cmd);
   install_element (INTERFACE_NODE, &no_multicast_cmd);
+  install_element (INTERFACE_NODE, &unnumbered_cmd);
+  install_element (INTERFACE_NODE, &no_unnumbered_cmd);
   install_element (INTERFACE_NODE, &linkdetect_cmd);
   install_element (INTERFACE_NODE, &no_linkdetect_cmd);
   install_element (INTERFACE_NODE, &shutdown_if_cmd);

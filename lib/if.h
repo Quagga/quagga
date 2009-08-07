@@ -90,6 +90,7 @@ struct interface
 #define ZEBRA_INTERFACE_ACTIVE     (1 << 0)
 #define ZEBRA_INTERFACE_SUB        (1 << 1)
 #define ZEBRA_INTERFACE_LINKDETECTION (1 << 2)
+#define ZEBRA_INTERFACE_UNNUMBERED (1 << 3)
   
   /* Interface flags. */
   uint64_t flags;
