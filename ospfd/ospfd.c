@@ -744,6 +744,71 @@ ospf_network_new (struct in_addr area_id, int format)
 }
 
 static void
+add_ospf_interface (struct interface *ifp, struct ospf_area *area,
+                    struct connected *co)
+{
+  struct ospf_interface *oi;
+
+  oi = ospf_if_new (area->ospf, ifp, co->address);
+  oi->connected = co;
+
+  oi->area = area;
+
+  oi->params = ospf_lookup_if_params (ifp, oi->address->u.prefix4);
+  oi->output_cost = ospf_if_get_output_cost (oi);
+
+  /* Add pseudo neighbor. */
+  ospf_nbr_add_self (oi);
+
+  /* Relate ospf interface to ospf instance. */
+  oi->ospf = area->ospf;
+
+  /* update network type as interface flag */
+  /* If network type is specified previously,
+     skip network type setting. */
+  oi->type = IF_DEF_PARAMS (ifp)->type;
+
+  ospf_area_add_if (oi->area, oi);
+
+  /* if router_id is not configured, dont bring up
+   * interfaces.
+   * ospf_router_id_update() will call ospf_if_update
+   * whenever r-id is configured instead.
+   */
+  if ((area->ospf->router_id.s_addr != 0)
+      && if_is_operative (ifp)) 
+    ospf_if_up (oi);
+}
+
+static void
+update_redistributed (struct ospf *ospf, int add_to_ospf)
+{
+  struct route_node *rn;
+  struct external_info *ei;
+
+  if (ospf_is_type_redistributed (ZEBRA_ROUTE_CONNECT))
+    if (EXTERNAL_INFO (ZEBRA_ROUTE_CONNECT))
+      for (rn = route_top (EXTERNAL_INFO (ZEBRA_ROUTE_CONNECT));
+	   rn; rn = route_next (rn))
+	if ((ei = rn->info) != NULL)
+	  {
+            if (add_to_ospf)
+              {
+                if (ospf_external_info_find_lsa (ospf, &ei->p))
+                  if (!ospf_distribute_check_connected (ospf, ei))
+                    ospf_external_lsa_flush (ospf, ei->type, &ei->p,
+                                             ei->ifindex /*, ei->nexthop */);
+              }
+            else
+              {
+                if (!ospf_external_info_find_lsa (ospf, &ei->p))
+                  if (ospf_distribute_check_connected (ospf, ei))
+                    ospf_external_lsa_originate (ospf, ei);
+              }
+          }
+}
+
+static void
 ospf_network_free (struct ospf *ospf, struct ospf_network *network)
 {
   ospf_area_check_free (ospf, network->area_id);
@@ -758,7 +823,6 @@ ospf_network_set (struct ospf *ospf, struct prefix_ipv4 *p,
   struct ospf_network *network;
   struct ospf_area *area;
   struct route_node *rn;
-  struct external_info *ei;
   int ret = OSPF_AREA_ID_FORMAT_ADDRESS;
 
   rn = route_node_get (ospf->networks, (struct prefix *)p);
@@ -776,16 +840,7 @@ ospf_network_set (struct ospf *ospf, struct prefix_ipv4 *p,
   ospf_network_run ((struct prefix *)p, area);
 
   /* Update connected redistribute. */
-  if (ospf_is_type_redistributed (ZEBRA_ROUTE_CONNECT))
-    if (EXTERNAL_INFO (ZEBRA_ROUTE_CONNECT))
-      for (rn = route_top (EXTERNAL_INFO (ZEBRA_ROUTE_CONNECT));
-	   rn; rn = route_next (rn))
-	if ((ei = rn->info) != NULL)
-	  if (ospf_external_info_find_lsa (ospf, &ei->p))
-	    if (!ospf_distribute_check_connected (ospf, ei))
-	      ospf_external_lsa_flush (ospf, ei->type, &ei->p,
-				       ei->ifindex /*, ei->nexthop */);
-
+  update_redistributed(ospf, 1); /* interfaces possibly added */
   ospf_area_check_free (ospf, area_id);
 
   return 1;
@@ -797,7 +852,6 @@ ospf_network_unset (struct ospf *ospf, struct prefix_ipv4 *p,
 {
   struct route_node *rn;
   struct ospf_network *network;
-  struct external_info *ei;
   struct listnode *node, *nnode;
   struct ospf_interface *oi;
 
@@ -844,15 +898,7 @@ ospf_network_unset (struct ospf *ospf, struct prefix_ipv4 *p,
     }
   
   /* Update connected redistribute. */
-  if (ospf_is_type_redistributed (ZEBRA_ROUTE_CONNECT))
-    if (EXTERNAL_INFO (ZEBRA_ROUTE_CONNECT))
-      for (rn = route_top (EXTERNAL_INFO (ZEBRA_ROUTE_CONNECT));
-	   rn; rn = route_next (rn))
-	if ((ei = rn->info) != NULL)
-	  if (!ospf_external_info_find_lsa (ospf, &ei->p))
-	    if (ospf_distribute_check_connected (ospf, ei))
-	      ospf_external_lsa_originate (ospf, ei);
-
+  update_redistributed(ospf, 0); /* interfaces possibly removed */
   return 1;
 }
 
@@ -887,39 +933,9 @@ ospf_network_run_interface (struct prefix *p, struct ospf_area *area,
       if (p->family == co->address->family 
 	  && ! ospf_if_table_lookup(ifp, co->address)
           && ospf_network_match_iface(co,p))
-        {
-           struct ospf_interface *oi;
-            
-            oi = ospf_if_new (area->ospf, ifp, co->address);
-            oi->connected = co;
-            
-            oi->area = area;
-
-            oi->params = ospf_lookup_if_params (ifp, oi->address->u.prefix4);
-            oi->output_cost = ospf_if_get_output_cost (oi);
-            
-            /* Add pseudo neighbor. */
-            ospf_nbr_add_self (oi);
-
-            /* Relate ospf interface to ospf instance. */
-            oi->ospf = area->ospf;
-
-            /* update network type as interface flag */
-            /* If network type is specified previously,
-               skip network type setting. */
-            oi->type = IF_DEF_PARAMS (ifp)->type;
-            
-            ospf_area_add_if (oi->area, oi);
-            
-            /* if router_id is not configured, dont bring up
-             * interfaces.
-             * ospf_router_id_update() will call ospf_if_update
-             * whenever r-id is configured instead.
-             */
-            if ((area->ospf->router_id.s_addr != 0)
-                && if_is_operative (ifp)) 
-              ospf_if_up (oi);
-          }
+	{
+	  add_ospf_interface(ifp, area, co);
+	}
     }
 }
 
@@ -978,7 +994,7 @@ ospf_if_update (struct ospf *ospf, struct interface *ifp)
   /* OSPF must be on and Router-ID must be configured. */
   if (!ospf || ospf->router_id.s_addr == 0)
     return;
-  
+
   /* Run each netowrk for this interface. */
   for (rn = route_top (ospf->networks); rn; rn = route_next (rn))
     if (rn->info != NULL)
