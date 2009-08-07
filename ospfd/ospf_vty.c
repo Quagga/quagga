@@ -5883,6 +5883,70 @@ ALIAS (no_ip_ospf_transmit_delay,
        "OSPF interface commands\n"
        "Link state transmit delay\n")
 
+DEFUN (ip_ospf_area,
+       ip_ospf_area_cmd,
+       "ip ospf area (A.B.C.D|<0-4294967295>)",
+       "IP Information\n"
+       "OSPF interface commands\n"
+       "Enable OSPF on this interface\n"
+       "OSPF area ID in IP address format\n"
+       "OSPF area ID as a decimal value\n")
+{
+  struct interface *ifp = vty->index;
+  int format, ret;
+  struct in_addr area_id;
+  struct ospf *ospf;
+  struct ospf_if_params *params;
+
+  ret = ospf_str2area_id (argv[0], &area_id, &format);
+
+  if (ret < 0)
+    {
+      vty_out (vty, "Please specify area by A.B.C.D|<0-4294967295>%s",
+	       VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+  params = IF_DEF_PARAMS (ifp);
+  if (OSPF_IF_PARAM_CONFIGURED(params, if_area))
+    {
+      vty_out (vty, "There is already a interface statement.%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+  if (memcmp (ifp->name, "VLINK", 5) == 0)
+    {
+      vty_out (vty, "Cannot enable OSPF on a virtual link.%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  SET_IF_PARAM (params, if_area);
+  params->if_area = area_id;
+  ospf_interface_set (ifp);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ip_ospf_area,
+       no_ip_ospf_area_cmd,
+       "no ip ospf area",
+       NO_STR
+       "IP Information\n"
+       "OSPF interface commands\n"
+       "Disable OSPF on this interface\n")
+{
+  struct interface *ifp = vty->index;
+  struct ospf *ospf;
+  struct ospf_if_params *params;
+
+  params = IF_DEF_PARAMS (ifp);
+  if (!OSPF_IF_PARAM_CONFIGURED(params, if_area))
+    return CMD_SUCCESS;
+
+  UNSET_IF_PARAM (params, if_area);
+
+  ospf_interface_unset (ifp);
+  return CMD_SUCCESS;
+}
+
 DEFUN (ospf_redistribute_source,
        ospf_redistribute_source_cmd,
        "redistribute " QUAGGA_REDIST_STR_OSPFD
@@ -6947,6 +7011,14 @@ config_write_interface (struct vty *vty)
 	    vty_out (vty, "%s", VTY_NEWLINE);
 	  }
 
+	/* Area  print. */
+	if (OSPF_IF_PARAM_CONFIGURED (params, if_area))
+	  {
+	    vty_out (vty, " ip ospf area %s%s",
+		     inet_ntoa (params->if_area),
+		     VTY_NEWLINE);
+	  }
+
     /* MTU ignore print. */
     if (OSPF_IF_PARAM_CONFIGURED (params, mtu_ignore) &&
        params->mtu_ignore != OSPF_MTU_IGNORE_DEFAULT)
@@ -7596,6 +7668,10 @@ ospf_vty_if_init (void)
   install_element (INTERFACE_NODE, &ip_ospf_transmit_delay_cmd);
   install_element (INTERFACE_NODE, &no_ip_ospf_transmit_delay_addr_cmd);
   install_element (INTERFACE_NODE, &no_ip_ospf_transmit_delay_cmd);
+
+  /* "ip ospf area" commands. */
+  install_element (INTERFACE_NODE, &ip_ospf_area_cmd);
+  install_element (INTERFACE_NODE, &no_ip_ospf_area_cmd);
 
   /* These commands are compatibitliy for previous version. */
   install_element (INTERFACE_NODE, &ospf_authentication_key_cmd);
