@@ -2862,6 +2862,10 @@ show_ip_ospf_interface_sub (struct vty *vty, struct ospf *ospf,
       vty_out (vty, "  Internet Address %s/%d,",
 	       inet_ntoa (oi->address->u.prefix4), oi->address->prefixlen);
 
+      vty_out(vty, "  Unnumbered: %s,",
+              (CHECK_FLAG (oi->ifp->status, ZEBRA_INTERFACE_UNNUMBERED)
+               ? "YES" : "NO"));
+
       if (oi->connected->destination || oi->type == OSPF_IFTYPE_VIRTUALLINK)
         {
           struct in_addr *dest;

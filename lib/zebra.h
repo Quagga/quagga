@@ -527,8 +527,9 @@ extern const char *zserv_command_string (unsigned int command);
 
 /* Flag manipulation macros. */
 #define CHECK_FLAG(V,F)      ((V) & (F))
-#define SET_FLAG(V,F)        (V) |= (F)
-#define UNSET_FLAG(V,F)      (V) &= ~(F)
+#define CHANGED_FLAG(V1,V2,F)  (((V1) ^ (V2)) & (F))
+#define SET_FLAG(V,F)        ((V) |= (F))
+#define UNSET_FLAG(V,F)      ((V) &= ~(F))
 
 /* AFI and SAFI type. */
 typedef u_int16_t afi_t;
