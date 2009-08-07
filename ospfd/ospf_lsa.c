@@ -531,9 +531,17 @@ lsa_link_ptop_set (struct stream *s, struct ospf_interface *oi)
       {
 	/* For unnumbered point-to-point networks, the Link Data field
 	   should specify the interface's MIB-II ifIndex value. */
-	links += link_info_set (s, nbr->router_id, oi->address->u.prefix4,
+	if (oi->ifp->status & ZEBRA_INTERFACE_UNNUMBERED)
+	  id.s_addr = htonl(oi->ifp->ifindex);
+	else
+	  id = oi->address->u.prefix4;
+
+	links += link_info_set (s, nbr->router_id, id,
 		                LSA_LINK_TYPE_POINTOPOINT, 0, cost);
       }
+  
+  if (CHECK_FLAG (oi->ifp->status, ZEBRA_INTERFACE_UNNUMBERED))
+    return links;
 
   /* Regardless of the state of the neighboring router, we must
      add a Type 3 link (stub network).
