@@ -65,7 +65,7 @@ static int igmp_sock_open(struct in_addr ifaddr, int ifindex, uint32_t pim_optio
     else {
       zlog_warn("%s %s: IGMP socket fd=%d interface %s: could not solve %s to group address: errno=%d: %s",
 		__FILE__, __PRETTY_FUNCTION__, fd, inet_ntoa(ifaddr),
-		PIM_ALL_ROUTERS, errno, strerror(errno));
+		PIM_ALL_ROUTERS, errno, safe_strerror(errno));
     }
   }
 
@@ -80,7 +80,7 @@ static int igmp_sock_open(struct in_addr ifaddr, int ifindex, uint32_t pim_optio
   else {
     zlog_warn("%s %s: IGMP socket fd=%d interface %s: could not solve %s to group address: errno=%d: %s",
 	      __FILE__, __PRETTY_FUNCTION__, fd, inet_ntoa(ifaddr),
-	      PIM_ALL_SYSTEMS, errno, strerror(errno));
+	      PIM_ALL_SYSTEMS, errno, safe_strerror(errno));
   }
 
   if (inet_aton(PIM_ALL_IGMP_ROUTERS, &group)) {
@@ -91,7 +91,7 @@ static int igmp_sock_open(struct in_addr ifaddr, int ifindex, uint32_t pim_optio
   else {
       zlog_warn("%s %s: IGMP socket fd=%d interface %s: could not solve %s to group address: errno=%d: %s",
 		__FILE__, __PRETTY_FUNCTION__, fd, inet_ntoa(ifaddr),
-		PIM_ALL_IGMP_ROUTERS, errno, strerror(errno));
+		PIM_ALL_IGMP_ROUTERS, errno, safe_strerror(errno));
   }    
 
   if (!join) {
@@ -949,7 +949,7 @@ static int pim_igmp_read(struct thread *t)
 			      &ifindex);
   if (len < 0) {
     zlog_warn("Failure receiving IP IGMP packet on fd=%d: errno=%d: %s",
-	      fd, errno, strerror(errno));
+	      fd, errno, safe_strerror(errno));
     goto done;
   }
 
@@ -1023,7 +1023,7 @@ static void sock_close(struct igmp_sock *igmp)
   if (close(igmp->fd)) {
     zlog_err("Failure closing IGMP socket %s fd=%d on interface %s: errno=%d: %s",
 	     inet_ntoa(igmp->ifaddr), igmp->fd, igmp->interface->name,
-	     errno, strerror(errno));
+	     errno, safe_strerror(errno));
   }
   
   if (PIM_DEBUG_IGMP_TRACE) {

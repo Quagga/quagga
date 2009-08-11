@@ -127,6 +127,8 @@ static int pim_zebra_if_state_up(int command, struct zclient *zclient,
   if (!ifp)
     return 0;
 
+  zlog_info("INTERFACE UP: %s", ifp->name);
+
   if (PIM_DEBUG_ZEBRA) {
     zlog_debug("%s: %s index %d flags %ld metric %d mtu %d operative %d",
 	       __PRETTY_FUNCTION__,
@@ -157,6 +159,8 @@ static int pim_zebra_if_state_down(int command, struct zclient *zclient,
   if (!ifp)
     return 0;
 
+  zlog_info("INTERFACE DOWN: %s", ifp->name);
+
   if (PIM_DEBUG_ZEBRA) {
     zlog_debug("%s: %s index %d flags %ld metric %d mtu %d operative %d",
 	       __PRETTY_FUNCTION__,
@@ -175,7 +179,9 @@ static int pim_zebra_if_state_down(int command, struct zclient *zclient,
       pim_sock_delete() closes the socket, stops read and timer threads,
       and kills all neighbors.
     */
-    pim_sock_delete(ifp, "link down");
+    if (ifp->info) {
+      pim_sock_delete(ifp, "link down");
+    }
   }
 
   return 0;
