@@ -22,6 +22,7 @@
 
 #include <zebra.h>
 #include "log.h"
+#include "privs.h"
 
 #include "pimd.h"
 #include "pim_mroute.h"
@@ -29,6 +30,9 @@
 #include "pim_time.h"
 #include "pim_iface.h"
 #include "pim_macro.h"
+
+/* GLOBAL VARS */
+extern struct zebra_privs_t pimd_privs;
 
 static void mroute_read_on(void);
 
@@ -259,7 +263,16 @@ int pim_mroute_socket_enable()
   if (PIM_MROUTE_IS_ENABLED)
     return -1;
 
+  if ( pimd_privs.change (ZPRIVS_RAISE) )
+    zlog_err ("pim_mroute_socket_enable: could not raise privs, %s",
+              safe_strerror (errno) );
+
   fd = socket(AF_INET, SOCK_RAW, IPPROTO_IGMP);
+
+  if ( pimd_privs.change (ZPRIVS_LOWER) )
+    zlog_err ("pim_mroute_socket_enable: could not lower privs, %s",
+	      safe_strerror (errno) );
+
   if (fd < 0) {
     zlog_warn("Could not create mroute socket: errno=%d: %s",
 	      errno, strerror(errno));
