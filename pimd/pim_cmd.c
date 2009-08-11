@@ -54,9 +54,9 @@ static struct cmd_node pim_global_node = {
   1 /* vtysh ? yes */
 };
 
-static struct cmd_node pim_interface_node = {
+static struct cmd_node interface_node = {
   INTERFACE_NODE,
-  "%s(config-if-pim)# ",
+  "%s(config-if)# ",
   1 /* vtysh ? yes */
 };
 
@@ -3767,157 +3767,157 @@ DEFUN (test_pim_receive_upcall,
 
 void pim_cmd_init()
 {
-  install_node(&pim_global_node, pim_global_config_write);       /* PIM_NODE */
-  install_node(&pim_interface_node, pim_interface_config_write); /* INTERFACE_NODE */
+  install_node (&pim_global_node, pim_global_config_write);       /* PIM_NODE */
+  install_node (&interface_node, pim_interface_config_write); /* INTERFACE_NODE */
 
-  install_element(CONFIG_NODE, &ip_multicast_routing_cmd);
-  install_element(CONFIG_NODE, &no_ip_multicast_routing_cmd);
+  install_element (CONFIG_NODE, &ip_multicast_routing_cmd);
+  install_element (CONFIG_NODE, &no_ip_multicast_routing_cmd);
 #if 0
-  install_element(CONFIG_NODE, &interface_cmd); /* from if.h */
+  install_element (CONFIG_NODE, &interface_cmd); /* from if.h */
 #else
-  install_element(CONFIG_NODE, &pim_interface_cmd);
+  install_element (CONFIG_NODE, &pim_interface_cmd);
 #endif
-  install_element(CONFIG_NODE, &no_interface_cmd); /* from if.h */
+  install_element (CONFIG_NODE, &no_interface_cmd); /* from if.h */
 
-  install_default(INTERFACE_NODE);
-  install_element(INTERFACE_NODE, &interface_ip_igmp_cmd);
-  install_element(INTERFACE_NODE, &interface_no_ip_igmp_cmd); 
-  install_element(INTERFACE_NODE, &interface_ip_igmp_join_cmd);
-  install_element(INTERFACE_NODE, &interface_no_ip_igmp_join_cmd); 
-  install_element(INTERFACE_NODE, &interface_ip_igmp_query_interval_cmd);
-  install_element(INTERFACE_NODE, &interface_no_ip_igmp_query_interval_cmd); 
-  install_element(INTERFACE_NODE, &interface_ip_igmp_query_max_response_time_cmd);
-  install_element(INTERFACE_NODE, &interface_no_ip_igmp_query_max_response_time_cmd); 
-  install_element(INTERFACE_NODE, &interface_ip_igmp_query_max_response_time_dsec_cmd);
-  install_element(INTERFACE_NODE, &interface_no_ip_igmp_query_max_response_time_dsec_cmd); 
-  install_element(INTERFACE_NODE, &interface_ip_pim_ssm_cmd);
-  install_element(INTERFACE_NODE, &interface_no_ip_pim_ssm_cmd); 
+  install_default (INTERFACE_NODE);
+  install_element (INTERFACE_NODE, &interface_ip_igmp_cmd);
+  install_element (INTERFACE_NODE, &interface_no_ip_igmp_cmd); 
+  install_element (INTERFACE_NODE, &interface_ip_igmp_join_cmd);
+  install_element (INTERFACE_NODE, &interface_no_ip_igmp_join_cmd); 
+  install_element (INTERFACE_NODE, &interface_ip_igmp_query_interval_cmd);
+  install_element (INTERFACE_NODE, &interface_no_ip_igmp_query_interval_cmd); 
+  install_element (INTERFACE_NODE, &interface_ip_igmp_query_max_response_time_cmd);
+  install_element (INTERFACE_NODE, &interface_no_ip_igmp_query_max_response_time_cmd); 
+  install_element (INTERFACE_NODE, &interface_ip_igmp_query_max_response_time_dsec_cmd);
+  install_element (INTERFACE_NODE, &interface_no_ip_igmp_query_max_response_time_dsec_cmd); 
+  install_element (INTERFACE_NODE, &interface_ip_pim_ssm_cmd);
+  install_element (INTERFACE_NODE, &interface_no_ip_pim_ssm_cmd); 
 
-  install_element(VIEW_NODE, &show_ip_igmp_interface_cmd);
-  install_element(VIEW_NODE, &show_ip_igmp_parameters_cmd);
-  install_element(VIEW_NODE, &show_ip_igmp_groups_cmd);
-  install_element(VIEW_NODE, &show_ip_igmp_groups_retransmissions_cmd);
-  install_element(VIEW_NODE, &show_ip_igmp_sources_cmd);
-  install_element(VIEW_NODE, &show_ip_igmp_sources_retransmissions_cmd);
-  install_element(VIEW_NODE, &show_ip_igmp_querier_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_assert_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_assert_internal_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_assert_metric_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_assert_winner_metric_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_dr_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_hello_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_interface_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_join_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_jp_override_interval_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_lan_prune_delay_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_local_membership_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_neighbor_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_rpf_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_secondary_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_upstream_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_upstream_join_desired_cmd);
-  install_element(VIEW_NODE, &show_ip_pim_upstream_rpf_cmd);
-  install_element(VIEW_NODE, &show_ip_multicast_cmd);
-  install_element(VIEW_NODE, &show_ip_mroute_cmd);
-  install_element(VIEW_NODE, &show_ip_mroute_count_cmd);
-  install_element(VIEW_NODE, &show_ip_route_cmd);
-  install_element(VIEW_NODE, &show_debugging_cmd);
+  install_element (VIEW_NODE, &show_ip_igmp_interface_cmd);
+  install_element (VIEW_NODE, &show_ip_igmp_parameters_cmd);
+  install_element (VIEW_NODE, &show_ip_igmp_groups_cmd);
+  install_element (VIEW_NODE, &show_ip_igmp_groups_retransmissions_cmd);
+  install_element (VIEW_NODE, &show_ip_igmp_sources_cmd);
+  install_element (VIEW_NODE, &show_ip_igmp_sources_retransmissions_cmd);
+  install_element (VIEW_NODE, &show_ip_igmp_querier_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_assert_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_assert_internal_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_assert_metric_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_assert_winner_metric_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_dr_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_hello_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_interface_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_join_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_jp_override_interval_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_lan_prune_delay_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_local_membership_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_neighbor_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_rpf_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_secondary_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_upstream_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_upstream_join_desired_cmd);
+  install_element (VIEW_NODE, &show_ip_pim_upstream_rpf_cmd);
+  install_element (VIEW_NODE, &show_ip_multicast_cmd);
+  install_element (VIEW_NODE, &show_ip_mroute_cmd);
+  install_element (VIEW_NODE, &show_ip_mroute_count_cmd);
+  install_element (VIEW_NODE, &show_ip_route_cmd);
+  install_element (VIEW_NODE, &show_debugging_cmd);
 
-  install_element(ENABLE_NODE, &clear_ip_interfaces_cmd);
-  install_element(ENABLE_NODE, &clear_ip_igmp_interfaces_cmd);
-  install_element(ENABLE_NODE, &clear_ip_pim_interfaces_cmd);
+  install_element (ENABLE_NODE, &clear_ip_interfaces_cmd);
+  install_element (ENABLE_NODE, &clear_ip_igmp_interfaces_cmd);
+  install_element (ENABLE_NODE, &clear_ip_pim_interfaces_cmd);
 
-  install_element(ENABLE_NODE, &show_ip_igmp_interface_cmd);
-  install_element(ENABLE_NODE, &show_ip_igmp_parameters_cmd);
-  install_element(ENABLE_NODE, &show_ip_igmp_groups_cmd);
-  install_element(ENABLE_NODE, &show_ip_igmp_groups_retransmissions_cmd);
-  install_element(ENABLE_NODE, &show_ip_igmp_sources_cmd);
-  install_element(ENABLE_NODE, &show_ip_igmp_sources_retransmissions_cmd);
-  install_element(ENABLE_NODE, &show_ip_igmp_querier_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_address_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_assert_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_assert_internal_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_assert_metric_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_assert_winner_metric_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_dr_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_hello_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_interface_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_join_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_jp_override_interval_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_lan_prune_delay_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_local_membership_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_neighbor_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_rpf_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_secondary_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_upstream_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_upstream_join_desired_cmd);
-  install_element(ENABLE_NODE, &show_ip_pim_upstream_rpf_cmd);
-  install_element(ENABLE_NODE, &show_ip_multicast_cmd);
-  install_element(ENABLE_NODE, &show_ip_mroute_cmd);
-  install_element(ENABLE_NODE, &show_ip_mroute_count_cmd);
-  install_element(ENABLE_NODE, &show_ip_route_cmd);
-  install_element(ENABLE_NODE, &show_debugging_cmd);
+  install_element (ENABLE_NODE, &show_ip_igmp_interface_cmd);
+  install_element (ENABLE_NODE, &show_ip_igmp_parameters_cmd);
+  install_element (ENABLE_NODE, &show_ip_igmp_groups_cmd);
+  install_element (ENABLE_NODE, &show_ip_igmp_groups_retransmissions_cmd);
+  install_element (ENABLE_NODE, &show_ip_igmp_sources_cmd);
+  install_element (ENABLE_NODE, &show_ip_igmp_sources_retransmissions_cmd);
+  install_element (ENABLE_NODE, &show_ip_igmp_querier_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_address_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_assert_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_assert_internal_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_assert_metric_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_assert_winner_metric_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_dr_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_hello_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_interface_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_join_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_jp_override_interval_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_lan_prune_delay_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_local_membership_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_neighbor_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_rpf_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_secondary_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_upstream_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_upstream_join_desired_cmd);
+  install_element (ENABLE_NODE, &show_ip_pim_upstream_rpf_cmd);
+  install_element (ENABLE_NODE, &show_ip_multicast_cmd);
+  install_element (ENABLE_NODE, &show_ip_mroute_cmd);
+  install_element (ENABLE_NODE, &show_ip_mroute_count_cmd);
+  install_element (ENABLE_NODE, &show_ip_route_cmd);
+  install_element (ENABLE_NODE, &show_debugging_cmd);
 
-  install_element(ENABLE_NODE, &test_igmp_receive_report_cmd);
-  install_element(ENABLE_NODE, &test_pim_receive_assert_cmd);
-  install_element(ENABLE_NODE, &test_pim_receive_hello_cmd);
-  install_element(ENABLE_NODE, &test_pim_receive_join_cmd);
-  install_element(ENABLE_NODE, &test_pim_receive_prune_cmd);
-  install_element(ENABLE_NODE, &test_pim_receive_upcall_cmd);
+  install_element (ENABLE_NODE, &test_igmp_receive_report_cmd);
+  install_element (ENABLE_NODE, &test_pim_receive_assert_cmd);
+  install_element (ENABLE_NODE, &test_pim_receive_hello_cmd);
+  install_element (ENABLE_NODE, &test_pim_receive_join_cmd);
+  install_element (ENABLE_NODE, &test_pim_receive_prune_cmd);
+  install_element (ENABLE_NODE, &test_pim_receive_upcall_cmd);
 
-  install_element(ENABLE_NODE, &debug_igmp_cmd);
-  install_element(ENABLE_NODE, &no_debug_igmp_cmd);
-  install_element(ENABLE_NODE, &undebug_igmp_cmd);
-  install_element(ENABLE_NODE, &debug_igmp_events_cmd);
-  install_element(ENABLE_NODE, &no_debug_igmp_events_cmd);
-  install_element(ENABLE_NODE, &undebug_igmp_events_cmd);
-  install_element(ENABLE_NODE, &debug_igmp_packets_cmd);
-  install_element(ENABLE_NODE, &no_debug_igmp_packets_cmd);
-  install_element(ENABLE_NODE, &undebug_igmp_packets_cmd);
-  install_element(ENABLE_NODE, &debug_igmp_trace_cmd);
-  install_element(ENABLE_NODE, &no_debug_igmp_trace_cmd);
-  install_element(ENABLE_NODE, &undebug_igmp_trace_cmd);
-  install_element(ENABLE_NODE, &debug_pim_cmd);
-  install_element(ENABLE_NODE, &no_debug_pim_cmd);
-  install_element(ENABLE_NODE, &undebug_pim_cmd);
-  install_element(ENABLE_NODE, &debug_pim_events_cmd);
-  install_element(ENABLE_NODE, &no_debug_pim_events_cmd);
-  install_element(ENABLE_NODE, &undebug_pim_events_cmd);
-  install_element(ENABLE_NODE, &debug_pim_packets_cmd);
-  install_element(ENABLE_NODE, &no_debug_pim_packets_cmd);
-  install_element(ENABLE_NODE, &undebug_pim_packets_cmd);
-  install_element(ENABLE_NODE, &debug_pim_trace_cmd);
-  install_element(ENABLE_NODE, &no_debug_pim_trace_cmd);
-  install_element(ENABLE_NODE, &undebug_pim_trace_cmd);
-  install_element(ENABLE_NODE, &debug_pim_zebra_cmd);
-  install_element(ENABLE_NODE, &no_debug_pim_zebra_cmd);
-  install_element(ENABLE_NODE, &undebug_pim_zebra_cmd);
+  install_element (ENABLE_NODE, &debug_igmp_cmd);
+  install_element (ENABLE_NODE, &no_debug_igmp_cmd);
+  install_element (ENABLE_NODE, &undebug_igmp_cmd);
+  install_element (ENABLE_NODE, &debug_igmp_events_cmd);
+  install_element (ENABLE_NODE, &no_debug_igmp_events_cmd);
+  install_element (ENABLE_NODE, &undebug_igmp_events_cmd);
+  install_element (ENABLE_NODE, &debug_igmp_packets_cmd);
+  install_element (ENABLE_NODE, &no_debug_igmp_packets_cmd);
+  install_element (ENABLE_NODE, &undebug_igmp_packets_cmd);
+  install_element (ENABLE_NODE, &debug_igmp_trace_cmd);
+  install_element (ENABLE_NODE, &no_debug_igmp_trace_cmd);
+  install_element (ENABLE_NODE, &undebug_igmp_trace_cmd);
+  install_element (ENABLE_NODE, &debug_pim_cmd);
+  install_element (ENABLE_NODE, &no_debug_pim_cmd);
+  install_element (ENABLE_NODE, &undebug_pim_cmd);
+  install_element (ENABLE_NODE, &debug_pim_events_cmd);
+  install_element (ENABLE_NODE, &no_debug_pim_events_cmd);
+  install_element (ENABLE_NODE, &undebug_pim_events_cmd);
+  install_element (ENABLE_NODE, &debug_pim_packets_cmd);
+  install_element (ENABLE_NODE, &no_debug_pim_packets_cmd);
+  install_element (ENABLE_NODE, &undebug_pim_packets_cmd);
+  install_element (ENABLE_NODE, &debug_pim_trace_cmd);
+  install_element (ENABLE_NODE, &no_debug_pim_trace_cmd);
+  install_element (ENABLE_NODE, &undebug_pim_trace_cmd);
+  install_element (ENABLE_NODE, &debug_pim_zebra_cmd);
+  install_element (ENABLE_NODE, &no_debug_pim_zebra_cmd);
+  install_element (ENABLE_NODE, &undebug_pim_zebra_cmd);
 
-  install_element(CONFIG_NODE, &debug_igmp_cmd);
-  install_element(CONFIG_NODE, &no_debug_igmp_cmd);
-  install_element(CONFIG_NODE, &undebug_igmp_cmd);
-  install_element(CONFIG_NODE, &debug_igmp_events_cmd);
-  install_element(CONFIG_NODE, &no_debug_igmp_events_cmd);
-  install_element(CONFIG_NODE, &undebug_igmp_events_cmd);
-  install_element(CONFIG_NODE, &debug_igmp_packets_cmd);
-  install_element(CONFIG_NODE, &no_debug_igmp_packets_cmd);
-  install_element(CONFIG_NODE, &undebug_igmp_packets_cmd);
-  install_element(CONFIG_NODE, &debug_igmp_trace_cmd);
-  install_element(CONFIG_NODE, &no_debug_igmp_trace_cmd);
-  install_element(CONFIG_NODE, &undebug_igmp_trace_cmd);
-  install_element(CONFIG_NODE, &debug_pim_cmd);
-  install_element(CONFIG_NODE, &no_debug_pim_cmd);
-  install_element(CONFIG_NODE, &undebug_pim_cmd);
-  install_element(CONFIG_NODE, &debug_pim_events_cmd);
-  install_element(CONFIG_NODE, &no_debug_pim_events_cmd);
-  install_element(CONFIG_NODE, &undebug_pim_events_cmd);
-  install_element(CONFIG_NODE, &debug_pim_packets_cmd);
-  install_element(CONFIG_NODE, &no_debug_pim_packets_cmd);
-  install_element(CONFIG_NODE, &undebug_pim_packets_cmd);
-  install_element(CONFIG_NODE, &debug_pim_trace_cmd);
-  install_element(CONFIG_NODE, &no_debug_pim_trace_cmd);
-  install_element(CONFIG_NODE, &undebug_pim_trace_cmd);
-  install_element(CONFIG_NODE, &debug_pim_zebra_cmd);
-  install_element(CONFIG_NODE, &no_debug_pim_zebra_cmd);
-  install_element(CONFIG_NODE, &undebug_pim_zebra_cmd);
+  install_element (CONFIG_NODE, &debug_igmp_cmd);
+  install_element (CONFIG_NODE, &no_debug_igmp_cmd);
+  install_element (CONFIG_NODE, &undebug_igmp_cmd);
+  install_element (CONFIG_NODE, &debug_igmp_events_cmd);
+  install_element (CONFIG_NODE, &no_debug_igmp_events_cmd);
+  install_element (CONFIG_NODE, &undebug_igmp_events_cmd);
+  install_element (CONFIG_NODE, &debug_igmp_packets_cmd);
+  install_element (CONFIG_NODE, &no_debug_igmp_packets_cmd);
+  install_element (CONFIG_NODE, &undebug_igmp_packets_cmd);
+  install_element (CONFIG_NODE, &debug_igmp_trace_cmd);
+  install_element (CONFIG_NODE, &no_debug_igmp_trace_cmd);
+  install_element (CONFIG_NODE, &undebug_igmp_trace_cmd);
+  install_element (CONFIG_NODE, &debug_pim_cmd);
+  install_element (CONFIG_NODE, &no_debug_pim_cmd);
+  install_element (CONFIG_NODE, &undebug_pim_cmd);
+  install_element (CONFIG_NODE, &debug_pim_events_cmd);
+  install_element (CONFIG_NODE, &no_debug_pim_events_cmd);
+  install_element (CONFIG_NODE, &undebug_pim_events_cmd);
+  install_element (CONFIG_NODE, &debug_pim_packets_cmd);
+  install_element (CONFIG_NODE, &no_debug_pim_packets_cmd);
+  install_element (CONFIG_NODE, &undebug_pim_packets_cmd);
+  install_element (CONFIG_NODE, &debug_pim_trace_cmd);
+  install_element (CONFIG_NODE, &no_debug_pim_trace_cmd);
+  install_element (CONFIG_NODE, &undebug_pim_trace_cmd);
+  install_element (CONFIG_NODE, &debug_pim_zebra_cmd);
+  install_element (CONFIG_NODE, &no_debug_pim_zebra_cmd);
+  install_element (CONFIG_NODE, &undebug_pim_zebra_cmd);
 }
