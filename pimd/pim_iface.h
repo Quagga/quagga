@@ -57,11 +57,12 @@ struct pim_interface {
   int            mroute_vif_index;
   struct in_addr primary_address; /* remember addr to detect change */
 
-  int          igmp_default_robustness_variable;   /* IGMPv3 QRV */
-  int          igmp_default_query_interval;        /* IGMPv3 secs between general queries */
-  int          igmp_query_max_response_time_dsec;  /* IGMPv3 Max Response Time in dsecs */
-  struct list *igmp_socket_list;                   /* list of struct igmp_sock */
-  struct list *igmp_join_list;                     /* list of struct igmp_join */
+  int          igmp_default_robustness_variable;            /* IGMPv3 QRV */
+  int          igmp_default_query_interval;                 /* IGMPv3 secs between general queries */
+  int          igmp_query_max_response_time_dsec;           /* IGMPv3 Max Response Time in dsecs for general queries */
+  int          igmp_specific_query_max_response_time_dsec;  /* IGMPv3 Max Response Time in dsecs for specific queries */
+  struct list *igmp_socket_list;                            /* list of struct igmp_sock */
+  struct list *igmp_join_list;                              /* list of struct igmp_join */
 
   int            pim_sock_fd;       /* PIM socket file descriptor */
   struct thread *t_pim_sock_read;   /* thread for reading PIM socket */
