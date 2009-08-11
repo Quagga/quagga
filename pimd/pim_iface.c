@@ -85,9 +85,10 @@ struct pim_interface *pim_if_new(struct interface *ifp, int igmp, int pim)
   pim_ifp->options                           = 0;
   pim_ifp->mroute_vif_index                  = -1;
 
-  pim_ifp->igmp_default_robustness_variable  = IGMP_DEFAULT_ROBUSTNESS_VARIABLE;
-  pim_ifp->igmp_default_query_interval       = IGMP_GENERAL_QUERY_INTERVAL;
-  pim_ifp->igmp_query_max_response_time_dsec = IGMP_QUERY_MAX_RESPONSE_TIME_DSEC;
+  pim_ifp->igmp_default_robustness_variable           = IGMP_DEFAULT_ROBUSTNESS_VARIABLE;
+  pim_ifp->igmp_default_query_interval                = IGMP_GENERAL_QUERY_INTERVAL;
+  pim_ifp->igmp_query_max_response_time_dsec          = IGMP_QUERY_MAX_RESPONSE_TIME_DSEC;
+  pim_ifp->igmp_specific_query_max_response_time_dsec = IGMP_SPECIFIC_QUERY_MAX_RESPONSE_TIME_DSEC;
 
   /*
     RFC 3376: 8.3. Query Response Interval

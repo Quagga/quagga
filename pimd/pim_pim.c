@@ -674,7 +674,7 @@ void pim_hello_restart_triggered(struct interface *ifp)
 
   THREAD_TIMER_MSEC_ON(master, pim_ifp->t_pim_hello_timer,
 		       on_pim_hello_send,
-		       ifp, triggered_hello_delay_msec);
+		       ifp, random_msec);
 }
 
 int pim_sock_add(struct interface *ifp)

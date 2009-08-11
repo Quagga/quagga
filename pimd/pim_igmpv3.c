@@ -1006,7 +1006,7 @@ static void group_retransmit_group(struct igmp_group *group)
   pim_ifp = igmp->interface->info;
 
   lmqc      = igmp->querier_robustness_variable;
-  lmqi_msec = 100 * pim_ifp->igmp_query_max_response_time_dsec;
+  lmqi_msec = 100 * pim_ifp->igmp_specific_query_max_response_time_dsec;
   lmqt_msec = lmqc * lmqi_msec;
 
   /*
@@ -1042,7 +1042,7 @@ static void group_retransmit_group(struct igmp_group *group)
 				 0 /* num_sources_tosend */,
 				 group->group_addr /* dst_addr */,
 				 group->group_addr /* group_addr */,
-				 pim_ifp->igmp_query_max_response_time_dsec,
+				 pim_ifp->igmp_specific_query_max_response_time_dsec,
 				 s_flag,
 				 igmp->querier_robustness_variable,
 				 igmp->querier_query_interval);
@@ -1090,7 +1090,7 @@ static int group_retransmit_sources(struct igmp_group *group,
   pim_ifp = igmp->interface->info;
 
   lmqc      = igmp->querier_robustness_variable;
-  lmqi_msec = 100 * pim_ifp->igmp_query_max_response_time_dsec;
+  lmqi_msec = 100 * pim_ifp->igmp_specific_query_max_response_time_dsec;
   lmqt_msec = lmqc * lmqi_msec;
 
   /* Scan all group sources */
@@ -1163,7 +1163,7 @@ static int group_retransmit_sources(struct igmp_group *group,
 				       num_sources_tosend1,
 				       group->group_addr,
 				       group->group_addr,
-				       pim_ifp->igmp_query_max_response_time_dsec,
+				       pim_ifp->igmp_specific_query_max_response_time_dsec,
 				       1 /* s_flag */,
 				       igmp->querier_robustness_variable,
 				       igmp->querier_query_interval);
@@ -1205,7 +1205,7 @@ static int group_retransmit_sources(struct igmp_group *group,
 				     num_sources_tosend2,
 				     group->group_addr,
 				     group->group_addr,
-				     pim_ifp->igmp_query_max_response_time_dsec,
+				     pim_ifp->igmp_specific_query_max_response_time_dsec,
 				     0 /* s_flag */,
 				     igmp->querier_robustness_variable,
 				     igmp->querier_query_interval);
@@ -1290,7 +1290,7 @@ static void group_retransmit_timer_on(struct igmp_group *group)
   igmp = group->group_igmp_sock;
   pim_ifp = igmp->interface->info;
 
-  lmqi_msec = 100 * pim_ifp->igmp_query_max_response_time_dsec;
+  lmqi_msec = 100 * pim_ifp->igmp_specific_query_max_response_time_dsec;
 
   if (PIM_DEBUG_IGMP_TRACE) {
     char group_str[100];
@@ -1359,7 +1359,7 @@ static void source_query_send_by_flag(struct igmp_group *group,
   pim_ifp = igmp->interface->info;
 
   lmqc      = igmp->querier_robustness_variable;
-  lmqi_msec = 100 * pim_ifp->igmp_query_max_response_time_dsec;
+  lmqi_msec = 100 * pim_ifp->igmp_specific_query_max_response_time_dsec;
   lmqt_msec = lmqc * lmqi_msec;
 
   /*
@@ -1519,7 +1519,7 @@ void igmp_group_timer_lower_to_lmqt(struct igmp_group *group)
   pim_ifp = ifp->info;
   ifname  = ifp->name;
 
-  lmqi_dsec = pim_ifp->igmp_query_max_response_time_dsec;
+  lmqi_dsec = pim_ifp->igmp_specific_query_max_response_time_dsec;
   lmqc      = igmp->querier_robustness_variable;
   lmqt_msec = PIM_IGMP_LMQT_MSEC(lmqi_dsec, lmqc); /* lmqt_msec = (100 * lmqi_dsec) * lmqc */
 
@@ -1554,7 +1554,7 @@ void igmp_source_timer_lower_to_lmqt(struct igmp_source *source)
   pim_ifp = ifp->info;
   ifname  = ifp->name;
 
-  lmqi_dsec = pim_ifp->igmp_query_max_response_time_dsec;
+  lmqi_dsec = pim_ifp->igmp_specific_query_max_response_time_dsec;
   lmqc      = igmp->querier_robustness_variable;
   lmqt_msec = PIM_IGMP_LMQT_MSEC(lmqi_dsec, lmqc); /* lmqt_msec = (100 * lmqi_dsec) * lmqc */
 
