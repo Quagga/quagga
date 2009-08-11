@@ -46,6 +46,10 @@ static void dr_election_by_addr(struct interface *ifp)
 
   pim_ifp->pim_dr_addr = pim_ifp->primary_address;
 
+  zlog_info("%s on interface %s",
+	      __PRETTY_FUNCTION__,
+	      ifp->name);
+
   for (ALL_LIST_ELEMENTS_RO(pim_ifp->pim_neighbor_list, node, neigh)) {
     if (ntohl(neigh->source_addr.s_addr) > ntohl(pim_ifp->pim_dr_addr.s_addr)) {
       pim_ifp->pim_dr_addr = neigh->source_addr;
@@ -66,7 +70,15 @@ static void dr_election_by_pri(struct interface *ifp)
   pim_ifp->pim_dr_addr = pim_ifp->primary_address;
   dr_pri = pim_ifp->pim_dr_priority;
 
+  zlog_info("%s: dr pri %u on interface %s",
+	      __PRETTY_FUNCTION__,
+	      dr_pri, ifp->name);
+
+
   for (ALL_LIST_ELEMENTS_RO(pim_ifp->pim_neighbor_list, node, neigh)) {
+	zlog_info("%s: neigh pri %u addr %x if dr addr %x",
+	      __PRETTY_FUNCTION__,
+	      neigh->dr_priority, ntohl(neigh->source_addr.s_addr) , ntohl(pim_ifp->pim_dr_addr.s_addr) );
     if (
 	(neigh->dr_priority > dr_pri) ||
 	(
@@ -91,6 +103,8 @@ void pim_if_dr_election(struct interface *ifp)
 {
   struct pim_interface *pim_ifp = ifp->info;
   struct in_addr old_dr_addr;
+  char dr_old_str[100];
+  char dr_new_str[100];
 
   pim_ifp->pim_dr_election_last = pim_time_monotonic_sec(); /* timestamp */
   ++pim_ifp->pim_dr_election_count;
@@ -104,15 +118,21 @@ void pim_if_dr_election(struct interface *ifp)
     dr_election_by_pri(ifp);
   }
 
-  /* DR changed ? */
-  if (old_dr_addr.s_addr != pim_ifp->pim_dr_addr.s_addr) {
-    char dr_old_str[100];
-    char dr_new_str[100];
-    pim_inet4_dump("<old_dr?>", old_dr_addr, dr_old_str, sizeof(dr_old_str));
-    pim_inet4_dump("<new_dr?>", pim_ifp->pim_dr_addr, dr_new_str, sizeof(dr_new_str));
-    zlog_info("%s: DR was %s now is %s on interface %s",
+  pim_inet4_dump("<old_dr?>", old_dr_addr, dr_old_str, sizeof(dr_old_str));
+  pim_inet4_dump("<new_dr?>", pim_ifp->pim_dr_addr, dr_new_str, sizeof(dr_new_str));
+  zlog_info("%s: DR was %s now is %s on interface %s",
 	      __PRETTY_FUNCTION__,
 	      dr_old_str, dr_new_str, ifp->name);
+
+  /* DR changed ? */
+  if (old_dr_addr.s_addr != pim_ifp->pim_dr_addr.s_addr) {
+    /* char dr_old_str[100]; */
+    /* char dr_new_str[100]; */
+    /* pim_inet4_dump("<old_dr?>", old_dr_addr, dr_old_str, sizeof(dr_old_str)); */
+    /* pim_inet4_dump("<new_dr?>", pim_ifp->pim_dr_addr, dr_new_str, sizeof(dr_new_str)); */
+    /* zlog_info("%s: DR was %s now is %s on interface %s", */
+	      /* __PRETTY_FUNCTION__, */
+	      /* dr_old_str, dr_new_str, ifp->name); */
 
     pim_if_update_join_desired(pim_ifp);
     pim_if_update_could_assert(ifp);

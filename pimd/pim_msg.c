@@ -98,7 +98,7 @@ char *pim_msg_addr_encode_ipv4_source(char *buf,
 
   buf[0] = PIM_MSG_ADDRESS_FAMILY_IPV4; /* addr family */
   buf[1] = '\0';    /* native encoding */
-  buf[2] = '\0';    /* reserved */
+  buf[2] = 4;       /* reserved = 0 | S bit = 1 | W bit = 0 | R bit = 0 */
   buf[3] = 32;      /* mask len */
   *(struct in_addr *)(buf + 4) = addr;
 
