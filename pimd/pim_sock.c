@@ -33,10 +33,14 @@
 
 #include <zebra.h>
 #include "log.h"
+#include "privs.h"
 
 #include "pimd.h"
 #include "pim_sock.h"
 #include "pim_str.h"
+
+/* GLOBAL VARS */
+extern struct zebra_privs_t pimd_privs;
 
 #ifndef MCAST_JOIN_SOURCE_GROUP
 #define MCAST_JOIN_SOURCE_GROUP 46
@@ -52,7 +56,16 @@ int pim_socket_raw(int protocol)
 {
   int fd;
 
+  if ( pimd_privs.change (ZPRIVS_RAISE) )
+       zlog_err ("pim_sockek_raw: could not raise privs, %s",
+                 safe_strerror (errno) );
+
   fd = socket(AF_INET, SOCK_RAW, protocol);
+
+  if ( pimd_privs.change (ZPRIVS_LOWER) )
+       zlog_err ("pim_socket_raw: could not lower privs, %s",
+                 safe_strerror (errno) );
+
   if (fd < 0) {
     zlog_warn("Could not create raw socket: errno=%d: %s",
 	      errno, strerror(errno));

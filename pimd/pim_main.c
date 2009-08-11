@@ -23,6 +23,7 @@
 #include <zebra.h>
 
 #include "log.h"
+#include "privs.h" 
 #include "version.h"
 #include <getopt.h>
 #include "command.h"
@@ -59,6 +60,29 @@ struct option longopts[] = {
   { "debug_zclient", no_argument,       NULL, 'Z'},
   { "help",          no_argument,       NULL, 'h'},
   { 0 }
+};
+
+/* pimd privileges */
+zebra_capabilities_t _caps_p [] = 
+{
+  ZCAP_NET_ADMIN,
+  ZCAP_SYS_ADMIN,
+  ZCAP_NET_RAW,
+};
+
+/* pimd privileges to run with */
+struct zebra_privs_t pimd_privs =
+{
+#if defined(QUAGGA_USER) && defined(QUAGGA_GROUP)
+  .user = QUAGGA_USER,
+  .group = QUAGGA_GROUP,
+#endif
+#ifdef VTY_GROUP
+  .vty_group = VTY_GROUP,
+#endif
+  .caps_p = _caps_p,
+  .cap_num_p = sizeof(_caps_p)/sizeof(_caps_p[0]),
+  .cap_num_i = 0
 };
 
 char* progname;
@@ -170,6 +194,7 @@ int main(int argc, char** argv, char** envp) {
   /* 
    * Initializations
    */
+  zprivs_init (&pimd_privs);
   pim_signals_init();
   cmd_init(1);
   vty_init(master);
