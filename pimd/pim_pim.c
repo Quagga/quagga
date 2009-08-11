@@ -74,7 +74,7 @@ static void sock_close(struct interface *ifp)
   if (close(pim_ifp->pim_sock_fd)) {
     zlog_warn("Failure closing PIM socket fd=%d on interface %s: errno=%d: %s",
 	      pim_ifp->pim_sock_fd, ifp->name,
-	      errno, strerror(errno));
+	      errno, safe_strerror(errno));
   }
   
   pim_ifp->pim_sock_fd = -1;
@@ -90,6 +90,12 @@ void pim_sock_delete(struct interface *ifp, const char *delete_message)
 {
   zlog_info("PIM INTERFACE DOWN: on interface %s: %s",
 	    ifp->name, delete_message);
+
+  if (!ifp->info) {
+    zlog_err("%s: %s: but PIM not enabled on interface %s (!)",
+	     __PRETTY_FUNCTION__, delete_message, ifp->name);
+    return;
+  }
 
   /*
     RFC 4601: 4.3.1.  Sending Hello Messages
@@ -266,7 +272,7 @@ static int pim_sock_read(struct thread *t)
 			      &ifindex);
   if (len < 0) {
     zlog_warn("Failure receiving IP PIM packet on fd=%d: errno=%d: %s",
-	      fd, errno, strerror(errno));
+	      fd, errno, safe_strerror(errno));
     goto done;
   }
 
@@ -459,7 +465,7 @@ int pim_msg_send(int fd,
       zlog_warn("%s: sendto() failure to %s on %s: fd=%d msg_size=%d: errno=%d: %s",
 		__PRETTY_FUNCTION__,
 		dst_str, ifname, fd, pim_msg_size,
-		e, strerror(e));
+		e, safe_strerror(e));
     }
     else {
       zlog_warn("%s: sendto() partial to %s on %s: fd=%d msg_size=%d: sent=%d",

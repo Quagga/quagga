@@ -1084,7 +1084,7 @@ static void igmp_show_querier(struct vty *vty)
       pim_time_timer_to_hhmmss(query_hhmmss, sizeof(query_hhmmss), igmp->t_igmp_query_timer);
       pim_time_timer_to_hhmmss(other_hhmmss, sizeof(other_hhmmss), igmp->t_other_querier_timer);
 
-      vty_out(vty, "%-9s %-15s %7s %10d %11s %11s%s",
+      vty_out(vty, "%-9s %-15s %-7s %10d %11s %11s%s",
 	      ifp->name,
 	      inet_ntoa(igmp->ifaddr),
 	      igmp->t_igmp_query_timer ? "THIS" : "OTHER",
@@ -1871,7 +1871,7 @@ static void show_multicast_interfaces(struct vty *vty)
 	      ifp->name,
 	      pim_ifp->mroute_vif_index,
 	      e,
-	      strerror(e),
+	      safe_strerror(e),
 	      VTY_NEWLINE);	      
       continue;
     }
@@ -2047,7 +2047,7 @@ static void show_mroute_count(struct vty *vty)
 	      source_str,
 	      group_str,
 	      e,
-	      strerror(e),
+	      safe_strerror(e),
 	      VTY_NEWLINE);	      
       continue;
     }
@@ -2093,7 +2093,7 @@ DEFUN (show_ip_route,
   result = inet_pton(AF_INET, addr_str, &addr);
   if (result <= 0) {
     vty_out(vty, "Bad unicast address %s: errno=%d: %s%s",
-	    addr_str, errno, strerror(errno), VTY_NEWLINE);
+	    addr_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -2265,7 +2265,7 @@ DEFUN (interface_ip_igmp_join,
   result = inet_pton(AF_INET, group_str, &group_addr);
   if (result <= 0) {
     vty_out(vty, "Bad group address %s: errno=%d: %s%s",
-	    group_str, errno, strerror(errno), VTY_NEWLINE);
+	    group_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -2274,7 +2274,7 @@ DEFUN (interface_ip_igmp_join,
   result = inet_pton(AF_INET, source_str, &source_addr);
   if (result <= 0) {
     vty_out(vty, "Bad source address %s: errno=%d: %s%s",
-	    source_str, errno, strerror(errno), VTY_NEWLINE);
+	    source_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -2312,7 +2312,7 @@ DEFUN (interface_no_ip_igmp_join,
   result = inet_pton(AF_INET, group_str, &group_addr);
   if (result <= 0) {
     vty_out(vty, "Bad group address %s: errno=%d: %s%s",
-	    group_str, errno, strerror(errno), VTY_NEWLINE);
+	    group_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -2321,7 +2321,7 @@ DEFUN (interface_no_ip_igmp_join,
   result = inet_pton(AF_INET, source_str, &source_addr);
   if (result <= 0) {
     vty_out(vty, "Bad source address %s: errno=%d: %s%s",
-	    source_str, errno, strerror(errno), VTY_NEWLINE);
+	    source_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3168,7 +3168,7 @@ DEFUN (test_igmp_receive_report,
   result = inet_pton(AF_INET, grp_str, &grp_addr);
   if (result <= 0) {
     vty_out(vty, "Bad group address %s: errno=%d: %s%s",
-	    grp_str, errno, strerror(errno), VTY_NEWLINE);
+	    grp_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3204,7 +3204,7 @@ DEFUN (test_igmp_receive_report,
     result = inet_pton(AF_INET, src_str, src_addr);
     if (result <= 0) {
       vty_out(vty, "Bad source address %s: errno=%d: %s%s",
-	      src_str, errno, strerror(errno), VTY_NEWLINE);
+	      src_str, errno, safe_strerror(errno), VTY_NEWLINE);
       return CMD_WARNING;
     }
   }
@@ -3281,7 +3281,7 @@ DEFUN (test_pim_receive_hello,
   result = inet_pton(AF_INET, neigh_str, &neigh_addr);
   if (result <= 0) {
     vty_out(vty, "Bad neighbor address %s: errno=%d: %s%s",
-	    neigh_str, errno, strerror(errno), VTY_NEWLINE);
+	    neigh_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3314,7 +3314,7 @@ DEFUN (test_pim_receive_hello,
     result = inet_pton(AF_INET, sec_str, &sec_addr);
     if (result <= 0) {
       vty_out(vty, "Bad neighbor secondary address %s: errno=%d: %s%s",
-	      sec_str, errno, strerror(errno), VTY_NEWLINE);
+	      sec_str, errno, safe_strerror(errno), VTY_NEWLINE);
       return CMD_WARNING;
     }
 
@@ -3407,7 +3407,7 @@ DEFUN (test_pim_receive_assert,
   result = inet_pton(AF_INET, neigh_str, &neigh_addr);
   if (result <= 0) {
     vty_out(vty, "Bad neighbor address %s: errno=%d: %s%s",
-	    neigh_str, errno, strerror(errno), VTY_NEWLINE);
+	    neigh_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3416,7 +3416,7 @@ DEFUN (test_pim_receive_assert,
   result = inet_pton(AF_INET, group_str, &group_addr);
   if (result <= 0) {
     vty_out(vty, "Bad group address %s: errno=%d: %s%s",
-	    group_str, errno, strerror(errno), VTY_NEWLINE);
+	    group_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3425,7 +3425,7 @@ DEFUN (test_pim_receive_assert,
   result = inet_pton(AF_INET, source_str, &source_addr);
   if (result <= 0) {
     vty_out(vty, "Bad source address %s: errno=%d: %s%s",
-	    source_str, errno, strerror(errno), VTY_NEWLINE);
+	    source_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3523,7 +3523,7 @@ static int recv_joinprune(struct vty *vty,
   result = inet_pton(AF_INET, neigh_dst_str, &neigh_dst_addr);
   if (result <= 0) {
     vty_out(vty, "Bad neighbor destination address %s: errno=%d: %s%s",
-	    neigh_dst_str, errno, strerror(errno), VTY_NEWLINE);
+	    neigh_dst_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3532,7 +3532,7 @@ static int recv_joinprune(struct vty *vty,
   result = inet_pton(AF_INET, neigh_src_str, &neigh_src_addr);
   if (result <= 0) {
     vty_out(vty, "Bad neighbor source address %s: errno=%d: %s%s",
-	    neigh_src_str, errno, strerror(errno), VTY_NEWLINE);
+	    neigh_src_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3541,7 +3541,7 @@ static int recv_joinprune(struct vty *vty,
   result = inet_pton(AF_INET, group_str, &group_addr);
   if (result <= 0) {
     vty_out(vty, "Bad group address %s: errno=%d: %s%s",
-	    group_str, errno, strerror(errno), VTY_NEWLINE);
+	    group_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3550,7 +3550,7 @@ static int recv_joinprune(struct vty *vty,
   result = inet_pton(AF_INET, source_str, &source_addr);
   if (result <= 0) {
     vty_out(vty, "Bad source address %s: errno=%d: %s%s",
-	    source_str, errno, strerror(errno), VTY_NEWLINE);
+	    source_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3740,7 +3740,7 @@ DEFUN (test_pim_receive_upcall,
   result = inet_pton(AF_INET, group_str, &msg.im_dst);
   if (result <= 0) {
     vty_out(vty, "Bad group address %s: errno=%d: %s%s",
-	    group_str, errno, strerror(errno), VTY_NEWLINE);
+	    group_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
@@ -3749,7 +3749,7 @@ DEFUN (test_pim_receive_upcall,
   result = inet_pton(AF_INET, source_str, &msg.im_src);
   if (result <= 0) {
     vty_out(vty, "Bad source address %s: errno=%d: %s%s",
-	    source_str, errno, strerror(errno), VTY_NEWLINE);
+	    source_str, errno, safe_strerror(errno), VTY_NEWLINE);
     return CMD_WARNING;
   }
 
