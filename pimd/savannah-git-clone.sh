@@ -11,6 +11,17 @@
 # Commit changes:                git commit -a
 # Send changes:                  git push --all
 #
+# Recipe to re-sync with Quagga repository:
+#  git clone ssh://evertonm@git.sv.gnu.org/srv/git/qpimd.git quagga
+#  cd quagga
+#  git checkout master
+#  git pull git://code.quagga.net/quagga.git master
+#  git checkout -b pim origin/pim
+#  git rebase master pim
+#  # Test, then push back into Savannah repository:
+#  git push origin :pim ;# delete remote branch pim
+#  git push --all
+#
 # $QuaggaId: $Format:%an, %ai, %h$ $
 
 git clone ssh://evertonm@git.sv.gnu.org/srv/git/qpimd.git quagga

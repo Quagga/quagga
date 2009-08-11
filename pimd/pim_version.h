@@ -23,7 +23,7 @@
 #ifndef PIM_VERSION_H
 #define PIM_VERSION_H
 
-#define PIMD_VERSION_STR "0.155"
+#define PIMD_VERSION_STR "0.157"
 
 const char * const PIMD_VERSION;
 

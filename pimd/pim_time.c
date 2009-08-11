@@ -49,7 +49,7 @@ int64_t pim_time_monotonic_sec()
   if (pim_gettime(CLOCK_MONOTONIC, &now_tv)) {
     zlog_err("%s: gettime(CLOCK_MONOTONIC) failure: errno=%d: %s",
 	     __PRETTY_FUNCTION__,
-	     errno, strerror(errno));
+	     errno, safe_strerror(errno));
     return -1;
   }
 
@@ -68,7 +68,7 @@ int64_t pim_time_monotonic_dsec()
   if (pim_gettime(CLOCK_MONOTONIC, &now_tv)) {
     zlog_err("%s: gettime(CLOCK_MONOTONIC) failure: errno=%d: %s",
 	     __PRETTY_FUNCTION__,
-	     errno, strerror(errno));
+	     errno, safe_strerror(errno));
     return -1;
   }
 
