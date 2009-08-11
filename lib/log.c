@@ -3,6 +3,7 @@
  *
  * Logging of zebra
  * Copyright (C) 1997, 1998, 1999 Kunihiro Ishiguro
+ * Portions Copyright (c) 2008 Everton da Silva Marques <everton.marques@gmail.com>
  *
  * This file is part of GNU Zebra.
  *
@@ -50,6 +51,7 @@ const char *zlog_proto_names[] =
   "RIPNG",
   "OSPF6",
   "ISIS",
+  "PIM",
   "MASC",
   NULL,
 };
