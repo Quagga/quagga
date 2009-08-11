@@ -239,6 +239,19 @@ int pim_joinprune_recv(struct interface *ifp,
       if (addr_offset < 1) {
 	return -7;
       }
+
+	  /* 
+	    RFC 4601: 4.9.1  Encoded Source and Group Address Formats
+
+		Encoded-Source Address
+		(...)
+	    The mask length MUST be equal to the mask length in bits for the
+        given Address Family and Encoding Type (32 for IPv4 native and
+        128 for IPv6 native).  A router SHOULD ignore any messages
+        received with any other mask length.
+	  */
+	  if (msg_source_addr.prefixlen!=32) return;
+
       buf += addr_offset;
 
       recv_join(ifp, neigh, msg_holdtime,
@@ -257,6 +270,19 @@ int pim_joinprune_recv(struct interface *ifp,
       if (addr_offset < 1) {
 	return -8;
       }
+
+	  /* 
+	    RFC 4601: 4.9.1  Encoded Source and Group Address Formats
+
+		Encoded-Source Address
+		(...)
+	    The mask length MUST be equal to the mask length in bits for the
+        given Address Family and Encoding Type (32 for IPv4 native and
+        128 for IPv6 native).  A router SHOULD ignore any messages
+        received with any other mask length.
+	  */
+	  if (msg_source_addr.prefixlen!=32) return;
+
       buf += addr_offset;
 
       recv_prune(ifp, neigh, msg_holdtime,
