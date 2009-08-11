@@ -1679,7 +1679,7 @@ void pim_igmp_send_membership_query(struct igmp_group *group,
       zlog_warn("%s: sendto() failure to %s on %s: group=%s msg_size=%d: errno=%d: %s",
 		__PRETTY_FUNCTION__,
 		dst_str, ifname, group_str, msg_size,
-		e, strerror(e));
+		e, safe_strerror(e));
     }
     else {
       zlog_warn("%s: sendto() partial to %s on %s: group=%s msg_size=%d: sent=%d",

@@ -47,7 +47,7 @@ static int pim_mroute_set(int fd, int enable)
     int e = errno;
     zlog_warn("%s %s: failure: setsockopt(fd=%d,IPPROTO_IP,%s=%d): errno=%d: %s",
 	      __FILE__, __PRETTY_FUNCTION__,
-	      fd, enable ? "MRT_INIT" : "MRT_DONE", opt, e, strerror(e));
+	      fd, enable ? "MRT_INIT" : "MRT_DONE", opt, e, safe_strerror(e));
     errno = e;
     return -1;
   }
@@ -209,7 +209,7 @@ static int mroute_read_msg(int fd)
   rd = read(fd, buf, sizeof(buf));
   if (rd < 0) {
     zlog_warn("%s: failure reading fd=%d: errno=%d: %s",
-	      __PRETTY_FUNCTION__, fd, errno, strerror(errno));
+	      __PRETTY_FUNCTION__, fd, errno, safe_strerror(errno));
     return -2;
   }
 
@@ -275,13 +275,13 @@ int pim_mroute_socket_enable()
 
   if (fd < 0) {
     zlog_warn("Could not create mroute socket: errno=%d: %s",
-	      errno, strerror(errno));
+	      errno, safe_strerror(errno));
     return -2;
   }
 
   if (pim_mroute_set(fd, 1)) {
     zlog_warn("Could not enable mroute on socket fd=%d: errno=%d: %s",
-	      fd, errno, strerror(errno));
+	      fd, errno, safe_strerror(errno));
     close(fd);
     return -3;
   }
@@ -302,13 +302,13 @@ int pim_mroute_socket_disable()
 
   if (pim_mroute_set(qpim_mroute_socket_fd, 0)) {
     zlog_warn("Could not disable mroute on socket fd=%d: errno=%d: %s",
-	      qpim_mroute_socket_fd, errno, strerror(errno));
+	      qpim_mroute_socket_fd, errno, safe_strerror(errno));
     return -2;
   }
 
   if (close(qpim_mroute_socket_fd)) {
     zlog_warn("Failure closing mroute socket: fd=%d errno=%d: %s",
-	      qpim_mroute_socket_fd, errno, strerror(errno));
+	      qpim_mroute_socket_fd, errno, safe_strerror(errno));
     return -3;
   }
 
@@ -359,7 +359,7 @@ int pim_mroute_add_vif(int vif_index, struct in_addr ifaddr)
     zlog_warn("%s %s: failure: setsockopt(fd=%d,IPPROTO_IP,MRT_ADD_VIF,vif_index=%d,ifaddr=%s): errno=%d: %s",
 	      __FILE__, __PRETTY_FUNCTION__,
 	      qpim_mroute_socket_fd, vif_index, ifaddr_str,
-	      e, strerror(e));
+	      e, safe_strerror(e));
     errno = e;
     return -2;
   }
@@ -387,7 +387,7 @@ int pim_mroute_del_vif(int vif_index)
     zlog_warn("%s %s: failure: setsockopt(fd=%d,IPPROTO_IP,MRT_DEL_VIF,vif_index=%d): errno=%d: %s",
 	      __FILE__, __PRETTY_FUNCTION__,
 	      qpim_mroute_socket_fd, vif_index,
-	      e, strerror(e));
+	      e, safe_strerror(e));
     errno = e;
     return -2;
   }
@@ -412,7 +412,7 @@ int pim_mroute_add(struct mfcctl *mc)
     zlog_warn("%s %s: failure: setsockopt(fd=%d,IPPROTO_IP,MRT_ADD_MFC): errno=%d: %s",
 	      __FILE__, __PRETTY_FUNCTION__,
 	      qpim_mroute_socket_fd,
-	      e, strerror(e));
+	      e, safe_strerror(e));
     errno = e;
     return -2;
   }
@@ -436,7 +436,7 @@ int pim_mroute_del(struct mfcctl *mc)
     zlog_warn("%s %s: failure: setsockopt(fd=%d,IPPROTO_IP,MRT_DEL_MFC): errno=%d: %s",
 	      __FILE__, __PRETTY_FUNCTION__,
 	      qpim_mroute_socket_fd,
-	      e, strerror(e));
+	      e, safe_strerror(e));
     errno = e;
     return -2;
   }
