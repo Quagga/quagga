@@ -1,6 +1,7 @@
 /*
  * Memory management routine
  * Copyright (C) 1998 Kunihiro Ishiguro
+ * Portions Copyright (c) 2008 Everton da Silva Marques <everton.marques@gmail.com>
  *
  * This file is part of GNU Zebra.
  *
@@ -521,6 +522,17 @@ DEFUN (show_memory_isis,
   return CMD_SUCCESS;
 }
 
+DEFUN (show_memory_pim,
+       show_memory_pim_cmd,
+       "show memory pim",
+       SHOW_STR
+       "Memory statistics\n"
+       "PIM memory\n")
+{
+  show_memory_vty (vty, memory_list_pim);
+  return CMD_SUCCESS;
+}
+
 void
 memory_init (void)
 {
@@ -545,6 +557,7 @@ memory_init (void)
   install_element (VIEW_NODE, &show_memory_ospf_cmd);
   install_element (VIEW_NODE, &show_memory_ospf6_cmd);
   install_element (VIEW_NODE, &show_memory_isis_cmd);
+  install_element (VIEW_NODE, &show_memory_pim_cmd);
 
   install_element (ENABLE_NODE, &show_memory_cmd);
   install_element (ENABLE_NODE, &show_memory_all_cmd);
@@ -556,7 +569,7 @@ memory_init (void)
   install_element (ENABLE_NODE, &show_memory_bgp_cmd);
   install_element (ENABLE_NODE, &show_memory_ospf_cmd);
   install_element (ENABLE_NODE, &show_memory_ospf6_cmd);
-  install_element (ENABLE_NODE, &show_memory_isis_cmd);
+  install_element (ENABLE_NODE, &show_memory_pim_cmd);
 }
 
 /* Stats querying from users */

@@ -1,0 +1,22 @@
+# $QuaggaId: $Format:%an, %ai, %h$ $
+
+#
+# The Linux Kernel MFC (Multicast Forwarding Cache)
+#
+
+# Check Linux kernel multicast interfaces:
+cat /proc/net/dev_mcast
+
+# Check that interface eth0 is forwarding multicast:
+cat /proc/sys/net/ipv4/conf/eth0/mc_forwarding
+
+# Check Linux kernel multicast VIFs:
+cat /proc/net/ip_mr_vif
+Interface      BytesIn  PktsIn  BytesOut PktsOut Flags Local    Remote
+
+# Check Linux kernel MFC:
+# Oifs format = vifi:TTL
+cat /proc/net/ip_mr_cache
+Group    Origin   Iif     Pkts    Bytes    Wrong Oifs
+
+# -- end-of-file --

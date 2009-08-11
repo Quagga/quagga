@@ -48,16 +48,16 @@
 %define quagga_buildreqs %{quagga_buildreqs} patch libcap-devel
 
 # FC4 and 5 split texi2html out of tetex package.
-%if "%dist" != "fc2" || "%dist" != "fc3"
+%if "%dist" == "fc4" || "%dist" == "fc5"
 %define  quagga_buildreqs %{quagga_buildreqs} texi2html
 %endif
 
 # pam_stack is deprecated in FC5
 # default to pam_stack, default should be changed later.
-%if "%dist" == "fc4" || "%dist" == "fc3"
-%define	quagga_pam_source quagga.pam.stack
-%else
+%if "%dist" == "fc5"
 %define	quagga_pam_source quagga.pam
+%else
+%define	quagga_pam_source quagga.pam.stack
 %endif
 ############################################################################
 
@@ -302,6 +302,9 @@ zebra_spec_add_service ospfapi  2607/tcp "OSPF-API"
 %endif
 %if %{with_isisd}
 zebra_spec_add_service isisd    2608/tcp "ISISd vty"
+%endif
+%if %{with_pimd}
+zebra_spec_add_service pimd     2611/tcp "PIMd vty"
 %endif
 
 for daemon in %daemon_list ; do

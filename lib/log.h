@@ -1,6 +1,7 @@
 /*
  * Zebra logging funcions.
  * Copyright (C) 1997, 1998, 1999 Kunihiro Ishiguro
+ * Portions Copyright (c) 2008 Everton da Silva Marques <everton.marques@gmail.com>
  *
  * This file is part of GNU Zebra.
  *
@@ -53,6 +54,7 @@ typedef enum
   ZLOG_BABEL,
   ZLOG_OSPF6,
   ZLOG_ISIS,
+  ZLOG_PIM,
   ZLOG_MASC
 } zlog_proto_t;
 

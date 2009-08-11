@@ -1,5 +1,6 @@
 /* Zebra daemon server routine.
  * Copyright (C) 1997, 98, 99 Kunihiro Ishiguro
+ * Portions Copyright (c) 2008 Everton da Silva Marques <everton.marques@gmail.com>
  *
  * This file is part of GNU Zebra.
  *
