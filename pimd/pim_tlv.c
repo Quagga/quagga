@@ -559,6 +559,24 @@ int pim_parse_addr_source(const char *ifname,
     p->u.prefix4 = *(const struct in_addr *) addr;
     p->prefixlen = mask_len;
 
+    /* 
+       RFC 4601: 4.9.1  Encoded Source and Group Address Formats
+
+       Encoded-Source Address
+
+       The mask length MUST be equal to the mask length in bits for
+       the given Address Family and Encoding Type (32 for IPv4 native
+       and 128 for IPv6 native).  A router SHOULD ignore any messages
+       received with any other mask length.
+    */
+    if (p->prefixlen != 32) {
+      char src_str[100];
+      pim_inet4_dump("<src?>", p->u.prefix4, src_str, sizeof(src_str));
+      zlog_warn("%s: IPv4 bad source address mask: %s/%d",
+		__PRETTY_FUNCTION__, src_str, p->prefixlen);
+      return -4;
+    }
+
     addr += sizeof(struct in_addr);
 
     break;
@@ -569,7 +587,7 @@ int pim_parse_addr_source(const char *ifname,
       zlog_warn("%s: unknown source address encoding family=%d from %s on %s",
 		__PRETTY_FUNCTION__,
 		family, src_str, ifname);
-      return -4;
+      return -5;
     }
   }
 

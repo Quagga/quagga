@@ -392,7 +392,7 @@ static int recv_igmp_query(struct igmp_sock *igmp, int query_version,
       /* this is a general query */
 
       /* log that general query should have the s_flag set */
-      zlog_warn("General IGMP query v%d from %s on %s: Router-Side Processing flag is clear",
+      zlog_warn("General IGMP query v%d from %s on %s: Suppress Router-Side Processing flag is clear",
 		query_version, from_str, ifp->name);
     }
     else {
