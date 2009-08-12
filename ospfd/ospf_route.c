@@ -810,12 +810,18 @@ ospf_route_copy_nexthops_from_vertex (struct ospf_route *to,
     {
       nexthop = vp->nexthop;
       
-      if (nexthop->oi != NULL) 
+      if (nexthop->oi != NULL)
 	{
-	  if (! ospf_path_exist (to->paths, nexthop->router, nexthop->oi))
+	  if (!ospf_path_exist (to->paths, nexthop->router, nexthop->oi))
 	    {
 	      path = ospf_path_new ();
-	      path->nexthop = nexthop->router;
+	      
+	      /* PtoP I/F's are always directly connected */
+	      if (if_is_pointopoint (nexthop->oi->ifp))
+	        path->nexthop.s_addr = INADDR_ANY;
+              else
+	        path->nexthop = nexthop->router;
+              
 	      path->ifindex = nexthop->oi->ifp->ifindex;
 	      listnode_add (to->paths, path);
 	    }
