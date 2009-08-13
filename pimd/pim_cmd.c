@@ -1022,15 +1022,31 @@ static void pim_show_upstream_rpf(struct vty *vty)
   }
 }
 
+static void show_rpf_refresh_stats(struct vty *vty)
+{
+  vty_out(vty, 
+	  "RPF Cache Refresh Delay:    %ld msecs%s"
+	  "RPF Cache Refresh Timer:    %ld msecs%s"
+	  "RPF Cache Refresh Requests: %lld%s"
+	  "RPF Cache Refresh Events:   %lld%s",
+	  qpim_rpf_cache_refresh_delay_msec, VTY_NEWLINE,
+	  pim_time_timer_remain_msec(qpim_rpf_cache_refresher), VTY_NEWLINE,
+	  qpim_rpf_cache_refresh_requests, VTY_NEWLINE,
+	  qpim_rpf_cache_refresh_events, VTY_NEWLINE);
+}
+
 static void pim_show_rpf(struct vty *vty)
 {
   struct listnode     *up_node;
   struct pim_upstream *up;
 
+  show_rpf_refresh_stats(vty);
+
+  vty_out(vty, "%s", VTY_NEWLINE);
+
   vty_out(vty,
 	  "Source          Group           RpfIface RpfAddress      RibNextHop      Metric Pref%s",
 	  VTY_NEWLINE);
-
 
   for (ALL_LIST_ELEMENTS_RO(qpim_upstream_list, up_node, up)) {
     char src_str[100];
@@ -1847,7 +1863,7 @@ static void show_multicast_interfaces(struct vty *vty)
 
   vty_out(vty, "%s", VTY_NEWLINE);
   
-  vty_out(vty, "Interface Address         ifIndex VifIndex PktsIn PktsOut BytesIn BytesOut%s",
+  vty_out(vty, "Interface Address         ifi Vif  PktsIn PktsOut    BytesIn   BytesOut%s",
 	  VTY_NEWLINE);
 
   for (ALL_LIST_ELEMENTS_RO(iflist, node, ifp)) {
@@ -1878,7 +1894,7 @@ static void show_multicast_interfaces(struct vty *vty)
 
     ifaddr = pim_ifp->primary_address;
 
-    vty_out(vty, "%-9s %-15s %7d %8d %6lu %7lu %7lu %8lu%s",
+    vty_out(vty, "%-9s %-15s %3d %3d %7lu %7lu %10lu %10lu%s",
 	    ifp->name,
 	    inet_ntoa(ifaddr),
 	    ifp->ifindex,
@@ -1934,12 +1950,8 @@ DEFUN (show_ip_multicast,
 	  VTY_NEWLINE);
 
   vty_out(vty, "%s", VTY_NEWLINE);
-  vty_out(vty, "RPF Cache Refresh Delay: %ld msecs%s",
-	  qpim_rpf_cache_refresh_delay_msec,
-	  VTY_NEWLINE);
-  vty_out(vty, "RPF Cache Refresh Timer: %ld msecs%s",
-	  pim_time_timer_remain_msec(qpim_rpf_cache_refresher),
-	  VTY_NEWLINE);
+
+  show_rpf_refresh_stats(vty);
 
   show_multicast_interfaces(vty);
   
