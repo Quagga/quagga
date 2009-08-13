@@ -479,6 +479,20 @@ ospf_if_lookup_recv_if (struct ospf *ospf, struct in_addr src,
 
   return match;
 }
+
+struct ospf_interface *
+ospf_if_lookup_by_ifindex(struct ospf_area *area, unsigned int ifindex)
+{
+  struct listnode *node;
+  struct ospf_interface *oi;
+
+  for (ALL_LIST_ELEMENTS_RO (area->oiflist, node, oi))
+    {
+      if (oi->ifp->ifindex == ifindex)
+	return oi;
+    }
+  return NULL;
+}
 
 void
 ospf_if_stream_set (struct ospf_interface *oi)

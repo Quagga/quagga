@@ -529,6 +529,10 @@ ospf_nexthop_calculation (struct ospf_area *area, struct vertex *v,
 
           if (l->m[0].type == LSA_LINK_TYPE_POINTOPOINT)
             {
+	      int nh_found = 0;
+	      struct in_addr nexthop;
+	      unsigned long ifindex;
+
               /* If the destination is a router which connects to
                  the calculating router via a Point-to-MultiPoint
                  network, the destination's next hop IP address(es)
@@ -548,53 +552,71 @@ ospf_nexthop_calculation (struct ospf_area *area, struct vertex *v,
                  is a constituent of the PtMP link, and its address is 
                  a nexthop address for V.
               */
-              oi = ospf_if_is_configured (area->ospf, &l->link_data);
-              if (oi && oi->type == OSPF_IFTYPE_POINTOMULTIPOINT)
-                {
-                  struct prefix_ipv4 la;
+	      ifindex = ntohl(l->link_data.s_addr);
+	      if (ifindex <= 0x00ffffff) /* unnumbered ? */
+		{
+		  oi = ospf_if_lookup_by_ifindex(area, ifindex);
+		  if (oi && oi->type == OSPF_IFTYPE_POINTOPOINT)
+		    nh_found = 1;
+		  nexthop.s_addr = 0;
+		}
+	      else
+		{
+		  oi = ospf_if_is_configured (area->ospf, &l->link_data);
+		  if (oi && oi->type == OSPF_IFTYPE_POINTOMULTIPOINT)
+		    {
+		      struct prefix_ipv4 la;
 
-                  la.family = AF_INET;
-                  la.prefixlen = oi->address->prefixlen;
+		      la.family = AF_INET;
+		      la.prefixlen = oi->address->prefixlen;
 
-                  /* V links to W on PtMP interface
-                     - find the interface address on W */
-                  while ((l2 = ospf_get_next_link (w, v, l2)))
-                    {
-                      la.prefix = l2->link_data;
+		      /* V links to W on PtMP interface
+			 - find the interface address on W */
+		      while ((l2 = ospf_get_next_link (w, v, l2)))
+			{
+			  la.prefix = l2->link_data;
 
-                      if (prefix_cmp ((struct prefix *) &la,
-                                      oi->address) == 0)
-                        /* link_data is on our PtMP network */
-                        break;
-                    }
-                } /* end l is on point-to-multipoint link */
-              else
-                {
-                  /* l is a regular point-to-point link.
-                     Look for a link from W to V.
-                   */
-                  while ((l2 = ospf_get_next_link (w, v, l2)))
-                    {
-                      oi = ospf_if_is_configured (area->ospf,
-                                                  &(l2->link_data));
+			  if (prefix_cmp ((struct prefix *) &la,
+					  oi->address) != 0)
+			    continue;
+			  /* link_data is on our PtMP network */
+			  nh_found = 1;
+			  nexthop = l2->link_data;
+			  break;
+			}
+		    } /* end l is on point-to-multipoint link */
+		  else
+		    {
+		      /* l is a regular point-to-point link.
+			 Look for a link from W to V.
+		      */
+		      while ((l2 = ospf_get_next_link (w, v, l2)))
+			{
+			  if (ntohl(l2->link_data.s_addr) <= 0x00ffffff)
+			    continue; /* skip unnumbered links */
 
-                      if (oi == NULL)
-                        continue;
+			  oi = ospf_if_is_configured (area->ospf,
+						      &l2->link_data);
 
-                      if (!IPV4_ADDR_SAME (&oi->address->u.prefix4,
-                                           &l->link_data))
-                        continue;
+			  if (oi == NULL)
+			    continue;
 
-                      break;
-                    }
-                }
+			  if (!IPV4_ADDR_SAME (&oi->address->u.prefix4,
+					       &l->link_data))
+			    continue;
+			  nexthop.s_addr = 0; /* zero better for equal-cost ? */
+			  nh_found = 1;
+			  break;
+			}
+		    }
+		}
 
-              if (oi && l2)
+              if (nh_found)
                 {
                   /* found all necessary info to build nexthop */
                   nh = vertex_nexthop_new ();
                   nh->oi = oi;
-                  nh->router = l2->link_data;
+                  nh->router = nexthop;
                   ospf_spf_add_parent (v, w, nh, distance);
                   return 1;
                 }

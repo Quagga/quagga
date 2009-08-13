@@ -256,7 +256,8 @@ extern struct ospf_interface *ospf_if_lookup_recv_if (struct ospf *,
 						      struct interface *);
 extern struct ospf_interface *ospf_if_is_configured (struct ospf *,
 						     struct in_addr *);
-
+extern struct ospf_interface *ospf_if_lookup_by_ifindex(struct ospf_area *,
+							unsigned int);
 extern struct ospf_if_params *ospf_lookup_if_params (struct interface *,
 						     struct in_addr);
 extern struct ospf_if_params *ospf_get_if_params (struct interface *,
