@@ -80,6 +80,8 @@ struct zclient           *qpim_zclient_lookup;
 struct pim_assert_metric  qpim_infinite_assert_metric;
 long                      qpim_rpf_cache_refresh_delay_msec;
 struct thread            *qpim_rpf_cache_refresher;
+int64_t                   qpim_rpf_cache_refresh_requests;
+int64_t                   qpim_rpf_cache_refresh_events;
 struct in_addr            qpim_inaddr_any;
 
 #define PIM_JP_HOLDTIME (qpim_t_periodic * 7 / 2)
