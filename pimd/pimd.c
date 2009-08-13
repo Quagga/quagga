@@ -54,6 +54,8 @@ struct zclient           *qpim_zclient_lookup = 0;
 struct pim_assert_metric  qpim_infinite_assert_metric;
 long                      qpim_rpf_cache_refresh_delay_msec = 10000;
 struct thread            *qpim_rpf_cache_refresher = 0;
+int64_t                   qpim_rpf_cache_refresh_requests = 0;
+int64_t                   qpim_rpf_cache_refresh_events = 0;
 struct in_addr            qpim_inaddr_any;
 
 static void pim_free()

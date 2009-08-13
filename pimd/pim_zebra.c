@@ -447,13 +447,21 @@ static int on_rpf_cache_refresh(struct thread *t)
   /* update kernel multicast forwarding cache (MFC) */
   scan_oil();
 
+  ++qpim_rpf_cache_refresh_events;
+
   return 0;
 }
 
 static void sched_rpf_cache_refresh()
 {
-  if (qpim_rpf_cache_refresher)
+  ++qpim_rpf_cache_refresh_requests;
+
+  if (qpim_rpf_cache_refresher) {
+    /* Refresh timer is already running */
     return;
+  }
+
+  /* Start refresh timer */
 
   if (PIM_DEBUG_ZEBRA) {
     zlog_debug("%s: triggering %ld msec timer",
