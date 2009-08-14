@@ -286,6 +286,7 @@ static int recv_igmp_query(struct igmp_sock *igmp, int query_version,
   struct in_addr        group_addr;
   uint16_t              recv_checksum;
   uint16_t              checksum;
+  int                   i;
 
   group_addr = *(struct in_addr *)(igmp_msg + 4);
 
@@ -419,7 +420,7 @@ static int recv_igmp_query(struct igmp_sock *igmp, int query_version,
 
 	  /* Scan sources in query and lower their timers to LMQT */
 	  struct in_addr *sources = (struct in_addr *)(igmp_msg + IGMP_V3_SOURCES_OFFSET);
-	  for (int i = 0; i < recv_num_sources; ++i) {
+	  for (i = 0; i < recv_num_sources; ++i) {
 	    struct in_addr src_addr = sources[i];
 	    struct igmp_source *src = igmp_find_source_by_addr(group, src_addr);
 	    if (src) {
@@ -451,6 +452,7 @@ static int igmp_v3_report(struct igmp_sock *igmp,
   uint8_t          *group_record;
   uint8_t          *report_pastend = (uint8_t *) igmp_msg + igmp_msg_len;
   struct interface *ifp = igmp->interface;
+  int               i;
 
   if (igmp_msg_len < IGMP_V3_MSG_MIN_SIZE) {
     zlog_warn("Recv IGMP report v3 from %s on %s: size=%d shorter than minimum=%d",
@@ -485,7 +487,7 @@ static int igmp_v3_report(struct igmp_sock *igmp,
   group_record = (uint8_t *) igmp_msg + IGMP_V3_REPORT_GROUPPRECORD_OFFSET;
 
   /* Scan groups */
-  for (int i = 0; i < num_groups; ++i) {
+  for (i = 0; i < num_groups; ++i) {
     struct in_addr  rec_group;
     uint8_t        *sources;
     uint8_t        *src;
