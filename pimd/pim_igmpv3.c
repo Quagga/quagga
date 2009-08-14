@@ -531,6 +531,7 @@ static void allow(struct igmp_sock *igmp, struct in_addr from,
   struct interface *ifp = igmp->interface;
   struct pim_interface *pim_ifp;
   struct igmp_group *group;
+  int    i;
 
   pim_ifp = ifp->info;
 
@@ -541,7 +542,7 @@ static void allow(struct igmp_sock *igmp, struct in_addr from,
   }
 
   /* scan received sources */
-  for (int i = 0; i < num_sources; ++i) {
+  for (i = 0; i < num_sources; ++i) {
     struct igmp_source *source;
     struct in_addr     *src_addr;
 
@@ -580,6 +581,8 @@ void igmpv3_report_isin(struct igmp_sock *igmp, struct in_addr from,
 static void isex_excl(struct igmp_group *group,
 		      int num_sources, struct in_addr *sources)
 {
+  int     i;
+
   /* EXCLUDE mode */
   zassert(group->group_filtermode_isexcl);
   
@@ -587,7 +590,7 @@ static void isex_excl(struct igmp_group *group,
   source_mark_delete_flag(group->group_source_list);
 
   /* scan received sources (A) */
-  for (int i = 0; i < num_sources; ++i) {
+  for (i = 0; i < num_sources; ++i) {
     struct igmp_source *source;
     struct in_addr     *src_addr;
 
@@ -621,6 +624,8 @@ static void isex_excl(struct igmp_group *group,
 static void isex_incl(struct igmp_group *group,
 		      int num_sources, struct in_addr *sources)
 {
+  int i;
+
   /* INCLUDE mode */
   zassert(!group->group_filtermode_isexcl);
   
@@ -628,7 +633,7 @@ static void isex_incl(struct igmp_group *group,
   source_mark_delete_flag(group->group_source_list);
 
   /* scan received sources (B) */
-  for (int i = 0; i < num_sources; ++i) {
+  for (i = 0; i < num_sources; ++i) {
     struct igmp_source *source;
     struct in_addr     *src_addr;
 
@@ -702,12 +707,13 @@ static void toin_incl(struct igmp_group *group,
 {
   struct igmp_sock *igmp = group->group_igmp_sock;
   int num_sources_tosend = listcount(group->group_source_list);
+  int i;
 
   /* Set SEND flag for all known sources (A) */
   source_mark_send_flag(group->group_source_list);
 
   /* Scan received sources (B) */
-  for (int i = 0; i < num_sources; ++i) {
+  for (i = 0; i < num_sources; ++i) {
     struct igmp_source *source;
     struct in_addr     *src_addr;
 
@@ -745,12 +751,13 @@ static void toin_excl(struct igmp_group *group,
 {
   struct igmp_sock *igmp = group->group_igmp_sock;
   int num_sources_tosend;
+  int i;
 
   /* Set SEND flag for X (sources with timer > 0) */
   num_sources_tosend = source_mark_send_flag_by_timer(group->group_source_list);
 
   /* Scan received sources (A) */
-  for (int i = 0; i < num_sources; ++i) {
+  for (i = 0; i < num_sources; ++i) {
     struct igmp_source *source;
     struct in_addr     *src_addr;
 
@@ -821,6 +828,7 @@ static void toex_incl(struct igmp_group *group,
 		      int num_sources, struct in_addr *sources)
 {
   int num_sources_tosend = 0;
+  int i;
 
   zassert(!group->group_filtermode_isexcl);
 
@@ -831,7 +839,7 @@ static void toex_incl(struct igmp_group *group,
   source_clear_send_flag(group->group_source_list);
 
   /* Scan received sources (B) */
-  for (int i = 0; i < num_sources; ++i) {
+  for (i = 0; i < num_sources; ++i) {
     struct igmp_source *source;
     struct in_addr     *src_addr;
 
@@ -878,6 +886,7 @@ static void toex_excl(struct igmp_group *group,
 		      int num_sources, struct in_addr *sources)
 {
   int num_sources_tosend = 0;
+  int i;
 
   /* set DELETE flag for all known sources (X,Y) */
   source_mark_delete_flag(group->group_source_list);
@@ -886,7 +895,7 @@ static void toex_excl(struct igmp_group *group,
   source_clear_send_flag(group->group_source_list);
 
   /* scan received sources (A) */
-  for (int i = 0; i < num_sources; ++i) {
+  for (i = 0; i < num_sources; ++i) {
     struct igmp_source *source;
     struct in_addr     *src_addr;
     
@@ -1392,12 +1401,13 @@ static void block_excl(struct igmp_group *group,
 		       int num_sources, struct in_addr *sources)
 {
   int num_sources_tosend = 0;
+  int i;
 
   /* 1. clear off SEND flag from all known sources (X,Y) */
   source_clear_send_flag(group->group_source_list);
 
   /* 2. scan received sources (A) */
-  for (int i = 0; i < num_sources; ++i) {
+  for (i = 0; i < num_sources; ++i) {
     struct igmp_source *source;
     struct in_addr     *src_addr;
     
@@ -1438,12 +1448,13 @@ static void block_incl(struct igmp_group *group,
 		       int num_sources, struct in_addr *sources)
 {
   int num_sources_tosend = 0;
+  int i;
 
   /* 1. clear off SEND flag from all known sources (B) */
   source_clear_send_flag(group->group_source_list);
 
   /* 2. scan received sources (A) */
-  for (int i = 0; i < num_sources; ++i) {
+  for (i = 0; i < num_sources; ++i) {
     struct igmp_source *source;
     struct in_addr     *src_addr;
     
