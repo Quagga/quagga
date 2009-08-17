@@ -447,6 +447,7 @@ static int on_rpf_cache_refresh(struct thread *t)
   /* update kernel multicast forwarding cache (MFC) */
   scan_oil();
 
+  qpim_rpf_cache_refresh_last = pim_time_monotonic_sec();
   ++qpim_rpf_cache_refresh_events;
 
   return 0;
