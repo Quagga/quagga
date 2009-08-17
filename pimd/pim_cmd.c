@@ -1022,25 +1022,32 @@ static void pim_show_upstream_rpf(struct vty *vty)
   }
 }
 
-static void show_rpf_refresh_stats(struct vty *vty)
+static void show_rpf_refresh_stats(struct vty *vty, time_t now)
 {
+  char refresh_uptime[10];
+
+  pim_time_uptime(refresh_uptime, sizeof(refresh_uptime), now - qpim_rpf_cache_refresh_last);
+
   vty_out(vty, 
 	  "RPF Cache Refresh Delay:    %ld msecs%s"
 	  "RPF Cache Refresh Timer:    %ld msecs%s"
 	  "RPF Cache Refresh Requests: %lld%s"
-	  "RPF Cache Refresh Events:   %lld%s",
+	  "RPF Cache Refresh Events:   %lld%s"
+	  "RPF Cache Refresh Last:     %s%s",
 	  qpim_rpf_cache_refresh_delay_msec, VTY_NEWLINE,
 	  pim_time_timer_remain_msec(qpim_rpf_cache_refresher), VTY_NEWLINE,
 	  qpim_rpf_cache_refresh_requests, VTY_NEWLINE,
-	  qpim_rpf_cache_refresh_events, VTY_NEWLINE);
+	  qpim_rpf_cache_refresh_events, VTY_NEWLINE,
+	  refresh_uptime, VTY_NEWLINE);
 }
 
 static void pim_show_rpf(struct vty *vty)
 {
   struct listnode     *up_node;
   struct pim_upstream *up;
+  time_t               now = pim_time_monotonic_sec();
 
-  show_rpf_refresh_stats(vty);
+  show_rpf_refresh_stats(vty, now);
 
   vty_out(vty, "%s", VTY_NEWLINE);
 
@@ -1079,9 +1086,7 @@ static void igmp_show_querier(struct vty *vty)
 {
   struct listnode  *node;
   struct interface *ifp;
-  time_t            now;
-  
-  now = pim_time_monotonic_sec();
+  time_t            now = pim_time_monotonic_sec();
 
   vty_out(vty, "Interface Address         Querier StartCount Query-Timer Other-Timer%s", VTY_NEWLINE);
 
@@ -1914,15 +1919,15 @@ DEFUN (show_ip_multicast,
        IP_STR
        "Multicast global information\n")
 {
+  time_t now = pim_time_monotonic_sec();
+
   if (PIM_MROUTE_IS_ENABLED) {
-    time_t now;
     char uptime[10];
 
     vty_out(vty, "Mroute socket descriptor: %d%s",
 	    qpim_mroute_socket_fd,
 	    VTY_NEWLINE);
 
-    now = pim_time_monotonic_sec();
     pim_time_uptime(uptime, sizeof(uptime), now - qpim_mroute_socket_creation);
     vty_out(vty, "Mroute socket uptime: %s%s",
 	    uptime,
@@ -1951,7 +1956,7 @@ DEFUN (show_ip_multicast,
 
   vty_out(vty, "%s", VTY_NEWLINE);
 
-  show_rpf_refresh_stats(vty);
+  show_rpf_refresh_stats(vty, now);
 
   show_multicast_interfaces(vty);
   
