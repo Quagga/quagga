@@ -82,6 +82,7 @@ long                      qpim_rpf_cache_refresh_delay_msec;
 struct thread            *qpim_rpf_cache_refresher;
 int64_t                   qpim_rpf_cache_refresh_requests;
 int64_t                   qpim_rpf_cache_refresh_events;
+int64_t                   qpim_rpf_cache_refresh_last;
 struct in_addr            qpim_inaddr_any;
 
 #define PIM_JP_HOLDTIME (qpim_t_periodic * 7 / 2)
