@@ -797,7 +797,7 @@ static void pim_show_lan_prune_delay(struct vty *vty)
       pim_inet4_dump("<src?>", neigh->source_addr,
 		     neigh_src_str, sizeof(neigh_src_str));
 
-      vty_out(vty, "%-9s %-15s %5u %5u %5u %5u %5u %1u %-15s %s %5u %5u %1u%s",
+      vty_out(vty, "%-9s %-15s %5u %5u %5u %5u %5u %1u %-15s %-3s %5u %5u %1u%s",
 	      ifp->name,
 	      inet_ntoa(ifaddr),
 	      pim_ifp->pim_propagation_delay_msec,
