@@ -531,7 +531,7 @@ ospf_nexthop_calculation (struct ospf_area *area, struct vertex *v,
             {
 	      int nh_found = 0;
 	      struct in_addr nexthop;
-	      unsigned long ifindex;
+	      
 
               /* If the destination is a router which connects to
                  the calculating router via a Point-to-MultiPoint
@@ -552,10 +552,10 @@ ospf_nexthop_calculation (struct ospf_area *area, struct vertex *v,
                  is a constituent of the PtMP link, and its address is 
                  a nexthop address for V.
               */
-	      ifindex = ntohl(l->link_data.s_addr);
-	      if (ifindex <= 0x00ffffff) /* unnumbered ? */
+	      if (ntohl(l->link_data.s_addr) <= 0x00ffffff) /* unnumbered ? */
 		{
-		  oi = ospf_if_lookup_by_ifindex(area, ifindex);
+		  oi = ospf_if_lookup_by_ifindex(area,
+		                                 ntohl(l->link_data.s_addr));
 		  if (oi && oi->type == OSPF_IFTYPE_POINTOPOINT)
 		    nh_found = 1;
 		  nexthop.s_addr = 0;
