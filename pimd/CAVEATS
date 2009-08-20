@@ -26,7 +26,7 @@ C6 PIM implementation currently does not support IPv6. PIM-SSM
    requires IGMPv3 for IPv4 and MLDv2 for IPv6. MLDv2 is currently
    missing. See also CAVEAT C9.
 
-C7 (S,G) Assert state machine (RFC 4601, section 4.6.1) is not
+C7 FIXED (S,G) Assert state machine (RFC 4601, section 4.6.1) is not
    implemented. See also TODO T6. See also CAVEAT C10.
 
 C8 It is not possible to disable join suppression in order to
