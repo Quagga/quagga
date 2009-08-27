@@ -292,6 +292,41 @@ ospf_passive_interface_update (struct ospf *ospf, struct interface *ifp,
     }
 }
 
+/* get the appropriate ospf parameters structure, checking if
+ * there's a valid interface address at the argi'th argv index
+ */
+enum {
+  VTY_SET = 0,
+  VTY_UNSET,
+};
+#define OSPF_VTY_GET_IF_PARAMS(ifp,params,argi,addr,set) \
+  (params) = IF_DEF_PARAMS ((ifp));           \
+                                              \
+  if (argc == (argi) + 1)                     \
+    {                                         \
+      int ret = inet_aton(argv[(argi)], &(addr)); \
+      if (!ret)                               \
+	{                                     \
+	  vty_out (vty, "Please specify interface address by A.B.C.D%s", \
+		   VTY_NEWLINE);              \
+	  return CMD_WARNING;                 \
+	}                                     \
+      (params) = ospf_get_if_params ((ifp), (addr)); \
+                                              \
+      if (set)                                \
+        ospf_if_update_params ((ifp), (addr));  \
+      else if ((params) == NULL)              \
+        return CMD_SUCCESS;                   \
+    }
+
+#define OSPF_VTY_PARAM_UNSET(params,var,ifp,addr) \
+  UNSET_IF_PARAM ((params), var);               \
+    if ((params) != IF_DEF_PARAMS ((ifp)))        \
+    {                                             \
+      ospf_free_if_params ((ifp), (addr));        \
+      ospf_if_update_params ((ifp), (addr));      \
+    }
+
 DEFUN (ospf_passive_interface,
        ospf_passive_interface_addr_cmd,
        "passive-interface IFNAME A.B.C.D",
@@ -453,7 +488,7 @@ DEFUN (ospf_network_area,
        "OSPF area ID in IP address format\n"
        "OSPF area ID as a decimal value\n")
 {
-  struct ospf *ospf= vty->index;
+  struct ospf *ospf = vty->index;
   struct prefix_ipv4 p;
   struct in_addr area_id;
   int ret, format;
@@ -5885,31 +5920,28 @@ ALIAS (no_ip_ospf_transmit_delay,
 
 DEFUN (ip_ospf_area,
        ip_ospf_area_cmd,
-       "ip ospf area (A.B.C.D|<0-4294967295>)",
+       "ip ospf area (A.B.C.D|<0-4294967295>) [A.B.C.D]",
        "IP Information\n"
        "OSPF interface commands\n"
        "Enable OSPF on this interface\n"
        "OSPF area ID in IP address format\n"
-       "OSPF area ID as a decimal value\n")
+       "OSPF area ID as a decimal value\n"
+       "Address of interface\n")
 {
   struct interface *ifp = vty->index;
-  int format, ret;
   struct in_addr area_id;
-  struct ospf *ospf;
+  struct in_addr addr;
+  int format;
   struct ospf_if_params *params;
 
-  ret = ospf_str2area_id (argv[0], &area_id, &format);
+  VTY_GET_OSPF_AREA_ID (area_id, format, argv[0]);
 
-  if (ret < 0)
-    {
-      vty_out (vty, "Please specify area by A.B.C.D|<0-4294967295>%s",
-	       VTY_NEWLINE);
-      return CMD_WARNING;
-    }
-  params = IF_DEF_PARAMS (ifp);
+  OSPF_VTY_GET_IF_PARAMS(ifp, params, 1, addr, VTY_SET);
+  
   if (OSPF_IF_PARAM_CONFIGURED(params, if_area))
     {
-      vty_out (vty, "There is already a interface statement.%s", VTY_NEWLINE);
+      vty_out (vty, "There is already an interface area statement.%s",
+              VTY_NEWLINE);
       return CMD_WARNING;
     }
   if (memcmp (ifp->name, "VLINK", 5) == 0)
@@ -5917,33 +5949,36 @@ DEFUN (ip_ospf_area,
       vty_out (vty, "Cannot enable OSPF on a virtual link.%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-
+  
   SET_IF_PARAM (params, if_area);
   params->if_area = area_id;
-  ospf_interface_set (ifp);
+  ospf_interface_area_set (ifp);
 
   return CMD_SUCCESS;
 }
 
 DEFUN (no_ip_ospf_area,
        no_ip_ospf_area_cmd,
-       "no ip ospf area",
+       "no ip ospf area [A.B.C.D]",
        NO_STR
        "IP Information\n"
        "OSPF interface commands\n"
-       "Disable OSPF on this interface\n")
+       "Disable OSPF on this interface\n"
+       "Address of interface\n")
 {
   struct interface *ifp = vty->index;
-  struct ospf *ospf;
   struct ospf_if_params *params;
+  struct in_addr addr;
 
-  params = IF_DEF_PARAMS (ifp);
+  OSPF_VTY_GET_IF_PARAMS(ifp, params, 0, addr, VTY_UNSET);
+  
   if (!OSPF_IF_PARAM_CONFIGURED(params, if_area))
     return CMD_SUCCESS;
+  
+  OSPF_VTY_PARAM_UNSET(params, if_area, ifp, addr);
+  
+  ospf_interface_area_unset (ifp);
 
-  UNSET_IF_PARAM (params, if_area);
-
-  ospf_interface_unset (ifp);
   return CMD_SUCCESS;
 }
 
@@ -7014,9 +7049,10 @@ config_write_interface (struct vty *vty)
 	/* Area  print. */
 	if (OSPF_IF_PARAM_CONFIGURED (params, if_area))
 	  {
-	    vty_out (vty, " ip ospf area %s%s",
-		     inet_ntoa (params->if_area),
-		     VTY_NEWLINE);
+	    vty_out (vty, " ip ospf area %s", inet_ntoa (params->if_area));
+	    if (params != IF_DEF_PARAMS (ifp))
+	      vty_out (vty, " %s", inet_ntoa (rn->p.u.prefix4));
+            vty_out (vty, "%s", VTY_NEWLINE);
 	  }
 
     /* MTU ignore print. */
