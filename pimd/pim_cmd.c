@@ -1086,7 +1086,6 @@ static void igmp_show_querier(struct vty *vty)
 {
   struct listnode  *node;
   struct interface *ifp;
-  time_t            now = pim_time_monotonic_sec();
 
   vty_out(vty, "Interface Address         Querier StartCount Query-Timer Other-Timer%s", VTY_NEWLINE);
 
