@@ -19,4 +19,8 @@ Interface      BytesIn  PktsIn  BytesOut PktsOut Flags Local    Remote
 cat /proc/net/ip_mr_cache
 Group    Origin   Iif     Pkts    Bytes    Wrong Oifs
 
+# iproute2 can display the MFC:
+ip mroute show
+(2.2.2.2, 239.2.2.2)             Iif: eth1       Oifs: eth0
+
 # -- end-of-file --
