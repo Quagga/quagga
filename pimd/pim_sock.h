@@ -23,6 +23,8 @@
 #ifndef PIM_SOCK_H
 #define PIM_SOCK_H
 
+#include <netinet/in.h>
+
 #define PIM_SOCK_ERR_NONE    (0)  /* No error */
 #define PIM_SOCK_ERR_SOCKET  (-1) /* socket() */
 #define PIM_SOCK_ERR_RA      (-2) /* Router Alert option */
