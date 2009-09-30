@@ -38,19 +38,10 @@
 #include "pimd.h"
 #include "pim_sock.h"
 #include "pim_str.h"
+#include "pim_igmp_join.h"
 
 /* GLOBAL VARS */
 extern struct zebra_privs_t pimd_privs;
-
-#ifndef MCAST_JOIN_SOURCE_GROUP
-#define MCAST_JOIN_SOURCE_GROUP 46
-struct group_source_req
-{
-  uint32_t gsr_interface;
-  struct sockaddr_storage gsr_group;
-  struct sockaddr_storage gsr_source;
-};
-#endif
 
 int pim_socket_raw(int protocol)
 {
@@ -242,24 +233,7 @@ int pim_socket_join_source(int fd, int ifindex,
 			   struct in_addr source_addr,
 			   const char *ifname)
 {
-  struct group_source_req req;
-  struct sockaddr_in *group_sa = (struct sockaddr_in *) &req.gsr_group;
-  struct sockaddr_in *source_sa = (struct sockaddr_in *) &req.gsr_source;
-
-  memset(group_sa, 0, sizeof(*group_sa));
-  group_sa->sin_family = AF_INET;
-  group_sa->sin_addr = group_addr;
-  group_sa->sin_port = htons(0);
-
-  memset(source_sa, 0, sizeof(*source_sa));
-  source_sa->sin_family = AF_INET;
-  source_sa->sin_addr = source_addr;
-  source_sa->sin_port = htons(0);
-
-  req.gsr_interface = ifindex;
-
-  if (setsockopt(fd, SOL_IP, MCAST_JOIN_SOURCE_GROUP,
-		 &req, sizeof(req))) {
+  if (pim_igmp_join_source(fd, ifindex, group_addr, source_addr)) {
     int e = errno;
     char group_str[100];
     char source_str[100];
