@@ -8,6 +8,18 @@ DEBUG HINTS
   - Check the multicast packets are not being dropped due to
     fragmentation problems.
 
+  - Two easy options to test IGMPv3 joins from the receiver host:
+
+    1) Configure pimd on the receiver host with "ip igmp join":
+
+       interface eth0
+        ip pim ssm
+        ip igmp join 239.1.1.1 1.1.1.1 
+
+    2) Use the test_igmpv3_join command-line utility:
+
+       test_igmpv3_join eth0 239.1.1.1 1.1.1.1
+
   - The following command generates a 100-kbps multicast stream for
     channel 1.1.1.1,239.1.1.1 with TTL 10 and 1000-byte payload per UDP
     packet (to avoid fragmentation):
