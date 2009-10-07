@@ -47,6 +47,7 @@
 #include "pim_upstream.h"
 #include "pim_rpf.h"
 #include "pim_macro.h"
+#include "pim_ssmpingd.h"
 
 static struct cmd_node pim_global_node = {
   PIM_NODE,
@@ -2200,6 +2201,63 @@ DEFUN (no_ip_multicast_routing,
   return CMD_SUCCESS;
 }
 
+DEFUN (ip_ssmpingd,
+       ip_ssmpingd_cmd,
+       "ip ssmpingd [A.B.C.D]",
+       IP_STR
+       SSMPINGD_STR
+       "Source address\n")
+{
+  int result;
+  struct in_addr source_addr;
+  const char *source_str = (argc > 0) ? argv[0] : "0.0.0.0";
+
+  result = inet_pton(AF_INET, source_str, &source_addr);
+  if (result <= 0) {
+    vty_out(vty, "%% Bad source address %s: errno=%d: %s%s",
+	    source_str, errno, safe_strerror(errno), VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+
+  result = pim_ssmpingd_start(source_addr);
+  if (result) {
+    vty_out(vty, "%% Failure starting ssmpingd for source %s: %d%s",
+	    source_str, result, VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ip_ssmpingd,
+       no_ip_ssmpingd_cmd,
+       "no ip ssmpingd [A.B.C.D]",
+       NO_STR
+       IP_STR
+       SSMPINGD_STR
+       "Source address\n")
+{
+  int result;
+  struct in_addr source_addr;
+  const char *source_str = (argc > 0) ? argv[0] : "0.0.0.0";
+
+  result = inet_pton(AF_INET, source_str, &source_addr);
+  if (result <= 0) {
+    vty_out(vty, "%% Bad source address %s: errno=%d: %s%s",
+	    source_str, errno, safe_strerror(errno), VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+
+  result = pim_ssmpingd_stop(source_addr);
+  if (result) {
+    vty_out(vty, "%% Failure stopping ssmpingd for source %s: %d%s",
+	    source_str, result, VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+
+  return CMD_SUCCESS;
+}
+
 DEFUN (interface_ip_igmp,
        interface_ip_igmp_cmd,
        "ip igmp",
@@ -3788,6 +3846,8 @@ void pim_cmd_init()
 
   install_element (CONFIG_NODE, &ip_multicast_routing_cmd);
   install_element (CONFIG_NODE, &no_ip_multicast_routing_cmd);
+  install_element (CONFIG_NODE, &ip_ssmpingd_cmd);
+  install_element (CONFIG_NODE, &no_ip_ssmpingd_cmd); 
 #if 0
   install_element (CONFIG_NODE, &interface_cmd); /* from if.h */
 #else

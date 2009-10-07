@@ -84,6 +84,7 @@ int64_t                   qpim_rpf_cache_refresh_requests;
 int64_t                   qpim_rpf_cache_refresh_events;
 int64_t                   qpim_rpf_cache_refresh_last;
 struct in_addr            qpim_inaddr_any;
+struct list              *qpim_ssmpingd_list; /* list of struct ssmpingd_sock */
 
 #define PIM_JP_HOLDTIME (qpim_t_periodic * 7 / 2)
 
