@@ -27,6 +27,7 @@
 #define IGMP_STR                               "IGMP information\n"
 #define IGMP_GROUP_STR                         "IGMP groups information\n"
 #define IGMP_SOURCE_STR                        "IGMP sources information\n"
+#define SSMPINGD_STR                           "Enable ssmpingd operation\n"
 #define IFACE_PIM_STR                          "Enable PIM SSM operation\n"
 #define IFACE_IGMP_STR                         "Enable IGMP operation\n"
 #define IFACE_IGMP_QUERY_INTERVAL_STR          "IGMP host query interval\n"

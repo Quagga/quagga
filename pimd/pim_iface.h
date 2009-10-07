@@ -29,6 +29,7 @@
 #include "vty.h"
 
 #include "pim_igmp.h"
+#include "pim_upstream.h"
 
 #define PIM_IF_MASK_PIM                             (1 << 0)
 #define PIM_IF_MASK_IGMP                            (1 << 1)

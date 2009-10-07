@@ -35,6 +35,7 @@
 #include "pim_upstream.h"
 #include "pim_rand.h"
 #include "pim_rpf.h"
+#include "pim_ssmpingd.h"
 
 const char *const PIM_ALL_SYSTEMS      = MCAST_ALL_SYSTEMS;
 const char *const PIM_ALL_ROUTERS      = MCAST_ALL_ROUTERS;
@@ -58,9 +59,12 @@ int64_t                   qpim_rpf_cache_refresh_requests = 0;
 int64_t                   qpim_rpf_cache_refresh_events = 0;
 int64_t                   qpim_rpf_cache_refresh_last =  0;
 struct in_addr            qpim_inaddr_any;
+struct list              *qpim_ssmpingd_list = 0;
 
 static void pim_free()
 {
+  pim_ssmpingd_destroy();
+
   if (qpim_channel_oil_list)
     list_free(qpim_channel_oil_list);
 
@@ -120,6 +124,7 @@ void pim_init()
 
   pim_if_init();
   pim_cmd_init();
+  pim_ssmpingd_init();
 }
 
 void pim_terminate()
