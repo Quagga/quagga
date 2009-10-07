@@ -38,6 +38,7 @@
 #include "pim_ifchannel.h"
 #include "pim_rand.h"
 #include "pim_sock.h"
+#include "pim_ssmpingd.h"
 
 static void pim_if_igmp_join_del_all(struct interface *ifp);
 
