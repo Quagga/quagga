@@ -32,7 +32,7 @@
 struct ssmpingd_sock {
   int            sock_fd;     /* socket */
   struct thread *t_sock_read; /* thread for reading socket */
-  struct in_addr source;      /* source address */
+  struct in_addr source_addr; /* source address */
   int64_t        creation;    /* timestamp of socket creation */
   int64_t        requests;    /* counter */
 };

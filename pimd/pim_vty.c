@@ -30,6 +30,7 @@
 #include "pim_iface.h"
 #include "pim_cmd.h"
 #include "pim_str.h"
+#include "pim_ssmpingd.h"
 
 int pim_debug_config_write(struct vty *vty)
 {
@@ -66,6 +67,11 @@ int pim_debug_config_write(struct vty *vty)
     ++writes;
   }
 
+  if (PIM_DEBUG_SSMPINGD) {
+    vty_out(vty, "debug ssmpingd%s", VTY_NEWLINE);
+    ++writes;
+  }
+
   return writes;
 }
 
@@ -76,6 +82,19 @@ int pim_global_config_write(struct vty *vty)
   if (PIM_MROUTE_IS_ENABLED) {
     vty_out(vty, "%s%s", PIM_CMD_IP_MULTICAST_ROUTING, VTY_NEWLINE);
     ++writes;
+  }
+
+  if (qpim_ssmpingd_list) {
+    struct listnode *node;
+    struct ssmpingd_sock *ss;
+    vty_out(vty, "!%s", VTY_NEWLINE);
+    ++writes;
+    for (ALL_LIST_ELEMENTS_RO(qpim_ssmpingd_list, node, ss)) {
+      char source_str[100];
+      pim_inet4_dump("<src?>", ss->source_addr, source_str, sizeof(source_str));
+      vty_out(vty, "ip ssmpingd %s%s", source_str, VTY_NEWLINE);
+      ++writes;
+    }
   }
 
   return writes;
@@ -91,7 +110,7 @@ int pim_interface_config_write(struct vty *vty)
 
     /* IF name */
     vty_out(vty, "interface %s%s", ifp->name, VTY_NEWLINE);
-    writes++;
+    ++writes;
 
     if (ifp->info) {
       struct pim_interface *pim_ifp = ifp->info;
@@ -99,13 +118,13 @@ int pim_interface_config_write(struct vty *vty)
       /* IF ip pim ssm */
       if (PIM_IF_TEST_PIM(pim_ifp->options)) {
 	vty_out(vty, " ip pim ssm%s", VTY_NEWLINE);
-	writes++;
+	++writes;
       }
 
       /* IF ip igmp */
       if (PIM_IF_TEST_IGMP(pim_ifp->options)) {
 	vty_out(vty, " ip igmp%s", VTY_NEWLINE);
-	writes++;
+	++writes;
       }
 
       /* IF ip igmp query-interval */
@@ -113,14 +132,14 @@ int pim_interface_config_write(struct vty *vty)
 	      PIM_CMD_IP_IGMP_QUERY_INTERVAL,
 	      pim_ifp->igmp_default_query_interval,
 	      VTY_NEWLINE);
-      writes++;
+      ++writes;
 
       /* IF ip igmp query-max-response-time */
       vty_out(vty, " %s %d%s",
 	      PIM_CMD_IP_IGMP_QUERY_MAX_RESPONSE_TIME_DSEC,
 	      pim_ifp->igmp_query_max_response_time_dsec,
 	      VTY_NEWLINE);
-      writes++;
+      ++writes;
 
       /* IF ip igmp join */
       if (pim_ifp->igmp_join_list) {
@@ -134,11 +153,12 @@ int pim_interface_config_write(struct vty *vty)
 	  vty_out(vty, " ip igmp join %s %s%s",
 		  group_str, source_str,
 		  VTY_NEWLINE);
-	  writes++;
+	  ++writes;
 	}
       }
     }
     vty_out(vty, "!%s", VTY_NEWLINE);
+    ++writes;
   }
 
   return writes;
