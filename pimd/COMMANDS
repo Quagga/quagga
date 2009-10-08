@@ -2,6 +2,7 @@
 
 global configuration commands:
        ip multicast-routing	Enable IP multicast forwarding
+       ip ssmpingd		Enable ssmpingd operation
 
 interface configuration commands:
        ip igmp						Enable IGMP operation
@@ -40,6 +41,7 @@ verification commands:
        show ip mroute				IP multicast routing table
        show ip mroute count			Route and packet count data
        show ip route				IP routing table
+       show ip ssmpingd				ssmpingd operation
 
 debug commands:
        clear ip interfaces		Reset interfaces
@@ -48,6 +50,7 @@ debug commands:
        debug igmp			IGMP protocol activity
        debug pim			PIM protocol activity
        debug pim zebra			ZEBRA protocol activity
+       debug ssmpingd			ssmpingd activity
        show debugging			State of each debugging option
        test igmp receive report		Test reception of IGMPv3 report
        test pim receive assert          Test reception of PIM assert
