@@ -35,6 +35,7 @@
 #define PIM_SOCK_ERR_DSTADDR (-7) /* Outgoing interface option */
 #define PIM_SOCK_ERR_NONBLOCK_GETFL (-8) /* Get O_NONBLOCK */
 #define PIM_SOCK_ERR_NONBLOCK_SETFL (-9) /* Set O_NONBLOCK */
+#define PIM_SOCK_ERR_NAME    (-10) /* Socket name (getsockname) */
 
 int pim_socket_raw(int protocol);
 int pim_socket_mcast(int protocol, struct in_addr ifaddr, int loop);
@@ -50,5 +51,7 @@ int pim_socket_recvfromto(int fd, char *buf, size_t len,
 			  int *ifindex);
 
 int pim_socket_mcastloop_get(int fd);
+
+int pim_socket_getsockname(int fd, struct sockaddr *name, int *namelen);
 
 #endif /* PIM_SOCK_H */

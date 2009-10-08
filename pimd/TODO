@@ -354,7 +354,16 @@ T40 Lightweight MLDv2
     http://www.ietf.org/internet-drafts/draft-ietf-mboned-lightweight-igmpv3-mldv2-05.txt
     http://www.ietf.org/html.charters/mboned-charter.html
 
-T41 ssmping
-    http://www.venaas.no/multicast/ssmping/
+T41 DONE ssmping support
+    See http://www.venaas.no/multicast/ssmping/
+
+    Example:
+
+    debug ssmpingd
+    
+    conf t
+     ip ssmpingd 1.1.1.1
+    
+    show ip ssmpingd
 
 -x-
