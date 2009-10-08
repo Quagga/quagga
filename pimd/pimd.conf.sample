@@ -18,6 +18,12 @@ line vty
 !
 ip multicast-routing
 !
+! ! You may want to enable ssmpingd for troubleshooting
+! ! See http://www.venaas.no/multicast/ssmping/
+! !
+! ip ssmpingd 1.1.1.1
+! ip ssmpingd 2.2.2.2
+!
 ! ! HINTS:
 ! !  - Enable "ip pim ssm" on the interface directly attached to the
 ! !    multicast source host (if this is the first-hop router)
