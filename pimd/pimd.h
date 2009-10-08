@@ -60,6 +60,7 @@
 #define PIM_MASK_IGMP_PACKETS (1 << 4)
 #define PIM_MASK_IGMP_TRACE   (1 << 5)
 #define PIM_MASK_ZEBRA        (1 << 6)
+#define PIM_MASK_SSMPINGD     (1 << 7)
 
 const char *const PIM_ALL_SYSTEMS;
 const char *const PIM_ALL_ROUTERS;
@@ -98,6 +99,7 @@ struct list              *qpim_ssmpingd_list; /* list of struct ssmpingd_sock */
 #define PIM_DEBUG_IGMP_PACKETS (qpim_debugs & PIM_MASK_IGMP_PACKETS)
 #define PIM_DEBUG_IGMP_TRACE   (qpim_debugs & PIM_MASK_IGMP_TRACE)
 #define PIM_DEBUG_ZEBRA        (qpim_debugs & PIM_MASK_ZEBRA)
+#define PIM_DEBUG_SSMPINGD     (qpim_debugs & PIM_MASK_SSMPINGD)
 
 #define PIM_DEBUG_EVENTS       (qpim_debugs & (PIM_MASK_PIM_EVENTS | PIM_MASK_IGMP_EVENTS))
 #define PIM_DEBUG_PACKETS      (qpim_debugs & (PIM_MASK_PIM_PACKETS | PIM_MASK_IGMP_PACKETS))
@@ -110,6 +112,7 @@ struct list              *qpim_ssmpingd_list; /* list of struct ssmpingd_sock */
 #define PIM_DO_DEBUG_IGMP_PACKETS (qpim_debugs |= PIM_MASK_IGMP_PACKETS)
 #define PIM_DO_DEBUG_IGMP_TRACE   (qpim_debugs |= PIM_MASK_IGMP_TRACE)
 #define PIM_DO_DEBUG_ZEBRA        (qpim_debugs |= PIM_MASK_ZEBRA)
+#define PIM_DO_DEBUG_SSMPINGD     (qpim_debugs |= PIM_MASK_SSMPINGD)
 
 #define PIM_DONT_DEBUG_PIM_EVENTS   (qpim_debugs &= ~PIM_MASK_PIM_EVENTS)
 #define PIM_DONT_DEBUG_PIM_PACKETS  (qpim_debugs &= ~PIM_MASK_PIM_PACKETS)
@@ -118,6 +121,7 @@ struct list              *qpim_ssmpingd_list; /* list of struct ssmpingd_sock */
 #define PIM_DONT_DEBUG_IGMP_PACKETS (qpim_debugs &= ~PIM_MASK_IGMP_PACKETS)
 #define PIM_DONT_DEBUG_IGMP_TRACE   (qpim_debugs &= ~PIM_MASK_IGMP_TRACE)
 #define PIM_DONT_DEBUG_ZEBRA        (qpim_debugs &= ~PIM_MASK_ZEBRA)
+#define PIM_DONT_DEBUG_SSMPINGD     (qpim_debugs &= ~PIM_MASK_SSMPINGD)
 
 void pim_init(void);
 void pim_terminate(void);

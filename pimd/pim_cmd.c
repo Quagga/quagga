@@ -2137,6 +2137,47 @@ DEFUN (show_ip_route,
   return CMD_SUCCESS;
 }
 
+static void show_ssmpingd(struct vty *vty)
+{
+  struct listnode      *node;
+  struct ssmpingd_sock *ss;
+  time_t                now;
+
+  vty_out(vty, "Source          Socket Uptime  Requests%s",
+	  VTY_NEWLINE);
+
+  if (!qpim_ssmpingd_list)
+    return;
+
+  now = pim_time_monotonic_sec();
+
+  for (ALL_LIST_ELEMENTS_RO(qpim_ssmpingd_list, node, ss)) {
+    char source_str[100];
+    char ss_uptime[10];
+
+    pim_inet4_dump("<src?>", ss->source_addr, source_str, sizeof(source_str));
+    pim_time_uptime(ss_uptime, sizeof(ss_uptime), now - ss->creation);
+
+    vty_out(vty, "%-15s %6d %8s %8lld%s",
+	    source_str,
+	    ss->sock_fd,
+	    ss_uptime,
+	    ss->requests,
+	    VTY_NEWLINE);
+  }
+}
+
+DEFUN (show_ip_ssmpingd,
+       show_ip_ssmpingd_cmd,
+       "show ip ssmpingd",
+       SHOW_STR
+       IP_STR
+       SHOW_SSMPINGD_STR)
+{
+  show_ssmpingd(vty);
+  return CMD_SUCCESS;
+}
+
 static void mroute_add_all()
 {
   struct listnode    *node;
@@ -2205,7 +2246,7 @@ DEFUN (ip_ssmpingd,
        ip_ssmpingd_cmd,
        "ip ssmpingd [A.B.C.D]",
        IP_STR
-       SSMPINGD_STR
+       CONF_SSMPINGD_STR
        "Source address\n")
 {
   int result;
@@ -2234,7 +2275,7 @@ DEFUN (no_ip_ssmpingd,
        "no ip ssmpingd [A.B.C.D]",
        NO_STR
        IP_STR
-       SSMPINGD_STR
+       CONF_SSMPINGD_STR
        "Source address\n")
 {
   int result;
@@ -3132,6 +3173,36 @@ ALIAS (no_debug_pim_trace,
        DEBUG_PIM_STR
        DEBUG_PIM_TRACE_STR)
 
+DEFUN (debug_ssmpingd,
+       debug_ssmpingd_cmd,
+       "debug ssmpingd",
+       DEBUG_STR
+       DEBUG_PIM_STR
+       DEBUG_SSMPINGD_STR)
+{
+  PIM_DO_DEBUG_SSMPINGD;
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_ssmpingd,
+       no_debug_ssmpingd_cmd,
+       "no debug ssmpingd",
+       NO_STR
+       DEBUG_STR
+       DEBUG_PIM_STR
+       DEBUG_SSMPINGD_STR)
+{
+  PIM_DONT_DEBUG_SSMPINGD;
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_debug_ssmpingd,
+       undebug_ssmpingd_cmd,
+       "undebug ssmpingd",
+       UNDEBUG_STR
+       DEBUG_PIM_STR
+       DEBUG_SSMPINGD_STR)
+
 DEFUN (debug_pim_zebra,
        debug_pim_zebra_cmd,
        "debug pim zebra",
@@ -3897,6 +3968,7 @@ void pim_cmd_init()
   install_element (VIEW_NODE, &show_ip_mroute_cmd);
   install_element (VIEW_NODE, &show_ip_mroute_count_cmd);
   install_element (VIEW_NODE, &show_ip_route_cmd);
+  install_element (VIEW_NODE, &show_ip_ssmpingd_cmd);
   install_element (VIEW_NODE, &show_debugging_cmd);
 
   install_element (ENABLE_NODE, &clear_ip_interfaces_cmd);
@@ -3965,6 +4037,9 @@ void pim_cmd_init()
   install_element (ENABLE_NODE, &debug_pim_trace_cmd);
   install_element (ENABLE_NODE, &no_debug_pim_trace_cmd);
   install_element (ENABLE_NODE, &undebug_pim_trace_cmd);
+  install_element (ENABLE_NODE, &debug_ssmpingd_cmd);
+  install_element (ENABLE_NODE, &no_debug_ssmpingd_cmd);
+  install_element (ENABLE_NODE, &undebug_ssmpingd_cmd);
   install_element (ENABLE_NODE, &debug_pim_zebra_cmd);
   install_element (ENABLE_NODE, &no_debug_pim_zebra_cmd);
   install_element (ENABLE_NODE, &undebug_pim_zebra_cmd);
@@ -3993,6 +4068,9 @@ void pim_cmd_init()
   install_element (CONFIG_NODE, &debug_pim_trace_cmd);
   install_element (CONFIG_NODE, &no_debug_pim_trace_cmd);
   install_element (CONFIG_NODE, &undebug_pim_trace_cmd);
+  install_element (CONFIG_NODE, &debug_ssmpingd_cmd);
+  install_element (CONFIG_NODE, &no_debug_ssmpingd_cmd);
+  install_element (CONFIG_NODE, &undebug_ssmpingd_cmd);
   install_element (CONFIG_NODE, &debug_pim_zebra_cmd);
   install_element (CONFIG_NODE, &no_debug_pim_zebra_cmd);
   install_element (CONFIG_NODE, &undebug_pim_zebra_cmd);
