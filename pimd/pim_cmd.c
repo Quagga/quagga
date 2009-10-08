@@ -2143,7 +2143,7 @@ static void show_ssmpingd(struct vty *vty)
   struct ssmpingd_sock *ss;
   time_t                now;
 
-  vty_out(vty, "Source          Socket Uptime  Requests%s",
+  vty_out(vty, "Source          Socket Address          Port Uptime   Requests%s",
 	  VTY_NEWLINE);
 
   if (!qpim_ssmpingd_list)
@@ -2154,13 +2154,25 @@ static void show_ssmpingd(struct vty *vty)
   for (ALL_LIST_ELEMENTS_RO(qpim_ssmpingd_list, node, ss)) {
     char source_str[100];
     char ss_uptime[10];
+    struct sockaddr_in bind_addr;
+    int len = sizeof(bind_addr);
+    char bind_addr_str[100];
 
     pim_inet4_dump("<src?>", ss->source_addr, source_str, sizeof(source_str));
+
+    if (pim_socket_getsockname(ss->sock_fd, (struct sockaddr *) &bind_addr, &len)) {
+      vty_out(vty, "%% Failure reading socket name for ssmpingd source %s on fd=%d%s",
+	      source_str, ss->sock_fd, VTY_NEWLINE);
+    }
+
+    pim_inet4_dump("<addr?>", bind_addr.sin_addr, bind_addr_str, sizeof(bind_addr_str));
     pim_time_uptime(ss_uptime, sizeof(ss_uptime), now - ss->creation);
 
-    vty_out(vty, "%-15s %6d %8s %8lld%s",
+    vty_out(vty, "%-15s %6d %-15s %5d %8s %8lld%s",
 	    source_str,
 	    ss->sock_fd,
+	    bind_addr_str,
+	    ntohs(bind_addr.sin_port),
 	    ss_uptime,
 	    ss->requests,
 	    VTY_NEWLINE);
@@ -4004,6 +4016,7 @@ void pim_cmd_init()
   install_element (ENABLE_NODE, &show_ip_mroute_cmd);
   install_element (ENABLE_NODE, &show_ip_mroute_count_cmd);
   install_element (ENABLE_NODE, &show_ip_route_cmd);
+  install_element (ENABLE_NODE, &show_ip_ssmpingd_cmd);
   install_element (ENABLE_NODE, &show_debugging_cmd);
 
   install_element (ENABLE_NODE, &test_igmp_receive_report_cmd);

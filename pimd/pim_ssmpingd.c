@@ -32,11 +32,24 @@
 #include "pim_str.h"
 #include "pimd.h"
 
+static const char * const PIM_SSMPINGD_REPLY_GROUP = "232.43.211.234";
+
+enum {
+  PIM_SSMPINGD_REQUEST = 'Q',
+  PIM_SSMPINGD_REPLY   = 'A'
+};
+
 static void ssmpingd_read_on(struct ssmpingd_sock *ss);
 
 void pim_ssmpingd_init()
 {
+  int result;
+
   zassert(!qpim_ssmpingd_list);
+
+  result = inet_pton(AF_INET, PIM_SSMPINGD_REPLY_GROUP, &qpim_ssmpingd_group_addr);
+  
+  zassert(result > 0);
 }
 
 void pim_ssmpingd_destroy()
@@ -67,8 +80,9 @@ static void ssmpingd_free(struct ssmpingd_sock *ss)
   XFREE(MTYPE_PIM_SSMPINGD, ss);
 }
 
-static int ssmpingd_socket(struct in_addr addr, int mttl)
+static int ssmpingd_socket(struct in_addr addr, int port, int mttl)
 {
+  struct sockaddr_in sockaddr;
   int fd;
 
   fd = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
@@ -78,21 +92,36 @@ static int ssmpingd_socket(struct in_addr addr, int mttl)
     return -1;
   }
 
+  sockaddr.sin_family = AF_INET;
+  sockaddr.sin_addr   = addr;
+  sockaddr.sin_port   = htons(port);
+
+  if (bind(fd, &sockaddr, sizeof(sockaddr))) {
+    char addr_str[100];
+    pim_inet4_dump("<addr?>", addr, addr_str, sizeof(addr_str));
+    zlog_warn("%s: bind(fd=%d,addr=%s,port=%d,len=%d) failure: errno=%d: %s",
+	      __PRETTY_FUNCTION__,
+	      fd, addr_str, port, sizeof(sockaddr),
+	      errno, safe_strerror(errno));
+    close(fd);
+    return -1;
+  }
+
   /* Needed to obtain destination address from recvmsg() */
   {
 #if defined(HAVE_IP_PKTINFO)
     /* Linux IP_PKTINFO */
     int opt = 1;
     if (setsockopt(fd, SOL_IP, IP_PKTINFO, &opt, sizeof(opt))) {
-      zlog_warn("Could not set IP_PKTINFO on socket fd=%d: errno=%d: %s",
-		fd, errno, safe_strerror(errno));
+      zlog_warn("%s: could not set IP_PKTINFO on socket fd=%d: errno=%d: %s",
+		__PRETTY_FUNCTION__, fd, errno, safe_strerror(errno));
     }
 #elif defined(HAVE_IP_RECVDSTADDR)
     /* BSD IP_RECVDSTADDR */
     int opt = 1;
     if (setsockopt(fd, IPPROTO_IP, IP_RECVDSTADDR, &opt, sizeof(opt))) {
-      zlog_warn("Could not set IP_RECVDSTADDR on socket fd=%d: errno=%d: %s",
-		fd, errno, safe_strerror(errno));
+      zlog_warn("%s: could not set IP_RECVDSTADDR on socket fd=%d: errno=%d: %s",
+		__PRETTY_FUNCTION__, fd, errno, safe_strerror(errno));
     }
 #else
     zlog_err("%s %s: missing IP_PKTINFO and IP_RECVDSTADDR: unable to get dst addr from recvmsg()",
@@ -119,6 +148,19 @@ static int ssmpingd_socket(struct in_addr addr, int mttl)
 	      __PRETTY_FUNCTION__, mttl, fd, errno, safe_strerror(errno));
     close(fd);
     return -1;
+  }
+
+  {
+    int loop = 0;
+    if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_LOOP,
+		   (void *) &loop, sizeof(loop))) {
+      zlog_warn("%s: could not %s Multicast Loopback Option on socket fd=%d: errno=%d: %s",
+		__PRETTY_FUNCTION__,
+		loop ? "enable" : "disable",
+		fd, errno, safe_strerror(errno));
+      close(fd);
+      return PIM_SOCK_ERR_LOOP;
+    }
   }
 
   if (setsockopt(fd, IPPROTO_IP, IP_MULTICAST_IF,
@@ -172,6 +214,34 @@ static void ssmpingd_delete(struct ssmpingd_sock *ss)
   ssmpingd_free(ss);
 }
 
+static void ssmpingd_sendto(struct ssmpingd_sock *ss,
+			    const char *buf,
+			    int len,
+			    struct sockaddr_in to)
+{
+  socklen_t tolen = sizeof(to);
+  int sent;
+
+  sent = sendto(ss->sock_fd, buf, len, MSG_DONTWAIT, &to, tolen);
+  if (sent != len) {
+    int e = errno;
+    char to_str[100];
+    pim_inet4_dump("<to?>", to.sin_addr, to_str, sizeof(to_str));
+    if (sent < 0) {
+      zlog_warn("%s: sendto() failure to %s,%d: fd=%d len=%d: errno=%d: %s",
+		__PRETTY_FUNCTION__,
+		to_str, ntohs(to.sin_port), ss->sock_fd, len,
+		e, safe_strerror(e));
+    }
+    else {
+      zlog_warn("%s: sendto() partial to %s,%d: fd=%d len=%d: sent=%d",
+		__PRETTY_FUNCTION__,
+		to_str, ntohs(to.sin_port), ss->sock_fd,
+		len, sent);
+    }
+  }
+}
+
 static int ssmpingd_read_msg(struct ssmpingd_sock *ss)
 {
   struct interface *ifp;
@@ -182,6 +252,8 @@ static int ssmpingd_read_msg(struct ssmpingd_sock *ss)
   int ifindex = -1;
   char buf[1000];
   int len;
+
+  ++ss->requests;
 
   len = pim_socket_recvfromto(ss->sock_fd, buf, sizeof(buf),
 			      &from, &fromlen,
@@ -197,6 +269,24 @@ static int ssmpingd_read_msg(struct ssmpingd_sock *ss)
 
   ifp = if_lookup_by_index(ifindex);
 
+  if (buf[0] != PIM_SSMPINGD_REQUEST) {
+    char source_str[100];
+    char from_str[100];
+    char to_str[100];
+    pim_inet4_dump("<src?>", ss->source_addr, source_str, sizeof(source_str));
+    pim_inet4_dump("<from?>", from.sin_addr, from_str, sizeof(from_str));
+    pim_inet4_dump("<to?>", to.sin_addr, to_str, sizeof(to_str));
+    zlog_warn("%s: bad ssmping type=%d from %s,%d to %s,%d on interface %s ifindex=%d fd=%d src=%s",
+	      __PRETTY_FUNCTION__,
+	      buf[0],
+	      from_str, ntohs(from.sin_port),
+	      to_str, ntohs(to.sin_port),
+	      ifp ? ifp->name : "<iface?>",
+	      ifindex, ss->sock_fd,
+	      source_str);
+    return 0;
+  }
+
   if (PIM_DEBUG_SSMPINGD) {
     char source_str[100];
     char from_str[100];
@@ -204,12 +294,23 @@ static int ssmpingd_read_msg(struct ssmpingd_sock *ss)
     pim_inet4_dump("<src?>", ss->source_addr, source_str, sizeof(source_str));
     pim_inet4_dump("<from?>", from.sin_addr, from_str, sizeof(from_str));
     pim_inet4_dump("<to?>", to.sin_addr, to_str, sizeof(to_str));
-    zlog_debug("%s: ssmpingd on source %s: interface %s ifindex=%d received ssmping from %s to %s on fd=%d",
+    zlog_debug("%s: recv ssmping from %s,%d to %s,%d on interface %s ifindex=%d fd=%d src=%s",
 	       __PRETTY_FUNCTION__,
-	       source_str,
+	       from_str, ntohs(from.sin_port),
+	       to_str, ntohs(to.sin_port),
 	       ifp ? ifp->name : "<iface?>",
-	       ifindex, from_str, to_str, ss->sock_fd);
+	       ifindex, ss->sock_fd,
+	       source_str);
   }
+
+  buf[0] = PIM_SSMPINGD_REPLY;
+
+  /* unicast reply */
+  ssmpingd_sendto(ss, buf, len, from);
+
+  /* multicast reply */
+  from.sin_addr = qpim_ssmpingd_group_addr;
+  ssmpingd_sendto(ss, buf, len, from);
 
   return 0;
 }
@@ -259,7 +360,7 @@ static struct ssmpingd_sock *ssmpingd_new(struct in_addr source_addr)
     qpim_ssmpingd_list->del = (void (*)(void *)) ssmpingd_free;
   }
 
-  sock_fd = ssmpingd_socket(source_addr, 64 /* ttl */);
+  sock_fd = ssmpingd_socket(source_addr, /* port: */ 4321, /* mTTL: */ 64);
   if (sock_fd < 0) {
     char source_str[100];
     pim_inet4_dump("<src?>", source_addr, source_str, sizeof(source_str));

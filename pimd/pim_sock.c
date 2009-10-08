@@ -260,6 +260,29 @@ int pim_socket_recvfromto(int fd, char *buf, size_t len,
   char cbuf[1000];
   int err;
 
+  /*
+   * IP_PKTINFO / IP_RECVDSTADDR don't yield sin_port.
+   * Use getsockname() to get sin_port.
+   */
+  if (to) {
+    struct sockaddr_in si;
+    socklen_t si_len = sizeof(si);
+    
+    ((struct sockaddr_in *) to)->sin_family = AF_INET;
+
+    if (pim_socket_getsockname(fd, (struct sockaddr *) &si, &si_len)) {
+      ((struct sockaddr_in *) to)->sin_port        = ntohs(0);
+      ((struct sockaddr_in *) to)->sin_addr.s_addr = ntohl(0);
+    }
+    else {
+      ((struct sockaddr_in *) to)->sin_port = si.sin_port;
+      ((struct sockaddr_in *) to)->sin_addr = si.sin_addr;
+    }
+
+    if (tolen) 
+      *tolen = sizeof(si);
+  }
+
   memset(&msgh, 0, sizeof(struct msghdr));
   iov.iov_base = buf;
   iov.iov_len  = len;
@@ -291,6 +314,15 @@ int pim_socket_recvfromto(int fd, char *buf, size_t len,
 	*tolen = sizeof(struct sockaddr_in);
       if (ifindex)
 	*ifindex = i->ipi_ifindex;
+
+      if (to && PIM_DEBUG_PACKETS) {
+	char to_str[100];
+	pim_inet4_dump("<to?>", to->sin_addr, to_str, sizeof(to_str));
+	zlog_debug("%s: HAVE_IP_PKTINFO to=%s,%d",
+		   __PRETTY_FUNCTION__,
+		   to_str, ntohs(to->sin_port));
+      }
+
       break;
     }
 #endif
@@ -302,6 +334,15 @@ int pim_socket_recvfromto(int fd, char *buf, size_t len,
 	((struct sockaddr_in *) to)->sin_addr = *i;
       if (tolen)
 	*tolen = sizeof(struct sockaddr_in);
+
+      if (to && PIM_DEBUG_PACKETS) {
+	char to_str[100];
+	pim_inet4_dump("<to?>", to->sin_addr, to_str, sizeof(to_str));
+	zlog_debug("%s: HAVE_IP_RECVDSTADDR to=%s,%d",
+		   __PRETTY_FUNCTION__,
+		   to_str, ntohs(to->sin_port));
+      }
+
       break;
     }
 #endif
@@ -332,4 +373,17 @@ int pim_socket_mcastloop_get(int fd)
   }
   
   return loop;
+}
+
+int pim_socket_getsockname(int fd, struct sockaddr *name, int *namelen)
+{
+  if (getsockname(fd, name, namelen)) {
+    int e = errno;
+    zlog_warn("Could not get Socket Name for socket fd=%d: errno=%d: %s",
+	      fd, errno, safe_strerror(errno));
+    errno = e;
+    return PIM_SOCK_ERR_NAME;
+  }
+
+  return PIM_SOCK_ERR_NONE;
 }
