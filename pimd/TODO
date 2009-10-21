@@ -355,7 +355,11 @@ T40 Lightweight MLDv2
     http://www.ietf.org/html.charters/mboned-charter.html
 
 T41 DONE ssmping support
-    See http://www.venaas.no/multicast/ssmping/
+
+    See also:
+      http://www.venaas.no/multicast/ssmping/
+      draft-ietf-mboned-ssmping-07
+      http://tools.ietf.org/html/draft-ietf-mboned-ssmping-07
 
     Example:
 
