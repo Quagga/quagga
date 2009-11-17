@@ -197,7 +197,7 @@ int pim_hello_recv(struct interface *ifp,
     if ((tlv_curr + option_len) > tlv_pastend) {
       char src_str[100];
       pim_inet4_dump("<src?>", src_addr, src_str, sizeof(src_str));
-      zlog_warn("%s: long PIM hello TLV type=%d length=%d > max=%d from %s on interface %s",
+      zlog_warn("%s: long PIM hello TLV type=%d length=%d > left=%d from %s on interface %s",
 		__PRETTY_FUNCTION__,
 		option_type, option_len, tlv_pastend - tlv_curr,
 		src_str, ifp->name);
