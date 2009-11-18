@@ -20,6 +20,10 @@
   $QuaggaId: $Format:%an, %ai, %h$ $
 */
 
+#include <zebra.h>
+
+#include "log.h"
+
 #include "pim_util.h"
 
 /*
@@ -130,3 +134,26 @@ uint16_t pim_inet_checksum(const char *buf, int size)
   return checksum;
 }
 #endif /* PIM_USE_QUAGGA_INET_CHECKSUM */
+
+void pim_pkt_dump(const char *label, const char *buf, int size)
+{
+  char dump_buf[1000];
+  int i = 0;
+  int j = 0;
+
+  for (; i < size; ++i, j += 3) {
+    int left = sizeof(dump_buf) - j;
+    if (left < 4) {
+      if (left > 1) {
+	strcat(dump_buf + j, "!"); /* mark as truncated */
+      }
+      break;
+    }
+    snprintf(dump_buf + j, left, " %02x", buf[i]);
+  }
+
+  zlog_debug("%s: pkt dump size=%d:%s",
+	     label,
+	     size,
+	     dump_buf);
+}

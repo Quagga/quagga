@@ -169,6 +169,10 @@ int pim_pim_packet(struct interface *ifp, char *buf, size_t len)
   pim_msg = buf + ip_hlen;
   pim_msg_len = len - ip_hlen;
 
+  if (PIM_DEBUG_PIM_PACKETDUMP_RECV) {
+    pim_pkt_dump(__PRETTY_FUNCTION__, pim_msg, pim_msg_len);
+  }
+
   if (pim_msg_len < PIM_PIM_MIN_LEN) {
     zlog_warn("PIM message size=%d shorter than minimum=%d",
 	      pim_msg_len, PIM_PIM_MIN_LEN);
@@ -287,6 +291,10 @@ static int pim_sock_read(struct thread *t)
     
     zlog_debug("Recv IP PIM pkt size=%d from %s to %s on fd=%d on ifindex=%d (sock_ifindex=%d)",
 	       len, from_str, to_str, fd, ifindex, ifp->ifindex);
+  }
+
+  if (PIM_DEBUG_PIM_PACKETDUMP_RECV) {
+    pim_pkt_dump(__PRETTY_FUNCTION__, buf, len);
   }
 
 #ifdef PIM_CHECK_RECV_IFINDEX_SANITY
@@ -455,6 +463,10 @@ int pim_msg_send(int fd,
   to.sin_port = htons(0);
 #endif
   tolen = sizeof(to);
+
+  if (PIM_DEBUG_PIM_PACKETDUMP_SEND) {
+    pim_pkt_dump(__PRETTY_FUNCTION__, pim_msg, pim_msg_size);
+  }
 
   sent = sendto(fd, pim_msg, pim_msg_size, MSG_DONTWAIT, &to, tolen);
   if (sent != (ssize_t) pim_msg_size) {

@@ -57,6 +57,14 @@ int pim_debug_config_write(struct vty *vty)
     vty_out(vty, "debug pim packets%s", VTY_NEWLINE);
     ++writes;
   }
+  if (PIM_DEBUG_PIM_PACKETDUMP_SEND) {
+    vty_out(vty, "debug pim packet-dump send%s", VTY_NEWLINE);
+    ++writes;
+  }
+  if (PIM_DEBUG_PIM_PACKETDUMP_RECV) {
+    vty_out(vty, "debug pim packet-dump receive%s", VTY_NEWLINE);
+    ++writes;
+  }
   if (PIM_DEBUG_PIM_TRACE) {
     vty_out(vty, "debug pim trace%s", VTY_NEWLINE);
     ++writes;

@@ -38,4 +38,6 @@ uint16_t igmp_msg_decode8to16(uint8_t code);
 uint16_t pim_inet_checksum(const char *buf, int size);
 #endif /* PIM_USE_QUAGGA_INET_CHECKSUM */
 
+void pim_pkt_dump(const char *label, const char *buf, int size);
+
 #endif /* PIM_UTIL_H */
