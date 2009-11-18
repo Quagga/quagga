@@ -54,6 +54,7 @@ debug commands:
        show debugging			State of each debugging option
        test igmp receive report		Test reception of IGMPv3 report
        test pim receive assert          Test reception of PIM assert
+       test pim receive dump		Test reception of PIM packet dump
        test pim receive hello		Test reception of PIM hello
        test pim receive join		Test reception of PIM join
        test pim receive prune		Test reception of PIM prune

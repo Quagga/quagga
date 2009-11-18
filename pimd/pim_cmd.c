@@ -3457,6 +3457,97 @@ DEFUN (test_igmp_receive_report,
   return CMD_SUCCESS;
 }
 
+DEFUN (test_pim_receive_dump,
+       test_pim_receive_dump_cmd,
+       "test pim receive dump INTERFACE A.B.C.D .LINE",
+       "Test\n"
+       "Test PIM protocol\n"
+       "Test PIM message reception\n"
+       "Test PIM packet dump reception from neighbor\n"
+       "Interface\n"
+       "Neighbor address\n"
+       "Packet dump\n")
+{
+  char              buf[1000];
+  char             *pim_msg;
+  struct ip        *ip_hdr;
+  size_t            ip_hlen; /* ip header length in bytes */
+  int               ip_msg_len;
+  int               pim_msg_size;
+  const char       *neigh_str;
+  struct in_addr    neigh_addr;
+  const char       *ifname;
+  struct interface *ifp;
+  int               argi;
+  int               result;
+
+  /* Find interface */
+  ifname = argv[0];
+  ifp = if_lookup_by_name(ifname);
+  if (!ifp) {
+    vty_out(vty, "No such interface name %s%s",
+	    ifname, VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+
+  /* Neighbor address */
+  neigh_str = argv[1];
+  result = inet_pton(AF_INET, neigh_str, &neigh_addr);
+  if (result <= 0) {
+    vty_out(vty, "Bad neighbor address %s: errno=%d: %s%s",
+	    neigh_str, errno, safe_strerror(errno), VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+
+  /*
+    Tweak IP header
+   */
+  ip_hdr = (struct ip *) buf;
+  ip_hdr->ip_p = PIM_IP_PROTO_PIM;
+  ip_hlen = PIM_IP_HEADER_MIN_LEN; /* ip header length in bytes */
+  ip_hdr->ip_hl = ip_hlen >> 2;    /* ip header length in 4-byte words */
+  ip_hdr->ip_src = neigh_addr;
+  ip_hdr->ip_dst = qpim_all_pim_routers_addr;
+
+  /*
+    Build PIM hello message
+  */
+  pim_msg = buf + ip_hlen;
+  pim_msg_size = 0;
+
+  /* Scan LINE dump into buffer */
+  for (argi = 2; argi < argc; ++argi, ++pim_msg_size) {
+    const char *hex = argv[argi];
+    uint8_t octet = strtol(hex, 0, 16);
+    int left;
+
+    left = sizeof(buf) - ip_hlen - pim_msg_size;
+    if (left < 1) {
+      vty_out(vty, "%% Overflow buf_size=%d buf_left=%d at dump arg %d byte %d value %s=%02x%s",
+	      sizeof(buf), left, argi, argi - 2, hex, octet, VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+    pim_msg[pim_msg_size] = octet;
+  }
+
+  ip_msg_len = ip_hlen + pim_msg_size;
+
+  vty_out(vty, "Receiving: buf_size=%d ip_msg_size=%d pim_msg_size=%d%s",
+	  sizeof(buf), ip_msg_len, pim_msg_size, VTY_NEWLINE);
+
+  /* "receive" message */
+
+  result = pim_pim_packet(ifp, buf, ip_msg_len);
+  if (result) {
+    vty_out(vty, "%% pim_pim_packet(len=%d) returned failure: %d%s",
+	    ip_msg_len, result, VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+
+  return CMD_SUCCESS;
+}
+
 DEFUN (test_pim_receive_hello,
        test_pim_receive_hello_cmd,
        "test pim receive hello INTERFACE A.B.C.D <0-65535> <0-65535> <0-65535> <0-32767> <0-65535> <0-1>[LINE]",
@@ -4091,6 +4182,7 @@ void pim_cmd_init()
 
   install_element (ENABLE_NODE, &test_igmp_receive_report_cmd);
   install_element (ENABLE_NODE, &test_pim_receive_assert_cmd);
+  install_element (ENABLE_NODE, &test_pim_receive_dump_cmd);
   install_element (ENABLE_NODE, &test_pim_receive_hello_cmd);
   install_element (ENABLE_NODE, &test_pim_receive_join_cmd);
   install_element (ENABLE_NODE, &test_pim_receive_prune_cmd);
