@@ -3086,6 +3086,10 @@ DEFUN (no_debug_pim,
   PIM_DONT_DEBUG_PIM_EVENTS;
   PIM_DONT_DEBUG_PIM_PACKETS;
   PIM_DONT_DEBUG_PIM_TRACE;
+
+  PIM_DONT_DEBUG_PIM_PACKETDUMP_SEND;
+  PIM_DONT_DEBUG_PIM_PACKETDUMP_RECV;
+
   return CMD_SUCCESS;
 }
 
@@ -3154,6 +3158,72 @@ ALIAS (no_debug_pim_packets,
        UNDEBUG_STR
        DEBUG_PIM_STR
        DEBUG_PIM_PACKETS_STR)
+
+DEFUN (debug_pim_packetdump_send,
+       debug_pim_packetdump_send_cmd,
+       "debug pim packet-dump send",
+       DEBUG_STR
+       DEBUG_PIM_STR
+       DEBUG_PIM_PACKETDUMP_STR
+       DEBUG_PIM_PACKETDUMP_SEND_STR)
+{
+  PIM_DO_DEBUG_PIM_PACKETDUMP_SEND;
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_pim_packetdump_send,
+       no_debug_pim_packetdump_send_cmd,
+       "no debug pim packet-dump send",
+       NO_STR
+       DEBUG_STR
+       DEBUG_PIM_STR
+       DEBUG_PIM_PACKETDUMP_STR
+       DEBUG_PIM_PACKETDUMP_SEND_STR)
+{
+  PIM_DONT_DEBUG_PIM_PACKETDUMP_SEND;
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_debug_pim_packetdump_send,
+       undebug_pim_packetdump_send_cmd,
+       "undebug pim packet-dump send",
+       UNDEBUG_STR
+       DEBUG_PIM_STR
+       DEBUG_PIM_PACKETDUMP_STR
+       DEBUG_PIM_PACKETDUMP_SEND_STR)
+
+DEFUN (debug_pim_packetdump_recv,
+       debug_pim_packetdump_recv_cmd,
+       "debug pim packet-dump receive",
+       DEBUG_STR
+       DEBUG_PIM_STR
+       DEBUG_PIM_PACKETDUMP_STR
+       DEBUG_PIM_PACKETDUMP_RECV_STR)
+{
+  PIM_DO_DEBUG_PIM_PACKETDUMP_RECV;
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_pim_packetdump_recv,
+       no_debug_pim_packetdump_recv_cmd,
+       "no debug pim packet-dump receive",
+       NO_STR
+       DEBUG_STR
+       DEBUG_PIM_STR
+       DEBUG_PIM_PACKETDUMP_STR
+       DEBUG_PIM_PACKETDUMP_RECV_STR)
+{
+  PIM_DONT_DEBUG_PIM_PACKETDUMP_RECV;
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_debug_pim_packetdump_recv,
+       undebug_pim_packetdump_recv_cmd,
+       "undebug pim packet-dump receive",
+       UNDEBUG_STR
+       DEBUG_PIM_STR
+       DEBUG_PIM_PACKETDUMP_STR
+       DEBUG_PIM_PACKETDUMP_RECV_STR)
 
 DEFUN (debug_pim_trace,
        debug_pim_trace_cmd,
@@ -4047,6 +4117,12 @@ void pim_cmd_init()
   install_element (ENABLE_NODE, &debug_pim_packets_cmd);
   install_element (ENABLE_NODE, &no_debug_pim_packets_cmd);
   install_element (ENABLE_NODE, &undebug_pim_packets_cmd);
+  install_element (ENABLE_NODE, &debug_pim_packetdump_send_cmd);
+  install_element (ENABLE_NODE, &no_debug_pim_packetdump_send_cmd);
+  install_element (ENABLE_NODE, &undebug_pim_packetdump_send_cmd);
+  install_element (ENABLE_NODE, &debug_pim_packetdump_recv_cmd);
+  install_element (ENABLE_NODE, &no_debug_pim_packetdump_recv_cmd);
+  install_element (ENABLE_NODE, &undebug_pim_packetdump_recv_cmd);
   install_element (ENABLE_NODE, &debug_pim_trace_cmd);
   install_element (ENABLE_NODE, &no_debug_pim_trace_cmd);
   install_element (ENABLE_NODE, &undebug_pim_trace_cmd);
