@@ -135,7 +135,7 @@ uint16_t pim_inet_checksum(const char *buf, int size)
 }
 #endif /* PIM_USE_QUAGGA_INET_CHECKSUM */
 
-void pim_pkt_dump(const char *label, const char *buf, int size)
+void pim_pkt_dump(const char *label, const uint8_t *buf, int size)
 {
   char dump_buf[1000];
   int i = 0;
