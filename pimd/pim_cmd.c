@@ -3457,6 +3457,11 @@ DEFUN (test_igmp_receive_report,
   return CMD_SUCCESS;
 }
 
+static int hexval(uint8_t ch)
+{
+  return isdigit(ch) ? (ch - '0') : (10 + tolower(ch) - 'a');
+}
+
 DEFUN (test_pim_receive_dump,
        test_pim_receive_dump_cmd,
        "test pim receive dump INTERFACE A.B.C.D .LINE",
@@ -3516,19 +3521,40 @@ DEFUN (test_pim_receive_dump,
   pim_msg_size = 0;
 
   /* Scan LINE dump into buffer */
-  for (argi = 2; argi < argc; ++argi, ++pim_msg_size) {
-    const char *hex = argv[argi];
-    uint8_t octet = strtol(hex, 0, 16);
-    int left;
+  for (argi = 2; argi < argc; ++argi) {
+    const char *str = argv[argi];
+    int str_len = strlen(str);
+    int str_last = str_len - 1;
+    int i;
 
-    left = sizeof(buf) - ip_hlen - pim_msg_size;
-    if (left < 1) {
-      vty_out(vty, "%% Overflow buf_size=%d buf_left=%d at dump arg %d byte %d value %s=%02x%s",
-	      sizeof(buf), left, argi, argi - 2, hex, octet, VTY_NEWLINE);
+    if (str_len % 2) {
+      vty_out(vty, "%% Uneven hex array arg %d=%s%s",
+	      argi, str, VTY_NEWLINE);
       return CMD_WARNING;
     }
 
-    pim_msg[pim_msg_size] = octet;
+    for (i = 0; i < str_last; i += 2) {
+      uint8_t octet;
+      int left;
+      uint8_t h1 = str[i];
+      uint8_t h2 = str[i + 1];
+
+      if (!isxdigit(h1) || !isxdigit(h2)) {
+	vty_out(vty, "%% Non-hex octet %c%c at hex array arg %d=%s%s",
+		h1, h2, argi, str, VTY_NEWLINE);
+	return CMD_WARNING;
+      }
+      octet = (hexval(h1) << 4) + hexval(h2);
+
+      left = sizeof(buf) - ip_hlen - pim_msg_size;
+      if (left < 1) {
+	vty_out(vty, "%% Overflow buf_size=%d buf_left=%d at hex array arg %d=%s octet %02x%s",
+		sizeof(buf), left, argi, str, octet, VTY_NEWLINE);
+	return CMD_WARNING;
+      }
+      
+      pim_msg[pim_msg_size++] = octet;
+    }
   }
 
   ip_msg_len = ip_hlen + pim_msg_size;
