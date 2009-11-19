@@ -26,12 +26,13 @@
 #include "prefix.h"
 
 #include "pimd.h"
+#include "pim_int.h"
 #include "pim_tlv.h"
 #include "pim_str.h"
 #include "pim_msg.h"
 
-char *pim_tlv_append_uint16(char *buf,
-			    const char *buf_pastend,
+char *pim_tlv_append_uint16(uint8_t *buf,
+			    const uint8_t *buf_pastend,
 			    uint16_t option_type,
 			    uint16_t option_value)
 {
@@ -54,8 +55,8 @@ char *pim_tlv_append_uint16(char *buf,
   return buf;
 }
 
-char *pim_tlv_append_2uint16(char *buf,
-			     const char *buf_pastend,
+char *pim_tlv_append_2uint16(uint8_t *buf,
+			     const uint8_t *buf_pastend,
 			     uint16_t option_type,
 			     uint16_t option_value1,
 			     uint16_t option_value2)
@@ -81,8 +82,8 @@ char *pim_tlv_append_2uint16(char *buf,
   return buf;
 }
 
-char *pim_tlv_append_uint32(char *buf,
-			    const char *buf_pastend,
+char *pim_tlv_append_uint32(uint8_t *buf,
+			    const uint8_t *buf_pastend,
 			    uint16_t option_type,
 			    uint32_t option_value)
 {
@@ -99,7 +100,7 @@ char *pim_tlv_append_uint32(char *buf,
   buf += 2;
   *(uint16_t *) buf = htons(option_len);
   buf += 2;
-  *(uint32_t *) buf = htonl(option_value);
+  pim_write_uint32(buf, option_value);
   buf += option_len;
 
   return buf;
@@ -107,14 +108,14 @@ char *pim_tlv_append_uint32(char *buf,
 
 #define ucast_ipv4_encoding_len (2 + sizeof(struct in_addr))
 
-char *pim_tlv_append_addrlist_ucast(char *buf,
-				    const char *buf_pastend,
+char *pim_tlv_append_addrlist_ucast(uint8_t *buf,
+				    const uint8_t *buf_pastend,
 				    struct list *ifconnected)
 {
   struct listnode *node;
   uint16_t option_len = 0;
 
-  char *curr;
+  uint8_t *curr;
 
   node = listhead(ifconnected);
 
@@ -323,7 +324,7 @@ int pim_tlv_parse_dr_priority(const char *ifname, struct in_addr src_addr,
   PIM_OPTION_SET(*hello_options, PIM_OPTION_MASK_DR_PRIORITY);
   
   *hello_option_dr_priority = PIM_TLV_GET_DR_PRIORITY(tlv_curr);
-  
+
   return 0;
 }
 

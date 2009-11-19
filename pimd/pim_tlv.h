@@ -71,21 +71,21 @@ typedef uint32_t pim_hello_options;
 #define PIM_TLV_MIN_SIZE                (PIM_TLV_TYPE_SIZE + PIM_TLV_LENGTH_SIZE)
 #define PIM_TLV_OPTION_SIZE(option_len) (PIM_TLV_MIN_SIZE + (option_len))
 
-char *pim_tlv_append_uint16(char *buf,
-			    const char *buf_pastend,
+char *pim_tlv_append_uint16(uint8_t *buf,
+			    const uint8_t *buf_pastend,
 			    uint16_t option_type,
 			    uint16_t option_value);
-char *pim_tlv_append_2uint16(char *buf,
-			     const char *buf_pastend,
+char *pim_tlv_append_2uint16(uint8_t *buf,
+			     const uint8_t *buf_pastend,
 			     uint16_t option_type,
 			     uint16_t option_value1,
 			     uint16_t option_value2);
-char *pim_tlv_append_uint32(char *buf,
-			    const char *buf_pastend,
+char *pim_tlv_append_uint32(uint8_t *buf,
+			    const uint8_t *buf_pastend,
 			    uint16_t option_type,
 			    uint32_t option_value);
-char *pim_tlv_append_addrlist_ucast(char *buf,
-				    const char *buf_pastend,
+char *pim_tlv_append_addrlist_ucast(uint8_t *buf,
+				    const uint8_t *buf_pastend,
 				    struct list *ifconnected);
 
 int pim_tlv_parse_holdtime(const char *ifname, struct in_addr src_addr,

@@ -30,6 +30,7 @@
 #include "pim_tlv.h"
 #include "pim_msg.h"
 #include "pim_pim.h"
+#include "pim_int.h"
 #include "pim_time.h"
 #include "pim_iface.h"
 #include "pim_hello.h"
@@ -297,7 +298,7 @@ int pim_assert_recv(struct interface *ifp,
     Parse assert metric preference
   */
 
-  msg_metric.metric_preference = ntohl(*(const uint32_t *) curr);
+  msg_metric.metric_preference = pim_read_uint32_host(curr);
 
   msg_metric.rpt_bit_flag = msg_metric.metric_preference & 0x80000000; /* save highest bit */
   msg_metric.metric_preference &= ~0x80000000; /* clear highest bit */
@@ -308,7 +309,7 @@ int pim_assert_recv(struct interface *ifp,
     Parse assert route metric
   */
 
-  msg_metric.route_metric = ntohl(*(const uint32_t *) curr);
+  msg_metric.route_metric = pim_read_uint32_host(curr);
 
   if (PIM_DEBUG_PIM_TRACE) {
     char neigh_str[100];
@@ -378,7 +379,7 @@ int pim_assert_metric_match(const struct pim_assert_metric *m1,
   return m1->ip_address.s_addr == m2->ip_address.s_addr;
 }
 
-int pim_assert_build_msg(char *pim_msg, int buf_size,
+int pim_assert_build_msg(uint8_t *pim_msg, int buf_size,
 			 struct interface *ifp,
 			 struct in_addr group_addr,
 			 struct in_addr source_addr,
@@ -386,8 +387,8 @@ int pim_assert_build_msg(char *pim_msg, int buf_size,
 			 uint32_t route_metric,
 			 uint32_t rpt_bit_flag)
 {
-  char *buf_pastend = pim_msg + buf_size;
-  char *pim_msg_curr;
+  uint8_t *buf_pastend = pim_msg + buf_size;
+  uint8_t *pim_msg_curr;
   int pim_msg_size;
   int remain;
 
@@ -420,13 +421,13 @@ int pim_assert_build_msg(char *pim_msg, int buf_size,
   }
 
   /* Metric preference */
-  *((uint32_t *) pim_msg_curr) = htonl(rpt_bit_flag ?
-				       metric_preference | 0x80000000 :
-				       metric_preference);
+  pim_write_uint32(pim_msg_curr, rpt_bit_flag ?
+		   metric_preference | 0x80000000 :
+		   metric_preference);
   pim_msg_curr += 4;
 
   /* Route metric */
-  *((uint32_t *) pim_msg_curr) = htonl(route_metric);
+  pim_write_uint32(pim_msg_curr, route_metric);
   pim_msg_curr += 4;
 
   /*
