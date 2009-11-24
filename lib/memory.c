@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -32,22 +32,22 @@
 static void alloc_inc (int);
 static void alloc_dec (int);
 static void log_memstats(int log_priority);
-
+
 static const struct message mstr [] =
 {
   { MTYPE_THREAD, "thread" },
   { MTYPE_THREAD_MASTER, "thread_master" },
   { MTYPE_VECTOR, "vector" },
-  { MTYPE_VECTOR_INDEX, "vector_index" },
+  { MTYPE_VECTOR_BODY, "vector_index" },
   { MTYPE_IF, "interface" },
   { 0, NULL },
 };
-
+
 /* Fatal memory allocation error occured. */
 static void __attribute__ ((noreturn))
 zerror (const char *fname, int type, size_t size)
 {
-  zlog_err ("%s : can't allocate memory for `%s' size %d: %s\n", 
+  zlog_err ("%s : can't allocate memory for `%s' size %d: %s\n",
 	    fname, lookup (mstr, type), (int) size, safe_strerror(errno));
   log_memstats(LOG_WARNING);
   /* N.B. It might be preferable to call zlog_backtrace_sigsafe here, since
@@ -122,9 +122,9 @@ zstrdup (int type, const char *str)
   alloc_inc (type);
   return dup;
 }
-
+
 #ifdef MEMORY_LOG
-static struct 
+static struct
 {
   const char *name;
   long alloc;
@@ -187,7 +187,7 @@ mtype_zrealloc (const char *file, int line, int type, void *ptr, size_t size)
 }
 
 /* Important function. */
-void 
+void
 mtype_zfree (const char *file, int line, int type, void *ptr)
 {
   mstat[type].t_free++;
@@ -205,13 +205,13 @@ mtype_zstrdup (const char *file, int line, int type, const char *str)
   mstat[type].c_strdup++;
 
   memory = zstrdup (type, str);
-  
+
   mtype_log ("xstrdup", memory, file, line, type);
 
   return memory;
 }
 #else
-static struct 
+static struct
 {
   char *name;
   long alloc;
@@ -231,7 +231,7 @@ alloc_dec (int type)
 {
   mstat[type].alloc--;
 }
-
+
 /* Looking up memory status from vty interface. */
 #include "vector.h"
 #include "vty.h"
@@ -329,7 +329,7 @@ show_memory_mallinfo (struct vty *vty)
 {
   struct mallinfo minfo = mallinfo();
   char buf[MTYPE_MEMSTR_LEN];
-  
+
   vty_out (vty, "System allocator statistics:%s", VTY_NEWLINE);
   vty_out (vty, "  Total heap allocated:  %s%s",
            mtype_memstr (buf, MTYPE_MEMSTR_LEN, minfo.arena),
@@ -373,11 +373,11 @@ DEFUN (show_memory_all,
 {
   struct mlist *ml;
   int needsep = 0;
-  
+
 #ifdef HAVE_MALLINFO
   needsep = show_memory_mallinfo (vty);
 #endif /* HAVE_MALLINFO */
-  
+
   for (ml = mlists; ml->list; ml++)
     {
       if (needsep)
@@ -516,7 +516,7 @@ memory_init (void)
   install_element (ENABLE_NODE, &show_memory_ospf6_cmd);
   install_element (ENABLE_NODE, &show_memory_isis_cmd);
 }
-
+
 /* Stats querying from users */
 /* Return a pointer to a human friendly string describing
  * the byte count passed in. E.g:
@@ -529,13 +529,13 @@ const char *
 mtype_memstr (char *buf, size_t len, unsigned long bytes)
 {
   unsigned int t, g, m, k;
-  
+
   /* easy cases */
   if (!bytes)
     return "0 bytes";
   if (bytes == 1)
     return "1 byte";
-    
+
   if (sizeof (unsigned long) >= 8)
     /* Hacked to make it not warn on ILP32 machines
      * Shift will always be 40 at runtime. See below too */
@@ -545,11 +545,11 @@ mtype_memstr (char *buf, size_t len, unsigned long bytes)
   g = bytes >> 30;
   m = bytes >> 20;
   k = bytes >> 10;
-  
+
   if (t > 10)
     {
       /* The shift will always be 39 at runtime.
-       * Just hacked to make it not warn on 'smaller' machines. 
+       * Just hacked to make it not warn on 'smaller' machines.
        * Static compiler analysis should mean no extra code
        */
       if (bytes & (1UL << (sizeof (unsigned long) >= 8 ? 39 : 0)))
@@ -576,7 +576,7 @@ mtype_memstr (char *buf, size_t len, unsigned long bytes)
     }
   else
     snprintf (buf, len, "%ld bytes", bytes);
-  
+
   return buf;
 }
 

@@ -32,7 +32,7 @@ struct mlist {
   struct memory_list *list;
   const char *name;
 };
- 
+
 #include "lib/memtypes.h"
 
 extern struct mlist mlists[];
@@ -60,6 +60,8 @@ extern struct mlist mlists[];
 #define XSTRDUP(mtype, str)        zstrdup ((mtype), (str))
 #endif /* MEMORY_LOG */
 
+#define SIZE(t,n) (sizeof(t) * (n))
+
 /* Prototypes of memory function. */
 extern void *zmalloc (int type, size_t size);
 extern void *zcalloc (int type, size_t size);
@@ -69,7 +71,7 @@ extern char *zstrdup (int type, const char *str);
 
 extern void *mtype_zmalloc (const char *file, int line, int type, size_t size);
 
-extern void *mtype_zcalloc (const char *file, int line, int type, 
+extern void *mtype_zcalloc (const char *file, int line, int type,
                             size_t num, size_t size);
 
 extern void *mtype_zrealloc (const char *file, int line, int type, void *ptr,
