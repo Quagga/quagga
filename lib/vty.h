@@ -28,7 +28,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define VTY_MAXHIST 20
 
 /* VTY struct. */
-struct vty 
+struct vty
 {
   /* File descripter of this vty. */
   int fd;
@@ -124,7 +124,13 @@ struct vty
 #define INTEGRATE_DEFAULT_CONFIG "Quagga.conf"
 
 /* Small macro to determine newline is newline only or linefeed needed. */
-#define VTY_NEWLINE  ((vty->type == VTY_TERM) ? "\r\n" : "\n")
+#define VTY_NEWLINE (((vty != NULL) && (vty->type == VTY_TERM)) ? "\r\n" : "\n")
+
+/* For indenting, mostly.	*/
+extern const char* vty_spaces_string ;
+#define VTY_MAX_SPACES 24
+#define VTY_SPACES(n) (vty_spaces_string + ((n) < VTY_MAX_SPACES \
+					      ? VTY_MAX_SPACES - (n) : 0))
 
 /* Default time out value */
 #define VTY_TIMEOUT_DEFAULT 600
@@ -207,12 +213,15 @@ extern void vty_terminate (void);
 extern void vty_reset (void);
 extern struct vty *vty_new (void);
 extern int vty_out (struct vty *, const char *, ...) PRINTF_ATTRIBUTE(2, 3);
+extern int vty_puts(struct vty* vty, const char* str) ;
+extern int vty_out_newline(struct vty *vty) ;
+extern int vty_out_indent(struct vty *vty, int indent) ;
 extern void vty_read_config (char *, char *);
 extern void vty_time_print (struct vty *, int);
 extern void vty_serv_sock (const char *, unsigned short, const char *);
 extern void vty_close (struct vty *);
 extern char *vty_get_cwd (void);
-extern void vty_log (const char *level, const char *proto, 
+extern void vty_log (const char *level, const char *proto,
                      const char *fmt, struct timestamp_control *, va_list);
 extern int vty_config_lock (struct vty *);
 extern int vty_config_unlock (struct vty *);

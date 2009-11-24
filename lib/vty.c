@@ -90,7 +90,7 @@ static u_char restricted_mode = 0;
 char integrate_default[] = SYSCONFDIR INTEGRATE_DEFAULT_CONFIG;
 
 
-/* VTY standard output function. */
+/* VTY standard output function.   vty == NULL or VTY_SHELL => stdout	*/
 int
 vty_out (struct vty *vty, const char *format, ...)
 {
@@ -149,6 +149,27 @@ vty_out (struct vty *vty, const char *format, ...)
     }
 
   return len;
+}
+
+int
+vty_puts(struct vty *vty, const char* str)
+{
+  return vty_out(vty, "%s", str) ;
+}
+
+int
+vty_out_newline(struct vty *vty)
+{
+  return vty_out(vty, "%s", VTY_NEWLINE) ;
+}
+
+/*                               123456789012345678901234 */
+const char* vty_spaces_string = "                        " ;
+
+int
+vty_out_indent(struct vty *vty, int indent)
+{
+  return vty_puts(vty, VTY_SPACES(indent)) ;
 }
 
 static int
@@ -2927,7 +2948,7 @@ vty_get_cwd ()
 int
 vty_shell (struct vty *vty)
 {
-  return vty->type == VTY_SHELL ? 1 : 0;
+  return ((vty == NULL) || (vty->type == VTY_SHELL)) ? 1 : 0;
 }
 
 int
