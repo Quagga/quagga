@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -27,7 +27,7 @@
 #include "sockunion.h"
 #include "memory.h"
 #include "log.h"
-
+
 /* Maskbit. */
 static u_char maskbit[] = {0x00, 0x80, 0xc0, 0xe0, 0xf0,
 			         0xf8, 0xfc, 0xfe, 0xff};
@@ -85,7 +85,7 @@ prefix_match (const struct prefix *n, const struct prefix *p)
   if (shift)
     if (maskbit[shift] & (np[offset] ^ pp[offset]))
       return 0;
-  
+
   while (offset--)
     if (np[offset] != pp[offset])
       return 0;
@@ -118,7 +118,7 @@ prefix_copy (struct prefix *dest, const struct prefix *src)
     }
 }
 
-/* 
+/*
  * Return 1 if the address/netmask contained in the prefix structure
  * is the same, and else return 0.  For this routine, 'same' requires
  * that not only the prefix length and the network part be the same,
@@ -214,7 +214,16 @@ prefix_ipv4_free (struct prefix_ipv4 *p)
   prefix_free((struct prefix *)p);
 }
 
-/* When string format is invalid return 0. */
+/* When string format is valid return 1 otherwise return 0.
+ *
+ * Some callers of this function treat non-0 as OK and 0 as invalid (which is
+ * what inet_aton() is defined to do).
+ *
+ * Some callers treat > 0 as OK and <= 0 as invalid (which is similar to what
+ * inet_pton() is defined to do).
+ *
+ * The actual returns are consistent with both usages.
+ */
 int
 str2prefix_ipv4 (const char *str, struct prefix_ipv4 *p)
 {
@@ -227,7 +236,7 @@ str2prefix_ipv4 (const char *str, struct prefix_ipv4 *p)
   pnt = strchr (str, '/');
 
   /* String doesn't contail slash. */
-  if (pnt == NULL) 
+  if (pnt == NULL)
     {
       /* Convert string to prefix. */
       ret = inet_aton (str, &p->prefix);
@@ -238,7 +247,7 @@ str2prefix_ipv4 (const char *str, struct prefix_ipv4 *p)
       p->family = AF_INET;
       p->prefixlen = IPV4_MAX_BITLEN;
 
-      return ret;
+      return 1 ;
     }
   else
     {
@@ -257,7 +266,7 @@ str2prefix_ipv4 (const char *str, struct prefix_ipv4 *p)
       p->prefixlen = plen;
     }
 
-  return ret;
+  return 1 ;
 }
 
 /* Convert masklen into IP address's netmask. */
@@ -273,7 +282,7 @@ masklen2ip (int masklen, struct in_addr *netmask)
 
   offset = masklen / 8;
   bit = masklen % 8;
-  
+
   while (offset--)
     *pnt++ = 0xff;
 
@@ -299,7 +308,7 @@ ip_masklen (struct in_addr netmask)
     {
       len+= 8;
       pnt++;
-    } 
+    }
 
   if (pnt < end)
     {
@@ -342,7 +351,7 @@ prefix_ipv4_any (const struct prefix_ipv4 *p)
 {
   return (p->prefix.s_addr == 0 && p->prefixlen == 0);
 }
-
+
 #ifdef HAVE_IPV6
 
 /* Allocate a new ip version 6 route */
@@ -365,7 +374,26 @@ prefix_ipv6_free (struct prefix_ipv6 *p)
   prefix_free((struct prefix *)p);
 }
 
-/* If given string is valid return pin6 else return NULL */
+/* If given string is valid IPv6 address or prefix return 1 else return 0
+ *
+ * Of inet_pton() POSIX 1003.1, 2004 says:
+ *
+ *   The inet_pton() function shall return 1 if the conversion succeeds, with
+ *   the address pointed to by dst in network byte order. It shall return 0 if
+ *   the input is not either a valid IPv4 dotted-decimal string or a valid IPv6
+ *   address string (if IPv6 supported), or return -1 with errno set to
+ *   [EAFNOSUPPORT] if the af argument is unknown.
+ *
+ * Any error returned is reported as an invalid address or prefix.  So best not
+ * to call this if IPv6 is not supported.
+ *
+ * Some callers treat > 0 as OK and <= 0 as invalid (which is consistent with
+ * what inet_pton() is defined to do).
+ *
+ * Some callers of this function treat non-0 as OK and 0 as invalid.
+ *
+ * The actual returns are consistent with both usages.
+ */
 int
 str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
 {
@@ -376,14 +404,14 @@ str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
   pnt = strchr (str, '/');
 
   /* If string doesn't contain `/' treat it as host route. */
-  if (pnt == NULL) 
+  if (pnt == NULL)
     {
       ret = inet_pton (AF_INET6, str, &p->prefix);
-      if (ret == 0)
+      if (ret <= 0)
 	return 0;
       p->prefixlen = IPV6_MAX_BITLEN;
     }
-  else 
+  else
     {
       int plen;
 
@@ -392,7 +420,7 @@ str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
       *(cp + (pnt - str)) = '\0';
       ret = inet_pton (AF_INET6, cp, &p->prefix);
       free (cp);
-      if (ret == 0)
+      if (ret <= 0)
 	return 0;
       plen = (u_char) atoi (++pnt);
       if (plen > 128)
@@ -401,7 +429,7 @@ str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
     }
   p->family = AF_INET6;
 
-  return ret;
+  return 1 ;
 }
 
 /* Convert struct in6_addr netmask into integer.
@@ -412,19 +440,19 @@ ip6_masklen (struct in6_addr netmask)
   int len = 0;
   unsigned char val;
   unsigned char *pnt;
-  
+
   pnt = (unsigned char *) & netmask;
 
-  while ((*pnt == 0xff) && len < 128) 
+  while ((*pnt == 0xff) && len < 128)
     {
       len += 8;
       pnt++;
-    } 
-  
-  if (len < 128) 
+    }
+
+  if (len < 128)
     {
       val = *pnt;
-      while (val) 
+      while (val)
 	{
 	  len++;
 	  val <<= 1;
@@ -572,7 +600,7 @@ sockunion2hostprefix (const union sockunion *su)
 int
 prefix_blen (const struct prefix *p)
 {
-  switch (p->family) 
+  switch (p->family)
     {
     case AF_INET:
       return IPV4_MAX_BYTELEN;
@@ -600,7 +628,7 @@ str2prefix (const char *str, struct prefix *p)
 #ifdef HAVE_IPV6
   /* Next we try to convert string to struct prefix_ipv6. */
   ret = str2prefix_ipv6 (str, (struct prefix_ipv6 *) p);
-  if (ret)
+  if (ret <= 0)
     return ret;
 #endif /* HAVE_IPV6 */
 
@@ -650,22 +678,22 @@ void apply_classful_mask_ipv4 (struct prefix_ipv4 *p)
 {
 
   u_int32_t destination;
-  
+
   destination = ntohl (p->prefix.s_addr);
-  
+
   if (p->prefixlen == IPV4_MAX_PREFIXLEN);
   /* do nothing for host routes */
-  else if (IN_CLASSC (destination)) 
+  else if (IN_CLASSC (destination))
     {
       p->prefixlen=24;
       apply_mask_ipv4(p);
     }
-  else if (IN_CLASSB(destination)) 
+  else if (IN_CLASSB(destination))
     {
       p->prefixlen=16;
       apply_mask_ipv4(p);
     }
-  else 
+  else
     {
       p->prefixlen=8;
       apply_mask_ipv4(p);
@@ -694,7 +722,7 @@ ipv4_broadcast_addr (in_addr_t hostaddr, int masklen)
          (hostaddr ^ ~mask.s_addr);
 }
 
-/* Utility function to convert ipv4 netmask to prefixes 
+/* Utility function to convert ipv4 netmask to prefixes
    ex.) "1.1.0.0" "255.255.0.0" => "1.1.0.0/16"
    ex.) "1.0.0.0" NULL => "1.0.0.0/8"                   */
 int
@@ -719,7 +747,7 @@ netmask_str2prefix_str (const char *net_str, const char *mask_str,
 
       prefixlen = ip_masklen (mask);
     }
-  else 
+  else
     {
       destination = ntohl (network.s_addr);
 
