@@ -21,6 +21,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGP_CLIST_H
 #define _QUAGGA_BGP_CLIST_H
 
+#include "symtab.h"
+
 /* Master Community-list. */
 #define COMMUNITY_LIST_MASTER          0
 #define EXTCOMMUNITY_LIST_MASTER       1
@@ -30,8 +32,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define COMMUNITY_PERMIT               1
 
 /* Number and string based community-list name.  */
-#define COMMUNITY_LIST_STRING          0
-#define COMMUNITY_LIST_NUMBER          1
+//#define COMMUNITY_LIST_STRING          0
+//#define COMMUNITY_LIST_NUMBER          1
 
 /* Community-list entry types.  */
 #define COMMUNITY_LIST_STANDARD        0 /* Standard community-list.  */
@@ -42,18 +44,11 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* Community-list.  */
 struct community_list
 {
-  /* Name of the community-list.  */
-  char *name;
+  /* Pointer to symbol entry of the community-list.  */
+  struct symbol* sym ;
 
   /* String or number.  */
-  int sort;
-
-  /* Link to upper list.  */
-  struct community_list_list *parent;
-
-  /* Linked list for other community-list.  */
-  struct community_list *next;
-  struct community_list *prev;
+//int sort;
 
   /* Community-list entry in this community-list.  */
   struct community_entry *head;
@@ -89,30 +84,11 @@ struct community_entry
   regex_t *reg;
 };
 
-/* Linked list of community-list.  */
-struct community_list_list
-{
-  struct community_list *head;
-  struct community_list *tail;
-};
-
-/* Master structure of community-list and extcommunity-list.  */
-struct community_list_master
-{
-  struct community_list_list num;
-  struct community_list_list str;
-};
-
-/* Community-list handler.  community_list_init() returns this
-   structure as handler.  */
-struct community_list_handler
-{
-  /* Community-list.  */
-  struct community_list_master community_list;
-
-  /* Exteded community-list.  */
-  struct community_list_master extcommunity_list;
-};
+/* Community-list handler.
+ * community_list_init() returns this structure as handler -- contains a
+ * distinct set of community-list and extcommunity-list filters.
+ */
+struct community_list_handler ;
 
 /* Error code of community-list.  */
 #define COMMUNITY_LIST_ERR_CANT_FIND_LIST        -1
@@ -140,7 +116,7 @@ extern int extcommunity_list_unset (struct community_list_handler *ch,
 				    const char *name, const char *str,
 				    int direct, int style);
 
-extern struct community_list_master *
+extern struct symbol_table*
 community_list_master_lookup (struct community_list_handler *, int);
 
 extern struct community_list *

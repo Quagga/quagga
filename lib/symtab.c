@@ -669,12 +669,15 @@ symbol_extend_bases(symbol_table table)
 
 /* Zeroise the reference count.*/
 
-void symbol_zero_ref(symbol sym, int force)
+symbol
+symbol_zero_ref(symbol sym, int force)
 {
   assert((sym->ref_count == 1) || force) ;
 
   sym->ref_count = 0 ;
   symbol_free_if_redundant(sym) ;
+
+  return NULL ;
 } ;
 
 /*==============================================================================

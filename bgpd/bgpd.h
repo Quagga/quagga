@@ -21,6 +21,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGPD_H
 #define _QUAGGA_BGPD_H
 
+#include "plist.h"
+
 /* For union sockunion.  */
 #include "sockunion.h"
 
@@ -41,10 +43,10 @@ struct bgp_master
   /* work queues */
   struct work_queue *process_main_queue;
   struct work_queue *process_rsclient_queue;
-  
+
   /* Listening sockets */
   struct list *listen_sockets;
-  
+
   /* BGP port number.  */
   u_int16_t port;
 
@@ -62,14 +64,14 @@ struct bgp_master
 };
 
 /* BGP instance structure.  */
-struct bgp 
+struct bgp
 {
   /* AS number of this BGP instance.  */
   as_t as;
 
   /* Name of this BGP instance.  */
   char *name;
-  
+
   /* Reference count to allow peer_delete to finish after bgp_delete */
   int lock;
 
@@ -151,7 +153,7 @@ struct bgp
   u_char distance_ebgp;
   u_char distance_ibgp;
   u_char distance_local;
-  
+
   /* BGP default local-preference.  */
   u_int32_t default_local_pref;
 
@@ -172,7 +174,7 @@ struct peer_group
 
   /* Pointer to BGP.  */
   struct bgp *bgp;
-  
+
   /* Peer-group client list. */
   struct list *peer;
 
@@ -181,7 +183,7 @@ struct peer_group
 };
 
 /* BGP Notify message format. */
-struct bgp_notify 
+struct bgp_notify
 {
   u_char code;
   u_char subcode;
@@ -197,7 +199,7 @@ struct bgp_nexthop
 #ifdef HAVE_IPV6
   struct in6_addr v6_global;
   struct in6_addr v6_local;
-#endif /* HAVE_IPV6 */  
+#endif /* HAVE_IPV6 */
 };
 
 /* BGP router distinguisher value.  */
@@ -218,7 +220,7 @@ struct bgp_rd
 struct bgp_filter
 {
   /* Distribute-list.  */
-  struct 
+  struct
   {
     char *name;
     struct access_list *alist;
@@ -227,8 +229,12 @@ struct bgp_filter
   /* Prefix-list.  */
   struct
   {
+#if 1
+    prefix_list_ref ref ;
+#else
     char *name;
     struct prefix_list *plist;
+#endif
   } plist[FILTER_MAX];
 
   /* Filter-list.  */
@@ -271,7 +277,7 @@ struct peer
   u_char af_group[AFI_MAX][SAFI_MAX];
 
   /* Peer's remote AS number. */
-  as_t as;			
+  as_t as;
 
   /* Peer's local AS number. */
   as_t local_as;
@@ -310,7 +316,7 @@ struct peer
   time_t uptime;		/* Last Up/Down time */
   time_t readtime;		/* Last read time */
   time_t resettime;		/* Last reset time */
-  
+
   unsigned int ifindex;		/* ifindex of the BGP connection. */
   char *ifname;			/* bind interface name. */
   char *update_if;
@@ -449,10 +455,10 @@ struct peer
   struct thread *t_pmax_restart;
   struct thread *t_gr_restart;
   struct thread *t_gr_stale;
-  
+
   /* workqueues */
   struct work_queue *clear_node_queue;
-  
+
   /* Statistics field */
   u_int32_t open_in;		/* Open message input count */
   u_int32_t open_out;		/* Open message output count */
@@ -710,7 +716,7 @@ struct bgp_nlri
 #define BGP_INIT_START_TIMER                     5
 #define BGP_ERROR_START_TIMER                   30
 #define BGP_DEFAULT_HOLDTIME                   180
-#define BGP_DEFAULT_KEEPALIVE                   60 
+#define BGP_DEFAULT_KEEPALIVE                   60
 #define BGP_DEFAULT_ASORIGINATE                 15
 #define BGP_DEFAULT_EBGP_ROUTEADV               30
 #define BGP_DEFAULT_IBGP_ROUTEADV                5
@@ -809,9 +815,11 @@ extern struct thread_master *master;
 /* Prototypes. */
 extern void bgp_terminate (void);
 extern void bgp_reset (void);
-extern void bgp_zclient_reset (void);
-extern int bgp_nexthop_set (union sockunion *, union sockunion *, 
-		     struct bgp_nexthop *, struct peer *);
+
+extern void bgp_zclient_reset (void);                      /* See bgp_zebra ! */
+extern int bgp_nexthop_set (union sockunion *, union sockunion *,
+		     struct bgp_nexthop *, struct peer *); /* See bgp_zebra ! */
+
 extern struct bgp *bgp_get_default (void);
 extern struct bgp *bgp_lookup (as_t, const char *);
 extern struct bgp *bgp_lookup_by_name (const char *);
@@ -829,7 +837,7 @@ extern struct peer *peer_create_accept (struct bgp *);
 extern char *peer_uptime (time_t, char *, size_t);
 extern int bgp_config_write (struct vty *);
 extern void bgp_config_write_family_header (struct vty *, afi_t, safi_t, int *);
-
+
 extern void bgp_master_init (void);
 
 extern void bgp_init (void);

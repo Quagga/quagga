@@ -23,38 +23,21 @@
 #ifndef _QUAGGA_PLIST_H
 #define _QUAGGA_PLIST_H
 
+#include "prefix.h"
+#include "symtab.h"
+#include "vector.h"
+
 #define AFI_ORF_PREFIX 65535
 
-enum prefix_list_type 
+enum prefix_list_type
 {
   PREFIX_DENY,
   PREFIX_PERMIT,
 };
 
-enum prefix_name_type
-{
-  PREFIX_TYPE_STRING,
-  PREFIX_TYPE_NUMBER
-};
+struct prefix_list ;
 
-struct prefix_list
-{
-  char *name;
-  char *desc;
-
-  struct prefix_master *master;
-
-  enum prefix_name_type type;
-
-  int count;
-  int rangecount;
-
-  struct prefix_list_entry *head;
-  struct prefix_list_entry *tail;
-
-  struct prefix_list *next;
-  struct prefix_list *prev;
-};
+typedef struct symbol_ref* prefix_list_ref ;
 
 struct orf_prefix
 {
@@ -73,11 +56,23 @@ extern void prefix_list_delete_hook (void (*func) (struct prefix_list *));
 extern struct prefix_list *prefix_list_lookup (afi_t, const char *);
 extern enum prefix_list_type prefix_list_apply (struct prefix_list *, void *);
 
+extern const char* prefix_list_get_name(struct prefix_list* plist) ;
+
 extern struct stream * prefix_bgp_orf_entry (struct stream *,
-                                             struct prefix_list *,
+                                             prefix_list_ref ref,
                                              u_char, u_char, u_char);
 extern int prefix_bgp_orf_set (char *, afi_t, struct orf_prefix *, int, int);
 extern void prefix_bgp_orf_remove_all (char *);
 extern int prefix_bgp_show_prefix_list (struct vty *, afi_t, char *);
+
+extern prefix_list_ref prefix_list_set_ref(prefix_list_ref* p_ref, afi_t afi,
+							     const char* name) ;
+extern prefix_list_ref prefix_list_copy_ref(prefix_list_ref* p_dst,
+							  prefix_list_ref src) ;
+extern prefix_list_ref prefix_list_unset_ref(prefix_list_ref* p_ref) ;
+
+extern const char* prefix_list_ref_name(prefix_list_ref ref) ;
+extern void* prefix_list_ref_ident(prefix_list_ref ref) ;
+extern struct prefix_list* prefix_list_ref_plist(prefix_list_ref ref) ;
 
 #endif /* _QUAGGA_PLIST_H */

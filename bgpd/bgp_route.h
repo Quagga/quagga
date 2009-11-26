@@ -23,7 +23,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 #include "bgp_table.h"
 
-/* Ancillary information to struct bgp_info, 
+/* Ancillary information to struct bgp_info,
  * used for uncommonly used data (aggregation, MPLS, etc.)
  * and lazily allocated to save memory.
  */
@@ -39,7 +39,7 @@ struct bgp_info_extra
   u_int32_t igpmetric;
 
   /* MPLS label.  */
-  u_char tag[3];  
+  u_char tag[3];
 };
 
 struct bgp_info
@@ -47,22 +47,22 @@ struct bgp_info
   /* For linked list. */
   struct bgp_info *next;
   struct bgp_info *prev;
-  
+
   /* Peer structure.  */
   struct peer *peer;
 
   /* Attribute structure.  */
   struct attr *attr;
-  
+
   /* Extra information */
   struct bgp_info_extra *extra;
-  
+
   /* Uptime.  */
   time_t uptime;
 
   /* reference count */
   int lock;
-  
+
   /* BGP information status.  */
   u_int16_t flags;
 #define BGP_INFO_IGP_CHANGED    (1 << 0)
@@ -86,7 +86,7 @@ struct bgp_info
 #define BGP_ROUTE_NORMAL       0
 #define BGP_ROUTE_STATIC       1
 #define BGP_ROUTE_AGGREGATE    2
-#define BGP_ROUTE_REDISTRIBUTE 3 
+#define BGP_ROUTE_REDISTRIBUTE 3
 };
 
 /* BGP static route configuration. */
@@ -106,7 +106,7 @@ struct bgp_static
 
   /* Atomic set reference count (ie cause of pathlimit) */
   u_int32_t atomic;
-  
+
   /* BGP redistribute route-map.  */
   struct
   {
@@ -116,7 +116,7 @@ struct bgp_static
 
   /* MPLS label.  */
   u_char tag[3];
-  
+
   /* AS-Pathlimit TTL */
   u_char ttl;
 };
@@ -133,19 +133,21 @@ struct bgp_static
    || CHECK_FLAG ((BI)->flags, BGP_INFO_UNUSEABLE))
 
 #define DISTRIBUTE_IN_NAME(F)   ((F)->dlist[FILTER_IN].name)
-#define DISTRIBUTE_IN(F)        ((F)->dlist[FILTER_IN].alist)
+#define DISTRIBUTE_IN_LIST(F)   ((F)->dlist[FILTER_IN].alist)
 #define DISTRIBUTE_OUT_NAME(F)  ((F)->dlist[FILTER_OUT].name)
-#define DISTRIBUTE_OUT(F)       ((F)->dlist[FILTER_OUT].alist)
+#define DISTRIBUTE_OUT_LIST(F)  ((F)->dlist[FILTER_OUT].alist)
 
-#define PREFIX_LIST_IN_NAME(F)  ((F)->plist[FILTER_IN].name)
-#define PREFIX_LIST_IN(F)       ((F)->plist[FILTER_IN].plist)
-#define PREFIX_LIST_OUT_NAME(F) ((F)->plist[FILTER_OUT].name)
-#define PREFIX_LIST_OUT(F)      ((F)->plist[FILTER_OUT].plist)
+#define PREFIX_LIST_IN_REF(F)   ((F)->plist[FILTER_IN].ref)
+#define PREFIX_LIST_IN_NAME(F)  prefix_list_ref_name(PREFIX_LIST_IN_REF(F))
+#define PREFIX_LIST_IN_LIST(F)  prefix_list_ref_plist(PREFIX_LIST_IN_REF(F))
+#define PREFIX_LIST_OUT_REF(F)  ((F)->plist[FILTER_OUT].ref)
+#define PREFIX_LIST_OUT_NAME(F) prefix_list_ref_name(PREFIX_LIST_OUT_REF(F))
+#define PREFIX_LIST_OUT_LIST(F) prefix_list_ref_plist(PREFIX_LIST_OUT_REF(F))
 
 #define FILTER_LIST_IN_NAME(F)  ((F)->aslist[FILTER_IN].name)
-#define FILTER_LIST_IN(F)       ((F)->aslist[FILTER_IN].aslist)
+#define FILTER_LIST_IN_LIST(F)  ((F)->aslist[FILTER_IN].aslist)
 #define FILTER_LIST_OUT_NAME(F) ((F)->aslist[FILTER_OUT].name)
-#define FILTER_LIST_OUT(F)      ((F)->aslist[FILTER_OUT].aslist)
+#define FILTER_LIST_OUT_LIST(F) ((F)->aslist[FILTER_OUT].aslist)
 
 #define ROUTE_MAP_IN_NAME(F)    ((F)->map[RMAP_IN].name)
 #define ROUTE_MAP_IN(F)         ((F)->map[RMAP_IN].map)
@@ -203,16 +205,16 @@ extern void bgp_static_delete (struct bgp *);
 extern void bgp_static_update (struct bgp *, struct prefix *, struct bgp_static *,
 			afi_t, safi_t);
 extern void bgp_static_withdraw (struct bgp *, struct prefix *, afi_t, safi_t);
-                     
-extern int bgp_static_set_vpnv4 (struct vty *vty, const char *, 
+
+extern int bgp_static_set_vpnv4 (struct vty *vty, const char *,
                           const char *, const char *);
 
-extern int bgp_static_unset_vpnv4 (struct vty *, const char *, 
+extern int bgp_static_unset_vpnv4 (struct vty *, const char *,
                             const char *, const char *);
 
 /* this is primarily for MPLS-VPN */
 extern int bgp_update (struct peer *, struct prefix *, struct attr *,
-		       afi_t, safi_t, int, int, struct prefix_rd *, 
+		       afi_t, safi_t, int, int, struct prefix_rd *,
 		       u_char *, int);
 extern int bgp_withdraw (struct peer *, struct prefix *, struct attr *,
 			 afi_t, safi_t, int, int, struct prefix_rd *, u_char *);

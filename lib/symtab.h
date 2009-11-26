@@ -224,16 +224,16 @@ symbol_inc_ref(symbol sym)
   return sym ;
 } ;
 
-extern void symbol_zero_ref(symbol sym, int force) ;
+extern symbol symbol_zero_ref(symbol sym, int force) ;
 
 Inline symbol
 symbol_dec_ref(symbol sym)
 {
   if (sym->ref_count <= 1)
-    symbol_zero_ref(sym, 0) ;
-  else
-    --sym->ref_count ;
-  return NULL ;
+    return symbol_zero_ref(sym, 0) ;
+
+  --sym->ref_count ;
+  return sym ;
 } ;
 
 extern symbol_ref
