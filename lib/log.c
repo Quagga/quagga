@@ -34,6 +34,18 @@
 #ifdef HAVE_UCONTEXT_H
 #include <ucontext.h>
 #endif
+#include <pthread.h>
+#include <assert.h>
+
+/* logging needs to be pthread safe */
+static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+#ifdef NDEBUG
+#define LOCK pthread_mutex_lock(&mutex);
+#define UNLOCK pthread_mutex_unlock(&mutex);
+#else
+#define LOCK if(pthread_mutex_lock(&mutex)!= 0){assert(0);};
+#define UNLOCK if(pthread_mutex_unlock(&mutex)!= 0){assert(0);};
+#endif
 
 static int logfile_fd = -1;	/* Used in signal handler. */
 
@@ -81,6 +93,10 @@ quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
   } cache;
   struct timeval clock;
 
+  size_t result = 0;
+
+  LOCK
+
   /* would it be sufficient to use global 'recent_time' here?  I fear not... */
   gettimeofday(&clock, NULL);
 
@@ -122,14 +138,20 @@ quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
 	    }
 	  while (--prec > 0);
 	  *p = '.';
-	  return cache.len+1+timestamp_precision;
+	  result = cache.len+1+timestamp_precision;
 	}
-      buf[cache.len] = '\0';
-      return cache.len;
+      else
+        {
+          buf[cache.len] = '\0';
+          result = cache.len;
+        }
+    } else {
+      if (buflen > 0)
+        buf[0] = '\0';
     }
-  if (buflen > 0)
-    buf[0] = '\0';
-  return 0;
+
+  UNLOCK
+  return result;
 }
 
 /* Utility routine for current time printing. */
@@ -152,6 +174,8 @@ vzlog (struct zlog *zl, int priority, const char *format, va_list args)
   struct timestamp_control tsctl;
   tsctl.already_rendered = 0;
 
+  LOCK
+
   /* If zlog is not specified, use default one. */
   if (zl == NULL)
     zl = zlog_default;
@@ -165,55 +189,65 @@ vzlog (struct zlog *zl, int priority, const char *format, va_list args)
       vfprintf (stderr, format, args);
       fprintf (stderr, "\n");
       fflush (stderr);
-
-      /* In this case we return at here. */
-      return;
     }
-  tsctl.precision = zl->timestamp_precision;
-
-  /* Syslog output */
-  if (priority <= zl->maxlvl[ZLOG_DEST_SYSLOG])
+  else
     {
-      va_list ac;
-      va_copy(ac, args);
-      vsyslog (priority|zlog_default->facility, format, ac);
-      va_end(ac);
-    }
+      tsctl.precision = zl->timestamp_precision;
 
-  /* File output. */
-  if ((priority <= zl->maxlvl[ZLOG_DEST_FILE]) && zl->fp)
-    {
-      va_list ac;
-      time_print (zl->fp, &tsctl);
-      if (zl->record_priority)
-	fprintf (zl->fp, "%s: ", zlog_priority[priority]);
-      fprintf (zl->fp, "%s: ", zlog_proto_names[zl->protocol]);
-      va_copy(ac, args);
-      vfprintf (zl->fp, format, ac);
-      va_end(ac);
-      fprintf (zl->fp, "\n");
-      fflush (zl->fp);
-    }
+      /* Syslog output */
+      if (priority <= zl->maxlvl[ZLOG_DEST_SYSLOG])
+        {
+          va_list ac;
+          va_copy(ac, args);
+          vsyslog (priority|zlog_default->facility, format, ac);
+          va_end(ac);
+        }
 
-  /* stdout output. */
-  if (priority <= zl->maxlvl[ZLOG_DEST_STDOUT])
-    {
-      va_list ac;
-      time_print (stdout, &tsctl);
-      if (zl->record_priority)
-	fprintf (stdout, "%s: ", zlog_priority[priority]);
-      fprintf (stdout, "%s: ", zlog_proto_names[zl->protocol]);
-      va_copy(ac, args);
-      vfprintf (stdout, format, ac);
-      va_end(ac);
-      fprintf (stdout, "\n");
-      fflush (stdout);
-    }
+      /* File output. */
+      if ((priority <= zl->maxlvl[ZLOG_DEST_FILE]) && zl->fp)
+        {
+          va_list ac;
+          time_print (zl->fp, &tsctl);
+          if (zl->record_priority)
+            fprintf (zl->fp, "%s: ", zlog_priority[priority]);
+          fprintf (zl->fp, "%s: ", zlog_proto_names[zl->protocol]);
+          va_copy(ac, args);
+          vfprintf (zl->fp, format, ac);
+          va_end(ac);
+          fprintf (zl->fp, "\n");
+          fflush (zl->fp);
+        }
 
-  /* Terminal monitor. */
-  if (priority <= zl->maxlvl[ZLOG_DEST_MONITOR])
-    vty_log ((zl->record_priority ? zlog_priority[priority] : NULL),
-	     zlog_proto_names[zl->protocol], format, &tsctl, args);
+      /* stdout output. */
+      if (priority <= zl->maxlvl[ZLOG_DEST_STDOUT])
+        {
+          va_list ac;
+          time_print (stdout, &tsctl);
+          if (zl->record_priority)
+            fprintf (stdout, "%s: ", zlog_priority[priority]);
+          fprintf (stdout, "%s: ", zlog_proto_names[zl->protocol]);
+          va_copy(ac, args);
+          vfprintf (stdout, format, ac);
+          va_end(ac);
+          fprintf (stdout, "\n");
+          fflush (stdout);
+        }
+
+      /* Terminal monitor. */
+      if (priority <= zl->maxlvl[ZLOG_DEST_MONITOR])
+        {
+          /* must be unlocked as vty handles it's own pthread stuff
+           * extract what we need from the zlog first
+           */
+          const char *priority_name = (zl->record_priority ? zlog_priority[priority] : NULL);
+          const char *proto_name = zlog_proto_names[zl->protocol];
+
+          UNLOCK
+          vty_log (priority_name, proto_name, format, &tsctl, args);
+          return;
+        }
+    }
+  UNLOCK
 }
 
 static char *
@@ -608,12 +642,16 @@ _zlog_assert_failed (const char *assertion, const char *file,
 		     unsigned int line, const char *function)
 {
   /* Force fallback file logging? */
+  LOCK
   if (zlog_default && !zlog_default->fp &&
       ((logfile_fd = open_crashlog()) >= 0) &&
       ((zlog_default->fp = fdopen(logfile_fd, "w")) != NULL))
     zlog_default->maxlvl[ZLOG_DEST_FILE] = LOG_ERR;
+  UNLOCK
+
   zlog(NULL, LOG_CRIT, "Assertion `%s' failed in file %s, line %u, function %s",
        assertion,file,line,(function ? function : "?"));
+
   zlog_backtrace(LOG_CRIT);
   abort();
 }
@@ -648,22 +686,33 @@ openzlog (const char *progname, zlog_proto_t protocol,
 void
 closezlog (struct zlog *zl)
 {
+  LOCK
+
   closelog();
 
   if (zl->fp != NULL)
     fclose (zl->fp);
 
   XFREE (MTYPE_ZLOG, zl);
+
+  UNLOCK
 }
 
 /* Called from command.c. */
 void
 zlog_set_level (struct zlog *zl, zlog_dest_t dest, int log_level)
 {
+  LOCK
+
   if (zl == NULL)
     zl = zlog_default;
 
-  zl->maxlvl[dest] = log_level;
+  if (zl != NULL)
+    {
+      zl->maxlvl[dest] = log_level;
+    }
+
+  UNLOCK
 }
 
 int
@@ -671,6 +720,9 @@ zlog_set_file (struct zlog *zl, const char *filename, int log_level)
 {
   FILE *fp;
   mode_t oldumask;
+  int result = 0;
+
+  LOCK
 
   /* There is opend file.  */
   zlog_reset_file (zl);
@@ -679,39 +731,51 @@ zlog_set_file (struct zlog *zl, const char *filename, int log_level)
   if (zl == NULL)
     zl = zlog_default;
 
-  /* Open file. */
-  oldumask = umask (0777 & ~LOGFILE_MASK);
-  fp = fopen (filename, "a");
-  umask(oldumask);
-  if (fp == NULL)
-    return 0;
+  if (zl != NULL)
+    {
+      /* Open file. */
+      oldumask = umask (0777 & ~LOGFILE_MASK);
+      fp = fopen (filename, "a");
+      umask(oldumask);
+      if (fp == NULL)
+        result = 0;
+      else
+        {
+        /* Set flags. */
+        zl->filename = strdup (filename);
+        zl->maxlvl[ZLOG_DEST_FILE] = log_level;
+        zl->fp = fp;
+        logfile_fd = fileno(fp);
+        }
+    }
 
-  /* Set flags. */
-  zl->filename = strdup (filename);
-  zl->maxlvl[ZLOG_DEST_FILE] = log_level;
-  zl->fp = fp;
-  logfile_fd = fileno(fp);
-
-  return 1;
+  UNLOCK
+  return result;
 }
 
 /* Reset opend file. */
 int
 zlog_reset_file (struct zlog *zl)
 {
+  LOCK
+
   if (zl == NULL)
     zl = zlog_default;
 
-  if (zl->fp)
-    fclose (zl->fp);
-  zl->fp = NULL;
-  logfile_fd = -1;
-  zl->maxlvl[ZLOG_DEST_FILE] = ZLOG_DISABLED;
+  if (zl != NULL)
+    {
+      if (zl->fp)
+        fclose (zl->fp);
+      zl->fp = NULL;
+      logfile_fd = -1;
+      zl->maxlvl[ZLOG_DEST_FILE] = ZLOG_DISABLED;
 
-  if (zl->filename)
-    free (zl->filename);
-  zl->filename = NULL;
+      if (zl->filename)
+        free (zl->filename);
+      zl->filename = NULL;
+    }
 
+  UNLOCK
   return 1;
 }
 
@@ -721,38 +785,309 @@ zlog_rotate (struct zlog *zl)
 {
   int level;
 
+  LOCK
+
   if (zl == NULL)
     zl = zlog_default;
 
-  if (zl->fp)
-    fclose (zl->fp);
-  zl->fp = NULL;
-  logfile_fd = -1;
-  level = zl->maxlvl[ZLOG_DEST_FILE];
-  zl->maxlvl[ZLOG_DEST_FILE] = ZLOG_DISABLED;
-
-  if (zl->filename)
+  if (zl != NULL)
     {
-      mode_t oldumask;
-      int save_errno;
+      if (zl->fp)
+        fclose (zl->fp);
+      zl->fp = NULL;
+      logfile_fd = -1;
+      level = zl->maxlvl[ZLOG_DEST_FILE];
+      zl->maxlvl[ZLOG_DEST_FILE] = ZLOG_DISABLED;
 
-      oldumask = umask (0777 & ~LOGFILE_MASK);
-      zl->fp = fopen (zl->filename, "a");
-      save_errno = errno;
-      umask(oldumask);
-      if (zl->fp == NULL)
+      if (zl->filename)
         {
-	  zlog_err("Log rotate failed: cannot open file %s for append: %s",
-	  	   zl->filename, safe_strerror(save_errno));
-	  return -1;
-        }	
-      logfile_fd = fileno(zl->fp);
-      zl->maxlvl[ZLOG_DEST_FILE] = level;
-    }
+          mode_t oldumask;
+          int save_errno;
 
+          oldumask = umask (0777 & ~LOGFILE_MASK);
+          zl->fp = fopen (zl->filename, "a");
+          save_errno = errno;
+          umask(oldumask);
+          if (zl->fp == NULL)
+            {
+              /* can't call logging while locked */
+              char *fname = strdup(zl->filename);
+              UNLOCK
+              zlog_err("Log rotate failed: cannot open file %s for append: %s",
+	  	   fname, safe_strerror(save_errno));
+              free(fname);
+              return -1;
+            }
+          else
+            {
+              logfile_fd = fileno(zl->fp);
+              zl->maxlvl[ZLOG_DEST_FILE] = level;
+            }
+        }
+    }
+  UNLOCK
   return 1;
 }
-
+
+int
+zlog_get_default_lvl (struct zlog *zl)
+{
+  int result = LOG_DEBUG;
+
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      result = zl->default_lvl;
+    }
+
+  UNLOCK
+  return result;
+}
+
+void
+zlog_set_default_lvl (struct zlog *zl, int level)
+{
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      zl->default_lvl = level;
+    }
+
+  UNLOCK
+}
+
+/* Set logging level and default for all destinations */
+void
+zlog_set_default_lvl_dest (struct zlog *zl, int level)
+{
+  int i;
+
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      zl->default_lvl = level;
+
+      for (i = 0; i < ZLOG_NUM_DESTS; i++)
+        if (zl->maxlvl[i] != ZLOG_DISABLED)
+          zl->maxlvl[i] = level;
+    }
+
+ UNLOCK
+}
+
+int
+zlog_get_maxlvl (struct zlog *zl, zlog_dest_t dest)
+{
+  int result = ZLOG_DISABLED;
+
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      result = zl->maxlvl[dest];
+    }
+
+  UNLOCK
+  return result;
+}
+
+int
+zlog_get_facility (struct zlog *zl)
+{
+  int result = LOG_DAEMON;
+
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      result = zl->facility;
+    }
+
+  UNLOCK
+  return result;
+}
+
+void
+zlog_set_facility (struct zlog *zl, int facility)
+{
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      zl->facility = facility;
+    }
+
+  UNLOCK
+}
+
+int
+zlog_get_record_priority (struct zlog *zl)
+{
+  int result = 0;
+
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      result = zl->record_priority;
+    }
+
+  UNLOCK
+  return result;
+}
+
+void
+zlog_set_record_priority (struct zlog *zl, int record_priority)
+{
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      zl->record_priority = record_priority;
+    }
+  UNLOCK
+}
+
+int
+zlog_get_timestamp_precision (struct zlog *zl)
+{
+  int result = 0;
+
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      result = zl->timestamp_precision;
+    }
+  UNLOCK
+  return result;
+}
+
+void
+zlog_set_timestamp_precision (struct zlog *zl, int timestamp_precision)
+{
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      zl->timestamp_precision = timestamp_precision;
+    }
+
+  UNLOCK
+}
+
+/* returns name of ZLOG_NONE if no zlog given and no default set */
+const char *
+zlog_get_proto_name (struct zlog *zl)
+{
+  zlog_proto_t protocol = ZLOG_NONE;
+
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      protocol = zl->protocol;
+    }
+
+  UNLOCK
+  return zlog_proto_names[protocol];
+}
+
+/* caller must free result */
+char *
+zlog_get_filename (struct zlog *zl)
+{
+  char * result = NULL;
+
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL && zl->filename != NULL)
+    {
+      result = strdup(zl->filename);
+    }
+
+  UNLOCK
+  return result;
+}
+
+const char *
+zlog_get_ident (struct zlog *zl)
+{
+  const char * result = NULL;
+
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      result = zl->ident;
+    }
+
+  UNLOCK
+  return result;
+}
+
+/* logging to a file? */
+int
+zlog_is_file (struct zlog *zl)
+{
+  int result = 0;
+
+  LOCK
+
+  if (zl == NULL)
+    zl = zlog_default;
+
+  if (zl != NULL)
+    {
+      result = (zl->fp != NULL);
+    }
+
+  UNLOCK
+  return result;
+}
+
 /* Message lookup function. */
 const char *
 lookup (const struct message *mes, int key)
