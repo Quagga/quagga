@@ -199,14 +199,8 @@ int
 zprivs_change_caps (zebra_privs_ops_t op)
 {
   cap_flag_value_t cflag;
-  int result = -1;
-  
-  if (op == ZPRIVS_RAISE)
-    cflag = CAP_SET;
-  else if (op == ZPRIVS_LOWER)
-    cflag = CAP_CLEAR;
-  else
-    return result;
+  int result = 0;
+  int change = 0;
 
   LOCK
 
@@ -218,7 +212,22 @@ zprivs_change_caps (zebra_privs_ops_t op)
       exit (1);
     }
 
-  if ( !cap_set_flag (zprivs_state.caps, CAP_EFFECTIVE,
+  if (op == ZPRIVS_RAISE)
+    {
+      cflag = CAP_SET;
+      change = (raise_count++ == 0);
+    }
+  else if (op == ZPRIVS_LOWER)
+    {
+      cflag = CAP_CLEAR;
+      change = (--raise_count == 0);
+    }
+  else
+    {
+      result = -1;
+    }
+
+  if ( change && !cap_set_flag (zprivs_state.caps, CAP_EFFECTIVE,
                        zprivs_state.syscaps_p->num, 
                        zprivs_state.syscaps_p->caps, 
                        cflag))
