@@ -39,13 +39,21 @@
 
 /* logging needs to be pthread safe */
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-#ifdef NDEBUG
+#if 0
+static int lock_count = 0;
+#define LOCK if(lock_count++ != 0){printf("Lock count: %d\n", lock_count);assert(0);}
+#define UNLOCK if(--lock_count != 0){printf("Unlock count: %d\n", lock_count);assert(0);}
+#elif defined(NDEBUG)
 #define LOCK pthread_mutex_lock(&mutex);
 #define UNLOCK pthread_mutex_unlock(&mutex);
 #else
 #define LOCK if(pthread_mutex_lock(&mutex)!= 0){assert(0);};
 #define UNLOCK if(pthread_mutex_unlock(&mutex)!= 0){assert(0);};
 #endif
+
+/* prototypes */
+static int do_reset_file (struct zlog *zl);
+static size_t do_timestamp(int timestamp_precision, char *buf, size_t buflen);
 
 static int logfile_fd = -1;	/* Used in signal handler. */
 
@@ -86,6 +94,16 @@ const char *zlog_priority[] =
 size_t
 quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
 {
+  size_t result;
+  LOCK
+  result = do_timestamp(timestamp_precision, buf, buflen);
+  UNLOCK
+  return result;
+}
+
+static size_t
+do_timestamp(int timestamp_precision, char *buf, size_t buflen)
+{
   static struct {
     time_t last;
     size_t len;
@@ -94,8 +112,6 @@ quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
   struct timeval clock;
 
   size_t result = 0;
-
-  LOCK
 
   /* would it be sufficient to use global 'recent_time' here?  I fear not... */
   gettimeofday(&clock, NULL);
@@ -150,7 +166,6 @@ quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
         buf[0] = '\0';
     }
 
-  UNLOCK
   return result;
 }
 
@@ -160,7 +175,7 @@ time_print(FILE *fp, struct timestamp_control *ctl)
 {
   if (!ctl->already_rendered)
     {
-      ctl->len = quagga_timestamp(ctl->precision, ctl->buf, sizeof(ctl->buf));
+      ctl->len = do_timestamp(ctl->precision, ctl->buf, sizeof(ctl->buf));
       ctl->already_rendered = 1;
     }
   fprintf(fp, "%s ", ctl->buf);
@@ -720,12 +735,12 @@ zlog_set_file (struct zlog *zl, const char *filename, int log_level)
 {
   FILE *fp;
   mode_t oldumask;
-  int result = 0;
+  int result = 1;
 
   LOCK
 
   /* There is opend file.  */
-  zlog_reset_file (zl);
+  do_reset_file (zl);
 
   /* Set default zl. */
   if (zl == NULL)
@@ -757,8 +772,16 @@ zlog_set_file (struct zlog *zl, const char *filename, int log_level)
 int
 zlog_reset_file (struct zlog *zl)
 {
+  int result;
   LOCK
+  result = do_reset_file(zl);
+  UNLOCK
+  return result;
+}
 
+static int
+do_reset_file (struct zlog *zl)
+  {
   if (zl == NULL)
     zl = zlog_default;
 
@@ -775,7 +798,6 @@ zlog_reset_file (struct zlog *zl)
       zl->filename = NULL;
     }
 
-  UNLOCK
   return 1;
 }
 

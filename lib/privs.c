@@ -29,7 +29,11 @@
 
 /* needs to be pthread safe */
 static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-#ifdef NDEBUG
+#if 0
+static int lock_count = 0;
+#define LOCK if(lock_count++ != 0){printf("Lock count: %d\n", lock_count);assert(0);}
+#define UNLOCK if(--lock_count != 0){printf("Unlock count: %d\n", lock_count);assert(0);}
+#elif defined(NDEBUG)
 #define LOCK pthread_mutex_lock(&mutex);
 #define UNLOCK pthread_mutex_unlock(&mutex);
 #else
