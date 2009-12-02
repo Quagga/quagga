@@ -499,19 +499,6 @@ prefix_list_new(struct prefix_master* pm, struct symbol* sym, afi_t afi)
   return new ;
 } ;
 
-/* Release given prefix_list -- assumes all contents of the prefix list have
- * already been released...
- *
- * Unsets the symbol value and discards the prefix_list structure.
- * Assumes that the contents of the prefix_list have already been emptied out.
- */
-static void
-prefix_list_free (struct prefix_list *plist)
-{
-  symbol_unset_value(plist->sym) ;
-  XFREE (MTYPE_PREFIX_LIST, plist) ;
-}
-
 /* Initialise prefix_list entry -- cleared to zeros.	*/
 static struct prefix_list_entry *
 prefix_list_entry_init(struct prefix_list_entry * pe)
@@ -540,6 +527,43 @@ prefix_dup_cache_free(struct prefix_master* pm)
   pm->cache_owner   = NULL ;
   vector_reset(&pm->dup_cache, 0) ;
 }
+
+/* Delete prefix_list from prefix_list_master and free it and its contents.   */
+/* The prefix_list's symbol is set undefined.                                 */
+static void
+prefix_list_delete (struct prefix_list* plist)
+{
+  struct prefix_master*  pm = plist->master ;
+  unsigned int i ;
+  struct prefix_list_entry* pe ;
+
+  /* Free all the prefix_list_entries, then free the vector they live in. */
+  for (VECTOR_ITEMS(&plist->list, pe, i))
+    prefix_list_entry_free(pe) ;
+  vector_reset(&plist->list, 0) ;
+
+  /* If there is a description, release that now.   */
+  if (plist->desc)
+    XFREE (MTYPE_TMP, plist->desc);
+
+  /* Can no longer own the dup_cache.               */
+  if (pm->cache_owner == plist)
+    prefix_dup_cache_free(pm) ;
+
+  /* Symbol no longer has a value & drop reference. */
+  symbol_unset_value(plist->sym) ;
+  plist->sym = symbol_dec_ref(plist->sym) ;
+
+  /* Finally, release the prefix_list structure.    */
+  XFREE (MTYPE_PREFIX_LIST, plist) ;
+
+  /* No longer have a recently changed prefix-list  */
+  pm->recent = NULL ;
+
+  /* Tell the world.  */
+  if (pm->delete_hook)
+    (*pm->delete_hook) (NULL);
+} ;
 
 /*==============================================================================
  * Operations on prefix_lists
@@ -581,43 +605,6 @@ prefix_list_get (struct prefix_master* pm, const char *name, afi_t afi)
   plist = symbol_get_value(sym) ;
 
   return plist ? plist : prefix_list_new(pm, sym, afi) ;
-} ;
-
-/* Delete prefix_list from prefix_list_master and free it and its contents.   */
-/* The prefix_list's symbol is set undefined.                                 */
-static void
-prefix_list_delete (struct prefix_list* plist)
-{
-  struct prefix_master*  pm = plist->master ;
-  unsigned int i ;
-  struct prefix_list_entry* pe ;
-
-  /* Free all the prefix_list_entries, then free the vector they live in. */
-  for (VECTOR_ITEMS(&plist->list, pe, i))
-    prefix_list_entry_free(pe) ;
-  vector_reset(&plist->list, 0) ;
-
-  /* If there is a description, release that now.   */
-  if (plist->desc)
-    XFREE (MTYPE_TMP, plist->desc);
-
-  /* Can no longer own the dup_cache.               */
-  if (pm->cache_owner == plist)
-    prefix_dup_cache_free(pm) ;
-
-  /* Symbol no longer has a value & drop reference. */
-  symbol_unset_value(plist->sym) ;
-  plist->sym = symbol_dec_ref(plist->sym) ;
-
-  /* Finally, release the prefix_list itself.       */
-  prefix_list_free(plist) ;
-
-  /* No longer have a recently changed prefix-list  */
-  pm->recent = NULL ;
-
-  /* Tell the world.  */
-  if (pm->delete_hook)
-    (*pm->delete_hook) (NULL);
 } ;
 
 /*==============================================================================
