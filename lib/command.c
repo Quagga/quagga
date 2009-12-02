@@ -548,57 +548,57 @@ config_write_host (struct vty *vty)
         vty_out (vty, "enable password %s%s", host.enable, VTY_NEWLINE);
     }
 
-  if (zlog_default->default_lvl != LOG_DEBUG)
+  if (zlog_get_default_lvl(NULL) != LOG_DEBUG)
     {
       vty_out (vty, "! N.B. The 'log trap' command is deprecated.%s",
 	       VTY_NEWLINE);
       vty_out (vty, "log trap %s%s",
-	       zlog_priority[zlog_default->default_lvl], VTY_NEWLINE);
+	       zlog_priority[zlog_get_default_lvl(NULL)], VTY_NEWLINE);
     }
 
-  if (host.logfile && (zlog_default->maxlvl[ZLOG_DEST_FILE] != ZLOG_DISABLED))
+  if (host.logfile && (zlog_get_maxlvl(NULL, ZLOG_DEST_FILE) != ZLOG_DISABLED))
     {
       vty_out (vty, "log file %s", host.logfile);
-      if (zlog_default->maxlvl[ZLOG_DEST_FILE] != zlog_default->default_lvl)
+      if (zlog_get_maxlvl(NULL, ZLOG_DEST_FILE) != zlog_get_default_lvl(NULL))
 	vty_out (vty, " %s",
-		 zlog_priority[zlog_default->maxlvl[ZLOG_DEST_FILE]]);
+		 zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_FILE)]);
       vty_out (vty, "%s", VTY_NEWLINE);
     }
 
-  if (zlog_default->maxlvl[ZLOG_DEST_STDOUT] != ZLOG_DISABLED)
+  if (zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT) != ZLOG_DISABLED)
     {
       vty_out (vty, "log stdout");
-      if (zlog_default->maxlvl[ZLOG_DEST_STDOUT] != zlog_default->default_lvl)
+      if (zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT) != zlog_get_default_lvl(NULL))
 	vty_out (vty, " %s",
-		 zlog_priority[zlog_default->maxlvl[ZLOG_DEST_STDOUT]]);
+		 zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT)]);
       vty_out (vty, "%s", VTY_NEWLINE);
     }
 
-  if (zlog_default->maxlvl[ZLOG_DEST_MONITOR] == ZLOG_DISABLED)
+  if (zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR) == ZLOG_DISABLED)
     vty_out(vty,"no log monitor%s",VTY_NEWLINE);
-  else if (zlog_default->maxlvl[ZLOG_DEST_MONITOR] != zlog_default->default_lvl)
+  else if (zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR) != zlog_get_default_lvl(NULL))
     vty_out(vty,"log monitor %s%s",
-	    zlog_priority[zlog_default->maxlvl[ZLOG_DEST_MONITOR]],VTY_NEWLINE);
+	    zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR)],VTY_NEWLINE);
 
-  if (zlog_default->maxlvl[ZLOG_DEST_SYSLOG] != ZLOG_DISABLED)
+  if (zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG) != ZLOG_DISABLED)
     {
       vty_out (vty, "log syslog");
-      if (zlog_default->maxlvl[ZLOG_DEST_SYSLOG] != zlog_default->default_lvl)
+      if (zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG) != zlog_get_default_lvl(NULL))
 	vty_out (vty, " %s",
-		 zlog_priority[zlog_default->maxlvl[ZLOG_DEST_SYSLOG]]);
+		 zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG)]);
       vty_out (vty, "%s", VTY_NEWLINE);
     }
 
-  if (zlog_default->facility != LOG_DAEMON)
+  if (zlog_get_facility(NULL) != LOG_DAEMON)
     vty_out (vty, "log facility %s%s",
-	     facility_name(zlog_default->facility), VTY_NEWLINE);
+	     facility_name(zlog_get_facility(NULL)), VTY_NEWLINE);
 
-  if (zlog_default->record_priority == 1)
+  if (zlog_get_record_priority(NULL) == 1)
     vty_out (vty, "log record-priority%s", VTY_NEWLINE);
 
-  if (zlog_default->timestamp_precision > 0)
+  if (zlog_get_timestamp_precision(NULL) > 0)
     vty_out (vty, "log timestamp precision %d%s",
-	     zlog_default->timestamp_precision, VTY_NEWLINE);
+        zlog_get_timestamp_precision(NULL), VTY_NEWLINE);
 
   if (host.advanced)
     vty_out (vty, "service advanced-vty%s", VTY_NEWLINE);
@@ -3060,49 +3060,51 @@ DEFUN (show_logging,
        SHOW_STR
        "Show current logging configuration\n")
 {
-  struct zlog *zl = zlog_default;
-
   vty_out (vty, "Syslog logging: ");
-  if (zl->maxlvl[ZLOG_DEST_SYSLOG] == ZLOG_DISABLED)
+  if (zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG) == ZLOG_DISABLED)
     vty_out (vty, "disabled");
   else
     vty_out (vty, "level %s, facility %s, ident %s",
-	     zlog_priority[zl->maxlvl[ZLOG_DEST_SYSLOG]],
-	     facility_name(zl->facility), zl->ident);
+	     zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG)],
+	     facility_name(zlog_get_facility(NULL)), zlog_get_ident(NULL));
   vty_out (vty, "%s", VTY_NEWLINE);
 
   vty_out (vty, "Stdout logging: ");
-  if (zl->maxlvl[ZLOG_DEST_STDOUT] == ZLOG_DISABLED)
+  if (zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT) == ZLOG_DISABLED)
     vty_out (vty, "disabled");
   else
     vty_out (vty, "level %s",
-	     zlog_priority[zl->maxlvl[ZLOG_DEST_STDOUT]]);
+	     zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT)]);
   vty_out (vty, "%s", VTY_NEWLINE);
 
   vty_out (vty, "Monitor logging: ");
-  if (zl->maxlvl[ZLOG_DEST_MONITOR] == ZLOG_DISABLED)
+  if (zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR) == ZLOG_DISABLED)
     vty_out (vty, "disabled");
   else
     vty_out (vty, "level %s",
-	     zlog_priority[zl->maxlvl[ZLOG_DEST_MONITOR]]);
+	     zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR)]);
   vty_out (vty, "%s", VTY_NEWLINE);
 
   vty_out (vty, "File logging: ");
-  if ((zl->maxlvl[ZLOG_DEST_FILE] == ZLOG_DISABLED) ||
-      !zl->fp)
+  if ((zlog_get_maxlvl(NULL, ZLOG_DEST_FILE) == ZLOG_DISABLED) ||
+      !zlog_is_file(NULL))
     vty_out (vty, "disabled");
   else
-    vty_out (vty, "level %s, filename %s",
-	     zlog_priority[zl->maxlvl[ZLOG_DEST_FILE]],
-	     zl->filename);
+    {
+      char * filename = zlog_get_filename(NULL);
+      vty_out (vty, "level %s, filename %s",
+	     zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_FILE)],
+	     filename);
+      free(filename);
+    }
   vty_out (vty, "%s", VTY_NEWLINE);
 
   vty_out (vty, "Protocol name: %s%s",
-  	   zlog_proto_names[zl->protocol], VTY_NEWLINE);
+      zlog_get_proto_name(NULL), VTY_NEWLINE);
   vty_out (vty, "Record priority: %s%s",
-  	   (zl->record_priority ? "enabled" : "disabled"), VTY_NEWLINE);
+  	   (zlog_get_record_priority(NULL) ? "enabled" : "disabled"), VTY_NEWLINE);
   vty_out (vty, "Timestamp precision: %d%s",
-	   zl->timestamp_precision, VTY_NEWLINE);
+      zlog_get_timestamp_precision(NULL), VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }
@@ -3113,7 +3115,7 @@ DEFUN (config_log_stdout,
        "Logging control\n"
        "Set stdout logging level\n")
 {
-  zlog_set_level (NULL, ZLOG_DEST_STDOUT, zlog_default->default_lvl);
+  zlog_set_level (NULL, ZLOG_DEST_STDOUT, zlog_get_default_lvl(NULL));
   return CMD_SUCCESS;
 }
 
@@ -3150,7 +3152,7 @@ DEFUN (config_log_monitor,
        "Logging control\n"
        "Set terminal line (monitor) logging level\n")
 {
-  zlog_set_level (NULL, ZLOG_DEST_MONITOR, zlog_default->default_lvl);
+  zlog_set_level (NULL, ZLOG_DEST_MONITOR, zlog_get_default_lvl(NULL));
   return CMD_SUCCESS;
 }
 
@@ -3238,7 +3240,7 @@ DEFUN (config_log_file,
        "Logging to file\n"
        "Logging filename\n")
 {
-  return set_log_file(vty, argv[0], zlog_default->default_lvl);
+  return set_log_file(vty, argv[0], zlog_get_default_lvl(NULL));
 }
 
 DEFUN (config_log_file_level,
@@ -3289,7 +3291,7 @@ DEFUN (config_log_syslog,
        "Logging control\n"
        "Set syslog logging level\n")
 {
-  zlog_set_level (NULL, ZLOG_DEST_SYSLOG, zlog_default->default_lvl);
+  zlog_set_level (NULL, ZLOG_DEST_SYSLOG, zlog_get_default_lvl(NULL));
   return CMD_SUCCESS;
 }
 
@@ -3321,8 +3323,8 @@ DEFUN_DEPRECATED (config_log_syslog_facility,
   if ((facility = facility_match(argv[0])) < 0)
     return CMD_ERR_NO_MATCH;
 
-  zlog_set_level (NULL, ZLOG_DEST_SYSLOG, zlog_default->default_lvl);
-  zlog_default->facility = facility;
+  zlog_set_level (NULL, ZLOG_DEST_SYSLOG, zlog_get_default_lvl(NULL));
+  zlog_set_facility(NULL, facility);
   return CMD_SUCCESS;
 }
 
@@ -3358,7 +3360,7 @@ DEFUN (config_log_facility,
 
   if ((facility = facility_match(argv[0])) < 0)
     return CMD_ERR_NO_MATCH;
-  zlog_default->facility = facility;
+  zlog_set_facility(NULL, facility);
   return CMD_SUCCESS;
 }
 
@@ -3370,7 +3372,7 @@ DEFUN (no_config_log_facility,
        "Reset syslog facility to default (daemon)\n"
        "Syslog facility\n")
 {
-  zlog_default->facility = LOG_DAEMON;
+  zlog_set_facility(NULL, LOG_DAEMON);
   return CMD_SUCCESS;
 }
 
@@ -3387,10 +3389,7 @@ DEFUN_DEPRECATED (config_log_trap,
   if ((new_level = level_match(argv[0])) == ZLOG_DISABLED)
     return CMD_ERR_NO_MATCH;
 
-  zlog_default->default_lvl = new_level;
-  for (i = 0; i < ZLOG_NUM_DESTS; i++)
-    if (zlog_default->maxlvl[i] != ZLOG_DISABLED)
-      zlog_default->maxlvl[i] = new_level;
+  zlog_set_default_lvl_dest (NULL, new_level);
   return CMD_SUCCESS;
 }
 
@@ -3402,7 +3401,7 @@ DEFUN_DEPRECATED (no_config_log_trap,
 		  "Permit all logging information\n"
 		  "Logging level\n")
 {
-  zlog_default->default_lvl = LOG_DEBUG;
+  zlog_set_default_lvl(NULL, LOG_DEBUG);
   return CMD_SUCCESS;
 }
 
@@ -3412,7 +3411,7 @@ DEFUN (config_log_record_priority,
        "Logging control\n"
        "Log the priority of the message within the message\n")
 {
-  zlog_default->record_priority = 1 ;
+  zlog_set_record_priority(NULL, 1) ;
   return CMD_SUCCESS;
 }
 
@@ -3423,7 +3422,7 @@ DEFUN (no_config_log_record_priority,
        "Logging control\n"
        "Do not log the priority of the message within the message\n")
 {
-  zlog_default->record_priority = 0 ;
+  zlog_set_record_priority(NULL, 0) ;
   return CMD_SUCCESS;
 }
 
@@ -3435,6 +3434,8 @@ DEFUN (config_log_timestamp_precision,
        "Set the timestamp precision\n"
        "Number of subsecond digits\n")
 {
+  int timestamp_precision;
+
   if (argc != 1)
     {
       vty_out (vty, "Insufficient arguments%s", VTY_NEWLINE);
@@ -3442,7 +3443,9 @@ DEFUN (config_log_timestamp_precision,
     }
 
   VTY_GET_INTEGER_RANGE("Timestamp Precision",
-  			zlog_default->timestamp_precision, argv[0], 0, 6);
+      timestamp_precision, argv[0], 0, 6);
+  zlog_set_timestamp_precision(NULL, timestamp_precision);
+
   return CMD_SUCCESS;
 }
 
@@ -3454,7 +3457,7 @@ DEFUN (no_config_log_timestamp_precision,
        "Timestamp configuration\n"
        "Reset the timestamp precision to the default value of 0\n")
 {
-  zlog_default->timestamp_precision = 0 ;
+  zlog_set_timestamp_precision(NULL, 0);
   return CMD_SUCCESS;
 }
 

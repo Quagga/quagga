@@ -125,26 +125,42 @@ main (int argc, char **argv)
 #define PRIV_STATE() \
   ((test_privs.current_state() == ZPRIVS_RAISED) ? "Raised" : "Lowered")
   
-  printf ("%s\n", PRIV_STATE());
+  printf ("Initial state: %s\n", PRIV_STATE());
+
   test_privs.change(ZPRIVS_RAISE);
+  printf ("Change raise: state: %s\n", PRIV_STATE());
+
+  test_privs.change(ZPRIVS_RAISE);
+  printf ("Change raise: state: %s\n", PRIV_STATE());
   
-  printf ("%s\n", PRIV_STATE());
   test_privs.change(ZPRIVS_LOWER);
+  printf ("Change lower: state: %s\n", PRIV_STATE());
+
+  test_privs.change(ZPRIVS_LOWER);
+  printf ("Change lower: state: %s\n", PRIV_STATE());
   
-  printf ("%s\n", PRIV_STATE());
+  printf ("Get ids %s\n", PRIV_STATE());
   zprivs_get_ids (&ids);  
   
   /* terminate privileges */
   zprivs_terminate(&test_privs);
   
   /* but these should continue to work... */
-  printf ("%s\n", PRIV_STATE());
+  printf ("Terminated state: %s\n", PRIV_STATE());
+
   test_privs.change(ZPRIVS_RAISE);
+  printf ("Change raise: state: %s\n", PRIV_STATE());
+
+  test_privs.change(ZPRIVS_RAISE);
+  printf ("Change raise: state: %s\n", PRIV_STATE());
   
-  printf ("%s\n", PRIV_STATE());
   test_privs.change(ZPRIVS_LOWER);
+  printf ("Change lower: state: %s\n", PRIV_STATE());
+
+  test_privs.change(ZPRIVS_LOWER);
+  printf ("Change lower: state: %s\n", PRIV_STATE());
   
-  printf ("%s\n", PRIV_STATE());
+  printf ("Get ids %s\n", PRIV_STATE());
   zprivs_get_ids (&ids);  
   
   printf ("terminating\n");

@@ -207,7 +207,7 @@ vty_show_route_map_entry (struct vty *vty, struct route_map *map)
 
   /* Print the name of the protocol */
   if (zlog_default)
-    vty_out (vty, "%s:%s", zlog_proto_names[zlog_default->protocol],
+    vty_out (vty, "%s:%s", zlog_get_proto_name(NULL),
              VTY_NEWLINE);
 
   for (index = map->head; index; index = index->next)

@@ -147,6 +147,22 @@ extern int zlog_reset_file (struct zlog *zl);
 /* Rotate log. */
 extern int zlog_rotate (struct zlog *);
 
+/* getters & setters */
+extern int zlog_get_default_lvl (struct zlog *zl);
+extern void zlog_set_default_lvl (struct zlog *zl, int level);
+extern void zlog_set_default_lvl_dest (struct zlog *zl, int level);
+extern int zlog_get_maxlvl (struct zlog *zl, zlog_dest_t dest);
+extern int zlog_get_facility (struct zlog *zl);
+extern void zlog_set_facility (struct zlog *zl, int facility);
+extern int zlog_get_record_priority (struct zlog *zl);
+extern void zlog_set_record_priority (struct zlog *zl, int record_priority);
+extern int zlog_get_timestamp_precision (struct zlog *zl);
+extern void zlog_set_timestamp_precision (struct zlog *zl, int timestamp_precision);
+extern const char * zlog_get_ident (struct zlog *zl);
+extern char * zlog_get_filename (struct zlog *zl);
+extern int zlog_is_file (struct zlog *zl);
+extern const char * zlog_get_proto_name (struct zlog *zl);
+
 /* For hackey massage lookup and check */
 #define LOOKUP(x, y) mes_lookup(x, x ## _max, y, "(no item found)")
 
