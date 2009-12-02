@@ -21,7 +21,45 @@ extern void _zlog_assert_failed (const char *assertion, const char *file,
 			    (_zlog_assert_failed(#EX, __FILE__, __LINE__, \
 						 __ASSERT_FUNCTION), 0)))
 
+/* Implicitly *permanent* assert() -- irrespective of NDEBUG    */
 #undef assert
 #define assert(EX) zassert(EX)
+
+/* Explicitly permanent assert()                                */
+#define passert(EX) zassert(EX)
+
+/* NDEBUG time assert()                                         */
+#ifndef NDEBUG
+#define dassert(EX) zassert(EX)
+#else
+#define dassert(EX)
+#endif
+
+/* TODO: implement _zlog_abort() to give required messages      */
+
+/* Abort with message                                           */
+#define zabort(MS) _zlog_assert_failed(MS, __FILE__, __LINE__, \
+                                                              __ASSERT_FUNCTION)
+
+/* Abort with message and errno and strerror() thereof          */
+#define zabort_errno(MS) _zlog_assert_failed(MS, __FILE__, __LINE__, \
+                                                              __ASSERT_FUNCTION)
+
+/* Abort with message and given error and strerror() thereof    */
+#define zabort_err(MS, ERR) _zlog_assert_failed(MS, __FILE__, __LINE__, \
+                                                              __ASSERT_FUNCTION)
+
+/*==============================================================================
+ * Compile time CONFIRM gizmo
+ *
+ * Two forms:  CONFIRM(e) for use at top (file) level
+ *             confirm(e) for use inside compound statements
+ */
+#ifndef CONFIRM
+
+ #define CONFIRM(e)  extern void CONFIRMATION(char CONFIRM[(e) ? 1 : -1]) ;
+ #define confirm(e)  { CONFIRM(e) }
+
+#endif
 
 #endif /* _QUAGGA_ASSERT_H */
