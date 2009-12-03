@@ -59,7 +59,8 @@ typedef int64_t qtime_t ;
 #define TIMEVAL_SECOND   1000000
 
 /* Macro to convert time in seconds to a qtime_t                */
-#define QTIME(s) ((qtime_t)((s) * QTIME_SECOND))
+/* Note that the time to convert may be a float.                */
+#define QTIME(s) ((qtime_t)((s) * (qtime_t)QTIME_SECOND))
 
 Inline qtime_t
 timespec2qtime(struct timespec* p_ts) ;
