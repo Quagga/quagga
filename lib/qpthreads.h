@@ -180,6 +180,9 @@ qpt_mutex_unlock(qpt_mutex_t* mx) ;     /* do nothing if mx == NULL     */
  *   * CLOCK_MONOTONIC if available
  *   * CLOCK_REALTIME otherwise  -- this is the standard default.
  *
+ * QPT_COND_CLOCK_MONOTONIC is set if CLOCK_MONOTONIC is used (and must be set
+ * if QPT_COND_CLOCK_ID is set elsewhere to something that is monotonic).
+ *
  * NB: qpt_cond_get_timeout_time uses QPT_COND_CLOCK_ID.
  *
  *     If a specific clock is required, it can be set... but the user of the
@@ -192,8 +195,10 @@ qpt_mutex_unlock(qpt_mutex_t* mx) ;     /* do nothing if mx == NULL     */
 #ifndef QPT_COND_CLOCK_ID
 # ifndef HAVE_CLOCK_MONOTONIC
 #  define QPT_COND_CLOCK_ID  CLOCK_REALTIME
+#  undef  QPT_COND_CLOCK_MONOTONIC
 # else
 #  define QPT_COND_CLOCK_ID  CLOCK_MONOTONIC
+#  define QPT_COND_CLOCK_MONOTONIC  1
 # endif
 #endif
 
@@ -389,5 +394,14 @@ qpt_cond_broadcast(qpt_cond_t* cv)
     zabort_err("pthread_cond_broadcast failed", err) ;
 #endif
 } ;
+
+/*==============================================================================
+ * Signal Handling.
+ */
+void
+qpt_thread_sigmask(int how, const sigset_t* set, sigset_t* oset) ;
+
+void
+qpt_thread_signal(qpt_thread_t thread, int signum) ;
 
 #endif /* _ZEBRA_QPTHREADS_H */

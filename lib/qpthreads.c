@@ -19,6 +19,8 @@
  * Boston, MA 02111-1307, USA.
  */
 
+#include <signal.h>
+
 #include "qpthreads.h"
 #include "memory.h"
 
@@ -118,6 +120,14 @@
  *
  * The use a clock other than Quagga's standard (QPT_COND_CLOCK_ID) is possible,
  * but not recommended.  (See qpthreads.h for discussion of this.)
+ *
+ * Pthread Specific Signal Handling
+ * ================================
+ *
+ * In a threaded application, need to use pthread_sigmask (not sigproc_mask).
+ * (Can use pthread_sigmask in a single threaded application.)
+ *
+ * To direct a signal at a given thread need pthread_kill. *
  */
 
 /*==============================================================================
@@ -432,4 +442,40 @@ qpt_cond_destroy(qpt_cond_t* cv, int free_cond)
       XFREE(MTYPE_QPT_COND, cv) ;
 
   return NULL ;
+} ;
+
+/*==============================================================================
+ * Signal Handling.
+ */
+
+/* Set thread signal mask
+ *
+ * Thin wrapper around pthread_sigmask.
+ *
+ * zaborts if gets any error.
+ */
+void
+qpt_thread_sigmask(int how, const sigset_t* set, sigset_t* oset)
+{
+  int err ;
+
+  err = pthread_sigmask(how, set, oset) ;
+  if (err != 0)
+    zabort_err("pthread_sigmask failed", err) ;
+} ;
+
+/* Send given thread the given signal
+ *
+ * Thin wrapper around pthread_kill.
+ *
+ * zaborts if gets any error.
+ */
+void
+qpt_thread_signal(qpt_thread_t thread, int signum)
+{
+  int err ;
+
+  err = pthread_kill(thread, signum) ;
+  if (err != 0)
+    zabort_err("pthread_kill failed", err) ;
 } ;
