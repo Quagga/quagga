@@ -8,6 +8,18 @@
 extern void _zlog_assert_failed (const char *assertion, const char *file,
 				 unsigned int line, const char *function)
 				 __attribute__ ((noreturn));
+extern void _zlog_abort_mess (const char *mess, const char *file,
+                                 unsigned int line, const char *function)
+                                 __attribute__ ((noreturn));
+
+extern void _zlog_abort_errno (const char *mess, const char *file,
+                                 unsigned int line, const char *function)
+                                 __attribute__ ((noreturn));
+
+extern void _zlog_abort_err (const char *mess, int err, const char *file,
+                                 unsigned int line, const char *function)
+                                 __attribute__ ((noreturn));
+
 
 #if defined(__STDC_VERSION__) && __STDC_VERSION__ >= 199901L
 #define __ASSERT_FUNCTION    __func__
@@ -42,11 +54,11 @@ extern void _zlog_assert_failed (const char *assertion, const char *file,
                                                               __ASSERT_FUNCTION)
 
 /* Abort with message and errno and strerror() thereof          */
-#define zabort_errno(MS) _zlog_assert_failed(MS, __FILE__, __LINE__, \
+#define zabort_errno(MS) _zlog_abort_errno(MS, __FILE__, __LINE__, \
                                                               __ASSERT_FUNCTION)
 
 /* Abort with message and given error and strerror() thereof    */
-#define zabort_err(MS, ERR) _zlog_assert_failed(MS, __FILE__, __LINE__, \
+#define zabort_err(MS, ERR) _zlog_abort_err(MS, ERR, __FILE__, __LINE__, \
                                                               __ASSERT_FUNCTION)
 
 /*==============================================================================

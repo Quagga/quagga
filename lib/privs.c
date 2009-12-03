@@ -25,21 +25,10 @@
 #include "log.h"
 #include "privs.h"
 #include "memory.h"
-#include <pthread.h>
+#include "qpthreads.h"
 
-/* needs to be pthread safe */
-static pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
-#if 0
-static int lock_count = 0;
-#define LOCK if(lock_count++ != 0){printf("Lock count: %d\n", lock_count);assert(0);}
-#define UNLOCK if(--lock_count != 0){printf("Unlock count: %d\n", lock_count);assert(0);}
-#elif defined(NDEBUG)
-#define LOCK pthread_mutex_lock(&mutex);
-#define UNLOCK pthread_mutex_unlock(&mutex);
-#else
-#define LOCK if(pthread_mutex_lock(&mutex)!= 0){assert(0);};
-#define UNLOCK if(pthread_mutex_unlock(&mutex)!= 0){assert(0);};
-#endif
+/* Needs to be qpthread safe */
+static qpt_mutex_t* mx = NULL;
 
 #ifdef HAVE_CAPABILITIES
 /* sort out some generic internal types for:
@@ -206,13 +195,13 @@ zprivs_change_caps (zebra_privs_ops_t op)
   int result = 0;
   int change = 0;
 
-  LOCK
+  qpt_mutex_lock(mx);
 
   /* should be no possibility of being called without valid caps */
   assert (zprivs_state.syscaps_p && zprivs_state.caps);
   if (! (zprivs_state.syscaps_p && zprivs_state.caps))
     {
-      UNLOCK
+      qpt_mutex_unlock(mx);
       exit (1);
     }
 
@@ -237,7 +226,7 @@ zprivs_change_caps (zebra_privs_ops_t op)
                        cflag))
     result = cap_set_proc (zprivs_state.caps);
 
-  UNLOCK
+  qpt_mutex_unlock(mx);
   return result;
 }
 
@@ -248,13 +237,13 @@ zprivs_state_caps (void)
   cap_flag_value_t val;
   zebra_privs_current_t result = ZPRIVS_LOWERED;
 
-  LOCK
+  qpt_mutex_lock(mx);
 
   /* should be no possibility of being called without valid caps */
   assert (zprivs_state.syscaps_p && zprivs_state.caps);
   if (! (zprivs_state.syscaps_p && zprivs_state.caps))
     {
-      UNLOCK
+      qpt_mutex_unlock(mx);
       exit (1);
     }
   
@@ -275,7 +264,7 @@ zprivs_state_caps (void)
         }
     }
 
-  UNLOCK
+  qpt_mutex_unlock(mx);
   return result;
 }
 
@@ -423,14 +412,14 @@ zprivs_change_caps (zebra_privs_ops_t op)
 {
   int result = 0;
   
-  LOCK
+  qpt_mutex_lock(mx);
 
   /* should be no possibility of being called without valid caps */
   assert (zprivs_state.syscaps_p);
   if (!zprivs_state.syscaps_p)
     {
       fprintf (stderr, "%s: Eek, missing caps!", __func__);
-      UNLOCK
+      qpt_mutex_unlock(mx);
       exit (1);
     }
   
@@ -458,7 +447,7 @@ zprivs_change_caps (zebra_privs_ops_t op)
   else
     result = -1;
   
-  UNLOCK
+  qpt_mutex_unlock(mx);
   
   return result;
 }
@@ -470,7 +459,7 @@ zprivs_state_caps (void)
   zebra_privs_current_t result = ZPRIVS_UNKNOWN;
   pset_t *effective;
   
-  LOCK
+  qpt_mutex_lock(mx);
 
   if ( (effective = priv_allocset()) == NULL)
     {
@@ -497,7 +486,7 @@ zprivs_state_caps (void)
         priv_freeset (effective);
     }
   
-  UNLOCK
+  qpt_mutex_unlock(mx);
   return result;
 }
 
@@ -628,7 +617,7 @@ zprivs_change_uid (zebra_privs_ops_t op)
 {
   int result = 0;
 
-  LOCK
+  qpt_mutex_lock(mx);
 
   if (op == ZPRIVS_RAISE)
     {
@@ -649,7 +638,7 @@ zprivs_change_uid (zebra_privs_ops_t op)
     result = -1;
     }
 
-  UNLOCK
+  qpt_mutex_unlock(mx);
   return result;
 }
 
@@ -658,9 +647,9 @@ zprivs_state_uid (void)
 {
   zebra_privs_current_t result;
 
-  LOCK
+  qpt_mutex_lock(mx);
   result = ( (zprivs_state.zuid == geteuid()) ? ZPRIVS_LOWERED : ZPRIVS_RAISED);
-  UNLOCK
+  qpt_mutex_unlock(mx);
   return result;
 }
 
@@ -675,10 +664,23 @@ zprivs_state_null (void)
 {
   int result;
 
-  LOCK
+  qpt_mutex_lock(mx);
   result = zprivs_null_state;
-  UNLOCK
+  qpt_mutex_unlock(mx);
   return result;
+}
+
+void
+zprivs_init_r(struct zebra_privs_t *zprivs)
+{
+  mx = qpt_mutex_init(mx, qpt_mutex_quagga);
+  zprivs_init(zprivs);
+}
+
+void
+zprivs_destroy_r(void)
+{
+  mx = qpt_mutex_destroy(mx, 1);
 }
 
 void
@@ -693,7 +695,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
       exit (1);
     }
 
-  LOCK
+  qpt_mutex_lock(mx);
 
   /* NULL privs */
   if (! (zprivs->user || zprivs->group 
@@ -701,7 +703,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
     {
       zprivs->change = zprivs_change_null;
       zprivs->current_state = zprivs_state_null;
-      UNLOCK
+      qpt_mutex_unlock(mx);
       return;
     }
 
@@ -716,7 +718,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
           /* cant use log.h here as it depends on vty */
           fprintf (stderr, "privs_init: could not lookup user %s\n",
                    zprivs->user);
-          UNLOCK
+          qpt_mutex_unlock(mx);
           exit (1);
         }
     }
@@ -733,7 +735,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
             {
               fprintf (stderr, "privs_init: could not setgroups, %s\n",
                          safe_strerror (errno) );
-              UNLOCK
+              qpt_mutex_unlock(mx);
               exit (1);
             }       
         }
@@ -741,7 +743,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
         {
           fprintf (stderr, "privs_init: could not lookup vty group %s\n",
                    zprivs->vty_group);
-          UNLOCK
+          qpt_mutex_unlock(mx);
           exit (1);
         }
     }
@@ -756,7 +758,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
         {
           fprintf (stderr, "privs_init: could not lookup group %s\n",
                    zprivs->group);
-          UNLOCK
+          qpt_mutex_unlock(mx);
           exit (1);
         }
       /* change group now, forever. uid we do later */
@@ -764,7 +766,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
         {
           fprintf (stderr, "zprivs_init: could not setregid, %s\n",
                     safe_strerror (errno) );
-          UNLOCK
+          qpt_mutex_unlock(mx);
           exit (1);
         }
     }
@@ -785,7 +787,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
         {
           fprintf (stderr, "privs_init (uid): could not setreuid, %s\n", 
                    safe_strerror (errno));
-          UNLOCK
+          qpt_mutex_unlock(mx);
           exit (1);
         }
     }
@@ -794,7 +796,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
   zprivs->current_state = zprivs_state_uid;
 #endif /* HAVE_CAPABILITIES */
 
-  UNLOCK
+  qpt_mutex_unlock(mx);
 }
 
 void 
@@ -806,7 +808,7 @@ zprivs_terminate (struct zebra_privs_t *zprivs)
       exit (0);
     }
   
-  LOCK
+  qpt_mutex_lock(mx);
 
 #ifdef HAVE_CAPABILITIES
   zprivs_caps_terminate();
@@ -817,7 +819,7 @@ zprivs_terminate (struct zebra_privs_t *zprivs)
         {
           fprintf (stderr, "privs_terminate: could not setreuid, %s", 
                      safe_strerror (errno) );
-          UNLOCK
+          qpt_mutex_unlock(mx);
           exit (1);
         }
      }
@@ -828,14 +830,14 @@ zprivs_terminate (struct zebra_privs_t *zprivs)
   zprivs_null_state = ZPRIVS_LOWERED;
   raise_count = 0;
 
-  UNLOCK
+  qpt_mutex_unlock(mx);
   return;
 }
 
 void
 zprivs_get_ids(struct zprivs_ids_t *ids)
 {
-  LOCK
+  qpt_mutex_lock(mx);
 
   ids->uid_priv = getuid();
   (zprivs_state.zuid) ? (ids->uid_normal = zprivs_state.zuid)
@@ -845,6 +847,6 @@ zprivs_get_ids(struct zprivs_ids_t *ids)
   (zprivs_state.vtygrp) ? (ids->gid_vty = zprivs_state.vtygrp)
                        : (ids->gid_vty = -1);
    
-   UNLOCK
+   qpt_mutex_unlock(mx);
    return;
 }

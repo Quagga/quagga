@@ -93,7 +93,11 @@ struct message
   const char *str;
 };
 
-/* Default logging strucutre. */
+/* module initialization */
+extern void zlog_init_r(void);
+extern void zlog_destroy_r(void);
+
+/* Default logging structure. */
 extern struct zlog *zlog_default;
 
 /* Open zlog function */
