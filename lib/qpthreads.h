@@ -87,7 +87,8 @@ typedef pthread_attr_t   qpt_thread_attr_t ;
  * Thread Creation -- see qpthreads.c for further discussion.
  */
 
-enum qpt_attr_options {
+enum qpt_attr_options
+{
   qpt_attr_joinable        = 0,         /* the default for Quagga       */
 
   qpt_attr_detached        = 0x0001,    /* otherwise will set joinable  */
@@ -115,6 +116,15 @@ extern qpt_thread_t
 qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr) ;
 
 /*==============================================================================
+ * Thread self knowledge.
+ */
+
+Inline qpt_thread_t qpt_thread_self(void)
+{
+  return pthread_self() ;
+} ;
+
+/*==============================================================================
  * Mutex handling.
  *
  * Quagga's default mutex type is:
@@ -135,7 +145,8 @@ qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr) ;
  *     used to override this choice.
  */
 
-enum qpt_mutex_options {
+enum qpt_mutex_options
+{
   qpt_mutex_quagga      = 0x0000,       /* Quagga's default     */
   qpt_mutex_normal      = 0x0001,
   qpt_mutex_recursive   = 0x0002,
@@ -202,7 +213,8 @@ qpt_mutex_unlock(qpt_mutex_t* mx) ;     /* do nothing if mx == NULL     */
 # endif
 #endif
 
-enum qpt_cond_options {
+enum qpt_cond_options
+{
   qpt_cond_quagga      = 0x0000,  /* Quagga's default   */
   qpt_cond_realtime    = 0x0001,  /* standard default   */
   qpt_cond_monotonic   = 0x0002,

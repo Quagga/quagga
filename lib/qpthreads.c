@@ -459,6 +459,9 @@ qpt_thread_sigmask(int how, const sigset_t* set, sigset_t* oset)
 {
   int err ;
 
+  if (oset != NULL)
+    sigemptyset(oset) ;         /* to make absolutely sure      */
+
   err = pthread_sigmask(how, set, oset) ;
   if (err != 0)
     zabort_err("pthread_sigmask failed", err) ;
