@@ -88,11 +88,8 @@ qtime2timeval(struct timeval* p_tv, qtime_t qt) ;
  *   * Monotonic Clock
  *
  *     Using clock_gettime(CLOCK_MONOTONIC, &ts) if it is available, otherwise
- *     a manufactured equivalent using times().
+ *     a manufactured equivalent using times() -- see qt_craft_monotonic().
  */
-
-Inline qtime_t
-qt_get_timeofday(void) ;        /* gettimeofday(&tv, NULL)              */
 
 Inline qtime_t
 qt_get_realtime(void) ;         /* clock_gettime(CLOCK_REALTIME, &ts)   */
@@ -101,8 +98,22 @@ Inline qtime_t
 qt_get_monotonic(void) ;        /* clock_gettime(CLOCK_MONOTONIC, &ts   */
                                 /* OR equivalent using times()          */
 
+Inline qtime_t                  /* monotonic time from CLOCK_REALTIME   */
+qt_realtime2monotonic(qtime_t realtime) ;
+Inline qtime_t                  /* CLOCK_REALTIME from monotonic time   */
+qt_monotonic2realtime(qtime_t monotonic) ;
+
 /* Function to manufacture a monotonic clock.   */
 extern qtime_t qt_craft_monotonic(void) ;
+
+/* These are provided just in case gettimeofday() != CLOCK_REALTIME     */
+Inline qtime_t
+qt_get_timeofday(void) ;        /* gettimeofday(&tv, NULL)              */
+
+Inline qtime_t                  /* monotonic time from timeofday        */
+qt_timeofday2monotonic(qtime_t timeofday) ;
+Inline qtime_t                  /* timeofday from monotonic time        */
+qt_monotonic2timeofday(qtime_t monotonic) ;
 
 /*==============================================================================
  * Inline conversion functions
@@ -115,7 +126,8 @@ extern qtime_t qt_craft_monotonic(void) ;
 Inline qtime_t
 timespec2qtime(struct timespec* p_ts)
 {
-  return ((qtime_t)(p_ts->tv_sec) * QTIME_SECOND) + p_ts->tv_nsec ;
+  return QTIME(p_ts->tv_sec) + p_ts->tv_nsec ;
+  confirm(QTIME_SECOND == TIMESPEC_SECOND) ;
 } ;
 
 /* Convert timeval to qtime_t
@@ -125,7 +137,8 @@ timespec2qtime(struct timespec* p_ts)
 Inline qtime_t
 timeval2qtime(struct timeval* p_tv)
 {
-  return ((qtime_t)(p_tv->tv_sec) * QTIME_SECOND) + (p_tv->tv_usec * 1000) ;
+  return QTIME(p_tv->tv_sec) + (p_tv->tv_usec * 1000) ;
+  confirm(QTIME_SECOND == TIMEVAL_SECOND      * 1000) ;
 } ;
 
 /* Convert qtime_t to timespec
@@ -136,8 +149,11 @@ Inline struct timespec*
 qtime2timespec(struct timespec* p_ts, qtime_t qt)
 {
   lldiv_t imd = lldiv(qt, QTIME_SECOND) ;
+  confirm(sizeof(long long) >= sizeof(qtime_t)) ;
+
   p_ts->tv_sec  = imd.quot ;
   p_ts->tv_nsec = imd.rem ;
+  confirm(TIMESPEC_SECOND == QTIME_SECOND) ;
 
   return p_ts ;
 } ;
@@ -150,8 +166,11 @@ Inline struct timeval*
 qtime2timeval(struct timeval* p_tv, qtime_t qt)
 {
   lldiv_t imd = lldiv(qt, QTIME_SECOND) ;
+  confirm(sizeof(long long) >= sizeof(qtime_t)) ;
+
   p_tv->tv_sec  = imd.quot ;
   p_tv->tv_usec = imd.rem / 1000 ;
+  confirm(TIMEVAL_SECOND  * 1000 == QTIME_SECOND) ;
 
   return p_tv ;
 } ;
@@ -209,6 +228,39 @@ qt_get_monotonic(void)
 #else
   return qt_craft_monotonic() ;
 #endif
+} ;
+
+/*==============================================================================
+ * Conversion between realtime/timeofday and monotonic
+ *
+ */
+
+/* Convert a CLOCK_REALTIME time to our local monotonic time.           */
+Inline qtime_t
+qt_realtime2monotonic(qtime_t realtime)
+{
+  return qt_get_monotonic() + (realtime - qt_get_realtime()) ;
+} ;
+
+/* Convert a local monotonic time to CLOCK_REALTIME time.               */
+Inline qtime_t
+qt_monotonic2realtime(qtime_t monotonic)
+{
+  return qt_get_realtime() + (monotonic - qt_get_monotonic()) ;
+} ;
+
+/* Convert a gettimeofday() time to our local monotonic time.           */
+Inline qtime_t
+qt_timeofday2monotonic(qtime_t timeofday)
+{
+  return qt_get_monotonic() + (timeofday - qt_get_timeofday()) ;
+} ;
+
+/* Convert a local monotonic time to gettimeofday() time.               */
+Inline qtime_t
+qt_monotonic2timeofday(qtime_t monotonic)
+{
+  return qt_get_timeofday() + (monotonic - qt_get_monotonic()) ;
 } ;
 
 #endif /* _ZEBRA_QTIME_H */

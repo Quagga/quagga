@@ -47,7 +47,7 @@
  *
  * The qtime_t value is in nano-seconds.
  *
- * The result from times() is in units of sysconf(_SC_CLK_TCK).
+ * The result from times() is in units of sysconf(_SC_CLK_TCK) ticks per second.
  *
  * NB: it is assumed that qt_craft_monotonic will be called often enough to
  *     ensure that it is not fooled by the clock wrapping round.
@@ -61,7 +61,7 @@
  *     So this should be a safe assumption -- particularly as 60, 100, 250 and
  *     1000 ticks per second appear to be the popular options.
  *
- *     For safety, this asserts that the value is <= 1,000,000.
+ *     For safety, this asserts that sysconf(_SC_CLK_TCK) <= 1,000,000.
  */
 
 #ifdef GNU_LINUX
@@ -89,12 +89,12 @@ qt_craft_monotonic(void) {
   /* clock either to jump or to get stuck !                             */
 
 #ifdef TIMES_TAKES_NULL
-  this_times_sample = times(NULL) ;     /* assume this saves effort !   */
+  this_times_sample = times(NULL) ;       /* assume this saves effort !   */
 #else
   this_times_sample = times(&dummy) ;
 #endif
 
-  if (this_times_sample == (clock_t)-1)
+  if (this_times_sample == (uint64_t)-1)  /* deal with theoretical error  */
     {
        errno = 0 ;
        this_times_sample = times(&dummy) ;
@@ -102,7 +102,10 @@ qt_craft_monotonic(void) {
          zabort_errno("times() failed") ;
     } ;
 
+  /* Advance the monotonic clock in sysconf(_SC_CLK_TCK) units.         */
+  monotonic += (this_times_sample - last_times_sample) ;
 
+  /* Set up times_scale_q & times_scale_q if not yet done               */
   if (times_clk_tcks == 0)      /* Is zero until it's initialized       */
     {
       lldiv_t qr ;
@@ -118,8 +121,7 @@ qt_craft_monotonic(void) {
       last_times_sample = this_times_sample ;
     } ;
 
-  monotonic += (this_times_sample - last_times_sample) ;
-
+  /* Scale to qtime_t units.                                            */
   if (times_scale_r == 0)
     return monotonic * times_scale_q ;
   else
