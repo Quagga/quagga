@@ -234,6 +234,38 @@ vector_ream(vector v, int free_structure)
 } ;
 
 /*==============================================================================
+ * Unset item.
+ */
+
+/* Unset item at given index (ie set it NULL).
+ *
+ * Return the old value of the item.
+ *
+ * If the item at the current (logical) end of the vector is NULL, move the
+ * end backwards until finds a non-NULL item, or the vetor becomes empty.
+ */
+extern p_vector_item
+vector_unset_item(vector v, vector_index i)
+{
+  p_vector_item was ;
+  if (i < v->end)
+    {
+      was = v->p_items[i] ;
+      v->p_items[i] = NULL ;
+    }
+  else
+    was = NULL ;
+
+  /* Now move end back past any NULLs                   */
+  i = v->end ;
+  while ((i > 0) && (v->p_items[i-1] == NULL))
+    --i ;
+  v->end = i ;
+
+  return was ;
+} ;
+
+/*==============================================================================
  * Inserting and deleting items.
  */
 
@@ -820,36 +852,6 @@ vector_lookup_ensure (vector v, vector_index i)
 {
   vector_ensure (v, i);
   return v->p_items[i];
-}
-
-/* Unset value at specified index slot. */
-void
-vector_unset (vector v, vector_index i)
-{
-  vector_index j ;
-  if (i >= v->end)
-    return;		/* Everything beyond or at end is implicitly NULL */
-
-  v->p_items[i] = NULL;
-
-  /* See if everything ahead of 'i' is also NULL.  */
-  j = i ;
-  while (++j < v->end)
-    if (v->p_items[j] != NULL)
-      return ;          /* Finished if anything ahead 'i' is not NULL	  */
-
-  /* Everything from 'i' onwards is NULL.
-   * Step backwards across any NULLs and then set the new end.
-   */
-#if 0
-      v->end--;
-      while (i && v->p_items[--i] == NULL && v->end--)
-	;				/* Is this ugly ? */
-#endif
-  while ((i != 0) && (v->p_items[i - 1] == NULL))
-    --i ;
-
-  v->end = i ;
 }
 
 /* Count the number of not empty slots. */

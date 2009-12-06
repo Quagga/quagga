@@ -21,6 +21,7 @@
 
 #include <zebra.h>
 
+#include "zassert.h"
 #include "heap.h"
 #include "memory.h"
 
@@ -32,10 +33,10 @@
  * structure, or allocated dynamically.  In any case the heap operations
  * require the address of the heap structure -- see typedef for heap.
  *
- * An essential component of a heap is its comparison function.  So, cannot
- * use a heap before it has been initialised and the comparison function set.
- * (This is unlike a vector, which may be implicitly initialised empty by
- * zeroizing the vector structure.)
+ * An essential component of a heap is its comparison function.  So, a heap
+ * CANNOT be used before it has been initialised and the comparison function
+ * set.  (This is unlike a vector, which may be implicitly initialised empty by
+ * zeroising the vector structure.)
  *
  * Items may be pushed onto or popped off the heap, which is organised so that
  * the top item has the smallest value -- according to the heap's comparison
@@ -73,36 +74,16 @@
  * NB: there should never be NULL items in the heap.
  */
 
-/* Forward reference the mechanics.	*/
-static void heap_bubble(heap h, vector_index i, p_vector_item p_v) ;
-static void heap_bubble_up(heap h, vector_index i, p_vector_item p_v);
-static void heap_bubble_down(heap h, vector_index i, p_vector_item p_v)  ;
-
 /*==============================================================================
  * Initialisation, allocation, reset etc.
  */
 
 static heap
 heap_setup(heap h, int new_vector, vector_index size, heap_cmp* cmp,
-                                int with_backlink, unsigned int backlink_offset)
-{
-  assert(cmp != NULL) ;         /* or there will be tears */
+                              int with_backlink, unsigned int backlink_offset) ;
 
-  h->cmp   = cmp ;
-  h->state = with_backlink ? Heap_Has_Backlink : 0 ;
-  h->backlink_offset = backlink_offset ;
-
-  if (new_vector)
-    vector_init_new(&h->v, size) ;
-  else
-    vector_re_init(&h->v, size) ;
-
-  return h ;
-} ;
-
-/* Initialize heap.
+/* Initialize heap -- allocating heap structure if required.
  *
- * Allocates heap structure if none given.
  * Does not allocate the underlying vector if the heap is initialised empty.
  *
  * eg:
@@ -180,32 +161,50 @@ heap_reset(heap h, int free_structure)
   vector_reset(&h->v, 0) ;
 
   if (free_structure)
-    {
-      XFREE(MTYPE_VECTOR, h) ;
-      return NULL ;
-    } ;
+    XFREE(MTYPE_VECTOR, h) ;    /* sets h = NULL */
 
   return h ;
 } ;
 
-/* Remove last item from heap.
+/* Common set-up for heap_init_new() & heap_reset().
+ */
+static heap
+heap_setup(heap h, int new_vector, vector_index size, heap_cmp* cmp,
+                                int with_backlink, unsigned int backlink_offset)
+{
+  assert(cmp != NULL) ;         /* or there will be tears */
+
+  h->cmp   = cmp ;
+  h->state = with_backlink ? Heap_Has_Backlink : 0 ;
+  h->backlink_offset = backlink_offset ;
+
+  if (new_vector)
+    vector_init_new(&h->v, size) ;
+  else
+    vector_re_init(&h->v, size) ;
+
+  return h ;
+} ;
+
+/* Ream (another) item out of the given heap.
  *
  * If heap is empty, release the underlying vector, and (if required) release
  * the heap structure.
  *
- * Useful for emptying out and discarding a heap:
+ * Useful for emptying out and resetting/discarding a heap:
  *
- *     while ((p_v = heap_ream_out(v, 1)))
+ *     while ((p_v = heap_ream(h, 1)))
  *       ... do what's required to release the item p_v
  *
- * Returns NULL when heap is empty.
+ * Returns NULL when heap is empty (and structure has been freed, if required).
  *
  * If does not release the heap, it retains the comparison function and any
  * backlink setting -- so heap can be reused without reinitialising it.
  *
- * NB: by 'last' this does NOT mean last according to the heap ordering,
- *     it just means last in the underlying vector -- which won't be the
- *     first in heap order (unless heap contains only one item).
+ * NB: once the process of reaming a heap has started: (a) MUST NOT attempt to
+ *     use the heap until process completes, and (b) MUST complete the process.
+ *
+ * NB: items are reamed out in no defined order.
  */
 p_vector_item
 heap_ream(heap h, int free_structure)
@@ -222,16 +221,8 @@ heap_ream(heap h, int free_structure)
 } ;
 
 /*==============================================================================
- * Simple Heap Operations
+ * Simple Heap Operations -- see also the Inline functions.
  */
-
-/* Push given item onto the heap                                          */
-void
-heap_push_item(heap h, p_vector_item p_v)
-{
-  assert(p_v) ;	 /* no NULLs, thank you.  */
-  heap_bubble_up(h, vector_extend_by_1(&h->v), p_v) ;
-} ;
 
 /* Pop item off the heap.
  *
@@ -243,39 +234,44 @@ heap_pop_item(heap h)
   p_vector_item p_v ;
   p_vector_item p_x ;
 
-  p_x = vector_pop_item(&h->v) ;  /* extract last item, if any 	        */
-  if (h->v.end == 0)
-    return p_x ;                  /* done if last was also first        */
+  p_v = vector_pop_item(&h->v) ;  /* extract last item, if any 	          */
+  if ((p_v == NULL) || (h->v.end == 0))
+    return p_v ;                  /* done if empty or last was also first */
 
-  p_v = h->v.p_items[0] ;	  /* this is what we are popping	*/
+  p_x = h->v.p_items[0] ;	  /* this is what we are popping	  */
 
-  heap_bubble_down(h, 0, p_x) ;	  /* reposition what was the last item	*/
-				  /* updating any backlink		*/
-  return p_v ;
+  heap_bubble_down(h, 0, p_v) ;	  /* reposition what was the last item	  */
+				  /* updating any backlink		  */
+  return p_x ;
 } ;
 
-/* Get address of top item on heap.  Re-establish heap order if required.
+/* Pop one item off the heap and promptly push another.
  *
- * Returns NULL if heap is empty.
+ * In this combination the pop is essentially free.
+ *
+ * Returns NULL if heap was empty.
  */
 p_vector_item
-heap_top_item(heap h)
+heap_pop_push_item(heap h, p_vector_item p_v)
 {
-  return vector_get_first_item(&h->v) ;  /* if any */
-} ;
+  p_vector_item p_x ;
 
-/* Update heap to reflect new value of top item.        */
-void
-heap_update_top_item(heap h)
-{
-  heap_bubble_down(h, 0, vector_get_first_item(&h->v)) ;
+  dassert(p_v != NULL) ;           /* no NULLs, thank you.               */
+
+  p_x = heap_top_item(h) ;         /* what we are popping                */
+
+  if (p_x == NULL)
+    heap_push_item(h, p_v) ;       /* for empty heap, this deals with    */
+                                   /* extending heap etc.                */
+  else
+    heap_bubble_down(h, 0, p_v) ;  /* position the replacement           */
+                                   /* setting any backlink               */
+  return p_x ;
 } ;
 
 /*==============================================================================
  * Heap Operations which use 'backlink', if implemented.
  */
-
-static vector_index heap_find_item(heap h, p_vector_item) ;
 
 /* Delete given item from the heap.
  *
@@ -298,15 +294,6 @@ heap_delete_item(heap h, p_vector_item p_v)
 
   heap_bubble(h, i, p_x) ;	  /* move what was last into position	*/
 				  /* updating any backlink		*/
-} ;
-
-/* Update heap to reflect new value of given item.
- *
- * See notes on backlink, above.
- */
-void heap_update_item(heap h, p_vector_item p_v)
-{
-  heap_bubble(h, heap_find_item(h, p_v), p_v) ;
 } ;
 
 /*==============================================================================
@@ -354,15 +341,14 @@ heap_push_vector(heap h, vector v, int move_vector)
  *
  * NB: if re-initialising existing vector, it is the caller's responsibility
  *     to ensure the vector structure is currently valid.
-*/
-
+ */
 vector
 heap_pop_vector(vector v, heap h, int move_heap)
 {
   vector_index n = h->v.end ;
   vector_index i ;
 
-  v = vector_re_init(v, n) ;
+  v = vector_re_init(v, n) ;      /* guarantees >= 'n' items in vector  */
   v->end = n ;
 
   for (i = 0 ; i < n ; i++)
@@ -386,9 +372,9 @@ heap_pop_vector(vector v, heap h, int move_heap)
   if ((h)->state & Heap_Has_Backlink) HEAP_BACKLINK(h, p_v) = (i)
 
 /* Returns index of parent.		*/
-#define HEAP_UP(i)   (((i) * 2) + 1)
+#define HEAP_UP(i)   (((i) - 1) / 2)
 /* Returns index of left child.		*/
-#define HEAP_DOWN(i) (((i) - 1) / 2)
+#define HEAP_DOWN(i) (((i) * 2) + 1)
 
 /* Insert given item in the required place in heap, given that there is now
  * a hole at the given position -- may move up or down the heap, or stay put.
@@ -397,7 +383,7 @@ heap_pop_vector(vector v, heap h, int move_heap)
  *
  * Note that this sets the backlink on the given item.
  */
-static void
+private void
 heap_bubble(heap h, vector_index i, p_vector_item p_v)
 {
   /* If this is < parent, we bubble upwards.	*/
@@ -417,22 +403,23 @@ heap_bubble(heap h, vector_index i, p_vector_item p_v)
  *     v.end at all.  So this can be used to work along a vector and bring
  *     items into heap order.
  */
-static void
+private void
 heap_bubble_up(heap h, vector_index i, p_vector_item p_v)
 {
   p_vector_item* ha = h->v.p_items ;    /* underlying array     */
+  dassert(ha != NULL) ;
 
   while (i != 0)
     {
       vector_index ip = HEAP_UP(i) ;
-      p_vector_item p_p = &ha[ip] ;
+      p_vector_item p_p = &ha[ip] ;     /* pointer to parent            */
 
       if (h->cmp(&p_p, &p_v) <= 0)
 	break ;				/* stop when parent is <= us	*/
       ha[i] = p_p ;		        /* move parent down...		*/
       heap_set_backlink(h, p_p, i) ;	/* ...updating any backlink	*/
       i = ip ;				/* move up the heap		*/
-    }
+    } ;
 
   ha[i] = p_v ;		                /* place in new position...	*/
   heap_set_backlink(h, p_v, i) ;	/* ...updating any backlink	*/
@@ -443,11 +430,12 @@ heap_bubble_up(heap h, vector_index i, p_vector_item p_v)
  *
  * Note that this sets the backlink on the given item.
  */
-static void
+private void
 heap_bubble_down(heap h, vector_index i, p_vector_item p_v)
 {
   vector_index   e  = h->v.end ;        /* end of heap          */
   p_vector_item* ha = h->v.p_items ;    /* underlying array     */
+  dassert(ha != NULL) ;
 
   while (1)
     {
@@ -469,22 +457,22 @@ heap_bubble_down(heap h, vector_index i, p_vector_item p_v)
 	    {
 	      ic  = is ;		/* select smaller sibling	*/
 	      p_c = p_s ;
-	    }
-	}
+	    } ;
+	} ;
 
       if (h->cmp(&p_v, &p_c) <= 0)
 	break ;				/* stop when we are <= both children  */
       ha[i] = p_c ;		        /* move smaller child up	      */
       heap_set_backlink(h, p_c, i) ;	/* ...updating any backlink	      */
       i = ic ;				/* move down the heap		      */
-    }
+    } ;
 
-  ha[i] = p_v ;
-  heap_set_backlink(h, p_v, i) ;
+  ha[i] = p_v ;                         /* place in new position...     */
+  heap_set_backlink(h, p_v, i) ;        /* ...updating any backlink     */
 } ;
 
 /* Find index of given item in the given heap.		*/
-static vector_index
+private vector_index
 heap_find_item(heap h, p_vector_item p_v)
 {
   vector_index i ;

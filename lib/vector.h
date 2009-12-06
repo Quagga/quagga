@@ -107,7 +107,7 @@ Inline void vector_ensure(vector v, vector_index i) ;
 extern int vector_empty_slot (vector v);
 extern int vector_set (vector v, void *val);
 extern int vector_set_index (vector v, vector_index i, void *val);
-extern void vector_unset (vector v, vector_index i);
+#define vector_unset(v, i) (void)vector_unset_item(v, i)
 extern vector_index vector_count (vector v);
 extern void vector_only_wrapper_free (vector v);
 extern void vector_only_index_free (void *index);
@@ -138,6 +138,7 @@ Inline p_vector_item vector_get_item(vector v, vector_index i) ;
 Inline p_vector_item vector_get_first_item(vector v) ;
 Inline p_vector_item vector_get_last_item(vector v) ;
 Inline void vector_set_item(vector v, vector_index i, p_vector_item p_v) ;
+extern p_vector_item vector_unset_item(vector v, vector_index i) ;
 
 extern void vector_insert_item(vector v, vector_index i, p_vector_item p_v) ;
 extern void vector_insert_item_here(vector v, vector_index i, int rider,
