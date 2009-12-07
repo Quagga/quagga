@@ -290,9 +290,9 @@ qpt_mutex_unlock(qpt_mutex_t* mx)       /* do nothing if mx == NULL     */
 #if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
       pthread_mutex_unlock(mx) ;
 #else
-      int err = pthread_mutex_lock(mx) ;
+      int err = pthread_mutex_unlock(mx) ;
       if (err != 0)
-        zabort_err("pthread_mutex_lock failed", err) ;
+        zabort_err("pthread_mutex_unlock failed", err) ;
 #endif
     } ;
 } ;
