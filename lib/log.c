@@ -36,13 +36,22 @@
 #endif
 #include "qpthreads.h"
 
-/* Needs to be qpthread safe */
-static qpt_mutex_t* mx = NULL;
+#ifdef NDEBUG
+#define LOCK qpt_mutex_lock(vty_mutex);
+#define UNLOCK qpt_mutex_unlock(vty_mutex);
+#else
+#define LOCK qpt_mutex_lock(vty_mutex);++vty_lock_count;
+#define UNLOCK --vty_lock_count;qpt_mutex_unlock(vty_mutex);
+#endif
+
+/* log is protected by the same mutext as vty, see comments in vty.c */
 
 /* prototypes */
-static int do_reset_file (struct zlog *zl);
-static size_t do_timestamp(int timestamp_precision, char *buf, size_t buflen);
+static int uzlog_reset_file (struct zlog *zl);
 static void zlog_abort (const char *mess) __attribute__ ((noreturn));
+static void vzlog (struct zlog *zl, int priority, const char *format, va_list args);
+static void uzlog_backtrace(int priority);
+static void uvzlog (struct zlog *zl, int priority, const char *format, va_list args);
 
 static int logfile_fd = -1;	/* Used in signal handler. */
 
@@ -75,34 +84,22 @@ const char *zlog_priority[] =
   "debugging",
   NULL,
 };
-  
-void
-zlog_init_r(void)
-{
-  mx = qpt_mutex_init(mx, qpt_mutex_quagga);
-}
 
-void
-zlog_destroy_r(void)
-{
-  mx = qpt_mutex_destroy(mx, 1);
-}
-
-
 /* For time string format. */
 
 size_t
 quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
 {
   size_t result;
-  qpt_mutex_lock(mx);
-  result = do_timestamp(timestamp_precision, buf, buflen);
-  qpt_mutex_unlock(mx);
+  LOCK
+  result = uquagga_timestamp(timestamp_precision, buf, buflen);
+  UNLOCK
   return result;
 }
 
-static size_t
-do_timestamp(int timestamp_precision, char *buf, size_t buflen)
+/* unprotected version for when mutex already held */
+size_t
+uquagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
 {
   static struct {
     time_t last;
@@ -175,21 +172,29 @@ time_print(FILE *fp, struct timestamp_control *ctl)
 {
   if (!ctl->already_rendered)
     {
-      ctl->len = do_timestamp(ctl->precision, ctl->buf, sizeof(ctl->buf));
+      ctl->len = uquagga_timestamp(ctl->precision, ctl->buf, sizeof(ctl->buf));
       ctl->already_rendered = 1;
     }
   fprintf(fp, "%s ", ctl->buf);
 }
   
-
 /* va_list version of zlog. */
 static void
 vzlog (struct zlog *zl, int priority, const char *format, va_list args)
 {
+  LOCK
+  uvzlog(zl, priority, format, args);
+  UNLOCK
+}
+
+/* va_list version of zlog. Unprotected assumes mutex already held*/
+static void
+uvzlog (struct zlog *zl, int priority, const char *format, va_list args)
+{
   struct timestamp_control tsctl;
   tsctl.already_rendered = 0;
 
-  qpt_mutex_lock(mx);
+  assert(vty_lock_count);
 
   /* If zlog is not specified, use default one. */
   if (zl == NULL)
@@ -251,18 +256,11 @@ vzlog (struct zlog *zl, int priority, const char *format, va_list args)
       /* Terminal monitor. */
       if (priority <= zl->maxlvl[ZLOG_DEST_MONITOR])
         {
-          /* must be unlocked as vty handles it's own pthread stuff
-           * extract what we need from the zlog first
-           */
           const char *priority_name = (zl->record_priority ? zlog_priority[priority] : NULL);
           const char *proto_name = zlog_proto_names[zl->protocol];
-
-          qpt_mutex_unlock(mx);
           vty_log (priority_name, proto_name, format, &tsctl, args);
-          return;
         }
     }
-  qpt_mutex_unlock(mx);
 }
 
 static char *
@@ -567,8 +565,16 @@ zlog_backtrace_sigsafe(int priority, void *program_counter)
 void
 zlog_backtrace(int priority)
 {
+  LOCK
+  zlog_backtrace(priority);
+  UNLOCK
+}
+
+static void
+uzlog_backtrace(int priority)
+{
 #ifndef HAVE_GLIBC_BACKTRACE
-  zlog(NULL, priority, "No backtrace available on this platform.");
+  uzlog(NULL, priority, "No backtrace available on this platform.");
 #else
   void *array[20];
   int size, i;
@@ -577,25 +583,36 @@ zlog_backtrace(int priority)
   if (((size = backtrace(array,sizeof(array)/sizeof(array[0]))) <= 0) ||
       ((size_t)size > sizeof(array)/sizeof(array[0])))
     {
-      zlog_err("Cannot get backtrace, returned invalid # of frames %d "
+      uzlog(NULL, LOG_ERR, "Cannot get backtrace, returned invalid # of frames %d "
 	       "(valid range is between 1 and %lu)",
 	       size, (unsigned long)(sizeof(array)/sizeof(array[0])));
       return;
     }
-  zlog(NULL, priority, "Backtrace for %d stack frames:", size);
+  uzlog(NULL, priority, "Backtrace for %d stack frames:", size);
   if (!(strings = backtrace_symbols(array, size)))
     {
-      zlog_err("Cannot get backtrace symbols (out of memory?)");
+      uzlog(NULL, LOG_ERR, "Cannot get backtrace symbols (out of memory?)");
       for (i = 0; i < size; i++)
-	zlog(NULL, priority, "[bt %d] %p",i,array[i]);
+	uzlog(NULL, priority, "[bt %d] %p",i,array[i]);
     }
   else
     {
       for (i = 0; i < size; i++)
-	zlog(NULL, priority, "[bt %d] %s",i,strings[i]);
+	uzlog(NULL, priority, "[bt %d] %s",i,strings[i]);
       free(strings);
     }
 #endif /* HAVE_GLIBC_BACKTRACE */
+}
+
+/* unlocked version */
+void
+uzlog (struct zlog *zl, int priority, const char *format, ...)
+{
+  va_list args;
+
+  va_start(args, format);
+  uvzlog (zl, priority, format, args);
+  va_end (args);
 }
 
 void
@@ -705,15 +722,13 @@ static void
 zlog_abort (const char *mess)
 {
   /* Force fallback file logging? */
-  qpt_mutex_lock(mx);
   if (zlog_default && !zlog_default->fp &&
       ((logfile_fd = open_crashlog()) >= 0) &&
       ((zlog_default->fp = fdopen(logfile_fd, "w")) != NULL))
     zlog_default->maxlvl[ZLOG_DEST_FILE] = LOG_ERR;
-  qpt_mutex_unlock(mx);
 
-  zlog(NULL, LOG_CRIT, "%s", mess);
-  zlog_backtrace(LOG_CRIT);
+  uzlog(NULL, LOG_CRIT, "%s", mess);
+  uzlog_backtrace(LOG_CRIT);
   abort();
 }
 
@@ -747,7 +762,7 @@ openzlog (const char *progname, zlog_proto_t protocol,
 void
 closezlog (struct zlog *zl)
 {
-  qpt_mutex_lock(mx);
+  LOCK
 
   closelog();
 
@@ -756,14 +771,14 @@ closezlog (struct zlog *zl)
 
   XFREE (MTYPE_ZLOG, zl);
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
 }
 
 /* Called from command.c. */
 void
 zlog_set_level (struct zlog *zl, zlog_dest_t dest, int log_level)
 {
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -773,7 +788,7 @@ zlog_set_level (struct zlog *zl, zlog_dest_t dest, int log_level)
       zl->maxlvl[dest] = log_level;
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
 }
 
 int
@@ -783,10 +798,10 @@ zlog_set_file (struct zlog *zl, const char *filename, int log_level)
   mode_t oldumask;
   int result = 1;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   /* There is opend file.  */
-  do_reset_file (zl);
+  uzlog_reset_file (zl);
 
   /* Set default zl. */
   if (zl == NULL)
@@ -810,7 +825,7 @@ zlog_set_file (struct zlog *zl, const char *filename, int log_level)
         }
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
   return result;
 }
 
@@ -819,14 +834,14 @@ int
 zlog_reset_file (struct zlog *zl)
 {
   int result;
-  qpt_mutex_lock(mx);
-  result = do_reset_file(zl);
-  qpt_mutex_unlock(mx);
+  LOCK
+  result = uzlog_reset_file(zl);
+  UNLOCK
   return result;
 }
 
 static int
-do_reset_file (struct zlog *zl)
+uzlog_reset_file (struct zlog *zl)
   {
   if (zl == NULL)
     zl = zlog_default;
@@ -852,8 +867,9 @@ int
 zlog_rotate (struct zlog *zl)
 {
   int level;
+  int result = 1;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -880,11 +896,10 @@ zlog_rotate (struct zlog *zl)
             {
               /* can't call logging while locked */
               char *fname = strdup(zl->filename);
-              qpt_mutex_unlock(mx);
-              zlog_err("Log rotate failed: cannot open file %s for append: %s",
+              uzlog(NULL, LOG_ERR, "Log rotate failed: cannot open file %s for append: %s",
 	  	   fname, safe_strerror(save_errno));
               free(fname);
-              return -1;
+              result = -1;
             }
           else
             {
@@ -893,8 +908,8 @@ zlog_rotate (struct zlog *zl)
             }
         }
     }
-  qpt_mutex_unlock(mx);
-  return 1;
+  UNLOCK
+  return result;
 }
 
 int
@@ -902,7 +917,7 @@ zlog_get_default_lvl (struct zlog *zl)
 {
   int result = LOG_DEBUG;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -912,14 +927,14 @@ zlog_get_default_lvl (struct zlog *zl)
       result = zl->default_lvl;
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
   return result;
 }
 
 void
 zlog_set_default_lvl (struct zlog *zl, int level)
 {
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -929,7 +944,7 @@ zlog_set_default_lvl (struct zlog *zl, int level)
       zl->default_lvl = level;
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
 }
 
 /* Set logging level and default for all destinations */
@@ -938,7 +953,7 @@ zlog_set_default_lvl_dest (struct zlog *zl, int level)
 {
   int i;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -952,7 +967,7 @@ zlog_set_default_lvl_dest (struct zlog *zl, int level)
           zl->maxlvl[i] = level;
     }
 
- qpt_mutex_unlock(mx);
+  UNLOCK
 }
 
 int
@@ -960,7 +975,7 @@ zlog_get_maxlvl (struct zlog *zl, zlog_dest_t dest)
 {
   int result = ZLOG_DISABLED;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -970,7 +985,7 @@ zlog_get_maxlvl (struct zlog *zl, zlog_dest_t dest)
       result = zl->maxlvl[dest];
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
   return result;
 }
 
@@ -979,7 +994,7 @@ zlog_get_facility (struct zlog *zl)
 {
   int result = LOG_DAEMON;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -989,14 +1004,14 @@ zlog_get_facility (struct zlog *zl)
       result = zl->facility;
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
   return result;
 }
 
 void
 zlog_set_facility (struct zlog *zl, int facility)
 {
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1006,7 +1021,7 @@ zlog_set_facility (struct zlog *zl, int facility)
       zl->facility = facility;
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
 }
 
 int
@@ -1014,7 +1029,7 @@ zlog_get_record_priority (struct zlog *zl)
 {
   int result = 0;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1024,14 +1039,14 @@ zlog_get_record_priority (struct zlog *zl)
       result = zl->record_priority;
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
   return result;
 }
 
 void
 zlog_set_record_priority (struct zlog *zl, int record_priority)
 {
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1040,7 +1055,7 @@ zlog_set_record_priority (struct zlog *zl, int record_priority)
     {
       zl->record_priority = record_priority;
     }
-  qpt_mutex_unlock(mx);
+  UNLOCK
 }
 
 int
@@ -1048,7 +1063,7 @@ zlog_get_timestamp_precision (struct zlog *zl)
 {
   int result = 0;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1057,14 +1072,14 @@ zlog_get_timestamp_precision (struct zlog *zl)
     {
       result = zl->timestamp_precision;
     }
-  qpt_mutex_unlock(mx);
+  UNLOCK
   return result;
 }
 
 void
 zlog_set_timestamp_precision (struct zlog *zl, int timestamp_precision)
 {
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1074,16 +1089,25 @@ zlog_set_timestamp_precision (struct zlog *zl, int timestamp_precision)
       zl->timestamp_precision = timestamp_precision;
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
 }
 
 /* returns name of ZLOG_NONE if no zlog given and no default set */
 const char *
 zlog_get_proto_name (struct zlog *zl)
 {
-  zlog_proto_t protocol = ZLOG_NONE;
+  const char * result;
+  LOCK
+  result = uzlog_get_proto_name(zl);
+  UNLOCK
+  return result;
+}
 
-  qpt_mutex_lock(mx);
+/* unprotected version, assumes mutex held */
+const char *
+uzlog_get_proto_name (struct zlog *zl)
+{
+  zlog_proto_t protocol = ZLOG_NONE;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1093,7 +1117,6 @@ zlog_get_proto_name (struct zlog *zl)
       protocol = zl->protocol;
     }
 
-  qpt_mutex_unlock(mx);
   return zlog_proto_names[protocol];
 }
 
@@ -1103,7 +1126,7 @@ zlog_get_filename (struct zlog *zl)
 {
   char * result = NULL;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1113,7 +1136,7 @@ zlog_get_filename (struct zlog *zl)
       result = strdup(zl->filename);
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
   return result;
 }
 
@@ -1122,7 +1145,7 @@ zlog_get_ident (struct zlog *zl)
 {
   const char * result = NULL;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1132,7 +1155,7 @@ zlog_get_ident (struct zlog *zl)
       result = zl->ident;
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK
   return result;
 }
 
@@ -1142,7 +1165,7 @@ zlog_is_file (struct zlog *zl)
 {
   int result = 0;
 
-  qpt_mutex_lock(mx);
+  LOCK
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1152,7 +1175,7 @@ zlog_is_file (struct zlog *zl)
       result = (zl->fp != NULL);
     }
 
-  qpt_mutex_unlock(mx);
+  UNLOCK;
   return result;
 }
 
@@ -1331,3 +1354,6 @@ proto_name2num(const char *s)
    return -1;
 }
 #undef RTSIZE
+
+#undef LOCK
+#undef UNLOCK
