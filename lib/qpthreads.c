@@ -19,10 +19,19 @@
  * Boston, MA 02111-1307, USA.
  */
 
+/* This MUST come first...  otherwise we don't get __USE_UNIX98, which is     */
+/* essential if glibc is to allow pthread_mutexattr_settype() to be used.     */
+#include "config.h"
+
 #include <signal.h>
 
 #include "qpthreads.h"
 #include "memory.h"
+
+/* If this is not set, will get errors later.   */
+#ifndef __USE_UNIX98
+#error "_USE_UNIX98 not defined"
+#endif
 
 /*==============================================================================
  * Quagga Pthread Interface -- qpt_xxxx
@@ -40,6 +49,61 @@
  *
  *   * the ability to add any work-arounds which may be required if poorly
  *     conforming pthreads implementations are encountered
+ *
+ * Pthread Requirements
+ * ====================
+ *
+ * This is assuming support for 1003.1-2004 -- XOPEN Issue 6, with [THR] and
+ * [XSI] options.
+ *
+ * The [XSI] is required for pthread_mutexattr_settype(), only.
+ *
+ * If qpt_thread_attr_init() uses:
+ *
+ *   pthread_attr_getinheritsched()/_setinheritshed()    [TPS]
+ *   pthread_attr_getscope()/_setscope()                 [TPS]
+ *   pthread_attr_getschedpolicy()/_setschedpolicy()     [TPS]
+ *   pthread_attr_getschedparam()/_setschedparam()       [THR]
+ *
+ * but they are only required if explicit scheduling attributes are being set.
+ * (So, could be dropped where not supported.)
+ *
+ * Amongst the things which are NOT required:
+ *
+ *   pthread_attr_getguardsize()/_setguardsize()          [XSI]
+ *   pthread_attr_getstack()/_setstack()                  [TSA TSS]
+ *   pthread_attr_getstackaddr()/_setstackaddr()          [TSA OB]
+ *   pthread_attr_getstacksize()/_setstacksize()          [TSA TSS]
+ *
+ *   pthread_barrier_xxx()                                [BAR]
+ *
+ *   pthread_condattr_getpshared()/_setpshared()          [TSH]
+ *
+ *   pthread_mutex_getprioceiling()/_setprioceiling()     [TPP]
+ *   pthread_mutex_timedlock()                            [TMO]      pro tem
+ *   pthread_mutexattr_getprioceiling()/_setprioceiling() [TPP]
+ *   pthread_mutexattr_getprotocol()/_setprotocol()       [TPP TPI]
+ *   pthread_mutexattr_getpshared()/_setpshared()         [TSH]
+ *
+ *   pthread_rwlock_xxx()                                 [THR]      pro tem
+ *   pthread_rwlockattr_init()/_destroy()                 [THR]      pro tem
+ *   pthread_rwlockattr_getpshared()/_setpshared()        [TSH]
+ *
+ *   pthread_spin_xxx()                                   [SPI]
+ *
+ * [CS] (Clock Select) is assumed if HAVE_CLOCK_MONOTONIC.
+ *
+ * In 1003.1-2008, XOPEN issue 7, [THR] and pthread_mutexattr_settype() have
+ * been moved to Base.
+ *
+ * NB: it is essential that pthread_kill() delivers the signal to the target
+ *     thread only -- ie, it must be POSIX compliant.  That rules out the old
+ *     (2.4) LinuxThreads.  For Linux, 2.6 (or greater) is required, with
+ *     NPTL (these days generally included in glibc).
+ *
+ * NB: for glibc to give all the required features, either _GNU_SOURCE or
+ *     _XOPEN_SOURCE must be set *before* the first #include <features.h>.
+ *     _XOPEN_SOURCE=600 is sufficient.
  *
  * Pthread Thread Attributes -- Scheduling
  * =======================================

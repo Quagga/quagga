@@ -31,7 +31,6 @@
 #include "zassert.h"
 #include "qtime.h"
 
-
 #ifndef Inline
 #define Inline static inline
 #endif
@@ -55,22 +54,6 @@
 
 #if !defined(_POSIX_THREADS) || (_POSIX_THREADS <= 0)
 #error Require _POSIX_THREADS
-#endif
-
-/*==============================================================================
- * TEMPORARY WORKAROUND
- *
- * TODO: discover why PTHREAD_MUTEX_NORMAL etc are not defined !!
- *
- */
-
-#define PTHREAD_MUTEXATTR_SETTYPE_MISSING 1
-
-#ifdef PTHREAD_MUTEXATTR_SETTYPE_MISSING
-#define PTHREAD_MUTEX_NORMAL      PTHREAD_MUTEX_TIMED_NP
-#define PTHREAD_MUTEX_ERRORCHECK  PTHREAD_MUTEX_ERRORCHECK_NP
-#define PTHREAD_MUTEX_RECURSIVE   PTHREAD_MUTEX_RECURSIVE_NP
-#define PTHREAD_MUTEX_DEFAULT     PTHREAD_MUTEX_NORMAL
 #endif
 
 /*==============================================================================
@@ -143,6 +126,8 @@ Inline qpt_thread_t qpt_thread_self(void)
  *
  *     If _DEFAULT is faster than _NORMAL, then QPT_MUTEX_TYPE_DEFAULT may be
  *     used to override this choice.
+ *
+ * NB: do not (currently) support pthread_mutex_timedlock().
  */
 
 enum qpt_mutex_options
