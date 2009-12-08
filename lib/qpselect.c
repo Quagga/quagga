@@ -87,11 +87,6 @@
  *
  * During an action function modes may be enabled/disabled, actions changed,
  * the file removed from the selection... there are no restrictions.
- *
- *
- * TODO: worry about closing down a selection.
- *
- * TODO: worry about closing down files
  */
 
 static int qps_super_set_map_made = 0 ;
@@ -105,9 +100,9 @@ static void qps_make_super_set_map(void) ;
 /* Forward references   */
 static qps_file qps_file_lookup_fd(qps_selection qps, int fd, qps_file insert) ;
 static void qps_file_remove(qps_selection qps, qps_file qf) ;
-static int qps_file_check(qps_selection qps, qps_file qf) ;
 static void qps_super_set_zero(fd_super_set* p_set, int n) ;
 static int qps_next_fd_pending(fd_super_set* pending, int fd, int fd_last) ;
+static void qps_selection_validate(qps_selection qps) ;
 
 /* See qps_make_super_set_map() and qps_pselect() below.        */
 static short fd_byte_count[FD_SETSIZE] ;    /* number of bytes for fds 0..fd */
@@ -149,10 +144,18 @@ qps_selection_init_new(qps_selection qps)
    *   signum        -- no signal to be enabled
    *   sigmask       -- unset
    *
-   * So nothing else to do.
+   * So nothing else to do -- see also qps_selection_re_init(), below.
    */
 
   return qps ;
+} ;
+
+/* Re-initialise a selection.
+ */
+static void
+qps_selection_re_init(qps_selection qps)
+{
+  memset(qps, 0, sizeof(struct qps_selection)) ;
 } ;
 
 /* Add given file to the selection, setting its fd and pointer to further
@@ -160,11 +163,15 @@ qps_selection_init_new(qps_selection qps)
  *
  * This initialises most of the qps_file structure, but not the actions.
  *
- * Adding a file using the same fd as an existing file is a fatal error.
+ * Adding a file using the same fd as an existing file is a FATAL error.
+ *
+ * Adding a file which is already a member a selection is a FATAL error.
  */
 void
 qps_add_file(qps_selection qps, qps_file qf, int fd, void* file_info)
 {
+  passert(qf->selection == NULL) ;
+
   qf->selection    = qps ;
 
   qf->file_info    = file_info ;
@@ -175,24 +182,60 @@ qps_add_file(qps_selection qps, qps_file qf, int fd, void* file_info)
   qps_file_lookup_fd(qps, fd, qf) ;     /* Add. */
 } ;
 
-/* Remove given file from the selection.
+/* Remove given file from its selection, if any.
  *
  * It is the callers responsibility to ensure that the file is in a suitable
  * state to be removed from the selection.
  *
- * The file is disabled in all modes.
- *
- * NB: it is a FATAL error to remove a file that is not a member of its
- *     selection.
+ * When the file is removed it is disabled in all modes.
  */
 void
 qps_remove_file(qps_file qf)
 {
-  passert(qf->selection != NULL) ;
+  if (qf->selection != NULL)
+    qps_file_remove(qf->selection, qf) ;
+} ;
 
-  qps_file_remove(qf->selection, qf) ;
+/* Ream (another) file out of the selection.
+ *
+ * If selection is empty, release the qps_selection structure, if required.
+ *
+ * See: #define qps_selection_ream_free(qps)
+ *      #define qps_selection_ream_keep(qps)
+ *
+ * Useful for emptying out and discarding a selection:
+ *
+ *     while ((qf = qps_selection_ream_free(qps)))
+ *       ... do what's required to release the qps_file
+ *
+ * The file is removed from the selection before being returned.
+ *
+ * Returns NULL when selection is empty (and has been released, if required).
+ *
+ * If the selection is not released, it may be reused without reinitialisation.
+ *
+ * NB: once reaming has started, the selection MUST NOT be used for anything,
+ *     and the process MUST be run to completion.
+ */
+qps_file
+qps_selection_ream(qps_selection qps, int free_structure)
+{
+  qps_file qf ;
 
-  qf->selection = NULL ;        /* no longer a selection member */
+  qf = vector_ream_keep(&qps->files) ;
+  if (qf != NULL)
+    qps_file_remove(qps, qf) ;
+  else
+    {
+      passert(qps->fd_count == 0) ;
+
+      if (free_structure)
+        XFREE(MTYPE_QPS_SELECTION, qps) ;
+      else
+        qps_selection_re_init(qps) ;
+    } ;
+
+  return qf ;
 } ;
 
 /* Set the signal mask for the selection.
@@ -248,10 +291,17 @@ qps_pselect(qps_selection qps, qtime_t timeout)
   fd_set*     p_fds[qps_mnum_count] ;
   int  n ;
 
-  /* Convert timeout time to interval for pselect()     */
-  timeout -= qt_get_monotonic() ;
-  if (timeout < 0)
-    timeout = 0 ;
+  /* TODO: put this under a debug skip                                  */
+  qps_selection_validate(qps) ;
+
+  /* If there is stuff still pending, tidy up by zeroising the result   */
+  /* vectors.  This is to make sure that when bits are copied from      */
+  /* the enabled vectors, there are none from a previous run of pselect */
+  /* left hanging about.  (pselect SHOULD ignore everything above the   */
+  /* given count of fds -- but it does no harm to be tidy, and should   */
+  /* not have to do this often.)                                        */
+  if (qps->pend_count != 0)
+    qps_super_set_zero(qps->enabled, qps_mnum_count) ;
 
   /* Prepare the argument/result bitmaps                */
   /* Capture pend_mnum and tried_count[]                */
@@ -273,6 +323,11 @@ qps_pselect(qps_selection qps, qtime_t timeout)
   /* Capture tried_fd_last and set initial pend_fd.     */
   qps->tried_fd_last = qps->fd_last ;
   qps->pend_fd       = 0 ;
+
+  /* Convert timeout time to interval for pselect()     */
+  timeout -= qt_get_monotonic() ;
+  if (timeout < 0)
+    timeout = 0 ;
 
   /* Finally ready for the main event                   */
   n = pselect(qps->fd_last + 1, p_fds[qps_read_mnum],
@@ -314,11 +369,18 @@ qps_dispatch_next(qps_selection qps)
   qps_file   qf ;
   qps_mnum_t mnum ;
 
+  /* TODO: put this under a debug skip                                  */
+  qps_selection_validate(qps) ;
+
   if (qps->pend_count == 0)
     return 0 ;                  /* quit immediately of nothing to do.   */
 
   fd   = qps->pend_fd ;
   mnum = qps->pend_mnum ;
+
+  dassert( (mnum >= 0) && (mnum < qps_mnum_count)
+                       && (qps->tried_count[mnum] != 0)
+                       && (qps->pend_count > 0) ) ;
 
   while (1)
     {
@@ -328,6 +390,7 @@ qps_dispatch_next(qps_selection qps)
 
       do                        /* step to next mode that was not empty      */
         {
+          qps->tried_count[mnum] = 0 ;  /* tidy up as we go     */
           ++mnum ;
           if (mnum >= qps_mnum_count)
             zabort("Unexpectedly ran out of pending stuff") ;
@@ -338,7 +401,15 @@ qps_dispatch_next(qps_selection qps)
     } ;
 
   qps->pend_count -= 1 ;        /* one less pending             */
-  qps->pend_fd     = fd ;       /* update scan                  */
+
+  if (qps->pend_count > 0)
+    qps->pend_fd     = fd ;     /* update scan                  */
+  else
+    {
+      qps->pend_mnum     = 0 ;  /* tidy up as we complete       */
+      qps->pend_fd       = 0 ;
+      qps->tried_fd_last = 0 ;
+    } ;
 
   qf = qps_file_lookup_fd(qps, fd, NULL) ;
 
@@ -417,8 +488,8 @@ qps_enable_mode(qps_file qf, qps_mnum_t mnum, qps_action* action)
   qps_mbit_t    mbit = qps_mbit(mnum) ;
   qps_selection qps  = qf->selection ;
 
-  dassert((qps != NULL) && (qps_file_check(qps, qf))) ;
-  dassert(mnum <= qps_mnum_count) ;
+  dassert(qps != NULL) ;
+  dassert((mnum >= 0) && (mnum <= qps_mnum_count)) ;
 
   if (action != NULL)
     qf->actions[mnum] = action ;
@@ -447,10 +518,7 @@ qps_enable_mode(qps_file qf, qps_mnum_t mnum, qps_action* action)
 void
 qps_set_action(qps_file qf, qps_mnum_t mnum, qps_action* action)
 {
-  qps_selection qps = qf->selection ;
-
-  dassert((qps != NULL) && (qps_file_check(qps, qf))) ;
-  dassert(mnum < qps_mnum_count) ;
+  dassert((mnum >= 0) && (mnum <= qps_mnum_count)) ;
 
   if (action == NULL)
     passert((qf->enabled_bits & qps_mbit(mnum)) == 0) ;
@@ -464,6 +532,10 @@ qps_set_action(qps_file qf, qps_mnum_t mnum, qps_action* action)
  *
  * Note that this is modestly "optimised" to deal with disabling a single mode.
  * (Much of the time only the write mode will be being disabled !)
+ *
+ * NB: it is safe to disable modes which are not enabled -- even if the file
+ *     is not currently a member of a selection.  (If it is not a member of a
+ *     collection no modes should be enabled !)
  */
 
 static qps_mnum_t qps_first_mnum[qps_mbit(qps_mnum_count)] =
@@ -478,18 +550,6 @@ static qps_mnum_t qps_first_mnum[qps_mbit(qps_mnum_count)] =
       2   /* 7 ->  2 -- B2 is first bit */
   } ;
 
-static qps_mbit_t qps_first_mbit[qps_mbit(qps_mnum_count)] =
-  {
-      0,  /* 0 ->  0 -- no bit set      */
-      1,  /* 1 ->  1 -- B0 is first bit */
-      2,  /* 2 ->  2 -- B1 is first bit */
-      2,  /* 3 ->  2 -- B1 is first bit */
-      4,  /* 4 ->  4 -- B2 is first bit */
-      4,  /* 5 ->  4 -- B2 is first bit */
-      4,  /* 6 ->  4 -- B2 is first bit */
-      4   /* 7 ->  4 -- B2 is first bit */
-  } ;
-
 CONFIRM(qps_mbit(qps_mnum_count) == 8) ;
 
 void
@@ -499,8 +559,7 @@ qps_disable_modes(qps_file qf, qps_mbit_t mbits)
 
   qps_selection qps = qf->selection ;
 
-  dassert((qps != NULL) && (qps_file_check(qps, qf))) ;
-  dassert(mbits <= qps_all_mbits) ;
+  dassert((mbits >= 0) && (mbits <= qps_all_mbits)) ;
 
   mbits &= qf->enabled_bits ;   /* don't bother with any not enabled  */
   qf->enabled_bits ^= mbits ;   /* unset what we're about to disable  */
@@ -509,21 +568,29 @@ qps_disable_modes(qps_file qf, qps_mbit_t mbits)
     {
       mnum = qps_first_mnum[mbits] ;
 
-      if (FD_ISSET(qf->fd, &(qps->enabled[mnum].fdset)))
-        {
-          FD_CLR(qf->fd, &(qps->enabled[mnum].fdset)) ;
-          dassert(qps->enabled_count[mnum] > 0) ;
-          --qps->enabled_count[mnum] ;
-        } ;
+      dassert(qps->enabled_count[mnum] > 0) ;
+      dassert(FD_ISSET(qf->fd, &(qps->enabled[mnum].fdset))) ;
+
+      FD_CLR(qf->fd, &(qps->enabled[mnum].fdset)) ;
+      --qps->enabled_count[mnum] ;
+
       if ((qps->pend_count != 0) && (qps->tried_count[mnum] != 0)
                        && (FD_ISSET(qf->fd, &(qps->results[mnum].fdset))))
         {
           FD_CLR(qf->fd, &(qps->results[mnum].fdset)) ;
-          dassert(qps->pend_count > 0) ;
           --qps->pend_count ;
+          if (qps->pend_count == 0)
+            {
+              qps_mnum_t m ;
+              qps->tried_fd_last = 0 ;
+              for (m = 0 ; m < qps_mnum_count ; ++m)
+                qps->tried_count[mnum] = 0 ;
+              qps->pend_mnum = 0 ;
+              qps->pend_fd   = 0 ;
+            } ;
         } ;
 
-      mbits ^= qps_first_mbit[mnum] ;
+      mbits ^= qps_mbit(mnum) ;
     } ;
 } ;
 
@@ -561,59 +628,62 @@ static qps_file
 qps_file_lookup_fd(qps_selection qps, int fd, qps_file insert)
 {
   qps_file qf ;
+  vector_index i ;
+  int   ret ;
 
-  dassert((fd >= 0) && (fd < FD_SETSIZE)) ;
+  dassert((fd >= 0) && (fd <= qps->fd_last)) ;
 
-  /* If we are expecting to insert, then now may be the time to change  */
-  /* up to a directly address files vector.                             */
-  if ((insert != NULL) && !qps->fd_direct && (qps->fd_count > 9))
-    {
-      vector_index i ;
-      vector   tmp ;
-
-      tmp = vector_move_here(NULL, &qps->files) ;
-
-      for (VECTOR_ITEMS(tmp, qf, i))
-        vector_set_item(&qps->files, qf->fd, qf) ;
-
-      vector_free(tmp) ;
-
-      qps->fd_direct = 1 ;
-    } ;
-
-  /* Look-up and perhaps insert.                                        */
+  /* Look-up                                                            */
+  /*                                                                    */
+  /* Set i = index for entry in files vector                            */
+  /* Set ret = 0 <=> i is exact index.                                  */
+  /*         < 0 <=> i is just after where entry may be inserted        */
+  /*         > 0 <=> i is just before where entry may be inserted       */
   if (qps->fd_direct)
     {
-      qf = vector_get_item(&qps->files, fd) ;   /* NULL if not there    */
-      if (insert != NULL)
-        {
-          if (qf != NULL)
-            zabort("File with given fd already exists in qps_selection") ;
-          qf = insert ;
-          vector_set_item(&qps->files, fd, insert) ;
-        } ;
+      i   = fd ;        /* index of entry       */
+      ret = 0 ;         /* how to insert, if do */
     }
   else
-    {
-      int ret ;
-      vector_index i = vector_bsearch(&qps->files,
-                                      (vector_bsearch_cmp*)qps_fd_cmp,
-                                      &fd, &ret) ;
-      if (insert != NULL)
-        {
-          if (ret == 0)
-            zabort("File with given fd already exists in qps_selection") ;
-          qf = insert ;
-          vector_insert_item_here(&qps->files, i, ret, insert) ;
-        } ;
-    } ;
+    i = vector_bsearch(&qps->files, (vector_bsearch_cmp*)qps_fd_cmp,
+                                                                    &fd, &ret) ;
+  if (ret == 0)
+    qf = vector_get_item(&qps->files, i) ;      /* NULL if not there    */
+  else
+    qf = NULL ;                                 /* not there            */
 
-  /* If we inserted, keep fd_count and fd_last up to date.              */
+  /* Insert now, if required and can: keep fd_count and fd_last up to date.  */
   if (insert != NULL)
     {
+      if (qf != NULL)
+        zabort("File with given fd already exists in qps_selection") ;
+
+      /* If required, change up to a directly addressed files vector.   */
+      if (!qps->fd_direct && (qps->fd_count > 9))
+        {
+          vector   tmp ;
+
+          tmp = vector_move_here(NULL, &qps->files) ;
+
+          while ((qf = vector_pop_item(tmp)) != NULL)
+            vector_set_item(&qps->files, qf->fd, qf) ;
+
+          vector_free(tmp) ;
+
+          qps->fd_direct = 1 ;
+
+          i   = fd ;    /* index is now the fd  */
+          ret = 0 ;     /* and insert there     */
+        } ;
+
+      /* Now can insert accordint to i & ret                    */
+      vector_insert_item_here(&qps->files, i, ret, insert) ;
+
       ++qps->fd_count ;
       if (fd > qps->fd_last)
         qps->fd_last = fd ;
+
+      qf = insert ;     /* will return what we just inserted.   */
     } ;
 
   /* Sanity checking.                                                   */
@@ -623,122 +693,60 @@ qps_file_lookup_fd(qps_selection qps, int fd, qps_file insert)
   return qf ;
 } ;
 
-/* Check file in selection.
- *
- * This looks up the file in the selection and performs a number of sanity
- * checks.
- *
- * NB: it is a FATAL error if the file has an invalid fd, or the selection does
- *     not natch the file's selection, or the files selection is NULL.
- *
- * NB: it is a FATAL error for the file not to be in the selection when looked
- *     up by its fd.
- *
- * When (or if) returns, returns 1.
- */
-static int
-qps_file_check(qps_selection qps, qps_file qf)
-{
-  qps_file qff ;
-  int fd = qf->fd ;
-
-  passert((fd >= 0) && (fd < FD_SETSIZE)
-                    && (qf->selection != NULL) && (qps == qf->selection)) ;
-
-  if (qps->fd_direct)
-    qff = vector_get_item(&qps->files, fd) ;   /* NULL if not there    */
-  else
-    {
-      int ret ;
-      vector_index i = vector_bsearch(&qps->files,
-                                      (vector_bsearch_cmp*)qps_fd_cmp,
-                                      &fd, &ret) ;
-      if (ret == 0)
-        qff = vector_get_item(&qps->files, i) ;
-      else
-        qff = NULL ;
-    } ;
-
-  passert(qff == qf) ;
-
-  return 1 ;
-} ;
-
-/* Remove file from selection by file-descriptor.
- *
- * Returns the file we found and have removed (if any).
- *
- * TODO: should deleting a non existent file be fatal ?
- */
-static qps_file
-qps_file_remove_fd(qps_selection qps, int fd)
-{
-  qps_file qf ;
-  int      fd_last ;
-
-  dassert((fd >= 0) && (fd < FD_SETSIZE)) ;
-
-  /* Look-up and remove.                                                */
-  if (qps->fd_direct)
-    {
-      qf      = vector_unset_item(&qps->files, fd) ; /* NULL if not there  */
-      fd_last = vector_end(&qps->files) - 1 ;
-    }
-  else
-    {
-      int ret ;
-      vector_index i = vector_bsearch(&qps->files,
-                                      (vector_bsearch_cmp*)qps_fd_cmp,
-                                      &fd, &ret) ;
-      if (ret == 0)
-        {
-          qps_file qf_last ;
-          qf = vector_delete_item(&qps->files, i) ;
-
-          qf_last = vector_get_last_item(&qps->files) ;
-          if (qf_last == NULL)
-            fd_last = -1 ;
-          else
-            fd_last = qf_last->fd ;
-        }
-      else
-        qf = NULL ;
-    } ;
-
-  /* If we removed, keep fd_count and fd_last up to date.               */
-  /* Also, remove the fd from all vectors.                              */
-  if (qf != NULL)
-    {
-      dassert(qps->fd_count != 0) ;
-      ++qps->fd_count ;
-
-      dassert( ((qps->fd_count != 0) && (fd_last >= 0)) ||
-               ((qps->fd_count == 0) && (fd_last <  0)) ) ;
-
-      qps->fd_last = (fd_last >= 0) ? fd_last : 0 ;
-
-      qps_disable_modes(qf, qps_all_mbits) ;
-    } ;
-
-  /* Return the file we found and have removed.                         */
-  return qf ;
-} ;
-
 /* Remove file from selection.
  *
  * NB: FATAL error if file is not in the selection, or the file-descriptor
- * is invalid (or refers to some other file !).
+ *     is invalid (or refers to some other file !).
  */
 static void
 qps_file_remove(qps_selection qps, qps_file qf)
 {
   qps_file qfd ;
+  int   fd_last ;
 
-  passert((qf->fd >= 0) && (qf->fd < FD_SETSIZE) && (qps == qf->selection)) ;
+  passert((qf->fd >= 0) && (qf->fd <= qps->fd_last) && (qps == qf->selection)) ;
 
-  qfd = qps_file_remove_fd(qps, qf->fd) ;
+  /* Look-up and remove.                                                */
+  if (qps->fd_direct)
+    {
+      qfd     = vector_unset_item(&qps->files, qf->fd) ; /* NULL if not there */
+      fd_last = vector_end(&qps->files) - 1 ;
+    }
+  else
+    {
+      qps_file qf_last ;
+      int ret ;
+      vector_index i = vector_bsearch(&qps->files,
+                                      (vector_bsearch_cmp*)qps_fd_cmp,
+                                      &qf->fd, &ret) ;
+      if (ret == 0)
+        qfd = vector_delete_item(&qps->files, i) ;
+      else
+        qfd = NULL ;
 
-  passert(qfd == qf) ;
+      qf_last = vector_get_last_item(&qps->files) ;
+      if (qf_last != NULL)
+        fd_last = qf_last->fd ;
+      else
+        fd_last = -1 ;
+    } ;
+
+  passert(qfd == qf) ;  /* must have been there and be the expected file  */
+
+  /* Keep fd_count and fd_last up to date.                              */
+  dassert(qps->fd_count > 0) ;
+  --qps->fd_count ;
+
+  dassert( ((qps->fd_count != 0) && (fd_last >= 0)) ||
+           ((qps->fd_count == 0) && (fd_last <  0)) ) ;
+
+  qps->fd_last = (fd_last >= 0) ? fd_last : 0 ;
+
+  /* Also, remove the from all vectors.                                 */
+  qps_disable_modes(qf, qps_all_mbits) ;
+
+  /* Is no longer in the selection.                                     */
+  qf->selection = NULL ;
 } ;
 
  /*==============================================================================
@@ -790,20 +798,15 @@ qps_next_fd_pending(fd_super_set* pending, int fd, int fd_last)
 
   while (pending->words[fd_word_map[fd]] == 0)  /* step past zero words */
     {
-      fd = (fd & ~ 0x001F) + FD_WORD_BITS ;
+      fd = (fd & ~ (FD_WORD_BITS - 1)) + FD_WORD_BITS ;
                                         /* step to start of next word   */
       if (fd > fd_last)
         return -1 ;                     /* quit if past last            */
     } ;
 
   fd &= ~0x0007 ;                       /* step back to first in byte   */
-  while (1)
+  while ((b = pending->bytes[fd_byte_map[fd]]) == 0)
     {
-      b = pending->bytes[fd_byte_map[fd]] ;
-                                        /* byte associated with fd      */
-      if (b != 0)
-        break ;                         /* stop looking                 */
-
       fd += 8 ;
       if (fd > fd_last)
         return -1 ;
@@ -933,14 +936,17 @@ qps_make_super_set_map(void)
   for (i = 0 ; i < 256 ; ++i)
     fd_first_map[i] = -1 ;
 
-  for (i = 0 ; i < 8 ; ++i)
+  for (fd = 0 ; fd < 8 ; ++fd)
     {
-      uint8_t fdb = fd_bit_map[i] ;
-      uint8_t b ;
-      for (b = 0 ; b < 256 ; ++b)
-        if ((fd_first_map[b] == -1) && ((b & fdb) != 0))
-          fd_first_map[b] = i ;
+      uint8_t fdb = fd_bit_map[fd] ;
+      for (i = 0 ; i < 256 ; ++i)
+        if ((fd_first_map[i] == -1) && ((i & fdb) != 0))
+          fd_first_map[i] = fd ;
     } ;
+
+  for (i = 0 ; i < 256 ; ++i)
+    if (fd_first_map[i] == -1)
+      zabort("Broken fd_first_map -- missing bits") ;
 
   /* (7) construct fd_byte_count[] -- number of bytes required to       */
   /*     include fds 0..fd.                                             */
@@ -948,11 +954,14 @@ qps_make_super_set_map(void)
   i = 0 ;
   for (fd = 0 ; fd < FD_SETSIZE ; ++fd)
     {
-      fd_byte_count[fd] = fd_byte_map[fd] + 1 ;
-      if (fd_byte_count[fd] < i)
-        fd_byte_count[fd] = i ;
+      int c = fd_byte_map[fd] + 1 ;
+
+      if (c < i)
+        c = i ;         /* use largest so far.  => big-endian   */
       else
-        i = fd_byte_count[fd] ;
+        i = c ;         /* keep largest so far up to date       */
+
+      fd_byte_count[fd] = c ;
     } ;
 
   /* Phew -- we're all set now                                          */
@@ -970,4 +979,233 @@ static void
 qps_super_set_zero(fd_super_set* p_set, int n)
 {
   memset(p_set, 0, SIZE(fd_super_set, n)) ;
+} ;
+
+#if 0   /* Mask unused function */
+/* Copy 'n' contiguous fd_super_sets
+ */
+static void
+qps_super_set_copy(fd_super_set* p_dst, fd_super_set* p_src, int n)
+{
+  memcpy(p_dst, p_src, SIZE(fd_super_set, n)) ;
+} ;
+#endif
+
+/* Compare 'n' contiguous fd_super_sets
+ */
+static int
+qps_super_set_cmp(fd_super_set* p_a, fd_super_set* p_b, int n)
+{
+  return memcmp(p_a, p_b, SIZE(fd_super_set, n)) ;
+} ;
+
+/* Count the number of bits set in 'n' contiguous fd_super_sets.
+ */
+static int
+qps_super_set_count(fd_super_set* p_set, int n)
+{
+  fd_word_t* p ;
+  int count = 0 ;
+
+  n *= FD_SUPER_SET_WORD_SIZE ;
+  confirm(sizeof(fd_super_set) == (FD_SUPER_SET_WORD_SIZE * FD_WORD_BYTES)) ;
+
+  p = (fd_word_t*)p_set ;
+  while (n--)
+    {
+      fd_word_t w = *p++ ;
+      while (w != 0)
+        {
+          ++count ;
+          w &= (w - 1) ;
+        } ;
+    } ;
+
+  return count ;
+} ;
+
+/*==============================================================================
+ * Selection state check -- for debug purposes.
+ *
+ * Runs a check across a given selection and verifies that:
+ *
+ *   1) for !fd_direct that the files are in fd order in the vector
+ *      and are unique, and there are no NULL entries.
+ *   2) for  fd_direct that the file fd and the index match
+ *      and the last entry is not NULL
+ *   3) that all files point at the selection
+ *   4) that the enabled modes in each file are valid
+ *   5) the number of files in the selection matches fd_count.
+ *   6) the highest numbered fd matches fd_last
+ *   7) that the enabled counts in the selection are correct
+ *   8) that the enabled modes in each file match the enabled modes in the
+ *      selection
+ *   9) that no extraneous fds are set in the enabled vectors
+ *
+ * If there are no pending fds:
+ *
+ *  10) if there are no pending fds, that the results vectors are empty
+ *      that tried_fd_last, tried_count[], pend_mnum and pend_fd are all zero.
+ *
+ * If there are pending fds:
+ *
+ *  11) that pend_mnum is valid and pend_fd <= tried_fd_last.
+ *
+ *  12) that the tried_count for modes 0..pend_mnum-1 is zero,
+ *      and the tried_count for pend_mnum is not.
+ *
+ *  13) that the result vectors for modes where tried count == 0 are empty.
+ *
+ *  14) that the remaining result bits are a subset of the enabled bits.
+ *
+ *  15) that no bits beyond tried_fd_last are set in the result vectors.
+ *
+ *  16) that no bits before pend_fd are set in the pemd_mnum result vector.
+ *
+ *  17) that the number of bits remaining matches pend_count.
+ */
+static void
+qps_selection_validate(qps_selection qps)
+{
+  int   fd_last ;
+  int   enabled_count[qps_mnum_count] ;
+  fd_full_set enabled ;
+
+  qps_file     qf ;
+  int          fd, n, mnum, p_mnum ;
+  vector_index i ;
+
+  /* 1..4)  Run down the selection vector and check.            */
+  /*        Collect new enabled_count and enabled bit vectors.  */
+
+  for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
+    enabled_count[mnum] = 0 ;
+  qps_super_set_zero(enabled, qps_mnum_count) ;
+
+  n = 0 ;
+  fd_last = -1 ;
+  for (VECTOR_ITEMS(&qps->files, qf, i))
+    {
+      if (qf != NULL)
+        {
+          ++n ;                         /* Number of files              */
+
+          if (qps->fd_direct)
+            {
+              if (qf->fd != (int)i)     /* index and fd must match      */
+                zabort("File vector index and fd mismatch") ;
+            }
+          else
+            {
+              if (qf->fd <= fd_last)    /* must be unique and in order  */
+                zabort("File vector not in order") ;
+            } ;
+
+          fd_last = qf->fd ;            /* keep track of last fd        */
+
+          if (qf->selection != qps)     /* file must refer to selection */
+            zabort("File does not refer to its selection") ;
+
+          if ((qf->enabled_bits < 0) || (qf->enabled_bits > qps_all_mbits))
+            zabort("File enabled bits are invalid") ;
+
+          /* Capture enabled state of all files.                        */
+          for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
+            if (qf->enabled_bits & qps_mbit(mnum))
+              {
+                ++enabled_count[mnum] ;
+                FD_SET(qf->fd, &enabled[mnum].fdset) ;
+              } ;
+        }
+      else
+        if (!qps->fd_direct)
+          zabort("Found NULL entry in !fd_direct files vector") ;
+    } ;
+
+  if ((n != 0) && (vector_get_last_item(&qps->files) == NULL))
+    zabort("Last entry in file vector is NULL") ;
+
+  /* 5) check that the number of files tallies.                         */
+  if (n != qps->fd_count)
+    zabort("Number of files in the selection does not tally") ;
+
+  /* 6) check the last fd                                               */
+  if ( ((n == 0) && (qps->fd_last !=0)) || (fd_last != qps->fd_last) )
+    zabort("The last fd does not tally") ;
+
+  /* 7) check that the enabled counts tally.                            */
+  for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
+    if (enabled_count[mnum] != qps->enabled_count[mnum])
+      zabort("Enabled counts do not tally") ;
+
+  /* 8..9) Check that the enabled vectors are the same as the ones just */
+  /*       created by scanning the files.                               */
+  if (qps_super_set_cmp(enabled, qps->enabled, qps_mnum_count) != 0)
+    zabort("Enabled bit vectors do not tally") ;
+
+  /* 10) if there are no pending fds, check that everything is zero.    */
+  if (qps->pend_count == 0)
+    {
+      n = (qps_super_set_count(qps->results, qps_mnum_count) != 0) ;
+      for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
+        n |= (qps->tried_count[mnum] != 0) ;
+      n |= (qps->tried_fd_last != 0) || (qps->pend_mnum != 0)
+                                     || (qps->pend_fd != 0) ;
+      if (n)
+        zabort("Nothing pending, but pending state not zero") ;
+
+      return ;
+    } ;
+
+  /* This is to stop gcc whining about signed/unsigned comparisons.     */
+  p_mnum = qps->pend_mnum ;
+
+  /* 11) that pend_mnum is valid and pend_fd <= tried_fd_last.          */
+  if ( (p_mnum < 0) || (p_mnum > qps_mnum_count)
+                    || (qps->pend_fd < 0)
+                    || (qps->pend_fd > qps->tried_fd_last) )
+    zabort("Invalid pend_mnum or pend_fd") ;
+
+  /* 12) check tried_count[]                                            */
+  for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
+    {
+      if ((mnum <  p_mnum) && (qps->tried_count[mnum] != 0))
+        zabort("Non-zero tried_count for mode < pend_mnum") ;
+      if ((mnum == p_mnum) && (qps->tried_count[qps->pend_mnum] <= 0))
+        zabort("Zero tried_count for pend_mnum") ;
+      if ((mnum >  p_mnum) && (qps->tried_count[mnum] < 0))
+        zabort("Invalid tried_count for mode > pend_mnum") ;
+    } ;
+
+  /* 13) check result vectors for modes where tried count == 0          */
+  n = (qps_super_set_count(qps->results, qps_mnum_count) != 0) ;
+  for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
+    if ((qps->tried_count[mnum] == 0)
+                          && (qps_super_set_count(&qps->results[mnum], 1) != 0))
+      zabort("Non-empty bit vector where tried count == 0") ;
+
+  /* 14) check remaining results are a subset of the enableds.          */
+  /* 15) check no bit beyond tried_fd_last is set in the results.       */
+  /* 16) check no bit before pend_fd is set in the pemd_mnum results.   */
+  /* 17) check the number of bits remaining matches pend_count.         */
+
+  n = 0 ;
+  for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
+    if (qps->tried_count[mnum] != 0)
+      {
+        for (fd = 0 ; fd < FD_SETSIZE ; ++fd)
+          if (FD_ISSET(fd, &qps->results[mnum].fdset))
+            {
+              ++n ;
+              if (fd > qps->tried_fd_last)
+                zabort("Found pending fd beyond tried_fd_last") ;
+              if ( ! FD_ISSET(fd, &qps->results[mnum].fdset))
+                zabort("Found pending fd which is not enabled") ;
+              if ((mnum == p_mnum) && (fd < qps->pend_fd))
+                zabort("Found pending fd < current next pending") ;
+            } ;
+      } ;
+
+  if (n != qps->pend_count)
+    zabort("Non-empty bit vector where tried count == 0") ;
 } ;

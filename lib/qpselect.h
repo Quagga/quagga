@@ -63,7 +63,7 @@ enum qps_mbits                  /* "mode" bits: error/read/write        */
   qps_write_mbit  = qps_mbit(qps_write_mnum),
 
   qps_all_mbits   = qps_mbit(qps_mnum_count) - 1
-};
+} ;
 
 typedef enum qps_mbits qps_mbit_t ;
 
@@ -89,7 +89,7 @@ typedef uint32_t fd_word_t ;
 CONFIRM(FD_WORD_BITS == (FD_WORD_BYTES * 8)) ;  /* for completeness     */
 
 #define FD_SUPER_SET_WORD_SIZE ((FD_SETSIZE + FD_WORD_BITS - 1) / FD_WORD_BITS)
-#define FD_SUPER_SET_BYTE_SIZE ((FD_SETSIZE + FD_WORD_BITS - 1) / 8)
+#define FD_SUPER_SET_BYTE_SIZE (FD_SUPER_SET_WORD_SIZE * FD_WORD_BYTES)
 
 /* Make sure that the overlay is at least as big as the fd_set !        */
 CONFIRM(FD_SUPER_SET_BYTE_SIZE >= sizeof(fd_set)) ;
@@ -100,6 +100,9 @@ typedef union           /* see qps_make_super_set_map()         */
   uint8_t   bytes[FD_SUPER_SET_BYTE_SIZE] ;
   fd_set    fdset ;
 } fd_super_set ;
+
+/* Make sure that the fd_super_set is an exact number of fd_word_t words  */
+CONFIRM(sizeof(fd_super_set) == (FD_SUPER_SET_WORD_SIZE * FD_WORD_BYTES)) ;
 
 /*==============================================================================
  * Action function.
@@ -127,7 +130,7 @@ struct qps_selection
 
   int   fd_last ;       /* highest numbered fd we are looking after       */
   int   enabled_count[qps_mnum_count] ;  /* no. enabled fds in each mode  */
-  fd_full_set enabled ; /* bit vectors for select enabled stuff           */
+  fd_full_set enabled ; /* bit vectors for pselect enabled stuff          */
 
   int   tried_fd_last ; /* highest numbered fd on last pselect            */
   int   tried_count[qps_mnum_count] ;    /* enabled_count on last pselect */
@@ -165,6 +168,14 @@ qps_add_file(qps_selection qps, qps_file qf, int fd, void* file_info) ;
 
 void
 qps_remove_file(qps_file qf) ;
+
+qps_file
+qps_selection_ream(qps_selection qps, int free_structure) ;
+
+/* Ream out selection and free the selection structure.   */
+#define qps_selection_ream_free(qps) qps_selection_ream(qps, 1)
+/* Ream out selection but keep the selection structure.   */
+#define qps_selection_ream_keep(qps) qps_selection_ream(qps, 0)
 
 void
 qps_set_signal(qps_selection qps, int signum, sigset_t sigmask) ;
