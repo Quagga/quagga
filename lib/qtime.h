@@ -1,4 +1,4 @@
-/* Quagga Realtime Clock handling -- header
+/* Quagga realtime and monotonic clock handling -- header
  * Copyright (C) 2009 Chris Hall (GMCH), Highwayman
  *
  * This file is part of GNU Zebra.
@@ -47,8 +47,8 @@
  *                 tv_usecs   micro-seconds
  *
  * Given a 64-bit integer it is much easier to do operations on a 64 bit
- * (signed) nano-second value.  That gives 34 bits for the seconds count, which
- * is > 290 years.
+ * (signed) nano-second value.  That gives > 34 bits for the seconds count,
+ * and counts from zero to > 290 years.
  */
 
 typedef int64_t qtime_t ;
@@ -92,10 +92,10 @@ qtime2timeval(struct timeval* p_tv, qtime_t qt) ;
  */
 
 Inline qtime_t
-qt_get_realtime(void) ;         /* clock_gettime(CLOCK_REALTIME, &ts)   */
+qt_get_realtime(void) ;         /* clock_gettime(CLOCK_REALTIME, ...)   */
 
 Inline qtime_t
-qt_get_monotonic(void) ;        /* clock_gettime(CLOCK_MONOTONIC, &ts   */
+qt_get_monotonic(void) ;        /* clock_gettime(CLOCK_MONOTONIC, ...)  */
                                 /* OR equivalent using times()          */
 
 Inline qtime_t                  /* monotonic time from CLOCK_REALTIME   */
@@ -181,7 +181,8 @@ qtime2timeval(struct timeval* p_tv, qtime_t qt)
 
 /* Read given clock & return a qtime_t value.
  *
- * Crunch, zabbort_errno, if fails: cannot continue with broken time value !
+ * While possibility of error is essentially theoretical, must treat it as a
+ * FATAL error -- cannot continue with broken time value !
  */
 
 Inline qtime_t
@@ -205,9 +206,10 @@ qt_get_timeofday(void)
   return timeval2qtime(&tv) ;
 }
 
-/* clock_gettime(CLOCK_REALTIME, &ts) -- returning qtime_t value
+/* clock_gettime(CLOCK_REALTIME, ...) -- returning qtime_t value
  *
- * Crunch, zabbort_errno, if fails: cannot continue with broken time value !
+ * While possibility of error is essentially theoretical, must treat it as a
+ * FATAL error -- cannot continue with broken time value !
  */
 Inline qtime_t
 qt_get_realtime(void)
@@ -215,10 +217,11 @@ qt_get_realtime(void)
   return qt_clock_gettime(CLOCK_REALTIME) ;
 } ;
 
-/* clock_gettime(CLOCK_MONOTONIC, &ts) OR qt_craft_monotonic()
+/* clock_gettime(CLOCK_MONOTONIC, ...) OR qt_craft_monotonic()
  *                                                   -- returning qtime_t value
  *
- * Crunch, zabbort_errno, if fails: cannot continue with broken time value !
+ * While possibility of error is essentially theoretical, must treat it as a
+ * FATAL error -- cannot continue with broken time value !
  */
 Inline qtime_t
 qt_get_monotonic(void)
@@ -232,7 +235,6 @@ qt_get_monotonic(void)
 
 /*==============================================================================
  * Conversion between realtime/timeofday and monotonic
- *
  */
 
 /* Convert a CLOCK_REALTIME time to our local monotonic time.           */
