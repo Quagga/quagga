@@ -128,6 +128,7 @@ if test "x${cflags_specified}" = "x" ; then
   	CFLAGS="${CFLAGS} -Wbad-function-cast -Wwrite-strings"
   	CFLAGS="${CFLAGS} -Wmissing-prototypes -Wmissing-declarations"
   	CFLAGS="${CFLAGS} -Wchar-subscripts -Wcast-qual"
+  	CFLAGS="${CFLAGS} -pthread"
   	# TODO: conditionally addd -Wpacked if handled
   	AC_MSG_RESULT([gcc default])
   	;;

@@ -404,9 +404,9 @@ main (int argc, char **argv)
   /* Initializations. */
   srand (time (NULL));
   signal_init (master, Q_SIGC(bgp_signals), bgp_signals);
-  zprivs_init (&bgpd_privs);
+  zprivs_init_r (&bgpd_privs);
   cmd_init (1);
-  vty_init (master);
+  vty_init_r (master);
   memory_init ();
 
   /* BGP related initialization.  */

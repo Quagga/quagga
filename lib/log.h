@@ -117,6 +117,9 @@ extern void closezlog (struct zlog *zl);
 /* Generic function for zlog. */
 extern void zlog (struct zlog *zl, int priority, const char *format, ...)
   PRINTF_ATTRIBUTE(3, 4);
+/* assumed locked version for close friends */
+extern void uzlog (struct zlog *zl, int priority, const char *format, ...)
+  PRINTF_ATTRIBUTE(3, 4);
 
 /* Handy zlog functions. */
 extern void zlog_err (const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
@@ -166,6 +169,7 @@ extern const char * zlog_get_ident (struct zlog *zl);
 extern char * zlog_get_filename (struct zlog *zl);
 extern int zlog_is_file (struct zlog *zl);
 extern const char * zlog_get_proto_name (struct zlog *zl);
+extern const char * uzlog_get_proto_name (struct zlog *zl);
 
 /* For hackey massage lookup and check */
 #define LOOKUP(x, y) mes_lookup(x, x ## _max, y, "(no item found)")
@@ -205,7 +209,9 @@ extern void zlog_backtrace_sigsafe(int priority, void *program_counter);
    *buf will be set to '\0', and 0 will be returned. */
 extern size_t quagga_timestamp(int timestamp_precision /* # subsecond digits */,
 			       char *buf, size_t buflen);
-
+/* unprotected version for when mutex already held */
+extern size_t uquagga_timestamp(int timestamp_precision /* # subsecond digits */,
+                               char *buf, size_t buflen);
 /* structure useful for avoiding repeated rendering of the same timestamp */
 struct timestamp_control {
    size_t len;		/* length of rendered timestamp */

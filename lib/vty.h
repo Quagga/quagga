@@ -23,6 +23,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 #include "thread.h"
 #include "log.h"
+#include "qpthreads.h"
 
 #define VTY_BUFSIZ 512
 #define VTY_MAXHIST 20
@@ -205,10 +206,18 @@ do {                                                                            
 
 /* Exported variables */
 extern char integrate_default[];
+extern qpt_mutex_t* vty_mutex;
+#ifndef NDEBUG
+extern int vty_lock_count;
+#endif
 
 /* Prototypes. */
+extern void vty_init_r (struct thread_master *);
+extern void vty_terminate_r (void);
+
 extern void vty_init (struct thread_master *);
 extern void vty_init_vtysh (void);
+extern void vty_terminate_r (void);
 extern void vty_terminate (void);
 extern void vty_reset (void);
 extern struct vty *vty_new (void);
