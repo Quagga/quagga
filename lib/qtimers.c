@@ -44,8 +44,8 @@
  * Timers are triggered by calling qtimer_dispatch_next().  This is given the
  * current qtimer time (see below), and it dispatches the first timer whose
  * time has come (or been passed).  Dispatching a timer means calling its
- * action function (see below).  Each call of qtimer_dispatch_next triggers at
- * most one timer.
+ * action function (see below).  Each call of qtimer_dispatch_next() triggers
+ * at most one timer.
  *
  * Time Base
  * ---------
@@ -65,7 +65,8 @@
  * timer (which may, or may not, be the current qtimer time).
  *
  * During an action function timers may be set/unset, actions changed, and so
- * on... there are no restrictions.
+ * on... there are no restrictions EXCEPT that the qtimer structure may NOT be
+ * freed.
  */
 
 static int
@@ -92,7 +93,7 @@ qtimer_pile_init_new(qtimer_pile qtp)
   if (qtp == NULL)
     qtp = XCALLOC(MTYPE_QTIMER_PILE, sizeof(struct qtimer_pile)) ;
   else
-    memset(qtp, 0,  sizeof(struct qtimer_pile)) ;
+    memset(qtp, 0, sizeof(struct qtimer_pile)) ;
 
   /* Zeroising has initialised:
    *
@@ -107,6 +108,23 @@ qtimer_pile_init_new(qtimer_pile qtp)
   heap_init_new_backlinked(&qtp->timers, 0, (heap_cmp*)qtimer_cmp,
                                                  offsetof(qtimer_t, backlink)) ;
   return qtp ;
+} ;
+
+/* Get the timer time for the first timer due to go off in the given pile.
+ *
+ * The caller must provide a maximum acceptable time.  If the qtimer pile is
+ * empty, or the top entry times out after the maximum time, then the maximum
+ * is returned.
+ */
+qtime_t
+qtimer_pile_top_time(qtimer_pile qtp, qtime_t max_time)
+{
+  qtimer  qtr = heap_top_item(&qtp->timers) ;
+
+  if ((qtr == NULL) || (qtr->time >= max_time))
+    return max_time ;
+  else
+    return qtr->time ;
 } ;
 
 /* Dispatch the next timer whose time is <= the given "upto" time.
@@ -124,18 +142,15 @@ qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_t upto)
 {
   qtimer   qtr ;
 
-  if (qtp->unset_pending != NULL)
-    qtimer_unset(qtp->unset_pending) ;  /* just in case recurse through here  */
-
   qtr = heap_top_item(&qtp->timers) ;
   if ((qtr != NULL) && (qtr->time <= upto))
     {
-      qtp->unset_pending = qtr ;        /* delay unset of top item, pro tem...*/
+      qtr->state = qtr_state_unset_pending ;
 
       qtr->action(qtr, qtr->timer_info, upto) ;
 
-      if (qtp->unset_pending != NULL)   /* ...now must unset if not yet done  */
-        qtimer_unset(qtp->unset_pending) ;
+      if (qtr->state == qtr_state_unset_pending)
+        qtimer_unset(qtr) ;
 
       return 1 ;
     }
@@ -147,9 +162,12 @@ qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_t upto)
  *
  * If pile is empty, release the qtimer_pile structure, if required.
  *
+ * See: #define qtimer_pile_ream_free(qtp)
+ *      #define qtimer_pile_ream_keep(qtp)
+ *
  * Useful for emptying out and discarding a pile of timers:
  *
- *     while ((p_qtr = qtimer_pile_ream(qtp, 1)))
+ *     while ((p_qtr = qtimer_pile_ream_free(qtp)))
  *       ... do what's required to release the item p_qtr
  *
  * Returns NULL when timer pile is empty (and has been released, if required).
@@ -166,15 +184,10 @@ qtimer_pile_ream(qtimer_pile qtp, int free_structure)
 
   qtr = heap_ream_keep(&qtp->timers) ;  /* ream, keeping the heap structure   */
   if (qtr != NULL)
-    qtr->active = 0 ;                   /* already removed from pile          */
+    qtr->state = qtr_state_inactive ;   /* has been removed from pile         */
   else
-    {
-      if (free_structure)
-        XFREE(MTYPE_QTIMER_PILE, qtp) ;
-      else
-        qtp->unset_pending = NULL ;   /* heap is empty, so this is last thing */
-                                      /* to be tidied up.                     */
-    } ;
+    if (free_structure)                 /* pile is empty, may now free it     */
+      XFREE(MTYPE_QTIMER_PILE, qtp) ;
 
   return qtr ;
 } ;
@@ -186,7 +199,7 @@ qtimer_pile_ream(qtimer_pile qtp, int free_structure)
 /* Initialise qtimer structure -- allocating one if required.
  *
  * Associates qtimer with the given pile of timers, and sets up the action and
- * the timer_info ready for use.
+ * the timer_info.
  *
  * Once initialised, the timer may be set.
  *
@@ -199,19 +212,21 @@ qtimer_init_new(qtimer qtr, qtimer_pile qtp,
   if (qtr == NULL)
     qtr = XCALLOC(MTYPE_QTIMER, sizeof(struct qtimer)) ;
   else
-    memset(qtr, 0,  sizeof(struct qtimer)) ;
+    memset(qtr, 0, sizeof(struct qtimer)) ;
 
   /* Zeroising has initialised:
    *
    *   pile        -- NULL -- not in any pile (yet)
    *   backlink    -- unset
    *
-   *   active      -- not active
+   *   state       -- not active
    *
    *   time        -- unset
    *   action      -- NULL -- no action set (yet)
    *   timer_info  -- NULL -- no timer info set (yet)
    */
+
+  confirm(qtr_state_inactive == 0) ;
 
   qtr->pile       = qtp ;
   qtr->action     = action ;
@@ -223,11 +238,15 @@ qtimer_init_new(qtimer qtr, qtimer_pile qtp,
 /* Free given timer.
  *
  * Unsets it first if it is active.
+ *
+ * The timer MAY NOT be currently the subject of qtimer_pile_dispatch_next().
  */
 void
 qtimer_free(qtimer qtr)
 {
-  if (qtr->active)
+  assert(qtr->state != qtr_state_unset_pending) ;
+
+  if (qtr->state != qtr_state_inactive)
     qtimer_unset(qtr) ;
 
   XFREE(MTYPE_QTIMER, qtr) ;
@@ -241,7 +260,7 @@ qtimer_free(qtimer qtr)
 void
 qtimer_set_pile(qtimer qtr, qtimer_pile qtp)
 {
-  if ((qtr->active) && (qtr->pile != qtp))
+  if (qtr_is_active(qtr) && (qtr->pile != qtp))
     qtimer_unset(qtr) ;
   qtr->pile = qtp ;
 }
@@ -266,12 +285,17 @@ qtimer_set_info(qtimer qtr, void* timer_info)
  *
  * Setting a -ve time => qtimer_unset.
  *
+ * Sets any given action -- if the action given is NULL, retains previously set
+ * action.
+ *
  * If the timer is already active, sets the new time & updates pile.
  *
  * Otherwise, sets the time and adds to pile -- making timer active.
+ *
+ * It is an error to set a timer which has a NULL action.
  */
 void
-qtimer_set(qtimer qtr, qtime_t when)
+qtimer_set(qtimer qtr, qtime_t when, qtimer_action* action)
 {
   qtimer_pile qtp ;
 
@@ -283,17 +307,17 @@ qtimer_set(qtimer qtr, qtime_t when)
 
   qtr->time = when ;
 
-  if (qtr->active)
-    {
-      heap_update_item(&qtp->timers, qtr) ;     /* update in heap       */
-      if (qtr == qtp->unset_pending)
-        qtp->unset_pending = NULL ;             /* dealt with.          */
-    }
+  if (qtr_is_active(qtr))
+    heap_update_item(&qtp->timers, qtr) ; /* update in heap               */
   else
-    {
-      heap_push_item(&qtp->timers, qtr) ;       /* add to heap          */
-      qtr->active = 1 ;
-    } ;
+    heap_push_item(&qtp->timers, qtr) ;   /* add to heap                  */
+
+  qtr->state = qtr_state_active ;         /* overrides any unset pending  */
+
+  if (action != NULL)
+    qtr->action = action ;
+  else
+    dassert(qtr->action != NULL) ;
 } ;
 
 /* Unset given timer
@@ -303,15 +327,13 @@ qtimer_set(qtimer qtr, qtime_t when)
 void
 qtimer_unset(qtimer qtr)
 {
-  if (qtr->active)
+  if (qtr_is_active(qtr))
     {
       qtimer_pile qtp = qtr->pile ;
       dassert(qtp != NULL) ;
 
       heap_delete_item(&qtp->timers, qtr) ;
-      if (qtr == qtp->unset_pending)
-        qtp->unset_pending = NULL ;
 
-      qtr->active = 0 ;
+      qtr->state = qtr_state_inactive ; /* overrides any unset pending  */
     } ;
 } ;

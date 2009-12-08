@@ -24,11 +24,19 @@
   #define Inline static inline
 #endif
 
+/*==============================================================================
+ * Data structures etc.
+ */
+
 typedef int heap_cmp(p_vector_item* a, p_vector_item*) ;
 
 enum heap_state {
   Heap_Has_Backlink  = 0x01,    /* Set if backlink set  */
-};
+} ;
+
+typedef vector_index heap_backlink_t ;
+
+typedef struct heap* heap ;
 
 struct heap
 {
@@ -38,39 +46,37 @@ struct heap
   unsigned int backlink_offset ;
 
   struct vector v ;
-};
+} ;
 
-typedef struct heap* heap;
+/*==============================================================================
+ * Prototypes.
+ */
 
-typedef vector_index heap_backlink_t ;
-
-/* Prototypes. */
-
-extern heap heap_init_new(heap h, vector_index size, heap_cmp* cmp,
+extern heap heap_init_new(heap h, unsigned int size, heap_cmp* cmp,
                             int with_backlink, unsigned int backlink_offset) ;
 #define heap_init_new_simple(h, size, cmp) \
   heap_init_new(h, size, cmp, 0, 0)
-#define heap_init_new_backlinked(h, size, cmp, off) \
-  heap_init_new(h, size, cmp, 1, off)
+#define heap_init_new_backlinked(h, size, cmp, offset) \
+  heap_init_new(h, size, cmp, 1, offset)
 
-extern heap heap_re_init(heap h, vector_index size, heap_cmp* cmp,
+extern heap heap_re_init(heap h, unsigned int size, heap_cmp* cmp,
 			    int with_backlink, unsigned int backlink_offset) ;
 #define heap_re_init_simple(h, size, cmp) \
   heap_re_init(h, size, cmp, 0, 0)
-#define heap_re_init_backlinked(h, size, cmp, off) \
-  heap_re_init(h, size, cmp, 1, off)
+#define heap_re_init_backlinked(h, size, cmp, offset) \
+  heap_re_init(h, size, cmp, 1, offset)
 
 extern heap heap_reset(heap h, int free_structure) ;
 extern p_vector_item heap_ream(heap h, int free_structure) ;
 
 /* Reset heap and free the heap structure.	*/
-#define heap_reset_free(h) heap_reset(h, 1) ;
+#define heap_reset_free(h) heap_reset(h, 1)
 /* Reset heap but keep the heap structure.	*/
-#define heap_reset_keep(h) heap_reset(h, 0) ;
+#define heap_reset_keep(h) heap_reset(h, 0)
 /* Ream out heap and free the heap structure.	*/
-#define heap_ream_free(h) heap_ream(h, 1) ;
+#define heap_ream_free(h) heap_ream(h, 1)
 /* Ream out heap but keep the heap structure.	*/
-#define heap_ream_keep(h) heap_ream(h, 0) ;
+#define heap_ream_keep(h) heap_ream(h, 0)
 
 Inline void heap_push_item(heap h, p_vector_item p_v) ;
 extern p_vector_item heap_pop_item(heap h) ;
@@ -91,8 +97,6 @@ extern vector heap_pop_vector(vector v, heap h, int move_heap) ;
   heap_pop_vector(v, h, 0)
 #define heap_pop_vector_move(v, h)  \
   heap_pop_vector(v, h, 1)
-
-extern vector heap_vector(heap h, int unset_heap_order) ;
 
 /*==============================================================================
  * This are extern only for use in Inline and other friends
@@ -146,10 +150,8 @@ heap_update_top_item(heap h)
 } ;
 
 /* Update heap to reflect new value of given item.
- *
- * See notes on backlink, above.
  */
-void
+Inline void
 heap_update_item(heap h, p_vector_item p_v)
 {
   heap_bubble(h, heap_find_item(h, p_v), p_v) ;
