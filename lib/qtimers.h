@@ -20,7 +20,7 @@
  */
 
 #ifndef _ZEBRA_QTIMERS_H
-#define _ZEBRA_QTIMERST_H
+#define _ZEBRA_QTIMERS_H
 
 #include "zassert.h"
 #include "qtime.h"
@@ -185,4 +185,4 @@ qtimer_get(qtimer qtr)
   return qtr->time ;
 } ;
 
-#endif /* _ZEBRA_QPSELECT_H */
+#endif /* _ZEBRA_QTIMERS_H */

@@ -118,15 +118,15 @@ qt_craft_monotonic(void) {
   /* Set up times_scale_q & times_scale_q if not yet done.              */
   if (times_clk_tcks == 0)      /* Is zero until it's initialized       */
     {
-      ldiv_t qr ;
-      confirm(sizeof(qtime_t) <= sizeof(long int)) ;
+      lldiv_t qr ;
+      confirm(sizeof(qtime_t) <= sizeof(long long int)) ;
 
       times_clk_tcks = sysconf(_SC_CLK_TCK) ;
       passert((times_clk_tcks > 0) &&
               (times_clk_tcks <= (sizeof(clock_t) > 4) ? 1000000
                                                        :    1000)) ;
 
-      qr = ldiv(QTIME_SECOND, times_clk_tcks) ;
+      qr = lldiv(QTIME_SECOND, times_clk_tcks) ;
       times_scale_q = qr.quot ;
       times_scale_r = qr.rem ;
 
