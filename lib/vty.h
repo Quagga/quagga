@@ -24,6 +24,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "thread.h"
 #include "log.h"
 #include "qpthreads.h"
+#include "qpselect.h"
+#include "qtimers.h"
 
 #define VTY_BUFSIZ 512
 #define VTY_MAXHIST 20
@@ -31,7 +33,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* VTY struct. */
 struct vty
 {
-  /* File descripter of this vty. */
+  /* File descriptor of this vty. */
   int fd;
 
   /* Is this vty connect to file or not */
@@ -40,7 +42,7 @@ struct vty
   /* Node status of this vty */
   int node;
 
-  /* What address is this vty comming from. */
+  /* What address is this vty coming from. */
   char *address;
 
   /* Failure count */
@@ -113,11 +115,14 @@ struct vty
   int config;
 
   /* Read and write thread. */
+
+  qps_file qf;
   struct thread *t_read;
   struct thread *t_write;
 
   /* Timeout seconds and thread. */
   unsigned long v_timeout;
+  qtimer qtr;
   struct thread *t_timeout;
 };
 
@@ -212,12 +217,10 @@ extern int vty_lock_count;
 #endif
 
 /* Prototypes. */
-extern void vty_init_r (struct thread_master *);
-extern void vty_terminate_r (void);
-
+extern void vty_init_r (void);
+extern void vty_exec_r(void);
 extern void vty_init (struct thread_master *);
 extern void vty_init_vtysh (void);
-extern void vty_terminate_r (void);
 extern void vty_terminate (void);
 extern void vty_reset (void);
 extern struct vty *vty_new (void);

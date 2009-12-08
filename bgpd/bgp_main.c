@@ -406,7 +406,8 @@ main (int argc, char **argv)
   signal_init (master, Q_SIGC(bgp_signals), bgp_signals);
   zprivs_init_r (&bgpd_privs);
   cmd_init (1);
-  vty_init_r (master);
+  vty_init_r();
+/* vty_init (master); */
   memory_init ();
 
   /* BGP related initialization.  */
@@ -441,6 +442,9 @@ main (int argc, char **argv)
 	       vty_port, 
 	       (bm->address ? bm->address : "<all>"),
 	       bm->port);
+
+  /* create CLI thread */
+  vty_exec_r();
 
   /* Start finite state machine, here we go! */
   while (thread_fetch (master, &thread))

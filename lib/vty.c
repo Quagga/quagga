@@ -39,6 +39,7 @@
 
 #include <arpa/telnet.h>
 #include "qpthreads.h"
+#include "qpnexus.h"
 
 /* Needs to be qpthread safe */
 qpt_mutex_t* vty_mutex = NULL;
@@ -88,6 +89,13 @@ static void uty_hello (struct vty *vty);
 static void uty_close (struct vty *vty);
 static int uty_config_unlock (struct vty *vty);
 static int uty_shell (struct vty *vty);
+static int uty_read (struct vty *vty, int vty_sock);
+static int uty_flush (struct vty *vty, int vty_sock);
+static void vty_event_t (enum event event, int sock, struct vty *vty);
+static void vty_event_r (enum event event, int sock, struct vty *vty);
+static int uty_accept (int accept_sock);
+static int uty_timeout (struct vty *vty);
+static void vty_timeout_r (qtimer qtr, void* timer_info, qtime_t when);
 
 /* Extern host structure from command.c */
 extern struct host host;
@@ -105,10 +113,10 @@ static char *vty_accesslist_name = NULL;
 static char *vty_ipv6_accesslist_name = NULL;
 
 /* VTY server thread. */
-vector Vvty_serv_thread;
+static vector Vvty_serv_thread;
 
 /* Current directory. */
-char *vty_cwd = NULL;
+static char *vty_cwd = NULL;
 
 /* Configure lock. */
 static int vty_config;
@@ -122,6 +130,10 @@ static u_char restricted_mode = 0;
 
 /* Integrated configuration file path */
 char integrate_default[] = SYSCONFDIR INTEGRATE_DEFAULT_CONFIG;
+
+/* Master of the threads. */
+static struct thread_master *master = NULL;
+static qpn_nexus master_nexus = NULL;
 
 /* VTY standard output function.   vty == NULL or VTY_SHELL => stdout	*/
 int
@@ -1487,20 +1499,45 @@ vty_buffer_reset (struct vty *vty)
   vty_redraw_line (vty);
 }
 
-/* Callback: Read data via vty socket. */
+/* Callback: qpthreads., Read data via vty socket. */
+static void
+vty_read_r (qps_file qf, void* file_info)
+{
+  int vty_sock = qf->fd;
+  struct vty *vty = (struct vty *)file_info;
+
+  LOCK
+
+  /* is this necessary? */
+  qps_disable_modes(qf, qps_read_mbit);
+  uty_read(vty, vty_sock);
+
+  UNLOCK
+}
+
+/* Callback: threads. Read data via vty socket. */
 static int
 vty_read (struct thread *thread)
 {
-  int i;
-  int nbytes;
-  unsigned char buf[VTY_READ_BUFSIZ];
-
   int vty_sock = THREAD_FD (thread);
   struct vty *vty = THREAD_ARG (thread);
+  int result ;
 
   LOCK
 
   vty->t_read = NULL;
+  result = uty_read(vty, vty_sock);
+
+  UNLOCK
+  return result;
+}
+
+static int
+uty_read (struct vty *vty, int vty_sock)
+{
+  int i;
+  int nbytes;
+  unsigned char buf[VTY_READ_BUFSIZ];
 
   /* Read raw data from socket */
   if ((nbytes = read (vty->fd, buf, VTY_READ_BUFSIZ)) <= 0)
@@ -1510,7 +1547,6 @@ vty_read (struct thread *thread)
 	  if (ERRNO_IO_RETRY(errno))
 	    {
 	      vty_event (VTY_READ, vty_sock, vty);
-	      UNLOCK
 	      return 0;
 	    }
 	  vty->monitor = 0; /* disable monitoring to avoid infinite recursion */
@@ -1699,22 +1735,40 @@ vty_read (struct thread *thread)
       vty_event (VTY_READ, vty_sock, vty);
     }
 
-  UNLOCK
-
   return 0;
 }
 
-/* Callback: Flush buffer to the vty. */
-static int
-vty_flush (struct thread *thread)
+/* Callback: qpthreads. Flush buffer to the vty. */
+static void
+vty_flush_r (qps_file qf, void* file_info)
 {
-  int erase;
-  buffer_status_t flushrc;
-  int vty_sock = THREAD_FD (thread);
-  struct vty *vty = THREAD_ARG (thread);
+  int vty_sock = qf->fd;
+  struct vty *vty = (struct vty *)file_info;
 
   LOCK
 
+  qps_disable_modes(qf, qps_write_mbit);
+
+  /* Temporary disable read thread. */
+  if ((vty->lines == 0))
+    {
+      qps_disable_modes(qf, qps_read_mbit);
+    }
+
+  uty_flush(vty, vty_sock);
+
+  UNLOCK
+}
+
+/* Callback: threads. Flush buffer to the vty. */
+static int
+vty_flush (struct thread *thread)
+{
+  int vty_sock = THREAD_FD (thread);
+  struct vty *vty = THREAD_ARG (thread);
+  int result;
+
+  LOCK
   vty->t_write = NULL;
 
   /* Temporary disable read thread. */
@@ -1723,6 +1777,17 @@ vty_flush (struct thread *thread)
       thread_cancel (vty->t_read);
       vty->t_read = NULL;
     }
+  result = uty_flush(vty, vty_sock);
+
+  UNLOCK
+  return result;
+}
+
+static int
+uty_flush (struct vty *vty, int vty_sock)
+{
+  int erase;
+  buffer_status_t flushrc;
 
   /* Function execution continue. */
   erase = ((vty->status == VTY_MORE || vty->status == VTY_MORELINE));
@@ -1764,8 +1829,6 @@ vty_flush (struct thread *thread)
 	vty_event (VTY_WRITE, vty_sock, vty);
       break;
     }
-
-  UNLOCK
 
   return 0;
 }
@@ -1839,6 +1902,15 @@ vty_create (int vty_sock, union sockunion *su)
 
   vty_prompt (vty);
 
+  if (master_nexus)
+    {
+    vty->qf = qps_file_init_new(vty->qf, NULL);
+    qps_add_file(master_nexus->selection, vty->qf, vty_sock, vty);
+    qps_set_action(vty->qf, qps_read_mbit, vty_read_r);
+    qps_set_action(vty->qf, qps_write_mbit, vty_flush_r);
+    vty->qtr = qtimer_init_new(vty->qtr, master_nexus->pile, vty_timeout_r, vty);
+    }
+
   /* Add read/write thread. */
   vty_event (VTY_WRITE, vty_sock, vty);
   vty_event (VTY_READ, vty_sock, vty);
@@ -1846,22 +1918,43 @@ vty_create (int vty_sock, union sockunion *su)
   return vty;
 }
 
-/* Callback: Accept connection from the network. */
+/* Callback: qpthreads.  Accept connection from the network. */
+static void
+vty_accept_r (qps_file qf, void* file_info)
+{
+  LOCK
+
+  int accept_sock = qf->fd;
+  uty_accept(accept_sock);
+
+  UNLOCK
+}
+
+/* Callback: threads.  Accept connection from the network. */
 static int
 vty_accept (struct thread *thread)
+{
+  int result;
+
+  LOCK
+
+  int accept_sock = THREAD_FD (thread);
+  result = uty_accept(accept_sock);
+
+  UNLOCK
+  return result;
+}
+
+static int
+uty_accept (int accept_sock)
 {
   int vty_sock;
   struct vty *vty;
   union sockunion su;
   int ret;
   unsigned int on;
-  int accept_sock;
   struct prefix *p = NULL;
   struct access_list *acl = NULL;
-
-  LOCK
-
-  accept_sock = THREAD_FD (thread);
 
   /* We continue hearing vty socket. */
   vty_event (VTY_SERV, accept_sock, NULL);
@@ -1873,7 +1966,6 @@ vty_accept (struct thread *thread)
   if (vty_sock < 0)
     {
       uzlog (NULL, LOG_WARNING, "can't accept vty socket : %s", safe_strerror (errno));
-      UNLOCK
       return -1;
     }
   set_nonblocking(vty_sock);
@@ -1896,8 +1988,6 @@ vty_accept (struct thread *thread)
 	  vty_event (VTY_SERV, accept_sock, NULL);
 
 	  prefix_free (p);
-
-	  UNLOCK
 	  return 0;
 	}
     }
@@ -1919,8 +2009,6 @@ vty_accept (struct thread *thread)
 	  vty_event (VTY_SERV, accept_sock, NULL);
 
 	  prefix_free (p);
-
-	  UNLOCK
 	  return 0;
 	}
     }
@@ -1937,7 +2025,6 @@ vty_accept (struct thread *thread)
 
   vty = vty_create (vty_sock, &su);
 
-  UNLOCK
   return 0;
 }
 
@@ -2153,18 +2240,36 @@ vty_serv_un (const char *path)
 
 /* #define VTYSH_DEBUG 1 */
 
+/* Callback: qpthreads.  Accept connection */
+void int
+vtysh_accept_r (qps_file qf, void* file_info)
+{
+  LOCK
+  int accept_sock = qf->fd;
+  utysh_accept (accept_sock);
+  UNLOCK
+}
+
+/* Callback: threads.  Accept connection */
 static int
 vtysh_accept (struct thread *thread)
 {
-  int accept_sock;
+  LOCK
+  int accept_sock = THREAD_FD (thread);
+  result = utysh_accept (accept_sock);
+  UNLOCK
+  return result;
+}
+
+static int
+utysh_accept (int accept_sock)
+{
   int sock;
   int client_len;
   struct sockaddr_un client;
   struct vty *vty;
 
-  LOCK
-
-  accept_sock = THREAD_FD (thread);
+  assert(vty_lock_count);
 
   vty_event (VTYSH_SERV, accept_sock, NULL);
 
@@ -2177,7 +2282,6 @@ vtysh_accept (struct thread *thread)
   if (sock < 0)
     {
       uzlog (NULL, LOG_WARNING, "can't accept vty socket : %s", safe_strerror (errno));
-      UNLOCK
       return -1;
     }
 
@@ -2186,7 +2290,6 @@ vtysh_accept (struct thread *thread)
       uzlog (NULL, LOG_WARNING, "vtysh_accept: could not set vty socket %d to non-blocking,"
                  " %s, closing", sock, safe_strerror (errno));
       close (sock);
-      UNLOCK
       return -1;
     }
 
@@ -2201,7 +2304,6 @@ vtysh_accept (struct thread *thread)
 
   vty_event (VTYSH_READ, sock, vty);
 
-  UNLOCK
   return 0;
 }
 
@@ -2228,22 +2330,47 @@ vtysh_flush(struct vty *vty)
   return 0;
 }
 
-static int
-vtysh_read (struct thread *thread)
+/* Callback: qpthreads., Read data via vty socket. */
+static void
+vtysh_read_r (qps_file qf, void* file_info)
 {
-  int ret;
-  int sock;
-  int nbytes;
-  struct vty *vty;
-  unsigned char buf[VTY_READ_BUFSIZ];
-  unsigned char *p;
-  u_char header[4] = {0, 0, 0, 0};
+  int vty_sock = qf->fd;
+  struct vty *vty = (struct vty *)file_info;
 
   LOCK
 
-  sock = THREAD_FD (thread);
-  vty = THREAD_ARG (thread);
+  /* is this necessary? */
+  qps_disable_modes(qf, qps_read_mbit);
+  utysh_read(vty, vty_soc);
+
+  UNLOCK
+}
+
+/* Callback: threads. Read data via vty socket. */
+static int
+vtysh_read (struct thread *thread)
+{
+  int vty_sock = THREAD_FD (thread);
+  struct vty *vty = THREAD_ARG (thread);
+  int result;
+
+  LOCK
+
   vty->t_read = NULL;
+  result = uty_read(vty, vty_soc);
+
+  UNLOCK
+  return result;
+}
+
+static int
+utysh_read (struct vty *vty, int sock)
+{
+  int ret;
+  int nbytes;
+  unsigned char buf[VTY_READ_BUFSIZ];
+  unsigned char *p;
+  u_char header[4] = {0, 0, 0, 0};
 
   if ((nbytes = read (sock, buf, VTY_READ_BUFSIZ)) <= 0)
     {
@@ -2252,7 +2379,6 @@ vtysh_read (struct thread *thread)
 	  if (ERRNO_IO_RETRY(errno))
 	    {
 	      vty_event (VTYSH_READ, sock, vty);
-	      UNLOCK
 	      return 0;
 	    }
 	  vty->monitor = 0; /* disable monitoring to avoid infinite recursion */
@@ -2264,7 +2390,6 @@ vtysh_read (struct thread *thread)
 #ifdef VTYSH_DEBUG
       printf ("close vtysh\n");
 #endif /* VTYSH_DEBUG */
-      UNLOCK
       return 0;
     }
 
@@ -2294,18 +2419,30 @@ vtysh_read (struct thread *thread)
 
 	  if (!vty->t_write && (vtysh_flush(vty) < 0))
 	    /* Try to flush results; exit if a write error occurs. */
-	    UNLOCK
 	    return 0;
 	}
     }
 
   vty_event (VTYSH_READ, sock, vty);
 
-  UNLOCK
   return 0;
 }
 
-/* Callback */
+/* Callback: qpthraeds.  Write */
+static void
+vtysh_write_r (qps_file qf, void* file_info)
+{
+  struct vty *vty = (struct vty *)file_info;
+
+  LOCK
+
+  qps_disable_modes(qf, qps_write_mbit);
+  vtysh_flush(vty);
+
+  UNLOCK
+}
+
+//* Callback: thraeds.  Write */
 static int
 vtysh_write (struct thread *thread)
 {
@@ -2377,6 +2514,17 @@ uty_close (struct vty *vty)
     thread_cancel (vty->t_write);
   if (vty->t_timeout)
     thread_cancel (vty->t_timeout);
+  if (vty->qf)
+    {
+      qps_remove_file(vty->qf);
+      qps_file_free(vty->qf);
+      vty->qf = NULL;
+    }
+  if (vty->qtr)
+    {
+    qtimer_free(vty->qtr);
+    vty->qtr = NULL;
+    }
 
   /* Flush buffer. */
   buffer_flush_all (vty->obuf, vty->fd);
@@ -2408,16 +2556,33 @@ uty_close (struct vty *vty)
   XFREE (MTYPE_VTY, vty);
 }
 
-/* Callback: When time out occur output message then close connection. */
+/* Callback: qpthreads.  When time out occur output message then close connection. */
+static void
+vty_timeout_r (qtimer qtr, void* timer_info, qtime_t when)
+{
+  struct vty *vty = (struct vty *)timer_info;
+  LOCK
+  qtimer_unset(qtr);
+  uty_timeout(vty);
+  UNLOCK
+}
+
+/* Callback: threads.  When time out occur output message then close connection. */
 static int
 vty_timeout (struct thread *thread)
 {
-  struct vty *vty;
-
-  LOCK;
-
-  vty = THREAD_ARG (thread);
+  int result;
+  struct vty *vty = THREAD_ARG (thread);
+  LOCK
   vty->t_timeout = NULL;
+  result = uty_timeout(vty);
+  UNLOCK
+  return result;
+}
+
+static int
+uty_timeout (struct vty *vty)
+{
   vty->v_timeout = 0;
 
   /* Clear buffer*/
@@ -2428,7 +2593,6 @@ vty_timeout (struct thread *thread)
   vty->status = VTY_CLOSE;
   uty_close (vty);
 
-  UNLOCK
   return 0;
 }
 
@@ -2723,12 +2887,19 @@ uty_config_unlock (struct vty *vty)
   return vty->config;
 }
 
-/* Master of the threads. */
-static struct thread_master *master;
-
 static void
 vty_event (enum event event, int sock, struct vty *vty)
 {
+  if (master_nexus)
+    vty_event_r(event, sock, vty);
+  else
+    vty_event_t(event, sock, vty);
+}
+
+/* thread event setter */
+static void
+vty_event_t (enum event event, int sock, struct vty *vty)
+  {
   struct thread *vty_serv_thread;
 
   assert(vty_lock_count);
@@ -2765,7 +2936,7 @@ vty_event (enum event event, int sock, struct vty *vty)
     case VTY_WRITE:
       if (! vty->t_write)
 	vty->t_write = thread_add_write (master, vty_flush, vty, sock);
-      break;
+        break;
     case VTY_TIMEOUT_RESET:
       if (vty->t_timeout)
 	{
@@ -2777,6 +2948,72 @@ vty_event (enum event event, int sock, struct vty *vty)
 	  vty->t_timeout =
 	    thread_add_timer (master, vty_timeout, vty, vty->v_timeout);
 	}
+      break;
+    }
+}
+
+/* qpthreads event setter */
+static void
+vty_event_r (enum event event, int sock, struct vty *vty)
+  {
+
+  qps_file accept_file = NULL;
+
+  assert(vty_lock_count);
+
+  switch (event)
+    {
+    case VTY_SERV:
+      accept_file = vector_get_item(Vvty_serv_thread, sock);
+      if (accept_file == NULL)
+        {
+          accept_file = qps_file_init_new(accept_file, NULL);
+          qps_add_file(master_nexus->selection, accept_file, sock, NULL);
+          qps_set_action(accept_file, qps_read_mbit, vty_accept_r);
+          vector_set_index(Vvty_serv_thread, sock, accept_file);
+        }
+      qps_enable_mode(accept_file, qps_read_mbit, NULL) ;
+      break;
+#ifdef VTYSH
+    case VTYSH_SERV:
+      accept_file = vector_get_item(Vvty_serv_thread, sock);
+      if (accept_file == NULL)
+        {
+          accept_file = qps_file_init_new(accept_file, NULL);
+          qps_add_file(master, accept_file, sock, NULL);
+          qps_set_action(accept_file, qps_read_mbit, vtysh_accept_r);
+          vector_set_index(Vvty_serv_thread, sock, accept_file);
+        }
+      qps_enable_mode(accept_file, qps_read_mbit, NULL) ;
+      break;
+    case VTYSH_READ:
+      qps_enable_mode(vty->file, qps_read_mbit, NULL) ;
+      break;
+    case VTYSH_WRITE:
+      qps_enable_mode(vty->file, qps_write_mbit, NULL) ;
+      break;
+#endif /* VTYSH */
+    case VTY_READ:
+      qps_enable_mode(vty->qf, qps_read_mbit, NULL) ;
+
+      /* Time out treatment. */
+      if (vty->v_timeout)
+        {
+          qtimer_set(vty->qtr, qtimer_time_future(QTIME(vty->v_timeout)), NULL) ;
+        }
+      break;
+    case VTY_WRITE:
+      qps_enable_mode(vty->qf, qps_write_mbit, NULL) ;
+      break;
+    case VTY_TIMEOUT_RESET:
+      if (vty->v_timeout)
+        {
+          qtimer_set(vty->qtr, qtimer_time_future(QTIME(vty->v_timeout)), NULL) ;
+        }
+      else
+        {
+          qtimer_unset(vty->qtr);
+        }
       break;
     }
 }
@@ -3106,6 +3343,7 @@ vty_reset ()
   unsigned int i;
   struct vty *vty;
   struct thread *vty_serv_thread;
+  qps_file qf;
 
   LOCK
 
@@ -3117,13 +3355,28 @@ vty_reset ()
 	uty_close (vty);
       }
 
-  for (i = 0; i < vector_active (Vvty_serv_thread); i++)
-    if ((vty_serv_thread = vector_slot (Vvty_serv_thread, i)) != NULL)
-      {
-	thread_cancel (vty_serv_thread);
-	vector_slot (Vvty_serv_thread, i) = NULL;
-        close (i);
-      }
+  if (master_nexus)
+    {
+      for (i = 0; i < vector_active (Vvty_serv_thread); i++)
+        if ((qf = vector_slot (Vvty_serv_thread, i)) != NULL)
+          {
+          qps_remove_file(qf);
+          qps_file_free(qf);
+          vector_slot (Vvty_serv_thread, i) = NULL;
+          close (i);
+          }
+    }
+  else
+    {
+      assert(master);
+      for (i = 0; i < vector_active (Vvty_serv_thread); i++)
+        if ((vty_serv_thread = vector_slot (Vvty_serv_thread, i)) != NULL)
+          {
+            thread_cancel (vty_serv_thread);
+            vector_slot (Vvty_serv_thread, i) = NULL;
+            close (i);
+          }
+    }
 
   vty_timeout_val = VTY_TIMEOUT_DEFAULT;
 
@@ -3199,15 +3452,24 @@ vty_init_vtysh ()
   UNLOCK
 }
 
-/* Install vty's own commands like `who' command. */
+/* qpthreads: Install vty's own commands like `who' command. */
 void
-vty_init_r (struct thread_master *master_thread)
+vty_init_r (void)
 {
+  master_nexus = qpn_init_new(master_nexus);
   vty_mutex = qpt_mutex_init(vty_mutex, qpt_mutex_quagga);
-  vty_init(master_thread);
+  vty_init(NULL);
 }
 
-/* Install vty's own commands like `who' command. */
+/* create and execute our thread */
+void
+vty_exec_r(void)
+{
+  if (master_nexus)
+    qpn_exec(master_nexus);
+}
+
+/* threads: Install vty's own commands like `who' command. */
 void
 vty_init (struct thread_master *master_thread)
 {
@@ -3259,16 +3521,13 @@ vty_init (struct thread_master *master_thread)
 }
 
 void
-vty_terminate_r (void)
-{
-  vty_terminate();
-  vty_mutex = qpt_mutex_destroy(vty_mutex, 1);
-}
-
-void
 vty_terminate (void)
 {
   LOCK
+
+  if (master_nexus)
+      master_nexus->terminate = 1;
+
   if (vty_cwd)
     XFREE (MTYPE_TMP, vty_cwd);
 
@@ -3279,6 +3538,9 @@ vty_terminate (void)
       vector_free (Vvty_serv_thread);
     }
   UNLOCK
+
+  if (vty_mutex)
+    vty_mutex = qpt_mutex_destroy(vty_mutex, 1);
 }
 
 #undef LOCK
