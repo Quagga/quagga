@@ -48,7 +48,7 @@
  */
 
 /* maximum time in seconds to sit in a pselect */
-#define MAX_PSELECT_TIMOUT QTIME(10)
+#define MAX_PSELECT_TIMOUT 10
 
 /*==============================================================================
  * Data Structures.

@@ -90,8 +90,17 @@ qpn_start(void* arg)
 
   while (!qpn->terminate)
     {
+      qtime_t now = qtimer_time_now();
+
+      /* process timers */
+      while (qtimer_pile_dispatch_next(qpn->pile, now))
+        {
+        }
+
       /* block for some input, output or timeout */
-      actions = qps_pselect(qpn->selection, qtimer_pile_top_time(qpn->pile, MAX_PSELECT_TIMOUT));
+      actions = qps_pselect(qpn->selection,
+          qtimer_pile_top_time(qpn->pile,
+              qtimer_time_future(now + QTIME(MAX_PSELECT_TIMOUT))));
       if (actions < 0)
         {
           zabort_errno("qps_pselect failed");
@@ -101,11 +110,6 @@ qpn_start(void* arg)
       while (actions)
         {
           actions = qps_dispatch_next(qpn->selection) ;
-        }
-
-      /* process timers */
-      while (qtimer_pile_dispatch_next(qpn->pile, qtimer_time_now()))
-        {
         }
 
       /* TODO process message queue */

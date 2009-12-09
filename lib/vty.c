@@ -2244,8 +2244,8 @@ vty_serv_un (const char *path)
 void int
 vtysh_accept_r (qps_file qf, void* file_info)
 {
-  LOCK
   int accept_sock = qf->fd;
+  LOCK
   utysh_accept (accept_sock);
   UNLOCK
 }
@@ -2254,8 +2254,8 @@ vtysh_accept_r (qps_file qf, void* file_info)
 static int
 vtysh_accept (struct thread *thread)
 {
-  LOCK
   int accept_sock = THREAD_FD (thread);
+  LOCK
   result = utysh_accept (accept_sock);
   UNLOCK
   return result;
