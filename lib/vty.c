@@ -1955,6 +1955,7 @@ uty_accept (int accept_sock)
   unsigned int on;
   struct prefix *p = NULL;
   struct access_list *acl = NULL;
+  char *bufp;
 
   /* We continue hearing vty socket. */
   vty_event (VTY_SERV, accept_sock, NULL);
@@ -2022,6 +2023,11 @@ uty_accept (int accept_sock)
   if (ret < 0)
     uzlog (NULL, LOG_INFO, "can't set sockopt to vty_sock : %s",
 	  safe_strerror (errno));
+
+  zlog (NULL, LOG_INFO, "Vty connection from %s",
+    (bufp = sockunion_su2str (&su)));
+  if (bufp)
+    XFREE (MTYPE_TMP, bufp);
 
   vty = vty_create (vty_sock, &su);
 
