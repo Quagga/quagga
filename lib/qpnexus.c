@@ -98,9 +98,8 @@ qpn_start(void* arg)
         }
 
       /* block for some input, output or timeout */
-      actions = qps_pselect(qpn->selection,
-          qtimer_pile_top_time(qpn->pile,
-              qtimer_time_future(now + QTIME(MAX_PSELECT_TIMOUT))));
+      actions = qps_pselect( qpn->selection,
+          qtimer_pile_top_time(qpn->pile, now + QTIME(MAX_PSELECT_TIMOUT)) );
       if (actions < 0)
         {
           zabort_errno("qps_pselect failed");
