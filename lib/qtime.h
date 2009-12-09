@@ -53,6 +53,12 @@
 
 typedef int64_t qtime_t ;
 
+typedef qtime_t qtime_real_t ;  /* qtime_t value, realtime time-base      */
+typedef qtime_t qtime_mono_t ;  /* qtime_t value, monotonic time-base     */
+
+typedef qtime_t qtime_tod_t ;   /* qtime_t value, timeofday time-base...  */
+                                /* ...just in case != CLOCK_REALTIME !    */
+
 /* A qtime_t second       123456789 -- nano-seconds             */
 #define QTIME_SECOND     1000000000
 #define TIMESPEC_SECOND  1000000000
@@ -91,29 +97,38 @@ qtime2timeval(struct timeval* p_tv, qtime_t qt) ;
  *     a manufactured equivalent using times() -- see qt_craft_monotonic().
  */
 
-Inline qtime_t
+Inline qtime_real_t
 qt_get_realtime(void) ;         /* clock_gettime(CLOCK_REALTIME, ...)   */
 
-Inline qtime_t
+Inline qtime_mono_t
+qt_add_realtime(qtime_t interval) ;   /* qt_get_realtime() + interval   */
+
+Inline qtime_mono_t
 qt_get_monotonic(void) ;        /* clock_gettime(CLOCK_MONOTONIC, ...)  */
                                 /* OR equivalent using times()          */
+Inline qtime_mono_t
+qt_add_monotonic(qtime_t interval) ;  /* qt_get_monotonic() + interval  */
 
-Inline qtime_t                  /* monotonic time from CLOCK_REALTIME   */
-qt_realtime2monotonic(qtime_t realtime) ;
-Inline qtime_t                  /* CLOCK_REALTIME from monotonic time   */
-qt_monotonic2realtime(qtime_t monotonic) ;
+Inline qtime_mono_t             /* monotonic time from CLOCK_REALTIME   */
+qt_realtime2monotonic(qtime_real_t realtime) ;
+Inline qtime_real_t             /* CLOCK_REALTIME from monotonic time   */
+qt_monotonic2realtime(qtime_mono_t monotonic) ;
 
 /* Function to manufacture a monotonic clock.   */
-extern qtime_t qt_craft_monotonic(void) ;
+extern qtime_mono_t
+qt_craft_monotonic(void) ;
 
 /* These are provided just in case gettimeofday() != CLOCK_REALTIME     */
-Inline qtime_t
+Inline qtime_tod_t
 qt_get_timeofday(void) ;        /* gettimeofday(&tv, NULL)              */
 
-Inline qtime_t                  /* monotonic time from timeofday        */
-qt_timeofday2monotonic(qtime_t timeofday) ;
-Inline qtime_t                  /* timeofday from monotonic time        */
-qt_monotonic2timeofday(qtime_t monotonic) ;
+Inline qtime_tod_t
+qt_add_timeofday(qtime_t interval) ;  /* qt_get_timeofday() + interval  */
+
+Inline qtime_mono_t             /* monotonic time from timeofday        */
+qt_timeofday2monotonic(qtime_tod_t timeofday) ;
+Inline qtime_tod_t              /* timeofday from monotonic time        */
+qt_monotonic2timeofday(qtime_mono_t monotonic) ;
 
 /*==============================================================================
  * Inline conversion functions
@@ -196,25 +211,23 @@ qt_clock_gettime(clockid_t clock_id)
   return timespec2qtime(&ts) ;
 } ;
 
-/* gettimeofday(&tv, NULL) -- returning qtime_t value
- */
-Inline qtime_t
-qt_get_timeofday(void)
-{
-  struct timeval tv ;
-  gettimeofday(&tv, NULL) ;
-  return timeval2qtime(&tv) ;
-}
-
 /* clock_gettime(CLOCK_REALTIME, ...) -- returning qtime_t value
  *
  * While possibility of error is essentially theoretical, must treat it as a
  * FATAL error -- cannot continue with broken time value !
  */
-Inline qtime_t
+Inline qtime_real_t
 qt_get_realtime(void)
 {
   return qt_clock_gettime(CLOCK_REALTIME) ;
+} ;
+
+/* qt_get_realtime() + interval
+ */
+Inline qtime_real_t
+qt_add_realtime(qtime_t interval)
+{
+  return qt_get_realtime() + interval;
 } ;
 
 /* clock_gettime(CLOCK_MONOTONIC, ...) OR qt_craft_monotonic()
@@ -223,7 +236,7 @@ qt_get_realtime(void)
  * While possibility of error is essentially theoretical, must treat it as a
  * FATAL error -- cannot continue with broken time value !
  */
-Inline qtime_t
+Inline qtime_mono_t
 qt_get_monotonic(void)
 {
 #ifdef HAVE_CLOCK_MONOTONIC
@@ -233,34 +246,60 @@ qt_get_monotonic(void)
 #endif
 } ;
 
+/* qt_get_monotonic() + interval
+ */
+Inline qtime_mono_t
+qt_add_monotonic(qtime_t interval)
+{
+  return qt_get_monotonic() + interval;
+} ;
+
+/* gettimeofday(&tv, NULL) -- returning qtime_t value
+ */
+Inline qtime_tod_t
+qt_get_timeofday(void)
+{
+  struct timeval tv ;
+  gettimeofday(&tv, NULL) ;
+  return timeval2qtime(&tv) ;
+}
+
+/* qt_get_timeofday() + interval
+ */
+Inline qtime_tod_t
+qt_add_timeofday(qtime_t interval)
+{
+  return qt_get_timeofday() + interval;
+} ;
+
 /*==============================================================================
  * Conversion between realtime/timeofday and monotonic
  */
 
 /* Convert a CLOCK_REALTIME time to our local monotonic time.           */
-Inline qtime_t
-qt_realtime2monotonic(qtime_t realtime)
+Inline qtime_mono_t
+qt_realtime2monotonic(qtime_real_t realtime)
 {
   return qt_get_monotonic() + (realtime - qt_get_realtime()) ;
 } ;
 
 /* Convert a local monotonic time to CLOCK_REALTIME time.               */
-Inline qtime_t
-qt_monotonic2realtime(qtime_t monotonic)
+Inline qtime_real_t
+qt_monotonic2realtime(qtime_mono_t monotonic)
 {
   return qt_get_realtime() + (monotonic - qt_get_monotonic()) ;
 } ;
 
 /* Convert a gettimeofday() time to our local monotonic time.           */
-Inline qtime_t
-qt_timeofday2monotonic(qtime_t timeofday)
+Inline qtime_mono_t
+qt_timeofday2monotonic(qtime_tod_t timeofday)
 {
   return qt_get_monotonic() + (timeofday - qt_get_timeofday()) ;
 } ;
 
 /* Convert a local monotonic time to gettimeofday() time.               */
-Inline qtime_t
-qt_monotonic2timeofday(qtime_t monotonic)
+Inline qtime_tod_t
+qt_monotonic2timeofday(qtime_mono_t monotonic)
 {
   return qt_get_timeofday() + (monotonic - qt_get_monotonic()) ;
 } ;

@@ -44,21 +44,21 @@
  *
  * For condition variables there is a timeout mechanism so that waiters
  * are woken up at least every now and then.  The message queue maintains
- * current timeout time and timeout interval variables.  Each time a waiter
- * waits it will do:
+ * a timeout time and a timeout interval.  The timeout time is a qtime_mono_t
+ * time -- so is monotonic.
  *
- *   next = now + interval
- *   if (now > current) || (next <= current)
- *     current = next and return (don't wait)
- *   else
- *     wait until current
+ * When waiting, an explicit timeout may be given, otherwise the stored timeout
+ * will be used:
  *
- * If the wait times out, the current is set to current + interval.
+ *   wait until explicit/stored timeout
+ *   if times out and there is a stored interval:
+ *     new stored timeout = stored timeout + stored interval
+ *     if new stored timeout < time now
+ *       new stored timeout = time now + stored interval
  *
- * The effect of this is to return at least at regular intervals from the wait,
- * provided the queue is waited on within the timeout period.  If the queue is
- * waited on after the current timeout time, it returns immediately, updating
- * the current timeout time -- the "clock" slips.
+ * Left to its own devices, this will produce a regular timeout every interval,
+ * assuming that the queue is waited on within the interval.  Otherwise the
+ * "clock" will slip.
  *
  * There is a default timeout period.  The period may be set "infinite".
  *
@@ -116,8 +116,8 @@ mqueue_init_new(mqueue_queue mq, enum mqueue_queue_type type)
         if (MQUEUE_DEFAULT_INTERVAL != 0)
           {
             mq->kick.cond.interval = MQUEUE_DEFAULT_INTERVAL ;
-            mq->kick.cond.timeout  =
-                            qpt_cond_get_timeout_time(MQUEUE_DEFAULT_INTERVAL) ;
+            mq->kick.cond.timeout  = qt_get_monotonic()
+                                                     + MQUEUE_DEFAULT_INTERVAL ;
           } ;
         break;
 
@@ -146,7 +146,7 @@ mqueue_set_timeout_interval(mqueue_queue mq, qtime_t interval)
            (mq->type == mqt_cond_broadcast) ) ;
 
   mq->kick.cond.interval = interval ;
-  mq->kick.cond.timeout  = (interval > 0) ? qpt_cond_get_timeout_time(interval)
+  mq->kick.cond.timeout  = (interval > 0) ? qt_get_monotonic() + interval
                                           : 0 ;
   qpt_mutex_unlock(&mq->mutex) ;
 } ;
@@ -339,7 +339,13 @@ mqueue_enqueue(mqueue_queue mq, mqueue_block mb, int priority)
  * case for:
  *
  *   * mqt_cond_xxxx type message queues, will wait on the condition variable,
- *     and may time-out.  (mtsig argument MUST be NULL.)
+ *     and may timeout.
+ *
+ *     If the argument is NULL, uses the already set up timeout, if there is
+ *     one.
+ *
+ *     If the argument is not NULL, it is a pointer to a qtime_mono_t time,
+ *     to be used as the new timeout time.
  *
  *   * mqt_signal_xxxx type message queues, will register the given signal
  *     (mtsig argument MUST be provided), and return immediately.
@@ -348,10 +354,13 @@ mqueue_enqueue(mqueue_queue mq, mqueue_block mb, int priority)
  */
 
 mqueue_block
-mqueue_dequeue(mqueue_queue mq, int wait, mqueue_thread_signal mtsig)
+mqueue_dequeue(mqueue_queue mq, int wait, void* arg)
 {
   mqueue_block mb ;
   mqueue_thread_signal last ;
+
+  mqueue_thread_signal mtsig ;
+  qtime_mono_t         timeout_time ;
 
   qpt_mutex_lock(&mq->mutex) ;
 
@@ -370,37 +379,36 @@ mqueue_dequeue(mqueue_queue mq, int wait, mqueue_thread_signal mtsig)
       {
         case mqt_cond_unicast:    /* Now wait here                        */
         case mqt_cond_broadcast:
-          dassert(mtsig == NULL) ;
-
-          if (mq->kick.cond.interval <= 0)
+          if ((arg == NULL) && (mq->kick.cond.interval <= 0))
             qpt_cond_wait(&mq->kick.cond.wait_here, &mq->mutex) ;
           else
             {
-              qtime_t now = qpt_cond_get_timeout_time(0) ;
+              timeout_time = (arg != NULL) ? *(qtime_mono_t*)arg
+                                           : mq->kick.cond.timeout ;
 
-#if QPT_COND_CLOCK_MONOTONIC
-              dassert(now >= (mq->kick.cond.timeout - mq->kick.cond.interval)) ;
-              if (now > mq->kick.cond.timeout)
-#else
-              if ( (now > mq->kick.cond.timeout)
-                  || (now < (mq->kick.cond.timeout - mq->kick.cond.interval)) )
-#endif
+              if (qpt_cond_timedwait(&mq->kick.cond.wait_here, &mq->mutex,
+                                                             timeout_time) == 0)
                 {
-                  /* the "clock" has slipped.  Reset it and return now. */
-                  mq->kick.cond.timeout = now + mq->kick.cond.interval ;
+                  /* Timed out -- update timeout time, if required      */
+                  if (mq->kick.cond.interval > 0)
+                    {
+                      qtime_mono_t now = qt_get_monotonic() ;
+                      timeout_time = mq->kick.cond.timeout
+                                                      + mq->kick.cond.interval ;
+                      if (timeout_time < now)
+                        timeout_time = now + mq->kick.cond.interval ;
+
+                      mq->kick.cond.timeout = timeout_time ;
+                    } ;
+
                   goto done ;    /* immediate return.  mb == NULL        */
-                }
-              else
-                {
-                  if (qpt_cond_timedwait(&mq->kick.cond.wait_here, &mq->mutex,
-                                                    mq->kick.cond.timeout) == 0)
-                    mq->kick.cond.timeout += mq->kick.cond.interval ;
                 } ;
             } ;
           break ;
 
         case mqt_signal_unicast:  /* Register desire for signal           */
         case mqt_signal_broadcast:
+          mtsig = arg ;
           dassert(mtsig != NULL) ;
 
           last = mq->kick.signal.tail ;

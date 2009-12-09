@@ -1,4 +1,4 @@
-/* Quagga timers support -- header
+/* Quagga timers support -- functions
  * Copyright (C) 2009 Chris Hall (GMCH), Highwayman
  *
  * This file is part of GNU Zebra.
@@ -51,9 +51,6 @@
  * ---------
  *
  * The time base for qtimers is the monotonic time provided in qtime.c/.h.
- *
- * The qtimer_time_now(), qtimer_time_future(), timer_time_from_realtime(),
- * qtimer_time_from_timeofday() functions return qtimer times.
  *
  * Action Functions
  * ----------------
@@ -116,8 +113,8 @@ qtimer_pile_init_new(qtimer_pile qtp)
  * empty, or the top entry times out after the maximum time, then the maximum
  * is returned.
  */
-qtime_t
-qtimer_pile_top_time(qtimer_pile qtp, qtime_t max_time)
+qtime_mono_t
+qtimer_pile_top_time(qtimer_pile qtp, qtime_mono_t max_time)
 {
   qtimer  qtr = heap_top_item(&qtp->timers) ;
 
@@ -138,7 +135,7 @@ qtimer_pile_top_time(qtimer_pile qtp, qtime_t max_time)
  *         false <=> nothing to do (and nothing done).
  */
 int
-qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_t upto)
+qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto)
 {
   qtimer   qtr ;
 
@@ -295,7 +292,7 @@ qtimer_set_info(qtimer qtr, void* timer_info)
  * It is an error to set a timer which has a NULL action.
  */
 void
-qtimer_set(qtimer qtr, qtime_t when, qtimer_action* action)
+qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
 {
   qtimer_pile qtp ;
 

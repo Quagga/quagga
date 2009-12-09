@@ -170,7 +170,7 @@ qpt_mutex_unlock(qpt_mutex_t* mx) ;     /* do nothing if mx == NULL     */
 /*==============================================================================
  * Condition Variable handling
  *
- * Quagga's default clock for condition variables is QPT_COND_CLOCK_ID, which
+ * Quagga's clock for condition variables is QPT_COND_CLOCK_ID, which
  * may be set elsewhere.  If it is not set then it is set here to be:
  *
  *   * CLOCK_MONOTONIC if available
@@ -179,30 +179,30 @@ qpt_mutex_unlock(qpt_mutex_t* mx) ;     /* do nothing if mx == NULL     */
  * QPT_COND_CLOCK_MONOTONIC is set if CLOCK_MONOTONIC is used (and must be set
  * if QPT_COND_CLOCK_ID is set elsewhere to something that is monotonic).
  *
- * NB: qpt_cond_get_timeout_time uses QPT_COND_CLOCK_ID.
+ * NB: the time-out time passed to qpt_cond_timedwait() is a qtime_mono_t
+ *     time (so based on qtime's monotonic time, which is CLOCK_MONOTONIC if
+ *     that is available.
  *
- *     If a specific clock is required, it can be set... but the user of the
- *     condition variable must take care to base time-out times on that clock.
+ *     Otherwise, there is a conversion step from qtime_mono_t to whatever the
+ *     timebase for the condition variable is.
  *
  * NB: static initialisation of condition variables is not supported, to avoid
  *     confusion between the standard default and Quagga's default.
  */
 
 #ifndef QPT_COND_CLOCK_ID
-# ifndef HAVE_CLOCK_MONOTONIC
-#  define QPT_COND_CLOCK_ID  CLOCK_REALTIME
-#  undef  QPT_COND_CLOCK_MONOTONIC
-# else
+# ifdef HAVE_CLOCK_MONOTONIC
 #  define QPT_COND_CLOCK_ID  CLOCK_MONOTONIC
 #  define QPT_COND_CLOCK_MONOTONIC  1
+# else
+#  define QPT_COND_CLOCK_ID  CLOCK_REALTIME
+#  undef  QPT_COND_CLOCK_MONOTONIC
 # endif
 #endif
 
 enum qpt_cond_options
 {
   qpt_cond_quagga      = 0x0000,  /* Quagga's default   */
-  qpt_cond_realtime    = 0x0001,  /* standard default   */
-  qpt_cond_monotonic   = 0x0002,
 } ;
 
 extern qpt_cond_t*
@@ -217,11 +217,8 @@ qpt_cond_destroy(qpt_cond_t* cv, int free_cond) ;
 Inline void
 qpt_cond_wait(qpt_cond_t* cv, qpt_mutex_t* mx) ;
 
-Inline qtime_t
-qpt_cond_get_timeout_time(qtime_t wait) ;
-
-Inline int
-qpt_cond_timedwait(qpt_cond_t* cv, qpt_mutex_t* mx, qtime_t tot) ;
+extern int
+qpt_cond_timedwait(qpt_cond_t* cv, qpt_mutex_t* mx, qtime_mono_t timeout_time) ;
 
 Inline void
 qpt_cond_signal(qpt_cond_t* cv) ;
@@ -317,44 +314,6 @@ qpt_cond_wait(qpt_cond_t* cv, qpt_mutex_t* mx)
   if (err != 0)
     zabort_err("pthread_cond_wait failed", err) ;
 #endif
-} ;
-
-/* Get a time-out time (for use with qpt_cond_timedwait).
- *
- * Returns the current system time plus the given wait time.
- */
-
-Inline qtime_t
-qpt_cond_get_timeout_time(qtime_t wait)
-{
-  return qt_clock_gettime(QPT_COND_CLOCK_ID) + wait ;
-} ;
-
-/* Wait for given condition variable or time-out.
- *
- * Returns: wait succeeded (1 => success, 0 => timed-out).
- *
- * The time-out is an *absolute* time expressed as a qtime_t.
- *
- * NB: qpt_cond_get_timeout_time() should be used to generate the required
- *     time-out.  That uses CLOCK_
- *
- * Has to check the return value, so zabort_errno if not EBUSY.
- */
-
-Inline int
-qpt_cond_timedwait(qpt_cond_t* cv, qpt_mutex_t* mx, qtime_t tot)
-{
-  struct timespec ts ;
-
-  int err = pthread_cond_timedwait(cv, mx, qtime2timespec(&ts, tot)) ;
-  if (err == 0)
-    return 1 ;                  /* got condition        */
-  if (err == ETIMEDOUT)
-    return 0 ;                  /* got time-out         */
-
-  zabort_err("pthread_cond_timedwait failed", err) ;
-                                /* crunch               */
 } ;
 
 /* Signal given condition.

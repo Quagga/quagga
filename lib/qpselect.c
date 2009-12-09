@@ -53,7 +53,10 @@
  *     may then be enabled/disabled for any combination of error/read/write
  *     "mode" events.
  *
- *   * a timeout
+ *   * a timeout *time*
+ *
+ *     This is a qtime monotonic time at which to time out.  (This is unlike
+ *     pselect() itself, which takes a timeout interval.)
  *
  *     Infinite timeouts are not supported.
  *
@@ -275,7 +278,7 @@ qps_set_signal(qps_selection qps, int signum, sigset_t sigmask)
  *
  * There is no support for an infinite timeout.
  *
- * Returns: -1 => EINTR occurred
+ * Returns: -1 => EINTR occurred -- ie a signal has gone off
  *           0 => hit timeout -- no files are ready
  *         > 0 => there are this many files ready in one or more modes
  *
@@ -284,7 +287,7 @@ qps_set_signal(qps_selection qps, int signum, sigset_t sigmask)
  * The qps_dispatch_next() processes the returns from pselect().
  */
 int
-qps_pselect(qps_selection qps, qtime_t timeout)
+qps_pselect(qps_selection qps, qtime_mono_t timeout)
 {
   struct timespec ts ;
   qps_mnum_t  mnum ;
@@ -301,7 +304,7 @@ qps_pselect(qps_selection qps, qtime_t timeout)
   /* given count of fds -- but it does no harm to be tidy, and should   */
   /* not have to do this often.)                                        */
   if (qps->pend_count != 0)
-    qps_super_set_zero(qps->enabled, qps_mnum_count) ;
+      qps_super_set_zero(qps->enabled, qps_mnum_count) ;
 
   /* Prepare the argument/result bitmaps                */
   /* Capture pend_mnum and tried_count[]                */
@@ -336,13 +339,21 @@ qps_pselect(qps_selection qps, qtime_t timeout)
                                 qtime2timespec(&ts, timeout),
                                 (qps->signum != 0) ? &qps->sigmask : NULL) ;
 
-  qps->pend_count = (n >= 0) ? n : 0 ;  /* avoid setting -ve pend_count */
+  /* If have something, set and return the pending count.               */
+  if (n > 0)
+    {
+      assert(qps->pend_mnum < qps_mnum_count) ; /* expected something   */
 
-  /* if 1 or more pending results, then must have at least one pending mode  */
-  assert((n <= 0) || (qps->pend_mnum < qps_mnum_count)) ;
+      return qps->pend_count = n ;      /* set and return pending count */
+    } ;
 
-  /* Return appropriately, if we can                    */
-  if ((n >= 0) || (errno == EINTR))
+  /* Flush the results vectors -- not apparently done if n <= 0)        */
+  qps_super_set_zero(qps->enabled, qps_mnum_count) ;
+
+  qps->pend_count = 0 ;                 /* nothing pending              */
+
+  /* Return appropriately, if we can                                    */
+  if ((n == 0) || (errno == EINTR))
     return n ;
 
   zabort_errno("Failed in pselect") ;

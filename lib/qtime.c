@@ -109,7 +109,7 @@ static int64_t  times_clk_tcks     = 0 ;  /* sysconf(_SC_CLK_TCK)             */
 static qtime_t  times_scale_q      = 0 ;  /* 10**9 / times_clk_tcks           */
 static qtime_t  times_scale_r      = 0 ;  /* 10**9 % times_clk_tcks           */
 
-qtime_t
+qtime_mono_t
 qt_craft_monotonic(void) {
   struct tms dummy ;
   int64_t    this_times_sample ;

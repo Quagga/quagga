@@ -445,7 +445,6 @@ qpt_cond_t*
 qpt_cond_init(qpt_cond_t* cv, enum qpt_cond_options opts)
 {
   pthread_condattr_t cond_attr ;
-  int clock ;
   int err ;
 
   if (cv == NULL)
@@ -459,19 +458,12 @@ qpt_cond_init(qpt_cond_t* cv, enum qpt_cond_options opts)
   switch(opts)
   {
     case qpt_cond_quagga:
-      clock = QPT_COND_CLOCK_ID ;
-      break ;
-    case qpt_cond_realtime:
-      clock = CLOCK_REALTIME ;
-      break ;
-    case qpt_cond_monotonic:
-      clock = CLOCK_MONOTONIC ;
       break ;
     default:
       zabort("Invalid qpt_cond option") ;
   } ;
 
-  err = pthread_condattr_setclock(&cond_attr, clock);
+  err = pthread_condattr_setclock(&cond_attr, QPT_COND_CLOCK_ID);
   if (err != 0)
     zabort_err("pthread_condattr_setclock failed", err) ;
 
@@ -506,6 +498,36 @@ qpt_cond_destroy(qpt_cond_t* cv, int free_cond)
       XFREE(MTYPE_QPT_COND, cv) ;
 
   return NULL ;
+} ;
+
+/* Wait for given condition variable or time-out.
+ *
+ * Returns: wait succeeded (1 => success, 0 => timed-out).
+ *
+ * NB: timeout time is a qtime_mono_t (monotonic time).
+ *
+ * Has to check the return value, so zabort_errno if not EBUSY.
+ */
+
+int
+qpt_cond_timedwait(qpt_cond_t* cv, qpt_mutex_t* mx, qtime_mono_t timeout_time)
+{
+  struct timespec ts ;
+
+  if (QPT_COND_CLOCK_ID != CLOCK_MONOTONIC)
+    {
+      timeout_time = qt_clock_gettime(QPT_COND_CLOCK_ID)
+                                         + (timeout_time - qt_get_monotonic()) ;
+    } ;
+
+  int err = pthread_cond_timedwait(cv, mx, qtime2timespec(&ts, timeout_time)) ;
+  if (err == 0)
+    return 1 ;                  /* got condition        */
+  if (err == ETIMEDOUT)
+    return 0 ;                  /* got time-out         */
+
+  zabort_err("pthread_cond_timedwait failed", err) ;
+                                /* crunch               */
 } ;
 
 /*==============================================================================

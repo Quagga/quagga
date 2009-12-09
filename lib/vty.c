@@ -2996,7 +2996,7 @@ vty_event_r (enum event event, int sock, struct vty *vty)
       /* Time out treatment. */
       if (vty->v_timeout)
         {
-          qtimer_set(vty->qtr, qtimer_time_future(QTIME(vty->v_timeout)), NULL) ;
+          qtimer_set(vty->qtr, qt_add_monotonic(QTIME(vty->v_timeout)), NULL) ;
         }
       break;
     case VTY_WRITE:
@@ -3005,7 +3005,7 @@ vty_event_r (enum event event, int sock, struct vty *vty)
     case VTY_TIMEOUT_RESET:
       if (vty->v_timeout)
         {
-          qtimer_set(vty->qtr, qtimer_time_future(QTIME(vty->v_timeout)), NULL) ;
+          qtimer_set(vty->qtr, qt_add_monotonic(QTIME(vty->v_timeout)), NULL) ;
         }
       else
         {

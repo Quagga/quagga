@@ -44,7 +44,7 @@
 typedef struct qtimer*       qtimer ;
 typedef struct qtimer_pile*  qtimer_pile ;
 
-typedef void (qtimer_action)(qtimer qtr, void* timer_info, qtime_t when) ;
+typedef void (qtimer_action)(qtimer qtr, void* timer_info, qtime_mono_t when) ;
 
 enum qtimer_state {
   qtr_state_inactive      = 0,
@@ -63,7 +63,7 @@ struct qtimer
 
   qtimer_state_t  state ;
 
-  qtime_t         time ;
+  qtime_mono_t    time ;
   qtimer_action*  action ;
   void*           timer_info ;
 } ;
@@ -81,10 +81,10 @@ qtimer_pile
 qtimer_pile_init_new(qtimer_pile qtp) ;
 
 int
-qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_t upto) ;
+qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto) ;
 
-qtime_t
-qtimer_pile_top_time(qtimer_pile qtp, qtime_t max_time) ;
+qtime_mono_t
+qtimer_pile_top_time(qtimer_pile qtp, qtime_mono_t max_time) ;
 
 qtimer
 qtimer_pile_ream(qtimer_pile qtp, int free_structure) ;
@@ -93,18 +93,6 @@ qtimer_pile_ream(qtimer_pile qtp, int free_structure) ;
 #define qtimer_pile_ream_free(qtp) qtimer_pile_ream(qtp, 1)
 /* Ream out qtimer pile but keep the qtimer structure.   */
 #define qtimer_pile_ream_keep(qtp) qtimer_pile_ream(qtp, 0)
-
-Inline qtime_t
-qtimer_time_now() ;
-
-Inline qtime_t
-qtimer_time_future(qtime_t interval) ;
-
-Inline qtime_t
-qtimer_time_from_realtime(qtime_t realtime) ;
-
-Inline qtime_t
-qtimer_time_from_timeofday(qtime_t timeofday) ;
 
 qtimer
 qtimer_init_new(qtimer qtr, qtimer_pile qtp,
@@ -122,7 +110,7 @@ void
 qtimer_free(qtimer qtr) ;
 
 void
-qtimer_set(qtimer qtr, qtime_t when, qtimer_action* action) ;
+qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action) ;
 
 void
 qtimer_unset(qtimer qtr) ;
@@ -130,44 +118,12 @@ qtimer_unset(qtimer qtr) ;
 Inline void
 qtimer_add(qtimer qtr, qtime_t interval, qtimer_action* action) ;
 
-Inline qtime_t
+Inline qtime_mono_t
 qtimer_get(qtimer qtr) ;
 
 /*==============================================================================
  * Inline functions
  */
-
-/* The current time according to the qtimer time-base (monotonic time).
- */
-Inline qtime_t
-qtimer_time_now()
-{
-  return qt_get_monotonic() ;
-}
-
-/* What the qtimer time will be 'interval' qtime_t units from now..
- */
-Inline qtime_t
-qtimer_time_future(qtime_t interval)
-{
-  return qtimer_time_now() + interval ;
-} ;
-
-/* Get a qtimer time from a CLOCK_REALTIME time
- */
-Inline qtime_t
-qtimer_time_from_realtime(qtime_t realtime)
-{
-  return qt_realtime2monotonic(realtime) ;
-} ;
-
-/* Get a qtimer time from a gettimeofday() time   (in case != CLOCK_REALTIME)
- */
-Inline qtime_t
-qtimer_time_from_timeofday(qtime_t timeofday)
-{
-  return qt_timeofday2monotonic(timeofday) ;
-} ;
 
 /* Set given timer to given time later than *its* current time.
  */
@@ -179,7 +135,7 @@ qtimer_add(qtimer qtr, qtime_t interval, qtimer_action* action)
 
 /* Get the given timer's time.
  */
-Inline qtime_t
+Inline qtime_mono_t
 qtimer_get(qtimer qtr)
 {
   return qtr->time ;

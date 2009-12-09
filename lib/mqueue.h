@@ -23,6 +23,7 @@
 #define _ZEBRA_MQUEUE_H
 
 #include "qpthreads.h"
+#include "qtime.h"
 
 /*==============================================================================
  */
@@ -76,9 +77,9 @@ enum mqueue_queue_type {
 #endif
 
 struct mqueue_queue_cond {
-  qpt_cond_t  wait_here ;
-  qtime_t     timeout ;
-  qtime_t     interval ;
+  qpt_cond_t   wait_here ;
+  qtime_mono_t timeout ;
+  qtime_t      interval ;
 } ;
 
 struct mqueue_queue_signal {
@@ -132,7 +133,7 @@ void
 mqueue_enqueue(mqueue_queue mq, mqueue_block mb, int priority) ;
 
 mqueue_block
-mqueue_dequeue(mqueue_queue mq, int wait, mqueue_thread_signal mtsig) ;
+mqueue_dequeue(mqueue_queue mq, int wait, void* arg) ;
 
 int
 mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig) ;

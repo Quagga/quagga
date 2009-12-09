@@ -90,7 +90,7 @@ qpn_start(void* arg)
 
   while (!qpn->terminate)
     {
-      qtime_t now = qtimer_time_now();
+      qtime_mono_t now = qt_get_monotonic();
 
       /* process timers */
       while (qtimer_pile_dispatch_next(qpn->pile, now))

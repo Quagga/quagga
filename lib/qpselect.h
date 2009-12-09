@@ -181,7 +181,7 @@ void
 qps_set_signal(qps_selection qps, int signum, sigset_t sigmask) ;
 
 int
-qps_pselect(qps_selection qps, qtime_t timeout) ;
+qps_pselect(qps_selection qps, qtime_mono_t timeout) ;
 
 int
 qps_dispatch_next(qps_selection qps) ;
