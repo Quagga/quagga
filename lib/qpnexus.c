@@ -51,7 +51,6 @@ qpn_init_new(qpn_nexus qpn)
     memset(qpn, 0,  sizeof(struct qpn_nexus)) ;
 
   qpn->selection = qps_selection_init_new(qpn->selection);
-  printf("qps_selection_init_new after\n");
   qpn->pile = qtimer_pile_init_new(qpn->pile);
 
   /* TODO mqueue initialisation */

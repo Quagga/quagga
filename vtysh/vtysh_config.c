@@ -353,8 +353,7 @@ vtysh_read_file (FILE *confp)
   int ret;
   struct vty *vty;
 
-  vty = vty_new ();
-  vty->fd = 0;			/* stdout */
+  vty = vty_new (0); /* stdout */
   vty->type = VTY_TERM;
   vty->node = CONFIG_NODE;
   

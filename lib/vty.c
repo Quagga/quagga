@@ -96,6 +96,8 @@ static void vty_event_r (enum event event, int sock, struct vty *vty);
 static int uty_accept (int accept_sock);
 static int uty_timeout (struct vty *vty);
 static void vty_timeout_r (qtimer qtr, void* timer_info, qtime_t when);
+static void vty_read_r (qps_file qf, void* file_info);
+static void vty_flush_r (qps_file qf, void* file_info);
 
 /* Extern host structure from command.c */
 extern struct host host;
@@ -428,15 +430,23 @@ vty_dont_lflow_ahead (struct vty *vty)
 
 /* Allocate new vty struct. */
 struct vty *
-vty_new ()
+vty_new (int fd)
 {
-  struct vty *new = XCALLOC (MTYPE_VTY, sizeof (struct vty));
+  struct vty *vty = XCALLOC (MTYPE_VTY, sizeof (struct vty));
 
-  new->obuf = buffer_new(0);	/* Use default buffer size. */
-  new->buf = XCALLOC (MTYPE_VTY, VTY_BUFSIZ);
-  new->max = VTY_BUFSIZ;
+  vty->obuf = buffer_new(0);	/* Use default buffer size. */
+  vty->buf = XCALLOC (MTYPE_VTY, VTY_BUFSIZ);
+  vty->max = VTY_BUFSIZ;
+  vty->fd = fd;
 
-  return new;
+  if (master_nexus)
+    {
+    vty->qf = qps_file_init_new(vty->qf, NULL);
+    qps_add_file(master_nexus->selection, vty->qf, vty->fd, vty);
+    vty->qtr = qtimer_init_new(vty->qtr, master_nexus->pile, vty_timeout_r, vty);
+    }
+
+  return vty;
 }
 
 /* Authentication of vty */
@@ -1842,8 +1852,7 @@ vty_create (int vty_sock, union sockunion *su)
   assert(vty_lock_count);
 
   /* Allocate new vty structure and set up default values. */
-  vty = vty_new ();
-  vty->fd = vty_sock;
+  vty = vty_new (vty_sock);
   vty->type = VTY_TERM;
   vty->address = sockunion_su2str (su);
   if (no_password_check)
@@ -1901,15 +1910,6 @@ vty_create (int vty_sock, union sockunion *su)
   /* vty_dont_lflow_ahead (vty); */
 
   vty_prompt (vty);
-
-  if (master_nexus)
-    {
-    vty->qf = qps_file_init_new(vty->qf, NULL);
-    qps_add_file(master_nexus->selection, vty->qf, vty_sock, vty);
-    qps_set_action(vty->qf, qps_read_mbit, vty_read_r);
-    qps_set_action(vty->qf, qps_write_mbit, vty_flush_r);
-    vty->qtr = qtimer_init_new(vty->qtr, master_nexus->pile, vty_timeout_r, vty);
-    }
 
   /* Add read/write thread. */
   vty_event (VTY_WRITE, vty_sock, vty);
@@ -2603,8 +2603,7 @@ vty_read_file (FILE *confp)
   int ret;
   struct vty *vty;
 
-  vty = vty_new ();
-  vty->fd = 0;			/* stdout */
+  vty = vty_new (0); /* stdout */
   vty->type = VTY_TERM;
   vty->node = CONFIG_NODE;
 
@@ -2969,10 +2968,9 @@ vty_event_r (enum event event, int sock, struct vty *vty)
         {
           accept_file = qps_file_init_new(accept_file, NULL);
           qps_add_file(master_nexus->selection, accept_file, sock, NULL);
-          qps_set_action(accept_file, qps_read_mbit, vty_accept_r);
           vector_set_index(Vvty_serv_thread, sock, accept_file);
         }
-      qps_enable_mode(accept_file, qps_read_mbit, NULL) ;
+      qps_enable_mode(accept_file, qps_read_mbit, vty_accept_r) ;
       break;
 #ifdef VTYSH
     case VTYSH_SERV:
@@ -2981,20 +2979,19 @@ vty_event_r (enum event event, int sock, struct vty *vty)
         {
           accept_file = qps_file_init_new(accept_file, NULL);
           qps_add_file(master, accept_file, sock, NULL);
-          qps_set_action(accept_file, qps_read_mbit, vtysh_accept_r);
           vector_set_index(Vvty_serv_thread, sock, accept_file);
         }
-      qps_enable_mode(accept_file, qps_read_mbit, NULL) ;
+      qps_enable_mode(accept_file, qps_read_mbit, vtysh_accept_r) ;
       break;
     case VTYSH_READ:
-      qps_enable_mode(vty->file, qps_read_mbit, NULL) ;
+      qps_enable_mode(vty->file, qps_read_mbit, vtysh_read_r) ;
       break;
     case VTYSH_WRITE:
-      qps_enable_mode(vty->file, qps_write_mbit, NULL) ;
+      qps_enable_mode(vty->file, qps_write_mbit, vtysh_write_r) ;
       break;
 #endif /* VTYSH */
     case VTY_READ:
-      qps_enable_mode(vty->qf, qps_read_mbit, NULL) ;
+      qps_enable_mode(vty->qf, qps_read_mbit, vty_read_r) ;
 
       /* Time out treatment. */
       if (vty->v_timeout)
@@ -3003,7 +3000,7 @@ vty_event_r (enum event event, int sock, struct vty *vty)
         }
       break;
     case VTY_WRITE:
-      qps_enable_mode(vty->qf, qps_write_mbit, NULL) ;
+      qps_enable_mode(vty->qf, qps_write_mbit, vty_flush_r) ;
       break;
     case VTY_TIMEOUT_RESET:
       if (vty->v_timeout)

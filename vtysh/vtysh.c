@@ -2227,7 +2227,7 @@ void
 vtysh_init_vty (void)
 {
   /* Make vty structure. */
-  vty = vty_new ();
+  vty = vty_new (0);
   vty->type = VTY_SHELL;
   vty->node = VIEW_NODE;
 
