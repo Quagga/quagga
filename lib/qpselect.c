@@ -304,7 +304,7 @@ qps_pselect(qps_selection qps, qtime_mono_t timeout)
   /* given count of fds -- but it does no harm to be tidy, and should   */
   /* not have to do this often.)                                        */
   if (qps->pend_count != 0)
-      qps_super_set_zero(qps->enabled, qps_mnum_count) ;
+      qps_super_set_zero(qps->results, qps_mnum_count) ;
 
   /* Prepare the argument/result bitmaps                */
   /* Capture pend_mnum and tried_count[]                */
@@ -348,7 +348,7 @@ qps_pselect(qps_selection qps, qtime_mono_t timeout)
     } ;
 
   /* Flush the results vectors -- not apparently done if n <= 0)        */
-  qps_super_set_zero(qps->enabled, qps_mnum_count) ;
+  qps_super_set_zero(qps->results, qps_mnum_count) ;
 
   qps->pend_count = 0 ;                 /* nothing pending              */
 
