@@ -401,15 +401,7 @@ qps_dispatch_next(qps_selection qps)
     } ;
 
   qps->pend_count -= 1 ;        /* one less pending             */
-
-  if (qps->pend_count > 0)
-    qps->pend_fd     = fd ;     /* update scan                  */
-  else
-    {
-      qps->pend_mnum     = 0 ;  /* tidy up as we complete       */
-      qps->pend_fd       = 0 ;
-      qps->tried_fd_last = 0 ;
-    } ;
+  qps->pend_fd     = fd ;       /* update scan                  */
 
   qf = qps_file_lookup_fd(qps, fd, NULL) ;
 
@@ -579,15 +571,6 @@ qps_disable_modes(qps_file qf, qps_mbit_t mbits)
         {
           FD_CLR(qf->fd, &(qps->results[mnum].fdset)) ;
           --qps->pend_count ;
-          if (qps->pend_count == 0)
-            {
-              qps_mnum_t m ;
-              qps->tried_fd_last = 0 ;
-              for (m = 0 ; m < qps_mnum_count ; ++m)
-                qps->tried_count[mnum] = 0 ;
-              qps->pend_mnum = 0 ;
-              qps->pend_fd   = 0 ;
-            } ;
         } ;
 
       mbits ^= qps_mbit(mnum) ;
@@ -631,7 +614,7 @@ qps_file_lookup_fd(qps_selection qps, int fd, qps_file insert)
   vector_index i ;
   int   ret ;
 
-  dassert((fd >= 0) && (fd <= qps->fd_last)) ;
+  dassert((fd >= 0) && (fd < FD_SETSIZE)) ;
 
   /* Look-up                                                            */
   /*                                                                    */
@@ -785,6 +768,64 @@ static uint8_t  fd_bit_map [FD_SETSIZE] ; /* maps fd to bit in byte        */
 static int8_t   fd_first_map[256] ; /* maps byte value to 0..7, where that */
                                     /* is the lowest fd bit set in byte.   */
 
+#define QPS_TESTING    0        /* true => testing                      */
+
+#if !QPS_TESTING
+
+/* Not testing, so map to the standard FD_SET etc. functions.   */
+# define qFD_SET   FD_SET
+# define qFD_CLR   FD_CLR
+# define qFD_ISSET FD_ISSET
+# define qFD_ZERO  FD_ZERO
+
+#else
+
+/* Set up the testing                                           */
+
+# define QPS_TEST_WORD  4       /* Wordsize                             */
+# define QPS_TEST_BE    1       /* true => big-endian                   */
+# define QPS_TEST_B_ORD 07      /* 07 => bits 0..7, 70 => bits 7..0     */
+
+# define QPS_TEST_WORD_BITS  (QPS_TEST_WORD * 8)
+# if QPS_TEST_BE
+# define QPS_BYTE(fd) ( ((fd / QPS_TEST_WORD_BITS) * QPS_TEST_WORD) \
+                       + (QPS_TEST_WORD - 1) - ((fd % QPS_TEST_WORD_BITS) / 8) )
+#else
+# define QPS_BYTE(fd) ( fd / 8 )
+#endif
+
+# if QPS_TEST_B_ORD == 07
+#  define QPS_BIT(fd) (0x01 << (fd & 0x7))
+# else
+#  define QPS_BIT(fd) (0x80 >> (fd & 0x7))
+# endif
+
+  static void
+  qFD_SET(int fd, fd_set* set)
+  {
+    *((uint8_t*)set + QPS_BYTE(fd)) |= QPS_BIT(fd) ;
+  } ;
+
+  static void
+  qFD_CLR(int fd, fd_set* set)
+  {
+    *((uint8_t*)set + QPS_BYTE(fd)) &= ~QPS_BIT(fd) ;
+  } ;
+
+  static int
+  qFD_ISSET(int fd, fd_set* set)
+  {
+    return (*((uint8_t*)set + QPS_BYTE(fd)) & QPS_BIT(fd)) != 0 ;
+  } ;
+
+  static void
+  qFD_ZERO(fd_set* set)
+  {
+    memset(set, 0, sizeof(fd_set)) ;
+  } ;
+
+#endif
+
 /* Scan for next fd in given fd set, and clear it.
  *
  * Starts at the given fd, will not consider anything above fd_last.
@@ -841,11 +882,11 @@ qps_make_super_set_map(void)
   qps_super_set_zero(&test, 1) ;
 
   for (fd = 0 ; fd < FD_SETSIZE ; ++fd)
-    if (FD_ISSET(fd, &test.fdset))
+    if (qFD_ISSET(fd, &test.fdset))
       zabort("Zeroised fd_super_set is not empty") ;
 
   /* (2) check that zeroising the fd_set doesn't change things  */
-  FD_ZERO(&test.fdset) ;
+  qFD_ZERO(&test.fdset) ;
   for (iw = 0 ; iw < FD_SUPER_SET_WORD_SIZE ; ++iw)
     if (test.words[iw] != 0)
       zabort("Zeroised fd_super_set is not all zero words") ;
@@ -856,7 +897,7 @@ qps_make_super_set_map(void)
     {
       fd_word_t w ;
 
-      FD_SET(fd, &test.fdset) ;
+      qFD_SET(fd, &test.fdset) ;
 
       w = 0 ;
       for (iw = 0 ; iw < FD_SUPER_SET_WORD_SIZE ; ++iw)
@@ -887,7 +928,7 @@ qps_make_super_set_map(void)
         if (w == 0)
           zabort("FD_SET did not set any bit in any word") ;
 
-      FD_CLR(fd, &test.fdset) ;
+      qFD_CLR(fd, &test.fdset) ;
 
       for (iw = 0 ; iw < FD_SUPER_SET_WORD_SIZE ; ++iw)
         if (test.words[iw] != 0)
@@ -963,6 +1004,70 @@ qps_make_super_set_map(void)
 
       fd_byte_count[fd] = c ;
     } ;
+
+#if QPS_TESTING
+
+  /* Checking that the maps have been correctly deduced          */
+
+  for (fd = 0 ; fd < FD_SETSIZE ; ++fd)
+    {
+      uint8_t b ;
+      short   c ;
+
+      iw        = fd / QPS_TEST_WORD_BITS ;
+      if (QPS_TEST_BE)
+        ib      = ( ((fd / QPS_TEST_WORD_BITS) * QPS_TEST_WORD) +
+                      (QPS_TEST_WORD - 1) - ((fd % QPS_TEST_WORD_BITS) / 8) ) ;
+      else
+        ib      = ( fd / 8 ) ;
+
+      if (QPS_TEST_B_ORD == 07)
+        b       = 0x01 << (fd % 8) ;
+      else
+        b       = 0x80 >> (fd % 8) ;
+
+      if (QPS_TEST_BE)
+        c = (iw + 1) * QPS_TEST_WORD ;
+      else
+        c = (ib + 1) ;
+
+      if (fd_word_map[fd] != iw)
+        zabort("Broken fd_word_map") ;
+      if (fd_byte_map[fd] != ib)
+        zabort("Broken fd_byte_map") ;
+      if (fd_bit_map[fd]  != b)
+        zabort("Broken fd_bit_map") ;
+      if (fd_byte_count[fd] != c)
+        zabort("Broken fd_byte_count") ;
+    } ;
+
+  for (i = 1 ; i < 256 ; ++i)
+    {
+      uint8_t b = i ;
+      fd = 0 ;
+      if (QPS_TEST_B_ORD == 07)
+        {
+          while ((b & 1) == 0)
+            {
+              b >>= 1 ;
+              ++fd ;
+            } ;
+        }
+      else
+        {
+          while ((b & 0x80) == 0)
+            {
+              b <<= 1 ;
+              ++fd ;
+            } ;
+        } ;
+
+      if (fd_first_map[i] != fd)
+        zabort("Broken fd_first_map") ;
+    } ;
+
+  zabort("OK fd mapping") ;
+#endif
 
   /* Phew -- we're all set now                                          */
   qps_super_set_map_made = 1 ;
@@ -1044,8 +1149,7 @@ qps_super_set_count(fd_super_set* p_set, int n)
  *
  * If there are no pending fds:
  *
- *  10) if there are no pending fds, that the results vectors are empty
- *      that tried_fd_last, tried_count[], pend_mnum and pend_fd are all zero.
+ *  10) if there are no pending fds, that the results vectors are empty.
  *
  * If there are pending fds:
  *
@@ -1143,16 +1247,11 @@ qps_selection_validate(qps_selection qps)
   if (qps_super_set_cmp(enabled, qps->enabled, qps_mnum_count) != 0)
     zabort("Enabled bit vectors do not tally") ;
 
-  /* 10) if there are no pending fds, check that everything is zero.    */
+  /* 10) if there are no pending fds, check result vectors empty.       */
   if (qps->pend_count == 0)
     {
-      n = (qps_super_set_count(qps->results, qps_mnum_count) != 0) ;
-      for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
-        n |= (qps->tried_count[mnum] != 0) ;
-      n |= (qps->tried_fd_last != 0) || (qps->pend_mnum != 0)
-                                     || (qps->pend_fd != 0) ;
-      if (n)
-        zabort("Nothing pending, but pending state not zero") ;
+      if (qps_super_set_count(qps->results, qps_mnum_count) != 0)
+        zabort("Nothing pending, but result vectors not empty") ;
 
       return ;
     } ;
