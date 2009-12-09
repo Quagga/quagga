@@ -939,12 +939,12 @@ qps_make_super_set_map(void)
   for (fd = 0 ; fd < 8 ; ++fd)
     {
       uint8_t fdb = fd_bit_map[fd] ;
-      for (i = 0 ; i < 256 ; ++i)
+      for (i = 1 ; i < 256 ; ++i)
         if ((fd_first_map[i] == -1) && ((i & fdb) != 0))
           fd_first_map[i] = fd ;
     } ;
 
-  for (i = 0 ; i < 256 ; ++i)
+  for (i = 1 ; i < 256 ; ++i)
     if (fd_first_map[i] == -1)
       zabort("Broken fd_first_map -- missing bits") ;
 
