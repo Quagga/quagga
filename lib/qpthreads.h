@@ -35,6 +35,10 @@
 #define Inline static inline
 #endif
 
+#ifndef private
+#define private extern
+#endif
+
 /*==============================================================================
  * Quagga Pthread Interface -- qpt_xxxx
  *
@@ -57,6 +61,22 @@
 #endif
 
 /*==============================================================================
+ * Global Switch -- this allows the library to be run WITHOUT pthreads !
+ *
+ * Nearly every qpthreads function is a NOP if !qpthreads_enabled.
+ *
+ * Early in the morning a decision may be made to enable qpthreads -- that must
+ * be done before any threads are created (or will zabort) and before any
+ * mutexes and condition variables are initialised.
+ *
+ * Use: qpthreads_enabled        -- to test for the enabled-ness
+ *      qpthreads_enabled_freeze -- to test and freeze unset if not yet enabled
+ */
+
+#define qpthreads_enabled            ((const int)qpthreads_enabled_flag)
+#define qpthreads_enabled_freeze     qpt_freeze_qpthreads_enabled()
+
+/*==============================================================================
  * Data types
  */
 
@@ -66,8 +86,13 @@ typedef pthread_cond_t   qpt_cond_t ;
 
 typedef pthread_attr_t   qpt_thread_attr_t ;
 
+typedef qpt_mutex_t*     qpt_mutex ;
+typedef qpt_cond_t*      qpt_cond ;
+
 /*==============================================================================
  * Thread Creation -- see qpthreads.c for further discussion.
+ *
+ * NB: it is a FATAL error to attempt these if !qpthreads_enabled.
  */
 
 enum qpt_attr_options
@@ -92,19 +117,30 @@ enum qpt_attr_options
 
 #define qpt_attr_known ( qpt_attr_detached | qpt_attr_sched_setting )
 
-extern qpt_thread_attr_t*
+extern qpt_thread_attr_t*       /* FATAL error if !qpthreads_enabled    */
 qpt_thread_attr_init(qpt_thread_attr_t* attr, enum qpt_attr_options opts,
                                           int scope, int policy, int priority) ;
-extern qpt_thread_t
+extern qpt_thread_t             /* FATAL error if !qpthreads_enabled    */
 qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr) ;
 
 /*==============================================================================
- * Thread self knowledge.
+ * qpthreads_enabled support -- NOT FOR PUBLIC CONSUMPTION !
+ */
+private int qpthreads_enabled_flag ;    /* DO NOT WRITE TO THIS   PLEASE     */
+
+private void
+qpt_set_qpthreads_enabled(int how) ;    /* qpthreads_enabled := how          */
+
+private int
+qpt_freeze_qpthreads_enabled(void) ;    /* get and freeze qpthreads_enabled  */
+
+/*==============================================================================
+ * Thread self knowledge -- returns 'NULL' if !qpthreads_enabled
  */
 
 Inline qpt_thread_t qpt_thread_self(void)
 {
-  return pthread_self() ;
+  return qpthreads_enabled ? pthread_self() : (qpt_thread_t)NULL;
 } ;
 
 /*==============================================================================
@@ -126,6 +162,10 @@ Inline qpt_thread_t qpt_thread_self(void)
  *
  *     If _DEFAULT is faster than _NORMAL, then QPT_MUTEX_TYPE_DEFAULT may be
  *     used to override this choice.
+ *
+ * NB: if NOT qpthreads_enabled, all mutex actions are EMPTY.  This allows
+ *     code to be made thread-safe for when pthreads is running, but to work
+ *     perfectly well without pthreads.
  *
  * NB: do not (currently) support pthread_mutex_timedlock().
  */
@@ -149,23 +189,25 @@ enum qpt_mutex_options
 # define QPT_MUTEX_TYPE  PTHREAD_MUTEX_ERRORCHECK
 #endif
 
-extern qpt_mutex_t*
-qpt_mutex_init(qpt_mutex_t* mx, enum qpt_mutex_options opts) ;
+extern qpt_mutex                        /* freezes qpthreads_enabled    */
+qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts) ;
 
-extern qpt_mutex_t*
-qpt_mutex_destroy(qpt_mutex_t* mx, int free_mutex) ;
+#define qpt_mutex_init qpt_mutex_init_new
+
+extern qpt_mutex                  /* do nothing if !qpthreads_enabled   */
+qpt_mutex_destroy(qpt_mutex mx, int free_mutex) ;
 
 #define qpt_mutex_destroy_keep(mx) qpt_mutex_destroy(mx, 0)
 #define qpt_mutex_destroy_free(mx) qpt_mutex_destroy(mx, 1)
 
 Inline void
-qpt_mutex_lock(qpt_mutex_t* mx) ;       /* do nothing if mx == NULL     */
+qpt_mutex_lock(qpt_mutex mx) ;    /* do nothing if !qpthreads_enabled   */
 
 Inline int
-qpt_mutex_trylock(qpt_mutex_t* mx) ;    /* do nothing if mx == NULL     */
+qpt_mutex_trylock(qpt_mutex mx) ; /* always succeeds if !qpthreads_enabled */
 
 Inline void
-qpt_mutex_unlock(qpt_mutex_t* mx) ;     /* do nothing if mx == NULL     */
+qpt_mutex_unlock(qpt_mutex mx) ;  /* do nothing if !qpthreads_enabled   */
 
 /*==============================================================================
  * Condition Variable handling
@@ -188,6 +230,10 @@ qpt_mutex_unlock(qpt_mutex_t* mx) ;     /* do nothing if mx == NULL     */
  *
  * NB: static initialisation of condition variables is not supported, to avoid
  *     confusion between the standard default and Quagga's default.
+
+ * NB: if NOT qpthreads_enabled, all condition actions are EMPTY.  This allows
+ *     code to be made thread-safe for when pthreads is running, but to work
+ *     perfectly well without pthreads.
  */
 
 #ifndef QPT_COND_CLOCK_ID
@@ -205,41 +251,41 @@ enum qpt_cond_options
   qpt_cond_quagga      = 0x0000,  /* Quagga's default   */
 } ;
 
-extern qpt_cond_t*
-qpt_cond_init(qpt_cond_t* cv, enum qpt_cond_options opts) ;
+extern qpt_cond                   /* freezes qpthreads_enabled          */
+qpt_cond_init_new(qpt_cond cv, enum qpt_cond_options opts) ;
 
-extern qpt_cond_t*
-qpt_cond_destroy(qpt_cond_t* cv, int free_cond) ;
+extern qpt_cond                   /* do nothing if !qpthreads_enabled   */
+qpt_cond_destroy(qpt_cond cv, int free_cond) ;
 
 #define qpt_cond_destroy_keep(cv) qpt_cond_destroy(cv, 0)
 #define qpt_cond_destroy_free(cv) qpt_cond_destroy(cv, 1)
 
-Inline void
-qpt_cond_wait(qpt_cond_t* cv, qpt_mutex_t* mx) ;
+Inline void                       /* do nothing if !qpthreads_enabled   */
+qpt_cond_wait(qpt_cond cv, qpt_mutex mx) ;
 
-extern int
-qpt_cond_timedwait(qpt_cond_t* cv, qpt_mutex_t* mx, qtime_mono_t timeout_time) ;
+extern int                        /* returns  !qpthreads_enabled   */
+qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t timeout_time) ;
 
-Inline void
-qpt_cond_signal(qpt_cond_t* cv) ;
+Inline void                       /* do nothing if !qpthreads_enabled   */
+qpt_cond_signal(qpt_cond cv) ;
 
-Inline void
-qpt_cond_broadcast(qpt_cond_t* cv) ;
+Inline void                       /* do nothing if !qpthreads_enabled   */
+qpt_cond_broadcast(qpt_cond cv) ;
 
 /*==============================================================================
  * Mutex inline functions
  */
 
-/* Lock given mutex.
+/* Lock given mutex  -- or do nothing if !qpthreads_enabled.
  *
  * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
  * return value is valid -- zabort_errno if it isn't.
  */
 
 Inline void
-qpt_mutex_lock(qpt_mutex_t* mx)         /* do nothing if mx == NULL     */
+qpt_mutex_lock(qpt_mutex mx)
 {
-  if (mx != NULL)
+  if (qpthreads_enabled)
     {
 #if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
       pthread_mutex_lock(mx) ;
@@ -251,7 +297,7 @@ qpt_mutex_lock(qpt_mutex_t* mx)         /* do nothing if mx == NULL     */
     } ;
 } ;
 
-/* Try to lock given mutex.
+/* Try to lock given mutex  -- every time a winner if !qpthreads_enabled.
  *
  * Returns: lock succeeded (1 => have locked, 0 => unable to lock).
  *
@@ -259,9 +305,9 @@ qpt_mutex_lock(qpt_mutex_t* mx)         /* do nothing if mx == NULL     */
  */
 
 Inline int
-qpt_mutex_trylock(qpt_mutex_t* mx)      /* do nothing if mx == NULL     */
+qpt_mutex_trylock(qpt_mutex mx)
 {
-  if (mx != NULL)
+  if (qpthreads_enabled)
     {
       int err = pthread_mutex_trylock(mx) ;
       if (err == 0)
@@ -270,19 +316,20 @@ qpt_mutex_trylock(qpt_mutex_t* mx)      /* do nothing if mx == NULL     */
         return 0 ;                      /* unable to lock               */
 
       zabort_err("pthread_mutex_trylock failed", err) ;
-                                        /* crunch                       */
-    } ;
+    }
+  else
+    return 1 ;
 } ;
 
-/* Unlock given mutex.
+/* Unlock given mutex  -- or do nothing if !qpthreads_enabled.
  *
  * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
  * return value is valid -- zabort_errno if it isn't.
  */
 Inline void
-qpt_mutex_unlock(qpt_mutex_t* mx)       /* do nothing if mx == NULL     */
+qpt_mutex_unlock(qpt_mutex mx)
 {
-  if (mx != NULL)
+  if (qpthreads_enabled)
     {
 #if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
       pthread_mutex_unlock(mx) ;
@@ -298,66 +345,73 @@ qpt_mutex_unlock(qpt_mutex_t* mx)       /* do nothing if mx == NULL     */
  * Condition variable inline functions
  */
 
-/* Wait for given condition variable.
+/* Wait for given condition variable  -- do nothing if !qpthreads_enabled
  *
  * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
  * return value is valid -- zabort_errno if it isn't.
  */
-
 Inline void
-qpt_cond_wait(qpt_cond_t* cv, qpt_mutex_t* mx)
+qpt_cond_wait(qpt_cond cv, qpt_mutex mx)
 {
+  if (qpthreads_enabled)
+    {
 #if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
-  pthread_cond_wait(cv, mx) ;
+      pthread_cond_wait(cv, mx) ;
 #else
-  int err = pthread_cond_wait(cv, mx) ;
-  if (err != 0)
-    zabort_err("pthread_cond_wait failed", err) ;
+      int err = pthread_cond_wait(cv, mx) ;
+      if (err != 0)
+        zabort_err("pthread_cond_wait failed", err) ;
 #endif
+    } ;
 } ;
 
-/* Signal given condition.
+/* Signal given condition   -- do nothing if !qpthreads_enabled
  *
  * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
  * return value is valid -- zabort_errno if it isn't.
  */
-
 Inline void
-qpt_cond_signal(qpt_cond_t* cv)
+qpt_cond_signal(qpt_cond cv)
 {
+  if (qpthreads_enabled)
+    {
 #if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
-  pthread_cond_signal(cv) ;
+      pthread_cond_signal(cv) ;
 #else
-  int err = pthread_cond_signal(cv) ;
-  if (err != 0)
-    zabort_err("pthread_cond_signal failed", err) ;
+      int err = pthread_cond_signal(cv) ;
+      if (err != 0)
+        zabort_err("pthread_cond_signal failed", err) ;
 #endif
+    } ;
 } ;
 
-/* Broadcast given condition.
+/* Broadcast given condition   -- do nothing if !qpthreads_enabled
  *
  * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
  * return value is valid -- zabort_errno if it isn't.
  */
 Inline void
-qpt_cond_broadcast(qpt_cond_t* cv)
+qpt_cond_broadcast(qpt_cond cv)
 {
+  if (qpthreads_enabled)
+    {
 #if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
-  pthread_cond_broadcast(cv) ;
+      pthread_cond_broadcast(cv) ;
 #else
-  int err = pthread_cond_broadcast(cv) ;
-  if (err != 0)
-    zabort_err("pthread_cond_broadcast failed", err) ;
+      int err = pthread_cond_broadcast(cv) ;
+      if (err != 0)
+        zabort_err("pthread_cond_broadcast failed", err) ;
 #endif
+    } ;
 } ;
 
 /*==============================================================================
  * Signal Handling.
  */
-void
+void                            /* FATAL error if !qpthreads_enabled  */
 qpt_thread_sigmask(int how, const sigset_t* set, sigset_t* oset) ;
 
-void
+void                            /* FATAL error if !qpthreads_enabled  */
 qpt_thread_signal(qpt_thread_t thread, int signum) ;
 
 #endif /* _ZEBRA_QPTHREADS_H */
