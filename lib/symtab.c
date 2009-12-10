@@ -880,15 +880,18 @@ symbol_set_value(symbol sym, void* new_value)
 {
   void* old_value ;
 
-  assert((sym->table != NULL) || (new_value == NULL)) ;
-                       /* may not set non-NULL value for orphan symbol !   */
-
   old_value  = sym->value ;
   sym->value = new_value ;
 
-  /* Invoke value_call_back (if any).                                      */
-  /* Note that the value_call_back may set/unset references and/or         */
-  /* define/undefine the value.                                            */
+  if (sym->table == NULL)               /* watch out for orphans        */
+    {
+      assert((new_value == NULL) && (old_value == NULL)) ;
+      return NULL ;
+    } ;
+
+  /* Invoke value_call_back (if any).                                   */
+  /* Note that the value_call_back may set/unset references and/or      */
+  /* define/undefine the value.                                         */
   if (((sym)->table->value_call_back != NULL)
         && ( (new_value != NULL) || (old_value != NULL) ))
     {
