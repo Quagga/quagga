@@ -25,34 +25,43 @@
 #include "qpthreads.h"
 #include "qtime.h"
 
+#ifndef Inline
+#define Inline static inline
+#endif
+
 /*==============================================================================
  */
 
 typedef struct mqueue_block* mqueue_block ;
 
-typedef uint32_t  mqueue_flags_t ;
-typedef uint32_t  mqueue_context_t ;
+typedef uint32_t  mqb_flags_t ;
+typedef uint32_t  mqb_context_t ;
+
+typedef void*     mqb_ptr_t ;
+typedef intptr_t  mqb_int_t ;
+typedef uintptr_t mqb_uint_t ;
+
 typedef union
 {
-  void*     p ;
-  uintptr_t u ;
-  intptr_t  i ;
-} mqueue_arg_t ;
+  mqb_ptr_t  p ;
+  mqb_int_t  i ;
+  mqb_uint_t u ;
+} mqb_arg_t ;
 
-typedef void mqueue_action(mqueue_block) ;
+typedef void mqueue_action(mqueue_block mqb) ;
 
 struct mqueue_block
 {
-  mqueue_block   next ;         /* single linked list -- see ...        */
+  mqueue_block   next ;         /* single linked list                   */
 
   mqueue_action* action ;       /* for message dispatch                 */
 
-  mqueue_flags_t flags ;        /* for message handler                  */
+  mqb_flags_t    flags ;        /* for message handler                  */
 
-  mqueue_context_t context ;    /* for message revoke                   */
+  mqb_context_t  context ;      /* for message revoke                   */
 
-  mqueue_arg_t   arg0 ;  /* may be pointer to more data or integer      */
-  mqueue_arg_t   arg1 ;  /* may be pointer to more data or integer      */
+  mqb_arg_t      arg0 ;         /* may be pointer or integer            */
+  mqb_arg_t      arg1 ;         /* may be pointer or integer            */
 } ;
 
 typedef struct mqueue_thread_signal* mqueue_thread_signal ;
@@ -91,11 +100,11 @@ typedef struct mqueue_queue* mqueue_queue ;
 
 struct mqueue_queue
 {
-  qpt_mutex_t   mutex ;
+  qpt_mutex_t  mutex ;
 
-  mqueue_block head ;          /* NULL => list is empty                      */
-  mqueue_block tail_priority ; /* last priority message (if any & not empty) */
-  mqueue_block tail ;          /* last message (if not empty)                */
+  mqueue_block head ;           /* NULL => list is empty                      */
+  mqueue_block tail_priority ;  /* last priority message (if any & not empty) */
+  mqueue_block tail ;           /* last message (if not empty)                */
 
   enum mqueue_queue_type    type ;
 
@@ -112,7 +121,7 @@ struct mqueue_queue
  */
 
 void
-mqueue_initialise(int qpthreads) ;
+mqueue_initialise(void) ;
 
 mqueue_queue
 mqueue_init_new(mqueue_queue mq, enum mqueue_queue_type type) ;
@@ -124,18 +133,150 @@ mqueue_thread_signal
 mqueue_thread_signal_init(mqueue_thread_signal mqt, qpt_thread_t thread,
                                                                    int signum) ;
 mqueue_block
-mqueue_block_new(void) ;
+mqb_init_new(mqueue_block mqb, mqueue_action action, mqb_context_t context) ;
+
+#define mqb_new(action, context) mqb_init_new(NULL, action, context)
 
 void
-mqueue_block_free(mqueue_block mb) ;
+mqb_free(mqueue_block mqb) ;
 
 void
-mqueue_enqueue(mqueue_queue mq, mqueue_block mb, int priority) ;
+mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, int priority) ;
 
 mqueue_block
 mqueue_dequeue(mqueue_queue mq, int wait, void* arg) ;
 
 int
 mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig) ;
+
+/*==============================================================================
+ * Access functions for mqueue_block fields -- mqb_set_xxx/mqb_get_xxx
+ *
+ * Users should not poke around inside the mqueue_block structure.
+ */
+
+Inline void mqb_set_action(mqueue_block mqb, mqueue_action action) ;
+Inline void mqb_set_context(mqueue_block mqb, mqb_context_t context) ;
+
+Inline void mqb_set_arg0_p(mqueue_block mqb, mqb_ptr_t  p) ;
+Inline void mqb_set_arg0_i(mqueue_block mqb, mqb_int_t  i) ;
+Inline void mqb_set_arg0_u(mqueue_block mqb, mqb_uint_t u) ;
+Inline void mqb_set_arg1_p(mqueue_block mqb, mqb_ptr_t  p) ;
+Inline void mqb_set_arg1_i(mqueue_block mqb, mqb_int_t  i) ;
+Inline void mqb_set_arg1_u(mqueue_block mqb, mqb_uint_t u) ;
+
+Inline void mqb_dispatch(mqueue_block mqb) ;
+Inline mqb_context_t mqb_qet_context(mqueue_block mqb) ;
+
+Inline mqb_ptr_t  mqb_get_arg0_p(mqueue_block mqb) ;
+Inline mqb_int_t  mqb_get_arg0_i(mqueue_block mqb) ;
+Inline mqb_uint_t mqb_get_arg0_u(mqueue_block mqb) ;
+Inline mqb_ptr_t  mqb_get_arg1_p(mqueue_block mqb) ;
+Inline mqb_int_t  mqb_get_arg1_i(mqueue_block mqb) ;
+Inline mqb_uint_t mqb_get_arg1_u(mqueue_block mqb) ;
+
+/*==============================================================================
+ * The Inline functions.
+ */
+
+/* Set operations.      */
+
+Inline void
+mqb_set_action(mqueue_block mqb, mqueue_action action)
+{
+  mqb->action = action ;
+} ;
+
+Inline void
+mqb_set_context(mqueue_block mqb, mqb_context_t context)
+{
+  mqb->context = context ;
+} ;
+
+Inline void
+mqb_set_arg0_p(mqueue_block mqb, mqb_ptr_t p)
+{
+  mqb->arg0.p = p ;
+} ;
+
+Inline void
+mqb_set_arg0_i(mqueue_block mqb, mqb_int_t i)
+{
+  mqb->arg0.i = i ;
+} ;
+
+Inline void
+mqb_set_arg0_u(mqueue_block mqb, mqb_uint_t u)
+{
+  mqb->arg0.u = u ;
+} ;
+
+Inline void
+mqb_set_arg1_p(mqueue_block mqb, mqb_ptr_t p)
+{
+  mqb->arg1.p = p ;
+} ;
+
+Inline void
+mqb_set_arg1_i(mqueue_block mqb, mqb_int_t i)
+{
+  mqb->arg1.i = i ;
+} ;
+
+Inline void
+mqb_set_arg1_u(mqueue_block mqb, mqb_uint_t u)
+{
+  mqb->arg1.u = u ;
+} ;
+
+/* Get operations       */
+
+Inline void
+mqb_dispatch(mqueue_block mqb)
+{
+  mqb->action(mqb) ;
+} ;
+
+Inline mqb_context_t
+mqb_qet_context(mqueue_block mqb)
+{
+  return mqb->context ;
+} ;
+
+Inline mqb_ptr_t
+mqb_get_arg0_p(mqueue_block mqb)
+{
+  return mqb->arg0.p ;
+} ;
+
+Inline mqb_int_t
+mqb_get_arg0_i(mqueue_block mqb)
+{
+  return mqb->arg0.i ;
+} ;
+
+Inline mqb_uint_t
+mqb_get_arg0_u(mqueue_block mqb)
+{
+  return mqb->arg0.u ;
+} ;
+
+Inline mqb_ptr_t
+mqb_get_arg1_p(mqueue_block mqb)
+{
+  return mqb->arg1.p ;
+} ;
+
+Inline mqb_int_t
+mqb_get_arg1_i(mqueue_block mqb)
+{
+  return mqb->arg1.i ;
+} ;
+
+Inline mqb_uint_t
+mqb_get_arg1_u(mqueue_block mqb)
+{
+  return mqb->arg1.u ;
+} ;
 
 #endif /* _ZEBRA_MQUEUE_H */
