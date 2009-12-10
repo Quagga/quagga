@@ -1,6 +1,6 @@
 /*
  * Memory type definitions. This file is parsed by memtypes.awk to extract
- * MTYPE_ and memory_list_.. information in order to autogenerate 
+ * MTYPE_ and memory_list_.. information in order to autogenerate
  * memtypes.h.
  *
  * The script is sensitive to the format (though not whitespace), see
@@ -16,8 +16,12 @@ struct memory_list memory_list_lib[] =
 {
   { MTYPE_TMP,			"Temporary memory"		},
   { MTYPE_STRVEC,		"String vector"			},
-  { MTYPE_VECTOR,		"Vector"			},
-  { MTYPE_VECTOR_INDEX,		"Vector index"			},
+  { MTYPE_VECTOR,		"Vector structure"		},
+  { MTYPE_VECTOR_BODY,		"Vector body"			},
+  { MTYPE_SYMBOL_TABLE,         "Symbol Table structure"        },
+  { MTYPE_SYMBOL_BASES,         "Symbol Table chain bases"      },
+  { MTYPE_SYMBOL,               "Symbol"                        },
+  { MTYPE_SYMBOL_REF,           "Symbol Reference"              },
   { MTYPE_LINK_LIST,		"Link List"			},
   { MTYPE_LINK_NODE,		"Link Node"			},
   { MTYPE_THREAD,		"Thread"			},
@@ -75,7 +79,7 @@ struct memory_list memory_list_lib[] =
   { -1, NULL },
 };
 
-struct memory_list memory_list_zebra[] = 
+struct memory_list memory_list_zebra[] =
 {
   { MTYPE_RTADV_PREFIX,		"Router Advertisement Prefix"	},
   { MTYPE_VRF,			"VRF"				},

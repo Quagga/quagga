@@ -1,6 +1,10 @@
 /* Prefix list functions.
  * Copyright (C) 1999 Kunihiro Ishiguro
  *
+ * 24-Nov-2009  -- substantially re-cast to speed up the handling of very
+ *                 large prefix-lists (10,000+ entries).
+ *                 Copyright (C) 2009 Chris Hall (GMCH), Highwayman
+ *
  * This file is part of GNU Zebra.
  *
  * GNU Zebra is free software; you can redistribute it and/or modify
@@ -29,334 +33,253 @@
 #include "buffer.h"
 #include "stream.h"
 #include "log.h"
+#include "symtab.h"
+#include "vector.h"
+
+/* This implements ip prefix-list functions.
+ *
+ * A prefix-list is referred to by name, where a name is an arbitrary string,
+ * case-sensitive.  When showing prefix-lists the names are sorted
+ * "alphabetically", except for any digit sections, which sort numerically.
+ * Note that leading zeros are significant... "01" is not the same as "1",
+ * and sorts after it.
+*/
+
+enum prefix_flags {
+  PREFIX_ANY = 0x01,	/* prefix declared as 'any' 		*/
+  PREFIX_LE  = 0x02,	/* explicit 'le'			*/
+  PREFIX_GE  = 0x04,	/* explicit 'ge'			*/
+  PREFIX_SEQ = 0x10,	/* explicit sequence number		*/
+} ;
+
+struct prefix_list ;
+struct prefix_list_entry ;
+
+/* Master structure of prefix_list.
+ *
+ * Each address family has it's own distinct set of prefix lists.  (Including
+ * the fake AFI_ORF_PREFIX "family".)
+ *
+ * This means that a prefix_list name is local to an address family, but
+ * global wrt router instances.
+ * */
+struct prefix_master
+{
+  struct symbol_table table ;	/* table of prefix_list by name. 	      */
+
+  int seqnum_flag ;  		/* ip prefix-list sequence-number state.      */
+
+  struct prefix_list *recent ;  /* the latest update.			      */
+
+  struct prefix_list *cache_owner ;
+				/* prefix_list that owns the dup_cache	      */
+  struct vector dup_cache ;	/* the dup_cache vector			      */
+
+  void (*add_hook) (struct prefix_list *);
+				/* executed when new prefix_list is added.    */
+  void (*delete_hook) (struct prefix_list *);
+				/* executed when a prefix_list is deleted.    */
+};
+
+/* Each prefix_list is described by one of these.*/
+struct prefix_list
+{
+  struct prefix_master *master ;  /* parent table: scope of this list.	      */
+  struct symbol* sym ;		  /* symbol in parent's symbol table	      */
+
+  char *desc ;			  /* ip prefix-list description		      */
+
+  afi_t  afi ;			  /* address family for all prefixes	      */
+				  /* this is the *real* address family, so    */
+				  /* not "AFI_ORF_PREFIX" or similar.         */
+
+  struct vector list ;		  /* the actual list of prefix matches	      */
+
+  int  (*cmp)(struct prefix_list_entry** p_a, struct prefix_list_entry** p_b) ;
+				  /* used when searching for duplicates	      */
+
+  int rangecount;		  /* XXX TODO: discover what this is for ??   */
+                                  /*           Is not changed anywhere !!     */
+} ;
 
 /* Each prefix-list's entry. */
 struct prefix_list_entry
 {
   int seq;
 
-  int le;
-  int ge;
-
   enum prefix_list_type type;
 
-  int any;
+  int flags ;	    /* zero or more of PREFIX_ANY, PREFIX_LE and PREFIX_GE  */
+  int le ;	    /* for exact match, set to prefix length 		    */
+  int ge ;	    /* ditto						    */
+
   struct prefix prefix;
+
+  u_int32_t mask ;  /* for IPv4 -- host order.				    */
+		    /* for last significant word of IPv6 -- network order   */
+  int	last ;	    /* for IPv4 -- not used.				    */
+		    /* for IPv6 -- word to apply mask to.		    */
 
   unsigned long refcnt;
   unsigned long hitcnt;
-
-  struct prefix_list_entry *next;
-  struct prefix_list_entry *prev;
-};
-
-/* List of struct prefix_list. */
-struct prefix_list_list
-{
-  struct prefix_list *head;
-  struct prefix_list *tail;
-};
-
-/* Master structure of prefix_list. */
-struct prefix_master
-{
-  /* List of prefix_list which name is number. */
-  struct prefix_list_list num;
-
-  /* List of prefix_list which name is string. */
-  struct prefix_list_list str;
-
-  /* Whether sequential number is used. */
-  int seqnum;
-
-  /* The latest update. */
-  struct prefix_list *recent;
-
-  /* Hook function which is executed when new prefix_list is added. */
-  void (*add_hook) (struct prefix_list *);
-
-  /* Hook function which is executed when prefix_list is deleted. */
-  void (*delete_hook) (struct prefix_list *);
 };
 
 /* Static structure of IPv4 prefix_list's master. */
-static struct prefix_master prefix_master_ipv4 = 
-{ 
-  {NULL, NULL},
-  {NULL, NULL},
-  1,
-  NULL,
-  NULL,
-};
+static struct prefix_master prefix_master_ipv4 ;
 
 #ifdef HAVE_IPV6
 /* Static structure of IPv6 prefix-list's master. */
-static struct prefix_master prefix_master_ipv6 = 
-{ 
-  {NULL, NULL},
-  {NULL, NULL},
-  1,
-  NULL,
-  NULL,
-};
+static struct prefix_master prefix_master_ipv6 ;
 #endif /* HAVE_IPV6*/
 
 /* Static structure of BGP ORF prefix_list's master. */
-static struct prefix_master prefix_master_orf = 
-{ 
-  {NULL, NULL},
-  {NULL, NULL},
-  1,
-  NULL,
-  NULL,
-};
-
-static struct prefix_master *
-prefix_master_get (afi_t afi)
-{
-  if (afi == AFI_IP)
-    return &prefix_master_ipv4;
+static struct prefix_master prefix_master_orf ;
+
+/* For real afi, the choice is strictly limited, and includes IPv6
+ * only if HAVE_IPV6 !							*/
 #ifdef HAVE_IPV6
-  else if (afi == AFI_IP6)
-    return &prefix_master_ipv6;
+#define assert_afi_real(a) assert(((a) == AFI_IP) || ((a) == AFI_IP6))
+#else
+#define assert_afi_real(a) assert((a) == AFI_IP)
+#endif
+
+/* Map afi to prefix_master.
+ *
+ * Note: there is no ipv6 master if not HAVE_IPV6.
+ *
+ * Returns address of prefix_master, or NULL if unknown afi.
+ */
+static inline struct prefix_master *
+prefix_master_get(afi_t afi)
+{
+  switch (afi)
+  {
+    case AFI_IP:
+      return &prefix_master_ipv4;
+#ifdef HAVE_IPV6
+    case AFI_IP6:
+      return &prefix_master_ipv6;
 #endif /* HAVE_IPV6 */
-  else if (afi == AFI_ORF_PREFIX)
-    return &prefix_master_orf;
-  return NULL;
-}
+    case AFI_ORF_PREFIX:
+      return &prefix_master_orf;
+    default:
+      return NULL;
+  } ;
+} ;
 
-/* Lookup prefix_list from list of prefix_list by name. */
-struct prefix_list *
-prefix_list_lookup (afi_t afi, const char *name)
+/* Map afi to maximum prefix length.  Implied assert_afi_real().  */
+static int
+prefix_max_length(afi_t afi)
 {
-  struct prefix_list *plist;
-  struct prefix_master *master;
+  switch (afi)
+  {
+    case AFI_IP:
+      return IPV4_MAX_BITLEN ;
+#ifdef HAVE_IPV6
+    case AFI_IP6:
+      return IPV6_MAX_BITLEN ;
+#endif
+    default:
+      assert(0) ;	/* Should not get here ! */
+      return 0 ;
+  } ;
+} ;
 
-  if (name == NULL)
-    return NULL;
+/* Compare prefix list entries, taking into account:
+ *
+ *   -- prefix value   -- assumes is masked down correctly
+ *   -- prefix length
+ *   -- ge
+ *   -- le
+ *   -- type
+ *
+ * ... everything *except* the sequence number.
+ */
 
-  master = prefix_master_get (afi);
-  if (master == NULL)
-    return NULL;
+#define PREFIX_LIST_CMP_RET(f) \
+  if ((*p_a)->f != (*p_b)->f) \
+    return (      (*p_a)->f <        (*p_b)->f)  ? -1 : +1
+#define PREFIX_LIST_CMP_RET_NL(f) \
+  if ((*p_a)->f != (*p_b)->f) \
+    return (ntohl((*p_a)->f) < ntohl((*p_b)->f)) ? -1 : +1
+#define PREFIX_LIST_CMP_REST \
+PREFIX_LIST_CMP_RET(prefix.prefixlen) ; \
+PREFIX_LIST_CMP_RET(ge) ; \
+PREFIX_LIST_CMP_RET(le) ; \
+PREFIX_LIST_CMP_RET(type)
 
-  for (plist = master->num.head; plist; plist = plist->next)
-    if (strcmp (plist->name, name) == 0)
-      return plist;
-
-  for (plist = master->str.head; plist; plist = plist->next)
-    if (strcmp (plist->name, name) == 0)
-      return plist;
-
-  return NULL;
-}
-
-static struct prefix_list *
-prefix_list_new (void)
+static int
+prefix_list_ipv4_cmp(struct prefix_list_entry** p_a,
+		     struct prefix_list_entry** p_b)
 {
-  struct prefix_list *new;
+  PREFIX_LIST_CMP_RET_NL(prefix.u.prefix4.s_addr) ;
+  PREFIX_LIST_CMP_REST ;
+  return 0 ;
+} ;
 
-  new = XCALLOC (MTYPE_PREFIX_LIST, sizeof (struct prefix_list));
-  return new;
-}
+#ifdef HAVE_IPV6	/*----------------------------------------------------*/
+static int
+prefix_list_ipv6_cmp(struct prefix_list_entry** p_a,
+		     struct prefix_list_entry** p_b)
+{
+#ifdef s6_addr32
+  PREFIX_LIST_CMP_RET_NL(prefix.u.prefix6.s6_addr32[0]) ;
+  PREFIX_LIST_CMP_RET_NL(prefix.u.prefix6.s6_addr32[1]) ;
+  PREFIX_LIST_CMP_RET_NL(prefix.u.prefix6.s6_addr32[2]) ;
+  PREFIX_LIST_CMP_RET_NL(prefix.u.prefix6.s6_addr32[3]) ;
+#else
+  int c ;
+  if ((c = memcmp(&(*p_a)->prefix.u.prefix6.s6_addr,
+		  &(*p_b)->prefix.u.prefix6.s6_addr, 16)) != 0)
+    return c ;
+#endif
+  PREFIX_LIST_CMP_REST ;
+  return 0 ;
+} ;
+#endif			/*----------------------------------------------------*/
 
+/*==============================================================================
+ * Operations on prefix_master.
+ */
+
+static void prefix_list_delete (struct prefix_list* plist) ;
+static void prefix_dup_cache_free(struct prefix_master* pm) ;
+
+/* Initialise given prefix_master.   */
 static void
-prefix_list_free (struct prefix_list *plist)
+prefix_master_init(struct prefix_master * pm)
 {
-  XFREE (MTYPE_PREFIX_LIST, plist);
-}
+  memset(pm, 0, sizeof(struct prefix_master)) ;
 
-static struct prefix_list_entry *
-prefix_list_entry_new (void)
-{
-  struct prefix_list_entry *new;
+  symbol_table_init_new(&pm->table, pm, 20, 200, NULL, NULL) ;
+  pm->seqnum_flag = 1 ;	/* Default is to generate sequence numbers.	*/
+} ;
 
-  new = XCALLOC (MTYPE_PREFIX_LIST_ENTRY, sizeof (struct prefix_list_entry));
-  return new;
-}
-
+/* Reset given prefix_master.
+ *
+ * Frees all prefix lists and empties the symbol table.  Any references to
+ * prefix lists are the responsibility of the reference owners.
+ *
+ * Resets to the default sequence numbering state.
+ *
+ * Retains current add_hook and delete_hook functions.
+ */
 static void
-prefix_list_entry_free (struct prefix_list_entry *pentry)
+prefix_master_reset(struct prefix_master * pm)
 {
-  XFREE (MTYPE_PREFIX_LIST_ENTRY, pentry);
-}
+  struct prefix_list* plist ;
+  while ((plist = symbol_table_ream_keep(&(pm->table))))
+      prefix_list_delete(plist) ;
 
-/* Insert new prefix list to list of prefix_list.  Each prefix_list
-   is sorted by the name. */
-static struct prefix_list *
-prefix_list_insert (afi_t afi, const char *name)
-{
-  unsigned int i;
-  long number;
-  struct prefix_list *plist;
-  struct prefix_list *point;
-  struct prefix_list_list *list;
-  struct prefix_master *master;
+  pm->seqnum_flag = 1 ;         /* Default is to generate sequence numbers.   */
 
-  master = prefix_master_get (afi);
-  if (master == NULL)
-    return NULL;
-
-  /* Allocate new prefix_list and copy given name. */
-  plist = prefix_list_new ();
-  plist->name = XSTRDUP (MTYPE_PREFIX_LIST_STR, name);
-  plist->master = master;
-
-  /* If name is made by all digit character.  We treat it as
-     number. */
-  for (number = 0, i = 0; i < strlen (name); i++)
-    {
-      if (isdigit ((int) name[i]))
-	number = (number * 10) + (name[i] - '0');
-      else
-	break;
-    }
-
-  /* In case of name is all digit character */
-  if (i == strlen (name))
-    {
-      plist->type = PREFIX_TYPE_NUMBER;
-
-      /* Set prefix_list to number list. */
-      list = &master->num;
-
-      for (point = list->head; point; point = point->next)
-	if (atol (point->name) >= number)
-	  break;
-    }
-  else
-    {
-      plist->type = PREFIX_TYPE_STRING;
-
-      /* Set prefix_list to string list. */
-      list = &master->str;
-  
-      /* Set point to insertion point. */
-      for (point = list->head; point; point = point->next)
-	if (strcmp (point->name, name) >= 0)
-	  break;
-    }
-
-  /* In case of this is the first element of master. */
-  if (list->head == NULL)
-    {
-      list->head = list->tail = plist;
-      return plist;
-    }
-
-  /* In case of insertion is made at the tail of access_list. */
-  if (point == NULL)
-    {
-      plist->prev = list->tail;
-      list->tail->next = plist;
-      list->tail = plist;
-      return plist;
-    }
-
-  /* In case of insertion is made at the head of access_list. */
-  if (point == list->head)
-    {
-      plist->next = list->head;
-      list->head->prev = plist;
-      list->head = plist;
-      return plist;
-    }
-
-  /* Insertion is made at middle of the access_list. */
-  plist->next = point;
-  plist->prev = point->prev;
-
-  if (point->prev)
-    point->prev->next = plist;
-  point->prev = plist;
-
-  return plist;
-}
-
-static struct prefix_list *
-prefix_list_get (afi_t afi, const char *name)
-{
-  struct prefix_list *plist;
-
-  plist = prefix_list_lookup (afi, name);
-
-  if (plist == NULL)
-    plist = prefix_list_insert (afi, name);
-  return plist;
-}
-
-/* Delete prefix-list from prefix_list_master and free it. */
-static void
-prefix_list_delete (struct prefix_list *plist)
-{
-  struct prefix_list_list *list;
-  struct prefix_master *master;
-  struct prefix_list_entry *pentry;
-  struct prefix_list_entry *next;
-
-  /* If prefix-list contain prefix_list_entry free all of it. */
-  for (pentry = plist->head; pentry; pentry = next)
-    {
-      next = pentry->next;
-      prefix_list_entry_free (pentry);
-      plist->count--;
-    }
-
-  master = plist->master;
-
-  if (plist->type == PREFIX_TYPE_NUMBER)
-    list = &master->num;
-  else
-    list = &master->str;
-
-  if (plist->next)
-    plist->next->prev = plist->prev;
-  else
-    list->tail = plist->prev;
-
-  if (plist->prev)
-    plist->prev->next = plist->next;
-  else
-    list->head = plist->next;
-
-  if (plist->desc)
-    XFREE (MTYPE_TMP, plist->desc);
-
-  /* Make sure master's recent changed prefix-list information is
-     cleared. */
-  master->recent = NULL;
-
-  if (plist->name)
-    XFREE (MTYPE_PREFIX_LIST_STR, plist->name);
-  
-  prefix_list_free (plist);
-  
-  if (master->delete_hook)
-    (*master->delete_hook) (NULL);
-}
-
-static struct prefix_list_entry *
-prefix_list_entry_make (struct prefix *prefix, enum prefix_list_type type,
-			int seq, int le, int ge, int any)
-{
-  struct prefix_list_entry *pentry;
-
-  pentry = prefix_list_entry_new ();
-
-  if (any)
-    pentry->any = 1;
-
-  prefix_copy (&pentry->prefix, prefix);
-  pentry->type = type;
-  pentry->seq = seq;
-  pentry->le = le;
-  pentry->ge = ge;
-
-  return pentry;
-}
+  pm->recent = NULL ;
+  prefix_dup_cache_free(pm) ;
+} ;
 
 /* Add hook function. */
 void
-prefix_list_add_hook (void (*func) (struct prefix_list *plist))
+prefix_list_add_hook (void (*func)(struct prefix_list *plist))
 {
   prefix_master_ipv4.add_hook = func;
 #ifdef HAVE_IPV6
@@ -366,7 +289,7 @@ prefix_list_add_hook (void (*func) (struct prefix_list *plist))
 
 /* Delete hook function. */
 void
-prefix_list_delete_hook (void (*func) (struct prefix_list *plist))
+prefix_list_delete_hook (void (*func)(struct prefix_list *plist))
 {
   prefix_master_ipv4.delete_hook = func;
 #ifdef HAVE_IPV6
@@ -374,148 +297,684 @@ prefix_list_delete_hook (void (*func) (struct prefix_list *plist))
 #endif /* HAVE_IPVt6 */
 }
 
-/* Calculate new sequential number. */
+/*==============================================================================
+ * Prefix List Use.
+ *
+ * The prefix_list_ref type is a struct symbol_ref*, so we can operate on
+ * prefix_list_ref* arguments, keeping the stored reference values up to date.
+ */
+
+const char*
+prefix_list_get_name(struct prefix_list* plist)
+{
+  return symbol_get_name(plist->sym) ;
+} ;
+
+/* Set reference to prefix_list, by name.
+ * Replaces any existing reference.
+ *
+ * Returns the new value of the prefix_list_ref.
+ *
+ * NB: if reference existed, the parent and tag fields are preserved.
+ *     Otherwise they are set to 0.
+ */
+prefix_list_ref
+prefix_list_set_ref(prefix_list_ref* p_ref, afi_t afi, const char* name)
+{
+  struct prefix_master* pm = prefix_master_get(afi) ;
+
+  if (pm == NULL)
+    return NULL ;
+
+  return *p_ref = symbol_set_ref(*p_ref, symbol_find(&(pm->table), name)) ;
+} ;
+
+/* Copy reference to prefix_list.
+ * Replaces any existing reference (by NULL if reference is NULL).
+ *
+ * Returns the new value of the prefix_list_ref.
+ *
+ * NB: if reference existed, the parent and tag fields are preserved.
+ *     Otherwise they are set to 0.
+ */
+prefix_list_ref
+prefix_list_copy_ref(prefix_list_ref* p_dst, prefix_list_ref src)
+{
+  return *p_dst = symbol_set_ref(*p_dst, sym_ref_symbol(src)) ;
+} ;
+
+/* Unset reference to prefix_list (does nothing if reference is NULL).
+ *
+ * Returns the new value of the prefix_list_ref -- ie NULL.
+ */
+prefix_list_ref
+prefix_list_unset_ref(prefix_list_ref* p_ref)
+{
+  return *p_ref = symbol_unset_ref(*p_ref, 1) ;
+} ;
+
+/* Get name of prefix_list to which given reference (if any) refers.
+ *
+ * Returns NULL if the reference is NULL.
+ */
+const char*
+prefix_list_ref_name(prefix_list_ref ref)
+{
+  return sym_ref_name(ref) ;
+} ;
+
+/* Return "identity" of prefix_list referred to by the given reference.
+ * Will be NULL if the reference is NULL.
+ *
+ * Two references to the same prefix_list will have the same "identity".
+ */
+void* prefix_list_ref_ident(prefix_list_ref ref)
+{
+  return (void*)sym_ref_symbol(ref) ;
+} ;
+
+/* Return prefix_list referred to by the given reference.
+ * Will be NULL If the reference is NULL *OR* if the prefix_list is undefined.
+ */
+struct prefix_list* prefix_list_ref_plist(prefix_list_ref ref)
+{
+  return (struct prefix_list*)sym_ref_value(ref) ;
+} ;
+
+
+/* Apply a prefix_list to the given prefix.	*/
+enum prefix_list_type
+prefix_list_apply (struct prefix_list *plist, void *object)
+{
+  struct prefix *p ;
+  int plen ;
+  struct prefix_list_entry* pe ;
+  vector_index i ;
+
+  in_addr_t ip ;
+#ifdef s6_addr32
+  u_int32_t* pp ;
+  u_int32_t* pep ;
+#else
+  unsigned char* pp ;
+  unsigned char* pep ;
+#endif
+  /* Deny if prefix_list is undefined or empty */
+  if ((plist == NULL) || (vector_end(&plist->list) == 0))
+    return PREFIX_DENY;
+
+  p = object ;
+  plen = p->prefixlen ;
+
+  /* For maximum performance we have separate loops for IPv4 and IPv6  */
+  assert_afi_real(plist->afi) ;
+
+  switch (plist->afi)
+  {
+    case AFI_IP:
+      ip = p->u.prefix4.s_addr ;
+      for (VECTOR_ITEMS(&plist->list, pe, i))
+	{
+	  ++pe->refcnt ;
+	  if ((((pe->prefix.u.prefix4.s_addr ^ ip) & pe->mask) == 0)
+		&& (plen >= pe->ge) && (plen <= pe->le))
+	    {
+	      ++pe->hitcnt;
+	      return pe->type ;
+	    } ;
+	}
+      break ;
+
+    case AFI_IP6:
+#ifdef s6_addr32
+      pp = p->u.prefix6.s6_addr32 ;
+#else
+      pp = p->u.prefix6.s6_addr ;
+#endif
+      for (VECTOR_ITEMS(&plist->list, pe, i))
+	{
+	  int l = pe->last ;
+	  int j ;
+	  ++pe->refcnt ;
+#ifdef s6_addr32
+	  pep = pe->prefix.u.prefix6.s6_addr32 ;
+#else
+	  pep = pe->prefix.u.prefix6.s6_addr ;
+#endif
+	  for (j = 0 ; j < l ; j++)
+	    if (pep[j] != pp[j])
+	      goto NEXT ;
+	  if ((((pep[l] ^ pp[l]) & pe->mask) == 0)
+	      && (plen >= pe->ge) && (plen <= pe->le))
+	    {
+	      ++pe->hitcnt;
+	      return pe->type ;
+	    } ;
+	  NEXT: ;
+	}
+      break ;
+
+    default:
+      assert(0) ;
+  } ;
+
+  return PREFIX_DENY;
+}
+/*==============================================================================
+ * Basic constructors and destructors.
+ */
+
+/* Construct a new prefix_list and set the the associated symbol's value.
+ *
+ * Implied assert_afi_real().
+ */
+static struct prefix_list *
+prefix_list_new(struct prefix_master* pm, struct symbol* sym, afi_t afi)
+{
+  struct prefix_list*    new ;
+
+  new = XCALLOC (MTYPE_PREFIX_LIST, sizeof (struct prefix_list));
+		/* NB: implicitly sets the list empty.	*/
+
+  new->sym    = symbol_inc_ref(sym) ;
+  new->master = pm ;
+
+  new->afi    = afi ;
+  switch (afi)
+  {
+    case AFI_IP:
+      new->cmp = prefix_list_ipv4_cmp ;
+      break ;
+#ifdef HAVE_IPV6
+    case AFI_IP6:
+      new->cmp = prefix_list_ipv6_cmp ;
+      break ;
+#endif
+    default:
+      assert(0) ;	/* Should not get here ! */
+  } ;
+
+  symbol_set_value(sym, new) ;
+
+  return new ;
+} ;
+
+/* Initialise prefix_list entry -- cleared to zeros.	*/
+static struct prefix_list_entry *
+prefix_list_entry_init(struct prefix_list_entry * pe)
+{
+  return memset(pe, 0, sizeof(struct prefix_list_entry));
+}
+
+/* Allocate new prefix_list entry -- cleared to zeros.	*/
+static struct prefix_list_entry *
+prefix_list_entry_new (void)
+{
+  return XCALLOC (MTYPE_PREFIX_LIST_ENTRY, sizeof (struct prefix_list_entry));
+}
+
+/* Free given prefix list entry.			*/
+static void
+prefix_list_entry_free (struct prefix_list_entry* pe)
+{
+  XFREE (MTYPE_PREFIX_LIST_ENTRY, pe);
+}
+
+/* Set cache owned by nobody, and free the contents of the cache (if any).  */
+static void
+prefix_dup_cache_free(struct prefix_master* pm)
+{
+  pm->cache_owner   = NULL ;
+  vector_reset(&pm->dup_cache, 0) ;
+}
+
+/* Delete prefix_list from prefix_list_master and free it and its contents.   */
+/* The prefix_list's symbol is set undefined.                                 */
+static void
+prefix_list_delete (struct prefix_list* plist)
+{
+  struct prefix_master*  pm = plist->master ;
+  unsigned int i ;
+  struct prefix_list_entry* pe ;
+
+  /* Free all the prefix_list_entries, then free the vector they live in. */
+  for (VECTOR_ITEMS(&plist->list, pe, i))
+    prefix_list_entry_free(pe) ;
+  vector_reset(&plist->list, 0) ;
+
+  /* If there is a description, release that now.   */
+  if (plist->desc)
+    XFREE (MTYPE_TMP, plist->desc);
+
+  /* Can no longer own the dup_cache.               */
+  if (pm->cache_owner == plist)
+    prefix_dup_cache_free(pm) ;
+
+  /* Symbol no longer has a value & drop reference. */
+  symbol_unset_value(plist->sym) ;
+  plist->sym = symbol_dec_ref(plist->sym) ;
+
+  /* Finally, release the prefix_list structure.    */
+  XFREE (MTYPE_PREFIX_LIST, plist) ;
+
+  /* No longer have a recently changed prefix-list  */
+  pm->recent = NULL ;
+
+  /* Tell the world.  */
+  if (pm->delete_hook)
+    (*pm->delete_hook) (NULL);
+} ;
+
+/*==============================================================================
+ * Operations on prefix_lists
+ */
+
+/* Seek prefix_list by name in give prefix master.  Does NOT create.	*/
+static struct prefix_list *
+prefix_list_seek (struct prefix_master* pm, const char *name)
+{
+  return symbol_get_value(symbol_seek(&(pm->table), name)) ;
+} ;
+
+/* Lookup prefix_list by afi and name -- if afi is known, and name not NULL.
+ *
+ * Returns NULL if no prefix_list by that afi and name.  Tolerates unknown afi
+ * and allows "fake" afi (eg. AFI_ORF_PREFIX).
+ */
+struct prefix_list *
+prefix_list_lookup (afi_t afi, const char *name)
+{
+  struct prefix_master* pm  = prefix_master_get(afi) ;
+
+  if ((name == NULL) || (pm == NULL))
+    return NULL;
+
+  return prefix_list_seek(pm, name) ;
+} ;
+
+/* Get prefix_list -- creating empty one if required.    */
+static struct prefix_list *
+prefix_list_get (struct prefix_master* pm, const char *name, afi_t afi)
+{
+  struct symbol*      sym ;
+  struct prefix_list* plist ;
+
+  assert((pm != NULL) && (name != NULL)) ;
+
+  sym = symbol_find(&(pm->table), name) ; /* creates if required */
+  plist = symbol_get_value(sym) ;
+
+  return plist ? plist : prefix_list_new(pm, sym, afi) ;
+} ;
+
+/*==============================================================================
+ * Operations on prefix_list_entry
+ */
+
+/* Sequence comparison function -- used in prefix_list_entry_lookup_seq	*/
 static int
-prefix_new_seq_get (struct prefix_list *plist)
+prefix_seq_cmp(const int** seq, const struct prefix_list_entry** pe)
 {
-  int maxseq;
-  int newseq;
-  struct prefix_list_entry *pentry;
+  if (**seq != (*pe)->seq)
+    return (**seq < (*pe)->seq) ? -1 : + 1 ;
+  return 0 ;
+} ;
 
-  maxseq = newseq = 0;
+/* Check any ge and le settings -- set defaults as required.
+ *
+ *   -- sets the implied le for "any" or ge, if no explicit le set
+ *
+ *   -- checks le & ge and updates as required the filter.
+ *
+ * Note that filter requires le = ge = prefix-length for an exact match.
+ *
+ * Returns:  CMD_SUCCESS -- it's OK
+ *           CMD_WARNING -- something amiss with the ge and/or le setting
+ *
+ * If ge: must be <= maximum prefix length and > actual prefix length
+ *  else: set to prefix length
+ *
+ * If le: must be <= maximum prefix length and > actual prefix length
+ *  else: if ge or any set to maximum prefix length
+ *  else: set to prefix length
+ *
+ * If both ge and le: must have le > ge
+ *
+ * XXX TODO: see if we can allow explicit ge == prefix_length
+ *                           and explicit le == ge
+ */
+static int
+prefix_list_entry_ge_le_check(struct prefix_list_entry* pe, afi_t afi)
+{
+  int pl_max = prefix_max_length(afi) ;
+  int pl     = pe->prefix.prefixlen ;
 
-  for (pentry = plist->head; pentry; pentry = pentry->next)
+  /* If we had ge, check in range, otherwise set to prefixlen.     */
+  if (pe->flags & PREFIX_GE)
     {
-      if (maxseq < pentry->seq)
-	maxseq = pentry->seq;
-    }
-
-  newseq = ((maxseq / 5) * 5) + 5;
-  
-  return newseq;
-}
-
-/* Return prefix list entry which has same seq number. */
-static struct prefix_list_entry *
-prefix_seq_check (struct prefix_list *plist, int seq)
-{
-  struct prefix_list_entry *pentry;
-
-  for (pentry = plist->head; pentry; pentry = pentry->next)
-    if (pentry->seq == seq)
-      return pentry;
-  return NULL;
-}
-
-static struct prefix_list_entry *
-prefix_list_entry_lookup (struct prefix_list *plist, struct prefix *prefix,
-			  enum prefix_list_type type, int seq, int le, int ge)
-{
-  struct prefix_list_entry *pentry;
-
-  for (pentry = plist->head; pentry; pentry = pentry->next)
-    if (prefix_same (&pentry->prefix, prefix) && pentry->type == type)
-      {
-	if (seq >= 0 && pentry->seq != seq)
-	  continue;
-
-	if (pentry->le != le)
-	  continue;
-	if (pentry->ge != ge)
-	  continue;
-
-	return pentry;
-      }
-
-  return NULL;
-}
-
-static void
-prefix_list_entry_delete (struct prefix_list *plist, 
-			  struct prefix_list_entry *pentry,
-			  int update_list)
-{
-  if (plist == NULL || pentry == NULL)
-    return;
-  if (pentry->prev)
-    pentry->prev->next = pentry->next;
-  else
-    plist->head = pentry->next;
-  if (pentry->next)
-    pentry->next->prev = pentry->prev;
-  else
-    plist->tail = pentry->prev;
-
-  prefix_list_entry_free (pentry);
-
-  plist->count--;
-
-  if (update_list)
-    {
-      if (plist->master->delete_hook)
-	(*plist->master->delete_hook) (plist);
-
-      if (plist->head == NULL && plist->tail == NULL && plist->desc == NULL)
-	prefix_list_delete (plist);
-      else
-	plist->master->recent = plist;
-    }
-}
-
-static void
-prefix_list_entry_add (struct prefix_list *plist,
-		       struct prefix_list_entry *pentry)
-{
-  struct prefix_list_entry *replace;
-  struct prefix_list_entry *point;
-
-  /* Automatic asignment of seq no. */
-  if (pentry->seq == -1)
-    pentry->seq = prefix_new_seq_get (plist);
-
-  /* Is there any same seq prefix list entry? */
-  replace = prefix_seq_check (plist, pentry->seq);
-  if (replace)
-    prefix_list_entry_delete (plist, replace, 0);
-
-  /* Check insert point. */
-  for (point = plist->head; point; point = point->next)
-    if (point->seq >= pentry->seq)
-      break;
-
-  /* In case of this is the first element of the list. */
-  pentry->next = point;
-
-  if (point)
-    {
-      if (point->prev)
-	point->prev->next = pentry;
-      else
-	plist->head = pentry;
-
-      pentry->prev = point->prev;
-      point->prev = pentry;
+      if (!(pe->ge <= pl_max) || !(pe->ge > pl))
+        return CMD_WARNING ;
     }
   else
-    {
-      if (plist->tail)
-	plist->tail->next = pentry;
-      else
-	plist->head = pentry;
+    pe->ge = pl ;
 
-      pentry->prev = plist->tail;
-      plist->tail = pentry;
+  /* If we had le, check in range, otherwise set as required.      */
+  if (pe->flags & PREFIX_LE)
+    {
+      if (!(pe->le <= pl_max) || !(pe->le > pl))
+	return CMD_WARNING ;
+    }
+  else
+    pe->le = (pe->flags & (PREFIX_ANY | PREFIX_GE)) ? pl_max : pl ;
+
+  /* If had both ge and le, check that le > ge.                          */
+  if ((pe->flags & (PREFIX_GE | PREFIX_LE)) == (PREFIX_GE | PREFIX_LE))
+    if (pe->le <= pe->ge)
+      return CMD_WARNING ;
+
+  return CMD_SUCCESS ;
+} ;
+
+/* Lookup prefix_list_entry by its sequence number.  Returns index of an entry
+ * in the prefix_list, and sets:
+ *
+ *   result <  0 -- not found.  index returned is of first entry in the
+ *                              prefix list, and this sequence number comes
+ *                              before it.  (Or list is empty.)
+ *   result == 0 -- found.      index is of the entry found.
+ *   result >  0 -- not found.  index returned is of the entry with the largest
+ *                              sequence number smaller than the given one.
+ */
+static vector_index
+prefix_list_entry_lookup_seq(struct prefix_list *plist, int seq, int* result)
+{
+  return vector_bsearch(&plist->list, (vector_bsearch_cmp*)prefix_seq_cmp,
+								 &seq, result) ;
+} ;
+
+/* Lookup prefix_list_entry by its contents.
+ *
+ * For large prefix_lists this uses the "dup_cache", which is an auxiliary
+ * vector, sorted by prefix value.  Each prefix_master has a dup_cache,
+ * which is co-opted by the last prefix_list to use it.
+ *
+ * Returns index of an entry in the prefix_list or the dup_cache, and sets:
+ *
+ *   cache  -- NULL if not using dup_cache for this prefix_list.
+ *             The index and result values refer to the main prefix_list.
+ *
+ *          -- address of the cache (a vector).
+ *             The index and result values refer to the cache.   << NB
+ *
+ *   result <  0 -- not found.  index returned is of first entry in the
+ *                              prefix list, and this sequence number comes
+ *                              before it.  (Or list is empty.)
+ *   result == 0 -- found.      index is of the entry found.
+ *   result >  0 -- not found.  index returned is of the entry with the largest
+ *                              sequence number smaller than the given one.
+ */
+static vector_index
+prefix_list_entry_lookup_val(struct prefix_list *plist,
+			     struct prefix_list_entry* temp,
+			     vector* cache,
+			     int* result)
+{
+  /* See if we already have an entry like this one.  */
+  if (vector_end(&plist->list) > 10)
+    {
+      struct prefix_master* pm = plist->master ;
+
+      if (pm->cache_owner != plist)
+        {
+          /* Create new cache by copying vector.  Releases any old cache.     */
+          vector_copy_here(&pm->dup_cache, &plist->list) ;
+          /* Sort the result so can binary chop it.			      */
+          vector_sort(&pm->dup_cache, (vector_sort_cmp*)plist->cmp) ;
+          /* Now we own the cache.					      */
+          pm->cache_owner = plist ;
+        } ;
+
+      *cache = &pm->dup_cache ;
+      return vector_bsearch(*cache, (vector_bsearch_cmp*)plist->cmp, temp,
+								      result) ;
+    }
+  else
+    {
+      struct prefix_list_entry* pe ;
+      vector_index i ;
+      *cache  = NULL ;		/* Not found in cache.	*/
+      *result = 0 ;		/* Assume found !	*/
+      for (VECTOR_ITEMS(&plist->list, pe, i))
+	{
+	  if (plist->cmp(&pe, &temp) == 0)
+	    return i ;		/* Found !		*/
+	} ;
+      *result = 1 ;		/* Not found.		*/
+      return i ;
+    } ;
+} ;
+
+/* Look up prefix_list_entry looking for an exact match.
+ *
+ * If we have an explicit sequence number, then we look that up and then
+ * see if that prefix_list_entry is identical.
+ *
+ * Otherwise, look for entry whose value is identical, if any.
+ *
+ * Returns an index of a prefix_list entry and sets:
+ *
+ *   -- result == 0   found  	-- index is of entry found
+ *   -- result != 0   not found -- index is immaterial
+ *
+ * */
+static vector_index
+prefix_list_entry_lookup (struct prefix_list* plist,
+			  struct prefix_list_entry* pe_seek, int* result)
+{
+  struct prefix_list_entry* pe_found ;
+  vector_index i ;
+
+  if (pe_seek->flags & PREFIX_SEQ)
+    {
+      /* Lookup by sequence number.	*/
+      i = prefix_list_entry_lookup_seq(plist, pe_seek->seq, result) ;
+      if (*result == 0)
+	{
+	  /* found by sequence number, now see if value matches.  */
+	  pe_found = vector_get_item(&plist->list, i) ;
+	  *result = plist->cmp(&pe_seek, &pe_found) ;
+	} ;
+    }
+  else
+    {
+      /* Lookup by value.		*/
+      vector cache ;
+      i = prefix_list_entry_lookup_val(plist, pe_seek, &cache, result) ;
+      if ((*result == 0) && cache)
+        {
+          /* Found in the cache.  We need it's position in prefix_list */
+          pe_found = vector_get_item(cache, i) ;
+          i = prefix_list_entry_lookup_seq(plist, pe_found->seq, result) ;
+          assert(*result == 0) ;	/* MUST Find it !! */
+        } ;
     }
 
-  /* Increment count. */
-  plist->count++;
+  return i ;
+} ;
+
+/* Insert prefix_list_entry or replace an existing one, if we can.
+ *
+ * May NOT insert or replace if an entry already exists with the same value,
+ * (where the value excludes the sequence number).
+ *
+ * Except that, if a sequence number is given, it is (trivially) possible to
+ * "replace" an entry with the same sequence number and the same value.
+ *
+ * Then, if no sequence number is given, one is allocated.  The allocation
+ * rounds the last sequence number up to a multiple of 5 and adds 5.
+ *
+ * The prefix_list_entry is then put in the list by sequence number, replacing
+ * any existing entry.
+ *
+ * Returns:  CMD_SUCCESS  -- OK
+ *           CMD_WARNING  -- Nope, and NB: temp->seq set to sequence number
+ *                                         of existing prefix_list_entry.
+ */
+static int
+prefix_list_entry_insert(struct prefix_list *plist,
+			 struct prefix_list_entry *temp)
+{
+  struct prefix_list_entry* pe ;
+  vector cache ;
+  vector_index i, ic ;
+  int ret, retc ;
+  u_int32_t mask ;
+  int pl ;
+
+  /* See if we have an entry like this one, if we do:
+   *
+   *   OK if sequence number is the same too -- nothing more to do !
+   *   Fail if sequence number differs or was not set.
+   *
+   * If not found, and we own the cache, ic and retc tell us where in the
+   * cache the new entry belongs.
+   */
+  ic = prefix_list_entry_lookup_val(plist, temp, &cache, &retc) ;
+  if (retc == 0)
+    {
+      pe = vector_get_item(cache ? cache : &plist->list, ic) ;
+      if ((temp->flags & PREFIX_SEQ) && (pe->seq == temp->seq))
+	return CMD_SUCCESS ;
+      temp->seq = pe->seq ;	/* capture clashing sequence number	*/
+      return CMD_WARNING ;
+    } ;
+
+  /* Now we need to find where to insert in the list.			*/
+  /* If required, we set implied sequence number, and insert at end.	*/
+  if (temp->flags & PREFIX_SEQ)
+    i = prefix_list_entry_lookup_seq(plist, temp->seq, &ret) ;
+  else
+    {
+      int last_seq = 0 ;
+      i = vector_end(&plist->list) ;
+      if (i != 0)
+	{
+	  --i ;		/* step back to last entry */
+	  pe = vector_get_item(&plist->list, i) ;
+	  last_seq = pe->seq ;
+	} ;
+      temp->seq = (((last_seq + 5 - 1) / 5) * 5) + 5 ;
+      ret = 1 ;		/* insert after	last entry (if any)	*/
+    } ;
+
+  /* If we found it with same sequence number, then replace entry,
+   * otherwise we need to create a new entry and insert it.  i & ret show
+   * where we need to put the value in the list.
+   *
+   * If a dup cache exists, that must be kept up to date.  ic & retc show
+   * where need to put the new value in the cache.
+   */
+  if (ret == 0)
+    {
+      /* We are going to replace an existing list entry.	*/
+      pe = vector_get_item(&plist->list, i) ;	/* address of current entry */
+      /* If we have a cache, need to move the entry to it's new place   */
+      if (cache)
+	{
+	  /* We need to know where the old value was.  */
+	  vector_index io ;
+	  int reto ;
+	  io = vector_bsearch(cache, (vector_bsearch_cmp*)plist->cmp, pe,
+									&reto) ;
+	  assert(reto == 0) ;	/* MUST find it !! */
+	  vector_move_item_here(cache, ic, retc, io) ;
+	} ;
+    }
+  else
+    {
+      /* We are going to insert a new list entry item.	*/
+      pe = prefix_list_entry_new() ;
+      vector_insert_item_here(&plist->list, i, ret, pe) ;
+      /* If we have a cache, need to insert the entry to it's place   */
+      if (cache)
+	vector_insert_item_here(cache, ic, retc, pe) ;
+    } ;
+
+  /* Now we can set the value of the entry.   */
+  *pe = *temp ;
+
+  /* Set mask and last ready to apply the filter.			*/
+  /* Note: if we don't have s6_addr32, we must handle IPv6 byte-wise !	*/
+  pl = pe->prefix.prefixlen ;
+  mask = htonl((0xFFFFFFFF >> (pl & 0x1F)) ^ 0xFFFFFFFF) ;
+  switch (plist->afi)
+    {
+      case AFI_IP:
+	pe->mask = mask ;
+	break ;
+      case AFI_IP6:
+#ifdef s6_addr32
+	pe->mask = mask ;
+	pe->last = (pl == 0) ? 0 : (pl - 1) >> 5 ;
+#else
+	pe->mask = (0xFF >> (pl & 0x07)) ^ 0xFF ;
+	pe->last = (pl == 0) ? 0 : (pl - 1) >> 3 ;
+#endif
+	break ;
+      default:
+	assert(0) ;
+    } ;
 
   /* Run hook function. */
   if (plist->master->add_hook)
     (*plist->master->add_hook) (plist);
 
   plist->master->recent = plist;
+
+  return CMD_SUCCESS ;
 }
+
+/* Delete prefix_list_entry, if we can.
+ *
+ * To delete an entry the caller must specify the exact value of an existing
+ * entry.  If a sequence number is specified, that entry must exist, and its
+ * value must exactly match the given value.  If no sequence number is
+ * specified, an entry must exist with exactly the given value.
+ *
+ * Returns:  CMD_SUCCESS  -- OK
+ *           CMD_WARNING  -- entry not found.
+ */
+static int
+prefix_list_entry_delete (struct prefix_list *plist,
+			  struct prefix_list_entry *pe_seek)
+{
+  struct prefix_list_entry* pe ;
+  vector_index i ;
+  int ret ;
+
+  i = prefix_list_entry_lookup (plist, pe_seek, &ret) ;
+  if (ret)
+    return CMD_WARNING ;
+
+  pe = vector_delete_item(&plist->list, i) ;
+  assert(pe != NULL) ;
+
+  prefix_list_entry_free(pe) ;		/* now release memory */
+
+  if (plist->master->delete_hook)
+    (*plist->master->delete_hook) (plist);
+
+  if ((vector_end(&plist->list) == 0) && (plist->desc == NULL))
+    prefix_list_delete (plist);
+  else
+    plist->master->recent = plist;
+
+  return CMD_SUCCESS ;
+} ;
+
+/*==============================================================================
+ * Common printing operations
+ */
 
 /* Return string of prefix_list_type. */
 static const char *
@@ -532,179 +991,192 @@ prefix_list_type_str (struct prefix_list_entry *pentry)
     }
 }
 
-static int
-prefix_list_entry_match (struct prefix_list_entry *pentry, struct prefix *p)
+/* Map afi to name of same: "ip" or "ipv6".  Implied assert_afi_real().  */
+static const char*
+prefix_afi_name_str(afi_t afi)
 {
-  int ret;
+  switch (afi)
+  {
+    case AFI_IP:
+      return "ip" ;
+#ifdef HAVE_IPV6
+    case AFI_IP6:
+      return "ipv6" ;
+#endif
+    default:
+      assert(0) ;	/* Should not get here ! */
+      return "?" ;
+  } ;
+} ;
 
-  ret = prefix_match (&pentry->prefix, p);
-  if (! ret)
-    return 0;
-  
-  /* In case of le nor ge is specified, exact match is performed. */
-  if (! pentry->le && ! pentry->ge)
-    {
-      if (pentry->prefix.prefixlen != p->prefixlen)
-	return 0;
-    }
-  else
-    {  
-      if (pentry->le)
-	if (p->prefixlen > pentry->le)
-	  return 0;
+/* Print: "(ip|ipv6) prefix-list NAME" <post>		*/
+static void
+vty_prefix_list_name_print(struct vty* vty, struct prefix_list* plist,
+							      const char* post)
+{
+  vty_out(vty, "%s prefix-list %s%s", prefix_afi_name_str(plist->afi),
+			       (const char*)symbol_get_name(plist->sym), post) ;
+} ;
 
-      if (pentry->ge)
-	if (p->prefixlen < pentry->ge)
-	  return 0;
-    }
-  return 1;
+/* Print: "(ip|ipv6) prefix-list NAME: 99 entries" <post>	*/
+static void
+vty_prefix_list_name_count_print(struct vty* vty, struct prefix_list* plist,
+							       const char* post)
+{
+  vty_prefix_list_name_print(vty, plist, "") ;
+  vty_out(vty, ": %d entries%s", vector_end(&plist->list), post);
+} ;
+
+/* Print: "(ip|ipv6) prefix-list NAME" UNDEFINED<post>		*/
+static void
+vty_prefix_list_undefined_print(struct vty* vty, afi_t afi, struct symbol* sym,
+							      const char* post)
+{
+  vty_out(vty, "%s prefix-list %s UNDEFINED%s", prefix_afi_name_str(afi),
+				      (const char*)symbol_get_name(sym), post) ;
+} ;
+
+/* Print: <indent>"Description: xxxx"<post>, if there is a description	*/
+static void
+vty_prefix_list_desc_print(struct vty* vty, struct prefix_list* plist,
+						int indent, const char* post)
+{
+  if (plist->desc)
+    vty_out (vty, "%sDescription: %s%s", VTY_SPACES(indent), plist->desc,
+								  VTY_NEWLINE) ;
 }
 
-enum prefix_list_type
-prefix_list_apply (struct prefix_list *plist, void *object)
+/* Size of buffer to hold either IPv4 or IPv6 string.		*/
+#ifndef INETX_ADDRSTRLEN
+# if INET_ADDRSTRLEN < INET6_ADDRSTRLEN
+#  define INETX_ADDRSTRLEN INET6_ADDRSTRLEN
+# else
+#  define INETX_ADDRSTRLEN INET_ADDRSTLEN
+# endif
+#endif
+
+/* Print value of given prefix_list_entry:
+ *
+ *     "[seq 999 ](permit|deny) (any|XXXXX/999)[ ge 99][ le 99]"
+ *                       "[ '('hit count: 999, refcount: 999')']" <post>
+ *
+ *  where: sequence number is included if "with_seq" specified
+ *         ge and/or le are included if explicitly set
+ *         the hit count and refcount are included if "with_stats" specified
+ */
+static void
+vty_prefix_list_value_print(struct vty* vty, struct prefix_list_entry* pe,
+				const char* post, int with_seq, int with_stats)
 {
-  struct prefix_list_entry *pentry;
-  struct prefix *p;
+  if (with_seq)
+    vty_out(vty, "seq %d ", pe->seq) ;
 
-  p = (struct prefix *) object;
+  vty_out(vty, "%s ", prefix_list_type_str(pe)) ;
 
-  if (plist == NULL)
-    return PREFIX_DENY;
-
-  if (plist->count == 0)
-    return PREFIX_PERMIT;
-
-  for (pentry = plist->head; pentry; pentry = pentry->next)
+  if (pe->flags & PREFIX_ANY)
+    vty_puts(vty, "any");
+  else
     {
-      pentry->refcnt++;
-      if (prefix_list_entry_match (pentry, p))
-	{
-	  pentry->hitcnt++;
-	  return pentry->type;
-	}
-    }
+      struct prefix *p = &pe->prefix ;
+      char buf[INETX_ADDRSTRLEN];
+      vty_out(vty, "%s/%d",
+	      inet_ntop (p->family, &p->u.prefix, buf, INETX_ADDRSTRLEN),
+	      p->prefixlen);
+    } ;
 
-  return PREFIX_DENY;
+  if (pe->flags & PREFIX_GE)
+    vty_out(vty, " ge %d", pe->ge);
+  if (pe->flags & PREFIX_LE)
+    vty_out(vty, " le %d", pe->le);
+
+  if (with_stats)
+    vty_out (vty, " (hit count: %lu, refcount: %lu)", pe->hitcnt, pe->refcnt);
+
+  vty_puts(vty, post) ;
 }
 
 static void __attribute__ ((unused))
 prefix_list_print (struct prefix_list *plist)
 {
-  struct prefix_list_entry *pentry;
+  struct prefix_list_entry* pe ;
+  vector_index i ;
+  struct vty* vty = NULL ;
 
   if (plist == NULL)
     return;
 
-  printf ("ip prefix-list %s: %d entries\n", plist->name, plist->count);
+  vty_prefix_list_name_count_print(vty, plist, VTY_NEWLINE) ;
 
-  for (pentry = plist->head; pentry; pentry = pentry->next)
+  for (VECTOR_ITEMS(&plist->list, pe, i))
     {
-      if (pentry->any)
-	printf ("any %s\n", prefix_list_type_str (pentry));
-      else
-	{
-	  struct prefix *p;
-	  char buf[BUFSIZ];
-	  
-	  p = &pentry->prefix;
-	  
-	  printf ("  seq %d %s %s/%d", 
-		  pentry->seq,
-		  prefix_list_type_str (pentry),
-		  inet_ntop (p->family, &p->u.prefix, buf, BUFSIZ),
-		  p->prefixlen);
-	  if (pentry->ge)
-	    printf (" ge %d", pentry->ge);
-	  if (pentry->le)
-	    printf (" le %d", pentry->le);
-	  printf ("\n");
-	}
+      vty_out_indent(vty, 2) ;
+      vty_prefix_list_value_print(vty, pe, VTY_NEWLINE, 1, 1) ;
     }
 }
-
-/* Retrun 1 when plist already include pentry policy. */
-static struct prefix_list_entry *
-prefix_entry_dup_check (struct prefix_list *plist,
-			struct prefix_list_entry *new)
+/*==============================================================================
+ * vty prefix_list operations.
+ */
+
+/* Look up given prefix_list -- complain if not found.			*/
+static struct prefix_list*
+vty_prefix_list_lookup(struct vty *vty, afi_t afi, const char* name)
 {
-  struct prefix_list_entry *pentry;
-  int seq = 0;
+  struct prefix_list* plist = prefix_list_lookup(afi, name);
+  if (plist == NULL)
+    vty_out (vty, "%% Can't find specified prefix-list%s", VTY_NEWLINE);
+  return plist ;
+} ;
 
-  if (new->seq == -1)
-    seq = prefix_new_seq_get (plist);
-  else
-    seq = new->seq;
+/* Process parameters for (ip|ipv6) prefix-list and no (ip|ipv6) prefix-list
+ *
+ * Fills in the given prefix_list_entry structure, ready for looking up,
+ * inserting or deleting prefix_list_entry.
+ *
+ * Checks parameters for validity/legality.
+ *
+ * Returns a CMD_xxxx return code.  CMD_SUCCESS => OK !
+ */
+static int
+vty_prefix_list_process(struct vty *vty, struct prefix_list_entry* pe,
+			struct prefix_list* plist,
+			afi_t afi, const char *seq_str, const char *type_str,
+			const char *prefix_str,
+			const char *ge_str, const char *le_str)
+{
+  int ret ;
 
-  for (pentry = plist->head; pentry; pentry = pentry->next)
+  assert_afi_real(afi) ;	/* require real (and supported) afi 	*/
+
+  prefix_list_entry_init(pe) ;	/* clears everything, including flags	*/
+
+  /* Sequence number. */
+  if (seq_str)
     {
-      if (prefix_same (&pentry->prefix, &new->prefix)
-	  && pentry->type == new->type
-	  && pentry->le == new->le
-	  && pentry->ge == new->ge
-	  && pentry->seq != seq)
-	return pentry;
-    }
-  return NULL;
-}
-
-static int
-vty_invalid_prefix_range (struct vty *vty, const char *prefix)
-{
-  vty_out (vty, "%% Invalid prefix range for %s, make sure: len < ge-value <= le-value%s",
-           prefix, VTY_NEWLINE);
-  return CMD_WARNING;
-}
-
-static int
-vty_prefix_list_install (struct vty *vty, afi_t afi, const char *name, 
-                         const char *seq, const char *typestr,
-			 const char *prefix, const char *ge, const char *le)
-{
-  int ret;
-  enum prefix_list_type type;
-  struct prefix_list *plist;
-  struct prefix_list_entry *pentry;
-  struct prefix_list_entry *dup;
-  struct prefix p;
-  int any = 0;
-  int seqnum = -1;
-  int lenum = 0;
-  int genum = 0;
-
-  /* Sequential number. */
-  if (seq)
-    seqnum = atoi (seq);
-
-  /* ge and le number */
-  if (ge)
-    genum = atoi (ge);
-  if (le)
-    lenum = atoi (le);
+      pe->flags |= PREFIX_SEQ ;
+      pe->seq = atoi(seq_str) ;
+    } ;
 
   /* Check filter type. */
-  if (strncmp ("permit", typestr, 1) == 0)
-    type = PREFIX_PERMIT;
-  else if (strncmp ("deny", typestr, 1) == 0)
-    type = PREFIX_DENY;
+  if (strncmp ("permit", type_str, 1) == 0)
+    pe->type = PREFIX_PERMIT;
+  else if (strncmp ("deny", type_str, 1) == 0)
+    pe->type = PREFIX_DENY;
   else
     {
       vty_out (vty, "%% prefix type must be permit or deny%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
 
-  /* "any" is special token for matching any IPv4 addresses.  */
+  /* Watch out for "any"   */
+  if (strncmp ("any", prefix_str, strlen (prefix_str)) == 0)
+    pe->flags |= PREFIX_ANY ;
+
+  /* Process the prefix.  */
   if (afi == AFI_IP)
     {
-      if (strncmp ("any", prefix, strlen (prefix)) == 0)
-	{
-	  ret = str2prefix_ipv4 ("0.0.0.0/0", (struct prefix_ipv4 *) &p);
-	  genum = 0;
-	  lenum = IPV4_MAX_BITLEN;
-	  any = 1;
-	}
-      else
-	ret = str2prefix_ipv4 (prefix, (struct prefix_ipv4 *) &p);
-
+      if (pe->flags & PREFIX_ANY)
+	prefix_str = "0.0.0.0/0" ;
+      ret = str2prefix_ipv4 (prefix_str, (struct prefix_ipv4 *)&pe->prefix);
       if (ret <= 0)
 	{
 	  vty_out (vty, "%% Malformed IPv4 prefix%s", VTY_NEWLINE);
@@ -714,16 +1186,9 @@ vty_prefix_list_install (struct vty *vty, afi_t afi, const char *name,
 #ifdef HAVE_IPV6
   else if (afi == AFI_IP6)
     {
-      if (strncmp ("any", prefix, strlen (prefix)) == 0)
-	{
-	  ret = str2prefix_ipv6 ("::/0", (struct prefix_ipv6 *) &p);
-	  genum = 0;
-	  lenum = IPV6_MAX_BITLEN;
-	  any = 1;
-	}
-      else
-	ret = str2prefix_ipv6 (prefix, (struct prefix_ipv6 *) &p);
-
+      if (pe->flags & PREFIX_ANY)
+	prefix_str = "::/0" ;
+      ret = str2prefix_ipv6 (prefix_str, (struct prefix_ipv6 *)&pe->prefix);
       if (ret <= 0)
 	{
 	  vty_out (vty, "%% Malformed IPv6 prefix%s", VTY_NEWLINE);
@@ -732,155 +1197,147 @@ vty_prefix_list_install (struct vty *vty, afi_t afi, const char *name,
     }
 #endif /* HAVE_IPV6 */
 
-  /* ge and le check. */
-  if (genum && genum <= p.prefixlen)
-    return vty_invalid_prefix_range (vty, prefix);
-
-  if (lenum && lenum <= p.prefixlen)
-    return vty_invalid_prefix_range (vty, prefix);
-
-  if (lenum && genum > lenum)
-    return vty_invalid_prefix_range (vty, prefix);
-
-  if (genum && lenum == (afi == AFI_IP ? 32 : 128))
-    lenum = 0;
-
-  /* Get prefix_list with name. */
-  plist = prefix_list_get (afi, name);
-
-  /* Make prefix entry. */
-  pentry = prefix_list_entry_make (&p, type, seqnum, lenum, genum, any);
-    
-  /* Check same policy. */
-  dup = prefix_entry_dup_check (plist, pentry);
-
-  if (dup)
+  /* ge and le number */
+  if (ge_str)
     {
-      prefix_list_entry_free (pentry);
-      vty_out (vty, "%% Insertion failed - prefix-list entry exists:%s",
-	       VTY_NEWLINE);
-      vty_out (vty, "   seq %d %s %s", dup->seq, typestr, prefix);
-      if (! any && genum)
-	vty_out (vty, " ge %d", genum);
-      if (! any && lenum)
-	vty_out (vty, " le %d", lenum);
-      vty_out (vty, "%s", VTY_NEWLINE);
-      return CMD_WARNING;
+      pe->ge = atoi (ge_str) ;
+      pe->flags |= PREFIX_GE ;
     }
 
-  /* Install new filter to the access_list. */
-  prefix_list_entry_add (plist, pentry);
+  if (le_str)
+    {
+      pe->le = atoi (le_str);
+      pe->flags |= PREFIX_LE ;
+    } ;
+
+  /* Complete the entry we've constructed, and check ge and le.  */
+  ret = prefix_list_entry_ge_le_check(pe, afi) ;
+
+  if (ret != CMD_SUCCESS)
+    vty_out (vty, "%% Invalid prefix range for %s, make sure: "
+						"len < ge-value <= le-value%s",
+			prefix_str, VTY_NEWLINE);
+
+  return ret ;
+} ;
+
+/* Install a prefix_list_entry.
+ *
+ * Deals with all of ip prefix-list and ipv6 prefix-list commands.
+ *
+ * Note:
+ *
+ */
+
+static int
+vty_prefix_list_install (struct vty *vty, afi_t afi, const char *name,
+                         const char *seq_str, const char *type_str,
+			 const char *prefix_str,
+			 const char *ge_str, const char *le_str)
+{
+  struct prefix_master* pm ;
+  struct prefix_list *plist;
+  struct prefix_list_entry temp ;
+  int ret;
+
+  assert_afi_real(afi) ;	/* UI stuff should ensure this */
+  pm = prefix_master_get(afi) ;
+
+  /* Get prefix_list with name.   Make new list if required.  */
+  plist = prefix_list_get(pm, name, afi) ;
+
+  /* Do the grunt work on the parameters.
+   * Completely fill in the temp prefix_list_entry structure.
+   */
+  ret = vty_prefix_list_process(vty, &temp, plist, afi, seq_str, type_str,
+						  prefix_str, ge_str, le_str) ;
+  if (ret != CMD_SUCCESS)
+    return ret ;
+
+  /* Insert into the list, unless list contains an entry which is the same
+   * apart from the sequence number.
+   * If fails, sets the sequence no. in temp to the sequence number found.
+   */
+  ret = prefix_list_entry_insert(plist, &temp);
+
+  if (ret != CMD_SUCCESS)
+    {
+      vty_out (vty, "%% Insertion failed - prefix-list entry exists:%s",
+	       VTY_NEWLINE);
+      vty_out_indent(vty, 2) ;
+      vty_prefix_list_value_print(vty, &temp, VTY_NEWLINE, 1, 0) ;
+    }
 
   return CMD_SUCCESS;
 }
 
+/* Remove a prefix_list_entry.		*/
 static int
-vty_prefix_list_uninstall (struct vty *vty, afi_t afi, const char *name, 
-                           const char *seq, const char *typestr,
-			   const char *prefix, const char *ge, const char *le)
+vty_prefix_list_uninstall(struct vty *vty, afi_t afi, const char *name,
+                          const char *seq_str, const char *type_str,
+			  const char *prefix_str,
+			  const char *ge_str, const char *le_str)
 {
-  int ret;
-  enum prefix_list_type type;
   struct prefix_list *plist;
-  struct prefix_list_entry *pentry;
-  struct prefix p;
-  int seqnum = -1;
-  int lenum = 0;
-  int genum = 0;
+  struct prefix_list_entry temp ;
+  int ret;
 
-  /* Check prefix list name. */
-  plist = prefix_list_lookup (afi, name);
-  if (! plist)
-    {
-      vty_out (vty, "%% Can't find specified prefix-list%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
+  assert_afi_real(afi) ;	/* UI should guarantee this.	*/
+
+  /* Seek prefix_list with name -- error if not found.  */
+  plist = vty_prefix_list_lookup(vty, afi, name);
+  if (plist == NULL)
+    return CMD_WARNING ;
 
   /* Only prefix-list name specified, delete the entire prefix-list. */
-  if (seq == NULL && typestr == NULL && prefix == NULL && 
-      ge == NULL && le == NULL)
+  if (seq_str == NULL && type_str == NULL && prefix_str == NULL &&
+      ge_str == NULL && le_str == NULL)
     {
       prefix_list_delete (plist);
       return CMD_SUCCESS;
     }
 
   /* We must have, at a minimum, both the type and prefix here */
-  if ((typestr == NULL) || (prefix == NULL))
+  if ((type_str == NULL) || (prefix_str == NULL))
     {
       vty_out (vty, "%% Both prefix and type required%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
 
-  /* Check sequence number. */
-  if (seq)
-    seqnum = atoi (seq);
+  /* Do the grunt work on the parameters.
+   * Completely fill in the temp prefix_list_entry structure.
+   */
+  ret = vty_prefix_list_process(vty, &temp, plist, afi, seq_str, type_str,
+						  prefix_str, ge_str, le_str) ;
+  if (ret != CMD_SUCCESS)
+    return ret ;
 
-  /* ge and le number */
-  if (ge)
-    genum = atoi (ge);
-  if (le)
-    lenum = atoi (le);
+  /* Remove prefix_list_entry if we can. */
+  ret = prefix_list_entry_delete (plist, &temp);
 
-  /* Check of filter type. */
-  if (strncmp ("permit", typestr, 1) == 0)
-    type = PREFIX_PERMIT;
-  else if (strncmp ("deny", typestr, 1) == 0)
-    type = PREFIX_DENY;
-  else
-    {
-      vty_out (vty, "%% prefix type must be permit or deny%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
+  if (ret != CMD_SUCCESS)
+    vty_out (vty, "%% Can't find specified prefix-list%s", VTY_NEWLINE);
 
-  /* "any" is special token for matching any IPv4 addresses.  */
-  if (afi == AFI_IP)
-    {
-      if (strncmp ("any", prefix, strlen (prefix)) == 0)
-	{
-	  ret = str2prefix_ipv4 ("0.0.0.0/0", (struct prefix_ipv4 *) &p);
-	  genum = 0;
-	  lenum = IPV4_MAX_BITLEN;
-	}
-      else
-	ret = str2prefix_ipv4 (prefix, (struct prefix_ipv4 *) &p);
+  return ret;
+}
 
-      if (ret <= 0)
-	{
-	  vty_out (vty, "%% Malformed IPv4 prefix%s", VTY_NEWLINE);
-	  return CMD_WARNING;
-	}
-    }
-#ifdef HAVE_IPV6
-  else if (afi == AFI_IP6)
-    {
-      if (strncmp ("any", prefix, strlen (prefix)) == 0)
-	{
-	  ret = str2prefix_ipv6 ("::/0", (struct prefix_ipv6 *) &p);
-	  genum = 0;
-	  lenum = IPV6_MAX_BITLEN;
-	}
-      else
-	ret = str2prefix_ipv6 (prefix, (struct prefix_ipv6 *) &p);
+static int
+vty_prefix_list_desc_set (struct vty *vty, afi_t afi, const char *name,
+						                    char* desc)
+{
+  struct prefix_master* pm ;
+  struct prefix_list *plist;
 
-      if (ret <= 0)
-	{
-	  vty_out (vty, "%% Malformed IPv6 prefix%s", VTY_NEWLINE);
-	  return CMD_WARNING;
-	}
-    }
-#endif /* HAVE_IPV6 */
+  assert_afi_real(afi) ;	/* UI stuff should ensure this */
+  pm = prefix_master_get(afi) ;
 
-  /* Lookup prefix entry. */
-  pentry = prefix_list_entry_lookup(plist, &p, type, seqnum, lenum, genum);
+  /* Get prefix_list with name.   Make new list if required.  */
+  plist = prefix_list_get(pm, name, afi) ;
 
-  if (pentry == NULL)
-    {
-      vty_out (vty, "%% Can't find specified prefix-list%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
+  if (plist->desc)
+    XFREE (MTYPE_TMP, plist->desc) ;	/* Discard any existing value */
 
-  /* Install new filter to the access_list. */
-  prefix_list_entry_delete (plist, pentry, 1);
+  plist->desc = desc ;
 
   return CMD_SUCCESS;
 }
@@ -890,21 +1347,15 @@ vty_prefix_list_desc_unset (struct vty *vty, afi_t afi, const char *name)
 {
   struct prefix_list *plist;
 
-  plist = prefix_list_lookup (afi, name);
-  if (! plist)
-    {
-      vty_out (vty, "%% Can't find specified prefix-list%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
+  plist = vty_prefix_list_lookup(vty, afi, name);
+  if (plist == NULL)
+    return CMD_WARNING ;
 
   if (plist->desc)
-    {
-      XFREE (MTYPE_TMP, plist->desc);
-      plist->desc = NULL;
-    }
+    XFREE (MTYPE_TMP, plist->desc) ;	/* sets plist->dec to NULL */
 
-  if (plist->head == NULL && plist->tail == NULL && plist->desc == NULL)
-    prefix_list_delete (plist);
+  if (vector_end(&plist->list) == 0)
+    prefix_list_delete(plist) ;		/* delete list if all gone now */
 
   return CMD_SUCCESS;
 }
@@ -916,143 +1367,135 @@ enum display_type
   detail_display,
   sequential_display,
   longer_display,
-  first_match_display
+  first_match_display,
 };
 
+/* Show given prefix_list */
 static void
-vty_show_prefix_entry (struct vty *vty, afi_t afi, struct prefix_list *plist,
-		       struct prefix_master *master, enum display_type dtype,
+vty_show_prefix_entry (struct vty *vty, struct prefix_list *plist,
+		       struct prefix_master* pm, enum display_type dtype,
 		       int seqnum)
 {
-  struct prefix_list_entry *pentry;
-
   /* Print the name of the protocol */
   if (zlog_default)
       vty_out (vty, "%s: ", zlog_proto_names[zlog_default->protocol]);
-                                                                           
+
   if (dtype == normal_display)
     {
-      vty_out (vty, "ip%s prefix-list %s: %d entries%s",
-	       afi == AFI_IP ? "" : "v6",
-	       plist->name, plist->count, VTY_NEWLINE);
-      if (plist->desc)
-	vty_out (vty, "   Description: %s%s", plist->desc, VTY_NEWLINE);
+      vty_prefix_list_name_count_print(vty, plist, VTY_NEWLINE) ;
+      vty_prefix_list_desc_print(vty, plist, 3, VTY_NEWLINE) ;
     }
   else if (dtype == summary_display || dtype == detail_display)
     {
-      vty_out (vty, "ip%s prefix-list %s:%s",
-	       afi == AFI_IP ? "" : "v6", plist->name, VTY_NEWLINE);
+      struct prefix_list_entry* p_f = vector_get_first_item(&plist->list) ;
+      struct prefix_list_entry* p_l = vector_get_last_item(&plist->list) ;
 
-      if (plist->desc)
-	vty_out (vty, "   Description: %s%s", plist->desc, VTY_NEWLINE);
+      vty_prefix_list_name_print(vty, plist, ":") ;
+      vty_out_newline(vty) ;
+
+      vty_prefix_list_desc_print(vty, plist, 3, VTY_NEWLINE) ;
 
       vty_out (vty, "   count: %d, range entries: %d, sequences: %d - %d%s",
-	       plist->count, plist->rangecount, 
-	       plist->head ? plist->head->seq : 0, 
-	       plist->tail ? plist->tail->seq : 0,
+	       vector_end(&plist->list), plist->rangecount,
+	       p_f ? p_f->seq : 0,
+	       p_l ? p_l->seq : 0,
 	       VTY_NEWLINE);
-    }
+    } ;
 
   if (dtype != summary_display)
     {
-      for (pentry = plist->head; pentry; pentry = pentry->next)
+      struct prefix_list_entry* pe ;
+      vector_index i ;
+      int with_seq   = pm->seqnum_flag ;
+      int with_stats = (dtype == detail_display)
+		     ||(dtype == sequential_display) ;
+
+      for (VECTOR_ITEMS(&plist->list, pe, i))
 	{
-	  if (dtype == sequential_display && pentry->seq != seqnum)
+	  if ((dtype == sequential_display) && (pe->seq != seqnum))
 	    continue;
-	    
-	  vty_out (vty, "   ");
 
-	  if (master->seqnum)
-	    vty_out (vty, "seq %d ", pentry->seq);
-
-	  vty_out (vty, "%s ", prefix_list_type_str (pentry));
-
-	  if (pentry->any)
-	    vty_out (vty, "any");
-	  else
-	    {
-	      struct prefix *p = &pentry->prefix;
-	      char buf[BUFSIZ];
-
-	      vty_out (vty, "%s/%d",
-		       inet_ntop (p->family, &p->u.prefix, buf, BUFSIZ),
-		       p->prefixlen);
-
-	      if (pentry->ge)
-		vty_out (vty, " ge %d", pentry->ge);
-	      if (pentry->le)
-		vty_out (vty, " le %d", pentry->le);
-	    }
-
-	  if (dtype == detail_display || dtype == sequential_display)
-	    vty_out (vty, " (hit count: %ld, refcount: %ld)", 
-		     pentry->hitcnt, pentry->refcnt);
-	  
-	  vty_out (vty, "%s", VTY_NEWLINE);
+	  vty_out_indent(vty, 3);
+	  vty_prefix_list_value_print(vty, pe, VTY_NEWLINE,
+							with_seq, with_stats) ;
 	}
     }
 }
 
+/* Show given prefix list in given afi, or all prefix lists in given afi.  */
+
 static int
 vty_show_prefix_list (struct vty *vty, afi_t afi, const char *name,
-		      const char *seq, enum display_type dtype)
+		      const char *seq_str, enum display_type dtype)
 {
   struct prefix_list *plist;
-  struct prefix_master *master;
-  int seqnum = 0;
+  struct prefix_master *pm;
+  int seq = 0;
 
-  master = prefix_master_get (afi);
-  if (master == NULL)
+  pm = prefix_master_get(afi) ;
+  if (pm == NULL)
     return CMD_WARNING;
 
-  if (seq)
-    seqnum = atoi (seq);
+  if (seq_str)
+    seq = atoi (seq_str);
 
   if (name)
     {
-      plist = prefix_list_lookup (afi, name);
-      if (! plist)
-	{
-	  vty_out (vty, "%% Can't find specified prefix-list%s", VTY_NEWLINE);
-	  return CMD_WARNING;
-	}
-      vty_show_prefix_entry (vty, afi, plist, master, dtype, seqnum);
+      /* Note that asking after an undefined prefix_list is an error.	*/
+      /* Does not mention references to an undefined prefix_list.	*/
+      plist = vty_prefix_list_lookup(vty, afi, name);
+      if (plist == NULL)
+	return CMD_WARNING;
+      vty_show_prefix_entry (vty, plist, pm, dtype, seq);
     }
   else
     {
+      vector extract ;
+      vector_index i ;
+      struct symbol* sym ;
+
       if (dtype == detail_display || dtype == summary_display)
 	{
-	  if (master->recent)
+	  if (pm->recent)
 	    vty_out (vty, "Prefix-list with the last deletion/insertion: %s%s",
-		     master->recent->name, VTY_NEWLINE);
+		  (const char*)symbol_get_name(pm->recent->sym), VTY_NEWLINE) ;
 	}
 
-      for (plist = master->num.head; plist; plist = plist->next)
-	vty_show_prefix_entry (vty, afi, plist, master, dtype, seqnum);
+      /* Extract a vector of all prefix_list symbols, in name order.	*/
+      extract = symbol_table_extract(&pm->table, NULL, NULL, 0,
+							symbol_mixed_name_cmp) ;
 
-      for (plist = master->str.head; plist; plist = plist->next)
-	vty_show_prefix_entry (vty, afi, plist, master, dtype, seqnum);
+      for (VECTOR_ITEMS(extract, sym, i))
+	{
+	  plist = symbol_get_value(sym) ;
+	  if (plist != NULL)
+	    vty_show_prefix_entry(vty, plist, pm, dtype, seq);
+	  else
+	    vty_prefix_list_undefined_print(vty, afi, sym, VTY_NEWLINE) ;
+	}
+
+      vector_free(extract) ;	/* throw away temporary vector */
     }
 
   return CMD_SUCCESS;
 }
 
 static int
-vty_show_prefix_list_prefix (struct vty *vty, afi_t afi, const char *name, 
+vty_show_prefix_list_prefix (struct vty *vty, afi_t afi, const char *name,
 			     const char *prefix, enum display_type type)
 {
   struct prefix_list *plist;
-  struct prefix_list_entry *pentry;
+  struct prefix_list_entry* pe ;
+  vector_index i ;
   struct prefix p;
   int ret;
   int match;
+  int with_stats ;
 
-  plist = prefix_list_lookup (afi, name);
-  if (! plist)
-    {
-      vty_out (vty, "%% Can't find specified prefix-list%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
+  /* Error if cannot find prefix list.	*/
+  plist = vty_prefix_list_lookup(vty, afi, name);
+  if (plist == NULL)
+    return CMD_WARNING;
 
   ret = str2prefix (prefix, &p);
   if (ret <= 0)
@@ -1061,88 +1504,66 @@ vty_show_prefix_list_prefix (struct vty *vty, afi_t afi, const char *name,
       return CMD_WARNING;
     }
 
-  for (pentry = plist->head; pentry; pentry = pentry->next)
+  with_stats = (type == normal_display) || (type == first_match_display) ;
+
+  for (VECTOR_ITEMS(&plist->list, pe, i))
     {
       match = 0;
 
-      if (type == normal_display || type == first_match_display)
-	if (prefix_same (&p, &pentry->prefix))
-	  match = 1;
-
-      if (type == longer_display)
-	if (prefix_match (&p, &pentry->prefix))
-	  match = 1;
+      if     ((type == normal_display || type == first_match_display))
+	match = prefix_same(&p, &pe->prefix) ;
+      else if (type == longer_display)
+	match = (prefix_match (&p, &pe->prefix)) ;
 
       if (match)
 	{
-	  vty_out (vty, "   seq %d %s ", 
-		   pentry->seq,
-		   prefix_list_type_str (pentry));
-
-	  if (pentry->any)
-	    vty_out (vty, "any");
-	  else
-	    {
-	      struct prefix *p = &pentry->prefix;
-	      char buf[BUFSIZ];
-	      
-	      vty_out (vty, "%s/%d",
-		       inet_ntop (p->family, &p->u.prefix, buf, BUFSIZ),
-		       p->prefixlen);
-
-	      if (pentry->ge)
-		vty_out (vty, " ge %d", pentry->ge);
-	      if (pentry->le)
-		vty_out (vty, " le %d", pentry->le);
-	    }
-	  
-	  if (type == normal_display || type == first_match_display)
-	    vty_out (vty, " (hit count: %ld, refcount: %ld)", 
-		     pentry->hitcnt, pentry->refcnt);
-
-	  vty_out (vty, "%s", VTY_NEWLINE);
+	  vty_out_indent(vty, 3);
+	  vty_prefix_list_value_print(vty, pe, VTY_NEWLINE, 1, with_stats) ;
 
 	  if (type == first_match_display)
-	    return CMD_SUCCESS;
+	    break ;
 	}
     }
   return CMD_SUCCESS;
 }
 
+/* Clear hit counters in all prefix_list_entries:
+ *
+ *   a) in all prefix_lists -- name NULL
+ *   b) in given prefix list -- prefix NULL
+ *   c) that match given prefix, in given prefix_list
+ */
 static int
-vty_clear_prefix_list (struct vty *vty, afi_t afi, const char *name, 
+vty_clear_prefix_list (struct vty *vty, afi_t afi, const char *name,
                        const char *prefix)
 {
-  struct prefix_master *master;
+  struct prefix_master *pm;
   struct prefix_list *plist;
-  struct prefix_list_entry *pentry;
   int ret;
   struct prefix p;
+  struct prefix_list_entry* pe ;
+  vector_index i ;
 
-  master = prefix_master_get (afi);
-  if (master == NULL)
+  pm = prefix_master_get (afi);
+  if (pm == NULL)
     return CMD_WARNING;
 
-  if (name == NULL && prefix == NULL)
+  if (name == NULL)
     {
-      for (plist = master->num.head; plist; plist = plist->next)
-	for (pentry = plist->head; pentry; pentry = pentry->next)
-	  pentry->hitcnt = 0;
-
-      for (plist = master->str.head; plist; plist = plist->next)
-	for (pentry = plist->head; pentry; pentry = pentry->next)
-	  pentry->hitcnt = 0;
+      struct symbol_walker walker ;
+      symbol_walk_start(&pm->table, &walker) ;
+      while ((plist = symbol_get_value(symbol_walk_next(&walker))))
+	for (VECTOR_ITEMS(&plist->list, pe, i))
+	  pe->hitcnt = 0 ;
     }
   else
     {
-      plist = prefix_list_lookup (afi, name);
-      if (! plist)
-	{
-	  vty_out (vty, "%% Can't find specified prefix-list%s", VTY_NEWLINE);
-	  return CMD_WARNING;
-	}
+      /* Error if cannot find prefix list.	*/
+      plist = vty_prefix_list_lookup(vty, afi, name);
+      if (plist == NULL)
+        return CMD_WARNING;
 
-      if (prefix)
+      if (prefix != NULL)
 	{
 	  ret = str2prefix (prefix, &p);
 	  if (ret <= 0)
@@ -1152,20 +1573,13 @@ vty_clear_prefix_list (struct vty *vty, afi_t afi, const char *name,
 	    }
 	}
 
-      for (pentry = plist->head; pentry; pentry = pentry->next)
-	{
-	  if (prefix)
-	    {
-	      if (prefix_match (&pentry->prefix, &p))
-		pentry->hitcnt = 0;
-	    }
-	  else
-	    pentry->hitcnt = 0;
-	}
-    }
-  return CMD_SUCCESS;
+      for (VECTOR_ITEMS(&plist->list, pe, i))
+	if ((prefix == NULL) || prefix_match(&pe->prefix, &p))
+	  pe->hitcnt = 0;
+    } ;
+return CMD_SUCCESS;
 }
-
+
 DEFUN (ip_prefix_list,
        ip_prefix_list_cmd,
        "ip prefix-list WORD (deny|permit) (A.B.C.D/M|any)",
@@ -1177,7 +1591,7 @@ DEFUN (ip_prefix_list,
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n"
        "Any prefix match. Same as \"0.0.0.0/0 le 32\"\n")
 {
-  return vty_prefix_list_install (vty, AFI_IP, argv[0], NULL, 
+  return vty_prefix_list_install (vty, AFI_IP, argv[0], NULL,
 				  argv[1], argv[2], NULL, NULL);
 }
 
@@ -1193,7 +1607,7 @@ DEFUN (ip_prefix_list_ge,
        "Minimum prefix length to be matched\n"
        "Minimum prefix length\n")
 {
-  return vty_prefix_list_install (vty, AFI_IP, argv[0], NULL, argv[1], 
+  return vty_prefix_list_install (vty, AFI_IP, argv[0], NULL, argv[1],
 				 argv[2], argv[3], NULL);
 }
 
@@ -1211,7 +1625,7 @@ DEFUN (ip_prefix_list_ge_le,
        "Maximum prefix length to be matched\n"
        "Maximum prefix length\n")
 {
-  return vty_prefix_list_install (vty, AFI_IP, argv[0], NULL, argv[1], 
+  return vty_prefix_list_install (vty, AFI_IP, argv[0], NULL, argv[1],
 				  argv[2], argv[3], argv[4]);
 }
 
@@ -1547,7 +1961,7 @@ DEFUN (ip_prefix_list_sequence_number,
        PREFIX_LIST_STR
        "Include/exclude sequence numbers in NVGEN\n")
 {
-  prefix_master_ipv4.seqnum = 1;
+  prefix_master_ipv4.seqnum_flag = 1;
   return CMD_SUCCESS;
 }
 
@@ -1559,7 +1973,7 @@ DEFUN (no_ip_prefix_list_sequence_number,
        PREFIX_LIST_STR
        "Include/exclude sequence numbers in NVGEN\n")
 {
-  prefix_master_ipv4.seqnum = 0;
+  prefix_master_ipv4.seqnum_flag = 0;
   return CMD_SUCCESS;
 }
 
@@ -1572,19 +1986,9 @@ DEFUN (ip_prefix_list_description,
        "Prefix-list specific description\n"
        "Up to 80 characters describing this prefix-list\n")
 {
-  struct prefix_list *plist;
-
-  plist = prefix_list_get (AFI_IP, argv[0]);
-  
-  if (plist->desc)
-    {
-      XFREE (MTYPE_TMP, plist->desc);
-      plist->desc = NULL;
-    }
-  plist->desc = argv_concat(argv, argc, 1);
-
-  return CMD_SUCCESS;
-}       
+  return vty_prefix_list_desc_set (vty, AFI_IP, argv[0],
+						    argv_concat(argv, argc, 1));
+} ;
 
 DEFUN (no_ip_prefix_list_description,
        no_ip_prefix_list_description_cmd,
@@ -1759,7 +2163,7 @@ DEFUN (clear_ip_prefix_list_name_prefix,
 {
   return vty_clear_prefix_list (vty, AFI_IP, argv[0], argv[1]);
 }
-
+
 #ifdef HAVE_IPV6
 DEFUN (ipv6_prefix_list,
        ipv6_prefix_list_cmd,
@@ -1772,7 +2176,7 @@ DEFUN (ipv6_prefix_list,
        "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n"
        "Any prefix match.  Same as \"::0/0 le 128\"\n")
 {
-  return vty_prefix_list_install (vty, AFI_IP6, argv[0], NULL, 
+  return vty_prefix_list_install (vty, AFI_IP6, argv[0], NULL,
 				  argv[1], argv[2], NULL, NULL);
 }
 
@@ -1788,7 +2192,7 @@ DEFUN (ipv6_prefix_list_ge,
        "Minimum prefix length to be matched\n"
        "Minimum prefix length\n")
 {
-  return vty_prefix_list_install (vty, AFI_IP6, argv[0], NULL, argv[1], 
+  return vty_prefix_list_install (vty, AFI_IP6, argv[0], NULL, argv[1],
 				 argv[2], argv[3], NULL);
 }
 
@@ -1807,7 +2211,7 @@ DEFUN (ipv6_prefix_list_ge_le,
        "Maximum prefix length\n")
 
 {
-  return vty_prefix_list_install (vty, AFI_IP6, argv[0], NULL, argv[1], 
+  return vty_prefix_list_install (vty, AFI_IP6, argv[0], NULL, argv[1],
 				  argv[2], argv[3], argv[4]);
 }
 
@@ -2143,7 +2547,7 @@ DEFUN (ipv6_prefix_list_sequence_number,
        PREFIX_LIST_STR
        "Include/exclude sequence numbers in NVGEN\n")
 {
-  prefix_master_ipv6.seqnum = 1;
+  prefix_master_ipv6.seqnum_flag = 1;
   return CMD_SUCCESS;
 }
 
@@ -2155,7 +2559,7 @@ DEFUN (no_ipv6_prefix_list_sequence_number,
        PREFIX_LIST_STR
        "Include/exclude sequence numbers in NVGEN\n")
 {
-  prefix_master_ipv6.seqnum = 0;
+  prefix_master_ipv6.seqnum_flag = 0;
   return CMD_SUCCESS;
 }
 
@@ -2168,19 +2572,9 @@ DEFUN (ipv6_prefix_list_description,
        "Prefix-list specific description\n"
        "Up to 80 characters describing this prefix-list\n")
 {
-  struct prefix_list *plist;
-
-  plist = prefix_list_get (AFI_IP6, argv[0]);
-  
-  if (plist->desc)
-    {
-      XFREE (MTYPE_TMP, plist->desc);
-      plist->desc = NULL;
-    }
-  plist->desc = argv_concat(argv, argc, 1);
-
-  return CMD_SUCCESS;
-}       
+  return vty_prefix_list_desc_set (vty, AFI_IP6, argv[0],
+						    argv_concat(argv, argc, 1));
+}
 
 DEFUN (no_ipv6_prefix_list_description,
        no_ipv6_prefix_list_description_cmd,
@@ -2355,190 +2749,138 @@ DEFUN (clear_ipv6_prefix_list_name_prefix,
   return vty_clear_prefix_list (vty, AFI_IP6, argv[0], argv[1]);
 }
 #endif /* HAVE_IPV6 */
-
+
 /* Configuration write function. */
 static int
 config_write_prefix_afi (afi_t afi, struct vty *vty)
 {
   struct prefix_list *plist;
-  struct prefix_list_entry *pentry;
-  struct prefix_master *master;
+  struct prefix_list_entry *pe;
+  struct prefix_master *pm;
   int write = 0;
+  vector extract ;
+  vector_index i, ipe ;
+  struct symbol* sym ;
 
-  master = prefix_master_get (afi);
-  if (master == NULL)
+  pm = prefix_master_get (afi);
+  if (pm == NULL)
     return 0;
 
-  if (! master->seqnum)
+  if (! pm->seqnum_flag)
     {
-      vty_out (vty, "no ip%s prefix-list sequence-number%s", 
+      vty_out (vty, "no ip%s prefix-list sequence-number%s",
 	       afi == AFI_IP ? "" : "v6", VTY_NEWLINE);
       vty_out (vty, "!%s", VTY_NEWLINE);
     }
 
-  for (plist = master->num.head; plist; plist = plist->next)
+  /* Extract a vector of all prefix_list symbols, in name order.	*/
+  extract = symbol_table_extract(&pm->table, NULL, NULL, 0,
+							symbol_mixed_name_cmp) ;
+  for (VECTOR_ITEMS(extract, sym, i))
     {
-      if (plist->desc)
+      plist = symbol_get_value(sym) ;
+      if (plist)
 	{
-	  vty_out (vty, "ip%s prefix-list %s description %s%s",
-		   afi == AFI_IP ? "" : "v6",
-		   plist->name, plist->desc, VTY_NEWLINE);
-	  write++;
-	}
-
-      for (pentry = plist->head; pentry; pentry = pentry->next)
-	{
-	  vty_out (vty, "ip%s prefix-list %s ",
-		   afi == AFI_IP ? "" : "v6",
-		   plist->name);
-
-	  if (master->seqnum)
-	    vty_out (vty, "seq %d ", pentry->seq);
-	
-	  vty_out (vty, "%s ", prefix_list_type_str (pentry));
-
-	  if (pentry->any)
-	    vty_out (vty, "any");
-	  else
+	  if (plist->desc)
 	    {
-	      struct prefix *p = &pentry->prefix;
-	      char buf[BUFSIZ];
-
-	      vty_out (vty, "%s/%d",
-		       inet_ntop (p->family, &p->u.prefix, buf, BUFSIZ),
-		       p->prefixlen);
-
-	      if (pentry->ge)
-		vty_out (vty, " ge %d", pentry->ge);
-	      if (pentry->le)
-		vty_out (vty, " le %d", pentry->le);
+	      vty_prefix_list_name_print(vty, plist, "") ;
+	      vty_out (vty, " description %s%s", plist->desc, VTY_NEWLINE) ;
+	      write++ ;
 	    }
-	  vty_out (vty, "%s", VTY_NEWLINE);
-	  write++;
-	}
-      /* vty_out (vty, "!%s", VTY_NEWLINE); */
-    }
 
-  for (plist = master->str.head; plist; plist = plist->next)
-    {
-      if (plist->desc)
-	{
-	  vty_out (vty, "ip%s prefix-list %s description %s%s",
-		   afi == AFI_IP ? "" : "v6",
-		   plist->name, plist->desc, VTY_NEWLINE);
-	  write++;
-	}
-
-      for (pentry = plist->head; pentry; pentry = pentry->next)
-	{
-	  vty_out (vty, "ip%s prefix-list %s ",
-		   afi == AFI_IP ? "" : "v6",
-		   plist->name);
-
-	  if (master->seqnum)
-	    vty_out (vty, "seq %d ", pentry->seq);
-
-	  vty_out (vty, "%s", prefix_list_type_str (pentry));
-
-	  if (pentry->any)
-	    vty_out (vty, " any");
-	  else
+	  for (VECTOR_ITEMS(&plist->list, pe, ipe))
 	    {
-	      struct prefix *p = &pentry->prefix;
-	      char buf[BUFSIZ];
-
-	      vty_out (vty, " %s/%d",
-		       inet_ntop (p->family, &p->u.prefix, buf, BUFSIZ),
-		       p->prefixlen);
-
-	      if (pentry->ge)
-		vty_out (vty, " ge %d", pentry->ge);
-	      if (pentry->le)
-		vty_out (vty, " le %d", pentry->le);
+	      vty_prefix_list_name_print(vty, plist, " ") ;
+	      vty_prefix_list_value_print(vty, pe, VTY_NEWLINE,
+							pm->seqnum_flag, 0) ;
+	      write++ ;
 	    }
-	  vty_out (vty, "%s", VTY_NEWLINE);
-	  write++;
 	}
-    }
-  
+      else
+	{
+	  vty_puts(vty, "!! ") ;
+	  vty_prefix_list_undefined_print(vty, afi, sym, VTY_NEWLINE) ;
+	  write++ ;
+	} ;
+    } ;
+
+  vector_free(extract) ;	/* discard temporary vector */
+
   return write;
 }
 
 struct stream *
-prefix_bgp_orf_entry (struct stream *s, struct prefix_list *plist,
+prefix_bgp_orf_entry (struct stream *s, prefix_list_ref ref,
 		      u_char init_flag, u_char permit_flag, u_char deny_flag)
 {
-  struct prefix_list_entry *pentry;
+  struct prefix_list_entry *pe;
+  vector_index i ;
+
+  struct prefix_list *plist = prefix_list_ref_plist(ref) ;
 
   if (! plist)
     return s;
 
-  for (pentry = plist->head; pentry; pentry = pentry->next)
+  for (VECTOR_ITEMS(&plist->list, pe, i))
     {
-      u_char flag = init_flag;
-      struct prefix *p = &pentry->prefix;
-
-      flag |= (pentry->type == PREFIX_PERMIT ?
-               permit_flag : deny_flag);
-      stream_putc (s, flag);
-      stream_putl (s, (u_int32_t)pentry->seq);
-      stream_putc (s, (u_char)pentry->ge);
-      stream_putc (s, (u_char)pentry->le);
-      stream_put_prefix (s, p);
+      stream_putc (s, init_flag | (pe->type == PREFIX_PERMIT ? permit_flag
+							     : deny_flag));
+      stream_putl (s, (u_int32_t)pe->seq);
+      stream_putc (s, (u_char)pe->ge);
+      stream_putc (s, (u_char)pe->le);
+      stream_put_prefix (s, &pe->prefix);
     }
 
   return s;
 }
 
+/* Set or Unset a BGP ORF entry.	*/
 int
 prefix_bgp_orf_set (char *name, afi_t afi, struct orf_prefix *orfp,
 		    int permit, int set)
 {
-  struct prefix_list *plist;
-  struct prefix_list_entry *pentry;
+  struct prefix_list *plist ;
+  struct prefix_list_entry temp ;
+  int ret ;
 
-  /* ge and le value check */ 
-  if (orfp->ge && orfp->ge <= orfp->p.prefixlen)
-    return CMD_WARNING;
-  if (orfp->le && orfp->le <= orfp->p.prefixlen)
-    return CMD_WARNING;
-  if (orfp->le && orfp->ge > orfp->le)
-    return CMD_WARNING;
+  assert_afi_real(afi) ;
 
-  if (orfp->ge && orfp->le == (afi == AFI_IP ? 32 : 128))
-    orfp->le = 0;
+  /* Transfer the values from the orf_prefix */
+  prefix_list_entry_init(&temp) ;
 
-  plist = prefix_list_get (AFI_ORF_PREFIX, name);
-  if (! plist)
-    return CMD_WARNING;
+  temp.type   = permit ? PREFIX_PERMIT : PREFIX_DENY ;
+  temp.prefix = orfp->p ;
+  temp.seq    = orfp->seq ;	/* NB: U32 and may be zero	*/
+  if (orfp->ge)
+    {
+      temp.flags |= PREFIX_GE ;
+      temp.ge     = orfp->ge ;
+    }
+  if (orfp->le)
+    {
+      temp.flags |= PREFIX_LE ;
+      temp.le     = orfp->le ;
+    }
 
+  /* Make sure ge & le are acceptable and set as required	*/
+  ret = prefix_list_entry_ge_le_check(&temp, afi) ;
+  if (ret != CMD_SUCCESS)
+    return ret ;
+
+  /* Now insert or delete	*/
   if (set)
     {
-      pentry = prefix_list_entry_make (&orfp->p,
-				       (permit ? PREFIX_PERMIT : PREFIX_DENY),
-				       orfp->seq, orfp->le, orfp->ge, 0);
-
-      if (prefix_entry_dup_check (plist, pentry))
-	{
-	  prefix_list_entry_free (pentry);
-	  return CMD_WARNING;
-	}
-
-      prefix_list_entry_add (plist, pentry);
+      plist = prefix_list_get(&prefix_master_orf, name, afi);
+      return prefix_list_entry_insert(plist, &temp) ;
     }
   else
     {
-      pentry = prefix_list_entry_lookup (plist, &orfp->p,
-					 (permit ? PREFIX_PERMIT : PREFIX_DENY),
-					 orfp->seq, orfp->le, orfp->ge);
+      plist = prefix_list_seek(&prefix_master_orf, name) ;
+      if (plist == NULL)
+	return CMD_WARNING ;
 
-      if (! pentry)
-	return CMD_WARNING;
-
-      prefix_list_entry_delete (plist, pentry, 1);
+      return prefix_list_entry_delete(plist, &temp) ;
     }
-
-  return CMD_SUCCESS;
 }
 
 void
@@ -2555,70 +2897,33 @@ prefix_bgp_orf_remove_all (char *name)
 int
 prefix_bgp_show_prefix_list (struct vty *vty, afi_t afi, char *name)
 {
-  struct prefix_list *plist;
-  struct prefix_list_entry *pentry;
+  struct prefix_list *plist ;
 
   plist = prefix_list_lookup (AFI_ORF_PREFIX, name);
   if (! plist)
     return 0;
 
-  if (! vty)
-    return plist->count;
-
-  vty_out (vty, "ip%s prefix-list %s: %d entries%s",
-	   afi == AFI_IP ? "" : "v6",
-	   plist->name, plist->count, VTY_NEWLINE);
-
-  for (pentry = plist->head; pentry; pentry = pentry->next)
+  if (vty)
     {
-      struct prefix *p = &pentry->prefix;
-      char buf[BUFSIZ];
+      struct prefix_list_entry* pe ;
+      vector_index i ;
 
-      vty_out (vty, "   seq %d %s %s/%d", pentry->seq,
-	       prefix_list_type_str (pentry),
-	       inet_ntop (p->family, &p->u.prefix, buf, BUFSIZ),
-	       p->prefixlen);
+      vty_prefix_list_name_count_print(vty, plist, VTY_NEWLINE) ;
 
-      if (pentry->ge)
-	vty_out (vty, " ge %d", pentry->ge);
-      if (pentry->le)
-	vty_out (vty, " le %d", pentry->le);
-
-      vty_out (vty, "%s", VTY_NEWLINE);
+      for (VECTOR_ITEMS(&plist->list, pe, i))
+	{
+	  vty_out_indent(vty, 3) ;
+	  vty_prefix_list_value_print(vty, pe, VTY_NEWLINE, 1, 1) ;
+	}
     }
-  return plist->count;
+
+  return vector_end(&plist->list);
 }
 
 static void
 prefix_list_reset_orf (void)
 {
-  struct prefix_list *plist;
-  struct prefix_list *next;
-  struct prefix_master *master;
-
-  master = prefix_master_get (AFI_ORF_PREFIX);
-  if (master == NULL)
-    return;
-
-  for (plist = master->num.head; plist; plist = next)
-    {
-      next = plist->next;
-      prefix_list_delete (plist);
-    }
-  for (plist = master->str.head; plist; plist = next)
-    {
-      next = plist->next;
-      prefix_list_delete (plist);
-    }
-
-  assert (master->num.head == NULL);
-  assert (master->num.tail == NULL);
-
-  assert (master->str.head == NULL);
-  assert (master->str.tail == NULL);
-
-  master->seqnum = 1;
-  master->recent = NULL;
+  prefix_master_reset(&prefix_master_orf) ;
 }
 
 
@@ -2639,38 +2944,14 @@ config_write_prefix_ipv4 (struct vty *vty)
 static void
 prefix_list_reset_ipv4 (void)
 {
-  struct prefix_list *plist;
-  struct prefix_list *next;
-  struct prefix_master *master;
-
-  master = prefix_master_get (AFI_IP);
-  if (master == NULL)
-    return;
-
-  for (plist = master->num.head; plist; plist = next)
-    {
-      next = plist->next;
-      prefix_list_delete (plist);
-    }
-  for (plist = master->str.head; plist; plist = next)
-    {
-      next = plist->next;
-      prefix_list_delete (plist);
-    }
-
-  assert (master->num.head == NULL);
-  assert (master->num.tail == NULL);
-
-  assert (master->str.head == NULL);
-  assert (master->str.tail == NULL);
-
-  master->seqnum = 1;
-  master->recent = NULL;
+  prefix_master_reset(&prefix_master_ipv4) ;
 }
 
 static void
 prefix_list_init_ipv4 (void)
 {
+  prefix_master_init(&prefix_master_ipv4) ;
+
   install_node (&prefix_node, config_write_prefix_ipv4);
 
   install_element (CONFIG_NODE, &ip_prefix_list_cmd);
@@ -2734,10 +3015,10 @@ prefix_list_init_ipv4 (void)
 /* Prefix-list node. */
 static struct cmd_node prefix_ipv6_node =
 {
-  PREFIX_IPV6_NODE,
-  "",				/* Prefix list has no interface. */
-  1
-};
+    PREFIX_IPV6_NODE,
+    "",				/* Prefix list has no interface. */
+    1
+  };
 
 static int
 config_write_prefix_ipv6 (struct vty *vty)
@@ -2748,38 +3029,16 @@ config_write_prefix_ipv6 (struct vty *vty)
 static void
 prefix_list_reset_ipv6 (void)
 {
-  struct prefix_list *plist;
-  struct prefix_list *next;
-  struct prefix_master *master;
-
-  master = prefix_master_get (AFI_IP6);
-  if (master == NULL)
-    return;
-
-  for (plist = master->num.head; plist; plist = next)
-    {
-      next = plist->next;
-      prefix_list_delete (plist);
-    }
-  for (plist = master->str.head; plist; plist = next)
-    {
-      next = plist->next;
-      prefix_list_delete (plist);
-    }
-
-  assert (master->num.head == NULL);
-  assert (master->num.tail == NULL);
-
-  assert (master->str.head == NULL);
-  assert (master->str.tail == NULL);
-
-  master->seqnum = 1;
-  master->recent = NULL;
-}
+#ifdef HAVE_IPV6
+  prefix_master_reset(&prefix_master_ipv6) ;
+#endif
+} ;
 
 static void
 prefix_list_init_ipv6 (void)
 {
+  prefix_master_init(&prefix_master_ipv6) ;
+
   install_node (&prefix_ipv6_node, config_write_prefix_ipv6);
 
   install_element (CONFIG_NODE, &ipv6_prefix_list_cmd);
@@ -2847,6 +3106,7 @@ prefix_list_init ()
 #ifdef HAVE_IPV6
   prefix_list_init_ipv6 ();
 #endif /* HAVE_IPV6 */
+  prefix_master_init(&prefix_master_orf) ;
 }
 
 void

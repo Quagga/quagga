@@ -30,10 +30,27 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_aspath.h"
 #include "bgpd/bgp_regex.h"
 #include "bgpd/bgp_clist.h"
-
+
+
+/* Community-list handler.
+ *
+ * Contains a set of community and extcommunity filters.
+ *
+ * NB: have separate name-spaces for community-list and extcommunity-list.
+*/
+struct community_list_handler
+{
+  /* Community-list.  */
+  struct symbol_table community_list ;
+
+  /* Exteded community-list.  */
+  struct symbol_table extcommunity_list ;
+};
+
+
 /* Lookup master structure for community-list or
    extcommunity-list.  */
-struct community_list_master *
+struct symbol_table*
 community_list_master_lookup (struct community_list_handler *ch, int master)
 {
   if (ch)
@@ -95,127 +112,22 @@ community_list_new (void)
 static void
 community_list_free (struct community_list *list)
 {
-  if (list->name)
-    XFREE (MTYPE_COMMUNITY_LIST_NAME, list->name);
   XFREE (MTYPE_COMMUNITY_LIST, list);
 }
-
-static struct community_list *
-community_list_insert (struct community_list_handler *ch,
-		       const char *name, int master)
-{
-  size_t i;
-  long number;
-  struct community_list *new;
-  struct community_list *point;
-  struct community_list_list *list;
-  struct community_list_master *cm;
-
-  /* Lookup community-list master.  */
-  cm = community_list_master_lookup (ch, master);
-  if (!cm)
-    return NULL;
-
-  /* Allocate new community_list and copy given name. */
-  new = community_list_new ();
-  new->name = XSTRDUP (MTYPE_COMMUNITY_LIST_NAME, name);
-
-  /* If name is made by all digit character.  We treat it as
-     number. */
-  for (number = 0, i = 0; i < strlen (name); i++)
-    {
-      if (isdigit ((int) name[i]))
-        number = (number * 10) + (name[i] - '0');
-      else
-        break;
-    }
-
-  /* In case of name is all digit character */
-  if (i == strlen (name))
-    {
-      new->sort = COMMUNITY_LIST_NUMBER;
-
-      /* Set access_list to number list. */
-      list = &cm->num;
-
-      for (point = list->head; point; point = point->next)
-        if (atol (point->name) >= number)
-          break;
-    }
-  else
-    {
-      new->sort = COMMUNITY_LIST_STRING;
-
-      /* Set access_list to string list. */
-      list = &cm->str;
-
-      /* Set point to insertion point. */
-      for (point = list->head; point; point = point->next)
-        if (strcmp (point->name, name) >= 0)
-          break;
-    }
-
-  /* Link to upper list.  */
-  new->parent = list;
-
-  /* In case of this is the first element of master. */
-  if (list->head == NULL)
-    {
-      list->head = list->tail = new;
-      return new;
-    }
-
-  /* In case of insertion is made at the tail of access_list. */
-  if (point == NULL)
-    {
-      new->prev = list->tail;
-      list->tail->next = new;
-      list->tail = new;
-      return new;
-    }
-
-  /* In case of insertion is made at the head of access_list. */
-  if (point == list->head)
-    {
-      new->next = list->head;
-      list->head->prev = new;
-      list->head = new;
-      return new;
-    }
-
-  /* Insertion is made at middle of the access_list. */
-  new->next = point;
-  new->prev = point->prev;
-
-  if (point->prev)
-    point->prev->next = new;
-  point->prev = new;
-
-  return new;
-}
-
 struct community_list *
 community_list_lookup (struct community_list_handler *ch,
 		       const char *name, int master)
 {
-  struct community_list *list;
-  struct community_list_master *cm;
+  struct symbol_table* table;
 
   if (!name)
     return NULL;
 
-  cm = community_list_master_lookup (ch, master);
-  if (!cm)
+  table = community_list_master_lookup (ch, master);
+  if (!table)
     return NULL;
 
-  for (list = cm->num.head; list; list = list->next)
-    if (strcmp (list->name, name) == 0)
-      return list;
-  for (list = cm->str.head; list; list = list->next)
-    if (strcmp (list->name, name) == 0)
-      return list;
-
-  return NULL;
+  return symbol_get_value(symbol_seek(table, name)) ;
 }
 
 static struct community_list *
@@ -223,37 +135,51 @@ community_list_get (struct community_list_handler *ch,
 		    const char *name, int master)
 {
   struct community_list *list;
+  struct symbol_table* table;
+  struct symbol* sym ;
 
-  list = community_list_lookup (ch, name, master);
+  if (!name)
+    return NULL;
+
+  table = community_list_master_lookup (ch, master);
+  if (!table)
+    return NULL;
+
+  sym = symbol_find(table, name) ;
+  list = symbol_get_value(sym) ;
   if (!list)
-    list = community_list_insert (ch, name, master);
+    {
+      /* Allocate new community_list and tie symbol and list together.  */
+      list = community_list_new ();
+
+      symbol_set_value(sym, list) ;
+      list->sym = symbol_inc_ref(sym) ;
+    }
+
   return list;
 }
 
 static void
 community_list_delete (struct community_list *list)
 {
-  struct community_list_list *clist;
   struct community_entry *entry, *next;
 
+  /* Easy if the list is not defined !                  */
+  if (list == NULL)
+    return ;
+
+  /* Free body of list                                  */
   for (entry = list->head; entry; entry = next)
     {
       next = entry->next;
       community_entry_free (entry);
     }
 
-  clist = list->parent;
+  /* Kill value in related symbol and drop reference.   */
+  symbol_unset_value(list->sym) ;
+  list->sym = symbol_dec_ref(list->sym) ;
 
-  if (list->next)
-    list->next->prev = list->prev;
-  else
-    clist->tail = list->prev;
-
-  if (list->prev)
-    list->prev->next = list->next;
-  else
-    clist->head = list->next;
-
+  /* Free community list structure                      */
   community_list_free (list);
 }
 
@@ -262,7 +188,7 @@ community_list_empty_p (struct community_list *list)
 {
   return (list->head == NULL && list->tail == NULL) ? 1 : 0;
 }
-
+
 /* Add community-list entry to the list.  */
 static void
 community_list_entry_add (struct community_list *list,
@@ -329,7 +255,7 @@ community_list_entry_lookup (struct community_list *list, const void *arg,
     }
   return NULL;
 }
-
+
 /* Internal function to perform regular expression match for community
    attribute.  */
 static int
@@ -514,19 +440,19 @@ community_list_match_delete (struct community *com,
     {
       if (entry->any)
         {
-          if (entry->direct == COMMUNITY_PERMIT) 
+          if (entry->direct == COMMUNITY_PERMIT)
             {
               /* This is a tricky part.  Currently only
                * route_set_community_delete() uses this function.  In the
                * function com->size is zero, it free the community
-               * structure.  
+               * structure.
                */
               com->size = 0;
             }
           return com;
         }
 
-      if ((entry->style == COMMUNITY_LIST_STANDARD) 
+      if ((entry->style == COMMUNITY_LIST_STANDARD)
           && (community_include (entry->u.com, COMMUNITY_INTERNET)
               || community_match (com, entry->u.com) ))
         {
@@ -590,7 +516,7 @@ community_list_dup_check (struct community_list *list,
     }
   return 0;
 }
-
+
 /* Set community-list.  */
 int
 community_list_set (struct community_list_handler *ch,
@@ -653,7 +579,7 @@ community_list_set (struct community_list_handler *ch,
    community-list entry belongs to the specified name.  */
 int
 community_list_unset (struct community_list_handler *ch,
-                      const char *name, const char *str, 
+                      const char *name, const char *str,
                       int direct, int style)
 {
   struct community_entry *entry = NULL;
@@ -702,7 +628,7 @@ community_list_unset (struct community_list_handler *ch,
 /* Set extcommunity-list.  */
 int
 extcommunity_list_set (struct community_list_handler *ch,
-                       const char *name, const char *str, 
+                       const char *name, const char *str,
                        int direct, int style)
 {
   struct community_entry *entry = NULL;
@@ -772,7 +698,7 @@ extcommunity_list_set (struct community_list_handler *ch,
    extcommunity-list entry belongs to the specified name.  */
 int
 extcommunity_list_unset (struct community_list_handler *ch,
-                         const char *name, const char *str, 
+                         const char *name, const char *str,
                          int direct, int style)
 {
   struct community_entry *entry = NULL;
@@ -819,33 +745,34 @@ extcommunity_list_unset (struct community_list_handler *ch,
 }
 
 /* Initializa community-list.  Return community-list handler.  */
-struct community_list_handler *
+struct community_list_handler*
 community_list_init (void)
 {
   struct community_list_handler *ch;
   ch = XCALLOC (MTYPE_COMMUNITY_LIST_HANDLER,
                 sizeof (struct community_list_handler));
+
+  symbol_table_init_new(&ch->community_list,    &ch, 20, 200, NULL, NULL) ;
+  symbol_table_init_new(&ch->extcommunity_list, &ch, 20, 200, NULL, NULL) ;
+
   return ch;
 }
 
-/* Terminate community-list.  */
+/* Terminate community-list.
+ *
+ * Any references to community lists must be released by the owners of those
+ * references.
+ */
 void
 community_list_terminate (struct community_list_handler *ch)
 {
-  struct community_list_master *cm;
-  struct community_list *list;
+  struct community_list *list ;
 
-  cm = &ch->community_list;
-  while ((list = cm->num.head) != NULL)
-    community_list_delete (list);
-  while ((list = cm->str.head) != NULL)
-    community_list_delete (list);
+  while ((list = symbol_table_ream_keep(&ch->community_list)))
+    community_list_delete(list) ;
 
-  cm = &ch->extcommunity_list;
-  while ((list = cm->num.head) != NULL)
-    community_list_delete (list);
-  while ((list = cm->str.head) != NULL)
-    community_list_delete (list);
+  while ((list = symbol_table_ream_keep(&ch->extcommunity_list)))
+    community_list_delete(list) ;
 
   XFREE (MTYPE_COMMUNITY_LIST_HANDLER, ch);
 }

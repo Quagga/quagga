@@ -1,11 +1,11 @@
 /*
    $Id$
- 
+
    Command interpreter routine for virtual terminal [aka TeletYpe]
    Copyright (C) 1997, 98, 99 Kunihiro Ishiguro
 
 This file is part of GNU Zebra.
- 
+
 GNU Zebra is free software; you can redistribute it and/or modify
 it under the terms of the GNU General Public License as published
 by the Free Software Foundation; either version 2, or (at your
@@ -93,7 +93,7 @@ static struct facility_map {
   int facility;
   const char *name;
   size_t match;
-} syslog_facilities[] = 
+} syslog_facilities[] =
   {
     { LOG_KERN, "kern", 1 },
     { LOG_USER, "user", 2 },
@@ -145,7 +145,7 @@ static int
 level_match(const char *s)
 {
   int level ;
-  
+
   for ( level = 0 ; zlog_priority [level] != NULL ; level ++ )
     if (!strncmp (s, zlog_priority[level], 2))
       return level;
@@ -160,7 +160,7 @@ print_version (const char *progname)
   printf ("%s\n", QUAGGA_COPYRIGHT);
 }
 
-
+
 /* Utility function to concatenate argv argument into a single string
    with inserting ' ' character between each argument.  */
 char *
@@ -190,30 +190,24 @@ argv_concat (const char **argv, int argc, int shift)
 
 /* Install top node of command vector. */
 void
-install_node (struct cmd_node *node, 
+install_node (struct cmd_node *node,
 	      int (*func) (struct vty *))
 {
   vector_set_index (cmdvec, node->node, node);
   node->func = func;
-  node->cmd_vector = vector_init (VECTOR_MIN_SIZE);
+  node->cmd_vector = vector_init (0);
 }
 
 /* Compare two command's string.  Used in sort_node (). */
 static int
-cmp_node (const void *p, const void *q)
+cmp_node (const struct cmd_element *a, const struct cmd_element *b)
 {
-  const struct cmd_element *a = *(struct cmd_element * const *)p;
-  const struct cmd_element *b = *(struct cmd_element * const *)q;
-
   return strcmp (a->string, b->string);
 }
 
 static int
-cmp_desc (const void *p, const void *q)
+cmp_desc (const struct desc *a, const struct desc *b)
 {
-  const struct desc *a = *(struct desc * const *)p;
-  const struct desc *b = *(struct desc * const *)q;
-
   return strcmp (a->cmd, b->cmd);
 }
 
@@ -223,24 +217,21 @@ sort_node ()
 {
   unsigned int i, j;
   struct cmd_node *cnode;
-  vector descvec;
   struct cmd_element *cmd_element;
 
   for (i = 0; i < vector_active (cmdvec); i++)
     if ((cnode = vector_slot (cmdvec, i)) != NULL)
-      {	
+      {
 	vector cmd_vector = cnode->cmd_vector;
-	qsort (cmd_vector->index, vector_active (cmd_vector), 
-	       sizeof (void *), cmp_node);
+	vector_sort(cmd_vector, (vector_sort_cmp*)cmp_node) ;
 
 	for (j = 0; j < vector_active (cmd_vector); j++)
 	  if ((cmd_element = vector_slot (cmd_vector, j)) != NULL
 	      && vector_active (cmd_element->strvec))
 	    {
-	      descvec = vector_slot (cmd_element->strvec,
+	      vector descvec = vector_slot (cmd_element->strvec,
 				     vector_active (cmd_element->strvec) - 1);
-	      qsort (descvec->index, vector_active (descvec), 
-	             sizeof (void *), cmp_desc);
+	      vector_sort(descvec, (vector_sort_cmp*)cmp_desc) ;
 	    }
       }
 }
@@ -255,10 +246,10 @@ cmd_make_strvec (const char *string)
   char *token;
   int strlen;
   vector strvec;
-  
+
   if (string == NULL)
     return NULL;
-  
+
   cp = string;
 
   /* Skip white spaces. */
@@ -273,10 +264,10 @@ cmd_make_strvec (const char *string)
     return NULL;
 
   /* Prepare return vector. */
-  strvec = vector_init (VECTOR_MIN_SIZE);
+  strvec = vector_init (0);
 
   /* Copy each command piece and set into vector. */
-  while (1) 
+  while (1)
     {
       start = cp;
       while (!(isspace ((int) *cp) || *cp == '\r' || *cp == '\n') &&
@@ -321,7 +312,7 @@ cmd_desc_str (const char **string)
   const char *cp, *start;
   char *token;
   int strlen;
-  
+
   cp = *string;
 
   if (cp == NULL)
@@ -370,7 +361,7 @@ cmd_make_descvec (const char *string, const char *descstr)
   if (cp == NULL)
     return NULL;
 
-  allvec = vector_init (VECTOR_MIN_SIZE);
+  allvec = vector_init (0);
 
   while (1)
     {
@@ -396,7 +387,7 @@ cmd_make_descvec (const char *string, const char *descstr)
 	    }
 	  cp++;
 	}
-      
+
       while (isspace ((int) *cp) && *cp != '\0')
 	cp++;
 
@@ -406,7 +397,7 @@ cmd_make_descvec (const char *string, const char *descstr)
 	  cp++;
 	}
 
-      if (*cp == '\0') 
+      if (*cp == '\0')
 	return allvec;
 
       sp = cp;
@@ -428,14 +419,14 @@ cmd_make_descvec (const char *string, const char *descstr)
 	{
 	  if (multiple == 1)
 	    {
-	      strvec = vector_init (VECTOR_MIN_SIZE);
+	      strvec = vector_init (0);
 	      vector_set (allvec, strvec);
 	    }
 	  multiple++;
 	}
       else
 	{
-	  strvec = vector_init (VECTOR_MIN_SIZE);
+	  strvec = vector_init (0);
 	  vector_set (allvec, strvec);
 	}
       vector_set (strvec, desc);
@@ -484,14 +475,14 @@ void
 install_element (enum node_type ntype, struct cmd_element *cmd)
 {
   struct cmd_node *cnode;
-  
+
   /* cmd_init hasn't been called */
   if (!cmdvec)
     return;
-  
+
   cnode = vector_slot (cmdvec, ntype);
 
-  if (cnode == NULL) 
+  if (cnode == NULL)
     {
       fprintf (stderr, "Command node %d doesn't exist, please check it\n",
 	       ntype);
@@ -506,13 +497,13 @@ install_element (enum node_type ntype, struct cmd_element *cmd)
   cmd->cmdsize = cmd_cmdsize (cmd->strvec);
 }
 
-static unsigned char itoa64[] =	
+static unsigned char itoa64[] =
 "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 static void
 to64(char *s, long v, int n)
 {
-  while (--n >= 0) 
+  while (--n >= 0)
     {
       *s++ = itoa64[v&0x3f];
       v >>= 6;
@@ -527,7 +518,7 @@ zencrypt (const char *passwd)
   char *crypt (const char *, const char *);
 
   gettimeofday(&tv,0);
-  
+
   to64(&salt[0], random(), 3);
   to64(&salt[3], tv.tv_usec, 3);
   salt[5] = '\0';
@@ -545,9 +536,9 @@ config_write_host (struct vty *vty)
   if (host.encrypt)
     {
       if (host.password_encrypt)
-        vty_out (vty, "password 8 %s%s", host.password_encrypt, VTY_NEWLINE); 
+        vty_out (vty, "password 8 %s%s", host.password_encrypt, VTY_NEWLINE);
       if (host.enable_encrypt)
-        vty_out (vty, "enable password 8 %s%s", host.enable_encrypt, VTY_NEWLINE); 
+        vty_out (vty, "enable password 8 %s%s", host.enable_encrypt, VTY_NEWLINE);
     }
   else
     {
@@ -684,7 +675,7 @@ cmd_filter_by_symbol (char *command, char *symbol)
 #endif
 
 /* Completion match types. */
-enum match_type 
+enum match_type
 {
   no_match,
   extend_match,
@@ -695,7 +686,7 @@ enum match_type
   range_match,
   vararg_match,
   partly_match,
-  exact_match 
+  exact_match
 };
 
 static enum match_type
@@ -866,7 +857,7 @@ cmd_ipv6_match (const char *str)
    *  ::1.2.3.4
    */
   ret = inet_pton(AF_INET6, str, &sin6_dummy.sin6_addr);
-   
+
   if (ret == 1)
     return exact_match;
 
@@ -1071,7 +1062,7 @@ cmd_ipv6_prefix_match (const char *str)
 
   if (mask < 0 || mask > 128)
     return no_match;
-  
+
 /* I don't know why mask < 13 makes command match partly.
    Forgive me to make this comments. I Want to set static default route
    because of lack of function to originate default in ospf6d; sorry
@@ -1162,7 +1153,7 @@ cmd_filter_by_completion (char *command, vector v, unsigned int index)
 	      if ((desc = vector_slot (descvec, j)))
 		{
 		  str = desc->cmd;
-		  
+
 		  if (CMD_VARARG (str))
 		    {
 		      if (match_type < vararg_match)
@@ -1378,7 +1369,7 @@ is_cmd_ambiguous (char *command, vector v, int index, enum match_type type)
 	  if ((desc = vector_slot (descvec, j)))
 	    {
 	      enum match_type ret;
-	      
+
 	      str = desc->cmd;
 
 	      switch (type)
@@ -1567,7 +1558,7 @@ desc_unique_string (vector v, const char *str)
   return 0;
 }
 
-static int 
+static int
 cmd_try_do_shortcut (enum node_type node, char* first_word) {
   if ( first_word != NULL &&
        node != AUTH_NODE &&
@@ -1602,7 +1593,7 @@ cmd_describe_command_real (vector vline, struct vty *vty, int *status)
     }
   else
     index = vector_active (vline) - 1;
-  
+
   /* Make copy vector of current node's command vector. */
   cmd_vector = vector_copy (cmd_node_vector (cmdvec, vty->node));
 
@@ -1615,7 +1606,7 @@ cmd_describe_command_real (vector vline, struct vty *vty, int *status)
     if ((command = vector_slot (vline, i)))
       {
 	match = cmd_filter_by_completion (command, cmd_vector, i);
-	
+
 	if (match == vararg_match)
 	  {
 	    struct cmd_element *cmd_element;
@@ -1634,7 +1625,7 @@ cmd_describe_command_real (vector vline, struct vty *vty, int *status)
 		      vector_set (matchvec, desc);
 		    }
 		}
-            
+
 	    vector_set (matchvec, &desc_cr);
 	    vector_free (cmd_vector);
 
@@ -1734,7 +1725,7 @@ cmd_describe_command (vector vline, struct vty *vty, int *status)
 
       shifted_vline = vector_init (vector_count(vline));
       /* use memcpy? */
-      for (index = 1; index < vector_active (vline); index++) 
+      for (index = 1; index < vector_active (vline); index++)
 	{
 	  vector_set_index (shifted_vline, index-1, vector_lookup(vline, index));
 	}
@@ -1836,7 +1827,7 @@ cmd_complete_command_real (vector vline, struct vty *vty, int *status)
 	   }
 	 */
       }
-  
+
   /* Prepare match vector. */
   matchvec = vector_init (INIT_MATCHVEC_SIZE);
 
@@ -1858,7 +1849,7 @@ cmd_complete_command_real (vector vline, struct vty *vty, int *status)
 	    for (j = 0; j < vector_active (descvec); j++)
 	      if ((desc = vector_slot (descvec, j)))
 		{
-		  if ((string = 
+		  if ((string =
 		       cmd_entry_function (vector_slot (vline, index),
 					   desc->cmd)))
 		    if (cmd_unique_string (matchvec, string))
@@ -1884,10 +1875,11 @@ cmd_complete_command_real (vector vline, struct vty *vty, int *status)
       return NULL;
     }
 
+/* XXX: TODO: stop poking around inside vector	*/
   /* Only one matched */
   if (vector_slot (matchvec, 1) == NULL)
     {
-      match_str = (char **) matchvec->index;
+      match_str = (char **) matchvec->VECTOR_INDEX;
       vector_only_wrapper_free (matchvec);
       *status = CMD_COMPLETE_FULL_MATCH;
       return match_str;
@@ -1898,7 +1890,7 @@ cmd_complete_command_real (vector vline, struct vty *vty, int *status)
   /* Check LCD of matched strings. */
   if (vector_slot (vline, index) != NULL)
     {
-      lcd = cmd_lcd ((char **) matchvec->index);
+      lcd = cmd_lcd ((char **) matchvec->VECTOR_INDEX);
 
       if (lcd)
 	{
@@ -1909,7 +1901,7 @@ cmd_complete_command_real (vector vline, struct vty *vty, int *status)
 	      char *lcdstr;
 
 	      lcdstr = XMALLOC (MTYPE_STRVEC, lcd + 1);
-	      memcpy (lcdstr, matchvec->index[0], lcd);
+	      memcpy (lcdstr, matchvec->VECTOR_INDEX[0], lcd);
 	      lcdstr[lcd] = '\0';
 
 	      /* match_str = (char **) &lcdstr; */
@@ -1925,7 +1917,7 @@ cmd_complete_command_real (vector vline, struct vty *vty, int *status)
 	      /* Make new matchvec. */
 	      matchvec = vector_init (INIT_MATCHVEC_SIZE);
 	      vector_set (matchvec, lcdstr);
-	      match_str = (char **) matchvec->index;
+	      match_str = (char **) matchvec->VECTOR_INDEX;
 	      vector_only_wrapper_free (matchvec);
 
 	      *status = CMD_COMPLETE_MATCH;
@@ -1934,7 +1926,7 @@ cmd_complete_command_real (vector vline, struct vty *vty, int *status)
 	}
     }
 
-  match_str = (char **) matchvec->index;
+  match_str = (char **) matchvec->VECTOR_INDEX;
   vector_only_wrapper_free (matchvec);
   *status = CMD_COMPLETE_LIST_MATCH;
   return match_str;
@@ -1957,7 +1949,7 @@ cmd_complete_command (vector vline, struct vty *vty, int *status)
 
       shifted_vline = vector_init (vector_count(vline));
       /* use memcpy? */
-      for (index = 1; index < vector_active (vline); index++) 
+      for (index = 1; index < vector_active (vline); index++)
 	{
 	  vector_set_index (shifted_vline, index-1, vector_lookup(vline, index));
 	}
@@ -2030,7 +2022,7 @@ cmd_execute_command_real (vector vline, struct vty *vty,
 
 	if (match == vararg_match)
 	  break;
-        
+
 	ret = is_cmd_ambiguous (command, cmd_vector, index, match);
 
 	if (ret == 1)
@@ -2141,7 +2133,7 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
 
       shifted_vline = vector_init (vector_count(vline));
       /* use memcpy? */
-      for (index = 1; index < vector_active (vline); index++) 
+      for (index = 1; index < vector_active (vline); index++)
 	{
 	  vector_set_index (shifted_vline, index-1, vector_lookup(vline, index));
 	}
@@ -2160,7 +2152,7 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
     return saved_ret;
 
   /* This assumes all nodes above CONFIG_NODE are childs of CONFIG_NODE */
-  while ( ret != CMD_SUCCESS && ret != CMD_WARNING 
+  while ( ret != CMD_SUCCESS && ret != CMD_WARNING
 	  && vty->node > CONFIG_NODE )
     {
       try_node = node_parent(try_node);
@@ -2204,14 +2196,14 @@ cmd_execute_command_strict (vector vline, struct vty *vty,
     if ((command = vector_slot (vline, index)))
       {
 	int ret;
-	
+
 	match = cmd_filter_by_string (vector_slot (vline, index),
 				      cmd_vector, index);
 
 	/* If command meets '.VARARG' then finish matching. */
 	if (match == vararg_match)
 	  break;
-        
+
 	ret = is_cmd_ambiguous (command, cmd_vector, index, match);
 	if (ret == 1)
 	  {
@@ -2351,7 +2343,7 @@ DEFUN (config_terminal,
 }
 
 /* Enable command */
-DEFUN (enable, 
+DEFUN (enable,
        config_enable_cmd,
        "enable",
        "Turn on privileged mode command\n")
@@ -2367,7 +2359,7 @@ DEFUN (enable,
 }
 
 /* Disable command */
-DEFUN (disable, 
+DEFUN (disable,
        config_disable_cmd,
        "disable",
        "Turn off privileged mode command\n")
@@ -2432,7 +2424,7 @@ ALIAS (config_exit,
        config_quit_cmd,
        "quit",
        "Exit current mode and down to previous mode\n")
-       
+
 /* End of configuration. */
 DEFUN (config_end,
        config_end_cmd,
@@ -2494,7 +2486,7 @@ DEFUN (config_help,
        "help",
        "Description of the interactive help system\n")
 {
-  vty_out (vty, 
+  vty_out (vty,
 	   "Quagga VTY provides advanced help feature.  When you need help,%s\
 anytime at the command line please press '?'.%s\
 %s\
@@ -2532,9 +2524,9 @@ DEFUN (config_list,
 }
 
 /* Write current configuration into file. */
-DEFUN (config_write_file, 
+DEFUN (config_write_file,
        config_write_file_cmd,
-       "write file",  
+       "write file",
        "Write running configuration to memory, network, or terminal\n"
        "Write to configuration file\n")
 {
@@ -2557,7 +2549,7 @@ DEFUN (config_write_file,
 
   /* Get filename. */
   config_file = host.config;
-  
+
   config_file_sav =
     XMALLOC (MTYPE_TMP, strlen (config_file) + strlen (CONF_BACKUP_EXT) + 1);
   strcpy (config_file_sav, config_file);
@@ -2566,7 +2558,7 @@ DEFUN (config_write_file,
 
   config_file_tmp = XMALLOC (MTYPE_TMP, strlen (config_file) + 8);
   sprintf (config_file_tmp, "%s.XXXXXX", config_file);
-  
+
   /* Open file to configuration write. */
   fd = mkstemp (config_file_tmp);
   if (fd < 0)
@@ -2575,7 +2567,7 @@ DEFUN (config_write_file,
 	       VTY_NEWLINE);
       goto finished;
     }
-  
+
   /* Make vty for configuration file. */
   file_vty = vty_new ();
   file_vty->fd = fd;
@@ -2621,10 +2613,10 @@ DEFUN (config_write_file,
       goto finished;
     }
   sync ();
-  
+
   if (chmod (config_file, CONFIGFILE_MASK) != 0)
     {
-      vty_out (vty, "Can't chmod configuration file %s: %s (%d).%s", 
+      vty_out (vty, "Can't chmod configuration file %s: %s (%d).%s",
 	config_file, safe_strerror(errno), errno, VTY_NEWLINE);
       goto finished;
     }
@@ -2640,20 +2632,20 @@ finished:
   return ret;
 }
 
-ALIAS (config_write_file, 
+ALIAS (config_write_file,
        config_write_cmd,
-       "write",  
+       "write",
        "Write running configuration to memory, network, or terminal\n")
 
-ALIAS (config_write_file, 
+ALIAS (config_write_file,
        config_write_memory_cmd,
-       "write memory",  
+       "write memory",
        "Write running configuration to memory, network, or terminal\n"
        "Write configuration to the file (same as write file)\n")
 
-ALIAS (config_write_file, 
+ALIAS (config_write_file,
        copy_runningconfig_startupconfig_cmd,
-       "copy running-config startup-config",  
+       "copy running-config startup-config",
        "Copy configuration\n"
        "Copy running config to... \n"
        "Copy running config to startup config (same as write file)\n")
@@ -2736,7 +2728,7 @@ DEFUN (show_startup_config,
 }
 
 /* Hostname configuration */
-DEFUN (config_hostname, 
+DEFUN (config_hostname,
        hostname_cmd,
        "hostname WORD",
        "Set system's network name\n"
@@ -2750,12 +2742,12 @@ DEFUN (config_hostname,
 
   if (host.name)
     XFREE (MTYPE_HOST, host.name);
-    
+
   host.name = XSTRDUP (MTYPE_HOST, argv[0]);
   return CMD_SUCCESS;
 }
 
-DEFUN (config_no_hostname, 
+DEFUN (config_no_hostname,
        no_hostname_cmd,
        "no hostname [HOSTNAME]",
        NO_STR
@@ -2804,7 +2796,7 @@ DEFUN (config_password, password_cmd,
 
   if (!isalnum ((int) *argv[0]))
     {
-      vty_out (vty, 
+      vty_out (vty,
 	       "Please specify string starting with alphanumeric%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -2870,7 +2862,7 @@ DEFUN (config_enable_password, enable_password_cmd,
 
   if (!isalnum ((int) *argv[0]))
     {
-      vty_out (vty, 
+      vty_out (vty,
 	       "Please specify string starting with alphanumeric%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -2916,7 +2908,7 @@ DEFUN (no_config_enable_password, no_enable_password_cmd,
 
   return CMD_SUCCESS;
 }
-	
+
 DEFUN (service_password_encrypt,
        service_password_encrypt_cmd,
        "service password-encryption",
@@ -3195,19 +3187,19 @@ set_log_file(struct vty *vty, const char *fname, int loglevel)
   int ret;
   char *p = NULL;
   const char *fullpath;
-  
+
   /* Path detection. */
   if (! IS_DIRECTORY_SEP (*fname))
     {
       char cwd[MAXPATHLEN+1];
       cwd[MAXPATHLEN] = '\0';
-      
+
       if (getcwd (cwd, MAXPATHLEN) == NULL)
         {
           zlog_err ("config_log_file: Unable to alloc mem!");
           return CMD_WARNING;
         }
-      
+
       if ( (p = XMALLOC (MTYPE_TMP, strlen (cwd) + strlen (fname) + 2))
           == NULL)
         {
@@ -3391,7 +3383,7 @@ DEFUN_DEPRECATED (config_log_trap,
 {
   int new_level ;
   int i;
-  
+
   if ((new_level = level_match(argv[0])) == ZLOG_DISABLED)
     return CMD_ERR_NO_MATCH;
 
@@ -3500,7 +3492,7 @@ DEFUN (no_banner_motd,
        "Strings for motd\n")
 {
   host.motd = NULL;
-  if (host.motdfile) 
+  if (host.motdfile)
     XFREE (MTYPE_HOST, host.motdfile);
   host.motdfile = NULL;
   return CMD_SUCCESS;
@@ -3540,7 +3532,7 @@ cmd_init (int terminal)
   desc_cr.str = XSTRDUP(MTYPE_STRVEC, "");
 
   /* Allocate initial top vector of commands. */
-  cmdvec = vector_init (VECTOR_MIN_SIZE);
+  cmdvec = vector_init (0);
 
   /* Default host value settings. */
   host.name = NULL;
@@ -3604,7 +3596,7 @@ cmd_init (int terminal)
 
       install_default (CONFIG_NODE);
     }
-  
+
   install_element (CONFIG_NODE, &hostname_cmd);
   install_element (CONFIG_NODE, &no_hostname_cmd);
 
@@ -3667,7 +3659,7 @@ cmd_terminate ()
 
   if (cmdvec)
     {
-      for (i = 0; i < vector_active (cmdvec); i++) 
+      for (i = 0; i < vector_active (cmdvec); i++)
         if ((cmd_node = vector_slot (cmdvec, i)) != NULL)
           {
             cmd_node_v = cmd_node->cmd_vector;
