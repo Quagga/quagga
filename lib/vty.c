@@ -48,8 +48,10 @@ qpt_mutex_t* vty_mutex = NULL;
 #define UNLOCK qpt_mutex_unlock(vty_mutex);
 #else
 int vty_lock_count = 0;
+int vty_lock_asserted = 0;
 #define LOCK qpt_mutex_lock(vty_mutex);++vty_lock_count;
 #define UNLOCK --vty_lock_count;qpt_mutex_unlock(vty_mutex);
+#define ASSERTLOCKED if(vty_lock_count==0 && !vty_lock_asserted){vty_lock_asserted=1;assert(0);}
 #endif
 
 /*
@@ -98,6 +100,7 @@ static int uty_timeout (struct vty *vty);
 static void vty_timeout_r (qtimer qtr, void* timer_info, qtime_t when);
 static void vty_read_r (qps_file qf, void* file_info);
 static void vty_flush_r (qps_file qf, void* file_info);
+void uty_reset (void);
 
 /* Extern host structure from command.c */
 extern struct host host;
@@ -157,7 +160,7 @@ static int
 uty_out (struct vty *vty, const char *format, ...)
 {
   int result;
-  assert(vty_lock_count);
+  ASSERTLOCKED
   va_list args;
   va_start (args, format);
   result = uty_vout(vty, format, args);
@@ -175,7 +178,7 @@ uty_vout(struct vty *vty, const char *format, va_list args)
   char *p = NULL;
   va_list ac;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   if (uty_shell (vty))
     {
@@ -255,7 +258,7 @@ vty_log_out (struct vty *vty, const char *level, const char *proto_str,
   int len;
   char buf[1024];
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   if (!ctl->already_rendered)
     {
@@ -333,7 +336,7 @@ vty_hello (struct vty *vty)
 static void
 uty_hello (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   if (host.motdfile)
     {
       FILE *f;
@@ -367,7 +370,7 @@ vty_prompt (struct vty *vty)
   struct utsname names;
   const char*hostname;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   if (vty->type == VTY_TERM)
     {
@@ -386,7 +389,7 @@ static void
 vty_will_echo (struct vty *vty)
 {
   unsigned char cmd[] = { IAC, WILL, TELOPT_ECHO, '\0' };
-  assert(vty_lock_count);
+  ASSERTLOCKED
   uty_out (vty, "%s", cmd);
 }
 
@@ -395,7 +398,7 @@ static void
 vty_will_suppress_go_ahead (struct vty *vty)
 {
   unsigned char cmd[] = { IAC, WILL, TELOPT_SGA, '\0' };
-  assert(vty_lock_count);
+  ASSERTLOCKED
   uty_out (vty, "%s", cmd);
 }
 
@@ -404,7 +407,7 @@ static void
 vty_dont_linemode (struct vty *vty)
 {
   unsigned char cmd[] = { IAC, DONT, TELOPT_LINEMODE, '\0' };
-  assert(vty_lock_count);
+  ASSERTLOCKED
   uty_out (vty, "%s", cmd);
 }
 
@@ -413,7 +416,7 @@ static void
 vty_do_window_size (struct vty *vty)
 {
   unsigned char cmd[] = { IAC, DO, TELOPT_NAWS, '\0' };
-  assert(vty_lock_count);
+  ASSERTLOCKED
   uty_out (vty, "%s", cmd);
 }
 
@@ -423,7 +426,7 @@ static void
 vty_dont_lflow_ahead (struct vty *vty)
 {
   unsigned char cmd[] = { IAC, DONT, TELOPT_LFLOW, '\0' };
-  assert(vty_lock_count);
+  ASSERTLOCKED
   uty_out (vty, "%s", cmd);
 }
 #endif /* 0 */
@@ -458,7 +461,7 @@ vty_auth (struct vty *vty, char *buf)
   int fail;
   char *crypt (const char *, const char *);
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   switch (vty->node)
     {
@@ -525,7 +528,7 @@ vty_command (struct vty *vty, char *buf)
   vector vline;
   const char *protocolname;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   /* Split readline string up into the vector */
   vline = cmd_make_strvec (buf);
@@ -588,7 +591,7 @@ static const char telnet_space_char = ' ';
 static void
 vty_write (struct vty *vty, const char *buf, size_t nbytes)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   if ((vty->node == AUTH_NODE) || (vty->node == AUTH_ENABLE_NODE))
     return;
 
@@ -600,7 +603,7 @@ vty_write (struct vty *vty, const char *buf, size_t nbytes)
 static void
 vty_ensure (struct vty *vty, int length)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   if (vty->max <= length)
     {
       vty->max *= 2;
@@ -615,7 +618,7 @@ vty_self_insert (struct vty *vty, char c)
   int i;
   int length;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   vty_ensure (vty, vty->length + 1);
   length = vty->length - vty->cp;
@@ -634,7 +637,7 @@ vty_self_insert (struct vty *vty, char c)
 static void
 vty_self_insert_overwrite (struct vty *vty, char c)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   vty_ensure (vty, vty->length + 1);
   vty->buf[vty->cp++] = c;
 
@@ -654,7 +657,7 @@ vty_insert_word_overwrite (struct vty *vty, char *str)
 
   int len = strlen (str);
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   vty_write (vty, str, len);
   strcpy (&vty->buf[vty->cp], str);
@@ -666,7 +669,7 @@ vty_insert_word_overwrite (struct vty *vty, char *str)
 static void
 vty_forward_char (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   if (vty->cp < vty->length)
     {
       vty_write (vty, &vty->buf[vty->cp], 1);
@@ -678,7 +681,7 @@ vty_forward_char (struct vty *vty)
 static void
 vty_backward_char (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   if (vty->cp > 0)
     {
       vty->cp--;
@@ -690,7 +693,7 @@ vty_backward_char (struct vty *vty)
 static void
 vty_beginning_of_line (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   while (vty->cp)
     vty_backward_char (vty);
 }
@@ -699,7 +702,7 @@ vty_beginning_of_line (struct vty *vty)
 static void
 vty_end_of_line (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   while (vty->cp < vty->length)
     vty_forward_char (vty);
 }
@@ -714,7 +717,7 @@ vty_history_print (struct vty *vty)
 {
   int length;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   vty_kill_line_from_beginning (vty);
 
@@ -733,7 +736,7 @@ vty_next_line (struct vty *vty)
 {
   int try_index;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   if (vty->hp == vty->hindex)
     return;
@@ -760,7 +763,7 @@ vty_previous_line (struct vty *vty)
 {
   int try_index;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   try_index = vty->hp;
   if (try_index == 0)
@@ -780,7 +783,7 @@ vty_previous_line (struct vty *vty)
 static void
 vty_redraw_line (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   vty_write (vty, vty->buf, vty->length);
   vty->cp = vty->length;
 }
@@ -789,7 +792,7 @@ vty_redraw_line (struct vty *vty)
 static void
 vty_forward_word (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   while (vty->cp != vty->length && vty->buf[vty->cp] != ' ')
     vty_forward_char (vty);
 
@@ -801,7 +804,7 @@ vty_forward_word (struct vty *vty)
 static void
 vty_backward_pure_word (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   while (vty->cp > 0 && vty->buf[vty->cp - 1] != ' ')
     vty_backward_char (vty);
 }
@@ -810,7 +813,7 @@ vty_backward_pure_word (struct vty *vty)
 static void
 vty_backward_word (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   while (vty->cp > 0 && vty->buf[vty->cp - 1] == ' ')
     vty_backward_char (vty);
 
@@ -823,7 +826,7 @@ vty_backward_word (struct vty *vty)
 static void
 vty_down_level (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   uty_out (vty, "%s", VTY_NEWLINE);
   (*config_exit_cmd.func)(NULL, vty, 0, NULL);
   vty_prompt (vty);
@@ -834,7 +837,7 @@ vty_down_level (struct vty *vty)
 static void
 vty_end_config (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   uty_out (vty, "%s", VTY_NEWLINE);
 
   switch (vty->node)
@@ -882,7 +885,7 @@ vty_delete_char (struct vty *vty)
   int i;
   int size;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   if (vty->length == 0)
     {
@@ -913,7 +916,7 @@ vty_delete_char (struct vty *vty)
 static void
 vty_delete_backward_char (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   if (vty->cp == 0)
     return;
 
@@ -928,7 +931,7 @@ vty_kill_line (struct vty *vty)
   int i;
   int size;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   size = vty->length - vty->cp;
 
@@ -948,7 +951,7 @@ vty_kill_line (struct vty *vty)
 static void
 vty_kill_line_from_beginning (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   vty_beginning_of_line (vty);
   vty_kill_line (vty);
 }
@@ -957,7 +960,7 @@ vty_kill_line_from_beginning (struct vty *vty)
 static void
 vty_forward_kill_word (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   while (vty->cp != vty->length && vty->buf[vty->cp] == ' ')
     vty_delete_char (vty);
   while (vty->cp != vty->length && vty->buf[vty->cp] != ' ')
@@ -968,7 +971,7 @@ vty_forward_kill_word (struct vty *vty)
 static void
 vty_backward_kill_word (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   while (vty->cp > 0 && vty->buf[vty->cp - 1] == ' ')
     vty_delete_backward_char (vty);
   while (vty->cp > 0 && vty->buf[vty->cp - 1] != ' ')
@@ -981,7 +984,7 @@ vty_transpose_chars (struct vty *vty)
 {
   char c1, c2;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   /* If length is short or point is near by the beginning of line then
      return. */
@@ -1020,7 +1023,7 @@ vty_complete_command (struct vty *vty)
   char **matched = NULL;
   vector vline;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   if (vty->node == AUTH_NODE || vty->node == AUTH_ENABLE_NODE)
     return;
@@ -1099,7 +1102,7 @@ vty_describe_fold (struct vty *vty, int cmd_width,
   const char *cmd, *p;
   int pos;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   cmd = desc->cmd[0] == '.' ? desc->cmd + 1 : desc->cmd;
 
@@ -1142,7 +1145,7 @@ vty_describe_command (struct vty *vty)
   unsigned int i, width, desc_width;
   struct desc *desc, *desc_cr = NULL;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   vline = cmd_make_strvec (vty->buf);
 
@@ -1251,7 +1254,7 @@ out:
 static void
 vty_clear_buf (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   memset (vty->buf, 0, vty->max);
 }
 
@@ -1259,7 +1262,7 @@ vty_clear_buf (struct vty *vty)
 static void
 vty_stop_input (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   vty->cp = vty->length = 0;
   vty_clear_buf (vty);
   uty_out (vty, "%s", VTY_NEWLINE);
@@ -1304,7 +1307,7 @@ vty_hist_add (struct vty *vty)
 {
   int index;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   if (vty->length == 0)
     return;
@@ -1341,7 +1344,7 @@ vty_telnet_option (struct vty *vty, unsigned char *buf, int nbytes)
 #ifdef TELNET_OPTION_DEBUG
   int i;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   for (i = 0; i < nbytes; i++)
     {
@@ -1476,7 +1479,7 @@ vty_execute (struct vty *vty)
 static void
 vty_escape_map (unsigned char c, struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   switch (c)
     {
     case ('A'):
@@ -1503,7 +1506,7 @@ vty_escape_map (unsigned char c, struct vty *vty)
 static void
 vty_buffer_reset (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   buffer_reset (vty->obuf);
   vty_prompt (vty);
   vty_redraw_line (vty);
@@ -1849,7 +1852,7 @@ vty_create (int vty_sock, union sockunion *su)
 {
   struct vty *vty;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   /* Allocate new vty structure and set up default values. */
   vty = vty_new (vty_sock);
@@ -2024,7 +2027,7 @@ uty_accept (int accept_sock)
     uzlog (NULL, LOG_INFO, "can't set sockopt to vty_sock : %s",
 	  safe_strerror (errno));
 
-  zlog (NULL, LOG_INFO, "Vty connection from %s",
+  uzlog (NULL, LOG_INFO, "Vty connection from %s",
     (bufp = sockunion_su2str (&su)));
   if (bufp)
     XFREE (MTYPE_TMP, bufp);
@@ -2045,7 +2048,7 @@ vty_serv_sock_addrinfo (const char *hostname, unsigned short port)
   int sock;
   char port_str[BUFSIZ];
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   memset (&req, 0, sizeof (struct addrinfo));
   req.ai_flags = AI_PASSIVE;
@@ -2112,7 +2115,7 @@ vty_serv_sock_family (const char* addr, unsigned short port, int family)
   int accept_sock;
   void* naddr=NULL;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   memset (&su, 0, sizeof (union sockunion));
   su.sa.sa_family = family;
@@ -2185,7 +2188,7 @@ vty_serv_un (const char *path)
   mode_t old_mask;
   struct zprivs_ids_t ids;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   /* First of all, unlink existing socket */
   unlink (path);
@@ -2275,7 +2278,7 @@ utysh_accept (int accept_sock)
   struct sockaddr_un client;
   struct vty *vty;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   vty_event (VTYSH_SERV, accept_sock, NULL);
 
@@ -2316,7 +2319,7 @@ utysh_accept (int accept_sock)
 static int
 vtysh_flush(struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   switch (buffer_flush_available(vty->obuf, vty->fd))
     {
@@ -2511,7 +2514,7 @@ uty_close (struct vty *vty)
 {
   int i;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   /* Cancel threads.*/
   if (vty->t_read)
@@ -2814,7 +2817,7 @@ vty_log (const char *level, const char *proto_str,
   unsigned int i;
   struct vty *vty;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   if (!vtyvec)
     return;
@@ -2883,7 +2886,7 @@ vty_config_unlock (struct vty *vty)
 static int
 uty_config_unlock (struct vty *vty)
 {
-  assert(vty_lock_count);
+  ASSERTLOCKED
   if (vty_config == 1 && vty->config == 1)
     {
       vty->config = 0;
@@ -2907,7 +2910,7 @@ vty_event_t (enum event event, int sock, struct vty *vty)
   {
   struct thread *vty_serv_thread;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   switch (event)
     {
@@ -2964,7 +2967,7 @@ vty_event_r (enum event event, int sock, struct vty *vty)
 
   qps_file accept_file = NULL;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   switch (event)
     {
@@ -3343,12 +3346,18 @@ struct cmd_node vty_node =
 void
 vty_reset ()
 {
+  LOCK
+  uty_reset();
+  UNLOCK
+}
+
+void
+uty_reset ()
+{
   unsigned int i;
   struct vty *vty;
   struct thread *vty_serv_thread;
   qps_file qf;
-
-  LOCK
 
   for (i = 0; i < vector_active (vtyvec); i++)
     if ((vty = vector_slot (vtyvec, i)) != NULL)
@@ -3394,7 +3403,6 @@ vty_reset ()
       XFREE(MTYPE_VTY, vty_ipv6_accesslist_name);
       vty_ipv6_accesslist_name = NULL;
     }
-  UNLOCK
 }
 
 static void
@@ -3536,7 +3544,7 @@ vty_terminate (void)
 
   if (vtyvec && Vvty_serv_thread)
     {
-      vty_reset ();
+      uty_reset ();
       vector_free (vtyvec);
       vector_free (Vvty_serv_thread);
     }
@@ -3548,3 +3556,4 @@ vty_terminate (void)
 
 #undef LOCK
 #undef UNLOCK
+#undef ASSERTLOCKED

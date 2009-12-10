@@ -42,6 +42,7 @@
 #else
 #define LOCK qpt_mutex_lock(vty_mutex);++vty_lock_count;
 #define UNLOCK --vty_lock_count;qpt_mutex_unlock(vty_mutex);
+#define ASSERTLOCKED if(vty_lock_count==0 && !vty_lock_asserted){vty_lock_asserted=1;assert(0);}
 #endif
 
 /* log is protected by the same mutext as vty, see comments in vty.c */
@@ -194,7 +195,7 @@ uvzlog (struct zlog *zl, int priority, const char *format, va_list args)
   struct timestamp_control tsctl;
   tsctl.already_rendered = 0;
 
-  assert(vty_lock_count);
+  ASSERTLOCKED
 
   /* If zlog is not specified, use default one. */
   if (zl == NULL)
@@ -721,6 +722,11 @@ _zlog_abort_err (const char *mess, int err, const char *file,
 static void
 zlog_abort (const char *mess)
 {
+#ifndef NDEBUG
+  /* don't work about being unlocked */
+  vty_lock_asserted = 1;
+#endif
+
   /* Force fallback file logging? */
   if (zlog_default && !zlog_default->fp &&
       ((logfile_fd = open_crashlog()) >= 0) &&
@@ -1357,3 +1363,4 @@ proto_name2num(const char *s)
 
 #undef LOCK
 #undef UNLOCK
+#undef ASSERTLOCKED
