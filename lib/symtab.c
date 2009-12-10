@@ -423,7 +423,8 @@ symbol_table_ream(symbol_table table, int free_structure)
   symbol sym ;
   unsigned int i ;
 
-  i = table->base_count ;
+  /* There are no actual bases until they have been allocated.            */
+  i = (table->bases != NULL) ? table->base_count : 0 ;
 
   while (i--)
     {
@@ -453,7 +454,7 @@ symbol_table_ream(symbol_table table, int free_structure)
     } ;
 
   symbol_table_reset(table, free_structure) ;
-
+                                      /* asserts(table->entry_count == 0) */
   return NULL ;
 } ;
 
