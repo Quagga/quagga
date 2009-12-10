@@ -86,7 +86,7 @@
  * If there are no references to the symbol, the symbol entry is released.
  * If there are references to the symbol, it is preserved (as an orphan) until
  * all references are unset.  The value of an orphaned symbol should not be
- * changed.
+ * changed (but may be unset, since it is already unset).
  *
  * There are two, parallel mechanisms for keeping track of references to a
  * symbol:
@@ -880,7 +880,8 @@ symbol_set_value(symbol sym, void* new_value)
 {
   void* old_value ;
 
-  assert(sym->table != NULL) ;  /* may not set value for orphan symbol !   */
+  assert((sym->table != NULL) || (new_value == NULL)) ;
+                       /* may not set non-NULL value for orphan symbol !   */
 
   old_value  = sym->value ;
   sym->value = new_value ;
