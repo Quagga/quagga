@@ -100,6 +100,7 @@ static int uty_timeout (struct vty *vty);
 static void vty_timeout_r (qtimer qtr, void* timer_info, qtime_t when);
 static void vty_read_r (qps_file qf, void* file_info);
 static void vty_flush_r (qps_file qf, void* file_info);
+void uty_reset (void);
 
 /* Extern host structure from command.c */
 extern struct host host;
@@ -3345,12 +3346,18 @@ struct cmd_node vty_node =
 void
 vty_reset ()
 {
+  LOCK
+  uty_reset();
+  UNLOCK
+}
+
+void
+uty_reset ()
+{
   unsigned int i;
   struct vty *vty;
   struct thread *vty_serv_thread;
   qps_file qf;
-
-  LOCK
 
   for (i = 0; i < vector_active (vtyvec); i++)
     if ((vty = vector_slot (vtyvec, i)) != NULL)
@@ -3396,7 +3403,6 @@ vty_reset ()
       XFREE(MTYPE_VTY, vty_ipv6_accesslist_name);
       vty_ipv6_accesslist_name = NULL;
     }
-  UNLOCK
 }
 
 static void
@@ -3538,7 +3544,7 @@ vty_terminate (void)
 
   if (vtyvec && Vvty_serv_thread)
     {
-      vty_reset ();
+      uty_reset ();
       vector_free (vtyvec);
       vector_free (Vvty_serv_thread);
     }
