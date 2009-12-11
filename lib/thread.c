@@ -29,6 +29,7 @@
 #include "hash.h"
 #include "command.h"
 #include "sigevent.h"
+#include "qpthreads.h"
 
 /* Recent absolute time of day */
 struct timeval recent_time;
@@ -921,7 +922,8 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
       int num = 0;
       
       /* Signals are highest priority */
-      quagga_sigevent_process ();
+      if (!qpthreads_enabled)
+        quagga_sigevent_process ();
        
       /* Normal event are the next highest priority.  */
       if ((thread = thread_trim_head (&m->event)) != NULL)

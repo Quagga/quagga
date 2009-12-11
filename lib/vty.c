@@ -138,7 +138,7 @@ char integrate_default[] = SYSCONFDIR INTEGRATE_DEFAULT_CONFIG;
 
 /* Master of the threads. */
 static struct thread_master *master = NULL;
-static qpn_nexus master_nexus = NULL;
+static qpn_nexus cli_nexus = NULL;
 
 /* VTY standard output function.   vty == NULL or VTY_SHELL => stdout	*/
 int
@@ -442,11 +442,11 @@ vty_new (int fd)
   vty->max = VTY_BUFSIZ;
   vty->fd = fd;
 
-  if (master_nexus)
+  if (cli_nexus)
     {
     vty->qf = qps_file_init_new(vty->qf, NULL);
-    qps_add_file(master_nexus->selection, vty->qf, vty->fd, vty);
-    vty->qtr = qtimer_init_new(vty->qtr, master_nexus->pile, vty_timeout_r, vty);
+    qps_add_file(cli_nexus->selection, vty->qf, vty->fd, vty);
+    vty->qtr = qtimer_init_new(vty->qtr, cli_nexus->pile, vty_timeout_r, vty);
     }
 
   return vty;
@@ -2898,7 +2898,7 @@ uty_config_unlock (struct vty *vty)
 static void
 vty_event (enum event event, int sock, struct vty *vty)
 {
-  if (master_nexus)
+  if (cli_nexus)
     vty_event_r(event, sock, vty);
   else
     vty_event_t(event, sock, vty);
@@ -2976,7 +2976,7 @@ vty_event_r (enum event event, int sock, struct vty *vty)
       if (accept_file == NULL)
         {
           accept_file = qps_file_init_new(accept_file, NULL);
-          qps_add_file(master_nexus->selection, accept_file, sock, NULL);
+          qps_add_file(cli_nexus->selection, accept_file, sock, NULL);
           vector_set_index(Vvty_serv_thread, sock, accept_file);
         }
       qps_enable_mode(accept_file, qps_read_mnum, vty_accept_r) ;
@@ -3367,7 +3367,7 @@ uty_reset ()
 	uty_close (vty);
       }
 
-  if (master_nexus)
+  if (cli_nexus)
     {
       for (i = 0; i < vector_active (Vvty_serv_thread); i++)
         if ((qf = vector_slot (Vvty_serv_thread, i)) != NULL)
@@ -3465,19 +3465,10 @@ vty_init_vtysh ()
 
 /* qpthreads: Install vty's own commands like `who' command. */
 void
-vty_init_r (void)
+vty_init_r (qpn_nexus qpn)
 {
-  master_nexus = qpn_init_new(master_nexus);
+  cli_nexus = qpn;
   vty_mutex = qpt_mutex_init(vty_mutex, qpt_mutex_quagga);
-  vty_init(NULL);
-}
-
-/* create and execute our thread */
-void
-vty_exec_r(void)
-{
-  if (master_nexus)
-    qpn_exec(master_nexus);
 }
 
 /* threads: Install vty's own commands like `who' command. */
@@ -3535,9 +3526,6 @@ void
 vty_terminate (void)
 {
   LOCK
-
-  if (master_nexus)
-      master_nexus->terminate = 1;
 
   if (vty_cwd)
     XFREE (MTYPE_TMP, vty_cwd);

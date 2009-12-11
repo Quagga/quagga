@@ -218,7 +218,7 @@ extern int vty_lock_asserted;
 #endif
 
 /* Prototypes. */
-extern void vty_init_r (void);
+extern void vty_init_r (qpn_nexus);
 extern void vty_exec_r(void);
 extern void vty_init (struct thread_master *);
 extern void vty_init_vtysh (void);

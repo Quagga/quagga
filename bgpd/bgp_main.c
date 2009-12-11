@@ -35,6 +35,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "routemap.h"
 #include "filter.h"
 #include "plist.h"
+#include "qpnexus.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_attr.h"
@@ -103,6 +104,8 @@ static int retain_mode = 0;
 
 /* Master of threads. */
 struct thread_master *master;
+qpn_nexus cli_nexus = NULL;
+qpn_nexus bgp_nexus = NULL;
 
 /* Manually specified configuration file name.  */
 char *config_file = NULL;
@@ -296,6 +299,14 @@ bgp_exit (int status)
   if (CONF_BGP_DEBUG (normal, NORMAL))
     log_memstats_stderr ("bgpd");
 
+  if (bgp_nexus)
+      bgp_nexus->terminate = 1;
+
+  if (cli_nexus)
+      cli_nexus->terminate = 1;
+
+  /* TODO: join threads ? */
+
   exit (status);
 }
 
@@ -404,10 +415,9 @@ main (int argc, char **argv)
   /* Initializations. */
   srand (time (NULL));
   signal_init (master, Q_SIGC(bgp_signals), bgp_signals);
-  zprivs_init_r (&bgpd_privs);
+  zprivs_init (&bgpd_privs);
   cmd_init (1);
-  vty_init_r();
-/* vty_init (master); */
+  vty_init (master);
   memory_init ();
 
   /* BGP related initialization.  */
@@ -430,9 +440,22 @@ main (int argc, char **argv)
       return (1);
     }
 
-
   /* Process ID file creation. */
   pid_output (pid_file);
+
+  /* get qpthreads_enabled from config */
+  qpt_set_qpthreads_enabled(1);
+
+  /* stage 2 initialisation */
+
+  if (qpthreads_enabled)
+    {
+      cli_nexus = qpn_init_new(cli_nexus, 1); /* main thread */
+      bgp_nexus = qpn_init_new(bgp_nexus, 0);
+
+      zprivs_init_r ();
+      vty_init_r(cli_nexus);
+    }
 
   /* Make bgp vty socket. */
   vty_serv_sock (vty_addr, vty_port, BGP_VTYSH_PATH);
@@ -443,12 +466,19 @@ main (int argc, char **argv)
 	       (bm->address ? bm->address : "<all>"),
 	       bm->port);
 
-  /* create CLI thread */
-  vty_exec_r();
-
-  /* Start finite state machine, here we go! */
-  while (thread_fetch (master, &thread))
-    thread_call (&thread);
+  /* Launch finite state machines */
+  if (qpthreads_enabled)
+    {
+      /* for now BGP is still using threads */
+      qpn_exec_legacy(bgp_nexus);
+      qpn_exec(cli_nexus);      /* must be last to start - on main thraed */
+    }
+  else
+    {
+      /* Start finite state machine, here we go! */
+      while (thread_fetch (master, &thread))
+        thread_call (&thread);
+    }
 
   /* Not reached. */
   return (0);

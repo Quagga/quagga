@@ -50,6 +50,9 @@
 /* maximum time in seconds to sit in a pselect */
 #define MAX_PSELECT_TIMOUT 10
 
+/* signal for message queues */
+#define SIGMQUEUE SIGUSR2
+
 /*==============================================================================
  * Data Structures.
  */
@@ -60,6 +63,9 @@ struct qpn_nexus
 {
   /* set true to terminate the thread (eventually) */
   int terminate;
+
+  /* true if this is the main thread */
+  int main_thread;
 
   /* thread ID */
   qpt_thread_t thread_id;
@@ -72,6 +78,7 @@ struct qpn_nexus
 
   /* message queue */
   mqueue_queue queue;
+  mqueue_thread_signal mts;
 
 };
 
@@ -79,8 +86,8 @@ struct qpn_nexus
  * Functions
  */
 
-extern qpn_nexus qpn_init_new(qpn_nexus qtn);
+extern qpn_nexus qpn_init_new(qpn_nexus qtn, int main);
 extern void qpn_exec(qpn_nexus qtn);
-void qpn_free(qpn_nexus qpn);
+extern void qpn_exec_legacy(qpn_nexus qtn);
 
 #endif /* _ZEBRA_QPNEXUS_H */

@@ -671,10 +671,9 @@ zprivs_state_null (void)
 }
 
 void
-zprivs_init_r(struct zebra_privs_t *zprivs)
+zprivs_init_r()
 {
   mx = qpt_mutex_init(mx, qpt_mutex_quagga);
-  zprivs_init(zprivs);
 }
 
 void

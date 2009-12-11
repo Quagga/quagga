@@ -768,16 +768,12 @@ openzlog (const char *progname, zlog_proto_t protocol,
 void
 closezlog (struct zlog *zl)
 {
-  LOCK
-
   closelog();
 
   if (zl->fp != NULL)
     fclose (zl->fp);
 
   XFREE (MTYPE_ZLOG, zl);
-
-  UNLOCK
 }
 
 /* Called from command.c. */
