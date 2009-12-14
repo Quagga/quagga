@@ -139,6 +139,7 @@ char integrate_default[] = SYSCONFDIR INTEGRATE_DEFAULT_CONFIG;
 /* Master of the threads. */
 static struct thread_master *master = NULL;
 static qpn_nexus cli_nexus = NULL;
+static qpn_nexus bgp_nexus = NULL;
 
 /* VTY standard output function.   vty == NULL or VTY_SHELL => stdout	*/
 int
@@ -224,6 +225,13 @@ uty_vout(struct vty *vty, const char *format, va_list args)
       /* If p is not different with buf, it is allocated buffer.  */
       if (p != buf)
 	XFREE (MTYPE_VTY_OUT_BUF, p);
+    }
+
+  if (cli_nexus != NULL && qpt_thread_self() != cli_nexus->thread_id)
+    {
+      /* Wake up */
+      vty_event (VTY_WRITE, vty->fd, vty);
+      qpt_thread_signal(cli_nexus->thread_id, SIGMQUEUE);
     }
 
   return len;
@@ -546,7 +554,7 @@ vty_command (struct vty *vty, char *buf)
 #endif /* CONSUMED_TIME_CHECK */
 
   UNLOCK
-  ret = cmd_execute_command (vline, vty, NULL, 0);
+  ret = cmd_execute_command (vline, vty, NULL, bgp_nexus, 0);
   LOCK
 
   /* Get the name of the protocol if any */
@@ -3465,9 +3473,10 @@ vty_init_vtysh ()
 
 /* qpthreads: Install vty's own commands like `who' command. */
 void
-vty_init_r (qpn_nexus qpn)
+vty_init_r (qpn_nexus cli_n, qpn_nexus bgp_n)
 {
-  cli_nexus = qpn;
+  cli_nexus = cli_n;
+  bgp_nexus = bgp_n;
   vty_mutex = qpt_mutex_init(vty_mutex, qpt_mutex_quagga);
 }
 

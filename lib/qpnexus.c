@@ -24,12 +24,11 @@
 #include "qpnexus.h"
 #include "memory.h"
 #include "thread.h"
+#include "sigevent.h"
 
 /* prototypes */
-static void qpn_dispatch_queue(qpn_nexus qpn);
-static void* qpn_start(void* arg);
-static void* qpn_start_legacy(void* arg);
-static void qpn_thread_prep(qpn_nexus qpn);
+static void* qpn_start_main(void* arg);
+static void* qpn_start_bgp(void* arg);
 
 /* Master of the threads. */
 extern struct thread_master *master;
@@ -50,18 +49,37 @@ extern struct thread_master *master;
  * Returns the qtn_nexus.
  */
 qpn_nexus
-qpn_init_new(qpn_nexus qpn, int main)
+qpn_init_new(qpn_nexus qpn)
 {
   if (qpn == NULL)
     qpn = XCALLOC(MTYPE_QPN_NEXUS, sizeof(struct qpn_nexus)) ;
   else
     memset(qpn, 0,  sizeof(struct qpn_nexus)) ;
 
-   /* will change if we start new thread */
+  return qpn;
+}
+
+/* Initialize main qpthread, no queue */
+qpn_nexus
+qpn_init_main(qpn_nexus qpn)
+{
+  qpn = qpn_init_new(qpn);
+
   qpn->selection = qps_selection_init_new(qpn->selection);
   qpn->pile = qtimer_pile_init_new(qpn->pile);
+  qpn->main_thread = 1;
+  qpn->start = qpn_start_main;
+
+  return qpn;
+}
+
+/* Initialize bgp qpthread */
+qpn_nexus
+qpn_init_bgp(qpn_nexus qpn)
+{
+  qpn = qpn_init_new(qpn);
   qpn->queue = mqueue_init_new(qpn->queue, mqt_signal_unicast);
-  qpn->main_thread = main;
+  qpn->start = qpn_start_bgp;
 
   return qpn;
 }
@@ -74,15 +92,21 @@ qpn_free(qpn_nexus qpn)
   qtimer qtr;
 
   /* timers and the pile */
-  while ((qtr = qtimer_pile_ream(qpn->pile, 1)))
+  if (qpn->pile != NULL)
     {
-      qtimer_free(qtr);
+      while ((qtr = qtimer_pile_ream(qpn->pile, 1)))
+        {
+          qtimer_free(qtr);
+        }
     }
 
   /* files and selection */
-  while ((qf = qps_selection_ream(qpn->selection, 1)))
+  if (qpn->selection != NULL)
     {
-      qps_file_free(qf);
+      while ((qf = qps_selection_ream(qpn->selection, 1)))
+        {
+          qps_file_free(qf);
+        }
     }
 
   /* TODO: free qtn->queue */
@@ -99,34 +123,37 @@ qpn_exec(qpn_nexus qpn)
     {
       /* Run the state machine in calling thread */
       qpn->thread_id = qpt_thread_self();
-      qpn_start(qpn);
+      qpn->start(qpn);
     }
   else
     {
       /* create a qpthread and run the state machine in it */
-      qpn->thread_id = qpt_thread_create(qpn_start, qpn, NULL) ;
+      qpn->thread_id = qpt_thread_create(qpn->start, qpn, NULL) ;
     }
 }
 
-/* Prep thread and signals, then run finite state machine
+/* Main qpthread, prep signals, then run finite state machine
  * using qps_selection and qtimer
 */
 static void*
-qpn_start(void* arg)
+qpn_start_main(void* arg)
 {
   qpn_nexus qpn = arg;
   int actions;
+  qtime_mono_t now;
+  sigset_t newmask;
 
-  qpn_thread_prep(qpn);
+  /* Main thread, block the message queue's signal */
+  sigemptyset (&newmask);
+  sigaddset (&newmask, SIGMQUEUE);
+  qpt_thread_sigmask(SIG_BLOCK, &newmask, NULL);
+  qps_set_signal(qpn->selection, SIGMQUEUE, newmask);
 
   while (!qpn->terminate)
     {
-      qtime_mono_t now;
-
       /* Signals are highest priority.
        * only execute on the main thread */
-      if (qpn->main_thread)
-        quagga_sigevent_process ();
+      quagga_sigevent_process ();
 
       /* process timers */
       now = qt_get_monotonic();
@@ -143,9 +170,6 @@ qpn_start(void* arg)
         {
           actions = qps_dispatch_next(qpn->selection) ;
         }
-
-      /* process message queue */
-      qpn_dispatch_queue(qpn);
     }
 
   qpn_free(qpn);
@@ -153,84 +177,51 @@ qpn_start(void* arg)
   return NULL;
 }
 
-/* Create new qpthread and execute the thread state machine in it */
-void
-qpn_exec_legacy(qpn_nexus qpn)
-{
-  qpn->thread_id = qpt_thread_create(qpn_start_legacy, qpn, NULL) ;
-}
-
-/* Prep thread and signals, then run finite state machine
+/* Bgp prep signals, then run finite state machine
  * using legacy threads
 */
 static void*
-qpn_start_legacy(void* arg)
+qpn_start_bgp(void* arg)
 {
   qpn_nexus qpn = arg;
   struct thread thread;
+  mqueue_block mqb;
+  sigset_t newmask;
 
-  qpn_thread_prep(qpn);
+  /*
+   * Not main thread.  Block most signals, but be careful not to
+   * defer SIGTRAP because doing so breaks gdb, at least on
+   * NetBSD 2.0.  Avoid asking to block SIGKILL, just because
+   * we shouldn't be able to do so.
+   */
+  sigfillset (&newmask);
+  sigdelset (&newmask, SIGTRAP);
+  sigdelset (&newmask, SIGKILL);
+
+  qpt_thread_sigmask(SIG_BLOCK, &newmask, NULL);
+  qpn->mts = mqueue_thread_signal_init(qpn->mts, qpn->thread_id, SIGMQUEUE);
 
   while (!qpn->terminate)
     {
+
+      /* drain the message queue, will be waiting when it's empty */
+      for (;;)
+        {
+          mqb = mqueue_dequeue(qpn->queue, 1, qpn->mts) ;
+          if (mqb == NULL)
+            break;
+
+          mqb_dispatch(mqb);
+        }
+
+      /* TODO: use qpselect stuff */
       if (thread_fetch (master, &thread))
         thread_call (&thread);
 
-      /* process message queue, if any */
-      qpn_dispatch_queue(qpn);
+      mqueue_done_waiting(qpn->queue, qpn->mts);
     }
 
   qpn_free(qpn);
 
   return NULL;
 }
-
-/* dispatch any messages on our message queue */
-static void
-qpn_dispatch_queue(qpn_nexus qpn)
-{
-  mqueue_block mqb;
-
-  for (;;)
-    {
-      mqb = mqueue_dequeue(qpn->queue, 1, qpn->mts) ;
-      if (mqb == NULL)
-        return;
-
-      mqb_dispatch(mqb);
-    }
-}
-
-/* Init code to be run within the thread */
-static void
-qpn_thread_prep(qpn_nexus qpn)
-{
-  sigset_t newmask;
-
-  if (qpn->main_thread)
-    {
-      /* Main thread, block the message queue's signal */
-      sigemptyset (&newmask);
-      sigaddset (&newmask, SIGMQUEUE);
-    }
-  else
-    {
-      /*
-       * Not main thread.  Block most signals, but be careful not to
-       * defer SIGTRAP because doing so breaks gdb, at least on
-       * NetBSD 2.0.  Avoid asking to block SIGKILL, just because
-       * we shouldn't be able to do so.
-        */
-      sigfillset (&newmask);
-      sigdelset (&newmask, SIGTRAP);
-      sigdelset (&newmask, SIGKILL);
-  }
-
-  qpt_thread_sigmask(SIG_BLOCK, &newmask, NULL);
-  qps_set_signal(qpn->selection, SIGMQUEUE, newmask);
-
-  /* init mqueue_thread_signal here now we know our thread-id */
-  qpn->mts = mqueue_thread_signal_init(qpn->mts, qpn->thread_id, SIGMQUEUE);
-}
-
-

@@ -290,7 +290,7 @@ vtysh_execute_func (const char *line, int pager)
   if (vline == NULL)
     return CMD_SUCCESS;
 
-  saved_ret = ret = cmd_execute_command (vline, vty, &cmd, 1);
+  saved_ret = ret = cmd_execute_command (vline, vty, &cmd, NULL, 1);
   saved_node = vty->node;
 
   /* If command doesn't succeeded in current node, try to walk up in node tree.
@@ -300,7 +300,7 @@ vtysh_execute_func (const char *line, int pager)
 	 && vty->node > CONFIG_NODE)
     {
       vty->node = node_parent(vty->node);
-      ret = cmd_execute_command (vline, vty, &cmd, 1);
+      ret = cmd_execute_command (vline, vty, &cmd, NULL, 1);
       tried++;
     }
 
@@ -398,7 +398,7 @@ vtysh_execute_func (const char *line, int pager)
 		    return CMD_SUCCESS;
 		  }
 
-		ret = cmd_execute_command (vline, vty, &cmd, 1);
+		ret = cmd_execute_command (vline, vty, &cmd, , NULL, 1);
 		cmd_free_strvec (vline);
 		if (ret != CMD_SUCCESS_DAEMON)
 		  break;

@@ -343,7 +343,8 @@ extern char **cmd_complete_command (vector, struct vty *, int *status);
 extern const char *cmd_prompt (enum node_type);
 extern int config_from_file (struct vty *, FILE *);
 extern enum node_type node_parent (enum node_type);
-extern int cmd_execute_command (vector, struct vty *, struct cmd_element **, int);
+extern int cmd_execute_command (vector, struct vty *, struct cmd_element **,
+    qpn_nexus, int);
 extern int cmd_execute_command_strict (vector, struct vty *, struct cmd_element **);
 extern void config_replace_string (struct cmd_element *, char *, ...);
 extern void cmd_init (int);

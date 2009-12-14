@@ -73,6 +73,7 @@ static const struct option longopts[] =
 void sighup (void);
 void sigint (void);
 void sigusr1 (void);
+void sigusr2 (void);
 
 static void bgp_exit (int);
 
@@ -85,6 +86,10 @@ static struct quagga_signal_t bgp_signals[] =
   {
     .signal = SIGUSR1,
     .handler = &sigusr1,
+  },
+  {
+    .signal = SIGUSR2,
+    .handler = &sigusr2,
   },
   {
     .signal = SIGINT,
@@ -208,6 +213,18 @@ sigusr1 (void)
 {
   zlog_rotate (NULL);
 }
+
+/* SIGUSR2 handler. */
+void
+sigusr2 (void)
+{
+  /* Used to signal message queues */
+  if (qpthreads_enabled)
+    return;
+  else
+    exit(1);
+}
+
 
 /*
   Try to free up allocations we know about so that diagnostic tools such as
@@ -450,11 +467,11 @@ main (int argc, char **argv)
 
   if (qpthreads_enabled)
     {
-      cli_nexus = qpn_init_new(cli_nexus, 1); /* main thread */
-      bgp_nexus = qpn_init_new(bgp_nexus, 0);
+      cli_nexus = qpn_init_main(cli_nexus); /* main thread */
+      bgp_nexus = qpn_init_bgp(bgp_nexus);
 
       zprivs_init_r ();
-      vty_init_r(cli_nexus);
+      vty_init_r(cli_nexus, bgp_nexus);
     }
 
   /* Make bgp vty socket. */
@@ -469,8 +486,7 @@ main (int argc, char **argv)
   /* Launch finite state machines */
   if (qpthreads_enabled)
     {
-      /* for now BGP is still using threads */
-      qpn_exec_legacy(bgp_nexus);
+      qpn_exec(bgp_nexus);
       qpn_exec(cli_nexus);      /* must be last to start - on main thraed */
     }
   else

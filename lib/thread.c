@@ -41,6 +41,13 @@ static struct timeval relative_time_base;
 static unsigned short timers_inited;
 
 static struct hash *cpu_record = NULL;
+
+/* TODO: remove this */
+#define USE_MQUEUE
+#ifdef USE_MQUEUE
+#include "qpnexus.h"
+static sigset_t newmask;
+#endif
 
 /* Struct timeval's tv_usec one second value.  */
 #define TIMER_SECOND_MICRO 1000000L
@@ -417,6 +424,11 @@ thread_master_debug (struct thread_master *m)
 struct thread_master *
 thread_master_create ()
 {
+#ifdef USE_MQUEUE
+  sigfillset (&newmask);
+  sigdelset (&newmask, SIGMQUEUE);
+#endif
+
   if (cpu_record == NULL) 
     cpu_record 
       = hash_create_size (1011, (unsigned int (*) (void *))cpu_record_hash_key, 
@@ -949,13 +961,27 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
 	  (!timer_wait || (timeval_cmp (*timer_wait, *timer_wait_bg) > 0)))
 	timer_wait = timer_wait_bg;
       
+      /* TODO: remove this */
+#ifdef USE_MQUEUE
+      num = pselect (FD_SETSIZE, &readfd, &writefd, &exceptfd, timer_wait, &newmask);
+#else
       num = select (FD_SETSIZE, &readfd, &writefd, &exceptfd, timer_wait);
-      
+#endif
+
       /* Signals should get quick treatment */
       if (num < 0)
         {
           if (errno == EINTR)
-            continue; /* signal received - process it */
+#ifdef USE_MQUEUE
+            {
+            if (qpthreads_enabled)
+              return NULL;
+            else
+              continue; /* signal received - process it */
+            }
+#else
+          continue; /* signal received - process it */
+#endif
           zlog_warn ("select() error: %s", safe_strerror (errno));
             return NULL;
         }
@@ -1128,3 +1154,4 @@ funcname_thread_execute (struct thread_master *m,
 
   return NULL;
 }
+#undef USE_MQUEUE

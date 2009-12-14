@@ -26,6 +26,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "qpthreads.h"
 #include "qpselect.h"
 #include "qtimers.h"
+#include "qpnexus.h"
 
 #define VTY_BUFSIZ 512
 #define VTY_MAXHIST 20
@@ -218,7 +219,7 @@ extern int vty_lock_asserted;
 #endif
 
 /* Prototypes. */
-extern void vty_init_r (qpn_nexus);
+extern void vty_init_r (qpn_nexus, qpn_nexus);
 extern void vty_exec_r(void);
 extern void vty_init (struct thread_master *);
 extern void vty_init_vtysh (void);

@@ -1996,7 +1996,7 @@ node_parent ( enum node_type node )
 /* Execute command by argument vline vector. */
 static int
 cmd_execute_command_real (vector vline, struct vty *vty,
-			  struct cmd_element **cmd)
+			  struct cmd_element **cmd, qpn_nexus bgp_nexus)
 {
   unsigned int i;
   unsigned int index;
@@ -2112,12 +2112,21 @@ cmd_execute_command_real (vector vline, struct vty *vty,
     return CMD_SUCCESS_DAEMON;
 
   /* Execute matched command. */
-  return (*matched_element->func) (matched_element, vty, argc, argv);
+  if (qpthreads_enabled)
+    {
+      /* Don't do it now, but send to bgp qpthread */
+      cq_enqueue(matched_element, vty, argc, argv, bgp_nexus);
+      return CMD_SUCCESS;
+    }
+  else
+    {
+      return (*matched_element->func) (matched_element, vty, argc, argv);
+    }
 }
 
 int
 cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
-		     int vtysh) {
+		     qpn_nexus bgp_nexus, int vtysh) {
   int ret, saved_ret, tried = 0;
   enum node_type onode, try_node;
 
@@ -2138,7 +2147,7 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
 	  vector_set_index (shifted_vline, index-1, vector_lookup(vline, index));
 	}
 
-      ret = cmd_execute_command_real (shifted_vline, vty, cmd);
+      ret = cmd_execute_command_real (shifted_vline, vty, cmd, bgp_nexus);
 
       vector_free(shifted_vline);
       vty->node = onode;
@@ -2146,7 +2155,7 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
   }
 
 
-  saved_ret = ret = cmd_execute_command_real (vline, vty, cmd);
+  saved_ret = ret = cmd_execute_command_real (vline, vty, cmd, bgp_nexus);
 
   if (vtysh)
     return saved_ret;
@@ -2157,7 +2166,7 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
     {
       try_node = node_parent(try_node);
       vty->node = try_node;
-      ret = cmd_execute_command_real (vline, vty, cmd);
+      ret = cmd_execute_command_real (vline, vty, cmd, bgp_nexus);
       tried = 1;
       if (ret == CMD_SUCCESS || ret == CMD_WARNING)
 	{

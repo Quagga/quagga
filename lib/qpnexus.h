@@ -80,14 +80,18 @@ struct qpn_nexus
   mqueue_queue queue;
   mqueue_thread_signal mts;
 
+  /* qpthread routine */
+  void* (*start)(void*);
+
 };
 
 /*==============================================================================
  * Functions
  */
 
-extern qpn_nexus qpn_init_new(qpn_nexus qtn, int main);
+extern qpn_nexus qpn_init_new(qpn_nexus qtn);
+extern qpn_nexus qpn_init_main(qpn_nexus qtn);
+extern qpn_nexus qpn_init_bgp(qpn_nexus qtn);
 extern void qpn_exec(qpn_nexus qtn);
-extern void qpn_exec_legacy(qpn_nexus qtn);
 
 #endif /* _ZEBRA_QPNEXUS_H */
