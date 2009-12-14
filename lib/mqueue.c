@@ -437,14 +437,14 @@ mqueue_dequeue(mqueue_queue mq, int wait, void* arg)
           mtsig = arg ;
           dassert(mtsig != NULL) ;
 
-          last = mq->kick.signal.tail ;
-          if (last == NULL)
+          if (mq->kick.signal.head == NULL)
             {
               mq->kick.signal.head = mtsig ;
               mtsig->prev = (void*)mq ;
             }
           else
             {
+              last = mq->kick.signal.tail ;
               last->next  = mtsig ;
               mtsig->prev = last ;
             }
