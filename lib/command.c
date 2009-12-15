@@ -32,6 +32,7 @@ Boston, MA 02111-1307, USA.  */
 #include "vty.h"
 #include "command.h"
 #include "workqueue.h"
+#include "command_queue.h"
 
 /* Command vector which includes some level of command lists. Normally
    each daemon maintains each own cmdvec. */
@@ -1573,7 +1574,7 @@ cmd_try_do_shortcut (enum node_type node, char* first_word) {
 
 /* '?' describe command support. */
 static vector
-cmd_describe_command_real (vector vline, struct vty *vty, int *status)
+cmd_describe_command_real (vector vline, int node, int *status)
 {
   unsigned int i;
   vector cmd_vector;
@@ -1595,7 +1596,7 @@ cmd_describe_command_real (vector vline, struct vty *vty, int *status)
     index = vector_active (vline) - 1;
 
   /* Make copy vector of current node's command vector. */
-  cmd_vector = vector_copy (cmd_node_vector (cmdvec, vty->node));
+  cmd_vector = vector_copy (cmd_node_vector (cmdvec, node));
 
   /* Prepare match vector */
   matchvec = vector_init (INIT_MATCHVEC_SIZE);
@@ -1709,18 +1710,15 @@ cmd_describe_command_real (vector vline, struct vty *vty, int *status)
 }
 
 vector
-cmd_describe_command (vector vline, struct vty *vty, int *status)
+cmd_describe_command (vector vline, int node, int *status)
 {
   vector ret;
 
-  if ( cmd_try_do_shortcut(vty->node, vector_slot(vline, 0) ) )
+  if ( cmd_try_do_shortcut(node, vector_slot(vline, 0) ) )
     {
-      enum node_type onode;
-      vector shifted_vline;
+       vector shifted_vline;
       unsigned int index;
 
-      onode = vty->node;
-      vty->node = ENABLE_NODE;
       /* We can try it on enable node, cos' the vty is authenticated */
 
       shifted_vline = vector_init (vector_count(vline));
@@ -1730,15 +1728,13 @@ cmd_describe_command (vector vline, struct vty *vty, int *status)
 	  vector_set_index (shifted_vline, index-1, vector_lookup(vline, index));
 	}
 
-      ret = cmd_describe_command_real (shifted_vline, vty, status);
+      ret = cmd_describe_command_real (shifted_vline, ENABLE_NODE, status);
 
       vector_free(shifted_vline);
-      vty->node = onode;
       return ret;
   }
 
-
-  return cmd_describe_command_real (vline, vty, status);
+  return cmd_describe_command_real (vline, node, status);
 }
 
 
@@ -1777,10 +1773,10 @@ cmd_lcd (char **matched)
 
 /* Command line completion support. */
 static char **
-cmd_complete_command_real (vector vline, struct vty *vty, int *status)
+cmd_complete_command_real (vector vline, int node, int *status)
 {
   unsigned int i;
-  vector cmd_vector = vector_copy (cmd_node_vector (cmdvec, vty->node));
+  vector cmd_vector = vector_copy (cmd_node_vector (cmdvec, node));
 #define INIT_MATCHVEC_SIZE 10
   vector matchvec;
   struct cmd_element *cmd_element;
@@ -1933,18 +1929,15 @@ cmd_complete_command_real (vector vline, struct vty *vty, int *status)
 }
 
 char **
-cmd_complete_command (vector vline, struct vty *vty, int *status)
+cmd_complete_command (vector vline, int node, int *status)
 {
   char **ret;
 
-  if ( cmd_try_do_shortcut(vty->node, vector_slot(vline, 0) ) )
+  if ( cmd_try_do_shortcut(node, vector_slot(vline, 0) ) )
     {
-      enum node_type onode;
       vector shifted_vline;
       unsigned int index;
 
-      onode = vty->node;
-      vty->node = ENABLE_NODE;
       /* We can try it on enable node, cos' the vty is authenticated */
 
       shifted_vline = vector_init (vector_count(vline));
@@ -1954,15 +1947,13 @@ cmd_complete_command (vector vline, struct vty *vty, int *status)
 	  vector_set_index (shifted_vline, index-1, vector_lookup(vline, index));
 	}
 
-      ret = cmd_complete_command_real (shifted_vline, vty, status);
+      ret = cmd_complete_command_real (shifted_vline, ENABLE_NODE, status);
 
       vector_free(shifted_vline);
-      vty->node = onode;
       return ret;
   }
 
-
-  return cmd_complete_command_real (vline, vty, status);
+  return cmd_complete_command_real (vline, node, status);
 }
 
 /* return parent node */
@@ -2011,7 +2002,7 @@ cmd_execute_command_real (vector vline, struct vty *vty,
   char *command;
 
   /* Make copy of command elements. */
-  cmd_vector = vector_copy (cmd_node_vector (cmdvec, vty->node));
+  cmd_vector = vector_copy (cmd_node_vector (cmdvec, vty_get_node(vty)));
 
   for (index = 0; index < vector_active (vline); index++)
     if ((command = vector_slot (vline, index)))
@@ -2112,11 +2103,11 @@ cmd_execute_command_real (vector vline, struct vty *vty,
     return CMD_SUCCESS_DAEMON;
 
   /* Execute matched command. */
-  if (qpthreads_enabled)
+  if (qpthreads_enabled && !(matched_element->attr & CMD_ATTR_CALL))
     {
       /* Don't do it now, but send to bgp qpthread */
       cq_enqueue(matched_element, vty, argc, argv, bgp_nexus);
-      return CMD_SUCCESS;
+      return CMD_QUEUED;
     }
   else
     {
@@ -2130,14 +2121,14 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
   int ret, saved_ret, tried = 0;
   enum node_type onode, try_node;
 
-  onode = try_node = vty->node;
+  onode = try_node = vty_get_node(vty);
 
-  if ( cmd_try_do_shortcut(vty->node, vector_slot(vline, 0) ) )
+  if ( cmd_try_do_shortcut(vty_get_node(vty), vector_slot(vline, 0) ) )
     {
       vector shifted_vline;
       unsigned int index;
 
-      vty->node = ENABLE_NODE;
+      vty_set_node(vty, ENABLE_NODE);
       /* We can try it on enable node, cos' the vty is authenticated */
 
       shifted_vline = vector_init (vector_count(vline));
@@ -2150,7 +2141,7 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
       ret = cmd_execute_command_real (shifted_vline, vty, cmd, bgp_nexus);
 
       vector_free(shifted_vline);
-      vty->node = onode;
+      vty_set_node(vty, onode);
       return ret;
   }
 
@@ -2162,10 +2153,10 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
 
   /* This assumes all nodes above CONFIG_NODE are childs of CONFIG_NODE */
   while ( ret != CMD_SUCCESS && ret != CMD_WARNING
-	  && vty->node > CONFIG_NODE )
+	  && vty_get_node(vty) > CONFIG_NODE )
     {
       try_node = node_parent(try_node);
-      vty->node = try_node;
+      vty_set_node(vty, try_node);
       ret = cmd_execute_command_real (vline, vty, cmd, bgp_nexus);
       tried = 1;
       if (ret == CMD_SUCCESS || ret == CMD_WARNING)
@@ -2177,7 +2168,7 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
   /* no command succeeded, reset the vty to the original node and
      return the error for this node */
   if ( tried )
-    vty->node = onode;
+    vty_set_node(vty, onode);
   return saved_ret;
 }
 
@@ -2199,7 +2190,7 @@ cmd_execute_command_strict (vector vline, struct vty *vty,
   char *command;
 
   /* Make copy of command element */
-  cmd_vector = vector_copy (cmd_node_vector (cmdvec, vty->node));
+  cmd_vector = vector_copy (cmd_node_vector (cmdvec, vty_get_node(vty)));
 
   for (index = 0; index < vector_active (vline); index++)
     if ((command = vector_slot (vline, index)))
@@ -2319,9 +2310,9 @@ config_from_file (struct vty *vty, FILE *fp)
 
       /* Try again with setting node to CONFIG_NODE */
       while (ret != CMD_SUCCESS && ret != CMD_WARNING
-	     && ret != CMD_ERR_NOTHING_TODO && vty->node != CONFIG_NODE)
+	     && ret != CMD_ERR_NOTHING_TODO && vty_get_node(vty) != CONFIG_NODE)
 	{
-	  vty->node = node_parent(vty->node);
+	  vty_set_node(vty, node_parent(vty_get_node(vty)));
 	  ret = cmd_execute_command_strict (vline, vty, NULL);
 	}
 
@@ -2335,14 +2326,14 @@ config_from_file (struct vty *vty, FILE *fp)
 }
 
 /* Configration from terminal */
-DEFUN (config_terminal,
+DEFUN_CALL (config_terminal,
        config_terminal_cmd,
        "configure terminal",
        "Configuration from vty interface\n"
        "Configuration terminal\n")
 {
   if (vty_config_lock (vty))
-    vty->node = CONFIG_NODE;
+    vty_set_node(vty, CONFIG_NODE);
   else
     {
       vty_out (vty, "VTY configuration is locked by other VTY%s", VTY_NEWLINE);
@@ -2352,39 +2343,39 @@ DEFUN (config_terminal,
 }
 
 /* Enable command */
-DEFUN (enable,
+DEFUN_CALL (enable,
        config_enable_cmd,
        "enable",
        "Turn on privileged mode command\n")
 {
   /* If enable password is NULL, change to ENABLE_NODE */
   if ((host.enable == NULL && host.enable_encrypt == NULL) ||
-      vty->type == VTY_SHELL_SERV)
-    vty->node = ENABLE_NODE;
+      vty_get_type(vty) == VTY_SHELL_SERV)
+    vty_set_node(vty, ENABLE_NODE);
   else
-    vty->node = AUTH_ENABLE_NODE;
+    vty_set_node(vty, AUTH_ENABLE_NODE);
 
   return CMD_SUCCESS;
 }
 
 /* Disable command */
-DEFUN (disable,
+DEFUN_CALL (disable,
        config_disable_cmd,
        "disable",
        "Turn off privileged mode command\n")
 {
-  if (vty->node == ENABLE_NODE)
-    vty->node = VIEW_NODE;
+  if (vty_get_node(vty) == ENABLE_NODE)
+    vty_set_node(vty, VIEW_NODE);
   return CMD_SUCCESS;
 }
 
 /* Down vty node level. */
-DEFUN (config_exit,
+DEFUN_CALL (config_exit,
        config_exit_cmd,
        "exit",
        "Exit current mode and down to previous mode\n")
 {
-  switch (vty->node)
+  switch (vty_get_node(vty))
     {
     case VIEW_NODE:
     case ENABLE_NODE:
@@ -2392,10 +2383,10 @@ DEFUN (config_exit,
       if (vty_shell (vty))
 	exit (0);
       else
-	vty->status = VTY_CLOSE;
+	vty_set_status(vty, VTY_CLOSE);
       break;
     case CONFIG_NODE:
-      vty->node = ENABLE_NODE;
+      vty_set_node(vty, ENABLE_NODE);
       vty_config_unlock (vty);
       break;
     case INTERFACE_NODE:
@@ -2410,17 +2401,17 @@ DEFUN (config_exit,
     case MASC_NODE:
     case RMAP_NODE:
     case VTY_NODE:
-      vty->node = CONFIG_NODE;
+      vty_set_node(vty, CONFIG_NODE);
       break;
     case BGP_VPNV4_NODE:
     case BGP_IPV4_NODE:
     case BGP_IPV4M_NODE:
     case BGP_IPV6_NODE:
     case BGP_IPV6M_NODE:
-      vty->node = BGP_NODE;
+      vty_set_node(vty, BGP_NODE);
       break;
     case KEYCHAIN_KEY_NODE:
-      vty->node = KEYCHAIN_NODE;
+      vty_set_node(vty, KEYCHAIN_NODE);
       break;
     default:
       break;
@@ -2429,18 +2420,18 @@ DEFUN (config_exit,
 }
 
 /* quit is alias of exit. */
-ALIAS (config_exit,
+ALIAS_CALL (config_exit,
        config_quit_cmd,
        "quit",
        "Exit current mode and down to previous mode\n")
 
 /* End of configuration. */
-DEFUN (config_end,
+DEFUN_CALL (config_end,
        config_end_cmd,
        "end",
        "End current mode and change to enable mode.")
 {
-  switch (vty->node)
+  switch (vty_get_node(vty))
     {
     case VIEW_NODE:
     case ENABLE_NODE:
@@ -2467,7 +2458,7 @@ DEFUN (config_end,
     case MASC_NODE:
     case VTY_NODE:
       vty_config_unlock (vty);
-      vty->node = ENABLE_NODE;
+      vty_set_node(vty, ENABLE_NODE);
       break;
     default:
       break;
@@ -2476,7 +2467,7 @@ DEFUN (config_end,
 }
 
 /* Show version. */
-DEFUN (show_version,
+DEFUN_CALL (show_version,
        show_version_cmd,
        "show version",
        SHOW_STR
@@ -2490,7 +2481,7 @@ DEFUN (show_version,
 }
 
 /* Help display function for all node. */
-DEFUN (config_help,
+DEFUN_CALL (config_help,
        config_help_cmd,
        "help",
        "Description of the interactive help system\n")
@@ -2514,26 +2505,25 @@ argument.%s\
 }
 
 /* Help display function for all node. */
-DEFUN (config_list,
+DEFUN_CALL (config_list,
        config_list_cmd,
        "list",
        "Print command list\n")
 {
   unsigned int i;
-  struct cmd_node *cnode = vector_slot (cmdvec, vty->node);
+  struct cmd_node *cnode = vector_slot (cmdvec, vty_get_node(vty));
   struct cmd_element *cmd;
 
   for (i = 0; i < vector_active (cnode->cmd_vector); i++)
     if ((cmd = vector_slot (cnode->cmd_vector, i)) != NULL
-        && !(cmd->attr == CMD_ATTR_DEPRECATED
-             || cmd->attr == CMD_ATTR_HIDDEN))
+        && !(cmd->attr & (CMD_ATTR_DEPRECATED | CMD_ATTR_HIDDEN)))
       vty_out (vty, "  %s%s", cmd->string,
 	       VTY_NEWLINE);
   return CMD_SUCCESS;
 }
 
 /* Write current configuration into file. */
-DEFUN (config_write_file,
+DEFUN_CALL (config_write_file,
        config_write_file_cmd,
        "write file",
        "Write running configuration to memory, network, or terminal\n"
@@ -2578,8 +2568,7 @@ DEFUN (config_write_file,
     }
 
   /* Make vty for configuration file. */
-  file_vty = vty_new (fd);
-  file_vty->type = VTY_FILE;
+  file_vty = vty_new (fd, VTY_FILE);
 
   /* Config file header print. */
   vty_out (file_vty, "!\n! Zebra configuration saved from vty\n!   ");
@@ -2640,18 +2629,18 @@ finished:
   return ret;
 }
 
-ALIAS (config_write_file,
+ALIAS_CALL (config_write_file,
        config_write_cmd,
        "write",
        "Write running configuration to memory, network, or terminal\n")
 
-ALIAS (config_write_file,
+ALIAS_CALL (config_write_file,
        config_write_memory_cmd,
        "write memory",
        "Write running configuration to memory, network, or terminal\n"
        "Write configuration to the file (same as write file)\n")
 
-ALIAS (config_write_file,
+ALIAS_CALL (config_write_file,
        copy_runningconfig_startupconfig_cmd,
        "copy running-config startup-config",
        "Copy configuration\n"
@@ -2659,7 +2648,7 @@ ALIAS (config_write_file,
        "Copy running config to startup config (same as write file)\n")
 
 /* Write current configuration into the terminal. */
-DEFUN (config_write_terminal,
+DEFUN_CALL (config_write_terminal,
        config_write_terminal_cmd,
        "write terminal",
        "Write running configuration to memory, network, or terminal\n"
@@ -2668,7 +2657,7 @@ DEFUN (config_write_terminal,
   unsigned int i;
   struct cmd_node *node;
 
-  if (vty->type == VTY_SHELL_SERV)
+  if (vty_get_type(vty) == VTY_SHELL_SERV)
     {
       for (i = 0; i < vector_active (cmdvec); i++)
 	if ((node = vector_slot (cmdvec, i)) && node->func && node->vtysh)
@@ -2695,14 +2684,14 @@ DEFUN (config_write_terminal,
 }
 
 /* Write current configuration into the terminal. */
-ALIAS (config_write_terminal,
+ALIAS_CALL (config_write_terminal,
        show_running_config_cmd,
        "show running-config",
        SHOW_STR
        "running configuration\n")
 
 /* Write startup configuration into the terminal. */
-DEFUN (show_startup_config,
+DEFUN_CALL (show_startup_config,
        show_startup_config_cmd,
        "show startup-config",
        SHOW_STR
@@ -2736,7 +2725,7 @@ DEFUN (show_startup_config,
 }
 
 /* Hostname configuration */
-DEFUN (config_hostname,
+DEFUN_CALL (config_hostname,
        hostname_cmd,
        "hostname WORD",
        "Set system's network name\n"
@@ -2755,7 +2744,7 @@ DEFUN (config_hostname,
   return CMD_SUCCESS;
 }
 
-DEFUN (config_no_hostname,
+DEFUN_CALL (config_no_hostname,
        no_hostname_cmd,
        "no hostname [HOSTNAME]",
        NO_STR
@@ -2769,7 +2758,7 @@ DEFUN (config_no_hostname,
 }
 
 /* VTY interface password set. */
-DEFUN (config_password, password_cmd,
+DEFUN_CALL (config_password, password_cmd,
        "password (8|) WORD",
        "Assign the terminal connection password\n"
        "Specifies a HIDDEN password will follow\n"
@@ -2825,13 +2814,13 @@ DEFUN (config_password, password_cmd,
   return CMD_SUCCESS;
 }
 
-ALIAS (config_password, password_text_cmd,
+ALIAS_CALL (config_password, password_text_cmd,
        "password LINE",
        "Assign the terminal connection password\n"
        "The UNENCRYPTED (cleartext) line password\n")
 
 /* VTY enable password set. */
-DEFUN (config_enable_password, enable_password_cmd,
+DEFUN_CALL (config_enable_password, enable_password_cmd,
        "enable password (8|) WORD",
        "Modify enable password parameters\n"
        "Assign the privileged level password\n"
@@ -2892,7 +2881,7 @@ DEFUN (config_enable_password, enable_password_cmd,
   return CMD_SUCCESS;
 }
 
-ALIAS (config_enable_password,
+ALIAS_CALL (config_enable_password,
        enable_password_text_cmd,
        "enable password LINE",
        "Modify enable password parameters\n"
@@ -2900,7 +2889,7 @@ ALIAS (config_enable_password,
        "The UNENCRYPTED (cleartext) 'enable' password\n")
 
 /* VTY enable password delete. */
-DEFUN (no_config_enable_password, no_enable_password_cmd,
+DEFUN_CALL (no_config_enable_password, no_enable_password_cmd,
        "no enable password",
        NO_STR
        "Modify enable password parameters\n"
@@ -2917,7 +2906,7 @@ DEFUN (no_config_enable_password, no_enable_password_cmd,
   return CMD_SUCCESS;
 }
 
-DEFUN (service_password_encrypt,
+DEFUN_CALL (service_password_encrypt,
        service_password_encrypt_cmd,
        "service password-encryption",
        "Set up miscellaneous service\n"
@@ -2944,7 +2933,7 @@ DEFUN (service_password_encrypt,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_service_password_encrypt,
+DEFUN_CALL (no_service_password_encrypt,
        no_service_password_encrypt_cmd,
        "no service password-encryption",
        NO_STR
@@ -2967,7 +2956,7 @@ DEFUN (no_service_password_encrypt,
   return CMD_SUCCESS;
 }
 
-DEFUN (config_terminal_length, config_terminal_length_cmd,
+DEFUN_CALL (config_terminal_length, config_terminal_length_cmd,
        "terminal length <0-512>",
        "Set terminal line parameters\n"
        "Set number of lines on a screen\n"
@@ -2982,22 +2971,22 @@ DEFUN (config_terminal_length, config_terminal_length_cmd,
       vty_out (vty, "length is malformed%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  vty->lines = lines;
+  vty_set_lines(vty, lines);
 
   return CMD_SUCCESS;
 }
 
-DEFUN (config_terminal_no_length, config_terminal_no_length_cmd,
+DEFUN_CALL (config_terminal_no_length, config_terminal_no_length_cmd,
        "terminal no length",
        "Set terminal line parameters\n"
        NO_STR
        "Set number of lines on a screen\n")
 {
-  vty->lines = -1;
+  vty_set_lines(vty, -1);
   return CMD_SUCCESS;
 }
 
-DEFUN (service_terminal_length, service_terminal_length_cmd,
+DEFUN_CALL (service_terminal_length, service_terminal_length_cmd,
        "service terminal-length <0-512>",
        "Set up miscellaneous service\n"
        "System wide terminal length configuration\n"
@@ -3017,7 +3006,7 @@ DEFUN (service_terminal_length, service_terminal_length_cmd,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_service_terminal_length, no_service_terminal_length_cmd,
+DEFUN_CALL (no_service_terminal_length, no_service_terminal_length_cmd,
        "no service terminal-length [<0-512>]",
        NO_STR
        "Set up miscellaneous service\n"
@@ -3028,7 +3017,7 @@ DEFUN (no_service_terminal_length, no_service_terminal_length_cmd,
   return CMD_SUCCESS;
 }
 
-DEFUN_HIDDEN (do_echo,
+DEFUN_HID_CALL (do_echo,
 	      echo_cmd,
 	      "echo .MESSAGE",
 	      "Echo a message back to the vty\n"
@@ -3043,7 +3032,7 @@ DEFUN_HIDDEN (do_echo,
   return CMD_SUCCESS;
 }
 
-DEFUN (config_logmsg,
+DEFUN_CALL (config_logmsg,
        config_logmsg_cmd,
        "logmsg "LOG_LEVELS" .MESSAGE",
        "Send a message to enabled logging destinations\n"
@@ -3056,13 +3045,14 @@ DEFUN (config_logmsg,
   if ((level = level_match(argv[0])) == ZLOG_DISABLED)
     return CMD_ERR_NO_MATCH;
 
-  zlog(NULL, level, ((message = argv_concat(argv, argc, 1)) ? message : ""));
+  message = argv_concat(argv, argc, 1);
+  zlog(NULL, level, "%s", (message ? message : ""));
   if (message)
     XFREE(MTYPE_TMP, message);
   return CMD_SUCCESS;
 }
 
-DEFUN (show_logging,
+DEFUN_CALL (show_logging,
        show_logging_cmd,
        "show logging",
        SHOW_STR
@@ -3117,7 +3107,7 @@ DEFUN (show_logging,
   return CMD_SUCCESS;
 }
 
-DEFUN (config_log_stdout,
+DEFUN_CALL (config_log_stdout,
        config_log_stdout_cmd,
        "log stdout",
        "Logging control\n"
@@ -3127,7 +3117,7 @@ DEFUN (config_log_stdout,
   return CMD_SUCCESS;
 }
 
-DEFUN (config_log_stdout_level,
+DEFUN_CALL (config_log_stdout_level,
        config_log_stdout_level_cmd,
        "log stdout "LOG_LEVELS,
        "Logging control\n"
@@ -3142,7 +3132,7 @@ DEFUN (config_log_stdout_level,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_config_log_stdout,
+DEFUN_CALL (no_config_log_stdout,
        no_config_log_stdout_cmd,
        "no log stdout [LEVEL]",
        NO_STR
@@ -3154,7 +3144,7 @@ DEFUN (no_config_log_stdout,
   return CMD_SUCCESS;
 }
 
-DEFUN (config_log_monitor,
+DEFUN_CALL (config_log_monitor,
        config_log_monitor_cmd,
        "log monitor",
        "Logging control\n"
@@ -3164,7 +3154,7 @@ DEFUN (config_log_monitor,
   return CMD_SUCCESS;
 }
 
-DEFUN (config_log_monitor_level,
+DEFUN_CALL (config_log_monitor_level,
        config_log_monitor_level_cmd,
        "log monitor "LOG_LEVELS,
        "Logging control\n"
@@ -3179,7 +3169,7 @@ DEFUN (config_log_monitor_level,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_config_log_monitor,
+DEFUN_CALL (no_config_log_monitor,
        no_config_log_monitor_cmd,
        "no log monitor [LEVEL]",
        NO_STR
@@ -3241,7 +3231,7 @@ set_log_file(struct vty *vty, const char *fname, int loglevel)
   return CMD_SUCCESS;
 }
 
-DEFUN (config_log_file,
+DEFUN_CALL (config_log_file,
        config_log_file_cmd,
        "log file FILENAME",
        "Logging control\n"
@@ -3251,7 +3241,7 @@ DEFUN (config_log_file,
   return set_log_file(vty, argv[0], zlog_get_default_lvl(NULL));
 }
 
-DEFUN (config_log_file_level,
+DEFUN_CALL (config_log_file_level,
        config_log_file_level_cmd,
        "log file FILENAME "LOG_LEVELS,
        "Logging control\n"
@@ -3266,7 +3256,7 @@ DEFUN (config_log_file_level,
   return set_log_file(vty, argv[0], level);
 }
 
-DEFUN (no_config_log_file,
+DEFUN_CALL (no_config_log_file,
        no_config_log_file_cmd,
        "no log file [FILENAME]",
        NO_STR
@@ -3284,7 +3274,7 @@ DEFUN (no_config_log_file,
   return CMD_SUCCESS;
 }
 
-ALIAS (no_config_log_file,
+ALIAS_CALL (no_config_log_file,
        no_config_log_file_level_cmd,
        "no log file FILENAME LEVEL",
        NO_STR
@@ -3293,7 +3283,7 @@ ALIAS (no_config_log_file,
        "Logging file name\n"
        "Logging level\n")
 
-DEFUN (config_log_syslog,
+DEFUN_CALL (config_log_syslog,
        config_log_syslog_cmd,
        "log syslog",
        "Logging control\n"
@@ -3303,7 +3293,7 @@ DEFUN (config_log_syslog,
   return CMD_SUCCESS;
 }
 
-DEFUN (config_log_syslog_level,
+DEFUN_CALL (config_log_syslog_level,
        config_log_syslog_level_cmd,
        "log syslog "LOG_LEVELS,
        "Logging control\n"
@@ -3318,7 +3308,7 @@ DEFUN (config_log_syslog_level,
   return CMD_SUCCESS;
 }
 
-DEFUN_DEPRECATED (config_log_syslog_facility,
+DEFUN_DEP_CALL (config_log_syslog_facility,
 		  config_log_syslog_facility_cmd,
 		  "log syslog facility "LOG_FACILITIES,
 		  "Logging control\n"
@@ -3336,7 +3326,7 @@ DEFUN_DEPRECATED (config_log_syslog_facility,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_config_log_syslog,
+DEFUN_CALL (no_config_log_syslog,
        no_config_log_syslog_cmd,
        "no log syslog [LEVEL]",
        NO_STR
@@ -3348,7 +3338,7 @@ DEFUN (no_config_log_syslog,
   return CMD_SUCCESS;
 }
 
-ALIAS (no_config_log_syslog,
+ALIAS_CALL (no_config_log_syslog,
        no_config_log_syslog_facility_cmd,
        "no log syslog facility "LOG_FACILITIES,
        NO_STR
@@ -3357,7 +3347,7 @@ ALIAS (no_config_log_syslog,
        "Facility parameter for syslog messages\n"
        LOG_FACILITY_DESC)
 
-DEFUN (config_log_facility,
+DEFUN_CALL (config_log_facility,
        config_log_facility_cmd,
        "log facility "LOG_FACILITIES,
        "Logging control\n"
@@ -3372,7 +3362,7 @@ DEFUN (config_log_facility,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_config_log_facility,
+DEFUN_CALL (no_config_log_facility,
        no_config_log_facility_cmd,
        "no log facility [FACILITY]",
        NO_STR
@@ -3384,7 +3374,7 @@ DEFUN (no_config_log_facility,
   return CMD_SUCCESS;
 }
 
-DEFUN_DEPRECATED (config_log_trap,
+DEFUN_DEP_CALL (config_log_trap,
 		  config_log_trap_cmd,
 		  "log trap "LOG_LEVELS,
 		  "Logging control\n"
@@ -3392,7 +3382,6 @@ DEFUN_DEPRECATED (config_log_trap,
 		  LOG_LEVEL_DESC)
 {
   int new_level ;
-  int i;
 
   if ((new_level = level_match(argv[0])) == ZLOG_DISABLED)
     return CMD_ERR_NO_MATCH;
@@ -3401,7 +3390,7 @@ DEFUN_DEPRECATED (config_log_trap,
   return CMD_SUCCESS;
 }
 
-DEFUN_DEPRECATED (no_config_log_trap,
+DEFUN_DEP_CALL (no_config_log_trap,
 		  no_config_log_trap_cmd,
 		  "no log trap [LEVEL]",
 		  NO_STR
@@ -3413,7 +3402,7 @@ DEFUN_DEPRECATED (no_config_log_trap,
   return CMD_SUCCESS;
 }
 
-DEFUN (config_log_record_priority,
+DEFUN_CALL (config_log_record_priority,
        config_log_record_priority_cmd,
        "log record-priority",
        "Logging control\n"
@@ -3423,7 +3412,7 @@ DEFUN (config_log_record_priority,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_config_log_record_priority,
+DEFUN_CALL (no_config_log_record_priority,
        no_config_log_record_priority_cmd,
        "no log record-priority",
        NO_STR
@@ -3434,7 +3423,7 @@ DEFUN (no_config_log_record_priority,
   return CMD_SUCCESS;
 }
 
-DEFUN (config_log_timestamp_precision,
+DEFUN_CALL (config_log_timestamp_precision,
        config_log_timestamp_precision_cmd,
        "log timestamp precision <0-6>",
        "Logging control\n"
@@ -3457,7 +3446,7 @@ DEFUN (config_log_timestamp_precision,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_config_log_timestamp_precision,
+DEFUN_CALL (no_config_log_timestamp_precision,
        no_config_log_timestamp_precision_cmd,
        "no log timestamp precision",
        NO_STR
@@ -3469,7 +3458,7 @@ DEFUN (no_config_log_timestamp_precision,
   return CMD_SUCCESS;
 }
 
-DEFUN (banner_motd_file,
+DEFUN_CALL (banner_motd_file,
        banner_motd_file_cmd,
        "banner motd file [FILE]",
        "Set banner\n"
@@ -3484,7 +3473,7 @@ DEFUN (banner_motd_file,
   return CMD_SUCCESS;
 }
 
-DEFUN (banner_motd_default,
+DEFUN_CALL (banner_motd_default,
        banner_motd_default_cmd,
        "banner motd default",
        "Set banner string\n"
@@ -3495,7 +3484,7 @@ DEFUN (banner_motd_default,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_banner_motd,
+DEFUN_CALL (no_banner_motd,
        no_banner_motd_cmd,
        "no banner motd",
        NO_STR

@@ -70,7 +70,10 @@ cq_action(mqueue_block mqb)
 
   /* Execute matched command. */
   result = (*wyatt->matched_element->func)
-       (wyatt->matched_element, wyatt->vty, wyatt->argc, wyatt->argv);
+       (wyatt->matched_element, wyatt->vty, wyatt->argc, (const char **)wyatt->argv);
+
+  /* report */
+  vty_queued_result(wyatt->vty, result);
 
   /* clean up */
   for (i = 0; i< wyatt->argc; ++i)

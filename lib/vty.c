@@ -227,13 +227,6 @@ uty_vout(struct vty *vty, const char *format, va_list args)
 	XFREE (MTYPE_VTY_OUT_BUF, p);
     }
 
-  if (cli_nexus != NULL && qpt_thread_self() != cli_nexus->thread_id)
-    {
-      /* Wake up */
-      vty_event (VTY_WRITE, vty->fd, vty);
-      qpt_thread_signal(cli_nexus->thread_id, SIGMQUEUE);
-    }
-
   return len;
 }
 
@@ -441,7 +434,7 @@ vty_dont_lflow_ahead (struct vty *vty)
 
 /* Allocate new vty struct. */
 struct vty *
-vty_new (int fd)
+vty_new (int fd, int type)
 {
   struct vty *vty = XCALLOC (MTYPE_VTY, sizeof (struct vty));
 
@@ -449,6 +442,7 @@ vty_new (int fd)
   vty->buf = XCALLOC (MTYPE_VTY, VTY_BUFSIZ);
   vty->max = VTY_BUFSIZ;
   vty->fd = fd;
+  vty->type = type;
 
   if (cli_nexus)
     {
@@ -590,6 +584,24 @@ vty_command (struct vty *vty, char *buf)
   cmd_free_strvec (vline);
 
   return ret;
+}
+
+/* queued command has completed */
+void
+vty_queued_result(struct vty *vty, int result)
+{
+  LOCK
+
+  vty_prompt(vty);
+
+  /* Wake up */
+  if (cli_nexus)
+    {
+      vty_event (VTY_WRITE, vty->fd, vty);
+      qpt_thread_signal(cli_nexus->thread_id, SIGMQUEUE);
+    }
+
+  UNLOCK
 }
 
 static const char telnet_backward_char = 0x08;
@@ -1044,7 +1056,7 @@ vty_complete_command (struct vty *vty)
   if (isspace ((int) vty->buf[vty->length - 1]))
     vector_set (vline, '\0');
 
-  matched = cmd_complete_command (vline, vty, &ret);
+  matched = cmd_complete_command (vline, vty->node, &ret);
 
   cmd_free_strvec (vline);
 
@@ -1167,7 +1179,7 @@ vty_describe_command (struct vty *vty)
     if (isspace ((int) vty->buf[vty->length - 1]))
       vector_set (vline, '\0');
 
-  describe = cmd_describe_command (vline, vty, &ret);
+  describe = cmd_describe_command (vline, vty->node, &ret);
 
   uty_out (vty, "%s", VTY_NEWLINE);
 
@@ -1472,7 +1484,7 @@ vty_execute (struct vty *vty)
   vty->cp = vty->length = 0;
   vty_clear_buf (vty);
 
-  if (vty->status != VTY_CLOSE )
+  if (vty->status != VTY_CLOSE  && ret != CMD_QUEUED)
     vty_prompt (vty);
 
   return ret;
@@ -1863,8 +1875,7 @@ vty_create (int vty_sock, union sockunion *su)
   ASSERTLOCKED
 
   /* Allocate new vty structure and set up default values. */
-  vty = vty_new (vty_sock);
-  vty->type = VTY_TERM;
+  vty = vty_new (vty_sock, VTY_TERM);
   vty->address = sockunion_su2str (su);
   if (no_password_check)
     {
@@ -2620,8 +2631,7 @@ vty_read_file (FILE *confp)
   int ret;
   struct vty *vty;
 
-  vty = vty_new (0); /* stdout */
-  vty->type = VTY_TERM;
+  vty = vty_new (0, VTY_TERM); /* stdout */
   vty->node = CONFIG_NODE;
 
   /* Execute configuration file */
@@ -3032,7 +3042,7 @@ vty_event_r (enum event event, int sock, struct vty *vty)
     }
 }
 
-DEFUN (config_who,
+DEFUN_CALL (config_who,
        config_who_cmd,
        "who",
        "Display who is on vty\n")
@@ -3040,22 +3050,26 @@ DEFUN (config_who,
   unsigned int i;
   struct vty *v;
 
+  LOCK
   for (i = 0; i < vector_active (vtyvec); i++)
     if ((v = vector_slot (vtyvec, i)) != NULL)
-      vty_out (vty, "%svty[%d] connected from %s.%s",
+      uty_out (vty, "%svty[%d] connected from %s.%s",
 	       v->config ? "*" : " ",
 	       i, v->address, VTY_NEWLINE);
+  UNLOCK
   return CMD_SUCCESS;
 }
 
 /* Move to vty configuration mode. */
-DEFUN (line_vty,
+DEFUN_CALL (line_vty,
        line_vty_cmd,
        "line vty",
        "Configure a terminal line\n"
        "Virtual terminal\n")
 {
+  LOCK
   vty->node = VTY_NODE;
+  UNLOCK
   return CMD_SUCCESS;
 }
 
@@ -3085,7 +3099,7 @@ exec_timeout (struct vty *vty, const char *min_str, const char *sec_str)
   return CMD_SUCCESS;
 }
 
-DEFUN (exec_timeout_min,
+DEFUN_CALL (exec_timeout_min,
        exec_timeout_min_cmd,
        "exec-timeout <0-35791>",
        "Set timeout value\n"
@@ -3094,7 +3108,7 @@ DEFUN (exec_timeout_min,
   return exec_timeout (vty, argv[0], NULL);
 }
 
-DEFUN (exec_timeout_sec,
+DEFUN_CALL (exec_timeout_sec,
        exec_timeout_sec_cmd,
        "exec-timeout <0-35791> <0-2147483>",
        "Set the EXEC timeout\n"
@@ -3104,7 +3118,7 @@ DEFUN (exec_timeout_sec,
   return exec_timeout (vty, argv[0], argv[1]);
 }
 
-DEFUN (no_exec_timeout,
+DEFUN_CALL (no_exec_timeout,
        no_exec_timeout_cmd,
        "no exec-timeout",
        NO_STR
@@ -3114,61 +3128,71 @@ DEFUN (no_exec_timeout,
 }
 
 /* Set vty access class. */
-DEFUN (vty_access_class,
+DEFUN_CALL (vty_access_class,
        vty_access_class_cmd,
        "access-class WORD",
        "Filter connections based on an IP access list\n"
        "IP access list\n")
 {
+  LOCK
+
   if (vty_accesslist_name)
     XFREE(MTYPE_VTY, vty_accesslist_name);
 
   vty_accesslist_name = XSTRDUP(MTYPE_VTY, argv[0]);
 
+  UNLOCK
   return CMD_SUCCESS;
 }
 
 /* Clear vty access class. */
-DEFUN (no_vty_access_class,
+DEFUN_CALL (no_vty_access_class,
        no_vty_access_class_cmd,
        "no access-class [WORD]",
        NO_STR
        "Filter connections based on an IP access list\n"
        "IP access list\n")
 {
+  int result = CMD_SUCCESS;
+
+  LOCK
   if (! vty_accesslist_name || (argc && strcmp(vty_accesslist_name, argv[0])))
     {
-      vty_out (vty, "Access-class is not currently applied to vty%s",
+      uty_out (vty, "Access-class is not currently applied to vty%s",
 	       VTY_NEWLINE);
-      return CMD_WARNING;
+      result = CMD_WARNING;
+    }
+  else
+    {
+      XFREE(MTYPE_VTY, vty_accesslist_name);
+      vty_accesslist_name = NULL;
     }
 
-  XFREE(MTYPE_VTY, vty_accesslist_name);
-
-  vty_accesslist_name = NULL;
-
-  return CMD_SUCCESS;
+  UNLOCK
+  return result;
 }
 
 #ifdef HAVE_IPV6
 /* Set vty access class. */
-DEFUN (vty_ipv6_access_class,
+DEFUN_CALL (vty_ipv6_access_class,
        vty_ipv6_access_class_cmd,
        "ipv6 access-class WORD",
        IPV6_STR
        "Filter connections based on an IP access list\n"
        "IPv6 access list\n")
 {
+  LOCK
   if (vty_ipv6_accesslist_name)
     XFREE(MTYPE_VTY, vty_ipv6_accesslist_name);
 
   vty_ipv6_accesslist_name = XSTRDUP(MTYPE_VTY, argv[0]);
 
+  UNLOCK
   return CMD_SUCCESS;
 }
 
 /* Clear vty access class. */
-DEFUN (no_vty_ipv6_access_class,
+DEFUN_CALL (no_vty_ipv6_access_class,
        no_vty_ipv6_access_class_cmd,
        "no ipv6 access-class [WORD]",
        NO_STR
@@ -3176,118 +3200,143 @@ DEFUN (no_vty_ipv6_access_class,
        "Filter connections based on an IP access list\n"
        "IPv6 access list\n")
 {
+  int result = CMD_SUCCESS;
+
+  LOCK
+
   if (! vty_ipv6_accesslist_name ||
       (argc && strcmp(vty_ipv6_accesslist_name, argv[0])))
     {
-      vty_out (vty, "IPv6 access-class is not currently applied to vty%s",
+      uty_out (vty, "IPv6 access-class is not currently applied to vty%s",
 	       VTY_NEWLINE);
-      return CMD_WARNING;
+      result = CMD_WARNING;
+    }
+  else
+    {
+      XFREE(MTYPE_VTY, vty_ipv6_accesslist_name);
+
+      vty_ipv6_accesslist_name = NULL;
     }
 
-  XFREE(MTYPE_VTY, vty_ipv6_accesslist_name);
-
-  vty_ipv6_accesslist_name = NULL;
-
+  UNLOCK
   return CMD_SUCCESS;
 }
 #endif /* HAVE_IPV6 */
 
 /* vty login. */
-DEFUN (vty_login,
+DEFUN_CALL (vty_login,
        vty_login_cmd,
        "login",
        "Enable password checking\n")
 {
+  LOCK
   no_password_check = 0;
+  UNLOCK
   return CMD_SUCCESS;
 }
 
-DEFUN (no_vty_login,
+DEFUN_CALL (no_vty_login,
        no_vty_login_cmd,
        "no login",
        NO_STR
        "Enable password checking\n")
 {
+  LOCK
   no_password_check = 1;
+  UNLOCK
   return CMD_SUCCESS;
 }
 
 /* initial mode. */
-DEFUN (vty_restricted_mode,
+DEFUN_CALL (vty_restricted_mode,
        vty_restricted_mode_cmd,
        "anonymous restricted",
        "Restrict view commands available in anonymous, unauthenticated vty\n")
 {
+  LOCK
   restricted_mode = 1;
+  UNLOCK
   return CMD_SUCCESS;
 }
 
-DEFUN (vty_no_restricted_mode,
+DEFUN_CALL (vty_no_restricted_mode,
        vty_no_restricted_mode_cmd,
        "no anonymous restricted",
        NO_STR
        "Enable password checking\n")
 {
+  LOCK
   restricted_mode = 0;
+  UNLOCK
   return CMD_SUCCESS;
 }
 
-DEFUN (service_advanced_vty,
+DEFUN_CALL (service_advanced_vty,
        service_advanced_vty_cmd,
        "service advanced-vty",
        "Set up miscellaneous service\n"
        "Enable advanced mode vty interface\n")
 {
+  LOCK
   host.advanced = 1;
+  UNLOCK
   return CMD_SUCCESS;
 }
 
-DEFUN (no_service_advanced_vty,
+DEFUN_CALL (no_service_advanced_vty,
        no_service_advanced_vty_cmd,
        "no service advanced-vty",
        NO_STR
        "Set up miscellaneous service\n"
        "Enable advanced mode vty interface\n")
 {
+  LOCK
   host.advanced = 0;
+  UNLOCK
   return CMD_SUCCESS;
 }
 
-DEFUN (terminal_monitor,
+DEFUN_CALL (terminal_monitor,
        terminal_monitor_cmd,
        "terminal monitor",
        "Set terminal line parameters\n"
        "Copy debug output to the current terminal line\n")
 {
+  LOCK
   vty->monitor = 1;
+  UNLOCK
   return CMD_SUCCESS;
 }
 
-DEFUN (terminal_no_monitor,
+DEFUN_CALL (terminal_no_monitor,
        terminal_no_monitor_cmd,
        "terminal no monitor",
        "Set terminal line parameters\n"
        NO_STR
        "Copy debug output to the current terminal line\n")
 {
+  LOCK
   vty->monitor = 0;
+  UNLOCK
   return CMD_SUCCESS;
 }
 
-ALIAS (terminal_no_monitor,
+ALIAS_CALL (terminal_no_monitor,
        no_terminal_monitor_cmd,
        "no terminal monitor",
        NO_STR
        "Set terminal line parameters\n"
        "Copy debug output to the current terminal line\n")
 
-DEFUN (show_history,
+DEFUN_CALL (show_history,
        show_history_cmd,
        "show history",
        SHOW_STR
        "Display the session command history\n")
 {
   int index;
+
+  LOCK
 
   for (index = vty->hindex + 1; index != vty->hindex;)
     {
@@ -3298,11 +3347,12 @@ DEFUN (show_history,
 	}
 
       if (vty->hist[index] != NULL)
-	vty_out (vty, "  %s%s", vty->hist[index], VTY_NEWLINE);
+	uty_out (vty, "  %s%s", vty->hist[index], VTY_NEWLINE);
 
       index++;
     }
 
+  UNLOCK
   return CMD_SUCCESS;
 }
 
@@ -3468,6 +3518,70 @@ vty_init_vtysh ()
 {
   LOCK
   vtyvec = vector_init (0);
+  UNLOCK
+}
+
+int
+vty_get_node(struct vty *vty)
+{
+  int result;
+  LOCK
+  result = vty->node;
+  UNLOCK
+  return result;
+}
+
+void
+vty_set_node(struct vty *vty, int node)
+{
+  LOCK
+  vty->node = node;
+  UNLOCK
+}
+
+int
+vty_get_type(struct vty *vty)
+{
+  int result;
+  LOCK
+  result = vty->type;
+  UNLOCK
+  return result;
+}
+
+int
+vty_get_status(struct vty *vty)
+{
+  int result;
+  LOCK
+  result = vty->status;
+  UNLOCK
+  return result;
+}
+
+void
+vty_set_status(struct vty *vty, int status)
+{
+  LOCK
+  vty->status = status;
+  UNLOCK
+}
+
+int
+vty_get_lines(struct vty *vty)
+{
+  int result;
+  LOCK
+  result = vty->lines;
+  UNLOCK
+  return result;
+}
+
+void
+vty_set_lines(struct vty *vty, int lines)
+{
+  LOCK
+  vty->lines = lines;
   UNLOCK
 }
 

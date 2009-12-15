@@ -568,7 +568,7 @@ vtysh_rl_describe (void)
     if (rl_end && isspace ((int) rl_line_buffer[rl_end - 1]))
       vector_set (vline, '\0');
 
-  describe = cmd_describe_command (vline, vty, &ret);
+  describe = cmd_describe_command (vline, vty->node, &ret);
 
   fprintf (stdout,"\n");
 
@@ -658,7 +658,7 @@ command_generator (const char *text, int state)
       if (rl_end && isspace ((int) rl_line_buffer[rl_end - 1]))
 	vector_set (vline, '\0');
 
-      matched = cmd_complete_command (vline, vty, &complete_status);
+      matched = cmd_complete_command (vline, vty->node, &complete_status);
     }
 
   if (matched && matched[index])
@@ -2227,8 +2227,7 @@ void
 vtysh_init_vty (void)
 {
   /* Make vty structure. */
-  vty = vty_new (0);
-  vty->type = VTY_SHELL;
+  vty = vty_new (0, VTY_SHELL);
   vty->node = VIEW_NODE;
 
   /* Initialize commands. */

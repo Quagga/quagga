@@ -36,6 +36,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "filter.h"
 #include "plist.h"
 #include "qpnexus.h"
+#include "qlib_init.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_attr.h"
@@ -66,6 +67,7 @@ static const struct option longopts[] =
   { "version",     no_argument,       NULL, 'v'},
   { "dryrun",      no_argument,       NULL, 'C'},
   { "help",        no_argument,       NULL, 'h'},
+  { "threaded",    no_argument,       NULL, 't'},
   { 0 }
 };
 
@@ -168,6 +170,7 @@ redistribution between different routing protocols.\n\n\
 -v, --version      Print program version\n\
 -C, --dryrun       Check configuration for validity and exit\n\
 -h, --help         Display this help and exit\n\
+-t, --threaded     Use pthreads\n\
 \n\
 Report bugs to %s\n", progname, ZEBRA_BUG_ADDRESS);
     }
@@ -320,11 +323,11 @@ bgp_exit (int status)
       bgp_nexus->terminate = 1;
 
   if (cli_nexus)
-      cli_nexus->terminate = 1;
+      cli_nexus->terminate = 1; /* waste of time, its the main thread */
 
   /* TODO: join threads ? */
 
-  exit (status);
+  qexit (status);
 }
 
 /* Main routine of bgpd. Treatment of argument and start bgp finite
@@ -339,9 +342,12 @@ main (int argc, char **argv)
   char *progname;
   struct thread thread;
   int tmp_port;
+  int threaded = 0;
 
   /* Set umask before anything for security */
   umask (0027);
+
+  qlib_init_first_stage();
 
   /* Preserve name of myself. */
   progname = ((p = strrchr (argv[0], '/')) ? ++p : argv[0]);
@@ -355,7 +361,7 @@ main (int argc, char **argv)
   /* Command line argument treatment. */
   while (1) 
     {
-      opt = getopt_long (argc, argv, "df:i:hp:l:A:P:rnu:g:vC", longopts, 0);
+      opt = getopt_long (argc, argv, "df:i:hp:l:A:P:rnu:g:vCt", longopts, 0);
     
       if (opt == EOF)
 	break;
@@ -420,6 +426,9 @@ main (int argc, char **argv)
 	case 'h':
 	  usage (progname, 0);
 	  break;
+	case 't':
+	  threaded = 1;
+	  break;
 	default:
 	  usage (progname, 1);
 	  break;
@@ -460,10 +469,8 @@ main (int argc, char **argv)
   /* Process ID file creation. */
   pid_output (pid_file);
 
-  /* get qpthreads_enabled from config */
-  qpt_set_qpthreads_enabled(1);
-
   /* stage 2 initialisation */
+  qlib_init_second_stage(threaded) ;
 
   if (qpthreads_enabled)
     {
@@ -487,7 +494,7 @@ main (int argc, char **argv)
   if (qpthreads_enabled)
     {
       qpn_exec(bgp_nexus);
-      qpn_exec(cli_nexus);      /* must be last to start - on main thraed */
+      qpn_exec(cli_nexus);      /* must be last to start - on main thread */
     }
   else
     {

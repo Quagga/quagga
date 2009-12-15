@@ -126,8 +126,10 @@ struct cmd_node
 
 enum
 {
-  CMD_ATTR_DEPRECATED = 1,
-  CMD_ATTR_HIDDEN,
+  /* bit significant */
+  CMD_ATTR_DEPRECATED = 0x01,
+  CMD_ATTR_HIDDEN = 0x02,
+  CMD_ATTR_CALL = 0x04,
 };
 
 /* Structure of command element. */
@@ -163,6 +165,7 @@ struct desc
 #define CMD_COMPLETE_MATCH       8
 #define CMD_COMPLETE_LIST_MATCH  9
 #define CMD_SUCCESS_DAEMON      10
+#define CMD_QUEUED              11
 
 /* Argc max counts. */
 #define CMD_ARGC_MAX   25
@@ -205,8 +208,17 @@ struct desc
 #define DEFUN_HIDDEN(funcname, cmdname, cmdstr, helpstr) \
   DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_HIDDEN)
 
+#define DEFUN_HID_CALL(funcname, cmdname, cmdstr, helpstr) \
+  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, (CMD_ATTR_CALL | CMD_ATTR_HIDDEN))
+
 #define DEFUN_DEPRECATED(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED) \
+  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED)
+
+#define DEFUN_DEP_CALL(funcname, cmdname, cmdstr, helpstr) \
+  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, (CMD_ATTR_CALL | CMD_ATTR_DEPRECATED))
+
+#define DEFUN_CALL(funcname, cmdname, cmdstr, helpstr) \
+  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_CALL)
 
 /* DEFUN_NOSH for commands that vtysh should ignore */
 #define DEFUN_NOSH(funcname, cmdname, cmdstr, helpstr) \
@@ -214,7 +226,7 @@ struct desc
 
 /* DEFSH for vtysh. */
 #define DEFSH(daemon, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_ELEMENT(NULL, cmdname, cmdstr, helpstr, 0, daemon) \
+  DEFUN_CMD_ELEMENT(NULL, cmdname, cmdstr, helpstr, 0, daemon)
 
 /* DEFUN + DEFSH */
 #define DEFUNSH(daemon, funcname, cmdname, cmdstr, helpstr) \
@@ -246,6 +258,9 @@ struct desc
 
 #define ALIAS_DEPRECATED(funcname, cmdname, cmdstr, helpstr) \
   DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED, 0)
+
+#define ALIAS_CALL(funcname, cmdname, cmdstr, helpstr) \
+  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_CALL, 0)
 
 #define ALIAS_SH(daemon, funcname, cmdname, cmdstr, helpstr) \
   DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, 0, daemon)
@@ -338,8 +353,8 @@ extern char *argv_concat (const char **argv, int argc, int shift);
 
 extern vector cmd_make_strvec (const char *);
 extern void cmd_free_strvec (vector);
-extern vector cmd_describe_command (vector, struct vty *, int *status);
-extern char **cmd_complete_command (vector, struct vty *, int *status);
+extern vector cmd_describe_command (vector, int, int *status);
+extern char **cmd_complete_command (vector, int, int *status);
 extern const char *cmd_prompt (enum node_type);
 extern int config_from_file (struct vty *, FILE *);
 extern enum node_type node_parent (enum node_type);
