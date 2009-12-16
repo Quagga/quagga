@@ -122,7 +122,6 @@ qpn_exec(qpn_nexus qpn)
   if (qpn->main_thread)
     {
       /* Run the state machine in calling thread */
-      qpn->thread_id = qpt_thread_self();
       qpn->start(qpn);
     }
   else
@@ -142,6 +141,8 @@ qpn_start_main(void* arg)
   int actions;
   qtime_mono_t now;
   sigset_t newmask;
+
+  qpn->thread_id = qpt_thread_self();
 
   /* Main thread, block the message queue's signal */
   sigemptyset (&newmask);
@@ -187,6 +188,8 @@ qpn_start_bgp(void* arg)
   struct thread thread;
   mqueue_block mqb;
   sigset_t newmask;
+
+  qpn->thread_id = qpt_thread_self();
 
   /*
    * Not main thread.  Block most signals, but be careful not to

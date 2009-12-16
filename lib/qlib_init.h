@@ -22,7 +22,6 @@
 #ifndef _ZEBRA_QLIB_INIT_H
 #define _ZEBRA_QLIB_INIT_H
 
-#include "zassert.h"
 /*==============================================================================
  * Quagga Library Initialise/Closedown
  *

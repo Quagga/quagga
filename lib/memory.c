@@ -28,6 +28,13 @@
 
 #include "log.h"
 #include "memory.h"
+#include "qpthreads.h"
+
+/* Needs to be qpthread safe.  The system malloc etc are already
+ * thread safe, but we need to protect the stats */
+static qpt_mutex_t* memory_mutex = NULL;
+#define LOCK if(memory_mutex)qpt_mutex_lock(memory_mutex);
+#define UNLOCK if(memory_mutex)qpt_mutex_unlock(memory_mutex);
 
 static void alloc_inc (int);
 static void alloc_dec (int);
@@ -148,8 +155,10 @@ mtype_zmalloc (const char *file, int line, int type, size_t size)
 {
   void *memory;
 
+  LOCK
   mstat[type].c_malloc++;
   mstat[type].t_malloc++;
+  UNLOCK
 
   memory = zmalloc (type, size);
   mtype_log ("zmalloc", memory, file, line, type);
@@ -162,8 +171,10 @@ mtype_zcalloc (const char *file, int line, int type, size_t size)
 {
   void *memory;
 
+  LOCK
   mstat[type].c_calloc++;
   mstat[type].t_calloc++;
+  UNLOCK
 
   memory = zcalloc (type, size);
   mtype_log ("xcalloc", memory, file, line, type);
@@ -177,7 +188,9 @@ mtype_zrealloc (const char *file, int line, int type, void *ptr, size_t size)
   void *memory;
 
   /* Realloc need before allocated pointer. */
+  LOCK
   mstat[type].t_realloc++;
+  UNLOCK
 
   memory = zrealloc (type, ptr, size);
 
@@ -190,7 +203,9 @@ mtype_zrealloc (const char *file, int line, int type, void *ptr, size_t size)
 void
 mtype_zfree (const char *file, int line, int type, void *ptr)
 {
+  LOCK
   mstat[type].t_free++;
+  UNLOCK
 
   mtype_log ("xfree", ptr, file, line, type);
 
@@ -202,7 +217,9 @@ mtype_zstrdup (const char *file, int line, int type, const char *str)
 {
   char *memory;
 
+  LOCK
   mstat[type].c_strdup++;
+  UNLOCK
 
   memory = zstrdup (type, str);
 
@@ -222,14 +239,18 @@ static struct
 static void
 alloc_inc (int type)
 {
+  LOCK
   mstat[type].alloc++;
+  UNLOCK
 }
 
 /* Decrement allocation counter. */
 static void
 alloc_dec (int type)
 {
+  LOCK
   mstat[type].alloc--;
+  UNLOCK
 }
 
 /* Looking up memory status from vty interface. */
@@ -248,8 +269,11 @@ log_memstats(int pri)
 
       zlog (NULL, pri, "Memory utilization in module %s:", ml->name);
       for (m = ml->list; m->index >= 0; m++)
-	if (m->index && mstat[m->index].alloc)
-	  zlog (NULL, pri, "  %-30s: %10ld", m->format, mstat[m->index].alloc);
+        {
+        unsigned long alloc = mtype_stats_alloc(m->index);
+	if (m->index && alloc)
+	  zlog (NULL, pri, "  %-30s: %10ld", m->format, alloc);
+        }
     }
 }
 
@@ -264,23 +288,25 @@ log_memstats_stderr (const char *prefix)
   for (ml = mlists; ml->list; ml++)
     {
       i = 0;
-
       for (m = ml->list; m->index >= 0; m++)
-        if (m->index && mstat[m->index].alloc)
-          {
-            if (!i)
+        {
+          unsigned long alloc = mtype_stats_alloc(m->index);
+          if (m->index && alloc)
+            {
+              if (!i)
+                fprintf (stderr,
+                    "%s: memstats: Current memory utilization in module %s:\n",
+                    prefix,
+                    ml->name);
               fprintf (stderr,
-                       "%s: memstats: Current memory utilization in module %s:\n",
-                       prefix,
-                       ml->name);
-            fprintf (stderr,
-                     "%s: memstats:  %-30s: %10ld%s\n",
-                     prefix,
-                     m->format,
-                     mstat[m->index].alloc,
-                     mstat[m->index].alloc < 0 ? " (REPORT THIS BUG!)" : "");
-            i = j = 1;
-          }
+                      "%s: memstats:  %-30s: %10ld%s\n",
+                      prefix,
+                      m->format,
+                      alloc,
+                      alloc < 0 ? " (REPORT THIS BUG!)" : "");
+              i = j = 1;
+            }
+        }
     }
 
   if (j)
@@ -315,10 +341,14 @@ show_memory_vty (struct vty *vty, struct memory_list *list)
 	    needsep = 0;
 	  }
       }
-    else if (mstat[m->index].alloc)
+    else
       {
-	vty_out (vty, "%-30s: %10ld\r\n", m->format, mstat[m->index].alloc);
-	needsep = 1;
+        unsigned long alloc = mtype_stats_alloc(m->index);
+        if (alloc)
+          {
+            vty_out (vty, "%-30s: %10ld\r\n", m->format, alloc);
+            needsep = 1;
+          }
       }
   return needsep;
 }
@@ -364,7 +394,7 @@ show_memory_mallinfo (struct vty *vty)
 }
 #endif /* HAVE_MALLINFO */
 
-DEFUN (show_memory_all,
+DEFUN_CALL (show_memory_all,
        show_memory_all_cmd,
        "show memory all",
        "Show running system information\n"
@@ -388,13 +418,13 @@ DEFUN (show_memory_all,
   return CMD_SUCCESS;
 }
 
-ALIAS (show_memory_all,
+ALIAS_CALL (show_memory_all,
        show_memory_cmd,
        "show memory",
        "Show running system information\n"
        "Memory statistics\n")
 
-DEFUN (show_memory_lib,
+DEFUN_CALL (show_memory_lib,
        show_memory_lib_cmd,
        "show memory lib",
        SHOW_STR
@@ -405,7 +435,7 @@ DEFUN (show_memory_lib,
   return CMD_SUCCESS;
 }
 
-DEFUN (show_memory_zebra,
+DEFUN_CALL (show_memory_zebra,
        show_memory_zebra_cmd,
        "show memory zebra",
        SHOW_STR
@@ -416,7 +446,7 @@ DEFUN (show_memory_zebra,
   return CMD_SUCCESS;
 }
 
-DEFUN (show_memory_rip,
+DEFUN_CALL (show_memory_rip,
        show_memory_rip_cmd,
        "show memory rip",
        SHOW_STR
@@ -427,7 +457,7 @@ DEFUN (show_memory_rip,
   return CMD_SUCCESS;
 }
 
-DEFUN (show_memory_ripng,
+DEFUN_CALL (show_memory_ripng,
        show_memory_ripng_cmd,
        "show memory ripng",
        SHOW_STR
@@ -438,7 +468,7 @@ DEFUN (show_memory_ripng,
   return CMD_SUCCESS;
 }
 
-DEFUN (show_memory_bgp,
+DEFUN_CALL (show_memory_bgp,
        show_memory_bgp_cmd,
        "show memory bgp",
        SHOW_STR
@@ -449,7 +479,7 @@ DEFUN (show_memory_bgp,
   return CMD_SUCCESS;
 }
 
-DEFUN (show_memory_ospf,
+DEFUN_CALL (show_memory_ospf,
        show_memory_ospf_cmd,
        "show memory ospf",
        SHOW_STR
@@ -460,7 +490,7 @@ DEFUN (show_memory_ospf,
   return CMD_SUCCESS;
 }
 
-DEFUN (show_memory_ospf6,
+DEFUN_CALL (show_memory_ospf6,
        show_memory_ospf6_cmd,
        "show memory ospf6",
        SHOW_STR
@@ -471,7 +501,7 @@ DEFUN (show_memory_ospf6,
   return CMD_SUCCESS;
 }
 
-DEFUN (show_memory_isis,
+DEFUN_CALL (show_memory_isis,
        show_memory_isis_cmd,
        "show memory isis",
        SHOW_STR
@@ -480,6 +510,21 @@ DEFUN (show_memory_isis,
 {
   show_memory_vty (vty, memory_list_isis);
   return CMD_SUCCESS;
+}
+
+/* Second state initialisation if qpthreaded */
+void
+memory_init_r (void)
+{
+  memory_mutex = qpt_mutex_init(memory_mutex, qpt_mutex_quagga);
+}
+
+/* Finished with module */
+void
+memory_finish (void)
+{
+  if (memory_mutex)
+    memory_mutex = qpt_mutex_destroy(memory_mutex, 1);
 }
 
 void
@@ -583,5 +628,12 @@ mtype_memstr (char *buf, size_t len, unsigned long bytes)
 unsigned long
 mtype_stats_alloc (int type)
 {
-  return mstat[type].alloc;
+  unsigned long result;
+  LOCK
+  result = mstat[type].alloc;
+  UNLOCK
+  return result;
 }
+
+#undef UNLOCK
+#undef LOCK

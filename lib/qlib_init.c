@@ -19,7 +19,10 @@
  * Boston, MA 02111-1307, USA.
  */
 
+#include "qlib_init.h"
 #include "zassert.h"
+#include "memory.h"
+#include "qpthreads.h"
 
 /*==============================================================================
  * Quagga Library Initialise/Closedown
@@ -61,19 +64,20 @@
 void
 qlib_init_first_stage(void)
 {
-  ;
 }
 
 void
 qlib_init_second_stage(int pthreads)
 {
   qpt_set_qpthreads_enabled(pthreads);
+  memory_init_r();
 }
 
 
 void
 qexit(int exit_code)
 {
+  memory_finish();
   exit (exit_code);
 }
 

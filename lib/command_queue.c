@@ -49,7 +49,7 @@ cq_enqueue(struct cmd_element *matched_element, struct vty *vty,
   wyatt->matched_element = matched_element;
   wyatt->vty = vty;
   wyatt->argc = argc;
-  wyatt->argv = XCALLOC(MTYPE_MARSHAL, sizeof (char*) * argc);
+  wyatt->argv = argc ? XCALLOC(MTYPE_MARSHAL, sizeof (char*) * argc) : NULL;
   for (i = 0; i < argc; ++i)
     {
       wyatt->argv[i] = XSTRDUP(MTYPE_MARSHAL, argv[i]);
@@ -80,7 +80,8 @@ cq_action(mqueue_block mqb)
     {
       XFREE(MTYPE_MARSHAL, wyatt->argv[i]);
     }
-  XFREE(MTYPE_MARSHAL, wyatt->argv);
+  if (wyatt->argv)
+    XFREE(MTYPE_MARSHAL, wyatt->argv);
   XFREE(MTYPE_MARSHAL, wyatt);
   mqb_free(mqb);
 }

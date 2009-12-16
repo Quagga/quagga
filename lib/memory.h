@@ -85,6 +85,8 @@ extern void mtype_zfree (const char *file, int line, int type,
 extern char *mtype_zstrdup (const char *file, int line, int type,
 		            const char *str);
 extern void memory_init (void);
+extern void memory_init_r (void);
+extern void memory_finish (void);
 extern void log_memstats_stderr (const char *);
 
 /* return number of allocations outstanding for the type */
