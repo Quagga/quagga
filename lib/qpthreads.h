@@ -123,6 +123,9 @@ qpt_thread_attr_init(qpt_thread_attr_t* attr, enum qpt_attr_options opts,
 extern qpt_thread_t             /* FATAL error if !qpthreads_enabled    */
 qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr) ;
 
+extern void*                    /* do nothing if !qpthreads_enabled     */
+qpt_thread_join(qpt_thread_t thread_id) ;
+
 /*==============================================================================
  * qpthreads_enabled support -- NOT FOR PUBLIC CONSUMPTION !
  */

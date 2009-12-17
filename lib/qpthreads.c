@@ -432,6 +432,34 @@ qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr)
   return thread_id ;
 } ;
 
+/* Join given thread -- do nothing if !qpthreads_enabled
+ *
+ * Tolerates ESRCH (no thread known by given id).
+ *
+ * Returns whatever the thread returns, NULL otherwise.
+ *
+ * NB: all other errors are FATAL.
+ */
+extern void*
+qpt_thread_join(qpt_thread_t thread_id)
+{
+  int   err ;
+  void* ret ;
+
+  if (!qpthreads_enabled)
+    return NULL ;
+
+  err = pthread_join(thread_id, &ret) ;
+
+  if (err == 0)
+    return ret ;
+
+  if (err == ESRCH)
+    return NULL ;
+
+  zabort_err("pthread_join failed", err) ;
+} ;
+
 /*==============================================================================
  * Mutex initialise and destroy.
  */
