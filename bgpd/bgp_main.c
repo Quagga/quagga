@@ -500,15 +500,14 @@ main (int argc, char **argv)
   if (qpthreads_enabled)
     {
       void * thread_result = NULL;
-      int result = 0;
 
       qpn_exec(bgp_nexus);
       qpn_exec(cli_nexus);      /* must be last to start - on main thread */
 
       /* terminating, wait for all threads to finish */
       /* TODO need qpt_ version */
-      result = pthread_join(bgp_nexus->thread_id, &thread_result);
-      bgp_exit(result);
+      thread_result = qpt_thread_join(bgp_nexus->thread_id);
+      bgp_exit(0);
     }
   else
     {
