@@ -52,6 +52,17 @@
  *
  * The time base for qtimers is the monotonic time provided in qtime.c/.h.
  *
+ * Interval
+ * --------
+ *
+ * There is an optional interval associated with each timer.
+ *
+ * The timer may be set to "now + interval", and the interval is stored with
+ * the timer.
+ *
+ * The timer may be set to its current time + stored interval (to provide a
+ * "steady" clock).
+ *
  * Action Functions
  * ----------------
  *
@@ -95,8 +106,6 @@ qtimer_pile_init_new(qtimer_pile qtp)
   /* Zeroising has initialised:
    *
    *   timers        -- invalid heap -- need to properly initialise
-   *
-   *   unset_pending -- NULL -- nothing pending
    */
 
   /* Eclipse flags offsetof(struct qtimer, backlink) as a syntax error :-(  */
@@ -221,6 +230,8 @@ qtimer_init_new(qtimer qtr, qtimer_pile qtp,
    *   time        -- unset
    *   action      -- NULL -- no action set (yet)
    *   timer_info  -- NULL -- no timer info set (yet)
+   *
+   *   interval    -- unset
    */
 
   confirm(qtr_state_inactive == 0) ;

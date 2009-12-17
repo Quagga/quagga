@@ -58,14 +58,16 @@ typedef enum qtimer_state qtimer_state_t ;
 
 struct qtimer
 {
-  qtimer_pile     pile ;
+  qtimer_pile     pile ;        /* pile currently allocated to          */
   heap_backlink_t backlink ;
 
   qtimer_state_t  state ;
 
-  qtime_mono_t    time ;
+  qtime_mono_t    time ;        /* current time to trigger action       */
   qtimer_action*  action ;
   void*           timer_info ;
+
+  qtime_t         interval ;    /* optional timer interval              */
 } ;
 
 struct qtimer_pile
@@ -121,6 +123,15 @@ qtimer_add(qtimer qtr, qtime_t interval, qtimer_action* action) ;
 Inline qtime_mono_t
 qtimer_get(qtimer qtr) ;
 
+Inline void
+qtimer_set_interval(qtimer qtr, qtime_t interval, qtimer_action* action) ;
+
+Inline void
+qtimer_add_interval(qtimer qtr, qtimer_action* action) ;
+
+Inline qtime_t
+qtimer_get_interval(qtimer qtr) ;
+
 /*==============================================================================
  * Inline functions
  */
@@ -139,6 +150,32 @@ Inline qtime_mono_t
 qtimer_get(qtimer qtr)
 {
   return qtr->time ;
+} ;
+
+/* Interval handling ---------------------------------------------------------*/
+
+/* Set the interval field
+ */
+
+Inline void
+qtimer_set_interval(qtimer qtr, qtime_t interval, qtimer_action* action)
+{
+  qtr->interval = interval ;
+  qtimer_set(qtr, qt_add_monotonic(interval), action) ;
+} ;
+
+Inline void
+qtimer_add_interval(qtimer qtr, qtimer_action* action)
+{
+  qtimer_add(qtr, qtr->interval, action) ;
+} ;
+
+/* Get the current value of the interval field
+ */
+Inline qtime_t
+qtimer_get_interval(qtimer qtr)
+{
+  return qtr->interval ;
 } ;
 
 #endif /* _ZEBRA_QTIMERS_H */
