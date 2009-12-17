@@ -225,7 +225,7 @@ qps_selection_ream(qps_selection qps, int free_structure)
 {
   qps_file qf ;
 
-  qf = vector_ream_keep(&qps->files) ;
+  qf = vector_get_last_item(&qps->files) ;
   if (qf != NULL)
     qps_file_remove(qps, qf) ;
   else
