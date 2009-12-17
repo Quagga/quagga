@@ -524,7 +524,12 @@ void
 memory_finish (void)
 {
   if (memory_mutex)
-    memory_mutex = qpt_mutex_destroy(memory_mutex, 1);
+    {
+      /* avoid re-entrancy with memory disposal */
+      qpt_mutex_t* mx = memory_mutex;
+      memory_mutex = NULL;
+      qpt_mutex_destroy(mx, 1);
+    }
 }
 
 void

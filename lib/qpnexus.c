@@ -84,12 +84,17 @@ qpn_init_bgp(qpn_nexus qpn)
   return qpn;
 }
 
-/* free timers, selection, message queue and nexus */
-static void
+/* free timers, selection, message queue and nexus
+ * return NULL
+ */
+qpn_nexus
 qpn_free(qpn_nexus qpn)
 {
   qps_file qf;
   qtimer qtr;
+
+  if (qpn == NULL)
+    return NULL;
 
   /* timers and the pile */
   if (qpn->pile != NULL)
@@ -112,6 +117,8 @@ qpn_free(qpn_nexus qpn)
   /* TODO: free qtn->queue */
 
   XFREE(MTYPE_QPN_NEXUS, qpn) ;
+
+  return NULL;
 }
 
 /* If not main thread create new qpthread.
@@ -127,7 +134,7 @@ qpn_exec(qpn_nexus qpn)
   else
     {
       /* create a qpthread and run the state machine in it */
-      qpn->thread_id = qpt_thread_create(qpn->start, qpn, NULL) ;
+      qpt_thread_create(qpn->start, qpn, NULL) ;
     }
 }
 
@@ -172,8 +179,6 @@ qpn_start_main(void* arg)
           actions = qps_dispatch_next(qpn->selection) ;
         }
     }
-
-  qpn_free(qpn);
 
   return NULL;
 }
@@ -224,7 +229,14 @@ qpn_start_bgp(void* arg)
       mqueue_done_waiting(qpn->queue, qpn->mts);
     }
 
-  qpn_free(qpn);
-
   return NULL;
+}
+
+/* Ask the thread to terminate itself quickly and cleanly */
+void
+qpn_terminate(qpn_nexus qpn)
+{
+  qpn->terminate = 1;
+  /* wake up any pselect */
+  qpt_thread_signal(qpn->thread_id, SIGMQUEUE);
 }

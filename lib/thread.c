@@ -40,6 +40,10 @@ static struct timeval relative_time_base;
 /* init flag */
 static unsigned short timers_inited;
 
+/* cpu stats needs to be qpthread safe. */
+static qpt_mutex_t* thread_mutex = NULL;
+#define LOCK qpt_mutex_lock(thread_mutex);
+#define UNLOCK qpt_mutex_unlock(thread_mutex);
 static struct hash *cpu_record = NULL;
 
 /* TODO: remove this */
@@ -323,15 +327,19 @@ cpu_record_print(struct vty *vty, thread_type filter)
   vty_out(vty, " Avg uSec Max uSecs");
 #endif
   vty_out(vty, "  Type  Thread%s", VTY_NEWLINE);
+
+  LOCK
   hash_iterate(cpu_record,
 	       (void(*)(struct hash_backet*,void*))cpu_record_hash_print,
 	       args);
 
   if (tmp.total_calls > 0)
     vty_out_cpu_thread_history(vty, &tmp);
+
+  UNLOCK
 }
 
-DEFUN(show_thread_cpu,
+DEFUN_CALL(show_thread_cpu,
       show_thread_cpu_cmd,
       "show thread cpu [FILTER]",
       SHOW_STR
@@ -529,12 +537,14 @@ thread_master_free (struct thread_master *m)
   
   XFREE (MTYPE_THREAD_MASTER, m);
 
+  LOCK
   if (cpu_record)
     {
       hash_clean (cpu_record, cpu_record_hash_free);
       hash_free (cpu_record);
       cpu_record = NULL;
     }
+  UNLOCK
 }
 
 /* Thread list is empty or not.  */
@@ -1088,8 +1098,10 @@ thread_call (struct thread *thread)
       tmp.func = thread->func;
       tmp.funcname = thread->funcname;
       
+      LOCK
       thread->hist = hash_get (cpu_record, &tmp, 
                     (void * (*) (void *))cpu_record_hash_alloc);
+      UNLOCK
     }
 
   GETRUSAGE (&thread->ru);
@@ -1099,6 +1111,8 @@ thread_call (struct thread *thread)
   GETRUSAGE (&ru);
 
   realtime = thread_consumed_time (&ru, &thread->ru, &cputime);
+
+  LOCK
   thread->hist->real.total += realtime;
   if (thread->hist->real.max < realtime)
     thread->hist->real.max = realtime;
@@ -1110,6 +1124,7 @@ thread_call (struct thread *thread)
 
   ++(thread->hist->total_calls);
   thread->hist->types |= (1 << thread->add_type);
+  UNLOCK
 
 #ifdef CONSUMED_TIME_CHECK
   if (realtime > CONSUMED_TIME_CHECK)
@@ -1154,4 +1169,20 @@ funcname_thread_execute (struct thread_master *m,
 
   return NULL;
 }
+
+/* Second state initialisation if qpthreaded */
+void
+thread_init_r (void)
+{
+  thread_mutex = qpt_mutex_init(thread_mutex, qpt_mutex_quagga);
+}
+
+/* Finished with module */
+void
+thread_finish (void)
+{
+  if (thread_mutex)
+    thread_mutex = qpt_mutex_destroy(thread_mutex, 1);
+}
+
 #undef USE_MQUEUE

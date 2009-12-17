@@ -23,6 +23,8 @@
 #include "zassert.h"
 #include "memory.h"
 #include "qpthreads.h"
+#include "thread.h"
+#include "privs.h"
 
 /*==============================================================================
  * Quagga Library Initialise/Closedown
@@ -71,12 +73,16 @@ qlib_init_second_stage(int pthreads)
 {
   qpt_set_qpthreads_enabled(pthreads);
   memory_init_r();
+  thread_init_r();
+  zprivs_init_r();
 }
 
 
 void
 qexit(int exit_code)
 {
+  zprivs_finish();
+  thread_finish();
   memory_finish();
   exit (exit_code);
 }

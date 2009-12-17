@@ -22,6 +22,8 @@
 #ifndef _ZEBRA_THREAD_H
 #define _ZEBRA_THREAD_H
 
+#include <sys/resource.h>
+
 struct rusage_t
 {
 #ifdef HAVE_RUSAGE
@@ -163,6 +165,8 @@ enum quagga_clkid {
 /* Prototypes. */
 extern struct thread_master *thread_master_create (void);
 extern void thread_master_free (struct thread_master *);
+extern void thread_init_r (void);
+extern void thread_finish (void);
 
 extern struct thread *funcname_thread_add_read (struct thread_master *, 
 				                int (*)(struct thread *),

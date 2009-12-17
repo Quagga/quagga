@@ -677,9 +677,10 @@ zprivs_init_r()
 }
 
 void
-zprivs_destroy_r(void)
+zprivs_finish(void)
 {
-  mx = qpt_mutex_destroy(mx, 1);
+  if (mx)
+    mx = qpt_mutex_destroy(mx, 1);
 }
 
 void

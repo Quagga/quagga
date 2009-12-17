@@ -83,7 +83,7 @@ struct zprivs_ids_t
   /* initialise zebra privileges */
 extern void zprivs_init_r (void);
 extern void zprivs_init (struct zebra_privs_t *zprivs);
-extern void zprivs_destroy_r (void);
+extern void zprivs_finish (void);
 
   /* drop all and terminate privileges */ 
 extern void zprivs_terminate (struct zebra_privs_t *);

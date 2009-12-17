@@ -207,7 +207,19 @@ sigint (void)
   if (! retain_mode)
     bgp_terminate ();
 
-  bgp_exit (0);
+  if (qpthreads_enabled)
+    {
+      /* ask all threads to terminate */
+      if (bgp_nexus)
+          qpn_terminate(bgp_nexus);
+
+      if (cli_nexus)
+          qpn_terminate(cli_nexus);
+    }
+  else
+    {
+      bgp_exit (0);
+    }
 }
 
 /* SIGUSR1 handler. */
@@ -319,13 +331,8 @@ bgp_exit (int status)
   if (CONF_BGP_DEBUG (normal, NORMAL))
     log_memstats_stderr ("bgpd");
 
-  if (bgp_nexus)
-      bgp_nexus->terminate = 1;
-
-  if (cli_nexus)
-      cli_nexus->terminate = 1; /* waste of time, its the main thread */
-
-  /* TODO: join threads ? */
+  bgp_nexus = qpn_free(bgp_nexus);
+  cli_nexus = qpn_free(cli_nexus);
 
   qexit (status);
 }
@@ -477,7 +484,6 @@ main (int argc, char **argv)
       cli_nexus = qpn_init_main(cli_nexus); /* main thread */
       bgp_nexus = qpn_init_bgp(bgp_nexus);
 
-      zprivs_init_r ();
       vty_init_r(cli_nexus, bgp_nexus);
     }
 
@@ -493,8 +499,16 @@ main (int argc, char **argv)
   /* Launch finite state machines */
   if (qpthreads_enabled)
     {
+      void * thread_result = NULL;
+      int result = 0;
+
       qpn_exec(bgp_nexus);
       qpn_exec(cli_nexus);      /* must be last to start - on main thread */
+
+      /* terminating, wait for all threads to finish */
+      /* TODO need qpt_ version */
+      result = pthread_join(bgp_nexus->thread_id, &thread_result);
+      bgp_exit(result);
     }
   else
     {
