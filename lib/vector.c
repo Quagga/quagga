@@ -234,33 +234,74 @@ vector_ream(vector v, int free_structure)
 } ;
 
 /*==============================================================================
- * Unset item.
+ * Unset item, condensing and trimming vector.
  */
+
+/* Trim any NULL entries at the current (logical) end of the vector.
+ *
+ * Returns the (new) end of the vector.
+ */
+extern vector_index
+vector_trim(vector v)
+{
+  vector_index i = v->end ;
+  while ((i > 0) && (v->p_items[i - 1] == NULL))
+    --i ;
+  v->end = i ;
+  return i ;
+} ;
+
+/* Removes any NULL entries from the given vector.
+ *
+ * Returns the (new) end of the vector.
+ */
+extern vector_index vector_condense(vector v)
+{
+  vector_index i = 0 ;
+  vector_index j ;
+
+  /* Find first NULL, if any                    */
+  while ((i < v->end) && (v->p_items[i] != NULL))
+    ++i ;
+
+  /* Quit if no NULLs (or vector is empty)      */
+  if (i == v->end)
+    return i ;
+
+  /* Shuffle any remaining non-NULL down        */
+  for (j = i + 1 ; j < v->end ; ++j)
+    if (v->p_items[j] != NULL)
+      v->p_items[i++] = v->p_items[j] ;
+
+  v->end = i ;
+
+  return i ;
+} ;
 
 /* Unset item at given index (ie set it NULL).
  *
  * Return the old value of the item.
  *
  * If the item at the current (logical) end of the vector is NULL, move the
- * end backwards until finds a non-NULL item, or the vetor becomes empty.
+ * end backwards until finds a non-NULL item, or the vector becomes empty.
  */
 extern p_vector_item
 vector_unset_item(vector v, vector_index i)
 {
   p_vector_item was ;
+
   if (i < v->end)
     {
       was = v->p_items[i] ;
       v->p_items[i] = NULL ;
     }
+  else if (v->end == 0)
+    return NULL ;       /* avoid test for last entry NULL if is empty   */
   else
     was = NULL ;
 
-  /* Now move end back past any NULLs                   */
-  i = v->end ;
-  while ((i > 0) && (v->p_items[i-1] == NULL))
-    --i ;
-  v->end = i ;
+  if (v->p_items[v->end - 1] == NULL)
+    vector_trim(v) ;
 
   return was ;
 } ;

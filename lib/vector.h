@@ -139,6 +139,8 @@ Inline p_vector_item vector_get_first_item(vector v) ;
 Inline p_vector_item vector_get_last_item(vector v) ;
 Inline void vector_set_item(vector v, vector_index i, p_vector_item p_v) ;
 extern p_vector_item vector_unset_item(vector v, vector_index i) ;
+extern vector_index vector_trim(vector v) ;
+extern vector_index vector_condense(vector v) ;
 
 extern void vector_insert_item(vector v, vector_index i, p_vector_item p_v) ;
 extern void vector_insert_item_here(vector v, vector_index i, int rider,
