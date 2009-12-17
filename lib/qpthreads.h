@@ -137,10 +137,18 @@ qpt_freeze_qpthreads_enabled(void) ;    /* get and freeze qpthreads_enabled  */
 /*==============================================================================
  * Thread self knowledge -- returns 'NULL' if !qpthreads_enabled
  */
-
 Inline qpt_thread_t qpt_thread_self(void)
 {
   return qpthreads_enabled ? pthread_self() : (qpt_thread_t)NULL;
+} ;
+
+/*==============================================================================
+ * Thread equality -- returns non-zero (true) if threads are *equal*
+ *                 -- all threads are equal if !qpthreads_enabled
+ */
+Inline int qpt_threads_equal(qpt_thread_t a, qpt_thread_t b)
+{
+  return !qpthreads_enabled || pthread_equal(a, b) ? 1 : 0 ;
 } ;
 
 /*==============================================================================
