@@ -37,11 +37,11 @@
 #include "qpthreads.h"
 
 #ifdef NDEBUG
-#define LOCK qpt_mutex_lock(vty_mutex);
-#define UNLOCK qpt_mutex_unlock(vty_mutex);
+#define LOCK qpt_mutex_lock(&vty_mutex);
+#define UNLOCK qpt_mutex_unlock(&vty_mutex);
 #else
-#define LOCK qpt_mutex_lock(vty_mutex);++vty_lock_count;
-#define UNLOCK --vty_lock_count;qpt_mutex_unlock(vty_mutex);
+#define LOCK qpt_mutex_lock(&vty_mutex);++vty_lock_count;
+#define UNLOCK --vty_lock_count;qpt_mutex_unlock(&vty_mutex);
 #define ASSERTLOCKED if(vty_lock_count==0 && !vty_lock_asserted){vty_lock_asserted=1;assert(0);}
 #endif
 

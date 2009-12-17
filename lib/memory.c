@@ -32,9 +32,9 @@
 
 /* Needs to be qpthread safe.  The system malloc etc are already
  * thread safe, but we need to protect the stats */
-static qpt_mutex_t* memory_mutex = NULL;
-#define LOCK if(memory_mutex)qpt_mutex_lock(memory_mutex);
-#define UNLOCK if(memory_mutex)qpt_mutex_unlock(memory_mutex);
+static qpt_mutex_t memory_mutex;
+#define LOCK qpt_mutex_lock(&memory_mutex);
+#define UNLOCK qpt_mutex_unlock(&memory_mutex);
 
 static void alloc_inc (int);
 static void alloc_dec (int);
@@ -516,20 +516,14 @@ DEFUN_CALL (show_memory_isis,
 void
 memory_init_r (void)
 {
-  memory_mutex = qpt_mutex_init(memory_mutex, qpt_mutex_quagga);
+  qpt_mutex_init(&memory_mutex, qpt_mutex_quagga);
 }
 
 /* Finished with module */
 void
 memory_finish (void)
 {
-  if (memory_mutex)
-    {
-      /* avoid re-entrancy with memory disposal */
-      qpt_mutex_t* mx = memory_mutex;
-      memory_mutex = NULL;
-      qpt_mutex_destroy(mx, 1);
-    }
+  qpt_mutex_destroy(&memory_mutex, 0);
 }
 
 void

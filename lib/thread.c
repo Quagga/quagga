@@ -41,9 +41,9 @@ static struct timeval relative_time_base;
 static unsigned short timers_inited;
 
 /* cpu stats needs to be qpthread safe. */
-static qpt_mutex_t* thread_mutex = NULL;
-#define LOCK qpt_mutex_lock(thread_mutex);
-#define UNLOCK qpt_mutex_unlock(thread_mutex);
+static qpt_mutex_t thread_mutex;
+#define LOCK qpt_mutex_lock(&thread_mutex);
+#define UNLOCK qpt_mutex_unlock(&thread_mutex);
 static struct hash *cpu_record = NULL;
 
 /* TODO: remove this */
@@ -1174,15 +1174,14 @@ funcname_thread_execute (struct thread_master *m,
 void
 thread_init_r (void)
 {
-  thread_mutex = qpt_mutex_init(thread_mutex, qpt_mutex_quagga);
+  qpt_mutex_init(&thread_mutex, qpt_mutex_quagga);
 }
 
 /* Finished with module */
 void
 thread_finish (void)
 {
-  if (thread_mutex)
-    thread_mutex = qpt_mutex_destroy(thread_mutex, 1);
+  qpt_mutex_destroy(&thread_mutex, 0);
 }
 
 #undef USE_MQUEUE

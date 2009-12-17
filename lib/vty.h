@@ -212,7 +212,7 @@ do {                                                                            
 
 /* Exported variables */
 extern char integrate_default[];
-extern qpt_mutex_t* vty_mutex;
+extern qpt_mutex_t vty_mutex;
 #ifndef NDEBUG
 extern int vty_lock_count;
 extern int vty_lock_asserted;

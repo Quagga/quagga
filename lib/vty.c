@@ -42,15 +42,15 @@
 #include "qpnexus.h"
 
 /* Needs to be qpthread safe */
-qpt_mutex_t* vty_mutex = NULL;
+qpt_mutex_t vty_mutex;
 #ifdef NDEBUG
-#define LOCK qpt_mutex_lock(vty_mutex);
-#define UNLOCK qpt_mutex_unlock(vty_mutex);
+#define LOCK qpt_mutex_lock(&vty_mutex);
+#define UNLOCK qpt_mutex_unlock(&vty_mutex);
 #else
 int vty_lock_count = 0;
 int vty_lock_asserted = 0;
-#define LOCK qpt_mutex_lock(vty_mutex);++vty_lock_count;
-#define UNLOCK --vty_lock_count;qpt_mutex_unlock(vty_mutex);
+#define LOCK qpt_mutex_lock(&vty_mutex);++vty_lock_count;
+#define UNLOCK --vty_lock_count;qpt_mutex_unlock(&vty_mutex);
 #define ASSERTLOCKED if(vty_lock_count==0 && !vty_lock_asserted){vty_lock_asserted=1;assert(0);}
 #endif
 
@@ -3591,7 +3591,7 @@ vty_init_r (qpn_nexus cli_n, qpn_nexus bgp_n)
 {
   cli_nexus = cli_n;
   bgp_nexus = bgp_n;
-  vty_mutex = qpt_mutex_init(vty_mutex, qpt_mutex_quagga);
+  qpt_mutex_init(&vty_mutex, qpt_mutex_quagga);
 }
 
 /* threads: Install vty's own commands like `who' command. */
@@ -3661,8 +3661,7 @@ vty_terminate (void)
     }
   UNLOCK
 
-  if (vty_mutex)
-    vty_mutex = qpt_mutex_destroy(vty_mutex, 1);
+  qpt_mutex_destroy(&vty_mutex, 0);
 }
 
 #undef LOCK
