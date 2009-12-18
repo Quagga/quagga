@@ -200,11 +200,18 @@ qpn_start_bgp(void* arg)
    * Not main thread.  Block most signals, but be careful not to
    * defer SIGTRAP because doing so breaks gdb, at least on
    * NetBSD 2.0.  Avoid asking to block SIGKILL, just because
-   * we shouldn't be able to do so.
+   * we shouldn't be able to do so.  Avoid blocking SIGFPE,
+   * SIGILL, SIGSEGV, SIGBUS as this is undefined by POSIX.
+   * Don't block SIGPIPE so that is gets ignored on this thread.
    */
   sigfillset (&newmask);
   sigdelset (&newmask, SIGTRAP);
   sigdelset (&newmask, SIGKILL);
+  sigdelset (&newmask, SIGPIPE);
+  sigdelset (&newmask, SIGFPE);
+  sigdelset (&newmask, SIGILL);
+  sigdelset (&newmask, SIGSEGV);
+  sigdelset (&newmask, SIGBUS);
 
   qpt_thread_sigmask(SIG_BLOCK, &newmask, NULL);
   qpn->mts = mqueue_thread_signal_init(qpn->mts, qpn->thread_id, SIGMQUEUE);

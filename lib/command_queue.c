@@ -66,7 +66,7 @@ cq_action(mqueue_block mqb, mqb_flag_t flag)
 {
   int result;
   int i;
-  struct marshal *wyatt = mqb;
+  struct marshal *wyatt = mqb->arg0;
 
   if (flag == mqb_action)
     {
