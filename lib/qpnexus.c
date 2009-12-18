@@ -219,7 +219,7 @@ qpn_start_bgp(void* arg)
           if (mqb == NULL)
             break;
 
-          mqb_dispatch(mqb);
+          mqb_dispatch(mqb, mqb_action);
         }
 
       /* TODO: use qpselect stuff */

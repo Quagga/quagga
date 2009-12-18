@@ -48,7 +48,15 @@ typedef union
   mqb_uint_t u ;
 } mqb_arg_t ;
 
-typedef void mqueue_action(mqueue_block mqb) ;
+enum mqb_flag
+{
+  mqb_revoke    = 0,
+  mqb_action    = 1
+} ;
+
+typedef enum mqb_flag mqb_flag_t ;
+
+typedef void mqueue_action(mqueue_block mqb, mqb_flag_t flag) ;
 
 struct mqueue_block
 {
@@ -58,9 +66,7 @@ struct mqueue_block
 
   mqb_flags_t    flags ;        /* for message handler                  */
 
-  mqb_context_t  context ;      /* for message revoke                   */
-
-  mqb_arg_t      arg0 ;         /* may be pointer or integer            */
+  void*          arg0 ;         /* NB: used for specific revoke         */
   mqb_arg_t      arg1 ;         /* may be pointer or integer            */
 } ;
 
@@ -133,9 +139,7 @@ mqueue_thread_signal
 mqueue_thread_signal_init(mqueue_thread_signal mqt, qpt_thread_t thread,
                                                                    int signum) ;
 mqueue_block
-mqb_init_new(mqueue_block mqb, mqueue_action action, mqb_context_t context) ;
-
-#define mqb_new(action, context) mqb_init_new(NULL, action, context)
+mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0) ;
 
 void
 mqb_free(mqueue_block mqb) ;
@@ -156,21 +160,15 @@ mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig) ;
  */
 
 Inline void mqb_set_action(mqueue_block mqb, mqueue_action action) ;
-Inline void mqb_set_context(mqueue_block mqb, mqb_context_t context) ;
 
-Inline void mqb_set_arg0_p(mqueue_block mqb, mqb_ptr_t  p) ;
-Inline void mqb_set_arg0_i(mqueue_block mqb, mqb_int_t  i) ;
-Inline void mqb_set_arg0_u(mqueue_block mqb, mqb_uint_t u) ;
+Inline void mqb_set_arg0(mqueue_block mqb, void* p) ;
 Inline void mqb_set_arg1_p(mqueue_block mqb, mqb_ptr_t  p) ;
 Inline void mqb_set_arg1_i(mqueue_block mqb, mqb_int_t  i) ;
 Inline void mqb_set_arg1_u(mqueue_block mqb, mqb_uint_t u) ;
 
-Inline void mqb_dispatch(mqueue_block mqb) ;
-Inline mqb_context_t mqb_qet_context(mqueue_block mqb) ;
+Inline void mqb_dispatch(mqueue_block mqb, mqb_flag_t flag) ;
 
-Inline mqb_ptr_t  mqb_get_arg0_p(mqueue_block mqb) ;
-Inline mqb_int_t  mqb_get_arg0_i(mqueue_block mqb) ;
-Inline mqb_uint_t mqb_get_arg0_u(mqueue_block mqb) ;
+Inline void*  mqb_get_arg0(mqueue_block mqb) ;
 Inline mqb_ptr_t  mqb_get_arg1_p(mqueue_block mqb) ;
 Inline mqb_int_t  mqb_get_arg1_i(mqueue_block mqb) ;
 Inline mqb_uint_t mqb_get_arg1_u(mqueue_block mqb) ;
@@ -188,27 +186,9 @@ mqb_set_action(mqueue_block mqb, mqueue_action action)
 } ;
 
 Inline void
-mqb_set_context(mqueue_block mqb, mqb_context_t context)
+mqb_set_arg0(mqueue_block mqb, void* arg0)
 {
-  mqb->context = context ;
-} ;
-
-Inline void
-mqb_set_arg0_p(mqueue_block mqb, mqb_ptr_t p)
-{
-  mqb->arg0.p = p ;
-} ;
-
-Inline void
-mqb_set_arg0_i(mqueue_block mqb, mqb_int_t i)
-{
-  mqb->arg0.i = i ;
-} ;
-
-Inline void
-mqb_set_arg0_u(mqueue_block mqb, mqb_uint_t u)
-{
-  mqb->arg0.u = u ;
+  mqb->arg0 = arg0 ;
 } ;
 
 Inline void
@@ -232,33 +212,15 @@ mqb_set_arg1_u(mqueue_block mqb, mqb_uint_t u)
 /* Get operations       */
 
 Inline void
-mqb_dispatch(mqueue_block mqb)
+mqb_dispatch(mqueue_block mqb, mqb_flag_t flag)
 {
-  mqb->action(mqb) ;
+  mqb->action(mqb, flag) ;
 } ;
 
-Inline mqb_context_t
-mqb_qet_context(mqueue_block mqb)
+Inline void*
+mqb_get_arg0(mqueue_block mqb)
 {
-  return mqb->context ;
-} ;
-
-Inline mqb_ptr_t
-mqb_get_arg0_p(mqueue_block mqb)
-{
-  return mqb->arg0.p ;
-} ;
-
-Inline mqb_int_t
-mqb_get_arg0_i(mqueue_block mqb)
-{
-  return mqb->arg0.i ;
-} ;
-
-Inline mqb_uint_t
-mqb_get_arg0_u(mqueue_block mqb)
-{
-  return mqb->arg0.u ;
+  return mqb->arg0 ;
 } ;
 
 Inline mqb_ptr_t

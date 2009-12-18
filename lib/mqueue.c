@@ -71,10 +71,9 @@
  * Messages take the form of a small block of information which contains:
  *
  *   * flags     -- used by the message handler
- *   * context   -- identifies the context of the message (see revoke)
- *
+  *
  *   * action    -- void action(mqueue_block)   message dispatch
- *   * arg0      -- *void/uintptr_t/intptr_t )  standard arguments
+ *   * arg0      -- *void                    )  standard arguments
  *   * arg1      -- *void/uintptr_t/intptr_t )
  *
  * There are set/get functions for action/arg0/arg1 -- users should not poke
@@ -83,6 +82,8 @@
  * To send a message, first allocate a message block (see mqb_init_new),
  * then fill in the arguments and enqueue it.
  *
+ * For specific revoke, arg0 is assumed to identify the messages to be
+ * revoked.
  *
  */
 
@@ -181,10 +182,10 @@ static mqueue_block mqb_free_list = NULL ;
 
 static mqueue_block mqueue_block_new_lot(void) ;
 
-/* Initialise message block (allocate if required) and set action and context.
+/* Initialise message block (allocate if required) and set action and arg0.
  */
 mqueue_block
-mqb_init_new(mqueue_block mqb, mqueue_action action, mqb_context_t context)
+mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0)
 {
   if (mqb == NULL)
     {
@@ -202,7 +203,7 @@ mqb_init_new(mqueue_block mqb, mqueue_action action, mqb_context_t context)
   memset(mqb, 0, sizeof(struct mqueue_block)) ;
 
   mqb->action  = action ;
-  mqb->context = context ;
+  mqb->arg0    = arg0 ;
 
   return mqb ;
 } ;

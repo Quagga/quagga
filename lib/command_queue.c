@@ -27,7 +27,7 @@
 #include "command_queue.h"
 
 /* Prototypes */
-static void cq_action(mqueue_block mqb);
+static void cq_action(mqueue_block mqb, mqb_flag_t flag);
 
 /* We have too many parameters for a message queue block so have to marshal */
 struct marshal
@@ -56,24 +56,27 @@ cq_enqueue(struct cmd_element *matched_element, struct vty *vty,
     }
 
   mqb = mqb_init_new(mqb, cq_action, 0) ;
-  mqb_set_arg0_p(mqb, wyatt);
+  mqb->arg0 = wyatt;
   mqueue_enqueue(bgp_nexus->queue, mqb, 0) ;
 }
 
 /* dispatch a command from the message queue block */
 static void
-cq_action(mqueue_block mqb)
+cq_action(mqueue_block mqb, mqb_flag_t flag)
 {
   int result;
   int i;
-  struct marshal *wyatt = mqb_get_arg0_p(mqb);
+  struct marshal *wyatt = mqb;
 
-  /* Execute matched command. */
-  result = (*wyatt->matched_element->func)
+  if (flag == mqb_action)
+    {
+      /* Execute matched command. */
+      result = (*wyatt->matched_element->func)
        (wyatt->matched_element, wyatt->vty, wyatt->argc, (const char **)wyatt->argv);
 
-  /* report */
-  vty_queued_result(wyatt->vty, result);
+      /* report */
+      vty_queued_result(wyatt->vty, result);
+    }
 
   /* clean up */
   for (i = 0; i< wyatt->argc; ++i)
