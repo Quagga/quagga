@@ -255,4 +255,8 @@ extern void vty_set_lines(struct vty *, int);
    an async-signal-safe function. */
 extern void vty_log_fixed (const char *buf, size_t len);
 
+#ifdef QDEBUG
+extern void vty_goodbye (void);
+#endif
+
 #endif /* _ZEBRA_VTY_H */

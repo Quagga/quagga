@@ -381,4 +381,9 @@ extern struct host host;
 
 /* "<cr>" global */
 extern char *command_cr;
+
+#ifdef QDEBUG
+extern const char *debug_banner;
+#endif
+
 #endif /* _ZEBRA_COMMAND_H */

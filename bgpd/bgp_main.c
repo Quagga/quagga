@@ -202,6 +202,9 @@ sighup (void)
 void
 sigint (void)
 {
+#ifdef QDEBUG
+  vty_goodbye();
+#endif
   zlog_notice ("Terminating on signal");
 
   if (! retain_mode)
@@ -354,6 +357,10 @@ main (int argc, char **argv)
   /* Set umask before anything for security */
   umask (0027);
 
+#ifdef QDEBUG
+  fprintf(stderr, "%s\n", debug_banner);
+#endif
+
   qlib_init_first_stage();
 
   /* Preserve name of myself. */
@@ -472,6 +479,13 @@ main (int argc, char **argv)
       zlog_err("BGPd daemon failed: %s", strerror(errno));
       return (1);
     }
+#ifdef QDEBUG
+  if (daemon_mode)
+    {
+      fprintf(stderr, "BGPd daemonised\n");
+      zlog_notice("BGPd daemonised");
+    }
+#endif
 
   /* Process ID file creation. */
   pid_output (pid_file);
@@ -491,10 +505,14 @@ main (int argc, char **argv)
   vty_serv_sock (vty_addr, vty_port, BGP_VTYSH_PATH);
 
   /* Print banner. */
+#ifdef QDEBUG
+  zlog_notice("%s", debug_banner);
+#endif
   zlog_notice ("BGPd %s starting: vty@%d, bgp@%s:%d", QUAGGA_VERSION,
 	       vty_port, 
 	       (bm->address ? bm->address : "<all>"),
-	       bm->port);
+	       (int)bm->port);
+
 
   /* Launch finite state machines */
   if (qpthreads_enabled)

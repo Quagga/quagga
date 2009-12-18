@@ -338,6 +338,9 @@ static void
 uty_hello (struct vty *vty)
 {
   ASSERTLOCKED
+#ifdef QDEBUG
+  uty_out (vty, "%s%s", debug_banner, VTY_NEWLINE);
+#endif
   if (host.motdfile)
     {
       FILE *f;
@@ -358,7 +361,7 @@ uty_hello (struct vty *vty)
 	  fclose (f);
 	}
       else
-	uty_out (vty, "MOTD file not found%s", VTY_NEWLINE);
+	uty_out (vty, "MOTD file %s not found%s", host.motdfile, VTY_NEWLINE);
     }
   else if (host.motd)
     uty_out (vty, "%s", host.motd);
@@ -2821,7 +2824,13 @@ vty_read_config (char *config_file,
 
   fclose (confp);
 
+#ifdef QDEBUG
+  fprintf(stderr, "Reading config file: %s\n", fullpath);
+#endif
   host_config_set (fullpath);
+#ifdef QDEBUG
+  fprintf(stderr, "Finished reading config file\n");
+#endif
 
   if (tmp)
     XFREE (MTYPE_TMP, fullpath);
@@ -2849,6 +2858,34 @@ vty_log (const char *level, const char *proto_str,
           va_end(ac);
         }
 }
+
+#ifdef QDEBUG
+/* Tell all terminals that we are shutting down */
+void
+vty_goodbye (void)
+{
+  unsigned int i;
+  struct vty *vty;
+
+  LOCK
+
+  if (vtyvec)
+    {
+      for (i = 0; i < vector_active (vtyvec); i++)
+        if (((vty = vector_slot (vtyvec, i)) != NULL) && vty->type == VTY_TERM)
+            uty_out(vty, QUAGGA_PROGNAME " is shutting down%s", VTY_NEWLINE);
+
+      /* Wake up */
+      if (cli_nexus)
+        {
+          vty_event (VTY_WRITE, vty->fd, vty);
+          qpt_thread_signal(cli_nexus->thread_id, SIGMQUEUE);
+        }
+    }
+
+    UNLOCK
+}
+#endif
 
 /* Async-signal-safe version of vty_log for fixed strings. */
 void

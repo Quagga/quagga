@@ -89,6 +89,11 @@ Hello, this is " QUAGGA_PROGNAME " (version " QUAGGA_VERSION ").\r\n\
 " QUAGGA_COPYRIGHT "\r\n\
 \r\n";
 
+#ifdef QDEBUG
+const char *debug_banner =
+    QUAGGA_PROGNAME " version " QUAGGA_VERSION " QDEBUG=" QDEBUG " "
+    __DATE__ " " __TIME__;
+#endif
 
 static struct facility_map {
   int facility;
