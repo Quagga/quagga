@@ -479,13 +479,6 @@ main (int argc, char **argv)
       zlog_err("BGPd daemon failed: %s", strerror(errno));
       return (1);
     }
-#ifdef QDEBUG
-  if (daemon_mode)
-    {
-      fprintf(stderr, "BGPd daemonised\n");
-      zlog_notice("BGPd daemonised");
-    }
-#endif
 
   /* Process ID file creation. */
   pid_output (pid_file);
@@ -523,7 +516,6 @@ main (int argc, char **argv)
       qpn_exec(cli_nexus);      /* must be last to start - on main thread */
 
       /* terminating, wait for all threads to finish */
-      /* TODO need qpt_ version */
       thread_result = qpt_thread_join(bgp_nexus->thread_id);
       bgp_exit(0);
     }
