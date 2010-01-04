@@ -23,6 +23,8 @@
 #define _ZEBRA_SYMTAB_H
 
 #include "vector.h"
+#include <stddef.h>
+#include <stdint.h>
 
 /* Macro in case there are particular compiler issues.    */
 #ifndef Inline
@@ -94,9 +96,9 @@ struct symbol
   symbol_ref ref_list ;   /* list of symbol_ref references              */
   unsigned   ref_count ;  /* count of simple references                 */
 
-  u_int32_t  hash ;       /* used in lookup and when extending bases.   */
+  uint32_t   hash ;       /* used in lookup and when extending bases.   */
 
-  u_int16_t  name_len ;	  /* see: symbol_get_name_len(sym)              */
+  uint16_t   name_len ;	  /* see: symbol_get_name_len(sym)              */
   char       name[] ;     /* see: symbol_get_name(sym)                  */
 } ;
 
@@ -127,10 +129,10 @@ struct symbol_ref
 /* Result of a hash function for a symbol name.                       */
 struct symbol_hash
 {
-  u_int32_t	hash ;		/* the hash value !			      */
-  const void*	name ;		/* symbol name as byte vector		      */
-  u_int16_t	name_len ;	/* length in chars for comparison purposes    */
-  u_int16_t	name_copy_len ;	/* number of chars to copy to store name.     */
+  uint32_t      hash ;          /* the hash value !			      */
+  const void*   name ;          /* symbol name as byte vector		      */
+  uint16_t      name_len ;      /* length in chars for comparison purposes    */
+  uint16_t      name_copy_len ; /* number of chars to copy to store name.     */
 } ;
 
 /* Symbol Walk Iterator		*/
@@ -265,7 +267,7 @@ sym_ref_name(symbol_ref ref)
 {
   return symbol_get_name(sym_ref_symbol(ref)) ;
 }
-Inline u_int16_t
+Inline uint16_t
 sym_ref_name_len(symbol_ref ref)
 {
   return symbol_get_name_len(sym_ref_symbol(ref)) ;

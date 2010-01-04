@@ -67,6 +67,9 @@ enum qps_mbits                  /* "mode" bits: error/read/write        */
 
 typedef enum qps_mbits qps_mbit_t ;
 
+/* "fd_undef" -- used when fd is undefined                              */
+enum { fd_undef = -1 } ;
+
 /* Forward references   */
 typedef struct qps_selection* qps_selection ;
 typedef struct qps_file*      qps_file ;
@@ -204,5 +207,32 @@ qps_set_action(qps_file qf, qps_mnum_t mnum, qps_action* action) ;
 
 void
 qps_disable_modes(qps_file qf, qps_mbit_t mbits) ;
+
+Inline void*
+qps_file_info(qps_file qf)
+{
+  return qf->file_info ;
+} ;
+
+Inline int
+qps_file_fd(qps_file qf)
+{
+  return qf->fd ;
+} ;
+
+Inline int
+qps_file_unset_fd(qps_file qf)
+{
+  int fd = qf->fd ;
+  qf->fd = fd_undef ;
+
+  return fd ;
+} ;
+
+Inline void
+qps_set_file_info(qps_file qf, void* info)
+{
+  qf->file_info = info ;
+} ;
 
 #endif /* _ZEBRA_QPSELECT_H */

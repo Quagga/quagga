@@ -31,7 +31,7 @@ pkginclude_HEADERS = \
 	privs.h sigevent.h pqueue.h jhash.h zassert.h memtypes.h \
 	workqueue.h route_types.h symtab.h heap.h \
 	qtime.h qpthreads.h mqueue.h qpselect.h qtimers.h qpnexus.h \
-	command_queue.h qlib_init.h
+	command_queue.h qlib_init.h qafi_safi.h
 
 EXTRA_DIST = regex.c regex-gnu.h memtypes.awk route_types.awk route_types.txt
 

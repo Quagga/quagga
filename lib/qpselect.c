@@ -457,6 +457,8 @@ qps_file_init_new(qps_file qf, qps_file template)
    *   actions[]     -- all set to NULL
    */
 
+  qf->fd = fd_undef ;           /* no fd set yet        */
+
   if (template != NULL)
     memcpy(qf->actions, template->actions, sizeof(qf->actions)) ;
 

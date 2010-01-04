@@ -115,7 +115,7 @@ typedef int socklen_t;
 #ifdef __va_copy
 #define va_copy(DST,SRC) __va_copy(DST,SRC)
 #else
-/* Now we are desperate; this should work on many typical platforms. 
+/* Now we are desperate; this should work on many typical platforms.
    But this is slightly dangerous, because the standard does not require
    va_copy to be a macro. */
 #define va_copy(DST,SRC) memcpy(&(DST), &(SRC), sizeof(va_list))
@@ -260,7 +260,7 @@ typedef int socklen_t;
 #endif /* BSDI_NRL */
 
 /* Local includes: */
-#if !(defined(__GNUC__) || defined(VTYSH_EXTRACT_PL)) 
+#if !(defined(__GNUC__) || defined(VTYSH_EXTRACT_PL))
 #define __attribute__(x)
 #endif  /* !__GNUC__ || VTYSH_EXTRACT_PL */
 
@@ -285,7 +285,7 @@ typedef int socklen_t;
 
 
 
-/* 
+/*
  * RFC 3542 defines several macros for using struct cmsghdr.
  * Here, we define those that are not present
  */
@@ -330,7 +330,7 @@ struct in_pktinfo
 };
 #endif
 
-/* 
+/*
  * OSPF Fragmentation / fragmented writes
  *
  * ospfd can support writing fragmented packets, for cases where
@@ -350,13 +350,13 @@ struct in_pktinfo
 #define WANT_OSPF_WRITE_FRAGMENT
 #endif
 
-/* 
+/*
  * IP_HDRINCL / struct ip byte order
  *
  * Linux: network byte order
  * *BSD: network, except for length and offset. (cf Stevens)
  * SunOS: nominally as per BSD. but bug: network order on LE.
- * OpenBSD: network byte order, apart from older versions which are as per 
+ * OpenBSD: network byte order, apart from older versions which are as per
  *          *BSD
  */
 #if defined(__NetBSD__) || defined(__FreeBSD__) \
@@ -385,7 +385,7 @@ struct in_pktinfo
 /* MAX / MIN are not commonly defined, but useful */
 #ifndef MAX
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-#endif 
+#endif
 #ifndef MIN
 #define MIN(a, b) ((a) < (b) ? (a) : (b))
 #endif
@@ -451,7 +451,7 @@ struct in_pktinfo
 extern const char *zebra_route_string(unsigned int route_type);
 /* Map a route type to a char.  For example, ZEBRA_ROUTE_RIPNG -> 'R'. */
 extern char zebra_route_char(unsigned int route_type);
-/* Map a zserv command type to the same string, 
+/* Map a zserv command type to the same string,
  * e.g. ZEBRA_INTERFACE_ADD -> "ZEBRA_INTERFACE_ADD" */
 /* Map a protocol name to its number. e.g. ZEBRA_ROUTE_BGP->9*/
 extern int proto_name2num(const char *s);
@@ -496,17 +496,8 @@ extern const char *zserv_command_string (unsigned int command);
 #define	INADDR_LOOPBACK	0x7f000001	/* Internet address 127.0.0.1.  */
 #endif
 
-/* Address family numbers from RFC1700. */
-#define AFI_IP                    1
-#define AFI_IP6                   2
-#define AFI_MAX                   3
-
-/* Subsequent Address Family Identifier. */
-#define SAFI_UNICAST              1
-#define SAFI_MULTICAST            2
-#define SAFI_UNICAST_MULTICAST    3
-#define SAFI_MPLS_VPN             4
-#define SAFI_MAX                  5
+/* AFI/SAFI types and numbers. */
+#include "qafi_safi.h"
 
 /* Filter direction.  */
 #define FILTER_IN                 0
@@ -529,10 +520,6 @@ extern const char *zserv_command_string (unsigned int command);
 #define CHECK_FLAG(V,F)      ((V) & (F))
 #define SET_FLAG(V,F)        (V) |= (F)
 #define UNSET_FLAG(V,F)      (V) &= ~(F)
-
-/* AFI and SAFI type. */
-typedef u_int16_t afi_t;
-typedef u_int8_t safi_t;
 
 /* Zebra types. Used in Zserv message header. */
 typedef u_int16_t zebra_size_t;

@@ -32,6 +32,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "hash.h"
 
 #include "bgpd/bgpd.h"
+#include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_advertise.h"
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_aspath.h"

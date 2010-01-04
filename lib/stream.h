@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_STREAM_H
@@ -78,7 +78,7 @@
  * The stream is empty from endp to size. Without adjusting getp, there are
  * still endp-getp bytes of valid data to be read from the stream.
  *
- * Methods are provided to get and put to/from the stream, as well as 
+ * Methods are provided to get and put to/from the stream, as well as
  * retrieve the values of the 3 markers and manipulate the getp marker.
  *
  * Note:
@@ -98,7 +98,7 @@ struct stream
 
   /* Remainder is ***private*** to stream
    * direct access is frowned upon!
-   * Use the appropriate functions/macros 
+   * Use the appropriate functions/macros
    */
   size_t getp; 		/* next get position */
   size_t endp;		/* last valid data position */
@@ -127,7 +127,7 @@ struct stream_fifo
 #define STREAM_DATA(S)  ((S)->data)
 #define STREAM_REMAIN(S) STREAM_WRITEABLE((S))
 
-/* Stream prototypes. 
+/* Stream prototypes.
  * For stream_{put,get}S, the S suffix mean:
  *
  * c: character (unsigned byte)
@@ -139,6 +139,7 @@ extern struct stream *stream_new (size_t);
 extern void stream_free (struct stream *);
 extern struct stream * stream_copy (struct stream *, struct stream *src);
 extern struct stream *stream_dup (struct stream *);
+extern struct stream* stream_dup_pending(struct stream*) ;
 extern size_t stream_resize (struct stream *, size_t);
 extern size_t stream_get_getp (struct stream *);
 extern size_t stream_get_endp (struct stream *);
@@ -177,13 +178,15 @@ extern u_int32_t stream_get_ipv4 (struct stream *);
 #undef stream_read
 #undef stream_write
 
-/* Deprecated: assumes blocking I/O.  Will be removed. 
+/* Deprecated: assumes blocking I/O.  Will be removed.
    Use stream_read_try instead.  */
 extern int stream_read (struct stream *, int, size_t);
 
 /* Deprecated: all file descriptors should already be non-blocking.
    Will be removed.  Use stream_read_try instead. */
 extern int stream_read_unblock (struct stream *, int, size_t);
+
+extern int stream_read_nonblock (struct stream *s, int fd, size_t size) ;
 
 /* Read up to size bytes into the stream.
    Return code:
@@ -197,8 +200,8 @@ extern ssize_t stream_read_try(struct stream *s, int fd, size_t size);
 
 extern ssize_t stream_recvmsg (struct stream *s, int fd, struct msghdr *,
                                int flags, size_t size);
-extern ssize_t stream_recvfrom (struct stream *s, int fd, size_t len, 
-                                int flags, struct sockaddr *from, 
+extern ssize_t stream_recvfrom (struct stream *s, int fd, size_t len,
+                                int flags, struct sockaddr *from,
                                 socklen_t *fromlen);
 extern size_t stream_write (struct stream *, const void *, size_t);
 
@@ -206,6 +209,10 @@ extern size_t stream_write (struct stream *, const void *, size_t);
 extern void stream_reset (struct stream *);
 extern int stream_flush (struct stream *, int);
 extern int stream_empty (struct stream *); /* is the stream empty? */
+
+extern int stream_pending(struct stream* s) ;
+extern int stream_flush_try(struct stream* s, int fd) ;
+extern void* stream_transfer(void* p, struct stream* s, void* limit) ;
 
 /* deprecated */
 extern u_char *stream_pnt (struct stream *);

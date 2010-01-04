@@ -34,4 +34,8 @@ build
 .rebase-*
 *~
 *.loT
-
+.cdtconfigure.Build (GNU)
+.cproject
+.project
+.settings/
+m4/*.m4

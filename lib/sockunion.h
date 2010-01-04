@@ -17,11 +17,13 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_SOCKUNION_H
 #define _ZEBRA_SOCKUNION_H
+
+#include "symtab.h"
 
 #if 0
 union sockunion {
@@ -38,7 +40,7 @@ union sockunion {
 #define su_port               su_si.si_port
 #endif /* 0 */
 
-union sockunion 
+union sockunion
 {
   struct sockaddr sa;
   struct sockaddr_in sin;
@@ -99,21 +101,21 @@ extern int sockunion_accept (int sock, union sockunion *);
 extern int sockunion_stream_socket (union sockunion *);
 extern int sockopt_reuseaddr (int);
 extern int sockopt_reuseport (int);
-extern int sockunion_bind (int sock, union sockunion *, 
+extern int sockunion_bind (int sock, union sockunion *,
                            unsigned short, union sockunion *);
 extern int sockopt_ttl (int family, int sock, int ttl);
 extern int sockunion_socket (union sockunion *su);
 extern const char *inet_sutop (union sockunion *su, char *str);
-extern enum connect_result sockunion_connect (int fd, union sockunion *su, 
-                                              unsigned short port,
-                                              unsigned int);
-extern union sockunion *sockunion_getsockname (int);
-extern union sockunion *sockunion_getpeername (int);
+extern int sockunion_connect (int fd, union sockunion *su, unsigned short port,
+                                                           unsigned int) ;
+extern int sockunion_getsockname (int, union sockunion*);
+extern int sockunion_getpeername (int, union sockunion*);
 extern union sockunion *sockunion_dup (union sockunion *);
 extern void sockunion_free (union sockunion *);
+extern void sockunion_clear(union sockunion*);
 
 #ifndef HAVE_INET_NTOP
-extern const char * inet_ntop (int family, const void *addrptr, 
+extern const char * inet_ntop (int family, const void *addrptr,
                                char *strptr, size_t len);
 #endif /* HAVE_INET_NTOP */
 
@@ -124,5 +126,8 @@ extern int inet_pton (int family, const char *strptr, void *addrptr);
 #ifndef HAVE_INET_ATON
 extern int inet_aton (const char *cp, struct in_addr *inaddr);
 #endif
+
+extern void
+sockunion_symbol_hash(symbol_hash p_hash, const void* name) ;
 
 #endif /* _ZEBRA_SOCKUNION_H */

@@ -37,6 +37,9 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "workqueue.h"
 
 #include "bgpd/bgpd.h"
+
+#include "bgpd/bgp_peer.h"
+
 #include "bgpd/bgp_table.h"
 #include "bgpd/bgp_aspath.h"
 #include "bgpd/bgp_route.h"

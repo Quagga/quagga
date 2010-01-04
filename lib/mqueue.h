@@ -50,7 +50,7 @@ typedef union
 
 enum mqb_flag
 {
-  mqb_revoke    = 0,
+  mqb_destroy   = 0,
   mqb_action    = 1
 } ;
 
@@ -122,36 +122,59 @@ struct mqueue_queue
   } kick ;
 } ;
 
+typedef struct mqueue_local_queue* mqueue_local_queue ;
+
+struct mqueue_local_queue
+{
+  mqueue_block head ;           /* NULL => list is empty                      */
+  mqueue_block tail ;           /* last message (if not empty)                */
+} ;
+
 /*==============================================================================
  * Functions
  */
 
-void
+extern void
 mqueue_initialise(void) ;
 
-mqueue_queue
+extern mqueue_queue
 mqueue_init_new(mqueue_queue mq, enum mqueue_queue_type type) ;
 
-void
+extern mqueue_local_queue
+mqueue_local_init_new(mqueue_local_queue lmq) ;
+
+extern mqueue_local_queue
+mqueue_local_reset(mqueue_local_queue lmq, int free_structure) ;
+
+#define mqueue_local_reset_keep(lmq) mqueue_local_reset(lmq, 0)
+#define mqueue_local_reset_free(lmq) mqueue_local_reset(lmq, 1)
+
+extern void
 mqueue_set_timeout_interval(mqueue_queue mq, qtime_t interval) ;
 
-mqueue_thread_signal
+extern mqueue_thread_signal
 mqueue_thread_signal_init(mqueue_thread_signal mqt, qpt_thread_t thread,
                                                                    int signum) ;
-mqueue_block
+extern mqueue_block
 mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0) ;
 
-void
+extern void
 mqb_free(mqueue_block mqb) ;
 
-void
+extern void
 mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, int priority) ;
 
-mqueue_block
+extern mqueue_block
 mqueue_dequeue(mqueue_queue mq, int wait, void* arg) ;
 
-int
+extern int
 mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig) ;
+
+extern void
+mqueue_local_enqueue(mqueue_local_queue lmq, mqueue_block mqb) ;
+
+extern mqueue_block
+mqueue_local_dequeue(mqueue_local_queue lmq) ;
 
 /*==============================================================================
  * Access functions for mqueue_block fields -- mqb_set_xxx/mqb_get_xxx
@@ -215,6 +238,18 @@ Inline void
 mqb_dispatch(mqueue_block mqb, mqb_flag_t flag)
 {
   mqb->action(mqb, flag) ;
+} ;
+
+Inline void
+mqb_dispatch_action(mqueue_block mqb)
+{
+  mqb->action(mqb, mqb_action) ;
+} ;
+
+Inline void
+mqb_dispatch_destroy(mqueue_block mqb)
+{
+  mqb->action(mqb, mqb_destroy) ;
 } ;
 
 Inline void*

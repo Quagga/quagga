@@ -24,6 +24,7 @@
 #include "config.h"
 
 #include <signal.h>
+#include <string.h>
 
 #include "qpthreads.h"
 #include "memory.h"
@@ -56,14 +57,34 @@
  * A big Global Switch -- qpthreads_enabled -- is used to control whether the
  * system is pthreaded or not.
  *
+ * The initial state is qpthreads_enabled == false (0).
+ *
+ * The function qpt_set_qpthreads_enabled() should be called when the
+ * application has decided whether to use qpthreads or not.  (But does not have
+ * to call this if it is happy to proceed in the default -- disabled -- state.)
+ *
  * If this is never set, then the system runs without pthreads, and all the
  * mutex and condition variable functions are NOPs.  This allows, for example,
  * mutex operations to be placed where they are needed for thread-safety,
  * without affecting the code when running without pthreads.
  *
- * Before the first thread is created and before any mutexes or condition
- * variables are initialised, the qpthreads_enabled MUST be set.  And it MUST
- * not be changed again !
+ * There are a very few operations which require qpthreads_enabled:
+ *
+ *   * qpt_thread_attr_init
+ *   * qpt_thread_create
+ *
+ * A few operations "freeze" the state of qpthreads_enabled.  Any call of these
+ * before qpthreads are enabled, causes the state to be frozen, disabled.  This
+ * means that any later attempt to enable qpthreads will be refused.  These
+ * operations are:
+ *
+ *   * qpt_mutex_init_new
+ *   * qpt_cond_init_new
+ *
+ * This allows the application to decide as late as possible (but no later)
+ * whether to enable pthreads.  If a mutex or a condition variable has been
+ * initialised before the application gets around to enabling qpthreads, that
+ * will be trapped when qpthreads is finally enabled.
  *
  * Pthread Requirements
  * ====================
@@ -231,25 +252,27 @@ enum qpthreads_enabled_state
   qpt_state_set_enabled   = 3,
 } ;
 
-static enum qpthreads_enabled_state qpthreads_enabled_state  = qpt_state_unset ;
+static enum qpthreads_enabled_state qpthreads_enabled_state = qpt_state_unset ;
 
 int qpthreads_enabled_flag = 0 ;
 
 /* Function to set qpthreads_enabled, one way or the other.
  *
+ * Returns:  true <=> successful set the required state.
+ *          false <=> it is too late to enable qpthreads :-(
+ *
  * NB: can repeatedly set to the same state, but not change state once set.
  */
-void
+extern int
 qpt_set_qpthreads_enabled(int how)
 {
-
   switch (qpthreads_enabled_state)
   {
   case qpt_state_unset:
     break ;
   case qpt_state_set_frozen:
     if (how != 0)
-      zabort("Too late to enable qpthreads") ;
+      return 0 ;
     break ;
   case qpt_state_set_disabled:
     if (how != 0)
@@ -266,6 +289,7 @@ qpt_set_qpthreads_enabled(int how)
   qpthreads_enabled_flag  = (how != 0) ;
   qpthreads_enabled_state = (how != 0) ? qpt_state_set_enabled
                                        : qpt_state_set_disabled ;
+  return 1 ;
 } ;
 
 /* Get state of qpthreads_enabled, and freeze if not yet explictly set.
@@ -490,7 +514,11 @@ qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts)
   int err ;
 
   if (!qpthreads_enabled_freeze)
-    return mx ;
+    {
+      if (mx != NULL)
+        memset(mx, 0x0F, sizeof(qpt_mutex_t)) ;
+      return mx ;
+    } ;
 
   if (mx == NULL)
     mx = XMALLOC(MTYPE_QPT_MUTEX, sizeof(qpt_mutex_t)) ;
@@ -592,7 +620,11 @@ qpt_cond_init_new(qpt_cond cv, enum qpt_cond_options opts)
   int err ;
 
   if (!qpthreads_enabled_freeze)
-    return cv ;
+    {
+      if (cv != NULL)
+        memset(cv, 0x0F, sizeof(qpt_cond_t)) ;
+      return cv ;
+    } ;
 
   if (cv == NULL)
     cv = XMALLOC(MTYPE_QPT_COND, sizeof(qpt_cond_t)) ;

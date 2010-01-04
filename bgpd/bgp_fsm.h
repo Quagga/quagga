@@ -1,4 +1,4 @@
-/* BGP-4 Finite State Machine   
+/* BGP-4 Finite State Machine
    From RFC1771 [A Border Gateway Protocol 4 (BGP-4)]
    Copyright (C) 1998 Kunihiro Ishiguro
 
@@ -22,60 +22,89 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGP_FSM_H
 #define _QUAGGA_BGP_FSM_H
 
+#include "bgpd/bgp_common.h"
+#include "bgpd/bgp_connection.h"
+
+/* Prototypes. */
+
+
+extern void
+bgp_fsm_enable_connection(bgp_connection connection) ;
+
+extern void
+bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event) ;
+
+extern void
+bgp_fsm_io_error(bgp_connection connection, int err) ;
+
+extern void
+bgp_fsm_fd_closed(bgp_connection connection) ;
+
+extern void
+bgp_fsm_stop_session(bgp_connection connection, bgp_stopped_cause_t cause,
+                                                      bgp_notify notification) ;
+extern void
+bgp_fsm_stop_connection(bgp_connection connection, bgp_stopped_cause_t cause,
+                                                      bgp_notify notification) ;
+
+
+//extern int bgp_event (struct thread *);
+//extern int bgp_stop (struct peer *peer);
+//extern void bgp_timer_set (struct peer *);
+//extern void bgp_fsm_change_status (struct peer *peer, int status);
+//extern const char *peer_down_str[];
+
+/*==============================================================================
+ * Legacy -- to be removed....
+ */
+
 /* Macro for BGP read, write and timer thread.  */
-#define BGP_READ_ON(T,F,V)			\
-  do {						\
-    if (!(T) && (peer->status != Deleted))	\
-      THREAD_READ_ON(master,T,F,peer,V);	\
+#define BGP_READ_ON(T,F,V)                      \
+  do {                                          \
+    if (!(T) && (peer->status != Deleted))      \
+      THREAD_READ_ON(master,T,F,peer,V);        \
   } while (0)
 
-#define BGP_READ_OFF(T)				\
-  do {						\
-    if (T)					\
-      THREAD_READ_OFF(T);			\
+#define BGP_READ_OFF(T)                         \
+  do {                                          \
+    if (T)                                      \
+      THREAD_READ_OFF(T);                       \
   } while (0)
 
-#define BGP_WRITE_ON(T,F,V)			\
-  do {						\
-    if (!(T) && (peer->status != Deleted))	\
+#define BGP_WRITE_ON(T,F,V)                     \
+  do {                                          \
+    if (!(T) && (peer->status != Deleted))      \
       THREAD_WRITE_ON(master,(T),(F),peer,(V)); \
   } while (0)
-    
-#define BGP_WRITE_OFF(T)			\
-  do {						\
-    if (T)					\
-      THREAD_WRITE_OFF(T);			\
+
+#define BGP_WRITE_OFF(T)                        \
+  do {                                          \
+    if (T)                                      \
+      THREAD_WRITE_OFF(T);                      \
   } while (0)
 
-#define BGP_TIMER_ON(T,F,V)			\
-  do {						\
-    if (!(T) && (peer->status != Deleted))	\
+#define BGP_TIMER_ON(T,F,V)                     \
+  do {                                          \
+    if (!(T) && (peer->status != Deleted))      \
       THREAD_TIMER_ON(master,(T),(F),peer,(V)); \
   } while (0)
 
-#define BGP_TIMER_OFF(T)			\
-  do {						\
-    if (T)					\
-      THREAD_TIMER_OFF(T);			\
+#define BGP_TIMER_OFF(T)                        \
+  do {                                          \
+    if (T)                                      \
+      THREAD_TIMER_OFF(T);                      \
   } while (0)
 
-#define BGP_EVENT_ADD(P,E)			\
-  do {						\
-    if ((P)->status != Deleted)			\
+#define BGP_EVENT_ADD(P,E)                      \
+  do {                                          \
+    if ((P)->status != Deleted)                 \
       thread_add_event (master, bgp_event, (P), (E)); \
   } while (0)
 
-#define BGP_EVENT_FLUSH(P)			\
-  do { 						\
-    assert (peer); 				\
-    thread_cancel_event (master, (P)); 		\
+#define BGP_EVENT_FLUSH(P)                      \
+  do {                                          \
+    assert (peer);                              \
+    thread_cancel_event (master, (P));          \
   } while (0)
-
-/* Prototypes. */
-extern int bgp_event (struct thread *);
-extern int bgp_stop (struct peer *peer);
-extern void bgp_timer_set (struct peer *);
-extern void bgp_fsm_change_status (struct peer *peer, int status);
-extern const char *peer_down_str[];
 
 #endif /* _QUAGGA_BGP_FSM_H */

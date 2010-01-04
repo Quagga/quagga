@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -28,7 +28,7 @@ int
 setsockopt_so_recvbuf (int sock, int size)
 {
   int ret;
-  
+
   if ( (ret = setsockopt (sock, SOL_SOCKET, SO_RCVBUF, (char *)
                           &size, sizeof (int))) < 0)
     zlog_err ("fd %d: can't setsockopt SO_RCVBUF to %d: %s",
@@ -42,7 +42,7 @@ setsockopt_so_sendbuf (const int sock, int size)
 {
   int ret = setsockopt (sock, SOL_SOCKET, SO_SNDBUF,
     (char *)&size, sizeof (int));
-  
+
   if (ret < 0)
     zlog_err ("fd %d: can't setsockopt SO_SNDBUF to %d: %s",
       sock, size, safe_strerror (errno));
@@ -71,8 +71,8 @@ getsockopt_cmsg_data (struct msghdr *msgh, int level, int type)
 {
   struct cmsghdr *cmsg;
   void *ptr = NULL;
-  
-  for (cmsg = ZCMSG_FIRSTHDR(msgh); 
+
+  for (cmsg = ZCMSG_FIRSTHDR(msgh);
        cmsg != NULL;
        cmsg = CMSG_NXTHDR(msgh, cmsg))
     if (cmsg->cmsg_level == level && cmsg->cmsg_type)
@@ -87,7 +87,7 @@ int
 setsockopt_ipv6_pktinfo (int sock, int val)
 {
   int ret;
-    
+
 #ifdef IPV6_RECVPKTINFO		/*2292bis-01*/
   ret = setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val));
   if (ret < 0)
@@ -162,7 +162,7 @@ int
 setsockopt_ipv6_multicast_loop (int sock, int val)
 {
   int ret;
-    
+
   ret = setsockopt (sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &val,
 		    sizeof (val));
   if (ret < 0)
@@ -174,9 +174,9 @@ static int
 getsockopt_ipv6_ifindex (struct msghdr *msgh)
 {
   struct in6_pktinfo *pktinfo;
-  
+
   pktinfo = getsockopt_cmsg_data (msgh, IPPROTO_IPV6, IPV6_PKTINFO);
-  
+
   return pktinfo->ipi6_ifindex;
 }
 #endif /* HAVE_IPV6 */
@@ -204,8 +204,8 @@ getsockopt_ipv6_ifindex (struct msghdr *msgh)
  * allow leaves, or implicitly leave all groups joined to down interfaces.
  */
 int
-setsockopt_multicast_ipv4(int sock, 
-			int optname, 
+setsockopt_multicast_ipv4(int sock,
+			int optname,
 			struct in_addr if_addr /* required */,
 			unsigned int mcast_addr,
 			unsigned int ifindex /* optional: if non-zero, may be
@@ -216,7 +216,7 @@ setsockopt_multicast_ipv4(int sock,
   /* This is better because it uses ifindex directly */
   struct ip_mreqn mreqn;
   int ret;
-  
+
   switch (optname)
     {
     case IP_MULTICAST_IF:
@@ -226,12 +226,12 @@ setsockopt_multicast_ipv4(int sock,
 
       if (mcast_addr)
 	mreqn.imr_multiaddr.s_addr = mcast_addr;
-      
+
       if (ifindex)
 	mreqn.imr_ifindex = ifindex;
       else
 	mreqn.imr_address = if_addr;
-      
+
       ret = setsockopt(sock, IPPROTO_IP, optname,
 		       (void *)&mreqn, sizeof(mreqn));
       if ((ret < 0) && (optname == IP_ADD_MEMBERSHIP) && (errno == EADDRINUSE))
@@ -264,7 +264,7 @@ setsockopt_multicast_ipv4(int sock,
   /* #elif  defined(BOGON_NIX) && EXAMPLE_VERSION_CODE > -100000 */
   /* Add your favourite OS here! */
 
-#else /* #if OS_TYPE */ 
+#else /* #if OS_TYPE */
   /* standard BSD API */
 
   struct in_addr m;
@@ -281,7 +281,7 @@ setsockopt_multicast_ipv4(int sock,
   switch (optname)
     {
     case IP_MULTICAST_IF:
-      return setsockopt (sock, IPPROTO_IP, optname, (void *)&m, sizeof(m)); 
+      return setsockopt (sock, IPPROTO_IP, optname, (void *)&m, sizeof(m));
       break;
 
     case IP_ADD_MEMBERSHIP:
@@ -289,7 +289,7 @@ setsockopt_multicast_ipv4(int sock,
       memset (&mreq, 0, sizeof(mreq));
       mreq.imr_multiaddr.s_addr = mcast_addr;
       mreq.imr_interface = m;
-      
+
       ret = setsockopt (sock, IPPROTO_IP, optname, (void *)&mreq, sizeof(mreq));
       if ((ret < 0) && (optname == IP_ADD_MEMBERSHIP) && (errno == EADDRINUSE))
         {
@@ -308,7 +308,7 @@ setsockopt_multicast_ipv4(int sock,
         }
       return ret;
       break;
-      
+
     default:
       /* Can out and give an understandable error */
       errno = EINVAL;
@@ -359,7 +359,7 @@ int
 setsockopt_ifindex (int af, int sock, int val)
 {
   int ret = -1;
-  
+
   switch (af)
     {
       case AF_INET:
@@ -375,7 +375,7 @@ setsockopt_ifindex (int af, int sock, int val)
     }
   return ret;
 }
-  
+
 /*
  * Requires: msgh is not NULL and points to a valid struct msghdr, which
  * may or may not have control data about the incoming interface.
@@ -392,12 +392,12 @@ getsockopt_ipv4_ifindex (struct msghdr *msgh)
 #if defined(IP_PKTINFO)
 /* Linux pktinfo based ifindex retrieval */
   struct in_pktinfo *pktinfo;
-  
-  pktinfo = 
+
+  pktinfo =
     (struct in_pktinfo *)getsockopt_cmsg_data (msgh, IPPROTO_IP, IP_PKTINFO);
   /* XXX Can pktinfo be NULL?  Clean up post 0.98. */
   ifindex = pktinfo->ipi_ifindex;
-  
+
 #elif defined(IP_RECVIF)
 
   /* retrieval based on IP_RECVIF */
@@ -412,7 +412,7 @@ getsockopt_ipv4_ifindex (struct msghdr *msgh)
 
 #ifndef SUNOS_5
   /* BSD */
-  sdl = 
+  sdl =
     (struct sockaddr_dl *)getsockopt_cmsg_data (msgh, IPPROTO_IP, IP_RECVIF);
   if (sdl != NULL)
     ifindex = sdl->sdl_index;
@@ -424,7 +424,7 @@ getsockopt_ipv4_ifindex (struct msghdr *msgh)
    * enable it fails with errno=99, and the struct msghdr has
    * controllen 0.
    */
-  ifindex_p = (uint_t *)getsockopt_cmsg_data (msgh, IPPROTO_IP, IP_RECVIF); 
+  ifindex_p = (uint_t *)getsockopt_cmsg_data (msgh, IPPROTO_IP, IP_RECVIF);
   if (ifindex_p != NULL)
     ifindex = *ifindex_p;
   else
@@ -442,7 +442,7 @@ getsockopt_ipv4_ifindex (struct msghdr *msgh)
 #warning "Some daemons may fail to operate correctly!"
   ifindex = 0;
 
-#endif /* IP_PKTINFO */ 
+#endif /* IP_PKTINFO */
 
   return ifindex;
 }
@@ -452,7 +452,7 @@ int
 getsockopt_ifindex (int af, struct msghdr *msgh)
 {
   int ifindex = 0;
-  
+
   switch (af)
     {
       case AF_INET:
@@ -473,7 +473,7 @@ getsockopt_ifindex (int af, struct msghdr *msgh)
 void
 sockopt_iphdrincl_swab_htosys (struct ip *iph)
 {
-  /* BSD and derived take iph in network order, except for 
+  /* BSD and derived take iph in network order, except for
    * ip_len and ip_off
    */
 #ifndef HAVE_IP_HDRINCL_BSD_ORDER
@@ -495,9 +495,19 @@ sockopt_iphdrincl_swab_systoh (struct ip *iph)
   iph->ip_id = ntohs(iph->ip_id);
 }
 
+/*==============================================================================
+ * Set TCP MD5 signature socket option.
+ *
+ * Returns:  0 => OK
+ *       errno => failed.
+ *
+ * NB: returns ENOSYS if TCP MD5 is not supported
+ */
 int
 sockopt_tcp_signature (int sock, union sockunion *su, const char *password)
 {
+  int ret ;
+
 #if defined(HAVE_TCP_MD5_LINUX24) && defined(GNU_LINUX)
   /* Support for the old Linux 2.4 TCP-MD5 patch, taken from Hasso Tepper's
    * version of the Quagga patch (based on work by Rick Payne, and Bruce
@@ -513,50 +523,49 @@ sockopt_tcp_signature (int sock, union sockunion *su, const char *password)
     void         *key;       /* MD5 Key */
   } cmd;
   struct in_addr *addr = &su->sin.sin_addr;
-  
+
   cmd.command = (password != NULL ? TCP_MD5_AUTH_ADD : TCP_MD5_AUTH_DEL);
   cmd.address = addr->s_addr;
-  cmd.keylen = (password != NULL ? strlen (password) : 0);
-  cmd.key = password;
-  
-  return setsockopt (sock, IPPROTO_TCP, TCP_MD5_AUTH, &cmd, sizeof cmd);
-  
+  cmd.keylen  = (password != NULL ? strlen (password) : 0);
+  cmd.key     = password;
+
+  ret = setsockopt (sock, IPPROTO_TCP, TCP_MD5_AUTH, &cmd, sizeof cmd) ;
+
+  return (ret >= 0) ? 0 : errno ;
+
 #elif HAVE_DECL_TCP_MD5SIG
-  int ret;
 #ifndef GNU_LINUX
   /*
    * XXX Need to do PF_KEY operation here to add/remove an SA entry,
    * and add/remove an SP entry for this peer's packet flows also.
    */
-  int md5sig = password && *password ? 1 : 0;
+  int    md5sig = password && *password ? 1 : 0;
 #else
-  int keylen = password ? strlen (password) : 0;
-  struct tcp_md5sig md5sig;
-  union sockunion *su2, *susock;
-  
+  int    keylen = password ? strlen (password) : 0 ;
+  struct tcp_md5sig md5sig ;
+  union sockunion *su2 ;
+  union sockunion susock ;
+
   /* Figure out whether the socket and the sockunion are the same family..
    * adding AF_INET to AF_INET6 needs to be v4 mapped, you'd think..
    */
-  if (!(susock = sockunion_getsockname (sock)))
-    return -1;
-  
-  if (susock->sa.sa_family == su->sa.sa_family)
-    su2 = su;
+  if ((ret = sockunion_getsockname(sock, &susock)) != 0)
+    return ret ;
+
+  if (susock.sa.sa_family == su->sa.sa_family)
+    su2 = su ;
   else
     {
       /* oops.. */
-      su2 = susock;
-      
+      su2 = &susock ;
+
       if (su2->sa.sa_family == AF_INET)
-        {
-          sockunion_free (susock);
-          return 0;
-        }
-      
+        return 0 ;              /* TODO: find out what this is doing ?? */
+
 #ifdef HAVE_IPV6
       /* If this does not work, then all users of this sockopt will need to
        * differentiate between IPv4 and IPv6, and keep seperate sockets for
-       * each. 
+       * each.
        *
        * Sadly, it doesn't seem to work at present. It's unknown whether
        * this is a bug or not.
@@ -572,26 +581,74 @@ sockopt_tcp_signature (int sock, union sockunion *su, const char *password)
         }
 #endif
     }
-  
+
   memset (&md5sig, 0, sizeof (md5sig));
   memcpy (&md5sig.tcpm_addr, su2, sizeof (*su2));
   md5sig.tcpm_keylen = keylen;
   if (keylen)
     memcpy (md5sig.tcpm_key, password, keylen);
-  sockunion_free (susock);
+
 #endif /* GNU_LINUX */
-  if ((ret = setsockopt (sock, IPPROTO_TCP, TCP_MD5SIG, &md5sig, sizeof md5sig)) < 0)
+
+  ret = setsockopt(sock, IPPROTO_TCP, TCP_MD5SIG, &md5sig, sizeof md5sig) ;
+  if (ret < 0)
     {
+      ret = errno ;
       /* ENOENT is harmless.  It is returned when we clear a password for which
 	 one was not previously set. */
-      if (ENOENT == errno)
-	ret = 0;
+      if (ret == ENOENT)
+	ret = 0 ;
       else
 	zlog_err ("sockopt_tcp_signature: setsockopt(%d): %s",
-		  sock, safe_strerror(errno));
+		  sock, safe_strerror(ret));
     }
-  return ret;
+  else
+    ret = 0 ;           /* no error                     */
+
 #else /* HAVE_TCP_MD5SIG */
-  return -2;
+
+  ret = ENOSYS ;        /* TCP MD5 is not supported     */
+
 #endif /* !HAVE_TCP_MD5SIG */
-}
+
+  return ret;
+} ;
+
+/*==============================================================================
+ * Set TTL for socket (only used in bgpd)
+ *
+ * Returns:  0 : OK (so far so good)
+ *        != 0 : error number (from errno or otherwise)
+ */
+
+int
+sockopt_ttl (int family, int sock, int ttl)
+{
+  char* msg ;
+  int   ret ;
+
+  ret = 0 ;
+
+#ifdef IP_TTL
+  if (family == AF_INET)
+    {
+      ret = setsockopt (sock, IPPROTO_IP, IP_TTL,(void*)&ttl, sizeof(int));
+      msg = "can't set sockopt IP_TTL %d to socket %d" ;
+    }
+#endif /* IP_TTL */
+#ifdef HAVE_IPV6
+  if (family == AF_INET6)
+    {
+      ret = setsockopt (sock, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+                                                 (void*)&ttl, sizeof(int));
+      msg = "can't set sockopt IPV6_UNICAST_HOPS %d to socket %d" ;
+    }
+#endif /* HAVE_IPV6 */
+
+  ret = (ret < 0) ? errno : 0 ;
+
+  if (ret != 0)
+    zlog (NULL, LOG_WARNING, msg, ttl, sock) ;
+
+  return ret ;
+} ;

@@ -31,13 +31,14 @@ Boston, MA 02111-1307, USA.  */
 #include "thread.h"
 
 #include "bgpd/bgpd.h"
+#include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_nexthop.h"
 #include "bgpd/bgp_zebra.h"
 #include "bgpd/bgp_fsm.h"
 #include "bgpd/bgp_debug.h"
-
+
 /* All information about zebra. */
 struct zclient *zclient = NULL;
 struct in_addr router_id_zebra;
@@ -376,11 +377,11 @@ zebra_read_ipv6 (int command, struct zclient *zclient, zebra_size_t length)
 	}
       bgp_redistribute_delete ((struct prefix *) &p, api.type);
     }
-  
+
   return 0;
 }
 #endif /* HAVE_IPV6 */
-
+
 struct interface *
 if_lookup_by_ipv4 (struct in_addr *addr)
 {
@@ -389,8 +390,8 @@ if_lookup_by_ipv4 (struct in_addr *addr)
   struct interface *ifp;
   struct connected *connected;
   struct prefix_ipv4 p;
-  struct prefix *cp; 
-  
+  struct prefix *cp;
+
   p.family = AF_INET;
   p.prefix = *addr;
   p.prefixlen = IPV4_MAX_BITLEN;
@@ -400,7 +401,7 @@ if_lookup_by_ipv4 (struct in_addr *addr)
       for (ALL_LIST_ELEMENTS_RO (ifp->connected, cnode, connected))
 	{
 	  cp = connected->address;
-	    
+
 	  if (cp->family == AF_INET)
 	    if (prefix_match (cp, (struct prefix *)&p))
 	      return ifp;
@@ -416,14 +417,14 @@ if_lookup_by_ipv4_exact (struct in_addr *addr)
   struct listnode *cnode;
   struct interface *ifp;
   struct connected *connected;
-  struct prefix *cp; 
-  
+  struct prefix *cp;
+
   for (ALL_LIST_ELEMENTS_RO (iflist, ifnode, ifp))
     {
       for (ALL_LIST_ELEMENTS_RO (ifp->connected, cnode, connected))
 	{
 	  cp = connected->address;
-	    
+
 	  if (cp->family == AF_INET)
 	    if (IPV4_ADDR_SAME (&cp->u.prefix4, addr))
 	      return ifp;
@@ -441,8 +442,8 @@ if_lookup_by_ipv6 (struct in6_addr *addr)
   struct interface *ifp;
   struct connected *connected;
   struct prefix_ipv6 p;
-  struct prefix *cp; 
-  
+  struct prefix *cp;
+
   p.family = AF_INET6;
   p.prefix = *addr;
   p.prefixlen = IPV6_MAX_BITLEN;
@@ -452,7 +453,7 @@ if_lookup_by_ipv6 (struct in6_addr *addr)
       for (ALL_LIST_ELEMENTS_RO (ifp->connected, cnode, connected))
 	{
 	  cp = connected->address;
-	    
+
 	  if (cp->family == AF_INET6)
 	    if (prefix_match (cp, (struct prefix *)&p))
 	      return ifp;
@@ -468,14 +469,14 @@ if_lookup_by_ipv6_exact (struct in6_addr *addr)
   struct listnode *cnode;
   struct interface *ifp;
   struct connected *connected;
-  struct prefix *cp; 
+  struct prefix *cp;
 
   for (ALL_LIST_ELEMENTS_RO (iflist, ifnode, ifp))
     {
       for (ALL_LIST_ELEMENTS_RO (ifp->connected, cnode, connected))
 	{
 	  cp = connected->address;
-	    
+
 	  if (cp->family == AF_INET6)
 	    if (IPV6_ADDR_SAME (&cp->u.prefix6, addr))
 	      return ifp;
@@ -489,12 +490,12 @@ if_get_ipv6_global (struct interface *ifp, struct in6_addr *addr)
 {
   struct listnode *cnode;
   struct connected *connected;
-  struct prefix *cp; 
-  
+  struct prefix *cp;
+
   for (ALL_LIST_ELEMENTS_RO (ifp->connected, cnode, connected))
     {
       cp = connected->address;
-	    
+
       if (cp->family == AF_INET6)
 	if (! IN6_IS_ADDR_LINKLOCAL (&cp->u.prefix6))
 	  {
@@ -510,12 +511,12 @@ if_get_ipv6_local (struct interface *ifp, struct in6_addr *addr)
 {
   struct listnode *cnode;
   struct connected *connected;
-  struct prefix *cp; 
-  
+  struct prefix *cp;
+
   for (ALL_LIST_ELEMENTS_RO (ifp->connected, cnode, connected))
     {
       cp = connected->address;
-	    
+
       if (cp->family == AF_INET6)
 	if (IN6_IS_ADDR_LINKLOCAL (&cp->u.prefix6))
 	  {
@@ -528,7 +529,7 @@ if_get_ipv6_local (struct interface *ifp, struct in6_addr *addr)
 #endif /* HAVE_IPV6 */
 
 int
-bgp_nexthop_set (union sockunion *local, union sockunion *remote, 
+bgp_nexthop_set (union sockunion *local, union sockunion *remote,
 		 struct bgp_nexthop *nexthop, struct peer *peer)
 {
   int ret = 0;
@@ -592,7 +593,7 @@ bgp_nexthop_set (union sockunion *local, union sockunion *remote,
       /* Global address*/
       if (! IN6_IS_ADDR_LINKLOCAL (&local->sin6.sin6_addr))
 	{
-	  memcpy (&nexthop->v6_global, &local->sin6.sin6_addr, 
+	  memcpy (&nexthop->v6_global, &local->sin6.sin6_addr,
 		  IPV6_MAX_BYTELEN);
 
 	  /* If directory connected set link-local address. */
@@ -608,10 +609,10 @@ bgp_nexthop_set (union sockunion *local, union sockunion *remote,
 	  /* If there is no global address.  Set link-local address as
              global.  I know this break RFC specification... */
 	  if (!ret)
-	    memcpy (&nexthop->v6_global, &local->sin6.sin6_addr, 
+	    memcpy (&nexthop->v6_global, &local->sin6.sin6_addr,
 		    IPV6_MAX_BYTELEN);
 	  else
-	    memcpy (&nexthop->v6_local, &local->sin6.sin6_addr, 
+	    memcpy (&nexthop->v6_local, &local->sin6.sin6_addr,
 		    IPV6_MAX_BYTELEN);
 	}
     }
@@ -700,7 +701,7 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp)
 		     api.metric);
 	}
 
-      zapi_ipv4_route (ZEBRA_IPV4_ROUTE_ADD, zclient, 
+      zapi_ipv4_route (ZEBRA_IPV4_ROUTE_ADD, zclient,
                        (struct prefix_ipv4 *) p, &api);
     }
 #ifdef HAVE_IPV6
@@ -713,13 +714,13 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp)
 
       ifindex = 0;
       nexthop = NULL;
-      
+
       assert (info->attr->extra);
-      
+
       /* Only global address nexthop exists. */
       if (info->attr->extra->mp_nexthop_len == 16)
 	nexthop = &info->attr->extra->mp_nexthop_global;
-      
+
       /* If both global and link-local address present. */
       if (info->attr->extra->mp_nexthop_len == 32)
 	{
@@ -768,7 +769,7 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp)
 		     api.metric);
 	}
 
-      zapi_ipv6_route (ZEBRA_IPV6_ROUTE_ADD, zclient, 
+      zapi_ipv6_route (ZEBRA_IPV6_ROUTE_ADD, zclient,
                        (struct prefix_ipv6 *) p, &api);
     }
 #endif /* HAVE_IPV6 */
@@ -826,7 +827,7 @@ bgp_zebra_withdraw (struct prefix *p, struct bgp_info *info)
 		     api.metric);
 	}
 
-      zapi_ipv4_route (ZEBRA_IPV4_ROUTE_DELETE, zclient, 
+      zapi_ipv4_route (ZEBRA_IPV4_ROUTE_DELETE, zclient,
                        (struct prefix_ipv4 *) p, &api);
     }
 #ifdef HAVE_IPV6
@@ -836,9 +837,9 @@ bgp_zebra_withdraw (struct prefix *p, struct bgp_info *info)
       struct zapi_ipv6 api;
       unsigned int ifindex;
       struct in6_addr *nexthop;
-      
+
       assert (info->attr->extra);
-      
+
       ifindex = 0;
       nexthop = NULL;
 
@@ -883,12 +884,12 @@ bgp_zebra_withdraw (struct prefix *p, struct bgp_info *info)
 		     api.metric);
 	}
 
-      zapi_ipv6_route (ZEBRA_IPV6_ROUTE_DELETE, zclient, 
+      zapi_ipv6_route (ZEBRA_IPV6_ROUTE_DELETE, zclient,
                        (struct prefix_ipv6 *) p, &api);
     }
 #endif /* HAVE_IPV6 */
 }
-
+
 /* Other routes redistribution into BGP. */
 int
 bgp_redistribute_set (struct bgp *bgp, afi_t afi, int type)
@@ -908,7 +909,7 @@ bgp_redistribute_set (struct bgp *bgp, afi_t afi, int type)
 
   if (BGP_DEBUG(zebra, ZEBRA))
     zlog_debug("Zebra send: redistribute add %s", zebra_route_string(type));
-    
+
   /* Send distribute add message to zebra. */
   zebra_redistribute_send (ZEBRA_REDISTRIBUTE_ADD, zclient, type);
 
@@ -917,7 +918,7 @@ bgp_redistribute_set (struct bgp *bgp, afi_t afi, int type)
 
 /* Redistribute with route-map specification.  */
 int
-bgp_redistribute_rmap_set (struct bgp *bgp, afi_t afi, int type, 
+bgp_redistribute_rmap_set (struct bgp *bgp, afi_t afi, int type,
                            const char *name)
 {
   if (bgp->rmap[afi][type].name
@@ -969,8 +970,8 @@ bgp_redistribute_unset (struct bgp *bgp, afi_t afi, int type)
     return CMD_WARNING;
   zclient->redist[type] = 0;
 
-  if (bgp->redist[AFI_IP][type] == 0 
-      && bgp->redist[AFI_IP6][type] == 0 
+  if (bgp->redist[AFI_IP][type] == 0
+      && bgp->redist[AFI_IP6][type] == 0
       && zclient->sock >= 0)
     {
       /* Send distribute delete message to zebra. */
@@ -979,7 +980,7 @@ bgp_redistribute_unset (struct bgp *bgp, afi_t afi, int type)
 		   zebra_route_string(type));
       zebra_redistribute_send (ZEBRA_REDISTRIBUTE_DELETE, zclient, type);
     }
-  
+
   /* Withdraw redistributed routes from current BGP's routing table. */
   bgp_redistribute_withdraw (bgp, afi, type);
 
@@ -1014,7 +1015,7 @@ bgp_redistribute_metric_unset (struct bgp *bgp, afi_t afi, int type)
 
   return 1;
 }
-
+
 void
 bgp_zclient_reset (void)
 {

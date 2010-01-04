@@ -67,7 +67,7 @@
  *
  * Early in the morning a decision may be made to enable qpthreads -- that must
  * be done before any threads are created (or will zabort) and before any
- * mutexes and condition variables are initialised.
+ * mutexes and condition variables are initialised (or it will be too late).
  *
  * Use: qpthreads_enabled        -- to test for the enabled-ness
  *      qpthreads_enabled_freeze -- to test and freeze unset if not yet enabled
@@ -131,7 +131,7 @@ qpt_thread_join(qpt_thread_t thread_id) ;
  */
 private int qpthreads_enabled_flag ;    /* DO NOT WRITE TO THIS   PLEASE     */
 
-private void
+private int
 qpt_set_qpthreads_enabled(int how) ;    /* qpthreads_enabled := how          */
 
 private int
