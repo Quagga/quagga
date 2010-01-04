@@ -60,10 +60,12 @@ int vty_lock_asserted = 0;
  * called with the mutex already locked.  There are a few exceptions, e.g.
  * callbacks where static routines are being invoked from outside the module.
  *
- * As we are not using recursive mutexes so there are a few cases where
- * both external and static versions of a routine exist.  The former for use
- * outside, the latter for use inside the module (and lock).  In these cases
- * the internal static versions starts uty_.
+ * There are a few cases where both external and static versions of a
+ * routine exist.  The former for use outside, the latter for use inside
+ * the module (and lock).  In these cases the internal static versions
+ * starts uty_.  This is not strictly necessary as we are using a recursive
+ * mutex but it avoids unnecessary recursive calls.  The recursive mutex
+ * is used so that we can call zlog and friends from anywhere.
  *
  * vty and log recurse through each other, so the same mutex is used
  * for both, i.e. they are treated as being part of the same monitor.
@@ -1982,6 +1984,8 @@ uty_accept (int accept_sock)
   struct access_list *acl = NULL;
   char *bufp;
 
+  ASSERTLOCKED
+
   /* We continue hearing vty socket. */
   vty_event (VTY_SERV, accept_sock, NULL);
 
@@ -2105,6 +2109,14 @@ vty_serv_sock_addrinfo (const char *hostname, unsigned short port)
       sockopt_reuseaddr (sock);
       sockopt_reuseport (sock);
 
+      /* set non-blocking */
+      ret = set_nonblocking(sock);
+      if (ret < 0)
+        {
+          close (sock);      /* Avoid sd leak. */
+          continue;
+        }
+
       ret = bind (sock, ainfo->ai_addr, ainfo->ai_addrlen);
       if (ret < 0)
 	{
@@ -2173,6 +2185,14 @@ vty_serv_sock_family (const char* addr, unsigned short port, int family)
   sockopt_reuseaddr (accept_sock);
   sockopt_reuseport (accept_sock);
 
+  /* set non-blocking */
+  ret = set_nonblocking(accept_sock);
+  if (ret < 0)
+    {
+      close (accept_sock);      /* Avoid sd leak. */
+      return;
+    }
+
   /* Bind socket to universal address and given port. */
   ret = sockunion_bind (accept_sock, &su, port, naddr);
   if (ret < 0)
@@ -2186,7 +2206,7 @@ vty_serv_sock_family (const char* addr, unsigned short port, int family)
   ret = listen (accept_sock, 3);
   if (ret < 0)
     {
-      zlog (NULL, LOG_WARNING, "can't listen socket");
+      uzlog (NULL, LOG_WARNING, "can't listen socket");
       close (accept_sock);	/* Avoid sd leak. */
       return;
     }
@@ -2239,7 +2259,7 @@ vty_serv_un (const char *path)
   ret = bind (sock, (struct sockaddr *) &serv, len);
   if (ret < 0)
     {
-      ulog(NULL, LOG_ERR, "Cannot bind path %s: %s", path, safe_strerror(errno));
+      uzlog(NULL, LOG_ERR, "Cannot bind path %s: %s", path, safe_strerror(errno));
       close (sock);	/* Avoid sd leak. */
       return;
     }
@@ -3628,7 +3648,7 @@ vty_init_r (qpn_nexus cli_n, qpn_nexus bgp_n)
 {
   cli_nexus = cli_n;
   bgp_nexus = bgp_n;
-  qpt_mutex_init(&vty_mutex, qpt_mutex_quagga);
+  qpt_mutex_init(&vty_mutex, qpt_mutex_recursive);
 }
 
 /* threads: Install vty's own commands like `who' command. */
