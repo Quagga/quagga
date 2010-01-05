@@ -73,8 +73,11 @@
  *      qpthreads_enabled_freeze -- to test and freeze unset if not yet enabled
  */
 
-#define qpthreads_enabled            ((const int)qpthreads_enabled_flag)
-#define qpthreads_enabled_freeze     qpt_freeze_qpthreads_enabled()
+#define qpthreads_enabled         ((const uint8_t)qpthreads_enabled_flag)
+#define qpthreads_enabled_freeze  qpt_freeze_qpthreads_enabled()
+
+#define qpthreads_thread_created  ((const uint8_t) \
+                                                  qpthreads_thread_created_flag)
 
 /*==============================================================================
  * Data types
@@ -129,7 +132,8 @@ qpt_thread_join(qpt_thread_t thread_id) ;
 /*==============================================================================
  * qpthreads_enabled support -- NOT FOR PUBLIC CONSUMPTION !
  */
-private int qpthreads_enabled_flag ;    /* DO NOT WRITE TO THIS   PLEASE     */
+private uint8_t qpthreads_enabled_flag ;        /* DO NOT TOUCH THIS PLEASE  */
+private uint8_t qpthreads_thread_created_flag ; /* DO NOT TOUCH THIS PLEASE  */
 
 private int
 qpt_set_qpthreads_enabled(int how) ;    /* qpthreads_enabled := how          */

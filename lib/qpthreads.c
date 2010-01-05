@@ -254,7 +254,8 @@ enum qpthreads_enabled_state
 
 static enum qpthreads_enabled_state qpthreads_enabled_state = qpt_state_unset ;
 
-int qpthreads_enabled_flag = 0 ;
+uint8_t qpthreads_enabled_flag          = 0 ;
+uint8_t qpthreads_thread_created_flag   = 0 ;
 
 /* Function to set qpthreads_enabled, one way or the other.
  *
@@ -437,6 +438,7 @@ qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr)
   int err ;
 
   passert(qpthreads_enabled) ;
+  qpthreads_thread_created_flag = 1 ;   /* and at least one thread created  */
 
   default_attr = (attr == NULL) ;
   if (default_attr)
