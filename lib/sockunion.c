@@ -164,9 +164,16 @@ str2sockunion (const char *str, union sockunion *su)
   return -1;
 }
 
+/*------------------------------------------------------------------------------
+ * Construct string for sockunion IP address.
+ *
+ * Requires buffer of at least SU_ADDRSTRLEN characters.
+ */
 const char *
 sockunion2str (union sockunion *su, char *buf, size_t len)
 {
+  assert(len >= SU_ADDRSTRLEN) ;
+
   if  (su->sa.sa_family == AF_INET)
     return inet_ntop (AF_INET, &su->sin.sin_addr, buf, len);
 #ifdef HAVE_IPV6

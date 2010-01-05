@@ -24,6 +24,7 @@
 #define _ZEBRA_SOCKUNION_H
 
 #include "symtab.h"
+#include "zassert.h"
 
 #if 0
 union sockunion {
@@ -63,8 +64,13 @@ enum connect_result
 #define AF_INET_UNION AF_INET
 #endif
 
-/* Sockunion address string length.  Same as INET6_ADDRSTRLEN. */
+/* Sockunion address string length. Accommodate either IPv4 or IPv6.    */
 #define SU_ADDRSTRLEN 46
+
+CONFIRM(SU_ADDRSTRLEN >= INET_ADDRSTRLEN) ;
+#if HAVE_IPV6
+CONFIRM(SU_ADDRSTRLEN >= INET6_ADDRSTRLEN) ;
+#endif
 
 /* Macro to set link local index to the IPv6 address.  For KAME IPv6
    stack. */
