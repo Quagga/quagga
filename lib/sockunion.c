@@ -272,7 +272,7 @@ sockunion_accept (int sock, union sockunion *su)
   memset(su, 0, len) ;
   ret = accept(sock, (struct sockaddr *)su, &len) ;
 
-  if (client_sock >= 0)
+  if (ret >= 0)
     {
       sockunion_normalise_mapped(su);
       return ret ;                      /* OK -- got socket     */
