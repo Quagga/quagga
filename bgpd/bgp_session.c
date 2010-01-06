@@ -23,6 +23,7 @@
 #include "bgpd/bgp_peer.h"
 
 #include "lib/memory.h"
+#include "lib/sockunion.h"
 
 /*==============================================================================
  * BGP Session.
@@ -123,7 +124,7 @@ bgp_session_enable(bgp_session session, bgp_peer peer)
   session->ttl      = peer->ttl ;
   session->port     = peer->port ;
 
-//session->su       = peer->su ;
+  session->su_peer  = sockunion_dup(&peer->su) ;
 
   session->log      = peer->log ;
   session->host     = peer->host ;
@@ -137,7 +138,7 @@ bgp_session_enable(bgp_session session, bgp_peer peer)
 
   /* Initialise the BGP Open negotiating position                       */
 
-  session->router_id = peer->local_id ;
+  /*....*/
 
   /* Now pass the session to the BGP Engine, which will set about       */
   /* making and running a connection to the peer.                       */

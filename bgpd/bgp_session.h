@@ -91,7 +91,7 @@ struct bgp_session
   bgp_notify            notification ;  /* if any sent/received           */
 
   bgp_open_state    open_send ;         /* how to open the session        */
-  bgp_open_state    open_recv ;         /* how session was opened         */
+  bgp_open_state    open_recv ;         /* set when session Established   */
 
   int               connect ;           /* initiate connections           */
   int               listen ;            /* listen for connections         */
@@ -100,9 +100,10 @@ struct bgp_session
 
   int               ttl ;               /* TTL to set, if not zero        */
   unsigned short    port ;              /* destination port for peer      */
-  union sockunion   su_peer ;           /* Sockunion address of the peer  */
+  union sockunion*  su_peer ;           /* Sockunion address of the peer  */
 
-  struct in_addr    router_id ;
+  union sockunion*  su_local ;          /* set when session Established   */
+  union sockunion*  su_remote ;         /* set when session Established   */
 
   struct zlog*      log ;               /* where to log to                */
   char*             host ;              /* copy of printable peer's addr  */

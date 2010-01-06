@@ -55,7 +55,7 @@ struct bgp_open_state
 {
   as_t        my_as ;                 /* generic ASN                        */
   unsigned    holdtime ;              /* in seconds                         */
-  bgp_id_t    bgp_id ;                /* eg an IPv4 address as integer      */
+  bgp_id_ht   bgp_id ;                /* an IPv4 address as *host* uint32_t */
 
   int         can_capability ;        /* false => don't send capabilities   */
 

@@ -69,17 +69,21 @@ enum bgp_stopped_causes
 
   bgp_stopped_not           = 0,  /* not stopped (yet)                      */
 
-
   bgp_stopped_admin         = 1,  /* Routeing Engine Stop                   */
+                                  /* Sent Cease NOTIFICATION                */
 
-  bgp_stopped_notification  = 2,  /* Received NOTIFICATION                  */
+  bgp_stopped_collision     = 2,  /* Collision Resolution Stop              */
+  bgp_stopped_loser         = 3,  /* Loser in race to Established state     */
 
-  bgp_stopped_collision     = 3,
+  bgp_stopped_error         = 4,  /*          */
+  bgp_stopped_recv_nom      = 5,  /* Received NOTIFICATION                  */
 
-  bgp_stopped_invalid       = 4,  /* some internal error                    */
-  bgp_stopped_unknown       = 5,  /* some unknown reason                    */
+  bgp_stopped_connect_fail  = 5,
+  bgo_stopped_connect_drop  = 6,
+  bgp_stopped_fatal_error   = 8,
+  bgp_stopped_invalid       = 9,  /* some internal error                    */
 
-  bgp_stopped_max_cause     = 4
+  bgp_stopped_max_cause     = 8
 } ;
 
 /*==============================================================================
@@ -91,7 +95,12 @@ typedef uint32_t as_t ;
 typedef uint16_t as16_t ;       /* we may still encounter 16 Bit asnums */
 
 /* BGP Identifier -- usually an IPv4 address !                          */
+#ifndef _GMCH_BGP_H
 typedef uint32_t bgp_id_t ;
+#endif
+
+typedef bgp_id_t  bgp_id_ht ;   /* in host order                        */
+typedef bgp_id_t  bgp_id_nt ;   /* in network order                     */
 
 /* Size of BGP packets or thing in such                                 */
 typedef uint16_t bgp_size_t;

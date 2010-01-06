@@ -461,19 +461,14 @@ bgp_accept_action(qps_file qf, void* file_info)
   connection = session->connections[bgp_connection_secondary] ;
 
   if (ret == 0)
-    {
-      bgp_connection_open(connection, fd) ;
-
-      memcpy(&connection->su_local,  &su_local,  sizeof(union sockunion)) ;
-      memcpy(&connection->su_remote, &su_remote, sizeof(union sockunion)) ;
-    }
+    bgp_connection_open(connection, fd) ;
   else
     close(fd) ;
 
   BGP_SESSION_UNLOCK(session) ; /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
   /* Now kick the FSM in an appropriate fashion                         */
-  bgp_fsm_connect_completed(connection, ret) ;
+  bgp_fsm_connect_completed(connection, ret, &su_local, &su_remote) ;
 } ;
 
 /*==============================================================================
@@ -502,16 +497,16 @@ bgp_open_connect(bgp_connection connection)
   unsigned int ifindex = 0 ;
   int   fd ;
   int   ret ;
-  union sockunion* p_su = &connection->session->su_peer ;
+  union sockunion* su = connection->session->su_peer ;
 
   /* Make socket for the connect connection.                            */
-  fd = sockunion_socket(p_su) ;
+  fd = sockunion_socket(su) ;
   if (fd < 0)
     return errno ;      /* give up immediately if cannot create socket  */
 
   /* Set the common options.                                            */
-  ret = bgp_socket_set_common_options(fd, p_su, connection->session->ttl,
-                                                connection->session->password) ;
+  ret = bgp_socket_set_common_options(fd, su, connection->session->ttl,
+                                              connection->session->password) ;
 
   /* Bind socket.                                                       */
   if (ret == 0)
@@ -534,7 +529,7 @@ bgp_open_connect(bgp_connection connection)
 
   /* Connect to the remote peer.        */
   if (ret == 0)
-    ret = sockunion_connect(fd, p_su, connection->session->port, ifindex) ;
+    ret = sockunion_connect(fd, su, connection->session->port, ifindex) ;
                           /* does not report EINPROGRESS as an error.   */
 
   /* If not OK now, close the fd and signal the error                   */
@@ -543,7 +538,7 @@ bgp_open_connect(bgp_connection connection)
     {
       close(fd) ;
 
-      bgp_fsm_connect_completed(connection, ret) ;
+      bgp_fsm_connect_completed(connection, ret, NULL, NULL) ;
 
       return ;
     } ;
@@ -607,6 +602,8 @@ bgp_connect_action(qps_file qf, void* file_info)
   bgp_connection  connection ;
   int ret, err ;
   socklen_t len = sizeof(err) ;
+  union sockunion su_remote ;
+  union sockunion su_local ;
 
   connection = file_info ;
 
@@ -621,14 +618,13 @@ bgp_connect_action(qps_file qf, void* file_info)
   else  if (err != 0)
     ret = err ;
   else
-    ret = bgp_getsockname(qps_file_fd(qf), &connection->su_local,
-                                           &connection->su_remote) ;
+    ret = bgp_getsockname(qps_file_fd(qf), &su_local, &su_remote) ;
 
   /* In any case, disable both read and write for this file.            */
   qps_disable_modes(qf, qps_write_mbit | qps_read_mbit) ;
 
   /* Now kick the FSM in an appropriate fashion                         */
-  bgp_fsm_connect_completed(connection, ret) ;
+  bgp_fsm_connect_completed(connection, ret, &su_local, &su_remote) ;
 } ;
 
 /*==============================================================================
@@ -920,7 +916,7 @@ bgp_md5_set_listeners(bgp_connection connection)
   bgp_listener listener ;
   int ret ;
 
-  union sockunion* su = &connection->session->su_peer ;
+  union sockunion* su = connection->session->su_peer ;
 
 #ifdef HAVE_IPV6
   assert((su->sa.sa_family == AF_INET) || (su->sa.sa_family == AF_INET6)) ;

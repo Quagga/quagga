@@ -35,10 +35,15 @@ extern void
 bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event) ;
 
 extern void
+bgp_fsm_io_fatal_error(bgp_connection connection, int err) ;
+
+extern void
 bgp_fsm_io_error(bgp_connection connection, int err) ;
 
 extern void
-bgp_fsm_fd_closed(bgp_connection connection) ;
+bgp_fsm_connect_completed(bgp_connection connection, int err,
+                                                   union sockunion* su_local,
+                                                   union sockunion* su_remote) ;
 
 extern void
 bgp_fsm_stop_session(bgp_connection connection, bgp_stopped_cause_t cause,

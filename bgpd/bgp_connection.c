@@ -116,6 +116,7 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
   /* Structure is zeroised, so the following are implictly initialised:
    *
    *   * state                    bgp_fsm_Initial
+   *   * comatose                 not comatose
    *   * next                     NULL -- not on the connection queue
    *   * prev                     NULL -- not on the connection queue
    *   * post                     bgp_fsm_null_event
@@ -123,8 +124,8 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
    *   * stopped                  bgp_stopped_not
    *   * notification             NULL -- none received or sent
    *   * err                      no error, so far
-   *   * su_local                 no address, yet
-   *   * su_remote                no address, yet
+   *   * su_local                 NULL -- no address, yet
+   *   * su_remote                NULL -- no address, yet
    *   * hold_timer_interval      none -- set when connection is opened
    *   * keepalive_timer_interval none -- set when connection is opened
    *   * read_pending             nothing pending
@@ -188,6 +189,67 @@ bgp_connection_init_host(bgp_connection connection, const char* tag)
                                                 + strlen(tag) + 1) ;
   strcpy(connection->host, host) ;
   strcat(connection->host, tag) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get sibling (if any) for given connection.
+ *
+ * NB: requires the session to be LOCKED.
+ */
+extern bgp_connection
+bgp_connection_get_sibling(bgp_connection connection)
+{
+  bgp_session session = connection->session ;
+
+  if (session == NULL)
+    return NULL ;               /* no sibling if no session             */
+
+  confirm(bgp_connection_primary   == (bgp_connection_secondary ^ 1)) ;
+  confirm(bgp_connection_secondary == (bgp_connection_primary   ^ 1)) ;
+
+  return session->connections[connection->ordinal ^ 1] ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Make given connection the primary.
+ *
+ * Expects the given connection to be the only remaining connection.
+ *
+ * NB: requires the session to be LOCKED.
+ */
+extern void
+bgp_connection_make_primary(bgp_connection connection)
+{
+  bgp_session session = connection->session ;
+
+  /* Deal with the connection ordinal.                          */
+  if (connection->ordinal != bgp_connection_primary)
+    {
+      connection->ordinal = bgp_connection_primary ;
+      session->connections[bgp_connection_primary] = connection ;
+    } ;
+
+  session->connections[bgp_connection_secondary] = NULL ;
+
+  /* Move the open_state to the session.
+   * Change the connection host to drop the primary/secondary distinction.
+   * Copy the negotiated hold_timer_interval and keepalive_timer_interval
+   * Copy the su_local and su_remote
+   */
+
+  session->open_recv = connection->open_recv ;
+  connection->open_recv = NULL ;        /* no longer interested in this  */
+
+  XFREE(MTYPE_BGP_PEER_HOST, connection->host) ;
+  bgp_connection_init_host(connection, "") ;
+
+  session->hold_timer_interval        = connection->hold_timer_interval ;
+  session->keepalive_timer_interval   = session->keepalive_timer_interval ;
+
+  session->su_local  = connection->su_local ;
+  connection->su_local  = NULL ;
+  session->su_remote = connection->su_remote ;
+  connection->su_remote = NULL ;
 } ;
 
 /*------------------------------------------------------------------------------

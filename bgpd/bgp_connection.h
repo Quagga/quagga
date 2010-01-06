@@ -117,12 +117,13 @@ struct bgp_connection
   bgp_session       session ;           /* session connection belongs to  */
                                         /* NULL if connection stopping    */
   qpt_mutex         p_mutex ;           /* session mutex*                 */
-                                        /* NULL if connection stopping    */
+                                        /* (avoids incomplete type issue) */
 
   bgp_connection_ordinal_t ordinal ;    /* primary/secondary connection   */
   int               accepted ;          /* came via accept()              */
 
   bgp_fsm_state_t   state ;             /* FSM state of connection        */
+  int               comatose ;          /* Idle and no timer set          */
 
   bgp_connection    next ;              /* for the connection queue       */
   bgp_connection    prev ;              /* NULL <=> not on the queue      */
@@ -138,8 +139,8 @@ struct bgp_connection
   struct qps_file   qf ;                /* qpselect file structure        */
   int               err ;               /* error number -- if any         */
 
-  union sockunion   su_local ;          /* address of the near end        */
-  union sockunion   su_remote ;         /* address of the far end         */
+  union sockunion*  su_local ;          /* address of the near end        */
+  union sockunion*  su_remote ;         /* address of the far end         */
 
   char*             host ;              /* peer "name" + Connect/Listen   */
   struct zlog*      log ;               /* where to log to                */
@@ -178,6 +179,12 @@ bgp_connection_reset(bgp_connection connection, int free_structure) ;
 extern void
 bgp_connection_open(bgp_connection connection, int fd) ;
 
+extern bgp_connection
+bgp_connection_get_sibling(bgp_connection connection) ;
+
+extern void
+bgp_connection_make_primary(bgp_connection connection) ;
+
 extern void
 bgp_connection_close(bgp_connection connection) ;
 
@@ -198,14 +205,14 @@ bgp_connection_write(bgp_connection connection) ;
 Inline void
 BGP_CONNECTION_SESSION_LOCK(bgp_connection connection)
 {
-  if (connection->p_mutex != NULL)
+  if (connection->session != NULL)
     qpt_mutex_lock(connection->p_mutex) ;
 } ;
 
 Inline void
 BGP_CONNECTION_SESSION_UNLOCK(bgp_connection connection)
 {
-  if (connection->p_mutex != NULL)
+  if (connection->session != NULL)
     qpt_mutex_unlock(connection->p_mutex) ;
 } ;
 
