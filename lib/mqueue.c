@@ -68,22 +68,44 @@
  * For waiters kicked by signal, the wait does not occur within the message
  * queue code, but the need for a signal is recorded in the message queue.
  *
- * Messages take the form of a small block of information which contains:
+ *------------------------------------------------------------------------------
+ * Message Blocks and Arguments
  *
- *   * flags     -- used by the message handler
-  *
+ * Messages take the form of a small block of information which contain:
+ *
  *   * action    -- void action(mqueue_block)   message dispatch
- *   * arg0      -- *void                    )  standard arguments
- *   * arg1      -- *void/uintptr_t/intptr_t )
+ *   * arguments -- each a union of: *void/uintptr_t/intptr_t
  *
- * There are set/get functions for action/arg0/arg1 -- users should not poke
+ * There are set/get functions for action/arguments -- users should not poke
  * around inside the structure.
  *
  * To send a message, first allocate a message block (see mqb_init_new),
  * then fill in the arguments and enqueue it.
  *
- * For specific revoke, arg0 is assumed to identify the messages to be
- * revoked.
+ * The number of arguments is flexible, and the mqb handling looks after
+ * the array of same.  Note:
+ *
+ *   * arg0 (aka argv[0]) implicitly exists and is implicitly a pointer.
+ *
+ *     This is expected to be used as the "context" for the message.
+ *
+ *     For specific revoke, arg0 is assumed to identify the messages to be
+ *     revoked.
+ *
+ *   * arg1 (aka argv[1]) implicitly exists.
+ *
+ * The count of known arguments is, then, always at least 2.
+ *
+ * May set any number of arguments, and the count is extended to include the
+ * highest index set.
+ *
+ * May get any argument by its index -- but it is a fatal error to attempt to
+ * access a non-existent argument (one beyond the known count).
+ *
+ * May treat arguments from some index forward as a "list".  There is support
+ * for pushing values onto the "list" and for iterating along the "list".
+ * (But note that there is only one argv[] -- the "list" is not separate and
+ * does not have separate indexes.)
  *
  *==============================================================================
  * Local Queues
@@ -109,8 +131,7 @@
  * NB: once any message queue has been enabled, it is TOO LATE to enable
  *     qpthreads.
  */
-
-mqueue_queue
+extern mqueue_queue
 mqueue_init_new(mqueue_queue mq, enum mqueue_queue_type type)
 {
   if (mq == NULL)
@@ -191,7 +212,7 @@ mqueue_local_reset(mqueue_local_queue lmq, int free_structure)
   while ((mqb = lmq->head) != NULL)
     {
       lmq->head = mqb->next ;
-      mqueue_dispatch_destroy(mqb) ;
+      mqb_dispatch_destroy(mqb) ;
     } ;
 
   if (free_structure)
@@ -210,7 +231,7 @@ mqueue_local_reset(mqueue_local_queue lmq, int free_structure)
  * This is a waste of time if !qpthreads_enabled, but does no harm.  The
  * timeout is ignored.
  */
-void
+extern void
 mqueue_set_timeout_interval(mqueue_queue mq, qtime_t interval)
 {
   qpt_mutex_lock(&mq->mutex) ;
@@ -242,9 +263,21 @@ static mqueue_block mqb_free_list = NULL ;
 
 static mqueue_block mqueue_block_new_lot(void) ;
 
-/* Initialise message block (allocate if required) and set action and arg0.
+/*------------------------------------------------------------------------------
+ * Size of argv_extension assuming the given *total* number of arguments.
+ *
+ * NB: expect there to always be >= mqb_argv_static_len arguments allocated.
  */
-mqueue_block
+static inline size_t
+mqb_extension_size(mqb_index_t arg_have)
+{
+  return sizeof(mqb_arg_t) * (arg_have - mqb_argv_static_len) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialise message block (allocate if required) and set action & arg0.
+ */
+extern mqueue_block
 mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0)
 {
   if (mqb == NULL)
@@ -262,26 +295,84 @@ mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0)
 
   memset(mqb, 0, sizeof(struct mqueue_block)) ;
 
-  mqb->action  = action ;
-  mqb->arg0    = arg0 ;
+  mqb->action    = action ;
+  mqb->argv[0].p = arg0 ;
+
+  mqb->arg_count = 2 ;  /* Always arg0 and arg1 (aka argv[0] and argv[1])   */
+  mqb->arg_have  = mqb_argv_static_len ;
+
+  /* Zeroising the mqb sets:
+   *
+   *    next           -- NULL
+   *
+   *    argv           -- everything zero or NULL
+   *
+   *    arg_list_base  -- no list
+   *    arg_list_next  -- reset
+   *
+   *    argv_extension -- NULL -- no extension
+   */
 
   return mqb ;
 } ;
 
-/* Free message block when done with it.
+/*------------------------------------------------------------------------------
+ * Re-initialise message block (or allocate if required) and set action & arg0.
+ *
+ * NB: preserves any existing extension.
+ *
+ * NB: it is the caller's responsibility to free the value of any argument that
+ *     requires it.
  */
-void
+extern mqueue_block
+mqb_re_init(mqueue_block mqb, mqueue_action action, void* arg0)
+{
+  mqb_index_t arg_have ;
+  mqb_arg_t*  argv_extension ;
+
+  /* Exactly mqb_init_new if mqb is NULL                        */
+  if (mqb == NULL)
+    return mqb_init_new(NULL, action, arg0) ;
+
+  /* Otherwise, need to put extension to one side first         */
+  argv_extension = mqb->argv_extension ;
+  arg_have       = mqb->arg_have ;
+
+  mqb_init_new(mqb, action, arg0) ;
+
+  /* Now zeroize the extension, and restore it                  */
+  memset(argv_extension, 0, mqb_extension_size(arg_have)) ;
+
+  mqb->argv_extension = argv_extension ;
+  mqb->arg_have       = arg_have ;
+
+  return mqb ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free message block when done with it.
+ *
+ * Frees an extension argument vector.
+ *
+ * NB: it is the caller's responsibility to free the value of any argument that
+ *     requires it.
+ */
+extern void
 mqb_free(mqueue_block mqb)
 {
-  qpt_mutex_lock(&mqb_mutex) ;
+  if (mqb->argv_extension != NULL)
+    XFREE(MTYPE_MQUEUE_BLOCK_EXT, mqb->argv_extension) ;
+
+  qpt_mutex_lock(&mqb_mutex) ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
   mqb->next = mqb_free_list ;
   mqb_free_list = mqb ;
 
-  qpt_mutex_unlock(&mqb_mutex) ;
+  qpt_mutex_unlock(&mqb_mutex) ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 } ;
 
-/* Make a new lot of empty message_block structures.
+/*------------------------------------------------------------------------------
+ * Make a new lot of empty message_block structures.
  *
  * NB: caller MUST hold the mqb_mutex.
  */
@@ -686,6 +777,326 @@ mqueue_dequeue_signal(mqueue_queue mq, mqueue_thread_signal mtsig)
 
   dassert( ((mq->kick.signal.head == NULL) && (mq->waiters == 0)) ||
            ((mq->kick.signal.head != NULL) && (mq->waiters != 0)) ) ;
+} ;
+
+/*==============================================================================
+ * Message Queue Block Argument Handling
+ */
+
+static void mqb_argv_extend(mqueue_block mqb, mqb_index_t iv) ;
+
+/*------------------------------------------------------------------------------
+ * Get pointer to argv[iv] -- extending if required
+ */
+inline static mqb_arg_t*
+mqb_p_arg_set(mqueue_block mqb, mqb_index_t iv)
+{
+  if (iv >= mqb->arg_count)
+    {
+      if (iv >= mqb->arg_have)
+        mqb_argv_extend(mqb, iv) ;
+      mqb->arg_count = iv + 1 ;
+    } ;
+
+  if (iv < mqb_argv_static_len)
+    return &mqb->argv[iv] ;
+  else
+    return &mqb->argv_extension[iv - mqb_argv_static_len] ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set pointer argv[iv] to given value.
+ */
+extern void
+mqb_set_argv_p(mqueue_block mqb, mqb_index_t iv, mqb_ptr_t  p)
+{
+  mqb_arg_t* p_arg = mqb_p_arg_set(mqb, iv) ;
+  p_arg->p = p ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set integer argv[iv] to given value.
+ */
+extern void
+mqb_set_argv_i(mqueue_block mqb, mqb_index_t iv, mqb_int_t  i)
+{
+  mqb_arg_t* p_arg = mqb_p_arg_set(mqb, iv) ;
+  p_arg->i = i ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set unsigned integer argv[iv] to given value.
+ */
+extern void
+mqb_set_argv_u(mqueue_block mqb, mqb_index_t iv, mqb_uint_t u)
+{
+  mqb_arg_t* p_arg = mqb_p_arg_set(mqb, iv) ;
+  p_arg->u = u ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set start of "list" part of argv[] to be the given iv (must be > 0 !).
+ */
+extern void
+mqb_set_argv_list(mqueue_block mqb, mqb_index_t iv)
+{
+  assert(iv > 0) ;
+
+  mqb->arg_list_base = iv ;
+
+  /* If there is a gap between the existing items and the start of the  */
+  /* "list", then fill in upto the start of the "list"                  */
+  if (iv > mqb->arg_count)
+    mqb_set_argv_p(mqb, iv - 1, NULL) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Push a pointer onto the "list"
+ *
+ * Implicitly starts list if not set by mqb_set_argv_list(), setting to
+ * just past the last argument set -- noting that arg0 and arg1 are implicitly
+ * set.
+ */
+extern void
+mqb_push_argv_p(mqueue_block mqb, mqb_ptr_t  p)
+{
+  mqb_arg_t* p_arg ;
+
+  if (mqb->arg_list_base == 0)
+    mqb->arg_list_base = mqb->arg_count ;
+
+  p_arg = mqb_p_arg_set(mqb, mqb->arg_count) ;
+  p_arg->p = p ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Push an integer onto the "list"
+ *
+ * Implicitly starts list if not set by mqb_set_argv_list(), setting to
+ * just past the last argument set -- noting that arg0 and arg1 are implicitly
+ * set.
+ */
+extern void
+mqb_push_argv_i(mqueue_block mqb, mqb_int_t  i)
+{
+  mqb_arg_t* p_arg ;
+
+  if (mqb->arg_list_base == 0)
+    mqb->arg_list_base = mqb->arg_count ;
+
+  p_arg = mqb_p_arg_set(mqb, mqb->arg_count) ;
+  p_arg->i = i ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Push an unsigned integer onto the "list"
+ *
+ * Implicitly starts list if not set by mqb_set_argv_list(), setting to
+ * just past the last argument set -- noting that arg0 and arg1 are implicitly
+ * set.
+ */
+extern void
+mqb_push_argv_u(mqueue_block mqb, mqb_uint_t u)
+{
+  mqb_arg_t* p_arg ;
+
+  if (mqb->arg_list_base == 0)
+    mqb->arg_list_base = mqb->arg_count ;
+
+  p_arg = mqb_p_arg_set(mqb, mqb->arg_count) ;
+  p_arg->u = u ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get pointer to argv[iv] -- which MUST exist
+ *
+ * NB: it is a FATAL error to reference an argument beyond the last one set.
+ */
+inline static mqb_arg_t*
+mqb_p_arg_get(mqueue_block mqb, mqb_index_t iv)
+{
+  if (iv >= mqb->arg_count)
+    zabort("invalid message block argument index") ;
+
+  if (iv < mqb_argv_static_len)
+    return &mqb->argv[iv] ;
+  else
+    return &mqb->argv_extension[iv - mqb_argv_static_len] ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get pointer value of argv[iv]
+ *
+ * NB: it is a FATAL error to reference an argument beyond the last one set.
+ *
+ *     arg0 and arg1 are implicitly set.
+ *
+ *     mqb_get_arg_count() returns the number of arguments set, including any
+ *     "list" part.
+ */
+extern mqb_ptr_t
+mqb_get_argv_p(mqueue_block mqb, mqb_index_t iv)
+{
+  mqb_arg_t* p_arg = mqb_p_arg_get(mqb, iv) ;
+  return p_arg->p ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get integer value of argv[iv]
+ *
+ * NB: it is a FATAL error to reference an argument beyond the last one set.
+ *
+ *     arg0 and arg1 are implicitly set.
+ *
+ *     mqb_get_arg_count() returns the number of arguments set, including any
+ *     "list" part.
+ */
+extern mqb_int_t
+mqb_get_argv_i(mqueue_block mqb, mqb_index_t iv)
+{
+  mqb_arg_t* p_arg = mqb_p_arg_get(mqb, iv) ;
+  return p_arg->i ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get unsigned integer value of argv[iv]
+ *
+ * NB: it is a FATAL error to reference an argument beyond the last one set.
+ *
+ *     arg0 and arg1 are implicitly set.
+ *
+ *     mqb_get_arg_count() returns the number of arguments set, including any
+ *     "list" part.
+ */
+extern mqb_uint_t
+mqb_get_argv_u(mqueue_block mqb, mqb_index_t iv)
+{
+  mqb_arg_t* p_arg = mqb_p_arg_get(mqb, iv) ;
+  return p_arg->u ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get iv for the first argument in the "list" portion (if any).
+ *
+ * Returns:  0 => no list portion
+ *          iv    1..n: can be used to access the "list" portion using
+ *                      mqb_get_argv_x().  BUT, watch out for empty lists !
+ */
+extern mqb_index_t
+mqb_get_argv_list_base(mqueue_block mqb)
+{
+  return mqb->arg_list_base ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the number of arguments in the "list" portion (if any).
+ *
+ * Returns:  0 => no or empty list portion
+ *
+ * Resets the "next" counter -- see mqb_next_argv_x() below.
+ */
+extern mqb_index_t
+mqb_get_argv_list_count(mqueue_block mqb)
+{
+  mqb->arg_list_next = 0 ;
+  return (mqb->arg_list_base == 0) ? 0 : mqb->arg_count - mqb->arg_list_base ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get pointer value of next "list" argument -- if any.
+ *
+ * There is a "next" counter in the message queue block, which is reset when
+ * the mqb is initialised or re-initialised, and when mqb_get_list_count() is
+ * called.
+ *
+ * NB: returns NULL if there is no "list" or if already at the end of same.
+ */
+extern mqb_ptr_t
+mqb_next_argv_p(mqueue_block mqb)
+{
+  if (mqb->arg_list_next == 0)
+    mqb->arg_list_next = mqb->arg_list_base ;
+
+  if ((mqb->arg_list_base == 0) || (mqb->arg_list_next >= mqb->arg_count))
+    return NULL ;
+
+  return mqb_get_argv_p(mqb, mqb->arg_list_next++) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get integer value of next "list" argument -- if any.
+ *
+ * There is a "next" counter in the message queue block, which is reset when
+ * the mqb is initialised or re-initialised, and when mqb_get_list_count() is
+ * called.
+ *
+ * NB: returns 0 if there is no "list" or if already at the end of same.
+ */
+extern mqb_int_t
+mqb_next_argv_i(mqueue_block mqb)
+{
+  if (mqb->arg_list_next == 0)
+    mqb->arg_list_next = mqb->arg_list_base ;
+
+  if ((mqb->arg_list_base == 0) || (mqb->arg_list_next >= mqb->arg_count))
+    return 0 ;
+
+  return mqb_get_argv_i(mqb, mqb->arg_list_next++) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get unsigned integer value of next "list" argument -- if any.
+ *
+ * There is a "next" counter in the message queue block, which is reset when
+ * the mqb is initialised or re-initialised, and when mqb_get_list_count() is
+ * called.
+ *
+ * NB: returns 0 if there is no "list" or if already at the end of same.
+ */
+extern mqb_uint_t
+mqb_next_argv_u(mqueue_block mqb)
+{
+  if (mqb->arg_list_next == 0)
+    mqb->arg_list_next = mqb->arg_list_base ;
+
+  if ((mqb->arg_list_base == 0) || (mqb->arg_list_next >= mqb->arg_count))
+    return 0 ;
+
+  return mqb_get_argv_u(mqb, mqb->arg_list_next++) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Extend the argv to include at least given iv.
+ *
+ * The number of argv slots available is arranged to be a multiple of
+ * mqb_argv_static_len.
+ *
+ * Ensures that newly created slots are zeroised.
+ */
+static void
+mqb_argv_extend(mqueue_block mqb, mqb_index_t iv)
+{
+  mqb_index_t need ;                    /* total slots required         */
+  size_t      new_size, old_size ;      /* sizes of the extension part  */
+
+  assert(mqb->arg_have >= mqb_argv_static_len) ;
+  assert(mqb->arg_have <= iv) ;
+
+  need = ((iv / mqb_argv_static_len) + 1) * mqb_argv_static_len ;
+  new_size = mqb_extension_size(need) ;
+
+  if (mqb->argv_extension == NULL)
+    mqb->argv_extension = XCALLOC(MTYPE_MQUEUE_BLOCK_EXT, new_size) ;
+  else
+    {
+      mqb->argv_extension = XREALLOC(MTYPE_MQUEUE_BLOCK_EXT,
+                                     mqb->argv_extension, new_size) ;
+
+      old_size = mqb_extension_size(mqb->arg_have) ;
+      memset(mqb->argv_extension + old_size, 0, new_size - old_size) ;
+    } ;
+
+  mqb->arg_have = need ;
 } ;
 
 /*==============================================================================

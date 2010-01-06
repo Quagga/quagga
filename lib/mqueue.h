@@ -30,16 +30,30 @@
 #endif
 
 /*==============================================================================
+ * Message Queue Blocks -- mqb
+ *
+ * Messages in a message queue are held as Message Queue Blocks:
+ *
+ *   * action -- function to call when message is dispatched
+ *
+ *   * argv   -- arguments: each may be pointer or signed/unsigned integer
+ *
+ *               argv[0] (aka arg0) always exists, and is always a pointer
+ *               argv[1] (aka arg1) always exists
+ *
+ *               May have any number of arguments.
+ *
+ *               May treat all arguments from some specified point onwards
+ *               as a "list" which may be pushed onto and iterated along.
  */
 
 typedef struct mqueue_block* mqueue_block ;
 
-typedef uint32_t  mqb_flags_t ;
-typedef uint32_t  mqb_context_t ;
-
 typedef void*     mqb_ptr_t ;
 typedef intptr_t  mqb_int_t ;
 typedef uintptr_t mqb_uint_t ;
+
+typedef unsigned short mqb_index_t ;
 
 typedef union
 {
@@ -58,17 +72,30 @@ typedef enum mqb_flag mqb_flag_t ;
 
 typedef void mqueue_action(mqueue_block mqb, mqb_flag_t flag) ;
 
+enum {
+  mqb_argv_static_len = 6               /* max args without extension   */
+} ;
+
 struct mqueue_block
 {
-  mqueue_block   next ;         /* single linked list                   */
+  mqueue_block    next ;                /* single linked list           */
 
-  mqueue_action* action ;       /* for message dispatch                 */
+  mqueue_action*  action ;              /* for message dispatch         */
 
-  mqb_flags_t    flags ;        /* for message handler                  */
+  mqb_arg_t   argv[mqb_argv_static_len] ;
 
-  void*          arg0 ;         /* NB: used for specific revoke         */
-  mqb_arg_t      arg1 ;         /* may be pointer or integer            */
+  mqb_index_t arg_count ;               /* >= 2 (includes any "list")   */
+  mqb_index_t arg_list_base ;           /* start of "list"   0 => none  */
+  mqb_index_t arg_list_next ;           /* iterator                     */
+
+  mqb_index_t arg_have ;                /* *total* arguments allocated  */
+                                        /* >= mqb_argv_static_len       */
+
+  mqb_arg_t*  argv_extension ;          /* extension argv, if any       */
 } ;
+
+/*==============================================================================
+ */
 
 typedef struct mqueue_thread_signal* mqueue_thread_signal ;
 
@@ -143,6 +170,9 @@ mqueue_init_new(mqueue_queue mq, enum mqueue_queue_type type) ;
 extern mqueue_local_queue
 mqueue_local_init_new(mqueue_local_queue lmq) ;
 
+extern mqueue_block
+mqb_re_init(mqueue_block mqb, mqueue_action action, void* arg0) ;
+
 extern mqueue_local_queue
 mqueue_local_reset(mqueue_local_queue lmq, int free_structure) ;
 
@@ -189,12 +219,35 @@ Inline void mqb_set_arg1_p(mqueue_block mqb, mqb_ptr_t  p) ;
 Inline void mqb_set_arg1_i(mqueue_block mqb, mqb_int_t  i) ;
 Inline void mqb_set_arg1_u(mqueue_block mqb, mqb_uint_t u) ;
 
+extern void mqb_set_argv_p(mqueue_block mqb, mqb_index_t iv, mqb_ptr_t  p) ;
+extern void mqb_set_argv_i(mqueue_block mqb, mqb_index_t iv, mqb_int_t  i) ;
+extern void mqb_set_argv_u(mqueue_block mqb, mqb_index_t iv, mqb_uint_t u) ;
+
+extern void mqb_set_argv_list(mqueue_block mqb, mqb_index_t iv) ;
+
+extern void mqb_push_argv_p(mqueue_block mqb, mqb_ptr_t  p) ;
+extern void mqb_push_argv_i(mqueue_block mqb, mqb_int_t  i) ;
+extern void mqb_push_argv_u(mqueue_block mqb, mqb_uint_t u) ;
+
 Inline void mqb_dispatch(mqueue_block mqb, mqb_flag_t flag) ;
+
+Inline mqb_index_t mqb_get_arg_count(mqueue_block mqb) ;
 
 Inline void*  mqb_get_arg0(mqueue_block mqb) ;
 Inline mqb_ptr_t  mqb_get_arg1_p(mqueue_block mqb) ;
 Inline mqb_int_t  mqb_get_arg1_i(mqueue_block mqb) ;
 Inline mqb_uint_t mqb_get_arg1_u(mqueue_block mqb) ;
+
+extern mqb_ptr_t  mqb_get_argv_p(mqueue_block mqb, mqb_index_t iv) ;
+extern mqb_int_t  mqb_get_argv_i(mqueue_block mqb, mqb_index_t iv) ;
+extern mqb_uint_t mqb_get_argv_u(mqueue_block mqb, mqb_index_t iv) ;
+
+extern mqb_index_t mqb_get_argv_list_base(mqueue_block mqb) ;
+extern mqb_index_t mqb_get_argv_list_count(mqueue_block mqb) ;
+
+extern mqb_ptr_t  mqb_next_argv_p(mqueue_block mqb) ;
+extern mqb_int_t  mqb_next_argv_i(mqueue_block mqb) ;
+extern mqb_uint_t mqb_next_argv_u(mqueue_block mqb) ;
 
 /*==============================================================================
  * The Inline functions.
@@ -211,25 +264,25 @@ mqb_set_action(mqueue_block mqb, mqueue_action action)
 Inline void
 mqb_set_arg0(mqueue_block mqb, void* arg0)
 {
-  mqb->arg0 = arg0 ;
+  mqb->argv[0].p = arg0 ;
 } ;
 
 Inline void
 mqb_set_arg1_p(mqueue_block mqb, mqb_ptr_t p)
 {
-  mqb->arg1.p = p ;
+  mqb->argv[1].p = p ;
 } ;
 
 Inline void
 mqb_set_arg1_i(mqueue_block mqb, mqb_int_t i)
 {
-  mqb->arg1.i = i ;
+  mqb->argv[1].i = i ;
 } ;
 
 Inline void
 mqb_set_arg1_u(mqueue_block mqb, mqb_uint_t u)
 {
-  mqb->arg1.u = u ;
+  mqb->argv[1].u = u ;
 } ;
 
 /* Get operations       */
@@ -252,28 +305,34 @@ mqb_dispatch_destroy(mqueue_block mqb)
   mqb->action(mqb, mqb_destroy) ;
 } ;
 
+Inline mqb_index_t
+mqb_get_arg_count(mqueue_block mqb)
+{
+  return mqb->arg_count ;       /* count includes any "list" portion    */
+} ;
+
 Inline void*
 mqb_get_arg0(mqueue_block mqb)
 {
-  return mqb->arg0 ;
+  return mqb->argv[0].p ;
 } ;
 
 Inline mqb_ptr_t
 mqb_get_arg1_p(mqueue_block mqb)
 {
-  return mqb->arg1.p ;
+  return mqb->argv[1].p ;
 } ;
 
 Inline mqb_int_t
 mqb_get_arg1_i(mqueue_block mqb)
 {
-  return mqb->arg1.i ;
+  return mqb->argv[1].i ;
 } ;
 
 Inline mqb_uint_t
 mqb_get_arg1_u(mqueue_block mqb)
 {
-  return mqb->arg1.u ;
+  return mqb->argv[1].u ;
 } ;
 
 #endif /* _ZEBRA_MQUEUE_H */
