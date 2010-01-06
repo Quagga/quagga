@@ -77,7 +77,9 @@ void sigint (void);
 void sigusr1 (void);
 void sigusr2 (void);
 
+/* prototypes */
 static void bgp_exit (int);
+static void init_second_stage(int pthreads);
 
 static struct quagga_signal_t bgp_signals[] = 
 {
@@ -352,7 +354,6 @@ main (int argc, char **argv)
   char *progname;
   struct thread thread;
   int tmp_port;
-  int threaded = 0;
 
   /* Set umask before anything for security */
   umask (0027);
@@ -441,7 +442,8 @@ main (int argc, char **argv)
 	  usage (progname, 0);
 	  break;
 	case 't':
-	  threaded = 1;
+	  if (!qpthreads_enabled)
+	    init_second_stage(1);
 	  break;
 	default:
 	  usage (progname, 1);
@@ -457,6 +459,7 @@ main (int argc, char **argv)
   signal_init (master, Q_SIGC(bgp_signals), bgp_signals);
   zprivs_init (&bgpd_privs);
   cmd_init (1);
+  install_element (CONFIG_NODE, &threaded_cmd);
   vty_init (master);
   memory_init ();
 
@@ -483,8 +486,9 @@ main (int argc, char **argv)
   /* Process ID file creation. */
   pid_output (pid_file);
 
-  /* stage 2 initialisation */
-  qlib_init_second_stage(threaded) ;
+  /* stage 2 initialisation, if not already done */
+  if (!qpthreads_enabled)
+    init_second_stage(0);
 
   if (qpthreads_enabled)
     {
@@ -528,4 +532,23 @@ main (int argc, char **argv)
 
   /* Not reached. */
   return (0);
+}
+
+/* threaded */
+DEFUN_HID_CALL (threaded,
+       threaded_cmd,
+       "threaded",
+       "Use pthreads\n")
+{
+  if (!qpthreads_enabled)
+    init_second_stage(1);
+
+  return CMD_SUCCESS;
+}
+
+static void
+init_second_stage(int pthreads)
+{
+  qlib_init_second_stage(pthreads);
+  bgp_peer_index_mutex_init(NULL);
 }
