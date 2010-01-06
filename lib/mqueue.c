@@ -908,6 +908,58 @@ mqb_push_argv_u(mqueue_block mqb, mqb_uint_t u)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Push an array of 'n' void* pointers
+ *
+ * Implicitly starts list if not set by mqb_set_argv_list(), setting to
+ * just past the last argument set -- noting that arg0 and arg1 are implicitly
+ * set.
+ */
+extern void
+mqb_push_argv_array(mqueue_block mqb, unsigned n, void** array)
+{
+  mqb_arg_t*  p_arg ;
+  unsigned    m ;
+
+  mqb_index_t iv = mqb->arg_count ;
+
+  if (mqb->arg_list_base == 0)
+    mqb->arg_list_base = iv ;
+
+  /* need do nothing more if n == 0, get out now to avoid edge cases    */
+  if (n == 0)
+    return ;
+
+  /* make sure we are allocated upto and including the last array item  */
+  p_arg = mqb_p_arg_set(mqb, iv + n - 1) ;
+
+  /* require that mqb_ptr_t values exactly fill mqb_arg_t entries       */
+  /*     and that mqb_ptr_t values are exactly same as void* values     */
+  CONFIRM(sizeof(mqb_ptr_t) == sizeof(mqb_arg_t)) ;
+  CONFIRM(sizeof(mqb_ptr_t) == sizeof(void*)) ;
+
+  /* copy the pointers                                                  */
+  p_arg = mqb_p_arg_set(mqb, iv) ;      /* get address for first item   */
+
+  if (iv < mqb_argv_static_len)
+    {
+      m = mqb_argv_static_len - iv ;    /* deal with static part        */
+      if (n < m)
+        m = n ;
+
+      memcpy(p_arg, array, sizeof(void*) * m) ;
+
+      n -= m ;
+      if (n == 0)
+        return ;                        /* quit now if done everything  */
+
+      array += m ;                      /* advance past stuff copied    */
+      p_arg  = mqb->argv_extension ;    /* rest goes in the extension   */
+    } ;
+
+  memcpy(p_arg, array, sizeof(void*) * n) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Get pointer to argv[iv] -- which MUST exist
  *
  * NB: it is a FATAL error to reference an argument beyond the last one set.
@@ -1063,6 +1115,73 @@ mqb_next_argv_u(mqueue_block mqb)
     return 0 ;
 
   return mqb_get_argv_u(mqb, mqb->arg_list_next++) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Pop an array of 'n' void* pointers
+ *
+ * There is a "next" counter in the message queue block, which is reset when
+ * the mqb is initialised or re-initialised, and when mqb_get_list_count() is
+ * called.
+ *
+ * Treats from "next" to the end of the "list" as an array of void* pointers.
+ *
+ * Creates a temporary void* [] array (MTYPE_TMP), which caller must free.
+ *
+ * NB: returns NULL if there is no "list" or if already at the end of same.
+ */
+extern void**
+mqb_pop_argv_array(mqueue_block mqb)
+{
+  void**      array ;
+  void**      p_item ;
+  unsigned    n, m ;
+  mqb_index_t iv ;
+  mqb_arg_t*  p_arg ;
+
+  /* worry about state of "next" and get out if nothing to do.          */
+  if (mqb->arg_list_next == 0)
+    mqb->arg_list_next = mqb->arg_list_base ;
+
+  if ((mqb->arg_list_base == 0) || (mqb->arg_list_next >= mqb->arg_count))
+    return NULL ;
+
+  /* work out what we are popping and update "next"                     */
+  iv = mqb->arg_list_next ;
+  n  = mqb->arg_count - iv ;
+
+  mqb->arg_list_next = mqb->arg_count ;
+
+  /* construct target array                                             */
+  array = XMALLOC(MTYPE_TMP, sizeof(void*) * n) ;
+
+  /* require that mqb_ptr_t values exactly fill mqb_arg_t entries       */
+  /*     and that mqb_ptr_t values are exactly same as void* values     */
+  CONFIRM(sizeof(mqb_ptr_t) == sizeof(mqb_arg_t)) ;
+  CONFIRM(sizeof(mqb_ptr_t) == sizeof(void*)) ;
+
+  /* now transfer pointers to the array                                 */
+  p_item = array ;                      /* address for first item       */
+  p_arg  = mqb_p_arg_get(mqb, iv) ;     /* get address of first item    */
+
+  if (iv < mqb_argv_static_len)
+    {
+      m = mqb_argv_static_len - iv ;
+      if (n < m)
+        m = n ;
+      memcpy(p_item, p_arg, sizeof(void*) * m) ;
+
+      n -= m ;                          /* count down                   */
+      if (n == 0)
+        return array ;                  /* all done                     */
+
+      p_item += m ;                     /* step past copied stuff       */
+      p_arg  = mqb->argv_extension ;    /* rest from the extension      */
+    } ;
+
+  memcpy(p_item, p_arg, sizeof(void*) * n) ;
+
+  return array ;
 } ;
 
 /*------------------------------------------------------------------------------

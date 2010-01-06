@@ -229,6 +229,9 @@ extern void mqb_push_argv_p(mqueue_block mqb, mqb_ptr_t  p) ;
 extern void mqb_push_argv_i(mqueue_block mqb, mqb_int_t  i) ;
 extern void mqb_push_argv_u(mqueue_block mqb, mqb_uint_t u) ;
 
+extern void mqb_push_argv_array(mqueue_block mqb, unsigned n, void** array) ;
+
+
 Inline void mqb_dispatch(mqueue_block mqb, mqb_flag_t flag) ;
 
 Inline mqb_index_t mqb_get_arg_count(mqueue_block mqb) ;
@@ -248,6 +251,8 @@ extern mqb_index_t mqb_get_argv_list_count(mqueue_block mqb) ;
 extern mqb_ptr_t  mqb_next_argv_p(mqueue_block mqb) ;
 extern mqb_int_t  mqb_next_argv_i(mqueue_block mqb) ;
 extern mqb_uint_t mqb_next_argv_u(mqueue_block mqb) ;
+
+extern void** mqb_pop_argv_array(mqueue_block mqb) ;
 
 /*==============================================================================
  * The Inline functions.
