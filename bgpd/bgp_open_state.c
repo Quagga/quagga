@@ -148,12 +148,12 @@ bgp_peer_open_state_receive(bgp_peer peer)
 {
   bgp_session session = peer->session;
   bgp_open_state open_send = session->open_send;
-  bgp_open_state open_rcvd = session->open_rcvd;
+  bgp_open_state open_recv = session->open_recv;
   int afi;
   int safi;
 
   /* Check neighbor as number. */
-  assert(open_rcvd->my_as == peer->as);
+  assert(open_recv->my_as == peer->as);
 
   /* holdtime */
   /* From the rfc: A reasonable maximum time between KEEPALIVE messages
@@ -163,8 +163,8 @@ bgp_peer_open_state_receive(bgp_peer peer)
      messages as a function of the Hold Time interval. */
 
   peer->v_holdtime =
-      (open_rcvd->holdtime < open_send->holdtime)
-      ? open_rcvd->holdtime
+      (open_recv->holdtime < open_send->holdtime)
+      ? open_recv->holdtime
       : open_send->holdtime;
 
   peer->v_keepalive = peer->v_holdtime / 3;
@@ -174,10 +174,10 @@ bgp_peer_open_state_receive(bgp_peer peer)
   session->keepalive_timer_interval     = peer->v_keepalive ;
 
   /* Set remote router-id */
-  peer->remote_id = open_rcvd->bgp_id;
+  peer->remote_id = open_recv->bgp_id;
 
   /* AS4 */
-  if (open_rcvd->can_as4)
+  if (open_recv->can_as4)
     SET_FLAG (peer->cap, PEER_CAP_AS4_RCV);
 
   /* AFI/SAFI */
@@ -188,7 +188,7 @@ bgp_peer_open_state_receive(bgp_peer peer)
         for (safi = qSAFI_MIN ; safi <= qSAFI_MAX ; ++safi)
           {
             qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
-            if (qb & open_rcvd->can_mp_ext)
+            if (qb & open_recv->can_mp_ext)
               {
                 peer->afc_recv[afi][safi] = 1;
                 assert(peer->afc[afi][safi]);
@@ -198,9 +198,9 @@ bgp_peer_open_state_receive(bgp_peer peer)
     }
 
   /* Route refresh. */
-  if (open_rcvd->can_r_refresh & bgp_cap_form_old)
+  if (open_recv->can_r_refresh & bgp_cap_form_old)
     SET_FLAG (peer->cap, PEER_CAP_REFRESH_OLD_RCV);
-  else if (open_rcvd->can_r_refresh & bgp_cap_form_new)
+  else if (open_recv->can_r_refresh & bgp_cap_form_new)
     SET_FLAG (peer->cap, PEER_CAP_REFRESH_NEW_RCV);
 
   /* ORF */
@@ -208,25 +208,25 @@ bgp_peer_open_state_receive(bgp_peer peer)
      for (safi = qSAFI_MIN ; safi <= qSAFI_MAX ; ++safi)
        {
          qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
-         if (qb & open_rcvd->can_orf_prefix_send)
+         if (qb & open_recv->can_orf_prefix_send)
            SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_ORF_PREFIX_SM_RCV);
-         if (qb & open_rcvd->can_orf_prefix_recv)
+         if (qb & open_recv->can_orf_prefix_recv)
            SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_ORF_PREFIX_RM_RCV);
        }
 
   /* ORF prefix. */
-  if (open_rcvd->can_orf_prefix_send)
+  if (open_recv->can_orf_prefix_send)
     {
-      if (open_rcvd->can_orf_prefix & bgp_cap_form_old)
+      if (open_recv->can_orf_prefix & bgp_cap_form_old)
         SET_FLAG (peer->cap, PEER_CAP_ORF_PREFIX_SM_OLD_RCV);
-      else if (open_rcvd->can_orf_prefix & bgp_cap_form_new)
+      else if (open_recv->can_orf_prefix & bgp_cap_form_new)
         SET_FLAG (peer->cap, PEER_CAP_ORF_PREFIX_SM_RCV);
     }
-  if (open_rcvd->can_orf_prefix_recv)
+  if (open_recv->can_orf_prefix_recv)
     {
-      if (open_rcvd->can_orf_prefix & bgp_cap_form_old)
+      if (open_recv->can_orf_prefix & bgp_cap_form_old)
         SET_FLAG (peer->cap, PEER_CAP_ORF_PREFIX_RM_OLD_RCV);
-      else if (open_rcvd->can_orf_prefix & bgp_cap_form_new)
+      else if (open_recv->can_orf_prefix & bgp_cap_form_new)
         SET_FLAG (peer->cap, PEER_CAP_ORF_PREFIX_RM_RCV);
     }
 
@@ -235,22 +235,22 @@ bgp_peer_open_state_receive(bgp_peer peer)
      for (safi = qSAFI_MIN ; safi <= qSAFI_MAX ; ++safi)
        {
          qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
-         if (peer->afc[afi][safi] && (qb & open_rcvd->can_g_restart))
+         if (peer->afc[afi][safi] && (qb & open_recv->can_g_restart))
            {
              SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_RCV);
-             if (qb & open_rcvd->can_nfs)
+             if (qb & open_recv->can_nfs)
                SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_PRESERVE_RCV);
            }
     }
 
-  peer->v_gr_restart = open_rcvd->restart_time;
+  peer->v_gr_restart = open_recv->restart_time;
   /* TODO: should we do anything with this? */
 #if 0
   int         restarting ;            /* Restart State flag                 */
 #endif
 
   /* Override capability. */
-  if (!open_rcvd->can_capability || CHECK_FLAG (peer->flags, PEER_FLAG_OVERRIDE_CAPABILITY))
+  if (!open_recv->can_capability || CHECK_FLAG (peer->flags, PEER_FLAG_OVERRIDE_CAPABILITY))
     {
       peer->afc_nego[AFI_IP][SAFI_UNICAST] = peer->afc[AFI_IP][SAFI_UNICAST];
       peer->afc_nego[AFI_IP][SAFI_MULTICAST] = peer->afc[AFI_IP][SAFI_MULTICAST];
