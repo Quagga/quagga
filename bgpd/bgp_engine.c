@@ -145,32 +145,6 @@ bgp_engine_start(void)
 
 
 
-/*==============================================================================
- * BGP Session Handling
- */
-
-
-/* BGP Engine Action: enable given session
- *
- *   arg0   -- bgp_session to be enabled
- *
- *
- */
-
-extern void
-bgp_session_enable_action(mqueue_block mqb, mqb_flag_t flag)
-{
-  bgp_session session ;
-  bgp_connection connection ;
-
-  /* Construct bgp_connection for the new session.              */
-
-  session    = mqb_get_arg0(mqb) ;
-  connection = bgp_connection_init_new(NULL, session, 0) ;
-
-  /*                                                            */
-
-} ;
 
 
 /*==============================================================================

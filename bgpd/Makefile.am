@@ -17,7 +17,7 @@ libbgp_a_SOURCES = \
 	bgp_dump.c bgp_snmp.c bgp_ecommunity.c bgp_mplsvpn.c bgp_nexthop.c \
 	bgp_peer.c bgp_damp.c bgp_table.c bgp_advertise.c bgp_vty.c \
 	bgp_engine.c bgp_session.c bgp_connection.c \
-	bgp_common.c bgp_notification.c bgp_peer_index.c
+	bgp_common.c bgp_notification.c bgp_peer_index.c bgp_msg_write.c
 
 noinst_HEADERS = \
 	bgp_aspath.h bgp_attr.h bgp_community.h bgp_debug.h bgp_fsm.h \
@@ -26,7 +26,8 @@ noinst_HEADERS = \
 	bgp_ecommunity.h bgp_mplsvpn.h bgp_nexthop.h bgp_damp.h bgp_table.h \
 	bgp_peer.h bgp_advertise.h bgp_snmp.h bgp_vty.h \
 	bgp_engine.h bgp_session.h bgp_connection.h \
-	bgp_common.h bgp_notification.h bgp_peer_index.h bgp.h
+	bgp_common.h bgp_notification.h bgp_peer_index.h bgp_msg_write.h
+	bgp.h
 
 bgpd_SOURCES = bgp_main.c
 bgpd_LDADD = libbgp.a ../lib/libzebra.la @LIBCAP@ @LIBM@

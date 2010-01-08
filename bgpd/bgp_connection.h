@@ -119,7 +119,7 @@ struct bgp_connection
   qpt_mutex         p_mutex ;           /* session mutex*                 */
                                         /* (avoids incomplete type issue) */
 
-  bgp_connection_ordinal_t ordinal ;    /* primary/secondary connection   */
+  bgp_connection_ord_t ordinal ;        /* primary/secondary connection   */
   int               accepted ;          /* came via accept()              */
 
   bgp_fsm_state_t   state ;             /* FSM state of connection        */
@@ -171,11 +171,7 @@ struct bgp_connection
 
 extern bgp_connection
 bgp_connection_init_new(bgp_connection connection, bgp_session session,
-                                             bgp_connection_ordinal_t ordinal) ;
-extern bgp_connection
-bgp_connection_reset(bgp_connection connection, int free_structure) ;
-
-
+                                                 bgp_connection_ord_t ordinal) ;
 extern void
 bgp_connection_open(bgp_connection connection, int fd) ;
 
@@ -195,11 +191,25 @@ extern void
 bgp_connection_close(bgp_connection connection) ;
 
 extern void
-bgp_connection_read_close(bgp_connection connection) ;
+bgp_connection_part_close(bgp_connection connection) ;
+
+extern void
+bgp_connection_exit(bgp_connection connection) ;
+
+extern void
+bgp_connection_read_enable(bgp_connection connection) ;
 
 extern int
 bgp_connection_write(bgp_connection connection) ;
 
+extern void
+bgp_connection_queue_add(bgp_connection connection) ;
+
+extern void
+bgp_connection_queue_del(bgp_connection connection) ;
+
+extern void
+bgp_connection_queue_process(void) ;
 
 /*==============================================================================
  * Access functions via bgp_connection for bgp_session attributes.

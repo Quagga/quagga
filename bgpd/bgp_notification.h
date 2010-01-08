@@ -224,8 +224,8 @@ struct bgp_notify
 extern bgp_notify
 bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
                                                             bgp_size_t size) ;
-extern bgp_notify
-bgp_notify_free(bgp_notify notification) ;
+extern void
+bgp_notify_free(bgp_notify* p_notification) ;
 
 extern bgp_notify
 bgp_notify_dup(bgp_notify notification) ;
@@ -235,6 +235,9 @@ bgp_notify_set(bgp_notify* p_dst, bgp_notify src) ;
 
 extern void
 bgp_notify_set_dup(bgp_notify* p_dst, bgp_notify src) ;
+
+extern void
+bgp_notify_set_mov(bgp_notify* p_dst, bgp_notify* p_src) ;
 
 /*==============================================================================
  * Access Functions -- mostly inline

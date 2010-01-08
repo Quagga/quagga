@@ -96,17 +96,15 @@ bgp_write_buffer_init_new(bgp_wbuffer wb, size_t size) ;
  *
  *
  *
- * NB: acquires and releases the session mutex.
+ * NB: requires the session LOCKED
  */
 extern bgp_connection
 bgp_connection_init_new(bgp_connection connection, bgp_session session,
-                                               bgp_connection_ordinal_t ordinal)
+                                                   bgp_connection_ord_t ordinal)
 {
   assert( (ordinal == bgp_connection_primary)
        || (ordinal == bgp_connection_secondary) ) ;
   assert(session->connections[ordinal] == NULL) ;
-
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
   if (connection == NULL)
     connection = XCALLOC(MTYPE_BGP_CONNECTION, sizeof(struct bgp_connection)) ;
@@ -121,7 +119,6 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
    *   * prev                     NULL -- not on the connection queue
    *   * post                     bgp_fsm_null_event
    *   * fsm_active               not active
-   *   * stopped                  bgp_stopped_not
    *   * notification             NULL -- none received or sent
    *   * err                      no error, so far
    *   * su_local                 NULL -- no address, yet
@@ -137,7 +134,6 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
 
   confirm(bgp_fsm_Initial    == 0) ;
   confirm(bgp_fsm_null_event == 0) ;
-  confirm(bgp_stopped_not    == 0) ;
 
   /* Link back to session, point at its mutex and point session here        */
   connection->session  = session ;
@@ -169,8 +165,6 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
 
   /* Ensure mqueue_local_queue is empty.                                */
   mqueue_local_init_new(&connection->pending_queue) ;
-
-  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
   return connection ;
 } ;
@@ -253,19 +247,40 @@ bgp_connection_make_primary(bgp_connection connection)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Exit connection
+ *
+ * Make sure the connection is closed, then queue it to be reaped.
+ */
+extern void
+bgp_connection_exit(bgp_connection connection)
+{
+  bgp_connection_close(connection) ;    /* make sure    */
+
+  assert(   (connection->state == bgp_fsm_Stopping)
+         && (connection->session == NULL) ) ;
+
+  /* Add the connection to the connection queue, in Stopped state.
+   *
+   * When BGP Engine gets round to it, will free the structure.  This avoids
+   * freeing the connection structure somewhere inside the FSM, and having to
+   * cope with the possibility of having dangling references to it.
+   */
+  bgp_connection_queue_add(connection) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Free connection.
  *
  * Connection must be Stopping -- no longer attached to a session.
  *
- * The FSM will have
+ *
  *
  *
  */
-extern bgp_connection
+static void
 bgp_connection_free(bgp_connection connection)
 {
-
-  return connection ;
+  XFREE(MTYPE_BGP_CONNECTION, connection) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -389,7 +404,7 @@ bgp_connection_queue_process(void)
       /* Reap the connection if it is now stopped.              */
       if (connection->state == bgp_fsm_Stopping)
         {
-          bgp_connection_reset(connection) ;
+          bgp_connection_free(connection) ;
         } ;
 
       /* .....                                                  */
@@ -416,7 +431,7 @@ bgp_connection_queue_process(void)
  *
  *   * if accept() clears the session accept flag
  *   * sets the qfile and fd ready for use
- *   * clears err and stopped
+ *   * clears except, notification and err
  *   * discards any open_state and notification
  *   * copies hold_timer_interval and keep_alive_timer_interval from session
  *
@@ -448,12 +463,14 @@ bgp_connection_open(bgp_connection connection, int fd)
 
   /* Clear sundry state is clear                                        */
   connection->post    = bgp_fsm_null_event ;    /* no post event event  */
+
+  connection->except  = bgp_session_null_event ;
+  bgp_notify_free(&connection->notification) ;
   connection->err     = 0 ;                     /* so far, so good      */
-  connection->stopped = bgp_stopped_not ;       /* up and running       */
 
   /* These accept NULL arguments                                        */
   connection->open_recv    = bgp_open_state_free(connection->open_recv) ;
-  connection->notification = bgp_notify_free(connection->notification) ;
+  bgp_notify_free(&connection->notification) ;
 
   /* Copy the original hold_timer_interval and keepalive_timer_interval
    * Assume these have sensible initial values.
@@ -504,7 +521,7 @@ bgp_connection_disable_accept(bgp_connection connection)
  *   * logging and host string
  *   * any open_state that has been received
  *   * any notification sent/received
- *   * the stopped cause (if any)
+ *   * the exception state and any error
  *
  * Once closed, the only further possible actions are:
  *
@@ -550,8 +567,9 @@ bgp_connection_close(bgp_connection connection)
   connection->wbuff.p_out = connection->wbuff.base ;
   connection->wbuff.full  = 0 ;
 
-  /* Empty out the pending queue                                        */
+  /* Empty out the pending queue and remove from connection queue       */
   mqueue_local_reset_keep(&connection->pending_queue) ;
+  bgp_connection_queue_del(connection) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -623,12 +641,13 @@ bgp_connection_part_close(bgp_connection connection)
   wb->full = bgp_write_buffer_full(wb) ;
   assert(!wb->full) ;
 
-  /* Empty out the pending queue                                        */
+  /* Empty out the pending queue and remove from connection queue       */
   mqueue_local_reset_keep(&connection->pending_queue) ;
+  bgp_connection_queue_del(connection) ;
 } ;
 
 /*==============================================================================
- * Writing to BGP connection.
+ * Writing to BGP connection -- once TCP connection has come up.
  *
  * All writing is done by preparing a BGP message in the "obuf" buffer,
  * and then calling bgp_connection_write().
@@ -776,10 +795,29 @@ bgp_connection_write_action(qps_file qf, void* file_info)
 } ;
 
 /*==============================================================================
- * Read Action for bgp connection.
+ * Reading from BGP connection -- once the TCP connection has come up.
  *
- * Don't directly read -- all reading is done in response to the socket
- * becoming readable.
+ * Nothing is read directly -- all reading is qpselect driven.
+ *
+ * Sets the qfile readable -- and leaves it there for the duration.
+ *
+ * TODO: implement some read flow control ??
+ */
+
+static void
+bgp_connection_read_action(qps_file qf, void* file_info) ;
+
+/*------------------------------------------------------------------------------
+ * Enable reading on the given connection.
+ */
+extern void
+bgp_connection_read_enable(bgp_connection connection)
+{
+  qps_enable_mode(&connection->qf, qps_read_mnum, bgp_connection_read_action) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Read Action for BGP connection
  *
  * Reads one BGP message into the ibuf and dispatches it.
  *

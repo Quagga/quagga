@@ -51,8 +51,8 @@ typedef struct bgp_open_state* bgp_open_state ;
  * Both session and connection require these
  */
 
-typedef enum bgp_connection_ordinal bgp_connection_ordinal_t ;
-enum bgp_connection_ordinal
+typedef enum bgp_connection_ord bgp_connection_ord_t ;
+enum bgp_connection_ord
 {
   bgp_connection_primary    = 0,
   bgp_connection_secondary  = 1,
@@ -78,22 +78,15 @@ enum bgp_session_states
 typedef enum bgp_session_events bgp_session_event_t ;
 enum bgp_session_events
 {
-  bgp_session_min_event     =  0,
-  bgp_session_null_event    =  0,
+  bgp_session_min_event   =  0,
+  bgp_session_null_event  =  0,
 
-  bgp_session_eEnabled,           /* enabled by Peering Engine                */
+  bgp_session_eEstablished,       /* session state -> sEstablished            */
+  bgp_session_eDisabled,          /* disabled by Peering Engine               */
 
-  bgp_session_eStart,             /* coming out of fsm_Idle                   */
   bgp_session_eRetry,             /* loop round in Connect/Accept             */
 
-  bgp_session_eTCP_connect,       /* successful Connect/Accept                */
-
-  bgp_session_eCollision,         /* connection closed to resolve collision   */
-
-  bgp_session_eOpen_accept,       /* accepted an OPEN message                 */
   bgp_session_eOpen_reject,       /* had to reject an OPEN message            */
-  bgp_session_eEstablished,       /* session state -> sEstablished            */
-
   bgp_session_eInvalid_msg,       /* BGP message invalid                      */
   bgp_session_eFSM_error,         /* unexpected BGP message received          */
   bgp_session_eNOM_recv,          /* NOTIFICATION message received            */
@@ -105,9 +98,13 @@ enum bgp_session_events
   bgp_session_eExpired,           /* HoldTime expired                         */
 
   bgp_session_eInvalid,           /* invalid internal event                   */
-  bgp_session_eDisabled,          /* disabled by Peering Engine               */
 
-  bgp_session_max_event     = bgp_session_eDisabled
+  bgp_session_max_event   = bgp_session_eInvalid,
+
+  /* These are used by the FSM, but are not reported to the Routeing Engine   */
+
+  bgp_session_eCollision,         /* given way to sibling                     */
+  bgp_session_eDiscard,           /* discarded by sibling                     */
 } ;
 
 /*==============================================================================

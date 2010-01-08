@@ -107,6 +107,7 @@ bgp_session_init_new(bgp_session session, bgp_peer peer)
    *   event          -- bgp_session_null_event
    *   notification   -- NULL -- none
    *   err            -- 0    -- none
+   *   ordinal        -- 0    -- unset
    *
    *   open_send      -- NULL -- none
    *   open_recv      -- NULL -- none
@@ -205,8 +206,7 @@ bgp_session_enable(bgp_peer peer)
   session->keepalive_timer_interval     = peer->v_keepalive ;
 
   /* Initialise the BGP Open negotiating position                       */
-
-  /*....*/
+  /* TODO: set up open_state in bgp_session_enable....                  */
 
   /* Routeing Engine does the state change now.                         */
   session->state    = bgp_session_sEnabled ;
@@ -229,8 +229,14 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
 {
   if (flag == mqb_action)
     {
+      bgp_session session = mqb_get_arg0(mqb) ;
 
+      BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
+      assert(session->state == bgp_session_sEnabled) ;
+      bgp_fsm_enable_session(session) ;
+
+      BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
     } ;
 
   mqb_free(mqb) ;
@@ -263,7 +269,7 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
 
   if (!bgp_session_is_active(session))
     {
-      bgp_notify_free(notification) ;   /* discard any bgp_notify       */
+      bgp_notify_free(&notification) ;  /* discard any bgp_notify       */
       return ;
     } ;
 
@@ -306,12 +312,11 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
 /*==============================================================================
  * Send session event signal from BGP Engine to Routeing Engine
  *
- *
+ * The event has been posted to the session, and now is dispatched to the
+ * Routeing Engine.
  */
 extern void
-bgp_session_event(bgp_session session, bgp_session_event_t event,
-                                       bgp_notify notification,
-                                       bgp_session_state_t state)
+bgp_session_event(bgp_session session)
 {
   struct bgp_session_event_args* args ;
   mqueue_block   mqb ;
@@ -320,9 +325,10 @@ bgp_session_event(bgp_session session, bgp_session_event_t event,
 
   args = mqb_get_args(mqb) ;
 
-  args->event        = event ;
-  args->notification = notification ;
-  args->state        = state ;
+  args->event        = session->event ;
+  args->notification = bgp_notify_dup(session->notification) ;
+  args->state        = session->state ;
+  args->ordinal      = session->ordinal ;
 
   bgp_to_peering(mqb) ;
 }

@@ -23,8 +23,8 @@
 #ifndef _ZEBRA_SOCKUNION_H
 #define _ZEBRA_SOCKUNION_H
 
+#include "zebra.h"
 #include "symtab.h"
-#include "zassert.h"
 
 #if 0
 union sockunion {

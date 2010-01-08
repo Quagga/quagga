@@ -121,6 +121,7 @@ struct bgp_session
   bgp_session_event_t   event ;         /* last event                     */
   bgp_notify            notification ;  /* if any sent/received           */
   int                   err ;           /* errno, if any                  */
+  bgp_connection_ord_t  ordinal ;       /* primary/secondary connection   */
 
   /* The Routeing Engine sets open_send and clears open_recv before enabling
    * the session, and may not change them while sEnabled/sEstablished.
@@ -213,6 +214,7 @@ struct bgp_session_event_args           /* to Routeing Engine           */
   bgp_session_event_t  event ;
   bgp_notify           notification ;   /* sent or received (if any)    */
   int                  err ;            /* errno if any                 */
+  bgp_connection_ord_t ordinal ;        /* primary/secondary connection */
 
   bgp_session_state_t  state ;          /* after the event              */
 } ;
@@ -249,9 +251,7 @@ extern void
 bgp_session_disable(bgp_peer peer, bgp_notify notification) ;
 
 extern void
-bgp_session_event(bgp_session session, bgp_session_event_t event,
-                                       bgp_notify notification,
-                                       bgp_session_state_t state) ;
+bgp_session_event(bgp_session session) ;
 
 extern void
 bgp_session_update_send(bgp_session session, struct stream* upd) ;

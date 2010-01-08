@@ -27,12 +27,18 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 /* Prototypes. */
 
+extern void
+bgp_fsm_enable_session(bgp_session session) ;
 
 extern void
-bgp_fsm_enable_connection(bgp_connection connection) ;
+bgp_fsm_disable_session(bgp_session session, bgp_notify notification) ;
 
 extern void
 bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event) ;
+
+extern void
+bgp_fsm_raise_exception(bgp_connection connection, bgp_session_event_t except,
+                                                      bgp_notify notification) ;
 
 extern void
 bgp_fsm_io_fatal_error(bgp_connection connection, int err) ;
@@ -46,10 +52,7 @@ bgp_fsm_connect_completed(bgp_connection connection, int err,
                                                    union sockunion* su_remote) ;
 
 extern void
-bgp_fsm_stop_session(bgp_connection connection, bgp_stopped_cause_t cause,
-                                                      bgp_notify notification) ;
-extern void
-bgp_fsm_stop_connection(bgp_connection connection, bgp_stopped_cause_t cause,
+bgp_fsm_notification_exception(bgp_connection connection,
                                                       bgp_notify notification) ;
 
 
