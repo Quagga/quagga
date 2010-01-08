@@ -115,6 +115,7 @@ static int retain_mode = 0;
 struct thread_master *master;
 qpn_nexus cli_nexus = NULL;
 qpn_nexus bgp_nexus = NULL;
+qpn_nexus routing_nexus = NULL;
 
 /* Manually specified configuration file name.  */
 char *config_file = NULL;
@@ -209,17 +210,20 @@ sigint (void)
 #endif
   zlog_notice ("Terminating on signal");
 
-  if (! retain_mode)
+  if (!retain_mode)
     bgp_terminate ();
 
   if (qpthreads_enabled)
     {
       /* ask all threads to terminate */
-      if (bgp_nexus)
-          qpn_terminate(bgp_nexus);
+      if (routing_nexus != NULL)
+        qpn_terminate(routing_nexus);
 
-      if (cli_nexus)
-          qpn_terminate(cli_nexus);
+      if (bgp_nexus != NULL)
+        qpn_terminate(bgp_nexus);
+
+      if (cli_nexus != NULL)
+        qpn_terminate(cli_nexus);
     }
   else
     {
@@ -336,6 +340,7 @@ bgp_exit (int status)
   if (CONF_BGP_DEBUG (normal, NORMAL))
     log_memstats_stderr ("bgpd");
 
+  routing_nexus = qpn_free(routing_nexus);
   bgp_nexus = qpn_free(bgp_nexus);
   cli_nexus = qpn_free(cli_nexus);
 
@@ -476,6 +481,11 @@ main (int argc, char **argv)
   if(dryrun)
     return(0);
   
+  /* only the calling thread survives in the child after a fork
+   * so ensure we haven't created any threads yet
+   */
+  assert(!qpthreads_thread_created);
+
   /* Turn into daemon if daemon_mode is set. */
   if (daemon_mode && daemon (0, 0) < 0)
     {
@@ -494,6 +504,7 @@ main (int argc, char **argv)
     {
       cli_nexus = qpn_init_main(cli_nexus); /* main thread */
       bgp_nexus = qpn_init_bgp(bgp_nexus);
+      routing_nexus = qpn_init_bgp(routing_nexus);
 
       vty_init_r(cli_nexus, bgp_nexus);
     }
@@ -516,10 +527,14 @@ main (int argc, char **argv)
     {
       void * thread_result = NULL;
 
+      /* TODO: exec routing_nexus */
+      /* qpn_exec(routing_nexus); */
       qpn_exec(bgp_nexus);
       qpn_exec(cli_nexus);      /* must be last to start - on main thread */
 
       /* terminating, wait for all threads to finish */
+      /* TOD: join with routing_nexus */
+      /* thread_result = qpt_thread_join(routing_nexus->thread_id); */
       thread_result = qpt_thread_join(bgp_nexus->thread_id);
       bgp_exit(0);
     }

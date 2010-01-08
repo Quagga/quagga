@@ -123,7 +123,7 @@ inline static void BGP_PEER_INDEX_UNLOCK(void)
  *
  * This must be done before any peers are configured !
  */
-extern void
+void
 bgp_peer_index_init(void* parent)
 {
   symbol_table_init_new(
@@ -133,18 +133,18 @@ bgp_peer_index_init(void* parent)
           200,                    /* allow to be quite dense          */
           sockunion_symbol_hash,  /* "name" is an IP Address          */
           NULL) ;                 /* no value change call-back        */
-} ;
+}
 
 /*------------------------------------------------------------------------------
  * Initialise the bgp_peer_index_mutex.
  *
  * This must be done before the BGP Engine is started.
  */
-extern void
+void
 bgp_peer_index_mutex_init(void* parent)
 {
   qpt_mutex_init(&bgp_peer_index_mutex, qpt_mutex_recursive) ;
-} ;
+}
 
 /*------------------------------------------------------------------------------
  * Lookup a peer -- do nothing if does not exist
@@ -153,7 +153,7 @@ bgp_peer_index_mutex_init(void* parent)
  *
  * Returns the bgp_peer -- NULL if not found.
  */
-extern bgp_peer
+bgp_peer
 bgp_peer_index_seek(union sockunion* su)
 {
   bgp_peer peer ;
@@ -165,7 +165,7 @@ bgp_peer_index_seek(union sockunion* su)
   BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
   return peer ;
-} ;
+}
 
 /*------------------------------------------------------------------------------
  * Register a peer in the peer index.
@@ -175,7 +175,7 @@ bgp_peer_index_seek(union sockunion* su)
  * NB: it is a FATAL error to register a peer for an address which is already
  *     registered.
  */
-extern void
+void
 bgp_peer_index_register(bgp_peer peer, union sockunion* su)
 {
   BGP_PEER_INDEX_LOCK() ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
@@ -184,8 +184,39 @@ bgp_peer_index_register(bgp_peer peer, union sockunion* su)
 
   BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
-  passert(peer != NULL) ;
-} ;
+  passert(peer == NULL) ;
+}
+
+/*------------------------------------------------------------------------------
+ * Unregister a peer in the peer index.
+ *
+ * returns 1 if successfully unregistered
+ * returns 0 if wasn't registered
+ * FATAL error if a different peer is registered.
+ */
+int
+bgp_peer_index_unregister(bgp_peer peer, union sockunion* su)
+{
+  int found = 0;
+  int right_peer = 1;
+  symbol s = NULL;
+
+  BGP_PEER_INDEX_LOCK() ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+
+  s = symbol_seek(&bgp_peer_index, su);
+  found = (s != NULL);
+  if (found)
+    {
+    right_peer = (peer == symbol_get_value(s));
+    if (right_peer)
+      symbol_delete(s);
+    }
+
+  BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+
+  passert(right_peer) ;
+  return found;
+}
 
 /*------------------------------------------------------------------------------
  * Lookup a session -- do nothing if does not exist
@@ -222,7 +253,7 @@ bgp_session_index_seek(union sockunion* su, int* p_found)
   BGP_PEER_INDEX_UNLOCK() ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
   return session ;
-} ;
+}
 
 /*------------------------------------------------------------------------------
  * Set peer's session pointer.
@@ -237,8 +268,8 @@ bgp_session_index_seek(union sockunion* su, int* p_found)
  *
  */
 
-extern bgp_session
-bgp_session_index_seek(bgp_peer peer, bgp_session new_session)
+bgp_session
+bgp_peer_new_session(bgp_peer peer, bgp_session new_session)
 {
   bgp_session old_session ;
 
@@ -252,7 +283,7 @@ bgp_session_index_seek(bgp_peer peer, bgp_session new_session)
   BGP_PEER_INDEX_UNLOCK() ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
   return old_session ;
-} ;
+}
 
 
 
@@ -281,33 +312,34 @@ bgp_peer_new_session_state(mqueue_block mqb, mqb_flag_t flag)
     {
       bgp_session_lock(session) ;
 
-
-
       switch(new_state)
       {
       /* If now Enabled, then the BGP Engine is attempting to connect     */
       /* (may be waiting for the Idle Hold Time to expire.                */
       case bgp_session_Enabled:
+        bgp_session_enable(session, peer);
         break ;
 
       /* If now Established, then the BGP Engine has exchanged BGP Open   */
       /* messages, and received the KeepAlive that acknowledges our Open. */
       case bgp_session_Established:
+        bgp_session_has_established(peer);
         break ;
 
       /* If now Stopped, then for some reason the BGP Engine has either   */
       /* stopped trying to connect, or the session has been stopped.      */
       case bgp_session_Stopped:
+        bgp_session_has_stopped(peer);
         break ;
 
       default:
-      } ;
+      }
 
       bgp_session_unlock(session) ;
-    } ;
+    }
 
   mqb_free(mqb) ;
-} ;
+}
 
 /* BGP Session has been Established.
  *
@@ -322,6 +354,9 @@ bgp_session_has_established(bgp_peer peer)
   afi_t afi;
   safi_t safi;
   int nsf_af_count = 0;
+
+  /* update peer state from received open */
+  bgp_peer_open_state_receive(peer);
 
   /* Reset capability open status flag. */
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN))
@@ -428,7 +463,7 @@ bgp_session_has_established(bgp_peer peer)
 /* Administrative BGP peer stop event. */
 /* May be called multiple times for the same peer */
 static int
-bgp_session_has_stopped(bgp_peer *peer)
+bgp_session_has_stopped(bgp_peer peer)
 {
   afi_t afi;
   safi_t safi;
@@ -555,8 +590,6 @@ bgp_session_has_stopped(bgp_peer *peer)
   return 0;
 }
 
-
-
 /* Stop all timers for the given peer
  */
 static void
@@ -569,11 +602,6 @@ bgp_peer_timers_stop(bgp_peer peer)
   BGP_TIMER_OFF (peer->t_gr_stale);
   BGP_TIMER_OFF (peer->t_pmax_restart);
 } ;
-
-
-
-
-
 
 void
 bgp_timer_set (struct peer *peer)
@@ -631,7 +659,6 @@ bgp_timer_set (struct peer *peer)
       BGP_TIMER_OFF (peer->t_routeadv);
     }
 }
-
 
 static int
 bgp_routeadv_timer (struct thread *thread)
@@ -744,7 +771,7 @@ bgp_graceful_stale_timer_expire (struct thread *thread)
 }
 
 
-/* BGP peer is stoped by the error. */
+/* BGP peer is stopped by the error. */
 static int
 bgp_stop_with_error (struct peer *peer)
 {
@@ -760,3 +787,304 @@ bgp_stop_with_error (struct peer *peer)
   return 0;
 }
 
+/* Allocate new peer object, implicitly locked.  */
+struct peer *
+peer_new (struct bgp *bgp)
+{
+  afi_t afi;
+  safi_t safi;
+  struct peer *peer;
+  struct servent *sp;
+
+  /* bgp argument is absolutely required */
+  assert (bgp);
+  if (!bgp)
+    return NULL;
+
+  /* Allocate new peer. */
+  peer = XCALLOC (MTYPE_BGP_PEER, sizeof (struct peer));
+
+  /* Set default value. */
+  peer->fd = -1;
+  peer->v_start = BGP_INIT_START_TIMER;
+  peer->v_connect = BGP_DEFAULT_CONNECT_RETRY;
+  peer->v_asorig = BGP_DEFAULT_ASORIGINATE;
+  peer->status = Idle;
+  peer->ostatus = Idle;
+  peer->weight = 0;
+  peer->password = NULL;
+  peer->bgp = bgp;
+  peer = peer_lock (peer); /* initial reference */
+  bgp_lock (bgp);
+
+  /* Set default flags.  */
+  for (afi = AFI_IP; afi < AFI_MAX; afi++)
+    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
+      {
+        if (! bgp_option_check (BGP_OPT_CONFIG_CISCO))
+          {
+            SET_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_COMMUNITY);
+            SET_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_EXT_COMMUNITY);
+          }
+        peer->orf_plist[afi][safi] = NULL;
+      }
+  SET_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN);
+
+  /* Create buffers.  */
+  peer->ibuf = stream_new (BGP_MAX_PACKET_SIZE);
+  peer->obuf = stream_fifo_new ();
+  peer->work = stream_new (BGP_MAX_PACKET_SIZE);
+
+  bgp_sync_init (peer);
+
+  /* Get service port number.  */
+  sp = getservbyname ("bgp", "tcp");
+  peer->port = (sp == NULL) ? BGP_PORT_DEFAULT : ntohs (sp->s_port);
+
+  return peer;
+}
+
+/* Create new BGP peer.  */
+struct peer *
+peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
+             as_t remote_as, afi_t afi, safi_t safi)
+{
+  int active;
+  struct peer *peer;
+  char buf[SU_ADDRSTRLEN];
+
+  peer = peer_new (bgp);
+  peer->su = *su;
+  peer->local_as = local_as;
+  peer->as = remote_as;
+  peer->local_id = bgp->router_id;
+  peer->v_holdtime = bgp->default_holdtime;
+  peer->v_keepalive = bgp->default_keepalive;
+  if (peer_sort (peer) == BGP_PEER_IBGP)
+    peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
+  else
+    peer->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+
+  peer = peer_lock (peer); /* bgp peer list reference */
+  listnode_add_sort (bgp->peer, peer);
+
+  active = peer_active (peer);
+
+  if (afi && safi)
+    peer->afc[afi][safi] = 1;
+
+  /* Last read time set */
+  peer->readtime = time (NULL);
+
+  /* Last reset time set */
+  peer->resettime = time (NULL);
+
+  /* Default TTL set. */
+  peer->ttl = (peer_sort (peer) == BGP_PEER_IBGP ? 255 : 1);
+
+  /* Make peer's address string. */
+  sockunion2str (su, buf, SU_ADDRSTRLEN);
+  peer->host = XSTRDUP (MTYPE_BGP_PEER_HOST, buf);
+
+  /* Set up peer's events and timers. */
+  if (! active && peer_active (peer))
+    bgp_timer_set (peer);
+
+  /* session */
+  peer->session = bgp_session_init_new(NULL);
+
+  /* register */
+  bgp_peer_index_register(peer, &peer->su);
+
+  return peer;
+}
+
+/* Delete peer from configuration.
+ *
+ * The peer is moved to a dead-end "Deleted" neighbour-state, to allow
+ * it to "cool off" and refcounts to hit 0, at which state it is freed.
+ *
+ * This function /should/ take care to be idempotent, to guard against
+ * it being called multiple times through stray events that come in
+ * that happen to result in this function being called again.  That
+ * said, getting here for a "Deleted" peer is a bug in the neighbour
+ * FSM.
+ */
+int
+peer_delete (struct peer *peer)
+{
+  int i;
+  afi_t afi;
+  safi_t safi;
+  struct bgp *bgp;
+  struct bgp_filter *filter;
+  struct listnode *pn;
+
+  assert (peer->status != Deleted);
+
+  bgp = peer->bgp;
+
+  if (CHECK_FLAG (peer->sflags, PEER_STATUS_NSF_WAIT))
+    peer_nsf_stop (peer);
+
+  /* If this peer belongs to peer group, clear up the
+     relationship.  */
+  if (peer->group)
+    {
+      if ((pn = listnode_lookup (peer->group->peer, peer)))
+        {
+          peer = peer_unlock (peer); /* group->peer list reference */
+          list_delete_node (peer->group->peer, pn);
+        }
+      peer->group = NULL;
+    }
+
+  /* Withdraw all information from routing table.  We can not use
+   * BGP_EVENT_ADD (peer, BGP_Stop) at here.  Because the event is
+   * executed after peer structure is deleted.
+   */
+  peer->last_reset = PEER_DOWN_NEIGHBOR_DELETE;
+  bgp_stop (peer);
+  bgp_fsm_change_status (peer, Deleted);
+
+  /* Password configuration */
+  if (peer->password)
+    {
+      XFREE (MTYPE_PEER_PASSWORD, peer->password);
+      peer->password = NULL;
+
+      if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
+        bgp_md5_set (peer);
+    }
+
+  bgp_timer_set (peer); /* stops all timers for Deleted */
+
+  /* Delete from all peer list. */
+  if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP)
+      && (pn = listnode_lookup (bgp->peer, peer)))
+    {
+      peer_unlock (peer); /* bgp peer list reference */
+      list_delete_node (bgp->peer, pn);
+    }
+
+  if (peer_rsclient_active (peer)
+      && (pn = listnode_lookup (bgp->rsclient, peer)))
+    {
+      peer_unlock (peer); /* rsclient list reference */
+      list_delete_node (bgp->rsclient, pn);
+
+      /* Clear our own rsclient ribs. */
+      for (afi = AFI_IP; afi < AFI_MAX; afi++)
+        for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
+          if (CHECK_FLAG(peer->af_flags[afi][safi],
+                         PEER_FLAG_RSERVER_CLIENT))
+            bgp_clear_route (peer, afi, safi, BGP_CLEAR_ROUTE_MY_RSCLIENT);
+    }
+
+  /* Free RIB for any family in which peer is RSERVER_CLIENT, and is not
+      member of a peer_group. */
+  for (afi = AFI_IP; afi < AFI_MAX; afi++)
+    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
+      if (peer->rib[afi][safi] && ! peer->af_group[afi][safi])
+        bgp_table_finish (&peer->rib[afi][safi]);
+
+  /* Buffers.  */
+  if (peer->ibuf)
+    stream_free (peer->ibuf);
+  if (peer->obuf)
+    stream_fifo_free (peer->obuf);
+  if (peer->work)
+    stream_free (peer->work);
+  peer->obuf = NULL;
+  peer->work = peer->ibuf = NULL;
+
+  /* Local and remote addresses. */
+  if (peer->su_local)
+    sockunion_free (peer->su_local);
+  if (peer->su_remote)
+    sockunion_free (peer->su_remote);
+  peer->su_local = peer->su_remote = NULL;
+
+  /* Free filter related memory.  */
+  for (afi = AFI_IP; afi < AFI_MAX; afi++)
+    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
+      {
+        filter = &peer->filter[afi][safi];
+
+        for (i = FILTER_IN; i < FILTER_MAX; i++)
+          {
+            if (filter->dlist[i].name)
+              free (filter->dlist[i].name);
+            if (filter->aslist[i].name)
+              free (filter->aslist[i].name);
+            filter->dlist[i].name = NULL;
+            prefix_list_unset_ref(&filter->plist[i].ref) ;
+            filter->aslist[i].name = NULL;
+          }
+        for (i = RMAP_IN; i < RMAP_MAX; i++)
+          {
+            if (filter->map[i].name)
+              free (filter->map[i].name);
+            filter->map[i].name = NULL;
+          }
+
+        if (filter->usmap.name)
+          free (filter->usmap.name);
+
+        if (peer->default_rmap[afi][safi].name)
+          free (peer->default_rmap[afi][safi].name);
+
+        filter->usmap.name = NULL;
+        peer->default_rmap[afi][safi].name = NULL;
+      }
+
+  /* unregister */
+  if (peer->su)
+    bgp_peer_index_unregister(peer, &peer->su);
+
+  peer_unlock (peer); /* initial reference */
+
+  return 0;
+}
+
+void
+peer_free (struct peer *peer)
+{
+  assert (peer->status == Deleted);
+
+  bgp_unlock(peer->bgp);
+
+  /* this /ought/ to have been done already through bgp_stop earlier,
+   * but just to be sure..
+   */
+  bgp_timer_set (peer);
+  BGP_READ_OFF (peer->t_read);
+  BGP_WRITE_OFF (peer->t_write);
+  BGP_EVENT_FLUSH (peer);
+
+  if (peer->desc)
+    XFREE (MTYPE_PEER_DESC, peer->desc);
+
+  /* Free allocated host character. */
+  if (peer->host)
+    XFREE (MTYPE_BGP_PEER_HOST, peer->host);
+
+  /* Update source configuration.  */
+  if (peer->update_source)
+    sockunion_free (peer->update_source);
+
+  if (peer->update_if)
+    XFREE (MTYPE_PEER_UPDATE_SOURCE, peer->update_if);
+
+  if (peer->clear_node_queue)
+    work_queue_free (peer->clear_node_queue);
+
+  /* session */
+  if (peer->session)
+    bgp_session_free(peer->session);
+
+  bgp_sync_delete (peer);
+  memset (peer, 0, sizeof (struct peer));
+
+  XFREE (MTYPE_BGP_PEER, peer);
+}

@@ -87,5 +87,10 @@ bgp_open_state_init_new(bgp_open_state state) ;
 extern bgp_open_state
 bgp_open_state_free(bgp_open_state state) ;
 
+extern bgp_open_state
+bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer);
+
+extern void
+bgp_peer_open_state_receive(bgp_peer peer);
 
 #endif /* QUAGGA_BGP_OPEN_STATE_H */

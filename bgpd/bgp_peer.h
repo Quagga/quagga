@@ -467,5 +467,18 @@ bgp_peer_index_register(bgp_peer peer, union sockunion* su) ;
 extern bgp_session
 bgp_session_index_seek(union sockunion* su, int* p_found) ;
 
+extern struct peer *
+peer_new (struct bgp *bgp);
+
+extern struct peer *
+peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
+             as_t remote_as, afi_t afi, safi_t safi);
+
+extern int
+peer_delete (struct peer *peer);
+
+extern void
+peer_free (struct peer *peer);
+
 #endif /* _QUAGGA_BGP_PEER_H */
 

@@ -23,6 +23,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_notification.h"
+#include "bgpd/bgp_peer.h"
 
 #include "plist.h"
 

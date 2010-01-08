@@ -92,6 +92,7 @@ struct qpn_nexus
 extern qpn_nexus qpn_init_new(qpn_nexus qtn);
 extern qpn_nexus qpn_init_main(qpn_nexus qtn);
 extern qpn_nexus qpn_init_bgp(qpn_nexus qtn);
+extern qpn_nexus qpn_init_routing(qpn_nexus qtn);
 extern void qpn_exec(qpn_nexus qtn);
 extern void qpn_terminate(qpn_nexus qpn);
 extern qpn_nexus qpn_free(qpn_nexus qpn);
