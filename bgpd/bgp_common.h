@@ -48,8 +48,9 @@ typedef struct bgp_connection* bgp_connection ;
 typedef struct bgp_open_state* bgp_open_state ;
 
 /*==============================================================================
- * Both session and connection require this.
+ * Both session and connection require these
  */
+
 typedef enum bgp_connection_ordinal bgp_connection_ordinal_t ;
 enum bgp_connection_ordinal
 {
@@ -59,31 +60,54 @@ enum bgp_connection_ordinal
   bgp_connection_count      = 2
 } ;
 
-/*==============================================================================
- * Both session and connection require this.
- */
-typedef enum bgp_stopped_causes bgp_stopped_cause_t ;
-enum bgp_stopped_causes
+typedef enum bgp_session_states bgp_session_state_t ;
+enum bgp_session_states
 {
-  bgp_stopped_min_cause     = 0,
+  bgp_session_min_state     = 0,
 
-  bgp_stopped_not           = 0,  /* not stopped (yet)                      */
+  bgp_session_sIdle         = 0,  /* session contents "unset"               */
 
-  bgp_stopped_admin         = 1,  /* Routeing Engine Stop                   */
-                                  /* Sent Cease NOTIFICATION                */
+  bgp_session_sEnabled      = 1,  /* attempting to connect                  */
+  bgp_session_sEstablished  = 2,
 
-  bgp_stopped_collision     = 2,  /* Collision Resolution Stop              */
-  bgp_stopped_loser         = 3,  /* Loser in race to Established state     */
+  bgp_session_sStopped      = 3,  /* for whatever reason                    */
 
-  bgp_stopped_error         = 4,  /*          */
-  bgp_stopped_recv_nom      = 5,  /* Received NOTIFICATION                  */
+  bgp_session_max_state     = 3
+} ;
 
-  bgp_stopped_connect_fail  = 5,
-  bgo_stopped_connect_drop  = 6,
-  bgp_stopped_fatal_error   = 8,
-  bgp_stopped_invalid       = 9,  /* some internal error                    */
+typedef enum bgp_session_events bgp_session_event_t ;
+enum bgp_session_events
+{
+  bgp_session_min_event     =  0,
+  bgp_session_null_event    =  0,
 
-  bgp_stopped_max_cause     = 8
+  bgp_session_eEnabled,           /* enabled by Peering Engine                */
+
+  bgp_session_eStart,             /* coming out of fsm_Idle                   */
+  bgp_session_eRetry,             /* loop round in Connect/Accept             */
+
+  bgp_session_eTCP_connect,       /* successful Connect/Accept                */
+
+  bgp_session_eCollision,         /* connection closed to resolve collision   */
+
+  bgp_session_eOpen_accept,       /* accepted an OPEN message                 */
+  bgp_session_eOpen_reject,       /* had to reject an OPEN message            */
+  bgp_session_eEstablished,       /* session state -> sEstablished            */
+
+  bgp_session_eInvalid_msg,       /* BGP message invalid                      */
+  bgp_session_eFSM_error,         /* unexpected BGP message received          */
+  bgp_session_eNOM_recv,          /* NOTIFICATION message received            */
+
+  bgp_session_eTCP_failed,        /* TCP connection failed to come up         */
+  bgp_session_eTCP_dropped,       /* TCP connection dropped                   */
+  bgp_session_eTCP_error,         /* some socket level error                  */
+
+  bgp_session_eExpired,           /* HoldTime expired                         */
+
+  bgp_session_eInvalid,           /* invalid internal event                   */
+  bgp_session_eDisabled,          /* disabled by Peering Engine               */
+
+  bgp_session_max_event     = bgp_session_eDisabled
 } ;
 
 /*==============================================================================

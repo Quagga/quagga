@@ -21,6 +21,8 @@
 
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_peer.h"
+#include "bgpd/bgp_engine.h"
+#include "bgpd/bgp_peer_index.h"
 
 #include "lib/memory.h"
 #include "lib/sockunion.h"
@@ -66,12 +68,25 @@
  *
  */
 
-/* Initialise new session structure -- allocate if required.
+/*------------------------------------------------------------------------------
+ * Initialise new session structure -- allocate if required.
  *
+ * Ties peer and session together.  Sets session sIdle, initialises mutex.
+ *
+ * Unsets everything else -- mostly by zeroising it.
+ *
+ * NB: if not allocating, the existing session MUST be sIdle/sStopped OR never
+ *     been kissed.
+ *
+ * NB: in any event, the peer's peer index entry MUST have a NULL session
+ *     pointer.
  */
 extern bgp_session
-bgp_session_init_new(bgp_session session)
+bgp_session_init_new(bgp_session session, bgp_peer peer)
 {
+  assert(peer->session == NULL) ;
+  assert(peer->index_entry->session == NULL) ;
+
   if (session == NULL)
     session = XCALLOC(MTYPE_BGP_SESSION, sizeof(struct bgp_session)) ;
   else
@@ -79,8 +94,50 @@ bgp_session_init_new(bgp_session session)
 
   qpt_mutex_init_new(&session->mutex, qpt_mutex_recursive) ;
 
+  peer->session  = session ;
+  session->peer  = peer ;
+  session->state = bgp_session_sIdle ;
 
+  session->index_entry = peer->index_entry ;
 
+  /* Zeroising the structure has set:
+   *
+   *   made           -- false, not yet sEstablished
+   *
+   *   event          -- bgp_session_null_event
+   *   notification   -- NULL -- none
+   *   err            -- 0    -- none
+   *
+   *   open_send      -- NULL -- none
+   *   open_recv      -- NULL -- none
+   *
+   *   connect        -- unset, false
+   *   listen         -- unset, false
+   *
+   *   ttl            -- unset
+   *   port           -- unset
+   *   su_peer        -- NULL -- none
+   *
+   *   log            -- NULL -- none
+   *   host           -- NULL -- none
+   *   password       -- NULL -- none
+   *
+   *   idle_hold_timer_interval      )
+   *   connect_retry_timer_interval  )
+   *   open_hold_timer_interval      ) unset
+   *   hold_timer_interval           )
+   *   keepalive_timer_interval      )
+   *
+   *   as4            -- unset, false
+   *
+   *   su_local       -- NULL -- none
+   *   su_remote      -- NULL -- none
+   *
+   *   connections[]  -- NULL -- none
+   */
+  confirm(bgp_session_null_event == 0) ;
+
+  return session ;
 } ;
 
 /* Look up session
@@ -91,35 +148,46 @@ bgp_session_lookup(union sockunion* su, int* exists) ;
 
 
 
-
-/* Enable session for given peer -- allocate session if required.
+/*==============================================================================
+ * Enable session for given peer -- allocate session if required.
  *
  * Sets up the session given the current state of the peer.  If the state
  * changes, then....
  *
  *
  */
+static void
+bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag) ;
 
-extern bgp_session
-bgp_session_enable(bgp_session session, bgp_peer peer)
+extern void
+bgp_session_enable(bgp_peer peer)
 {
+  bgp_session    session ;
+  mqueue_block   mqb ;
+
+  /* Set up session if required.  Check session if already exists.
+   *
+   * Only the Peering Engine creates sessions, so it is safe to pick up the
+   * peer->session pointer and test it.
+   *
+   * If session exists, it MUST be inactive.
+   *
+   * Peering Engine does not require the mutex while the session is inactive.
+   */
+  session = peer->session ;
+
   if (session == NULL)
-    session = bgp_session_init_new(session) ;
-
-  /* Tie back to peer and set state of session.                         */
-
-  assert((session->peer == NULL) || (session->peer == peer)) ;
-  assert((session->state != bgp_session_Enabled) &&
-         (session->state != bgp_session_Established)) ;
-
-  session->peer = peer ;
-  session->state = bgp_session_Enabled ;
+    session = bgp_session_init_new(NULL, peer) ;
+  else
+    {
+      assert(session->peer == peer) ;
+      assert(!bgp_session_is_active(session)) ;
+    } ;
 
   /* Initialise what we need to make and run connections                */
 
   session->connect  = (peer->flags & PEER_FLAG_PASSIVE) != 0 ;
   session->listen   = 1 ;
-  session->accept   = 0 ;
 
   session->ttl      = peer->ttl ;
   session->port     = peer->port ;
@@ -127,7 +195,7 @@ bgp_session_enable(bgp_session session, bgp_peer peer)
   session->su_peer  = sockunion_dup(&peer->su) ;
 
   session->log      = peer->log ;
-  session->host     = peer->host ;
+  session->host     = peer->host ;      /* TODO: duplicate string ?     */
 
   session->idle_hold_timer_interval     = peer->v_start ;
   session->connect_retry_timer_interval = peer->v_connect ;
@@ -140,12 +208,171 @@ bgp_session_enable(bgp_session session, bgp_peer peer)
 
   /*....*/
 
+  /* Routeing Engine does the state change now.                         */
+  session->state    = bgp_session_sEnabled ;
+
   /* Now pass the session to the BGP Engine, which will set about       */
   /* making and running a connection to the peer.                       */
 
+  mqb = mqb_init_new(NULL, bgp_session_do_enable, session) ;
 
+  confirm(sizeof(struct bgp_session_enable_args) == 0) ;
 
+  bgp_to_engine(mqb) ;
 } ;
+
+/*------------------------------------------------------------------------------
+ * BGP Engine: session enable message action
+ */
+static void
+bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
+{
+  if (flag == mqb_action)
+    {
+
+
+    } ;
+
+  mqb_free(mqb) ;
+} ;
+
+/*==============================================================================
+ * Disable session for given peer -- if enabled (!).
+ *
+ * Passes any bgp_notify to the BGP Engine, which will dispose of it in due
+ * course.
+ *
+ * If no bgp_notify provided, will send Cease/Administrative Shutdown (2).
+ *
+ * When session has been brought to a stop, BGP Engine will respond with an
+ * eDisabled event (unless session stopped of its own accord first).
+ */
+static void
+bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag) ;
+
+extern void
+bgp_session_disable(bgp_peer peer, bgp_notify notification)
+{
+  bgp_session    session ;
+  mqueue_block   mqb ;
+
+  session = peer->session ;
+  assert((session != NULL) && (session->peer == peer)) ;
+
+  /* Should do nothing if session is not active.                        */
+
+  if (!bgp_session_is_active(session))
+    {
+      bgp_notify_free(notification) ;   /* discard any bgp_notify       */
+      return ;
+    } ;
+
+  /* Now ask the BGP engine to disable the session.
+   *
+   * NB: it is, of course, possible that the session will stop between
+   *     issuing the disable and it being processed by the BGP Engine.
+   *
+   *     The BGP Engine quietly discards disable messages for sessions which
+   *     are not active.
+   *
+   * NB: The BGP Engine will discard any outstanding work for the session.
+   *
+   *     The Peering Engine should discard all further messages for this
+   *     session up to the event message that tells it the session has
+   *     stopped.
+   */
+  mqb = mqb_init_new(NULL, bgp_session_do_disable, session) ;
+
+  confirm(sizeof(struct bgp_session_enable_args) == 0) ;
+
+  bgp_to_engine_priority(mqb) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * BGP Engine: session enable message action
+ */
+static void
+bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
+{
+  if (flag == mqb_action)
+    {
+
+
+    } ;
+
+  mqb_free(mqb) ;
+} ;
+
+/*==============================================================================
+ * Send session event signal from BGP Engine to Routeing Engine
+ *
+ *
+ */
+extern void
+bgp_session_event(bgp_session session, bgp_session_event_t event,
+                                       bgp_notify notification,
+                                       bgp_session_state_t state)
+{
+  struct bgp_session_event_args* args ;
+  mqueue_block   mqb ;
+
+  mqb = mqb_init_new(NULL, bgp_session_do_event, session) ;
+
+  args = mqb_get_args(mqb) ;
+
+  args->event        = event ;
+  args->notification = notification ;
+  args->state        = state ;
+
+  bgp_to_peering(mqb) ;
+}
+
+/*==============================================================================
+ * Dispatch update to peer -- Peering Engine -> BGP Engine
+ *
+ * PRO TEM -- this is being passed the pre-packaged BGP message.
+ *
+ * The BGP Engine takes care of discarding the stream block once it's been
+ * dealt with.
+ */
+extern void
+bgp_session_update_send(bgp_session session, struct stream* upd)
+{
+  struct bgp_session_update_args* args ;
+  mqueue_block   mqb ;
+
+  mqb = mqb_init_new(NULL, bgp_session_do_update_send, session) ;
+
+  args = mqb_get_args(mqb) ;
+
+  args->buf   = upd ;
+
+  bgp_to_engine(mqb) ;
+} ;
+
+/*==============================================================================
+ * Forward incoming update -- BGP Engine -> Peering Engine
+ *
+ * PRO TEM -- this is being passed the raw BGP message.
+ *
+ * The Peering Engine takes care of discarding the stream block once it's been
+ * dealt with.
+ */
+extern void
+bgp_session_update_recv(bgp_session session, struct stream* upd)
+{
+  struct bgp_session_update_args* args ;
+  mqueue_block   mqb ;
+
+  mqb = mqb_init_new(NULL, bgp_session_do_update_recv, session) ;
+
+  args = mqb_get_args(mqb) ;
+
+  args->buf   = upd ;
+
+  bgp_to_peering(mqb) ;
+} ;
+
 
 
 /*==============================================================================
@@ -154,37 +381,32 @@ bgp_session_enable(bgp_session session, bgp_peer peer)
  *
  */
 
+/*------------------------------------------------------------------------------
+ * See if session exists and is active.
+ *
+ * Ensure that if exists and is not active, that the peer index entry accept
+ * pointer is NULL -- this is largely paranoia, but it would be a grave
+ * mistake for the listening socket(s) to find a session which is not active !
+ */
 extern int
 bgp_session_is_active(bgp_session session)
 {
-  int ret ;
-
-  if (session == NULL)
-    return 0 ;                  /* NULL session is implicitly not active    */
+  int active ;
 
   BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
-  ret = (  (session->state == bgp_session_Enabled)
-        || (session->state == bgp_session_Established) ) ;
-
-  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-  return ret ;
-} ;
-
-extern int
-bgp_session_is_accepting(bgp_session session)
-{
-  int ret ;
-
   if (session == NULL)
-    return 0 ;                  /* NULL session is implicitly not accepting */
+    active = 0 ;
+  else
+    {
+      active =  (   (session->state == bgp_session_sEnabled)
+                 || (session->state == bgp_session_sEstablished) ) ;
 
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-
-  ret = session->accept ;
+      if (!active)
+        assert(session->index_entry->accept == NULL) ;
+    } ;
 
   BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
-  return ret ;
+  return active ;
 } ;

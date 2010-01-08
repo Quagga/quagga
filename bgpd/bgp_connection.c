@@ -441,7 +441,7 @@ bgp_connection_open(bgp_connection connection, int fd)
 
   /* If this is the secondary connection, do not accept any more.       */
   if (connection->ordinal == bgp_connection_secondary)
-    session->accept = 0 ;
+    bgp_connection_disable_accept(connection) ;
 
   /* Set the file going                                                 */
   qps_add_file(p_bgp_engine->selection, &connection->qf, fd, connection) ;
@@ -465,6 +465,26 @@ bgp_connection_open(bgp_connection connection, int fd)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Enable connection for accept()
+ *
+ */
+extern void
+bgp_connection_enable_accept(bgp_connection connection)
+{
+  connection->session->index_entry->accept = connection->session ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Disable connection for accept()
+ *
+ */
+extern void
+bgp_connection_disable_accept(bgp_connection connection)
+{
+  connection->session->index_entry->accept = NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Close connection.
  *
  *   * if there is an fd, close it
@@ -473,6 +493,7 @@ bgp_connection_open(bgp_connection connection, int fd)
  *   * unset any timers
  *   * reset all buffering to empty
  *   * empties the pending queue -- destroying all messages
+ *   * for secondary connection: disable accept
  *
  * The following remain:
  *
@@ -505,9 +526,13 @@ bgp_connection_close(bgp_connection connection)
   if (fd != fd_undef)
     shutdown(fd, SHUT_RDWR) ;
 
+  /* If this is the secondary connection, do not accept any more.       */
+  if (connection->ordinal == bgp_connection_secondary)
+    bgp_connection_disable_accept(connection) ;
+
   /* forget any addresses                                               */
-  sockunion_clear(&connection->su_local) ;
-  sockunion_clear(&connection->su_remote) ;
+  sockunion_clear(connection->su_local) ;
+  sockunion_clear(connection->su_remote) ;
 
   /* Unset all the timers                                               */
   qtimer_unset(&connection->hold_timer) ;

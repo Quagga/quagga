@@ -131,13 +131,13 @@ struct bgp_connection
   int               fsm_active ;        /* active in fsm count            */
   bgp_fsm_event_t   post ;              /* event raised within FSM        */
 
-  bgp_stopped_cause_t   stopped ;       /* why stopped                    */
-  bgp_notify            notification ;  /* if any sent/received           */
+  bgp_session_event_t except ;          /* exception                      */
+  bgp_notify        notification ;      /* if any sent/received           */
+  int               err ;               /* erno, if any                   */
 
   bgp_open_state    open_recv ;         /* the open received.             */
 
   struct qps_file   qf ;                /* qpselect file structure        */
-  int               err ;               /* error number -- if any         */
 
   union sockunion*  su_local ;          /* address of the near end        */
   union sockunion*  su_remote ;         /* address of the far end         */
@@ -178,6 +178,12 @@ bgp_connection_reset(bgp_connection connection, int free_structure) ;
 
 extern void
 bgp_connection_open(bgp_connection connection, int fd) ;
+
+extern void
+bgp_connection_enable_accept(bgp_connection connection) ;
+
+extern void
+bgp_connection_disable_accept(bgp_connection connection) ;
 
 extern bgp_connection
 bgp_connection_get_sibling(bgp_connection connection) ;

@@ -60,6 +60,9 @@ bgp_getsockname(int fd, union sockunion* su_local, union sockunion* su_remote) ;
 static int
 bgp_socket_set_common_options(int fd, union sockunion* su, int ttl,
                                                          const char* password) ;
+static int
+bgp_md5_set_listeners(union sockunion* su, const char* password) ;
+
 /*==============================================================================
  * Open and close the listeners.
  *
@@ -334,16 +337,54 @@ bgp_init_listener(int sock, struct sockaddr *sa, socklen_t salen)
 /*------------------------------------------------------------------------------
  * Prepare to accept() connection
  *
- * Sets session->accept true -- so accept() action will accept the connection.
+ * If the session has a password, then this is where the listener(s) for the
+ * appropriate address family are told about the password.
  *
+ * This is done shortly before the session is first enabled for accept().
  *
+ * The effect is (probably) that the peer's attempts to connect with MD5 signed
+ * packets will simply have been ignored up to this point.  From this point
+ * forward they will be accepted, but closed until accept is enabled.
  *
  * NB: requires the session mutex LOCKED.
  */
 extern void
-bgp_open_accept(bgp_connection connection)
+bgp_prepare_to_accept(bgp_connection connection)
 {
+  int ret ;
 
+  if (connection->session->password != NULL)
+    {
+      ret = bgp_md5_set_listeners(connection->session->su_peer,
+                                  connection->session->password) ;
+
+/* TODO: failure to set password in bgp_prepare_to_accept ? */
+    } ;
+
+  return ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * No longer prepared to accept() connection
+ *
+ * If the session has a password, then this is where it is withdrawn from the
+ * listener(s) for the appropriate address family.
+ *
+ * NB: requires the session mutex LOCKED.
+ */
+extern void
+bgp_not_prepared_to_accept(bgp_connection connection)
+{
+  int ret ;
+
+  if (connection->session->password != NULL)
+    {
+      ret = bgp_md5_set_listeners(connection->session->su_peer, NULL) ;
+
+/* TODO: failure to clear password in bgp_not_prepared_to_accept ? */
+    } ;
+
+  return ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -420,7 +461,7 @@ bgp_accept_action(qps_file qf, void* file_info)
 
   /* See if we are ready to accept connections from the connecting party    */
   session = bgp_session_lookup(&su_remote, &exists) ;
-  if (bgp_session_is_accepting(session))
+  if (session != NULL)
     {
       if (BGP_DEBUG(events, EVENTS))
 	zlog_debug(exists
@@ -501,12 +542,12 @@ bgp_open_connect(bgp_connection connection)
 
   /* Make socket for the connect connection.                            */
   fd = sockunion_socket(su) ;
-  if (fd < 0)
-    return errno ;      /* give up immediately if cannot create socket  */
+  ret = (fd >= 0) ? 0 : errno ;
 
   /* Set the common options.                                            */
-  ret = bgp_socket_set_common_options(fd, su, connection->session->ttl,
-                                              connection->session->password) ;
+  if (ret == 0)
+    ret = bgp_socket_set_common_options(fd, su, connection->session->ttl,
+                                                connection->session->password) ;
 
   /* Bind socket.                                                       */
   if (ret == 0)
@@ -536,7 +577,8 @@ bgp_open_connect(bgp_connection connection)
 
   if (ret != 0)
     {
-      close(fd) ;
+      if (fd >= 0)
+        close(fd) ;
 
       bgp_fsm_connect_completed(connection, ret, NULL, NULL) ;
 
@@ -895,28 +937,27 @@ bgp_md5_set_socket(int fd, union sockunion *su, const char *password)
 } ;
 
 /*------------------------------------------------------------------------------
- * Set MD5 password for given peer in the listener(s) for the peer's address
- * family.
- *
- * NB: requires the session mutex LOCKED.
+ * Set (or clear) MD5 password for given peer in the listener(s) for the peer's
+ * address family.
  *
  * This allows system to accept MD5 "signed" incoming connections from the
  * given address.
+ *
+ * NULL password clears the password for the given peer.
  *
  * Returns:  0 => OK
  *     otherwise: errno -- the first error encountered.
  *
  * NB: peer address must be AF_INET or (if supported) AF_INET6
  *
- * NB: if there are no listeners in the required
+ * NB: does nothing and returns "OK" if there are no listeners in the
+ *     address family -- wanting to set MD5 makes no difference to this !
  */
-extern int
-bgp_md5_set_listeners(bgp_connection connection)
+static int
+bgp_md5_set_listeners(union sockunion* su, const char* password)
 {
   bgp_listener listener ;
   int ret ;
-
-  union sockunion* su = connection->session->su_peer ;
 
 #ifdef HAVE_IPV6
   assert((su->sa.sa_family == AF_INET) || (su->sa.sa_family == AF_INET6)) ;
@@ -928,8 +969,7 @@ bgp_md5_set_listeners(bgp_connection connection)
 
   while (listener != NULL)
     {
-      ret = bgp_md5_set_socket(qps_file_fd(&listener->qf), su,
-                                                connection->session->password) ;
+      ret = bgp_md5_set_socket(qps_file_fd(&listener->qf), su, password) ;
       if (ret != 0)
         return ret ;
     } ;

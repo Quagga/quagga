@@ -115,6 +115,7 @@ struct memory_list memory_list_bgp[] =
   { MTYPE_PEER_GROUP,		"Peer group"			},
   { MTYPE_PEER_DESC,		"Peer description"		},
   { MTYPE_PEER_PASSWORD,	"Peer password string"		},
+  { MTYPE_BGP_PEER_ID_TABLE,    "Peer ID table"                 },
   { MTYPE_BGP_SESSION,          "BGP session"                   },
   { MTYPE_BGP_CONNECTION,       "BGP connection"                },
   { MTYPE_BGP_NOTIFY,           "BGP notification"              },

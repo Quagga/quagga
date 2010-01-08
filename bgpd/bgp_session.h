@@ -28,10 +28,12 @@
 #include "bgpd/bgp_engine.h"
 #include "bgpd/bgp_connection.h"
 #include "bgpd/bgp_notification.h"
+#include "bgpd/bgp_peer_index.h"
 
 #include "lib/qtimers.h"
 #include "lib/qpthreads.h"
 #include "lib/sockunion.h"
+#include "lib/mqueue.h"
 
 #ifndef Inline
 #define Inline static inline
@@ -64,46 +66,83 @@
  *
  */
 
-typedef enum bgp_session_states bgp_session_state_t ;
-enum bgp_session_states
-{
-  bgp_session_min_state     = 0,
-
-  bgp_session_Idle          = 0,
-
-  bgp_session_Enabled       = 1,  /* attempting to connect                  */
-  bgp_session_Established   = 2,
-
-  bgp_session_Stopped       = 3,  /* for whatever reason                    */
-
-  bgp_session_max_state     = 3
-} ;
 
 struct bgp_session
 {
   bgp_peer          peer ;              /* peer whose session this is     */
 
+  bgp_peer_index_entry  index_entry ;   /* and its index entry            */
+
   qpt_mutex_t       mutex ;             /* for access to the rest         */
 
-  bgp_session_state_t   state ;         /* as above                       */
+  /* While sIdle and sStopped:
+   *
+   *   the session belongs to the Peering Engine.
+   *
+   *   The BGP Engine will not touch a session in these states and the
+   *   Peering Engine may do what it likes with it.
+   *
+   *   The Peering Engine may change the state:
+   *
+   *     sIdle    -> sEnabled
+   *     sStopped -> sEnabled
+   *     sStopped -> sIdle
+   *
+   * While sEnabled and sEstablished:
+   *
+   *   the session belongs to the BGP Engine.
+   *
+   *   A (very) few items in the session may be accessed by the Peering Engine,
+   *   as noted below.  (Subject to the mutex.)
+   *
+   *   The BGP Engine may change the state:
+   *
+   *     sEnabled     -> sEstablished
+   *     sEnabled     -> sStopped
+   *     sEstablished -> sStopped
+   *
+   * Only the Peering Engine creates and destroys sessions.  The BGP Engine
+   * assumes that a session will not be destroyed while it is sEnabled or
+   * sEstablished.
+   *
+   * The made flag is cleared by the Peering Engine before enabling a session,
+   * and is set by the BGP Engine when the session becomes sEstablished.
+   *
+   * The Peering Engine may use this flag in sStopped state to see if the
+   * session was ever established.
+   */
+  bgp_session_state_t   state ;
+  int                   made ;          /* set when -> sEstablished       */
 
-  bgp_stopped_cause_t   stopped ;       /* why stopped                    */
+  /* The BGP Engine records the last event, NOTIFICATION and errno here.
+   *
+   * This is only really useful when the session -> sStopped.
+   */
+  bgp_session_event_t   event ;         /* last event                     */
   bgp_notify            notification ;  /* if any sent/received           */
+  int                   err ;           /* errno, if any                  */
 
+  /* The Routeing Engine sets open_send and clears open_recv before enabling
+   * the session, and may not change them while sEnabled/sEstablished.
+   *
+   * The BGP Engine sets open_recv before setting the session sEstablished,
+   * and will not touch it thereafter.
+   *
+   * So: the Routeing Engine may use open_recv once the session is
+   *     sEstablished.
+   */
   bgp_open_state    open_send ;         /* how to open the session        */
   bgp_open_state    open_recv ;         /* set when session Established   */
 
+  /* The following are set by the Routeing Engine before a session is
+   * enabled, and not changed at any other time by either engine.
+   */
   int               connect ;           /* initiate connections           */
   int               listen ;            /* listen for connections         */
-
-  int               accept ;            /* accept connections             */
 
   int               ttl ;               /* TTL to set, if not zero        */
   unsigned short    port ;              /* destination port for peer      */
   union sockunion*  su_peer ;           /* Sockunion address of the peer  */
-
-  union sockunion*  su_local ;          /* set when session Established   */
-  union sockunion*  su_remote ;         /* set when session Established   */
 
   struct zlog*      log ;               /* where to log to                */
   char*             host ;              /* copy of printable peer's addr  */
@@ -113,17 +152,71 @@ struct bgp_session
   unsigned  idle_hold_timer_interval ;  /* in seconds                     */
   unsigned  connect_retry_timer_interval ;
   unsigned  open_hold_timer_interval ;
+
+  /* These are set by the Routeing Engine before a session is enabled,
+   * and may be changed by the BGP Engine when the session is established.
+   *
+   * The Routeing Engine may read these once sEstablished (under mutex).
+   *
+   * In sStopped state these reflect the last state of the session.
+   */
   unsigned  hold_timer_interval ;       /* subject to negotiation         */
   unsigned  keepalive_timer_interval ;  /* subject to negotiation         */
 
-  /* NB: these values are private to the BGP Engine, which accesses them  */
-  /*     *without* worrying about the mutex.                              */
-  /*                                                                      */
-  /*     The BGP Engine uses these while the session is Enabled or        */
-  /*     Established -- so the session must not be freed in these states. */
+  int               as4 ;
 
+  /* These are cleared by the Routeing Engine before a session is enabled,
+   * and set by the BGP Engine when the session is established.
+   *
+   * In sStopped state these reflect the last state of the session.
+   */
+  union sockunion*  su_local ;          /* set when session Established   */
+  union sockunion*  su_remote ;         /* set when session Established   */
+
+  /* These values are are private to the BGP Engine.
+   *
+   * They must be cleared before the session is enabled, but may not be
+   * touched by the Routeing Engine at any other time.
+   *
+   * Before stopping a session the BGP Engine unlinks any connections from
+   * the session.
+   */
   bgp_connection    connections[bgp_connection_count] ;
 } ;
+
+/*==============================================================================
+ * Mqueue messages related to sessions
+ *
+ * In all these messages arg0 is the session.
+ */
+
+struct bgp_session_enable_args          /* to BGP Engine                */
+{
+                                        /* no further arguments         */
+} ;
+MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
+
+struct bgp_session_disable_args         /* to BGP Engine                */
+{
+  bgp_notify    notification ;          /* NOTIFICATION to send         */
+} ;
+MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
+
+struct bgp_session_update_args          /* to and from BGP Engine       */
+{
+  struct stream*  buf ;
+} ;
+MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
+
+struct bgp_session_event_args           /* to Routeing Engine           */
+{
+  bgp_session_event_t  event ;
+  bgp_notify           notification ;   /* sent or received (if any)    */
+  int                  err ;            /* errno if any                 */
+
+  bgp_session_state_t  state ;          /* after the event              */
+} ;
+MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
 
 /*==============================================================================
  * Session mutex lock/unlock
@@ -140,14 +233,31 @@ inline static void BGP_SESSION_UNLOCK(bgp_session session)
 } ;
 
 /*==============================================================================
- *
+ * Functions
  */
 
 extern bgp_session
-bgp_session_init_new(bgp_session session) ;
+bgp_session_init_new(bgp_session session, bgp_peer peer) ;
 
 extern bgp_session
 bgp_session_lookup(union sockunion* su, int* exists) ;
+
+extern void
+bgp_session_enable(bgp_peer peer) ;
+
+extern void
+bgp_session_disable(bgp_peer peer, bgp_notify notification) ;
+
+extern void
+bgp_session_event(bgp_session session, bgp_session_event_t event,
+                                       bgp_notify notification,
+                                       bgp_session_state_t state) ;
+
+extern void
+bgp_session_update_send(bgp_session session, struct stream* upd) ;
+
+extern void
+bgp_session_update_recv(bgp_session session, struct stream* upd) ;
 
 /*==============================================================================
  * Session data access functions.
@@ -158,7 +268,5 @@ bgp_session_lookup(union sockunion* su, int* exists) ;
 extern int
 bgp_session_is_active(bgp_session session) ;
 
-extern int
-bgp_session_is_accepting(bgp_session session) ;
 
 #endif /* QUAGGA_BGP_SESSION_H */

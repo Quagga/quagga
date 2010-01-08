@@ -91,7 +91,7 @@
  *   RFC4264  BGP Wedgies
  *   RFC4098  Terminology for Benchmarking BGP Device Convergence in the
  *            Control Plane
- *   RFC3822  Configuring BGP to BLock Denial-of-Service Attack
+ *   RFC3822  Configuring BGP to Block Denial-of-Service Attack
  *   RFC3765  NOPEER Community
  *   RFC3392 ...see RFC5492                    -- obsoletes RFC2842
  *   RFC3345  BGP Persistent Route Oscillation Condition

@@ -96,6 +96,8 @@ struct args
   char data[mqb_args_size_max] ;        /* empty space                  */
 } ;
 
+#define MQB_ARGS_SIZE_OK(s) CONFIRM(sizeof(struct s) <= mqb_args_size_max)
+
 struct mqueue_block
 {
   struct args     args ;                /* user structure               */

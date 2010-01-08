@@ -46,5 +46,24 @@ bgp_engine_start(void) ;
 
 
 
+/*==============================================================================
+ *
+ */
+
+/* Send given message to the BGP Engine -- ordinary
+ */
+Inline void
+bgp_to_engine(mqueue_block mqb)
+{
+  mqueue_enqueue(p_bgp_engine->queue, mqb, 0) ;
+} ;
+
+/* Send given message to the BGP Engine -- priority
+ */
+Inline void
+bgp_to_engine_priority(mqueue_block mqb)
+{
+  mqueue_enqueue(p_bgp_engine->queue, mqb, 1) ;
+} ;
 
 #endif /* QUAGGA_BGP_ENGINE_H */

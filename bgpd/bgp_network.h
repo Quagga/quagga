@@ -33,7 +33,10 @@ bgp_close_listeners(void) ;
 extern void
 bgp_open_connect(bgp_connection connection) ;
 
-extern int
-bgp_md5_set_listeners(bgp_connection connection) ;
+extern void
+bgp_prepare_to_accept(bgp_connection connection) ;
+
+extern void
+bgp_not_prepared_to_accept(bgp_connection connection) ;
 
 #endif /* _QUAGGA_BGP_NETWORK_H */
