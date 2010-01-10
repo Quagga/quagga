@@ -115,6 +115,9 @@ bgp_session_init_new(bgp_session session, bgp_peer peer)
    *   connect        -- unset, false
    *   listen         -- unset, false
    *
+   *   cap_override   -- unset, false
+   *   cap_strict     -- unset, false
+   *
    *   ttl            -- unset
    *   port           -- unset
    *   su_peer        -- NULL -- none
@@ -130,6 +133,7 @@ bgp_session_init_new(bgp_session session, bgp_peer peer)
    *   keepalive_timer_interval      )
    *
    *   as4            -- unset, false
+   *   route_refresh_pre -- unset, false
    *
    *   su_local       -- NULL -- none
    *   su_remote      -- NULL -- none

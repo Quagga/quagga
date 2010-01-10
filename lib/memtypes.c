@@ -119,6 +119,8 @@ struct memory_list memory_list_bgp[] =
   { MTYPE_BGP_SESSION,          "BGP session"                   },
   { MTYPE_BGP_CONNECTION,       "BGP connection"                },
   { MTYPE_BGP_NOTIFY,           "BGP notification"              },
+  { MTYPE_BGP_ROUTE_REFRESH,    "BGP route refresh"             },
+  { MTYPE_BGP_ORF_ENTRY,        "BGP ORF entry"                 },
   { MTYPE_ATTR,			"BGP attribute"			},
   { MTYPE_ATTR_EXTRA,		"BGP extra attributes"		},
   { MTYPE_AS_PATH,		"BGP aspath"			},

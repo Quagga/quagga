@@ -23,12 +23,18 @@
 #define _QUAGGA_BGP_COMMON_H
 
 #include <stdint.h>
+#include "bgpd/bgp.h"
 #include "qafi_safi.h"
-#include "zassert.h"
+#include "confirm.h"
 
 #ifndef Inline
 #define Inline static inline
 #endif
+
+/*==============================================================================
+ * Local "bool"
+ */
+typedef uint8_t flag_t ;
 
 /*==============================================================================
  * Here are a number of "incomplete" declarations, which allow a number of
@@ -115,16 +121,6 @@ enum bgp_session_events
 typedef uint32_t as_t ;
 typedef uint16_t as16_t ;       /* we may still encounter 16 Bit asnums */
 
-/* BGP Identifier -- usually an IPv4 address !                          */
-#ifndef _GMCH_BGP_H
-typedef uint32_t bgp_id_t ;
-#endif
-
-typedef bgp_id_t  bgp_id_ht ;   /* in host order                        */
-typedef bgp_id_t  bgp_id_nt ;   /* in network order                     */
-
-/* Size of BGP packets or thing in such                                 */
-typedef uint16_t bgp_size_t;
 
 /*==============================================================================
  * AFI/SAFI encodings for bgpd

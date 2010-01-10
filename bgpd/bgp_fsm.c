@@ -23,27 +23,22 @@
  */
 
 #include <zebra.h>
-#include "bgpd/bgp.h"
+//#include "bgpd/bgp.h"
 
 #include "log.h"
 
-#include "bgpd/bgp_engine.h"
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_connection.h"
 #include "bgpd/bgp_notification.h"
 #include "bgpd/bgp_fsm.h"
+#include "bgpd/bgp_msg_write.h"
 
 #include "lib/qtimers.h"
 #include "lib/sockunion.h"
 
 #include "bgpd/bgp_debug.h"
-#include "bgpd/bgp_packet.h"
 #include "bgpd/bgp_network.h"
 #include "bgpd/bgp_dump.h"
-#include "bgpd/bgp_open.h"
-#ifdef HAVE_SNMP
-#include "bgpd/bgp_snmp.h"
-#endif /* HAVE_SNMP */
 
 /*==============================================================================
  * The BGP Finite State Machine
@@ -1634,7 +1629,8 @@ static void
 bgp_hold_timer_recharge(bgp_connection connection) ;
 
 static bgp_fsm_state_t
-bgp_fsm_send_notification(bgp_connection connection, bgp_notify notification) ;
+bgp_fsm_send_notification(bgp_connection connection,
+                                                   bgp_fsm_state_t next_state) ;
 
 /*------------------------------------------------------------------------------
  * Null action -- do nothing at all.
@@ -2124,8 +2120,7 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
   if (   (connection->notification != NULL)
       && (connection->except != bgp_session_eNOM_recv) )
     {
-      next_state = bgp_fsm_send_notification(connection,
-                                                       connection->notification) ;
+      next_state = bgp_fsm_send_notification(connection, next_state) ;
     }
   else
     bgp_connection_close(connection) ;
@@ -2144,6 +2139,70 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
     } ;
 
   /* Return the (possibly adjusted) next_state                  */
+  return next_state ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Dispatch notification message
+ *
+ * Part closing the connection guarantees that can get the notification
+ * message into the buffers.
+ *
+ * Process will generate the following events:
+ *
+ *   -- I/O failure of any sort
+ *   -- Sent_NOTIFICATION_message
+ *   -- HoldTimer expired
+ *
+ * When get Sent_NOTIFICATION_message, will set final "courtesy" timer, so
+ * unless I/O fails, final end of process is HoldTimer expired (with
+ *
+ */
+static bgp_fsm_state_t
+bgp_fsm_send_notification(bgp_connection connection, bgp_fsm_state_t next_state)
+{
+  int ret ;
+
+  /* If the next_state is not Stopping, then the sending of the notification
+   * holds the FSM in the current state.  Will move forward when the
+   * HoldTimer expires -- either because lost patience in getting the
+   * notification away, or at the end of the "courtesy" time.
+   */
+  if (next_state != bgp_fsm_Stopping)
+    next_state = connection->state ;
+
+  /* Close for reading and flush write buffers.                         */
+  bgp_connection_part_close(connection) ;
+
+  /* Write the message
+   *
+   * If the write fails it raises a suitable event, which will now be
+   * sitting waiting to be processed on the way out of the FSM.
+   */
+  ret = bgp_msg_write_notification(connection, connection->notification) ;
+
+  connection->notification_pending = (ret >= 0) ;
+                                  /* is pending if not failed           */
+  if      (ret > 0)
+    /* notification reached the TCP buffers instantly
+     *
+     * Send ourselves the good news !
+     */
+    bgp_fsm_event(connection, bgp_fsm_Sent_NOTIFICATION_message) ;
+
+  else if (ret == 0)
+    /* notification is sitting in the write buffer
+     *
+     * Set notification_pending so that write action will raise the required
+     * event in due course.
+     *
+     * Set the HoldTimer to something suitable.  Don't really expect this
+     * to happen in anything except Established state -- but copes.  (Is
+     * ready to wait 20 seconds in Stopping state and 5 otherwise.)
+     */
+    bgp_hold_timer_set(connection, (next_state == bgp_fsm_Stopping) ? 20 : 5) ;
+
+  /* Return suitable state.                                             */
   return next_state ;
 } ;
 

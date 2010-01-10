@@ -20,7 +20,6 @@
  */
 
 #include <zebra.h>
-#include "bgpd/bgp.h"
 
 #include "bgpd/bgpd.h"
 
@@ -125,6 +124,8 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
    *   * su_remote                NULL -- no address, yet
    *   * hold_timer_interval      none -- set when connection is opened
    *   * keepalive_timer_interval none -- set when connection is opened
+   *   * as4                      not AS4 conversation
+   *   * route_refresh_pre        not pre-RFC ROUTE-REFRESH
    *   * read_pending             nothing pending
    *   * read_header              not reading header
    *   * notification_pending     nothing pending
@@ -160,8 +161,8 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
   bgp_connection_init_host(connection, bgp_connection_tags[ordinal]) ;
 
   /* Need two empty "stream" buffers                                    */
-  connection->ibuf = stream_new(BGP_MAX_MSG_L) ;
-  connection->obuf = stream_new(BGP_MAX_MSG_L) ;
+  connection->ibuf = stream_new(BGP_MSG_MAX_L) ;
+  connection->obuf = stream_new(BGP_MSG_MAX_L) ;
 
   /* Ensure mqueue_local_queue is empty.                                */
   mqueue_local_init_new(&connection->pending_queue) ;
@@ -238,7 +239,10 @@ bgp_connection_make_primary(bgp_connection connection)
   bgp_connection_init_host(connection, "") ;
 
   session->hold_timer_interval        = connection->hold_timer_interval ;
-  session->keepalive_timer_interval   = session->keepalive_timer_interval ;
+  session->keepalive_timer_interval   = connection->keepalive_timer_interval ;
+
+  session->as4                        = connection->as4 ;
+  session->route_refresh_pre          = connection->route_refresh_pre ;
 
   session->su_local  = connection->su_local ;
   connection->su_local  = NULL ;
@@ -284,24 +288,6 @@ bgp_connection_free(bgp_connection connection)
 } ;
 
 /*------------------------------------------------------------------------------
- * Full if not enough room for a maximum size BGP message.
- */
-static inline int
-bgp_write_buffer_full(bgp_wbuffer wb)
-{
-  return ((wb->limit - wb->p_in) < BGP_MAX_MSG_L) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Empty if in and out pointers are equal (but may need to be reset !)
- */
-static inline int
-bgp_write_buffer_empty(bgp_wbuffer wb)
-{
-  return (wb->p_out == wb->p_in) ;
-} ;
-
-/*------------------------------------------------------------------------------
  * Allocate new write buffer and initialise pointers
  *
  * NB: assumes structure has been zeroised by the initialisation of the
@@ -316,9 +302,6 @@ bgp_write_buffer_init_new(bgp_wbuffer wb, size_t size)
   wb->limit = wb->base + size ;
 
   wb->p_in  = wb->p_out = wb->base ;
-  wb->full  = bgp_write_buffer_full(wb) ;
-
-  assert(!wb->full) ;
 } ;
 
 /*==============================================================================
@@ -565,7 +548,6 @@ bgp_connection_close(bgp_connection connection)
 
   connection->wbuff.p_in  = connection->wbuff.base ;
   connection->wbuff.p_out = connection->wbuff.base ;
-  connection->wbuff.full  = 0 ;
 
   /* Empty out the pending queue and remove from connection queue       */
   mqueue_local_reset_keep(&connection->pending_queue) ;
@@ -638,9 +620,6 @@ bgp_connection_part_close(bgp_connection connection)
   else
     wb->p_in = wb->p_out = wb->base ;
 
-  wb->full = bgp_write_buffer_full(wb) ;
-  assert(!wb->full) ;
-
   /* Empty out the pending queue and remove from connection queue       */
   mqueue_local_reset_keep(&connection->pending_queue) ;
   bgp_connection_queue_del(connection) ;
@@ -660,57 +639,72 @@ bgp_connection_part_close(bgp_connection connection)
  * Returns true <=> able to write the entire buffer without blocking.
  */
 
-static int bgp_connection_write_direct(bgp_connection connection) ;
+static int bgp_connection_write_direct(bgp_connection connection,
+                                                             struct stream* s) ;
 static void bgp_connection_write_action(qps_file qf, void* file_info) ;
 
 /*------------------------------------------------------------------------------
- * Write the contents of the obuf -- MUST not be here if wbuff is full !
+ * Write the contents of the given stream, if possible
  *
- * Returns: 1 => all written     -- obuf and wbuff are empty
- *          0 => written         -- obuf now empty
- *         -1 => failed          -- error event generated
+ * Writes everything or nothing.
+ *
+ * If the write buffer is empty, then will attempt to write directly to the
+ * socket, buffering anything that cannot be sent immediately.  Any errors
+ * encountered in this process generate an FSM event.
+ *
+ * In case it is relevant, identifies when the data has been written all the
+ * way into the TCP buffer.
+ *
+ * Returns: 2 => written to TCP   -- it's gone          -- stream reset, empty
+ *          1 => written to wbuff -- waiting for socket -- stream reset, empty
+ *          0 => nothing written  -- insufficient space in wbuff
+ *         -1 => failed           -- error event generated
  */
 extern int
-bgp_connection_write(bgp_connection connection)
+bgp_connection_write(bgp_connection connection, struct stream* s)
 {
   bgp_wbuffer wb = &connection->wbuff ;
 
   if (bgp_write_buffer_empty(wb))
     {
       /* write buffer is empty -- attempt to write directly     */
-      return bgp_connection_write_direct(connection) ;
+      return bgp_connection_write_direct(connection, s) ;
     } ;
 
-  /* Transfer the obuf contents to the staging buffer.                  */
-  wb->p_in = stream_transfer(wb->p_in, connection->obuf, wb->limit) ;
+  /* Write nothing if cannot write everything                   */
+  if (!bgp_write_buffer_can(wb, stream_pending(s)))
+    return 0 ;
 
-  return 1 ;
+  /* Transfer the obuf contents to the write buffer.            */
+  wb->p_in = stream_transfer(wb->p_in, s, wb->limit) ;
+
+  return 1 ;    /* written as far as the write buffer           */
 } ;
 
 /*------------------------------------------------------------------------------
- * The write buffer is empty -- so try to write obuf directly.
+ * The write buffer is empty -- so try to write stream directly.
  *
- * If cannot empty the obuf directly to the TCP buffers, transfer it to to the
- * write buffer, and enable the qpselect action.
+ * If cannot empty the stream directly to the TCP buffers, transfer it to to
+ * the write buffer, and enable the qpselect action.
  * (This is where the write buffer is allocated, if it hasn't yet been.)
  *
- * Either way, the obuf is cleared and can be reused (unless failed).
+ * Either way, the stream is cleared and can be reused (unless failed).
  *
- * Returns:  1 => written obuf to TCP buffer -- all buffers empty
- *           0 => written obuf to wbuff      -- obuf empty
- *          -1 => failed                     -- stopping, dead
+ * Returns: 2 => written to TCP   -- it's gone          -- stream reset, empty
+ *          1 => written to wbuff -- waiting for socket -- stream reset, empty
+ *         -1 => failed           -- error event generated
  */
-enum { bgp_wbuff_size = BGP_MAX_MSG_L * 10 } ;
+enum { bgp_wbuff_size = BGP_MSG_MAX_L * 10 } ;
 
 static int
-bgp_connection_write_direct(bgp_connection connection)
+bgp_connection_write_direct(bgp_connection connection, struct stream* s)
 {
   int ret ;
 
-  ret = stream_flush_try(connection->obuf, qps_file_fd(&connection->qf)) ;
+  ret = stream_flush_try(s, qps_file_fd(&connection->qf)) ;
 
   if (ret == 0)
-    return 1 ;          /* Done: wbuff and obuf are empty       */
+    return 2 ;          /* Done: wbuff and stream are empty         */
 
   else if (ret > 0)
     {
@@ -721,7 +715,7 @@ bgp_connection_write_direct(bgp_connection connection)
         bgp_write_buffer_init_new(wb, bgp_wbuff_size) ;
 
       /* Transfer *entire* message to staging buffer                */
-      wb->p_in = stream_transfer(wb->base, connection->obuf, wb->limit) ;
+      wb->p_in = stream_transfer(wb->base, s, wb->limit) ;
 
       wb->p_out = wb->p_in - ret ;          /* output from here     */
 
@@ -729,7 +723,7 @@ bgp_connection_write_direct(bgp_connection connection)
       qps_enable_mode(&connection->qf, qps_write_mnum,
                                         bgp_connection_write_action) ;
 
-      return 0 ;        /* Done: obuf is empty, but wbuff is not    */
+      return 1 ;        /* Done: wbuff is not empty -- stream is    */
     } ;
 
   /* write failed -- signal error and return failed                 */
@@ -782,7 +776,6 @@ bgp_connection_write_action(qps_file qf, void* file_info)
 
   /* Buffer is empty -- reset it and disable write mode                 */
   wb->p_out = wb->p_in = wb->base ;
-  wb->full = 0 ;
 
   qps_disable_modes(&connection->qf, qps_write_mbit) ;
 
@@ -824,7 +817,7 @@ bgp_connection_read_enable(bgp_connection connection)
  * Performs the checks on the BGP message header:
  *
  *   * Marker is all '1's
- *   * Length is <= BGP_MAX_MSG_L
+ *   * Length is <= BGP_MSG_MAX_L
  *   * Type   is OPEN/UPDATE/NOTIFICATION/KEEPALIVE
  *
  */

@@ -28,6 +28,9 @@
 #include "lib/qpselect.h"
 
 #include "lib/sockunion.h"
+#include "lib/stream.h"
+
+//#include "bgpd/bgp.h"
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_session.h"
@@ -98,8 +101,6 @@ enum bgp_fsm_events
 typedef struct bgp_wbuffer* bgp_wbuffer ;
 struct bgp_wbuffer
 {
-  int         full ;    /* not enough room for max length BGP message   */
-
   uint8_t*    p_out ;
   uint8_t*    p_in ;
 
@@ -147,6 +148,9 @@ struct bgp_connection
 
   unsigned  hold_timer_interval ;       /* subject to negotiation         */
   unsigned  keepalive_timer_interval ;  /* subject to negotiation         */
+
+  flag_t            as4 ;               /* subject to negotiation         */
+  flag_t            route_refresh_pre ; /* subject to negotiation         */
 
   struct qtimer     hold_timer ;
   struct qtimer     keepalive_timer ;
@@ -200,7 +204,7 @@ extern void
 bgp_connection_read_enable(bgp_connection connection) ;
 
 extern int
-bgp_connection_write(bgp_connection connection) ;
+bgp_connection_write(bgp_connection connection, struct stream* s) ;
 
 extern void
 bgp_connection_queue_add(bgp_connection connection) ;
@@ -210,6 +214,52 @@ bgp_connection_queue_del(bgp_connection connection) ;
 
 extern void
 bgp_connection_queue_process(void) ;
+
+
+/*------------------------------------------------------------------------------
+ * Full if not enough room for a maximum size BGP message.
+ */
+Inline int
+bgp_write_buffer_can(bgp_wbuffer wb, size_t want)
+{
+  return ((size_t)(wb->limit - wb->p_in) <= want) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Full if not enough room for a maximum size BGP message + 1
+ */
+Inline int
+bgp_write_buffer_full(bgp_wbuffer wb)
+{
+  return bgp_write_buffer_can(wb, BGP_MAX_MSG_L + 1) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Empty if in and out pointers are equal (but may need to be reset !)
+ */
+Inline int
+bgp_write_buffer_empty(bgp_wbuffer wb)
+{
+  return (wb->p_out == wb->p_in) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * As above, for connection
+ */
+Inline int
+bgp_connection_write_full(bgp_connection connection)
+{
+  return bgp_write_buffer_full(&connection->wbuff) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * As above, for connection
+ */
+Inline int
+bgp_connection_write_empty(bgp_connection connection)
+{
+  return bgp_write_buffer_empty(&connection->wbuff) ;
+} ;
 
 /*==============================================================================
  * Access functions via bgp_connection for bgp_session attributes.

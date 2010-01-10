@@ -112,7 +112,7 @@ struct bgp_session
    * session was ever established.
    */
   bgp_session_state_t   state ;
-  int                   made ;          /* set when -> sEstablished       */
+  flag_t                 made ;          /* set when -> sEstablished       */
 
   /* The BGP Engine records the last event, NOTIFICATION and errno here.
    *
@@ -138,8 +138,11 @@ struct bgp_session
   /* The following are set by the Routeing Engine before a session is
    * enabled, and not changed at any other time by either engine.
    */
-  int               connect ;           /* initiate connections           */
-  int               listen ;            /* listen for connections         */
+  flag_t            connect ;           /* initiate connections           */
+  flag_t            listen ;            /* listen for connections         */
+
+  flag_t            cap_override ;      /* override ... TODO: what ?      */
+  flag_t            cap_strict ;        /* strict...    TODO: what ?      */
 
   int               ttl ;               /* TTL to set, if not zero        */
   unsigned short    port ;              /* destination port for peer      */
@@ -155,7 +158,7 @@ struct bgp_session
   unsigned  open_hold_timer_interval ;
 
   /* These are set by the Routeing Engine before a session is enabled,
-   * and may be changed by the BGP Engine when the session is established.
+   * but are affected by the capabilities received in the OPEN message.
    *
    * The Routeing Engine may read these once sEstablished (under mutex).
    *
@@ -164,7 +167,8 @@ struct bgp_session
   unsigned  hold_timer_interval ;       /* subject to negotiation         */
   unsigned  keepalive_timer_interval ;  /* subject to negotiation         */
 
-  int               as4 ;
+  flag_t            as4 ;               /* set by OPEN                    */
+  flag_t            route_refresh_pre ; /* use pre-RFC version            */
 
   /* These are cleared by the Routeing Engine before a session is enabled,
    * and set by the BGP Engine when the session is established.

@@ -28,19 +28,10 @@
  * These are independent of Quagga.
  */
 
-/*==============================================================================
- * BGP Finite State Machine (FSM)
- */
-
-
-#endif /* _QUAGGA_BGP_H */
-
 #define _GMCH_BGP_H  "19-Dec-2009"
 
-#ifdef  _GMCH_BGP_H
-
-#include "zassert.h"
 #include <stdint.h>
+#include "confirm.h"
 
 /*##############################################################################
  * BGP RFC's we know about -- as of 16-Oct-2009
@@ -141,25 +132,30 @@ typedef uint32_t asn_t ;        /* general ASN                          */
 typedef uint16_t as2_t ;        /* specifically 2 Octet ASN             */
 typedef uint32_t as4_t ;        /* specifically 4 Octet ASN -- RFC4893  */
 
+typedef enum asn_type asn_type_t ;
 enum asn_type
 {
   AS2 = 2,
   AS4 = 4
 } ;
 
-typedef enum asn_type asn_type_t ;
-
 /* Other stuff....       */
 
-typedef uint32_t bgp_id_t ;     /* actually an IPv4 IP Address              */
+typedef uint32_t  bgp_id_t ;    /* actually an IPv4 IP Address          */
 
-VALUE(BGP_MAX_NEXT_HOP_L = 32) ; /* maximum expected Next Hop address length  */
+typedef bgp_id_t  bgp_id_ht ;   /* in host order                        */
+typedef bgp_id_t  bgp_id_nt ;   /* in network order                     */
+
+/* Size of BGP packets or thing in such                                 */
+typedef uint16_t bgp_size_t;
+
+VALUE(BGP_NEXT_HOP_MAX_L = 32) ; /* maximum expected Next Hop address length  */
 
 /*==============================================================================
  * BGP Message Structure
  */
 
-VALUE(BGP_MAX_MSG_L  = 4096) ;      /* RFC4271 hard limit on message length */
+VALUE(BGP_MSG_MAX_L  = 4096) ;      /* RFC4271 hard limit on message length */
 
 /* Message Header Format  ----------------------------------------------------*/
 
@@ -174,7 +170,7 @@ VALUE(BGP_MH_HEAD_L =               /* message header length    */
                       + sizeof(BGP_MH_TYPE_T) ) ;
 CONFIRM(BGP_MH_HEAD_L == 19) ;      /* well known value !       */
 
-#define BGP_MAX_BODY_L      (BGP_MAX_MSG_L - BGP_MH_HEAD_L)
+VALUE(BGP_MSG_BODY_MAX_L  = BGP_MSG_MAX_L - BGP_MH_HEAD_L) ;
 
 enum            /* order of entries in Message Header     */
 {
@@ -197,6 +193,8 @@ enum BGP_MT
   BGP_MT_ROUTE_REFRESH = 5,         /* RFC2918                          */
 
   BGP_MT_MAX           = 5,         /* max known message type           */
+
+  BGP_MT_ROUTE_REFRESH_pre  = 128   /* pre RFC2918 (Sep-2000)           */
 } ;
 
 /* Open Message (type = BGP_MT_OPEN) -------------------------------------------
@@ -292,6 +290,9 @@ enum BGP_CAN {
   BGP_CAN_ADD_PATH   = 69,          /* ADD-PATH                [draft-idr]  */
 
   BGP_CAN_MAX        = 69,          /* but mind the gap(s) !                */
+
+  BGP_CAN_R_REFRESH_pre  = 128,     /* pre-RFC value                        */
+  BGP_CAN_ORF_pre        = 130,     /* pre-RFC value                        */
 } ;
 
 /* Update Message (type = BGP_MT_UPDATE) ---------------------------------------
@@ -556,6 +557,12 @@ enum            /* order */
   BGP_RRM_ORFS,         /* start of ORF collections */
 } ;
 
+enum                                /* values for the BGP_RRM_ORF_WHEN byte */
+{
+  BGP_ORF_WTR_IMMEDIATE   = 1,      /* when-to-refresh == immediately       */
+  BGP_ORF_WTR_DEFER       = 2       /* when-to-refresh == defer             */
+} ;
+
 /* ORFS come in collections...................................................*/
 
 typedef U8  BGP_ORF_TYPE_T ;        /* ORF Type                             */
@@ -577,6 +584,8 @@ enum            /* order */
 typedef U8  BGP_ORF_E_ACTION_T ;    /* see below for action/match bits      */
 typedef UBX BGP_ORF_E_REST_T ;      /* rest depends on ORF Type             */
 
+VALUE(BGP_ORF_E_COM_L = sizeof(BGP_ORF_E_ACTION_T)) ;
+
 /* Known BGP_ORF_TYPE values..................................................*/
 
 enum BGP_ORF {
@@ -584,19 +593,22 @@ enum BGP_ORF {
 
   BGP_ORF_T_PREFIX    = 64,         /* Address Prefix ORF           RFC5292 */
 
-  BGP_ORF_T_MAX       = 64
+  BGP_ORF_T_MAX       = 64,
+
+  BGP_ORF_T_PREFIX_pre   = 128      /* pre RFC value                        */
 } ;
 
 /* Known BGP_ORF_E_ACTION bits................................................*/
 
 enum {
-  BGP_ORF_EA_MASK     = 0xC0,       /* mask to extract Action               */
+  BGP_ORF_EA_MASK     = 0x3 << 6,   /* mask to extract Action               */
 
-  BGP_ORF_EA_ADD      = 0x00,       /* Action: add ORF                      */
-  BGP_ORF_EA_REMOVE   = 0x40,       /* Action: remove ORF                   */
-  BGP_ORF_EA_REM_ALL  = 0x80,       /* Action: remove all ORF               */
+  BGP_ORF_EA_ADD      =   0 << 6,   /* Action: ADD                          */
+  BGP_ORF_EA_REMOVE   =   1 << 6,   /* Action: REMOVE                       */
+  BGP_ORF_EA_RM_ALL   =   2 << 6,   /* Action: REMOVE-ALL                   */
 
-  BGP_ORF_EA_DENY     = 0x20,       /* deny -- otherwise permit             */
+  BGP_ORF_EA_PERMIT   =   0 << 5,   /* Match: PERMIT                        */
+  BGP_ORF_EA_DENY     =   1 << 5,   /* Match: DENY                          */
 } ;
 
 /* Address Prefix ORF (BGP_ORF_T_PREFIX) type specific entry part.............*/
@@ -606,6 +618,12 @@ typedef U8  BGP_ORF_E_P_MIN_T ;     /* Minlen                               */
 typedef U8  BGP_ORF_E_P_MAX_T ;     /* Maxlen                               */
 typedef U8  BGP_ORF_E_P_LEN_T ;     /* Prefix Length                        */
 typedef UBX BGP_ORF_E_P_PFIX_T ;    /* Prefix -- variable !                 */
+
+VALUE(BGP_ORF_E_P_MIN_L = BGP_ORF_E_COM_L
+                        + sizeof(BGP_ORF_E_P_SEQ_T)
+                        + sizeof(BGP_ORF_E_P_MIN_T)
+                        + sizeof(BGP_ORF_E_P_MAX_T)
+                        + sizeof(BGP_ORF_E_P_LEN_T) ) ;
 
 /*==============================================================================
  * Capability Values

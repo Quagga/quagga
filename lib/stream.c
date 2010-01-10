@@ -236,6 +236,20 @@ stream_set_getp (struct stream *s, size_t pos)
   s->getp = pos;
 }
 
+void
+stream_set_endp (struct stream *s, size_t pos)
+{
+  STREAM_VERIFY_SANE(s);
+
+  if (!ENDP_VALID (s, pos))
+    {
+      STREAM_BOUND_WARN (s, "set endp");
+      return ;
+    }
+
+  s->endp = pos;
+}
+
 /* Forward pointer. */
 void
 stream_forward_getp (struct stream *s, size_t size)

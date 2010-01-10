@@ -21,7 +21,11 @@
  * Boston, MA 02111-1307, USA.
  */
 
+#include <string.h>
+
+#include "lib/zassert.h"
 #include "lib/memory.h"
+
 #include "bgpd/bgp_notification.h"
 
 /*==============================================================================
@@ -100,7 +104,7 @@ bgp_notify_dup(bgp_notify notification)
 extern void
 bgp_notify_set(bgp_notify* p_dst, bgp_notify src)
 {
-  bgp_notify_free(*p_dst) ;
+  bgp_notify_free(p_dst) ;
   *p_dst = src ;
 } ;
 
@@ -125,7 +129,7 @@ bgp_notify_set_dup(bgp_notify* p_dst, bgp_notify src)
 extern void
 bgp_notify_set_mov(bgp_notify* p_dst, bgp_notify* p_src)
 {
-  bgp_notify_free(*p_dst) ;
+  bgp_notify_free(p_dst) ;
   *p_dst = *p_src ;
   *p_src = NULL ;
 } ;
@@ -145,10 +149,13 @@ bgp_notify_free(bgp_notify* p_notification)
 /*==============================================================================
  * Append data to given notification
  *
+ * Copes with zero length append.
+ *
  * NB: returns possibly NEW ADDRESS of the notification.
  */
 extern bgp_notify
-bgp_notify_append_data(bgp_notify notification, void* data, bgp_size_t len)
+bgp_notify_append_data(bgp_notify notification, const void* data,
+                                                                 bgp_size_t len)
 {
   bgp_size_t new_length = notification->length + len ;
 
@@ -156,12 +163,15 @@ bgp_notify_append_data(bgp_notify notification, void* data, bgp_size_t len)
     {
       bgp_size_t size = bgp_notify_size(new_length) ;
       notification = XREALLOC(MTYPE_BGP_NOTIFY, notification, size) ;
-      memset((void*)notification + notification->size, 0,
+      memset((char*)notification + notification->size, 0,
                                                     size - notification->size) ;
       notification->size = size ;
     } ;
 
-  memcpy((void*)(notification->data) + notification->length, data, len) ;
+  if (len > 0)
+    memcpy((char*)(notification->data) + notification->length, data, len) ;
 
   notification->length = new_length ;
+
+  return notification ;
 } ;

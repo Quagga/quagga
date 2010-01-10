@@ -24,6 +24,7 @@
 #ifndef _QUAGGA_BGP_NOTIFY_H
 #define _QUAGGA_BGP_NOTIFY_H
 
+#include <stddef.h>
 #include "bgpd/bgp_common.h"
 
 #ifndef Inline
@@ -35,111 +36,6 @@
  */
 typedef unsigned char bgp_nom_code_t ;
 typedef unsigned char bgp_nom_subcode_t ;
-
-#ifndef _GMCH_BGP_H
-
-/* Notification Message Error Codes...........................................*/
-enum BGP_NOMC
-{
-  BGP_NOMC_UNDEF        =  0,       /* Nothing defined for this code        */
-
-  BGP_NOMC_HEADER       =  1,       /* Message Header Error                 */
-  BGP_NOMC_OPEN         =  2,       /* Open Message Error                   */
-  BGP_NOMC_UPDATE       =  3,       /* Update Message Error                 */
-  BGP_NOMC_HOLD_EXP     =  4,       /* Hold timer expired                   */
-  BGP_NOMC_FSM          =  5,       /* Finite State Machine Error           */
-  BGP_NOMC_CEASE        =  6,       /* Cease                        RFC4486 */
-
-  BGP_NOMC_MAX          =  6        /* max known error code                 */
-} ;
-
-/* Notification Message Error Subcodes........................................*/
-
-enum BGP_NOMS
-{
-  BGP_NOMS_UNSPECIFIC   =  0        /* If nothing else applies               */
-};
-
-enum BGP_NOMS_HEADER                /* BGP_NOMC_HEADER subcodes             */
-{
-  BGP_NOMS_H_NOT_SYNC   =  1,       /* Connection Not Synchronised          */
-                                    /* (Marker field not all =  1,'s !)     */
-  BGP_NOMS_H_BAD_LEN    =  2,       /* Bad Message Length                   */
-                                    /* DATA: the length that failed         */
-  BGP_NOMS_H_BAD_TYPE   =  3,       /* Bad Message Type                     */
-                                    /* DATA: the message type objected to   */
-
-  BGP_NOMS_H_MAX        =  3,       /* max known subcode                    */
-} ;
-
-enum BGP_NOMS_OPEN                  /* BGP_NOMC_OPEN subcodes               */
-{
-  BGP_NOMS_O_VERSION    =  1,       /* Unsupported Version Number           */
-                                    /* DATA: largest supported version      */
-  BGP_NOMS_O_BAD_AS     =  2,       /* Bad Peer AS                          */
-  BGP_NOMS_O_BAD_ID     =  3,       /* Bad BGP Identifier                   */
-  BGP_NOMS_O_OPTION     =  4,       /* Unsupported Optional Parameter       */
-  BGP_NOMS_O_AUTH       =  5,       /* Authentication Failure (depr.)       */
-  BGP_NOMS_O_H_TIME     =  6,       /* Unacceptable Hold Time               */
-
-  BGP_NOMS_O_CAPABILITY =  7,       /* Unsupported Capability       RFC5492 */
-                                    /* DATA: the unsupported capabilities   */
-
-  BGP_NOMS_O_MAX        =  7,       /* max known subcode                    */
-} ;
-
-enum BGP_NOMS_UPDATE                /* BGP_NOMC_UPDATE subcodes             */
-{
-  BGP_NOMS_U_A_LIST     =  1,       /* Malformed Attribute List             */
-                                    /* (Attribute repeated)                 */
-  BGP_NOMS_U_UNKNOWN    =  2,       /* Unrecognised Well-known Attrib       */
-                                    /* DATA: erroneous attribute            */
-  BGP_NOMS_U_MISSING    =  3,       /* Missing Well-known Attrib.           */
-                                    /* DATA: type of missing attribute(s?)  */
-  BGP_NOMS_U_A_FLAGS    =  4,       /* Attribute Flags Error                */
-                                    /* DATA: erroneous attribute            */
-  BGP_NOMS_U_A_LENGTH   =  5,       /* Attribute Length Error               */
-                                    /* DATA: erroneous attribute            */
-  BGP_NOMS_U_ORIGIN     =  6,       /* Invalid Origin Attribute             */
-                                    /* DATA: erroneous attribute            */
-  BGP_NOMS_U_AS_LOOP    =  7,       /* AS Routeing Loop (deprecated)        */
-  BGP_NOMS_U_NEXT_HOP   =  8,       /* Invalid NEXT_HOP Attrib.             */
-                                    /* DATA: erroneous attribute            */
-  BGP_NOMS_U_OPTIONAL   =  9,       /* Optional Attribute Error             */
-                                    /* DATA: erroneous attribute            */
-  BGP_NOMS_U_NETWORK    = 10,       /* Invalid Network Field                */
-                                    /* (badly formed NLRI)                  */
-  BGP_NOMS_U_AS_PATH    = 11,       /* Malformed AS Path                    */
-
-  BGP_NOMS_U_MAX        = 11,       /* max known subcode                    */
-} ;
-
-enum BGP_NOMS_HOLD_EXP              /* BGP_NOMC_HOLD_EXP subcodes           */
-{
-  BGP_NOMS_HE_MAX       =  0        /* max known subcode                    */
-} ;
-
-enum BGP_NOMC_FSM                   /* BGP_NOMC_FSM subcodes                */
-{
-  BGP_NOMS_F_MAX        =  0        /* max known subcode                    */
-} ;
-
-enum BGP_NOMS_CEASE                 /* BGP_NOMC_CEASE subcodes      RFC4486 */
-{
-  BGP_NOMS_C_MAX_PREF   =  1,       /* Max Number of Prefixes Reached  MUST */
-                                    /* DATA: MAY be: AFI/SAFI/Upper-Bound   */
-  BGP_NOMS_C_SHUTDOWN   =  2,       /* Administrative Shutdown       SHOULD */
-  BGP_NOMS_C_DECONFIG   =  3,       /* Peer De-configured            SHOULD */
-  BGP_NOMS_C_RESET      =  4,       /* Administrative Reset          SHOULD */
-  BGP_NOMS_C_REJECTED   =  5,       /* Connection Rejected           SHOULD */
-  BGP_NOMS_C_CONFIG     =  6,       /* Other Configuration Change    SHOULD */
-  BGP_NOMS_C_COLLISION  =  7,       /* Connection Collision Res.     SHOULD */
-  BGP_NOMS_C_RESOURCES  =  8,       /* Out of Resources                 MAY */
-
-  BGP_NOMS_C_MAX        =  8        /* max known subcode                    */
-} ;
-
-#endif
 
 /*==============================================================================
  *
@@ -259,7 +155,8 @@ bgp_notify_set_subcode(bgp_notify notification, bgp_nom_subcode_t subcode)
 } ;
 
 extern bgp_notify
-bgp_notify_append_data(bgp_notify notification, void* data, bgp_size_t len) ;
+bgp_notify_append_data(bgp_notify notification, const void* data,
+                                                               bgp_size_t len) ;
 
 
 Inline bgp_nom_code_t

@@ -46,12 +46,19 @@ bgp_open_state_init_new(bgp_open_state state)
   else
     memset(state, 0, sizeof(struct bgp_open_state)) ;
 
+  vector_init_new(&state->unknowns, 0) ;
+
   return state ;
 }
 
 bgp_open_state
 bgp_open_state_free(bgp_open_state state)
 {
+  bgp_cap_unknown unknown ;
+
+  while ((unknown = vector_ream_keep(&state->unknowns)) != NULL)
+    XFREE(MTYPE_TMP, unknown) ;
+
   if (state != NULL)
     XFREE(MTYPE_BGP_OPEN_STATE, state) ;
   return NULL ;
@@ -87,8 +94,10 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
   /* Set our bgpd_id                                    */
   state->bgp_id = peer->local_id ;
 
-  /* TODO: can_capability? */
-  state->can_capability = 0;
+  /* Do not send capability. */  /* TODO: can_capability? */
+  state->can_capability =
+                        CHECK_FLAG(peer->sflags, PEER_STATUS_CAPABILITY_OPEN)
+                  && (! CHECK_FLAG(peer->flags,  PEER_FLAG_DONT_CAPABILITY) ) ;
 
   /* Announce self as AS4 speaker if required           */
   state->can_as4 = ((peer->cap & PEER_CAP_AS4_ADV) != 0) ;
@@ -122,11 +131,14 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
                                         ? (bgp_cap_form_old | bgp_cap_form_new)
                                         : bgp_cap_form_none  ;
 
+  /* Dynamic Capabilities       TODO: check requirement */
+  state->can_dynamic = ( CHECK_FLAG(peer->flags, PEER_FLAG_DYNAMIC_CAPABILITY)
+                                                                        != 0 ) ;
+
   /* Graceful restart capability                                            */
-  /* TODO: check that support graceful restart for all supported AFI/SAFI   */
   if (bgp_flag_check(peer->bgp, BGP_FLAG_GRACEFUL_RESTART))
     {
-      state->can_g_restart = state->can_mp_ext ;
+      state->can_g_restart = 1 ;
       state->restart_time  = peer->bgp->restart_time ;
     }
   else
@@ -136,11 +148,59 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
     } ;
 
   /* TODO: check not restarting and not preserving forwarding state (?)     */
-  state->can_nsf    = 0 ;
-  state->restarting = 0 ;
+  state->can_preserve    = 0 ;        /* cannot preserve forwarding     */
+  state->has_preserved   = 0 ;        /* has not preserved forwarding   */
+  state->restarting      = 0 ;        /* is not restarting              */
 
   return state;
 }
+
+/*==============================================================================
+ * Unknown capabilities handling.
+ *
+ */
+
+/*------------------------------------------------------------------------------
+ * Add given unknown capability and its value to the given open_state.
+ */
+extern void
+bgp_open_state_unknown_add(bgp_open_state state, uint8_t code,
+                                               void* value, bgp_size_t length)
+{
+  bgp_cap_unknown unknown ;
+
+  unknown = XCALLOC(MTYPE_TMP, sizeof(struct bgp_cap_unknown) + length) ;
+
+  unknown->code   = code ;
+  unknown->length = length ;
+
+  if (length != 0)
+    memcpy(unknown->value, value, length) ;
+
+  vector_push_item(&state->unknowns, unknown) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get count of number of unknown capabilities in given open_state.
+ */
+extern void
+bgp_open_state_unknown_count(bgp_open_state state)
+{
+  return vector_end(&state->unknowns) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get n'th unknown capability -- if exists.
+ */
+extern bgp_cap_unknown
+bgp_open_state_unknown_cap(bgp_open_state state, unsigned index)
+{
+  return vector_get_item(&state->unknowns, index) ;
+} ;
+
+/*==============================================================================
+ *
+ */
 
 /* Received an open, update the peer's state */
 void

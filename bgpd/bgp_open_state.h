@@ -22,8 +22,11 @@
 #ifndef _QUAGGA_BGP_OPEN_STATE_H
 #define _QUAGGA_BGP_OPEN_STATE_H
 
-#include "bgpd/bgp_common.h"
+#include <stdint.h>
 
+#include "bgpd/bgp.h"
+#include "bgpd/bgp_common.h"
+#include "lib/vector.h"
 
 #ifndef Inline
 #define Inline static inline
@@ -40,7 +43,8 @@ enum bgp_cap_form
 {
   bgp_cap_form_none     = 0,
   bgp_cap_form_old      = 1,
-  bgp_cap_form_new      = 2
+  bgp_cap_form_new      = 2,
+  bgp_cap_form_both     = 3     /* _old and _new are bits !     */
 } ;
 
 /*==============================================================================
@@ -50,6 +54,14 @@ enum bgp_cap_form
  * in a BGP OPEN Message.
  *
  */
+
+typedef struct bgp_cap_unknown* bgp_cap_unknown ;
+struct bgp_cap_unknown                /* to capture unknown capability      */
+{
+  uint8_t       code ;
+  bgp_size_t    length ;
+  uint8_t       value[] ;
+} ;
 
 struct bgp_open_state
 {
@@ -63,18 +75,22 @@ struct bgp_open_state
 
   qafx_set_t  can_mp_ext ;            /* will accept, may send these        */
 
-  bgp_cap_form_t can_r_refresh ;      /* none/old/new                       */
-  bgp_cap_form_t can_orf_prefix ;     /* none/old/new                       */
+  bgp_cap_form_t can_r_refresh ;      /* none/old/new/both                  */
+  bgp_cap_form_t can_orf_prefix ;     /* none/old/new/both                  */
 
   qafx_set_t  can_orf_prefix_send ;   /* wish to send ORF Prefix-List       */
   qafx_set_t  can_orf_prefix_recv ;   /* will accept  ORF Prefix-List       */
 
-  qafx_set_t  can_g_restart ;         /* will gracefully restart these      */
-  qafx_set_t  can_nsf ;               /* will preserve forwarding state     */
+  int         can_dynamic ;
+
+  int         can_g_restart ;         /* can do graceful restart            */
+  qafx_set_t  can_preserve ;          /* can preserve forwarding for these  */
+  qafx_set_t  has_preserved ;         /* has preserved forwarding for these */
 
   int         restarting ;            /* Restart State flag                 */
   int         restart_time ;          /* Restart Time in seconds            */
 
+  struct vector   unknowns ;          /* list of bgp_cap_unknown            */
 } ;
 
 /*==============================================================================
@@ -86,6 +102,15 @@ bgp_open_state_init_new(bgp_open_state state) ;
 
 extern bgp_open_state
 bgp_open_state_free(bgp_open_state state) ;
+
+extern void
+bgp_open_state_unknown_add(bgp_open_state state, uint8_t code,
+                                               void* value, bgp_size_t length) ;
+extern void
+bgp_open_state_unknown_count(bgp_open_state state) ;
+
+extern bgp_cap_unknown
+bgp_open_state_unknown_cap(bgp_open_state state, unsigned index) ;
 
 extern bgp_open_state
 bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer);

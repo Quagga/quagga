@@ -5,6 +5,8 @@
 #ifndef _QUAGGA_ASSERT_H
 #define _QUAGGA_ASSERT_H
 
+#include "confirm.h"
+
 extern void _zlog_assert_failed (const char *assertion, const char *file,
 				 unsigned int line, const char *function)
 				 __attribute__ ((noreturn));
@@ -60,18 +62,5 @@ extern void _zlog_abort_err (const char *mess, int err, const char *file,
 /* Abort with message and given error and strerror() thereof    */
 #define zabort_err(MS, ERR) _zlog_abort_err(MS, ERR, __FILE__, __LINE__, \
                                                               __ASSERT_FUNCTION)
-
-/*==============================================================================
- * Compile time CONFIRM gizmo
- *
- * Two forms:  CONFIRM(e) for use at top (file) level
- *             confirm(e) for use inside compound statements
- */
-#ifndef CONFIRM
-
- #define CONFIRM(e)  extern void CONFIRMATION(char CONFIRM[(e) ? 1 : -1]) ;
- #define confirm(e)  { CONFIRM(e) }
-
-#endif
 
 #endif /* _QUAGGA_ASSERT_H */
