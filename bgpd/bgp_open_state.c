@@ -290,15 +290,19 @@ bgp_peer_open_state_receive(bgp_peer peer)
         SET_FLAG (peer->cap, PEER_CAP_ORF_PREFIX_RM_RCV);
     }
 
+  /* Dynamic Capabilities */
+  if (open_recv->can_dynamic)
+    SET_FLAG (peer->cap, PEER_CAP_DYNAMIC_RCV);
+
   /* Graceful restart */
   for (afi = qAFI_MIN ; afi <= qAFI_MAX ; ++afi)
      for (safi = qSAFI_MIN ; safi <= qSAFI_MAX ; ++safi)
        {
          qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
-         if (peer->afc[afi][safi] && (qb & open_recv->can_g_restart))
+         if (peer->afc[afi][safi] && (qb & open_recv->can_preserve))
            {
              SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_RCV);
-             if (qb & open_recv->can_nfs)
+             if (qb & open_recv->has_preserved)
                SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_PRESERVE_RCV);
            }
     }

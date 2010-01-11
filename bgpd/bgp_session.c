@@ -145,6 +145,31 @@ bgp_session_init_new(bgp_session session, bgp_peer peer)
   return session ;
 } ;
 
+/* Free session structure
+ *
+ */
+bgp_session
+bgp_session_free(bgp_session session)
+{
+  if (session == NULL)
+    return NULL;
+
+  qpt_mutex_destroy(&session->mutex, 0) ;
+
+  bgp_notify_free(session->notification);
+  bgp_open_state_free(session->open_send);
+  bgp_open_state_free(session->open_recv);
+  XFREE(MTYPE_BGP_SESSION, session->host);
+  XFREE(MTYPE_BGP_SESSION, session->password);
+
+  /* Zeroize to catch dangling references asap */
+  memset(session, 0, sizeof(struct bgp_session)) ;
+  XFREE(MTYPE_BGP_SESSION, session);
+
+  return NULL;
+}
+
+
 /* Look up session
  *
  */
@@ -190,6 +215,15 @@ bgp_session_enable(bgp_peer peer)
     } ;
 
   /* Initialise what we need to make and run connections                */
+  session->state    = bgp_session_sIdle;
+  session->made     = 0;
+  session->event    = bgp_session_null_event;
+  session->notification = bgp_notify_free(session->notification);
+  session->err      = 0;
+  session->ordinal  = 0;
+
+  session->open_send = bgp_peer_open_state_init_new(session->open_send, peer);
+  session->open_recv = bgp_open_state_free(session->open_recv);
 
   session->connect  = (peer->flags & PEER_FLAG_PASSIVE) != 0 ;
   session->listen   = 1 ;
@@ -200,17 +234,25 @@ bgp_session_enable(bgp_peer peer)
   session->su_peer  = sockunion_dup(&peer->su) ;
 
   session->log      = peer->log ;
-  session->host     = peer->host ;      /* TODO: duplicate string ?     */
+
+  /* take copies of host and password */
+  XFREE(MTYPE_BGP_SESSION, session->host);
+  session->host     = XSTRDUP(MTYPE_BGP_SESSION, peer->host);
+  XFREE(MTYPE_BGP_SESSION, session->password);
+  session->password = XSTRDUP(MTYPE_BGP_SESSION, peer->password);
 
   session->idle_hold_timer_interval     = peer->v_start ;
   session->connect_retry_timer_interval = peer->v_connect ;
   /* TODO: proper value for open_hold_timer_interval    */
-  session->open_hold_timer_interval     = peer->v_connect ;
+  session->open_hold_timer_interval     = 4 * 60;
   session->hold_timer_interval          = peer->v_holdtime ;
   session->keepalive_timer_interval     = peer->v_keepalive ;
 
-  /* Initialise the BGP Open negotiating position                       */
-  /* TODO: set up open_state in bgp_session_enable....                  */
+  session->as4       = 0;
+  session->route_refresh_pre = 0;
+
+  /* su_local set when session Established */
+  /* su_remote  set when session Established */
 
   /* Routeing Engine does the state change now.                         */
   session->state    = bgp_session_sEnabled ;

@@ -864,7 +864,7 @@ bgp_connection_read_action(qps_file qf, void* file_info)
 
           connection->read_header = 0 ; /* got complete header          */
 
-          want = bgp_msg_check_header(connection->ibuf) ;
+          want = bgp_msg_check_header(connection) ;
                                         /* returns balance of message   */
           if (want < 0)
             return ;                    /* failed in header check       */

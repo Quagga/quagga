@@ -139,6 +139,9 @@ struct peer
   /* Peer specific RIB when configured as route-server-client. */
   struct bgp_table *rib[AFI_MAX][SAFI_MAX];
 
+  /* Packet receive buffer. */
+  struct stream *ibuf;
+
   /* Status of the peer. */
   int status;
   int ostatus;

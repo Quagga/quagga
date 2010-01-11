@@ -231,7 +231,7 @@ bgp_write_buffer_can(bgp_wbuffer wb, size_t want)
 Inline int
 bgp_write_buffer_full(bgp_wbuffer wb)
 {
-  return bgp_write_buffer_can(wb, BGP_MAX_MSG_L + 1) ;
+  return bgp_write_buffer_can(wb, BGP_MSG_MAX_L + 1) ;
 } ;
 
 /*------------------------------------------------------------------------------
