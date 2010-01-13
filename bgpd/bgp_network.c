@@ -460,7 +460,7 @@ bgp_accept_action(qps_file qf, void* file_info)
                                                   inet_sutop(&su_remote, buf)) ;
 
   /* See if we are ready to accept connections from the connecting party    */
-  session = bgp_session_lookup(&su_remote, &exists) ;
+  session = bgp_session_index_seek(&su_remote, &exists) ;
   if (session != NULL)
     {
       if (BGP_DEBUG(events, EVENTS))

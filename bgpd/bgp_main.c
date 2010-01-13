@@ -346,7 +346,25 @@ bgp_exit (int status)
 
   qexit (status);
 }
-
+
+/* threaded command*/
+DEFUN_HID_CALL (threaded,
+       threaded_cmd,
+       "threaded",
+       "Use pthreads\n")
+{
+  if (!qpthreads_enabled)
+    init_second_stage(1);
+
+  return CMD_SUCCESS;
+}
+
+static void
+init_second_stage(int pthreads)
+{
+  qlib_init_second_stage(pthreads);
+  bgp_peer_index_mutex_init(NULL);
+}
 /* Main routine of bgpd. Treatment of argument and start bgp finite
    state machine is handled at here. */
 int
@@ -549,21 +567,4 @@ main (int argc, char **argv)
   return (0);
 }
 
-/* threaded */
-DEFUN_HID_CALL (threaded,
-       threaded_cmd,
-       "threaded",
-       "Use pthreads\n")
-{
-  if (!qpthreads_enabled)
-    init_second_stage(1);
 
-  return CMD_SUCCESS;
-}
-
-static void
-init_second_stage(int pthreads)
-{
-  qlib_init_second_stage(pthreads);
-  bgp_peer_index_mutex_init(NULL);
-}

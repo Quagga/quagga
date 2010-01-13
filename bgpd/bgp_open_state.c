@@ -19,13 +19,17 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#include "bgpd/bgp_open_state.h"
-#include "bgpd/bgp_peer.h"
-
-#include "lib/memory.h"
-
+#include "zebra.h"
 
 #include "bgpd/bgpd.h"
+#include "bgpd/bgp_peer.h"
+#include "bgpd/bgp_session.h"
+#include "bgpd/bgp_open_state.h"
+
+#include "lib/memory.h"
+#include "lib/memtypes.h"
+
+
 
 /*==============================================================================
  * BGP Open State.
@@ -75,7 +79,6 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
 {
   safi_t      safi ;
   afi_t       afi ;
-  qafx_num_t  qafx ;
 
   state = bgp_open_state_init_new(state) ;  /* allocate if req.  Zeroise.   */
 
@@ -92,7 +95,7 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
     state->holdtime = peer->bgp->default_holdtime ;
 
   /* Set our bgpd_id                                    */
-  state->bgp_id = peer->local_id ;
+  state->bgp_id = peer->local_id.s_addr ;
 
   /* Do not send capability. */  /* TODO: can_capability? */
   state->can_capability =
@@ -104,8 +107,8 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
 
   /* Fill in the supported AFI/SAFI                     */
 
-  for (afi = qAFI_MIN ; afi <= qAFI_MAX ; ++afi)
-    for (safi = qSAFI_MIN ; safi <= qSAFI_MAX ; ++safi)
+  for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
+    for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
       if (peer->afc[afi][safi])
         state->can_mp_ext |= qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi)) ;
 
@@ -115,8 +118,8 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
                                         : bgp_cap_form_none ;
 
   /* ORF capability.                                    */
-  for (afi = qAFI_MIN ; afi <= qAFI_MAX ; ++afi)
-    for (safi = qSAFI_MIN ; safi <= qSAFI_MAX ; ++safi)
+  for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
+    for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
       {
         if (peer->af_flags[afi][safi] & PEER_FLAG_ORF_PREFIX_SM)
           state->can_orf_prefix_send |=
@@ -183,7 +186,7 @@ bgp_open_state_unknown_add(bgp_open_state state, uint8_t code,
 /*------------------------------------------------------------------------------
  * Get count of number of unknown capabilities in given open_state.
  */
-extern void
+extern int
 bgp_open_state_unknown_count(bgp_open_state state)
 {
   return vector_end(&state->unknowns) ;
@@ -234,7 +237,7 @@ bgp_peer_open_state_receive(bgp_peer peer)
   session->keepalive_timer_interval     = peer->v_keepalive ;
 
   /* Set remote router-id */
-  peer->remote_id = open_recv->bgp_id;
+  peer->remote_id.s_addr = open_recv->bgp_id;
 
   /* AS4 */
   if (open_recv->can_as4)
@@ -244,8 +247,8 @@ bgp_peer_open_state_receive(bgp_peer peer)
   /* Ignore capability when override-capability is set. */
   if (! CHECK_FLAG (peer->flags, PEER_FLAG_OVERRIDE_CAPABILITY))
     {
-      for (afi = qAFI_MIN ; afi <= qAFI_MAX ; ++afi)
-        for (safi = qSAFI_MIN ; safi <= qSAFI_MAX ; ++safi)
+      for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
+        for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
           {
             qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
             if (qb & open_recv->can_mp_ext)
@@ -264,8 +267,8 @@ bgp_peer_open_state_receive(bgp_peer peer)
     SET_FLAG (peer->cap, PEER_CAP_REFRESH_NEW_RCV);
 
   /* ORF */
-  for (afi = qAFI_MIN ; afi <= qAFI_MAX ; ++afi)
-     for (safi = qSAFI_MIN ; safi <= qSAFI_MAX ; ++safi)
+  for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
+     for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
        {
          qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
          if (qb & open_recv->can_orf_prefix_send)
@@ -295,8 +298,8 @@ bgp_peer_open_state_receive(bgp_peer peer)
     SET_FLAG (peer->cap, PEER_CAP_DYNAMIC_RCV);
 
   /* Graceful restart */
-  for (afi = qAFI_MIN ; afi <= qAFI_MAX ; ++afi)
-     for (safi = qSAFI_MIN ; safi <= qSAFI_MAX ; ++safi)
+  for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
+     for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
        {
          qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
          if (peer->afc[afi][safi] && (qb & open_recv->can_preserve))

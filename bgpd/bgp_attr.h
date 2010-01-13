@@ -21,6 +21,9 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGP_ATTR_H
 #define _QUAGGA_BGP_ATTR_H
 
+#include "bgpd/bgp_common.h"
+#include "bgpd/bgpd.h"
+
 /* Simple bit mapping. */
 #define BITMAP_NBBY 8
 

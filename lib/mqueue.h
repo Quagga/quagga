@@ -22,6 +22,8 @@
 #ifndef _ZEBRA_MQUEUE_H
 #define _ZEBRA_MQUEUE_H
 
+#include <stddef.h>
+
 #include "qpthreads.h"
 #include "qtime.h"
 

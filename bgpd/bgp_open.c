@@ -58,8 +58,8 @@ bgp_capability_vty_out (struct vty *vty, struct peer *peer)
   struct capability_mp_data mpc;
   struct capability_header *hdr;
 
-  pnt = peer->notify.data;
-  end = pnt + peer->notify.length;
+  pnt = peer->notify->data;
+  end = pnt + peer->notify->length;
 
   while (pnt < end)
     {
@@ -119,7 +119,7 @@ bgp_capability_vty_out (struct vty *vty, struct peer *peer)
     }
 }
 
-static void
+void
 bgp_capability_mp_data (struct stream *s, struct capability_mp_data *mpc)
 {
   mpc->afi = stream_getw (s);
@@ -197,21 +197,21 @@ bgp_capability_orf_not_support (struct peer *peer, afi_t afi, safi_t safi,
 	       peer->host, afi, safi, type, mode);
 }
 
-static const struct message orf_type_str[] =
+const struct message orf_type_str[] =
 {
   { ORF_TYPE_PREFIX,		"Prefixlist"		},
   { ORF_TYPE_PREFIX_OLD,	"Prefixlist (old)"	},
 };
-static const int orf_type_str_max
+const int orf_type_str_max
 	= sizeof(orf_type_str)/sizeof(orf_type_str[0]);
 
-static const struct message orf_mode_str[] =
+const struct message orf_mode_str[] =
 {
   { ORF_MODE_RECEIVE,	"Receive"	},
   { ORF_MODE_SEND,	"Send"		},
   { ORF_MODE_BOTH,	"Both"		},
 };
-static const int orf_mode_str_max
+const int orf_mode_str_max
 	 = sizeof(orf_mode_str)/sizeof(orf_mode_str[0]);
 
 static int
@@ -446,7 +446,7 @@ bgp_capability_as4 (struct peer *peer, struct capability_header *hdr)
   return as4;
 }
 
-static const struct message capcode_str[] =
+const struct message capcode_str[] =
 {
   { CAPABILITY_CODE_MP,			"MultiProtocol Extensions"	},
   { CAPABILITY_CODE_REFRESH,		"Route Refresh"			},
@@ -457,10 +457,10 @@ static const struct message capcode_str[] =
   { CAPABILITY_CODE_REFRESH_OLD,	"Route Refresh (Old)"		},
   { CAPABILITY_CODE_ORF_OLD,		"ORF (Old)"			},
 };
-static const int capcode_str_max = sizeof(capcode_str)/sizeof(capcode_str[0]);
+const int capcode_str_max = sizeof(capcode_str)/sizeof(capcode_str[0]);
 
 /* Minimum sizes for length field of each cap (so not inc. the header) */
-static const size_t cap_minsizes[] =
+const size_t cap_minsizes[] =
 {
   [CAPABILITY_CODE_MP]		= sizeof (struct capability_mp_data),
   [CAPABILITY_CODE_REFRESH]	= CAPABILITY_CODE_REFRESH_LEN,

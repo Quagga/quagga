@@ -33,9 +33,11 @@
 #include "memory.h"
 #include "plist.h"
 #include "mqueue.h"
+#include "workqueue.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_peer.h"
+#include "bgpd/bgp_peer_index.h"
 
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_debug.h"
@@ -45,6 +47,7 @@
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_dump.h"
 #include "bgpd/bgp_open.h"
+#include "bgpd/bgp_advertise.h"
 
 #include "bgpd/bgp_engine.h"
 #include "bgpd/bgp_session.h"
@@ -52,6 +55,21 @@
 #ifdef HAVE_SNMP
 #include "bgpd/bgp_snmp.h"
 #endif /* HAVE_SNMP */
+
+/* prototypes */
+
+static int
+bgp_session_has_established(bgp_peer peer);
+static int
+bgp_session_has_stopped(bgp_peer peer);
+static void
+bgp_uptime_reset (struct peer *peer);
+static int
+bgp_routeadv_timer (struct thread *thread);
+static int
+bgp_graceful_restart_timer_expire (struct thread *thread);
+static int
+bgp_graceful_stale_timer_expire (struct thread *thread);
 
 /*==============================================================================
  * This is the high level management of BGP Peers and peering conversations.
@@ -78,215 +96,6 @@
  *
  */
 
-
-/*==============================================================================
- * BGP Peer Index
- *
- * When peers are created, they are registered in the bgp_peer_index.  When
- * they are destroyed, they are removed.  This is done by the Routeing Engine.
- *
- * The peer index is used by the Routeing Engine to lookup peers.
- *
- * The BGP Engine needs to lookup sessions when a listening socket accepts a
- * connection -- first, to decide whether to continue with the connection, and
- * second, to tie the connection to the right session.  It uses the peer index
- * to do this.
- *
- * A mutex is used to coordinate access to the index.
- *
- * NB: the bgp_peer points to its bgp_session (if any).  The session pointer
- *     MUST only be changed while holding the index mutex.
- *
- *     See bgp_peer_set_session().
- *
- * NB: to avoid deadlock, MUST NOT do anything using the index while holding
- *     any session mutex.
- *
- *     But may acquire a session mutex while doing things to the index.
- */
-
-static struct symbol_table bgp_peer_index ;
-static qpt_mutex_t         bgp_peer_index_mutex ;
-
-inline static void BGP_PEER_INDEX_LOCK(void)
-{
-  qpt_mutex_lock(&bgp_peer_index_mutex) ;
-} ;
-
-inline static void BGP_PEER_INDEX_UNLOCK(void)
-{
-  qpt_mutex_unlock(&bgp_peer_index_mutex) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Initialise the bgp_peer_index.
- *
- * This must be done before any peers are configured !
- */
-void
-bgp_peer_index_init(void* parent)
-{
-  symbol_table_init_new(
-          &bgp_peer_index,
-          parent,
-          10,                     /* start ready for a few sessions   */
-          200,                    /* allow to be quite dense          */
-          sockunion_symbol_hash,  /* "name" is an IP Address          */
-          NULL) ;                 /* no value change call-back        */
-}
-
-/*------------------------------------------------------------------------------
- * Initialise the bgp_peer_index_mutex.
- *
- * This must be done before the BGP Engine is started.
- */
-void
-bgp_peer_index_mutex_init(void* parent)
-{
-  qpt_mutex_init(&bgp_peer_index_mutex, qpt_mutex_recursive) ;
-}
-
-/*------------------------------------------------------------------------------
- * Lookup a peer -- do nothing if does not exist
- *
- * For use by the Routeing Engine.
- *
- * Returns the bgp_peer -- NULL if not found.
- */
-bgp_peer
-bgp_peer_index_seek(union sockunion* su)
-{
-  bgp_peer peer ;
-
-  BGP_PEER_INDEX_LOCK() ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-
-  peer = symbol_get_value(symbol_seek(&bgp_peer_index, su)) ;
-
-  BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-  return peer ;
-}
-
-/*------------------------------------------------------------------------------
- * Register a peer in the peer index.
- *
- * For use by the Routeing Engine.
- *
- * NB: it is a FATAL error to register a peer for an address which is already
- *     registered.
- */
-void
-bgp_peer_index_register(bgp_peer peer, union sockunion* su)
-{
-  BGP_PEER_INDEX_LOCK() ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-
-  peer = symbol_set_value(symbol_find(&bgp_peer_index, su), peer) ;
-
-  BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-  passert(peer == NULL) ;
-}
-
-/*------------------------------------------------------------------------------
- * Unregister a peer in the peer index.
- *
- * returns 1 if successfully unregistered
- * returns 0 if wasn't registered
- * FATAL error if a different peer is registered.
- */
-int
-bgp_peer_index_unregister(bgp_peer peer, union sockunion* su)
-{
-  int found = 0;
-  int right_peer = 1;
-  symbol s = NULL;
-
-  BGP_PEER_INDEX_LOCK() ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-
-  s = symbol_seek(&bgp_peer_index, su);
-  found = (s != NULL);
-  if (found)
-    {
-    right_peer = (peer == symbol_get_value(s));
-    if (right_peer)
-      symbol_delete(s);
-    }
-
-  BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-  passert(right_peer) ;
-  return found;
-}
-
-/*------------------------------------------------------------------------------
- * Lookup a session -- do nothing if does not exist
- *
- * For use by the BGP Engine.
- *
- * Returns the bgp_session, or NULL if not found OR not active
- * Sets *p_found <=> found.
- *
- * NB: the BGP Engine may not access the bgp_session structure if it is not
- *     in either of the active states (Enabled or Established).
- *
- *     So this function does not return the bgp_session unless it is active.
- *
- *     For callers who care, the p_found return indicates whether the session
- *     exists, or not.
- */
-extern bgp_session
-bgp_session_index_seek(union sockunion* su, int* p_found)
-{
-  bgp_session session ;
-  bgp_peer    peer ;
-
-  BGP_PEER_INDEX_LOCK() ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-
-  peer = symbol_get_value(symbol_seek(&bgp_peer_index, su)) ;
-  *p_found = (peer != NULL) ;
-  if (*p_found && bgp_session_is_active(peer->session))
-                                /* NULL peer->session is not active     */
-    session = peer->session ;
-  else
-    session = NULL ;
-
-  BGP_PEER_INDEX_UNLOCK() ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-  return session ;
-}
-
-/*------------------------------------------------------------------------------
- * Set peer's session pointer.
- *
- * For use by the Routeing Engine.  Locks the bgp_peer_index mutex so that the
- * BGP Engine is not fooled when it looks up the session.
- *
- * Returns the old session pointer value.
- *
- * NB: it is a FATAL error to change the pointer if the current session is
- *     "active".
- *
- */
-
-bgp_session
-bgp_peer_new_session(bgp_peer peer, bgp_session new_session)
-{
-  bgp_session old_session ;
-
-  BGP_PEER_INDEX_LOCK() ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-
-  old_session   = peer->session ;
-  peer->session = new_session ;
-
-  passert(!bgp_session_is_active(old_session)) ;
-
-  BGP_PEER_INDEX_UNLOCK() ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-  return old_session ;
-}
-
-
-
 /*==============================================================================
  * Deal with change in session state -- mqueue_action function.
  *
@@ -298,44 +107,46 @@ bgp_peer_new_session(bgp_peer peer, bgp_session new_session)
  *    Established -> Stopped      -- for some reason
  *
  * -- arg0  = session
- *    arg1  = new state
+ *    args  =  bgp_session_event_args
  *
  */
 void
-bgp_peer_new_session_state(mqueue_block mqb, mqb_flag_t flag)
+bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
 {
-  bgp_session         session = mqb_get_arg0(mqb) ;
-  bgp_session_state_t state   = mqb_get_arg1_i(mqb) ;
-  bgp_peer            peer    = session->peer ;
+
+  struct bgp_session_event_args * args = mqb_get_args(mqb) ;
+  bgp_session session = mqb_get_arg0(mqb) ;
+  bgp_peer peer = session->peer ;
 
   if (flag == mqb_action)
     {
-      bgp_session_lock(session) ;
+      BGP_SESSION_LOCK(session) ;
 
-      switch(new_state)
+      switch(args->state)
       {
       /* If now Enabled, then the BGP Engine is attempting to connect     */
       /* (may be waiting for the Idle Hold Time to expire.                */
-      case bgp_session_Enabled:
-        bgp_session_enable(session, peer);
+      case bgp_session_sEnabled:
+        bgp_session_enable(peer);
         break ;
 
       /* If now Established, then the BGP Engine has exchanged BGP Open   */
       /* messages, and received the KeepAlive that acknowledges our Open. */
-      case bgp_session_Established:
+      case bgp_session_sEstablished:
         bgp_session_has_established(peer);
         break ;
 
       /* If now Stopped, then for some reason the BGP Engine has either   */
       /* stopped trying to connect, or the session has been stopped.      */
-      case bgp_session_Stopped:
+      case bgp_session_sStopped:
         bgp_session_has_stopped(peer);
         break ;
 
       default:
+        break;
       }
 
-      bgp_session_unlock(session) ;
+      BGP_SESSION_UNLOCK(session) ;
     }
 
   mqb_free(mqb) ;
@@ -350,7 +161,6 @@ bgp_peer_new_session_state(mqueue_block mqb, mqb_flag_t flag)
 static int
 bgp_session_has_established(bgp_peer peer)
 {
-  struct bgp_notify *notify;
   afi_t afi;
   safi_t safi;
   int nsf_af_count = 0;
@@ -363,10 +173,7 @@ bgp_session_has_established(bgp_peer peer)
     SET_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN);
 
   /* Clear last notification data. */
-  notify = &peer->notify;
-  if (notify->data)
-    XFREE (MTYPE_TMP, notify->data);
-  memset (notify, 0, sizeof (struct bgp_notify));
+  bgp_notify_free(&(peer->notify));
 
   /* Clear start timer value to default. */
   peer->v_start = BGP_INIT_START_TIMER;
@@ -603,7 +410,8 @@ bgp_peer_timers_stop(bgp_peer peer)
   BGP_TIMER_OFF (peer->t_pmax_restart);
 } ;
 
-void
+/* TODO: bgp_timer_set - kill ? */
+static void
 bgp_timer_set (struct peer *peer)
 {
   int jitter = 0;
@@ -891,7 +699,7 @@ peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
     bgp_timer_set (peer);
 
   /* session */
-  peer->session = bgp_session_init_new(NULL);
+  peer->session = bgp_session_init_new(peer->session, peer);
 
   /* register */
   bgp_peer_index_register(peer, &peer->su);
@@ -1039,8 +847,7 @@ peer_delete (struct peer *peer)
       }
 
   /* unregister */
-  if (peer->su)
-    bgp_peer_index_unregister(peer, &peer->su);
+  bgp_peer_index_deregister(peer, &peer->su);
 
   peer_unlock (peer); /* initial reference */
 

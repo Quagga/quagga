@@ -106,7 +106,7 @@ bgp_open_state_free(bgp_open_state state) ;
 extern void
 bgp_open_state_unknown_add(bgp_open_state state, uint8_t code,
                                                void* value, bgp_size_t length) ;
-extern void
+extern int
 bgp_open_state_unknown_count(bgp_open_state state) ;
 
 extern bgp_cap_unknown

@@ -85,5 +85,8 @@ bgp_peer_index_seek_entry(union sockunion* su) ;
 extern bgp_session
 bgp_session_index_seek(union sockunion* su, int* p_found) ;
 
+extern bgp_session
+bgp_peer_new_session(bgp_peer peer, bgp_session new_session);
+
 #endif /* _QUAGGA_BGP_PEER_INDEX_H */
 

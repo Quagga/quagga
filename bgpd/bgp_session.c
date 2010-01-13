@@ -23,6 +23,8 @@
 #include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_engine.h"
 #include "bgpd/bgp_peer_index.h"
+#include "bgpd/bgp_fsm.h"
+#include "bgpd/bgp_open_state.h"
 
 #include "lib/memory.h"
 #include "lib/sockunion.h"
@@ -85,7 +87,7 @@ extern bgp_session
 bgp_session_init_new(bgp_session session, bgp_peer peer)
 {
   assert(peer->session == NULL) ;
-  assert(peer->index_entry->session == NULL) ;
+  assert(peer->index_entry->accept == NULL) ;
 
   if (session == NULL)
     session = XCALLOC(MTYPE_BGP_SESSION, sizeof(struct bgp_session)) ;
@@ -156,7 +158,7 @@ bgp_session_free(bgp_session session)
 
   qpt_mutex_destroy(&session->mutex, 0) ;
 
-  bgp_notify_free(session->notification);
+  bgp_notify_free(&session->notification);
   bgp_open_state_free(session->open_send);
   bgp_open_state_free(session->open_recv);
   XFREE(MTYPE_BGP_SESSION, session->host);
@@ -168,15 +170,6 @@ bgp_session_free(bgp_session session)
 
   return NULL;
 }
-
-
-/* Look up session
- *
- */
-extern bgp_session
-bgp_session_lookup(union sockunion* su, int* exists) ;
-
-
 
 /*==============================================================================
  * Enable session for given peer -- allocate session if required.
@@ -218,7 +211,7 @@ bgp_session_enable(bgp_peer peer)
   session->state    = bgp_session_sIdle;
   session->made     = 0;
   session->event    = bgp_session_null_event;
-  session->notification = bgp_notify_free(session->notification);
+  bgp_notify_free(&session->notification);
   session->err      = 0;
   session->ordinal  = 0;
 
@@ -264,7 +257,7 @@ bgp_session_enable(bgp_peer peer)
 
   confirm(sizeof(struct bgp_session_enable_args) == 0) ;
 
-  bgp_to_engine(mqb) ;
+  bgp_to_bgp_engine(mqb) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -337,7 +330,7 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
 
   confirm(sizeof(struct bgp_session_enable_args) == 0) ;
 
-  bgp_to_engine_priority(mqb) ;
+  bgp_to_bgp_engine_priority(mqb) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -376,7 +369,7 @@ bgp_session_event(bgp_session session)
   args->state        = session->state ;
   args->ordinal      = session->ordinal ;
 
-  bgp_to_peering(mqb) ;
+  bgp_to_peering_engine(mqb) ;
 }
 
 /*==============================================================================
@@ -387,6 +380,10 @@ bgp_session_event(bgp_session session)
  * The BGP Engine takes care of discarding the stream block once it's been
  * dealt with.
  */
+
+static void
+bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag);
+
 extern void
 bgp_session_update_send(bgp_session session, struct stream* upd)
 {
@@ -399,7 +396,7 @@ bgp_session_update_send(bgp_session session, struct stream* upd)
 
   args->buf   = upd ;
 
-  bgp_to_engine(mqb) ;
+  bgp_to_bgp_engine(mqb) ;
 } ;
 
 /*==============================================================================
@@ -410,6 +407,10 @@ bgp_session_update_send(bgp_session session, struct stream* upd)
  * The Peering Engine takes care of discarding the stream block once it's been
  * dealt with.
  */
+
+static void
+bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag);
+
 extern void
 bgp_session_update_recv(bgp_session session, struct stream* upd)
 {
@@ -422,7 +423,7 @@ bgp_session_update_recv(bgp_session session, struct stream* upd)
 
   args->buf   = upd ;
 
-  bgp_to_peering(mqb) ;
+  bgp_to_peering_engine(mqb) ;
 } ;
 
 

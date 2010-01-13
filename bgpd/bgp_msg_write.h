@@ -52,4 +52,7 @@ bgp_packet_set_marker(struct stream *s, uint8_t type) ;
 extern int
 bgp_packet_set_size (struct stream *s) ;
 
+extern int
+bgp_msg_send_end_of_rib(bgp_connection connection, iAFI_t afi, iSAFI_t safi);
+
 #endif /* _QUAGGA_BGP_MSG_WRITE_H */

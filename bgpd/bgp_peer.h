@@ -24,6 +24,7 @@
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_notification.h"
+#include "bgpd/bgp_peer_index.h"
 
 #include "lib/plist.h"
 
@@ -142,6 +143,14 @@ struct peer
   /* Packet receive buffer. */
   struct stream *ibuf;
 
+  /* TODO: kill - kludge to get things to compile */
+#if 1
+  struct stream_fifo *obuf;
+  struct stream *work;
+  int fd;
+  unsigned long packet_size;
+#endif
+
   /* Status of the peer. */
   int status;
   int ostatus;
@@ -151,6 +160,7 @@ struct peer
 
   /* Peer information */
   bgp_session  session ;        /* Current session                      */
+  bgp_peer_index_entry  index_entry ;   /* and our index entry */
 
   int ttl;                      /* TTL of TCP connection to the peer. */
   char *desc;                   /* Description of the peer. */
@@ -329,7 +339,7 @@ struct peer
   struct hash *hash[AFI_MAX][SAFI_MAX];
 
   /* Notify data. */
-  struct bgp_notify notify;
+  bgp_notify notify;
 
   /* Filter structure. */
   struct bgp_filter filter[AFI_MAX][SAFI_MAX];
@@ -446,7 +456,9 @@ struct peer
 /* Prototypes. */
 extern int bgp_event (struct thread *);
 extern int bgp_stop (struct peer *peer);
+#if 0
 extern void bgp_timer_set (struct peer *);
+#endif
 extern void bgp_fsm_change_status (struct peer *peer, int status);
 extern const char *peer_down_str[];
 
@@ -456,19 +468,7 @@ extern const char *peer_down_str[];
  */
 
 extern void
-bgp_peer_index_init(void* parent) ;
-
-extern void
-bgp_peer_index_mutex_init(void* parent) ;
-
-extern bgp_peer
-bgp_peer_index_seek(union sockunion* su) ;
-
-extern void
-bgp_peer_index_register(bgp_peer peer, union sockunion* su) ;
-
-extern bgp_session
-bgp_session_index_seek(union sockunion* su, int* p_found) ;
+bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag);
 
 extern struct peer *
 peer_new (struct bgp *bgp);

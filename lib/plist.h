@@ -26,6 +26,7 @@
 #include "prefix.h"
 #include "symtab.h"
 #include "vector.h"
+#include "vty.h"
 
 #define AFI_ORF_PREFIX 65535
 

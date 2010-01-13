@@ -174,6 +174,7 @@ struct memory_list memory_list_bgp[] =
   { MTYPE_BGP_DAMP_ARRAY,	"BGP Dampening array"		},
   { MTYPE_BGP_REGEXP,		"BGP regexp"			},
   { MTYPE_BGP_AGGREGATE,	"BGP aggregate"			},
+  { MTYPE_BGP_OPEN_STATE,       "BGP Open State"                },
   { -1, NULL }
 };
 

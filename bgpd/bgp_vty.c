@@ -7595,21 +7595,23 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 #endif /* HAVE_IPV6 */
     }
 
-  /* Timer information. */
+  /* TODO: Timer information. */
+#if 0
   if (p->t_start)
     vty_out (vty, "Next start timer due in %ld seconds%s",
 	     thread_timer_remain_second (p->t_start), VTY_NEWLINE);
   if (p->t_connect)
     vty_out (vty, "Next connect timer due in %ld seconds%s",
 	     thread_timer_remain_second (p->t_connect), VTY_NEWLINE);
+#endif
 
   vty_out (vty, "Read thread: %s  Write thread: %s%s",
 	   p->t_read ? "on" : "off",
 	   p->t_write ? "on" : "off",
 	   VTY_NEWLINE);
 
-  if (p->notify.code == BGP_NOTIFY_OPEN_ERR
-      && p->notify.subcode == BGP_NOTIFY_OPEN_UNSUP_CAPBL)
+  if (p->notify->code == BGP_NOTIFY_OPEN_ERR
+      && p->notify->subcode == BGP_NOTIFY_OPEN_UNSUP_CAPBL)
     bgp_capability_vty_out (vty, p);
 
   vty_out (vty, "%s", VTY_NEWLINE);

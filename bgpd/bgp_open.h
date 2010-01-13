@@ -21,6 +21,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGP_OPEN_H
 #define _QUAGGA_BGP_OPEN_H
 
+#include "log.h"
+
 /* Standard header for capability TLV */
 struct capability_header
 {
@@ -102,10 +104,21 @@ struct capability_gr
 #define RESTART_R_BIT              0x8000
 #define RESTART_F_BIT              0x80
 
+extern const struct message capcode_str[];
+extern const int capcode_str_max;
+extern const size_t cap_minsizes[];
+
+extern const struct message orf_type_str[];
+extern const int orf_type_str_max;
+extern const struct message orf_mode_str[];
+extern const int orf_mode_str_max;
+
 extern int bgp_open_option_parse (struct peer *, u_char, int *);
 extern void bgp_open_capability (struct stream *, struct peer *);
 extern void bgp_capability_vty_out (struct vty *, struct peer *);
 extern as_t peek_for_as4_capability (struct peer *, u_char);
+extern void bgp_capability_mp_data (struct stream *s,
+    struct capability_mp_data *mpc);
 extern int bgp_afi_safi_valid_indices (afi_t, safi_t *);
 
 #endif /* _QUAGGA_BGP_OPEN_H */

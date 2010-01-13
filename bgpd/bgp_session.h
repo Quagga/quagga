@@ -246,7 +246,7 @@ extern bgp_session
 bgp_session_init_new(bgp_session session, bgp_peer peer) ;
 
 extern bgp_session
-bgp_session_lookup(union sockunion* su, int* exists) ;
+bgp_session_free(bgp_session session);
 
 extern void
 bgp_session_enable(bgp_peer peer) ;

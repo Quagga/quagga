@@ -838,6 +838,8 @@ void
 bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
 			   u_char *data, size_t datalen)
 {
+  /* TODO: do we still need this? */
+#if 0
   struct stream *s;
   int length;
 
@@ -914,6 +916,7 @@ bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
   BGP_WRITE_OFF (peer->t_write);
 
   bgp_write_notify (peer);
+#endif
 }
 
 /* Send BGP notify packet. */
@@ -1820,6 +1823,8 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 static void
 bgp_notify_receive (struct peer *peer, bgp_size_t size)
 {
+  /* TODO: do we still need this? */
+#if 0
   struct bgp_notify bgp_notify;
 
   if (peer->notify.data)
@@ -1894,6 +1899,7 @@ bgp_notify_receive (struct peer *peer, bgp_size_t size)
     UNSET_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN);
 
   BGP_EVENT_ADD (peer, Receive_NOTIFICATION_message);
+#endif
 }
 
 /* Keepalive treatment function -- get keepalive send keepalive */

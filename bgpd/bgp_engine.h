@@ -40,6 +40,7 @@
 
 
 extern qpn_nexus p_bgp_engine ;
+extern qpn_nexus p_peering_engine ;
 
 extern void
 bgp_engine_start(void) ;
@@ -53,7 +54,7 @@ bgp_engine_start(void) ;
 /* Send given message to the BGP Engine -- ordinary
  */
 Inline void
-bgp_to_engine(mqueue_block mqb)
+bgp_to_bgp_engine(mqueue_block mqb)
 {
   mqueue_enqueue(p_bgp_engine->queue, mqb, 0) ;
 } ;
@@ -61,9 +62,29 @@ bgp_to_engine(mqueue_block mqb)
 /* Send given message to the BGP Engine -- priority
  */
 Inline void
-bgp_to_engine_priority(mqueue_block mqb)
+bgp_to_bgp_engine_priority(mqueue_block mqb)
 {
   mqueue_enqueue(p_bgp_engine->queue, mqb, 1) ;
+} ;
+
+/*==============================================================================
+ *
+ */
+
+/* Send given message to the Peering Engine -- ordinary
+ */
+Inline void
+bgp_to_peering_engine(mqueue_block mqb)
+{
+  mqueue_enqueue(p_peering_engine->queue, mqb, 0) ;
+} ;
+
+/* Send given message to the Peering Engine -- priority
+ */
+Inline void
+bgp_to_peering_engine_priority(mqueue_block mqb)
+{
+  mqueue_enqueue(p_peering_engine->queue, mqb, 1) ;
 } ;
 
 #endif /* QUAGGA_BGP_ENGINE_H */

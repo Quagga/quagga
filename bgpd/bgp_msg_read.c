@@ -19,9 +19,22 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#include "bgp_msg_read.h"
+#include <zebra.h>
+
+#include "bgpd/bgp_common.h"
+#include "bgpd/bgp_msg_read.h"
+#include "bgpd/bgp_open.h"
+#include "bgpd/bgpd.h"
+#include "bgpd/bgp_debug.h"
+#include "bgpd/bgp_aspath.h"
+#include "bgpd/bgp_session.h"
+#include "bgpd/bgp_open_state.h"
+#include "bgpd/bgp_fsm.h"
+
+
 
 /* prototypes */
+static int bgp_msg_marker_all_one (struct stream *s, int length);
 static int bgp_msg_open_receive (bgp_connection connection, bgp_size_t size);
 static as_t bgp_msg_peek_for_as4_capability (bgp_connection connection,
     u_char length);
@@ -33,7 +46,9 @@ static int bgp_msg_capability_parse (bgp_connection connection, size_t length,
     u_char **error);
 static int bgp_msg_capability_mp (bgp_connection connection,
     struct capability_header *hdr);
-static int bgp_capability_orf_entry (bgp_connection connection,
+static int bgp_msg_capability_restart (bgp_connection connection,
+    struct capability_header *caphdr);
+static int bgp_msg_capability_orf_entry (bgp_connection connection,
     struct capability_header *hdr);
 static int bgp_msg_capability_orf (bgp_connection connection,
     struct capability_header *hdr);
@@ -75,7 +90,7 @@ bgp_msg_check_header(bgp_connection connection)
 
   /* Marker check */
   if (((type == BGP_MSG_OPEN) || (type == BGP_MSG_KEEPALIVE))
-      && ! bgp_marker_all_one (connection->ibuf, BGP_MARKER_SIZE))
+      && ! bgp_msg_marker_all_one (connection->ibuf, BGP_MARKER_SIZE))
     {
       bgp_msg_notify_send (connection, bgp_session_eInvalid_msg,
                        BGP_NOTIFY_HEADER_ERR,
@@ -128,19 +143,31 @@ bgp_msg_check_header(bgp_connection connection)
   return size - BGP_HEADER_SIZE;
 }
 
+/* Marker check. */
+static int
+bgp_msg_marker_all_one (struct stream *s, int length)
+{
+  int i;
+
+  for (i = 0; i < length; i++)
+    if (s->data[i] != 0xff)
+      return 0;
+
+  return 1;
+}
+
 /* Deal with the BGP message.  MUST remove from ibuf before returns ! */
 void
 bgp_msg_dispatch(bgp_connection connection)
 {
   u_char type = 0;
   bgp_size_t size;
-  int result = 0;
 
   /* Get size and type again. */
   size = stream_getw_from (connection->ibuf, BGP_MARKER_SIZE);
   type = stream_getc_from (connection->ibuf, BGP_MARKER_SIZE + 2);
 
-  size = size - BGP_HEADER_SIZE;
+  size -= BGP_HEADER_SIZE;
 
   /* Read rest of the packet and call each sort of packet routine */
   switch (type)
@@ -176,7 +203,9 @@ bgp_msg_dispatch(bgp_connection connection)
       assert(0); /* types already validated */
     }
 
-  /* TODO: remove message from ibuf */
+  /* remove message from ibuf */
+  if (connection->ibuf)
+    stream_reset (connection->ibuf);
 }
 
 /* Receive BGP open packet and parse it into the session's
@@ -190,9 +219,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
   int ret;
   u_char version;
   u_char optlen;
-  u_int16_t holdtime;
-  u_int16_t send_holdtime;
-  as_t remote_as;
+  as_t remote_as = 0;
   as_t as4 = 0;
   struct in_addr remote_id;
   int capability;
@@ -204,7 +231,8 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
   assert(session);
 
   /* To receive the parsed open message */
-  session->open_recv = open_recv = bgp_open_state_init_new(session->open_recv);
+  session->open_recv = bgp_open_state_init_new(session->open_recv);
+  open_recv = session->open_recv;
 
   /* Parse open packet. */
   version = stream_getc (connection->ibuf);
@@ -235,7 +263,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
     }
 
   /* Just in case we have a silly peer who sends AS4 capability set to 0 */
-  if (open_rcvd->can_as4 && !as4)
+  if (open_recv->can_as4 && !as4)
     {
       zlog_err ("%s bad OPEN, got AS4 capability, but AS4 set to 0",
                 session->host);
@@ -274,7 +302,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
     {
       /* We may have a partner with AS4 who has an asno < BGP_AS_MAX */
       /* If we have got the capability, peer->as4cap must match remote_as */
-      if (open_rcvd->can_as4 && as4 != remote_as)
+      if (open_recv->can_as4 && as4 != remote_as)
         {
           /* raise error, log this, close session */
           zlog_err ("%s bad OPEN, got AS4 capability, but remote_as %u"
@@ -288,7 +316,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
     }
 
   /* Set remote router-id */
-  open_recv->bgp_id = ntohl(remote_id);
+  open_recv->bgp_id = remote_id.s_addr;
 
   /* Peer BGP version check. */
   if (version != BGP_VERSION_4)
@@ -304,7 +332,8 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
       return -1;
     }
 
-  /* Check neighbor as number. */
+  /* TODO: How? Check neighbor as number. */
+#if 0
   if (remote_as != session->as)
     {
       if (BGP_DEBUG (normal, NORMAL))
@@ -316,6 +345,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
                                  notify_data_remote_as, 2);
       return -1;
     }
+#endif
 
   /* From the rfc: Upon receipt of an OPEN message, a BGP speaker MUST
      calculate the value of the Hold Timer by using the smaller of its
@@ -334,7 +364,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
   /* Open option part parse. */
   if (optlen != 0)
     {
-      ret = bgp_open_option_parse (connection, optlen, &open_recv->can_capability);
+      ret = bgp_msg_open_option_parse (connection, optlen, &open_recv->can_capability);
       if (ret < 0)
         return ret;
     }
@@ -433,7 +463,7 @@ bgp_msg_peek_for_as4_capability (bgp_connection connection, u_char length)
                   if (BGP_DEBUG (as4, AS4))
                     zlog_info ("[AS4] found AS4 capability, about to parse");
                   as4 = stream_getl (connection->ibuf);
-                  open_recv->can_as4 = 1;
+                  session->open_recv->can_as4 = 1;
 
                   goto end;
                 }
@@ -456,7 +486,7 @@ bgp_msg_open_option_parse (bgp_connection connection, u_char length, int *capabi
   u_char error_data[BGP_MAX_PACKET_SIZE];
   struct stream *s = connection->ibuf;
   size_t end = stream_get_getp (s) + length;
-  bpg_session session = connection->session;
+  bgp_session session = connection->session;
   assert(session);
 
   ret = 0;
@@ -509,7 +539,7 @@ bgp_msg_open_option_parse (bgp_connection connection, u_char length, int *capabi
           ret = -1;
           break;
         case BGP_OPEN_OPT_CAP:
-          ret = bgp_msg_capability_parse (conection, opt_length, &error);
+          ret = bgp_msg_capability_parse (connection, opt_length, &error);
           *capability = 1;
           break;
         default:
@@ -544,7 +574,7 @@ bgp_msg_open_option_parse (bgp_connection connection, u_char length, int *capabi
 
       /* Check local capability does not negotiated with remote
          peer. */
-      if (open_recv->can_mp_ext != open_send->can_mp_ext)
+      if (session->open_recv->can_mp_ext != session->open_send->can_mp_ext)
         {
           bgp_msg_notify_send (connection, bgp_session_eOpen_reject,
                            BGP_NOTIFY_OPEN_ERR,
@@ -557,7 +587,7 @@ bgp_msg_open_option_parse (bgp_connection connection, u_char length, int *capabi
      error. */
   if (*capability && ! session->cap_override)
     {
-      if (open_recv->can_mp_ext == 0)
+      if (session->open_recv->can_mp_ext == 0)
         {
           plog_err (session->log, "%s [Error] No common capability", session->host);
 
@@ -694,7 +724,7 @@ bgp_msg_capability_parse (bgp_connection connection, size_t length, u_char **err
               return -1;
             break;
           case CAPABILITY_CODE_DYNAMIC:
-            open->recv->can_dynamic = 1;
+            open_recv->can_dynamic = 1;
             break;
           case CAPABILITY_CODE_AS4:
               /* Already handled as a special-case parsing of the capabilities
@@ -767,7 +797,74 @@ bgp_msg_capability_mp (bgp_connection connection, struct capability_header *hdr)
 }
 
 static int
-bgp_capability_orf_entry (bgp_connection connection, struct capability_header *hdr)
+bgp_msg_capability_restart (bgp_connection connection, struct capability_header *caphdr)
+{
+  struct stream *s = connection->ibuf;
+  bgp_session session = connection->session;
+  bgp_open_state open_recv = session->open_recv;
+  u_int16_t restart_flag_time;
+  int restart_bit = 0;
+  size_t end = stream_get_getp (s) + caphdr->length;
+
+  open_recv->can_g_restart = 1;
+  restart_flag_time = stream_getw(s);
+  if (CHECK_FLAG (restart_flag_time, RESTART_R_BIT))
+    restart_bit = 1;
+  UNSET_FLAG (restart_flag_time, 0xF000);
+  open_recv->restart_time = restart_flag_time;
+
+  if (BGP_DEBUG (normal, NORMAL))
+    {
+      zlog_debug ("%s OPEN has Graceful Restart capability", session->host);
+      zlog_debug ("%s Peer has%srestarted. Restart Time : %d",
+                  session->host, restart_bit ? " " : " not ",
+                  open_recv->restart_time);
+    }
+
+  /* TODO restart */
+#if 0
+  while (stream_get_getp (s) + 4 < end)
+    {
+      afi_t afi = stream_getw (s);
+      safi_t safi = stream_getc (s);
+      u_char flag = stream_getc (s);
+
+      if (!bgp_afi_safi_valid_indices (afi, &safi))
+        {
+          if (BGP_DEBUG (normal, NORMAL))
+            zlog_debug ("%s Addr-family %d/%d(afi/safi) not supported."
+                        " Ignore the Graceful Restart capability",
+                        peer->host, afi, safi);
+        }
+      else if (!peer->afc[afi][safi])
+        {
+          if (BGP_DEBUG (normal, NORMAL))
+            zlog_debug ("%s Addr-family %d/%d(afi/safi) not enabled."
+                        " Ignore the Graceful Restart capability",
+                        peer->host, afi, safi);
+        }
+      else
+        {
+          if (BGP_DEBUG (normal, NORMAL))
+            zlog_debug ("%s Address family %s is%spreserved", peer->host,
+                        afi_safi_print (afi, safi),
+                        CHECK_FLAG (peer->af_cap[afi][safi],
+                                    PEER_CAP_RESTART_AF_PRESERVE_RCV)
+                        ? " " : " not ");
+
+          SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_RCV);
+          if (CHECK_FLAG (flag, RESTART_F_BIT))
+            SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_PRESERVE_RCV);
+
+        }
+    }
+#endif
+  return 0;
+}
+
+
+static int
+bgp_msg_capability_orf_entry (bgp_connection connection, struct capability_header *hdr)
 {
   struct stream *s = connection->ibuf;
   struct capability_orf_entry entry;
@@ -775,8 +872,6 @@ bgp_capability_orf_entry (bgp_connection connection, struct capability_header *h
   safi_t safi;
   u_char type;
   u_char mode;
-  u_int16_t sm_cap = 0; /* capability send-mode receive */
-  u_int16_t rm_cap = 0; /* capability receive-mode receive */
   int i;
   bgp_session session = connection->session;
   qafx_bit_t qb;
@@ -784,7 +879,7 @@ bgp_capability_orf_entry (bgp_connection connection, struct capability_header *h
   assert(session);
 
   /* ORF Entry header */
-  bgp_msg_capability_mp_data (s, &entry.mpc);
+  bgp_capability_mp_data (s, &entry.mpc);
   entry.num = stream_getc (s);
   afi = entry.mpc.afi;
   safi = entry.mpc.safi;
@@ -876,9 +971,9 @@ bgp_capability_orf_entry (bgp_connection connection, struct capability_header *h
 
 
       if (hdr->code == CAPABILITY_CODE_ORF)
-        open_recv->can_orf_prefix |= bgp_cap_form_new;
+        session->open_recv->can_orf_prefix |= bgp_cap_form_new;
       else if (hdr->code == CAPABILITY_CODE_ORF_OLD)
-        open_recv->can_orf_prefix |= bgp_cap_form_old;
+        session->open_recv->can_orf_prefix |= bgp_cap_form_old;
       else
         {
           bgp_msg_capability_orf_not_support (session->host, afi, safi, type, mode);
@@ -889,14 +984,14 @@ bgp_capability_orf_entry (bgp_connection connection, struct capability_header *h
       switch (mode)
         {
           case ORF_MODE_BOTH:
-            open_recv->can_orf_prefix_send |= qb;
-            open_recv->can_orf_prefix_recv |= qb;
+            session->open_recv->can_orf_prefix_send |= qb;
+            session->open_recv->can_orf_prefix_recv |= qb;
             break;
           case ORF_MODE_SEND:
-            open_recv->can_orf_prefix_send |= qb;
+            session->open_recv->can_orf_prefix_send |= qb;
             break;
           case ORF_MODE_RECEIVE:
-            open_recv->can_orf_prefix_recv |= qb;
+            session->open_recv->can_orf_prefix_recv |= qb;
             break;
         }
     }
@@ -939,7 +1034,7 @@ bgp_msg_capability_orf_not_support (char *host, afi_t afi, safi_t safi,
 static int
 bgp_msg_update_receive (bgp_connection connection, bgp_size_t size)
 {
-  /* TODO: got update packet, now what? */
+  bgp_session_update_recv(connection->session, stream_dup(connection->ibuf));
   bgp_fsm_event(connection, bgp_fsm_Receive_UPDATE_message);
   return 0;
 }
@@ -969,9 +1064,9 @@ bgp_msg_notify_receive (bgp_connection connection, bgp_size_t size)
   bgp_nom_subcode_t subcode = stream_getc (connection->ibuf);
   bgp_size_t expect = size - 2;
 
-  notification = bgp_notify_new(code, subcode, datalen);
+  notification = bgp_notify_new(code, subcode, expect);
   notification = bgp_notify_append_data(notification,
-      stream_pnt(connection->ibuf), datalen);
+      stream_pnt(connection->ibuf), expect);
 
   bgp_fsm_notification_exception(connection, notification);
 }
@@ -982,7 +1077,7 @@ bgp_msg_notify_send (bgp_connection connection, bgp_session_event_t except,
     bgp_nom_code_t code, bgp_nom_subcode_t sub_code)
 {
   bgp_notify notification;
-  notification = bgp_notify_new(code, subcode, 0);
+  notification = bgp_notify_new(code, sub_code, 0);
   bgp_fsm_raise_exception(connection, except, notification);
 }
 
@@ -994,7 +1089,7 @@ bgp_msg_notify_send_with_data (bgp_connection connection,
                            u_char *data, size_t datalen)
 {
   bgp_notify notification;
-  notification = bgp_notify_new(code, subcode, datalen);
+  notification = bgp_notify_new(code, sub_code, datalen);
   notification = bgp_notify_append_data(notification, data, datalen);
   bgp_fsm_raise_exception(connection, except, notification);
 }

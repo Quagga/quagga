@@ -258,6 +258,37 @@ bgp_session_index_seek(union sockunion* su, int* p_found)
   return accept ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Set peer's session pointer.
+ *
+ * For use by the Routeing Engine.  Locks the bgp_peer_index mutex so that the
+ * BGP Engine is not fooled when it looks up the session.
+ *
+ * Returns the old session pointer value.
+ *
+ * NB: it is a FATAL error to change the pointer if the current session is
+ *     "active".
+ *
+ */
+
+bgp_session
+bgp_peer_new_session(bgp_peer peer, bgp_session new_session)
+{
+  bgp_session old_session ;
+
+  BGP_PEER_INDEX_LOCK() ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+
+  old_session   = peer->session ;
+  peer->session = new_session ;
+
+  passert(!bgp_session_is_active(old_session)) ;
+
+  BGP_PEER_INDEX_UNLOCK() ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+
+  return old_session ;
+}
+
+
 /*==============================================================================
  * Extending the bgp_peer_id_table and adding free entries to it.
  */
