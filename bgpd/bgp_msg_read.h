@@ -25,6 +25,9 @@
 
 #include "bgpd/bgp_common.h"
 
+extern bgp_size_t
+bgp_msg_get_mlen(uint8_t* p) ;
+
 extern int
 bgp_msg_check_header(bgp_connection connection);
 

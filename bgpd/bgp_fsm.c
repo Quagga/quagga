@@ -394,11 +394,7 @@ bgp_fsm_enable_session(bgp_session session)
   /* Proceed instantly to a dead stop if neither connect nor listen !   */
   if (!(session->connect || session->listen))
     {
-      session->event  = bgp_session_eInvalid ;
-      session->state  = bgp_session_sStopped ;
-
-      bgp_session_event(session) ;
-
+      bgp_session_event(session, bgp_session_eInvalid, NULL, 0, 0, 1) ;
       return ;
     } ;
 
@@ -465,6 +461,11 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state) ;
 /*------------------------------------------------------------------------------
  * Ultimate exception -- disable the session
  *
+ * Does nothing if neither connection exists (which implies the session has
+ * already been disabled, or never got off the ground).
+ *
+ * NB: takes responsibility for the notification structure.
+ *
  * NB: requires the session LOCKED
  */
 extern void
@@ -475,11 +476,12 @@ bgp_fsm_disable_session(bgp_session session, bgp_notify notification)
   connection = session->connections[bgp_connection_primary] ;
   if (connection == NULL)
     connection = session->connections[bgp_connection_secondary] ;
-  if (connection == NULL)
-    return ;
 
-  bgp_fsm_throw_exception(connection, bgp_session_eDisabled, notification, 0,
+  if (connection != NULL)
+    bgp_fsm_throw_exception(connection, bgp_session_eDisabled, notification, 0,
                                                              bgp_fsm_BGP_Stop) ;
+  else
+    bgp_notify_free(&notification) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -637,6 +639,8 @@ bgp_fsm_connect_completed(bgp_connection connection, int err,
  *
  * Forget the notification if not OpenSent/OpenConfirm/Established.  Cannot
  * send notification in any other state -- nor receive one.
+ *
+ * NB: takes responsibility for the notification structure.
  */
 static void
 bgp_fsm_post_exception(bgp_connection connection, bgp_session_event_t except,
@@ -656,6 +660,8 @@ bgp_fsm_post_exception(bgp_connection connection, bgp_session_event_t except,
 
 /*------------------------------------------------------------------------------
  * Post the given exception and raise the given event.
+ *
+ * NB: takes responsibility for the notification structure.
  */
 static void
 bgp_fsm_throw_exception(bgp_connection connection, bgp_session_event_t except,
@@ -1596,22 +1602,18 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
 
   if ((connection->except != bgp_session_null_event) && (session != NULL))
     {
-      /* Some exceptions are no reported to the Routeing Engine         */
+      /* Some exceptions are not reported to the Routeing Engine        */
       if (connection->except <= bgp_session_max_event)
-        {
-          session->event        = connection->except ;
-          bgp_notify_set_mov(&session->notification, &connection->notification);
-          session->err          = connection->err ;
-          session->ordinal      = connection->ordinal ;
-
-          bgp_session_event(session) ;
-        }
-      else
-        bgp_notify_free(&connection->notification) ;    /* if any       */
+        bgp_session_event(session, connection->except,
+                                   connection->notification,
+                                   connection->err,
+                                   connection->ordinal,
+                                  (connection->state == bgp_fsm_Stopping)) ;
 
       /* Tidy up -- notification already cleared                        */
       connection->except = bgp_session_null_event ;
       connection->err    = 0 ;
+      bgp_notify_free(&connection->notification) ;      /* if any       */
     }
 
   if (session != NULL)

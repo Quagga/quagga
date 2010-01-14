@@ -223,7 +223,9 @@ bgp_peer_index_seek_entry(union sockunion* su)
 } ;
 
 /*------------------------------------------------------------------------------
- * Lookup a session -- do nothing if does not exist
+ * Lookup a peer by its address.
+ *
+ * Return a pointer to its session iff it is prepared to accept() a connection.
  *
  * For use by the BGP Engine.
  *
@@ -234,9 +236,8 @@ bgp_peer_index_seek_entry(union sockunion* su)
  *
  * Sets *p_found <=> a peer with the given address is configured.
  *
- * NB: the BGP Engine may not access the bgp_session structure if it is not
- *     active (sEnabled or sEstablished), so the accept pointer in the peer
- *     index entry will be NULL under those conditions.
+ * NB: the BGP Engine sets/clears the pointer to the session.  The pointer is
+ *     initialised NULL when the index entry is created.
  */
 extern bgp_session
 bgp_session_index_seek(union sockunion* su, int* p_found)
@@ -252,8 +253,6 @@ bgp_session_index_seek(union sockunion* su, int* p_found)
   accept = *p_found ? entry->accept : NULL ;
 
   BGP_PEER_INDEX_UNLOCK() ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-  assert((accept == NULL) || (bgp_session_is_active(accept))) ;
 
   return accept ;
 } ;

@@ -82,28 +82,18 @@ struct bgp_session
    *   The BGP Engine will not touch a session in these states and the
    *   Peering Engine may do what it likes with it.
    *
-   *   The Peering Engine may change the state:
-   *
-   *     sIdle    -> sEnabled
-   *     sStopped -> sEnabled
-   *     sStopped -> sIdle
-   *
-   * While sEnabled and sEstablished:
+   * While sEnabled, sEstablished and sStopping:
    *
    *   the session belongs to the BGP Engine.
    *
    *   A (very) few items in the session may be accessed by the Peering Engine,
    *   as noted below.  (Subject to the mutex.)
    *
-   *   The BGP Engine may change the state:
-   *
-   *     sEnabled     -> sEstablished
-   *     sEnabled     -> sStopped
-   *     sEstablished -> sStopped
-   *
    * Only the Peering Engine creates and destroys sessions.  The BGP Engine
-   * assumes that a session will not be destroyed while it is sEnabled or
-   * sEstablished.
+   * assumes that a session will not be destroyed while it is sEnabled,
+   * sEstablished or sStopping.
+   *
+   * Only the Peering Engine touches the state and defer_enable items.
    *
    * The made flag is cleared by the Peering Engine before enabling a session,
    * and is set by the BGP Engine when the session becomes sEstablished.
@@ -112,12 +102,12 @@ struct bgp_session
    * session was ever established.
    */
   bgp_session_state_t   state ;
-  flag_t                made ;          /* set when -> sEstablished       */
-  int                   defer_enable ;   /* set when waiting for stop */
+  int                   defer_enable ;  /* set when waiting for stop      */
 
-  /* The BGP Engine records the last event, NOTIFICATION and errno here.
-   *
-   * This is only really useful when the session -> sStopped.
+  flag_t                made ;          /* set when -> sEstablished       */
+
+  /* These belong to the Peering Engine, and may be set when a session
+   * event message is received from the BGP Engine.
    */
   bgp_session_event_t   event ;         /* last event                     */
   bgp_notify            notification ;  /* if any sent/received           */
@@ -220,8 +210,7 @@ struct bgp_session_event_args           /* to Routeing Engine           */
   bgp_notify           notification ;   /* sent or received (if any)    */
   int                  err ;            /* errno if any                 */
   bgp_connection_ord_t ordinal ;        /* primary/secondary connection */
-
-  bgp_session_state_t  state ;          /* after the event              */
+  int                  stopped ;        /* session has stopped          */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
 
@@ -256,7 +245,11 @@ extern void
 bgp_session_disable(bgp_peer peer, bgp_notify notification) ;
 
 extern void
-bgp_session_event(bgp_session session) ;
+bgp_session_event(bgp_session session, bgp_session_event_t  event,
+                                       bgp_notify           notification,
+                                       int                  err,
+                                       bgp_connection_ord_t ordinal,
+                                       int                  stopped) ;
 
 extern void
 bgp_session_update_send(bgp_session session, struct stream* upd) ;

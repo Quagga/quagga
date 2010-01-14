@@ -99,16 +99,10 @@ bgp_graceful_stale_timer_expire (struct thread *thread);
 /*==============================================================================
  * Deal with change in session state -- mqueue_action function.
  *
- * Receives notifications from the BGP Engine when a BGP Session state changes,
- * which may be:
- *
- *    Enabled     -> Established  -- connection up and Opens exchanged
- *    Enabled     -> Stopped      -- stopped trying to connect (for some reason)
- *    Established -> Stopped      -- for some reason
+ * Receives notifications from the BGP Engine a session event occurs.
  *
  * -- arg0  = session
  *    args  =  bgp_session_event_args
- *
  */
 void
 bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
@@ -127,15 +121,18 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
       /* If now Established, then the BGP Engine has exchanged BGP Open   */
       /* messages, and received the KeepAlive that acknowledges our Open. */
       case bgp_session_eEstablished:
-        if (args->state == bgp_session_sEstablished)
-          bgp_session_has_established(peer);
+        session->state = bgp_session_sEstablished ;
+        bgp_session_has_established(peer);
         break ;
 
       default:
       /* If now Stopped, then for some reason the BGP Engine has either   */
       /* stopped trying to connect, or the session has been stopped.      */
-        if (args->state == bgp_session_sStopped)
-          bgp_session_has_stopped(peer);
+        if (args->stopped)
+          {
+            session->state = bgp_session_sStopped ;
+            bgp_session_has_stopped(peer);
+          } ;
         break ;
 
       }

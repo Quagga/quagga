@@ -64,6 +64,14 @@ static void bgp_msg_notify_send_with_data (bgp_connection connection,
     bgp_session_event_t except, bgp_nom_code_t code, bgp_nom_subcode_t sub_code,
                            u_char *data, size_t datalen);
 
+
+/* Get BGP message length, given a pointer to the start of a message    */
+extern bgp_size_t
+bgp_msg_get_mlen(uint8_t* p)
+{
+  return (*(p + BGP_MARKER_SIZE)) + (*(p + BGP_MARKER_SIZE + 1) << 8) ;
+} ;
+
 /* read and validate header.
  * return >= 0 number of bytes still to read
  * return -1 error

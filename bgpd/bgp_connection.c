@@ -28,6 +28,7 @@
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_connection.h"
 #include "bgpd/bgp_notification.h"
+#include "bgpd/bgp_msg_read.h"
 
 #include "lib/memory.h"
 #include "lib/mqueue.h"

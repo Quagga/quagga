@@ -41,10 +41,7 @@ bgp_session_defer_if_stopping(bgp_session session);
  * A session is shared by the Routeing Engine and the BGP Engine -- so there
  * is a mutex to coordinate access.
  *
- * NB: to avoid deadlock, do NOT attempt to lookup a peer or session while
- *     a session mutex !
- *
- * A session is created when the bgp peer is first enabled, and may be destroyed
+ * A session is created some time before it is enabled, and may be destroyed
  * when the peer is disabled, or once the session has stopped.
  *
  * A session may be in one of four states:
@@ -52,21 +49,22 @@ bgp_session_defer_if_stopping(bgp_session session);
  *   * bgp_session_Idle         -- not doing anything
  *   * bgp_session_Enabled      -- the BGP Engine is trying to connect
  *   * bgp_session_Established  -- the BGP Engine is exchanging updates etc
+ *   * bgp_session_Stopping     -- the BGP Engine is stopping the session
  *   * bgp_session_Stopped      -- a session has come to a dead stop
  *
  * NB: in Idle and Stopped states the BGP Engine has no interest in the session.
  *     These are known as the "inactive" states.
  *
- * NB: in Enabled and Established states the Routeing Engine it may be too late
- *     to change items in the session !  These are known as the "active" states.
+ * NB: in Enabled, Established and Stopping states the BGP Engine is running
+ *     connection(s) for the session.  These are known as the "active" states.
  *
- * NB: once a session is enabled the BGP_Engine looks after the state, up to
- *     and including setting the Stopped state.
+ *     While the session is active the Routeing Engine should not attempt to
+ *     change any shared item in the session, except under the mutex.  And
+ *     even then it may make no sense !
  *
  * The BGP Engine's primary interest is in its (private) bgp_connection
- * structure(s), which (while a session is Enabled or Established) are pointed
- * to by their associated session.
- *
+ * structure(s), which (while a session is Enabled, Established or Stopping)
+ * are pointed to by their associated session.
  */
 
 /*==============================================================================
@@ -313,15 +311,19 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
   session = peer->session ;
   assert((session != NULL) && (session->peer == peer)) ;
 
-  /* Should do nothing if session is not active.                        */
+  /* Do nothing if session is not active, or is already stopping.       */
 
-  if (!bgp_session_is_active(session))
+  if ( (session->state != bgp_session_sEnabled) &&
+       (session->state != bgp_session_sEstablished) ) ;
     {
       bgp_notify_free(&notification) ;  /* discard any bgp_notify       */
       return ;
     } ;
 
-  /* Now ask the BGP engine to disable the session.
+  /* Now change to stopping state                                       */
+  session->state = bgp_session_sStopping;
+
+  /* Ask the BGP engine to disable the session.
    *
    * NB: it is, of course, possible that the session will stop between
    *     issuing the disable and it being processed by the BGP Engine.
@@ -354,10 +356,8 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
       bgp_session session = mqb_get_arg0(mqb) ;
       struct bgp_session_disable_args* args = mqb_get_args(mqb) ;
 
-      session->state = bgp_session_sStopping;
       /* TODO: disable session */
-
-      bgp_notify_free(&args->notification) ;  /* discard any bgp_notify       */
+      bgp_fsm_disable_session(session, args->notification) ;
     } ;
 
   mqb_free(mqb) ;
@@ -365,12 +365,13 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
 
 /*==============================================================================
  * Send session event signal from BGP Engine to Routeing Engine
- *
- * The event has been posted to the session, and now is dispatched to the
- * Routeing Engine.
  */
 extern void
-bgp_session_event(bgp_session session)
+bgp_session_event(bgp_session session, bgp_session_event_t  event,
+                                       bgp_notify           notification,
+                                       int                  err,
+                                       bgp_connection_ord_t ordinal,
+                                       int                  stopped)
 {
   struct bgp_session_event_args* args ;
   mqueue_block   mqb ;
@@ -379,10 +380,11 @@ bgp_session_event(bgp_session session)
 
   args = mqb_get_args(mqb) ;
 
-  args->event        = session->event ;
-  args->notification = bgp_notify_dup(session->notification) ;
-  args->state        = session->state ;
-  args->ordinal      = session->ordinal ;
+  args->event        = event ;
+  args->notification = bgp_notify_dup(notification) ;
+  args->err          = err ;
+  args->ordinal      = ordinal ;
+  args->stopped      = stopped,
 
   bgp_to_peering_engine(mqb) ;
 }
@@ -468,7 +470,8 @@ bgp_session_is_active(bgp_session session)
   else
     {
       active =  (   (session->state == bgp_session_sEnabled)
-                 || (session->state == bgp_session_sEstablished) ) ;
+                 || (session->state == bgp_session_sEstablished)
+                 || (session->state == bgp_session_sStopping) ) ;
 
       if (!active)
         assert(session->index_entry->accept == NULL) ;
