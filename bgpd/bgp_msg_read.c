@@ -749,6 +749,10 @@ bgp_msg_capability_parse (bgp_connection connection, size_t length, u_char **err
                 memcpy (*error, sp, caphdr.length + 2);
                 *error += caphdr.length + 2;
               }
+
+            /* Add given unknown capability and its value */
+            bgp_open_state_unknown_add(open_recv, caphdr.code,
+                stream_pnt (s), caphdr.length);
           }
       if (stream_get_getp(s) != (start + caphdr.length))
         {
@@ -802,6 +806,7 @@ bgp_msg_capability_restart (bgp_connection connection, struct capability_header 
   struct stream *s = connection->ibuf;
   bgp_session session = connection->session;
   bgp_open_state open_recv = session->open_recv;
+  bgp_open_state open_send = session->open_send;
   u_int16_t restart_flag_time;
   int restart_bit = 0;
   size_t end = stream_get_getp (s) + caphdr->length;
@@ -821,8 +826,6 @@ bgp_msg_capability_restart (bgp_connection connection, struct capability_header 
                   open_recv->restart_time);
     }
 
-  /* TODO restart */
-#if 0
   while (stream_get_getp (s) + 4 < end)
     {
       afi_t afi = stream_getw (s);
@@ -834,31 +837,34 @@ bgp_msg_capability_restart (bgp_connection connection, struct capability_header 
           if (BGP_DEBUG (normal, NORMAL))
             zlog_debug ("%s Addr-family %d/%d(afi/safi) not supported."
                         " Ignore the Graceful Restart capability",
-                        peer->host, afi, safi);
-        }
-      else if (!peer->afc[afi][safi])
-        {
-          if (BGP_DEBUG (normal, NORMAL))
-            zlog_debug ("%s Addr-family %d/%d(afi/safi) not enabled."
-                        " Ignore the Graceful Restart capability",
-                        peer->host, afi, safi);
+                        session->host, afi, safi);
         }
       else
         {
-          if (BGP_DEBUG (normal, NORMAL))
-            zlog_debug ("%s Address family %s is%spreserved", peer->host,
-                        afi_safi_print (afi, safi),
-                        CHECK_FLAG (peer->af_cap[afi][safi],
-                                    PEER_CAP_RESTART_AF_PRESERVE_RCV)
-                        ? " " : " not ");
+        qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
 
-          SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_RCV);
-          if (CHECK_FLAG (flag, RESTART_F_BIT))
-            SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_PRESERVE_RCV);
+        if (!(open_send->can_mp_ext & qb))
+          {
+            if (BGP_DEBUG (normal, NORMAL))
+              zlog_debug ("%s Addr-family %d/%d(afi/safi) not enabled."
+                  " Ignore the Graceful Restart capability",
+                  session->host, afi, safi);
+          }
+        else
+          {
+            if (BGP_DEBUG (normal, NORMAL))
+              zlog_debug ("%s Address family %s is%spreserved", session->host,
+                afi_safi_print (afi, safi),
+                CHECK_FLAG (flag, RESTART_F_BIT)
+                    ? " " : " not ");
 
+            open_recv->can_preserve |= qb;
+            if (CHECK_FLAG (flag, RESTART_F_BIT))
+              open_recv->has_preserved |= qb;
+          }
         }
     }
-#endif
+
   return 0;
 }
 

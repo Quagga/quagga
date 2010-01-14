@@ -76,9 +76,10 @@ enum bgp_session_states
   bgp_session_sEnabled      = 1,  /* attempting to connect                  */
   bgp_session_sEstablished  = 2,
 
-  bgp_session_sStopped      = 3,  /* for whatever reason                    */
+  bgp_session_sStopping     = 3,  /* for whatever reason                    */
+  bgp_session_sStopped      = 4,  /* for whatever reason                    */
 
-  bgp_session_max_state     = 3
+  bgp_session_max_state     = 4
 } ;
 
 typedef enum bgp_session_events bgp_session_event_t ;
@@ -111,6 +112,17 @@ enum bgp_session_events
 
   bgp_session_eCollision,         /* given way to sibling                     */
   bgp_session_eDiscard,           /* discarded by sibling                     */
+} ;
+
+typedef enum bgp_peer_states bgp_peer_state_t ;
+enum bgp_peer_states
+{
+  bgp_peer_min_state        = 0,
+
+  bgp_peer_disabled         = 0,  /* peer disabled                          */
+  bgp_peer_enabled          = 1,  /* peer enabled                           */
+
+  bgp_peer_max_state        = 1
 } ;
 
 /*==============================================================================

@@ -29,6 +29,10 @@
 #include "lib/memory.h"
 #include "lib/sockunion.h"
 
+/* prototypes */
+static int
+bgp_session_defer_if_stopping(bgp_session session);
+
 /*==============================================================================
  * BGP Session.
  *
@@ -182,7 +186,7 @@ bgp_session_free(bgp_session session)
 static void
 bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag) ;
 
-extern void
+void
 bgp_session_enable(bgp_peer peer)
 {
   bgp_session    session ;
@@ -204,12 +208,16 @@ bgp_session_enable(bgp_peer peer)
   else
     {
       assert(session->peer == peer) ;
+      /* if session is stopping then defer the enable */
+      if (bgp_session_defer_if_stopping(session))
+        return;
       assert(!bgp_session_is_active(session)) ;
     } ;
 
   /* Initialise what we need to make and run connections                */
   session->state    = bgp_session_sIdle;
   session->made     = 0;
+  session->defer_enable = 0;
   session->event    = bgp_session_null_event;
   bgp_notify_free(&session->notification);
   session->err      = 0;
@@ -300,6 +308,7 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
 {
   bgp_session    session ;
   mqueue_block   mqb ;
+  struct bgp_session_disable_args* args ;
 
   session = peer->session ;
   assert((session != NULL) && (session->peer == peer)) ;
@@ -328,25 +337,31 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
    */
   mqb = mqb_init_new(NULL, bgp_session_do_disable, session) ;
 
-  confirm(sizeof(struct bgp_session_enable_args) == 0) ;
+  args = mqb_get_args(mqb) ;
+  args->notification = notification ;
 
   bgp_to_bgp_engine_priority(mqb) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * BGP Engine: session enable message action
+ * BGP Engine: session disable message action
  */
 static void
 bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
 {
   if (flag == mqb_action)
     {
+      bgp_session session = mqb_get_arg0(mqb) ;
+      struct bgp_session_disable_args* args = mqb_get_args(mqb) ;
 
+      session->state = bgp_session_sStopping;
+      /* TODO: disable session */
 
+      bgp_notify_free(&args->notification) ;  /* discard any bgp_notify       */
     } ;
 
   mqb_free(mqb) ;
-} ;
+}
 
 /*==============================================================================
  * Send session event signal from BGP Engine to Routeing Engine
@@ -462,4 +477,27 @@ bgp_session_is_active(bgp_session session)
   BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
   return active ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If session is stopping we defer re-enabling the session until it has stopped.
+ *
+ * returns 1 if stopping and defer
+ * returns 0 if not stopping
+  */
+static int
+bgp_session_defer_if_stopping(bgp_session session)
+{
+  int defer_enable = 0 ;
+
+  if (session == NULL)
+      return defer_enable;
+
+  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+
+  session->defer_enable = defer_enable = (session->state == bgp_session_sStopping);
+
+  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+
+  return defer_enable ;
 } ;

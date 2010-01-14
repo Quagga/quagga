@@ -551,7 +551,7 @@ main (int argc, char **argv)
       qpn_exec(cli_nexus);      /* must be last to start - on main thread */
 
       /* terminating, wait for all threads to finish */
-      /* TOD: join with routing_nexus */
+      /* TODO: join with routing_nexus */
       /* thread_result = qpt_thread_join(routing_nexus->thread_id); */
       thread_result = qpt_thread_join(bgp_nexus->thread_id);
       bgp_exit(0);

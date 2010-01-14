@@ -122,28 +122,22 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
     {
       BGP_SESSION_LOCK(session) ;
 
-      switch(args->state)
+      switch(args->event)
       {
-      /* If now Enabled, then the BGP Engine is attempting to connect     */
-      /* (may be waiting for the Idle Hold Time to expire.                */
-      case bgp_session_sEnabled:
-        bgp_session_enable(peer);
-        break ;
-
       /* If now Established, then the BGP Engine has exchanged BGP Open   */
       /* messages, and received the KeepAlive that acknowledges our Open. */
-      case bgp_session_sEstablished:
-        bgp_session_has_established(peer);
-        break ;
-
-      /* If now Stopped, then for some reason the BGP Engine has either   */
-      /* stopped trying to connect, or the session has been stopped.      */
-      case bgp_session_sStopped:
-        bgp_session_has_stopped(peer);
+      case bgp_session_eEstablished:
+        if (args->state == bgp_session_sEstablished)
+          bgp_session_has_established(peer);
         break ;
 
       default:
-        break;
+      /* If now Stopped, then for some reason the BGP Engine has either   */
+      /* stopped trying to connect, or the session has been stopped.      */
+        if (args->state == bgp_session_sStopped)
+          bgp_session_has_stopped(peer);
+        break ;
+
       }
 
       BGP_SESSION_UNLOCK(session) ;
@@ -267,10 +261,26 @@ bgp_session_has_established(bgp_peer peer)
   return 0;
 }
 
+/* State change to stopped, session mutex locked */
+static int
+bgp_session_has_stopped(bgp_peer peer)
+{
+  bgp_session session = peer->session;
+
+  /* does the session need to be re-enabled? */
+  if (session->defer_enable)
+    {
+      session->defer_enable = 0;
+      bpg_session_enable(peer);
+    }
+
+  return 0;
+}
+
 /* Administrative BGP peer stop event. */
 /* May be called multiple times for the same peer */
 static int
-bgp_session_has_stopped(bgp_peer peer)
+bgp_peer_stop (struct peer *peer)
 {
   afi_t afi;
   safi_t safi;
@@ -894,4 +904,36 @@ peer_free (struct peer *peer)
   memset (peer, 0, sizeof (struct peer));
 
   XFREE (MTYPE_BGP_PEER, peer);
+}
+
+/* Config change, disable then re-enable the peer */
+void
+bgp_peer_config_change(bgp_peer peer, bgp_notify notification)
+{
+  bgp_peer_disable(peer, notification);
+  bgp_peer_enable(peer); /* may defer if still stopping */
+}
+
+/* enable the peer */
+
+void
+bgp_peer_enable(bgp_peer peer)
+{
+  /* enable the session */
+  bgp_session_enable(peer);
+  peer->state = bgp_peer_enabled;
+}
+
+/* disable the peer
+ * sent notification, disable session, stop the peer
+ */
+void
+bgp_peer_disable(bgp_peer peer, bgp_notify notification)
+{
+  /* disable the session */
+  bgp_session_disable(peer, notification);
+
+  /* and the peer */
+  bgp_peer_stop(peer);
+  peer->state = bgp_peer_disabled;
 }

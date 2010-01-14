@@ -154,6 +154,7 @@ struct peer
   /* Status of the peer. */
   int status;
   int ostatus;
+  bgp_peer_state_t state;
 
   /* Peer index, used for dumping TABLE_DUMP_V2 format */
   uint16_t table_dump_index;
@@ -469,6 +470,15 @@ extern const char *peer_down_str[];
 
 extern void
 bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag);
+
+void
+bgp_peer_config_change(bgp_peer peer, bgp_notify notification);
+
+extern void
+bgp_peer_enable(bgp_peer peer);
+
+extern void
+bgp_peer_disable(bgp_peer peer, bgp_notify notification);
 
 extern struct peer *
 peer_new (struct bgp *bgp);

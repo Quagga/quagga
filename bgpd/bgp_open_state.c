@@ -302,7 +302,7 @@ bgp_peer_open_state_receive(bgp_peer peer)
      for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
        {
          qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
-         if (peer->afc[afi][safi] && (qb & open_recv->can_preserve))
+         if (peer->afc[afi][safi] && (qb & open_recv->can_g_restart))
            {
              SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_RCV);
              if (qb & open_recv->has_preserved)

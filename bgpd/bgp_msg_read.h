@@ -23,7 +23,7 @@
 #ifndef BGP_MSG_READ_H_
 #define BGP_MSG_READ_H_
 
-#include "bgpd/bgp_session.h"
+#include "bgpd/bgp_common.h"
 
 extern int
 bgp_msg_check_header(bgp_connection connection);

@@ -112,7 +112,8 @@ struct bgp_session
    * session was ever established.
    */
   bgp_session_state_t   state ;
-  flag_t                 made ;          /* set when -> sEstablished       */
+  flag_t                made ;          /* set when -> sEstablished       */
+  int                   defer_enable ;   /* set when waiting for stop */
 
   /* The BGP Engine records the last event, NOTIFICATION and errno here.
    *

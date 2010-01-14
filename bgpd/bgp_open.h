@@ -22,6 +22,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define _QUAGGA_BGP_OPEN_H
 
 #include "log.h"
+#include "stream.h"
+#include "vty.h"
 
 /* Standard header for capability TLV */
 struct capability_header
