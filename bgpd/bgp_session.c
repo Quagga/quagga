@@ -25,6 +25,7 @@
 #include "bgpd/bgp_peer_index.h"
 #include "bgpd/bgp_fsm.h"
 #include "bgpd/bgp_open_state.h"
+#include "bgpd/bgp_packet.h"
 
 #include "lib/memory.h"
 #include "lib/sockunion.h"
@@ -32,6 +33,14 @@
 /* prototypes */
 static int
 bgp_session_defer_if_stopping(bgp_session session);
+static void bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag) ;
+static void bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag);
+static void bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag);
+static void bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag) ;
+static void bgp_session_XON(bgp_session session);
+static void bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag);
+
+
 
 /*==============================================================================
  * BGP Session.
@@ -181,8 +190,6 @@ bgp_session_free(bgp_session session)
  *
  *
  */
-static void
-bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag) ;
 
 void
 bgp_session_enable(bgp_peer peer)
@@ -298,8 +305,6 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
  * When session has been brought to a stop, BGP Engine will respond with an
  * eDisabled event (unless session stopped of its own accord first).
  */
-static void
-bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag) ;
 
 extern void
 bgp_session_disable(bgp_peer peer, bgp_notify notification)
@@ -356,7 +361,6 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
       bgp_session session = mqb_get_arg0(mqb) ;
       struct bgp_session_disable_args* args = mqb_get_args(mqb) ;
 
-      /* TODO: disable session */
       bgp_fsm_disable_session(session, args->notification) ;
     } ;
 
@@ -398,10 +402,7 @@ bgp_session_event(bgp_session session, bgp_session_event_t  event,
  * dealt with.
  */
 
-static void
-bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag);
-
-extern void
+void
 bgp_session_update_send(bgp_session session, struct stream* upd)
 {
   struct bgp_session_update_args* args ;
@@ -410,12 +411,50 @@ bgp_session_update_send(bgp_session session, struct stream* upd)
   mqb = mqb_init_new(NULL, bgp_session_do_update_send, session) ;
 
   args = mqb_get_args(mqb) ;
+  args->buf   = stream_dup(upd) ;
 
-  args->buf   = upd ;
+  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  session->flow_control++;      /* count them in ... */
+  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
   bgp_to_bgp_engine(mqb) ;
 } ;
 
+static void
+bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
+{
+  if (flag == mqb_action)
+    {
+      bgp_session session = mqb_get_arg0(mqb) ;
+      struct bgp_session_update_args* args = mqb_get_args(mqb) ;
+      int result;
+
+      /* TODO: process an update packet */
+
+      BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+      result = session->flow_control--; /* ... count them out */
+      BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+
+      if (result == 0)
+        bgp_session_XON(session);
+    }
+
+  mqb_free(mqb) ;
+}
+
+/* Are we in XON state ? */
+int
+bgp_session_is_XON(bgp_peer peer)
+{
+  int result = 0;
+  bgp_session session = peer->session;
+
+  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  result = session->flow_control < (int)BGP_WRITE_PACKET_MAX;
+  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+
+  return result;
+}
 /*==============================================================================
  * Forward incoming update -- BGP Engine -> Peering Engine
  *
@@ -425,11 +464,8 @@ bgp_session_update_send(bgp_session session, struct stream* upd)
  * dealt with.
  */
 
-static void
-bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag);
-
-extern void
-bgp_session_update_recv(bgp_session session, struct stream* upd)
+void
+bgp_session_update_recv(bgp_session session, struct stream* buf, bgp_size_t size)
 {
   struct bgp_session_update_args* args ;
   mqueue_block   mqb ;
@@ -437,13 +473,62 @@ bgp_session_update_recv(bgp_session session, struct stream* upd)
   mqb = mqb_init_new(NULL, bgp_session_do_update_recv, session) ;
 
   args = mqb_get_args(mqb) ;
-
-  args->buf   = upd ;
+  args->buf = stream_dup(buf) ;
+  args->size = size;
 
   bgp_to_peering_engine(mqb) ;
-} ;
+}
 
+static void
+bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag)
+{
 
+  if (flag == mqb_action)
+    {
+      bgp_session session = mqb_get_arg0(mqb) ;
+      bgp_peer peer = session->peer;
+      struct bgp_session_update_args* args = mqb_get_args(mqb) ;
+
+      stream_free(peer->ibuf);
+      peer->ibuf = args->buf;
+      bgp_update_receive (peer, args->size);
+    }
+
+  mqb_free(mqb) ;
+}
+
+/*==============================================================================
+ * XON -- BGP Engine -> Peering Engine
+ *
+ * Can be sent more packets now
+ */
+
+static void
+bgp_session_XON(bgp_session session)
+{
+  mqueue_block   mqb ;
+
+  mqb = mqb_init_new(NULL, bgp_session_do_XON, session) ;
+
+  confirm(sizeof(struct bgp_session_XON_args) == 0) ;
+
+  bgp_to_peering_engine(mqb) ;
+}
+
+static void
+bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag)
+{
+
+  if (flag == mqb_action)
+    {
+      bgp_session session = mqb_get_arg0(mqb) ;
+      bgp_peer peer = session->peer;
+
+      bgp_write (peer);
+    }
+
+  mqb_free(mqb) ;
+}
 
 /*==============================================================================
  * Session data access functions.

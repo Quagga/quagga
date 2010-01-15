@@ -329,7 +329,7 @@ struct peer
   u_int32_t established;        /* Established */
   u_int32_t dropped;            /* Dropped */
 
-  /* Syncronization list and time.  */
+  /* Synchronization list and time.  */
   struct bgp_synchronize *sync[AFI_MAX][SAFI_MAX];
   time_t synctime;
 
@@ -472,7 +472,7 @@ extern void
 bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag);
 
 void
-bgp_peer_config_change(bgp_peer peer, bgp_notify notification);
+bgp_peer_reenable(bgp_peer peer, bgp_notify notification);
 
 extern void
 bgp_peer_enable(bgp_peer peer);

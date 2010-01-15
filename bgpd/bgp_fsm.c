@@ -2586,6 +2586,8 @@ bgp_keepalive_timer_action(qtimer qtr, void* timer_info, qtime_mono_t when)
 
 /*============================================================================*/
 /* BGP Peer Down Cause */
+/* TODO: this is also defined in bgp_peer.c */
+#if 0
 const char *peer_down_str[] =
 {
   "",
@@ -2612,3 +2614,4 @@ const char *peer_down_str[] =
   "Multihop config change",
   "NSF peer closed the session"
 };
+#endif

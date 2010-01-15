@@ -21,6 +21,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGP_PACKET_H
 #define _QUAGGA_BGP_PACKET_H
 
+#include "bgpd/bgp_attr.h"
+
 #define BGP_NLRI_LENGTH       1U
 #define BGP_TOTAL_ATTR_LEN    2U
 #define BGP_UNFEASIBLE_LEN    2U
@@ -41,7 +43,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 /* Packet send and receive function prototypes. */
 extern int bgp_read (struct thread *);
-extern int bgp_write (struct thread *);
+extern int bgp_write (bgp_peer peer);
 
 extern void bgp_keepalive_send (struct peer *);
 extern void bgp_open_send (struct peer *);
@@ -55,5 +57,7 @@ extern void bgp_default_update_send (struct peer *, struct attr *,
 extern void bgp_default_withdraw_send (struct peer *, afi_t, safi_t);
 
 extern int bgp_capability_receive (struct peer *, bgp_size_t);
+
+extern int bgp_update_receive (struct peer *peer, bgp_size_t size);
 
 #endif /* _QUAGGA_BGP_PACKET_H */

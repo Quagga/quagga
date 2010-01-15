@@ -240,9 +240,6 @@ bgp_session_has_established(bgp_peer peer)
                                     REFRESH_IMMEDIATE, 0);
         }
 
-  if (peer->v_keepalive)
-    bgp_keepalive_send (peer);
-
   /* First update is deferred until ORF or ROUTE-REFRESH is received */
   for (afi = AFI_IP ; afi < AFI_MAX ; afi++)
     for (safi = SAFI_UNICAST ; safi < SAFI_MAX ; safi++)
@@ -268,7 +265,7 @@ bgp_session_has_stopped(bgp_peer peer)
   if (session->defer_enable)
     {
       session->defer_enable = 0;
-      bpg_session_enable(peer);
+      bgp_session_enable(peer);
     }
 
   return 0;
@@ -404,6 +401,7 @@ bgp_peer_stop (struct peer *peer)
   return 0;
 }
 
+#if 0
 /* Stop all timers for the given peer
  */
 static void
@@ -416,13 +414,11 @@ bgp_peer_timers_stop(bgp_peer peer)
   BGP_TIMER_OFF (peer->t_gr_stale);
   BGP_TIMER_OFF (peer->t_pmax_restart);
 } ;
+#endif
 
-/* TODO: bgp_timer_set - kill ? */
 static void
 bgp_timer_set (struct peer *peer)
 {
-  int jitter = 0;
-
   switch (peer->status)
     {
     case Idle:
@@ -490,7 +486,7 @@ bgp_routeadv_timer (struct thread *thread)
 
   peer->synctime = time (NULL);
 
-  BGP_WRITE_ON (peer->t_write, bgp_write, peer->fd);
+  bgp_write(peer);
 
   BGP_TIMER_ON (peer->t_routeadv, bgp_routeadv_timer,
 		peer->v_routeadv);
@@ -585,7 +581,7 @@ bgp_graceful_stale_timer_expire (struct thread *thread)
   return 0;
 }
 
-
+#if 0
 /* BGP peer is stopped by the error. */
 static int
 bgp_stop_with_error (struct peer *peer)
@@ -601,6 +597,7 @@ bgp_stop_with_error (struct peer *peer)
 
   return 0;
 }
+#endif
 
 /* Allocate new peer object, implicitly locked.  */
 struct peer *
@@ -759,7 +756,7 @@ peer_delete (struct peer *peer)
    * executed after peer structure is deleted.
    */
   peer->last_reset = PEER_DOWN_NEIGHBOR_DELETE;
-  bgp_stop (peer);
+  bgp_peer_stop (peer);
   bgp_fsm_change_status (peer, Deleted);
 
   /* Password configuration */
@@ -767,9 +764,6 @@ peer_delete (struct peer *peer)
     {
       XFREE (MTYPE_PEER_PASSWORD, peer->password);
       peer->password = NULL;
-
-      if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
-        bgp_md5_set (peer);
     }
 
   bgp_timer_set (peer); /* stops all timers for Deleted */
@@ -903,9 +897,9 @@ peer_free (struct peer *peer)
   XFREE (MTYPE_BGP_PEER, peer);
 }
 
-/* Config change, disable then re-enable the peer */
+/* Disable then enable the peer.  Sends notification. */
 void
-bgp_peer_config_change(bgp_peer peer, bgp_notify notification)
+bgp_peer_reenable(bgp_peer peer, bgp_notify notification)
 {
   bgp_peer_disable(peer, notification);
   bgp_peer_enable(peer); /* may defer if still stopping */

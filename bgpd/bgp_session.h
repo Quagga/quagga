@@ -106,6 +106,13 @@ struct bgp_session
 
   flag_t                made ;          /* set when -> sEstablished       */
 
+  /* Flow control. Incremented when an update packet is sent
+   * from peering to BGP engine.  Decremented when packet processed
+   * by BGP engine.  On transition to 0 BGP engine should send an XON.
+   */
+
+  int flow_control;
+
   /* These belong to the Peering Engine, and may be set when a session
    * event message is received from the BGP Engine.
    */
@@ -201,6 +208,7 @@ MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
 struct bgp_session_update_args          /* to and from BGP Engine       */
 {
   struct stream*  buf ;
+  bgp_size_t size;
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
 
@@ -213,6 +221,12 @@ struct bgp_session_event_args           /* to Routeing Engine           */
   int                  stopped ;        /* session has stopped          */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
+
+struct bgp_session_XON_args             /* to Routeing Engine           */
+{
+                                        /* no further arguments         */
+} ;
+MQB_ARGS_SIZE_OK(bgp_session_XON_args) ;
 
 /*==============================================================================
  * Session mutex lock/unlock
@@ -255,7 +269,10 @@ extern void
 bgp_session_update_send(bgp_session session, struct stream* upd) ;
 
 extern void
-bgp_session_update_recv(bgp_session session, struct stream* upd) ;
+bgp_session_update_recv(bgp_session session, struct stream* buf, bgp_size_t size) ;
+
+extern int
+bgp_session_is_XON(bgp_peer peer);
 
 /*==============================================================================
  * Session data access functions.

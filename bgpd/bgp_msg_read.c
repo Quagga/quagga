@@ -1048,7 +1048,7 @@ bgp_msg_capability_orf_not_support (char *host, afi_t afi, safi_t safi,
 static int
 bgp_msg_update_receive (bgp_connection connection, bgp_size_t size)
 {
-  bgp_session_update_recv(connection->session, stream_dup(connection->ibuf));
+  bgp_session_update_recv(connection->session, connection->ibuf, size);
   bgp_fsm_event(connection, bgp_fsm_Receive_UPDATE_message);
   return 0;
 }

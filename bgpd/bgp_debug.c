@@ -280,14 +280,14 @@ bgp_notify_print(struct peer *peer, struct bgp_notify *bgp_notify,
               peer->host, bgp_notify->code, bgp_notify->subcode,
                LOOKUP (bgp_notify_msg, bgp_notify->code),
               subcode_str, bgp_notify->length,
-              bgp_notify->data ? bgp_notify->data : "");
+              bgp_notify->size ? bgp_notify->data : "");
   else if (BGP_DEBUG (normal, NORMAL))
     plog_debug (peer->log, "%s %s NOTIFICATION %d/%d (%s%s) %d bytes %s",
 	       peer ? peer->host : "",
 	       direct, bgp_notify->code, bgp_notify->subcode,
 	       LOOKUP (bgp_notify_msg, bgp_notify->code),
 	       subcode_str, bgp_notify->length,
-	       bgp_notify->data ? bgp_notify->data : "");
+	       bgp_notify->size ? bgp_notify->data : "");
 }
 
 /* Debug option setting interface. */
