@@ -19,28 +19,34 @@
  * Boston, MA 02111-1307, USA.
  */
 
+#include "bgpd/bgp_common.h"
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_engine.h"
 #include "bgpd/bgp_peer_index.h"
 #include "bgpd/bgp_fsm.h"
 #include "bgpd/bgp_open_state.h"
+#include "bgpd/bgp_route_refresh.h"
+#include "bgpd/bgp_msg_write.h"
+
 #include "bgpd/bgp_packet.h"
 
 #include "lib/memory.h"
 #include "lib/sockunion.h"
+#include "lib/mqueue.h"
+#include "lib/zassert.h"
 
 /* prototypes */
-static int
-bgp_session_defer_if_stopping(bgp_session session);
+static int bgp_session_defer_if_stopping(bgp_session session);
 static void bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag) ;
 static void bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag);
 static void bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag);
+static void bgp_session_do_end_of_rib_send(mqueue_block mqb, mqb_flag_t flag);
+static void bgp_session_do_route_refresh_send(mqueue_block mqb,
+                                                               mqb_flag_t flag);
 static void bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag) ;
 static void bgp_session_XON(bgp_session session);
 static void bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag);
-
-
 
 /*==============================================================================
  * BGP Session.
@@ -161,19 +167,23 @@ bgp_session_init_new(bgp_session session, bgp_peer peer)
 /* Free session structure
  *
  */
-bgp_session
+extern bgp_session
 bgp_session_free(bgp_session session)
 {
   if (session == NULL)
     return NULL;
+
+  assert(!bgp_session_is_active(session)) ;
 
   qpt_mutex_destroy(&session->mutex, 0) ;
 
   bgp_notify_free(&session->notification);
   bgp_open_state_free(session->open_send);
   bgp_open_state_free(session->open_recv);
-  XFREE(MTYPE_BGP_SESSION, session->host);
-  XFREE(MTYPE_BGP_SESSION, session->password);
+  if (session->host != NULL)
+    XFREE(MTYPE_BGP_SESSION, session->host);
+  if (session->password != NULL)
+    XFREE(MTYPE_BGP_SESSION, session->password);
 
   /* Zeroize to catch dangling references asap */
   memset(session, 0, sizeof(struct bgp_session)) ;
@@ -190,8 +200,7 @@ bgp_session_free(bgp_session session)
  *
  *
  */
-
-void
+extern void
 bgp_session_enable(bgp_peer peer)
 {
   bgp_session    session ;
@@ -361,6 +370,10 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
       bgp_session session = mqb_get_arg0(mqb) ;
       struct bgp_session_disable_args* args = mqb_get_args(mqb) ;
 
+      /* Immediately discard any other messages for this session.       */
+      mqueue_revoke(p_bgp_engine->queue, session) ;
+
+      /* Get the FSM to send any notification and close connections     */
       bgp_fsm_disable_session(session, args->notification) ;
     } ;
 
@@ -402,7 +415,7 @@ bgp_session_event(bgp_session session, bgp_session_event_t  event,
  * dealt with.
  */
 
-void
+extern void
 bgp_session_update_send(bgp_session session, struct stream* upd)
 {
   struct bgp_session_update_args* args ;
@@ -411,7 +424,8 @@ bgp_session_update_send(bgp_session session, struct stream* upd)
   mqb = mqb_init_new(NULL, bgp_session_do_update_send, session) ;
 
   args = mqb_get_args(mqb) ;
-  args->buf   = stream_dup(upd) ;
+  args->buf     = stream_dup(upd) ;
+  args->pending = NULL ;
 
   BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
   session->flow_control++;      /* count them in ... */
@@ -420,41 +434,283 @@ bgp_session_update_send(bgp_session session, struct stream* upd)
   bgp_to_bgp_engine(mqb) ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * BGP Engine -- mqb action function -- write given BGP update message.
+ *
+ * Each connection has a pending queue associated with it, onto which messages
+ * are put if the connection's write buffer is unable to absorb any further
+ * messages.
+ *
+ * This function is called both when the mqb is received from the Peering
+ * Engine, and when the BGP Engine is trying to empty the connection's pending
+ * queue.
+ *
+ * When the mqb is received from the Peering Engine, then:
+ *
+ *   -- if the connection's pending queue is empty, try to send the message.
+ *
+ *      If cannot send the message (and not encountered any error), add it to
+ *      the connection's pending queue.
+ *
+ *   -- otherwise, add mqb to the pending queue.
+ *
+ * When the mqb is on the connection's pending queue it must be the head of
+ * that queue -- and still on the queue.  Then:
+ *
+ *   -- if the message is sent (or is now redundant), remove the mqb from
+ *      the connection's pending queue.
+ *
+ *   -- otherwise: leave the mqb on the connection's pending queue for later,
+ *      but remove the connection from the connection queue, because unable to
+ *      proceed any further.
+ *
+ * If the mqb has been dealt with (is not on the pending queue), it is freed,
+ * along with the stream buffer.
+ *
+ * NB: when not called "mqb_action", the mqb MUST NOT be on the connection's
+ *     pending queue.
+ */
 static void
 bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
 {
+  struct bgp_session_update_args* args = mqb_get_args(mqb) ;
+
   if (flag == mqb_action)
     {
       bgp_session session = mqb_get_arg0(mqb) ;
-      struct bgp_session_update_args* args = mqb_get_args(mqb) ;
-      int result;
 
-      /* TODO: process an update packet */
+      bgp_connection connection = session->connections[bgp_connection_primary] ;
 
-      BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-      result = session->flow_control--; /* ... count them out */
-      BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+      mqueue_block head = mqueue_local_head(&connection->pending_queue) ;
 
-      if (result == 0)
-        bgp_session_XON(session);
-    }
+      int is_pending = (args->pending != NULL) ;
+      if (is_pending)
+        assert( (args->pending == connection) && (mqb == head) ) ;
 
+      /* If established, try and send.                                  */
+      if (connection->state == bgp_fsm_Established)
+        {
+          int ret = 0 ;
+
+          if ((head == NULL) || is_pending)
+            ret = bgp_msg_send_update(connection, args->buf) ;
+
+          if (ret == 0)
+            {
+              /* Did not fail, but could not write the message.         */
+              if (!is_pending)
+                {
+                  mqueue_local_enqueue(&connection->pending_queue, mqb) ;
+                  args->pending = connection ;
+                }
+              else
+                bgp_connection_queue_del(connection) ;
+
+              return ;  /* **** Quit now, with message intact.          */
+
+            }
+          else if (ret > 0)
+            {
+              /* Successfully wrote the message.                        */
+              int xon ;
+              BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+              xon = --session->flow_control ;   /* ... count them out */
+              BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+
+              if (xon == 0)
+                bgp_session_XON(session);
+            } ;
+        } ;
+
+      /* Have dealt with the message -- if was pending, it's done.      */
+      if (is_pending)
+        mqueue_local_dequeue(&connection->pending_queue) ;
+    } ;
+
+  stream_free(args->buf) ;
   mqb_free(mqb) ;
-}
+} ;
 
 /* Are we in XON state ? */
-int
+extern int
 bgp_session_is_XON(bgp_peer peer)
 {
   int result = 0;
   bgp_session session = peer->session;
 
   BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-  result = session->flow_control < (int)BGP_WRITE_PACKET_MAX;
+  result = session->flow_control < BGP_XON_THRESHOLD ;
   BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
   return result;
-}
+} ;
+
+/*==============================================================================
+ * Dispatch Route Refresh to peer -- Peering Engine -> BGP Engine
+ *
+ * The BGP Engine takes care of discarding the bgp_route_refresh once it's been
+ * dealt with.
+ */
+extern void
+bgp_session_route_refresh_send(bgp_session session, bgp_route_refresh rr)
+{
+  struct bgp_session_route_refresh_args* args ;
+  mqueue_block   mqb ;
+
+  mqb = mqb_init_new(NULL, bgp_session_do_route_refresh_send, session) ;
+
+  args = mqb_get_args(mqb) ;
+  args->rr      = rr ;
+  args->pending = NULL ;
+
+  bgp_to_bgp_engine(mqb) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * BGP Engine -- mqb action function -- write given BGP route refresh message.
+ *
+ * The logic here is the same as for bgp_session_do_update_send -- except that
+ * there is no flow control (!).
+ */
+static void
+bgp_session_do_route_refresh_send(mqueue_block mqb, mqb_flag_t flag)
+{
+  struct bgp_session_route_refresh_args* args = mqb_get_args(mqb) ;
+
+  if (flag == mqb_action)
+    {
+      bgp_session session = mqb_get_arg0(mqb) ;
+
+      bgp_connection connection = session->connections[bgp_connection_primary] ;
+
+      mqueue_block head = mqueue_local_head(&connection->pending_queue) ;
+
+      int is_pending = (args->pending != NULL) ;
+      if (is_pending)
+        assert( (args->pending == connection) && (mqb == head) ) ;
+
+      /* If established, try and send.                                  */
+      if (connection->state == bgp_fsm_Established)
+        {
+          int ret = 0 ;
+
+          if ((head == NULL) || is_pending)
+            ret = bgp_msg_send_route_refresh(connection, args->rr) ;
+
+          if (ret == 0)
+            {
+              /* Did not fail, but could not write everything.
+               *
+               * If this is not on the connection's pending queue, put it there.
+               *
+               * Otherwise leave it there, and take the connection off the
+               * connection queue -- nothing further can be done for this
+               * connection.
+               */
+              if (!is_pending)
+                {
+                  mqueue_local_enqueue(&connection->pending_queue, mqb) ;
+                  args->pending = connection ;
+                }
+              else
+                bgp_connection_queue_del(connection) ;
+
+              return ;  /* Quit now, with message intact.       */
+            } ;
+        } ;
+
+      /* Have dealt with the message -- if was pending, it's done.      */
+      if (is_pending)
+        mqueue_local_dequeue(&connection->pending_queue) ;
+    } ;
+
+  bgp_route_refresh_free(args->rr) ;
+  mqb_free(mqb) ;
+} ;
+
+/*==============================================================================
+ * Dispatch End-of-RIB to peer -- Peering Engine -> BGP Engine
+ */
+extern void
+bgp_session_end_of_rib_send(bgp_session session, qAFI_t afi, qSAFI_t safi)
+{
+  struct bgp_session_end_of_rib_args* args ;
+  mqueue_block   mqb ;
+  qafx_num_t     qafx ;
+
+  qafx = qafx_num_from_qAFI_qSAFI(afi, safi) ;
+
+  mqb = mqb_init_new(NULL, bgp_session_do_end_of_rib_send, session) ;
+
+  args = mqb_get_args(mqb) ;
+  args->afi     = get_iAFI(qafx) ;
+  args->safi    = get_iSAFI(qafx) ;
+  args->pending = NULL ;
+
+  bgp_to_bgp_engine(mqb) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * BGP Engine -- mqb action function -- write given BGP end-of-RIB message.
+ *
+ * The logic here is the same as for bgp_session_do_update_send -- except that
+ * there is no flow control (!).
+ */
+static void
+bgp_session_do_end_of_rib_send(mqueue_block mqb, mqb_flag_t flag)
+{
+  struct bgp_session_end_of_rib_args* args = mqb_get_args(mqb) ;
+
+  if (flag == mqb_action)
+    {
+      bgp_session session = mqb_get_arg0(mqb) ;
+
+      bgp_connection connection = session->connections[bgp_connection_primary] ;
+
+      mqueue_block head = mqueue_local_head(&connection->pending_queue) ;
+
+      int is_pending = (args->pending != NULL) ;
+      if (is_pending)
+        assert( (args->pending == connection) && (mqb == head) ) ;
+
+      /* If established, try and send.                                  */
+      if (connection->state == bgp_fsm_Established)
+        {
+          int ret = 0 ;
+
+          if ((head == NULL) || is_pending)
+            ret = bgp_msg_send_end_of_rib(connection, args->afi, args->safi) ;
+
+          if (ret == 0)
+            {
+              /* Did not fail, but could not write everything.
+               *
+               * If this is not on the connection's pending queue, put it there.
+               *
+               * Otherwise leave it there, and take the connection off the
+               * connection queue -- nothing further can be done for this
+               * connection.
+               */
+              if (!is_pending)
+                {
+                  mqueue_local_enqueue(&connection->pending_queue, mqb) ;
+                  args->pending = connection ;
+                }
+              else
+                bgp_connection_queue_del(connection) ;
+
+              return ;  /* Quit now, with message intact.       */
+            } ;
+        } ;
+
+      /* Have dealt with the message -- if was pending, it's done.      */
+      if (is_pending)
+        mqueue_local_dequeue(&connection->pending_queue) ;
+    } ;
+
+  mqb_free(mqb) ;
+} ;
+
 /*==============================================================================
  * Forward incoming update -- BGP Engine -> Peering Engine
  *

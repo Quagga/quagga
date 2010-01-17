@@ -60,11 +60,14 @@ bgp_open_state_free(bgp_open_state state)
 {
   bgp_cap_unknown unknown ;
 
-  while ((unknown = vector_ream_keep(&state->unknowns)) != NULL)
-    XFREE(MTYPE_TMP, unknown) ;
-
   if (state != NULL)
-    XFREE(MTYPE_BGP_OPEN_STATE, state) ;
+    {
+      while ((unknown = vector_ream_keep(&state->unknowns)) != NULL)
+        XFREE(MTYPE_TMP, unknown) ;
+
+      XFREE(MTYPE_BGP_OPEN_STATE, state) ;
+    } ;
+
   return NULL ;
 }
 

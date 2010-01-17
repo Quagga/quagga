@@ -142,14 +142,20 @@ bgp_connect_check (struct peer *peer)
 }
 #endif
 
-/* Make BGP update packet.  */
+/*------------------------------------------------------------------------------
+ * Construct an update from head of peer->sync[afi][safi]->update.
+ *
+ * Generates complete BGP message in the peer->work stream structure.
+ *
+ * Returns: peer->work -- if have something to be written.
+ *          NULL       -- otherwise
+ */
 static struct stream *
 bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
 {
   struct stream *s;
   struct bgp_adj_out *adj;
   struct bgp_advertise *adv;
-  struct stream *packet;
   struct bgp_node *rn = NULL;
   struct bgp_info *binfo = NULL;
   bgp_size_t total_attr_len = 0;
@@ -222,23 +228,25 @@ bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
 	break;
     }
 
-  if (! stream_empty (s))
-    {
-      bgp_packet_set_size (s);
-      packet = stream_dup (s);
-      bgp_packet_add (peer, packet);
-      bgp_write(peer);
-      stream_reset (s);
-      return packet;
-    }
-  return NULL;
+  if (stream_empty (s))
+    return NULL ;
+
+  bgp_packet_set_size (s) ;
+  return s ;
 }
 
+/*------------------------------------------------------------------------------
+ * Construct an End-of-RIB update message for given AFI/SAFI.
+ *
+ * Generates complete BGP message in the peer->work stream structure.
+ *
+ * Returns: peer->work -- if have something to be written.
+ *          NULL       -- otherwise
+ */
 static struct stream *
 bgp_update_packet_eor (struct peer *peer, afi_t afi, safi_t safi)
 {
   struct stream *s;
-  struct stream *packet;
 
   if (DISABLE_BGP_ANNOUNCE)
     return NULL;
@@ -246,7 +254,8 @@ bgp_update_packet_eor (struct peer *peer, afi_t afi, safi_t safi)
   if (BGP_DEBUG (normal, NORMAL))
     zlog_debug ("send End-of-RIB for %s to %s", afi_safi_print (afi, safi), peer->host);
 
-  s = stream_new (BGP_MAX_PACKET_SIZE);
+  s = peer->work;
+  stream_reset (s);
 
   /* Make BGP update packet. */
   bgp_packet_set_marker (s, BGP_MSG_UPDATE);
@@ -271,18 +280,21 @@ bgp_update_packet_eor (struct peer *peer, afi_t afi, safi_t safi)
     }
 
   bgp_packet_set_size (s);
-  packet = stream_dup (s);
-  bgp_packet_add (peer, packet);
-  stream_free (s);
-  return packet;
+  return s ;
 }
 
-/* Make BGP withdraw packet.  */
+/*------------------------------------------------------------------------------
+ * Construct a withdraw update from from head of peer->sync[afi][safi]->withdraw
+ *
+ * Generates complete BGP message in the peer->work stream structure.
+ *
+ * Returns: peer->work -- if have something to be written.
+ *          NULL       -- otherwise
+ */
 static struct stream *
 bgp_withdraw_packet (struct peer *peer, afi_t afi, safi_t safi)
 {
   struct stream *s;
-  struct stream *packet;
   struct bgp_adj_out *adj;
   struct bgp_advertise *adv;
   struct bgp_node *rn;
@@ -342,31 +354,33 @@ bgp_withdraw_packet (struct peer *peer, afi_t afi, safi_t safi)
 	break;
     }
 
-  if (! stream_empty (s))
-    {
-      if (afi == AFI_IP && safi == SAFI_UNICAST)
-	{
-	  unfeasible_len
-	    = stream_get_endp (s) - BGP_HEADER_SIZE - BGP_UNFEASIBLE_LEN;
-	  stream_putw_at (s, BGP_HEADER_SIZE, unfeasible_len);
-	  stream_putw (s, 0);
-	}
-      bgp_packet_set_size (s);
-      packet = stream_dup (s);
-      bgp_packet_add (peer, packet);
-      stream_reset (s);
-      return packet;
-    }
+  if (stream_empty (s))
+    return NULL ;
 
-  return NULL;
+  if (afi == AFI_IP && safi == SAFI_UNICAST)
+    {
+      unfeasible_len
+	    = stream_get_endp (s) - BGP_HEADER_SIZE - BGP_UNFEASIBLE_LEN;
+      stream_putw_at (s, BGP_HEADER_SIZE, unfeasible_len);
+      stream_putw (s, 0);
+    } ;
+
+  bgp_packet_set_size (s);
+  return s ;
 }
 
+/*------------------------------------------------------------------------------
+ * Construct an update for the default route, place it in the obuf queue
+ * and kick write.
+ *
+ * Uses peer->work stream structure, but copies result to new stream, which is
+ * pushed onto the obuf queue.
+ */
 void
 bgp_default_update_send (struct peer *peer, struct attr *attr,
 			 afi_t afi, safi_t safi, struct peer *from)
 {
   struct stream *s;
-  struct stream *packet;
   struct prefix p;
   unsigned long pos;
   bgp_size_t total_attr_len;
@@ -392,7 +406,8 @@ bgp_default_update_send (struct peer *peer, struct attr *attr,
 	    p.prefixlen, attrstr);
     }
 
-  s = stream_new (BGP_MAX_PACKET_SIZE);
+  s = peer->work ;
+  stream_reset (s);
 
   /* Make BGP update packet. */
   bgp_packet_set_marker (s, BGP_MSG_UPDATE);
@@ -415,24 +430,27 @@ bgp_default_update_send (struct peer *peer, struct attr *attr,
   /* Set size. */
   bgp_packet_set_size (s);
 
-  packet = stream_dup (s);
-  stream_free (s);
-
   /* Dump packet if debug option is set. */
 #ifdef DEBUG
-  /* bgp_packet_dump (packet); */
+  /* bgp_packet_dump (s); */
 #endif /* DEBUG */
 
   /* Add packet to the peer. */
-  bgp_packet_add (peer, packet);
+  bgp_packet_add (peer, stream_dup (s));
   bgp_write(peer);
 }
 
+/*------------------------------------------------------------------------------
+ * Construct a withdraw update for the default route, place it in the obuf
+ * queue and kick write.
+ *
+ * Uses peer->work stream structure, but copies result to new stream, which is
+ * pushed onto the obuf queue.
+ */
 void
 bgp_default_withdraw_send (struct peer *peer, afi_t afi, safi_t safi)
 {
   struct stream *s;
-  struct stream *packet;
   struct prefix p;
   unsigned long pos;
   unsigned long cp;
@@ -458,7 +476,8 @@ bgp_default_withdraw_send (struct peer *peer, afi_t afi, safi_t safi)
           peer->host, inet_ntop(p.family, &(p.u.prefix), buf, BUFSIZ),
           p.prefixlen);
 
-  s = stream_new (BGP_MAX_PACKET_SIZE);
+  s = peer->work ;
+  stream_reset (s);
 
   /* Make BGP update packet. */
   bgp_packet_set_marker (s, BGP_MSG_UPDATE);
@@ -492,15 +511,19 @@ bgp_default_withdraw_send (struct peer *peer, afi_t afi, safi_t safi)
 
   bgp_packet_set_size (s);
 
-  packet = stream_dup (s);
-  stream_free (s);
-
   /* Add packet to the peer. */
-  bgp_packet_add (peer, packet);
+  bgp_packet_add (peer, stream_dup (s));
   bgp_write(peer);
 }
 
-/* Get next packet to be written.  */
+/*------------------------------------------------------------------------------
+ * Get next update message to be written.
+ *
+ * Generates complete BGP message in the peer->work stream structure.
+ *
+ * Returns: peer->work -- if have something to be written.
+ *          NULL       -- otherwise
+ */
 static struct stream *
 bgp_write_packet (struct peer *peer)
 {
@@ -508,10 +531,6 @@ bgp_write_packet (struct peer *peer)
   safi_t safi;
   struct stream *s = NULL;
   struct bgp_advertise *adv;
-
-  s = stream_fifo_head (peer->obuf);
-  if (s)
-    return s;
 
   for (afi = AFI_IP; afi < AFI_MAX; afi++)
     for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
@@ -593,18 +612,35 @@ bgp_write_proceed (struct peer *peer)
 }
 #endif
 
-/* Write packets to the peer. */
+/*------------------------------------------------------------------------------
+/* Write packets to the peer -- subject to the XON flow control.
+ *
+ * Empties the obuf queue first.
+ *
+ * Then processes the peer->sync structure to generate further updates.
+ *
+ * TODO: work out how bgp_routeadv_timer fits into this.
+ */
 int
 bgp_write (bgp_peer peer)
 {
   u_char type;
   struct stream *s;
+  int free_s ;
 
   while (bgp_session_is_XON(peer))
     {
-      s = bgp_write_packet (peer);
-      if (! s)
-	break;
+      free_s = 0 ;
+
+      s = stream_fifo_head(peer->obuf) ;        /* returns own stream   */
+      if (s != NULL)
+        free_s = 1 ;
+      else
+        {
+          s = bgp_write_packet(peer);           /* uses peer->work      */
+          if (s == NULL)
+            break;
+        } ;
 
       bgp_session_update_send(peer->session, s);
 
@@ -644,7 +680,8 @@ bgp_write (bgp_peer peer)
 	}
 
       /* OK we sent packet so delete it. */
-      bgp_packet_delete (peer);
+      if (free_s)
+        bgp_packet_delete (peer);
     }
 
   return 0;
@@ -821,6 +858,11 @@ bgp_notify_send (struct peer *peer, u_char code, u_char sub_code)
 }
 
 /* Send route refresh message to the peer. */
+
+/* TODO: wire up to bgp_route_refresh structure and send a route_refresh
+ *       message, rather than a raw "update".
+ */
+
 void
 bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
 			u_char orf_type, u_char when_to_refresh, int remove)
@@ -917,6 +959,9 @@ bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
 }
 
 /* Send capability message to the peer. */
+
+/* TODO: require BGP Engine support for Dynamic Capability messages.    */
+
 void
 bgp_capability_send (struct peer *peer, afi_t afi, safi_t safi,
 		     int capability_code, int action)

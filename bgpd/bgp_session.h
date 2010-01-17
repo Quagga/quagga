@@ -28,6 +28,7 @@
 #include "bgpd/bgp_engine.h"
 #include "bgpd/bgp_connection.h"
 #include "bgpd/bgp_notification.h"
+#include "bgpd/bgp_route_refresh.h"
 #include "bgpd/bgp_peer_index.h"
 
 #include "lib/qtimers.h"
@@ -208,9 +209,31 @@ MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
 struct bgp_session_update_args          /* to and from BGP Engine       */
 {
   struct stream*  buf ;
-  bgp_size_t size;
+  bgp_size_t size ;
+
+  bgp_connection  pending ;             /* used inside the BGP Engine   */
+                                        /* set NULL on message creation */
 } ;
-MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
+MQB_ARGS_SIZE_OK(bgp_session_update_args) ;
+
+struct bgp_session_route_refresh_args   /* to and from BGP Engine       */
+{
+  bgp_route_refresh  rr ;
+
+  bgp_connection  pending ;             /* used inside the BGP Engine   */
+                                        /* set NULL on message creation */
+} ;
+MQB_ARGS_SIZE_OK(bgp_session_route_refresh_args) ;
+
+struct bgp_session_end_of_rib_args      /* to and from BGP Engine       */
+{
+  iAFI_t    afi ;
+  iSAFI_t   safi ;
+
+  bgp_connection  pending ;             /* used inside the BGP Engine   */
+                                        /* set NULL on message creation */
+} ;
+MQB_ARGS_SIZE_OK(bgp_session_end_of_rib_args) ;
 
 struct bgp_session_event_args           /* to Routeing Engine           */
 {
@@ -220,13 +243,17 @@ struct bgp_session_event_args           /* to Routeing Engine           */
   bgp_connection_ord_t ordinal ;        /* primary/secondary connection */
   int                  stopped ;        /* session has stopped          */
 } ;
-MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
+MQB_ARGS_SIZE_OK(bgp_session_event_args) ;
 
 struct bgp_session_XON_args             /* to Routeing Engine           */
 {
                                         /* no further arguments         */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_XON_args) ;
+
+
+
+enum { BGP_XON_THRESHOLD = 7 } ;
 
 /*==============================================================================
  * Session mutex lock/unlock
@@ -269,7 +296,14 @@ extern void
 bgp_session_update_send(bgp_session session, struct stream* upd) ;
 
 extern void
-bgp_session_update_recv(bgp_session session, struct stream* buf, bgp_size_t size) ;
+bgp_session_route_refresh_send(bgp_session session, bgp_route_refresh rr) ;
+
+extern void
+bgp_session_end_of_rib_send(bgp_session session, qAFI_t afi, qSAFI_t) ;
+
+extern void
+bgp_session_update_recv(bgp_session session, struct stream* buf,
+                                                              bgp_size_t size) ;
 
 extern int
 bgp_session_is_XON(bgp_peer peer);

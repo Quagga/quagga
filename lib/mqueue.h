@@ -225,11 +225,17 @@ mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, int priority) ;
 extern mqueue_block
 mqueue_dequeue(mqueue_queue mq, int wait, void* arg) ;
 
+extern void
+mqueue_revoke(mqueue_queue mq, void* arg0) ;
+
 extern int
 mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig) ;
 
 extern void
 mqueue_local_enqueue(mqueue_local_queue lmq, mqueue_block mqb) ;
+
+Inline mqueue_block
+mqueue_local_head(mqueue_local_queue lmq) ;
 
 extern mqueue_block
 mqueue_local_dequeue(mqueue_local_queue lmq) ;
@@ -257,6 +263,8 @@ extern void mqb_push_argv_u(mqueue_block mqb, mqb_uint_t u) ;
 extern void mqb_push_argv_array(mqueue_block mqb, unsigned n, void** array) ;
 
 Inline void mqb_dispatch(mqueue_block mqb, mqb_flag_t flag) ;
+Inline void mqb_dispatch_action(mqueue_block mqb) ;
+Inline void mqb_dispatch_destroy(mqueue_block mqb) ;
 
 Inline void* mqb_get_arg0(mqueue_block mqb) ;
 Inline void* mqb_get_args(mqueue_block mqb) ;
@@ -277,6 +285,12 @@ extern void** mqb_pop_argv_array(mqueue_block mqb) ;
 /*==============================================================================
  * The Inline functions.
  */
+
+Inline mqueue_block
+mqueue_local_head(mqueue_local_queue lmq)
+{
+  return lmq->head ;
+} ;
 
 /* Set operations.      */
 

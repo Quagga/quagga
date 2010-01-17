@@ -85,11 +85,10 @@ static const char* bgp_connection_tags[] =
       [bgp_connection_secondary] = "(secondary)",
   } ;
 
-static void
-bgp_connection_init_host(bgp_connection connection, const char* tag) ;
-
-static void
-bgp_write_buffer_init_new(bgp_wbuffer wb, size_t size) ;
+static void bgp_connection_init_host(bgp_connection connection,
+                                                              const char* tag) ;
+static void bgp_write_buffer_init_new(bgp_wbuffer wb, size_t size) ;
+static void bgp_write_buffer_free(bgp_wbuffer wb) ;
 
 /*------------------------------------------------------------------------------
  * Initialise connection structure -- allocate if required.
@@ -285,6 +284,28 @@ bgp_connection_exit(bgp_connection connection)
 static void
 bgp_connection_free(bgp_connection connection)
 {
+  assert( (connection->state == bgp_fsm_Stopping) &&
+          (connection->session == NULL) ) ;
+
+  /* Make sure is closed, so no active file, no active timers, pending queue
+   * is empty, not on the connection queue, etc.
+   */
+  bgp_connection_close(connection) ;
+
+  /* Free any components which still exist                              */
+  bgp_notify_free(&connection->notification) ;
+  bgp_open_state_free(connection->open_recv) ;
+  if (connection->su_local != NULL)
+    sockunion_free(connection->su_local) ;
+  if (connection->su_remote != NULL)
+    sockunion_free(connection->su_remote) ;
+  if (connection->host != NULL)
+    XFREE(MTYPE_BGP_PEER_HOST, connection->host) ;
+  stream_free(connection->ibuf) ;
+  stream_free(connection->obuf) ;
+  bgp_write_buffer_free(&connection->wbuff) ;
+
+  /* Free the body                                                      */
   XFREE(MTYPE_BGP_CONNECTION, connection) ;
 } ;
 
@@ -303,6 +324,16 @@ bgp_write_buffer_init_new(bgp_wbuffer wb, size_t size)
   wb->limit = wb->base + size ;
 
   wb->p_in  = wb->p_out = wb->base ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free any write buffer
+ */
+static void
+bgp_write_buffer_free(bgp_wbuffer wb)
+{
+  if (wb->base != NULL)
+    XFREE(MTYPE_STREAM_DATA, wb->base) ;
 } ;
 
 /*==============================================================================
@@ -373,6 +404,7 @@ bgp_connection_queue_del(bgp_connection connection)
  * Process each item until its pending queue becomes empty, or its write
  * buffer becomes full, or it is stopped.
  *
+ * TODO: link bgp_connection_queue_process() into the bgp_engine loop.
  */
 extern void
 bgp_connection_queue_process(void)
@@ -381,25 +413,33 @@ bgp_connection_queue_process(void)
 
   while (bgp_connection_queue != NULL)
     {
-      /* select the first in the queue, and step to the next    */
+      /* select the first in the queue, and step to the next            */
       bgp_connection connection = bgp_connection_queue ;
       bgp_connection_queue = connection->next ;
 
-      /* Reap the connection if it is now stopped.              */
+      /* Reap the connection if it is now stopped.                      */
       if (connection->state == bgp_fsm_Stopping)
         {
-          bgp_connection_free(connection) ;
+          bgp_connection_free(connection) ; /* removes from connection queue */
+          continue ;
         } ;
 
-      /* .....                                                  */
-
-
-      /* .....                                                  */
-
-
+      /* Process next item on connection's pending queue                */
+      mqb = mqueue_local_head(&connection->pending_queue) ;
+      if (mqb != NULL)
+        /* The action will either remove the mqb from the pending queue,
+         * or remove the connection from the connection queue.
+         */
+        {
+          bgp_session session = mqb_get_arg0(mqb) ;
+          assert(  (session == connection->session)
+                && (connection
+                            == session->connections[bgp_connection_primary]) ) ;
+          mqb_dispatch_action(mqb) ;
+        }
+      else
+        bgp_connection_queue_del(connection) ;
     } ;
-
-
 } ;
 
 /*==============================================================================
@@ -738,7 +778,13 @@ bgp_connection_write_direct(bgp_connection connection, struct stream* s)
  *
  * Empty the write buffer if we can.
  *
- * If empties that, empty the obuf if there is anything pending, and....
+ * If empties that, disable write mode, then:
+ *
+ *   -- if notification is pending, then generate a notification sent event
+ *
+ *   -- otherwise: place connection on the connection queue, so can start to
+ *      flush out anything on the connection's pending queue and/or send an
+ *      XON message to the Peering Engine.
  *
  * If empty out everything, disable write mode.
  *

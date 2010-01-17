@@ -603,6 +603,59 @@ done:
 } ;
 
 /*------------------------------------------------------------------------------
+ * Revoke message(s)
+ *
+ * Revokes all messages, or only messages whose arg0 matches the given value.
+ * (If the given value is NULL revokes everything.)
+ *
+ * Revokes by calling mqb_dispatch_destroy().
+ *
+ * During a revoke() operation more items may be enqueued, but no other mqueue
+ * operations may be performed.  Enqueued items may promptly be revoked, except
+ * for priority items if the revoke operation has already moved past the last
+ * priority item.
+ */
+extern void
+mqueue_revoke(mqueue_queue mq, void* arg0)
+{
+  mqueue_block mqb ;
+  mqueue_block prev ;
+
+  qpt_mutex_lock(&mq->mutex) ;
+
+  prev = NULL ;
+  while (1)
+    {
+      if (prev == NULL)
+        mqb = mq->head ;
+      else
+        mqb = prev->next ;
+
+      if (mqb == NULL)
+        break ;
+
+      if ((arg0 == NULL) || (arg0 == mqb->arg0))
+        {
+          if (prev == NULL)
+            mq->head   = mqb->next ;
+          else
+            prev->next = mqb->next ;
+
+          if (mq->tail == mqb)
+            mq->tail = prev ;
+
+          qpt_mutex_unlock(&mq->mutex) ;
+            mqb_dispatch_destroy(mqb) ;
+          qpt_mutex_lock(&mq->mutex) ;
+        }
+      else
+        prev = mqb ;
+    } ;
+
+  qpt_mutex_unlock(&mq->mutex) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * No longer waiting for a signal  -- does nothing if !qpthreads_enabled.
  *
  * Returns true <=> signal has been kicked

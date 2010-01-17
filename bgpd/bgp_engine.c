@@ -76,6 +76,10 @@ static struct qpn_nexus  bgp_engine ;
 
 static void* bgp_engine_loop(void* arg) ;
 
+/* TODO: BGP Engine side of bgp_engine_start() must call bgp_open_listeners()
+ *       for which it needs the port and address from command line.
+ */
+
 extern void
 bgp_engine_start(void)
 {
@@ -92,6 +96,19 @@ bgp_engine_start(void)
                                            p_bgp_engine->thread_id, SIGMQUEUE) ;
 
   qpn_exec(p_bgp_engine) ;
+} ;
+
+/*==============================================================================
+ * Stop the BGP Engine Thread.
+ *
+ */
+
+/* TODO: BGP Engine side of bgp_engine_stop() must call bgp_close_listeners()
+ */
+
+extern void
+bgp_engine_stop(void)
+{
 } ;
 
 /*==============================================================================

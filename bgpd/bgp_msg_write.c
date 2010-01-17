@@ -755,6 +755,29 @@ bgp_msg_orf_prefix(struct stream* s, uint8_t common,
 } ;
 
 /*==============================================================================
+ * UPDATE -- send an UPDATE message
+ *
+ * PRO TEM -- this is passed a raw BGP message in a stream buffer
+ */
+
+/*------------------------------------------------------------------------------
+ * Make UPDATE message and dispatch.
+ *
+ * Returns: 2 => written to TCP   -- it's gone
+ *          1 => written to wbuff -- waiting for socket
+ *          0 => nothing written  -- wbuff was not empty !
+ *         -1 => failed           -- error event generated
+ */
+extern int
+bgp_msg_send_update(bgp_connection connection, struct stream* s)
+{
+  if (bgp_connection_write_full(connection))
+    return 0 ;
+
+  return bgp_connection_write(connection, s) ;
+} ;
+
+/*==============================================================================
  * End-of-RIB -- send an End-of-RIB BGP message (see Graceful Restart)
  */
 
@@ -773,7 +796,7 @@ bgp_msg_send_end_of_rib(bgp_connection connection, iAFI_t afi, iSAFI_t safi)
 {
   struct stream *s = connection->obuf ;
 
-  if (!bgp_connection_write_empty(connection))
+  if (bgp_connection_write_full(connection))
     return 0 ;
 
   /* Make UPDATE message header                                         */
@@ -803,7 +826,7 @@ bgp_msg_send_end_of_rib(bgp_connection connection, iAFI_t afi, iSAFI_t safi)
     zlog_debug ("send End-of-RIB for %s to %s", afi_safi_print (afi, safi),
                                                             connection->host) ;
 
-  /* Finally -- write the obuf away                                     */
+  /* Finally -- write the buffer away                                   */
   return bgp_connection_write(connection, s) ;
 } ;
 
