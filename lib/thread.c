@@ -1052,22 +1052,6 @@ thread_fetch_event (struct thread_master *m, struct thread *fetch,
   if ((thread = thread_trim_head (&m->ready)) != NULL)
     return thread_run (m, thread, fetch);
 
-  /* Calculate select wait timer if nothing else to do */
-  quagga_get_relative (NULL);
-  timer_wait = thread_timer_wait (&m->timer, &timer_val);
-  timer_wait_bg = thread_timer_wait (&m->background, &timer_val_bg);
-
-  if (timer_wait_bg &&
-      (!timer_wait || (timeval_cmp (*timer_wait, *timer_wait_bg) > 0)))
-    timer_wait = timer_wait_bg;
-
-  /* When is the next timer due ? */
-  if (timer_wait)
-    {
-      *event_wait = timeval2qtime(timer_wait);
-      return NULL;
-    }
-
   /* Check foreground timers.  Historically, they have had higher
      priority than I/O threads, so let's push them onto the ready
      list in front of the I/O threads. */
@@ -1079,6 +1063,19 @@ thread_fetch_event (struct thread_master *m, struct thread *fetch,
 
   if ((thread = thread_trim_head (&m->ready)) != NULL)
     return thread_run (m, thread, fetch);
+
+  /* Calculate select wait timer if nothing else to do */
+  timer_wait = thread_timer_wait (&m->timer, &timer_val);
+  timer_wait_bg = thread_timer_wait (&m->background, &timer_val_bg);
+
+  if (timer_wait_bg &&
+      (!timer_wait || (timeval_cmp (*timer_wait, *timer_wait_bg) > 0)))
+    timer_wait = timer_wait_bg;
+
+  /* When is the next timer due ? */
+  *event_wait = (timer_wait != NULL)
+                ? timeval2qtime(timer_wait)
+                : 0;
 
   return NULL;
 }
