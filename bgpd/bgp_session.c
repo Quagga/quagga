@@ -37,7 +37,7 @@
 #include "lib/zassert.h"
 
 /* prototypes */
-static int bgp_session_defer_if_stopping(bgp_session session);
+static int bgp_session_defer_if_limping(bgp_session session);
 static void bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag) ;
 static void bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag);
 static void bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag);
@@ -57,28 +57,34 @@ static void bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag);
  * is a mutex to coordinate access.
  *
  * A session is created some time before it is enabled, and may be destroyed
- * when the peer is disabled, or once the session has stopped.
+ * once the session is disabled.
  *
  * A session may be in one of four states:
  *
- *   * bgp_session_Idle         -- not doing anything
- *   * bgp_session_Enabled      -- the BGP Engine is trying to connect
- *   * bgp_session_Established  -- the BGP Engine is exchanging updates etc
- *   * bgp_session_Stopping     -- the BGP Engine is stopping the session
- *   * bgp_session_Stopped      -- a session has come to a dead stop
+ *   * bgp_session_sIdle         -- not doing anything
+ *   * bgp_session_sEnabled      -- the BGP Engine is trying to connect
+ *   * bgp_session_sEstablished  -- the BGP Engine is exchanging updates etc
+ *   * bgp_session_sLimping      -- in the process of being disabled
+ *   * bgp_session_sDisabled     -- completely disabled
  *
- * NB: in Idle and Stopped states the BGP Engine has no interest in the session.
- *     These are known as the "inactive" states.
+ * NB: in sIdle and sDisabled states the BGP Engine has no interest in the
+ *     session.  These are known as the "inactive" states.
  *
- * NB: in Enabled, Established and Stopping states the BGP Engine is running
+ * NB: in sEnabled, sEstablished and sLimping states the BGP Engine is running
  *     connection(s) for the session.  These are known as the "active" states.
  *
  *     While the session is active the Routeing Engine should not attempt to
  *     change any shared item in the session, except under the mutex.  And
  *     even then it may make no sense !
  *
+ * NB: a session reaches eDisabled when the Peering Engine has sent a disable
+ *     request to the BGP Engine, AND an eDisabled event has come back.
+ *
+ *     While the Peering Engine is waiting for the eDisabled event, the session
+ *     is in sLimping state.
+ *
  * The BGP Engine's primary interest is in its (private) bgp_connection
- * structure(s), which (while a session is Enabled, Established or Stopping)
+ * structure(s), which (while a session is sEnabled, sEstablished or sLimping)
  * are pointed to by their associated session.
  */
 
@@ -94,7 +100,7 @@ static void bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag);
  *
  * Unsets everything else -- mostly by zeroising it.
  *
- * NB: if not allocating, the existing session MUST be sIdle/sStopped OR never
+ * NB: if not allocating, the existing session MUST be sIdle/sDisabled OR never
  *     been kissed.
  *
  * NB: in any event, the peer's peer index entry MUST have a NULL session
@@ -158,6 +164,7 @@ bgp_session_init_new(bgp_session session, bgp_peer peer)
    *   su_remote      -- NULL -- none
    *
    *   connections[]  -- NULL -- none
+   *   active         -- false, not yet active
    */
   confirm(bgp_session_null_event == 0) ;
 
@@ -193,12 +200,11 @@ bgp_session_free(bgp_session session)
 }
 
 /*==============================================================================
- * Enable session for given peer -- allocate session if required.
+ * Peering Engine: enable session for given peer -- allocate if required.
  *
  * Sets up the session given the current state of the peer.  If the state
- * changes, then....
- *
- *
+ * changes, then need to disable the session and re-enable it again with new
+ * parameters -- unless something more cunning is devised.
  */
 extern void
 bgp_session_enable(bgp_peer peer)
@@ -222,8 +228,8 @@ bgp_session_enable(bgp_peer peer)
   else
     {
       assert(session->peer == peer) ;
-      /* if session is stopping then defer the enable */
-      if (bgp_session_defer_if_stopping(session))
+      /* if session is limping then defer the enable */
+      if (bgp_session_defer_if_limping(session))
         return;
       assert(!bgp_session_is_active(session)) ;
     } ;
@@ -295,6 +301,8 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
       BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
       assert(session->state == bgp_session_sEnabled) ;
+
+      session->active = 1 ;
       bgp_fsm_enable_session(session) ;
 
       BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
@@ -304,17 +312,17 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
 } ;
 
 /*==============================================================================
- * Disable session for given peer -- if enabled (!).
+ * Peering Engine: disable session for given peer -- if enabled (!).
  *
  * Passes any bgp_notify to the BGP Engine, which will dispose of it in due
  * course.
  *
  * If no bgp_notify provided, will send Cease/Administrative Shutdown (2).
  *
- * When session has been brought to a stop, BGP Engine will respond with an
- * eDisabled event (unless session stopped of its own accord first).
+ * The BGP Engine will stop the session -- unless it is already stopped due to
+ * some event in the BGP Engine.  In any case, the BGP Engine will respond with
+ * an eDisabled.
  */
-
 extern void
 bgp_session_disable(bgp_peer peer, bgp_notify notification)
 {
@@ -325,7 +333,7 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
   session = peer->session ;
   assert((session != NULL) && (session->peer == peer)) ;
 
-  /* Do nothing if session is not active, or is already stopping.       */
+  /* Do nothing if session is not active, or is already limping.        */
 
   if ( (session->state != bgp_session_sEnabled) &&
        (session->state != bgp_session_sEstablished) ) ;
@@ -334,22 +342,35 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
       return ;
     } ;
 
-  /* Now change to stopping state                                       */
-  session->state = bgp_session_sStopping;
+  /* Now change to limping state                                        */
+  session->state = bgp_session_sLimping;
 
   /* Ask the BGP engine to disable the session.
    *
-   * NB: it is, of course, possible that the session will stop between
-   *     issuing the disable and it being processed by the BGP Engine.
+   * NB: the session may already be stopped when the BGP Engine sees this
+   *     message:
    *
-   *     The BGP Engine quietly discards disable messages for sessions which
-   *     are not active.
+   *       * the disable is being issued in response to a stopped event from
+   *         the BGP Engine.
+   *
+   *       * the session is stopped, but the message to the Peering Engine is
+   *         still in its message queue.
+   *
+   *       * the session is stopped while the disable message is in the
+   *         BGP Engine queue.
+   *
+   *     in any case, the BGP Engine responds with an eDisabled message to
+   *     acknowledge the disable request -- and the session will then be
+   *     disabled.
    *
    * NB: The BGP Engine will discard any outstanding work for the session.
    *
    *     The Peering Engine should discard all further messages for this
-   *     session up to the event message that tells it the session has
-   *     stopped.
+   *     session up to the eDisabled, and must then discard any other
+   *     messages for the session.
+   *
+   * NB: the Peering Engine MUST not issue any further messages until it sees
+   *     the returned eDisabled event.
    */
   mqb = mqb_init_new(NULL, bgp_session_do_disable, session) ;
 
@@ -375,13 +396,16 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
 
       /* Get the FSM to send any notification and close connections     */
       bgp_fsm_disable_session(session, args->notification) ;
+
+      /* Acknowledge the disable -- session is stopped.                 */
+      bgp_session_event(session, bgp_session_eDisabled, NULL, 0, 0, 0) ;
     } ;
 
   mqb_free(mqb) ;
 }
 
 /*==============================================================================
- * Send session event signal from BGP Engine to Routeing Engine
+ * BGP Engine: send session event signal to Routeing Engine
  */
 extern void
 bgp_session_event(bgp_session session, bgp_session_event_t  event,
@@ -392,6 +416,9 @@ bgp_session_event(bgp_session session, bgp_session_event_t  event,
 {
   struct bgp_session_event_args* args ;
   mqueue_block   mqb ;
+
+  if (stopped)
+    session->active  = 0 ;              /* ignore updates etc           */
 
   mqb = mqb_init_new(NULL, bgp_session_do_event, session) ;
 
@@ -407,14 +434,13 @@ bgp_session_event(bgp_session session, bgp_session_event_t  event,
 }
 
 /*==============================================================================
- * Dispatch update to peer -- Peering Engine -> BGP Engine
+ * Peering Engine: dispatch update to peer -> BGP Engine
  *
  * PRO TEM -- this is being passed the pre-packaged BGP message.
  *
  * The BGP Engine takes care of discarding the stream block once it's been
  * dealt with.
  */
-
 extern void
 bgp_session_update_send(bgp_session session, struct stream* upd)
 {
@@ -435,7 +461,7 @@ bgp_session_update_send(bgp_session session, struct stream* upd)
 } ;
 
 /*------------------------------------------------------------------------------
- * BGP Engine -- mqb action function -- write given BGP update message.
+ * BGP Engine: write given BGP update message -- mqb action function.
  *
  * Each connection has a pending queue associated with it, onto which messages
  * are put if the connection's write buffer is unable to absorb any further
@@ -474,12 +500,12 @@ static void
 bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
 {
   struct bgp_session_update_args* args = mqb_get_args(mqb) ;
+  bgp_session session = mqb_get_arg0(mqb) ;
 
-  if (flag == mqb_action)
+  if ((flag == mqb_action) && session->active)
     {
-      bgp_session session = mqb_get_arg0(mqb) ;
-
       bgp_connection connection = session->connections[bgp_connection_primary] ;
+      assert(connection != NULL) ;
 
       mqueue_block head = mqueue_local_head(&connection->pending_queue) ;
 
@@ -531,7 +557,9 @@ bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
   mqb_free(mqb) ;
 } ;
 
-/* Are we in XON state ? */
+/*------------------------------------------------------------------------------
+ * Peering Engine: are we in XON state ?
+ */
 extern int
 bgp_session_is_XON(bgp_peer peer)
 {
@@ -546,7 +574,7 @@ bgp_session_is_XON(bgp_peer peer)
 } ;
 
 /*==============================================================================
- * Dispatch Route Refresh to peer -- Peering Engine -> BGP Engine
+ * Peering Engine: dispatch Route Refresh to peer -> BGP Engine
  *
  * The BGP Engine takes care of discarding the bgp_route_refresh once it's been
  * dealt with.
@@ -567,7 +595,7 @@ bgp_session_route_refresh_send(bgp_session session, bgp_route_refresh rr)
 } ;
 
 /*------------------------------------------------------------------------------
- * BGP Engine -- mqb action function -- write given BGP route refresh message.
+ * BGP Engine: write given BGP route refresh message -- mqb action function.
  *
  * The logic here is the same as for bgp_session_do_update_send -- except that
  * there is no flow control (!).
@@ -576,12 +604,12 @@ static void
 bgp_session_do_route_refresh_send(mqueue_block mqb, mqb_flag_t flag)
 {
   struct bgp_session_route_refresh_args* args = mqb_get_args(mqb) ;
+  bgp_session session = mqb_get_arg0(mqb) ;
 
-  if (flag == mqb_action)
+  if ((flag == mqb_action) && session->active)
     {
-      bgp_session session = mqb_get_arg0(mqb) ;
-
       bgp_connection connection = session->connections[bgp_connection_primary] ;
+      assert(connection != NULL) ;
 
       mqueue_block head = mqueue_local_head(&connection->pending_queue) ;
 
@@ -629,7 +657,7 @@ bgp_session_do_route_refresh_send(mqueue_block mqb, mqb_flag_t flag)
 } ;
 
 /*==============================================================================
- * Dispatch End-of-RIB to peer -- Peering Engine -> BGP Engine
+ * Peering Engine: dispatch End-of-RIB to peer -> BGP Engine
  */
 extern void
 bgp_session_end_of_rib_send(bgp_session session, qAFI_t afi, qSAFI_t safi)
@@ -651,7 +679,7 @@ bgp_session_end_of_rib_send(bgp_session session, qAFI_t afi, qSAFI_t safi)
 } ;
 
 /*------------------------------------------------------------------------------
- * BGP Engine -- mqb action function -- write given BGP end-of-RIB message.
+ * BGP Engine: write given BGP end-of-RIB message -- mqb action function.
  *
  * The logic here is the same as for bgp_session_do_update_send -- except that
  * there is no flow control (!).
@@ -660,12 +688,12 @@ static void
 bgp_session_do_end_of_rib_send(mqueue_block mqb, mqb_flag_t flag)
 {
   struct bgp_session_end_of_rib_args* args = mqb_get_args(mqb) ;
+  bgp_session session = mqb_get_arg0(mqb) ;
 
-  if (flag == mqb_action)
+  if ((flag == mqb_action) && session->active)
     {
-      bgp_session session = mqb_get_arg0(mqb) ;
-
       bgp_connection connection = session->connections[bgp_connection_primary] ;
+      assert(connection != NULL) ;
 
       mqueue_block head = mqueue_local_head(&connection->pending_queue) ;
 
@@ -712,15 +740,14 @@ bgp_session_do_end_of_rib_send(mqueue_block mqb, mqb_flag_t flag)
 } ;
 
 /*==============================================================================
- * Forward incoming update -- BGP Engine -> Peering Engine
+ * BGP Engine: forward incoming update -> Peering Engine
  *
  * PRO TEM -- this is being passed the raw BGP message.
  *
  * The Peering Engine takes care of discarding the stream block once it's been
  * dealt with.
  */
-
-void
+extern void
 bgp_session_update_recv(bgp_session session, struct stream* buf, bgp_size_t size)
 {
   struct bgp_session_update_args* args ;
@@ -735,6 +762,9 @@ bgp_session_update_recv(bgp_session session, struct stream* buf, bgp_size_t size
   bgp_to_peering_engine(mqb) ;
 }
 
+/*------------------------------------------------------------------------------
+ * Peering Engine: process incoming update message -- mqb action function.
+ */
 static void
 bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag)
 {
@@ -754,11 +784,10 @@ bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag)
 }
 
 /*==============================================================================
- * XON -- BGP Engine -> Peering Engine
+ * BGP Engine: send XON message to Peering Engine
  *
  * Can be sent more packets now
  */
-
 static void
 bgp_session_XON(bgp_session session)
 {
@@ -771,6 +800,9 @@ bgp_session_XON(bgp_session session)
   bgp_to_peering_engine(mqb) ;
 }
 
+/*------------------------------------------------------------------------------
+ * Peering Engine: process incoming XON message -- mqb action function.
+ */
 static void
 bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag)
 {
@@ -812,7 +844,7 @@ bgp_session_is_active(bgp_session session)
     {
       active =  (   (session->state == bgp_session_sEnabled)
                  || (session->state == bgp_session_sEstablished)
-                 || (session->state == bgp_session_sStopping) ) ;
+                 || (session->state == bgp_session_sLimping) ) ;
 
       if (!active)
         assert(session->index_entry->accept == NULL) ;
@@ -824,13 +856,13 @@ bgp_session_is_active(bgp_session session)
 } ;
 
 /*------------------------------------------------------------------------------
- * If session is stopping we defer re-enabling the session until it has stopped.
+ * If session is limping we defer re-enabling the session until it is disabled.
  *
- * returns 1 if stopping and defer
- * returns 0 if not stopping
+ * returns 1 if limping and defer
+ * returns 0 if not limping
   */
 static int
-bgp_session_defer_if_stopping(bgp_session session)
+bgp_session_defer_if_limping(bgp_session session)
 {
   int defer_enable = 0 ;
 
@@ -839,7 +871,8 @@ bgp_session_defer_if_stopping(bgp_session session)
 
   BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
-  session->defer_enable = defer_enable = (session->state == bgp_session_sStopping);
+  session->defer_enable =
+           defer_enable = (session->state == bgp_session_sLimping);
 
   BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
