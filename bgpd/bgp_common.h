@@ -76,8 +76,8 @@ enum bgp_session_states
   bgp_session_sEnabled      = 1,  /* attempting to connect                  */
   bgp_session_sEstablished  = 2,
 
-  bgp_session_sStopping     = 3,  /* for whatever reason                    */
-  bgp_session_sStopped      = 4,  /* for whatever reason                    */
+  bgp_session_sLimping      = 3,  /* disable message sent                   */
+  bgp_session_sDisabled     = 4,  /* disable message acknowledged           */
 
   bgp_session_max_state     = 4
 } ;

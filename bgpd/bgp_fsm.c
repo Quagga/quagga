@@ -1602,7 +1602,12 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
 
   if ((connection->except != bgp_session_null_event) && (session != NULL))
     {
-      /* Some exceptions are not reported to the Routeing Engine        */
+      /* Some exceptions are not reported to the Routeing Engine
+       *
+       * In particular: eDiscard and eCollision -- so the only time the
+       * connection->state will be Stopping is when the session is being
+       * stopped.  (eDiscard and eCollision go quietly to Stopping !)
+       */
       if (connection->except <= bgp_session_max_event)
         bgp_session_event(session, connection->except,
                                    connection->notification,
@@ -2456,8 +2461,6 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
       session->connections[connection->ordinal] = NULL ;
       connection->session = NULL ;
       connection->p_mutex = NULL ;
-
-      session->state = bgp_session_sStopped ;
 
       break ;
 

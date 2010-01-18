@@ -58,18 +58,14 @@
 
 /* prototypes */
 
-static int
-bgp_session_has_established(bgp_peer peer);
-static int
-bgp_session_has_stopped(bgp_peer peer);
-static void
-bgp_uptime_reset (struct peer *peer);
-static int
-bgp_routeadv_timer (struct thread *thread);
-static int
-bgp_graceful_restart_timer_expire (struct thread *thread);
-static int
-bgp_graceful_stale_timer_expire (struct thread *thread);
+static int bgp_session_has_established(bgp_peer peer);
+static int bgp_session_has_stopped(bgp_peer peer);
+static int bgp_session_has_disabled(bgp_peer peer);
+static int bgp_peer_stop (struct peer *peer) ;
+static void bgp_uptime_reset (struct peer *peer);
+static int bgp_routeadv_timer (struct thread *thread);
+static int bgp_graceful_restart_timer_expire (struct thread *thread);
+static int bgp_graceful_stale_timer_expire (struct thread *thread);
 
 /*==============================================================================
  * This is the high level management of BGP Peers and peering conversations.
@@ -121,18 +117,21 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
       /* If now Established, then the BGP Engine has exchanged BGP Open   */
       /* messages, and received the KeepAlive that acknowledges our Open. */
       case bgp_session_eEstablished:
-        session->state = bgp_session_sEstablished ;
         bgp_session_has_established(peer);
+        break ;
+
+      /* If now Disabled, then the BGP Engine is acknowledging the a      */
+      /* session disable, and the session is now disabled.                */
+      case bgp_session_eDisabled:
+        bgp_session_has_disabled(peer);
         break ;
 
       default:
       /* If now Stopped, then for some reason the BGP Engine has either   */
       /* stopped trying to connect, or the session has been stopped.      */
+      /* TODO: stop from BGP Engine requires a Disable to be sent...      */
         if (args->stopped)
-          {
-            session->state = bgp_session_sStopped ;
-            bgp_session_has_stopped(peer);
-          } ;
+          bgp_session_has_stopped(peer);
         break ;
 
       }
@@ -155,6 +154,12 @@ bgp_session_has_established(bgp_peer peer)
   afi_t afi;
   safi_t safi;
   int nsf_af_count = 0;
+
+  bgp_session session = peer->session ;
+
+  assert(session->state == bgp_session_sEnabled) ;
+
+  session->state = bgp_session_sEstablished ;
 
   /* update peer state from received open */
   bgp_peer_open_state_receive(peer);
@@ -255,11 +260,45 @@ bgp_session_has_established(bgp_peer peer)
   return 0;
 }
 
-/* State change to stopped, session mutex locked */
+/*------------------------------------------------------------------------------
+ * State change to sLimping, session mutex locked
+ *
+ * The BGP Engine has signalled that it has stopped the session.  Response to
+ * that is to tell it to disable the session, and then wait in sLimping state
+ * until the BGP Engine acknowledges the disable request.
+ */
 static int
 bgp_session_has_stopped(bgp_peer peer)
 {
+  bgp_session session = peer->session ;
+
+  assert(bgp_session_is_active(session)) ;
+
+  bgp_session_disable(peer, NULL) ;     /* does nothing if already sLimping */
+
+  /* TODO: needs to kick off the process of withdrawing routes etc.     */
+  /* TODO: needs to deal with NOTIFICATION, if any ??                   */
+  /* TODO: needs to automatically re-enable the peering ??              */
+  bgp_peer_stop(peer) ;
+
+  return 0;
+}
+
+/*------------------------------------------------------------------------------
+ * State change to sDisabled, session mutex locked
+ *
+ * The BGP Engine has acknowledged the disable request.
+ */
+static int
+bgp_session_has_disabled(bgp_peer peer)
+{
   bgp_session session = peer->session;
+
+  assert(session->state == bgp_session_sLimping) ;
+
+  session->state = bgp_session_sDisabled ;
+
+  /* TODO: here should revoke session in Peering Engine message queue   */
 
   /* does the session need to be re-enabled? */
   if (session->defer_enable)

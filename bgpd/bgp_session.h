@@ -183,9 +183,18 @@ struct bgp_session
    * touched by the Routeing Engine at any other time.
    *
    * Before stopping a session the BGP Engine unlinks any connections from
-   * the session.
+   * the session, and sets the stopped flag.
+   *
+   * The active flag is set when one or more connections are activated, and
+   * cleared when either the BGP Engine stops the session or the Peering
+   * Engine disables it.  When not "active" all messages other than disable
+   * and enable are ignored.  This deals with the hiatus that exists between
+   * the BGP Engine signalling that it has stopped (because of some exception)
+   * and the Peering Engine acknowledging that (by disabling the session).
    */
   bgp_connection    connections[bgp_connection_count] ;
+
+  flag_t        active ;
 } ;
 
 /*==============================================================================
