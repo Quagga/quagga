@@ -82,6 +82,8 @@ void sigusr2 (void);
 static void bgp_exit (int);
 static void init_second_stage(int pthreads);
 static void bgp_in_thread_init(void);
+static qtime_mono_t routing_event_hook(void);
+static qtime_mono_t bgp_event_hook(void);
 
 static struct quagga_signal_t bgp_signals[] = 
 {
@@ -366,17 +368,30 @@ init_second_stage(int pthreads)
   qlib_init_second_stage(pthreads);
   bgp_peer_index_mutex_init(NULL);
 
-  /* if using pthreads create additional mutexes */
-  if (pthreads)
+  /* if using pthreads create additional nexus */
+  if (qpthreads_enabled)
     {
       bgp_nexus = qpn_init_new(cli_nexus, 0);
       routing_nexus = qpn_init_new(cli_nexus, 0);
     }
 
-  /* legacy threads are executed in routing_nexus */
-  routing_nexus->master = master;
+  /* Nexus hooks.
+   * Beware if !qpthreads_enabled then there is only 1 nexus object
+   * with all nexus pointers being aliases for it.  So only one routine
+   * per hook for *all* nexus.
+   */
+  bgp_nexus->in_thread_init = bgp_in_thread_init;
+  bgp_nexus->in_thread_final = bgp_close_listeners;
+  routing_nexus->event_hook[0] = routing_event_hook;
+  bgp_nexus->event_hook[1] = bgp_event_hook;
+  confirm(NUM_EVENT_HOOK >= 2);
+
+  /* vty can use either nexus or threads.  For bgp client we always
+   * want nexus, regardless of pthreads.
+   */
   vty_init_r(cli_nexus, routing_nexus);
 }
+
 /* Main routine of bgpd. Treatment of argument and start bgp finite
    state machine is handled at here. */
 int
@@ -546,15 +561,6 @@ main (int argc, char **argv)
 	       (bm->address ? bm->address : "<all>"),
 	       (int)bm->port);
 
-  /* in-thread initialization and finalization.
-   * NB if !qpthreads_enabled then there is only 1 nexus object
-   * with all nexus pointers being alises for it.  So if different
-   * logical nexus need their own init or final then will need a single
-   * init or final routine.
-   */
-  bgp_nexus->in_thread_init = bgp_in_thread_init;
-  bgp_nexus->in_thread_final = bgp_close_listeners;
-
   /* Launch finite state machine(s) */
   if (qpthreads_enabled)
     {
@@ -581,4 +587,25 @@ static void
 bgp_in_thread_init(void)
 {
   bgp_open_listeners(bm->port, bm->address);
+}
+
+/* legacy threads */
+static qtime_mono_t
+routing_event_hook(void)
+{
+  struct thread thread;
+  qtime_mono_t event_wait;
+
+  while (thread_fetch_event (master, &thread, &event_wait))
+    thread_call (&thread);
+
+  return event_wait;
+}
+
+/* BGP local queued events */
+static qtime_mono_t
+bgp_event_hook(void)
+{
+  bgp_connection_queue_process();
+  return 0;
 }

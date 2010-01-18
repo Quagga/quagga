@@ -53,6 +53,9 @@
 /* signal for message queues */
 #define SIGMQUEUE SIGUSR2
 
+/* number of event hooks */
+#define NUM_EVENT_HOOK 2
+
 /*==============================================================================
  * Data Structures.
  */
@@ -80,9 +83,6 @@ struct qpn_nexus
   mqueue_queue queue;
   mqueue_thread_signal mts;
 
-  /* legacy threads */
-  struct thread_master *master;
-
   /* qpthread routine, can override */
   void* (*start)(void*);
 
@@ -94,6 +94,12 @@ struct qpn_nexus
    * just before thread dies.  Nexus components all exist but
    * thread loop is no longer executed */
   void (*in_thread_final)(void);
+
+  /* thread loop events, can override.  Called before message queue,
+   * I/O and timers.
+   * Returns the time to try again, 0 means default to maximum.
+   */
+  qtime_mono_t (*event_hook[NUM_EVENT_HOOK])(void);
 
 };
 

@@ -121,7 +121,7 @@ qpn_exec(qpn_nexus qpn)
  *
  *   1) Main thread only -- signals.
  *
- *   2) Pending work -- local queue.
+ *   2) Pending work -- event hooks.
  *
  *   3) messages coming from other pthreads -- mqueue_queue.
  *
@@ -145,7 +145,8 @@ qpn_start(void* arg)
   mqueue_block mqb;
   int actions;
   qtime_mono_t now;
-  struct thread thread;
+  qtime_mono_t max_wait;
+  int i;
 
   /* now in our thread, complete initialisation */
   qpn_in_thread_init(qpn);
@@ -156,6 +157,21 @@ qpn_start(void* arg)
        * only execute on the main thread */
       if (qpn->main_thread)
         quagga_sigevent_process ();
+
+      /* max time to wait in pselect */
+      now = qt_get_monotonic();
+      max_wait = now + QTIME(MAX_PSELECT_TIMOUT);
+
+      /* event hooks, if any */
+      for (i = 0; i < NUM_EVENT_HOOK; ++i)
+        {
+          if (qpn->event_hook[i] != NULL)
+            {
+              qtime_mono_t event_wait = qpn->event_hook[i]();
+              if (event_wait > 0 && event_wait < max_wait)
+                max_wait = event_wait;
+            }
+        }
 
       /* drain the message queue, will be in waiting for signal state
        * when it's empty */
@@ -169,9 +185,8 @@ qpn_start(void* arg)
         }
 
       /* block for some input, output, signal or timeout */
-      now = qt_get_monotonic();
       actions = qps_pselect(qpn->selection,
-          qtimer_pile_top_time(qpn->pile, now + QTIME(MAX_PSELECT_TIMOUT)) );
+          qtimer_pile_top_time(qpn->pile, max_wait));
 
       /* process I/O actions */
       while (actions)
@@ -183,15 +198,6 @@ qpn_start(void* arg)
       now = qt_get_monotonic();
       while (qtimer_pile_dispatch_next(qpn->pile, now))
         {
-        }
-
-      /* legacy threads */
-      /* TODO: legacy threads must not pselect.  How is the pselect above
-       * to know when to timeout for legacy timers? */
-      if (qpn->master != NULL)
-        {
-          if (thread_fetch (qpn->master, &thread))
-            thread_call (&thread);
         }
     }
 
