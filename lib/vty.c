@@ -141,7 +141,7 @@ char integrate_default[] = SYSCONFDIR INTEGRATE_DEFAULT_CONFIG;
 /* Master of the threads. */
 static struct thread_master *master = NULL;
 static qpn_nexus cli_nexus = NULL;
-static qpn_nexus bgp_nexus = NULL;
+static qpn_nexus routing_nexus = NULL;
 
 /* VTY standard output function.   vty == NULL or VTY_SHELL => stdout	*/
 int
@@ -553,7 +553,7 @@ vty_command (struct vty *vty, char *buf)
 #endif /* CONSUMED_TIME_CHECK */
 
   UNLOCK
-  ret = cmd_execute_command (vline, vty, NULL, bgp_nexus, 0);
+  ret = cmd_execute_command (vline, vty, NULL, routing_nexus, 0);
   LOCK
 
   /* Get the name of the protocol if any */
@@ -3644,10 +3644,10 @@ vty_set_lines(struct vty *vty, int lines)
 
 /* qpthreads: Install vty's own commands like `who' command. */
 void
-vty_init_r (qpn_nexus cli_n, qpn_nexus bgp_n)
+vty_init_r (qpn_nexus cli_n, qpn_nexus routing_n)
 {
   cli_nexus = cli_n;
-  bgp_nexus = bgp_n;
+  routing_nexus = routing_n;
   qpt_mutex_init(&vty_mutex, qpt_mutex_recursive);
 }
 

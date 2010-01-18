@@ -49,6 +49,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_clist.h"
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_filter.h"
+#include "bgpd/bgp_network.h"
 
 /* bgpd options, we use GNU getopt library. */
 static const struct option longopts[] = 
@@ -80,6 +81,7 @@ void sigusr2 (void);
 /* prototypes */
 static void bgp_exit (int);
 static void init_second_stage(int pthreads);
+static void bgp_in_thread_init(void);
 
 static struct quagga_signal_t bgp_signals[] = 
 {
@@ -221,14 +223,10 @@ sigint (void)
 
       if (bgp_nexus != NULL)
         qpn_terminate(bgp_nexus);
+    }
 
-      if (cli_nexus != NULL)
-        qpn_terminate(cli_nexus);
-    }
-  else
-    {
-      bgp_exit (0);
-    }
+  if (cli_nexus != NULL)
+      qpn_terminate(cli_nexus);
 }
 
 /* SIGUSR1 handler. */
@@ -340,8 +338,11 @@ bgp_exit (int status)
   if (CONF_BGP_DEBUG (normal, NORMAL))
     log_memstats_stderr ("bgpd");
 
-  routing_nexus = qpn_free(routing_nexus);
-  bgp_nexus = qpn_free(bgp_nexus);
+  if (qpthreads_enabled)
+  {
+    routing_nexus = qpn_free(routing_nexus);
+    bgp_nexus = qpn_free(bgp_nexus);
+  }
   cli_nexus = qpn_free(cli_nexus);
 
   qexit (status);
@@ -364,6 +365,17 @@ init_second_stage(int pthreads)
 {
   qlib_init_second_stage(pthreads);
   bgp_peer_index_mutex_init(NULL);
+
+  /* if using pthreads create additional mutexes */
+  if (pthreads)
+    {
+      bgp_nexus = qpn_init_new(cli_nexus, 0);
+      routing_nexus = qpn_init_new(cli_nexus, 0);
+    }
+
+  /* legacy threads are executed in routing_nexus */
+  routing_nexus->master = master;
+  vty_init_r(cli_nexus, routing_nexus);
 }
 /* Main routine of bgpd. Treatment of argument and start bgp finite
    state machine is handled at here. */
@@ -375,7 +387,6 @@ main (int argc, char **argv)
   int daemon_mode = 0;
   int dryrun = 0;
   char *progname;
-  struct thread thread;
   int tmp_port;
 
   /* Set umask before anything for security */
@@ -392,6 +403,11 @@ main (int argc, char **argv)
 
   zlog_default = openzlog (progname, ZLOG_BGP,
 			   LOG_CONS|LOG_NDELAY|LOG_PID, LOG_DAEMON);
+
+  /* Make nexus for main thread, always needed */
+  cli_nexus = qpn_init_new(cli_nexus, 1); /* main thread */
+  bgp_nexus = cli_nexus;        /* use main thread for now */
+  routing_nexus = cli_nexus;    /* use main thread for now */
 
   /* BGP master init. */
   bgp_master_init ();
@@ -518,15 +534,6 @@ main (int argc, char **argv)
   if (!qpthreads_enabled)
     init_second_stage(0);
 
-  if (qpthreads_enabled)
-    {
-      cli_nexus = qpn_init_main(cli_nexus); /* main thread */
-      bgp_nexus = qpn_init_bgp(bgp_nexus);
-      routing_nexus = qpn_init_bgp(routing_nexus);
-
-      vty_init_r(cli_nexus, bgp_nexus);
-    }
-
   /* Make bgp vty socket. */
   vty_serv_sock (vty_addr, vty_port, BGP_VTYSH_PATH);
 
@@ -539,32 +546,39 @@ main (int argc, char **argv)
 	       (bm->address ? bm->address : "<all>"),
 	       (int)bm->port);
 
+  /* in-thread initialization and finalization.
+   * NB if !qpthreads_enabled then there is only 1 nexus object
+   * with all nexus pointers being alises for it.  So if different
+   * logical nexus need their own init or final then will need a single
+   * init or final routine.
+   */
+  bgp_nexus->in_thread_init = bgp_in_thread_init;
+  bgp_nexus->in_thread_final = bgp_close_listeners;
 
-  /* Launch finite state machines */
+  /* Launch finite state machine(s) */
   if (qpthreads_enabled)
     {
       void * thread_result = NULL;
 
-      /* TODO: exec routing_nexus */
-      /* qpn_exec(routing_nexus); */
+      qpn_exec(routing_nexus);
       qpn_exec(bgp_nexus);
       qpn_exec(cli_nexus);      /* must be last to start - on main thread */
 
       /* terminating, wait for all threads to finish */
-      /* TODO: join with routing_nexus */
-      /* thread_result = qpt_thread_join(routing_nexus->thread_id); */
+      thread_result = qpt_thread_join(routing_nexus->thread_id);
       thread_result = qpt_thread_join(bgp_nexus->thread_id);
-      bgp_exit(0);
     }
   else
     {
-      /* Start finite state machine, here we go! */
-      while (thread_fetch (master, &thread))
-        thread_call (&thread);
+      qpn_exec(cli_nexus);      /* only nexus - on main thread */
     }
 
-  /* Not reached. */
-  return (0);
+  bgp_exit(0);
 }
 
-
+/* bgp_nexus in-thread initialization */
+static void
+bgp_in_thread_init(void)
+{
+  bgp_open_listeners(bm->port, bm->address);
+}

@@ -30,6 +30,7 @@
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_open_state.h"
 #include "bgpd/bgp_fsm.h"
+#include "bgpd/bgp_vty.h"
 
 
 

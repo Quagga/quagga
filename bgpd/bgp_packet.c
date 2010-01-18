@@ -613,7 +613,7 @@ bgp_write_proceed (struct peer *peer)
 #endif
 
 /*------------------------------------------------------------------------------
-/* Write packets to the peer -- subject to the XON flow control.
+ * Write packets to the peer -- subject to the XON flow control.
  *
  * Empties the obuf queue first.
  *

@@ -1992,7 +1992,7 @@ node_parent ( enum node_type node )
 /* Execute command by argument vline vector. */
 static int
 cmd_execute_command_real (vector vline, struct vty *vty,
-			  struct cmd_element **cmd, qpn_nexus bgp_nexus)
+			  struct cmd_element **cmd, qpn_nexus dest_nexus)
 {
   unsigned int i;
   unsigned int index;
@@ -2111,7 +2111,7 @@ cmd_execute_command_real (vector vline, struct vty *vty,
   if (qpthreads_enabled && !(matched_element->attr & CMD_ATTR_CALL))
     {
       /* Don't do it now, but send to bgp qpthread */
-      cq_enqueue(matched_element, vty, argc, argv, bgp_nexus);
+      cq_enqueue(matched_element, vty, argc, argv, dest_nexus);
       return CMD_QUEUED;
     }
   else
@@ -2122,7 +2122,7 @@ cmd_execute_command_real (vector vline, struct vty *vty,
 
 int
 cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
-		     qpn_nexus bgp_nexus, int vtysh) {
+		     qpn_nexus dest_nexus, int vtysh) {
   int ret, saved_ret, tried = 0;
   enum node_type onode, try_node;
 
@@ -2143,7 +2143,7 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
 	  vector_set_index (shifted_vline, index-1, vector_lookup(vline, index));
 	}
 
-      ret = cmd_execute_command_real (shifted_vline, vty, cmd, bgp_nexus);
+      ret = cmd_execute_command_real (shifted_vline, vty, cmd, dest_nexus);
 
       vector_free(shifted_vline);
       vty_set_node(vty, onode);
@@ -2151,7 +2151,7 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
   }
 
 
-  saved_ret = ret = cmd_execute_command_real (vline, vty, cmd, bgp_nexus);
+  saved_ret = ret = cmd_execute_command_real (vline, vty, cmd, dest_nexus);
 
   if (vtysh)
     return saved_ret;
@@ -2162,7 +2162,7 @@ cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
     {
       try_node = node_parent(try_node);
       vty_set_node(vty, try_node);
-      ret = cmd_execute_command_real (vline, vty, cmd, bgp_nexus);
+      ret = cmd_execute_command_real (vline, vty, cmd, dest_nexus);
       tried = 1;
       if (ret == CMD_SUCCESS || ret == CMD_WARNING)
 	{

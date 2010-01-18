@@ -323,7 +323,7 @@ bgp_init_listener(int sock, struct sockaddr *sa, socklen_t salen)
   listener = XCALLOC(MTYPE_BGP_LISTENER, sizeof(struct bgp_listener)) ;
 
   qps_file_init_new(&listener->qf, NULL) ;
-  qps_add_file(p_bgp_engine->selection, &listener->qf, sock, listener) ;
+  qps_add_file(bgp_nexus->selection, &listener->qf, sock, listener) ;
   qps_enable_mode(&listener->qf, qps_read_mnum, bgp_accept_action) ;
 
   memcpy(&listener->su, sa, salen) ;

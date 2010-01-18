@@ -149,9 +149,9 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
   qps_file_init_new(&connection->qf, NULL) ;
 
   /* Initialise all the timers                                          */
-  qtimer_init_new(&connection->hold_timer,      p_bgp_engine->pile,
+  qtimer_init_new(&connection->hold_timer,      bgp_nexus->pile,
                                                              NULL, connection) ;
-  qtimer_init_new(&connection->keepalive_timer, p_bgp_engine->pile,
+  qtimer_init_new(&connection->keepalive_timer, bgp_nexus->pile,
                                                              NULL, connection) ;
 
   /* Copy log destination and make host name + (primary)/(secondary)    */
@@ -483,7 +483,7 @@ bgp_connection_open(bgp_connection connection, int fd)
     bgp_connection_disable_accept(connection) ;
 
   /* Set the file going                                                 */
-  qps_add_file(p_bgp_engine->selection, &connection->qf, fd, connection) ;
+  qps_add_file(bgp_nexus->selection, &connection->qf, fd, connection) ;
 
   /* Clear sundry state is clear                                        */
   connection->post    = bgp_fsm_null_event ;    /* no post event event  */

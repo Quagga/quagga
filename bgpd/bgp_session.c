@@ -371,7 +371,7 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
       struct bgp_session_disable_args* args = mqb_get_args(mqb) ;
 
       /* Immediately discard any other messages for this session.       */
-      mqueue_revoke(p_bgp_engine->queue, session) ;
+      mqueue_revoke(bgp_nexus->queue, session) ;
 
       /* Get the FSM to send any notification and close connections     */
       bgp_fsm_disable_session(session, args->notification) ;

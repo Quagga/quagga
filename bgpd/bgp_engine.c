@@ -62,10 +62,7 @@
  *
  */
 
-qpn_nexus p_bgp_engine ;
-
-static struct qpn_nexus  bgp_engine ;
-
+extern qpn_nexus bgp_nexus ;
 
 /*==============================================================================
  * Start the BGP Engine Thread.
@@ -74,42 +71,21 @@ static struct qpn_nexus  bgp_engine ;
  *
  */
 
-static void* bgp_engine_loop(void* arg) ;
-
-/* TODO: BGP Engine side of bgp_engine_start() must call bgp_open_listeners()
- *       for which it needs the port and address from command line.
+/* BGP Engine side of bgp_engine_start() must call bgp_open_listeners()
+ * for which it needs the port and address from command line.
+ *
+ * Implemented in bgp_main.c
  */
-
-extern void
-bgp_engine_start(void)
-{
-  p_bgp_engine = qpn_init_new(&bgp_engine) ;
-
-  p_bgp_engine->start     = bgp_engine_loop ;
-
-  p_bgp_engine->thread_id = qpt_thread_self() ;
-
-  p_bgp_engine->selection = qps_selection_init_new(NULL) ;
-  p_bgp_engine->pile      = qtimer_pile_init_new(NULL) ;
-  p_bgp_engine->queue     = mqueue_init_new(NULL, mqt_signal_broadcast) ;
-  p_bgp_engine->mts       = mqueue_thread_signal_init(NULL,
-                                           p_bgp_engine->thread_id, SIGMQUEUE) ;
-
-  qpn_exec(p_bgp_engine) ;
-} ;
 
 /*==============================================================================
  * Stop the BGP Engine Thread.
  *
  */
 
-/* TODO: BGP Engine side of bgp_engine_stop() must call bgp_close_listeners()
+/* BGP Engine side of bgp_engine_stop() must call bgp_close_listeners()
+ *
+ * Implemented in bgp_main.c
  */
-
-extern void
-bgp_engine_stop(void)
-{
-} ;
 
 /*==============================================================================
  * The BGP Engine Thread main loop
@@ -154,22 +130,9 @@ bgp_engine_stop(void)
  *
  *      Which generate FSM events.
  *
+ * Implemented in qpnexus.c
  *
  */
-
-
-
-
-
-
-
-
-/*==============================================================================
- * The qpnexus for the BGP Engine.
- *
- *
- */
-
 
 
 /*==============================================================================

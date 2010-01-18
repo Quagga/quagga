@@ -897,6 +897,35 @@ peer_free (struct peer *peer)
   XFREE (MTYPE_BGP_PEER, peer);
 }
 
+void
+peer_nsf_stop (struct peer *peer)
+{
+  afi_t afi;
+  safi_t safi;
+
+  UNSET_FLAG (peer->sflags, PEER_STATUS_NSF_WAIT);
+  UNSET_FLAG (peer->sflags, PEER_STATUS_NSF_MODE);
+
+  for (afi = AFI_IP ; afi < AFI_MAX ; afi++)
+    for (safi = SAFI_UNICAST ; safi < SAFI_UNICAST_MULTICAST ; safi++)
+      peer->nsf[afi][safi] = 0;
+
+  if (peer->t_gr_restart)
+    {
+      BGP_TIMER_OFF (peer->t_gr_restart);
+      if (BGP_DEBUG (events, EVENTS))
+        zlog_debug ("%s graceful restart timer stopped", peer->host);
+    }
+  if (peer->t_gr_stale)
+    {
+      BGP_TIMER_OFF (peer->t_gr_stale);
+      if (BGP_DEBUG (events, EVENTS))
+        zlog_debug ("%s graceful restart stalepath timer stopped", peer->host);
+    }
+  bgp_clear_route_all (peer);
+}
+
+
 /* Disable then enable the peer.  Sends notification. */
 void
 bgp_peer_reenable(bgp_peer peer, bgp_notify notification)

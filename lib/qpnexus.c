@@ -28,11 +28,7 @@
 
 /* prototypes */
 static void* qpn_start(void* arg);
-static void* qpn_start_bgp(void* arg);
 static void qpn_in_thread_init(qpn_nexus qpn);
-
-/* Master of the threads. */
-extern struct thread_master *master;
 
 /*==============================================================================
  * Quagga Nexus Interface -- qpn_xxxx
@@ -50,54 +46,17 @@ extern struct thread_master *master;
  * Returns the qpn_nexus.
  */
 qpn_nexus
-qpn_init_new(qpn_nexus qpn)
+qpn_init_new(qpn_nexus qpn, int main_thread)
 {
   if (qpn == NULL)
     qpn = XCALLOC(MTYPE_QPN_NEXUS, sizeof(struct qpn_nexus)) ;
   else
     memset(qpn, 0,  sizeof(struct qpn_nexus)) ;
 
-  return qpn;
-}
-
-/* Initialize main qpthread */
-qpn_nexus
-qpn_init_main(qpn_nexus qpn)
-{
-  qpn = qpn_init_new(qpn);
   qpn->selection = qps_selection_init_new(qpn->selection);
   qpn->pile = qtimer_pile_init_new(qpn->pile);
   qpn->queue = mqueue_init_new(qpn->queue, mqt_signal_unicast);
-  qpn->main_thread = 1;
-  qpn->start = qpn_start;
-
-  return qpn;
-}
-
-/* Initialize bgp engine's qpthread */
-qpn_nexus
-qpn_init_bgp(qpn_nexus qpn)
-{
-  qpn = qpn_init_new(qpn);
-  qpn->queue = mqueue_init_new(qpn->queue, mqt_signal_unicast);
-  qpn->start = qpn_start_bgp;
-
-  return qpn;
-}
-
-/* Initialize Routing engine's qpthread
- *
- * Although not expected to do I/O we still use qps_selection (pselect) as
- * the mechanism to wait for either a timeout or a signal from the message
- * queue.
-*/
-qpn_nexus
-qpn_init_routing(qpn_nexus qpn)
-{
-  qpn = qpn_init_new(qpn);
-  qpn->selection = qps_selection_init_new(qpn->selection);
-  qpn->pile = qtimer_pile_init_new(qpn->pile);
-  qpn->queue = mqueue_init_new(qpn->queue, mqt_signal_unicast);
+  qpn->main_thread = main_thread;
   qpn->start = qpn_start;
 
   return qpn;
@@ -155,9 +114,30 @@ qpn_exec(qpn_nexus qpn)
     }
 }
 
-/* Thread routine, complete init, then run finite state machine
- * using mqueue, qps_selection and qtimer
-*/
+/*==============================================================================
+ * Pthread routine
+ *
+ * Processes:
+ *
+ *   1) Main thread only -- signals.
+ *
+ *   2) Pending work -- local queue.
+ *
+ *   3) messages coming from other pthreads -- mqueue_queue.
+ *
+ *   4) I/O -- qpselect
+ *
+ *      This deals with all active sockets for read/write/connect/accept.
+ *
+ *      Each time a socket is readable, one message is read and dispatched.
+ *      The pselect timeout is set to be when the next timer is due.
+ *
+ *   5) Timers -- qtimers
+ *
+ *   6) Legacy threads.  To deal with legacy timer mechanism.
+ *
+ *
+ */
 static void*
 qpn_start(void* arg)
 {
@@ -165,6 +145,7 @@ qpn_start(void* arg)
   mqueue_block mqb;
   int actions;
   qtime_mono_t now;
+  struct thread thread;
 
   /* now in our thread, complete initialisation */
   qpn_in_thread_init(qpn);
@@ -176,13 +157,8 @@ qpn_start(void* arg)
       if (qpn->main_thread)
         quagga_sigevent_process ();
 
-      /* process timers */
-      now = qt_get_monotonic();
-      while (qtimer_pile_dispatch_next(qpn->pile, now))
-        {
-        }
-
-      /* drain the message queue, will be waiting when it's empty */
+      /* drain the message queue, will be in waiting for signal state
+       * when it's empty */
       for (;;)
         {
           mqb = mqueue_dequeue(qpn->queue, 1, qpn->mts) ;
@@ -193,6 +169,7 @@ qpn_start(void* arg)
         }
 
       /* block for some input, output, signal or timeout */
+      now = qt_get_monotonic();
       actions = qps_pselect(qpn->selection,
           qtimer_pile_top_time(qpn->pile, now + QTIME(MAX_PSELECT_TIMOUT)) );
 
@@ -201,42 +178,26 @@ qpn_start(void* arg)
           actions = qps_dispatch_next(qpn->selection) ;
 
       mqueue_done_waiting(qpn->queue, qpn->mts);
-    }
 
-  return NULL;
-}
-
-/* Bgp engine's qpthread, complete init, then run finite state machine
- * using legacy threads
-*/
-static void*
-qpn_start_bgp(void* arg)
-{
-  qpn_nexus qpn = arg;
-  struct thread thread;
-  mqueue_block mqb;
-
-  /* now in our thread, complete initialisation */
-  qpn_in_thread_init(qpn);
-
-  while (!qpn->terminate)
-    {
-      /* drain the message queue, will be waiting when it's empty */
-      for (;;)
+      /* process timers */
+      now = qt_get_monotonic();
+      while (qtimer_pile_dispatch_next(qpn->pile, now))
         {
-          mqb = mqueue_dequeue(qpn->queue, 1, qpn->mts) ;
-          if (mqb == NULL)
-            break;
-
-          mqb_dispatch(mqb, mqb_action);
         }
 
-      /* TODO: use qpselect stuff */
-      if (thread_fetch (master, &thread))
-        thread_call (&thread);
-
-      mqueue_done_waiting(qpn->queue, qpn->mts);
+      /* legacy threads */
+      /* TODO: legacy threads must not pselect.  How is the pselect above
+       * to know when to timeout for legacy timers? */
+      if (qpn->master != NULL)
+        {
+          if (thread_fetch (qpn->master, &thread))
+            thread_call (&thread);
+        }
     }
+
+  /* last bit of code to run in this thread */
+  if (qpn->in_thread_final)
+    qpn->in_thread_final();
 
   return NULL;
 }
@@ -281,6 +242,10 @@ qpn_in_thread_init(qpn_nexus qpn)
     qpn->mts = mqueue_thread_signal_init(qpn->mts, qpn->thread_id, SIGMQUEUE);
   if (qpn->selection != NULL)
     qps_set_signal(qpn->selection, SIGMQUEUE, newmask);
+
+  /* custom in-thread initialization */
+  if (qpn->in_thread_init != NULL)
+    qpn->in_thread_init();
 }
 
 /* Ask the thread to terminate itself quickly and cleanly */

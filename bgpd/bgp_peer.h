@@ -493,5 +493,8 @@ peer_delete (struct peer *peer);
 extern void
 peer_free (struct peer *peer);
 
+extern void
+peer_nsf_stop (struct peer *peer);
+
 #endif /* _QUAGGA_BGP_PEER_H */
 
