@@ -518,7 +518,6 @@ bgp_accept_action(qps_file qf, void* file_info)
 
 static int bgp_bind(bgp_connection connection) ;
 static int bgp_update_source (bgp_connection connection) ;
-static bgp_fsm_event_t bgp_sex_connect_error(int err) ;
 
 /*------------------------------------------------------------------------------
  * Open BGP Connection -- connect() to the other end

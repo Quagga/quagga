@@ -19,8 +19,8 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#include "bgpd/bgp_common.h"
 #include "bgpd/bgp_session.h"
+#include "bgpd/bgp_common.h"
 #include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_engine.h"
 #include "bgpd/bgp_peer_index.h"
@@ -258,9 +258,14 @@ bgp_session_enable(bgp_peer peer)
 
   /* take copies of host and password */
   XFREE(MTYPE_BGP_SESSION, session->host);
-  session->host     = XSTRDUP(MTYPE_BGP_SESSION, peer->host);
+  session->host     = (peer->host != NULL)
+                        ? XSTRDUP(MTYPE_BGP_SESSION, peer->host)
+                        : NULL;
+
   XFREE(MTYPE_BGP_SESSION, session->password);
-  session->password = XSTRDUP(MTYPE_BGP_SESSION, peer->password);
+  session->password = (peer->password != NULL)
+                        ? XSTRDUP(MTYPE_BGP_SESSION, peer->password)
+                        : NULL;
 
   session->idle_hold_timer_interval     = peer->v_start ;
   session->connect_retry_timer_interval = peer->v_connect ;

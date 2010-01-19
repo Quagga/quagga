@@ -22,24 +22,16 @@
 #ifndef _QUAGGA_BGP_ENGINE_H
 #define _QUAGGA_BGP_ENGINE_H
 
-#include "bgpd/bgp_common.h"
+#include "bgpd/bgpd.h"
 
 #include "lib/mqueue.h"
-#include "lib/qpthreads.h"
-#include "lib/qtimers.h"
-#include "lib/qpselect.h"
 #include "lib/qpnexus.h"
-
-#include "lib/sockunion.h"
 
 #ifndef Inline
 #define Inline static inline
 #endif
 
 
-extern qpn_nexus cli_nexus;
-extern qpn_nexus bgp_nexus;
-extern qpn_nexus routing_nexus;
 
 /*==============================================================================
  *

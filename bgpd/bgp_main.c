@@ -50,6 +50,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_filter.h"
 #include "bgpd/bgp_network.h"
+#include "bgpd/bgp_engine.h"
 
 /* bgpd options, we use GNU getopt library. */
 static const struct option longopts[] = 
@@ -117,9 +118,6 @@ static int retain_mode = 0;
 
 /* Master of threads. */
 struct thread_master *master;
-qpn_nexus cli_nexus = NULL;
-qpn_nexus bgp_nexus = NULL;
-qpn_nexus routing_nexus = NULL;
 
 /* Manually specified configuration file name.  */
 char *config_file = NULL;

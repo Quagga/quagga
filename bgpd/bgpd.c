@@ -72,6 +72,11 @@ extern struct in_addr router_id_zebra;
 /* BGP process wide configuration pointer to export.  */
 struct bgp_master *bm;
 
+/* BGP process wide nexus.  */
+qpn_nexus cli_nexus = NULL;
+qpn_nexus bgp_nexus = NULL;
+qpn_nexus routing_nexus = NULL;
+
 /* BGP community-list.  */
 struct community_list_handler *bgp_clist;
 

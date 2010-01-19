@@ -104,7 +104,7 @@ bgp_peer_index_init(void* parent)
   bgp_peer_id_table_free_head = NULL ;
 
   bgp_peer_id_last = bgp_peer_id_unit - 1 ;
-  bgp_peer_id_table_free_ids(1, bgp_peer_id_unit) ;
+  bgp_peer_id_table_free_ids(1, bgp_peer_id_last) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -144,6 +144,7 @@ bgp_peer_index_register(bgp_peer peer, union sockunion* su)
 
   /* Initialise the entry -- the id is already set                          */
   entry->peer   = peer ;
+  peer->index_entry = entry;
   entry->accept = NULL ;
   assert(entry->id == (entry - bgp_peer_id_table)) ;
 
@@ -152,7 +153,7 @@ bgp_peer_index_register(bgp_peer peer, union sockunion* su)
 
   BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
-  passert(entry != NULL) ;
+  passert(entry == NULL) ; /* Must be new entry */
 } ;
 
 /*------------------------------------------------------------------------------

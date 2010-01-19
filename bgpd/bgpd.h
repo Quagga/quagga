@@ -399,6 +399,10 @@ extern struct bgp_master *bm;
 
 extern struct thread_master *master;
 
+extern qpn_nexus cli_nexus;
+extern qpn_nexus bgp_nexus;
+extern qpn_nexus routing_nexus;
+
 /* Prototypes. */
 extern void bgp_terminate (void);
 extern void bgp_reset (void);

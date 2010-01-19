@@ -21,7 +21,24 @@
  * Boston, MA 02111-1307, USA.
  */
 
+#include "bgpd/bgp_peer.h"
+
 #include <zebra.h>
+
+#include "bgpd/bgp_common.h"
+#include "bgpd/bgp_session.h"
+#include "bgpd/bgp_engine.h"
+#include "bgpd/bgp_peer_index.h"
+#include "bgpd/bgpd.h"
+#include "bgpd/bgp_attr.h"
+#include "bgpd/bgp_debug.h"
+#include "bgpd/bgp_fsm.h"
+#include "bgpd/bgp_packet.h"
+#include "bgpd/bgp_network.h"
+#include "bgpd/bgp_route.h"
+#include "bgpd/bgp_dump.h"
+#include "bgpd/bgp_open.h"
+#include "bgpd/bgp_advertise.h"
 
 #include "linklist.h"
 #include "prefix.h"
@@ -34,23 +51,6 @@
 #include "plist.h"
 #include "mqueue.h"
 #include "workqueue.h"
-
-#include "bgpd/bgpd.h"
-#include "bgpd/bgp_peer.h"
-#include "bgpd/bgp_peer_index.h"
-
-#include "bgpd/bgp_attr.h"
-#include "bgpd/bgp_debug.h"
-#include "bgpd/bgp_fsm.h"
-#include "bgpd/bgp_packet.h"
-#include "bgpd/bgp_network.h"
-#include "bgpd/bgp_route.h"
-#include "bgpd/bgp_dump.h"
-#include "bgpd/bgp_open.h"
-#include "bgpd/bgp_advertise.h"
-
-#include "bgpd/bgp_engine.h"
-#include "bgpd/bgp_session.h"
 
 #ifdef HAVE_SNMP
 #include "bgpd/bgp_snmp.h"
@@ -298,7 +298,8 @@ bgp_session_has_disabled(bgp_peer peer)
 
   session->state = bgp_session_sDisabled ;
 
-  /* TODO: here should revoke session in Peering Engine message queue   */
+  /* Immediately discard any other messages for this session.       */
+  mqueue_revoke(routing_nexus->queue, session) ;
 
   /* does the session need to be re-enabled? */
   if (session->defer_enable)
@@ -741,11 +742,11 @@ peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
   if (! active && peer_active (peer))
     bgp_timer_set (peer);
 
-  /* session */
-  peer->session = bgp_session_init_new(peer->session, peer);
-
   /* register */
   bgp_peer_index_register(peer, &peer->su);
+
+  /* session */
+  peer->session = bgp_session_init_new(peer->session, peer);
 
   return peer;
 }
@@ -796,7 +797,8 @@ peer_delete (struct peer *peer)
    */
   peer->last_reset = PEER_DOWN_NEIGHBOR_DELETE;
   bgp_peer_stop (peer);
-  bgp_fsm_change_status (peer, Deleted);
+  /* TODO: Deleted status */
+  /* bgp_fsm_change_status (peer, Deleted); */
 
   /* Password configuration */
   if (peer->password)
@@ -969,8 +971,11 @@ peer_nsf_stop (struct peer *peer)
 void
 bgp_peer_reenable(bgp_peer peer, bgp_notify notification)
 {
-  bgp_peer_disable(peer, notification);
-  bgp_peer_enable(peer); /* may defer if still stopping */
+  if (bgp_session_is_active(peer->session))
+    {
+      bgp_peer_disable(peer, notification);
+      bgp_peer_enable(peer); /* may defer if still stopping */
+    }
 }
 
 /* enable the peer */
