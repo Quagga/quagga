@@ -26,6 +26,7 @@
 #include "bgpd/bgp_session.h"
 
 #include "lib/symtab.h"
+#include "lib/vector.h"
 #include "lib/qpthreads.h"
 #include "lib/sockunion.h"
 #include "lib/memory.h"
@@ -47,15 +48,22 @@
  * A mutex is used to coordinate access to the index.
  */
 
-static struct symbol_table  bgp_peer_index ;
-static qpt_mutex_t          bgp_peer_index_mutex ;
+static struct symbol_table  bgp_peer_index ;    /* lookup by 'name'     */
+static struct vector        bgp_peer_id_index ; /* lookup by peer-id    */
 
-static bgp_peer_index_entry bgp_peer_id_table = NULL ;
-static bgp_peer_id_t        bgp_peer_id_last  = 0 ;
+static qpt_mutex_t          bgp_peer_index_mutex ;
 
 CONFIRM(bgp_peer_id_null == 0) ;
 
-enum { bgp_peer_id_unit  = 64 } ;       /* allocate 64 at a time        */
+enum { bgp_peer_id_unit  = 64 } ;       /* allocate many at a time      */
+
+typedef struct bgp_peer_id_table_chunk* bgp_peer_id_table_chunk ;
+struct bgp_peer_id_table_chunk
+{
+  bgp_peer_id_table_chunk  next ;
+
+  struct bgp_peer_index_entry entries[bgp_peer_id_unit] ;
+} ;
 
 inline static void BGP_PEER_INDEX_LOCK(void)
 {
@@ -67,19 +75,18 @@ inline static void BGP_PEER_INDEX_UNLOCK(void)
   qpt_mutex_unlock(&bgp_peer_index_mutex) ;
 } ;
 
-/* Uses the entry zero in the bgp_peer_id_table to point at head and tail of
- * list of free bgp_peer_id's.
- *
- * Uses the peer pointer in free entries to point to then next free.
- */
-#define bgp_peer_id_table_free_head   bgp_peer_id_table->peer
-#define  bgp_peer_id_table_free_tail  bgp_peer_id_table->accept
+static bgp_peer_id_t           bgp_peer_id_count = 0 ;
 
-#define bgp_peer_id_table_free_next(entry) ((bgp_peer_index_entry)entry)->peer
+static bgp_peer_id_table_chunk bgp_peer_id_table = NULL ;
+
+static bgp_peer_index_entry    bgp_peer_id_free_head = NULL ;
+static bgp_peer_index_entry    bgp_peer_id_free_tail = NULL ;
+
+/* Overloads the peer field to be next in list of free peers.           */
+#define bgp_peer_id_free_next(e) ((e)->peer)
 
 /* Forward references   */
 static void bgp_peer_id_table_free_entry(bgp_peer_index_entry entry) ;
-static void bgp_peer_id_table_free_ids(bgp_peer_id_t f, bgp_peer_id_t l) ;
 static void bgp_peer_id_table_make_ids(void) ;
 
 /*------------------------------------------------------------------------------
@@ -98,13 +105,14 @@ bgp_peer_index_init(void* parent)
           sockunion_symbol_hash,  /* "name" is an IP Address          */
           NULL) ;                 /* no value change call-back        */
 
-  bgp_peer_id_table = XCALLOC(MTYPE_BGP_PEER_ID_TABLE,
-                       sizeof(struct bgp_peer_index_entry) * bgp_peer_id_unit) ;
+  vector_init_new(&bgp_peer_id_index, bgp_peer_id_unit) ;
 
-  bgp_peer_id_table_free_head = NULL ;
+  /* Initialise table entirely empty                                    */
+  bgp_peer_id_table     = NULL ;
+  bgp_peer_id_free_head = NULL ;
+  bgp_peer_id_free_tail = NULL ;
 
-  bgp_peer_id_last = bgp_peer_id_unit - 1 ;
-  bgp_peer_id_table_free_ids(1, bgp_peer_id_last) ;
+  bgp_peer_id_count = 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -136,24 +144,25 @@ bgp_peer_index_register(bgp_peer peer, union sockunion* su)
   /* First need an entry, which allocates a peer_id.  May need to extend    */
   /* the bgp_peer_id_table -- so need to be locked for this.                */
 
-  if (bgp_peer_id_table_free_head == NULL)
+  if (bgp_peer_id_free_head == NULL)
     bgp_peer_id_table_make_ids() ;
 
-  entry = (void*)bgp_peer_id_table_free_head ;
-  bgp_peer_id_table_free_head = (void*)bgp_peer_id_table_free_next(entry) ;
+  entry = bgp_peer_id_free_head ;
+  bgp_peer_id_free_head = (void*)bgp_peer_id_free_next(entry) ;
+
+  assert(vector_get_item(&bgp_peer_id_index, entry->id) == entry) ;
 
   /* Initialise the entry -- the id is already set                          */
-  entry->peer   = peer ;
+  entry->peer       = peer ;
+  entry->accept     = NULL ;
   peer->index_entry = entry;
-  entry->accept = NULL ;
-  assert(entry->id == (entry - bgp_peer_id_table)) ;
 
   /* Insert the new entry into the symbol table.                            */
   entry = symbol_set_value(symbol_find(&bgp_peer_index, su), entry) ;
 
   BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
-  passert(entry == NULL) ; /* Must be new entry */
+  passert(entry == NULL) ;   /* Must be new entry */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -268,9 +277,7 @@ bgp_session_index_seek(union sockunion* su, int* p_found)
  *
  * NB: it is a FATAL error to change the pointer if the current session is
  *     "active".
- *
  */
-
 bgp_session
 bgp_peer_new_session(bgp_peer peer, bgp_session new_session)
 {
@@ -288,7 +295,6 @@ bgp_peer_new_session(bgp_peer peer, bgp_session new_session)
   return old_session ;
 }
 
-
 /*==============================================================================
  * Extending the bgp_peer_id_table and adding free entries to it.
  */
@@ -299,62 +305,59 @@ bgp_peer_new_session(bgp_peer peer, bgp_session new_session)
 static void
 bgp_peer_id_table_free_entry(bgp_peer_index_entry entry)
 {
-  assert((entry - bgp_peer_id_table) == entry->id) ;
+  assert((entry != NULL) && (entry->id < bgp_peer_id_count)) ;
+  assert(vector_get_item(&bgp_peer_id_index, entry->id) == entry) ;
 
-  bgp_peer_id_table_free_ids(entry->id, entry->id) ;
-} ;
+  if (bgp_peer_id_free_head == NULL)
+    bgp_peer_id_free_head = entry ;
+  else
+    bgp_peer_id_free_next(bgp_peer_id_free_tail) = (void*)entry ;
 
-/*------------------------------------------------------------------------------
- * Free a range of peer_ids -- may be just one (of course)
- *
- * Adds to end of the peer_id free list, in peer_id order.
- *
- * This means that when individual peers are deleted, the ids will be re-used
- * in the order they were deleted (but after any pool of ids has been used up.
- */
-static void
-bgp_peer_id_table_free_ids(bgp_peer_id_t f, bgp_peer_id_t l)
-{
-  bgp_peer_id_t        id ;
-  bgp_peer_index_entry e ;
-
-  assert(l <= bgp_peer_id_last) ;
-
-  for (id = f ; id <= l ; ++id)
-    {
-      e = &bgp_peer_id_table[id] ;
-
-      e->peer    = NULL ;       /* being tidy           */
-      e->accept  = NULL ;
-      e->id      = id ;         /* for initial creation */
-
-      if (bgp_peer_id_table_free_head == NULL)
-        bgp_peer_id_table_free_head = (void*)e ;
-      else
-        bgp_peer_id_table_free_next(bgp_peer_id_table_free_tail) = (void*)e ;
-
-      bgp_peer_id_table_free_tail = (void*)e ;
-      bgp_peer_id_table_free_next(e) = NULL ;
-    } ;
+   bgp_peer_id_free_tail        = entry ;
+   bgp_peer_id_free_next(entry) = NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Make a new set of free bgp_peer_ids.
- *
- * NB: the bgp_peer_id_table may well move around in memory !
  */
 static void
 bgp_peer_id_table_make_ids(void)
 {
   bgp_peer_id_t  id_new ;
+  bgp_peer_id_table_chunk chunk ;
+  bgp_peer_index_entry    entry ;
 
-  id_new = bgp_peer_id_last + 1 ;
-  bgp_peer_id_last += bgp_peer_id_unit ;
+  chunk = XCALLOC(MTYPE_BGP_PEER_ID_TABLE,
+                                       sizeof(struct bgp_peer_id_table_chunk)) ;
+  chunk->next = bgp_peer_id_table ;
+  bgp_peer_id_table = chunk ;
 
-  bgp_peer_id_table = XREALLOC(MTYPE_BGP_PEER_ID_TABLE, bgp_peer_id_table,
-                 sizeof(struct bgp_peer_index_entry) * (bgp_peer_id_last + 1)) ;
+  entry = &chunk->entries[0] ;
 
-  bgp_peer_id_table_free_ids(id_new, bgp_peer_id_last) ;
+  /* Special case to avoid id == 0 being used.  Is not set in vector.   */
+  if (bgp_peer_id_count == 0)
+    {
+      entry->id     = 0 ;               /* should never be used         */
+      entry->peer   = NULL ;            /* invalid in use               */
+      entry->accept = (void*)entry ;    /* invalid if not active !      */
+
+      ++entry ;                         /* step past id == 0            */
+      id_new = 1 ;                      /* avoid setting id == 0 free   */
+    }
+  else
+    id_new = bgp_peer_id_count ;
+
+  bgp_peer_id_count += bgp_peer_id_unit ;
+
+  while (id_new < bgp_peer_id_count)
+    {
+      vector_set_item(&bgp_peer_id_index, id_new, entry) ;
+
+      entry->id = id_new ;
+      bgp_peer_id_table_free_entry(entry) ;
+
+      ++id_new ;
+    } ;
 } ;
 
 
