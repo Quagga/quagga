@@ -1042,6 +1042,12 @@ bgp_zebra_init (void)
   zclient->ipv6_route_delete = zebra_read_ipv6;
 #endif /* HAVE_IPV6 */
 
+  /* TODO: restore zebra when have threaded it !!                       */
+#if 1
+  zclient->enable = 0 ;         /* disable it                           */
+  zclient_stop(zclient) ;       /* and make sure all threads stopped    */
+#endif
+
   /* Interface related init. */
   if_init ();
 }
