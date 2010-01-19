@@ -1028,6 +1028,58 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
     }
 }
 
+
+/* Fetch next ready thread.  Events and timeouts only.  No I/O.
+ * If nothing to do returns NULL and sets event_wait to recommended time
+ * to be called again. */
+struct thread *
+thread_fetch_event (struct thread_master *m, struct thread *fetch,
+    qtime_mono_t *event_wait)
+{
+  struct thread *thread;
+  struct timeval timer_val;
+  struct timeval timer_val_bg;
+  struct timeval *timer_wait;
+  struct timeval *timer_wait_bg;
+
+  /* Normal event are the next highest priority.  */
+  if ((thread = thread_trim_head (&m->event)) != NULL)
+    return thread_run (m, thread, fetch);
+
+  /* If there are any ready threads from previous scheduler runs,
+   * process top of them.
+   */
+  if ((thread = thread_trim_head (&m->ready)) != NULL)
+    return thread_run (m, thread, fetch);
+
+  /* Check foreground timers.  Historically, they have had higher
+     priority than I/O threads, so let's push them onto the ready
+     list in front of the I/O threads. */
+  quagga_get_relative (NULL);
+  thread_timer_process (&m->timer, &relative_time);
+
+  /* Background timer/events, lowest priority */
+  thread_timer_process (&m->background, &relative_time);
+
+  if ((thread = thread_trim_head (&m->ready)) != NULL)
+    return thread_run (m, thread, fetch);
+
+  /* Calculate select wait timer if nothing else to do */
+  timer_wait = thread_timer_wait (&m->timer, &timer_val);
+  timer_wait_bg = thread_timer_wait (&m->background, &timer_val_bg);
+
+  if (timer_wait_bg &&
+      (!timer_wait || (timeval_cmp (*timer_wait, *timer_wait_bg) > 0)))
+    timer_wait = timer_wait_bg;
+
+  /* When is the next timer due ? */
+  *event_wait = (timer_wait != NULL)
+                ? timeval2qtime(timer_wait)
+                : 0;
+
+  return NULL;
+}
+
 unsigned long
 thread_consumed_time (RUSAGE_T *now, RUSAGE_T *start, unsigned long *cputime)
 {
