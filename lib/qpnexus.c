@@ -241,7 +241,14 @@ qpn_in_thread_init(qpn_nexus qpn)
       sigdelset (&newmask, SIGSEGV);
       sigdelset (&newmask, SIGBUS);
     }
-  qpt_thread_sigmask(SIG_BLOCK, &newmask, NULL);
+
+  if (qpthreads_enabled)
+    qpt_thread_sigmask(SIG_BLOCK, &newmask, NULL);
+  else
+    {
+      if (sigprocmask(SIG_BLOCK, &newmask, NULL) != 0)
+        zabort_errno("sigprocmask failed") ;
+    }
 
   /* Now we have thread_id and mask, prep for using message queue. */
   if (qpn->queue != NULL)

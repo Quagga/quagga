@@ -1531,7 +1531,7 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
   dassert( (event >= bgp_fsm_null_event)
         && (event <= bgp_fsm_last_event)) ;
   dassert( (connection->state >= bgp_fsm_first_state)
-        && (connection->state >= bgp_fsm_last_state) ) ;
+        && (connection->state <= bgp_fsm_last_state) ) ;
 
   /* Watch out for recursing through the FSM for this connection.       */
   ++connection->fsm_active ;
