@@ -51,7 +51,7 @@
 static struct symbol_table  bgp_peer_index ;    /* lookup by 'name'     */
 static struct vector        bgp_peer_id_index ; /* lookup by peer-id    */
 
-static qpt_mutex_t          bgp_peer_index_mutex ;
+static qpt_mutex            bgp_peer_index_mutex = NULL ;
 
 CONFIRM(bgp_peer_id_null == 0) ;
 
@@ -67,12 +67,12 @@ struct bgp_peer_id_table_chunk
 
 inline static void BGP_PEER_INDEX_LOCK(void)
 {
-  qpt_mutex_lock(&bgp_peer_index_mutex) ;
+  qpt_mutex_lock(bgp_peer_index_mutex) ;
 } ;
 
 inline static void BGP_PEER_INDEX_UNLOCK(void)
 {
-  qpt_mutex_unlock(&bgp_peer_index_mutex) ;
+  qpt_mutex_unlock(bgp_peer_index_mutex) ;
 } ;
 
 static bgp_peer_id_t           bgp_peer_id_count = 0 ;
@@ -81,9 +81,6 @@ static bgp_peer_id_table_chunk bgp_peer_id_table = NULL ;
 
 static bgp_peer_index_entry    bgp_peer_id_free_head = NULL ;
 static bgp_peer_index_entry    bgp_peer_id_free_tail = NULL ;
-
-/* Overloads the peer field to be next in list of free peers.           */
-#define bgp_peer_id_free_next(e) ((e)->peer)
 
 /* Forward references   */
 static void bgp_peer_id_table_free_entry(bgp_peer_index_entry entry) ;
@@ -100,10 +97,10 @@ bgp_peer_index_init(void* parent)
   symbol_table_init_new(
           &bgp_peer_index,
           parent,
-          10,                     /* start ready for a few sessions   */
-          200,                    /* allow to be quite dense          */
-          sockunion_symbol_hash,  /* "name" is an IP Address          */
-          NULL) ;                 /* no value change call-back        */
+          10,                     /* start ready for a few sessions     */
+          200,                    /* allow to be quite dense            */
+          sockunion_symbol_hash,  /* "name" is an IP Address            */
+          NULL) ;                 /* no value change call-back          */
 
   vector_init_new(&bgp_peer_id_index, bgp_peer_id_unit) ;
 
@@ -113,6 +110,9 @@ bgp_peer_index_init(void* parent)
   bgp_peer_id_free_tail = NULL ;
 
   bgp_peer_id_count = 0 ;
+
+  /* OK up to creation of qpthreads !                                   */
+  bgp_peer_index_mutex  = NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -121,9 +121,55 @@ bgp_peer_index_init(void* parent)
  * This must be done as soon as any qpthreads are enabled.
  */
 extern void
-bgp_peer_index_mutex_init(void* parent)
+bgp_peer_index_mutex_init(void)
 {
-  qpt_mutex_init(&bgp_peer_index_mutex, qpt_mutex_recursive) ;
+  bgp_peer_index_mutex = qpt_mutex_init_new(NULL, qpt_mutex_recursive) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Reset the peer index -- freeing all memory.
+ *
+ * The index can be used again without initialisation, and without further
+ * initialisation of the mutex.
+ *
+ * NB: all peers MUST have been deregistered already.
+ */
+extern void
+bgp_peer_index_reset(void)
+{
+  bgp_peer_index_entry    entry ;
+  bgp_peer_id_table_chunk chunk ;
+
+  /* Ream out the peer id vector -- checking that all entries are empty */
+  while ((entry = vector_ream_keep(&bgp_peer_id_index)) != NULL)
+    passert(entry->peer == NULL) ;
+
+  /* Discard body of symbol table -- must be empty !                    */
+  symbol_table_reset_keep(&bgp_peer_index) ;
+
+  /* Discard the empty chunks of entries                                */
+  while (bgp_peer_id_table != NULL)
+    {
+      chunk = bgp_peer_id_table ;
+      bgp_peer_id_table = chunk->next ;
+      XFREE(MTYPE_BGP_PEER_ID_TABLE, chunk) ;
+    } ;
+
+  /* Set utterly empty                                                  */
+  bgp_peer_id_table     = NULL ;
+  bgp_peer_id_free_head = NULL ;
+  bgp_peer_id_free_tail = NULL ;
+
+  bgp_peer_id_count = 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free the bgp_peer_index_mutex -- for shut down.
+ */
+extern void
+bgp_peer_index_mutex_free(void)
+{
+  qpt_mutex_destroy_free(bgp_peer_index_mutex) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -148,7 +194,7 @@ bgp_peer_index_register(bgp_peer peer, union sockunion* su)
     bgp_peer_id_table_make_ids() ;
 
   entry = bgp_peer_id_free_head ;
-  bgp_peer_id_free_head = (void*)bgp_peer_id_free_next(entry) ;
+  bgp_peer_id_free_head = (void*)entry->accept ;
 
   assert(vector_get_item(&bgp_peer_id_index, entry->id) == entry) ;
 
@@ -267,36 +313,14 @@ bgp_session_index_seek(union sockunion* su, int* p_found)
   return accept ;
 } ;
 
-/*------------------------------------------------------------------------------
- * Set peer's session pointer.
- *
- * For use by the Routeing Engine.  Locks the bgp_peer_index mutex so that the
- * BGP Engine is not fooled when it looks up the session.
- *
- * Returns the old session pointer value.
- *
- * NB: it is a FATAL error to change the pointer if the current session is
- *     "active".
- */
-bgp_session
-bgp_peer_new_session(bgp_peer peer, bgp_session new_session)
-{
-  bgp_session old_session ;
-
-  BGP_PEER_INDEX_LOCK() ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-
-  old_session   = peer->session ;
-  peer->session = new_session ;
-
-  passert(!bgp_session_is_active(old_session)) ;
-
-  BGP_PEER_INDEX_UNLOCK() ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-  return old_session ;
-}
-
 /*==============================================================================
  * Extending the bgp_peer_id_table and adding free entries to it.
+ *
+ * NB: when entry is free,   the peer field is NULL.
+ *     when entry is in use, the peer field is not NULL !
+ *
+ *     when entry is free, the accept field is overloaded as pointer to next
+ *     free entry.
  */
 
 /*------------------------------------------------------------------------------
@@ -311,10 +335,12 @@ bgp_peer_id_table_free_entry(bgp_peer_index_entry entry)
   if (bgp_peer_id_free_head == NULL)
     bgp_peer_id_free_head = entry ;
   else
-    bgp_peer_id_free_next(bgp_peer_id_free_tail) = (void*)entry ;
+    bgp_peer_id_free_tail->accept = (void*)entry ;
 
-   bgp_peer_id_free_tail        = entry ;
-   bgp_peer_id_free_next(entry) = NULL ;
+   bgp_peer_id_free_tail  = entry ;
+   entry->accept          = NULL ;      /* used as 'next' for free list */
+
+   entry->peer  = NULL ;                /* only when free !             */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -337,6 +363,8 @@ bgp_peer_id_table_make_ids(void)
   /* Special case to avoid id == 0 being used.  Is not set in vector.   */
   if (bgp_peer_id_count == 0)
     {
+      confirm(bgp_peer_id_null == 0) ;
+
       entry->id     = 0 ;               /* should never be used         */
       entry->peer   = NULL ;            /* invalid in use               */
       entry->accept = (void*)entry ;    /* invalid if not active !      */

@@ -68,7 +68,13 @@ extern void
 bgp_peer_index_init(void* parent) ;
 
 extern void
-bgp_peer_index_mutex_init(void* parent) ;
+bgp_peer_index_mutex_init(void) ;
+
+extern void
+bgp_peer_index_reset(void) ;
+
+extern void
+bgp_peer_index_mutex_free(void) ;
 
 extern void
 bgp_peer_index_register(bgp_peer peer, union sockunion* su) ;
@@ -84,9 +90,6 @@ bgp_peer_index_seek_entry(union sockunion* su) ;
 
 extern bgp_session
 bgp_session_index_seek(union sockunion* su, int* p_found) ;
-
-extern bgp_session
-bgp_peer_new_session(bgp_peer peer, bgp_session new_session);
 
 #endif /* _QUAGGA_BGP_PEER_INDEX_H */
 

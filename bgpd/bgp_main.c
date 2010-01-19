@@ -53,7 +53,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_engine.h"
 
 /* bgpd options, we use GNU getopt library. */
-static const struct option longopts[] = 
+static const struct option longopts[] =
 {
   { "daemon",      no_argument,       NULL, 'd'},
   { "config_file", required_argument, NULL, 'f'},
@@ -86,10 +86,10 @@ static void bgp_in_thread_init(void);
 static qtime_mono_t routing_event_hook(void);
 static qtime_mono_t bgp_event_hook(void);
 
-static struct quagga_signal_t bgp_signals[] = 
+static struct quagga_signal_t bgp_signals[] =
 {
-  { 
-    .signal = SIGHUP, 
+  {
+    .signal = SIGHUP,
     .handler = &sighup,
   },
   {
@@ -130,9 +130,9 @@ int vty_port = BGP_VTY_PORT;
 char *vty_addr = NULL;
 
 /* privileges */
-static zebra_capabilities_t _caps_p [] =  
+static zebra_capabilities_t _caps_p [] =
 {
-    ZCAP_BIND, 
+    ZCAP_BIND,
     ZCAP_NET_RAW,
 };
 
@@ -157,7 +157,7 @@ usage (char *progname, int status)
   if (status != 0)
     fprintf (stderr, "Try `%s --help' for more information.\n", progname);
   else
-    {    
+    {
       printf ("Usage : %s [OPTION...]\n\n\
 Daemon which manages kernel routing table management and \
 redistribution between different routing protocols.\n\n\
@@ -182,9 +182,9 @@ Report bugs to %s\n", progname, ZEBRA_BUG_ADDRESS);
 
   exit (status);
 }
-
+
 /* SIGHUP handler. */
-void 
+void
 sighup (void)
 {
   zlog (NULL, LOG_INFO, "SIGHUP received");
@@ -364,7 +364,7 @@ static void
 init_second_stage(int pthreads)
 {
   qlib_init_second_stage(pthreads);
-  bgp_peer_index_mutex_init(NULL);
+  bgp_peer_index_mutex_init();
 
   /* if using pthreads create additional nexus */
   if (qpthreads_enabled)
@@ -426,14 +426,14 @@ main (int argc, char **argv)
   bgp_master_init ();
 
   /* Command line argument treatment. */
-  while (1) 
+  while (1)
     {
       opt = getopt_long (argc, argv, "df:i:hp:l:A:P:rnu:g:vCt", longopts, 0);
-    
+
       if (opt == EOF)
 	break;
 
-      switch (opt) 
+      switch (opt)
 	{
 	case 0:
 	  break;
@@ -459,11 +459,11 @@ main (int argc, char **argv)
 	case 'P':
           /* Deal with atoi() returning 0 on failure, and bgpd not
              listening on bgp port... */
-          if (strcmp(optarg, "0") == 0) 
+          if (strcmp(optarg, "0") == 0)
             {
               vty_port = 0;
               break;
-            } 
+            }
           vty_port = atoi (optarg);
 	  if (vty_port <= 0 || vty_port > 0xffff)
 	    vty_port = BGP_VTY_PORT;
@@ -527,7 +527,7 @@ main (int argc, char **argv)
   /* Start execution only if not in dry-run mode */
   if(dryrun)
     return(0);
-  
+
   /* only the calling thread survives in the child after a fork
    * so ensure we haven't created any threads yet
    */
@@ -555,7 +555,7 @@ main (int argc, char **argv)
   zlog_notice("%s", debug_banner);
 #endif
   zlog_notice ("BGPd %s starting: vty@%d, bgp@%s:%d", QUAGGA_VERSION,
-	       vty_port, 
+	       vty_port,
 	       (bm->address ? bm->address : "<all>"),
 	       (int)bm->port);
 

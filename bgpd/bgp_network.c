@@ -971,6 +971,7 @@ bgp_md5_set_listeners(union sockunion* su, const char* password)
       ret = bgp_md5_set_socket(qps_file_fd(&listener->qf), su, password) ;
       if (ret != 0)
         return ret ;
+      listener = listener->next ;
     } ;
 
   return 0 ;
