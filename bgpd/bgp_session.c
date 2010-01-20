@@ -184,7 +184,7 @@ bgp_session_free(bgp_session session)
 
   qpt_mutex_destroy(&session->mutex, 0) ;
 
-  bgp_notify_free(&session->notification);
+  bgp_notify_free(session->notification);
   bgp_open_state_free(session->open_send);
   bgp_open_state_free(session->open_recv);
   if (session->host != NULL)
@@ -239,7 +239,7 @@ bgp_session_enable(bgp_peer peer)
   session->made     = 0;
   session->defer_enable = 0;
   session->event    = bgp_session_null_event;
-  bgp_notify_free(&session->notification);
+  bgp_notify_unset(&session->notification);
   session->err      = 0;
   session->ordinal  = 0;
 
@@ -343,7 +343,7 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
   if ( (session->state != bgp_session_sEnabled) &&
        (session->state != bgp_session_sEstablished) ) ;
     {
-      bgp_notify_free(&notification) ;  /* discard any bgp_notify       */
+      bgp_notify_free(notification) ;  /* discard any bgp_notify        */
       return ;
     } ;
 

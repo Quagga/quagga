@@ -83,8 +83,6 @@ bgp_open_state_free(bgp_open_state state)
 extern void
 bgp_open_state_unset(bgp_open_state* p_state)
 {
-  bgp_cap_unknown unknown ;
-
   bgp_open_state_free(*p_state) ;
   *p_state = NULL ;
 } ;

@@ -136,7 +136,7 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
 #if 0
     bgp_notify_print(peer, text_form, "sending") ;
 #endif
-    bgp_notify_free(&text_form) ;
+    bgp_notify_free(text_form) ;
   } ;
 
   /* Finally -- write the obuf away                     */

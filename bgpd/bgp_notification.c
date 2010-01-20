@@ -128,7 +128,7 @@ bgp_notify_unset(bgp_notify* p_notification)
 extern void
 bgp_notify_set(bgp_notify* p_dst, bgp_notify src)
 {
-  bgp_notify_free(p_dst) ;
+  bgp_notify_free(*p_dst) ;
   *p_dst = src ;
 } ;
 
@@ -153,7 +153,7 @@ bgp_notify_set_dup(bgp_notify* p_dst, bgp_notify src)
 extern void
 bgp_notify_set_mov(bgp_notify* p_dst, bgp_notify* p_src)
 {
-  bgp_notify_free(p_dst) ;
+  bgp_notify_free(*p_dst) ;
   *p_dst = *p_src ;
   *p_src = NULL ;
 } ;
