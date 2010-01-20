@@ -333,7 +333,6 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
     heap_push_item(&qtp->timers, qtr) ;   /* add to heap                  */
 
   assert(qtp == qtr->pile);
-  qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
 
   qtr->state = qtr_state_active ;         /* overrides any unset pending  */
 
@@ -341,6 +340,8 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
     qtr->action = action ;
   else
     dassert(qtr->action != NULL) ;
+
+  qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
 } ;
 
 /* Unset given timer

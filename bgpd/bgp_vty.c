@@ -7610,7 +7610,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 	   p->t_write ? "on" : "off",
 	   VTY_NEWLINE);
 
-  if (p->notify->code == BGP_NOTIFY_OPEN_ERR
+  if (p->notify != NULL && p->notify->code == BGP_NOTIFY_OPEN_ERR
       && p->notify->subcode == BGP_NOTIFY_OPEN_UNSUP_CAPBL)
     bgp_capability_vty_out (vty, p);
 
