@@ -121,10 +121,13 @@ extern bgp_notify
 bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
                                                             bgp_size_t size) ;
 extern void
-bgp_notify_free(bgp_notify* p_notification) ;
+bgp_notify_free(bgp_notify notification) ;
 
 extern bgp_notify
 bgp_notify_dup(bgp_notify notification) ;
+
+extern void
+bgp_notify_unset(bgp_notify* p_notification) ;
 
 extern void
 bgp_notify_set(bgp_notify* p_dst, bgp_notify src) ;

@@ -481,7 +481,7 @@ bgp_fsm_disable_session(bgp_session session, bgp_notify notification)
     bgp_fsm_throw_exception(connection, bgp_session_eDisabled, notification, 0,
                                                              bgp_fsm_BGP_Stop) ;
   else
-    bgp_notify_free(notification) ;
+    bgp_notify_free(&notification) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -621,8 +621,8 @@ bgp_fsm_connect_completed(bgp_connection connection, int err,
     {
       bgp_fsm_event(connection, bgp_fsm_TCP_connection_open) ;
 
-      sockunion_set_dup(&connection->su_local,  su_local) ;
-      sockunion_set_dup(&connection->su_remote, su_remote) ;
+      connection->su_local  = sockunion_dup(su_local) ;
+      connection->su_remote = sockunion_dup(su_remote) ;
     }
   else if (   (err == ECONNREFUSED)
            || (err == ECONNRESET)
@@ -651,7 +651,7 @@ bgp_fsm_post_exception(bgp_connection connection, bgp_session_event_t except,
   if (   (connection->state != bgp_fsm_OpenSent)
       && (connection->state != bgp_fsm_OpenConfirm)
       && (connection->state != bgp_fsm_Established) )
-    bgp_notify_unset(&notification) ;
+    bgp_notify_free(&notification) ;
 
   bgp_notify_set(&connection->notification, notification) ;
 
@@ -1556,9 +1556,6 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
 
   do
     {
-      assert(bgp_nexus->pile == connection->hold_timer.pile);
-      assert(bgp_nexus->pile == connection->keepalive_timer.pile);
-
       assert(connection->fsm_active == 1) ;
 
       fsm = &bgp_fsm[connection->state][event] ;
@@ -1599,8 +1596,6 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
       event = connection->post ;
       connection->post = bgp_fsm_null_event ;
 
-      assert(bgp_nexus->pile == connection->hold_timer.pile);
-      assert(bgp_nexus->pile == connection->keepalive_timer.pile);
     } while (--connection->fsm_active != 0) ;
 
   /* If required, post session event.                                   */
@@ -1623,7 +1618,7 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
       /* Tidy up -- notification already cleared                        */
       connection->except = bgp_session_null_event ;
       connection->err    = 0 ;
-      bgp_notify_unset(&connection->notification) ;     /* if any       */
+      bgp_notify_free(&connection->notification) ;      /* if any       */
     }
 
   if (session != NULL)
@@ -1828,25 +1823,19 @@ static bgp_fsm_action(bgp_fsm_fatal)
  *
  * For primary connection:
  *
- *   * close the attempt to connect() (if still active)
+ *   * close the attempt to connect() (if still ative)
  *   * start the connect() attempt again
  *
  * For secondary connection:
  *
  *   * re-enable accept (if has been cleared) and wait for same
  *
- *     If no accept() has been attempted, then accept will still be enabled,
- *     and re-enabling it will make no difference.
- *
- * NB: the connection remains in the current state, and the retry timer will
- *     still be running, because it automatically recharges.
- *
  * NB: requires the session LOCKED
  */
 static bgp_fsm_action(bgp_fsm_retry)
 {
   if (connection->ordinal == bgp_connection_primary)
-    bgp_connection_close_file(connection) ;
+    bgp_close_connect(connection) ;
 
   bgp_fsm_post_exception(connection, bgp_session_eRetry, NULL, 0) ;
 

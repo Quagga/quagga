@@ -732,12 +732,63 @@ sockunion_free (union sockunion *su)
 }
 
 /*==============================================================================
- * Clear a given sockunion -- ie zeroise it
+ * Sockunion reference utilities
+ */
+
+/*------------------------------------------------------------------------------
+ * Unset pointer to sockunion -- free any sockunion referenced
+ *
+ * Does nothing if there is no sockunion
  */
 extern void
-sockunion_clear(union sockunion* su)
+sockunion_unset(sockunion* p_su)
 {
-  memset(su, 0, sizeof(union sockunion)) ;
+  if (*p_su != NULL)
+    XFREE(MTYPE_BGP_NOTIFY, *p_su) ;    /* sets *p_su NULL */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set pointer to sockunion (if any)
+ *
+ * Frees any existing sockunion at the destination.
+ *
+ * NB: copies the source pointer -- so must be clear about responsibility
+ *     for the sockunion.
+ */
+extern void
+sockunion_set(sockunion* p_dst, sockunion su)
+{
+  sockunion_unset(p_dst) ;
+  *p_dst = su ;
+}
+
+/*------------------------------------------------------------------------------
+ * Set pointer to a *copy* of the given sockunion
+ *
+ * Frees any existing sockunion at the destination.
+ *
+ * NB: copies the source pointer -- so must be clear about responsibility
+ *     for the sockunion structure.
+ */
+extern void
+sockunion_set_dup(sockunion* p_dst, sockunion su)
+{
+  sockunion_set(p_dst, sockunion_dup(su)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set pointer to sockunion (if any) and unset source pointer.
+ *
+ * Frees any existing sockunion at the destination.
+ *
+ * NB: responsibility for the sockunion passes to the destination.
+ */
+extern void
+sockunion_set_mov(sockunion* p_dst, sockunion* p_src)
+{
+  sockunion_unset(p_dst) ;
+  *p_dst = *p_src ;
+  *p_src = NULL ;
 } ;
 
 /*==============================================================================

@@ -293,12 +293,10 @@ bgp_connection_free(bgp_connection connection)
   bgp_connection_close(connection) ;
 
   /* Free any components which still exist                              */
-  bgp_notify_free(&connection->notification) ;
-  bgp_open_state_free(connection->open_recv) ;
-  if (connection->su_local != NULL)
-    sockunion_free(connection->su_local) ;
-  if (connection->su_remote != NULL)
-    sockunion_free(connection->su_remote) ;
+  bgp_notify_unset(&connection->notification) ;
+  bgp_open_state_unset(&connection->open_recv) ;
+  sockunion_unset(&connection->su_local) ;
+  sockunion_unset(&connection->su_remote) ;
   if (connection->host != NULL)
     XFREE(MTYPE_BGP_PEER_HOST, connection->host) ;
   stream_free(connection->ibuf) ;
@@ -469,7 +467,7 @@ bgp_connection_queue_process(void)
  *
  * Does not touch:
  *
- *   * state of the connection
+ *   * state of the connection (including post event)
  *
  * NB: requires the session to be LOCKED.
  */
@@ -486,15 +484,13 @@ bgp_connection_open(bgp_connection connection, int fd)
   qps_add_file(bgp_nexus->selection, &connection->qf, fd, connection) ;
 
   /* Clear sundry state is clear                                        */
-  connection->post    = bgp_fsm_null_event ;    /* no post event event  */
-
   connection->except  = bgp_session_null_event ;
-  bgp_notify_free(&connection->notification) ;
+  bgp_notify_unset(&connection->notification) ;
   connection->err     = 0 ;                     /* so far, so good      */
 
   /* These accept NULL arguments                                        */
   connection->open_recv    = bgp_open_state_free(connection->open_recv) ;
-  bgp_notify_free(&connection->notification) ;
+  bgp_notify_unset(&connection->notification) ;
 
   /* Copy the original hold_timer_interval and keepalive_timer_interval
    * Assume these have sensible initial values.
@@ -559,29 +555,15 @@ bgp_connection_disable_accept(bgp_connection connection)
 extern void
 bgp_connection_close(bgp_connection connection)
 {
-  int fd ;
-
-  /* close the qfile and any associate file descriptor                  */
-  qps_remove_file(&connection->qf) ;
-  fd = qps_file_unset_fd(&connection->qf) ;
-  if (fd != fd_undef)
-    shutdown(fd, SHUT_RDWR) ;
+  bgp_connection_close_file(connection) ;
 
   /* If this is the secondary connection, do not accept any more.       */
   if (connection->ordinal == bgp_connection_secondary)
     bgp_connection_disable_accept(connection) ;
 
   /* forget any addresses                                               */
-  if (connection->su_local != NULL)
-    {
-      sockunion_clear(connection->su_local) ;
-      connection->su_local = NULL;
-    }
-  if (connection->su_remote != NULL)
-    {
-      sockunion_clear(connection->su_remote) ;
-      connection->su_remote = NULL;
-    }
+  sockunion_unset(&connection->su_local) ;
+  sockunion_unset(&connection->su_remote) ;
 
   /* Unset all the timers                                               */
   qtimer_unset(&connection->hold_timer) ;
@@ -601,6 +583,25 @@ bgp_connection_close(bgp_connection connection)
   /* Empty out the pending queue and remove from connection queue       */
   mqueue_local_reset_keep(&connection->pending_queue) ;
   bgp_connection_queue_del(connection) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Close connection's file, if any.
+ *
+ *   * if there is an fd, close it
+ *   * if qfile is active, remove it
+ */
+extern void
+bgp_connection_close_file(bgp_connection connection)
+{
+  int fd ;
+
+  qps_remove_file(&connection->qf) ;
+
+  fd = qps_file_unset_fd(&connection->qf) ;
+  if (fd != fd_undef)
+    shutdown(fd, SHUT_RDWR) ;
+
 } ;
 
 /*------------------------------------------------------------------------------

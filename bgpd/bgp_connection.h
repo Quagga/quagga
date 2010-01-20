@@ -195,6 +195,9 @@ extern void
 bgp_connection_close(bgp_connection connection) ;
 
 extern void
+bgp_connection_close_file(bgp_connection connection) ;
+
+extern void
 bgp_connection_part_close(bgp_connection connection) ;
 
 extern void

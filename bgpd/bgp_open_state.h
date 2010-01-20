@@ -104,6 +104,9 @@ extern bgp_open_state
 bgp_open_state_free(bgp_open_state state) ;
 
 extern void
+bgp_open_state_unset(bgp_open_state* state) ;
+
+extern void
 bgp_open_state_unknown_add(bgp_open_state state, uint8_t code,
                                                void* value, bgp_size_t length) ;
 extern int

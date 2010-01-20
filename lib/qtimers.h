@@ -132,6 +132,9 @@ qtimer_add_interval(qtimer qtr, qtimer_action* action) ;
 Inline qtime_t
 qtimer_get_interval(qtimer qtr) ;
 
+void
+qtimer_pile_verify(qtimer_pile qtp) ;
+
 /*==============================================================================
  * Inline functions
  */

@@ -39,10 +39,11 @@
  *
  */
 
-/* Initialise new bgp_open_state structure -- allocate if required.
+/*------------------------------------------------------------------------------
+ * Initialise new bgp_open_state structure -- allocate if required.
  *
  */
-bgp_open_state
+extern bgp_open_state
 bgp_open_state_init_new(bgp_open_state state)
 {
   if (state == NULL)
@@ -55,7 +56,12 @@ bgp_open_state_init_new(bgp_open_state state)
   return state ;
 }
 
-bgp_open_state
+/*------------------------------------------------------------------------------
+ * Free bgp_open_state structure (if any)
+ *
+ * Returns NULL.
+ */
+extern bgp_open_state
 bgp_open_state_free(bgp_open_state state)
 {
   bgp_cap_unknown unknown ;
@@ -70,6 +76,18 @@ bgp_open_state_free(bgp_open_state state)
 
   return NULL ;
 }
+
+/*------------------------------------------------------------------------------
+ * Unset pointer to open_state structure and free structure (if any).
+ */
+extern void
+bgp_open_state_unset(bgp_open_state* p_state)
+{
+  bgp_cap_unknown unknown ;
+
+  bgp_open_state_free(*p_state) ;
+  *p_state = NULL ;
+} ;
 
 /*==============================================================================
  * Construct new bgp_open_state for the given peer -- allocate if required.

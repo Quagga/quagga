@@ -73,6 +73,18 @@ bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
 } ;
 
 /*------------------------------------------------------------------------------
+ * Free notification structure
+ *
+ * Does nothing if there is no structure.
+ */
+extern void
+bgp_notify_free(bgp_notify notification)
+{
+  if (notification != NULL)
+    XFREE(MTYPE_BGP_NOTIFY, notification) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Duplicate existing notification (if any)
  */
 extern bgp_notify
@@ -94,7 +106,19 @@ bgp_notify_dup(bgp_notify notification)
 } ;
 
 /*------------------------------------------------------------------------------
- * Set notification (if any)
+ * Unset pointer to notification and free any existing notification structure.
+ *
+ * Does nothing if there is no structure.
+ */
+extern void
+bgp_notify_unset(bgp_notify* p_notification)
+{
+  if (*p_notification != NULL)
+    XFREE(MTYPE_BGP_NOTIFY, *p_notification) ;  /* sets *p_notification NULL */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set pointer to notification
  *
  * Frees any existing notification at the destination.
  *
@@ -109,7 +133,7 @@ bgp_notify_set(bgp_notify* p_dst, bgp_notify src)
 } ;
 
 /*------------------------------------------------------------------------------
- * Set notification (if any) to a *copy* of the source.
+ * Set pointer to notification to a *copy* of the source.
  *
  * Frees any existing notification at the destination.
  */
@@ -120,7 +144,7 @@ bgp_notify_set_dup(bgp_notify* p_dst, bgp_notify src)
 } ;
 
 /*------------------------------------------------------------------------------
- * Set notification (if any) and set source pointer NULL
+ * Set pointer to notification and unset source pointer
  *
  * Frees any existing notification at the destination.
  *
@@ -132,18 +156,6 @@ bgp_notify_set_mov(bgp_notify* p_dst, bgp_notify* p_src)
   bgp_notify_free(p_dst) ;
   *p_dst = *p_src ;
   *p_src = NULL ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Free notification structure
- *
- * Does nothing if there is no structure.
- */
-extern void
-bgp_notify_free(bgp_notify* p_notification)
-{
-  if (*p_notification != NULL)
-    XFREE(MTYPE_BGP_NOTIFY, *p_notification) ;  /* sets *p_notification NULL */
 } ;
 
 /*==============================================================================

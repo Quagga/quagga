@@ -41,6 +41,7 @@ union sockunion {
 #define su_port               su_si.si_port
 #endif /* 0 */
 
+typedef union sockunion* sockunion ;
 union sockunion
 {
   struct sockaddr sa;
@@ -118,7 +119,11 @@ extern int sockunion_getsockname (int, union sockunion*);
 extern int sockunion_getpeername (int, union sockunion*);
 extern union sockunion *sockunion_dup (union sockunion *);
 extern void sockunion_free (union sockunion *);
-extern void sockunion_clear(union sockunion*);
+
+extern void sockunion_unset(sockunion* p_su) ;
+extern void sockunion_set(sockunion* p_dst, sockunion su) ;
+extern void sockunion_set_dup(sockunion* p_dst, sockunion su) ;
+extern void sockunion_set_mov(sockunion* p_dst, sockunion* p_src) ;
 
 #ifndef HAVE_INET_NTOP
 extern const char * inet_ntop (int family, const void *addrptr,

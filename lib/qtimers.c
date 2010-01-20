@@ -154,6 +154,8 @@ qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto)
 {
   qtimer   qtr ;
 
+  qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
+
   qtr = heap_top_item(&qtp->timers) ;
   if ((qtr != NULL) && (qtr->time <= upto))
     {
@@ -321,6 +323,7 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
   qtp = qtr->pile ;
   dassert(qtp != NULL) ;
   assert(qtp == our_pile);
+  qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
 
   qtr->time = when ;
 
@@ -328,7 +331,9 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
     heap_update_item(&qtp->timers, qtr) ; /* update in heap               */
   else
     heap_push_item(&qtp->timers, qtr) ;   /* add to heap                  */
+
   assert(qtp == qtr->pile);
+  qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
 
   qtr->state = qtr_state_active ;         /* overrides any unset pending  */
 
@@ -349,11 +354,46 @@ qtimer_unset(qtimer qtr)
     {
       qtimer_pile qtp = qtr->pile ;
       dassert(qtp != NULL) ;
+
       assert(qtp == our_pile);
+      qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
 
       heap_delete_item(&qtp->timers, qtr) ;
+
       assert(qtp == qtr->pile);
+      qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
 
       qtr->state = qtr_state_inactive ; /* overrides any unset pending  */
+    } ;
+} ;
+
+/*==============================================================================
+ * Verification code for debug purposes.
+ */
+extern void
+qtimer_pile_verify(qtimer_pile qtp)
+{
+  heap   th = &qtp->timers ;
+  vector v ;
+  vector_index i ;
+  vector_index e ;
+  qtimer qtr ;
+
+  /* Eclipse flags offsetof(struct qtimer, backlink) as a syntax error :-(  */
+  typedef struct qtimer qtimer_t ;
+
+  assert(th->cmp             == (heap_cmp*)qtimer_cmp) ;
+  assert(th->state           == Heap_Has_Backlink) ;
+  assert(th->backlink_offset == offsetof(qtimer_t, backlink)) ;
+
+  v = &th->v ;
+  e = vector_end(v) ;
+  for (i = 0 ; i < e ; ++i)
+    {
+      qtr = vector_get_item(v, i) ;
+
+      assert(qtr->pile     == qtp) ;
+      assert(qtr->backlink == i) ;
+      assert(qtr->action   != NULL) ;
     } ;
 } ;
