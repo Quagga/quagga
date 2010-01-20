@@ -433,7 +433,7 @@ heap_bubble_up(heap h, vector_index i, p_vector_item p_v)
   while (i != 0)
     {
       ip = HEAP_UP(i) ;
-      p_p = &ha[ip] ;                   /* get parent                   */
+      p_p = ha[ip] ;                    /* get parent                   */
 
       if (h->cmp(&p_v, &p_p) >= 0)
 	break ;				/* stop when value >= parent	*/
@@ -470,12 +470,12 @@ heap_bubble_down(heap h, vector_index i, p_vector_item p_v)
       ic = HEAP_DOWN(i) ;
       if (ic >= e)
 	break ;                        /* Quit if run out of heap !     */
-      p_c = &ha[ic] ;                  /* get left hand child           */
+      p_c = ha[ic] ;                   /* get left hand child           */
 
       is = ic + 1 ;
       if (is < e)                      /* is there a right hand child ? */
 	{
-	  p_s = &ha[is] ;              /* get right hand child          */
+	  p_s = ha[is] ;               /* get right hand child          */
 	  if (h->cmp(&p_s, &p_c) < 0)
 	    {
 	      ic  = is ;               /* select smaller sibling        */
