@@ -246,7 +246,7 @@ bgp_session_enable(bgp_peer peer)
   session->open_send = bgp_peer_open_state_init_new(session->open_send, peer);
   session->open_recv = bgp_open_state_free(session->open_recv);
 
-  session->connect  = (peer->flags & PEER_FLAG_PASSIVE) != 0 ;
+  session->connect  = (peer->flags & PEER_FLAG_PASSIVE) == 0 ;
   session->listen   = 1 ;
 
   session->ttl      = peer->ttl ;
