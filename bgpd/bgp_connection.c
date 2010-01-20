@@ -572,8 +572,16 @@ bgp_connection_close(bgp_connection connection)
     bgp_connection_disable_accept(connection) ;
 
   /* forget any addresses                                               */
-  sockunion_clear(connection->su_local) ;
-  sockunion_clear(connection->su_remote) ;
+  if (connection->su_local != NULL)
+    {
+      sockunion_clear(connection->su_local) ;
+      connection->su_local = NULL;
+    }
+  if (connection->su_remote != NULL)
+    {
+      sockunion_clear(connection->su_remote) ;
+      connection->su_remote = NULL;
+    }
 
   /* Unset all the timers                                               */
   qtimer_unset(&connection->hold_timer) ;

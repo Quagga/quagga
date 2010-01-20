@@ -153,14 +153,15 @@ qpn_start(void* arg)
 
   while (!qpn->terminate)
     {
+      now = qt_get_monotonic();
+
       /* Signals are highest priority.
        * only execute on the main thread */
       if (qpn->main_thread)
         quagga_sigevent_process ();
 
       /* max time to wait in pselect */
-      now = qt_get_monotonic();
-      max_wait = now + QTIME(MAX_PSELECT_TIMOUT);
+      max_wait = QTIME(MAX_PSELECT_TIMOUT);
 
       /* event hooks, if any */
       for (i = 0; i < NUM_EVENT_HOOK; ++i)
@@ -185,8 +186,8 @@ qpn_start(void* arg)
         }
 
       /* block for some input, output, signal or timeout */
-      actions = qps_pselect(qpn->selection,
-          qtimer_pile_top_time(qpn->pile, max_wait));
+       actions = qps_pselect(qpn->selection,
+          qtimer_pile_top_time(qpn->pile, now + max_wait));
 
       /* process I/O actions */
       while (actions)
@@ -195,7 +196,6 @@ qpn_start(void* arg)
       mqueue_done_waiting(qpn->queue, qpn->mts);
 
       /* process timers */
-      now = qt_get_monotonic();
       while (qtimer_pile_dispatch_next(qpn->pile, now))
         {
         }

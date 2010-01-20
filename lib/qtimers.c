@@ -87,6 +87,9 @@ qtimer_cmp(qtimer* a, qtimer* b)        /* the heap discipline  */
   return 0 ;
 } ;
 
+/* Kill this */
+qtimer_pile our_pile;
+
 /*==============================================================================
  * qtimer_pile handling
  */
@@ -113,6 +116,9 @@ qtimer_pile_init_new(qtimer_pile qtp)
 
   heap_init_new_backlinked(&qtp->timers, 0, (heap_cmp*)qtimer_cmp,
                                                  offsetof(qtimer_t, backlink)) ;
+
+  /* TODO: kill this */
+  our_pile = qtp;
   return qtp ;
 } ;
 
@@ -151,9 +157,11 @@ qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto)
   qtr = heap_top_item(&qtp->timers) ;
   if ((qtr != NULL) && (qtr->time <= upto))
     {
+      passert(qtp == qtr->pile);
       qtr->state = qtr_state_unset_pending ;
 
       qtr->action(qtr, qtr->timer_info, upto) ;
+      assert(qtp == qtr->pile);
 
       if (qtr->state == qtr_state_unset_pending)
         qtimer_unset(qtr) ;
@@ -312,6 +320,7 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
 
   qtp = qtr->pile ;
   dassert(qtp != NULL) ;
+  assert(qtp == our_pile);
 
   qtr->time = when ;
 
@@ -319,6 +328,7 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
     heap_update_item(&qtp->timers, qtr) ; /* update in heap               */
   else
     heap_push_item(&qtp->timers, qtr) ;   /* add to heap                  */
+  assert(qtp == qtr->pile);
 
   qtr->state = qtr_state_active ;         /* overrides any unset pending  */
 
@@ -339,8 +349,10 @@ qtimer_unset(qtimer qtr)
     {
       qtimer_pile qtp = qtr->pile ;
       dassert(qtp != NULL) ;
+      assert(qtp == our_pile);
 
       heap_delete_item(&qtp->timers, qtr) ;
+      assert(qtp == qtr->pile);
 
       qtr->state = qtr_state_inactive ; /* overrides any unset pending  */
     } ;

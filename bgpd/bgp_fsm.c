@@ -1556,6 +1556,9 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
 
   do
     {
+      assert(bgp_nexus->pile == connection->hold_timer.pile);
+      assert(bgp_nexus->pile == connection->keepalive_timer.pile);
+
       assert(connection->fsm_active == 1) ;
 
       fsm = &bgp_fsm[connection->state][event] ;
@@ -1596,6 +1599,8 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
       event = connection->post ;
       connection->post = bgp_fsm_null_event ;
 
+      assert(bgp_nexus->pile == connection->hold_timer.pile);
+      assert(bgp_nexus->pile == connection->keepalive_timer.pile);
     } while (--connection->fsm_active != 0) ;
 
   /* If required, post session event.                                   */
