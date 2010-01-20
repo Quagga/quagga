@@ -403,7 +403,7 @@ sockunion_connect(int fd, union sockunion* peer_su, unsigned short port,
 
   ret = connect(fd, (struct sockaddr *)&su, sockunion_sizeof(&su)) ;
 
-  if ((ret == 0) || ((ret = errno) != EINPROGRESS))
+  if ((ret == 0) || ((ret = errno) == EINPROGRESS))
     return 0 ;      /* instant success or EINPROGRESS as expected       */
 
   zlog_info("can't connect to %s fd %d : %s",
