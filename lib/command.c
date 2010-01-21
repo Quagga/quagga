@@ -2298,10 +2298,11 @@ cmd_execute_command_strict (vector vline, struct vty *vty,
 
 /* Configration make from file. */
 int
-config_from_file (struct vty *vty, FILE *fp)
+config_from_file (struct vty *vty, FILE *fp, void (*after_first_cmd)(void))
 {
   int ret;
   vector vline;
+  int first_cmd = 1;
 
   while (fgets (vty->buf, VTY_BUFSIZ, fp))
     {
@@ -2312,6 +2313,13 @@ config_from_file (struct vty *vty, FILE *fp)
 	continue;
       /* Execute configuration command : this is strict match */
       ret = cmd_execute_command_strict (vline, vty, NULL);
+
+      /* special handling for after the first command */
+      if (first_cmd && after_first_cmd)
+        {
+          after_first_cmd();
+          first_cmd = 0;
+        }
 
       /* Try again with setting node to CONFIG_NODE */
       while (ret != CMD_SUCCESS && ret != CMD_WARNING

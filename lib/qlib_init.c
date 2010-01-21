@@ -25,6 +25,7 @@
 #include "qpthreads.h"
 #include "thread.h"
 #include "privs.h"
+#include "mqueue.h"
 
 /*==============================================================================
  * Quagga Library Initialise/Closedown
@@ -75,6 +76,7 @@ qlib_init_second_stage(int pthreads)
   memory_init_r();
   thread_init_r();
   zprivs_init_r();
+  mqueue_initialise();
 }
 
 

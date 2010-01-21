@@ -231,6 +231,7 @@ extern int vty_puts(struct vty* vty, const char* str) ;
 extern int vty_out_newline(struct vty *vty) ;
 extern int vty_out_indent(struct vty *vty, int indent) ;
 extern void vty_read_config (char *, char *);
+extern void vty_read_config_first_cmd_special (char *, char *, void (*)(void));
 extern void vty_time_print (struct vty *, int);
 extern void vty_serv_sock (const char *, unsigned short, const char *);
 extern void vty_close (struct vty *);

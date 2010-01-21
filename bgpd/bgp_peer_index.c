@@ -111,8 +111,6 @@ bgp_peer_index_init(void* parent)
 
   bgp_peer_id_count = 0 ;
 
-  /* OK up to creation of qpthreads !                                   */
-  bgp_peer_index_mutex  = NULL ;
 } ;
 
 /*------------------------------------------------------------------------------

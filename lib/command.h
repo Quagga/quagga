@@ -356,7 +356,7 @@ extern void cmd_free_strvec (vector);
 extern vector cmd_describe_command (vector, int, int *status);
 extern char **cmd_complete_command (vector, int, int *status);
 extern const char *cmd_prompt (enum node_type);
-extern int config_from_file (struct vty *, FILE *);
+extern int config_from_file (struct vty *, FILE *, void (*)(void));
 extern enum node_type node_parent (enum node_type);
 extern int cmd_execute_command (vector, struct vty *, struct cmd_element **,
     qpn_nexus, int);

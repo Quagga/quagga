@@ -2649,7 +2649,7 @@ uty_timeout (struct vty *vty)
 
 /* Read up configuration file from file_name. */
 static void
-vty_read_file (FILE *confp)
+vty_read_file (FILE *confp, void (*after_first_cmd)(void))
 {
   int ret;
   struct vty *vty;
@@ -2658,7 +2658,7 @@ vty_read_file (FILE *confp)
   vty->node = CONFIG_NODE;
 
   /* Execute configuration file */
-  ret = config_from_file (vty, confp);
+  ret = config_from_file (vty, confp, after_first_cmd);
 
   LOCK
 
@@ -2752,6 +2752,15 @@ void
 vty_read_config (char *config_file,
                  char *config_default_dir)
 {
+  vty_read_config_first_cmd_special(config_file, config_default_dir, NULL);
+}
+
+/* Read up configuration file from file_name.
+ * callback after first command */
+void
+vty_read_config_first_cmd_special(char *config_file,
+                 char *config_default_dir, void (*after_first_cmd)(void))
+{
   char cwd[MAXPATHLEN];
   FILE *confp = NULL;
   char *fullpath;
@@ -2840,7 +2849,7 @@ vty_read_config (char *config_file,
         fullpath = config_default_dir;
     }
 
-  vty_read_file (confp);
+  vty_read_file (confp, after_first_cmd);
 
   fclose (confp);
 
@@ -3087,6 +3096,8 @@ vty_event_r (enum event event, int sock, struct vty *vty)
       qps_enable_mode(vty->qf, qps_write_mnum, vty_flush_r) ;
       break;
     case VTY_TIMEOUT_RESET:
+      if (vty->qtr == NULL)
+        break;
       if (vty->v_timeout)
         {
           qtimer_set(vty->qtr, qt_add_monotonic(QTIME(vty->v_timeout)), NULL) ;

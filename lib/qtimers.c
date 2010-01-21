@@ -87,9 +87,6 @@ qtimer_cmp(qtimer* a, qtimer* b)        /* the heap discipline  */
   return 0 ;
 } ;
 
-/* Kill this */
-qtimer_pile our_pile;
-
 /*==============================================================================
  * qtimer_pile handling
  */
@@ -116,9 +113,6 @@ qtimer_pile_init_new(qtimer_pile qtp)
 
   heap_init_new_backlinked(&qtp->timers, 0, (heap_cmp*)qtimer_cmp,
                                                  offsetof(qtimer_t, backlink)) ;
-
-  /* TODO: kill this */
-  our_pile = qtp;
   return qtp ;
 } ;
 
@@ -322,7 +316,6 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
 
   qtp = qtr->pile ;
   dassert(qtp != NULL) ;
-  assert(qtp == our_pile);
   qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
 
   qtr->time = when ;
@@ -356,7 +349,6 @@ qtimer_unset(qtimer qtr)
       qtimer_pile qtp = qtr->pile ;
       dassert(qtp != NULL) ;
 
-      assert(qtp == our_pile);
       qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
 
       heap_delete_item(&qtp->timers, qtr) ;

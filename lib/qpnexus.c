@@ -134,9 +134,6 @@ qpn_exec(qpn_nexus qpn)
  *
  *   5) Timers -- qtimers
  *
- *   6) Legacy threads.  To deal with legacy timer mechanism.
- *
- *
  */
 static void*
 qpn_start(void* arg)

@@ -348,7 +348,8 @@ bgp_exit (int status)
   qexit (status);
 }
 
-/* threaded command*/
+/* Threaded command.  If present must be the first command in the
+ * configuration file.  If not the first command it will log and abort. */
 DEFUN_HID_CALL (threaded,
        threaded_cmd,
        "threaded",
@@ -360,17 +361,41 @@ DEFUN_HID_CALL (threaded,
   return CMD_SUCCESS;
 }
 
+/* If neither the command line nor the first command enabled pthreads
+ * then disable pthreads.  This is a call back after processing the
+ * first command in the configuration file
+ */
+static void after_first_cmd()
+{
+  if (!qpthreads_enabled)
+    init_second_stage(0);
+}
+
+/* Enable or disables pthreads.  Create the nexus(es). Perform
+ * any post nexus creation initialization. The nexus(es) need
+ * to be created as soon as we know the pthread state so that
+ * the message queues are available for the configuration data.
+ */
 static void
 init_second_stage(int pthreads)
 {
   qlib_init_second_stage(pthreads);
   bgp_peer_index_mutex_init();
 
+  /* Make nexus for main thread, always needed */
+  cli_nexus = qpn_init_new(cli_nexus, 1); /* main thread */
+
   /* if using pthreads create additional nexus */
   if (qpthreads_enabled)
     {
-      bgp_nexus = qpn_init_new(cli_nexus, 0);
-      routing_nexus = qpn_init_new(cli_nexus, 0);
+      bgp_nexus = qpn_init_new(bgp_nexus, 0);
+      routing_nexus = qpn_init_new(routing_nexus, 0);
+    }
+  else
+    {
+      /* we all share the single nexus and single thread */
+      bgp_nexus = cli_nexus;
+      routing_nexus = cli_nexus;
     }
 
   /* Nexus hooks.
@@ -416,11 +441,6 @@ main (int argc, char **argv)
 
   zlog_default = openzlog (progname, ZLOG_BGP,
 			   LOG_CONS|LOG_NDELAY|LOG_PID, LOG_DAEMON);
-
-  /* Make nexus for main thread, always needed */
-  cli_nexus = qpn_init_new(cli_nexus, 1); /* main thread */
-  bgp_nexus = cli_nexus;        /* use main thread for now */
-  routing_nexus = cli_nexus;    /* use main thread for now */
 
   /* BGP master init. */
   bgp_master_init ();
@@ -522,10 +542,10 @@ main (int argc, char **argv)
   sort_node ();
 
   /* Parse config file. */
-  vty_read_config (config_file, config_default);
+  vty_read_config_first_cmd_special (config_file, config_default, after_first_cmd);
 
   /* Start execution only if not in dry-run mode */
-  if(dryrun)
+  if (dryrun)
     return(0);
 
   /* only the calling thread survives in the child after a fork
@@ -542,10 +562,6 @@ main (int argc, char **argv)
 
   /* Process ID file creation. */
   pid_output (pid_file);
-
-  /* stage 2 initialisation, if not already done */
-  if (!qpthreads_enabled)
-    init_second_stage(0);
 
   /* Make bgp vty socket. */
   vty_serv_sock (vty_addr, vty_port, BGP_VTYSH_PATH);
