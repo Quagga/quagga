@@ -491,7 +491,7 @@ bgp_connection_open(bgp_connection connection, int fd)
   bgp_notify_unset(&connection->notification) ;
   connection->err     = 0 ;                     /* so far, so good      */
 
-  bgp_open_state_unset(connection->open_recv) ;
+  bgp_open_state_unset(&connection->open_recv) ;
 
   /* Copy the original hold_timer_interval and keepalive_timer_interval
    * Assume these have sensible initial values.
