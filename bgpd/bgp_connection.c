@@ -564,11 +564,7 @@ bgp_connection_close(bgp_connection connection, int unset_timers)
 
   fd = qps_file_unset_fd(&connection->qf) ;
   if (fd != fd_undef)
-#if 0
     close(fd) ;
-#else
-    shutdown(fd, SHUT_RDWR) ;
-#endif
 
   /* If required, unset the timers.                                     */
   if (unset_timers)
