@@ -1826,17 +1826,10 @@ static bgp_fsm_action(bgp_fsm_fatal)
  * If the connection failed, the connection will have been closed.  For the
  * secondary connection accept() will have been disabled.
  *
- * For primary connection:
- *
- *   * close the attempt to connect() (if still active)
- *   * start the connect() attempt again
- *
- * For secondary connection:
- *
- *   * re-enable accept (if has been cleared) and wait for same
- *
- *     If no accept() has been attempted, then accept will still be enabled,
- *     and re-enabling it will make no difference.
+ * In any case, close the connection (but leave timers running) and then
+ * start a new attempt to connect (for secondary connection this momentarily
+ * disables and then enables accept(), but won't do a pselect until after
+ * that bounce.
  *
  * NB: the connection remains in the current state, and the retry timer will
  *     still be running, because it automatically recharges.
@@ -1845,8 +1838,7 @@ static bgp_fsm_action(bgp_fsm_fatal)
  */
 static bgp_fsm_action(bgp_fsm_retry)
 {
-  if (connection->ordinal == bgp_connection_primary)
-    bgp_connection_close_file(connection) ;
+  bgp_connection_close(connection, 0) ;         /* FSM does timers  */
 
   bgp_fsm_post_exception(connection, bgp_session_eRetry, NULL, 0) ;
 
@@ -1881,7 +1873,7 @@ static bgp_fsm_action(bgp_fsm_expire)
   /* The process of sending a NOTIFICATION comes to an end here.        */
   if (connection->notification_pending)
     {
-      bgp_connection_close(connection) ;
+      bgp_connection_close(connection, 0) ;   /* FSM deals with timers  */
 
       return next_state ;
     } ;
@@ -2113,7 +2105,7 @@ static bgp_fsm_action(bgp_fsm_exit)
  *
  *      Sending NOTIFICATION closes the connection for reading.
  *
- *  1b) otherwise: close the connection.
+ *  1b) otherwise: close the connection file.
  *
  *   2) if next state is Stopping, and not eDiscard
  *
@@ -2136,7 +2128,10 @@ static bgp_fsm_state_t
 bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
 {
   /* If there is a NOTIFICATION to send, now is the time to do that.
-   * Otherwise, close the connection.
+   * Otherwise, close the connection but leave the timers.
+   *
+   * The state transition stuff looks after timers.  In particular an error
+   * in Connect/Active states leaves the ConnectRetryTimer running.
    */
   if (   (connection->notification != NULL)
       && (connection->except != bgp_session_eNOM_recv) )
@@ -2144,7 +2139,8 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
       next_state = bgp_fsm_send_notification(connection, next_state) ;
     }
   else
-    bgp_connection_close(connection) ;
+    bgp_connection_close(connection, 0) ;     /* FSM deals with timers  */
+
 
   /* If stopping and not eDiscard, do in any sibling                    */
   if (   (next_state == bgp_fsm_Stopping)
