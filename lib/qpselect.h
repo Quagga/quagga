@@ -131,7 +131,7 @@ struct qps_selection
 
   struct vector files ; /* mapping fd to qps_file                         */
 
-  int   fd_last ;       /* highest numbered fd we are looking after       */
+  int   fd_last ;       /* highest numbered fd; -1 => none at all         */
   int   enabled_count[qps_mnum_count] ;  /* no. enabled fds in each mode  */
   fd_full_set enabled ; /* bit vectors for pselect enabled stuff          */
 

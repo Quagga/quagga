@@ -132,7 +132,6 @@ qps_selection_init_new(qps_selection qps)
    *
    *   files         -- empty vector
    *
-   *   fd_last       -- unset
    *   enabled_count -- no fd's enabled in any mode
    *   enabled       -- empty bit vectors
    *
@@ -147,8 +146,9 @@ qps_selection_init_new(qps_selection qps)
    *   signum        -- no signal to be enabled
    *   sigmask       -- unset
    *
-   * So nothing else to do -- see also qps_selection_re_init(), below.
+   * So nothing much else to do -- see also qps_selection_re_init(), below.
    */
+  qps->fd_last = -1 ;   /* not an fd in sight.  */
 
   return qps ;
 } ;
@@ -159,6 +159,8 @@ static void
 qps_selection_re_init(qps_selection qps)
 {
   memset(qps, 0, sizeof(struct qps_selection)) ;
+
+  qps->fd_last = -1 ;   /* not an fd in sight.  */
 } ;
 
 /* Add given file to the selection, setting its fd and pointer to further
@@ -309,16 +311,21 @@ qps_pselect(qps_selection qps, qtime_mono_t timeout)
   /* Prepare the argument/result bitmaps                */
   /* Capture pend_mnum and tried_count[]                */
 
-  n   = fd_byte_count[qps->fd_last] ; /* copy up to last sig. byte  */
+  n = (qps->fd_last >= 0)
+         ? fd_byte_count[qps->fd_last]  /* copy up to last sig. byte  */
+         : 0 ;
 
   qps->pend_mnum = qps_mnum_count ;
   for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
     if ((qps->tried_count[mnum] = qps->enabled_count[mnum]) != 0)
       {
+        dassert(n != 0) ;       /* n == 0 => no fds !   */
+
         memcpy(&(qps->results[mnum].bytes), &(qps->enabled[mnum].bytes), n) ;
         p_fds[mnum] = &(qps->results[mnum].fdset) ;
+
         if (mnum < qps->pend_mnum)
-          qps->pend_mnum = mnum ;
+          qps->pend_mnum = mnum ;       /* collect first active mode    */
       }
     else
       p_fds[mnum] = NULL ;
@@ -347,10 +354,11 @@ qps_pselect(qps_selection qps, qtime_mono_t timeout)
       return qps->pend_count = n ;      /* set and return pending count */
     } ;
 
+  /* Nothing pending at all                                             */
+  qps->pend_count = 0 ;         /* qps_dispatch_next() does nothing     */
+
   /* Flush the results vectors -- not apparently done if n <= 0)        */
   qps_super_set_zero(qps->results, qps_mnum_count) ;
-
-  qps->pend_count = 0 ;                 /* nothing pending              */
 
   /* Return appropriately, if we can                                    */
   if ((n == 0) || (errno == EINTR))
@@ -372,6 +380,10 @@ qps_pselect(qps_selection qps, qtime_mono_t timeout)
  * removes it from the selection.
  *
  * Returns the number of files left to process (after the one just processed).
+ *
+ * NB: clears result bits as it finds them -- so at end of process, the
+ *     result bit vectors should be zeroised again.  Also, this allows the
+ *     search to proceed from the last known fd -- won't find it again !
  */
 int
 qps_dispatch_next(qps_selection qps)
@@ -386,12 +398,13 @@ qps_dispatch_next(qps_selection qps)
   if (qps->pend_count == 0)
     return 0 ;                  /* quit immediately of nothing to do.   */
 
-  fd   = qps->pend_fd ;
-  mnum = qps->pend_mnum ;
+  fd   = qps->pend_fd ;         /* look for fd >= this                  */
+  mnum = qps->pend_mnum ;       /* starting with this mode              */
 
   dassert( (mnum >= 0) && (mnum < qps_mnum_count)
                        && (qps->tried_count[mnum] != 0)
-                       && (qps->pend_count > 0) ) ;
+                       && (qps->pend_count > 0)
+                       && (qps->tried_fd_last >= 0)) ;
 
   while (1)
     {
@@ -733,10 +746,9 @@ qps_file_remove(qps_selection qps, qps_file qf)
   dassert(qps->fd_count > 0) ;
   --qps->fd_count ;
 
-  dassert( ((qps->fd_count != 0) && (fd_last >= 0)) ||
-           ((qps->fd_count == 0) && (fd_last <  0)) ) ;
+  dassert(fd_last >= (qps->fd_count - 1)) ;
 
-  qps->fd_last = (fd_last >= 0) ? fd_last : 0 ;
+  qps->fd_last = fd_last ;
 
   /* Also, remove the from all vectors.                                 */
   qps_disable_modes(qf, qps_all_mbits) ;
@@ -849,6 +861,8 @@ static int
 qps_next_fd_pending(fd_super_set* pending, int fd, int fd_last)
 {
   uint8_t b ;
+
+  dassert((fd >= 0) && (fd <= fd_last)) ;
 
   while (pending->words[fd_word_map[fd]] == 0)  /* step past zero words */
     {
@@ -1247,7 +1261,7 @@ qps_selection_validate(qps_selection qps)
     zabort("Number of files in the selection does not tally") ;
 
   /* 6) check the last fd                                               */
-  if ( ((n == 0) && (qps->fd_last !=0)) || (fd_last != qps->fd_last) )
+  if ( (qps->fd_last < (n - 1)) || (fd_last != qps->fd_last) )
     zabort("The last fd does not tally") ;
 
   /* 7) check that the enabled counts tally.                            */
