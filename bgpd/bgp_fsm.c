@@ -2031,10 +2031,7 @@ static bgp_fsm_action(bgp_fsm_establish)
   /* Establish self as primary and copy state up to session             */
   bgp_connection_make_primary(connection) ;
 
-  /* Change the session state and post event                            */
-  assert(session->state == bgp_session_sEnabled) ;
-
-  session->state = bgp_session_sEstablished ;
+  /* Post exciting session event                                        */
   bgp_fsm_post_exception(connection, bgp_session_eEstablished, NULL, 0) ;
 
   /* TODO: now would be a good time to withdraw the password from listener ?  */

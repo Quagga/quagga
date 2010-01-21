@@ -305,8 +305,6 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
 
       BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
-      assert(session->state == bgp_session_sEnabled) ;
-
       session->active = 1 ;
       bgp_fsm_enable_session(session) ;
 
