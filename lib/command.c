@@ -536,6 +536,9 @@ zencrypt (const char *passwd)
 static int
 config_write_host (struct vty *vty)
 {
+  if (qpthreads_enabled)
+    vty_out (vty, "threaded%s", VTY_NEWLINE);
+
   if (host.name)
     vty_out (vty, "hostname %s%s", host.name, VTY_NEWLINE);
 

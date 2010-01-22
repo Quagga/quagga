@@ -85,6 +85,10 @@ static void init_second_stage(int pthreads);
 static void bgp_in_thread_init(void);
 static qtime_mono_t routing_event_hook(void);
 static qtime_mono_t bgp_event_hook(void);
+static void sighup_action(mqueue_block mqb, mqb_flag_t flag);
+static void sighup_enqueue(void);
+static void sigterm_action(mqueue_block mqb, mqb_flag_t flag);
+static void sigterm_enqueue(void);
 
 static struct quagga_signal_t bgp_signals[] =
 {
@@ -189,9 +193,9 @@ sighup (void)
 {
   zlog (NULL, LOG_INFO, "SIGHUP received");
 
-  /* Terminate all thread. */
-  bgp_terminate ();
-  bgp_reset ();
+  /* tell the routing engine */
+  sighup_enqueue();
+
   zlog_info ("bgpd restarting!");
 
   /* Reload config file. */
@@ -212,18 +216,18 @@ sigint (void)
 #endif
   zlog_notice ("Terminating on signal");
 
-  if (!retain_mode)
-    bgp_terminate ();
+  /* tell the routing engine */
+  sigterm_enqueue();
 
-  if (qpthreads_enabled)
-    {
-      /* ask all threads to terminate */
-      if (routing_nexus != NULL)
+  /* TODO: very temporary kludge to test if bgp engine does close */
+  sleep(20);
+
+  /* ask remaining pthreads to die */
+  if (qpthreads_enabled && routing_nexus != NULL)
         qpn_terminate(routing_nexus);
 
-      if (bgp_nexus != NULL)
+  if (qpthreads_enabled && bgp_nexus != NULL)
         qpn_terminate(bgp_nexus);
-    }
 
   if (cli_nexus != NULL)
       qpn_terminate(cli_nexus);
@@ -622,4 +626,49 @@ bgp_event_hook(void)
 {
   bgp_connection_queue_process();
   return 0;
+}
+
+/* SIGINT/TERM SIGHUP need to tell routing engine what to do */
+
+static void
+sighup_enqueue(void)
+{
+  mqueue_block mqb = mqb_init_new(NULL, sighup_action, NULL) ;
+
+  mqueue_enqueue(routing_nexus->queue, mqb, 0) ;
+}
+
+/* dispatch a command from the message queue block */
+static void
+sighup_action(mqueue_block mqb, mqb_flag_t flag)
+{
+  if (flag == mqb_action)
+    {
+      bgp_terminate ();
+      bgp_reset ();
+    }
+
+  mqb_free(mqb);
+}
+
+static void
+sigterm_enqueue(void)
+{
+  mqueue_block mqb = mqb_init_new(NULL, sigterm_action, NULL) ;
+
+  mqueue_enqueue(routing_nexus->queue, mqb, 0) ;
+}
+
+/* dispatch a command from the message queue block */
+static void
+sigterm_action(mqueue_block mqb, mqb_flag_t flag)
+{
+  if (flag == mqb_action)
+    {
+      /* send notify to all peers, unless retaining routes */
+      if (!retain_mode)
+        bgp_terminate();
+    }
+
+  mqb_free(mqb);
 }

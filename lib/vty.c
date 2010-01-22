@@ -603,7 +603,8 @@ vty_queued_result(struct vty *vty, int result)
   if (cli_nexus)
     {
       vty_event (VTY_WRITE, vty->fd, vty);
-      qpt_thread_signal(cli_nexus->thread_id, SIGMQUEUE);
+      if (qpthreads_enabled)
+        qpt_thread_signal(cli_nexus->thread_id, SIGMQUEUE);
     }
 
   UNLOCK
@@ -2901,15 +2902,18 @@ vty_goodbye (void)
   if (vtyvec)
     {
       for (i = 0; i < vector_active (vtyvec); i++)
-        if (((vty = vector_slot (vtyvec, i)) != NULL) && vty->type == VTY_TERM)
-            uty_out(vty, QUAGGA_PROGNAME " is shutting down%s", VTY_NEWLINE);
-
-      /* Wake up */
-      if (cli_nexus)
         {
-          vty_event (VTY_WRITE, vty->fd, vty);
-          qpt_thread_signal(cli_nexus->thread_id, SIGMQUEUE);
+          if (((vty = vector_slot (vtyvec, i)) != NULL) && vty->type == VTY_TERM)
+            {
+              uty_out(vty, QUAGGA_PROGNAME " is shutting down%s", VTY_NEWLINE);
+
+              /* Wake up */
+              if (cli_nexus)
+                vty_event (VTY_WRITE, vty->fd, vty);
+            }
         }
+      if (qpthreads_enabled)
+        qpt_thread_signal(cli_nexus->thread_id, SIGMQUEUE);
     }
 
     UNLOCK

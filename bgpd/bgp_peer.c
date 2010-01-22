@@ -904,7 +904,8 @@ peer_free (struct peer *peer)
   BGP_EVENT_FLUSH (peer);
 
   /* unregister */
-  bgp_peer_index_deregister(peer, &peer->su);
+  if (peer->index_entry != NULL)
+    bgp_peer_index_deregister(peer, &peer->su);
 
   if (peer->desc)
     XFREE (MTYPE_PEER_DESC, peer->desc);

@@ -264,5 +264,6 @@ qpn_terminate(qpn_nexus qpn)
 {
   qpn->terminate = 1;
   /* wake up any pselect */
-  qpt_thread_signal(qpn->thread_id, SIGMQUEUE);
+  if (qpthreads_enabled)
+    qpt_thread_signal(qpn->thread_id, SIGMQUEUE);
 }

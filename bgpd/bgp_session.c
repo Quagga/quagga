@@ -306,6 +306,7 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
 
       session->active = 1 ;
       bgp_fsm_enable_session(session) ;
+      session->state = bgp_session_sEnabled;
 
       BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
     } ;
@@ -338,7 +339,7 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
   /* Do nothing if session is not active, or is already limping.        */
 
   if ( (session->state != bgp_session_sEnabled) &&
-       (session->state != bgp_session_sEstablished) ) ;
+       (session->state != bgp_session_sEstablished) )
     {
       bgp_notify_free(notification) ;  /* discard any bgp_notify        */
       return ;
