@@ -61,7 +61,6 @@
 static int bgp_session_has_established(bgp_peer peer);
 static int bgp_session_has_stopped(bgp_peer peer);
 static int bgp_session_has_disabled(bgp_peer peer);
-static int bgp_peer_stop (struct peer *peer) ;
 static void bgp_uptime_reset (struct peer *peer);
 static int bgp_routeadv_timer (struct thread *thread);
 static int bgp_graceful_restart_timer_expire (struct thread *thread);
@@ -160,6 +159,7 @@ bgp_session_has_established(bgp_peer peer)
   assert(session->state == bgp_session_sEnabled) ;
 
   session->state = bgp_session_sEstablished ;
+  peer_change_status (peer, Established);
 
   /* update peer state from received open */
   bgp_peer_open_state_receive(peer);
@@ -273,13 +273,8 @@ bgp_session_has_stopped(bgp_peer peer)
   bgp_session session = peer->session ;
 
   assert(bgp_session_is_active(session)) ;
-
-  bgp_session_disable(peer, NULL) ;     /* does nothing if already sLimping */
-
-  /* TODO: needs to kick off the process of withdrawing routes etc.     */
+  bgp_peer_reenable(peer, NULL);
   /* TODO: needs to deal with NOTIFICATION, if any ??                   */
-  /* TODO: needs to automatically re-enable the peering ??              */
-  bgp_peer_stop(peer) ;
 
   return 0;
 }
@@ -313,7 +308,7 @@ bgp_session_has_disabled(bgp_peer peer)
 
 /* Administrative BGP peer stop event. */
 /* May be called multiple times for the same peer */
-static int
+int
 bgp_peer_stop (struct peer *peer)
 {
   afi_t afi;
@@ -469,6 +464,7 @@ bgp_timer_set (struct peer *peer)
       BGP_TIMER_OFF (peer->t_routeadv);
       break;
 
+#if 0
     case Connect:
       /* After start timer is expired, the peer moves to Connnect
          status.  Make sure start timer is off and connect timer is
@@ -495,6 +491,7 @@ bgp_timer_set (struct peer *peer)
       BGP_TIMER_OFF (peer->t_asorig);
       BGP_TIMER_OFF (peer->t_routeadv);
       break;
+#endif
 
     case Established:
       /* In Established status start and connect timer is turned
@@ -657,7 +654,6 @@ peer_new (struct bgp *bgp)
   peer = XCALLOC (MTYPE_BGP_PEER, sizeof (struct peer));
 
   /* Set default value. */
-  peer->fd = -1;
   peer->v_start = BGP_INIT_START_TIMER;
   peer->v_connect = BGP_DEFAULT_CONNECT_RETRY;
   peer->v_asorig = BGP_DEFAULT_ASORIGINATE;
@@ -797,8 +793,7 @@ peer_delete (struct peer *peer)
    */
   peer->last_reset = PEER_DOWN_NEIGHBOR_DELETE;
   bgp_peer_stop (peer);
-  /* TODO: Deleted status */
-  /* bgp_fsm_change_status (peer, Deleted); */
+  peer_change_status (peer, Deleted);
 
   /* Password configuration */
   if (peer->password)
@@ -888,9 +883,6 @@ peer_delete (struct peer *peer)
         peer->default_rmap[afi][safi].name = NULL;
       }
 
-  /* unregister */
-  bgp_peer_index_deregister(peer, &peer->su);
-
   peer_unlock (peer); /* initial reference */
 
   return 0;
@@ -910,6 +902,9 @@ peer_free (struct peer *peer)
   BGP_READ_OFF (peer->t_read);
   BGP_WRITE_OFF (peer->t_write);
   BGP_EVENT_FLUSH (peer);
+
+  /* unregister */
+  bgp_peer_index_deregister(peer, &peer->su);
 
   if (peer->desc)
     XFREE (MTYPE_PEER_DESC, peer->desc);
@@ -985,7 +980,6 @@ bgp_peer_enable(bgp_peer peer)
 {
   /* enable the session */
   bgp_session_enable(peer);
-  peer->state = bgp_peer_enabled;
 }
 
 /* disable the peer
@@ -999,5 +993,29 @@ bgp_peer_disable(bgp_peer peer, bgp_notify notification)
 
   /* and the peer */
   bgp_peer_stop(peer);
-  peer->state = bgp_peer_disabled;
+  peer_change_status (peer, Clearing);
+}
+
+/* Called after event occurred, this function change status and reset
+   read/write and timer thread. */
+void
+peer_change_status (bgp_peer peer, int status)
+{
+  bgp_dump_state (peer, peer->status, status);
+
+  /* Transition into Clearing or Deleted must /always/ clear all routes..
+   * (and must do so before actually changing into Deleted..
+   */
+  if (status >= Clearing)
+    bgp_clear_route_all (peer);
+
+  /* Preserve old status and change into new status. */
+  peer->ostatus = peer->status;
+  peer->status = status;
+
+  if (BGP_DEBUG (normal, NORMAL))
+    zlog_debug ("%s went from %s to %s",
+                peer->host,
+                LOOKUP (bgp_status_msg, peer->ostatus),
+                LOOKUP (bgp_status_msg, peer->status));
 }

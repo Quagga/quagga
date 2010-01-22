@@ -114,17 +114,6 @@ enum bgp_session_events
   bgp_session_eDiscard,           /* discarded by sibling                     */
 } ;
 
-typedef enum bgp_peer_states bgp_peer_state_t ;
-enum bgp_peer_states
-{
-  bgp_peer_min_state        = 0,
-
-  bgp_peer_disabled         = 0,  /* peer disabled                          */
-  bgp_peer_enabled          = 1,  /* peer enabled                           */
-
-  bgp_peer_max_state        = 1
-} ;
-
 /*==============================================================================
  * Other common types and ....
  */

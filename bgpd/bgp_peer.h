@@ -143,18 +143,12 @@ struct peer
   /* Packet receive buffer. */
   struct stream *ibuf;
 
-  /* TODO: kill - kludge to get things to compile */
-#if 1
   struct stream_fifo *obuf;
   struct stream *work;
-  int fd;
-  unsigned long packet_size;
-#endif
 
   /* Status of the peer. */
-  int status;
-  int ostatus;
-  bgp_peer_state_t state;
+  int status;   /* Current status */
+  int ostatus;  /* Old status */
 
   /* Peer index, used for dumping TABLE_DUMP_V2 format */
   uint16_t table_dump_index;
@@ -479,6 +473,11 @@ bgp_peer_enable(bgp_peer peer);
 
 extern void
 bgp_peer_disable(bgp_peer peer, bgp_notify notification);
+
+extern int bgp_peer_stop (struct peer *peer) ;
+
+extern void
+peer_change_status (bgp_peer peer, int status);
 
 extern struct peer *
 peer_new (struct bgp *bgp);

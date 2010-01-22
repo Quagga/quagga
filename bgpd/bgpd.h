@@ -273,10 +273,12 @@ struct bgp_nlri
 
 /* BGP finite state machine status.  */
 #define Idle                                     1
+/* Obsolete
 #define Connect                                  2
 #define Active                                   3
 #define OpenSent                                 4
 #define OpenConfirm                              5
+*/
 #define Established                              6
 #define Clearing                                 7
 #define Deleted                                  8

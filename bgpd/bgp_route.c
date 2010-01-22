@@ -2723,9 +2723,11 @@ bgp_clear_node_complete (struct work_queue *wq)
 {
   struct peer *peer = wq->spec.data;
 
-  /* Tickle FSM to start moving again */
-  /* TODO: Clearing status */
-  /* BGP_EVENT_ADD (peer, Clearing_Completed); */
+  /* Flush the event queue and ensure the peer is shut down */
+  bgp_peer_stop(peer);
+  BGP_EVENT_FLUSH (peer);
+  if (peer->status == Clearing)
+    peer_change_status (peer, Idle);
 
   peer_unlock (peer); /* bgp_clear_route */
 }

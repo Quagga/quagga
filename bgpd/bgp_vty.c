@@ -7305,6 +7305,8 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   if (p->status == Established)
     vty_out (vty, ", up for %8s",
 	     peer_uptime (p->uptime, timebuf, BGP_UPTIME_LEN));
+  /* TODO: what is state "Active" now?  sEnabled? */
+#if 0
   else if (p->status == Active)
     {
       if (CHECK_FLAG (p->flags, PEER_FLAG_PASSIVE))
@@ -7312,6 +7314,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
       else if (CHECK_FLAG (p->sflags, PEER_STATUS_NSF_WAIT))
 	vty_out (vty, " (NSF passive)");
     }
+#endif
   vty_out (vty, "%s", VTY_NEWLINE);
 
   /* read timer */

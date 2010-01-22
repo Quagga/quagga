@@ -281,7 +281,6 @@ bgp_session_enable(bgp_peer peer)
   /* su_remote  set when session Established */
 
   /* Routeing Engine does the state change now.                         */
-  session->state    = bgp_session_sEnabled ;
 
   /* Now pass the session to the BGP Engine, which will set about       */
   /* making and running a connection to the peer.                       */
