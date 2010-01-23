@@ -125,13 +125,14 @@ struct bgp_session
   /* The Routeing Engine sets open_send and clears open_recv before enabling
    * the session, and may not change them while sEnabled/sEstablished.
    *
-   * The BGP Engine sets open_recv before setting the session sEstablished,
-   * and will not touch it thereafter.
+   * The as_expected is the AS configured for the far end -- which is what
+   * expect to see in the incoming OPEN.
    *
-   * So: the Routeing Engine may use open_recv once the session is
-   *     sEstablished.
+   * The BGP Engine sets open_recv signalling the session eEstablished, and
+   * will not touch it thereafter.
    */
   bgp_open_state    open_send ;         /* how to open the session        */
+  as_t              as_expected ;       /* who to open with               */
   bgp_open_state    open_recv ;         /* set when session Established   */
 
   /* The following are set by the Routeing Engine before a session is
@@ -159,20 +160,17 @@ struct bgp_session
   /* These are set by the Routeing Engine before a session is enabled,
    * but are affected by the capabilities received in the OPEN message.
    *
-   * The Routeing Engine may read these once sEstablished (under mutex).
-   *
-   * In sStopped state these reflect the last state of the session.
+   * When the session is established, the BGP Engine sets these.
    */
   unsigned  hold_timer_interval ;       /* subject to negotiation         */
   unsigned  keepalive_timer_interval ;  /* subject to negotiation         */
 
   flag_t            as4 ;               /* set by OPEN                    */
   flag_t            route_refresh_pre ; /* use pre-RFC version            */
+  flag_t            orf_prefix_pre ;    /* use pre-RFC version            */
 
   /* These are cleared by the Routeing Engine before a session is enabled,
    * and set by the BGP Engine when the session is established.
-   *
-   * In sStopped state these reflect the last state of the session.
    */
   union sockunion*  su_local ;          /* set when session Established   */
   union sockunion*  su_remote ;         /* set when session Established   */

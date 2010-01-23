@@ -126,8 +126,11 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
    *   * keepalive_timer_interval none -- set when connection is opened
    *   * as4                      not AS4 conversation
    *   * route_refresh_pre        not pre-RFC ROUTE-REFRESH
+   *   * orf_prefix_pre           not pre-RFC ORF by prefix
    *   * read_pending             nothing pending
    *   * read_header              not reading header
+   *   * msg_type                 none -- set when reading message
+   *   * msg_size                 none -- set when reading message
    *   * notification_pending     nothing pending
    *   * wbuff                    all pointers NULL -- empty buffer
    */
@@ -232,8 +235,7 @@ bgp_connection_make_primary(bgp_connection connection)
    * Copy the negotiated hold_timer_interval and keepalive_timer_interval
    * Copy the su_local and su_remote
    */
-  session->open_recv = connection->open_recv ;
-  connection->open_recv = NULL ;        /* no longer interested in this  */
+  bgp_open_state_set_mov(&session->open_recv, &connection->open_recv) ;
 
   XFREE(MTYPE_BGP_PEER_HOST, connection->host) ;
   bgp_connection_init_host(connection, "") ;
@@ -243,6 +245,7 @@ bgp_connection_make_primary(bgp_connection connection)
 
   session->as4                        = connection->as4 ;
   session->route_refresh_pre          = connection->route_refresh_pre ;
+  session->orf_prefix_pre             = connection->orf_prefix_pre ;
 
   sockunion_set_mov(&session->su_local,  &connection->su_local) ;
   sockunion_set_mov(&session->su_remote, &connection->su_remote) ;
@@ -895,9 +898,9 @@ bgp_connection_read_action(qps_file qf, void* file_info)
    *
    * Exits loop iff completes a BGP message.
    */
-  while (1)
+  while (want > 0)
     {
-      ret = stream_read_unblock(connection->ibuf, qps_file_fd(&connection->qf),
+      ret = stream_read_nonblock(connection->ibuf, qps_file_fd(&connection->qf),
                                                                          want) ;
       if (ret >= 0)
         {
@@ -915,8 +918,6 @@ bgp_connection_read_action(qps_file qf, void* file_info)
 
           want = bgp_msg_check_header(connection) ;
                                         /* returns balance of message   */
-          if (want < 0)
-            return ;                    /* failed in header check       */
         }
       else
         {
@@ -924,6 +925,9 @@ bgp_connection_read_action(qps_file qf, void* file_info)
           return ;
         } ;
     } ;
+
+  if (want < 0)
+    return ;                    /* failed in header check       */
 
   /* Deal with the BGP message.  MUST remove from ibuf before returns ! */
   bgp_msg_dispatch(connection) ;

@@ -87,6 +87,21 @@ bgp_open_state_unset(bgp_open_state* p_state)
   *p_state = NULL ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Set pointer to open_state and unset source pointer
+ *
+ * Frees any existing open_state at the destination.
+ *
+ * NB: responsibility for the open_state structure passes to the destination.
+ */
+extern void
+bgp_open_state_set_mov(bgp_open_state* p_dst, bgp_open_state* p_src)
+{
+  bgp_open_state_free(*p_dst) ;
+  *p_dst = *p_src ;
+  *p_src = NULL ;
+} ;
+
 /*==============================================================================
  * Construct new bgp_open_state for the given peer -- allocate if required.
  *
@@ -123,6 +138,9 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
 
   /* Announce self as AS4 speaker if required           */
   state->can_as4 = ((peer->cap & PEER_CAP_AS4_ADV) != 0) ;
+
+  state->my_as2 = (state->my_as > BGP_AS2_MAX ) ? BGP_ASN_TRANS
+                                                : state->my_as ;
 
   /* Fill in the supported AFI/SAFI                     */
 
@@ -169,10 +187,10 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
       state->restart_time  = 0 ;
     } ;
 
-  /* TODO: check not restarting and not preserving forwarding state (?)     */
+  /* TODO: check not has restarted and not preserving forwarding state (?)  */
   state->can_preserve    = 0 ;        /* cannot preserve forwarding     */
   state->has_preserved   = 0 ;        /* has not preserved forwarding   */
-  state->restarting      = 0 ;        /* is not restarting              */
+  state->has_restarted   = 0 ;        /* has not restarted              */
 
   return state;
 }
@@ -231,8 +249,10 @@ bgp_peer_open_state_receive(bgp_peer peer)
   bgp_session session = peer->session;
   bgp_open_state open_send = session->open_send;
   bgp_open_state open_recv = session->open_recv;
-  int afi;
-  int safi;
+  qAFI_t  afi;
+  qSAFI_t safi;
+  qafx_bit_t qbs ;
+  int recv ;
 
   /* Check neighbor as number. */
   assert(open_recv->my_as == peer->as);
@@ -262,19 +282,36 @@ bgp_peer_open_state_receive(bgp_peer peer)
   if (open_recv->can_as4)
     SET_FLAG (peer->cap, PEER_CAP_AS4_RCV);
 
-  /* AFI/SAFI */
-  /* Ignore capability when override-capability is set. */
+  /* AFI/SAFI -- as received, or assumed or overridden                  */
+
+  if (!open_recv->can_capability ||
+                        CHECK_FLAG (peer->flags, PEER_FLAG_OVERRIDE_CAPABILITY))
+    {
+      /* There were no capabilities, or are OVERRIDING AFI/SAFI, so force
+       * not having received any AFI/SAFI, but apply this set.
+       */
+      recv = 0 ;
+      qbs  = qafx_ipv4_unicast_bit | qafx_ipv4_multicast_bit |
+             qafx_ipv6_unicast_bit | qafx_ipv6_multicast_bit |
+             qafx_ipv4_mpls_vpn_bit ;
+    }
+  else
+    {
+      /* Use the AFI/SAFI received, if any.                             */
+      recv = 1 ;
+      qbs  = open_recv->can_mp_ext ;
+    }
+
   if (! CHECK_FLAG (peer->flags, PEER_FLAG_OVERRIDE_CAPABILITY))
     {
       for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
         for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
           {
-            qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
-            if (qb & open_recv->can_mp_ext)
+            qafx_bit_t qb = qafx_bit_from_qAFI_qSAFI(afi, safi) ;
+            if (qb & qbs)
               {
-                peer->afc_recv[afi][safi] = 1;
-                assert(peer->afc[afi][safi]);
-                peer->afc_nego[afi][safi] = 1;
+                peer->afc_recv[afi][safi] = recv ;
+                peer->afc_nego[afi][safi] = peer->afc[afi][safi] ;
               }
           }
     }
@@ -289,7 +326,7 @@ bgp_peer_open_state_receive(bgp_peer peer)
   for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
      for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
        {
-         qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
+         qafx_bit_t qb = qafx_bit_from_qAFI_qSAFI(afi, safi);
          if (qb & open_recv->can_orf_prefix_send)
            SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_ORF_PREFIX_SM_RCV);
          if (qb & open_recv->can_orf_prefix_recv)
@@ -320,7 +357,7 @@ bgp_peer_open_state_receive(bgp_peer peer)
   for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
      for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
        {
-         qafx_bit_t qb = qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi));
+         qafx_bit_t qb = qafx_bit_from_qAFI_qSAFI(afi, safi);
          if (peer->afc[afi][safi] && (qb & open_recv->can_g_restart))
            {
              SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_RCV);
@@ -334,14 +371,4 @@ bgp_peer_open_state_receive(bgp_peer peer)
 #if 0
   int         restarting ;            /* Restart State flag                 */
 #endif
-
-  /* Override capability. */
-  if (!open_recv->can_capability || CHECK_FLAG (peer->flags, PEER_FLAG_OVERRIDE_CAPABILITY))
-    {
-      peer->afc_nego[AFI_IP][SAFI_UNICAST] = peer->afc[AFI_IP][SAFI_UNICAST];
-      peer->afc_nego[AFI_IP][SAFI_MULTICAST] = peer->afc[AFI_IP][SAFI_MULTICAST];
-      peer->afc_nego[AFI_IP6][SAFI_UNICAST] = peer->afc[AFI_IP6][SAFI_UNICAST];
-      peer->afc_nego[AFI_IP6][SAFI_MULTICAST] = peer->afc[AFI_IP6][SAFI_MULTICAST];
-    }
-
 }

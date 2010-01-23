@@ -151,13 +151,17 @@ struct bgp_connection
 
   flag_t            as4 ;               /* subject to negotiation         */
   flag_t            route_refresh_pre ; /* subject to negotiation         */
+  flag_t            orf_prefix_pre ;    /* subject to negotiation         */
 
   struct qtimer     hold_timer ;
   struct qtimer     keepalive_timer ;
 
   struct stream*    ibuf ;              /* a single input "stream"        */
   unsigned          read_pending ;      /* how much input waiting for     */
-  int               read_header ;       /* reading message header         */
+
+  flag_t            read_header ;       /* reading message header         */
+  uint8_t           msg_type ;          /* copy of message type           */
+  bgp_size_t        msg_size ;          /* size of message *body*         */
 
   struct stream*    obuf ;              /* a single output "stream"       */
 

@@ -215,6 +215,13 @@ stream_get_endp (struct stream *s)
 }
 
 size_t
+stream_get_left (struct stream *s)
+{
+  STREAM_VERIFY_SANE(s);
+  return s->endp - s->getp ;
+}
+
+size_t
 stream_get_size (struct stream *s)
 {
   STREAM_VERIFY_SANE(s);

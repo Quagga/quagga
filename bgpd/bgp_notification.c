@@ -22,11 +22,13 @@
  */
 
 #include <string.h>
+#include <netinet/in.h>
 
 #include "lib/zassert.h"
 #include "lib/memory.h"
 
 #include "bgpd/bgp_notification.h"
+#include "bgpd/bgp_open_state.h"
 
 /*==============================================================================
  * A bgp_notify structure encapsulates the contents of a BGP NOTIFICATION
@@ -41,9 +43,9 @@
  * Rounds up to multiple of 32, such that is always at least 16 bytes available.
  */
 static inline bgp_size_t
-bgp_notify_size(bgp_size_t length)
+bgp_notify_size(bgp_size_t size)
 {
-  return sizeof(struct bgp_notify) + (((length + 32 + 16 - 1) / 32) * 32) ;
+  return (size == 0) ? 0 : ((size + 32 + 16 - 1) / 32) * 32 ;
 } ;
 
 /*==============================================================================
@@ -60,14 +62,18 @@ bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
                                                               bgp_size_t expect)
 {
   bgp_notify notification ;
-  bgp_size_t size = bgp_notify_size(expect) ;
 
-  notification = XCALLOC(MTYPE_BGP_NOTIFY, size) ;
+  notification = XCALLOC(MTYPE_BGP_NOTIFY, sizeof(struct bgp_notify)) ;
 
   notification->code    = code ;
   notification->subcode = subcode ;
-  notification->size    = size ;
+  notification->size    = bgp_notify_size(expect) ;
   notification->length  = 0 ;
+
+  if (notification->size != 0)
+    notification->data  = XCALLOC(MTYPE_TMP, notification->size) ;
+  else
+    notification->data  = NULL ;
 
   return notification ;
 } ;
@@ -81,7 +87,11 @@ extern void
 bgp_notify_free(bgp_notify notification)
 {
   if (notification != NULL)
-    XFREE(MTYPE_BGP_NOTIFY, notification) ;
+    {
+      if (notification->data != NULL)
+        XFREE(MTYPE_TMP, notification->data) ;
+      XFREE(MTYPE_BGP_NOTIFY, notification) ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -91,16 +101,25 @@ extern bgp_notify
 bgp_notify_dup(bgp_notify notification)
 {
   bgp_notify duplicate ;
-  bgp_size_t size ;
 
   if (notification == NULL)
     return NULL ;
 
-  size = bgp_notify_size(notification->length) ;
-  duplicate = XMALLOC(MTYPE_BGP_NOTIFY, size) ;
+  duplicate = XMALLOC(MTYPE_BGP_NOTIFY, sizeof(struct bgp_notify)) ;
+  *duplicate = *notification ;
 
-  memcpy((void*)duplicate, (void*)notification, size) ;
-  duplicate->size = size ;
+  if (notification->length == 0)
+    {
+      duplicate->size = 0 ;
+      duplicate->data = NULL ;
+    }
+  else
+    {
+      bgp_size_t size = bgp_notify_size(duplicate->length) ;
+      duplicate->size = size ;
+      duplicate->data = XCALLOC(MTYPE_TMP, size) ;
+      memcpy(duplicate->data, notification->data, duplicate->length) ;
+    } ;
 
   return duplicate ;
 } ;
@@ -113,8 +132,8 @@ bgp_notify_dup(bgp_notify notification)
 extern void
 bgp_notify_unset(bgp_notify* p_notification)
 {
-  if (*p_notification != NULL)
-    XFREE(MTYPE_BGP_NOTIFY, *p_notification) ;  /* sets *p_notification NULL */
+  bgp_notify_free(*p_notification) ;    /* free anything that's there   */
+  *p_notification = NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -159,22 +178,44 @@ bgp_notify_set_mov(bgp_notify* p_dst, bgp_notify* p_src)
 } ;
 
 /*==============================================================================
+ * Set new Code and Subcode and discard and data accumulated so far.
+ */
+extern bgp_notify
+bgp_notify_reset(bgp_notify notification, bgp_nom_code_t code,
+                                                      bgp_nom_subcode_t subcode)
+{
+  if (notification == NULL)
+    return bgp_notify_new(code, subcode, 0) ;
+
+  notification->code    = code ;
+  notification->subcode = subcode ;
+  notification->length  = 0 ;
+
+  return notification ;
+} ;
+
+/*==============================================================================
  * Append data to given notification
  *
  * Copes with zero length append.
  *
  * NB: returns possibly NEW ADDRESS of the notification.
  */
-extern bgp_notify
+extern void
 bgp_notify_append_data(bgp_notify notification, const void* data,
                                                                  bgp_size_t len)
 {
   bgp_size_t new_length = notification->length + len ;
 
-  if ((sizeof(struct bgp_notify) + new_length) > notification->size)
+  if (new_length > notification->size)
     {
       bgp_size_t size = bgp_notify_size(new_length) ;
-      notification = XREALLOC(MTYPE_BGP_NOTIFY, notification, size) ;
+
+      if (notification->size == 0)
+        notification->data = XCALLOC(MTYPE_TMP, size) ;
+      else
+        notification->data = XREALLOC(MTYPE_TMP, notification->data, size) ;
+
       memset((char*)notification + notification->size, 0,
                                                     size - notification->size) ;
       notification->size = size ;
@@ -184,6 +225,33 @@ bgp_notify_append_data(bgp_notify notification, const void* data,
     memcpy((char*)(notification->data) + notification->length, data, len) ;
 
   notification->length = new_length ;
+} ;
 
-  return notification ;
+/*------------------------------------------------------------------------------
+ * Append one byte
+ */
+extern void
+bgp_notify_append_b(bgp_notify notification, uint8_t b)
+{
+  bgp_notify_append_data(notification, &b, 1) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Append one word (uint16_t), in network byte order
+ */
+extern void
+bgp_notify_append_w(bgp_notify notification, uint16_t w)
+{
+  w = htons(w) ;
+  bgp_notify_append_data(notification, &w, 2) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Append one long (uint32_t), in network byte order
+ */
+extern void
+bgp_notify_append_l(bgp_notify notification, uint32_t l)
+{
+  l = htonl(l) ;
+  bgp_notify_append_data(notification, &l, 4) ;
 } ;

@@ -24,6 +24,7 @@
 #define BGP_MSG_READ_H_
 
 #include "bgpd/bgp_common.h"
+#include "bgpd/bgp_notification.h"
 
 extern bgp_size_t
 bgp_msg_get_mlen(uint8_t* p) ;
@@ -33,5 +34,8 @@ bgp_msg_check_header(bgp_connection connection);
 
 extern void
 bgp_msg_dispatch(bgp_connection connection);
+
+extern bgp_notify
+bgp_msg_noms_o_bad_id(bgp_notify notification, bgp_id_t id) ;
 
 #endif /* BGP_MSG_READ_H_ */

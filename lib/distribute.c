@@ -34,7 +34,7 @@ struct hash *disthash;
 /* Hook functions. */
 void (*distribute_add_hook) (struct distribute *);
 void (*distribute_delete_hook) (struct distribute *);
-
+
 static struct distribute *
 distribute_new (void)
 {
@@ -68,11 +68,18 @@ distribute_lookup (const char *ifname)
   struct distribute key;
   struct distribute *dist;
 
+  union {
+    const char* waxon ;
+          char* waxoff ;
+  } miyagi ;
+
+  miyagi.waxon = ifname ;
+
   /* temporary reference */
-  key.ifname = (char *)ifname;
+  key.ifname = miyagi.waxoff ;
 
   dist = hash_lookup (disthash, &key);
-  
+
   return dist;
 }
 
@@ -107,9 +114,16 @@ distribute_get (const char *ifname)
 {
   struct distribute key;
 
+  union {
+    const char* waxon ;
+          char* waxoff ;
+  } miyagi ;
+
+  miyagi.waxon = ifname ;
+
   /* temporary reference */
-  key.ifname = (char *)ifname;
-  
+  key.ifname = miyagi.waxoff ;
+
   return hash_get (disthash, &key, (void * (*) (void *))distribute_hash_alloc);
 }
 
@@ -138,10 +152,10 @@ distribute_cmp (const struct distribute *dist1, const struct distribute *dist2)
     return 1;
   return 0;
 }
-
+
 /* Set access-list name to the distribute list. */
 static struct distribute *
-distribute_list_set (const char *ifname, enum distribute_type type, 
+distribute_list_set (const char *ifname, enum distribute_type type,
                      const char *alist_name)
 {
   struct distribute *dist;
@@ -163,14 +177,14 @@ distribute_list_set (const char *ifname, enum distribute_type type,
 
   /* Apply this distribute-list to the interface. */
   (*distribute_add_hook) (dist);
-  
+
   return dist;
 }
 
 /* Unset distribute-list.  If matched distribute-list exist then
    return 1. */
 static int
-distribute_list_unset (const char *ifname, enum distribute_type type, 
+distribute_list_unset (const char *ifname, enum distribute_type type,
 		       const char *alist_name)
 {
   struct distribute *dist;
@@ -187,7 +201,7 @@ distribute_list_unset (const char *ifname, enum distribute_type type,
 	return 0;
 
       free (dist->list[DISTRIBUTE_IN]);
-      dist->list[DISTRIBUTE_IN] = NULL;      
+      dist->list[DISTRIBUTE_IN] = NULL;
     }
 
   if (type == DISTRIBUTE_OUT)
@@ -198,7 +212,7 @@ distribute_list_unset (const char *ifname, enum distribute_type type,
 	return 0;
 
       free (dist->list[DISTRIBUTE_OUT]);
-      dist->list[DISTRIBUTE_OUT] = NULL;      
+      dist->list[DISTRIBUTE_OUT] = NULL;
     }
 
   /* Apply this distribute-list to the interface. */
@@ -241,7 +255,7 @@ distribute_list_prefix_set (const char *ifname, enum distribute_type type,
 
   /* Apply this distribute-list to the interface. */
   (*distribute_add_hook) (dist);
-  
+
   return dist;
 }
 
@@ -265,7 +279,7 @@ distribute_list_prefix_unset (const char *ifname, enum distribute_type type,
 	return 0;
 
       free (dist->prefix[DISTRIBUTE_IN]);
-      dist->prefix[DISTRIBUTE_IN] = NULL;      
+      dist->prefix[DISTRIBUTE_IN] = NULL;
     }
 
   if (type == DISTRIBUTE_OUT)
@@ -276,7 +290,7 @@ distribute_list_prefix_unset (const char *ifname, enum distribute_type type,
 	return 0;
 
       free (dist->prefix[DISTRIBUTE_OUT]);
-      dist->prefix[DISTRIBUTE_OUT] = NULL;      
+      dist->prefix[DISTRIBUTE_OUT] = NULL;
     }
 
   /* Apply this distribute-list to the interface. */
@@ -401,7 +415,7 @@ DEFUN (distribute_list,
   dist = distribute_list_set (argv[2], type, argv[0]);
 
   return CMD_SUCCESS;
-}       
+}
 
 ALIAS (distribute_list,
        ipv6_distribute_list_cmd,
@@ -442,7 +456,7 @@ DEFUN (no_districute_list, no_distribute_list_cmd,
       return CMD_WARNING;
     }
   return CMD_SUCCESS;
-}       
+}
 
 ALIAS (no_districute_list, no_ipv6_distribute_list_cmd,
        "no distribute-list WORD (in|out) WORD",
@@ -472,7 +486,7 @@ DEFUN (districute_list_prefix_all,
     type = DISTRIBUTE_OUT;
   else
     {
-      vty_out (vty, "distribute list direction must be [in|out]%s", 
+      vty_out (vty, "distribute list direction must be [in|out]%s",
 	       VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -481,7 +495,7 @@ DEFUN (districute_list_prefix_all,
   dist = distribute_list_prefix_set (NULL, type, argv[0]);
 
   return CMD_SUCCESS;
-}       
+}
 
 ALIAS (districute_list_prefix_all,
        ipv6_distribute_list_prefix_all_cmd,
@@ -512,7 +526,7 @@ DEFUN (no_districute_list_prefix_all,
     type = DISTRIBUTE_OUT;
   else
     {
-      vty_out (vty, "distribute list direction must be [in|out]%s", 
+      vty_out (vty, "distribute list direction must be [in|out]%s",
 	       VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -524,7 +538,7 @@ DEFUN (no_districute_list_prefix_all,
       return CMD_WARNING;
     }
   return CMD_SUCCESS;
-}       
+}
 
 ALIAS (no_districute_list_prefix_all,
        no_ipv6_distribute_list_prefix_all_cmd,
@@ -555,7 +569,7 @@ DEFUN (districute_list_prefix, distribute_list_prefix_cmd,
     type = DISTRIBUTE_OUT;
   else
     {
-      vty_out (vty, "distribute list direction must be [in|out]%s", 
+      vty_out (vty, "distribute list direction must be [in|out]%s",
 	       VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -564,7 +578,7 @@ DEFUN (districute_list_prefix, distribute_list_prefix_cmd,
   dist = distribute_list_prefix_set (argv[2], type, argv[0]);
 
   return CMD_SUCCESS;
-}       
+}
 
 ALIAS (districute_list_prefix, ipv6_distribute_list_prefix_cmd,
        "distribute-list prefix WORD (in|out) WORD",
@@ -595,7 +609,7 @@ DEFUN (no_districute_list_prefix, no_distribute_list_prefix_cmd,
     type = DISTRIBUTE_OUT;
   else
     {
-      vty_out (vty, "distribute list direction must be [in|out]%s", 
+      vty_out (vty, "distribute list direction must be [in|out]%s",
 	       VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -607,7 +621,7 @@ DEFUN (no_districute_list_prefix, no_distribute_list_prefix_cmd,
       return CMD_WARNING;
     }
   return CMD_SUCCESS;
-}       
+}
 
 ALIAS (no_districute_list_prefix, no_ipv6_distribute_list_prefix_cmd,
        "no distribute-list prefix WORD (in|out) WORD",
@@ -714,7 +728,7 @@ config_write_distribute (struct vty *vty)
 
 	if (dist->list[DISTRIBUTE_IN])
 	  {
-	    vty_out (vty, " distribute-list %s in %s%s", 
+	    vty_out (vty, " distribute-list %s in %s%s",
 		     dist->list[DISTRIBUTE_IN],
 		     dist->ifname ? dist->ifname : "",
 		     VTY_NEWLINE);
@@ -723,7 +737,7 @@ config_write_distribute (struct vty *vty)
 
 	if (dist->list[DISTRIBUTE_OUT])
 	  {
-	    vty_out (vty, " distribute-list %s out %s%s", 
+	    vty_out (vty, " distribute-list %s out %s%s",
 
 		     dist->list[DISTRIBUTE_OUT],
 		     dist->ifname ? dist->ifname : "",

@@ -143,6 +143,7 @@ extern struct stream* stream_dup_pending(struct stream*) ;
 extern size_t stream_resize (struct stream *, size_t);
 extern size_t stream_get_getp (struct stream *);
 extern size_t stream_get_endp (struct stream *);
+extern size_t stream_get_left (struct stream *s) ;
 extern size_t stream_get_size (struct stream *);
 extern u_char *stream_get_data (struct stream *);
 

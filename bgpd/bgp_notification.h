@@ -49,7 +49,7 @@ struct bgp_notify
 
   bgp_size_t        length ;
   bgp_size_t        size ;
-  char              data[] ;
+  ptr_t             data ;
 } ;
 
 /*==============================================================================
@@ -158,9 +158,19 @@ bgp_notify_set_subcode(bgp_notify notification, bgp_nom_subcode_t subcode)
 } ;
 
 extern bgp_notify
+bgp_notify_reset(bgp_notify notification, bgp_nom_code_t code,
+                                                     bgp_nom_subcode_t subcode) ;
+extern void
 bgp_notify_append_data(bgp_notify notification, const void* data,
                                                                bgp_size_t len) ;
+extern void
+bgp_notify_append_b(bgp_notify notification, uint8_t b) ;
 
+extern void
+bgp_notify_append_w(bgp_notify notification, uint16_t w) ;
+
+extern void
+bgp_notify_append_l(bgp_notify notification, uint32_t l) ;
 
 Inline bgp_nom_code_t
 bgp_notify_get_code(bgp_notify notification)

@@ -827,7 +827,7 @@ bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
 {
   bgp_notify notification;
   notification = bgp_notify_new(code, sub_code, datalen);
-  notification = bgp_notify_append_data(notification, data, datalen);
+  bgp_notify_append_data(notification, data, datalen);
 
   /* For debug */
   bgp_notify_print (peer, notification, "sending");

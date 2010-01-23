@@ -109,11 +109,12 @@ const iSAFI_t iSAFI_map[] =
   } ;
 
 /*==============================================================================
- * Convert iAFI/iSAFI => qafx_num_t
- *     and qAFI/qSAFI => qafx_num_t
+ * Convert iAFI/iSAFI => qafx_num_t  -- tolerates unknown/reserved
+ *     and qAFI/qSAFI => qafx_num_t  -- tolerates undef, but not unknown
  */
 
-/* iAFI/iSAFI = qafx_num_t    unknowns => qafx_num_other
+/*------------------------------------------------------------------------------
+ * iAFI/iSAFI => qafx_num_t   unknowns => qafx_num_other
  *                            reserved => qafx_num_undef
  */
 extern qafx_num_t
@@ -170,7 +171,8 @@ qafx_num_from_iAFI_iSAFI(iAFI_t afi, iSAFI_t safi)
   return qafx_num_other ;
 } ;
 
-/* qAFI/qSAFI = qafx_num_t
+/*------------------------------------------------------------------------------
+ * qAFI/qSAFI => qafx_num_t
  *
  * NB: qAFI_undef   with any qSAFI_xxx => qafx_num_undef
  *     qSAFI_undef  with any qAFI_xxx  => qafx_num_undef
@@ -227,4 +229,44 @@ qafx_num_from_qAFI_qSAFI(qAFI_t afi, qSAFI_t safi)
   } ;
 
   zabort("invalid qAFI or qSAFI") ;
+} ;
+
+/*==============================================================================
+ * Convert iAFI/iSAFI => qafx_bit_t  -- tolerates unknown/reserved
+ *     and qAFI/qSAFI => qafx_bit_t  -- tolerates undef, but not unknown
+ */
+
+/*------------------------------------------------------------------------------
+ * iAFI/iSAFI => qafx_bit_t   unknowns => 0
+ *                            reserved => 0
+ */
+extern qafx_bit_t
+qafx_bit_from_iAFI_iSAFI(iAFI_t afi, iSAFI_t safi)
+{
+  qafx_num_t  qn = qafx_num_from_iAFI_iSAFI(afi, safi) ;
+
+  if ((qn != qafx_num_undef) && (qn != qafx_num_other))
+    return qafx_bit(qn) ;
+  else
+    return 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * qAFI/qSAFI => qafx_bit_t
+ *
+ * NB: qAFI_undef   with any qSAFI_xxx => 0
+ *     qSAFI_undef  with any qAFI_xxx  => 0
+ *     qSAFI_Unused qith any qAFI_xxx  => 0
+ *
+ * NB: any unrecognised qAFI/qSAFI combinations => FATAL error
+ */
+extern qafx_bit_t
+qafx_bit_from_qAFI_qSAFI(qAFI_t afi, qSAFI_t safi)
+{
+  qafx_num_t  qn = qafx_num_from_qAFI_qSAFI(afi, safi) ;
+
+  if ((qn != qafx_num_undef) && (qn != qafx_num_other))
+    return qafx_bit(qn) ;
+  else
+    return 0 ;
 } ;

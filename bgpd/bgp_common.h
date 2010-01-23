@@ -25,7 +25,7 @@
 #include <stdint.h>
 #include "bgpd/bgp.h"
 #include "qafi_safi.h"
-#include "confirm.h"
+#include "lib/zassert.h"
 
 #ifndef Inline
 #define Inline static inline
@@ -282,8 +282,11 @@ get_iSAFI(qafx_num_t num)
 } ;
 
 /*==============================================================================
- * Conversions for qAFI/qSAFI => qafx_num_t
- *             and iAFI/iSAFI => qafx_num_t
+ * Conversions for iAFI/iSAFI => qafx_num_t
+ *             and qAFI/qSAFI => qafx_num_t
+ *
+ *             and iAFI/iSAFI => qafx_bit_t
+ *             and qAFI/qSAFI => qafx_bit_t
  */
 
 extern qafx_num_t
@@ -291,6 +294,123 @@ qafx_num_from_iAFI_iSAFI(iAFI_t afi, iSAFI_t safi) ;
 
 extern qafx_num_t
 qafx_num_from_qAFI_qSAFI(qAFI_t afi, qSAFI_t safi) ;
+
+extern qafx_bit_t
+qafx_bit_from_iAFI_iSAFI(iAFI_t afi, iSAFI_t safi) ;
+
+extern qafx_bit_t
+qafx_bit_from_qAFI_qSAFI(qAFI_t afi, qSAFI_t safi) ;
+
+/*==============================================================================
+ * Buffer sucking
+ *
+ *
+ */
+
+typedef uint8_t* ptr_t ;
+
+typedef struct sucker  sucker_t ;
+typedef struct sucker* sucker ;
+struct sucker
+{
+  ptr_t     start ;     /* current known start  */
+  ptr_t     ptr ;       /* current read pointer */
+  ptr_t     end ;       /* current known end    */
+} ;
+
+Inline void
+suck_init(sucker sr, void* start, unsigned length)
+{
+  sr->start = (ptr_t)start ;
+  sr->ptr   = (ptr_t)start ;
+  sr->end   = (ptr_t)start + length ;
+}
+
+Inline int
+suck_left(sucker sr)
+{
+  return sr->end - sr->ptr ;
+} ;
+
+Inline int
+suck_total(sucker sr)
+{
+  return sr->end - sr->start ;
+} ;
+
+Inline ptr_t
+suck_start(sucker sr)
+{
+  return sr->start ;
+} ;
+
+Inline void
+suck_push(sucker sr, unsigned length, sucker sv)
+{
+  *sv = *sr ;
+  sr->start = sr->ptr ;
+  sr->end   = sr->ptr + length ;
+  dassert(sr->end <= sv->end) ;
+} ;
+
+Inline void
+suck_pop(sucker sr, sucker sv)
+{
+  dassert((sr->ptr <= sr->end) && (sr->end <= sv->end)) ;
+  sr->start = sv->start ;
+  sr->ptr   = sr->end ;
+  sr->end   = sv->end ;
+} ;
+
+Inline void
+suck_pop_exact(sucker sr, sucker sv)
+{
+  dassert(sr->ptr == sr->end) ;
+  sr->start = sv->start ;
+  sr->end   = sv->end ;
+} ;
+
+Inline void
+suck_x(sucker sr)
+{
+  ++sr->ptr ;
+  dassert(sr->ptr <= sr->end) ;
+} ;
+
+Inline void
+suck_nx(sucker sr, unsigned n)
+{
+  sr->ptr += n ;
+  dassert(sr->ptr <= sr->end) ;
+} ;
+
+Inline uint8_t
+suck_b(sucker sr)
+{
+  dassert(sr->ptr < sr->end) ;
+  return *sr->ptr++ ;
+} ;
+
+Inline uint16_t
+suck_w(sucker sr)
+{
+  uint16_t w ;
+  dassert((sr->ptr + 1) < sr->end) ;
+  w = *sr->ptr++ ;
+  return (w << 8) + *sr->ptr++ ;
+} ;
+
+Inline uint32_t
+suck_l(sucker sr)
+{
+  uint32_t l ;
+  dassert((sr->ptr + 3) < sr->end) ;
+     l =            *sr->ptr++ ;
+     l = (l << 8) + *sr->ptr++ ;
+     l = (l << 8) + *sr->ptr++ ;
+  return (l << 8) + *sr->ptr++ ;
+} ;
+
 
 #endif /* _QUAGGA_BGP_COMMON_H */
 

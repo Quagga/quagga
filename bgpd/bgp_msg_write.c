@@ -127,10 +127,10 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
     while (length--)
       {
         sprintf (c, form, *p++) ;
-        text_form = bgp_notify_append_data(text_form, c, strlen(c)) ;
+        bgp_notify_append_data(text_form, c, strlen(c)) ;
         form = " %02x" ;
       } ;
-    text_form = bgp_notify_append_data(text_form, "\0", 1) ;
+    bgp_notify_append_data(text_form, "\0", 1) ;
 
     /* TODO: restore bgp_notify_print       */
 #if 0
@@ -231,11 +231,9 @@ bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
 
   if (BGP_DEBUG (normal, NORMAL))
     {
-      struct in_addr bgp_id ;
       char buf[INET_ADDRSTRLEN] ;
 
-      bgp_id.s_addr = htonl(open_state->bgp_id) ;
-      inet_ntop(AF_INET, &bgp_id.s_addr, buf, INET_ADDRSTRLEN) ;
+      inet_ntop(AF_INET, &open_state->bgp_id, buf, INET_ADDRSTRLEN) ;
 
       zlog_debug ("%s sending OPEN, version %d, my as %u, holdtime %d, id %s",
                   connection->host, BGP_VERSION_4, open_state->my_as,
@@ -610,7 +608,7 @@ bgp_msg_orf_part(struct stream* s, bgp_connection connection,
           orf_type      = entry->orf_type ;
           orf_type_sent = entry->orf_type ;
 
-          if ((orf_type == BGP_ORF_T_PREFIX) && connection->route_refresh_pre)
+          if ((orf_type == BGP_ORF_T_PREFIX) && connection->orf_prefix_pre)
             orf_type_sent = BGP_ORF_T_PREFIX_pre ;
 
           stream_putc(s, orf_type_sent) ;   /* ORF entries type         */

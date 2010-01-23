@@ -164,8 +164,9 @@ typedef U16 BGP_MH_LEN_T ;          /* length of message inc. header: octets  */
 typedef U8  BGP_MH_TYPE_T ;         /* BGP message type                       */
 typedef UBX BGP_MH_BODY_T ;         /* rest is body of message                */
 
+VALUE(BGP_MH_MARKER_L = sizeof(BGP_MH_MARKER_T)) ;
 VALUE(BGP_MH_HEAD_L =               /* message header length    */
-                        sizeof(BGP_MH_MARKER_T)
+                        BGP_MH_MARKER_L
                       + sizeof(BGP_MH_LEN_T)
                       + sizeof(BGP_MH_TYPE_T) ) ;
 CONFIRM(BGP_MH_HEAD_L == 19) ;      /* well known value !       */
@@ -192,7 +193,9 @@ enum BGP_MT
   BGP_MT_KEEPALIVE     = 4,
   BGP_MT_ROUTE_REFRESH = 5,         /* RFC2918                          */
 
-  BGP_MT_MAX           = 5,         /* max known message type           */
+  BGP_MT_CAPABILITY    = 6,         /* draft-ietf-idr-dynamic-cap-10    */
+
+  BGP_MT_MAX           = 6,         /* max known message type           */
 
   BGP_MT_ROUTE_REFRESH_pre  = 128   /* pre RFC2918 (Sep-2000)           */
 } ;
@@ -264,6 +267,9 @@ typedef UBX BGP_CAP_VALUE_T ;       /* variable -- depending on code        */
 
 VALUE(BGP_CAP_MIN_L  = sizeof(BGP_CAP_CODE_T) + sizeof(BGP_CAP_LEN_T)) ;
                                     /* min len of a capability announcement */
+VALUE(BGP_CAP_MAX_L  = 255) ;       /* max len of a capability announcement */
+CONFIRM(sizeof(BGP_CAP_LEN_T) == 1) ;
+
 enum            /* order */
 {
   BGP_CAP_CODE,
@@ -284,7 +290,8 @@ enum BGP_CAN {
   BGP_CAN_G_RESTART  = 64,          /* Graceful Restart            RFC4724  */
   BGP_CAN_AS4        = 65,          /* Supports 4-octet AS number  RFC4893  */
 
-  /*                   66,             Deprecated  6-Apr-2003               */
+  BGP_CAN_DYNAMIC_CAP_old = 66,     /* Dynamic Capability (draft 02) [Chen]
+                                       Deprecated  6-Apr-2003               */
   BGP_CAN_DYNAMIC_CAP= 67,          /* Dynamic Capability      [Chen]       */
   BGP_CAN_MULTI_SESS = 68,          /* Multisession Capability [Appanna]    */
   BGP_CAN_ADD_PATH   = 69,          /* ADD-PATH                [draft-idr]  */
@@ -437,6 +444,9 @@ enum BGP_NOMC
   BGP_NOMC_FSM          =  5,       /* Finite State Machine Error           */
   BGP_NOMC_CEASE        =  6,       /* Cease                        RFC4486 */
 
+  BGP_NOMC_DYN_CAP      =  7,       /* Dynamic Capability
+                                          draft-ietf-idr-dynamic-cap-10.txt */
+
   BGP_NOMC_MAX          =  6        /* max known error code                 */
 } ;
 
@@ -526,6 +536,17 @@ enum BGP_NOMS_CEASE                 /* BGP_NOMC_CEASE subcodes      RFC4486 */
   BGP_NOMS_C_MAX        =  8        /* max known subcode                    */
 } ;
 
+enum BGP_DYN_CAP                    /* BGP_NOMC_DYN_CAP subcodes
+                                          draft-ietf-idr-dynamic-cap-10.txt */
+{
+  BGP_NOMS_D_UNKN_SEQ   =  1,       /* Unknown Sequence Number         MUST */
+  BGP_NOMS_D_INV_LEN    =  2,       /* Invalid Capability Length       MUST */
+  BGP_NOMS_D_MALFORM    =  3,       /* Malformed Capability Length     MUST */
+  BGP_NOMS_D_UNSUP      =  4,       /* Unsupported Capability          MUST */
+
+  BGP_NOMS_D_MAX        =  4        /* max known subcode                    */
+} ;
+
 /* Keepalive Message (type = BGP_MT_KEEPALIVE) -------------------------------*/
 
 VALUE(BGP_KAM_L = BGP_MH_HEAD_L) ;  /* Keepalive message is entirely empty  */
@@ -539,11 +560,11 @@ typedef U16 BGP_RRM_AFI_T ;         /* Address Family Identifier */
 typedef U8  BGP_RRM_RES_T ;         /* reserved = 0 */
 typedef U8  BGP_RRM_SAFI_T ;        /* Subsequent Address Family Identifier */
 
-VALUE(BGP_RRM_L   = BGP_MH_HEAD_L   /* Route Refresh length */
-                  + sizeof(BGP_RRM_AFI_T)
-                  + sizeof(BGP_RRM_RES_T)
-                  + sizeof(BGP_RRM_SAFI_T) ) ;
-CONFIRM(BGP_RRM_L == 23) ;          /* well known value ! */
+VALUE(BGP_RRM_MIN_L = BGP_MH_HEAD_L   /* Route Refresh length */
+                    + sizeof(BGP_RRM_AFI_T)
+                    + sizeof(BGP_RRM_RES_T)
+                    + sizeof(BGP_RRM_SAFI_T) ) ;
+CONFIRM(BGP_RRM_MIN_L == 23) ;          /* well known value ! */
 
 typedef U8  BGP_RRM_ORF_WHEN_T ;    /* when to refresh -- see RFC5291 */
 typedef UBX BGP_RRM_ORFS_T ;        /* variable... see below */
@@ -625,6 +646,12 @@ VALUE(BGP_ORF_E_P_MIN_L = BGP_ORF_E_COM_L
                         + sizeof(BGP_ORF_E_P_MAX_T)
                         + sizeof(BGP_ORF_E_P_LEN_T) ) ;
 
+/* Dynamic Capability Message (type = BGP_MT_CAPABILITY) -----------------------
+ *
+ * If it's just header + 4 bytes, it's an RFC2918 Route Refresh request.
+ * If it's longer that that, it's an RFC5291 ORF
+ */
+
 /*==============================================================================
  * Capability Values
  */
@@ -645,47 +672,59 @@ VALUE(BGP_CAP_MPE_L  = 4) ;         /* Fixed length == 4 !                  */
 
 VALUE(BGP_CAP_RRF_L  = 0) ;         /* no value part                        */
 
-/* Outbound Route Filtering -- BGP_CAN_ORF -- RFC5291 ------------------------*/
+/* Outbound Route Filtering -- BGP_CAN_ORF -- RFC5291 --------------------------
+ *
+ * The capability value is *one* or more of the following entries:
+ */
+typedef U16 BGP_CAP_ORFE_AFI_T ;    /* Address Family Identifier            */
+typedef U8  BGP_CAP_ORFE_RES_T ;    /* Reserved: 0                          */
+typedef U8  BGP_CAP_ORFE_SAFI_T ;   /* Subsequent Address Family            */
+typedef U8  BGP_CAP_ORFE_COUNT_T ;  /* number of ORF Types supported        */
+typedef UBX BGP_CAP_ORFE_TYPES_T ;  /* variable -- 2 byte entries as below  */
 
-typedef U16 BGP_CAP_ORF_AFI_T ;     /* Address Family Identifier            */
-typedef U8  BGP_CAP_ORF_RES_T ;     /* Reserved: 0                          */
-typedef U8  BGP_CAP_ORF_SAFI_T ;    /* Subsequent Address Family            */
-typedef U8  BGP_CAP_ORF_COUNT_T ;   /* number of ORF Types supported        */
-typedef UBX BGP_CAP_ORF_CAN_T ;     /* variable -- 2 byte entries as below  */
-
-VALUE(BGP_CAP_ORF_MIN_L   = sizeof(BGP_CAP_ORF_AFI_T)
-                          + sizeof(BGP_CAP_ORF_RES_T)
-                          + sizeof(BGP_CAP_ORF_SAFI_T)
-                          + sizeof(BGP_CAP_ORF_COUNT_T) ) ;
-
-VALUE(BGP_CAP_ORF_COUNT_O = sizeof(BGP_CAP_ORF_AFI_T)
-                          + sizeof(BGP_CAP_ORF_RES_T)
-                          + sizeof(BGP_CAP_ORF_SAFI_T) ) ;
+VALUE(BGP_CAP_ORFE_MIN_L  = sizeof(BGP_CAP_ORFE_AFI_T)
+                          + sizeof(BGP_CAP_ORFE_RES_T)
+                          + sizeof(BGP_CAP_ORFE_SAFI_T)
+                          + sizeof(BGP_CAP_ORFE_COUNT_T) ) ;
 
 enum            /* order */
 {
-  BGP_CAP_ORF_AFI,
-  BGP_CAP_ORF_RES,
-  BGP_CAP_ORF_SAFI,
-  BGP_CAP_ORF_COUNT,
-  BGP_CAP_ORF_CAN
+  BGP_CAP_ORFE_AFI,
+  BGP_CAP_ORFE_RES,
+  BGP_CAP_ORFE_SAFI,
+  BGP_CAP_ORFE_COUNT,
+  BGP_CAP_ORFE_TYPES
 } ;
 
-/* Entries saying what ORF Types can be supported and how.....................*/
+/* Entries saying what ORF Types can be supported and how.......................
+ *
+ * There are BGP_CAP_ORF_COUNT of these.
+ */
+typedef U8  BGP_CAP_ORFT_TYPE_T ;   /* the ORF Type supported */
+typedef U8  BGP_CAP_ORFT_MODE_T ;   /* what can do with ORF Type */
 
-typedef U8  BGP_CAP_ORFE_TYPE_T ;   /* the ORF Type supported */
-typedef U8  BGP_CAP_ORFE_CAN_T  ;   /* what can do with ORF Type */
-
-VALUE(BGP_CAP_ORFE_L = sizeof(BGP_CAP_ORFE_TYPE_T)
-                     + sizeof(BGP_CAP_ORFE_CAN_T)) ;
+VALUE(BGP_CAP_ORFT_L = sizeof(BGP_CAP_ORFT_TYPE_T)
+                     + sizeof(BGP_CAP_ORFT_MODE_T)) ;
                                     /* length of ORF capability Type entry  */
+enum            /* order */
+{
+  BGP_CAP_ORFT_TYPE,
+  BGP_CAP_ORFT_MODE,
+} ;
 
-/* Values for the BGP_CAP_ORFE_CAN field                                      */
-
+/* Values for the BGP_CAP_ORFT_TYPE field                                     */
 enum
 {
-  BGP_CAP_ORFE_CAN_RECV  = 1,       /* willing to receive  ) can be...      */
-  BGP_CAP_ORFE_CAN_SEND  = 2        /* would like to send  )  ... combined  */
+  BGP_CAP_ORFT_T_PFIX      =  64,   /* Address Prefix ORF                   */
+  BGP_CAP_ORFT_T_PFIX_pre  = 128,   /* Address Prefix ORF, pre-RFC          */
+} ;
+
+/* Values for the BGP_CAP_ORFT_MODE field                                     */
+enum
+{
+  BGP_CAP_ORFT_M_RECV  = 1,         /* willing to receive                   */
+  BGP_CAP_ORFT_M_SEND  = 2,         /* would like to send                   */
+  BGP_CAP_ORFT_M_BOTH  = 3          /* may be combined                      */
 } ;
 
 /* Multiple Routes to a Destination (Labels) -- BGP_CAN_M_ROUTES -- RFC3107 ----
@@ -733,6 +772,11 @@ enum
 typedef U32 BGP_CAP_AS4_MY_AS_T ;   /* can do AS4, and this is me AS4-wise */
 
 VALUE(BGP_CAP_AS4_L  = sizeof(BGP_CAP_AS4_MY_AS_T)) ;
+
+/* Dynamic Capability -- BGP_CAN_DYNAMIC_CAP -- draft-10----------------------*/
+/*                         draft-ietf-idr-dynamic-cap-10 15-Jan-2010          */
+
+VALUE(BGP_CAP_DYN_L  = 0) ;
 
 /*==============================================================================
  * Attributes -- form of the Path Attributes in an UPDATE Message
@@ -822,6 +866,8 @@ enum BGP_ASN {
   BGP_ASN_PRIV_E    = 65534,        /* End                           (0xFFFE) */
 
   BGP_ASN_RES2      = 65535,        /* Start of Reservation 2        (0xFFFF) */
+
+  BGP_AS2_MAX       = 65535,        /* Last of the Mohicans          (0xFFFF) */
 
   BGP_AS4_DOC_S     = AS4(1,0),     /* Start of Docm. & Samples AS4   (65536) */
   BGP_AS4_DOC_E     = AS4(1,15),    /* End                            (65531) */

@@ -41,7 +41,7 @@ struct capability_mp_data
 };
 
 #pragma pack(1)
-struct capability_orf_entry 
+struct capability_orf_entry
 {
   struct capability_mp_data mpc;
   u_char num;
@@ -90,13 +90,13 @@ struct capability_gr
 /* Cooperative Route Filtering Capability.  */
 
 /* ORF Type */
-#define ORF_TYPE_PREFIX                64 
+#define ORF_TYPE_PREFIX                64
 #define ORF_TYPE_PREFIX_OLD           128
 
 /* ORF Mode */
-#define ORF_MODE_RECEIVE                1 
-#define ORF_MODE_SEND                   2 
-#define ORF_MODE_BOTH                   3 
+#define ORF_MODE_RECEIVE                1
+#define ORF_MODE_SEND                   2
+#define ORF_MODE_BOTH                   3
 
 /* Capability Message Action.  */
 #define CAPABILITY_ACTION_SET           0
@@ -108,7 +108,6 @@ struct capability_gr
 
 extern const struct message capcode_str[];
 extern const int capcode_str_max;
-extern const size_t cap_minsizes[];
 
 extern const struct message orf_type_str[];
 extern const int orf_type_str_max;

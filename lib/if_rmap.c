@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -32,7 +32,7 @@ struct hash *ifrmaphash;
 /* Hook functions. */
 static void (*if_rmap_add_hook) (struct if_rmap *) = NULL;
 static void (*if_rmap_delete_hook) (struct if_rmap *) = NULL;
-
+
 static struct if_rmap *
 if_rmap_new (void)
 {
@@ -63,11 +63,18 @@ if_rmap_lookup (const char *ifname)
   struct if_rmap key;
   struct if_rmap *if_rmap;
 
-  /* temporary copy */
-  key.ifname = (char *)ifname;
+  union {
+    const char* waxon ;
+          char* waxoff ;
+  } miyagi ;
+
+  miyagi.waxon = ifname ;
+
+  /* temporary reference */
+  key.ifname = miyagi.waxoff ;
 
   if_rmap = hash_lookup (ifrmaphash, &key);
-  
+
   return if_rmap;
 }
 
@@ -100,8 +107,15 @@ if_rmap_get (const char *ifname)
 {
   struct if_rmap key;
 
-  /* temporary copy */
-  key.ifname = (char *)ifname;
+  union {
+    const char* waxon ;
+          char* waxoff ;
+  } miyagi ;
+
+  miyagi.waxon = ifname ;
+
+  /* temporary reference */
+  key.ifname = miyagi.waxoff ;
 
   return (struct if_rmap *) hash_get (ifrmaphash, &key, if_rmap_hash_alloc);
 }
@@ -127,9 +141,9 @@ if_rmap_hash_cmp (const void *arg1, const void* arg2)
 
   return strcmp (if_rmap1->ifname, if_rmap2->ifname) == 0;
 }
-
+
 static struct if_rmap *
-if_rmap_set (const char *ifname, enum if_rmap_type type, 
+if_rmap_set (const char *ifname, enum if_rmap_type type,
              const char *routemap_name)
 {
   struct if_rmap *if_rmap;
@@ -140,25 +154,25 @@ if_rmap_set (const char *ifname, enum if_rmap_type type,
     {
       if (if_rmap->routemap[IF_RMAP_IN])
 	XFREE (MTYPE_IF_RMAP_NAME, if_rmap->routemap[IF_RMAP_IN]);
-      if_rmap->routemap[IF_RMAP_IN] 
+      if_rmap->routemap[IF_RMAP_IN]
         = XSTRDUP (MTYPE_IF_RMAP_NAME, routemap_name);
     }
   if (type == IF_RMAP_OUT)
     {
       if (if_rmap->routemap[IF_RMAP_OUT])
 	XFREE (MTYPE_IF_RMAP_NAME, if_rmap->routemap[IF_RMAP_OUT]);
-      if_rmap->routemap[IF_RMAP_OUT] 
+      if_rmap->routemap[IF_RMAP_OUT]
         = XSTRDUP (MTYPE_IF_RMAP_NAME, routemap_name);
     }
 
   if (if_rmap_add_hook)
     (*if_rmap_add_hook) (if_rmap);
-  
+
   return if_rmap;
 }
 
 static int
-if_rmap_unset (const char *ifname, enum if_rmap_type type, 
+if_rmap_unset (const char *ifname, enum if_rmap_type type,
                const char *routemap_name)
 {
   struct if_rmap *if_rmap;
@@ -175,7 +189,7 @@ if_rmap_unset (const char *ifname, enum if_rmap_type type,
 	return 0;
 
       XFREE (MTYPE_IF_RMAP_NAME, if_rmap->routemap[IF_RMAP_IN]);
-      if_rmap->routemap[IF_RMAP_IN] = NULL;      
+      if_rmap->routemap[IF_RMAP_IN] = NULL;
     }
 
   if (type == IF_RMAP_OUT)
@@ -186,7 +200,7 @@ if_rmap_unset (const char *ifname, enum if_rmap_type type,
 	return 0;
 
       XFREE (MTYPE_IF_RMAP_NAME, if_rmap->routemap[IF_RMAP_OUT]);
-      if_rmap->routemap[IF_RMAP_OUT] = NULL;      
+      if_rmap->routemap[IF_RMAP_OUT] = NULL;
     }
 
   if (if_rmap_delete_hook)
@@ -227,7 +241,7 @@ DEFUN (if_rmap,
   if_rmap = if_rmap_set (argv[2], type, argv[0]);
 
   return CMD_SUCCESS;
-}      
+}
 
 ALIAS (if_rmap,
        if_ipv6_rmap_cmd,
@@ -268,7 +282,7 @@ DEFUN (no_if_rmap,
       return CMD_WARNING;
     }
   return CMD_SUCCESS;
-}      
+}
 
 ALIAS (no_if_rmap,
        no_if_ipv6_rmap_cmd,
@@ -279,7 +293,7 @@ ALIAS (no_if_rmap,
        "Route map for input filtering\n"
        "Route map for output filtering\n"
        "Route map interface name\n")
-
+
 /* Configuration write function. */
 int
 config_write_if_rmap (struct vty *vty)
@@ -297,7 +311,7 @@ config_write_if_rmap (struct vty *vty)
 
 	if (if_rmap->routemap[IF_RMAP_IN])
 	  {
-	    vty_out (vty, " route-map %s in %s%s", 
+	    vty_out (vty, " route-map %s in %s%s",
 		     if_rmap->routemap[IF_RMAP_IN],
 		     if_rmap->ifname,
 		     VTY_NEWLINE);
@@ -306,7 +320,7 @@ config_write_if_rmap (struct vty *vty)
 
 	if (if_rmap->routemap[IF_RMAP_OUT])
 	  {
-	    vty_out (vty, " route-map %s out %s%s", 
+	    vty_out (vty, " route-map %s out %s%s",
 		     if_rmap->routemap[IF_RMAP_OUT],
 		     if_rmap->ifname,
 		     VTY_NEWLINE);

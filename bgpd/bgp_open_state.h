@@ -63,15 +63,30 @@ struct bgp_cap_unknown                /* to capture unknown capability      */
   uint8_t       value[] ;
 } ;
 
+typedef struct bgp_cap_orf* bgp_cap_orf ;
+struct bgp_cap_orf
+{
+  flag_t      known_afi_safi ;
+  flag_t      known_orf_type ;
+
+  iAFI_t      afi ;
+  iSAFI_t     safi ;
+
+  uint8_t     type ;
+  flag_t      send ;
+  flag_t      recv ;
+} ;
+
 struct bgp_open_state
 {
   as_t        my_as ;                 /* generic ASN                        */
   unsigned    holdtime ;              /* in seconds                         */
-  bgp_id_ht   bgp_id ;                /* an IPv4 address as *host* uint32_t */
+  bgp_id_t    bgp_id ;                /* an IPv4 address -- *network order* */
 
-  int         can_capability ;        /* false => don't send capabilities   */
+  int         can_capability ;        /* false => don't do capabilities     */
 
   int         can_as4 ;               /* true/false                         */
+  as2_t       my_as2 ;                /* AS2 from OPEN message              */
 
   qafx_set_t  can_mp_ext ;            /* will accept, may send these        */
 
@@ -87,7 +102,7 @@ struct bgp_open_state
   qafx_set_t  can_preserve ;          /* can preserve forwarding for these  */
   qafx_set_t  has_preserved ;         /* has preserved forwarding for these */
 
-  int         restarting ;            /* Restart State flag                 */
+  int         has_restarted ;         /* Restart State flag                 */
   int         restart_time ;          /* Restart Time in seconds            */
 
   struct vector   unknowns ;          /* list of bgp_cap_unknown            */
@@ -105,6 +120,9 @@ bgp_open_state_free(bgp_open_state state) ;
 
 extern void
 bgp_open_state_unset(bgp_open_state* state) ;
+
+extern void
+bgp_open_state_set_mov(bgp_open_state* p_dst, bgp_open_state* p_src) ;
 
 extern void
 bgp_open_state_unknown_add(bgp_open_state state, uint8_t code,

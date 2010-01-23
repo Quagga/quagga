@@ -1924,7 +1924,8 @@ static bgp_fsm_action(bgp_fsm_recv_open)
       bgp_connection loser ;
 
       /* NB: bgp_id in open_state is in *host* order                    */
-      loser = (session->open_send->bgp_id < sibling->open_recv->bgp_id)
+      loser = (ntohl(session->open_send->bgp_id) <
+                                              ntohl(sibling->open_recv->bgp_id))
                 ? connection
                 : sibling ;
 

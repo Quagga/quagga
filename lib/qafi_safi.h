@@ -118,6 +118,27 @@ enum qSAFI
 } ;
 
 /*==============================================================================
+ * iAFI_SAFI and qAFI_SAFI structures
+ */
+struct iAFI_SAFI
+{
+  iAFI_t   afi ;
+  iSAFI_t  safi ;
+} ;
+
+typedef struct iAFI_SAFI  iAFI_SAFI_t ;
+typedef struct iAFI_SAFI* iAFI_SAFI ;
+
+struct qAFI_SAFI
+{
+  qAFI_t   afi ;
+  qSAFI_t  safi ;
+} ;
+
+typedef struct qAFI_SAFI  qAFI_SAFI_t ;
+typedef struct qAFI_SAFI* qAFI_SAFI ;
+
+/*==============================================================================
  * Quagga AFI/SAFI values -- original macro definitions
  */
 
