@@ -21,11 +21,26 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGP_ADVERTISE_H
 #define _QUAGGA_BGP_ADVERTISE_H
 
+#ifndef Inline
+#define Inline static inline
+#endif
+
 /* BGP advertise FIFO.  */
+typedef struct bgp_advertise* bgp_advertise ;
+
+typedef struct bgp_advertise_fifo_base* bgp_advertise_fifo_base ;
+
 struct bgp_advertise_fifo
 {
-  struct bgp_advertise *next;
-  struct bgp_advertise *prev;
+  bgp_advertise_fifo_base base ;
+  bgp_advertise next;
+  bgp_advertise prev;
+};
+
+struct bgp_advertise_fifo_base
+{
+  bgp_advertise head;
+  bgp_advertise tail;
 };
 
 /* BGP advertise attribute.  */
@@ -47,8 +62,8 @@ struct bgp_advertise
   struct bgp_advertise_fifo fifo;
 
   /* Link list for same attribute advertise.  */
-  struct bgp_advertise *next;
-  struct bgp_advertise *prev;
+  bgp_advertise adv_next;
+  bgp_advertise adv_prev;
 
   /* Prefix information.  */
   struct bgp_node *rn;
@@ -97,10 +112,73 @@ struct bgp_adj_in
 /* BGP advertisement list.  */
 struct bgp_synchronize
 {
-  struct bgp_advertise_fifo update;
-  struct bgp_advertise_fifo withdraw;
-  struct bgp_advertise_fifo withdraw_low;
+  struct bgp_advertise_fifo_base update;
+  struct bgp_advertise_fifo_base withdraw;
+  struct bgp_advertise_fifo_base withdraw_low;
 };
+
+/* bgp_advertise_fifo handling
+ *
+ * Rules: base->head == NULL => empty
+ *        base->tail -- only valid if base->head != NULL
+ *
+ *        adv->fifo.base == NULL => not on fifo
+ *
+ *        adv->fifo.next == NULL => last   (if fifo.base != NULL)
+ *        adv->fifo.prev == NULL => first  (if fifo.base != NULL)
+ */
+Inline void
+bgp_advertise_fifo_init(bgp_advertise_fifo_base base)
+{
+  base->head = NULL ;
+} ;
+
+Inline bgp_advertise
+bgp_advertise_fifo_head(bgp_advertise_fifo_base base)
+{
+  return base->head ;
+} ;
+
+Inline void
+bgp_advertise_fifo_add(bgp_advertise_fifo_base base, bgp_advertise adv)
+{
+  adv->fifo.next = NULL ;
+  adv->fifo.base = base ;
+
+  if (base->head == NULL)
+    {
+      adv->fifo.prev  = NULL ;
+      base->head      = adv ;
+    }
+  else
+    {
+      adv->fifo.prev  = base->tail ;
+      base->tail->fifo.next = adv ;
+    } ;
+
+  base->tail = adv ;
+} ;
+
+Inline void
+bgp_advertise_fifo_del(bgp_advertise adv)
+{
+  bgp_advertise_fifo_base base = adv->fifo.base ;
+
+  if (base != NULL)
+    {
+      if (adv->fifo.next == NULL)
+        base->tail = adv->fifo.prev ;
+      else
+        adv->fifo.next->fifo.prev = adv->fifo.prev ;
+
+      if (adv->fifo.prev == NULL)
+        base->head = adv->fifo.next ;
+      else
+        adv->fifo.prev->fifo.next = adv->fifo.next ;
+
+      adv->fifo.base = NULL ;
+    } ;
+ } ;
 
 /* BGP adjacency linked list.  */
 #define BGP_INFO_ADD(N,A,TYPE)                        \
@@ -132,7 +210,7 @@ extern void bgp_adj_out_set (struct bgp_node *, struct peer *, struct prefix *,
 		      struct attr *, afi_t, safi_t, struct bgp_info *);
 extern void bgp_adj_out_unset (struct bgp_node *, struct peer *, struct prefix *,
 			afi_t, safi_t);
-extern void bgp_adj_out_remove (struct bgp_node *, struct bgp_adj_out *, 
+extern void bgp_adj_out_remove (struct bgp_node *, struct bgp_adj_out *,
 			 struct peer *, afi_t, safi_t);
 extern int bgp_adj_out_lookup (struct peer *, struct prefix *, afi_t, safi_t,
 			struct bgp_node *);

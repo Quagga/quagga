@@ -21,6 +21,7 @@
  */
 
 #include <zebra.h>
+#include "miyagi.h"
 
 #include "linklist.h"
 #include "thread.h"
@@ -2931,10 +2932,10 @@ vty_log_fixed (const char *buf, size_t len)
   if (!vtyvec)
     return;
 
-  iov[0].iov_base = (void *)buf;
-  iov[0].iov_len = len;
-  iov[1].iov_base = (void *)"\r\n";
-  iov[1].iov_len = 2;
+  iov[0].iov_base = miyagi(buf) ;
+  iov[0].iov_len  = len;
+  iov[1].iov_base = miyagi("\r\n") ;
+  iov[1].iov_len  = 2;
 
   for (i = 0; i < vector_active (vtyvec); i++)
     {

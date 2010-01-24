@@ -50,27 +50,27 @@ slow_func (struct vty *vty, const char *str, const int i)
 {
   double x = 1;
   int j;
-  
+
   for (j = 0; j < 300; j++)
     x += sin(x)*j;
-  
+
   if ((i % ITERS_LATER) == 0)
-    printf ("%s: %d, temporary error, save this somehow and do it later..\n", 
+    printf ("%s: %d, temporary error, save this somehow and do it later..\n",
             __func__, i);
-  
+
   if ((i % ITERS_ERR) == 0)
     printf ("%s: hard error\n", __func__);
-  
+
   if ((i % ITERS_PRINT) == 0)
-    printf ("%s did %d, x = %g%s", str, i, x, VTY_NEWLINE);  
+    printf ("%s did %d, x = %g%s", str, i, x, VTY_NEWLINE);
 }
 
 static void
 clear_something (struct vty *vty, const char *str)
 {
   int i;
-  
-  /* this could be like iterating through 150k of route_table 
+
+  /* this could be like iterating through 150k of route_table
    * or worse, iterating through a list of peers, to bgp_stop them with
    * each having 150k route tables to process...
    */
@@ -90,9 +90,9 @@ DEFUN (clear_foo,
       vty_out (vty, "%% string argument required%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  
+
   str = argv_concat (argv, argc, 0);
-  
+
   clear_something (vty, str);
   XFREE (MTYPE_TMP, str);
   return CMD_SUCCESS;
@@ -104,8 +104,10 @@ slow_vty_init()
   install_element (VIEW_NODE, &clear_foo_cmd);
 }
 
-void
-test_init()
+extern void test_init(void) ;
+
+extern void
+test_init(void)
 {
   slow_vty_init();
 }

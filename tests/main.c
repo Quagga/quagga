@@ -32,7 +32,7 @@ extern void test_init();
 
 struct thread_master *master;
 
-struct option longopts[] = 
+struct option longopts[] =
 {
   { "daemon",      no_argument,       NULL, 'd'},
   { "config_file", required_argument, NULL, 'f'},
@@ -51,12 +51,14 @@ DEFUN (daemon_exit,
   exit(0);
 }
 
+extern int test_timer (struct thread *thread) ;
+
 static int timer_count;
-int
+extern int
 test_timer (struct thread *thread)
 {
   int *count = THREAD_ARG(thread);
-  
+
   printf ("run %d of timer\n", (*count)++);
   thread_add_timer (master, test_timer, count, 5);
   return 0;
@@ -81,7 +83,7 @@ usage (char *progname, int status)
   if (status != 0)
     fprintf (stderr, "Try `%s --help' for more information.\n", progname);
   else
-    {    
+    {
       printf ("Usage : %s [OPTION...]\n\
 Daemon which does 'slow' things.\n\n\
 -d, --daemon       Runs in daemon mode\n\
@@ -95,8 +97,8 @@ Report bugs to %s\n", progname, ZEBRA_BUG_ADDRESS);
     }
   exit (status);
 }
-
-
+
+
 /* main routine. */
 int
 main (int argc, char **argv)
@@ -108,7 +110,7 @@ main (int argc, char **argv)
   char *progname;
   struct thread thread;
   char *config_file = NULL;
-  
+
   /* Set umask before anything for security */
   umask (0027);
 
@@ -118,16 +120,16 @@ main (int argc, char **argv)
   /* master init. */
   master = thread_master_create ();
 
-  while (1) 
+  while (1)
     {
       int opt;
 
       opt = getopt_long (argc, argv, "dhf:A:P:v", longopts, 0);
-    
+
       if (opt == EOF)
 	break;
 
-      switch (opt) 
+      switch (opt)
 	{
 	case 0:
 	  break;
@@ -146,7 +148,7 @@ main (int argc, char **argv)
             {
               vty_port = 0;
               break;
-            } 
+            }
           vty_port = atoi (optarg);
           vty_port = (vty_port ? vty_port : 4000);
   	  break;
@@ -182,16 +184,16 @@ main (int argc, char **argv)
 
   /* Create VTY socket */
   vty_serv_sock (vty_addr, vty_port, "/tmp/.heavy.sock");
-  
+
   /* Configuration file read*/
   if (!config_file)
     usage (progname, 1);
   vty_read_config (config_file, NULL);
-  
+
   test_timer_init();
-  
-  test_init();  
-  
+
+  test_init();
+
   /* Fetch next active thread. */
   while (thread_fetch (master, &thread))
     thread_call (&thread);

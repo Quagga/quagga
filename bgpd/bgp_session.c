@@ -145,6 +145,7 @@ bgp_session_init_new(bgp_session session, bgp_peer peer)
    *
    *   ttl            -- unset
    *   port           -- unset
+   *   as_peer        -- unset
    *   su_peer        -- NULL -- none
    *
    *   log            -- NULL -- none
@@ -236,8 +237,9 @@ bgp_session_enable(bgp_peer peer)
 
   /* Initialise what we need to make and run connections                */
   session->state    = bgp_session_sIdle;
-  session->made     = 0;
   session->defer_enable = 0;
+  session->made     = 0;
+  session->flow_control = 0;
   session->event    = bgp_session_null_event;
   bgp_notify_unset(&session->notification);
   session->err      = 0;
@@ -252,6 +254,7 @@ bgp_session_enable(bgp_peer peer)
   session->ttl      = peer->ttl ;
   session->port     = peer->port ;
 
+  session->as_peer  = peer->as ;
   session->su_peer  = sockunion_dup(&peer->su) ;
 
   session->log      = peer->log ;
@@ -517,7 +520,7 @@ bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
         assert( (args->pending == connection) && (mqb == head) ) ;
 
       /* If established, try and send.                                  */
-      if (connection->state == bgp_fsm_Established)
+      if (connection->state == bgp_fsm_sEstablished)
         {
           int ret = 0 ;
 
@@ -621,7 +624,7 @@ bgp_session_do_route_refresh_send(mqueue_block mqb, mqb_flag_t flag)
         assert( (args->pending == connection) && (mqb == head) ) ;
 
       /* If established, try and send.                                  */
-      if (connection->state == bgp_fsm_Established)
+      if (connection->state == bgp_fsm_sEstablished)
         {
           int ret = 0 ;
 
@@ -705,7 +708,7 @@ bgp_session_do_end_of_rib_send(mqueue_block mqb, mqb_flag_t flag)
         assert( (args->pending == connection) && (mqb == head) ) ;
 
       /* If established, try and send.                                  */
-      if (connection->state == bgp_fsm_Established)
+      if (connection->state == bgp_fsm_sEstablished)
         {
           int ret = 0 ;
 

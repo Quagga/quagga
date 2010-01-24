@@ -49,43 +49,43 @@
 typedef enum bgp_fsm_states bgp_fsm_state_t ;
 enum bgp_fsm_states
 {
-  bgp_fsm_first_state    = 0,
+  bgp_fsm_first_state     = 0,
 
-  bgp_fsm_Initial        = 0,   /* extra: connection initialised            */
+  bgp_fsm_sInitial        = 0,  /* extra: connection initialised            */
 
-  bgp_fsm_Idle           = 1,   /* waiting for Idle Hold time               */
-  bgp_fsm_Connect        = 2,   /* waiting for connect (may be listening)   */
-  bgp_fsm_Active         = 3,   /* listening only                           */
-  bgp_fsm_OpenSent       = 4,   /* sent Open -- awaits Open                 */
-  bgp_fsm_OpenConfirm    = 5,   /* sent & received Open -- awaits keepalive */
-  bgp_fsm_Established    = 6,   /* running connection                       */
+  bgp_fsm_sIdle           = 1,  /* waiting for Idle Hold time               */
+  bgp_fsm_sConnect        = 2,  /* waiting for connect (may be listening)   */
+  bgp_fsm_sActive         = 3,  /* listening only                           */
+  bgp_fsm_sOpenSent       = 4,  /* sent Open -- awaits Open                 */
+  bgp_fsm_sOpenConfirm    = 5,  /* sent & received Open -- awaits keepalive */
+  bgp_fsm_sEstablished    = 6,  /* running connection                       */
 
-  bgp_fsm_Stopping       = 7,   /* extra: connection shutting down          */
+  bgp_fsm_sStopping       = 7,  /* extra: connection shutting down          */
 
-  bgp_fsm_last_state     = 7,
+  bgp_fsm_last_state      = 7,
 } ;
 
 typedef enum bgp_fsm_events bgp_fsm_event_t ;
 enum bgp_fsm_events
 {
-  bgp_fsm_null_event                     =  0,
+  bgp_fsm_null_event                      =  0,
 
-  bgp_fsm_BGP_Start                      =  1,
-  bgp_fsm_BGP_Stop                       =  2,
-  bgp_fsm_TCP_connection_open            =  3,
-  bgp_fsm_TCP_connection_closed          =  4,
-  bgp_fsm_TCP_connection_open_failed     =  5,
-  bgp_fsm_TCP_fatal_error                =  6,
-  bgp_fsm_ConnectRetry_timer_expired     =  7,
-  bgp_fsm_Hold_Timer_expired             =  8,
-  bgp_fsm_KeepAlive_timer_expired        =  9,
-  bgp_fsm_Receive_OPEN_message           = 10,
-  bgp_fsm_Receive_KEEPALIVE_message      = 11,
-  bgp_fsm_Receive_UPDATE_message         = 12,
-  bgp_fsm_Receive_NOTIFICATION_message   = 13,
-  bgp_fsm_Sent_NOTIFICATION_message      = 14,
+  bgp_fsm_eBGP_Start                      =  1,
+  bgp_fsm_eBGP_Stop                       =  2,
+  bgp_fsm_eTCP_connection_open            =  3,
+  bgp_fsm_eTCP_connection_closed          =  4,
+  bgp_fsm_eTCP_connection_open_failed     =  5,
+  bgp_fsm_eTCP_fatal_error                =  6,
+  bgp_fsm_eConnectRetry_timer_expired     =  7,
+  bgp_fsm_eHold_Timer_expired             =  8,
+  bgp_fsm_eKeepAlive_timer_expired        =  9,
+  bgp_fsm_eReceive_OPEN_message           = 10,
+  bgp_fsm_eReceive_KEEPALIVE_message      = 11,
+  bgp_fsm_eReceive_UPDATE_message         = 12,
+  bgp_fsm_eReceive_NOTIFICATION_message   = 13,
+  bgp_fsm_eSent_NOTIFICATION_message      = 14,
 
-  bgp_fsm_last_event                     = 15,
+  bgp_fsm_last_event                      = 15,
 } ;
 
 /*==============================================================================
@@ -98,6 +98,21 @@ enum bgp_fsm_events
  *
  */
 
+/* NB: p_out == p_in => buffer is empty
+ *
+ *     BUT: buffer is not allocated until required, and until then
+ *          p_out == p_in == NULL  -- empty does NOT imply usable !
+ *
+ *     AND: when buffer is emptied, p_out and p_in will be some way down the
+ *          buffer.
+ *
+ *     SO:  before writing, check for base != NULL and set p_out = p_in = base.
+ *
+ * NB: before buffer is allocated base == NULL, but limit is set to NULL + n,
+ *     so that buffer does not appear full.
+ *
+ *     SO:  not full does NOT imply that p_out/p_in/base are set, either !
+ */
 typedef struct bgp_wbuffer* bgp_wbuffer ;
 struct bgp_wbuffer
 {
@@ -108,10 +123,6 @@ struct bgp_wbuffer
   uint8_t*    limit ;
 } ;
 
-/* TODO: management of the pending_queue...                             */
-/*       need something at the Engine level to drain the pending queue  */
-/*       when/while obuf is not full....                                */
-/*       need to be able to activate and deactivate that                */
 
 struct bgp_connection
 {
@@ -221,7 +232,10 @@ bgp_connection_queue_process(void) ;
 
 
 /*------------------------------------------------------------------------------
- * Full if not enough room for a maximum size BGP message.
+ * See if have enough room for what want to write PLUS 1.
+ *
+ * NB: caller must ensure buffer has been allocated, which will be true if
+ *     has found that the buffer is not empty !
  */
 Inline int
 bgp_write_buffer_can(bgp_wbuffer wb, size_t want)
@@ -231,11 +245,15 @@ bgp_write_buffer_can(bgp_wbuffer wb, size_t want)
 
 /*------------------------------------------------------------------------------
  * Full if not enough room for a maximum size BGP message + 1
+ *
+ * NB: this will be true even if the buffer has not been allocated (!).
  */
+enum { bgp_write_buffer_full_threshold = BGP_MSG_MAX_L + 1 } ;
+
 Inline int
 bgp_write_buffer_full(bgp_wbuffer wb)
 {
-  return bgp_write_buffer_can(wb, BGP_MSG_MAX_L + 1) ;
+  return bgp_write_buffer_can(wb, BGP_MSG_MAX_L) ;
 } ;
 
 /*------------------------------------------------------------------------------

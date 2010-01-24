@@ -108,16 +108,15 @@ bgp_notify_dup(bgp_notify notification)
   duplicate = XMALLOC(MTYPE_BGP_NOTIFY, sizeof(struct bgp_notify)) ;
   *duplicate = *notification ;
 
-  if (notification->length == 0)
+  if (duplicate->length == 0)
     {
       duplicate->size = 0 ;
       duplicate->data = NULL ;
     }
   else
     {
-      bgp_size_t size = bgp_notify_size(duplicate->length) ;
-      duplicate->size = size ;
-      duplicate->data = XCALLOC(MTYPE_TMP, size) ;
+      duplicate->size = bgp_notify_size(duplicate->length) ;
+      duplicate->data = XCALLOC(MTYPE_TMP, duplicate->size) ;
       memcpy(duplicate->data, notification->data, duplicate->length) ;
     } ;
 
@@ -216,13 +215,12 @@ bgp_notify_append_data(bgp_notify notification, const void* data,
       else
         notification->data = XREALLOC(MTYPE_TMP, notification->data, size) ;
 
-      memset((char*)notification + notification->size, 0,
-                                                    size - notification->size) ;
+      memset(notification->data + new_length, 0, size - new_length) ;
       notification->size = size ;
     } ;
 
   if (len > 0)
-    memcpy((char*)(notification->data) + notification->length, data, len) ;
+    memcpy(notification->data + notification->length, data, len) ;
 
   notification->length = new_length ;
 } ;

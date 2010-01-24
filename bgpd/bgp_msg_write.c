@@ -76,7 +76,7 @@
  *
  * Returns: 2 => written to TCP   -- it's gone
  *          1 => written to wbuff -- waiting for socket
- *          0 => nothing written  -- wbuff was not empty !
+ *          0 => nothing written  -- insufficient space in wbuff
  *         -1 => failed           -- error event generated
  */
 extern int
@@ -111,8 +111,8 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
   {
     bgp_notify text_form ;
     const char* form ;
-    char   c[4] ;
-    char*  p ;
+    char      c[4] ;
+    uint8_t*  p ;
 
     length = bgp_notify_get_length(notification) ;
     p      = bgp_notify_get_data(notification) ;
@@ -126,7 +126,7 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
     form = "%02x" ;
     while (length--)
       {
-        sprintf (c, form, *p++) ;
+        snprintf (c, 4, form, *p++) ;
         bgp_notify_append_data(text_form, c, strlen(c)) ;
         form = " %02x" ;
       } ;
@@ -154,7 +154,7 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
  *
  * Returns: 2 => written to TCP   -- it's gone
  *          1 => written to wbuff -- waiting for socket
- *          0 => nothing written  -- wbuff was not empty !
+ *          0 => nothing written  -- insufficient space in wbuff
  *         -1 => failed           -- error event generated
  */
 extern int
@@ -763,7 +763,7 @@ bgp_msg_orf_prefix(struct stream* s, uint8_t common,
  *
  * Returns: 2 => written to TCP   -- it's gone
  *          1 => written to wbuff -- waiting for socket
- *          0 => nothing written  -- wbuff was not empty !
+ *          0 => nothing written  -- insufficient space in wbuff
  *         -1 => failed           -- error event generated
  */
 extern int
@@ -786,7 +786,7 @@ bgp_msg_send_update(bgp_connection connection, struct stream* s)
  *
  * Returns: 2 => written to TCP   -- it's gone
  *          1 => written to wbuff -- waiting for socket
- *          0 => nothing written  -- wbuff was not empty !
+ *          0 => nothing written  -- insufficient space in wbuff
  *         -1 => failed           -- error event generated
  */
 extern int

@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -25,8 +25,10 @@
 extern int interface_lookup_netlink (void);
 
 /* Interface information read by netlink. */
-void
+extern void interface_list (void) ;
+
+extern void
 interface_list (void)
 {
-  interface_lookup_netlink ();  
+  interface_lookup_netlink ();
 }

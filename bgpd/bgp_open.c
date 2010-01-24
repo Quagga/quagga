@@ -58,7 +58,7 @@ bgp_capability_vty_out (struct vty *vty, struct peer *peer)
   struct capability_mp_data mpc;
   struct capability_header *hdr;
 
-  pnt = peer->notify->data;
+  pnt = (char*)peer->notify->data;
   end = pnt + peer->notify->length;
 
   while (pnt < end)

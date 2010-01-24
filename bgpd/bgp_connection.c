@@ -133,10 +133,14 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
    *   * msg_size                 none -- set when reading message
    *   * notification_pending     nothing pending
    *   * wbuff                    all pointers NULL -- empty buffer
+   *                              *except* must set limit so is not "full".
    */
 
-  confirm(bgp_fsm_Initial    == 0) ;
+  confirm(bgp_fsm_sInitial    == 0) ;
   confirm(bgp_fsm_null_event == 0) ;
+
+  connection->wbuff.limit = connection->wbuff.base +
+                                               bgp_write_buffer_full_threshold ;
 
   /* Link back to session, point at its mutex and point session here        */
   connection->session  = session ;
@@ -261,7 +265,7 @@ bgp_connection_exit(bgp_connection connection)
 {
   bgp_connection_close(connection, 1) ;         /* make sure    */
 
-  assert(   (connection->state == bgp_fsm_Stopping)
+  assert(   (connection->state == bgp_fsm_sStopping)
          && (connection->session == NULL) ) ;
 
   /* Add the connection to the connection queue, in Stopped state.
@@ -285,7 +289,7 @@ bgp_connection_exit(bgp_connection connection)
 static void
 bgp_connection_free(bgp_connection connection)
 {
-  assert( (connection->state == bgp_fsm_Stopping) &&
+  assert( (connection->state == bgp_fsm_sStopping) &&
           (connection->session == NULL) ) ;
 
   /* Make sure is closed, so no active file, no timers, pending queue is empty,
@@ -417,7 +421,7 @@ bgp_connection_queue_process(void)
       bgp_connection_queue = connection->next ;
 
       /* Reap the connection if it is now stopped.                      */
-      if (connection->state == bgp_fsm_Stopping)
+      if (connection->state == bgp_fsm_sStopping)
         {
           bgp_connection_free(connection) ; /* removes from connection queue */
           continue ;
@@ -834,7 +838,7 @@ bgp_connection_write_action(qps_file qf, void* file_info)
   /* If waiting to send NOTIFICATION, just did it.                      */
   /* Otherwise: is writable again -- so add to connection_queue         */
   if (connection->notification_pending)
-    bgp_fsm_event(connection, bgp_fsm_Sent_NOTIFICATION_message) ;
+    bgp_fsm_event(connection, bgp_fsm_eSent_NOTIFICATION_message) ;
   else
     bgp_connection_queue_add(connection) ;
 } ;

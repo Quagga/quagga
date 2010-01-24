@@ -1,4 +1,5 @@
 #include <zebra.h>
+#include "miyagi.h"
 
 #include "vty.h"
 #include "stream.h"
@@ -15,7 +16,7 @@ struct thread_master *master = NULL;
 static int failed = 0;
 
 /* specification for a test - what the results should be */
-struct test_spec 
+struct test_spec
 {
   const char *shouldbe; /* the string the path should parse to */
 };
@@ -28,7 +29,7 @@ static struct test_segment {
   const u_char data[1024];
   int len;
   struct test_spec sp;
-} test_segments [] = 
+} test_segments [] =
 {
   { /* 0 */
     "ipaddr",
@@ -73,7 +74,7 @@ validate (struct ecommunity *ecom, const struct test_spec *sp)
   int fails = 0;
   struct ecommunity *etmp;
   char *str1, *str2;
-    
+
   printf ("got:\n  %s\n", ecommunity_str (ecom));
   str1 = ecommunity_ecom2str (ecom, ECOMMUNITY_FORMAT_COMMUNITY_LIST);
   etmp = ecommunity_str2com (str1, 0, 1);
@@ -81,7 +82,7 @@ validate (struct ecommunity *ecom, const struct test_spec *sp)
     str2 = ecommunity_ecom2str (etmp, ECOMMUNITY_FORMAT_COMMUNITY_LIST);
   else
     str2 = NULL;
-  
+
   if (strcmp (sp->shouldbe, str1))
     {
       failed++;
@@ -94,13 +95,13 @@ validate (struct ecommunity *ecom, const struct test_spec *sp)
       fails++;
       printf ("dogfood: in %s\n"
               "    in->out %s\n",
-              str1, 
+              str1,
               (etmp && str2) ? str2 : "NULL");
     }
   ecommunity_free (etmp);
   XFREE (MTYPE_ECOMMUNITY_STR, str1);
   XFREE (MTYPE_ECOMMUNITY_STR, str2);
-  
+
   return fails;
 }
 
@@ -109,10 +110,10 @@ static void
 parse_test (struct test_segment *t)
 {
   struct ecommunity *ecom;
-  
+
   printf ("%s: %s\n", t->name, t->desc);
 
-  ecom = ecommunity_parse (t->data, t->len);
+  ecom = ecommunity_parse (miyagi(t->data), t->len);
 
   printf ("ecom: %s\nvalidating...:\n", ecommunity_str (ecom));
 
@@ -120,12 +121,12 @@ parse_test (struct test_segment *t)
     printf ("OK\n");
   else
     printf ("failed\n");
-  
+
   printf ("\n");
   ecommunity_unintern (ecom);
 }
 
-     
+
 int
 main (void)
 {
@@ -133,7 +134,7 @@ main (void)
   ecommunity_init();
   while (test_segments[i].name)
     parse_test (&test_segments[i++]);
-  
+
   printf ("failures: %d\n", failed);
   //printf ("aspath count: %ld\n", aspath_count());
   return failed;

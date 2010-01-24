@@ -624,7 +624,7 @@ sockopt_tcp_signature (int sock, union sockunion *su, const char *password)
 int
 sockopt_ttl (int family, int sock, int ttl)
 {
-  char* msg ;
+  const char* msg ;
   int   ret ;
 
   ret = 0 ;

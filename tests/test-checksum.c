@@ -13,7 +13,7 @@ struct acc_vals {
 
 struct csum_vals {
   struct acc_vals a;
-  int x; 
+  int x;
   int y;
 };
 
@@ -24,9 +24,9 @@ typedef uint16_t testoff_t;
 
 /* Fletcher Checksum -- Refer to RFC1008. */
 #define MODX                 4102
-
+
 /* Accumulator phase of checksum */
-static 
+static
 struct acc_vals
 accumulate (u_char *buffer, testsz_t len, testoff_t off)
 {
@@ -34,15 +34,15 @@ accumulate (u_char *buffer, testsz_t len, testoff_t off)
   u_int16_t *csum;
   int i, init_len, partial_len;
   struct acc_vals ret;
-  
+
   csum = (u_int16_t *) (buffer + off);
   *(csum) = 0;
-  
+
   p = buffer;
   ret.c0 = 0;
   ret.c1 = 0;
   init_len = len;
-  
+
   while (len != 0)
     {
       partial_len = MIN(len, MODX);
@@ -62,9 +62,9 @@ accumulate (u_char *buffer, testsz_t len, testoff_t off)
 }
 
 /* The final reduction phase.
- * This one should be the original ospfd version 
+ * This one should be the original ospfd version
  */
-static u_int16_t 
+static u_int16_t
 reduce_ospfd (struct csum_vals *vals, testsz_t len, testoff_t off)
 {
 #define x vals->x
@@ -73,7 +73,7 @@ reduce_ospfd (struct csum_vals *vals, testsz_t len, testoff_t off)
 #define c1 vals->a.c1
 
   x = ((len - off - 1) * c0 - c1) % 255;
-  
+
   if (x <= 0)
     x += 255;
   y = 510 - c0 - x;
@@ -81,7 +81,7 @@ reduce_ospfd (struct csum_vals *vals, testsz_t len, testoff_t off)
     y -= 255;
 
    /* take care endian issue. */
-   return htons ((x << 8) + y); 
+   return htons ((x << 8) + y);
 #undef x
 #undef y
 #undef c0
@@ -89,7 +89,7 @@ reduce_ospfd (struct csum_vals *vals, testsz_t len, testoff_t off)
 }
 
 /* slightly different concatenation */
-static u_int16_t 
+static u_int16_t
 reduce_ospfd1 (struct csum_vals *vals, testsz_t len, testoff_t off)
 {
 #define x vals->x
@@ -105,7 +105,7 @@ reduce_ospfd1 (struct csum_vals *vals, testsz_t len, testoff_t off)
     y -= 255;
 
    /* take care endian issue. */
-   return htons ((x << 8) | (y & 0xff)); 
+   return htons ((x << 8) | (y & 0xff));
 #undef x
 #undef y
 #undef c0
@@ -113,7 +113,7 @@ reduce_ospfd1 (struct csum_vals *vals, testsz_t len, testoff_t off)
 }
 
 /* original isisd version */
-static u_int16_t 
+static u_int16_t
 reduce_isisd (struct csum_vals *vals, testsz_t len, testoff_t off)
 {
 #define x vals->x
@@ -121,7 +121,7 @@ reduce_isisd (struct csum_vals *vals, testsz_t len, testoff_t off)
 #define c0 vals->a.c0
 #define c1 vals->a.c1
   u_int32_t mul;
-  
+
   mul = (len - off)*(c0);
   x = mul - c0 - c1;
   y = c1 - mul - 1;
@@ -148,7 +148,7 @@ reduce_isisd (struct csum_vals *vals, testsz_t len, testoff_t off)
 }
 
 /* Is the -1 in y wrong perhaps? */
-static u_int16_t 
+static u_int16_t
 reduce_isisd_yfix (struct csum_vals *vals, testsz_t len, testoff_t off)
 {
 #define x vals->x
@@ -156,7 +156,7 @@ reduce_isisd_yfix (struct csum_vals *vals, testsz_t len, testoff_t off)
 #define c0 vals->a.c0
 #define c1 vals->a.c1
   u_int32_t mul;
-  
+
   mul = (len - off)*(c0);
   x = mul - c0 - c1;
   y = c1 - mul;
@@ -183,7 +183,7 @@ reduce_isisd_yfix (struct csum_vals *vals, testsz_t len, testoff_t off)
 }
 
 /* Move the mods yp */
-static u_int16_t 
+static u_int16_t
 reduce_isisd_mod (struct csum_vals *vals, testsz_t len, testoff_t off)
 {
 #define x vals->x
@@ -191,7 +191,7 @@ reduce_isisd_mod (struct csum_vals *vals, testsz_t len, testoff_t off)
 #define c0 vals->a.c0
 #define c1 vals->a.c1
   u_int32_t mul;
-  
+
   mul = (len - off)*(c0);
   x = mul - c1 - c0;
   y = c1 - mul - 1;
@@ -218,7 +218,7 @@ reduce_isisd_mod (struct csum_vals *vals, testsz_t len, testoff_t off)
 }
 
 /* Move the mods up + fix y */
-static u_int16_t 
+static u_int16_t
 reduce_isisd_mody (struct csum_vals *vals, testsz_t len, testoff_t off)
 {
 #define x vals->x
@@ -226,7 +226,7 @@ reduce_isisd_mody (struct csum_vals *vals, testsz_t len, testoff_t off)
 #define c0 vals->a.c0
 #define c1 vals->a.c1
   u_int32_t mul;
-  
+
   mul = (len - off)*(c0);
   x = mul - c0 - c1;
   y = c1 - mul;
@@ -264,7 +264,7 @@ struct reductions_t {
   { .name = "isisd-mody", 	.f = reduce_isisd_mody },
   { NULL, NULL },
 };
-
+
 /* The original ospfd checksum */
 static u_int16_t
 ospfd_checksum (u_char *buffer, testsz_t len, testoff_t off)
@@ -276,7 +276,7 @@ ospfd_checksum (u_char *buffer, testsz_t len, testoff_t off)
 
   csum = (u_int16_t *) (buffer + off);
   *(csum) = 0;
-  
+
   sp = buffer;
 
   for (ep = sp + len; sp < ep; sp = q)
@@ -292,27 +292,27 @@ ospfd_checksum (u_char *buffer, testsz_t len, testoff_t off)
       c0 %= 255;
       c1 %= 255;
     }
-  
+
   ospfd_vals.a.c0 = c0;
   ospfd_vals.a.c1 = c1;
-  
+
   //printf ("%s: len %u, off %u, c0 %d, c1 %d\n",
   //        __func__, len, off, c0, c1);
 
   x = ((int)(len - off - 1) * (int)c0 - (int)c1) % 255;
-  
+
   if (x <= 0)
     x += 255;
   y = 510 - c0 - x;
   if (y > 255)
     y -= 255;
-  
+
   ospfd_vals.x = x;
   ospfd_vals.y = y;
-  
+
   buffer[off] = x;
   buffer[off + 1] = y;
-  
+
   /* take care endian issue. */
   checksum = htons ((x << 8) | (y & 0xff));
 
@@ -334,15 +334,15 @@ iso_csum_create (u_char * buffer, testsz_t len, testoff_t off)
   int i, init_len, partial_len;
 
   checksum = 0;
-  
+
   csum = (u_int16_t *) (buffer + off);
   *(csum) = checksum;
-  
+
   p = buffer;
   c0 = 0;
   c1 = 0;
   init_len = len;
-  
+
   while (len != 0)
     {
       partial_len = MIN(len, MODX);
@@ -361,7 +361,7 @@ iso_csum_create (u_char * buffer, testsz_t len, testoff_t off)
 
   isisd_vals.a.c0 = c0;
   isisd_vals.a.c1 = c1;
-  
+
   mul = (init_len - off) * c0;
 
   x = mul - c1 - c0;
@@ -379,14 +379,14 @@ iso_csum_create (u_char * buffer, testsz_t len, testoff_t off)
     x = 255;
   if (y == 0)
     y = 1;
-  
+
   isisd_vals.x = x;
   isisd_vals.y = y;
-  
+
   checksum = htons((x << 8) | (y & 0xFF));
-  
+
   *(csum) = checksum;
-  
+
   /* return the checksum for user usage */
   return checksum;
 }
@@ -399,7 +399,7 @@ verify (u_char * buffer, testsz_t len)
   u_int32_t c1;
   u_int16_t checksum;
   int i, partial_len;
- 
+
   p = buffer;
   checksum = 0;
 
@@ -426,6 +426,8 @@ verify (u_char * buffer, testsz_t len)
 
   return 1;
 }
+
+extern int in_cksum_optimized(void *parg, int nbytes) ;
 
 int  /* return checksum in low-order 16 bits */
 in_cksum_optimized(void *parg, int nbytes)
@@ -458,6 +460,7 @@ in_cksum_optimized(void *parg, int nbytes)
 	return(answer);
 }
 
+extern int in_cksum_rfc(void *parg, int count) ;
 
 int /* return checksum in low-order 16 bits */
 in_cksum_rfc(void *parg, int count)
@@ -495,29 +498,29 @@ main(int argc, char **argv)
   u_char buffer[BUFSIZE];
   int exercise = 0;
 #define EXERCISESTEP 257
-  
+
   srandom (time (NULL));
-  
+
   while (1) {
     u_int16_t ospfd, isisd, lib, in_csum, in_csum_res, in_csum_rfc;
     int i,j;
 
     exercise += EXERCISESTEP;
     exercise %= MAXDATALEN;
-    
+
     for (i = 0; i < exercise; i += sizeof (long int)) {
       long int rand = random ();
-      
+
       for (j = sizeof (long int); j > 0; j--)
         buffer[i + (sizeof (long int) - j)] = (rand >> (j * 8)) & 0xff;
     }
-    
+
     in_csum = in_cksum(buffer, exercise);
     in_csum_res = in_cksum_optimized(buffer, exercise);
     in_csum_rfc = in_cksum_rfc(buffer, exercise);
     if (in_csum_res != in_csum || in_csum != in_csum_rfc)
       printf ("verify: in_chksum failed in_csum:%x, in_csum_res:%x,"
-	      "in_csum_rfc %x, len:%d\n", 
+	      "in_csum_rfc %x, len:%d\n",
 	      in_csum, in_csum_res, in_csum_rfc, exercise);
 
     ospfd = ospfd_checksum (buffer, exercise + sizeof(u_int16_t), exercise);
@@ -529,7 +532,7 @@ main(int argc, char **argv)
     lib = fletcher_checksum (buffer, exercise + sizeof(u_int16_t), exercise);
     if (verify (buffer, exercise + sizeof(u_int16_t)))
       printf ("verify: lib failed\n");
-    
+
     if (ospfd != lib) {
       printf ("Mismatch in values at size %u\n"
               "ospfd: 0x%04x\tc0: %d\tc1: %d\tx: %d\ty: %d\n"
@@ -540,12 +543,12 @@ main(int argc, char **argv)
               isisd, isisd_vals.a.c0, isisd_vals.a.c1, isisd_vals.x, isisd_vals.y,
               lib
               );
-      
+
       /* Investigate reduction phase discrepencies */
       if (ospfd_vals.a.c0 == isisd_vals.a.c0
           && ospfd_vals.a.c1 == isisd_vals.a.c1) {
         printf ("\n");
-        for (i = 0; reducts[i].name != NULL; i++) {	
+        for (i = 0; reducts[i].name != NULL; i++) {
           ospfd = reducts[i].f (&ospfd_vals,
                                 exercise + sizeof (u_int16_t),
                                 exercise);
@@ -553,7 +556,7 @@ main(int argc, char **argv)
                   reducts[i].name, ospfd_vals.x & 0xff, ospfd_vals.y & 0xff, ospfd);
         }
       }
-              
+
       printf ("\n  u_char testdata [] = {\n  ");
       for (i = 0; i < exercise; i++) {
         printf ("0x%02x,%s",

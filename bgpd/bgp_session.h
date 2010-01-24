@@ -132,7 +132,6 @@ struct bgp_session
    * will not touch it thereafter.
    */
   bgp_open_state    open_send ;         /* how to open the session        */
-  as_t              as_expected ;       /* who to open with               */
   bgp_open_state    open_recv ;         /* set when session Established   */
 
   /* The following are set by the Routeing Engine before a session is
@@ -146,6 +145,8 @@ struct bgp_session
 
   int               ttl ;               /* TTL to set, if not zero        */
   unsigned short    port ;              /* destination port for peer      */
+
+  as_t              as_peer ;           /* ASN of the peer                */
   union sockunion*  su_peer ;           /* Sockunion address of the peer  */
 
   struct zlog*      log ;               /* where to log to                */

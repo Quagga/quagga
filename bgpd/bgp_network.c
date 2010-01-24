@@ -767,7 +767,8 @@ bgp_update_source (bgp_connection connection)
   if (peer->update_source)
     sockunion_bind (peer->fd, peer->update_source, 0, peer->update_source);
 #else
-  return 0 ;
+  return bgp_bind_address(0, bgp_update_address (NULL)) ;
+                                       /* returns 0 -- avoid warnings   */
 #endif
 } ;
 

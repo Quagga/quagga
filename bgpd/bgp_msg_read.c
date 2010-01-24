@@ -187,11 +187,9 @@ bgp_msg_check_header(bgp_connection connection)
 void
 bgp_msg_dispatch(bgp_connection connection)
 {
-  uint8_t    type = connection->msg_size ;
-  bgp_size_t size = connection->msg_type ;
+  bgp_size_t size = connection->msg_size ;
 
-  /* Read rest of the packet and call each sort of packet routine */
-  switch (type)
+  switch (connection->msg_type)
     {
     case BGP_MT_OPEN:
       bgp_msg_open_receive (connection, size);
@@ -304,10 +302,10 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
     }
 
   /* Remote bgp_id may not be multicast, or the same as here            */
-  if (IN_MULTICAST(open_recv->bgp_id) ||
+  if (IN_MULTICAST(ntohl(open_recv->bgp_id)) ||
            (open_recv->bgp_id == connection->session->open_send->bgp_id))
     {
-      zlog_debug ("%s rcv OPEN, *multicast* id %s",
+      zlog_debug ("%s rcv OPEN, multicast or our id %s",
                   connection->host, inet_ntoa (remote_id)) ;
       bgp_msg_noms_o_bad_id(notification, open_recv->bgp_id) ;
       goto reject ;
@@ -409,12 +407,12 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
     } ;
 
   /* Finally -- require the AS to be the configured AS  */
-  if (open_recv->my_as != connection->session->as_expected)
+  if (open_recv->my_as != connection->session->as_peer)
     {
       if (BGP_DEBUG (normal, NORMAL))
         zlog_debug ("%s bad OPEN, remote AS is %u, expected %u",
                    connection->host, open_recv->my_as,
-                                             connection->session->as_expected) ;
+                                                 connection->session->as_peer) ;
 
       bgp_msg_open_error(notification, BGP_NOMS_O_BAD_AS) ;
       if (open_recv->can_as4)
@@ -444,7 +442,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
   connection->route_refresh_pre = open_recv->can_r_refresh  == bgp_cap_form_old;
   connection->orf_prefix_pre    = open_recv->can_orf_prefix == bgp_cap_form_old;
 
-  bgp_fsm_event(connection, bgp_fsm_Receive_OPEN_message) ;
+  bgp_fsm_event(connection, bgp_fsm_eReceive_OPEN_message) ;
 
   return 0;
 
@@ -1285,7 +1283,7 @@ static int
 bgp_msg_update_receive (bgp_connection connection, bgp_size_t size)
 {
   bgp_session_update_recv(connection->session, connection->ibuf, size);
-  bgp_fsm_event(connection, bgp_fsm_Receive_UPDATE_message);
+  bgp_fsm_event(connection, bgp_fsm_eReceive_UPDATE_message);
   return 0;
 }
 
@@ -1301,7 +1299,7 @@ bgp_msg_keepalive_receive (bgp_connection connection, bgp_size_t size)
   if (size != 0)
     return bgp_msg_header_bad_len(connection, BGP_MT_KEEPALIVE, size) ;
 
-  bgp_fsm_event(connection, bgp_fsm_Receive_KEEPALIVE_message);
+  bgp_fsm_event(connection, bgp_fsm_eReceive_KEEPALIVE_message);
 
   return 0;
 }

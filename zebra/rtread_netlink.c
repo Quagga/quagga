@@ -17,13 +17,14 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
 extern void netlink_route_read (void);
+extern void route_read (void) ;
 
-void route_read (void)
+extern void route_read (void)
 {
   netlink_route_read ();
 }

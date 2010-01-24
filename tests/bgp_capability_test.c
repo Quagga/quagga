@@ -1,4 +1,5 @@
 #include <zebra.h>
+#include "miyagi.h"
 
 #include "vty.h"
 #include "stream.h"
@@ -36,7 +37,7 @@ static struct test_segment {
 #define SHOULD_ERR	-1
   int parses; /* whether it should parse or not */
   int peek_for; /* what peek_for_as4_capability should say */
-  
+
   /* AFI/SAFI validation */
   int validate_afi;
   afi_t afi;
@@ -44,10 +45,10 @@ static struct test_segment {
 #define VALID_AFI 1
 #define INVALID_AFI 0
   int afi_valid;
-} test_segments [] = 
+} test_segments [] =
 {
   /* 0 */
-  { "caphdr", 
+  { "caphdr",
     "capability header, and no more",
     { CAPABILITY_CODE_REFRESH, 0x0 },
     2, SHOULD_PARSE,
@@ -114,7 +115,7 @@ static struct test_segment mp_segments[] =
     { CAPABILITY_CODE_MP, 0x4, 0x0, 0x1, 0x0, 0x80 },
     6, SHOULD_PARSE, 0,
     1, AFI_IP, BGP_SAFI_VPNV4, VALID_AFI,
-  },  
+  },
   /* 9 */
   { "MP7",
     "MP IP4/VPNv6",
@@ -150,9 +151,9 @@ static struct test_segment misc_segments[] =
   /* 13 */
   { "ORF",
     "ORF, simple, single entry, single tuple",
-    { /* hdr */		CAPABILITY_CODE_ORF, 0x7, 
-      /* mpc */		0x0, 0x1, 0x0, 0x1, 
-      /* num */		0x1, 
+    { /* hdr */		CAPABILITY_CODE_ORF, 0x7,
+      /* mpc */		0x0, 0x1, 0x0, 0x1,
+      /* num */		0x1,
       /* tuples */	0x40, 0x3
     },
     9, SHOULD_PARSE,
@@ -161,18 +162,18 @@ static struct test_segment misc_segments[] =
   { "ORF-many",
     "ORF, multi entry/tuple",
     { /* hdr */		CAPABILITY_CODE_ORF, 0x21,
-      /* mpc */		0x0, 0x1, 0x0, 0x1, 
-      /* num */		0x3, 
+      /* mpc */		0x0, 0x1, 0x0, 0x1,
+      /* num */		0x3,
       /* tuples */	0x40, ORF_MODE_BOTH,
                         0x80, ORF_MODE_RECEIVE,
                         0x80, ORF_MODE_SEND,
-      /* mpc */		0x0, 0x2, 0x0, 0x1, 
-      /* num */		0x3, 
+      /* mpc */		0x0, 0x2, 0x0, 0x1,
+      /* num */		0x3,
       /* tuples */	0x40, ORF_MODE_BOTH,
                         0x80, ORF_MODE_RECEIVE,
                         0x80, ORF_MODE_SEND,
       /* mpc */		0x0, 0x2, 0x0, 0x2,
-      /* num */		0x3, 
+      /* num */		0x3,
       /* tuples */	0x40, ORF_MODE_RECEIVE,
                         0x80, ORF_MODE_SEND,
                         0x80, ORF_MODE_BOTH,
@@ -183,18 +184,18 @@ static struct test_segment misc_segments[] =
   { "ORFlo",
     "ORF, multi entry/tuple, hdr length too short",
     { /* hdr */		CAPABILITY_CODE_ORF, 0x15,
-      /* mpc */		0x0, 0x1, 0x0, 0x1, 
-      /* num */		0x3, 
+      /* mpc */		0x0, 0x1, 0x0, 0x1,
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
-      /* mpc */		0x0, 0x1, 0x0, 0x1, 
-      /* num */		0x3, 
+      /* mpc */		0x0, 0x1, 0x0, 0x1,
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
       /* mpc */		0x0, 0x2, 0x0, 0x2,
-      /* num */		0x3, 
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
@@ -205,18 +206,18 @@ static struct test_segment misc_segments[] =
   { "ORFlu",
     "ORF, multi entry/tuple, length too long",
     { /* hdr */		0x3, 0x22,
-      /* mpc */		0x0, 0x1, 0x0, 0x1, 
-      /* num */		0x3, 
+      /* mpc */		0x0, 0x1, 0x0, 0x1,
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
-      /* mpc */		0x0, 0x2, 0x0, 0x1, 
-      /* num */		0x3, 
+      /* mpc */		0x0, 0x2, 0x0, 0x1,
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
       /* mpc */		0x0, 0x2, 0x0, 0x2,
-      /* num */		0x3, 
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
@@ -227,18 +228,18 @@ static struct test_segment misc_segments[] =
   { "ORFnu",
     "ORF, multi entry/tuple, entry number too long",
     { /* hdr */		0x3, 0x21,
-      /* mpc */		0x0, 0x1, 0x0, 0x1, 
-      /* num */		0x3, 
+      /* mpc */		0x0, 0x1, 0x0, 0x1,
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
-      /* mpc */		0x0, 0x2, 0x0, 0x1, 
-      /* num */		0x4, 
+      /* mpc */		0x0, 0x2, 0x0, 0x1,
+      /* num */		0x4,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
       /* mpc */		0x0, 0x2, 0x0, 0x2,
-      /* num */		0x3, 
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
@@ -249,13 +250,13 @@ static struct test_segment misc_segments[] =
   { "ORFno",
     "ORF, multi entry/tuple, entry number too short",
     { /* hdr */		0x3, 0x21,
-      /* mpc */		0x0, 0x1, 0x0, 0x1, 
-      /* num */		0x3, 
+      /* mpc */		0x0, 0x1, 0x0, 0x1,
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
-      /* mpc */		0x0, 0x2, 0x0, 0x1, 
-      /* num */		0x1, 
+      /* mpc */		0x0, 0x2, 0x0, 0x1,
+      /* num */		0x1,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
@@ -271,18 +272,18 @@ static struct test_segment misc_segments[] =
   { "ORFpad",
     "ORF, multi entry/tuple, padded to align",
     { /* hdr */		0x3, 0x22,
-      /* mpc */		0x0, 0x1, 0x0, 0x1, 
-      /* num */		0x3, 
+      /* mpc */		0x0, 0x1, 0x0, 0x1,
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
-      /* mpc */		0x0, 0x2, 0x0, 0x1, 
-      /* num */		0x3, 
+      /* mpc */		0x0, 0x2, 0x0, 0x1,
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
       /* mpc */		0x0, 0x2, 0x0, 0x2,
-      /* num */		0x3, 
+      /* num */		0x3,
       /* tuples */	0x40, 0x3,
                         0x80, 0x1,
                         0x80, 0x2,
@@ -401,7 +402,7 @@ static struct test_segment misc_segments[] =
 };
 
 /* DYNAMIC message */
-struct test_segment dynamic_cap_msgs[] = 
+struct test_segment dynamic_cap_msgs[] =
 {
   { "DynCap",
     "Dynamic Capability Message, IP/Multicast",
@@ -439,7 +440,7 @@ struct test_segment opt_params[] =
     { 0x02, 0x06, 0x01, 0x04, 0x00, 0x01, 0x00, 0x01, /* MP IPv4/Uni */
       0x02, 0x06, 0x01, 0x04, 0x00, 0x02, 0x00, 0x01, /* MP IPv6/Uni */
       0x02, 0x02, 0x80, 0x00, /* RR (old) */
-      0x02, 0x02, 0x02, 0x00, /* RR */  
+      0x02, 0x02, 0x02, 0x00, /* RR */
     },
     24, SHOULD_PARSE,
   },
@@ -449,7 +450,7 @@ struct test_segment opt_params[] =
       0x01, 0x04, 0x00, 0x01, 0x00, 0x01, /* MP IPv4/Uni */
       0x01, 0x04, 0x00, 0x02, 0x00, 0x01, /* MP IPv6/Uni */
       0x80, 0x00, /* RR (old) */
-      0x02, 0x00, /* RR */  
+      0x02, 0x00, /* RR */
     },
     18, SHOULD_PARSE,
   },
@@ -469,7 +470,7 @@ struct test_segment opt_params[] =
       0x01, 0x04, 0x00, 0x01, 0x00, 0x01, /* MP IPv4/Uni */
       0x01, 0x04, 0x00, 0x02, 0x00, 0x01, /* MP IPv6/Uni */
       0x80, 0x00, /* RR (old) */
-      0x02, 0x00, /* RR */  
+      0x02, 0x00, /* RR */
       0x41, 0x04, 0x00, 0x03, 0x00, 0x06  /* AS4: 1996614 */
     },
     24, SHOULD_PARSE, 196614,
@@ -503,6 +504,8 @@ struct test_segment opt_params[] =
   { NULL, NULL, {0}, 0, 0}
 };
 
+extern int bgp_capability_receive(struct peer*, bgp_size_t) ;
+
 /* basic parsing test */
 static void
 parse_test (struct peer *peer, struct test_segment *t, int type)
@@ -513,11 +516,11 @@ parse_test (struct peer *peer, struct test_segment *t, int type)
   int oldfailed = failed;
   int len = t->len;
 #define RANDOM_FUZZ 35
-  
+
   stream_reset (peer->ibuf);
   stream_put (peer->ibuf, NULL, RANDOM_FUZZ);
   stream_set_getp (peer->ibuf, RANDOM_FUZZ);
-  
+
   switch (type)
     {
       case CAPABILITY:
@@ -532,7 +535,7 @@ parse_test (struct peer *peer, struct test_segment *t, int type)
         break;
     }
   stream_write (peer->ibuf, t->data, t->len);
-  
+
   printf ("%s: %s\n", t->name, t->desc);
 
   switch (type)
@@ -546,7 +549,7 @@ parse_test (struct peer *peer, struct test_segment *t, int type)
         printf ("peek_for_as4: as4 is %u\n", as4);
         /* and it should leave getp as it found it */
         assert (stream_get_getp (peer->ibuf) == RANDOM_FUZZ);
-        
+
         ret = bgp_open_option_parse (peer, len, &capability);
         break;
       case DYNCAP:
@@ -556,49 +559,49 @@ parse_test (struct peer *peer, struct test_segment *t, int type)
         printf ("unknown type %u\n", type);
         exit(1);
     }
-  
+
   if (!ret && t->validate_afi)
     {
       safi_t safi = t->safi;
-      
+
       if (bgp_afi_safi_valid_indices (t->afi, &safi) != t->afi_valid)
         failed++;
-      
+
       printf ("MP: %u/%u (%u): recv %u, nego %u\n",
               t->afi, t->safi, safi,
               peer->afc_recv[t->afi][safi],
               peer->afc_nego[t->afi][safi]);
-        
+
       if (t->afi_valid == VALID_AFI)
         {
-        
+
           if (!peer->afc_recv[t->afi][safi])
             failed++;
           if (!peer->afc_nego[t->afi][safi])
             failed++;
         }
     }
-  
-  if (as4 != t->peek_for)
+
+  if (as4 != (uint32_t)t->peek_for)
     {
       printf ("as4 %u != %u\n", as4, t->peek_for);
       failed++;
     }
-  
+
   printf ("parsed?: %s\n", ret ? "no" : "yes");
-  
+
   if (ret != t->parses)
     failed++;
-  
+
   if (tty)
-    printf ("%s", (failed > oldfailed) ? VT100_RED "failed!" VT100_RESET 
+    printf ("%s", (failed > oldfailed) ? VT100_RED "failed!" VT100_RESET
                                          : VT100_GREEN "OK" VT100_RESET);
   else
     printf ("%s", (failed > oldfailed) ? "failed!" : "OK" );
-  
+
   if (failed)
     printf (" (%u)", failed);
-  
+
   printf ("\n\n");
 }
 
@@ -610,7 +613,7 @@ main (void)
 {
   struct peer *peer;
   int i, j;
-  
+
   conf_bgp_debug_fsm = -1UL;
   conf_bgp_debug_events = -1UL;
   conf_bgp_debug_packet = -1UL;
@@ -621,26 +624,26 @@ main (void)
   term_bgp_debug_packet = -1UL;
   term_bgp_debug_normal = -1UL;
   term_bgp_debug_as4 = -1UL;
-  
+
   master = thread_master_create ();
   bgp_master_init ();
-  
-  if (fileno (stdout) >= 0) 
+
+  if (fileno (stdout) >= 0)
     tty = isatty (fileno (stdout));
-  
+
   if (bgp_get (&bgp, &asn, NULL))
     return -1;
-  
+
   peer = peer_create_accept (bgp);
-  peer->host = "foo";
-  
+  peer->host = miyagi("foo");
+
   for (i = AFI_IP; i < AFI_MAX; i++)
     for (j = SAFI_UNICAST; j < SAFI_MAX; j++)
       {
         peer->afc[i][j] = 1;
         peer->afc_adv[i][j] = 1;
       }
-  
+
   i = 0;
   while (mp_segments[i].name)
     parse_test (peer, &mp_segments[i++], CAPABILITY);
@@ -649,9 +652,9 @@ main (void)
    * one of the afc_nego's
    */
   i = 0;
-  while (test_segments[i].name)   
+  while (test_segments[i].name)
     parse_test (peer, &test_segments[i++], CAPABILITY);
-  
+
   i = 0;
   while (misc_segments[i].name)
     parse_test (peer, &misc_segments[i++], CAPABILITY);
@@ -662,11 +665,11 @@ main (void)
 
   SET_FLAG (peer->cap, PEER_CAP_DYNAMIC_ADV);
   peer->status = Established;
-  
+
   i = 0;
   while (dynamic_cap_msgs[i].name)
     parse_test (peer, &dynamic_cap_msgs[i++], DYNCAP);
-  
+
   printf ("failures: %d\n", failed);
   return failed;
 }

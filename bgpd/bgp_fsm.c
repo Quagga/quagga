@@ -23,7 +23,6 @@
  */
 
 #include <zebra.h>
-//#include "bgpd/bgp.h"
 
 #include "log.h"
 
@@ -32,6 +31,7 @@
 #include "bgpd/bgp_notification.h"
 #include "bgpd/bgp_fsm.h"
 #include "bgpd/bgp_msg_write.h"
+#include "bgpd/bgp_msg_read.h"
 
 #include "lib/qtimers.h"
 #include "lib/sockunion.h"
@@ -411,7 +411,7 @@ bgp_fsm_enable_session(bgp_session session)
     {
       connection = bgp_connection_init_new(NULL, session,
                                                        bgp_connection_primary) ;
-      bgp_fsm_event(connection, bgp_fsm_BGP_Start) ;
+      bgp_fsm_event(connection, bgp_fsm_eBGP_Start) ;
     } ;
 
   /* Secondary connection -- if listen allowed
@@ -420,7 +420,7 @@ bgp_fsm_enable_session(bgp_session session)
     {
       connection = bgp_connection_init_new(NULL, session,
                                                      bgp_connection_secondary) ;
-      bgp_fsm_event(connection, bgp_fsm_BGP_Start) ;
+      bgp_fsm_event(connection, bgp_fsm_eBGP_Start) ;
     } ;
 } ;
 
@@ -479,7 +479,7 @@ bgp_fsm_disable_session(bgp_session session, bgp_notify notification)
 
   if (connection != NULL)
     bgp_fsm_throw_exception(connection, bgp_session_eDisabled, notification, 0,
-                                                             bgp_fsm_BGP_Stop) ;
+                                                            bgp_fsm_eBGP_Stop) ;
   else
     bgp_notify_free(notification) ;
 } ;
@@ -489,14 +489,17 @@ bgp_fsm_disable_session(bgp_session session, bgp_notify notification)
  *
  * Note that I/O problems are signalled by bgp_fsm_io_error().
  *
- * NB: may NOT be used within the FSM.
+ * NB: can raise an exception for other connections while in the FSM.
+ *
+ *     can raise an exception for the current connection while in the FSM, the
+ *     fsm_active/post mechanism looks after this.
  */
 extern void
 bgp_fsm_raise_exception(bgp_connection connection, bgp_session_event_t except,
                                                         bgp_notify notification)
 {
   bgp_fsm_throw_exception(connection, except, notification, 0,
-                                                             bgp_fsm_BGP_Stop) ;
+                                                            bgp_fsm_eBGP_Stop) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -510,15 +513,13 @@ bgp_fsm_raise_exception(bgp_connection connection, bgp_session_event_t except,
  *
  *   * it has reached Established state, and is snuffing out the sibling.
  *
- *
- *
  * NB: requires the session LOCKED
  */
 static void
 bgp_fsm_discard_sibling(bgp_connection sibling, bgp_notify notification)
 {
   bgp_fsm_throw_exception(sibling, bgp_session_eDiscard,
-                                            notification, 0, bgp_fsm_BGP_Stop) ;
+                                           notification, 0, bgp_fsm_eBGP_Stop) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -529,7 +530,7 @@ bgp_fsm_notification_exception(bgp_connection connection,
                                                         bgp_notify notification)
 {
   bgp_fsm_throw_exception(connection, bgp_session_eNOM_recv, notification, 0,
-                                         bgp_fsm_Receive_NOTIFICATION_message) ;
+                                        bgp_fsm_eReceive_NOTIFICATION_message) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -544,7 +545,7 @@ bgp_fsm_io_fatal_error(bgp_connection connection, int err)
             connection->host, safe_strerror(err)) ;
 
   bgp_fsm_throw_exception(connection, bgp_session_eTCP_error, NULL, err,
-                                                      bgp_fsm_TCP_fatal_error) ;
+                                                     bgp_fsm_eTCP_fatal_error) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -588,7 +589,7 @@ bgp_fsm_io_error(bgp_connection connection, int err)
         } ;
 
       bgp_fsm_throw_exception(connection, bgp_session_eTCP_dropped, NULL, err,
-                                                bgp_fsm_TCP_connection_closed) ;
+                                               bgp_fsm_eTCP_connection_closed) ;
     }
   else
     bgp_fsm_io_fatal_error(connection, err) ;
@@ -619,7 +620,7 @@ bgp_fsm_connect_completed(bgp_connection connection, int err,
 {
   if (err == 0)
     {
-      bgp_fsm_event(connection, bgp_fsm_TCP_connection_open) ;
+      bgp_fsm_event(connection, bgp_fsm_eTCP_connection_open) ;
 
       sockunion_set_dup(&connection->su_local,  su_local) ;
       sockunion_set_dup(&connection->su_remote, su_remote) ;
@@ -629,7 +630,7 @@ bgp_fsm_connect_completed(bgp_connection connection, int err,
            || (err == EHOSTUNREACH)
            || (err == ETIMEDOUT) )
     bgp_fsm_throw_exception(connection, bgp_session_eTCP_failed, NULL, err,
-                                           bgp_fsm_TCP_connection_open_failed) ;
+                                          bgp_fsm_eTCP_connection_open_failed) ;
   else
     bgp_fsm_io_fatal_error(connection, err) ;
 } ;
@@ -648,9 +649,9 @@ bgp_fsm_post_exception(bgp_connection connection, bgp_session_event_t except,
 {
   connection->except       = except ;
 
-  if (   (connection->state != bgp_fsm_OpenSent)
-      && (connection->state != bgp_fsm_OpenConfirm)
-      && (connection->state != bgp_fsm_Established) )
+  if (   (connection->state != bgp_fsm_sOpenSent)
+      && (connection->state != bgp_fsm_sOpenConfirm)
+      && (connection->state != bgp_fsm_sEstablished) )
     bgp_notify_unset(&notification) ;
 
   bgp_notify_set(&connection->notification, notification) ;
@@ -983,21 +984,21 @@ bgp_fsm[bgp_fsm_last_state + 1][bgp_fsm_last_event + 1] =
      *
      * All other events (other than null) are invalid (should not happen).
      */
-    {bgp_fsm_null,      bgp_fsm_Initial},     /* null event                   */
-    {bgp_fsm_enter,     bgp_fsm_Idle},        /* BGP_Start                    */
-    {bgp_fsm_stop,      bgp_fsm_Initial},     /* BGP_Stop                     */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open          */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_closed        */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open_failed   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_fatal_error              */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* ConnectRetry_timer_expired   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Hold_Timer_expired           */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* KeepAlive_timer_expired      */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_OPEN_message         */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_KEEPALIVE_message    */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_UPDATE_message       */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_NOTIFICATION_message */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Sent NOTIFICATION message    */
+    {bgp_fsm_null,      bgp_fsm_sInitial},    /* null event                   */
+    {bgp_fsm_enter,     bgp_fsm_sIdle},       /* BGP_Start                    */
+    {bgp_fsm_stop,      bgp_fsm_sInitial},    /* BGP_Stop                     */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open          */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_closed        */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open_failed   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_fatal_error              */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* ConnectRetry_timer_expired   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Hold_Timer_expired           */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* KeepAlive_timer_expired      */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_OPEN_message         */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_KEEPALIVE_message    */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_UPDATE_message       */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_NOTIFICATION_message */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Sent NOTIFICATION message    */
   },
   {
     /* bgp_fsm_Idle: waiting for IdleHoldTimer..................................
@@ -1045,21 +1046,21 @@ bgp_fsm[bgp_fsm_last_state + 1][bgp_fsm_last_event + 1] =
      *
      * All other events (other than null) are invalid (should not happen).
      */
-    {bgp_fsm_null,      bgp_fsm_Idle},        /* null event                   */
-    {bgp_fsm_start,     bgp_fsm_Connect},     /* BGP_Start                    */
-    {bgp_fsm_stop,      bgp_fsm_Idle},        /* BGP_Stop                     */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open          */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_closed        */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open_failed   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_fatal_error              */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* ConnectRetry_timer_expired   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Hold_Timer_expired           */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* KeepAlive_timer_expired      */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_OPEN_message         */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_KEEPALIVE_message    */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_UPDATE_message       */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_NOTIFICATION_message */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Sent NOTIFICATION message    */
+    {bgp_fsm_null,      bgp_fsm_sIdle},       /* null event                   */
+    {bgp_fsm_start,     bgp_fsm_sConnect},    /* BGP_Start                    */
+    {bgp_fsm_stop,      bgp_fsm_sIdle},       /* BGP_Stop                     */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open          */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_closed        */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open_failed   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_fatal_error              */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* ConnectRetry_timer_expired   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Hold_Timer_expired           */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* KeepAlive_timer_expired      */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_OPEN_message         */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_KEEPALIVE_message    */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_UPDATE_message       */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_NOTIFICATION_message */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Sent NOTIFICATION message    */
   },
   {
     /* bgp_fsm_Connect: waiting for connect (and listen)........................
@@ -1095,21 +1096,21 @@ bgp_fsm[bgp_fsm_last_state + 1][bgp_fsm_last_event + 1] =
      *
      * All other events (other than null) are invalid (should not happen).
      */
-    {bgp_fsm_null,      bgp_fsm_Connect},     /* null event                   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* BGP_Start                    */
-    {bgp_fsm_stop,      bgp_fsm_Connect},     /* BGP_Stop                     */
-    {bgp_fsm_send_open, bgp_fsm_OpenSent},    /* TCP_connection_open          */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_closed        */
-    {bgp_fsm_failed,    bgp_fsm_Connect},     /* TCP_connection_open_failed   */
-    {bgp_fsm_fatal,     bgp_fsm_Connect},     /* TCP_fatal_error              */
-    {bgp_fsm_retry,     bgp_fsm_Connect},     /* ConnectRetry_timer_expired   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Hold_Timer_expired           */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* KeepAlive_timer_expired      */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_OPEN_message         */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_KEEPALIVE_message    */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_UPDATE_message       */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_NOTIFICATION_message */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Sent NOTIFICATION message    */
+    {bgp_fsm_null,      bgp_fsm_sConnect},    /* null event                   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* BGP_Start                    */
+    {bgp_fsm_stop,      bgp_fsm_sConnect},    /* BGP_Stop                     */
+    {bgp_fsm_send_open, bgp_fsm_sOpenSent},   /* TCP_connection_open          */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_closed        */
+    {bgp_fsm_failed,    bgp_fsm_sConnect},    /* TCP_connection_open_failed   */
+    {bgp_fsm_fatal,     bgp_fsm_sConnect},    /* TCP_fatal_error              */
+    {bgp_fsm_retry,     bgp_fsm_sConnect},    /* ConnectRetry_timer_expired   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Hold_Timer_expired           */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* KeepAlive_timer_expired      */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_OPEN_message         */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_KEEPALIVE_message    */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_UPDATE_message       */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_NOTIFICATION_message */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Sent NOTIFICATION message    */
   },
   {
     /* bgp_fsm_Active: waiting for listen (only)................................
@@ -1144,21 +1145,21 @@ bgp_fsm[bgp_fsm_last_state + 1][bgp_fsm_last_event + 1] =
      *
      * All other events (other than null) are invalid (should not happen).
      */
-    {bgp_fsm_null,      bgp_fsm_Active},      /* null event                   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* BGP_Start                    */
-    {bgp_fsm_stop,      bgp_fsm_Active},      /* BGP_Stop                     */
-    {bgp_fsm_send_open, bgp_fsm_OpenSent},    /* TCP_connection_open          */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_closed        */
-    {bgp_fsm_failed,    bgp_fsm_Active},      /* TCP_connection_open_failed   */
-    {bgp_fsm_fatal,     bgp_fsm_Active},      /* TCP_fatal_error              */
-    {bgp_fsm_retry,     bgp_fsm_Active},      /* ConnectRetry_timer_expired   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Hold_Timer_expired           */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* KeepAlive_timer_expired      */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_OPEN_message         */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_KEEPALIVE_message    */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_UPDATE_message       */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_NOTIFICATION_message */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Sent NOTIFICATION message    */
+    {bgp_fsm_null,      bgp_fsm_sActive},     /* null event                   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* BGP_Start                    */
+    {bgp_fsm_stop,      bgp_fsm_sActive},     /* BGP_Stop                     */
+    {bgp_fsm_send_open, bgp_fsm_sOpenSent},   /* TCP_connection_open          */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_closed        */
+    {bgp_fsm_failed,    bgp_fsm_sActive},     /* TCP_connection_open_failed   */
+    {bgp_fsm_fatal,     bgp_fsm_sActive},     /* TCP_fatal_error              */
+    {bgp_fsm_retry,     bgp_fsm_sActive},     /* ConnectRetry_timer_expired   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Hold_Timer_expired           */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* KeepAlive_timer_expired      */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_OPEN_message         */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_KEEPALIVE_message    */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_UPDATE_message       */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_NOTIFICATION_message */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Sent NOTIFICATION message    */
   },
   {
     /* bgp_fsm_OpenSent: waiting for Open from the other end....................
@@ -1211,21 +1212,21 @@ bgp_fsm[bgp_fsm_last_state + 1][bgp_fsm_last_event + 1] =
      *
      * All other events (other than null) are invalid (should not happen).
      */
-    {bgp_fsm_null,      bgp_fsm_OpenSent},    /* null event                   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* BGP_Start                    */
-    {bgp_fsm_stop,      bgp_fsm_Idle},        /* BGP_Stop                     */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open          */
-    {bgp_fsm_closed,    bgp_fsm_Idle},        /* TCP_connection_closed        */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open_failed   */
-    {bgp_fsm_fatal,     bgp_fsm_Idle},        /* TCP_fatal_error              */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* ConnectRetry_timer_expired   */
-    {bgp_fsm_expire,    bgp_fsm_Idle},        /* Hold_Timer_expired           */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* KeepAlive_timer_expired      */
-    {bgp_fsm_recv_open, bgp_fsm_OpenConfirm}, /* Receive_OPEN_message         */
-    {bgp_fsm_error,     bgp_fsm_OpenSent},    /* Receive_KEEPALIVE_message    */
-    {bgp_fsm_error,     bgp_fsm_OpenSent},    /* Receive_UPDATE_message       */
-    {bgp_fsm_recv_nom,  bgp_fsm_Idle},        /* Receive_NOTIFICATION_message */
-    {bgp_fsm_sent_nom,  bgp_fsm_OpenSent},    /* Sent NOTIFICATION message    */
+    {bgp_fsm_null,      bgp_fsm_sOpenSent},   /* null event                   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* BGP_Start                    */
+    {bgp_fsm_stop,      bgp_fsm_sIdle},       /* BGP_Stop                     */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open          */
+    {bgp_fsm_closed,    bgp_fsm_sIdle},       /* TCP_connection_closed        */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open_failed   */
+    {bgp_fsm_fatal,     bgp_fsm_sIdle},       /* TCP_fatal_error              */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* ConnectRetry_timer_expired   */
+    {bgp_fsm_expire,    bgp_fsm_sIdle},       /* Hold_Timer_expired           */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* KeepAlive_timer_expired      */
+    {bgp_fsm_recv_open, bgp_fsm_sOpenConfirm},/* Receive_OPEN_message         */
+    {bgp_fsm_error,     bgp_fsm_sOpenSent},   /* Receive_KEEPALIVE_message    */
+    {bgp_fsm_error,     bgp_fsm_sOpenSent},   /* Receive_UPDATE_message       */
+    {bgp_fsm_recv_nom,  bgp_fsm_sIdle},       /* Receive_NOTIFICATION_message */
+    {bgp_fsm_sent_nom,  bgp_fsm_sOpenSent},   /* Sent NOTIFICATION message    */
   },
   {
     /* bgp_fsm_OpenConfirm: Opens sent and received, waiting for KeepAlive......
@@ -1291,21 +1292,21 @@ bgp_fsm[bgp_fsm_last_state + 1][bgp_fsm_last_event + 1] =
      *
      * All other events (other than null) are invalid (should not happen).
      */
-    {bgp_fsm_null,      bgp_fsm_OpenConfirm}, /* null event                   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* BGP_Start                    */
-    {bgp_fsm_stop,      bgp_fsm_Idle},        /* BGP_Stop                     */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open          */
-    {bgp_fsm_closed,    bgp_fsm_Idle},        /* TCP_connection_closed        */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open_failed   */
-    {bgp_fsm_fatal,     bgp_fsm_Idle},        /* TCP_fatal_error              */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* ConnectRetry_timer_expired   */
-    {bgp_fsm_expire,    bgp_fsm_Idle},        /* Hold_Timer_expired           */
-    {bgp_fsm_send_kal,  bgp_fsm_OpenConfirm}, /* KeepAlive_timer_expired      */
-    {bgp_fsm_error,     bgp_fsm_OpenConfirm}, /* Receive_OPEN_message         */
-    {bgp_fsm_establish, bgp_fsm_Established}, /* Receive_KEEPALIVE_message    */
-    {bgp_fsm_error,     bgp_fsm_OpenConfirm}, /* Receive_UPDATE_message       */
-    {bgp_fsm_recv_nom,  bgp_fsm_Idle},        /* Receive_NOTIFICATION_message */
-    {bgp_fsm_sent_nom,  bgp_fsm_OpenConfirm}, /* Sent NOTIFICATION message    */
+    {bgp_fsm_null,      bgp_fsm_sOpenConfirm},/* null event                   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* BGP_Start                    */
+    {bgp_fsm_stop,      bgp_fsm_sIdle},       /* BGP_Stop                     */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open          */
+    {bgp_fsm_closed,    bgp_fsm_sIdle},       /* TCP_connection_closed        */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open_failed   */
+    {bgp_fsm_fatal,     bgp_fsm_sIdle},       /* TCP_fatal_error              */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* ConnectRetry_timer_expired   */
+    {bgp_fsm_expire,    bgp_fsm_sIdle},       /* Hold_Timer_expired           */
+    {bgp_fsm_send_kal,  bgp_fsm_sOpenConfirm},/* KeepAlive_timer_expired      */
+    {bgp_fsm_error,     bgp_fsm_sOpenConfirm},/* Receive_OPEN_message         */
+    {bgp_fsm_establish, bgp_fsm_sEstablished},/* Receive_KEEPALIVE_message    */
+    {bgp_fsm_error,     bgp_fsm_sOpenConfirm},/* Receive_UPDATE_message       */
+    {bgp_fsm_recv_nom,  bgp_fsm_sIdle},       /* Receive_NOTIFICATION_message */
+    {bgp_fsm_sent_nom,  bgp_fsm_sOpenConfirm},/* Sent NOTIFICATION message    */
   },
   {
     /* bgp_fsm_Established: session is up and running...........................
@@ -1354,21 +1355,21 @@ bgp_fsm[bgp_fsm_last_state + 1][bgp_fsm_last_event + 1] =
      *
      * All other events (other than null) are invalid (should not happen).
      */
-    {bgp_fsm_null,      bgp_fsm_Established}, /* null event                   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* BGP_Start                    */
-    {bgp_fsm_stop,      bgp_fsm_Stopping},    /* BGP_Stop                     */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open          */
-    {bgp_fsm_closed,    bgp_fsm_Stopping},    /* TCP_connection_closed        */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open_failed   */
-    {bgp_fsm_fatal,     bgp_fsm_Stopping},    /* TCP_fatal_error              */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* ConnectRetry_timer_expired   */
-    {bgp_fsm_expire,    bgp_fsm_Stopping},    /* Hold_Timer_expired           */
-    {bgp_fsm_send_kal,  bgp_fsm_Established}, /* KeepAlive_timer_expired      */
-    {bgp_fsm_error,     bgp_fsm_Stopping},    /* Receive_OPEN_message         */
-    {bgp_fsm_recv_kal,  bgp_fsm_Established}, /* Receive_KEEPALIVE_message    */
-    {bgp_fsm_update,    bgp_fsm_Established}, /* Receive_UPDATE_message       */
-    {bgp_fsm_recv_nom,  bgp_fsm_Stopping},    /* Receive_NOTIFICATION_message */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Sent NOTIFICATION message    */
+    {bgp_fsm_null,      bgp_fsm_sEstablished},/* null event                   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* BGP_Start                    */
+    {bgp_fsm_stop,      bgp_fsm_sStopping},   /* BGP_Stop                     */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open          */
+    {bgp_fsm_closed,    bgp_fsm_sStopping},   /* TCP_connection_closed        */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open_failed   */
+    {bgp_fsm_fatal,     bgp_fsm_sStopping},   /* TCP_fatal_error              */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* ConnectRetry_timer_expired   */
+    {bgp_fsm_expire,    bgp_fsm_sStopping},   /* Hold_Timer_expired           */
+    {bgp_fsm_send_kal,  bgp_fsm_sEstablished},/* KeepAlive_timer_expired      */
+    {bgp_fsm_error,     bgp_fsm_sStopping},   /* Receive_OPEN_message         */
+    {bgp_fsm_recv_kal,  bgp_fsm_sEstablished},/* Receive_KEEPALIVE_message    */
+    {bgp_fsm_update,    bgp_fsm_sEstablished},/* Receive_UPDATE_message       */
+    {bgp_fsm_recv_nom,  bgp_fsm_sStopping},   /* Receive_NOTIFICATION_message */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Sent NOTIFICATION message    */
   },
   {
     /* bgp_fsm_Stopping: waiting (briefly) to send Notification.................
@@ -1471,21 +1472,21 @@ bgp_fsm[bgp_fsm_last_state + 1][bgp_fsm_last_event + 1] =
      *
      * All other events (other than null) are invalid (should not happen).
      */
-    {bgp_fsm_null,      bgp_fsm_Stopping},    /* null event                   */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* BGP_Start                    */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* BGP_Stop                     */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open          */
-    {bgp_fsm_exit,      bgp_fsm_Stopping},    /* TCP_connection_closed        */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* TCP_connection_open_failed   */
-    {bgp_fsm_exit,      bgp_fsm_Stopping},    /* TCP_fatal_error              */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* ConnectRetry_timer_expired   */
-    {bgp_fsm_exit,      bgp_fsm_Stopping},    /* Hold_Timer_expired           */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* KeepAlive_timer_expired      */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_OPEN_message         */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_KEEPALIVE_message    */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_UPDATE_message       */
-    {bgp_fsm_invalid,   bgp_fsm_Stopping},    /* Receive_NOTIFICATION_message */
-    {bgp_fsm_sent_nom,  bgp_fsm_Stopping},    /* Sent NOTIFICATION message    */
+    {bgp_fsm_null,      bgp_fsm_sStopping},   /* null event                   */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* BGP_Start                    */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* BGP_Stop                     */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open          */
+    {bgp_fsm_exit,      bgp_fsm_sStopping},   /* TCP_connection_closed        */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open_failed   */
+    {bgp_fsm_exit,      bgp_fsm_sStopping},   /* TCP_fatal_error              */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* ConnectRetry_timer_expired   */
+    {bgp_fsm_exit,      bgp_fsm_sStopping},   /* Hold_Timer_expired           */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* KeepAlive_timer_expired      */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_OPEN_message         */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_KEEPALIVE_message    */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_UPDATE_message       */
+    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* Receive_NOTIFICATION_message */
+    {bgp_fsm_sent_nom,  bgp_fsm_sStopping},   /* Sent NOTIFICATION message    */
   },
 } ;
 
@@ -1618,7 +1619,7 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
                                    connection->notification,
                                    connection->err,
                                    connection->ordinal,
-                                  (connection->state == bgp_fsm_Stopping)) ;
+                                  (connection->state == bgp_fsm_sStopping)) ;
 
       /* Tidy up -- notification already cleared                        */
       connection->except = bgp_session_null_event ;
@@ -1684,11 +1685,11 @@ static bgp_fsm_action(bgp_fsm_enter)
 static bgp_fsm_action(bgp_fsm_stop)
 {
   if (connection->except == bgp_session_null_event)
-    return bgp_fsm_invalid(connection, bgp_fsm_Stopping, event) ;
+    return bgp_fsm_invalid(connection, bgp_fsm_sStopping, event) ;
 
   if (   (connection->except == bgp_session_eDisabled)
       || (connection->except == bgp_session_eDiscard) )
-    next_state = bgp_fsm_Stopping ;
+    next_state = bgp_fsm_sStopping ;
 
   return bgp_fsm_catch(connection, next_state) ;
 } ;
@@ -1710,12 +1711,12 @@ static bgp_fsm_action(bgp_fsm_invalid)
     plog_debug(connection->log, "%s [FSM] invalid event %d in state %d",
                                    connection->host, event, connection->state) ;
 
-  if (connection->state != bgp_fsm_Stopping)
+  if (connection->state != bgp_fsm_sStopping)
     return bgp_fsm_post_catch(connection, bgp_session_eInvalid,
                           bgp_notify_new(BGP_NOMC_FSM, BGP_NOMS_UNSPECIFIC, 0),
-                                                             bgp_fsm_Stopping) ;
+                                                            bgp_fsm_sStopping) ;
   else
-    return bgp_fsm_exit(connection, bgp_fsm_Stopping, event) ;
+    return bgp_fsm_exit(connection, bgp_fsm_sStopping, event) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1743,12 +1744,12 @@ static bgp_fsm_action(bgp_fsm_start)
 {
   if (connection->ordinal == bgp_connection_primary)
     {
-      next_state = bgp_fsm_Connect ;
+      next_state = bgp_fsm_sConnect ;
       bgp_open_connect(connection) ;
     }
   else
     {
-      next_state = bgp_fsm_Active ;
+      next_state = bgp_fsm_sActive ;
       bgp_connection_enable_accept(connection) ;
     } ;
 
@@ -1919,9 +1920,27 @@ static bgp_fsm_action(bgp_fsm_recv_open)
   /* If there is a sibling, and it is in OpenConfirm state, then now must do
    * collision resolution.
    */
-  if ((sibling != NULL) && (sibling->state == bgp_fsm_OpenConfirm))
+  if ((sibling != NULL) && (sibling->state == bgp_fsm_sOpenConfirm))
     {
       bgp_connection loser ;
+
+      /* Before choosing a winner, check that both have the same BGP Id.
+       *
+       * The two connections are to an address which is configured for the
+       * given peer, and both have given the right ASN.  It would be
+       * astonishing (but also disturbing) to find that they had different
+       * BGP Ids !!!
+       */
+      if (connection->open_recv->bgp_id != sibling->open_recv->bgp_id)
+        {
+          bgp_fsm_raise_exception(sibling,    bgp_session_eOpen_reject,
+                   bgp_msg_noms_o_bad_id(NULL, sibling->open_recv->bgp_id)) ;
+
+          bgp_fsm_raise_exception(connection, bgp_session_eOpen_reject,
+                   bgp_msg_noms_o_bad_id(NULL, connection->open_recv->bgp_id)) ;
+
+          return connection->state ;
+        } ;
 
       /* NB: bgp_id in open_state is in *host* order                    */
       loser = (ntohl(session->open_send->bgp_id) <
@@ -1929,16 +1948,13 @@ static bgp_fsm_action(bgp_fsm_recv_open)
                 ? connection
                 : sibling ;
 
-      /* Set reason for stopping                                        */
-      bgp_fsm_post_exception(loser, bgp_session_eCollision,
-                   bgp_notify_new(BGP_NOMC_CEASE, BGP_NOMS_C_COLLISION, 0), 0) ;
+      /* Throw exception                                                */
+      bgp_fsm_raise_exception(loser, bgp_session_eCollision,
+                      bgp_notify_new(BGP_NOMC_CEASE, BGP_NOMS_C_COLLISION, 0)) ;
 
-      /* If self is the loser, treat this as a BGP_Stop event !         */
-      /* Otherwise, issue BGP_Stop event for sibling.                   */
+      /* If self is the loser, exit now to process the eBGP_Stop        */
       if (loser == connection)
-        return bgp_fsm_catch(connection, next_state) ;
-      else
-        bgp_fsm_event(sibling, bgp_fsm_BGP_Stop) ;
+        return connection->state ;
     } ;
 
   /* All is well: send a KEEPALIVE message to acknowledge the OPEN      */
@@ -2033,6 +2049,7 @@ static bgp_fsm_action(bgp_fsm_establish)
   bgp_connection_make_primary(connection) ;
 
   /* Post exciting session event                                        */
+  session->made = 1 ;
   bgp_fsm_post_exception(connection, bgp_session_eEstablished, NULL, 0) ;
 
   /* TODO: now would be a good time to withdraw the password from listener ?  */
@@ -2074,11 +2091,11 @@ static bgp_fsm_action(bgp_fsm_update)
  */
 static bgp_fsm_action(bgp_fsm_exit)
 {
-  assert(connection->state == bgp_fsm_Stopping) ;
+  assert(connection->state == bgp_fsm_sStopping) ;
 
   bgp_connection_exit(connection) ;
 
-  return bgp_fsm_Stopping ;
+  return bgp_fsm_sStopping ;
 } ;
 
 /*==============================================================================
@@ -2133,15 +2150,13 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
    */
   if (   (connection->notification != NULL)
       && (connection->except != bgp_session_eNOM_recv) )
-    {
-      next_state = bgp_fsm_send_notification(connection, next_state) ;
-    }
+    next_state = bgp_fsm_send_notification(connection, next_state) ;
   else
     bgp_connection_close(connection, 0) ;     /* FSM deals with timers  */
 
 
   /* If stopping and not eDiscard, do in any sibling                    */
-  if (   (next_state == bgp_fsm_Stopping)
+  if (   (next_state == bgp_fsm_sStopping)
       && (connection->except != bgp_session_eDiscard) )
     {
       bgp_connection sibling ;
@@ -2183,7 +2198,7 @@ bgp_fsm_send_notification(bgp_connection connection, bgp_fsm_state_t next_state)
    * HoldTimer expires -- either because lost patience in getting the
    * notification away, or at the end of the "courtesy" time.
    */
-  if (next_state != bgp_fsm_Stopping)
+  if (next_state != bgp_fsm_sStopping)
     next_state = connection->state ;
 
   /* Close for reading and flush write buffers.                         */
@@ -2203,7 +2218,7 @@ bgp_fsm_send_notification(bgp_connection connection, bgp_fsm_state_t next_state)
      *
      * Send ourselves the good news !
      */
-    bgp_fsm_event(connection, bgp_fsm_Sent_NOTIFICATION_message) ;
+    bgp_fsm_event(connection, bgp_fsm_eSent_NOTIFICATION_message) ;
 
   else if (ret == 0)
     /* notification is sitting in the write buffer
@@ -2215,7 +2230,7 @@ bgp_fsm_send_notification(bgp_connection connection, bgp_fsm_state_t next_state)
      * to happen in anything except Established state -- but copes.  (Is
      * ready to wait 20 seconds in Stopping state and 5 otherwise.)
      */
-    bgp_hold_timer_set(connection, (next_state == bgp_fsm_Stopping) ? 20 : 5) ;
+    bgp_hold_timer_set(connection, (next_state == bgp_fsm_sStopping) ? 20 : 5) ;
 
   /* Return suitable state.                                             */
   return next_state ;
@@ -2343,17 +2358,17 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      *
      * In Idle state refuses connections.
      */
-    case bgp_fsm_Idle:
+    case bgp_fsm_sIdle:
       interval = session->idle_hold_timer_interval ;
       sibling  = bgp_connection_get_sibling(connection) ;
 
-      if (connection->state == bgp_fsm_Initial)
+      if (connection->state == bgp_fsm_sInitial)
         interval = (interval > 0) ? interval : 1 ;  /* may not be zero  */
       else
         {
           if ( (sibling != NULL)
-                && (   (sibling->state == bgp_fsm_OpenSent)
-                    || (sibling->state == bgp_fsm_OpenConfirm) ) )
+                && (   (sibling->state == bgp_fsm_sOpenSent)
+                    || (sibling->state == bgp_fsm_sOpenConfirm) ) )
             {
               interval = 0 ;              /* unset the HoldTimer        */
               connection->comatose = 1 ;  /* so now comatose            */
@@ -2398,8 +2413,8 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      * The ConnectRetryTimer automatically recharges, because will loop back
      * round into the same state.
      */
-    case bgp_fsm_Connect:
-    case bgp_fsm_Active:
+    case bgp_fsm_sConnect:
+    case bgp_fsm_sActive:
       bgp_timer_set(connection, &connection->hold_timer,
                            session->connect_retry_timer_interval, 1,
                                                bgp_connect_retry_timer_action) ;
@@ -2419,7 +2434,7 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      *
      *   * an accept() connection, then session->accept will be false.
      */
-    case bgp_fsm_OpenSent:
+    case bgp_fsm_sOpenSent:
       bgp_hold_timer_set(connection, session->open_hold_timer_interval) ;
       qtimer_unset(&connection->keepalive_timer) ;
       break;
@@ -2446,11 +2461,11 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      * If the negotiated Hold Time value is zero, then the Keepalive Time
      * value will also be zero, and this will unset both timers.
      */
-    case bgp_fsm_OpenConfirm:
+    case bgp_fsm_sOpenConfirm:
       bgp_timer_set(connection, &connection->keepalive_timer,
                                  connection->keepalive_timer_interval, 1,
                                                    bgp_keepalive_timer_action) ;
-    case bgp_fsm_Established:
+    case bgp_fsm_sEstablished:
       bgp_hold_timer_set(connection, connection->hold_timer_interval) ;
       break;
 
@@ -2460,7 +2475,7 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      *
      * Unlink connection from session.
      */
-    case bgp_fsm_Stopping:
+    case bgp_fsm_sStopping:
       if (!connection->notification_pending)
         qtimer_unset(&connection->hold_timer) ;
 
@@ -2539,7 +2554,7 @@ bgp_idle_hold_timer_action(qtimer qtr, void* timer_info, qtime_mono_t when)
 
   BGP_FSM_DEBUG(connection, "Timer (start timer expire)") ;
 
-  bgp_fsm_event(connection, bgp_fsm_BGP_Start) ;
+  bgp_fsm_event(connection, bgp_fsm_eBGP_Start) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2558,7 +2573,7 @@ bgp_connect_retry_timer_action(qtimer qtr, void* timer_info, qtime_mono_t when)
   bgp_timer_set(connection, &connection->hold_timer,
            connection->session->connect_retry_timer_interval, 1, NULL) ;
 
-  bgp_fsm_event(connection, bgp_fsm_ConnectRetry_timer_expired) ;
+  bgp_fsm_event(connection, bgp_fsm_eConnectRetry_timer_expired) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2573,7 +2588,7 @@ bgp_hold_timer_action(qtimer qtr, void* timer_info, qtime_mono_t when)
 
   BGP_FSM_DEBUG(connection, "Timer (holdtime timer expire)") ;
 
-  bgp_fsm_event(connection, bgp_fsm_Hold_Timer_expired) ;
+  bgp_fsm_event(connection, bgp_fsm_eHold_Timer_expired) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2592,37 +2607,5 @@ bgp_keepalive_timer_action(qtimer qtr, void* timer_info, qtime_mono_t when)
   bgp_timer_set(connection, &connection->keepalive_timer,
                     connection->session->keepalive_timer_interval, 1, NULL) ;
 
-  bgp_fsm_event(connection, bgp_fsm_KeepAlive_timer_expired) ;
+  bgp_fsm_event(connection, bgp_fsm_eKeepAlive_timer_expired) ;
 } ;
-
-/*============================================================================*/
-/* BGP Peer Down Cause */
-/* TODO: this is also defined in bgp_peer.c */
-#if 0
-const char *peer_down_str[] =
-{
-  "",
-  "Router ID changed",
-  "Remote AS changed",
-  "Local AS change",
-  "Cluster ID changed",
-  "Confederation identifier changed",
-  "Confederation peer changed",
-  "RR client config change",
-  "RS client config change",
-  "Update source change",
-  "Address family activated",
-  "Admin. shutdown",
-  "User reset",
-  "BGP Notification received",
-  "BGP Notification send",
-  "Peer closed the session",
-  "Neighbor deleted",
-  "Peer-group add member",
-  "Peer-group delete member",
-  "Capability changed",
-  "Passive config change",
-  "Multihop config change",
-  "NSF peer closed the session"
-};
-#endif

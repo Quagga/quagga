@@ -20,6 +20,7 @@
  */
 
 #include <zebra.h>
+#include "miyagi.h"
 
 #include "hash.h"
 #include "command.h"
@@ -63,15 +64,8 @@ if_rmap_lookup (const char *ifname)
   struct if_rmap key;
   struct if_rmap *if_rmap;
 
-  union {
-    const char* waxon ;
-          char* waxoff ;
-  } miyagi ;
-
-  miyagi.waxon = ifname ;
-
   /* temporary reference */
-  key.ifname = miyagi.waxoff ;
+  key.ifname = miyagi(ifname) ;
 
   if_rmap = hash_lookup (ifrmaphash, &key);
 
@@ -107,15 +101,8 @@ if_rmap_get (const char *ifname)
 {
   struct if_rmap key;
 
-  union {
-    const char* waxon ;
-          char* waxoff ;
-  } miyagi ;
-
-  miyagi.waxon = ifname ;
-
   /* temporary reference */
-  key.ifname = miyagi.waxoff ;
+  key.ifname = miyagi(ifname) ;
 
   return (struct if_rmap *) hash_get (ifrmaphash, &key, if_rmap_hash_alloc);
 }

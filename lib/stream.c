@@ -158,7 +158,7 @@ struct stream *
 stream_dup_pending (struct stream *s)
 {
   struct stream *new;
-  int new_endp ;
+  size_t new_endp ;
 
   STREAM_VERIFY_SANE (s);
 
@@ -1050,13 +1050,13 @@ stream_transfer(void* p, struct stream* s, void* limit)
   size_t have = s->endp ;
 
   STREAM_VERIFY_SANE(s);
-  assert((p + have) <= limit) ;
+  assert(((uint8_t*)p + have) <= (uint8_t*)limit) ;
 
   memcpy(p, s->data, have) ;
 
   s->getp = s->endp = 0;
 
-  return p + have ;
+  return (uint8_t*)p + have ;
 } ;
 
 /* Stream first in first out queue. */

@@ -59,17 +59,17 @@ slow_func (struct vty *vty, const char *str, const int i)
 {
   double x = 1;
   int j;
-  
+
   for (j = 0; j < 300; j++)
     x += sin(x)*j;
-  
+
   if ((i % ITERS_LATER) == 0)
     printf ("%s: %d, temporary error, save this somehow and do it later..\n",
             __func__, i);
-  
+
   if ((i % ITERS_ERR) == 0)
     printf ("%s: hard error\n", __func__);
-  
+
   if ((i % ITERS_PRINT) == 0)
     printf ("%s did %d, x = %g\n", str, i, x);
 }
@@ -78,8 +78,8 @@ static int
 clear_something (struct thread *thread)
 {
   struct work_state *ws = THREAD_ARG(thread);
-  
-  /* this could be like iterating through 150k of route_table 
+
+  /* this could be like iterating through 150k of route_table
    * or worse, iterating through a list of peers, to bgp_stop them with
    * each having 150k route tables to process...
    */
@@ -93,7 +93,7 @@ clear_something (struct thread *thread)
 	  return 0;
         }
     }
-  
+
   /* All done! */
   XFREE (MTYPE_TMP, ws->str);
   XFREE (MTYPE_TMP, ws);
@@ -114,22 +114,22 @@ DEFUN (clear_foo,
       vty_out (vty, "%% string argument required%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  
+
   str = argv_concat (argv, argc, 0);
-  
+
   if ((ws = XMALLOC(MTYPE_TMP, sizeof(*ws))) == NULL)
     {
       zlog_err ("%s: unable to allocate work_state", __func__);
       return CMD_WARNING;
     }
-  
+
   if (!(ws->str = XSTRDUP (MTYPE_TMP, str)))
     {
       zlog_err ("%s: unable to xstrdup", __func__);
       XFREE (MTYPE_TMP, ws);
       return CMD_WARNING;
     }
-  
+
   ws->vty = vty;
   ws->i = ITERS_FIRST;
 
@@ -138,8 +138,10 @@ DEFUN (clear_foo,
   return CMD_SUCCESS;
 }
 
+extern void test_init(void) ;
+
 void
-test_init()
+test_init(void)
 {
   install_element (VIEW_NODE, &clear_foo_cmd);
 }

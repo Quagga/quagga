@@ -557,7 +557,7 @@ bgp_connected_add (struct connected *ifc)
 
   if (addr->family == AF_INET)
     {
-      PREFIX_COPY_IPV4(&p, CONNECTED_PREFIX(ifc));
+      prefix_copy_ipv4(&p, CONNECTED_PREFIX(ifc));
       apply_mask_ipv4 ((struct prefix_ipv4 *) &p);
 
       if (prefix_ipv4_any ((struct prefix_ipv4 *) &p))
@@ -579,7 +579,7 @@ bgp_connected_add (struct connected *ifc)
 #ifdef HAVE_IPV6
   else if (addr->family == AF_INET6)
     {
-      PREFIX_COPY_IPV6(&p, CONNECTED_PREFIX(ifc));
+      prefix_copy_ipv6(&p, CONNECTED_PREFIX(ifc));
       apply_mask_ipv6 ((struct prefix_ipv6 *) &p);
 
       if (IN6_IS_ADDR_UNSPECIFIED (&p.u.prefix6))
@@ -622,7 +622,7 @@ bgp_connected_delete (struct connected *ifc)
 
   if (addr->family == AF_INET)
     {
-      PREFIX_COPY_IPV4(&p, CONNECTED_PREFIX(ifc));
+      prefix_copy_ipv4(&p, CONNECTED_PREFIX(ifc));
       apply_mask_ipv4 ((struct prefix_ipv4 *) &p);
 
       if (prefix_ipv4_any ((struct prefix_ipv4 *) &p))
@@ -645,7 +645,7 @@ bgp_connected_delete (struct connected *ifc)
 #ifdef HAVE_IPV6
   else if (addr->family == AF_INET6)
     {
-      PREFIX_COPY_IPV6(&p, CONNECTED_PREFIX(ifc));
+      prefix_copy_ipv6(&p, CONNECTED_PREFIX(ifc));
       apply_mask_ipv6 ((struct prefix_ipv6 *) &p);
 
       if (IN6_IS_ADDR_UNSPECIFIED (&p.u.prefix6))
@@ -1283,10 +1283,12 @@ bgp_scan_init (void)
   zlookup->sock = -1;
 
   /* TODO: reinstate zebra interface when ready                         */
-#if 0
-  zlookup->enable = 1 ;
-  zlookup->t_connect = thread_add_event (master, zlookup_connect, zlookup, 0);
-#endif
+  if (0)
+    {
+      zlookup->enable = 1 ;
+      zlookup->t_connect = thread_add_event (master, zlookup_connect,
+                                                                    zlookup, 0);
+    } ;
 
   bgp_scan_interval = BGP_SCAN_INTERVAL_DEFAULT;
   bgp_import_interval = BGP_IMPORT_INTERVAL_DEFAULT;

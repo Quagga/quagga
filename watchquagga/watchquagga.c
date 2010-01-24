@@ -180,7 +180,7 @@ struct daemon {
   struct restart_info restart;
 };
 
-static const struct option longopts[] = 
+static const struct option longopts[] =
 {
   { "daemon", no_argument, NULL, 'd'},
   { "statedir", required_argument, NULL, 'S'},
@@ -346,8 +346,8 @@ run_background(const char *shell_cmd)
       if (setpgid(0,0) < 0)
         zlog_warn("warning: setpgid(0,0) failed: %s",safe_strerror(errno));
       {
-        const char *argv[4] = { "sh", "-c", shell_cmd, NULL};
-	execv("/bin/sh",(char *const *)argv);
+        const char *const argv[4] = { "sh", "-c", shell_cmd, NULL};
+        execv("/bin/sh",(char *const *)argv);
 	zlog_err("execv(/bin/sh -c '%s') failed: %s",
 		 shell_cmd,safe_strerror(errno));
 	_exit(127);
@@ -420,7 +420,7 @@ sigchild(void)
   const char *what;
   struct restart_info *restart;
 
-  switch (child = waitpid(-1,&status,WNOHANG)) 
+  switch (child = waitpid(-1,&status,WNOHANG))
     {
     case -1:
       zlog_err("waitpid failed: %s",safe_strerror(errno));
@@ -1232,7 +1232,7 @@ main(int argc, char **argv)
 	  return usage(progname,1);
         }
     }
-  
+
   if (gs.unresponsive_restart && (gs.mode == MODE_MONITOR))
     {
       fputs("Option -z requires a -r or -R restart option.\n",stderr);
@@ -1278,7 +1278,7 @@ main(int argc, char **argv)
       if (gs.stop_command)
         gs.stop_command = translate_blanks(gs.stop_command,blankstr);
     }
-      
+
   gs.restart.interval = gs.min_restart_interval;
   master = thread_master_create();
   signal_init (master, Q_SIGC(my_signals), my_signals);

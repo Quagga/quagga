@@ -66,7 +66,7 @@ heavy_wq_add (struct vty *vty, const char *str, int i)
       zlog_err ("%s: unable to allocate hn", __func__);
       return;
     }
-  
+
   hn->i = i;
   if (!(hn->str = XSTRDUP (MTYPE_PREFIX_LIST_STR, str)))
     {
@@ -74,9 +74,9 @@ heavy_wq_add (struct vty *vty, const char *str, int i)
       XFREE (MTYPE_PREFIX_LIST, hn);
       return;
     }
-  
+
   work_queue_add (heavy_wq, hn);
-  
+
   return;
 }
 
@@ -93,7 +93,7 @@ slow_func_del (struct work_queue *wq, void *data)
   assert (hn && hn->str);
   printf ("%s: %s\n", __func__, hn->str);
   XFREE (MTYPE_PREFIX_LIST_STR, hn->str);
-  hn->str = NULL;  
+  hn->str = NULL;
   XFREE(MTYPE_PREFIX_LIST, hn);
 }
 
@@ -103,18 +103,18 @@ slow_func (struct work_queue *wq, void *data)
   struct heavy_wq_node *hn = data;
   double x = 1;
   int j;
-  
+
   assert (hn && hn->str);
-  
+
   for (j = 0; j < 300; j++)
     x += sin(x)*j;
-  
+
   if ((hn->i % ITERS_LATER) == 0)
     return WQ_RETRY_LATER;
-  
+
   if ((hn->i % ITERS_ERR) == 0)
     return WQ_RETRY_NOW;
-  
+
   if ((hn->i % ITERS_PRINT) == 0)
     printf ("%s did %d, x = %g\n", hn->str, hn->i, x);
 
@@ -125,8 +125,8 @@ static void
 clear_something (struct vty *vty, const char *str)
 {
   int i;
-  
-  /* this could be like iterating through 150k of route_table 
+
+  /* this could be like iterating through 150k of route_table
    * or worse, iterating through a list of peers, to bgp_stop them with
    * each having 150k route tables to process...
    */
@@ -146,9 +146,9 @@ DEFUN (clear_foo,
       vty_out (vty, "%% string argument required%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  
+
   str = argv_concat (argv, argc, 0);
-  
+
   clear_something (vty, str);
   XFREE (MTYPE_TMP, str);
   return CMD_SUCCESS;
@@ -162,18 +162,20 @@ heavy_wq_init ()
       zlog_err ("%s: could not get new work queue!", __func__);
       return -1;
     }
-  
+
   heavy_wq->spec.workfunc = &slow_func;
   heavy_wq->spec.errorfunc = &slow_func_err;
   heavy_wq->spec.del_item_data = &slow_func_del;
   heavy_wq->spec.max_retries = 3;
   heavy_wq->spec.hold = 1000;
-  
+
   return 0;
 }
 
-void
-test_init()
+extern void test_init(void) ;
+
+extern void
+test_init(void)
 {
   install_element (VIEW_NODE, &clear_foo_cmd);
   heavy_wq_init();

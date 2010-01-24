@@ -165,7 +165,7 @@ bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
   s = peer->work;
   stream_reset (s);
 
-  adv = FIFO_HEAD (&peer->sync[afi][safi]->update);
+  adv = bgp_advertise_fifo_head(&peer->sync[afi][safi]->update);
 
   while (adv)
     {
@@ -306,7 +306,8 @@ bgp_withdraw_packet (struct peer *peer, afi_t afi, safi_t safi)
   s = peer->work;
   stream_reset (s);
 
-  while ((adv = FIFO_HEAD (&peer->sync[afi][safi]->withdraw)) != NULL)
+  while ((adv = bgp_advertise_fifo_head(&peer->sync[afi][safi]->withdraw))
+                                                                        != NULL)
     {
       assert (adv->rn);
       adj = adv->adj;
@@ -535,7 +536,7 @@ bgp_write_packet (struct peer *peer)
   for (afi = AFI_IP; afi < AFI_MAX; afi++)
     for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
       {
-	adv = FIFO_HEAD (&peer->sync[afi][safi]->withdraw);
+	adv = bgp_advertise_fifo_head(&peer->sync[afi][safi]->withdraw);
 	if (adv)
 	  {
 	    s = bgp_withdraw_packet (peer, afi, safi);
@@ -547,7 +548,7 @@ bgp_write_packet (struct peer *peer)
   for (afi = AFI_IP; afi < AFI_MAX; afi++)
     for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
       {
-	adv = FIFO_HEAD (&peer->sync[afi][safi]->update);
+	adv = bgp_advertise_fifo_head(&peer->sync[afi][safi]->update);
 	if (adv)
 	  {
             if (adv->binfo && adv->binfo->uptime < peer->synctime)

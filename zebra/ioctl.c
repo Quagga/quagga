@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -52,7 +52,7 @@ if_ioctl (u_long request, caddr_t buffer)
 {
   int sock;
   int ret;
-  int err;
+  int err = 0 ; /* initialise to avoid warning  */
 
   if (zserv_privs.change(ZPRIVS_RAISE))
     zlog (NULL, LOG_ERR, "Can't raise privileges");
@@ -70,8 +70,8 @@ if_ioctl (u_long request, caddr_t buffer)
   if (zserv_privs.change(ZPRIVS_LOWER))
     zlog (NULL, LOG_ERR, "Can't lower privileges");
   close (sock);
-  
-  if (ret < 0) 
+
+  if (ret < 0)
     {
       errno = err;
       return ret;
@@ -85,7 +85,7 @@ if_ioctl_ipv6 (u_long request, caddr_t buffer)
 {
   int sock;
   int ret;
-  int err;
+  int err = 0 ; /* initialise to avoid warning  */
 
   if (zserv_privs.change(ZPRIVS_RAISE))
     zlog (NULL, LOG_ERR, "Can't raise privileges");
@@ -105,8 +105,8 @@ if_ioctl_ipv6 (u_long request, caddr_t buffer)
   if (zserv_privs.change(ZPRIVS_LOWER))
     zlog (NULL, LOG_ERR, "Can't lower privileges");
   close (sock);
-  
-  if (ret < 0) 
+
+  if (ret < 0)
     {
       errno = err;
       return ret;
@@ -127,7 +127,7 @@ if_get_metric (struct interface *ifp)
 
   ifreq_set_name (&ifreq, ifp);
 
-  if (if_ioctl (SIOCGIFMETRIC, (caddr_t) &ifreq) < 0) 
+  if (if_ioctl (SIOCGIFMETRIC, (caddr_t) &ifreq) < 0)
     return;
   ifp->metric = ifreq.ifr_metric;
   if (ifp->metric == 0)
@@ -146,7 +146,7 @@ if_get_mtu (struct interface *ifp)
   ifreq_set_name (&ifreq, ifp);
 
 #if defined(SIOCGIFMTU)
-  if (if_ioctl (SIOCGIFMTU, (caddr_t) & ifreq) < 0) 
+  if (if_ioctl (SIOCGIFMTU, (caddr_t) & ifreq) < 0)
     {
       zlog_info ("Can't lookup mtu by ioctl(SIOCGIFMTU)");
       ifp->mtu6 = ifp->mtu = -1;
@@ -216,7 +216,7 @@ if_set_prefix (struct interface *ifp, struct connected *ifc)
   mask.sin_len = sizeof (struct sockaddr_in);
 #endif
   memcpy (&addreq.ifra_mask, &mask, sizeof (struct sockaddr_in));
-  
+
   ret = if_ioctl (SIOCAIFADDR, (caddr_t) &addreq);
   if (ret < 0)
     return ret;
@@ -254,7 +254,7 @@ if_unset_prefix (struct interface *ifp, struct connected *ifc)
   mask.sin_len = sizeof (struct sockaddr_in);
 #endif
   memcpy (&addreq.ifra_mask, &mask, sizeof (struct sockaddr_in));
-  
+
   ret = if_ioctl (SIOCDIFADDR, (caddr_t) &addreq);
   if (ret < 0)
     return ret;
@@ -286,7 +286,7 @@ if_set_prefix (struct interface *ifp, struct connected *ifc)
   ret = if_ioctl (SIOCSIFADDR, (caddr_t) &ifreq);
   if (ret < 0)
     return ret;
-  
+
   /* We need mask for make broadcast addr. */
   masklen2ip (p->prefixlen, &mask.sin_addr);
 
@@ -356,7 +356,7 @@ if_get_flags (struct interface *ifp)
   ifreq_set_name (&ifreq, ifp);
 
   ret = if_ioctl (SIOCGIFFLAGS, (caddr_t) &ifreq);
-  if (ret < 0) 
+  if (ret < 0)
     {
       zlog_err("if_ioctl(SIOCGIFFLAGS) failed: %s", safe_strerror(errno));
       return;
@@ -368,12 +368,12 @@ if_get_flags (struct interface *ifp)
    * following practice on Linux and Solaris kernels
    */
   SET_FLAG(ifreq.ifr_flags, IFF_RUNNING);
-  
+
   if (CHECK_FLAG (ifp->status, ZEBRA_INTERFACE_LINKDETECTION))
     {
       (void) memset(&ifmr, 0, sizeof(ifmr));
       strncpy (ifmr.ifm_name, ifp->name, IFNAMSIZ);
-      
+
       /* Seems not all interfaces implement this ioctl */
       if (if_ioctl(SIOCGIFMEDIA, (caddr_t) &ifmr) < 0)
         zlog_err("if_ioctl(SIOCGIFMEDIA) failed: %s", safe_strerror(errno));
@@ -441,7 +441,7 @@ if_unset_flags (struct interface *ifp, uint64_t flags)
 #ifdef LINUX_IPV6
 #ifndef _LINUX_IN6_H
 /* linux/include/net/ipv6.h */
-struct in6_ifreq 
+struct in6_ifreq
 {
   struct in6_addr ifr6_addr;
   u_int32_t ifr6_prefixlen;
@@ -526,10 +526,10 @@ if_prefix_add_ipv6 (struct interface *ifp, struct connected *ifc)
 
   addreq.ifra_lifetime.ia6t_vltime = 0xffffffff;
   addreq.ifra_lifetime.ia6t_pltime = 0xffffffff;
-  
-#ifdef HAVE_STRUCT_IF6_ALIASREQ_IFRA_LIFETIME 
-  addreq.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME; 
-  addreq.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME; 
+
+#ifdef HAVE_STRUCT_IF6_ALIASREQ_IFRA_LIFETIME
+  addreq.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
+  addreq.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
 #endif
 
   ret = if_ioctl_ipv6 (SIOCAIFADDR_IN6, (caddr_t) &addreq);
@@ -569,8 +569,8 @@ if_prefix_delete_ipv6 (struct interface *ifp, struct connected *ifc)
   memcpy (&addreq.ifra_prefixmask, &mask, sizeof (struct sockaddr_in6));
 
 #ifdef HAVE_STRUCT_IF6_ALIASREQ_IFRA_LIFETIME
-  addreq.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME; 
-  addreq.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME; 
+  addreq.ifra_lifetime.ia6t_pltime = ND6_INFINITE_LIFETIME;
+  addreq.ifra_lifetime.ia6t_vltime = ND6_INFINITE_LIFETIME;
 #endif
 
   ret = if_ioctl_ipv6 (SIOCDIFADDR_IN6, (caddr_t) &addreq);

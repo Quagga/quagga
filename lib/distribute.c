@@ -20,6 +20,7 @@
  */
 
 #include <zebra.h>
+#include "miyagi.h"
 
 #include "hash.h"
 #include "if.h"
@@ -68,15 +69,8 @@ distribute_lookup (const char *ifname)
   struct distribute key;
   struct distribute *dist;
 
-  union {
-    const char* waxon ;
-          char* waxoff ;
-  } miyagi ;
-
-  miyagi.waxon = ifname ;
-
   /* temporary reference */
-  key.ifname = miyagi.waxoff ;
+  key.ifname = miyagi(ifname) ;
 
   dist = hash_lookup (disthash, &key);
 
@@ -114,15 +108,8 @@ distribute_get (const char *ifname)
 {
   struct distribute key;
 
-  union {
-    const char* waxon ;
-          char* waxoff ;
-  } miyagi ;
-
-  miyagi.waxon = ifname ;
-
   /* temporary reference */
-  key.ifname = miyagi.waxoff ;
+  key.ifname = miyagi(ifname) ;
 
   return hash_get (disthash, &key, (void * (*) (void *))distribute_hash_alloc);
 }

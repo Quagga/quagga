@@ -2270,8 +2270,8 @@ peer_af_flag_unset (struct peer *peer, afi_t afi, safi_t safi, u_int32_t flag)
 int
 peer_ebgp_multihop_set (struct peer *peer, int ttl)
 {
-  struct peer_group *group;
-  struct listnode *node, *nnode;
+//struct peer_group *group;
+//struct listnode *node, *nnode;
 
   if (peer_sort (peer) == BGP_PEER_IBGP)
     return 0;
@@ -2306,8 +2306,8 @@ peer_ebgp_multihop_set (struct peer *peer, int ttl)
 int
 peer_ebgp_multihop_unset (struct peer *peer)
 {
-  struct peer_group *group;
-  struct listnode *node, *nnode;
+//struct peer_group *group;
+//struct listnode *node, *nnode;
 
   if (peer_sort (peer) == BGP_PEER_IBGP)
     return 0;

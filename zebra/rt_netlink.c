@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -104,7 +104,7 @@ set_ifindex(struct interface *ifp, unsigned int ifi_index)
 	    	       ifi_index, oifp->name, ifp->name);
 	  if (if_is_up(oifp))
 	    zlog_err("interface rename detected on up interface: index %d "
-		     "was renamed from %s to %s, results are uncertain!", 
+		     "was renamed from %s to %s, results are uncertain!",
 	    	     ifi_index, oifp->name, ifp->name);
 	  if_delete_update(oifp);
         }
@@ -242,7 +242,7 @@ netlink_request (int family, int type, struct nlsock *nl)
   req.nlh.nlmsg_seq = ++nl->seq;
   req.g.rtgen_family = family;
 
-  /* linux appears to check capabilities on every message 
+  /* linux appears to check capabilities on every message
    * have to raise caps for every message sent
    */
   if (zserv_privs.change (ZPRIVS_RAISE))
@@ -310,7 +310,7 @@ netlink_parse_info (int (*filter) (struct sockaddr_nl *, struct nlmsghdr *),
                 nl->name, msg.msg_namelen);
           return -1;
         }
-      
+
       for (h = (struct nlmsghdr *) buf; NLMSG_OK (h, (unsigned int) status);
            h = NLMSG_NEXT (h, status))
         {
@@ -450,7 +450,7 @@ netlink_interface (struct sockaddr_nl *snl, struct nlmsghdr *h)
   /* Looking up interface name. */
   memset (tb, 0, sizeof tb);
   netlink_parse_rtattr (tb, IFLA_MAX, IFLA_RTA (ifi), len);
-  
+
 #ifdef IFLA_WIRELESS
   /* check for wireless messages to ignore */
   if ((tb[IFLA_WIRELESS] != NULL) && (ifi->ifi_change == 0))
@@ -563,7 +563,7 @@ netlink_interface_addr (struct sockaddr_nl *snl, struct nlmsghdr *h)
 			       buf, BUFSIZ), ifa->ifa_prefixlen);
       if (tb[IFA_LABEL] && strcmp (ifp->name, RTA_DATA (tb[IFA_LABEL])))
         zlog_debug ("  IFA_LABEL     %s", (char *)RTA_DATA (tb[IFA_LABEL]));
-      
+
       if (tb[IFA_CACHEINFO])
         {
           struct ifa_cacheinfo *ci = RTA_DATA (tb[IFA_CACHEINFO]);
@@ -571,13 +571,13 @@ netlink_interface_addr (struct sockaddr_nl *snl, struct nlmsghdr *h)
                       ci->ifa_prefered, ci->ifa_valid);
         }
     }
-  
+
   /* logic copied from iproute2/ip/ipaddress.c:print_addrinfo() */
   if (tb[IFA_LOCAL] == NULL)
     tb[IFA_LOCAL] = tb[IFA_ADDRESS];
   if (tb[IFA_ADDRESS] == NULL)
     tb[IFA_ADDRESS] = tb[IFA_LOCAL];
-  
+
   /* local interface address */
   addr = (tb[IFA_LOCAL] ? RTA_DATA(tb[IFA_LOCAL]) : NULL);
 
@@ -934,7 +934,7 @@ netlink_link_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
       return 0;
     }
 #endif /* IFLA_WIRELESS */
-  
+
   if (tb[IFLA_IFNAME] == NULL)
     return -1;
   name = (char *) RTA_DATA (tb[IFLA_IFNAME]);
@@ -1037,7 +1037,9 @@ netlink_information_fetch (struct sockaddr_nl *snl, struct nlmsghdr *h)
 }
 
 /* Interface lookup by netlink socket. */
-int
+extern int interface_lookup_netlink (void) ;
+
+extern int
 interface_lookup_netlink (void)
 {
   int ret;
@@ -1073,7 +1075,9 @@ interface_lookup_netlink (void)
 
 /* Routing table read function using netlink interface.  Only called
    bootstrap time. */
-int
+extern int netlink_route_read (void) ;
+
+extern int
 netlink_route_read (void)
 {
   int ret;
@@ -1099,7 +1103,7 @@ netlink_route_read (void)
   return 0;
 }
 
-/* Utility function  comes from iproute2. 
+/* Utility function  comes from iproute2.
    Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru> */
 static int
 addattr_l (struct nlmsghdr *n, int maxlen, int type, void *data, int alen)
@@ -1109,7 +1113,7 @@ addattr_l (struct nlmsghdr *n, int maxlen, int type, void *data, int alen)
 
   len = RTA_LENGTH (alen);
 
-  if (NLMSG_ALIGN (n->nlmsg_len) + len > maxlen)
+  if (NLMSG_ALIGN (n->nlmsg_len) + len > (unsigned)maxlen)
     return -1;
 
   rta = (struct rtattr *) (((char *) n) + NLMSG_ALIGN (n->nlmsg_len));
@@ -1141,7 +1145,7 @@ rta_addattr_l (struct rtattr *rta, int maxlen, int type, void *data, int alen)
   return 0;
 }
 
-/* Utility function comes from iproute2. 
+/* Utility function comes from iproute2.
    Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru> */
 static int
 addattr32 (struct nlmsghdr *n, int maxlen, int type, int data)
@@ -1151,7 +1155,7 @@ addattr32 (struct nlmsghdr *n, int maxlen, int type, int data)
 
   len = RTA_LENGTH (4);
 
-  if (NLMSG_ALIGN (n->nlmsg_len) + len > maxlen)
+  if (NLMSG_ALIGN (n->nlmsg_len) + len > (unsigned)maxlen)
     return -1;
 
   rta = (struct rtattr *) (((char *) n) + NLMSG_ALIGN (n->nlmsg_len));
@@ -1209,8 +1213,8 @@ netlink_talk (struct nlmsghdr *n, struct nlsock *nl)
     }
 
 
-  /* 
-   * Get reply from netlink socket. 
+  /*
+   * Get reply from netlink socket.
    * The reply should either be an acknowlegement or an error.
    */
   return netlink_parse_info (netlink_talk_filter, nl);
@@ -1379,7 +1383,7 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
 #else
 			 inet_ntoa (p->u.prefix4),
 #endif /* HAVE_IPV6 */
-			 
+
 			 p->prefixlen, nexthop_types_desc[nexthop->rtype]);
                     }
 
@@ -1648,7 +1652,7 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
                   if (nexthop->type == NEXTHOP_TYPE_IPV6
                       || nexthop->type == NEXTHOP_TYPE_IPV6_IFNAME
                       || nexthop->type == NEXTHOP_TYPE_IPV6_IFINDEX)
-		    { 
+		    {
 		      rta_addattr_l (rta, 4096, RTA_GATEWAY,
 				     &nexthop->gate.ipv6, bytelen);
 
@@ -1751,7 +1755,7 @@ kernel_delete_ipv6_old (struct prefix_ipv6 *dest, struct in6_addr *gate,
                         dest->prefixlen, gate, index, flags, table);
 }
 #endif /* HAVE_IPV6 */
-
+
 /* Interface address modification. */
 static int
 netlink_address (int cmd, int family, struct interface *ifp,

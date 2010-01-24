@@ -66,14 +66,14 @@ unsigned long term_bgp_debug_zebra;
 /* messages for BGP-4 status */
 const struct message bgp_status_msg[] =
 {
-  { bgp_fsm_Initial,     "Initial"     },
-  { bgp_fsm_Idle,        "Idle"        },
-  { bgp_fsm_Connect,     "Connect"     },
-  { bgp_fsm_Active,      "Active"      },
-  { bgp_fsm_OpenSent,    "OpenSent"    },
-  { bgp_fsm_OpenConfirm, "OpenConfirm" },
-  { bgp_fsm_Established, "Established" },
-  { bgp_fsm_Stopping,    "Stopping"    },
+  { bgp_fsm_sInitial,     "Initial"     },
+  { bgp_fsm_sIdle,        "Idle"        },
+  { bgp_fsm_sConnect,     "Connect"     },
+  { bgp_fsm_sActive,      "Active"      },
+  { bgp_fsm_sOpenSent,    "OpenSent"    },
+  { bgp_fsm_sOpenConfirm, "OpenConfirm" },
+  { bgp_fsm_sEstablished, "Established" },
+  { bgp_fsm_sStopping,    "Stopping"    },
 };
 const int bgp_status_msg_max = bgp_fsm_last_state + 1 ;
 
@@ -280,14 +280,14 @@ bgp_notify_print(struct peer *peer, struct bgp_notify *bgp_notify,
               peer->host, bgp_notify->code, bgp_notify->subcode,
                LOOKUP (bgp_notify_msg, bgp_notify->code),
               subcode_str, bgp_notify->length,
-              bgp_notify->size ? bgp_notify->data : "");
+              bgp_notify->size ? (const char*)bgp_notify->data : "");
   else if (BGP_DEBUG (normal, NORMAL))
     plog_debug (peer->log, "%s %s NOTIFICATION %d/%d (%s%s) %d bytes %s",
 	       peer ? peer->host : "",
 	       direct, bgp_notify->code, bgp_notify->subcode,
 	       LOOKUP (bgp_notify_msg, bgp_notify->code),
 	       subcode_str, bgp_notify->length,
-	       bgp_notify->size ? bgp_notify->data : "");
+	       bgp_notify->size ? (const char*)bgp_notify->data : "");
 }
 
 /* Debug option setting interface. */
