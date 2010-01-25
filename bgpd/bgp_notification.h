@@ -129,6 +129,9 @@ bgp_notify_dup(bgp_notify notification) ;
 extern void
 bgp_notify_unset(bgp_notify* p_notification) ;
 
+extern bgp_notify
+bgp_notify_take(bgp_notify* p_notification) ;
+
 extern void
 bgp_notify_set(bgp_notify* p_dst, bgp_notify src) ;
 

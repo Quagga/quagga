@@ -481,7 +481,12 @@ bgp_fsm_disable_session(bgp_session session, bgp_notify notification)
     bgp_fsm_throw_exception(connection, bgp_session_eDisabled, notification, 0,
                                                             bgp_fsm_eBGP_Stop) ;
   else
-    bgp_notify_free(notification) ;
+    {
+      /* Acknowledge the disable -- session is stopped.                 */
+      bgp_session_event(session, bgp_session_eDisabled, NULL, 0, 0, 1) ;
+
+      bgp_notify_free(notification) ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1616,7 +1621,7 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
        */
       if (connection->except <= bgp_session_max_event)
         bgp_session_event(session, connection->except,
-                                   connection->notification,
+                                   bgp_notify_take(&connection->notification),
                                    connection->err,
                                    connection->ordinal,
                                   (connection->state == bgp_fsm_sStopping)) ;
@@ -2187,6 +2192,7 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
  * When get Sent_NOTIFICATION_message, will set final "courtesy" timer, so
  * unless I/O fails, final end of process is HoldTimer expired (with
  *
+ * NB: leaves the notification sitting in the connection.
  */
 static bgp_fsm_state_t
 bgp_fsm_send_notification(bgp_connection connection, bgp_fsm_state_t next_state)

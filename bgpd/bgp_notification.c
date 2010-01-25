@@ -136,6 +136,19 @@ bgp_notify_unset(bgp_notify* p_notification)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Unset pointer to notification and free any existing notification structure.
+ *
+ * Does nothing if there is no structure.
+ */
+extern bgp_notify
+bgp_notify_take(bgp_notify* p_notification)
+{
+  bgp_notify take = *p_notification ;    /* take anything that's there   */
+  *p_notification = NULL ;
+  return take ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Set pointer to notification
  *
  * Frees any existing notification at the destination.

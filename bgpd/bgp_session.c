@@ -402,9 +402,6 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
 
       /* Get the FSM to send any notification and close connections     */
       bgp_fsm_disable_session(session, args->notification) ;
-
-      /* Acknowledge the disable -- session is stopped.                 */
-      bgp_session_event(session, bgp_session_eDisabled, NULL, 0, 0, 0) ;
     } ;
 
   mqb_free(mqb) ;
@@ -412,6 +409,8 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
 
 /*==============================================================================
  * BGP Engine: send session event signal to Routeing Engine
+ *
+ * NB: is taking responsibility for the notification.
  */
 extern void
 bgp_session_event(bgp_session session, bgp_session_event_t  event,
@@ -431,7 +430,7 @@ bgp_session_event(bgp_session session, bgp_session_event_t  event,
   args = mqb_get_args(mqb) ;
 
   args->event        = event ;
-  args->notification = bgp_notify_dup(notification) ;
+  args->notification = notification ;
   args->err          = err ;
   args->ordinal      = ordinal ;
   args->stopped      = stopped,
