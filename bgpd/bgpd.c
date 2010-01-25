@@ -80,6 +80,9 @@ qpn_nexus routing_nexus = NULL;
 /* BGP community-list.  */
 struct community_list_handler *bgp_clist;
 
+/* true while program terminating */
+static int program_terminating = 0;
+
 /* BGP global flag manipulation.  */
 int
 bgp_option_set (int flag)
@@ -4693,13 +4696,16 @@ bgp_init (void)
 }
 
 void
-bgp_terminate (void)
+bgp_terminate (int terminating)
 {
   struct bgp *bgp;
   struct peer *peer;
   struct listnode *node, *nnode;
   struct listnode *mnode, *mnnode;
 
+  program_terminating = terminating;
+
+  /* Disable all peers */
   for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
     for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
       bgp_peer_disable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
@@ -4717,4 +4723,39 @@ bgp_terminate (void)
       work_queue_free (bm->process_rsclient_queue);
       bm->process_rsclient_queue = NULL;
     }
+
+  /* if no sessions were enabled then need to check here */
+  program_terminate_if_all_disabled();
 }
+
+/* If we are terminating the program, and all sessions are disabled
+ * then terminate all threads
+ */
+void
+program_terminate_if_all_disabled(void)
+{
+  struct bgp *bgp;
+  struct peer *peer;
+  struct listnode *node, *nnode;
+  struct listnode *mnode, *mnnode;
+
+  if (!program_terminating)
+    return;
+
+  /* are there any active sessions remaining? */
+  for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
+    for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
+      if (bgp_session_is_active(peer->session))
+        return;
+
+  /* ask remaining pthreads to die */
+  if (qpthreads_enabled && routing_nexus != NULL)
+        qpn_terminate(routing_nexus);
+
+  if (qpthreads_enabled && bgp_nexus != NULL)
+        qpn_terminate(bgp_nexus);
+
+  if (cli_nexus != NULL)
+      qpn_terminate(cli_nexus);
+}
+

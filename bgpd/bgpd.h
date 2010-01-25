@@ -406,7 +406,7 @@ extern qpn_nexus bgp_nexus;
 extern qpn_nexus routing_nexus;
 
 /* Prototypes. */
-extern void bgp_terminate (void);
+extern void bgp_terminate (int);
 extern void bgp_reset (void);
 
 extern void bgp_zclient_reset (void);                      /* See bgp_zebra ! */
@@ -552,5 +552,7 @@ extern int peer_maximum_prefix_unset (struct peer *, afi_t, safi_t);
 
 extern int peer_clear (struct peer *);
 extern int peer_clear_soft (struct peer *, afi_t, safi_t, enum bgp_clear_type);
+
+extern void program_terminate_if_all_disabled(void);
 
 #endif /* _QUAGGA_BGPD_H */

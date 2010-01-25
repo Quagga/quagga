@@ -434,11 +434,15 @@ mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, int priority)
         {
           mqb->next = mq->head ;
           mq->head  = mqb ;
+          /* mq non-empty, enchain at head, therefore tail unaffected */
         }
       else
         {
           mqb->next   = after->next ;
           after->next = mqb ;
+          /* if only have priority messages then fix tail */
+          if (mq->tail == after)
+            mq->tail = mqb;
         }
       mq->tail_priority = mqb ;
     }
@@ -593,6 +597,10 @@ mqueue_dequeue(mqueue_queue mq, int wait, void* arg)
   /* Have something to pull off the queue       */
 
   mq->head = mqb->next ;
+
+  /* fix tails if at tail */
+  if (mqb == mq->tail)
+    mq->tail = NULL ;
   if (mqb == mq->tail_priority)
     mq->tail_priority = NULL ;
 
@@ -643,6 +651,9 @@ mqueue_revoke(mqueue_queue mq, void* arg0)
 
           if (mq->tail == mqb)
             mq->tail = prev ;
+
+          if (mqb == mq->tail_priority)
+            mq->tail_priority = prev ;
 
           qpt_mutex_unlock(&mq->mutex) ;
             mqb_dispatch_destroy(mqb) ;
