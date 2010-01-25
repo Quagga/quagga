@@ -303,6 +303,10 @@ bgp_session_has_disabled(bgp_peer peer)
       bgp_session_enable(peer);
     }
 
+  /* if the program is terminating then see if this was the last session
+   * and if so ... die ....
+   */
+  program_terminate_if_all_disabled();
   return 0;
 }
 

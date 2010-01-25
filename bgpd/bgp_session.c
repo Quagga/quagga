@@ -350,6 +350,7 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
 
   /* Now change to limping state                                        */
   session->state = bgp_session_sLimping;
+  session->defer_enable = 0;
 
   /* Ask the BGP engine to disable the session.
    *
