@@ -406,7 +406,7 @@ extern qpn_nexus bgp_nexus;
 extern qpn_nexus routing_nexus;
 
 /* Prototypes. */
-extern void bgp_terminate (int);
+extern void bgp_terminate (int, int);
 extern void bgp_reset (void);
 
 extern void bgp_zclient_reset (void);                      /* See bgp_zebra ! */

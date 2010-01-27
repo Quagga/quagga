@@ -47,6 +47,8 @@ static void bgp_session_do_route_refresh_send(mqueue_block mqb,
 static void bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag) ;
 static void bgp_session_XON(bgp_session session);
 static void bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag);
+static void bgp_session_do_set_ttl(mqueue_block mqb, mqb_flag_t flag);
+static void bgp_session_do_route_refresh_recv(mqueue_block mqb, mqb_flag_t flag);
 
 /*==============================================================================
  * BGP Session.
@@ -323,7 +325,7 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
  * Passes any bgp_notify to the BGP Engine, which will dispose of it in due
  * course.
  *
- * If no bgp_notify provided, will send Cease/Administrative Shutdown (2).
+ * If no bgp_notify provided, no notify will be sent.
  *
  * The BGP Engine will stop the session -- unless it is already stopped due to
  * some event in the BGP Engine.  In any case, the BGP Engine will respond with
@@ -790,6 +792,47 @@ bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag)
 }
 
 /*==============================================================================
+ * BGP Engine: received Route Refresh to peer
+ *
+ * The Peering Engine takes care of discarding the bgp_route_refresh once it's been
+ * dealt with.
+ */
+extern void
+bgp_session_route_refresh_recv(bgp_session session, bgp_route_refresh rr)
+{
+  struct bgp_session_route_refresh_args* args ;
+  mqueue_block   mqb ;
+
+  mqb = mqb_init_new(NULL, bgp_session_do_route_refresh_recv, session) ;
+
+  args = mqb_get_args(mqb) ;
+  args->rr      = rr ;
+  args->pending = NULL ;
+
+  bgp_to_peering_engine(mqb) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Peering Engine: receive given BGP route refresh message -- mqb action function.
+ *
+ */
+static void
+bgp_session_do_route_refresh_recv(mqueue_block mqb, mqb_flag_t flag)
+{
+  struct bgp_session_route_refresh_args* args = mqb_get_args(mqb) ;
+  bgp_session session = mqb_get_arg0(mqb) ;
+
+  if (flag == mqb_action)
+    {
+
+    /* TODO pricess route_refresh */
+    } ;
+
+  bgp_route_refresh_free(args->rr) ;
+  mqb_free(mqb) ;
+} ;
+
+/*==============================================================================
  * BGP Engine: send XON message to Peering Engine
  *
  * Can be sent more packets now
@@ -819,6 +862,40 @@ bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag)
       bgp_peer peer = session->peer;
 
       bgp_write (peer);
+    }
+
+  mqb_free(mqb) ;
+}
+/*==============================================================================
+ * Routing Engine: send ttl message to Peering Engine
+ *
+  */
+void
+bgp_session_set_ttl(bgp_session session, int ttl)
+{
+  mqueue_block   mqb ;
+  struct bgp_session_ttl_args *args;
+
+  mqb = mqb_init_new(NULL, bgp_session_do_set_ttl, session) ;
+
+  args = mqb_get_args(mqb) ;
+  args->ttl = ttl ;
+
+  bgp_to_bgp_engine(mqb) ;
+}
+
+/*------------------------------------------------------------------------------
+ * BGP Engine: process incoming ttl message -- mqb action function.
+ */
+static void
+bgp_session_do_set_ttl(mqueue_block mqb, mqb_flag_t flag)
+{
+
+  if (flag == mqb_action)
+    {
+      bgp_session session = mqb_get_arg0(mqb);
+      struct bgp_session_ttl_args *args = mqb_get_args(mqb);
+      /* TODO ttl */
     }
 
   mqb_free(mqb) ;

@@ -216,25 +216,9 @@ sigint (void)
 #endif
   zlog_notice ("Terminating on signal");
 
-  if (!retain_mode)
-    {
-      /* tell the routing engine to send notifies to peers and wait
-       * for all sessions to be disabled */
-      sigterm_enqueue();
-    }
-  else
-    {
-      /* ask remaining pthreads to die */
-      if (qpthreads_enabled && routing_nexus != NULL)
-        qpn_terminate(routing_nexus);
-
-      if (qpthreads_enabled && bgp_nexus != NULL)
-        qpn_terminate(bgp_nexus);
-
-      if (cli_nexus != NULL)
-        qpn_terminate(cli_nexus);
-    }
-
+  /* tell the routing engine to send notifies to peers and wait
+   * for all sessions to be disabled */
+  sigterm_enqueue();
 }
 
 /* SIGUSR1 handler. */
@@ -648,7 +632,7 @@ sighup_action(mqueue_block mqb, mqb_flag_t flag)
 {
   if (flag == mqb_action)
     {
-      bgp_terminate (0); /* send notfies */
+      bgp_terminate (0, 0); /* send notfies */
       bgp_reset ();
     }
 
@@ -669,9 +653,9 @@ sigterm_action(mqueue_block mqb, mqb_flag_t flag)
 {
   if (flag == mqb_action)
     {
-      /* send notify to all peers, wiat for alll sessions to be disables
+      /* send notify to all peers, wait for all sessions to be disables
        * then terminate all pthreads */
-      bgp_terminate(1);
+      bgp_terminate(1, retain_mode);
     }
 
   mqb_free(mqb);

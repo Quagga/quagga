@@ -62,6 +62,8 @@ extern const char* prefix_list_get_name(struct prefix_list* plist) ;
 extern struct stream * prefix_bgp_orf_entry (struct stream *,
                                              prefix_list_ref ref,
                                              u_char, u_char, u_char);
+extern int prefix_bgp_orf_get(struct prefix_list *plist, vector_index i,
+    struct orf_prefix *orfpe, enum prefix_list_type *pe_type);
 extern int prefix_bgp_orf_set (char *, afi_t, struct orf_prefix *, int, int);
 extern void prefix_bgp_orf_remove_all (char *);
 extern int prefix_bgp_show_prefix_list (struct vty *, afi_t, char *);

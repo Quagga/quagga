@@ -413,6 +413,7 @@ write_bgpPeerTable (int action, u_char *var_val,
   if (! peer)
     return SNMP_ERR_NOSUCHNAME;
 
+  bgp_session_get_statistics(peer);
   printf ("val: %ld\n", intval);
 
   switch (v->magic)

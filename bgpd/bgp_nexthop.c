@@ -434,7 +434,7 @@ bgp_scan (afi_t afi, safi_t safi)
   /* Maximum prefix check */
   for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
     {
-      if (peer->status != Established)
+      if (peer->state != bgp_peer_sEstablished)
 	continue;
 
       if (peer->afc[afi][SAFI_UNICAST])

@@ -125,4 +125,6 @@ extern void bgp_notify_print (struct peer *, struct bgp_notify *, const char *);
 extern const struct message bgp_status_msg[];
 extern const int bgp_status_msg_max;
 
+extern const struct message bgp_peer_status_msg[];
+extern const int bgp_peer_status_msg_max;
 #endif /* _QUAGGA_BGP_DEBUG_H */

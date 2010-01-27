@@ -258,10 +258,15 @@ struct bgp_session_XON_args             /* to Routeing Engine           */
                                         /* no further arguments         */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_XON_args) ;
-
-
-
 enum { BGP_XON_THRESHOLD = 7 } ;
+
+struct bgp_session_ttl_args             /* to bgp Engine                */
+{
+  int                  ttl ;            /* time to live                 */
+} ;
+MQB_ARGS_SIZE_OK(bgp_session_ttl_args) ;
+
+
 
 /*==============================================================================
  * Session mutex lock/unlock
@@ -313,8 +318,14 @@ extern void
 bgp_session_update_recv(bgp_session session, struct stream* buf,
                                                               bgp_size_t size) ;
 
+extern void
+bgp_session_route_refresh_recv(bgp_session session, bgp_route_refresh rr);
+
 extern int
 bgp_session_is_XON(bgp_peer peer);
+
+extern void
+bgp_session_set_ttl(bgp_session session, int ttl);
 
 /*==============================================================================
  * Session data access functions.
@@ -324,6 +335,5 @@ bgp_session_is_XON(bgp_peer peer);
 
 extern int
 bgp_session_is_active(bgp_session session) ;
-
 
 #endif /* QUAGGA_BGP_SESSION_H */

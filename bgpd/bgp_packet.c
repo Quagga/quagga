@@ -29,7 +29,6 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "memory.h"
 #include "sockunion.h"		/* for inet_ntop () */
 #include "linklist.h"
-#include "plist.h"
 
 #include "bgpd/bgpd.h"
 
@@ -50,6 +49,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_mplsvpn.h"
 #include "bgpd/bgp_advertise.h"
 #include "bgpd/bgp_vty.h"
+#include "bgpd/bgp_route_refresh.h"
 
 int stream_put_prefix (struct stream *, struct prefix *);
 
@@ -860,14 +860,82 @@ bgp_notify_send (struct peer *peer, u_char code, u_char sub_code)
 
 /* Send route refresh message to the peer. */
 
-/* TODO: wire up to bgp_route_refresh structure and send a route_refresh
- *       message, rather than a raw "update".
- */
-
 void
 bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
 			u_char orf_type, u_char when_to_refresh, int remove)
 {
+  bgp_route_refresh rr = NULL;
+  struct bgp_filter *filter = NULL;
+  bgp_session session = peer->session;
+  struct orf_prefix *orfpe = NULL;
+  struct prefix_list *plist = NULL;
+  struct orf_prefix orfp;
+  vector_index i;
+  int orf_refresh = 0;
+  enum prefix_list_type pe_type;
+  bgp_form_t form;
+
+  if (DISABLE_BGP_ANNOUNCE)
+    return;
+
+  filter = &peer->filter[afi][safi];
+
+  /* Adjust safi code. */
+  if (safi == SAFI_MPLS_VPN)
+    safi = BGP_SAFI_VPNV4;
+
+  /* Make BGP update packet. */
+  form = (CHECK_FLAG (peer->cap, PEER_CAP_REFRESH_NEW_RCV))
+      ? bgp_form_rfc
+      : bgp_form_pre;
+
+  rr = bgp_route_refresh_new(afi, safi, 1);
+  rr->defer = (when_to_refresh == REFRESH_DEFER);
+
+  if (orf_type == ORF_TYPE_PREFIX
+      || orf_type == ORF_TYPE_PREFIX_OLD)
+    if (remove || filter->plist[FILTER_IN].ref)
+      {
+        orf_refresh = 1;
+        if (remove)
+          {
+            UNSET_FLAG (peer->af_sflags[afi][safi], PEER_STATUS_ORF_PREFIX_SEND);
+            bgp_orf_add_remove_all(rr, orf_type, form);
+            if (BGP_DEBUG (normal, NORMAL))
+              zlog_debug ("%s sending REFRESH_REQ to remove ORF(%d) (%s) for afi/safi: %d/%d",
+                         peer->host, orf_type,
+                         (when_to_refresh == REFRESH_DEFER ? "defer" : "immediate"),
+                         afi, safi);
+          }
+        else
+          {
+            SET_FLAG (peer->af_sflags[afi][safi], PEER_STATUS_ORF_PREFIX_SEND);
+            plist = prefix_list_ref_plist(filter->plist[FILTER_IN].ref) ;
+            for (i = 0; prefix_bgp_orf_get(plist, i, &orfp, &pe_type); ++i)
+              {
+                orfpe = bgp_orf_add(rr, orf_type, form, 0, pe_type == PREFIX_DENY);
+                *orfpe = orfp;
+              }
+            if (BGP_DEBUG (normal, NORMAL))
+              zlog_debug ("%s sending REFRESH_REQ with pfxlist ORF(%d) (%s) for afi/safi: %d/%d",
+                         peer->host, orf_type,
+                         (when_to_refresh == REFRESH_DEFER ? "defer" : "immediate"),
+                         afi, safi);
+          }
+      }
+
+  if (BGP_DEBUG (normal, NORMAL))
+    {
+      if (! orf_refresh)
+        zlog_debug ("%s sending REFRESH_REQ for afi/safi: %d/%d",
+                   peer->host, afi, safi);
+    }
+
+  bgp_session_route_refresh_send(session, rr);
+
+#if 0
+  /* old code */
+
   struct stream *s;
   struct stream *packet;
   int length;
@@ -957,6 +1025,7 @@ bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
   /* Add packet to the peer. */
   bgp_packet_add (peer, packet);
   bgp_write(peer);
+#endif
 }
 
 /* Send capability message to the peer. */
@@ -1450,10 +1519,10 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   char attrstr[BUFSIZ] = "";
 
   /* Status must be Established. */
-  if (peer->status != Established)
+  if (peer->state != bgp_peer_sEstablished)
     {
       zlog_err ("%s [FSM] Update packet received under status %s",
-		peer->host, LOOKUP (bgp_status_msg, peer->status));
+		peer->host, LOOKUP (bgp_peer_status_msg, peer->state));
       bgp_notify_send (peer, BGP_NOTIFY_FSM_ERR, 0);
       return -1;
     }
@@ -1749,7 +1818,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 
   /* If peering is stopped due to some reason, do not generate BGP
      event.  */
-  if (peer->status != Established)
+  if (peer->state != bgp_peer_sEstablished)
     return 0;
 
   /* Increment packet counter. */
@@ -2174,10 +2243,11 @@ bgp_capability_receive (struct peer *peer, bgp_size_t size)
     }
 
   /* Status must be Established. */
-  if (peer->status != Established)
+  if (peer->state != bgp_peer_sEstablished)
     {
       plog_err (peer->log,
-		"%s [Error] Dynamic capability packet received under status %s", peer->host, LOOKUP (bgp_status_msg, peer->status));
+		"%s [Error] Dynamic capability packet received under status %s",
+		peer->host, LOOKUP (bgp_status_msg, peer->state));
       bgp_notify_send (peer, BGP_NOTIFY_FSM_ERR, 0);
       return -1;
     }

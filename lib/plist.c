@@ -2834,6 +2834,30 @@ prefix_bgp_orf_entry (struct stream *s, prefix_list_ref ref,
   return s;
 }
 
+/* Get the i'th BGP ORF prefix from the given list.
+ * return 1 - got ORF prefix.
+ * return 0 - no such entry
+ */
+int
+prefix_bgp_orf_get(struct prefix_list *plist, vector_index i,
+    struct orf_prefix *orfpe, enum prefix_list_type *pe_type)
+{
+  struct prefix_list_entry *pe = NULL;
+
+  if (!plist || i >= plist->list.end)
+    return 0;
+
+  pe = vector_slot(&plist->list, i);
+  orfpe->seq = pe->seq;
+  orfpe->ge = pe->ge;
+  orfpe->le = pe->le;
+  orfpe->p = pe->prefix;
+
+  *pe_type = pe->type;
+
+  return 1;
+}
+
 /* Set or Unset a BGP ORF entry.	*/
 int
 prefix_bgp_orf_set (char *name, afi_t afi, struct orf_prefix *orfp,

@@ -1411,7 +1411,7 @@ bgp_process_announce_selected (struct peer *peer, struct bgp_info *selected,
   p = &rn->p;
 
   /* Announce route to Established peer. */
-  if (peer->status != Established)
+  if (peer->state == bgp_peer_sEstablished)
     return 0;
 
   /* Address family configuration check. */
@@ -2557,7 +2557,7 @@ bgp_announce_route (struct peer *peer, afi_t afi, safi_t safi)
   struct bgp_node *rn;
   struct bgp_table *table;
 
-  if (peer->status != Established)
+  if (peer->state != bgp_peer_sEstablished)
     return;
 
   if (! peer->afc_nego[afi][safi])
@@ -2659,7 +2659,7 @@ bgp_soft_reconfig_in (struct peer *peer, afi_t afi, safi_t safi)
   struct bgp_node *rn;
   struct bgp_table *table;
 
-  if (peer->status != Established)
+  if (peer->state != bgp_peer_sEstablished)
     return;
 
   if (safi != SAFI_MPLS_VPN)
@@ -2726,7 +2726,7 @@ bgp_clear_node_complete (struct work_queue *wq)
   /* Flush the event queue and ensure the peer is shut down */
   bgp_peer_stop(peer);
   BGP_EVENT_FLUSH (peer);
-  if (peer->status == Clearing)
+  if (peer->state == bgp_peer_sClearing)
     peer_change_status (peer, Idle);
 
   peer_unlock (peer); /* bgp_clear_route */
@@ -3024,7 +3024,7 @@ bgp_nlri_parse (struct peer *peer, struct attr *attr, struct bgp_nlri *packet)
   int ret;
 
   /* Check peer status. */
-  if (peer->status != Established)
+  if (peer->state != bgp_peer_sEstablished)
     return 0;
 
   pnt = packet->nlri;

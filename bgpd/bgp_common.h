@@ -132,6 +132,19 @@ enum bgp_session_events
   bgp_session_eDiscard,           /* discarded by sibling                     */
 } ;
 
+typedef enum bgp_peer_states bgp_peer_state_t ;
+enum bgp_peer_states
+{
+  bgp_peer_min_state     = 0,
+
+  bgp_peer_sIdle         = 1,   /* session not yet established */
+  bgp_peer_sEstablished  = 2,   /* session established */
+  bgp_peer_sClearing     = 3,   /* Clearing routes */
+  bgp_peer_sDeleted      = 4,   /* Deleted, linger until lock count == 0 */
+
+  bgp_peer_max_state     = 4
+} ;
+
 /*==============================================================================
  * Other common types and ....
  */

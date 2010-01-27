@@ -72,7 +72,7 @@ bgp_fsm_notification_exception(bgp_connection connection,
 /* Macro for BGP read, write and timer thread.  */
 #define BGP_READ_ON(T,F,V)                      \
   do {                                          \
-    if (!(T) && (peer->status != Deleted))      \
+    if (!(T) && (peer->state != bgp_peer_sDeleted))      \
       THREAD_READ_ON(master,T,F,peer,V);        \
   } while (0)
 
@@ -84,7 +84,7 @@ bgp_fsm_notification_exception(bgp_connection connection,
 
 #define BGP_WRITE_ON(T,F,V)                     \
   do {                                          \
-    if (!(T) && (peer->status != Deleted))      \
+    if (!(T) && (peer->state != bgp_peer_sDeleted))      \
       THREAD_WRITE_ON(master,(T),(F),peer,(V)); \
   } while (0)
 
@@ -96,7 +96,7 @@ bgp_fsm_notification_exception(bgp_connection connection,
 
 #define BGP_TIMER_ON(T,F,V)                     \
   do {                                          \
-    if (!(T) && (peer->status != Deleted))      \
+    if (!(T) && (peer->state != bgp_peer_sDeleted))      \
       THREAD_TIMER_ON(master,(T),(F),peer,(V)); \
   } while (0)
 
@@ -108,7 +108,7 @@ bgp_fsm_notification_exception(bgp_connection connection,
 
 #define BGP_EVENT_ADD(P,E)                      \
   do {                                          \
-    if ((P)->status != Deleted)                 \
+    if ((P)->state != bgp_peer_sDeleted)                 \
       thread_add_event (master, bgp_event, (P), (E)); \
   } while (0)
 

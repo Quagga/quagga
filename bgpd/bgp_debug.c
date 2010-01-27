@@ -77,6 +77,15 @@ const struct message bgp_status_msg[] =
 };
 const int bgp_status_msg_max = bgp_fsm_last_state + 1 ;
 
+const struct message bgp_peer_status_msg[] =
+{
+  { bgp_peer_sIdle,        "Idle"        },
+  { bgp_peer_sEstablished, "Established" },
+  { bgp_peer_sClearing,    "Clearing"    },
+  { bgp_peer_sDeleted,     "Deleted"     },
+};
+const int bgp_peer_status_msg_max = bgp_peer_max_state + 1 ;
+
 /* BGP message type string. */
 const char *bgp_type_str[] =
 {

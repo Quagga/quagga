@@ -320,14 +320,14 @@ bgp_peer_stop (struct peer *peer)
   char orf_name[BUFSIZ];
 
   /* Can't do this in Clearing; events are used for state transitions */
-  if (peer->status != Clearing)
+  if (peer->state != bgp_peer_sClearing)
     {
       /* Delete all existing events of the peer */
       BGP_EVENT_FLUSH (peer);
     }
 
   /* Increment Dropped count. */
-  if (peer->status == Established)
+  if (peer->state == bgp_peer_sEstablished)
     {
       peer->dropped++;
 
@@ -458,9 +458,9 @@ bgp_peer_timers_stop(bgp_peer peer)
 static void
 bgp_timer_set (struct peer *peer)
 {
-  switch (peer->status)
+  switch (peer->state)
     {
-    case Idle:
+    case bgp_peer_sIdle:
       /* First entry point of peer's finite state machine.  In Idle
 	 status start timer is on unless peer is shutdown or peer is
 	 inactive.  All other timer must be turned off */
@@ -497,18 +497,20 @@ bgp_timer_set (struct peer *peer)
       break;
 #endif
 
-    case Established:
+    case bgp_peer_sEstablished:
       /* In Established status start and connect timer is turned
          off. */
      BGP_TIMER_OFF (peer->t_asorig);
       break;
-    case Deleted:
+    case bgp_peer_sDeleted:
       BGP_TIMER_OFF (peer->t_gr_restart);
       BGP_TIMER_OFF (peer->t_gr_stale);
       BGP_TIMER_OFF (peer->t_pmax_restart);
-    case Clearing:
+    case bgp_peer_sClearing:
       BGP_TIMER_OFF (peer->t_asorig);
       BGP_TIMER_OFF (peer->t_routeadv);
+    default:
+      assert(0);
     }
 }
 
@@ -661,8 +663,8 @@ peer_new (struct bgp *bgp)
   peer->v_start = BGP_INIT_START_TIMER;
   peer->v_connect = BGP_DEFAULT_CONNECT_RETRY;
   peer->v_asorig = BGP_DEFAULT_ASORIGINATE;
-  peer->status = Idle;
-  peer->ostatus = Idle;
+  peer->state = bgp_peer_sIdle;
+  peer->ostate = bgp_peer_sIdle;
   peer->weight = 0;
   peer->password = NULL;
   peer->bgp = bgp;
@@ -772,7 +774,7 @@ peer_delete (struct peer *peer)
   struct bgp_filter *filter;
   struct listnode *pn;
 
-  assert (peer->status != Deleted);
+  assert (peer->state != bgp_peer_sDeleted);
 
   bgp = peer->bgp;
 
@@ -895,7 +897,7 @@ peer_delete (struct peer *peer)
 void
 peer_free (struct peer *peer)
 {
-  assert (peer->status == Deleted);
+  assert (peer->state == bgp_peer_sDeleted);
 
   bgp_unlock(peer->bgp);
 
@@ -1006,7 +1008,7 @@ bgp_peer_disable(bgp_peer peer, bgp_notify notification)
 void
 peer_change_status (bgp_peer peer, int status)
 {
-  bgp_dump_state (peer, peer->status, status);
+  bgp_dump_state (peer, peer->state, status);
 
   /* Transition into Clearing or Deleted must /always/ clear all routes..
    * (and must do so before actually changing into Deleted..
@@ -1015,12 +1017,12 @@ peer_change_status (bgp_peer peer, int status)
     bgp_clear_route_all (peer);
 
   /* Preserve old status and change into new status. */
-  peer->ostatus = peer->status;
-  peer->status = status;
+  peer->ostate = peer->state;
+  peer->state = status;
 
   if (BGP_DEBUG (normal, NORMAL))
     zlog_debug ("%s went from %s to %s",
                 peer->host,
-                LOOKUP (bgp_status_msg, peer->ostatus),
-                LOOKUP (bgp_status_msg, peer->status));
+                LOOKUP (bgp_peer_status_msg, peer->ostate),
+                LOOKUP (bgp_peer_status_msg, peer->state));
 }
