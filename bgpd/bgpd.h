@@ -272,17 +272,17 @@ struct bgp_nlri
 #define BGP_ORIGIN_INCOMPLETE                    2
 
 /* BGP finite state machine status.  */
-#define Idle                                     1
 /* Obsolete
+#define Idle                                     1
 #define Connect                                  2
 #define Active                                   3
 #define OpenSent                                 4
 #define OpenConfirm                              5
-*/
 #define Established                              6
 #define Clearing                                 7
 #define Deleted                                  8
 #define BGP_STATUS_MAX                           9
+*/
 
 /* BGP finite state machine events.  */
 #define BGP_Start                                1

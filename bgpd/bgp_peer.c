@@ -160,7 +160,7 @@ bgp_session_has_established(bgp_peer peer)
   assert(session->state == bgp_session_sEnabled) ;
 
   session->state = bgp_session_sEstablished ;
-  peer_change_status (peer, Established);
+  peer_change_status (peer, bgp_peer_sEstablished);
 
   /* update peer state from received open */
   bgp_peer_open_state_receive(peer);
@@ -801,7 +801,7 @@ peer_delete (struct peer *peer)
    */
   peer->last_reset = PEER_DOWN_NEIGHBOR_DELETE;
   bgp_peer_stop (peer);
-  peer_change_status (peer, Deleted);
+  peer_change_status (peer, bgp_peer_sDeleted);
 
   /* Password configuration */
   if (peer->password)
@@ -1002,7 +1002,7 @@ bgp_peer_disable(bgp_peer peer, bgp_notify notification)
 
   /* and the peer */
   bgp_peer_stop(peer);
-  peer_change_status (peer, Clearing);
+  peer_change_status (peer, bgp_peer_sClearing);
 }
 
 /* Called after event occurred, this function change status and reset
@@ -1015,7 +1015,7 @@ peer_change_status (bgp_peer peer, int status)
   /* Transition into Clearing or Deleted must /always/ clear all routes..
    * (and must do so before actually changing into Deleted..
    */
-  if (status >= Clearing)
+  if (status >= bgp_peer_sClearing)
     bgp_clear_route_all (peer);
 
   /* Preserve old status and change into new status. */
