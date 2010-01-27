@@ -2727,7 +2727,7 @@ bgp_clear_node_complete (struct work_queue *wq)
   bgp_peer_stop(peer);
   BGP_EVENT_FLUSH (peer);
   if (peer->state == bgp_peer_sClearing)
-    peer_change_status (peer, Idle);
+    peer_change_status (peer, bgp_peer_sIdle);
 
   peer_unlock (peer); /* bgp_clear_route */
 }
