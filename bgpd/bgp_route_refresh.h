@@ -26,25 +26,17 @@
 #include "bgpd/bgp_common.h"
 
 #include "lib/prefix.h"
+#include "lib/plist.h"
 
 #ifndef Inline
 #define Inline static inline
 #endif
 
-
 /*==============================================================================
  * Structures to hold ROUTE-REFRESH and ORF
  */
 
-typedef struct bgp_orf_prefix_entry* bgp_orf_prefix_entry ;
-struct bgp_orf_prefix_entry
-{
-  uint32_t      seq ;
-  uint8_t       min ;
-  uint8_t       max ;
-
-  struct prefix pfx ;
-} ;
+typedef struct orf_prefix* orf_prefix ; /* see lib/plist.h      */
 
 typedef struct bgp_orf_unknown_entry* bgp_orf_unknown_entry ;
 struct bgp_orf_unknown_entry
@@ -56,7 +48,8 @@ struct bgp_orf_unknown_entry
 typedef struct bgp_orf_entry*  bgp_orf_entry ;
 struct bgp_orf_entry
 {
-  uint8_t       orf_type ;      /* BGP_ORF_T_xxx                        */
+  uint8_t       orf_type ;      /* BGP_ORF_T_xxx -- _rfc version !      */
+  bgp_form_t    form ;          /* bgp_form_none/_rfc/_pre              */
 
   flag_t        unknown ;       /* ignore everything other than the     */
                                 /* unknown data part                    */
@@ -67,7 +60,7 @@ struct bgp_orf_entry
   flag_t        deny ;          /* otherwise: permit                    */
 
   union {                       /* must be last...                      */
-    struct bgp_orf_prefix_entry   orf_prefix ;
+    struct orf_prefix   orf_prefix ;
     struct bgp_orf_unknown_entry  orf_unknown ; /*... flexible array.   */
   } body ;
 } ;
@@ -105,16 +98,17 @@ extern bgp_route_refresh
 bgp_route_refresh_new(iAFI_t afi, iSAFI_t safi, unsigned count) ;
 
 extern void
-bgp_route_refresh_set_orf_defer(bgp_route_refresh rr, flag_t defer) ;
-
-extern void
 bgp_route_refresh_free(bgp_route_refresh rr) ;
 
-extern void*
-bgp_orf_add(bgp_route_refresh rr, uint8_t orf_type, flag_t remove, flag_t deny);
+extern void
+bgp_route_refresh_set_orf_defer(bgp_route_refresh rr, flag_t defer) ;
+
+extern bgp_orf_entry
+bgp_orf_add(bgp_route_refresh rr, uint8_t orf_type, bgp_form_t form,
+                                                   flag_t remove, flag_t deny) ;
 
 extern void
-bgp_orf_add_remove_all(bgp_route_refresh rr, uint8_t orf_type) ;
+bgp_orf_add_remove_all(bgp_route_refresh rr, uint8_t orf_type, bgp_form_t form);
 
 extern void
 bgp_orf_add_unknown(bgp_route_refresh rr, uint8_t orf_type, bgp_size_t length,

@@ -64,12 +64,16 @@ bgp_open_state_init_new(bgp_open_state state)
 extern bgp_open_state
 bgp_open_state_free(bgp_open_state state)
 {
-  bgp_cap_unknown unknown ;
+  bgp_cap_unknown   unknown ;
+  bgp_cap_afi_safi  afi_safi ;
 
   if (state != NULL)
     {
       while ((unknown = vector_ream_keep(&state->unknowns)) != NULL)
         XFREE(MTYPE_TMP, unknown) ;
+
+      while ((afi_safi = vector_ream_keep(&state->afi_safi)) != NULL)
+        XFREE(MTYPE_TMP, afi_safi) ;
 
       XFREE(MTYPE_BGP_OPEN_STATE, state) ;
     } ;
@@ -151,8 +155,8 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
 
   /* Route refresh.                                     */
   state->can_r_refresh = (peer->cap & PEER_CAP_REFRESH_ADV)
-                                        ? (bgp_cap_form_old | bgp_cap_form_new)
-                                        : bgp_cap_form_none ;
+                                        ? (bgp_form_pre | bgp_form_rfc)
+                                        : bgp_form_none ;
 
   /* ORF capability.                                    */
   for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
@@ -168,8 +172,8 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
 
   state->can_orf_prefix = (state->can_orf_prefix_send |
                            state->can_orf_prefix_recv)
-                                        ? (bgp_cap_form_old | bgp_cap_form_new)
-                                        : bgp_cap_form_none  ;
+                                        ? (bgp_form_pre | bgp_form_rfc)
+                                        : bgp_form_none  ;
 
   /* Dynamic Capabilities       TODO: check requirement */
   state->can_dynamic = ( CHECK_FLAG(peer->flags, PEER_FLAG_DYNAMIC_CAPABILITY)
@@ -236,6 +240,50 @@ extern bgp_cap_unknown
 bgp_open_state_unknown_cap(bgp_open_state state, unsigned index)
 {
   return vector_get_item(&state->unknowns, index) ;
+} ;
+
+/*==============================================================================
+ * Generic afi/safi capabilities handling.
+ *
+ */
+
+/*------------------------------------------------------------------------------
+ * Add given afi/safi capability and its value to the given open_state.
+ */
+extern bgp_cap_afi_safi
+bgp_open_state_afi_safi_add(bgp_open_state state, iAFI_t afi, iSAFI_t safi,
+                                                 flag_t known, uint8_t cap_code)
+{
+  bgp_cap_afi_safi afi_safi ;
+
+  afi_safi = XCALLOC(MTYPE_TMP, sizeof(struct bgp_cap_afi_safi)) ;
+
+  afi_safi->known_afi_safi   = known ;
+  afi_safi->afi              = afi ;
+  afi_safi->safi             = safi ;
+  afi_safi->cap_code         = cap_code ;
+
+  vector_push_item(&state->afi_safi, afi_safi) ;
+
+  return afi_safi ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get count of number of afi/safi capabilities in given open_state.
+ */
+extern int
+bgp_open_state_afi_safi_count(bgp_open_state state)
+{
+  return vector_end(&state->afi_safi) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get n'th afi_safi capability -- if exists.
+ */
+extern bgp_cap_afi_safi
+bgp_open_state_afi_safi_cap(bgp_open_state state, unsigned index)
+{
+  return vector_get_item(&state->afi_safi, index) ;
 } ;
 
 /*==============================================================================
@@ -317,9 +365,9 @@ bgp_peer_open_state_receive(bgp_peer peer)
     }
 
   /* Route refresh. */
-  if (open_recv->can_r_refresh & bgp_cap_form_old)
+  if (open_recv->can_r_refresh & bgp_form_pre)
     SET_FLAG (peer->cap, PEER_CAP_REFRESH_OLD_RCV);
-  else if (open_recv->can_r_refresh & bgp_cap_form_new)
+  else if (open_recv->can_r_refresh & bgp_form_rfc)
     SET_FLAG (peer->cap, PEER_CAP_REFRESH_NEW_RCV);
 
   /* ORF */
@@ -336,16 +384,16 @@ bgp_peer_open_state_receive(bgp_peer peer)
   /* ORF prefix. */
   if (open_recv->can_orf_prefix_send)
     {
-      if (open_recv->can_orf_prefix & bgp_cap_form_old)
+      if (open_recv->can_orf_prefix & bgp_form_pre)
         SET_FLAG (peer->cap, PEER_CAP_ORF_PREFIX_SM_OLD_RCV);
-      else if (open_recv->can_orf_prefix & bgp_cap_form_new)
+      else if (open_recv->can_orf_prefix & bgp_form_rfc)
         SET_FLAG (peer->cap, PEER_CAP_ORF_PREFIX_SM_RCV);
     }
   if (open_recv->can_orf_prefix_recv)
     {
-      if (open_recv->can_orf_prefix & bgp_cap_form_old)
+      if (open_recv->can_orf_prefix & bgp_form_pre)
         SET_FLAG (peer->cap, PEER_CAP_ORF_PREFIX_RM_OLD_RCV);
-      else if (open_recv->can_orf_prefix & bgp_cap_form_new)
+      else if (open_recv->can_orf_prefix & bgp_form_rfc)
         SET_FLAG (peer->cap, PEER_CAP_ORF_PREFIX_RM_RCV);
     }
 

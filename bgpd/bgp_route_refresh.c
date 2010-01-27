@@ -81,6 +81,15 @@ bgp_route_refresh_free(bgp_route_refresh rr)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Set the defer flag as required
+ */
+extern void
+bgp_route_refresh_set_orf_defer(bgp_route_refresh rr, flag_t defer)
+{
+  rr->defer = (defer != 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Allocate new bgp_orf_entry -- for known or unknown type.
  *
  * Is for known type if unknown_size == 0 !
@@ -95,7 +104,8 @@ bgp_route_refresh_free(bgp_route_refresh rr)
  * Pushes entry onto the bgp_route_refresh list.
  */
 static bgp_orf_entry
-bgp_orf_entry_new(bgp_route_refresh rr, uint8_t orf_type, size_t unknown_size)
+bgp_orf_entry_new(bgp_route_refresh rr, uint8_t orf_type, bgp_form_t form,
+                                                            size_t unknown_size)
 {
   bgp_orf_entry orfe ;
   size_t        e_size ;
@@ -117,6 +127,7 @@ bgp_orf_entry_new(bgp_route_refresh rr, uint8_t orf_type, size_t unknown_size)
   orfe = XCALLOC(MTYPE_BGP_ORF_ENTRY, sizeof(struct bgp_orf_entry) + e_size) ;
 
   orfe->orf_type = orf_type ;
+  orfe->form     = form ;
   orfe->unknown  = (unknown_size != 0) ;
 
   vector_push_item(&rr->entries, orfe) ;
@@ -141,15 +152,16 @@ bgp_orf_entry_new(bgp_route_refresh rr, uint8_t orf_type, size_t unknown_size)
  *
  * NB: it is a FATAL error to set an unknown ORF type
  */
-extern void*
-bgp_orf_add(bgp_route_refresh rr, uint8_t orf_type, flag_t remove, flag_t deny)
+extern bgp_orf_entry
+bgp_orf_add(bgp_route_refresh rr, uint8_t orf_type, bgp_form_t form,
+                                                     flag_t remove, flag_t deny)
 {
-  bgp_orf_entry orfe = bgp_orf_entry_new(rr, orf_type, 0) ;
+  bgp_orf_entry orfe = bgp_orf_entry_new(rr, orf_type, form, 0) ;
 
   orfe->remove = (remove  != 0) ;
   orfe->deny   = (deny != 0) ;
 
-  return &orfe->body ;
+  return orfe ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -162,9 +174,9 @@ bgp_orf_add(bgp_route_refresh rr, uint8_t orf_type, flag_t remove, flag_t deny)
  * NB: it is a FATAL error to set an unknown ORF type
  */
 extern void
-bgp_orf_add_remove_all(bgp_route_refresh rr, uint8_t orf_type)
+bgp_orf_add_remove_all(bgp_route_refresh rr, uint8_t orf_type, bgp_form_t form)
 {
-  bgp_orf_entry orfe = bgp_orf_entry_new(rr, orf_type, 0) ;
+  bgp_orf_entry orfe = bgp_orf_entry_new(rr, orf_type, form, 0) ;
 
   orfe->remove_all = 1 ;
 } ;
@@ -178,7 +190,7 @@ extern void
 bgp_orf_add_unknown(bgp_route_refresh rr, uint8_t orf_type, bgp_size_t length,
                                                             const void* entries)
 {
-  bgp_orf_entry orfe = bgp_orf_entry_new(rr, orf_type,
+  bgp_orf_entry orfe = bgp_orf_entry_new(rr, orf_type, bgp_form_none,
                                                     (length > 0) ? length : 1) ;
 
   if (length != 0)

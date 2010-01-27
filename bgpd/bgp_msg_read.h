@@ -32,8 +32,7 @@ bgp_msg_get_mlen(uint8_t* p) ;
 extern int
 bgp_msg_check_header(bgp_connection connection);
 
-extern void
-bgp_msg_dispatch(bgp_connection connection);
+typedef void bgp_msg_handler(bgp_connection connection, bgp_size_t size) ;
 
 extern bgp_notify
 bgp_msg_noms_o_bad_id(bgp_notify notification, bgp_id_t id) ;

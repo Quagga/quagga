@@ -23,6 +23,8 @@
 #define _QUAGGA_BGP_COMMON_H
 
 #include <stdint.h>
+#include <sys/socket.h>
+
 #include "bgpd/bgp.h"
 #include "qafi_safi.h"
 #include "lib/zassert.h"
@@ -52,6 +54,22 @@ typedef struct peer*           bgp_peer ;
 typedef struct bgp_session*    bgp_session ;
 typedef struct bgp_connection* bgp_connection ;
 typedef struct bgp_open_state* bgp_open_state ;
+
+/*==============================================================================
+ * Some BGP capabilities and messages have RFC and pre-RFC forms.
+ *
+ * Sometimes see both, or send RFC and/or pre-RFC forms, or track what form(s)
+ * are being used.
+ */
+typedef enum bgp_form bgp_form_t ;
+
+enum bgp_form
+{
+  bgp_form_none     = 0,
+  bgp_form_pre      = 1,
+  bgp_form_rfc      = 2,
+  bgp_form_both     = 3     /* _rfc and _pre are bits !     */
+} ;
 
 /*==============================================================================
  * Both session and connection require these
@@ -206,7 +224,7 @@ extern qafx_num_t
 qafx_num(qafx_bit_t bit) ;
 
 /*==============================================================================
- * Conversions for qafx_num => qAFI and qSAFI
+ * Conversions for qafx_num => qAFI, qSAFI, iAFI, iSAFI and pAF
  */
 
 /*------------------------------------------------------------------------------
@@ -281,6 +299,24 @@ get_iSAFI(qafx_num_t num)
   return iSAFI_map[num] ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Convert qafx_num_t to AF_xxx (pAF_t)
+ *
+ * Maps qafx_num_other to iSAFI_Reserved.
+ *
+ * NB: it is a mistake to try to map qafx_num_undef (FATAL unless NDEBUG).
+ */
+
+extern const pAF_t pAF_map[] ;
+
+Inline pAF_t
+get_pAF(qafx_num_t num)
+{
+  dassert((num >= qafx_num_min) && (num <= qafx_num_max)) ;
+
+  return pAF_map[num] ;
+} ;
+
 /*==============================================================================
  * Conversions for iAFI/iSAFI => qafx_num_t
  *             and qAFI/qSAFI => qafx_num_t
@@ -300,6 +336,12 @@ qafx_bit_from_iAFI_iSAFI(iAFI_t afi, iSAFI_t safi) ;
 
 extern qafx_bit_t
 qafx_bit_from_qAFI_qSAFI(qAFI_t afi, qSAFI_t safi) ;
+
+/*==============================================================================
+ *
+ */
+
+
 
 /*==============================================================================
  * Buffer sucking
@@ -342,6 +384,15 @@ Inline ptr_t
 suck_start(sucker sr)
 {
   return sr->start ;
+} ;
+
+Inline ptr_t
+suck_step(sucker sr, unsigned length)
+{
+  ptr_t ptr = sr->ptr ;
+  sr->ptr += length ;
+  dassert(sr->ptr <= sr->end) ;
+  return ptr ;
 } ;
 
 Inline void

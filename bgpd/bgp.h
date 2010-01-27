@@ -574,8 +574,8 @@ enum            /* order */
   BGP_RRM_AFI,
   BGP_RRM_RES,
   BGP_RRM_SAFI,
-  BGP_RRM_ORF_WHEN,     /* start of ORF message */
-  BGP_RRM_ORFS,         /* start of ORF collections */
+  BGP_RRM_ORF_WHEN,     /* start of ORF message                         */
+  BGP_RRM_ORFS,         /* start of ORF collections -- *one* or more    */
 } ;
 
 enum                                /* values for the BGP_RRM_ORF_WHEN byte */
@@ -584,7 +584,7 @@ enum                                /* values for the BGP_RRM_ORF_WHEN byte */
   BGP_ORF_WTR_DEFER       = 2       /* when-to-refresh == defer             */
 } ;
 
-/* ORFS come in collections...................................................*/
+/* ORFS come in collections -- one or more....................................*/
 
 typedef U8  BGP_ORF_TYPE_T ;        /* ORF Type                             */
 typedef U16 BGP_ORF_LEN_T ;         /* length of ORF entries: octets        */

@@ -29,25 +29,31 @@
 #include "bgpd/bgp_aspath.h"
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_open_state.h"
+#include "bgpd/bgp_route_refresh.h"
 #include "bgpd/bgp_fsm.h"
 #include "bgpd/bgp_vty.h"
 
+/*------------------------------------------------------------------------------
+ * Message handler functions.
+ */
+static void bgp_msg_unknown_receive(bgp_connection connection,
+                                                         bgp_size_t body_size) ;
+static void bgp_msg_open_receive(bgp_connection connection,
+                                                         bgp_size_t body_size) ;
+static void bgp_msg_update_receive(bgp_connection connection,
+                                                         bgp_size_t body_size) ;
+static void bgp_msg_notify_receive(bgp_connection connection,
+                                                         bgp_size_t body_size) ;
+static void bgp_msg_keepalive_receive(bgp_connection connection,
+                                                         bgp_size_t body_size) ;
+static void bgp_msg_route_refresh_receive(bgp_connection connection,
+                                                         bgp_size_t body_size) ;
+static void bgp_msg_capability_receive(bgp_connection connection,
+                                                         bgp_size_t body_size) ;
 
-
-/* prototypes */
-static int bgp_msg_open_receive (bgp_connection connection, bgp_size_t size);
-static int bgp_msg_update_receive (bgp_connection connection, bgp_size_t size);
-static int bgp_msg_keepalive_receive (bgp_connection connection,
-    bgp_size_t size);
-static void bgp_msg_notify_receive (bgp_connection connection, bgp_size_t size);
-static void bgp_msg_notify_send (bgp_connection connection, bgp_session_event_t except,
-    bgp_nom_code_t code, bgp_nom_subcode_t sub_code);
-static void bgp_msg_notify_send_with_data (bgp_connection connection,
-    bgp_session_event_t except, bgp_nom_code_t code, bgp_nom_subcode_t sub_code,
-                           u_char *data, size_t datalen);
-
-
-/* Get BGP message length, given a pointer to the start of a message    */
+/*------------------------------------------------------------------------------
+ * Get BGP message length, given a pointer to the start of a message
+ */
 extern bgp_size_t
 bgp_msg_get_mlen(uint8_t* p)
 {
@@ -55,9 +61,22 @@ bgp_msg_get_mlen(uint8_t* p)
 } ;
 
 
-/*------------------------------------------------------------------------------
- * Header validation support.
+/*==============================================================================
+ * Header validation and sexing of messages
  */
+enum
+{
+  qBGP_MT_unknown      = 0,
+  qBGP_MT_OPEN,
+  qBGP_MT_UPDATE,
+  qBGP_MT_NOTIFICATION,
+  qBGP_MT_KEEPALIVE,
+  qBGP_MT_ROUTE_REFRESH,
+  qBGP_MT_CAPABILITY,
+  qBGP_MT_ROUTE_REFRESH_pre,
+
+  qBGP_MT_count,
+} ;
                                     /*   0     1     2     3    */
 static const uint8_t bgp_header[] = { 0xFF, 0xFF, 0xFF, 0xFF, /*  4 */
                                       0xFF, 0xFF, 0xFF, 0xFF, /*  8 */
@@ -66,19 +85,60 @@ static const uint8_t bgp_header[] = { 0xFF, 0xFF, 0xFF, 0xFF, /*  4 */
                                  } ;
 CONFIRM(sizeof(bgp_header) == BGP_MH_MARKER_L) ;
 
-/* Array to return minimum message length.
- *
- * Length includes the header, so cannot possibly be zero !
- */
-static const bgp_size_t bgp_type_min_size[256] =
+/* Array to map real BGP message type to qBGP message type      */
+static const uint8_t bgp_type_map[256] =
 {
-    [BGP_MT_OPEN]              = BGP_OPM_MIN_L,
-    [BGP_MT_UPDATE]            = BGP_UPM_MIN_L,
-    [BGP_MT_NOTIFICATION]      = BGP_NOM_MIN_L,
-    [BGP_MT_KEEPALIVE]         = BGP_KAM_L,
-    [BGP_MT_ROUTE_REFRESH]     = BGP_RRM_MIN_L,
-    [BGP_MT_CAPABILITY]        = BGP_MH_HEAD_L, /* pro tem */
-    [BGP_MT_ROUTE_REFRESH_pre] = BGP_RRM_MIN_L
+  [BGP_MT_OPEN]              = qBGP_MT_OPEN,
+  [BGP_MT_UPDATE]            = qBGP_MT_UPDATE,
+  [BGP_MT_NOTIFICATION]      = qBGP_MT_NOTIFICATION,
+  [BGP_MT_KEEPALIVE]         = qBGP_MT_KEEPALIVE,
+  [BGP_MT_ROUTE_REFRESH]     = qBGP_MT_ROUTE_REFRESH,
+  [BGP_MT_CAPABILITY]        = qBGP_MT_CAPABILITY,
+  [BGP_MT_ROUTE_REFRESH_pre] = qBGP_MT_ROUTE_REFRESH_pre
+} ;
+CONFIRM(qBGP_MT_unknown == 0) ;
+
+/* Array of minimum message length -- by qBGP_MT_xxx                    */
+static const bgp_size_t bgp_type_min_size[] =
+{
+  [qBGP_MT_unknown]           = BGP_MSG_MAX_L + 1,      /* invalid !    */
+
+  [qBGP_MT_OPEN]              = BGP_OPM_MIN_L,
+  [qBGP_MT_OPEN]              = BGP_OPM_MIN_L,
+  [qBGP_MT_UPDATE]            = BGP_UPM_MIN_L,
+  [qBGP_MT_NOTIFICATION]      = BGP_NOM_MIN_L,
+  [qBGP_MT_KEEPALIVE]         = BGP_KAM_L,
+  [qBGP_MT_ROUTE_REFRESH]     = BGP_RRM_MIN_L,
+  [qBGP_MT_CAPABILITY]        = BGP_MH_HEAD_L,          /* pro tem      */
+  [qBGP_MT_ROUTE_REFRESH_pre] = BGP_RRM_MIN_L
+} ;
+
+/* Array of message handler functions -- by qBGP_MT_xxx                 */
+static bgp_msg_handler* const bgp_type_handler[] =
+{
+  [qBGP_MT_unknown]           = bgp_msg_unknown_receive,
+
+  [qBGP_MT_OPEN]              = bgp_msg_open_receive,
+  [qBGP_MT_UPDATE]            = bgp_msg_update_receive,
+  [qBGP_MT_NOTIFICATION]      = bgp_msg_notify_receive,
+  [qBGP_MT_KEEPALIVE]         = bgp_msg_keepalive_receive,
+  [qBGP_MT_ROUTE_REFRESH]     = bgp_msg_keepalive_receive,
+  [qBGP_MT_CAPABILITY]        = bgp_msg_capability_receive,
+  [qBGP_MT_ROUTE_REFRESH_pre] = bgp_msg_route_refresh_receive
+} ;
+
+/* Array of message type names by qBGP_MT_xxxx                          */
+static const char* bgp_type_name[] =
+{
+  [qBGP_MT_unknown]           = "*unknown*",
+
+  [qBGP_MT_OPEN]              = "OPEN",
+  [qBGP_MT_UPDATE]            = "UPDATE",
+  [qBGP_MT_NOTIFICATION]      = "NOTIFICATION",
+  [qBGP_MT_KEEPALIVE]         = "KEEPALIVE",
+  [qBGP_MT_ROUTE_REFRESH]     = "ROUTE-REFRESH",
+  [qBGP_MT_CAPABILITY]        = "CAPABILITY",
+  [qBGP_MT_ROUTE_REFRESH_pre] = "ROUTE-REFRESH(pre)"
 } ;
 
 /*------------------------------------------------------------------------------
@@ -86,7 +146,7 @@ static const bgp_size_t bgp_type_min_size[256] =
  *
  * Issue notification and kick FSM.
  */
-static int
+static void
 bgp_msg_header_bad_len(bgp_connection connection, uint8_t type, bgp_size_t size)
 {
   uint16_t notify_size = htons(size) ;
@@ -95,12 +155,34 @@ bgp_msg_header_bad_len(bgp_connection connection, uint8_t type, bgp_size_t size)
     plog_debug (connection->log,
                 "%s bad message length - %d for %s",
                 connection->host, size,
-                type == 128 ? "ROUTE-REFRESH" : bgp_type_str[(int) type]) ;
+                bgp_type_name[bgp_type_map[type]]) ;
 
-  bgp_msg_notify_send_with_data (connection, bgp_session_eInvalid_msg,
-                                  BGP_NOMC_HEADER, BGP_NOMS_H_BAD_LEN,
-                                  (void*)&notify_size, 2) ;
-  return -1 ;
+  bgp_fsm_raise_exception(connection, bgp_session_eInvalid_msg,
+     bgp_notify_new_with_data(BGP_NOMC_HEADER, BGP_NOMS_H_BAD_LEN,
+                                                      (void*)&notify_size, 2)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * The message type is either unknown, or not enabled by capability exchange.
+ *
+ * Issue notification and kick FSM.
+ */
+static void
+bgp_msg_header_bad_type(bgp_connection connection, uint8_t type)
+{
+  if (BGP_DEBUG (normal, NORMAL))
+    {
+      if (bgp_type_map[type] == qBGP_MT_unknown)
+        plog_debug (connection->log, "%s unknown message type 0x%02x",
+                    connection->host, type) ;
+      else
+        plog_err (connection->log, "%s [Error] BGP %s is not enabled",
+                          connection->host, bgp_type_name[bgp_type_map[type]]) ;
+    } ;
+
+  bgp_fsm_raise_exception(connection, bgp_session_eInvalid_msg,
+     bgp_notify_new_with_data(BGP_NOMC_HEADER, BGP_NOMS_H_BAD_TYPE,
+                                                             (void*)&type, 1)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -112,19 +194,29 @@ bgp_msg_header_bad_len(bgp_connection connection, uint8_t type, bgp_size_t size)
  *
  * Advances the stream getp past the header.
  *
- * Plants:  msg_type    -- the message type
- *          msg_size    -- the size of the message body
+ * Plants:  msg_type      -- the message type
+ *          msg_body_size -- the size of the message *body*
+ *          msg_func      -- the function to process the message
  *
  * in the connection, ready for bgp_msg_dispatch().
  *
- * return >= 0 number of bytes still to read (ie msg_size)
- * return -1 error
+ * Returns: number of bytes still to read (ie msg_body_size) -- may be 0
+ *
+ * NB: deals with invalid header, unknown message type and less than minimum
+ *     message length for the message type.
+ *
+ *     These all raise the required events, and return with minimum size
+ *     message and the function set to bgp_msg_unknown_receive.
+ *
+ *     The effect is that the reader will not read any more, and will dispatch
+ *     to bgp_msg_unknown_receive.
  */
 int
 bgp_msg_check_header(bgp_connection connection)
 {
   uint8_t    type ;
   bgp_size_t size ;
+  uint8_t    qt ;
   bgp_size_t min_size ;
 
   /* Get size and type.                                                 */
@@ -138,89 +230,56 @@ bgp_msg_check_header(bgp_connection connection)
 
   /* Marker check                                                       */
   /* TODO: why did old code only do this on OPEN and KEEPALIVE ?        */
-  if (memcmp(connection->ibuf->data, bgp_header, BGP_MH_MARKER_L) != 0)
+  if (memcmp(connection->ibuf->data, bgp_header, BGP_MH_MARKER_L) == 0)
     {
-      bgp_msg_notify_send (connection, bgp_session_eInvalid_msg,
-                       BGP_NOTIFY_HEADER_ERR,
-                       BGP_NOTIFY_HEADER_NOT_SYNC);
-      return -1;
+      /* BGP type check and minimum/maximum message length checks.      */
+
+      qt       = bgp_type_map[type] ;   /* qBGP_MT_unknown if not valid */
+      min_size = bgp_type_min_size[qt] ;/* > BGP_MSG_MAX_L if not valid */
+
+      if ((size < min_size) || (size > BGP_MSG_MAX_L))
+        {
+          if (qt == qBGP_MT_unknown)
+            {
+              if (BGP_DEBUG (normal, NORMAL))
+                plog_debug (connection->log, "%s unknown message type 0x%02x",
+                            connection->host, type);
+
+              bgp_fsm_raise_exception(connection, bgp_session_eInvalid_msg,
+                 bgp_notify_new_with_data(BGP_NOMC_HEADER, BGP_NOMS_H_BAD_TYPE,
+                                                             (void*)&type, 1)) ;
+            }
+          else
+            bgp_msg_header_bad_len(connection, type, size) ;
+
+          size = BGP_MH_HEAD_L ;            /* can stop reading, now        */
+        }
+    }
+  else
+    {
+      bgp_fsm_raise_exception(connection, bgp_session_eInvalid_msg,
+                      bgp_notify_new(BGP_NOMC_HEADER, BGP_NOMS_H_NOT_SYNC, 0)) ;
+      qt   = qBGP_MT_unknown ;          /* force unknown message        */
+      size = BGP_MH_HEAD_L ;            /* can stop reading, now        */
     } ;
 
-  /* BGP type check.                                                    */
-  min_size = bgp_type_min_size[type] ;
 
-  if (min_size == 0)
-    {
-      if (BGP_DEBUG (normal, NORMAL))
-        plog_debug (connection->log,
-                  "%s unknown message type 0x%02x",
-                  connection->host, type);
+  connection->msg_type      = type ;
+  connection->msg_body_size = size - BGP_MH_HEAD_L ;
+  connection->msg_func      = bgp_type_handler[qt] ;
 
-      bgp_msg_notify_send_with_data (connection, bgp_session_eInvalid_msg,
-                                 BGP_NOMC_HEADER,
-                                 BGP_NOMS_H_BAD_TYPE,
-                                 &type, 1);
-      return -1;
-    } ;
+  return connection->msg_body_size ;
+} ;
 
-  /* Mimimum and maximum message length checks.                         */
-  if ((size < min_size) || (size > BGP_MSG_MAX_L))
-    return bgp_msg_header_bad_len(connection, type, size) ;
-
-  connection->msg_type = type ;
-  connection->msg_size = size - BGP_MH_HEAD_L ;
-
-  return connection->msg_size ;
-}
-
-/*------------------------------------------------------------------------------
- * Dispatch BGP message.
+/*==============================================================================
+ * Invalid message handler.
  *
- * Arrives in the connection->ibuf, with the getp sitting after the message
- * header.  Also:
- *
- *   connection->msg_type  -- type
- *   connection->msg_size  -- size of message body (excludes header)
- *
- * Must have finished with ibuf when returns.
+ * Does nothing at all -- the error has already been deal with, this just
+ * allows unknown (and invalid) messages to be handled just like OK ones.
  */
-void
-bgp_msg_dispatch(bgp_connection connection)
+static void bgp_msg_unknown_receive(bgp_connection connection, bgp_size_t body_size)
 {
-  bgp_size_t size = connection->msg_size ;
-
-  switch (connection->msg_type)
-    {
-    case BGP_MT_OPEN:
-      bgp_msg_open_receive (connection, size);
-      break;
-    case BGP_MT_UPDATE:
-      bgp_msg_update_receive (connection, size);
-      break;
-    case BGP_MT_NOTIFICATION:
-      bgp_msg_notify_receive(connection, size);
-      break;
-    case BGP_MT_KEEPALIVE:
-      bgp_msg_keepalive_receive(connection, size);
-      break;
-    case BGP_MT_ROUTE_REFRESH:
-    case BGP_MT_ROUTE_REFRESH_pre:
-      /* TODO: refresh? */
-#if 0
-      peer->refresh_in++;
-      bgp_route_refresh_receive (peer, size);
-#endif
-      break;
-    case BGP_MT_CAPABILITY:
-      /* TODO: dynamic capability? */
-#if 0
-      peer->dynamic_cap_in++;
-      bgp_capability_receive (peer, size);
-#endif
-      break;
-    default:
-      assert(0); /* types already validated */
-    } ;
+  return ;
 } ;
 
 /*==============================================================================
@@ -245,11 +304,9 @@ bgp_msg_open_invalid(bgp_notify notification) ;
 /*------------------------------------------------------------------------------
  * Receive BGP open packet and parse it into the connection's open_recv
  *
- * return  0 OK
- * return -1 error
  */
-static int
-bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
+static void
+bgp_msg_open_receive (bgp_connection connection, bgp_size_t body_size)
 {
   int ret;
   u_char version;
@@ -438,21 +495,19 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t size)
   connection->hold_timer_interval       = holdtime ;
   connection->keepalive_timer_interval  = holdtime / 3 ;
 
-  connection->as4               = open_recv->can_as4 ;
-  connection->route_refresh_pre = open_recv->can_r_refresh  == bgp_cap_form_old;
-  connection->orf_prefix_pre    = open_recv->can_orf_prefix == bgp_cap_form_old;
+  connection->as4            = open_recv->can_as4 ;
+  connection->route_refresh  = open_recv->can_r_refresh ;
+  connection->orf_prefix     = open_recv->can_orf_prefix ;
 
   bgp_fsm_event(connection, bgp_fsm_eReceive_OPEN_message) ;
 
-  return 0;
+  return ;
 
   /*............................................................................
    * Failed.  Reject the OPEN with the required notification.
    */
 reject:
   bgp_fsm_raise_exception(connection, bgp_session_eOpen_reject, notification);
-
-  return -1 ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -845,11 +900,11 @@ bgp_msg_capability_option_parse (bgp_connection connection,
             break;
 
           case BGP_CAN_R_REFRESH:
-            open_recv->can_r_refresh |= bgp_cap_form_new ;
+            open_recv->can_r_refresh |= bgp_form_rfc ;
             break ;
 
           case BGP_CAN_R_REFRESH_pre:
-            open_recv->can_r_refresh |= bgp_cap_form_old;
+            open_recv->can_r_refresh |= bgp_form_pre;
             break;
 
           case BGP_CAN_ORF:
@@ -935,6 +990,7 @@ bgp_msg_capability_mp(bgp_connection connection, sucker sr)
 {
   struct iAFI_SAFI mp ;
   qafx_bit_t qb ;
+  bgp_cap_afi_safi cap ;
 
   qb = bgp_msg_afi_safi(sr, &mp) ;
 
@@ -942,6 +998,8 @@ bgp_msg_capability_mp(bgp_connection connection, sucker sr)
     zlog_debug ("%s OPEN has MP_EXT CAP for afi/safi: %u/%u",
                                           connection->host, mp.afi, mp.safi) ;
 
+  cap = bgp_open_state_afi_safi_add(connection->open_recv, mp.afi, mp.safi,
+                                                    (qb != 0), BGP_CAN_MP_EXT) ;
   if (qb == 0)
     {
       zlog_warn ("Unknown afi/safi combination (%u/%u)", mp.afi, mp.safi) ;
@@ -1015,6 +1073,7 @@ bgp_msg_capability_orf_entry(bgp_connection connection, uint8_t cap_code,
   int          number ;
   int          length ;
   sucker_t     ssr ;
+  bgp_cap_afi_safi cap ;
 
   bgp_open_state open_recv = connection->open_recv ;
   qafx_bit_t qb ;
@@ -1077,7 +1136,7 @@ bgp_msg_capability_orf_entry(bgp_connection connection, uint8_t cap_code,
             switch (type)
               {
                 case BGP_CAP_ORFT_T_PFIX:
-                  open_recv->can_orf_prefix |= bgp_cap_form_new ;
+                  open_recv->can_orf_prefix |= bgp_form_rfc ;
                   qbs =   qafx_ipv4_unicast_bit
                         | qafx_ipv4_multicast_bit
                         | qafx_ipv6_unicast_bit ;
@@ -1090,7 +1149,7 @@ bgp_msg_capability_orf_entry(bgp_connection connection, uint8_t cap_code,
             switch (type)
               {
                 case BGP_CAP_ORFT_T_PFIX_pre:
-                  open_recv->can_orf_prefix |= bgp_cap_form_old ;
+                  open_recv->can_orf_prefix |= bgp_form_pre ;
                   qbs =   qafx_ipv4_unicast_bit
                         | qafx_ipv4_multicast_bit
                         | qafx_ipv6_unicast_bit ;
@@ -1103,13 +1162,20 @@ bgp_msg_capability_orf_entry(bgp_connection connection, uint8_t cap_code,
             break ;
         } ;
 
+      cap = bgp_open_state_afi_safi_add(connection->open_recv, mp.afi, mp.safi,
+                                                          (qb != 0), cap_code) ;
+      cap->caps.orf.known_orf_type = (qbs != 0) ;
+      cap->caps.orf.type           = type ;
+      cap->caps.orf.send           = ((mode & BGP_CAP_ORFT_M_SEND) != 0) ;
+      cap->caps.orf.recv           = ((mode & BGP_CAP_ORFT_M_RECV) != 0) ;
+
       if ((qbs & qb) == 0)
         {
           if (BGP_DEBUG (normal, NORMAL))
               zlog_debug ("%s Addr-family %d/%d has"
                           " ORF type/mode %d/%d not supported",
                          connection->host, mp.afi, mp.safi, type, mode) ;
-          continue;
+          continue ;
         } ;
 
       if (BGP_DEBUG (normal, NORMAL))
@@ -1140,7 +1206,7 @@ bgp_msg_capability_orf_entry(bgp_connection connection, uint8_t cap_code,
 } ;
 
 /*------------------------------------------------------------------------------
- * Process value of Graceful Restart -- BGP_CAN_G_RESTART -- RFC2918
+ * Process value of Graceful Restart capability -- BGP_CAN_G_RESTART -- RFC2918
  *
  * Capability is:  time      -- word
  *                 AFI       -- word )
@@ -1160,6 +1226,7 @@ bgp_msg_capability_restart (bgp_connection connection, sucker sr)
   bgp_open_state open_recv = connection->open_recv;
   u_int16_t restart_flag_time ;
   int length ;
+  bgp_cap_afi_safi cap ;
 
   length = suck_left(sr) ;      /* total length of value, for reporting */
 
@@ -1200,12 +1267,18 @@ bgp_msg_capability_restart (bgp_connection connection, sucker sr)
       iAFI_SAFI_t  mp ;
       uint8_t      flags ;
       qafx_bit_t   qb ;
+      int          has_preserved ;
 
       mp.afi   = suck_w(sr) ;
       mp.safi  = suck_b(sr) ;
       flags    = suck_b(sr) ;
 
       qb = qafx_bit_from_iAFI_iSAFI(mp.afi, mp.safi) ;
+      has_preserved = ((flags & BGP_CAP_GRE_F_FORW) != 0) ;
+
+      cap = bgp_open_state_afi_safi_add(connection->open_recv, mp.afi, mp.safi,
+                                                 (qb != 0), BGP_CAN_G_RESTART) ;
+      cap->caps.gr.has_preserved = has_preserved ;
 
       if (qb == 0)
         {
@@ -1220,20 +1293,14 @@ bgp_msg_capability_restart (bgp_connection connection, sucker sr)
 
           if (connection->session->open_send->can_mp_ext & qb)
             {
-              qafx_bit_t   has ;
-              if (flags & BGP_CAP_GRE_F_FORW)
-                has = qb ;
-              else
-                has = 0 ;
-
               open_recv->can_preserve  |= qb ;
-              open_recv->has_preserved |= has ;
+              open_recv->has_preserved |= (has_preserved ? qb : 0) ;
 
               if (BGP_DEBUG (normal, NORMAL))
                 zlog_debug ("%s Address family %s is%spreserved",
                             connection->host,
                             afi_safi_print (mp.afi, mp.safi),
-                            has ? " " : " not ") ;
+                            (has_preserved ? " " : " not ")) ;
             }
           else
             {
@@ -1277,69 +1344,369 @@ bgp_msg_capability_as4 (bgp_connection connection, sucker sr)
 /*==============================================================================
  * BGP UPDATE message
  */
-
-/* Parse BGP Update packet. */
-static int
-bgp_msg_update_receive (bgp_connection connection, bgp_size_t size)
+static void
+bgp_msg_update_receive (bgp_connection connection, bgp_size_t body_size)
 {
-  bgp_session_update_recv(connection->session, connection->ibuf, size);
-  bgp_fsm_event(connection, bgp_fsm_eReceive_UPDATE_message);
-  return 0;
+  /* Must be prepared to receive "update" like messages                 */
+  if (bgp_fsm_pre_update(connection) != 0) ;
+    {
+      plog_err(connection->log,
+                "%s [Error] Update message received while in %s State",
+                  connection->host, LOOKUP(bgp_status_msg, connection->state)) ;
+      return ;
+    }
+
+  /* PRO TEM: pass raw update message across to Peering Engine          */
+  /* TODO: decode update messages in the BGP Engine.                    */
+  bgp_session_update_recv(connection->session, connection->ibuf, body_size);
 }
 
 /*==============================================================================
  * BGP KEEPALIVE message
  */
-static int
-bgp_msg_keepalive_receive (bgp_connection connection, bgp_size_t size)
+static void
+bgp_msg_keepalive_receive (bgp_connection connection, bgp_size_t body_size)
 {
   if (BGP_DEBUG (keepalive, KEEPALIVE))
     zlog_debug ("%s KEEPALIVE rcvd", connection->host);
 
-  if (size != 0)
-    return bgp_msg_header_bad_len(connection, BGP_MT_KEEPALIVE, size) ;
-
-  bgp_fsm_event(connection, bgp_fsm_eReceive_KEEPALIVE_message);
-
-  return 0;
-}
+  if (body_size == 0)
+    bgp_fsm_event(connection, bgp_fsm_eReceive_KEEPALIVE_message);
+  else
+    bgp_msg_header_bad_len(connection, BGP_MT_KEEPALIVE, body_size) ;
+} ;
 
 /*==============================================================================
  * BGP NOTIFICATION message
  */
 static void
-bgp_msg_notify_receive (bgp_connection connection, bgp_size_t size)
+bgp_msg_notify_receive (bgp_connection connection, bgp_size_t body_size)
 {
-  bgp_notify notification;
-  bgp_nom_code_t code = stream_getc (connection->ibuf);
+  bgp_nom_code_t    code    = stream_getc (connection->ibuf);
   bgp_nom_subcode_t subcode = stream_getc (connection->ibuf);
-  bgp_size_t expect = size - 2;
 
-  notification = bgp_notify_new(code, subcode, expect);
-  bgp_notify_append_data(notification, stream_pnt(connection->ibuf), expect);
+  bgp_fsm_notification_exception(connection,
+                         bgp_notify_new_with_data(code, subcode,
+                                 stream_pnt(connection->ibuf), body_size - 2)) ;
+} ;
 
-  bgp_fsm_notification_exception(connection, notification);
-}
+/*==============================================================================
+ * BGP ROUTE-REFRESH message
+ */
+static int
+bgp_msg_orf_recv(bgp_connection connection, bgp_route_refresh rr,
+                                                     qafx_bit_t qb, sucker sr) ;
+static int
+bgp_msg_orf_prefix_recv(orf_prefix orfpe, qafx_bit_t qb, sucker sr) ;
 
-/* Send BGP notify packet. */
+/*------------------------------------------------------------------------------
+ * Process BGP ROUTE-REFRESH message
+ *
+ * This may contain ORF stuff !
+ */
 static void
-bgp_msg_notify_send (bgp_connection connection, bgp_session_event_t except,
-    bgp_nom_code_t code, bgp_nom_subcode_t sub_code)
+bgp_msg_route_refresh_receive(bgp_connection connection, bgp_size_t body_size)
 {
-  bgp_notify notification;
-  notification = bgp_notify_new(code, sub_code, 0);
-  bgp_fsm_raise_exception(connection, except, notification);
-}
+  struct iAFI_SAFI mp ;
+  sucker_t   ssr ;
+  qafx_bit_t qb ;
+  bgp_route_refresh rr ;
+  unsigned   form ;
+  int        ret ;
 
+  /* If peer does not have the capability, treat as bad message type    */
 
-/* Send BGP notify packet with data portion. */
-static void
-bgp_msg_notify_send_with_data (bgp_connection connection,
-    bgp_session_event_t except, bgp_nom_code_t code, bgp_nom_subcode_t sub_code,
-                           u_char *data, size_t datalen)
+  switch (connection->msg_type)
+  {
+    case BGP_MT_ROUTE_REFRESH:
+      form = bgp_form_rfc ;
+      break ;
+    case BGP_MT_ROUTE_REFRESH_pre:
+      form = bgp_form_pre ;
+      break ;
+    default:                            /* should not happen, really    */
+      form = 0 ;
+      break ;
+  } ;
+
+  if ((connection->route_refresh & form) == 0)
+    {
+      bgp_msg_header_bad_type(connection, connection->msg_type) ;
+      return ;
+    } ;
+
+  /* Must be prepared to receive "update" like messages                 */
+  if (connection->state != bgp_fsm_sEstablished)
+    {
+      plog_err(connection->log,
+                "%s [Error] Route-Refresh message received while in %s State",
+                  connection->host, LOOKUP(bgp_status_msg, connection->state)) ;
+      return ;
+    } ;
+
+  /* Set about parsing the message                                      */
+
+  dassert(stream_get_left(connection->ibuf) == body_size) ;
+  suck_init(&ssr, stream_pnt(connection->ibuf), body_size) ;
+
+  /* Start with AFI, reserved, SAFI                                     */
+  qb = bgp_msg_afi_safi(&ssr, &mp) ;
+
+  qb &= qafx_ipv4_unicast_bit | qafx_ipv4_multicast_bit |
+        qafx_ipv6_unicast_bit | qafx_ipv6_multicast_bit |
+        qafx_ipv4_mpls_vpn_bit ;
+
+  if (BGP_DEBUG (normal, NORMAL))
+    zlog_debug ("%s rcvd REFRESH_REQ for afi/safi: %d/%d%s",
+                                           connection->host, mp.afi, mp.safi,
+                                   (qb == 0) ? " -- unknown combination" : "") ;
+
+  rr = bgp_route_refresh_new(mp.afi, mp.safi, 0) ;
+
+  /* If there are any ORF entries, time to suck them up now.            */
+  ret = 0 ;
+
+  if (suck_left(&ssr) != 0)
+    {
+      uint8_t when_to_refresh ;
+      flag_t  defer = 0 ;
+
+      when_to_refresh = suck_b(&ssr) ;
+
+      switch (when_to_refresh)
+      {
+        case BGP_ORF_WTR_IMMEDIATE:
+          defer = 0 ;
+          break ;
+        case BGP_ORF_WTR_DEFER:
+          defer = 1 ;
+          break ;
+        default:
+          zlog_info ("%s ORF route refresh invalid 'when' value %d"
+                     " (AFI/SAFI %d/%d)",
+                     connection->host, when_to_refresh, rr->afi, rr->safi) ;
+          ret = -1 ;
+          break ;
+      } ;
+
+      if (ret >= 0)
+        {
+          bgp_route_refresh_set_orf_defer(rr, defer) ;
+
+          /* After the when to refresh, expect 1 or more ORFs           */
+          do
+            {
+              ret = bgp_msg_orf_recv(connection, rr, qb, &ssr) ;
+            } while ((ret == 0) && (suck_left(&ssr) != 0)) ;
+        } ;
+    } ;
+
+  if (ret < 0)
+    {
+      bgp_fsm_raise_exception(connection, bgp_session_eInvalid_msg,
+                       bgp_notify_new(BGP_NOMC_CEASE, BGP_NOMS_UNSPECIFIC, 0)) ;
+      return ;
+    }
+
+  bgp_session_route_refresh_recv(connection, rr) ;
+  return ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Process ORF Type and following ORF Entries.
+ *
+ * Expects there to be at least one ORF entry -- that is, the length of the
+ * ORF Entries may not be 0.
+ *
+ * Returns:  0 => OK
+ *          -1 => invalid or malformed
+ */
+static int
+bgp_msg_orf_recv(bgp_connection connection, bgp_route_refresh rr,
+                                                       qafx_bit_t qb, sucker sr)
 {
-  bgp_notify notification;
-  notification = bgp_notify_new(code, sub_code, datalen);
-  bgp_notify_append_data(notification, data, datalen);
-  bgp_fsm_raise_exception(connection, except, notification);
-}
+  sucker_t   ssr ;
+  int        left ;
+  uint8_t    orf_type ;
+  bgp_size_t orf_len ;
+  int        unknown ;
+  int        form ;
+  int        ret ;
+
+  /* Suck up the ORF type and the length of the entries that follow     */
+  left = suck_left(sr) - BGP_ORF_MIN_L ;
+  if (left >= 0)
+    {
+      orf_type  = suck_b(sr) ;
+      orf_len   = suck_w(sr) ;
+    } ;
+
+  /* The length may not be zero and may not exceed what there is left   */
+  if ((orf_len == 0) || (left < orf_len))
+    {
+      zlog_info ("%s ORF route refresh length error: %d when %d left"
+                 " (AFI/SAFI %d/%d, type %d length %d)",
+                 connection->host, orf_len, left,
+                                         rr->afi, rr->safi, orf_type, orf_len) ;
+      return -1 ;
+    } ;
+
+  if (BGP_DEBUG (normal, NORMAL))
+    zlog_debug ("%s rcvd ORF type %d length %d",
+                 connection->host, orf_type, orf_len);
+
+  /* Sex the ORF type                                                   */
+  form    = bgp_form_none ;
+  unknown = 1 ;
+  switch (orf_type)
+    {
+      case BGP_ORF_T_PREFIX:
+        if ((connection->orf_prefix & bgp_form_rfc) != 0)
+          {
+            form     = bgp_form_rfc ;
+            unknown  = (qb != 0) ;
+          } ;
+        break ;
+
+      case BGP_ORF_T_PREFIX_pre:
+        if ((connection->orf_prefix & bgp_form_pre) != 0)
+        {
+          orf_type = BGP_ORF_T_PREFIX ;
+          form     = bgp_form_pre ;
+          unknown  = (qb != 0) ;
+        } ;
+        break ;
+
+      default:
+        break ;
+    } ;
+
+  /* Suck up the ORF entries.  NB: orf_len != 0                         */
+  suck_push(sr, orf_len, &ssr) ;
+
+  if (unknown)
+    bgp_orf_add_unknown(rr, orf_type, orf_len, suck_step(sr, orf_len)) ;
+  else
+    {
+      do
+        {
+          flag_t  remove_all   = 0 ;
+          flag_t  remove       = 0 ;
+          flag_t  deny         = 0 ;
+          uint8_t common ;
+
+          common = suck_b(sr) ;
+          switch (common & BGP_ORF_EA_MASK)
+          {
+            case BGP_ORF_EA_ADD:
+              break ;
+            case BGP_ORF_EA_REMOVE:
+              remove = 1 ;
+              break ;
+            case BGP_ORF_EA_RM_ALL:
+              remove_all = 1 ;
+              break ;
+            default:
+              zlog_info ("%s ORF route refresh invalid common byte: %u"
+                         " (AFI/SAFI %d/%d, type %d length %d)",
+                         connection->host, common,
+                                         rr->afi, rr->safi, orf_type, orf_len) ;
+              return -1 ;
+          } ;
+
+          deny = ((common & BGP_ORF_EA_DENY) != 0) ;
+
+          ret = 0 ;
+          if (remove_all)
+            bgp_orf_add_remove_all(rr, orf_type, form) ;
+          else
+            {
+              bgp_orf_entry orfe ;
+              orfe = bgp_orf_add(rr, orf_type, form, remove, deny) ;
+
+              switch (orf_type)
+                {
+                  case BGP_ORF_T_PREFIX:
+                    ret = bgp_msg_orf_prefix_recv(&orfe->body.orf_prefix, qb,
+                                                                           sr) ;
+                    break ;
+
+                  default:
+                    zabort("Lost track of ORF type") ;
+                    break ;
+                } ;
+
+              if (ret < 0)
+                {
+                  zlog_info ("%s ORF route refresh invalid Prefix ORF entry"
+                             " (AFI/SAFI %d/%d, type %d length %d)",
+                             connection->host,
+                                         rr->afi, rr->safi, orf_type, orf_len) ;
+                  return -1 ;
+                } ;
+            } ;
+
+        } while (suck_left(sr) > 0) ;
+    } ;
+
+  suck_pop_exact(sr, &ssr) ;
+  return 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Process ORF Prefix entry, from after the common byte.
+ *
+ * This is for entries which are *not* remove-all
+ *
+ * Returns:  0 => OK
+ *          -1 => invalid or malformed
+ */
+static int
+bgp_msg_orf_prefix_recv(orf_prefix orfpe, qafx_bit_t qb, sucker sr)
+{
+  pAF_t paf ;
+  int left ;
+
+  assert(qb != 0) ;
+  paf = get_pAF(qafx_num(qb)) ;
+
+  /* Must have the minimum Prefix ORF entry, less the common byte, left */
+  left = suck_left(sr) - (BGP_ORF_E_P_MIN_L - BGP_ORF_E_COM_L) ;
+  if (left >= 0)
+    {
+      uint8_t plen ;
+      uint8_t blen ;
+
+      orfpe->seq   = suck_l(sr) ;
+      orfpe->ge    = suck_b(sr) ;       /* aka min      */
+      orfpe->le    = suck_b(sr) ;       /* aka max      */
+      plen         = suck_b(sr) ;
+
+      memset(&orfpe->p, 0, sizeof(struct prefix)) ;
+
+      blen = blen = (plen + 7) / 8 ;
+      if ((left -= blen) >= 0)
+        {
+          orfpe->p.family    = paf ;
+          orfpe->p.prefixlen = plen ;
+          if (blen != 0)
+            {
+              if (blen <= prefix_blen(&orfpe->p))
+                memcpy(&orfpe->p.u.prefix, suck_step(sr, blen), blen) ;
+              else
+                left = -1 ;
+            } ;
+        } ;
+    } ;
+
+  return left ;
+} ;
+
+/*==============================================================================
+ * BGP CAPABILITY message -- Dynamic Capabilities
+ */
+static void bgp_msg_capability_receive(bgp_connection connection,
+                                                           bgp_size_t body_size)
+{
+  return ;
+} ;

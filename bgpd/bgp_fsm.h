@@ -33,6 +33,9 @@ bgp_fsm_enable_session(bgp_session session) ;
 extern void
 bgp_fsm_disable_session(bgp_session session, bgp_notify notification) ;
 
+extern int
+bgp_fsm_pre_update(bgp_connection connection) ;
+
 extern void
 bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event) ;
 

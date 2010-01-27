@@ -120,6 +120,9 @@ struct bgp_notify
 extern bgp_notify
 bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
                                                             bgp_size_t size) ;
+extern bgp_notify
+bgp_notify_new_with_data(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
+                                             const void* data, bgp_size_t len) ;
 extern void
 bgp_notify_free(bgp_notify notification) ;
 

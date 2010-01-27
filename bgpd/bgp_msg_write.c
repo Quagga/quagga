@@ -313,7 +313,7 @@ bgp_open_options(struct stream *s, bgp_open_state open_state)
 
   /* Route refresh.                                     */
 
-  if (open_state->can_r_refresh & bgp_cap_form_old)
+  if (open_state->can_r_refresh & bgp_form_pre)
     {
       stream_putc (s, BGP_OPEN_OPT_CAP) ;
       stream_putc (s, CAPABILITY_CODE_REFRESH_LEN + 2) ;
@@ -321,7 +321,7 @@ bgp_open_options(struct stream *s, bgp_open_state open_state)
       stream_putc (s, CAPABILITY_CODE_REFRESH_LEN) ;
     } ;
 
-  if (open_state->can_r_refresh & bgp_cap_form_old)
+  if (open_state->can_r_refresh & bgp_form_pre)
     {
       stream_putc (s, BGP_OPEN_OPT_CAP) ;
       stream_putc (s, CAPABILITY_CODE_REFRESH_LEN + 2) ;
@@ -361,11 +361,11 @@ bgp_open_options(struct stream *s, bgp_open_state open_state)
           if (!have_ipv6 && (afi == iAFI_IP6))
             continue ;
 
-          if (open_state->can_orf_prefix & bgp_cap_form_old)
+          if (open_state->can_orf_prefix & bgp_form_pre)
             bgp_open_capability_orf(s, afi, safi, CAPABILITY_CODE_ORF_OLD,
                                                     ORF_TYPE_PREFIX_OLD, mode) ;
 
-          if (open_state->can_orf_prefix & bgp_cap_form_new)
+          if (open_state->can_orf_prefix & bgp_form_rfc)
             bgp_open_capability_orf(s, afi, safi, CAPABILITY_CODE_ORF,
                                                         ORF_TYPE_PREFIX, mode) ;
         } ;
@@ -462,7 +462,7 @@ bgp_msg_orf_remove_all(struct stream* s, bgp_size_t left) ;
 
 static int
 bgp_msg_orf_prefix(struct stream* s, uint8_t common,
-                             bgp_orf_prefix_entry orf_prefix, bgp_size_t left) ;
+                                            orf_prefix orfpe, bgp_size_t left) ;
 
 /*------------------------------------------------------------------------------
  * Make Route-Refresh message(s) and dispatch.
@@ -489,8 +489,9 @@ bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr)
   bgp_size_t msg_len ;
   int        ret ;
 
-  msg_type = connection->route_refresh_pre ? BGP_MT_ROUTE_REFRESH_pre
-                                           : BGP_MT_ROUTE_REFRESH ;
+  msg_type = (connection->route_refresh == bgp_form_pre)
+                                                     ? BGP_MT_ROUTE_REFRESH_pre
+                                                     : BGP_MT_ROUTE_REFRESH ;
   done = (bgp_orf_get_count(rr) == 0) ;
 
   do
@@ -608,7 +609,8 @@ bgp_msg_orf_part(struct stream* s, bgp_connection connection,
           orf_type      = entry->orf_type ;
           orf_type_sent = entry->orf_type ;
 
-          if ((orf_type == BGP_ORF_T_PREFIX) && connection->orf_prefix_pre)
+          if ((orf_type == BGP_ORF_T_PREFIX) &&
+                                   (connection->orf_prefix == bgp_form_pre))
             orf_type_sent = BGP_ORF_T_PREFIX_pre ;
 
           stream_putc(s, orf_type_sent) ;   /* ORF entries type         */
@@ -638,8 +640,8 @@ bgp_msg_orf_part(struct stream* s, bgp_connection connection,
               switch (entry->orf_type)
               {
                 case BGP_ORF_T_PREFIX:
-                    done = bgp_msg_orf_prefix(s, common,
-                                                &entry->body.orf_prefix, left) ;
+                  done = bgp_msg_orf_prefix(s, common, &entry->body.orf_prefix,
+                                                                         left) ;
                   break ;
                 default:
                   zabort("unknown ORF type") ;
@@ -735,19 +737,19 @@ bgp_msg_orf_remove_all(struct stream* s, bgp_size_t left)
  */
 static int
 bgp_msg_orf_prefix(struct stream* s, uint8_t common,
-                             bgp_orf_prefix_entry orf_prefix, bgp_size_t left)
+                                              orf_prefix orfpe, bgp_size_t left)
 {
-  bgp_size_t plen = (orf_prefix->pfx.prefixlen + 7) / 8 ;
+  bgp_size_t blen = (orfpe->p.prefixlen + 7) / 8 ;
 
-  if (left < (BGP_ORF_E_P_MIN_L + plen))
+  if (left < (BGP_ORF_E_P_MIN_L + blen))
     return 0 ;
 
   stream_putc(s, common) ;
-  stream_putl(s, orf_prefix->seq) ;
-  stream_putc(s, orf_prefix->min) ;
-  stream_putc(s, orf_prefix->max) ;
-  stream_putc(s, orf_prefix->pfx.prefixlen) ;
-  stream_write(s, &orf_prefix->pfx.u.prefix, plen) ;
+  stream_putl(s, orfpe->seq) ;
+  stream_putc(s, orfpe->ge) ;    /* aka min      */
+  stream_putc(s, orfpe->le) ;    /* aka max      */
+  stream_putc(s, orfpe->p.prefixlen) ;
+  stream_write(s, &orfpe->p.u.prefix, blen) ;
 
   return 1 ;
 } ;

@@ -673,7 +673,7 @@ static void
 bgp_fsm_throw_exception(bgp_connection connection, bgp_session_event_t except,
                         bgp_notify notification, int err, bgp_fsm_event_t event)
 {
-  bgp_fsm_post_exception(connection, except,notification, err) ;
+  bgp_fsm_post_exception(connection, except, notification, err) ;
   bgp_fsm_event(connection, event) ;
 } ;
 
@@ -690,6 +690,35 @@ bgp_fsm_post_catch(bgp_connection connection, bgp_session_event_t except,
 {
   bgp_fsm_post_exception(connection, except, notification, 0) ;
   return bgp_fsm_catch(connection, next_state) ;
+} ;
+
+/*==============================================================================
+ * Signal that have received a message that is some form of "update".
+ *
+ * If is established: re-charge the HoldTimer.
+ *
+ *         otherwise: raise bfp_fsm_eUpdate event, which will most likely
+ *                    throw an error.
+ *
+ * Avoids going through the full FSM process for update events (of which there
+ * may be many) in the simple case -- where only need to re-charge HoldTimer.
+ *
+ * Deals, via the FSM, with unexpected "update" events -- for example an
+ * UPDATE (or ROUTE-REFRESH) before reaching sEstablished !
+ */
+static void bgp_hold_timer_recharge(bgp_connection connection) ;
+
+extern int
+bgp_fsm_pre_update(bgp_connection connection)
+{
+  if (connection->state == bgp_fsm_sEstablished)
+    {
+      bgp_hold_timer_recharge(connection) ;
+      return 0 ;
+    } ;
+
+  bgp_fsm_event(connection, bgp_fsm_eReceive_UPDATE_message) ;
+  return -1 ;
 } ;
 
 /*==============================================================================
@@ -1642,9 +1671,6 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
 
 static void
 bgp_hold_timer_set(bgp_connection connection, unsigned secs) ;
-
-static void
-bgp_hold_timer_recharge(bgp_connection connection) ;
 
 static bgp_fsm_state_t
 bgp_fsm_send_notification(bgp_connection connection,

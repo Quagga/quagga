@@ -62,6 +62,7 @@ qafx_num(qafx_bit_t bit)
 /*==============================================================================
  * Conversion tables for qafx_num => qAFI and qSAFI
  *                   and qafx_num => iAFI and iSAFI
+ *                   and qafx_num => pAF
  */
 
 const qAFI_t  qAFI_map[] =
@@ -106,6 +107,17 @@ const iSAFI_t iSAFI_map[] =
     [qafx_ipv6_multicast]   = iSAFI_Multicast,
     [qafx_ipv6_mpls_vpn]    = iSAFI_MPLS_VPN,
     [qafx_num_other]        = iSAFI_Reserved,
+  } ;
+
+const pAF_t pAF_map[] =
+  {
+    [qafx_ipv4_unicast]     = AF_INET,
+    [qafx_ipv4_multicast]   = AF_INET,
+    [qafx_ipv4_mpls_vpn]    = AF_INET,
+    [qafx_ipv6_unicast]     = AF_INET6,
+    [qafx_ipv6_multicast]   = AF_INET6,
+    [qafx_ipv6_mpls_vpn]    = AF_INET6,
+    [qafx_num_other]        = AF_UNSPEC,
   } ;
 
 /*==============================================================================

@@ -248,8 +248,8 @@ bgp_connection_make_primary(bgp_connection connection)
   session->keepalive_timer_interval   = connection->keepalive_timer_interval ;
 
   session->as4                        = connection->as4 ;
-  session->route_refresh_pre          = connection->route_refresh_pre ;
-  session->orf_prefix_pre             = connection->orf_prefix_pre ;
+  session->route_refresh_pre          = connection->route_refresh ;
+  session->orf_prefix_pre             = connection->orf_prefix ;
 
   sockunion_set_mov(&session->su_local,  &connection->su_local) ;
   sockunion_set_mov(&session->su_remote, &connection->su_remote) ;
@@ -902,7 +902,7 @@ bgp_connection_read_action(qps_file qf, void* file_info)
    *
    * Exits loop iff completes a BGP message.
    */
-  while (want > 0)
+  while (1)
     {
       ret = stream_read_nonblock(connection->ibuf, qps_file_fd(&connection->qf),
                                                                          want) ;
@@ -922,6 +922,8 @@ bgp_connection_read_action(qps_file qf, void* file_info)
 
           want = bgp_msg_check_header(connection) ;
                                         /* returns balance of message   */
+          if (want == 0)
+            break ;
         }
       else
         {
@@ -930,11 +932,11 @@ bgp_connection_read_action(qps_file qf, void* file_info)
         } ;
     } ;
 
-  if (want < 0)
-    return ;                    /* failed in header check       */
-
-  /* Deal with the BGP message.  MUST remove from ibuf before returns ! */
-  bgp_msg_dispatch(connection) ;
+  /* Deal with the BGP message.  MUST remove from ibuf before returns !
+   *
+   * NB: size passed is the size of the *body* of the message.
+   */
+  connection->msg_func(connection, connection->msg_body_size) ;
 
   /* Ready to read another message                                      */
   connection->read_pending = 0 ;

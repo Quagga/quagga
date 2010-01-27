@@ -36,6 +36,7 @@
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_open_state.h"
 #include "bgpd/bgp_notification.h"
+#include "bgpd/bgp_msg_read.h"
 
 #ifndef Inline
 #define Inline static inline
@@ -161,8 +162,8 @@ struct bgp_connection
   unsigned  keepalive_timer_interval ;  /* subject to negotiation         */
 
   flag_t            as4 ;               /* subject to negotiation         */
-  flag_t            route_refresh_pre ; /* subject to negotiation         */
-  flag_t            orf_prefix_pre ;    /* subject to negotiation         */
+  flag_t            route_refresh ;     /* subject to negotiation         */
+  flag_t            orf_prefix ;        /* subject to negotiation         */
 
   struct qtimer     hold_timer ;
   struct qtimer     keepalive_timer ;
@@ -172,7 +173,8 @@ struct bgp_connection
 
   flag_t            read_header ;       /* reading message header         */
   uint8_t           msg_type ;          /* copy of message type           */
-  bgp_size_t        msg_size ;          /* size of message *body*         */
+  bgp_size_t        msg_body_size ;     /* size of message *body*         */
+  bgp_msg_handler*  msg_func ;          /* function to handle message     */
 
   struct stream*    obuf ;              /* a single output "stream"       */
 

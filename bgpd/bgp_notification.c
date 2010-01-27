@@ -79,6 +79,23 @@ bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
 } ;
 
 /*------------------------------------------------------------------------------
+ * Allocate and initialise new notification, complete with data
+ *
+ * Can specify an expected amount of data.
+ */
+extern bgp_notify
+bgp_notify_new_with_data(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
+                                               const void* data, bgp_size_t len)
+{
+  bgp_notify notification ;
+
+  notification = bgp_notify_new(code, subcode, len) ;
+  bgp_notify_append_data(notification, data, len) ;
+
+  return notification ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Free notification structure
  *
  * Does nothing if there is no structure.

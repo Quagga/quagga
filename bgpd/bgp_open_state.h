@@ -33,21 +33,6 @@
 #endif
 
 /*==============================================================================
- * Some BGP Capabilities have old and new forms.  Wish to control whether to
- * send both old and/or new forms, and to track what form(s) received the
- * capability in.
- */
-typedef enum bgp_cap_form bgp_cap_form_t ;
-
-enum bgp_cap_form
-{
-  bgp_cap_form_none     = 0,
-  bgp_cap_form_old      = 1,
-  bgp_cap_form_new      = 2,
-  bgp_cap_form_both     = 3     /* _old and _new are bits !     */
-} ;
-
-/*==============================================================================
  * BGP Open State.
  *
  * This structure encapsulates all the information that may be sent/received
@@ -63,18 +48,42 @@ struct bgp_cap_unknown                /* to capture unknown capability      */
   uint8_t       value[] ;
 } ;
 
+typedef struct bgp_cap_mp* bgp_cap_mp ;
+struct bgp_cap_mp
+{
+} ;
+
 typedef struct bgp_cap_orf* bgp_cap_orf ;
 struct bgp_cap_orf
 {
-  flag_t      known_afi_safi ;
   flag_t      known_orf_type ;
-
-  iAFI_t      afi ;
-  iSAFI_t     safi ;
 
   uint8_t     type ;
   flag_t      send ;
   flag_t      recv ;
+} ;
+
+typedef struct bgp_cap_gr* bgp_cap_gr ;
+struct bgp_cap_gr
+{
+  flag_t      has_preserved ;
+} ;
+
+typedef struct bgp_cap_afi_safi* bgp_cap_afi_safi ;
+struct bgp_cap_afi_safi
+{
+  flag_t      known_afi_safi ;
+
+  iAFI_t      afi ;
+  iSAFI_t     safi ;
+
+  uint8_t     cap_code ;        /* eg BGP_CAN_MP_EXT    */
+  union
+  {
+    struct bgp_cap_mp    mp ;
+    struct bgp_cap_orf   orf ;
+    struct bgp_cap_gr    gr ;
+  } caps ;
 } ;
 
 struct bgp_open_state
@@ -90,8 +99,8 @@ struct bgp_open_state
 
   qafx_set_t  can_mp_ext ;            /* will accept, may send these        */
 
-  bgp_cap_form_t can_r_refresh ;      /* none/old/new/both                  */
-  bgp_cap_form_t can_orf_prefix ;     /* none/old/new/both                  */
+  bgp_form_t  can_r_refresh ;         /* none/old/new/both                  */
+  bgp_form_t  can_orf_prefix ;        /* none/old/new/both                  */
 
   qafx_set_t  can_orf_prefix_send ;   /* wish to send ORF Prefix-List       */
   qafx_set_t  can_orf_prefix_recv ;   /* will accept  ORF Prefix-List       */
@@ -106,6 +115,7 @@ struct bgp_open_state
   int         restart_time ;          /* Restart Time in seconds            */
 
   struct vector   unknowns ;          /* list of bgp_cap_unknown            */
+  struct vector   afi_safi ;          /* various afi/safi capabilities      */
 } ;
 
 /*==============================================================================
@@ -132,6 +142,15 @@ bgp_open_state_unknown_count(bgp_open_state state) ;
 
 extern bgp_cap_unknown
 bgp_open_state_unknown_cap(bgp_open_state state, unsigned index) ;
+
+extern bgp_cap_afi_safi
+bgp_open_state_afi_safi_add(bgp_open_state state, iAFI_t afi, iSAFI_t safi,
+                                               flag_t known, uint8_t cap_code) ;
+extern int
+bgp_open_state_afi_safi_count(bgp_open_state state) ;
+
+extern bgp_cap_afi_safi
+bgp_open_state_afi_safi_cap(bgp_open_state state, unsigned index) ;
 
 extern bgp_open_state
 bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer);
