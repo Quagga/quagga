@@ -78,12 +78,16 @@
  *          1 => written to wbuff -- waiting for socket
  *          0 => nothing written  -- insufficient space in wbuff
  *         -1 => failed           -- error event generated
+ *
+ * NB: requires the session LOCKED -- connection-wise
  */
 extern int
 bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
 {
   struct stream *s = connection->obuf ;
   int    length;
+
+  ++connection->session->stats.notify_out ;
 
   assert(notification != NULL) ;
 
@@ -156,6 +160,8 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
  *          1 => written to wbuff -- waiting for socket
  *          0 => nothing written  -- insufficient space in wbuff
  *         -1 => failed           -- error event generated
+ *
+ * NB: requires the session LOCKED -- connection-wise
  */
 extern int
 bgp_msg_send_keepalive(bgp_connection connection)
@@ -165,6 +171,8 @@ bgp_msg_send_keepalive(bgp_connection connection)
 
   if (!bgp_connection_write_empty(connection))
     return 0 ;
+
+  ++connection->session->stats.keepalive_out ;
 
   /* Make KEEPALIVE message -- comprises header only    */
   bgp_packet_set_marker(s, BGP_MSG_KEEPALIVE);
@@ -204,6 +212,8 @@ bgp_open_capability_orf (struct stream *s, iAFI_t afi, iSAFI_t safi,
  *          1 => written to wbuff -- waiting for socket
  *          0 => nothing written  -- wbuff was too full !!!
  *         -1 => failed           -- error event generated
+ *
+ * NB: requires the session LOCKED -- connection-wise
  */
 extern int
 bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
@@ -212,6 +222,8 @@ bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
   int    length ;
 
   assert(bgp_connection_write_empty(connection)) ;
+
+  ++connection->session->stats.open_out ;
 
   /* Make OPEN message header                   */
   bgp_packet_set_marker(s, BGP_MSG_OPEN) ;
@@ -479,6 +491,8 @@ bgp_msg_orf_prefix(struct stream* s, uint8_t common,
  * Returns: > 0 => all written
  *            0 => unable to write everything
  *          < 0 => failed -- error event generated
+ *
+ * NB: requires the session LOCKED -- connection-wise
  */
 extern int
 bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr)
@@ -488,6 +502,8 @@ bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr)
   flag_t     done ;
   bgp_size_t msg_len ;
   int        ret ;
+
+  ++connection->session->stats.refresh_out ;
 
   msg_type = (connection->route_refresh == bgp_form_pre)
                                                      ? BGP_MT_ROUTE_REFRESH_pre
@@ -767,12 +783,16 @@ bgp_msg_orf_prefix(struct stream* s, uint8_t common,
  *          1 => written to wbuff -- waiting for socket
  *          0 => nothing written  -- insufficient space in wbuff
  *         -1 => failed           -- error event generated
+ *
+ * NB: requires the session LOCKED -- connection-wise
  */
 extern int
 bgp_msg_send_update(bgp_connection connection, struct stream* s)
 {
   if (bgp_connection_write_full(connection))
     return 0 ;
+
+  ++connection->session->stats.update_out ;
 
   return bgp_connection_write(connection, s) ;
 } ;

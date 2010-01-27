@@ -27,13 +27,13 @@
 #include "log.h"
 #include "if.h"
 #include "prefix.h"
-//#include "command.h"
 #include "privs.h"
+#include "qpselect.h"
 
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_network.h"
+#include "bgpd/bgp_peer_index.h"
 
-#include "bgpd/bgp_engine.h"
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_connection.h"
 #include "bgpd/bgp_fsm.h"
@@ -437,7 +437,6 @@ static void
 bgp_accept_action(qps_file qf, void* file_info)
 {
   bgp_connection  connection ;
-  bgp_session     session ;
   union sockunion su_remote ;
   union sockunion su_local ;
   int  exists ;
@@ -460,8 +459,8 @@ bgp_accept_action(qps_file qf, void* file_info)
                                                   inet_sutop(&su_remote, buf)) ;
 
   /* See if we are ready to accept connections from the connecting party    */
-  session = bgp_session_index_seek(&su_remote, &exists) ;
-  if (session != NULL)
+  connection = bgp_peer_index_seek_accept(&su_remote, &exists) ;
+  if (connection != NULL)
     {
       if (BGP_DEBUG(events, EVENTS))
 	zlog_debug(exists
@@ -484,7 +483,7 @@ bgp_accept_action(qps_file qf, void* file_info)
    * except under the mutex, and will not destroy the session.
    */
 
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_CONNECTION_SESSION_LOCK(connection) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
   /* Set the common socket options.
    * Does not set password -- that is inherited from the listener.
@@ -497,16 +496,15 @@ bgp_accept_action(qps_file qf, void* file_info)
 
   ret = bgp_getsockname(fd, &su_local, &su_remote) ;
   if (ret != 0)
-    ret = bgp_socket_set_common_options(fd, &su_remote, session->ttl, NULL) ;
-
-  connection = session->connections[bgp_connection_secondary] ;
+    ret = bgp_socket_set_common_options(fd, &su_remote,
+                                               connection->session->ttl, NULL) ;
 
   if (ret == 0)
     bgp_connection_open(connection, fd) ;
   else
     close(fd) ;
 
-  BGP_SESSION_UNLOCK(session) ; /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_CONNECTION_SESSION_UNLOCK(connection) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
   /* Now kick the FSM in an appropriate fashion                         */
   bgp_fsm_connect_completed(connection, ret, &su_local, &su_remote) ;
@@ -516,8 +514,8 @@ bgp_accept_action(qps_file qf, void* file_info)
  * Open BGP Connection -- connect() to the other end
  */
 
-static int bgp_bind(bgp_connection connection) ;
-static int bgp_update_source (bgp_connection connection) ;
+static int bgp_bind_ifname(bgp_connection connection, int fd) ;
+static int bgp_bind_ifaddress(bgp_connection connection, int fd) ;
 
 /*------------------------------------------------------------------------------
  * Open BGP Connection -- connect() to the other end
@@ -534,7 +532,6 @@ static int bgp_update_source (bgp_connection connection) ;
 extern void
 bgp_open_connect(bgp_connection connection)
 {
-  unsigned int ifindex = 0 ;
   int   fd ;
   int   ret ;
   union sockunion* su = connection->session->su_peer ;
@@ -550,18 +547,11 @@ bgp_open_connect(bgp_connection connection)
 
   /* Bind socket.                                                       */
   if (ret == 0)
-    ret = bgp_bind(connection) ;
+    ret = bgp_bind_ifname(connection, fd) ;
 
   /* Update source bind.                                                */
   if (ret == 0)
-    ret = bgp_update_source(connection) ;
-
-#if 0                   /* TODO: worry about peer->ifname and sessions !    */
-#ifdef HAVE_IPV6
-  if (peer->ifname)
-    ifindex = if_nametoindex(peer->ifname);
-#endif /* HAVE_IPV6 */
-#endif
+    ret = bgp_bind_ifaddress(connection, fd) ;
 
   if (BGP_DEBUG(events, EVENTS))
     plog_debug(connection->log, "%s [Event] Connect start to %s fd %d",
@@ -569,7 +559,8 @@ bgp_open_connect(bgp_connection connection)
 
   /* Connect to the remote peer.        */
   if (ret == 0)
-    ret = sockunion_connect(fd, su, connection->session->port, ifindex) ;
+    ret = sockunion_connect(fd, su, connection->session->port,
+                                                 connection->session->ifindex) ;
                           /* does not report EINPROGRESS as an error.   */
 
   /* If not OK now, close the fd and signal the error                   */
@@ -669,6 +660,25 @@ bgp_connect_action(qps_file qf, void* file_info)
 } ;
 
 /*==============================================================================
+ * Set the TTL for the given connection (if any), if there is an fd.
+ */
+extern void
+bgp_set_ttl(bgp_connection connection, int ttl)
+{
+  int fd ;
+
+  if (connection == NULL)
+    return ;
+
+  fd = qps_file_fd(&connection->qf) ;
+  if (fd < 0)
+    return ;
+
+  if (ttl != 0)
+    sockopt_ttl(connection->paf, fd, ttl) ;
+} ;
+
+/*==============================================================================
  * Get local and remote address and port for connection.
  */
 static int
@@ -679,10 +689,6 @@ bgp_getsockname(int fd, union sockunion* su_local, union sockunion* su_remote)
   ret_l = sockunion_getsockname(fd, su_local) ;
   ret_r = sockunion_getpeername(fd, su_remote) ;
 
-#if 0           /* TODO: restore setting of peer->nexthop       */
-  bgp_nexthop_set(peer->su_local, peer->su_remote, &peer->nexthop, peer);
-#endif
-
   return (ret_l != 0) ? ret_l : ret_r ;
 } ;
 
@@ -690,9 +696,6 @@ bgp_getsockname(int fd, union sockunion* su_local, union sockunion* su_remote)
  * Specific binding of outbound connections to interfaces...
  *
  */
-
-static struct in_addr* bgp_update_address (struct interface *ifp) ;
-static int bgp_bind_address (int sock, struct in_addr *addr) ;
 
 /*------------------------------------------------------------------------------
  * BGP socket bind.
@@ -705,34 +708,41 @@ static int bgp_bind_address (int sock, struct in_addr *addr) ;
  *        != 0 : error number (from errno or otherwise)
  */
 static int
-bgp_bind(bgp_connection connection)
+bgp_bind_ifname(bgp_connection connection, int fd)
 {
-#if 0                   /* TODO: restore binding to specific interfaces     */
 #ifdef SO_BINDTODEVICE
-  int ret;
+  int ret, retp ;
   struct ifreq ifreq;
 
-  if (! peer->ifname)
+  if (connection->session->ifname == NULL)
     return 0;
 
-  strncpy ((char *)&ifreq.ifr_name, peer->ifname, sizeof (ifreq.ifr_name));
+  strncpy ((char *)&ifreq.ifr_name, connection->session->ifname,
+                                                       sizeof (ifreq.ifr_name));
 
-  if ( bgpd_privs.change (ZPRIVS_RAISE) )
-        zlog_err ("bgp_bind: could not raise privs");
+  ret  = 0 ;
+  retp = 0 ;
+  if (bgpd_privs.change (ZPRIVS_RAISE))
+    {
+      zlog_err ("bgp_bind: could not raise privs");
+      retp = -1 ;
+    } ;
 
-  ret = setsockopt (peer->fd, SOL_SOCKET, SO_BINDTODEVICE,
-                    &ifreq, sizeof (ifreq));
+  ret = setsockopt (fd, SOL_SOCKET, SO_BINDTODEVICE, &ifreq, sizeof (ifreq));
 
   if (bgpd_privs.change (ZPRIVS_LOWER) )
-    zlog_err ("bgp_bind: could not lower privs");
-
-  if (ret < 0)
     {
-      zlog (peer->log, LOG_INFO, "bind to interface %s failed", peer->ifname);
-      return ret;
+      zlog_err ("bgp_bind: could not lower privs");
+      retp = -1 ;
+    } ;
+
+  if ((ret < 0) || (retp < 0))
+    {
+      zlog (connection->log, LOG_INFO, "bind to interface %s failed",
+                                                   connection->session->ifname);
+      return -1 ;
     }
 #endif /* SO_BINDTODEVICE */
-#endif
   return 0;
 } ;
 
@@ -743,92 +753,15 @@ bgp_bind(bgp_connection connection)
  *        != 0 : error number (from errno or otherwise)
  */
 static int
-bgp_update_source (bgp_connection connection)
+bgp_bind_ifaddress(bgp_connection connection, int fd)
 {
-#if 0                           /* TODO: restore update-source handling */
-  struct interface *ifp;
-  struct in_addr *addr;
-
-  /* Source is specified with interface name.  */
-  if (peer->update_if)
+  if (connection->session->ifaddress != NULL)
     {
-      ifp = if_lookup_by_name (peer->update_if);
-      if (! ifp)
-        return;
-
-      addr = bgp_update_address (ifp);
-      if (! addr)
-        return;
-
-      bgp_bind_address (peer->fd, addr);
-    }
-
-  /* Source is specified with IP address.  */
-  if (peer->update_source)
-    sockunion_bind (peer->fd, peer->update_source, 0, peer->update_source);
-#else
-  return bgp_bind_address(0, bgp_update_address (NULL)) ;
-                                       /* returns 0 -- avoid warnings   */
-#endif
+      union sockunion su = *(connection->session->ifaddress) ;
+      return sockunion_bind (fd, &su, 0, &su) ;
+    } ;
+  return 0 ;
 } ;
-
-/*------------------------------------------------------------------------------
- * Bind given socket to given address...  ???
- *
- */
-static int
-bgp_bind_address (int sock, struct in_addr *addr)
-{
-#if 0                           /* TODO: restore update-source handling */
-
-  int ret;
-  struct sockaddr_in local;
-
-  memset (&local, 0, sizeof (struct sockaddr_in));
-  local.sin_family = AF_INET;
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-  local.sin_len = sizeof(struct sockaddr_in);
-#endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
-  memcpy (&local.sin_addr, addr, sizeof (struct in_addr));
-
-  if ( bgpd_privs.change (ZPRIVS_RAISE) )
-    zlog_err ("bgp_bind_address: could not raise privs");
-
-  ret = bind (sock, (struct sockaddr *)&local, sizeof (struct sockaddr_in));
-  if (ret < 0)
-    ;
-
-  if (bgpd_privs.change (ZPRIVS_LOWER) )
-    zlog_err ("bgp_bind_address: could not lower privs");
-
-#endif
-  return 0;
-} ;
-
-/*------------------------------------------------------------------------------
- * Update address....  ???
- *
- * Returns: address of IPv4 prefix
- *      or: NULL
- */
-static struct in_addr *
-bgp_update_address (struct interface *ifp)
-{
-#if 0                           /* TODO: restore update-source handling */
-  struct prefix_ipv4 *p;
-  struct connected *connected;
-  struct listnode *node;
-
-  for (ALL_LIST_ELEMENTS_RO (ifp->connected, node, connected))
-    {
-      p = (struct prefix_ipv4 *) connected->address;
-
-      if (p->family == AF_INET)
-        return &p->prefix;
-    }
-#endif
-  return NULL;
-}
 
 /*==============================================================================
  * BGP Socket Option handling

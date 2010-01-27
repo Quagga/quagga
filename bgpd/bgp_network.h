@@ -39,4 +39,7 @@ bgp_prepare_to_accept(bgp_connection connection) ;
 extern void
 bgp_not_prepared_to_accept(bgp_connection connection) ;
 
+extern void
+bgp_set_ttl(bgp_connection connection, int ttl) ;
+
 #endif /* _QUAGGA_BGP_NETWORK_H */

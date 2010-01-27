@@ -735,6 +735,37 @@ sockunion_free (union sockunion *su)
  * Sockunion reference utilities
  */
 
+extern sockunion
+sockunion_new(struct prefix* p)
+{
+  sockunion nsu = XCALLOC (MTYPE_SOCKUNION, sizeof (union sockunion)) ;
+
+  if (p == NULL)
+    return NULL ;
+
+  switch (p->family)
+  {
+    case AF_INET:
+      nsu->sin.sin_family = AF_INET ;
+      nsu->sin.sin_port   = 0 ;
+      nsu->sin.sin_addr   = p->u.prefix4 ;
+      break ;
+
+#ifdef HAVE_IPV6
+    case AF_INET6:
+      nsu->sin6.sin6_family = AF_INET ;
+      nsu->sin6.sin6_port   = 0 ;
+      nsu->sin6.sin6_addr   = p->u.prefix6 ;
+      break ;
+#endif
+
+    default:
+      break ;
+  } ;
+
+  return nsu ;
+} ;
+
 /*------------------------------------------------------------------------------
  * Unset pointer to sockunion -- free any sockunion referenced
  *
@@ -744,7 +775,7 @@ extern void
 sockunion_unset(sockunion* p_su)
 {
   if (*p_su != NULL)
-    XFREE(MTYPE_BGP_NOTIFY, *p_su) ;    /* sets *p_su NULL */
+    XFREE(MTYPE_SOCKUNION, *p_su) ;    /* sets *p_su NULL */
 } ;
 
 /*------------------------------------------------------------------------------

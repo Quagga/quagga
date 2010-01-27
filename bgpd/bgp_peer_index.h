@@ -53,7 +53,7 @@ struct bgp_peer_index_entry
    * facilitate this.
    */
 
-  bgp_session   accept ;        /* used by BGP Engine                   */
+  bgp_connection accept ;       /* used by BGP Engine                   */
 
   bgp_peer_id_t id ;            /* maps IP address to peer_id           */
 } ;
@@ -83,13 +83,13 @@ extern void
 bgp_peer_index_deregister(bgp_peer peer, union sockunion* su) ;
 
 extern bgp_peer
-bgp_peer_index_seek(union sockunion* su) ;
+bgp_peer_index_seek(sockunion su) ;
 
 extern bgp_peer_index_entry
-bgp_peer_index_seek_entry(union sockunion* su) ;
+bgp_peer_index_seek_entry(sockunion su) ;
 
-extern bgp_session
-bgp_session_index_seek(union sockunion* su, int* p_found) ;
+extern bgp_connection
+bgp_peer_index_seek_accept(sockunion su, int* p_found) ;
 
 #endif /* _QUAGGA_BGP_PEER_INDEX_H */
 

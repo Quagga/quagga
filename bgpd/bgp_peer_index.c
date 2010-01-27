@@ -283,20 +283,20 @@ bgp_peer_index_seek_entry(union sockunion* su)
  *
  * For use by the BGP Engine.
  *
- * Returns: bgp_session if: peer with given address is configured
- *                     and: the session is prepared to accept()
+ * Returns: bgp_connection if: peer with given address is configured
+ *                        and: the session is prepared to accept()
  *
  *      or: NULL otherwise
  *
  * Sets *p_found <=> a peer with the given address is configured.
  *
- * NB: the BGP Engine sets/clears the pointer to the session.  The pointer is
- *     initialised NULL when the index entry is created.
+ * NB: the BGP Engine sets/clears the pointer to the connection.  The pointer
+ *     is initialised NULL when the index entry is created.
  */
-extern bgp_session
-bgp_session_index_seek(union sockunion* su, int* p_found)
+extern bgp_connection
+bgp_peer_index_seek_accept(union sockunion* su, int* p_found)
 {
-  bgp_session accept ;
+  bgp_connection accept ;
   bgp_peer_index_entry entry ;
 
   BGP_PEER_INDEX_LOCK() ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/

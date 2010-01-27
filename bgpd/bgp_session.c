@@ -28,6 +28,7 @@
 #include "bgpd/bgp_open_state.h"
 #include "bgpd/bgp_route_refresh.h"
 #include "bgpd/bgp_msg_write.h"
+#include "bgpd/bgp_network.h"
 
 #include "bgpd/bgp_packet.h"
 
@@ -150,6 +151,10 @@ bgp_session_init_new(bgp_session session, bgp_peer peer)
    *   as_peer        -- unset
    *   su_peer        -- NULL -- none
    *
+   *   ifname         -- NULL -- none
+   *   ifindex        -- 0    -- none
+   *   ifaddress      -- NULL -- none
+   *
    *   log            -- NULL -- none
    *   host           -- NULL -- none
    *   password       -- NULL -- none
@@ -190,10 +195,16 @@ bgp_session_free(bgp_session session)
   bgp_notify_free(session->notification);
   bgp_open_state_free(session->open_send);
   bgp_open_state_free(session->open_recv);
+  if (session->ifname != NULL)
+    free(session->ifname) ;
+  sockunion_unset(&session->ifaddress) ;
+  sockunion_unset(&session->su_peer) ;
   if (session->host != NULL)
-    XFREE(MTYPE_BGP_SESSION, session->host);
+    XFREE(MTYPE_BGP_PEER_HOST, session->host);
   if (session->password != NULL)
-    XFREE(MTYPE_BGP_SESSION, session->password);
+    XFREE(MTYPE_PEER_PASSWORD, session->password);
+  sockunion_unset(&session->su_local) ;
+  sockunion_unset(&session->su_remote) ;
 
   /* Zeroize to catch dangling references asap */
   memset(session, 0, sizeof(struct bgp_session)) ;
@@ -256,20 +267,38 @@ bgp_session_enable(bgp_peer peer)
   session->ttl      = peer->ttl ;
   session->port     = peer->port ;
 
+  if (session->ifname != NULL)
+    free(session->ifname) ;
+  session->ifindex = 0 ;
+
+  if (peer->ifname != NULL)
+    {
+      session->ifname  = strdup(peer->ifname) ;
+      session->ifindex = if_nametoindex(peer->ifname) ;
+    } ;
+
+  sockunion_unset(&session->ifaddress) ;
+  if      (peer->update_source != NULL)
+    session->ifaddress = sockunion_dup(peer->update_source) ;
+  else if (peer->update_if != NULL)
+    session->ifaddress = bgp_peer_get_ifaddress(peer, peer->update_if,
+                                                        peer->su.sa.sa_family) ;
+
   session->as_peer  = peer->as ;
-  session->su_peer  = sockunion_dup(&peer->su) ;
+  sockunion_set_dup(&session->su_peer, &peer->su) ;
 
   session->log      = peer->log ;
 
   /* take copies of host and password */
-  XFREE(MTYPE_BGP_SESSION, session->host);
+  if (session->host != NULL)
+    XFREE(MTYPE_BGP_PEER_HOST, session->host);
   session->host     = (peer->host != NULL)
-                        ? XSTRDUP(MTYPE_BGP_SESSION, peer->host)
+                        ? XSTRDUP(MTYPE_BGP_PEER_HOST, peer->host)
                         : NULL;
-
-  XFREE(MTYPE_BGP_SESSION, session->password);
+  if (session->password != NULL)
+    XFREE(MTYPE_PEER_PASSWORD, session->password);
   session->password = (peer->password != NULL)
-                        ? XSTRDUP(MTYPE_BGP_SESSION, peer->password)
+                        ? XSTRDUP(MTYPE_PEER_PASSWORD, peer->password)
                         : NULL;
 
   session->idle_hold_timer_interval     = peer->v_start ;
@@ -890,9 +919,17 @@ bgp_session_do_set_ttl(mqueue_block mqb, mqb_flag_t flag)
 
   if (flag == mqb_action)
     {
-      bgp_session session = mqb_get_arg0(mqb);
-      struct bgp_session_ttl_args *args = mqb_get_args(mqb);
-      /* TODO ttl */
+      bgp_session session = mqb_get_arg0(mqb) ;
+      struct bgp_session_ttl_args *args = mqb_get_args(mqb) ;
+
+      BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+
+      session->ttl = args->ttl ;
+
+      bgp_set_ttl(session->connections[bgp_connection_primary], session->ttl) ;
+      bgp_set_ttl(session->connections[bgp_connection_secondary], session->ttl);
+
+      BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
     }
 
   mqb_free(mqb) ;

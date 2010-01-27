@@ -34,6 +34,7 @@
 #include "lib/mqueue.h"
 #include "lib/symtab.h"
 #include "lib/stream.h"
+#include "lib/sockunion.h"
 
 /*==============================================================================
  * BGP Connections.
@@ -143,8 +144,11 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
                                                bgp_write_buffer_full_threshold ;
 
   /* Link back to session, point at its mutex and point session here        */
-  connection->session  = session ;
-  connection->p_mutex  = &session->mutex ;
+  connection->session    = session ;
+  connection->p_mutex    = &session->mutex ;
+  connection->lock_count = 0 ;  /* no question about it         */
+
+  connection->paf = sockunion_family(session->su_peer) ;
 
   connection->ordinal  = ordinal ;
   connection->accepted = (ordinal == bgp_connection_secondary) ;
@@ -177,6 +181,32 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
 } ;
 
 /*------------------------------------------------------------------------------
+ * Cut connection free from session.
+ *
+ * NB: will release any lock on the session.  The bumps the lock count up
+ *     so that will neither lock nor unlock the session again.
+ *
+ *     It's only necessary to bump the count by 1, because all locks must be
+ *     exactly balanced by unlocks.  However, adding a big number makes this
+ *     stand out.
+ */
+extern void
+BGP_CONNECTION_SESSION_CUT_LOOSE(bgp_connection connection)
+{
+  if (connection->session != NULL)
+    {
+      if (connection->lock_count != 0)
+        qpt_mutex_unlock(connection->p_mutex) ;
+
+      connection->lock_count += 10000 ;
+
+      connection->session->connections[connection->ordinal] = NULL ;
+      connection->session = NULL ;
+      connection->p_mutex = NULL ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Set the host field for the connection to session->host + given tag.
  *
  * NB: requires the session to be LOCKED.
@@ -186,6 +216,8 @@ bgp_connection_init_host(bgp_connection connection, const char* tag)
 {
   const char* host = connection->session->host ;
 
+  if (connection->host != NULL)
+    XFREE(MTYPE_BGP_PEER_HOST, connection->host) ;
   connection->host = XMALLOC(MTYPE_BGP_PEER_HOST, strlen(host)
                                                 + strlen(tag) + 1) ;
   strcpy(connection->host, host) ;
@@ -241,7 +273,8 @@ bgp_connection_make_primary(bgp_connection connection)
    */
   bgp_open_state_set_mov(&session->open_recv, &connection->open_recv) ;
 
-  XFREE(MTYPE_BGP_PEER_HOST, connection->host) ;
+  if (connection->host != NULL)
+    XFREE(MTYPE_BGP_PEER_HOST, connection->host) ;
   bgp_connection_init_host(connection, "") ;
 
   session->hold_timer_interval        = connection->hold_timer_interval ;
@@ -516,7 +549,7 @@ bgp_connection_open(bgp_connection connection, int fd)
 extern void
 bgp_connection_enable_accept(bgp_connection connection)
 {
-  connection->session->index_entry->accept = connection->session ;
+  connection->session->index_entry->accept = connection ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -881,6 +914,7 @@ static void
 bgp_connection_read_action(qps_file qf, void* file_info)
 {
   bgp_connection connection = file_info ;
+
   int want ;
   int ret ;
 
@@ -934,11 +968,22 @@ bgp_connection_read_action(qps_file qf, void* file_info)
 
   /* Deal with the BGP message.  MUST remove from ibuf before returns !
    *
+   * NB: if the session pointer is NULL, that means the connection has been
+   *     cut from the session, so no point dealing with the message.
+   *
+   * NB: if something goes wrong while processing the message,
+   *
    * NB: size passed is the size of the *body* of the message.
    */
-  connection->msg_func(connection, connection->msg_body_size) ;
+   if (connection->session != NULL)      /* don't bother if session gone ! */
+     {
+       BGP_CONNECTION_SESSION_LOCK(connection) ;    /*<<<<<<<<<<<<<<<<<<<<<<<<*/
+
+       connection->msg_func(connection, connection->msg_body_size) ;
+
+       BGP_CONNECTION_SESSION_UNLOCK(connection) ;  /*>>>>>>>>>>>>>>>>>>>>>>>>*/
+    } ;
 
   /* Ready to read another message                                      */
   connection->read_pending = 0 ;
 } ;
-

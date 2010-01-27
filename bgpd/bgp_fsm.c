@@ -629,6 +629,8 @@ bgp_fsm_connect_completed(bgp_connection connection, int err,
 
       sockunion_set_dup(&connection->su_local,  su_local) ;
       sockunion_set_dup(&connection->su_remote, su_remote) ;
+
+      connection->paf = sockunion_family(connection->su_local) ;
     }
   else if (   (err == ECONNREFUSED)
            || (err == ECONNRESET)
@@ -1559,7 +1561,6 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state) ;
 extern void
 bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
 {
-  bgp_session     session ;
   bgp_fsm_state_t next_state ;
   const struct bgp_fsm* fsm ;
 
@@ -1584,10 +1585,8 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
    *
    *     The session lock does nothing if no session is attached.
    */
-  session = connection->session ;
 
-  if (session != NULL)
-    BGP_SESSION_LOCK(session) ; /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_CONNECTION_SESSION_LOCK(connection) ; /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
   do
     {
@@ -1639,30 +1638,34 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
     } while (--connection->fsm_active != 0) ;
 
   /* If required, post session event.                                   */
-
-  if ((connection->except != bgp_session_null_event) && (session != NULL))
+  if (connection->except != bgp_session_null_event)
     {
+      int stopped     = (connection->state == bgp_fsm_sStopping) ;
+      int has_session = (connection->session != NULL) ;
+
       /* Some exceptions are not reported to the Routeing Engine
        *
        * In particular: eDiscard and eCollision -- so the only time the
        * connection->state will be Stopping is when the session is being
        * stopped.  (eDiscard and eCollision go quietly to Stopping !)
        */
-      if (connection->except <= bgp_session_max_event)
-        bgp_session_event(session, connection->except,
+      if ((connection->except <= bgp_session_max_event) && has_session)
+        bgp_session_event(connection->session, connection->except,
                                    bgp_notify_take(&connection->notification),
                                    connection->err,
                                    connection->ordinal,
-                                  (connection->state == bgp_fsm_sStopping)) ;
+                                   stopped) ;
 
       /* Tidy up -- notification already cleared                        */
       connection->except = bgp_session_null_event ;
       connection->err    = 0 ;
       bgp_notify_unset(&connection->notification) ;     /* if any       */
-    }
 
-  if (session != NULL)
-    BGP_SESSION_UNLOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+      if (stopped && has_session)
+        BGP_CONNECTION_SESSION_CUT_LOOSE(connection) ;
+    } ;
+
+  BGP_CONNECTION_SESSION_UNLOCK(connection) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 } ;
 
 /*==============================================================================
@@ -2095,9 +2098,6 @@ static bgp_fsm_action(bgp_fsm_establish)
  */
 static bgp_fsm_action(bgp_fsm_recv_kal)
 {
-  /* peer count update */
-//peer->keepalive_in++;
-
   bgp_hold_timer_recharge(connection) ;
   return next_state ;
 } ;
@@ -2168,7 +2168,7 @@ static bgp_fsm_action(bgp_fsm_exit)
  *
  *   * send message to Routeing Engine
  *
- * NB: requires the session LOCKED
+ * NB: requires the session LOCKED -- connection-wise
  */
 static bgp_fsm_state_t
 bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
@@ -2217,6 +2217,8 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
  *
  * When get Sent_NOTIFICATION_message, will set final "courtesy" timer, so
  * unless I/O fails, final end of process is HoldTimer expired (with
+ *
+ * NB: requires the session to be locked -- connection-wise.
  *
  * NB: leaves the notification sitting in the connection.
  */
@@ -2512,10 +2514,6 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
         qtimer_unset(&connection->hold_timer) ;
 
       qtimer_unset(&connection->keepalive_timer) ;
-
-      session->connections[connection->ordinal] = NULL ;
-      connection->session = NULL ;
-      connection->p_mutex = NULL ;
 
       break ;
 

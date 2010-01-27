@@ -51,6 +51,7 @@
 #include "plist.h"
 #include "mqueue.h"
 #include "workqueue.h"
+#include "if.c"
 
 #ifdef HAVE_SNMP
 #include "bgpd/bgp_snmp.h"
@@ -163,6 +164,12 @@ bgp_session_has_established(bgp_peer peer)
 
   /* update peer state from received open */
   bgp_peer_open_state_receive(peer);
+
+  /* get the local and remote addresses, and set the nexthop.   */
+
+  sockunion_set_dup(&peer->su_local,  session->su_local) ;
+  sockunion_set_dup(&peer->su_remote, session->su_remote) ;
+  bgp_nexthop_set(peer->su_local, peer->su_remote, &peer->nexthop, peer) ;
 
   /* Reset capability open status flag. */
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN))
@@ -1021,3 +1028,38 @@ peer_change_status (bgp_peer peer, int status)
                 LOOKUP (bgp_peer_status_msg, peer->ostate),
                 LOOKUP (bgp_peer_status_msg, peer->state));
 }
+
+/*==============================================================================
+ * For the given interface name, get a suitable address so can bind() before
+ * connect() so that we use the required interface.
+ *
+ *
+ *
+ */
+extern sockunion
+bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, pAF_t paf)
+{
+  struct interface* ifp ;
+  struct connected* connected;
+  struct listnode*  node;
+
+  if (ifname == NULL)
+    return NULL ;
+
+  ifp = if_lookup_by_name (peer->update_if) ;
+  if (ifp == NULL)
+    {
+      zlog_err("Peer %s interface %s is not known", peer->host, ifname) ;
+      return NULL ;
+    } ;
+
+  for (ALL_LIST_ELEMENTS_RO (ifp->connected, node, connected))
+    {
+      if (connected->address->family == paf)
+        return sockunion_new(connected->address) ;
+    } ;
+
+  zlog_err("Peer %s interface %ss has no suitable address", peer->host, ifname);
+
+  return NULL ;
+} ;

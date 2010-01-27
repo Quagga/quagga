@@ -29,6 +29,8 @@
 #define Inline static inline
 #endif
 
+typedef const union sockunion* const_sockunion ;
+
 /*
  * A struct prefix contains an address family, a prefix length, and an
  * address.  This can represent either a 'network prefix' as defined
@@ -163,9 +165,9 @@ extern int prefix_cmp (const struct prefix *, const struct prefix *);
 extern void prefix_copy (struct prefix *dest, const struct prefix *src);
 extern void apply_mask (struct prefix *);
 
-extern struct prefix *sockunion2prefix (const union sockunion *dest,
-                                        const union sockunion *mask);
-extern struct prefix *sockunion2hostprefix (const union sockunion *);
+extern struct prefix *sockunion2prefix (const_sockunion dest,
+                                        const_sockunion mask);
+extern struct prefix *sockunion2hostprefix (const_sockunion src);
 
 extern struct prefix_ipv4 *prefix_ipv4_new (void);
 extern void prefix_ipv4_free (struct prefix_ipv4 *);

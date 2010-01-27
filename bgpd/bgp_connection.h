@@ -131,6 +131,7 @@ struct bgp_connection
                                         /* NULL if connection stopping    */
   qpt_mutex         p_mutex ;           /* session mutex*                 */
                                         /* (avoids incomplete type issue) */
+  unsigned          lock_count ;        /* session lock count             */
 
   bgp_connection_ord_t ordinal ;        /* primary/secondary connection   */
   int               accepted ;          /* came via accept()              */
@@ -151,6 +152,7 @@ struct bgp_connection
   bgp_open_state    open_recv ;         /* the open received.             */
 
   struct qps_file   qf ;                /* qpselect file structure        */
+  pAF_t             paf ;               /* address family                 */
 
   union sockunion*  su_local ;          /* address of the near end        */
   union sockunion*  su_remote ;         /* address of the far end         */
@@ -292,19 +294,38 @@ bgp_connection_write_empty(bgp_connection connection)
  *
  */
 
+/*==============================================================================
+ * Locking the session associated with the connection.
+ *
+ * This is slightly complicated by the fact that when the connection is in
+ * sStopping, it is no longer attached to the session.
+ *
+ * To facilitate that, the connection maintains its own "recursive" count, so
+ * that when the connection is cut loose from the session, the session's mutex
+ * can be released.
+ *
+ * Further -- when the connection is cut loose, a big number is added to the
+ * count, so when the session is "unlocked" nothing will happen !
+ *
+ * Also -- this mechanism means that the session lock can be called even after
+ * the connection has been cut loose, without requiring any other tests.
+ */
+
 Inline void
 BGP_CONNECTION_SESSION_LOCK(bgp_connection connection)
 {
-  if (connection->session != NULL)
+  if (connection->lock_count++ == 0)
     qpt_mutex_lock(connection->p_mutex) ;
 } ;
 
 Inline void
 BGP_CONNECTION_SESSION_UNLOCK(bgp_connection connection)
 {
-  if (connection->session != NULL)
+  if (--connection->lock_count == 0)
     qpt_mutex_unlock(connection->p_mutex) ;
 } ;
 
+extern void
+BGP_CONNECTION_SESSION_CUT_LOOSE(bgp_connection connection) ;
 
 #endif /* QUAGGA_BGP_CONNECTION_H */

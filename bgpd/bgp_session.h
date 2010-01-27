@@ -74,7 +74,7 @@ struct bgp_session_stats
   u_int32_t open_out;           /* Open message output count */
   u_int32_t update_in;          /* Update message input count */
   u_int32_t update_out;         /* Update message ouput count */
-  time_t update_time;           /* Update message received time. */
+  time_t    update_time;        /* Update message received time. */
   u_int32_t keepalive_in;       /* Keepalive input count */
   u_int32_t keepalive_out;      /* Keepalive output count */
   u_int32_t notify_in;          /* Notify input count */
@@ -84,7 +84,6 @@ struct bgp_session_stats
   u_int32_t dynamic_cap_in;     /* Dynamic Capability input count.  */
   u_int32_t dynamic_cap_out;    /* Dynamic Capability output count.  */
 };
-
 
 struct bgp_session
 {
@@ -164,6 +163,10 @@ struct bgp_session
   int               ttl ;               /* TTL to set, if not zero        */
   unsigned short    port ;              /* destination port for peer      */
 
+  char*             ifname ;            /* interface to bind to, if any   */
+  unsigned          ifindex ;           /* and its index, if any          */
+  union sockunion*  ifaddress ;         /* address to bind to, if any     */
+
   as_t              as_peer ;           /* ASN of the peer                */
   union sockunion*  su_peer ;           /* Sockunion address of the peer  */
 
@@ -194,7 +197,7 @@ struct bgp_session
   union sockunion*  su_local ;          /* set when session Established   */
   union sockunion*  su_remote ;         /* set when session Established   */
 
-  /* Statistics */
+  /* Statistics                                                           */
   struct bgp_session_stats stats;
 
   /* These values are are private to the BGP Engine.

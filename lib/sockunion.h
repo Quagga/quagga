@@ -25,6 +25,7 @@
 
 #include "zebra.h"
 #include "symtab.h"
+#include "prefix.h"
 
 #if 0
 union sockunion {
@@ -40,6 +41,8 @@ union sockunion {
 #define su_family     su_si.si_family
 #define su_port               su_si.si_port
 #endif /* 0 */
+
+typedef struct prefix* prefix ;
 
 typedef union sockunion* sockunion ;
 union sockunion
@@ -120,6 +123,7 @@ extern int sockunion_getpeername (int, union sockunion*);
 extern union sockunion *sockunion_dup (union sockunion *);
 extern void sockunion_free (union sockunion *);
 
+extern sockunion sockunion_new(prefix p) ;
 extern void sockunion_unset(sockunion* p_su) ;
 extern void sockunion_set(sockunion* p_dst, sockunion su) ;
 extern void sockunion_set_dup(sockunion* p_dst, sockunion su) ;

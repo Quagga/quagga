@@ -20,6 +20,7 @@
  */
 
 #include <zebra.h>
+#include <time.h>
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_msg_read.h"
@@ -304,6 +305,7 @@ bgp_msg_open_invalid(bgp_notify notification) ;
 /*------------------------------------------------------------------------------
  * Receive BGP open packet and parse it into the connection's open_recv
  *
+ * NB: requires the session to be locked (connection-wise) and not NULL.
  */
 static void
 bgp_msg_open_receive (bgp_connection connection, bgp_size_t body_size)
@@ -316,6 +318,8 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t body_size)
   struct stream* s ;
   struct sucker ssr ;
   unsigned holdtime ;
+
+  ++connection->session->stats.open_in ;
 
   /* Start with an unspecific OPEN notification                         */
   bgp_notify notification = bgp_notify_new(BGP_NOMC_OPEN,
@@ -1343,6 +1347,8 @@ bgp_msg_capability_as4 (bgp_connection connection, sucker sr)
 
 /*==============================================================================
  * BGP UPDATE message
+ *
+ * NB: requires the session to be locked (connection-wise) and not NULL.
  */
 static void
 bgp_msg_update_receive (bgp_connection connection, bgp_size_t body_size)
@@ -1354,7 +1360,10 @@ bgp_msg_update_receive (bgp_connection connection, bgp_size_t body_size)
                 "%s [Error] Update message received while in %s State",
                   connection->host, LOOKUP(bgp_status_msg, connection->state)) ;
       return ;
-    }
+    } ;
+
+  ++connection->session->stats.update_in ;
+  connection->session->stats.update_time = time(NULL) ;
 
   /* PRO TEM: pass raw update message across to Peering Engine          */
   /* TODO: decode update messages in the BGP Engine.                    */
@@ -1363,10 +1372,14 @@ bgp_msg_update_receive (bgp_connection connection, bgp_size_t body_size)
 
 /*==============================================================================
  * BGP KEEPALIVE message
+ *
+ * NB: requires the session to be locked (connection-wise) and not NULL.
  */
 static void
 bgp_msg_keepalive_receive (bgp_connection connection, bgp_size_t body_size)
 {
+  ++connection->session->stats.keepalive_in ;
+
   if (BGP_DEBUG (keepalive, KEEPALIVE))
     zlog_debug ("%s KEEPALIVE rcvd", connection->host);
 
@@ -1378,12 +1391,16 @@ bgp_msg_keepalive_receive (bgp_connection connection, bgp_size_t body_size)
 
 /*==============================================================================
  * BGP NOTIFICATION message
+ *
+ * NB: requires the session to be locked (connection-wise) and not NULL.
  */
 static void
 bgp_msg_notify_receive (bgp_connection connection, bgp_size_t body_size)
 {
   bgp_nom_code_t    code    = stream_getc (connection->ibuf);
   bgp_nom_subcode_t subcode = stream_getc (connection->ibuf);
+
+  ++connection->session->stats.notify_in ;
 
   bgp_fsm_notification_exception(connection,
                          bgp_notify_new_with_data(code, subcode,
@@ -1392,6 +1409,8 @@ bgp_msg_notify_receive (bgp_connection connection, bgp_size_t body_size)
 
 /*==============================================================================
  * BGP ROUTE-REFRESH message
+ *
+ * NB: requires the session to be locked (connection-wise) and not NULL.
  */
 static int
 bgp_msg_orf_recv(bgp_connection connection, bgp_route_refresh rr,
@@ -1413,6 +1432,8 @@ bgp_msg_route_refresh_receive(bgp_connection connection, bgp_size_t body_size)
   bgp_route_refresh rr ;
   unsigned   form ;
   int        ret ;
+
+  ++connection->session->stats.refresh_in ;
 
   /* If peer does not have the capability, treat as bad message type    */
 
@@ -1684,7 +1705,7 @@ bgp_msg_orf_prefix_recv(orf_prefix orfpe, qafx_bit_t qb, sucker sr)
 
       memset(&orfpe->p, 0, sizeof(struct prefix)) ;
 
-      blen = blen = (plen + 7) / 8 ;
+      blen = (plen + 7) / 8 ;
       if ((left -= blen) >= 0)
         {
           orfpe->p.family    = paf ;
@@ -1704,9 +1725,13 @@ bgp_msg_orf_prefix_recv(orf_prefix orfpe, qafx_bit_t qb, sucker sr)
 
 /*==============================================================================
  * BGP CAPABILITY message -- Dynamic Capabilities
+ *
+ * NB: requires the session to be locked (connection-wise) and not NULL.
  */
 static void bgp_msg_capability_receive(bgp_connection connection,
                                                            bgp_size_t body_size)
 {
+  ++connection->session->stats.dynamic_cap_in ;
+
   return ;
 } ;

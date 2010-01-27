@@ -480,5 +480,7 @@ peer_free (struct peer *peer);
 extern void
 peer_nsf_stop (struct peer *peer);
 
+extern sockunion
+bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, pAF_t paf) ;
 #endif /* _QUAGGA_BGP_PEER_H */
 
