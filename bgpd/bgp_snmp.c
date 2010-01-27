@@ -460,6 +460,7 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
 {
   static struct in_addr addr;
   struct peer *peer;
+  struct bgp_session_stats stats;
 
   *write_method = NULL;
   memset (&addr, 0, sizeof (struct in_addr));
@@ -467,6 +468,8 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
   peer = bgpPeerTable_lookup (v, name, length, &addr, exact);
   if (! peer)
     return NULL;
+
+  bgp_session_get_stats(p->session, &stats);
 
   switch (v->magic)
     {
@@ -522,14 +525,14 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
       return SNMP_INTEGER (peer->update_out);
       break;
     case BGPPEERINTOTALMESSAGES:
-      return SNMP_INTEGER (peer->open_in + peer->update_in
-			   + peer->keepalive_in + peer->notify_in
-			   + peer->refresh_in + peer->dynamic_cap_in);
+      return SNMP_INTEGER (stats.open_in + stats.update_in
+			   + stats.keepalive_in + stats.notify_in
+			   + stats.refresh_in + stats.dynamic_cap_in);
       break;
     case BGPPEEROUTTOTALMESSAGES:
-      return SNMP_INTEGER (peer->open_out + peer->update_out
-			   + peer->keepalive_out + peer->notify_out
-			   + peer->refresh_out + peer->dynamic_cap_out);
+      return SNMP_INTEGER (stats.open_out + stats.update_out
+			   + stats.keepalive_out + stats.notify_out
+			   + stats.refresh_out + stats.dynamic_cap_out);
       break;
     case BGPPEERLASTERROR:
       {
@@ -547,7 +550,7 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
       if (peer->uptime == 0)
 	return SNMP_INTEGER (0);
       else
-	return SNMP_INTEGER (time (NULL) - peer->uptime);
+	return SNMP_INTEGER (time (NULL) - stats.uptime);
       break;
     case BGPPEERCONNECTRETRYINTERVAL:
       *write_method = write_bgpPeerTable;

@@ -22,6 +22,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define _QUAGGA_BGP_PACKET_H
 
 #include "bgpd/bgp_attr.h"
+#include "bgpd/bgp_route_refresh.h"
 
 #define BGP_NLRI_LENGTH       1U
 #define BGP_TOTAL_ATTR_LEN    2U
@@ -59,5 +60,7 @@ extern void bgp_default_withdraw_send (struct peer *, afi_t, safi_t);
 extern int bgp_capability_receive (struct peer *, bgp_size_t);
 
 extern int bgp_update_receive (struct peer *peer, bgp_size_t size);
+
+extern void bgp_route_refresh_recv(bgp_peer peer, bgp_route_refresh rr);
 
 #endif /* _QUAGGA_BGP_PACKET_H */

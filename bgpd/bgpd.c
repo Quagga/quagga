@@ -4703,16 +4703,17 @@ bgp_terminate (int terminating, int retain_mode)
   struct listnode *mnode, *mnnode;
   bgp_notify notification = NULL;
 
-  if (!retain_mode)
-    notification = bgp_notify_new(BGP_NOTIFY_CEASE,
-            BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN, 0);
-
   program_terminating = terminating;
 
   /* Disable all peers */
   for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
     for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
       {
+        notification = (retain_mode)
+                          ? NULL
+                          : bgp_notify_new(BGP_NOTIFY_CEASE,
+                            BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN, 0);
+
         if (terminating)
           bgp_peer_disable(peer, notification);
         else

@@ -49,6 +49,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_zebra.h"
 #include "bgpd/bgp_table.h"
 #include "bgpd/bgp_vty.h"
+#include "bgpd/bgp_session.h"
 
 extern struct in_addr router_id_zebra;
 
@@ -6694,12 +6695,15 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
   unsigned int count = 0;
   char timebuf[BGP_UPTIME_LEN];
   int len;
+  struct bgp_session_stats stats;
 
   /* Header string for each address family. */
   static char header[] = "Neighbor        V    AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd";
 
   for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
     {
+      bgp_session_get_stats(peer->session, &stats);
+
       if (peer->afc[afi][safi])
 	{
           if (!count)
@@ -6758,11 +6762,11 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
 
 	  vty_out (vty, "%5u %7d %7d %8d %4d %4lu ",
 		   peer->as,
-		   peer->open_in + peer->update_in + peer->keepalive_in
-		   + peer->notify_in + peer->refresh_in + peer->dynamic_cap_in,
-		   peer->open_out + peer->update_out + peer->keepalive_out
-		   + peer->notify_out + peer->refresh_out
-		   + peer->dynamic_cap_out,
+		   stats.open_in + stats.update_in + stats.keepalive_in
+		   + stats.notify_in + stats.refresh_in + stats.dynamic_cap_in,
+		   stats.open_out + stats.update_out + stats.keepalive_out
+		   + stats.notify_out + stats.refresh_out
+		   + stats.dynamic_cap_out,
 		   0, 0, (unsigned long) peer->obuf->count);
 
 	  vty_out (vty, "%8s",
@@ -7261,6 +7265,9 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   char timebuf[BGP_UPTIME_LEN];
   afi_t afi;
   safi_t safi;
+  struct bgp_session_stats stats;
+
+  bgp_session_get_stats(p->session, &stats);
 
   bgp = p->bgp;
 
@@ -7492,16 +7499,16 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   vty_out (vty, "    Inq depth is 0%s", VTY_NEWLINE);
   vty_out (vty, "    Outq depth is %lu%s", (unsigned long) p->obuf->count, VTY_NEWLINE);
   vty_out (vty, "                         Sent       Rcvd%s", VTY_NEWLINE);
-  vty_out (vty, "    Opens:         %10d %10d%s", p->open_out, p->open_in, VTY_NEWLINE);
-  vty_out (vty, "    Notifications: %10d %10d%s", p->notify_out, p->notify_in, VTY_NEWLINE);
-  vty_out (vty, "    Updates:       %10d %10d%s", p->update_out, p->update_in, VTY_NEWLINE);
-  vty_out (vty, "    Keepalives:    %10d %10d%s", p->keepalive_out, p->keepalive_in, VTY_NEWLINE);
-  vty_out (vty, "    Route Refresh: %10d %10d%s", p->refresh_out, p->refresh_in, VTY_NEWLINE);
-  vty_out (vty, "    Capability:    %10d %10d%s", p->dynamic_cap_out, p->dynamic_cap_in, VTY_NEWLINE);
-  vty_out (vty, "    Total:         %10d %10d%s", p->open_out + p->notify_out +
-	   p->update_out + p->keepalive_out + p->refresh_out + p->dynamic_cap_out,
-	   p->open_in + p->notify_in + p->update_in + p->keepalive_in + p->refresh_in +
-	   p->dynamic_cap_in, VTY_NEWLINE);
+  vty_out (vty, "    Opens:         %10d %10d%s", stats.open_out, stats.open_in, VTY_NEWLINE);
+  vty_out (vty, "    Notifications: %10d %10d%s", stats.notify_out, stats.notify_in, VTY_NEWLINE);
+  vty_out (vty, "    Updates:       %10d %10d%s", stats.update_out, stats.update_in, VTY_NEWLINE);
+  vty_out (vty, "    Keepalives:    %10d %10d%s", stats.keepalive_out, stats.keepalive_in, VTY_NEWLINE);
+  vty_out (vty, "    Route Refresh: %10d %10d%s", stats.refresh_out, stats.refresh_in, VTY_NEWLINE);
+  vty_out (vty, "    Capability:    %10d %10d%s", stats.dynamic_cap_out, stats.dynamic_cap_in, VTY_NEWLINE);
+  vty_out (vty, "    Total:         %10d %10d%s", stats.open_out + stats.notify_out +
+      stats.update_out + stats.keepalive_out + stats.refresh_out + stats.dynamic_cap_out,
+      stats.open_in + stats.notify_in + stats.update_in + stats.keepalive_in + stats.refresh_in +
+      stats.dynamic_cap_in, VTY_NEWLINE);
 
   /* advertisement-interval */
   vty_out (vty, "  Minimum time between advertisement runs is %d seconds%s",

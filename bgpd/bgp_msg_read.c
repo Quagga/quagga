@@ -1508,7 +1508,7 @@ bgp_msg_route_refresh_receive(bgp_connection connection, bgp_size_t body_size)
       return ;
     }
 
-  bgp_session_route_refresh_recv(connection, rr) ;
+  bgp_session_route_refresh_recv(connection->session, rr) ;
   return ;
 } ;
 

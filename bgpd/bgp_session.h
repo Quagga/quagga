@@ -67,6 +67,24 @@
  *
  */
 
+/* Statistics */
+struct bgp_session_stats
+{
+  u_int32_t open_in;            /* Open message input count */
+  u_int32_t open_out;           /* Open message output count */
+  u_int32_t update_in;          /* Update message input count */
+  u_int32_t update_out;         /* Update message ouput count */
+  time_t update_time;           /* Update message received time. */
+  u_int32_t keepalive_in;       /* Keepalive input count */
+  u_int32_t keepalive_out;      /* Keepalive output count */
+  u_int32_t notify_in;          /* Notify input count */
+  u_int32_t notify_out;         /* Notify output count */
+  u_int32_t refresh_in;         /* Route Refresh input count */
+  u_int32_t refresh_out;        /* Route Refresh output count */
+  u_int32_t dynamic_cap_in;     /* Dynamic Capability input count.  */
+  u_int32_t dynamic_cap_out;    /* Dynamic Capability output count.  */
+};
+
 
 struct bgp_session
 {
@@ -176,6 +194,9 @@ struct bgp_session
   union sockunion*  su_local ;          /* set when session Established   */
   union sockunion*  su_remote ;         /* set when session Established   */
 
+  /* Statistics */
+  struct bgp_session_stats stats;
+
   /* These values are are private to the BGP Engine.
    *
    * They must be cleared before the session is enabled, but may not be
@@ -195,6 +216,7 @@ struct bgp_session
 
   flag_t        active ;
 } ;
+
 
 /*==============================================================================
  * Mqueue messages related to sessions
@@ -326,6 +348,9 @@ bgp_session_is_XON(bgp_peer peer);
 
 extern void
 bgp_session_set_ttl(bgp_session session, int ttl);
+
+extern void
+bgp_session_get_stats(bgp_session session, struct bgp_session_stats *stats);
 
 /*==============================================================================
  * Session data access functions.

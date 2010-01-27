@@ -304,21 +304,6 @@ struct peer
   /* workqueues */
   struct work_queue *clear_node_queue;
 
-  /* Statistics field */
-  u_int32_t open_in;            /* Open message input count */
-  u_int32_t open_out;           /* Open message output count */
-  u_int32_t update_in;          /* Update message input count */
-  u_int32_t update_out;         /* Update message ouput count */
-  time_t update_time;           /* Update message received time. */
-  u_int32_t keepalive_in;       /* Keepalive input count */
-  u_int32_t keepalive_out;      /* Keepalive output count */
-  u_int32_t notify_in;          /* Notify input count */
-  u_int32_t notify_out;         /* Notify output count */
-  u_int32_t refresh_in;         /* Route Refresh input count */
-  u_int32_t refresh_out;        /* Route Refresh output count */
-  u_int32_t dynamic_cap_in;     /* Dynamic Capability input count.  */
-  u_int32_t dynamic_cap_out;    /* Dynamic Capability output count.  */
-
   /* BGP state count */
   u_int32_t established;        /* Established */
   u_int32_t dropped;            /* Dropped */

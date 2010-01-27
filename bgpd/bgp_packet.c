@@ -652,13 +652,10 @@ bgp_write (bgp_peer peer)
       switch (type)
 	{
 	case BGP_MSG_OPEN:
-	  peer->open_out++;
 	  break;
 	case BGP_MSG_UPDATE:
-	  peer->update_out++;
 	  break;
 	case BGP_MSG_NOTIFY:
-	  peer->notify_out++;
 	  /* Double start timer. */
 	  peer->v_start *= 2;
 
@@ -669,14 +666,11 @@ bgp_write (bgp_peer peer)
 	  assert(0); /* shouldn't get notifies through here */
 	  return 0;
 	case BGP_MSG_KEEPALIVE:
-	  peer->keepalive_out++;
 	  break;
 	case BGP_MSG_ROUTE_REFRESH_NEW:
 	case BGP_MSG_ROUTE_REFRESH_OLD:
-	  peer->refresh_out++;
 	  break;
 	case BGP_MSG_CAPABILITY:
-	  peer->dynamic_cap_out++;
 	  break;
 	}
 
@@ -867,13 +861,12 @@ bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
   bgp_route_refresh rr = NULL;
   struct bgp_filter *filter = NULL;
   bgp_session session = peer->session;
-  struct orf_prefix *orfpe = NULL;
+  bgp_orf_entry orfpe = NULL;
   struct prefix_list *plist = NULL;
   struct orf_prefix orfp;
   vector_index i;
   int orf_refresh = 0;
   enum prefix_list_type pe_type;
-  bgp_form_t form;
 
   if (DISABLE_BGP_ANNOUNCE)
     return;
@@ -883,11 +876,6 @@ bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
   /* Adjust safi code. */
   if (safi == SAFI_MPLS_VPN)
     safi = BGP_SAFI_VPNV4;
-
-  /* Make BGP update packet. */
-  form = (CHECK_FLAG (peer->cap, PEER_CAP_REFRESH_NEW_RCV))
-      ? bgp_form_rfc
-      : bgp_form_pre;
 
   rr = bgp_route_refresh_new(afi, safi, 1);
   rr->defer = (when_to_refresh == REFRESH_DEFER);
@@ -900,11 +888,14 @@ bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
         if (remove)
           {
             UNSET_FLAG (peer->af_sflags[afi][safi], PEER_STATUS_ORF_PREFIX_SEND);
-            bgp_orf_add_remove_all(rr, orf_type, form);
+            bgp_orf_add_remove_all(rr, BGP_ORF_T_PREFIX, bgp_form_none);
             if (BGP_DEBUG (normal, NORMAL))
-              zlog_debug ("%s sending REFRESH_REQ to remove ORF(%d) (%s) for afi/safi: %d/%d",
+              zlog_debug ("%s sending REFRESH_REQ to remove ORF(%d) (%s)"
+                          " for afi/safi: %d/%d",
                          peer->host, orf_type,
-                         (when_to_refresh == REFRESH_DEFER ? "defer" : "immediate"),
+                         (when_to_refresh == REFRESH_DEFER)
+                         ? "defer"
+                         : "immediate",
                          afi, safi);
           }
         else
@@ -913,13 +904,17 @@ bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
             plist = prefix_list_ref_plist(filter->plist[FILTER_IN].ref) ;
             for (i = 0; prefix_bgp_orf_get(plist, i, &orfp, &pe_type); ++i)
               {
-                orfpe = bgp_orf_add(rr, orf_type, form, 0, pe_type == PREFIX_DENY);
-                *orfpe = orfp;
+                orfpe = bgp_orf_add(rr, BGP_ORF_T_PREFIX, bgp_form_none, 0,
+                    pe_type == PREFIX_DENY);
+                orfpe->body.orf_prefix = orfp;
               }
             if (BGP_DEBUG (normal, NORMAL))
-              zlog_debug ("%s sending REFRESH_REQ with pfxlist ORF(%d) (%s) for afi/safi: %d/%d",
+              zlog_debug ("%s sending REFRESH_REQ with pfxlist ORF(%d)"
+                          " (%s) for afi/safi: %d/%d",
                          peer->host, orf_type,
-                         (when_to_refresh == REFRESH_DEFER ? "defer" : "immediate"),
+                         (when_to_refresh == REFRESH_DEFER)
+                         ? "defer"
+                         : "immediate",
                          afi, safi);
           }
       }
@@ -1683,7 +1678,8 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	    bgp_clear_stale_route (peer, AFI_IP, SAFI_UNICAST);
 
 	  if (BGP_DEBUG (normal, NORMAL))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for IPv4 Unicast from %s",
+	    zlog (peer->log, LOG_DEBUG,
+                  "rcvd End-of-RIB for IPv4 Unicast from %s",
 		  peer->host);
 	}
     }
@@ -1713,7 +1709,8 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	    bgp_clear_stale_route (peer, AFI_IP, SAFI_MULTICAST);
 
 	  if (BGP_DEBUG (normal, NORMAL))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for IPv4 Multicast from %s",
+	    zlog (peer->log, LOG_DEBUG,
+                  "rcvd End-of-RIB for IPv4 Multicast from %s",
 		  peer->host);
 	}
     }
@@ -1735,14 +1732,16 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	  && mp_withdraw.length == 0)
 	{
 	  /* End-of-RIB received */
-	  SET_FLAG (peer->af_sflags[AFI_IP6][SAFI_UNICAST], PEER_STATUS_EOR_RECEIVED);
+	  SET_FLAG (peer->af_sflags[AFI_IP6][SAFI_UNICAST],
+                    PEER_STATUS_EOR_RECEIVED);
 
 	  /* NSF delete stale route */
 	  if (peer->nsf[AFI_IP6][SAFI_UNICAST])
 	    bgp_clear_stale_route (peer, AFI_IP6, SAFI_UNICAST);
 
 	  if (BGP_DEBUG (normal, NORMAL))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for IPv6 Unicast from %s",
+	    zlog (peer->log, LOG_DEBUG,
+                  "rcvd End-of-RIB for IPv6 Unicast from %s",
 		  peer->host);
 	}
     }
@@ -1770,7 +1769,8 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	    bgp_clear_stale_route (peer, AFI_IP6, SAFI_MULTICAST);
 
 	  if (BGP_DEBUG (update, UPDATE_IN))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for IPv6 Multicast from %s",
+	    zlog (peer->log, LOG_DEBUG,
+                  "rcvd End-of-RIB for IPv6 Multicast from %s",
 		  peer->host);
 	}
     }
@@ -1794,7 +1794,8 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	  /* End-of-RIB received */
 
 	  if (BGP_DEBUG (update, UPDATE_IN))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for VPNv4 Unicast from %s",
+	    zlog (peer->log, LOG_DEBUG,
+                  "rcvd End-of-RIB for VPNv4 Unicast from %s",
 		  peer->host);
 	}
     }
@@ -1820,10 +1821,6 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
      event.  */
   if (peer->state != bgp_peer_sEstablished)
     return 0;
-
-  /* Increment packet counter. */
-  peer->update_in++;
-  peer->update_time = time (NULL);
 
   /* Generate BGP event. */
   /* TODO: is this needed? */
@@ -1927,6 +1924,80 @@ bgp_keepalive_receive (struct peer *peer, bgp_size_t size)
   BGP_EVENT_ADD (peer, Receive_KEEPALIVE_message);
 }
 #endif
+
+/* Process incoming route refresh */
+void
+bgp_route_refresh_recv(bgp_peer peer, bgp_route_refresh rr)
+{
+  afi_t afi;
+  safi_t safi;
+  vector_index i;
+  char name[BUFSIZ];
+  int ret;
+
+  afi = rr->afi;
+  safi = rr->safi;
+
+  /* Adjust safi code. */
+  if (safi == BGP_SAFI_VPNV4)
+    safi = SAFI_MPLS_VPN;
+
+  /* ORF prefix-list name */
+  ret = snprintf (name, BUFSIZ, "%s.%d.%d", peer->host, afi, safi);
+  assert(ret < BUFSIZ);
+
+  if (rr->entries.end > 0)
+    {
+      for (i = 0; i < rr->entries.end; ++i)
+        {
+          bgp_orf_entry orfep = vector_slot(&rr->entries, i);
+
+          /* ignore unknown */
+          if (orfep->unknown)
+            continue;
+
+          if (orfep->orf_type == BGP_ORF_T_PREFIX)
+            {
+              if (orfep->remove_all)
+                {
+                  if (BGP_DEBUG (normal, NORMAL))
+                    zlog_debug ("%s rcvd Remove-All pfxlist ORF request",
+                        peer->host);
+                  prefix_bgp_orf_remove_all (name);
+                  break;
+                }
+
+              ret = prefix_bgp_orf_set (name, afi, &orfep->body.orf_prefix,
+                                        orfep->deny, orfep->remove);
+
+              if (ret != CMD_SUCCESS)
+                {
+                  if (BGP_DEBUG (normal, NORMAL))
+                    zlog_debug ("%s Received misformatted prefixlist ORF."
+                        "Remove All pfxlist", peer->host);
+                  prefix_bgp_orf_remove_all (name);
+                  break;
+                }
+
+              peer->orf_plist[afi][safi] =
+                         prefix_list_lookup (AFI_ORF_PREFIX, name);
+            }
+        }
+
+      if (BGP_DEBUG (normal, NORMAL))
+        zlog_debug ("%s rcvd Refresh %s ORF request", peer->host,
+                    rr->defer ? "Defer" : "Immediate");
+      if (rr->defer)
+        return;
+    }
+
+  /* First update is deferred until ORF or ROUTE-REFRESH is received */
+  if (CHECK_FLAG (peer->af_sflags[afi][safi], PEER_STATUS_ORF_WAIT_REFRESH))
+    UNSET_FLAG (peer->af_sflags[afi][safi], PEER_STATUS_ORF_WAIT_REFRESH);
+
+  /* Perform route refreshment to the peer */
+  bgp_announce_route (peer, afi, safi);
+}
 
 #if 0
 /* Route refresh message is received. */

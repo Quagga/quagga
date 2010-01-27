@@ -794,8 +794,8 @@ bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag)
 /*==============================================================================
  * BGP Engine: received Route Refresh to peer
  *
- * The Peering Engine takes care of discarding the bgp_route_refresh once it's been
- * dealt with.
+ * The Peering Engine takes care of discarding the bgp_route_refresh once
+ *  it's been dealt with.
  */
 extern void
 bgp_session_route_refresh_recv(bgp_session session, bgp_route_refresh rr)
@@ -813,8 +813,8 @@ bgp_session_route_refresh_recv(bgp_session session, bgp_route_refresh rr)
 } ;
 
 /*------------------------------------------------------------------------------
- * Peering Engine: receive given BGP route refresh message -- mqb action function.
- *
+ * Peering Engine: receive given BGP route refresh message -- mqb action
+ * function.
  */
 static void
 bgp_session_do_route_refresh_recv(mqueue_block mqb, mqb_flag_t flag)
@@ -823,14 +823,11 @@ bgp_session_do_route_refresh_recv(mqueue_block mqb, mqb_flag_t flag)
   bgp_session session = mqb_get_arg0(mqb) ;
 
   if (flag == mqb_action)
-    {
+    bgp_route_refresh_recv(session->peer, args->rr);
 
-    /* TODO pricess route_refresh */
-    } ;
-
-  bgp_route_refresh_free(args->rr) ;
-  mqb_free(mqb) ;
-} ;
+  bgp_route_refresh_free(args->rr);
+  mqb_free(mqb);
+}
 
 /*==============================================================================
  * BGP Engine: send XON message to Peering Engine
@@ -867,7 +864,7 @@ bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag)
   mqb_free(mqb) ;
 }
 /*==============================================================================
- * Routing Engine: send ttl message to Peering Engine
+ * Peering Engine: send set ttl message to BGP Engine
  *
   */
 void
@@ -885,7 +882,7 @@ bgp_session_set_ttl(bgp_session session, int ttl)
 }
 
 /*------------------------------------------------------------------------------
- * BGP Engine: process incoming ttl message -- mqb action function.
+ * BGP Engine: process set ttl message -- mqb action function.
  */
 static void
 bgp_session_do_set_ttl(mqueue_block mqb, mqb_flag_t flag)
@@ -961,3 +958,24 @@ bgp_session_defer_if_limping(bgp_session session)
 
   return defer_enable ;
 } ;
+
+/* Get a copy of the session statistics, copied all at once so
+ * forms a consistent snapshot
+ *
+ */
+void
+bgp_session_get_stats(bgp_session session, struct bgp_session_stats *stats)
+{
+  if (!session)
+    {
+      memset(stats, 0, sizeof(struct bgp_session_stats)) ;
+      return;
+    }
+
+  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+
+  *stats = session->stats;
+
+  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+
+}
