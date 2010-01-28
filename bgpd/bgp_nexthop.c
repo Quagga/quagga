@@ -1082,29 +1082,6 @@ bgp_import (struct thread *t)
   return 0;
 }
 
-/* Connect to zebra for nexthop lookup. */
-static int
-zlookup_connect (struct thread *t)
-{
-  struct zclient *zlookup;
-
-  zlookup = THREAD_ARG (t);
-  zlookup->t_connect = NULL;
-
-  if (zlookup->sock != -1)
-    return 0;
-
-#ifdef HAVE_TCP_ZEBRA
-  zlookup->sock = zclient_socket ();
-#else
-  zlookup->sock = zclient_socket_un (ZEBRA_SERV_PATH);
-#endif /* HAVE_TCP_ZEBRA */
-  if (zlookup->sock < 0)
-    return -1;
-
-  return 0;
-}
-
 /* Check specified multiaccess next-hop. */
 int
 bgp_multiaccess_check_v4 (struct in_addr nexthop, char *peer)
@@ -1282,13 +1259,9 @@ bgp_scan_init (void)
   zlookup = zclient_new ();
   zlookup->sock = -1;
 
-  /* TODO: reinstate zebra interface when ready                         */
-  if (0)
-    {
-      zlookup->enable = 1 ;
-      zlookup->t_connect = thread_add_event (master, zlookup_connect,
-                                                                    zlookup, 0);
-    } ;
+  /* enable zebra client and schedule connection */
+  zlookup->enable = 1 ;
+  zlookup_schedule(zlookup);
 
   bgp_scan_interval = BGP_SCAN_INTERVAL_DEFAULT;
   bgp_import_interval = BGP_IMPORT_INTERVAL_DEFAULT;

@@ -24,6 +24,7 @@
 
 /* For struct interface and struct connected. */
 #include "if.h"
+#include "qpnexus.h"
 
 /* For input/output buffer to zebra. */
 #define ZEBRA_MAX_PACKET_SIZ          4096
@@ -59,6 +60,10 @@ struct zclient
 
   /* Thread to write buffered data to zebra. */
   struct thread *t_write;
+
+  /* If using nexus, qfile and qtimer */
+  qps_file qf;
+  qtimer qtr;
 
   /* Redistribute information. */
   u_char redist_default;
@@ -121,11 +126,13 @@ struct zapi_ipv4
 
 /* Prototypes of zebra client service functions. */
 extern struct zclient *zclient_new (void);
+extern void zclient_init_r (qpn_nexus);
 extern void zclient_init (struct zclient *, int);
 extern int zclient_start (struct zclient *);
 extern void zclient_stop (struct zclient *);
 extern void zclient_reset (struct zclient *);
 extern void zclient_free (struct zclient *);
+extern void zlookup_schedule(struct zclient *);
 
 /* Get TCP socket connection to zebra daemon at loopback address. */
 extern int zclient_socket (void);

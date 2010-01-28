@@ -2,7 +2,7 @@
 #include <stream.h>
 #include <thread.h>
 
-static long int ham = 0xdeadbeefdeadbeef;
+static int64_t ham = 0xdeadbeefdeadbeef;
 struct thread_master *master;
 
 static void
@@ -11,9 +11,9 @@ print_stream (struct stream *s)
   size_t getp = stream_get_getp (s);
   
   printf ("endp: %ld, readable: %ld, writeable: %ld\n",
-          stream_get_endp (s),
-          STREAM_READABLE (s),
-          STREAM_WRITEABLE (s));
+          (long int)stream_get_endp (s),
+          (long int)STREAM_READABLE (s),
+          (long int)STREAM_WRITEABLE (s));
   
   while (STREAM_READABLE (s))
     {
@@ -48,7 +48,7 @@ main (void)
   printf ("c: 0x%hhx\n", stream_getc (s));
   printf ("w: 0x%hx\n", stream_getw (s));
   printf ("l: 0x%x\n", stream_getl (s));
-  printf ("q: 0x%lx\n", stream_getq (s));
+  printf ("q: 0x%llx\n", (long long unsigned)stream_getq (s));
   
   return 0;
 }

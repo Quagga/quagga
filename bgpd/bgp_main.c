@@ -51,6 +51,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_filter.h"
 #include "bgpd/bgp_network.h"
 #include "bgpd/bgp_engine.h"
+#include "bgpd/bgp_zebra.h"
 
 /* bgpd options, we use GNU getopt library. */
 static const struct option longopts[] =
@@ -401,10 +402,18 @@ init_second_stage(int pthreads)
   bgp_nexus->event_hook[1] = bgp_event_hook;
   confirm(NUM_EVENT_HOOK >= 2);
 
-  /* vty can use either nexus or threads.  For bgp client we always
-   * want nexus, regardless of pthreads.
+  /* vty and zclient can use either nexus or threads.
+   * For bgp client we always want nexus, regardless of pthreads.
    */
   vty_init_r(cli_nexus, routing_nexus);
+  zclient_init_r(routing_nexus);
+
+  /* Now we have our nexus we can init BGP. */
+  /* BGP related initialization.  */
+  bgp_init ();
+
+  /* Sort CLI commands. */
+  sort_node ();
 }
 
 /* Main routine of bgpd. Treatment of argument and start bgp finite
@@ -418,6 +427,7 @@ main (int argc, char **argv)
   int dryrun = 0;
   char *progname;
   int tmp_port;
+  int threaded = 0;
 
   /* Set umask before anything for security */
   umask (0027);
@@ -506,8 +516,7 @@ main (int argc, char **argv)
 	  usage (progname, 0);
 	  break;
 	case 't':
-	  if (!qpthreads_enabled)
-	    init_second_stage(1);
+	  threaded = 1;
 	  break;
 	default:
 	  usage (progname, 1);
@@ -527,11 +536,8 @@ main (int argc, char **argv)
   vty_init (master);
   memory_init ();
 
-  /* BGP related initialization.  */
-  bgp_init ();
-
-  /* Sort CLI commands. */
-  sort_node ();
+  if (threaded)
+      init_second_stage(1);
 
   /* Parse config file. */
   vty_read_config_first_cmd_special (config_file, config_default, after_first_cmd);

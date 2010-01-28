@@ -51,7 +51,7 @@
 #include "plist.h"
 #include "mqueue.h"
 #include "workqueue.h"
-#include "if.c"
+#include "if.h"
 
 #ifdef HAVE_SNMP
 #include "bgpd/bgp_snmp.h"
@@ -129,7 +129,6 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
       default:
       /* If now Stopped, then for some reason the BGP Engine has either   */
       /* stopped trying to connect, or the session has been stopped.      */
-      /* TODO: stop from BGP Engine requires a Disable to be sent...      */
         if (args->stopped)
           bgp_session_has_stopped(peer);
         break ;
