@@ -127,6 +127,9 @@ struct thread_master *master;
 /* Manually specified configuration file name.  */
 char *config_file = NULL;
 
+/* Have we done the second stage initialization? */
+static int done_2nd_state_init = 0;
+
 /* Process ID saved for use by init system */
 static const char *pid_file = PATH_BGPD_PID;
 
@@ -372,6 +375,11 @@ static void after_first_cmd()
 static void
 init_second_stage(int pthreads)
 {
+  if (done_2nd_state_init)
+    return;
+
+  done_2nd_state_init = 1;
+
   qlib_init_second_stage(pthreads);
   bgp_peer_index_mutex_init();
 
@@ -537,10 +545,16 @@ main (int argc, char **argv)
   memory_init ();
 
   if (threaded)
-      init_second_stage(1);
+    init_second_stage(1);
 
   /* Parse config file. */
   vty_read_config_first_cmd_special (config_file, config_default, after_first_cmd);
+
+  /* if not threaded and empty config file then still need to
+   * do second stage initialization
+   */
+  if (!done_2nd_state_init)
+    init_second_stage(0);
 
   /* Start execution only if not in dry-run mode */
   if (dryrun)
