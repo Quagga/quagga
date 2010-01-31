@@ -3841,7 +3841,9 @@ peer_clear (struct peer *peer)
 		zlog_debug ("%s Maximum-prefix restart timer cancelled",
 			    peer->host);
 	    }
-	  bgp_peer_enable(peer);
+/* TODO: worry about why session is already enabled at this point !!    */
+//	  bgp_peer_enable(peer);
+          bgp_peer_reenable(peer, NULL) ;
 	  return 0;
 	}
 

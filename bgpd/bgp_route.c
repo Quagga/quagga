@@ -1411,7 +1411,7 @@ bgp_process_announce_selected (struct peer *peer, struct bgp_info *selected,
   p = &rn->p;
 
   /* Announce route to Established peer. */
-  if (peer->state == bgp_peer_sEstablished)
+  if (peer->state != bgp_peer_sEstablished)
     return 0;
 
   /* Address family configuration check. */

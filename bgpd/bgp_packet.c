@@ -629,7 +629,10 @@ bgp_write (bgp_peer peer)
   struct stream *s;
   int free_s ;
 
-  while (bgp_session_is_XON(peer))
+  if (bgp_session_is_XOFF(peer))
+    return 0 ;
+
+  do
     {
       free_s = 0 ;
 
@@ -677,7 +680,8 @@ bgp_write (bgp_peer peer)
       /* OK we sent packet so delete it. */
       if (free_s)
         bgp_packet_delete (peer);
-    }
+
+    } while (bgp_session_is_XON(peer)) ;
 
   return 0;
 }

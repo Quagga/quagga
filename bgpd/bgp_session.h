@@ -283,7 +283,8 @@ struct bgp_session_XON_args             /* to Routeing Engine           */
                                         /* no further arguments         */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_XON_args) ;
-enum { BGP_XON_THRESHOLD = 7 } ;
+enum { BGP_XON_THRESHOLD   = 12,
+       BGP_XOFF_THRESHOLD  =  4 } ;
 
 struct bgp_session_ttl_args             /* to bgp Engine                */
 {
@@ -345,6 +346,9 @@ bgp_session_update_recv(bgp_session session, struct stream* buf,
 
 extern void
 bgp_session_route_refresh_recv(bgp_session session, bgp_route_refresh rr);
+
+extern int
+bgp_session_is_XOFF(bgp_peer peer);
 
 extern int
 bgp_session_is_XON(bgp_peer peer);

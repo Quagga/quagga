@@ -1354,7 +1354,7 @@ static void
 bgp_msg_update_receive (bgp_connection connection, bgp_size_t body_size)
 {
   /* Must be prepared to receive "update" like messages                 */
-  if (bgp_fsm_pre_update(connection) != 0) ;
+  if (bgp_fsm_pre_update(connection) != 0)
     {
       plog_err(connection->log,
                 "%s [Error] Update message received while in %s State",

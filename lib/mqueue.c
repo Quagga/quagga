@@ -293,18 +293,22 @@ mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0)
 {
   if (mqb == NULL)
     {
-      qpt_mutex_lock(&mqb_mutex) ;
+      qpt_mutex_lock(&mqb_mutex) ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
       mqb = mqb_free_list ;
       if (mqb == NULL)
-        mqb = XMALLOC(MTYPE_MQUEUE_BLOCK, sizeof(struct mqueue_block)) ;
+        {
+          dassert(mqb_free_count == 0) ;
+          mqb = XMALLOC(MTYPE_MQUEUE_BLOCK, sizeof(struct mqueue_block)) ;
+        }
       else
         {
+          dassert(mqb_free_count >= 0) ;
           mqb_free_list = mqb->next ;
           --mqb_free_count ;
         } ;
 
-      qpt_mutex_unlock(&mqb_mutex) ;
+      qpt_mutex_unlock(&mqb_mutex) ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
     } ;
 
   memset(mqb, 0, sizeof(struct mqueue_block)) ;
@@ -649,7 +653,7 @@ mqueue_revoke(mqueue_queue mq, void* arg0)
           else
             prev->next = mqb->next ;
 
-          if (mq->tail == mqb)
+          if (mqb == mq->tail)
             mq->tail = prev ;
 
           if (mqb == mq->tail_priority)

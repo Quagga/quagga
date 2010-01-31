@@ -595,6 +595,22 @@ bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Peering Engine: are we in XOFF state ?
+ */
+extern int
+bgp_session_is_XOFF(bgp_peer peer)
+{
+  int result = 0;
+  bgp_session session = peer->session;
+
+  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  result = session->flow_control > BGP_XOFF_THRESHOLD ;
+  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+
+  return result;
+} ;
+
+/*------------------------------------------------------------------------------
  * Peering Engine: are we in XON state ?
  */
 extern int
@@ -805,17 +821,19 @@ bgp_session_update_recv(bgp_session session, struct stream* buf, bgp_size_t size
 static void
 bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag)
 {
+  bgp_session session = mqb_get_arg0(mqb) ;
+  struct bgp_session_update_args* args = mqb_get_args(mqb) ;
 
   if (flag == mqb_action)
     {
-      bgp_session session = mqb_get_arg0(mqb) ;
       bgp_peer peer = session->peer;
-      struct bgp_session_update_args* args = mqb_get_args(mqb) ;
 
       stream_free(peer->ibuf);
       peer->ibuf = args->buf;
       bgp_update_receive (peer, args->size);
     }
+  else
+    stream_free(args->buf) ;
 
   mqb_free(mqb) ;
 }
@@ -892,6 +910,7 @@ bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag)
 
   mqb_free(mqb) ;
 }
+
 /*==============================================================================
  * Peering Engine: send set ttl message to BGP Engine
  *

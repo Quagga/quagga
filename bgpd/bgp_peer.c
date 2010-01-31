@@ -110,13 +110,21 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
 
   if (flag == mqb_action)
     {
-      BGP_SESSION_LOCK(session) ;
+      BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
       switch(args->event)
       {
-      /* If now Established, then the BGP Engine has exchanged BGP Open   */
-      /* messages, and received the KeepAlive that acknowledges our Open. */
+      /* If now Established, then the BGP Engine has exchanged BGP Open
+       * messages, and received the KeepAlive that acknowledges our Open.
+       *
+       * Ignore this, however, if the session is sLimping -- which can
+       * happen when the session has been disabled, but it became established
+       * before the BGP Engine had seen the disable message.
+       */
       case bgp_session_eEstablished:
+        if (session->state == bgp_session_sLimping)
+          break ;
+
         bgp_session_has_established(peer);
         break ;
 
@@ -127,15 +135,21 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
         break ;
 
       default:
-      /* If now Stopped, then for some reason the BGP Engine has either   */
-      /* stopped trying to connect, or the session has been stopped.      */
+      /* If now Stopped, then for some reason the BGP Engine has either
+       * stopped trying to connect, or the session has been stopped.
+       *
+       * Again we ignore this in sLimping.
+       */
+        if (session->state == bgp_session_sLimping)
+          break ;
+
         if (args->stopped)
           bgp_session_has_stopped(peer);
         break ;
 
       }
 
-      BGP_SESSION_UNLOCK(session) ;
+      BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
     }
 
   mqb_free(mqb) ;

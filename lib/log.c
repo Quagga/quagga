@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -58,7 +58,7 @@ static int logfile_fd = -1;	/* Used in signal handler. */
 
 struct zlog *zlog_default = NULL;
 
-const char *zlog_proto_names[] = 
+const char *zlog_proto_names[] =
 {
   "NONE",
   "DEFAULT",
@@ -178,7 +178,7 @@ time_print(FILE *fp, struct timestamp_control *ctl)
     }
   fprintf(fp, "%s ", ctl->buf);
 }
-  
+
 /* va_list version of zlog. */
 static void
 vzlog (struct zlog *zl, int priority, const char *format, va_list args)
@@ -187,7 +187,7 @@ vzlog (struct zlog *zl, int priority, const char *format, va_list args)
   uvzlog(zl, priority, format, args);
   UNLOCK
 }
-
+
 /* va_list version of zlog. Unprotected assumes mutex already held*/
 static void
 uvzlog (struct zlog *zl, int priority, const char *format, va_list args)
@@ -540,7 +540,7 @@ zlog_backtrace_sigsafe(int priority, void *program_counter)
 	for (i = 0; i < size; i++)
 	  {
 	    s = buf;
-	    if (bt) 
+	    if (bt)
 	      s = str_append(LOC, bt[i]);
 	    else {
 	      s = str_append(LOC,"[bt ");
@@ -567,7 +567,7 @@ void
 zlog_backtrace(int priority)
 {
   LOCK
-  zlog_backtrace(priority);
+  uzlog_backtrace(priority);
   UNLOCK
 }
 
@@ -738,7 +738,7 @@ zlog_abort (const char *mess)
   abort();
 }
 
-
+
 /* Open log stream */
 struct zlog *
 openzlog (const char *progname, zlog_proto_t protocol,
@@ -761,7 +761,7 @@ openzlog (const char *progname, zlog_proto_t protocol,
   zl->default_lvl = LOG_DEBUG;
 
   openlog (progname, syslog_flags, zl->facility);
-  
+
   return zl;
 }
 
@@ -1187,15 +1187,15 @@ lookup (const struct message *mes, int key)
 {
   const struct message *pnt;
 
-  for (pnt = mes; pnt->key != 0; pnt++) 
-    if (pnt->key == key) 
+  for (pnt = mes; pnt->key != 0; pnt++)
+    if (pnt->key == key)
       return pnt->str;
 
   return "";
 }
 
 /* Older/faster version of message lookup function, but requires caller to pass
- * in the array size (instead of relying on a 0 key to terminate the search). 
+ * in the array size (instead of relying on a 0 key to terminate the search).
  *
  * The return value is the message string if found, or the 'none' pointer
  * provided otherwise.
@@ -1204,7 +1204,7 @@ const char *
 mes_lookup (const struct message *meslist, int max, int index, const char *none)
 {
   int pos = index - meslist[0].key;
-  
+
   /* first check for best case: index is in range and matches the key
    * value in that slot.
    * NB: key numbering might be offset from 0. E.g. protocol constants
@@ -1223,7 +1223,7 @@ mes_lookup (const struct message *meslist, int max, int index, const char *none)
 	if (meslist->key == index)
 	  {
 	    const char *str = (meslist->str ? meslist->str : none);
-	    
+
 	    zlog_debug ("message index %d [%s] found in position %d (max is %d)",
 		      index, str, i, max);
 	    return str;
