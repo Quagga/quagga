@@ -88,9 +88,11 @@ qpn_free(qpn_nexus qpn)
           qps_file_free(qf);
     }
 
-  /* TODO: free qpn->queue */
-  /* TODO: free qpn->mts */
+  if (qpn->queue != NULL)
+    qpn->queue = mqueue_reset(qpn->queue, 1);
 
+  if (qpn->mts != NULL)
+    qpn->mts = mqueue_thread_signal_reset(qpn->mts, 1);
 
   XFREE(MTYPE_QPN_NEXUS, qpn) ;
 
