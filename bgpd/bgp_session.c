@@ -192,7 +192,7 @@ bgp_session_free(bgp_session session)
 
   qpt_mutex_destroy(&session->mutex, 0) ;
 
-  bgp_notify_free(session->notification);
+  bgp_notify_unset(&session->notification);
   bgp_open_state_free(session->open_send);
   bgp_open_state_free(session->open_recv);
   if (session->ifname != NULL)
@@ -359,6 +359,9 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
  * The BGP Engine will stop the session -- unless it is already stopped due to
  * some event in the BGP Engine.  In any case, the BGP Engine will respond with
  * an eDisabled.
+ *
+ * NB: is taking responsibility for the notification, which is either freed
+ *     here or passed to the BGP Engine.
  */
 extern void
 bgp_session_disable(bgp_peer peer, bgp_notify notification)
@@ -420,21 +423,25 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
 
 /*------------------------------------------------------------------------------
  * BGP Engine: session disable message action
+ *
+ * NB: either passes the notification to the FSM or frees it here.
  */
 static void
 bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
 {
+  bgp_session session = mqb_get_arg0(mqb) ;
+  struct bgp_session_disable_args* args = mqb_get_args(mqb) ;
+
   if (flag == mqb_action)
     {
-      bgp_session session = mqb_get_arg0(mqb) ;
-      struct bgp_session_disable_args* args = mqb_get_args(mqb) ;
-
       /* Immediately discard any other messages for this session.       */
       mqueue_revoke(bgp_nexus->queue, session) ;
 
       /* Get the FSM to send any notification and close connections     */
       bgp_fsm_disable_session(session, args->notification) ;
-    } ;
+    }
+  else
+    bgp_notify_free(args->notification) ;
 
   mqb_free(mqb) ;
 }
@@ -442,7 +449,7 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
 /*==============================================================================
  * BGP Engine: send session event signal to Routeing Engine
  *
- * NB: is taking responsibility for the notification.
+ * NB: is passing responsibility for the notification to the Peering Engine.
  */
 extern void
 bgp_session_event(bgp_session session, bgp_session_event_t  event,

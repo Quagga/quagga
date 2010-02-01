@@ -112,45 +112,56 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
     {
       BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
+      session->event = args->event ;      /* last event                     */
+
+//    bgp_notify_set(&session->notification, args->notification) ;
+                                          /* if any sent/received           */
+      bgp_notify_free(args->notification) ;
+
+      session->err   = args->err ;        /* errno, if any                  */
+      session->ordinal = args->ordinal ;  /* primary/secondary connection   */
+
       switch(args->event)
       {
-      /* If now Established, then the BGP Engine has exchanged BGP Open
-       * messages, and received the KeepAlive that acknowledges our Open.
-       *
-       * Ignore this, however, if the session is sLimping -- which can
-       * happen when the session has been disabled, but it became established
-       * before the BGP Engine had seen the disable message.
-       */
-      case bgp_session_eEstablished:
-        if (session->state == bgp_session_sLimping)
+        /* If now Established, then the BGP Engine has exchanged BGP Open
+         * messages, and received the KeepAlive that acknowledges our Open.
+         *
+         * Ignore this, however, if the session is sLimping -- which can
+         * happen when the session has been disabled, but it became established
+         * before the BGP Engine had seen the disable message.
+         */
+        case bgp_session_eEstablished:
+          if (session->state == bgp_session_sLimping)
+            break ;
+
+          bgp_session_has_established(peer);
           break ;
 
-        bgp_session_has_established(peer);
-        break ;
-
-      /* If now Disabled, then the BGP Engine is acknowledging the a      */
-      /* session disable, and the session is now disabled.                */
-      case bgp_session_eDisabled:
-        bgp_session_has_disabled(peer);
-        break ;
-
-      default:
-      /* If now Stopped, then for some reason the BGP Engine has either
-       * stopped trying to connect, or the session has been stopped.
-       *
-       * Again we ignore this in sLimping.
-       */
-        if (session->state == bgp_session_sLimping)
+        /* If now Disabled, then the BGP Engine is acknowledging the a
+         * session disable, and the session is now disabled.
+         */
+        case bgp_session_eDisabled:
+          bgp_session_has_disabled(peer);
           break ;
 
-        if (args->stopped)
-          bgp_session_has_stopped(peer);
-        break ;
+        /* If now Stopped, then for some reason the BGP Engine has either
+         * stopped trying to connect, or the session has been stopped.
+         *
+         * Again we ignore this in sLimping.
+         */
+        default:
+          if (session->state == bgp_session_sLimping)
+            break ;
 
-      }
+          if (args->stopped)
+            bgp_session_has_stopped(peer);
+          break ;
+      } ;
 
       BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
     }
+  else
+    bgp_notify_free(args->notification) ;
 
   mqb_free(mqb) ;
 }
@@ -949,6 +960,8 @@ peer_free (struct peer *peer)
   if (peer->session)
     bgp_session_free(peer->session);
 
+  bgp_notify_unset(&peer->notify) ;
+
   bgp_sync_delete (peer);
   memset (peer, 0, sizeof (struct peer));
 
@@ -993,6 +1006,8 @@ bgp_peer_reenable(bgp_peer peer, bgp_notify notification)
       bgp_peer_disable(peer, notification);
       bgp_peer_enable(peer); /* may defer if still stopping */
     }
+  else
+    bgp_notify_free(notification) ;
 }
 
 /* enable the peer */

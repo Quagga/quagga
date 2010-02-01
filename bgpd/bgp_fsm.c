@@ -43,6 +43,12 @@
 /*==============================================================================
  * The BGP Finite State Machine
  *
+ * The working of BGP is described in the RFC (4271) in terms of a finite
+ * state machine.
+ *
+ * This code follows the older Quagga code, which appears to be based on the
+ * earlier RFC 1771.
+ *
  * The state machine is represented as a table, indexed by [state, event],
  * giving an action to be performed to deal with the event and the state that
  * will advance to (or stay at).
@@ -63,9 +69,14 @@
  *
  *   * some I/O operations complete
  *
+ *   * some I/O operations fail
+ *
  *   * timers go off
  *
  * and the mechanism is to call bgp_fsm_event().
+ *
+ * However, very little calls bgp_fsm_event() directly -- mostly functions
+ * defined here will raise the appropriate event.
  *
  * Note that the event is dealt with *immediately* -- there is no queueing of
  * events.  This avoids the problem of the state of the connection being
@@ -95,13 +106,14 @@
  * If two connections are made, only one will reach OpenConfirm state and
  * hence Established.
  *
- * The session->accept flag is set iff the secondary connection is prepared to
- * accept a connection.  The flag is cleared as soon as a connection is
- * accepted (or if something goes wrong while waiting for or making an accept()
- * connection).
- *
  * When a session is enabled, the allowed connections are initialised and
  * a BGP_Start event issued for each one.
+ *
+ * The listeners (in bgp_network) will only accept connections from addresses
+ * known to be peer addresses, and then only when the accept field in the
+ * peer_index entry for the peer is set (see bgp_peer_index).  This code looks
+ * after setting and clearing that pointer -- which (when set) points to the
+ * secondary connection of the session.
  *
  * Up to Established state, the primary connection will be the out-bound
  * connect() connection (if allowed) and the secondary will be the in-bound
@@ -111,13 +123,13 @@
  *
  * As per the RFC, collision detection/resolution is performed when an OPEN
  * message is received -- that is, as the connection attempts to advance to
- * OpenConfirm state.  At that point, if the sibling is in OpenConfirm state,
- * then one of the two connections is closed (and will go Idle once the
+ * sOpenConfirm state.  At that point, if the sibling is in sOpenConfirm state,
+ * then one of the two connections is closed (and will go sIdle once the
  * NOTIFICATION has been sent).
  *
- * See below for a discussion of the fall back to Idle -- the losing connection
- * will remain comatose until the winner either reaches Established (when the
- * loser is snuffed out) or the winner falls back to Idle (when the
+ * See below for a discussion of the fall back to sIdle -- the losing connection
+ * will remain comatose until the winner either reaches sEstablished (when the
+ * loser is snuffed out) or the winner falls back to sIdle (when the
  * IdleHoldTimer for the loser is set, and it will be awoken in due course).
  *
  * NB: the RFC talks of matching source/destination and destination/source
@@ -157,28 +169,28 @@
  *
  * The FSM proceeds in three basic phases:
  *
- *   1) attempting to establish a TCP connection: Idle/Active/Connect
+ *   1) attempting to establish a TCP connection: sIdle/sActive/sConnect
  *
  *      In this phase there is no connection for the other end to close !
  *
- *      Idle is a "stutter step" which becomes longer each time the FSM falls
- *      back to Idle, which it does if the process fails in OpenSent or
- *      OpenConfirm.
+ *      sIdle is a "stutter step" which becomes longer each time the FSM falls
+ *      back to sIdle, which it does if the process fails in sOpenSent or
+ *      sOpenConfirm.
  *
- *      Cannot fail in Idle !
+ *      Cannot fail in sIdle !
  *
- *      In Active/Connect any failure causes the FSM to stop trying to connect,
- *      then it does nothing further until the end of the ConnectRetryTimer
+ *      In sActive/sConnect any failure causes the FSM to stop trying to
+ *      connect.  It does nothing further until the end of the ConnectRetryTimer
  *      interval -- at which point it will try again, re-charging the timer.
  *      (That is usually 120 seconds (less jitter) -- so in the worst case, it
  *      will try to do something impossible every 90-120 seconds.)
  *
- *      A connection may fall back to Idle from OpenSent/OpenConfirm (see
- *      below).  While one connection is OpenSent or OpenConfirm don't really
+ *      A connection may fall back to sIdle from sOpenSent/sOpenConfirm (see
+ *      below).  While one connection is sOpenSent or sOpenConfirm don't really
  *      want to start another TCP connection in competition.  So, on entry
- *      to Idle:
+ *      to sIdle:
  *
- *        * if sibling exists and is in OpenSent or OpenConfirm:
+ *        * if sibling exists and is in sOpenSent or sOpenConfirm:
  *
  *            - do not change the IdleHoldTimer interval.
  *            - do not set the IdleHoldTimer (with jitter).
@@ -194,8 +206,8 @@
  *            - set *its* IdleHoldTimer (with jitter).
  *            - clear *its* comatose flag.
  *
- *      The effect is that if both connections make it to OpenSent, then only
- *      when *both* fall back to Idle will the FSM try to make any new TCP
+ *      The effect is that if both connections make it to sOpenSent, then only
+ *      when *both* fall back to sIdle will the FSM try to make any new TCP
  *      connections.
  *
  *      The IdleHoldTimer increases up to 120 seconds.  In the worst case, the
@@ -203,18 +215,18 @@
  *      drops them.  In which case, the IdleHoldTimer grows, and the disruption
  *      reduces to once every 90-120 seconds !
  *
- *   2) attempting to establish a BGP session: OpenSent/OpenConfirm
+ *   2) attempting to establish a BGP session: sOpenSent/sOpenConfirm
  *
  *      If something goes wrong, or the other end closes the connection (with
- *      or without notification) the FSM will loop back to Idle state.  Also,
+ *      or without notification) the FSM will loop back to sIdle state.  Also,
  *      when collision resolution closes one connection it too loops back to
- *      Idle (see above).
+ *      sIdle (see above).
  *
- *      Both connections may reach OpenSent.  Only one at once can reach
- *      OpenConfirm -- collision resolution sees to that.
+ *      Both connections may reach sOpenSent.  Only one at once can reach
+ *      sOpenConfirm -- collision resolution sees to that.
  *
  *      Note that while a NOTIFICATION is being sent the connection stays
- *      in OpenSent/OpenConfirm state.
+ *      in sOpenSent/sOpenConfirm state.
  *
  *   3) BGP session established
  *
@@ -292,7 +304,7 @@
  *------------------------------------------------------------------------------
  * Sending NOTIFICATION message
  *
- * In OpenSent, OpenConfirm and Established states may send a NOTIFICATION
+ * In sOpenSent, sOpenConfirm and sEstablished states may send a NOTIFICATION
  * message.
  *
  * The procedure for sending a NOTIFICATION is:
@@ -308,29 +320,29 @@
  *
  *      This ensures there is room in the write buffer at the very least.
  *
- *      For OpenSent and OpenConfirm states there should be zero chance of
+ *      For sOpenSent and sOpenConfirm states there should be zero chance of
  *      there being anything to purge, and probably no write buffer in any
  *      case.
  *
- *   -- purge any pending write messages for the connection (for Established).
+ *   -- purge any pending write messages for the connection (for sEstablished).
  *
  *   -- set notification_pending = 1 (write pending)
  *
  *   -- write the NOTIFICATION message.
  *
- *      For Established, the message will at the very least be written to the
- *      write buffer.  For OpenSent and OpenConfirm expect it to go directly
+ *      For sEstablished, the message will at the very least be written to the
+ *      write buffer.  For sOpenSent and sOpenConfirm expect it to go directly
  *      to the TCP buffer.
  *
  *   -- set HoldTimer to a waiting to clear buffer time -- say 20 secs.
  *
- *      Don't expect to need to wait at all in OpenSent/OpenConfirm states.
+ *      Don't expect to need to wait at all in sOpenSent/sOpenConfirm states.
  *
  *   -- when the NOTIFICATION message clears the write buffer, that will
  *      generate a Sent_NOTIFICATION_message event.
  *
- * After sending the NOTIFICATION, OpenSent & OpenConfirm stay in their
- * respective states.  Established goes to Stopping State.
+ * After sending the NOTIFICATION, sOpenSent & sOpenConfirm stay in their
+ * respective states.  sEstablished goes to sStopping State.
  *
  * When the Sent_NOTIFICATION_message event occurs, set the HoldTimer to
  * a "courtesy" time of 5 seconds.  Remain in the current state.
@@ -376,6 +388,9 @@
  * appears slim to vanishing.  However, the Routeing Engine and the operator
  * are responsible for the decision to start and to stop trying to connect.
  */
+
+static void
+bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event) ;
 
 /*==============================================================================
  * Enable the given session -- which must be newly initialised.
@@ -425,7 +440,7 @@ bgp_fsm_enable_session(bgp_session session)
 } ;
 
  /*=============================================================================
- * Raising exceptions.
+ * Signalling events and throwing exceptions.
  *
  * Before generating a BGP_Stop event the cause of the stop MUST be set for
  * the connection.
@@ -459,6 +474,34 @@ static bgp_fsm_state_t
 bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state) ;
 
 /*------------------------------------------------------------------------------
+ * Signal that valid OPEN message has been received and processed into the
+ * connection->open_recv.
+ */
+extern void
+bgp_fsm_open_received(bgp_connection connection)
+{
+  bgp_fsm_event(connection, bgp_fsm_eReceive_OPEN_message) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Signal that valid KEEPALIVE message has been received.
+ */
+extern void
+bgp_fsm_keepalive_received(bgp_connection connection)
+{
+  bgp_fsm_event(connection, bgp_fsm_eReceive_KEEPALIVE_message);
+} ;
+
+/*------------------------------------------------------------------------------
+ * Signal that notification message has cleared buffers into TCP.
+ */
+extern void
+bgp_fsm_notification_sent(bgp_connection connection)
+{
+  bgp_fsm_event(connection, bgp_fsm_eSent_NOTIFICATION_message) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Ultimate exception -- disable the session
  *
  * Does nothing if neither connection exists (which implies the session has
@@ -490,17 +533,17 @@ bgp_fsm_disable_session(bgp_session session, bgp_notify notification)
 } ;
 
 /*------------------------------------------------------------------------------
- * Raise a general exception -- not I/O related.
+ * Throw a general exception -- not I/O related.
  *
  * Note that I/O problems are signalled by bgp_fsm_io_error().
  *
- * NB: can raise an exception for other connections while in the FSM.
+ * NB: can throw an exception for other connections while in the FSM.
  *
- *     can raise an exception for the current connection while in the FSM, the
+ *     can throw an exception for the current connection while in the FSM, the
  *     fsm_active/post mechanism looks after this.
  */
 extern void
-bgp_fsm_raise_exception(bgp_connection connection, bgp_session_event_t except,
+bgp_fsm_general_exception(bgp_connection connection, bgp_session_event_t except,
                                                         bgp_notify notification)
 {
   bgp_fsm_throw_exception(connection, except, notification, 0,
@@ -645,9 +688,6 @@ bgp_fsm_connect_completed(bgp_connection connection, int err,
 /*------------------------------------------------------------------------------
  * Post the given exception.
  *
- * Forget the notification if not OpenSent/OpenConfirm/Established.  Cannot
- * send notification in any other state -- nor receive one.
- *
  * NB: takes responsibility for the notification structure.
  */
 static void
@@ -655,14 +695,7 @@ bgp_fsm_post_exception(bgp_connection connection, bgp_session_event_t except,
                         bgp_notify notification, int err)
 {
   connection->except       = except ;
-
-  if (   (connection->state != bgp_fsm_sOpenSent)
-      && (connection->state != bgp_fsm_sOpenConfirm)
-      && (connection->state != bgp_fsm_sEstablished) )
-    bgp_notify_unset(&notification) ;
-
   bgp_notify_set(&connection->notification, notification) ;
-
   connection->err          = err ;
 } ;
 
@@ -1510,7 +1543,7 @@ bgp_fsm[bgp_fsm_last_state + 1][bgp_fsm_last_event + 1] =
      */
     {bgp_fsm_null,      bgp_fsm_sStopping},   /* null event                   */
     {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* BGP_Start                    */
-    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* BGP_Stop                     */
+    {bgp_fsm_exit,      bgp_fsm_sStopping},   /* BGP_Stop                     */
     {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open          */
     {bgp_fsm_exit,      bgp_fsm_sStopping},   /* TCP_connection_closed        */
     {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open_failed   */
@@ -1558,7 +1591,7 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state) ;
  *
  *
  */
-extern void
+static void
 bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
 {
   bgp_fsm_state_t next_state ;
@@ -1674,10 +1707,6 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
 
 static void
 bgp_hold_timer_set(bgp_connection connection, unsigned secs) ;
-
-static bgp_fsm_state_t
-bgp_fsm_send_notification(bgp_connection connection,
-                                                   bgp_fsm_state_t next_state) ;
 
 /*------------------------------------------------------------------------------
  * Null action -- do nothing at all.
@@ -1967,10 +1996,10 @@ static bgp_fsm_action(bgp_fsm_recv_open)
        */
       if (connection->open_recv->bgp_id != sibling->open_recv->bgp_id)
         {
-          bgp_fsm_raise_exception(sibling,    bgp_session_eOpen_reject,
+          bgp_fsm_general_exception(sibling,    bgp_session_eOpen_reject,
                    bgp_msg_noms_o_bad_id(NULL, sibling->open_recv->bgp_id)) ;
 
-          bgp_fsm_raise_exception(connection, bgp_session_eOpen_reject,
+          bgp_fsm_general_exception(connection, bgp_session_eOpen_reject,
                    bgp_msg_noms_o_bad_id(NULL, connection->open_recv->bgp_id)) ;
 
           return connection->state ;
@@ -1983,7 +2012,7 @@ static bgp_fsm_action(bgp_fsm_recv_open)
                 : sibling ;
 
       /* Throw exception                                                */
-      bgp_fsm_raise_exception(loser, bgp_session_eCollision,
+      bgp_fsm_general_exception(loser, bgp_session_eCollision,
                       bgp_notify_new(BGP_NOMC_CEASE, BGP_NOMS_C_COLLISION, 0)) ;
 
       /* If self is the loser, exit now to process the eBGP_Stop        */
@@ -2140,31 +2169,36 @@ static bgp_fsm_action(bgp_fsm_exit)
  *
  * An event has been raised, and the FSM has a (default next_state).
  *
- *  1a) notification & not eNOM_recv
+ *  1a) notification & not eNOM_recv & suitable state
+ *
+ *      (suitable state is sOpenSent/sOpenConfirm/sEstablished.
  *
  *      Start sending the NOTIFICATION message.
  *
- *      NB: won't be a notification unless OpenSent/OpenConfirm/Established.
- *
- *      For OpenSent/OpenConfirm, override the next_state to stay where it is
+ *      For sOpenSent/sOpenConfirm, override the next_state to stay where it is
  *      until NOTIFICATION process completes.
+ *
+ *      For sEstablished, the next state will be sStopping.
  *
  *      Sending NOTIFICATION closes the connection for reading.
  *
  *  1b) otherwise: close the connection file.
  *
- *   2) if next state is Stopping, and not eDiscard
+ *      If the next_state is sStopping, there is nothing else to do, so
+ *      post an eBGP_Stop event, so that the connection exits.
+ *
+ *   2) if next state is sStopping, and not eDiscard
  *
  *      This means we bring down the session, so discard any sibling.
  *
  *      The sibling will send any notification, and proceed immediately to
- *      Stopping.
+ *      sStopping.
  *
  *      (The sibling will be eDiscard -- so no deadly embrace here.)
  *
  * The state machine takes care of the rest:
  *
- *   * complete entry to new state (for Stopping will cut connection loose).
+ *   * complete entry to new state (for sStopping will cut connection loose).
  *
  *   * send message to Routeing Engine
  *
@@ -2173,20 +2207,85 @@ static bgp_fsm_action(bgp_fsm_exit)
 static bgp_fsm_state_t
 bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
 {
+  int send_notification ;
+
+  /* Have a notification to send iff have not just received one, and are in a
+   * suitable state to send one at all.
+   */
+  if (connection->except == bgp_session_eNOM_recv)
+    send_notification = 0 ;
+  else
+    {
+      if (  (connection->state == bgp_fsm_sOpenSent)
+          || (connection->state == bgp_fsm_sOpenConfirm)
+          || (connection->state == bgp_fsm_sEstablished) )
+        {
+          send_notification = (connection->notification != NULL) ;
+        }
+      else
+        {
+          bgp_notify_unset(&connection->notification) ;
+          send_notification = 0 ;
+        } ;
+    } ;
+
   /* If there is a NOTIFICATION to send, now is the time to do that.
    * Otherwise, close the connection but leave the timers.
    *
    * The state transition stuff looks after timers.  In particular an error
    * in Connect/Active states leaves the ConnectRetryTimer running.
    */
-  if (   (connection->notification != NULL)
-      && (connection->except != bgp_session_eNOM_recv) )
-    next_state = bgp_fsm_send_notification(connection, next_state) ;
+  if (send_notification)
+    {
+      int ret ;
+
+      /* If not changing to stopping, we hold in the current state until
+       * the NOTIFICATION process is complete.
+       */
+      if (next_state != bgp_fsm_sStopping)
+        next_state = connection->state ;
+
+      /* Close for reading and flush write buffers.                         */
+      bgp_connection_part_close(connection) ;
+
+      /* Write the message
+       *
+       * If the write fails it raises a suitable event, which will now be
+       * sitting waiting to be processed on the way out of the FSM.
+       */
+      ret = bgp_msg_write_notification(connection, connection->notification) ;
+
+      connection->notification_pending = (ret >= 0) ;
+                                      /* is pending if not failed           */
+      if      (ret > 0)
+        /* notification reached the TCP buffers instantly
+         *
+         * Send ourselves the good news !
+         */
+        bgp_fsm_notification_sent(connection) ;
+
+      else if (ret == 0)
+        /* notification is sitting in the write buffer
+         *
+         * notification_pending is set, so write action will raise the required
+         * event in due course.
+         *
+         * Set the HoldTimer to something suitable.  Don't really expect this
+         * to happen in anything except sEstablished state -- but copes.  (Is
+         * ready to wait 20 seconds in sStopping state and 5 otherwise.)
+         */
+        bgp_hold_timer_set(connection,
+                                   (next_state == bgp_fsm_sStopping) ? 20 : 5) ;
+    }
   else
-    bgp_connection_close(connection, 0) ;     /* FSM deals with timers  */
+    {
+      bgp_connection_close(connection, 0) ;     /* FSM deals with timers  */
 
+      if (next_state == bgp_fsm_sStopping)      /* can exit if sStopping  */
+        bgp_fsm_event(connection, bgp_fsm_eBGP_Stop) ;
+    } ;
 
-  /* If stopping and not eDiscard, do in any sibling                    */
+  /* If sStopping and not eDiscard, do in any sibling                   */
   if (   (next_state == bgp_fsm_sStopping)
       && (connection->except != bgp_session_eDiscard) )
     {
@@ -2200,73 +2299,6 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
     } ;
 
   /* Return the (possibly adjusted) next_state                  */
-  return next_state ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Dispatch notification message
- *
- * Part closing the connection guarantees that can get the notification
- * message into the buffers.
- *
- * Process will generate the following events:
- *
- *   -- I/O failure of any sort
- *   -- Sent_NOTIFICATION_message
- *   -- HoldTimer expired
- *
- * When get Sent_NOTIFICATION_message, will set final "courtesy" timer, so
- * unless I/O fails, final end of process is HoldTimer expired (with
- *
- * NB: requires the session to be locked -- connection-wise.
- *
- * NB: leaves the notification sitting in the connection.
- */
-static bgp_fsm_state_t
-bgp_fsm_send_notification(bgp_connection connection, bgp_fsm_state_t next_state)
-{
-  int ret ;
-
-  /* If the next_state is not Stopping, then the sending of the notification
-   * holds the FSM in the current state.  Will move forward when the
-   * HoldTimer expires -- either because lost patience in getting the
-   * notification away, or at the end of the "courtesy" time.
-   */
-  if (next_state != bgp_fsm_sStopping)
-    next_state = connection->state ;
-
-  /* Close for reading and flush write buffers.                         */
-  bgp_connection_part_close(connection) ;
-
-  /* Write the message
-   *
-   * If the write fails it raises a suitable event, which will now be
-   * sitting waiting to be processed on the way out of the FSM.
-   */
-  ret = bgp_msg_write_notification(connection, connection->notification) ;
-
-  connection->notification_pending = (ret >= 0) ;
-                                  /* is pending if not failed           */
-  if      (ret > 0)
-    /* notification reached the TCP buffers instantly
-     *
-     * Send ourselves the good news !
-     */
-    bgp_fsm_event(connection, bgp_fsm_eSent_NOTIFICATION_message) ;
-
-  else if (ret == 0)
-    /* notification is sitting in the write buffer
-     *
-     * Set notification_pending so that write action will raise the required
-     * event in due course.
-     *
-     * Set the HoldTimer to something suitable.  Don't really expect this
-     * to happen in anything except Established state -- but copes.  (Is
-     * ready to wait 20 seconds in Stopping state and 5 otherwise.)
-     */
-    bgp_hold_timer_set(connection, (next_state == bgp_fsm_sStopping) ? 20 : 5) ;
-
-  /* Return suitable state.                                             */
   return next_state ;
 } ;
 
@@ -2505,14 +2537,12 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
 
     /* The connection is coming to an dead stop.
      *
-     * If not sending a NOTIFICATION then stop HoldTimer now.
+     * Leave the HoldTimer running -- may be waiting for NOTIFICATION to clear,
+     * or for the "courtesy" time to expire.
      *
      * Unlink connection from session.
      */
     case bgp_fsm_sStopping:
-      if (!connection->notification_pending)
-        qtimer_unset(&connection->hold_timer) ;
-
       qtimer_unset(&connection->keepalive_timer) ;
 
       break ;

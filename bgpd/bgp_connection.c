@@ -292,21 +292,22 @@ bgp_connection_make_primary(bgp_connection connection)
  * Exit connection
  *
  * Make sure the connection is closed, then queue it to be reaped.
+ *
+ * When BGP Engine gets round to it, will free the structure.  This avoids
+ * freeing the connection structure somewhere inside the FSM, and having to
+ * cope with the possibility of having dangling references to it.
+ *
+ * In fact, the connection may be set to be reaped before the FSM has cut it
+ * loose from the session -- so the connection may still be active inside the
+ * FSM when this is called.
  */
 extern void
 bgp_connection_exit(bgp_connection connection)
 {
   bgp_connection_close(connection, 1) ;         /* make sure    */
 
-  assert(   (connection->state == bgp_fsm_sStopping)
-         && (connection->session == NULL) ) ;
+  assert(connection->state == bgp_fsm_sStopping) ;
 
-  /* Add the connection to the connection queue, in Stopped state.
-   *
-   * When BGP Engine gets round to it, will free the structure.  This avoids
-   * freeing the connection structure somewhere inside the FSM, and having to
-   * cope with the possibility of having dangling references to it.
-   */
   bgp_connection_queue_add(connection) ;
 } ;
 
@@ -572,7 +573,6 @@ bgp_connection_open(bgp_connection connection, int fd)
 
 /*------------------------------------------------------------------------------
  * Enable connection for accept()
- *
  */
 extern void
 bgp_connection_enable_accept(bgp_connection connection)
@@ -581,13 +581,14 @@ bgp_connection_enable_accept(bgp_connection connection)
 } ;
 
 /*------------------------------------------------------------------------------
- * Disable connection for accept()
- *
+ * Disable connection for accept() -- assuming still have session !
  */
 extern void
 bgp_connection_disable_accept(bgp_connection connection)
 {
-  connection->session->index_entry->accept = NULL ;
+  bgp_session session = connection->session ;
+  if (session != NULL)
+    session->index_entry->accept = NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -899,7 +900,7 @@ bgp_connection_write_action(qps_file qf, void* file_info)
   /* If waiting to send NOTIFICATION, just did it.                      */
   /* Otherwise: is writable again -- so add to connection_queue         */
   if (connection->notification_pending)
-    bgp_fsm_event(connection, bgp_fsm_eSent_NOTIFICATION_message) ;
+    bgp_fsm_notification_sent(connection) ;
   else
     bgp_connection_queue_add(connection) ;
 } ;

@@ -158,7 +158,7 @@ bgp_msg_header_bad_len(bgp_connection connection, uint8_t type, bgp_size_t size)
                 connection->host, size,
                 bgp_type_name[bgp_type_map[type]]) ;
 
-  bgp_fsm_raise_exception(connection, bgp_session_eInvalid_msg,
+  bgp_fsm_general_exception(connection, bgp_session_eInvalid_msg,
      bgp_notify_new_with_data(BGP_NOMC_HEADER, BGP_NOMS_H_BAD_LEN,
                                                       (void*)&notify_size, 2)) ;
 } ;
@@ -181,7 +181,7 @@ bgp_msg_header_bad_type(bgp_connection connection, uint8_t type)
                           connection->host, bgp_type_name[bgp_type_map[type]]) ;
     } ;
 
-  bgp_fsm_raise_exception(connection, bgp_session_eInvalid_msg,
+  bgp_fsm_general_exception(connection, bgp_session_eInvalid_msg,
      bgp_notify_new_with_data(BGP_NOMC_HEADER, BGP_NOMS_H_BAD_TYPE,
                                                              (void*)&type, 1)) ;
 } ;
@@ -246,7 +246,7 @@ bgp_msg_check_header(bgp_connection connection)
                 plog_debug (connection->log, "%s unknown message type 0x%02x",
                             connection->host, type);
 
-              bgp_fsm_raise_exception(connection, bgp_session_eInvalid_msg,
+              bgp_fsm_general_exception(connection, bgp_session_eInvalid_msg,
                  bgp_notify_new_with_data(BGP_NOMC_HEADER, BGP_NOMS_H_BAD_TYPE,
                                                              (void*)&type, 1)) ;
             }
@@ -258,7 +258,7 @@ bgp_msg_check_header(bgp_connection connection)
     }
   else
     {
-      bgp_fsm_raise_exception(connection, bgp_session_eInvalid_msg,
+      bgp_fsm_general_exception(connection, bgp_session_eInvalid_msg,
                       bgp_notify_new(BGP_NOMC_HEADER, BGP_NOMS_H_NOT_SYNC, 0)) ;
       qt   = qBGP_MT_unknown ;          /* force unknown message        */
       size = BGP_MH_HEAD_L ;            /* can stop reading, now        */
@@ -503,7 +503,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t body_size)
   connection->route_refresh  = open_recv->can_r_refresh ;
   connection->orf_prefix     = open_recv->can_orf_prefix ;
 
-  bgp_fsm_event(connection, bgp_fsm_eReceive_OPEN_message) ;
+  bgp_fsm_open_received(connection) ;
 
   return ;
 
@@ -511,7 +511,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t body_size)
    * Failed.  Reject the OPEN with the required notification.
    */
 reject:
-  bgp_fsm_raise_exception(connection, bgp_session_eOpen_reject, notification);
+  bgp_fsm_general_exception(connection, bgp_session_eOpen_reject, notification);
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1384,7 +1384,7 @@ bgp_msg_keepalive_receive (bgp_connection connection, bgp_size_t body_size)
     zlog_debug ("%s KEEPALIVE rcvd", connection->host);
 
   if (body_size == 0)
-    bgp_fsm_event(connection, bgp_fsm_eReceive_KEEPALIVE_message);
+    bgp_fsm_keepalive_received(connection) ;
   else
     bgp_msg_header_bad_len(connection, BGP_MT_KEEPALIVE, body_size) ;
 } ;
@@ -1524,7 +1524,7 @@ bgp_msg_route_refresh_receive(bgp_connection connection, bgp_size_t body_size)
 
   if (ret < 0)
     {
-      bgp_fsm_raise_exception(connection, bgp_session_eInvalid_msg,
+      bgp_fsm_general_exception(connection, bgp_session_eInvalid_msg,
                        bgp_notify_new(BGP_NOMC_CEASE, BGP_NOMS_UNSPECIFIC, 0)) ;
       return ;
     }
