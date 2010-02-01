@@ -161,11 +161,13 @@ typedef struct mqueue_queue* mqueue_queue ;
 
 struct mqueue_queue
 {
-  qpt_mutex_t  mutex ;
+  qpt_mutex_t   mutex ;
 
-  mqueue_block head ;           /* NULL => list is empty                      */
-  mqueue_block tail_priority ;  /* last priority message (if any & not empty) */
-  mqueue_block tail ;           /* last message (if not empty)                */
+  mqueue_block  head ;          /* NULL => list is empty                      */
+  mqueue_block  tail_priority ; /* last priority message (if any & not empty) */
+  mqueue_block  tail ;          /* last message (if not empty)                */
+
+  unsigned      count ;         /* of items on the queue                      */
 
   enum mqueue_queue_type    type ;
 
@@ -195,6 +197,15 @@ mqueue_initialise(void) ;
 extern mqueue_queue
 mqueue_init_new(mqueue_queue mq, enum mqueue_queue_type type) ;
 
+extern void
+mqueue_empty(mqueue_queue mq) ;
+
+extern mqueue_queue
+mqueue_reset(mqueue_queue mq, int free_structure) ;
+
+#define mqueue_reset_keep(mq) mqueue_reset(mq, 0)
+#define mqueue_reset_free(mq) mqueue_reset(mq, 1)
+
 extern mqueue_local_queue
 mqueue_local_init_new(mqueue_local_queue lmq) ;
 
@@ -210,6 +221,12 @@ mqueue_set_timeout_interval(mqueue_queue mq, qtime_t interval) ;
 extern mqueue_thread_signal
 mqueue_thread_signal_init(mqueue_thread_signal mqt, qpt_thread_t thread,
                                                                    int signum) ;
+mqueue_thread_signal
+mqueue_thread_signal_reset(mqueue_thread_signal mqt, int free_structure) ;
+
+#define mqueue_thread_signal_reset_keep(mqt) mqueue_thread_signal_reset(mqt, 0)
+#define mqueue_thread_signal_reset_free(mqt) mqueue_thread_signal_reset(mqt, 1)
+
 extern mqueue_block
 mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0) ;
 

@@ -113,11 +113,8 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
       BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
       session->event = args->event ;      /* last event                     */
-
-//    bgp_notify_set(&session->notification, args->notification) ;
+      bgp_notify_set(&session->notification, args->notification) ;
                                           /* if any sent/received           */
-      bgp_notify_free(args->notification) ;
-
       session->err   = args->err ;        /* errno, if any                  */
       session->ordinal = args->ordinal ;  /* primary/secondary connection   */
 
