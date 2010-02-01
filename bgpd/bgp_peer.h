@@ -316,9 +316,6 @@ struct peer
   /* Announcement attribute hash.  */
   struct hash *hash[AFI_MAX][SAFI_MAX];
 
-  /* Notify data. */
-  bgp_notify notify;
-
   /* Filter structure. */
   struct bgp_filter filter[AFI_MAX][SAFI_MAX];
 

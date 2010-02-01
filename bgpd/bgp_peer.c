@@ -200,7 +200,7 @@ bgp_session_has_established(bgp_peer peer)
     SET_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN);
 
   /* Clear last notification data. */
-  bgp_notify_unset(&(peer->notify));
+  bgp_notify_unset(&(peer->session->notification));
 
   /* Clear start timer value to default. */
   peer->v_start = BGP_INIT_START_TIMER;
@@ -953,8 +953,6 @@ peer_free (struct peer *peer)
   /* session */
   if (peer->session)
     bgp_session_free(peer->session);
-
-  bgp_notify_unset(&peer->notify) ;
 
   bgp_sync_delete (peer);
   memset (peer, 0, sizeof (struct peer));

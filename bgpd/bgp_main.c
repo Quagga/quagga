@@ -203,6 +203,7 @@ sighup (void)
   zlog_info ("bgpd restarting!");
 
   /* Reload config file. */
+  vty_reset();
   vty_read_config (config_file, config_default);
 
   /* Create VTY's socket */
@@ -652,7 +653,7 @@ sighup_action(mqueue_block mqb, mqb_flag_t flag)
 {
   if (flag == mqb_action)
     {
-      bgp_terminate (0, 0); /* send notfies */
+      bgp_terminate (0, 0); /* send notifies */
       bgp_reset ();
     }
 

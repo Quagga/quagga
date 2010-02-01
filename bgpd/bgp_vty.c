@@ -7622,8 +7622,9 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 	   VTY_NEWLINE);
 #endif
 
-  if (p->notify != NULL && p->notify->code == BGP_NOTIFY_OPEN_ERR
-      && p->notify->subcode == BGP_NOTIFY_OPEN_UNSUP_CAPBL)
+  if (p->session != NULL && p->session->notification != NULL
+      && p->session->notification->code == BGP_NOTIFY_OPEN_ERR
+      && p->session->notification->subcode == BGP_NOTIFY_OPEN_UNSUP_CAPBL)
     bgp_capability_vty_out (vty, p);
 
   vty_out (vty, "%s", VTY_NEWLINE);

@@ -3007,7 +3007,6 @@ bgp_cleanup_routes (void)
 void
 bgp_reset (void)
 {
-  vty_reset ();
   bgp_zclient_reset ();
   access_list_reset ();
   prefix_list_reset ();

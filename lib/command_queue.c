@@ -34,10 +34,10 @@ cq_enqueue(struct cmd_element *matched_element, struct vty *vty,
     int argc, const char *argv[], qpn_nexus bgp_nexus)
 {
   int i;
-  mqueue_block mqb = mqb_init_new(NULL, cq_action, matched_element) ;
+  mqueue_block mqb = mqb_init_new(NULL, cq_action, vty) ;
 
   /* all parameters are pointers so use the queue's argv */
-  mqb_push_argv_p(mqb, vty);
+  mqb_push_argv_p(mqb, matched_element);
   for (i = 0; i < argc; ++i)
     mqb_push_argv_p(mqb, XSTRDUP(MTYPE_MARSHAL, argv[i]));
 
@@ -55,11 +55,11 @@ cq_action(mqueue_block mqb, mqb_flag_t flag)
   void **argv;
   int argc;
 
-  matched_element = mqb_get_arg0(mqb);
+  vty = mqb_get_arg0(mqb);
   argc = mqb_get_argv_count(mqb);
   argv = mqb_get_argv(mqb) ;
 
-  vty = argv[0];
+  matched_element = argv[0];
   argv++;
   argc--;
 
