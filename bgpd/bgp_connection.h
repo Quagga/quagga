@@ -234,6 +234,16 @@ bgp_connection_queue_del(bgp_connection connection) ;
 extern void
 bgp_connection_queue_process(void) ;
 
+Inline int
+bgp_connection_no_pending(bgp_connection connection, bgp_connection* is_pending)
+{
+  return (   (mqueue_local_head(&connection->pending_queue) == NULL)
+          || (*is_pending != NULL) ) ;
+} ;
+
+extern void
+bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
+                                                   bgp_connection* is_pending) ;
 
 /*------------------------------------------------------------------------------
  * See if have enough room for what want to write PLUS 1.

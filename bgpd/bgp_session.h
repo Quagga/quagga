@@ -244,7 +244,7 @@ struct bgp_session_update_args          /* to and from BGP Engine       */
   struct stream*  buf ;
   bgp_size_t size ;
 
-  bgp_connection  pending ;             /* used inside the BGP Engine   */
+  bgp_connection  is_pending ;          /* used inside the BGP Engine   */
                                         /* set NULL on message creation */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_update_args) ;
@@ -253,7 +253,7 @@ struct bgp_session_route_refresh_args   /* to and from BGP Engine       */
 {
   bgp_route_refresh  rr ;
 
-  bgp_connection  pending ;             /* used inside the BGP Engine   */
+  bgp_connection  is_pending ;          /* used inside the BGP Engine   */
                                         /* set NULL on message creation */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_route_refresh_args) ;
@@ -263,7 +263,7 @@ struct bgp_session_end_of_rib_args      /* to and from BGP Engine       */
   iAFI_t    afi ;
   iSAFI_t   safi ;
 
-  bgp_connection  pending ;             /* used inside the BGP Engine   */
+  bgp_connection  is_pending ;          /* used inside the BGP Engine   */
                                         /* set NULL on message creation */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_end_of_rib_args) ;

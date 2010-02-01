@@ -461,7 +461,7 @@ bgp_connection_queue_process(void)
         } ;
 
       /* Process next item on connection's pending queue                */
-      mqb = mqueue_local_head(&connection->pending_queue) ;
+      mqb = mqueue_local_dequeue(&connection->pending_queue) ;
       if (mqb != NULL)
         /* The action will either remove the mqb from the pending queue,
          * or remove the connection from the connection queue.
@@ -472,9 +472,37 @@ bgp_connection_queue_process(void)
                 && (connection
                             == session->connections[bgp_connection_primary]) ) ;
           mqb_dispatch_action(mqb) ;
-        }
-      else
+        } ;
+
+      /* If head is unchanged, then no more to do now.                  */
+      if (mqb == mqueue_local_head(&connection->pending_queue))
         bgp_connection_queue_del(connection) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Add given message block to the given connection's pending queue
+ *
+ * If mqb is not already pending, add it at the tail and mark it pending.
+ *
+ * If is already pending, then is being put back onto the queue, so put it
+ * at the head, and remove the connection from the connection queue -- there
+ * is nothing more to be done for the connection for the time being.
+ */
+extern void
+bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
+                                                     bgp_connection* is_pending)
+{
+  if (*is_pending == NULL)
+    {
+      mqueue_local_enqueue(&connection->pending_queue, mqb) ;
+      *is_pending = connection ;
+    }
+  else
+    {
+      dassert(*is_pending == connection) ;
+      mqueue_local_enqueue_head(&connection->pending_queue, mqb) ;
+      bgp_connection_queue_del(connection) ;
     } ;
 } ;
 

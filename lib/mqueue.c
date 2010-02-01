@@ -708,7 +708,7 @@ mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig)
 } ;
 
 /*------------------------------------------------------------------------------
- * Enqueue message on local queue
+ * Enqueue message on local queue -- at tail
  */
 extern void
 mqueue_local_enqueue(mqueue_local_queue lmq, mqueue_block mqb)
@@ -719,6 +719,19 @@ mqueue_local_enqueue(mqueue_local_queue lmq, mqueue_block mqb)
     lmq->tail->next = mqb ;
   lmq->tail = mqb ;
   mqb->next = NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Enqueue message on local queue -- at head
+ */
+extern void
+mqueue_local_enqueue_head(mqueue_local_queue lmq, mqueue_block mqb)
+{
+  if (lmq->head == NULL)
+    lmq->tail = mqb ;
+
+  mqb->next = lmq->head ;
+  lmq->head = mqb ;
 } ;
 
 /*------------------------------------------------------------------------------

@@ -234,6 +234,9 @@ mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig) ;
 extern void
 mqueue_local_enqueue(mqueue_local_queue lmq, mqueue_block mqb) ;
 
+extern void
+mqueue_local_enqueue_head(mqueue_local_queue lmq, mqueue_block mqb) ;
+
 Inline mqueue_block
 mqueue_local_head(mqueue_local_queue lmq) ;
 

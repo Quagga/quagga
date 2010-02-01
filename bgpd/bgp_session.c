@@ -323,6 +323,7 @@ bgp_session_enable(bgp_peer peer)
 
   confirm(sizeof(struct bgp_session_enable_args) == 0) ;
 
+  session->state = bgp_session_sEnabled;
   bgp_to_bgp_engine(mqb) ;
 } ;
 
@@ -340,7 +341,6 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
 
       session->active = 1 ;
       bgp_fsm_enable_session(session) ;
-      session->state = bgp_session_sEnabled;
 
       BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
     } ;
@@ -487,8 +487,8 @@ bgp_session_update_send(bgp_session session, struct stream* upd)
   mqb = mqb_init_new(NULL, bgp_session_do_update_send, session) ;
 
   args = mqb_get_args(mqb) ;
-  args->buf     = stream_dup(upd) ;
-  args->pending = NULL ;
+  args->buf        = stream_dup(upd) ;
+  args->is_pending = NULL ;
 
   BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
   session->flow_control++;      /* count them in ... */
@@ -544,33 +544,22 @@ bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
       bgp_connection connection = session->connections[bgp_connection_primary] ;
       assert(connection != NULL) ;
 
-      mqueue_block head = mqueue_local_head(&connection->pending_queue) ;
-
-      int is_pending = (args->pending != NULL) ;
-      if (is_pending)
-        assert( (args->pending == connection) && (mqb == head) ) ;
-
       /* If established, try and send.                                  */
       if (connection->state == bgp_fsm_sEstablished)
         {
-          int ret = 0 ;
+          int ret = bgp_connection_no_pending(connection, &args->is_pending) ;
 
-          if ((head == NULL) || is_pending)
+          if (ret != 0)
             ret = bgp_msg_send_update(connection, args->buf) ;
 
           if (ret == 0)
             {
-              /* Did not fail, but could not write the message.         */
-              if (!is_pending)
-                {
-                  mqueue_local_enqueue(&connection->pending_queue, mqb) ;
-                  args->pending = connection ;
-                }
-              else
-                bgp_connection_queue_del(connection) ;
-
-              return ;  /* **** Quit now, with message intact.          */
-
+              /* Either there is already a pending queue, or the message
+               * could not be sent (and has not failed) -- so add to the
+               * pending queue.
+               */
+              bgp_connection_add_pending(connection, mqb, &args->is_pending) ;
+              return ;  /* Quit now, with message intact.       */
             }
           else if (ret > 0)
             {
@@ -584,10 +573,6 @@ bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
                 bgp_session_XON(session);
             } ;
         } ;
-
-      /* Have dealt with the message -- if was pending, it's done.      */
-      if (is_pending)
-        mqueue_local_dequeue(&connection->pending_queue) ;
     } ;
 
   stream_free(args->buf) ;
@@ -641,8 +626,8 @@ bgp_session_route_refresh_send(bgp_session session, bgp_route_refresh rr)
   mqb = mqb_init_new(NULL, bgp_session_do_route_refresh_send, session) ;
 
   args = mqb_get_args(mqb) ;
-  args->rr      = rr ;
-  args->pending = NULL ;
+  args->rr         = rr ;
+  args->is_pending = NULL ;
 
   bgp_to_bgp_engine(mqb) ;
 } ;
@@ -664,45 +649,24 @@ bgp_session_do_route_refresh_send(mqueue_block mqb, mqb_flag_t flag)
       bgp_connection connection = session->connections[bgp_connection_primary] ;
       assert(connection != NULL) ;
 
-      mqueue_block head = mqueue_local_head(&connection->pending_queue) ;
-
-      int is_pending = (args->pending != NULL) ;
-      if (is_pending)
-        assert( (args->pending == connection) && (mqb == head) ) ;
-
       /* If established, try and send.                                  */
       if (connection->state == bgp_fsm_sEstablished)
         {
-          int ret = 0 ;
+          int ret = bgp_connection_no_pending(connection, &args->is_pending) ;
 
-          if ((head == NULL) || is_pending)
+          if (ret != 0)
             ret = bgp_msg_send_route_refresh(connection, args->rr) ;
 
           if (ret == 0)
             {
-              /* Did not fail, but could not write everything.
-               *
-               * If this is not on the connection's pending queue, put it there.
-               *
-               * Otherwise leave it there, and take the connection off the
-               * connection queue -- nothing further can be done for this
-               * connection.
+              /* Either there is already a pending queue, or the message
+               * could not be sent (and has not failed) -- so add to the
+               * pending queue.
                */
-              if (!is_pending)
-                {
-                  mqueue_local_enqueue(&connection->pending_queue, mqb) ;
-                  args->pending = connection ;
-                }
-              else
-                bgp_connection_queue_del(connection) ;
-
+              bgp_connection_add_pending(connection, mqb, &args->is_pending) ;
               return ;  /* Quit now, with message intact.       */
             } ;
         } ;
-
-      /* Have dealt with the message -- if was pending, it's done.      */
-      if (is_pending)
-        mqueue_local_dequeue(&connection->pending_queue) ;
     } ;
 
   bgp_route_refresh_free(args->rr) ;
@@ -724,9 +688,9 @@ bgp_session_end_of_rib_send(bgp_session session, qAFI_t afi, qSAFI_t safi)
   mqb = mqb_init_new(NULL, bgp_session_do_end_of_rib_send, session) ;
 
   args = mqb_get_args(mqb) ;
-  args->afi     = get_iAFI(qafx) ;
-  args->safi    = get_iSAFI(qafx) ;
-  args->pending = NULL ;
+  args->afi        = get_iAFI(qafx) ;
+  args->safi       = get_iSAFI(qafx) ;
+  args->is_pending = NULL ;
 
   bgp_to_bgp_engine(mqb) ;
 } ;
@@ -748,45 +712,25 @@ bgp_session_do_end_of_rib_send(mqueue_block mqb, mqb_flag_t flag)
       bgp_connection connection = session->connections[bgp_connection_primary] ;
       assert(connection != NULL) ;
 
-      mqueue_block head = mqueue_local_head(&connection->pending_queue) ;
-
-      int is_pending = (args->pending != NULL) ;
-      if (is_pending)
-        assert( (args->pending == connection) && (mqb == head) ) ;
-
       /* If established, try and send.                                  */
       if (connection->state == bgp_fsm_sEstablished)
         {
-          int ret = 0 ;
+          int ret = bgp_connection_no_pending(connection, &args->is_pending) ;
 
-          if ((head == NULL) || is_pending)
+          if (ret != 0)
             ret = bgp_msg_send_end_of_rib(connection, args->afi, args->safi) ;
 
           if (ret == 0)
             {
-              /* Did not fail, but could not write everything.
-               *
-               * If this is not on the connection's pending queue, put it there.
-               *
-               * Otherwise leave it there, and take the connection off the
-               * connection queue -- nothing further can be done for this
-               * connection.
+              /* Either there is already a pending queue, or the message
+               * could not be sent (and has not failed) -- so add to the
+               * pending queue.
                */
-              if (!is_pending)
-                {
-                  mqueue_local_enqueue(&connection->pending_queue, mqb) ;
-                  args->pending = connection ;
-                }
-              else
-                bgp_connection_queue_del(connection) ;
+              bgp_connection_add_pending(connection, mqb, &args->is_pending) ;
 
               return ;  /* Quit now, with message intact.       */
             } ;
         } ;
-
-      /* Have dealt with the message -- if was pending, it's done.      */
-      if (is_pending)
-        mqueue_local_dequeue(&connection->pending_queue) ;
     } ;
 
   mqb_free(mqb) ;
@@ -853,8 +797,8 @@ bgp_session_route_refresh_recv(bgp_session session, bgp_route_refresh rr)
   mqb = mqb_init_new(NULL, bgp_session_do_route_refresh_recv, session) ;
 
   args = mqb_get_args(mqb) ;
-  args->rr      = rr ;
-  args->pending = NULL ;
+  args->rr         = rr ;
+  args->is_pending = NULL ;
 
   bgp_to_peering_engine(mqb) ;
 } ;
