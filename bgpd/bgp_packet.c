@@ -819,9 +819,9 @@ bgp_open_send (struct peer *peer)
 }
 #endif
 
-/* Send BGP notify packet with data potion. */
-void
-bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
+/* Generate notification object */
+static bgp_notify
+bgp_notification (struct peer *peer, u_char code, u_char sub_code,
 			   u_char *data, size_t datalen)
 {
   bgp_notify notification;
@@ -846,7 +846,23 @@ bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
       peer->last_reset = PEER_DOWN_NOTIFY_SEND;
     }
 
-  bgp_peer_reenable(peer, notification);
+  return notification;
+}
+
+/* Send BGP notify packet with data portion. Reenable peer*/
+void
+bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
+                           u_char *data, size_t datalen)
+{
+    bgp_peer_reenable(peer, bgp_notification(peer, code, sub_code, data, datalen));
+}
+
+/* Send BGP notify packet with data portion. Disable peer*/
+void
+bgp_notify_send_with_data_disable (struct peer *peer, u_char code, u_char sub_code,
+                           u_char *data, size_t datalen)
+{
+    bgp_peer_disable(peer, bgp_notification(peer, code, sub_code, data, datalen));
 }
 
 /* Send BGP notify packet. */

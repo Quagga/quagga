@@ -1721,22 +1721,23 @@ bgp_maximum_prefix_overflow (struct peer *peer, afi_t afi,
        ndata[6] = (peer->pmax[afi][safi]);
 
        SET_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW);
-       bgp_notify_send_with_data (peer, BGP_NOTIFY_CEASE,
+       /* Disable the peer, the timer routine will reenable. */
+       bgp_notify_send_with_data_disable (peer, BGP_NOTIFY_CEASE,
                                   BGP_NOTIFY_CEASE_MAX_PREFIX, ndata, 7);
       }
 
       /* restart timer start */
       if (peer->pmax_restart[afi][safi])
-	{
-	  peer->v_pmax_restart = peer->pmax_restart[afi][safi] * 60;
+        {
+          peer->v_pmax_restart = peer->pmax_restart[afi][safi] * 60;
 
-	  if (BGP_DEBUG (events, EVENTS))
-	    zlog_debug ("%s Maximum-prefix restart timer started for %d secs",
-			peer->host, peer->v_pmax_restart);
+          if (BGP_DEBUG (events, EVENTS))
+            zlog_debug ("%s Maximum-prefix restart timer started for %d secs",
+                        peer->host, peer->v_pmax_restart);
 
-	  BGP_TIMER_ON (peer->t_pmax_restart, bgp_maximum_prefix_restart_timer,
-			peer->v_pmax_restart);
-	}
+          BGP_TIMER_ON (peer->t_pmax_restart, bgp_maximum_prefix_restart_timer,
+                        peer->v_pmax_restart);
+        }
 
       return 1;
     }

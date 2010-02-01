@@ -7615,10 +7615,12 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 	     thread_timer_remain_second (p->t_connect), VTY_NEWLINE);
 #endif
 
+#if 0
   vty_out (vty, "Read thread: %s  Write thread: %s%s",
 	   p->t_read ? "on" : "off",
 	   p->t_write ? "on" : "off",
 	   VTY_NEWLINE);
+#endif
 
   if (p->notify != NULL && p->notify->code == BGP_NOTIFY_OPEN_ERR
       && p->notify->subcode == BGP_NOTIFY_OPEN_UNSUP_CAPBL)

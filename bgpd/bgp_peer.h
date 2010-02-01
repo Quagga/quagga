@@ -293,8 +293,6 @@ struct peer
   u_int32_t v_gr_restart;
 
   /* Threads. */
-  struct thread *t_read;
-  struct thread *t_write;
   struct thread *t_asorig;
   struct thread *t_routeadv;
   struct thread *t_pmax_restart;

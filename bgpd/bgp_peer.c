@@ -413,10 +413,6 @@ bgp_peer_stop (struct peer *peer)
       peer->synctime = 0;
     }
 
-  /* Stop read and write threads when exists. */
-  BGP_READ_OFF (peer->t_read);
-  BGP_WRITE_OFF (peer->t_write);
-
   /* Stop all timers. */
   BGP_TIMER_OFF (peer->t_asorig);
   BGP_TIMER_OFF (peer->t_routeadv);
@@ -931,8 +927,6 @@ peer_free (struct peer *peer)
    * but just to be sure..
    */
   bgp_timer_set (peer);
-  BGP_READ_OFF (peer->t_read);
-  BGP_WRITE_OFF (peer->t_write);
   BGP_EVENT_FLUSH (peer);
 
   /* unregister */

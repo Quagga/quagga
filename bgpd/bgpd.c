@@ -301,8 +301,8 @@ bgp_confederation_id_set (struct bgp *bgp, as_t as)
 	    {
 	      peer->local_as = as;
               peer->last_reset = PEER_DOWN_CONFED_ID_CHANGE;
-              bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-                     BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+              bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+                  BGP_NOTIFY_CEASE_CONFIG_CHANGE);
 	    }
 	}
       else
@@ -315,8 +315,8 @@ bgp_confederation_id_set (struct bgp *bgp, as_t as)
 	      if (peer_sort (peer) == BGP_PEER_EBGP)
 		peer->local_as = as;
               peer->last_reset = PEER_DOWN_CONFED_ID_CHANGE;
-              bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-                     BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+              bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+                     BGP_NOTIFY_CEASE_CONFIG_CHANGE);
 	    }
 	}
     }
@@ -339,8 +339,8 @@ bgp_confederation_id_unset (struct bgp *bgp)
 	{
 	  peer->local_as = bgp->as;
           peer->last_reset = PEER_DOWN_CONFED_ID_CHANGE;
-          bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-                    BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+          bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+                    BGP_NOTIFY_CEASE_CONFIG_CHANGE);
 	}
     }
   return 0;
@@ -397,8 +397,8 @@ bgp_confederation_peers_add (struct bgp *bgp, as_t as)
 	    {
 	      peer->local_as = bgp->as;
               peer->last_reset = PEER_DOWN_CONFED_PEER_CHANGE;
-              bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-                     BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+              bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+                     BGP_NOTIFY_CEASE_CONFIG_CHANGE);
 	    }
 	}
     }
@@ -448,8 +448,8 @@ bgp_confederation_peers_remove (struct bgp *bgp, as_t as)
 	    {
 	      peer->local_as = bgp->confed_id;
               peer->last_reset = PEER_DOWN_CONFED_PEER_CHANGE;
-              bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-                     BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+              bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+                     BGP_NOTIFY_CEASE_CONFIG_CHANGE);
 	    }
 	}
     }
@@ -732,8 +732,8 @@ peer_as_change (struct peer *peer, as_t as)
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
     {
       peer->last_reset = PEER_DOWN_REMOTE_AS_CHANGE;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
     }
   type = peer_sort (peer);
   peer->as = as;
@@ -891,8 +891,8 @@ peer_activate (struct peer *peer, afi_t afi, safi_t safi)
 #endif
                {
                  peer->last_reset = PEER_DOWN_AF_ACTIVATE;
-                 bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-                        BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+                 bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+                        BGP_NOTIFY_CEASE_CONFIG_CHANGE);
                }
 #if 0
 	    }
@@ -1496,8 +1496,8 @@ peer_group_bind (struct bgp *bgp, union sockunion *su,
   peer_group2peer_config_copy (group, peer, afi, safi);
 
   peer->last_reset = PEER_DOWN_RMAP_BIND;
-  bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-         BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+  bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+         BGP_NOTIFY_CEASE_CONFIG_CHANGE);
 
   return 0;
 }
@@ -1534,8 +1534,8 @@ peer_group_unbind (struct bgp *bgp, struct peer *peer,
     }
 
     peer->last_reset = PEER_DOWN_RMAP_UNBIND;
-    bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-           BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+    bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+           BGP_NOTIFY_CEASE_CONFIG_CHANGE);
   return 0;
 }
 
@@ -2026,8 +2026,8 @@ peer_flag_modify_action (struct peer *peer, u_int32_t flag)
       else if (flag == PEER_FLAG_DISABLE_CONNECTED_CHECK)
 	peer->last_reset = PEER_DOWN_MULTIHOP_CHANGE;
 
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
     }
 }
 
@@ -2395,8 +2395,8 @@ peer_update_source_if_set (struct peer *peer, const char *ifname)
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
     {
        peer->last_reset = PEER_DOWN_UPDATE_SOURCE_CHANGE;
-       bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-              BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+       bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+              BGP_NOTIFY_CEASE_CONFIG_CHANGE);
       return 0;
     }
 
@@ -2422,8 +2422,8 @@ peer_update_source_if_set (struct peer *peer, const char *ifname)
       peer->update_if = XSTRDUP (MTYPE_PEER_UPDATE_SOURCE, ifname);
 
       peer->last_reset = PEER_DOWN_UPDATE_SOURCE_CHANGE;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
     }
   return 0;
 }
@@ -2454,8 +2454,8 @@ peer_update_source_addr_set (struct peer *peer, union sockunion *su)
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
     {
       peer->last_reset = PEER_DOWN_UPDATE_SOURCE_CHANGE;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
       return 0;
     }
 
@@ -2480,8 +2480,8 @@ peer_update_source_addr_set (struct peer *peer, union sockunion *su)
       peer->update_source = sockunion_dup (su);
 
       peer->last_reset = PEER_DOWN_UPDATE_SOURCE_CHANGE;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-          BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+          BGP_NOTIFY_CEASE_CONFIG_CHANGE);
     }
   return 0;
 }
@@ -2526,8 +2526,8 @@ peer_update_source_unset (struct peer *peer)
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
     {
       peer->last_reset = PEER_DOWN_UPDATE_SOURCE_CHANGE;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
       return 0;
     }
 
@@ -2551,8 +2551,8 @@ peer_update_source_unset (struct peer *peer)
 	}
 
       peer->last_reset = PEER_DOWN_UPDATE_SOURCE_CHANGE;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
     }
   return 0;
 }
@@ -2975,8 +2975,8 @@ peer_local_as_set (struct peer *peer, as_t as, int no_prepend)
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
     {
       peer->last_reset = PEER_DOWN_LOCAL_AS_CHANGE;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
       return 0;
     }
 
@@ -2990,8 +2990,8 @@ peer_local_as_set (struct peer *peer, as_t as, int no_prepend)
 	UNSET_FLAG (peer->flags, PEER_FLAG_LOCAL_AS_NO_PREPEND);
 
       peer->last_reset = PEER_DOWN_LOCAL_AS_CHANGE;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
     }
 
   return 0;
@@ -3015,8 +3015,8 @@ peer_local_as_unset (struct peer *peer)
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
     {
       peer->last_reset = PEER_DOWN_LOCAL_AS_CHANGE;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
       return 0;
     }
 
@@ -3027,8 +3027,8 @@ peer_local_as_unset (struct peer *peer)
       UNSET_FLAG (peer->flags, PEER_FLAG_LOCAL_AS_NO_PREPEND);
 
       peer->last_reset = PEER_DOWN_LOCAL_AS_CHANGE;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
     }
   return 0;
 }
@@ -3055,8 +3055,8 @@ peer_password_set (struct peer *peer, const char *password)
 
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
     {
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-          BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+    bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+          BGP_NOTIFY_CEASE_CONFIG_CHANGE);
       return BGP_SUCCESS;
     }
 
@@ -3070,8 +3070,8 @@ peer_password_set (struct peer *peer, const char *password)
 
       peer->password = XSTRDUP(MTYPE_PEER_PASSWORD, password);
 
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
     }
 
   return ret;
@@ -3093,8 +3093,8 @@ peer_password_unset (struct peer *peer)
 	  && strcmp (peer->group->conf->password, peer->password) == 0)
 	return BGP_ERR_PEER_GROUP_HAS_THE_FLAG;
 
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
 
       if (peer->password)
         XFREE (MTYPE_PEER_PASSWORD, peer->password);
@@ -3111,8 +3111,8 @@ peer_password_unset (struct peer *peer)
       if (!peer->password)
 	continue;
 
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-             BGP_NOTIFY_CEASE_CONFIG_CHANGE, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+             BGP_NOTIFY_CEASE_CONFIG_CHANGE);
 
       XFREE (MTYPE_PEER_PASSWORD, peer->password);
       peer->password = NULL;
@@ -3841,15 +3841,14 @@ peer_clear (struct peer *peer)
 		zlog_debug ("%s Maximum-prefix restart timer cancelled",
 			    peer->host);
 	    }
-/* TODO: worry about why session is already enabled at this point !!    */
-//	  bgp_peer_enable(peer);
-          bgp_peer_reenable(peer, NULL) ;
+	    bgp_peer_enable(peer);
+
 	  return 0;
 	}
 
       peer->v_start = BGP_INIT_START_TIMER;
-      bgp_peer_reenable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-          BGP_NOTIFY_CEASE_ADMIN_RESET, 0));
+      bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+          BGP_NOTIFY_CEASE_ADMIN_RESET);
     }
   return 0;
 }
@@ -4719,7 +4718,8 @@ bgp_terminate (int terminating, int retain_mode)
         if (terminating)
           bgp_peer_disable(peer, notification);
         else
-          bgp_peer_reenable(peer, notification);
+          bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+              BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN);
       }
 
   if (!retain_mode)
