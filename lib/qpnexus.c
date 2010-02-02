@@ -123,18 +123,20 @@ qpn_exec(qpn_nexus qpn)
  *
  *   1) Main thread only -- signals.
  *
- *   2) Pending work -- event hooks.
+ *   2) High priority pending work -- event hooks.
  *
- *   3) messages coming from other pthreads -- mqueue_queue.
+ *   3) Messages coming from other pthreads -- mqueue_queue.
  *
- *   4) I/O -- qpselect
+ *   4) All priority pending work -- event hooks.
+ *
+ *   5) I/O -- qpselect
  *
  *      This deals with all active sockets for read/write/connect/accept.
  *
  *      Each time a socket is readable, one message is read and dispatched.
  *      The pselect timeout is set to be when the next timer is due.
  *
- *   5) Timers -- qtimers
+ *   6) Timers -- qtimers
  *
  */
 static void*
@@ -162,12 +164,13 @@ qpn_start(void* arg)
       /* max time to wait in pselect */
       max_wait = QTIME(MAX_PSELECT_TIMOUT);
 
-      /* event hooks, if any */
+      /* event hooks, if any.  High priority */
       for (i = 0; i < NUM_EVENT_HOOK; ++i)
         {
           if (qpn->event_hook[i] != NULL)
             {
-              qtime_mono_t event_wait = qpn->event_hook[i]();
+              /* first, second and third priority */
+              qtime_mono_t event_wait = qpn->event_hook[i](qpn_pri_third);
               if (event_wait > 0 && event_wait < max_wait)
                 max_wait = event_wait;
             }
@@ -182,6 +185,18 @@ qpn_start(void* arg)
             break;
 
           mqb_dispatch(mqb, mqb_action);
+        }
+
+      /* Event hooks, if any. All priorities */
+      for (i = 0; i < NUM_EVENT_HOOK; ++i)
+        {
+          if (qpn->event_hook[i] != NULL)
+            {
+              /* first, second third and fourth priority */
+              qtime_mono_t event_wait = qpn->event_hook[i](qpn_pri_fourth);
+              if (event_wait > 0 && event_wait < max_wait)
+                max_wait = event_wait;
+            }
         }
 
       /* block for some input, output, signal or timeout */

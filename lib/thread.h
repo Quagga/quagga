@@ -24,6 +24,7 @@
 
 #include <sys/resource.h>
 #include "qtime.h"
+#include "qpnexus.h"
 
 struct rusage_t
 {
@@ -195,7 +196,7 @@ extern struct thread *funcname_thread_execute (struct thread_master *,
 extern void thread_cancel (struct thread *);
 extern unsigned int thread_cancel_event (struct thread_master *, void *);
 extern struct thread *thread_fetch (struct thread_master *, struct thread *);
-struct thread * thread_fetch_event (struct thread_master *m, struct thread *fetch,
+struct thread * thread_fetch_event (enum qpn_priority,struct thread_master *m, struct thread *fetch,
     qtime_mono_t *event_wait);
 extern void thread_call (struct thread *);
 extern unsigned long thread_timer_remain_second (struct thread *);

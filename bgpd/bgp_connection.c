@@ -441,7 +441,6 @@ bgp_connection_queue_del(bgp_connection connection)
  * Process each item until its pending queue becomes empty, or its write
  * buffer becomes full, or it is stopped.
  *
- * TODO: link bgp_connection_queue_process() into the bgp_engine loop.
  */
 extern void
 bgp_connection_queue_process(void)

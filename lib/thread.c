@@ -47,13 +47,6 @@ static qpt_mutex_t thread_mutex;
 #define UNLOCK qpt_mutex_unlock(&thread_mutex);
 static struct hash *cpu_record = NULL;
 
-/* TODO: remove this */
-#define USE_MQUEUE
-#ifdef USE_MQUEUE
-#include "qpnexus.h"
-static sigset_t newmask;
-#endif
-
 /* Struct timeval's tv_usec one second value.  */
 #define TIMER_SECOND_MICRO 1000000L
 
@@ -973,33 +966,13 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
 	  (!timer_wait || (timeval_cmp (*timer_wait, *timer_wait_bg) > 0)))
 	timer_wait = timer_wait_bg;
 
-      /* TODO: remove this */
-#ifdef USE_MQUEUE
-      {
-        struct timespec spec ;
-        spec.tv_sec  = timer_wait->tv_sec ;
-        spec.tv_nsec = timer_wait->tv_usec * 1000 ;
-        num = pselect (FD_SETSIZE, &readfd, &writefd, &exceptfd, &spec,
-                                                                      &newmask);
-      } ;
-#else
       num = select (FD_SETSIZE, &readfd, &writefd, &exceptfd, timer_wait);
-#endif
 
       /* Signals should get quick treatment */
       if (num < 0)
         {
           if (errno == EINTR)
-#ifdef USE_MQUEUE
-            {
-            if (qpthreads_enabled)
-              return NULL;
-            else
-              continue; /* signal received - process it */
-            }
-#else
           continue; /* signal received - process it */
-#endif
           zlog_warn ("select() error: %s", safe_strerror (errno));
             return NULL;
         }
@@ -1037,11 +1010,11 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
 }
 
 
-/* Fetch next ready thread.  Events and timeouts only.  No I/O.
- * If nothing to do returns NULL and sets event_wait to recommended time
- * to be called again. */
+/* Fetch next ready thread <= given priority.  Events and timeouts only.
+ * No I/O.  If nothing to do returns NULL and sets event_wait to
+ * recommended time to be called again. */
 struct thread *
-thread_fetch_event (struct thread_master *m, struct thread *fetch,
+thread_fetch_event (enum qpn_priority priority, struct thread_master *m, struct thread *fetch,
     qtime_mono_t *event_wait)
 {
   struct thread *thread;
@@ -1050,9 +1023,14 @@ thread_fetch_event (struct thread_master *m, struct thread *fetch,
   struct timeval *timer_wait;
   struct timeval *timer_wait_bg;
 
+  *event_wait = 0;
+
   /* Normal event are the next highest priority.  */
   if ((thread = thread_trim_head (&m->event)) != NULL)
     return thread_run (m, thread, fetch);
+
+  if (priority <= qpn_pri_first)
+      return NULL;
 
   /* If there are any ready threads from previous scheduler runs,
    * process top of them.
@@ -1060,11 +1038,18 @@ thread_fetch_event (struct thread_master *m, struct thread *fetch,
   if ((thread = thread_trim_head (&m->ready)) != NULL)
     return thread_run (m, thread, fetch);
 
-  /* Check foreground timers.  Historically, they have had higher
-     priority than I/O threads, so let's push them onto the ready
-     list in front of the I/O threads. */
+  if (priority <= qpn_pri_second)
+      return NULL;
+
+  /* Check foreground timers. */
   quagga_get_relative (NULL);
   thread_timer_process (&m->timer, &relative_time);
+
+  if ((thread = thread_trim_head (&m->ready)) != NULL)
+    return thread_run (m, thread, fetch);
+
+  if (priority <= qpn_pri_third)
+      return NULL;
 
   /* Background timer/events, lowest priority */
   thread_timer_process (&m->background, &relative_time);

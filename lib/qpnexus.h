@@ -56,6 +56,19 @@
 /* number of event hooks */
 #define NUM_EVENT_HOOK 2
 
+/* Work priorities */
+enum qpn_priority
+{
+  qpn_pri_highest = 1,
+
+  qpn_pri_first = 1,
+  qpn_pri_second = 2,
+  qpn_pri_third = 3,
+  qpn_pri_fourth = 4,
+
+  qpn_pri_lowest = 4,
+};
+
 /*==============================================================================
  * Data Structures.
  */
@@ -95,11 +108,12 @@ struct qpn_nexus
    * thread loop is no longer executed */
   void (*in_thread_final)(void);
 
-  /* thread loop events, can override.  Called before message queue,
-   * I/O and timers.
+  /* thread loop events, can override.  Called before and after message queue,
+   * and before I/O and timers.
+   * Hook should perform all work <= given priority.
    * Returns the time to try again, 0 means default to maximum.
    */
-  qtime_mono_t (*event_hook[NUM_EVENT_HOOK])(void);
+  qtime_mono_t (*event_hook[NUM_EVENT_HOOK])(enum qpn_priority);
 
 };
 

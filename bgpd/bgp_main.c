@@ -84,8 +84,8 @@ void sigusr2 (void);
 static void bgp_exit (int);
 static void init_second_stage(int pthreads);
 static void bgp_in_thread_init(void);
-static qtime_mono_t routing_event_hook(void);
-static qtime_mono_t bgp_event_hook(void);
+static qtime_mono_t routing_event_hook(enum qpn_priority priority);
+static qtime_mono_t bgp_event_hook(enum qpn_priority priority);
 static void sighup_action(mqueue_block mqb, mqb_flag_t flag);
 static void sighup_enqueue(void);
 static void sigterm_action(mqueue_block mqb, mqb_flag_t flag);
@@ -618,12 +618,12 @@ bgp_in_thread_init(void)
 
 /* legacy threads */
 static qtime_mono_t
-routing_event_hook(void)
+routing_event_hook(enum qpn_priority priority)
 {
   struct thread thread;
   qtime_mono_t event_wait;
 
-  while (thread_fetch_event (master, &thread, &event_wait))
+  while (thread_fetch_event (priority, master, &thread, &event_wait))
     thread_call (&thread);
 
   return event_wait;
@@ -631,9 +631,10 @@ routing_event_hook(void)
 
 /* BGP local queued events */
 static qtime_mono_t
-bgp_event_hook(void)
+bgp_event_hook(enum qpn_priority priority)
 {
-  bgp_connection_queue_process();
+  if (priority >= qpn_pri_fourth)
+    bgp_connection_queue_process();
   return 0;
 }
 
