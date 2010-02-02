@@ -2008,8 +2008,8 @@ peer_flag_modify_action (struct peer *peer, u_int32_t flag)
           if (CHECK_FLAG (peer->sflags, PEER_STATUS_NSF_WAIT))
             peer_nsf_stop (peer);
 
-          bgp_peer_disable(peer, bgp_notify_new(BGP_NOTIFY_CEASE,
-              BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN, 0));
+          bgp_notify_send_with_data_disable(peer, BGP_NOTIFY_CEASE,
+              BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN, NULL, 0);
 	}
       else
 	{

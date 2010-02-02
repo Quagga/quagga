@@ -1019,7 +1019,8 @@ bgp_peer_disable(bgp_peer peer, bgp_notify notification)
 
   /* and the peer */
   bgp_peer_stop(peer);
-  peer_change_status (peer, bgp_peer_sClearing);
+  if (peer->state == bgp_peer_sEstablished)
+    peer_change_status (peer, bgp_peer_sClearing);
 }
 
 /* Called after event occurred, this function change status and reset
