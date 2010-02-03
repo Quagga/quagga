@@ -3841,6 +3841,10 @@ peer_clear (struct peer *peer)
 		zlog_debug ("%s Maximum-prefix restart timer cancelled",
 			    peer->host);
 	    }
+
+	  /* Beware we may still be clearing, if so the end of
+	   * clearing will enable the peer */
+	  if (peer->state == bgp_peer_sIdle)
 	    bgp_peer_enable(peer);
 
 	  return 0;
