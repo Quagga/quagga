@@ -382,6 +382,11 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
       return ;
     } ;
 
+  /* Can revoke whatever may be queued already.  Will revoke again when the
+   * disable is acknowledged to finally clear the session out of the queue.
+   */
+  mqueue_revoke(routing_nexus->queue, session) ;
+
   /* Now change to limping state                                        */
   session->state = bgp_session_sLimping;
   session->defer_enable = 0;
@@ -775,7 +780,7 @@ bgp_session_do_update_recv(mqueue_block mqb, mqb_flag_t flag)
   bgp_session session = mqb_get_arg0(mqb) ;
   struct bgp_session_update_args* args = mqb_get_args(mqb) ;
 
-  if (flag == mqb_action)
+  if ((flag == mqb_action) && (session->state == bgp_session_sEstablished))
     {
       bgp_peer peer = session->peer;
 
@@ -820,7 +825,7 @@ bgp_session_do_route_refresh_recv(mqueue_block mqb, mqb_flag_t flag)
   struct bgp_session_route_refresh_args* args = mqb_get_args(mqb) ;
   bgp_session session = mqb_get_arg0(mqb) ;
 
-  if (flag == mqb_action)
+  if ((flag == mqb_action) && (session->state == bgp_session_sEstablished))
     bgp_route_refresh_recv(session->peer, args->rr);
 
   bgp_route_refresh_free(args->rr);
@@ -850,10 +855,10 @@ bgp_session_XON(bgp_session session)
 static void
 bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag)
 {
+  bgp_session session = mqb_get_arg0(mqb) ;
 
-  if (flag == mqb_action)
+  if ((flag == mqb_action) && (session->state == bgp_session_sEstablished))
     {
-      bgp_session session = mqb_get_arg0(mqb) ;
       bgp_peer peer = session->peer;
 
       bgp_write (peer);
