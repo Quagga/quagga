@@ -455,12 +455,16 @@ bgp_peer_stop (struct peer *peer)
       peer->v_holdtime  = peer->bgp->default_holdtime;
     }
 
+  /* Until we are sure that there is no problem about prefix count
+     this should be commented out.*/
+#if 0
   /* Reset prefix count */
   peer->pcount[AFI_IP][SAFI_UNICAST] = 0;
   peer->pcount[AFI_IP][SAFI_MULTICAST] = 0;
   peer->pcount[AFI_IP][SAFI_MPLS_VPN] = 0;
   peer->pcount[AFI_IP6][SAFI_UNICAST] = 0;
   peer->pcount[AFI_IP6][SAFI_MULTICAST] = 0;
+#endif /* 0 */
 
   return 0;
 }
