@@ -1722,7 +1722,7 @@ bgp_maximum_prefix_overflow (struct peer *peer, afi_t afi,
 
        SET_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW);
        /* Disable the peer, the timer routine will reenable. */
-       bgp_notify_send_with_data_disable (peer, BGP_NOTIFY_CEASE,
+       bgp_notify_send_with_data(peer, BGP_NOTIFY_CEASE,
                                   BGP_NOTIFY_CEASE_MAX_PREFIX, ndata, 7);
       }
 
@@ -2728,7 +2728,14 @@ bgp_clear_node_complete (struct work_queue *wq)
   bgp_peer_stop(peer);
   BGP_EVENT_FLUSH (peer);
   if (peer->state == bgp_peer_sClearing)
-    peer_change_status (peer, bgp_peer_sIdle);
+    {
+      peer_change_status (peer, bgp_peer_sIdle);
+
+      /* enable peer if required */
+      if (!CHECK_FLAG (peer->flags, PEER_FLAG_SHUTDOWN) &&
+          !CHECK_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW))
+        bgp_peer_enable(peer);
+    }
 
   peer_unlock (peer); /* bgp_clear_route */
 }

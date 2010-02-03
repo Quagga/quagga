@@ -819,10 +819,10 @@ bgp_open_send (struct peer *peer)
 }
 #endif
 
-/* Generate notification object */
-static bgp_notify
-bgp_notification (struct peer *peer, u_char code, u_char sub_code,
-			   u_char *data, size_t datalen)
+/* Send BGP notify packet with data portion. */
+void
+bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
+                           u_char *data, size_t datalen)
 {
   bgp_notify notification;
   notification = bgp_notify_new(code, sub_code, datalen);
@@ -833,7 +833,7 @@ bgp_notification (struct peer *peer, u_char code, u_char sub_code,
 
   if (BGP_DEBUG (normal, NORMAL))
     zlog_debug ("%s send message type %d, length (incl. header) %d",
-	       peer->host, BGP_MSG_NOTIFY, notification->length);
+               peer->host, BGP_MSG_NOTIFY, notification->length);
 
   /* peer reset cause */
   if (sub_code != BGP_NOTIFY_CEASE_CONFIG_CHANGE)
@@ -846,23 +846,7 @@ bgp_notification (struct peer *peer, u_char code, u_char sub_code,
       peer->last_reset = PEER_DOWN_NOTIFY_SEND;
     }
 
-  return notification;
-}
-
-/* Send BGP notify packet with data portion. Reenable peer*/
-void
-bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
-                           u_char *data, size_t datalen)
-{
-    bgp_peer_reenable(peer, bgp_notification(peer, code, sub_code, data, datalen));
-}
-
-/* Send BGP notify packet with data portion. Disable peer*/
-void
-bgp_notify_send_with_data_disable (struct peer *peer, u_char code, u_char sub_code,
-                           u_char *data, size_t datalen)
-{
-    bgp_peer_disable(peer, bgp_notification(peer, code, sub_code, data, datalen));
+    bgp_peer_disable(peer, notification);
 }
 
 /* Send BGP notify packet. */

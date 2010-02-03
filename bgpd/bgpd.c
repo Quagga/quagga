@@ -2001,14 +2001,14 @@ peer_flag_modify_action (struct peer *peer, u_int32_t flag)
 	    {
 	      BGP_TIMER_OFF (peer->t_pmax_restart);
               if (BGP_DEBUG (events, EVENTS))
-		zlog_debug ("%s Maximum-prefix restart timer canceled",
+		zlog_debug ("%s Maximum-prefix restart timer cancelled",
 			    peer->host);
 	    }
 
           if (CHECK_FLAG (peer->sflags, PEER_STATUS_NSF_WAIT))
             peer_nsf_stop (peer);
 
-          bgp_notify_send_with_data_disable(peer, BGP_NOTIFY_CEASE,
+          bgp_notify_send_with_data(peer, BGP_NOTIFY_CEASE,
               BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN, NULL, 0);
 	}
       else
@@ -4702,7 +4702,6 @@ bgp_terminate (int terminating, int retain_mode)
   struct peer *peer;
   struct listnode *node, *nnode;
   struct listnode *mnode, *mnnode;
-  bgp_notify notification = NULL;
 
   program_terminating = terminating;
 
@@ -4710,16 +4709,14 @@ bgp_terminate (int terminating, int retain_mode)
   for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
     for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
       {
-        notification = (retain_mode)
-                          ? NULL
-                          : bgp_notify_new(BGP_NOTIFY_CEASE,
-                            BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN, 0);
-
-        if (terminating)
-          bgp_peer_disable(peer, notification);
-        else
+        if (retain_mode)
+          bgp_peer_disable(peer, NULL);
+        else if (terminating)
           bgp_notify_send(peer, BGP_NOTIFY_CEASE,
               BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN);
+        else
+          bgp_notify_send(peer, BGP_NOTIFY_CEASE,
+              BGP_NOTIFY_CEASE_ADMIN_RESET);
       }
 
   if (!retain_mode)
