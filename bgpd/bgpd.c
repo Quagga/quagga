@@ -4716,8 +4716,7 @@ bgp_terminate (int terminating, int retain_mode)
         if (retain_mode)
           bgp_peer_disable(peer, NULL);
         else if (terminating)
-          bgp_notify_send(peer, BGP_NOTIFY_CEASE,
-              BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN);
+          peer_flag_set(peer, PEER_FLAG_SHUTDOWN);
         else
           bgp_notify_send(peer, BGP_NOTIFY_CEASE,
               BGP_NOTIFY_CEASE_ADMIN_RESET);
