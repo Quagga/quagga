@@ -55,11 +55,10 @@ bgp_notify_size(bgp_size_t size)
 /*------------------------------------------------------------------------------
  * Allocate and initialise new notification
  *
- * Can specify an expected amount of data.
+ * Can add data later if required.
  */
 extern bgp_notify
-bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
-                                                              bgp_size_t expect)
+bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode)
 {
   bgp_notify notification ;
 
@@ -67,13 +66,36 @@ bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
 
   notification->code    = code ;
   notification->subcode = subcode ;
-  notification->size    = bgp_notify_size(expect) ;
-  notification->length  = 0 ;
 
-  if (notification->size != 0)
-    notification->data  = XCALLOC(MTYPE_TMP, notification->size) ;
-  else
-    notification->data  = NULL ;
+  /* Implicitly:
+   *
+   *  notification->size    = 0
+   *  notification->length  = 0
+   *  notification->data    = NULL
+   */
+
+  return notification ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Allocate and initialise new notification -- expecting some data.
+ *
+ * Can specify an expected amount of data -- may use more or less than this...
+ * ...but pre-allocates at least the expected amount.
+ *
+ * May expect 0.
+ */
+extern bgp_notify
+bgp_notify_new_expect(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
+                                                              bgp_size_t expect)
+{
+  bgp_notify notification = bgp_notify_new(code, subcode) ;
+
+  if (expect != 0)
+    {
+      notification->size  = bgp_notify_size(expect) ;
+      notification->data  = XCALLOC(MTYPE_TMP, notification->size) ;
+    } ;
 
   return notification ;
 } ;
@@ -89,7 +111,7 @@ bgp_notify_new_with_data(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
 {
   bgp_notify notification ;
 
-  notification = bgp_notify_new(code, subcode, len) ;
+  notification = bgp_notify_new_expect(code, subcode, len) ;
   bgp_notify_append_data(notification, data, len) ;
 
   return notification ;
@@ -214,7 +236,7 @@ bgp_notify_reset(bgp_notify notification, bgp_nom_code_t code,
                                                       bgp_nom_subcode_t subcode)
 {
   if (notification == NULL)
-    return bgp_notify_new(code, subcode, 0) ;
+    return bgp_notify_new(code, subcode) ;
 
   notification->code    = code ;
   notification->subcode = subcode ;

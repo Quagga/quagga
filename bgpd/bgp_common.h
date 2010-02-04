@@ -109,7 +109,8 @@ enum bgp_session_events
   bgp_session_eEstablished,       /* session state -> sEstablished            */
   bgp_session_eDisabled,          /* disabled by Peering Engine               */
 
-  bgp_session_eRetry,             /* loop round in Connect/Accept             */
+  bgp_session_eStart,             /* enter sConnect/sAccept from sIdle        */
+  bgp_session_eRetry,             /* loop round in sConnect/sAccept           */
 
   bgp_session_eOpen_reject,       /* had to reject an OPEN message            */
   bgp_session_eInvalid_msg,       /* BGP message invalid                      */

@@ -46,7 +46,7 @@ extern void
 bgp_fsm_notification_sent(bgp_connection connection) ;
 
 extern void
-bgp_fsm_general_exception(bgp_connection connection, bgp_session_event_t except,
+bgp_fsm_exception(bgp_connection connection, bgp_session_event_t except,
                                                       bgp_notify notification) ;
 
 extern void

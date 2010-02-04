@@ -124,9 +124,9 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
     /* Make new copy of notification, with data portion large enough
      * for the data rendered as hex characters.
      */
-    text_form = bgp_notify_new(bgp_notify_get_code(notification),
-                               bgp_notify_get_subcode(notification),
-                               (length * 3)) ;
+    text_form = bgp_notify_new_expect(bgp_notify_get_code(notification),
+                                      bgp_notify_get_subcode(notification),
+                                      (length * 3)) ;
     form = "%02x" ;
     while (length--)
       {
