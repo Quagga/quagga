@@ -65,6 +65,7 @@ safe_finish(void)
     pthread_key_delete(tsd_key);
 }
 
+/* called when thread terminates, clean up */
 static void
 destructor(void* data)
 {
@@ -97,16 +98,28 @@ safe_strerror(int errnum)
     }
 }
 
+/* Thread safe version of inet_ntoa.  Never returns NULL.
+ * Contents of result remains intact until another call of
+ * a safe_ function.
+ */
 const char *
 safe_inet_ntoa (struct in_addr in)
 {
-  if (qpthreads_enabled)
-    return inet_ntop(AF_INET, &in, thread_buff(), buff_size);
-  else
-    return inet_ntoa(in);
+  static const char * unknown = "Unknown address";
+  const char * buff;
+
+  buff = (qpthreads_enabled)
+            ? inet_ntop(AF_INET, &in, thread_buff(), buff_size)
+            : inet_ntoa(in);
+
+  return buff != NULL
+      ? buff
+      : unknown;
 }
 
-/* Return the thread's buffer */
+/* Return the thread's buffer, create it if necessary.
+ * (pthread Thread Specific Data)
+ */
 static char *
 thread_buff(void)
 {

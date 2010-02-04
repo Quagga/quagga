@@ -804,7 +804,7 @@ bgp_open_send (struct peer *peer)
   if (BGP_DEBUG (normal, NORMAL))
     zlog_debug ("%s sending OPEN, version %d, my as %u, holdtime %d, id %s",
 	       peer->host, BGP_VERSION_4, local_as,
-	       send_holdtime, inet_ntoa (peer->local_id));
+	       send_holdtime, safe_inet_ntoa (peer->local_id));
 
   if (BGP_DEBUG (normal, NORMAL))
     zlog_debug ("%s send message type %d, length (incl. header) %d",
@@ -1178,7 +1178,7 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
     zlog_debug ("%s rcv OPEN, version %d, remote-as (in open) %u,"
                 " holdtime %d, id %s",
 	        peer->host, version, remote_as, holdtime,
-	        inet_ntoa (remote_id));
+	        safe_inet_ntoa (remote_id));
 
   /* BEGIN to read the capability here, but dont do it yet */
   capability = 0;
@@ -1260,7 +1260,7 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
 	    {
 	      if (BGP_DEBUG (normal, NORMAL))
 		zlog_debug ("%s bad OPEN, wrong router identifier %s",
-			    peer->host, inet_ntoa (remote_id));
+			    peer->host, safe_inet_ntoa (remote_id));
 	      bgp_notify_send_with_data (peer, BGP_NOTIFY_OPEN_ERR,
 					 BGP_NOTIFY_OPEN_BAD_BGP_IDENT,
 					 notify_data_remote_id, 4);
@@ -1393,7 +1393,7 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
     {
       if (BGP_DEBUG (normal, NORMAL))
 	zlog_debug ("%s bad OPEN, wrong router identifier %s",
-		   peer->host, inet_ntoa (remote_id));
+		   peer->host, safe_inet_ntoa (remote_id));
       bgp_notify_send_with_data (peer,
 				 BGP_NOTIFY_OPEN_ERR,
 				 BGP_NOTIFY_OPEN_BAD_BGP_IDENT,

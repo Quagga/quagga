@@ -709,12 +709,10 @@ _zlog_abort_err (const char *mess, int err, const char *file,
 {
   const static size_t buff_size = 1024;
   char buff[buff_size];
-  char err_mess[buff_size];
-  strerror_r(err, err_mess, buff_size);
   snprintf(buff, buff_size,
           "%s, in file %s, line %u, function %s, error %d \"%s\"",
           mess, file, line, (function ? function : "?"),
-          err, err_mess);
+          err, safe_strerror(err));
   zlog_abort(buff);
 }
 

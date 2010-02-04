@@ -127,7 +127,7 @@ bgp_dump_open_file (struct bgp_dump *bgp_dump)
 
   if (bgp_dump->fp == NULL)
     {
-      zlog_warn ("bgp_dump_open_file: %s: %s", realpath, strerror (errno));
+      zlog_warn ("bgp_dump_open_file: %s: %s", realpath, safe_strerror (errno));
       umask(oldumask);
       return NULL;
     }
