@@ -3076,7 +3076,7 @@ bgp_nlri_parse (struct peer *peer, struct attr *attr, struct bgp_nlri *packet)
 	      */
 	      zlog (peer->log, LOG_ERR,
 		    "IPv4 unicast NLRI is multicast address %s",
-		    inet_ntoa (p.u.prefix4));
+		    safe_inet_ntoa (p.u.prefix4));
 
 	      return -1;
 	    }
@@ -5715,9 +5715,9 @@ route_vty_out (struct vty *vty, struct prefix *p,
 	{
 	  if (safi == SAFI_MPLS_VPN)
 	    vty_out (vty, "%-16s",
-                     inet_ntoa (attr->extra->mp_nexthop_global_in));
+                     safe_inet_ntoa (attr->extra->mp_nexthop_global_in));
 	  else
-	    vty_out (vty, "%-16s", inet_ntoa (attr->nexthop));
+	    vty_out (vty, "%-16s", safe_inet_ntoa (attr->nexthop));
 	}
 #ifdef HAVE_IPV6
       else if (p->family == AF_INET6)
@@ -5778,9 +5778,9 @@ route_vty_out_tmp (struct vty *vty, struct prefix *p,
 	{
 	  if (safi == SAFI_MPLS_VPN)
 	    vty_out (vty, "%-16s",
-                     inet_ntoa (attr->extra->mp_nexthop_global_in));
+                     safe_inet_ntoa (attr->extra->mp_nexthop_global_in));
 	  else
-	    vty_out (vty, "%-16s", inet_ntoa (attr->nexthop));
+	    vty_out (vty, "%-16s", safe_inet_ntoa (attr->nexthop));
 	}
 #ifdef HAVE_IPV6
       else if (p->family == AF_INET6)
@@ -5851,9 +5851,9 @@ route_vty_out_tag (struct vty *vty, struct prefix *p,
 	{
 	  if (safi == SAFI_MPLS_VPN)
 	    vty_out (vty, "%-16s",
-                     inet_ntoa (attr->extra->mp_nexthop_global_in));
+                     safe_inet_ntoa (attr->extra->mp_nexthop_global_in));
 	  else
-	    vty_out (vty, "%-16s", inet_ntoa (attr->nexthop));
+	    vty_out (vty, "%-16s", safe_inet_ntoa (attr->nexthop));
 	}
 #ifdef HAVE_IPV6
       else if (p->family == AF_INET6)
@@ -6015,7 +6015,7 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
       if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_AGGREGATOR)))
 	vty_out (vty, ", (aggregated by %u %s)",
 	         attr->extra->aggregator_as,
-		 inet_ntoa (attr->extra->aggregator_addr));
+		 safe_inet_ntoa (attr->extra->aggregator_addr));
       if (CHECK_FLAG (binfo->peer->af_flags[afi][safi], PEER_FLAG_REFLECTOR_CLIENT))
 	vty_out (vty, ", (Received from a RR-client)");
       if (CHECK_FLAG (binfo->peer->af_flags[afi][safi], PEER_FLAG_RSERVER_CLIENT))
@@ -6030,8 +6030,8 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
       if (p->family == AF_INET)
 	{
 	  vty_out (vty, "    %s", safi == SAFI_MPLS_VPN ?
-		   inet_ntoa (attr->extra->mp_nexthop_global_in) :
-		   inet_ntoa (attr->nexthop));
+		   safe_inet_ntoa (attr->extra->mp_nexthop_global_in) :
+		   safe_inet_ntoa (attr->nexthop));
 	}
 #ifdef HAVE_IPV6
       else
@@ -6047,7 +6047,7 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 	{
 	  vty_out (vty, " from %s ",
 		   p->family == AF_INET ? "0.0.0.0" : "::");
-	  vty_out (vty, "(%s)", inet_ntoa(bgp->router_id));
+	  vty_out (vty, "(%s)", safe_inet_ntoa(bgp->router_id));
 	}
       else
 	{
@@ -6057,7 +6057,7 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 	    vty_out (vty, " (metric %d)", binfo->extra->igpmetric);
 	  vty_out (vty, " from %s", sockunion2str (&binfo->peer->su, buf, SU_ADDRSTRLEN));
 	  if (attr->flag & ATTR_FLAG_BIT(BGP_ATTR_ORIGINATOR_ID))
-	    vty_out (vty, " (%s)", inet_ntoa (attr->extra->originator_id));
+	    vty_out (vty, " (%s)", safe_inet_ntoa (attr->extra->originator_id));
 	  else
 	    vty_out (vty, " (%s)", inet_ntop (AF_INET, &binfo->peer->remote_id, buf1, BUFSIZ));
 	}
@@ -6131,7 +6131,7 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 	  assert (attr->extra);
 	  if (attr->flag & ATTR_FLAG_BIT(BGP_ATTR_ORIGINATOR_ID))
 	    vty_out (vty, "      Originator: %s",
-	             inet_ntoa (attr->extra->originator_id));
+	             safe_inet_ntoa (attr->extra->originator_id));
 
 	  if (attr->flag & ATTR_FLAG_BIT(BGP_ATTR_CLUSTER_LIST))
 	    {
@@ -6139,7 +6139,7 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 	      vty_out (vty, ", Cluster list: ");
 	      for (i = 0; i < attr->extra->cluster->length / 4; i++)
 		vty_out (vty, "%s ",
-		         inet_ntoa (attr->extra->cluster->list[i]));
+		         safe_inet_ntoa (attr->extra->cluster->list[i]));
 	    }
 	  vty_out (vty, "%s", VTY_NEWLINE);
 	}
@@ -6366,7 +6366,7 @@ bgp_show_table (struct vty *vty, struct bgp_table *table, struct in_addr *router
 
 	    if (header)
 	      {
-		vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (*router_id), VTY_NEWLINE);
+		vty_out (vty, "BGP table version is 0, local router ID is %s%s", safe_inet_ntoa (*router_id), VTY_NEWLINE);
 		vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		if (type == bgp_show_type_dampend_paths
@@ -9630,7 +9630,7 @@ show_adj_route (struct vty *vty, struct peer *peer, afi_t afi, safi_t safi,
   if (! in && CHECK_FLAG (peer->af_sflags[afi][safi],
 			  PEER_STATUS_DEFAULT_ORIGINATE))
     {
-      vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (bgp->router_id), VTY_NEWLINE);
+      vty_out (vty, "BGP table version is 0, local router ID is %s%s", safe_inet_ntoa (bgp->router_id), VTY_NEWLINE);
       vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
       vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 
@@ -9647,7 +9647,7 @@ show_adj_route (struct vty *vty, struct peer *peer, afi_t afi, safi_t safi,
 	    {
 	      if (header1)
 		{
-		  vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (bgp->router_id), VTY_NEWLINE);
+		  vty_out (vty, "BGP table version is 0, local router ID is %s%s", safe_inet_ntoa (bgp->router_id), VTY_NEWLINE);
 		  vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		  vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		  header1 = 0;
@@ -9671,7 +9671,7 @@ show_adj_route (struct vty *vty, struct peer *peer, afi_t afi, safi_t safi,
 	    {
 	      if (header1)
 		{
-		  vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (bgp->router_id), VTY_NEWLINE);
+		  vty_out (vty, "BGP table version is 0, local router ID is %s%s", safe_inet_ntoa (bgp->router_id), VTY_NEWLINE);
 		  vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		  vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		  header1 = 0;
@@ -11546,7 +11546,7 @@ bgp_config_write_network (struct vty *vty, struct bgp *bgp,
 		/* Natural mask is not display. */
 	      }
 	    else
-	      vty_out (vty, " mask %s", inet_ntoa (netmask));
+	      vty_out (vty, " mask %s", safe_inet_ntoa (netmask));
 	  }
 	else
 	  {
@@ -11584,7 +11584,7 @@ bgp_config_write_network (struct vty *vty, struct bgp *bgp,
 	    masklen2ip (p->prefixlen, &netmask);
 	    vty_out (vty, " aggregate-address %s %s",
 		     inet_ntop (p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
-		     inet_ntoa (netmask));
+		     safe_inet_ntoa (netmask));
 	  }
 	else
 	  {
@@ -11626,7 +11626,7 @@ bgp_config_write_distance (struct vty *vty, struct bgp *bgp)
     if ((bdistance = rn->info) != NULL)
       {
 	vty_out (vty, " distance %d %s/%d %s%s", bdistance->distance,
-		 inet_ntoa (rn->p.u.prefix4), rn->p.prefixlen,
+		 safe_inet_ntoa (rn->p.u.prefix4), rn->p.prefixlen,
 		 bdistance->access_list ? bdistance->access_list : "",
 		 VTY_NEWLINE);
       }

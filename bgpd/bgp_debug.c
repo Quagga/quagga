@@ -180,7 +180,7 @@ bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
     return 0;
 
   if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_NEXT_HOP)))
-    snprintf (buf, size, "nexthop %s", inet_ntoa (attr->nexthop));
+    snprintf (buf, size, "nexthop %s", safe_inet_ntoa (attr->nexthop));
 
   if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_ORIGIN)))
     snprintf (buf + strlen (buf), size - strlen (buf), ", origin %s",
@@ -223,11 +223,11 @@ bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
   if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_AGGREGATOR)))
     snprintf (buf + strlen (buf), size - strlen (buf), ", aggregated by %u %s",
 	      attr->extra->aggregator_as,
-	      inet_ntoa (attr->extra->aggregator_addr));
+	      safe_inet_ntoa (attr->extra->aggregator_addr));
 
   if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_ORIGINATOR_ID)))
     snprintf (buf + strlen (buf), size - strlen (buf), ", originator %s",
-	      inet_ntoa (attr->extra->originator_id));
+	      safe_inet_ntoa (attr->extra->originator_id));
 
   if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_CLUSTER_LIST)))
     {
@@ -236,7 +236,7 @@ bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
       snprintf (buf + strlen (buf), size - strlen (buf), ", clusterlist");
       for (i = 0; i < attr->extra->cluster->length / 4; i++)
 	snprintf (buf + strlen (buf), size - strlen (buf), " %s",
-		  inet_ntoa (attr->extra->cluster->list[i]));
+		  safe_inet_ntoa (attr->extra->cluster->list[i]));
     }
 
   if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_AS_PATH)))

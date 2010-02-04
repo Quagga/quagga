@@ -14,7 +14,7 @@ libzebra_la_SOURCES = \
 	zclient.c sockopt.c smux.c md5.c if_rmap.c keychain.c privs.c \
 	sigevent.c pqueue.c jhash.c memtypes.c workqueue.c symtab.c heap.c \
 	qtime.c qpthreads.c mqueue.c qpselect.c qtimers.c qpnexus.c \
-	command_queue.c qlib_init.c
+	command_queue.c qlib_init.c pthread_safe.c
 
 BUILT_SOURCES = memtypes.h route_types.h
 
@@ -32,7 +32,7 @@ pkginclude_HEADERS = \
 	workqueue.h route_types.h symtab.h heap.h \
 	qtime.h qpthreads.h mqueue.h qpselect.h qtimers.h qpnexus.h \
 	command_queue.h qlib_init.h qafi_safi.h \
-	confirm.h miyagi.h
+	confirm.h miyagi.h pthread_safe.h
 
 EXTRA_DIST = regex.c regex-gnu.h memtypes.awk route_types.awk route_types.txt
 

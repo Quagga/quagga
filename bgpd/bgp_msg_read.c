@@ -355,7 +355,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t body_size)
                 " holdtime %d, id %s",
                 connection->host, version,
                 open_recv->my_as, open_recv->holdtime,
-                inet_ntoa (remote_id));
+                safe_inet_ntoa (remote_id));
 
   /* Peer BGP version check.                                            */
   if (version != BGP_VERSION_4)
@@ -375,7 +375,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t body_size)
            (open_recv->bgp_id == connection->session->open_send->bgp_id))
     {
       zlog_debug ("%s rcv OPEN, multicast or our id %s",
-                  connection->host, inet_ntoa (remote_id)) ;
+                  connection->host, safe_inet_ntoa (remote_id)) ;
       bgp_msg_noms_o_bad_id(notification, open_recv->bgp_id) ;
       goto reject ;
     } ;

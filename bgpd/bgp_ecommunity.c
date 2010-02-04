@@ -708,7 +708,7 @@ ecommunity_ecom2str (struct ecommunity *ecom, int format)
 	  eip.val |= (*pnt++);
 
 	  len = sprintf (str_buf + str_pnt, "%s%s:%d", prefix,
-			 inet_ntoa (eip.ip), eip.val);
+			 safe_inet_ntoa (eip.ip), eip.val);
 	  str_pnt += len;
 	  first = 0;
 	}

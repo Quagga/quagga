@@ -26,6 +26,7 @@
 #define _ZEBRA_LOG_H
 
 #include <syslog.h>
+#include "pthread_safe.h"
 
 /* Here is some guidance on logging levels to use:
  *

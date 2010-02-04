@@ -1620,9 +1620,9 @@ filter_show (struct vty *vty, const char *name, afi_t afi)
 		vty_out (vty, " any%s", VTY_NEWLINE);
 	      else
 		{
-		  vty_out (vty, " %s", inet_ntoa (filter->addr));
+		  vty_out (vty, " %s", safe_inet_ntoa (filter->addr));
 		  if (filter->addr_mask.s_addr != 0)
-		    vty_out (vty, ", wildcard bits %s", inet_ntoa (filter->addr_mask));
+		    vty_out (vty, ", wildcard bits %s", safe_inet_ntoa (filter->addr_mask));
 		  vty_out (vty, "%s", VTY_NEWLINE);
 		}
 	    }
@@ -1663,9 +1663,9 @@ filter_show (struct vty *vty, const char *name, afi_t afi)
 		vty_out (vty, " any%s", VTY_NEWLINE);
 	      else
 		{
-		  vty_out (vty, " %s", inet_ntoa (filter->addr));
+		  vty_out (vty, " %s", safe_inet_ntoa (filter->addr));
 		  if (filter->addr_mask.s_addr != 0)
-		    vty_out (vty, ", wildcard bits %s", inet_ntoa (filter->addr_mask));
+		    vty_out (vty, ", wildcard bits %s", safe_inet_ntoa (filter->addr_mask));
 		  vty_out (vty, "%s", VTY_NEWLINE);
 		}
 	    }
@@ -1735,21 +1735,21 @@ config_write_access_cisco (struct vty *vty, struct filter *mfilter)
       if (filter->addr_mask.s_addr == 0xffffffff)
 	vty_out (vty, " any");
       else if (filter->addr_mask.s_addr == 0)
-	vty_out (vty, " host %s", inet_ntoa (filter->addr));
+	vty_out (vty, " host %s", safe_inet_ntoa (filter->addr));
       else
 	{
-	  vty_out (vty, " %s", inet_ntoa (filter->addr));
-	  vty_out (vty, " %s", inet_ntoa (filter->addr_mask));
+	  vty_out (vty, " %s", safe_inet_ntoa (filter->addr));
+	  vty_out (vty, " %s", safe_inet_ntoa (filter->addr_mask));
         }
 
       if (filter->mask_mask.s_addr == 0xffffffff)
 	vty_out (vty, " any");
       else if (filter->mask_mask.s_addr == 0)
-	vty_out (vty, " host %s", inet_ntoa (filter->mask));
+	vty_out (vty, " host %s", safe_inet_ntoa (filter->mask));
       else
 	{
-	  vty_out (vty, " %s", inet_ntoa (filter->mask));
-	  vty_out (vty, " %s", inet_ntoa (filter->mask_mask));
+	  vty_out (vty, " %s", safe_inet_ntoa (filter->mask));
+	  vty_out (vty, " %s", safe_inet_ntoa (filter->mask_mask));
 	}
       vty_out (vty, "%s", VTY_NEWLINE);
     }
@@ -1759,9 +1759,9 @@ config_write_access_cisco (struct vty *vty, struct filter *mfilter)
 	vty_out (vty, " any%s", VTY_NEWLINE);
       else
 	{
-	  vty_out (vty, " %s", inet_ntoa (filter->addr));
+	  vty_out (vty, " %s", safe_inet_ntoa (filter->addr));
 	  if (filter->addr_mask.s_addr != 0)
-	    vty_out (vty, " %s", inet_ntoa (filter->addr_mask));
+	    vty_out (vty, " %s", safe_inet_ntoa (filter->addr_mask));
 	  vty_out (vty, "%s", VTY_NEWLINE);
 	}
     }

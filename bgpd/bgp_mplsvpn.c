@@ -146,10 +146,10 @@ bgp_nlri_parse_vpnv4 (struct peer *peer, struct attr *attr,
 #if 0
       if (type == RD_TYPE_AS)
 	zlog_info ("prefix %ld:%ld:%ld:%s/%d", label, rd_as.as, rd_as.val,
-		   inet_ntoa (p.u.prefix4), p.prefixlen);
+		   safe_inet_ntoa (p.u.prefix4), p.prefixlen);
       else if (type == RD_TYPE_IP)
-	zlog_info ("prefix %ld:%s:%ld:%s/%d", label, inet_ntoa (rd_ip.ip),
-		   rd_ip.val, inet_ntoa (p.u.prefix4), p.prefixlen);
+	zlog_info ("prefix %ld:%s:%ld:%s/%d", label, safe_inet_ntoa (rd_ip.ip),
+		   rd_ip.val, safe_inet_ntoa (p.u.prefix4), p.prefixlen);
 #endif /* 0 */
 
       if (pnt + psize > lim)
@@ -271,7 +271,7 @@ prefix_rd2str (struct prefix_rd *prd, char *buf, size_t size)
   else if (type == RD_TYPE_IP)
     {
       decode_rd_ip (pnt + 2, &rd_ip);
-      snprintf (buf, size, "%s:%d", inet_ntoa (rd_ip.ip), rd_ip.val);
+      snprintf (buf, size, "%s:%d", safe_inet_ntoa (rd_ip.ip), rd_ip.val);
       return buf;
     }
 
@@ -342,7 +342,7 @@ show_adj_route_vpn (struct vty *vty, struct peer *peer, struct prefix_rd *prd)
                 if (header)
                   {
                     vty_out (vty, "BGP table version is 0, local router ID is %s%s",
-                             inet_ntoa (bgp->router_id), VTY_NEWLINE);
+                             safe_inet_ntoa (bgp->router_id), VTY_NEWLINE);
                     vty_out (vty, "Status codes: s suppressed, d damped, h history, * valid, > best, i - internal%s",
                              VTY_NEWLINE);
                     vty_out (vty, "Origin codes: i - IGP, e - EGP, ? - incomplete%s%s",
@@ -373,7 +373,7 @@ show_adj_route_vpn (struct vty *vty, struct peer *peer, struct prefix_rd *prd)
                     if (type == RD_TYPE_AS)
                       vty_out (vty, "%u:%d", rd_as.as, rd_as.val);
                     else if (type == RD_TYPE_IP)
-                      vty_out (vty, "%s:%d", inet_ntoa (rd_ip.ip), rd_ip.val);
+                      vty_out (vty, "%s:%d", safe_inet_ntoa (rd_ip.ip), rd_ip.val);
 
                     vty_out (vty, "%s", VTY_NEWLINE);
                     rd_header = 0;
@@ -448,7 +448,7 @@ bgp_show_mpls_vpn (struct vty *vty, struct prefix_rd *prd, enum bgp_show_type ty
 		    else
 		      {
 			vty_out (vty, "BGP table version is 0, local router ID is %s%s",
-				 inet_ntoa (bgp->router_id), VTY_NEWLINE);
+				 safe_inet_ntoa (bgp->router_id), VTY_NEWLINE);
 			vty_out (vty, "Status codes: s suppressed, d damped, h history, * valid, > best, i - internal%s",
 				 VTY_NEWLINE);
 			vty_out (vty, "Origin codes: i - IGP, e - EGP, ? - incomplete%s%s",
@@ -480,7 +480,7 @@ bgp_show_mpls_vpn (struct vty *vty, struct prefix_rd *prd, enum bgp_show_type ty
 		    if (type == RD_TYPE_AS)
 		      vty_out (vty, "%u:%d", rd_as.as, rd_as.val);
 		    else if (type == RD_TYPE_IP)
-		      vty_out (vty, "%s:%d", inet_ntoa (rd_ip.ip), rd_ip.val);
+		      vty_out (vty, "%s:%d", safe_inet_ntoa (rd_ip.ip), rd_ip.val);
 		  
 		    vty_out (vty, "%s", VTY_NEWLINE);		  
 		    rd_header = 0;

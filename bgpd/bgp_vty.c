@@ -6714,7 +6714,7 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
               /* Usage summary and header */
               vty_out (vty,
                        "BGP router identifier %s, local AS number %u%s",
-                       inet_ntoa (bgp->router_id), bgp->as, VTY_NEWLINE);
+                       safe_inet_ntoa (bgp->router_id), bgp->as, VTY_NEWLINE);
 
               ents = bgp_table_count (bgp->rib[afi][safi]);
               vty_out (vty, "RIB entries %ld, using %s of memory%s", ents,
@@ -8062,7 +8062,7 @@ bgp_show_rsclient_summary (struct vty *vty, struct bgp *bgp,
            {
              vty_out (vty,
                       "Route Server's BGP router identifier %s%s",
-                      inet_ntoa (bgp->router_id), VTY_NEWLINE);
+                      safe_inet_ntoa (bgp->router_id), VTY_NEWLINE);
              vty_out (vty,
               "Route Server's local AS number %u%s", bgp->as,
                        VTY_NEWLINE);

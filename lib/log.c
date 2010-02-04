@@ -1235,14 +1235,6 @@ mes_lookup (const struct message *meslist, int max, int index, const char *none)
   return none;
 }
 
-/* Wrapper around strerror to handle case where it returns NULL. */
-const char *
-safe_strerror(int errnum)
-{
-  const char *s = strerror(errnum);
-  return (s != NULL) ? s : "Unknown error";
-}
-
 struct zebra_desc_table
 {
   unsigned int type;

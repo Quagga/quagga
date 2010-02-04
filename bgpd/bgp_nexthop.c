@@ -1193,10 +1193,10 @@ DEFUN (show_ip_bgp_scan,
       {
 	if (bnc->valid)
 	  vty_out (vty, " %s valid [IGP metric %d]%s",
-		   inet_ntoa (rn->p.u.prefix4), bnc->metric, VTY_NEWLINE);
+		   safe_inet_ntoa (rn->p.u.prefix4), bnc->metric, VTY_NEWLINE);
 	else
 	  vty_out (vty, " %s invalid%s",
-		   inet_ntoa (rn->p.u.prefix4), VTY_NEWLINE);
+		   safe_inet_ntoa (rn->p.u.prefix4), VTY_NEWLINE);
       }
 
 #ifdef HAVE_IPV6
@@ -1224,7 +1224,7 @@ DEFUN (show_ip_bgp_scan,
        rn;
        rn = bgp_route_next (rn))
     if (rn->info != NULL)
-      vty_out (vty, " %s/%d%s", inet_ntoa (rn->p.u.prefix4), rn->p.prefixlen,
+      vty_out (vty, " %s/%d%s", safe_inet_ntoa (rn->p.u.prefix4), rn->p.prefixlen,
 	       VTY_NEWLINE);
 
 #ifdef HAVE_IPV6

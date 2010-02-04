@@ -322,7 +322,7 @@ sockunion_log (union sockunion *su)
   switch (su->sa.sa_family)
     {
     case AF_INET:
-      snprintf (buf, SU_ADDRSTRLEN, "%s", inet_ntoa (su->sin.sin_addr));
+      snprintf (buf, SU_ADDRSTRLEN, "%s", safe_inet_ntoa (su->sin.sin_addr));
       break;
 #ifdef HAVE_IPV6
     case AF_INET6:
@@ -642,7 +642,7 @@ sockunion_print (union sockunion *su)
   switch (su->sa.sa_family)
     {
     case AF_INET:
-      printf ("%s\n", inet_ntoa (su->sin.sin_addr));
+      printf ("%s\n", safe_inet_ntoa (su->sin.sin_addr));
       break;
 #ifdef HAVE_IPV6
     case AF_INET6:

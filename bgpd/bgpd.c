@@ -4500,7 +4500,7 @@ bgp_config_write (struct vty *vty)
 
       /* BGP router ID. */
       if (CHECK_FLAG (bgp->config, BGP_CONFIG_ROUTER_ID))
-	vty_out (vty, " bgp router-id %s%s", inet_ntoa (bgp->router_id),
+	vty_out (vty, " bgp router-id %s%s", safe_inet_ntoa (bgp->router_id),
 		 VTY_NEWLINE);
 
       /* BGP log-neighbor-changes. */
@@ -4526,7 +4526,7 @@ bgp_config_write (struct vty *vty)
 
       /* BGP cluster ID. */
       if (CHECK_FLAG (bgp->config, BGP_CONFIG_CLUSTER_ID))
-	vty_out (vty, " bgp cluster-id %s%s", inet_ntoa (bgp->cluster_id),
+	vty_out (vty, " bgp cluster-id %s%s", safe_inet_ntoa (bgp->cluster_id),
 		 VTY_NEWLINE);
 
       /* Confederation identifier*/

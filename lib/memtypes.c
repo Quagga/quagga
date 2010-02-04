@@ -42,6 +42,7 @@ struct memory_list memory_list_lib[] =
   { MTYPE_QTIMER,               "qtimer timer"                  },
   { MTYPE_QPN_NEXUS,            "qtn nexus"                     },
   { MTYPE_MARSHAL,              "marshalled commands"           },
+  { MTYPE_TSD,                  "Thread specific data"          },
   { MTYPE_VTY,			"VTY"				},
   { MTYPE_VTY_OUT_BUF,		"VTY output buffer"		},
   { MTYPE_VTY_HIST,		"VTY history"			},

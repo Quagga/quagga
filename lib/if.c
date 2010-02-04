@@ -611,7 +611,7 @@ DEFUN (show_address,
 	  p = ifc->address;
 
 	  if (p->family == AF_INET)
-	    vty_out (vty, "%s/%d%s", inet_ntoa (p->u.prefix4), p->prefixlen,
+	    vty_out (vty, "%s/%d%s", safe_inet_ntoa (p->u.prefix4), p->prefixlen,
 		     VTY_NEWLINE);
 	}
     }
@@ -807,7 +807,7 @@ ifaddr_ipv4_add (struct in_addr *ifaddr, struct interface *ifp)
     {
       route_unlock_node (rn);
       zlog_info ("ifaddr_ipv4_add(): address %s is already added",
-		 inet_ntoa (*ifaddr));
+		 safe_inet_ntoa (*ifaddr));
       return;
     }
   rn->info = ifp;
@@ -827,7 +827,7 @@ ifaddr_ipv4_delete (struct in_addr *ifaddr, struct interface *ifp)
   if (! rn)
     {
       zlog_info ("ifaddr_ipv4_delete(): can't find address %s",
-		 inet_ntoa (*ifaddr));
+		 safe_inet_ntoa (*ifaddr));
       return;
     }
   rn->info = NULL;
