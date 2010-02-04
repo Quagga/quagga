@@ -80,6 +80,8 @@
 
 static bgp_connection bgp_connection_queue ;  /* BGP Engine connection queue */
 
+enum { CUT_LOOSE_LOCK_COUNT = 1000 } ;
+
 /*==============================================================================
  * Managing bgp_connection stuctures.
  */
@@ -201,7 +203,7 @@ BGP_CONNECTION_SESSION_CUT_LOOSE(bgp_connection connection)
       if (connection->lock_count != 0)
         qpt_mutex_unlock(connection->p_mutex) ;
 
-      connection->lock_count += 10000 ;
+      connection->lock_count += CUT_LOOSE_LOCK_COUNT ;
 
       connection->session->connections[connection->ordinal] = NULL ;
       connection->session = NULL ;
@@ -327,7 +329,8 @@ bgp_connection_free(bgp_connection connection)
 {
   assert(   (connection->state      == bgp_fsm_sStopping)
          && (connection->session    == NULL)
-         && (connection->lock_count == 0)  ) ;
+         && ( (connection->lock_count == 0) ||
+              (connection->lock_count == CUT_LOOSE_LOCK_COUNT) )   ) ;
 
   /* Make sure is closed, so no active file, no timers, pending queue is empty,
    * not on the connection queue, etc.
