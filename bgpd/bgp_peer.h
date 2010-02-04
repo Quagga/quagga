@@ -372,38 +372,6 @@ struct peer
 } ;
 
 
-
-
-
-
-
-
-
-/* Macro for BGP read, write and timer thread.  */
-#define BGP_READ_ON(T,F,V)			\
-  do {						\
-    if (!(T) && (peer->state != bgp_peer_sDeleted))	\
-      THREAD_READ_ON(master,T,F,peer,V);	\
-  } while (0)
-
-#define BGP_READ_OFF(T)				\
-  do {						\
-    if (T)					\
-      THREAD_READ_OFF(T);			\
-  } while (0)
-
-#define BGP_WRITE_ON(T,F,V)			\
-  do {						\
-    if (!(T) && (peer->state != bgp_peer_sDeleted))	\
-      THREAD_WRITE_ON(master,(T),(F),peer,(V)); \
-  } while (0)
-
-#define BGP_WRITE_OFF(T)			\
-  do {						\
-    if (T)					\
-      THREAD_WRITE_OFF(T);			\
-  } while (0)
-
 #define BGP_TIMER_ON(T,F,V)			\
   do {						\
     if (!(T) && (peer->state != bgp_peer_sDeleted))	\
@@ -477,5 +445,6 @@ peer_nsf_stop (struct peer *peer);
 
 extern sockunion
 bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, pAF_t paf) ;
+
 #endif /* _QUAGGA_BGP_PEER_H */
 

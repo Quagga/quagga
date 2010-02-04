@@ -55,13 +55,19 @@
  *
  * In some cases the action routine may override the the default new state.
  *
+ * In general the FSM manages connections, but there is some interaction with
+ * the session.  In particular, exceptions are expressed as session_eXXX
+ * values -- which are passed to the Peering Engine as session events.  The
+ * handling of FSM events is depends mostly on the FSM state, but any
+ * exception influences that too.
+ *
  * When a new state is entered, bgp_fsm_state_change() is called to complete
  * the transition (in particular to set/unset timers).
  *
  * The fsm action functions are called with the session locked.
  *
  *------------------------------------------------------------------------------
- * FSM "events"
+ * FSM "events" and Session "exceptions".
  *
  * These are raised when:
  *
@@ -73,7 +79,12 @@
  *
  *   * timers go off
  *
- * and the mechanism is to call bgp_fsm_event().
+ * FSM events are raised by calling bgp_fsm_event().  A number of events are
+ * associated with session exceptions -- the exception is posted in the
+ * connection and then a suitable FSM event is raised.
+ *
+ * The most general FSM event is fsm_eBGP_Stop -- which MUST have a posted
+ * exception to tell it why the stop has been been raised.
  *
  * However, nothing external calls bgp_fsm_event() directly -- functions
  * defined here will raise the appropriate event.
@@ -92,15 +103,15 @@
  *
  * However, the FSM does some I/O operations -- notably write() and connect().
  * These may complete immediately, and may need to trigger a new event.  To
- * handle this, the connection can set a "post" event, to be processed at the
- * tail end of the current event processing.
+ * handle this, the connection can set a "follow on" event, to be processed at
+ * immediately after the current event and any state change that makes.
  *
  * Also, some things within the FSM are most consistently dealt with by
  * raising follow on events.
  *
- * Note that there is only one level of "post" event.  The FSM only ever issues
- * one I/O operation per event or more than one follow on event, and never both
- * at the same time.  (It's a RULE.)
+ * Note that there is only one level of "follow on" event.  The FSM never
+ * issues more than one I/O operation per event or more than one follow on
+ * event, and never both at the same time.  (It's a RULE.)
  *
  *------------------------------------------------------------------------------
  * Primary and Secondary Connections
@@ -122,8 +133,8 @@
  * Up to sEstablished state, the primary connection will be the out-bound
  * connect() connection (if allowed) and the secondary will be the in-bound
  * accept() connection (if allowed).  In sEstablished state, the primary
- * connection is the one that won the race -- any other connection is snuffed
- * out.
+ * connection is the one that won the race -- any other connection has been
+ * snuffed out.
  *
  * As per the RFC, collision detection/resolution is performed when an OPEN
  * message is received -- that is, as the connection attempts to advance to
@@ -134,7 +145,7 @@
  * See below for a discussion of the fall back to sIdle -- the losing connection
  * will remain comatose until the winner either reaches sEstablished (when the
  * loser is snuffed out) or the winner falls back to sIdle (when the
- * IdleHoldTimer for the loser is set, and it will be awoken in due course).
+ * IdleHoldTimer for the loser is set, and it will wake up in due course).
  *
  * NB: the RFC talks of matching source/destination and destination/source
  *     addresses of connections in order to detect collisions.  This code
@@ -195,13 +206,13 @@
  *        * if a sibling exists and is in sOpenSent or sOpenConfirm:
  *
  *            - do not change the IdleHoldTimer interval.
- *            - do not set the IdleHoldTimer (with jitter).
+ *            - unset the IdleHoldTimer.
  *            - set self "comatose".
  *
  *        * otherwise:
  *
  *            - increase the IdleHoldTimer interval.
- *            - set the IdleHoldTimer.
+ *            - set the IdleHoldTimer (with jitter).
  *
  *          and if a sibling exists and is comatose:
  *
@@ -253,10 +264,10 @@
  *
  * The basic mechanism is:
  *
- *   * exceptions may the "thrown" -- which records a given exception in the
+ *   * exceptions may the "thrown" -- which posts a given exception in the
  *     connection then kicks the FSM with a given fsm_eXxxxx event.
  *
- *     Information recorded is:
+ *     Information posted is:
  *
  *       sesssion_eXxxxx    -- what the exception is
  *       notification       -- any NOTIFICATION message
@@ -273,8 +284,13 @@
  * See the various exception functions below for what exceptions are posted and
  * what fsm_eXxxx events are generated.
  *
- * For internally generated exceptions, the FSM throws exceptions with an
- * fsm_eBGP_Stop event.
+ * The following fsm events require an exception:
+ *
+ *   bgp_fsm_eBGP_Stop                      -- bgp_fsm_exception()
+ *   bgp_fsm_eTCP_connection_closed         -- bgp_fsm_io_error()
+ *   bgp_fsm_eTCP_connection_open_failed    -- bgp_fsm_connect_completed()
+ *   bgp_fsm_eTCP_fatal_error               -- bgp_fsm_io_fatal_error()
+ *   bgp_fsm_eReceive_NOTIFICATION_message  -- bgp_fsm_notification_exception()
  *
  *------------------------------------------------------------------------------
  * FSM errors
@@ -308,8 +324,7 @@
  *      This ensures there is room in the write buffer at the very least.
  *
  *      For sOpenSent and sOpenConfirm states there should be zero chance of
- *      there being anything to purge, and probably no write buffer in any
- *      case.
+ *      there being anything to purge.
  *
  *   -- purge any pending write messages for the connection (for sEstablished).
  *
@@ -356,6 +371,26 @@
 
 static void
 bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event) ;
+
+/*==============================================================================
+ * Recharge the HoldTimer
+ *
+ * Defined here for the convenience of bgp_fsm_pre_update(), which is called
+ * once for every incoming update.
+ *
+ * NB: no jitter.
+ *
+ * NB: do nothing if connection->hold_timer_interval == 0
+ *
+ * NB: if connection->hold_timer_interval != 0, timer MUST be set
+ */
+static inline void
+bgp_hold_timer_recharge(bgp_connection connection)
+{
+  if (connection->hold_timer_interval != 0)
+    qtimer_set_interval(&connection->hold_timer,
+                                 QTIME(connection->hold_timer_interval), NULL) ;
+} ;
 
 /*==============================================================================
  * Enable the given session -- which must be newly initialised.
@@ -448,8 +483,6 @@ bgp_fsm_keepalive_received(bgp_connection connection)
  * Deals, via the FSM, with unexpected "update" events -- for example an
  * UPDATE (or ROUTE-REFRESH) before reaching sEstablished !
  */
-static void bgp_hold_timer_recharge(bgp_connection connection) ;
-
 extern int
 bgp_fsm_pre_update(bgp_connection connection)
 {
@@ -492,8 +525,7 @@ bgp_fsm_disable_session(bgp_session session, bgp_notify notification)
     connection = session->connections[bgp_connection_secondary] ;
 
   if (connection != NULL)
-    bgp_fsm_throw(connection, bgp_session_eDisabled, notification, 0,
-                                                            bgp_fsm_eBGP_Stop) ;
+    bgp_fsm_exception(connection, bgp_session_eDisabled, notification) ;
   else
     {
       /* Acknowledge the disable -- session is stopped.                 */
@@ -511,7 +543,7 @@ bgp_fsm_disable_session(bgp_session session, bgp_notify notification)
  * NB: can throw an exception for other connections while in the FSM.
  *
  *     Can throw an exception for the current connection while in the FSM, the
- *     fsm_active/post mechanism looks after this.
+ *     fsm_active/follow_on mechanism looks after this.
  */
 extern void
 bgp_fsm_exception(bgp_connection connection, bgp_session_event_t except,
@@ -773,7 +805,7 @@ static bgp_fsm_action(bgp_fsm_exit) ;
  *
  *            Start a new accept() attempt.
  *
- *    2. BGP_Stop
+ *    2. BGP_Stop -- process the posted exception (invalid if none !)
  *
  *         a. in all states:
  *
@@ -798,7 +830,7 @@ static bgp_fsm_action(bgp_fsm_exit) ;
  *
  *       Cannot happen at any other time.
  *
- *    4. TCP_connection_closed
+ *    4. TCP_connection_closed -- process the posted exception (MUST be there)
  *
  *       Raised by "EOF" on read or by EPIPE and some other errors.
  *
@@ -820,6 +852,7 @@ static bgp_fsm_action(bgp_fsm_exit) ;
  *       Cannot happen at any other time.
  *
  *    5. TCP_connection_open_failed ("soft" error)
+ *                               -- process the posted exception (MUST be there)
  *
  *         a. in sConnect or sActive states
  *
@@ -830,6 +863,7 @@ static bgp_fsm_action(bgp_fsm_exit) ;
  *       Cannot happen at any other time.
  *
  *    6. TCP_fatal_error ("hard" error)
+ *                               -- process the posted exception (MUST be there)
  *
  *         a. in sConnect or sActive states
  *
@@ -959,6 +993,7 @@ static bgp_fsm_action(bgp_fsm_exit) ;
  *       Cannot happen at any other time (connection not up or read closed).
  *
  *   13. Receive_NOTIFICATION_message
+ *                               -- process the posted exception (MUST be there)
  *
  *       Generated by read action.
  *
@@ -1379,7 +1414,7 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
 
   if (connection->fsm_active == 2)
     {
-      connection->post = event ;
+      connection->follow_on = event ;
       return ;
     } ;
 
@@ -1431,9 +1466,9 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
                           LOOKUP (bgp_status_msg, next_state));
         } ;
 
-      /* Pick up post event -- if any                                   */
-      event = connection->post ;
-      connection->post = bgp_fsm_null_event ;
+      /* Pick up follow_on event -- if any                              */
+      event = connection->follow_on ;
+      connection->follow_on = bgp_fsm_null_event ;
 
     } while (--connection->fsm_active != 0) ;
 
@@ -1679,7 +1714,7 @@ static bgp_fsm_action(bgp_fsm_fatal)
  */
 static bgp_fsm_action(bgp_fsm_retry)
 {
-  bgp_connection_close(connection, 0) ;         /* FSM does timers  */
+  bgp_connection_close(connection) ;            /* FSM does timers  */
 
   bgp_fsm_throw(connection, bgp_session_eRetry, NULL, 0,
                                                            bgp_fsm_eBGP_Start) ;
@@ -1714,7 +1749,7 @@ static bgp_fsm_action(bgp_fsm_expire)
   /* The process of sending a NOTIFICATION comes to an end here.        */
   if (connection->notification_pending)
     {
-      bgp_connection_close(connection, 0) ;   /* FSM deals with timers  */
+      bgp_connection_close(connection) ;      /* FSM deals with timers  */
 
       return next_state ;
     } ;
@@ -1885,7 +1920,6 @@ static bgp_fsm_action(bgp_fsm_establish)
   bgp_connection_make_primary(connection) ;
 
   /* Signal exciting session event                                      */
-  session->made = 1 ;
   bgp_session_event(session, bgp_session_eEstablished, NULL, 0, 0, 0) ;
 
   /* TODO: now would be a good time to withdraw the password from listener ?  */
@@ -1937,18 +1971,19 @@ static bgp_fsm_action(bgp_fsm_exit)
  * Uses the posted information and the expected next_state to deal with some
  * exception.  Proceeds:
  *
+ *   0) stop any timers -- so if held in sOpenSent/sOpenConfirm by notification
+ *      process, won't (eg) have extraneous keepalive going off.
+ *
  *  1a) if have notification & not eNOM_recv & is in a suitable state
  *
- *      (suitable state is sOpenSent/sOpenConfirm/sEstablished.
+ *      Suitable states are sOpenSent/sOpenConfirm/sEstablished.
  *
- *      Start sending the NOTIFICATION message.
+ *      Send NOTIFICATION -- see notes above on the process.
  *
  *      For sOpenSent/sOpenConfirm, override the next_state to stay where it is
  *      until NOTIFICATION process completes.
  *
- *      For sEstablished, the next state will be sStopping.
- *
- *      Sending NOTIFICATION closes the connection for reading.
+ *      For sEstablished, the next_state will be sStopping.
  *
  *  1b) otherwise: close the connection file.
  *
@@ -1964,37 +1999,54 @@ static bgp_fsm_action(bgp_fsm_exit)
  *
  *      (The sibling will be session_eDiscard -- so no deadly embrace here.)
  *
+ * So: proceeds to the given next_state unless has started notification process,
+ * and next_state was not sStopping.
+ *
+ * Issues follow-on events:
+ *
+ *   * bgp_fsm_eSent_NOTIFICATION_message if notification clears to TCP buffers
+ *     immediately.
+ *
+ *   * bgp_fsm_eTCP_fatal_error (or other such) if fails trying to send
+ *     notification.
+ *
+ *   * bgp_fsm_eBGP_Stop if next_state is sStopping and no notification to
+ *     send.
+ *
  * The state machine takes care of the rest:
  *
- *   * complete entry to new state (for sStopping will cut connection loose).
+ *   * complete entry to new state
  *
  *   * send message to Routeing Engine
+ *
+ *   * cutting the connection loose if ends up sStopping.
  *
  * NB: requires the session LOCKED -- connection-wise
  */
 static bgp_fsm_state_t
 bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
 {
-  int send_notification ;
+  bgp_notify send_notification ;
 
-  /* Have a notification to send iff have not just received one, and are in a
+  assert(connection->except != bgp_session_null_event) ;
+
+  /* It's bad news, so stop doing whatever was doing.                   */
+  qtimer_unset(&connection->hold_timer) ;
+  qtimer_unset(&connection->keepalive_timer) ;
+
+  /* Have a notification to send iff not just received one, and is in a
    * suitable state to send one at all.
    */
   if (connection->except == bgp_session_eNOM_recv)
-    send_notification = 0 ;
+    send_notification = NULL ;
   else
     {
-      if (   (connection->state == bgp_fsm_sOpenSent)
-          || (connection->state == bgp_fsm_sOpenConfirm)
-          || (connection->state == bgp_fsm_sEstablished) )
-        {
-          send_notification = (connection->notification != NULL) ;
-        }
-      else
-        {
-          bgp_notify_unset(&connection->notification) ;
-          send_notification = 0 ;
-        } ;
+      if (   (connection->state != bgp_fsm_sOpenSent)
+          && (connection->state != bgp_fsm_sOpenConfirm)
+          && (connection->state != bgp_fsm_sEstablished) )
+        bgp_notify_unset(&connection->notification) ;
+
+      send_notification = connection->notification ;
     } ;
 
   /* If there is a NOTIFICATION to send, now is the time to do that.
@@ -2003,7 +2055,7 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
    * The state transition stuff looks after timers.  In particular an error
    * in Connect/Active states leaves the ConnectRetryTimer running.
    */
-  if (send_notification)
+  if (send_notification != NULL)
     {
       int ret ;
 
@@ -2021,7 +2073,7 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
        * If the write fails it raises a suitable event, which will now be
        * sitting waiting to be processed on the way out of the FSM.
        */
-      ret = bgp_msg_write_notification(connection, connection->notification) ;
+      ret = bgp_msg_write_notification(connection, send_notification) ;
 
       connection->notification_pending = (ret >= 0) ;
                                       /* is pending if not failed           */
@@ -2047,7 +2099,7 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
     }
   else
     {
-      bgp_connection_close(connection, 0) ;     /* FSM deals with timers  */
+      bgp_connection_close(connection) ;        /* FSM deals with timers  */
 
       if (next_state == bgp_fsm_sStopping)      /* can exit if sStopping  */
         bgp_fsm_event(connection, bgp_fsm_eBGP_Stop) ;
@@ -2062,11 +2114,10 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
       sibling = bgp_connection_get_sibling(connection) ;  /* ... if any */
 
       if (sibling != NULL)
-        bgp_fsm_discard_sibling(sibling,
-                                     bgp_notify_dup(connection->notification)) ;
+        bgp_fsm_discard_sibling(sibling, bgp_notify_dup(send_notification)) ;
     } ;
 
-  /* Return the (possibly adjusted) next_state                  */
+  /* Return the (possibly adjusted) next_state                          */
   return next_state ;
 } ;
 
@@ -2132,16 +2183,53 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
  *    bgp_fsm_eKeepAlive_timer_expired event.
  */
 
-/* Forward reference                                                    */
-static void
-bgp_timer_set(bgp_connection connection, qtimer timer, unsigned secs,
-                                            int jitter, qtimer_action* action) ;
-
 /* Forward reference the action functions                               */
 static qtimer_action bgp_idle_hold_timer_action ;
 static qtimer_action bgp_connect_retry_timer_action ;
 static qtimer_action bgp_hold_timer_action ;
 static qtimer_action bgp_keepalive_timer_action ;
+
+/*==============================================================================
+ * Timer set functions -- general and HoldTimer specific.
+ */
+enum
+{
+  no_jitter   = 0,
+  with_jitter = 1,
+} ;
+
+/*------------------------------------------------------------------------------
+ * Start or reset given qtimer with given interval, in seconds.
+ *
+ * If the interval is zero, unset the timer.
+ */
+static void
+bgp_timer_set(bgp_connection connection, qtimer timer, unsigned secs,
+                                              int jitter, qtimer_action* action)
+{
+  if (secs == 0)
+    qtimer_unset(timer) ;
+  else
+    {
+      secs *= 40 ;      /* a bit of resolution for jitter       */
+      if (jitter != no_jitter)
+        secs -= ((rand() % ((int)secs + 1)) / 4) ;
+      qtimer_set_interval(timer, QTIME(secs) / 40, action) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set HoldTimer with given time (without jitter) so will generate a
+ * Hold_Timer_expired event.
+ *
+ * Setting 0 will unset the HoldTimer.
+ */
+static void
+bgp_hold_timer_set(bgp_connection connection, unsigned secs)
+{
+  bgp_timer_set(connection, &connection->hold_timer, secs, no_jitter,
+                                                        bgp_hold_timer_action) ;
+} ;
 
 /*==============================================================================
  * Completion of State Change
@@ -2214,14 +2302,14 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
               if ((sibling != NULL) && (sibling->comatose))
                 {
                   connection->comatose = 0 ;    /* no longer comatose   */
-                  bgp_timer_set(sibling, &sibling->hold_timer, interval, 1,
-                                                   bgp_idle_hold_timer_action) ;
+                  bgp_timer_set(sibling, &sibling->hold_timer, interval,
+                                      with_jitter, bgp_idle_hold_timer_action) ;
                 } ;
             } ;
         } ;
 
-      bgp_timer_set(connection, &connection->hold_timer, interval, 1,
-                                                   bgp_idle_hold_timer_action) ;
+      bgp_timer_set(connection, &connection->hold_timer, interval,
+                                      with_jitter, bgp_idle_hold_timer_action) ;
 
       qtimer_unset(&connection->keepalive_timer) ;
 
@@ -2237,7 +2325,7 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
     case bgp_fsm_sConnect:
     case bgp_fsm_sActive:
       bgp_timer_set(connection, &connection->hold_timer,
-                           session->connect_retry_timer_interval, 1,
+                           session->connect_retry_timer_interval, with_jitter,
                                                bgp_connect_retry_timer_action) ;
       qtimer_unset(&connection->keepalive_timer) ;
       break;
@@ -2269,8 +2357,8 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      */
     case bgp_fsm_sOpenConfirm:
       bgp_timer_set(connection, &connection->keepalive_timer,
-                                 connection->keepalive_timer_interval, 1,
-                                                   bgp_keepalive_timer_action) ;
+                                 connection->keepalive_timer_interval,
+                                      with_jitter, bgp_keepalive_timer_action) ;
     case bgp_fsm_sEstablished:
       bgp_hold_timer_set(connection, connection->hold_timer_interval) ;
       break;
@@ -2294,51 +2382,8 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
 } ;
 
 /*==============================================================================
- * Timer set and Timer Action Functions
+ * Timer Action Functions
  */
-
-/*------------------------------------------------------------------------------
- * Start or reset given qtimer with given interval, in seconds.
- *
- * If the interval is zero, unset the timer.
- */
-static void
-bgp_timer_set(bgp_connection connection, qtimer timer, unsigned secs,
-                                              int jitter, qtimer_action* action)
-{
-  if (secs == 0)
-    qtimer_unset(timer) ;
-  else
-    {
-      secs *= 40 ;      /* a bit of resolution for jitter       */
-      if (jitter)
-        secs -= ((rand() % ((int)secs + 1)) / 4) ;
-      qtimer_set_interval(timer, QTIME(secs) / 40, action) ;
-    } ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Set HoldTimer with given time (without jitter) so will generate a
- * Hold_Timer_expired event.
- *
- * Setting 0 will unset the HoldTimer.
- */
-static void
-bgp_hold_timer_set(bgp_connection connection, unsigned secs)
-{
-  bgp_timer_set(connection, &connection->hold_timer, secs, 0,
-                                                        bgp_hold_timer_action) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Recharge the HoldTimer
- */
-
-static void
-bgp_hold_timer_recharge(bgp_connection connection)
-{
-  bgp_hold_timer_set(connection, connection->hold_timer_interval) ;
-} ;
 
 /*------------------------------------------------------------------------------
  * BGP start timer action => bgp_fsm_eBGP_Start event
@@ -2369,7 +2414,7 @@ bgp_connect_retry_timer_action(qtimer qtr, void* timer_info, qtime_mono_t when)
   BGP_FSM_DEBUG(connection, "Timer (connect timer expire)") ;
 
   bgp_timer_set(connection, &connection->hold_timer,
-           connection->session->connect_retry_timer_interval, 1, NULL) ;
+         connection->session->connect_retry_timer_interval, with_jitter, NULL) ;
 
   bgp_fsm_event(connection, bgp_fsm_eConnectRetry_timer_expired) ;
 } ;
@@ -2403,7 +2448,8 @@ bgp_keepalive_timer_action(qtimer qtr, void* timer_info, qtime_mono_t when)
   BGP_FSM_DEBUG(connection, "Timer (keepalive timer expire)") ;
 
   bgp_timer_set(connection, &connection->keepalive_timer,
-                    connection->session->keepalive_timer_interval, 1, NULL) ;
+                    connection->session->keepalive_timer_interval,
+                                                            with_jitter, NULL) ;
 
   bgp_fsm_event(connection, bgp_fsm_eKeepAlive_timer_expired) ;
 } ;

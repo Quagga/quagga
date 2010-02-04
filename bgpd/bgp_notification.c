@@ -33,8 +33,6 @@
 /*==============================================================================
  * A bgp_notify structure encapsulates the contents of a BGP NOTIFICATION
  * message.
- *
- *
  */
 
 /*------------------------------------------------------------------------------
@@ -175,9 +173,9 @@ bgp_notify_unset(bgp_notify* p_notification)
 } ;
 
 /*------------------------------------------------------------------------------
- * Unset pointer to notification and free any existing notification structure.
+ * Unset pointer to notification and return the pointer value.
  *
- * Does nothing if there is no structure.
+ * Returns NULL if there is no structure.
  */
 extern bgp_notify
 bgp_notify_take(bgp_notify* p_notification)

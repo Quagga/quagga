@@ -27,7 +27,7 @@
 #include "bgpd/bgp_notification.h"
 
 extern bgp_size_t
-bgp_msg_get_mlen(uint8_t* p) ;
+bgp_msg_get_mlen(uint8_t* p, uint8_t* limit) ;
 
 extern int
 bgp_msg_check_header(bgp_connection connection);

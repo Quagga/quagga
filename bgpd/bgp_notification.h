@@ -114,7 +114,7 @@ struct bgp_notify
 #define BGP_NOTIFY_CAPABILITY_MAX                4
 
 /*==============================================================================
- *
+ * Functions
  */
 
 extern bgp_notify

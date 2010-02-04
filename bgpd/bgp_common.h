@@ -117,11 +117,11 @@ enum bgp_session_events
   bgp_session_eFSM_error,         /* unexpected BGP message received          */
   bgp_session_eNOM_recv,          /* NOTIFICATION message received            */
 
-  bgp_session_eTCP_failed,        /* TCP connection failed to come up         */
-  bgp_session_eTCP_dropped,       /* TCP connection dropped                   */
-  bgp_session_eTCP_error,         /* some socket level error                  */
-
   bgp_session_eExpired,           /* HoldTime expired                         */
+  bgp_session_eTCP_dropped,       /* TCP connection dropped                   */
+
+  bgp_session_eTCP_failed,        /* TCP connection failed to come up         */
+  bgp_session_eTCP_error,         /* some socket level error                  */
 
   bgp_session_eInvalid,           /* invalid internal event                   */
 

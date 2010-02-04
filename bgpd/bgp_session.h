@@ -40,7 +40,6 @@
 #define Inline static inline
 #endif
 
-
 /*==============================================================================
  * BGP Session data structure.
  *
@@ -57,14 +56,16 @@
  * NB: the session structure is shared by the Routeing Engine and the BGP
  *     Engine, so there is a mutex to coordinate access.
  *
- *     The information in this shared structure is only required every now and
- *     then, so the overhead of a mutex operation for every access is not an
- *     issue.
+ *     For simplicity, the BGP Engine may lock the session associated with the
+ *     connection it is dealing with.
+ *
+ *     Parts of the session structure are private to the Peering Engine, and
+ *     do not require the mutex for access.
  *
  * NB: the connections associated with a BGP session are private to the BGP
- *     Engine when sessions are disabled or have failed, there will be no
- *     connections.
+ *     Engine.
  *
+ *     When sessions are disabled or have failed, there will be no connections.
  */
 
 /* Statistics */
@@ -87,10 +88,13 @@ struct bgp_session_stats
 
 struct bgp_session
 {
+  /* The following are set when the session is created, and not changed
+   * thereafter.
+   */
   bgp_peer          peer ;              /* peer whose session this is     */
-
   bgp_peer_index_entry  index_entry ;   /* and its index entry            */
 
+  /* This is a *recursive* mutex                                          */
   qpt_mutex_t       mutex ;             /* for access to the rest         */
 
   /* While sIdle and sStopped:
@@ -111,27 +115,18 @@ struct bgp_session
    * assumes that a session will not be destroyed while it is sEnabled,
    * sEstablished or sStopping.
    *
-   * Only the Peering Engine touches the state and defer_enable items.
-   *
-   * The made flag is cleared by the Peering Engine before enabling a session,
-   * and is set by the BGP Engine when the session becomes sEstablished.
-   *
-   * The Peering Engine may use this flag in sStopped state to see if the
-   * session was ever established.
+   * These are private to the Peering Engine.
    */
   bgp_session_state_t   state ;
   int                   defer_enable ;  /* set when waiting for stop      */
-
-  flag_t                made ;          /* set when -> sEstablished       */
 
   /* Flow control. Incremented when an update packet is sent
    * from peering to BGP engine.  Decremented when packet processed
    * by BGP engine.  On transition to 0 BGP engine should send an XON.
    */
-
   int flow_control;
 
-  /* These belong to the Peering Engine, and may be set when a session
+  /* These are private to the Peering Engine, and are set each time a session
    * event message is received from the BGP Engine.
    */
   bgp_session_event_t   event ;         /* last event                     */
@@ -163,6 +158,10 @@ struct bgp_session
   int               ttl ;               /* TTL to set, if not zero        */
   unsigned short    port ;              /* destination port for peer      */
 
+  /* TODO: ifindex and ifaddress should be rebound if the peer hears any
+   * bgp_session_eTCP_failed or bgp_session_eTCP_error -- in case interface
+   * state has changed, for the better.
+   */
   char*             ifname ;            /* interface to bind to, if any   */
   unsigned          ifindex ;           /* and its index, if any          */
   union sockunion*  ifaddress ;         /* address to bind to, if any     */
@@ -219,7 +218,6 @@ struct bgp_session
 
   flag_t        active ;
 } ;
-
 
 /*==============================================================================
  * Mqueue messages related to sessions
@@ -292,8 +290,6 @@ struct bgp_session_ttl_args             /* to bgp Engine                */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_ttl_args) ;
 
-
-
 /*==============================================================================
  * Session mutex lock/unlock
  */
@@ -361,8 +357,6 @@ bgp_session_get_stats(bgp_session session, struct bgp_session_stats *stats);
 
 /*==============================================================================
  * Session data access functions.
- *
- *
  */
 
 extern int

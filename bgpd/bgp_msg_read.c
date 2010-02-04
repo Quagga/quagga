@@ -53,14 +53,22 @@ static void bgp_msg_capability_receive(bgp_connection connection,
                                                          bgp_size_t body_size) ;
 
 /*------------------------------------------------------------------------------
- * Get BGP message length, given a pointer to the start of a message
+ * Get BGP message length, given a pointer to the start of a message.
+ *
+ * Make sure things are kosher.
  */
 extern bgp_size_t
-bgp_msg_get_mlen(uint8_t* p)
+bgp_msg_get_mlen(uint8_t* p, uint8_t* limit)
 {
-  return (*(p + BGP_MH_MARKER_L)) + (*(p + BGP_MH_MARKER_L + 1) << 8) ;
-} ;
+  uint16_t mlen ;
+  passert((p + BGP_MH_HEAD_L) <= limit) ;
 
+  mlen = (*(p + BGP_MH_MARKER_L)) + (*(p + BGP_MH_MARKER_L + 1) << 8) ;
+
+  passert((p + mlen) <= limit) ;
+
+  return mlen ;
+} ;
 
 /*==============================================================================
  * Header validation and sexing of messages

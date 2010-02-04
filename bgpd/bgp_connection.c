@@ -46,10 +46,10 @@
  *   * input/output buffers and I/O management
  *   * timers to support the above
  *
- * Each BGP Session is associated with at most two BGP Connections.  The second
- * connection exists only if a connect and a listen connection is made while
- * a session is starting up, and one will be dropped before either connection
- * reaches Established state.
+ * Each BGP Session is associated with at most two BGP Connections, a primary
+ * and a secondary.  The primary starts as the connect() connection, and the
+ * secondary as the acccept().  One will be dropped before either connection
+ * reaches sEstablished state, and the remaining connection becomes the primary.
  *
  * The bgp_connection structure is private to the BGP Engine, and is accessed
  * directly, without the need for any mutex.
@@ -57,34 +57,37 @@
  * Each connection is closely tied to its parent bgp_session.  The bgp_session
  * is shared between the Routeing Engine and the BGP Engine, and therefore
  * access is subject to the bgp_session's mutex.
- *
  */
 
 /*==============================================================================
- * The connection queue.
+ * The connection queue and the connection's pending queue.
+ *
+ * When it is no longer possible to write the the connection's write buffer,
+ * any mqueue messages that cannot be dealt with are queued on the connection's
+ * pending queue.  So when the BGP Engine's mqueue is processed, the messages
+ * are either dealt with, or queued in the relevant connection.
  *
  * When the connection's write buffer empties, the connection is placed on the
- * connection queue.
+ * BGP Engine's connection queue.
  *
  * The connection queue is processed as the highest priority action in the
- * BGP Engine, at which point as many of the items on the connection's
+ * BGP Engine, at which point as many of the items on each connection's
  * pending queue as possible will be processed.
  *
  * The connection_queue is managed as a circular list of connections.  The
  * connection_queue variable points at the next to be processed.
- *
  */
 
-static bgp_connection bgp_connection_queue ;
+static bgp_connection bgp_connection_queue ;  /* BGP Engine connection queue */
 
 /*==============================================================================
  * Managing bgp_connection stuctures.
  */
 static const char* bgp_connection_tags[] =
-  {
-      [bgp_connection_primary]   = "(primary)",
-      [bgp_connection_secondary] = "(secondary)",
-  } ;
+{
+  [bgp_connection_primary]   = "(primary)",
+  [bgp_connection_secondary] = "(secondary)",
+} ;
 
 static void bgp_connection_init_host(bgp_connection connection,
                                                               const char* tag) ;
@@ -94,7 +97,7 @@ static void bgp_write_buffer_free(bgp_wbuffer wb) ;
 /*------------------------------------------------------------------------------
  * Initialise connection structure -- allocate if required.
  *
- *
+ * Copies information required by the connection from the parent session.
  *
  * NB: requires the session LOCKED
  */
@@ -284,8 +287,8 @@ bgp_connection_make_primary(bgp_connection connection)
   session->route_refresh_pre          = connection->route_refresh ;
   session->orf_prefix_pre             = connection->orf_prefix ;
 
-  sockunion_set_mov(&session->su_local,  &connection->su_local) ;
-  sockunion_set_mov(&session->su_remote, &connection->su_remote) ;
+  sockunion_set_dup(&session->su_local,  connection->su_local) ;
+  sockunion_set_dup(&session->su_remote, connection->su_remote) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -304,7 +307,7 @@ bgp_connection_make_primary(bgp_connection connection)
 extern void
 bgp_connection_exit(bgp_connection connection)
 {
-  bgp_connection_close(connection, 1) ;         /* make sure    */
+  bgp_connection_close_down(connection) ;       /* make sure    */
 
   assert(connection->state == bgp_fsm_sStopping) ;
 
@@ -316,20 +319,20 @@ bgp_connection_exit(bgp_connection connection)
  *
  * Connection must be Stopping -- no longer attached to a session.
  *
- *
- *
- *
+ * This is done in the BGP Engine connection queue handling -- so that the
+ * structure is reaped once there is no chance of any dangling pointers to it.
  */
 static void
 bgp_connection_free(bgp_connection connection)
 {
-  assert( (connection->state == bgp_fsm_sStopping) &&
-          (connection->session == NULL) ) ;
+  assert(   (connection->state      == bgp_fsm_sStopping)
+         && (connection->session    == NULL)
+         && (connection->lock_count == 0)  ) ;
 
   /* Make sure is closed, so no active file, no timers, pending queue is empty,
    * not on the connection queue, etc.
    */
-  bgp_connection_close(connection, 1) ;
+  bgp_connection_close_down(connection) ;
 
   /* Free any components which still exist                              */
   bgp_notify_unset(&connection->notification) ;
@@ -438,9 +441,11 @@ bgp_connection_queue_del(bgp_connection connection)
 /*------------------------------------------------------------------------------
  * Process the connection queue until it becomes empty.
  *
- * Process each item until its pending queue becomes empty, or its write
- * buffer becomes full, or it is stopped.
+ * Process each connection in turn, dealing with one item on each one's pending
+ * queue.  Dealing with the item will either remove it from the connection's
+ * pending queue (success) or remove connection from the pending queue.
  *
+ * This is also where connections come to die.
  */
 extern void
 bgp_connection_queue_process(void)
@@ -486,8 +491,11 @@ bgp_connection_queue_process(void)
  * If mqb is not already pending, add it at the tail and mark it pending.
  *
  * If is already pending, then is being put back onto the queue, so put it
- * at the head, and remove the connection from the connection queue -- there
- * is nothing more to be done for the connection for the time being.
+ * at the head.
+ *
+ * In any case, remove the connection from the BGP Engine connection queue (if
+ * there) -- there is nothing more to be done for the connection for the time
+ * being.
  */
 extern void
 bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
@@ -502,8 +510,9 @@ bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
     {
       dassert(*is_pending == connection) ;
       mqueue_local_enqueue_head(&connection->pending_queue, mqb) ;
-      bgp_connection_queue_del(connection) ;
     } ;
+
+  bgp_connection_queue_del(connection) ;
 } ;
 
 /*==============================================================================
@@ -522,7 +531,7 @@ bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
  *
  * Sets:
  *
- *   * if accept() clears the session accept flag
+ *   * if secondary connection, turn off accept()
  *   * sets the qfile and fd ready for use
  *   * clears except, notification and err
  *   * discards any open_state and notification
@@ -549,7 +558,7 @@ bgp_connection_open(bgp_connection connection, int fd)
 
   /* Make sure that there is no file and that buffers are clear, etc.   */
   /* If this is the secondary connection, do not accept any more.       */
-  bgp_connection_close(connection, 0) ;
+  bgp_connection_close(connection) ;    /* FSM deals with timers        */
 
   /* Set the file going                                                 */
   qps_add_file(bgp_nexus->selection, &connection->qf, fd, connection) ;
@@ -607,7 +616,7 @@ bgp_connection_disable_accept(bgp_connection connection)
  *
  *   * state of the connection
  *   * links to and from the session
- *   * the timers remain initialised (but unset)
+ *   * the timers remain initialised (but may have been unset)
  *   * the buffers remain (but reset)
  *   * logging and host string
  *   * any open_state that has been received
@@ -616,14 +625,14 @@ bgp_connection_disable_accept(bgp_connection connection)
  *
  * Once closed, the only further possible actions are:
  *
- *   * bgp_connection_open()     -- to retry connection
+ *   * bgp_connection_open()       -- to retry connection
  *
- *   * bgp_connection_free()     -- to finally discard
+ *   * bgp_connection_free()       -- to finally discard
  *
- *   * bgp_connection_close()    -- can do this again
+ *   * bgp_connection_full_close() -- can do this again
  */
 extern void
-bgp_connection_close(bgp_connection connection, int unset_timers)
+bgp_connection_full_close(bgp_connection connection, int unset_timers)
 {
   int fd ;
 
@@ -712,12 +721,13 @@ bgp_connection_part_close(bgp_connection connection)
 
   if (wb->p_in != wb->p_out)    /* will be equal if buffer is empty     */
     {
+      passert(wb->p_out < wb->p_in) ;
       mlen = 0 ;
       p    = wb->base ;
       do                        /* Advance p until p + mlen > wb->p_out */
         {
           p += mlen ;
-          mlen = bgp_msg_get_mlen(p) ;
+          mlen = bgp_msg_get_mlen(p, wb->p_in) ;    /* checks pointers  */
         } while ((p + mlen) <= wb->p_out) ;
 
       if (p == wb->p_out)
@@ -853,8 +863,7 @@ bgp_connection_write_direct(bgp_connection connection, struct stream* s)
  *   -- if notification is pending, then generate a notification sent event
  *
  *   -- otherwise: place connection on the connection queue, so can start to
- *      flush out anything on the connection's pending queue and/or send an
- *      XON message to the Peering Engine.
+ *      flush out anything on the connection's pending queue.
  *
  * If empty out everything, disable write mode.
  *

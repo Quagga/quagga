@@ -44,6 +44,7 @@
 #include "prefix.h"
 #include "vty.h"
 #include "sockunion.h"
+#include "prefix.h"
 #include "thread.h"
 #include "log.h"
 #include "stream.h"
@@ -301,7 +302,7 @@ bgp_session_has_stopped(bgp_peer peer)
   bgp_session session = peer->session ;
 
   assert(bgp_session_is_active(session)) ;
-  bgp_peer_disable(peer, NULL);
+  bgp_peer_reenable(peer, NULL);
   /* TODO: needs to deal with NOTIFICATION, if any ??                   */
 
   return 0;
@@ -325,17 +326,10 @@ bgp_session_has_disabled(bgp_peer peer)
   mqueue_revoke(routing_nexus->queue, session) ;
 
   /* does the session need to be re-enabled? */
-  if (session->defer_enable || peer->state == bgp_peer_sIdle)
+  if (session->defer_enable)
     {
       session->defer_enable = 0;
       bgp_session_enable(peer);
-    }
-  else if (peer->state == bgp_peer_sEstablished)
-    {
-      /* disable the peer */
-      bgp_peer_stop(peer);
-      bgp_clear_route_all(peer);
-      peer_change_status(peer, bgp_peer_sClearing);
     }
 
   /* if the program is terminating then see if this was the last session
@@ -455,16 +449,12 @@ bgp_peer_stop (struct peer *peer)
       peer->v_holdtime  = peer->bgp->default_holdtime;
     }
 
-  /* Until we are sure that there is no problem about prefix count
-     this should be commented out.*/
-#if 0
   /* Reset prefix count */
   peer->pcount[AFI_IP][SAFI_UNICAST] = 0;
   peer->pcount[AFI_IP][SAFI_MULTICAST] = 0;
   peer->pcount[AFI_IP][SAFI_MPLS_VPN] = 0;
   peer->pcount[AFI_IP6][SAFI_UNICAST] = 0;
   peer->pcount[AFI_IP6][SAFI_MULTICAST] = 0;
-#endif /* 0 */
 
   return 0;
 }
@@ -829,7 +819,6 @@ peer_delete (struct peer *peer)
    */
   peer->last_reset = PEER_DOWN_NEIGHBOR_DELETE;
   bgp_peer_stop (peer);
-  bgp_clear_route_all (peer);
   peer_change_status (peer, bgp_peer_sDeleted);
 
   /* Password configuration */
@@ -997,7 +986,22 @@ peer_nsf_stop (struct peer *peer)
   bgp_clear_route_all (peer);
 }
 
+
+/* Disable then enable the peer.  Sends notification. */
+void
+bgp_peer_reenable(bgp_peer peer, bgp_notify notification)
+{
+  if (bgp_session_is_active(peer->session))
+    {
+      bgp_peer_disable(peer, notification);
+      bgp_peer_enable(peer); /* may defer if still stopping */
+    }
+  else
+    bgp_notify_free(notification) ;
+}
+
 /* enable the peer */
+
 void
 bgp_peer_enable(bgp_peer peer)
 {
@@ -1006,25 +1010,32 @@ bgp_peer_enable(bgp_peer peer)
 }
 
 /* disable the peer
- * sent notification, disable session
+ * sent notification, disable session, stop the peer
  */
 void
 bgp_peer_disable(bgp_peer peer, bgp_notify notification)
 {
-  if (bgp_session_is_active(peer->session))
-      bgp_session_disable(peer, notification);
-  else
-    {
-      bgp_notify_free(notification) ;
-      bgp_peer_stop(peer);
-    }
+  /* disable the session */
+  bgp_session_disable(peer, notification);
+
+  /* and the peer */
+  bgp_peer_stop(peer);
+  if (peer->state == bgp_peer_sEstablished)
+    peer_change_status (peer, bgp_peer_sClearing);
 }
 
-/* Called after event occurred, this function changes status */
+/* Called after event occurred, this function change status and reset
+   read/write and timer thread. */
 void
 peer_change_status (bgp_peer peer, int status)
 {
   bgp_dump_state (peer, peer->state, status);
+
+  /* Transition into Clearing or Deleted must /always/ clear all routes..
+   * (and must do so before actually changing into Deleted..
+   */
+  if (status >= bgp_peer_sClearing)
+    bgp_clear_route_all (peer);
 
   /* Preserve old status and change into new status. */
   peer->ostate = peer->state;
@@ -1041,8 +1052,7 @@ peer_change_status (bgp_peer peer, int status)
  * For the given interface name, get a suitable address so can bind() before
  * connect() so that we use the required interface.
  *
- *
- *
+ * If has a choice, uses address that best matches the peer's address.
  */
 extern sockunion
 bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, pAF_t paf)
@@ -1050,6 +1060,9 @@ bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, pAF_t paf)
   struct interface* ifp ;
   struct connected* connected;
   struct listnode*  node;
+  struct prefix*    best_prefix ;
+  struct prefix*    peer_prefix ;
+  int   best, this ;
 
   if (ifname == NULL)
     return NULL ;
@@ -1061,13 +1074,29 @@ bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, pAF_t paf)
       return NULL ;
     } ;
 
+  peer_prefix = sockunion2hostprefix(&peer->su) ;
+  best_prefix = NULL ;
+  best = -1 ;
+
   for (ALL_LIST_ELEMENTS_RO (ifp->connected, node, connected))
     {
-      if (connected->address->family == paf)
-        return sockunion_new(connected->address) ;
+      if (connected->address->family != paf)
+        continue ;
+
+      this = prefix_common_bits (connected->address, peer_prefix) ;
+      if (this > best)
+        {
+          best_prefix = connected->address ;
+          best = this ;
+        } ;
     } ;
 
-  zlog_err("Peer %s interface %ss has no suitable address", peer->host, ifname);
+  prefix_free(peer_prefix) ;
+
+  if (best_prefix != NULL)
+    return sockunion_new(best_prefix) ;
+
+  zlog_err("Peer %s interface %s has no suitable address", peer->host, ifname);
 
   return NULL ;
 } ;

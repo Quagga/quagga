@@ -62,7 +62,7 @@ static void bgp_session_do_route_refresh_recv(mqueue_block mqb, mqb_flag_t flag)
  * A session is created some time before it is enabled, and may be destroyed
  * once the session is disabled.
  *
- * A session may be in one of four states:
+ * A session may be in one of the states:
  *
  *   * bgp_session_sIdle         -- not doing anything
  *   * bgp_session_sEnabled      -- the BGP Engine is trying to connect
@@ -106,7 +106,7 @@ static void bgp_session_do_route_refresh_recv(mqueue_block mqb, mqb_flag_t flag)
  * NB: if not allocating, the existing session MUST be sIdle/sDisabled OR never
  *     been kissed.
  *
- * NB: in any event, the peer's peer index entry MUST have a NULL session
+ * NB: in any event, the peer's peer index entry MUST have a NULL accept
  *     pointer.
  */
 extern bgp_session
@@ -129,8 +129,6 @@ bgp_session_init_new(bgp_session session, bgp_peer peer)
   session->index_entry = peer->index_entry ;
 
   /* Zeroising the structure has set:
-   *
-   *   made           -- false, not yet sEstablished
    *
    *   event          -- bgp_session_null_event
    *   notification   -- NULL -- none
@@ -251,7 +249,6 @@ bgp_session_enable(bgp_peer peer)
   /* Initialise what we need to make and run connections                */
   session->state    = bgp_session_sIdle;
   session->defer_enable = 0;
-  session->made     = 0;
   session->flow_control = 0;
   session->event    = bgp_session_null_event;
   bgp_notify_unset(&session->notification);
@@ -259,7 +256,7 @@ bgp_session_enable(bgp_peer peer)
   session->ordinal  = 0;
 
   session->open_send = bgp_peer_open_state_init_new(session->open_send, peer);
-  session->open_recv = bgp_open_state_free(session->open_recv);
+  bgp_open_state_unset(&session->open_recv);
 
   session->connect  = (peer->flags & PEER_FLAG_PASSIVE) == 0 ;
   session->listen   = 1 ;
@@ -283,7 +280,6 @@ bgp_session_enable(bgp_peer peer)
   else if (peer->update_if != NULL)
     session->ifaddress = bgp_peer_get_ifaddress(peer, peer->update_if,
                                                         peer->su.sa.sa_family) ;
-
   session->as_peer  = peer->as ;
   sockunion_set_dup(&session->su_peer, &peer->su) ;
 
@@ -524,26 +520,15 @@ bgp_session_update_send(bgp_session session, struct stream* upd)
  *
  *   -- if the connection's pending queue is empty, try to send the message.
  *
- *      If cannot send the message (and not encountered any error), add it to
- *      the connection's pending queue.
+ * When the mqb is from connection's pending queue, then:
  *
- *   -- otherwise, add mqb to the pending queue.
+ *   -- try to send the message.
  *
- * When the mqb is on the connection's pending queue it must be the head of
- * that queue -- and still on the queue.  Then:
+ * In any case, if cannot send the message (and not encountered any error), add
+ * it (back) to the connection's pending queue.
  *
- *   -- if the message is sent (or is now redundant), remove the mqb from
- *      the connection's pending queue.
- *
- *   -- otherwise: leave the mqb on the connection's pending queue for later,
- *      but remove the connection from the connection queue, because unable to
- *      proceed any further.
- *
- * If the mqb has been dealt with (is not on the pending queue), it is freed,
- * along with the stream buffer.
- *
- * NB: when not called "mqb_action", the mqb MUST NOT be on the connection's
- *     pending queue.
+ * If the mqb has been dealt with, it is freed, along with the stream buffer.
+ * Also, update the flow control counter, and issue XON if required.
  */
 static void
 bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
@@ -858,11 +843,7 @@ bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag)
   bgp_session session = mqb_get_arg0(mqb) ;
 
   if ((flag == mqb_action) && (session->state == bgp_session_sEstablished))
-    {
-      bgp_peer peer = session->peer;
-
-      bgp_write (peer);
-    }
+    bgp_write (session->peer) ;
 
   mqb_free(mqb) ;
 }
@@ -901,7 +882,7 @@ bgp_session_do_set_ttl(mqueue_block mqb, mqb_flag_t flag)
 
       session->ttl = args->ttl ;
 
-      bgp_set_ttl(session->connections[bgp_connection_primary], session->ttl) ;
+      bgp_set_ttl(session->connections[bgp_connection_primary],   session->ttl);
       bgp_set_ttl(session->connections[bgp_connection_secondary], session->ttl);
 
       BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
@@ -922,13 +903,15 @@ bgp_session_do_set_ttl(mqueue_block mqb, mqb_flag_t flag)
  * Ensure that if exists and is not active, that the peer index entry accept
  * pointer is NULL -- this is largely paranoia, but it would be a grave
  * mistake for the listening socket(s) to find a session which is not active !
+ *
+ * NB: accessing Peering Engine "private" variable -- no lock required.
+ *
+ *     accessing index_entry when not active -- no lock required.
  */
 extern int
 bgp_session_is_active(bgp_session session)
 {
   int active ;
-
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
   if (session == NULL)
     active = 0 ;
@@ -942,43 +925,39 @@ bgp_session_is_active(bgp_session session)
         assert(session->index_entry->accept == NULL) ;
     } ;
 
-  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
   return active ;
 } ;
 
 /*------------------------------------------------------------------------------
- * If session is limping we defer re-enabling the session until it is disabled.
+ * Peering Engine: if session is limping we defer re-enabling the session
+ *                 until it is disabled.
  *
  * returns 1 if limping and defer
  * returns 0 if not limping
-  */
+ *
+ * NB: accessing Peering Engine "private" variable -- no lock required.
+ */
 static int
 bgp_session_defer_if_limping(bgp_session session)
 {
   int defer_enable = 0 ;
 
   if (session == NULL)
-      return defer_enable;
+    defer_enable = 0 ;
+  else
+    defer_enable = (session->state == bgp_session_sLimping) ;
 
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-
-  session->defer_enable =
-           defer_enable = (session->state == bgp_session_sLimping);
-
-  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-  return defer_enable ;
+  return session->defer_enable = defer_enable ;
 } ;
 
-/* Get a copy of the session statistics, copied all at once so
+/*------------------------------------------------------------------------------
+ * Get a copy of the session statistics, copied all at once so
  * forms a consistent snapshot
- *
  */
 void
 bgp_session_get_stats(bgp_session session, struct bgp_session_stats *stats)
 {
-  if (!session)
+  if (session == NULL)
     {
       memset(stats, 0, sizeof(struct bgp_session_stats)) ;
       return;
@@ -989,5 +968,4 @@ bgp_session_get_stats(bgp_session session, struct bgp_session_stats *stats)
   *stats = session->stats;
 
   BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
 }

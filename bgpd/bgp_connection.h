@@ -99,7 +99,9 @@ enum bgp_fsm_events
  *
  */
 
-/* NB: p_out == p_in => buffer is empty
+/* Write buffer for connection.
+ *
+ *  NB: p_out == p_in => buffer is empty
  *
  *     BUT: buffer is not allocated until required, and until then
  *          p_out == p_in == NULL  -- empty does NOT imply usable !
@@ -131,7 +133,7 @@ struct bgp_connection
                                         /* NULL if connection stopping    */
   qpt_mutex         p_mutex ;           /* session mutex*                 */
                                         /* (avoids incomplete type issue) */
-  unsigned          lock_count ;        /* session lock count             */
+  unsigned          lock_count ;        /* session mutex lock count       */
 
   bgp_connection_ord_t ordinal ;        /* primary/secondary connection   */
   int               accepted ;          /* came via accept()              */
@@ -142,10 +144,10 @@ struct bgp_connection
   bgp_connection    next ;              /* for the connection queue       */
   bgp_connection    prev ;              /* NULL <=> not on the queue      */
 
-  int               fsm_active ;        /* active in fsm count            */
-  bgp_fsm_event_t   post ;              /* event raised within FSM        */
+  int               fsm_active ;        /* active in FSM counter          */
+  bgp_fsm_event_t   follow_on ;         /* event raised within FSM        */
 
-  bgp_session_event_t except ;          /* exception                      */
+  bgp_session_event_t except ;          /* exception posted here          */
   bgp_notify        notification ;      /* if any sent/received           */
   int               err ;               /* erno, if any                   */
 
@@ -189,7 +191,7 @@ struct bgp_connection
 } ;
 
 /*==============================================================================
- *
+ * The functions
  */
 
 extern bgp_connection
@@ -211,7 +213,10 @@ extern void
 bgp_connection_make_primary(bgp_connection connection) ;
 
 extern void
-bgp_connection_close(bgp_connection connection, int unset_timers) ;
+bgp_connection_full_close(bgp_connection connection, int unset_timers) ;
+
+#define bgp_connection_close(conn) bgp_connection_full_close(conn, 0)
+#define bgp_connection_close_down(conn) bgp_connection_full_close(conn, 1)
 
 extern void
 bgp_connection_part_close(bgp_connection connection) ;
@@ -296,13 +301,6 @@ bgp_connection_write_empty(bgp_connection connection)
 {
   return bgp_write_buffer_empty(&connection->wbuff) ;
 } ;
-
-/*==============================================================================
- * Access functions via bgp_connection for bgp_session attributes.
- *
- *
- *
- */
 
 /*==============================================================================
  * Locking the session associated with the connection.
