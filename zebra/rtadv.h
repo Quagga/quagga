@@ -100,14 +100,16 @@ struct nd_opt_homeagent_info {  /* Home Agent info */
 } __attribute__((__packed__));
 #endif
 
+#ifndef HAVE_STRUCT_ND_OPT_RDNSS
 /* see RFC 5006, section 5.1 */
 struct nd_opt_rdnss {
-	uint8_t  nd_opt_type;
-	uint8_t  nd_opt_len;
-	uint16_t nd_opt_reserved;
-	uint32_t nd_opt_lifetime;
+	uint8_t  nd_opt_rdnss_type;
+	uint8_t  nd_opt_rdnss_len;
+	uint16_t nd_opt_rdnss_reserved;
+	uint32_t nd_opt_rdnss_lifetime;
 	/* followed by n (16 byte) entries */
 } __attribute__((__packed__));
+#endif
 
 extern const char *rtadv_pref_strs[];
 

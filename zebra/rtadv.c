@@ -271,9 +271,9 @@ rtadv_send_packet (int sock, struct interface *ifp)
       unsigned int rdnss_entries = 1;
 
       ndopt_rdnss = (struct nd_opt_rdnss *) (buf + len);
-      ndopt_rdnss->nd_opt_type = ND_OPT_RDNSS;
-      ndopt_rdnss->nd_opt_reserved = 0;
-      ndopt_rdnss->nd_opt_lifetime = htonl(zif->rtadv.AdvRDNSSLifetime);
+      ndopt_rdnss->nd_opt_rdnss_type = ND_OPT_RDNSS;
+      ndopt_rdnss->nd_opt_rdnss_reserved = 0;
+      ndopt_rdnss->nd_opt_rdnss_lifetime = htonl(zif->rtadv.AdvRDNSSLifetime);
 
       len += sizeof(struct nd_opt_rdnss);
 
@@ -286,7 +286,7 @@ rtadv_send_packet (int sock, struct interface *ifp)
           rdnss_entries += 2;
         }
 
-	     ndopt_rdnss->nd_opt_len = rdnss_entries;
+        ndopt_rdnss->nd_opt_rdnss_len = rdnss_entries;
     }
 
   if (zif->rtadv.AdvIntervalOption)

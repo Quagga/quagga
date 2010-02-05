@@ -1419,7 +1419,8 @@ AC_CHECK_TYPES([struct sockaddr, struct sockaddr_in,
 	socklen_t,
 	struct ifaliasreq, struct if6_aliasreq, struct in6_aliasreq,
 	struct nd_opt_adv_interval, struct rt_addrinfo,
-	struct nd_opt_homeagent_info, struct nd_opt_adv_interval],
+	struct nd_opt_homeagent_info, struct nd_opt_adv_interval,
+	struct nd_opt_rdnss],
 	[], [], QUAGGA_INCLUDES)
 
 AC_CHECK_MEMBERS([struct sockaddr.sa_len,
