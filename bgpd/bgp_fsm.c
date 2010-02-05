@@ -336,6 +336,8 @@
  *      write buffer.  For sOpenSent and sOpenConfirm expect it to go directly
  *      to the TCP buffer.
  *
+ *   -- stop the KeepaliveTimer
+ *
  *   -- set HoldTimer to a waiting to clear buffer time -- say 20 secs.
  *
  *      Don't expect to need to wait at all in sOpenSent/sOpenConfirm states.
@@ -593,6 +595,8 @@ bgp_fsm_io_fatal_error(bgp_connection connection, int err)
 {
   plog_err (connection->log, "%s [Error] bgp IO error: %s",
             connection->host, safe_strerror(err)) ;
+
+  assert(err != EFAULT) ;
 
   bgp_fsm_throw(connection, bgp_session_eTCP_error, NULL, err,
                                                      bgp_fsm_eTCP_fatal_error) ;
@@ -1971,9 +1975,6 @@ static bgp_fsm_action(bgp_fsm_exit)
  * Uses the posted information and the expected next_state to deal with some
  * exception.  Proceeds:
  *
- *   0) stop any timers -- so if held in sOpenSent/sOpenConfirm by notification
- *      process, won't (eg) have extraneous keepalive going off.
- *
  *  1a) if have notification & not eNOM_recv & is in a suitable state
  *
  *      Suitable states are sOpenSent/sOpenConfirm/sEstablished.
@@ -2030,10 +2031,6 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
 
   assert(connection->except != bgp_session_null_event) ;
 
-  /* It's bad news, so stop doing whatever was doing.                   */
-  qtimer_unset(&connection->hold_timer) ;
-  qtimer_unset(&connection->keepalive_timer) ;
-
   /* Have a notification to send iff not just received one, and is in a
    * suitable state to send one at all.
    */
@@ -2067,6 +2064,8 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
 
       /* Close for reading and flush write buffers.                         */
       bgp_connection_part_close(connection) ;
+
+      qtimer_unset(&connection->keepalive_timer) ;
 
       /* Write the message
        *

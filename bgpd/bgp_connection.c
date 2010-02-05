@@ -536,7 +536,7 @@ bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
  *
  *   * if secondary connection, turn off accept()
  *   * sets the qfile and fd ready for use
- *   * clears except, notification and err
+ *   * clears err -- must be OK so far
  *   * discards any open_state and notification
  *   * copies hold_timer_interval and keep_alive_timer_interval from session
  *
@@ -566,9 +566,6 @@ bgp_connection_open(bgp_connection connection, int fd)
   /* Set the file going                                                 */
   qps_add_file(bgp_nexus->selection, &connection->qf, fd, connection) ;
 
-  /* Clear sundry state is clear                                        */
-  connection->except  = bgp_session_null_event ;
-  bgp_notify_unset(&connection->notification) ;
   connection->err     = 0 ;                     /* so far, so good      */
 
   bgp_open_state_unset(&connection->open_recv) ;
@@ -796,7 +793,7 @@ bgp_connection_write(bgp_connection connection, struct stream* s)
     } ;
 
   /* Write nothing if cannot write everything                   */
-  if (!bgp_write_buffer_can(wb, stream_pending(s)))
+  if (bgp_write_buffer_cannot(wb, stream_pending(s)))
     return 0 ;
 
   /* Transfer the obuf contents to the write buffer.            */
@@ -881,7 +878,7 @@ bgp_connection_write_action(qps_file qf, void* file_info)
   int ret ;
 
   /* Try to empty the write buffer.                                     */
-  have = wb->p_out - wb->p_in ;
+  have = bgp_write_buffer_pending(wb) ;
   while (have != 0)
     {
       ret = write(qps_file_fd(qf), wb->p_out, have) ;

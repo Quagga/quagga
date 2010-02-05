@@ -4712,6 +4712,7 @@ bgp_terminate (int terminating, int retain_mode)
   for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
     for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
       {
+fprintf(stderr, ">>> %s:", peer->host) ;
         if (retain_mode)
           bgp_peer_disable(peer, NULL);
         else if (terminating)
@@ -4724,6 +4725,7 @@ bgp_terminate (int terminating, int retain_mode)
         else
           bgp_notify_send(peer, BGP_NOTIFY_CEASE,
               BGP_NOTIFY_CEASE_ADMIN_RESET);
+fprintf(stderr, "<<<\n") ;
       }
 
   if (!retain_mode)

@@ -251,37 +251,62 @@ bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
                                                    bgp_connection* is_pending) ;
 
 /*------------------------------------------------------------------------------
- * See if have enough room for what want to write PLUS 1.
+ * See if do NOT have enough room for what want to write PLUS 1.
  *
- * NB: caller must ensure buffer has been allocated, which will be true if
- *     has found that the buffer is not empty !
+ * NB: before using the buffer the caller MUST ensure it has been allocated.
+ *
+ *     Unallocated buffer is made to appear to have room for one maximum
+ *     size BGP message.
  */
 Inline int
-bgp_write_buffer_can(bgp_wbuffer wb, size_t want)
+bgp_write_buffer_cannot(bgp_wbuffer wb, size_t want)
 {
   return ((size_t)(wb->limit - wb->p_in) <= want) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Full if not enough room for a maximum size BGP message + 1
+ * Full if NOT enough room for a maximum size BGP message + 1
  *
- * NB: this will be true even if the buffer has not been allocated (!).
+ * NB: this will be FALSE if the buffer has not been allocated -- because can
+ *     allocate a buffer and proceed if required.
  */
 enum { bgp_write_buffer_full_threshold = BGP_MSG_MAX_L + 1 } ;
 
 Inline int
 bgp_write_buffer_full(bgp_wbuffer wb)
 {
-  return bgp_write_buffer_can(wb, BGP_MSG_MAX_L) ;
+  return bgp_write_buffer_cannot(wb, BGP_MSG_MAX_L) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Empty if in and out pointers are equal (but may need to be reset !)
+ * Empty if in and out pointers are equal.
+ *
+ * NB: buffer is empty if it has not yet been allocated.
+ *
+ *     NOT empty => allocated.
+ *
+ * NB: empty does NOT imply that both pointers are at the start of the buffer.
  */
 Inline int
 bgp_write_buffer_empty(bgp_wbuffer wb)
 {
   return (wb->p_out == wb->p_in) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Return how much the write buffer still has to write.
+ *
+ * NB: if returns 0, may not yet have been allocated.
+ *
+ *     > 0 => allocated.
+ *
+ * NB: 0 does NOT imply that both pointers are at the start of the buffer.
+ */
+Inline int
+bgp_write_buffer_pending(bgp_wbuffer wb)
+{
+  dassert(wb->p_out <= wb->p_in) ;
+  return (wb->p_in - wb->p_out) ;
 } ;
 
 /*------------------------------------------------------------------------------

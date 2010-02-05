@@ -38,40 +38,65 @@
  *
  */
 
-static unsigned bgp_engine_queue_thresh_up   = 0 ;
-static unsigned bgp_engine_queue_thresh_down = 0 ;
-static unsigned peering_engine_queue_thresh_up   = 0 ;
-static unsigned peering_engine_queue_thresh_down = 0 ;
+struct queue_stats
+{
+  unsigned        count ;
+  unsigned long   total ;
+  unsigned        max ;
+  unsigned        recent ;
+
+  unsigned        xon ;
+  unsigned        event ;
+  unsigned        update ;
+} ;
+
+static struct queue_stats bgp_engine_queue_stats ;
+static struct queue_stats peering_engine_queue_stats ;
 
 Inline void
-bgp_queue_logging(const char* name, unsigned count, unsigned* up,
-                                                    unsigned* down)
+bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 {
-  if (count > *up)
-    {
-      if (*up != 0)
-        {
-          zlog_debug("%s queue up to %u entries", name, count) ;
+  double average ;
+  unsigned my_count ;
+  mqueue_block mqb ;
 
-          *up  *= 2 ;
-          *down = *up / 4 ;
-        }
-      else
-        *up   = 32 ;
+  ++stats->count ;
+
+  if (mq->count > stats->max)
+    stats->max    = mq->count ;
+  if (mq->count > stats->recent)
+    stats->recent = mq->count ;
+
+  stats->total += mq->count ;
+
+  if (stats->count < 1000)
+    return ;
+
+  my_count = 0 ;
+
+  mqb = mq->head ;
+  while (mqb != NULL)
+    {
+      ++my_count ;
+      mqb = mqb->next ;
     } ;
 
-  if (count < *down)
-    {
-      zlog_debug("%s queue down to %u entries", name, count) ;
+  assert(my_count == mq->count) ;
 
-      if (*up == 32)
-        *down = 0 ;
-      else
-        {
-          *up  /= 2 ;
-          *down = *up / 2 ;
-        } ;
-    } ;  ;
+  average = stats->total ;
+  average /= stats->count ;
+
+  zlog_debug("%s queue: max=%u  recent: max=%u av=%3.1f (%u) [x=%u e=%u u=%u]",
+                    name, stats->max, stats->recent, average, stats->count,
+                                      stats->xon, stats->event, stats->update) ;
+
+  stats->recent = 0 ;
+  stats->count  = 0 ;
+  stats->total  = 0 ;
+
+  stats->event  = 0 ;
+  stats->update = 0 ;
+  stats->xon    = 0 ;
 } ;
 
 /* Send given message to the BGP Engine -- ordinary
@@ -80,8 +105,7 @@ Inline void
 bgp_to_bgp_engine(mqueue_block mqb)
 {
   mqueue_enqueue(bgp_nexus->queue, mqb, 0) ;
-  bgp_queue_logging("BGP Engine", bgp_nexus->queue->count,
-                   &bgp_engine_queue_thresh_up, &bgp_engine_queue_thresh_down) ;
+  bgp_queue_logging("BGP Engine", bgp_nexus->queue, &bgp_engine_queue_stats) ;
 } ;
 
 /* Send given message to the BGP Engine -- priority
@@ -90,8 +114,7 @@ Inline void
 bgp_to_bgp_engine_priority(mqueue_block mqb)
 {
   mqueue_enqueue(bgp_nexus->queue, mqb, 1) ;
-  bgp_queue_logging("BGP Engine", bgp_nexus->queue->count,
-                   &bgp_engine_queue_thresh_up, &bgp_engine_queue_thresh_down) ;
+  bgp_queue_logging("BGP Engine", bgp_nexus->queue, &bgp_engine_queue_stats) ;
 } ;
 
 /*==============================================================================
@@ -104,8 +127,8 @@ Inline void
 bgp_to_peering_engine(mqueue_block mqb)
 {
   mqueue_enqueue(routing_nexus->queue, mqb, 0) ;
-  bgp_queue_logging("Peering Engine", routing_nexus->queue->count,
-           &peering_engine_queue_thresh_up, &peering_engine_queue_thresh_down) ;
+  bgp_queue_logging("Peering Engine", routing_nexus->queue,
+                                                  &peering_engine_queue_stats) ;
 } ;
 
 /* Send given message to the Peering Engine -- priority
@@ -114,8 +137,8 @@ Inline void
 bgp_to_peering_engine_priority(mqueue_block mqb)
 {
   mqueue_enqueue(routing_nexus->queue, mqb, 1) ;
-  bgp_queue_logging("Peering Engine", routing_nexus->queue->count,
-           &peering_engine_queue_thresh_up, &peering_engine_queue_thresh_down) ;
+  bgp_queue_logging("Peering Engine", routing_nexus->queue,
+                                                  &peering_engine_queue_stats) ;
 } ;
 
 #endif /* QUAGGA_BGP_ENGINE_H */
