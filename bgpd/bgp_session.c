@@ -518,10 +518,8 @@ bgp_session_update_send(bgp_session session, struct stream* upd)
   args = mqb_get_args(mqb) ;
   args->buf        = stream_dup(upd) ;
   args->is_pending = NULL ;
-
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-  session->flow_control++;      /* count them in ... */
-  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  args->xon_kick = (session->flow_control == BGP_XON_KICK);
+  session->flow_control--;
 
   ++bgp_engine_queue_stats.update ;
 
@@ -583,13 +581,8 @@ bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
             }
           else if (ret > 0)
             {
-              /* Successfully wrote the message.                        */
-              int xon ;
-              BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-              xon = --session->flow_control ;   /* ... count them out */
-              BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-              if (xon == 0)
+              /* Successfully wrote the message.  XON if requested      */
+              if (args->xon_kick)
                 bgp_session_XON(session);
             } ;
         } ;
@@ -597,22 +590,6 @@ bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
 
   stream_free(args->buf) ;
   mqb_free(mqb) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Peering Engine: are we in XOFF state ?
- */
-extern int
-bgp_session_is_XOFF(bgp_peer peer)
-{
-  int result = 0;
-  bgp_session session = peer->session;
-
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-  result = session->flow_control > BGP_XOFF_THRESHOLD ;
-  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
-
-  return result;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -624,9 +601,7 @@ bgp_session_is_XON(bgp_peer peer)
   int result = 0;
   bgp_session session = peer->session;
 
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
-  result = session->flow_control < BGP_XON_THRESHOLD ;
-  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  result = (session->flow_control > 0);
 
   return result;
 } ;
@@ -779,6 +754,7 @@ bgp_session_update_recv(bgp_session session, struct stream* buf, bgp_size_t size
   args = mqb_get_args(mqb) ;
   args->buf = stream_dup(buf) ;
   args->size = size;
+  args->xon_kick = 0;
 
   ++peering_engine_queue_stats.update ;
 
@@ -874,7 +850,12 @@ bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag)
   bgp_session session = mqb_get_arg0(mqb) ;
 
   if ((flag == mqb_action) && (session->state == bgp_session_sEstablished))
-    bgp_write (session->peer) ;
+    {
+      int xoff = (session->flow_control <= 0);
+      session->flow_control = BGP_XON_REFRESH;
+      if (xoff)
+        bgp_write (session->peer) ;
+    }
 
   mqb_free(mqb) ;
 }

@@ -182,6 +182,7 @@ bgp_session_has_established(bgp_peer peer)
   assert(session->state == bgp_session_sEnabled) ;
 
   session->state = bgp_session_sEstablished ;
+  session->flow_control = BGP_XON_REFRESH; /* updates can be sent */
   peer_change_status (peer, bgp_peer_sEstablished);
 
   /* update peer state from received open */

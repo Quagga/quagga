@@ -241,6 +241,7 @@ struct bgp_session_update_args          /* to and from BGP Engine       */
 {
   struct stream*  buf ;
   bgp_size_t size ;
+  int xon_kick;                         /* send XON when processed this */
 
   bgp_connection  is_pending ;          /* used inside the BGP Engine   */
                                         /* set NULL on message creation */
@@ -281,8 +282,9 @@ struct bgp_session_XON_args             /* to Routeing Engine           */
                                         /* no further arguments         */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_XON_args) ;
-enum { BGP_XON_THRESHOLD   = 12,
-       BGP_XOFF_THRESHOLD  =  4 } ;
+enum { BGP_XON_REFRESH     = 12,
+       BGP_XON_KICK        =  4,
+} ;
 
 struct bgp_session_ttl_args             /* to bgp Engine                */
 {
