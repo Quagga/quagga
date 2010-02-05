@@ -96,21 +96,21 @@ bgp_dump_open_file (struct bgp_dump *bgp_dump)
 {
   int ret;
   time_t clock;
-  struct tm *tm;
+  struct tm tm;
   char fullpath[MAXPATHLEN];
   char realpath[MAXPATHLEN];
   mode_t oldumask;
 
   time (&clock);
-  tm = localtime (&clock);
+  localtime_r(&clock, &tm);
 
   if (bgp_dump->filename[0] != DIRECTORY_SEP)
     {
       sprintf (fullpath, "%s/%s", vty_get_cwd (), bgp_dump->filename);
-      ret = strftime (realpath, MAXPATHLEN, fullpath, tm);
+      ret = strftime (realpath, MAXPATHLEN, fullpath, &tm);
     }
   else
-    ret = strftime (realpath, MAXPATHLEN, bgp_dump->filename, tm);
+    ret = strftime (realpath, MAXPATHLEN, bgp_dump->filename, &tm);
 
   if (ret == 0)
     {
@@ -141,7 +141,7 @@ bgp_dump_interval_add (struct bgp_dump *bgp_dump, int interval)
 {
   int secs_into_day;
   time_t t;
-  struct tm *tm;
+  struct tm tm;
 
   if (interval > 0)
     {
@@ -152,8 +152,8 @@ bgp_dump_interval_add (struct bgp_dump *bgp_dump, int interval)
 	   * intervals, dump every interval seconds starting from midnight
 	   */
 	  (void) time(&t);
-	  tm = localtime(&t);
-	  secs_into_day = tm->tm_sec + 60*tm->tm_min + 60*60*tm->tm_hour;
+	  localtime_r(&t, &tm);
+	  secs_into_day = tm.tm_sec + 60*tm.tm_min + 60*60*tm.tm_hour;
 	  interval = interval - secs_into_day % interval; /* always > 0 */
 	}
       bgp_dump->t_interval = thread_add_timer (master, bgp_dump_interval_func, 
