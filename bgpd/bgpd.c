@@ -2014,7 +2014,7 @@ peer_flag_modify_action (struct peer *peer, u_int32_t flag)
       else
 	{
 	  peer->v_start = BGP_INIT_START_TIMER;
-	  bgp_peer_disable(peer, NULL);
+	  bgp_peer_enable(peer);
 	}
     }
   else

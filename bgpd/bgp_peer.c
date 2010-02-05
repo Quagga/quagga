@@ -1003,7 +1003,7 @@ bgp_peer_enable(bgp_peer peer)
   /* Don't enable the session if:
    * 1) Peer not idle, means we're not ready yet, clearing, deleting or waiting
    *    for disable.
-   * 2) In shutdown, never want to enable ever again
+   * 2) Shutdown
    * 3) Dealing with prefix overflow, its timer will enable peer when ready
    */
   if ((peer->state == bgp_peer_sIdle)
