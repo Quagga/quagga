@@ -325,13 +325,11 @@ bgp_session_has_disabled(bgp_peer peer)
   /* Immediately discard any other messages for this session.       */
   mqueue_revoke(routing_nexus->queue, session) ;
 
-  /* does the session need to be re-enabled? */
-  if ((session->defer_enable || peer->state == bgp_peer_sIdle)
-     && !CHECK_FLAG (peer->flags, PEER_FLAG_SHUTDOWN)
-     && !CHECK_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW))
+  /* does the peer need to be re-enabled? */
+  if (session->defer_enable || peer->state == bgp_peer_sIdle)
     {
       session->defer_enable = 0;
-      bgp_session_enable(peer);
+      bgp_peer_enable(peer);
     }
   else if (peer->state == bgp_peer_sEstablished)
     {
@@ -1002,8 +1000,19 @@ peer_nsf_stop (struct peer *peer)
 void
 bgp_peer_enable(bgp_peer peer)
 {
-  /* enable the session */
-  bgp_session_enable(peer);
+  /* Don't enable the session if:
+   * 1) Peer not idle, means we're not ready yet, clearing, deleting or waiting
+   *    for disable.
+   * 2) In shutdown, never want to enable ever again
+   * 3) Dealing with prefix overflow, its timer will enable peer when ready
+   */
+  if ((peer->state == bgp_peer_sIdle)
+      && !CHECK_FLAG (peer->flags, PEER_FLAG_SHUTDOWN)
+      && !CHECK_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW))
+    {
+      /* enable the session */
+      bgp_session_enable(peer);
+    }
 }
 
 /* disable the peer

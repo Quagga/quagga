@@ -2730,11 +2730,8 @@ bgp_clear_node_complete (struct work_queue *wq)
   if (peer->state == bgp_peer_sClearing)
     {
       peer_change_status (peer, bgp_peer_sIdle);
-
       /* enable peer if required */
-      if (!CHECK_FLAG (peer->flags, PEER_FLAG_SHUTDOWN) &&
-          !CHECK_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW))
-        bgp_peer_enable(peer);
+      bgp_peer_enable(peer);
     }
 
   peer_unlock (peer); /* bgp_clear_route */
