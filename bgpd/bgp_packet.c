@@ -87,21 +87,6 @@ bgp_packet_set_size (struct stream *s)
   return cp;
 }
 
-/* Add new packet to the peer. */
-static void
-bgp_packet_add (struct peer *peer, struct stream *s)
-{
-  /* Add packet to the end of list. */
-  stream_fifo_push (peer->obuf, s);
-}
-
-/* Free first packet. */
-static void
-bgp_packet_delete (struct peer *peer)
-{
-  stream_free (stream_fifo_pop (peer->obuf));
-}
-
 #if 0
 /* Check file descriptor whether connect is established. */
 static void
@@ -437,8 +422,7 @@ bgp_default_update_send (struct peer *peer, struct attr *attr,
 #endif /* DEBUG */
 
   /* Add packet to the peer. */
-  bgp_packet_add (peer, stream_dup (s));
-  bgp_write(peer);
+  bgp_write(peer, s);
 }
 
 /*------------------------------------------------------------------------------
@@ -513,8 +497,7 @@ bgp_default_withdraw_send (struct peer *peer, afi_t afi, safi_t safi)
   bgp_packet_set_size (s);
 
   /* Add packet to the peer. */
-  bgp_packet_add (peer, stream_dup (s));
-  bgp_write(peer);
+  bgp_write(peer, s);
 }
 
 /*------------------------------------------------------------------------------
@@ -616,69 +599,35 @@ bgp_write_proceed (struct peer *peer)
 /*------------------------------------------------------------------------------
  * Write packets to the peer -- subject to the XON flow control.
  *
- * Empties the obuf queue first.
+ * Takes an optional stream argument, if not NULL then must be peer->work,
+ * in which there is a message to be sent.
  *
  * Then processes the peer->sync structure to generate further updates.
  *
  * TODO: work out how bgp_routeadv_timer fits into this.
  */
 int
-bgp_write (bgp_peer peer)
+bgp_write (bgp_peer peer, struct stream* s)
 {
-  u_char type;
-  struct stream *s;
-  int free_s ;
+  if (s != NULL)
+    stream_fifo_push(peer->obuf, stream_dup(s)) ;
 
   while (bgp_session_is_XON(peer))
     {
-      free_s = 0 ;
+      s = bgp_write_packet(peer);           /* uses peer->work          */
+      if (s == NULL)
+        break;
 
-      s = stream_fifo_head(peer->obuf) ;        /* returns own stream   */
-      if (s != NULL)
-        free_s = 1 ;
-      else
-        {
-          s = bgp_write_packet(peer);           /* uses peer->work      */
-          if (s == NULL)
-            break;
-        } ;
+      stream_fifo_push (peer->obuf, stream_dup(s)) ;
 
-      bgp_session_update_send(peer->session, s);
+      /* Count down flow control, send fifo if hits BGP_XON_KICK        */
+      if (bgp_session_dec_flow_count(peer))
+        bgp_session_update_send(peer->session, peer->obuf) ;
+    } ;
 
-      /* Retrieve BGP packet type. */
-      stream_set_getp (s, BGP_MARKER_SIZE + 2);
-      type = stream_getc (s);
-
-      switch (type)
-	{
-	case BGP_MSG_OPEN:
-	  break;
-	case BGP_MSG_UPDATE:
-	  break;
-	case BGP_MSG_NOTIFY:
-	  /* Double start timer. */
-	  peer->v_start *= 2;
-
-	  /* Overflow check. */
-	  if (peer->v_start >= (60 * 2))
-	    peer->v_start = (60 * 2);
-
-	  assert(0); /* shouldn't get notifies through here */
-	  return 0;
-	case BGP_MSG_KEEPALIVE:
-	  break;
-	case BGP_MSG_ROUTE_REFRESH_NEW:
-	case BGP_MSG_ROUTE_REFRESH_OLD:
-	  break;
-	case BGP_MSG_CAPABILITY:
-	  break;
-	}
-
-      /* OK we sent packet so delete it. */
-      if (free_s)
-        bgp_packet_delete (peer);
-
-    }
+  /* In any case, send what's in the FIFO                               */
+  if (stream_fifo_head(peer->obuf) != NULL)
+    bgp_session_update_send(peer->session, peer->obuf) ;
 
   return 0;
 }
@@ -842,7 +791,7 @@ bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
       peer->last_reset = PEER_DOWN_NOTIFY_SEND;
     }
 
-    bgp_peer_disable(peer, notification);
+  bgp_peer_disable(peer, notification);
 }
 
 /* Send BGP notify packet. */
@@ -1032,14 +981,14 @@ bgp_capability_send (struct peer *peer, afi_t afi, safi_t safi,
 		     int capability_code, int action)
 {
   struct stream *s;
-  struct stream *packet;
   int length;
 
   /* Adjust safi code. */
   if (safi == SAFI_MPLS_VPN)
     safi = BGP_SAFI_VPNV4;
 
-  s = stream_new (BGP_MAX_PACKET_SIZE);
+  s = peer->work;
+  stream_reset (s);
 
   /* Make BGP update packet. */
   bgp_packet_set_marker (s, BGP_MSG_CAPABILITY);
@@ -1063,18 +1012,12 @@ bgp_capability_send (struct peer *peer, afi_t afi, safi_t safi,
   /* Set packet size. */
   length = bgp_packet_set_size (s);
 
-  /* Make real packet. */
-  packet = stream_dup (s);
-  stream_free (s);
-
-  /* Add packet to the peer. */
-  bgp_packet_add (peer, packet);
-
   if (BGP_DEBUG (normal, NORMAL))
     zlog_debug ("%s send message type %d, length (incl. header) %d",
-	       peer->host, BGP_MSG_CAPABILITY, length);
+               peer->host, BGP_MSG_CAPABILITY, length);
 
-  bgp_write(peer);
+  /* Add packet to the peer. */
+  bgp_write(peer, s);
 }
 
 #if 0

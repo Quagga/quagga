@@ -107,7 +107,7 @@ enum bgp_session_events
   bgp_session_null_event  =  0,
 
   bgp_session_eEstablished,       /* session state -> sEstablished            */
-  bgp_session_eDisabled,          /* disabled by Peering Engine               */
+  bgp_session_eDisabled,          /* disabled by Routeing Engine              */
 
   bgp_session_eStart,             /* enter sConnect/sAccept from sIdle        */
   bgp_session_eRetry,             /* loop round in sConnect/sAccept           */

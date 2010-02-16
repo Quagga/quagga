@@ -998,46 +998,6 @@ stream_flush (struct stream* s, int fd)
 }
 
 /*------------------------------------------------------------------------------
- * Try to write stream contents to the file descriptor -- assuming non-blocking.
- *
- * Loops if gets EINTR.
- *
- * If writes everything, resets the stream.
- *
- * If does not write everything, then would block.
- *
- * Returns: >= 0 number of bytes left to write
- *            -1 => some error (not including EINTR, EAGAIN or EWOULDBLOCK)
- */
-int
-stream_flush_try(struct stream* s, int fd)
-{
-  int have ;
-  int ret ;
-
-  STREAM_VERIFY_SANE(s);
-
-  while ((have = (s->endp - s->getp)) != 0)
-    {
-      ret = write(fd, s->data + s->getp, have) ;
-      if      (ret > 0)
-        s->getp += ret ;
-      else if (ret < 0)
-        {
-          ret = errno ;
-          if ((ret == EAGAIN) || (ret == EWOULDBLOCK))
-            return have ;
-          if (ret != EINTR)
-            return -1 ;
-        } ;
-    } ;
-
-  s->getp = s->endp = 0;
-
-  return 0 ;
-}
-
-/*------------------------------------------------------------------------------
  * Transfer contents of stream to given buffer and reset stream.
  *
  * Transfers *entire* stream buffer.
@@ -1110,6 +1070,13 @@ struct stream *
 stream_fifo_head (struct stream_fifo *fifo)
 {
   return fifo->head;
+}
+
+void
+stream_fifo_reset (struct stream_fifo *fifo)
+{
+  fifo->head = fifo->tail = NULL;
+  fifo->count = 0;
 }
 
 void

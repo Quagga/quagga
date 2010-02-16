@@ -59,7 +59,7 @@
  *     For simplicity, the BGP Engine may lock the session associated with the
  *     connection it is dealing with.
  *
- *     Parts of the session structure are private to the Peering Engine, and
+ *     Parts of the session structure are private to the Routing Engine, and
  *     do not require the mutex for access.
  *
  * NB: the connections associated with a BGP session are private to the BGP
@@ -99,34 +99,31 @@ struct bgp_session
 
   /* While sIdle and sStopped:
    *
-   *   the session belongs to the Peering Engine.
+   *   the session belongs to the Routing Engine.
    *
    *   The BGP Engine will not touch a session in these states and the
-   *   Peering Engine may do what it likes with it.
+   *   Routing Engine may do what it likes with it.
    *
    * While sEnabled, sEstablished and sStopping:
    *
    *   the session belongs to the BGP Engine.
    *
-   *   A (very) few items in the session may be accessed by the Peering Engine,
+   *   A (very) few items in the session may be accessed by the Routing Engine,
    *   as noted below.  (Subject to the mutex.)
    *
-   * Only the Peering Engine creates and destroys sessions.  The BGP Engine
+   * Only the Routing Engine creates and destroys sessions.  The BGP Engine
    * assumes that a session will not be destroyed while it is sEnabled,
    * sEstablished or sStopping.
    *
-   * These are private to the Peering Engine.
+   * These are private to the Routing Engine.
    */
   bgp_session_state_t   state ;
   int                   defer_enable ;  /* set when waiting for stop      */
 
-  /* Flow control. Incremented when an update packet is sent
-   * from peering to BGP engine.  Decremented when packet processed
-   * by BGP engine.  On transition to 0 BGP engine should send an XON.
-   */
-  int flow_control;
+  int                   flow_control ;  /* limits number of updates sent
+                                           by the Routing Engine          */
 
-  /* These are private to the Peering Engine, and are set each time a session
+  /* These are private to the Routing Engine, and are set each time a session
    * event message is received from the BGP Engine.
    */
   bgp_session_event_t   event ;         /* last event                     */
@@ -208,11 +205,11 @@ struct bgp_session
    * the session, and sets the stopped flag.
    *
    * The active flag is set when one or more connections are activated, and
-   * cleared when either the BGP Engine stops the session or the Peering
+   * cleared when either the BGP Engine stops the session or the Routing
    * Engine disables it.  When not "active" all messages other than disable
    * and enable are ignored.  This deals with the hiatus that exists between
    * the BGP Engine signalling that it has stopped (because of some exception)
-   * and the Peering Engine acknowledging that (by disabling the session).
+   * and the Routing Engine acknowledging that (by disabling the session).
    */
   bgp_connection    connections[bgp_connection_count] ;
 
@@ -282,8 +279,8 @@ struct bgp_session_XON_args             /* to Routeing Engine           */
                                         /* no further arguments         */
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_XON_args) ;
-enum { BGP_XON_REFRESH     = 12,
-       BGP_XON_KICK        =  4,
+enum { BGP_XON_REFRESH     = 40,
+       BGP_XON_KICK        = 20,
 } ;
 
 struct bgp_session_ttl_args             /* to bgp Engine                */
@@ -330,7 +327,7 @@ bgp_session_event(bgp_session session, bgp_session_event_t  event,
                                        int                  stopped) ;
 
 extern void
-bgp_session_update_send(bgp_session session, struct stream* upd) ;
+bgp_session_update_send(bgp_session session, struct stream_fifo* fifo) ;
 
 extern void
 bgp_session_route_refresh_send(bgp_session session, bgp_route_refresh rr) ;
@@ -346,10 +343,9 @@ extern void
 bgp_session_route_refresh_recv(bgp_session session, bgp_route_refresh rr);
 
 extern int
-bgp_session_is_XOFF(bgp_peer peer);
-
-extern int
 bgp_session_is_XON(bgp_peer peer);
+extern int
+bgp_session_dec_flow_count(bgp_peer peer) ;
 
 extern void
 bgp_session_set_ttl(bgp_session session, int ttl);

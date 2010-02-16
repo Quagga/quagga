@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with Quagga; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -41,13 +41,13 @@ struct quagga_sigevent_master_t
 {
   struct thread *t;
 
-  struct quagga_signal_t *signals; 
+  struct quagga_signal_t *signals;
   int sigc;
-  
+
   volatile sig_atomic_t caught;
 } sigmaster;
 
-/* Generic signal handler 
+/* Generic signal handler
  * Schedules signal event thread
  */
 static void
@@ -55,24 +55,30 @@ quagga_signal_handler (int signo)
 {
   int i;
   struct quagga_signal_t *sig;
-  
+
   for (i = 0; i < sigmaster.sigc; i++)
     {
       sig = &(sigmaster.signals[i]);
-      
+
       if (sig->signal == signo)
         sig->caught = 1;
     }
-  
-  sigmaster.caught = 1;
-} 
 
-/* check if signals have been caught and run appropriate handlers */
+  sigmaster.caught = 1;
+}
+
+/* check if signals have been caught and run appropriate handlers
+ *
+ * Returns: 0 => nothing to do
+ *         -1 => failed
+ *        > 0 => done this many signals
+ */
 int
 quagga_sigevent_process (void)
 {
   struct quagga_signal_t *sig;
   int i;
+  int done ;
 #ifdef SIGEVENT_BLOCK_SIGNALS
   /* shouldnt need to block signals, but potentially may be needed */
   sigset_t newmask, oldmask;
@@ -85,7 +91,7 @@ quagga_sigevent_process (void)
   sigfillset (&newmask);
   sigdelset (&newmask, SIGTRAP);
   sigdelset (&newmask, SIGKILL);
-   
+
   if ( (sigprocmask (SIG_BLOCK, &newmask, &oldmask)) < 0)
     {
       zlog_err ("quagga_signal_timer: couldnt block signals!");
@@ -93,13 +99,14 @@ quagga_sigevent_process (void)
     }
 #endif /* SIGEVENT_BLOCK_SIGNALS */
 
+  done = 0 ;
   if (sigmaster.caught > 0)
     {
       sigmaster.caught = 0;
       /* must not read or set sigmaster.caught after here,
        * race condition with per-sig caught flags if one does
        */
-      
+
       for (i = 0; i < sigmaster.sigc; i++)
         {
           sig = &(sigmaster.signals[i]);
@@ -108,6 +115,7 @@ quagga_sigevent_process (void)
             {
               sig->caught = 0;
               sig->handler ();
+              ++done ;
             }
         }
     }
@@ -117,7 +125,7 @@ quagga_sigevent_process (void)
     return -1;
 #endif /* SIGEVENT_BLOCK_SIGNALS */
 
-  return 0;
+  return done ;
 }
 
 #ifdef SIGEVENT_SCHEDULE_THREAD
@@ -159,7 +167,7 @@ signal_set (int signo)
   }
 
   ret = sigaction (signo, &sig, &osig);
-  if (ret < 0) 
+  if (ret < 0)
     return ret;
   else
     return 0;
@@ -245,13 +253,13 @@ trap_default_signals(void)
     SIGUSR1,
     SIGUSR2,
 #ifdef SIGPOLL
-    SIGPOLL, 
+    SIGPOLL,
 #endif
 #ifdef SIGVTALRM
     SIGVTALRM,
 #endif
 #ifdef SIGSTKFLT
-    SIGSTKFLT, 
+    SIGSTKFLT,
 #endif
   };
   static const int ignore_signals[] = {
@@ -309,8 +317,8 @@ trap_default_signals(void)
     }
 }
 
-void 
-signal_init (struct thread_master *m, int sigc, 
+void
+signal_init (struct thread_master *m, int sigc,
              struct quagga_signal_t signals[])
 {
 
@@ -320,7 +328,7 @@ signal_init (struct thread_master *m, int sigc,
   /* First establish some default handlers that can be overridden by
      the application. */
   trap_default_signals();
-  
+
   while (i < sigc)
     {
       sig = &signals[i];
@@ -332,9 +340,9 @@ signal_init (struct thread_master *m, int sigc,
   sigmaster.sigc = sigc;
   sigmaster.signals = signals;
 
-#ifdef SIGEVENT_SCHEDULE_THREAD  
-  sigmaster.t = 
-    thread_add_timer (m, quagga_signal_timer, &sigmaster, 
+#ifdef SIGEVENT_SCHEDULE_THREAD
+  sigmaster.t =
+    thread_add_timer (m, quagga_signal_timer, &sigmaster,
                       QUAGGA_SIGNAL_TIMER_INTERVAL);
 #endif /* SIGEVENT_SCHEDULE_THREAD */
 }

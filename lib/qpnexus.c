@@ -36,7 +36,13 @@ static void qpn_in_thread_init(qpn_nexus qpn);
 
  */
 
-/* Initialise a nexus -- allocating it if required.
+/*==============================================================================
+ * Initialisation, add hook, free etc.
+ *
+ */
+
+/*------------------------------------------------------------------------------
+ *  Initialise a nexus -- allocating it if required.
  *
  * If main_thread is set then no new thread will be created
  * when qpn_exec() is called, instead the finite state machine will be
@@ -45,7 +51,7 @@ static void qpn_in_thread_init(qpn_nexus qpn);
  *
  * Returns the qpn_nexus.
  */
-qpn_nexus
+extern qpn_nexus
 qpn_init_new(qpn_nexus qpn, int main_thread)
 {
   if (qpn == NULL)
@@ -53,16 +59,27 @@ qpn_init_new(qpn_nexus qpn, int main_thread)
   else
     memset(qpn, 0,  sizeof(struct qpn_nexus)) ;
 
-  qpn->selection = qps_selection_init_new(qpn->selection);
-  qpn->pile = qtimer_pile_init_new(qpn->pile);
-  qpn->queue = mqueue_init_new(qpn->queue, mqt_signal_unicast);
+  qpn->selection   = qps_selection_init_new(qpn->selection);
+  qpn->pile        = qtimer_pile_init_new(qpn->pile);
+  qpn->queue       = mqueue_init_new(qpn->queue, mqt_signal_unicast);
   qpn->main_thread = main_thread;
-  qpn->start = qpn_start;
+  qpn->start       = qpn_start;
 
   return qpn;
 }
 
-/* free timers, selection, message queue and nexus
+/*------------------------------------------------------------------------------
+ * Add a hook function to the given nexus.
+ */
+extern void
+qpn_add_hook_function(qpn_hook_list list, void* hook)
+{
+  passert(list->count < qpn_hooks_max) ;
+  list->hooks[list->count++] = hook ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * free timers, selection, message queue and nexus
  * return NULL
  */
 qpn_nexus
@@ -99,24 +116,25 @@ qpn_free(qpn_nexus qpn)
   return NULL;
 }
 
-/* If not main thread create new qpthread.
- * Execute the state machine */
-void
+/*==============================================================================
+ * Execution of a nexus
+ */
+
+/*------------------------------------------------------------------------------
+ * If not main qpthread create new qpthread.
+ *
+ * For all qpthreads: start the thread !
+ */
+extern void
 qpn_exec(qpn_nexus qpn)
 {
   if (qpn->main_thread)
-    {
-      /* Run the state machine in calling thread */
-      qpn->start(qpn);
-    }
+    qpn->start(qpn);
   else
-    {
-      /* create a qpthread and run the state machine in it */
-      qpt_thread_create(qpn->start, qpn, NULL) ;
-    }
-}
+    qpt_thread_create(qpn->start, qpn, NULL) ;
+} ;
 
-/*==============================================================================
+/*------------------------------------------------------------------------------
  * Pthread routine
  *
  * Processes:
@@ -145,78 +163,86 @@ qpn_start(void* arg)
   qpn_nexus qpn = arg;
   mqueue_block mqb;
   int actions;
-  qtime_mono_t now;
-  qtime_mono_t max_wait;
-  int i;
+  qtime_mono_t now ;
+  qtime_t      max_wait ;
+  unsigned i;
+  unsigned done ;
+  unsigned wait ;
 
-  /* now in our thread, complete initialisation */
+  /* now in our thread, complete initialisation                         */
   qpn_in_thread_init(qpn);
 
+  /* Until required to terminate, loop                                  */
+  done = 1 ;
   while (!qpn->terminate)
     {
-      now = qt_get_monotonic();
+      wait = (done == 0) ;      /* may wait this time only if nothing
+                                   found to do on the last pass         */
 
-      /* Signals are highest priority.
-       * only execute on the main thread */
+      /* Signals are highest priority -- only execute for main thread
+       *
+       * Restarts "done" for this pass.
+       */
       if (qpn->main_thread)
-        quagga_sigevent_process ();
+        done = quagga_sigevent_process() ;
+      else
+        done = 0 ;
 
-      /* max time to wait in pselect */
-      max_wait = QTIME(MAX_PSELECT_TIMOUT);
-
-      /* event hooks, if any.  High priority */
-      for (i = 0; i < NUM_EVENT_HOOK; ++i)
-        {
-          if (qpn->event_hook[i] != NULL)
-            {
-              /* first, second and third priority */
-              qtime_mono_t event_wait = qpn->event_hook[i](qpn_pri_third);
-              if (event_wait > 0 && event_wait < max_wait)
-                max_wait = event_wait;
-            }
-        }
+      /* Foreground hooks, if any.                                      */
+      for (i = 0; i < qpn->foreground.count ; ++i)
+        done |= ((qpn_hook_function*)(qpn->foreground.hooks[i]))() ;
 
       /* drain the message queue, will be in waiting for signal state
        * when it's empty */
-      for (;;)
+
+      if (done != 0)
+        wait = 0 ;              /* turn off wait if found something     */
+
+      while (1)
         {
-          mqb = mqueue_dequeue(qpn->queue, 1, qpn->mts) ;
+          mqb = mqueue_dequeue(qpn->queue, wait, qpn->mts) ;
           if (mqb == NULL)
             break;
 
           mqb_dispatch(mqb, mqb_action);
-        }
 
-      /* Event hooks, if any. All priorities */
-      for (i = 0; i < NUM_EVENT_HOOK; ++i)
-        {
-          if (qpn->event_hook[i] != NULL)
-            {
-              /* first, second third and fourth priority */
-              qtime_mono_t event_wait = qpn->event_hook[i](qpn_pri_fourth);
-              if (event_wait > 0 && event_wait < max_wait)
-                max_wait = event_wait;
-            }
-        }
+          done = 1 ;            /* done something                       */
+          wait = 0 ;            /* turn off wait                        */
+        } ;
 
-      /* block for some input, output, signal or timeout */
-       actions = qps_pselect(qpn->selection,
-          qtimer_pile_top_time(qpn->pile, now + max_wait));
+      /* block for some input, output, signal or timeout
+       *
+       * wait will be true iff did nothing the last time round the loop, and
+       * not found anything to be done up to this point either.
+       */
+      if (wait)
+        max_wait = qtimer_pile_top_wait(qpn->pile, QTIME(MAX_PSELECT_WAIT)) ;
+      else
+        max_wait = 0 ;
 
-      /* process I/O actions */
+      actions = qps_pselect(qpn->selection, max_wait) ;
+      done |= actions ;
+
+      if (wait)
+        mqueue_done_waiting(qpn->queue, qpn->mts);
+
+      /* process I/O actions                            */
       while (actions)
-          actions = qps_dispatch_next(qpn->selection) ;
+        actions = qps_dispatch_next(qpn->selection) ;
 
-      mqueue_done_waiting(qpn->queue, qpn->mts);
-
-      /* process timers */
+      /* process timers                                 */
+      now = qt_get_monotonic() ;
       while (qtimer_pile_dispatch_next(qpn->pile, now))
-        {
-        }
-    }
+        done = 1 ;
+
+      /* If nothing done in this pass, see if anything in the background */
+      if (done == 0)
+        for (i = 0; i < qpn->background.count ; ++i)
+          done |= ((qpn_hook_function*)(qpn->background.hooks[i]))() ;
+    } ;
 
   /* last bit of code to run in this thread */
-  if (qpn->in_thread_final)
+  if (qpn->in_thread_final != NULL)
     qpn->in_thread_final();
 
   return NULL;

@@ -51,7 +51,7 @@ struct queue_stats
 } ;
 
 static struct queue_stats bgp_engine_queue_stats ;
-static struct queue_stats peering_engine_queue_stats ;
+static struct queue_stats routing_engine_queue_stats ;
 
 Inline void
 bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
@@ -62,6 +62,8 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 
   ++stats->count ;
 
+  qpt_mutex_lock(&mq->mutex) ;
+
   if (mq->count > stats->max)
     stats->max    = mq->count ;
   if (mq->count > stats->recent)
@@ -70,7 +72,10 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
   stats->total += mq->count ;
 
   if (stats->count < 1000)
-    return ;
+    {
+      qpt_mutex_unlock(&mq->mutex) ;
+      return ;
+    } ;
 
   my_count = 0 ;
 
@@ -82,6 +87,8 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
     } ;
 
   assert(my_count == mq->count) ;
+
+  qpt_mutex_unlock(&mq->mutex) ;
 
   average = stats->total ;
   average /= stats->count ;
@@ -121,24 +128,24 @@ bgp_to_bgp_engine_priority(mqueue_block mqb)
  *
  */
 
-/* Send given message to the Peering Engine -- ordinary
+/* Send given message to the Routing Engine -- ordinary
  */
 Inline void
-bgp_to_peering_engine(mqueue_block mqb)
+bgp_to_routing_engine(mqueue_block mqb)
 {
   mqueue_enqueue(routing_nexus->queue, mqb, 0) ;
-  bgp_queue_logging("Peering Engine", routing_nexus->queue,
-                                                  &peering_engine_queue_stats) ;
+  bgp_queue_logging("Routing Engine", routing_nexus->queue,
+                                                 &routing_engine_queue_stats) ;
 } ;
 
-/* Send given message to the Peering Engine -- priority
+/* Send given message to the Routing Engine -- priority
  */
 Inline void
-bgp_to_peering_engine_priority(mqueue_block mqb)
+bgp_to_routing_engine_priority(mqueue_block mqb)
 {
   mqueue_enqueue(routing_nexus->queue, mqb, 1) ;
-  bgp_queue_logging("Peering Engine", routing_nexus->queue,
-                                                  &peering_engine_queue_stats) ;
+  bgp_queue_logging("Routing Engine", routing_nexus->queue,
+                                                  &routing_engine_queue_stats) ;
 } ;
 
 #endif /* QUAGGA_BGP_ENGINE_H */

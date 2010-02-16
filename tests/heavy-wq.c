@@ -81,15 +81,15 @@ heavy_wq_add (struct vty *vty, const char *str, int i)
 }
 
 static void
-slow_func_err (struct work_queue *wq, struct work_queue_item *item)
+slow_func_err (struct work_queue *wq, work_queue_item item)
 {
   printf ("%s: running error function\n", __func__);
 }
 
 static void
-slow_func_del (struct work_queue *wq, void *data)
+slow_func_del (struct work_queue *wq, work_queue_item item)
 {
-  struct heavy_wq_node *hn = data;
+  struct heavy_wq_node *hn = item->args.data;
   assert (hn && hn->str);
   printf ("%s: %s\n", __func__, hn->str);
   XFREE (MTYPE_PREFIX_LIST_STR, hn->str);
@@ -98,9 +98,9 @@ slow_func_del (struct work_queue *wq, void *data)
 }
 
 static wq_item_status
-slow_func (struct work_queue *wq, void *data)
+slow_func (struct work_queue *wq, work_queue_item item)
 {
-  struct heavy_wq_node *hn = data;
+  struct heavy_wq_node *hn = item->args.data;
   double x = 1;
   int j;
 
@@ -163,11 +163,11 @@ heavy_wq_init ()
       return -1;
     }
 
-  heavy_wq->spec.workfunc = &slow_func;
-  heavy_wq->spec.errorfunc = &slow_func_err;
+  heavy_wq->spec.workfunc      = &slow_func;
+  heavy_wq->spec.errorfunc     = &slow_func_err;
   heavy_wq->spec.del_item_data = &slow_func_del;
-  heavy_wq->spec.max_retries = 3;
-  heavy_wq->spec.hold = 1000;
+  heavy_wq->spec.max_retries   = 3;
+  heavy_wq->spec.hold          = 1000;
 
   return 0;
 }

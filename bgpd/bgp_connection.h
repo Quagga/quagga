@@ -90,31 +90,24 @@ enum bgp_fsm_events
 } ;
 
 /*==============================================================================
- * BGP Connection Structure
+ * BGP Connection Structures
  *
- * The BGP Connection is the main data structure for the BGP Engine.
+ *------------------------------------------------------------------------------
+ * Write buffer for connection.
  *
- * When a session terminates, or a connection is shut it may have a short
- * independent life, if a NOTIFICATION message is pending.
+ *  NB: when connection is initialised all the pointers are set NULL.
  *
- */
-
-/* Write buffer for connection.
+ *      The buffer is not allocated until the TCP connection comes up.
  *
  *  NB: p_out == p_in => buffer is empty
  *
- *     BUT: buffer is not allocated until required, and until then
- *          p_out == p_in == NULL  -- empty does NOT imply usable !
+ *      BUT: p_out == limit => buffer is not writable.
  *
- *     AND: when buffer is emptied, p_out and p_in will be some way down the
- *          buffer.
+ *      When connection is first initialised all pointers are NULL, so the
+ *      buffer is "empty but not writable".
  *
- *     SO:  before writing, check for base != NULL and set p_out = p_in = base.
- *
- * NB: before buffer is allocated base == NULL, but limit is set to NULL + n,
- *     so that buffer does not appear full.
- *
- *     SO:  not full does NOT imply that p_out/p_in/base are set, either !
+ *      When connection is opened, closed or fails, buffer is set into this
+ *      "empty but not writable" state.
  */
 typedef struct bgp_wbuffer* bgp_wbuffer ;
 struct bgp_wbuffer
@@ -126,7 +119,17 @@ struct bgp_wbuffer
   uint8_t*    limit ;
 } ;
 
+/* Buffer is allocated for a number of maximum size BGP messages.       */
+enum { bgp_wbuff_size = BGP_MSG_MAX_L * 10 } ;
 
+/*==============================================================================
+ * BGP Connection Structure
+ *
+ * The BGP Connection is the main data structure for the BGP Engine.
+ *
+ * When a session terminates, or a connection is shut it may have a short
+ * independent life, if a NOTIFICATION message is pending.
+ */
 struct bgp_connection
 {
   bgp_session       session ;           /* session connection belongs to  */
@@ -147,7 +150,7 @@ struct bgp_connection
   int               fsm_active ;        /* active in FSM counter          */
   bgp_fsm_event_t   follow_on ;         /* event raised within FSM        */
 
-  bgp_session_event_t except ;          /* exception posted here          */
+  bgp_session_event_t exception;        /* exception posted here          */
   bgp_notify        notification ;      /* if any sent/received           */
   int               err ;               /* erno, if any                   */
 
@@ -201,6 +204,9 @@ extern void
 bgp_connection_open(bgp_connection connection, int fd) ;
 
 extern void
+bgp_connection_start(bgp_connection connection, union sockunion* su_local,
+                                                union sockunion* su_remote) ;
+extern void
 bgp_connection_enable_accept(bgp_connection connection) ;
 
 extern void
@@ -218,7 +224,7 @@ bgp_connection_full_close(bgp_connection connection, int unset_timers) ;
 #define bgp_connection_close(conn) bgp_connection_full_close(conn, 0)
 #define bgp_connection_close_down(conn) bgp_connection_full_close(conn, 1)
 
-extern void
+extern int
 bgp_connection_part_close(bgp_connection connection) ;
 
 extern void
@@ -236,7 +242,7 @@ bgp_connection_queue_add(bgp_connection connection) ;
 extern void
 bgp_connection_queue_del(bgp_connection connection) ;
 
-extern void
+extern int
 bgp_connection_queue_process(void) ;
 
 Inline int
@@ -251,12 +257,28 @@ bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
                                                    bgp_connection* is_pending) ;
 
 /*------------------------------------------------------------------------------
+ * Set buffer *unwritable* (buffer appears full, but nothing pending).
+ */
+Inline void
+bgp_write_buffer_unwritable(bgp_wbuffer wb)
+{
+  wb->p_in = wb->p_out = wb->limit ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If allocated:   set buffer empty
+ * If unallocated: buffer remains *unwritable*
+ */
+Inline void
+bgp_write_buffer_reset(bgp_wbuffer wb)
+{
+  wb->p_in = wb->p_out = wb->base ;
+} ;
+
+/*------------------------------------------------------------------------------
  * See if do NOT have enough room for what want to write PLUS 1.
  *
- * NB: before using the buffer the caller MUST ensure it has been allocated.
- *
- *     Unallocated buffer is made to appear to have room for one maximum
- *     size BGP message.
+ * NB: there is never any room in an unallocated buffer.
  */
 Inline int
 bgp_write_buffer_cannot(bgp_wbuffer wb, size_t want)
@@ -267,30 +289,35 @@ bgp_write_buffer_cannot(bgp_wbuffer wb, size_t want)
 /*------------------------------------------------------------------------------
  * Full if NOT enough room for a maximum size BGP message + 1
  *
- * NB: this will be FALSE if the buffer has not been allocated -- because can
- *     allocate a buffer and proceed if required.
+ * NB: there is never any room in an unallocated buffer.
  */
 enum { bgp_write_buffer_full_threshold = BGP_MSG_MAX_L + 1 } ;
 
 Inline int
-bgp_write_buffer_full(bgp_wbuffer wb)
+bgp_write_buffer_cannot_max(bgp_wbuffer wb)
 {
   return bgp_write_buffer_cannot(wb, BGP_MSG_MAX_L) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Empty if in and out pointers are equal.
+ * See if buffer has anything in it.
  *
- * NB: buffer is empty if it has not yet been allocated.
- *
- *     NOT empty => allocated.
- *
- * NB: empty does NOT imply that both pointers are at the start of the buffer.
+ * If empty, ensures that the buffer has been allocated, and sets the pointers
+ * to the start of the buffer -- so all set to go.
  */
 Inline int
 bgp_write_buffer_empty(bgp_wbuffer wb)
 {
-  return (wb->p_out == wb->p_in) ;
+  if (wb->p_out < wb->p_in)
+    return 0 ;                  /* not empty => has buffer      */
+
+  dassert(wb->p_out == wb->p_in) ;
+
+  passert(wb->base != NULL) ;   /* must have buffer             */
+
+  bgp_write_buffer_reset(wb) ;  /* pointers to start of buffer  */
+
+  return 1 ;                    /* empty and all ready to go    */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -299,8 +326,6 @@ bgp_write_buffer_empty(bgp_wbuffer wb)
  * NB: if returns 0, may not yet have been allocated.
  *
  *     > 0 => allocated.
- *
- * NB: 0 does NOT imply that both pointers are at the start of the buffer.
  */
 Inline int
 bgp_write_buffer_pending(bgp_wbuffer wb)
@@ -313,9 +338,9 @@ bgp_write_buffer_pending(bgp_wbuffer wb)
  * As above, for connection
  */
 Inline int
-bgp_connection_write_full(bgp_connection connection)
+bgp_connection_write_cannot_max(bgp_connection connection)
 {
-  return bgp_write_buffer_full(&connection->wbuff) ;
+  return bgp_write_buffer_cannot_max(&connection->wbuff) ;
 } ;
 
 /*------------------------------------------------------------------------------

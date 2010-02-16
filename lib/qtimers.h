@@ -85,8 +85,8 @@ qtimer_pile_init_new(qtimer_pile qtp) ;
 int
 qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto) ;
 
-qtime_mono_t
-qtimer_pile_top_time(qtimer_pile qtp, qtime_mono_t max_time) ;
+qtime_t
+qtimer_pile_top_wait(qtimer_pile qtp, qtime_t max_wait) ;
 
 qtimer
 qtimer_pile_ream(qtimer_pile qtp, int free_structure) ;

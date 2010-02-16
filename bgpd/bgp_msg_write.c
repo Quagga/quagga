@@ -72,12 +72,12 @@
 /*------------------------------------------------------------------------------
  * Make NOTIFICATION message and dispatch.
  *
- * NB: the write buffers will have been flushed -- so expect success !
+ * NB: the write buffers MUST have been flushed -- so demand success !
  *
- * Returns: 2 => written to TCP   -- it's gone
- *          1 => written to wbuff -- waiting for socket
- *          0 => nothing written  -- insufficient space in wbuff
- *         -1 => failed           -- error event generated
+ * Returns: 1 => written to wbuff -- qpselect will write from there
+ *
+ * NB: actual I/O occurs in the qpselect action function -- so this cannot
+ *     fail !
  *
  * NB: requires the session LOCKED -- connection-wise
  */
@@ -143,7 +143,12 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
     bgp_notify_free(text_form) ;
   } ;
 
-  /* Finally -- write the obuf away                     */
+  /* Set flag so that write_action raises required event when buffer becomes
+   * empty.
+   */
+  connection->notification_pending = 1 ;
+
+  /* Finally -- write the obuf away                                     */
   return bgp_connection_write(connection, s) ;
 } ;
 
@@ -156,10 +161,11 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
  * KEEPALIVE is sent in response to OPEN, and that MUST be sent.  But if the
  * buffers are full at that point, something is broken !
  *
- * Returns: 2 => written to TCP   -- it's gone
- *          1 => written to wbuff -- waiting for socket
- *          0 => nothing written  -- insufficient space in wbuff
- *         -1 => failed           -- error event generated
+ * Returns: 1 => written to wbuff -- qpselect will write from there
+ *          0 => nothing written  -- no need, buffer not empty !
+ *
+ * NB: actual I/O occurs in the qpselect action function -- so this cannot
+ *     fail !
  *
  * NB: requires the session LOCKED -- connection-wise
  */
@@ -208,10 +214,10 @@ bgp_open_capability_orf (struct stream *s, iAFI_t afi, iSAFI_t safi,
  * OPEN is the first message to be sent.  If the buffers are not empty,
  * something is badly wrong !
  *
- * Returns: 2 => written to TCP   -- it's gone
- *          1 => written to wbuff -- waiting for socket
- *          0 => nothing written  -- wbuff was too full !!!
- *         -1 => failed           -- error event generated
+ * Returns: 1 => written to wbuff -- qpselect will write from there
+ *
+ * NB: actual I/O occurs in the qpselect action function -- so this cannot
+ *     fail !
  *
  * NB: requires the session LOCKED -- connection-wise
  */
@@ -220,8 +226,6 @@ bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
 {
   struct stream *s = connection->obuf ;
   int    length ;
-
-  assert(bgp_connection_write_empty(connection)) ;
 
   ++connection->session->stats.open_out ;
 
@@ -262,7 +266,7 @@ bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
 
   /* Finally -- write the obuf away                     */
   return bgp_connection_write(connection, s) ;
-}
+} ;
 
 enum
 {
@@ -488,9 +492,11 @@ bgp_msg_orf_prefix(struct stream* s, uint8_t common,
  *
  * Supports the status quo, only Address-Prefix ORF.
  *
- * Returns: > 0 => all written
- *            0 => unable to write everything
- *          < 0 => failed -- error event generated
+ * Returns: 1 => written to wbuff -- qpselect will write from there
+ *          0 => nothing written  -- insufficient space in wbuff
+ *
+ * NB: actual I/O occurs in the qpselect action function -- so this cannot
+ *     fail !
  *
  * NB: requires the session LOCKED -- connection-wise
  */
@@ -501,7 +507,6 @@ bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr)
   uint8_t    msg_type ;
   flag_t     done ;
   bgp_size_t msg_len ;
-  int        ret ;
 
   ++connection->session->stats.refresh_out ;
 
@@ -512,7 +517,7 @@ bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr)
 
   do
     {
-      if (bgp_connection_write_full(connection))
+      if (bgp_connection_write_cannot_max(connection))
         return 0 ;
 
       /* Construct BGP message header for new/old form ROUTE-REFRESH    */
@@ -534,10 +539,7 @@ bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr)
         zlog_debug ("%s sending REFRESH_REQ for afi/safi: %d/%d length %d",
                      connection->host, rr->afi, rr->safi, msg_len) ;
 
-      ret = bgp_connection_write(connection, s) ;
-      if (ret < 0)
-        return ret ;
-
+      bgp_connection_write(connection, s) ;
     } while (!done) ;
 
   return done ;
@@ -779,17 +781,18 @@ bgp_msg_orf_prefix(struct stream* s, uint8_t common,
 /*------------------------------------------------------------------------------
  * Make UPDATE message and dispatch.
  *
- * Returns: 2 => written to TCP   -- it's gone
- *          1 => written to wbuff -- waiting for socket
+ * Returns: 1 => written to wbuff -- qpselect will write from there
  *          0 => nothing written  -- insufficient space in wbuff
- *         -1 => failed           -- error event generated
+ *
+ * NB: actual I/O occurs in the qpselect action function -- so this cannot
+ *     fail !
  *
  * NB: requires the session LOCKED -- connection-wise
  */
 extern int
 bgp_msg_send_update(bgp_connection connection, struct stream* s)
 {
-  if (bgp_connection_write_full(connection))
+  if (bgp_connection_write_cannot_max(connection))
     return 0 ;
 
   ++connection->session->stats.update_out ;
@@ -804,19 +807,18 @@ bgp_msg_send_update(bgp_connection connection, struct stream* s)
 /*------------------------------------------------------------------------------
  * Make End-of-RIB message and dispatch.
  *
- *
- *
- * Returns: 2 => written to TCP   -- it's gone
- *          1 => written to wbuff -- waiting for socket
+ * Returns: 1 => written to wbuff -- qpselect will write from there
  *          0 => nothing written  -- insufficient space in wbuff
- *         -1 => failed           -- error event generated
+ *
+ * NB: actual I/O occurs in the qpselect action function -- so this cannot
+ *     fail !
  */
 extern int
 bgp_msg_send_end_of_rib(bgp_connection connection, iAFI_t afi, iSAFI_t safi)
 {
   struct stream *s = connection->obuf ;
 
-  if (bgp_connection_write_full(connection))
+  if (bgp_connection_write_cannot_max(connection))
     return 0 ;
 
   /* Make UPDATE message header                                         */

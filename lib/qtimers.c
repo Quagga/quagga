@@ -108,7 +108,9 @@ qtimer_pile_init_new(qtimer_pile qtp)
    *   timers        -- invalid heap -- need to properly initialise
    */
 
-  /* Eclipse flags offsetof(struct qtimer, backlink) as a syntax error :-(  */
+  /* (The typedef is required to stop Eclipse (3.4.2 with CDT 5.0) whining
+   *  about first argument of offsetof().)
+   */
   typedef struct qtimer qtimer_t ;
 
   heap_init_new_backlinked(&qtp->timers, 0, (heap_cmp*)qtimer_cmp,
@@ -122,15 +124,18 @@ qtimer_pile_init_new(qtimer_pile qtp)
  * empty, or the top entry times out after the maximum time, then the maximum
  * is returned.
  */
-qtime_mono_t
-qtimer_pile_top_time(qtimer_pile qtp, qtime_mono_t max_time)
+qtime_t
+qtimer_pile_top_wait(qtimer_pile qtp, qtime_t max_wait)
 {
+  qtime_t top_wait ;
   qtimer  qtr = heap_top_item(&qtp->timers) ;
 
-  if ((qtr == NULL) || (qtr->time >= max_time))
-    return max_time ;
-  else
-    return qtr->time ;
+  if (qtr == NULL)
+    return max_wait ;
+
+  top_wait = qtr->time - qt_get_monotonic() ;
+
+  return (top_wait < max_wait) ? top_wait : max_wait ;
 } ;
 
 /* Dispatch the next timer whose time is <= the given "upto" time.
@@ -157,7 +162,6 @@ qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto)
       qtr->state = qtr_state_unset_pending ;
 
       qtr->action(qtr, qtr->timer_info, upto) ;
-      assert(qtp == qtr->pile);
 
       if (qtr->state == qtr_state_unset_pending)
         qtimer_unset(qtr) ;
@@ -372,7 +376,9 @@ qtimer_pile_verify(qtimer_pile qtp)
   vector_index e ;
   qtimer qtr ;
 
-  /* Eclipse flags offsetof(struct qtimer, backlink) as a syntax error :-(  */
+  /* (The typedef is required to stop Eclipse (3.4.2 with CDT 5.0) whining
+   *  about first argument of offsetof().)
+   */
   typedef struct qtimer qtimer_t ;
 
   assert(th->cmp             == (heap_cmp*)qtimer_cmp) ;

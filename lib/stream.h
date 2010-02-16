@@ -224,6 +224,7 @@ extern struct stream_fifo *stream_fifo_new (void);
 extern void stream_fifo_push (struct stream_fifo *fifo, struct stream *s);
 extern struct stream *stream_fifo_pop (struct stream_fifo *fifo);
 extern struct stream *stream_fifo_head (struct stream_fifo *fifo);
+extern void stream_fifo_reset (struct stream_fifo *fifo);
 extern void stream_fifo_clean (struct stream_fifo *fifo);
 extern void stream_fifo_free (struct stream_fifo *fifo);
 

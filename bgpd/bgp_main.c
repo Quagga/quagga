@@ -37,6 +37,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "plist.h"
 #include "qpnexus.h"
 #include "qlib_init.h"
+#include "thread.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_attr.h"
@@ -84,8 +85,8 @@ void sigusr2 (void);
 static void bgp_exit (int);
 static void init_second_stage(int pthreads);
 static void bgp_in_thread_init(void);
-static qtime_mono_t routing_event_hook(enum qpn_priority priority);
-static qtime_mono_t bgp_event_hook(enum qpn_priority priority);
+static int routing_foreground(void);
+static int routing_background(void);
 static void sighup_action(mqueue_block mqb, mqb_flag_t flag);
 static void sighup_enqueue(void);
 static void sigterm_action(mqueue_block mqb, mqb_flag_t flag);
@@ -129,7 +130,6 @@ char *config_file = NULL;
 
 /* Have we done the second stage initialization? */
 static int done_2nd_state_init = 0;
-
 /* Process ID saved for use by init system */
 static const char *pid_file = PATH_BGPD_PID;
 
@@ -390,26 +390,32 @@ init_second_stage(int pthreads)
   /* if using pthreads create additional nexus */
   if (qpthreads_enabled)
     {
-      bgp_nexus = qpn_init_new(bgp_nexus, 0);
+      bgp_nexus     = qpn_init_new(bgp_nexus, 0);
       routing_nexus = qpn_init_new(routing_nexus, 0);
     }
   else
     {
       /* we all share the single nexus and single thread */
-      bgp_nexus = cli_nexus;
+      bgp_nexus     = cli_nexus;
       routing_nexus = cli_nexus;
     }
 
+  /* Tell thread stuff to use this qtimer pile                          */
+  thread_set_qtimer_pile(routing_nexus->pile) ;
+
   /* Nexus hooks.
    * Beware if !qpthreads_enabled then there is only 1 nexus object
-   * with all nexus pointers being aliases for it.  So only one routine
-   * per hook for *all* nexus.
+   * with all nexus pointers being aliases for it.
    */
-  bgp_nexus->in_thread_init = bgp_in_thread_init;
-  bgp_nexus->in_thread_final = bgp_close_listeners;
-  routing_nexus->event_hook[0] = routing_event_hook;
-  bgp_nexus->event_hook[1] = bgp_event_hook;
-  confirm(NUM_EVENT_HOOK >= 2);
+  bgp_nexus->in_thread_init  = bgp_in_thread_init ;
+  bgp_nexus->in_thread_final = bgp_close_listeners ;
+
+  qpn_add_hook_function(&routing_nexus->foreground, routing_foreground) ;
+  qpn_add_hook_function(&bgp_nexus->foreground, bgp_connection_queue_process) ;
+
+  qpn_add_hook_function(&routing_nexus->background, routing_background) ;
+
+  confirm(qpn_hooks_max >= 2) ;
 
   /* vty and zclient can use either nexus or threads.
    * For bgp client we always want nexus, regardless of pthreads.
@@ -616,26 +622,18 @@ bgp_in_thread_init(void)
   bgp_open_listeners(bm->port, bm->address);
 }
 
-/* legacy threads */
-static qtime_mono_t
-routing_event_hook(enum qpn_priority priority)
+/* legacy threads in routing engine     */
+static int
+routing_foreground(void)
 {
-  struct thread thread;
-  qtime_mono_t event_wait;
-
-  while (thread_fetch_event (priority, master, &thread, &event_wait))
-    thread_call (&thread);
-
-  return event_wait;
+  return thread_dispatch(master) ;
 }
 
-/* BGP local queued events */
-static qtime_mono_t
-bgp_event_hook(enum qpn_priority priority)
+/* background threads in routing engine */
+static int
+routing_background(void)
 {
-  if (priority >= qpn_pri_fourth)
-    bgp_connection_queue_process();
-  return 0;
+  return thread_dispatch_background(master) ;
 }
 
 /* SIGINT/TERM SIGHUP need to tell routing engine what to do */

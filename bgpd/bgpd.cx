@@ -2008,13 +2008,13 @@ peer_flag_modify_action (struct peer *peer, u_int32_t flag)
           if (CHECK_FLAG (peer->sflags, PEER_STATUS_NSF_WAIT))
             peer_nsf_stop (peer);
 
-          bgp_notify_send(peer, BGP_NOTIFY_CEASE,
-              BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN);
+          bgp_notify_send_with_data(peer, BGP_NOTIFY_CEASE,
+              BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN, NULL, 0);
 	}
       else
 	{
 	  peer->v_start = BGP_INIT_START_TIMER;
-	  bgp_peer_enable(peer);
+	  bgp_peer_disable(peer, NULL);
 	}
     }
   else
@@ -3844,7 +3844,8 @@ peer_clear (struct peer *peer)
 
 	  /* Beware we may still be clearing, if so the end of
 	   * clearing will enable the peer */
-	  bgp_peer_enable(peer);
+	  if (peer->state == bgp_peer_sIdle)
+	    bgp_peer_enable(peer);
 
 	  return 0;
 	}
@@ -4712,18 +4713,15 @@ bgp_terminate (int terminating, int retain_mode)
   for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
     for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
       {
+fprintf(stderr, ">>> %s:", peer->host) ;
         if (retain_mode)
           bgp_peer_disable(peer, NULL);
         else if (terminating)
-          {
-            peer_flag_set(peer, PEER_FLAG_SHUTDOWN);
-            /* Belt and braces, probably redundant */
-            bgp_notify_send(peer, BGP_NOTIFY_CEASE,
-                            BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN);
-          }
+          peer_flag_set(peer, PEER_FLAG_SHUTDOWN);
         else
           bgp_notify_send(peer, BGP_NOTIFY_CEASE,
               BGP_NOTIFY_CEASE_ADMIN_RESET);
+fprintf(stderr, "<<<\n") ;
       }
 
   if (!retain_mode)

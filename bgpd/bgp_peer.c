@@ -202,6 +202,7 @@ bgp_session_has_established(bgp_peer peer)
   bgp_notify_unset(&(peer->session->notification));
 
   /* Clear start timer value to default. */
+  /* TODO: figure out where to increase the IdleHoldTimer               */
   peer->v_start = BGP_INIT_START_TIMER;
 
   /* Increment established count. */
@@ -547,7 +548,9 @@ bgp_timer_set (struct peer *peer)
 static int
 bgp_routeadv_timer (struct thread *thread)
 {
-  struct peer *peer;
+  struct   peer *peer;
+  uint32_t jittered ;
+  uint32_t jitter ;
 
   peer = THREAD_ARG (thread);
   peer->t_routeadv = NULL;
@@ -559,10 +562,21 @@ bgp_routeadv_timer (struct thread *thread)
 
   peer->synctime = time (NULL);
 
-  bgp_write(peer);
+  bgp_write(peer, NULL);
 
-  BGP_TIMER_ON (peer->t_routeadv, bgp_routeadv_timer,
-		peer->v_routeadv);
+  /* Apply +/- 10% jitter to the route advertise timer.
+   *
+   * The time is in seconds, so for anything less than 10 seconds this forced
+   * to be +/- 1 second.
+   */
+  jittered = jitter = peer->v_routeadv ;
+  if (jitter < 10)
+    jitter = 10 ;
+  jittered = (jittered * 90) + (rand() % (jitter * 20)) ; /* jitter is +/-10% */
+  jittered = (jittered + 50) / 100 ;
+
+  /* TODO: move this to the Routeing Engine qtimer pile.                */
+  BGP_TIMER_ON (peer->t_routeadv, bgp_routeadv_timer, jittered) ;
 
   return 0;
 }
@@ -1023,7 +1037,15 @@ void
 bgp_peer_disable(bgp_peer peer, bgp_notify notification)
 {
   if (bgp_session_is_active(peer->session))
+    {
+      /* This code has been moved from where it was, in bgp_write       */
+      /* TODO: not clear whether v_start handling is still correct      */
+      peer->v_start *= 2;
+      if (peer->v_start >= (60 * 2))
+        peer->v_start = (60 * 2);
+
       bgp_session_disable(peer, notification);
+    }
   else
     {
       bgp_notify_free(notification) ;

@@ -479,7 +479,7 @@ bgp_accept_action(qps_file qf, void* file_info)
    * This is running in the BGP Engine thread, so cannot in any case be
    * foxed by the other connection making changes.
    *
-   * The session is active, so the Peering Engine will not make any changes
+   * The session is active, so the Routing Engine will not make any changes
    * except under the mutex, and will not destroy the session.
    */
 

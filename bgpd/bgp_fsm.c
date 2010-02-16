@@ -57,7 +57,7 @@
  *
  * In general the FSM manages connections, but there is some interaction with
  * the session.  In particular, exceptions are expressed as session_eXXX
- * values -- which are passed to the Peering Engine as session events.  The
+ * values -- which are passed to the Routing Engine as session events.  The
  * handling of FSM events is depends mostly on the FSM state, but any
  * exception influences that too.
  *
@@ -273,7 +273,7 @@
  *       notification       -- any NOTIFICATION message
  *       err                -- any I/O or other error
  *
- *     on exit from the FSM this information is passed to the Peering Engine.
+ *     on exit from the FSM this information is passed to the Routing Engine.
  *
  *     Can throw exceptions within the FSM, as discussed above.
  *
@@ -446,7 +446,7 @@ bgp_fsm_enable_session(bgp_session session)
  *
  */
 static void
-bgp_fsm_throw(bgp_connection connection, bgp_session_event_t except,
+bgp_fsm_throw(bgp_connection connection, bgp_session_event_t exception,
                       bgp_notify notification, int err, bgp_fsm_event_t event) ;
 
 static bgp_fsm_state_t
@@ -548,10 +548,10 @@ bgp_fsm_disable_session(bgp_session session, bgp_notify notification)
  *     fsm_active/follow_on mechanism looks after this.
  */
 extern void
-bgp_fsm_exception(bgp_connection connection, bgp_session_event_t except,
+bgp_fsm_exception(bgp_connection connection, bgp_session_event_t exception,
                                                         bgp_notify notification)
 {
-  bgp_fsm_throw(connection, except, notification, 0, bgp_fsm_eBGP_Stop) ;
+  bgp_fsm_throw(connection, exception, notification, 0, bgp_fsm_eBGP_Stop) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -559,7 +559,7 @@ bgp_fsm_exception(bgp_connection connection, bgp_session_event_t except,
  *
  * A connection will discard any sibling if:
  *
- *   * the session is being disabled (by the Peering Engine)
+ *   * the session is being disabled (by the Routing Engine)
  *
  *   * an invalid event is bringing down the session
  *
@@ -655,7 +655,7 @@ bgp_fsm_io_error(bgp_connection connection, int err)
  * This is used by the connect() and accept() qpselect actions.  It is also
  * used if a connect() attempt fails immediately.
  *
- * If err == 0, then all is well: copy the local and remote sockunions
+ * If err == 0, then all is well: start the connection (can now write to it)
  *                            and generate TCP_connection_open event
  *
  * If err is one of:
@@ -666,6 +666,9 @@ bgp_fsm_io_error(bgp_connection connection, int err)
  * these errors.)
  *
  * Other errors are reported as TCP_fatal_error.
+ *
+ * NB: in any case on entry to this function the file is *disabled* in all
+ *     modes.
  */
 extern void
 bgp_fsm_connect_completed(bgp_connection connection, int err,
@@ -674,12 +677,8 @@ bgp_fsm_connect_completed(bgp_connection connection, int err,
 {
   if (err == 0)
     {
+      bgp_connection_start(connection, su_local, su_remote) ;
       bgp_fsm_event(connection, bgp_fsm_eTCP_connection_open) ;
-
-      sockunion_set_dup(&connection->su_local,  su_local) ;
-      sockunion_set_dup(&connection->su_remote, su_remote) ;
-
-      connection->paf = sockunion_family(connection->su_local) ;
     }
   else if (   (err == ECONNREFUSED)
            || (err == ECONNRESET)
@@ -697,12 +696,12 @@ bgp_fsm_connect_completed(bgp_connection connection, int err,
  * NB: takes responsibility for the notification structure.
  */
 static void
-bgp_fsm_throw(bgp_connection connection, bgp_session_event_t except,
+bgp_fsm_throw(bgp_connection connection, bgp_session_event_t exception,
                         bgp_notify notification, int err, bgp_fsm_event_t event)
 {
-  connection->except = except ;
+  connection->exception = exception ;
   bgp_notify_set(&connection->notification, notification) ;
-  connection->err    = err ;
+  connection->err       = err ;
 
   bgp_fsm_event(connection, event) ;
 } ;
@@ -721,10 +720,10 @@ bgp_fsm_throw(bgp_connection connection, bgp_session_event_t except,
  * NB: takes responsibility for the notification structure.
  */
 static bgp_fsm_state_t
-bgp_fsm_throw_stop(bgp_connection connection, bgp_session_event_t except,
+bgp_fsm_throw_stop(bgp_connection connection, bgp_session_event_t exception,
                                                         bgp_notify notification)
 {
-  bgp_fsm_throw(connection, except, notification, 0, bgp_fsm_eBGP_Stop) ;
+  bgp_fsm_throw(connection, exception, notification, 0, bgp_fsm_eBGP_Stop) ;
   return connection->state ;
 } ;
 
@@ -1477,7 +1476,7 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
     } while (--connection->fsm_active != 0) ;
 
   /* If required, post session event.                                   */
-  if (connection->except != bgp_session_null_event)
+  if (connection->exception != bgp_session_null_event)
     {
       int stopped     = (connection->state == bgp_fsm_sStopping) ;
       int has_session = (connection->session != NULL) ;
@@ -1488,16 +1487,16 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
        * connection->state will be Stopping is when the session is being
        * stopped.  (eDiscard and eCollision go quietly to Stopping !)
        */
-      if ((connection->except <= bgp_session_max_event) && has_session)
-        bgp_session_event(connection->session, connection->except,
+      if ((connection->exception <= bgp_session_max_event) && has_session)
+        bgp_session_event(connection->session, connection->exception,
                                    bgp_notify_take(&connection->notification),
                                    connection->err,
                                    connection->ordinal,
                                    stopped) ;
 
       /* Tidy up -- notification already cleared                        */
-      connection->except = bgp_session_null_event ;
-      connection->err    = 0 ;
+      connection->exception = bgp_session_null_event ;
+      connection->err       = 0 ;
       bgp_notify_unset(&connection->notification) ;     /* if any       */
 
       if (stopped && has_session)
@@ -1552,12 +1551,12 @@ static bgp_fsm_action(bgp_fsm_enter)
  */
 static bgp_fsm_action(bgp_fsm_stop)
 {
-  if (connection->except == bgp_session_null_event)
+  if (connection->exception == bgp_session_null_event)
     return bgp_fsm_invalid(connection, bgp_fsm_sStopping, event) ;
 
-  if (   (connection->except == bgp_session_eDisabled)
-      || (connection->except == bgp_session_eDiscard)
-      || (connection->except == bgp_session_eInvalid)  )
+  if (   (connection->exception == bgp_session_eDisabled)
+      || (connection->exception == bgp_session_eDiscard)
+      || (connection->exception == bgp_session_eInvalid)  )
     next_state = bgp_fsm_sStopping ;
 
   return bgp_fsm_catch(connection, next_state) ;
@@ -1590,7 +1589,7 @@ static bgp_fsm_action(bgp_fsm_invalid)
  *
  * Enters either sConnect or sActive, depending on primary/secondary.
  *
- * Throws a session_eStart exception so the Peering Engine gets to see this,
+ * Throws a session_eStart exception so the Routing Engine gets to see this,
  * and a follow-on fsm_eBGP_Start event to kick the connect() or accept() into
  * life.
  *
@@ -2029,12 +2028,12 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
 {
   bgp_notify send_notification ;
 
-  assert(connection->except != bgp_session_null_event) ;
+  assert(connection->exception != bgp_session_null_event) ;
 
   /* Have a notification to send iff not just received one, and is in a
    * suitable state to send one at all.
    */
-  if (connection->except == bgp_session_eNOM_recv)
+  if (connection->exception == bgp_session_eNOM_recv)
     send_notification = NULL ;
   else
     {
@@ -2046,54 +2045,36 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
       send_notification = connection->notification ;
     } ;
 
-  /* If there is a NOTIFICATION to send, now is the time to do that.
+  /* If there is a NOTIFICATION to send, send it if possible.
    * Otherwise, close the connection but leave the timers.
    *
    * The state transition stuff looks after timers.  In particular an error
    * in Connect/Active states leaves the ConnectRetryTimer running.
    */
-  if (send_notification != NULL)
+  if ((send_notification != NULL) && bgp_connection_part_close(connection))
     {
-      int ret ;
-
       /* If not changing to stopping, we hold in the current state until
        * the NOTIFICATION process is complete.
        */
       if (next_state != bgp_fsm_sStopping)
         next_state = connection->state ;
 
-      /* Close for reading and flush write buffers.                         */
-      bgp_connection_part_close(connection) ;
-
+      /* Make sure that cannot pop out a Keepalive !                        */
       qtimer_unset(&connection->keepalive_timer) ;
 
-      /* Write the message
+      /* Write the message                                                  */
+      bgp_msg_write_notification(connection, send_notification) ;
+
+      /* notification is sitting in the write buffer
        *
-       * If the write fails it raises a suitable event, which will now be
-       * sitting waiting to be processed on the way out of the FSM.
+       * notification_pending is set, so write action will raise the required
+       * event in due course.
+       *
+       * Set the HoldTimer to something suitable.  Don't really expect this
+       * to happen in anything except sEstablished state -- but copes.  (Is
+       * ready to wait 20 seconds in sStopping state and 5 otherwise.)
        */
-      ret = bgp_msg_write_notification(connection, send_notification) ;
-
-      connection->notification_pending = (ret >= 0) ;
-                                      /* is pending if not failed           */
-      if      (ret > 0)
-        /* notification reached the TCP buffers instantly
-         *
-         * Send ourselves the good news !
-         */
-        bgp_fsm_notification_sent(connection) ;
-
-      else if (ret == 0)
-        /* notification is sitting in the write buffer
-         *
-         * notification_pending is set, so write action will raise the required
-         * event in due course.
-         *
-         * Set the HoldTimer to something suitable.  Don't really expect this
-         * to happen in anything except sEstablished state -- but copes.  (Is
-         * ready to wait 20 seconds in sStopping state and 5 otherwise.)
-         */
-        bgp_hold_timer_set(connection,
+      bgp_hold_timer_set(connection,
                                    (next_state == bgp_fsm_sStopping) ? 20 : 5) ;
     }
   else
@@ -2106,7 +2087,7 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
 
   /* If sStopping and not eDiscard, do in any sibling                   */
   if (   (next_state == bgp_fsm_sStopping)
-      && (connection->except != bgp_session_eDiscard) )
+      && (connection->exception != bgp_session_eDiscard) )
     {
       bgp_connection sibling ;
 

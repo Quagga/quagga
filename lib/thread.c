@@ -31,6 +31,7 @@
 #include "command.h"
 #include "sigevent.h"
 #include "qpthreads.h"
+#include "qtimers.h"
 
 /* Recent absolute time of day */
 struct timeval recent_time;
@@ -47,7 +48,12 @@ static qpt_mutex_t thread_mutex;
 #define UNLOCK qpt_mutex_unlock(&thread_mutex);
 static struct hash *cpu_record = NULL;
 
-/* Struct timeval's tv_usec one second value.  */
+/* Pointer to qtimer pile to be used, if any    */
+static qtimer_pile use_qtimer_pile     = NULL ;
+static qtimer      spare_qtimers       = NULL ;
+static unsigned    used_standard_timer = 0 ;
+
+/* Struct timeval's tv_usec one second value.   */
 #define TIMER_SECOND_MICRO 1000000L
 
 /* Adjust so that tv_usec is in the range [0,TIMER_SECOND_MICRO).
@@ -238,18 +244,51 @@ cpu_record_hash_cmp (const struct cpu_thread_history *a,
 static void *
 cpu_record_hash_alloc (struct cpu_thread_history *a)
 {
-  struct cpu_thread_history *new;
+  const char* b ;
+  const char* e ;
+  char* n ;
+  int l ;
+  struct cpu_thread_history *new ;
+
+  /* Establish start and length of name, removing leading/trailing
+   * spaces and any enclosing (...) -- recursively.
+   */
+  b = a->funcname ;
+  e = b + strlen(b) - 1 ;
+
+  while (1)
+    {
+      while (*b == ' ')
+        ++b ;                   /* strip leading spaces         */
+      if (*b == '\0')
+        break ;                 /* quit if now empty            */
+      while (*e == ' ')
+        --e ;                   /* strip trailing spaces        */
+      if ((*b != '(') || (*e != ')'))
+        break ;                 /* quit if not now (...)        */
+      ++b ;
+      --e ;                     /* discard ( and )              */
+    } ;
+
+  l = (e + 1) - b ;             /* length excluding trailing \0 */
+
+  n = XMALLOC(MTYPE_THREAD_FUNCNAME, l + 1) ;
+  memcpy(n, b, l) ;
+  n[l] = '\0' ;
+
+  /* Allocate empty structure and set address and name          */
   new = XCALLOC (MTYPE_THREAD_STATS, sizeof (struct cpu_thread_history));
-  new->func = a->func;
-  new->funcname = XSTRDUP(MTYPE_THREAD_FUNCNAME, a->funcname);
-  return new;
+  new->func     = a->func;
+  new->funcname = n ;
+
+  return new ;
 }
 
 static void
 cpu_record_hash_free (void *a)
 {
   struct cpu_thread_history *hist = a;
-  char* funcname = miyagi(hist->funcname) ;
+  void* funcname = miyagi(hist->funcname) ;
 
   XFREE (MTYPE_THREAD_FUNCNAME, funcname);
   XFREE (MTYPE_THREAD_STATS, hist);
@@ -497,7 +536,6 @@ thread_add_unuse (struct thread_master *m, struct thread *thread)
   assert (thread->prev == NULL);
   assert (thread->type == THREAD_UNUSED);
   thread_list_add (&m->unuse, thread);
-  /* XXX: Should we deallocate funcname here? */
 }
 
 /* Free all unused thread. */
@@ -510,8 +548,13 @@ thread_list_free (struct thread_master *m, struct thread_list *list)
   for (t = list->head; t; t = next)
     {
       next = t->next;
-      if (t->funcname)
-        XFREE (MTYPE_THREAD_FUNCNAME, t->funcname);
+
+      if (   (use_qtimer_pile != NULL)
+          && ( (t->type == THREAD_TIMER || t->type == THREAD_BACKGROUND) )
+          && (t->u.qtr != NULL)
+         )
+        qtimer_free(t->u.qtr) ;
+
       XFREE (MTYPE_THREAD, t);
       list->count--;
       m->alloc--;
@@ -522,6 +565,8 @@ thread_list_free (struct thread_master *m, struct thread_list *list)
 void
 thread_master_free (struct thread_master *m)
 {
+  qtimer qtr ;
+
   thread_list_free (m, &m->read);
   thread_list_free (m, &m->write);
   thread_list_free (m, &m->timer);
@@ -540,6 +585,12 @@ thread_master_free (struct thread_master *m)
       cpu_record = NULL;
     }
   UNLOCK
+
+  while ((qtr = spare_qtimers) != NULL)
+    {
+      spare_qtimers = (void*)(qtr->pile) ;
+      qtimer_free(qtr) ;
+    } ;
 }
 
 /* Thread list is empty or not.  */
@@ -570,34 +621,26 @@ thread_timer_remain_second (struct thread *thread)
     return 0;
 }
 
-/* Trim blankspace and "()"s */
-static char *
-strip_funcname (const char *funcname)
+/* Get new cpu history          */
+
+static struct cpu_thread_history*
+thread_get_hist(struct thread* thread, const char* funcname)
 {
-  char buff[100];
-  char tmp, *ret, *e, *b = buff;
+  struct cpu_thread_history  tmp ;
+  struct cpu_thread_history* hist ;
 
-  strncpy(buff, funcname, sizeof(buff));
-  buff[ sizeof(buff) -1] = '\0';
-  e = buff +strlen(buff) -1;
+  tmp.func     = thread->func ;
+  tmp.funcname = funcname ;
 
-  /* Wont work for funcname ==  "Word (explanation)"  */
+  LOCK
+  hist = hash_get (cpu_record, &tmp,
+                  (void * (*) (void *))cpu_record_hash_alloc);
+  UNLOCK
 
-  while (*b == ' ' || *b == '(')
-    ++b;
-  while (*e == ' ' || *e == ')')
-    --e;
-  e++;
+  return hist ;
+} ;
 
-  tmp = *e;
-  *e = '\0';
-  ret  = XSTRDUP (MTYPE_THREAD_FUNCNAME, b);
-  *e = tmp;
-
-  return ret;
-}
-
-/* Get new thread.  */
+/* Get new thread.              */
 static struct thread *
 thread_get (struct thread_master *m, u_char type,
 	    int (*func) (struct thread *), void *arg, const char* funcname)
@@ -607,23 +650,22 @@ thread_get (struct thread_master *m, u_char type,
   if (!thread_empty (&m->unuse))
     {
       thread = thread_trim_head (&m->unuse);
-      if (thread->funcname)
-        XFREE(MTYPE_THREAD_FUNCNAME, thread->funcname);
+      memset(thread, 0, sizeof (struct thread)) ;
     }
   else
     {
       thread = XCALLOC (MTYPE_THREAD, sizeof (struct thread));
       m->alloc++;
     }
-  thread->type = type;
+  thread->type     = type;
   thread->add_type = type;
-  thread->master = m;
-  thread->func = func;
-  thread->arg = arg;
+  thread->master   = m;
+  thread->func     = func;
+  thread->arg      = arg;
 
-  thread->funcname = strip_funcname(funcname);
+  thread->hist     = thread_get_hist(thread, funcname) ;
 
-  return thread;
+  return thread ;
 }
 
 /* Add new read thread. */
@@ -672,48 +714,190 @@ funcname_thread_add_write (struct thread_master *m,
   return thread;
 }
 
+/*==============================================================================
+ * Timer Threads -- THREAD_TIMER and THREAD_BACKGROUND
+ *
+ * Standard Timer Threads are sorted by the "struct timeval sands", and
+ * processed by thread_timer_process() -- which moves any expired timer
+ * threads onto the THREAD_READY queue.  So, the scheduling of background stuff
+ * is done by not processing the THREAD_BACKGROUND queue until there is
+ * nothing else to do.
+ *
+ * When using a qtimer_pile:
+ *
+ *  * THREAD_TIMER threads have an associated qtimer.
+ *
+ *    When the timer expires, the qtimer is cut from the thread (and put onto
+ *    the spare_qtimers list).  The thread is then queued on the THREAD_READY
+ *    queue (as before).
+ *
+ *  * THREAD_BACKGROUND threads which have a non-zero delay are treated much
+ *    as THREAD_TIMER, except that when the timer expires, the thread is
+ *    queued on the THREAD_BACKGROUND queue.
+ *
+ *    The THREAD_BACKGROUND queue is visited only when there is nothing else
+ *    to do.
+ *
+ * Note that when using a qtimer_pile, and there is an active qtimer associated
+ * with the thread, the thread will be on the THREAD_TIMER queue -- so that it
+ * can be collected up and released if required.
+ *
+ * NB: when using a qtimer_pile, if there is a qtimer associated with a
+ *     THREAD_TIMER or a THREAD_BACKGROUND thread, then thread->u.qtr points
+ *     at the qtimer.
+ *
+ *     AND, conversely, if there is no qtimer, then thread->u.ptr == NULL.
+ */
+
+/*------------------------------------------------------------------------------
+ * Set use_qtimer_pile !
+ */
+extern void
+thread_set_qtimer_pile(qtimer_pile pile)
+{
+  passert(!used_standard_timer) ;
+
+  use_qtimer_pile = pile ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Unset qtimer associated with the given THREAD_TIMER or THREAD_BACKGROUND
+ * thread -- if any.
+ *
+ * Moves any qtimer onto the spare_qtimers list.
+ */
+static void
+thread_qtimer_unset(struct thread* thread)
+{
+  qtimer qtr ;
+  assert (thread->type == THREAD_TIMER || thread->type == THREAD_BACKGROUND);
+  assert (use_qtimer_pile != NULL) ;
+
+  qtr = thread->u.qtr ;
+  if (qtr != NULL)
+    {
+      qtimer_unset(qtr) ;
+
+      qtr->pile = (void*)spare_qtimers ;
+      spare_qtimers = qtr ;
+
+      thread->u.qtr = NULL ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * The qtimer action function -- when using qtimer pile (!)
+ *
+ * Remove thread from the THREAD_TIMER queue and unset the qtimer, place
+ * thread on the THREAD_READY or the THREAD_BACKGROUND queue as required.
+ */
+static void
+thread_qtimer_dispatch(qtimer qtr, void* timer_info, qtime_mono_t when)
+{
+  struct thread* thread = timer_info ;
+
+  thread_list_delete (&thread->master->timer, thread) ;
+  thread_qtimer_unset(thread) ;
+
+  switch (thread->type)
+  {
+    case THREAD_TIMER:
+      thread->type = THREAD_READY;
+      thread_list_add (&thread->master->ready, thread);
+      break ;
+
+    case THREAD_BACKGROUND:
+      thread_list_add (&thread->master->background, thread);
+      break ;
+
+    default:
+      zabort("invalid thread type in thread_qtimer_dispatch") ;
+  } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * For standard timers, return time left on first timer on the given list.
+ */
+static struct timeval *
+thread_timer_wait (struct thread_list *tlist, struct timeval *timer_val)
+{
+  if (!thread_empty (tlist))
+    {
+      *timer_val = timeval_subtract (tlist->head->u.sands, relative_time);
+      return timer_val;
+    }
+  return NULL;
+}
+
+/*------------------------------------------------------------------------------
+ * Add timer of given type -- either standard or qtimer_pile as required.
+ *
+ * Timer interval is given as a struct timeval.
+ */
 static struct thread *
-funcname_thread_add_timer_timeval (struct thread_master *m,
-                                   int (*func) (struct thread *),
+funcname_thread_add_timer_timeval(struct thread_master *m,
+                                  int (*func) (struct thread *),
                                   int type,
                                   void *arg,
                                   struct timeval *time_relative,
                                   const char* funcname)
 {
   struct thread *thread;
-  struct thread_list *list;
-  struct timeval alarm_time;
-  struct thread *tt;
 
   assert (m != NULL);
 
+  assert (time_relative != NULL);
   assert (type == THREAD_TIMER || type == THREAD_BACKGROUND);
-  assert (time_relative);
 
-  list = ((type == THREAD_TIMER) ? &m->timer : &m->background);
   thread = thread_get (m, type, func, arg, funcname);
 
-  /* Do we need jitter here? */
-  quagga_get_relative (NULL);
-  alarm_time.tv_sec = relative_time.tv_sec + time_relative->tv_sec;
-  alarm_time.tv_usec = relative_time.tv_usec + time_relative->tv_usec;
-  thread->u.sands = timeval_adjust(alarm_time);
+  if (use_qtimer_pile == NULL)
+    {
+      struct thread_list *list;
+      struct timeval alarm_time;
+      struct thread *tt;
 
-  /* Sort by timeval. */
-  for (tt = list->head; tt; tt = tt->next)
-    if (timeval_cmp (thread->u.sands, tt->u.sands) <= 0)
-      break;
+      /* Do we need jitter here? */
+      quagga_get_relative (NULL);
+      alarm_time.tv_sec  = relative_time.tv_sec  + time_relative->tv_sec;
+      alarm_time.tv_usec = relative_time.tv_usec + time_relative->tv_usec;
+      thread->u.sands = timeval_adjust(alarm_time);
 
-  if (tt)
-    thread_list_add_before (list, tt, thread);
+      /* Sort by timeval. */
+      list = ((type == THREAD_TIMER) ? &m->timer : &m->background);
+      for (tt = list->head; tt; tt = tt->next)
+        if (timeval_cmp (thread->u.sands, tt->u.sands) <= 0)
+          break;
+
+      if (tt)
+        thread_list_add_before (list, tt, thread);
+      else
+        thread_list_add (list, thread);
+
+      used_standard_timer = 1 ;
+    }
   else
-    thread_list_add (list, thread);
+    {
+      qtimer qtr = spare_qtimers ;
+      if (qtr != NULL)
+        spare_qtimers = (qtimer)(qtr->pile) ;
+
+      qtr = qtimer_init_new(qtr, use_qtimer_pile, NULL, thread) ;
+      thread->u.qtr = qtr ;
+
+      qtimer_set_interval(qtr, timeval2qtime(time_relative),
+                                                       thread_qtimer_dispatch) ;
+      thread_list_add(&m->timer, thread) ;
+    } ;
 
   return thread;
 }
 
-
-/* Add timer event thread. */
+/*------------------------------------------------------------------------------
+ * Add a THREAD_TIMER timer -- either standard or qtimer_pile as required.
+ *
+ * Timer interval is given in seconds.
+ */
 struct thread *
 funcname_thread_add_timer (struct thread_master *m,
 		           int (*func) (struct thread *),
@@ -721,16 +905,18 @@ funcname_thread_add_timer (struct thread_master *m,
 {
   struct timeval trel;
 
-  assert (m != NULL);
-
-  trel.tv_sec = timer;
+  trel.tv_sec  = timer;
   trel.tv_usec = 0;
 
   return funcname_thread_add_timer_timeval (m, func, THREAD_TIMER, arg,
                                             &trel, funcname);
 }
 
-/* Add timer event thread with "millisecond" resolution */
+/*------------------------------------------------------------------------------
+ * Add a THREAD_TIMER timer -- either standard or qtimer_pile as required.
+ *
+ * Timer interval is given in milliseconds.
+ */
 struct thread *
 funcname_thread_add_timer_msec (struct thread_master *m,
                                 int (*func) (struct thread *),
@@ -738,45 +924,56 @@ funcname_thread_add_timer_msec (struct thread_master *m,
 {
   struct timeval trel;
 
-  assert (m != NULL);
-
-  trel.tv_sec = timer / 1000;
-  trel.tv_usec = 1000*(timer % 1000);
+  trel.tv_sec  =  timer / 1000 ;
+  trel.tv_usec = (timer % 1000) * 1000 ;
 
   return funcname_thread_add_timer_timeval (m, func, THREAD_TIMER,
-                                            arg, &trel, funcname);
+                                                          arg, &trel, funcname);
 }
 
-/* Add a background thread, with an optional millisec delay */
+/*------------------------------------------------------------------------------
+ * Add a THREAD_BACKGROUND thread -- either standard or qtimer_pile as required.
+ *
+ * Timer interval is given in milliseconds.
+ *
+ * For qtimer_pile, if the delay is zero, the thread is placed straight onto
+ * the THREAD_BACKGROUND queue.
+ */
 struct thread *
 funcname_thread_add_background (struct thread_master *m,
                                 int (*func) (struct thread *),
                                 void *arg, long delay,
                                 const char *funcname)
 {
-  struct timeval trel;
-
-  assert (m != NULL);
-
-  if (delay)
+  if ((delay != 0) || (use_qtimer_pile == NULL))
     {
-      trel.tv_sec = delay / 1000;
-      trel.tv_usec = 1000*(delay % 1000);
+      struct timeval trel;
+
+      trel.tv_sec  =  delay / 1000;
+      trel.tv_usec = (delay % 1000) * 1000 ;
+
+      return funcname_thread_add_timer_timeval (m, func, THREAD_BACKGROUND,
+                                                arg, &trel, funcname);
     }
   else
     {
-      trel.tv_sec = 0;
-      trel.tv_usec = 0;
-    }
+      struct thread* thread ;
 
-  return funcname_thread_add_timer_timeval (m, func, THREAD_BACKGROUND,
-                                            arg, &trel, funcname);
+      assert (m != NULL);
+
+      thread = thread_get (m, THREAD_BACKGROUND, func, arg, funcname);
+      thread_list_add (&m->background, thread) ;
+
+      return thread ;
+    } ;
 }
 
+/*----------------------------------------------------------------------------*/
 /* Add simple event thread. */
 struct thread *
 funcname_thread_add_event (struct thread_master *m,
-		  int (*func) (struct thread *), void *arg, int val, const char* funcname)
+		  int (*func) (struct thread *), void *arg, int val,
+		                                           const char* funcname)
 {
   struct thread *thread;
 
@@ -789,7 +986,11 @@ funcname_thread_add_event (struct thread_master *m,
   return thread;
 }
 
-/* Cancel thread from scheduler. */
+/*------------------------------------------------------------------------------
+ * Cancel thread from scheduler.
+ *
+ * Note that when using qtimer_pile need to unset any associated qtimer.
+ */
 void
 thread_cancel (struct thread *thread)
 {
@@ -808,6 +1009,8 @@ thread_cancel (struct thread *thread)
       list = &thread->master->write;
       break;
     case THREAD_TIMER:
+      if ((use_qtimer_pile != NULL) && (thread->u.qtr != NULL))
+        thread_qtimer_unset(thread) ;
       list = &thread->master->timer;
       break;
     case THREAD_EVENT:
@@ -817,13 +1020,21 @@ thread_cancel (struct thread *thread)
       list = &thread->master->ready;
       break;
     case THREAD_BACKGROUND:
-      list = &thread->master->background;
+      if ((use_qtimer_pile != NULL) && (thread->u.qtr != NULL))
+        {
+          thread_qtimer_unset(thread) ;
+          list = &thread->master->timer;
+        }
+      else
+        list = &thread->master->background;
       break;
+
     default:
-      return;
-      break;
+      return ;
     }
+
   thread_list_delete (list, thread);
+
   thread->type = THREAD_UNUSED;
   thread_add_unuse (thread->master, thread);
 }
@@ -854,24 +1065,12 @@ thread_cancel_event (struct thread_master *m, void *arg)
   return ret;
 }
 
-static struct timeval *
-thread_timer_wait (struct thread_list *tlist, struct timeval *timer_val)
-{
-  if (!thread_empty (tlist))
-    {
-      *timer_val = timeval_subtract (tlist->head->u.sands, relative_time);
-      return timer_val;
-    }
-  return NULL;
-}
-
 static struct thread *
 thread_run (struct thread_master *m, struct thread *thread,
 	    struct thread *fetch)
 {
   *fetch = *thread;
   thread->type = THREAD_UNUSED;
-  thread->funcname = NULL;  /* thread_call will free fetch's copied pointer */
   thread_add_unuse (m, thread);
   return fetch;
 }
@@ -921,7 +1120,11 @@ thread_timer_process (struct thread_list *list, struct timeval *timenow)
   return ready;
 }
 
-/* Fetch next ready thread. */
+/*------------------------------------------------------------------------------
+ * Fetch next ready thread -- for standard thread handing.
+ *
+ * (This is not used when using qtimer_pile, or qnexus stuff.)
+ */
 struct thread *
 thread_fetch (struct thread_master *m, struct thread *fetch)
 {
@@ -939,8 +1142,7 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
       int num = 0;
 
       /* Signals are highest priority */
-      if (!qpthreads_enabled)
-        quagga_sigevent_process ();
+      quagga_sigevent_process ();
 
       /* Normal event are the next highest priority.  */
       if ((thread = thread_trim_head (&m->event)) != NULL)
@@ -1009,69 +1211,66 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
     }
 }
 
-
-/* Fetch next ready thread <= given priority.  Events and timeouts only.
- * No I/O.  If nothing to do returns NULL and sets event_wait to
- * recommended time to be called again. */
-struct thread *
-thread_fetch_event (enum qpn_priority priority, struct thread_master *m, struct thread *fetch,
-    qtime_mono_t *event_wait)
+/*------------------------------------------------------------------------------
+ * Empties the event and ready queues.
+ *
+ * This is used when qnexus is managing most things, including I/O.  Must be
+ * using qtimer_pile !
+ *
+ * This runs "legacy" event and ready queues only.
+ *
+ * Returns: the number of threads dispatched.
+ *
+ * Legacy timers are handled by the qtimer_pile, and their related threads will
+ * be placed on the ready queue when they expire.
+ *
+ * The background queue is handled separately.
+ */
+extern int
+thread_dispatch(struct thread_master *m)
 {
-  struct thread *thread;
-  struct timeval timer_val;
-  struct timeval timer_val_bg;
-  struct timeval *timer_wait;
-  struct timeval *timer_wait_bg;
+  struct thread_list* list ;
+  struct thread fetch ;
+  int   count = 0 ;
 
-  *event_wait = 0;
+  while (1)
+    {
+      if (thread_empty(list = &m->event))
+        if (thread_empty(list = &m->ready))
+          return count ;
 
-  /* Normal event are the next highest priority.  */
-  if ((thread = thread_trim_head (&m->event)) != NULL)
-    return thread_run (m, thread, fetch);
+      thread_call(thread_run(m, thread_list_delete(list, list->head), &fetch)) ;
 
-  if (priority <= qpn_pri_first)
-      return NULL;
+      ++count ;
+    } ;
+} ;
 
-  /* If there are any ready threads from previous scheduler runs,
-   * process top of them.
-   */
-  if ((thread = thread_trim_head (&m->ready)) != NULL)
-    return thread_run (m, thread, fetch);
+/*------------------------------------------------------------------------------
+ * Dispatch first item on the background queue, if any.
+ *
+ * This is used when qnexus is managing most things.
+ *
+ * Background threads spend their lives being cycled around the background
+ * queue -- possibly via the timer queue, if a delay is put in before the next
+ * invocation.
+ *
+ * Returns: 1 if dispatched a background thread
+ *          0 if there are no background threads
+ */
+extern int
+thread_dispatch_background(struct thread_master *m)
+{
+  struct thread* thread ;
+  struct thread fetch ;
 
-  if (priority <= qpn_pri_second)
-      return NULL;
+  if ((thread = thread_trim_head (&m->background)) == NULL)
+    return 0 ;
 
-  /* Check foreground timers. */
-  quagga_get_relative (NULL);
-  thread_timer_process (&m->timer, &relative_time);
+  thread_call(thread_run(m, thread, &fetch)) ;
 
-  if ((thread = thread_trim_head (&m->ready)) != NULL)
-    return thread_run (m, thread, fetch);
+  return 1 ;
+} ;
 
-  if (priority <= qpn_pri_third)
-      return NULL;
-
-  /* Background timer/events, lowest priority */
-  thread_timer_process (&m->background, &relative_time);
-
-  if ((thread = thread_trim_head (&m->ready)) != NULL)
-    return thread_run (m, thread, fetch);
-
-  /* Calculate select wait timer if nothing else to do */
-  timer_wait = thread_timer_wait (&m->timer, &timer_val);
-  timer_wait_bg = thread_timer_wait (&m->background, &timer_val_bg);
-
-  if (timer_wait_bg &&
-      (!timer_wait || (timeval_cmp (*timer_wait, *timer_wait_bg) > 0)))
-    timer_wait = timer_wait_bg;
-
-  /* When is the next timer due ? */
-  *event_wait = (timer_wait != NULL)
-                ? timeval2qtime(timer_wait)
-                : 0;
-
-  return NULL;
-}
 
 unsigned long
 thread_consumed_time (RUSAGE_T *now, RUSAGE_T *start, unsigned long *cputime)
@@ -1130,25 +1329,6 @@ thread_call (struct thread *thread)
   unsigned long realtime, cputime;
   RUSAGE_T ru;
 
- /* Cache a pointer to the relevant cpu history thread, if the thread
-  * does not have it yet.
-  *
-  * Callers submitting 'dummy threads' hence must take care that
-  * thread->cpu is NULL
-  */
-  if (!thread->hist)
-    {
-      struct cpu_thread_history tmp;
-
-      tmp.func = thread->func;
-      tmp.funcname = thread->funcname;
-
-      LOCK
-      thread->hist = hash_get (cpu_record, &tmp,
-                    (void * (*) (void *))cpu_record_hash_alloc);
-      UNLOCK
-    }
-
   GETRUSAGE (&thread->ru);
 
   (*thread->func) (thread);
@@ -1157,19 +1337,22 @@ thread_call (struct thread *thread)
 
   realtime = thread_consumed_time (&ru, &thread->ru, &cputime);
 
-  LOCK
-  thread->hist->real.total += realtime;
-  if (thread->hist->real.max < realtime)
-    thread->hist->real.max = realtime;
+  if (thread->hist != NULL)
+    {
+      LOCK
+      thread->hist->real.total += realtime;
+      if (thread->hist->real.max < realtime)
+        thread->hist->real.max = realtime;
 #ifdef HAVE_RUSAGE
-  thread->hist->cpu.total += cputime;
-  if (thread->hist->cpu.max < cputime)
-    thread->hist->cpu.max = cputime;
+      thread->hist->cpu.total += cputime;
+      if (thread->hist->cpu.max < cputime)
+        thread->hist->cpu.max = cputime;
 #endif
 
-  ++(thread->hist->total_calls);
-  thread->hist->types |= (1 << thread->add_type);
-  UNLOCK
+      ++(thread->hist->total_calls);
+      thread->hist->types |= (1 << thread->add_type);
+      UNLOCK
+    } ;
 
 #ifdef CONSUMED_TIME_CHECK
   if (realtime > CONSUMED_TIME_CHECK)
@@ -1180,13 +1363,12 @@ thread_call (struct thread *thread)
        * to fix.
        */
       zlog_warn ("SLOW THREAD: task %s (%lx) ran for %lums (cpu time %lums)",
-		 thread->funcname,
+		 (thread->hist != NULL) ? thread->hist->funcname : "??",
 		 (unsigned long) thread->func,
 		 realtime/1000, cputime/1000);
     }
 #endif /* CONSUMED_TIME_CHECK */
 
-  XFREE (MTYPE_THREAD_FUNCNAME, thread->funcname);
 }
 
 /* Execute thread */
@@ -1207,10 +1389,8 @@ funcname_thread_execute (struct thread_master *m,
   dummy.func = func;
   dummy.arg = arg;
   dummy.u.val = val;
-  dummy.funcname = strip_funcname (funcname);
+  dummy.hist = thread_get_hist(&dummy, funcname) ;
   thread_call (&dummy);
-
-  XFREE (MTYPE_THREAD_FUNCNAME, dummy.funcname);
 
   return NULL;
 }

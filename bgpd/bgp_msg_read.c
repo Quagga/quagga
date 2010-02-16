@@ -1373,7 +1373,7 @@ bgp_msg_update_receive (bgp_connection connection, bgp_size_t body_size)
   ++connection->session->stats.update_in ;
   connection->session->stats.update_time = time(NULL) ;
 
-  /* PRO TEM: pass raw update message across to Peering Engine          */
+  /* PRO TEM: pass raw update message across to Routing Engine          */
   /* TODO: decode update messages in the BGP Engine.                    */
   bgp_session_update_recv(connection->session, connection->ibuf, body_size);
 }

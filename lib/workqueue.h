@@ -1,4 +1,4 @@
-/* 
+/*
  * Quagga Work Queues.
  *
  * Copyright (C) 2005 Sun Microsystems, Inc.
@@ -18,14 +18,18 @@
  * You should have received a copy of the GNU General Public License
  * along with Quagga; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _QUAGGA_WORK_QUEUE_H
 #define _QUAGGA_WORK_QUEUE_H
 
+#ifndef Inline
+#define Inline static inline
+#endif
+
 /* Hold time for the initial schedule of a queue run, in  millisec */
-#define WORK_QUEUE_DEFAULT_HOLD  50 
+#define WORK_QUEUE_DEFAULT_HOLD  50
 
 /* action value, for use by item processor and item error handlers */
 typedef enum
@@ -40,12 +44,37 @@ typedef enum
                          * the particular item.. */
 } wq_item_status;
 
+enum { wq_args_size_max  = 24 } ;      /* maximum size of union wq_args */
+
+union wq_args
+{
+  void* data ;
+  char  bytes[wq_args_size_max] ;      /* empty space                  `*/
+} ;
+
+#define WQ_ARGS_SIZE_OK(s) CONFIRM(sizeof(struct s) <= wq_args_size_max)
+
 /* A single work queue item, unsurprisingly */
+typedef struct work_queue_item* work_queue_item ;
 struct work_queue_item
 {
-  void *data;                           /* opaque data */
+  union wq_args args ;                  /* cast as required             */
+
+  struct work_queue_item* next ;        /* the queue itself             */
+  struct work_queue_item* prev ;
+
   unsigned short ran;			/* # of times item has been run */
-};
+} ;
+
+/* work_queue_item structures are malloced.  That guarantees maximum alignment.
+ * To guarantee maximum alignment for "struct args", it must be first item !
+ *
+ * (The typedef is required to stop Eclipse (3.4.2 with CDT 5.0) whining
+ *  about first argument of offsetof().)
+ */
+typedef struct work_queue_item work_queue_item_t ;
+CONFIRM(offsetof(work_queue_item_t, args) == 0) ;
+                                        /* so guaranteed max alignment  */
 
 #define WQ_UNPLUGGED	(1 << 0) /* available for draining */
 
@@ -57,52 +86,55 @@ struct work_queue
   struct thread_master *master;       /* thread master */
   struct thread *thread;              /* thread, if one is active */
   char *name;                         /* work queue name */
-  
+
   /* Specification for this work queue.
    * Public, must be set before use by caller. May be modified at will.
    */
   struct {
     /* optional opaque user data, global to the queue. */
     void *data;
-    
+
     /* work function to process items with:
      * First argument is the workqueue queue.
      * Second argument is the item data
      */
-    wq_item_status (*workfunc) (struct work_queue *, void *);
+    wq_item_status (*workfunc) (struct work_queue *, work_queue_item);
 
     /* error handling function, optional */
-    void (*errorfunc) (struct work_queue *, struct work_queue_item *);
-    
+    void (*errorfunc) (struct work_queue *, work_queue_item);
+
     /* callback to delete user specific item data */
-    void (*del_item_data) (struct work_queue *, void *);
-    
+    void (*del_item_data) (struct work_queue *, work_queue_item);
+
     /* completion callback, called when queue is emptied, optional */
     void (*completion_func) (struct work_queue *);
-    
+
     /* max number of retries to make for item that errors */
-    unsigned int max_retries;	
+    unsigned int max_retries;
 
     unsigned int hold;	/* hold time for first run, in ms */
   } spec;
-  
+
   /* remaining fields should be opaque to users */
-  struct list *items;                 /* queue item list */
-  unsigned long runs;                 /* runs count */
-  
+  work_queue_item head ;              /* queue item list        */
+  work_queue_item tail ;
+  unsigned      list_count ;
+
+  unsigned long runs;                 /* runs count             */
+
   struct {
     unsigned int best;
     unsigned int granularity;
     unsigned long total;
   } cycles;	/* cycle counts */
-  
+
   /* private state */
   u_int16_t flags;		/* user set flag */
 };
 
 /* User API */
 
-/* create a new work queue, of given name. 
+/* create a new work queue, of given name.
  * user must fill in the spec of the returned work queue before adding
  * anything to it
  */
@@ -112,7 +144,10 @@ extern struct work_queue *work_queue_new (struct thread_master *,
 extern void work_queue_free (struct work_queue *);
 
 /* Add the supplied data as an item onto the workqueue */
-extern void work_queue_add (struct work_queue *, void *);
+Inline void work_queue_add (struct work_queue *, void *);
+
+extern void* work_queue_item_add(struct work_queue* wq) ;
+Inline void* work_queue_item_args(work_queue_item item) ;
 
 /* plug the queue, ie prevent it from being drained / processed */
 extern void work_queue_plug (struct work_queue *wq);
@@ -122,4 +157,22 @@ extern void work_queue_unplug (struct work_queue *wq);
 /* Helpers, exported for thread.c and command.c */
 extern int work_queue_run (struct thread *);
 extern struct cmd_element show_work_queues_cmd;
+
+/*==============================================================================
+ * The Inline functions
+ */
+
+Inline void work_queue_add (struct work_queue* wq, void* data)
+{
+  union wq_args* args = work_queue_item_add(wq) ;
+  args->data = data ;
+}
+
+/* Return pointer to the args area in the given work queue item         */
+Inline void*
+work_queue_item_args(work_queue_item item)
+{
+  return &item->args ;
+} ;
+
 #endif /* _QUAGGA_WORK_QUEUE_H */

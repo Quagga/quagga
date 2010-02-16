@@ -270,13 +270,8 @@ qps_set_signal(qps_selection qps, int signum, sigset_t sigmask)
     } ;
 } ;
 
-/* Execute a pselect for the given selection -- subject to the given timeout
- * *time*.
- *
- * The time-out time is an "absolute" time, as measured by qt_get_monotonic().
- *
- * A timeout time <= the current qt_get_monotonic() is treated as a zero
- * timeout period, and will return immediately from the pselect.
+/* Execute a pselect for the given selection -- subject to the given maximum
+ * time to wait.
  *
  * There is no support for an infinite timeout.
  *
@@ -289,7 +284,7 @@ qps_set_signal(qps_selection qps, int signum, sigset_t sigmask)
  * The qps_dispatch_next() processes the returns from pselect().
  */
 int
-qps_pselect(qps_selection qps, qtime_mono_t timeout)
+qps_pselect(qps_selection qps, qtime_t max_wait)
 {
   struct timespec ts ;
   qps_mnum_t  mnum ;
@@ -334,16 +329,15 @@ qps_pselect(qps_selection qps, qtime_mono_t timeout)
   qps->tried_fd_last = qps->fd_last ;
   qps->pend_fd       = 0 ;
 
-  /* Convert timeout time to interval for pselect()     */
-  timeout -= qt_get_monotonic() ;
-  if (timeout < 0)
-    timeout = 0 ;
+  /* Make sure not trying to do something stupid        */
+  if (max_wait < 0)
+    max_wait = 0 ;
 
   /* Finally ready for the main event                   */
   n = pselect(qps->fd_last + 1, p_fds[qps_read_mnum],
                                 p_fds[qps_write_mnum],
                                 p_fds[qps_error_mnum],
-                                qtime2timespec(&ts, timeout),
+                                qtime2timespec(&ts, max_wait),
                                 (qps->signum != 0) ? &qps->sigmask : NULL) ;
 
   /* If have something, set and return the pending count.               */

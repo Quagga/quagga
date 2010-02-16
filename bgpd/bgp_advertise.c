@@ -300,7 +300,7 @@ bgp_adj_out_unset (struct bgp_node *rn, struct peer *peer, struct prefix *p,
       bgp_advertise_fifo_add(&peer->sync[afi][safi]->withdraw, adv);
 
       /* Schedule packet write. */
-      bgp_write(peer);
+      bgp_write(peer, NULL) ;
     }
   else
     {

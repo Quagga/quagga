@@ -65,7 +65,10 @@ struct bgp_orf_entry
   } body ;
 } ;
 
-typedef struct bgp_orf_entry bgp_orf_entry_t ;  /* calm down Eclipse    */
+/* (The typedef is required to stop Eclipse (3.4.2 with CDT 5.0) whining
+ *  about first argument of offsetof().)
+ */
+typedef struct bgp_orf_entry bgp_orf_entry_t ;
 enum
 {
   bgp_orf_unknown_min_l =   sizeof(struct bgp_orf_entry)

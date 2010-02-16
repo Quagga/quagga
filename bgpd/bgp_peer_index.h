@@ -40,7 +40,7 @@ typedef unsigned bgp_peer_id_t ;
 
 struct bgp_peer_index_entry
 {
-  bgp_peer      peer ;          /* used by Peering Engine               */
+  bgp_peer      peer ;          /* used by Routing Engine               */
 
   /* The accept pointer is used by the listening socket(s) to find the
    * session when it is prepared to accept a connection.

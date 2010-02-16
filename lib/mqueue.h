@@ -93,16 +93,16 @@ typedef void mqueue_action(mqueue_block mqb, mqb_flag_t flag) ;
 enum { mqb_args_size_max  = 64 } ;      /* maximum size of struct args  */
 enum { mqb_argv_size_unit = 16 } ;      /* allocate argv in these units */
 
-struct args
+struct mqb_args
 {
-  char data[mqb_args_size_max] ;        /* empty space                  */
+  char bytes[mqb_args_size_max] ;       /* empty space                  */
 } ;
 
 #define MQB_ARGS_SIZE_OK(s) CONFIRM(sizeof(struct s) <= mqb_args_size_max)
 
 struct mqueue_block
 {
-  struct args     args ;                /* user structure               */
+  struct mqb_args args ;                /* user structure               */
 
   mqueue_block    next ;                /* single linked list           */
 
@@ -116,8 +116,12 @@ struct mqueue_block
   mqb_index_t argv_next ;               /* iterator                     */
 } ;
 
-/* mqueue_block structures are malloced.  That guarantees maximum alignment.  */
-/* To guarantee maximum alignment for "struct args", it must be first item !  */
+/* mqueue_block structures are malloced.  That guarantees maximum alignment.
+ * To guarantee maximum alignment for "struct args", it must be first item !
+ *
+ * (The typedef is required to stop Eclipse (3.4.2 with CDT 5.0) whining
+ *  about first argument of offsetof().)
+ */
 typedef struct mqueue_block mqueue_block_t ;
 CONFIRM(offsetof(mqueue_block_t, args) == 0) ;
 

@@ -1457,10 +1457,12 @@ struct bgp_process_queue
   safi_t safi;
 };
 
+WQ_ARGS_SIZE_OK(bgp_process_queue) ;
+
 static wq_item_status
-bgp_process_rsclient (struct work_queue *wq, void *data)
+bgp_process_rsclient (struct work_queue *wq, work_queue_item item)
 {
-  struct bgp_process_queue *pq = data;
+  struct bgp_process_queue *pq = work_queue_item_args(item) ;
   struct bgp *bgp = pq->bgp;
   struct bgp_node *rn = pq->rn;
   afi_t afi = pq->afi;
@@ -1518,9 +1520,9 @@ bgp_process_rsclient (struct work_queue *wq, void *data)
 }
 
 static wq_item_status
-bgp_process_main (struct work_queue *wq, void *data)
+bgp_process_main (struct work_queue *wq, work_queue_item item)
 {
-  struct bgp_process_queue *pq = data;
+  struct bgp_process_queue *pq = work_queue_item_args(item) ;
   struct bgp *bgp = pq->bgp;
   struct bgp_node *rn = pq->rn;
   afi_t afi = pq->afi;
@@ -1592,15 +1594,14 @@ bgp_process_main (struct work_queue *wq, void *data)
 }
 
 static void
-bgp_processq_del (struct work_queue *wq, void *data)
+bgp_processq_del (struct work_queue *wq, work_queue_item item)
 {
-  struct bgp_process_queue *pq = data;
+  struct bgp_process_queue *pq = work_queue_item_args(item);
   struct bgp_table *table = pq->rn->table;
 
   bgp_unlock (pq->bgp);
   bgp_unlock_node (pq->rn);
   bgp_table_unlock (table);
-  XFREE (MTYPE_BGP_PROCESS_QUEUE, pq);
 }
 
 static void
@@ -1617,21 +1618,23 @@ bgp_process_queue_init (void)
       exit (1);
     }
 
-  bm->process_main_queue->spec.workfunc = &bgp_process_main;
-  bm->process_rsclient_queue->spec.workfunc = &bgp_process_rsclient;
-  bm->process_main_queue->spec.del_item_data = &bgp_processq_del;
-  bm->process_rsclient_queue->spec.del_item_data
-    =  bm->process_main_queue->spec.del_item_data;
-  bm->process_main_queue->spec.max_retries
-    = bm->process_main_queue->spec.max_retries = 0;
-  bm->process_rsclient_queue->spec.hold
-    = bm->process_main_queue->spec.hold = 50;
+  bm->process_main_queue->spec.data            = bm->master ;
+  bm->process_main_queue->spec.errorfunc       = NULL ;
+  bm->process_main_queue->spec.workfunc        = &bgp_process_main;
+  bm->process_main_queue->spec.del_item_data   = &bgp_processq_del;
+  bm->process_main_queue->spec.completion_func = NULL ;
+  bm->process_main_queue->spec.max_retries     = 0;
+  bm->process_main_queue->spec.hold            = 50;
+
+  bm->process_rsclient_queue->spec = bm->process_main_queue->spec ;
+  bm->process_rsclient_queue->spec.workfunc    = &bgp_process_rsclient;
 }
 
 void
 bgp_process (struct bgp *bgp, struct bgp_node *rn, afi_t afi, safi_t safi)
 {
   struct bgp_process_queue *pqnode;
+  struct work_queue* wq ;
 
   /* already scheduled for processing? */
   if (CHECK_FLAG (rn->flags, BGP_NODE_PROCESS_SCHEDULED))
@@ -1641,28 +1644,30 @@ bgp_process (struct bgp *bgp, struct bgp_node *rn, afi_t afi, safi_t safi)
        (bm->process_rsclient_queue == NULL) )
     bgp_process_queue_init ();
 
-  pqnode = XCALLOC (MTYPE_BGP_PROCESS_QUEUE,
-                    sizeof (struct bgp_process_queue));
+  switch (rn->table->type)
+    {
+      case BGP_TABLE_MAIN:
+        wq = bm->process_main_queue ;
+        break;
+      case BGP_TABLE_RSCLIENT:
+        wq = bm->process_rsclient_queue ;
+        break;
+      default:
+        zabort("invalid rn->table->type") ;
+    }
+
+  pqnode = work_queue_item_add(wq);
+
   if (!pqnode)
     return;
 
   /* all unlocked in bgp_processq_del */
   bgp_table_lock (rn->table);
-  pqnode->rn = bgp_lock_node (rn);
-  pqnode->bgp = bgp;
+  pqnode->rn   = bgp_lock_node (rn);
+  pqnode->bgp  = bgp;
   bgp_lock (bgp);
-  pqnode->afi = afi;
+  pqnode->afi  = afi;
   pqnode->safi = safi;
-
-  switch (rn->table->type)
-    {
-      case BGP_TABLE_MAIN:
-        work_queue_add (bm->process_main_queue, pqnode);
-        break;
-      case BGP_TABLE_RSCLIENT:
-        work_queue_add (bm->process_rsclient_queue, pqnode);
-        break;
-    }
 
   return;
 }
@@ -2672,17 +2677,18 @@ bgp_soft_reconfig_in (struct peer *peer, afi_t afi, safi_t safi)
 	bgp_soft_reconfig_table (peer, afi, safi, table);
 }
 
-
 struct bgp_clear_node_queue
 {
   struct bgp_node *rn;
   enum bgp_clear_route_type purpose;
 };
 
+WQ_ARGS_SIZE_OK(bgp_clear_node_queue) ;
+
 static wq_item_status
-bgp_clear_route_node (struct work_queue *wq, void *data)
+bgp_clear_route_node (struct work_queue *wq, work_queue_item item)
 {
-  struct bgp_clear_node_queue *cnq = data;
+  struct bgp_clear_node_queue *cnq = work_queue_item_args(item) ;
   struct bgp_node *rn = cnq->rn;
   struct peer *peer = wq->spec.data;
   struct bgp_info *ri;
@@ -2708,15 +2714,14 @@ bgp_clear_route_node (struct work_queue *wq, void *data)
 }
 
 static void
-bgp_clear_node_queue_del (struct work_queue *wq, void *data)
+bgp_clear_node_queue_del (struct work_queue *wq, work_queue_item item)
 {
-  struct bgp_clear_node_queue *cnq = data;
+  struct bgp_clear_node_queue *cnq = work_queue_item_args(item) ;
   struct bgp_node *rn = cnq->rn;
   struct bgp_table *table = rn->table;
 
   bgp_unlock_node (rn);
   bgp_table_unlock (table);
-  XFREE (MTYPE_BGP_CLEAR_NODE_QUEUE, cnq);
 }
 
 static void
@@ -2823,11 +2828,9 @@ bgp_clear_route_table (struct peer *peer, afi_t afi, safi_t safi,
             /* both unlocked in bgp_clear_node_queue_del */
             bgp_table_lock (rn->table);
             bgp_lock_node (rn);
-            cnq = XCALLOC (MTYPE_BGP_CLEAR_NODE_QUEUE,
-                           sizeof (struct bgp_clear_node_queue));
-            cnq->rn = rn;
+            cnq = work_queue_item_add(peer->clear_node_queue) ;
+            cnq->rn      = rn;
             cnq->purpose = purpose;
-            work_queue_add (peer->clear_node_queue, cnq);
             break;
           }
 

@@ -44,7 +44,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 /* Packet send and receive function prototypes. */
 extern int bgp_read (struct thread *);
-extern int bgp_write (bgp_peer peer);
+extern int bgp_write (bgp_peer peer, struct stream*);
 
 extern void bgp_keepalive_send (struct peer *);
 extern void bgp_open_send (struct peer *);

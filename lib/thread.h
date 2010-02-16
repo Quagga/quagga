@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_THREAD_H
@@ -25,6 +25,7 @@
 #include <sys/resource.h>
 #include "qtime.h"
 #include "qpnexus.h"
+#include "qtimers.h"
 
 struct rusage_t
 {
@@ -68,22 +69,22 @@ struct thread
 {
   thread_type type;		/* thread type */
   thread_type add_type;		/* thread type */
-  struct thread *next;		/* next pointer of the thread */   
+  struct thread *next;		/* next pointer of the thread */
   struct thread *prev;		/* previous pointer of the thread */
   struct thread_master *master;	/* pointer to the struct thread_master. */
   int (*func) (struct thread *); /* event function */
   void *arg;			/* event argument */
   union {
-    int val;			/* second argument of the event. */
+    int val;			/* second argument of the event.          */
     int fd;			/* file descriptor in case of read/write. */
-    struct timeval sands;	/* rest of time sands value. */
+    struct timeval sands;	/* rest of time sands value.              */
+    qtimer qtr ;                /* pointer to related qtimer              */
   } u;
   RUSAGE_T ru;			/* Indepth usage info.  */
   struct cpu_thread_history *hist; /* cache pointer to cpu_history */
-  char* funcname;
 };
 
-struct cpu_thread_history 
+struct cpu_thread_history
 {
   int (*func)(struct thread *);
   const char *funcname;
@@ -169,8 +170,9 @@ extern struct thread_master *thread_master_create (void);
 extern void thread_master_free (struct thread_master *);
 extern void thread_init_r (void);
 extern void thread_finish (void);
+extern void thread_set_qtimer_pile(qtimer_pile pile) ;
 
-extern struct thread *funcname_thread_add_read (struct thread_master *, 
+extern struct thread *funcname_thread_add_read (struct thread_master *,
 				                int (*)(struct thread *),
 				                void *, int, const char*);
 extern struct thread *funcname_thread_add_write (struct thread_master *,
@@ -196,8 +198,8 @@ extern struct thread *funcname_thread_execute (struct thread_master *,
 extern void thread_cancel (struct thread *);
 extern unsigned int thread_cancel_event (struct thread_master *, void *);
 extern struct thread *thread_fetch (struct thread_master *, struct thread *);
-struct thread * thread_fetch_event (enum qpn_priority,struct thread_master *m, struct thread *fetch,
-    qtime_mono_t *event_wait);
+extern int thread_dispatch(struct thread_master *m) ;
+extern int thread_dispatch_background(struct thread_master *m) ;
 extern void thread_call (struct thread *);
 extern unsigned long thread_timer_remain_second (struct thread *);
 extern int thread_should_yield (struct thread *);
