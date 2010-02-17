@@ -63,7 +63,7 @@ bgp_msg_get_mlen(uint8_t* p, uint8_t* limit)
   uint16_t mlen ;
   passert((p + BGP_MH_HEAD_L) <= limit) ;
 
-  mlen = (*(p + BGP_MH_MARKER_L)) + (*(p + BGP_MH_MARKER_L + 1) << 8) ;
+  mlen = (*(p + BGP_MH_MARKER_L) << 8) + (*(p + BGP_MH_MARKER_L + 1)) ;
 
   passert((p + mlen) <= limit) ;
 

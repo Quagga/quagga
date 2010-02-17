@@ -589,7 +589,9 @@ main (int argc, char **argv)
 #ifdef QDEBUG
   zlog_notice("%s", debug_banner);
 #endif
-  zlog_notice ("BGPd %s starting: vty@%d, bgp@%s:%d", QUAGGA_VERSION,
+  zlog_notice ("BGPd %s%s starting: vty@%d, bgp@%s:%d",
+               QUAGGA_VERSION,
+               (qpthreads_enabled ? " pthreaded" : ""),
 	       vty_port,
 	       (bm->address ? bm->address : "<all>"),
 	       (int)bm->port);
