@@ -70,6 +70,7 @@ struct igmp_join {
   struct in_addr group_addr;
   struct in_addr source_addr;
   int            sock_fd;
+  time_t         sock_creation;
 };
 
 struct igmp_sock {
