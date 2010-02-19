@@ -38,6 +38,7 @@
 #include "pim_ifchannel.h"
 #include "pim_rand.h"
 #include "pim_sock.h"
+#include "pim_time.h"
 #include "pim_ssmpingd.h"
 
 static void pim_if_igmp_join_del_all(struct interface *ifp);
@@ -917,9 +918,10 @@ static struct igmp_join *igmp_join_new(struct interface *ifp,
     return 0;
   }
 
-  ij->sock_fd     = join_fd;
-  ij->group_addr  = group_addr;
-  ij->source_addr = source_addr;
+  ij->sock_fd       = join_fd;
+  ij->group_addr    = group_addr;
+  ij->source_addr   = source_addr;
+  ij->sock_creation = pim_time_monotonic_sec();
 
   listnode_add(pim_ifp->igmp_join_list, ij);
 
@@ -973,6 +975,16 @@ int pim_if_igmp_join_add(struct interface *ifp,
 	      __PRETTY_FUNCTION__,
 	      group_str, source_str, ifp->name);
     return -4;
+  }
+
+  {
+    char group_str[100];
+    char source_str[100];
+    pim_inet4_dump("<grp?>", group_addr, group_str, sizeof(group_str));
+    pim_inet4_dump("<src?>", source_addr, source_str, sizeof(source_str));
+    zlog_info("%s: issued static igmp join for channel (S,G)=(%s,%s) on interface %s",
+	      __PRETTY_FUNCTION__,
+	      source_str, group_str, ifp->name);
   }
 
   return 0;

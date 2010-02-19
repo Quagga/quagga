@@ -34,6 +34,7 @@
 #include "pim_vty.h"
 #include "pim_mroute.h"
 #include "pim_str.h"
+#include "pim_igmp.h"
 #include "pim_igmpv3.h"
 #include "pim_sock.h"
 #include "pim_time.h"
@@ -453,6 +454,59 @@ static void igmp_show_interfaces(struct vty *vty)
 	      VTY_NEWLINE);
     }
   }
+}
+
+static void igmp_show_interface_join(struct vty *vty)
+{
+  struct listnode  *node;
+  struct interface *ifp;
+  time_t            now;
+  
+  now = pim_time_monotonic_sec();
+
+  vty_out(vty,
+	  "Interface Address         Source          Group           Socket Uptime  %s",
+	  VTY_NEWLINE);
+
+  for (ALL_LIST_ELEMENTS_RO(iflist, node, ifp)) {
+    struct pim_interface *pim_ifp;
+    struct listnode *join_node;
+    struct igmp_join *ij;
+    struct in_addr pri_addr;
+    char pri_addr_str[100];
+
+    pim_ifp = ifp->info;
+    
+    if (!pim_ifp)
+      continue;
+
+    if (!pim_ifp->igmp_join_list)
+      continue;
+
+    pri_addr = pim_find_primary_addr(ifp);
+    pim_inet4_dump("<pri?>", pri_addr, pri_addr_str, sizeof(pri_addr_str));
+
+    for (ALL_LIST_ELEMENTS_RO(pim_ifp->igmp_join_list, join_node, ij)) {
+      char group_str[100];
+      char source_str[100];
+      char uptime[10];
+
+      pim_time_uptime(uptime, sizeof(uptime), now - ij->sock_creation);
+      pim_inet4_dump("<grp?>", ij->group_addr, group_str, sizeof(group_str));
+      pim_inet4_dump("<src?>", ij->source_addr, source_str, sizeof(source_str));
+      
+      vty_out(vty, "%-9s %-15s %-15s %-15s %6d %8s%s",
+	      ifp->name,
+	      pri_addr_str,
+	      source_str,
+	      group_str,
+	      ij->sock_fd,
+	      uptime,
+	      VTY_NEWLINE);
+    } /* for (pim_ifp->igmp_join_list) */
+
+  } /* for (iflist) */
+
 }
 
 static void show_interface_address(struct vty *vty)
@@ -1543,6 +1597,19 @@ DEFUN (show_ip_igmp_interface,
        "IGMP interface information\n")
 {
   igmp_show_interfaces(vty);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (show_ip_igmp_join,
+       show_ip_igmp_join_cmd,
+       "show ip igmp join",
+       SHOW_STR
+       IP_STR
+       IGMP_STR
+       "IGMP static join information\n")
+{
+  igmp_show_interface_join(vty);
 
   return CMD_SUCCESS;
 }
@@ -4140,6 +4207,7 @@ void pim_cmd_init()
   install_element (INTERFACE_NODE, &interface_no_ip_pim_ssm_cmd); 
 
   install_element (VIEW_NODE, &show_ip_igmp_interface_cmd);
+  install_element (VIEW_NODE, &show_ip_igmp_join_cmd);
   install_element (VIEW_NODE, &show_ip_igmp_parameters_cmd);
   install_element (VIEW_NODE, &show_ip_igmp_groups_cmd);
   install_element (VIEW_NODE, &show_ip_igmp_groups_retransmissions_cmd);
@@ -4175,6 +4243,7 @@ void pim_cmd_init()
   install_element (ENABLE_NODE, &clear_ip_pim_interfaces_cmd);
 
   install_element (ENABLE_NODE, &show_ip_igmp_interface_cmd);
+  install_element (ENABLE_NODE, &show_ip_igmp_join_cmd);
   install_element (ENABLE_NODE, &show_ip_igmp_parameters_cmd);
   install_element (ENABLE_NODE, &show_ip_igmp_groups_cmd);
   install_element (ENABLE_NODE, &show_ip_igmp_groups_retransmissions_cmd);
