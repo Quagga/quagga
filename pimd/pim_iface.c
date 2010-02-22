@@ -982,9 +982,9 @@ int pim_if_igmp_join_add(struct interface *ifp,
     char source_str[100];
     pim_inet4_dump("<grp?>", group_addr, group_str, sizeof(group_str));
     pim_inet4_dump("<src?>", source_addr, source_str, sizeof(source_str));
-    zlog_info("%s: issued static igmp join for channel (S,G)=(%s,%s) on interface %s",
-	      __PRETTY_FUNCTION__,
-	      source_str, group_str, ifp->name);
+    zlog_debug("%s: issued static igmp join for channel (S,G)=(%s,%s) on interface %s",
+	       __PRETTY_FUNCTION__,
+	       source_str, group_str, ifp->name);
   }
 
   return 0;

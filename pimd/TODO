@@ -370,4 +370,31 @@ T41 DONE ssmping support
     
     show ip ssmpingd
 
+T42 Static igmp join fails when loading config at boot time
+
+    ! Wrong behavior seen at boot time:
+    !
+    2010/02/22 08:59:00 PIM: igmp_source_forward_start: ignoring request for
+    looped MFC entry (S,G)=(3.3.3.3,239.3.3.3): igmp_sock=12 oif=eth0 vif_index=2
+
+    ! Correct behavior seen later:
+    !
+    2010/02/22 09:03:16 PIM: igmp_source_forward_start: ignoring request for
+    looped MFC entry (S,G)=(2.2.2.2,239.2.2.2): igmp_sock=17 oif=lo vif_index=1
+
+    ! To see the wrong message at boot:    
+    !
+    debug igmp trace
+    !
+    interface lo
+     ip igmp
+     ip igmp join 239.2.2.2 2.2.2.2
+     ip igmp join 239.3.3.3 3.3.3.3
+    !
+
+    ! Interfaces indexes:
+    Interface Address         ifi Vif  PktsIn PktsOut    BytesIn   BytesOut
+    eth0      200.202.112.3     2   2       0       0          0          0
+    lo        127.0.0.1         1   1       0       0          0          0
+    
 -x-
