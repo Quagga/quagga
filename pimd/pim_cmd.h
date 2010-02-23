@@ -38,6 +38,7 @@
 #define DEBUG_IGMP_EVENTS_STR                       "IGMP protocol events\n"
 #define DEBUG_IGMP_PACKETS_STR                      "IGMP protocol packets\n"
 #define DEBUG_IGMP_TRACE_STR                        "IGMP internal daemon activity\n"
+#define DEBUG_MROUTE_STR                            "PIM interaction with kernel MFC cache\n"
 #define DEBUG_PIM_STR                               "PIM protocol activity\n"
 #define DEBUG_PIM_EVENTS_STR                        "PIM protocol events\n"
 #define DEBUG_PIM_PACKETS_STR                       "PIM protocol packets\n"
