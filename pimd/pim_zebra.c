@@ -754,6 +754,17 @@ static int add_oif(struct channel_oil *channel_oil,
 
   pim_ifp = oif->info;
 
+  if (PIM_DEBUG_MROUTE) {
+    char group_str[100]; 
+    char source_str[100];
+    pim_inet4_dump("<group?>", channel_oil->oil.mfcc_mcastgrp, group_str, sizeof(group_str));
+    pim_inet4_dump("<source?>", channel_oil->oil.mfcc_origin, source_str, sizeof(source_str));
+    zlog_debug("%s %s: (S,G)=(%s,%s): proto_mask=%u OIF=%s vif_index=%d",
+	       __FILE__, __PRETTY_FUNCTION__,
+	       source_str, group_str,
+	       proto_mask, oif->name, pim_ifp->mroute_vif_index);
+  }
+
   if (pim_ifp->mroute_vif_index < 1) {
     zlog_warn("%s %s: interface %s vif_index=%d < 1",
 	      __FILE__, __PRETTY_FUNCTION__,
@@ -860,6 +871,17 @@ static int add_oif(struct channel_oil *channel_oil,
   ++channel_oil->oil_size;
   channel_oil->oif_flags[pim_ifp->mroute_vif_index] |= proto_mask;
 
+  if (PIM_DEBUG_MROUTE) {
+    char group_str[100]; 
+    char source_str[100];
+    pim_inet4_dump("<group?>", channel_oil->oil.mfcc_mcastgrp, group_str, sizeof(group_str));
+    pim_inet4_dump("<source?>", channel_oil->oil.mfcc_origin, source_str, sizeof(source_str));
+    zlog_debug("%s %s: (S,G)=(%s,%s): proto_mask=%u OIF=%s vif_index=%d: DONE",
+	       __FILE__, __PRETTY_FUNCTION__,
+	       source_str, group_str,
+	       proto_mask, oif->name, pim_ifp->mroute_vif_index);
+  }
+
   return 0;
 }
 
@@ -877,6 +899,17 @@ static int del_oif(struct channel_oil *channel_oil,
   zassert(pim_ifp->mroute_vif_index >= 1);
   zassert(qpim_mroute_oif_highest_vif_index < MAXVIFS);
   zassert(pim_ifp->mroute_vif_index <= qpim_mroute_oif_highest_vif_index);
+
+  if (PIM_DEBUG_MROUTE) {
+    char group_str[100]; 
+    char source_str[100];
+    pim_inet4_dump("<group?>", channel_oil->oil.mfcc_mcastgrp, group_str, sizeof(group_str));
+    pim_inet4_dump("<source?>", channel_oil->oil.mfcc_origin, source_str, sizeof(source_str));
+    zlog_debug("%s %s: (S,G)=(%s,%s): proto_mask=%u OIF=%s vif_index=%d",
+	       __FILE__, __PRETTY_FUNCTION__,
+	       source_str, group_str,
+	       proto_mask, oif->name, pim_ifp->mroute_vif_index);
+  }
 
   /* Prevent single protocol from unsubscribing same interface from
      channel (S,G) multiple times */
@@ -961,6 +994,17 @@ static int del_oif(struct channel_oil *channel_oil,
 		__FILE__, __PRETTY_FUNCTION__,
 		source_str, group_str);
     }
+  }
+
+  if (PIM_DEBUG_MROUTE) {
+    char group_str[100]; 
+    char source_str[100];
+    pim_inet4_dump("<group?>", channel_oil->oil.mfcc_mcastgrp, group_str, sizeof(group_str));
+    pim_inet4_dump("<source?>", channel_oil->oil.mfcc_origin, source_str, sizeof(source_str));
+    zlog_debug("%s %s: (S,G)=(%s,%s): proto_mask=%u OIF=%s vif_index=%d: DONE",
+	       __FILE__, __PRETTY_FUNCTION__,
+	       source_str, group_str,
+	       proto_mask, oif->name, pim_ifp->mroute_vif_index);
   }
 
   return 0;

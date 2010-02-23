@@ -49,6 +49,11 @@ int pim_debug_config_write(struct vty *vty)
     ++writes;
   }
 
+  if (PIM_DEBUG_MROUTE) {
+    vty_out(vty, "debug mroute%s", VTY_NEWLINE);
+    ++writes;
+  }
+
   if (PIM_DEBUG_PIM_EVENTS) {
     vty_out(vty, "debug pim events%s", VTY_NEWLINE);
     ++writes;
