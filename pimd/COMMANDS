@@ -49,6 +49,7 @@ debug commands:
        clear ip igmp interfaces		Reset IGMP interfaces
        clear ip pim interfaces		Reset PIM interfaces
        debug igmp			IGMP protocol activity
+       debug mroute			PIM interaction with kernel MFC cache
        debug pim			PIM protocol activity
        debug pim zebra			ZEBRA protocol activity
        debug ssmpingd			ssmpingd activity
