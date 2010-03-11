@@ -285,6 +285,12 @@ Hello, this is " QUAGGA_PROGNAME " " QUAGGA_VERSION " " PIMD_PROGNAME " " PIMD_V
   zlog_notice("PIM_UNEXPECTED_KERNEL_UPCALL: report unexpected kernel upcall");
 #endif
 
+#ifdef HAVE_CLOCK_MONOTONIC
+  zlog_notice("HAVE_CLOCK_MONOTONIC");
+#else
+  zlog_notice("!HAVE_CLOCK_MONOTONIC");
+#endif
+
   /*
     Initialize zclient "update" and "lookup" sockets
    */
