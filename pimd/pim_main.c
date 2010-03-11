@@ -285,6 +285,14 @@ Hello, this is " QUAGGA_PROGNAME " " QUAGGA_VERSION " " PIMD_PROGNAME " " PIMD_V
   zlog_notice("PIM_UNEXPECTED_KERNEL_UPCALL: report unexpected kernel upcall");
 #endif
 
+#ifdef PIM_FORCE_QUAGGA_REALTIME_STABILISED
+  zlog_notice("PIM_USE_QUAGGA_GETTIME: using Quagga's quagga_gettime"());
+#endif
+
+#ifdef PIM_GETTIME_USE_GETTIMEOFDAY
+  zlog_notice("PIM_GETTIME_USE_GETTIMEOFDAY: work-around improper monotonic clock");
+#endif
+
 #ifdef HAVE_CLOCK_MONOTONIC
   zlog_notice("HAVE_CLOCK_MONOTONIC");
 #else
