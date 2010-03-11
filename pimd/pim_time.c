@@ -30,16 +30,31 @@
 
 #include "pim_time.h"
 
-static int pim_gettime(enum quagga_clkid clkid, struct timeval *tv)
+static int pim_gettime(int clk_id, struct timeval *tv)
 {
+  struct timespec ts;
   int result;
 
-  result = quagga_gettime(clkid, tv);
+#ifdef PIM_USE_QUAGGA_GETTIME
+  result = quagga_gettime(clk_id, tv);
   if (result) {
-    zlog_err("%s: quagga_gettime(clkid=%d) failure: errno=%d: %s",
-	     __PRETTY_FUNCTION__, clkid,
+    zlog_err("%s: quagga_gettime(clk_id=%d) failure: errno=%d: %s",
+	     __PRETTY_FUNCTION__, clk_id,
 	     errno, safe_strerror(errno));
   }
+#else
+  result = clock_gettime(clk_id, &ts);
+  if (result) {
+    zlog_err("%s: clock_gettime(clk_id=%d) failure: errno=%d: %s",
+	     __PRETTY_FUNCTION__, clk_id,
+	     errno, safe_strerror(errno));
+    return result;
+  }
+  if (tv) {
+    tv->tv_sec  = ts.tv_sec;
+    tv->tv_usec = 1000 * ts.tv_nsec;
+  }
+#endif
 
   return result;
 }
@@ -48,12 +63,28 @@ static int gettime_monotonic(struct timeval *tv)
 {
   int result;
 
+#ifdef PIM_GETTIME_USE_GETTIMEOFDAY
+  result = gettimeofday(tv, 0);
+  if (result) {
+    zlog_err("%s: gettimeofday() failure: errno=%d: %s",
+	     __PRETTY_FUNCTION__,
+	     errno, safe_strerror(errno));
+  }
+#elif defined(PIM_USE_QUAGGA_GETTIME)
   result = pim_gettime(QUAGGA_CLK_MONOTONIC, tv);
   if (result) {
     zlog_err("%s: pim_gettime(QUAGGA_CLK_MONOTONIC=%d) failure: errno=%d: %s",
+	     __PRETTY_FUNCTION__, QUAGGA_CLK_MONOTONIC,
+	     errno, safe_strerror(errno));
+  }
+#else
+  result = pim_gettime(CLOCK_MONOTONIC, tv);
+  if (result) {
+    zlog_err("%s: pim_gettime(CLOCK_MONOTONIC=%d) failure: errno=%d: %s",
 	     __PRETTY_FUNCTION__, CLOCK_MONOTONIC,
 	     errno, safe_strerror(errno));
   }
+#endif
 
   return result;
 }
