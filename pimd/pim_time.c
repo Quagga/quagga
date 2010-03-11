@@ -30,12 +30,32 @@
 
 #include "pim_time.h"
 
-/*
-  see man clock_gettime
- */
-static int pim_gettime(clockid_t clk_id, struct timeval *tv)
+static int pim_gettime(enum quagga_clkid clkid, struct timeval *tv)
 {
-  return quagga_gettime(clk_id, tv);
+  int result;
+
+  result = quagga_gettime(clkid, tv);
+  if (result) {
+    zlog_err("%s: quagga_gettime(clkid=%d) failure: errno=%d: %s",
+	     __PRETTY_FUNCTION__, clkid,
+	     errno, safe_strerror(errno));
+  }
+
+  return result;
+}
+
+static int gettime_monotonic(struct timeval *tv)
+{
+  int result;
+
+  result = pim_gettime(QUAGGA_CLK_MONOTONIC, tv);
+  if (result) {
+    zlog_err("%s: pim_gettime(QUAGGA_CLK_MONOTONIC=%d) failure: errno=%d: %s",
+	     __PRETTY_FUNCTION__, CLOCK_MONOTONIC,
+	     errno, safe_strerror(errno));
+  }
+
+  return result;
 }
 
 /*
@@ -46,8 +66,8 @@ int64_t pim_time_monotonic_sec()
 {
   struct timeval now_tv;
 
-  if (pim_gettime(CLOCK_MONOTONIC, &now_tv)) {
-    zlog_err("%s: gettime(CLOCK_MONOTONIC) failure: errno=%d: %s",
+  if (gettime_monotonic(&now_tv)) {
+    zlog_err("%s: gettime_monotonic() failure: errno=%d: %s",
 	     __PRETTY_FUNCTION__,
 	     errno, safe_strerror(errno));
     return -1;
@@ -65,8 +85,8 @@ int64_t pim_time_monotonic_dsec()
   struct timeval now_tv;
   int64_t        now_dsec;
 
-  if (pim_gettime(CLOCK_MONOTONIC, &now_tv)) {
-    zlog_err("%s: gettime(CLOCK_MONOTONIC) failure: errno=%d: %s",
+  if (gettime_monotonic(&now_tv)) {
+    zlog_err("%s: gettime_monotonic() failure: errno=%d: %s",
 	     __PRETTY_FUNCTION__,
 	     errno, safe_strerror(errno));
     return -1;

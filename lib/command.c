@@ -82,7 +82,7 @@ static struct cmd_node config_node =
 };
 
 /* Default motd string. */
-static const char *default_motd =
+const char *default_motd =
 "\r\n\
 Hello, this is " QUAGGA_PROGNAME " (version " QUAGGA_VERSION ").\r\n\
 " QUAGGA_COPYRIGHT "\r\n\
