@@ -26,56 +26,130 @@
 #include "memory.h"
 #include "command_queue.h"
 
-/* Prototypes */
-static void cq_action(mqueue_block mqb, mqb_flag_t flag);
+/*------------------------------------------------------------------------------
+ * Form of message passed with command to be executed
+ */
 
+struct cq_command_args
+{
+  qpn_nexus ret_nexus ;
+
+  struct cmd_element *cmd ;
+
+  enum node_type  cnode ;               /* vty->node before execution   */
+  enum node_type  onode ;               /* vty->node before "do"        */
+
+  short int       do_shortcut ;         /* true => is "do" command      */
+
+  short int       argc ;                /* count of arguments           */
+  short int       ret ;                 /* return code                  */
+} ;
+MQB_ARGS_SIZE_OK(cq_command_args) ;
+
+/*------------------------------------------------------------------------------
+ * Prototypes
+ */
+static void cq_action(mqueue_block mqb, mqb_flag_t flag);
+static void cq_return(mqueue_block mqb, mqb_flag_t flag);
+
+/*------------------------------------------------------------------------------
+ * Enqueue vty and argv[] for execution in given nexus.
+ */
 void
-cq_enqueue(struct cmd_element *matched_element, struct vty *vty,
-    int argc, const char *argv[], qpn_nexus bgp_nexus)
+cq_enqueue(struct vty *vty, struct cmd_parsed* parsed, qpn_nexus to_nexus,
+                                                       qpn_nexus from_nexus)
 {
   int i;
+  struct cq_command_args* args ;
+
   mqueue_block mqb = mqb_init_new(NULL, cq_action, vty) ;
+  args = mqb_get_args(mqb) ;
 
-  /* all parameters are pointers so use the queue's argv */
-  mqb_push_argv_p(mqb, matched_element);
-  for (i = 0; i < argc; ++i)
-    mqb_push_argv_p(mqb, XSTRDUP(MTYPE_MARSHAL, argv[i]));
+  args->cmd         = parsed->cmd ;
+  args->cnode       = parsed->cnode ;
+  args->onode       = parsed->onode ;
+  args->do_shortcut = parsed->do_shortcut ;
+  args->argc        = parsed->argc ;
 
-  mqueue_enqueue(bgp_nexus->queue, mqb, 0) ;
+  args->ret_nexus  = from_nexus ;
+  args->ret        = CMD_SUCCESS ;
+
+  for (i = 0; i < parsed->argc; ++i)
+    mqb_push_argv_p(mqb, XSTRDUP(MTYPE_MARSHAL, parsed->argv[i]));
+
+  mqueue_enqueue(to_nexus->queue, mqb, 0) ;
 }
 
-/* dispatch a command from the message queue block */
+/*------------------------------------------------------------------------------
+ * Dispatch a command from the message queue block
+ *
+ * When done (or revoked/deleted) return the message, so that the sender knows
+ * that the command has been dealt with (one way or another).
+ */
 static void
 cq_action(mqueue_block mqb, mqb_flag_t flag)
 {
-  int result;
-  int i;
-  struct cmd_element *matched_element;
   struct vty *vty;
-  void **argv;
-  int argc;
+  struct cq_command_args* args ;
 
-  vty = mqb_get_arg0(mqb);
-  argc = mqb_get_argv_count(mqb);
-  argv = mqb_get_argv(mqb) ;
-
-  matched_element = argv[0];
-  argv++;
-  argc--;
+  vty  = mqb_get_arg0(mqb);
+  args = mqb_get_args(mqb) ;
 
   if (flag == mqb_action)
     {
-      /* Execute matched command. */
-      result = (matched_element->func)
-       (matched_element, vty, argc, (const char **)argv);
+      const char** argv = mqb_get_argv(mqb) ;
 
-      /* report */
-      vty_queued_result(vty, result);
+      args->ret = (args->cmd->func)(args->cmd, vty, args->argc, argv) ;
     }
+  else
+    args->ret = CMD_QUEUED ;
 
-  /* clean up */
-  for (i = 0; i < argc; ++i)
-      XFREE(MTYPE_MARSHAL, argv[i]);
+  mqb_set_action(mqb, cq_return) ;
+  mqueue_enqueue(args->ret_nexus->queue, mqb, 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Accept return from command executed in another thread.
+ *
+ * The command line processing for the vty may be stalled (with read mode
+ * disabled) waiting for the return from the command.
+ *
+ * If the message is being revoked/deleted the state of the vty is still
+ * updated (to show that the command has completed) BUT nothing is kicked.
+ * It is up to the revoke/delete function to deal with any possibility of the
+ * vty remaining stalled.
+ */
+static void
+cq_return(mqueue_block mqb, mqb_flag_t flag)
+{
+  struct vty *vty ;
+  struct cq_command_args* args ;
+  int    i ;
+  void** argv ;
+  struct cmd_parsed parsed ;
+
+  vty  = mqb_get_arg0(mqb) ;
+  args = mqb_get_args(mqb) ;
+
+  /* clean up                                                           */
+  argv = mqb_get_argv(mqb) ;
+
+  for (i = 0; i < args->argc; ++i)
+    XFREE(MTYPE_MARSHAL, argv[i]);
+
+  /* signal end of command -- passing the action state                  */
+  parsed.cmd         = args->cmd ;
+  parsed.cnode       = args->cnode ;
+  parsed.onode       = args->onode ;
+  parsed.do_shortcut = args->do_shortcut ;
+  parsed.argc        = 0 ;
+  cmd_post_command(vty, &parsed, args->ret, (flag == mqb_action)) ;
+
+  /* update the state of the vty -- passing the "action" state          */
+  vty_queued_result(vty, args->ret, (flag == mqb_action));
+
+  if (qpthreads_enabled)
+    qpt_thread_signal(vty_cli_nexus->thread_id, SIGMQUEUE);
 
   mqb_free(mqb);
 }

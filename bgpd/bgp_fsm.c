@@ -1657,9 +1657,9 @@ static bgp_fsm_action(bgp_fsm_send_open)
         how = "accept" ;
 
       zlog_debug("%s open %s(), local address %s",
-                  sockunion2str(connection->su_remote, buf_r, SU_ADDRSTRLEN),
+                  sockunion2str(connection->su_remote, buf_r, sizeof(buf_r)),
                   how,
-                  sockunion2str(connection->su_local,  buf_l, SU_ADDRSTRLEN)) ;
+                  sockunion2str(connection->su_local,  buf_l, sizeof(buf_l))) ;
     } ;
 
   bgp_connection_read_enable(connection) ;
@@ -1817,7 +1817,7 @@ static bgp_fsm_action(bgp_fsm_recv_open)
                    bgp_msg_noms_o_bad_id(NULL, connection->open_recv->bgp_id)) ;
         } ;
 
-      /* NB: bgp_id in open_state is in *host* order                    */
+      /* NB: bgp_id in open_state is in *network* order                 */
       loser = (ntohl(session->open_send->bgp_id) <
                                               ntohl(sibling->open_recv->bgp_id))
                 ? connection

@@ -25,6 +25,8 @@
 #include <zebra.h>
 
 #include "log.h"
+#include "vty.h"
+#include "uty.h"
 #include "memory.h"
 #include "command.h"
 #ifndef SUNOS_5
@@ -35,15 +37,6 @@
 #include <ucontext.h>
 #endif
 #include "qpthreads.h"
-
-#ifdef NDEBUG
-#define LOCK qpt_mutex_lock(&vty_mutex);
-#define UNLOCK qpt_mutex_unlock(&vty_mutex);
-#else
-#define LOCK qpt_mutex_lock(&vty_mutex);++vty_lock_count;
-#define UNLOCK --vty_lock_count;qpt_mutex_unlock(&vty_mutex);
-#define ASSERTLOCKED if(vty_lock_count==0 && !vty_lock_asserted){vty_lock_asserted=1;assert(0);}
-#endif
 
 /* log is protected by the same mutext as vty, see comments in vty.c */
 
@@ -86,30 +79,55 @@ const char *zlog_priority[] =
   NULL,
 };
 
-/* For time string format. */
+/*==============================================================================
+ * Time stamp handling -- gettimeofday(), localtime() and strftime().
+ *
+ * Maintains a cached form of the current time (under the vty/log mutex), so
+ * that can avoid multiple calls of localtime() and strftime() per second.
+ *
+ * The value from gettimeofday() is in micro-seconds.  Can provide timestamp
+ * with any number of decimal digits, but at most 6 will be significant.
+ */
 
+/*------------------------------------------------------------------------------
+ * Fill buffer with current time, to given number of decimal digits.
+ *
+ * If given buffer is too small, provides as many characters as possible.
+ *
+ * Returns: number of characters in buffer, not including trailing '\0'.
+ *
+ * NB: does no rounding.
+ *
+ * NB: buflen MUST be > 1 and buf MUST NOT be NULL.
+ */
 size_t
 quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
 {
   size_t result;
-  LOCK
+  VTY_LOCK() ;
   result = uquagga_timestamp(timestamp_precision, buf, buflen);
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
-/* unprotected version for when mutex already held */
+/*------------------------------------------------------------------------------
+ * unprotected version for when mutex already held
+ */
 size_t
 uquagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
 {
   static struct {
     time_t last;
     size_t len;
-    char buf[28];
+    char buf[timestamp_buffer_len];
   } cache;
+
   struct timeval clock;
 
-  size_t result = 0;
+  size_t len ;
+  int    left ;
+
+  assert((buflen > 1) && (buf != NULL)) ;
 
   /* would it be sufficient to use global 'recent_time' here?  I fear not... */
   gettimeofday(&clock, NULL);
@@ -121,148 +139,232 @@ uquagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
       cache.last = clock.tv_sec;
       localtime_r(&cache.last, &tm);
       cache.len = strftime(cache.buf, sizeof(cache.buf),
-      			   "%Y/%m/%d %H:%M:%S", &tm);
+      			   "%Y/%m/%d %H:%M:%S", &tm) ;
+      assert(cache.len > 0) ;
     }
   /* note: it's not worth caching the subsecond part, because
      chances are that back-to-back calls are not sufficiently close together
      for the clock not to have ticked forward */
 
-  if (buflen > cache.len)
+  len = cache.len ;             /* NB: asserted cache.len > 0   */
+
+  left = (buflen - (len + 1)) ; /* what would be left           */
+  if (left < 0)
+    len = buflen - 1 ;          /* NB: asserted buflen > 1      */
+
+  memcpy(buf, cache.buf, len) ;
+
+  /* Can do decimal part if there is room for the '.' character     */
+  if ((timestamp_precision > 0) && (left > 0))
     {
-      memcpy(buf, cache.buf, cache.len);
-      if ((timestamp_precision > 0) &&
-	  (buflen > cache.len+1+timestamp_precision))
-	{
-	  /* should we worry about locale issues? */
-	  static const int divisor[] = {0, 100000, 10000, 1000, 100, 10, 1};
-	  int prec;
-	  char *p = buf+cache.len+1+(prec = timestamp_precision);
-	  *p-- = '\0';
-	  while (prec > 6)
-	    /* this is unlikely to happen, but protect anyway */
-	    {
-	      *p-- = '0';
-	      prec--;
-	    }
-	  clock.tv_usec /= divisor[prec];
-	  do
-	    {
-	      *p-- = '0'+(clock.tv_usec % 10);
-	      clock.tv_usec /= 10;
-	    }
-	  while (--prec > 0);
-	  *p = '.';
-	  result = cache.len+1+timestamp_precision;
-	}
-      else
+      /* should we worry about locale issues?              */
+      static const int divisor[] = {     1,                     /* 0        */
+                                    100000, 10000, 1000,        /* 1, 2, 3  */
+                                       100,    10,    1};       /* 4, 5, 6  */
+      int prec;
+      char *p ;
+
+      prec = timestamp_precision ;
+      if ((1 + prec) > left)
+        prec = left - 1 ;       /* NB: left > 0                 */
+      len += 1 + prec ;
+
+      p = buf + prec ;          /* point at last decimal digit  */
+
+      while (prec > 6)
+        /* this is unlikely to happen, but protect anyway */
         {
-          buf[cache.len] = '\0';
-          result = cache.len;
-        }
-    } else {
-      if (buflen > 0)
-        buf[0] = '\0';
-    }
+          *p-- = '0';
+          --prec ;
+        } ;
 
-  return result;
-}
+        clock.tv_usec /= divisor[prec];
 
-/* Utility routine for current time printing. */
-static void
-time_print(FILE *fp, struct timestamp_control *ctl)
-{
-  if (!ctl->already_rendered)
-    {
-      ctl->len = uquagga_timestamp(ctl->precision, ctl->buf, sizeof(ctl->buf));
-      ctl->already_rendered = 1;
-    }
-  fprintf(fp, "%s ", ctl->buf);
-}
+        while (prec > 0)        /* could have been reduced to 0 */
+          {
+            *p-- = '0'+(clock.tv_usec % 10);
+            clock.tv_usec /= 10;
+            --prec ;
+          } ;
 
-/* va_list version of zlog. */
+      *p = '.';
+    } ;
+
+  buf[len] = '\0';
+
+  return len ;
+} ;
+
+/*==============================================================================
+ * va_list version of zlog
+ */
 static void
 vzlog (struct zlog *zl, int priority, const char *format, va_list args)
 {
-  LOCK
+  VTY_LOCK() ;
   uvzlog(zl, priority, format, args);
-  UNLOCK
+  VTY_UNLOCK() ;
 }
 
 /* va_list version of zlog. Unprotected assumes mutex already held*/
 static void
-uvzlog (struct zlog *zl, int priority, const char *format, va_list args)
+uvzlog (struct zlog *zl, int priority, const char *format, va_list va)
 {
-  struct timestamp_control tsctl;
-  tsctl.already_rendered = 0;
+  struct logline ll ;           /* prepares line for output, here       */
 
-  ASSERTLOCKED
+  VTY_ASSERT_LOCKED() ;
 
-  /* If zlog is not specified, use default one. */
+  ll.p_nl = NULL ;              /* Nothing generated, yet               */
+
+  /* If zlog is not specified, use default one.                 */
   if (zl == NULL)
-    zl = zlog_default;
+    zl = zlog_default ;
 
-  /* When zlog_default is also NULL, use stderr for logging. */
+  /* When zlog_default is also NULL, use stderr for logging.    */
   if (zl == NULL)
     {
-      tsctl.precision = 0;
-      time_print(stderr, &tsctl);
-      fprintf (stderr, "%s: ", "unknown");
-      vfprintf (stderr, format, args);
-      fprintf (stderr, "\n");
-      fflush (stderr);
+      uvzlog_line(&ll, zl, priority, format, va, 0) ;
+      write(fileno(stderr), ll.line, ll.len) ;
     }
   else
     {
-      tsctl.precision = zl->timestamp_precision;
-
-      /* Syslog output */
+      /* Syslog output                                          */
       if (priority <= zl->maxlvl[ZLOG_DEST_SYSLOG])
         {
           va_list ac;
-          va_copy(ac, args);
+          va_copy(ac, va);
           vsyslog (priority|zlog_default->facility, format, ac);
           va_end(ac);
         }
 
-      /* File output. */
+      /* File output.                                           */
       if ((priority <= zl->maxlvl[ZLOG_DEST_FILE]) && zl->fp)
         {
-          va_list ac;
-          time_print (zl->fp, &tsctl);
-          if (zl->record_priority)
-            fprintf (zl->fp, "%s: ", zlog_priority[priority]);
-          fprintf (zl->fp, "%s: ", zlog_proto_names[zl->protocol]);
-          va_copy(ac, args);
-          vfprintf (zl->fp, format, ac);
-          va_end(ac);
-          fprintf (zl->fp, "\n");
-          fflush (zl->fp);
+          uvzlog_line(&ll, zl, priority, format, va, 0) ;
+          write(fileno(zl->fp), ll.line, ll.len) ;
         }
 
       /* stdout output. */
       if (priority <= zl->maxlvl[ZLOG_DEST_STDOUT])
         {
-          va_list ac;
-          time_print (stdout, &tsctl);
-          if (zl->record_priority)
-            fprintf (stdout, "%s: ", zlog_priority[priority]);
-          fprintf (stdout, "%s: ", zlog_proto_names[zl->protocol]);
-          va_copy(ac, args);
-          vfprintf (stdout, format, ac);
-          va_end(ac);
-          fprintf (stdout, "\n");
-          fflush (stdout);
+          uvzlog_line(&ll, zl, priority, format, va, 0) ;
+          write(fileno(zl->fp), ll.line, ll.len) ;
         }
 
       /* Terminal monitor. */
       if (priority <= zl->maxlvl[ZLOG_DEST_MONITOR])
-        {
-          const char *priority_name = (zl->record_priority ? zlog_priority[priority] : NULL);
-          const char *proto_name = zlog_proto_names[zl->protocol];
-          vty_log (priority_name, proto_name, format, &tsctl, args);
-        }
+        uty_log(&ll, zl, priority, format, va) ;
     }
 }
+
+/*------------------------------------------------------------------------------
+ * Preparation of line to send to logging: file, stdout or "monitor" terminals.
+ *
+ * Takes copy of va_list before using it, so the va_list is unchanged.
+ */
+extern void
+uvzlog_line(struct logline* ll, struct zlog *zl, int priority,
+                                       const char *format, va_list va, int crlf)
+{
+  char*   p ;
+
+  p = ll->p_nl ;
+
+  if (p != NULL)
+    {
+      /* we have the line -- just need to worry about the crlf state    */
+      if ((crlf && ll->crlf) || (!crlf && !ll->crlf))
+        return ;                /* exit here if all set */
+    }
+  else
+    {
+      /* must construct the line                                        */
+      const char* q ;
+      char*   e ;
+      size_t  len ;
+      va_list vac ;
+
+      p = ll->line = ll->buf ;
+      e = p + sizeof(ll->buf) - 3 ;  /* leave space for '\r', '\n' and '\0' */
+
+      /* "<time stamp> "                                                */
+      len = uquagga_timestamp((zl != NULL) ? zl->timestamp_precision : 0,
+                                                                     p, e - p) ;
+      p += len ;        /* len guaranteed to be <= e - p                */
+
+      if (p < e)
+        *p++ = ' ' ;
+
+      /* "<priority>: " if required                                     */
+      if ((zl != NULL) && (zl->record_priority))
+        {
+          q = zlog_priority[priority] ;
+          len = strlen(q) ;
+
+          if ((p + len) > e)
+            len = e - p ;
+
+          if (len > 0)
+            memcpy(p, q, len) ;
+          p += len ;
+
+          if (p < e)
+            *p++ = ':' ;
+          if (p < e)
+            *p++ = ' ' ;
+        } ;
+
+      /* "<protocol>: " or "unknown: "                                  */
+      if (zl != NULL)
+        q = zlog_proto_names[zl->protocol] ;
+      else
+        q = "unknown" ;
+
+      len = strlen(q) ;
+
+      if ((p + len) > e)
+        len = e - p ;
+
+      if (len > 0)
+        memcpy(p, q, len) ;
+      p += len ;
+
+      if (p < e)
+        *p++ = ':' ;
+      if (p < e)
+        *p++ = ' ' ;
+
+      /* Now the log line itself                                        */
+      /* Have reserved space for '\n', so have (e - p + 1) of buffer    */
+      if (p < e)
+        {
+          va_copy(vac, va);
+          len = vsnprintf(p, (e - p + 1), format, vac) ;
+          va_end(vac);
+
+          p += len ;            /* len returned is *required* length    */
+
+          if (p > e)
+            p = e ;             /* actual end                           */
+        } ;
+
+      ll->p_nl = p ;            /* set end pointer                      */
+
+      assert(p <= e) ;
+    } ;
+
+  /* finish off with '\r''\n''\0' or '\n''\0' as required               */
+  if (crlf)
+    *p++ = '\r' ;
+
+  *p++ = '\n' ;
+  *p = '\0' ;
+
+  ll->len = p - ll->line ;
+  ll->crlf = crlf ;
+} ;
+
+/*============================================================================*/
 
 static char *
 str_append(char *dst, int len, const char *src)
@@ -566,9 +668,9 @@ zlog_backtrace_sigsafe(int priority, void *program_counter)
 void
 zlog_backtrace(int priority)
 {
-  LOCK
+  VTY_LOCK() ;
   uzlog_backtrace(priority);
-  UNLOCK
+  VTY_UNLOCK() ;
 }
 
 static void
@@ -720,9 +822,9 @@ _zlog_abort_err (const char *mess, int err, const char *file,
 static void
 zlog_abort (const char *mess)
 {
-#ifndef NDEBUG
-  /* don't work about being unlocked */
-  vty_lock_asserted = 1;
+#if VTY_DEBUG
+  /* May not be locked -- but that doesn't matter any more              */
+  ++vty_lock_count ;
 #endif
 
   /* Force fallback file logging? */
@@ -778,7 +880,7 @@ closezlog (struct zlog *zl)
 void
 zlog_set_level (struct zlog *zl, zlog_dest_t dest, int log_level)
 {
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -788,7 +890,7 @@ zlog_set_level (struct zlog *zl, zlog_dest_t dest, int log_level)
       zl->maxlvl[dest] = log_level;
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
 }
 
 int
@@ -798,7 +900,7 @@ zlog_set_file (struct zlog *zl, const char *filename, int log_level)
   mode_t oldumask;
   int result = 1;
 
-  LOCK
+  VTY_LOCK() ;
 
   /* There is opend file.  */
   uzlog_reset_file (zl);
@@ -825,7 +927,7 @@ zlog_set_file (struct zlog *zl, const char *filename, int log_level)
         }
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
@@ -834,9 +936,9 @@ int
 zlog_reset_file (struct zlog *zl)
 {
   int result;
-  LOCK
+  VTY_LOCK() ;
   result = uzlog_reset_file(zl);
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
@@ -869,7 +971,7 @@ zlog_rotate (struct zlog *zl)
   int level;
   int result = 1;
 
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -908,7 +1010,7 @@ zlog_rotate (struct zlog *zl)
             }
         }
     }
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
@@ -917,7 +1019,7 @@ zlog_get_default_lvl (struct zlog *zl)
 {
   int result = LOG_DEBUG;
 
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -927,14 +1029,14 @@ zlog_get_default_lvl (struct zlog *zl)
       result = zl->default_lvl;
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
 void
 zlog_set_default_lvl (struct zlog *zl, int level)
 {
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -944,7 +1046,7 @@ zlog_set_default_lvl (struct zlog *zl, int level)
       zl->default_lvl = level;
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
 }
 
 /* Set logging level and default for all destinations */
@@ -953,7 +1055,7 @@ zlog_set_default_lvl_dest (struct zlog *zl, int level)
 {
   int i;
 
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -967,7 +1069,7 @@ zlog_set_default_lvl_dest (struct zlog *zl, int level)
           zl->maxlvl[i] = level;
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
 }
 
 int
@@ -975,7 +1077,7 @@ zlog_get_maxlvl (struct zlog *zl, zlog_dest_t dest)
 {
   int result = ZLOG_DISABLED;
 
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -985,7 +1087,7 @@ zlog_get_maxlvl (struct zlog *zl, zlog_dest_t dest)
       result = zl->maxlvl[dest];
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
@@ -994,7 +1096,7 @@ zlog_get_facility (struct zlog *zl)
 {
   int result = LOG_DAEMON;
 
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1004,14 +1106,14 @@ zlog_get_facility (struct zlog *zl)
       result = zl->facility;
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
 void
 zlog_set_facility (struct zlog *zl, int facility)
 {
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1021,7 +1123,7 @@ zlog_set_facility (struct zlog *zl, int facility)
       zl->facility = facility;
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
 }
 
 int
@@ -1029,7 +1131,7 @@ zlog_get_record_priority (struct zlog *zl)
 {
   int result = 0;
 
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1039,14 +1141,14 @@ zlog_get_record_priority (struct zlog *zl)
       result = zl->record_priority;
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
 void
 zlog_set_record_priority (struct zlog *zl, int record_priority)
 {
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1055,7 +1157,7 @@ zlog_set_record_priority (struct zlog *zl, int record_priority)
     {
       zl->record_priority = record_priority;
     }
-  UNLOCK
+  VTY_UNLOCK() ;
 }
 
 int
@@ -1063,7 +1165,7 @@ zlog_get_timestamp_precision (struct zlog *zl)
 {
   int result = 0;
 
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1072,14 +1174,14 @@ zlog_get_timestamp_precision (struct zlog *zl)
     {
       result = zl->timestamp_precision;
     }
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
 void
 zlog_set_timestamp_precision (struct zlog *zl, int timestamp_precision)
 {
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1089,7 +1191,7 @@ zlog_set_timestamp_precision (struct zlog *zl, int timestamp_precision)
       zl->timestamp_precision = timestamp_precision;
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
 }
 
 /* returns name of ZLOG_NONE if no zlog given and no default set */
@@ -1097,9 +1199,9 @@ const char *
 zlog_get_proto_name (struct zlog *zl)
 {
   const char * result;
-  LOCK
+  VTY_LOCK() ;
   result = uzlog_get_proto_name(zl);
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
@@ -1126,7 +1228,7 @@ zlog_get_filename (struct zlog *zl)
 {
   char * result = NULL;
 
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1136,7 +1238,7 @@ zlog_get_filename (struct zlog *zl)
       result = strdup(zl->filename);
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
@@ -1145,7 +1247,7 @@ zlog_get_ident (struct zlog *zl)
 {
   const char * result = NULL;
 
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1155,7 +1257,7 @@ zlog_get_ident (struct zlog *zl)
       result = zl->ident;
     }
 
-  UNLOCK
+  VTY_UNLOCK() ;
   return result;
 }
 
@@ -1165,7 +1267,7 @@ zlog_is_file (struct zlog *zl)
 {
   int result = 0;
 
-  LOCK
+  VTY_LOCK() ;
 
   if (zl == NULL)
     zl = zlog_default;
@@ -1175,7 +1277,7 @@ zlog_is_file (struct zlog *zl)
       result = (zl->fp != NULL);
     }
 
-  UNLOCK;
+  VTY_UNLOCK() ;;
   return result;
 }
 
@@ -1346,7 +1448,3 @@ proto_name2num(const char *s)
    return -1;
 }
 #undef RTSIZE
-
-#undef LOCK
-#undef UNLOCK
-#undef ASSERTLOCKED

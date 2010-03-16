@@ -57,7 +57,9 @@ extern struct in_addr router_id_zebra;
 afi_t
 bgp_node_afi (struct vty *vty)
 {
-  if (vty->node == BGP_IPV6_NODE || vty->node == BGP_IPV6M_NODE)
+  enum node_type node = vty_get_node(vty) ;
+
+  if (node == BGP_IPV6_NODE || node == BGP_IPV6M_NODE)
     return AFI_IP6;
   return AFI_IP;
 }
@@ -67,9 +69,11 @@ bgp_node_afi (struct vty *vty)
 safi_t
 bgp_node_safi (struct vty *vty)
 {
-  if (vty->node == BGP_VPNV4_NODE)
+  enum node_type node = vty_get_node(vty) ;
+
+  if (node == BGP_VPNV4_NODE)
     return SAFI_MPLS_VPN;
-  if (vty->node == BGP_IPV4M_NODE || vty->node == BGP_IPV6M_NODE)
+  if (node == BGP_IPV4M_NODE || node == BGP_IPV6M_NODE)
     return SAFI_MULTICAST;
   return SAFI_UNICAST;
 }
@@ -345,7 +349,7 @@ DEFUN (router_bgp,
       return CMD_WARNING;
     }
 
-  vty->node = BGP_NODE;
+  vty_set_node(vty, BGP_NODE) ;
   vty->index = bgp;
 
   return CMD_SUCCESS;
@@ -2203,7 +2207,7 @@ peer_rsclient_unset_vty (struct vty *vty, const char *peer_str,
 
   if ( ! peer_rsclient_active (peer) )
     {
-      bgp_clear_route (peer, afi, safi, BGP_CLEAR_ROUTE_MY_RSCLIENT);
+      bgp_clear_route_rsclient (peer, afi, safi);
       listnode_delete (bgp->rsclient, peer);
       peer_unlock (peer); /* peer bgp rsclient reference */
     }
@@ -3963,7 +3967,7 @@ DEFUN (address_family_ipv4,
        "Enter Address Family command mode\n"
        "Address family\n")
 {
-  vty->node = BGP_IPV4_NODE;
+  vty_set_node(vty, BGP_IPV4_NODE) ;
   return CMD_SUCCESS;
 }
 
@@ -3976,9 +3980,9 @@ DEFUN (address_family_ipv4_safi,
        "Address Family modifier\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    vty->node = BGP_IPV4M_NODE;
+    vty_set_node(vty, BGP_IPV4M_NODE) ;
   else
-    vty->node = BGP_IPV4_NODE;
+    vty_set_node(vty, BGP_IPV4_NODE) ;
 
   return CMD_SUCCESS;
 }
@@ -3989,7 +3993,7 @@ DEFUN (address_family_ipv6,
        "Enter Address Family command mode\n"
        "Address family\n")
 {
-  vty->node = BGP_IPV6_NODE;
+  vty_set_node(vty, BGP_IPV6_NODE) ;
   return CMD_SUCCESS;
 }
 
@@ -4002,9 +4006,9 @@ DEFUN (address_family_ipv6_safi,
        "Address Family modifier\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    vty->node = BGP_IPV6M_NODE;
+    vty_set_node(vty, BGP_IPV6M_NODE) ;
   else
-    vty->node = BGP_IPV6_NODE;
+    vty_set_node(vty, BGP_IPV6_NODE) ;
 
   return CMD_SUCCESS;
 }
@@ -4015,7 +4019,7 @@ DEFUN (address_family_vpnv4,
        "Enter Address Family command mode\n"
        "Address family\n")
 {
-  vty->node = BGP_VPNV4_NODE;
+  vty_set_node(vty, BGP_VPNV4_NODE) ;
   return CMD_SUCCESS;
 }
 
@@ -4031,12 +4035,14 @@ DEFUN (exit_address_family,
        "exit-address-family",
        "Exit from Address Family configuration mode\n")
 {
-  if (vty->node == BGP_IPV4_NODE
-      || vty->node == BGP_IPV4M_NODE
-      || vty->node == BGP_VPNV4_NODE
-      || vty->node == BGP_IPV6_NODE
-      || vty->node == BGP_IPV6M_NODE)
-    vty->node = BGP_NODE;
+  enum node_type node = vty_get_node(vty) ;
+
+  if (node == BGP_IPV4_NODE
+      || node == BGP_IPV4M_NODE
+      || node == BGP_VPNV4_NODE
+      || node == BGP_IPV6_NODE
+      || node == BGP_IPV6M_NODE)
+    node = BGP_NODE;
   return CMD_SUCCESS;
 }
 
@@ -7261,7 +7267,7 @@ static void
 bgp_show_peer (struct vty *vty, struct peer *p)
 {
   struct bgp *bgp;
-  char buf1[BUFSIZ];
+  char buf[SU_ADDRSTRLEN];
   char timebuf[BGP_UPTIME_LEN];
   afi_t afi;
   safi_t safi;
@@ -7298,7 +7304,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   /* BGP Version. */
   vty_out (vty, "  BGP version 4");
   vty_out (vty, ", remote router ID %s%s",
-	   inet_ntop (AF_INET, &p->remote_id, buf1, BUFSIZ),
+	   inet_ntop (AF_INET, &p->remote_id, buf, sizeof(buf)),
 	   VTY_NEWLINE);
 
   /* Confederation */
@@ -7522,7 +7528,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 	vty_out (vty, "%s", p->update_if);
       else if (p->update_source)
 	vty_out (vty, "%s",
-		 sockunion2str (p->update_source, buf1, SU_ADDRSTRLEN));
+		 sockunion2str (p->update_source, buf, sizeof(buf)));
       vty_out (vty, "%s", VTY_NEWLINE);
     }
 
@@ -7572,7 +7578,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   if (p->su_local)
     {
       vty_out (vty, "Local host: %s, Local port: %d%s",
-	       sockunion2str (p->su_local, buf1, SU_ADDRSTRLEN),
+	       sockunion2str (p->su_local, buf, sizeof(buf)),
 	       ntohs (p->su_local->sin.sin_port),
 	       VTY_NEWLINE);
     }
@@ -7581,7 +7587,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   if (p->su_remote)
     {
       vty_out (vty, "Foreign host: %s, Foreign port: %d%s",
-	       sockunion2str (p->su_remote, buf1, SU_ADDRSTRLEN),
+	       sockunion2str (p->su_remote, buf, sizeof(buf)),
 	       ntohs (p->su_remote->sin.sin_port),
 	       VTY_NEWLINE);
     }
@@ -7590,14 +7596,14 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   if (p->su_local)
     {
       vty_out (vty, "Nexthop: %s%s",
-	       inet_ntop (AF_INET, &p->nexthop.v4, buf1, BUFSIZ),
+	       inet_ntop (AF_INET, &p->nexthop.v4, buf, sizeof(buf)),
 	       VTY_NEWLINE);
 #ifdef HAVE_IPV6
       vty_out (vty, "Nexthop global: %s%s",
-	       inet_ntop (AF_INET6, &p->nexthop.v6_global, buf1, BUFSIZ),
+	       inet_ntop (AF_INET6, &p->nexthop.v6_global, buf, sizeof(buf)),
 	       VTY_NEWLINE);
       vty_out (vty, "Nexthop local: %s%s",
-	       inet_ntop (AF_INET6, &p->nexthop.v6_local, buf1, BUFSIZ),
+	       inet_ntop (AF_INET6, &p->nexthop.v6_local, buf, sizeof(buf)),
 	       VTY_NEWLINE);
       vty_out (vty, "BGP connection: %s%s",
 	       p->shared_network ? "shared network" : "non shared network",

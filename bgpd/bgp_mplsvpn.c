@@ -36,7 +36,7 @@ static u_int16_t
 decode_rd_type (u_char *pnt)
 {
   u_int16_t v;
-  
+
   v = ((u_int16_t) *pnt++ << 8);
   v |= (u_int16_t) *pnt;
   return v;
@@ -58,7 +58,7 @@ decode_rd_as (u_char *pnt, struct rd_as *rd_as)
 {
   rd_as->as = (u_int16_t) *pnt++ << 8;
   rd_as->as |= (u_int16_t) *pnt++;
-  
+
   rd_as->val = ((u_int32_t) *pnt++ << 24);
   rd_as->val |= ((u_int32_t) *pnt++ << 16);
   rd_as->val |= ((u_int32_t) *pnt++ << 8);
@@ -70,13 +70,13 @@ decode_rd_ip (u_char *pnt, struct rd_ip *rd_ip)
 {
   memcpy (&rd_ip->ip, pnt, 4);
   pnt += 4;
-  
+
   rd_ip->val = ((u_int16_t) *pnt++ << 8);
   rd_ip->val |= (u_int16_t) *pnt;
 }
 
 int
-bgp_nlri_parse_vpnv4 (struct peer *peer, struct attr *attr, 
+bgp_nlri_parse_vpnv4 (struct peer *peer, struct attr *attr,
 		      struct bgp_nlri *packet)
 {
   u_char *pnt;
@@ -94,7 +94,7 @@ bgp_nlri_parse_vpnv4 (struct peer *peer, struct attr *attr,
   /* Check peer status. */
   if (peer->state != bgp_peer_sEstablished)
     return 0;
-  
+
   /* Make prefix_rd */
   prd.family = AF_UNSPEC;
   prd.prefixlen = 64;
@@ -234,12 +234,12 @@ str2tag (const char *str, u_char *tag)
   u_int32_t t;
 
   l = strtoul (str, &endptr, 10);
-  
+
   if (*endptr == '\0' || l == ULONG_MAX || l > UINT32_MAX)
     return 0;
 
   t = (u_int32_t) l;
-  
+
   tag[0] = (u_char)(t >> 12);
   tag[1] = (u_char)(t >> 4);
   tag[2] = (u_char)(t << 4);
@@ -421,7 +421,7 @@ bgp_show_mpls_vpn (struct vty *vty, struct prefix_rd *prd, enum bgp_show_type ty
       vty_out (vty, "No BGP process is configured%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  
+
   for (rn = bgp_table_top (bgp->rib[AFI_IP][SAFI_MPLS_VPN]); rn; rn = bgp_route_next (rn))
     {
       if (prd && memcmp (rn->p.u.val, prd->val, 8) != 0)
@@ -432,7 +432,7 @@ bgp_show_mpls_vpn (struct vty *vty, struct prefix_rd *prd, enum bgp_show_type ty
 	  rd_header = 1;
 
 	  for (rm = bgp_table_top (table); rm; rm = bgp_route_next (rm))
-	    for (ri = rm->info; ri; ri = ri->next)
+	    for (ri = rm->info; ri; ri = ri->info_next)
 	      {
 		if (type == bgp_show_type_neighbor)
 		  {
@@ -481,8 +481,8 @@ bgp_show_mpls_vpn (struct vty *vty, struct prefix_rd *prd, enum bgp_show_type ty
 		      vty_out (vty, "%u:%d", rd_as.as, rd_as.val);
 		    else if (type == RD_TYPE_IP)
 		      vty_out (vty, "%s:%d", safe_inet_ntoa (rd_ip.ip), rd_ip.val);
-		  
-		    vty_out (vty, "%s", VTY_NEWLINE);		  
+
+		    vty_out (vty, "%s", VTY_NEWLINE);
 		    rd_header = 0;
 		  }
 	        if (tags)
@@ -579,7 +579,7 @@ DEFUN (show_ip_bgp_vpnv4_all_neighbor_routes,
 {
   union sockunion *su;
   struct peer *peer;
-  
+
   su = sockunion_str2su (argv[0]);
   if (su == NULL)
     {

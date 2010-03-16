@@ -1,25 +1,30 @@
-/* Virtual terminal [aka TeletYpe] interface routine
-   Copyright (C) 1997 Kunihiro Ishiguro
-
-This file is part of GNU Zebra.
-
-GNU Zebra is free software; you can redistribute it and/or modify it
-under the terms of the GNU General Public License as published by the
-Free Software Foundation; either version 2, or (at your option) any
-later version.
-
-GNU Zebra is distributed in the hope that it will be useful, but
-WITHOUT ANY WARRANTY; without even the implied warranty of
-MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
-General Public License for more details.
-
-You should have received a copy of the GNU General Public License
-along with GNU Zebra; see the file COPYING.  If not, write to the Free
-Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
-02111-1307, USA.  */
+/* VTY top level
+ * Copyright (C) 1997, 98 Kunihiro Ishiguro
+ *
+ * Revisions: Copyright (C) 2010 Chris Hall (GMCH), Highwayman
+ *
+ * This file is part of GNU Zebra.
+ *
+ * GNU Zebra is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2, or (at your option) any
+ * later version.
+ *
+ * GNU Zebra is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with GNU Zebra; see the file COPYING.  If not, write to the Free
+ * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+ * 02111-1307, USA.
+ */
 
 #ifndef _ZEBRA_VTY_H
 #define _ZEBRA_VTY_H
+
+#include <stdbool.h>
 
 #include "thread.h"
 #include "log.h"
@@ -27,115 +32,131 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "qpselect.h"
 #include "qtimers.h"
 #include "qpnexus.h"
+#include "list_util.h"
+#include "node_type.h"
 
-#define VTY_BUFSIZ 512
-#define VTY_MAXHIST 20
+/* Macro in case there are particular compiler issues.    */
+#ifndef Inline
+  #define Inline static inline
+#endif
 
-/* VTY struct. */
+/*==============================================================================
+ * The VTYSH uses a unix socket to talk to the daemon.
+ *
+ * The ability to respond to a connection from VTYSH appears to be a *compile*
+ * time option.  In the interests of keeping the code up to date, the VTYSH
+ * option is turned into a testable constant.
+ */
+#ifdef VTYSH
+# define VTYSH_DEFINED 1
+#else
+# define VTYSH_DEFINED 0
+#endif
+
+enum { VTYSH_ENABLED = VTYSH_DEFINED } ;
+
+#undef VTYSH_DEFINED
+
+/*==============================================================================
+ * VTY struct.
+ */
+
+typedef struct vty_io* vty_io ; /* private to vty.c     */
+
 struct vty
 {
-  /* File descriptor of this vty. */
-  int fd;
+  /*----------------------------------------------------------------------
+   * The following are used outside vty.c, and represent the context
+   * in which commands are executed.
+   */
 
-  /* Is this vty connect to file or not */
-  enum {VTY_TERM, VTY_FILE, VTY_SHELL, VTY_SHELL_SERV} type;
+  /* Node status of this vty
+   *
+   * NB: when using qpthreads should lock VTY to access this -- so use
+   *     vty_get_node() and vty_set_node().
+   */
+  int node ;
 
-  /* Node status of this vty */
-  int node;
+  /* The current command line.
+   *
+   * This is set when the command is dispatched, and not touched until the
+   * command completes -- so may be read while the command is being executed,
+   * without requiring any lock.
+   */
+  const char* buf ;
 
-  /* What address is this vty coming from. */
-  char *address;
+  /* For current referencing point of interface, route-map, access-list
+   * etc...
+   *
+   * NB: this value is private to the command execution, which is assumed
+   *     to all be in the one thread... so no lock required.
+   */
+  void *index ;
 
-  /* Failure count */
-  int fail;
+  /* For multiple level index treatment such as key chain and key.
+   *
+   * NB: this value is private to the command execution, which is assumed
+   *     to all be in the one thread... so no lock required.
+   */
+  void *index_sub ;
 
-  /* Output buffer. */
-  struct buffer *obuf;
+  /* String which is newline...  read only -- no locking                */
+  const char* newline ;
 
-  /* Command input buffer */
-  char *buf;
+  /*----------------------------------------------------------------------
+   * The following are used inside vty.c only.
+   */
 
-  /* Command cursor point */
-  int cp;
-
-  /* Command length */
-  int length;
-
-  /* Command max length. */
-  int max;
-
-  /* Histry of command */
-  char *hist[VTY_MAXHIST];
-
-  /* History lookup current point */
-  int hp;
-
-  /* History insert end point */
-  int hindex;
-
-  /* For current referencing point of interface, route-map,
-     access-list etc... */
-  void *index;
-
-  /* For multiple level index treatment such as key chain and key. */
-  void *index_sub;
-
-  /* For escape character. */
-  unsigned char escape;
-
-  /* Current vty status. */
-  enum {VTY_NORMAL, VTY_CLOSE, VTY_MORE, VTY_MORELINE} status;
-
-  /* IAC handling: was the last character received the
-     IAC (interpret-as-command) escape character (and therefore the next
-     character will be the command code)?  Refer to Telnet RFC 854. */
-  unsigned char iac;
-
-  /* IAC SB (option subnegotiation) handling */
-  unsigned char iac_sb_in_progress;
-  /* At the moment, we care only about the NAWS (window size) negotiation,
-     and that requires just a 5-character buffer (RFC 1073):
-       <NAWS char> <16-bit width> <16-bit height> */
-#define TELNET_NAWS_SB_LEN 5
-  unsigned char sb_buf[TELNET_NAWS_SB_LEN];
-  /* How many subnegotiation characters have we received?  We just drop
-     those that do not fit in the buffer. */
-  size_t sb_len;
-
-  /* Window width/height. */
-  int width;
-  int height;
-
-  /* Configure lines. */
-  int lines;
-
-  /* Terminal monitor. */
-  int monitor;
-
-  /* In configure mode. */
-  int config;
-
-  /* Read and write thread. */
-
-  qps_file qf;
-  struct thread *t_read;
-  struct thread *t_write;
-
-  /* Timeout seconds and thread. */
-  unsigned long v_timeout;
-  qtimer qtr;
-  struct thread *t_timeout;
+  /* Pointer to related vty_io structure -- if any.                     */
+  vty_io   vio ;
 };
+
+/*------------------------------------------------------------------------------
+ * VTY events
+ */
+enum vty_event
+{
+  VTY_SERV,
+  VTY_READ,
+  VTY_WRITE,
+  VTY_TIMEOUT_RESET,
+
+  VTYSH_SERV,
+  VTYSH_READ,
+  VTYSH_WRITE
+};
+
+/*------------------------------------------------------------------------------
+ * VTY Types
+ */
+enum vty_type
+{
+  VTY_TERM,             /* a telnet session     -- input and output     */
+  VTY_FILE,             /* writing config file  -- output is to file
+                                                -- no input             */
+
+  VTY_STDOUT,           /* reading config file  -- output is to stdout
+                                                -- no input             */
+
+  VTY_SHELL,            /* vty in vtysh         -- output is to stdout  */
+  VTY_SHELL_SERV        /* vty in daemon        -- input and output     */
+} ;
+
+/*------------------------------------------------------------------------------
+ *
+ */
+#define VTY_BUFSIZ 512
+#define VTY_MAXHIST 20
 
 /* Integrated configuration file. */
 #define INTEGRATE_DEFAULT_CONFIG "Quagga.conf"
 
 /* Small macro to determine newline is newline only or linefeed needed. */
-#define VTY_NEWLINE (((vty != NULL) && (vty->type == VTY_TERM)) ? "\r\n" : "\n")
+#define VTY_NEWLINE (((vty) != NULL) ? (vty)->newline : "\n")
 
 /* For indenting, mostly.	*/
-extern const char* vty_spaces_string ;
-#define VTY_MAX_SPACES 24
+extern const char vty_spaces_string[] ;
+enum { VTY_MAX_SPACES = 40 } ;
 #define VTY_SPACES(n) (vty_spaces_string + ((n) < VTY_MAX_SPACES \
 					      ? VTY_MAX_SPACES - (n) : 0))
 
@@ -210,40 +231,37 @@ do {                                                                            
     }                                                                         \
 } while (0)
 
-/* Exported variables */
+/*------------------------------------------------------------------------------
+ * Exported variables
+ */
 extern char integrate_default[];
-extern qpt_mutex_t vty_mutex;
-#ifndef NDEBUG
-extern int vty_lock_count;
-extern int vty_lock_asserted;
-#endif
 
-/* Prototypes. */
-extern void vty_init_r (qpn_nexus, qpn_nexus);
-extern void vty_exec_r(void);
+/*------------------------------------------------------------------------------
+ * Prototypes.
+ */
 extern void vty_init (struct thread_master *);
+extern void vty_init_r (qpn_nexus, qpn_nexus);
+extern void vty_serv_sock(const char *addr, unsigned short port,
+                                                             const char *path) ;
+extern struct vty* vty_new (int fd, enum vty_type type) ;
+extern void vty_close (struct vty *);
+
 extern void vty_init_vtysh (void);
 extern void vty_terminate (void);
 extern void vty_reset (void);
-extern struct vty *vty_new (int, int);
+
 extern int vty_out (struct vty *, const char *, ...) PRINTF_ATTRIBUTE(2, 3);
-extern int vty_puts(struct vty* vty, const char* str) ;
-extern int vty_out_newline(struct vty *vty) ;
 extern int vty_out_indent(struct vty *vty, int indent) ;
+
 extern void vty_read_config (char *, char *);
 extern void vty_read_config_first_cmd_special (char *, char *, void (*)(void));
 extern void vty_time_print (struct vty *, int);
-extern void vty_serv_sock (const char *, unsigned short, const char *);
-extern void vty_close (struct vty *);
+
 extern char *vty_get_cwd (void);
-extern void vty_log (const char *level, const char *proto,
-                     const char *fmt, struct timestamp_control *, va_list);
-extern int vty_config_lock (struct vty *);
-extern int vty_config_unlock (struct vty *);
+
 extern int vty_shell (struct vty *);
 extern int vty_shell_serv (struct vty *);
 extern void vty_hello (struct vty *);
-extern void vty_queued_result(struct vty *, int);
 extern int vty_get_node(struct vty *);
 extern void vty_set_node(struct vty *, int);
 extern int vty_get_type(struct vty *);
@@ -251,10 +269,6 @@ extern int vty_get_status(struct vty *);
 extern void vty_set_status(struct vty *, int);
 extern int vty_get_lines(struct vty *);
 extern void vty_set_lines(struct vty *, int);
-
-/* Send a fixed-size message to all vty terminal monitors; this should be
-   an async-signal-safe function. */
-extern void vty_log_fixed (const char *buf, size_t len);
 
 #ifdef QDEBUG
 extern void vty_goodbye (void);

@@ -450,7 +450,7 @@ bgp_scan (afi_t afi, safi_t safi)
     {
       for (bi = rn->info; bi; bi = next)
 	{
-	  next = bi->next;
+	  next = bi->info_next;
 
 	  if (bi->type == ZEBRA_ROUTE_BGP && bi->sub_type == BGP_ROUTE_NORMAL)
 	    {

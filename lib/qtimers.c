@@ -27,6 +27,14 @@
 #include "memory.h"
 #include "heap.h"
 
+enum { qdebug =
+#ifdef QDEBUG
+  1
+#else
+  0
+#endif
+};
+
 /*==============================================================================
  * Quagga Timers -- qtimer_xxxx
  *
@@ -153,7 +161,8 @@ qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto)
 {
   qtimer   qtr ;
 
-  qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
+  if (qdebug)
+    qtimer_pile_verify(qtp) ;
 
   qtr = heap_top_item(&qtp->timers) ;
   if ((qtr != NULL) && (qtr->time <= upto))
@@ -320,7 +329,8 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
 
   qtp = qtr->pile ;
   dassert(qtp != NULL) ;
-  qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
+  if (qdebug)
+    qtimer_pile_verify(qtp) ;
 
   qtr->time = when ;
 
@@ -336,9 +346,10 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
   if (action != NULL)
     qtr->action = action ;
   else
-    dassert(qtr->action != NULL) ;
+    assert(qtr->action != NULL) ;
 
-  qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
+  if (qdebug)
+    qtimer_pile_verify(qtp) ;
 } ;
 
 /* Unset given timer
@@ -353,12 +364,13 @@ qtimer_unset(qtimer qtr)
       qtimer_pile qtp = qtr->pile ;
       dassert(qtp != NULL) ;
 
-      qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
+      if (qdebug)
+        qtimer_pile_verify(qtp) ;
 
       heap_delete_item(&qtp->timers, qtr) ;
 
-      assert(qtp == qtr->pile);
-      qtimer_pile_verify(qtp) ;     /* TODO: remove after debuggery */
+      if (qdebug)
+        qtimer_pile_verify(qtp) ;
 
       qtr->state = qtr_state_inactive ; /* overrides any unset pending  */
     } ;

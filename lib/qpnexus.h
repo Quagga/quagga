@@ -47,20 +47,21 @@
  *
  */
 
-/* maximum time in seconds to sit in a pselect */
+/* maximum time in seconds to sit in a pselect  */
 #define MAX_PSELECT_WAIT 10
 
-/* signal for message queues */
+/* signal for message queues                    */
 #define SIGMQUEUE SIGUSR2
 
-/* number of event hooks */
+/* number of hooks per hook list                */
 enum { qpn_hooks_max = 4 } ;
 
 /*==============================================================================
  * Data Structures.
  */
 
-typedef int qpn_hook_function(void) ;
+typedef int qpn_hook_function(void) ;   /* dispatch of tasks    */
+typedef int qpn_init_function(void) ;   /* start/stop work      */
 
 typedef struct qpn_hook_list* qpn_hook_list ;
 struct qpn_hook_list
@@ -95,20 +96,32 @@ struct qpn_nexus
   /* qpthread routine, can override */
   void* (*start)(void*);
 
-  /* in-thread initialise, can override.  Called within the thread
-   * after all other initialisation just before thread loop */
-  void (*in_thread_init)(void);
+  /* in-thread initialise, can override.  Called within the thread after all
+   * other initialisation just before thread loop
+   *
+   * These are typedef int qpn_init_function(void).
+   *
+   * These are executed in the order given.
+   */
+  struct qpn_hook_list in_thread_init ;
 
-  /* in-thread finalise, can override.  Called within thread
-   * just before thread dies.  Nexus components all exist but
-   * thread loop is no longer executed */
-  void (*in_thread_final)(void);
+  /* in-thread finalise, can override.  Called within thread just before
+   * thread dies.  Nexus components all exist but thread loop is no longer
+   * executed
+   *
+   * These are typedef int qpn_init_function(void).
+   *
+   * These are executed in the reverse of the order given.
+   */
+  struct qpn_hook_list in_thread_final ;
 
   /* in-thread queue(s) of events or other work.
    *
    * The hook function(s) are called in the qpnexus loop, at the top of the
    * loop.  So in addition to the mqueue, I/O, timers and any background stuff,
    * the thread may have other queue(s) of things to be done.
+   *
+   * These are typedef int qpn_hook_function(void).
    *
    * Hook function can process some queue(s) of things to be done.  It does not
    * have to empty its queues, but it MUST only return 0 if all queues are now
@@ -120,6 +133,8 @@ struct qpn_nexus
    *
    * The hook functions are called at the bottom of the qpnexus loop, but only
    * when there is absolutely nothing else to do.
+   *
+   * These are typedef int qpn_hook_function(void).
    *
    * The hook function should do some unit of background work (if there is any)
    * and return.  MUST return 0 iff there is no more work to do.

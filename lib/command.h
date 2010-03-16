@@ -8,7 +8,7 @@
  * it under the terms of the GNU General Public License as published
  * by the Free Software Foundation; either version 2, or (at your
  * option) any later version.
- * 
+ *
  * GNU Zebra is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
@@ -23,8 +23,11 @@
 #ifndef _ZEBRA_COMMAND_H
 #define _ZEBRA_COMMAND_H
 
+#include "node_type.h"
 #include "vector.h"
+#include "uty.h"
 #include "vty.h"
+#include "qstring.h"
 #include "lib/route_types.h"
 
 /* Host configuration variable */
@@ -59,69 +62,24 @@ struct host
   char *motdfile;
 };
 
-/* There are some command levels which called from command node. */
-enum node_type 
-{
-  AUTH_NODE,			/* Authentication mode of vty interface. */
-  RESTRICTED_NODE,		/* Restricted view mode */ 
-  VIEW_NODE,			/* View node. Default mode of vty interface. */
-  AUTH_ENABLE_NODE,		/* Authentication mode for change enable. */
-  ENABLE_NODE,			/* Enable node. */
-  CONFIG_NODE,			/* Config node. Default mode of config file. */
-  SERVICE_NODE, 		/* Service node. */
-  DEBUG_NODE,			/* Debug node. */
-  AAA_NODE,			/* AAA node. */
-  KEYCHAIN_NODE,		/* Key-chain node. */
-  KEYCHAIN_KEY_NODE,		/* Key-chain key node. */
-  INTERFACE_NODE,		/* Interface mode node. */
-  ZEBRA_NODE,			/* zebra connection node. */
-  TABLE_NODE,			/* rtm_table selection node. */
-  RIP_NODE,			/* RIP protocol mode node. */ 
-  RIPNG_NODE,			/* RIPng protocol mode node. */
-  BGP_NODE,			/* BGP protocol mode which includes BGP4+ */
-  BGP_VPNV4_NODE,		/* BGP MPLS-VPN PE exchange. */
-  BGP_IPV4_NODE,		/* BGP IPv4 unicast address family.  */
-  BGP_IPV4M_NODE,		/* BGP IPv4 multicast address family.  */
-  BGP_IPV6_NODE,		/* BGP IPv6 address family */
-  BGP_IPV6M_NODE,		/* BGP IPv6 multicast address family. */
-  OSPF_NODE,			/* OSPF protocol mode */
-  OSPF6_NODE,			/* OSPF protocol for IPv6 mode */
-  ISIS_NODE,			/* ISIS protocol mode */
-  MASC_NODE,			/* MASC for multicast.  */
-  IRDP_NODE,			/* ICMP Router Discovery Protocol mode. */ 
-  IP_NODE,			/* Static ip route node. */
-  ACCESS_NODE,			/* Access list node. */
-  PREFIX_NODE,			/* Prefix list node. */
-  ACCESS_IPV6_NODE,		/* Access list node. */
-  PREFIX_IPV6_NODE,		/* Prefix list node. */
-  AS_LIST_NODE,			/* AS list node. */
-  COMMUNITY_LIST_NODE,		/* Community list node. */
-  RMAP_NODE,			/* Route map node. */
-  SMUX_NODE,			/* SNMP configuration node. */
-  DUMP_NODE,			/* Packet dump node. */
-  FORWARDING_NODE,		/* IP forwarding node. */
-  PROTOCOL_NODE,                /* protocol filtering node */
-  VTY_NODE,			/* Vty node. */
-};
-
 /* Node which has some commands and prompt string and configuration
    function pointer . */
-struct cmd_node 
+struct cmd_node
 {
   /* Node index. */
-  enum node_type node;		
+  enum node_type node;
 
   /* Prompt character at vty interface. */
-  const char *prompt;			
+  const char *prompt;
 
   /* Is this node's configuration goes to vtysh ? */
   int vtysh;
-  
+
   /* Node's configuration write function */
   int (*func) (struct vty *);
 
   /* Vector of this node's command list. */
-  vector cmd_vector;	
+  vector cmd_vector;
 };
 
 enum
@@ -132,8 +90,8 @@ enum
   CMD_ATTR_CALL = 0x04,
 };
 
-/* Structure of command element. */
-struct cmd_element 
+/* Structure of command element.        */
+struct cmd_element
 {
   const char *string;			/* Command specification by string. */
   int (*func) (struct cmd_element *, struct vty *, int, const char *[]);
@@ -146,32 +104,64 @@ struct cmd_element
   u_char attr;			/* Command attributes */
 };
 
-/* Command description structure. */
+/* Command description structure.       */
 struct desc
 {
   char *cmd;                    /* Command string. */
   char *str;                    /* Command's description. */
 };
 
-/* Return value of the commands. */
-#define CMD_SUCCESS              0
-#define CMD_WARNING              1
-#define CMD_ERR_NO_MATCH         2
-#define CMD_ERR_AMBIGUOUS        3
-#define CMD_ERR_INCOMPLETE       4
-#define CMD_ERR_EXEED_ARGC_MAX   5
-#define CMD_ERR_NOTHING_TODO     6
-#define CMD_COMPLETE_FULL_MATCH  7
-#define CMD_COMPLETE_MATCH       8
-#define CMD_COMPLETE_LIST_MATCH  9
-#define CMD_SUCCESS_DAEMON      10
-#define CMD_QUEUED              11
-
 /* Argc max counts. */
 #define CMD_ARGC_MAX   25
 
+/* Parsed command                       */
+struct cmd_parsed
+{
+  struct cmd_element *cmd ;
+
+  enum node_type  cnode ;               /* node command is in           */
+
+  int             do_shortcut ;         /* true => is "do" command      */
+  enum node_type  onode ;               /* vty->node before "do"        */
+
+  int             argc ;
+  const char*     argv[CMD_ARGC_MAX] ;
+} ;
+
+/* Return values for command handling.
+ *
+ * NB: when a command is executed it may return CMD_SUCCESS or CMD_WARNING.
+ *
+ *     In both cases any output required (including any warning or error
+ *     messages) must already have been output.
+ *
+ *     All other return codes are for use within the command handler.
+ */
+enum cmd_return_code
+{
+  CMD_SUCCESS              =  0,
+  CMD_WARNING              =  1,
+
+  CMD_ERR_NO_MATCH         =  2,
+  CMD_ERR_AMBIGUOUS        =  3,
+  CMD_ERR_INCOMPLETE       =  4,
+  CMD_ERR_EXCEED_ARGC_MAX  =  5,
+  CMD_ERR_NOTHING_TODO     =  6,
+  CMD_COMPLETE_FULL_MATCH  =  7,
+  CMD_COMPLETE_MATCH       =  8,
+  CMD_COMPLETE_LIST_MATCH  =  9,
+
+  CMD_SUCCESS_DAEMON       = 10,
+  CMD_QUEUED               = 11
+} ;
+
+#define MSG_CMD_ERR_AMBIGUOUS      "Ambiguous command"
+#define MSG_CMD_ERR_NO_MATCH       "Unrecognised command"
+#define MSG_CMD_ERR_NO_MATCH_old   "There is no matched command"
+#define MSG_CMD_ERR_EXEED_ARGC_MAX "Exceeds maximum word count"
+
 /* Turn off these macros when uisng cpp with extract.pl */
-#ifndef VTYSH_EXTRACT_PL  
+#ifndef VTYSH_EXTRACT_PL
 
 /* helper defines for end-user DEFUN* macros */
 #define DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, attrs, dnum) \
@@ -352,15 +342,21 @@ extern void sort_node (void);
 extern char *argv_concat (const char **argv, int argc, int shift);
 
 extern vector cmd_make_strvec (const char *);
+extern vector cmd_add_to_strvec (vector v, const char* str) ;
 extern void cmd_free_strvec (vector);
 extern vector cmd_describe_command (vector, int, int *status);
-extern char **cmd_complete_command (vector, int, int *status);
+extern vector cmd_complete_command (vector, int, int *status);
 extern const char *cmd_prompt (enum node_type);
-extern int config_from_file (struct vty *, FILE *, void (*)(void));
+extern int config_from_file (struct vty *, FILE *, void (*)(void), qstring buf);
 extern enum node_type node_parent (enum node_type);
-extern int cmd_execute_command (vector, struct vty *, struct cmd_element **,
-    qpn_nexus, int);
-extern int cmd_execute_command_strict (vector, struct vty *, struct cmd_element **);
+extern int cmd_execute_command (vector, struct vty* vty,
+                                struct cmd_element **cmd, qpn_nexus to_nexus,
+                                                          qpn_nexus from_nexus,
+                                                                    int vtysh) ;
+extern void cmd_post_command(struct vty* vty, struct cmd_parsed* parsed,
+                                                          int ret, int action) ;
+extern int cmd_execute_command_strict (vector vline, struct vty *vty,
+                                          struct cmd_element **cmd, int vtysh) ;
 extern void config_replace_string (struct cmd_element *, char *, ...);
 extern void cmd_init (int);
 extern void cmd_terminate (void);
@@ -377,7 +373,7 @@ extern void host_config_set (char *);
 extern void print_version (const char *);
 
 /* struct host global, ick */
-extern struct host host; 
+extern struct host host;
 
 /* "<cr>" global */
 extern char *command_cr;

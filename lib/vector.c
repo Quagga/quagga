@@ -124,20 +124,6 @@ vector_init (unsigned int size)
   return vector_init_new(NULL, size ? size : 1) ;	/* at least 1 entry */
 } ;
 
-/* Basic: free the given vector structure.  NB: Orphans any existing body !! */
-void
-vector_only_wrapper_free (vector v)
-{
-  XFREE (MTYPE_VECTOR, v);
-}
-
-/* Basic: free the vector body.	*/
-void
-vector_only_index_free (void *body)
-{
-  XFREE (MTYPE_VECTOR_BODY, body);
-}
-
 /* Basic: free the vector body and the vector structure.	*/
 void
 vector_free (vector v)
@@ -199,6 +185,38 @@ vector_reset(vector v, int free_structure)
     }
   else
     return vector_init_new(v, 0) ;
+} ;
+
+/* Set vector length to be (at least) the given fixed length.
+ *
+ * There must be a vector.
+ *
+ * Does nothing if the vector is already as long or longer than the given
+ * length.
+ *
+ * If the body is not big enough for the new length, allocates or extends to
+ * exactly the new length.  Otherwise, leaves body as it is.
+ *
+ * Appends NULLs as required to extend to the required length.
+ *
+ * Note that the existing contents of the vector are preserved in all cases.
+ */
+extern void
+vector_set_new_min_length(vector v, unsigned int len)
+{
+  assert (v != NULL) ;
+
+  if (len > v->limit)
+    {
+      if (v->p_items == NULL)
+        v->p_items = XMALLOC(MTYPE_VECTOR_BODY, P_ITEMS_SIZE(len)) ;
+      else
+        v->p_items = XREALLOC(MTYPE_VECTOR_BODY, v->p_items, P_ITEMS_SIZE(len));
+      v->limit = len ;
+    } ;
+
+  if (v->end < len)
+    vector_extend(v, len) ;
 } ;
 
 /* Pop item from vector, stepping past any NULLs.

@@ -23,6 +23,7 @@
 #include "zassert.h"
 #include "memory.h"
 #include "qpthreads.h"
+#include "qpselect.h"
 #include "thread.h"
 #include "privs.h"
 #include "mqueue.h"
@@ -68,6 +69,7 @@
 void
 qlib_init_first_stage(void)
 {
+  qps_start_up() ;
 }
 
 void
@@ -86,6 +88,7 @@ void
 qexit(int exit_code)
 {
   safe_finish();
+  mqueue_finish();
   zprivs_finish();
   thread_finish();
   memory_finish();

@@ -52,45 +52,63 @@ extern struct mlist mlists[];
 #define XSTRDUP(mtype, str) \
   mtype_zstrdup (__FILE__, __LINE__, (mtype), (str))
 #else
-#define XMALLOC(mtype, size)       zmalloc ((mtype), (size))
-#define XCALLOC(mtype, size)       zcalloc ((mtype), (size))
-#define XREALLOC(mtype, ptr, size) zrealloc ((mtype), (ptr), (size))
+
+#define MEMORY_TRACKER 1
+
+#ifdef MEMORY_TRACKER
+#define MEMORY_TRACKER_NAME  , const char* name
+#define MEMORY_TRACKER_FUNC , __func__
+#else
+#define MEMORY_TRACKER_NAME
+#define MEMORY_TRACKER_FUNC
+#endif
+
+#define XMALLOC(mtype, size)       zmalloc ((mtype), (size) \
+                                                            MEMORY_TRACKER_FUNC)
+#define XCALLOC(mtype, size)       zcalloc ((mtype), (size) \
+                                                            MEMORY_TRACKER_FUNC)
+#define XREALLOC(mtype, ptr, size) zrealloc ((mtype), (ptr), (size) \
+                                                            MEMORY_TRACKER_FUNC)
 #define XFREE(mtype, ptr)          do { \
                                      zfree ((mtype), (ptr)); \
                                      ptr = NULL; } \
                                    while (0)
-#define XSTRDUP(mtype, str)        zstrdup ((mtype), (str))
+#define XSTRDUP(mtype, str)        zstrdup ((mtype), (str) \
+                                                            MEMORY_TRACKER_FUNC)
+
 #endif /* MEMORY_LOG */
 
 #define SIZE(t,n) (sizeof(t) * (n))
 
 /* Prototypes of memory function. */
-extern void *zmalloc (int type, size_t size);
-extern void *zcalloc (int type, size_t size);
-extern void *zrealloc (int type, void *ptr, size_t size);
-extern void  zfree (int type, void *ptr);
-extern char *zstrdup (int type, const char *str);
+extern void *zmalloc (enum MTYPE type, size_t size       MEMORY_TRACKER_NAME);
+extern void *zcalloc (enum MTYPE type, size_t size       MEMORY_TRACKER_NAME);
+extern void *zrealloc (enum MTYPE type, void *ptr, size_t size
+                                                         MEMORY_TRACKER_NAME);
+extern void  zfree (enum MTYPE type, void *ptr);
+extern char *zstrdup (enum MTYPE type, const char *str   MEMORY_TRACKER_NAME);
 
-extern void *mtype_zmalloc (const char *file, int line, int type, size_t size);
+extern void *mtype_zmalloc (const char *file, int line, enum MTYPE type,
+                                                                   size_t size);
 
-extern void *mtype_zcalloc (const char *file, int line, int type,
-                            size_t num, size_t size);
+extern void *mtype_zcalloc (const char *file, int line, enum MTYPE type,
+                                                       size_t num, size_t size);
 
-extern void *mtype_zrealloc (const char *file, int line, int type, void *ptr,
-		             size_t size);
+extern void *mtype_zrealloc (const char *file, int line, enum MTYPE type,
+                                                        void *ptr, size_t size);
 
-extern void mtype_zfree (const char *file, int line, int type,
-		         void *ptr);
+extern void mtype_zfree (const char *file, int line, enum MTYPE type,
+		                                                     void *ptr);
 
-extern char *mtype_zstrdup (const char *file, int line, int type,
-		            const char *str);
+extern char *mtype_zstrdup (const char *file, int line, enum MTYPE type,
+		                                               const char *str);
 extern void memory_init (void);
 extern void memory_init_r (void);
 extern void memory_finish (void);
 extern void log_memstats_stderr (const char *);
 
 /* return number of allocations outstanding for the type */
-extern unsigned long mtype_stats_alloc (int);
+extern unsigned long mtype_stats_alloc (enum MTYPE);
 
 /* Human friendly string for given byte count */
 #define MTYPE_MEMSTR_LEN 20

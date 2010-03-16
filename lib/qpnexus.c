@@ -172,6 +172,10 @@ qpn_start(void* arg)
   /* now in our thread, complete initialisation                         */
   qpn_in_thread_init(qpn);
 
+  /* custom in-thread initialization                                    */
+  for (i = 0; i < qpn->in_thread_init.count ; ++i)
+    ((qpn_init_function*)(qpn->in_thread_init.hooks[i]))() ;
+
   /* Until required to terminate, loop                                  */
   done = 1 ;
   while (!qpn->terminate)
@@ -226,11 +230,11 @@ qpn_start(void* arg)
       if (wait)
         mqueue_done_waiting(qpn->queue, qpn->mts);
 
-      /* process I/O actions                            */
+      /* process I/O actions                                            */
       while (actions)
         actions = qps_dispatch_next(qpn->selection) ;
 
-      /* process timers                                 */
+      /* process timers                                                 */
       now = qt_get_monotonic() ;
       while (qtimer_pile_dispatch_next(qpn->pile, now))
         done = 1 ;
@@ -241,14 +245,16 @@ qpn_start(void* arg)
           done |= ((qpn_hook_function*)(qpn->background.hooks[i]))() ;
     } ;
 
-  /* last bit of code to run in this thread */
-  if (qpn->in_thread_final != NULL)
-    qpn->in_thread_final();
+  /* custom in-thread finalization                                      */
+  for (i = qpn->in_thread_final.count - 1; i > 0 ; --i)
+    ((qpn_init_function*)(qpn->in_thread_final.hooks[i]))() ;
 
   return NULL;
 }
 
-/* Now running in our thread, complete initialisation */
+/*------------------------------------------------------------------------------
+ * Now running in our thread, do common initialisation
+ */
 static void
 qpn_in_thread_init(qpn_nexus qpn)
 {
@@ -295,13 +301,11 @@ qpn_in_thread_init(qpn_nexus qpn)
     qpn->mts = mqueue_thread_signal_init(qpn->mts, qpn->thread_id, SIGMQUEUE);
   if (qpn->selection != NULL)
     qps_set_signal(qpn->selection, SIGMQUEUE, newmask);
-
-  /* custom in-thread initialization */
-  if (qpn->in_thread_init != NULL)
-    qpn->in_thread_init();
 }
 
-/* Ask the thread to terminate itself quickly and cleanly */
+/*------------------------------------------------------------------------------
+ * Ask the thread to terminate itself quickly and cleanly
+ */
 void
 qpn_terminate(qpn_nexus qpn)
 {

@@ -32,7 +32,13 @@
 #define Inline static inline
 #endif
 
-
+enum { qdebug =
+#ifdef QDEBUG
+  1
+#else
+  0
+#endif
+};
 
 /*==============================================================================
  *
@@ -112,7 +118,8 @@ Inline void
 bgp_to_bgp_engine(mqueue_block mqb)
 {
   mqueue_enqueue(bgp_nexus->queue, mqb, 0) ;
-  bgp_queue_logging("BGP Engine", bgp_nexus->queue, &bgp_engine_queue_stats) ;
+  if (qdebug)
+    bgp_queue_logging("BGP Engine", bgp_nexus->queue, &bgp_engine_queue_stats) ;
 } ;
 
 /* Send given message to the BGP Engine -- priority
@@ -121,7 +128,8 @@ Inline void
 bgp_to_bgp_engine_priority(mqueue_block mqb)
 {
   mqueue_enqueue(bgp_nexus->queue, mqb, 1) ;
-  bgp_queue_logging("BGP Engine", bgp_nexus->queue, &bgp_engine_queue_stats) ;
+  if (qdebug)
+    bgp_queue_logging("BGP Engine", bgp_nexus->queue, &bgp_engine_queue_stats) ;
 } ;
 
 /*==============================================================================
@@ -134,7 +142,8 @@ Inline void
 bgp_to_routing_engine(mqueue_block mqb)
 {
   mqueue_enqueue(routing_nexus->queue, mqb, 0) ;
-  bgp_queue_logging("Routing Engine", routing_nexus->queue,
+  if (qdebug)
+    bgp_queue_logging("Routing Engine", routing_nexus->queue,
                                                  &routing_engine_queue_stats) ;
 } ;
 
@@ -144,7 +153,8 @@ Inline void
 bgp_to_routing_engine_priority(mqueue_block mqb)
 {
   mqueue_enqueue(routing_nexus->queue, mqb, 1) ;
-  bgp_queue_logging("Routing Engine", routing_nexus->queue,
+  if (qdebug)
+    bgp_queue_logging("Routing Engine", routing_nexus->queue,
                                                   &routing_engine_queue_stats) ;
 } ;
 

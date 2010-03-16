@@ -74,7 +74,7 @@ key_cmp_func (void *arg1, void *arg2)
 {
   const struct key *k1 = arg1;
   const struct key *k2 = arg2;
-  
+
   if (k1->index > k2->index)
     return 1;
   if (k1->index < k2->index)
@@ -226,7 +226,7 @@ key_delete (struct keychain *keychain, struct key *key)
     free (key->string);
   key_free (key);
 }
-
+
 DEFUN (key_chain,
        key_chain_cmd,
        "key chain WORD",
@@ -238,7 +238,7 @@ DEFUN (key_chain,
 
   keychain = keychain_get (argv[0]);
   vty->index = keychain;
-  vty->node = KEYCHAIN_NODE;
+  vty_set_node(vty, KEYCHAIN_NODE) ;
 
   return CMD_SUCCESS;
 }
@@ -281,8 +281,8 @@ DEFUN (key,
   VTY_GET_INTEGER ("key identifier", index, argv[0]);
   key = key_get (keychain, index);
   vty->index_sub = key;
-  vty->node = KEYCHAIN_KEY_NODE;
-  
+  vty_set_node(vty, KEYCHAIN_KEY_NODE) ;
+
   return CMD_SUCCESS;
 }
 
@@ -296,7 +296,7 @@ DEFUN (no_key,
   struct keychain *keychain;
   struct key *key;
   u_int32_t index;
-  
+
   keychain = vty->index;
 
   VTY_GET_INTEGER ("key identifier", index, argv[0]);
@@ -309,7 +309,7 @@ DEFUN (no_key,
 
   key_delete (keychain, key);
 
-  vty->node = KEYCHAIN_NODE;
+  vty_set_node(vty, KEYCHAIN_NODE) ;
 
   return CMD_SUCCESS;
 }
@@ -353,7 +353,7 @@ DEFUN (no_key_string,
 
 /* Convert HH:MM:SS MON DAY YEAR to time_t value.  -1 is returned when
    given string is malformed. */
-static time_t 
+static time_t
 key_str2time (const char *time_str, const char *day_str, const char *month_str,
 	      const char *year_str)
 {
@@ -364,7 +364,7 @@ key_str2time (const char *time_str, const char *day_str, const char *month_str,
   unsigned int sec, min, hour;
   unsigned int day, month, year;
 
-  const char *month_name[] = 
+  const char *month_name[] =
   {
     "January",
     "February",
@@ -392,7 +392,7 @@ key_str2time (const char *time_str, const char *day_str, const char *month_str,
     return -1; \
   (V) = tmpl; \
 }
-      
+
   /* Check hour field of time_str. */
   colon = strchr (time_str, ':');
   if (colon == NULL)
@@ -416,10 +416,10 @@ key_str2time (const char *time_str, const char *day_str, const char *month_str,
   time_str = colon + 1;
   if (*time_str == '\0')
     return -1;
-  
+
   /* Sec must be between 0 and 59. */
   GET_LONG_RANGE (sec, time_str, 0, 59);
-  
+
   /* Check day_str.  Day must be <1-31>. */
   GET_LONG_RANGE (day, day_str, 1, 31);
 
@@ -437,7 +437,7 @@ key_str2time (const char *time_str, const char *day_str, const char *month_str,
 
   /* Check year_str.  Year must be <1993-2035>. */
   GET_LONG_RANGE (year, year_str, 1993, 2035);
-  
+
   memset (&tm, 0, sizeof (struct tm));
   tm.tm_sec = sec;
   tm.tm_min = min;
@@ -445,9 +445,9 @@ key_str2time (const char *time_str, const char *day_str, const char *month_str,
   tm.tm_mon = month;
   tm.tm_mday = day;
   tm.tm_year = year - 1900;
-    
+
   time = mktime (&tm);
-  
+
   return time;
 #undef GET_LONG_RANGE
 }
@@ -461,7 +461,7 @@ key_lifetime_set (struct vty *vty, struct key_range *krange,
 {
   time_t time_start;
   time_t time_end;
-  
+
   time_start = key_str2time (stime_str, sday_str, smonth_str, syear_str);
   if (time_start < 0)
     {
@@ -496,7 +496,7 @@ key_lifetime_duration_set (struct vty *vty, struct key_range *krange,
 {
   time_t time_start;
   u_int32_t duration;
-    
+
   time_start = key_str2time (stime_str, sday_str, smonth_str, syear_str);
   if (time_start < 0)
     {
@@ -518,7 +518,7 @@ key_lifetime_infinite_set (struct vty *vty, struct key_range *krange,
 			   const char *smonth_str, const char *syear_str)
 {
   time_t time_start;
-    
+
   time_start = key_str2time (stime_str, sday_str, smonth_str, syear_str);
   if (time_start < 0)
     {
@@ -531,7 +531,7 @@ key_lifetime_infinite_set (struct vty *vty, struct key_range *krange,
 
   return CMD_SUCCESS;
 }
-
+
 DEFUN (accept_lifetime_day_month_day_month,
        accept_lifetime_day_month_day_month_cmd,
        "accept-lifetime HH:MM:SS <1-31> MONTH <1993-2035> HH:MM:SS <1-31> MONTH <1993-2035>",
@@ -689,7 +689,7 @@ DEFUN (accept_lifetime_duration_month_day,
   return key_lifetime_duration_set (vty, &key->accept, argv[0], argv[2],
 				    argv[1], argv[3], argv[4]);
 }
-
+
 DEFUN (send_lifetime_day_month_day_month,
        send_lifetime_day_month_day_month_cmd,
        "send-lifetime HH:MM:SS <1-31> MONTH <1993-2035> HH:MM:SS <1-31> MONTH <1993-2035>",
@@ -847,7 +847,7 @@ DEFUN (send_lifetime_duration_month_day,
   return key_lifetime_duration_set (vty, &key->send, argv[0], argv[2], argv[1],
 				    argv[3], argv[4]);
 }
-
+
 static struct cmd_node keychain_node =
 {
   KEYCHAIN_NODE,
@@ -887,7 +887,7 @@ keychain_config_write (struct vty *vty)
   for (ALL_LIST_ELEMENTS_RO (keychain_list, node, keychain))
     {
       vty_out (vty, "key chain %s%s", keychain->name, VTY_NEWLINE);
-      
+
       for (ALL_LIST_ELEMENTS_RO (keychain->key, knode, key))
 	{
 	  vty_out (vty, " key %d%s", key->index, VTY_NEWLINE);

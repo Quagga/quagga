@@ -1,5 +1,5 @@
 /*
- * Buffering of output and input. 
+ * Buffering of output and input.
  * Copyright (C) 1998 Kunihiro Ishiguro
  *
  * This file is part of GNU Zebra.
@@ -8,7 +8,7 @@
  * it under the terms of the GNU General Public License as published
  * by the Free Software Foundation; either version 2, or (at your
  * option) any later version.
- * 
+ *
  * GNU Zebra is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA 02111-1307, USA. 
+ * Boston, MA 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -28,18 +28,6 @@
 #include "network.h"
 #include <stddef.h>
 
-
-
-/* Buffer master. */
-struct buffer
-{
-  /* Data list. */
-  struct buffer_data *head;
-  struct buffer_data *tail;
-  
-  /* Size of each buffer_data chunk. */
-  size_t size;
-};
 
 /* Data container. */
 struct buffer_data
@@ -67,11 +55,12 @@ struct buffer_data
 
 /* Make new buffer. */
 struct buffer *
-buffer_new (size_t size)
+buffer_init_new (struct buffer* b, size_t size)
 {
-  struct buffer *b;
-
-  b = XCALLOC (MTYPE_BUFFER, sizeof (struct buffer));
+  if (b == NULL)
+    b = XCALLOC (MTYPE_BUFFER, sizeof (struct buffer));
+  else
+    memset(b, 0,  sizeof (struct buffer)) ;
 
   if (size)
     b->size = size;
@@ -87,6 +76,13 @@ buffer_new (size_t size)
     }
 
   return b;
+}
+
+/* Make new buffer. */
+struct buffer *
+buffer_new (size_t size)
+{
+  return buffer_init_new(NULL, size);
 }
 
 /* Free buffer. */
@@ -133,7 +129,7 @@ buffer_reset (struct buffer *b)
 {
   struct buffer_data *data;
   struct buffer_data *next;
-  
+
   for (data = b->head; data; data = next)
     {
       next = data->next;
@@ -148,7 +144,8 @@ buffer_add (struct buffer *b)
 {
   struct buffer_data *d;
 
-  d = XMALLOC(MTYPE_BUFFER_DATA, offsetof(struct buffer_data, data[b->size]));
+  typedef struct buffer_data buffer_data_t ;    /* stop Eclipse whinging  */
+  d = XMALLOC(MTYPE_BUFFER_DATA, offsetof(buffer_data_t, data[b->size]));
   d->cp = d->sp = 0;
   d->next = NULL;
 
@@ -169,7 +166,7 @@ buffer_put(struct buffer *b, const void *p, size_t size)
   const char *ptr = p;
 
   /* We use even last one byte of data buffer. */
-  while (size)    
+  while (size)
     {
       size_t chunk;
 
@@ -226,7 +223,7 @@ buffer_flush_all (struct buffer *b, int fd)
 /* Flush enough data to fill a terminal window of the given scene (used only
    by vty telnet interface). */
 buffer_status_t
-buffer_flush_window (struct buffer *b, int fd, int width, int height, 
+buffer_flush_window (struct buffer *b, int fd, int width, int height,
 		     int erase_flag, int no_more_flag)
 {
   int nbytes;

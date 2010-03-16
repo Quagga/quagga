@@ -85,6 +85,7 @@ void sigusr2 (void);
 static void bgp_exit (int);
 static void init_second_stage(int pthreads);
 static void bgp_in_thread_init(void);
+static void routing_start(void) ;
 static int routing_foreground(void);
 static int routing_background(void);
 static void sighup_action(mqueue_block mqb, mqb_flag_t flag);
@@ -407,8 +408,10 @@ init_second_stage(int pthreads)
    * Beware if !qpthreads_enabled then there is only 1 nexus object
    * with all nexus pointers being aliases for it.
    */
-  bgp_nexus->in_thread_init  = bgp_in_thread_init ;
-  bgp_nexus->in_thread_final = bgp_close_listeners ;
+  qpn_add_hook_function(&routing_nexus->in_thread_init, routing_start) ;
+  qpn_add_hook_function(&bgp_nexus->in_thread_init,  bgp_in_thread_init) ;
+
+  qpn_add_hook_function(&bgp_nexus->in_thread_final, bgp_close_listeners) ;
 
   qpn_add_hook_function(&routing_nexus->foreground, routing_foreground) ;
   qpn_add_hook_function(&bgp_nexus->foreground, bgp_connection_queue_process) ;
@@ -617,14 +620,24 @@ main (int argc, char **argv)
   bgp_exit(0);
 }
 
-/* bgp_nexus in-thread initialization */
+/* bgp_nexus in-thread initialization                   */
 static void
 bgp_in_thread_init(void)
 {
   bgp_open_listeners(bm->port, bm->address);
 }
 
-/* legacy threads in routing engine     */
+/* routing_nexus in-thread initialization -- for gdb !  */
+
+static int routing_started = 0 ;
+
+static void
+routing_start(void)
+{
+  routing_started = 1 ;
+}
+
+/* legacy threads in routing engine                     */
 static int
 routing_foreground(void)
 {

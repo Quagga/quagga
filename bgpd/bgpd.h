@@ -39,10 +39,6 @@ struct bgp_master
   /* BGP thread master.  */
   struct thread_master *master;
 
-  /* work queues */
-  struct work_queue *process_main_queue;
-  struct work_queue *process_rsclient_queue;
-
   /* Listening sockets */
   struct list *listen_sockets;
 
@@ -85,6 +81,10 @@ struct bgp
 
   /* BGP route-server-clients. */
   struct list *rsclient;
+
+  /* work queues */
+  struct work_queue *process_main_queue;
+  struct work_queue *process_rsclient_queue;
 
   /* BGP configuration.  */
   u_int16_t config;

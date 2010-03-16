@@ -30,6 +30,8 @@ Boston, MA 02111-1307, USA.  */
 #include "thread.h"
 #include "vector.h"
 #include "vty.h"
+#include "uty.h"
+#include "qstring.h"
 #include "command.h"
 #include "workqueue.h"
 #include "command_queue.h"
@@ -242,10 +244,29 @@ sort_node ()
       }
 }
 
-/* Breaking up string into each command piece. I assume given
-   character is separated by a space character. Return value is a
-   vector which includes char ** data element. */
-vector
+/*------------------------------------------------------------------------------
+ * Take string and break it into tokens.
+ *
+ * Discards leading and trailing white-space.
+ *
+ * Treats lines that start with '!' or '#' (after any leading white-space)
+ * as empty -- these are comment lines.
+ *
+ * Tokens are non-whitespace separated by one or more white-space.
+ *
+ * White-space is anything that isspace() thinks is a space.  (Which in the
+ * 'C' locale is ' ', '\t', '\r, '\n', '\f' and '\v'.)
+ *
+ * Returns:  NULL => empty line (after white-space trimming) or comment line.
+ *      otherwise: is vector containing one or more tokens.
+ *
+ * Note: all the tokens in the vector have at least one character, and no
+ *       entries are NULL.
+ *
+ * NB: it is the caller's responsibility to release the vector and its contents,
+ *     see cmd_free_strvec().
+ */
+extern vector
 cmd_make_strvec (const char *string)
 {
   const char *cp, *start;
@@ -258,58 +279,69 @@ cmd_make_strvec (const char *string)
 
   cp = string;
 
-  /* Skip white spaces. */
-  while (isspace ((int) *cp) && *cp != '\0')
+  /* Skip white spaces.                                                 */
+  while (isspace((int) *cp))
     cp++;
 
-  /* Return if there is only white spaces */
-  if (*cp == '\0')
+  /* Return if line is empty or effectively empty                       */
+  if ((*cp == '\0') || (*cp == '!') || (*cp == '#'))
     return NULL;
 
-  if (*cp == '!' || *cp == '#')
-    return NULL;
+  /* Prepare return vector -- expect some reasonable number of tokens.  */
+  strvec = vector_init (10) ;
 
-  /* Prepare return vector. */
-  strvec = vector_init (0);
-
-  /* Copy each command piece and set into vector. */
+  /* Copy each command piece and set into vector.                       */
   while (1)
     {
       start = cp;
-      while (!(isspace ((int) *cp) || *cp == '\r' || *cp == '\n') &&
-	     *cp != '\0')
-	cp++;
+      while (!isspace((int) *cp) && (*cp != '\0'))
+	cp++ ;                 /* eat token characters */
       strlen = cp - start;
       token = XMALLOC (MTYPE_STRVEC, strlen + 1);
       memcpy (token, start, strlen);
       *(token + strlen) = '\0';
-      vector_set (strvec, token);
+      vector_push_item(strvec, token);
 
-      while ((isspace ((int) *cp) || *cp == '\n' || *cp == '\r') &&
-	     *cp != '\0')
-	cp++;
+      while (isspace((int) *cp))
+	cp++ ;                 /* skip white-space     */
 
       if (*cp == '\0')
 	return strvec;
     }
 }
 
-/* Free allocated string vector. */
-void
-cmd_free_strvec (vector v)
+/*------------------------------------------------------------------------------
+ * Add given string to vector of strings.
+ *
+ * Create vector if required.
+ */
+extern vector
+cmd_add_to_strvec (vector strvec, const char* str)
 {
-  unsigned int i;
+  if (strvec == NULL)
+    strvec = vector_init(1) ;
+
+  vector_push_item(strvec, XSTRDUP(MTYPE_STRVEC, str));
+
+  return strvec ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free allocated string vector (if any) and all its contents.
+ *
+ * Note that this is perfectly happy with strvec == NULL.
+ */
+extern void
+cmd_free_strvec (vector strvec)
+{
   char *cp;
 
-  if (!v)
-    return;
+  /* Note that vector_ream_free() returns NULL if strvec == NULL        */
+  while((cp = vector_ream_free(strvec)) != NULL)
+    XFREE (MTYPE_STRVEC, cp);
+} ;
 
-  for (i = 0; i < vector_active (v); i++)
-    if ((cp = vector_slot (v, i)) != NULL)
-      XFREE (MTYPE_STRVEC, cp);
-
-  vector_free (v);
-}
+/*----------------------------------------------------------------------------*/
 
 /* Fetch next description.  Used in cmd_make_descvec(). */
 static char *
@@ -472,7 +504,19 @@ cmd_prompt (enum node_type node)
 {
   struct cmd_node *cnode;
 
-  cnode = vector_slot (cmdvec, node);
+  assert(cmdvec != NULL) ;
+  assert(cmdvec->p_items != NULL) ;
+
+  cnode = NULL ;
+  if (node < cmdvec->limit)
+    cnode = vector_slot (cmdvec, node);
+
+  if (cnode == NULL)
+    {
+      zlog_err("Could not find prompt for node %d for", node) ;
+      return NULL ;
+    } ;
+
   return cnode->prompt;
 }
 
@@ -683,21 +727,41 @@ cmd_filter_by_symbol (char *command, char *symbol)
 }
 #endif
 
+/*==============================================================================
+ * Match functions.
+ *
+ * Is the given string a, possibly incomplete, value of the required kind ?
+ */
+
 /* Completion match types. */
 enum match_type
 {
-  no_match,
+  no_match,             /* nope                                         */
   extend_match,
+
   ipv4_prefix_match,
   ipv4_match,
   ipv6_prefix_match,
   ipv6_match,
   range_match,
   vararg_match,
-  partly_match,
-  exact_match
+
+  partly_match,         /* OK as far as it went                         */
+  exact_match           /* Syntactically complete                       */
 };
 
+/*------------------------------------------------------------------------------
+ * Is this an IPv4 Address:
+ *
+ *   999.999.999.999    -- where no part may be > 255
+ *
+ * TODO: cmd_ipv4_match() seems to accept leading '.' ?
+ * TODO: cmd_ipv4_match() seems to accept leading zeros ?
+ *
+ * Returns: no_match       -- improperly formed
+ *          partly_match   -- accepts empty string
+ *          exact_match    -- syntactically complete
+ */
 static enum match_type
 cmd_ipv4_match (const char *str)
 {
@@ -755,6 +819,22 @@ cmd_ipv4_match (const char *str)
   return exact_match;
 }
 
+/*------------------------------------------------------------------------------
+ * Is this an IPv4 Prefix:
+ *
+ *   999.999.999.999/99  -- where no part may be > 255,
+ *                          and prefix length may not be > 32
+ *
+ * TODO: cmd_ipv4_prefix_match() seems to accept leading '.' ?
+ * TODO: cmd_ipv4_prefix_match() seems to accept leading zeros ?
+ *
+ * Returns: no_match       -- improperly formed
+ *          partly_match   -- accepts empty string
+ *          exact_match    -- syntactically complete
+ *
+ * NB: partly_match is returned for anything valid before the '/', but which
+ *     has no '/' or no number after the '/'.
+ */
 static enum match_type
 cmd_ipv4_prefix_match (const char *str)
 {
@@ -833,6 +913,16 @@ cmd_ipv4_prefix_match (const char *str)
 
   return exact_match;
 }
+
+/*------------------------------------------------------------------------------
+ * Is this an IPv6 Address:
+ *
+ * TODO: cmd_ipv6_match() only returns "partly_match" for empty string ?
+ *
+ * Returns: no_match       -- improperly formed
+ *          partly_match   -- accepts empty string
+ *          exact_match    -- syntactically complete
+ */
 
 #define IPV6_ADDR_STR		"0123456789abcdefABCDEF:.%"
 #define IPV6_PREFIX_STR		"0123456789abcdefABCDEF:.%/"
@@ -952,6 +1042,19 @@ cmd_ipv6_match (const char *str)
   return exact_match;
 }
 
+/*------------------------------------------------------------------------------
+ * Is this an IPv6 Prefix:
+ *
+ * TODO: cmd_ipv6_prefix_match() hardly returns "partly_match" ?
+ * TODO: cmd_ipv6_prefix_match() possibly accepts invalid address before '/' ?
+ *
+ * Returns: no_match       -- improperly formed
+ *          partly_match   -- accepts empty string
+ *          exact_match    -- syntactically complete
+ *
+ * NB: partly_match is returned for anything valid before the '/', but which
+ *     has no '/' or no number after the '/'.
+ */
 static enum match_type
 cmd_ipv6_prefix_match (const char *str)
 {
@@ -1085,6 +1188,14 @@ cmd_ipv6_prefix_match (const char *str)
 
 #endif /* HAVE_IPV6  */
 
+/*------------------------------------------------------------------------------
+ * Is this a decimal number in the allowed range:
+ *
+ * Returns: 1 => OK -- *including* empty string
+ *          0 => not a valid number, or not in required range
+ *               (or invalid range !!)
+ */
+
 #define DECIMAL_STRLEN_MAX 10
 
 static int
@@ -1132,124 +1243,182 @@ cmd_range_match (const char *range, const char *str)
   return 1;
 }
 
-/* Make completion match and return match type flag. */
+/*==============================================================================
+ * Command "filtering".
+ *
+ * The command parsing process starts with a (shallow) copy of the cmd_vector
+ * entry for the current "node".
+ *
+ * So cmd_v contains pointers to struct cmd_element values.  When match fails,
+ * the pointer is set NULL -- so parsing is a process of reducing the cmd_v
+ * down to just the entries that match.
+ *
+ * Each cmd_element has a vector "strvec", which contains an entry for each
+ * "token" position.  That entry is a vector containing the possible values at
+ * that position.
+ *
+ *
+ */
+
+/*------------------------------------------------------------------------------
+ * Make completion match and return match type flag.
+ *
+ * Takes:   command   -- address of candidate token
+ *          cmd_v     -- vector of commands that is being reduced/filtered
+ *          index     -- index of token (position in line -- 0 == first)
+ *
+ * Returns: any of the enum match_type values:
+ *
+ *          no_match           => no match of any kind
+ *
+ *          extend_match       => saw an optional token
+ *          ipv4_prefix_match )
+ *          ipv4_match        )
+ *          ipv6_prefix_match ) saw full or partial match for this
+ *          ipv6_match        )
+ *          range_match       )
+ *          vararg_match      )
+ *
+ *          partly_match       => saw partial match for a keyword
+ *          exact_match        => saw exact match for a keyword
+ *
+ * Note that these return values are in ascending order of preference.  So,
+ * if there are multiple possibilities at this position, will return the one
+ * furthest down this list.
+ */
 static enum match_type
-cmd_filter_by_completion (char *command, vector v, unsigned int index)
+cmd_filter_by_completion (char *command, vector cmd_v, unsigned int index)
 {
   unsigned int i;
-  const char *str;
-  struct cmd_element *cmd_element;
   enum match_type match_type;
-  vector descvec;
-  struct desc *desc;
 
   match_type = no_match;
 
   /* If command and cmd_element string does not match set NULL to vector */
-  for (i = 0; i < vector_active (v); i++)
-    if ((cmd_element = vector_slot (v, i)) != NULL)
-      {
-	if (index >= vector_active (cmd_element->strvec))
-	  vector_slot (v, i) = NULL;
-	else
-	  {
-	    unsigned int j;
-	    int matched = 0;
+  for (i = 0; i < vector_active (cmd_v); i++)
+    {
+      const char *str;
+      struct cmd_element *cmd_element;
+      vector descvec;
+      struct desc *desc;
+      unsigned int j;
+      int matched ;
 
-	    descvec = vector_slot (cmd_element->strvec, index);
+      /* Skip past cmd_v entries that have already been set NULL        */
+      if ((cmd_element = vector_slot (cmd_v, i)) == NULL)
+        continue ;
 
-	    for (j = 0; j < vector_active (descvec); j++)
-	      if ((desc = vector_slot (descvec, j)))
-		{
-		  str = desc->cmd;
+      /* Discard cmd_v entry that has no token at the current position  */
+      if (index >= vector_active (cmd_element->strvec))
+        {
+          vector_slot (cmd_v, i) = NULL;
+          continue ;
+        } ;
 
-		  if (CMD_VARARG (str))
-		    {
-		      if (match_type < vararg_match)
-			match_type = vararg_match;
-		      matched++;
-		    }
-		  else if (CMD_RANGE (str))
-		    {
-		      if (cmd_range_match (str, command))
-			{
-			  if (match_type < range_match)
-			    match_type = range_match;
+      /* See if get any sort of match at current position               */
+      matched = 0 ;
+      descvec = vector_slot (cmd_element->strvec, index);
 
-			  matched++;
-			}
-		    }
+      for (j = 0; j < vector_active (descvec); j++)
+        if ((desc = vector_slot (descvec, j)))
+          {
+            str = desc->cmd;
+
+            if (CMD_VARARG (str))
+              {
+                if (match_type < vararg_match)
+                  match_type = vararg_match;
+                matched++;
+              }
+            else if (CMD_RANGE (str))
+              {
+                if (cmd_range_match (str, command))
+                  {
+                    if (match_type < range_match)
+                      match_type = range_match;
+
+                    matched++;
+                  }
+              }
 #ifdef HAVE_IPV6
-		  else if (CMD_IPV6 (str))
-		    {
-		      if (cmd_ipv6_match (command))
-			{
-			  if (match_type < ipv6_match)
-			    match_type = ipv6_match;
+            else if (CMD_IPV6 (str))
+              {
+                if (cmd_ipv6_match (command))
+                  {
+                    if (match_type < ipv6_match)
+                      match_type = ipv6_match;
 
-			  matched++;
-			}
-		    }
-		  else if (CMD_IPV6_PREFIX (str))
-		    {
-		      if (cmd_ipv6_prefix_match (command))
-			{
-			  if (match_type < ipv6_prefix_match)
-			    match_type = ipv6_prefix_match;
+                    matched++;
+                  }
+              }
+            else if (CMD_IPV6_PREFIX (str))
+              {
+                if (cmd_ipv6_prefix_match (command))
+                  {
+                    if (match_type < ipv6_prefix_match)
+                      match_type = ipv6_prefix_match;
 
-			  matched++;
-			}
-		    }
+                    matched++;
+                  }
+              }
 #endif /* HAVE_IPV6  */
-		  else if (CMD_IPV4 (str))
-		    {
-		      if (cmd_ipv4_match (command))
-			{
-			  if (match_type < ipv4_match)
-			    match_type = ipv4_match;
+            else if (CMD_IPV4 (str))
+              {
+                if (cmd_ipv4_match (command))
+                  {
+                    if (match_type < ipv4_match)
+                      match_type = ipv4_match;
 
-			  matched++;
-			}
-		    }
-		  else if (CMD_IPV4_PREFIX (str))
-		    {
-		      if (cmd_ipv4_prefix_match (command))
-			{
-			  if (match_type < ipv4_prefix_match)
-			    match_type = ipv4_prefix_match;
-			  matched++;
-			}
-		    }
-		  else
-		    /* Check is this point's argument optional ? */
-		  if (CMD_OPTION (str) || CMD_VARIABLE (str))
-		    {
-		      if (match_type < extend_match)
-			match_type = extend_match;
-		      matched++;
-		    }
-		  else if (strncmp (command, str, strlen (command)) == 0)
-		    {
-		      if (strcmp (command, str) == 0)
-			match_type = exact_match;
-		      else
-			{
-			  if (match_type < partly_match)
-			    match_type = partly_match;
-			}
-		      matched++;
-		    }
-		}
-	    if (!matched)
-	      vector_slot (v, i) = NULL;
-	  }
-      }
+                    matched++;
+                  }
+              }
+            else if (CMD_IPV4_PREFIX (str))
+              {
+                if (cmd_ipv4_prefix_match (command))
+                  {
+                    if (match_type < ipv4_prefix_match)
+                      match_type = ipv4_prefix_match;
+                    matched++;
+                  }
+              }
+            else if (CMD_OPTION (str) || CMD_VARIABLE (str))
+              /* Check is this point's argument optional ? */
+              {
+                if (match_type < extend_match)
+                  match_type = extend_match;
+                matched++;
+              }
+            else if (strncmp (command, str, strlen (command)) == 0)
+              {
+                if (strcmp (command, str) == 0)
+                  match_type = exact_match;
+                else
+                  {
+                    if (match_type < partly_match)
+                      match_type = partly_match;
+                  }
+                matched++;
+              } ;
+          } ;
+
+      /* Discard cmd_v entry that has no match at this position         */
+      if (!matched)
+        vector_slot (cmd_v, i) = NULL;
+    }
+
   return match_type;
 }
 
-/* Filter vector by command character with index. */
+/*------------------------------------------------------------------------------
+ * Filter vector by command character with index.
+ *
+ * This appears to be identical to cmd_filter_by_completion(), except that
+ * when matching keywords, requires an exact match.
+ *
+ * TODO: see if can merge cmd_filter_by_completion() & cmd_filter_by_string()
+ */
 static enum match_type
-cmd_filter_by_string (char *command, vector v, unsigned int index)
+cmd_filter_by_string (char *command, vector cmd_v, unsigned int index)
 {
   unsigned int i;
   const char *str;
@@ -1261,13 +1430,13 @@ cmd_filter_by_string (char *command, vector v, unsigned int index)
   match_type = no_match;
 
   /* If command and cmd_element string does not match set NULL to vector */
-  for (i = 0; i < vector_active (v); i++)
-    if ((cmd_element = vector_slot (v, i)) != NULL)
+  for (i = 0; i < vector_active (cmd_v); i++)
+    if ((cmd_element = vector_slot (cmd_v, i)) != NULL)
       {
 	/* If given index is bigger than max string vector of command,
 	   set NULL */
 	if (index >= vector_active (cmd_element->strvec))
-	  vector_slot (v, i) = NULL;
+	  vector_slot (cmd_v, i) = NULL;
 	else
 	  {
 	    unsigned int j;
@@ -1349,15 +1518,49 @@ cmd_filter_by_string (char *command, vector v, unsigned int index)
 		    }
 		}
 	    if (!matched)
-	      vector_slot (v, i) = NULL;
+	      vector_slot (cmd_v, i) = NULL;
 	  }
       }
   return match_type;
 }
 
-/* Check ambiguous match */
+/*------------------------------------------------------------------------------
+ * Check for ambiguous match
+ *
+ * Given the best that cmd_filter_by_completion() or cmd_filter_by_string()
+ * found, check as follows:
+ *
+ *   1. discard all commands for which do not have the type of match selected.
+ *
+ *      See above for the ranking of matches.
+ *
+ *   2. for "partial match", look out for matching more than one keyword, and
+ *      return 1 if finds that.
+ *
+ *   3. for "range match", look out for matching more than one range, and
+ *       return 1 if finds that.
+ *
+ *   4. for ipv4_prefix_match and ipv6_prefix_match, if get a "partial match",
+ *      return 2.
+ *
+ *      This appears to catch things which are supposed to be prefixes, but
+ *      do not have a '/' or do not have any digits after the '/'.
+ *
+ * Takes:   command   -- address of candidate token
+ *          cmd_v     -- vector of commands that is being reduced/filtered
+ *          index     -- index of token (position in line -- 0 == first)
+ *          type      -- as returned by cmd_filter_by_completion()
+ *                                   or cmd_filter_by_string()
+ *
+ * Returns: 0 => not ambiguous
+ *          1 => ambiguous -- the candidate token matches more than one
+ *                            keyword, or the candidate number matches more
+ *                            than one number range.
+ *          2 => partial match for ipv4_prefix or ipv6_prefix
+ *               (missing '/' or no digits after '/').
+ */
 static int
-is_cmd_ambiguous (char *command, vector v, int index, enum match_type type)
+is_cmd_ambiguous (char *command, vector cmd_v, int index, enum match_type type)
 {
   unsigned int i;
   unsigned int j;
@@ -1367,8 +1570,8 @@ is_cmd_ambiguous (char *command, vector v, int index, enum match_type type)
   vector descvec;
   struct desc *desc;
 
-  for (i = 0; i < vector_active (v); i++)
-    if ((cmd_element = vector_slot (v, i)) != NULL)
+  for (i = 0; i < vector_active (cmd_v); i++)
+    if ((cmd_element = vector_slot (cmd_v, i)) != NULL)
       {
 	int match = 0;
 
@@ -1447,25 +1650,27 @@ is_cmd_ambiguous (char *command, vector v, int index, enum match_type type)
 		}
 	    }
 	if (!match)
-	  vector_slot (v, i) = NULL;
+	  vector_slot (cmd_v, i) = NULL;
       }
   return 0;
 }
 
-/* If src matches dst return dst string, otherwise return NULL */
+/*------------------------------------------------------------------------------
+ * If src matches dst return dst string, otherwise return NULL
+ *
+ * Returns NULL if dst is an option, variable of vararg.
+ *
+ * NULL or empty src are deemed to match.
+ */
 static const char *
 cmd_entry_function (const char *src, const char *dst)
 {
-  /* Skip variable arguments. */
-  if (CMD_OPTION (dst) || CMD_VARIABLE (dst) || CMD_VARARG (dst) ||
-      CMD_IPV4 (dst) || CMD_IPV4_PREFIX (dst) || CMD_RANGE (dst))
+  if (CMD_OPTION (dst) || CMD_VARIABLE (dst) || CMD_VARARG (dst))
     return NULL;
 
-  /* In case of 'command \t', given src is NULL string. */
-  if (src == NULL)
+  if ((src == NULL) || (*src == '\0'))
     return dst;
 
-  /* Matched with input string. */
   if (strncmp (src, dst, strlen (src)) == 0)
     return dst;
 
@@ -1537,8 +1742,12 @@ cmd_entry_function_desc (const char *src, const char *dst)
     return NULL;
 }
 
-/* Check same string element existence.  If it isn't there return
-    1. */
+/*------------------------------------------------------------------------------
+ * Check same string element existence.
+ *
+ * Returns: 0 => found same string in the vector
+ *          1 => NOT found same string in the vector
+ */
 static int
 cmd_unique_string (vector v, const char *str)
 {
@@ -1569,15 +1778,9 @@ desc_unique_string (vector v, const char *str)
 
 static int
 cmd_try_do_shortcut (enum node_type node, char* first_word) {
-  if ( first_word != NULL &&
-       node != AUTH_NODE &&
-       node != VIEW_NODE &&
-       node != AUTH_ENABLE_NODE &&
-       node != ENABLE_NODE &&
-       node != RESTRICTED_NODE &&
-       0 == strcmp( "do", first_word ) )
-    return 1;
-  return 0;
+  return (node >= MIN_DO_SHORTCUT_NODE)
+      && (first_word != NULL)
+      && (strcmp( "do", first_word) == 0) ? 1 : 0 ;
 }
 
 /* '?' describe command support. */
@@ -1717,6 +1920,19 @@ cmd_describe_command_real (vector vline, int node, int *status)
   return matchvec;
 }
 
+/*------------------------------------------------------------------------------
+ * Get description of current (partial) command
+ *
+ * Returns: NULL => no description available
+ *
+ *                  status set to CMD_ERR_NO_MATCH or CMD_ERR_AMBIGUOUS
+ *
+ *      or: address of vector of "struct desc" values available.
+ *
+ * NB: when a vector is returned it is the caller's responsibility to
+ *     vector_free() it.  (The contents are all effectively const, so do not
+ *     themselves need to be freed.)
+ */
 vector
 cmd_describe_command (vector vline, int node, int *status)
 {
@@ -1745,134 +1961,166 @@ cmd_describe_command (vector vline, int node, int *status)
   return cmd_describe_command_real (vline, node, status);
 }
 
-
-/* Check LCD of matched command. */
+/*------------------------------------------------------------------------------
+ * Check LCD of matched command.
+ *
+ * Scan list of matched keywords, and by comparing them pair-wise, find the
+ * longest common leading substring.
+ *
+ * Returns: 0 if zero or one matched keywords
+ *          length of longest common leading substring, otherwise.
+ */
 static int
-cmd_lcd (char **matched)
+cmd_lcd (vector matchvec)
 {
-  int i;
-  int j;
-  int lcd = -1;
-  char *s1, *s2;
-  char c1, c2;
+  int n ;
+  int i ;
+  int lcd ;
+  char *sp, *sq, *ss ;
 
-  if (matched[0] == NULL || matched[1] == NULL)
-    return 0;
+  n = vector_end(matchvec) ;
+  if (n < 2)
+    return 0 ;
 
-  for (i = 1; matched[i] != NULL; i++)
+  ss = vector_get_item(matchvec, 0) ;
+  lcd = strlen(ss) ;
+
+  for (i = 1 ; i < n ; i++)
     {
-      s1 = matched[i - 1];
-      s2 = matched[i];
+      sq = ss ;
+      ss = vector_get_item(matchvec, i) ;
+      sp = ss ;
 
-      for (j = 0; (c1 = s1[j]) && (c2 = s2[j]); j++)
-	if (c1 != c2)
-	  break;
+      while ((*sp == *sq) && (*sp != '\0'))
+        {
+          ++sp ;
+          ++sq ;
+        } ;
 
-      if (lcd < 0)
-	lcd = j;
-      else
-	{
-	  if (lcd > j)
-	    lcd = j;
-	}
+      if (lcd > (sp - ss))
+        lcd = (sp - ss) ;
     }
   return lcd;
 }
 
-/* Command line completion support. */
-static char **
+/*------------------------------------------------------------------------------
+ * Command line completion support.
+ */
+static vector
 cmd_complete_command_real (vector vline, int node, int *status)
 {
   unsigned int i;
-  vector cmd_vector = vector_copy (cmd_node_vector (cmdvec, node));
+  unsigned int ivl ;
+  unsigned int last_ivl ;
+  vector cmd_v ;
 #define INIT_MATCHVEC_SIZE 10
   vector matchvec;
   struct cmd_element *cmd_element;
   unsigned int index;
-  char **match_str;
   struct desc *desc;
   vector descvec;
-  char *command;
-  int lcd;
+  char *token;
+  int n ;
 
+  /* Stop immediately if the vline is empty.                            */
   if (vector_active (vline) == 0)
     {
-      vector_free (cmd_vector);
       *status = CMD_ERR_NO_MATCH;
       return NULL;
     }
-  else
-    index = vector_active (vline) - 1;
 
-  /* First, filter by preceeding command string */
-  for (i = 0; i < index; i++)
-    if ((command = vector_slot (vline, i)))
-      {
-	enum match_type match;
-	int ret;
+  /* Take (shallow) copy of cmdvec for given node.                      */
+  cmd_v = vector_copy (cmd_node_vector (cmdvec, node));
 
-	/* First try completion match, if there is exactly match return 1 */
-	match = cmd_filter_by_completion (command, cmd_vector, i);
+  /* First, filter upto, but excluding last token                       */
+  last_ivl = vector_active (vline) - 1;
 
-	/* If there is exact match then filter ambiguous match else check
-	   ambiguousness. */
-	if ((ret = is_cmd_ambiguous (command, cmd_vector, i, match)) == 1)
-	  {
-	    vector_free (cmd_vector);
-	    *status = CMD_ERR_AMBIGUOUS;
-	    return NULL;
-	  }
-	/*
-	   else if (ret == 2)
-	   {
-	   vector_free (cmd_vector);
+  for (ivl = 0; ivl < last_ivl; ivl++)
+    {
+      enum match_type match;
+      int ret;
+
+      /* TODO: does this test make any sense ?                          */
+      if ((token = vector_slot (vline, ivl)) == NULL)
+        continue ;
+
+      /* First try completion match, return best kind of match          */
+      index = ivl ;
+      match = cmd_filter_by_completion (token, cmd_v, index) ;
+
+      /* Eliminate all but the selected kind of match                   */
+      ret = is_cmd_ambiguous (token, cmd_v, index, match) ;
+
+      if (ret == 1)
+        {
+          /* ret == 1 => either token matches more than one keyword
+           *                 or token matches more than one number range
+           */
+          vector_free (cmd_v);
+	  *status = CMD_ERR_AMBIGUOUS;
+	  return NULL;
+	}
+#if 0
+      /* For command completion purposes do not appear to care about
+       * incomplete ipv4 or ipv6 prefixes (missing '/' or digits after).
+       */
+      else if (ret == 2)
+        {
+          vector_free (cmd_v);
 	   *status = CMD_ERR_NO_MATCH;
 	   return NULL;
-	   }
-	 */
+        }
+#endif
       }
 
-  /* Prepare match vector. */
+  /* Prepare match vector.                                              */
   matchvec = vector_init (INIT_MATCHVEC_SIZE);
 
-  /* Now we got into completion */
-  for (i = 0; i < vector_active (cmd_vector); i++)
-    if ((cmd_element = vector_slot (cmd_vector, i)))
-      {
-	const char *string;
-	vector strvec = cmd_element->strvec;
+  /* Now we got into completion                                         */
+  index = last_ivl ;
+  token = vector_slot(vline, last_ivl) ;    /* is now the last token    */
 
-	/* Check field length */
-	if (index >= vector_active (strvec))
-	  vector_slot (cmd_vector, i) = NULL;
-	else
-	  {
-	    unsigned int j;
+  for (i = 0; i < vector_active (cmd_v); i++)
+    {
+      unsigned int j;
+      const char *string;
 
-	    descvec = vector_slot (strvec, index);
-	    for (j = 0; j < vector_active (descvec); j++)
-	      if ((desc = vector_slot (descvec, j)))
-		{
-		  if ((string =
-		       cmd_entry_function (vector_slot (vline, index),
-					   desc->cmd)))
-		    if (cmd_unique_string (matchvec, string))
-		      vector_set (matchvec, XSTRDUP (MTYPE_TMP, string));
-		}
-	  }
-      }
+      if ((cmd_element = vector_slot (cmd_v, i)) == NULL)
+        continue ;
 
-  /* We don't need cmd_vector any more. */
-  vector_free (cmd_vector);
+      vector strvec = cmd_element->strvec;
+
+      /* Check field length                                             */
+      if (index >= vector_active (strvec))
+        {
+	  vector_slot (cmd_v, i) = NULL;
+	  continue ;
+        }
+
+      descvec = vector_slot (strvec, index);
+
+      for (j = 0; j < vector_active (descvec); j++)
+        if ((desc = vector_slot (descvec, j)) != NULL)
+          {
+            string = cmd_entry_function(token, desc->cmd) ;
+            if ((string != NULL) && cmd_unique_string(matchvec, string))
+              cmd_add_to_strvec (matchvec, string) ;
+          }
+    } ;
+
+  n = vector_end(matchvec) ;    /* number of entries in the matchvec    */
+
+  /* We don't need cmd_v any more.                                      */
+  vector_free (cmd_v);
 
   /* No matched command */
-  if (vector_slot (matchvec, 0) == NULL)
+  if (n == 0)
     {
       vector_free (matchvec);
 
       /* In case of 'command \t' pattern.  Do you need '?' command at
          the end of the line. */
-      if (vector_slot (vline, index) == '\0')
+      if (*token == '\0')
 	*status = CMD_ERR_NOTHING_TODO;
       else
 	*status = CMD_ERR_NO_MATCH;
@@ -1880,66 +2128,50 @@ cmd_complete_command_real (vector vline, int node, int *status)
     }
 
 /* XXX: TODO: stop poking around inside vector	*/
-  /* Only one matched */
-  if (vector_slot (matchvec, 1) == NULL)
+  /* Only one matched                                                   */
+  if (n == 1)
     {
-      match_str = (char **) matchvec->VECTOR_INDEX;
-      vector_only_wrapper_free (matchvec);
       *status = CMD_COMPLETE_FULL_MATCH;
-      return match_str;
+      return matchvec ;
     }
-  /* Make it sure last element is NULL. */
-  vector_set (matchvec, NULL);
 
-  /* Check LCD of matched strings. */
-  if (vector_slot (vline, index) != NULL)
+  /* Check LCD of matched strings.                                      */
+  if (token != NULL)
     {
-      lcd = cmd_lcd ((char **) matchvec->VECTOR_INDEX);
+      unsigned lcd = cmd_lcd (matchvec) ;
 
-      if (lcd)
+      if (lcd != 0)
 	{
-	  int len = strlen (vector_slot (vline, index));
-
-	  if (len < lcd)
+	  if (strlen(token) < lcd)
 	    {
 	      char *lcdstr;
 
 	      lcdstr = XMALLOC (MTYPE_STRVEC, lcd + 1);
-	      memcpy (lcdstr, matchvec->VECTOR_INDEX[0], lcd);
+	      memcpy (lcdstr, vector_get_item(matchvec, 0), lcd) ;
 	      lcdstr[lcd] = '\0';
 
-	      /* match_str = (char **) &lcdstr; */
+	      cmd_free_strvec(matchvec) ;      /* discard the match vector */
 
-	      /* Free matchvec. */
-	      for (i = 0; i < vector_active (matchvec); i++)
-		{
-		  if (vector_slot (matchvec, i))
-		    XFREE (MTYPE_STRVEC, vector_slot (matchvec, i));
-		}
-	      vector_free (matchvec);
-
-	      /* Make new matchvec. */
 	      matchvec = vector_init (INIT_MATCHVEC_SIZE);
-	      vector_set (matchvec, lcdstr);
-	      match_str = (char **) matchvec->VECTOR_INDEX;
-	      vector_only_wrapper_free (matchvec);
+	      vector_push_item(matchvec, lcdstr) ;
 
 	      *status = CMD_COMPLETE_MATCH;
-	      return match_str;
+	      return matchvec ;
 	    }
 	}
     }
 
-  match_str = (char **) matchvec->VECTOR_INDEX;
-  vector_only_wrapper_free (matchvec);
   *status = CMD_COMPLETE_LIST_MATCH;
-  return match_str;
+  return matchvec ;
 }
 
-char **
+/*------------------------------------------------------------------------------
+ * Can the current command be completed ?
+ */
+extern vector
 cmd_complete_command (vector vline, int node, int *status)
 {
-  char **ret;
+  vector ret;
 
   if ( cmd_try_do_shortcut(node, vector_slot(vline, 0) ) )
     {
@@ -1964,13 +2196,14 @@ cmd_complete_command (vector vline, int node, int *status)
   return cmd_complete_command_real (vline, node, status);
 }
 
-/* return parent node */
-/* MUST eventually converge on CONFIG_NODE */
+/*------------------------------------------------------------------------------
+ * Return parent node
+ *
+ * All nodes > CONFIG_NODE are descended from CONFIG_NODE
+ */
 enum node_type
 node_parent ( enum node_type node )
 {
-  enum node_type ret;
-
   assert (node > CONFIG_NODE);
 
   switch (node)
@@ -1980,69 +2213,101 @@ node_parent ( enum node_type node )
     case BGP_IPV4M_NODE:
     case BGP_IPV6_NODE:
     case BGP_IPV6M_NODE:
-      ret = BGP_NODE;
-      break;
-    case KEYCHAIN_KEY_NODE:
-      ret = KEYCHAIN_NODE;
-      break;
-    default:
-      ret = CONFIG_NODE;
-    }
+      return BGP_NODE;
 
-  return ret;
+    case KEYCHAIN_KEY_NODE:
+      return KEYCHAIN_NODE;
+
+    default:
+      return CONFIG_NODE;
+    }
 }
 
-/* Execute command by argument vline vector. */
-static int
-cmd_execute_command_real (vector vline, struct vty *vty,
-			  struct cmd_element **cmd, qpn_nexus dest_nexus)
+/*------------------------------------------------------------------------------
+ * Parse a command in the given "node", if possible, ready for execution.
+ *
+ * If "strict" use: cmd_filter_by_string()
+ *   otherwise use: cmd_filter_by_completion()
+ *
+ * Takes the node from parsed->cnode.
+ *
+ * Returns:  CMD_SUCCESS => successfully parsed command, and the result is
+ *                          in the given parsed structure, ready for execution.
+ *
+ *           CMD_SUCCESS_DAEMON => as CMD_SUCCESS, and the command has a
+ *                                 "daemon" value.
+ *
+ *           otherwise   => some failure to parse
+ *
+ * NB: the argv[] in the parsed structure contains *copies* of the char*
+ *     pointers in the given vline.
+ *
+ *     The vline may not be released until the parsed structure is.
+ *
+ *     The parsed structure may be released without worrying about the contents
+ *     of the argv[].
+ */
+enum cmd_parse_type
 {
-  unsigned int i;
-  unsigned int index;
-  vector cmd_vector;
+  cmd_parse_completion  = 0,
+  cmd_parse_strict      = 1,
+};
+
+static int
+cmd_parse_command(vector vline, int first, struct cmd_parsed* parsed,
+                                                       enum cmd_parse_type type)
+{
+  unsigned int i ;
+  unsigned int ivl ;
+  unsigned index ;
+  vector cmd_v;
   struct cmd_element *cmd_element;
   struct cmd_element *matched_element;
   unsigned int matched_count, incomplete_count;
   int argc;
-  const char *argv[CMD_ARGC_MAX];
   enum match_type match = 0;
   int varflag;
   char *command;
 
-  /* Make copy of command elements. */
-  cmd_vector = vector_copy (cmd_node_vector (cmdvec, vty_get_node(vty)));
+  int strict = (type == cmd_parse_strict) ;
 
-  for (index = 0; index < vector_active (vline); index++)
-    if ((command = vector_slot (vline, index)))
+  parsed->cmd  = NULL ;         /* return this if parsing fails */
+  parsed->argc = 0 ;
+
+  /* Make copy of command elements.                             */
+  cmd_v = vector_copy (cmd_node_vector (cmdvec, parsed->cnode));
+
+  /* Look for an unambiguous result                             */
+  index = 0 ;
+  for (ivl = first; ivl < vector_active (vline); ivl++)
+    if ((command = vector_slot (vline, ivl)) != NULL)
       {
-	int ret;
+	int ret ;
 
-	match = cmd_filter_by_completion (command, cmd_vector, index);
+	index = ivl - first ;
+	match = strict ? cmd_filter_by_string(command, cmd_v, index)
+	               : cmd_filter_by_completion(command, cmd_v, index) ;
 
 	if (match == vararg_match)
 	  break;
 
-	ret = is_cmd_ambiguous (command, cmd_vector, index, match);
+	ret = is_cmd_ambiguous (command, cmd_v, index, match);
 
-	if (ret == 1)
+	if (ret != 0)
 	  {
-	    vector_free (cmd_vector);
-	    return CMD_ERR_AMBIGUOUS;
-	  }
-	else if (ret == 2)
-	  {
-	    vector_free (cmd_vector);
-	    return CMD_ERR_NO_MATCH;
+	    assert((ret == 1) || (ret == 2)) ;
+            vector_free (cmd_v);
+            return (ret == 1) ? CMD_ERR_AMBIGUOUS : CMD_ERR_NO_MATCH ;
 	  }
       }
 
-  /* Check matched count. */
-  matched_element = NULL;
-  matched_count = 0;
+  /* Check matched count.                                       */
+  matched_element  = NULL;
+  matched_count    = 0;
   incomplete_count = 0;
 
-  for (i = 0; i < vector_active (cmd_vector); i++)
-    if ((cmd_element = vector_slot (cmd_vector, i)))
+  for (i = 0; i < vector_active (cmd_v); i++)
+    if ((cmd_element = vector_slot (cmd_v, i)) != NULL)
       {
 	if (match == vararg_match || index >= cmd_element->cmdsize)
 	  {
@@ -2058,133 +2323,255 @@ cmd_execute_command_real (vector vline, struct vty *vty,
 	  }
       }
 
-  /* Finish of using cmd_vector. */
-  vector_free (cmd_vector);
+  /* Finished with cmd_v.                                               */
+  vector_free (cmd_v);
 
-  /* To execute command, matched_count must be 1. */
-  if (matched_count == 0)
+  /* To execute command, matched_count must be 1.                       */
+  if (matched_count != 1)
     {
-      if (incomplete_count)
-	return CMD_ERR_INCOMPLETE;
+      if (matched_count == 0)
+        return (incomplete_count) ? CMD_ERR_INCOMPLETE : CMD_ERR_NO_MATCH ;
       else
-	return CMD_ERR_NO_MATCH;
-    }
+        return CMD_ERR_AMBIGUOUS ;
+    } ;
 
-  if (matched_count > 1)
-    return CMD_ERR_AMBIGUOUS;
+  /* Found command -- process the arguments ready for execution         */
+  varflag = 0 ;
+  argc    = 0 ;
 
-  /* Argument treatment */
-  varflag = 0;
-  argc = 0;
-
-  for (i = 0; i < vector_active (vline); i++)
+  for (ivl = first; ivl < vector_active (vline); ivl++)
     {
-      if (varflag)
-	argv[argc++] = vector_slot (vline, i);
-      else
+      int take = varflag ;
+
+      if (!varflag)
 	{
-	  vector descvec = vector_slot (matched_element->strvec, i);
+	  int index = ivl - first ;
+	  vector descvec = vector_slot (matched_element->strvec, index);
 
 	  if (vector_active (descvec) == 1)
 	    {
 	      struct desc *desc = vector_slot (descvec, 0);
 
 	      if (CMD_VARARG (desc->cmd))
-		varflag = 1;
-
-	      if (varflag || CMD_VARIABLE (desc->cmd) || CMD_OPTION (desc->cmd))
-		argv[argc++] = vector_slot (vline, i);
+		take = varflag = 1 ;
+	      else
+		take = (CMD_VARIABLE (desc->cmd) || CMD_OPTION (desc->cmd)) ;
 	    }
 	  else
-	    argv[argc++] = vector_slot (vline, i);
+	    take = 1 ;
 	}
 
-      if (argc >= CMD_ARGC_MAX)
-	return CMD_ERR_EXEED_ARGC_MAX;
-    }
+      if (take)
+        {
+          if (argc >= CMD_ARGC_MAX)
+            return CMD_ERR_EXCEED_ARGC_MAX ;
+          parsed->argv[argc++] = vector_slot (vline, ivl);
+        } ;
+    } ;
 
-  /* For vtysh execution. */
-  if (cmd)
-    *cmd = matched_element;
+  /* Everything checks out... ready to execute command                  */
+  parsed->cmd  = matched_element ;
+  parsed->argc = argc ;
 
-  if (matched_element->daemon)
+  if (parsed->cmd->daemon)
     return CMD_SUCCESS_DAEMON;
 
-  /* Execute matched command. */
-  if (qpthreads_enabled && !(matched_element->attr & CMD_ATTR_CALL))
+  return CMD_SUCCESS ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Parse a command in the given "node", or any of its ancestors.
+ *
+ * Takes the node to start in from parsed->cnode.
+ *
+ * Returns:  CMD_SUCCESS => successfully parsed command, and the result is
+ *                          in the given parsed structure, ready for execution.
+ *
+ *                          NB: parsed->cnode may have changed.
+ *
+ *           CMD_SUCCESS_DAEMON => as CMD_SUCCESS, and the command has a
+ *                                 "daemon" value.
+ *
+ *           otherwise   => some failure to parse
+ *
+ *                          NB: returns error from attempt to parse in the
+ *                              starting parsed->cnode (which is returned
+ *                              unchanged).
+ *
+ * See cmd_parse_command() for more detail.
+ */
+static int
+cmd_parse_command_tree(vector vline, int first, struct cmd_parsed* parsed,
+                                                       enum cmd_parse_type type)
+{
+  int             ret ;
+  int             first_ret ;
+  enum node_type  first_node ;
+
+  /* Try in the current node                                            */
+  ret = cmd_parse_command(vline, first, parsed, type) ;
+
+  if ((ret == CMD_SUCCESS) || (ret == CMD_SUCCESS_DAEMON))
+    return ret ;                /* done if found command        */
+
+  /* Try in parent node(s)                                              */
+  first_node = parsed->cnode ;
+  first_ret  = ret ;
+
+  while (parsed->cnode <= CONFIG_NODE)
     {
-      /* Don't do it now, but send to bgp qpthread */
-      cq_enqueue(matched_element, vty, argc, argv, dest_nexus);
-      return CMD_QUEUED;
+      parsed->cnode = node_parent(parsed->cnode) ;
+      ret = cmd_parse_command(vline, first, parsed, type) ;
+
+      if ((ret == CMD_SUCCESS) || (ret == CMD_SUCCESS_DAEMON))
+        return ret ;            /* done if found command        */
+    } ;
+
+  parsed->cnode = first_node ;  /* restore node state           */
+  return first_ret ;            /* return original result       */
+}
+
+/*------------------------------------------------------------------------------
+ * Prepare to parse command -- deal with possible "do" shortcut.
+ *
+ * Initialises parsed structure, setting cnode and onode to vty->node.
+ *
+ * Checks to see if this is a valid "do" shortcut, and adjusts cnode if so.
+ *
+ * Returns: 0 => not "do" -- first word of actual command is first word
+ *          1 => is "do"  -- first word of actual command is second word
+ */
+static int
+cmd_pre_command(struct vty* vty, struct cmd_parsed* parsed, vector vline)
+{
+  int first ;
+
+  parsed->onode = parsed->cnode = vty_get_node(vty) ;
+
+  parsed->cmd  = NULL ;
+  parsed->argc = 0 ;
+
+  /* 'do' forces command to be parsed in ENABLE_NODE (if allowed)       */
+  if (cmd_try_do_shortcut(parsed->cnode, vector_slot(vline, 0)))
+    {
+      parsed->cnode = ENABLE_NODE ;
+      parsed->do_shortcut = 1 ;
+      first = 1 ;
     }
   else
     {
-      return (*matched_element->func) (matched_element, vty, argc, argv);
-    }
-}
+      parsed->do_shortcut = 0 ;
+      first = 0 ;
+    } ;
 
-int
-cmd_execute_command (vector vline, struct vty *vty, struct cmd_element **cmd,
-		     qpn_nexus dest_nexus, int vtysh) {
-  int ret, saved_ret, tried = 0;
-  enum node_type onode, try_node;
+  return first ;
+} ;
 
-  onode = try_node = vty_get_node(vty);
-
-  if ( cmd_try_do_shortcut(vty_get_node(vty), vector_slot(vline, 0) ) )
-    {
-      vector shifted_vline;
-      unsigned int index;
-
-      vty_set_node(vty, ENABLE_NODE);
-      /* We can try it on enable node, cos' the vty is authenticated */
-
-      shifted_vline = vector_init (vector_count(vline));
-      /* use memcpy? */
-      for (index = 1; index < vector_active (vline); index++)
-	{
-	  vector_set_index (shifted_vline, index-1, vector_lookup(vline, index));
-	}
-
-      ret = cmd_execute_command_real (shifted_vline, vty, cmd, dest_nexus);
-
-      vector_free(shifted_vline);
-      vty_set_node(vty, onode);
-      return ret;
-  }
-
-
-  saved_ret = ret = cmd_execute_command_real (vline, vty, cmd, dest_nexus);
-
-  if (vtysh)
-    return saved_ret;
-
-  /* This assumes all nodes above CONFIG_NODE are childs of CONFIG_NODE */
-  while ( ret != CMD_SUCCESS && ret != CMD_WARNING
-	  && vty_get_node(vty) > CONFIG_NODE )
-    {
-      try_node = node_parent(try_node);
-      vty_set_node(vty, try_node);
-      ret = cmd_execute_command_real (vline, vty, cmd, dest_nexus);
-      tried = 1;
-      if (ret == CMD_SUCCESS || ret == CMD_WARNING)
-	{
-	  /* succesfull command, leave the node as is */
-	  return ret;
-	}
-    }
-  /* no command succeeded, reset the vty to the original node and
-     return the error for this node */
-  if ( tried )
-    vty_set_node(vty, onode);
-  return saved_ret;
-}
-
-/* Execute command by argument readline. */
-int
-cmd_execute_command_strict (vector vline, struct vty *vty,
-			    struct cmd_element **cmd)
+/*------------------------------------------------------------------------------
+ * Tidy up after executing command.
+ *
+ * This is separated out so that can be called when queued command completes.
+ *
+ * If have just processed a "do" shortcut command, and it has not set the
+ * vty->node to something other than ENABLE_NODE, then restore to the original
+ * state.
+ *
+ * Arguments: ret    = CMD_XXXX  -- NB: CMD_QUEUED => command revoked
+ *            action = true unless command return is being revoked
+ */
+extern void
+cmd_post_command(struct vty* vty, struct cmd_parsed* parsed, int ret,
+                                                             int action)
 {
+  if (parsed->do_shortcut)
+    {
+      if (vty_get_node(vty) == ENABLE_NODE)
+        vty_set_node(vty, parsed->onode) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Execute command:
+ *
+ *   -- use cmd_parse_completion type parsing.
+ *
+ *   -- unless vtysh: if does not parse in current node, try ancestors
+ *
+ *      If does not find in any ancestor, return error from current node.
+ *
+ *   -- implement the "do" shortcut
+ *
+ * If qpthreads_enabled, then may queue the command rather than execute it
+ * here.
+ *
+ * The vty->node may be changed during the execution of the command, and may
+ * be returned changed once the command has completed.
+ */
+extern int
+cmd_execute_command (vector vline, struct vty *vty,
+                     struct cmd_element **cmd, qpn_nexus to_nexus,
+                                               qpn_nexus from_nexus, int vtysh)
+{
+  int ret ;
+  int first ;
+  struct cmd_parsed parsed ;
+
+  /* Set up parsed structure & deal with "do" shortcut prefix           */
+  first = cmd_pre_command(vty, &parsed, vline) ;
+
+  /* Try to parse in parsed.cnode node or, if required, ancestors thereof.  */
+  if (vtysh)
+    ret = cmd_parse_command(vline, first, &parsed, cmd_parse_completion) ;
+  else
+    ret = cmd_parse_command_tree(vline, first, &parsed, cmd_parse_completion) ;
+
+  if (cmd)
+    *cmd = parsed.cmd ;         /* for vtysh                            */
+
+  if (ret != CMD_SUCCESS)
+    return ret ;                /* NB: CMD_SUCCESS_DAEMON exits here    */
+
+  /* Execute the parsed command                                         */
+
+  vty_set_node(vty, parsed.cnode) ;
+
+  if (qpthreads_enabled && !(parsed.cmd->attr & CMD_ATTR_CALL))
+    {
+      /* Don't do it now, but send to bgp qpthread */
+      cq_enqueue(vty, &parsed, to_nexus, from_nexus) ;
+      ret = CMD_QUEUED ;
+    }
+  else
+    {
+      ret = (*(parsed.cmd->func))(parsed.cmd, vty, parsed.argc, parsed.argv) ;
+
+      cmd_post_command(vty, &parsed, ret, 1) ;
+    } ;
+
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Execute command by argument readline.
+ *
+ *   -- use cmd_parse_strict type parsing.
+ *
+ *   -- unless vtysh: if does not parse in current node, try ancestors
+ *
+ *      If does not find in any ancestor, return error from current node.
+ *
+ *   -- does NOT implement the "do" shortcut
+ *
+ * At all times executes the command immediately (no queueing, even if
+ * qpthreads_enabled).
+ *
+ * The vty->node may be changed either when parsing or executing the command.
+ */
+extern int
+cmd_execute_command_strict (vector vline, struct vty *vty,
+			    struct cmd_element **cmd, int vtysh)
+{
+#if 0                   /* replaced by cmd_parse_command()      */
   unsigned int i;
   unsigned int index;
   vector cmd_vector;
@@ -2285,61 +2672,73 @@ cmd_execute_command_strict (vector vline, struct vty *vty,
 	}
 
       if (argc >= CMD_ARGC_MAX)
-	return CMD_ERR_EXEED_ARGC_MAX;
+	return CMD_ERR_EXCEED_ARGC_MAX;
     }
+#endif
 
-  /* For vtysh execution. */
+  struct cmd_parsed  parsed ;
+  int ret ;
+
+  /* Try to parse in parsed.cnode node or, if required, ancestors thereof.  */
+  if (vtysh)
+    ret = cmd_parse_command(vline, 0, &parsed, cmd_parse_strict) ;
+  else
+    ret = cmd_parse_command_tree(vline, 0, &parsed, cmd_parse_strict) ;
+
   if (cmd)
-    *cmd = matched_element;
+    *cmd = parsed.cmd ;         /* for vtysh                            */
 
-  if (matched_element->daemon)
-    return CMD_SUCCESS_DAEMON;
+  if (ret != CMD_SUCCESS)
+    return ret ;                /* NB: CMD_SUCCESS_DAEMON exits here    */
 
-  /* Now execute matched command */
-  return (*matched_element->func) (matched_element, vty, argc, argv);
+  /* Now execute matched command        */
+  vty_set_node(vty, parsed.cnode) ;
+
+  return (*(parsed.cmd->func)) (parsed.cmd, vty, parsed.argc, parsed.argv);
 }
 
-/* Configration make from file. */
+/*------------------------------------------------------------------------------
+ * Read configuration from file.
+ *
+ */
 int
-config_from_file (struct vty *vty, FILE *fp, void (*after_first_cmd)(void))
+config_from_file (struct vty *vty, FILE *fp, void (*after_first_cmd)(void),
+                                                                   qstring buf)
 {
   int ret;
   vector vline;
   int first_cmd = 1;
 
-  while (fgets (vty->buf, VTY_BUFSIZ, fp))
+  while (fgets (buf->body, buf->size, fp))
     {
-      vline = cmd_make_strvec (vty->buf);
+      vline = cmd_make_strvec (buf->body);
 
-      /* In case of comment line */
+      /* In case of comment line                                */
       if (vline == NULL)
 	continue;
-      /* Execute configuration command : this is strict match */
-      ret = cmd_execute_command_strict (vline, vty, NULL);
 
-      /* special handling for after the first command */
+      /* Execute configuration command : this is strict match   */
+      ret = cmd_execute_command_strict (vline, vty, NULL, 0);
+
+      /* special handling for after the first command           */
       if (first_cmd && after_first_cmd)
         {
           after_first_cmd();
           first_cmd = 0;
         }
 
-      /* Try again with setting node to CONFIG_NODE */
-      while (ret != CMD_SUCCESS && ret != CMD_WARNING
-	     && ret != CMD_ERR_NOTHING_TODO && vty_get_node(vty) != CONFIG_NODE)
-	{
-	  vty_set_node(vty, node_parent(vty_get_node(vty)));
-	  ret = cmd_execute_command_strict (vline, vty, NULL);
-	}
-
       cmd_free_strvec (vline);
 
+      /* TODO: why does config file not stop on CMD_WARNING ??  */
       if (ret != CMD_SUCCESS && ret != CMD_WARNING
-	  && ret != CMD_ERR_NOTHING_TODO)
+                             && ret != CMD_ERR_NOTHING_TODO)
 	return ret;
-    }
+    } ;
+
   return CMD_SUCCESS;
 }
+
+/*----------------------------------------------------------------------------*/
 
 /* Configration from terminal */
 DEFUN_CALL (config_terminal,
@@ -2348,14 +2747,11 @@ DEFUN_CALL (config_terminal,
        "Configuration from vty interface\n"
        "Configuration terminal\n")
 {
-  if (vty_config_lock (vty))
-    vty_set_node(vty, CONFIG_NODE);
-  else
-    {
-      vty_out (vty, "VTY configuration is locked by other VTY%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
-  return CMD_SUCCESS;
+  if (vty_config_lock (vty, CONFIG_NODE))
+    return CMD_SUCCESS;
+
+  vty_out (vty, "VTY configuration is locked by other VTY%s", VTY_NEWLINE);
+  return CMD_WARNING;
 }
 
 /* Enable command */
@@ -2391,47 +2787,7 @@ DEFUN_CALL (config_exit,
        "exit",
        "Exit current mode and down to previous mode\n")
 {
-  switch (vty_get_node(vty))
-    {
-    case VIEW_NODE:
-    case ENABLE_NODE:
-    case RESTRICTED_NODE:
-      if (vty_shell (vty))
-	exit (0);
-      else
-	vty_set_status(vty, VTY_CLOSE);
-      break;
-    case CONFIG_NODE:
-      vty_set_node(vty, ENABLE_NODE);
-      vty_config_unlock (vty);
-      break;
-    case INTERFACE_NODE:
-    case ZEBRA_NODE:
-    case BGP_NODE:
-    case RIP_NODE:
-    case RIPNG_NODE:
-    case OSPF_NODE:
-    case OSPF6_NODE:
-    case ISIS_NODE:
-    case KEYCHAIN_NODE:
-    case MASC_NODE:
-    case RMAP_NODE:
-    case VTY_NODE:
-      vty_set_node(vty, CONFIG_NODE);
-      break;
-    case BGP_VPNV4_NODE:
-    case BGP_IPV4_NODE:
-    case BGP_IPV4M_NODE:
-    case BGP_IPV6_NODE:
-    case BGP_IPV6M_NODE:
-      vty_set_node(vty, BGP_NODE);
-      break;
-    case KEYCHAIN_KEY_NODE:
-      vty_set_node(vty, KEYCHAIN_NODE);
-      break;
-    default:
-      break;
-    }
+  vty_cmd_exit(vty) ;
   return CMD_SUCCESS;
 }
 
@@ -2447,38 +2803,7 @@ DEFUN_CALL (config_end,
        "end",
        "End current mode and change to enable mode.")
 {
-  switch (vty_get_node(vty))
-    {
-    case VIEW_NODE:
-    case ENABLE_NODE:
-    case RESTRICTED_NODE:
-      /* Nothing to do. */
-      break;
-    case CONFIG_NODE:
-    case INTERFACE_NODE:
-    case ZEBRA_NODE:
-    case RIP_NODE:
-    case RIPNG_NODE:
-    case BGP_NODE:
-    case BGP_VPNV4_NODE:
-    case BGP_IPV4_NODE:
-    case BGP_IPV4M_NODE:
-    case BGP_IPV6_NODE:
-    case BGP_IPV6M_NODE:
-    case RMAP_NODE:
-    case OSPF_NODE:
-    case OSPF6_NODE:
-    case ISIS_NODE:
-    case KEYCHAIN_NODE:
-    case KEYCHAIN_KEY_NODE:
-    case MASC_NODE:
-    case VTY_NODE:
-      vty_config_unlock (vty);
-      vty_set_node(vty, ENABLE_NODE);
-      break;
-    default:
-      break;
-    }
+  vty_cmd_end(vty) ;
   return CMD_SUCCESS;
 }
 
@@ -2539,7 +2864,7 @@ DEFUN_CALL (config_list,
 }
 
 /* Write current configuration into file. */
-DEFUN_CALL (config_write_file,
+DEFUN (config_write_file,
        config_write_file_cmd,
        "write file",
        "Write running configuration to memory, network, or terminal\n"
@@ -2645,18 +2970,18 @@ finished:
   return ret;
 }
 
-ALIAS_CALL (config_write_file,
+ALIAS (config_write_file,
        config_write_cmd,
        "write",
        "Write running configuration to memory, network, or terminal\n")
 
-ALIAS_CALL (config_write_file,
+ALIAS (config_write_file,
        config_write_memory_cmd,
        "write memory",
        "Write running configuration to memory, network, or terminal\n"
        "Write configuration to the file (same as write file)\n")
 
-ALIAS_CALL (config_write_file,
+ALIAS (config_write_file,
        copy_runningconfig_startupconfig_cmd,
        "copy running-config startup-config",
        "Copy configuration\n"
@@ -2664,7 +2989,7 @@ ALIAS_CALL (config_write_file,
        "Copy running config to startup config (same as write file)\n")
 
 /* Write current configuration into the terminal. */
-DEFUN_CALL (config_write_terminal,
+DEFUN (config_write_terminal,
        config_write_terminal_cmd,
        "write terminal",
        "Write running configuration to memory, network, or terminal\n"
@@ -2700,14 +3025,14 @@ DEFUN_CALL (config_write_terminal,
 }
 
 /* Write current configuration into the terminal. */
-ALIAS_CALL (config_write_terminal,
+ALIAS (config_write_terminal,
        show_running_config_cmd,
        "show running-config",
        SHOW_STR
        "running configuration\n")
 
 /* Write startup configuration into the terminal. */
-DEFUN_CALL (show_startup_config,
+DEFUN (show_startup_config,
        show_startup_config_cmd,
        "show startup-config",
        SHOW_STR
@@ -2753,10 +3078,16 @@ DEFUN_CALL (config_hostname,
       return CMD_WARNING;
     }
 
+  VTY_LOCK() ;
+
   if (host.name)
     XFREE (MTYPE_HOST, host.name);
 
   host.name = XSTRDUP (MTYPE_HOST, argv[0]);
+  uty_set_host_name(host.name) ;
+
+  VTY_UNLOCK() ;
+
   return CMD_SUCCESS;
 }
 
@@ -2767,9 +3098,15 @@ DEFUN_CALL (config_no_hostname,
        "Reset system's network name\n"
        "Host name of this router\n")
 {
+  VTY_LOCK() ;
+
   if (host.name)
     XFREE (MTYPE_HOST, host.name);
   host.name = NULL;
+  uty_set_host_name(host.name) ;
+
+  VTY_UNLOCK() ;
+
   return CMD_SUCCESS;
 }
 

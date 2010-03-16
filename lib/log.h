@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_LOG_H
@@ -44,7 +44,7 @@
  * please use LOG_ERR instead.
  */
 
-typedef enum 
+typedef enum
 {
   ZLOG_NONE,
   ZLOG_DEFAULT,
@@ -52,7 +52,7 @@ typedef enum
   ZLOG_RIP,
   ZLOG_BGP,
   ZLOG_OSPF,
-  ZLOG_RIPNG,  
+  ZLOG_RIPNG,
   ZLOG_OSPF6,
   ZLOG_ISIS,
   ZLOG_MASC
@@ -71,7 +71,7 @@ typedef enum
 } zlog_dest_t;
 #define ZLOG_NUM_DESTS		(ZLOG_DEST_FILE+1)
 
-struct zlog 
+struct zlog
 {
   const char *ident;	/* daemon name (first arg to openlog) */
   zlog_proto_t protocol;
@@ -176,7 +176,7 @@ extern const char * uzlog_get_proto_name (struct zlog *zl);
 #define LOOKUP(x, y) mes_lookup(x, x ## _max, y, "(no item found)")
 
 extern const char *lookup (const struct message *, int);
-extern const char *mes_lookup (const struct message *meslist, 
+extern const char *mes_lookup (const struct message *meslist,
                                int max, int index,
                                const char *no_item);
 
@@ -203,23 +203,58 @@ extern void zlog_backtrace(int priority);
 extern void zlog_backtrace_sigsafe(int priority, void *program_counter);
 
 /* Puts a current timestamp in buf and returns the number of characters
-   written (not including the terminating NUL).  The purpose of
-   this function is to avoid calls to localtime appearing all over the code.
-   It caches the most recent localtime result and can therefore
-   avoid multiple calls within the same second.  If buflen is too small,
-   *buf will be set to '\0', and 0 will be returned. */
+ * written (not including the terminating NUL).  The purpose of
+ * this function is to avoid calls to localtime appearing all over the code.
+ * It caches the most recent localtime result and can therefore
+ * avoid multiple calls within the same second.
+ *
+ * The buflen MUST be > 1 and the buffer address MUST NOT be NULL.
+ *
+ * If buflen is too small, writes buflen-1 characters followed by '\0'.
+ *
+ * Time stamp is rendered in the form: %Y/%m/%d %H:%M:%S
+ *
+ * This has a fixed length (leading zeros are included) of 19 characters
+ * (unless this code is still in use beyond the year 9999 !)
+ *
+ * Which may be followed by "." and a number of decimal digits, usually 1..6.
+ *
+ * So the maximum time stamp is 19 + 1 + 6 = 26.  Adding the trailing '\n', and
+ * rounding up for good measure -- buffer size = 32.
+ */
+#define TIMESTAMP_FORM "%Y/%m/%d %H:%M:%S"
+
+enum { timestamp_buffer_len = 32 } ;
+
 extern size_t quagga_timestamp(int timestamp_precision /* # subsecond digits */,
 			       char *buf, size_t buflen);
-/* unprotected version for when mutex already held */
+/* unprotected version for when mutex already held                      */
 extern size_t uquagga_timestamp(int timestamp_precision /* # subsecond digits */,
                                char *buf, size_t buflen);
-/* structure useful for avoiding repeated rendering of the same timestamp */
-struct timestamp_control {
-   size_t len;		/* length of rendered timestamp */
-   int precision;	/* configuration parameter */
-   int already_rendered; /* should be initialized to 0 */
-   char buf[40];	/* will contain the rendered timestamp */
-};
+
+/* Generate line to be logged
+ *
+ * Structure used to hold line for log output -- so that need be generated
+ * just once even if output to multiple destinations.
+ *
+ * Note that the buffer length is a hard limit (including terminating '\n''\0'
+ * or '\r''\n''\0').  Do not wish to malloc any larger buffer while logging.
+ */
+enum { logline_buffer_len = 1008 } ;
+struct logline {
+  char*   p_nl ;  /* address of the first byte of "\n" or "\r\n"        */
+                  /* NULL => not filled in yet                          */
+
+  char*   line ;  /* address of the buffered line                       */
+  size_t  len ;   /* length including either '\r''\n' or '\n'           */
+  int     crlf ;  /* true if terminated by "\r\n"                       */
+
+  char buf[logline_buffer_len]; /* buffer                               */
+} ;
+
+extern void
+uvzlog_line(struct logline* ll, struct zlog *zl, int priority,
+                                     const char *format, va_list va, int crlf) ;
 
 /* Defines for use in command construction: */
 

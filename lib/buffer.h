@@ -1,5 +1,5 @@
 /*
- * Buffering to output and input. 
+ * Buffering to output and input.
  * Copyright (C) 1998 Kunihiro Ishiguro
  *
  * This file is part of GNU Zebra.
@@ -23,11 +23,22 @@
 #ifndef _ZEBRA_BUFFER_H
 #define _ZEBRA_BUFFER_H
 
+/* Buffer master. */
+struct buffer
+{
+  /* Data list. */
+  struct buffer_data *head;
+  struct buffer_data *tail;
+
+  /* Size of each buffer_data chunk. */
+  size_t size;
+};
 
 /* Create a new buffer.  Memory will be allocated in chunks of the given
    size.  If the argument is 0, the library will supply a reasonable
    default size suitable for buffering socket I/O. */
 extern struct buffer *buffer_new (size_t);
+struct buffer *buffer_init_new (struct buffer* b, size_t size) ;
 
 /* Free all data in the buffer. */
 extern void buffer_reset (struct buffer *);
@@ -73,7 +84,7 @@ typedef enum
 extern buffer_status_t buffer_write(struct buffer *, int fd,
 				    const void *, size_t);
 
-/* This function attempts to flush some (but perhaps not all) of 
+/* This function attempts to flush some (but perhaps not all) of
    the queued data to the given file descriptor. */
 extern buffer_status_t buffer_flush_available(struct buffer *, int fd);
 
@@ -88,7 +99,7 @@ extern buffer_status_t buffer_flush_all (struct buffer *, int fd);
 /* Attempt to write enough data to the given fd to fill a window of the
    given width and height (and remove the data written from the buffer).
 
-   If !no_more, then a message saying " --More-- " is appended. 
+   If !no_more, then a message saying " --More-- " is appended.
    If erase is true, then first overwrite the previous " --More-- " message
    with spaces.
 

@@ -81,31 +81,37 @@ struct bgp_advertise
 /* BGP adjacency out.  */
 struct bgp_adj_out
 {
-  /* Lined list pointer.  */
-  struct bgp_adj_out *next;
-  struct bgp_adj_out *prev;
+  /* Linked list pointer.       */
+  struct bgp_node*   rn ;
+  struct bgp_adj_out *adj_next;
+  struct bgp_adj_out *adj_prev;
 
-  /* Advertised peer.  */
+  /* Advertised peer.           */
   struct peer *peer;
+  struct bgp_adj_out* route_next ;
+  struct bgp_adj_out* route_prev ;
 
-  /* Advertised attribute.  */
+  /* Advertised attribute.      */
   struct attr *attr;
 
-  /* Advertisement information.  */
+  /* Advertisement information. */
   struct bgp_advertise *adv;
 };
 
 /* BGP adjacency in. */
 struct bgp_adj_in
 {
-  /* Linked list pointer.  */
-  struct bgp_adj_in *next;
-  struct bgp_adj_in *prev;
+  /* Linked list pointer.       */
+  struct bgp_node*   rn ;
+  struct bgp_adj_in *adj_next;
+  struct bgp_adj_in *adj_prev;
 
-  /* Received peer.  */
+  /* Received peer.             */
   struct peer *peer;
+  struct bgp_adj_in* route_next ;
+  struct bgp_adj_in* route_prev ;
 
-  /* Received attribute.  */
+  /* Received attribute.        */
   struct attr *attr;
 };
 
@@ -183,21 +189,21 @@ bgp_advertise_fifo_del(bgp_advertise adv)
 /* BGP adjacency linked list.  */
 #define BGP_INFO_ADD(N,A,TYPE)                        \
   do {                                                \
-    (A)->prev = NULL;                                 \
-    (A)->next = (N)->TYPE;                            \
+    (A)->adj_prev = NULL;                             \
+    (A)->adj_next = (N)->TYPE;                        \
     if ((N)->TYPE)                                    \
-      (N)->TYPE->prev = (A);                          \
+      (N)->TYPE->adj_prev = (A);                      \
     (N)->TYPE = (A);                                  \
   } while (0)
 
 #define BGP_INFO_DEL(N,A,TYPE)                        \
   do {                                                \
-    if ((A)->next)                                    \
-      (A)->next->prev = (A)->prev;                    \
-    if ((A)->prev)                                    \
-      (A)->prev->next = (A)->next;                    \
+    if ((A)->adj_next)                                \
+      (A)->adj_next->adj_prev = (A)->adj_prev;        \
+    if ((A)->adj_prev)                                \
+      (A)->adj_prev->adj_next = (A)->adj_next;        \
     else                                              \
-      (N)->TYPE = (A)->next;                          \
+      (N)->TYPE = (A)->adj_next;                      \
   } while (0)
 
 #define BGP_ADJ_IN_ADD(N,A)    BGP_INFO_ADD(N,A,adj_in)

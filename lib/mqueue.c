@@ -129,9 +129,67 @@
  */
 
 /*==============================================================================
- * Initialisation etc. for Message Queues.
+ * Message Block allocation statics
  *
- * TODO: how to shut down a message queue... for reset/exit ?
+ * Once a message block is allocated it is not deallocated, but kept ready
+ * for future use.
+ *
+ * Keeps a count of free message blocks.  (Could at some later date reduce the
+ * number of free message blocks if it is known that some burst of messages has
+ * now passed.)
+ */
+
+static pthread_mutex_t  mqb_mutex ;     /* for allocation of mqueue blocks  */
+
+static mqueue_block mqb_free_list  = NULL ;
+static unsigned     mqb_free_count = 0 ;
+
+/*==============================================================================
+ * Initialise and shut down Message Queue and Message Block handling
+ */
+
+/*------------------------------------------------------------------------------
+ * Initialise Message Queue handling.
+ *
+ * Must be called before any qpt_threads are started.
+ *
+ * Freezes qpthreads_enabled.
+ */
+extern void
+mqueue_initialise(void)
+{
+  if (qpthreads_enabled_freeze)
+    qpt_mutex_init_new(&mqb_mutex, qpt_mutex_quagga) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Shut down Message Queue handling.
+ *
+ * Release all resources used.
+ *
+ * NB: all pthreads must have stopped -- mutex must be free and no further
+ *     uses may be made.
+ */
+extern void
+mqueue_finish(void)
+{
+  mqueue_block mqb ;
+
+  while ((mqb = mqb_free_list) != NULL)
+    {
+      assert(mqb_free_count != 0) ;
+      mqb_free_list = mqb->next ;
+      XFREE(MTYPE_MQUEUE_BLOCK, mqb) ;
+    } ;
+
+  assert(mqb_free_count == 0) ;
+
+  qpt_mutex_destroy_keep(&mqb_mutex) ;
+} ;
+
+/*==============================================================================
+ * Initialisation etc. for Message Queue
+ *
  */
 
 /*------------------------------------------------------------------------------
@@ -328,11 +386,6 @@ mqueue_set_timeout_interval(mqueue_queue mq, qtime_t interval)
  * mqueue_initialise MUST be called before the first message block is allocated.
  */
 
-static pthread_mutex_t  mqb_mutex ;
-
-static mqueue_block mqb_free_list  = NULL ;
-static unsigned     mqb_free_count = 0 ;
-
 inline static size_t mqb_argv_size(mqb_index_t alloc)
 {
   return alloc * sizeof(mqb_arg_t) ;
@@ -476,7 +529,7 @@ static void mqueue_dequeue_signal(mqueue_queue mq, mqueue_thread_signal mtsig) ;
  * NB: this works perfectly well if !qpthreads enabled.  Of course, there can
  *     never be any waiters... so no kicking is ever done.
  */
-void
+extern void
 mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, int priority)
 {
   qpt_mutex_lock(&mq->mutex) ;
@@ -582,7 +635,7 @@ mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, int priority)
  *
  * Returns a message block if one is available.  (And not otherwise.)
  */
-mqueue_block
+extern mqueue_block
 mqueue_dequeue(mqueue_queue mq, int wait, void* arg)
 {
   mqueue_block mqb ;
@@ -750,7 +803,7 @@ mqueue_revoke(mqueue_queue mq, void* arg0)
  *
  * (Signal will never be kicked if !qpthreads_enabled.)
  */
-int
+extern int
 mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig)
 {
   int kicked ;
@@ -834,7 +887,7 @@ mqueue_local_dequeue(mqueue_local_queue lmq)
  *
  * Returns address of the structure.
  */
-mqueue_thread_signal
+extern mqueue_thread_signal
 mqueue_thread_signal_init(mqueue_thread_signal mqt, qpt_thread_t thread,
                                                                      int signum)
 {
@@ -860,7 +913,7 @@ mqueue_thread_signal_init(mqueue_thread_signal mqt, qpt_thread_t thread,
  * Frees the structure if required, and returns NULL.
  * Otherwise zeroises the structure, and returns address of same.
  */
-mqueue_thread_signal
+extern mqueue_thread_signal
 mqueue_thread_signal_reset(mqueue_thread_signal mqt, int free_structure)
 {
   passert(mqt->prev == NULL) ;
@@ -1247,20 +1300,4 @@ mqb_argv_extend(mqueue_block mqb, mqb_index_t iv)
     } ;
 
   mqb->argv_alloc = need ;
-} ;
-
-/*==============================================================================
- * Initialise Message Queue handling
- *
- * Must be called before any qpt_threads are started.
- *
- * Freezes qpthreads_enabled.
- *
- * TODO: how do we shut down message queue handling ?
- */
-void
-mqueue_initialise(void)
-{
-  if (qpthreads_enabled_freeze)
-    qpt_mutex_init_new(&mqb_mutex, qpt_mutex_quagga) ;
 } ;

@@ -334,7 +334,6 @@ bgp_withdraw_packet (struct peer *peer, afi_t afi, safi_t safi)
       peer->scount[afi][safi]--;
 
       bgp_adj_out_remove (rn, adj, peer, afi, safi);
-      bgp_unlock_node (rn);
 
       if (! (afi == AFI_IP && safi == SAFI_UNICAST))
 	break;
@@ -2210,7 +2209,7 @@ bgp_capability_msg_parse (struct peer *peer, u_char *pnt, bgp_size_t length)
               peer->afc_nego[afi][safi] = 0;
 
               if (peer_active_nego (peer))
-                bgp_clear_route (peer, afi, safi, BGP_CLEAR_ROUTE_NORMAL);
+                bgp_clear_route_normal (peer, afi, safi);
               else
                 {
                   /* TODO: only used for unit tests.  Test will need fixing */

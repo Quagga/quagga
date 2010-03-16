@@ -137,8 +137,17 @@ struct peer
   /* Local router ID. */
   struct in_addr local_id;
 
-  /* Peer specific RIB when configured as route-server-client. */
+  /* Peer specific RIB when configured as route-server-client.  */
   struct bgp_table *rib[AFI_MAX][SAFI_MAX];
+
+  /* Collection of routes originated by peer                    */
+  struct bgp_info* routes_head[AFI_MAX][SAFI_MAX] ;
+
+  /* Collection of adj_in routes                                */
+  struct bgp_adj_in* adj_in_head[AFI_MAX][SAFI_MAX] ;
+
+  /* Collection of adj_out routes                               */
+  struct bgp_adj_out* adj_out_head[AFI_MAX][SAFI_MAX] ;
 
   /* Packet receive buffer. */
   struct stream *ibuf;
@@ -422,7 +431,11 @@ bgp_peer_enable(bgp_peer peer);
 extern void
 bgp_peer_disable(bgp_peer peer, bgp_notify notification);
 
-extern int bgp_peer_stop (struct peer *peer) ;
+extern int
+bgp_peer_stop (struct peer *peer) ;
+
+extern void
+bgp_peer_clearing_completed(struct peer *peer) ;
 
 extern void
 peer_change_status (bgp_peer peer, int status);

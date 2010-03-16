@@ -78,6 +78,13 @@ CONFIRM(offsetof(work_queue_item_t, args) == 0) ;
 
 #define WQ_UNPLUGGED	(1 << 0) /* available for draining */
 
+typedef struct work_queue* work_queue ;
+
+typedef wq_item_status wq_workfunc(work_queue, work_queue_item);
+typedef void           wq_errorfunc(work_queue, work_queue_item);
+typedef void           wq_del_item_data(work_queue, work_queue_item);
+typedef void           wq_completion_func(work_queue);
+
 struct work_queue
 {
   /* Everything but the specification struct is private
@@ -91,23 +98,23 @@ struct work_queue
    * Public, must be set before use by caller. May be modified at will.
    */
   struct {
-    /* optional opaque user data, global to the queue. */
+    /* optional opaque user data, global to the queue.                  */
     void *data;
 
     /* work function to process items with:
      * First argument is the workqueue queue.
      * Second argument is the item data
      */
-    wq_item_status (*workfunc) (struct work_queue *, work_queue_item);
+    wq_workfunc* workfunc ;
 
-    /* error handling function, optional */
-    void (*errorfunc) (struct work_queue *, work_queue_item);
+    /* error handling function -- optional                              */
+    wq_errorfunc* errorfunc ;
 
-    /* callback to delete user specific item data */
-    void (*del_item_data) (struct work_queue *, work_queue_item);
+    /* callback to delete user specific item data -- optional           */
+    wq_del_item_data* del_item_data ;
 
-    /* completion callback, called when queue is emptied, optional */
-    void (*completion_func) (struct work_queue *);
+    /* completion callback, called when queue is emptied -- optional    */
+    wq_completion_func* completion_func ;
 
     /* max number of retries to make for item that errors */
     unsigned int max_retries;

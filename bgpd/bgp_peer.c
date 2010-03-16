@@ -337,8 +337,8 @@ bgp_session_has_disabled(bgp_peer peer)
     {
       /* disable the peer */
       bgp_peer_stop(peer);
-      bgp_clear_route_all(peer);
       peer_change_status(peer, bgp_peer_sClearing);
+      bgp_clear_route_all(peer);
     }
 
   /* if the program is terminating then see if this was the last session
@@ -469,6 +469,25 @@ bgp_peer_stop (struct peer *peer)
 
   return 0;
 }
+
+/*------------------------------------------------------------------------------
+ * When a bgp_clear_route_all completes, this is called to move the peer state
+ * on, if required.
+ */
+extern void
+bgp_peer_clearing_completed(struct peer *peer)
+{
+  /* Flush the event queue and ensure the peer is shut down     */
+  bgp_peer_stop(peer);
+  BGP_EVENT_FLUSH (peer);
+
+  if (peer->state == bgp_peer_sClearing)
+    {
+      peer_change_status (peer, bgp_peer_sIdle);
+      /* enable peer if required */
+      bgp_peer_enable(peer);
+    }
+} ;
 
 #if 0
 /* Stop all timers for the given peer
@@ -749,7 +768,6 @@ peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
 {
   int active;
   struct peer *peer;
-  char buf[SU_ADDRSTRLEN];
 
   peer = peer_new (bgp);
   peer->su = *su;
@@ -766,8 +784,8 @@ peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
   peer = peer_lock (peer); /* bgp peer list reference */
   listnode_add_sort (bgp->peer, peer);
 
+  /* If "default ipv4-unicast", then this is implicit "activate"  */
   active = peer_active (peer);
-
   if (afi && safi)
     peer->afc[afi][safi] = 1;
 
@@ -781,18 +799,20 @@ peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
   peer->ttl = (peer_sort (peer) == BGP_PEER_IBGP ? 255 : 1);
 
   /* Make peer's address string. */
-  sockunion2str (su, buf, SU_ADDRSTRLEN);
-  peer->host = XSTRDUP (MTYPE_BGP_PEER_HOST, buf);
-
-  /* Set up peer's events and timers. */
-  if (! active && peer_active (peer))
-    bgp_timer_set (peer);
+  peer->host = sockunion_su2str (su, MTYPE_BGP_PEER_HOST) ;
 
   /* register */
   bgp_peer_index_register(peer, &peer->su);
 
   /* session */
   peer->session = bgp_session_init_new(peer->session, peer);
+
+  /* If implicit activate,  Set up peer's events and timers. */
+  if ((! active) && peer_active (peer))
+    {
+      bgp_timer_set (peer);
+      bgp_peer_enable (peer);
+    } ;
 
   return peer;
 }
@@ -843,8 +863,8 @@ peer_delete (struct peer *peer)
    */
   peer->last_reset = PEER_DOWN_NEIGHBOR_DELETE;
   bgp_peer_stop (peer);
-  bgp_clear_route_all(peer);
   peer_change_status (peer, bgp_peer_sDeleted);
+  bgp_clear_route_all(peer);
 
   /* Password configuration */
   if (peer->password)
@@ -874,7 +894,7 @@ peer_delete (struct peer *peer)
         for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
           if (CHECK_FLAG(peer->af_flags[afi][safi],
                          PEER_FLAG_RSERVER_CLIENT))
-            bgp_clear_route (peer, afi, safi, BGP_CLEAR_ROUTE_MY_RSCLIENT);
+            bgp_clear_route_rsclient(peer, afi, safi);
     }
 
   /* Free RIB for any family in which peer is RSERVER_CLIENT, and is not
@@ -1021,6 +1041,9 @@ bgp_peer_enable(bgp_peer peer)
    * 2) Shutdown
    * 3) Dealing with prefix overflow, its timer will enable peer when ready
    */
+
+  zlog_err ("%s: enabling peer %s:", __func__, peer->host) ;
+
   if ((peer->state == bgp_peer_sIdle)
       && !CHECK_FLAG (peer->flags, PEER_FLAG_SHUTDOWN)
       && !CHECK_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW))
@@ -1116,7 +1139,7 @@ bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, pAF_t paf)
   prefix_free(peer_prefix) ;
 
   if (best_prefix != NULL)
-    return sockunion_new(best_prefix) ;
+    return sockunion_new_prefix(NULL, best_prefix) ;
 
   zlog_err("Peer %s interface %s has no suitable address", peer->host, ifname);
 

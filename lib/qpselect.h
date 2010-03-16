@@ -163,16 +163,19 @@ struct qps_file
  * qps_selection handling
  */
 
-qps_selection
+extern void
+qps_start_up(void) ;
+
+extern qps_selection
 qps_selection_init_new(qps_selection qps) ;
 
-void
+extern void
 qps_add_file(qps_selection qps, qps_file qf, int fd, void* file_info) ;
 
-void
+extern void
 qps_remove_file(qps_file qf) ;
 
-qps_file
+extern qps_file
 qps_selection_ream(qps_selection qps, int free_structure) ;
 
 /* Ream out selection and free the selection structure.   */
@@ -180,32 +183,32 @@ qps_selection_ream(qps_selection qps, int free_structure) ;
 /* Ream out selection but keep the selection structure.   */
 #define qps_selection_ream_keep(qps) qps_selection_ream(qps, 0)
 
-void
+extern void
 qps_set_signal(qps_selection qps, int signum, sigset_t sigmask) ;
 
-int
+extern int
 qps_pselect(qps_selection qps, qtime_mono_t timeout) ;
 
-int
+extern int
 qps_dispatch_next(qps_selection qps) ;
 
 /*==============================================================================
  * qps_file structure handling
  */
 
-qps_file
+extern qps_file
 qps_file_init_new(qps_file qf, qps_file template) ;
 
-void
+extern void
 qps_file_free(qps_file qf) ;
 
-void
+extern void
 qps_enable_mode(qps_file qf, qps_mnum_t mnum, qps_action* action) ;
 
-void
+extern void
 qps_set_action(qps_file qf, qps_mnum_t mnum, qps_action* action) ;
 
-void
+extern void
 qps_disable_modes(qps_file qf, qps_mbit_t mbits) ;
 
 Inline void*

@@ -63,7 +63,8 @@ bgp_msg_get_mlen(uint8_t* p, uint8_t* limit)
   uint16_t mlen ;
   passert((p + BGP_MH_HEAD_L) <= limit) ;
 
-  mlen = (*(p + BGP_MH_MARKER_L) << 8) + (*(p + BGP_MH_MARKER_L + 1)) ;
+  mlen = ((bgp_size_t)(*(p + BGP_MH_MARKER_L)) << 8)
+                    + (*(p + BGP_MH_MARKER_L + 1)) ;
 
   passert((p + mlen) <= limit) ;
 
@@ -840,7 +841,7 @@ bgp_msg_capability_option_parse (bgp_connection connection,
       unsigned cap_length ;
 
       /* We need at least capability code and capability length. */
-      if ((left -= 2) > 0)
+      if ((left -= 2) >= 0)
         {
           cap_code   = suck_b(sr);
           cap_length = suck_b(sr);

@@ -33,7 +33,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_dump.h"
-
+
 enum bgp_dump_type
 {
   BGP_DUMP_ALL,
@@ -89,7 +89,7 @@ struct bgp_dump bgp_dump_routes;
 
 /* Dump whole BGP table is very heavy process.  */
 struct thread *t_bgp_dump_routes;
-
+
 /* Some define for BGP packet dump. */
 static FILE *
 bgp_dump_open_file (struct bgp_dump *bgp_dump)
@@ -131,7 +131,7 @@ bgp_dump_open_file (struct bgp_dump *bgp_dump)
       umask(oldumask);
       return NULL;
     }
-  umask(oldumask);  
+  umask(oldumask);
 
   return bgp_dump->fp;
 }
@@ -156,7 +156,7 @@ bgp_dump_interval_add (struct bgp_dump *bgp_dump, int interval)
 	  secs_into_day = tm.tm_sec + 60*tm.tm_min + 60*60*tm.tm_hour;
 	  interval = interval - secs_into_day % interval; /* always > 0 */
 	}
-      bgp_dump->t_interval = thread_add_timer (master, bgp_dump_interval_func, 
+      bgp_dump->t_interval = thread_add_timer (master, bgp_dump_interval_func,
 					       bgp_dump, interval);
     }
   else
@@ -179,7 +179,7 @@ bgp_dump_header (struct stream *obuf, int type, int subtype)
   time (&now);
 
   /* Put dump packet header. */
-  stream_putl (obuf, now);	
+  stream_putl (obuf, now);
   stream_putw (obuf, type);
   stream_putw (obuf, subtype);
 
@@ -348,7 +348,7 @@ bgp_dump_routes_func (int afi, int first_run, unsigned int seq)
       /* Entry count, note that this is overwritten later */
       stream_putw(obuf, 0);
 
-      for (info = rn->info; info; info = info->next)
+      for (info = rn->info; info; info = info->info_next)
         {
           entry_count++;
 
@@ -500,7 +500,7 @@ bgp_dump_packet_func (struct bgp_dump *bgp_dump, struct peer *peer,
 
   /* Dump header and common part. */
   if (CHECK_FLAG (peer->cap, PEER_CAP_AS4_RCV) )
-    { 
+    {
       bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP, BGP4MP_MESSAGE_AS4);
     }
   else
@@ -511,7 +511,7 @@ bgp_dump_packet_func (struct bgp_dump *bgp_dump, struct peer *peer,
 
   /* Packet contents. */
   stream_put (obuf, STREAM_DATA (packet), stream_get_endp (packet));
-  
+
   /* Set length. */
   bgp_dump_set_size (obuf, MSG_PROTOCOL_BGP4MP);
 
@@ -531,7 +531,7 @@ bgp_dump_packet (struct peer *peer, int type, struct stream *packet)
   if (type == BGP_MSG_UPDATE)
     bgp_dump_packet_func (&bgp_dump_updates, peer, packet);
 }
-
+
 static unsigned int
 bgp_dump_parse_time (const char *str)
 {
@@ -585,10 +585,10 @@ bgp_dump_set (struct vty *vty, struct bgp_dump *bgp_dump,
               const char *interval_str)
 {
   unsigned int interval;
-  
+
   if (interval_str)
     {
-      
+
       /* Check interval string. */
       interval = bgp_dump_parse_time (interval_str);
       if (interval == 0)
@@ -610,13 +610,13 @@ bgp_dump_set (struct vty *vty, struct bgp_dump *bgp_dump,
       if (bgp_dump->interval_str)
 	free (bgp_dump->interval_str);
       bgp_dump->interval_str = strdup (interval_str);
-      
+
     }
   else
     {
       interval = 0;
     }
-    
+
   /* Create interval thread. */
   bgp_dump_interval_add (bgp_dump, interval);
 
@@ -665,7 +665,7 @@ bgp_dump_unset (struct vty *vty, struct bgp_dump *bgp_dump)
       free (bgp_dump->interval_str);
       bgp_dump->interval_str = NULL;
     }
-  
+
 
   return CMD_SUCCESS;
 }
@@ -812,36 +812,36 @@ config_write_bgp_dump (struct vty *vty)
   if (bgp_dump_all.filename)
     {
       if (bgp_dump_all.interval_str)
-	vty_out (vty, "dump bgp all %s %s%s", 
+	vty_out (vty, "dump bgp all %s %s%s",
 		 bgp_dump_all.filename, bgp_dump_all.interval_str,
 		 VTY_NEWLINE);
       else
-	vty_out (vty, "dump bgp all %s%s", 
+	vty_out (vty, "dump bgp all %s%s",
 		 bgp_dump_all.filename, VTY_NEWLINE);
     }
   if (bgp_dump_updates.filename)
     {
       if (bgp_dump_updates.interval_str)
-	vty_out (vty, "dump bgp updates %s %s%s", 
+	vty_out (vty, "dump bgp updates %s %s%s",
 		 bgp_dump_updates.filename, bgp_dump_updates.interval_str,
 		 VTY_NEWLINE);
       else
-	vty_out (vty, "dump bgp updates %s%s", 
+	vty_out (vty, "dump bgp updates %s%s",
 		 bgp_dump_updates.filename, VTY_NEWLINE);
     }
   if (bgp_dump_routes.filename)
     {
       if (bgp_dump_routes.interval_str)
-	vty_out (vty, "dump bgp routes-mrt %s %s%s", 
+	vty_out (vty, "dump bgp routes-mrt %s %s%s",
 		 bgp_dump_routes.filename, bgp_dump_routes.interval_str,
 		 VTY_NEWLINE);
       else
-	vty_out (vty, "dump bgp routes-mrt %s%s", 
+	vty_out (vty, "dump bgp routes-mrt %s%s",
 		 bgp_dump_routes.filename, VTY_NEWLINE);
     }
   return 0;
 }
-
+
 /* Initialize BGP packet dump functionality. */
 void
 bgp_dump_init (void)

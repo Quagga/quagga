@@ -1,10 +1,10 @@
 
-/* 
+/*
  * Interface functions.
  * Copyright (C) 1997, 98 Kunihiro Ishiguro
  *
  * This file is part of GNU Zebra.
- * 
+ *
  * GNU Zebra is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
  * by the Free Software Foundation; either version 2, or (at your
@@ -35,7 +35,7 @@
 #include "buffer.h"
 #include "str.h"
 #include "log.h"
-
+
 /* Master list of interfaces. */
 struct list *iflist;
 
@@ -45,7 +45,7 @@ struct if_master
   int (*if_new_hook) (struct interface *);
   int (*if_delete_hook) (struct interface *);
 } if_master;
-
+
 /* Compare interface names, returning an integer greater than, equal to, or
  * less than 0, (following the strcmp convention), according to the
  * relationship between ifp1 and ifp2.  Interface names consist of an
@@ -53,7 +53,7 @@ struct if_master
  * lexicographic by name, and then numeric by number.  No number sorts
  * before all numbers.  Examples: de0 < de1, de100 < fxp0 < xl0, devpty <
  * devpty0, de0 < del0
- */         
+ */
 int
 if_cmp_func (struct interface *ifp1, struct interface *ifp2)
 {
@@ -87,9 +87,9 @@ if_cmp_func (struct interface *ifp1, struct interface *ifp2)
     p1 += l1;
     p2 += l1;
 
-    if (!*p1) 
+    if (!*p1)
       return -1;
-    if (!*p2) 
+    if (!*p2)
       return 1;
 
     x1 = strtol(p1, &p1, 10);
@@ -119,7 +119,7 @@ if_create (const char *name, int namelen)
 
   ifp = XCALLOC (MTYPE_IF, sizeof (struct interface));
   ifp->ifindex = IFINDEX_INTERNAL;
-  
+
   assert (name);
   assert (namelen <= INTERFACE_NAMSIZ);	/* Need space for '\0' at end. */
   strncpy (ifp->name, name, namelen);
@@ -215,7 +215,7 @@ if_lookup_by_name (const char *name)
 {
   struct listnode *node;
   struct interface *ifp;
-  
+
   if (name)
     for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
       {
@@ -262,7 +262,7 @@ if_lookup_exact_address (struct in_addr src)
 	    {
 	      if (IPV4_ADDR_SAME (&p->u.prefix4, &src))
 		return ifp;
-	    }	      
+	    }
 	}
     }
   return NULL;
@@ -434,12 +434,12 @@ if_dump (const struct interface *ifp)
              "mtu6 %d "
 #endif /* HAVE_IPV6 */
              "%s",
-	     ifp->name, ifp->ifindex, ifp->metric, ifp->mtu, 
+	     ifp->name, ifp->ifindex, ifp->metric, ifp->mtu,
 #ifdef HAVE_IPV6
 	     ifp->mtu6,
 #endif /* HAVE_IPV6 */
 	     if_flag_dump (ifp->flags));
-  
+
   for (ALL_LIST_ELEMENTS_RO (ifp->connected, node, c))
     ;
 }
@@ -455,7 +455,7 @@ if_dump_all (void)
     if_dump (p);
 }
 
-DEFUN (interface_desc, 
+DEFUN (interface_desc,
        interface_desc_cmd,
        "description .LINE",
        "Interface specific description\n"
@@ -474,7 +474,7 @@ DEFUN (interface_desc,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_interface_desc, 
+DEFUN (no_interface_desc,
        no_interface_desc_cmd,
        "no description",
        NO_STR
@@ -489,7 +489,7 @@ DEFUN (no_interface_desc,
 
   return CMD_SUCCESS;
 }
-
+
 #ifdef SUNOS_5
 /* Need to handle upgrade from SUNWzebra to Quagga. SUNWzebra created
  * a seperate struct interface for each logical interface, so config
@@ -519,11 +519,11 @@ if_sunwzebra_get (const char *name, size_t nlen)
 
   if ( (ifp = if_lookup_by_name_len(name, nlen)) != NULL)
     return ifp;
-  
+
   /* hunt the primary interface name... */
   while (seppos < nlen && name[seppos] != ':')
     seppos++;
-  
+
   /* Wont catch seperator as last char, e.g. 'foo0:' but thats invalid */
   if (seppos < nlen)
     return if_get_by_name_len (name, seppos);
@@ -531,7 +531,7 @@ if_sunwzebra_get (const char *name, size_t nlen)
     return if_get_by_name_len (name, nlen);
 }
 #endif /* SUNOS_5 */
-
+
 DEFUN (interface,
        interface_cmd,
        "interface IFNAME",
@@ -556,7 +556,7 @@ DEFUN (interface,
 #endif /* SUNOS_5 */
 
   vty->index = ifp;
-  vty->node = INTERFACE_NODE;
+  vty_set_node(vty, INTERFACE_NODE) ;
 
   return CMD_SUCCESS;
 }
@@ -579,7 +579,7 @@ DEFUN_NOSH (no_interface,
       return CMD_WARNING;
     }
 
-  if (CHECK_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE)) 
+  if (CHECK_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE))
     {
       vty_out (vty, "%% Only inactive interfaces can be deleted%s",
 	      VTY_NEWLINE);
@@ -649,11 +649,11 @@ connected_log (struct connected *connected, char *str)
   struct interface *ifp;
   char logbuf[BUFSIZ];
   char buf[BUFSIZ];
-  
+
   ifp = connected->ifp;
   p = connected->address;
 
-  snprintf (logbuf, BUFSIZ, "%s interface %s %s %s/%d ", 
+  snprintf (logbuf, BUFSIZ, "%s interface %s %s %s/%d ",
 	    str, ifp->name, prefix_family_str (p),
 	    inet_ntop (p->family, &p->u.prefix, buf, BUFSIZ),
 	    p->prefixlen);
@@ -734,7 +734,7 @@ connected_lookup_address (struct interface *ifp, struct in_addr dst)
 }
 
 struct connected *
-connected_add_by_prefix (struct interface *ifp, struct prefix *p, 
+connected_add_by_prefix (struct interface *ifp, struct prefix *p,
                          struct prefix *destination)
 {
   struct connected *ifc;
@@ -782,7 +782,7 @@ if_indextoname (unsigned int ifindex, char *name)
   return ifp->name;
 }
 #endif
-
+
 #if 0 /* this route_table of struct connected's is unused
        * however, it would be good to use a route_table rather than
        * a list..
@@ -852,7 +852,7 @@ ifaddr_ipv4_lookup (struct in_addr *addr, unsigned int ifindex)
       rn = route_node_lookup (ifaddr_ipv4_table, (struct prefix *) &p);
       if (! rn)
 	return NULL;
-      
+
       ifp = rn->info;
       route_unlock_node (rn);
       return ifp;

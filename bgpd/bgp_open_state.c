@@ -27,9 +27,6 @@
 #include "bgpd/bgp_open_state.h"
 
 #include "lib/memory.h"
-#include "lib/memtypes.h"
-
-
 
 /*==============================================================================
  * BGP Open State.

@@ -148,7 +148,8 @@ bgp_open_listeners(unsigned short port, const char *address)
       if (ainfo->ai_family != AF_INET && ainfo->ai_family != AF_INET6)
         continue;
 
-      sock = socket (ainfo->ai_family, ainfo->ai_socktype, ainfo->ai_protocol);
+      sock = sockunion_socket(ainfo->ai_family, ainfo->ai_socktype,
+                                                            ainfo->ai_protocol);
       if (sock < 0)
         {
           zlog_err ("socket: %s", safe_strerror (errno));
@@ -456,20 +457,20 @@ bgp_accept_action(qps_file qf, void* file_info)
 
   if (BGP_DEBUG(events, EVENTS))
     zlog_debug("[Event] BGP connection from host %s",
-                                                  inet_sutop(&su_remote, buf)) ;
+                                sockunion2str(&su_remote, buf, sizeof(buf))) ;
 
   /* See if we are ready to accept connections from the connecting party    */
   connection = bgp_peer_index_seek_accept(&su_remote, &exists) ;
-  if (connection != NULL)
+  if (connection == NULL)
     {
       if (BGP_DEBUG(events, EVENTS))
 	zlog_debug(exists
 	             ? "[Event] BGP accept IP address %s is not accepting"
 	             : "[Event] BGP accept IP address %s is not configured",
-	           inet_sutop(&su_remote, buf)) ;
+	                        sockunion2str(&su_remote, buf, sizeof(buf))) ;
       close(fd) ;
       return ;          /* quietly reject connection                    */
-                        /* RFC recommends sending a NOTIFICATION...     */
+/* TODO: RFC recommends sending a NOTIFICATION when refusing accept()   */
     } ;
 
   /* Will accept the connection.
@@ -537,7 +538,7 @@ bgp_open_connect(bgp_connection connection)
   union sockunion* su = connection->session->su_peer ;
 
   /* Make socket for the connect connection.                            */
-  fd = sockunion_socket(su) ;
+  fd = sockunion_socket(sockunion_family(su), SOCK_STREAM, 0) ;
   ret = (fd >= 0) ? 0 : errno ;
 
   /* Set the common options.                                            */

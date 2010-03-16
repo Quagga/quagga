@@ -237,7 +237,7 @@ bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
   stream_putw(s, (open_state->my_as <= BGP_AS_MAX)
                                ? (u_int16_t) open_state->my_as : BGP_AS_TRANS) ;
   stream_putw(s, open_state->holdtime) ;
-  stream_putl(s, open_state->bgp_id) ;
+  stream_put_ipv4(s, open_state->bgp_id) ;
 
   /* Set OPEN message options                   */
   bgp_open_options(s, open_state) ;

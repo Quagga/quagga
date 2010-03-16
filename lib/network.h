@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_NETWORK_H
@@ -32,6 +32,10 @@ extern int writen (int, const u_char *, int);
 /* Set the file descriptor to use non-blocking I/O.  Returns 0 for success,
    -1 on error. */
 extern int set_nonblocking(int fd);
+
+/* Non-Blocking versions of read/write                                        */
+int read_nb(int fd, void* buf, size_t nbyte) ;
+int write_nb(int fd, void* buf, size_t nbyte) ;
 
 /* Does the I/O error indicate that the operation should be retried later? */
 #define ERRNO_IO_RETRY(EN) \

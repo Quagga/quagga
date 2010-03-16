@@ -946,7 +946,7 @@ peer_deactivate (struct peer *peer, afi_t afi, safi_t safi)
 		  bgp_capability_send (peer, afi, safi,
 				       CAPABILITY_CODE_MP,
 				       CAPABILITY_ACTION_UNSET);
-		  bgp_clear_route (peer, afi, safi, BGP_CLEAR_ROUTE_NORMAL);
+		  bgp_clear_route_normal(peer, afi, safi);
 		  peer->pcount[afi][safi] = 0;
 		}
 	      else
@@ -1470,7 +1470,7 @@ peer_group_bind (struct bgp *bgp, union sockunion *su,
           list_delete_node (bgp->rsclient, pn);
 
           /* Clear our own rsclient rib for this afi/safi. */
-          bgp_clear_route (peer, afi, safi, BGP_CLEAR_ROUTE_MY_RSCLIENT);
+          bgp_clear_route_rsclient (peer, afi, safi);
         }
 
       bgp_table_finish (&peer->rib[afi][safi]);
@@ -2004,10 +2004,10 @@ peer_flag_modify_action (struct peer *peer, u_int32_t flag)
 		zlog_debug ("%s Maximum-prefix restart timer cancelled",
 			    peer->host);
 	    }
-
+#if 0   /* TODO: surely no need to peer_nsf_stop() twice ?      */
           if (CHECK_FLAG (peer->sflags, PEER_STATUS_NSF_WAIT))
             peer_nsf_stop (peer);
-
+#endif
           bgp_notify_send(peer, BGP_NOTIFY_CEASE,
               BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN);
 	}
@@ -4155,7 +4155,7 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
 	    || sockunion_cmp (g_peer->update_source,
 			      peer->update_source) != 0)
 	  vty_out (vty, " neighbor %s update-source %s%s", addr,
-		   sockunion2str (peer->update_source, buf, SU_ADDRSTRLEN),
+		   sockunion2str (peer->update_source, buf, sizeof(buf)),
 		   VTY_NEWLINE);
 
       /* advertisement-interval */
@@ -4727,18 +4727,19 @@ bgp_terminate (int terminating, int retain_mode)
       }
 
   if (!retain_mode)
-    {
-      bgp_cleanup_routes ();
+    bgp_cleanup_routes ();
 
-      if (bm->process_main_queue)
+  for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
+    {
+      if (bgp->process_main_queue)
         {
-          work_queue_free (bm->process_main_queue);
-          bm->process_main_queue = NULL;
+          work_queue_free (bgp->process_main_queue);
+          bgp->process_main_queue = NULL;
         }
-      if (bm->process_rsclient_queue)
+      if (bgp->process_rsclient_queue)
         {
-          work_queue_free (bm->process_rsclient_queue);
-          bm->process_rsclient_queue = NULL;
+          work_queue_free (bgp->process_rsclient_queue);
+          bgp->process_rsclient_queue = NULL;
         }
     }
 

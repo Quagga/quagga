@@ -30,22 +30,24 @@
   #define Inline static inline
 #endif
 
-/* types and struct for vector                                                */
-/*                                                                            */
-/* NB: an entirely zero structure represents an entirely empty vector.        */
-/*                                                                            */
-/* TODO: could force vector_index to be 32 bits ?                             */
-
+/*------------------------------------------------------------------------------
+ * types and struct for vector
+ *
+ * NB: an entirely zero structure represents an entirely empty vector.
+ *
+ * TODO: could force vector_index to be 32 bits ?
+ */
 typedef void*         p_vector_item ;
 typedef unsigned int  vector_index ;
 
+typedef struct vector* vector ;         /* pointer to vector structure  */
+typedef struct vector  vector_t ;       /* embedded vector structure    */
 struct vector
 {
   p_vector_item *p_items ;  /* pointer to array of vector item pointers */
   vector_index end ;        /* number of "active" item entries          */
   vector_index limit ;      /* number of allocated item entries         */
 };
-typedef struct vector *vector;
 
 /* Values that control the allocation of the vector body.                     */
 /* NB: these must all be powers of 2.                                         */
@@ -75,9 +77,6 @@ typedef struct vector *vector;
 /* Note that this differs from vector_count() as this count will        */
 /* include any NULL items.                                              */
 #define vector_active(V) ((V)->end)
-
-/* TODO: fix where this is used to poke around inside a vector          */
-#define VECTOR_INDEX p_items
 
 /* To walk all items in a vector:
  *
@@ -109,8 +108,6 @@ extern int vector_set (vector v, void *val);
 extern int vector_set_index (vector v, vector_index i, void *val);
 #define vector_unset(v, i) (void)vector_unset_item(v, i)
 extern vector_index vector_count (vector v);
-extern void vector_only_wrapper_free (vector v);
-extern void vector_only_index_free (void *index);
 extern void vector_free (vector v);
 extern vector vector_copy (vector v);
 
@@ -131,7 +128,11 @@ extern p_vector_item vector_ream(vector v, int free_structure) ;
 /* Ream out vector but keep the vector structure.	*/
 #define vector_ream_keep(v) vector_ream(v, 0)
 
-Inline vector_index vector_end(vector v) ;
+Inline void vector_set_min_length(vector v, unsigned int len) ;
+extern void vector_set_new_min_length(vector v, unsigned int len) ;
+
+Inline vector_index vector_length(vector v) ;
+#define             vector_end(v) vector_length(v)
 Inline int vector_is_empty(vector v) ;
 
 Inline p_vector_item vector_get_item(vector v, vector_index i) ;
@@ -226,9 +227,20 @@ vector_ensure(vector v, vector_index i)
     vector_extend(v, i + 1) ;           /* do it the hard way           */
 } ;
 
+/* Want vector to be at least the given length.                         */
+/* Adjusts logical and physical end of the vector as required, filling  */
+/* with NULLs upto any new logical end -- does not allocate any more    */
+/* than is exactly necessary.                                           */
+Inline void
+vector_set_min_length(vector v, unsigned int len)
+{
+  if (len > v->end)                     /* trivial if within vector     */
+    vector_set_new_min_length(v, len) ;
+} ;
+
 /* Return index of end of vector (index of last item + 1)               */
 Inline vector_index
-vector_end(vector v)
+vector_length(vector v)
 {
   return v->end ;
 } ;

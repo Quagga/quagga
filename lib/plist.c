@@ -1074,7 +1074,7 @@ vty_prefix_list_value_print(struct vty* vty, struct prefix_list_entry* pe,
   vty_out(vty, "%s ", prefix_list_type_str(pe)) ;
 
   if (pe->flags & PREFIX_ANY)
-    vty_puts(vty, "any");
+    vty_out(vty, "any");
   else
     {
       struct prefix *p = &pe->prefix ;
@@ -1092,7 +1092,7 @@ vty_prefix_list_value_print(struct vty* vty, struct prefix_list_entry* pe,
   if (with_stats)
     vty_out (vty, " (hit count: %lu, refcount: %lu)", pe->hitcnt, pe->refcnt);
 
-  vty_puts(vty, post) ;
+  vty_out(vty, post) ;
 }
 
 static void __attribute__ ((unused))
@@ -1391,7 +1391,7 @@ vty_show_prefix_entry (struct vty *vty, struct prefix_list *plist,
       struct prefix_list_entry* p_l = vector_get_last_item(&plist->list) ;
 
       vty_prefix_list_name_print(vty, plist, ":") ;
-      vty_out_newline(vty) ;
+      vty_out(vty, VTY_NEWLINE) ;
 
       vty_prefix_list_desc_print(vty, plist, 3, VTY_NEWLINE) ;
 
@@ -2798,7 +2798,7 @@ config_write_prefix_afi (afi_t afi, struct vty *vty)
 	}
       else
 	{
-	  vty_puts(vty, "!! ") ;
+	  vty_out(vty, "!! ") ;
 	  vty_prefix_list_undefined_print(vty, afi, sym, VTY_NEWLINE) ;
 	  write++ ;
 	} ;

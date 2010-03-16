@@ -31,13 +31,13 @@
 #include "qpthreads.h"
 
 /* Needs to be qpthread safe.  The system malloc etc are already
- * thread safe, but we need to protect the stats */
+ * thread safe, but we need to protect the stats
+ */
 static qpt_mutex_t memory_mutex;
-#define LOCK qpt_mutex_lock(&memory_mutex);
+
+#define LOCK   qpt_mutex_lock(&memory_mutex);
 #define UNLOCK qpt_mutex_unlock(&memory_mutex);
 
-static void alloc_inc (int);
-static void alloc_dec (int);
 static void log_memstats(int log_priority);
 
 static const struct message mstr [] =
@@ -50,12 +50,57 @@ static const struct message mstr [] =
   { 0, NULL },
 };
 
+/* If using the mem_tracker, include it now.                            */
+
+typedef struct mem_tracker* mem_tracker ;
+struct mem_tracker
+{
+  uint64_t  malloc_count ;
+  uint64_t  realloc_count ;
+  uint64_t  free_count ;
+
+  uint32_t  tracked_count ;
+  size_t    tracked_size ;
+
+  uint32_t  tracked_max_count ;
+  size_t    tracked_max_size ;
+} ;
+
+static void
+mem_tracker_zeroise(struct mem_tracker* mem)
+{
+  memset(mem, 0, sizeof(struct mem_tracker)) ;
+} ;
+
+#ifdef MEMORY_TRACKER
+#include "mem_tracker.c"
+#endif
+
+/*==============================================================================
+ * Keeping track of number of allocated objects of given type
+ */
+
+static struct mstat
+{
+  struct
+  {
+    char *name ;
+    long alloc ;
+  } mt[MTYPE_MAX] ;
+} mstat ;
+
+/*==============================================================================
+ * Memory allocation functions.
+ *
+ * NB: failure to allocate is FATAL -- so no need to test return value.
+ */
+
 /* Fatal memory allocation error occured. */
 static void __attribute__ ((noreturn))
 zerror (const char *fname, int type, size_t size)
 {
   zlog_err ("%s : can't allocate memory for `%s' size %d: %s\n",
-	    fname, lookup (mstr, type), (int) size, safe_strerror(errno));
+            fname, lookup (mstr, type), (int) size, safe_strerror(errno));
   log_memstats(LOG_WARNING);
   /* N.B. It might be preferable to call zlog_backtrace_sigsafe here, since
      that function should definitely be safe in an OOM condition.  But
@@ -65,72 +110,145 @@ zerror (const char *fname, int type, size_t size)
   abort();
 }
 
-/* Memory allocation. */
+/*------------------------------------------------------------------------------
+ * Memory allocation.
+ */
 void *
-zmalloc (int type, size_t size)
+zmalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
 {
   void *memory;
+
+  LOCK ;
 
   memory = malloc (size);
 
   if (memory == NULL)
-    zerror ("malloc", type, size);
-
-  alloc_inc (type);
+    {
+      UNLOCK ;
+      zerror ("malloc", mtype, size);   /* NO RETURN !  */
+    }
+  else
+    {
+      mstat.mt[mtype].alloc++;
+#ifdef MEMORY_TRACKER
+      mem_md_malloc(mtype, memory, size, name) ;
+#endif
+      UNLOCK ;
+    } ;
 
   return memory;
 }
 
-/* Memory allocation with num * size with cleared. */
+/*------------------------------------------------------------------------------
+ * Memory allocation zeroising the allocated area.
+ */
 void *
-zcalloc (int type, size_t size)
+zcalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
 {
   void *memory;
+
+  LOCK ;
 
   memory = calloc (1, size);
 
   if (memory == NULL)
-    zerror ("calloc", type, size);
-
-  alloc_inc (type);
+    {
+      UNLOCK ;
+      zerror ("calloc", mtype, size);   /* NO RETURN !  */
+    }
+  else
+    {
+      mstat.mt[mtype].alloc++;
+#ifdef MEMORY_TRACKER
+      mem_md_malloc(mtype, memory, size, name) ;
+#endif
+      UNLOCK ;
+    } ;
 
   return memory;
 }
 
-/* Memory reallocation. */
+/*------------------------------------------------------------------------------
+ * Memory reallocation.
+ */
 void *
-zrealloc (int type, void *ptr, size_t size)
+zrealloc (enum MTYPE mtype, void *ptr, size_t size  MEMORY_TRACKER_NAME)
 {
   void *memory;
 
+  LOCK ;
+
   memory = realloc (ptr, size);
   if (memory == NULL)
-    zerror ("realloc", type, size);
+    {
+      UNLOCK ;
+      zerror ("realloc", mtype, size);  /* NO RETURN !  */
+    }
+  else
+    {
+      if (ptr == NULL)
+        mstat.mt[mtype].alloc++;
+#ifdef MEMORY_TRACKER
+      mem_md_realloc(mtype, ptr, memory, size, name) ;
+#endif
+      UNLOCK ;
+    } ;
+
   return memory;
-}
+} ;
 
-/* Memory free. */
+/*------------------------------------------------------------------------------
+ * Memory free.
+ */
 void
-zfree (int type, void *ptr)
+zfree (enum MTYPE mtype, void *ptr)
 {
-  alloc_dec (type);
-  free (ptr);
-}
+  LOCK ;
 
-/* String duplication. */
+  free (ptr);
+
+  mstat.mt[mtype].alloc--;
+#ifdef MEMORY_TRACKER
+  mem_md_free(mtype, ptr) ;
+#endif
+
+  UNLOCK ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * String duplication.
+ */
 char *
-zstrdup (int type, const char *str)
+zstrdup (enum MTYPE mtype, const char *str  MEMORY_TRACKER_NAME)
 {
   void *dup;
 
+  LOCK ;
+
   dup = strdup (str);
   if (dup == NULL)
-    zerror ("strdup", type, strlen (str));
-  alloc_inc (type);
+    {
+      UNLOCK ;
+      zerror ("strdup", mtype, strlen (str));  /* NO RETURN !  */
+    }
+  else
+    {
+      mstat.mt[mtype].alloc++;
+#ifdef MEMORY_TRACKER
+      mem_md_malloc(mtype, dup, strlen(str)+1, name) ;
+#endif
+      UNLOCK ;
+    } ;
+
   return dup;
 }
 
+/*==============================================================================
+ * Memory allocation with built in logging
+ */
+
 #ifdef MEMORY_LOG
+
 static struct
 {
   const char *name;
@@ -142,10 +260,11 @@ static struct
   unsigned long t_realloc;
   unsigned long t_free;
   unsigned long c_strdup;
-} mstat [MTYPE_MAX];
+} mlog_stat [MTYPE_MAX];
 
 static void
-mtype_log (char *func, void *memory, const char *file, int line, int type)
+mtype_log (char *func, void *memory, const char *file, int line,
+                                                                enum MTYPE type)
 {
   zlog_debug ("%s: %s %p %s %d", func, lookup (mstr, type), memory, file, line);
 }
@@ -156,8 +275,8 @@ mtype_zmalloc (const char *file, int line, int type, size_t size)
   void *memory;
 
   LOCK
-  mstat[type].c_malloc++;
-  mstat[type].t_malloc++;
+  mlog_stat[type].c_malloc++;
+  mlog_stat[type].t_malloc++;
   UNLOCK
 
   memory = zmalloc (type, size);
@@ -167,13 +286,13 @@ mtype_zmalloc (const char *file, int line, int type, size_t size)
 }
 
 void *
-mtype_zcalloc (const char *file, int line, int type, size_t size)
+mtype_zcalloc (const char *file, int line, enum MTYPE type, size_t size)
 {
   void *memory;
 
   LOCK
-  mstat[type].c_calloc++;
-  mstat[type].t_calloc++;
+  mlog_stat[type].c_calloc++;
+  mlog_stat[type].t_calloc++;
   UNLOCK
 
   memory = zcalloc (type, size);
@@ -183,13 +302,14 @@ mtype_zcalloc (const char *file, int line, int type, size_t size)
 }
 
 void *
-mtype_zrealloc (const char *file, int line, int type, void *ptr, size_t size)
+mtype_zrealloc (const char *file, int line, enum MTYPE type, void *ptr,
+                                                                    size_t size)
 {
   void *memory;
 
   /* Realloc need before allocated pointer. */
   LOCK
-  mstat[type].t_realloc++;
+  mlog_stat[type].t_realloc++;
   UNLOCK
 
   memory = zrealloc (type, ptr, size);
@@ -201,10 +321,10 @@ mtype_zrealloc (const char *file, int line, int type, void *ptr, size_t size)
 
 /* Important function. */
 void
-mtype_zfree (const char *file, int line, int type, void *ptr)
+mtype_zfree (const char *file, int line, enum MTYPE type, void *ptr)
 {
   LOCK
-  mstat[type].t_free++;
+  mlog_stat[type].t_free++;
   UNLOCK
 
   mtype_log ("xfree", ptr, file, line, type);
@@ -213,12 +333,12 @@ mtype_zfree (const char *file, int line, int type, void *ptr)
 }
 
 char *
-mtype_zstrdup (const char *file, int line, int type, const char *str)
+mtype_zstrdup (const char *file, int line, enum MTYPE type, const char *str)
 {
   char *memory;
 
   LOCK
-  mstat[type].c_strdup++;
+  mlog_stat[type].c_strdup++;
   UNLOCK
 
   memory = zstrdup (type, str);
@@ -227,31 +347,11 @@ mtype_zstrdup (const char *file, int line, int type, const char *str)
 
   return memory;
 }
-#else
-static struct
-{
-  char *name;
-  long alloc;
-} mstat [MTYPE_MAX];
-#endif /* MEMORY_LOG */
+#endif
 
-/* Increment allocation counter. */
-static void
-alloc_inc (int type)
-{
-  LOCK
-  mstat[type].alloc++;
-  UNLOCK
-}
-
-/* Decrement allocation counter. */
-static void
-alloc_dec (int type)
-{
-  LOCK
-  mstat[type].alloc--;
-  UNLOCK
-}
+/*==============================================================================
+ * Showing memory allocation
+ */
 
 /* Looking up memory status from vty interface. */
 #include "vector.h"
@@ -261,7 +361,12 @@ alloc_dec (int type)
 static void
 log_memstats(int pri)
 {
+  struct mstat mst ;
   struct mlist *ml;
+
+  LOCK ;
+  mst = mstat ;
+  UNLOCK ;
 
   for (ml = mlists; ml->list; ml++)
     {
@@ -270,7 +375,7 @@ log_memstats(int pri)
       zlog (NULL, pri, "Memory utilization in module %s:", ml->name);
       for (m = ml->list; m->index >= 0; m++)
         {
-        unsigned long alloc = mtype_stats_alloc(m->index);
+        unsigned long alloc = mst.mt[m->index].alloc ;
 	if (m->index && alloc)
 	  zlog (NULL, pri, "  %-30s: %10ld", m->format, alloc);
         }
@@ -280,17 +385,22 @@ log_memstats(int pri)
 void
 log_memstats_stderr (const char *prefix)
 {
+  struct mstat mst ;
   struct mlist *ml;
   struct memory_list *m;
   int i;
   int j = 0;
+
+  LOCK ;
+  mst = mstat ;
+  UNLOCK ;
 
   for (ml = mlists; ml->list; ml++)
     {
       i = 0;
       for (m = ml->list; m->index >= 0; m++)
         {
-          unsigned long alloc = mtype_stats_alloc(m->index);
+          unsigned long alloc = mst.mt[m->index].alloc ;
           if (m->index && alloc)
             {
               if (!i)
@@ -321,37 +431,99 @@ log_memstats_stderr (const char *prefix)
 }
 
 static void
-show_separator(struct vty *vty)
+show_memory_type_vty (struct vty *vty, const char* name,
+                                struct mem_tracker* mt, long int alloc, int sep)
 {
-  vty_out (vty, "-----------------------------\r\n");
-}
+  if (sep)
+    vty_out (vty, "-----------------------------%s", VTY_NEWLINE) ;
+
+    vty_out (vty, "%-30s:", name) ;
+#ifdef MEMORY_TRACKER
+    show_memory_tracker_detail(vty, mt, alloc) ;
+#else
+    vty_out (vty, " %10ld", alloc) ;
+#endif
+    vty_out (vty, "%s", VTY_NEWLINE);
+} ;
 
 static int
-show_memory_vty (struct vty *vty, struct memory_list *list)
+show_memory_vty (struct vty *vty, struct memory_list *m, struct mlist* ml,
+                                                                    int needsep)
 {
-  struct memory_list *m;
-  int needsep = 0;
+  int notempty = 0 ;
 
-  for (m = list; m->index >= 0; m++)
-    if (m->index == 0)
-      {
-	if (needsep)
-	  {
-	    show_separator (vty);
-	    needsep = 0;
-	  }
-      }
-    else
-      {
-        unsigned long alloc = mtype_stats_alloc(m->index);
-        if (alloc)
-          {
-            vty_out (vty, "%-30s: %10ld\r\n", m->format, alloc);
-            needsep = 1;
-          }
-      }
-  return needsep;
-}
+  long int      alloc ;
+
+  struct mstat        mst ;
+  struct mem_tracker  mem_tot ;
+  struct mem_tracker  mem_one ;
+  struct mem_tracker* mt ;
+
+#ifdef MEMORY_TRACKER
+  struct mem_type_tracker mem_tt ;
+#endif
+
+  LOCK ;
+  mst    = mstat ;
+#ifdef MEMORY_TRACKER
+  mem_tt = mem_type_tracker ;
+#endif
+  UNLOCK ;
+
+  mem_tracker_zeroise(&mem_tot) ;
+  mem_tracker_zeroise(&mem_one) ;
+
+  if ((m == NULL) && (ml != NULL))
+    m = (ml++)->list ;
+
+  while (m != NULL)
+    {
+      if (m->index <= 0)
+        {
+          needsep = notempty ;
+          if (m->index < 0)
+            {
+              if (ml == NULL)
+                m = NULL ;
+              else
+                m = (ml++)->list ;
+            }
+          else
+            ++m ;
+        }
+      else
+        {
+          alloc = mst.mt[m->index].alloc ;
+#ifdef MEMORY_TRACKER
+          mt = &(mem_tt.mt[m->index]) ;
+#else
+          mt = &mem_one ;
+          mt->tracked_count = alloc ;
+#endif
+
+          mem_tot.malloc_count      += mt->malloc_count ;
+          mem_tot.free_count        += mt->free_count ;
+          mem_tot.realloc_count     += mt->realloc_count ;
+          mem_tot.tracked_count     += mt->tracked_count ;
+          mem_tot.tracked_max_count += mt->tracked_max_count ;
+          mem_tot.tracked_size      += mt->tracked_size ;
+          mem_tot.tracked_max_size  += mt->tracked_max_size ;
+
+          if (alloc || mt->tracked_count)
+            {
+              show_memory_type_vty(vty, m->format, mt, alloc, needsep) ;
+              needsep  = 0 ;
+              notempty = 1 ;
+            } ;
+
+          ++m ;
+       } ;
+    } ;
+
+  show_memory_type_vty(vty, "Total", &mem_tot, mem_tot.tracked_count, notempty);
+
+  return 1 ;
+} ;
 
 #ifdef HAVE_MALLINFO
 static int
@@ -390,9 +562,39 @@ show_memory_mallinfo (struct vty *vty)
            VTY_NEWLINE);
   vty_out (vty, "(see system documentation for 'mallinfo' for meaning)%s",
            VTY_NEWLINE);
+
   return 1;
 }
 #endif /* HAVE_MALLINFO */
+
+
+DEFUN_CALL (show_memory_summary,
+       show_memory_summary_cmd,
+       "show memory summary",
+       "Show running system information\n"
+       "Memory statistics\n"
+       "Summary memory statistics\n")
+{
+#ifdef MEMORY_TRACKER
+  show_memory_tracker_summary(vty) ;
+#else
+  long alloc = 0 ;
+  int  mtype ;
+
+# ifdef HAVE_MALLINFO
+  show_memory_mallinfo (vty);
+# endif /* HAVE_MALLINFO */
+
+  LOCK ;
+  for (mtype = 1 ; mtype < MTYPE_MAX ; ++mtype)
+    alloc += mstat[mtype] ;
+  UNLOCK
+  vty_out(vty, "%ld items allocated%s", alloc, VTY_NEWLINE) ;
+
+#endif /* MEMORY_TRACKER */
+
+  return CMD_SUCCESS;
+}
 
 DEFUN_CALL (show_memory_all,
        show_memory_all_cmd,
@@ -401,19 +603,16 @@ DEFUN_CALL (show_memory_all,
        "Memory statistics\n"
        "All memory statistics\n")
 {
-  struct mlist *ml;
   int needsep = 0;
 
 #ifdef HAVE_MALLINFO
-  needsep = show_memory_mallinfo (vty);
+  needsep  |= show_memory_mallinfo (vty);
 #endif /* HAVE_MALLINFO */
+#ifdef MEMORY_TRACKER
+  needsep |= show_memory_tracker_summary(vty) ;
+#endif
 
-  for (ml = mlists; ml->list; ml++)
-    {
-      if (needsep)
-	show_separator (vty);
-      needsep = show_memory_vty (vty, ml->list);
-    }
+  show_memory_vty (vty, NULL, mlists, needsep);
 
   return CMD_SUCCESS;
 }
@@ -431,7 +630,7 @@ DEFUN_CALL (show_memory_lib,
        "Memory statistics\n"
        "Library memory\n")
 {
-  show_memory_vty (vty, memory_list_lib);
+  show_memory_vty (vty, memory_list_lib, NULL, 0);
   return CMD_SUCCESS;
 }
 
@@ -442,7 +641,7 @@ DEFUN_CALL (show_memory_zebra,
        "Memory statistics\n"
        "Zebra memory\n")
 {
-  show_memory_vty (vty, memory_list_zebra);
+  show_memory_vty (vty, memory_list_zebra, NULL, 0);
   return CMD_SUCCESS;
 }
 
@@ -453,7 +652,7 @@ DEFUN_CALL (show_memory_rip,
        "Memory statistics\n"
        "RIP memory\n")
 {
-  show_memory_vty (vty, memory_list_rip);
+  show_memory_vty (vty, memory_list_rip, NULL, 0);
   return CMD_SUCCESS;
 }
 
@@ -464,7 +663,7 @@ DEFUN_CALL (show_memory_ripng,
        "Memory statistics\n"
        "RIPng memory\n")
 {
-  show_memory_vty (vty, memory_list_ripng);
+  show_memory_vty (vty, memory_list_ripng, NULL, 0);
   return CMD_SUCCESS;
 }
 
@@ -475,7 +674,7 @@ DEFUN_CALL (show_memory_bgp,
        "Memory statistics\n"
        "BGP memory\n")
 {
-  show_memory_vty (vty, memory_list_bgp);
+  show_memory_vty (vty, memory_list_bgp, NULL, 0);
   return CMD_SUCCESS;
 }
 
@@ -486,7 +685,7 @@ DEFUN_CALL (show_memory_ospf,
        "Memory statistics\n"
        "OSPF memory\n")
 {
-  show_memory_vty (vty, memory_list_ospf);
+  show_memory_vty (vty, memory_list_ospf, NULL, 0);
   return CMD_SUCCESS;
 }
 
@@ -497,7 +696,7 @@ DEFUN_CALL (show_memory_ospf6,
        "Memory statistics\n"
        "OSPF6 memory\n")
 {
-  show_memory_vty (vty, memory_list_ospf6);
+  show_memory_vty (vty, memory_list_ospf6, NULL, 0);
   return CMD_SUCCESS;
 }
 
@@ -508,7 +707,7 @@ DEFUN_CALL (show_memory_isis,
        "Memory statistics\n"
        "ISIS memory\n")
 {
-  show_memory_vty (vty, memory_list_isis);
+  show_memory_vty (vty, memory_list_isis, NULL, 0);
   return CMD_SUCCESS;
 }
 
@@ -529,6 +728,7 @@ memory_finish (void)
 void
 memory_init (void)
 {
+  install_element (RESTRICTED_NODE, &show_memory_summary_cmd);
   install_element (RESTRICTED_NODE, &show_memory_cmd);
   install_element (RESTRICTED_NODE, &show_memory_all_cmd);
   install_element (RESTRICTED_NODE, &show_memory_lib_cmd);
@@ -539,6 +739,7 @@ memory_init (void)
   install_element (RESTRICTED_NODE, &show_memory_ospf6_cmd);
   install_element (RESTRICTED_NODE, &show_memory_isis_cmd);
 
+  install_element (VIEW_NODE, &show_memory_summary_cmd);
   install_element (VIEW_NODE, &show_memory_cmd);
   install_element (VIEW_NODE, &show_memory_all_cmd);
   install_element (VIEW_NODE, &show_memory_lib_cmd);
@@ -549,6 +750,7 @@ memory_init (void)
   install_element (VIEW_NODE, &show_memory_ospf6_cmd);
   install_element (VIEW_NODE, &show_memory_isis_cmd);
 
+  install_element (ENABLE_NODE, &show_memory_summary_cmd);
   install_element (ENABLE_NODE, &show_memory_cmd);
   install_element (ENABLE_NODE, &show_memory_all_cmd);
   install_element (ENABLE_NODE, &show_memory_lib_cmd);
@@ -625,11 +827,11 @@ mtype_memstr (char *buf, size_t len, unsigned long bytes)
 }
 
 unsigned long
-mtype_stats_alloc (int type)
+mtype_stats_alloc (enum MTYPE type)
 {
   unsigned long result;
   LOCK
-  result = mstat[type].alloc;
+  result = mstat.mt[type].alloc;
   UNLOCK
   return result;
 }

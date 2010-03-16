@@ -153,12 +153,6 @@ bgp_advertise_unintern (struct hash *hash, struct bgp_advertise_attr *baa)
 }
 
 /* BGP adjacency keeps minimal advertisement information.  */
-static void
-bgp_adj_out_free (struct bgp_adj_out *adj)
-{
-  peer_unlock (adj->peer); /* adj_out peer reference */
-  XFREE (MTYPE_BGP_ADJ_OUT, adj);
-}
 
 int
 bgp_adj_out_lookup (struct peer *peer, struct prefix *p,
@@ -166,7 +160,7 @@ bgp_adj_out_lookup (struct peer *peer, struct prefix *p,
 {
   struct bgp_adj_out *adj;
 
-  for (adj = rn->adj_out; adj; adj = adj->next)
+  for (adj = rn->adj_out; adj; adj = adj->adj_next)
     if (adj->peer == peer)
       break;
 
@@ -217,31 +211,45 @@ bgp_adj_out_set (struct bgp_node *rn, struct peer *peer, struct prefix *p,
 		 struct attr *attr, afi_t afi, safi_t safi,
 		 struct bgp_info *binfo)
 {
-  struct bgp_adj_out *adj = NULL;
+  struct bgp_adj_out*   adj = NULL;
+  struct bgp_adj_out**  adj_out_head ;
   struct bgp_advertise *adv;
 
   if (DISABLE_BGP_ANNOUNCE)
     return;
 
-  /* Look for adjacency information. */
-  if (rn)
-    {
-      for (adj = rn->adj_out; adj; adj = adj->next)
-	if (adj->peer == peer)
-	  break;
-    }
+  assert(rn != NULL) ;
+  assert((afi == rn->table->afi) && (safi == rn->table->safi)) ;
 
-  if (! adj)
+  /* Look for adjacency information. */
+  for (adj = rn->adj_out; adj; adj = adj->adj_next)
+    if (adj->peer == peer)
+	  break;
+
+  if (adj == NULL)
     {
       adj = XCALLOC (MTYPE_BGP_ADJ_OUT, sizeof (struct bgp_adj_out));
-      adj->peer = peer_lock (peer); /* adj_out peer reference */
 
-      if (rn)
-        {
-          BGP_ADJ_OUT_ADD (rn, adj);
-          bgp_lock_node (rn);
-        }
-    }
+      /* Add to list of adj_out stuff for the peer              */
+      adj->peer = peer_lock (peer);
+
+      adj_out_head = &(peer->adj_out_head[afi][safi]) ;
+
+      adj->route_next = *adj_out_head ;
+      adj->route_prev = NULL ;
+      if (*adj_out_head != NULL)
+        (*adj_out_head)->route_prev = adj ;
+      *adj_out_head = adj ;
+
+      /* Add to list of adj out stuff for the bgp_node          */
+      adj->rn = bgp_lock_node (rn);
+
+      adj->adj_next = rn->adj_out ;
+      adj->adj_prev = NULL ;
+      if (rn->adj_out != NULL)
+        rn->adj_out->adj_prev = adj ;
+      rn->adj_out = adj ;
+    } ;
 
   if (adj->adv)
     bgp_advertise_clean (peer, adj, afi, safi);
@@ -277,63 +285,80 @@ bgp_adj_out_unset (struct bgp_node *rn, struct peer *peer, struct prefix *p,
     return;
 
   /* Lookup existing adjacency, if it is not there return immediately.  */
-  for (adj = rn->adj_out; adj; adj = adj->next)
+  for (adj = rn->adj_out; adj; adj = adj->adj_next)
     if (adj->peer == peer)
       break;
 
-  if (! adj)
+  if (adj == NULL)
     return;
 
-  /* Clearn up previous advertisement.  */
+  assert(rn == adj->rn) ;
+
+  /* Clear up previous advertisement.                           */
   if (adj->adv)
     bgp_advertise_clean (peer, adj, afi, safi);
 
   if (adj->attr)
     {
-      /* We need advertisement structure.  */
+      /* We need advertisement structure.                       */
       adj->adv = bgp_advertise_new ();
       adv = adj->adv;
       adv->rn = rn;
       adv->adj = adj;
 
-      /* Add to synchronization entry for withdraw announcement.  */
+      /* Add to synchronization entry for withdraw announcement */
       bgp_advertise_fifo_add(&peer->sync[afi][safi]->withdraw, adv);
 
       /* Schedule packet write. */
       bgp_write(peer, NULL) ;
     }
   else
-    {
-      /* Remove myself from adjacency. */
-      BGP_ADJ_OUT_DEL (rn, adj);
-
-      /* Free allocated information.  */
-      bgp_adj_out_free (adj);
-
-      bgp_unlock_node (rn);
-    }
+    bgp_adj_out_remove(rn, adj, peer, afi, safi) ;
 }
 
 void
 bgp_adj_out_remove (struct bgp_node *rn, struct bgp_adj_out *adj,
 		    struct peer *peer, afi_t afi, safi_t safi)
 {
+  assert((rn == adj->rn) && (peer == adj->peer)) ;
+
   if (adj->attr)
     bgp_attr_unintern (adj->attr);
 
   if (adj->adv)
     bgp_advertise_clean (peer, adj, afi, safi);
 
-  BGP_ADJ_OUT_DEL (rn, adj);
-  bgp_adj_out_free (adj);
+  /* Unhook from peer                                   */
+  if (adj->route_next != NULL)
+    adj->route_next->route_prev = adj->route_prev ;
+  if (adj->route_prev != NULL)
+    adj->route_prev->route_next = adj->route_next ;
+  else
+    peer->adj_out_head[afi][safi] = adj->route_next ;
+
+  peer_unlock (peer);
+
+  /* Unhook from bgp_node                               */
+  if (adj->adj_next)
+    adj->adj_next->adj_prev = adj->adj_prev;
+  if (adj->adj_prev)
+    adj->adj_prev->adj_next = adj->adj_next;
+  else
+    rn->adj_out = adj->adj_next;
+
+  bgp_unlock_node (rn);
+
+  /* now can release memory.                            */
+  XFREE (MTYPE_BGP_ADJ_OUT, adj);
 }
 
 void
 bgp_adj_in_set (struct bgp_node *rn, struct peer *peer, struct attr *attr)
 {
   struct bgp_adj_in *adj;
+  struct bgp_adj_in**  adj_in_head ;
 
-  for (adj = rn->adj_in; adj; adj = adj->next)
+  for (adj = rn->adj_in; adj; adj = adj->adj_next)
     {
       if (adj->peer == peer)
 	{
@@ -345,19 +370,69 @@ bgp_adj_in_set (struct bgp_node *rn, struct peer *peer, struct attr *attr)
 	  return;
 	}
     }
+
+  /* Need to create a brand new bgp_adj_in                      */
+
   adj = XCALLOC (MTYPE_BGP_ADJ_IN, sizeof (struct bgp_adj_in));
-  adj->peer = peer_lock (peer); /* adj_in peer reference */
+
+  /* Set the interned attributes                                */
   adj->attr = bgp_attr_intern (attr);
-  BGP_ADJ_IN_ADD (rn, adj);
-  bgp_lock_node (rn);
+
+  /* Add to list of adj in stuff for the peer                   */
+  adj->peer = peer_lock (peer);
+
+  adj_in_head = &(peer->adj_in_head[rn->table->afi][rn->table->safi]) ;
+
+  adj->route_next = *adj_in_head ;
+  adj->route_prev = NULL ;
+  if (*adj_in_head != NULL)
+    (*adj_in_head)->route_prev = adj ;
+  *adj_in_head = adj ;
+
+  /* Add to list of adj in stuff for the bgp_node               */
+  adj->rn = bgp_lock_node (rn);
+
+  adj->adj_next = rn->adj_in ;
+  adj->adj_prev = NULL ;
+  if (rn->adj_in != NULL)
+    rn->adj_in->adj_prev = adj ;
+  rn->adj_in = adj ;
 }
 
 void
 bgp_adj_in_remove (struct bgp_node *rn, struct bgp_adj_in *bai)
 {
+  bgp_peer peer = bai->peer ;
+  struct bgp_adj_in**  adj_in_head ;
+
+  adj_in_head = &(peer->adj_in_head[rn->table->afi][rn->table->safi]) ;
+
+  assert(rn == bai->rn) ;
+
+  /* Done with this copy of attributes                  */
   bgp_attr_unintern (bai->attr);
-  BGP_ADJ_IN_DEL (rn, bai);
-  peer_unlock (bai->peer); /* adj_in peer reference */
+
+  /* Unhook from peer                                   */
+  if (bai->route_next != NULL)
+    bai->route_next->route_prev = bai->route_prev ;
+  if (bai->route_prev != NULL)
+    bai->route_prev->route_next = bai->route_next ;
+  else
+    *adj_in_head = bai->route_next ;
+
+  peer_unlock (peer);
+
+  /* Unhook from bgp_node                               */
+  if (bai->adj_next)
+    bai->adj_next->adj_prev = bai->adj_prev;
+  if (bai->adj_prev)
+    bai->adj_prev->adj_next = bai->adj_next;
+  else
+    rn->adj_in = bai->adj_next;
+
+  bgp_unlock_node (rn);
+
+  /* now can release memory.                            */
   XFREE (MTYPE_BGP_ADJ_IN, bai);
 }
 
@@ -366,7 +441,7 @@ bgp_adj_in_unset (struct bgp_node *rn, struct peer *peer)
 {
   struct bgp_adj_in *adj;
 
-  for (adj = rn->adj_in; adj; adj = adj->next)
+  for (adj = rn->adj_in; adj; adj = adj->adj_next)
     if (adj->peer == peer)
       break;
 
@@ -374,7 +449,6 @@ bgp_adj_in_unset (struct bgp_node *rn, struct peer *peer)
     return;
 
   bgp_adj_in_remove (rn, adj);
-  bgp_unlock_node (rn);
 }
 
 void

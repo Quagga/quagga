@@ -54,7 +54,7 @@ BEGIN {
 } 
 
 END {
-	printf("enum\n{\n  MTYPE_TMP = 1,\n"); 
+	printf("enum MTYPE\n{\n  MTYPE_TMP = 1,\n"); 
 	for (i = 0; i < tcount; i++) {
 		if (mtype[i] != "" && mtype[i] != "MTYPE_TMP")
 			printf ("  %s,\n", mtype[i]);

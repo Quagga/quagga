@@ -383,6 +383,7 @@ bgp_peer_id_table_make_ids(void)
       bgp_peer_id_table_free_entry(entry) ;
 
       ++id_new ;
+      ++entry ;
     } ;
 } ;
 

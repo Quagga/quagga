@@ -198,6 +198,9 @@ struct mqueue_local_queue
 extern void
 mqueue_initialise(void) ;
 
+extern void
+mqueue_finish(void) ;
+
 extern mqueue_queue
 mqueue_init_new(mqueue_queue mq, enum mqueue_queue_type type) ;
 
