@@ -4042,7 +4042,7 @@ DEFUN (exit_address_family,
       || node == BGP_VPNV4_NODE
       || node == BGP_IPV6_NODE
       || node == BGP_IPV6M_NODE)
-    node = BGP_NODE;
+    vty_set_node(vty, BGP_NODE);
   return CMD_SUCCESS;
 }
 
