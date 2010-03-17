@@ -190,6 +190,14 @@ void pim_time_uptime(char *buf, int buf_size, int64_t uptime_sec)
   pim_time_hhmmss(buf, buf_size, uptime_sec);
 }
 
+void pim_time_uptime_begin(char *buf, int buf_size, int64_t now, int64_t begin)
+{
+  if (begin > 0)
+    pim_time_uptime(buf, buf_size, now - begin);
+  else
+    snprintf(buf, buf_size, "--:--:--");
+}
+
 long pim_time_timer_remain_msec(struct thread *t_timer)
 {
   /* FIXME: Actually fetch msec resolution from thread */
