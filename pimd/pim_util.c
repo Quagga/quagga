@@ -141,7 +141,7 @@ void pim_pkt_dump(const char *label, const uint8_t *buf, int size)
   int i = 0;
   int j = 0;
 
-  for (; i < size; ++i, j += 3) {
+  for (; i < size; ++i, j += 2) {
     int left = sizeof(dump_buf) - j;
     if (left < 4) {
       if (left > 1) {
@@ -149,10 +149,10 @@ void pim_pkt_dump(const char *label, const uint8_t *buf, int size)
       }
       break;
     }
-    snprintf(dump_buf + j, left, " %02x", buf[i]);
+    snprintf(dump_buf + j, left, "%02x", buf[i]);
   }
 
-  zlog_debug("%s: pkt dump size=%d:%s",
+  zlog_debug("%s: pkt dump size=%d: %s",
 	     label,
 	     size,
 	     dump_buf);
