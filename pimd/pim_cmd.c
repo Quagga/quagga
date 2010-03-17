@@ -1081,7 +1081,7 @@ static void show_rpf_refresh_stats(struct vty *vty, time_t now)
 {
   char refresh_uptime[10];
 
-  pim_time_uptime(refresh_uptime, sizeof(refresh_uptime), now - qpim_rpf_cache_refresh_last);
+  pim_time_uptime_begin(refresh_uptime, sizeof(refresh_uptime), now, qpim_rpf_cache_refresh_last);
 
   vty_out(vty, 
 	  "RPF Cache Refresh Delay:    %ld msecs%s"
