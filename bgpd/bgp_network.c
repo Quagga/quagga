@@ -145,7 +145,7 @@ bgp_open_listeners(const char* address, unsigned short port)
       while (next != NULL)
         {
           this = next ;
-          next = strchr(address, ',') ;
+          next = strchr(this, ',') ;
 
           if (next != NULL)
             *next++ = '\0' ;
