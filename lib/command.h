@@ -23,12 +23,17 @@
 #ifndef _ZEBRA_COMMAND_H
 #define _ZEBRA_COMMAND_H
 
+#include <stdbool.h>
+
 #include "node_type.h"
 #include "vector.h"
-#include "uty.h"
-#include "vty.h"
 #include "qstring.h"
-#include "lib/route_types.h"
+
+#ifndef Inline
+#define Inline static inline
+#endif
+
+struct vty ;                            /* in case command.h expanded first */
 
 /* Host configuration variable */
 struct host
@@ -86,16 +91,66 @@ enum
 {
   /* bit significant */
   CMD_ATTR_DEPRECATED = 0x01,
-  CMD_ATTR_HIDDEN = 0x02,
-  CMD_ATTR_CALL = 0x04,
+  CMD_ATTR_HIDDEN     = 0x02,
+  CMD_ATTR_CALL       = 0x04,
 };
 
+/* Return values for command handling.
+ *
+ * NB: when a command is executed it may return CMD_SUCCESS or CMD_WARNING.
+ *
+ *     In both cases any output required (including any warning or error
+ *     messages) must already have been output.
+ *
+ *     All other return codes are for use within the command handler.
+ */
+enum cmd_return_code
+{
+  CMD_SUCCESS              =  0,
+  CMD_WARNING              =  1,
+  CMD_ERROR,
+
+  CMD_EMPTY,
+  CMD_SUCCESS_DAEMON,
+
+  CMD_CLOSE,
+  CMD_QUEUED,
+
+  CMD_ERR_NO_MATCH,
+  CMD_ERR_AMBIGUOUS,
+  CMD_ERR_INCOMPLETE,
+
+  CMD_COMPLETE_FULL_MATCH,
+  CMD_COMPLETE_MATCH,
+  CMD_COMPLETE_LIST_MATCH,
+  CMD_COMPLETE_ALREADY
+} ;
+
+#define MSG_CMD_ERR_AMBIGUOUS      "Ambiguous command"
+#define MSG_CMD_ERR_NO_MATCH       "Unrecognised command"
+#define MSG_CMD_ERR_NO_MATCH_old   "There is no matched command"
+
 /* Structure of command element.        */
+
+struct cmd_element ;
+typedef struct cmd_element* cmd_element ;
+
+typedef const char* const argv_t[] ;
+
+#define DEFUN_CMD_ARG_UNUSED __attribute__ ((unused))
+#define DEFUN_CMD_FUNCTION(name) \
+  enum cmd_return_code name (cmd_element self   DEFUN_CMD_ARG_UNUSED, \
+	                     struct vty* vty    DEFUN_CMD_ARG_UNUSED, \
+	                     int argc           DEFUN_CMD_ARG_UNUSED, \
+	                     argv_t argv        DEFUN_CMD_ARG_UNUSED)
+
+typedef DEFUN_CMD_FUNCTION((cmd_function)) ;
+
 struct cmd_element
 {
-  const char *string;			/* Command specification by string. */
-  int (*func) (struct cmd_element *, struct vty *, int, const char *[]);
-  const char *doc;			/* Documentation of this command. */
+  const char *string;		/* Command specification by string. */
+  cmd_function* func ;
+  const char *doc;		/* Documentation of this command. */
   int daemon;                   /* Daemon to which this command belong. */
   vector strvec;		/* Pointing out each description vector. */
   unsigned int cmdsize;		/* Command index count. */
@@ -111,55 +166,48 @@ struct desc
   char *str;                    /* Command's description. */
 };
 
-/* Argc max counts. */
-#define CMD_ARGC_MAX   25
+/* Command parsing options                                              */
+enum cmd_parse_type               /* bit significant      */
+{
+  cmd_parse_completion  = 0x00,
+  cmd_parse_strict      = 0x01,
 
-/* Parsed command                       */
+  cmd_parse_do          = 0x02,
+  cmd_parse_tree        = 0x04,
+} ;
+
+/* Parsed command                                                       */
+typedef struct cmd_parsed* cmd_parsed ;
 struct cmd_parsed
 {
-  struct cmd_element *cmd ;
+  struct cmd_element *cmd ;     /* NULL if empty command
+                                        or fails to parse       */
 
-  enum node_type  cnode ;               /* node command is in           */
+  enum node_type  cnode ;       /* node command is in           */
+  enum node_type  onode ;       /* node the parser started in   */
 
-  int             do_shortcut ;         /* true => is "do" command      */
-  enum node_type  onode ;               /* vty->node before "do"        */
+  bool            do_shortcut ; /* true => is "do" command      */
 
-  int             argc ;
-  const char*     argv[CMD_ARGC_MAX] ;
+  qstring_t       words ;       /* the words, '\0' separated    */
+
+  vector_t        vline ;       /* pointers to the words        */
 } ;
 
-/* Return values for command handling.
- *
- * NB: when a command is executed it may return CMD_SUCCESS or CMD_WARNING.
- *
- *     In both cases any output required (including any warning or error
- *     messages) must already have been output.
- *
- *     All other return codes are for use within the command handler.
+
+/* Command dispatch options                                             */
+enum {
+  cmd_no_queue  = true,
+  cmd_may_queue = false,
+} ;
+
+/*------------------------------------------------------------------------------
+ * Can now include these
  */
-enum cmd_return_code
-{
-  CMD_SUCCESS              =  0,
-  CMD_WARNING              =  1,
 
-  CMD_ERR_NO_MATCH         =  2,
-  CMD_ERR_AMBIGUOUS        =  3,
-  CMD_ERR_INCOMPLETE       =  4,
-  CMD_ERR_EXCEED_ARGC_MAX  =  5,
-  CMD_ERR_NOTHING_TODO     =  6,
-  CMD_COMPLETE_FULL_MATCH  =  7,
-  CMD_COMPLETE_MATCH       =  8,
-  CMD_COMPLETE_LIST_MATCH  =  9,
+#include "vty.h"
+#include "uty.h"
 
-  CMD_SUCCESS_DAEMON       = 10,
-  CMD_QUEUED               = 11
-} ;
-
-#define MSG_CMD_ERR_AMBIGUOUS      "Ambiguous command"
-#define MSG_CMD_ERR_NO_MATCH       "Unrecognised command"
-#define MSG_CMD_ERR_NO_MATCH_old   "There is no matched command"
-#define MSG_CMD_ERR_EXEED_ARGC_MAX "Exceeds maximum word count"
-
+/*----------------------------------------------------------------------------*/
 /* Turn off these macros when uisng cpp with extract.pl */
 #ifndef VTYSH_EXTRACT_PL
 
@@ -175,14 +223,10 @@ enum cmd_return_code
   };
 
 #define DEFUN_CMD_FUNC_DECL(funcname) \
-  static int funcname (struct cmd_element *, struct vty *, int, const char *[]);
+  static cmd_function funcname;
 
 #define DEFUN_CMD_FUNC_TEXT(funcname) \
-  static int funcname \
-    (struct cmd_element *self __attribute__ ((unused)), \
-     struct vty *vty __attribute__ ((unused)), \
-     int argc __attribute__ ((unused)), \
-     const char *argv[] __attribute__ ((unused)) )
+  static DEFUN_CMD_FUNCTION(funcname)
 
 /* DEFUN for vty command interafce. Little bit hacky ;-). */
 #define DEFUN(funcname, cmdname, cmdstr, helpstr) \
@@ -339,7 +383,7 @@ extern void sort_node (void);
 /* Concatenates argv[shift] through argv[argc-1] into a single NUL-terminated
    string with a space between each element (allocated using
    XMALLOC(MTYPE_TMP)).  Returns NULL if shift >= argc. */
-extern char *argv_concat (const char **argv, int argc, int shift);
+extern char *argv_concat (const char* const* argv, int argc, int shift);
 
 extern vector cmd_make_strvec (const char *);
 extern vector cmd_add_to_strvec (vector v, const char* str) ;
@@ -347,17 +391,35 @@ extern void cmd_free_strvec (vector);
 extern vector cmd_describe_command (vector, int, int *status);
 extern vector cmd_complete_command (vector, int, int *status);
 extern const char *cmd_prompt (enum node_type);
-extern int config_from_file (struct vty *, FILE *, void (*)(void), qstring buf);
+extern enum cmd_return_code
+config_from_file (struct vty* vty, FILE *fp, struct cmd_element* first_cmd,
+                                            qstring buf, bool stop_on_warning) ;
 extern enum node_type node_parent (enum node_type);
-extern int cmd_execute_command (vector, struct vty* vty,
-                                struct cmd_element **cmd, qpn_nexus to_nexus,
-                                                          qpn_nexus from_nexus,
-                                                                    int vtysh) ;
-extern void cmd_post_command(struct vty* vty, struct cmd_parsed* parsed,
-                                                          int ret, int action) ;
-extern int cmd_execute_command_strict (vector vline, struct vty *vty,
-                                          struct cmd_element **cmd, int vtysh) ;
+extern enum cmd_return_code cmd_execute_command (struct vty *vty,
+                           enum cmd_parse_type type, struct cmd_element **cmd) ;
+extern enum cmd_return_code cmd_execute_command_strict (struct vty *vty,
+                          enum cmd_parse_type type, struct cmd_element **cmd) ;
+
+extern cmd_parsed cmd_parse_init_new(cmd_parsed parsed) ;
+extern cmd_parsed cmd_parse_reset(cmd_parsed parsed, bool free_structure) ;
+extern enum cmd_return_code cmd_parse_command(struct vty* vty,
+                                                     enum cmd_parse_type type) ;
+extern enum cmd_return_code cmd_dispatch(struct vty* vty, bool no_queue) ;
+
+Inline enum cmd_return_code
+cmd_dispatch_call(struct vty* vty)
+{
+  cmd_parsed parsed = vty->parsed ;
+  return (*(parsed->cmd->func))(parsed->cmd, vty,
+                                               vector_length(&parsed->vline),
+                           (const char * const*)vector_body(&parsed->vline)) ;
+} ;
+
+#define cmd_parse_reset_keep(parsed) cmd_parse_reset(parsed, 0)
+#define cmd_parse_reset_free(parsed) cmd_parse_reset(parsed, 1)
+
 extern void config_replace_string (struct cmd_element *, char *, ...);
+
 extern void cmd_init (int);
 extern void cmd_terminate (void);
 

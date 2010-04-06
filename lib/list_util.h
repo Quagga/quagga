@@ -87,7 +87,7 @@
  *   struct item
  *   {
  *     ....
- *     struct list_pair(struct item*) foo_list ;
+ *     struct dl_list_pair(struct item*) foo_list ;
  *     ....
  *   } ;
  *
@@ -99,15 +99,15 @@
  *
  * A double base may be declared:
  *
- *   struct base_pair(struct item*) foo_base ;
+ *   struct dl_base_pair(struct item*) foo_base ;
  *
  * Various ways to construct structures or structure types:
  *
- *   typedef struct list_pair(struct foo*) foo_list ;
+ *   typedef struct dl_list_pair(struct foo*) foo_list ;
  *
- *   struct foo_list list_pair(struct foo*) ;
+ *   struct foo_list dl_list_pair(struct foo*) ;
  *
- *   struct foo_base base_pair(struct foo*) ;
+ *   struct foo_base dl_base_pair(struct foo*) ;
  */
 
 #define dl_list_pair(ptr_t)  { ptr_t next ; ptr_t prev ; }

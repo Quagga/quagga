@@ -35,6 +35,7 @@
 #include "lib/symtab.h"
 #include "lib/stream.h"
 #include "lib/sockunion.h"
+#include "lib/list_util.h"
 
 /*==============================================================================
  * BGP Connections.
@@ -80,6 +81,8 @@
 
 static bgp_connection bgp_connection_queue ;  /* BGP Engine connection queue */
 
+static bgp_connection bgp_connection_list ;   /* list of known connections   */
+
 enum { CUT_LOOSE_LOCK_COUNT = 1000 } ;
 
 /*==============================================================================
@@ -119,6 +122,7 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
    *
    *   * state                    bgp_fsm_Initial
    *   * comatose                 not comatose
+   *   * half_open                not half open
    *   * next                     NULL -- not on the connection queue
    *   * prev                     NULL -- not on the connection queue
    *   * follow_on                bgp_fsm_null_event
@@ -144,12 +148,15 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
   confirm(bgp_fsm_null_event     == 0) ;
   confirm(bgp_session_null_event == 0) ;
 
-  /* Link back to session, point at its mutex and point session here        */
+  /* Put on the connections that exist list                             */
+  sdl_push(bgp_connection_list, connection, exist) ;
+
+  /* Link back to session, point at its mutex and point session here    */
   connection->session    = session ;
   connection->p_mutex    = &session->mutex ;
   connection->lock_count = 0 ;  /* no question about it         */
 
-  connection->paf = sockunion_family(session->su_peer) ;
+  connection->paf = AF_UNSPEC ;
 
   connection->ordinal  = ordinal ;
   connection->accepted = (ordinal == bgp_connection_secondary) ;
@@ -157,12 +164,12 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
   session->connections[ordinal] = connection ;
 
   /* qps_file structure                                                 */
-  qps_file_init_new(&connection->qf, NULL) ;
+  connection->qf = qps_file_init_new(NULL, NULL) ;
 
   /* Initialise all the timers                                          */
-  qtimer_init_new(&connection->hold_timer,      bgp_nexus->pile,
+  connection->hold_timer      = qtimer_init_new(NULL, bgp_nexus->pile,
                                                              NULL, connection) ;
-  qtimer_init_new(&connection->keepalive_timer, bgp_nexus->pile,
+  connection->keepalive_timer = qtimer_init_new(NULL, bgp_nexus->pile,
                                                              NULL, connection) ;
 
   /* Copy log destination and make host name + (primary)/(secondary)    */
@@ -334,6 +341,10 @@ bgp_connection_free(bgp_connection connection)
   bgp_connection_close_down(connection) ;
 
   /* Free any components which still exist                              */
+  connection->qf              = qps_file_free(connection->qf) ;
+  connection->hold_timer      = qtimer_free(connection->hold_timer) ;
+  connection->keepalive_timer = qtimer_free(connection->hold_timer) ;
+
   bgp_notify_unset(&connection->notification) ;
   bgp_open_state_unset(&connection->open_recv) ;
   sockunion_unset(&connection->su_local) ;
@@ -345,8 +356,22 @@ bgp_connection_free(bgp_connection connection)
   bgp_write_buffer_free(&connection->wbuff) ;
 
   /* Free the body                                                      */
+  sdl_del(bgp_connection_list, connection, exist) ;
+
   XFREE(MTYPE_BGP_CONNECTION, connection) ;
 } ;
+
+/*------------------------------------------------------------------------------
+ * Terminate all known connections.
+ *
+ * TODO: for bringing the BGP Engine to a dead halt.
+ *
+ * Problem: can it be assumed that all sessions have been closed ?
+ *
+ *          if not... how are all the connections to be pursuaded to adopt
+ *          an appropriate posture ?
+ */
+
 
 /*------------------------------------------------------------------------------
  * If required, allocate new write buffer.
@@ -551,6 +576,7 @@ bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
  *   * closes any file that may be lingering   (should never be)
  *   * reset all stream buffers to empty       (should already be)
  *   * set write buffer unwritable
+ *   * clears half_open
  *
  * Sets:
  *
@@ -577,7 +603,7 @@ bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
  * NB: requires the session to be LOCKED.
  */
 extern void
-bgp_connection_open(bgp_connection connection, int fd)
+bgp_connection_open(bgp_connection connection, int fd, int family)
 {
   bgp_session session = connection->session ;
 
@@ -586,11 +612,18 @@ bgp_connection_open(bgp_connection connection, int fd)
   bgp_connection_close(connection) ;    /* FSM deals with timers        */
 
   /* Set the file going                                                 */
-  qps_add_file(bgp_nexus->selection, &connection->qf, fd, connection) ;
+  qps_add_file(bgp_nexus->selection, connection->qf, fd, connection) ;
 
   connection->err     = 0 ;                     /* so far, so good      */
 
   bgp_open_state_unset(&connection->open_recv) ;
+
+  /* Note the address family for the socket.
+   *
+   * This is the real family -- so is IPv6 independent of whether one or
+   * both addresses are actually mapped IPv4.
+   */
+  connection->paf = family ;
 
   /* Copy the original hold_timer_interval and keepalive_timer_interval
    * Assume these have sensible initial values.
@@ -604,7 +637,8 @@ bgp_connection_open(bgp_connection connection, int fd)
 /*------------------------------------------------------------------------------
  * Start connection which has just come up -- connect() or accept()
  *
- * Copy the local and remote addresses and note the effective address family.
+ * Copy the local and remote addresses (IPv4 mapped IPv6 addresses appear as
+ * IPv4 addresses).
  *
  * Make sure now have a write buffer, and set it empty and writable.
  */
@@ -614,8 +648,6 @@ bgp_connection_start(bgp_connection connection, union sockunion* su_local,
 {
   sockunion_set_dup(&connection->su_local,  su_local) ;
   sockunion_set_dup(&connection->su_remote, su_remote) ;
-
-  connection->paf = sockunion_family(connection->su_local) ;
 
   bgp_write_buffer_init(&connection->wbuff, bgp_wbuff_size) ;
 } ;
@@ -665,6 +697,7 @@ bgp_connection_stop(bgp_connection connection, int stop_writer)
 extern void
 bgp_connection_enable_accept(bgp_connection connection)
 {
+  assert(connection->ordinal == bgp_connection_secondary) ;
   connection->session->index_entry->accept = connection ;
 } ;
 
@@ -692,6 +725,7 @@ bgp_connection_disable_accept(bgp_connection connection)
  *   * empties the pending queue -- destroying all messages
  *
  *   * for secondary connection: disable accept
+ *   * clear half_open
  *
  *   * if required: unset all timers
  *
@@ -722,22 +756,24 @@ bgp_connection_full_close(bgp_connection connection, int unset_timers)
   int fd ;
 
   /* Close connection's file, if any.                                   */
-  qps_remove_file(&connection->qf) ;
+  qps_remove_file(connection->qf) ;
 
-  fd = qps_file_unset_fd(&connection->qf) ;
+  fd = qps_file_unset_fd(connection->qf) ;
   if (fd != fd_undef)
     close(fd) ;
 
   /* If required, unset the timers.                                     */
   if (unset_timers)
     {
-      qtimer_unset(&connection->hold_timer) ;
-      qtimer_unset(&connection->keepalive_timer) ;
+      qtimer_unset(connection->hold_timer) ;
+      qtimer_unset(connection->keepalive_timer) ;
     } ;
 
   /* If this is the secondary connection, do not accept any more.       */
   if (connection->ordinal == bgp_connection_secondary)
     bgp_connection_disable_accept(connection) ;
+
+  connection->half_open = 0 ;
 
   /* forget any addresses                                               */
   sockunion_unset(&connection->su_local) ;
@@ -780,14 +816,14 @@ bgp_connection_part_close(bgp_connection connection)
   bgp_size_t  mlen ;
 
   /* Check that have a usable file descriptor                           */
-  fd = qps_file_fd(&connection->qf) ;
+  fd = qps_file_fd(connection->qf) ;
 
   if (fd == fd_undef)
     return 0 ;
 
   /* Shutdown the read side of this connection                          */
   shutdown(fd, SHUT_RD) ;
-  qps_disable_modes(&connection->qf, qps_read_mbit) ;
+  qps_disable_modes(connection->qf, qps_read_mbit) ;
 
   /* Stop all buffering activity, except for write buffer.              */
   bgp_connection_stop(connection, 0) ;
@@ -858,7 +894,7 @@ bgp_connection_write(bgp_connection connection, struct stream* s)
 
   /* If buffer is empty, enable write mode                      */
   if (bgp_write_buffer_empty(wb))
-    qps_enable_mode(&connection->qf, qps_write_mnum,
+    qps_enable_mode(connection->qf, qps_write_mnum,
                                                 bgp_connection_write_action) ;
 
   /* Transfer the obuf contents to the write buffer.            */
@@ -918,7 +954,7 @@ bgp_connection_write_action(qps_file qf, void* file_info)
   /* Buffer is empty -- reset it and disable write mode                 */
   bgp_write_buffer_reset(wb) ;
 
-  qps_disable_modes(&connection->qf, qps_write_mbit) ;
+  qps_disable_modes(connection->qf, qps_write_mbit) ;
 
   /* If waiting to send NOTIFICATION, just did it.                      */
   /* Otherwise: is writable again -- so add to connection_queue         */
@@ -947,7 +983,7 @@ bgp_connection_read_action(qps_file qf, void* file_info) ;
 extern void
 bgp_connection_read_enable(bgp_connection connection)
 {
-  qps_enable_mode(&connection->qf, qps_read_mnum, bgp_connection_read_action) ;
+  qps_enable_mode(connection->qf, qps_read_mnum, bgp_connection_read_action) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -990,7 +1026,7 @@ bgp_connection_read_action(qps_file qf, void* file_info)
    */
   while (1)
     {
-      ret = stream_read_nonblock(connection->ibuf, qps_file_fd(&connection->qf),
+      ret = stream_read_nonblock(connection->ibuf, qps_file_fd(connection->qf),
                                                                          want) ;
       if (ret >= 0)
         {

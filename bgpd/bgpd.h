@@ -21,6 +21,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGPD_H
 #define _QUAGGA_BGPD_H
 
+#include "stdbool.h"
+
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_notification.h"
 #include "bgpd/bgp_peer.h"
@@ -39,9 +41,6 @@ struct bgp_master
   /* BGP thread master.  */
   struct thread_master *master;
 
-  /* Listening sockets */
-  struct list *listen_sockets;
-
   /* BGP port number.  */
   u_int16_t port;
 
@@ -56,6 +55,9 @@ struct bgp_master
 #define BGP_OPT_NO_FIB                   (1 << 0)
 #define BGP_OPT_MULTIPLE_INSTANCE        (1 << 1)
 #define BGP_OPT_CONFIG_CISCO             (1 << 2)
+
+  /* Do not announce AS4                */
+  bool  as2_speaker ;
 };
 
 /* BGP instance structure.  */

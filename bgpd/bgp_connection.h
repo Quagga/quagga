@@ -22,6 +22,8 @@
 #ifndef _QUAGGA_BGP_CONNECTION_H
 #define _QUAGGA_BGP_CONNECTION_H
 
+#include <stdbool.h>
+
 #include "lib/mqueue.h"
 #include "lib/qpthreads.h"
 #include "lib/qtimers.h"
@@ -132,6 +134,9 @@ enum { bgp_wbuff_size = BGP_MSG_MAX_L * 10 } ;
  */
 struct bgp_connection
 {
+  struct dl_list_pair(bgp_connection) exist ;
+                                        /* list of existing connections   */
+
   bgp_session       session ;           /* session connection belongs to  */
                                         /* NULL if connection stopping    */
   qpt_mutex         p_mutex ;           /* session mutex*                 */
@@ -139,10 +144,11 @@ struct bgp_connection
   unsigned          lock_count ;        /* session mutex lock count       */
 
   bgp_connection_ord_t ordinal ;        /* primary/secondary connection   */
-  int               accepted ;          /* came via accept()              */
+  bool              accepted ;          /* came via accept()              */
 
   bgp_fsm_state_t   state ;             /* FSM state of connection        */
-  int               comatose ;          /* Idle and no timer set          */
+  bool              comatose ;          /* Idle and no timer set          */
+  bool              half_open ;         /* Idle but accepted connection   */
 
   bgp_connection    next ;              /* for the connection queue       */
   bgp_connection    prev ;              /* NULL <=> not on the queue      */
@@ -156,7 +162,7 @@ struct bgp_connection
 
   bgp_open_state    open_recv ;         /* the open received.             */
 
-  struct qps_file   qf ;                /* qpselect file structure        */
+  qps_file          qf ;                /* qpselect file structure        */
   pAF_t             paf ;               /* address family                 */
 
   union sockunion*  su_local ;          /* address of the near end        */
@@ -168,17 +174,17 @@ struct bgp_connection
   unsigned  hold_timer_interval ;       /* subject to negotiation         */
   unsigned  keepalive_timer_interval ;  /* subject to negotiation         */
 
-  flag_t            as4 ;               /* subject to negotiation         */
-  flag_t            route_refresh ;     /* subject to negotiation         */
-  flag_t            orf_prefix ;        /* subject to negotiation         */
+  bool              as4 ;               /* subject to negotiation         */
+  bool              route_refresh ;     /* subject to negotiation         */
+  bool              orf_prefix ;        /* subject to negotiation         */
 
-  struct qtimer     hold_timer ;
-  struct qtimer     keepalive_timer ;
+  qtimer            hold_timer ;
+  qtimer            keepalive_timer ;
 
   struct stream*    ibuf ;              /* a single input "stream"        */
   unsigned          read_pending ;      /* how much input waiting for     */
 
-  flag_t            read_header ;       /* reading message header         */
+  bool              read_header ;       /* reading message header         */
   uint8_t           msg_type ;          /* copy of message type           */
   bgp_size_t        msg_body_size ;     /* size of message *body*         */
   bgp_msg_handler*  msg_func ;          /* function to handle message     */
@@ -201,7 +207,7 @@ extern bgp_connection
 bgp_connection_init_new(bgp_connection connection, bgp_session session,
                                                  bgp_connection_ord_t ordinal) ;
 extern void
-bgp_connection_open(bgp_connection connection, int fd) ;
+bgp_connection_open(bgp_connection connection, int fd, int family) ;
 
 extern void
 bgp_connection_start(bgp_connection connection, union sockunion* su_local,

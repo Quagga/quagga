@@ -25,44 +25,56 @@
 #include "sockunion.h"
 
 int
-setsockopt_so_recvbuf (int sock, int size)
+setsockopt_so_recvbuf (int sock_fd, int size)
 {
   int ret;
 
-  if ( (ret = setsockopt (sock, SOL_SOCKET, SO_RCVBUF, (char *)
-                          &size, sizeof (int))) < 0)
-    zlog_err ("fd %d: can't setsockopt SO_RCVBUF to %d: %s",
-	      sock,size,safe_strerror(errno));
+  ret = setsockopt (sock_fd, SOL_SOCKET, SO_RCVBUF, &size, sizeof(size)) ;
+  if (ret < 0)
+    {
+      int err = errno ;
+      zlog_err ("socket %d: cannot setsockopt SO_RCVBUF to %d: %s",
+                                          sock_fd, size, safe_strerror(err)) ;
+      errno = err ;
+    } ;
 
   return ret;
 }
 
 int
-setsockopt_so_sendbuf (const int sock, int size)
+setsockopt_so_sendbuf (const int sock_fd, int size)
 {
-  int ret = setsockopt (sock, SOL_SOCKET, SO_SNDBUF,
-    (char *)&size, sizeof (int));
+  int ret ;
+
+  ret = setsockopt (sock_fd, SOL_SOCKET, SO_SNDBUF, &size, sizeof(size));
 
   if (ret < 0)
-    zlog_err ("fd %d: can't setsockopt SO_SNDBUF to %d: %s",
-      sock, size, safe_strerror (errno));
+    {
+      int err = errno ;
+      zlog_err ("socket %d: cannot setsockopt SO_SNDBUF to %d: %s",
+                                          sock_fd, size, safe_strerror (err));
+      errno = err ;
+    } ;
 
   return ret;
 }
 
 int
-getsockopt_so_sendbuf (const int sock)
+getsockopt_so_sendbuf (const int sock_fd)
 {
   u_int32_t optval;
   socklen_t optlen = sizeof (optval);
-  int ret = getsockopt (sock, SOL_SOCKET, SO_SNDBUF,
-    (char *)&optval, &optlen);
+
+  int ret = getsockopt (sock_fd, SOL_SOCKET, SO_SNDBUF, &optval, &optlen);
   if (ret < 0)
   {
-    zlog_err ("fd %d: can't getsockopt SO_SNDBUF: %d (%s)",
-      sock, errno, safe_strerror (errno));
+    int err = errno ;
+    zlog_err ("socket %d: cannot getsockopt SO_SNDBUF: %s",
+                                                 sock_fd, safe_strerror (err));
+    errno = err ;
     return ret;
   }
+
   return optval;
 }
 
@@ -84,89 +96,125 @@ getsockopt_cmsg_data (struct msghdr *msgh, int level, int type)
 #ifdef HAVE_IPV6
 /* Set IPv6 packet info to the socket. */
 int
-setsockopt_ipv6_pktinfo (int sock, int val)
+setsockopt_ipv6_pktinfo (int sock_fd, int val)
 {
   int ret;
 
 #ifdef IPV6_RECVPKTINFO		/*2292bis-01*/
-  ret = setsockopt(sock, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val));
+  ret = setsockopt(sock_fd, IPPROTO_IPV6, IPV6_RECVPKTINFO, &val, sizeof(val));
   if (ret < 0)
-    zlog_warn ("can't setsockopt IPV6_RECVPKTINFO : %s", safe_strerror (errno));
+    {
+      int err = errno ;
+      zlog_warn ("cannot setsockopt IPV6_RECVPKTINFO: %s", safe_strerror (err));
+      errno = err ;
+    } ;
 #else	/*RFC2292*/
-  ret = setsockopt(sock, IPPROTO_IPV6, IPV6_PKTINFO, &val, sizeof(val));
+  ret = setsockopt(sock_fd, IPPROTO_IPV6, IPV6_PKTINFO, &val, sizeof(val));
   if (ret < 0)
-    zlog_warn ("can't setsockopt IPV6_PKTINFO : %s", safe_strerror (errno));
+    {
+      int err = errno ;
+      zlog_warn ("cannot setsockopt IPV6_PKTINFO: %s", safe_strerror (err));
+      errno = err ;
+    } ;
 #endif /* INIA_IPV6 */
   return ret;
 }
 
 /* Set multicast hops val to the socket. */
 int
-setsockopt_ipv6_checksum (int sock, int val)
+setsockopt_ipv6_checksum (int sock_fd, int val)
 {
   int ret;
 
 #ifdef GNU_LINUX
-  ret = setsockopt(sock, IPPROTO_RAW, IPV6_CHECKSUM, &val, sizeof(val));
+  ret = setsockopt(sock_fd, IPPROTO_RAW,  IPV6_CHECKSUM, &val, sizeof(val));
 #else
-  ret = setsockopt(sock, IPPROTO_IPV6, IPV6_CHECKSUM, &val, sizeof(val));
+  ret = setsockopt(sock_fd, IPPROTO_IPV6, IPV6_CHECKSUM, &val, sizeof(val));
 #endif /* GNU_LINUX */
   if (ret < 0)
-    zlog_warn ("can't setsockopt IPV6_CHECKSUM");
+    {
+      int err = errno ;
+      zlog_warn ("cannot setsockopt IPV6_CHECKSUM: %s", safe_strerror (err));
+      errno = err ;
+    } ;
   return ret;
 }
 
 /* Set multicast hops val to the socket. */
 int
-setsockopt_ipv6_multicast_hops (int sock, int val)
+setsockopt_ipv6_multicast_hops (int sock_fd, int val)
 {
   int ret;
 
-  ret = setsockopt(sock, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val, sizeof(val));
+  ret = setsockopt(sock_fd, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &val,
+                                                                   sizeof(val));
   if (ret < 0)
-    zlog_warn ("can't setsockopt IPV6_MULTICAST_HOPS");
+    {
+      int err = errno ;
+      zlog_warn ("cannot setsockopt IPV6_MULTICAST_HOPS: %s",
+                                                          safe_strerror (err));
+      errno = err ;
+    } ;
   return ret;
 }
 
 /* Set multicast hops val to the socket. */
 int
-setsockopt_ipv6_unicast_hops (int sock, int val)
+setsockopt_ipv6_unicast_hops (int sock_fd, int val)
 {
   int ret;
 
-  ret = setsockopt(sock, IPPROTO_IPV6, IPV6_UNICAST_HOPS, &val, sizeof(val));
+  ret = setsockopt(sock_fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS, &val, sizeof(val));
   if (ret < 0)
-    zlog_warn ("can't setsockopt IPV6_UNICAST_HOPS");
+    {
+      int err = errno ;
+      zlog_warn("cannot setsockopt IPV6_UNICAST_HOPS: %s", safe_strerror (err));
+      errno = err ;
+    } ;
   return ret;
 }
 
 int
-setsockopt_ipv6_hoplimit (int sock, int val)
+setsockopt_ipv6_hoplimit (int sock_fd, int val)
 {
   int ret;
 
 #ifdef IPV6_RECVHOPLIMIT	/*2292bis-01*/
-  ret = setsockopt (sock, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &val, sizeof(val));
+  ret = setsockopt (sock_fd, IPPROTO_IPV6, IPV6_RECVHOPLIMIT, &val,
+                                                                   sizeof(val));
   if (ret < 0)
-    zlog_warn ("can't setsockopt IPV6_RECVHOPLIMIT");
+    {
+      int err = errno ;
+      zlog_warn("cannot setsockopt IPV6_RECVHOPLIMIT: %s", safe_strerror (err));
+      errno = err ;
+    } ;
 #else	/*RFC2292*/
-  ret = setsockopt (sock, IPPROTO_IPV6, IPV6_HOPLIMIT, &val, sizeof(val));
+  ret = setsockopt (sock_fd, IPPROTO_IPV6, IPV6_HOPLIMIT, &val, sizeof(val));
   if (ret < 0)
-    zlog_warn ("can't setsockopt IPV6_HOPLIMIT");
+    {
+      int err = errno ;
+      zlog_warn ("cannot setsockopt IPV6_HOPLIMIT: %s", safe_strerror (err));
+      errno = err ;
+    } ;
 #endif
   return ret;
 }
 
 /* Set multicast loop zero to the socket. */
 int
-setsockopt_ipv6_multicast_loop (int sock, int val)
+setsockopt_ipv6_multicast_loop (int sock_fd, int val)
 {
   int ret;
 
-  ret = setsockopt (sock, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &val,
-		    sizeof (val));
+  ret = setsockopt (sock_fd, IPPROTO_IPV6, IPV6_MULTICAST_LOOP, &val,
+		                                                  sizeof (val));
   if (ret < 0)
-    zlog_warn ("can't setsockopt IPV6_MULTICAST_LOOP");
+    {
+      int err = errno ;
+      zlog_warn ("cannot setsockopt IPV6_MULTICAST_LOOP: %s",
+                                                          safe_strerror (err));
+      errno = err ;
+    } ;
   return ret;
 }
 
@@ -204,12 +252,14 @@ getsockopt_ipv6_ifindex (struct msghdr *msgh)
  * allow leaves, or implicitly leave all groups joined to down interfaces.
  */
 int
-setsockopt_multicast_ipv4(int sock,
-			int optname,
-			struct in_addr if_addr /* required */,
-			unsigned int mcast_addr,
-			unsigned int ifindex /* optional: if non-zero, may be
-						  used instead of if_addr */)
+setsockopt_multicast_ipv4(int sock_fd,
+	                  int optname,
+			  struct in_addr if_addr     /* required */,
+			  unsigned int mcast_addr,
+			  unsigned int ifindex       /* optional: if non-zero,
+			                                may be used instead of
+			                                if_addr */
+			 )
 {
 
 #ifdef HAVE_STRUCT_IP_MREQN_IMR_IFINDEX
@@ -232,31 +282,28 @@ setsockopt_multicast_ipv4(int sock,
       else
 	mreqn.imr_address = if_addr;
 
-      ret = setsockopt(sock, IPPROTO_IP, optname,
-		       (void *)&mreqn, sizeof(mreqn));
+      ret = setsockopt(sock_fd, IPPROTO_IP, optname, &mreqn, sizeof(mreqn));
       if ((ret < 0) && (optname == IP_ADD_MEMBERSHIP) && (errno == EADDRINUSE))
         {
 	  /* see above: handle possible problem when interface comes back up */
 	  char buf[2][INET_ADDRSTRLEN];
 	  zlog_info("setsockopt_multicast_ipv4 attempting to drop and "
 		    "re-add (fd %d, ifaddr %s, mcast %s, ifindex %u)",
-		    sock,
+		    sock_fd,
 		    inet_ntop(AF_INET, &if_addr, buf[0], sizeof(buf[0])),
 		    inet_ntop(AF_INET, &mreqn.imr_multiaddr,
 			      buf[1], sizeof(buf[1])), ifindex);
-	  setsockopt(sock, IPPROTO_IP, IP_DROP_MEMBERSHIP,
-		     (void *)&mreqn, sizeof(mreqn));
-	  ret = setsockopt(sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,
-			   (void *)&mreqn, sizeof(mreqn));
+	  setsockopt(sock_fd, IPPROTO_IP, IP_DROP_MEMBERSHIP,
+                                                       &mreqn, sizeof(mreqn));
+	  ret = setsockopt(sock_fd, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                                                       &mreqn, sizeof(mreqn));
         }
       return ret;
-      break;
 
     default:
       /* Can out and give an understandable error */
       errno = EINVAL;
       return -1;
-      break;
     }
 
   /* Example defines for another OS, boilerplate off other code in this
@@ -281,7 +328,7 @@ setsockopt_multicast_ipv4(int sock,
   switch (optname)
     {
     case IP_MULTICAST_IF:
-      return setsockopt (sock, IPPROTO_IP, optname, (void *)&m, sizeof(m));
+      return setsockopt (sock_fd, IPPROTO_IP, optname, (void *)&m, sizeof(m));
       break;
 
     case IP_ADD_MEMBERSHIP:
@@ -290,48 +337,56 @@ setsockopt_multicast_ipv4(int sock,
       mreq.imr_multiaddr.s_addr = mcast_addr;
       mreq.imr_interface = m;
 
-      ret = setsockopt (sock, IPPROTO_IP, optname, (void *)&mreq, sizeof(mreq));
+      ret = setsockopt (sock_fd, IPPROTO_IP, optname, (void *)&mreq, sizeof(mreq));
       if ((ret < 0) && (optname == IP_ADD_MEMBERSHIP) && (errno == EADDRINUSE))
         {
 	  /* see above: handle possible problem when interface comes back up */
 	  char buf[2][INET_ADDRSTRLEN];
 	  zlog_info("setsockopt_multicast_ipv4 attempting to drop and "
 		    "re-add (fd %d, ifaddr %s, mcast %s, ifindex %u)",
-		    sock,
+		    sock_fd,
 		    inet_ntop(AF_INET, &if_addr, buf[0], sizeof(buf[0])),
 		    inet_ntop(AF_INET, &mreq.imr_multiaddr,
 			      buf[1], sizeof(buf[1])), ifindex);
-	  setsockopt (sock, IPPROTO_IP, IP_DROP_MEMBERSHIP,
-		      (void *)&mreq, sizeof(mreq));
-	  ret = setsockopt (sock, IPPROTO_IP, IP_ADD_MEMBERSHIP,
-	  		    (void *)&mreq, sizeof(mreq));
+	  setsockopt (sock_fd, IPPROTO_IP, IP_DROP_MEMBERSHIP,
+                                                          &mreq, sizeof(mreq));
+	  ret = setsockopt (sock_fd, IPPROTO_IP, IP_ADD_MEMBERSHIP,
+                                                          &mreq, sizeof(mreq));
         }
       return ret;
-      break;
 
     default:
       /* Can out and give an understandable error */
       errno = EINVAL;
       return -1;
-      break;
     }
 #endif /* #if OS_TYPE */
 
 }
 
 static int
-setsockopt_ipv4_ifindex (int sock, int val)
+setsockopt_ipv4_ifindex (int sock_fd, int val)
 {
   int ret;
 
 #if defined (IP_PKTINFO)
-  if ((ret = setsockopt (sock, IPPROTO_IP, IP_PKTINFO, &val, sizeof (val))) < 0)
-    zlog_warn ("Can't set IP_PKTINFO option for fd %d to %d: %s",
-	       sock,val,safe_strerror(errno));
+  ret = setsockopt (sock_fd, IPPROTO_IP, IP_PKTINFO, &val, sizeof (val)) ;
+  if (ret < 0)
+    {
+      int err = errno ;
+      zlog_warn ("Can't set IP_PKTINFO option for fd %d to %d: %s",
+                                              sock_fd, val, safe_strerror(err));
+      errno = err ;
+    } ;
 #elif defined (IP_RECVIF)
-  if ((ret = setsockopt (sock, IPPROTO_IP, IP_RECVIF, &val, sizeof (val))) < 0)
-    zlog_warn ("Can't set IP_RECVIF option for fd %d to %d: %s",
-	       sock,val,safe_strerror(errno));
+  ret = setsockopt (sock_fd, IPPROTO_IP, IP_RECVIF, &val, sizeof (val)) ;
+  if (ret < 0)
+    {
+      int err = errno ;
+      zlog_warn ("Can't set IP_RECVIF option for fd %d to %d: %s",
+                                              sock_fd, val, safe_strerror(err));
+      errno = err ;
+    } ;
 #else
 #warning "Neither IP_PKTINFO nor IP_RECVIF is available."
 #warning "Will not be able to receive link info."
@@ -343,35 +398,42 @@ setsockopt_ipv4_ifindex (int sock, int val)
 }
 
 int
-setsockopt_ipv4_tos(int sock, int tos)
+setsockopt_ipv4_tos(int sock_fd, int tos)
 {
   int ret;
 
-  ret = setsockopt (sock, IPPROTO_IP, IP_TOS, &tos, sizeof (tos));
+  ret = setsockopt (sock_fd, IPPROTO_IP, IP_TOS, &tos, sizeof (tos));
   if (ret < 0)
-    zlog_warn ("Can't set IP_TOS option for fd %d to %#x: %s",
-	       sock, tos, safe_strerror(errno));
+    {
+      int err = errno ;
+      zlog_warn ("Can't set IP_TOS option for fd %d to %#x: %s",
+                                          sock_fd, tos, safe_strerror(err));
+      errno = err ;
+    } ;
   return ret;
 }
 
 
 int
-setsockopt_ifindex (int af, int sock, int val)
+setsockopt_ifindex (int af, int sock_fd, int val)
 {
   int ret = -1;
 
   switch (af)
     {
       case AF_INET:
-        ret = setsockopt_ipv4_ifindex (sock, val);
+        ret = setsockopt_ipv4_ifindex (sock_fd, val);
         break;
 #ifdef HAVE_IPV6
       case AF_INET6:
-        ret = setsockopt_ipv6_pktinfo (sock, val);
+        ret = setsockopt_ipv6_pktinfo (sock_fd, val);
         break;
 #endif
       default:
         zlog_warn ("setsockopt_ifindex: unknown address family %d", af);
+        ret = -1 ;
+        errno = EINVAL;
+        break ;
     }
   return ret;
 }
@@ -498,17 +560,17 @@ sockopt_iphdrincl_swab_systoh (struct ip *iph)
 /*==============================================================================
  * Set TCP MD5 signature socket option.
  *
- * Returns:  0 => OK
- *       errno => failed.
+ * Returns: >= 0 => OK
+ *           < 0 => failed, see errno.
  *
  * NB: returns ENOSYS if TCP MD5 is not supported
  */
 int
-sockopt_tcp_signature (int sock, union sockunion *su, const char *password)
+sockopt_tcp_signature (int sock_fd, union sockunion *su, const char *password)
 {
+#if defined(HAVE_TCP_MD5_LINUX24) && defined(GNU_LINUX)
   int ret ;
 
-#if defined(HAVE_TCP_MD5_LINUX24) && defined(GNU_LINUX)
   /* Support for the old Linux 2.4 TCP-MD5 patch, taken from Hasso Tepper's
    * version of the Quagga patch (based on work by Rick Payne, and Bruce
    * Simpson)
@@ -529,9 +591,9 @@ sockopt_tcp_signature (int sock, union sockunion *su, const char *password)
   cmd.keylen  = (password != NULL ? strlen (password) : 0);
   cmd.key     = password;
 
-  ret = setsockopt (sock, IPPROTO_TCP, TCP_MD5_AUTH, &cmd, sizeof cmd) ;
+  ret = setsockopt (sock_fd, IPPROTO_TCP, TCP_MD5_AUTH, &cmd, sizeof cmd) ;
 
-  return (ret >= 0) ? 0 : errno ;
+  return (ret >= 0) ? 0 : -1 ;
 
 #elif HAVE_DECL_TCP_MD5SIG
 #ifndef GNU_LINUX
@@ -545,11 +607,13 @@ sockopt_tcp_signature (int sock, union sockunion *su, const char *password)
   struct tcp_md5sig md5sig ;
   union sockunion *su2 ;
   union sockunion susock ;
+  int ret, err ;
 
   /* Figure out whether the socket and the sockunion are the same family..
    * adding AF_INET to AF_INET6 needs to be v4 mapped, you'd think..
    */
-  if ((ret = sockunion_getsockname(sock, &susock)) != 0)
+  ret = sockunion_getsockname(sock_fd, &susock) ;
+  if (ret < 0)
     return ret ;
 
   if (susock.sa.sa_family == su->sa.sa_family)
@@ -564,7 +628,7 @@ sockopt_tcp_signature (int sock, union sockunion *su, const char *password)
 
 #ifdef HAVE_IPV6
       /* If this does not work, then all users of this sockopt will need to
-       * differentiate between IPv4 and IPv6, and keep seperate sockets for
+       * differentiate between IPv4 and IPv6, and keep separate sockets for
        * each.
        *
        * Sadly, it doesn't seem to work at present. It's unknown whether
@@ -590,65 +654,84 @@ sockopt_tcp_signature (int sock, union sockunion *su, const char *password)
 
 #endif /* GNU_LINUX */
 
-  ret = setsockopt(sock, IPPROTO_TCP, TCP_MD5SIG, &md5sig, sizeof md5sig) ;
+  err = 0 ;
+  ret = setsockopt(sock_fd, IPPROTO_TCP, TCP_MD5SIG, &md5sig, sizeof(md5sig)) ;
   if (ret < 0)
     {
-      ret = errno ;
+      err = errno ;
       /* ENOENT is harmless.  It is returned when we clear a password for which
 	 one was not previously set. */
-      if (ret == ENOENT)
-	ret = 0 ;
+      if (err == ENOENT)
+	err = 0 ;
       else
-	zlog_err ("sockopt_tcp_signature: setsockopt(%d): %s",
-		  sock, safe_strerror(ret));
+        {
+          zlog_err ("sockopt_tcp_signature: setsockopt(%d): %s",
+                                                  sock_fd, safe_strerror(err));
+          errno = err ;
+        } ;
     }
-  else
-    ret = 0 ;           /* no error                     */
+
+  return (err == 0) ? 0 : -1 ;
 
 #else /* HAVE_TCP_MD5SIG */
 
-  ret = ENOSYS ;        /* TCP MD5 is not supported     */
+  errno = ENOSYS ;              /* TCP MD5 is not supported     */
+  return -1 ;
 
 #endif /* !HAVE_TCP_MD5SIG */
-
-  return ret;
 } ;
 
 /*==============================================================================
- * Set TTL for socket (only used in bgpd)
+ * Set TTL for socket
  *
- * Returns:  0 : OK (so far so good)
- *        != 0 : error number (from errno or otherwise)
+ * Returns: >= 0 => OK
+ *           < 0 => failed, see errno.
  */
-
 int
-sockopt_ttl (int family, int sock, int ttl)
+sockopt_ttl (int sock_fd, int ttl)
 {
   const char* msg ;
   int   ret ;
+  int   family ;
 
   ret = 0 ;
+  msg = NULL ;
 
+  family = sockunion_getsockfamily(sock_fd) ;
+  if (family < 0)
+    return -1 ;
+
+  switch (family)
+  {
+    case AF_INET:
 #ifdef IP_TTL
-  if (family == AF_INET)
-    {
-      ret = setsockopt (sock, IPPROTO_IP, IP_TTL,(void*)&ttl, sizeof(int));
-      msg = "can't set sockopt IP_TTL %d to socket %d" ;
-    }
+      ret = setsockopt (sock_fd, IPPROTO_IP, IP_TTL,(void*)&ttl, sizeof(int));
+      msg = "IP_TTL" ;
 #endif /* IP_TTL */
-#ifdef HAVE_IPV6
-  if (family == AF_INET6)
-    {
-      ret = setsockopt (sock, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
-                                                 (void*)&ttl, sizeof(int));
-      msg = "can't set sockopt IPV6_UNICAST_HOPS %d to socket %d" ;
-    }
-#endif /* HAVE_IPV6 */
+      break ;
 
-  ret = (ret < 0) ? errno : 0 ;
+#ifdef HAVE_IPV6
+    case AF_INET6:
+      ret = setsockopt (sock_fd, IPPROTO_IPV6, IPV6_UNICAST_HOPS,
+                                                     (void*)&ttl, sizeof(int));
+      msg = "IPV6_UNICAST_HOPS" ;
+      break ;
+#endif
+
+    default:            /* ignore unknown family        */
+      ret = 0 ;
+      break ;
+  } ;
 
   if (ret != 0)
-    zlog (NULL, LOG_WARNING, msg, ttl, sock) ;
+    {
+      int err = errno ;
+      zlog (NULL, LOG_WARNING,
+          "cannot set sockopt %s %d to socket %d: %s", msg, ttl, sock_fd,
+                                                           safe_strerror(err)) ;
+      errno = err ;
+      return -1 ;
+    } ;
 
-  return ret ;
+  return 0 ;
 } ;

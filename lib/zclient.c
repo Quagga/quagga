@@ -116,7 +116,7 @@ void
 zclient_init (struct zclient *zclient, int redist_default)
 {
   int i;
-  
+
   /* Enable zebra client connection by default. */
   zclient->enable = 1;
 
@@ -202,8 +202,8 @@ zclient_socket(void)
   sock = socket (AF_INET, SOCK_STREAM, 0);
   if (sock < 0)
     return -1;
-  
-  /* Make server socket. */ 
+
+  /* Make server socket. */
   memset (&serv, 0, sizeof (struct sockaddr_in));
   serv.sin_family = AF_INET;
   serv.sin_port = htons (ZEBRA_PORT);
@@ -235,8 +235,8 @@ zclient_socket_un (const char *path)
   sock = socket (AF_UNIX, SOCK_STREAM, 0);
   if (sock < 0)
     return -1;
-  
-  /* Make server socket. */ 
+
+  /* Make server socket. */
   memset (&addr, 0, sizeof (struct sockaddr_un));
   addr.sun_family = AF_UNIX;
   strncpy (addr.sun_path, path, strlen (path));
@@ -370,7 +370,7 @@ zebra_message_send (struct zclient *zclient, int command)
 
   /* Send very simple command only Zebra message. */
   zclient_create_header (s, command);
-  
+
   return zclient_send_message(zclient);
 }
 
@@ -396,7 +396,7 @@ zclient_start (struct zclient *zclient)
     return 0;
 
   /* Check timer */
-  if (zclient->qtr && qtr_is_active(zclient->qtr))
+  if (zclient->qtr && zclient->qtr->active)
     return 0;
 
   /* Make socket. */
@@ -421,7 +421,7 @@ zclient_start (struct zclient *zclient)
   zclient->fail = 0;
   if (zclient_debug)
     zlog_debug ("zclient connect success with socket [%d]", zclient->sock);
-      
+
   if (zclient_nexus)
     qps_add_file(zclient_nexus->selection, zclient->qf, zclient->sock, zclient);
 
@@ -521,13 +521,13 @@ zlookup_connect_r (qtimer qtr, void* timer_info, qtime_t when)
 }
 
 
- /* 
+ /*
   * "xdr_encode"-like interface that allows daemon (client) to send
   * a message to zebra server for a route that needs to be
   * added/deleted to the kernel. Info about the route is specified
   * by the caller in a struct zapi_ipv4. zapi_ipv4_read() then writes
   * the info down the zclient socket using the stream_* functions.
-  * 
+  *
   * The corresponding read ("xdr_decode") function on the server
   * side is zread_ipv4_add()/zread_ipv4_delete().
   *
@@ -539,11 +539,11 @@ zlookup_connect_r (qtimer qtr, void* timer_info, qtime_t when)
   * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
   * | Destination IPv4 Prefix for route                             |
   * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
-  * | Nexthop count | 
+  * | Nexthop count |
   * +-+-+-+-+-+-+-+-+
   *
-  * 
-  * A number of IPv4 nexthop(s) or nexthop interface index(es) are then 
+  *
+  * A number of IPv4 nexthop(s) or nexthop interface index(es) are then
   * described, as per the Nexthop count. Each nexthop described as:
   *
   * +-+-+-+-+-+-+-+-+
@@ -553,18 +553,18 @@ zlookup_connect_r (qtimer qtr, void* timer_info, qtime_t when)
   * +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+
   *
   * Alternatively, if the flags field has ZEBRA_FLAG_BLACKHOLE or
-  * ZEBRA_FLAG_REJECT is set then Nexthop count is set to 1, then _no_ 
+  * ZEBRA_FLAG_REJECT is set then Nexthop count is set to 1, then _no_
   * nexthop information is provided, and the message describes a prefix
   * to blackhole or reject route.
   *
   * If ZAPI_MESSAGE_DISTANCE is set, the distance value is written as a 1
   * byte value.
-  * 
+  *
   * If ZAPI_MESSAGE_METRIC is set, the metric value is written as an 8
   * byte value.
   *
   * XXX: No attention paid to alignment.
-  */ 
+  */
 int
 zapi_ipv4_route (u_char cmd, struct zclient *zclient, struct prefix_ipv4 *p,
                  struct zapi_ipv4 *api)
@@ -576,9 +576,9 @@ zapi_ipv4_route (u_char cmd, struct zclient *zclient, struct prefix_ipv4 *p,
   /* Reset stream. */
   s = zclient->obuf;
   stream_reset (s);
-  
+
   zclient_create_header (s, cmd);
-  
+
   /* Put type and nexthop. */
   stream_putc (s, api->type);
   stream_putc (s, api->flags);
@@ -644,7 +644,7 @@ zapi_ipv6_route (u_char cmd, struct zclient *zclient, struct prefix_ipv6 *p,
   stream_putc (s, api->type);
   stream_putc (s, api->flags);
   stream_putc (s, api->message);
-  
+
   /* Put prefix information. */
   psize = PSIZE (p->prefixlen);
   stream_putc (s, p->prefixlen);
@@ -679,10 +679,10 @@ zapi_ipv6_route (u_char cmd, struct zclient *zclient, struct prefix_ipv6 *p,
 }
 #endif /* HAVE_IPV6 */
 
-/* 
+/*
  * send a ZEBRA_REDISTRIBUTE_ADD or ZEBRA_REDISTRIBUTE_DELETE
  * for the route type (ZEBRA_ROUTE_KERNEL etc.). The zebra server will
- * then set/unset redist[type] in the client handle (a struct zserv) for the 
+ * then set/unset redist[type] in the client handle (a struct zserv) for the
  * sending client
  */
 int
@@ -692,12 +692,12 @@ zebra_redistribute_send (int command, struct zclient *zclient, int type)
 
   s = zclient->obuf;
   stream_reset(s);
-  
+
   zclient_create_header (s, command);
   stream_putc (s, type);
-  
+
   stream_putw_at (s, 0, stream_get_endp (s));
-  
+
   return zclient_send_message(zclient);
 }
 
@@ -716,7 +716,7 @@ zebra_router_id_update_read (struct stream *s, struct prefix *rid)
 }
 
 /* Interface addition from zebra daemon. */
-/*  
+/*
  * The format of the message sent with type ZEBRA_INTERFACE_ADD or
  * ZEBRA_INTERFACE_DELETE from zebra to the client is:
  *     0                   1                   2                   3
@@ -776,11 +776,11 @@ zebra_interface_add_read (struct stream *s)
   if (ifp->hw_addr_len)
     stream_get (ifp->hw_addr, s, ifp->hw_addr_len);
 #endif /* HAVE_STRUCT_SOCKADDR_DL */
-  
+
   return ifp;
 }
 
-/* 
+/*
  * Read interface up/down msg (ZEBRA_INTERFACE_UP/ZEBRA_INTERFACE_DOWN)
  * from zebra server.  The format of this message is the same as
  * that sent for ZEBRA_INTERFACE_ADD/ZEBRA_INTERFACE_DELETE (see
@@ -818,7 +818,7 @@ zebra_interface_state_read (struct stream *s)
   return ifp;
 }
 
-/* 
+/*
  * format of message for address additon is:
  *    0
  *  0 1 2 3 4 5 6 7
@@ -918,7 +918,7 @@ zebra_interface_address_read (int type, struct stream *s)
   stream_get (&d.u.prefix, s, plen);
   d.family = family;
 
-  if (type == ZEBRA_INTERFACE_ADDRESS_ADD) 
+  if (type == ZEBRA_INTERFACE_ADDRESS_ADD)
     {
        /* N.B. NULL destination pointers are encoded as all zeroes */
        ifc = connected_add_by_prefix(ifp, &p,(memconstant(&d.u.prefix,0,plen) ?
@@ -995,15 +995,15 @@ zclient_read (struct zclient *zclient)
   marker = stream_getc (zclient->ibuf);
   version = stream_getc (zclient->ibuf);
   command = stream_getw (zclient->ibuf);
-  
+
   if (marker != ZEBRA_HEADER_MARKER || version != ZSERV_VERSION)
     {
       zlog_err("%s: socket %d version mismatch, marker %d, version %d",
                __func__, zclient->sock, marker, version);
       return zclient_failed(zclient);
     }
-  
-  if (length < ZEBRA_HEADER_SIZE) 
+
+  if (length < ZEBRA_HEADER_SIZE)
     {
       zlog_err("%s: socket %d message length %u is less than %d ",
 	       __func__, zclient->sock, length, ZEBRA_HEADER_SIZE);
@@ -1112,7 +1112,7 @@ void
 zclient_redistribute (int command, struct zclient *zclient, int type)
 {
 
-  if (command == ZEBRA_REDISTRIBUTE_ADD) 
+  if (command == ZEBRA_REDISTRIBUTE_ADD)
     {
       if (zclient->redist[type])
          return;
@@ -1140,7 +1140,7 @@ zclient_redistribute_default (int command, struct zclient *zclient)
         return;
       zclient->default_information = 1;
     }
-  else 
+  else
     {
       if (!zclient->default_information)
         return;
@@ -1169,20 +1169,20 @@ zclient_event_r (enum event event, struct zclient *zclient)
   switch (event)
     {
     case ZLOOKUP_SCHEDULE:
-      if (!qtr_is_active(zclient->qtr))
+      if (!zclient->qtr->active)
         qtimer_set(zclient->qtr, qt_get_monotonic(), zlookup_connect_r) ;
       break;
     case ZCLIENT_SCHEDULE:
-      if (!qtr_is_active(zclient->qtr))
+      if (!zclient->qtr->active)
         qtimer_set(zclient->qtr, qt_get_monotonic(), zclient_connect_r) ;
       break;
     case ZCLIENT_CONNECT:
       if (zclient->fail >= 10)
 	return;
       if (zclient_debug)
-	zlog_debug ("zclient connect schedule interval is %d", 
+	zlog_debug ("zclient connect schedule interval is %d",
 		   zclient->fail < 3 ? 10 : 60);
-      if (!qtr_is_active(zclient->qtr))
+      if (!zclient->qtr->active)
         qtimer_set(zclient->qtr,
           qt_add_monotonic(QTIME(zclient->fail < 3 ? 10 : 60)), zclient_connect_r) ;
       break;

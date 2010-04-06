@@ -14,9 +14,9 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * along with GNU Zebra; see the file COPYING.  If not, write to the
+ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+ * Boston, MA 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -77,7 +77,7 @@ route_prev (struct route_node *node)
   return prev;
 }
 
-
+
 /* show database functions */
 DEFUN (show_version_ospf6,
        show_version_ospf6_cmd,
@@ -1733,12 +1733,14 @@ DEFUN (show_ipv6_ospf6_linkstate_detail,
        "Display linkstate routing table\n"
       )
 {
-  const char *sargv[CMD_ARGC_MAX];
+  const char** sargv;
   int i, sargc;
   struct listnode *node;
   struct ospf6_area *oa;
 
-  /* copy argv to sargv and then append "detail" */
+  sargv = XMALLOC(MTYPE_TMP, (argc + 2) * sizeof(char*)) ;
+
+ /* copy argv to sargv and then append "detail" */
   for (i = 0; i < argc; i++)
     sargv[i] = argv[i];
   sargc = argc;
@@ -1753,6 +1755,7 @@ DEFUN (show_ipv6_ospf6_linkstate_detail,
     }
 
   vty_out (vty, "%s", VNL);
+  XFREE(MTYPE_TMP, sargv) ;
   return CMD_SUCCESS;
 }
 

@@ -31,6 +31,7 @@
 #include "uty.h"
 #include "vty.h"
 #include "vio_fifo.h"
+#include "vio_lines.h"
 #include "keystroke.h"
 #include "thread.h"
 #include "command.h"
@@ -62,14 +63,17 @@
  */
 
 /*------------------------------------------------------------------------------
- * VTY file structure
+ * VTY sock structure
  *
- * Used
+ * Used for VTY_TERM and VTY_SHELL_SERV VTY types, which are attached to TCP
+ * and UNIX sockets, respectively.
+ *
+ * Also used for the associated listeners.
  */
 
 typedef int thread_action(struct thread *) ;
 
-union file_action
+union sock_action
 {
   qps_action*    qnexus ;
   thread_action* thread ;
@@ -83,21 +87,21 @@ union timer_action
   void*          anon ;
 } ;
 
-struct vio_file_actions
+struct vio_sock_actions
 {
-  union file_action     read ;
-  union file_action     write ;
+  union sock_action     read ;
+  union sock_action     write ;
   union timer_action    timer ;
 };
 
-typedef struct vio_file* vio_file ;
-struct vio_file
+typedef struct vio_sock* vio_sock ;
+struct vio_sock
 {
   int fd ;
 
   void* info ;                  /* for action routines                  */
 
-  struct vio_file_actions  action ;
+  struct vio_sock_actions  action ;
 
   bool  read_open ;             /* read returns 0 if not open           */
   bool  write_open ;            /* write completes instantly if not open */
@@ -116,56 +120,67 @@ struct vio_file
 
 } ;
 
-struct vty_line_control
-{
-  int   tba ;
-} ;
-
 enum
 {
-  off = false,
-  on  = true
-};
+  on   = true,
+  off  = false
+} ;
+
+enum vty_readiness      /* bit significant      */
+{
+  not_ready   = 0,
+  read_ready  = 1,
+  write_ready = 2,      /* takes precedence     */
+  now_ready   = 4
+} ;
 
 /*------------------------------------------------------------------------------
- *
+ * The vty_io structure
  */
 
 struct vty_io {
+  struct vty*   vty ;           /* the related vty                      */
+  char  *name ;                 /* for VTY_TERM is IP address)          */
+
   /* List of all vty_io objects                                         */
   struct dl_list_pair(vty_io) vio_list ;
-
-  bool  half_closed ;           /* => on death watch list               */
-  bool  timed_out ;             /* closed by timer                      */
 
   /* List of all vty_io that are in monitor state                       */
   struct dl_list_pair(vty_io) mon_list ;
 
-  /* The attached to this vty                                           */
-  struct vty*   vty ;
-
-  /* Type of VTY                                                        */
+  /* VTY type and sock stuff                                            */
   enum vty_type type;
 
-  /* File level stuff                                                   */
-  struct vio_file  file ;
+  struct vio_sock  sock ;       /* for VTY_TERM and VTY_SHELL_SERV      */
 
-  /* "name" of the VTY (for VTY_TERM is IP address)                     */
-  char  *name ;
+  bool  half_closed ;           /* => on death watch list               */
+  bool  closed ;                /* => all I/O terminated
+                                      will also be half_closed          */
 
-  /* Keystroke stream and raw input buffer                              */
-  keystroke_stream key_stream ;
-  qstring_t     ibuf ;
+  const char* close_reason ;    /* message to be sent, once all other
+                                   output has completed, giving reason
+                                   for closing the VTY.                 */
+
+  /* When writing configuration file                                    */
+  enum vty_type real_type ;
+
+  int   file_fd ;
+  int   file_error ;
 
   /*--------------------------------------------------------------------*/
   /* Command line and related state                                     */
 
+  keystroke_stream key_stream ;
+
   /* cli_drawn <=> the current prompt and user input occupy the current
    *               line on the screen.
+   *
+   * cli_dirty <=> the last command output did not end with a newline.
    *
    * If cli_drawn is true, the following are valid:
    *
    *   cli_prompt_len    -- the length of the prompt part.
+   *                        (will be the "--more--" prompt in cli_more_wait)
    *
    *   cli_extra_len     -- the length of any ^X at the cursor position
    *                        (for when blocked waiting for queued command)
@@ -174,28 +189,38 @@ struct vty_io {
    *
    * NB: cli_echo_suppress is only used for password entry.
    */
-  int   cli_drawn ;
+  bool          cli_drawn ;
+  bool          cli_dirty ;
 
-  int   cli_prompt_len ;        /* for drawn line (if any)              */
-  int   cli_extra_len ;         /* for for drawn line (if any)          */
+  int           cli_prompt_len ;
+  int           cli_extra_len ;
 
-  bool  cli_echo_suppress ;     /* non-zero => suppress cli echo        */
+  bool          cli_echo_suppress ;
 
   /* "cache" for prompt -- when node or host name changes, prompt does  */
-  enum node_type  cli_prompt_node ;
-  bool            cli_prompt_set ;
-  qstring_t       cli_prompt_for_node ;
+  enum node_type cli_prompt_node ;
+  bool          cli_prompt_set ;
+  qstring_t     cli_prompt_for_node ;
 
   /* State of the CLI
    *
    *   cli_blocked      -- blocked from processing keystrokes
    *   cmd_in_progress  -- command dispatched (may be queued)
-   *
-   *   cli_wait_more  -- is in "--more--" wait state
-   *
+   *   cmd_out_enabled  -- contents of the command FIFO may be written away
+   *   cli_more_wait    -- is in "--more--" wait state
    */
   bool          cli_blocked ;
   bool          cmd_in_progress ;
+  bool          cmd_out_enabled ;
+  bool          cli_more_wait ;
+
+  /* This is used to control command output, so that each write_ready event
+   * generates at most one tranche of output.
+   */
+  bool          cmd_out_done ;
+
+  /* This is set only if the "--more--" handling is enabled             */
+  bool          cli_more_enabled ;
 
   /* Command Line(s)
    *
@@ -211,87 +236,75 @@ struct vty_io {
    */
   enum cli_do   cli_do ;
 
-  qstring_t  cl ;
-  qstring_t  clx ;
+  qstring_t     cl ;
+  qstring_t     clx ;
 
   /* CLI output buffering                                               */
-  qstring_t     cli_vbuf ;      /* for uty_cli_out              */
   vio_fifo_t    cli_obuf ;
 
   /* Command output buffering                                           */
-  qstring_t     cmd_vbuf ;      /* for uty_vout()               */
   vio_fifo_t    cmd_obuf ;
 
-  bool          cmd_wait_more ;
+  vio_line_control cmd_lc ;
 
-  struct vty_line_control line_control ;
   /* Failure count for login attempts                                   */
-  int   fail;
+  int           fail;
 
   /* History of commands                                                */
   vector_t      hist ;
   int           hp ;            /* History lookup current point */
   int           hindex;         /* History insert end point     */
 
-  /* Window width/height.                                               */
-  int width;
-  int height;
+  /* Window width/height as reported by Telnet.  0 => unknown           */
+  int           width;
+  int           height;
 
   /* Configure lines.                                                   */
-  int lines;
+  int           lines;
+  bool          lines_set ;     /* true <=> explicitly set              */
 
   /* Terminal monitor.                                                  */
-  bool monitor ;
+  bool          monitor ;
+  bool          monitor_busy ;
 
   /* In configure mode.                                                 */
-  bool config;
+  bool          config;
 } ;
 
 /*==============================================================================
  * Functions
  */
 
-extern struct vty*
-uty_new (int fd, enum vty_type type) ;
+extern struct vty* uty_new (enum vty_type type, int sock_fd) ;
 
-extern void
-uty_open_listeners(const char *addr, unsigned short port, const char *path) ;
-extern void
-uty_close_listeners(void) ;
+extern void uty_open_listeners(const char *addr, unsigned short port,
+                                                             const char *path) ;
+extern void uty_close_listeners(void) ;
 
-extern void
-uty_half_close (vty_io vio) ;
-extern void
-uty_close (vty_io vio) ;
-extern void
-uty_full_close (vty_io vio) ;
-extern void
-uty_watch_dog_stop(void) ;
+extern void uty_watch_dog_start(void) ;
+extern void uty_watch_dog_stop(void) ;
 
-extern int
-uty_out (struct vty *vty, const char *format, ...)     PRINTF_ATTRIBUTE(2, 3) ;
-extern int
-uty_vout(struct vty *vty, const char *format, va_list args) ;
-extern void
-uty_out_discard(vty_io vio) ;
+extern void uty_half_close (vty_io vio, const char* reason) ;
+extern void uty_close (vty_io vio) ;
 
-extern void
-uty_file_set_read(vio_file file, bool on) ;
-extern void
-uty_file_set_write(vio_file file, bool on) ;
-extern void
-uty_file_set_timer(vio_file file, unsigned long timeout) ;
+extern int uty_out (struct vty *vty, const char *format, ...)
+                                                        PRINTF_ATTRIBUTE(2, 3) ;
+extern int uty_vout(struct vty *vty, const char *format, va_list args) ;
+extern void uty_out_clear(vty_io vio) ;
+extern void uty_out_fflush(vty_io vio, FILE* file) ;
 
-extern int
-uty_read (vty_io vio, keystroke steal) ;
-extern int
-utysh_read (vty_io vio, qstring cl, qstring buf) ;
+extern void uty_set_height(vty_io vio) ;
+extern void uty_cmd_output_start(vty_io vio) ;
+
+extern void uty_sock_set_readiness(vio_sock sock, enum vty_readiness ready) ;
+extern void uty_sock_set_timer(vio_sock sock, unsigned long timeout) ;
+
+extern int uty_read (vty_io vio, keystroke steal) ;
+extern int utysh_read (vty_io vio, qstring cl, qstring buf) ;
 
 
-extern const char*
-uty_get_name(vty_io vio) ;
+extern const char* uty_get_name(vty_io vio) ;
 
-extern void
-uty_set_monitor(vty_io vio, bool on) ;
+extern void uty_set_monitor(vty_io vio, bool on) ;
 
 #endif /* _ZEBRA_VTY_IO_H */

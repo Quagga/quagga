@@ -56,28 +56,28 @@ struct bgp_cap_mp
 typedef struct bgp_cap_orf* bgp_cap_orf ;
 struct bgp_cap_orf
 {
-  flag_t      known_orf_type ;
+  bool      known_orf_type ;
 
-  uint8_t     type ;
-  flag_t      send ;
-  flag_t      recv ;
+  uint8_t   type ;
+  bool      send ;
+  bool      recv ;
 } ;
 
 typedef struct bgp_cap_gr* bgp_cap_gr ;
 struct bgp_cap_gr
 {
-  flag_t      has_preserved ;
+  bool      has_preserved ;
 } ;
 
 typedef struct bgp_cap_afi_safi* bgp_cap_afi_safi ;
 struct bgp_cap_afi_safi
 {
-  flag_t      known_afi_safi ;
+  bool      known_afi_safi ;
 
-  iAFI_t      afi ;
-  iSAFI_t     safi ;
+  iAFI_t    afi ;
+  iSAFI_t   safi ;
 
-  uint8_t     cap_code ;        /* eg BGP_CAN_MP_EXT    */
+  uint8_t   cap_code ;          /* eg BGP_CAN_MP_EXT    */
   union
   {
     struct bgp_cap_mp    mp ;
@@ -145,7 +145,7 @@ bgp_open_state_unknown_cap(bgp_open_state state, unsigned index) ;
 
 extern bgp_cap_afi_safi
 bgp_open_state_afi_safi_add(bgp_open_state state, iAFI_t afi, iSAFI_t safi,
-                                               flag_t known, uint8_t cap_code) ;
+                                                 bool known, uint8_t cap_code) ;
 extern int
 bgp_open_state_afi_safi_count(bgp_open_state state) ;
 

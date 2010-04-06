@@ -33,6 +33,8 @@
 #include "qtimers.h"
 #include "qpnexus.h"
 #include "list_util.h"
+#include "vector.h"
+#include "qstring.h"
 #include "node_type.h"
 
 /* Macro in case there are particular compiler issues.    */
@@ -58,16 +60,42 @@ enum { VTYSH_ENABLED = VTYSH_DEFINED } ;
 #undef VTYSH_DEFINED
 
 /*==============================================================================
+ * VTY Types
+ */
+enum vty_type
+{
+  VTY_NONE  = 0,        /* no type at all                               */
+
+  VTY_TERM,             /* a telnet terminal    -- input and output     */
+  VTY_SHELL_SERV,       /* a vty_shell slave    -- input and output     */
+
+  VTY_CONFIG_READ,      /* reading config file  -- output is to buffer
+                                                -- no input             */
+
+  VTY_CONFIG_WRITE,     /* writing config file  -- output is to file
+                                                -- no input             */
+
+  VTY_STDOUT,           /* general output       -- output is to stdout
+                                                -- no input             */
+
+  VTY_STDERR,           /* general output       -- output is to stderr
+                                                -- no input             */
+
+  VTY_SHELL,            /* vty in vtysh         -- output is to stdout  */
+} ;
+
+/*==============================================================================
  * VTY struct.
  */
 
 typedef struct vty_io* vty_io ; /* private to vty.c     */
 
+struct cmd_parsed ;             /* in case vty.h expanded before command.h */
+
 struct vty
 {
   /*----------------------------------------------------------------------
-   * The following are used outside vty.c, and represent the context
-   * in which commands are executed.
+   * The following are the context in which commands are executed.
    */
 
   /* Node status of this vty
@@ -75,15 +103,7 @@ struct vty
    * NB: when using qpthreads should lock VTY to access this -- so use
    *     vty_get_node() and vty_set_node().
    */
-  int node ;
-
-  /* The current command line.
-   *
-   * This is set when the command is dispatched, and not touched until the
-   * command completes -- so may be read while the command is being executed,
-   * without requiring any lock.
-   */
-  const char* buf ;
+  enum node_type node ;
 
   /* For current referencing point of interface, route-map, access-list
    * etc...
@@ -91,62 +111,49 @@ struct vty
    * NB: this value is private to the command execution, which is assumed
    *     to all be in the one thread... so no lock required.
    */
-  void *index ;
+  void  *index ;
 
   /* For multiple level index treatment such as key chain and key.
    *
    * NB: this value is private to the command execution, which is assumed
    *     to all be in the one thread... so no lock required.
    */
-  void *index_sub ;
+  void  *index_sub ;
 
   /* String which is newline...  read only -- no locking                */
   const char* newline ;
+
+  /*----------------------------------------------------------------------------
+   * The current command line.
+   *
+   * These are set when a command is parsed and dispatched.
+   *
+   * They are not touched until the command completes -- so may be read while
+   * the command is being parsed and executed.
+   */
+  const char*           buf ;
+  struct cmd_parsed*    parsed ;
+  unsigned              lineno ;
 
   /*----------------------------------------------------------------------
    * The following are used inside vty.c only.
    */
 
-  /* Pointer to related vty_io structure -- if any.                     */
+  /* Pointer to related vty_io structure                                */
   vty_io   vio ;
 };
 
 /*------------------------------------------------------------------------------
- * VTY events
+ * Can now include this
  */
-enum vty_event
-{
-  VTY_SERV,
-  VTY_READ,
-  VTY_WRITE,
-  VTY_TIMEOUT_RESET,
 
-  VTYSH_SERV,
-  VTYSH_READ,
-  VTYSH_WRITE
-};
-
-/*------------------------------------------------------------------------------
- * VTY Types
- */
-enum vty_type
-{
-  VTY_TERM,             /* a telnet session     -- input and output     */
-  VTY_FILE,             /* writing config file  -- output is to file
-                                                -- no input             */
-
-  VTY_STDOUT,           /* reading config file  -- output is to stdout
-                                                -- no input             */
-
-  VTY_SHELL,            /* vty in vtysh         -- output is to stdout  */
-  VTY_SHELL_SERV        /* vty in daemon        -- input and output     */
-} ;
+#include "command.h"
 
 /*------------------------------------------------------------------------------
  *
  */
 #define VTY_BUFSIZ 512
-#define VTY_MAXHIST 20
+#define VTY_MAXHIST 51
 
 /* Integrated configuration file. */
 #define INTEGRATE_DEFAULT_CONFIG "Quagga.conf"
@@ -241,37 +248,37 @@ extern char integrate_default[];
  */
 extern void vty_init (struct thread_master *);
 extern void vty_init_r (qpn_nexus, qpn_nexus);
-extern void vty_serv_sock(const char *addr, unsigned short port,
+extern void vty_start(const char *addr, unsigned short port, const char *path) ;
+#define vty_serv_sock(addr, port, path) vty_start(addr, port, path)
+extern void vty_restart(const char *addr, unsigned short port,
                                                              const char *path) ;
-extern struct vty* vty_new (int fd, enum vty_type type) ;
-extern void vty_close (struct vty *);
+extern struct vty* vty_open(enum vty_type type) ;
+extern void vty_close(struct vty *);
 
 extern void vty_init_vtysh (void);
 extern void vty_terminate (void);
 extern void vty_reset (void);
+extern void vty_reset_because(const char* why) ;
 
 extern int vty_out (struct vty *, const char *, ...) PRINTF_ATTRIBUTE(2, 3);
-extern int vty_out_indent(struct vty *vty, int indent) ;
+extern void vty_out_indent(struct vty *vty, int indent) ;
+extern void vty_out_clear(struct vty *vty) ;
 
-extern void vty_read_config (char *, char *);
-extern void vty_read_config_first_cmd_special (char *, char *, void (*)(void));
+extern void vty_read_config (char *config_file, char *config_default);
+extern void vty_read_config_first_cmd_special(
+                             char *config_file, char *config_default,
+                          struct cmd_element* first_cmd, bool ignore_warnings) ;
+
 extern void vty_time_print (struct vty *, int);
 
 extern char *vty_get_cwd (void);
 
-extern int vty_shell (struct vty *);
-extern int vty_shell_serv (struct vty *);
+extern bool vty_shell (struct vty *);
+extern bool vty_term (struct vty *);
+extern bool vty_shell_serv (struct vty *);
 extern void vty_hello (struct vty *);
-extern int vty_get_node(struct vty *);
-extern void vty_set_node(struct vty *, int);
-extern int vty_get_type(struct vty *);
-extern int vty_get_status(struct vty *);
-extern void vty_set_status(struct vty *, int);
-extern int vty_get_lines(struct vty *);
+extern enum node_type vty_get_node(struct vty *);
+extern void vty_set_node(struct vty *, enum node_type);
 extern void vty_set_lines(struct vty *, int);
-
-#ifdef QDEBUG
-extern void vty_goodbye (void);
-#endif
 
 #endif /* _ZEBRA_VTY_H */

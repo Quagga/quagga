@@ -139,7 +139,7 @@ sockunion_sin_len(sockunion su)
                                sizeof(struct sockaddr_in);
 } ;
 
-#if HAVE_IPV6
+#ifdef HAVE_IPV6
 inline static int
 sockunion_sin6_len(sockunion su)
 {
@@ -167,11 +167,11 @@ sockunion_set_family(sockunion su, sa_family_t family)
 
 #ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
   if (family == AF_INET)
-    su->sin.sin_len = sizeof(struct sockaddr_in);
+    sockunion_sin_len(sockunion su) ;
 #endif
 #if defined(HAVE_IPV6) && defined(SIN6_LEN)
   if (family == AF_INET6)
-    su->sin6.sin6_len = sizeof(struct sockaddr_in6);
+    sockunion_sin6_len(sockunion su) ;
 #endif
 
   return 0 ;
@@ -244,7 +244,7 @@ sockunion_init_new(sockunion su, sa_family_t family)
   else
     memset(su, 0, sizeof(union sockunion)) ;
 
-  if (family != 0)
+  if (family != AF_UNSPEC)
     sockunion_set_family(su, family) ;
 
   return su ;
@@ -263,7 +263,7 @@ str2sockunion (const char *str, union sockunion *su)
 
   assert(su != NULL) ;
 
-  sockunion_init_new(su, 0) ;
+  sockunion_init_new(su, AF_UNSPEC) ;
 
   ret = inet_pton (AF_INET, str, &su->sin.sin_addr);
   if (ret > 0)			/* Valid IPv4 address format. */
@@ -341,23 +341,45 @@ sockunion_su2str (union sockunion *su, enum MTYPE type)
 }
 
 /*------------------------------------------------------------------------------
- * Convert IPv4 compatible IPv6 address to IPv4 address.
+ * If have an IPv6 mapped IPv4 address, convert it to an IPv4 address.
  */
-static void
-sockunion_normalise_mapped (union sockunion *su)
+extern void
+sockunion_unmap_ipv4 (union sockunion *su)
 {
-  struct sockaddr_in sin;
-
 #ifdef HAVE_IPV6
-  if (su->sa.sa_family == AF_INET6
-      && IN6_IS_ADDR_V4MAPPED (&su->sin6.sin6_addr))
+  union sockunion sux ;
+  struct sockaddr_in* su_in = &sux.sin ;
+
+  if ( (su->sa.sa_family == AF_INET6)
+    && IN6_IS_ADDR_V4MAPPED (&su->sin6.sin6_addr) )
     {
-      memset (&sin, 0, sizeof (struct sockaddr_in));
-      sin.sin_family = AF_INET;
-      sin.sin_port   = su->sin6.sin6_port;
-      memcpy (&sin.sin_addr, ((char *)&su->sin6.sin6_addr) + 12, 4);
-      memset (su, 0, sizeof(union sockunion)) ;
-      memcpy (su, &sin, sizeof (struct sockaddr_in));
+      sockunion_init_new(&sux, AF_INET) ;
+      memcpy (&su_in->sin_addr, ((char *)&su->sin6.sin6_addr) + 12, 4) ;
+      su_in->sin_port = su->sin6.sin6_port ;
+      memcpy (su, &sux, sizeof(sux)) ;
+      confirm(sizeof(*su) == sizeof(sux)) ;
+    }
+#endif /* HAVE_IPV6 */
+}
+
+/*------------------------------------------------------------------------------
+ * If have an IPv4 address, convert it to an IPv6 mapped IPv4 address.
+ */
+extern void
+sockunion_map_ipv4 (union sockunion *su)
+{
+#ifdef HAVE_IPV6
+  union sockunion sux ;
+  struct sockaddr_in6* su_in6 = &sux.sin6 ;
+
+  if (su->sa.sa_family == AF_INET)
+    {
+      sockunion_init_new(&sux, AF_INET6) ;
+      memset (((char *)&su_in6->sin6_addr) + 10, 0xFF, 2) ;
+      memcpy (((char *)&su_in6->sin6_addr) + 12, &su->sin.sin_addr, 4) ;
+      su_in6->sin6_port = su->sin.sin_port ;
+      memcpy (su, &sux, sizeof(sux)) ;
+      confirm(sizeof(*su) == sizeof(sux)) ;
     }
 #endif /* HAVE_IPV6 */
 }
@@ -372,31 +394,34 @@ sockunion_normalise_mapped (union sockunion *su)
  *
  *   EINTR                               -- the usual suspect.
  *
+ * Sets the given sockunion to the result of the accept(), converting any
+ * IPv6 mapped IPv4 addresses to IPv4 form.  (Hiding the family for the socket.)
+ *
  * Returns: >= 0  -- OK, this is the fd (socket)
  *            -1  -- error -- not one of the above
  *            -2  -- error -- one of the above
  */
 int
-sockunion_accept (int sock, union sockunion *su)
+sockunion_accept (int sock_fd, union sockunion *su)
 {
   socklen_t len;
-  int ret ;
+  int new_fd, err ;
 
-  len = sizeof(union sockunion);
+  len = sizeof(*su);
   memset(su, 0, len) ;
-  ret = accept(sock, &su->sa, &len) ;
+  new_fd = accept(sock_fd, &su->sa, &len) ;
 
-  if (ret >= 0)
+  if (new_fd >= 0)
     {
-      sockunion_normalise_mapped(su);
-      return ret ;                      /* OK -- got socket     */
+      sockunion_unmap_ipv4(su);
+      return new_fd ;                   /* OK -- got socket     */
     } ;
 
-  ret = errno ;
-  return (   (ret == EAGAIN)
-          || (ret == EWOULDBLOCK)
-          || (ret == ECONNABORTED)
-          || (ret == EINTR)        ) ? -2 : -1 ;
+  err = errno ;
+  return (   (err == EAGAIN)
+          || (err == EWOULDBLOCK)
+          || (err == ECONNABORTED)
+          || (err == EINTR)        ) ? -2 : -1 ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -410,18 +435,20 @@ sockunion_accept (int sock, union sockunion *su)
 extern int
 sockunion_socket(sa_family_t family, int type, int protocol)
 {
-  int sockfd ;
+  int sock_fd ;
+  int err ;
 
-  sockfd = socket(family, type, protocol);
-  if (sockfd < 0)
-    {
-      zlog (NULL, LOG_WARNING,
-             "Can't make socket family=%d, type=%d, protocol=%d : %s",
-                  (int)family, type, protocol, safe_strerror(errno)) ;
-      return -1;
-    }
+  sock_fd = socket(family, type, protocol);
 
-  return sockfd ;
+  if (sock_fd >= 0)
+    return sock_fd ;
+
+  err = errno ;
+  zlog (NULL, LOG_WARNING,
+          "Can't make socket family=%d, type=%d, protocol=%d : %s",
+                  (int)family, type, protocol, safe_strerror(err)) ;
+  errno = err ;
+  return -1;
 }
 
 /*------------------------------------------------------------------------------
@@ -454,12 +481,12 @@ sockunion_stream_socket (union sockunion *su)
  * Logs a LOG_INFO message if fails.
  */
 extern int
-sockunion_connect(int fd, union sockunion* peer_su, unsigned short port,
+sockunion_connect(int sock_fd, union sockunion* peer_su, unsigned short port,
                                                            unsigned int ifindex)
 {
   char buf[SU_ADDRSTRLEN] ;
   union sockunion su ;
-  int   ret ;
+  int   ret, err ;
   int   sa_len ;
 
   memcpy(&su, peer_su, sizeof(union sockunion)) ;
@@ -486,13 +513,15 @@ sockunion_connect(int fd, union sockunion* peer_su, unsigned short port,
 # endif /* KAME */
 #endif /* HAVE_IPV6 */
 
-  ret = connect(fd, &su.sa, sa_len) ;
+  ret = connect(sock_fd, &su.sa, sa_len) ;
+  err = (ret >= 0) ? 0 : errno ;
 
-  if ((ret == 0) || (errno == EINPROGRESS))
+  if ((err == 0) || (err == EINPROGRESS))
     return 0 ;      /* instant success or EINPROGRESS as expected       */
 
-  zlog_info("can't connect to %s port %d fd %d : %s",
-         sockunion2str(&su, buf, sizeof(buf)), port, fd, safe_strerror(errno)) ;
+  zlog_info("cannot connect to %s port %d socket %d : %s",
+    sockunion2str(&su, buf, sizeof(buf)), port, sock_fd, safe_strerror(err)) ;
+  errno = err ;
 
   return ret ;
 } ;
@@ -500,27 +529,26 @@ sockunion_connect(int fd, union sockunion* peer_su, unsigned short port,
 /*------------------------------------------------------------------------------
  * Start listening on given socket
  *
- * Reports EINPROGRESS as success.
- *
- * TODO: discover how the ifindex thing is supposed to work !!
- *
  * Returns:  0 : OK (so far so good)
  *         < 0 : failed -- see errno
  *
  * Logs a LOG_WARNING message if fails.
  */
 extern int
-sockunion_listen(int fd, int backlog)
+sockunion_listen(int sock_fd, int backlog)
 {
-  int ret ;
+  int ret, err ;
 
-  ret = listen(fd, backlog) ;
+  ret = listen(sock_fd, backlog) ;
 
   if (ret == 0)
     return 0 ;
 
-  zlog (NULL, LOG_WARNING, "can't listen on fd %d : %s",
-                                                     fd, safe_strerror(errno)) ;
+  err = errno ;
+  zlog (NULL, LOG_WARNING, "cannot listen on socket %d : %s",
+                                              sock_fd, safe_strerror(err)) ;
+  errno = err ;
+
   return ret ;
 } ;
 
@@ -541,10 +569,11 @@ sockunion_listen(int fd, int backlog)
  *           < 0 => failed -- see errno
  */
 int
-sockunion_bind (int sock, union sockunion *su, unsigned short port, void* any)
+sockunion_bind (int sock_fd, union sockunion *su, unsigned short port,
+                                                                      void* any)
 {
   int sa_len ;
-  int ret;
+  int ret ;
   char buf[SU_ADDRSTRLEN] ;
 
   if (any == NULL)
@@ -552,10 +581,15 @@ sockunion_bind (int sock, union sockunion *su, unsigned short port, void* any)
 
   sa_len = sockunion_set_port(su, port) ;
 
-  ret = bind (sock, &su->sa, sa_len);
+  ret = bind (sock_fd, &su->sa, sa_len);
   if (ret < 0)
-    zlog (NULL, LOG_WARNING, "can't bind to %s port %d fd %d : %s",
-          sockunion2str(su, buf, sizeof(buf)), port, sock, safe_strerror(ret)) ;
+    {
+      int err = errno ;
+      zlog (NULL, LOG_WARNING, "cannot bind to %s port %d socket %d : %s",
+                  sockunion2str(su, buf, sizeof(buf)), port, sock_fd,
+                                                           safe_strerror(err)) ;
+      errno = err ;
+    } ;
 
   return ret;
 }
@@ -569,20 +603,23 @@ sockunion_bind (int sock, union sockunion *su, unsigned short port, void* any)
  * Logs a LOG_WARNING message if fails.
  */
 int
-sockopt_reuseaddr (int sock)
+sockopt_reuseaddr (int sock_fd)
 {
   int ret;
   int on = 1;
 
-  ret = setsockopt (sock, SOL_SOCKET, SO_REUSEADDR,
-		    (void *) &on, sizeof (on));
+  ret = setsockopt (sock_fd, SOL_SOCKET, SO_REUSEADDR, (void *) &on,
+                                                                   sizeof (on));
   if (ret < 0)
     {
+      int err = errno ;
       zlog (NULL, LOG_WARNING,
-                          "can't set sockopt SO_REUSEADDR to socket %d", sock);
-      return -1;
-    }
-  return 0;
+                   "cannot set sockopt SO_REUSEADDR to socket %d %s", sock_fd,
+                                                            safe_strerror(err));
+      errno = err ;
+    } ;
+
+  return ret ;
 }
 
 /*------------------------------------------------------------------------------
@@ -594,27 +631,34 @@ sockopt_reuseaddr (int sock)
  * Logs a LOG_WARNING message if fails.
  */
 int
-sockopt_reuseport (int sock)
+sockopt_reuseport (int sock_fd)
 {
-#ifdef SO_REUSEPORT
   int ret;
-  int on = 1;
 
-  ret = setsockopt (sock, SOL_SOCKET, SO_REUSEPORT,
-		    (void *) &on, sizeof (on));
-  if (ret < 0)
-    {
-      zlog (NULL, LOG_WARNING,
-                          "can't set sockopt SO_REUSEPORT to socket %d", sock);
-      return -1;
-    }
+#ifdef SO_REUSEPORT
+  int on = 1;
+  ret = setsockopt (sock_fd, SOL_SOCKET, SO_REUSEPORT,
+                                                    (void *) &on, sizeof (on));
+#else
+  ret = 0 ;
 #endif
 
-  return 0;
+  if (ret < 0)
+    {
+      int err = errno ;
+      zlog (NULL, LOG_WARNING,
+                   "cannot set sockopt SO_REUSEPORT to socket %d: %s", sock_fd,
+                                                            safe_strerror(err));
+      errno = err ;
+    } ;
+
+  return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
  * If same family and same prefix return 1.
+ *
+ * Returns 0 if same family, but not a known family.
  */
 int
 sockunion_same (union sockunion *su1, union sockunion *su2)
@@ -625,7 +669,7 @@ sockunion_same (union sockunion *su1, union sockunion *su2)
     return 0;
 
   switch (su1->sa.sa_family)
-    {
+  {
     case AF_INET:
       return (su1->sin.sin_addr.s_addr == su2->sin.sin_addr.s_addr) ;
 
@@ -633,27 +677,62 @@ sockunion_same (union sockunion *su1, union sockunion *su2)
     case AF_INET6:
       ret = memcmp (&su1->sin6.sin6_addr, &su2->sin6.sin6_addr,
 		    sizeof (struct in6_addr));
-      break;
+      return (ret == 0) ;
 #endif /* HAVE_IPV6 */
-    }
-  if (ret == 0)
-    return 1;
-  else
-    return 0;
-}
+
+    default:
+      return 0 ;
+  } ;
+} ;
 
 /*------------------------------------------------------------------------------
- * After TCP connection is established.  Get local or remote address and port.
+ * Get the address family the given socket is set to.
  *
- * Returns: 0 => OK
- *       != 0 => failed, value = errno
+ * Returns: >= 0 == the address family (AF_UNSPEC if fd sock_fd < 0)
+ *           < 0 => failed -- see errno
+ *
+ * NB: gets the actual address family -- does NOT look for mapped IPv4.
+ */
+extern int
+sockunion_getsockfamily(int sock_fd)
+{
+  union sockunion su ;
+  int ret ;
+  socklen_t len ;
+
+  if (sock_fd < 0)
+    return AF_UNSPEC ;
+
+  sockunion_init_new(&su, AF_UNSPEC) ;
+  len = sizeof(su) ;
+
+  ret = getsockname(sock_fd, (struct sockaddr *)&su, &len) ;
+  if (ret < 0)
+    {
+      int err = errno ;
+      zlog_warn ("Failed in getsockname for socket %d: %s",
+                                                  sock_fd, safe_strerror(err)) ;
+      errno = err ;
+      return -1 ;
+    } ;
+
+  return su.sa.sa_family ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get local or remote address and port.
+ *
+ * Returns: >= 0 => OK
+ *           < 0 => failed (or unknown family) -- see errno
+ *
+ * If address is an IPv4 mapped IPv6 address, returns the IPv4 address.
  *
  * NB: returns EAFNOSUPPORT if don't recognise the address family.
  */
 static int
-sockunion_get_name(int fd, union sockunion* su, int local)
+sockunion_get_name(int sock_fd, union sockunion* su, int local)
 {
-  int ret;
+  int ret ;
 
   union
   {
@@ -671,18 +750,20 @@ sockunion_get_name(int fd, union sockunion* su, int local)
   memset(su,    0, sizeof(union sockunion)) ;
 
   if (local)
-    ret = getsockname(fd, (struct sockaddr *)&name, &len) ;
+    ret = getsockname(sock_fd, (struct sockaddr *)&name, &len) ;
   else
-    ret = getpeername(fd, (struct sockaddr *)&name, &len) ;
+    ret = getpeername(sock_fd, (struct sockaddr *)&name, &len) ;
 
   if (ret < 0)
     {
-      ret = errno ;
-      zlog_warn ("Can't get %s address and port: %s",
-                               local ? "local" : "remote", safe_strerror(ret)) ;
+      int err = errno ;
+      zlog_warn ("Cannot get %s address and port: %s",
+                               local ? "local" : "remote", safe_strerror(err)) ;
+      errno = err ;
       return ret ;
     }
 
+  ret = 0 ;                     /* assume all will be well      */
   switch (name.sa.sa_family)
   {
     case AF_INET:
@@ -692,43 +773,38 @@ sockunion_get_name(int fd, union sockunion* su, int local)
 #ifdef HAVE_IPV6
     case AF_INET6:
       memcpy(su, &name, sizeof (struct sockaddr_in6)) ;
-      sockunion_normalise_mapped(su) ;
+      sockunion_unmap_ipv4(su) ;
       break ;
 #endif /* HAVE_IPV6 */
 
     default:
-      ret = EAFNOSUPPORT ;
+      errno = EAFNOSUPPORT ;
+      ret = -1 ;
   } ;
 
   return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
- * After TCP connection is established.  Get local address and port.
+ * Get local address and port -- ie getsockname().
  *
- * Returns: 0 => OK
- *       != 0 => failed, value = errno
- *
- * NB: returns EAFNOSUPPORT if don't recognise the socket's address family.
+ * See: sockunion_get_name()
  */
 int
-sockunion_getsockname(int fd, union sockunion* su_local)
+sockunion_getsockname(int sock_fd, union sockunion* su_local)
 {
-  return sockunion_get_name(fd, su_local, 1) ;
+  return sockunion_get_name(sock_fd, su_local, 1) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * After TCP connection is established.  Get remote address and port.
+ * Get remote address and port -- ie getpeername().
  *
- * Returns: 0 => OK
- *       != 0 => failed, value = errno
- *
- * NB: returns EAFNOSUPPORT if don't recognise the socket's address family.
+ * See: sockunion_get_name()
  */
 int
-sockunion_getpeername (int fd, union sockunion* su_remote)
+sockunion_getpeername (int sock_fd, union sockunion* su_remote)
 {
-  return sockunion_get_name(fd, su_remote, 0) ;
+  return sockunion_get_name(sock_fd, su_remote, 0) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -774,6 +850,12 @@ sockunion_print (union sockunion *su)
 
 /*------------------------------------------------------------------------------
  * Compare two sockunion values
+ *
+ * Compares family values first, then the body of the address.
+ *
+ * Returns:  +1  => su1  > su2
+ *            0  => su1 == su2  (or same, but unknown, family)
+ *           -1  => su1  < su2
  */
 int
 sockunion_cmp (union sockunion *su1, union sockunion *su2)
@@ -837,6 +919,8 @@ sockunion_free (union sockunion *su)
  *
  * It is the caller's responsibility to free the sockunion at some point.
  * (See sockunion_free() or sockunion_unset().)
+ *
+ * For unknown family, returns an empty sockunion of that family.
  */
 extern sockunion
 sockunion_new_prefix(sockunion su, struct prefix* p)
@@ -870,32 +954,34 @@ sockunion_new_prefix(sockunion su, struct prefix* p)
 } ;
 
 /*------------------------------------------------------------------------------
- * Create new sockunion from given sockaddr.
+ * Create new sockunion from given sockaddr -- taking only the address part
  *
  * It is the caller's responsibility to free the sockunion at some point.
  * (See sockunion_free() or sockunion_unset().)
+ *
+ * For unknown family, returns an empty sockunion of that family.
  */
 extern sockunion
 sockunion_new_sockaddr(sockunion su, struct sockaddr* sa)
 {
   sa_family_t family ;
 
-  family = (sa != NULL) ? sa->sa_family : 0 ;
+  family = (sa != NULL) ? sa->sa_family : AF_UNSPEC ;
 
   su = sockunion_init_new(su, family) ;
 
   switch (family)
   {
-    case 0:
+    case AF_UNSPEC:
       break ;
 
     case AF_INET:
-      su->sin   = *(struct sockaddr_in*)sa ;
+      su->sin.sin_addr   = ((struct sockaddr_in*)sa)->sin_addr ;
       break ;
 
 #ifdef HAVE_IPV6
     case AF_INET6:
-      su->sin6  = *(struct sockaddr_in6*)sa ;
+      su->sin6.sin6_addr = ((struct sockaddr_in6*)sa)->sin6_addr ;
       break ;
 #endif
 

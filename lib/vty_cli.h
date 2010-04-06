@@ -25,19 +25,23 @@
 #define _ZEBRA_VTY_CLI_H
 
 #include "vty_io.h"
+#include "keystroke.h"
 
-extern void uty_cli(vty_io vio) ;
+extern void uty_cli_init(vty_io vio) ;
+extern enum vty_readiness uty_cli_start(vty_io vio) ;
+extern void uty_cli_close(vty_io vio) ;
+
+extern enum vty_readiness uty_cli(vty_io vio) ;
+extern keystroke_callback uty_cli_iac_callback ;
+
 extern void uty_cli_hist_add (vty_io vio, const char* cmd_line) ;
-extern void uty_cli_want_more(vty_io vio) ;
-extern void uty_cli_wait_more(vty_io vio) ;
-extern void uty_cli_wipe(vty_io vio) ;
+extern void uty_cli_go_more_wait(vty_io vio) ;
 extern void uty_free_host_name(void) ;
 extern void uty_check_host_name(void) ;
 
-extern void uty_will_echo (vty_io vio) ;
-extern void uty_will_suppress_go_ahead (vty_io vio) ;
-extern void uty_dont_linemode (vty_io vio) ;
-extern void uty_do_window_size (vty_io vio) ;
-extern void uty_dont_lflow_ahead (vty_io vio) ;
+extern bool uty_cli_draw_if_required(vty_io vio) ;
+
+extern void uty_cli_pre_monitor(vty_io vio, size_t len) ;
+extern int uty_cli_post_monitor(vty_io vio, const char* buf, size_t len) ;
 
 #endif /* _ZEBRA_VTY_CLI_H */

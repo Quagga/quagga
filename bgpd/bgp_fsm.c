@@ -390,7 +390,7 @@ static inline void
 bgp_hold_timer_recharge(bgp_connection connection)
 {
   if (connection->hold_timer_interval != 0)
-    qtimer_set_interval(&connection->hold_timer,
+    qtimer_set_interval(connection->hold_timer,
                                  QTIME(connection->hold_timer_interval), NULL) ;
 } ;
 
@@ -634,11 +634,11 @@ bgp_fsm_io_error(bgp_connection connection, int err)
           if (err == 0)
             plog_debug(connection->log,
                        "%s [Event] BGP connection closed fd %d",
-                               connection->host, qps_file_fd(&connection->qf)) ;
+                               connection->host, qps_file_fd(connection->qf)) ;
           else
             plog_debug(connection->log,
                        "%s [Event] BGP connection closed fd %d (%s)",
-                               connection->host, qps_file_fd(&connection->qf),
+                               connection->host, qps_file_fd(connection->qf),
                                                            safe_strerror(err)) ;
         } ;
 
@@ -755,6 +755,7 @@ static bgp_fsm_action(bgp_fsm_enter) ;
 static bgp_fsm_action(bgp_fsm_stop) ;
 static bgp_fsm_action(bgp_fsm_invalid) ;
 static bgp_fsm_action(bgp_fsm_start) ;
+static bgp_fsm_action(bgp_fsm_half_open) ;
 static bgp_fsm_action(bgp_fsm_connect) ;
 static bgp_fsm_action(bgp_fsm_accept) ;
 static bgp_fsm_action(bgp_fsm_send_open) ;
@@ -827,7 +828,14 @@ static bgp_fsm_action(bgp_fsm_exit) ;
  *
  *            raised when a connect() connection succeeds
  *
- *         b. secondary connection: in sActive state  (-> OpenSent)
+ *         b. secondary connection: in sIdle state     (stay sIdle)
+ *
+ *            raised when an accept() connection is accepted.
+ *
+ *            The connection is not refused, but it is ignored until the
+ *            IdleHoldTimer expires.
+ *
+ *         c. secondary connection: in sActive state  (-> OpenSent)
  *
  *            raised when an accept() connection is accepted.
  *
@@ -1082,12 +1090,19 @@ bgp_fsm[bgp_fsm_last_state + 1][bgp_fsm_last_event + 1] =
      *
      *   * eBGP_Stop -- for whatever reason
      *
+     *   * eTCP_connection_open -- generated if connection is accepted
+     *
+     *     This set the connection "half_open", but stays in sIdle until
+     *     the IdleHoldTimer expires.  This avoids rejecting inbound
+     *     connections, but also enforces the IdleHoldTimer if the other end
+     *     is being vexatious.
+     *
      * All other events (other than null) are invalid (should not happen).
      */
     {bgp_fsm_null,      bgp_fsm_sIdle},       /* null event                   */
     {bgp_fsm_start,     bgp_fsm_sConnect},    /* BGP_Start                    */
     {bgp_fsm_stop,      bgp_fsm_sIdle},       /* BGP_Stop                     */
-    {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open          */
+    {bgp_fsm_half_open, bgp_fsm_sIdle},       /* TCP_connection_open          */
     {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_closed        */
     {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_connection_open_failed   */
     {bgp_fsm_invalid,   bgp_fsm_sStopping},   /* TCP_fatal_error              */
@@ -1397,9 +1412,6 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state) ;
 
 /*------------------------------------------------------------------------------
  * Signal event to FSM for the given connection.
- *
- *
- *
  */
 static void
 bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
@@ -1535,7 +1547,10 @@ static bgp_fsm_action(bgp_fsm_null)
 static bgp_fsm_action(bgp_fsm_enter)
 {
   if (connection->ordinal == bgp_connection_secondary)
-    bgp_prepare_to_accept(connection) ;
+    {
+      bgp_prepare_to_accept(connection) ;
+      bgp_connection_enable_accept(connection) ;
+    } ;
 
   return next_state ;
 } ;
@@ -1582,22 +1597,72 @@ static bgp_fsm_action(bgp_fsm_invalid)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Half open a BGP Connection
+ *
+ * Used during sIdle when a connection is made before the IdleHoldTimer
+ * expires.
+ *
+ * Expected only for the secondary connection.
+ *
+ * Sets the connection half_open, and remains in sIdle.
+ *
+ * NB: requires the session LOCKED
+ */
+static bgp_fsm_action(bgp_fsm_half_open)
+{
+  assert( (connection->ordinal == bgp_connection_secondary)
+       && !connection->half_open ) ;
+
+  connection->half_open = 1 ;
+
+  return next_state ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Start up BGP Connection
  *
  * Used on exit from sIdle to sConnect or sActive -- when the IdleHoldTimer
  * expires.
  *
- * Enters either sConnect or sActive, depending on primary/secondary.
+ * If not half open:
  *
- * Throws a session_eStart exception so the Routing Engine gets to see this,
- * and a follow-on fsm_eBGP_Start event to kick the connect() or accept() into
- * life.
+ *   Enters either sConnect or sActive, depending on primary/secondary.
+ *
+ *   Throws a session_eStart exception so the Routing Engine gets to see this,
+ *   and a follow-on fsm_eBGP_Start event to kick the connect() or accept()
+ *   into life.
+ *
+ * If is half open:
+ *
+ *   Must be secondary.  Enters sActive.
+ *
+ *   Throws a session_eStart exception so the Routing Engine gets to see this,
+ *   and a follow-on bgp_fsm_eTCP_connection_open event to kick sActive into
+ *   processing the already open connection.
  *
  * NB: requires the session LOCKED
  */
 static bgp_fsm_action(bgp_fsm_start)
 {
-  bgp_fsm_throw(connection, bgp_session_eStart, NULL, 0, bgp_fsm_eBGP_Start) ;
+  bgp_fsm_event_t fsm_event ;
+
+  if (!connection->half_open)
+    /* Straightforward -- set eBGP_Start follow-on event                */
+    fsm_event = bgp_fsm_eBGP_Start ;
+  else
+    {
+      /* Is half open -- so set a eTCP_connection_open follow-on event, then
+       * change to sActive where the event will be collected.
+       */
+      assert(connection->ordinal == bgp_connection_secondary) ;
+
+      connection->half_open = 0 ;
+
+      fsm_event = bgp_fsm_eTCP_connection_open ;
+    } ;
+
+  bgp_fsm_throw(connection, bgp_session_eStart, NULL, 0, fsm_event) ;
+
   return (connection->ordinal == bgp_connection_primary) ? bgp_fsm_sConnect
                                                          : bgp_fsm_sActive ;
 } ;
@@ -1636,6 +1701,7 @@ static bgp_fsm_action(bgp_fsm_accept)
 
   return next_state ;
 } ;
+
 /*------------------------------------------------------------------------------
  * TCP connection open has come up -- connect() or accept()
  *
@@ -1833,7 +1899,7 @@ static bgp_fsm_action(bgp_fsm_recv_open)
     } ;
 
   /* All is well: send a KEEPALIVE message to acknowledge the OPEN      */
-  bgp_msg_send_keepalive(connection) ;
+  bgp_msg_send_keepalive(connection, 1) ;
 
   /* Transition to OpenConfirm state                                    */
   return next_state ;
@@ -1895,7 +1961,7 @@ static bgp_fsm_action(bgp_fsm_sent_nom)
  */
 static bgp_fsm_action(bgp_fsm_send_kal)
 {
-  bgp_msg_send_keepalive(connection) ;
+  bgp_msg_send_keepalive(connection, 0) ;
   return next_state ;
 } ;
 
@@ -2060,7 +2126,7 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
         next_state = connection->state ;
 
       /* Make sure that cannot pop out a Keepalive !                        */
-      qtimer_unset(&connection->keepalive_timer) ;
+      qtimer_unset(connection->keepalive_timer) ;
 
       /* Write the message                                                  */
       bgp_msg_write_notification(connection, send_notification) ;
@@ -2207,7 +2273,7 @@ bgp_timer_set(bgp_connection connection, qtimer timer, unsigned secs,
 static void
 bgp_hold_timer_set(bgp_connection connection, unsigned secs)
 {
-  bgp_timer_set(connection, &connection->hold_timer, secs, no_jitter,
+  bgp_timer_set(connection, connection->hold_timer, secs, no_jitter,
                                                         bgp_hold_timer_action) ;
 } ;
 
@@ -2248,7 +2314,8 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      * When entering sIdle from anything other than Initial state, and not
      * falling into a coma, extend the IdleHoldTimer.
      *
-     * In sIdle state refuses connections.
+     * In sIdle state doesn't refuse connections (unless comatose), but won't
+     * act on them until the IdleHoldTimer expires.
      */
     case bgp_fsm_sIdle:
       interval = session->idle_hold_timer_interval ;
@@ -2277,21 +2344,28 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
 
               session->idle_hold_timer_interval = interval ;
 
+              if (connection->ordinal == bgp_connection_secondary)
+                bgp_connection_enable_accept(connection) ;
+
               /* if sibling is comatose, set time for it to come round  */
 
               if ((sibling != NULL) && (sibling->comatose))
                 {
-                  connection->comatose = 0 ;    /* no longer comatose   */
-                  bgp_timer_set(sibling, &sibling->hold_timer, interval,
+                  sibling->comatose = 0 ;       /* no longer comatose   */
+
+                  if (sibling->ordinal == bgp_connection_secondary)
+                    bgp_connection_enable_accept(sibling) ;
+
+                  bgp_timer_set(sibling, sibling->hold_timer, interval,
                                       with_jitter, bgp_idle_hold_timer_action) ;
                 } ;
             } ;
         } ;
 
-      bgp_timer_set(connection, &connection->hold_timer, interval,
+      bgp_timer_set(connection, connection->hold_timer, interval,
                                       with_jitter, bgp_idle_hold_timer_action) ;
 
-      qtimer_unset(&connection->keepalive_timer) ;
+      qtimer_unset(connection->keepalive_timer) ;
 
       break;
 
@@ -2304,10 +2378,10 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      */
     case bgp_fsm_sConnect:
     case bgp_fsm_sActive:
-      bgp_timer_set(connection, &connection->hold_timer,
+      bgp_timer_set(connection, connection->hold_timer,
                            session->connect_retry_timer_interval, with_jitter,
                                                bgp_connect_retry_timer_action) ;
-      qtimer_unset(&connection->keepalive_timer) ;
+      qtimer_unset(connection->keepalive_timer) ;
       break;
 
     /* In sOpenSent state is waiting for an OPEN from the other end, before
@@ -2317,7 +2391,7 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      */
     case bgp_fsm_sOpenSent:
       bgp_hold_timer_set(connection, session->open_hold_timer_interval) ;
-      qtimer_unset(&connection->keepalive_timer) ;
+      qtimer_unset(connection->keepalive_timer) ;
       break;
 
     /* In sOpenConfirm state is waiting for an "ack" before proceeding to
@@ -2336,7 +2410,7 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      * value will also be zero, and this will unset both timers.
      */
     case bgp_fsm_sOpenConfirm:
-      bgp_timer_set(connection, &connection->keepalive_timer,
+      bgp_timer_set(connection, connection->keepalive_timer,
                                  connection->keepalive_timer_interval,
                                       with_jitter, bgp_keepalive_timer_action) ;
     case bgp_fsm_sEstablished:
@@ -2349,7 +2423,7 @@ bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
      * or for the "courtesy" time to expire.
      */
     case bgp_fsm_sStopping:
-      qtimer_unset(&connection->keepalive_timer) ;
+      qtimer_unset(connection->keepalive_timer) ;
 
       break ;
 
@@ -2393,7 +2467,7 @@ bgp_connect_retry_timer_action(qtimer qtr, void* timer_info, qtime_mono_t when)
 
   BGP_FSM_DEBUG(connection, "Timer (connect timer expire)") ;
 
-  bgp_timer_set(connection, &connection->hold_timer,
+  bgp_timer_set(connection, connection->hold_timer,
          connection->session->connect_retry_timer_interval, with_jitter, NULL) ;
 
   bgp_fsm_event(connection, bgp_fsm_eConnectRetry_timer_expired) ;
@@ -2427,7 +2501,7 @@ bgp_keepalive_timer_action(qtimer qtr, void* timer_info, qtime_mono_t when)
 
   BGP_FSM_DEBUG(connection, "Timer (keepalive timer expire)") ;
 
-  bgp_timer_set(connection, &connection->keepalive_timer,
+  bgp_timer_set(connection, connection->keepalive_timer,
                     connection->session->keepalive_timer_interval,
                                                             with_jitter, NULL) ;
 

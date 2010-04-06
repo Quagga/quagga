@@ -178,6 +178,7 @@ mqueue_finish(void)
   while ((mqb = mqb_free_list) != NULL)
     {
       assert(mqb_free_count != 0) ;
+      mqb_free_count-- ;
       mqb_free_list = mqb->next ;
       XFREE(MTYPE_MQUEUE_BLOCK, mqb) ;
     } ;
@@ -526,12 +527,17 @@ static void mqueue_dequeue_signal(mqueue_queue mq, mqueue_thread_signal mtsig) ;
  *   for a signal type message queue, each message that arrives will kick one
  *   waiter.
  *
+ * If mq is NULL, the message is not queued but is immediately destroyed.
+ *
  * NB: this works perfectly well if !qpthreads enabled.  Of course, there can
  *     never be any waiters... so no kicking is ever done.
  */
 extern void
 mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, int priority)
 {
+  if (mq == NULL)
+    return mqb_dispatch_destroy(mqb) ;
+
   qpt_mutex_lock(&mq->mutex) ;
 
   if (mq->head == NULL)
@@ -634,6 +640,8 @@ mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, int priority)
  * NB: the argument is ignored if !wait or !qpthreads_enabled, so may be NULL.
  *
  * Returns a message block if one is available.  (And not otherwise.)
+ *
+ * NB: if mq is NULL, returns NULL -- nothing available
  */
 extern mqueue_block
 mqueue_dequeue(mqueue_queue mq, int wait, void* arg)
@@ -643,6 +651,9 @@ mqueue_dequeue(mqueue_queue mq, int wait, void* arg)
 
   mqueue_thread_signal mtsig ;
   qtime_mono_t         timeout_time ;
+
+  if (mq == NULL)
+    return NULL ;
 
   qpt_mutex_lock(&mq->mutex) ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
@@ -748,12 +759,17 @@ done:
  * operations may be performed.  Enqueued items may promptly be revoked, except
  * for priority items if the revoke operation has already moved past the last
  * priority item.
+ *
+ * If mq is NULL, does nothing.
  */
 extern void
 mqueue_revoke(mqueue_queue mq, void* arg0)
 {
   mqueue_block mqb ;
   mqueue_block prev ;
+
+  if (mq == NULL)
+    return ;
 
   qpt_mutex_lock(&mq->mutex) ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 

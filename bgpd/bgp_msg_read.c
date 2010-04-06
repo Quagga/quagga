@@ -1499,7 +1499,7 @@ bgp_msg_route_refresh_receive(bgp_connection connection, bgp_size_t body_size)
   if (suck_left(&ssr) != 0)
     {
       uint8_t when_to_refresh ;
-      flag_t  defer = 0 ;
+      bool    defer = 0 ;
 
       when_to_refresh = suck_b(&ssr) ;
 
@@ -1620,9 +1620,9 @@ bgp_msg_orf_recv(bgp_connection connection, bgp_route_refresh rr,
     {
       do
         {
-          flag_t  remove_all   = 0 ;
-          flag_t  remove       = 0 ;
-          flag_t  deny         = 0 ;
+          bool    remove_all   = 0 ;
+          bool    remove       = 0 ;
+          bool    deny         = 0 ;
           uint8_t common ;
 
           common = suck_b(sr) ;

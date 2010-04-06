@@ -286,6 +286,9 @@ mem_md_free(enum MTYPE mtype, void* address)
   mem_descriptor  md, prev_md ;
   md_index        this, next ;
 
+  if (address == NULL)
+    return ;
+
   base = mem_md_base(address) ;
 
   prev_md = NULL ;

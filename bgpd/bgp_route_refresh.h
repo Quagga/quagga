@@ -51,13 +51,13 @@ struct bgp_orf_entry
   uint8_t       orf_type ;      /* BGP_ORF_T_xxx -- _rfc version !      */
   bgp_form_t    form ;          /* bgp_form_none/_rfc/_pre              */
 
-  flag_t        unknown ;       /* ignore everything other than the     */
+  bool          unknown ;       /* ignore everything other than the     */
                                 /* unknown data part                    */
 
-  flag_t        remove_all ;    /* rest is ignored if this is set       */
+  bool          remove_all ;    /* rest is ignored if this is set       */
 
-  flag_t        remove ;        /* otherwise: add                       */
-  flag_t        deny ;          /* otherwise: permit                    */
+  bool          remove ;        /* otherwise: add                       */
+  bool          deny ;          /* otherwise: permit                    */
 
   union {                       /* must be last...                      */
     struct orf_prefix   orf_prefix ;
@@ -83,7 +83,7 @@ struct bgp_route_refresh
 
   struct vector entries ;       /* empty => simple ROUTE-REFRESH        */
 
-  flag_t        defer ;         /* otherwise: immediate                 */
+  bool          defer ;         /* otherwise: immediate                 */
 
   /* These support the output of ROUTE-REFRESH messages.
    *
@@ -104,11 +104,11 @@ extern void
 bgp_route_refresh_free(bgp_route_refresh rr) ;
 
 extern void
-bgp_route_refresh_set_orf_defer(bgp_route_refresh rr, flag_t defer) ;
+bgp_route_refresh_set_orf_defer(bgp_route_refresh rr, bool defer) ;
 
 extern bgp_orf_entry
 bgp_orf_add(bgp_route_refresh rr, uint8_t orf_type, bgp_form_t form,
-                                                   flag_t remove, flag_t deny) ;
+                                                   bool remove, bool deny) ;
 
 extern void
 bgp_orf_add_remove_all(bgp_route_refresh rr, uint8_t orf_type, bgp_form_t form);

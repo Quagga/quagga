@@ -84,7 +84,7 @@ bgp_route_refresh_free(bgp_route_refresh rr)
  * Set the defer flag as required
  */
 extern void
-bgp_route_refresh_set_orf_defer(bgp_route_refresh rr, flag_t defer)
+bgp_route_refresh_set_orf_defer(bgp_route_refresh rr, bool defer)
 {
   rr->defer = (defer != 0) ;
 } ;
@@ -154,12 +154,12 @@ bgp_orf_entry_new(bgp_route_refresh rr, uint8_t orf_type, bgp_form_t form,
  */
 extern bgp_orf_entry
 bgp_orf_add(bgp_route_refresh rr, uint8_t orf_type, bgp_form_t form,
-                                                     flag_t remove, flag_t deny)
+                                                         bool remove, bool deny)
 {
   bgp_orf_entry orfe = bgp_orf_entry_new(rr, orf_type, form, 0) ;
 
-  orfe->remove = (remove  != 0) ;
-  orfe->deny   = (deny != 0) ;
+  orfe->remove = remove ;
+  orfe->deny   = deny ;
 
   return orfe ;
 } ;

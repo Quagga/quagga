@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_SOCKOPT_H
@@ -24,9 +24,9 @@
 
 #include "sockunion.h"
 
-extern int setsockopt_so_recvbuf (int sock, int size);
-extern int setsockopt_so_sendbuf (const int sock, int size);
-extern int getsockopt_so_sendbuf (const int sock);
+extern int setsockopt_so_recvbuf (int sock_fd, int size);
+extern int setsockopt_so_sendbuf (const int sock_fd, int size);
+extern int getsockopt_so_sendbuf (const int sock_fd);
 
 #ifdef HAVE_IPV6
 extern int setsockopt_ipv6_pktinfo (int, int);
@@ -82,25 +82,26 @@ extern int setsockopt_ipv6_multicast_loop (int, int);
   (((af) == AF_INET) : SOPT_SIZE_CMSG_IFINDEX_IPV4() \
                     ? SOPT_SIZE_CMSG_PKTINFO_IPV6())
 
-extern int setsockopt_multicast_ipv4(int sock, int optname, 
+extern int setsockopt_multicast_ipv4(int sock_fd, int optname,
 			             struct in_addr if_addr
 					 /* required: interface to join on */,
                                      unsigned int mcast_addr,
 			             unsigned int ifindex
 					 /* optional: if non-zero, may be used
 					 	instead of if_addr */);
-extern int setsockopt_ipv4_tos(int sock, int tos);
+extern int setsockopt_ipv4_tos(int sock_fd, int tos);
 
 /* Ask for, and get, ifindex, by whatever method is supported. */
 extern int setsockopt_ifindex (int, int, int);
 extern int getsockopt_ifindex (int, struct msghdr *);
 
-/* swab the fields in iph between the host order and system order expected 
+/* swab the fields in iph between the host order and system order expected
  * for IP_HDRINCL.
  */
 extern void sockopt_iphdrincl_swab_htosys (struct ip *iph);
 extern void sockopt_iphdrincl_swab_systoh (struct ip *iph);
 
-extern int sockopt_tcp_signature(int sock, union sockunion *su,
+extern int sockopt_ttl (int sock_fd, int ttl);
+extern int sockopt_tcp_signature(int sock_fd, union sockunion *su,
                                  const char *password);
 #endif /*_ZEBRA_SOCKOPT_H */

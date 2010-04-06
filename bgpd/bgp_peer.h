@@ -204,6 +204,10 @@ struct peer
 #define PEER_CAP_AS4_ADV                    (1 << 7) /* as4 advertised */
 #define PEER_CAP_AS4_RCV                    (1 << 8) /* as4 received */
 
+#define PEER_CAP_AS4_BOTH (PEER_CAP_AS4_ADV + PEER_CAP_AS4_RCV)
+#define PEER_CAP_AS4_USE(peer) \
+  (((peer)->cap & PEER_CAP_AS4_BOTH) == PEER_CAP_AS4_BOTH)
+
   /* Capability flags (reset in bgp_stop) */
   u_int16_t af_cap[AFI_MAX][SAFI_MAX];
 #define PEER_CAP_ORF_PREFIX_SM_ADV          (1 << 0) /* send-mode advertised */

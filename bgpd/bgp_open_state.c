@@ -137,8 +137,10 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
                         CHECK_FLAG(peer->sflags, PEER_STATUS_CAPABILITY_OPEN)
                   && (! CHECK_FLAG(peer->flags,  PEER_FLAG_DONT_CAPABILITY) ) ;
 
-  /* Announce self as AS4 speaker if required           */
-  state->can_as4 = ((peer->cap & PEER_CAP_AS4_ADV) != 0) ;
+  /* Announce self as AS4 speaker always                */
+  if (!bm->as2_speaker)
+    SET_FLAG(peer->cap, PEER_CAP_AS4_ADV) ;
+  state->can_as4 = CHECK_FLAG(peer->cap, PEER_CAP_AS4_ADV) ? 1 : 0 ;
 
   state->my_as2 = (state->my_as > BGP_AS2_MAX ) ? BGP_ASN_TRANS
                                                 : state->my_as ;
@@ -150,8 +152,9 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
       if (peer->afc[afi][safi])
         state->can_mp_ext |= qafx_bit(qafx_num_from_qAFI_qSAFI(afi, safi)) ;
 
-  /* Route refresh.                                     */
-  state->can_r_refresh = (peer->cap & PEER_CAP_REFRESH_ADV)
+  /* Route refresh -- always                            */
+  SET_FLAG(peer->cap, PEER_CAP_REFRESH_ADV) ;
+  state->can_r_refresh = CHECK_FLAG(peer->cap, PEER_CAP_REFRESH_ADV)
                                         ? (bgp_form_pre | bgp_form_rfc)
                                         : bgp_form_none ;
 
@@ -175,10 +178,13 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
   /* Dynamic Capabilities       TODO: check requirement */
   state->can_dynamic = ( CHECK_FLAG(peer->flags, PEER_FLAG_DYNAMIC_CAPABILITY)
                                                                         != 0 ) ;
+  if (state->can_dynamic)
+    SET_FLAG(peer->cap, PEER_CAP_DYNAMIC_ADV) ;
 
   /* Graceful restart capability                                            */
   if (bgp_flag_check(peer->bgp, BGP_FLAG_GRACEFUL_RESTART))
     {
+      SET_FLAG(peer->cap, PEER_CAP_RESTART_ADV) ;
       state->can_g_restart = 1 ;
       state->restart_time  = peer->bgp->restart_time ;
     }
@@ -249,7 +255,7 @@ bgp_open_state_unknown_cap(bgp_open_state state, unsigned index)
  */
 extern bgp_cap_afi_safi
 bgp_open_state_afi_safi_add(bgp_open_state state, iAFI_t afi, iSAFI_t safi,
-                                                 flag_t known, uint8_t cap_code)
+                                                   bool known, uint8_t cap_code)
 {
   bgp_cap_afi_safi afi_safi ;
 

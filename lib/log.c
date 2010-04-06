@@ -37,6 +37,7 @@
 #include <ucontext.h>
 #endif
 #include "qpthreads.h"
+#include "qfstring.h"
 
 /* log is protected by the same mutext as vty, see comments in vty.c */
 
@@ -89,6 +90,8 @@ const char *zlog_priority[] =
  * with any number of decimal digits, but at most 6 will be significant.
  */
 
+static void uquagga_timestamp(qf_str qfs, int timestamp_precision) ;
+
 /*------------------------------------------------------------------------------
  * Fill buffer with current time, to given number of decimal digits.
  *
@@ -100,21 +103,25 @@ const char *zlog_priority[] =
  *
  * NB: buflen MUST be > 1 and buf MUST NOT be NULL.
  */
-size_t
+extern size_t
 quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
 {
-  size_t result;
+  qf_str_t qfs ;
+
   VTY_LOCK() ;
-  result = uquagga_timestamp(timestamp_precision, buf, buflen);
+
+  qfs_init(&qfs, buf, buflen) ;
+  uquagga_timestamp(&qfs, timestamp_precision) ;
+
   VTY_UNLOCK() ;
-  return result;
+  return qfs_len(&qfs) ;
 }
 
 /*------------------------------------------------------------------------------
  * unprotected version for when mutex already held
  */
-size_t
-uquagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
+static void
+uquagga_timestamp(qf_str qfs, int timestamp_precision)
 {
   static struct {
     time_t last;
@@ -123,11 +130,6 @@ uquagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
   } cache;
 
   struct timeval clock;
-
-  size_t len ;
-  int    left ;
-
-  assert((buflen > 1) && (buf != NULL)) ;
 
   /* would it be sufficient to use global 'recent_time' here?  I fear not... */
   gettimeofday(&clock, NULL);
@@ -138,61 +140,36 @@ uquagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
       struct tm tm;
       cache.last = clock.tv_sec;
       localtime_r(&cache.last, &tm);
-      cache.len = strftime(cache.buf, sizeof(cache.buf),
-      			   "%Y/%m/%d %H:%M:%S", &tm) ;
+      cache.len = strftime(cache.buf, sizeof(cache.buf), TIMESTAMP_FORM, &tm) ;
       assert(cache.len > 0) ;
     }
+
   /* note: it's not worth caching the subsecond part, because
-     chances are that back-to-back calls are not sufficiently close together
-     for the clock not to have ticked forward */
+   * chances are that back-to-back calls are not sufficiently close together
+   * for the clock not to have ticked forward
+   */
 
-  len = cache.len ;             /* NB: asserted cache.len > 0   */
+  qfs_append_n(qfs, cache.buf, cache.len) ;
 
-  left = (buflen - (len + 1)) ; /* what would be left           */
-  if (left < 0)
-    len = buflen - 1 ;          /* NB: asserted buflen > 1      */
-
-  memcpy(buf, cache.buf, len) ;
-
-  /* Can do decimal part if there is room for the '.' character     */
-  if ((timestamp_precision > 0) && (left > 0))
+  /* Add decimal part as required.                                      */
+  if (timestamp_precision > 0)
     {
       /* should we worry about locale issues?              */
       static const int divisor[] = {     1,                     /* 0        */
                                     100000, 10000, 1000,        /* 1, 2, 3  */
                                        100,    10,    1};       /* 4, 5, 6  */
       int prec;
-      char *p ;
 
       prec = timestamp_precision ;
-      if ((1 + prec) > left)
-        prec = left - 1 ;       /* NB: left > 0                 */
-      len += 1 + prec ;
+      if (prec > 6)
+        prec = 6 ;
 
-      p = buf + prec ;          /* point at last decimal digit  */
+      qfs_append_n(qfs, ".", 1) ;
+      qfs_unsigned(qfs, clock.tv_usec / divisor[prec], 0, 0, prec) ;
 
-      while (prec > 6)
-        /* this is unlikely to happen, but protect anyway */
-        {
-          *p-- = '0';
-          --prec ;
-        } ;
-
-        clock.tv_usec /= divisor[prec];
-
-        while (prec > 0)        /* could have been reduced to 0 */
-          {
-            *p-- = '0'+(clock.tv_usec % 10);
-            clock.tv_usec /= 10;
-            --prec ;
-          } ;
-
-      *p = '.';
+      if (prec < timestamp_precision)
+        qfs_append_ch_x_n(qfs, '0', timestamp_precision - prec) ;
     } ;
-
-  buf[len] = '\0';
-
-  return len ;
 } ;
 
 /*==============================================================================
@@ -223,7 +200,7 @@ uvzlog (struct zlog *zl, int priority, const char *format, va_list va)
   /* When zlog_default is also NULL, use stderr for logging.    */
   if (zl == NULL)
     {
-      uvzlog_line(&ll, zl, priority, format, va, 0) ;
+      uvzlog_line(&ll, zl, priority, format, va, llt_lf) ;
       write(fileno(stderr), ll.line, ll.len) ;
     }
   else
@@ -240,14 +217,14 @@ uvzlog (struct zlog *zl, int priority, const char *format, va_list va)
       /* File output.                                           */
       if ((priority <= zl->maxlvl[ZLOG_DEST_FILE]) && zl->fp)
         {
-          uvzlog_line(&ll, zl, priority, format, va, 0) ;
+          uvzlog_line(&ll, zl, priority, format, va, llt_lf) ;
           write(fileno(zl->fp), ll.line, ll.len) ;
         }
 
       /* stdout output. */
       if (priority <= zl->maxlvl[ZLOG_DEST_STDOUT])
         {
-          uvzlog_line(&ll, zl, priority, format, va, 0) ;
+          uvzlog_line(&ll, zl, priority, format, va, llt_lf) ;
           write(fileno(zl->fp), ll.line, ll.len) ;
         }
 
@@ -264,54 +241,37 @@ uvzlog (struct zlog *zl, int priority, const char *format, va_list va)
  */
 extern void
 uvzlog_line(struct logline* ll, struct zlog *zl, int priority,
-                                       const char *format, va_list va, int crlf)
+                              const char *format, va_list va, enum ll_term term)
 {
-  char*   p ;
+  char*       p ;
+  const char* q ;
 
   p = ll->p_nl ;
 
   if (p != NULL)
     {
       /* we have the line -- just need to worry about the crlf state    */
-      if ((crlf && ll->crlf) || (!crlf && !ll->crlf))
+      if (term == ll->term)
         return ;                /* exit here if all set */
     }
   else
     {
       /* must construct the line                                        */
-      const char* q ;
-      char*   e ;
-      size_t  len ;
+      qf_str_t qfs ;
       va_list vac ;
 
-      p = ll->line = ll->buf ;
-      e = p + sizeof(ll->buf) - 3 ;  /* leave space for '\r', '\n' and '\0' */
+      qfs_init(&qfs, ll->line, sizeof(ll->line) - 2) ;
+                                      /* leave space for '\n' or '\r''\n'   */
+      /* "<time stamp>"                                                     */
+      uquagga_timestamp(&qfs, (zl != NULL) ? zl->timestamp_precision : 0) ;
 
-      /* "<time stamp> "                                                */
-      len = uquagga_timestamp((zl != NULL) ? zl->timestamp_precision : 0,
-                                                                     p, e - p) ;
-      p += len ;        /* len guaranteed to be <= e - p                */
-
-      if (p < e)
-        *p++ = ' ' ;
+      qfs_append_n(&qfs, " ", 1) ;
 
       /* "<priority>: " if required                                     */
       if ((zl != NULL) && (zl->record_priority))
         {
-          q = zlog_priority[priority] ;
-          len = strlen(q) ;
-
-          if ((p + len) > e)
-            len = e - p ;
-
-          if (len > 0)
-            memcpy(p, q, len) ;
-          p += len ;
-
-          if (p < e)
-            *p++ = ':' ;
-          if (p < e)
-            *p++ = ' ' ;
+          qfs_append(&qfs, zlog_priority[priority]) ;
+          qfs_append(&qfs, ": ") ;
         } ;
 
       /* "<protocol>: " or "unknown: "                                  */
@@ -320,48 +280,29 @@ uvzlog_line(struct logline* ll, struct zlog *zl, int priority,
       else
         q = "unknown" ;
 
-      len = strlen(q) ;
-
-      if ((p + len) > e)
-        len = e - p ;
-
-      if (len > 0)
-        memcpy(p, q, len) ;
-      p += len ;
-
-      if (p < e)
-        *p++ = ':' ;
-      if (p < e)
-        *p++ = ' ' ;
+      qfs_append(&qfs, q) ;
+      qfs_append(&qfs, ": ") ;
 
       /* Now the log line itself                                        */
-      /* Have reserved space for '\n', so have (e - p + 1) of buffer    */
-      if (p < e)
-        {
-          va_copy(vac, va);
-          len = vsnprintf(p, (e - p + 1), format, vac) ;
-          va_end(vac);
+      va_copy(vac, va);
+      qfs_vprintf(&qfs, format, vac) ;
+      va_end(vac);
 
-          p += len ;            /* len returned is *required* length    */
-
-          if (p > e)
-            p = e ;             /* actual end                           */
-        } ;
-
-      ll->p_nl = p ;            /* set end pointer                      */
-
-      assert(p <= e) ;
+      /* Set pointer to where the '\0' is.                              */
+      p = ll->p_nl = qfs_end(&qfs) ;
     } ;
 
   /* finish off with '\r''\n''\0' or '\n''\0' as required               */
-  if (crlf)
+  if (term == llt_crlf)
     *p++ = '\r' ;
 
-  *p++ = '\n' ;
+  if (term != llt_nul)
+    *p++ = '\n' ;
+
   *p = '\0' ;
 
   ll->len = p - ll->line ;
-  ll->crlf = crlf ;
+  ll->term = term ;
 } ;
 
 /*============================================================================*/

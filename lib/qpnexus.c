@@ -20,6 +20,7 @@
  */
 
 #include <zebra.h>
+#include <stdbool.h>
 
 #include "qpnexus.h"
 #include "memory.h"
@@ -65,6 +66,9 @@ qpn_init_new(qpn_nexus qpn, int main_thread)
   qpn->main_thread = main_thread;
   qpn->start       = qpn_start;
 
+  if (main_thread)
+    qpn->thread_id = qpt_thread_self();
+
   return qpn;
 }
 
@@ -79,11 +83,15 @@ qpn_add_hook_function(qpn_hook_list list, void* hook)
 } ;
 
 /*------------------------------------------------------------------------------
- * free timers, selection, message queue and nexus
- * return NULL
+ * Reset given nexus and, if required, free the nexus structure.
+ *
+ * Free timers, selection, message queue and its thread signal.
+ *
+ * Leaves all pointers to these things NULL -- which generally means that the
+ * object is empty or otherwise out of action.
  */
-qpn_nexus
-qpn_free(qpn_nexus qpn)
+extern qpn_nexus
+qpn_reset(qpn_nexus qpn, bool free_structure)
 {
   qps_file qf;
   qtimer qtr;
@@ -96,6 +104,7 @@ qpn_free(qpn_nexus qpn)
     {
       while ((qtr = qtimer_pile_ream(qpn->pile, 1)))
           qtimer_free(qtr);
+      qpn->pile = NULL ;
     }
 
   /* files and selection */
@@ -103,6 +112,7 @@ qpn_free(qpn_nexus qpn)
     {
       while ((qf = qps_selection_ream(qpn->selection, 1)))
           qps_file_free(qf);
+      qpn->selection = NULL ;
     }
 
   if (qpn->queue != NULL)
@@ -111,10 +121,11 @@ qpn_free(qpn_nexus qpn)
   if (qpn->mts != NULL)
     qpn->mts = mqueue_thread_signal_reset(qpn->mts, 1);
 
-  XFREE(MTYPE_QPN_NEXUS, qpn) ;
+  if (free_structure)
+    XFREE(MTYPE_QPN_NEXUS, qpn) ;       /* sets qpn = NULL      */
 
-  return NULL;
-}
+  return qpn ;
+} ;
 
 /*==============================================================================
  * Execution of a nexus
@@ -173,8 +184,8 @@ qpn_start(void* arg)
   qpn_in_thread_init(qpn);
 
   /* custom in-thread initialization                                    */
-  for (i = 0; i < qpn->in_thread_init.count ; ++i)
-    ((qpn_init_function*)(qpn->in_thread_init.hooks[i]))() ;
+  for (i = 0; i < qpn->in_thread_init.count ;)
+    ((qpn_init_function*)(qpn->in_thread_init.hooks[i++]))() ;
 
   /* Until required to terminate, loop                                  */
   done = 1 ;
@@ -193,8 +204,8 @@ qpn_start(void* arg)
         done = 0 ;
 
       /* Foreground hooks, if any.                                      */
-      for (i = 0; i < qpn->foreground.count ; ++i)
-        done |= ((qpn_hook_function*)(qpn->foreground.hooks[i]))() ;
+      for (i = 0; i < qpn->foreground.count ;)
+        done |= ((qpn_hook_function*)(qpn->foreground.hooks[i++]))() ;
 
       /* drain the message queue, will be in waiting for signal state
        * when it's empty */
@@ -246,8 +257,8 @@ qpn_start(void* arg)
     } ;
 
   /* custom in-thread finalization                                      */
-  for (i = qpn->in_thread_final.count - 1; i > 0 ; --i)
-    ((qpn_init_function*)(qpn->in_thread_final.hooks[i]))() ;
+  for (i = qpn->in_thread_final.count; i > 0 ;)
+    ((qpn_init_function*)(qpn->in_thread_final.hooks[--i]))() ;
 
   return NULL;
 }

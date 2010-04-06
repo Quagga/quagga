@@ -27,6 +27,7 @@
 #include <pthread.h>
 #include <unistd.h>
 #include <errno.h>
+#include <stdbool.h>
 
 #include "zassert.h"
 #include "qtime.h"
@@ -142,20 +143,30 @@ private int
 qpt_freeze_qpthreads_enabled(void) ;    /* get and freeze qpthreads_enabled  */
 
 /*==============================================================================
- * Thread self knowledge -- returns 'NULL' if !qpthreads_enabled
+ * Thread self knowledge -- even when !qpthreads_enabled there is one thread
  */
 Inline qpt_thread_t qpt_thread_self(void)
 {
-  return qpthreads_enabled ? pthread_self() : (qpt_thread_t)NULL;
+  return pthread_self() ;
 } ;
 
-/*==============================================================================
- * Thread equality -- returns non-zero (true) if threads are *equal*
- *                 -- all threads are equal if !qpthreads_enabled
+/*------------------------------------------------------------------------------
+ * Thread equality -- returns true iff threads are *equal*
+ *                 -- even when !qpthreads_enabled there is one thread
  */
-Inline int qpt_threads_equal(qpt_thread_t a, qpt_thread_t b)
+Inline bool qpt_threads_equal(qpt_thread_t a_id, qpt_thread_t b_id)
 {
-  return !qpthreads_enabled || pthread_equal(a, b) ? 1 : 0 ;
+  return pthread_equal(a_id, b_id) != 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Thread identity -- returns true iff current thread is the given thread
+ *                 -- even when !qpthreads_enabled there is one thread
+ */
+Inline bool qpt_thread_is_self(qpt_thread_t id)
+{
+  pthread_t self = pthread_self() ;
+  return pthread_equal(self, id) != 0 ;
 } ;
 
 /*==============================================================================

@@ -228,9 +228,6 @@ enum { timestamp_buffer_len = 32 } ;
 
 extern size_t quagga_timestamp(int timestamp_precision /* # subsecond digits */,
 			       char *buf, size_t buflen);
-/* unprotected version for when mutex already held                      */
-extern size_t uquagga_timestamp(int timestamp_precision /* # subsecond digits */,
-                               char *buf, size_t buflen);
 
 /* Generate line to be logged
  *
@@ -241,24 +238,31 @@ extern size_t uquagga_timestamp(int timestamp_precision /* # subsecond digits */
  * or '\r''\n''\0').  Do not wish to malloc any larger buffer while logging.
  */
 enum { logline_buffer_len = 1008 } ;
+enum ll_term
+{
+  llt_nul   = 0,        /* NB: also length of the terminator            */
+  llt_lf    = 1,
+  llt_crlf  = 2,
+} ;
+
 struct logline {
-  char*   p_nl ;  /* address of the first byte of "\n" or "\r\n"        */
-                  /* NULL => not filled in yet                          */
+  char*   p_nl ;        /* address of the terminator                    */
 
-  char*   line ;  /* address of the buffered line                       */
-  size_t  len ;   /* length including either '\r''\n' or '\n'           */
-  int     crlf ;  /* true if terminated by "\r\n"                       */
+  enum ll_term term ;   /* how line is terminated                       */
 
-  char buf[logline_buffer_len]; /* buffer                               */
+  size_t  len ;         /* length including either '\r''\n' or '\n'     */
+
+  char line[logline_buffer_len]; /* buffer                              */
 } ;
 
 extern void
 uvzlog_line(struct logline* ll, struct zlog *zl, int priority,
-                                     const char *format, va_list va, int crlf) ;
+                            const char *format, va_list va, enum ll_term term) ;
 
 /* Defines for use in command construction: */
 
-#define LOG_LEVELS "(emergencies|alerts|critical|errors|warnings|notifications|informational|debugging)"
+#define LOG_LEVELS "(emergencies|alerts|critical|errors|" \
+                              "warnings|notifications|informational|debugging)"
 
 #define LOG_LEVEL_DESC \
   "System is unusable\n" \

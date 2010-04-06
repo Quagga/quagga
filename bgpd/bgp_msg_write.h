@@ -25,6 +25,7 @@
 #define _QUAGGA_BGP_MSG_WRITE_H
 
 #include <stdint.h>
+#include <stdbool.h>
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_connection.h"
@@ -38,7 +39,7 @@ extern int
 bgp_msg_write_notification(bgp_connection connection, bgp_notify notification) ;
 
 extern int
-bgp_msg_send_keepalive(bgp_connection connection) ;
+bgp_msg_send_keepalive(bgp_connection connection, bool must_send) ;
 
 extern int
 bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state) ;

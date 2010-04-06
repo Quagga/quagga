@@ -199,7 +199,7 @@ qps_dispatch_next(qps_selection qps) ;
 extern qps_file
 qps_file_init_new(qps_file qf, qps_file template) ;
 
-extern void
+extern qps_file
 qps_file_free(qps_file qf) ;
 
 extern void

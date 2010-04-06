@@ -62,7 +62,9 @@ static struct queue_stats routing_engine_queue_stats ;
 Inline void
 bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 {
-  double average ;
+  unsigned long average ;
+  unsigned av_i ;
+  unsigned av_f ;
   unsigned my_count ;
   mqueue_block mqb ;
 
@@ -96,11 +98,13 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 
   qpt_mutex_unlock(&mq->mutex) ;
 
-  average = stats->total ;
-  average /= stats->count ;
+  average = stats->total * 1000 ;
+  average = (average / stats->count) + 5 ;
+  av_i = average / 1000 ;
+  av_f = (average % 1000) / 10 ;
 
-  zlog_debug("%s queue: max=%u  recent: max=%u av=%3.1f (%u) [x=%u e=%u u=%u]",
-                    name, stats->max, stats->recent, average, stats->count,
+  zlog_debug("%s queue: max=%u  recent: max=%u av=%d.%.2d (%u) [x=%u e=%u u=%u]",
+                    name, stats->max, stats->recent, av_i, av_f, stats->count,
                                       stats->xon, stats->event, stats->update) ;
 
   stats->recent = 0 ;

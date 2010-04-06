@@ -23,6 +23,7 @@
 #define _QUAGGA_BGP_COMMON_H
 
 #include <stdint.h>
+#include <stdbool.h>
 #include <sys/socket.h>
 
 #include "bgpd/bgp.h"
@@ -32,11 +33,6 @@
 #ifndef Inline
 #define Inline static inline
 #endif
-
-/*==============================================================================
- * Local "bool"
- */
-typedef uint8_t flag_t ;
 
 /*==============================================================================
  * Here are a number of "incomplete" declarations, which allow a number of

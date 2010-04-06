@@ -424,6 +424,7 @@ bgp_peer_stop (struct peer *peer)
   BGP_TIMER_OFF (peer->t_asorig);
   BGP_TIMER_OFF (peer->t_routeadv);
 
+  peer->cap = 0 ;
   for (afi = AFI_IP ; afi < AFI_MAX ; afi++)
     for (safi = SAFI_UNICAST ; safi < SAFI_MAX ; safi++)
       {
@@ -1036,19 +1037,21 @@ void
 bgp_peer_enable(bgp_peer peer)
 {
   /* Don't enable the session if:
-   * 1) Peer not idle, means we're not ready yet, clearing, deleting or waiting
-   *    for disable.
-   * 2) Shutdown
-   * 3) Dealing with prefix overflow, its timer will enable peer when ready
+   * 1) the peer not idle, which means not ready yet: clearing, deleting or
+   *    waiting for disable.
+   * 2) no address family is activated
+   * 3) the peer has been shutdown
+   * 4) is dealing with prefix overflow: its timer will enable peer when ready
    */
 
-  zlog_err ("%s: enabling peer %s:", __func__, peer->host) ;
-
   if ((peer->state == bgp_peer_sIdle)
+      && peer_active (peer)
       && !CHECK_FLAG (peer->flags, PEER_FLAG_SHUTDOWN)
       && !CHECK_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW))
     {
       /* enable the session */
+      zlog_err ("%s: enabling peer %s:", __func__, peer->host) ;
+
       bgp_session_enable(peer);
     }
 }

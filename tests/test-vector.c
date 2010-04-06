@@ -102,16 +102,14 @@ test_vector_init(void)
 
   printf("test_vector_init\n");
   v = vector_init(10);
-  
+
   assert_true(v != NULL,
       "v == NULL");
   assert_true(vector_count(v) == 0,
       "vector_count != 0");
   assert_true(vector_active(v) == 0,
       "vector_active != 0");
-  assert_true(vector_empty_slot(v) == 0,
-      "test_vector_init: vector_empty_slot != 0");
-  
+
   vector_free(v);
 }
 
@@ -128,8 +126,6 @@ test_vector_set_index(void)
       "vector_count != 1");
   assert_true(vector_active(v) == 1001,
       "vector_active != 1001");
-  assert_true(vector_empty_slot(v) == 0,
-      "vector_empty_slot != 0");
   assert_true(vector_slot(v,1000) == s1000,
       "vector_slot != 1000");
 

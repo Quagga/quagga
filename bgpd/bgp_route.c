@@ -7346,7 +7346,7 @@ DEFUN (show_ipv6_mbgp_prefix,
 
 
 static int
-bgp_show_regexp (struct vty *vty, int argc, const char **argv, afi_t afi,
+bgp_show_regexp (struct vty *vty, int argc, argv_t argv, afi_t afi,
 		 safi_t safi, enum bgp_show_type type)
 {
   int i;
@@ -7925,8 +7925,8 @@ DEFUN (show_ipv6_mbgp_community_all,
 #endif /* HAVE_IPV6 */
 
 static int
-bgp_show_community (struct vty *vty, int argc, const char **argv, int exact,
-                    u_int16_t afi, u_char safi)
+bgp_show_community (struct vty *vty, int argc, argv_t argv,
+                                          int exact, u_int16_t afi, u_char safi)
 {
   struct community *com;
   struct buffer *b;
@@ -7941,7 +7941,8 @@ bgp_show_community (struct vty *vty, int argc, const char **argv, int exact,
         buffer_putc (b, ' ');
       else
 	{
-	  if ((strcmp (argv[i], "unicast") == 0) || (strcmp (argv[i], "multicast") == 0))
+	  if (  (strcmp (argv[i], "unicast") == 0)
+             || (strcmp (argv[i], "multicast") == 0)  )
 	    continue;
 	  first = 1;
 	}

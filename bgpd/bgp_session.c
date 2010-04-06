@@ -31,9 +31,11 @@
 #include "bgpd/bgp_network.h"
 
 #include "bgpd/bgp_packet.h"
+#include "bgp_debug.h"
 
 #include "lib/memory.h"
 #include "lib/sockunion.h"
+#include "lib/log.h"
 #include "lib/mqueue.h"
 #include "lib/zassert.h"
 
@@ -421,19 +423,6 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
 
   args = mqb_get_args(mqb) ;
   args->notification = notification ;
-  {
-    int c, s ;
-    if (notification != NULL)
-      {
-        c = notification->code ;
-        s = notification->subcode ;
-      }
-    else
-      {
-        c = 0 ;
-        s = 0 ;
-      } ;
-  } ;
 
   ++bgp_engine_queue_stats.event ;
 
@@ -455,6 +444,16 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
     {
       /* Immediately discard any other messages for this session.       */
       mqueue_revoke(bgp_nexus->queue, session) ;
+
+      /* For debug */
+      if (args->notification != NULL)
+        {
+          bgp_notify_print (session->peer, args->notification, "sending");
+
+          if (BGP_DEBUG (normal, NORMAL))
+            zlog_debug ("%s send message type %d, length (incl. header) %d",
+                   session->host, BGP_MSG_NOTIFY, args->notification->length);
+        } ;
 
       /* Get the FSM to send any notification and close connections     */
       bgp_fsm_disable_session(session, args->notification) ;

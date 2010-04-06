@@ -64,10 +64,13 @@ enum keystroke_null
 enum keystroke_flags
 {
   kf_compound   = 0x80, /* marker on all compound characters    */
+
   kf_reserved   = 0x40,
   kf_broken     = 0x20, /* badly formed in some way             */
   kf_truncated  = 0x10, /* too big for buffer !                 */
                         /* for ks_null => EOF                   */
+
+  kf_flag_mask  = 0x70, /* flags for the keystroke              */
 
   kf_type_mask  = 0x0F, /* extraction of type                   */
 } ;
@@ -80,13 +83,16 @@ typedef struct keystroke_stream* keystroke_stream ;
 struct keystroke
 {
   enum keystroke_type   type ;
-  uint8_t       flags ;
+  uint8_t       flags ;         /* the kf_flag_mask flags       */
 
   uint32_t      value ;
 
   unsigned      len ;
   uint8_t       buf[keystroke_max_len] ;
 } ;
+
+#define keystroke_iac_callback_args void* context, keystroke stroke
+typedef bool (keystroke_callback)(keystroke_iac_callback_args) ;
 
 /* Telnet commands/options                                             */
 enum tn_Command
@@ -165,12 +171,13 @@ enum tn_Option
  * Functions
  */
 extern keystroke_stream
-keystroke_stream_new(uint8_t csi_char) ;
+keystroke_stream_new(uint8_t csi_char, keystroke_callback* iac_callback,
+                                                   void* iac_callback_context) ;
 
 extern void
 keystroke_stream_set_eof(keystroke_stream stream) ;
 
-extern void
+extern keystroke_stream
 keystroke_stream_free(keystroke_stream stream) ;
 
 extern bool

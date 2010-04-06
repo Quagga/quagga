@@ -44,10 +44,13 @@ typedef struct vector* vector ;         /* pointer to vector structure  */
 typedef struct vector  vector_t ;       /* embedded vector structure    */
 struct vector
 {
-  p_vector_item *p_items ;  /* pointer to array of vector item pointers */
-  vector_index end ;        /* number of "active" item entries          */
-  vector_index limit ;      /* number of allocated item entries         */
+  p_vector_item* p_items ;  /* pointer to array of vector item pointers */
+  vector_index   end ;      /* number of "active" item entries          */
+  vector_index   limit ;    /* number of allocated item entries         */
 };
+
+/* Under very controlled circumstances, may access the vector body      */
+typedef p_vector_item const* vector_body_t ;
 
 /* Values that control the allocation of the vector body.                     */
 /* NB: these must all be powers of 2.                                         */
@@ -103,7 +106,6 @@ struct vector
 
 extern vector vector_init (unsigned int size);
 Inline void vector_ensure(vector v, vector_index i) ;
-extern int vector_empty_slot (vector v);
 extern int vector_set (vector v, void *val);
 extern int vector_set_index (vector v, vector_index i, void *val);
 #define vector_unset(v, i) (void)vector_unset_item(v, i)
@@ -131,14 +133,20 @@ extern p_vector_item vector_ream(vector v, int free_structure) ;
 Inline void vector_set_min_length(vector v, unsigned int len) ;
 extern void vector_set_new_min_length(vector v, unsigned int len) ;
 
+Inline void vector_set_length(vector v, unsigned int len) ;
+#define     vector_set_end(v, l) vector_set_length(v, l)
+
 Inline vector_index vector_length(vector v) ;
 #define             vector_end(v) vector_length(v)
 Inline int vector_is_empty(vector v) ;
+
+Inline vector_body_t vector_body(vector v) ;
 
 Inline p_vector_item vector_get_item(vector v, vector_index i) ;
 Inline p_vector_item vector_get_first_item(vector v) ;
 Inline p_vector_item vector_get_last_item(vector v) ;
 Inline void vector_set_item(vector v, vector_index i, p_vector_item p_v) ;
+Inline void vector_assign_item(vector v, vector_index dst, vector_index src) ;
 extern p_vector_item vector_unset_item(vector v, vector_index i) ;
 extern vector_index vector_trim(vector v) ;
 extern vector_index vector_condense(vector v) ;
@@ -228,14 +236,32 @@ vector_ensure(vector v, vector_index i)
 } ;
 
 /* Want vector to be at least the given length.                         */
+/*                                                                      */
 /* Adjusts logical and physical end of the vector as required, filling  */
 /* with NULLs upto any new logical end -- does not allocate any more    */
 /* than is exactly necessary.                                           */
 Inline void
 vector_set_min_length(vector v, unsigned int len)
 {
-  if (len > v->end)                     /* trivial if within vector     */
+  if (len > v->end)                     /* will not reduce the length   */
     vector_set_new_min_length(v, len) ;
+} ;
+
+/* Want vector to be the given length.                                  */
+/*                                                                      */
+/* If this is less than the current length, items are discarded.  It    */
+/* is the caller's responsibility to have freed anything that needs it. */
+/*                                                                      */
+/* Adjusts logical and physical end of the vector as required, filling  */
+/* with NULLs upto any new logical end -- does not allocate any more    */
+/* than is exactly necessary.                                           */
+Inline void
+vector_set_length(vector v, unsigned int len)
+{
+  if (len > v->end)
+    vector_set_new_min_length(v, len) ; /* Extend if new length greater */
+  else
+    v->end = len ;                      /* chop                         */
 } ;
 
 /* Return index of end of vector (index of last item + 1)               */
@@ -250,6 +276,19 @@ Inline int
 vector_is_empty(vector v)
 {
   return (v->end == 0) ;
+} ;
+
+/* Returns highly restricted pointer to vector body                     */
+//Inline const void* const*
+//vector_body(vector v)
+//{
+//  return (const void* const*)v->p_items ;
+//} ;
+
+Inline vector_body_t
+vector_body(vector v)
+{
+  return (vector_body_t)v->p_items ;
 } ;
 
 /* Access functions -- Inline for obvious reasons.			*/
@@ -283,6 +322,17 @@ vector_set_item(vector v, vector_index i, void* p_v)
 {
   vector_ensure(v, i) ;
   v->p_items[i] = (p_vector_item)p_v ;
+} ;
+
+/* Set dst item to be a copy of the src item.  Extend vector if required.
+ *
+ * NB: it is the caller's responsibility to look after the memory being
+ *     used by the current dst item or the new (duplicated) src item.
+ */
+Inline void
+vector_assign_item(vector v, vector_index dst, vector_index src)
+{
+  vector_set_item(v, dst, vector_get_item(v, src)) ;
 } ;
 
 /* Push value onto vector, extending as required.			*/

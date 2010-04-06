@@ -936,6 +936,10 @@ peer_deactivate (struct peer *peer, afi_t afi, safi_t safi)
     {
       if (peer->state == bgp_peer_sEstablished)
 	{
+          /* Unless can dynamically reconfigure: once a session is established,
+           * turning off an address family requires the session to be dropped
+           * and restarted.
+           */
 	  if (CHECK_FLAG (peer->cap, PEER_CAP_DYNAMIC_RCV))
 	    {
 	      peer->afc_adv[afi][safi] = 0;
@@ -963,6 +967,13 @@ peer_deactivate (struct peer *peer, afi_t afi, safi_t safi)
                               BGP_NOTIFY_CEASE_CONFIG_CHANGE);
            }
 	}
+      else if ((peer->state == bgp_peer_sIdle) && !peer_active (peer))
+        {
+          /* In sIdle, the BGP Engine may be trying to connect... if no address
+           * family is now active, need now to shut down the session.
+           */
+          bgp_peer_disable(peer, NULL) ;
+        } ;
     }
   return 0;
 }
@@ -4646,10 +4657,9 @@ bgp_master_init (void)
   memset (&bgp_master, 0, sizeof (struct bgp_master));
 
   bm = &bgp_master;
-  bm->bgp = list_new ();
-  bm->listen_sockets = list_new ();
-  bm->port = BGP_PORT_DEFAULT;
-  bm->master = thread_master_create ();
+  bm->bgp        = list_new ();
+  bm->port       = BGP_PORT_DEFAULT;
+  bm->master     = thread_master_create ();
   bm->start_time = time (NULL);
 }
 

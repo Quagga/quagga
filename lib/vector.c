@@ -855,32 +855,26 @@ vector_sak(int to_copy, vector to,
  * Legacy Vector Operations
  */
 
-/* This function only returns next empty slot index.  It does not mean
-   the slot's index memory is assigned, please call vector_ensure()
-   after calling this function.
-
-   Index returned is <= current (logical) end.
-*/
-int
-vector_empty_slot (vector v)
-{
-  vector_index i;
-
-  for (i = 0; i < v->end; i++)
-    if (v->p_items[i] == NULL)
-      break ;
-
-  return i;
-}
-
 /* Set value to the smallest empty slot. */
 int
 vector_set (vector v, void *val)
 {
   vector_index i;
-  i = vector_empty_slot(v) ;    /* NB: i <= v->end                */
-  if (i == v->end)
-    i = vector_extend_by_1(v) ;
+
+  i = 0 ;
+  while (1)
+    {
+      if (i == v->end)
+        {
+          i = vector_extend_by_1(v) ;
+          break ;
+        }
+
+      if (v->p_items[i] == NULL)
+        break ;
+
+      ++i ;
+    } ;
 
   v->p_items[i] = val;
 

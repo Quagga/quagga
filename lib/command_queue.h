@@ -25,8 +25,7 @@
 #include "command.h"
 #include "qpnexus.h"
 
-extern void
-cq_enqueue(struct vty *vty, struct cmd_parsed* parsed, qpn_nexus to_nexus,
-                                                       qpn_nexus from_nexus) ;
+extern void cq_enqueue(struct vty *vty, qpn_nexus dst) ;
+extern void cq_revoke(struct vty* vty) ;
 
 #endif /* COMMAND_QUEUE_H_ */

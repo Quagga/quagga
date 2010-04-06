@@ -55,13 +55,6 @@ union sockunion
 #endif /* HAVE_IPV6 */
 };
 
-enum connect_result
-{
-  connect_error,
-  connect_success,
-  connect_in_progress
-};
-
 /* Default address family. */
 #ifdef HAVE_IPV6
 #define AF_INET_UNION AF_INET6
@@ -109,19 +102,23 @@ extern int sockunion_same (union sockunion *, union sockunion *);
 extern char* sockunion_su2str (union sockunion* su, enum MTYPE type) ;
 extern union sockunion *sockunion_str2su (const char *str);
 extern struct in_addr sockunion_get_in_addr (union sockunion *su);
-extern int sockunion_accept (int sock, union sockunion *);
+extern int sockunion_accept (int sock_fd, union sockunion *);
 extern int sockunion_stream_socket (union sockunion *);
 extern int sockopt_reuseaddr (int);
 extern int sockopt_reuseport (int);
-extern int sockunion_bind (int sock, union sockunion *,
+extern int sockunion_bind (int sock_fd, union sockunion *,
                                                      unsigned short, void* any);
-extern int sockopt_ttl (int family, int sock, int ttl);
 extern int sockunion_socket (sa_family_t family, int type, int protocol) ;
-extern int sockunion_connect (int fd, union sockunion *su, unsigned short port,
-                                                           unsigned int) ;
-extern int sockunion_listen(int fd, int backlog) ;
+extern int sockunion_connect (int sock_fd, union sockunion *su,
+                                            unsigned short port, unsigned int) ;
+extern int sockunion_listen(int sock_fd, int backlog) ;
+
+extern int sockunion_getsockfamily(int sock_fd) ;
 extern int sockunion_getsockname (int, union sockunion*);
 extern int sockunion_getpeername (int, union sockunion*);
+extern void sockunion_unmap_ipv4 (union sockunion *su) ;
+extern void sockunion_map_ipv4 (union sockunion *su) ;
+
 extern union sockunion *sockunion_dup (union sockunion *);
 extern void sockunion_free (union sockunion *);
 

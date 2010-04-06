@@ -22,6 +22,8 @@
 #ifndef _ZEBRA_QTIMERS_H
 #define _ZEBRA_QTIMERS_H
 
+#include <stdbool.h>
+
 #include "zassert.h"
 #include "qtime.h"
 #include "heap.h"
@@ -46,22 +48,12 @@ typedef struct qtimer_pile*  qtimer_pile ;
 
 typedef void (qtimer_action)(qtimer qtr, void* timer_info, qtime_mono_t when) ;
 
-enum qtimer_state {
-  qtr_state_inactive      = 0,
-  qtr_state_active        = 1,  /* timer is active in its pile            */
-  qtr_state_unset_pending = 3   /* timer is active, but unset is pending  */
-} ;
-
-#define qtr_is_active(qtr) ((qtr)->state != qtr_state_inactive)
-
-typedef enum qtimer_state qtimer_state_t ;
-
 struct qtimer
 {
   qtimer_pile     pile ;        /* pile currently allocated to          */
   heap_backlink_t backlink ;
 
-  qtimer_state_t  state ;
+  bool            active ;      /* true => in the pile                  */
 
   qtime_mono_t    time ;        /* current time to trigger action       */
   qtimer_action*  action ;
@@ -72,74 +64,50 @@ struct qtimer
 
 struct qtimer_pile
 {
-  struct heap   timers ;
+  struct heap timers ;
+
+  qtimer      implicit_unset ;  /* used during dispatch                 */
 } ;
 
 /*==============================================================================
  * Functions
  */
 
-qtimer_pile
-qtimer_pile_init_new(qtimer_pile qtp) ;
-
-int
-qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto) ;
-
-qtime_t
-qtimer_pile_top_wait(qtimer_pile qtp, qtime_t max_wait) ;
-
-qtimer
-qtimer_pile_ream(qtimer_pile qtp, int free_structure) ;
+extern qtimer_pile qtimer_pile_init_new(qtimer_pile qtp) ;
+extern bool qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto) ;
+extern qtime_t qtimer_pile_top_wait(qtimer_pile qtp, qtime_t max_wait) ;
+extern qtimer qtimer_pile_ream(qtimer_pile qtp, int free_structure) ;
 
 /* Ream out qtimer pile and free the qtimer structure.   */
 #define qtimer_pile_ream_free(qtp) qtimer_pile_ream(qtp, 1)
 /* Ream out qtimer pile but keep the qtimer structure.   */
 #define qtimer_pile_ream_keep(qtp) qtimer_pile_ream(qtp, 0)
 
-qtimer
-qtimer_init_new(qtimer qtr, qtimer_pile qtp,
+extern qtimer qtimer_init_new(qtimer qtr, qtimer_pile qtp,
                                       qtimer_action* action, void* timer_info) ;
-void
-qtimer_set_pile(qtimer qtr, qtimer_pile qtp) ;
+extern void qtimer_set_pile(qtimer qtr, qtimer_pile qtp) ;
+Inline void qtimer_set_action(qtimer qtr, qtimer_action* action) ;
+Inline void qtimer_set_info(qtimer qtr, void* timer_info) ;
 
-void
-qtimer_set_action(qtimer qtr, qtimer_action* action) ;
+extern qtimer qtimer_free(qtimer qtr) ;
+extern void qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action) ;
+extern void qtimer_unset(qtimer qtr) ;
 
-void
-qtimer_set_info(qtimer qtr, void* timer_info) ;
+Inline void qtimer_add(qtimer qtr, qtime_t interval, qtimer_action* action) ;
+Inline qtime_mono_t qtimer_get(qtimer qtr) ;
+Inline void qtimer_set_interval(qtimer qtr, qtime_t interval,
+                                                     qtimer_action* action) ;
+Inline void qtimer_add_interval(qtimer qtr, qtimer_action* action) ;
 
-void
-qtimer_free(qtimer qtr) ;
-
-void
-qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action) ;
-
-void
-qtimer_unset(qtimer qtr) ;
-
-Inline void
-qtimer_add(qtimer qtr, qtime_t interval, qtimer_action* action) ;
-
-Inline qtime_mono_t
-qtimer_get(qtimer qtr) ;
-
-Inline void
-qtimer_set_interval(qtimer qtr, qtime_t interval, qtimer_action* action) ;
-
-Inline void
-qtimer_add_interval(qtimer qtr, qtimer_action* action) ;
-
-Inline qtime_t
-qtimer_get_interval(qtimer qtr) ;
-
-void
-qtimer_pile_verify(qtimer_pile qtp) ;
+Inline qtime_t qtimer_get_interval(qtimer qtr) ;
+extern void qtimer_pile_verify(qtimer_pile qtp) ;
 
 /*==============================================================================
  * Inline functions
  */
 
-/* Set given timer to given time later than *its* current time.
+/*------------------------------------------------------------------------------
+ * Set given timer to given time later than *its* current time.
  */
 Inline void
 qtimer_add(qtimer qtr, qtime_t interval, qtimer_action* action)
@@ -147,13 +115,35 @@ qtimer_add(qtimer qtr, qtime_t interval, qtimer_action* action)
   qtimer_set(qtr, qtimer_get(qtr) + interval, action);
 } ;
 
-/* Get the given timer's time.
+/*------------------------------------------------------------------------------
+ * Get the given timer's time.
  */
 Inline qtime_mono_t
 qtimer_get(qtimer qtr)
 {
   return qtr->time ;
 } ;
+
+/*------------------------------------------------------------------------------
+ * Set action for given timer -- setting a NULL action unsets the timer.
+ */
+Inline void
+qtimer_set_action(qtimer qtr, qtimer_action* action)
+{
+  if (action == NULL)
+    qtimer_unset(qtr) ;
+  qtr->action = action ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set timer_info for given timer.
+ */
+Inline void
+qtimer_set_info(qtimer qtr, void* timer_info)
+{
+  qtr->timer_info = timer_info ;
+} ;
+
 
 /* Interval handling ---------------------------------------------------------*/
 

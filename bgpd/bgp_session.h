@@ -146,11 +146,11 @@ struct bgp_session
   /* The following are set by the Routeing Engine before a session is
    * enabled, and not changed at any other time by either engine.
    */
-  flag_t            connect ;           /* initiate connections           */
-  flag_t            listen ;            /* listen for connections         */
+  bool              connect ;           /* initiate connections           */
+  bool              listen ;            /* listen for connections         */
 
-  flag_t            cap_override ;      /* override ... TODO: what ?      */
-  flag_t            cap_strict ;        /* strict...    TODO: what ?      */
+  bool              cap_override ;      /* override ... TODO: what ?      */
+  bool              cap_strict ;        /* strict...    TODO: what ?      */
 
   int               ttl ;               /* TTL to set, if not zero        */
   unsigned short    port ;              /* destination port for peer      */
@@ -183,9 +183,9 @@ struct bgp_session
   unsigned  hold_timer_interval ;       /* subject to negotiation         */
   unsigned  keepalive_timer_interval ;  /* subject to negotiation         */
 
-  flag_t            as4 ;               /* set by OPEN                    */
-  flag_t            route_refresh_pre ; /* use pre-RFC version            */
-  flag_t            orf_prefix_pre ;    /* use pre-RFC version            */
+  bool              as4 ;               /* set by OPEN                    */
+  bool              route_refresh_pre ; /* use pre-RFC version            */
+  bool              orf_prefix_pre ;    /* use pre-RFC version            */
 
   /* These are cleared by the Routeing Engine before a session is enabled,
    * and set by the BGP Engine when the session is established.
@@ -213,7 +213,7 @@ struct bgp_session
    */
   bgp_connection    connections[bgp_connection_count] ;
 
-  flag_t        active ;
+  bool          active ;
 } ;
 
 /*==============================================================================

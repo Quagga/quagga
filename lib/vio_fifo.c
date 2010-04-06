@@ -23,6 +23,7 @@
 #include <string.h>
 
 #include "vio_fifo.h"
+#include "network.h"
 #include "list_util.h"
 
 #include "memory.h"
@@ -36,6 +37,9 @@
  *
  * The last lump is never released.  So, it may be that only one lump is
  * ever needed.
+ *
+ * When releasing lumps, keeps one lump "spare", to be reused as necessary.
+ * This is used in ... TODO <<<<  And is released...
  *
  *------------------------------------------------------------------------------
  * Implementation notes:
@@ -114,13 +118,18 @@ vio_fifo_init_new(vio_fifo vf, size_t size)
 
   /* Zeroising the the vio_fifo_t has set:
    *
-   *    lump    -- base pair, both pointers NULL => list is empty
+   *    lump      -- base pair, both pointers NULL => list is empty
    *
-   *    put_ptr -- NULL ) no lump to put anything into
-   *    put_end -- NULL ) put_ptr == put_end   => no room in current lump
+   *    put_ptr   -- NULL ) no lump to put anything into
+   *    put_end   -- NULL ) put_ptr == put_end   => no room in current lump
    *
-   *    get_ptr -- NULL ) no lump to get anything from
-   *    get_end -- NULL ) get_ptr -- get_end => nothing left in current lump
+   *    get_ptr   -- NULL ) no lump to get anything from
+   *    get_end   -- NULL ) get_ptr -- get_end => nothing left in current lump
+   *
+   *    rdr_lump  -- NULL ) no rdr_lump
+   *    rdr_ptr   -- NULL
+   *
+   *    spare     -- NULL  no spare lump
    *
    * ALSO  put_ptr == get_ptr => FIFO is empty !
    */
@@ -139,6 +148,8 @@ vio_fifo_init_new(vio_fifo vf, size_t size)
  *
  * If does not free the FIFO structure, resets it all empty.
  *
+ * Frees *all* FIFO lumps.
+ *
  * See also: vio_fifo_reset_keep(vio_fifo)
  *           vio_fifo_reset_free(vio_fifo)
  */
@@ -153,6 +164,9 @@ vio_fifo_reset(vio_fifo vf, int free_structure)
   while (ddl_pop(&lump, vf->base, list) != NULL)
     XFREE(MTYPE_VIO_FIFO_LUMP, lump) ;
 
+  if (vf->spare != NULL)
+    XFREE(MTYPE_VIO_FIFO_LUMP, vf->spare) ;
+
   if (free_structure)
     XFREE(MTYPE_VIO_FIFO, vf) ;         /* sets vf = NULL       */
   else
@@ -162,33 +176,105 @@ vio_fifo_reset(vio_fifo vf, int free_structure)
 } ;
 
 /*------------------------------------------------------------------------------
- * Set FIFO empty, discarding current contents -- will continue to use the FIFO.
+ * The FIFO is empty, with one lump -- reset all pointers.
+ */
+inline static void
+vio_fifo_ptr_reset(vio_fifo vf, vio_fifo_lump lump)
+{
+  if (vf->rdr_lump != NULL)
+    {
+      assert((lump == vf->rdr_lump) && (vf->rdr_ptr == vf->get_ptr)) ;
+      vf->rdr_ptr = lump->data ;
+    } ;
+
+  /* Note that sets the lump->end to the true lump->end                 */
+  vf->get_ptr = vf->get_end = vf->put_ptr = lump->data ;
+  vf->put_end = lump->end = lump->data + lump->size ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * The FIFO is utterly empty, with ZERO lumps -- unset all pointers.
+ */
+inline static void
+vio_fifo_ptr_unset(vio_fifo vf)
+{
+  assert((ddl_head(vf->base) == NULL) && (ddl_tail(vf->base) == NULL)) ;
+
+  vf->one     = false ;
+
+  vf->put_ptr = NULL ;
+  vf->put_end = NULL ;
+  vf->get_ptr = NULL ;
+  vf->get_end = NULL ;
+
+  vf->rdr_lump = NULL ;
+  vf->rdr_ptr  = NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Clear out contents of FIFO -- will continue to use the FIFO.
+ *
+ * Keeps one FIFO lump.  (Frees everything else, including any spare.)
  */
 extern void
-vio_fifo_set_empty(vio_fifo vf)
+vio_fifo_clear(vio_fifo vf)
 {
-  vio_fifo_lump lump ;
+  vio_fifo_lump tail ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
 
   assert(vf != NULL) ;
 
-  while (ddl_head(vf->base) != ddl_tail(vf->base))
-    {
-      ddl_pop(&lump, vf->base, list) ;
-      XFREE(MTYPE_VIO_FIFO_LUMP, lump) ;
-    } ;
+  tail = ddl_tail(vf->base) ;
 
-  lump = ddl_head(vf->base) ;
-  if (lump != NULL)
+  if (tail != NULL)
     {
-      vf->get_ptr = vf->get_end = vf->put_ptr = lump->data ;
-                                  vf->put_end = lump->end ;
-    } ;
+      while (ddl_head(vf->base) != tail)
+        {
+          vio_fifo_lump lump ;
+          ddl_pop(&lump, vf->base, list) ;
+          XFREE(MTYPE_VIO_FIFO_LUMP, lump) ;
+        } ;
+
+      vf->rdr_lump  = NULL ;            /* clear rdr            */
+      vf->rdr_ptr   = NULL ;
+
+      vf->one = true ;
+      vio_fifo_ptr_reset(vf, tail) ;
+    }
+  else
+    vio_fifo_ptr_unset(vf) ;
+
+  if (vf->spare != NULL)
+    XFREE(MTYPE_VIO_FIFO_LUMP, vf->spare) ;   /* sets vf->spare = NULL  */
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * See how much room there is in the FIFO.
+ *
+ * If no lumps have been allocated, returns the size of the lump that would
+ * allocate.
+ *
+ * Otherwise, returns the amount of space available *without* allocating any
+ * further lumps.
+ *
+ * Returns: room available as described
+ */
+extern size_t
+vio_fifo_room(vio_fifo vf)
+{
+  if (vf->put_ptr != NULL)
+    return vf->put_end - vf->put_ptr ;
+  else
+    return vf->size ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Allocate another lump for putting into.
  *
- * Call when (vf->put_ptr >= vf->put_end) -- asserts that the pointers are equal.
+ * Call when (vf->put_ptr >= vf->put_end) -- asserts that they are equal.
  *
  * Set the put_ptr/put_end pointers to point at the new lump.
  *
@@ -198,23 +284,19 @@ vio_fifo_set_empty(vio_fifo vf)
  * to reflect the fact that the out lump is now full.
  */
 extern void
-vio_fifo_lump_new(vio_fifo vf)
+vio_fifo_lump_new(vio_fifo vf, size_t size)
 {
   vio_fifo_lump lump ;
-  size_t   size ;
   int      first_alloc ;
 
   VIO_FIFO_DEBUG_VERIFY(vf) ;
 
   passert(vf->put_ptr == vf->put_end) ; /* must be end of tail lump     */
 
-  lump = ddl_tail(vf->base) ;
-
-  /* When there is only one lump, the get_end tracks the put_ptr.
-   * But when there is more than one lump, it must be the end of that lump.
-   */
   if (vf->one)
-    vf->get_end = lump->end ;
+    vf->get_end = vf->put_ptr ;         /* update get_end               */
+
+  lump = ddl_tail(vf->base) ;
 
   first_alloc = (lump == NULL) ;        /* extra initialisation needed  */
 
@@ -223,9 +305,21 @@ vio_fifo_lump_new(vio_fifo vf)
   else
     assert(vf->put_ptr == lump->end) ;  /* must be end of tail lump     */
 
-  size = vio_fifo_size(vf->size) ;
-  lump = XMALLOC(MTYPE_VIO_FIFO_LUMP, offsetof(vio_fifo_lump_t, data[size])) ;
-  lump->end = (char*)lump->data + vf->size ;
+  size = vio_fifo_size(size) ;
+
+  if ((vf->spare != NULL) && (vf->spare->size >= size))
+    {
+      lump = vf->spare ;
+      vf->spare = NULL ;
+    }
+  else
+    {
+      lump = XMALLOC(MTYPE_VIO_FIFO_LUMP,
+                                       offsetof(vio_fifo_lump_t, data[size])) ;
+      lump->size = size ;
+    } ;
+
+  lump->end = lump->data + lump->size ;
 
   ddl_append(vf->base, lump, list) ;
 
@@ -238,6 +332,207 @@ vio_fifo_lump_new(vio_fifo vf)
     {
       vf->get_ptr = vf->put_ptr ;       /* get_ptr == put_ptr => empty  */
       vf->get_end = vf->put_ptr ;
+    } ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Release lump, head or tail (or both) and update pointers.
+ *
+ * Note that this does release the lump if it is the only lump.
+ *
+ * Do nothing if nothing is yet allocated.
+ *
+ * If releasing the only lump in the FIFO, resets all pointers to NULL.
+ *
+ * If releasing the head lump:
+ *
+ *   * the lump MUST be finished with -- so vf->get_ptr must be at the end
+ *
+ *     If releasing the only lump, the FIFO MUST be empty.
+ *
+ *   * if the lump is the current vf->rdr_lump, the reader must be at the
+ *     end too -- ie it must be the same as the vf->get_ptr !
+ *
+ * If releasing the tail lump:
+ *
+ *   * the lump MUST be empty
+ *
+ *     If releasing the only lump, the FIFO MUST be empty.
+ *
+ *   * if the lump is the current vf->rdr_lump, the reader must be at the
+ *     end too -- ie it must be the same as the vf->get_ptr !
+ */
+static void
+vio_fifo_lump_release(vio_fifo vf, vio_fifo_lump lump)
+{
+  vio_fifo_lump head ;
+  vio_fifo_lump tail ;
+  vio_fifo_lump free ;
+  bool release_head ;
+  bool release_tail ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+
+  /* Prepare and check whether removing head or tail (or both)          */
+  head = ddl_head(vf->base) ;
+  tail = ddl_tail(vf->base) ;
+
+  release_head = (lump == head) ;
+  release_tail = (lump == tail) ;
+
+  assert(release_head || release_tail) ;
+
+  /* Unless nothing ever allocated -- release the lump.                 */
+  free = lump ;                 /* expect to free the lump      */
+  if (lump != NULL)
+    {
+      vio_fifo_lump keep ;
+
+      /* Consistency checks                                     */
+      if (release_head)
+        {
+          if (release_tail)
+            assert(vf->get_ptr == vf->put_ptr) ;
+          else
+            assert(vf->get_ptr == lump->end) ;
+
+          if (vf->rdr_lump == lump)
+            assert(vf->rdr_ptr == vf->get_ptr) ;
+        }
+      else if (release_tail)
+        {
+          assert(vf->put_ptr == lump->data) ;
+
+          if (vf->rdr_lump == lump)
+            assert(vf->rdr_ptr == vf->put_ptr) ;
+        } ;
+
+      /* Remove lump from FIFO and decide whether to keep as spare, or
+       * which of spare and this to free.
+       */
+      ddl_del(vf->base, lump, list) ;
+
+      keep = vf->spare ;        /* expect to keep current spare */
+
+      if ((keep == NULL) || (keep->size < lump->size))
+        {
+          keep = lump ;
+          free = vf->spare ;
+        } ;
+
+      vf->spare = keep ;
+
+      head = ddl_head(vf->base) ;   /* changed if released head */
+      tail = ddl_tail(vf->base) ;   /* changed if released tail */
+    } ;
+
+  /* Now update pointers... depending on what was released and what have
+   * left.
+   */
+  if (head == NULL)
+    {
+      /* Deal with FIFO that now has no lumps or had none to start with     */
+      if (lump != NULL)
+        assert(vf->one) ;
+
+      vio_fifo_ptr_unset(vf) ;
+    }
+  else
+    {
+      /* Have at least one lump left -- so must have had at least two ! */
+      assert(!vf->one) ;
+
+      vf->one = (head == tail) ;        /* update       */
+
+      if (release_head)
+        {
+          /* Released the head.
+           *
+           * Update the vf->get_ptr and the vf->get_end.
+           */
+          vf->get_ptr = head->data ;
+          if (vf->one)
+            vf->get_end = vf->put_ptr ;
+          else
+            vf->get_end = head->end ;
+
+          /* Update vf->rdr_ptr and vf->rdr_lump.       */
+         if (vf->rdr_lump == lump)
+           {
+             vf->rdr_lump = head ;
+             vf->rdr_ptr  = head->data ;
+           } ;
+        }
+      else
+        {
+          /* Released the tail.
+           * Update the vf->put_ptr and vf->put_end
+           */
+          vf->put_ptr = vf->put_end = tail->end ;
+
+         /* Update vf->rdr_ptr and vf->rdr_lump.        */
+         if (vf->rdr_lump == lump)
+           {
+             vf->rdr_lump = tail ;
+             vf->rdr_ptr  = tail->end ;
+           } ;
+        } ;
+    } ;
+
+  /* Finally, free any lump that is actually to be freed                */
+
+  if (free != NULL)
+    XFREE(MTYPE_VIO_FIFO_LUMP, free) ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Re-allocate lump for putting into.
+ *
+ * Call when vf->put_ptr == start of last lump, and that lump is not big
+ * enough !
+ *
+ * There must be at least one lump.
+ *
+ * Updates put_ptr/put_end pointers to point at the new lump.
+ *
+ * Updates get_ptr/get_end pointers if required.
+ *
+ * Updates rdr_ptr if required.
+ */
+static void
+vio_fifo_lump_renew(vio_fifo vf, vio_fifo_lump lump, size_t size)
+{
+  bool    rdr_set ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+
+  /* FIFO may not be completely empty.
+   * This must be the last lump.
+   * The last lump must be empty.
+   */
+  assert((lump != NULL) && (lump == ddl_tail(vf->base))) ;
+
+  /* Remove the last, *empty* lump, and update all pointers to suit.    */
+  rdr_set = (vf->rdr_lump == lump) ;
+
+  vio_fifo_lump_release(vf, lump) ;
+
+  /* Now allocate a new lump with the required size                     */
+  vio_fifo_lump_new(vf, size) ;
+
+  /* Restore the rdr_ptr, if required                                   */
+  if (rdr_set)
+    {
+      vio_fifo_lump tail ;
+
+      tail = ddl_tail(vf->base) ;
+
+      vf->rdr_lump = tail ;
+      vf->rdr_ptr  = tail->data ;
     } ;
 
   VIO_FIFO_DEBUG_VERIFY(vf) ;
@@ -260,7 +555,7 @@ vio_fifo_put(vio_fifo vf, const char* src, size_t n)
   while (n > 0)
     {
       if (vf->put_ptr >= vf->put_end)
-        vio_fifo_lump_new(vf) ;   /* traps broken vf->put_ptr > vf->put_end */
+        vio_fifo_lump_new(vf, vf->size) ; /* traps put_ptr > put_end    */
 
       take = (vf->put_end - vf->put_ptr) ;
       if (take > n)
@@ -274,6 +569,103 @@ vio_fifo_put(vio_fifo vf, const char* src, size_t n)
     } ;
 
   VIO_FIFO_DEBUG_VERIFY(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Formatted print to fifo -- cf printf()
+ *
+ * Returns: >= 0 -- number of bytes written
+ *           < 0 -- failed (unlikely though that is)
+ */
+extern int
+vio_fifo_printf(vio_fifo vf, const char* format, ...)
+{
+  va_list args;
+  int      len ;
+
+  va_start (args, format);
+  len = vio_fifo_vprintf(vf, format, args);
+  va_end (args);
+
+  return len;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Formatted print to fifo -- cf vprintf()
+ *
+ * Returns: >= 0 -- number of bytes written
+ *           < 0 -- failed (unlikely though that is)
+ */
+extern int
+vio_fifo_vprintf(vio_fifo vf, const char *format, va_list args)
+{
+  va_list  ac ;
+  int      len ;
+  int      have ;
+  size_t   size ;
+  vio_fifo_lump lump ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+
+  size = vf->size ;             /* standard allocation size             */
+  while (1)
+    {
+      /* Find what space is left in the tail lump, and allocate a new,
+       * empty lump if required.
+       */
+      if (vf->put_ptr >= vf->put_end)
+        vio_fifo_lump_new(vf, size) ;   /* traps put_ptr > put_end      */
+
+      have = vf->put_end - vf->put_ptr ;
+      assert(have > 0) ;
+
+      /* Note that vsnprintf() returns the length of what it would like to
+       * have produced, if it had the space.  That length does not include
+       * the trailing '\0'.
+       */
+      va_copy(ac, args) ;
+      len = vsnprintf(vf->put_ptr, have, format, ac) ;
+      va_end(ac) ;
+
+      if (len < have)
+        {
+          if (len < 0)
+            break ;             /* quit if failed       */
+
+          vf->put_ptr += len ;
+          break ;               /* done                 */
+        } ;
+
+      /* Not able to complete the operation in the current buffer.
+       *
+       * If the required space (len + 1) is greater than the standard
+       * allocation, then need to increase the allocation for the next lump.
+       *
+       * If the current lump is empty, need to renew it with a fresh lump of
+       * the now known required size.
+       *
+       * If the current lump is not empty, need to cut the end off and then
+       * allocate a fresh lump (of the standard or now known required size).
+       */
+      if (len >= (int)size)
+        size = len + 1 ;                /* need a non-standard size     */
+
+      lump = ddl_tail(vf->base) ;
+
+      if (vf->put_ptr == lump->data)
+        /* Need to replace the last, empty, lump with another empty lump, but
+         * big enough.
+         */
+        vio_fifo_lump_renew(vf, lump, size) ;
+      else
+        /* Need to cut this lump short, and allocate new lump at top of loop.
+         */
+        lump->end = vf->put_end = vf->put_ptr ;
+    } ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+
+  return len ;
 } ;
 
 /*==============================================================================
@@ -293,6 +685,8 @@ static bool vio_fifo_get_next_lump(vio_fifo vf) ;
 static inline bool
 vio_fifo_get_ready(vio_fifo vf)
 {
+  assert(vf->rdr_lump == NULL) ;
+
   if (vf->one)
     vf->get_end = vf->put_ptr ;         /* make sure have everything    */
 
@@ -380,8 +774,8 @@ vio_fifo_get_next_byte(vio_fifo vf)
 /*------------------------------------------------------------------------------
  * Get pointer to a lump of bytes.
  *
- * Returns: address of next byte to get, *have = number of bytes available
- *      or: NULL => FIFO is empty,       *have = 0
+ * Returns: address of next byte to get, *p_have = number of bytes available
+ *      or: NULL => FIFO is empty,       *p_have = 0
  *
  * If the FIFO is not empty, will return pointer to at least one byte.
  *
@@ -389,15 +783,15 @@ vio_fifo_get_next_byte(vio_fifo vf)
  * further lumps beyond the current one.
  */
 extern void*
-vio_fifo_get_lump(vio_fifo vf, size_t* have)
+vio_fifo_get_lump(vio_fifo vf, size_t* p_have)
 {
   if (!vio_fifo_get_ready(vf))
     {
-      *have = 0 ;
+      *p_have = 0 ;
       return NULL ;
     } ;
 
-  *have = (vf->get_end - vf->get_ptr) ;
+  *p_have = (vf->get_end - vf->get_ptr) ;
   return vf->get_ptr ;
 } ;
 
@@ -422,6 +816,195 @@ vio_fifo_got_upto(vio_fifo vf, void* here)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Write contents of FIFO -- assuming non-blocking file
+ *
+ * Will write all of FIFO, or upto but excluding the last lump.
+ *
+ * Returns: > 0 => blocked
+ *            0 => all gone (up to last lump if !all)
+ *          < 0 => failed -- see errno
+ *
+ * Note: will work perfectly well for a non-blocking file -- which should
+ *       never return EAGAIN/EWOULDBLOCK, so will return from here "all gone".
+ */
+extern int
+vio_fifo_write_nb(vio_fifo vf, int fd, bool all)
+{
+  char*   src ;
+  size_t  have ;
+  int     done ;
+
+  while ((src = vio_fifo_get_lump(vf, &have)) != NULL)
+    {
+      if (!all && vf->one)
+        break ;                         /* don't write last lump        */
+
+      done = write_nb(fd, src, have) ;
+
+      if (done < 0)
+        return -1 ;                     /* failed                       */
+
+      vio_fifo_got_upto(vf, src + done) ;
+
+      if (done < (int)have)
+        return 1 ;                      /* blocked                      */
+    } ;
+
+  return 0 ;                            /* all gone                     */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the current rdr_end value.
+ *
+ * Unlike get_end, do not have a field for this, but find it each time.
+ */
+inline static char*
+vio_fifo_rdr_end(vio_fifo vf)
+{
+  if (vf->rdr_lump == ddl_tail(vf->base))
+    return vf->put_ptr ;
+  else
+    return vf->rdr_lump->end ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the current rdr position -- sets it up if not currently set.
+ *
+ * Returns: address of next byte to get, *p_have = number of bytes available
+ *      or: NULL => FIFO is empty,       *p_have = 0
+ *
+ * If the FIFO is not empty, will return pointer to at least one byte.
+ *
+ * Returns number of bytes to the end of the current lump.  There may be
+ * further lumps beyond the current one.
+ *
+ * NB: unless returns FIFO is empty, it is a mistake to now do any "get"
+ *     operation other than vio_fifo_step_rdr(), until do vio_fifo_sync_rdr()
+ *     or vio_fifo_drop_rdr.
+ */
+extern void*
+vio_fifo_get_rdr(vio_fifo vf, size_t* p_have)
+{
+  if (!vio_fifo_get_ready(vf))
+    {
+      *p_have = 0 ;
+      return NULL ;
+    } ;
+
+  if (vf->rdr_lump == NULL)     /* set up new rdr if required   */
+    {
+      vf->rdr_lump = ddl_head(vf->base) ;
+      vf->rdr_ptr  = vf->get_ptr ;
+    } ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+
+  *p_have = vio_fifo_rdr_end(vf) - vf->rdr_ptr ;
+  return vf->rdr_ptr ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Step the rdr forward by the given number of bytes.
+ *
+ * Returns: address of next byte to get, *p_have = number of bytes available
+ *      or: NULL => FIFO is empty,       *p_have = 0
+ *
+ * If the FIFO is not empty, will return pointer to at least one byte.
+ *
+ * Returns number of bytes to the end of the current lump.  There may be
+ * further lumps beyond the current one.
+ *
+ * NB: this does not change the get pointers, so all the data being stepped
+ *     over is preserved in the FIFO, until vio_fifo_sync_rdr().
+ *
+ * NB: the step may NOT exceed the last reported "have".
+ */
+extern void*
+vio_fifo_step_rdr(vio_fifo vf, size_t* p_have, size_t step)
+{
+  char* rdr_end ;
+
+  assert(vf->rdr_lump != NULL) ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+
+  rdr_end = vio_fifo_rdr_end(vf) ;
+  vf->rdr_ptr += step ;
+
+  if (vf->rdr_ptr >= rdr_end)
+    {
+      assert(vf->rdr_ptr == rdr_end) ;
+
+      if (vf->rdr_lump != ddl_tail(vf->base))
+        {
+          vf->rdr_lump = ddl_next(vf->rdr_lump, list) ;
+          vf->rdr_ptr  = vf->rdr_lump->data ;
+
+          rdr_end = vio_fifo_rdr_end(vf) ;
+        } ;
+    } ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+
+  *p_have = (rdr_end - vf->rdr_ptr) ;
+  return (*p_have > 0) ? vf->rdr_ptr : NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Move FIFO get position to the rdr position, if any.
+ *
+ * This clears the rdr position, and removes all data between the current and
+ * new get positions from the FIFO.
+ */
+extern void
+vio_fifo_sync_rdr(vio_fifo vf)
+{
+  vio_fifo_lump head ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+
+  if (vf->rdr_lump == NULL)
+    return ;
+
+  while ((head = ddl_head(vf->base)) != vf->rdr_lump)
+    {
+      vf->get_ptr = vf->get_end ;       /* jump to end of lump  */
+      vio_fifo_lump_release(vf, head) ;
+    } ;
+
+  vf->get_ptr  = vf->rdr_ptr ;          /* jump to rdr_ptr      */
+
+  vf->rdr_lump = NULL ;                 /* clear the rdr        */
+  vf->rdr_ptr  = NULL ;
+
+  if (vf->one)
+    {
+      if (vf->put_ptr == vf->get_ptr)   /* reset pointers if FIFO empty  */
+        vio_fifo_ptr_reset(vf, head) ;
+      else
+        vf->get_end = vf->put_ptr ;
+    }
+  else
+    vf->get_end = head->end ;
+
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Drop the rdr position (if any).
+ *
+ * This clears the rdr position leaving the get position and FIFO unchanged.
+ */
+extern void
+vio_fifo_drop_rdr(vio_fifo vf)
+{
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
+
+  vf->rdr_lump = NULL ;
+  vf->rdr_ptr  = NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Move on to next lump to get stuff from.
  *
  * Advance pointers etc. so that have at least one byte available, unless
@@ -439,70 +1022,51 @@ vio_fifo_got_upto(vio_fifo vf, void* here)
  * Returns: true <=> at least one byte in FIFO.
  *
  * NB: if finds that the FIFO is empty, resets the pointers to the start
- *     of the last lump.
+ *     of the last lump -- does not release the last lump.
  */
 static bool
 vio_fifo_get_next_lump(vio_fifo vf)
 {
   vio_fifo_lump head ;
-  vio_fifo_lump tail ;
 
   VIO_FIFO_DEBUG_VERIFY(vf) ;
   assert(vf->get_ptr == vf->get_end) ;
 
-  head = ddl_head(vf->base) ;   /* current lump for put                 */
-  tail = ddl_tail(vf->base) ;   /* current lump for get                 */
+  head = ddl_head(vf->base) ;   /* current lump for get     */
 
-  /* Deal with case of one lump only                                    */
+  /* Deal with the simple case of one lump, first.
+   *
+   * To save work when putting data into the FIFO (particularly when putting
+   * a byte at a time) does not keep the vf->get_end up to date (when there is
+   * only one lump).
+   *
+   * If the FIFO is empty, reset pointers and return empty.
+   */
   if (vf->one)
     {
-      assert( (head != NULL)
-           && (head == tail) ) ;
+      assert( (head != NULL) && (head == ddl_tail(vf->base)) ) ;
 
-      if (vf->get_ptr == vf->put_ptr)
+      if (vf->get_ptr < vf->put_ptr)
         {
-          /* FIFO is empty -- reset pointers and exit           */
-          vf->get_ptr = vf->get_end = vf->put_ptr = head->data ;
-          assert(vf->put_end == head->end) ;
+          /* Had an out of date vf->get_end                     */
+          vf->get_end = vf->put_ptr ;
 
-          return 0 ;            /* FIFO empty                   */
+          return true ;         /* FIFO not empty               */
         } ;
 
-      /* Had an out of date vf->get_end                         */
-      assert(vf->get_end < vf->put_ptr) ;
-      vf->get_end = vf->put_ptr ;
+      assert(vf->get_ptr == vf->put_ptr) ;
 
-      return 1 ;                /* FIFO not empty after all     */
+      /* FIFO is empty -- reset pointers and exit               */
+      vio_fifo_ptr_reset(vf, head) ;
+
+      return false ;            /* FIFO empty                   */
     } ;
 
-  /* Deal with case of not yet allocated                        */
-  if (head == NULL)
-    {
-      assert( (tail == NULL)
-           && (vf->put_ptr == vf->get_ptr) );
-
-      return 0 ;                /* FIFO empty                   */
-    } ;
-
-  /* Deal with (remaining) case of two or more lumps            */
-  assert(vf->get_ptr == head->end) ;
-
-  ddl_del_head(vf->base, list) ;
-  XFREE(MTYPE_VIO_FIFO_LUMP, head) ;
-
-  head = ddl_head(vf->base) ;
-  assert(head != NULL) ;
-
-  vf->one = (head == tail) ;
-
-  vf->get_ptr = head->data ;    /* at start of next lump        */
-
-  if (vf->one)
-    vf->get_end = vf->put_ptr ; /* up to current put            */
-  else
-    vf->get_end = head->end ;   /* up to end of lump            */
-
-  VIO_FIFO_DEBUG_VERIFY(vf) ;
+  /* Release the head and update pointers
+   *
+   * Deals with possibility that nothing has yet been allocated
+   */
+  vio_fifo_lump_release(vf, head) ;
 
   return (vf->get_ptr < vf->get_end) ;
 } ;
@@ -514,6 +1078,7 @@ Private void
 vio_fifo_verify(vio_fifo vf)
 {
   vio_fifo_lump head ;
+  vio_fifo_lump lump ;
   vio_fifo_lump tail ;
 
   head = ddl_head(vf->base) ;
@@ -524,10 +1089,11 @@ vio_fifo_verify(vio_fifo vf)
   if (head == NULL)
     {
       if ( (tail != NULL)
-          || (vf->put_ptr != NULL)
-          || (vf->put_end != NULL)
-          || (vf->get_ptr != NULL)
-          || (vf->get_end != NULL)
+          || (vf->put_ptr  != NULL)
+          || (vf->put_end  != NULL)
+          || (vf->get_ptr  != NULL)
+          || (vf->rdr_lump != NULL)
+          || (vf->rdr_ptr  != NULL)
           || (vf->one) )
         zabort("nothing allocated, but not all NULL") ;
       return ;
@@ -541,7 +1107,7 @@ vio_fifo_verify(vio_fifo vf)
   /* Check that all the pointers are within respective lumps
    *
    * Know that put_end is always tail->end, but get_end need not be.
-   *     */
+   */
   if ( (tail->data > vf->put_ptr)
       ||            (vf->put_ptr > vf->put_end)
       ||                          (vf->put_end != tail->end) )
@@ -568,5 +1134,32 @@ vio_fifo_verify(vio_fifo vf)
 
       if (vf->get_end != head->end)
         zabort("get_end is not head->end when !vf->one") ;
+    } ;
+
+  /* If have an rdr_lump -- make sure everything else is valid  */
+  if (vf->rdr_lump != NULL)
+    {
+      lump = head ;
+      while (lump != vf->rdr_lump)
+        {
+          if (lump == tail)
+            zabort("rdr_lump is not part of FIFO") ;
+          lump = ddl_next(lump, list) ;
+        } ;
+
+      if ( (lump->data > vf->rdr_ptr)
+          ||            (vf->rdr_ptr > lump->end) )
+        zabort("rdr_ptr outside its lump") ;
+
+      if ( (lump == head) && (vf->rdr_ptr < vf->get_ptr))
+         zabort("rdr_ptr is less than get_ptr in first lump") ;
+
+      if ( (lump == tail) && (vf->rdr_ptr > vf->put_ptr))
+         zabort("rdr_ptr is greater than put_ptr in last lump") ;
+    }
+  else
+    {
+      if (vf->rdr_ptr != NULL)
+        zabort("rdr_ptr not NULL when rdr_lump is") ;
     }
 } ;

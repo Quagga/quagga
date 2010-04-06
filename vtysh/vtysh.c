@@ -19,7 +19,7 @@
  * 02111-1307, USA.
  */
 
-#include <zebra.h>
+#include "zebra.h"
 
 #include <sys/un.h>
 #include <setjmp.h>
@@ -277,20 +277,20 @@ vtysh_execute_func (const char *line, int pager)
 {
   int ret, cmd_stat;
   u_int i;
-  vector vline;
   struct cmd_element *cmd;
   FILE *fp = NULL;
   int closepager = 0;
   int tried = 0;
   int saved_ret, saved_node;
 
-  /* Split readline string up into the vector. */
-  vline = cmd_make_strvec (line);
+  /* TODO: how well does vtysh_execute_func work ?? -- esp. qpthreads_enabled */
+  vty->buf = line ;
 
-  if (vline == NULL)
-    return CMD_SUCCESS;
+  saved_ret = ret = cmd_execute_command (vty, cmd_parse_completion, &cmd);
 
-  saved_ret = ret = cmd_execute_command (vline, vty, &cmd, NULL, 1);
+  if ((ret == CMD_SUCCESS) && (cmd == NULL))
+    return ret ;                /* quit if nothing to do ???            */
+
   saved_node = vty->node;
 
   /* If command doesn't succeeded in current node, try to walk up in node tree.
@@ -300,7 +300,7 @@ vtysh_execute_func (const char *line, int pager)
 	 && vty->node > CONFIG_NODE)
     {
       vty->node = node_parent(vty->node);
-      ret = cmd_execute_command (vline, vty, &cmd, NULL, 1);
+      ret = cmd_execute_command (vty, cmd_parse_completion, &cmd);
       tried++;
     }
 
@@ -333,8 +333,6 @@ vtysh_execute_func (const char *line, int pager)
     {
       ret = saved_ret;
     }
-
-  cmd_free_strvec (vline);
 
   cmd_stat = ret;
   switch (ret)
@@ -383,23 +381,10 @@ vtysh_execute_func (const char *line, int pager)
 	    if (cmd_stat)
 	      {
 		line = "end";
-		vline = cmd_make_strvec (line);
 
-		if (vline == NULL)
-		  {
-		    if (pager && vtysh_pager_name && fp && closepager)
-		      {
-			if (pclose (fp) == -1)
-			  {
-			    perror ("pclose failed for pager");
-			  }
-			fp = NULL;
-		      }
-		    return CMD_SUCCESS;
-		  }
+		vty->buf = line ;
 
-		ret = cmd_execute_command (vline, vty, &cmd, NULL, NULL, 1);
-		cmd_free_strvec (vline);
+		ret = cmd_execute_command (vty, cmd_parse_completion, &cmd);
 		if (ret != CMD_SUCCESS_DAEMON)
 		  break;
 	      }
@@ -456,22 +441,15 @@ int
 vtysh_config_from_file (struct vty *vty, FILE *fp)
 {
   int ret;
-  vector vline;
   struct cmd_element *cmd;
+
+  /* TODO: (1) allocate buffer for vty->buf  (2) what about CMD_QUEUED ??    */
+
 
   while (fgets (vty->buf, VTY_BUFSIZ, fp))
     {
-      if (vty->buf[0] == '!' || vty->buf[1] == '#')
-	continue;
-
-      vline = cmd_make_strvec (vty->buf);
-
-      /* In case of comment line. */
-      if (vline == NULL)
-	continue;
-
       /* Execute configuration command : this is strict match. */
-      ret = cmd_execute_command_strict (vline, vty, &cmd);
+      ret = cmd_execute_command(vty, cmd_parse_strict, &cmd);
 
       /* Try again with setting node to CONFIG_NODE. */
       if (ret != CMD_SUCCESS
@@ -482,7 +460,7 @@ vtysh_config_from_file (struct vty *vty, FILE *fp)
 	    {
 	      vty->node = KEYCHAIN_NODE;
 	      vtysh_exit_ripd_only ();
-	      ret = cmd_execute_command_strict (vline, vty, &cmd);
+	      ret = cmd_execute_command(vty, cmd_parse_strict, &cmd);
 
 	      if (ret != CMD_SUCCESS
 		  && ret != CMD_SUCCESS_DAEMON
@@ -490,7 +468,7 @@ vtysh_config_from_file (struct vty *vty, FILE *fp)
 		{
 		  vtysh_exit_ripd_only ();
 		  vty->node = CONFIG_NODE;
-		  ret = cmd_execute_command_strict (vline, vty, &cmd);
+		  ret = cmd_execute_command(vty, cmd_parse_strict, &cmd);
 		}
 	    }
 	  else
@@ -498,7 +476,7 @@ vtysh_config_from_file (struct vty *vty, FILE *fp)
 	      vtysh_execute ("end");
 	      vtysh_execute ("configure terminal");
 	      vty->node = CONFIG_NODE;
-	      ret = cmd_execute_command_strict (vline, vty, &cmd);
+	      ret = cmd_execute_command(vty, cmd_parse_strict, &cmd);
 	    }
 	}
 
@@ -2227,7 +2205,7 @@ void
 vtysh_init_vty (void)
 {
   /* Make vty structure. */
-  vty = vty_new (0, VTY_SHELL);
+  vty = vty_open(VTY_SHELL);
   vty->node = VIEW_NODE;
 
   /* Initialize commands. */

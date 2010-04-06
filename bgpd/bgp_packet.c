@@ -772,13 +772,6 @@ bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
   bgp_notify notification;
   notification = bgp_notify_new_with_data(code, sub_code, data, datalen);
 
-  /* For debug */
-  bgp_notify_print (peer, notification, "sending");
-
-  if (BGP_DEBUG (normal, NORMAL))
-    zlog_debug ("%s send message type %d, length (incl. header) %d",
-               peer->host, BGP_MSG_NOTIFY, notification->length);
-
   /* peer reset cause */
   if (sub_code != BGP_NOTIFY_CEASE_CONFIG_CHANGE)
     {

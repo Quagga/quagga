@@ -25,7 +25,7 @@
 #include "bgpd/bgp_connection.h"
 
 extern int
-bgp_open_listeners(unsigned short port, const char *address) ;
+bgp_open_listeners(const char *address, unsigned short port) ;
 
 extern void
 bgp_close_listeners(void) ;

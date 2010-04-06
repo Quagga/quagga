@@ -14,9 +14,9 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * along with GNU Zebra; see the file COPYING.  If not, write to the
+ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+ * Boston, MA 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -189,7 +189,7 @@ ospf6_disable (struct ospf6 *o)
   if (! CHECK_FLAG (o->flag, OSPF6_DISABLED))
     {
       SET_FLAG (o->flag, OSPF6_DISABLED);
-      
+
       for (ALL_LIST_ELEMENTS (o->area_list, node, nnode, oa))
         ospf6_area_disable (oa);
 
@@ -229,7 +229,7 @@ ospf6_maxage_remover (struct thread *thread)
     {
       for (ALL_LIST_ELEMENTS_RO (oa->if_list, j, oi))
         OSPF6_LSDB_MAXAGE_REMOVER (oi->lsdb);
-      
+
       OSPF6_LSDB_MAXAGE_REMOVER (oa->lsdb);
     }
   OSPF6_LSDB_MAXAGE_REMOVER (o->lsdb);
@@ -520,8 +520,10 @@ DEFUN (show_ipv6_ospf6_route_match,
        "Display routes which match the specified route\n"
        )
 {
-  const char *sargv[CMD_ARGC_MAX];
+  const char** sargv ;
   int i, sargc;
+
+  sargv = XMALLOC(MTYPE_TMP, (argc + 2) * sizeof(char*)) ;
 
   /* copy argv to sargv and then append "match" */
   for (i = 0; i < argc; i++)
@@ -531,6 +533,8 @@ DEFUN (show_ipv6_ospf6_route_match,
   sargv[sargc] = NULL;
 
   ospf6_route_table_show (vty, sargc, sargv, ospf6->route_table);
+
+  XFREE(MTYPE_TMP, sargv) ;
   return CMD_SUCCESS;
 }
 
@@ -546,8 +550,10 @@ DEFUN (show_ipv6_ospf6_route_match_detail,
        "Detailed information\n"
        )
 {
-  const char *sargv[CMD_ARGC_MAX];
+  const char** sargv ;
   int i, sargc;
+
+  sargv = XMALLOC(MTYPE_TMP, (argc + 2) * sizeof(char*)) ;
 
   /* copy argv to sargv and then append "match" and "detail" */
   for (i = 0; i < argc; i++)
@@ -558,6 +564,7 @@ DEFUN (show_ipv6_ospf6_route_match_detail,
   sargv[sargc] = NULL;
 
   ospf6_route_table_show (vty, sargc, sargv, ospf6->route_table);
+  XFREE(MTYPE_TMP, sargv) ;
   return CMD_SUCCESS;
 }
 
@@ -611,8 +618,10 @@ DEFUN (show_ipv6_ospf6_route_type_detail,
        "Detailed information\n"
        )
 {
-  const char *sargv[CMD_ARGC_MAX];
+  const char** sargv ;
   int i, sargc;
+
+  sargv = XMALLOC(MTYPE_TMP, (argc + 2) * sizeof(char*)) ;
 
   /* copy argv to sargv and then append "detail" */
   for (i = 0; i < argc; i++)
@@ -622,6 +631,7 @@ DEFUN (show_ipv6_ospf6_route_type_detail,
   sargv[sargc] = NULL;
 
   ospf6_route_table_show (vty, sargc, sargv, ospf6->route_table);
+  XFREE(MTYPE_TMP, sargv) ;
   return CMD_SUCCESS;
 }
 

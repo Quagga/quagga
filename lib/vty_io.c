@@ -46,20 +46,11 @@
 /*==============================================================================
  * VTY Command Output -- base functions
  *
- * ALL vty command output ends up here.
- *
- *   vty == NULL    => vprintf(stdout, ...)
- *   VTY_SHELL      => vprintf(stdout, ...)
- *   VTY_STDOUT     => vprintf(stdout, ...)
- *
- *   VTY_FILE       => write(fd, ....)
- *
- *   VTY_TERM       => command FIFO
- *   VTY_SHELL_SERV => command FIFO
- *
  * During command processing the output sent here is held until the command
  * completes.
  */
+
+static int uty_config_write(vty_io vio, bool all) ;
 
 /*------------------------------------------------------------------------------
  * VTY output function -- cf fprintf
@@ -84,71 +75,111 @@ uty_out (struct vty *vty, const char *format, ...)
  *
  * Returns: >= 0 => OK
  *          <  0 => failed (see errno)
+ *
+ * NB: for VTY_TERM and for VTY_SHELL_SERV -- this is command output:
+ *
+ *     * MAY NOT do any command output if !cmd_enabled
+ *
+ *        * first, the life of a vty is not guaranteed unless cmd_in_progress,
+ *          so should not attempt to use a vty anywhere other than command
+ *          execution.
+ *
+ *        * second, cmd_out_enabled is false most of the time, and is only
+ *          set true when a command completes, and it is time to write away
+ *          the results.
+ *
+ *     * all output is placed in the vio->cmd_obuf.  When the command completes,
+ *       the contents of the cmd_obuf will be written away -- subject to line
+ *       control.
+ *
+ *     * output is discarded if the vty is no longer write_open
  */
 extern int
 uty_vout(struct vty *vty, const char *format, va_list args)
 {
-  enum vty_type type ;
   vty_io vio ;
-  int    len ;
+  int    ret ;
 
   VTY_ASSERT_LOCKED() ;
 
-  /* Establish type of vty -- if any                                    */
-  if (vty != NULL)
-    {
-      vio = vty->vio ;
-      if (!vio->file.write_open)
-        return 0 ;                   /* discard output if not open !    */
+  vio = vty->vio ;
 
-      type = vio->type ;
-    }
-  else
-    {
-      vio = NULL ;
-      type = VTY_STDOUT ;
-    } ;
-
-  /* Output -- process depends on type                                  */
-  switch (type)
+  switch (vio->type)
   {
     case VTY_STDOUT:
     case VTY_SHELL:
-      len = vprintf (format, args);
+      ret = vprintf (format, args) ;
       break ;
 
-    case VTY_FILE:
+    case VTY_STDERR:
+      ret = vfprintf (stderr, format, args) ;
+      break ;
+
+    case VTY_CONFIG_WRITE:
+      ret = vio_fifo_vprintf(&vio->cmd_obuf, format, args) ;
+      if ((ret > 0) && vio_fifo_full_lump(&vio->cmd_obuf))
+        ret = uty_config_write(vio, false) ;
+      break ;
+
     case VTY_TERM:
     case VTY_SHELL_SERV:
+      assert(vio->cmd_in_progress) ;
 
-      len = qs_vprintf(&vio->cmd_vbuf, format, args) ;
-      if (len > 0)
-        {
-          if (type == VTY_FILE)
-            len = write(vio->file.fd, vio->cmd_vbuf.body, len) ;
-          else
-            vio_fifo_put(&vio->cmd_obuf, vio->cmd_vbuf.body, len) ;
-        } ;
+      if (!vio->sock.write_open)
+        return 0 ;                      /* discard output if not open ! */
+
+      /* fall through....       */
+
+    case VTY_CONFIG_READ:
+      ret = vio_fifo_vprintf(&vio->cmd_obuf, format, args) ;
       break ;
 
     default:
       zabort("impossible VTY type") ;
   } ;
 
-  return len;
+  return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Discard the current contents of the command FIFO
+ * Clear the contents of the command output FIFO etc.
  *
- * TODO: worry about line control ??
+ * NB: does not change any of the cli_blocked/cmd_in_progress/cli_wait_more/etc
+ *     flags -- competent parties must deal with those
  */
 extern void
-uty_out_discard(vty_io vio)
+uty_out_clear(vty_io vio)
 {
   VTY_ASSERT_LOCKED() ;
 
-  vio_fifo_set_empty(&vio->cmd_obuf) ;
+  vio_fifo_clear(&vio->cmd_obuf) ;
+
+  if (vio->cmd_lc != NULL)
+    vio_lc_clear(vio->cmd_lc) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Flush the contents of the command output FIFO to the given file.
+ *
+ * Takes no notice of any errors !
+ */
+extern void
+uty_out_fflush(vty_io vio, FILE* file)
+{
+  char*   src ;
+  size_t  have ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  fflush(file) ;
+
+  while ((src = vio_fifo_get_lump(&vio->cmd_obuf, &have)) != NULL)
+    {
+      fwrite(src, 1, have, file) ;
+      vio_fifo_got_upto(&vio->cmd_obuf, src + have) ;
+    } ;
+
+  fflush(file) ;
 } ;
 
 /*==============================================================================
@@ -167,30 +198,13 @@ enum { vty_watch_dog_interval = 5 } ;
 static void vty_watch_dog_qnexus(qtimer qtr, void* timer_info, qtime_t when) ;
 static int vty_watch_dog_thread(struct thread *thread) ;
 
+static void uty_watch_dog_bark(void) ;
+static bool uty_death_watch_scan(void) ;
+
 /*------------------------------------------------------------------------------
- * Watch dog action
+ * Start watch dog -- the first time a VTY is created.
  */
-static void
-uty_watch_dog_bark(void)
-{
-  uty_check_host_name() ;       /* check for host name change           */
-
-  /* TODO: death watch scan                                             */
-
-  /* Set timer to go off again later                                    */
-  if (vty_cli_nexus)
-    qtimer_set(vty_watch_dog.qnexus, qt_add_monotonic(vty_watch_dog_interval),
-                                                         vty_watch_dog_qnexus) ;
-  else
-    {
-      if (vty_watch_dog.thread != NULL)
-        thread_cancel (vty_watch_dog.thread);
-      vty_watch_dog.thread = thread_add_timer (vty_master,
-                           vty_watch_dog_thread, NULL, vty_watch_dog_interval) ;
-    } ;
-} ;
-
-static void
+extern void
 uty_watch_dog_start()
 {
   if (vty_cli_nexus)
@@ -200,6 +214,12 @@ uty_watch_dog_start()
   uty_watch_dog_bark() ;        /* start up by barking the first time   */
 }
 
+/*------------------------------------------------------------------------------
+ * Stop watch dog timer -- at close down.
+ *
+ * Final run along the death-watch
+ *
+ */
 extern void
 uty_watch_dog_stop(void)
 {
@@ -210,6 +230,8 @@ uty_watch_dog_stop(void)
       else
         thread_cancel(vty_watch_dog.thread) ;
     } ;
+
+  uty_death_watch_scan() ;      /* scan the death-watch list            */
 }
 
 /*------------------------------------------------------------------------------
@@ -219,7 +241,9 @@ static void
 vty_watch_dog_qnexus(qtimer qtr, void* timer_info, qtime_t when)
 {
   VTY_LOCK() ;
+
   uty_watch_dog_bark() ;
+
   VTY_UNLOCK() ;
 } ;
 
@@ -230,17 +254,77 @@ static int
 vty_watch_dog_thread(struct thread *thread)
 {
   VTY_LOCK() ;
+
+  vty_watch_dog.thread = NULL ;
   uty_watch_dog_bark() ;
+
   VTY_UNLOCK() ;
   return 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Watch dog action
+ */
+static void
+uty_watch_dog_bark(void)
+{
+  uty_check_host_name() ;       /* check for host name change           */
+
+  uty_death_watch_scan() ;      /* scan the death-watch list            */
+
+  /* Set timer to go off again later                                    */
+  if (vty_cli_nexus)
+    qtimer_set(vty_watch_dog.qnexus,
+                               qt_add_monotonic(QTIME(vty_watch_dog_interval)),
+                                                         vty_watch_dog_qnexus) ;
+  else
+    {
+      if (vty_watch_dog.thread != NULL)
+        thread_cancel (vty_watch_dog.thread);
+      vty_watch_dog.thread = thread_add_timer (vty_master,
+                           vty_watch_dog_thread, NULL, vty_watch_dog_interval) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Scan the death watch list.
+ *
+ * A vty may finally be freed if it is closed and there is no command in
+ * progress.
+ */
+static bool
+uty_death_watch_scan(void)
+{
+  vty_io  vio ;
+  vty_io  next ;
+
+  next = vio_death_watch ;
+  while (next != NULL)
+    {
+      vio  = next ;
+      next = sdl_next(vio, vio_list) ;
+
+      if (vio->closed && !vio->cmd_in_progress)
+        {
+          uty_close(vio) ;      /* closes again to ensure that all buffers
+                                   are released.                            */
+
+          sdl_del(vio_death_watch, vio, vio_list) ;
+
+          XFREE(MTYPE_VTY, vio->vty) ;
+          XFREE(MTYPE_VTY, vio) ;
+        } ;
+    } ;
+
+  return (vio_death_watch == NULL) ;
 } ;
 
 /*==============================================================================
  * Prototypes.
  */
-static void uty_file_init_new(vio_file file, int fd, void* info) ;
-static void uty_file_half_close(vio_file file) ;
-static void uty_file_close(vio_file file) ;
+static void uty_sock_init_new(vio_sock sock, int fd, void* info) ;
+static void uty_sock_half_close(vio_sock sock) ;
+static void uty_sock_close(vio_sock sock) ;
 
 static void vty_read_qnexus (qps_file qf, void* file_info) ;
 static void vty_write_qnexus (qps_file qf, void* file_info) ;
@@ -253,6 +337,8 @@ static int vty_timer_thread (struct thread *thread) ;
 static void vtysh_read_qnexus (qps_file qf, void* file_info) ;
 static int vtysh_read_thread (struct thread *thread) ;
 
+static enum vty_readiness uty_write(vty_io vio) ;
+
 /*==============================================================================
  * Creation and destruction of VTY objects
  */
@@ -260,109 +346,151 @@ static int vtysh_read_thread (struct thread *thread) ;
 /*------------------------------------------------------------------------------
  * Allocate new vty struct
  *
- * Allocates and initialises vty_io structure, complete with:
+ * Allocates and initialises basic vty and vty_io structures, setting the
+ * given type.
  *
- *   Output buffer
- *   Input buffer
- *   qpselect file -- added to CLI nexus  ) if running CLI nexus
- *   qtimer                               )
+ * Note that where is not setting up a vty_sock, this *may* be called from
+ * any thread.
  *
- * Adds to the known vty's -- which locks/unlocks momentarily.
+ * NB: may not create a VTY_CONFIG_WRITE type vty directly
+ *
+ *     see: vty_open_config_write() and vty_close_config_write()
+ *
+ * NB: the sock_fd *must* be valid for VTY_TERM and VTY_SHELL_SERV.
+ *     (So MUST be in the CLI thread to set those up !)
+ *
+ *     the sock_fd is ignored for everything else.
  *
  * Returns: new vty
  */
 extern struct vty *
-uty_new (int fd, enum vty_type type)
+uty_new(enum vty_type type, int sock_fd)
 {
   struct vty *vty ;
   struct vty_io* vio ;
 
   VTY_ASSERT_LOCKED() ;
 
-  if (vty_watch_dog.anon == NULL)
-    uty_watch_dog_start() ;
+  /* If this is a VTY_TERM or a VTY_SHELL, place     */
+  switch (type)
+  {
+    case VTY_TERM:              /* Require fd -- Telnet session         */
+    case VTY_SHELL_SERV:        /* Require fd -- Unix socket            */
+      assert(sock_fd >= 0) ;
+      break ;
 
+    case VTY_CONFIG_WRITE:
+      zabort("may not make a new VTY_CONFIG_WRITE VTY") ;
+      break ;
+
+    case VTY_CONFIG_READ:
+    case VTY_STDOUT:
+    case VTY_STDERR:
+    case VTY_SHELL:
+      sock_fd = -1 ;            /* No fd -- output to stdout/stderr     */
+      break ;
+
+    default:
+      zabort("unknown VTY type") ;
+  } ;
+
+  /* Basic allocation                                                   */
   vty = XCALLOC (MTYPE_VTY, sizeof (struct vty));
   vio = XCALLOC (MTYPE_VTY, sizeof (struct vty_io)) ;
 
   vty->vio = vio ;
   vio->vty = vty ;
 
+  /* Zeroising the vty_io structure has set:
+   *
+   *   name                = NULL -- no name, yet
+   *
+   *   vio_list      both pointers NULL
+   *   mon_list      both pointers NULL
+   *
+   *   half_closed         = 0    -- NOT half closed (important !)
+   *   closed              = 0    -- NOT closed      (important !)
+   *   close_reason        = NULL -- no reason, yet
+   *
+   *   real_type           = 0    -- not material
+   *   file_fd             = 0    -- not material
+   *   file_error          = 0    -- not material
+   *
+   *   key_stream          = NULL -- no key stream (always empty, at EOF)
+   *
+   *   cli_drawn           = 0    -- not drawn
+   *   cli_dirty           = 0    -- not dirty
+   *   cli_prompt_len      = 0 )
+   *   cli_extra_len       = 0 )     not material
+   *   cli_echo_suppress   = 0 )
+   *
+   *   cli_prompt_node     = 0    -- not material
+   *   cli_prompt_set      = 0    -- so prompt needs to be constructed
+   *
+   *   cli_blocked         = 0    -- not blocked
+   *   cmd_in_progress     = 0    -- no command in progress
+   *   cmd_out_enabled     = 0    -- command output is disabled
+   *   cli_wait_more       = 0    -- not waiting for response to "--more--"
+   *
+   *   cli_more_enabled    = 0    -- not enabled for "--more--"
+   *
+   *   cmd_out_done        = 0    -- not material
+   *
+   *   cli_do              = 0    == cli_do_nothing
+   *
+   *   cmd_lc              = NULL -- no line control
+   *
+   *   fail                = 0    -- no login failures yet
+   *
+   *   hist                = empty vector
+   *   hp                  = 0    -- at the beginning
+   *   hindex              = 0    -- the beginning
+   *
+   *   width               = 0    -- unknown console width
+   *   height              = 0    -- unknown console height
+   *
+   *   lines               = 0    -- no limit
+   *   lines_set           = 0    -- no explicit setting
+   *
+   *   monitor             = 0    -- not a monitor
+   *   monitor_busy        = 0    -- not a busy monitor
+   *
+   *   config              = 0    -- not holder of "config" mode
+   */
+  confirm(cli_do_nothing == 0) ;
+  confirm(AUTH_NODE == 0) ;     /* default node type    */
+
+  vio->type   = type ;
+
   /* Zeroising the vty structure has set:
    *
    *   node      = 0  TODO: something better for node value ????
    *   buf       = NULL -- no command line, yet
+   *   parsed    = NULL -- no parsed command, yet
+   *   lineno    = 0    -- nothing read, yet
    *   index     = NULL -- nothing, yet
    *   index_sub = NULL -- nothing, yet
    */
-  confirm(AUTH_NODE == 0) ;     /* default node type    */
-
   if (type == VTY_TERM)
-    vty->newline = "\r\n" ;
+    vty->newline = "\n" ;       /* line control looks after "\r\n"      */
   else
     vty->newline = "\n" ;
 
-  /* Zeroising the vty_io structure has set:
+  /* Initialise the vio_sock,                                           */
+  uty_sock_init_new(&vio->sock, sock_fd, vio) ;
+
+  /* Make sure all buffers etc. are initialised clean and empty.
    *
-   *   vio_list      both pointers NULL
-   *
-   *   half_closed         = 0 -- NOT half closed (important !)
-   *   timed_out           = 0 -- NOT timed out
-   *
-   *   mon_list      both pointers NULL
-   *
-   *   name                = NULL -- no name, yet
-   *
-   *   cli_drawn           = 0 -- not drawn
-   *   cli_prompt_len      = 0 )
-   *   cli_extra_len       = 0 ) not material
-   *   cli_echo_suppress   = 0 )
-   *
-   *   cli_prompt_node     = 0 -- not material
-   *   cli_prompt_set      = 0 -- so prompt needs to be constructed
-   *
-   *   cli_blocked         = 0 -- not blocked
-   *   cmd_in_progress     = 0 -- no command in progress
-   *
-   *   cli_do              = 0 = cli_do_nothing
-   *
-   *   cmd_wait_more       = 0 -- not waiting for response to "--more--"
-   *
-   *   fail                = 0 -- no login failures yet
-   *
-   *   hist                = empty vector
-   *   hp                  = 0 -- at the beginning
-   *   hindex              = 0 -- the beginning
-   *
-   *   width               = 0 -- unknown console width
-   *   height              = 0 -- unknown console height
-   *
-   *   lines               = 0 -- unset
-   *
-   *   monitor             = 0 -- not a monitor
-   *
-   *   config              = 0 -- not holder of "config" mode
+   * Note that no buffers are actually allocated at this stage.
    */
-  confirm(cli_do_nothing == 0) ;
-
-  vio->type   = type ;
-
-  uty_file_init_new(&vio->file, fd, vio) ;
-
-  vio->key_stream = keystroke_stream_new('\0') ;  /* TODO: CSI ??       */
-
-  qs_init_new(&vio->ibuf, 0) ;
-
   qs_init_new(&vio->cli_prompt_for_node, 0) ;
 
   qs_init_new(&vio->cl,  0) ;
   qs_init_new(&vio->clx, 0) ;
 
-  qs_init_new(&vio->cli_vbuf, 0) ;
-  vio_fifo_init_new(&vio->cli_obuf, 4 * 1024) ; /* allocate in 4K lumps */
+  vio_fifo_init_new(&vio->cli_obuf, 2 * 1024) ; /* allocate in 2K lumps */
 
-  qs_init_new(&vio->cmd_vbuf, 0) ;
-  vio_fifo_init_new(&vio->cmd_obuf, 16 * 1024) ;
+  vio_fifo_init_new(&vio->cmd_obuf, 8 * 1024) ;
 
   /* Place on list of known vio/vty                                     */
   sdl_push(vio_list_base, vio, vio_list) ;
@@ -376,29 +504,34 @@ uty_new (int fd, enum vty_type type)
  * Returns: new vty
  */
 static struct vty *
-uty_new_term(int vty_sock, union sockunion *su)
+uty_new_term(int sock_fd, union sockunion *su)
 {
   struct vty *vty ;
   vty_io vio ;
+  enum vty_readiness ready ;
 
   VTY_ASSERT_LOCKED() ;
+  VTY_ASSERT_CLI_THREAD() ;
 
   /* Allocate new vty structure and set up default values.              */
-  vty = uty_new (vty_sock, VTY_TERM) ;
+  vty = uty_new (VTY_TERM, sock_fd) ;
   vio = vty->vio ;
 
-  /* Set the action functions                                           */
+  /* Allocate and initialise a keystroke stream     TODO: CSI ??        */
+  vio->key_stream = keystroke_stream_new('\0', uty_cli_iac_callback, vio) ;
+
+  /* Set the socket action functions                                    */
   if (vty_cli_nexus)
     {
-      vio->file.action.read.qnexus  = vty_read_qnexus ;
-      vio->file.action.write.qnexus = vty_write_qnexus ;
-      vio->file.action.timer.qnexus = vty_timer_qnexus ;
+      vio->sock.action.read.qnexus  = vty_read_qnexus ;
+      vio->sock.action.write.qnexus = vty_write_qnexus ;
+      vio->sock.action.timer.qnexus = vty_timer_qnexus ;
     }
   else
     {
-      vio->file.action.read.thread  = vty_read_thread ;
-      vio->file.action.write.thread = vty_write_thread ;
-      vio->file.action.timer.thread = vty_timer_thread ;
+      vio->sock.action.read.thread  = vty_read_thread ;
+      vio->sock.action.write.thread = vty_write_thread ;
+      vio->sock.action.timer.thread = vty_timer_thread ;
     } ;
 
   /* The text form of the address identifies the VTY                    */
@@ -418,41 +551,38 @@ uty_new_term(int vty_sock, union sockunion *su)
     vty->node = AUTH_NODE;
 
   /* Pick up current timeout setting                                    */
-  vio->file.v_timeout = vty_timeout_val;
+  vio->sock.v_timeout = vty_timeout_val;
 
-  /* Use global 'lines' setting, otherwise is unset                     */
-  if (host.lines >= 0)
-    vio->lines = host.lines;
-  else
-    vio->lines = -1;
+  /* Use global 'lines' setting, as default.  May be -1 => unset        */
+  vio->lines = host.lines ;
 
-  /* Setting up terminal.                                               */
-  uty_will_echo (vio);
-  uty_will_suppress_go_ahead (vio);
-  uty_dont_linemode (vio);
-  uty_do_window_size (vio);
-  if (0)
-    uty_dont_lflow_ahead (vio) ;
+  /* For VTY_TERM use vio_line_control for '\n' and "--more--"          */
+  vio->cmd_lc = vio_lc_init_new(NULL, 0, 0) ;
+  uty_set_height(vio) ;         /* set initial state    */
 
-  /* Set CLI into state waiting for output to complete.                 */
-  vio->cli_blocked      = 1 ;
-  uty_file_set_write(&vio->file, on) ;
+  /* Initialise the CLI, ready for start-up messages etc.               */
+  uty_cli_init(vio) ;
 
   /* Reject connection if password isn't set, and not "no password"     */
   if ((host.password == NULL) && (host.password_encrypt == NULL)
                                                         && ! no_password_check)
     {
-      uty_out (vty, "Vty password is not set.%s", VTY_NEWLINE);
-      uty_half_close (vio);
-      return NULL;
+      uty_half_close (vio, "Vty password is not set.");
+      vty = NULL;
     }
+  else
+    {
+      /* Say hello to the world. */
+      vty_hello (vty);
 
-  /* Say hello to the world. */
-  vty_hello (vty);
-
-  if (! no_password_check)
-    uty_out (vty, "%sUser Access Verification%s%s", VTY_NEWLINE,
+      if (! no_password_check)
+        uty_out (vty, "%sUser Access Verification%s%s", VTY_NEWLINE,
                                                      VTY_NEWLINE, VTY_NEWLINE);
+    } ;
+
+  /* Now start the CLI and set a suitable state of readiness            */
+  ready = uty_cli_start(vio) ;
+  uty_sock_set_readiness(&vio->sock, ready) ;
 
   return vty;
 } ;
@@ -463,7 +593,7 @@ uty_new_term(int vty_sock, union sockunion *su)
  * Returns: new vty
  */
 static struct vty *
-uty_new_shell_serv(int vty_sock)
+uty_new_shell_serv(int sock_fd)
 {
   struct vty *vty ;
   vty_io vio ;
@@ -471,30 +601,27 @@ uty_new_shell_serv(int vty_sock)
   VTY_ASSERT_LOCKED() ;
 
   /* Allocate new vty structure and set up default values.              */
-  vty = uty_new (vty_sock, VTY_SHELL_SERV) ;
+  vty = uty_new (VTY_SHELL_SERV, sock_fd) ;
   vio = vty->vio ;
 
   /* Set the action functions                                           */
   if (vty_cli_nexus)
     {
-      vio->file.action.read.qnexus  = vtysh_read_qnexus ;
-      vio->file.action.write.qnexus = vty_write_qnexus ;
-      vio->file.action.timer.qnexus = NULL ;
+      vio->sock.action.read.qnexus  = vtysh_read_qnexus ;
+      vio->sock.action.write.qnexus = vty_write_qnexus ;
+      vio->sock.action.timer.qnexus = NULL ;
     }
   else
     {
-      vio->file.action.read.thread  = vtysh_read_thread ;
-      vio->file.action.write.thread = vty_write_thread ;
-      vio->file.action.timer.thread = NULL ;
+      vio->sock.action.read.thread  = vtysh_read_thread ;
+      vio->sock.action.write.thread = vty_write_thread ;
+      vio->sock.action.timer.thread = NULL ;
     } ;
 
   vty->node = VIEW_NODE;
 
-  /* Enable the command output to clear the output to date, and set cli
-   * state to blocked waiting for that output to complete.
-   */
-  vio->cli_blocked        = 1 ;
-  uty_file_set_write(&vio->file, on) ;
+  /* Kick start the CLI etc.                                            */
+    uty_sock_set_readiness(&vio->sock, write_ready) ;
 
   return vty;
 } ;
@@ -512,7 +639,7 @@ uty_set_monitor(vty_io vio, bool on)
 
   if      (on && !vio->monitor)
     {
-      if ((vio->type == VTY_TERM) && vio->file.write_open)
+      if ((vio->type == VTY_TERM) && vio->sock.write_open)
         {
           vio->monitor = 1 ;
           sdl_push(vio_monitors_base, vio, mon_list) ;
@@ -539,50 +666,83 @@ uty_get_name(vty_io vio)
 /*------------------------------------------------------------------------------
  * Closing down VTY for reading.
  *
- * Shuts the read side and discards any buffered input.
+ * For VTY_TERM  (must be in CLI thread):
  *
- * Leaves the output running, but places the VTY on "death watch".  When
- * all output completes and there is no queued command or anything else
- * active, the VTY is finally put to sleep.
+ *   * shut the socket for reading
+ *   * discard all buffered input, setting it to "EOF"
+ *   * turns off any monitor status !
+ *   * drop down to RESTRICTED_NODE
+ *
+ * For VTY_SHELL_SERV  (must be in CLI thread):
+ *
+ *   * shut the socket for reading
+ *   * discard all buffered input
+ *   * drop down to RESTRICTED_NODE
+ *
+ * In all cases:
+ *
+ *   * place on death watch
+ *   * set the vty half_closed
+ *   * sets the reason for closing (if any given)
+ *
+ * For VTY_TERM and VTY_SHELL_SERV, when the output side has emptied out all
+ * the buffers, the VTY is closed.
+ *
+ * May already have set the vio->close_reason, or can set it now.  (Passing a
+ * NULL reason has no effect on any existing posted reason.)
  */
 extern void
-uty_half_close (vty_io vio)
+uty_half_close (vty_io vio, const char* reason)
 {
-  char* line ;
-
   VTY_ASSERT_LOCKED() ;
 
   if (vio->half_closed)
-    return ;                    /* cannot do it again   */
+    return ;
 
-  vio->half_closed = 1 ;
+  if (reason != NULL)
+    vio->close_reason = reason ;
 
-  uzlog (NULL, LOG_INFO, "Vty connection (fd %d) close", vio->file.fd) ;
-
-  uty_file_half_close(&vio->file) ;
+  /* Do the file side of things
+   *
+   * Note that half closing the file sets a new timeout, sets read off
+   * and write on.
+   */
+  uty_sock_half_close(&vio->sock) ;
   uty_set_monitor(vio, 0) ;
 
-  keystroke_stream_free(vio->key_stream) ;
-  qs_free_body(&vio->ibuf) ;
+  /* Discard everything in the keystroke stream and force it to EOF     */
+  if (vio->key_stream != NULL)
+    keystroke_stream_set_eof(vio->key_stream) ;
 
-  uty_cli_wipe(vio) ;
-
-  while ((line = vector_ream_keep(&vio->hist)) != NULL)
-    XFREE(MTYPE_VTY_HIST, line) ;
-
-  /* Hit the width, height and lines so that all output clears without
-   * interruption.
+  /* Turn off "--more--" so that all output clears without interruption.
+   *
+   * Note that if is waiting for "--more--", then shutting the read side
+   * causes it to be readable, but EOF -- so that will flush through.
    */
-  vio->width   = 0 ;
-  vio->height  = 0 ;
-  vio->lines   = 0 ;
+  vio->cli_more_enabled = 0 ;
+
+  /* If a command is not in progress, enable output, which will clear
+   * the output buffer if there is anything there, plus any close reason,
+   * and then close.
+   *
+   * If command is in progress, then this process will start when it
+   * completes.
+   */
+  if (!vio->cmd_in_progress)
+    vio->cmd_out_enabled = 1 ;
 
   /* Make sure no longer holding the config symbol of power             */
-  uty_config_unlock(vio->vty, AUTH_NODE) ;
+  uty_config_unlock(vio->vty, RESTRICTED_NODE) ;
+
+  /* Log closing of VTY_TERM                                            */
+  if (vio->type == VTY_TERM)
+    uzlog (NULL, LOG_INFO, "Vty connection (fd %d) close", vio->sock.fd) ;
 
   /* Move to the death watch list                                       */
   sdl_del(vio_list_base, vio, vio_list) ;
   sdl_push(vio_death_watch, vio, vio_list) ;
+
+  vio->half_closed = 1 ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -590,118 +750,185 @@ uty_half_close (vty_io vio)
  *
  * Shuts down everything and discards all buffers etc. etc.
  *
- * If not already on it, places the VTY on "death watch".  When there is no
- * queued command or anything else active, the VTY is finally put to sleep.
+ * If cmd_in_progress, cannot complete the process -- but sets the closed
+ * flag.
+ *
+ * Can call vty_close() any number of times.
+ *
+ * The vty structure is placed on death watch, which will finally free the
+ * structure once no longer cmd_in_progress.
  */
 extern void
 uty_close (vty_io vio)
 {
   VTY_ASSERT_LOCKED() ;
 
-  uty_file_close(&vio->file) ;  /* bring the file to a complete stop    */
-
-  uty_half_close(vio) ;         /* deal with the input side, and place on
-                                   death watch -- if not already done   */
-
-  qs_free_body(&vio->cli_prompt_for_node) ;
-  qs_free_body(&vio->cl) ;
-  qs_free_body(&vio->clx) ;
-  qs_free_body(&vio->cli_vbuf) ;
-  qs_free_body(&vio->cmd_vbuf) ;
-
+  /* Empty all the output buffers                                       */
   vio_fifo_reset_keep(&vio->cli_obuf) ;
   vio_fifo_reset_keep(&vio->cmd_obuf) ;
+  vio->cmd_lc = vio_lc_reset_free(vio->cmd_lc) ;
 
-  vio->vty->buf = NULL ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Closing down VTY completely.
- *
- * Shuts down everything and discards all buffers etc. etc.
- *
- * If not already on it, places the VTY on "death watch".  When there is no
- * queued command or anything else active, the VTY is finally put to sleep.
- */
-extern void
-uty_full_close (vty_io vio)
-{
-  VTY_ASSERT_LOCKED() ;
-
-  uty_file_close(&vio->file) ;  /* bring the file to a complete stop    */
-
-  uty_half_close(vio) ;         /* deal with the input side, and place on
-                                   death watch -- if not already done   */
-
-  qs_free_body(&vio->cli_prompt_for_node) ;
-  qs_free_body(&vio->cl) ;
-  qs_free_body(&vio->clx) ;
-  qs_free_body(&vio->cli_vbuf) ;
-  qs_free_body(&vio->cmd_vbuf) ;
-
-  vio_fifo_reset_keep(&vio->cli_obuf) ;
-  vio_fifo_reset_keep(&vio->cmd_obuf) ;
-
-  vio->vty->buf = NULL ;
-} ;
-
-/*==============================================================================
- * Dealing with am I/O error on VTY
- *
- * If this is the first error for this VTY, produce suitable log message.
- *
- * If is a "monitor", turn that off, *before* issuing log message.
- */
-static int
-uty_io_error(vty_io vio, const char* what)
-{
-  /* can no longer be a monitor !                                       */
-  uty_set_monitor(vio, 0) ;
-
-  /* if this is the first error, log it                                 */
-  if (vio->file.error_seen == 0)
+  /* If not already closed, close.                                      */
+  if (!vio->closed)
     {
-      const char* type ;
-      switch (vio->type)
-      {
-        case VTY_TERM:
-          type = "VTY Terminal" ;
-          break ;
-        case VTY_SHELL_SERV:
-          type = "VTY Shell Server" ;
-          break ;
-        default:
-          zabort("unknown VTY type for uty_io_error()") ;
-      } ;
+      uty_half_close(vio, NULL) ;   /* place on death watch -- if not
+                                       already done                     */
+      uty_cli_close(vio) ;          /* tell the CLI to stop             */
 
-      vio->file.error_seen = errno ;
-      uzlog(NULL, LOG_WARNING, "%s: %s failed on fd %d: %s",
-                type, what, vio->file.fd, safe_strerror(vio->file.error_seen)) ;
+      vio->closed = 1 ;             /* now closed (stop uty_write()
+                                       from recursing)                  */
+
+      if (vio->sock.write_open)
+        uty_write(vio) ;            /* last gasp attempt                */
+
+      uty_sock_close(&vio->sock) ;
+
     } ;
 
-  return -1 ;
+  /* Nothing more should happen, so can now release almost everything,
+   * the exceptions being the things that are related to a cmd_in_progress.
+   *
+   * All writing to buffers is suppressed, and as the sock has been closed,
+   * there will be no more read_ready or write_ready events.
+   */
+  if (vio->name != NULL)
+    XFREE(MTYPE_VTY_NAME, vio->name) ;
+
+  vio->key_stream = keystroke_stream_free(vio->key_stream) ;
+
+  qs_free_body(&vio->cli_prompt_for_node) ;
+  qs_free_body(&vio->cl) ;
+
+  {
+    qstring line ;
+    while ((line = vector_ream_keep(&vio->hist)) != NULL)
+      qs_reset_free(line) ;
+  } ;
+
+  /* The final stage cannot be completed if cmd_in_progress.
+   *
+   * The clx is pointed at by vty->buf -- containing the current command.
+   *
+   * Once everything is released, can take the vty off death watch, and
+   * release the vio and the vty.
+   */
+  if (!vio->cmd_in_progress)
+    {
+      qs_free_body(&vio->clx) ;
+      vio->vty->buf = NULL ;
+    } ;
 } ;
 
 /*==============================================================================
- * vio_file level operations
+ * For writing configuration file by command, temporarily redirect output to
+ * an actual file.
  */
 
 /*------------------------------------------------------------------------------
- * Initialise a new vio_file structure.
+ * Set the given fd as the VTY_FILE output.
+ */
+extern void
+vty_open_config_write(struct vty* vty, int fd)
+{
+  vty_io vio ;
+
+  VTY_LOCK() ;
+
+  vio = vty->vio ;
+
+  assert((vio->type != VTY_CONFIG_WRITE) && (vio->type != VTY_NONE)) ;
+
+  vio->real_type  = vio->type ;
+
+  vio->type       = VTY_CONFIG_WRITE ;
+  vio->file_fd    = fd ;
+  vio->file_error = 0 ;
+
+  VTY_UNLOCK() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Write away configuration file stuff -- all or just the full lump(s).
  *
- * Requires that: the vio_file structure is not currently in use.
+ * Returns: > 0 => blocked
+ *            0 => all gone (up to last lump if !all)
+ *          < 0 => failed -- see vio->file_error
+ */
+static int
+uty_config_write(vty_io vio, bool all)
+{
+  int ret ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  if (vio->file_error == 0)
+    {
+      ret = vio_fifo_write_nb(&vio->cmd_obuf, vio->file_fd, all) ;
+
+      if (ret < 0)
+        vio->file_error = errno ;
+    }
+  else
+    ret = -1 ;
+
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Write away any pending stuff, and return the VTY to normal.
+ */
+extern int
+vty_close_config_write(struct vty* vty)
+{
+  vty_io vio ;
+  int err ;
+
+  VTY_LOCK() ;
+
+  vio = vty->vio ;
+
+  assert((vio->type == VTY_CONFIG_WRITE) && (vio->real_type != VTY_NONE)) ;
+
+  uty_config_write(vio, true) ; /* write all that is left       */
+
+  err = vio->file_error ;
+
+  vio->type       = vio->real_type ;
+  vio->file_fd    = -1 ;
+  vio->file_error = 0 ;
+
+  VTY_UNLOCK() ;
+
+  return err ;
+} ;
+
+/*==============================================================================
+ * vio_sock level operations
+ */
+
+/*------------------------------------------------------------------------------
+ * Initialise a new vio_sock structure.
  *
- *                if fd >= 0 then: file is open and ready read and write
- *                      otherwise: file is not open
+ * Requires that: the vio_sock structure is not currently in use.
+ *
+ *                if fd >= 0 then: sock is open and ready read and write
+ *                      otherwise: sock is not open
  *
  *                there are no errors, yet.
  *
  * Sets timeout to no timeout at all -- timeout is optional.
+ *
+ * NB: MUST be in the CLI thread if the fd is >= 0 !
  */
 static void
-uty_file_init_new(vio_file file, int fd, void* info)
+uty_sock_init_new(vio_sock sock, int fd, void* info)
 {
-  memset(file, 0, sizeof(struct vio_file)) ;
+  VTY_ASSERT_LOCKED() ;
+
+  if (fd >= 0)
+    VTY_ASSERT_CLI_THREAD() ;
+
+  memset(sock, 0, sizeof(struct vio_sock)) ;
 
   /* Zeroising the structure has set:
    *
@@ -718,17 +945,16 @@ uty_file_init_new(vio_file file, int fd, void* info)
    *   t_timer       = NULL -- no timer thread, yet
    *   qtr           = NULL -- no qtimer, yet
    */
-  file->fd          = fd ;
-  file->info        = info ;
+  sock->fd          = fd ;
+  sock->info        = info ;
 
-  file->read_open   = (fd >= 0) ;
-  file->write_open  = (fd >= 0) ;
+  sock->read_open   = (fd >= 0) ;
+  sock->write_open  = (fd >= 0) ;
 
-  if (vty_cli_nexus)
+  if ((fd >= 0) && vty_cli_nexus)
     {
-      file->qf = qps_file_init_new(NULL, NULL);
-      if (fd >= 0)
-        qps_add_file(vty_cli_nexus->selection, file->qf, file->fd, file->info);
+      sock->qf = qps_file_init_new(NULL, NULL);
+      qps_add_file(vty_cli_nexus->selection, sock->qf, sock->fd, sock->info);
     } ;
 } ;
 
@@ -740,249 +966,367 @@ uty_file_init_new(vio_file file, int fd, void* info)
  * If no timeout time is set, and the timer is running, unset it.
  */
 static void
-uty_file_restart_timer(vio_file file)
+uty_sock_restart_timer(vio_sock sock)
 {
-  if (file->v_timeout != 0)
+  VTY_ASSERT_LOCKED() ;
+  VTY_ASSERT_CLI_THREAD() ;
+
+  if (sock->v_timeout != 0)
     {
-      assert(file->action.timer.anon != NULL) ;
+      assert(sock->action.timer.anon != NULL) ;
 
       if (vty_cli_nexus)
         {
-          if (file->qtr == NULL)    /* allocate qtr if required     */
-            file->qtr = qtimer_init_new(NULL, vty_cli_nexus->pile,
-                                                             NULL, file->info) ;
-          qtimer_set(file->qtr, qt_add_monotonic(QTIME(file->v_timeout)),
-                                                    file->action.timer.qnexus) ;
+          if (sock->qtr == NULL)    /* allocate qtr if required     */
+            sock->qtr = qtimer_init_new(NULL, vty_cli_nexus->pile,
+                                                             NULL, sock->info) ;
+          qtimer_set(sock->qtr, qt_add_monotonic(QTIME(sock->v_timeout)),
+                                                    sock->action.timer.qnexus) ;
         }
       else
         {
-          if (file->t_timer != NULL)
-            thread_cancel (file->t_timer);
-          file->t_timer = thread_add_timer (vty_master,
-                       file->action.timer.thread, file->info, file->v_timeout) ;
+          if (sock->t_timer != NULL)
+            thread_cancel (sock->t_timer);
+          sock->t_timer = thread_add_timer (vty_master,
+                       sock->action.timer.thread, sock->info, sock->v_timeout) ;
         } ;
 
-      file->timer_running = 1 ;
+      sock->timer_running = 1 ;
     }
-  else if (file->timer_running)
+  else if (sock->timer_running)
     {
       if (vty_cli_nexus)
         {
-          if (file->qtr != NULL)
-            qtimer_unset(file->qtr) ;
+          if (sock->qtr != NULL)
+            qtimer_unset(sock->qtr) ;
         }
       else
         {
-          if (file->t_timer != NULL)
-            thread_cancel (file->t_timer) ;
+          if (sock->t_timer != NULL)
+            thread_cancel (sock->t_timer) ;
         } ;
 
-      file->timer_running = 0 ;
+      sock->timer_running = 0 ;
     } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set read on/off
+ *
+ * Returns: the on/off state set
+ */
+static bool
+uty_sock_set_read(vio_sock sock, bool on)
+{
+  VTY_ASSERT_LOCKED() ;
+  VTY_ASSERT_CLI_THREAD() ;
+
+  if (sock->fd < 0)
+    return 0 ;
+
+  if (on)
+    {
+      assert(sock->action.read.anon != NULL) ;
+
+      if (vty_cli_nexus)
+          qps_enable_mode(sock->qf, qps_read_mnum, sock->action.read.qnexus) ;
+      else
+        {
+          if (sock->t_read != NULL)
+            thread_cancel(sock->t_read) ;
+
+          sock->t_read = thread_add_read(vty_master,
+                               sock->action.read.thread, sock->info, sock->fd) ;
+        } ;
+    }
+  else
+    {
+      if (vty_cli_nexus)
+        qps_disable_modes(sock->qf, qps_read_mbit) ;
+      else
+        {
+          if (sock->t_read != NULL)
+            thread_cancel (sock->t_read) ;
+        } ;
+    } ;
+
+  return on ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set write on/off
+ *
+ * Returns: the on/off state set
+ */
+static bool
+uty_sock_set_write(vio_sock sock, bool on)
+{
+  VTY_ASSERT_LOCKED() ;
+  VTY_ASSERT_CLI_THREAD() ;
+
+  if (sock->fd < 0)
+    return 0 ;
+
+  if (on)
+    {
+      assert(sock->action.write.anon != NULL) ;
+
+      if (vty_cli_nexus)
+        qps_enable_mode(sock->qf, qps_write_mnum, sock->action.write.qnexus) ;
+      else
+        {
+          if (sock->t_write != NULL)
+            thread_cancel(sock->t_write) ;
+
+          sock->t_write = thread_add_write(vty_master,
+                              sock->action.write.thread, sock->info, sock->fd) ;
+        } ;
+    }
+  else
+    {
+      if (vty_cli_nexus)
+        qps_disable_modes(sock->qf, qps_write_mbit) ;
+      else
+        {
+          if (sock->t_write != NULL)
+            thread_cancel (sock->t_write) ;
+        } ;
+    } ;
+
+  return on ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set read/write readiness -- for VTY_TERM
+ *
+ * Note that for VTY_TERM, set only one of read or write, and sets write for
+ * preference.
+ */
+extern void
+uty_sock_set_readiness(vio_sock sock, enum vty_readiness ready)
+{
+  VTY_ASSERT_LOCKED() ;
+  VTY_ASSERT_CLI_THREAD() ;
+
+  uty_sock_set_read(sock, (ready == read_ready)) ;
+  uty_sock_set_write(sock, (ready >= write_ready)) ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Set a new timer value.
  */
 extern void
-uty_file_set_timer(vio_file file, unsigned long timeout)
+uty_sock_set_timer(vio_sock sock, unsigned long timeout)
 {
-  file->v_timeout = timeout ;
-  if (file->timer_running)
-    uty_file_restart_timer(file) ;
+  VTY_ASSERT_LOCKED() ;
+  VTY_ASSERT_CLI_THREAD() ;
+
+  sock->v_timeout = timeout ;
+  if (sock->timer_running)
+    uty_sock_restart_timer(sock) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Set read on/off -- restart timer.
- */
-extern void
-uty_file_set_read(vio_file file, bool on)
-{
-  if (file->fd < 0)
-    return ;
-
-  if (on)
-    {
-      assert(file->action.read.anon != NULL) ;
-
-      if (vty_cli_nexus)
-        {
-          qps_enable_mode(file->qf, qps_read_mnum, file->action.read.qnexus) ;
-        }
-      else
-        {
-          if (file->t_read != NULL)
-            thread_cancel(file->t_read) ;
-
-          file->t_read = thread_add_read(vty_master,
-                               file->action.read.thread, file->info, file->fd) ;
-        } ;
-    }
-  else
-    {
-      if (vty_cli_nexus)
-        {
-          qps_disable_modes(file->qf, qps_read_mbit) ;
-        }
-      else
-        {
-          if (file->t_read != NULL)
-            thread_cancel (file->t_read) ;
-        } ;
-    } ;
-
-    uty_file_restart_timer(file) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Set write on/off -- restart timer.
- */
-extern void
-uty_file_set_write(vio_file file, bool on)
-{
-  if (file->fd < 0)
-    return ;
-
-  if (on)
-    {
-      assert(file->action.write.anon != NULL) ;
-
-      if (vty_cli_nexus)
-        {
-          qps_enable_mode(file->qf, qps_write_mnum, file->action.write.qnexus) ;
-        }
-      else
-        {
-          if (file->t_write != NULL)
-            thread_cancel(file->t_write) ;
-
-          file->t_write = thread_add_write(vty_master,
-                              file->action.write.thread, file->info, file->fd) ;
-        } ;
-    }
-  else
-    {
-      if (vty_cli_nexus)
-        {
-          qps_disable_modes(file->qf, qps_write_mbit) ;
-        }
-      else
-        {
-          if (file->t_write != NULL)
-            thread_cancel (file->t_write) ;
-        } ;
-    } ;
-
-  uty_file_restart_timer(file) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Close given vty file for reading.
+ * Close given vty sock for reading.
  *
  * Sets timer to timeout for clearing any pending output.
+ *
+ * NB: if there is a socket, MUST be in the CLI thread
  */
 static void
-uty_file_half_close(vio_file file)
+uty_sock_half_close(vio_sock sock)
 {
   VTY_ASSERT_LOCKED() ;
 
-  if (file->fd >= 0)
-    {
-      shutdown(file->fd, SHUT_RD) ;     /* actual half close    */
+  sock->read_open = 0 ;         /* make sure                    */
 
-      file->v_timeout = 30 ;            /* for output to clear  */
-      uty_file_set_read(file, off) ;
-    } ;
+  if (sock->fd < 0)
+    return ;                    /* nothing more if no socket    */
 
-  file->read_open = 0 ;
+  VTY_ASSERT_CLI_THREAD() ;
+
+  shutdown(sock->fd, SHUT_RD) ; /* actual half close            */
+
+  uty_sock_set_read(sock, off) ;
+  uty_sock_set_write(sock, on) ;
+  sock->v_timeout = 30 ;        /* for output to clear          */
+  uty_sock_restart_timer(sock) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Close given vio_file, completely -- shut down any timer.
+ * Close given vio_sock, completely -- shut down any timer.
  *
  * Structure is cleared of everything except the last error !
+ *
+ * NB: if there is a socket, MUST be in the CLI thread
  */
 static void
-uty_file_close(vio_file file)
+uty_sock_close(vio_sock sock)
 {
   VTY_ASSERT_LOCKED() ;
 
-  if (file->fd >= 0)
-    close(file->fd) ;
+  sock->read_open   = 0 ;       /* make sure                    */
+  sock->write_open  = 0 ;
 
-  if (vty_cli_nexus && (file->fd >= 0))
-    qps_remove_file(file->qf) ;
+  if (sock->fd < 0)
+    {
+      assert( (sock->qf      == NULL)
+           && (sock->qtr     == NULL)
+           && (sock->t_read  == NULL)
+           && (sock->t_write == NULL)
+           && (sock->t_timer == NULL) ) ;
+      return ;                  /* no more to be done here      */
+    } ;
 
-  if (file->qf != NULL)
-    qps_file_free(file->qf) ;
+  VTY_ASSERT_CLI_THREAD() ;
+  close(sock->fd) ;
 
-  if (file->t_read != NULL)
-    thread_cancel(file->t_write) ;
-  if (file->t_write != NULL)
-    thread_cancel(file->t_write) ;
+  if (vty_cli_nexus)
+    {
+      assert((sock->qf != NULL) && (sock->fd == qps_file_fd(sock->qf))) ;
+      qps_remove_file(sock->qf) ;
+      qps_file_free(sock->qf) ;
+      sock->qf = NULL ;
+    } ;
 
-  file->fd      = -1 ;
-  file->qf      = NULL ;
-  file->t_read  = NULL ;
-  file->t_write = NULL ;
+  sock->fd      = -1 ;
 
-  file->info              = NULL ;
-  file->action.read.anon  = NULL ;
-  file->action.write.anon = NULL ;
-  file->action.timer.anon = NULL ;
+  if (sock->t_read != NULL)
+    thread_cancel(sock->t_write) ;
+  if (sock->t_write != NULL)
+    thread_cancel(sock->t_write) ;
 
-  file->read_open   = 0 ;
-  file->write_open  = 0 ;
+  sock->t_read  = NULL ;
+  sock->t_write = NULL ;
 
-  if (file->qtr != NULL)
-    qtimer_free(file->qtr) ;
-  if (file->t_timer != NULL)
-    thread_cancel(file->t_timer) ;
+  sock->info              = NULL ;
+  sock->action.read.anon  = NULL ;
+  sock->action.write.anon = NULL ;
+  sock->action.timer.anon = NULL ;
 
-  file->v_timeout = 0 ;
-  file->qtr       = NULL ;
-  file->t_timer   = NULL ;
+  if (sock->qtr != NULL)
+    qtimer_free(sock->qtr) ;
+  if (sock->t_timer != NULL)
+    thread_cancel(sock->t_timer) ;
+
+  sock->v_timeout = 0 ;
+  sock->qtr       = NULL ;
+  sock->t_timer   = NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Dealing with an I/O error on VTY socket
+ *
+ * If this is the first error for this VTY, produce suitable log message.
+ *
+ * If is a "monitor", turn that off, *before* issuing log message.
+ */
+static int
+uty_sock_error(vty_io vio, const char* what)
+{
+  VTY_ASSERT_LOCKED() ;
+  VTY_ASSERT_CLI_THREAD() ;
+
+  /* can no longer be a monitor !  *before* any logging !               */
+  uty_set_monitor(vio, 0) ;
+
+  /* if this is the first error, log it                                 */
+  if (vio->sock.error_seen == 0)
+    {
+      const char* type ;
+      switch (vio->type)
+      {
+        case VTY_TERM:
+          type = "VTY Terminal" ;
+          break ;
+        case VTY_SHELL_SERV:
+          type = "VTY Shell Server" ;
+          break ;
+        default:
+          zabort("unknown VTY type for uty_sock_error()") ;
+      } ;
+
+      vio->sock.error_seen = errno ;
+      uzlog(NULL, LOG_WARNING, "%s: %s failed on fd %d: %s",
+                type, what, vio->sock.fd, safe_strerror(vio->sock.error_seen)) ;
+    } ;
+
+  return -1 ;
 } ;
 
 /*==============================================================================
- * Reading from the VTY_TERM type file.
+ * Readiness and the VTY_TERM type VTY.
+ *
+ * For VTY_TERM the driving force is write ready.  This is used to prompt the
+ * VTY_TERM when there is outstanding output (obviously), but also if there
+ * is buffered input in the keystroke stream.
+ *
+ * The VTY_TERM uses read ready only when it doesn't set write ready.  Does
+ * not set both at once.
+ *
+ * So there is only one, common, uty_ready function, which:
+ *
+ *   1. attempts to clear any output it can.
+ *
+ *      The state of the output affects the CLI, so must always do this before
+ *      before invoking the CLI.
+ *
+ *      If this write enters the "--more--" state, then will have tried to
+ *      write away the prompt.
+ *
+ *   2. invokes the CLI
+ *
+ *      Which will do either the standard CLI stuff or the special "--more--"
+ *      stuff.
+ *
+ *   3. attempts to write any output there now is.
+ *
+ *      If the CLI generated new output, as much as possible is written away
+ *      now.
+ *
+ *      If this write enters the "--more--" state, then it returns now_ready,
+ *      if the prompt was written away, which loops back to the CLI.
+ *
+ * Note that this is arranging:
+ *
+ *   a. to write away the "--more--" prompt as soon as the tranche of output to
+ *      which it refers, completes
+ *
+ *   b. to enter the cli_more_wait CLI for the first time immediately after the
+ *      "--more--" prompt is written away.
+ *
+ * The loop limits itself to one trache of command output each time.
+ *
+ * Resets the timer because something happened.
+ */
+static void
+uty_ready(vty_io vio)
+{
+  enum vty_readiness ready ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  vio->cmd_out_done = 0 ;         /* not done any command output yet    */
+
+  uty_write(vio) ;                /* try to clear outstanding stuff     */
+  do
+    {
+      ready  = uty_cli(vio) ;     /* do any CLI work...                 */
+      ready |= uty_write(vio) ;   /* ...and any output that generates   */
+    } while (ready >= now_ready) ;
+
+  uty_sock_set_readiness(&vio->sock, ready) ;
+  uty_sock_restart_timer(&vio->sock) ;
+} ;
+
+/*==============================================================================
+ * Reading from VTY_TERM.
  *
  * The select/pselect call-back ends up in uty_read_ready().
  *
  * Note that uty_write_ready() also calls uty_read_ready, in order to kick the
  * current CLI.
  */
-
-/*------------------------------------------------------------------------------
- * Ready to read -> kicking CLI
- *
- * Have two CLI: one (trivial one) when waiting on "--more--",
- *               and the standard one.
- *
- * End up here when there is something ready to be read.
- *
- * Also ends up here when was write_ready and did not block in uty_write.
- *
- * Will also end up here if an error has occurred, the other end has closed,
- * this end has half closed, etc.  This fact is used to kick the CLI even when
- * there is no data to be read.
- *
- * Note that nothing is actually read here -- reading is done in the CLI itself,
- * if required.
- *
- * The CLI decides whether to re-enable read, or enable write, or both.
- */
-static void
-uty_read_ready(vty_io vio)
-{
-  uty_file_set_read(&vio->file, off) ;  /* restarts timer       */
-
-  /* Execute the required command processor                     */
-  if (vio->cmd_wait_more)
-    uty_cli_wait_more(vio) ;    /* run "--more--" CLI           */
-  else
-    uty_cli(vio) ;              /* run standard CLI             */
-} ;
 
 /*------------------------------------------------------------------------------
  * Callback -- qnexus: ready to read -> kicking CLI
@@ -994,9 +1338,9 @@ vty_read_qnexus(qps_file qf, void* file_info)
 
   VTY_LOCK() ;
 
-  assert((vio->file.fd == qf->fd) && (vio == vio->file.info)) ;
+  assert((vio->sock.fd == qf->fd) && (vio == vio->sock.info)) ;
 
-  uty_read_ready(vio) ;
+  uty_ready(vio) ;
 
   VTY_UNLOCK() ;
 }
@@ -1011,10 +1355,10 @@ vty_read_thread(struct thread *thread)
 
   VTY_LOCK() ;
 
-  assert(vio->file.fd == THREAD_FD (thread) && (vio == vio->file.info)) ;
+  assert(vio->sock.fd == THREAD_FD (thread) && (vio == vio->sock.info)) ;
 
-  vio->file.t_read = NULL ;     /* implicitly   */
-  uty_read_ready(vio);
+  vio->sock.t_read = NULL ;     /* implicitly   */
+  uty_ready(vio);
 
   VTY_UNLOCK() ;
   return 0 ;
@@ -1035,18 +1379,18 @@ uty_read (vty_io vio, keystroke steal)
   unsigned char buf[500] ;
   int get ;
 
-  if (!vio->file.read_open)
+  if (!vio->sock.read_open)
     return -1 ;                 /* at EOF if not open           */
 
-  get = read_nb(vio->file.fd, buf, sizeof(buf)) ;
-  if      (get > 0)
+  get = read_nb(vio->sock.fd, buf, sizeof(buf)) ;
+  if      (get >= 0)
     keystroke_input(vio->key_stream, buf, get, steal) ;
   else if (get < 0)
     {
       if (get == -1)
-        uty_io_error(vio, "read") ;
+        uty_sock_error(vio, "read") ;
 
-      vio->file.read_open = 0 ;
+      vio->sock.read_open = 0 ;
       keystroke_input(vio->key_stream, NULL, 0, steal) ;
 
       get = -1 ;
@@ -1056,14 +1400,14 @@ uty_read (vty_io vio, keystroke steal)
 } ;
 
 /*==============================================================================
- * The write file action for VTY_TERM type VTY
+ * The write sock action for VTY_TERM type VTY
  *
  * There are two sets of buffering:
  *
  *   cli -- command line   -- which reflects the status of the command line
  *
- *   cmd -- command output -- which is not written to the file while
- *                            cmd_in_progress.
+ *   cmd -- command output -- which is written to the file only while
+ *                            cmd_out_enabled.
  *
  * The cli output takes precedence.
  *
@@ -1071,41 +1415,8 @@ uty_read (vty_io vio, keystroke steal)
  * "--more--" mechanism.
  */
 
-static bool uty_write(vty_io vio) ;
-static int uty_flush_fifo(vty_io vio, vio_fifo vf,
-                                        struct vty_line_control* line_control) ;
-static void uty_empty_out_fifos(vty_io vio) ;
-
-/*------------------------------------------------------------------------------
- * Flush as much as possible of what there is.
- *
- * May end up with:
- *
- *   * something in the buffers waiting to go, but output is currently
- *     threatening to block.
- *
- *     in this case will have set write on, and things will progress when next
- *     write_ready.
- *
- *   * otherwise:
- *
- *     will be set write off, so does a read_ready in order t kick the CLI,
- *     which may wish to set either read or write on.
- */
-static void
-uty_write_ready(vty_io vio)
-{
-  bool blocked ;
-
-  VTY_ASSERT_LOCKED() ;
-
-  uty_file_set_write(&vio->file, off) ; /* restarts timer, too          */
-
-  blocked = uty_write(vio) ;
-
-  if (!blocked)
-    uty_read_ready(vio) ;
-} ;
+static int uty_write_lc(vty_io vio, vio_fifo vf, vio_line_control lc) ;
+static int uty_write_fifo_lc(vty_io vio, vio_fifo vf, vio_line_control lc) ;
 
 /*------------------------------------------------------------------------------
  * Callback -- qnexus: ready to write -> try to empty buffers
@@ -1117,9 +1428,9 @@ vty_write_qnexus(qps_file qf, void* file_info)
 
   VTY_LOCK() ;
 
-  assert((vio->file.fd == qf->fd) && (vio == vio->file.info)) ;
+  assert((vio->sock.fd == qf->fd) && (vio == vio->sock.info)) ;
 
-  uty_write_ready(vio) ;
+  uty_ready(vio) ;
 
   VTY_UNLOCK() ;
 }
@@ -1134,10 +1445,10 @@ vty_write_thread(struct thread *thread)
 
   VTY_LOCK() ;
 
-  assert(vio->file.fd == THREAD_FD (thread) && (vio == vio->file.info)) ;
+  assert(vio->sock.fd == THREAD_FD (thread) && (vio == vio->sock.info)) ;
 
-  vio->file.t_write = NULL;     /* implicitly   */
-  uty_write_ready(vio) ;
+  vio->sock.t_write = NULL;     /* implicitly   */
+  uty_ready(vio) ;
 
   VTY_UNLOCK() ;
   return 0 ;
@@ -1152,154 +1463,337 @@ vty_write_thread(struct thread *thread)
  * Note that if !write_open, or becomes !write_open, then the FIFOs are empty
  * and all output instantly successful.
  *
- * Sets write on if prevented from outputting everything available for output
+ * Sets write on if prevented from writing everything available for output
  * by write() threatening to block.
  *
- * Sets read on if enters cmd_wait_more state.
- *
- * Returns: true <=> blocked by I/O
- *
- * Note that this means that returns true iff sets write on.
+ * Returns: write_ready  if should now set write on
+ *          now_ready    if should loop back and try again
+ *          not_ready    otherwise
  */
-static bool
+static enum vty_readiness
 uty_write(vty_io vio)
 {
   int ret ;
 
   VTY_ASSERT_LOCKED() ;
 
-  /* empty the CLI FIFO
-   *
-   * NB: if the file is !write_open, or if it fails during output here
-   *     and becomes !write_open, then ret == 0 -- as if everything
-   *     has been written.
-   */
-  ret = uty_flush_fifo(vio, &vio->cli_obuf, NULL) ;
-  if (ret != 0)
-    return 1 ;          /* blocked by I/O       */
-
-  if ((vio->cmd_in_progress) || (vio->cmd_wait_more))
-    return 0 ;          /* not blocked by I/O   */
-
-  /* write from the command FIFO
-   *
-   *  NB: if the file is !write_open, or if it fails during output here
-   *     and becomes !write_open, then ret == 0 -- as if everything
-   *     has been written.
-   */
-  ret = uty_flush_fifo(vio, &vio->cmd_obuf, &vio->line_control) ;
-  if (ret == 1)
-    return 1 ;          /* blocked by I/O       */
-
-  if (ret == 2)
+  ret = -1 ;
+  while (vio->sock.write_open)
     {
-      /* Want now to wait for "--more--"
-       *
-       * Note that this produces CLI output, which must deal with here.
-       */
-      uty_cli_want_more(vio) ; /* NB: sets cmd_wait_more                */
-
-      ret = uty_flush_fifo(vio, &vio->cli_obuf, NULL) ;
-      if (ret == 1)
-        return 1 ;      /* blocked by I/O       */
-
-      if (vio->file.write_open)
-        return 0 ;      /* not blocked by I/O   */
-    } ;
-
-  /* Reach here iff both CLI and command FIFOs are empty and is not
-   * cmd_in_progress
-   */
-  vio->cli_blocked = 0 ;
-
-  return 0 ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Flush the given FIFO to output -- subject to possible line control.
- *
- * If ends up needing to write more, sets write on.
- *
- * Returns: 0 => written everything there is -- or not (now) write_open
- *          1 => written everything that could -- needs to write more
- *          2 => written everything that could -- needs a "--more--"
- */
-static int
-uty_flush_fifo(vty_io vio, vio_fifo vf, struct vty_line_control* line_control)
-{
-  char*   src ;
-  size_t  have ;
-  int     done ;
-  bool    wait_more ;
-
-  if (!vio->file.write_open)
-    {
-      uty_empty_out_fifos(vio) ;
-      return 0 ;
-    } ;
-
-  wait_more = 0 ;
-
-  while ((src = vio_fifo_get_lump(vf, &have)) != NULL)
-    {
-      if (line_control != NULL) /* TODO: line control           */
+      /* Any outstanding line control output takes precedence           */
+      if (vio->cmd_lc != NULL)
         {
-          /* Account for what happens if output have bytes from src...
-           * ... and if necessary reduce "have".
-           *
-           * set wait_more if now need to wait
-           */
-        } ;
-
-      done = write_nb(vio->file.fd, src, have) ;
-
-      if (done < 0)
-        {
-          uty_io_error(vio, "write") ;
-
-          vio->file.write_open = 0 ;
-          uty_empty_out_fifos(vio) ;
-          return 0 ;            /* no longer open               */
+          ret = uty_write_lc(vio, &vio->cmd_obuf, vio->cmd_lc) ;
+          if (ret != 0)
+            break ;
         }
 
-      vio_fifo_got_upto(vf, src + done) ;
+      /* Next: empty out the cli output                                 */
+      ret = vio_fifo_write_nb(&vio->cli_obuf, vio->sock.fd, true) ;
+      if (ret != 0)
+        break ;
 
-      if (done < (int)have)
+      /* Finished now if not allowed to progress the command stuff      */
+      if (!vio->cmd_out_enabled)
+        return not_ready ;      /* done all can do      */
+
+      /* Last: if there is something in the command buffer, do that     */
+      if (!vio_fifo_empty(&vio->cmd_obuf))
         {
-          if (line_control != NULL)
+          if (vio->cmd_out_done)
+            break ;                     /* ...but not if done once      */
+
+          vio->cmd_out_done = 1 ;       /* done this once               */
+
+          assert(!vio->cli_more_wait) ;
+
+          if (vio->cmd_lc != NULL)
+            ret = uty_write_fifo_lc(vio, &vio->cmd_obuf, vio->cmd_lc) ;
+          else
+            ret = vio_fifo_write_nb(&vio->cmd_obuf, vio->sock.fd, true) ;
+
+          /* If moved into "--more--" state@
+           *
+           *   * the "--more--" prompt is ready to be written, so do that now
+           *
+           *   * if that completes, then want to run the CLI *now* to perform the
+           *     first stage of the "--more--" process.
+           */
+          if (vio->cli_more_wait)
             {
-              /* "put back" have - done bytes for next time     */
+              ret = vio_fifo_write_nb(&vio->cli_obuf, vio->sock.fd, true) ;
+              if (ret == 0)
+                return now_ready ;
             } ;
 
-          uty_file_set_write(&vio->file, on) ;
-          return 1 ;            /* output is full               */
+          if (ret != 0)
+            break ;
+        }
+
+      /* Exciting stuff: there is nothing left to output...
+       *
+       * ... watch out for half closed state.
+       */
+      if (vio->half_closed)
+        {
+          if (vio->close_reason != NULL)
+            {
+              vio->cmd_in_progress = 1 ;    /* TODO: not use vty_out ?  */
+
+              struct vty* vty = vio->vty ;
+              if (vio->cli_drawn || vio->cli_dirty)
+                vty_out(vty, VTY_NEWLINE) ;
+              vty_out(vty, "%% %s%s", vio->close_reason, VTY_NEWLINE) ;
+
+              vio->cmd_in_progress = 0 ;
+
+              vio->close_reason = NULL ;    /* MUST discard now...      */
+              continue ;                    /* ... and write away       */
+            } ;
+
+          if (!vio->closed)                 /* avoid recursion          */
+            uty_close(vio) ;
+
+          return not_ready ;                /* it's all over            */
         } ;
 
-      /* If now wants to wait for a "--more--", then exit
-       *
-       * Note that the line_control cannot tell if the place it wants to
-       * stop is, in fact, the end of the FIFO -- can only tell that
-       * now...
+      /* For VTY_TERM: if the command line is not drawn, now is a good
+       * time to do that.
        */
-      if (wait_more)
-        return vio_fifo_empty(vf) ? 0 : 2 ;
+      if (vio->type == VTY_TERM)
+        if (uty_cli_draw_if_required(vio))
+          continue ;                    /* do that now.                 */
+
+      /* There really is nothing left to output                         */
+      return not_ready ;
     } ;
 
-  return 0 ;                    /* all gone                     */
+  /* Arrives here if there is more to do, or failed (or was !write_open)    */
+
+  if (ret >= 0)
+    return write_ready ;
+
+  /* If is write_open, then report the error
+   *
+   * If still read_open, let the reader pick up and report the error, when it
+   * has finished anything it has buffered.
+   */
+  if (vio->sock.write_open)
+    {
+      if (!vio->sock.read_open)
+        uty_sock_error(vio, "write") ;
+
+      vio->sock.write_open = 0 ;        /* crash close write    */
+    } ;
+
+  /* For whatever reason, is no longer write_open -- clear all buffers.
+   */
+  vio_fifo_clear(&vio->cli_obuf) ;      /* throw away cli stuff */
+  uty_out_clear(vio) ;                  /* throw away cmd stuff */
+
+  vio->close_reason = NULL ;            /* too late for this    */
+
+  return not_ready ;                   /* NB: NOT blocked by I/O       */
 } ;
 
 /*------------------------------------------------------------------------------
- * Empty the output FIFOs
+ * Write as much as possible -- for "monitor" output.
  *
- * This is for use when the output has failed or is closed.
+ * Outputs only:
+ *
+ *   a. outstanding line control stuff.
+ *
+ *   b. contents of CLI buffer
+ *
+ * And:
+ *
+ *   a. does not report any errors.
+ *
+ *   b. does not change anything except the state of the buffers.
+ *
+ *      In particular, for the qpthreaded world, does not attempt to change
+ *      the state of the qfile or any other "thread private" structures.
+ *
+ * Returns: > 0 => blocked
+ *            0 => all gone
+ *          < 0 => failed (or !write_open)
  */
-static void
-uty_empty_out_fifos(vty_io vio)
+static int
+uty_write_monitor(vty_io vio)
 {
-  vio_fifo_set_empty(&vio->cli_obuf) ;
-  vio_fifo_set_empty(&vio->cmd_obuf) ;
+  VTY_ASSERT_LOCKED() ;
 
-  vio->cmd_wait_more = 0 ;
+  if (!vio->sock.write_open)
+    return -1 ;
+
+  if (vio->cmd_lc != NULL)
+    {
+      int ret ;
+      ret = uty_write_lc(vio, &vio->cmd_obuf, vio->cmd_lc) ;
+
+      if (ret != 0)
+        return ret ;
+    } ;
+
+  return  vio_fifo_write_nb(&vio->cli_obuf, vio->sock.fd, true) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Write the given FIFO to output -- subject to possible line control.
+ *
+ * Note that even if no "--more--" is set, will have set some height, so
+ * that does not attempt to empty the FIFO completely all in one go.
+ *
+ * If the line control becomes "paused", it is time to enter "--more--" state
+ * -- unless the FIFO is empty (or "--more--" is not enabled).
+ *
+ * NB: expects that the sock is write_open
+ *
+ * Returns: > 0 => blocked   or completed one tranche
+ *            0 => all gone
+ *          < 0 => failed
+ */
+static int
+uty_write_fifo_lc(vty_io vio, vio_fifo vf, vio_line_control lc)
+{
+  int     ret ;
+  char*   src ;
+  size_t  have ;
+
+  /* Collect another line_control height's worth of output.
+   *
+   * Expect the line control to be empty at this point, but it does not have
+   * to be.
+   */
+  vio_lc_set_pause(lc) ;        /* clears lc->paused                    */
+
+  src = vio_fifo_get_rdr(vf, &have) ;
+
+  while ((src != NULL) && (!lc->paused))
+    {
+      size_t  take ;
+      take = vio_lc_append(lc, src, have) ;
+      src  = vio_fifo_step_rdr(vf, &have, take) ;
+    } ;
+
+  vio->cli_dirty = (lc->col != 0) ;
+
+  /* Write the contents of the line control                             */
+  ret = uty_write_lc(vio, vf, lc) ;
+
+  if (ret < 0)
+    return ret ;                /* give up now if failed.               */
+
+  if ((ret == 0) && vio_fifo_empty(vf))
+    return 0 ;                  /* FIFO and line control empty          */
+
+  /* If should now do "--more--", now is the time to prepare for that.
+   *
+   * Entering more state issues a new prompt in the CLI buffer, which can
+   * be written once line control write completes.
+   *
+   * The "--more--" cli will not do anything until the CLI buffer has
+   * cleared.
+   */
+  if (lc->paused && vio->cli_more_enabled)
+    uty_cli_go_more_wait(vio) ;
+
+  return 1 ;                    /* FIFO or line control, not empty      */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Write contents of line control (if any).
+ *
+ * NB: expects that the sock is write_open
+ *
+ * NB: does nothing other than write() and buffer management.
+ *
+ * Returns: > 0 => blocked
+ *            0 => all gone
+ *          < 0 => failed
+ */
+static int
+uty_write_lc(vty_io vio, vio_fifo vf, vio_line_control lc)
+{
+  int ret ;
+
+  ret = vio_lc_write_nb(vio->sock.fd, lc) ;
+
+  if (ret <= 0)
+    vio_fifo_sync_rdr(vf) ;     /* finished with FIFO contents  */
+
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Start command output -- clears down the line control.
+ *
+ * Requires that that current line is empty -- restarts the line control
+ * on the basis that is at column 0.
+ */
+extern void
+uty_cmd_output_start(vty_io vio)
+{
+  if (vio->cmd_lc != NULL)
+    vio_lc_clear(vio->cmd_lc) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set the effective height for line control (if any)
+ *
+ * If using line_control, may enable the "--more--" output handling.
+ *
+ * If not, want some limit on the amount of stuff output at a time.
+ *
+ * Sets the line control window width and height.
+ * Sets cli_more_enabled if "--more--" is enabled.
+ */
+extern void
+uty_set_height(vty_io vio)
+{
+  bool on ;
+
+  on = 0 ;              /* default state        */
+
+  if ((vio->cmd_lc != NULL) && !vio->half_closed)
+    {
+      int height ;
+
+      height = 0 ;      /* default state        */
+
+      if ((vio->width) != 0)
+        {
+          /* If window size is known, use lines or given height         */
+          if (vio->lines >= 0)
+            height = vio->lines ;
+          else
+            {
+              /* Window height, leaving one line from previous "page"
+               * and one line for the "--more--" -- if at all possible
+               */
+              height = vio->height - 2 ;
+              if (height < 1)
+                height = 1 ;
+            } ;
+        }
+      else
+        {
+          /* If window size not known, use lines if that has been set
+           * explicitly for this terminal.
+           */
+          if (vio->lines_set)
+            height = vio->lines ;
+        } ;
+
+      if (height > 0)
+        on = 1 ;        /* have a defined height        */
+      else
+        height = 200 ;  /* but no "--more--"            */
+
+      vio_lc_set_window(vio->cmd_lc, vio->width, height) ;
+    } ;
+
+  vio->cli_more_enabled = on ;
 } ;
 
 /*==============================================================================
@@ -1321,10 +1815,8 @@ uty_timer_expired (vty_io vio)
   if (vio->half_closed)
     return uty_close(vio) ;             /* curtains                     */
 
-  uty_half_close(vio) ;                 /* bring input side to a halt   */
-
-  vio->timed_out = 1 ;                  /* why stopped                  */
-} ;
+  uty_half_close(vio, "Timed out") ;    /* bring input side to a halt   */
+ } ;
 
 /*------------------------------------------------------------------------------
  * Callback -- qnexus: deal with timer timeout.
@@ -1351,7 +1843,7 @@ vty_timer_thread (struct thread *thread)
 
   VTY_LOCK() ;
 
-  vio->file.t_timer = NULL ;    /* implicitly   */
+  vio->sock.t_timer = NULL ;    /* implicitly   */
 
   uty_timer_expired(vio) ;
 
@@ -1373,7 +1865,7 @@ struct vty_listener
 
   enum vty_type   type ;
 
-  struct vio_file file ;
+  struct vio_sock sock ;
 };
 
 /* List of listeners so can tidy up.                                    */
@@ -1450,7 +1942,7 @@ uty_close_listeners(void)
 
   while ((listener = ssl_pop(&listener, vty_listeners_list, next)) != NULL)
     {
-      uty_file_close(&listener->file) ; /* no ceremony, no flowers      */
+      uty_sock_close(&listener->sock) ; /* no ceremony, no flowers      */
       XFREE(MTYPE_VTY, listener) ;
     } ;
 } ;
@@ -1537,6 +2029,8 @@ uty_serv_sock(const char* addr, unsigned short port)
 
   VTY_ASSERT_LOCKED() ;
 
+  n = 0 ;       /* nothing opened yet   */
+
   /* If have an address, see what kind and whether valid                */
   sa = NULL ;
 
@@ -1620,6 +2114,19 @@ uty_serv_sock_open(sa_family_t family, int type, int protocol,
   if (ret >= 0)
     ret = set_nonblocking(sock);
 
+#if defined(HAVE_IPV6) && defined(IPV6_V6ONLY)
+  /* Want only IPV6 on ipv6 socket (not mapped addresses)
+   *
+   * This distinguishes 0.0.0.0 from :: -- without this, bind() will reject the
+   * attempt to bind to :: after binding to 0.0.0.0.
+   */
+  if ((ret >= 0) && (sa->sa_family == AF_INET6))
+  {
+    int on = 1;
+    ret = setsockopt (sock, IPPROTO_IPV6, IPV6_V6ONLY, (void *)&on, sizeof(on));
+  }
+#endif
+
   if (ret >= 0)
     ret = sockunion_bind (sock, &su, port, sa) ;
 
@@ -1673,7 +2180,6 @@ uty_serv_vtysh(const char *path)
     {
       uzlog(NULL, LOG_ERR, "Cannot create unix stream socket: %s",
                                                          safe_strerror(errno));
-      umask (old_mask);
       return -1 ;
     }
 
@@ -1711,10 +2217,8 @@ uty_serv_vtysh(const char *path)
     {
       /* set group of socket */
       if ( chown (path, -1, ids.gid_vty) )
-        {
-          uzlog (NULL, LOG_ERR, "uty_serv_vtysh: could chown socket, %s",
+        uzlog (NULL, LOG_ERR, "uty_serv_vtysh: could chown socket, %s",
                                                         safe_strerror (errno) );
-        }
     }
 
   umask (old_mask);
@@ -1745,16 +2249,16 @@ uty_serv_start_listener(int fd, enum vty_type type)
   listener = XCALLOC(MTYPE_VTY, sizeof (struct vty_listener));
 
   ssl_push(vty_listeners_list, listener, next) ;
-  uty_file_init_new(&listener->file, fd, listener) ;
+  uty_sock_init_new(&listener->sock, fd, listener) ;
 
   listener->type = type ;
 
   if (vty_cli_nexus)
-    listener->file.action.read.qnexus = vty_accept_qnexus ;
+    listener->sock.action.read.qnexus = vty_accept_qnexus ;
   else
-    listener->file.action.read.thread = vty_accept_thread ;
+    listener->sock.action.read.thread = vty_accept_thread ;
 
-  uty_file_set_read(&listener->file, on) ;
+  uty_sock_set_read(&listener->sock, on) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1770,7 +2274,7 @@ vty_accept_thread(struct thread *thread)
 
   result = uty_accept(listener, THREAD_FD(thread));
 
-  uty_file_set_read(&listener->file, on) ;
+  uty_sock_set_read(&listener->sock, on) ;
 
   VTY_UNLOCK() ;
   return result ;
@@ -1797,7 +2301,7 @@ uty_accept(vty_listener listener, int listen_sock)
 {
   VTY_ASSERT_LOCKED() ;
 
-  assert(listener->file.fd == listen_sock) ;
+  assert(listener->sock.fd == listen_sock) ;
 
   switch (listener->type)
   {
@@ -1828,9 +2332,9 @@ uty_accept_term(vty_listener listener)
   VTY_ASSERT_LOCKED() ;
 
   /* We can handle IPv4 or IPv6 socket.                                 */
-  sockunion_init_new(&su, 0) ;
+  sockunion_init_new(&su, AF_UNSPEC) ;
 
-  sock = sockunion_accept (listener->file.fd, &su);
+  sock = sockunion_accept (listener->sock.fd, &su);
 
   if (sock < 0)
     {
@@ -1918,7 +2422,7 @@ uty_accept_shell_serv (vty_listener listener)
   client_len = sizeof(client);
   memset (&client, 0, client_len);
 
-  sock = accept(listener->file.fd, (struct sockaddr *) &client,
+  sock = accept(listener->sock.fd, (struct sockaddr *) &client,
                                          (socklen_t *) &client_len) ;
 
   if (sock < 0)
@@ -1948,7 +2452,7 @@ uty_accept_shell_serv (vty_listener listener)
 }
 
 /*==============================================================================
- * Reading from the VTY_SHELL_SERV type file.
+ * Reading from the VTY_SHELL_SERV type sock.
  *
  * The select/pselect call-back ends up in utysh_read_ready().
  */
@@ -1970,7 +2474,7 @@ uty_accept_shell_serv (vty_listener listener)
 static void
 utysh_read_ready(vty_io vio)
 {
-  uty_file_set_read(&vio->file, off) ;
+  uty_sock_set_read(&vio->sock, off) ;
 
   /* TODO: need minimal "CLI" for VTY_SHELL_SERV
    *       NB: when output from command is flushed out, must append the
@@ -1989,7 +2493,7 @@ vtysh_read_qnexus(qps_file qf, void* file_info)
 
   VTY_LOCK() ;
 
-  assert((vio->file.fd == qf->fd) && (vio == vio->file.info)) ;
+  assert((vio->sock.fd == qf->fd) && (vio == vio->sock.info)) ;
 
   utysh_read_ready(vio) ;
 
@@ -2006,9 +2510,9 @@ vtysh_read_thread(struct thread *thread)
 
   VTY_LOCK() ;
 
-  assert(vio->file.fd == THREAD_FD (thread) && (vio == vio->file.info)) ;
+  assert(vio->sock.fd == THREAD_FD (thread) && (vio == vio->sock.info)) ;
 
-  vio->file.t_read = NULL ;     /* implicitly   */
+  vio->sock.t_read = NULL ;     /* implicitly   */
   utysh_read_ready(vio);
 
   VTY_UNLOCK() ;
@@ -2025,7 +2529,7 @@ vtysh_read_thread(struct thread *thread)
  * Moves stuff from the "buf" qstring and appends to "cl" qstring, stopping
  * when get '\0' or empties the "buf".
  *
- * When empties "buf", reads a lump from the file.
+ * When empties "buf", reads a lump from the sock.
  *
  * Returns:  0 => command line is incomplete
  *           1 => have a complete command line
@@ -2070,13 +2574,13 @@ utysh_read (vty_io vio, qstring cl, qstring buf)
       /* buffer is empty -- try and get some more stuff                 */
       assert(buf->len == buf->cp) ;
 
-      if (!vio->file.read_open)
+      if (!vio->sock.read_open)
         return -1 ;             /* at EOF if not open     <<<<<<<<<<<<< */
 
       qs_need(buf, 500) ;       /* need a reasonable lump               */
-      qs_set_empty(buf) ;       /* set cp = len = 0                     */
+      qs_clear(buf) ;           /* set cp = len = 0                     */
 
-      get = read_nb(vio->file.fd, buf->body, buf->size) ;
+      get = read_nb(vio->sock.fd, buf->body, buf->size) ;
       if      (get > 0)
         buf->len = get ;
       else if (get == 0)
@@ -2084,9 +2588,9 @@ utysh_read (vty_io vio, qstring cl, qstring buf)
       else
         {
           if (get == -1)
-            uty_io_error(vio, "read") ;
+            uty_sock_error(vio, "read") ;
 
-          vio->file.read_open = 0 ;
+          vio->sock.read_open = 0 ;
 
           return -1 ;           /* at EOF or failed       <<<<<<<<<<<<< */
         } ;
@@ -2096,13 +2600,65 @@ utysh_read (vty_io vio, qstring cl, qstring buf)
 /*==============================================================================
  * Output to vty which are set to "monitor".
  *
- * If there is something in the command FIFO and command is not in progress,
- * then throw logging away -- console is busy dealing with the output from
- * some command.
+ * This is VERY TRICKY.
  *
- * Wipes the command line and flushes the output.  If the CLI FIFO is now
- * empty, add the logging line to it and flush.  Enable read, so that the
- * CLI will be reentered, and the command line restored in due course.
+ * If not running qpthreaded, then the objective is to get the message away
+ * immediately -- do not wish it to be delayed in any way by the thread
+ * system.
+ *
+ * So proceed as follows:
+ *
+ *   a. wipe command line        -- which adds output to the CLI buffer
+ *
+ *   b. write the CLI buffer to the sock and any outstanding line control.
+ *
+ *   c. write the monitor output.
+ *
+ *      If that does not complete, put the tail end to the CLI buffer.
+ *
+ *   d. restore any command line -- which adds output to the CLI buffer
+ *
+ *   e. write the CLI buffer to the sock
+ *
+ * If that all succeeds, nothing has changed as far as the VTY stuff is
+ * concerned -- except that possibly some CLI output was sent before it got
+ * round to it.
+ *
+ * Note that step (b) will deal with any output hanging around from an
+ * earlier step (e).  If cannot complete that, then does not add fuel to the
+ * fire -- but the message will be discarded.
+ *
+ * If that fails, or does not complete, then can set write on, to signal that
+ * there is some output in the CLI buffer that needs to be sent, or some
+ * error to be dealt with.
+ *
+ * The output should be tidy.
+ *
+ * To cut down the clutter, step (d) is performed only if the command line
+ * is not empty (or if in cli_more_wait).  Once a the user has started to enter
+ * a command, the prompt and the command will remain visible.
+ *
+ * When logging an I/O error for a vty that happens to be a monitor, the
+ * monitor-ness has already been turned off.  The monitor output code does not
+ * attempt to log any errors, sets write on so that the error will be picked
+ * up that way.
+ *
+ * However, in the event of an assertion failure, it is possible that an
+ * assertion will fail inside the monitor output.  The monitor_busy flag
+ * prevents disaster.  It is also left set if I/O fails in monitor output, so
+ * will not try to use the monitor again.
+ *
+ * Note that an assertion which is false for all vty monitors will recurse
+ * through all the monitors, setting each one busy, in turn !
+ *
+
+
+ * TODO: sort out write on in the qpthreads world ??
+ *
+ * The problem is that the qpselect structure is designed to be accessed ONLY
+ * within the thread to which it belongs.  This makes it impossible for the
+ * monitor output to set/clear read/write on the vty sock... so some way
+ * around this is required.
  */
 
 /*------------------------------------------------------------------------------
@@ -2113,67 +2669,52 @@ uty_log(struct logline* ll, struct zlog *zl, int priority,
                                                  const char *format, va_list va)
 {
   vty_io  vio ;
-  vty_io  next ;
 
   VTY_ASSERT_LOCKED() ;
 
-  next = sdl_head(vio_monitors_base) ;
+  vio = sdl_head(vio_monitors_base) ;
 
-  if (next == NULL)
+  if (vio == NULL)
     return ;                    /* go no further if no "monitor" vtys   */
 
   /* Prepare line for output.                                           */
-  uvzlog_line(ll, zl, priority, format, va, 1) ;  /* with crlf          */
+  uvzlog_line(ll, zl, priority, format, va, llt_crlf) ; /* with crlf    */
 
   /* write to all known "monitor" vty
    *
-   * While writing to a given "monitor" the monitor flag is cleared.  This
-   * means that if the write fails, and logs a message, then will recurse
-   * through here -- but won't log to the monitor that has failed.
-   *
-   * If one of the other monitors fails during this process, will recurse
-   * again, now with two monitors with their monitor flags cleared.
-   *
-   * Once the output (and any recursed output) has completed, then the
-   * monitor flag is restored -- but only if the vty is still write_open.
-   *
-   * A monitor that is not write_open at the end of this, is removed from the
-   * monitors list.  The current vio *cannot* be the current vio at a higher
-   * level in any recursion stack, because... if anything higher up the stack
-   * will have their monitor flag cleared, and therefore have been stepped
-   * over at the current level.
    */
-  while (next != NULL)
+  while (vio != NULL)
     {
-      vio = next ;
-
-      if ( vio->monitor          /* may be temporarily not a monitor     */
-          && (vio->cmd_in_progress || vio_fifo_empty(&vio->cmd_obuf)) )
+      if (!vio->monitor_busy)
         {
-          vio->monitor = 0 ;    /* avoid recursion                      */
+          int ret ;
 
-          uty_cli_wipe(vio) ;
-          uty_write(vio) ;
+          vio->monitor_busy = 1 ;       /* close the door               */
 
-          if (vio_fifo_empty(&vio->cli_obuf) && vio->file.write_open)
+          uty_cli_pre_monitor(vio, ll->len - 2) ;  /* claim the console */
+
+          ret = uty_write_monitor(vio) ;
+          if (ret == 0)
             {
-              vio_fifo_put(&vio->cli_obuf, ll->line, ll->len) ;
-              uty_write(vio) ;
+              ret = write_nb(vio->sock.fd, ll->line, ll->len) ;
+
+              if (ret >= 0)
+                {
+                  ret = uty_cli_post_monitor(vio, ll->line + ret,
+                                                  ll->len  - ret) ;
+                  if (ret > 0)
+                    ret = uty_write_monitor(vio) ;
+                } ;
             } ;
 
-          uty_file_set_read(&vio->file, on) ;
+          if (ret != 0)
+            /* need to prod   */ ;
 
-          /* It is possible that something failed, so that is no longer
-           * write_open, and should no longer be a monitor.
-           */
-          vio->monitor = vio->file.write_open ;
+          if (ret >= 0)
+            vio->monitor_busy = 0 ;
         } ;
 
-      next = sdl_next(vio, mon_list) ;
-
-      /* take self off list if no onger a monitor               */
-      if (!vio->monitor)
-        sdl_del(vio_monitors_base, vio, mon_list) ;
+      vio = sdl_next(vio, mon_list) ;
     } ;
 } ;
 
@@ -2194,8 +2735,8 @@ vty_log_fixed (const char *buf, size_t len)
   vio = sdl_head(vio_monitors_base) ;
   while (vio != NULL)
     {
-      write(vio->file.fd, buf, len) ;
-      write(vio->file.fd, "\r\n", 2) ;
+      write(vio->sock.fd, buf, len) ;
+      write(vio->sock.fd, "\r\n", 2) ;
 
       vio = sdl_next(vio, mon_list) ;
     } ;

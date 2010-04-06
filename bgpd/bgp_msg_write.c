@@ -21,12 +21,12 @@
  * Boston, MA 02111-1307, USA.
  */
 
+#include <zebra.h>
+#include <stdbool.h>
+
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_msg_write.h"
 #include "bgpd/bgp_route_refresh.h"
-
-
-#include <zebra.h>
 
 #include "thread.h"
 #include "stream.h"
@@ -155,11 +155,11 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
 /*------------------------------------------------------------------------------
  * Make KEEPALIVE message and dispatch.
  *
- * NB: does nothing if the write buffer is not empty.  This is not a problem,
- *     the KEEPALIVE is redundant if there is stuff waiting to go !
+ * Generally, does nothing if the write buffer is not empty -- a KEEPALIVE is
+ * redundant if there is stuff waiting to go !
  *
- * KEEPALIVE is sent in response to OPEN, and that MUST be sent.  But if the
- * buffers are full at that point, something is broken !
+ * KEEPALIVE is sent in response to OPEN, and that MUST be sent, hence the
+ * 'must_send' option.
  *
  * Returns: 1 => written to wbuff -- qpselect will write from there
  *          0 => nothing written  -- no need, buffer not empty !
@@ -170,12 +170,12 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
  * NB: requires the session LOCKED -- connection-wise
  */
 extern int
-bgp_msg_send_keepalive(bgp_connection connection)
+bgp_msg_send_keepalive(bgp_connection connection, bool must_send)
 {
   struct stream *s = connection->obuf ;
   int length;
 
-  if (!bgp_connection_write_empty(connection))
+  if (!must_send && !bgp_connection_write_empty(connection))
     return 0 ;
 
   ++connection->session->stats.keepalive_out ;
@@ -505,7 +505,7 @@ bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr)
 {
   struct stream *s = connection->obuf ;
   uint8_t    msg_type ;
-  flag_t     done ;
+  bool       done ;
   bgp_size_t msg_len ;
 
   ++connection->session->stats.refresh_out ;
@@ -583,8 +583,8 @@ bgp_msg_orf_part(struct stream* s, bgp_connection connection,
 
   bgp_size_t left ;
   bgp_size_t length ;
-  flag_t     done ;
-  flag_t     first ;
+  bool       done ;
+  bool       first ;
 
   /* Heading for Prefix-Address ORF type section                    */
   whenp = stream_get_endp(s) ;      /* position of "when"           */

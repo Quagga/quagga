@@ -49,11 +49,8 @@ extern void _zlog_abort_err (const char *mess, int err, const char *file,
 #define dassert(EX)
 #endif
 
-/* TODO: implement _zlog_abort() to give required messages      */
-
 /* Abort with message                                           */
-#define zabort(MS) _zlog_assert_failed(MS, __FILE__, __LINE__, \
-                                                              __ASSERT_FUNCTION)
+#define zabort(MS) _zlog_abort_mess(MS, __FILE__, __LINE__, __ASSERT_FUNCTION)
 
 /* Abort with message and errno and strerror() thereof          */
 #define zabort_errno(MS) _zlog_abort_errno(MS, __FILE__, __LINE__, \

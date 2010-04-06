@@ -20,6 +20,7 @@
  */
 
 #include <zebra.h>
+#include <stdbool.h>
 
 #include "sockunion.h"
 #include "sockopt.h"
@@ -55,10 +56,11 @@ static void
 bgp_accept_action(qps_file qf, void* file_info) ;
 
 static int
-bgp_getsockname(int fd, union sockunion* su_local, union sockunion* su_remote) ;
+bgp_get_names(int sock_fd, union sockunion* su_local,
+                                                   union sockunion* su_remote) ;
 
 static int
-bgp_socket_set_common_options(int fd, union sockunion* su, int ttl,
+bgp_socket_set_common_options(int sock_fd, union sockunion* su, int ttl,
                                                          const char* password) ;
 static int
 bgp_md5_set_listeners(union sockunion* su, const char* password) ;
@@ -98,7 +100,76 @@ struct bgp_listener
 } ;
 
 /* Forward reference                                                          */
-static int bgp_init_listener(int sock, struct sockaddr *sa, socklen_t salen) ;
+static int bgp_open_listener_on(const char* address, unsigned short port);
+static int bgp_init_listener(int sock_fd, struct sockaddr *sa, socklen_t salen);
+
+/*------------------------------------------------------------------------------
+ * Open Listeners.
+ *
+ * Using given address and port, get all possible addresses and set up a
+ * listener on each one.
+ *
+ * Accepts: address = NULL => any local address
+ *          address = comma separated list of addresses
+ *
+ * NB: an empty address counts as "any local address", so:
+ *
+ *      "80.177.246.130,80.177.246.131" -- will listen on those addresses.
+ *
+ *      "80.177.246.130,"               -- will list on that address and
+ *                                         any other local address.
+ *
+ * NB: only listens on AF_INET and (if HAVE_IPV6) AF_INET6.
+ *
+ * Returns: > 0 => OK -- number of listeners set up
+ *           -1 => failed -- no listeners set up
+ */
+extern int
+bgp_open_listeners(const char* address, unsigned short port)
+{
+  int   count ;
+  bool  do_null ;
+
+  count = 0 ;
+  do_null = (address == NULL) ;
+
+  if (!do_null)
+    {
+      char* copy ;
+      char* next ;
+      char* this ;
+
+      copy = XSTRDUP(MTYPE_TMP, address) ;
+
+      next = copy ;
+      while (next != NULL)
+        {
+          this = next ;
+          next = strchr(address, ',') ;
+
+          if (next != NULL)
+            *next++ = '\0' ;
+
+          if (*this == '\0')
+            do_null = true ;    /* empty address => do_null     */
+          else
+            count += bgp_open_listener_on(this, port) ;
+        } ;
+
+      XFREE(MTYPE_TMP, copy) ;
+    } ;
+
+  if (do_null)
+    count += bgp_open_listener_on(NULL, port) ;
+
+  if (count == 0)
+    {
+      zlog_err ("%s: no usable addresses", __func__);
+      return -1;
+    }
+
+  return 0;
+} ;
 
 /*------------------------------------------------------------------------------
  * Open Listeners.
@@ -110,10 +181,9 @@ static int bgp_init_listener(int sock, struct sockaddr *sa, socklen_t salen) ;
  *
  * Returns: 0 => OK
  *         -1 => failed -- no listeners set up
- *
  */
-extern int
-bgp_open_listeners(unsigned short port, const char *address)
+static int
+bgp_open_listener_on(const char* address, unsigned short port)
 {
 #if defined (HAVE_IPV6) && ! defined (NRL)      /*----------------------------*/
 
@@ -137,47 +207,41 @@ bgp_open_listeners(unsigned short port, const char *address)
   if (ret != 0)
     {
       zlog_err ("getaddrinfo: %s", gai_strerror (ret));
-      return -1;
+      return 0 ;
     }
 
   count = 0;
   for (ainfo = ainfo_save; ainfo; ainfo = ainfo->ai_next)
     {
-      int sock;
+      int sock_fd;
 
       if (ainfo->ai_family != AF_INET && ainfo->ai_family != AF_INET6)
         continue;
 
-      sock = sockunion_socket(ainfo->ai_family, ainfo->ai_socktype,
+      sock_fd = sockunion_socket(ainfo->ai_family, ainfo->ai_socktype,
                                                             ainfo->ai_protocol);
-      if (sock < 0)
+      if (sock_fd < 0)
         {
           zlog_err ("socket: %s", safe_strerror (errno));
           continue;
         }
 
-      ret = bgp_init_listener(sock, ainfo->ai_addr, ainfo->ai_addrlen);
+      ret = bgp_init_listener(sock_fd, ainfo->ai_addr, ainfo->ai_addrlen);
 
       if (ret == 0)
         ++count;
       else
-        close(sock);
+        close(sock_fd);
     }
   freeaddrinfo (ainfo_save);
 
-  if (count == 0)
-    {
-      zlog_err ("%s: no usable addresses", __func__);
-      return -1;
-    }
-
-  return 0;
+  return count ;
 }
 #else                   /*----------------------------------------------------*/
 
   /* Traditional IPv4 only version.                                           */
 
-  int sock;
+  int sock_fd;
   int socklen;
   struct sockaddr_in sin;
   int ret, en;
@@ -197,20 +261,20 @@ bgp_open_listeners(unsigned short port, const char *address)
   sin.sin_len = socklen;
 #endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
 
-  sock = socket (AF_INET, SOCK_STREAM, 0);
-  if (sock < 0)
+  sock_fd = socket (AF_INET, SOCK_STREAM, 0);
+  if (sock_fd < 0)
     {
       zlog_err ("socket: %s", safe_strerror (errno));
-      return sock;
+      return sock_fd;
     }
 
-  ret = bgp_init_listener (sock, (struct sockaddr *) &sin, socklen);
+  ret = bgp_init_listener (sock_fd, (struct sockaddr *) &sin, socklen);
   if (ret < 0)
     {
-      close (sock);
+      close (sock_fd);
       return ret;
     }
-  return sock;
+  return sock_fd;
 }
 #endif /* HAVE_IPV6 && !NRL --------------------------------------------------*/
 
@@ -264,57 +328,65 @@ bgp_reset_listeners(bgp_listener* p_listener)
  *        != 0 : error number (from errno or otherwise)
  */
 static int
-bgp_init_listener(int sock, struct sockaddr *sa, socklen_t salen)
+bgp_init_listener(int sock_fd, struct sockaddr *sa, socklen_t salen)
 {
   bgp_listener listener ;
-  int ret ;
+  int ret, err ;
 
-  ret = bgp_socket_set_common_options(sock, (union sockunion*)sa, 0, NULL) ;
-  if (ret != 0)
-    return ret ;
+  err = bgp_socket_set_common_options(sock_fd, (union sockunion*)sa, 0, NULL) ;
+  if (err != 0)
+    return err ;
 
-#ifdef IPV6_V6ONLY
-  /* Want only IPV6 on ipv6 socket (not mapped addresses) */
+#if defined(HAVE_IPV6) && defined(IPV6_V6ONLY)
+  /* Want only IPV6 on ipv6 socket (not mapped addresses)
+   *
+   * This distinguishes 0.0.0.0 from :: -- without this, bind() will reject the
+   * attempt to bind to :: after binding to 0.0.0.0.
+   */
   if (sa->sa_family == AF_INET6)
   {
     int on = 1;
-    /* TODO: trap errors when setting IPPROTO_IPV6, IPV6_V6ONLY ?? */
-    setsockopt (sock, IPPROTO_IPV6, IPV6_V6ONLY, (void *)&on, sizeof(on)) ;
+    ret = setsockopt (sock_fd, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof(on));
+    if (ret < 0)
+      return errno ;
   }
 #endif
 
   if (bgpd_privs.change(ZPRIVS_RAISE))
     {
-      ret = errno ;
-      zlog_err("%s: could not raise privs", __func__);
-
-      return ret ;
+      err = errno ;
+      zlog_err("%s: could not raise privs: %s", __func__, safe_strerror(errno));
     } ;
 
-  ret = bind(sock, sa, salen) ;
+  ret = bind(sock_fd, sa, salen) ;
   if (ret < 0)
     {
-      ret = errno ;
-      zlog_err ("bind: %s", safe_strerror(ret));
+      err = errno ;
+      zlog_err ("%s: bind: %s",  __func__, safe_strerror(err));
     } ;
 
   if (bgpd_privs.change(ZPRIVS_LOWER))
     {
-      if (ret == 0)
-        ret = errno ;
-      zlog_err("%s: could not lower privs", __func__) ;
+      if (err == 0)
+        err = errno ;
+      zlog_err("%s: could not lower privs: %s", __func__, safe_strerror(errno));
     } ;
 
-  if (ret != 0)
-    return ret ;
-
-  ret = listen (sock, 3);
-  if (ret < 0)
+  if (err == 0)
     {
-      ret = errno ;
-      zlog_err ("listen: %s", safe_strerror(ret)) ;
-      return ret;
-    }
+      ret = listen (sock_fd, 43);
+      if (ret < 0)
+        {
+          err = errno ;
+          zlog_err ("%s: listen: %s", __func__, safe_strerror(err)) ;
+        }
+    } ;
+
+  if (err != 0)
+    {
+      close(sock_fd) ;
+      return err ;
+    } ;
 
   /* Having successfully opened the listener, record it so that can be found
    * again, add it to the BGP Engine Nexus file selection and enable it for
@@ -324,7 +396,7 @@ bgp_init_listener(int sock, struct sockaddr *sa, socklen_t salen)
   listener = XCALLOC(MTYPE_BGP_LISTENER, sizeof(struct bgp_listener)) ;
 
   qps_file_init_new(&listener->qf, NULL) ;
-  qps_add_file(bgp_nexus->selection, &listener->qf, sock, listener) ;
+  qps_add_file(bgp_nexus->selection, &listener->qf, sock_fd, listener) ;
   qps_enable_mode(&listener->qf, qps_read_mnum, bgp_accept_action) ;
 
   memcpy(&listener->su, sa, salen) ;
@@ -352,11 +424,11 @@ bgp_init_listener(int sock, struct sockaddr *sa, socklen_t salen)
 extern void
 bgp_prepare_to_accept(bgp_connection connection)
 {
-  int ret ;
+  int err ;
 
   if (connection->session->password != NULL)
     {
-      ret = bgp_md5_set_listeners(connection->session->su_peer,
+      err = bgp_md5_set_listeners(connection->session->su_peer,
                                   connection->session->password) ;
 
 /* TODO: failure to set password in bgp_prepare_to_accept ? */
@@ -376,11 +448,11 @@ bgp_prepare_to_accept(bgp_connection connection)
 extern void
 bgp_not_prepared_to_accept(bgp_connection connection)
 {
-  int ret ;
+  int err ;
 
   if (connection->session->password != NULL)
     {
-      ret = bgp_md5_set_listeners(connection->session->su_peer, NULL) ;
+      err = bgp_md5_set_listeners(connection->session->su_peer, NULL) ;
 
 /* TODO: failure to clear password in bgp_not_prepared_to_accept ? */
     } ;
@@ -441,17 +513,18 @@ bgp_accept_action(qps_file qf, void* file_info)
   union sockunion su_remote ;
   union sockunion su_local ;
   int  exists ;
-  int  fd ;
-  int  ret ;
+  int  sock_fd ;
+  int  err ;
+  int  family ;
   char buf[SU_ADDRSTRLEN] ;
 
   /* Accept client connection.                                              */
-  fd = sockunion_accept(qps_file_fd(qf), &su_remote) ;
-  if (fd < 0)
+  sock_fd = sockunion_accept(qps_file_fd(qf), &su_remote) ;
+  if (sock_fd < 0)
     {
-      if (fd == -1)
-        zlog_err("[Error] BGP socket accept failed (%s)",
-                                                         safe_strerror(errno)) ;
+      err = errno ;
+      if (sock_fd == -1)
+        zlog_err("[Error] BGP socket accept failed (%s)", safe_strerror(err)) ;
       return ;          /* have no connection to report this to         */
     } ;
 
@@ -468,7 +541,7 @@ bgp_accept_action(qps_file qf, void* file_info)
 	             ? "[Event] BGP accept IP address %s is not accepting"
 	             : "[Event] BGP accept IP address %s is not configured",
 	                        sockunion2str(&su_remote, buf, sizeof(buf))) ;
-      close(fd) ;
+      close(sock_fd) ;
       return ;          /* quietly reject connection                    */
 /* TODO: RFC recommends sending a NOTIFICATION when refusing accept()   */
     } ;
@@ -489,34 +562,46 @@ bgp_accept_action(qps_file qf, void* file_info)
   /* Set the common socket options.
    * Does not set password -- that is inherited from the listener.
    *
-   * If all is well, set up the listener connection, and set it ready
-   * to go.  Set session not to accept further inbound connections.
-   *
-   * Kicks the FSM with bgp_fsm_TCP_connection_open.
+   * At this point, su_remote is the value returned by accept(), so is the
+   * actual address (which may be IPv6 mapped IPv4).
    */
+  err = bgp_socket_set_common_options(sock_fd, &su_remote,
+                                             connection->session->ttl, NULL) ;
 
-  ret = bgp_getsockname(fd, &su_local, &su_remote) ;
-  if (ret != 0)
-    ret = bgp_socket_set_common_options(fd, &su_remote,
-                                               connection->session->ttl, NULL) ;
+  /* Get the actual socket family.                                      */
+  if (err == 0)
+    {
+      family = sockunion_getsockfamily(sock_fd) ;
+      if (family < 0)
+        err = errno ;
+    } ;
 
-  if (ret == 0)
-    bgp_connection_open(connection, fd) ;
+  /* Get the local and remote addresses -- noting that IPv6 mapped IPv4
+   * addresses are rendered as IPv4 addresses.
+   */
+  if (err == 0)
+    err = bgp_get_names(sock_fd, &su_local, &su_remote) ;
+
+ /* If all is well, set up the accept connection, and set it ready
+  * to go.  Set session not to accept further inbound connections.
+  */
+  if (err == 0)
+    bgp_connection_open(connection, sock_fd, family) ;
   else
-    close(fd) ;
+    close(sock_fd) ;
 
   BGP_CONNECTION_SESSION_UNLOCK(connection) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
   /* Now kick the FSM in an appropriate fashion                         */
-  bgp_fsm_connect_completed(connection, ret, &su_local, &su_remote) ;
+  bgp_fsm_connect_completed(connection, err, &su_local, &su_remote) ;
 } ;
 
 /*==============================================================================
  * Open BGP Connection -- connect() to the other end
  */
 
-static int bgp_bind_ifname(bgp_connection connection, int fd) ;
-static int bgp_bind_ifaddress(bgp_connection connection, int fd) ;
+static int bgp_bind_ifname(bgp_connection connection, int sock_fd) ;
+static int bgp_bind_ifaddress(bgp_connection connection, int sock_fd) ;
 
 /*------------------------------------------------------------------------------
  * Open BGP Connection -- connect() to the other end
@@ -533,45 +618,55 @@ static int bgp_bind_ifaddress(bgp_connection connection, int fd) ;
 extern void
 bgp_open_connect(bgp_connection connection)
 {
-  int   fd ;
-  int   ret ;
+  int   sock_fd ;
+  int   err ;
+  int   family ;
   union sockunion* su = connection->session->su_peer ;
 
+  err = 0 ;
+
   /* Make socket for the connect connection.                            */
-  fd = sockunion_socket(sockunion_family(su), SOCK_STREAM, 0) ;
-  ret = (fd >= 0) ? 0 : errno ;
+  family = sockunion_family(su) ;
+  sock_fd = sockunion_socket(family, SOCK_STREAM, 0) ;
+  if (sock_fd < 0)
+    err = errno ;
 
   /* Set the common options.                                            */
-  if (ret == 0)
-    ret = bgp_socket_set_common_options(fd, su, connection->session->ttl,
+  if (err == 0)
+    err = bgp_socket_set_common_options(sock_fd, su, connection->session->ttl,
                                                 connection->session->password) ;
 
   /* Bind socket.                                                       */
-  if (ret == 0)
-    ret = bgp_bind_ifname(connection, fd) ;
+  if (err == 0)
+    err = bgp_bind_ifname(connection, sock_fd) ;
 
   /* Update source bind.                                                */
-  if (ret == 0)
-    ret = bgp_bind_ifaddress(connection, fd) ;
+  if (err == 0)
+    err = bgp_bind_ifaddress(connection, sock_fd) ;
 
   if (BGP_DEBUG(events, EVENTS))
-    plog_debug(connection->log, "%s [Event] Connect start to %s fd %d",
-	       connection->host, connection->host, fd);
+    plog_debug(connection->log, "%s [Event] Connect start to %s socket %d",
+	       connection->host, connection->host, sock_fd);
 
   /* Connect to the remote peer.        */
-  if (ret == 0)
-    ret = sockunion_connect(fd, su, connection->session->port,
+  if (err == 0)
+    {
+      int ret ;
+      ret = sockunion_connect(sock_fd, su, connection->session->port,
                                                  connection->session->ifindex) ;
                           /* does not report EINPROGRESS as an error.   */
+      if (ret < 0)
+        err = errno ;
+    } ;
 
-  /* If not OK now, close the fd and signal the error                   */
+  /* If not OK now, close the sock_fd and signal the error              */
 
-  if (ret != 0)
+  if (err != 0)
     {
-      if (fd >= 0)
-        close(fd) ;
+      if (sock_fd >= 0)
+        close(sock_fd) ;
 
-      bgp_fsm_connect_completed(connection, ret, NULL, NULL) ;
+      bgp_fsm_connect_completed(connection, err, NULL, NULL) ;
 
       return ;
     } ;
@@ -584,15 +679,15 @@ bgp_open_connect(bgp_connection connection)
    *                up immediately).
    *   if fails:    will become readable (may also become writable)
    *
-   * Generally, expect it to be a while before the fd becomes readable or
+   * Generally, expect it to be a while before the sock_fd becomes readable or
    * writable.  But for local connections this may happen immediately.  But,
    * in any case, this will be handled by the qpselect action.
    */
 
-  bgp_connection_open(connection, fd) ;
+  bgp_connection_open(connection, sock_fd, family) ;
 
-  qps_enable_mode(&connection->qf, qps_read_mnum,  bgp_connect_action) ;
-  qps_enable_mode(&connection->qf, qps_write_mnum, bgp_connect_action) ;
+  qps_enable_mode(connection->qf, qps_read_mnum,  bgp_connect_action) ;
+  qps_enable_mode(connection->qf, qps_write_mnum, bgp_connect_action) ;
 
   return ;
 } ;
@@ -608,6 +703,11 @@ bgp_open_connect(bgp_connection connection)
  * become writable.
  *
  * Either way, use getsockopt() to extract any error condition.
+ *
+ * If becomes both readable and writable at the same time, then the first to
+ * arrive here will disable the file for both read and write, which will
+ * discard the other pending event -- so will not attempt to do this more than
+ * once.
  *
  * NB: does not require the session mutex.
  *
@@ -634,7 +734,7 @@ bgp_connect_action(qps_file qf, void* file_info)
 {
   bgp_connection  connection ;
   int ret, err ;
-  socklen_t len = sizeof(err) ;
+  socklen_t len ;
   union sockunion su_remote ;
   union sockunion su_local ;
 
@@ -643,54 +743,73 @@ bgp_connect_action(qps_file qf, void* file_info)
   /* See if connection successful or not.                               */
   /* If successful, set the connection->su_local and ->su_remote        */
 
+  len = sizeof(err) ;
+  err = 0 ;
   ret = getsockopt(qps_file_fd(qf), SOL_SOCKET, SO_ERROR, &err, &len) ;
-  if       (ret != 0)
-    ret = errno ;
-  else  if (len != sizeof(err))
-    zabort("getsockopt returned unexpected length") ;
-  else  if (err != 0)
-    ret = err ;
+  if      (ret != 0)
+    {
+      err = errno ;
+      if (err == 0)     /* cannot be and cannot continue        */
+        zabort("Invalid return from getsockopt()") ;
+    }
   else
-    ret = bgp_getsockname(qps_file_fd(qf), &su_local, &su_remote) ;
+    {
+      if (len != sizeof(err))
+        zabort("getsockopt returned unexpected length") ;
+    } ;
+
+  if (err == 0)
+    err = bgp_get_names(qps_file_fd(qf), &su_local, &su_remote) ;
 
   /* In any case, disable both read and write for this file.            */
   qps_disable_modes(qf, qps_write_mbit | qps_read_mbit) ;
 
   /* Now kick the FSM in an appropriate fashion                         */
-  bgp_fsm_connect_completed(connection, ret, &su_local, &su_remote) ;
+  bgp_fsm_connect_completed(connection, err, &su_local, &su_remote) ;
 } ;
 
 /*==============================================================================
- * Set the TTL for the given connection (if any), if there is an fd.
+ * Set the TTL for the given connection (if any), if there is an sock_fd.
  */
 extern void
 bgp_set_ttl(bgp_connection connection, int ttl)
 {
-  int fd ;
+  int sock_fd ;
 
   if (connection == NULL)
     return ;
 
-  fd = qps_file_fd(&connection->qf) ;
-  if (fd < 0)
+  sock_fd = qps_file_fd(connection->qf) ;
+  if (sock_fd < 0)
     return ;
 
   if (ttl != 0)
-    sockopt_ttl(connection->paf, fd, ttl) ;
+    sockopt_ttl(sock_fd, ttl) ;
 } ;
 
 /*==============================================================================
  * Get local and remote address and port for connection.
+ *
+ * Returns:  0 => OK
+ *        != 0 : error number (from errno or otherwise)
  */
 static int
-bgp_getsockname(int fd, union sockunion* su_local, union sockunion* su_remote)
+bgp_get_names(int sock_fd, union sockunion* su_local,
+                           union sockunion* su_remote)
 {
-  int ret_l, ret_r ;
+  int ret, err ;
 
-  ret_l = sockunion_getsockname(fd, su_local) ;
-  ret_r = sockunion_getpeername(fd, su_remote) ;
+  err = 0 ;
 
-  return (ret_l != 0) ? ret_l : ret_r ;
+  ret = sockunion_getsockname(sock_fd, su_local) ;
+  if (ret < 0)
+    err = errno ;
+
+  ret = sockunion_getpeername(sock_fd, su_remote) ;
+  if ((ret < 0) && (err == 0))
+    err = errno ;
+
+  return err ;
 } ;
 
 /*==============================================================================
@@ -704,44 +823,46 @@ bgp_getsockname(int fd, union sockunion* su_local, union sockunion* su_remote)
  * If there is a specific interface to bind an outbound connection to, that
  * is done here.
  *
- *
  * Returns:  0 : OK (so far so good)
  *        != 0 : error number (from errno or otherwise)
  */
 static int
-bgp_bind_ifname(bgp_connection connection, int fd)
+bgp_bind_ifname(bgp_connection connection, int sock_fd)
 {
 #ifdef SO_BINDTODEVICE
-  int ret, retp ;
+  int ret, err ;
   struct ifreq ifreq;
 
   if (connection->session->ifname == NULL)
     return 0;
 
   strncpy ((char *)&ifreq.ifr_name, connection->session->ifname,
-                                                       sizeof (ifreq.ifr_name));
+                                                      sizeof (ifreq.ifr_name)) ;
 
-  ret  = 0 ;
-  retp = 0 ;
+  err = 0 ;
   if (bgpd_privs.change (ZPRIVS_RAISE))
     {
-      zlog_err ("bgp_bind: could not raise privs");
-      retp = -1 ;
+      err = errno ;
+      zlog_err ("bgp_bind: could not raise privs: %s",  safe_strerror(errno));
     } ;
 
-  ret = setsockopt (fd, SOL_SOCKET, SO_BINDTODEVICE, &ifreq, sizeof (ifreq));
+  ret = setsockopt (sock_fd, SOL_SOCKET, SO_BINDTODEVICE,
+                                                       &ifreq, sizeof (ifreq)) ;
+  if (ret < 0)
+    err = errno ;
 
   if (bgpd_privs.change (ZPRIVS_LOWER) )
     {
-      zlog_err ("bgp_bind: could not lower privs");
-      retp = -1 ;
+      if (err == 0)
+        err = errno ;
+      zlog_err ("bgp_bind: could not lower privs: %s",  safe_strerror(errno));
     } ;
 
-  if ((ret < 0) || (retp < 0))
+  if (err != 0)
     {
-      zlog (connection->log, LOG_INFO, "bind to interface %s failed",
-                                                   connection->session->ifname);
-      return -1 ;
+      zlog (connection->log, LOG_INFO, "bind to interface %s failed (%s)",
+                              connection->session->ifname, safe_strerror(err));
+      return err ;
     }
 #endif /* SO_BINDTODEVICE */
   return 0;
@@ -754,12 +875,34 @@ bgp_bind_ifname(bgp_connection connection, int fd)
  *        != 0 : error number (from errno or otherwise)
  */
 static int
-bgp_bind_ifaddress(bgp_connection connection, int fd)
+bgp_bind_ifaddress(bgp_connection connection, int sock_fd)
 {
   if (connection->session->ifaddress != NULL)
     {
-      union sockunion su = *(connection->session->ifaddress) ;
-      return sockunion_bind (fd, &su, 0, &su) ;
+      union sockunion su ;
+      int ret ;
+      int family ;
+
+      sockunion_new_sockaddr(&su, &connection->session->ifaddress->sa) ;
+
+      family = sockunion_getsockfamily(sock_fd) ;
+      if (family < 0)
+        return errno ;
+
+#ifdef HAVE_IPV6
+      if (family != sockunion_family(&su))
+        {
+          if (family == AF_INET)
+            sockunion_unmap_ipv4(&su) ;
+          if (family == AF_INET6)
+            sockunion_map_ipv4(&su) ;
+        } ;
+#endif
+
+      ret = sockunion_bind (sock_fd, &su, 0, &su) ;
+
+      if (ret < 0)
+        return errno ;
     } ;
   return 0 ;
 } ;
@@ -769,7 +912,7 @@ bgp_bind_ifaddress(bgp_connection connection, int fd)
  */
 
 static int
-bgp_md5_set_socket(int fd, union sockunion *su, const char *password) ;
+bgp_md5_set_socket(int sock_fd, union sockunion *su, const char *password) ;
 
 /*------------------------------------------------------------------------------
  * Common socket options:
@@ -787,39 +930,39 @@ bgp_md5_set_socket(int fd, union sockunion *su, const char *password) ;
  *        != 0 == errno -- not that we really expect any errors here
  */
 static int
-bgp_socket_set_common_options(int fd, union sockunion* su, int ttl,
+bgp_socket_set_common_options(int sock_fd, union sockunion* su, int ttl,
                                                            const char* password)
 {
-  int ret ;
+  int err ;
   int val ;
 
   /* Make socket non-blocking                                           */
-  val = fcntl(fd, F_GETFL, 0) ;
-  if (val != -1)        /* Don't really expect it to be -1 (see POSIX)  */
-    val = fcntl(fd, F_SETFL, val | O_NONBLOCK) ;
+  val = fcntl(sock_fd, F_GETFL, 0) ;
+  if (val != -1)        /* POSIX says "return value is not negative"    */
+    val = fcntl(sock_fd, F_SETFL, val | O_NONBLOCK) ;
   if (val == -1)
     return errno ;
 
   /* Reuse addr and port                                                */
-  if (sockopt_reuseaddr(fd) < 0)
+  if (sockopt_reuseaddr(sock_fd) < 0)
     return errno ;
-  if (sockopt_reuseport(fd) < 0)
+  if (sockopt_reuseport(sock_fd) < 0)
     return errno ;
 
   /* Adjust ttl if required                                             */
   if (ttl != 0)
-    if ((ret = sockopt_ttl(sockunion_family(su), fd, ttl)) != 0)
-      return ret ;
+    if (sockopt_ttl(sock_fd, ttl) != 0)
+      return errno ;
 
   /* Set the TCP MD5 "password", if required.                           */
   if (password != NULL)
-    if ((ret = bgp_md5_set_socket(fd, su, password)) != 0)
-      return ret ;
+    if ((err = bgp_md5_set_socket(sock_fd, su, password)) != 0)
+      return err ;
 
 #ifdef IPTOS_PREC_INTERNETCONTROL
   /* set IPPROTO_IP/IP_TOS -- if is AF_INET                             */
   if (sockunion_family(su) == AF_INET)
-    if (setsockopt_ipv4_tos(fd, IPTOS_PREC_INTERNETCONTROL) < 0)
+    if (setsockopt_ipv4_tos(sock_fd, IPTOS_PREC_INTERNETCONTROL) < 0)
       return errno ;
 #endif
 
@@ -840,34 +983,36 @@ bgp_socket_set_common_options(int fd, union sockunion* su, int ttl,
  * NB: has to change up privileges, which can fail (if things are badly set up)
  */
 static int
-bgp_md5_set_socket(int fd, union sockunion *su, const char *password)
+bgp_md5_set_socket(int sock_fd, union sockunion *su, const char *password)
 {
-  int ret ;
+  int err, ret ;
 
-  assert(fd >= 0) ;
+  assert(sock_fd >= 0) ;
+
+  err = 0 ;
 
   if (bgpd_privs.change(ZPRIVS_RAISE))
     {
-      ret = errno ;
-      zlog_err("%s: could not raise privs", __func__);
-
-      return ret ;
+      err = errno ;
+      zlog_err("%s: could not raise privs: %s", __func__, safe_strerror(errno));
     } ;
 
-  ret = sockopt_tcp_signature(fd, su, password) ;
+  ret = sockopt_tcp_signature(sock_fd, su, password) ;
 
   if (ret != 0)         /* TODO: error already logged as zlog_err()     */
-    zlog (NULL, LOG_WARNING, "can't set TCP_MD5SIG option on socket %d: %s",
-          fd, safe_strerror(ret));
+    err = errno ;
 
   if (bgpd_privs.change(ZPRIVS_LOWER))
     {
-      if (ret == 0)
-        ret = errno ;
-      zlog_err("%s: could not lower privs", __func__) ;
+      if (err == 0)
+        err = errno ;
+      zlog_err("%s: could not lower privs: %s", __func__, safe_strerror(errno));
     } ;
 
-  return ret;
+  if (err != 0)
+    zlog (NULL, LOG_WARNING, "cannot set TCP_MD5SIG option on socket %d: %s",
+                                                  sock_fd, safe_strerror(err)) ;
+  return err ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -891,7 +1036,7 @@ static int
 bgp_md5_set_listeners(union sockunion* su, const char* password)
 {
   bgp_listener listener ;
-  int ret ;
+  int err ;
 
 #ifdef HAVE_IPV6
   assert((su->sa.sa_family == AF_INET) || (su->sa.sa_family == AF_INET6)) ;
@@ -903,9 +1048,9 @@ bgp_md5_set_listeners(union sockunion* su, const char* password)
 
   while (listener != NULL)
     {
-      ret = bgp_md5_set_socket(qps_file_fd(&listener->qf), su, password) ;
-      if (ret != 0)
-        return ret ;
+      err = bgp_md5_set_socket(qps_file_fd(&listener->qf), su, password) ;
+      if (err != 0)
+        return err ;
       listener = listener->next ;
     } ;
 

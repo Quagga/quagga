@@ -6757,8 +6757,8 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
 
 	  count++;
 
-	  len = vty_out (vty, "%s", peer->host);
-	  len = 16 - len;
+	  vty_out (vty, "%s", peer->host);
+	  len = 16 - strlen(peer->host);
 	  if (len < 1)
 	    vty_out (vty, "%s%*s", VTY_NEWLINE, 16, " ");
 	  else
@@ -8002,8 +8002,8 @@ bgp_write_rsclient_summary (struct vty *vty, struct peer *rsclient,
       return count;
     }
 
-  len = vty_out (vty, "%s", rsclient->host);
-  len = 16 - len;
+  vty_out (vty, "%s", rsclient->host);
+  len = 16 - strlen(rsclient->host) ;
 
   if (len < 1)
     vty_out (vty, "%s%*s", VTY_NEWLINE, 16, " ");
@@ -9990,7 +9990,7 @@ community_list_perror (struct vty *vty, int ret)
 
 /* VTY interface for community_set() function.  */
 static int
-community_list_set_vty (struct vty *vty, int argc, const char **argv,
+community_list_set_vty (struct vty *vty, int argc, argv_t argv,
                         int style, int reject_all_digit_name)
 {
   int ret;
@@ -10043,7 +10043,7 @@ community_list_set_vty (struct vty *vty, int argc, const char **argv,
 
 /* Communiyt-list entry delete.  */
 static int
-community_list_unset_vty (struct vty *vty, int argc, const char **argv,
+community_list_unset_vty (struct vty *vty, int argc, argv_t argv,
 			  int style)
 {
   int ret;
@@ -10349,7 +10349,7 @@ DEFUN (show_ip_community_list_arg,
 }
 
 static int
-extcommunity_list_set_vty (struct vty *vty, int argc, const char **argv,
+extcommunity_list_set_vty (struct vty *vty, int argc, argv_t argv,
                            int style, int reject_all_digit_name)
 {
   int ret;
@@ -10397,8 +10397,7 @@ extcommunity_list_set_vty (struct vty *vty, int argc, const char **argv,
 }
 
 static int
-extcommunity_list_unset_vty (struct vty *vty, int argc, const char **argv,
-			     int style)
+extcommunity_list_unset_vty (struct vty *vty, int argc, argv_t argv, int style)
 {
   int ret;
   int direct = 0;

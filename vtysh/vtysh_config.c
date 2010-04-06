@@ -101,7 +101,7 @@ config_get (int index, const char *line)
       master->cmp = (int (*)(void *, void *)) config_cmp;
       vector_set_index (configvec, index, master);
     }
-  
+
   for (ALL_LIST_ELEMENTS (master, node, nnode, config_loop))
     {
       if (strcmp (config_loop->name, line) == 0)
@@ -265,7 +265,7 @@ vtysh_config_parse (char *line)
 {
   char *begin;
   char *pnt;
-  
+
   begin = pnt = line;
 
   while (*pnt != '\0')
@@ -353,9 +353,9 @@ vtysh_read_file (FILE *confp)
   int ret;
   struct vty *vty;
 
-  vty = vty_new (0, VTY_TERM); /* stdout */
+  vty = vty_open(VTY_STDOUT); /* stdout */
   vty->node = CONFIG_NODE;
-  
+
   vtysh_execute_no_pager ("enable");
   vtysh_execute_no_pager ("configure terminal");
 
@@ -367,7 +367,7 @@ vtysh_read_file (FILE *confp)
 
   vty_close (vty);
 
-  if (ret != CMD_SUCCESS) 
+  if (ret != CMD_SUCCESS)
     {
       switch (ret)
 	{
@@ -378,7 +378,7 @@ vtysh_read_file (FILE *confp)
 	  fprintf (stderr, "There is no such command.\n");
 	  break;
 	}
-      fprintf (stderr, "Error occured during reading below line.\n%s\n", 
+      fprintf (stderr, "Error occured during reading below line.\n%s\n",
 	       vty->buf);
       exit (1);
     }

@@ -503,17 +503,32 @@ qps_file_init_new(qps_file qf, qps_file template)
 } ;
 
 /*------------------------------------------------------------------------------
- * Free dynamically allocated qps_file structure.
+ * Free dynamically allocated qps_file structure -- if any.
  *
- * It is the caller's responsibility to have removed it from any selection it
- * may have been in.
+ * Removes from any selection may be a member of.
+ *
+ * If there is a valid fd -- close it !
+ *
+ * Returns: NULL
  */
-void
+extern qps_file
 qps_file_free(qps_file qf)
 {
-  assert(qf->selection == NULL) ;       /* Mustn't be a selection member ! */
+  if (qf != NULL)
+    {
+      if (qf->selection != NULL)
+        qps_remove_file(qf) ;
 
-  XFREE(MTYPE_QPS_FILE, qf) ;
+      if (qf->fd >= 0)
+        {
+          close(qf->fd) ;
+          qf->fd = fd_undef ;
+        } ;
+
+      XFREE(MTYPE_QPS_FILE, qf) ;
+    } ;
+
+  return NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -574,7 +589,7 @@ qps_set_action(qps_file qf, qps_mnum_t mnum, qps_action* action)
 /*------------------------------------------------------------------------------
  * Disable file for one or more modes.
  *
- * If there are any pending pending results for the modes, those are discarded.
+ * If there are any pending results for the modes, those are discarded.
  *
  * Note that this is modestly "optimised" to deal with disabling a single mode.
  * (Much of the time only the write mode will be being disabled !)
