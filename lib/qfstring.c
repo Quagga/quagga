@@ -40,10 +40,33 @@ qfs_init(qf_str qfs, char* str, size_t size)
 {
   assert(size > 0) ;
 
-  qfs->str   = qfs->ptr = str ;
-  qfs->end   = qfs->str + size - 1 ;
+  qfs->str = str ;
+  qfs->end = str + size - 1 ;
 
   *str = '\0' ;
+  qfs->ptr = str ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialise qf_str which already contains string -- to given size (which
+ * includes the '\n')
+ *
+ * This may be used to prepare for appending to a buffer which already contains
+ * something.
+ *
+ * Sets pointers, setting the write pointer to the existing terminating '\n'.
+ *
+ * This operation is async-signal-safe.
+ */
+extern void
+qfs_init_as_is(qf_str qfs, char* str, size_t size)
+{
+  assert(size > 0) ;
+
+  qfs->str = str ;
+  qfs->end = str + size - 1 ;
+
+  qfs->ptr = strchr(str, '\0') ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -205,7 +228,7 @@ qfs_append_justified(qf_str qfs, const char* src, int width)
 extern void
 qfs_append_justified_n(qf_str qfs, const char* src, size_t n, int width)
 {
-  if (n >= abs(width))
+  if ((int)n >= abs(width))
     width = 0 ;
 
   if (width > 0)
@@ -861,7 +884,7 @@ qfs_vprintf(qf_str qfs, const char *format, va_list args)
 } ;
 
 /*------------------------------------------------------------------------------
- * %s handler
+ * %s handler -- tolerates NULL pointer
  *
  * Accepts:    width
  *             precision
@@ -892,7 +915,7 @@ qfs_arg_string(qf_str qfs, va_list args, enum pf_flags flags,
   if (flags != (flags & pf_precision))
     return pfp_failed ;
 
-  len = strlen(src) ;
+  len = (src != NULL) ? strlen(src) : 0 ;
   if (((precision > 0) || (flags & pf_precision)) && (len > precision))
     len = precision ;
 

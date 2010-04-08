@@ -23,6 +23,7 @@
 #include "log.h"
 #include "sockopt.h"
 #include "sockunion.h"
+#include "pthread_safe.h"
 
 int
 setsockopt_so_recvbuf (int sock_fd, int size)
@@ -34,7 +35,7 @@ setsockopt_so_recvbuf (int sock_fd, int size)
     {
       int err = errno ;
       zlog_err ("socket %d: cannot setsockopt SO_RCVBUF to %d: %s",
-                                          sock_fd, size, safe_strerror(err)) ;
+                                          sock_fd, size, errtoa(err, 0).str) ;
       errno = err ;
     } ;
 
@@ -52,7 +53,7 @@ setsockopt_so_sendbuf (const int sock_fd, int size)
     {
       int err = errno ;
       zlog_err ("socket %d: cannot setsockopt SO_SNDBUF to %d: %s",
-                                          sock_fd, size, safe_strerror (err));
+                                          sock_fd, size, errtoa(err, 0).str) ;
       errno = err ;
     } ;
 
@@ -70,7 +71,7 @@ getsockopt_so_sendbuf (const int sock_fd)
   {
     int err = errno ;
     zlog_err ("socket %d: cannot getsockopt SO_SNDBUF: %s",
-                                                 sock_fd, safe_strerror (err));
+                                                 sock_fd, errtoa(err, 0).str) ;
     errno = err ;
     return ret;
   }
@@ -105,7 +106,7 @@ setsockopt_ipv6_pktinfo (int sock_fd, int val)
   if (ret < 0)
     {
       int err = errno ;
-      zlog_warn ("cannot setsockopt IPV6_RECVPKTINFO: %s", safe_strerror (err));
+      zlog_warn ("cannot setsockopt IPV6_RECVPKTINFO: %s", errtoa(err, 0).str);
       errno = err ;
     } ;
 #else	/*RFC2292*/
@@ -113,7 +114,7 @@ setsockopt_ipv6_pktinfo (int sock_fd, int val)
   if (ret < 0)
     {
       int err = errno ;
-      zlog_warn ("cannot setsockopt IPV6_PKTINFO: %s", safe_strerror (err));
+      zlog_warn ("cannot setsockopt IPV6_PKTINFO: %s", errtoa(err, 0).str);
       errno = err ;
     } ;
 #endif /* INIA_IPV6 */
@@ -134,7 +135,7 @@ setsockopt_ipv6_checksum (int sock_fd, int val)
   if (ret < 0)
     {
       int err = errno ;
-      zlog_warn ("cannot setsockopt IPV6_CHECKSUM: %s", safe_strerror (err));
+      zlog_warn ("cannot setsockopt IPV6_CHECKSUM: %s", errtoa(err, 0).str);
       errno = err ;
     } ;
   return ret;
@@ -152,7 +153,7 @@ setsockopt_ipv6_multicast_hops (int sock_fd, int val)
     {
       int err = errno ;
       zlog_warn ("cannot setsockopt IPV6_MULTICAST_HOPS: %s",
-                                                          safe_strerror (err));
+                                                          errtoa(err, 0).str);
       errno = err ;
     } ;
   return ret;
@@ -168,7 +169,7 @@ setsockopt_ipv6_unicast_hops (int sock_fd, int val)
   if (ret < 0)
     {
       int err = errno ;
-      zlog_warn("cannot setsockopt IPV6_UNICAST_HOPS: %s", safe_strerror (err));
+      zlog_warn("cannot setsockopt IPV6_UNICAST_HOPS: %s", errtoa(err, 0).str);
       errno = err ;
     } ;
   return ret;
@@ -185,7 +186,7 @@ setsockopt_ipv6_hoplimit (int sock_fd, int val)
   if (ret < 0)
     {
       int err = errno ;
-      zlog_warn("cannot setsockopt IPV6_RECVHOPLIMIT: %s", safe_strerror (err));
+      zlog_warn("cannot setsockopt IPV6_RECVHOPLIMIT: %s", errtoa(err, 0).str);
       errno = err ;
     } ;
 #else	/*RFC2292*/
@@ -193,7 +194,7 @@ setsockopt_ipv6_hoplimit (int sock_fd, int val)
   if (ret < 0)
     {
       int err = errno ;
-      zlog_warn ("cannot setsockopt IPV6_HOPLIMIT: %s", safe_strerror (err));
+      zlog_warn ("cannot setsockopt IPV6_HOPLIMIT: %s", errtoa(err, 0).str);
       errno = err ;
     } ;
 #endif
@@ -212,7 +213,7 @@ setsockopt_ipv6_multicast_loop (int sock_fd, int val)
     {
       int err = errno ;
       zlog_warn ("cannot setsockopt IPV6_MULTICAST_LOOP: %s",
-                                                          safe_strerror (err));
+                                                          errtoa(err, 0).str);
       errno = err ;
     } ;
   return ret;
@@ -375,7 +376,7 @@ setsockopt_ipv4_ifindex (int sock_fd, int val)
     {
       int err = errno ;
       zlog_warn ("Can't set IP_PKTINFO option for fd %d to %d: %s",
-                                              sock_fd, val, safe_strerror(err));
+                                              sock_fd, val, errtoa(err, 0).str);
       errno = err ;
     } ;
 #elif defined (IP_RECVIF)
@@ -384,7 +385,7 @@ setsockopt_ipv4_ifindex (int sock_fd, int val)
     {
       int err = errno ;
       zlog_warn ("Can't set IP_RECVIF option for fd %d to %d: %s",
-                                              sock_fd, val, safe_strerror(err));
+                                              sock_fd, val, errtoa(err, 0).str);
       errno = err ;
     } ;
 #else
@@ -407,7 +408,7 @@ setsockopt_ipv4_tos(int sock_fd, int tos)
     {
       int err = errno ;
       zlog_warn ("Can't set IP_TOS option for fd %d to %#x: %s",
-                                          sock_fd, tos, safe_strerror(err));
+                                          sock_fd, tos, errtoa(err, 0).str);
       errno = err ;
     } ;
   return ret;
@@ -666,7 +667,7 @@ sockopt_tcp_signature (int sock_fd, union sockunion *su, const char *password)
       else
         {
           zlog_err ("sockopt_tcp_signature: setsockopt(%d): %s",
-                                                  sock_fd, safe_strerror(err));
+                                                  sock_fd, errtoa(err, 0).str) ;
           errno = err ;
         } ;
     }
@@ -728,7 +729,7 @@ sockopt_ttl (int sock_fd, int ttl)
       int err = errno ;
       zlog (NULL, LOG_WARNING,
           "cannot set sockopt %s %d to socket %d: %s", msg, ttl, sock_fd,
-                                                           safe_strerror(err)) ;
+                                                           errtoa(err, 0).str) ;
       errno = err ;
       return -1 ;
     } ;

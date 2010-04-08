@@ -594,7 +594,7 @@ extern void
 bgp_fsm_io_fatal_error(bgp_connection connection, int err)
 {
   plog_err (connection->log, "%s [Error] bgp IO error: %s",
-            connection->host, safe_strerror(err)) ;
+            connection->host, errtoa(err, 0).str) ;
 
   assert(err != EFAULT) ;
 
@@ -639,7 +639,7 @@ bgp_fsm_io_error(bgp_connection connection, int err)
             plog_debug(connection->log,
                        "%s [Event] BGP connection closed fd %d (%s)",
                                connection->host, qps_file_fd(connection->qf),
-                                                           safe_strerror(err)) ;
+                                                           errtoa(err, 0).str) ;
         } ;
 
       bgp_fsm_throw(connection, bgp_session_eTCP_dropped, NULL, err,
@@ -1711,21 +1711,19 @@ static bgp_fsm_action(bgp_fsm_accept)
  */
 static bgp_fsm_action(bgp_fsm_send_open)
 {
-  char  buf_l[SU_ADDRSTRLEN] ;
-  char  buf_r[SU_ADDRSTRLEN] ;
-  const char* how ;
-
   if (BGP_DEBUG (normal, NORMAL))
     {
+      const char* how ;
+
       if (connection->ordinal == bgp_connection_primary)
         how = "connect" ;
       else
         how = "accept" ;
 
       zlog_debug("%s open %s(), local address %s",
-                  sockunion2str(connection->su_remote, buf_r, sizeof(buf_r)),
-                  how,
-                  sockunion2str(connection->su_local,  buf_l, sizeof(buf_l))) ;
+                                sutoa(connection->su_remote).str,
+                                how,
+                                sutoa(connection->su_local).str) ;
     } ;
 
   bgp_connection_read_enable(connection) ;

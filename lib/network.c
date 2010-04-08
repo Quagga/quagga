@@ -209,13 +209,13 @@ set_nonblocking(int fd)
   if ((flags = fcntl(fd, F_GETFL)) < 0)
     {
       zlog_warn("fcntl(F_GETFL) failed for fd %d: %s",
-      		fd, safe_strerror(errno));
+      		fd, errtoa(errno, 0).str);
       return -1;
     }
   if (fcntl(fd, F_SETFL, (flags | O_NONBLOCK)) < 0)
     {
       zlog_warn("fcntl failed setting fd %d non-blocking: %s",
-      		fd, safe_strerror(errno));
+      		fd, errtoa(errno, 0).str);
       return -1;
     }
   return 0;

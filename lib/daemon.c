@@ -1,7 +1,7 @@
 /*
  * Daemonize routine
  * Copyright (C) 1997, 1999 Kunihiro Ishiguro
- * 
+ *
  * This file is part of GNU Zebra.
  *
  * GNU Zebra is free software; you can redistribute it and/or modify
@@ -36,7 +36,7 @@ daemon (int nochdir, int noclose)
   /* In case of fork is error. */
   if (pid < 0)
     {
-      zlog_err ("fork failed: %s", safe_strerror(errno));
+      zlog_err ("fork failed: %s", errtoa(errno, 0).str);
       return -1;
     }
 
@@ -49,7 +49,7 @@ daemon (int nochdir, int noclose)
 
   if (pid == -1)
     {
-      zlog_err ("setsid failed: %s", safe_strerror(errno));
+      zlog_err ("setsid failed: %s", errtoa(errno, 0).str);
       return -1;
     }
 

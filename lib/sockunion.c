@@ -306,6 +306,18 @@ sockunion2str (union sockunion *su, char *buf, size_t size)
 }
 
 /*------------------------------------------------------------------------------
+ * Fill in and return a sockunion_string
+ */
+extern sockunion_string_t
+sutoa(sockunion su)
+{
+  sockunion_string_t sus ;
+
+  sockunion2str(su, sus.str, sizeof(sus.str)) ;
+  return sus ;
+} ;
+
+/*------------------------------------------------------------------------------
  * From the given string, construct and fill in a sockunion.
  *
  * Returns: NULL => not a valid address (or not a known address family)
@@ -335,9 +347,7 @@ sockunion_str2su (const char *str)
 extern char *
 sockunion_su2str (union sockunion *su, enum MTYPE type)
 {
-  char buf[SU_ADDRSTRLEN];
-
-  return XSTRDUP (type, sockunion2str(su, buf, sizeof(buf))) ;
+  return XSTRDUP (type, sutoa(su).str) ;
 }
 
 /*------------------------------------------------------------------------------
@@ -445,8 +455,8 @@ sockunion_socket(sa_family_t family, int type, int protocol)
 
   err = errno ;
   zlog (NULL, LOG_WARNING,
-          "Can't make socket family=%d, type=%d, protocol=%d : %s",
-                  (int)family, type, protocol, safe_strerror(err)) ;
+          "Can't make socket family=%d, type=%d, protocol=%d: %s",
+                  (int)family, type, protocol, errtoa(err, 0).str) ;
   errno = err ;
   return -1;
 }
@@ -484,7 +494,6 @@ extern int
 sockunion_connect(int sock_fd, union sockunion* peer_su, unsigned short port,
                                                            unsigned int ifindex)
 {
-  char buf[SU_ADDRSTRLEN] ;
   union sockunion su ;
   int   ret, err ;
   int   sa_len ;
@@ -519,8 +528,8 @@ sockunion_connect(int sock_fd, union sockunion* peer_su, unsigned short port,
   if ((err == 0) || (err == EINPROGRESS))
     return 0 ;      /* instant success or EINPROGRESS as expected       */
 
-  zlog_info("cannot connect to %s port %d socket %d : %s",
-    sockunion2str(&su, buf, sizeof(buf)), port, sock_fd, safe_strerror(err)) ;
+  zlog_info("cannot connect to %s port %d socket %d: %s",
+    sutoa(&su).str, port, sock_fd, errtoa(err, 0).str) ;
   errno = err ;
 
   return ret ;
@@ -545,8 +554,8 @@ sockunion_listen(int sock_fd, int backlog)
     return 0 ;
 
   err = errno ;
-  zlog (NULL, LOG_WARNING, "cannot listen on socket %d : %s",
-                                              sock_fd, safe_strerror(err)) ;
+  zlog (NULL, LOG_WARNING, "cannot listen on socket %d: %s",
+                                              sock_fd, errtoa(err, 0).str) ;
   errno = err ;
 
   return ret ;
@@ -574,7 +583,6 @@ sockunion_bind (int sock_fd, union sockunion *su, unsigned short port,
 {
   int sa_len ;
   int ret ;
-  char buf[SU_ADDRSTRLEN] ;
 
   if (any == NULL)
     sockunion_set_addr_any(su) ;
@@ -585,9 +593,8 @@ sockunion_bind (int sock_fd, union sockunion *su, unsigned short port,
   if (ret < 0)
     {
       int err = errno ;
-      zlog (NULL, LOG_WARNING, "cannot bind to %s port %d socket %d : %s",
-                  sockunion2str(su, buf, sizeof(buf)), port, sock_fd,
-                                                           safe_strerror(err)) ;
+      zlog (NULL, LOG_WARNING, "cannot bind to %s port %d socket %d: %s",
+                             sutoa(su).str, port, sock_fd, errtoa(err, 0).str) ;
       errno = err ;
     } ;
 
@@ -614,8 +621,8 @@ sockopt_reuseaddr (int sock_fd)
     {
       int err = errno ;
       zlog (NULL, LOG_WARNING,
-                   "cannot set sockopt SO_REUSEADDR to socket %d %s", sock_fd,
-                                                            safe_strerror(err));
+                   "cannot set sockopt SO_REUSEADDR to socket %d: %s", sock_fd,
+                                                           errtoa(err, 0).str) ;
       errno = err ;
     } ;
 
@@ -648,7 +655,7 @@ sockopt_reuseport (int sock_fd)
       int err = errno ;
       zlog (NULL, LOG_WARNING,
                    "cannot set sockopt SO_REUSEPORT to socket %d: %s", sock_fd,
-                                                            safe_strerror(err));
+                                                           errtoa(err, 0).str) ;
       errno = err ;
     } ;
 
@@ -711,7 +718,7 @@ sockunion_getsockfamily(int sock_fd)
     {
       int err = errno ;
       zlog_warn ("Failed in getsockname for socket %d: %s",
-                                                  sock_fd, safe_strerror(err)) ;
+                                                  sock_fd, errtoa(err, 0).str) ;
       errno = err ;
       return -1 ;
     } ;
@@ -758,7 +765,7 @@ sockunion_get_name(int sock_fd, union sockunion* su, int local)
     {
       int err = errno ;
       zlog_warn ("Cannot get %s address and port: %s",
-                               local ? "local" : "remote", safe_strerror(err)) ;
+                               local ? "local" : "remote", errtoa(err, 0).str) ;
       errno = err ;
       return ret ;
     }

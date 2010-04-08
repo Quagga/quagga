@@ -1,4 +1,4 @@
-/* 
+/*
  * Zebra privileges.
  *
  * Copyright (C) 2003 Paul Jakma.
@@ -19,7 +19,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 #include <zebra.h>
 #include "log.h"
@@ -43,7 +43,7 @@ static qpt_mutex_t privs_mutex;
  * sets are mostly opaque, to hold a set of privileges, related in some way.
  * storage binds together a set of sets we're interested in.
  * (in reality: cap_value_t and priv_t are ints)
- */ 
+ */
 #ifdef HAVE_LCAPS
 /* Linux doesn't have a 'set' type: a set of related privileges */
 struct _pset {
@@ -53,7 +53,7 @@ struct _pset {
 typedef cap_value_t pvalue_t;
 typedef struct _pset pset_t;
 typedef cap_t pstorage_t;
-
+
 #elif defined (HAVE_SOLARIS_CAPABILITIES)
 typedef priv_t pvalue_t;
 typedef priv_set_t pset_t;
@@ -62,7 +62,7 @@ typedef priv_set_t *pstorage_t;
 #error "HAVE_CAPABILITIES defined, but neither LCAPS nor Solaris Capabilties!"
 #endif /* HAVE_LCAPS */
 #endif /* HAVE_CAPABILITIES */
-
+
 /* the default NULL state we report is RAISED, but could be LOWERED if
  * zprivs_terminate is called and the NULL handler is installed.
  */
@@ -135,7 +135,7 @@ static struct
   [ZCAP_CHROOT] = 	{ 1, (pvalue_t []) { PRIV_PROC_CHROOT		}, },
   [ZCAP_NICE] = 	{ 1, (pvalue_t []) { PRIV_PROC_PRIOCNTL		}, },
   [ZCAP_PTRACE] =	{ 1, (pvalue_t []) { PRIV_PROC_SESSION		}, },
-  [ZCAP_DAC_OVERRIDE] = { 2, (pvalue_t []) { PRIV_FILE_DAC_EXECUTE, 
+  [ZCAP_DAC_OVERRIDE] = { 2, (pvalue_t []) { PRIV_FILE_DAC_EXECUTE,
                                              PRIV_FILE_DAC_READ,
                                              PRIV_FILE_DAC_SEARCH,
                                              PRIV_FILE_DAC_WRITE,
@@ -146,7 +146,7 @@ static struct
   [ZCAP_FOWNER] =	{ 1, (pvalue_t []) { PRIV_FILE_OWNER		}, },
 #endif /* HAVE_SOLARIS_CAPABILITIES */
 };
-
+
 #ifdef HAVE_LCAPS
 /* Linux forms of capabilities methods */
 /* convert zebras privileges to system capabilities */
@@ -155,42 +155,42 @@ zcaps2sys (zebra_capabilities_t *zcaps, int num)
 {
   pset_t *syscaps;
   int i, j = 0, count = 0;
-  
+
   if (!num)
     return NULL;
-  
+
   /* first count up how many system caps we have */
   for (i= 0; i < num; i++)
     count += cap_map[zcaps[i]].num;
-  
+
   if ( (syscaps = XCALLOC (MTYPE_PRIVS, (sizeof(pset_t) * num))) == NULL)
     {
       fprintf (stderr, "%s: could not allocate syscaps!", __func__);
       return NULL;
     }
-  
+
   syscaps->caps = XCALLOC (MTYPE_PRIVS, (sizeof (pvalue_t) * count));
-  
+
   if (!syscaps->caps)
     {
       fprintf (stderr, "%s: could not XCALLOC caps!", __func__);
       return NULL;
     }
-  
+
   /* copy the capabilities over */
   count = 0;
   for (i=0; i < num; i++)
     for (j = 0; j < cap_map[zcaps[i]].num; j++)
       syscaps->caps[count++] = cap_map[zcaps[i]].system_caps[j];
-  
+
   /* iterations above should be exact same as previous count, obviously.. */
   syscaps->num = count;
-  
+
   return syscaps;
 }
 
 /* set or clear the effective capabilities to/from permitted */
-int 
+int
 zprivs_change_caps (zebra_privs_ops_t op)
 {
   cap_flag_value_t cflag;
@@ -223,8 +223,8 @@ zprivs_change_caps (zebra_privs_ops_t op)
     }
 
   if ( change && !cap_set_flag (zprivs_state.caps, CAP_EFFECTIVE,
-                       zprivs_state.syscaps_p->num, 
-                       zprivs_state.syscaps_p->caps, 
+                       zprivs_state.syscaps_p->num,
+                       zprivs_state.syscaps_p->caps,
                        cflag))
     result = cap_set_proc (zprivs_state.caps);
 
@@ -248,14 +248,14 @@ zprivs_state_caps (void)
       UNLOCK
       exit (1);
     }
-  
+
   for (i=0; i < zprivs_state.syscaps_p->num; i++)
     {
-      if ( cap_get_flag (zprivs_state.caps, zprivs_state.syscaps_p->caps[i], 
+      if ( cap_get_flag (zprivs_state.caps, zprivs_state.syscaps_p->caps[i],
                          CAP_EFFECTIVE, &val) )
         {
           zlog_warn ("zprivs_state_caps: could not cap_get_flag, %s",
-                     safe_strerror (errno) );
+                                                         errtoa(errno, 0).str) ;
           result = ZPRIVS_UNKNOWN;
           break;
         }
@@ -280,7 +280,7 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
   if ( prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0) == -1 )
     {
       fprintf (stderr, "privs_init: could not set PR_SET_KEEPCAPS, %s\n",
-                safe_strerror (errno) );
+                                                       errtostr(errno, 0).str) ;
       exit(1);
     }
 
@@ -295,50 +295,50 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
     {
       if ( setreuid (zprivs_state.zuid, zprivs_state.zuid) )
         {
-          fprintf (stderr, "zprivs_init (cap): could not setreuid, %s\n", 
-                     safe_strerror (errno));
-          exit (1);
+          fprintf (stderr, "zprivs_init (cap): could not setreuid, %s\n",
+                                                       errtostr(errno, 0).str) ;
+         exit (1);
         }
     }
-  
+
   if ( !(zprivs_state.caps = cap_init()) )
     {
-      fprintf (stderr, "privs_init: failed to cap_init, %s\n", 
-               safe_strerror (errno));
+      fprintf (stderr, "privs_init: failed to cap_init, %s\n",
+                                                       errtostr(errno, 0).str) ;
       exit (1);
     }
 
   if ( cap_clear (zprivs_state.caps) )
     {
-      fprintf (stderr, "privs_init: failed to cap_clear, %s\n", 
-               safe_strerror (errno));
+      fprintf (stderr, "privs_init: failed to cap_clear, %s\n",
+                                                       errtostr(errno, 0).str) ;
       exit (1);
     }
-  
+
   /* set permitted caps */
-  cap_set_flag(zprivs_state.caps, CAP_PERMITTED, 
+  cap_set_flag(zprivs_state.caps, CAP_PERMITTED,
                zprivs_state.syscaps_p->num,
                zprivs_state.syscaps_p->caps,
                CAP_SET);
-    
+
   /* set inheritable caps, if any */
   if (zprivs_state.syscaps_i && zprivs_state.syscaps_i->num)
     {
-      cap_set_flag(zprivs_state.caps, CAP_INHERITABLE, 
-                   zprivs_state.syscaps_i->num, 
-                   zprivs_state.syscaps_i->caps, 
+      cap_set_flag(zprivs_state.caps, CAP_INHERITABLE,
+                   zprivs_state.syscaps_i->num,
+                   zprivs_state.syscaps_i->caps,
                    CAP_SET);
     }
-  
-  /* apply caps. CAP_EFFECTIVE is cleared. we'll raise the caps as 
+
+  /* apply caps. CAP_EFFECTIVE is cleared. we'll raise the caps as
    * and when, and only when, they are needed.
    */
-  if ( cap_set_proc (zprivs_state.caps) ) 
+  if ( cap_set_proc (zprivs_state.caps) )
     {
       fprintf (stderr, "privs_init: initial cap_set_proc failed\n");
       exit (1);
     }
-  
+
   /* set methods for the caller to use */
   zprivs->change = zprivs_change_caps;
   zprivs->current_state = zprivs_state_caps;
@@ -352,12 +352,12 @@ zprivs_caps_terminate (void)
       cap_clear (zprivs_state.caps);
 
   /* and boom, capabilities are gone forever */
-  if ( cap_set_proc (zprivs_state.caps) ) 
+  if ( cap_set_proc (zprivs_state.caps) )
     {
       fprintf (stderr, "privs_terminate: cap_set_proc failed, %s",
-                safe_strerror (errno) );
+                                                       errtostr(errno, 0).str) ;
       exit (1);
-    }  
+    }
 
   /* free up private state */
   if (zprivs_state.syscaps_p->num)
@@ -365,18 +365,18 @@ zprivs_caps_terminate (void)
       XFREE (MTYPE_PRIVS, zprivs_state.syscaps_p->caps);
       XFREE (MTYPE_PRIVS, zprivs_state.syscaps_p);
     }
-  
+
   if (zprivs_state.syscaps_i && zprivs_state.syscaps_i->num)
     {
       XFREE (MTYPE_PRIVS, zprivs_state.syscaps_i->caps);
       XFREE (MTYPE_PRIVS, zprivs_state.syscaps_i);
     }
-  
+
   cap_free (zprivs_state.caps);
 }
 #elif defined (HAVE_SOLARIS_CAPABILITIES) /* !HAVE_LCAPS */
-
-/* Solaris specific capability/privilege methods 
+
+/* Solaris specific capability/privilege methods
  *
  * Resources:
  * - the 'privileges' man page
@@ -390,30 +390,30 @@ zcaps2sys (zebra_capabilities_t *zcaps, int num)
 {
   pset_t *syscaps;
   int i, j = 0;
-  
+
   if ((syscaps = priv_allocset()) == NULL)
     {
       fprintf (stderr, "%s: could not allocate syscaps!\n", __func__);
       exit (1);
     }
-    
+
   priv_emptyset (syscaps);
-  
+
   for (i=0; i < num; i++)
     for (j = 0; j < cap_map[zcaps[i]].num; j++)
       priv_addset (syscaps, cap_map[zcaps[i]].system_caps[j]);
-  
+
   return syscaps;
 }
 
 /* callback exported to users to RAISE and LOWER effective privileges
  * from nothing to the given permitted set and back down
  */
-int 
+int
 zprivs_change_caps (zebra_privs_ops_t op)
 {
   int result = 0;
-  
+
   LOCK
 
   /* should be no possibility of being called without valid caps */
@@ -424,7 +424,7 @@ zprivs_change_caps (zebra_privs_ops_t op)
       UNLOCK
       exit (1);
     }
-  
+
   /* to raise: copy original permitted into our working effective set
    * to lower: just clear the working effective set
    */
@@ -448,25 +448,25 @@ zprivs_change_caps (zebra_privs_ops_t op)
     }
   else
     result = -1;
-  
+
   UNLOCK
-  
+
   return result;
 }
 
 /* Retrieve current privilege state, is it RAISED or LOWERED? */
-zebra_privs_current_t 
+zebra_privs_current_t
 zprivs_state_caps (void)
 {
   zebra_privs_current_t result = ZPRIVS_UNKNOWN;
   pset_t *effective;
-  
+
   LOCK
 
   if ( (effective = priv_allocset()) == NULL)
     {
       fprintf (stderr, "%s: failed to get priv_allocset! %s\n", __func__,
-               safe_strerror (errno));
+               errtoa(errno, 0).str);
     }
   else
     {
@@ -474,7 +474,7 @@ zprivs_state_caps (void)
       if (getppriv (PRIV_EFFECTIVE, effective))
         {
           fprintf (stderr, "%s: failed to get state! %s\n", __func__,
-              safe_strerror (errno));
+              errtoa(errno, 0).str);
         }
       else
         {
@@ -487,7 +487,7 @@ zprivs_state_caps (void)
       if (effective)
         priv_freeset (effective);
     }
-  
+
   UNLOCK
   return result;
 }
@@ -497,11 +497,11 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
 {
   pset_t *basic;
   pset_t *empty;
-  
+
   /* the specified sets */
   zprivs_state.syscaps_p = zcaps2sys (zprivs->caps_p, zprivs->cap_num_p);
   zprivs_state.syscaps_i = zcaps2sys (zprivs->caps_i, zprivs->cap_num_i);
-  
+
   /* nonsensical to have gotten here but not have capabilities */
   if (!zprivs_state.syscaps_p)
     {
@@ -509,7 +509,7 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
                        "but no valid capabilities supplied\n",
                        __func__);
     }
-  
+
   /* We retain the basic set in our permitted set, as Linux has no
    * equivalent. The basic set on Linux hence is implicit, always
    * there.
@@ -519,11 +519,11 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
       fprintf (stderr, "%s: couldn't get basic set!\n", __func__);
       exit (1);
     }
- 
+
   /* Add the basic set to the permitted set */
   priv_union (basic, zprivs_state.syscaps_p);
   priv_freeset (basic);
-  
+
   /* we need an empty set for 'effective', potentially for inheritable too */
   if ( (empty = priv_allocset()) == NULL)
     {
@@ -531,20 +531,20 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
       exit (1);
     }
   priv_emptyset (empty);
-  
-  /* Hey kernel, we know about privileges! 
+
+  /* Hey kernel, we know about privileges!
    * this isn't strictly required, use of setppriv should have same effect
    */
   if (setpflags (PRIV_AWARE, 1))
     {
       fprintf (stderr, "%s: error setting PRIV_AWARE!, %s\n", __func__,
-               safe_strerror (errno) );
+               errtoa(errno, 0).str );
       exit (1);
     }
-  
+
   /* need either valid or empty sets for both p and i.. */
   assert (zprivs_state.syscaps_i && zprivs_state.syscaps_p);
-  
+
   /* we have caps, we have no need to ever change back the original user
    * change real, effective and saved to the specified user.
    */
@@ -552,25 +552,25 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
     {
       if ( setreuid (zprivs_state.zuid, zprivs_state.zuid) )
         {
-          fprintf (stderr, "%s: could not setreuid, %s\n", 
-                   __func__, safe_strerror (errno));
+          fprintf (stderr, "%s: could not setreuid, %s\n",
+                   __func__, errtoa(errno, 0).str);
           exit (1);
         }
     }
-  
+
   /* set the permitted set */
   if (setppriv (PRIV_SET, PRIV_PERMITTED, zprivs_state.syscaps_p))
     {
       fprintf (stderr, "%s: error setting permitted set!, %s\n", __func__,
-               safe_strerror (errno) );
+               errtoa(errno, 0).str );
       exit (1);
     }
-  
+
   /* set the inheritable set */
   if (setppriv (PRIV_SET, PRIV_INHERITABLE, zprivs_state.syscaps_i))
     {
       fprintf (stderr, "%s: error setting inheritable set!, %s\n", __func__,
-               safe_strerror (errno) );
+               errtoa(errno, 0).str );
       exit (1);
     }
 
@@ -578,13 +578,13 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
   if (setppriv (PRIV_SET, PRIV_EFFECTIVE, empty))
     {
       fprintf (stderr, "%s: error setting effective set!, %s\n", __func__,
-               safe_strerror (errno) );
+               errtoa(errno, 0).str );
       exit (1);
     }
-  
+
   /* we'll use this as our working-storage privset */
   zprivs_state.caps = empty;
-  
+
   /* set methods for the caller to use */
   zprivs->change = zprivs_change_caps;
   zprivs->current_state = zprivs_state_caps;
@@ -594,26 +594,26 @@ static void
 zprivs_caps_terminate (void)
 {
   assert (zprivs_state.caps);
-  
+
   /* clear all capabilities */
   priv_emptyset (zprivs_state.caps);
   setppriv (PRIV_SET, PRIV_EFFECTIVE, zprivs_state.caps);
   setppriv (PRIV_SET, PRIV_PERMITTED, zprivs_state.caps);
   setppriv (PRIV_SET, PRIV_INHERITABLE, zprivs_state.caps);
-  
+
   /* free up private state */
   if (zprivs_state.syscaps_p)
     priv_freeset (zprivs_state.syscaps_p);
   if (zprivs_state.syscaps_i)
     priv_freeset (zprivs_state.syscaps_i);
-  
+
   priv_freeset (zprivs_state.caps);
 }
 #else /* !HAVE_LCAPS && ! HAVE_SOLARIS_CAPABILITIES */
 #error "Neither Solaris nor Linux capabilities, dazed and confused..."
 #endif /* HAVE_LCAPS */
 #endif /* HAVE_CAPABILITIES */
-
+
 int
 zprivs_change_uid (zebra_privs_ops_t op)
 {
@@ -699,7 +699,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
   LOCK
 
   /* NULL privs */
-  if (! (zprivs->user || zprivs->group 
+  if (! (zprivs->user || zprivs->group
          || zprivs->cap_num_p || zprivs->cap_num_i) )
     {
       zprivs->change = zprivs_change_null;
@@ -735,10 +735,10 @@ zprivs_init(struct zebra_privs_t *zprivs)
           if ( setgroups (1, &zprivs_state.vtygrp) )
             {
               fprintf (stderr, "privs_init: could not setgroups, %s\n",
-                         safe_strerror (errno) );
+                                                       errtostr(errno, 0).str) ;
               UNLOCK
               exit (1);
-            }       
+            }
         }
       else
         {
@@ -748,7 +748,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
           exit (1);
         }
     }
-  
+
   if (zprivs->group)
     {
       if ( (grentry = getgrnam (zprivs->group)) )
@@ -766,12 +766,12 @@ zprivs_init(struct zebra_privs_t *zprivs)
       if ( setregid (zprivs_state.zgid, zprivs_state.zgid) )
         {
           fprintf (stderr, "zprivs_init: could not setregid, %s\n",
-                    safe_strerror (errno) );
+                                                       errtostr(errno, 0).str) ;
           UNLOCK
           exit (1);
         }
     }
-  
+
 #ifdef HAVE_CAPABILITIES
   zprivs_caps_init (zprivs);
 #else /* !HAVE_CAPABILITIES */
@@ -781,18 +781,18 @@ zprivs_init(struct zebra_privs_t *zprivs)
    *
    * This is not worth that much security wise, but all we can do.
    */
-  zprivs_state.zsuid = geteuid();  
+  zprivs_state.zsuid = geteuid();
   if ( zprivs_state.zuid )
     {
       if ( setreuid (-1, zprivs_state.zuid) )
         {
-          fprintf (stderr, "privs_init (uid): could not setreuid, %s\n", 
-                   safe_strerror (errno));
+          fprintf (stderr, "privs_init (uid): could not setreuid, %s\n",
+                   errtoa(errno, 0).str);
           UNLOCK
           exit (1);
         }
     }
-  
+
   zprivs->change = zprivs_change_uid;
   zprivs->current_state = zprivs_state_uid;
 #endif /* HAVE_CAPABILITIES */
@@ -800,7 +800,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
   UNLOCK
 }
 
-void 
+void
 zprivs_terminate (struct zebra_privs_t *zprivs)
 {
   if (!zprivs)
@@ -808,7 +808,7 @@ zprivs_terminate (struct zebra_privs_t *zprivs)
       fprintf (stderr, "%s: no privs struct given, terminating", __func__);
       exit (0);
     }
-  
+
   LOCK
 
 #ifdef HAVE_CAPABILITIES
@@ -818,8 +818,8 @@ zprivs_terminate (struct zebra_privs_t *zprivs)
     {
       if ( setreuid (zprivs_state.zuid, zprivs_state.zuid) )
         {
-          fprintf (stderr, "privs_terminate: could not setreuid, %s", 
-                     safe_strerror (errno) );
+          fprintf (stderr, "privs_terminate: could not setreuid, %s",
+                     errtoa(errno, 0).str );
           UNLOCK
           exit (1);
         }
@@ -847,7 +847,7 @@ zprivs_get_ids(struct zprivs_ids_t *ids)
                      : (ids->gid_normal = -1);
   (zprivs_state.vtygrp) ? (ids->gid_vty = zprivs_state.vtygrp)
                        : (ids->gid_vty = -1);
-   
+
    UNLOCK
    return;
 }

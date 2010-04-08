@@ -16,7 +16,7 @@ libzebra_la_SOURCES = \
 	qtime.c qpthreads.c mqueue.c qpselect.c qtimers.c qpnexus.c \
 	command_queue.c qlib_init.c pthread_safe.c list_util.c \
 	vty_io.c vty_cli.c keystroke.c qstring.c vio_fifo.c vio_lines.c \
-	qiovec.c qfstring.c
+	qiovec.c qfstring.c  errno_names.c
 
 BUILT_SOURCES = memtypes.h route_types.h
 
@@ -36,7 +36,7 @@ pkginclude_HEADERS = \
 	command_queue.h qlib_init.h qafi_safi.h \
 	confirm.h miyagi.h pthread_safe.h list_util.h node_type.h uty.h \
 	vty_io.h vty_cli.h keystroke.h qstring.h vio_fifo.h vio_lines.h \
-	qiovec.h qfstring.h
+	qiovec.h qfstring.h errno_names.h
 
 EXTRA_DIST = regex.c regex-gnu.h memtypes.awk route_types.awk route_types.txt
 

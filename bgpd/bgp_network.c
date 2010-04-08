@@ -222,7 +222,7 @@ bgp_open_listener_on(const char* address, unsigned short port)
                                                             ainfo->ai_protocol);
       if (sock_fd < 0)
         {
-          zlog_err ("socket: %s", safe_strerror (errno));
+          zlog_err ("socket: %s", errtoa(errno, 0).str);
           continue;
         }
 
@@ -254,7 +254,7 @@ bgp_open_listener_on(const char* address, unsigned short port)
   if (address && ((ret = inet_aton(address, &sin.sin_addr)) < 1))
     {
       zlog_err("bgp_socket: could not parse ip address %s: %s",
-                address, safe_strerror (errno));
+                address, errtoa(errno, 0).str);
       return ret;
     }
 #ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
@@ -264,7 +264,7 @@ bgp_open_listener_on(const char* address, unsigned short port)
   sock_fd = socket (AF_INET, SOCK_STREAM, 0);
   if (sock_fd < 0)
     {
-      zlog_err ("socket: %s", safe_strerror (errno));
+      zlog_err ("socket: %s", errtoa(errno, 0).str);
       return sock_fd;
     }
 
@@ -355,21 +355,21 @@ bgp_init_listener(int sock_fd, struct sockaddr *sa, socklen_t salen)
   if (bgpd_privs.change(ZPRIVS_RAISE))
     {
       err = errno ;
-      zlog_err("%s: could not raise privs: %s", __func__, safe_strerror(errno));
+      zlog_err("%s: could not raise privs: %s", __func__, errtoa(errno, 0).str);
     } ;
 
   ret = bind(sock_fd, sa, salen) ;
   if (ret < 0)
     {
       err = errno ;
-      zlog_err ("%s: bind: %s",  __func__, safe_strerror(err));
+      zlog_err ("%s: bind: %s",  __func__, errtoa(err, 0).str);
     } ;
 
   if (bgpd_privs.change(ZPRIVS_LOWER))
     {
       if (err == 0)
         err = errno ;
-      zlog_err("%s: could not lower privs: %s", __func__, safe_strerror(errno));
+      zlog_err("%s: could not lower privs: %s", __func__, errtoa(errno, 0).str);
     } ;
 
   if (err == 0)
@@ -378,7 +378,7 @@ bgp_init_listener(int sock_fd, struct sockaddr *sa, socklen_t salen)
       if (ret < 0)
         {
           err = errno ;
-          zlog_err ("%s: listen: %s", __func__, safe_strerror(err)) ;
+          zlog_err ("%s: listen: %s", __func__, errtoa(err, 0).str) ;
         }
     } ;
 
@@ -516,7 +516,6 @@ bgp_accept_action(qps_file qf, void* file_info)
   int  sock_fd ;
   int  err ;
   int  family ;
-  char buf[SU_ADDRSTRLEN] ;
 
   /* Accept client connection.                                              */
   sock_fd = sockunion_accept(qps_file_fd(qf), &su_remote) ;
@@ -524,13 +523,12 @@ bgp_accept_action(qps_file qf, void* file_info)
     {
       err = errno ;
       if (sock_fd == -1)
-        zlog_err("[Error] BGP socket accept failed (%s)", safe_strerror(err)) ;
+        zlog_err("[Error] BGP socket accept failed (%s)", errtoa(err, 0).str) ;
       return ;          /* have no connection to report this to         */
     } ;
 
   if (BGP_DEBUG(events, EVENTS))
-    zlog_debug("[Event] BGP connection from host %s",
-                                sockunion2str(&su_remote, buf, sizeof(buf))) ;
+    zlog_debug("[Event] BGP connection from host %s", sutoa(&su_remote).str) ;
 
   /* See if we are ready to accept connections from the connecting party    */
   connection = bgp_peer_index_seek_accept(&su_remote, &exists) ;
@@ -540,7 +538,7 @@ bgp_accept_action(qps_file qf, void* file_info)
 	zlog_debug(exists
 	             ? "[Event] BGP accept IP address %s is not accepting"
 	             : "[Event] BGP accept IP address %s is not configured",
-	                        sockunion2str(&su_remote, buf, sizeof(buf))) ;
+	                                                sutoa(&su_remote).str) ;
       close(sock_fd) ;
       return ;          /* quietly reject connection                    */
 /* TODO: RFC recommends sending a NOTIFICATION when refusing accept()   */
@@ -843,7 +841,7 @@ bgp_bind_ifname(bgp_connection connection, int sock_fd)
   if (bgpd_privs.change (ZPRIVS_RAISE))
     {
       err = errno ;
-      zlog_err ("bgp_bind: could not raise privs: %s",  safe_strerror(errno));
+      zlog_err ("bgp_bind: could not raise privs: %s",  errtoa(errno, 0).str);
     } ;
 
   ret = setsockopt (sock_fd, SOL_SOCKET, SO_BINDTODEVICE,
@@ -855,13 +853,13 @@ bgp_bind_ifname(bgp_connection connection, int sock_fd)
     {
       if (err == 0)
         err = errno ;
-      zlog_err ("bgp_bind: could not lower privs: %s",  safe_strerror(errno));
+      zlog_err ("bgp_bind: could not lower privs: %s", errtoa(errno, 0).str);
     } ;
 
   if (err != 0)
     {
       zlog (connection->log, LOG_INFO, "bind to interface %s failed (%s)",
-                              connection->session->ifname, safe_strerror(err));
+                              connection->session->ifname, errtoa(err, 0).str) ;
       return err ;
     }
 #endif /* SO_BINDTODEVICE */
@@ -994,7 +992,7 @@ bgp_md5_set_socket(int sock_fd, union sockunion *su, const char *password)
   if (bgpd_privs.change(ZPRIVS_RAISE))
     {
       err = errno ;
-      zlog_err("%s: could not raise privs: %s", __func__, safe_strerror(errno));
+      zlog_err("%s: could not raise privs: %s", __func__, errtoa(errno, 0).str);
     } ;
 
   ret = sockopt_tcp_signature(sock_fd, su, password) ;
@@ -1006,12 +1004,12 @@ bgp_md5_set_socket(int sock_fd, union sockunion *su, const char *password)
     {
       if (err == 0)
         err = errno ;
-      zlog_err("%s: could not lower privs: %s", __func__, safe_strerror(errno));
+      zlog_err("%s: could not lower privs: %s", __func__, errtoa(errno, 0).str);
     } ;
 
   if (err != 0)
     zlog (NULL, LOG_WARNING, "cannot set TCP_MD5SIG option on socket %d: %s",
-                                                  sock_fd, safe_strerror(err)) ;
+                                                  sock_fd, errtoa(err, 0).str) ;
   return err ;
 } ;
 

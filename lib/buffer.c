@@ -350,7 +350,7 @@ buffer_flush_window (struct buffer *b, int fd, int width, int height,
 	 if ((nbytes = writev(fd, c_iov, iov_size)) < 0)
 	   {
 	     zlog_warn("%s: writev to fd %d failed: %s",
-		       __func__, fd, safe_strerror(errno));
+		       __func__, fd, errtoa(errno, 0).str) ;
 	     break;
 	   }
 
@@ -362,7 +362,7 @@ buffer_flush_window (struct buffer *b, int fd, int width, int height,
 #else  /* IOV_MAX */
    if ((nbytes = writev (fd, iov, iov_index)) < 0)
      zlog_warn("%s: writev to fd %d failed: %s",
-	       __func__, fd, safe_strerror(errno));
+	       __func__, fd, errtoa(errno, 0).str);
 #endif /* IOV_MAX */
 
   /* Free printed buffer data. */
@@ -424,7 +424,7 @@ in one shot. */
 	/* Calling code should try again later. */
         return BUFFER_PENDING;
       zlog_warn("%s: write error on fd %d: %s",
-		__func__, fd, safe_strerror(errno));
+		__func__, fd, errtoa(errno, 0).str);
       return BUFFER_ERROR;
     }
 
@@ -479,7 +479,7 @@ buffer_write(struct buffer *b, int fd, const void *p, size_t size)
       else
         {
 	  zlog_warn("%s: write error on fd %d: %s",
-		    __func__, fd, safe_strerror(errno));
+		    __func__, fd, errtoa(errno, 0).str);
 	  return BUFFER_ERROR;
 	}
     }

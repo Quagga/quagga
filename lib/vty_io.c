@@ -1248,7 +1248,7 @@ uty_sock_error(vty_io vio, const char* what)
 
       vio->sock.error_seen = errno ;
       uzlog(NULL, LOG_WARNING, "%s: %s failed on fd %d: %s",
-                type, what, vio->sock.fd, safe_strerror(vio->sock.error_seen)) ;
+                type, what, vio->sock.fd, errtoa(vio->sock.error_seen, 0).str) ;
     } ;
 
   return -1 ;
@@ -2179,7 +2179,7 @@ uty_serv_vtysh(const char *path)
   if (sock < 0)
     {
       uzlog(NULL, LOG_ERR, "Cannot create unix stream socket: %s",
-                                                         safe_strerror(errno));
+                                                         errtoa(errno, 0).str) ;
       return -1 ;
     }
 
@@ -2198,7 +2198,7 @@ uty_serv_vtysh(const char *path)
 
   ret = bind (sock, (struct sockaddr *) &sa_un, sa_len) ;
   if (ret < 0)
-    uzlog(NULL, LOG_ERR, "Cannot bind path %s: %s", path, safe_strerror(errno));
+    uzlog(NULL, LOG_ERR, "Cannot bind path %s: %s", path, errtoa(errno, 0).str);
 
   if (ret >= 0)
     ret = set_nonblocking(sock);
@@ -2208,7 +2208,7 @@ uty_serv_vtysh(const char *path)
       ret = listen (sock, 5);
       if (ret < 0)
         uzlog(NULL, LOG_ERR, "listen(fd %d) failed: %s", sock,
-                                                          safe_strerror(errno));
+                                                         errtoa(errno, 0).str) ;
     } ;
 
   zprivs_get_ids(&ids);
@@ -2218,7 +2218,7 @@ uty_serv_vtysh(const char *path)
       /* set group of socket */
       if ( chown (path, -1, ids.gid_vty) )
         uzlog (NULL, LOG_ERR, "uty_serv_vtysh: could chown socket, %s",
-                                                        safe_strerror (errno) );
+                                                         errtoa(errno, 0).str) ;
     }
 
   umask (old_mask);
@@ -2322,33 +2322,32 @@ uty_accept(vty_listener listener, int listen_sock)
 static int
 uty_accept_term(vty_listener listener)
 {
-  int sock;
+  int sock_fd;
   union sockunion su;
   int ret;
   unsigned int on;
   struct prefix *p ;
-  char buf[SU_ADDRSTRLEN] ;
 
   VTY_ASSERT_LOCKED() ;
 
   /* We can handle IPv4 or IPv6 socket.                                 */
   sockunion_init_new(&su, AF_UNSPEC) ;
 
-  sock = sockunion_accept (listener->sock.fd, &su);
+  sock_fd = sockunion_accept (listener->sock.fd, &su);
 
-  if (sock < 0)
+  if (sock_fd < 0)
     {
-      if (sock == -1)
+      if (sock_fd == -1)
         uzlog (NULL, LOG_WARNING, "can't accept vty socket : %s",
-                                                         safe_strerror (errno));
+                                                         errtoa(errno, 0).str) ;
       return -1;
     }
 
   /* Really MUST have non-blocking                                      */
-  ret = set_nonblocking(sock) ;     /* issues WARNING if fails      */
+  ret = set_nonblocking(sock_fd) ;     /* issues WARNING if fails      */
   if (ret < 0)
     {
-      close(sock) ;
+      close(sock_fd) ;
       return -1 ;
     } ;
 
@@ -2382,26 +2381,25 @@ uty_accept_term(vty_listener listener)
 
   if (ret != 0)
     {
-      uzlog (NULL, LOG_INFO, "Vty connection refused from %s",
-                                    sockunion2str (&su, buf, sizeof(buf)));
-      close (sock);
+      uzlog (NULL, LOG_INFO, "Vty connection refused from %s", sutoa(&su).str) ;
+      close (sock_fd);
       return 0;
     } ;
 
   /* Final options (optional)                                           */
   on = 1 ;
-  ret = setsockopt (sock, IPPROTO_TCP, TCP_NODELAY,
+  ret = setsockopt (sock_fd, IPPROTO_TCP, TCP_NODELAY,
                                                     (void*)&on, sizeof (on));
   if (ret < 0)
-    uzlog (NULL, LOG_INFO, "can't set sockopt to sock %d: %s",
-                                          (int)sock, safe_strerror (errno));
+    uzlog (NULL, LOG_INFO, "can't set sockopt to socket %d: %s",
+                                               sock_fd, errtoa(errno, 0).str) ;
 
   /* All set -- create the VTY_TERM                                     */
-  uty_new_term(sock, &su);
+  uty_new_term(sock_fd, &su);
 
   /* Log new VTY                                                        */
-  uzlog (NULL, LOG_INFO, "Vty connection from %s (fd %d)",
-                              sockunion2str (&su, buf, sizeof(buf)), sock);
+  uzlog (NULL, LOG_INFO, "Vty connection from %s (fd %d)", sutoa(&su).str,
+                                                                      sock_fd) ;
 
   return 0;
 }
@@ -2412,7 +2410,7 @@ uty_accept_term(vty_listener listener)
 static int
 uty_accept_shell_serv (vty_listener listener)
 {
-  int sock ;
+  int sock_fd ;
   int ret ;
   int client_len ;
   struct sockaddr_un client ;
@@ -2422,21 +2420,21 @@ uty_accept_shell_serv (vty_listener listener)
   client_len = sizeof(client);
   memset (&client, 0, client_len);
 
-  sock = accept(listener->sock.fd, (struct sockaddr *) &client,
+  sock_fd = accept(listener->sock.fd, (struct sockaddr *) &client,
                                          (socklen_t *) &client_len) ;
 
-  if (sock < 0)
+  if (sock_fd < 0)
     {
       uzlog (NULL, LOG_WARNING, "can't accept vty shell socket : %s",
-                                                        safe_strerror (errno));
+                                                         errtoa(errno, 0).str) ;
       return -1;
     }
 
   /* Really MUST have non-blocking                                      */
-  ret = set_nonblocking(sock) ;     /* issues WARNING if fails      */
+  ret = set_nonblocking(sock_fd) ;      /* issues WARNING if fails      */
   if (ret < 0)
     {
-      close(sock) ;
+      close(sock_fd) ;
       return -1 ;
     } ;
 
@@ -2444,10 +2442,10 @@ uty_accept_shell_serv (vty_listener listener)
   if (VTYSH_DEBUG)
       printf ("VTY shell accept\n");
 
-  uty_new_shell_serv(sock) ;
+  uty_new_shell_serv(sock_fd) ;
 
   /* Log new VTY                                                        */
-  uzlog (NULL, LOG_INFO, "Vty shell connection (fd %d)", sock);
+  uzlog (NULL, LOG_INFO, "Vty shell connection (fd %d)", sock_fd);
   return 0;
 }
 

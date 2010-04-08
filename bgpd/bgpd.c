@@ -4066,7 +4066,6 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
 {
   struct bgp_filter *filter;
   struct peer *g_peer = NULL;
-  char buf[SU_ADDRSTRLEN];
   char *addr;
 
   filter = &peer->filter[afi][safi];
@@ -4166,8 +4165,8 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
 	    || sockunion_cmp (g_peer->update_source,
 			      peer->update_source) != 0)
 	  vty_out (vty, " neighbor %s update-source %s%s", addr,
-		   sockunion2str (peer->update_source, buf, sizeof(buf)),
-		   VTY_NEWLINE);
+		                               sutoa(peer->update_source).str,
+		                                                   VTY_NEWLINE);
 
       /* advertisement-interval */
       if (CHECK_FLAG (peer->config, PEER_CONFIG_ROUTEADV))

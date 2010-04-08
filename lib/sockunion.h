@@ -70,6 +70,13 @@ CONFIRM(SU_ADDRSTRLEN >= INET_ADDRSTRLEN) ;
 CONFIRM(SU_ADDRSTRLEN >= INET6_ADDRSTRLEN) ;
 #endif
 
+/* Sockunion String Object                                              */
+typedef struct sockunion_string sockunion_string_t ;
+struct sockunion_string
+{
+  char str[SU_ADDRSTRLEN] ;
+};
+
 /* Macro to set link local index to the IPv6 address.  For KAME IPv6
    stack. */
 #ifdef KAME
@@ -96,6 +103,7 @@ CONFIRM(SU_ADDRSTRLEN >= INET6_ADDRSTRLEN) ;
 extern sockunion sockunion_init_new(sockunion su, sa_family_t family) ;
 extern int str2sockunion (const char *, union sockunion *);
 extern const char *sockunion2str (union sockunion *, char *, size_t);
+extern sockunion_string_t sutoa(sockunion su) ;
 extern int sockunion_cmp (union sockunion *, union sockunion *);
 extern int sockunion_same (union sockunion *, union sockunion *);
 

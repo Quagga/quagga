@@ -289,7 +289,7 @@ uvzlog_line(struct logline* ll, struct zlog *zl, int priority,
       va_end(vac);
 
       /* Set pointer to where the '\0' is.                              */
-      p = ll->p_nl = qfs_end(&qfs) ;
+      p = ll->p_nl = qfs_ptr(&qfs) ;
     } ;
 
   /* finish off with '\r''\n''\0' or '\n''\0' as required               */
@@ -753,9 +753,9 @@ _zlog_abort_err (const char *mess, int err, const char *file,
   const static size_t buff_size = 1024;
   char buff[buff_size];
   snprintf(buff, buff_size,
-          "%s, in file %s, line %u, function %s, error %d \"%s\"",
+          "%s, in file %s, line %u, function %s, %s",
           mess, file, line, (function ? function : "?"),
-          err, safe_strerror(err));
+          errtoa(err, 0).str);
   zlog_abort(buff);
 }
 
@@ -939,8 +939,9 @@ zlog_rotate (struct zlog *zl)
             {
               /* can't call logging while locked */
               char *fname = strdup(zl->filename);
-              uzlog(NULL, LOG_ERR, "Log rotate failed: cannot open file %s for append: %s",
-	  	   fname, safe_strerror(save_errno));
+              uzlog(NULL, LOG_ERR,
+                   "Log rotate failed: cannot open file %s for append: %s",
+	  	   fname, errtoa(save_errno, 0).str);
               free(fname);
               result = -1;
             }

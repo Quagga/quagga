@@ -96,11 +96,12 @@ enum pf_flags
  */
 
 extern void qfs_init(qf_str qfs, char* str, size_t size) ;
+extern void qfs_init_as_is(qf_str qfs, char* str, size_t size) ;
 
 extern void qfs_term(qf_str qfs, const char* src) ;
 
 Inline int   qfs_len(qf_str qfs) ;
-Inline void* qfs_end(qf_str qfs) ;
+Inline void* qfs_ptr(qf_str qfs) ;
 Inline int   qfs_left(qf_str qfs) ;
 
 extern void qfs_append(qf_str qfs, const char* src) ;
@@ -139,7 +140,7 @@ qfs_len(qf_str qfs)
  * Address of the terminating '\0'.
  */
 Inline void*
-qfs_end(qf_str qfs)
+qfs_ptr(qf_str qfs)
 {
   return qfs->ptr ;
 } ;

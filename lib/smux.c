@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -45,7 +45,7 @@
 enum smux_event {SMUX_SCHEDULE, SMUX_CONNECT, SMUX_READ};
 
 void smux_event (enum smux_event, int);
-
+
 
 /* SMUX socket. */
 int smux_sock = -1;
@@ -81,7 +81,7 @@ static struct cmd_node smux_node =
 
 /* thread master */
 static struct thread_master *master;
-
+
 void *
 oid_copy (void *dest, const void *src, size_t size)
 {
@@ -93,7 +93,7 @@ oid2in_addr (oid oid[], int len, struct in_addr *addr)
 {
   int i;
   u_char *pnt;
-  
+
   if (len == 0)
     return;
 
@@ -108,7 +108,7 @@ oid_copy_addr (oid oid[], struct in_addr *addr, int len)
 {
   int i;
   u_char *pnt;
-  
+
   if (len == 0)
     return;
 
@@ -155,7 +155,7 @@ oid_compare_part (oid *o1, int o1_len, oid *o2, int o2_len)
 
   return 0;
 }
-
+
 static void
 smux_oid_dump (const char *prefix, const oid *oid, size_t oid_len)
 {
@@ -205,7 +205,7 @@ smux_socket (void)
     }
   for(res=res0; res; res=res->ai_next)
     {
-      if (res->ai_family != AF_INET 
+      if (res->ai_family != AF_INET
 #ifdef HAVE_IPV6
 	  && res->ai_family != AF_INET6
 #endif /* HAVE_IPV6 */
@@ -244,7 +244,7 @@ smux_socket (void)
 #endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
 
   sp = getservbyname ("smux", "tcp");
-  if (sp != NULL) 
+  if (sp != NULL)
     serv.sin_port = sp->s_port;
   else
     serv.sin_port = htons (SMUX_PORT_DEFAULT);
@@ -289,7 +289,7 @@ smux_getresp_send (oid objid[], size_t objid_len, long reqid, long errstat,
   /* Place holder h1 for complete sequence */
   ptr = asn_build_sequence (ptr, &len, (u_char) SMUX_GETRSP, 0);
   h1e = ptr;
- 
+
   ptr = asn_build_int (ptr, &len,
 		       (u_char) (ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER),
 		       &reqid, sizeof (reqid));
@@ -309,12 +309,12 @@ smux_getresp_send (oid objid[], size_t objid_len, long reqid, long errstat,
 
   h2 = ptr;
   /* Place holder h2 for one variable */
-  ptr = asn_build_sequence (ptr, &len, 
+  ptr = asn_build_sequence (ptr, &len,
 			   (u_char)(ASN_SEQUENCE | ASN_CONSTRUCTOR),
 			   0);
   h2e = ptr;
 
-  ptr = snmp_build_var_op (ptr, objid, &objid_len, 
+  ptr = snmp_build_var_op (ptr, objid, &objid_len,
 			   val_type, arg_len, arg, &len);
 
   /* Now variable size is known, fill in size */
@@ -325,7 +325,7 @@ smux_getresp_send (oid objid[], size_t objid_len, long reqid, long errstat,
 
   if (debug_smux)
     zlog_debug ("SMUX getresp send: %td", (ptr - buf));
-  
+
   ret = send (smux_sock, buf, (ptr - buf), 0);
 }
 
@@ -345,17 +345,17 @@ smux_var (u_char *ptr, size_t len, oid objid[], size_t *objid_len,
 
   /* Parse header. */
   ptr = asn_parse_header (ptr, &len, &type);
-  
+
   if (debug_smux)
     {
       zlog_debug ("SMUX var parse: type %d len %zd", type, len);
-      zlog_debug ("SMUX var parse: type must be %d", 
+      zlog_debug ("SMUX var parse: type must be %d",
 		 (ASN_SEQUENCE | ASN_CONSTRUCTOR));
     }
 
   /* Parse var option. */
   *objid_len = MAX_OID_LEN;
-  ptr = snmp_parse_var_op(ptr, objid, objid_len, &val_type, 
+  ptr = snmp_parse_var_op(ptr, objid, objid_len, &val_type,
 			  &val_len, &val, &len);
 
   if (var_val_len)
@@ -473,7 +473,7 @@ smux_set (oid *reqid, size_t *reqid_len,
                 {
                   if (debug_smux)
                     zlog_debug ("SMUX function call index is %d", v->magic);
-		  
+
                   statP = (*v->findVar) (v, suffix, &suffix_len, 1,
 					 &val_len, &write_method);
 
@@ -499,7 +499,7 @@ smux_set (oid *reqid, size_t *reqid_len,
 }
 
 static int
-smux_get (oid *reqid, size_t *reqid_len, int exact, 
+smux_get (oid *reqid, size_t *reqid_len, int exact,
 	  u_char *val_type,void **val, size_t *val_len)
 {
   int j;
@@ -515,7 +515,7 @@ smux_get (oid *reqid, size_t *reqid_len, int exact,
   /* Check */
   for (ALL_LIST_ELEMENTS (treelist, node, nnode,subtree))
     {
-      subresult = oid_compare_part (reqid, *reqid_len, 
+      subresult = oid_compare_part (reqid, *reqid_len,
 				    subtree->name, subtree->name_len);
 
       /* Subtree matched. */
@@ -565,7 +565,7 @@ smux_get (oid *reqid, size_t *reqid_len, int exact,
 }
 
 static int
-smux_getnext (oid *reqid, size_t *reqid_len, int exact, 
+smux_getnext (oid *reqid, size_t *reqid_len, int exact,
 	      u_char *val_type,void **val, size_t *val_len)
 {
   int j;
@@ -588,7 +588,7 @@ smux_getnext (oid *reqid, size_t *reqid_len, int exact,
   /* Check */
   for (ALL_LIST_ELEMENTS (treelist, node, nnode, subtree))
     {
-      subresult = oid_compare_part (reqid, *reqid_len, 
+      subresult = oid_compare_part (reqid, *reqid_len,
 				    subtree->name, subtree->name_len);
 
       /* If request is in the tree. The agent has to make sure we
@@ -722,10 +722,10 @@ smux_parse_get (u_char *ptr, size_t len, int exact)
 
   if (debug_smux)
     zlog_debug ("SMUX GET message parse: len %zd", len);
-  
+
   /* Parse GET message header. */
   ptr = smux_parse_get_header (ptr, &len, &reqid);
-  
+
   /* Parse GET message object ID. We needn't the value come */
   ptr = smux_var (ptr, len, oid, &oid_len, NULL, NULL, NULL);
 
@@ -762,7 +762,7 @@ smux_parse_rrsp (u_char *ptr, size_t len)
 {
   u_char val;
   long errstat;
-  
+
   ptr = asn_parse_int (ptr, &len, &val, &errstat, sizeof (errstat));
 
   if (debug_smux)
@@ -818,7 +818,7 @@ process_rest: /* see note below: YYY */
       else
         zlog_warn ("SMUX_SOUT sout_save_len=%d - invalid", (int) sout_save_len);
 
-      if (len_income > 3) 
+      if (len_income > 3)
         {
           /* YYY: this strange code has to solve the "slow peer"
              problem: When agent sends SMUX_SOUT message it doesn't
@@ -903,7 +903,7 @@ smux_read (struct thread *t)
 
   if (len < 0)
     {
-      zlog_warn ("Can't read all SMUX packet: %s", safe_strerror (errno));
+      zlog_warn ("Can't read all SMUX packet: %s", errtoa(errno, 0).str);
       close (sock);
       smux_sock = -1;
       smux_event (SMUX_CONNECT, 0);
@@ -963,24 +963,24 @@ smux_open (int sock)
 
   /* SMUX Open. */
   version = 0;
-  ptr = asn_build_int (ptr, &len, 
+  ptr = asn_build_int (ptr, &len,
 		       (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER),
 		       &version, sizeof (version));
 
   /* SMUX connection oid. */
   ptr = asn_build_objid (ptr, &len,
-			 (u_char) 
+			 (u_char)
 			 (ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OBJECT_ID),
 			 smux_oid, smux_oid_len);
 
   /* SMUX connection description. */
-  ptr = asn_build_string (ptr, &len, 
+  ptr = asn_build_string (ptr, &len,
 			  (u_char)
 			  (ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OCTET_STR),
 			  progname, strlen (progname));
 
   /* SMUX connection password. */
-  ptr = asn_build_string (ptr, &len, 
+  ptr = asn_build_string (ptr, &len,
 			  (u_char)
 			  (ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OCTET_STR),
 			  (u_char *)smux_passwd, strlen (smux_passwd));
@@ -1019,38 +1019,38 @@ smux_trap (const oid *name, size_t namelen,
 
   /* Sub agent enterprise oid. */
   ptr = asn_build_objid (ptr, &len,
-			 (u_char) 
+			 (u_char)
 			 (ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OBJECT_ID),
 			 smux_oid, smux_oid_len);
 
   /* IP address. */
   addr.s_addr = 0;
-  ptr = asn_build_string (ptr, &len, 
+  ptr = asn_build_string (ptr, &len,
 			  (u_char)
 			  (ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_IPADDRESS),
 			  (u_char *)&addr, sizeof (addr));
 
   /* Generic trap integer. */
   val = SNMP_TRAP_ENTERPRISESPECIFIC;
-  ptr = asn_build_int (ptr, &len, 
+  ptr = asn_build_int (ptr, &len,
 		       (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER),
 		       (long *)&val, sizeof (val));
 
   /* Specific trap integer. */
   val = sptrap;
-  ptr = asn_build_int (ptr, &len, 
+  ptr = asn_build_int (ptr, &len,
 		       (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER),
 		       (long *)&val, sizeof (val));
 
   /* Timeticks timestamp. */
   val = 0;
-  ptr = asn_build_unsigned_int (ptr, &len, 
+  ptr = asn_build_unsigned_int (ptr, &len,
 				(u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_TIMETICKS),
 				&val, sizeof (val));
-  
+
   /* Variables. */
   h1 = ptr;
-  ptr = asn_build_sequence (ptr, &len, 
+  ptr = asn_build_sequence (ptr, &len,
 			    (u_char) (ASN_SEQUENCE | ASN_CONSTRUCTOR),
 			    0);
 
@@ -1067,27 +1067,27 @@ smux_trap (const oid *name, size_t namelen,
       u_char val_type;
 
       /* Make OID. */
-      if (trapobj[i].namelen > 0) 
+      if (trapobj[i].namelen > 0)
         {
           oid_copy (oid, name, namelen);
           oid_copy (oid + namelen, trapobj[i].name, trapobj[i].namelen);
           oid_copy (oid + namelen + trapobj[i].namelen, iname, inamelen);
           oid_len = namelen + trapobj[i].namelen + inamelen;
         }
-      else 
+      else
         {
           oid_copy (oid, name, namelen);
           oid_copy (oid + namelen, trapobj[i].name, trapobj[i].namelen * (-1));
           oid_len = namelen + trapobj[i].namelen * (-1) ;
         }
 
-      if (debug_smux) 
+      if (debug_smux)
         {
           smux_oid_dump ("Trap", name, namelen);
           if (trapobj[i].namelen < 0)
-            smux_oid_dump ("Trap", 
+            smux_oid_dump ("Trap",
                            trapobj[i].name, (- 1) * (trapobj[i].namelen));
-          else 
+          else
             {
               smux_oid_dump ("Trap", trapobj[i].name, (trapobj[i].namelen));
               smux_oid_dump ("Trap", iname, inamelen);
@@ -1148,13 +1148,13 @@ smux_register (int sock)
 
       /* Priority. */
       priority = -1;
-      ptr = asn_build_int (ptr, &len, 
+      ptr = asn_build_int (ptr, &len,
 		          (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER),
 		          &priority, sizeof (priority));
 
       /* Operation. */
       operation = 2; /* Register R/W */
-      ptr = asn_build_int (ptr, &len, 
+      ptr = asn_build_int (ptr, &len,
 		          (u_char)(ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_INTEGER),
 		          &operation, sizeof (operation));
 
@@ -1199,7 +1199,7 @@ smux_connect (struct thread *t)
   ret = smux_open (smux_sock);
   if (ret < 0)
     {
-      zlog_warn ("SMUX open message send failed: %s", safe_strerror (errno));
+      zlog_warn ("SMUX open message send failed: %s", errtoa(errno, 0).str);
       close (smux_sock);
       smux_sock = -1;
       if (++fail < SMUX_MAX_FAILURE)
@@ -1211,7 +1211,7 @@ smux_connect (struct thread *t)
   ret = smux_register (smux_sock);
   if (ret < 0)
     {
-      zlog_warn ("SMUX register message send failed: %s", safe_strerror (errno));
+      zlog_warn ("SMUX register message send failed: %s", errtoa(errno, 0).str);
       close (smux_sock);
       smux_sock = -1;
       if (++fail < SMUX_MAX_FAILURE)
@@ -1247,7 +1247,7 @@ smux_stop (void)
       smux_sock = -1;
     }
 }
-
+
 
 
 void
@@ -1268,7 +1268,7 @@ smux_event (enum smux_event event, int sock)
       break;
     }
 }
-
+
 static int
 smux_str2oid (const char *str, oid *oid, size_t *oid_len)
 {
@@ -1395,7 +1395,7 @@ smux_peer_default (void)
       free (smux_oid);
       smux_oid = NULL;
     }
-  
+
   /* careful, smux_passwd might be pointing at string constant */
   if (smux_passwd)
     {
@@ -1488,8 +1488,8 @@ config_write_smux (struct vty *vty)
 
 /* Register subtree to smux master tree. */
 void
-smux_register_mib (const char *descr, struct variable *var, 
-                   size_t width, int num, 
+smux_register_mib (const char *descr, struct variable *var,
+                   size_t width, int num,
 		   oid name[], size_t namelen)
 {
   struct subtree *tree;
@@ -1508,7 +1508,7 @@ smux_register_mib (const char *descr, struct variable *var,
 static int
 smux_tree_cmp(struct subtree *tree1, struct subtree *tree2)
 {
-  return oid_compare(tree1->name, tree1->name_len, 
+  return oid_compare(tree1->name, tree1->name_len,
 		     tree2->name, tree2->name_len);
 }
 
@@ -1518,7 +1518,7 @@ smux_init (struct thread_master *tm)
 {
   /* copy callers thread master */
   master = tm;
-  
+
   /* Make MIB tree. */
   treelist = list_new();
   treelist->cmp = (int (*)(void *, void *))smux_tree_cmp;

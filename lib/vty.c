@@ -1157,7 +1157,7 @@ vty_read_config_first_cmd_special(char *config_file,
   if (confp == NULL)
     {
       fprintf (stderr, "%s: failed to open configuration file %s: %s\n",
-                                    __func__, fullpath, safe_strerror (errno));
+                                    __func__, fullpath, errtostr(errno, 0).str);
 
       confp = vty_use_backup_config (fullpath);
       if (confp)

@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -39,7 +39,7 @@ pid_output (const char *path)
 
   oldumask = umask(0777 & ~PIDFILE_MASK);
   fp = fopen (path, "w");
-  if (fp != NULL) 
+  if (fp != NULL)
     {
       fprintf (fp, "%d\n", (int) pid);
       fclose (fp);
@@ -49,7 +49,7 @@ pid_output (const char *path)
   /* XXX Why do we continue instead of exiting?  This seems incompatible
      with the behavior of the fcntl version below. */
   zlog_warn("Can't fopen pid lock file %s (%s), continuing",
-	    path, safe_strerror(errno));
+	    path, errtoa(errno, 0).str);
   umask(oldumask);
   return -1;
 }
@@ -63,7 +63,7 @@ pid_output (const char *path)
   int fd;
   pid_t pid;
   char buf[16];
-  struct flock lock;  
+  struct flock lock;
   mode_t oldumask;
 
   pid = getpid ();
@@ -73,7 +73,7 @@ pid_output (const char *path)
   if (fd < 0)
     {
       zlog_err("Can't create pid lock file %s (%s), exiting",
-	       path, safe_strerror(errno));
+	       path, errtoa(errno, 0).str);
       umask(oldumask);
       exit(1);
     }
@@ -97,10 +97,10 @@ pid_output (const char *path)
       pidsize = strlen(buf);
       if ((tmp = write (fd, buf, pidsize)) != (int)pidsize)
         zlog_err("Could not write pid %d to pid_file %s, rc was %d: %s",
-	         (int)pid,path,tmp,safe_strerror(errno));
+	         (int)pid,path,tmp, errtoa(errno, 0).str);
       else if (ftruncate(fd, pidsize) < 0)
         zlog_err("Could not truncate pid_file %s to %u bytes: %s",
-	         path,(u_int)pidsize,safe_strerror(errno));
+	         path,(u_int)pidsize, errtoa(errno, 0).str);
     }
   return pid;
 }

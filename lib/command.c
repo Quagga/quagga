@@ -3131,12 +3131,12 @@ DEFUN (config_write_file,
 
   if (chmod (config_file, CONFIGFILE_MASK) != 0)
     {
-      vty_out (vty, "Can't chmod configuration file %s: %s (%d).%s",
-	config_file, safe_strerror(errno), errno, VTY_NEWLINE);
+      vty_out (vty, "Can't chmod configuration file %s: %s (%s).\n",
+	config_file, errtostr(errno, 0).str, errtoname(errno, 0).str);
       goto finished;
     }
 
-  vty_out (vty, "Configuration saved to %s%s", config_file, VTY_NEWLINE);
+  vty_out (vty, "Configuration saved to %s\n", config_file);
 
   ret = CMD_SUCCESS;
 

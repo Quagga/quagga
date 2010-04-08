@@ -626,7 +626,7 @@ main (int argc, char **argv)
   /* Turn into daemon if daemon_mode is set.    */
   if (daemon_mode && daemon (0, 0) < 0)
     {
-      zlog_err("BGPd daemon failed: %s", safe_strerror(errno));
+      zlog_err("BGPd daemon failed: %s", errtoa(errno, 0).str);
       return (1);
     }
 

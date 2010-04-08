@@ -1,5 +1,5 @@
-/* Quagga Pthreads support -- thread safe versions of standard functions
- * Copyright (C) 2009 Chris Hall (GMCH), Highwayman
+/* Mapping Error Numbers to their names -- header
+ * Copyright (C) 2010 Chris Hall (GMCH), Highwayman
  *
  * This file is part of GNU Zebra.
  *
@@ -19,24 +19,8 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#ifndef PTHREAD_SAFE_H_
-#define PTHREAD_SAFE_H_
+#ifndef EOK
+#define EOK 0
+#endif
 
-#include <netinet/in.h>
-
-typedef struct strerror strerror_t ;
-struct strerror
-{
-  char str[121] ;       /* cannot imagine anything as big       */
-} ;
-
-extern void safe_init_r(void);
-extern void safe_finish(void);
-extern const char * safe_strerror(int errnum);
-extern const char * safe_inet_ntoa (struct in_addr in);
-
-extern strerror_t errtoa(int err, int len) ;
-extern strerror_t errtoname(int err, int len) ;
-extern strerror_t errtostr(int err, int len) ;
-
-#endif /* PTHREAD_SAFE_H_ */
+extern const char*  errno_name_lookup(int err) ;

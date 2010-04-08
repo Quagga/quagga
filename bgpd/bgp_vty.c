@@ -7527,8 +7527,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
       if (p->update_if)
 	vty_out (vty, "%s", p->update_if);
       else if (p->update_source)
-	vty_out (vty, "%s",
-		 sockunion2str (p->update_source, buf, sizeof(buf)));
+	vty_out (vty, "%s", sutoa(p->update_source).str);
       vty_out (vty, "%s", VTY_NEWLINE);
     }
 
@@ -7578,7 +7577,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   if (p->su_local)
     {
       vty_out (vty, "Local host: %s, Local port: %d%s",
-	       sockunion2str (p->su_local, buf, sizeof(buf)),
+	       sutoa(p->su_local).str,
 	       ntohs (p->su_local->sin.sin_port),
 	       VTY_NEWLINE);
     }
@@ -7587,7 +7586,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   if (p->su_remote)
     {
       vty_out (vty, "Foreign host: %s, Foreign port: %d%s",
-	       sockunion2str (p->su_remote, buf, sizeof(buf)),
+	       sutoa(p->su_remote).str,
 	       ntohs (p->su_remote->sin.sin_port),
 	       VTY_NEWLINE);
     }
