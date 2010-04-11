@@ -1983,7 +1983,7 @@ uty_serv_sock_addrinfo (const char *hostname, unsigned short port)
 
   if (ret != 0)
     {
-      fprintf (stderr, "getaddrinfo failed: %s\n", gai_strerror (ret));
+      fprintf (stderr, "getaddrinfo failed: %s\n", eaitoa(ret, errno, 0).str);
       exit (1);
     }
 

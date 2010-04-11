@@ -101,6 +101,7 @@ struct sockunion_string
 
 /* Prototypes. */
 extern sockunion sockunion_init_new(sockunion su, sa_family_t family) ;
+extern int sockunion_set_port(sockunion su, in_port_t port) ;
 extern int str2sockunion (const char *, union sockunion *);
 extern const char *sockunion2str (union sockunion *, char *, size_t);
 extern sockunion_string_t sutoa(sockunion su) ;
@@ -128,6 +129,7 @@ extern void sockunion_unmap_ipv4 (union sockunion *su) ;
 extern void sockunion_map_ipv4 (union sockunion *su) ;
 
 extern union sockunion *sockunion_dup (union sockunion *);
+extern void sockunion_copy (sockunion dst, sockunion src) ;
 extern void sockunion_free (union sockunion *);
 
 extern sockunion sockunion_new_prefix(sockunion su, prefix p) ;

@@ -36,6 +36,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <errno.h>
+#include <netdb.h>
 
 #include "qfstring.h"
 #include "errno_names.h"
@@ -101,28 +102,93 @@ safe_strerror(int errnum)
     }
 }
 
+/*==============================================================================
+ * Alternative error number handling.
+ *
+ * The descriptive strings for error numbers are all very well, but for some
+ * purposes knowing the name for the error is more useful -- the name, not the
+ * number, as the number is system dependent.
+ *
+ * The following provides:
+ *
+ *   * errtoa()     -- which maps error number to: ENAME '<strerror>'
+ *
+ *   * errtoname()  -- which maps error number to: ENAME
+ *
+ *   * errtostr()   -- which maps error number to: <strerror>
+ *
+ * where:
+ *
+ *   * if name is not known gives: ERRNO=999
+ *
+ *   * if strerror rejects the number gives: *unknown error*
+ *
+ *   * err == 0 gives:  EOK          -- for the name
+ *                      'no error'   -- for the <strerror>
+ *
+ * These functions take a 'len' argument, and truncates the result to the given
+ * len (0 => no truncation) -- silently imposing the maximum length allowed by
+ * the strerror_t.
+ *
+ * If has to truncate the <strerror>, places "..." at the end of the message
+ * to show this has happened.
+ */
+
+static void errtox(strerror_t* st, int err, int len, int want) ;
+
 /*------------------------------------------------------------------------------
  * Construct string to describe the given error of the form:
  *
  *   ENAME '<strerror>'
  *
- * where <strerror> is given by strerror() or, if pthreads_enabled, strerror_r()
+ * Thread safe extension to strerror.  Never returns NULL.
+ */
+extern strerror_t
+errtoa(int err, int len)
+{
+  strerror_t  st ;
+
+  errtox(&st, err, len, 3) ;  /* name and message     */
+
+  return st ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Convert error number to its name
  *
- * Truncates the result to the given len (0 => no truncation).  But silently
- * imposes the maximum length allowed by the strerror_t.
- *
- * If has to truncate, places "..." at the end of the message to show this has
- * happened.
- *
- * If a name is not known then (assuming strerror() won't know it either):
- *
- *   ERRNO=999 *unknown error*
- *
- * For err==0 returns:
- *
- *   EOK 'no error'
+ * Thread-safe.  Never returns NULL.
+ */
+extern strerror_t
+errtoname(int err, int len)
+{
+  strerror_t  st ;
+
+  errtox(&st, err, len, 1) ;  /* name                 */
+
+  return st ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Alternative thread-safe safe_strerror()
  *
  * Thread safe replacement for strerror.  Never returns NULL.
+ */
+extern strerror_t
+errtostr(int err, int len)
+{
+  strerror_t  st ;
+
+  errtox(&st, err, len, 2) ;  /* message              */
+
+  return st ;
+} ;
+
+/*-----------------------------------------------------------------------------
+ * Common code for errto<x> above.
+ *
+ *   want == 1 -- return just name
+ *   want == 2 -- return just the strerror()
+ *   want == 3 -- return both, with the strerror() in single quotes.
  */
 static void
 errtox(strerror_t* st, int err, int len, int want)
@@ -241,85 +307,168 @@ errtox(strerror_t* st, int err, int len, int want)
   errno = errno_saved ;
 } ;
 
+/*==============================================================================
+ * getaddrinfo() and getnameinfo() "EAI_XXXX" error number handling.
+ *
+ * This is similar to the above for errno.
+ *
+ * The following provides:
+ *
+ *   * eaitoa()     -- which maps error number to: EAI_XXX '<gai_strerror>'
+ *                                             or: as errtoa()
+ *
+ *   * eaitoname()  -- which maps error number to: EAI_XXX
+ *                                             or: as errtoname()
+ *
+ *   * eaitostr()   -- which maps error number to: <gai_strerror>
+ *                                             or: as errtostr()
+ *
+ * where:
+ *
+ *   * if given EAI_SYSTEM, and given a non-zero errno type error number,
+ *     produce the errno string.
+ *
+ *   * if name is not known gives: EAI=999
+ *
+ *   * gai_strerror returns a string saying the error is not known if that is
+ *     the case.
+ *
+ *   * eai == 0 gives:  EAI_OK       -- for the name
+ *                      'no error'   -- for the <sgai_strerror>
+ *
+ * NB: EAI_SYSTEM is an invitation to look at errno to discover the true
+ *     error.
+ */
+
+static void eaitox(strerror_t* st, int eai, int err, int len, int want) ;
+
 /*------------------------------------------------------------------------------
- * Construct string to describe the given error of the form:
+ * Construct string to describe the given EAI_XXX error of the form:
  *
- *   ENAME '<strerror>'
+ *      EAI_XXX '<gai_strerror>'
+ *  or: ENAME '<strerror>'       -- if EAI_SYSTEM and err != 0
  *
- * where <strerror> is given by strerror() or, if pthreads_enabled, strerror_r()
- *
- * Truncates the result to the given len (0 => no truncation).  But silently
- * imposes the maximum length allowed by the strerror_t.
- *
- * If has to truncate, places "..." at the end of the message to show this has
- * happened.
- *
- * If a name is not known then (assuming strerror() won't know it either):
- *
- *   ERRNO=999 *unknown error*
- *
- * For err==0 returns:
- *
- *   EOK 'no error'
- *
- * Thread safe replacement for strerror.  Never returns NULL.
+ * Thread safe.  Never returns NULL.
  */
 extern strerror_t
-errtoa(int err, int len)
+eaitoa(int eai, int err, int len)
 {
   strerror_t  st ;
 
-  errtox(&st, err, len, 3) ;  /* name and message     */
+  eaitox(&st, eai, err, len, 3) ;  /* name and message     */
 
   return st ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Convert error number to its name
-
- * If a name is not known then:
+ * Convert EAI_XXX error number to its name...
  *
- *    ERRNO=999
+ * ...or, if EAI_SYSTEM and err != 0, convert err to its name.
  *
- * For err==0 returns:
- *
- *   EOK
- *
- * Truncates the result to the given len (0 => no truncation).  But silently
- * imposes the maximum length allowed by the strerror_t.
- *
- * This is thread-safe.
+ * Thread-safe.  Never returns NULL.
  */
 extern strerror_t
-errtoname(int err, int len)
+eaitoname(int eai, int err, int len)
 {
   strerror_t  st ;
 
-  errtox(&st, err, len, 1) ;  /* name                 */
+  eaitox(&st, eai, err, len, 1) ;  /* name                 */
 
   return st ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Alternative thread-safe safe_strerror()
+ * Alternative to gai_strerror()...
  *
- * Truncates the result to the given len (0 => no truncation).  But silently
- * imposes the maximum length allowed by the strerror_t.
+ * ...or, if EAI_SYSTEM and err != 0, do strerror(err) or strerror_r(err).
  *
- * If the <strerror> will not fit in the strerror_t, it is truncated and
- * '...' placed at the end to show this has happened.
- *
- * Thread safe replacement for strerror.  Never returns NULL.
+ * Thread-safe.  Never returns NULL.
  */
 extern strerror_t
-errtostr(int err, int len)
+eaitostr(int eai, int err, int len)
 {
   strerror_t  st ;
 
-  errtox(&st, err, len, 2) ;  /* message              */
+  eaitox(&st, eai, err, len, 2) ;  /* message              */
 
   return st ;
 } ;
+
+/*-----------------------------------------------------------------------------
+ * Common code for eaito<x> above.
+ *
+ *   want == 1 -- return just name
+ *   want == 2 -- return just the gai_strerror()
+ *   want == 3 -- return both, with the gai_strerror() in single quotes.
+ *
+ *   err != 0 => if EAI_SYSTEM, return result for errno == err instead.
+ */
+static void
+eaitox(strerror_t* st, int eai, int err, int len, int want)
+{
+  qf_str_t qfs ;
+
+  const char* q ;
+  int ql ;
+
+  /* Look out for mapping EAI_SYSTEM                             */
+  if ((eai == EAI_SYSTEM) && (err != 0))
+    return errtox(st, err, len, want) ;
+
+  /* Prepare.                                                   */
+  int errno_saved = errno ;
+
+  if ((len <= 0) || (len >= (int)sizeof(st->str)))
+    len = sizeof(st->str) - 1 ;
+  qfs_init(&qfs, st->str, len + 1) ;
+
+  q  = "" ;
+  ql = 0 ;
+
+  /* If want the error name, do that now.                       */
+  if (want & 1)
+    {
+      const char* name = eaino_name_lookup(eai) ;
+
+      if (name != NULL)
+        qfs_append(&qfs, name) ;
+      else
+        qfs_printf(&qfs, "EAI=%d", eai) ;
+    } ;
+
+  /* name and string ?                                          */
+  if (want == 3)
+    {
+      qfs_append(&qfs, " ") ;
+      q  = "'" ;
+      ql = 2 ;
+    } ;
+
+  /* If want the error string, do that now                      */
+  if (want & 2)
+    {
+      const char* eaim ;
+
+      if (eai == 0)
+        eaim = "no error" ;
+      else
+        eaim = gai_strerror(eai) ;
+
+      /* Add strerror to the result... looking out for overflow.        */
+      len = strlen(eaim) ;
+
+      if ((len + ql) <= qfs_left(&qfs)) /* accounting for "quotes"      */
+        qfs_printf(&qfs, "%s%s%s", q, eaim, q) ;
+      else
+        qfs_printf(&qfs, "%s%.*s...%s", q, qfs_left(&qfs) - ql - 3, eaim, q) ;
+                                        /* -ve precision is ignored !   */
+    } ;
+
+  /* Put back errno                                                     */
+  errno = errno_saved ;
+} ;
+
+/*============================================================================*/
 
 /* Thread safe version of inet_ntoa.  Never returns NULL.
  * Contents of result remains intact until another call of

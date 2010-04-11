@@ -23,4 +23,9 @@
 #define EOK 0
 #endif
 
+#ifndef EAI_OK
+#define EAI_OK 0
+#endif
+
 extern const char*  errno_name_lookup(int err) ;
+extern const char*  eaino_name_lookup(int err) ;

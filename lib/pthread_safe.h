@@ -39,4 +39,8 @@ extern strerror_t errtoa(int err, int len) ;
 extern strerror_t errtoname(int err, int len) ;
 extern strerror_t errtostr(int err, int len) ;
 
+extern strerror_t eaitoa(int eai, int err, int len) ;
+extern strerror_t eaitoname(int eai, int err, int len) ;
+extern strerror_t eaitostr(int eai, int err, int len) ;
+
 #endif /* PTHREAD_SAFE_H_ */

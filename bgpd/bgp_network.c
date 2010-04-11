@@ -86,10 +86,21 @@ typedef struct bgp_listener* bgp_listener ;
 static bgp_listener bgp_listeners[] =
   {
       [AF_INET]  = NULL,
+#if HAVE_IPV6
       [AF_INET6] = NULL
+#endif
   } ;
 
-CONFIRM((AF_INET < 20) && (AF_INET6 < 20)) ;
+CONFIRM(AF_INET  < 20) ;  /* The bgp_listeners array is not a silly size  */
+#if HAVE_IPV6
+CONFIRM(AF_INET6 < 20) ;  /* The bgp_listeners array is not a silly size  */
+#endif
+
+#if defined(HAVE_IPV6) && !defined(NRL)
+# define BGP_USE_ADDRINFO 1
+#else
+# define BGP_USE_ADDRINFO 0
+#endif
 
 /* BGP listening socket. */
 struct bgp_listener
@@ -100,8 +111,11 @@ struct bgp_listener
 } ;
 
 /* Forward reference                                                          */
-static int bgp_open_listener_on(const char* address, unsigned short port);
-static int bgp_init_listener(int sock_fd, struct sockaddr *sa, socklen_t salen);
+static int bgp_open_listeners_addrinfo(const char* address,
+                                                          unsigned short port) ;
+static int bgp_open_listeners_simple(const char* address, unsigned short port) ;
+static int bgp_open_listener(sockunion su, unsigned short port,
+                                             int sock_type, int sock_protocol) ;
 
 /*------------------------------------------------------------------------------
  * Open Listeners.
@@ -119,7 +133,7 @@ static int bgp_init_listener(int sock_fd, struct sockaddr *sa, socklen_t salen);
  *      "80.177.246.130,"               -- will list on that address and
  *                                         any other local address.
  *
- * NB: only listens on AF_INET and (if HAVE_IPV6) AF_INET6.
+ * NB: only listens on AF_INET and AF_INET6 (if HAVE_IPV6).
  *
  * Returns: > 0 => OK -- number of listeners set up
  *           -1 => failed -- no listeners set up
@@ -128,39 +142,39 @@ extern int
 bgp_open_listeners(const char* address, unsigned short port)
 {
   int   count ;
-  bool  do_null ;
+  bool  done_null ;
+  char* copy ;
+  char* next ;
 
+  if (address == NULL)
+    address = "" ;
+
+  copy = XSTRDUP(MTYPE_TMP, address) ;
+
+  done_null = false ;
+  next  = copy ;
   count = 0 ;
-  do_null = (address == NULL) ;
-
-  if (!do_null)
+  do
     {
-      char* copy ;
-      char* next ;
-      char* this ;
+      address = next ;
+      next    = strchr(address, ',') ;
 
-      copy = XSTRDUP(MTYPE_TMP, address) ;
+      if (next != NULL)
+        *next++ = '\0' ;        /* replace ',' and step past    */
 
-      next = copy ;
-      while (next != NULL)
+      if (*address == '\0')
         {
-          this = next ;
-          next = strchr(this, ',') ;
-
-          if (next != NULL)
-            *next++ = '\0' ;
-
-          if (*this == '\0')
-            do_null = true ;    /* empty address => do_null     */
+          if (done_null)
+            continue ;          /* don't do "" more than once   */
           else
-            count += bgp_open_listener_on(this, port) ;
+            done_null = true ;
         } ;
 
-      XFREE(MTYPE_TMP, copy) ;
-    } ;
+      count += BGP_USE_ADDRINFO ? bgp_open_listeners_addrinfo(address, port)
+                                : bgp_open_listeners_simple(address, port) ;
+    } while (next != NULL) ;
 
-  if (do_null)
-    count += bgp_open_listener_on(NULL, port) ;
+  XFREE(MTYPE_TMP, copy) ;
 
   if (count == 0)
     {
@@ -172,22 +186,20 @@ bgp_open_listeners(const char* address, unsigned short port)
 } ;
 
 /*------------------------------------------------------------------------------
- * Open Listeners.
+ * Open listeners using getaddrinfo() to find the addresses.
  *
- * Using given address and port, get all possible addresses and set up a
- * listener on each one.
+ * Note that this will accept names as well as numeric addresses.
  *
- * NB: only listens on AF_INET and (if HAVE_IPV6) AF_INET6.
- *
- * Returns: 0 => OK
- *         -1 => failed -- no listeners set up
+ * Returns: count of listeners opened successfully.
  */
 static int
-bgp_open_listener_on(const char* address, unsigned short port)
+bgp_open_listeners_addrinfo(const char* address, unsigned short port)
 {
-#if defined (HAVE_IPV6) && ! defined (NRL)      /*----------------------------*/
+#if BGP_USE_ADDRINFO
 
-  /* IPv6 supported version of BGP server socket setup.                       */
+# ifndef HAVE_IPV6
+#  error Using getaddrinfo() but HAVE_IPV6 is not defined ??
+# endif
 
   struct addrinfo *ainfo;
   struct addrinfo *ainfo_save;
@@ -203,80 +215,208 @@ bgp_open_listener_on(const char* address, unsigned short port)
   snprintf (port_str, sizeof(port_str), "%d", port);
   port_str[sizeof (port_str) - 1] = '\0';
 
+  if (*address == '\0')
+    address = NULL ;
+
   ret = getaddrinfo (address, port_str, &req, &ainfo_save);
   if (ret != 0)
     {
-      zlog_err ("getaddrinfo: %s", gai_strerror (ret));
+      zlog_err ("%s: getaddrinfo: %s", __func__, eaitoa(ret, errno, 0).str);
       return 0 ;
     }
 
   count = 0;
   for (ainfo = ainfo_save; ainfo; ainfo = ainfo->ai_next)
     {
-      int sock_fd;
+      union sockunion su ;
+      int err ;
 
-      if (ainfo->ai_family != AF_INET && ainfo->ai_family != AF_INET6)
+      if ((ainfo->ai_family != AF_INET) && (ainfo->ai_family != AF_INET6))
         continue;
 
-      sock_fd = sockunion_socket(ainfo->ai_family, ainfo->ai_socktype,
-                                                            ainfo->ai_protocol);
-      if (sock_fd < 0)
-        {
-          zlog_err ("socket: %s", errtoa(errno, 0).str);
-          continue;
-        }
-
-      ret = bgp_init_listener(sock_fd, ainfo->ai_addr, ainfo->ai_addrlen);
-
-      if (ret == 0)
+      sockunion_new_sockaddr(&su, ainfo->ai_addr) ;
+      err = bgp_open_listener(&su, port,
+                                       ainfo->ai_socktype, ainfo->ai_protocol) ;
+      if (err == 0)
         ++count;
-      else
-        close(sock_fd);
     }
   freeaddrinfo (ainfo_save);
 
   return count ;
+
+#else
+  zabort("bgp_open_listeners_addrinfo not implemented") ;
+#endif /* BGP_USE_ADDRINFO */
 }
-#else                   /*----------------------------------------------------*/
+/*------------------------------------------------------------------------------
+ * Open listener the old fashioned way.
+ *
+ * NB: if address is "" tries IPv4 and IPv6 (if supported).
+ *
+ * NB: if address is not NULL, must be a numeric IP address (which may be IPv6
+ *     if that is supported).
+ *
+ * Returns: count of listeners opened successfully.
+ */
+static int
+bgp_open_listeners_simple(const char* address, unsigned short port)
+{
+  union sockunion su ;
+  int err ;
+  int count ;
 
-  /* Traditional IPv4 only version.                                           */
-
-  int sock_fd;
-  int socklen;
-  struct sockaddr_in sin;
-  int ret, en;
-
-  memset (&sin, 0, sizeof (struct sockaddr_in));
-  sin.sin_family = AF_INET;
-  sin.sin_port = htons (port);
-  socklen = sizeof (struct sockaddr_in);
-
-  if (address && ((ret = inet_aton(address, &sin.sin_addr)) < 1))
+  /* If address is not null, must be a single, specific, numeric address  */
+  if (*address != '\0')
     {
-      zlog_err("bgp_socket: could not parse ip address %s: %s",
-                address, errtoa(errno, 0).str);
-      return ret;
-    }
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-  sin.sin_len = socklen;
-#endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
+      int ret = str2sockunion (address, &su) ;
+      if (ret < 0)
+        {
+          zlog_err("bgp_socket: could not parse ip address %s: %s",
+                    address, errtoa(errno, 0).str);
+          return 0 ;
+        }
 
-  sock_fd = socket (AF_INET, SOCK_STREAM, 0);
+      err = bgp_open_listener(&su, port, SOCK_STREAM, 0) ;
+
+      return (err == 0) ? 1 : 0 ;
+    } ;
+
+  /* Null address, try <any> for IPv4 and (if supported) IPv6           */
+  count = 0 ;
+
+  sockunion_init_new(&su, AF_INET) ;
+  err = bgp_open_listener(&su, port, SOCK_STREAM, 0) ;
+  if (err == 0)
+    ++count ;
+
+#ifdef HAVE_IPV6
+  sockunion_init_new(&su, AF_INET6) ;
+  err = bgp_open_listener(&su, port, SOCK_STREAM, 0) ;
+  if (err == 0)
+    ++count ;
+#endif
+
+  return count ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Open Listener Socket
+ *
+ * Sets up socket with the usual options.  Binds to given address and listens.
+ *
+ * If all that is successful, creates bgp_listener, sets up qpselect file, adds
+ * to the BGP Engine selection and enables it for reading.
+ *
+ * Listener read events are handled by bgp_accept_action().
+ *
+ * Returns:  0 : OK
+ *        != 0 : error number (from errno or otherwise)
+ */
+static int
+bgp_open_listener(sockunion su, unsigned short port,
+                                               int sock_type, int sock_protocol)
+{
+  bgp_listener listener ;
+  int ret, err ;
+  int slen ;
+  int sock_fd ;
+
+  /* Construct socket and set the common options.                       */
+  sock_fd = socket (sockunion_family(su), sock_type, sock_protocol) ;
   if (sock_fd < 0)
     {
-      zlog_err ("socket: %s", errtoa(errno, 0).str);
-      return sock_fd;
+      err = errno ;
+      zlog_err ("%s: could not open socket for family %d: %s", __func__,
+                                     sockunion_family(su), errtoa(err, 0).str) ;
+      return errno = err ;
     }
 
-  ret = bgp_init_listener (sock_fd, (struct sockaddr *) &sin, socklen);
-  if (ret < 0)
+  err = bgp_socket_set_common_options(sock_fd, su, 0, NULL) ;
+
+  /* Want only IPV6 on ipv6 socket (not mapped addresses)
+   *
+   * This distinguishes 0.0.0.0 from :: -- without this, bind() will reject the
+   * attempt to bind to :: after binding to 0.0.0.0.
+   *
+   * Also, for all the apparent utility of IPv4-mapped addresses, the semantics
+   * are simpler if IPv6 sockets speak IPv6 and IPv4 sockets speak IPv4.
+   */
+#if defined(HAVE_IPV6) && defined(IPV6_V6ONLY)
+  if ((err == 0) && (sockunion_family(su) == AF_INET6))
     {
-      close (sock_fd);
-      return ret;
-    }
-  return sock_fd;
-}
-#endif /* HAVE_IPV6 && !NRL --------------------------------------------------*/
+      int on = 1;
+      ret = setsockopt (sock_fd, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof(on));
+      if (ret < 0)
+        {
+          err = errno ;
+          zlog_err("%s: could not set IPV6_V6ONLY: %s", __func__,
+                                                           errtoa(err, 0).str) ;
+        }
+    } ;
+#endif
+
+  /* Bind to port and address (if any)                                  */
+  if (err == 0)
+    {
+      if (bgpd_privs.change(ZPRIVS_RAISE))
+        {
+          err = errno ;
+          zlog_err("%s: could not raise privs: %s", __func__,
+                                                         errtoa(errno, 0).str) ;
+        } ;
+
+      slen = sockunion_set_port(su, port) ;
+
+      ret = bind(sock_fd, &su->sa, slen) ;
+      if (ret < 0)
+        {
+          err = errno ;
+          zlog_err ("%s: bind: %s",  __func__, errtoa(err, 0).str);
+        } ;
+
+      if (bgpd_privs.change(ZPRIVS_LOWER))
+        {
+          if (err == 0)
+            err = errno ;
+          zlog_err("%s: could not lower privs: %s", __func__,
+                                                         errtoa(errno, 0).str) ;
+        } ;
+    } ;
+
+  /* Last lap... listen()                                               */
+  if (err == 0)
+    {
+      ret = listen (sock_fd, 43);
+      if (ret < 0)
+        {
+          err = errno ;
+          zlog_err ("%s: listen: %s", __func__, errtoa(err, 0).str) ;
+        }
+    } ;
+
+  if (err != 0)
+    {
+      close(sock_fd) ;
+      return err ;
+    } ;
+
+  /* Having successfully opened the listener, record it so that can be found
+   * again, add it to the BGP Engine Nexus file selection and enable it for
+   * reading.
+   */
+  listener = XCALLOC(MTYPE_BGP_LISTENER, sizeof(struct bgp_listener)) ;
+
+  qps_file_init_new(&listener->qf, NULL) ;
+  qps_add_file(bgp_nexus->selection, &listener->qf, sock_fd, listener) ;
+  qps_enable_mode(&listener->qf, qps_read_mnum, bgp_accept_action) ;
+
+  sockunion_copy(&listener->su, su) ;
+
+  listener->next = bgp_listeners[sockunion_family(su)] ;
+  bgp_listeners[sockunion_family(su)] = listener ;
+
+  return 0 ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Close Listeners.
@@ -312,99 +452,6 @@ bgp_reset_listeners(bgp_listener* p_listener)
 
       XFREE(MTYPE_BGP_LISTENER, listener) ;
     } ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Initialise Listener Socket
- *
- * Sets up socket with the usual options.  Binds to given address and listens.
- *
- * If all that is successful, creates bgp_listener, sets up qpselect file, adds
- * to the BGP Engine selection and enables it for reading.
- *
- * Listener read events are handled by bgp_accept_action().
- *
- * Returns:  0 : OK
- *        != 0 : error number (from errno or otherwise)
- */
-static int
-bgp_init_listener(int sock_fd, struct sockaddr *sa, socklen_t salen)
-{
-  bgp_listener listener ;
-  int ret, err ;
-
-  err = bgp_socket_set_common_options(sock_fd, (union sockunion*)sa, 0, NULL) ;
-  if (err != 0)
-    return err ;
-
-#if defined(HAVE_IPV6) && defined(IPV6_V6ONLY)
-  /* Want only IPV6 on ipv6 socket (not mapped addresses)
-   *
-   * This distinguishes 0.0.0.0 from :: -- without this, bind() will reject the
-   * attempt to bind to :: after binding to 0.0.0.0.
-   */
-  if (sa->sa_family == AF_INET6)
-  {
-    int on = 1;
-    ret = setsockopt (sock_fd, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof(on));
-    if (ret < 0)
-      return errno ;
-  }
-#endif
-
-  if (bgpd_privs.change(ZPRIVS_RAISE))
-    {
-      err = errno ;
-      zlog_err("%s: could not raise privs: %s", __func__, errtoa(errno, 0).str);
-    } ;
-
-  ret = bind(sock_fd, sa, salen) ;
-  if (ret < 0)
-    {
-      err = errno ;
-      zlog_err ("%s: bind: %s",  __func__, errtoa(err, 0).str);
-    } ;
-
-  if (bgpd_privs.change(ZPRIVS_LOWER))
-    {
-      if (err == 0)
-        err = errno ;
-      zlog_err("%s: could not lower privs: %s", __func__, errtoa(errno, 0).str);
-    } ;
-
-  if (err == 0)
-    {
-      ret = listen (sock_fd, 43);
-      if (ret < 0)
-        {
-          err = errno ;
-          zlog_err ("%s: listen: %s", __func__, errtoa(err, 0).str) ;
-        }
-    } ;
-
-  if (err != 0)
-    {
-      close(sock_fd) ;
-      return err ;
-    } ;
-
-  /* Having successfully opened the listener, record it so that can be found
-   * again, add it to the BGP Engine Nexus file selection and enable it for
-   * reading.
-   */
-
-  listener = XCALLOC(MTYPE_BGP_LISTENER, sizeof(struct bgp_listener)) ;
-
-  qps_file_init_new(&listener->qf, NULL) ;
-  qps_add_file(bgp_nexus->selection, &listener->qf, sock_fd, listener) ;
-  qps_enable_mode(&listener->qf, qps_read_mnum, bgp_accept_action) ;
-
-  memcpy(&listener->su, sa, salen) ;
-
-  listener->next = bgp_listeners[sa->sa_family] ;
-  bgp_listeners[sa->sa_family] = listener ;
-
-  return 0 ;
 } ;
 
 /*------------------------------------------------------------------------------

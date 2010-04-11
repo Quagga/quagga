@@ -209,7 +209,7 @@ sockunion_set_addr_any(sockunion su)
  *
  * For good measure, set the size (if that's required) and return same.
  */
-static int
+extern int
 sockunion_set_port(sockunion su, in_port_t port)
 {
   switch (su->sa.sa_family)
@@ -233,6 +233,8 @@ sockunion_set_port(sockunion su, in_port_t port)
  * Initialise a new sockunion -- for the given address family (if any)
  *
  * Allocates a sockunion if required.
+ *
+ * Result is set "any".
  *
  * Advice is to zeroize sockaddr_in6, in particular.
  */
@@ -455,7 +457,7 @@ sockunion_socket(sa_family_t family, int type, int protocol)
 
   err = errno ;
   zlog (NULL, LOG_WARNING,
-          "Can't make socket family=%d, type=%d, protocol=%d: %s",
+          "Cannot make socket family=%d, type=%d, protocol=%d: %s",
                   (int)family, type, protocol, errtoa(err, 0).str) ;
   errno = err ;
   return -1;
@@ -906,6 +908,15 @@ sockunion_dup (union sockunion *su)
   memcpy (dup, su, sizeof (union sockunion));
   return dup;
 }
+
+/*------------------------------------------------------------------------------
+ * Copy one sockunion to another
+ */
+extern void
+sockunion_copy (sockunion dst, sockunion src)
+{
+  memcpy (dst, src, sizeof(*dst)) ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Free given sockunion (if any).
