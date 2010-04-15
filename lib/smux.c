@@ -977,7 +977,7 @@ smux_open (int sock)
   ptr = asn_build_string (ptr, &len,
 			  (u_char)
 			  (ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OCTET_STR),
-			  progname, strlen (progname));
+			  progname, strlen ((void*)progname));
 
   /* SMUX connection password. */
   ptr = asn_build_string (ptr, &len,

@@ -413,9 +413,9 @@ write_bgpPeerTable (int action, u_char *var_val,
   if (! peer)
     return SNMP_ERR_NOSUCHNAME;
 
-  bgp_session_get_statistics(peer);
   printf ("val: %ld\n", intval);
 
+  /* TODO: wire up timer interval settings so that session sees them    */
   switch (v->magic)
     {
     case BGPPEERADMINSTATUS:
@@ -423,7 +423,8 @@ write_bgpPeerTable (int action, u_char *var_val,
 #define BGP_PeerAdmin_start 2
       /* When the peer is established,   */
       if (intval == BGP_PeerAdmin_stop)
-	BGP_EVENT_ADD (peer, BGP_Stop);
+/* TODO: wire up SNMP BGPPEERADMINSTATUS BGP_PeerAdmin_stop  ??         */
+/*	BGP_EVENT_ADD (peer, BGP_Stop) */ ;
       else if (intval == BGP_PeerAdmin_start)
 	;			/* Do nothing. */
       else
@@ -431,21 +432,21 @@ write_bgpPeerTable (int action, u_char *var_val,
       break;
     case BGPPEERCONNECTRETRYINTERVAL:
       SET_FLAG (peer->config, PEER_CONFIG_CONNECT);
-      peer->connect = intval;
+      peer->connect   = intval;
       peer->v_connect = intval;
       break;
     case BGPPEERHOLDTIMECONFIGURED:
       SET_FLAG (peer->config, PEER_CONFIG_TIMER);
-      peer->holdtime = intval;
+      peer->holdtime   = intval;
       peer->v_holdtime = intval;
       break;
     case BGPPEERKEEPALIVECONFIGURED:
       SET_FLAG (peer->config, PEER_CONFIG_TIMER);
-      peer->keepalive = intval;
+      peer->keepalive   = intval;
       peer->v_keepalive = intval;
       break;
     case BGPPEERMINASORIGINATIONINTERVAL:
-      peer->v_asorig = intval;
+      peer->v_asorig   = intval;
       break;
     case BGPPEERMINROUTEADVERTISEMENTINTERVAL:
       peer->v_routeadv = intval;
@@ -469,7 +470,7 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
   if (! peer)
     return NULL;
 
-  bgp_session_get_stats(p->session, &stats);
+  bgp_session_get_stats(peer->session, &stats);
 
   switch (v->magic)
     {
@@ -477,7 +478,7 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
       return SNMP_IPADDRESS (peer->remote_id);
       break;
     case BGPPEERSTATE:
-      return SNMP_INTEGER (peer->status);
+      return SNMP_INTEGER (peer->state);        /* TODO: reconstruct old value */
       break;
     case BGPPEERADMINSTATUS:
       *write_method = write_bgpPeerTable;
@@ -519,10 +520,10 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
       return SNMP_INTEGER (peer->as);
       break;
     case BGPPEERINUPDATES:
-      return SNMP_INTEGER (peer->update_in);
+      return SNMP_INTEGER (stats.update_in);
       break;
     case BGPPEEROUTUPDATES:
-      return SNMP_INTEGER (peer->update_out);
+      return SNMP_INTEGER (stats.update_out);
       break;
     case BGPPEERINTOTALMESSAGES:
       return SNMP_INTEGER (stats.open_in + stats.update_in
@@ -537,8 +538,11 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
     case BGPPEERLASTERROR:
       {
 	static u_char lasterror[2];
-	lasterror[0] = peer->notify.code;
-	lasterror[1] = peer->notify.subcode;
+	bgp_notify notification = NULL ;
+	if (peer->session != NULL)
+	  notification = peer->session->notification ;
+	lasterror[0] = (notification != NULL) ? notification->code     : 0 ;
+	lasterror[1] = (notification != NULL) ? notification->subcode  : 0 ;
 	*var_len = 2;
 	return (u_char *)&lasterror;
       }
@@ -550,7 +554,7 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
       if (peer->uptime == 0)
 	return SNMP_INTEGER (0);
       else
-	return SNMP_INTEGER (time (NULL) - stats.uptime);
+	return SNMP_INTEGER (time (NULL) - peer->uptime);
       break;
     case BGPPEERCONNECTRETRYINTERVAL:
       *write_method = write_bgpPeerTable;
@@ -585,10 +589,10 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
       return SNMP_INTEGER (peer->v_routeadv);
       break;
     case BGPPEERINUPDATEELAPSEDTIME:
-      if (peer->update_time == 0)
+      if (stats.update_time == 0)
 	return SNMP_INTEGER (0);
       else
-	return SNMP_INTEGER (time (NULL) - peer->update_time);
+	return SNMP_INTEGER (time (NULL) - stats.update_time);
       break;
     default:
       return NULL;
@@ -666,7 +670,7 @@ bgp4PathAttrLookup (struct variable *v, oid name[], size_t *length,
 	{
 	  bgp_unlock_node (rn);
 
-	  for (binfo = rn->info; binfo; binfo = binfo->next)
+	  for (binfo = rn->info; binfo; binfo = binfo->info_next)
 	    if (sockunion_same (&binfo->peer->su, &su))
 	      return binfo;
 	}
@@ -719,7 +723,7 @@ bgp4PathAttrLookup (struct variable *v, oid name[], size_t *length,
 	{
 	  min = NULL;
 
-	  for (binfo = rn->info; binfo; binfo = binfo->next)
+	  for (binfo = rn->info; binfo; binfo = binfo->info_next)
 	    {
 	      if (binfo->peer->su.sin.sin_family == AF_INET
 		  && ntohl (paddr.s_addr) 
