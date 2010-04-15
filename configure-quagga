@@ -1,0 +1,6 @@
+./configure --prefix=/home/quagga/local --exec-prefix=/usr/local \
+            --sysconfdir=/home/quagga/etc --localstatedir=/home/quagga/state \
+	    --enable-user=quagga --enable-group=quagga \
+	    --disable-pie --enable-pthread \
+            --disable-doc --disable-ripd --disable-ripngd --disable-ospfd --disable-ospf6d
+
