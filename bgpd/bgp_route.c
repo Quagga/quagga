@@ -1570,7 +1570,7 @@ bgp_process_main (struct work_queue *wq, work_queue_item item)
   struct bgp_node *rn ;
   afi_t  afi ;
   safi_t safi ;
-  struct prefix *p = &rn->p;
+  struct prefix *p ;
   struct bgp_info *new_select;
   struct bgp_info *old_select;
   struct bgp_info_pair old_and_new;
@@ -1590,6 +1590,8 @@ bgp_process_main (struct work_queue *wq, work_queue_item item)
 
   afi  = rn->table->afi;
   safi = rn->table->safi;
+
+  p    = &rn->p ;
 
   /* Best path selection. */
   bgp_best_selection (bgp, rn, &old_and_new);

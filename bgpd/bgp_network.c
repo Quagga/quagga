@@ -83,17 +83,9 @@ bgp_md5_set_listeners(union sockunion* su, const char* password) ;
 
 typedef struct bgp_listener* bgp_listener ;
 
-static bgp_listener bgp_listeners[] =
-  {
-      [AF_INET]  = NULL,
-#if HAVE_IPV6
-      [AF_INET6] = NULL
-#endif
-  } ;
-
-CONFIRM(AF_INET  < 20) ;  /* The bgp_listeners array is not a silly size  */
-#if HAVE_IPV6
-CONFIRM(AF_INET6 < 20) ;  /* The bgp_listeners array is not a silly size  */
+static bgp_listener bgp_listeners_inet  = NULL ;
+#ifdef HAVE_IPV6
+static bgp_listener bgp_listeners_inet6 = NULL ;
 #endif
 
 #if defined(HAVE_IPV6) && !defined(NRL)
@@ -109,6 +101,25 @@ struct bgp_listener
   struct qps_file qf ;
   union sockunion su ;
 } ;
+
+/* Get pointer to list base for listeners in the given address family.  */
+static inline
+bgp_listener* bgp_listeners(sa_family_t family)
+{
+  switch (family)
+  {
+    case AF_INET:
+      return &bgp_listeners_inet ;
+
+#ifdef HAVE_IPV6
+    case AF_INET6:
+      return &bgp_listeners_inet6 ;
+
+#endif
+    default:
+      zabort("invalid address family") ;
+  } ;
+}
 
 /* Forward reference                                                          */
 static int bgp_open_listeners_addrinfo(const char* address,
@@ -412,8 +423,8 @@ bgp_open_listener(sockunion su, unsigned short port,
 
   sockunion_copy(&listener->su, su) ;
 
-  listener->next = bgp_listeners[sockunion_family(su)] ;
-  bgp_listeners[sockunion_family(su)] = listener ;
+  listener->next = *bgp_listeners(sockunion_family(su)) ;
+  *bgp_listeners(sockunion_family(su)) = listener ;
 
   return 0 ;
 } ;
@@ -429,8 +440,10 @@ static void bgp_reset_listeners(bgp_listener* p_listener) ;
 extern void
 bgp_close_listeners(void)
 {
-  bgp_reset_listeners(&bgp_listeners[AF_INET]) ;
-  bgp_reset_listeners(&bgp_listeners[AF_INET6]) ;
+  bgp_reset_listeners(bgp_listeners(AF_INET)) ;
+#ifdef HAVE_IPV6
+  bgp_reset_listeners(bgp_listeners(AF_INET6)) ;
+#endif
 } ;
 
 static void
@@ -1089,7 +1102,7 @@ bgp_md5_set_listeners(union sockunion* su, const char* password)
   assert(su->sa.sa_family == AF_INET) ;
 #endif
 
-  listener = bgp_listeners[su->sa.sa_family] ;
+  listener = *bgp_listeners(su->sa.sa_family) ;
 
   while (listener != NULL)
     {

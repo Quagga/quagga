@@ -238,15 +238,14 @@ struct dl_void_base_pair base_pair(void*) ;
   ((base) = NULL)
 
 #define ssl_push(base, item, next)                              \
-  do { confirm(_lu_off(base, next) == _lu_off(item, next)) ;    \
-       (item)->next = (base) ;                                  \
+  do { (item)->next = (base) ;                                  \
        (base) = item ;                                          \
   } while (0)
 
 extern int ssl_del_func(void** p_this, void* obj, size_t link_offset) ;
 
 #define ssl_del(base, item, next)                               \
-  ssl_del_func((void**)&(base), item, _lu_off(base, next))
+  ssl_del_func((void**)&(base), item, _lu_off(item, next))
 
 #define ssl_del_head(base, next)                                \
   do { if ((base) != NULL)                                      \

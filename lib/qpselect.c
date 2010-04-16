@@ -686,7 +686,7 @@ qps_file_lookup_fd(qps_selection qps, int fd, qps_file insert)
   vector_index i ;
   int   ret ;
 
-  dassert((fd >= 0) && (fd < FD_SETSIZE)) ;
+  dassert((fd >= 0) && (fd < (int)FD_SETSIZE)) ;
 
   /* Look-up                                                            */
   /*                                                                    */
@@ -991,26 +991,26 @@ qps_make_super_set_map(void)
   /* (1) check that a zeroised fd_super_set is an empty one.    */
   qps_super_set_zero(&test, 1) ;
 
-  for (fd = 0 ; fd < FD_SETSIZE ; ++fd)
+  for (fd = 0 ; fd < (int)FD_SETSIZE ; ++fd)
     if (FD_ISSET(fd, &test.fdset))
       zabort("Zeroised fd_super_set is not empty") ;
 
   /* (2) check that zeroising the fd_set doesn't change things  */
   FD_ZERO(&test.fdset) ;
-  for (iw = 0 ; iw < FD_SUPER_SET_WORD_SIZE ; ++iw)
+  for (iw = 0 ; iw < (int)FD_SUPER_SET_WORD_SIZE ; ++iw)
     if (test.words[iw] != 0)
       zabort("Zeroised fd_super_set is not all zero words") ;
 
   /* (3) check that setting one fd sets one bit, and construct the      */
   /*     fd_word_map[], fd_byte_map[] and fd_bit_map[].                 */
-  for (fd = 0 ; fd < FD_SETSIZE ; ++fd)
+  for (fd = 0 ; fd < (int)FD_SETSIZE ; ++fd)
     {
       fd_word_t w ;
 
       FD_SET(fd, &test.fdset) ;
 
       w = 0 ;
-      for (iw = 0 ; iw < FD_SUPER_SET_WORD_SIZE ; ++iw)
+      for (iw = 0 ; iw < (int)FD_SUPER_SET_WORD_SIZE ; ++iw)
         {
           if (test.words[iw] != 0)
             {
@@ -1040,7 +1040,7 @@ qps_make_super_set_map(void)
 
       FD_CLR(fd, &test.fdset) ;
 
-      for (iw = 0 ; iw < FD_SUPER_SET_WORD_SIZE ; ++iw)
+      for (iw = 0 ; iw < (int)FD_SUPER_SET_WORD_SIZE ; ++iw)
         if (test.words[iw] != 0)
           zabort("FD_CLR did not leave the fd_super_set empty") ;
     } ;
@@ -1049,7 +1049,7 @@ qps_make_super_set_map(void)
   /*     make sure that have  8 contiguous fd to a byte.                */
   /*     make sure that have 32 contiguous fd to a word.                */
 
-  for (fd = 0 ; fd < FD_SETSIZE ; fd += 8)
+  for (fd = 0 ; fd < (int)FD_SETSIZE ; fd += 8)
     {
       int fds ;
       ib  = fd_byte_map[fd] ;
@@ -1061,7 +1061,7 @@ qps_make_super_set_map(void)
           zabort("Broken fd_byte_map -- not 8 contiguous fd's in a byte") ;
 
       /* Must not share the same byte as any other set of 8 fd's        */
-      for (fds = 0 ; fds < FD_SETSIZE ; fds += 8)
+      for (fds = 0 ; fds < (int)FD_SETSIZE ; fds += 8)
         if ((fd_byte_map[fds] == ib) && (fds != fd))
           zabort("Broken fd_byte_map -- fd's not in expected bytes") ;
 
@@ -1076,7 +1076,7 @@ qps_make_super_set_map(void)
   for (i = 0 ; i < 8 ; ++i)
     {
       uint8_t b = fd_bit_map[i] ;
-      for (fd = 8 + i ; fd < FD_SETSIZE ; fd += 8)
+      for (fd = 8 + i ; fd < (int)FD_SETSIZE ; fd += 8)
         if (fd_bit_map[fd] != b)
           zabort("Broken fd_bit_map -- inconsistent bit mapping") ;
     } ;
@@ -1106,7 +1106,7 @@ qps_make_super_set_map(void)
   /*     include fds 0..fd.                                             */
 
   i = 0 ;
-  for (fd = 0 ; fd < FD_SETSIZE ; ++fd)
+  for (fd = 0 ; fd < (int)FD_SETSIZE ; ++fd)
     {
       int c = fd_byte_map[fd] + 1 ;
 
@@ -1125,7 +1125,7 @@ qps_make_super_set_map(void)
    * Checking that the maps have been correctly deduced -- where know what
    * the mapping really is !
    */
-  for (fd = 0 ; fd < FD_SETSIZE ; ++fd)
+  for (fd = 0 ; fd < (int)FD_SETSIZE ; ++fd)
     {
       uint8_t b ;
       short   c ;
@@ -1396,7 +1396,7 @@ qps_selection_validate(qps_selection qps)
   for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
     if (qps->tried_count[mnum] != 0)
       {
-        for (fd = 0 ; fd < FD_SETSIZE ; ++fd)
+        for (fd = 0 ; fd < (int)FD_SETSIZE ; ++fd)
           if (FD_ISSET(fd, &qps->results[mnum].fdset))
             {
               ++n ;

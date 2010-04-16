@@ -617,7 +617,12 @@ bgp_msg_open_option_parse (bgp_connection connection, bgp_notify notification,
           opt_type   = suck_b(sr);
           opt_length = suck_b(sr);
           left -= opt_length ;
-        } ;
+        }
+      else
+        {
+          opt_type   = 0 ;      /* ensure initialised   */
+          opt_length = 0 ;
+        }
 
       /* Must not have exceeded available bytes         */
       if (left < 0)
@@ -1569,6 +1574,11 @@ bgp_msg_orf_recv(bgp_connection connection, bgp_route_refresh rr,
     {
       orf_type  = suck_b(sr) ;
       orf_len   = suck_w(sr) ;
+    }
+  else
+    {
+      orf_type  = 0 ;   /* ensure initialised   */
+      orf_len   = 0 ;
     } ;
 
   /* The length may not be zero and may not exceed what there is left   */
