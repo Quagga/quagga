@@ -31,6 +31,7 @@
 #include "vio_lines.h"
 
 #include "command.h"
+#include "command_execute.h"
 #include "command_queue.h"
 
 #include "memory.h"

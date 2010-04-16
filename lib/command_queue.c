@@ -25,6 +25,7 @@
 #include "qpnexus.h"
 #include "memory.h"
 #include "command_queue.h"
+#include "command_execute.h"
 #include "vty.h"
 #include "uty.h"
 #include "vector.h"

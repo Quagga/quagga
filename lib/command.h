@@ -375,6 +375,11 @@ enum {
 #endif /* HAVE_IPV6 */
 
 /* Prototypes. */
+extern void cmd_init (int);
+extern void cmd_terminate (void);
+
+extern void print_version (const char *);
+
 extern void install_node (struct cmd_node *, int (*) (struct vty *));
 extern void install_default (enum node_type);
 extern void install_element (enum node_type, struct cmd_element *);
@@ -385,63 +390,7 @@ extern void sort_node (void);
    XMALLOC(MTYPE_TMP)).  Returns NULL if shift >= argc. */
 extern char *argv_concat (const char* const* argv, int argc, int shift);
 
-extern vector cmd_make_strvec (const char *);
-extern vector cmd_add_to_strvec (vector v, const char* str) ;
-extern void cmd_free_strvec (vector);
-extern vector cmd_describe_command (vector, int, int *status);
-extern vector cmd_complete_command (vector, int, int *status);
-extern const char *cmd_prompt (enum node_type);
-extern enum cmd_return_code
-config_from_file (struct vty* vty, FILE *fp, struct cmd_element* first_cmd,
-                                            qstring buf, bool stop_on_warning) ;
-extern enum node_type node_parent (enum node_type);
-extern enum cmd_return_code cmd_execute_command (struct vty *vty,
-                           enum cmd_parse_type type, struct cmd_element **cmd) ;
-extern enum cmd_return_code cmd_execute_command_strict (struct vty *vty,
-                          enum cmd_parse_type type, struct cmd_element **cmd) ;
-
-extern cmd_parsed cmd_parse_init_new(cmd_parsed parsed) ;
-extern cmd_parsed cmd_parse_reset(cmd_parsed parsed, bool free_structure) ;
-extern enum cmd_return_code cmd_parse_command(struct vty* vty,
-                                                     enum cmd_parse_type type) ;
-extern enum cmd_return_code cmd_dispatch(struct vty* vty, bool no_queue) ;
-
-Inline enum cmd_return_code
-cmd_dispatch_call(struct vty* vty)
-{
-  cmd_parsed parsed = vty->parsed ;
-  return (*(parsed->cmd->func))(parsed->cmd, vty,
-                                               vector_length(&parsed->vline),
-                           (const char * const*)vector_body(&parsed->vline)) ;
-} ;
-
-#define cmd_parse_reset_keep(parsed) cmd_parse_reset(parsed, 0)
-#define cmd_parse_reset_free(parsed) cmd_parse_reset(parsed, 1)
-
-extern void config_replace_string (struct cmd_element *, char *, ...);
-
-extern void cmd_init (int);
-extern void cmd_terminate (void);
-
-/* Export typical functions. */
-extern struct cmd_element config_end_cmd;
-extern struct cmd_element config_exit_cmd;
-extern struct cmd_element config_quit_cmd;
-extern struct cmd_element config_help_cmd;
-extern struct cmd_element config_list_cmd;
-extern char *host_config_file (void);
-extern void host_config_set (char *);
-
-extern void print_version (const char *);
-
 /* struct host global, ick */
 extern struct host host;
-
-/* "<cr>" global */
-extern char *command_cr;
-
-#ifdef QDEBUG
-extern const char *debug_banner;
-#endif
 
 #endif /* _ZEBRA_COMMAND_H */

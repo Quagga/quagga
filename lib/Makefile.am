@@ -36,7 +36,8 @@ pkginclude_HEADERS = \
 	command_queue.h qlib_init.h qafi_safi.h \
 	confirm.h miyagi.h pthread_safe.h list_util.h node_type.h uty.h \
 	vty_io.h vty_cli.h keystroke.h qstring.h vio_fifo.h vio_lines.h \
-	qiovec.h qfstring.h errno_names.h
+	qiovec.h qfstring.h errno_names.h \
+	route_types.h command_execute.h
 
 EXTRA_DIST = regex.c regex-gnu.h memtypes.awk route_types.awk route_types.txt
 

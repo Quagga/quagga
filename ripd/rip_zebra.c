@@ -22,6 +22,7 @@
 #include <zebra.h>
 
 #include "command.h"
+#include "lib/route_types.h"
 #include "prefix.h"
 #include "stream.h"
 #include "routemap.h"

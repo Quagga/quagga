@@ -28,6 +28,7 @@
 #include "table.h"
 #include "vty.h"
 #include "command.h"
+#include "lib/route_types.h"
 #include "plist.h"
 #include "log.h"
 #include "zclient.h"

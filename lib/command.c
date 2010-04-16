@@ -33,7 +33,7 @@ Boston, MA 02111-1307, USA.  */
 #include "uty.h"
 #include "qstring.h"
 #include "command.h"
-//#include "lib/route_types.h"
+#include "command_execute.h"
 #include "workqueue.h"
 #include "command_queue.h"
 
