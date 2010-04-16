@@ -346,8 +346,14 @@ run_background(const char *shell_cmd)
       if (setpgid(0,0) < 0)
         zlog_warn("warning: setpgid(0,0) failed: %s",safe_strerror(errno));
       {
+        union
+        {
+          const char* const*  cp ;
+                char* const*   p ;
+        } miyagi ;
         const char *const argv[4] = { "sh", "-c", shell_cmd, NULL};
-        execv("/bin/sh",(char *const *)argv);
+        miyagi.cp = argv ;
+        execv("/bin/sh", miyagi.p);
 	zlog_err("execv(/bin/sh -c '%s') failed: %s",
 		 shell_cmd,safe_strerror(errno));
 	_exit(127);

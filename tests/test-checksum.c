@@ -26,8 +26,10 @@ typedef uint16_t testoff_t;
 #define MODX                 4102
 
 /* Accumulator phase of checksum */
-static
-struct acc_vals
+static struct acc_vals
+accumulate (u_char *buffer, testsz_t len, testoff_t off)
+                                                       __attribute__((unused)) ;
+static struct acc_vals
 accumulate (u_char *buffer, testsz_t len, testoff_t off)
 {
   u_int8_t *p;

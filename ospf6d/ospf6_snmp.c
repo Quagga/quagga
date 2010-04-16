@@ -306,6 +306,7 @@ ospfv3AreaEntry (struct variable *v, oid *name, size_t *length,
 {
   struct ospf6_area *oa, *area = NULL;
   u_int32_t area_id = 0;
+  struct in_addr in_area_id ;
   struct listnode *node;
   unsigned int len;
 
@@ -319,9 +320,9 @@ ospfv3AreaEntry (struct variable *v, oid *name, size_t *length,
   if (len)
     oid2in_addr (name + v->namelen, len, (struct in_addr *) &area_id);
 
+  in_area_id.s_addr = area_id ;
   zlog_debug ("SNMP access by area: %s, exact=%d len=%d length=%lu",
-	      inet_ntoa (* (struct in_addr *) &area_id),
-	      exact, len, (u_long)*length);
+                          inet_ntoa (in_area_id), exact, len, (u_long)*length);
 
   for (ALL_LIST_ELEMENTS_RO (ospf6->area_list, node, oa))
     {
@@ -398,7 +399,7 @@ ospfv3AreaLsdbEntry (struct variable *v, oid *name, size_t *length,
     return NULL;
 
   /* Parse area-id */
-  len = (offsetlen < IN_ADDR_SIZE ? offsetlen : IN_ADDR_SIZE);
+  len = (offsetlen < (int)IN_ADDR_SIZE ? offsetlen : (int)IN_ADDR_SIZE);
   if (len)
     oid2in_addr (offset, len, &area_id);
   offset += len;
@@ -412,14 +413,14 @@ ospfv3AreaLsdbEntry (struct variable *v, oid *name, size_t *length,
   offsetlen -= len;
 
   /* Parse Router-ID */
-  len = (offsetlen < IN_ADDR_SIZE ? offsetlen : IN_ADDR_SIZE);
+  len = (offsetlen < (int)IN_ADDR_SIZE ? offsetlen : (int)IN_ADDR_SIZE);
   if (len)
     oid2in_addr (offset, len, &adv_router);
   offset += len;
   offsetlen -= len;
 
   /* Parse LS-ID */
-  len = (offsetlen < IN_ADDR_SIZE ? offsetlen : IN_ADDR_SIZE);
+  len = (offsetlen < (int)IN_ADDR_SIZE ? offsetlen : (int)IN_ADDR_SIZE);
   if (len)
     oid2in_addr (offset, len, &id);
   offset += len;

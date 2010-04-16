@@ -274,7 +274,11 @@ ospf_route_install (struct ospf *ospf, struct route_table *rt)
 
 static void
 ospf_intra_route_add (struct route_table *rt, struct vertex *v,
-		      struct ospf_area *area)
+                                                      struct ospf_area *area)
+                                                       __attribute__((unused)) ;
+static void
+ospf_intra_route_add (struct route_table *rt, struct vertex *v,
+                      struct ospf_area *area)
 {
   struct route_node *rn;
   struct ospf_route *or;

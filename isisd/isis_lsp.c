@@ -655,7 +655,7 @@ lspid_print (u_char * lsp_id, u_char * trg, char dynhost, char frag)
 
   if (dyn)
     sprintf ((char *)id, "%.14s", dyn->name.name);
-  else if (!memcmp (isis->sysid, lsp_id, ISIS_SYS_ID_LEN) & dynhost)
+  else if (!memcmp (isis->sysid, lsp_id, ISIS_SYS_ID_LEN) && dynhost)
     sprintf ((char *)id, "%.14s", unix_hostname ());
   else
     {

@@ -1016,7 +1016,7 @@ DEFUN (net,
        "A Network Entity Title for this process (OSI only)\n"
        "XX.XXXX. ... .XXX.XX  Network entity title (NET)\n")
 {
-  return area_net_title (vty, argv[0]);
+  return area_net_title (vty, (const u_char*)argv[0]);
 }
 
 /*
@@ -1029,7 +1029,7 @@ DEFUN (no_net,
        "A Network Entity Title for this process (OSI only)\n"
        "XX.XXXX. ... .XXX.XX  Network entity title (NET)\n")
 {
-  return area_clear_net_title (vty, argv[0]);
+  return area_clear_net_title (vty, (const u_char*)argv[0]);
 }
 
 DEFUN (area_passwd,

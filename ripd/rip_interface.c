@@ -839,7 +839,7 @@ rip_enable_network_add (struct prefix *p)
       return -1;
     }
   else
-    node->info = (char *) "enabled";
+    node->info = rip_enabled_string.p ;
 
   /* XXX: One should find a better solution than a generic one */
   rip_enable_apply_all();

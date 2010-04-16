@@ -342,6 +342,15 @@ extern struct ripng *ripng;
 
 extern struct thread_master *master;
 
+/* To avoid compiler warnings.                  */
+union ripng_miyagi_string
+{
+  const char* cp ;
+        char*  p ;
+} ;
+
+extern union ripng_miyagi_string  ripng_enabled_string ;
+
 /* Prototypes. */
 extern void ripng_init (void);
 extern void ripng_reset (void);

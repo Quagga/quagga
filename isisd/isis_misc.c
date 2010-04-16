@@ -107,7 +107,7 @@ dotformat2buff (u_char * buff, const u_char * dotted)
   int nextdotpos = 2;
 
   number[2] = '\0';
-  dotlen = strlen(dotted);
+  dotlen = strlen((const char*)dotted);
   if (dotlen > 50)
     {
       /* this can't be an iso net, its too long */
@@ -165,7 +165,7 @@ sysid2buff (u_char * buff, const u_char * dotted)
 
   number[2] = '\0';
   // surely not a sysid_string if not 14 length
-  if (strlen (dotted) != 14)
+  if (strlen ((const char*)dotted) != 14)
     {
       return 0;
     }
@@ -271,7 +271,7 @@ speaks (struct nlpids *nlpids, int family)
  * Returns 0 on error, IS-IS Circuit Type on ok
  */
 int
-string2circuit_t (const u_char * str)
+string2circuit_t (const char * str)
 {
 
   if (!str)

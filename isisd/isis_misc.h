@@ -24,7 +24,7 @@
 #ifndef _ZEBRA_ISIS_MISC_H
 #define _ZEBRA_ISIS_MISC_H
 
-int string2circuit_t (const u_char *);
+int string2circuit_t (const char *);
 const char *circuit_t2string (int);
 const char *syst2string (int);
 struct in_addr newprefix2inaddr (u_char * prefix_start,

@@ -125,7 +125,7 @@ config_write_ospf6_debug (struct vty *vty)
   "%s        AS Scoped Link State Database%s%s"
 
 static int
-parse_show_level (int argc, const char *argv[])
+parse_show_level (int argc, argv_t argv)
 {
   int level = 0;
   if (argc)
@@ -143,7 +143,7 @@ parse_show_level (int argc, const char *argv[])
 }
 
 static u_int16_t
-parse_type_spec (int argc, const char *argv[])
+parse_type_spec (int argc, argv_t argv)
 {
   u_int16_t type = 0;
   assert (argc);

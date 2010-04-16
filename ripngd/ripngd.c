@@ -55,6 +55,8 @@ enum
 
 extern struct zebra_privs_t ripngd_privs;
 
+union ripng_miyagi_string  ripng_enabled_string = { .cp = "enable" } ;
+
 /* Prototypes. */
 void
 ripng_output_process (struct interface *, struct sockaddr_in6 *, int);

@@ -162,7 +162,7 @@ ospf6_abr_originate_summary_to_area (struct ospf6_route *route,
       if (IS_OSPF6_DEBUG_ABR || IS_OSPF6_DEBUG_ORIGINATE (INTER_ROUTER))
         {
           is_debug++;
-          inet_ntop (AF_INET, &(ADV_ROUTER_IN_PREFIX (&route->prefix)),
+          inet_ntop (AF_INET, &(ADV_ROUTER_IN_PREFIX (route->prefix)),
                      buf, sizeof (buf));
           zlog_debug ("Originating summary in area %s for ASBR %s",
 		      area->name, buf);
@@ -355,7 +355,7 @@ ospf6_abr_originate_summary_to_area (struct ospf6_route *route,
           {
             if (is_debug)
               {
-                inet_ntop (AF_INET, &(ADV_ROUTER_IN_PREFIX (&route->prefix)),
+                inet_ntop (AF_INET, &(ADV_ROUTER_IN_PREFIX (route->prefix)),
                            buf, sizeof(buf));
                 zlog_debug ("prefix %s was denied by export list", buf);
               }
@@ -376,7 +376,7 @@ ospf6_abr_originate_summary_to_area (struct ospf6_route *route,
            {
              if (is_debug)
                {
-                 inet_ntop (AF_INET, &(ADV_ROUTER_IN_PREFIX (&route->prefix)),
+                 inet_ntop (AF_INET, &(ADV_ROUTER_IN_PREFIX (route->prefix)),
                             buf, sizeof (buf));
                  zlog_debug ("prefix %s was denied by filter-list out", buf);
                }
@@ -430,7 +430,7 @@ ospf6_abr_originate_summary_to_area (struct ospf6_route *route,
       router_lsa->options[1] = route->path.options[1];
       router_lsa->options[2] = route->path.options[2];
       OSPF6_ABR_SUMMARY_METRIC_SET (router_lsa, route->path.cost);
-      router_lsa->router_id = ADV_ROUTER_IN_PREFIX (&route->prefix);
+      router_lsa->router_id = ADV_ROUTER_IN_PREFIX (route->prefix);
       type = htons (OSPF6_LSTYPE_INTER_ROUTER);
     }
   else

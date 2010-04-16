@@ -48,10 +48,11 @@ flags_get_index (struct flags *flags)
     }
   else
     {
+      uintptr_t pi ;
       node = listhead (flags->free_idcs);
-      index = (int) listgetdata (node);
-      listnode_delete (flags->free_idcs, (void *) index);
-      index--;
+      pi = (uintptr_t)listgetdata (node);
+      listnode_delete (flags->free_idcs, (void*)pi);
+      index = (int)(pi - 1) ;
     }
 
   return index;
@@ -60,6 +61,8 @@ flags_get_index (struct flags *flags)
 void
 flags_free_index (struct flags *flags, int index)
 {
+  uintptr_t pi ;
+
   if (index + 1 == flags->maxindex)
     {
       flags->maxindex--;
@@ -71,7 +74,8 @@ flags_free_index (struct flags *flags, int index)
       flags->free_idcs = list_new ();
     }
 
-  listnode_add (flags->free_idcs, (void *) (index + 1));
+  pi = (uintptr_t)index + 1 ;
+  listnode_add (flags->free_idcs, (void*)pi) ;
 
   return;
 }

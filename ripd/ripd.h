@@ -302,7 +302,7 @@ struct rip_peer
   struct in_addr addr;
 
   /* Peer RIP tag value. */
-  int domain;
+  unsigned int domain;
 
   /* Last update time. */
   time_t uptime;
@@ -438,4 +438,15 @@ extern struct thread_master *master;
 /* RIP statistics for SNMP. */
 extern long rip_global_route_changes;
 extern long rip_global_queries;
+
+/* To avoid compiler warnings.                  */
+union rip_miyagi_string
+{
+  const char* cp ;
+        char*  p ;
+} ;
+
+extern union rip_miyagi_string  rip_enabled_string ;
+extern union rip_miyagi_string  rip_static_string ;
+
 #endif /* _ZEBRA_RIP_H */

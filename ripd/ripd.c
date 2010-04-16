@@ -61,6 +61,11 @@ long rip_global_route_changes = 0;
 
 /* RIP queries. */
 long rip_global_queries = 0;
+
+/* Strings...                                   */
+union rip_miyagi_string  rip_enabled_string = { .cp = "enabled" } ;
+union rip_miyagi_string  rip_static_string  = { .cp = "static"  } ;
+
 
 /* Prototypes. */
 static void rip_event (enum rip_event, int);
@@ -1110,6 +1115,7 @@ rip_response_process (struct rip_packet *packet, int size,
       
   /* We don't know yet. */
   subnetted = -1;
+  ifaddr.prefixlen = 0 ;        /* eliminate a compiler warning */
 
   /* The Response must be ignored if it is not from the RIP
      port. (RFC2453 - Sec. 3.9.2)*/
@@ -2932,7 +2938,7 @@ DEFUN (rip_route,
       return CMD_WARNING;
     }
 
-  node->info = (char *)"static";
+  node->info = rip_static_string.p ;
 
   rip_redistribute_add (ZEBRA_ROUTE_RIP, RIP_ROUTE_STATIC, &p, 0, NULL, 0, 0);
 

@@ -1070,7 +1070,7 @@ ospf6_route_show_table (struct vty *vty, int detail,
 }
 
 int
-ospf6_route_table_show (struct vty *vty, int argc, const char *argv[],
+ospf6_route_table_show (struct vty *vty, int argc, argv_t argv,
                         struct ospf6_route_table *table)
 {
   int summary = 0;
@@ -1183,9 +1183,9 @@ ospf6_linkstate_show (struct vty *vty, struct ospf6_route *route)
   u_int32_t router, id;
   char routername[16], idname[16], rbits[16], options[16];
 
-  router = ospf6_linkstate_prefix_adv_router (&route->prefix);
+  router = ospf6_linkstate_prefix_adv_router (route->prefix);
   inet_ntop (AF_INET, &router, routername, sizeof (routername));
-  id = ospf6_linkstate_prefix_id (&route->prefix);
+  id = ospf6_linkstate_prefix_id (route->prefix);
   inet_ntop (AF_INET, &id, idname, sizeof (idname));
 
   ospf6_capability_printbuf (route->path.router_bits, rbits, sizeof (rbits));
@@ -1245,7 +1245,7 @@ ospf6_linkstate_show_table (struct vty *vty, int detail,
 }
 
 int
-ospf6_linkstate_table_show (struct vty *vty, int argc, const char *argv[],
+ospf6_linkstate_table_show (struct vty *vty, int argc, argv_t argv,
                             struct ospf6_route_table *table)
 {
   int detail = 0;
@@ -1320,7 +1320,7 @@ ospf6_brouter_show (struct vty *vty, struct ospf6_route *route)
   u_int32_t adv_router;
   char adv[16], rbits[16], options[16], area[16];
 
-  adv_router = ospf6_linkstate_prefix_adv_router (&route->prefix);
+  adv_router = ospf6_linkstate_prefix_adv_router (route->prefix);
   inet_ntop (AF_INET, &adv_router, adv, sizeof (adv));
   ospf6_capability_printbuf (route->path.router_bits, rbits, sizeof (rbits));
   ospf6_options_printbuf (route->path.options, options, sizeof (options));

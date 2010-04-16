@@ -302,14 +302,14 @@ ospf6_asbr_lsentry_add (struct ospf6_route *asbr_entry)
   if (! CHECK_FLAG (asbr_entry->flag, OSPF6_ROUTE_BEST))
     {
       char buf[16];
-      inet_ntop (AF_INET, &ADV_ROUTER_IN_PREFIX (&asbr_entry->prefix),
+      inet_ntop (AF_INET, &ADV_ROUTER_IN_PREFIX (asbr_entry->prefix),
                  buf, sizeof (buf));
        zlog_info ("ignore non-best path: lsentry %s add", buf);
       return;
     }
 
   type = htons (OSPF6_LSTYPE_AS_EXTERNAL);
-  router = ospf6_linkstate_prefix_adv_router (&asbr_entry->prefix);
+  router = ospf6_linkstate_prefix_adv_router (asbr_entry->prefix);
   for (lsa = ospf6_lsdb_type_router_head (type, router, ospf6->lsdb); lsa;
        lsa = ospf6_lsdb_type_router_next (type, router, lsa))
     {
@@ -326,7 +326,7 @@ ospf6_asbr_lsentry_remove (struct ospf6_route *asbr_entry)
   u_int32_t router;
 
   type = htons (OSPF6_LSTYPE_AS_EXTERNAL);
-  router = ospf6_linkstate_prefix_adv_router (&asbr_entry->prefix);
+  router = ospf6_linkstate_prefix_adv_router (asbr_entry->prefix);
   for (lsa = ospf6_lsdb_type_router_head (type, router, ospf6->lsdb);
        lsa; lsa = ospf6_lsdb_type_router_next (type, router, lsa))
     ospf6_asbr_lsa_remove (lsa);

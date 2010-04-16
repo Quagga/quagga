@@ -1569,7 +1569,7 @@ DEFUN (no_ospf_area_stub_no_summary,
 }
 
 static int
-ospf_area_nssa_cmd_handler (struct vty *vty, int argc, const char *argv[], 
+ospf_area_nssa_cmd_handler (struct vty *vty, int argc, argv_t argv,
                             int nosum)
 {
   struct ospf *ospf = vty->index;
@@ -3757,6 +3757,9 @@ show_as_external_lsa_detail (struct vty *vty, struct ospf_lsa *lsa)
 }
 
 /* N.B. This function currently seems to be unused. */
+static int
+show_as_external_lsa_stdvty (struct ospf_lsa *lsa) __attribute__((unused)) ;
+
 static int
 show_as_external_lsa_stdvty (struct ospf_lsa *lsa)
 {

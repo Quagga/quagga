@@ -34,6 +34,7 @@
 
 #include "command.h"
 #include "command_queue.h"
+#include "command_execute.h"
 #include "memory.h"
 #include "log.h"
 #include "mqueue.h"

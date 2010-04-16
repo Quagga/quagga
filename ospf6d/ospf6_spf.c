@@ -60,13 +60,13 @@ ospf6_vertex_id_cmp (void *a, void *b)
   struct ospf6_vertex *vb = (struct ospf6_vertex *) b;
   int ret = 0;
 
-  ret = ntohl (ospf6_linkstate_prefix_adv_router (&va->vertex_id)) -
-        ntohl (ospf6_linkstate_prefix_adv_router (&vb->vertex_id));
+  ret = ntohl (ospf6_linkstate_prefix_adv_router (va->vertex_id)) -
+        ntohl (ospf6_linkstate_prefix_adv_router (vb->vertex_id));
   if (ret)
     return ret;
 
-  ret = ntohl (ospf6_linkstate_prefix_id (&va->vertex_id)) -
-        ntohl (ospf6_linkstate_prefix_id (&vb->vertex_id));
+  ret = ntohl (ospf6_linkstate_prefix_id (va->vertex_id)) -
+        ntohl (ospf6_linkstate_prefix_id (vb->vertex_id));
   return ret;
 }
 

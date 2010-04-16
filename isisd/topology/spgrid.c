@@ -50,8 +50,8 @@ long   X,   /* horizontal size of grid */
 
 long   x,
        y,
-       y1, y2, yp,
-       dl, dx, xn, yn, count,
+       yr1, yr2, yp,
+       dl, dx, xnd, ynd, count,
        *mess;
 
 double n;
@@ -670,12 +670,12 @@ gen_spgrid_topology (struct vty *vty, struct list *topology)
 
     for ( k = ax; k > 0; k -- )
        {
-         y1 = nrand ( Y );
+         yr1 = nrand ( Y );
          do
-            y2 = nrand ( Y );
-         while ( y2 == y1 );
-         i  = NODE ( x, y1 );
-         j  = NODE ( x, y2 );
+            yr2 = nrand ( Y );
+         while ( yr2 == yr1 );
+         i  = NODE ( x, yr1 );
+         j  = NODE ( x, yr2 );
          l = am + nrand ( al );
          print_arc (vty, topology,  i, j, l );
        }
@@ -697,9 +697,9 @@ gen_spgrid_topology (struct vty *vty, struct list *topology)
   for ( x = 0; x < X-1; x ++ )
    {
   /* generating arcs from one layer */
-     for ( count = 0, xn = x + 1;
-           count < ix && xn < X;
-           count ++, xn += ih )
+     for ( count = 0, xnd = x + 1;
+           count < ix && xnd < X;
+           count ++, xnd += ih )
       {
         if ( ip_f )
         for ( y = 0; y < Y; y ++ )
@@ -708,16 +708,16 @@ gen_spgrid_topology (struct vty *vty, struct list *topology)
         for ( y = 0; y < Y; y ++ )
          {
             i = NODE ( x, y );
-  	  dx = xn - x;
+  	  dx = xnd - x;
   	  if ( ip_f )
   	    {
   	      yp = nrand(Y-y);
-  	      yn = mess[ yp ];
+  	      ynd = mess[ yp ];
                 mess[ yp ] = mess[ Y - y - 1 ];
   	    }
   	  else
-               yn =  y;
-  	  j = NODE ( xn, yn );
+               ynd =  y;
+  	  j = NODE ( xnd, ynd );
   	  l = im + nrand ( il );
   	  if ( in != 0 )
               l *= (long) ( in * dx );

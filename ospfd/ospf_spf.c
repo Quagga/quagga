@@ -1044,6 +1044,8 @@ ospf_rtrs_free (struct route_table *rtrs)
       }
   route_table_finish (rtrs);
 }
+static void
+ospf_rtrs_print (struct route_table *rtrs)    __attribute__((unused)) ;
 
 static void
 ospf_rtrs_print (struct route_table *rtrs)

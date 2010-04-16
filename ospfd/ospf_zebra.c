@@ -133,8 +133,9 @@ ospf_interface_delete (int command, struct zclient *zclient,
 
   if (IS_DEBUG_OSPF (zebra, ZEBRA_INTERFACE))
     zlog_debug
-      ("Zebra: interface delete %s index %d flags %lld metric %d mtu %d",
-       ifp->name, ifp->ifindex, ifp->flags, ifp->metric, ifp->mtu);
+      ("Zebra: interface delete %s index %d flags %llu metric %d mtu %d",
+       ifp->name, ifp->ifindex, (long long unsigned)ifp->flags,
+                                                         ifp->metric, ifp->mtu);
 
 #ifdef HAVE_SNMP
   ospf_snmp_if_delete (ifp);
@@ -967,6 +968,7 @@ void
 ospf_distribute_list_update (struct ospf *ospf, int type)
 {
   struct route_table *rt;
+  uintptr_t pi ;
 
   /* External info does not exist. */
   if (!(rt = EXTERNAL_INFO (type)))
@@ -977,9 +979,10 @@ ospf_distribute_list_update (struct ospf *ospf, int type)
     OSPF_TIMER_OFF (ospf->t_distribute_update);
 
   /* Set timer. */
+  pi = type ;
   ospf->t_distribute_update =
     thread_add_timer (master, ospf_distribute_list_update_timer,
-                      (void *) type, OSPF_DISTRIBUTE_UPDATE_DELAY);
+                                      (void*)pi, OSPF_DISTRIBUTE_UPDATE_DELAY) ;
 }
 
 /* If access-list is updated, apply some check. */

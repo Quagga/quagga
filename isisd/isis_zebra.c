@@ -332,7 +332,7 @@ isis_zebra_route_del_ipv4 (struct prefix *prefix,
 }
 
 #ifdef HAVE_IPV6
-void
+static void
 isis_zebra_route_add_ipv6 (struct prefix *prefix,
 			   struct isis_route_info *route_info)
 {

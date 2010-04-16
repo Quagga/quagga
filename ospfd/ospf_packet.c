@@ -606,8 +606,7 @@ ospf_write (struct thread *thread)
    * and reliability - not more data, than our
    * socket can accept
    */
-  maxdatasize = MIN (oi->ifp->mtu, ospf->maxsndbuflen) -
-    sizeof (struct ip);
+  maxdatasize = MIN((int)oi->ifp->mtu, ospf->maxsndbuflen) - sizeof (struct ip);
   
   /* Get one packet from queue. */
   op = ospf_fifo_head (oi->obuf);

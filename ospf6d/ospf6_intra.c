@@ -1250,7 +1250,7 @@ ospf6_brouter_debug_print (struct ospf6_route *brouter)
   char id[16], adv_router[16];
   char capa[16], options[16];
 
-  brouter_id = ADV_ROUTER_IN_PREFIX (&brouter->prefix);
+  brouter_id = ADV_ROUTER_IN_PREFIX (brouter->prefix);
   inet_ntop (AF_INET, &brouter_id, brouter_name, sizeof (brouter_name));
   inet_ntop (AF_INET, &brouter->path.area_id, area_name, sizeof (area_name));
   ospf6_linkstate_prefix2str (&brouter->prefix, destination,
@@ -1311,7 +1311,7 @@ ospf6_intra_brouter_calculation (struct ospf6_area *oa)
   for (brouter = ospf6_route_head (oa->ospf6->brouter_table); brouter;
        brouter = ospf6_route_next (brouter))
     {
-      brouter_id = ADV_ROUTER_IN_PREFIX (&brouter->prefix);
+      brouter_id = ADV_ROUTER_IN_PREFIX (brouter->prefix);
       inet_ntop (AF_INET, &brouter_id, brouter_name, sizeof (brouter_name));
       if (brouter->path.area_id != oa->area_id)
         continue;
@@ -1329,12 +1329,12 @@ ospf6_intra_brouter_calculation (struct ospf6_area *oa)
   for (brouter = ospf6_route_head (oa->spf_table); brouter;
        brouter = ospf6_route_next (brouter))
     {
-      brouter_id = ADV_ROUTER_IN_PREFIX (&brouter->prefix);
+      brouter_id = ADV_ROUTER_IN_PREFIX (brouter->prefix);
       inet_ntop (AF_INET, &brouter_id, brouter_name, sizeof (brouter_name));
 
       if (brouter->type != OSPF6_DEST_TYPE_LINKSTATE)
         continue;
-      if (ospf6_linkstate_prefix_id (&brouter->prefix) != htonl (0))
+      if (ospf6_linkstate_prefix_id (brouter->prefix) != htonl (0))
         continue;
       if (! CHECK_FLAG (brouter->path.router_bits, OSPF6_ROUTER_BIT_E) &&
           ! CHECK_FLAG (brouter->path.router_bits, OSPF6_ROUTER_BIT_B))
@@ -1360,7 +1360,7 @@ ospf6_intra_brouter_calculation (struct ospf6_area *oa)
   for (brouter = ospf6_route_head (oa->ospf6->brouter_table); brouter;
        brouter = ospf6_route_next (brouter))
     {
-      brouter_id = ADV_ROUTER_IN_PREFIX (&brouter->prefix);
+      brouter_id = ADV_ROUTER_IN_PREFIX (brouter->prefix);
       inet_ntop (AF_INET, &brouter_id, brouter_name, sizeof (brouter_name));
       
       if (brouter->path.area_id != oa->area_id)

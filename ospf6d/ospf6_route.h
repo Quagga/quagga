@@ -235,17 +235,21 @@ extern const char *ospf6_path_type_substr[OSPF6_PATH_TYPE_MAX];
            sizeof (struct ospf6_nexthop) * OSPF6_MULTI_PATH_LIMIT) == 0)
 #define ospf6_route_is_best(r) (CHECK_FLAG ((r)->flag, OSPF6_ROUTE_BEST))
 
-#define ospf6_linkstate_prefix_adv_router(x) \
-  (*(u_int32_t *)(&(x)->u.prefix6.s6_addr[0]))
-#define ospf6_linkstate_prefix_id(x) \
-  (*(u_int32_t *)(&(x)->u.prefix6.s6_addr[4]))
+#ifdef s6_addr32
+#define OSPF6_PREFIX_PART(x, n) ((x).u.prefix6.s6_addr32[n])
+#else
+#define OSPF6_PREFIX_PART(x, n) ( ( (uint32_t*)((x).u.prefix6.s6_addr) )[n] )
+#endif
 
-#define ADV_ROUTER_IN_PREFIX(x) \
-  (*(u_int32_t *)(&(x)->u.prefix6.s6_addr[0]))
-#define ID_IN_PREFIX(x) \
-  (*(u_int32_t *)(&(x)->u.prefix6.s6_addr[4]))
+#define ospf6_linkstate_prefix_adv_router(x) OSPF6_PREFIX_PART(x, 0)
+#define ospf6_linkstate_prefix_id(x)         OSPF6_PREFIX_PART(x, 1)
+
+#define ADV_ROUTER_IN_PREFIX(x)    OSPF6_PREFIX_PART(x, 0)
+#define ID_IN_PREFIX(x)            OSPF6_PREFIX_PART(x, 1)
 
 /* Function prototype */
+#include "command.h"
+
 extern void ospf6_linkstate_prefix (u_int32_t adv_router, u_int32_t id,
                                     struct prefix *prefix);
 extern void ospf6_linkstate_prefix2str (struct prefix *prefix, char *buf,
@@ -288,10 +292,10 @@ extern void ospf6_route_dump (struct ospf6_route_table *table);
 extern void ospf6_route_show (struct vty *vty, struct ospf6_route *route);
 extern void ospf6_route_show_detail (struct vty *vty, struct ospf6_route *route);
 
-extern int ospf6_route_table_show (struct vty *, int, const char *[],
+extern int ospf6_route_table_show (struct vty *, int, argv_t,
                                    struct ospf6_route_table *);
 extern int ospf6_linkstate_table_show (struct vty *vty, int argc,
-                                       const char *argv[],
+                                       argv_t argv,
                                        struct ospf6_route_table *table);
 
 extern void ospf6_brouter_show_header (struct vty *vty);
