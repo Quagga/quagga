@@ -490,8 +490,8 @@ qs_cmp_sig(qstring a, qstring b)
     {
       if (isspace(*p_a) && isspace(*p_b))
         {
-          do { ++p_a ; } while isspace(*p_a) ;
-          do { ++p_b ; } while isspace(*p_b) ;
+          do { ++p_a ; } while (isspace(*p_a)) ;
+          do { ++p_b ; } while (isspace(*p_b)) ;
         } ;
 
       if (*p_a != *p_b)

@@ -40,6 +40,8 @@ static const char* errno_name_table[] =
 
   /* POSIX Error Numbers -- taken Open Group Base Specifications Issue 7
    *                        IEEE Std 1003.1-2008
+   *
+   * Stream related stuff does not seeem to be fully supported.
    */
   ERRNO(E2BIG),           /* Argument list too long.                          */
   ERRNO(EACCES),          /* Permission denied.                               */
@@ -86,8 +88,10 @@ static const char* errno_name_table[] =
   ERRNO(ENETUNREACH),     /* Network unreachable.                             */
   ERRNO(ENFILE),          /* Too many files open in system.                   */
   ERRNO(ENOBUFS),         /* No buffer space available.                       */
+#ifdef ENODATA
   ERRNO(ENODATA),         /* No message is available on the STREAM head read
                                                                        queue. */
+#endif
   ERRNO(ENODEV),          /* No such device.                                  */
   ERRNO(ENOENT),          /* No such file or directory.                       */
   ERRNO(ENOEXEC),         /* Executable file format error.                    */
@@ -97,13 +101,19 @@ static const char* errno_name_table[] =
   ERRNO(ENOMSG),          /* No message of the desired type.                  */
   ERRNO(ENOPROTOOPT),     /* Protocol not available.                          */
   ERRNO(ENOSPC),          /* No space left on device.                         */
+#ifdef ENOSR
   ERRNO(ENOSR),           /* No STREAM resources.                             */
+#endif
+#ifdef ENOSTR
   ERRNO(ENOSTR),          /* Not a STREAM.                                    */
+#endif
   ERRNO(ENOSYS),          /* Function not supported.                          */
   ERRNO(ENOTCONN),        /* The socket is not connected.                     */
   ERRNO(ENOTDIR),         /* Not a directory.                                 */
   ERRNO(ENOTEMPTY),       /* Directory not empty.                             */
+#ifdef ENOTRECOVERABLE
   ERRNO(ENOTRECOVERABLE), /* State not recoverable.                           */
+#endif
   ERRNO(ENOTSOCK),        /* Not a socket.                                    */
   ERRNO(ENOTSUP),         /* Not supported
                                      (may be the same value as [EOPNOTSUPP]). */
@@ -114,7 +124,9 @@ static const char* errno_name_table[] =
                                         (may be the same value as [ENOTSUP]). */
 #endif
   ERRNO(EOVERFLOW),       /* Value too large to be stored in data type.       */
+#ifdef EOWNERDEAD
   ERRNO(EOWNERDEAD),      /* Previous owner died.                             */
+#endif
   ERRNO(EPERM),           /* Operation not permitted.                         */
   ERRNO(EPIPE),           /* Broken pipe.                                     */
   ERRNO(EPROTO),          /* Protocol error.                                  */
@@ -125,7 +137,9 @@ static const char* errno_name_table[] =
   ERRNO(ESPIPE),          /* Invalid seek.                                    */
   ERRNO(ESRCH),           /* No such process.                                 */
   ERRNO(ESTALE),          /* Reserved.                                        */
+#ifdef ETIME
   ERRNO(ETIME),           /* Stream ioctl() timeout.                          */
+#endif
   ERRNO(ETIMEDOUT),       /* Connection timed out.                            */
   ERRNO(ETXTBSY),         /* Text file busy.                                  */
   ERRNO(EWOULDBLOCK),     /* Operation would block

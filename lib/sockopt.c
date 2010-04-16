@@ -597,18 +597,18 @@ sockopt_tcp_signature (int sock_fd, union sockunion *su, const char *password)
   return (ret >= 0) ? 0 : -1 ;
 
 #elif HAVE_DECL_TCP_MD5SIG
-#ifndef GNU_LINUX
+  int ret, err ;
+# ifndef GNU_LINUX
   /*
    * XXX Need to do PF_KEY operation here to add/remove an SA entry,
    * and add/remove an SP entry for this peer's packet flows also.
    */
   int    md5sig = password && *password ? 1 : 0;
-#else
+# else
   int    keylen = password ? strlen (password) : 0 ;
   struct tcp_md5sig md5sig ;
   union sockunion *su2 ;
   union sockunion susock ;
-  int ret, err ;
 
   /* Figure out whether the socket and the sockunion are the same family..
    * adding AF_INET to AF_INET6 needs to be v4 mapped, you'd think..
@@ -627,7 +627,7 @@ sockopt_tcp_signature (int sock_fd, union sockunion *su, const char *password)
       if (su2->sa.sa_family == AF_INET)
         return 0 ;              /* TODO: find out what this is doing ?? */
 
-#ifdef HAVE_IPV6
+#  ifdef HAVE_IPV6
       /* If this does not work, then all users of this sockopt will need to
        * differentiate between IPv4 and IPv6, and keep separate sockets for
        * each.
@@ -644,7 +644,7 @@ sockopt_tcp_signature (int sock_fd, union sockunion *su, const char *password)
            su2->sin6.sin6_addr.s6_addr32[2] = htonl(0xffff);
            memcpy (&su2->sin6.sin6_addr.s6_addr32[3], &su->sin.sin_addr, 4);
         }
-#endif
+#  endif
     }
 
   memset (&md5sig, 0, sizeof (md5sig));
@@ -653,7 +653,7 @@ sockopt_tcp_signature (int sock_fd, union sockunion *su, const char *password)
   if (keylen)
     memcpy (md5sig.tcpm_key, password, keylen);
 
-#endif /* GNU_LINUX */
+# endif /* GNU_LINUX */
 
   err = 0 ;
   ret = setsockopt(sock_fd, IPPROTO_TCP, TCP_MD5SIG, &md5sig, sizeof(md5sig)) ;

@@ -167,11 +167,11 @@ sockunion_set_family(sockunion su, sa_family_t family)
 
 #ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
   if (family == AF_INET)
-    sockunion_sin_len(sockunion su) ;
+    sockunion_sin_len(su) ;
 #endif
 #if defined(HAVE_IPV6) && defined(SIN6_LEN)
   if (family == AF_INET6)
-    sockunion_sin6_len(sockunion su) ;
+    sockunion_sin6_len(su) ;
 #endif
 
   return 0 ;

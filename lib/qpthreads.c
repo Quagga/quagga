@@ -30,9 +30,9 @@
 #include "memory.h"
 
 /* If this is not set, will get errors later.   */
-#ifndef __USE_UNIX98
-#error "_USE_UNIX98 not defined"
-#endif
+//#ifndef __USE_UNIX98
+//#error "_USE_UNIX98 not defined"
+//#endif
 
 /*==============================================================================
  * Quagga Pthread Interface -- qpt_xxxx
