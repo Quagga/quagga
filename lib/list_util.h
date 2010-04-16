@@ -242,10 +242,11 @@ struct dl_void_base_pair base_pair(void*) ;
        (base) = item ;                                          \
   } while (0)
 
-extern int ssl_del_func(void** p_this, void* obj, size_t link_offset) ;
+extern int ssl_del_func(void* p_this, void* obj, size_t link_offset)
+                                                    __attribute__((noinline)) ;
 
 #define ssl_del(base, item, next)                               \
-  ssl_del_func((void**)&(base), item, _lu_off(item, next))
+  ssl_del_func((void*)(&base), item, _lu_off(item, next))
 
 #define ssl_del_head(base, next)                                \
   do { if ((base) != NULL)                                      \
@@ -265,10 +266,10 @@ extern int ssl_del_func(void** p_this, void* obj, size_t link_offset) ;
  */
 
 #define _sl_p_next(item, off)                                   \
-  ( (void**)( (char*)(item) + (off) ) )
+  ( (char*)(item) + (off) )
 
 #define _sl_next(item, off)                                     \
-  *_sl_p_next(item, off)
+  *(void**)_sl_p_next(item, off)
 
 /*==============================================================================
  * Single Base, Double Link

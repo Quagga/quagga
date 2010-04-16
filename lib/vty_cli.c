@@ -538,6 +538,7 @@ uty_cli_dispatch(vty_io vio)
       switch (cli_do)
       {
         case cli_do_nothing:
+          ret = CMD_SUCCESS ;
           break ;
 
         case cli_do_command:
@@ -572,12 +573,12 @@ uty_cli_dispatch(vty_io vio)
   if (ret == CMD_QUEUED)
     {
       uty_cli_draw(vio) ;       /* draw the prompt              */
-      return 0 ;                /* command not complete         */
+      return false ;            /* command not complete         */
     }
   else
     {
       uty_cli_cmd_complete(vio, ret) ;
-      return 1 ;                /* command complete             */
+      return true ;             /* command complete             */
     } ;
 } ;
 
