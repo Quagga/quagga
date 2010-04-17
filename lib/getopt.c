@@ -137,6 +137,9 @@ int __getopt_initialized = 0;
 
 static char *nextchar;
 
+/* Empty string -- not const !  */
+static char empty_string[1] = { '\0' } ;
+
 /* Callers store zero here to inhibit the error message
    for unrecognized options.  */
 
@@ -191,7 +194,7 @@ static char *posixly_correct;
    On some systems, it contains special magic macros that don't work
    in GCC.  */
 # include <string.h>
-# define my_index       strchr
+# define my_index       (const char*)strchr
 
 #else    /* not __GNU_LIBRARY__ */
 
@@ -218,13 +221,13 @@ extern char *getenv (const char *);
 #  endif /* __cplusplus */
 # endif  /* HAVE_STDLIB_H && HAVE_DECL_GETENV   */
 
-static char *
+static const char *
 my_index (const char *str, int chr)
 {
   while (*str)
     {
       if (*str == chr)
-        return (char *) str;
+        return str;
       str++;
     }
   return 0;
@@ -385,7 +388,7 @@ exchange (char **argv)
 
 static const char *
 _getopt_initialize (int argc,
-                    char *const *argv,
+                    char **argv,
                     const char *optstring)
 {
   /* Start processing options with ARGV-element 1 (since ARGV-element 0
@@ -505,11 +508,21 @@ _getopt_initialize (int argc,
    long-named options.  */
 
 int
-_getopt_internal (int argc, char *const *argv, const char *optstring,
+_getopt_internal (int argc, char *const *argv_nominal, const char *optstring,
                   const struct option *longopts,
                   int *longind, int long_only)
 {
   optarg = NULL;
+  char** argv ;
+
+  union
+  {
+    char *const *nominal ;
+    char       **actual ;
+  } miyagi ;
+
+  miyagi.nominal = argv_nominal ;
+  argv = miyagi.actual ;
 
   if (optind == 0 || !__getopt_initialized)
     {
@@ -548,7 +561,7 @@ _getopt_internal (int argc, char *const *argv, const char *optstring,
              exchange them so that the options come first.  */
 
           if (first_nonopt != last_nonopt && last_nonopt != optind)
-            exchange ((char **) argv);
+            exchange (argv);
           else if (last_nonopt != optind)
             first_nonopt = optind;
 
@@ -570,7 +583,7 @@ _getopt_internal (int argc, char *const *argv, const char *optstring,
           optind++;
 
           if (first_nonopt != last_nonopt && last_nonopt != optind)
-            exchange ((char **) argv);
+            exchange (argv);
           else if (first_nonopt == last_nonopt)
             first_nonopt = optind;
           last_nonopt = argc;
@@ -750,7 +763,7 @@ _getopt_internal (int argc, char *const *argv, const char *optstring,
                 fprintf (stderr, _("%s: unrecognized option `%c%s'\n"),
                          argv[0], argv[optind][0], nextchar);
             }
-          nextchar = (char *) "";
+          nextchar = empty_string ;
           optind++;
           optopt = 0;
           return '?';
@@ -761,7 +774,7 @@ _getopt_internal (int argc, char *const *argv, const char *optstring,
 
   {
     char c = *nextchar++;
-    char *temp = my_index (optstring, c);
+    const char *temp = my_index (optstring, c);
 
     /* Increment `optind' when we start to process its last character.  */
     if (*nextchar == '\0')
@@ -1040,3 +1053,4 @@ main (int argc, char **argv)
 }
 
 #endif /* TEST */
+
