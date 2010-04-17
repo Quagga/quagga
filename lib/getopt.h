@@ -1,5 +1,6 @@
 /* Declarations for getopt.
-   Copyright (C) 1989,90,91,92,93,94,96,97 Free Software Foundation, Inc.
+   Copyright 1989, 1990, 1991, 1992, 1993, 1994, 1996, 1997, 1998, 2000,
+   2002 Free Software Foundation, Inc.
 
    NOTE: The canonical source of this file is maintained with the GNU C Library.
    Bugs can be reported to bug-glibc@gnu.org.
@@ -16,25 +17,13 @@
 
    You should have received a copy of the GNU General Public License
    along with this program; if not, write to the Free Software
-   Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA 02111-1307,
+   Foundation, Inc., 51 Franklin Street - Fifth Floor, Boston, MA 02110-1301,
    USA.  */
 
 #ifndef _GETOPT_H
 #define _GETOPT_H 1
 
-/*
- * The operating system may or may not provide getopt_long(), and if
- * so it may or may not be a version we are willing to use.  Our
- * strategy is to declare getopt here, and then provide code unless
- * the supplied version is adequate.  The difficult case is when a
- * declaration for getopt is provided, as our declaration must match.
- *
- * XXX Arguably this version should be named differently, and the
- * local names defined to refer to the system version when we choose
- * to use the system version.
- */
-
-#ifdef	__cplusplus
+#ifdef  __cplusplus
 extern "C" {
 #endif
 
@@ -75,9 +64,9 @@ extern int optopt;
    zero.
 
    The field `has_arg' is:
-   no_argument		(or 0) if the option does not take an argument,
-   required_argument	(or 1) if the option requires an argument,
-   optional_argument 	(or 2) if the option takes an optional argument.
+   no_argument          (or 0) if the option does not take an argument,
+   required_argument    (or 1) if the option requires an argument,
+   optional_argument    (or 2) if the option takes an optional argument.
 
    If the field `flag' is not NULL, it points to a variable that is set
    to the value given in the field `val' when the option is found, but
@@ -106,53 +95,49 @@ struct option
 
 /* Names for the values of the `has_arg' field of `struct option'.  */
 
-#define	no_argument		0
-#define required_argument	1
-#define optional_argument	2
+#define no_argument             0
+#define required_argument       1
+#define optional_argument       2
 
 #if defined (__STDC__) && __STDC__
-
-#if REALLY_NEED_PLAIN_GETOPT
-
-/*
- * getopt is defined in POSIX.2.  Assume that if the system defines
- * getopt that it complies with POSIX.2.  If not, an autoconf test
- * should be written to define NONPOSIX_GETOPT_DEFINITION.
- */
-#ifndef NONPOSIX_GETOPT_DEFINITION
+/* HAVE_DECL_* is a three-state macro: undefined, 0 or 1.  If it is
+   undefined, we haven't run the autoconf check so provide the
+   declaration without arguments.  If it is 0, we checked and failed
+   to find the declaration so provide a fully prototyped one.  If it
+   is 1, we found it so don't provide any declaration at all.  */
+#if !HAVE_DECL_GETOPT
+#if defined (__GNU_LIBRARY__) || defined (HAVE_DECL_GETOPT)
+/* Many other libraries have conflicting prototypes for getopt, with
+   differences in the consts, in unistd.h.  To avoid compilation
+   errors, only prototype getopt for the GNU C library.  */
 extern int getopt (int argc, char *const *argv, const char *shortopts);
-#else /* NONPOSIX_GETOPT_DEFINITION */
-extern int getopt (void);
-#endif /* NONPOSIX_GETOPT_DEFINITION */
-
+#else
+#ifndef __cplusplus
+extern int getopt ();
+#endif /* __cplusplus */
 #endif
-
+#endif /* !HAVE_DECL_GETOPT */
 
 extern int getopt_long (int argc, char *const *argv, const char *shortopts,
-		        const struct option *longopts, int *longind);
+                        const struct option *longopts, int *longind);
 extern int getopt_long_only (int argc, char *const *argv,
-			     const char *shortopts,
-		             const struct option *longopts, int *longind);
+                             const char *shortopts,
+                             const struct option *longopts, int *longind);
 
 /* Internal only.  Users should not call this directly.  */
 extern int _getopt_internal (int argc, char *const *argv,
-			     const char *shortopts,
-		             const struct option *longopts, int *longind,
-			     int long_only);
+                             const char *shortopts,
+                             const struct option *longopts, int *longind,
+                             int long_only);
 #else /* not __STDC__ */
-
-#ifdef REALLY_NEED_PLAIN_GETOPT
 extern int getopt ();
-#endif /* REALLY_NEED_PLAIN_GETOPT */
-
 extern int getopt_long ();
 extern int getopt_long_only ();
 
 extern int _getopt_internal ();
-
 #endif /* __STDC__ */
 
-#ifdef	__cplusplus
+#ifdef  __cplusplus
 }
 #endif
 
