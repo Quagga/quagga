@@ -1332,7 +1332,7 @@ ripng_read (struct thread *thread)
   int sock;
   struct sockaddr_in6 from;
   struct ripng_packet *packet;
-  unsigned int ifindex;
+  unsigned int ifindex = 0 ;    /* avoid warning (gcc 4.2.1 !)  */
   struct interface *ifp;
   int hoplimit = -1;
 
