@@ -20,7 +20,10 @@
  * 02111-1307, USA.  
  */
 
+/* This is compiled and linked if found to be required at "configure" time.   */
+
 #include <zebra.h>
+#include "if_method.h"
 
 #include "if.h"
 #include "sockunion.h"

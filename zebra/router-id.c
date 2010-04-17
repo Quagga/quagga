@@ -136,7 +136,7 @@ router_id_add_address (struct connected *ifc)
     l = &rid_all_sorted_list;
   
   if (!router_id_find_node (l, ifc))
-    listnode_add (l, ifc);
+    listnode_add_sort (l, ifc);
 
   router_id_get (&after);
 

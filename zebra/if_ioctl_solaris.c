@@ -20,7 +20,10 @@
  * 02111-1307, USA.  
  */
 
+/* This is compiled and linked if found to be required at "configure" time.   */
+
 #include <zebra.h>
+#include "if_method.h"
 
 #include "if.h"
 #include "sockunion.h"
@@ -30,8 +33,6 @@
 #include "memory.h"
 #include "log.h"
 #include "privs.h"
-
-#include "zebra/interface.h"
 
 void lifreq_set_name (struct lifreq *, const char *);
 int if_get_flags_direct (const char *, uint64_t *, unsigned int af);

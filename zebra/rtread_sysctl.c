@@ -25,7 +25,7 @@
 #include "memory.h"
 #include "log.h"
 
-#include "zebra/zserv.h"
+#include "zebra/rtread.h"
 #include "zebra/rt.h"
 #include "zebra/kernel_socket.h"
 

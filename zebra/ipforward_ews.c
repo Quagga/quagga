@@ -21,6 +21,7 @@
  */
 
 #include <zebra.h>
+#include "zebra/ipforward.h"
 
 int
 ipforward ()

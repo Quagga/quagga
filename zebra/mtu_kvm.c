@@ -24,8 +24,15 @@
 #include <kvm.h>
 #include <limits.h>
 #include <fcntl.h>
+#include "zebra/interface.h"    /* declares if_kvm_get_mtu()    */
 
 #include "if.h"
+
+/* This is compiled and linked for BSDI if found to be required at "configure"
+ * time.
+ *
+ * See: OTHER_METHOD
+ */
 
 /* get interface MTU to use kvm_read */
 void

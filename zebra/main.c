@@ -39,6 +39,8 @@
 #include "zebra/router-id.h"
 #include "zebra/irdp.h"
 #include "zebra/rtadv.h"
+#include "zebra/if_method.h"
+#include "zebra/rtread.h"
 
 /* Zebra instance */
 struct zebra_t zebrad =

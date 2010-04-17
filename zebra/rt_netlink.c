@@ -1037,7 +1037,7 @@ netlink_information_fetch (struct sockaddr_nl *snl, struct nlmsghdr *h)
 }
 
 /* Interface lookup by netlink socket. */
-extern int interface_lookup_netlink (void) ;
+extern int interface_lookup_netlink (void) ;    /* see: if_netlink.c    */
 
 extern int
 interface_lookup_netlink (void)
@@ -1075,7 +1075,7 @@ interface_lookup_netlink (void)
 
 /* Routing table read function using netlink interface.  Only called
    bootstrap time. */
-extern int netlink_route_read (void) ;
+extern int netlink_route_read (void) ;  /* see: rtread_netlink.c        */
 
 extern int
 netlink_route_read (void)

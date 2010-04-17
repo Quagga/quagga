@@ -23,6 +23,15 @@
 #ifndef _ZEBRA_RT_H
 #define _ZEBRA_RT_H
 
+/* There are (as at 17-Apr-2010) the following rt methods:
+ *
+ *   rt_ioctl.c
+ *   rt_netlink.c
+ *   rt_socket.c
+ *
+ * one of which is selected at "configure" time, see: RT_METHOD
+ */
+
 #include "prefix.h"
 #include "if.h"
 #include "zebra/rib.h"

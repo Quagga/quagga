@@ -23,6 +23,14 @@
 #ifndef _ZEBRA_IOCTL_H
 #define _ZEBRA_IOCTL_H
 
+/* There are (as at 17-Apr-2010) the following ioctl methods:
+ *
+ *    * ioctl.c
+ *    * ioctl_solaris.c
+ *
+ * one of which is selected at "configure" time, see: IOCTL_METHOD
+ */
+
 /* Prototypes. */
 extern void ifreq_set_name (struct ifreq *, struct interface *);
 extern int if_ioctl (u_long, caddr_t);
@@ -40,7 +48,6 @@ extern void if_get_mtu (struct interface *);
 #ifdef HAVE_IPV6
 extern int if_prefix_add_ipv6 (struct interface *, struct connected *);
 extern int if_prefix_delete_ipv6 (struct interface *, struct connected *);
-extern int if_ioctl_ipv6(u_long, caddr_t);
 #endif /* HAVE_IPV6 */
 
 #ifdef SOLARIS_IPV6

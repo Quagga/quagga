@@ -32,6 +32,7 @@
 
 #include "zebra/rib.h"
 #include "zebra/zserv.h"
+#include "zebra/rtread.h"
 #include "zebra/debug.h"
 #include "zebra/router-id.h"
 #include "zebra/interface.h"

@@ -1,6 +1,5 @@
-/*
- * Interface looking up by netlink.
- * Copyright (C) 1998 Kunihiro Ishiguro
+/* if_method header.
+ * Copyright (C) 1999 Kunihiro Ishiguro
  *
  * This file is part of GNU Zebra.
  *
@@ -20,14 +19,21 @@
  * 02111-1307, USA.
  */
 
-#include <zebra.h>
-#include "if_method.h"
+#ifndef _ZEBRA_IF_METHOD_H
+#define _ZEBRA_IF_METHOD_H
 
-extern int interface_lookup_netlink (void);
+/* There are (as at 17-Apr-2010) the following if methods:
+ *
+ *   if_ioctl_solaris.c
+ *   if_ioctl.c
+ *   if_netlink.c
+ *   if_sysctl.c
+ *
+ * one of which is selected at "configure" time, see: IF_METHOD
+ *
+ * Note that if_proc.c is NOT a member of this family !
+ */
 
-/* Interface information read by netlink. */
-void
-interface_list (void)
-{
-  interface_lookup_netlink ();
-}
+extern void interface_list (void) ;
+
+#endif /* _ZEBRA_IF_METHOD_H */

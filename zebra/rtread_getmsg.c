@@ -27,7 +27,7 @@
 #include "if.h"
 
 #include "zebra/rib.h"
-#include "zebra/zserv.h"
+#include "zebra/rtread.h"
 
 #include <sys/stream.h>
 #include <sys/tihdr.h>

@@ -19,6 +19,16 @@
  * 02111-1307, USA.  
  */
 
+/* This is compiled and linked if found to be required at "configure" time.
+ *
+ *   HAVE_PROC_NET_DEV      =>  /proc/net/dev       exists
+ *   HAVE_PROC_NET_IF_INET6 =>  /proc/net/if_inet6  exists
+ *
+ * One or both of this will be the case if this is being compiled.
+ *
+ * Appears NOT to be used if netlink is available.
+ */
+
 #include <zebra.h>
 
 #include "if.h"
@@ -28,6 +38,16 @@
 #include "zebra/ioctl.h"
 #include "zebra/connected.h"
 #include "zebra/interface.h"
+
+/* zebra/interface.h declares the extern functions for if_proc.c
+ *
+ * The following are not declared if HAVE_PROC_NET_DEV is not defined.
+ * So declare them here if required, in order to suppress warnings.
+ */
+#ifndef HAVE_PROC_NET_DEV
+extern void ifstat_update_proc (void);
+extern int interface_list_proc (void);
+#endif
 
 /* Proc filesystem one line buffer. */
 #define PROCBUFSIZ                  1024
@@ -123,8 +143,8 @@ ifstat_dev_fields (int version, char *buf, struct interface *ifp)
 }
 
 /* Update interface's statistics. */
-void
-ifstat_update_proc (void)
+extern void
+ifstat_update_proc (void)       /* declared in interface.h      */
 {
   FILE *fp;
   char buf[PROCBUFSIZ];
@@ -166,8 +186,8 @@ ifstat_update_proc (void)
 }
 
 /* Interface structure allocation by proc filesystem. */
-int
-interface_list_proc ()
+extern int
+interface_list_proc ()          /* declared in interface.h      */
 {
   FILE *fp;
   char buf[PROCBUFSIZ];
@@ -205,8 +225,8 @@ interface_list_proc ()
 #define _PATH_PROC_NET_IF_INET6          "/proc/net/if_inet6"
 #endif /* _PATH_PROC_NET_IF_INET6 */
 
-int
-ifaddr_proc_ipv6 ()
+extern int
+ifaddr_proc_ipv6 ()             /* declared in interface.h      */
 {
   FILE *fp;
   char buf[PROCBUFSIZ];

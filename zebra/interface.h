@@ -225,21 +225,20 @@ extern int if_subnet_add (struct interface *, struct connected *);
 extern int if_subnet_delete (struct interface *, struct connected *);
 
 #ifdef HAVE_PROC_NET_DEV
-extern void ifstat_update_proc (void);
+extern void ifstat_update_proc (void);  /* see if_proc.c        */
+extern int interface_list_proc (void);  /* see if_proc.c        */
 #endif /* HAVE_PROC_NET_DEV */
-#ifdef HAVE_NET_RT_IFLIST
-extern void ifstat_update_sysctl (void);
 
-#endif /* HAVE_NET_RT_IFLIST */
-#ifdef HAVE_PROC_NET_DEV
-extern int interface_list_proc (void);
-#endif /* HAVE_PROC_NET_DEV */
-#ifdef HAVE_PROC_NET_IF_INET6
-extern int ifaddr_proc_ipv6 (void);
+#if defined(HAVE_IPV6) && defined(HAVE_PROC_NET_IF_INET6)
+extern int ifaddr_proc_ipv6 (void);     /* see if_proc.c        */
 #endif /* HAVE_PROC_NET_IF_INET6 */
 
+#ifdef HAVE_NET_RT_IFLIST
+extern void ifstat_update_sysctl (void);
+#endif /* HAVE_NET_RT_IFLIST */
+
 #ifdef BSDI
-extern int if_kvm_get_mtu (struct interface *);
+extern int if_kvm_get_mtu (struct interface *); /* see mtu_kvm.c        */
 #endif /* BSDI */
 
 #endif /* _ZEBRA_INTERFACE_H */

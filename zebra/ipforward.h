@@ -22,6 +22,17 @@
 #ifndef _ZEBRA_IPFORWARD_H
 #define _ZEBRA_IPFORWARD_H
 
+/* There are (as at 17-Apr-2010) the following ipforward methods:
+ *
+ *    * ipforward_proc.c
+ *    * ipforward_solaris.c
+ *    * ipforward_sysctl.c
+ *    * ipforward_aix.c    -- appears to be vestigial
+ *    * ipforward_ews.c    -- appears to be vestigial
+ *
+ * one of which is selected at "configure" time, see: IPFORWARD
+ */
+
 extern int ipforward (void);
 extern int ipforward_on (void);
 extern int ipforward_off (void);

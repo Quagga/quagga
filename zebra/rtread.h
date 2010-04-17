@@ -1,5 +1,5 @@
 /*
- * Interface looking up by netlink.
+ * kernel routing table reading prototype.
  * Copyright (C) 1998 Kunihiro Ishiguro
  *
  * This file is part of GNU Zebra.
@@ -17,17 +17,22 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.
+ * 02111-1307, USA.  
  */
 
-#include <zebra.h>
-#include "if_method.h"
+#ifndef _ZEBRA_RTREAD_H
+#define _ZEBRA_RTREAD_H
 
-extern int interface_lookup_netlink (void);
+/* There are (as at 17-Apr-2010) the following rtread methods:
+ *
+ *   rtread_getmsg.c
+ *   rtread_netlink.c
+ *   rtread_proc.c
+ *   rtread_sysctl.c
+ *
+ * one of which is selected at "configure" time, see: RTREAD_METHOD
+ */
 
-/* Interface information read by netlink. */
-void
-interface_list (void)
-{
-  interface_lookup_netlink ();
-}
+extern void route_read (void) ;
+
+#endif /* _ZEBRA_RTREAD_H */

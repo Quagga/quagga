@@ -37,7 +37,8 @@ testzebra_SOURCES = test_main.c zebra_rib.c interface.c connected.c debug.c \
 
 noinst_HEADERS = \
 	connected.h ioctl.h rib.h rt.h zserv.h redistribute.h debug.h rtadv.h \
-	interface.h ipforward.h irdp.h router-id.h kernel_socket.h
+	interface.h ipforward.h irdp.h router-id.h kernel_socket.h \
+	if_method.h rtread.h
 
 zebra_LDADD = $(otherobj) $(LIBCAP) $(LIB_IPV6) ../lib/libzebra.la
 
