@@ -5,8 +5,7 @@
 #include "zebra/irdp.h"
 #include "zebra/interface.h"
 
-extern void ifstat_update_proc (void) ;
-extern void ifstat_update_proc (void) { return; } ;
+void ifstat_update_proc (void) { return; } ;
 
 #pragma weak rtadv_config_write   = ifstat_update_proc
 #pragma weak irdp_config_write    = ifstat_update_proc

@@ -34,15 +34,7 @@
 # include <config.h>
 #endif
 
-#if !defined __STDC__ || !__STDC__
-/* This is a separate conditional since some stdc systems
-   reject `defined (const)'.  */
-# ifndef const
-#  define const
-# endif
-#endif
-
-#include "ansidecl.h"
+#include "zebra.h"
 #include <stdio.h>
 
 /* Comment out all this code if we are using the GNU C Library, and are not
@@ -200,7 +192,8 @@ static char *posixly_correct;
    in GCC.  */
 # include <string.h>
 # define my_index       strchr
-#else
+
+#else    /* not __GNU_LIBRARY__ */
 
 # if HAVE_STRING_H
 #  include <string.h>
@@ -213,9 +206,9 @@ static char *posixly_correct;
 /* Avoid depending on library functions or files
    whose names are inconsistent.  */
 
-#if HAVE_STDLIB_H && HAVE_DECL_GETENV
+# if HAVE_STDLIB_H && HAVE_DECL_GETENV
 #  include <stdlib.h>
-#elif !defined(getenv)
+# elif !defined(getenv)
 #  ifdef __cplusplus
 extern "C" {
 #  endif /* __cplusplus */
@@ -223,7 +216,7 @@ extern char *getenv (const char *);
 #  ifdef __cplusplus
 }
 #  endif /* __cplusplus */
-#endif
+# endif  /* HAVE_STDLIB_H && HAVE_DECL_GETENV   */
 
 static char *
 my_index (const char *str, int chr)
@@ -239,17 +232,17 @@ my_index (const char *str, int chr)
 
 /* If using GCC, we can safely declare strlen this way.
    If not using GCC, it is ok not to declare it.  */
-#ifdef __GNUC__
+# ifdef __GNUC__
 /* Note that Motorola Delta 68k R3V7 comes with GCC but not stddef.h.
    That was relevant to code that was here before.  */
-# if (!defined __STDC__ || !__STDC__) && !defined strlen
+#  if (!defined __STDC__ || !__STDC__) && !defined strlen
 /* gcc with -traditional declares the built-in strlen to return int,
    and has done so at least since version 2.4.5. -- rms.  */
 extern int strlen (const char *);
-# endif /* not __STDC__ */
-#endif /* __GNUC__ */
+#  endif /* not __STDC__ */
+# endif  /* __GNUC__ */
 
-#endif /* not __GNU_LIBRARY__ */
+#endif  /* not __GNU_LIBRARY__ */
 
 /* Handle permutation of arguments.  */
 
@@ -308,10 +301,6 @@ text_set_element (__libc_subinit, store_args_and_env);
 
    `first_nonopt' and `last_nonopt' are relocated so that they describe
    the new indices of the non-options in ARGV after they are moved.  */
-
-#if defined __STDC__ && __STDC__
-static void exchange (char **);
-#endif
 
 static void
 exchange (char **argv)
@@ -394,12 +383,9 @@ exchange (char **argv)
 
 /* Initialize the internal data when the first call is made.  */
 
-#if defined __STDC__ && __STDC__
-static const char *_getopt_initialize (int, char *const *, const char *);
-#endif
 static const char *
-_getopt_initialize (int argc ATTRIBUTE_UNUSED,
-                    char *const *argv ATTRIBUTE_UNUSED,
+_getopt_initialize (int argc,
+                    char *const *argv,
                     const char *optstring)
 {
   /* Start processing options with ARGV-element 1 (since ARGV-element 0
@@ -970,6 +956,8 @@ _getopt_internal (int argc, char *const *argv, const char *optstring,
   }
 }
 
+#ifdef REALLY_NEED_PLAIN_GETOPT
+
 int
 getopt (int argc, char *const *argv, const char *optstring)
 {
@@ -978,6 +966,8 @@ getopt (int argc, char *const *argv, const char *optstring)
                            (int *) 0,
                            0);
 }
+
+#endif /* REALLY_NEED_PLAIN_GETOPT */
 
 #endif  /* Not ELIDE_CODE.  */
 
