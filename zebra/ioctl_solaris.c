@@ -79,11 +79,11 @@ if_ioctl (u_long request, caddr_t buffer)
   return 0;
 }
 
+#ifdef HAVE_IPV6
 
 int
 if_ioctl_ipv6 (u_long request, caddr_t buffer)
 {
-#ifdef HAVE_IPV6
   int sock;
   int ret;
   int err;
@@ -115,10 +115,11 @@ if_ioctl_ipv6 (u_long request, caddr_t buffer)
       errno = err;
       return ret;
     }
-#endif /* HAVE_IPV6 */
 
   return 0;
 }
+
+#endif /* HAVE_IPV6 */
 
 /*
  * get interface metric

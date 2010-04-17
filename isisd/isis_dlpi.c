@@ -26,10 +26,10 @@
 #include <sys/types.h>
 #include <unistd.h>
 #include <fcntl.h>
-#include <stropts.h>
+//#include <stropts.h>
 #include <poll.h>
-#include <sys/dlpi.h>
-#include <sys/pfmod.h>
+//#include <sys/dlpi.h>
+//#include <sys/pfmod.h>
 
 #include "log.h"
 #include "stream.h"

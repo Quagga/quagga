@@ -225,16 +225,16 @@ extern int if_subnet_add (struct interface *, struct connected *);
 extern int if_subnet_delete (struct interface *, struct connected *);
 
 #ifdef HAVE_PROC_NET_DEV
-extern void ifstat_update_proc (void);  /* see if_proc.c        */
-extern int interface_list_proc (void);  /* see if_proc.c        */
+extern void ifstat_update_proc (void);          /* see if_proc.c        */
+extern int interface_list_proc (void);          /* see if_proc.c        */
 #endif /* HAVE_PROC_NET_DEV */
 
 #if defined(HAVE_IPV6) && defined(HAVE_PROC_NET_IF_INET6)
-extern int ifaddr_proc_ipv6 (void);     /* see if_proc.c        */
+extern int ifaddr_proc_ipv6 (void);             /* see if_proc.c        */
 #endif /* HAVE_PROC_NET_IF_INET6 */
 
 #ifdef HAVE_NET_RT_IFLIST
-extern void ifstat_update_sysctl (void);
+extern void ifstat_update_sysctl (void);        /* see if_sysctl.c      */
 #endif /* HAVE_NET_RT_IFLIST */
 
 #ifdef BSDI

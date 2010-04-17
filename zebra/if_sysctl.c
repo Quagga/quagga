@@ -35,6 +35,16 @@
 
 #include "zebra/rt.h"
 #include "zebra/kernel_socket.h"
+#include "zebra/interface.h"
+
+/* zebra/interface.h declares some extern functions for if_sysctl.c
+ *
+ * The following are not declared if HAVE_NET_RT_IFLIST is not defined.
+ * So declare them here if required, in order to suppress warnings.
+ */
+#ifndef HAVE_NET_RT_IFLIST
+extern void ifstat_update_sysctl (void);
+#endif
 
 void
 ifstat_update_sysctl (void)
