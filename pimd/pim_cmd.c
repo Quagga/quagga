@@ -2159,12 +2159,12 @@ DEFUN (show_ip_mroute_count,
   return CMD_SUCCESS;
 }
 
-DEFUN (show_ip_route,
-       show_ip_route_cmd,
-       "show ip route A.B.C.D",
+DEFUN (show_ip_rib,
+       show_ip_rib_cmd,
+       "show ip rib A.B.C.D",
        SHOW_STR
        IP_STR
-       ROUTE_STR
+       RIB_STR
        "Unicast address\n")
 {
   struct in_addr addr;
@@ -4261,7 +4261,7 @@ void pim_cmd_init()
   install_element (VIEW_NODE, &show_ip_multicast_cmd);
   install_element (VIEW_NODE, &show_ip_mroute_cmd);
   install_element (VIEW_NODE, &show_ip_mroute_count_cmd);
-  install_element (VIEW_NODE, &show_ip_route_cmd);
+  install_element (VIEW_NODE, &show_ip_rib_cmd);
   install_element (VIEW_NODE, &show_ip_ssmpingd_cmd);
   install_element (VIEW_NODE, &show_debugging_cmd);
 
@@ -4298,7 +4298,7 @@ void pim_cmd_init()
   install_element (ENABLE_NODE, &show_ip_multicast_cmd);
   install_element (ENABLE_NODE, &show_ip_mroute_cmd);
   install_element (ENABLE_NODE, &show_ip_mroute_count_cmd);
-  install_element (ENABLE_NODE, &show_ip_route_cmd);
+  install_element (ENABLE_NODE, &show_ip_rib_cmd);
   install_element (ENABLE_NODE, &show_ip_ssmpingd_cmd);
   install_element (ENABLE_NODE, &show_debugging_cmd);
 
