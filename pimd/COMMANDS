@@ -41,7 +41,7 @@ verification commands:
        show ip multicast			Multicast global information
        show ip mroute				IP multicast routing table
        show ip mroute count			Route and packet count data
-       show ip route				IP routing table
+       show ip rib				IP unicast routing table
        show ip ssmpingd				ssmpingd operation
 
 debug commands:

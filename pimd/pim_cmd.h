@@ -51,6 +51,7 @@
 #define CLEAR_IP_IGMP_STR                           "IGMP clear commands\n"
 #define CLEAR_IP_PIM_STR                            "PIM clear commands\n"
 #define MROUTE_STR                                  "IP multicast routing table\n"
+#define RIB_STR                                     "IP unicast routing table\n"
 
 #define PIM_CMD_NO                                   "no"
 #define PIM_CMD_IP_MULTICAST_ROUTING                 "ip multicast-routing"
