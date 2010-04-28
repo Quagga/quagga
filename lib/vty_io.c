@@ -716,10 +716,12 @@ uty_half_close (vty_io vio, const char* reason)
 
   /* Turn off "--more--" so that all output clears without interruption.
    *
-   * Note that if is waiting for "--more--", then shutting the read side
-   * causes it to be readable, but EOF -- so that will flush through.
+   * If is sitting on a "--more--" prompt, then exit the wait_more CLI.
    */
   vio->cli_more_enabled = 0 ;
+
+  if (vio->cli_more_wait)
+    uty_cli_exit_more_wait(vio) ;
 
   /* If a command is not in progress, enable output, which will clear
    * the output buffer if there is anything there, plus any close reason,
@@ -1696,7 +1698,7 @@ uty_write_fifo_lc(vty_io vio, vio_fifo vf, vio_line_control lc)
    * cleared.
    */
   if (lc->paused && vio->cli_more_enabled)
-    uty_cli_go_more_wait(vio) ;
+    uty_cli_enter_more_wait(vio) ;
 
   return 1 ;                    /* FIFO or line control, not empty      */
 } ;

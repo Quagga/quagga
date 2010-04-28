@@ -23,7 +23,7 @@
 
 #include "zebra.h"
 #include <stdbool.h>
-#include "version.h"
+#include "lib/version.h"
 
 #include "vty_io.h"
 #include "vty.h"

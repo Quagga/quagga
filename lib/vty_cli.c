@@ -689,7 +689,7 @@ uty_cli_cmd_complete(vty_io vio, enum cmd_return_code ret)
  * Outputs the new prompt line.
  */
 extern void
-uty_cli_go_more_wait(vty_io vio)
+uty_cli_enter_more_wait(vty_io vio)
 {
   VTY_ASSERT_LOCKED() ;
 
@@ -702,6 +702,40 @@ uty_cli_go_more_wait(vty_io vio)
   vio->cli_more_wait    = 1 ;   /* new state                            */
 
   uty_cli_draw(vio) ;           /* draw the "--more--"                  */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Exit the "--more--" CLI.
+ *
+ * Wipes the "--more--" prompt.
+ *
+ * This is used when the user responds to the prompt.
+ *
+ * It is also used when the vty is "half-closed".  In this case, it is (just)
+ * possible that the '--more--' prompt is yet to be completely written away,
+ * so:
+ *
+ *   * assert that is either: !vio->cli_blocked (most of the time it will)
+ *                        or: !vio_fifo_empty(&vio->cli_obuf)
+ *
+ *   * note that can wipe the prompt even though it hasn't been fully
+ *     written away yet.  (The effect is to append the wipe action to the
+ *     cli_obuf !)
+ */
+extern void
+uty_cli_exit_more_wait(vty_io vio)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  assert( (!vio->cli_blocked || !vio_fifo_empty(&vio->cli_obuf))
+         && !vio->cmd_out_enabled && vio->cli_more_wait) ;
+
+  uty_cli_wipe(vio, 0) ;        /* wipe the prompt ('--more--')
+                                   before changing the CLI state        */
+
+  vio->cli_blocked      = 1 ;   /* back to blocked waiting for output   */
+  vio->cli_more_wait    = 0 ;   /* exit more_wait                       */
+  vio->cmd_out_enabled  = 1 ;   /* re-enable output                     */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -792,11 +826,7 @@ uty_cli_more_wait(vty_io vio)
    * Return write_ready to tidy up the screen and, unless cleared, write
    * some more.
    */
-  uty_cli_wipe(vio, 0) ;
-
-  vio->cli_blocked      = 1 ;   /* back to blocked waiting for output   */
-  vio->cli_more_wait    = 0 ;   /* exit more_wait                       */
-  vio->cmd_out_enabled  = 1 ;   /* re-enable output                     */
+  uty_cli_exit_more_wait(vio) ;
 
   return now_ready ;
 } ;
@@ -1082,11 +1112,11 @@ uty_cli_wipe(vty_io vio, int len)
       b += vio->cl.cp ;
     } ;
 
-  /* Stuff ahead of the current position if any ahead of new len        */
+  /* Wipe anything ahead of the current position and ahead of new len   */
   if ((a + b) > len)
     uty_cli_out_wipe_n(vio, +a) ;
 
-  /* Stuff behind current position, but ahead of new len                */
+  /* Wipe anything behind current position, but ahead of new len        */
   if (b > len)
     {
       uty_cli_out_wipe_n(vio, -(b - len)) ;

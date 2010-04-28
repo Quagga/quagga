@@ -393,4 +393,8 @@ extern char *argv_concat (const char* const* argv, int argc, int shift);
 /* struct host global, ick */
 extern struct host host;
 
+#ifdef QDEBUG
+extern const char *debug_banner ;
+#endif
+
 #endif /* _ZEBRA_COMMAND_H */

@@ -35,7 +35,9 @@ extern enum vty_readiness uty_cli(vty_io vio) ;
 extern keystroke_callback uty_cli_iac_callback ;
 
 extern void uty_cli_hist_add (vty_io vio, const char* cmd_line) ;
-extern void uty_cli_go_more_wait(vty_io vio) ;
+extern void uty_cli_enter_more_wait(vty_io vio) ;
+extern void uty_cli_exit_more_wait(vty_io vio) ;
+
 extern void uty_free_host_name(void) ;
 extern void uty_check_host_name(void) ;
 
