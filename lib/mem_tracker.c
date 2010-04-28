@@ -162,6 +162,8 @@ mem_md_make_bases(void)
   mem_base_count |= 1 ;
   mem_bases       = calloc(mem_base_count, sizeof(md_index)) ;
 
+  passert(mem_bases != NULL) ;
+
   if (bases_was == NULL)
     passert(count_was == 0) ;
   else
@@ -204,6 +206,8 @@ mem_md_make_descriptors(void)
   mem_free_descriptors
                = mem_page_table[(mdi >> md_i_index_bits) & md_page_mask]
                  = calloc(md_i_index_count, sizeof(struct mem_descriptor)) ;
+
+  passert(mem_free_descriptors != NULL) ;
 
   mem_next_index += md_i_index_count ;
 
