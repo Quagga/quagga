@@ -674,9 +674,14 @@ sockopt_tcp_signature (int sock_fd, union sockunion *su, const char *password)
 
   return (err == 0) ? 0 : -1 ;
 
-#else /* HAVE_TCP_MD5SIG */
+#else
 
-  errno = ENOSYS ;              /* TCP MD5 is not supported     */
+  /* TCP MD5 is not supported                                           */
+
+  if ((password == NULL) || (*password == '\0'))
+    return 0 ;                  /* OK if not required !         */
+
+  errno = ENOSYS ;              /* manufactured error           */
   return -1 ;
 
 #endif /* !HAVE_TCP_MD5SIG */
