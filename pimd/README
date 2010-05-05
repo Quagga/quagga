@@ -131,9 +131,16 @@ RELATED WORK
 	igmprt:	An IGMPv3-router implementation
 	- http://www.loria.fr/~lahmadi/igmpv3-router.html
 
-	pimd: PIMv2-SM daemon
+	USC pimd: PIMv2-SM daemon
 	- http://netweb.usc.edu/pim/pimd (URL broken in 2008-12-23)
 	- http://packages.debian.org/source/sid/pimd (from Debian)
+
+	troglobit pimd: This is the original USC pimd from
+	http://netweb.usc.edu/pim/. In January 16, 2010 it was revived
+	with the intention to collect patches floating around in
+	Debian, Gentoo, Lintrack and other distribution repositories
+	and to provide a central point of collaboration.
+	- http://github.com/troglobit/pimd
 
 	zpimd: zpimd is not dependent of zebra or any other routing daemon
 	- ftp://robur.slu.se/pub/Routing/Zebra
