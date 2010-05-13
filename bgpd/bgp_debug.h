@@ -22,6 +22,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define _QUAGGA_BGP_DEBUG_H
 
 #include "bgp_attr.h"
+#include "stdbool.h"
 
 /* sort of packet direction */
 #define DUMP_ON        1
@@ -120,7 +121,8 @@ extern unsigned long term_bgp_debug_zebra;
 extern const char *bgp_type_str[];
 
 extern int bgp_dump_attr (struct peer *, struct attr *, char *, size_t);
-extern void bgp_notify_print (struct peer *, struct bgp_notify *, const char *);
+extern void bgp_notify_print (struct peer* peer, bgp_notify notification,
+                                                                  bool sending);
 
 extern const struct message bgp_status_msg[];
 extern const int bgp_status_msg_max;

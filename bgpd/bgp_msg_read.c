@@ -1411,14 +1411,19 @@ bgp_msg_keepalive_receive (bgp_connection connection, bgp_size_t body_size)
 static void
 bgp_msg_notify_receive (bgp_connection connection, bgp_size_t body_size)
 {
+  bgp_notify        notification ;
+
   bgp_nom_code_t    code    = stream_getc (connection->ibuf);
   bgp_nom_subcode_t subcode = stream_getc (connection->ibuf);
 
   ++connection->session->stats.notify_in ;
 
-  bgp_fsm_notification_exception(connection,
-                         bgp_notify_new_with_data(code, subcode,
-                                 stream_pnt(connection->ibuf), body_size - 2)) ;
+  notification = bgp_notify_new_with_data(code, subcode,
+                                  stream_pnt(connection->ibuf), body_size - 2) ;
+
+  bgp_notify_print(connection->session->peer, notification, 0) ;  /* Logging */
+
+  bgp_fsm_notification_exception(connection, notification) ;
 } ;
 
 /*==============================================================================

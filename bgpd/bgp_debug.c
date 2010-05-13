@@ -19,6 +19,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 02111-1307, USA.  */
 
 #include <zebra.h>
+#include <stdbool.h>
 
 #include <lib/version.h>
 #include "prefix.h"
@@ -28,6 +29,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "str.h"
 #include "log.h"
 #include "sockunion.h"
+#include "memory.h"
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_engine.h"
@@ -101,70 +103,71 @@ const char *bgp_type_str[] =
 /* message for BGP-4 Notify */
 static const struct message bgp_notify_msg[] =
 {
-  { BGP_NOTIFY_HEADER_ERR, "Message Header Error"},
-  { BGP_NOTIFY_OPEN_ERR, "OPEN Message Error"},
-  { BGP_NOTIFY_UPDATE_ERR, "UPDATE Message Error"},
-  { BGP_NOTIFY_HOLD_ERR, "Hold Timer Expired"},
-  { BGP_NOTIFY_FSM_ERR, "Finite State Machine Error"},
-  { BGP_NOTIFY_CEASE, "Cease"},
-  { BGP_NOTIFY_CAPABILITY_ERR, "CAPABILITY Message Error"},
+  { BGP_NOTIFY_HEADER_ERR,     "Message Header Error"       },
+  { BGP_NOTIFY_OPEN_ERR,       "OPEN Message Error"         },
+  { BGP_NOTIFY_UPDATE_ERR,     "UPDATE Message Error"       },
+  { BGP_NOTIFY_HOLD_ERR,       "Hold Timer Expired"         },
+  { BGP_NOTIFY_FSM_ERR,        "Finite State Machine Error" },
+  { BGP_NOTIFY_CEASE,          "Cease"                      },
+  { BGP_NOTIFY_CAPABILITY_ERR, "CAPABILITY Message Error"   },
 };
 static const int bgp_notify_msg_max = BGP_NOTIFY_MAX;
 
 static const struct message bgp_notify_head_msg[] =
 {
-  { BGP_NOTIFY_HEADER_NOT_SYNC, "/Connection Not Synchronized"},
-  { BGP_NOTIFY_HEADER_BAD_MESLEN, "/Bad Message Length"},
-  { BGP_NOTIFY_HEADER_BAD_MESTYPE, "/Bad Message Type"}
+  { BGP_NOTIFY_HEADER_NOT_SYNC,    "/Connection Not Synchronized" },
+  { BGP_NOTIFY_HEADER_BAD_MESLEN,  "/Bad Message Length"          },
+  { BGP_NOTIFY_HEADER_BAD_MESTYPE, "/Bad Message Type"            }
 };
 static const int bgp_notify_head_msg_max = BGP_NOTIFY_HEADER_MAX;
 
 static const struct message bgp_notify_open_msg[] =
 {
-  { BGP_NOTIFY_OPEN_UNSUP_VERSION, "/Unsupported Version Number" },
-  { BGP_NOTIFY_OPEN_BAD_PEER_AS, "/Bad Peer AS"},
-  { BGP_NOTIFY_OPEN_BAD_BGP_IDENT, "/Bad BGP Identifier"},
-  { BGP_NOTIFY_OPEN_UNSUP_PARAM, "/Unsupported Optional Parameter"},
-  { BGP_NOTIFY_OPEN_AUTH_FAILURE, "/Authentication Failure"},
-  { BGP_NOTIFY_OPEN_UNACEP_HOLDTIME, "/Unacceptable Hold Time"},
-  { BGP_NOTIFY_OPEN_UNSUP_CAPBL, "/Unsupported Capability"},
+  { BGP_NOTIFY_OPEN_UNSUP_VERSION,   "/Unsupported Version Number"     },
+  { BGP_NOTIFY_OPEN_BAD_PEER_AS,     "/Bad Peer AS"                    },
+  { BGP_NOTIFY_OPEN_BAD_BGP_IDENT,   "/Bad BGP Identifier"             },
+  { BGP_NOTIFY_OPEN_UNSUP_PARAM,     "/Unsupported Optional Parameter" },
+  { BGP_NOTIFY_OPEN_AUTH_FAILURE,    "/Authentication Failure"         },
+  { BGP_NOTIFY_OPEN_UNACEP_HOLDTIME, "/Unacceptable Hold Time"         },
+  { BGP_NOTIFY_OPEN_UNSUP_CAPBL,     "/Unsupported Capability"         },
 };
 static const int bgp_notify_open_msg_max = BGP_NOTIFY_OPEN_MAX;
 
 static const struct message bgp_notify_update_msg[] =
 {
-  { BGP_NOTIFY_UPDATE_MAL_ATTR, "/Malformed Attribute List"},
-  { BGP_NOTIFY_UPDATE_UNREC_ATTR, "/Unrecognized Well-known Attribute"},
-  { BGP_NOTIFY_UPDATE_MISS_ATTR, "/Missing Well-known Attribute"},
-  { BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR, "/Attribute Flags Error"},
-  { BGP_NOTIFY_UPDATE_ATTR_LENG_ERR, "/Attribute Length Error"},
-  { BGP_NOTIFY_UPDATE_INVAL_ORIGIN, "/Invalid ORIGIN Attribute"},
-  { BGP_NOTIFY_UPDATE_AS_ROUTE_LOOP, "/AS Routing Loop"},
-  { BGP_NOTIFY_UPDATE_INVAL_NEXT_HOP, "/Invalid NEXT_HOP Attribute"},
-  { BGP_NOTIFY_UPDATE_OPT_ATTR_ERR, "/Optional Attribute Error"},
-  { BGP_NOTIFY_UPDATE_INVAL_NETWORK, "/Invalid Network Field"},
-  { BGP_NOTIFY_UPDATE_MAL_AS_PATH, "/Malformed AS_PATH"},
+  { BGP_NOTIFY_UPDATE_MAL_ATTR,       "/Malformed Attribute List"          },
+  { BGP_NOTIFY_UPDATE_UNREC_ATTR,     "/Unrecognized Well-known Attribute" },
+  { BGP_NOTIFY_UPDATE_MISS_ATTR,      "/Missing Well-known Attribute"      },
+  { BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR,  "/Attribute Flags Error"             },
+  { BGP_NOTIFY_UPDATE_ATTR_LENG_ERR,  "/Attribute Length Error"            },
+  { BGP_NOTIFY_UPDATE_INVAL_ORIGIN,   "/Invalid ORIGIN Attribute"          },
+  { BGP_NOTIFY_UPDATE_AS_ROUTE_LOOP,  "/AS Routing Loop"                   },
+  { BGP_NOTIFY_UPDATE_INVAL_NEXT_HOP, "/Invalid NEXT_HOP Attribute"        },
+  { BGP_NOTIFY_UPDATE_OPT_ATTR_ERR,   "/Optional Attribute Error"          },
+  { BGP_NOTIFY_UPDATE_INVAL_NETWORK,  "/Invalid Network Field"             },
+  { BGP_NOTIFY_UPDATE_MAL_AS_PATH,    "/Malformed AS_PATH"                 },
 };
 static const int bgp_notify_update_msg_max = BGP_NOTIFY_UPDATE_MAX;
 
 static const struct message bgp_notify_cease_msg[] =
 {
-  { BGP_NOTIFY_CEASE_MAX_PREFIX, "/Maximum Number of Prefixes Reached"},
-  { BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN, "/Administratively Shutdown"},
-  { BGP_NOTIFY_CEASE_PEER_UNCONFIG, "/Peer Unconfigured"},
-  { BGP_NOTIFY_CEASE_ADMIN_RESET, "/Administratively Reset"},
-  { BGP_NOTIFY_CEASE_CONNECT_REJECT, "/Connection Rejected"},
-  { BGP_NOTIFY_CEASE_CONFIG_CHANGE, "/Other Configuration Change"},
-  { BGP_NOTIFY_CEASE_COLLISION_RESOLUTION, "/Connection collision resolution"},
-  { BGP_NOTIFY_CEASE_OUT_OF_RESOURCE, "/Out of Resource"},
+  { BGP_NOTIFY_CEASE_MAX_PREFIX,        "/Maximum Number of Prefixes Reached" },
+  { BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN,       "/Administratively Shutdown"       },
+  { BGP_NOTIFY_CEASE_PEER_UNCONFIG,        "/Peer Unconfigured"               },
+  { BGP_NOTIFY_CEASE_ADMIN_RESET,          "/Administratively Reset"          },
+  { BGP_NOTIFY_CEASE_CONNECT_REJECT,       "/Connection Rejected"             },
+  { BGP_NOTIFY_CEASE_CONFIG_CHANGE,        "/Other Configuration Change"      },
+  { BGP_NOTIFY_CEASE_COLLISION_RESOLUTION, "/Connection collision resolution" },
+  { BGP_NOTIFY_CEASE_OUT_OF_RESOURCE,      "/Out of Resource"                 },
 };
 static const int bgp_notify_cease_msg_max = BGP_NOTIFY_CEASE_MAX;
 
 static const struct message bgp_notify_capability_msg[] =
 {
-  { BGP_NOTIFY_CAPABILITY_INVALID_ACTION, "/Invalid Action Value" },
-  { BGP_NOTIFY_CAPABILITY_INVALID_LENGTH, "/Invalid Capability Length"},
-  { BGP_NOTIFY_CAPABILITY_MALFORMED_CODE, "/Malformed Capability Value"},
+  { BGP_NOTIFY_CAPABILITY_INVALID_ACTION, "/Invalid Action Value"       },
+  { BGP_NOTIFY_CAPABILITY_INVALID_LENGTH, "/Invalid Capability Length"  },
+  { BGP_NOTIFY_CAPABILITY_MALFORMED_CODE, "/Malformed Capability Value" },
+  { 4,                                    "/Unsupported Capability"     }
 };
 static const int bgp_notify_capability_msg_max = BGP_NOTIFY_CAPABILITY_MAX;
 
@@ -251,23 +254,38 @@ bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
 
 /* dump notify packet */
 void
-bgp_notify_print(struct peer *peer, struct bgp_notify *bgp_notify,
-                 const char *direct)
+bgp_notify_print(struct peer *peer, bgp_notify notification, bool sending)
 {
-  const char *subcode_str;
+  const char* subcode_str ;
+  const char* code_str ;
+  const char* hex_form ;
+  bool  log_neighbor_changes ;
+  int   length ;
+  char* alloc ;
+
+  /* See if we need to do any of this                                   */
+  if      (bgp_flag_check (peer->bgp, BGP_FLAG_LOG_NEIGHBOR_CHANGES))
+    log_neighbor_changes = true ;
+  else if (BGP_DEBUG (normal, NORMAL))
+    log_neighbor_changes = false ;
+  else
+    return ;                    /* quit if nothing to do        */
+
+  /* Sort out string forms of code and subcode                          */
+  code_str = LOOKUP (bgp_notify_msg, notification->code) ;
 
   subcode_str = "";
 
-  switch (bgp_notify->code)
+  switch (notification->code)
     {
     case BGP_NOTIFY_HEADER_ERR:
-      subcode_str = LOOKUP (bgp_notify_head_msg, bgp_notify->subcode);
+      subcode_str = LOOKUP (bgp_notify_head_msg, notification->subcode);
       break;
     case BGP_NOTIFY_OPEN_ERR:
-      subcode_str = LOOKUP (bgp_notify_open_msg, bgp_notify->subcode);
+      subcode_str = LOOKUP (bgp_notify_open_msg, notification->subcode);
       break;
     case BGP_NOTIFY_UPDATE_ERR:
-      subcode_str = LOOKUP (bgp_notify_update_msg, bgp_notify->subcode);
+      subcode_str = LOOKUP (bgp_notify_update_msg, notification->subcode);
       break;
     case BGP_NOTIFY_HOLD_ERR:
       subcode_str = "";
@@ -276,28 +294,54 @@ bgp_notify_print(struct peer *peer, struct bgp_notify *bgp_notify,
       subcode_str = "";
       break;
     case BGP_NOTIFY_CEASE:
-      subcode_str = LOOKUP (bgp_notify_cease_msg, bgp_notify->subcode);
+      subcode_str = LOOKUP (bgp_notify_cease_msg, notification->subcode);
       break;
     case BGP_NOTIFY_CAPABILITY_ERR:
-      subcode_str = LOOKUP (bgp_notify_capability_msg, bgp_notify->subcode);
+      subcode_str = LOOKUP (bgp_notify_capability_msg, notification->subcode);
       break;
     }
 
-  if (bgp_flag_check (peer->bgp, BGP_FLAG_LOG_NEIGHBOR_CHANGES))
+  /* Construct hex_form of data, if required.                           */
+  length = bgp_notify_get_length(notification) ;
+  if (length != 0)
+    {
+      const char* form ;
+      uint8_t* p = bgp_notify_get_data(notification) ;
+      uint8_t* e = p + length ;
+      char* q ;
+
+      hex_form = alloc = q = XMALLOC(MTYPE_TMP, (length * 3) + 1) ;
+
+      form = "%02x" ;
+      while (p < e)
+        {
+          int n = snprintf (q, 4, form, *p++) ;
+          q += n ;
+          form = " %02x" ;
+        } ;
+    }
+  else
+    {
+      hex_form = "" ;
+      alloc = NULL ;
+    } ;
+
+  /* Output the required logging                                        */
+  if (log_neighbor_changes)
     zlog_info ("%%NOTIFICATION: %s neighbor %s %d/%d (%s%s) %d bytes %s",
-              strcmp (direct, "received") == 0 ? "received from" : "sent to",
-              peer->host, bgp_notify->code, bgp_notify->subcode,
-               LOOKUP (bgp_notify_msg, bgp_notify->code),
-              subcode_str, bgp_notify->length,
-              bgp_notify->size ? (const char*)bgp_notify->data : "");
-  else if (BGP_DEBUG (normal, NORMAL))
+               sending ? "sent to" : "received from", peer->host,
+               notification->code, notification->subcode,
+               code_str, subcode_str, length, hex_form) ;
+  else
     plog_debug (peer->log, "%s %s NOTIFICATION %d/%d (%s%s) %d bytes %s",
-	       peer ? peer->host : "",
-	       direct, bgp_notify->code, bgp_notify->subcode,
-	       LOOKUP (bgp_notify_msg, bgp_notify->code),
-	       subcode_str, bgp_notify->length,
-	       bgp_notify->size ? (const char*)bgp_notify->data : "");
-}
+	        peer->host, sending ? "sending" : "received",
+	        notification->code, notification->subcode,
+	        code_str, subcode_str, length, hex_form) ;
+
+  /* Release the */
+  if (alloc != NULL)
+    XFREE(MTYPE_TMP, alloc) ;
+} ;
 
 /* Debug option setting interface. */
 unsigned long bgp_debug_option = 0;

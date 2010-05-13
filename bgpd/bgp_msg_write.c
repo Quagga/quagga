@@ -91,6 +91,9 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
 
   assert(notification != NULL) ;
 
+  /* Logging                                            */
+  bgp_notify_print(connection->session->peer, notification, 1) ;
+
   /* Make NOTIFY message header                         */
   bgp_packet_set_marker (s, BGP_MSG_NOTIFY);
 
@@ -105,43 +108,6 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
 
   /* Set and get BGP packet length.                     */
   length = bgp_packet_set_size(s);
-
-  /* Logging                                            */
-  if (BGP_DEBUG (normal, NORMAL))
-    zlog_debug("%s send message type %d, length (incl. header) %d",
-                                     connection->host, BGP_MSG_NOTIFY, length) ;
-
-  /* For debug                                          */
-  {
-    bgp_notify text_form ;
-    const char* form ;
-    char      c[4] ;
-    uint8_t*  p ;
-
-    length = bgp_notify_get_length(notification) ;
-    p      = bgp_notify_get_data(notification) ;
-
-    /* Make new copy of notification, with data portion large enough
-     * for the data rendered as hex characters.
-     */
-    text_form = bgp_notify_new_expect(bgp_notify_get_code(notification),
-                                      bgp_notify_get_subcode(notification),
-                                      (length * 3)) ;
-    form = "%02x" ;
-    while (length--)
-      {
-        snprintf (c, 4, form, *p++) ;
-        bgp_notify_append_data(text_form, c, strlen(c)) ;
-        form = " %02x" ;
-      } ;
-    bgp_notify_append_data(text_form, "\0", 1) ;
-
-    /* TODO: restore bgp_notify_print       */
-#if 0
-    bgp_notify_print(peer, text_form, "sending") ;
-#endif
-    bgp_notify_free(text_form) ;
-  } ;
 
   /* Set flag so that write_action raises required event when buffer becomes
    * empty.

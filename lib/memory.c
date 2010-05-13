@@ -587,7 +587,7 @@ DEFUN_CALL (show_memory_summary,
 
   LOCK ;
   for (mtype = 1 ; mtype < MTYPE_MAX ; ++mtype)
-    alloc += mstat[mtype] ;
+    alloc += mstat.mt[mtype].alloc ;
   UNLOCK
   vty_out(vty, "%ld items allocated%s", alloc, VTY_NEWLINE) ;
 

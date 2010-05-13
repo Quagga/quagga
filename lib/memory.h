@@ -56,7 +56,9 @@ extern struct mlist mlists[];
   mtype_zstrdup (__FILE__, __LINE__, (mtype), (str))
 #else
 
+#ifdef QDEBUG
 #define MEMORY_TRACKER 1
+#endif
 
 #ifdef MEMORY_TRACKER
 #define MEMORY_TRACKER_NAME  , const char* name
