@@ -325,7 +325,7 @@ bgp_session_enable(bgp_peer peer)
 
   ++bgp_engine_queue_stats.event ;
 
-  bgp_to_bgp_engine(mqb) ;
+  bgp_to_bgp_engine(mqb, mqb_ordinary) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -426,7 +426,7 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
 
   ++bgp_engine_queue_stats.event ;
 
-  bgp_to_bgp_engine_priority(mqb) ;
+  bgp_to_bgp_engine(mqb, mqb_priority) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -464,7 +464,7 @@ bgp_session_event(bgp_session session, bgp_session_event_t  event,
                                        bgp_notify           notification,
                                        int                  err,
                                        bgp_connection_ord_t ordinal,
-                                       int                  stopped)
+                                       bool                 stopped)
 {
   struct bgp_session_event_args* args ;
   mqueue_block   mqb ;
@@ -484,7 +484,7 @@ bgp_session_event(bgp_session session, bgp_session_event_t  event,
 
   ++routing_engine_queue_stats.event ;
 
-  bgp_to_routing_engine(mqb) ;
+  bgp_to_routing_engine(mqb, stopped ? mqb_priority : mqb_ordinary) ;
 } ;
 
 /*==============================================================================
@@ -509,7 +509,7 @@ bgp_session_update_send(bgp_session session, struct stream_fifo* fifo)
 
   ++bgp_engine_queue_stats.update ;
 
-  bgp_to_bgp_engine(mqb) ;
+  bgp_to_bgp_engine(mqb, mqb_ordinary) ;
 
   stream_fifo_reset(fifo) ;
 } ;
@@ -637,7 +637,7 @@ bgp_session_route_refresh_send(bgp_session session, bgp_route_refresh rr)
 
   ++bgp_engine_queue_stats.event ;
 
-  bgp_to_bgp_engine(mqb) ;
+  bgp_to_bgp_engine(mqb, mqb_ordinary) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -702,7 +702,7 @@ bgp_session_end_of_rib_send(bgp_session session, qAFI_t afi, qSAFI_t safi)
 
   ++bgp_engine_queue_stats.xon ;
 
-  bgp_to_bgp_engine(mqb) ;
+  bgp_to_bgp_engine(mqb, mqb_ordinary) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -769,7 +769,7 @@ bgp_session_update_recv(bgp_session session, struct stream* buf, bgp_size_t size
 
   ++routing_engine_queue_stats.update ;
 
-  bgp_to_routing_engine(mqb) ;
+  bgp_to_routing_engine(mqb, mqb_ordinary) ;
 }
 
 /*------------------------------------------------------------------------------
@@ -813,7 +813,7 @@ bgp_session_route_refresh_recv(bgp_session session, bgp_route_refresh rr)
   args->rr         = rr ;
   args->is_pending = NULL ;
 
-  bgp_to_routing_engine(mqb) ;
+  bgp_to_routing_engine(mqb, mqb_ordinary) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -849,7 +849,7 @@ bgp_session_XON(bgp_session session)
 
   ++routing_engine_queue_stats.xon ;
 
-  bgp_to_routing_engine(mqb) ;
+  bgp_to_routing_engine(mqb, mqb_ordinary) ;
 }
 
 /*------------------------------------------------------------------------------
@@ -888,7 +888,7 @@ bgp_session_set_ttl(bgp_session session, int ttl)
 
   ++bgp_engine_queue_stats.event ;
 
-  bgp_to_bgp_engine(mqb) ;
+  bgp_to_bgp_engine(mqb, mqb_ordinary) ;
 }
 
 /*------------------------------------------------------------------------------

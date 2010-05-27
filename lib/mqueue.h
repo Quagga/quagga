@@ -23,6 +23,7 @@
 #define _ZEBRA_MQUEUE_H
 
 #include <stddef.h>
+#include <stdbool.h>
 
 #include "qpthreads.h"
 #include "qtime.h"
@@ -243,8 +244,14 @@ mqb_re_init(mqueue_block mqb, mqueue_action action, void* arg0) ;
 extern void
 mqb_free(mqueue_block mqb) ;
 
+enum mqb_rank
+{
+  mqb_priority  = true,
+  mqb_ordinary  = false
+} ;
+
 extern void
-mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, int priority) ;
+mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, enum mqb_rank priority) ;
 
 extern mqueue_block
 mqueue_dequeue(mqueue_queue mq, int wait, void* arg) ;

@@ -22,6 +22,7 @@
 #ifndef _QUAGGA_BGP_SESSION_H
 #define _QUAGGA_BGP_SESSION_H
 
+#include <stdbool.h>
 #include <zebra.h>
 
 #include "bgpd/bgp_common.h"
@@ -324,7 +325,7 @@ bgp_session_event(bgp_session session, bgp_session_event_t  event,
                                        bgp_notify           notification,
                                        int                  err,
                                        bgp_connection_ord_t ordinal,
-                                       int                  stopped) ;
+                                       bool                 stopped) ;
 
 extern void
 bgp_session_update_send(bgp_session session, struct stream_fifo* fifo) ;

@@ -191,29 +191,23 @@ qpn_start(void* arg)
   done = 1 ;
   while (!qpn->terminate)
     {
-      wait = (done == 0) ;      /* may wait this time only if nothing
-                                   found to do on the last pass         */
-
-      /* Signals are highest priority -- only execute for main thread
-       *
-       * Restarts "done" for this pass.
-       */
+      /* Signals are highest priority -- only execute for main thread   */
       if (qpn->main_thread)
-        done = quagga_sigevent_process() ;
-      else
-        done = 0 ;
+        done |= quagga_sigevent_process() ;
 
       /* Foreground hooks, if any.                                      */
       for (i = 0; i < qpn->foreground.count ;)
         done |= ((qpn_hook_function*)(qpn->foreground.hooks[i++]))() ;
 
-      /* drain the message queue, will be in waiting for signal state
-       * when it's empty */
-
-      if (done != 0)
-        wait = 0 ;              /* turn off wait if found something     */
-
-      while (1)
+      /* take stuff from the message queue
+       *
+       * If nothing done the last time around the loop then may wait this
+       * time if the queue is empty first time through.
+       */
+      wait = (done == 0) ;      /* may wait this time only if nothing
+                                   found to do on the last pass         */
+      done = 0 ;
+      do
         {
           mqb = mqueue_dequeue(qpn->queue, wait, qpn->mts) ;
           if (mqb == NULL)
@@ -221,9 +215,9 @@ qpn_start(void* arg)
 
           mqb_dispatch(mqb, mqb_action);
 
-          done = 1 ;            /* done something                       */
-          wait = 0 ;            /* turn off wait                        */
-        } ;
+          ++done ;              /* done another                         */
+          wait = 0 ;            /* done something, so turn off wait     */
+        } while (done < 200) ;
 
       /* block for some input, output, signal or timeout
        *

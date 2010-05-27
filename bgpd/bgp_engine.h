@@ -116,22 +116,12 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
   stats->xon    = 0 ;
 } ;
 
-/* Send given message to the BGP Engine -- ordinary
+/* Send given message to the BGP Engine -- priority/ordinary
  */
 Inline void
-bgp_to_bgp_engine(mqueue_block mqb)
+bgp_to_bgp_engine(mqueue_block mqb, enum mqb_rank priority)
 {
-  mqueue_enqueue(bgp_nexus->queue, mqb, 0) ;
-  if (qdebug)
-    bgp_queue_logging("BGP Engine", bgp_nexus->queue, &bgp_engine_queue_stats) ;
-} ;
-
-/* Send given message to the BGP Engine -- priority
- */
-Inline void
-bgp_to_bgp_engine_priority(mqueue_block mqb)
-{
-  mqueue_enqueue(bgp_nexus->queue, mqb, 1) ;
+  mqueue_enqueue(bgp_nexus->queue, mqb, priority) ;
   if (qdebug)
     bgp_queue_logging("BGP Engine", bgp_nexus->queue, &bgp_engine_queue_stats) ;
 } ;
@@ -140,26 +130,15 @@ bgp_to_bgp_engine_priority(mqueue_block mqb)
  *
  */
 
-/* Send given message to the Routing Engine -- ordinary
+/* Send given message to the Routing Engine -- priority/ordinary
  */
 Inline void
-bgp_to_routing_engine(mqueue_block mqb)
+bgp_to_routing_engine(mqueue_block mqb, enum mqb_rank priority)
 {
-  mqueue_enqueue(routing_nexus->queue, mqb, 0) ;
+  mqueue_enqueue(routing_nexus->queue, mqb, priority) ;
   if (qdebug)
     bgp_queue_logging("Routing Engine", routing_nexus->queue,
                                                  &routing_engine_queue_stats) ;
-} ;
-
-/* Send given message to the Routing Engine -- priority
- */
-Inline void
-bgp_to_routing_engine_priority(mqueue_block mqb)
-{
-  mqueue_enqueue(routing_nexus->queue, mqb, 1) ;
-  if (qdebug)
-    bgp_queue_logging("Routing Engine", routing_nexus->queue,
-                                                  &routing_engine_queue_stats) ;
 } ;
 
 #endif /* QUAGGA_BGP_ENGINE_H */

@@ -509,8 +509,8 @@ static void mqueue_dequeue_signal(mqueue_queue mq, mqueue_thread_signal mtsig) ;
 /*------------------------------------------------------------------------------
  * Enqueue message.
  *
- * If priority != 0, will enqueue after any previously enqueued priority
- * messages.
+ * If priority, will enqueue after any previously enqueued priority
+ * messages.  (See enum: mqb_priority and mqb_ordinary.)
  *
  * If there are any waiters, then we kick one or all of them.
  *
@@ -533,7 +533,7 @@ static void mqueue_dequeue_signal(mqueue_queue mq, mqueue_thread_signal mtsig) ;
  *     never be any waiters... so no kicking is ever done.
  */
 extern void
-mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, int priority)
+mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, enum mqb_rank priority)
 {
   if (mq == NULL)
     return mqb_dispatch_destroy(mqb) ;
