@@ -54,8 +54,11 @@ void
 cq_enqueue(struct vty *vty, qpn_nexus dst)
 {
   struct cq_command_args* args ;
+  mqueue_block mqb ;
 
-  mqueue_block mqb = mqb_init_new(NULL, cq_action, vty) ;
+  assert(vty_cli_nexus) ;               /* must be running qnexus-wise  */
+
+  mqb = mqb_init_new(NULL, cq_action, vty) ;
   args = mqb_get_args(mqb) ;
 
   args->ret         = CMD_QUEUED ;
@@ -76,6 +79,8 @@ cq_action(mqueue_block mqb, mqb_flag_t flag)
 {
   struct vty *vty;
   struct cq_command_args* args ;
+
+  assert(vty_cli_nexus) ;               /* must be running qnexus-wise  */
 
   vty  = mqb_get_arg0(mqb);
   args = mqb_get_args(mqb) ;
@@ -113,6 +118,8 @@ cq_return(mqueue_block mqb, mqb_flag_t flag)
   struct vty *vty ;
   struct cq_command_args* args ;
 
+  assert(vty_cli_nexus) ;               /* must be running qnexus-wise  */
+
   vty  = mqb_get_arg0(mqb) ;
   args = mqb_get_args(mqb) ;
 
@@ -127,7 +134,7 @@ cq_return(mqueue_block mqb, mqb_flag_t flag)
 }
 
 /*------------------------------------------------------------------------------
- * Revoke any messages related to the given VTY
+ * Revoke any messages related to the given VTY -- if running qnexus-wise.
  *
  * Revokes in vty_cmd_nexus -- so before command is started
  *     and in vty_cli_nexus -- so after command has completed
@@ -138,7 +145,10 @@ cq_return(mqueue_block mqb, mqb_flag_t flag)
 void
 cq_revoke(struct vty *vty)
 {
-  mqueue_revoke(vty_cmd_nexus->queue, vty) ;
-  mqueue_revoke(vty_cli_nexus->queue, vty) ;
+  if (vty_cli_nexus)
+    {
+      mqueue_revoke(vty_cmd_nexus->queue, vty) ;
+      mqueue_revoke(vty_cli_nexus->queue, vty) ;
+    } ;
 }
 

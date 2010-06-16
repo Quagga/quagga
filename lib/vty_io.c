@@ -775,7 +775,8 @@ uty_close (vty_io vio)
     {
       uty_half_close(vio, NULL) ;   /* place on death watch -- if not
                                        already done                     */
-      uty_cli_close(vio) ;          /* tell the CLI to stop             */
+      if (vio->type == VTY_TERM)
+        uty_cli_close(vio) ;        /* tell the CLI to stop             */
 
       vio->closed = 1 ;             /* now closed (stop uty_write()
                                        from recursing)                  */

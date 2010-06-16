@@ -440,7 +440,8 @@ uty_reset (bool curtains, const char* why)
       vio  = next ;
       next = sdl_next(vio, vio_list) ;
 
-      cq_revoke(vio->vty) ;
+      if (vio->type == VTY_TERM)
+        cq_revoke(vio->vty) ;
 
       if (why != NULL)
         vio->close_reason = why ;

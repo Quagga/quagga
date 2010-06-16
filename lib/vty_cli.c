@@ -349,6 +349,9 @@ uty_cli_start(vty_io vio)
 extern void
 uty_cli_close(vty_io vio)
 {
+  VTY_ASSERT_LOCKED() ;
+  assert(vio->type == VTY_TERM) ;
+
   cq_revoke(vio->vty) ;
 
   vio->cli_blocked     = 1 ;    /* don't attempt any more       */
