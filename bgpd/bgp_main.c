@@ -75,20 +75,23 @@ static const struct option longopts[] =
   { "ignore_warnings", no_argument,   NULL, 'I'},
   { 0 }
 };
-/* Configuration file and directory. */
+/* Configuration file and directory.                                    */
 char config_default[] = SYSCONFDIR BGP_DEFAULT_CONFIG;
 
-/* Route retain mode flag. */
-static int retain_mode = 0;
+/* Route retain mode flag.                                              */
+static bool retain_mode         = false;
+
+/* Have started terminating the program                                 */
+static bool program_terminating = false ;
 
 /* whether to ignore warnings in configuration file                     */
 static bool config_ignore_warnings = false;
 
 /* whether configured to run with qpthreads                             */
-static bool config_threaded = 0;
+static bool config_threaded     = false ;
 
 /* whether configured to run as an AS2 speaker                          */
-static bool config_as2_speaker = 0;
+static bool config_as2_speaker  = false ;
 
 /* Master of threads. */
 struct thread_master *master;
@@ -483,11 +486,11 @@ int
 main (int argc, char **argv)
 {
   char *p;
-  int opt;
-  int daemon_mode = 0;
-  int dryrun = 0;
+  int  opt;
+  bool daemon_mode = false ;
+  bool dryrun      = false ;
   char *progname;
-  int tmp_port;
+  int  tmp_port;
 
   /* Set umask before anything for security */
   umask (0027);
@@ -520,7 +523,7 @@ main (int argc, char **argv)
 	case 0:
 	  break;
 	case 'd':
-	  daemon_mode = 1;
+	  daemon_mode = true ;
 	  break;
 	case 'f':
 	  config_file = optarg;
@@ -551,7 +554,7 @@ main (int argc, char **argv)
 	    vty_port = BGP_VTY_PORT;
 	  break;
 	case 'r':
-	  retain_mode = 1;
+	  retain_mode = true ;
 	  break;
 	case 'l':
 	  bm->address = optarg;
@@ -570,19 +573,19 @@ main (int argc, char **argv)
 	  exit (0);
 	  break;
 	case 'C':
-	  dryrun = 1;
+	  dryrun = true ;
 	  break;
 	case 'h':
 	  usage (progname, 0);
 	  break;
         case 't':
-          config_threaded = 1;
+          config_threaded = true ;
           break;
         case 'I':
-          config_ignore_warnings = 1;
+          config_ignore_warnings = true ;
 	  break ;
         case '2':
-          config_as2_speaker = 1;
+          config_as2_speaker = true ;
           break ;
 	default:
 	  usage (progname, 1);
@@ -716,6 +719,10 @@ routing_background(void)
   return thread_dispatch_background(master) ;
 }
 
+/*==============================================================================
+ * SIGHUP and SIGTERM
+ */
+
 /*------------------------------------------------------------------------------
  * SIGHUP: message sent to Routeing engine and the action it then takes.
  *
@@ -726,14 +733,14 @@ sighup_enqueue(void)
 {
   mqueue_block mqb = mqb_init_new(NULL, sighup_action, NULL) ;
 
-  mqueue_enqueue(routing_nexus->queue, mqb, 1) ;
+  mqueue_enqueue(routing_nexus->queue, mqb, mqb_priority) ;
 }
 
 /* dispatch a command from the message queue block */
 static void
 sighup_action(mqueue_block mqb, mqb_flag_t flag)
 {
-  if (flag == mqb_action)
+  if ((flag == mqb_action) && !program_terminating)
     {
       zlog_info ("bgpd restarting!");
 
@@ -753,6 +760,32 @@ sighup_action(mqueue_block mqb, mqb_flag_t flag)
 }
 
 /*------------------------------------------------------------------------------
+ * Foreground task to see if all peers have been deleted yet.
+ */
+static int
+program_terminate_if_all_peers_deleted(void)
+{
+  if (bm->peer_linger_count == 0)
+    {
+      /* ask remaining pthreads to die
+       *
+       * Note that qpn_terminate does nothing if it has been called once
+       * already.
+       */
+      if (qpthreads_enabled && routing_nexus != NULL)
+        qpn_terminate(routing_nexus);
+
+      if (qpthreads_enabled && bgp_nexus != NULL)
+        qpn_terminate(bgp_nexus);
+
+      if (cli_nexus != NULL)
+        qpn_terminate(cli_nexus) ;
+    } ;
+
+  return 0 ;            /* nothing to do, really.       */
+} ;
+
+/*------------------------------------------------------------------------------
  * SIGTERM: message sent to Routeing engine and the action it then takes.
  */
 static void
@@ -760,19 +793,26 @@ sigterm_enqueue(void)
 {
   mqueue_block mqb = mqb_init_new(NULL, sigterm_action, NULL) ;
 
-  mqueue_enqueue(routing_nexus->queue, mqb, 1) ;
-}
+  mqueue_enqueue(routing_nexus->queue, mqb, mqb_priority) ;
+} ;
 
 /* dispatch a command from the message queue block */
 static void
 sigterm_action(mqueue_block mqb, mqb_flag_t flag)
 {
-  if (flag == mqb_action)
+  if ((flag == mqb_action) && !program_terminating)
     {
       /* send notify to all peers, wait for all sessions to be disables
-       * then terminate all pthreads */
+       * then terminate all pthreads
+       */
+      program_terminating = true ;
+
       bgp_terminate(1, retain_mode);
+
+      qpn_add_hook_function(&routing_nexus->foreground,
+                                       program_terminate_if_all_peers_deleted) ;
     }
 
   mqb_free(mqb);
-}
+} ;
+

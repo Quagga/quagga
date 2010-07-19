@@ -92,7 +92,7 @@ bgp_nlri_parse_vpnv4 (struct peer *peer, struct attr *attr,
   u_char *tagpnt;
 
   /* Check peer status. */
-  if (peer->state != bgp_peer_sEstablished)
+  if (peer->state != bgp_peer_pEstablished)
     return 0;
 
   /* Make prefix_rd */

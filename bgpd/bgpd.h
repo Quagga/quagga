@@ -35,19 +35,17 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* BGP master for system wide configurations and variables.  */
 struct bgp_master
 {
-  /* BGP instance list.  */
+  /* BGP instance list.                 */
   struct list *bgp;
 
-  /* BGP thread master.  */
+  /* BGP thread master.                 */
   struct thread_master *master;
 
-  /* BGP port number.  */
+  /* Listener address & port number     */
+  char *address;
   u_int16_t port;
 
-  /* Listener address */
-  char *address;
-
-  /* BGP start time.  */
+  /* BGP start time.                    */
   time_t start_time;
 
   /* Various BGP global configuration.  */
@@ -58,6 +56,9 @@ struct bgp_master
 
   /* Do not announce AS4                */
   bool  as2_speaker ;
+
+  /* Peers lingering in pDeleting       */
+  unsigned  peer_linger_count ;
 };
 
 /* BGP instance structure.  */
@@ -69,7 +70,7 @@ struct bgp
   /* Name of this BGP instance.  */
   char *name;
 
-  /* Reference count to allow peer_delete to finish after bgp_delete */
+  /* Reference count to allow bgp_peer_delete to finish after bgp_delete */
   int lock;
 
   /* Self peer.  */
@@ -423,8 +424,6 @@ extern struct peer_group *peer_group_lookup (struct bgp *, const char *);
 extern struct peer_group *peer_group_get (struct bgp *, const char *);
 extern struct peer *peer_lookup_with_open (union sockunion *, as_t, struct in_addr *,
 				    int *);
-extern struct peer *peer_lock (struct peer *);
-extern struct peer *peer_unlock (struct peer *);
 extern int peer_sort (struct peer *peer);
 extern int peer_active (struct peer *);
 extern int peer_active_nego (struct peer *);
@@ -474,12 +473,14 @@ extern int peer_rsclient_active (struct peer *);
 
 extern int peer_remote_as (struct bgp *, union sockunion *, as_t *, afi_t, safi_t);
 extern int peer_group_remote_as (struct bgp *, const char *, as_t *);
-extern int peer_delete (struct peer *peer);
 extern int peer_group_delete (struct peer_group *);
 extern int peer_group_remote_as_delete (struct peer_group *);
 
 extern int peer_activate (struct peer *, afi_t, safi_t);
 extern int peer_deactivate (struct peer *, afi_t, safi_t);
+
+extern void peer_rsclient_unset(struct peer* peer, int afi, int safi,
+                                                             bool keep_export) ;
 
 extern int peer_group_bind (struct bgp *, union sockunion *, struct peer_group *,
 		     afi_t, safi_t, as_t *);
@@ -491,6 +492,8 @@ extern int peer_flag_unset (struct peer *, u_int32_t);
 
 extern int peer_af_flag_set (struct peer *, afi_t, safi_t, u_int32_t);
 extern int peer_af_flag_unset (struct peer *, afi_t, safi_t, u_int32_t);
+extern int peer_af_flag_modify (struct peer *, afi_t, safi_t, u_int32_t,
+                                                                     bool set) ;
 extern int peer_af_flag_check (struct peer *, afi_t, safi_t, u_int32_t);
 
 extern int peer_ebgp_multihop_set (struct peer *, int);

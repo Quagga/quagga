@@ -664,7 +664,7 @@ main (void)
     parse_test (peer, &opt_params[i++], OPT_PARAM);
 
   SET_FLAG (peer->cap, PEER_CAP_DYNAMIC_ADV);
-  peer->state = bgp_peer_sEstablished;
+  peer->state = bgp_peer_pEstablished;
 
   i = 0;
   while (dynamic_cap_msgs[i].name)

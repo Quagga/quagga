@@ -461,19 +461,19 @@ enum BGP_NOMC
 
 enum BGP_NOMS
 {
-  BGP_NOMS_UNSPECIFIC       =  0        /* If nothing else applies               */
+  BGP_NOMS_UNSPECIFIC       =  0    /* If nothing else applies              */
 };
 
 enum BGP_NOMS_HEADER                /* BGP_NOMC_HEADER subcodes             */
 {
-  BGP_NOMS_H_NOT_SYNC       =  1,       /* Connection Not Synchronised          */
+  BGP_NOMS_H_NOT_SYNC       =  1,   /* Connection Not Synchronised          */
                                     /* (Marker field not all =  1,'s !)     */
-  BGP_NOMS_H_BAD_LEN        =  2,       /* Bad Message Length                   */
+  BGP_NOMS_H_BAD_LEN        =  2,   /* Bad Message Length                   */
                                     /* DATA: the length that failed         */
-  BGP_NOMS_H_BAD_TYPE       =  3,       /* Bad Message Type                     */
+  BGP_NOMS_H_BAD_TYPE       =  3,   /* Bad Message Type                     */
                                     /* DATA: the message type objected to   */
 
-  BGP_NOMS_H_MAX            =  3,       /* max known subcode                    */
+  BGP_NOMS_H_MAX            =  3,   /* max known subcode                    */
 } ;
 
 enum BGP_NOMS_OPEN                  /* BGP_NOMC_OPEN subcodes               */

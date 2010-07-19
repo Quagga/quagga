@@ -81,10 +81,10 @@ const int bgp_status_msg_max = bgp_fsm_last_state + 1 ;
 
 const struct message bgp_peer_status_msg[] =
 {
-  { bgp_peer_sIdle,        "Idle"        },
-  { bgp_peer_sEstablished, "Established" },
-  { bgp_peer_sClearing,    "Clearing"    },
-  { bgp_peer_sDeleted,     "Deleted"     },
+  { bgp_peer_pIdle,        "Idle"        },
+  { bgp_peer_pEstablished, "Established" },
+  { bgp_peer_pClearing,    "Clearing"    },
+  { bgp_peer_pDeleting,    "Deleting"    },
 };
 const int bgp_peer_status_msg_max = bgp_peer_max_state + 1 ;
 
@@ -254,7 +254,7 @@ bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
 
 /* dump notify packet */
 void
-bgp_notify_print(struct peer *peer, bgp_notify notification, bool sending)
+bgp_notify_print(struct peer *peer, bgp_notify notification)
 {
   const char* subcode_str ;
   const char* code_str ;
@@ -328,15 +328,15 @@ bgp_notify_print(struct peer *peer, bgp_notify notification, bool sending)
 
   /* Output the required logging                                        */
   if (log_neighbor_changes)
-    zlog_info ("%%NOTIFICATION: %s neighbor %s %d/%d (%s%s) %d bytes %s",
-               sending ? "sent to" : "received from", peer->host,
-               notification->code, notification->subcode,
-               code_str, subcode_str, length, hex_form) ;
+    zlog_info("%%NOTIFICATION: %s neighbor %s %d/%d (%s%s) %d bytes %s",
+              notification->received ? "received from" : "sent to", peer->host,
+              notification->code, notification->subcode,
+              code_str, subcode_str, length, hex_form) ;
   else
-    plog_debug (peer->log, "%s %s NOTIFICATION %d/%d (%s%s) %d bytes %s",
-	        peer->host, sending ? "sending" : "received",
-	        notification->code, notification->subcode,
-	        code_str, subcode_str, length, hex_form) ;
+    plog_debug(peer->log, "%s %s NOTIFICATION %d/%d (%s%s) %d bytes %s",
+	       peer->host, notification->received ? "received" : "sending",
+	       notification->code, notification->subcode,
+	       code_str, subcode_str, length, hex_form) ;
 
   /* Release the */
   if (alloc != NULL)

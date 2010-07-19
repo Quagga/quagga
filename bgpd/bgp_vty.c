@@ -1353,7 +1353,7 @@ DEFUN (no_neighbor,
     {
       peer = peer_lookup (vty->index, &su);
       if (peer)
-        peer_delete (peer);
+        bgp_peer_delete (peer);
     }
 
   return CMD_SUCCESS;
@@ -1794,7 +1794,7 @@ DEFUN (no_neighbor_dont_capability_negotiate,
 
 static int
 peer_af_flag_modify_vty (struct vty *vty, const char *peer_str, afi_t afi,
-			 safi_t safi, u_int32_t flag, int set)
+			 safi_t safi, u_int32_t flag, bool set)
 {
   int ret;
   struct peer *peer;
@@ -1803,10 +1803,7 @@ peer_af_flag_modify_vty (struct vty *vty, const char *peer_str, afi_t afi,
   if (! peer)
     return CMD_WARNING;
 
-  if (set)
-    ret = peer_af_flag_set (peer, afi, safi, flag);
-  else
-    ret = peer_af_flag_unset (peer, afi, safi, flag);
+  ret = peer_af_flag_modify(peer, afi, safi, flag, set);
 
   return bgp_vty_return (vty, ret);
 }
@@ -1815,14 +1812,14 @@ static int
 peer_af_flag_set_vty (struct vty *vty, const char *peer_str, afi_t afi,
 		      safi_t safi, u_int32_t flag)
 {
-  return peer_af_flag_modify_vty (vty, peer_str, afi, safi, flag, 1);
+  return peer_af_flag_modify_vty (vty, peer_str, afi, safi, flag, true);
 }
 
 static int
 peer_af_flag_unset_vty (struct vty *vty, const char *peer_str, afi_t afi,
 			safi_t safi, u_int32_t flag)
 {
-  return peer_af_flag_modify_vty (vty, peer_str, afi, safi, flag, 0);
+  return peer_af_flag_modify_vty (vty, peer_str, afi, safi, flag, false);
 }
 
 /* neighbor capability orf prefix-list. */
@@ -2080,7 +2077,7 @@ peer_rsclient_set_vty (struct vty *vty, const char *peer_str,
   struct listnode *node, *nnode;
   struct bgp_filter *pfilter;
   struct bgp_filter *gfilter;
-  int locked_and_added = 0;
+  bool was_active ;
 
   bgp = vty->index;
 
@@ -2092,29 +2089,22 @@ peer_rsclient_set_vty (struct vty *vty, const char *peer_str,
   if ( CHECK_FLAG (peer->af_flags[afi][safi], PEER_FLAG_RSERVER_CLIENT) )
     return CMD_SUCCESS;
 
-  if ( ! peer_rsclient_active (peer) )
-    {
-      peer = peer_lock (peer); /* rsclient peer list reference */
-      listnode_add_sort (bgp->rsclient, peer);
-      locked_and_added = 1;
-    }
+  was_active = peer_rsclient_active(peer) ;
 
   ret = peer_af_flag_set (peer, afi, safi, PEER_FLAG_RSERVER_CLIENT);
   if (ret < 0)
-    {
-      if (locked_and_added)
-        {
-          listnode_delete (bgp->rsclient, peer);
-          peer_unlock (peer); /* rsclient peer list reference */
-        }
+    return bgp_vty_return (vty, ret);
 
-      return bgp_vty_return (vty, ret);
-    }
+  if (!was_active)
+    {
+      bgp_peer_lock (peer);             /* rsclient peer list reference */
+      listnode_add_sort (bgp->rsclient, peer);
+    } ;
 
   peer->rib[afi][safi] = bgp_table_init (afi, safi);
   peer->rib[afi][safi]->type = BGP_TABLE_RSCLIENT;
   /* RIB peer reference.  Released when table is free'd in bgp_table_free. */
-  peer->rib[afi][safi]->owner = peer_lock (peer);
+  peer->rib[afi][safi]->owner = bgp_peer_lock (peer);
 
   /* Check for existing 'network' and 'redistribute' routes. */
   bgp_check_local_routes_rsclient (peer, afi, safi);
@@ -2181,10 +2171,19 @@ peer_rsclient_unset_vty (struct vty *vty, const char *peer_str,
   if ( ! peer )
     return CMD_WARNING;
 
+  assert(bgp == peer->bgp) ;
+
   /* If it is not a RS-Client, don't do anything. */
   if ( ! CHECK_FLAG (peer->af_flags[afi][safi], PEER_FLAG_RSERVER_CLIENT) )
     return CMD_SUCCESS;
 
+  /* If this is a Peer Group, then need to undo the relevant rsclient state
+   * for all the group members.
+   *
+   * That means clearing the state flag and the pointer to the shared RIB.
+   *
+   * TODO: peer_af_flag_unset PEER_FLAG_RSERVER_CLIENT fails for group members ?
+   */
   if (CHECK_FLAG(peer->sflags, PEER_STATUS_GROUP))
     {
       group = peer->group;
@@ -2201,20 +2200,63 @@ peer_rsclient_unset_vty (struct vty *vty, const char *peer_str,
         peer = group->conf;
     }
 
+  /* Unset the rsclient flag and remove from rsclient list if no longer a
+   * distinct rsclient.
+   *
+   * NB: this takes care of downing the peer, if required.
+   */
   ret = peer_af_flag_unset (peer, afi, safi, PEER_FLAG_RSERVER_CLIENT);
   if (ret < 0)
     return bgp_vty_return (vty, ret);
 
-  if ( ! peer_rsclient_active (peer) )
-    {
-      bgp_clear_route_rsclient (peer, afi, safi);
-      listnode_delete (bgp->rsclient, peer);
-      peer_unlock (peer); /* peer bgp rsclient reference */
-    }
-
-  bgp_table_finish (&peer->rib[bgp_node_afi(vty)][bgp_node_safi(vty)]);
+  /* Now tidy up the data structures.                                   */
+  peer_rsclient_unset(peer, afi, safi, false) ;
 
   return CMD_SUCCESS;
+}
+
+/* Have unset rsclient state for a peer that was a distinct rsclient.
+ *
+ * Tidy up the data structures.
+ *
+ * NB: does not down the peer or deal with other consequences.
+ */
+void
+peer_rsclient_unset(struct peer* peer, int afi, int safi, bool keep_export)
+{
+  assert(peer->rib[afi][safi] != NULL) ;
+
+  /* If the peer is no longer a distinct rsclient, remove from list of same. */
+  if (! peer_rsclient_active (peer))
+    {
+      struct listnode *pn;
+      pn = listnode_lookup (peer->bgp->rsclient, peer) ;
+
+      assert(pn != NULL) ;
+
+      bgp_peer_unlock (peer); /* peer rsclient reference */
+      list_delete_node (peer->bgp->rsclient, pn);
+    }
+
+  /* Discard the rsclient rib                                           */
+  bgp_clear_rsclient_rib (peer, afi, safi);
+  bgp_table_finish (&peer->rib[afi][safi]);
+
+  /* Discard import policy unconditionally                              */
+  if (peer->filter[afi][safi].map[RMAP_IMPORT].name)
+    {
+      free (peer->filter[afi][safi].map[RMAP_IMPORT].name);
+      peer->filter[afi][safi].map[RMAP_IMPORT].name = NULL;
+      peer->filter[afi][safi].map[RMAP_IMPORT].map = NULL;
+    }
+
+  /* Discard export policy unless should be kept.                       */
+  if (peer->filter[afi][safi].map[RMAP_EXPORT].name && !keep_export)
+    {
+      free (peer->filter[afi][safi].map[RMAP_EXPORT].name);
+      peer->filter[afi][safi].map[RMAP_EXPORT].name = NULL;
+      peer->filter[afi][safi].map[RMAP_EXPORT].map = NULL;
+    }
 }
 
 /* neighbor route-server-client. */
@@ -6778,7 +6820,7 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
 	  vty_out (vty, "%8s",
 		   peer_uptime (peer->uptime, timebuf, BGP_UPTIME_LEN));
 
-	  if (peer->state == bgp_peer_sEstablished)
+	  if (peer->state == bgp_peer_pEstablished)
 	    {
 	      vty_out (vty, " %8ld", peer->pcount[afi][safi]);
 	    }
@@ -7315,7 +7357,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
   /* Status. */
   vty_out (vty, "  BGP state = %s",
 	   LOOKUP (bgp_peer_status_msg, p->state));
-  if (p->state == bgp_peer_sEstablished)
+  if (p->state == bgp_peer_pEstablished)
     vty_out (vty, ", up for %8s",
 	     peer_uptime (p->uptime, timebuf, BGP_UPTIME_LEN));
   /* TODO: what is state "Active" now?  sEnabled? */
@@ -7344,7 +7386,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
     }
 
   /* Capability. */
-  if (p->state == bgp_peer_sEstablished)
+  if (p->state == bgp_peer_pEstablished)
     {
       if (p->cap
 	  || p->afc_adv[AFI_IP][SAFI_UNICAST]
@@ -7466,7 +7508,7 @@ bgp_show_peer (struct vty *vty, struct peer *p)
       int eor_receive_af_count = 0;
 
       vty_out (vty, "  Graceful restart informations:%s", VTY_NEWLINE);
-      if (p->state == bgp_peer_sEstablished)
+      if (p->state == bgp_peer_pEstablished)
 	{
 	  vty_out (vty, "    End-of-RIB send: ");
 	  for (afi = AFI_IP ; afi < AFI_MAX ; afi++)

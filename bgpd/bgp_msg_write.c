@@ -85,14 +85,13 @@ extern int
 bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
 {
   struct stream *s = connection->obuf ;
-  int    length;
+  int      length;
 
   ++connection->session->stats.notify_out ;
 
   assert(notification != NULL) ;
 
-  /* Logging                                            */
-  bgp_notify_print(connection->session->peer, notification, 1) ;
+  bgp_notify_print(connection->session->peer, notification) ;
 
   /* Make NOTIFY message header                         */
   bgp_packet_set_marker (s, BGP_MSG_NOTIFY);

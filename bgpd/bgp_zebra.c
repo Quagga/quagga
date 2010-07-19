@@ -167,7 +167,7 @@ bgp_interface_down (int command, struct zclient *zclient, zebra_size_t length)
 	      continue;
 
 	    if (ifp == peer_if)
-	      bgp_peer_disable(peer, NULL);
+	      bgp_peer_down(peer, PEER_DOWN_INTERFACE_DOWN);
 	  }
       }
   }

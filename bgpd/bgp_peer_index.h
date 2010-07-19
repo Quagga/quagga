@@ -40,20 +40,10 @@ typedef unsigned bgp_peer_id_t ;
 
 struct bgp_peer_index_entry
 {
-  bgp_peer      peer ;          /* used by Routing Engine               */
+  bgp_peer_index_entry  next_free ; /* for list of free peer_id's       */
+                                /* points to self if entry is in use    */
 
-  /* The accept pointer is used by the listening socket(s) to find the
-   * session when it is prepared to accept a connection.
-   *
-   * This pointer MUST be NULL when not sEnabled or sEstablished.  It
-   * will be set by the BGP Engine when it decides to accept connections,
-   * and cleared by it otherwise (and when a session stops).
-   *
-   * An active session contains a pointer to the peer index entry to
-   * facilitate this.
-   */
-
-  bgp_connection accept ;       /* used by BGP Engine                   */
+  bgp_peer      peer ;          /* NULL if entry is not in use          */
 
   bgp_peer_id_t id ;            /* maps IP address to peer_id           */
 } ;
@@ -88,8 +78,11 @@ bgp_peer_index_seek(sockunion su) ;
 extern bgp_peer_index_entry
 bgp_peer_index_seek_entry(sockunion su) ;
 
+extern void
+bgp_peer_index_set_session(bgp_peer peer, bgp_session session) ;
+
 extern bgp_connection
-bgp_peer_index_seek_accept(sockunion su, int* p_found) ;
+bgp_peer_index_seek_accept(sockunion su, bool* p_found) ;
 
 #endif /* _QUAGGA_BGP_PEER_INDEX_H */
 

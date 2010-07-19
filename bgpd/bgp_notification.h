@@ -38,7 +38,10 @@ typedef unsigned char bgp_nom_code_t ;
 typedef unsigned char bgp_nom_subcode_t ;
 
 /*==============================================================================
+ * Structure for notification.
  *
+ * Note that vast majority of notification handling concerns notifications that
+ * are *sent* to the far end.  Occasionally a notification will be received.
  */
 typedef struct bgp_notify* bgp_notify ;
 
@@ -46,6 +49,8 @@ struct bgp_notify
 {
   bgp_nom_code_t    code ;
   bgp_nom_subcode_t subcode ;
+
+  bool              received ;
 
   bgp_size_t        length ;
   bgp_size_t        size ;
@@ -166,6 +171,12 @@ bgp_notify_set_subcode(bgp_notify notification, bgp_nom_subcode_t subcode)
   notification->subcode = subcode ;
 } ;
 
+Inline void
+bgp_notify_set_received(bgp_notify notification)
+{
+  notification->received = true ;
+} ;
+
 extern bgp_notify
 bgp_notify_reset(bgp_notify notification, bgp_nom_code_t code,
                                                      bgp_nom_subcode_t subcode) ;
@@ -191,6 +202,12 @@ Inline bgp_nom_subcode_t
 bgp_notify_get_subcode(bgp_notify notification)
 {
   return (notification != NULL) ? notification->subcode : BGP_NOMS_UNSPECIFIC ;
+} ;
+
+Inline bool
+bgp_notify_get_received(bgp_notify notification)
+{
+  return (notification != NULL) ? notification->received : false ;
 } ;
 
 Inline bgp_size_t

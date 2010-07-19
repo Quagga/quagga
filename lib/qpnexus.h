@@ -75,10 +75,10 @@ typedef struct qpn_nexus* qpn_nexus ;
 struct qpn_nexus
 {
   /* set true to terminate the thread (eventually) */
-  int terminate;
+  bool terminate;
 
   /* true if this is the main thread */
-  int main_thread;
+  bool main_thread;
 
   /* thread ID */
   qpt_thread_t thread_id;
@@ -146,7 +146,7 @@ struct qpn_nexus
  * Functions
  */
 
-extern qpn_nexus qpn_init_new(qpn_nexus qpn, int main_thread);
+extern qpn_nexus qpn_init_new(qpn_nexus qpn, bool main_thread);
 extern void qpn_add_hook_function(qpn_hook_list list, void* hook) ;
 extern void qpn_exec(qpn_nexus qpn);
 extern void qpn_terminate(qpn_nexus qpn);

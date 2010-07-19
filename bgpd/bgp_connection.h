@@ -219,6 +219,9 @@ extern void
 bgp_connection_disable_accept(bgp_connection connection) ;
 
 extern bgp_connection
+bgp_connection_query_accept(bgp_session session) ;
+
+extern bgp_connection
 bgp_connection_get_sibling(bgp_connection connection) ;
 
 extern void

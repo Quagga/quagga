@@ -89,23 +89,22 @@ struct bgp_session_stats
 
 struct bgp_session
 {
-  /* The following are set when the session is created, and not changed
-   * thereafter.
+  /* The following is set when the session is created, and not changed
+   * thereafter, so do not need to lock the session to access this.
    */
   bgp_peer          peer ;              /* peer whose session this is     */
-  bgp_peer_index_entry  index_entry ;   /* and its index entry            */
 
   /* This is a *recursive* mutex                                          */
   qpt_mutex_t       mutex ;             /* for access to the rest         */
 
-  /* While sIdle and sStopped:
+  /* While sIdle and sDisabled -- aka not "active" states:
    *
    *   the session belongs to the Routing Engine.
    *
    *   The BGP Engine will not touch a session in these states and the
    *   Routing Engine may do what it likes with it.
    *
-   * While sEnabled, sEstablished and sStopping:
+   * While sEnabled, sEstablished and sLimping -- aka "active" states:
    *
    *   the session belongs to the BGP Engine.
    *
@@ -119,10 +118,11 @@ struct bgp_session
    * These are private to the Routing Engine.
    */
   bgp_session_state_t   state ;
-  int                   defer_enable ;  /* set when waiting for stop      */
 
   int                   flow_control ;  /* limits number of updates sent
                                            by the Routing Engine          */
+
+  bool                  delete_me ;     /* when next goes sDisabled       */
 
   /* These are private to the Routing Engine, and are set each time a session
    * event message is received from the BGP Engine.
@@ -211,10 +211,15 @@ struct bgp_session
    * and enable are ignored.  This deals with the hiatus that exists between
    * the BGP Engine signalling that it has stopped (because of some exception)
    * and the Routing Engine acknowledging that (by disabling the session).
+   *
+   * The accept flag is set when the secondary connection is completely ready
+   * to accept connections.  It is cleared otherwise, or when the active flag
+   * is cleared.
    */
   bgp_connection    connections[bgp_connection_count] ;
 
   bool          active ;
+  bool          accept ;
 } ;
 
 /*==============================================================================
@@ -267,7 +272,7 @@ MQB_ARGS_SIZE_OK(bgp_session_end_of_rib_args) ;
 
 struct bgp_session_event_args           /* to Routeing Engine           */
 {
-  bgp_session_event_t  event ;
+  bgp_session_event_t  event ;          /* what just happened           */
   bgp_notify           notification ;   /* sent or received (if any)    */
   int                  err ;            /* errno if any                 */
   bgp_connection_ord_t ordinal ;        /* primary/secondary connection */
@@ -309,16 +314,16 @@ inline static void BGP_SESSION_UNLOCK(bgp_session session)
  */
 
 extern bgp_session
-bgp_session_init_new(bgp_session session, bgp_peer peer) ;
-
-extern bgp_session
-bgp_session_free(bgp_session session);
+bgp_session_init_new(bgp_peer peer) ;
 
 extern void
 bgp_session_enable(bgp_peer peer) ;
 
 extern void
 bgp_session_disable(bgp_peer peer, bgp_notify notification) ;
+
+extern void
+bgp_session_delete(bgp_peer peer);
 
 extern void
 bgp_session_event(bgp_session session, bgp_session_event_t  event,
@@ -358,7 +363,7 @@ bgp_session_get_stats(bgp_session session, struct bgp_session_stats *stats);
  * Session data access functions.
  */
 
-extern int
+extern bool
 bgp_session_is_active(bgp_session session) ;
 
 #endif /* QUAGGA_BGP_SESSION_H */

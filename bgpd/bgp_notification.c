@@ -54,6 +54,8 @@ bgp_notify_size(bgp_size_t size)
  * Allocate and initialise new notification
  *
  * Can add data later if required.
+ *
+ * NB: returns a 'NOT received' notification.
  */
 extern bgp_notify
 bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode)
@@ -67,9 +69,10 @@ bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode)
 
   /* Implicitly:
    *
-   *  notification->size    = 0
-   *  notification->length  = 0
-   *  notification->data    = NULL
+   *  notification->received = false ;
+   *  notification->size     = 0
+   *  notification->length   = 0
+   *  notification->data     = NULL
    */
 
   return notification ;
@@ -82,6 +85,8 @@ bgp_notify_new(bgp_nom_code_t code, bgp_nom_subcode_t subcode)
  * ...but pre-allocates at least the expected amount.
  *
  * May expect 0.
+ *
+ * NB: returns a 'NOT received' notification.
  */
 extern bgp_notify
 bgp_notify_new_expect(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
@@ -102,6 +107,8 @@ bgp_notify_new_expect(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
  * Allocate and initialise new notification, complete with data
  *
  * Can specify an expected amount of data.
+ *
+ * NB: returns a 'NOT received' notification.
  */
 extern bgp_notify
 bgp_notify_new_with_data(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
@@ -228,6 +235,8 @@ bgp_notify_set_mov(bgp_notify* p_dst, bgp_notify* p_src)
 
 /*==============================================================================
  * Set new Code and Subcode and discard and data accumulated so far.
+ *
+ * NB: does not change the received state of the notification.
  */
 extern bgp_notify
 bgp_notify_reset(bgp_notify notification, bgp_nom_code_t code,

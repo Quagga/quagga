@@ -700,18 +700,24 @@ prefix_list_entry_lookup_seq(struct prefix_list *plist, int seq, int* result)
  *
  * Returns index of an entry in the prefix_list or the dup_cache, and sets:
  *
- *   cache  -- NULL if not using dup_cache for this prefix_list.
- *             The index and result values refer to the main prefix_list.
+ *   cache -- NULL if not using dup_cache for this prefix_list.
+ *            The index and result values refer to the main prefix_list.
  *
- *          -- address of the cache (a vector).
- *             The index and result values refer to the cache.   << NB
+ *              result <  0 -- not found.  prefix list is empty, index == 0
+ *              result == 0 -- found.      index is of the prefix list entry
+ *              result >  0 -- not found.  prefix is not empty, index == last
  *
- *   result <  0 -- not found.  index returned is of first entry in the
- *                              prefix list, and this sequence number comes
- *                              before it.  (Or list is empty.)
- *   result == 0 -- found.      index is of the entry found.
- *   result >  0 -- not found.  index returned is of the entry with the largest
- *                              sequence number smaller than the given one.
+ *         -- address of the cache (a vector).
+ *            The index and result values refer to the *cache*.   << NB
+ *
+ *              result <  0 -- not found.  index == 0, prefix value given is
+ *                                         less than first entry in the *cache*
+ *              result == 0 -- found.      index is of the *cache* entry
+ *              result >  0 -- not found.  index is of entry in the *cache*
+ *                                         with the largest prefix value less
+ *                                         than the given prefix value.
+ *
+ *            Note that the cache is never empty.
  */
 static vector_index
 prefix_list_entry_lookup_val(struct prefix_list *plist,
@@ -749,7 +755,9 @@ prefix_list_entry_lookup_val(struct prefix_list *plist,
 	  if (plist->cmp(&pe, &temp) == 0)
 	    return i ;		/* Found !		*/
 	} ;
-      *result = 1 ;		/* Not found.		*/
+
+      *result = (vector_end(&plist->list) == 0) ? -1 : +1 ;
+                                /* Not found.		*/
       return i ;
     } ;
 } ;
@@ -855,16 +863,21 @@ prefix_list_entry_insert(struct prefix_list *plist,
     i = prefix_list_entry_lookup_seq(plist, temp->seq, &ret) ;
   else
     {
-      int last_seq = 0 ;
+      int last_seq ;
       i = vector_end(&plist->list) ;
-      if (i != 0)
+      if (i == 0)
+        {
+          last_seq = 0 ;  /* initial value for empty list               */
+          ret = -1 ;      /* insert before first item of empty list     */
+        }
+      else
 	{
-	  --i ;		/* step back to last entry */
+          --i ;           /* step back to last entry                    */
 	  pe = vector_get_item(&plist->list, i) ;
-	  last_seq = pe->seq ;
+          last_seq = pe->seq ;
+          ret = 1 ;       /* insert after last entry                    */
 	} ;
       temp->seq = (((last_seq + 5 - 1) / 5) * 5) + 5 ;
-      ret = 1 ;		/* insert after	last entry (if any)	*/
     } ;
 
   /* If we found it with same sequence number, then replace entry,

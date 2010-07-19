@@ -764,35 +764,6 @@ bgp_open_send (struct peer *peer)
 }
 #endif
 
-/* Send BGP notify packet with data portion. */
-void
-bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
-                           u_char *data, size_t datalen)
-{
-  bgp_notify notification;
-  notification = bgp_notify_new_with_data(code, sub_code, data, datalen);
-
-  /* peer reset cause */
-  if (sub_code != BGP_NOTIFY_CEASE_CONFIG_CHANGE)
-    {
-      if (sub_code == BGP_NOTIFY_CEASE_ADMIN_RESET)
-      peer->last_reset = PEER_DOWN_USER_RESET;
-      else if (sub_code == BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN)
-      peer->last_reset = PEER_DOWN_USER_SHUTDOWN;
-      else
-      peer->last_reset = PEER_DOWN_NOTIFY_SEND;
-    }
-
-  bgp_peer_disable(peer, notification);
-}
-
-/* Send BGP notify packet. */
-void
-bgp_notify_send (struct peer *peer, u_char code, u_char sub_code)
-{
-  bgp_notify_send_with_data (peer, code, sub_code, NULL, 0);
-}
-
 /* Send route refresh message to the peer. */
 
 void
@@ -1449,11 +1420,11 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   char attrstr[BUFSIZ] = "";
 
   /* Status must be Established. */
-  if (peer->state != bgp_peer_sEstablished)
+  if (peer->state != bgp_peer_pEstablished)
     {
       zlog_err ("%s [FSM] Update packet received under status %s",
 		peer->host, LOOKUP (bgp_peer_status_msg, peer->state));
-      bgp_notify_send (peer, BGP_NOTIFY_FSM_ERR, 0);
+      bgp_peer_down_error (peer, BGP_NOTIFY_FSM_ERR, 0);
       return -1;
     }
 
@@ -1476,8 +1447,8 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
       zlog_err ("%s [Error] Update packet error"
 		" (packet length is short for unfeasible length)",
 		peer->host);
-      bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
-		       BGP_NOTIFY_UPDATE_MAL_ATTR);
+      bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
+                                   BGP_NOTIFY_UPDATE_MAL_ATTR);
       return -1;
     }
 
@@ -1490,8 +1461,8 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
       zlog_err ("%s [Error] Update packet error"
 		" (packet unfeasible length overflow %d)",
 		peer->host, withdraw_len);
-      bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
-		       BGP_NOTIFY_UPDATE_MAL_ATTR);
+      bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
+                                   BGP_NOTIFY_UPDATE_MAL_ATTR);
       return -1;
     }
 
@@ -1518,8 +1489,8 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
       zlog_warn ("%s [Error] Packet Error"
 		 " (update packet is short for attribute length)",
 		 peer->host);
-      bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
-		       BGP_NOTIFY_UPDATE_MAL_ATTR);
+      bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
+                                   BGP_NOTIFY_UPDATE_MAL_ATTR);
       return -1;
     }
 
@@ -1532,8 +1503,8 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
       zlog_warn ("%s [Error] Packet Error"
 		 " (update packet attribute length overflow %d)",
 		 peer->host, attribute_len);
-      bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
-		       BGP_NOTIFY_UPDATE_MAL_ATTR);
+      bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
+                                   BGP_NOTIFY_UPDATE_MAL_ATTR);
       return -1;
     }
 
@@ -1754,7 +1725,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 
   /* If peering is stopped due to some reason, do not generate BGP
      event.  */
-  if (peer->state != bgp_peer_sEstablished)
+  if (peer->state != bgp_peer_pEstablished)
     return 0;
 
   /* Generate BGP event. */
@@ -1949,9 +1920,8 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
     {
       plog_err (peer->log, "%s [Error] BGP route refresh is not enabled",
 		peer->host);
-      bgp_notify_send (peer,
-		       BGP_NOTIFY_HEADER_ERR,
-		       BGP_NOTIFY_HEADER_BAD_MESTYPE);
+      bgp_peer_down_error (peer, BGP_NOTIFY_HEADER_ERR,
+                                   BGP_NOTIFY_HEADER_BAD_MESTYPE);
       return;
     }
 
@@ -1961,7 +1931,7 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
       plog_err (peer->log,
 		"%s [Error] Route refresh packet received under status %s",
 		peer->host, LOOKUP (bgp_status_msg, peer->status));
-      bgp_notify_send (peer, BGP_NOTIFY_FSM_ERR, 0);
+      bgp_peer_down_error (peer, BGP_NOTIFY_FSM_ERR, 0);
       return;
     }
 
@@ -2003,7 +1973,7 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
       if (size - (BGP_MSG_ROUTE_REFRESH_MIN_SIZE - BGP_HEADER_SIZE) < 5)
         {
           zlog_info ("%s ORF route refresh length error", peer->host);
-          bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+          bgp_peer_down_error (peer, BGP_NOTIFY_CEASE, 0);
           return;
         }
 
@@ -2130,7 +2100,8 @@ bgp_capability_msg_parse (struct peer *peer, u_char *pnt, bgp_size_t length)
       if (pnt + 3 > end)
         {
           zlog_info ("%s Capability length error", peer->host);
-          bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+          /* TODO: Is this the right notification ??           */
+          bgp_peer_down_error (peer, BGP_NOTIFY_CEASE, 0);
           return -1;
         }
       action = *pnt;
@@ -2142,7 +2113,8 @@ bgp_capability_msg_parse (struct peer *peer, u_char *pnt, bgp_size_t length)
         {
           zlog_info ("%s Capability Action Value error %d",
 		     peer->host, action);
-          bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+          /* TODO: Is this the right notification ??           */
+          bgp_peer_down_error (peer, BGP_NOTIFY_CEASE, 0);
           return -1;
         }
 
@@ -2154,7 +2126,8 @@ bgp_capability_msg_parse (struct peer *peer, u_char *pnt, bgp_size_t length)
       if ((pnt + hdr->length + 3) > end)
         {
           zlog_info ("%s Capability length error", peer->host);
-          bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+          /* TODO: Is this the right notification ??           */
+          bgp_peer_down_error (peer, BGP_NOTIFY_CEASE, 0);
           return -1;
         }
 
@@ -2200,16 +2173,20 @@ bgp_capability_msg_parse (struct peer *peer, u_char *pnt, bgp_size_t length)
             {
               peer->afc_recv[afi][safi] = 0;
               peer->afc_nego[afi][safi] = 0;
+              bool completed ;
 
               if (peer_active_nego (peer))
-                bgp_clear_route_normal (peer, afi, safi);
+                completed = bgp_clear_routes (peer, afi, safi, false);
               else
                 {
+                  completed = true ;
                   /* TODO: only used for unit tests.  Test will need fixing */
 #if 0
                 BGP_EVENT_ADD (peer, BGP_Stop);
 #endif
-                }
+                } ;
+              /* if bgp_clear_routes does not complete. what do we do ? */
+              passert(completed) ;
             }
         }
       else
@@ -2242,19 +2219,18 @@ bgp_capability_receive (struct peer *peer, bgp_size_t size)
     {
       plog_err (peer->log, "%s [Error] BGP dynamic capability is not enabled",
 		peer->host);
-      bgp_notify_send (peer,
-		       BGP_NOTIFY_HEADER_ERR,
-		       BGP_NOTIFY_HEADER_BAD_MESTYPE);
+      bgp_peer_down_error (peer, BGP_NOTIFY_HEADER_ERR,
+                                   BGP_NOTIFY_HEADER_BAD_MESTYPE);
       return -1;
     }
 
   /* Status must be Established. */
-  if (peer->state != bgp_peer_sEstablished)
+  if (peer->state != bgp_peer_pEstablished)
     {
       plog_err (peer->log,
 		"%s [Error] Dynamic capability packet received under status %s",
 		peer->host, LOOKUP (bgp_status_msg, peer->state));
-      bgp_notify_send (peer, BGP_NOTIFY_FSM_ERR, 0);
+      bgp_peer_down_error (peer, BGP_NOTIFY_FSM_ERR, 0);
       return -1;
     }
 
@@ -2405,9 +2381,8 @@ bgp_read (struct thread *thread)
       if (((type == BGP_MSG_OPEN) || (type == BGP_MSG_KEEPALIVE))
 	  && ! bgp_marker_all_one (peer->ibuf, BGP_MARKER_SIZE))
 	{
-	  bgp_notify_send (peer,
-			   BGP_NOTIFY_HEADER_ERR,
-			   BGP_NOTIFY_HEADER_NOT_SYNC);
+	  bgp_peer_down_error (peer, BGP_NOTIFY_HEADER_ERR,
+                                       BGP_NOTIFY_HEADER_NOT_SYNC);
 	  goto done;
 	}
 
@@ -2508,7 +2483,7 @@ bgp_read (struct thread *thread)
     {
       if (BGP_DEBUG (events, EVENTS))
 	zlog_debug ("%s [Event] Accepting BGP peer delete", peer->host);
-      peer_delete (peer);
+      bgp_peer_delete (peer);
     }
   return 0;
 }

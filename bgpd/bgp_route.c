@@ -205,7 +205,7 @@ bgp_info_add (struct bgp_node *rn, struct bgp_info *ri)
 
   bgp_info_lock (ri);
   bgp_lock_node (rn);
-  peer_lock (peer);     /* bgp_info peer reference */
+  bgp_peer_lock (peer);     /* bgp_info peer reference */
 }
 
 /* Do the actual removal of info from RIB, for use by bgp_process
@@ -237,7 +237,7 @@ bgp_info_reap (struct bgp_node *rn, struct bgp_info *ri)
 
   bgp_info_unlock (ri);         /* fewer references to bgp_info */
   bgp_unlock_node (rn);         /* fewer references to bgp_node */
-  peer_unlock (peer);           /* fewer references to peer     */
+  bgp_peer_unlock (peer);       /* fewer references to peer     */
 }
 
 void
@@ -1434,7 +1434,7 @@ bgp_process_announce_selected (struct peer *peer, struct bgp_info *selected,
   p = &rn->p;
 
   /* Announce route to Established peer. */
-  if (peer->state != bgp_peer_sEstablished)
+  if (peer->state != bgp_peer_pEstablished)
     return 0;
 
   /* Address family configuration check. */
@@ -1493,6 +1493,7 @@ bgp_process_rsclient (struct work_queue *wq, work_queue_item item)
   struct bgp_info *old_select;
   struct bgp_info_pair old_and_new;
   struct listnode *node, *nnode;
+  struct bgp_table *table ;
   struct peer *rsclient ;
 
   assert(wq->spec.data == item) ;
@@ -1503,12 +1504,20 @@ bgp_process_rsclient (struct work_queue *wq, work_queue_item item)
     return WQ_SUCCESS ;
 
   /* hack off queue and prepare to process                      */
-  pq->head = rn->wq_next ;
-  rn->on_wq = 0 ;
 
-  rsclient = rn->table->owner;
-  afi      = rn->table->afi;
-  safi     = rn->table->safi;
+  dassert((rn->on_wq != 0) && (rn->lock > 0)) ;
+
+  pq->head    = rn->wq_next ;
+  rn->wq_next = NULL ;          /* Keep tidy    */
+  rn->on_wq   = 0 ;
+
+  table    = rn->table ;
+  rsclient = table->owner;
+  afi      = table->afi;
+  safi     = table->safi;
+
+  dassert(table->lock    > 0) ;
+  dassert(rsclient->lock > 0) ;
 
   /* Best path selection. */
   bgp_best_selection (bgp, rn, &old_and_new);
@@ -1552,8 +1561,8 @@ bgp_process_rsclient (struct work_queue *wq, work_queue_item item)
   if (old_select && CHECK_FLAG (old_select->flags, BGP_INFO_REMOVED))
     bgp_info_reap (rn, old_select);
 
-  bgp_table_unlock (rn->table);
   bgp_unlock_node (rn);
+  bgp_table_unlock (table);     /* NB: *after* node, in case table is deleted */
   bgp_unlock (bgp);
 
   if (pq->head == NULL)
@@ -1575,6 +1584,7 @@ bgp_process_main (struct work_queue *wq, work_queue_item item)
   struct bgp_info *old_select;
   struct bgp_info_pair old_and_new;
   struct listnode *node, *nnode;
+  struct bgp_table *table ;
   struct peer *peer;
 
   assert(wq->spec.data == item) ;
@@ -1585,11 +1595,18 @@ bgp_process_main (struct work_queue *wq, work_queue_item item)
     return WQ_SUCCESS ;
 
   /* hack off queue and prepare to process                      */
-  pq->head = rn->wq_next ;
-  rn->on_wq = 0 ;
 
-  afi  = rn->table->afi;
-  safi = rn->table->safi;
+  dassert((rn->on_wq != 0) && (rn->lock > 0)) ;
+
+  pq->head    = rn->wq_next ;
+  rn->wq_next = NULL ;          /* Keep tidy    */
+  rn->on_wq   = 0 ;
+
+  table    = rn->table ;
+  afi      = table->afi;
+  safi     = table->safi;
+
+  dassert(table->lock    > 0) ;
 
   p    = &rn->p ;
 
@@ -1599,7 +1616,7 @@ bgp_process_main (struct work_queue *wq, work_queue_item item)
   new_select = old_and_new.new;
 
   /* Nothing to do. */
-  if (old_select && old_select == new_select)
+  if (old_select && (old_select == new_select))
     {
       if (! CHECK_FLAG (old_select->flags, BGP_INFO_ATTR_CHANGED))
         {
@@ -1626,19 +1643,17 @@ bgp_process_main (struct work_queue *wq, work_queue_item item)
     }
 
   /* FIB update. */
-  if (safi == SAFI_UNICAST && ! bgp->name &&
-      ! bgp_option_check (BGP_OPT_NO_FIB))
+  if ((safi == SAFI_UNICAST) && (bgp->name == NULL) &&
+                                            ! bgp_option_check (BGP_OPT_NO_FIB))
     {
-      if (new_select
-	  && new_select->type == ZEBRA_ROUTE_BGP
-	  && new_select->sub_type == BGP_ROUTE_NORMAL)
+      if (new_select && (new_select->type == ZEBRA_ROUTE_BGP)
+                     && (new_select->sub_type == BGP_ROUTE_NORMAL))
 	bgp_zebra_announce (p, new_select, bgp);
       else
 	{
 	  /* Withdraw the route from the kernel. */
-	  if (old_select
-	      && old_select->type == ZEBRA_ROUTE_BGP
-	      && old_select->sub_type == BGP_ROUTE_NORMAL)
+	  if (old_select && (old_select->type == ZEBRA_ROUTE_BGP)
+                         && (old_select->sub_type == BGP_ROUTE_NORMAL))
 	    bgp_zebra_withdraw (p, old_select);
 	}
     }
@@ -1650,9 +1665,9 @@ bgp_process_main (struct work_queue *wq, work_queue_item item)
   /* Finish up                                          */
 
 finish:
-  bgp_table_unlock (rn->table);
-  bgp_unlock_node (rn);
-  bgp_unlock (bgp);
+  bgp_unlock_node (rn) ;
+  bgp_table_unlock (table) ;    /* NB: *after* node, in case table is deleted */
+  bgp_unlock (bgp) ;
 
   if (pq->head == NULL)
     return WQ_SUCCESS ;
@@ -1660,6 +1675,9 @@ finish:
     return WQ_REQUEUE ;
 }
 
+/*------------------------------------------------------------------------------
+ * Delete item from work queue
+ */
 static void
 bgp_processq_del (struct work_queue *wq, work_queue_item item)
 {
@@ -1670,17 +1688,29 @@ bgp_processq_del (struct work_queue *wq, work_queue_item item)
 
   while ((rn = pq->head) != NULL)
     {
-      pq->head = rn->wq_next ;
-      rn->on_wq = 0 ;
+      struct bgp_table *table ;
 
-      bgp_table_unlock (rn->table);
+      dassert((rn->on_wq != 0) && (rn->lock > 0)) ;
+
+      pq->head    = rn->wq_next ;
+      rn->wq_next = NULL ;          /* Keep tidy    */
+      rn->on_wq   = 0 ;
+
+      table    = rn->table ;
+
+      dassert(table->lock    > 0) ;
+
       bgp_unlock_node (rn);
+      bgp_table_unlock (table); /* NB: *after* node, in case table is deleted */
       bgp_unlock (pq->bgp);
     } ;
 
   wq->spec.data = NULL ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Create new work queue for given bgp instance and given type of table
+ */
 static work_queue
 bgp_process_queue_init (struct bgp* bgp, bgp_table_t type)
 {
@@ -1718,6 +1748,10 @@ bgp_process_queue_init (struct bgp* bgp, bgp_table_t type)
   return *p_wq = wq ;
 }
 
+/*------------------------------------------------------------------------------
+ * Place given route node on appropriate work queue, so that best path
+ * selection etc. can take place later.
+ */
 void
 bgp_process (struct bgp *bgp, struct bgp_node *rn, afi_t afi, safi_t safi)
 {
@@ -1762,9 +1796,9 @@ bgp_process (struct bgp *bgp, struct bgp_node *rn, afi_t afi, safi_t safi)
     pq = work_queue_item_args(item) ;
 
   /* all unlocked when processed or deleted                     */
+  bgp_lock (bgp);
   bgp_table_lock (rn->table);
   bgp_lock_node (rn);
-  bgp_lock (bgp);
 
   /* add to the queue                                           */
   if (pq->head == NULL)
@@ -1780,6 +1814,11 @@ bgp_process (struct bgp *bgp, struct bgp_node *rn, afi_t afi, safi_t safi)
   return;
 }
 
+/*============================================================================*/
+
+/*------------------------------------------------------------------------------
+ * Max Prefix Overflow timer expired -- turn off overflow status and enable.
+ */
 static int
 bgp_maximum_prefix_restart_timer (struct thread *thread)
 {
@@ -1788,15 +1827,42 @@ bgp_maximum_prefix_restart_timer (struct thread *thread)
   peer = THREAD_ARG (thread);
   peer->t_pmax_restart = NULL;
 
+  assert(CHECK_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW)) ;
+
   if (BGP_DEBUG (events, EVENTS))
     zlog_debug ("%s Maximum-prefix restart timer expired, restore peering",
 		peer->host);
 
-  peer_clear (peer);
+  UNSET_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW);
+
+  bgp_peer_enable(peer);
 
   return 0;
 }
 
+/*------------------------------------------------------------------------------
+ * If there is an active max prefix restart timer, cancel it now.
+ *
+ * NB: clears PEER_STATUS_PREFIX_OVERFLOW, but does NOT enable the peer.
+ */
+void
+bgp_maximum_prefix_cancel_timer (struct peer *peer)
+{
+  if (peer->t_pmax_restart)
+    {
+      assert(CHECK_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW)) ;
+
+      BGP_TIMER_OFF (peer->t_pmax_restart);
+      if (BGP_DEBUG (events, EVENTS))
+        zlog_debug ("%s Maximum-prefix restart timer cancelled", peer->host) ;
+    } ;
+
+  UNSET_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Number of prefixes has overflowed.
+ */
 int
 bgp_maximum_prefix_overflow (struct peer *peer, afi_t afi,
                              safi_t safi, int always)
@@ -1814,10 +1880,11 @@ bgp_maximum_prefix_overflow (struct peer *peer, afi_t afi,
 	    "%%MAXPFXEXCEED: No. of %s prefix received from %s %ld exceed, "
 	    "limit %ld", afi_safi_print (afi, safi), peer->host,
 	    peer->pcount[afi][safi], peer->pmax[afi][safi]);
+
       SET_FLAG (peer->af_sflags[afi][safi], PEER_STATUS_PREFIX_LIMIT);
 
       if (CHECK_FLAG (peer->af_flags[afi][safi], PEER_FLAG_MAX_PREFIX_WARNING))
-       return 0;
+        return 0;
 
       {
        u_int8_t ndata[7];
@@ -1835,8 +1902,8 @@ bgp_maximum_prefix_overflow (struct peer *peer, afi_t afi,
 
        SET_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW);
        /* Disable the peer, the timer routine will reenable. */
-       bgp_notify_send_with_data(peer, BGP_NOTIFY_CEASE,
-                                  BGP_NOTIFY_CEASE_MAX_PREFIX, ndata, 7);
+       bgp_peer_down_error_with_data(peer, BGP_NOTIFY_CEASE,
+                                       BGP_NOTIFY_CEASE_MAX_PREFIX, ndata, 7);
       }
 
       /* restart timer start */
@@ -1874,7 +1941,10 @@ bgp_maximum_prefix_overflow (struct peer *peer, afi_t afi,
   return 0;
 }
 
-/* Unconditionally remove the route from the RIB, without taking
+/*============================================================================*/
+
+/*------------------------------------------------------------------------------
+ * Unconditionally remove the route from the RIB, without taking
  * damping into consideration (eg, because the session went down)
  */
 static void
@@ -2671,7 +2741,7 @@ bgp_announce_route (struct peer *peer, afi_t afi, safi_t safi)
   struct bgp_node *rn;
   struct bgp_table *table;
 
-  if (peer->state != bgp_peer_sEstablished)
+  if (peer->state != bgp_peer_pEstablished)
     return;
 
   if (! peer->afc_nego[afi][safi])
@@ -2773,7 +2843,7 @@ bgp_soft_reconfig_in (struct peer *peer, afi_t afi, safi_t safi)
   struct bgp_node *rn;
   struct bgp_table *table;
 
-  if (peer->state != bgp_peer_sEstablished)
+  if (peer->state != bgp_peer_pEstablished)
     return;
 
   if (safi != SAFI_MPLS_VPN)
@@ -2790,13 +2860,17 @@ bgp_soft_reconfig_in (struct peer *peer, afi_t afi, safi_t safi)
  *
  * There are two (quite different) forms of clearing:
  *
- *   1. Normal clearing    -- mass withdraw of given client's routes for all
+ *   1. Normal clearing    -- mass withdraw of given peer's routes for all
  *                            or individual AFI/SAFI.
+ *
+ *      This is clears the routes *from* the given peer.
  *
  *      Note that normal clearing deals with the main RIB and any RS Client
  *      RIBs that may also contain routes.
  *
  *   2. RS Client clearing -- dismantling of RS Client RIB for an AFI/SAFI.
+ *
+ *      This clears out the routes *for* the given RS Client.
  *
  *------------------------------------------------------------------------------
  * Normal clearing
@@ -2834,8 +2908,19 @@ bgp_soft_reconfig_in (struct peer *peer, afi_t afi, safi_t safi)
  * The peer's:
  *
  *   struct bgp_info*    routes_head[AFI_MAX][SAFI_MAX] ;
+ *
+ *     This list threads through every use of all routes which belong to
+ *     the peer, in all RIBs.
+ *
  *   struct bgp_adj_in*  adj_in_head[AFI_MAX][SAFI_MAX] ;
+ *
+ *     This list threads through every copy of all routes which belong to the
+ *     peer and which have been preserved for soft reconfiguration, in all RIBs.
+ *
  *   struct bgp_adj_out* adj_out_head[AFI_MAX][SAFI_MAX] ;
+ *
+ *     This list threads through every route which has been selected for the
+ *     peer, in all RIBs.
  *
  * Are maintained for exactly this purpose.
  *
@@ -2860,6 +2945,7 @@ bgp_soft_reconfig_in (struct peer *peer, afi_t afi, safi_t safi)
  *
  * [The MPLS VPN stuff has a two level RIB, which the above probably doesn't
  *  work for...  more work required, here.]
+ *
  * TODO: fix bgp_clear_route() and MPLS VPN !!
  *
  *------------------------------------------------------------------------------
@@ -2873,27 +2959,225 @@ bgp_soft_reconfig_in (struct peer *peer, afi_t afi, safi_t safi)
  */
 
 /*------------------------------------------------------------------------------
- * Clear given route -- respecting NSF for peer whose route this is.
+ * Normal clearing of a a given peer's routes.
  *
- * Will mark the bgp_info as stale, or will remove altogether.  If removes the
- * route will set the bgp_node to be reprocessed.
+ * The following lists are processed:
+ *
+ *   * struct bgp_info* routes_head
+ *
+ *     Walks this and clears each route.
+ *
+ *   * struct bgp_adj_in* adj_in_head
+ *   * struct bgp_adj_out* adj_out_head
+ *
+ *     These two are simply emptied out.
+ *
+ * NB: in the latest scheme of things this is completed immediately...
+ *
+ *     ...however, retain the ability for this to kick off background or other
+ *     activity.
+ *
+ * Returns:  true <=> clearing has completed
+ *
  */
-static void
-bgp_clear_this_route(bgp_peer peer, struct bgp_node* rn, struct bgp_info* ri,
-                                                         afi_t afi, safi_t safi)
+extern bool
+bgp_clear_routes(struct peer *peer, afi_t afi, safi_t safi, bool nsf)
 {
-  assert (rn && peer && ri) ;
-  assert ((rn == ri->rn) && (peer == ri->peer)) ;
+  struct bgp_info*     ri ;
+  struct bgp_info*     next_ri ;
+  struct bgp_adj_in*   adj_in ;
+  struct bgp_adj_out*  adj_out ;
+  struct bgp_adj_in**  adj_in_head ;
+  struct bgp_adj_out** adj_out_head ;
 
-  /* graceful restart STALE flag set. */
-  if (CHECK_FLAG (peer->sflags, PEER_STATUS_NSF_WAIT)
-      && peer->nsf[afi][safi]
-      && ! CHECK_FLAG (ri->flags, BGP_INFO_STALE)
-      && ! CHECK_FLAG (ri->flags, BGP_INFO_UNUSEABLE))
-    bgp_info_set_flag (rn, ri, BGP_INFO_STALE);
-  else
-    bgp_rib_remove (rn, ri, peer, afi, safi);
+  next_ri = peer->routes_head[afi][safi] ;
+
+  /* If NSF requested and nsf configured for this afi/safi, do nsf and
+   * set flag to indicate that at least one afi/safi may have stale routes.
+   */
+  nsf = nsf && peer->nsf[afi][safi] ;
+  if (nsf)
+    SET_FLAG (peer->sflags, PEER_STATUS_NSF_WAIT) ;
+
+  /* TODO: fix bgp_clear_route_normal() so can clear an MPLS VPN table....  */
+  if (next_ri != NULL)
+    assert(safi != SAFI_MPLS_VPN) ;
+
+  while (next_ri != NULL)
+    {
+      /* The current bgp_info object may vanish, so bank the next       */
+      ri = next_ri ;
+      next_ri = ri->routes_next ;
+
+      assert (peer == ri->peer) ;
+
+      if (nsf && ! CHECK_FLAG (ri->flags, BGP_INFO_STALE)
+              && ! CHECK_FLAG (ri->flags, BGP_INFO_UNUSEABLE))
+        bgp_info_set_flag (ri->rn, ri, BGP_INFO_STALE);
+      else
+        bgp_rib_remove (ri->rn, ri, peer, afi, safi);
+    } ;
+
+  /* Empty out all adjacencies                                  */
+  adj_in_head = &(peer->adj_in_head[afi][safi]) ;
+  while ((adj_in = *adj_in_head) != NULL)
+    {
+      assert(adj_in->route_prev == NULL) ;
+      bgp_adj_in_remove (adj_in->rn, adj_in) ;
+      assert(adj_in != *adj_in_head) ;
+    } ;
+
+  adj_out_head = &(peer->adj_out_head[afi][safi]) ;
+  while ((adj_out = *adj_out_head) != NULL)
+    {
+      assert(adj_out->route_prev == NULL) ;
+      bgp_adj_out_remove (adj_out->rn, adj_out, peer, afi, safi) ;
+      assert(adj_out != *adj_out_head) ;
+    } ;
+
+  return true ;
 } ;
+
+/*------------------------------------------------------------------------------
+ * Normal clearing of given peer for all AFI/SAFI -- respecting NSF if required.
+ *
+ * NB: in the latest scheme of things this is completed immediately...
+ *
+ *     ...however, retain the ability to run this in the background with the
+ *        peer in bgp_peer_pClearing.
+ *
+ * Returns: true <=> all clearing completed
+ *          so false => something running in the background.
+ */
+extern bool
+bgp_clear_all_routes (struct peer *peer, bool nsf)
+{
+  bool completed ;
+  afi_t afi;
+  safi_t safi;
+
+  assert(peer->state == bgp_peer_pClearing) ;
+
+  UNSET_FLAG (peer->sflags, PEER_STATUS_NSF_WAIT) ;
+
+  completed = true ;
+  for (afi = AFI_IP; afi < AFI_MAX; afi++)
+    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
+      if (!bgp_clear_routes(peer, afi, safi, nsf))
+        completed = false ;
+
+  return completed ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Clear Route Server RIB for given AFI/SAFI -- unconditionally
+ *
+ * This is used to dismantle a Route Server Client's RIB -- this is removing
+ * all the routes from all *other* Route Server Clients that have been placed
+ * in this Clients RIB.
+ *
+ * Walks all the nodes in the table and discards all routes, all adj_in and
+ * all adj_out.
+ *
+ * Does nothing if there is no RIB for that AFI/SAFI.
+ */
+extern void
+bgp_clear_rsclient_rib(struct peer* rsclient, afi_t afi, safi_t safi)
+{
+  struct bgp_node *rn ;
+  struct bgp_table* table ;
+
+  table = rsclient->rib[afi][safi] ;
+
+  if (table == NULL)
+    return ;            /* Ignore unconfigured afi/safi or similar      */
+
+  /* TODO: fix bgp_clear_rsclient_rib() so that will clear an MPLS VPN table. */
+  passert(table->safi != SAFI_MPLS_VPN) ;
+
+  for (rn = bgp_table_top (table); rn; rn = bgp_route_next (rn))
+    {
+      struct bgp_info    *ri;
+      struct bgp_info    *next_ri ;
+      struct bgp_adj_in  *ain;
+      struct bgp_adj_out *aout;
+
+      next_ri = rn->info ;
+      while(next_ri != NULL)
+        {
+          ri = next_ri ;
+          next_ri = ri->info_next ;     /* bank this    */
+
+          bgp_rib_remove (rn, ri, rsclient, table->afi, table->safi);
+        } ;
+
+      while ((ain = rn->adj_in) != NULL)
+        {
+          assert(ain->adj_prev == NULL) ;
+          bgp_adj_in_remove (rn, ain);
+          assert(ain != rn->adj_in) ;
+        } ;
+
+      while ((aout = rn->adj_out) != NULL)
+        {
+          assert(aout->adj_prev == NULL) ;
+          bgp_adj_out_remove (rn, aout, aout->peer, table->afi, table->safi) ;
+          assert(aout != rn->adj_out) ;
+        } ;
+    }
+  return ;
+}
+
+/*------------------------------------------------------------------------------
+ * Walk main RIB and remove any adj_in for given peer.
+ *
+ * TODO: walk peer->bgp_adj_in_head[afi][safi] -- but check which table ?
+ */
+void
+bgp_clear_adj_in (struct peer *peer, afi_t afi, safi_t safi)
+{
+  struct bgp_table *table;
+  struct bgp_node *rn;
+  struct bgp_adj_in *ain;
+
+  table = peer->bgp->rib[afi][safi];
+
+  for (rn = bgp_table_top (table); rn; rn = bgp_route_next (rn))
+    for (ain = rn->adj_in; ain ; ain = ain->adj_next)
+      if (ain->peer == peer)
+	{
+          bgp_adj_in_remove (rn, ain);
+          break;
+	}
+} ;
+
+/*------------------------------------------------------------------------------
+ * Walk main RIB and remove all stale routes for the given peer.
+ *
+ * NB: is required to complete immediately !
+ *
+ * TODO: walk peer->routes_head[afi][safi]
+ */
+void
+bgp_clear_stale_route (struct peer *peer, afi_t afi, safi_t safi)
+{
+  struct bgp_node *rn;
+  struct bgp_info *ri;
+  struct bgp_table *table;
+
+  table = peer->bgp->rib[afi][safi];
+
+  for (rn = bgp_table_top (table); rn; rn = bgp_route_next (rn))
+    {
+      for (ri = rn->info; ri; ri = ri->info_next)
+	if (ri->peer == peer)
+	  {
+	    if (CHECK_FLAG (ri->flags, BGP_INFO_STALE))
+	      bgp_rib_remove (rn, ri, peer, afi, safi);
+	    break;
+	  }
+    }
+}
 
 #if 0
 
@@ -2952,14 +3236,14 @@ bgp_clear_node_complete (struct work_queue *wq)
   /* Flush the event queue and ensure the peer is shut down */
   bgp_peer_stop(peer);
   BGP_EVENT_FLUSH (peer);
-  if (peer->state == bgp_peer_sClearing)
+  if (peer->state == bgp_peer_pClearing)
     {
-      peer_change_status (peer, bgp_peer_sIdle);
+      peer_change_status (peer, bgp_peer_pIdle);
       /* enable peer if required */
       bgp_peer_enable(peer);
     }
 
-  peer_unlock (peer); /* bgp_clear_route */
+  bgp_peer_unlock (peer); /* bgp_clear_route */
 }
 
 static void
@@ -2985,120 +3269,6 @@ bgp_clear_node_queue_init (struct peer *peer)
   peer->clear_node_queue->spec.data = peer;
 }
 
-#endif
-
-/*------------------------------------------------------------------------------
- * Completely empty the given table which belongs to the given peer.
- *
- * Used for RS Client RIB clearing.
- *
- * Walks the table, *unconditionally* deleting all routes.
- *
- * Deletes any and all adj_in and adj_out.
- *
- * TODO: fix bgp_clear_route_table() so that will clear an MPLS VPN table....
- */
-static void
-bgp_clear_route_table (bgp_peer peer, struct bgp_table* table)
-{
-  struct bgp_node *rn ;
-
-  if (table == NULL)
-    return ;            /* Ignore unconfigured afi/safi or similar      */
-
-  passert(table->safi != SAFI_MPLS_VPN) ;
-
-  for (rn = bgp_table_top (table); rn; rn = bgp_route_next (rn))
-    {
-      struct bgp_info    *ri;
-      struct bgp_info    *next_ri ;
-      struct bgp_adj_in  *ain;
-      struct bgp_adj_out *aout;
-
-      next_ri = rn->info ;
-      while(next_ri != NULL)
-        {
-          ri = next_ri ;
-          next_ri = ri->info_next ;     /* bank this    */
-
-          bgp_rib_remove (rn, ri, peer, table->afi, table->safi);
-        } ;
-
-      while ((ain = rn->adj_in) != NULL)
-        {
-          assert(ain->adj_prev == NULL) ;
-          bgp_adj_in_remove (rn, ain);
-          assert(ain != rn->adj_in) ;
-        } ;
-
-      while ((aout = rn->adj_out) != NULL)
-        {
-          assert(aout->adj_prev == NULL) ;
-          bgp_adj_out_remove (rn, aout, aout->peer, table->afi, table->safi) ;
-          assert(aout != rn->adj_out) ;
-        } ;
-    }
-  return ;
-}
-
-/*------------------------------------------------------------------------------
- * Normal clearing of a a given peer's routes.
- *
- * The following lists are processed:
- *
- *   * struct bgp_info* routes_head
- *
- *     Walks this and clears each route.
- *
- *   * struct bgp_adj_in* adj_in_head
- *   * struct bgp_adj_out* adj_out_head
- *
- *     These two are simply emptied out.
- *
- * TODO: fix bgp_clear_route_normal() so that will clear an MPLS VPN table....
- */
-extern void
-bgp_clear_route_normal(struct peer *peer, afi_t afi, safi_t safi)
-{
-  struct bgp_info*     ri ;
-  struct bgp_info*     next_ri ;
-  struct bgp_adj_in*   adj_in ;
-  struct bgp_adj_out*  adj_out ;
-  struct bgp_adj_in**  adj_in_head ;
-  struct bgp_adj_out** adj_out_head ;
-
-  next_ri = peer->routes_head[afi][safi] ;
-
-  assert((safi != SAFI_MPLS_VPN) || (next_ri == NULL)) ;
-
-  while (next_ri != NULL)
-    {
-      /* The current bgp_info object may vanish, so bank the next       */
-      ri = next_ri ;
-      next_ri = ri->routes_next ;
-
-      bgp_clear_this_route(peer, ri->rn, ri, afi, safi) ;
-    } ;
-
-  /* Empty out all adjacencies                                  */
-  adj_in_head = &(peer->adj_in_head[afi][safi]) ;
-  while ((adj_in = *adj_in_head) != NULL)
-    {
-      assert(adj_in->route_prev == NULL) ;
-      bgp_adj_in_remove (adj_in->rn, adj_in) ;
-      assert(adj_in != *adj_in_head) ;
-    } ;
-
-  adj_out_head = &(peer->adj_out_head[afi][safi]) ;
-  while ((adj_out = *adj_out_head) != NULL)
-    {
-      assert(adj_out->route_prev == NULL) ;
-      bgp_adj_out_remove (adj_out->rn, adj_out, peer, afi, safi) ;
-      assert(adj_out != *adj_out_head) ;
-    } ;
-} ;
-
-#if 0
 void
 bgp_clear_route (struct peer *peer, afi_t afi, safi_t safi)
 {
@@ -3123,7 +3293,7 @@ bgp_clear_route (struct peer *peer, afi_t afi, safi_t safi)
    *    to grow and grow.
    */
 //if (!peer->clear_node_queue->thread)
-  peer_lock (peer); /* bgp_clear_node_complete */
+  bgp_peer_lock (peer); /* bgp_clear_node_complete */
 
   switch (purpose)
     {
@@ -3181,91 +3351,14 @@ bgp_clear_route (struct peer *peer, afi_t afi, safi_t safi)
 
   /* The following was in bgp_clear_node_complete               */
 
-  peer_unlock (peer); /* bgp_clear_route */
+  bgp_peer_unlock (peer); /* bgp_clear_route */
 }
 #endif
 
-/*------------------------------------------------------------------------------
- * Clear Route Server RIB for given AFI/SAFI -- unconditionally
- *
- * Does nothing if there is no RIB for that AFI/SAFI.
- */
-extern void
-bgp_clear_route_rsclient(struct peer* rsclient, afi_t afi, safi_t safi)
-{
-  bgp_clear_route_table (rsclient, rsclient->rib[afi][safi]) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Normal clearing of given peer for all AFI/SAFI -- respecting NSF.
- *
- * NB: in the latest scheme of things this is completed immediately...
- *
- *     ...however, retain the ability to run this in the background with the
- *        peer in bgp_peer_sClearing.
- *
- *     Caller should set state of peer *before* calling this.
- */
-extern void
-bgp_clear_route_all (struct peer *peer)
-{
-  afi_t afi;
-  safi_t safi;
-
-  for (afi = AFI_IP; afi < AFI_MAX; afi++)
-    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
-      bgp_clear_route_normal(peer, afi, safi);
-
-  bgp_peer_clearing_completed(peer) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Walk main RIB and remove all adj_in for given peer.
- */
-void
-bgp_clear_adj_in (struct peer *peer, afi_t afi, safi_t safi)
-{
-  struct bgp_table *table;
-  struct bgp_node *rn;
-  struct bgp_adj_in *ain;
-
-  table = peer->bgp->rib[afi][safi];
-
-  for (rn = bgp_table_top (table); rn; rn = bgp_route_next (rn))
-    for (ain = rn->adj_in; ain ; ain = ain->adj_next)
-      if (ain->peer == peer)
-	{
-          bgp_adj_in_remove (rn, ain);
-          break;
-	}
-}
-
-/*------------------------------------------------------------------------------
- * Walk main RIB and remove all stale routes for the given peer.
- */
-void
-bgp_clear_stale_route (struct peer *peer, afi_t afi, safi_t safi)
-{
-  struct bgp_node *rn;
-  struct bgp_info *ri;
-  struct bgp_table *table;
-
-  table = peer->bgp->rib[afi][safi];
-
-  for (rn = bgp_table_top (table); rn; rn = bgp_route_next (rn))
-    {
-      for (ri = rn->info; ri; ri = ri->info_next)
-	if (ri->peer == peer)
-	  {
-	    if (CHECK_FLAG (ri->flags, BGP_INFO_STALE))
-	      bgp_rib_remove (rn, ri, peer, afi, safi);
-	    break;
-	  }
-    }
-}
 /*============================================================================*/
 
-/* Delete all kernel routes. */
+#if 0
+/* Delete all kernel routes.                            */
 void
 bgp_cleanup_routes (void)
 {
@@ -3296,6 +3389,7 @@ bgp_cleanup_routes (void)
 	    bgp_zebra_withdraw (&rn->p, ri);
     }
 }
+#endif
 
 void
 bgp_reset (void)
@@ -3317,7 +3411,7 @@ bgp_nlri_parse (struct peer *peer, struct attr *attr, struct bgp_nlri *packet)
   int ret;
 
   /* Check peer status. */
-  if (peer->state != bgp_peer_sEstablished)
+  if (peer->state != bgp_peer_pEstablished)
     return 0;
 
   pnt = packet->nlri;
@@ -3432,8 +3526,8 @@ bgp_nlri_sanity_check (struct peer *peer, int afi, u_char *pnt,
 	  plog_err (peer->log,
 		    "%s [Error] Update packet error (wrong prefix length %d)",
 		    peer->host, prefixlen);
-	  bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
-			   BGP_NOTIFY_UPDATE_INVAL_NETWORK);
+	  bgp_peer_down_error(peer, BGP_NOTIFY_UPDATE_ERR,
+			              BGP_NOTIFY_UPDATE_INVAL_NETWORK);
 	  return -1;
 	}
 
@@ -3446,8 +3540,8 @@ bgp_nlri_sanity_check (struct peer *peer, int afi, u_char *pnt,
 		    "%s [Error] Update packet error"
 		    " (prefix data overflow prefix size is %d)",
 		    peer->host, psize);
-	  bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
-			   BGP_NOTIFY_UPDATE_INVAL_NETWORK);
+	  bgp_peer_down_error(peer, BGP_NOTIFY_UPDATE_ERR,
+			              BGP_NOTIFY_UPDATE_INVAL_NETWORK);
 	  return -1;
 	}
 
@@ -3461,8 +3555,8 @@ bgp_nlri_sanity_check (struct peer *peer, int afi, u_char *pnt,
 		"%s [Error] Update packet error"
 		" (prefix length mismatch with total length)",
 		peer->host);
-      bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
-		       BGP_NOTIFY_UPDATE_INVAL_NETWORK);
+      bgp_peer_down_error(peer, BGP_NOTIFY_UPDATE_ERR,
+                                  BGP_NOTIFY_UPDATE_INVAL_NETWORK);
       return -1;
     }
   return 0;

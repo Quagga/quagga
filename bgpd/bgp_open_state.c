@@ -293,12 +293,15 @@ bgp_open_state_afi_safi_cap(bgp_open_state state, unsigned index)
  *
  */
 
-/* Received an open, update the peer's state */
+/* Received an open, update the peer's state
+ *
+ * NB: for safety, best to have the session locked -- though won't, in fact,
+ *     change any of this information after the session is established.
+ */
 void
 bgp_peer_open_state_receive(bgp_peer peer)
 {
-  bgp_session session = peer->session;
-  bgp_open_state open_send = session->open_send;
+  bgp_session    session   = peer->session;
   bgp_open_state open_recv = session->open_recv;
   qAFI_t  afi;
   qSAFI_t safi;
@@ -315,16 +318,13 @@ bgp_peer_open_state_receive(bgp_peer peer)
      implementation MAY adjust the rate at which it sends KEEPALIVE
      messages as a function of the Hold Time interval. */
 
-  peer->v_holdtime =
-      (open_recv->holdtime < open_send->holdtime)
-      ? open_recv->holdtime
-      : open_send->holdtime;
-
-  peer->v_keepalive = peer->v_holdtime / 3;
-
-  /* TODO: update session state as well? */
-  session->hold_timer_interval          = peer->v_holdtime ;
-  session->keepalive_timer_interval     = peer->v_keepalive ;
+  /* The BGP Engine sets the session's HoldTimer and KeepaliveTimer intervals
+   * to the values negotiated when the OPEN messages were exchanged.
+   *
+   * Take copies of that information.
+   */
+  peer->v_holdtime  = session->hold_timer_interval ;
+  peer->v_keepalive = session->keepalive_timer_interval ;
 
   /* Set remote router-id */
   peer->remote_id.s_addr = open_recv->bgp_id;
@@ -404,12 +404,18 @@ bgp_peer_open_state_receive(bgp_peer peer)
   if (open_recv->can_dynamic)
     SET_FLAG (peer->cap, PEER_CAP_DYNAMIC_RCV);
 
-  /* Graceful restart */
+  /* Graceful restart
+   *
+   * NB: appear not to care about open_recv->has_restarted !
+   */
+  if (open_recv->can_g_restart)
+    SET_FLAG (peer->cap, PEER_CAP_RESTART_RCV) ;
+
   for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
      for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
        {
          qafx_bit_t qb = qafx_bit_from_qAFI_qSAFI(afi, safi);
-         if (peer->afc[afi][safi] && (qb & open_recv->can_g_restart))
+         if (peer->afc[afi][safi] && (qb & open_recv->can_preserve))
            {
              SET_FLAG (peer->af_cap[afi][safi], PEER_CAP_RESTART_AF_RCV);
              if (qb & open_recv->has_preserved)

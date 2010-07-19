@@ -1420,8 +1420,9 @@ bgp_msg_notify_receive (bgp_connection connection, bgp_size_t body_size)
 
   notification = bgp_notify_new_with_data(code, subcode,
                                   stream_pnt(connection->ibuf), body_size - 2) ;
+  bgp_notify_set_received(notification) ;
 
-  bgp_notify_print(connection->session->peer, notification, 0) ;  /* Logging */
+  bgp_notify_print(connection->session->peer, notification) ;   /* Logging */
 
   bgp_fsm_notification_exception(connection, notification) ;
 } ;

@@ -58,7 +58,8 @@ bgp_capability_vty_out (struct vty *vty, struct peer *peer)
   struct capability_mp_data mpc;
   struct capability_header *hdr;
 
-  if (peer == NULL || peer->session == NULL || peer->session->notification == NULL)
+  if ((peer == NULL) || (peer->session == NULL)
+                     || (peer->session->notification == NULL))
     return;
 
   pnt = (char*)peer->session->notification->data;
@@ -254,8 +255,9 @@ bgp_capability_orf_entry (struct peer *peer, struct capability_header *hdr)
     {
       zlog_info ("%s ORF Capability entry length error,"
                  " Cap length %u, num %u",
-                 peer->host, hdr->length, entry.num);
-      bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+                 peer->host, hdr->length, entry.num) ;
+      /* TODO: is this the right notification ??        */
+      bgp_peer_down_error (peer, BGP_NOTIFY_CEASE, 0);
       return -1;
     }
 
@@ -497,7 +499,8 @@ bgp_capability_parse (struct peer *peer, size_t length, u_char **error)
       if (stream_get_getp(s) + 2 > end)
 	{
 	  zlog_info ("%s Capability length error (< header)", peer->host);
-	  bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+	  /* TODO: Is this the right notification ??           */
+	  bgp_peer_down_error (peer, BGP_NOTIFY_CEASE, 0);
 	  return -1;
 	}
 
@@ -509,7 +512,8 @@ bgp_capability_parse (struct peer *peer, size_t length, u_char **error)
       if (start + caphdr.length > end)
 	{
 	  zlog_info ("%s Capability length error (< length)", peer->host);
-	  bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+          /* TODO: Is this the right notification ??           */
+	  bgp_peer_down_error (peer, BGP_NOTIFY_CEASE, 0);
 	  return -1;
 	}
 
@@ -539,7 +543,8 @@ bgp_capability_parse (struct peer *peer, size_t length, u_char **error)
                              LOOKUP (capcode_str, caphdr.code),
                              caphdr.length,
 			     (unsigned) cap_minsizes[caphdr.code]);
-                  bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+                  /* TODO: Is this the right notification ??           */
+                  bgp_peer_down_error (peer, BGP_NOTIFY_CEASE, 0);
                   return -1;
                 }
           /* we deliberately ignore unknown codes, see below */
@@ -628,9 +633,8 @@ bgp_capability_parse (struct peer *peer, size_t length, u_char **error)
 static int
 bgp_auth_parse (struct peer *peer, size_t length)
 {
-  bgp_notify_send (peer,
-		   BGP_NOTIFY_OPEN_ERR,
-		   BGP_NOTIFY_OPEN_AUTH_FAILURE);
+  bgp_peer_down_error (peer, BGP_NOTIFY_OPEN_ERR,
+		               BGP_NOTIFY_OPEN_AUTH_FAILURE);
   return -1;
 }
 
@@ -752,7 +756,8 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *capability)
       if (STREAM_READABLE(s) < 2)
 	{
 	  zlog_info ("%s Option length error", peer->host);
-	  bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+          /* TODO: Is this the right notification ??           */
+	  bgp_peer_down_error (peer, BGP_NOTIFY_CEASE, 0);
 	  return -1;
 	}
 
@@ -764,7 +769,8 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *capability)
       if (STREAM_READABLE (s) < opt_length)
 	{
 	  zlog_info ("%s Option length error", peer->host);
-	  bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+          /* TODO: Is this the right notification ??           */
+	  bgp_peer_down_error (peer, BGP_NOTIFY_CEASE, 0);
 	  return -1;
 	}
 
@@ -785,9 +791,8 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *capability)
 	  *capability = 1;
 	  break;
 	default:
-	  bgp_notify_send (peer,
-			   BGP_NOTIFY_OPEN_ERR,
-			   BGP_NOTIFY_OPEN_UNSUP_PARAM);
+	  bgp_peer_down_error (peer, BGP_NOTIFY_OPEN_ERR,
+                                       BGP_NOTIFY_OPEN_UNSUP_PARAM);
 	  ret = -1;
 	  break;
 	}
@@ -807,10 +812,10 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *capability)
       /* If Unsupported Capability exists. */
       if (error != error_data)
 	{
-	  bgp_notify_send_with_data (peer,
-				     BGP_NOTIFY_OPEN_ERR,
-				     BGP_NOTIFY_OPEN_UNSUP_CAPBL,
-				     error_data, error - error_data);
+	  bgp_peer_down_error_with_data (peer,
+                                           BGP_NOTIFY_OPEN_ERR,
+                                           BGP_NOTIFY_OPEN_UNSUP_CAPBL,
+                                           error_data, error - error_data);
 	  return -1;
 	}
 
@@ -818,9 +823,8 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *capability)
          peer. */
       if (! strict_capability_same (peer))
 	{
-	  bgp_notify_send (peer,
-			   BGP_NOTIFY_OPEN_ERR,
-			   BGP_NOTIFY_OPEN_UNSUP_CAPBL);
+	  bgp_peer_down_error (peer, BGP_NOTIFY_OPEN_ERR,
+                                       BGP_NOTIFY_OPEN_UNSUP_CAPBL);
 	  return -1;
 	}
     }
@@ -839,14 +843,13 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *capability)
 
 	  if (error != error_data)
 
-	    bgp_notify_send_with_data (peer,
-				       BGP_NOTIFY_OPEN_ERR,
-				       BGP_NOTIFY_OPEN_UNSUP_CAPBL,
-				       error_data, error - error_data);
+	    bgp_peer_down_error_with_data (peer,
+                                             BGP_NOTIFY_OPEN_ERR,
+                                             BGP_NOTIFY_OPEN_UNSUP_CAPBL,
+	                                     error_data, error - error_data);
 	  else
-	    bgp_notify_send (peer,
-			     BGP_NOTIFY_OPEN_ERR,
-			     BGP_NOTIFY_OPEN_UNSUP_CAPBL);
+	    bgp_peer_down_error (peer, BGP_NOTIFY_OPEN_ERR,
+                                         BGP_NOTIFY_OPEN_UNSUP_CAPBL);
 	  return -1;
 	}
     }

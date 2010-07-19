@@ -46,11 +46,6 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 extern int bgp_read (struct thread *);
 extern int bgp_write (bgp_peer peer, struct stream*);
 
-extern void bgp_keepalive_send (struct peer *);
-extern void bgp_open_send (struct peer *);
-extern void bgp_notify_send (struct peer *, u_int8_t, u_int8_t);
-extern void bgp_notify_send_with_data (struct peer *, u_int8_t, u_int8_t,
-                                u_int8_t *, size_t);
 extern void bgp_route_refresh_send (struct peer *, afi_t, safi_t, u_char, u_char, int);
 extern void bgp_capability_send (struct peer *, afi_t, safi_t, int, int);
 extern void bgp_default_update_send (struct peer *, struct attr *,

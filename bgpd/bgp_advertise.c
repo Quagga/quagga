@@ -231,7 +231,7 @@ bgp_adj_out_set (struct bgp_node *rn, struct peer *peer, struct prefix *p,
       adj = XCALLOC (MTYPE_BGP_ADJ_OUT, sizeof (struct bgp_adj_out));
 
       /* Add to list of adj_out stuff for the peer              */
-      adj->peer = peer_lock (peer);
+      adj->peer = bgp_peer_lock (peer);
 
       adj_out_head = &(peer->adj_out_head[afi][safi]) ;
 
@@ -336,7 +336,7 @@ bgp_adj_out_remove (struct bgp_node *rn, struct bgp_adj_out *adj,
   else
     peer->adj_out_head[afi][safi] = adj->route_next ;
 
-  peer_unlock (peer);
+  bgp_peer_unlock (peer);
 
   /* Unhook from bgp_node                               */
   if (adj->adj_next)
@@ -379,7 +379,7 @@ bgp_adj_in_set (struct bgp_node *rn, struct peer *peer, struct attr *attr)
   adj->attr = bgp_attr_intern (attr);
 
   /* Add to list of adj in stuff for the peer                   */
-  adj->peer = peer_lock (peer);
+  adj->peer = bgp_peer_lock (peer);
 
   adj_in_head = &(peer->adj_in_head[rn->table->afi][rn->table->safi]) ;
 
@@ -420,7 +420,7 @@ bgp_adj_in_remove (struct bgp_node *rn, struct bgp_adj_in *bai)
   else
     *adj_in_head = bai->route_next ;
 
-  peer_unlock (peer);
+  bgp_peer_unlock (peer);
 
   /* Unhook from bgp_node                               */
   if (bai->adj_next)

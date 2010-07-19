@@ -53,7 +53,7 @@ static void qpn_in_thread_init(qpn_nexus qpn);
  * Returns the qpn_nexus.
  */
 extern qpn_nexus
-qpn_init_new(qpn_nexus qpn, int main_thread)
+qpn_init_new(qpn_nexus qpn, bool main_thread)
 {
   if (qpn == NULL)
     qpn = XCALLOC(MTYPE_QPN_NEXUS, sizeof(struct qpn_nexus)) ;
@@ -309,13 +309,19 @@ qpn_in_thread_init(qpn_nexus qpn)
 }
 
 /*------------------------------------------------------------------------------
- * Ask the thread to terminate itself quickly and cleanly
+ * Ask the thread to terminate itself quickly and cleanly.
+ *
+ * Does nothing if terminate already set.
  */
 void
 qpn_terminate(qpn_nexus qpn)
 {
-  qpn->terminate = 1;
-  /* wake up any pselect */
-  if (qpthreads_enabled)
-    qpt_thread_signal(qpn->thread_id, SIGMQUEUE);
+  if (!qpn->terminate)
+    {
+      qpn->terminate = true ;
+
+      /* wake up any pselect */
+      if (qpthreads_enabled)
+        qpt_thread_signal(qpn->thread_id, SIGMQUEUE);
+    } ;
 }

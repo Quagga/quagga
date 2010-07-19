@@ -121,8 +121,7 @@ extern unsigned long term_bgp_debug_zebra;
 extern const char *bgp_type_str[];
 
 extern int bgp_dump_attr (struct peer *, struct attr *, char *, size_t);
-extern void bgp_notify_print (struct peer* peer, bgp_notify notification,
-                                                                  bool sending);
+extern void bgp_notify_print (struct peer* peer, bgp_notify notification);
 
 extern const struct message bgp_status_msg[];
 extern const int bgp_status_msg_max;

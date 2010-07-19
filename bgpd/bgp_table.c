@@ -96,6 +96,7 @@ bgp_node_set (struct bgp_table *table, struct prefix *prefix)
 static void
 bgp_node_free (struct bgp_node *node)
 {
+  node->lock = -54321 ;
   XFREE (MTYPE_BGP_NODE, node);
 }
 
@@ -128,11 +129,17 @@ bgp_table_free (struct bgp_table *rt)
 	  continue;
 	}
 
+      assert(  (node->info     == NULL)
+            && (node->adj_out  == NULL)
+            && (node->adj_in   == NULL)
+            && (node->on_wq    == 0) ) ;
+
       tmp_node = node;
       node = node->parent;
 
       tmp_node->table->count--;
       tmp_node->lock = 0;  /* to cause assert if unlocked after this */
+
       bgp_node_free (tmp_node);
 
       if (node != NULL)
@@ -152,10 +159,11 @@ bgp_table_free (struct bgp_table *rt)
 
   if (rt->owner)
     {
-      peer_unlock (rt->owner);
+      bgp_peer_unlock (rt->owner);
       rt->owner = NULL;
     }
 
+  rt->lock = -54321 ;
   XFREE (MTYPE_BGP_TABLE, rt);
   return;
 }
@@ -371,6 +379,7 @@ bgp_node_delete (struct bgp_node *node)
 
   assert (node->lock == 0);
   assert (node->info == NULL);
+  assert (node->on_wq == 0) ;
 
   if (node->l_left && node->l_right)
     return;

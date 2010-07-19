@@ -66,6 +66,20 @@
  *
  * The fsm action functions are called with the session locked.
  *
+ * TODO: restore NSF
+ * TODO: track incoming connections while established
+ *
+ *       To do this need to accept connection while established, then wait for
+ *       OPEN.  While waiting, the established connection may drop, and
+ *       so the session restart, but with an incoming connection already
+ *       in place.
+ *
+ *       When OPEN arrives, for NSF should close any established connection
+ *       and restart with the new one.
+ *
+ *       Otherwise, if CollisionDetectEstablishedState option is set, should
+ *       go through collision detection !
+ *
  *------------------------------------------------------------------------------
  * FSM "events" and Session "exceptions".
  *
@@ -1932,6 +1946,8 @@ static bgp_fsm_action(bgp_fsm_error)
  * Next state will be sIdle, except if is sEstablished, when will be sStopping.
  *
  * NB: requires the session LOCKED
+ *
+ * TODO: deal with: BGP_NOMC_OPEN/BGP_NOMS_O_OPTION & squash capabilities.
  */
 static bgp_fsm_action(bgp_fsm_recv_nom)
 {

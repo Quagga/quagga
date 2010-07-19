@@ -572,7 +572,7 @@ bgp_accept_action(qps_file qf, void* file_info)
   bgp_connection  connection ;
   union sockunion su_remote ;
   union sockunion su_local ;
-  int  exists ;
+  bool exists ;
   int  sock_fd ;
   int  err ;
   int  family ;

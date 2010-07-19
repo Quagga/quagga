@@ -690,28 +690,65 @@ bgp_connection_stop(bgp_connection connection, int stop_writer)
 } ;
 
 /*------------------------------------------------------------------------------
- * Enable connection for accept()
+ * Enable connection/session for accept()
  *
- * NB: requires the session to be LOCKED.
+ * NB: requires the session to be LOCKED
  */
 extern void
 bgp_connection_enable_accept(bgp_connection connection)
 {
+  bgp_session session = connection->session ;
+
   assert(connection->ordinal == bgp_connection_secondary) ;
-  connection->session->index_entry->accept = connection ;
+  assert((session != NULL) && (session->active)) ;
+
+  session->accept = true ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Disable connection for accept() -- assuming still have session !
  *
- * NB: requires the session to be LOCKED.
+ * NB: requires the session to be LOCKED
  */
 extern void
 bgp_connection_disable_accept(bgp_connection connection)
 {
-  bgp_session session = connection->session ;
-  if (session != NULL)
-    session->index_entry->accept = NULL ;
+  if (connection->session != NULL)
+    connection->session->accept = false ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * See if there is a connection which is ready to accept()
+ *
+ * Note that if there *is* a connection, then the session is active, and is not
+ * subject to the whim of the Routing Engine -- in particular it cannot be
+ * deleted !
+ *
+ * NB: this is *only* used in the BGP Engine.  The session->active and
+ *     session->accept flags are private variables, only set by the BGP Engine.
+ *
+ * NB: this is called under the Peer Index Mutex.  The Routing Engine never
+ *     deletes sessions while it holds the Peer Index Mutex, nor when the
+ *     session->active is true.
+ *
+ *     Only returns a connection if session->active -- so safe.
+ */
+extern bgp_connection
+bgp_connection_query_accept(bgp_session session)
+{
+  bgp_connection connection ;
+
+  if ((session != NULL) && session->active && session->accept)
+    {
+      connection = session->connections[bgp_connection_secondary] ;
+      assert(connection != NULL) ;
+    }
+  else
+    {
+      connection = NULL ;
+    } ;
+
+  return connection ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -830,7 +867,7 @@ bgp_connection_part_close(bgp_connection connection)
 
   /* Turn off session->active (if still attached).                      */
   if (session != NULL)
-    session->active = 0 ;
+    session->active = false ;
 
   /* Purge wbuff of all but current partly written message (if any)     */
   if (wb->p_in != wb->p_out)    /* will be equal if buffer is empty     */
