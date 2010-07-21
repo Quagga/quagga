@@ -203,19 +203,25 @@ bgp_notify_take(bgp_notify* p_notification)
 extern void
 bgp_notify_set(bgp_notify* p_dst, bgp_notify src)
 {
-  bgp_notify_free(*p_dst) ;
-  *p_dst = src ;
+  if (*p_dst != src)            /* empty operation if already set !     */
+    {
+      bgp_notify_free(*p_dst) ;
+      *p_dst = src ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Set pointer to notification to a *copy* of the source.
  *
- * Frees any existing notification at the destination.
+ * Frees any existing notification at the destination unless points at src !
  */
 extern void
 bgp_notify_set_dup(bgp_notify* p_dst, bgp_notify src)
 {
-  bgp_notify_set(p_dst, bgp_notify_dup(src)) ;
+  if (*p_dst != src)
+    bgp_notify_free(*p_dst) ;   /* avoid freeing what we're duplicating */
+
+  *p_dst = bgp_notify_dup(src) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -228,8 +234,7 @@ bgp_notify_set_dup(bgp_notify* p_dst, bgp_notify src)
 extern void
 bgp_notify_set_mov(bgp_notify* p_dst, bgp_notify* p_src)
 {
-  bgp_notify_free(*p_dst) ;
-  *p_dst = *p_src ;
+  bgp_notify_set(p_dst, *p_src) ;
   *p_src = NULL ;
 } ;
 

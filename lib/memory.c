@@ -107,7 +107,7 @@ zerror (const char *fname, int type, size_t size)
      unfortunately zlog_backtrace_sigsafe does not support syslog logging at
      this time... */
   zlog_backtrace(LOG_WARNING);
-  abort();
+  zabort_abort();
 }
 
 /*------------------------------------------------------------------------------
@@ -205,12 +205,14 @@ zfree (enum MTYPE mtype, void *ptr)
 {
   LOCK ;
 
-  free (ptr);
+  assert(mstat.mt[mtype].alloc > 0) ;
 
   mstat.mt[mtype].alloc--;
 #ifdef MEMORY_TRACKER
   mem_md_free(mtype, ptr) ;
 #endif
+
+  free (ptr);
 
   UNLOCK ;
 } ;

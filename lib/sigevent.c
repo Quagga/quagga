@@ -220,17 +220,24 @@ core_handler(int signo
 	      , siginfo, program_counter(context)
 #endif
 	     );
-  abort();
+  zabort_abort();
 }
 
+/* For the signals known to Quagga, and which are in their default state,
+ * set a Quagga default handler.
+ */
 static void
 trap_default_signals(void)
 {
   static const int core_signals[] = {
     SIGQUIT,
     SIGILL,
+    SIGABRT,
 #ifdef SIGEMT
     SIGEMT,
+#endif
+#ifdef SIGIOT
+    SIGIOT,
 #endif
     SIGFPE,
     SIGBUS,
@@ -245,6 +252,7 @@ trap_default_signals(void)
     SIGXFSZ,
 #endif
   };
+
   static const int exit_signals[] = {
     SIGHUP,
     SIGINT,
@@ -262,9 +270,11 @@ trap_default_signals(void)
     SIGSTKFLT,
 #endif
   };
+
   static const int ignore_signals[] = {
     SIGPIPE,
   };
+
   static const struct {
     const int *sigs;
     u_int nsigs;
@@ -287,28 +297,39 @@ trap_default_signals(void)
       for (j = 0; j < sigmap[i].nsigs; j++)
         {
 	  struct sigaction oact;
-	  if ((sigaction(sigmap[i].sigs[j],NULL,&oact) == 0) &&
-	      (oact.sa_handler == SIG_DFL))
+          if (sigaction(sigmap[i].sigs[j], NULL, &oact) < 0)
+            zlog_warn("Unable to get signal handler for signal %d: %s",
+                      sigmap[i].sigs[j], errtoa(errno, 0).str);
+          else {
+#ifdef SA_SIGINFO
+            if (oact.sa_flags & SA_SIGINFO)
+              continue ;                /* Don't set again              */
+#endif
+            if (oact.sa_handler != SIG_DFL)
+              continue ;                /* Don't set again              */
+          }
+	  if ( (sigaction(sigmap[i].sigs[j], NULL, &oact) == 0) &&
+	                                          (oact.sa_handler == SIG_DFL) )
 	    {
 	      struct sigaction act;
 	      sigfillset (&act.sa_mask);
 	      if (sigmap[i].handler == NULL)
 	        {
 		  act.sa_handler = SIG_IGN;
-		  act.sa_flags = 0;
+		  act.sa_flags   = 0;
 	        }
 	      else
 	        {
 #ifdef SA_SIGINFO
 		  /* Request extra arguments to signal handler. */
 		  act.sa_sigaction = sigmap[i].handler;
-		  act.sa_flags = SA_SIGINFO;
+		  act.sa_flags     = SA_SIGINFO;
 #else
-		  act.sa_handler = sigmap[i].handler;
-		  act.sa_flags = 0;
+		  act.sa_handler   = sigmap[i].handler;
+		  act.sa_flags     = 0;
 #endif
 	        }
-	      if (sigaction(sigmap[i].sigs[j],&act,NULL) < 0)
+	      if (sigaction(sigmap[i].sigs[j], &act, NULL) < 0)
 	        zlog_warn("Unable to set signal handler for signal %d: %s",
 			  sigmap[i].sigs[j], errtoa(errno, 0).str);
 
@@ -346,3 +367,23 @@ signal_init (struct thread_master *m, int sigc,
                       QUAGGA_SIGNAL_TIMER_INTERVAL);
 #endif /* SIGEVENT_SCHEDULE_THREAD */
 }
+
+/* turn off trap for SIGABRT !                                  */
+extern void quagga_sigabrt_no_trap(void)
+{
+  struct sigaction new_act ;
+  sigset_t set ;
+
+  sigfillset(&set) ;
+
+  new_act.sa_handler = SIG_DFL ;
+  new_act.sa_mask    = set ;
+  new_act.sa_flags   = 0 ;
+  sigaction(SIGABRT, &new_act, NULL) ;
+
+  sigemptyset(&set) ;
+  sigaddset(&set, SIGABRT) ;
+  sigprocmask(SIG_UNBLOCK, &set, NULL) ;
+
+} ;
+

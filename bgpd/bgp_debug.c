@@ -262,6 +262,7 @@ bgp_notify_print(struct peer *peer, bgp_notify notification)
   bool  log_neighbor_changes ;
   int   length ;
   char* alloc ;
+  int subcode ;
 
   /* See if we need to do any of this                                   */
   if      (bgp_flag_check (peer->bgp, BGP_FLAG_LOG_NEIGHBOR_CHANGES))
@@ -274,30 +275,37 @@ bgp_notify_print(struct peer *peer, bgp_notify notification)
   /* Sort out string forms of code and subcode                          */
   code_str = LOOKUP (bgp_notify_msg, notification->code) ;
 
-  subcode_str = "";
+  subcode     = notification->subcode ;
+  subcode_str = "/Unspecific";
 
   switch (notification->code)
     {
     case BGP_NOTIFY_HEADER_ERR:
-      subcode_str = LOOKUP (bgp_notify_head_msg, notification->subcode);
+      if (subcode != 0)
+        subcode_str = LOOKUP (bgp_notify_head_msg, subcode);
       break;
     case BGP_NOTIFY_OPEN_ERR:
-      subcode_str = LOOKUP (bgp_notify_open_msg, notification->subcode);
+      if (subcode != 0)
+        subcode_str = LOOKUP (bgp_notify_open_msg, subcode);
       break;
     case BGP_NOTIFY_UPDATE_ERR:
-      subcode_str = LOOKUP (bgp_notify_update_msg, notification->subcode);
+      if (subcode != 0)
+        subcode_str = LOOKUP (bgp_notify_update_msg, subcode);
       break;
     case BGP_NOTIFY_HOLD_ERR:
-      subcode_str = "";
-      break;
     case BGP_NOTIFY_FSM_ERR:
-      subcode_str = "";
+      if (subcode != 0)
+        subcode_str = "/*unknown*" ;
+      else
+        subcode_str = "";
       break;
     case BGP_NOTIFY_CEASE:
-      subcode_str = LOOKUP (bgp_notify_cease_msg, notification->subcode);
+      if (subcode != 0)
+        subcode_str = LOOKUP (bgp_notify_cease_msg, subcode);
       break;
     case BGP_NOTIFY_CAPABILITY_ERR:
-      subcode_str = LOOKUP (bgp_notify_capability_msg, notification->subcode);
+      if (subcode != 0)
+        subcode_str = LOOKUP (bgp_notify_capability_msg, subcode);
       break;
     }
 
@@ -338,7 +346,7 @@ bgp_notify_print(struct peer *peer, bgp_notify notification)
 	       notification->code, notification->subcode,
 	       code_str, subcode_str, length, hex_form) ;
 
-  /* Release the */
+  /* Release the space allocated to the hex form of the data, if any    */
   if (alloc != NULL)
     XFREE(MTYPE_TMP, alloc) ;
 } ;

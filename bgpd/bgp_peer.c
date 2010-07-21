@@ -177,7 +177,8 @@
 /* prototypes */
 
 static void bgp_session_has_established(bgp_session session);
-static void bgp_session_has_stopped(bgp_session session);
+static void bgp_session_has_stopped(bgp_session session,
+                                                      bgp_notify notification) ;
 static void bgp_session_has_disabled(bgp_session session);
 static void bgp_uptime_reset (struct peer *peer);
 static void bgp_peer_stop (struct peer *peer, bool nsf) ;
@@ -216,9 +217,7 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
     {
       /* Pull stuff into Routing Engine *private* fields in the session     */
 
-      session->event = args->event ;      /* last event                     */
-      bgp_notify_set(&session->notification, args->notification) ;
-                                          /* if any sent/received           */
+      session->event   = args->event ;    /* last event                     */
       session->err     = args->err ;      /* errno, if any                  */
       session->ordinal = args->ordinal ;  /* primary/secondary connection   */
 
@@ -232,6 +231,8 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
          * before the BGP Engine had seen the disable message.
          */
         case bgp_session_eEstablished:
+          assert(args->notification == NULL) ;
+
           if (session->state == bgp_session_sLimping)
             break ;
 
@@ -240,6 +241,10 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
 
         /* If now Disabled, then the BGP Engine is acknowledging the a
          * session disable, and the session is now disabled.
+         *
+         * If sent a notification with the disable request, then it is
+         * returned iff the notification was actually sent.  Don't really
+         * care one way or the other.
          *
          * BEWARE: this may be the last thing that happens to the session
          *         and/or the related peer -- which may be deleted inside
@@ -259,12 +264,13 @@ bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag)
             break ;
 
           if (args->stopped)
-            bgp_session_has_stopped(session) ;
+            bgp_session_has_stopped(session,
+                                       bgp_notify_take(&(args->notification))) ;
           break ;
       } ;
-    }
-  else
-    bgp_notify_free(args->notification) ;
+    } ;
+
+  bgp_notify_free(args->notification) ;  /* Discard any notification.    */
 
   mqb_free(mqb) ;
 }
@@ -410,11 +416,13 @@ bgp_session_has_established(bgp_session session)
  * that is to tell it to disable the session, and then wait in sLimping state
  * until the BGP Engine completes the disable request and signals that.
  *
+ * NB: takes responsibility for the notification.
+ *
  * TODO: session stopped because we stopped it or because the other end did ?
  * TODO: restore NSF !!
  */
 static void
-bgp_session_has_stopped(bgp_session session)
+bgp_session_has_stopped(bgp_session session, bgp_notify notification)
 {
   peer_down_t why_down ;
 
@@ -432,17 +440,17 @@ bgp_session_has_stopped(bgp_session session)
         peer->v_start = (60 * 2);
     } ;
 
-  if (session->notification == NULL)
+  if (notification == NULL)
     why_down = PEER_DOWN_CLOSE_SESSION ;
   else
     {
-      if (session->notification->received)
+      if (notification->received)
         why_down = PEER_DOWN_NOTIFY_RECEIVED ;
       else
-        why_down = bgp_peer_map_notification(session->notification) ;
+        why_down = bgp_peer_map_notification(notification) ;
     } ;
 
-  bgp_peer_down_notify(peer, why_down, session->notification) ;
+  bgp_peer_down_notify(peer, why_down, notification) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1255,6 +1263,16 @@ bgp_peer_down(bgp_peer peer, peer_down_t why_down)
   bgp_peer_down_notify(peer, why_down, NULL) ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Down Peer for the given reason, with the given notification, if any.
+ *
+ * See bgp_peer_down() above.
+ *
+ * If the notification is NULL and need to send a notification, make one up from
+ * the given reason for downing the peer.
+ *
+ * NB: takes responsibility for the notification.
+ */
 static void
 bgp_peer_down_notify(bgp_peer peer, peer_down_t why_down,
                                                         bgp_notify notification)
@@ -1266,12 +1284,14 @@ bgp_peer_down_notify(bgp_peer peer, peer_down_t why_down,
       if (notification == NULL)
         notification = bgp_peer_map_peer_down(why_down) ;
 
-      bgp_notify_set_dup(&peer->session->notification, notification) ;
+      bgp_notify_set(&peer->session->notification, notification) ;
 
-      bgp_session_disable(peer, notification) ;
-    }
-  else
-    bgp_notify_free(notification) ;     /* Discard unused notification  */
+      bgp_session_disable(peer, bgp_notify_dup(notification)) ;
+              /* The copy of the notification will be discarded either by
+               * the BGP_Engine, if the notification is not sent, or when
+               * it is returned in the eDisabled message.
+               */
+    } ;
 
   /* Now worry about the state of the peer                              */
 

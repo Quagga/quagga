@@ -38,6 +38,7 @@
 #endif
 #include "qpthreads.h"
 #include "qfstring.h"
+#include "sigevent.h"
 
 /* log is protected by the same mutext as vty, see comments in vty.c */
 
@@ -519,6 +520,13 @@ zlog_signal(int signo, const char *action
 #undef LOC
 }
 
+/* Ring down the curtain -- turn of SIGABRT handler and abort()         */
+void zabort_abort(void)
+{
+  quagga_sigabrt_no_trap() ;
+  abort() ;
+}
+
 /* Log a backtrace using only async-signal-safe functions.
    Needs to be enhanced to support syslog logging. */
 void
@@ -776,7 +784,7 @@ zlog_abort (const char *mess)
 
   uzlog(NULL, LOG_CRIT, "%s", mess);
   uzlog_backtrace(LOG_CRIT);
-  abort();
+  zabort_abort();
 }
 
 

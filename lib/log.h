@@ -193,6 +193,9 @@ extern void zlog_signal(int signo, const char *action
 #endif
 		       );
 
+/* Ring down the curtain -- turn of SIGABRT handler and abort()         */
+extern void zabort_abort(void)  __attribute__ ((noreturn)) ;
+
 /* Log a backtrace. */
 extern void zlog_backtrace(int priority);
 
