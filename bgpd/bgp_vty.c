@@ -3612,6 +3612,8 @@ peer_route_map_set_vty (struct vty *vty, const char *ip_str,
     direct = RMAP_IMPORT;
   else if (strncmp (direct_str, "e", 1) == 0)
     direct = RMAP_EXPORT;
+  else if (strncmp (direct_str, "r", 1) == 0)
+    direct = RMAP_RS_IN;
 
   ret = peer_route_map_set (peer, afi, safi, direct, name_str);
 
@@ -3639,6 +3641,8 @@ peer_route_map_unset_vty (struct vty *vty, const char *ip_str, afi_t afi,
     direct = RMAP_IMPORT;
   else if (strncmp (direct_str, "e", 1) == 0)
     direct = RMAP_EXPORT;
+  else if (strncmp (direct_str, "r", 1) == 0)
+    direct = RMAP_RS_IN;
 
   ret = peer_route_map_unset (peer, afi, safi, direct);
 
@@ -3647,12 +3651,13 @@ peer_route_map_unset_vty (struct vty *vty, const char *ip_str, afi_t afi,
 
 DEFUN (neighbor_route_map,
        neighbor_route_map_cmd,
-       NEIGHBOR_CMD2 "route-map WORD (in|out|import|export)",
+       NEIGHBOR_CMD2 "route-map WORD (in|rs-in|out|import|export)",
        NEIGHBOR_STR
        NEIGHBOR_ADDR_STR2
        "Apply route map to neighbor\n"
        "Name of route map\n"
        "Apply map to incoming routes\n"
+       "Apply map to incoming Route-Server routes\n"
        "Apply map to outbound routes\n"
        "Apply map to routes going into a Route-Server client's table\n"
        "Apply map to routes coming from a Route-Server client")
@@ -3663,13 +3668,14 @@ DEFUN (neighbor_route_map,
 
 DEFUN (no_neighbor_route_map,
        no_neighbor_route_map_cmd,
-       NO_NEIGHBOR_CMD2 "route-map WORD (in|out|import|export)",
+       NO_NEIGHBOR_CMD2 "route-map WORD (in|rs-in|out|import|export)",
        NO_STR
        NEIGHBOR_STR
        NEIGHBOR_ADDR_STR2
        "Apply route map to neighbor\n"
        "Name of route map\n"
        "Apply map to incoming routes\n"
+       "Apply map to incoming Route-Server routes\n"
        "Apply map to outbound routes\n"
        "Apply map to routes going into a Route-Server client's table\n"
        "Apply map to routes coming from a Route-Server client")
@@ -7211,6 +7217,8 @@ bgp_show_peer_afi (struct vty *vty, struct peer *p, afi_t afi, safi_t safi)
       || filter->aslist[FILTER_IN].name
       || filter->map[RMAP_IN].name)
     vty_out (vty, "  Inbound path policy configured%s", VTY_NEWLINE);
+  if (filter->map[RMAP_RS_IN].name)
+    vty_out (vty, "  RS-Inbound path policy configured%s", VTY_NEWLINE);
   if (filter->plist[FILTER_OUT].ref
       || filter->dlist[FILTER_OUT].name
       || filter->aslist[FILTER_OUT].name
@@ -7264,6 +7272,11 @@ bgp_show_peer_afi (struct vty *vty, struct peer *p, afi_t afi, safi_t safi)
             filter->map[RMAP_IN].map ? "*" : "",
             filter->map[RMAP_IN].name,
 	     VTY_NEWLINE);
+  if (filter->map[RMAP_RS_IN].name)
+    vty_out (vty, "  Route map for RS incoming advertisements is %s%s%s",
+            filter->map[RMAP_RS_IN].map ? "*" : "",
+            filter->map[RMAP_RS_IN].name,
+             VTY_NEWLINE);
   if (filter->map[RMAP_OUT].name)
     vty_out (vty, "  Route map for outgoing advertisements is %s%s%s",
             filter->map[RMAP_OUT].map ? "*" : "",

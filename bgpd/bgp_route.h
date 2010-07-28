@@ -152,18 +152,21 @@ struct bgp_static
 #define FILTER_LIST_OUT_NAME(F) ((F)->aslist[FILTER_OUT].name)
 #define FILTER_LIST_OUT_LIST(F) ((F)->aslist[FILTER_OUT].aslist)
 
-#define ROUTE_MAP_IN_NAME(F)    ((F)->map[RMAP_IN].name)
-#define ROUTE_MAP_IN(F)         ((F)->map[RMAP_IN].map)
-#define ROUTE_MAP_OUT_NAME(F)   ((F)->map[RMAP_OUT].name)
-#define ROUTE_MAP_OUT(F)        ((F)->map[RMAP_OUT].map)
+#define ROUTE_MAP_IN_NAME(F)     ((F)->map[RMAP_IN].name)
+#define ROUTE_MAP_IN(F)          ((F)->map[RMAP_IN].map)
+#define ROUTE_MAP_OUT_NAME(F)    ((F)->map[RMAP_OUT].name)
+#define ROUTE_MAP_OUT(F)         ((F)->map[RMAP_OUT].map)
 
-#define ROUTE_MAP_IMPORT_NAME(F)    ((F)->map[RMAP_IMPORT].name)
-#define ROUTE_MAP_IMPORT(F)    ((F)->map[RMAP_IMPORT].map)
-#define ROUTE_MAP_EXPORT_NAME(F)    ((F)->map[RMAP_EXPORT].name)
-#define ROUTE_MAP_EXPORT(F)    ((F)->map[RMAP_EXPORT].map)
+#define ROUTE_MAP_IMPORT_NAME(F) ((F)->map[RMAP_IMPORT].name)
+#define ROUTE_MAP_IMPORT(F)      ((F)->map[RMAP_IMPORT].map)
+#define ROUTE_MAP_EXPORT_NAME(F) ((F)->map[RMAP_EXPORT].name)
+#define ROUTE_MAP_EXPORT(F)      ((F)->map[RMAP_EXPORT].map)
 
-#define UNSUPPRESS_MAP_NAME(F)  ((F)->usmap.name)
-#define UNSUPPRESS_MAP(F)       ((F)->usmap.map)
+#define ROUTE_MAP_RS_IN_NAME(F)  ((F)->map[RMAP_RS_IN].name)
+#define ROUTE_MAP_RS_IN(F)       ((F)->map[RMAP_RS_IN].map)
+
+#define UNSUPPRESS_MAP_NAME(F)   ((F)->usmap.name)
+#define UNSUPPRESS_MAP(F)        ((F)->usmap.map)
 
 enum bgp_clear_route_type
 {

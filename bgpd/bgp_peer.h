@@ -38,7 +38,8 @@ enum bgp_route_map_types
   RMAP_OUT      = 1,
   RMAP_IMPORT   = 2,
   RMAP_EXPORT   = 3,
-  RMAP_MAX      = 4,
+  RMAP_RS_IN    = 4,
+  RMAP_MAX      = 5,
 } ;
 
 /*==============================================================================
@@ -416,15 +417,16 @@ struct peer
   bgp_notify notification ;
 
   /* The kind of route-map Flags.                       */
-  u_char rmap_type;
-#define PEER_RMAP_TYPE_IN             (1 << 0) /* neighbor route-map in */
-#define PEER_RMAP_TYPE_OUT            (1 << 1) /* neighbor route-map out */
-#define PEER_RMAP_TYPE_NETWORK        (1 << 2) /* network route-map */
-#define PEER_RMAP_TYPE_REDISTRIBUTE   (1 << 3) /* redistribute route-map */
+  u_int16_t rmap_type;
+#define PEER_RMAP_TYPE_IN             (1 << 0) /* neighbor route-map in       */
+#define PEER_RMAP_TYPE_OUT            (1 << 1) /* neighbor route-map out      */
+#define PEER_RMAP_TYPE_NETWORK        (1 << 2) /* network route-map           */
+#define PEER_RMAP_TYPE_REDISTRIBUTE   (1 << 3) /* redistribute route-map      */
 #define PEER_RMAP_TYPE_DEFAULT        (1 << 4) /* default-originate route-map */
-#define PEER_RMAP_TYPE_NOSET          (1 << 5) /* not allow to set commands */
-#define PEER_RMAP_TYPE_IMPORT         (1 << 6) /* neighbor route-map import */
-#define PEER_RMAP_TYPE_EXPORT         (1 << 7) /* neighbor route-map export */
+#define PEER_RMAP_TYPE_NOSET          (1 << 5) /* not allow to set commands   */
+#define PEER_RMAP_TYPE_IMPORT         (1 << 6) /* neighbor route-map import   */
+#define PEER_RMAP_TYPE_EXPORT         (1 << 7) /* neighbor route-map export   */
+#define PEER_RMAP_TYPE_RS_IN          (1 << 8) /* neighbor route-map rs-in    */
 } ;
 
 

@@ -203,18 +203,21 @@ zrealloc (enum MTYPE mtype, void *ptr, size_t size  MEMORY_TRACKER_NAME)
 void
 zfree (enum MTYPE mtype, void *ptr)
 {
-  LOCK ;
+  if (ptr != NULL)
+    {
+      LOCK ;
 
-  assert(mstat.mt[mtype].alloc > 0) ;
+      assert(mstat.mt[mtype].alloc > 0) ;
 
-  mstat.mt[mtype].alloc--;
+      mstat.mt[mtype].alloc--;
 #ifdef MEMORY_TRACKER
-  mem_md_free(mtype, ptr) ;
+      mem_md_free(mtype, ptr) ;
 #endif
 
-  free (ptr);
+      free (ptr);
 
-  UNLOCK ;
+      UNLOCK ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------

@@ -670,121 +670,428 @@ bgp_cluster_filter (struct peer *peer, struct attr *attr)
   return 0;
 }
 
-static int
+/*------------------------------------------------------------------------------
+ * Process given attributes against any in route-map.
+ *
+ * If the result is RMAP_PERMIT, then returns address of newly internalised
+ * version of the attributes.
+ *
+ * If the result is RMAP_DENY, then returns NULL.
+ *
+ * The structure pointed to by attr is untouched.
+ *
+ * NB: All the elements of the incoming attr must have been internalised.
+ *
+ *    This is because a copy -- bgp_attr_dup() -- of those attributes is handed
+ *    to the route-map.  Any element of the attributes which is changed is
+ *    overwritten by the route-map -- and if it has a 0 reference count, the
+ *    element will be deleted.  Unfortunately, that leaves a dangling reference
+ *    in the original attr.
+ */
+static struct attr*
 bgp_input_modifier (struct peer *peer, struct prefix *p, struct attr *attr,
 		    afi_t afi, safi_t safi)
 {
   struct bgp_filter *filter;
-  struct bgp_info info;
-  route_map_result_t ret;
+  struct attr        rmap_attr_s ;
+  struct attr*       rmap_attr ;
+  struct attr*       use_attr ;
 
-  filter = &peer->filter[afi][safi];
+  rmap_attr = NULL ;
 
-  /* Apply default weight value. */
+  /* Apply default weight value.                                */
   if (peer->weight)
-    (bgp_attr_extra_get (attr))->weight = peer->weight;
+    {
+      rmap_attr = &rmap_attr_s ;
+      bgp_attr_dup (rmap_attr, attr) ;
+
+      (bgp_attr_extra_get (rmap_attr))->weight = peer->weight;
+    } ;
 
   /* Route map apply. */
+  filter = &peer->filter[afi][safi];
+
   if (ROUTE_MAP_IN_NAME (filter))
     {
-      /* Duplicate current value to new strucutre for modification. */
-      info.peer = peer;
-      info.attr = attr;
+      struct bgp_info info_s = { 0 } ;
+      route_map_result_t ret;
+
+      if (rmap_attr == NULL)
+        {
+          rmap_attr = &rmap_attr_s ;
+          bgp_attr_dup (rmap_attr, attr) ;
+        } ;
+
+      /* Duplicate current value to new structure for modification.     */
+      info_s.peer = peer;
+      info_s.attr = rmap_attr;
 
       SET_FLAG (peer->rmap_type, PEER_RMAP_TYPE_IN);
 
-      /* Apply BGP route map to the attribute. */
-      ret = route_map_apply (ROUTE_MAP_IN (filter), p, RMAP_BGP, &info);
+      /* Apply BGP route map to the attribute.                          */
+      ret = route_map_apply (ROUTE_MAP_IN (filter), p, RMAP_BGP, &info_s);
 
       peer->rmap_type = 0;
 
       if (ret == RMAP_DENYMATCH)
-	{
-	  /* Free newly generated AS path and community by route-map. */
-	  bgp_attr_flush (attr);
-	  return RMAP_DENY;
-	}
-    }
-  return RMAP_PERMIT;
-}
+        {
+          /* Discard any new elements set by the route-map -- these will have
+           * reference counts == 0.
+           *
+           * Discard any "extra" part of the duplicated attributes.
+           */
+          bgp_attr_flush (rmap_attr);
+          bgp_attr_extra_free (rmap_attr);
 
-static int
-bgp_export_modifier (struct peer *rsclient, struct peer *peer,
-        struct prefix *p, struct attr *attr, afi_t afi, safi_t safi)
+          return NULL ;
+        } ;
+    } ;
+
+  /* If the attributes may have changed, intern the result.
+   *
+   * Otherwise, intern the incoming stuff
+   */
+  if (rmap_attr != NULL)
+  {
+    use_attr = bgp_attr_intern(rmap_attr) ;
+
+    bgp_attr_extra_free (rmap_attr) ;
+  }
+  else
+    use_attr = bgp_attr_intern(attr) ;
+
+  return use_attr ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Structure to capture route-server route.
+ *
+ * Main purpose of this is to do any required rs-in route-map once when
+ * updating a set of route server clients, and not at all if there are no
+ * route server clients for the given afi/safi.
+ */
+struct rs_route
+{
+  bool              rs_in_applied ;     /* whether rs-in applied yet          */
+  bool              rs_in_deny ;        /* answer when it has been            */
+
+  /* The orig_attr MUST have all elements interned, but may or may not be
+   * interned itself.
+   */
+  struct attr*      orig_attr ;         /* attributes before rs-in applied    */
+
+  /* The rs_in_attr is interned when the pointer is set.
+   *
+   * The pointer is NULL if the rs-in has not been applied, and remains NULL
+   * if the answer is RMAP_DENY.
+   */
+  struct attr*      rs_in_attr ;        /* attributes after rs-in applied     */
+
+  /* The other attributes of the route                          */
+
+  struct peer*      peer ;
+
+  afi_t             afi ;
+  safi_t            safi ;
+
+  struct prefix*    p ;
+
+  int               type ;
+  int               sub_type ;
+
+  struct prefix_rd* prd ;
+  u_char*           tag ;
+};
+
+/*------------------------------------------------------------------------------
+ * Set up an rs_route object.
+ */
+static void
+bgp_rs_route_init(struct rs_route* rt, afi_t afi, safi_t safi,
+                   struct attr* attr, struct peer* peer, struct prefix* p,
+                    int type, int sub_type, struct prefix_rd* prd, u_char* tag)
+{
+  rt->rs_in_applied  = false ;
+  rt->rs_in_deny     = 0 ;      /* invalid while !rs_in_applied */
+  rt->rs_in_attr     = NULL ;   /* nothing yet                  */
+
+  rt->orig_attr      = attr ;
+
+  rt->peer           = peer ;
+  rt->afi            = afi ;
+  rt->safi           = safi ;
+  rt->p              = p ;
+  rt->type           = type ;
+  rt->sub_type       = sub_type ;
+  rt->prd            = prd ;
+  rt->tag            = tag ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Reset an rs_route object.
+ *
+ * Discards any rs_in_attr and clears the rs_in_applied flag.
+ *
+ * Leaves everything else -- so can be reused pretty much as is.
+ */
+static void
+bgp_rs_route_reset(struct rs_route* rt)
+{
+  if (rt->rs_in_attr != NULL)
+    {
+      bgp_attr_unintern(rt->rs_in_attr) ;
+      rt->rs_in_attr = NULL ;
+    } ;
+
+  rt->rs_in_applied  = false ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Process rt->orig_attr against any rs-in route-map.
+ *
+ * If the result is RMAP_PERMIT, then rt->rs_in_attr will be set to a newly
+ * internalised version of the attributes.
+ *
+ * If the result is RMAP_DENY, then rt->rs_in_attr is left NULL.
+ *
+ * The structure pointed to by rt->orig_attr is untouched.
+ *
+ * NB: All the elements of the incoming rt->orig_attr must have been
+ *     internalised.
+ *
+ *    This is because a copy -- bgp_attr_dup() -- of those attributes is handed
+ *    to the route-map.  Any element of the attributes which is changed is
+ *    overwritten by the route-map -- and if it has a 0 reference count, the
+ *    element will be deleted.  Unfortunately, that leaves a dangling reference
+ *    in the original rt->orig_attr.
+ *
+ * NB: must NOT be called more than once for the same "rt", hence the
+ *     "rs_in_applied" flag.
+ */
+static void
+bgp_rs_input_modifier (struct rs_route* rt)
 {
   struct bgp_filter *filter;
-  struct bgp_info info;
-  route_map_result_t ret;
 
-  filter = &peer->filter[afi][safi];
+  assert(! rt->rs_in_applied && (rt->rs_in_attr == NULL)) ;
 
-  /* Route map apply. */
+  rt->rs_in_applied = true ;
+
+  /* Route map apply.                                           */
+  filter = &rt->peer->filter[rt->afi][rt->safi];
+
+  if (ROUTE_MAP_RS_IN_NAME (filter))
+    {
+      struct bgp_info    info_s = { 0 } ;
+      route_map_result_t ret ;
+      struct attr*       rmap_attr ;
+      struct attr        rmap_attr_s ;
+
+      rmap_attr = &rmap_attr_s ;
+      bgp_attr_dup(rmap_attr, rt->orig_attr) ;
+
+    /* Duplicate current value to new structure for modification. */
+      info_s.peer = rt->peer;
+      info_s.attr = rmap_attr ;
+
+      SET_FLAG (rt->peer->rmap_type, PEER_RMAP_TYPE_RS_IN);
+
+      /* Apply BGP route map to the attribute. */
+      ret = route_map_apply(ROUTE_MAP_RS_IN(filter), rt->p, RMAP_BGP, &info_s) ;
+
+      rt->peer->rmap_type = 0;
+
+      if (ret == RMAP_DENYMATCH)
+        {
+          /* Discard any new elements set by the route-map -- these will have
+           * reference counts == 0.
+           */
+          bgp_attr_flush (rmap_attr);
+
+          rt->rs_in_deny = true ;       /* NB: rs_in_attr is NULL       */
+        }
+      else
+        {
+          rt->rs_in_attr = bgp_attr_intern(rmap_attr) ;
+          rt->rs_in_deny = false ;
+        } ;
+
+      /* Discard any "extra" part of the duplicated attributes.         */
+      bgp_attr_extra_free (rmap_attr);
+    }
+  else
+    {
+      /* Simply intern the original                                     */
+      rt->rs_in_attr = bgp_attr_intern(rt->orig_attr) ;
+      rt->rs_in_deny = false ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Take the already interned client_attr, and if required apply the export
+ * route-map for the peer.
+ *
+ * If not DENY, returns interned client_attr, which may or may not have changed.
+ *
+ * If DENY, returns NULL and the client_attr will have been uninterned.
+ */
+static struct attr*
+bgp_export_modifier (struct peer *rsclient, struct rs_route* rt,
+                                                       struct attr* client_attr)
+{
+  struct bgp_filter *filter;
+
+  /* Route map apply.                                                   */
+  filter = &rt->peer->filter[rt->afi][rt->safi];
+
   if (ROUTE_MAP_EXPORT_NAME (filter))
     {
-      /* Duplicate current value to new strucutre for modification. */
-      info.peer = rsclient;
-      info.attr = attr;
+      struct bgp_info    info_s = { 0 } ;
+      struct attr        rmap_attr_s ;
+      struct attr*       rmap_attr ;
+      route_map_result_t ret;
+
+      rmap_attr = &rmap_attr_s ;
+      bgp_attr_dup (rmap_attr, client_attr) ;
+
+      /* Duplicate current value to new structure for modification.     */
+      info_s.peer = rsclient;
+      info_s.attr = rmap_attr ;
 
       SET_FLAG (rsclient->rmap_type, PEER_RMAP_TYPE_EXPORT);
 
-      /* Apply BGP route map to the attribute. */
-      ret = route_map_apply (ROUTE_MAP_EXPORT (filter), p, RMAP_BGP, &info);
+      /* Apply BGP route map to the attribute.                          */
+      ret = route_map_apply(ROUTE_MAP_EXPORT(filter), rt->p, RMAP_BGP, &info_s);
 
       rsclient->rmap_type = 0;
 
       if (ret == RMAP_DENYMATCH)
         {
-          /* Free newly generated AS path and community by route-map. */
-          bgp_attr_flush (attr);
-          return RMAP_DENY;
-        }
-    }
-  return RMAP_PERMIT;
-}
+          /* Discard any new elements set by the route-map -- these will have
+           * reference counts == 0.
+           */
+          bgp_attr_flush (rmap_attr);
 
-static int
-bgp_import_modifier (struct peer *rsclient, struct peer *peer,
-        struct prefix *p, struct attr *attr, afi_t afi, safi_t safi)
+          bgp_attr_unintern(client_attr) ;
+
+          client_attr = NULL ;
+        }
+      else
+        {
+          /* Intern the result of the rmap and unintern the old version
+           *
+           * Done in this order so that any unchanged elements in rmap_attr
+           * gain a reference before they are released from the old interned
+           * attributes.
+           */
+          struct attr*       old_attr ;
+
+          old_attr = client_attr ;
+          client_attr = bgp_attr_intern(rmap_attr) ;
+          bgp_attr_unintern(old_attr) ;
+        } ;
+
+      /* Discard any "extra" part of the duplicated attributes.         */
+      bgp_attr_extra_free (rmap_attr) ;
+    } ;
+
+  return client_attr ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Take the already interned client_attr, and if required apply the import
+ * route-map for the route server client.
+ *
+ * If not DENY, returns interned client_attr, which may or may not have changed.
+ *
+ * If DENY, returns NULL and the client_attr will have been uninterned.
+ */
+static struct attr*
+bgp_import_modifier (struct peer *rsclient, struct rs_route* rt,
+                                                       struct attr* client_attr)
 {
   struct bgp_filter *filter;
-  struct bgp_info info;
-  route_map_result_t ret;
+  struct attr        rmap_attr_s ;
+  struct attr*       rmap_attr ;
 
-  filter = &rsclient->filter[afi][safi];
+  rmap_attr = NULL ;
 
-  /* Apply default weight value. */
-  if (peer->weight)
-    (bgp_attr_extra_get (attr))->weight = peer->weight;
+  /* Apply default weight value.                                */
+  if (rt->peer->weight)
+    {
+      rmap_attr = &rmap_attr_s ;
+      bgp_attr_dup (rmap_attr, client_attr) ;
 
-  /* Route map apply. */
+      (bgp_attr_extra_get (rmap_attr))->weight = rt->peer->weight;
+    } ;
+
+  /* Route map apply.                                           */
+  filter = &rsclient->filter[rt->afi][rt->safi];
+
   if (ROUTE_MAP_IMPORT_NAME (filter))
     {
-      /* Duplicate current value to new strucutre for modification. */
-      info.peer = peer;
-      info.attr = attr;
+      struct bgp_info    info_s = { 0 } ;
+      route_map_result_t ret ;
 
-      SET_FLAG (peer->rmap_type, PEER_RMAP_TYPE_IMPORT);
+      if (rmap_attr == NULL)
+        {
+          rmap_attr = &rmap_attr_s ;
+          bgp_attr_dup (rmap_attr, client_attr) ;
+        } ;
+
+      /* Duplicate current value to new structure for modification. */
+      /* TODO: should this be rt->peer or rsclient ??           */
+      info_s.peer = rt->peer;
+      info_s.attr = rmap_attr;
+
+      SET_FLAG (rt->peer->rmap_type, PEER_RMAP_TYPE_IMPORT);
 
       /* Apply BGP route map to the attribute. */
-      ret = route_map_apply (ROUTE_MAP_IMPORT (filter), p, RMAP_BGP, &info);
+      ret = route_map_apply(ROUTE_MAP_IMPORT(filter), rt->p, RMAP_BGP, &info_s);
 
-      peer->rmap_type = 0;
+      rt->peer->rmap_type = 0;
 
       if (ret == RMAP_DENYMATCH)
         {
-          /* Free newly generated AS path and community by route-map. */
-          bgp_attr_flush (attr);
-          return RMAP_DENY;
+          /* Discard any new elements set by the route-map -- these will have
+           * reference counts == 0.
+           *
+           * Discard any "extra" part of the duplicated attributes.
+           */
+          bgp_attr_flush (rmap_attr);
+          bgp_attr_extra_free (rmap_attr);
+
+          bgp_attr_unintern(client_attr) ;
+
+          return NULL ;
         }
     }
-  return RMAP_PERMIT;
-}
+
+  /* If the attributes may have changed, intern the new result and unintern the
+   * old version
+   *
+   * Done in this order so that any unchanged elements in rmap_attr gain
+   * an extra reference before they are released from the old interned
+   * attributes.
+   */
+  if (rmap_attr != NULL)
+    {
+      struct attr* old_attr ;
+
+      old_attr = client_attr ;
+      client_attr = bgp_attr_intern(rmap_attr) ;
+      bgp_attr_unintern(old_attr) ;
+
+      bgp_attr_extra_free (rmap_attr) ;
+    } ;
+
+  return client_attr ;
+} ;
 
 static int
 bgp_announce_check (struct bgp_info *ri, struct peer *peer, struct prefix *p,
 		    struct attr *attr, afi_t afi, safi_t safi)
 {
-  int ret;
   char buf[SU_ADDRSTRLEN];
   struct bgp_filter *filter;
   struct peer *from;
@@ -1097,32 +1404,42 @@ bgp_announce_check (struct bgp_info *ri, struct peer *peer, struct prefix *p,
   if (ROUTE_MAP_OUT_NAME (filter)
       || (ri->extra && ri->extra->suppress) )
     {
-      struct bgp_info info;
-      struct attr dummy_attr = { 0 };
+      struct bgp_info info_s = { 0 } ;
+      struct attr  dummy_attr_s ;
+      struct attr* dummy_attr ;
+      route_map_result_t ret;
 
-      info.peer = peer;
-      info.attr = attr;
+      info_s.peer = peer;
 
       /* The route reflector is not allowed to modify the attributes
 	 of the reflected IBGP routes. */
       if (peer_sort (from) == BGP_PEER_IBGP
 	  && peer_sort (peer) == BGP_PEER_IBGP)
 	{
-	  bgp_attr_dup (&dummy_attr, attr);
-	  info.attr = &dummy_attr;
+          dummy_attr = &dummy_attr_s ;
+	  bgp_attr_dup (dummy_attr, attr);
+	  info_s.attr = dummy_attr;
 	}
+      else
+        {
+          dummy_attr  = NULL ;
+          info_s.attr = attr;
+        } ;
 
       SET_FLAG (peer->rmap_type, PEER_RMAP_TYPE_OUT);
 
       if (ri->extra && ri->extra->suppress)
-	ret = route_map_apply (UNSUPPRESS_MAP (filter), p, RMAP_BGP, &info);
+	ret = route_map_apply (UNSUPPRESS_MAP (filter), p, RMAP_BGP, &info_s);
       else
-	ret = route_map_apply (ROUTE_MAP_OUT (filter), p, RMAP_BGP, &info);
+	ret = route_map_apply (ROUTE_MAP_OUT (filter), p, RMAP_BGP, &info_s);
 
       peer->rmap_type = 0;
 
-      if (dummy_attr.extra)
-        bgp_attr_extra_free (&dummy_attr);
+      if (dummy_attr != NULL)
+        {
+          bgp_attr_flush (dummy_attr) ;
+          bgp_attr_extra_free (dummy_attr) ;
+        } ;
 
       if (ret == RMAP_DENYMATCH)
 	{
@@ -1137,10 +1454,8 @@ static int
 bgp_announce_check_rsclient (struct bgp_info *ri, struct peer *rsclient,
         struct prefix *p, struct attr *attr, afi_t afi, safi_t safi)
 {
-  int ret;
   char buf[SU_ADDRSTRLEN];
   struct bgp_filter *filter;
-  struct bgp_info info;
   struct peer *from;
   struct bgp *bgp;
 
@@ -1311,15 +1626,18 @@ bgp_announce_check_rsclient (struct bgp_info *ri, struct peer *rsclient,
   /* Route map & unsuppress-map apply. */
   if (ROUTE_MAP_OUT_NAME (filter) || (ri->extra && ri->extra->suppress) )
     {
-      info.peer = rsclient;
-      info.attr = attr;
+      struct bgp_info info_s = { 0 } ;
+      route_map_result_t ret;
+
+      info_s.peer = rsclient;
+      info_s.attr = attr;
 
       SET_FLAG (rsclient->rmap_type, PEER_RMAP_TYPE_OUT);
 
       if (ri->extra && ri->extra->suppress)
-        ret = route_map_apply (UNSUPPRESS_MAP (filter), p, RMAP_BGP, &info);
+        ret = route_map_apply (UNSUPPRESS_MAP (filter), p, RMAP_BGP, &info_s);
       else
-        ret = route_map_apply (ROUTE_MAP_OUT (filter), p, RMAP_BGP, &info);
+        ret = route_map_apply (ROUTE_MAP_OUT (filter), p, RMAP_BGP, &info_s);
 
       rsclient->rmap_type = 0;
 
@@ -1980,88 +2298,103 @@ bgp_rib_withdraw (struct bgp_node *rn, struct bgp_info *ri, struct peer *peer,
   bgp_rib_remove (rn, ri, peer, afi, safi);
 }
 
+/*------------------------------------------------------------------------------
+ * Update the given RS Client's RIB with the given route from the given peer.
+ *
+ * The peer's rs-in route-map once for all the rsclients who are to receive
+ * the route.
+ *
+ * Then export and import route-maps for the peer and the rsclient respectively.
+ */
 static void
-bgp_update_rsclient (struct peer *rsclient, afi_t afi, safi_t safi,
-      struct attr *attr, struct peer *peer, struct prefix *p, int type,
-      int sub_type, struct prefix_rd *prd, u_char *tag)
+bgp_update_rsclient (struct peer *rsclient, struct rs_route* rt)
 {
-  struct bgp_node *rn;
+  struct attr* client_attr ;
   struct bgp *bgp;
-  struct attr new_attr = { 0 };
-  struct attr *attr_new;
-  struct attr *attr_new2;
+  struct bgp_node *rn;
   struct bgp_info *ri;
-  struct bgp_info *new;
   const char *reason;
   char buf[SU_ADDRSTRLEN];
 
-  /* Do not insert announces from a rsclient into its own 'bgp_table'. */
-  if (peer == rsclient)
+  /* Do not insert announces from a rsclient into its own 'bgp_table'.  */
+  if (rt->peer == rsclient)
     return;
 
-  bgp = peer->bgp;
-  rn = bgp_afi_node_get (rsclient->rib[afi][safi], afi, safi, p, prd);
+  /* Apply rs_in policy.                                        */
+  if (!rt->rs_in_applied)
+    bgp_rs_input_modifier(rt) ;
 
-  /* Check previously received route. */
+  client_attr = NULL ;          /* no attributes, yet   */
+
+  /* Find node for this route                                   */
+  bgp = rt->peer->bgp;
+  rn = bgp_afi_node_get (rsclient->rib[rt->afi][rt->safi], rt->afi, rt->safi,
+                                                               rt->p, rt->prd);
+
+  /* Check previously received route.                           */
   for (ri = rn->info; ri; ri = ri->info_next)
-    if (ri->peer == peer && ri->type == type && ri->sub_type == sub_type)
+    if (ri->peer == rt->peer && ri->type     == rt->type
+                             && ri->sub_type == rt->sub_type)
       break;
 
-  /* AS path loop check. */
-  if (aspath_loop_check (attr->aspath, rsclient->as) > peer->allowas_in[afi][safi])
+  /* If rs-in denies the route, stop now                        */
+  if (rt->rs_in_deny)
+    {
+      reason = "rs-in-policy;";
+      goto filtered;
+    } ;
+
+  /* AS path loop check.                                        */
+  if (aspath_loop_check (rt->rs_in_attr->aspath, rsclient->as) >
+                                        rt->peer->allowas_in[rt->afi][rt->safi])
     {
       reason = "as-path contains our own AS;";
       goto filtered;
     }
 
-  /* Route reflector originator ID check.  */
-  if (attr->flag & ATTR_FLAG_BIT (BGP_ATTR_ORIGINATOR_ID)
-      && IPV4_ADDR_SAME (&rsclient->remote_id, &attr->extra->originator_id))
+  /* Route reflector originator ID check.       */
+  if (rt->rs_in_attr->flag & ATTR_FLAG_BIT (BGP_ATTR_ORIGINATOR_ID)
+      && IPV4_ADDR_SAME (&rsclient->remote_id,
+                                         &rt->rs_in_attr->extra->originator_id))
     {
       reason = "originator is us;";
       goto filtered;
     }
 
-  bgp_attr_dup (&new_attr, attr);
+  /* Need own internalised version of the rs_in attributes      */
+  client_attr = bgp_attr_intern(rt->rs_in_attr) ;
 
-  /* Apply export policy. */
-  if (CHECK_FLAG(peer->af_flags[afi][safi], PEER_FLAG_RSERVER_CLIENT) &&
-        bgp_export_modifier (rsclient, peer, p, &new_attr, afi, safi) == RMAP_DENY)
+  /* Apply export policy.                                       */
+  if (CHECK_FLAG(rt->peer->af_flags[rt->afi][rt->safi],
+                                                      PEER_FLAG_RSERVER_CLIENT))
     {
-      reason = "export-policy;";
-      goto filtered;
-    }
-
-  attr_new2 = bgp_attr_intern (&new_attr);
+      client_attr = bgp_export_modifier (rsclient, rt, client_attr) ;
+      if (client_attr == NULL)
+        {
+          reason = "export-policy;";
+          goto filtered;
+        } ;
+    } ;
 
   /* Apply import policy. */
-  if (bgp_import_modifier (rsclient, peer, p, &new_attr, afi, safi) == RMAP_DENY)
+  client_attr = bgp_import_modifier (rsclient, rt, client_attr) ;
+  if (client_attr == NULL)
     {
-      bgp_attr_unintern (attr_new2);
-
       reason = "import-policy;";
       goto filtered;
     }
 
-  attr_new = bgp_attr_intern (&new_attr);
-  bgp_attr_unintern (attr_new2);
-
   /* IPv4 unicast next hop check.  */
-  if (afi == AFI_IP && safi == SAFI_UNICAST)
+  if (rt->afi == AFI_IP && rt->safi == SAFI_UNICAST)
     {
      /* Next hop must not be 0.0.0.0 nor Class E address. */
-      if (new_attr.nexthop.s_addr == 0
-         || ntohl (new_attr.nexthop.s_addr) >= 0xe0000000)
+      if (client_attr->nexthop.s_addr == 0
+         || ntohl (client_attr->nexthop.s_addr) >= 0xe0000000)
        {
-         bgp_attr_unintern (attr_new);
-
          reason = "martian next-hop;";
          goto filtered;
        }
     }
-
-  /* new_attr isn't passed to any functions after here */
-  bgp_attr_extra_free (&new_attr);
 
   /* If the update is implicit withdraw. */
   if (ri)
@@ -2070,109 +2403,101 @@ bgp_update_rsclient (struct peer *rsclient, afi_t afi, safi_t safi,
 
       /* Same attribute comes in. */
       if (!CHECK_FLAG(ri->flags, BGP_INFO_REMOVED)
-          && attrhash_cmp (ri->attr, attr_new))
+                                        && attrhash_cmp (ri->attr, client_attr))
         {
 
           bgp_info_unset_flag (rn, ri, BGP_INFO_ATTR_CHANGED);
 
           if (BGP_DEBUG (update, UPDATE_IN))
-            zlog (peer->log, LOG_DEBUG,
+            zlog (rt->peer->log, LOG_DEBUG,
                     "%s rcvd %s/%d for RS-client %s...duplicate ignored",
-                    peer->host,
-                    inet_ntop(p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
-                    p->prefixlen, rsclient->host);
+                    rt->peer->host,
+                    inet_ntop(rt->p->family, &rt->p->u.prefix,
+                                                            buf, SU_ADDRSTRLEN),
+                    rt->p->prefixlen, rsclient->host);
 
+          /* Discard the duplicate interned attributes          */
+          bgp_attr_unintern (client_attr);
+
+          /* Unlock node -- locked in bgp_afi_node_get()        */
           bgp_unlock_node (rn);
-          bgp_attr_unintern (attr_new);
-
-          return;
+          return;               /* FIN <<<<<<<<<<<<<<<<<<<      */
         }
 
       /* Withdraw/Announce before we fully processed the withdraw */
       if (CHECK_FLAG(ri->flags, BGP_INFO_REMOVED))
         bgp_info_restore (rn, ri);
 
-      /* Received Logging. */
-      if (BGP_DEBUG (update, UPDATE_IN))
-        zlog (peer->log, LOG_DEBUG, "%s rcvd %s/%d for RS-client %s",
-                peer->host,
-                inet_ntop(p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
-                p->prefixlen, rsclient->host);
-
-      /* The attribute is changed. */
+      /* The attribute is changed.                              */
       bgp_info_set_flag (rn, ri, BGP_INFO_ATTR_CHANGED);
 
-      /* Update to new attribute.  */
+      /* Discard the old attribute                              */
       bgp_attr_unintern (ri->attr);
-      ri->attr = attr_new;
-
-      /* Update MPLS tag.  */
-      if (safi == SAFI_MPLS_VPN)
-        memcpy ((bgp_info_extra_get (ri))->tag, tag, 3);
-
-      bgp_info_set_flag (rn, ri, BGP_INFO_VALID);
-
-      /* Process change. */
-      bgp_process (bgp, rn, afi, safi);
-      bgp_unlock_node (rn);
-
-      return;
-    }
-
-  /* Received Logging. */
-  if (BGP_DEBUG (update, UPDATE_IN))
+   }
+  else
     {
-      zlog (peer->log, LOG_DEBUG, "%s rcvd %s/%d for RS-client %s",
-              peer->host,
-              inet_ntop(p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
-              p->prefixlen, rsclient->host);
-    }
+      /* Make new BGP info.                                     */
+      ri = bgp_info_new ();
+      ri->type     = rt->type;
+      ri->sub_type = rt->sub_type;
+      ri->peer     = rt->peer;
+      ri->uptime   = time (NULL);
 
-  /* Make new BGP info. */
-  new = bgp_info_new ();
-  new->type = type;
-  new->sub_type = sub_type;
-  new->peer = peer;
-  new->attr = attr_new;
-  new->uptime = time (NULL);
+      /* Register new BGP information.                          */
+      bgp_info_add (rn, ri);
+    } ;
 
-  /* Update MPLS tag. */
-  if (safi == SAFI_MPLS_VPN)
-    memcpy ((bgp_info_extra_get (new))->tag, tag, 3);
+  /* Set the new attributes and update any MPLS tag.
+   *
+   * Any old attributes have been discarded.
+   *
+   * Note that we are here passing responsibility for the client_attr to the
+   * ri entry.
+   */
+  ri->attr = client_attr ;
 
-  bgp_info_set_flag (rn, new, BGP_INFO_VALID);
+  if (rt->safi == SAFI_MPLS_VPN)
+    memcpy ((bgp_info_extra_get (ri))->tag, rt->tag, 3);
 
-  /* Register new BGP information. */
-  bgp_info_add (rn, new);
+  /* Received Logging.                                          */
+  if (BGP_DEBUG (update, UPDATE_IN))
+    zlog (rt->peer->log, LOG_DEBUG, "%s rcvd %s/%d for RS-client %s",
+            rt->peer->host,
+            inet_ntop(rt->p->family, &rt->p->u.prefix, buf, SU_ADDRSTRLEN),
+            rt->p->prefixlen, rsclient->host);
 
-  /* route_node_get lock */
+  /* Process change.                                            */
+  bgp_info_set_flag (rn, ri, BGP_INFO_VALID);
+  bgp_process (bgp, rn, rt->afi, rt->safi);
+
+  /* Unlock node -- locked in bgp_afi_node_get()                */
   bgp_unlock_node (rn);
 
-  /* Process change. */
-  bgp_process (bgp, rn, afi, safi);
+  return;               /* FIN <<<<<<<<<<<<<<<<<<<              */
 
-  bgp_attr_extra_free (&new_attr);
-
-  return;
-
- filtered:
+  /* Deal with route which has been filtered out.
+   *
+   * If there was a previous route, then remove it.
+   *
+   * If have an interned client attributes, then discard those.
+   */
+  filtered:
 
   /* This BGP update is filtered.  Log the reason then update BGP entry.  */
   if (BGP_DEBUG (update, UPDATE_IN))
-        zlog (peer->log, LOG_DEBUG,
+        zlog (rt->peer->log, LOG_DEBUG,
         "%s rcvd UPDATE about %s/%d -- DENIED for RS-client %s due to: %s",
-        peer->host,
-        inet_ntop (p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
-        p->prefixlen, rsclient->host, reason);
+        rt->peer->host,
+        inet_ntop (rt->p->family, &rt->p->u.prefix, buf, SU_ADDRSTRLEN),
+        rt->p->prefixlen, rsclient->host, reason);
 
   if (ri)
-    bgp_rib_remove (rn, ri, peer, afi, safi);
+    bgp_rib_remove (rn, ri, rt->peer, rt->afi, rt->safi);
+
+  if (client_attr != NULL)
+    bgp_attr_unintern (client_attr);
 
   bgp_unlock_node (rn);
-
-  if (new_attr.extra)
-    bgp_attr_extra_free (&new_attr);
-
   return;
 }
 
@@ -2213,16 +2538,16 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 	    afi_t afi, safi_t safi, int type, int sub_type,
 	    struct prefix_rd *prd, u_char *tag, int soft_reconfig)
 {
-  int ret;
   int aspath_loop_count = 0;
   struct bgp_node *rn;
   struct bgp *bgp;
-  struct attr new_attr = { 0 };
-  struct attr *attr_new;
+  struct attr* use_attr ;
   struct bgp_info *ri;
   struct bgp_info *new;
   const char *reason;
   char buf[SU_ADDRSTRLEN];
+
+  use_attr = NULL ;             /* nothing to use, yet          */
 
   bgp = peer->bgp;
   rn = bgp_afi_node_get (bgp->rib[afi][safi], afi, safi, p, prd);
@@ -2284,21 +2609,20 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
     }
 
   /* Apply incoming route-map. */
-  bgp_attr_dup (&new_attr, attr);
-
-  if (bgp_input_modifier (peer, p, &new_attr, afi, safi) == RMAP_DENY)
+  use_attr = bgp_input_modifier(peer, p, attr, afi, safi) ;
+  if (use_attr == NULL)
     {
       reason = "route-map;";
       goto filtered;
     }
 
   /* IPv4 unicast next hop check.  */
-  if (afi == AFI_IP && safi == SAFI_UNICAST)
+  if ((afi == AFI_IP) && (safi == SAFI_UNICAST))
     {
       /* If the peer is EBGP and nexthop is not on connected route,
 	 discard it.  */
-      if (peer_sort (peer) == BGP_PEER_EBGP && peer->ttl == 1
-	  && ! bgp_nexthop_check_ebgp (afi, &new_attr)
+      if ((peer_sort (peer) == BGP_PEER_EBGP) && (peer->ttl == 1)
+	  && ! bgp_nexthop_check_ebgp (afi, use_attr)
 	  && ! CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
 	{
 	  reason = "non-connected next-hop;";
@@ -2307,16 +2631,14 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 
       /* Next hop must not be 0.0.0.0 nor Class E address.  Next hop
 	 must not be my own address.  */
-      if (bgp_nexthop_self (afi, &new_attr)
-	  || new_attr.nexthop.s_addr == 0
-	  || ntohl (new_attr.nexthop.s_addr) >= 0xe0000000)
+      if (bgp_nexthop_self (afi, use_attr)
+	  || (use_attr->nexthop.s_addr == 0)
+	  || (ntohl (use_attr->nexthop.s_addr) >= 0xe0000000))
 	{
 	  reason = "martian next-hop;";
 	  goto filtered;
 	}
     }
-
-  attr_new = bgp_attr_intern (&new_attr);
 
   /* If the update is implicit withdraw. */
   if (ri)
@@ -2325,7 +2647,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 
       /* Same attribute comes in. */
       if (!CHECK_FLAG (ri->flags, BGP_INFO_REMOVED)
-          && attrhash_cmp (ri->attr, attr_new))
+                                           && attrhash_cmp (ri->attr, use_attr))
 	{
 	  bgp_info_unset_flag (rn, ri, BGP_INFO_ATTR_CHANGED);
 
@@ -2362,10 +2684,9 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 		}
 	    }
 
-	  bgp_unlock_node (rn);
-	  bgp_attr_unintern (attr_new);
-	  bgp_attr_extra_free (&new_attr);
+	  bgp_attr_unintern (use_attr);
 
+          bgp_unlock_node (rn);
 	  return 0;
 	}
 
@@ -2373,7 +2694,8 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
       if (CHECK_FLAG(ri->flags, BGP_INFO_REMOVED))
         {
           if (BGP_DEBUG (update, UPDATE_IN))
-            zlog (peer->log, LOG_DEBUG, "%s rcvd %s/%d, flapped quicker than processing",
+            zlog (peer->log, LOG_DEBUG, "%s rcvd %s/%d, "
+                                              "flapped quicker than processing",
             peer->host,
             inet_ntop(p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
             p->prefixlen);
@@ -2411,7 +2733,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 
       /* Update to new attribute.  */
       bgp_attr_unintern (ri->attr);
-      ri->attr = attr_new;
+      ri->attr = use_attr ;
 
       /* Update MPLS tag.  */
       if (safi == SAFI_MPLS_VPN)
@@ -2421,12 +2743,12 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
       if (CHECK_FLAG (bgp->af_flags[afi][safi], BGP_CONFIG_DAMPENING)
 	  && peer_sort (peer) == BGP_PEER_EBGP)
 	{
+          int ret ;
 	  /* Now we do normal update dampening.  */
 	  ret = bgp_damp_update (ri, rn, afi, safi);
 	  if (ret == BGP_DAMP_SUPPRESSED)
 	    {
 	      bgp_unlock_node (rn);
-	      bgp_attr_extra_free (&new_attr);
 	      return 0;
 	    }
 	}
@@ -2451,9 +2773,8 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
       bgp_aggregate_increment (bgp, p, ri, afi, safi);
 
       bgp_process (bgp, rn, afi, safi);
-      bgp_unlock_node (rn);
-      bgp_attr_extra_free (&new_attr);
 
+      bgp_unlock_node (rn);
       return 0;
     }
 
@@ -2471,7 +2792,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
   new->type = type;
   new->sub_type = sub_type;
   new->peer = peer;
-  new->attr = attr_new;
+  new->attr = use_attr;
   new->uptime = time (NULL);
 
   /* Update MPLS tag. */
@@ -2500,18 +2821,19 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
   /* Register new BGP information. */
   bgp_info_add (rn, new);
 
-  /* route_node_get lock */
-  bgp_unlock_node (rn);
-
-  bgp_attr_extra_free (&new_attr);
-
   /* If maximum prefix count is configured and current prefix
-     count exeed it. */
+     count exceeds it. */
   if (bgp_maximum_prefix_overflow (peer, afi, safi, 0))
-    return -1;
+    {
+      bgp_unlock_node (rn);
+      return -1;
+    } ;
 
   /* Process change. */
   bgp_process (bgp, rn, afi, safi);
+
+  /* route_node_get lock */
+  bgp_unlock_node (rn);
 
   return 0;
 
@@ -2525,13 +2847,13 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 	  inet_ntop (p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
 	  p->prefixlen, reason);
 
-  if (ri)
+  if (ri != NULL)
     bgp_rib_remove (rn, ri, peer, afi, safi);
 
+  if (use_attr != NULL)
+    bgp_attr_unintern (use_attr);
+
   bgp_unlock_node (rn);
-
-  bgp_attr_extra_free (&new_attr);
-
   return 0;
 }
 
@@ -2545,19 +2867,35 @@ bgp_update (struct peer *peer, struct prefix *p, struct attr *attr,
   struct bgp *bgp;
   int ret;
 
+  /* For all neighbors, update the main RIB                             */
   ret = bgp_update_main (peer, p, attr, afi, safi, type, sub_type, prd, tag,
           soft_reconfig);
 
+  /* Update all Route-Server Client RIBs                                */
   bgp = peer->bgp;
 
-  /* Process the update for each RS-client. */
-  for (ALL_LIST_ELEMENTS (bgp->rsclient, node, nnode, rsclient))
+  if (bgp->rsclient != NULL)
     {
-      if (CHECK_FLAG (rsclient->af_flags[afi][safi], PEER_FLAG_RSERVER_CLIENT))
-        bgp_update_rsclient (rsclient, afi, safi, attr, peer, p, type,
-                sub_type, prd, tag);
-    }
+      struct rs_route rt_s ;
 
+      /* Prepare the rs_route object, ready to update all rs clients active
+       * in this afi/safi.
+       */
+      bgp_rs_route_init(&rt_s, afi, safi, attr, peer, p, type, sub_type,
+                                                                     prd, tag) ;
+
+      /* Process the update for each RS-client. */
+      for (ALL_LIST_ELEMENTS (bgp->rsclient, node, nnode, rsclient))
+        if (CHECK_FLAG(rsclient->af_flags[afi][safi], PEER_FLAG_RSERVER_CLIENT))
+          bgp_update_rsclient (rsclient, &rt_s) ;
+
+      /* Reset the rs_route object -- in particular discard any interned
+       * rs_in_attr which may have been created.
+       */
+      bgp_rs_route_reset(&rt_s) ;
+    } ;
+
+  /* Return result from bgp_update_main                                 */
   return ret;
 }
 
@@ -2625,9 +2963,7 @@ bgp_default_originate (struct peer *peer, afi_t afi, safi_t safi, int withdraw)
   struct attr attr = { 0 };
   struct aspath *aspath = { 0 };
   struct prefix p;
-  struct bgp_info binfo;
   struct peer *from;
-  int ret = RMAP_DENYMATCH;
 
   if (!(afi == AFI_IP || afi == AFI_IP6))
     return;
@@ -2672,13 +3008,16 @@ bgp_default_originate (struct peer *peer, afi_t afi, safi_t safi, int withdraw)
 
   if (peer->default_rmap[afi][safi].name)
     {
-      binfo.peer = bgp->peer_self;
-      binfo.attr = &attr;
+      struct bgp_info info_s = { 0 } ;
+      route_map_result_t ret;
+
+      info_s.peer = bgp->peer_self ;
+      info_s.attr = &attr;
 
       SET_FLAG (bgp->peer_self->rmap_type, PEER_RMAP_TYPE_DEFAULT);
 
       ret = route_map_apply (peer->default_rmap[afi][safi].map, &p,
-			     RMAP_BGP, &binfo);
+			     RMAP_BGP, &info_s);
 
       bgp->peer_self->rmap_type = 0;
 
@@ -2780,16 +3119,34 @@ bgp_soft_reconfig_table_rsclient (struct peer *rsclient, afi_t afi,
 {
   struct bgp_node *rn;
   struct bgp_adj_in *ain;
+  struct rs_route rt_s ;
 
   if (! table)
     table = rsclient->bgp->rib[afi][safi];
 
+  /* Prepare the rs_route object, setting all the parts common to all routes
+   * which are about to announce to the rs client.
+   */
+  bgp_rs_route_init(&rt_s, afi, safi, NULL, NULL, NULL,
+                                ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, NULL, NULL) ;
+
+  /* Announce everything in the table.                                  */
   for (rn = bgp_table_top (table); rn; rn = bgp_route_next (rn))
     for (ain = rn->adj_in; ain; ain = ain->adj_next)
       {
-        bgp_update_rsclient (rsclient, afi, safi, ain->attr, ain->peer,
-                &rn->p, ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, NULL, NULL);
-      }
+        rt_s.orig_attr = ain->attr ;
+        rt_s.peer      = ain->peer ;
+        rt_s.p         = &rn->p ;
+
+        bgp_update_rsclient (rsclient, &rt_s) ;
+
+        /* Reset the rs_route object -- which discards any interned rs_in_attr
+         * which may have been created and clears the rs_in_applied flag.
+         *
+         * Leaves everything else !
+         */
+        bgp_rs_route_reset(&rt_s) ;
+      } ;
 }
 
 void
@@ -3610,13 +3967,11 @@ bgp_static_update_rsclient (struct peer *rsclient, struct prefix *p,
 {
   struct bgp_node *rn;
   struct bgp_info *ri;
-  struct bgp_info *new;
-  struct bgp_info info;
-  struct attr *attr_new;
-  struct attr attr = {0 };
-  struct attr new_attr = { .extra = 0 };
+  struct attr static_attr_s ;
+  struct attr* static_attr ;
+  struct attr* client_attr ;
+  struct rs_route rt_s ;
   struct bgp *bgp;
-  int ret;
   char buf[SU_ADDRSTRLEN];
 
   bgp = rsclient->bgp;
@@ -3627,83 +3982,107 @@ bgp_static_update_rsclient (struct peer *rsclient, struct prefix *p,
 
   rn = bgp_afi_node_get (rsclient->rib[afi][safi], afi, safi, p, NULL);
 
-  bgp_attr_default_set (&attr, BGP_ORIGIN_IGP);
+  /* Construct the static route attributes.
+   *
+   * Starts with an empty aspath, which is interned.  No other elements are
+   * interned and the object itself is not interned.
+   */
+  static_attr = &static_attr_s ;
+  bgp_attr_default_set (static_attr, BGP_ORIGIN_IGP);
 
-  attr.nexthop = bgp_static->igpnexthop;
-  attr.med = bgp_static->igpmetric;
-  attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_MULTI_EXIT_DISC);
+  static_attr->nexthop = bgp_static->igpnexthop;
+  static_attr->med     = bgp_static->igpmetric;
+  static_attr->flag   |= ATTR_FLAG_BIT (BGP_ATTR_MULTI_EXIT_DISC);
 
   if (bgp_static->ttl)
     {
-      attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_AS_PATHLIMIT);
-      attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_ATOMIC_AGGREGATE);
-      attr.pathlimit.as = 0;
-      attr.pathlimit.ttl = bgp_static->ttl;
+      static_attr->flag         |= ATTR_FLAG_BIT (BGP_ATTR_AS_PATHLIMIT);
+      static_attr->flag         |= ATTR_FLAG_BIT (BGP_ATTR_ATOMIC_AGGREGATE);
+      static_attr->pathlimit.as  = 0;
+      static_attr->pathlimit.ttl = bgp_static->ttl;
     }
 
   if (bgp_static->atomic)
-    attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_ATOMIC_AGGREGATE);
+    static_attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_ATOMIC_AGGREGATE);
 
-  /* Apply network route-map for export to this rsclient. */
+  /* Apply network route-map for export to this rsclient.
+   *
+   * Create interned attributes client_attr, either from route-map result, or
+   * from the static_attr.
+   */
   if (bgp_static->rmap.name)
     {
-      struct attr attr_tmp = attr;
-      info.peer = rsclient;
-      info.attr = &attr_tmp;
+      struct bgp_info info_s = { 0 } ;
+      struct attr  rmap_attr_s ;
+      struct attr* rmap_attr ;
+      route_map_result_t ret;
+
+      rmap_attr = &rmap_attr_s ;
+      bgp_attr_dup(rmap_attr, static_attr) ;
+
+      info_s.peer = rsclient ;
+      info_s.attr = rmap_attr ;
 
       SET_FLAG (rsclient->rmap_type, PEER_RMAP_TYPE_EXPORT);
       SET_FLAG (rsclient->rmap_type, PEER_RMAP_TYPE_NETWORK);
 
-      ret = route_map_apply (bgp_static->rmap.map, p, RMAP_BGP, &info);
+      ret = route_map_apply (bgp_static->rmap.map, p, RMAP_BGP, &info_s);
 
       rsclient->rmap_type = 0;
 
       if (ret == RMAP_DENYMATCH)
         {
-          /* Free uninterned attribute. */
-          bgp_attr_flush (&attr_tmp);
+          /* Free uninterned attribute.                 */
+          bgp_attr_flush (rmap_attr) ;
+          bgp_attr_extra_free (rmap_attr);
 
-          /* Unintern original. */
-          aspath_unintern (attr.aspath);
+          /* Unintern original.                         */
+          aspath_unintern (static_attr->aspath);
+          bgp_attr_extra_free (static_attr);
+
           bgp_static_withdraw_rsclient (bgp, rsclient, p, afi, safi);
-          bgp_attr_extra_free (&attr);
 
           return;
-        }
-      attr_new = bgp_attr_intern (&attr_tmp);
+        } ;
+
+      client_attr = bgp_attr_intern(rmap_attr) ;
+      bgp_attr_extra_free (rmap_attr) ;
     }
   else
-    attr_new = bgp_attr_intern (&attr);
+    client_attr = bgp_attr_intern (static_attr) ;
 
-  new_attr = *attr_new;
+  /* Have now finished with the static_attr                             */
+  aspath_unintern (static_attr->aspath);
+  bgp_attr_extra_free (static_attr);
+
+  /* run the import route-map for the rsclient.                         */
+  bgp_rs_route_init(&rt_s, afi, safi, NULL, bgp->peer_self, p,
+                                ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, NULL, NULL) ;
 
   SET_FLAG (bgp->peer_self->rmap_type, PEER_RMAP_TYPE_NETWORK);
 
-  if (bgp_import_modifier (rsclient, bgp->peer_self, p, &new_attr, afi, safi)
-        == RMAP_DENY)
+  client_attr = bgp_import_modifier (rsclient, &rt_s, client_attr) ;
+
+  bgp->peer_self->rmap_type = 0;
+
+  if (client_attr == NULL)
     {
       /* This BGP update is filtered.  Log the reason then update BGP entry.  */
       if (BGP_DEBUG (update, UPDATE_IN))
-              zlog (rsclient->log, LOG_DEBUG,
-              "Static UPDATE about %s/%d -- DENIED for RS-client %s due to: import-policy",
-              inet_ntop (p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
-              p->prefixlen, rsclient->host);
+            zlog (rsclient->log, LOG_DEBUG,
+            "Static UPDATE about %s/%d -- DENIED for RS-client %s due to: "
+                                                                "import-policy",
+            inet_ntop (p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
+            p->prefixlen, rsclient->host);
 
       bgp->peer_self->rmap_type = 0;
-
-      bgp_attr_unintern (attr_new);
-      aspath_unintern (attr.aspath);
-      bgp_attr_extra_free (&attr);
 
       bgp_static_withdraw_rsclient (bgp, rsclient, p, afi, safi);
 
       return;
     }
 
-  bgp->peer_self->rmap_type = 0;
-
-  bgp_attr_unintern (attr_new);
-  attr_new = bgp_attr_intern (&new_attr);
+  /* Apply the client_attr                                              */
 
   for (ri = rn->info; ri; ri = ri->info_next)
     if (ri->peer == bgp->peer_self && ri->type == ZEBRA_ROUTE_BGP
@@ -3712,57 +4091,51 @@ bgp_static_update_rsclient (struct peer *rsclient, struct prefix *p,
 
   if (ri)
        {
-      if (attrhash_cmp (ri->attr, attr_new) &&
-	  !CHECK_FLAG(ri->flags, BGP_INFO_REMOVED))
+      if (attrhash_cmp (ri->attr, client_attr) &&
+                                      !CHECK_FLAG(ri->flags, BGP_INFO_REMOVED))
         {
-          bgp_unlock_node (rn);
-          bgp_attr_unintern (attr_new);
-          aspath_unintern (attr.aspath);
-          bgp_attr_extra_free (&attr);
-          return;
-       }
+          /* No point duplicating                       */
+          bgp_attr_unintern (client_attr);
+        }
       else
         {
-          /* The attribute is changed. */
+          /* The attribute is changed.                  */
           bgp_info_set_flag (rn, ri, BGP_INFO_ATTR_CHANGED);
 
-          /* Rewrite BGP route information. */
+          /* Rewrite BGP route information.             */
 	  if (CHECK_FLAG(ri->flags, BGP_INFO_REMOVED))
 	    bgp_info_restore(rn, ri);
+
           bgp_attr_unintern (ri->attr);
-          ri->attr = attr_new;
+          ri->attr = client_attr ;
           ri->uptime = time (NULL);
 
-          /* Process change. */
+          /* Process change.                            */
           bgp_process (bgp, rn, afi, safi);
-          bgp_unlock_node (rn);
-          aspath_unintern (attr.aspath);
-          bgp_attr_extra_free (&attr);
-          return;
         }
-    }
 
-  /* Make new BGP info. */
-  new = bgp_info_new ();
-  new->type = ZEBRA_ROUTE_BGP;
-  new->sub_type = BGP_ROUTE_STATIC;
-  new->peer = bgp->peer_self;
-  SET_FLAG (new->flags, BGP_INFO_VALID);
-  new->attr = attr_new;
-  new->uptime = time (NULL);
+      bgp_unlock_node (rn);
+      return ;
+    } ;
 
-  /* Register new BGP information. */
-  bgp_info_add (rn, new);
+  /* Make new BGP info.                                         */
+  ri = bgp_info_new ();
+  ri->type     = rt_s.type ;
+  ri->sub_type = rt_s.sub_type ;
+  ri->peer     = rt_s.peer ;
+  ri->attr     = client_attr ;
+  ri->uptime   = time (NULL);
 
-  /* route_node_get lock */
-  bgp_unlock_node (rn);
+  SET_FLAG (ri->flags, BGP_INFO_VALID);
 
-  /* Process change. */
+  /* Register new BGP information.                              */
+  bgp_info_add (rn, ri);
+
+  /* Process change.                                            */
   bgp_process (bgp, rn, afi, safi);
 
-  /* Unintern original. */
-  aspath_unintern (attr.aspath);
-  bgp_attr_extra_free (&attr);
+  /* route_node_get lock                                        */
+  bgp_unlock_node (rn);
 }
 
 static void
@@ -3772,10 +4145,8 @@ bgp_static_update_main (struct bgp *bgp, struct prefix *p,
   struct bgp_node *rn;
   struct bgp_info *ri;
   struct bgp_info *new;
-  struct bgp_info info;
   struct attr attr = { 0 };
   struct attr *attr_new;
-  int ret;
 
   assert (bgp_static);
   if (!bgp_static)
@@ -3804,12 +4175,15 @@ bgp_static_update_main (struct bgp *bgp, struct prefix *p,
   if (bgp_static->rmap.name)
     {
       struct attr attr_tmp = attr;
-      info.peer = bgp->peer_self;
-      info.attr = &attr_tmp;
+      struct bgp_info info_s = { 0 } ;
+      route_map_result_t ret;
+
+      info_s.peer = bgp->peer_self;
+      info_s.attr = &attr_tmp;
 
       SET_FLAG (bgp->peer_self->rmap_type, PEER_RMAP_TYPE_NETWORK);
 
-      ret = route_map_apply (bgp_static->rmap.map, p, RMAP_BGP, &info);
+      ret = route_map_apply (bgp_static->rmap.map, p, RMAP_BGP, &info_s);
 
       bgp->peer_self->rmap_type = 0;
 
@@ -5819,13 +6193,11 @@ bgp_redistribute_add (struct prefix *p, struct in_addr *nexthop,
   struct listnode *node, *nnode;
   struct bgp_info *new;
   struct bgp_info *bi;
-  struct bgp_info info;
   struct bgp_node *bn;
   struct attr attr = { 0 };
   struct attr attr_new = { 0 };
   struct attr *new_attr;
   afi_t afi;
-  int ret;
 
   /* Make default attribute. */
   bgp_attr_default_set (&attr, BGP_ORIGIN_INCOMPLETE);
@@ -5850,13 +6222,16 @@ bgp_redistribute_add (struct prefix *p, struct in_addr *nexthop,
 	  /* Apply route-map. */
 	  if (bgp->rmap[afi][type].map)
 	    {
-	      info.peer = bgp->peer_self;
-	      info.attr = &attr_new;
+	      struct bgp_info info_s = { 0 } ;
+	      route_map_result_t ret;
+
+	      info_s.peer = bgp->peer_self;
+	      info_s.attr = &attr_new;
 
               SET_FLAG (bgp->peer_self->rmap_type, PEER_RMAP_TYPE_REDISTRIBUTE);
 
 	      ret = route_map_apply (bgp->rmap[afi][type].map, p, RMAP_BGP,
-				     &info);
+				                                       &info_s);
 
               bgp->peer_self->rmap_type = 0;
 
@@ -6649,15 +7024,16 @@ bgp_show_table (struct vty *vty, struct bgp_table *table, struct in_addr *router
 		|| type == bgp_show_type_flap_route_map)
 	      {
 		struct route_map *rmap = output_arg;
-		struct bgp_info binfo;
 		struct attr dummy_attr = { 0 };
-		int ret;
+		struct bgp_info info_s = { 0 } ;
+                route_map_result_t ret;
 
 		bgp_attr_dup (&dummy_attr, ri->attr);
-		binfo.peer = ri->peer;
-		binfo.attr = &dummy_attr;
+		info_s.peer = ri->peer;
+		info_s.attr = &dummy_attr;
 
-		ret = route_map_apply (rmap, &rn->p, RMAP_BGP, &binfo);
+		/* TODO: check if routemap may be setting stuff       */
+		ret = route_map_apply (rmap, &rn->p, RMAP_BGP, &info_s);
 
 		bgp_attr_extra_free (&dummy_attr);
 

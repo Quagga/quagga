@@ -1064,7 +1064,7 @@ peer_group2peer_config_copy (struct peer_group *group, struct peer *peer,
       /* Make peer's RIB point to group's RIB. */
       peer->rib[afi][safi] = group->conf->rib[afi][safi];
 
-      /* Import policy. */
+      /* Import policy.                                 */
       if (pfilter->map[RMAP_IMPORT].name)
         free (pfilter->map[RMAP_IMPORT].name);
 
@@ -1079,7 +1079,7 @@ peer_group2peer_config_copy (struct peer_group *group, struct peer *peer,
           pfilter->map[RMAP_IMPORT].map = NULL;
         }
 
-      /* Export policy. */
+      /* Export policy.                                 */
       if (gfilter->map[RMAP_EXPORT].name && ! pfilter->map[RMAP_EXPORT].name)
         {
           pfilter->map[RMAP_EXPORT].name = strdup (gfilter->map[RMAP_EXPORT].name);
@@ -1128,8 +1128,10 @@ peer_group2peer_config_copy (struct peer_group *group, struct peer *peer,
       pfilter->dlist[in].name = strdup (gfilter->dlist[in].name);
       pfilter->dlist[in].alist = gfilter->dlist[in].alist;
     }
+
   if (! pfilter->plist[in].ref)
     prefix_list_copy_ref(&pfilter->plist[in].ref, gfilter->plist[in].ref) ;
+
   if (gfilter->aslist[in].name && ! pfilter->aslist[in].name)
     {
       if (pfilter->aslist[in].name)
@@ -1137,12 +1139,19 @@ peer_group2peer_config_copy (struct peer_group *group, struct peer *peer,
       pfilter->aslist[in].name = strdup (gfilter->aslist[in].name);
       pfilter->aslist[in].aslist = gfilter->aslist[in].aslist;
     }
+
+  /* main In policy                                     */
   if (gfilter->map[RMAP_IN].name && ! pfilter->map[RMAP_IN].name)
     {
-      if (pfilter->map[RMAP_IN].name)
-        free (pfilter->map[RMAP_IN].name);
       pfilter->map[RMAP_IN].name = strdup (gfilter->map[RMAP_IN].name);
-      pfilter->map[RMAP_IN].map = gfilter->map[RMAP_IN].map;
+      pfilter->map[RMAP_IN].map  = gfilter->map[RMAP_IN].map;
+    }
+
+  /* Route-Server In policy                             */
+  if (gfilter->map[RMAP_RS_IN].name && ! pfilter->map[RMAP_RS_IN].name)
+    {
+      pfilter->map[RMAP_RS_IN].name = strdup (gfilter->map[RMAP_RS_IN].name);
+      pfilter->map[RMAP_RS_IN].map  = gfilter->map[RMAP_RS_IN].map;
     }
 
   /* outbound filter apply */
@@ -3524,7 +3533,7 @@ peer_route_map_set (struct peer *peer, afi_t afi, safi_t safi, int direct,
     return BGP_ERR_PEER_INACTIVE;
 
   if (direct != RMAP_IN && direct != RMAP_OUT &&
-      direct != RMAP_IMPORT && direct != RMAP_EXPORT)
+      direct != RMAP_IMPORT && direct != RMAP_EXPORT && direct != RMAP_RS_IN)
     return BGP_ERR_INVALID_VALUE;
 
   if ( (direct == RMAP_OUT || direct == RMAP_IMPORT)
@@ -3571,7 +3580,7 @@ peer_route_map_unset (struct peer *peer, afi_t afi, safi_t safi, int direct)
     return BGP_ERR_PEER_INACTIVE;
 
   if (direct != RMAP_IN && direct != RMAP_OUT &&
-      direct != RMAP_IMPORT && direct != RMAP_EXPORT)
+      direct != RMAP_IMPORT && direct != RMAP_EXPORT && direct != RMAP_RS_IN)
     return BGP_ERR_INVALID_VALUE;
 
   if ( (direct == RMAP_OUT || direct == RMAP_IMPORT)
@@ -3814,7 +3823,7 @@ int
 peer_clear_soft (struct peer *peer, afi_t afi, safi_t safi,
 		 enum bgp_clear_type stype)
 {
-  if (peer->state == bgp_peer_pEstablished)
+  if (peer->state != bgp_peer_pEstablished)
     return 0;
 
   if (! peer->afc[afi][safi])
@@ -3974,16 +3983,26 @@ bgp_config_write_filter (struct vty *vty, struct peer *peer,
        || strcmp (filter->map[RMAP_IN].name, gfilter->map[RMAP_IN].name) != 0)
       vty_out (vty, " neighbor %s route-map %s in%s", addr,
               filter->map[RMAP_IN].name, VTY_NEWLINE);
+
+  if (filter->map[RMAP_RS_IN].name)
+    if (! gfilter || ! gfilter->map[RMAP_RS_IN].name
+       || strcmp (filter->map[RMAP_RS_IN].name,
+                                          gfilter->map[RMAP_RS_IN].name) != 0)
+      vty_out (vty, " neighbor %s route-map %s rs-in%s", addr,
+              filter->map[RMAP_RS_IN].name, VTY_NEWLINE);
+
   if (filter->map[RMAP_OUT].name && ! gfilter)
     vty_out (vty, " neighbor %s route-map %s out%s", addr,
             filter->map[RMAP_OUT].name, VTY_NEWLINE);
+
   if (filter->map[RMAP_IMPORT].name && ! gfilter)
     vty_out (vty, " neighbor %s route-map %s import%s", addr,
         filter->map[RMAP_IMPORT].name, VTY_NEWLINE);
+
   if (filter->map[RMAP_EXPORT].name)
     if (! gfilter || ! gfilter->map[RMAP_EXPORT].name
-    || strcmp (filter->map[RMAP_EXPORT].name,
-                    gfilter->map[RMAP_EXPORT].name) != 0)
+        || strcmp (filter->map[RMAP_EXPORT].name,
+                                         gfilter->map[RMAP_EXPORT].name) != 0)
     vty_out (vty, " neighbor %s route-map %s export%s", addr,
         filter->map[RMAP_EXPORT].name, VTY_NEWLINE);
 

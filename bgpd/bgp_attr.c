@@ -493,7 +493,38 @@ bgp_attr_hash_alloc (void *p)
   return attr;
 }
 
-/* Internet argument attribute. */
+/*------------------------------------------------------------------------------
+ * Internet argument attribute.
+ *
+ * 1. "internalise" and increase reference count for each of:
+ *
+ *     attr->aspath
+ *     attr->community
+ *     attr->extra->ecommunity
+ *     attr->extra->cluster
+ *     attr->extra->transit
+ *
+ *   Noting that the reference count for each of these is zero if they have not
+ *   yet been internalised.
+ *
+ *   Each of these pointers is updated to point at either a new entry in the
+ *   relevant attribute store, or at the existing entry.
+ *
+ * 2. "internalise" the complete attribute object and increase its reference
+ *    count.
+ *
+ *   If the attribute collection is new, then this function returns a pointer
+ *   to a brand new attribute object, complete with a copy of the attr->extra.
+ *
+ *   If the attribute collection is not new, then this function returns a
+ *   pointer to the stored attribute object.
+ *
+ *   In any event, the pointer returned != pointer passed in.
+ *
+ *   NB: the incoming attr reference count is ignored.
+ *
+ * Note that the original attr object remains with its own attr->extra object.
+ */
 struct attr *
 bgp_attr_intern (struct attr *attr)
 {
@@ -547,8 +578,10 @@ bgp_attr_intern (struct attr *attr)
   return find;
 }
 
-
-/* Make network statement's attribute. */
+/* Make network statement's attribute.
+ *
+ * All elements are interned, but not the attribute set itself.
+ */
 struct attr *
 bgp_attr_default_set (struct attr *attr, u_char origin)
 {
@@ -641,7 +674,27 @@ bgp_attr_aggregate_intern (struct bgp *bgp, u_char origin,
   return new;
 }
 
-/* Free bgp attribute and aspath. */
+/*------------------------------------------------------------------------------
+ * Free bgp attribute and aspath.
+ *
+ * For all the elements of the given attributes:
+ *
+ *   if the reference count != 0, decrement it
+ *   if the reference count is now zero, remove from hash table and discard
+ *   stored value.
+ *
+ * For the attribute object itself:
+ *
+ *   decrement the reference count
+ *   if the reference count is now zero, remove from hash table and discard
+ *   stored value.
+ *
+ * So... do NOT do this to a set of attributes whose elements have not been
+ * interned !
+ *
+ * Can do this to an attribute object which has not been interned, because its
+ * reference count SHOULD be zero.
+ */
 void
 bgp_attr_unintern (struct attr *attr)
 {
@@ -652,8 +705,7 @@ bgp_attr_unintern (struct attr *attr)
   struct cluster_list *cluster = NULL;
   struct transit *transit = NULL;
 
-  /* Decrement attribute reference. */
-  attr->refcnt--;
+  /* Decrement attribute reference.                             */
   aspath = attr->aspath;
   community = attr->community;
   if (attr->extra)
@@ -663,16 +715,20 @@ bgp_attr_unintern (struct attr *attr)
       transit = attr->extra->transit;
     }
 
-  /* If reference becomes zero then free attribute object. */
-  if (attr->refcnt == 0)
+  /* If reference becomes zero then free attribute object.      */
+  if (attr->refcnt != 0)
     {
-      ret = hash_release (attrhash, attr);
-      assert (ret != NULL);
-      bgp_attr_extra_free (attr);
-      XFREE (MTYPE_ATTR, attr);
-    }
+      --attr->refcnt ;
+      if (attr->refcnt == 0)
+        {
+          ret = hash_release (attrhash, attr);
+          assert (ret != NULL);
+          bgp_attr_extra_free (attr);
+          XFREE (MTYPE_ATTR, attr);
+        } ;
+    } ;
 
-  /* aspath refcount shoud be decrement. */
+  /* aspath refcount should be decremented.                     */
   if (aspath)
     aspath_unintern (aspath);
   if (community)
@@ -685,21 +741,27 @@ bgp_attr_unintern (struct attr *attr)
     transit_unintern (transit);
 }
 
+/*------------------------------------------------------------------------------
+ * Release any element whose reference count is zero.
+ *
+ * This is used where attributes have been replaced, but not internalised, and
+ * which are no longer of interest -- typically where a route-map returns DENY.
+ */
 void
 bgp_attr_flush (struct attr *attr)
 {
-  if (attr->aspath && ! attr->aspath->refcnt)
+  if (attr->aspath && (attr->aspath->refcnt == 0))
     aspath_free (attr->aspath);
-  if (attr->community && ! attr->community->refcnt)
+  if (attr->community && (attr->community->refcnt == 0))
     community_free (attr->community);
   if (attr->extra)
     {
       struct attr_extra *attre = attr->extra;
-      if (attre->ecommunity && ! attre->ecommunity->refcnt)
+      if (attre->ecommunity && (attre->ecommunity->refcnt == 0))
         ecommunity_free (attre->ecommunity);
-      if (attre->cluster && ! attre->cluster->refcnt)
+      if (attre->cluster && (attre->cluster->refcnt == 0))
         cluster_free (attre->cluster);
-      if (attre->transit && ! attre->transit->refcnt)
+      if (attre->transit && ! (attre->transit->refcnt == 0))
         transit_free (attre->transit);
     }
 }
@@ -1538,8 +1600,25 @@ bgp_attr_unknown (struct peer *peer, struct attr *attr, u_char flag,
   return 0;
 }
 
-/* Read attribute of update packet.  This function is called from
-   bgp_update() in bgpd.c.  */
+/*------------------------------------------------------------------------------
+ * Read attribute of update packet.
+ *
+ * This function is called from bgp_update() in bgpd.c.
+ *
+ * NB: expects the structures pointed to by:
+ *
+ *       attr
+ *       mp_update
+ *       mp_withdraw
+ *
+ *    to be zeroised on entry to this function.
+ *
+ * Any elements in attr or attr->extra will be internalised as they are set.
+ * (So their reference counts will *not* be zero.)
+ *
+ * However, the attr object itself is NOT internalised.
+ * (So its reference count will be zero.)
+ */
 int
 bgp_attr_parse (struct peer *peer, struct attr *attr, bgp_size_t size,
 		struct bgp_nlri *mp_update, struct bgp_nlri *mp_withdraw)

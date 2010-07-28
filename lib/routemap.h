@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_ROUTEMAP_H
@@ -30,7 +30,9 @@ enum route_map_type
   RMAP_ANY
 };
 
-typedef enum 
+typedef enum route_map_type route_map_type_t ;
+
+typedef enum
 {
   RMAP_MATCH,
   RMAP_DENYMATCH,
@@ -78,7 +80,7 @@ struct route_map_rule_cmd
   const char *str;
 
   /* Function for value set or match. */
-  route_map_result_t (*func_apply)(void *, struct prefix *, 
+  route_map_result_t (*func_apply)(void *, struct prefix *,
 				   route_map_object_t, void *);
 
   /* Compile argument and return result as void *. */
@@ -115,7 +117,7 @@ struct route_map_index
   int pref;
 
   /* Route map type permit or deny. */
-  enum route_map_type type;			
+  enum route_map_type type;
 
   /* Do we follow old rules, or hop forward? */
   route_map_end_t exitpolicy;
@@ -166,7 +168,7 @@ extern int route_map_delete_match (struct route_map_index *index,
 			           const char *match_arg);
 
 /* Add route-map set statement to the route map. */
-extern int route_map_add_set (struct route_map_index *index, 
+extern int route_map_add_set (struct route_map_index *index,
 		              const char *set_name,
 		              const char *set_arg);
 
