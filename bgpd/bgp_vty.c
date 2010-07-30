@@ -219,6 +219,9 @@ bgp_vty_return (struct vty *vty, int ret)
     case BGP_ERR_TCPSIG_FAILED:
       str = "Error while applying TCP-Sig to session(s)";
       break;
+    case BGP_ERR_PEER_EXISTS:
+      str = "Cannot have the same neighbor in different bgp views";
+      break;
     }
   if (str)
     {

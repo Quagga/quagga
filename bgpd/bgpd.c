@@ -761,6 +761,10 @@ peer_remote_as (struct bgp *bgp, union sockunion *su, as_t *as,
       else
 	local_as = bgp->as;
 
+      /* Check that the neighbor IP is unique                           */
+      if (peer_lookup (NULL, su) != NULL)
+        return BGP_ERR_PEER_EXISTS ;
+
       /* TODO: report bug...  if is IPv4 unicast, may implicitly activate  */
 
       /* If this is IPv4 unicast configuration and "no bgp default
@@ -1339,6 +1343,10 @@ peer_group_bind (struct bgp *bgp, union sockunion *su,
     {
       if (! group->conf->as)
 	return BGP_ERR_PEER_GROUP_NO_REMOTE_AS;
+
+      /* Check that the neighbor IP is unique                           */
+      if (peer_lookup (NULL, su) != NULL)
+        return BGP_ERR_PEER_EXISTS ;
 
       peer = bgp_peer_create (su, bgp, bgp->as, group->conf->as, afi, safi);
       peer->group = group;

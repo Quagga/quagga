@@ -398,7 +398,8 @@ enum bgp_clear_type
 #define BGP_ERR_LOCAL_AS_ALLOWED_ONLY_FOR_EBGP  -27
 #define BGP_ERR_CANNOT_HAVE_LOCAL_AS_SAME_AS    -28
 #define BGP_ERR_TCPSIG_FAILED			-29
-#define BGP_ERR_MAX                             -30
+#define BGP_ERR_PEER_EXISTS                     -30
+#define BGP_ERR_MAX                             -31
 
 extern struct bgp_master *bm;
 
