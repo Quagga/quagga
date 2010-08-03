@@ -353,19 +353,16 @@ bgp_peer_open_state_receive(bgp_peer peer)
       qbs  = open_recv->can_mp_ext ;
     }
 
-  if (! CHECK_FLAG (peer->flags, PEER_FLAG_OVERRIDE_CAPABILITY))
-    {
-      for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
-        for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
+  for (afi = qAFI_min ; afi <= qAFI_max ; ++afi)
+    for (safi = qSAFI_min ; safi <= qSAFI_max ; ++safi)
+      {
+        qafx_bit_t qb = qafx_bit_from_qAFI_qSAFI(afi, safi) ;
+        if (qb & qbs)
           {
-            qafx_bit_t qb = qafx_bit_from_qAFI_qSAFI(afi, safi) ;
-            if (qb & qbs)
-              {
-                peer->afc_recv[afi][safi] = recv ;
-                peer->afc_nego[afi][safi] = peer->afc[afi][safi] ;
-              }
-          }
-    }
+            peer->afc_recv[afi][safi] = recv ;
+            peer->afc_nego[afi][safi] = peer->afc[afi][safi] ;
+          } ;
+      } ;
 
   /* Route refresh. */
   if (open_recv->can_r_refresh & bgp_form_pre)

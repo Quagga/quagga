@@ -101,7 +101,7 @@ typedef enum qSAFI qSAFI_t ;
 
 enum qSAFI
 {
-  qSAFI_min        =   1,       /* minimum valid qSAFI          */
+  qSAFI_min        =   0,       /* minimum valid qSAFI          */
   qSAFI_undef      =   0,       /* undefined SAFI               */
 
   qSAFI_first      =   1,       /* first real qSAFI             */
