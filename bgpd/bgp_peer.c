@@ -313,10 +313,6 @@ bgp_session_has_established(bgp_session session)
   /* Install next hop, as required.                                     */
   bgp_nexthop_set(peer->su_local, peer->su_remote, &peer->nexthop, peer) ;
 
-  /* Reset capability open status flag. */
-  if (! CHECK_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN))
-    SET_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN);
-
   /* Clear last notification data -- Routing Engine private field       */
   bgp_notify_unset(&(peer->session->notification));
 
@@ -740,8 +736,6 @@ bgp_peer_new (struct bgp *bgp)
           }
         peer->orf_plist[afi][safi] = NULL;
       }
-  SET_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN);
-
   /* Create buffers.  */
   peer->ibuf = stream_new (BGP_MAX_PACKET_SIZE);
   peer->obuf = stream_fifo_new ();
@@ -1417,6 +1411,9 @@ bgp_peer_map_peer_down(peer_down_t why_down)
     case PEER_DOWN_AF_ACTIVATE:
     case PEER_DOWN_RMAP_BIND:
     case PEER_DOWN_RMAP_UNBIND:
+    case PEER_DOWN_DONT_CAPABILITY:
+    case PEER_DOWN_OVERRIDE_CAPABILITY:
+    case PEER_DOWN_STRICT_CAP_MATCH:
     case PEER_DOWN_CAPABILITY_CHANGE:
     case PEER_DOWN_PASSIVE_CHANGE:
     case PEER_DOWN_MULTIHOP_CHANGE:
@@ -1755,6 +1752,9 @@ const char *peer_down_str[] =
   [PEER_DOWN_AF_ACTIVATE]          = "Address family activated",
   [PEER_DOWN_RMAP_BIND]            = "Peer-group add member",
   [PEER_DOWN_RMAP_UNBIND]          = "Peer-group delete member",
+  [PEER_DOWN_DONT_CAPABILITY]      = "dont-capability-negotiate changed",
+  [PEER_DOWN_OVERRIDE_CAPABILITY]  = "override-capability changed",
+  [PEER_DOWN_STRICT_CAP_MATCH]     = "strict-capability-match changed",
   [PEER_DOWN_CAPABILITY_CHANGE]    = "Capability changed",
   [PEER_DOWN_PASSIVE_CHANGE]       = "Passive config change",
   [PEER_DOWN_MULTIHOP_CHANGE]      = "Multihop config change",

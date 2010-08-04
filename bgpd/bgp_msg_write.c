@@ -167,7 +167,8 @@ bgp_msg_send_keepalive(bgp_connection connection, bool must_send)
  */
 
 static void
-bgp_open_options(struct stream *s, bgp_open_state open_state) ;
+bgp_open_options(struct stream *s, bgp_open_state open_state,
+                                                            bool cap_suppress) ;
 
 static void
 bgp_open_capability_orf (struct stream *s, iAFI_t afi, iSAFI_t safi,
@@ -205,7 +206,7 @@ bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
   stream_put_ipv4(s, open_state->bgp_id) ;
 
   /* Set OPEN message options                   */
-  bgp_open_options(s, open_state) ;
+  bgp_open_options(s, open_state, connection->cap_suppress) ;
 
   /* Set BGP message length.                    */
   length = bgp_packet_set_size(s) ;
@@ -213,12 +214,20 @@ bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
   if (BGP_DEBUG (normal, NORMAL))
     {
       char buf[INET_ADDRSTRLEN] ;
+      const char* no_cap ;
+
+      if (!open_state->can_capability)
+        no_cap = " (sans capabilities)" ;
+      else if (connection->cap_suppress)
+        no_cap = " (capabilities suppressed)" ;
+      else
+        no_cap = "" ;
 
       inet_ntop(AF_INET, &open_state->bgp_id, buf, INET_ADDRSTRLEN) ;
 
-      zlog_debug ("%s sending OPEN, version %d, my as %u, holdtime %d, id %s",
+      zlog_debug ("%s sending OPEN, version %d, my as %u, holdtime %d, id %s%s",
                   connection->host, BGP_VERSION_4, open_state->my_as,
-	           open_state->holdtime, buf) ;
+	           open_state->holdtime, buf, no_cap) ;
 
     } ;
 
@@ -251,7 +260,7 @@ enum
  * Creates an empty options part of there are no capabilities to set.
  */
 static void
-bgp_open_options(struct stream *s, bgp_open_state open_state)
+bgp_open_options(struct stream *s, bgp_open_state open_state, bool cap_suppress)
 {
   u_char   len ;
   unsigned long cp ;
@@ -264,7 +273,7 @@ bgp_open_options(struct stream *s, bgp_open_state open_state)
   stream_putc(s, 0);
 
   /* If do not send capability, quit now -- zero options.       */
-  if (!open_state->can_capability)
+  if (!open_state->can_capability || cap_suppress)
     return;
 
   /* TODO: RFC 5492 (2009): SHOULD send only one Capability Option !!   */

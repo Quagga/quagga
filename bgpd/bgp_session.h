@@ -150,8 +150,15 @@ struct bgp_session
   bool              connect ;           /* initiate connections           */
   bool              listen ;            /* listen for connections         */
 
-  bool              cap_override ;      /* override ... TODO: what ?      */
-  bool              cap_strict ;        /* strict...    TODO: what ?      */
+  bool              cap_suppress ;      /* always set false when session is
+                                           enabled.  Set to state of connection
+                                           when session is established    */
+
+  bool              cap_override ;      /* assume other end can do all afi/safi
+                                           this end has active            */
+  bool              cap_strict ;        /* must recognise all capabilities
+                                           received and have exact afi/safi
+                                           match                          */
 
   int               ttl ;               /* TTL to set, if not zero        */
   unsigned short    port ;              /* destination port for peer      */

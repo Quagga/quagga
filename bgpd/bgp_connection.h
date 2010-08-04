@@ -160,6 +160,13 @@ struct bgp_connection
   bgp_notify        notification ;      /* if any sent/received           */
   int               err ;               /* erno, if any                   */
 
+  bool              cap_suppress ;      /* capability send suppress
+                                           always set false when connection
+                                           initialised.  Set if get
+                                           NOTIFICATION that other end does
+                                           not do capabilities.  Copied to
+                                           session when established.      */
+
   bgp_open_state    open_recv ;         /* the open received.             */
 
   qps_file          qf ;                /* qpselect file structure        */

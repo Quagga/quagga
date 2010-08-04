@@ -92,9 +92,9 @@ struct bgp_open_state
   unsigned    holdtime ;              /* in seconds                         */
   bgp_id_t    bgp_id ;                /* an IPv4 address -- *network order* */
 
-  int         can_capability ;        /* false => don't do capabilities     */
+  bool        can_capability ;        /* false => don't do capabilities     */
 
-  int         can_as4 ;               /* true/false                         */
+  bool        can_as4 ;
   as2_t       my_as2 ;                /* AS2 from OPEN message              */
 
   qafx_set_t  can_mp_ext ;            /* will accept, may send these        */
@@ -105,14 +105,14 @@ struct bgp_open_state
   qafx_set_t  can_orf_prefix_send ;   /* wish to send ORF Prefix-List       */
   qafx_set_t  can_orf_prefix_recv ;   /* will accept  ORF Prefix-List       */
 
-  int         can_dynamic ;
+  bool        can_dynamic ;
 
-  int         can_g_restart ;         /* can do graceful restart            */
+  bool        can_g_restart ;         /* can do graceful restart            */
   qafx_set_t  can_preserve ;          /* can preserve forwarding for these  */
   qafx_set_t  has_preserved ;         /* has preserved forwarding for these */
 
-  int         has_restarted ;         /* Restart State flag                 */
-  int         restart_time ;          /* Restart Time in seconds            */
+  bool        has_restarted ;         /* Restart State flag                 */
+  unsigned    restart_time ;          /* Restart Time in seconds            */
 
   struct vector   unknowns ;          /* list of bgp_cap_unknown            */
   struct vector   afi_safi ;          /* various afi/safi capabilities      */

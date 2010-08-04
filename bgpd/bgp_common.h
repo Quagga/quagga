@@ -168,7 +168,7 @@ enum qafx_num
   qafx_num_undef        = -1,   /* No defined AFI/SAFI                  */
   qafx_num_min          = 0,    /* minimum valid qafx                   */
 
-  qafx_num_first        = 0,    /* first "real" qafx                    */
+  qafx_num_first        = 0,    /* all first..last are "real" qafx      */
 
   qafx_ipv4_unicast     = 0,    /* iAFI = 1, iSAFI = 1                  */
   qafx_ipv4_multicast   = 1,    /* iAFI = 1, iSAFI = 2                  */
@@ -186,6 +186,9 @@ enum qafx_num
   qafx_count                    /* number of qafx                       */
 } ;
 
+CONFIRM(qafx_num_other >  qafx_num_last) ;
+CONFIRM(qafx_num_other == qafx_num_max) ;
+
 /*------------------------------------------------------------------------------
  * A qafx_set_t is a set of qafx_bit_t -- a bit-vector
  */
@@ -194,9 +197,12 @@ typedef      qafx_bit_t qafx_set_t ;
 
 enum qafx_bit
 {
+  qafx_bits_min           = 0,
+
   qafx_set_empty          = 0,
 
-  qafx_bits_min           = (1 << qafx_num_min),
+  qafx_first_bit          = (1 << qafx_num_first),
+                                /* first..last are all "real" qafx      */
 
   qafx_ipv4_unicast_bit   = (1 << qafx_ipv4_unicast),
   qafx_ipv4_multicast_bit = (1 << qafx_ipv4_multicast),
@@ -206,10 +212,21 @@ enum qafx_bit
   qafx_ipv6_multicast_bit = (1 << qafx_ipv6_multicast),
   qafx_ipv6_mpls_vpn_bit  = (1 << qafx_ipv6_mpls_vpn),
 
+  qafx_last_bit           = (1 << qafx_num_last),
+
   qafx_other_bit          = (1 << qafx_num_other),
 
-  qafx_bits_max           = (1 << qafx_count) - 1
+  qafx_bits_max           = (1 << qafx_count) - 1,
+
+  qafx_known_bits         = (1 << (qafx_num_last + 1)) - 1
 } ;
+
+CONFIRM(qafx_known_bits == ( qafx_ipv4_unicast_bit
+                           | qafx_ipv4_multicast_bit
+                           | qafx_ipv4_mpls_vpn_bit
+                           | qafx_ipv6_unicast_bit
+                           | qafx_ipv6_multicast_bit
+                           | qafx_ipv6_mpls_vpn_bit )) ;
 
 /*------------------------------------------------------------------------------
  * Conversions qafx_num <-> qafx_bit

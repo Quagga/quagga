@@ -938,8 +938,8 @@ bgp_open_capability (struct stream *s, struct peer *peer)
   stream_putc (s, 0);
 
   /* Do not send capability. */
-  if (! CHECK_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN)
-      || CHECK_FLAG (peer->flags, PEER_FLAG_DONT_CAPABILITY))
+  if (// ! CHECK_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN) ||
+      CHECK_FLAG (peer->flags, PEER_FLAG_DONT_CAPABILITY))
     return;
 
   /* IPv4 unicast. */

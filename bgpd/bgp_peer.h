@@ -120,24 +120,27 @@ enum PEER_DOWN {
 
   PEER_DOWN_CONFIG_CHANGE,         /* Unspecified config change         */
 
-  PEER_DOWN_RID_CHANGE,            /* 'bgp router-id'                   */
-  PEER_DOWN_REMOTE_AS_CHANGE,      /* 'neighbor remote-as'              */
-  PEER_DOWN_LOCAL_AS_CHANGE,       /* 'neighbor local-as'               */
-  PEER_DOWN_CLID_CHANGE,           /* 'bgp cluster-id'                  */
-  PEER_DOWN_CONFED_ID_CHANGE,      /* 'bgp confederation identifier'    */
-  PEER_DOWN_CONFED_PEER_CHANGE,    /* 'bgp confederation peer'          */
-  PEER_DOWN_RR_CLIENT_CHANGE,      /* 'neighbor route-reflector-client' */
-  PEER_DOWN_RS_CLIENT_CHANGE,      /* 'neighbor route-server-client'    */
-  PEER_DOWN_UPDATE_SOURCE_CHANGE,  /* 'neighbor update-source'          */
-  PEER_DOWN_AF_ACTIVATE,           /* 'neighbor activate'               */
-  PEER_DOWN_RMAP_BIND,             /* 'neighbor peer-group'             */
-  PEER_DOWN_RMAP_UNBIND,           /* 'no neighbor peer-group'          */
-  PEER_DOWN_CAPABILITY_CHANGE,     /* 'neighbor capability'             */
-  PEER_DOWN_PASSIVE_CHANGE,        /* 'neighbor passive'                */
-  PEER_DOWN_MULTIHOP_CHANGE,       /* 'neighbor multihop'               */
-  PEER_DOWN_AF_DEACTIVATE,         /* 'no neighbor activate'            */
-  PEER_DOWN_PASSWORD_CHANGE,       /* password changed                  */
-  PEER_DOWN_ALLOWAS_IN_CHANGE,     /* allowas-in change                 */
+  PEER_DOWN_RID_CHANGE,            /* 'bgp router-id'                      */
+  PEER_DOWN_REMOTE_AS_CHANGE,      /* 'neighbor remote-as'                 */
+  PEER_DOWN_LOCAL_AS_CHANGE,       /* 'neighbor local-as'                  */
+  PEER_DOWN_CLID_CHANGE,           /* 'bgp cluster-id'                     */
+  PEER_DOWN_CONFED_ID_CHANGE,      /* 'bgp confederation identifier'       */
+  PEER_DOWN_CONFED_PEER_CHANGE,    /* 'bgp confederation peer'             */
+  PEER_DOWN_RR_CLIENT_CHANGE,      /* 'neighbor route-reflector-client'    */
+  PEER_DOWN_RS_CLIENT_CHANGE,      /* 'neighbor route-server-client'       */
+  PEER_DOWN_UPDATE_SOURCE_CHANGE,  /* 'neighbor update-source'             */
+  PEER_DOWN_AF_ACTIVATE,           /* 'neighbor activate'                  */
+  PEER_DOWN_RMAP_BIND,             /* 'neighbor peer-group'                */
+  PEER_DOWN_RMAP_UNBIND,           /* 'no neighbor peer-group'             */
+  PEER_DOWN_DONT_CAPABILITY,       /* 'neighbor dont-capability-negotiate' */
+  PEER_DOWN_OVERRIDE_CAPABILITY,   /* 'neighbor override-capability'       */
+  PEER_DOWN_STRICT_CAP_MATCH,      /* 'neighbor strict-capability-match'   */
+  PEER_DOWN_CAPABILITY_CHANGE,     /* 'neighbor capability'                */
+  PEER_DOWN_PASSIVE_CHANGE,        /* 'neighbor passive'                   */
+  PEER_DOWN_MULTIHOP_CHANGE,       /* 'neighbor multihop'                  */
+  PEER_DOWN_AF_DEACTIVATE,         /* 'no neighbor activate'               */
+  PEER_DOWN_PASSWORD_CHANGE,       /* password changed                     */
+  PEER_DOWN_ALLOWAS_IN_CHANGE,     /* allowas-in change                    */
 
   /* Other actions that cause a session to be reset                     */
 
@@ -271,6 +274,8 @@ struct peer
 #define PEER_CAP_AS4_ADV                    (1 << 7) /* as4 advertised */
 #define PEER_CAP_AS4_RCV                    (1 << 8) /* as4 received */
 
+#define PEER_CAP_SUPPRESSED                 (1 << 9) /* none sent       */
+
 #define PEER_CAP_AS4_BOTH (PEER_CAP_AS4_ADV + PEER_CAP_AS4_RCV)
 #define PEER_CAP_AS4_USE(peer) \
   (((peer)->cap & PEER_CAP_AS4_BOTH) == PEER_CAP_AS4_BOTH)
@@ -334,11 +339,9 @@ struct peer
   u_int16_t sflags;
 #define PEER_STATUS_REAL_PEER         (1 << 0) /* not group conf or peer_self */
 #define PEER_STATUS_PREFIX_OVERFLOW   (1 << 1) /* prefix-overflow             */
-#define PEER_STATUS_CAPABILITY_OPEN   (1 << 2) /* capability open send        */
-#define PEER_STATUS_HAVE_ACCEPT       (1 << 3) /* accept peer's parent        */
-#define PEER_STATUS_GROUP             (1 << 4) /* peer-group conf             */
-#define PEER_STATUS_NSF_MODE          (1 << 5) /* NSF aware peer              */
-#define PEER_STATUS_NSF_WAIT          (1 << 6) /* wait comeback peer          */
+#define PEER_STATUS_GROUP             (1 << 3) /* peer-group conf             */
+#define PEER_STATUS_NSF_MODE          (1 << 4) /* NSF aware peer              */
+#define PEER_STATUS_NSF_WAIT          (1 << 5) /* wait comeback peer          */
 
   /* Peer status af flags (reset in bgp_stop) */
   u_int16_t af_sflags[AFI_MAX][SAFI_MAX];

@@ -1932,7 +1932,7 @@ struct peer_flag_action
  * NB: change actions are peer_change_none or peer_change_reset ONLY.
  *     (The peer->flags apply to all afi/safi.)
  *
- * NB: PEER_FLAG_LOCAL_AS_NO_PREPEND is dealt with eslewhere.
+ * NB: PEER_FLAG_LOCAL_AS_NO_PREPEND is dealt with elsewhere.
  *
  * NB: all flags are set/cleared individually.
  */
@@ -1943,11 +1943,11 @@ static const struct peer_flag_action peer_flag_action_list[] =
     {  PEER_FLAG_SHUTDOWN,
                 false, peer_change_reset,     PEER_DOWN_USER_SHUTDOWN },
     {  PEER_FLAG_DONT_CAPABILITY,
-                false, peer_change_none,      PEER_DOWN_NULL },
+                false, peer_change_reset,     PEER_DOWN_DONT_CAPABILITY },
     {  PEER_FLAG_OVERRIDE_CAPABILITY,
-                false, peer_change_none,      PEER_DOWN_NULL },
+                false, peer_change_reset,     PEER_DOWN_OVERRIDE_CAPABILITY },
     {  PEER_FLAG_STRICT_CAP_MATCH,
-                false, peer_change_none,      PEER_DOWN_NULL },
+                false, peer_change_reset,     PEER_DOWN_STRICT_CAP_MATCH },
     {  PEER_FLAG_DYNAMIC_CAPABILITY,
                 false, peer_change_reset,     PEER_DOWN_CAPABILITY_CHANGE },
     {  PEER_FLAG_DISABLE_CONNECTED_CHECK,

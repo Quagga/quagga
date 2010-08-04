@@ -146,6 +146,7 @@ bgp_session_init_new(bgp_peer peer)
    *   connect        -- unset, false
    *   listen         -- unset, false
    *
+   *   cap_suppress   -- unset, false
    *   cap_override   -- unset, false
    *   cap_strict     -- unset, false
    *

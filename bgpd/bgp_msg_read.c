@@ -670,11 +670,13 @@ bgp_msg_open_option_parse (bgp_connection connection, bgp_notify notification,
    *
    *   2) the local AFI/SAFI must be the same as the remote AFI/SAFI.
    *
-   * TODO: verify that (2) should be checked *before* any "OVERRIDE".
+   * NB: cap_override and cap_strict are mutually exclusive
+   *
+   * TODO: what about graceful restart and no CAP-MP ??
    */
   if (session->cap_strict)
     {
-      /* Treat any unsuppprted capability as an error.          */
+      /* Treat any unsupported capability as an error.          */
       if (bgp_notify_get_subcode(notification) == BGP_NOMS_O_CAPABILITY)
         return -1 ;
 
@@ -1237,6 +1239,10 @@ bgp_msg_capability_orf_entry(bgp_connection connection, uint8_t cap_code,
  *
  * Returns:  0 => OK
  *          -1 => malformed !
+ *
+ * TODO: RFC 4724 suggests "implicit" IPv4/Unicast if no CAP-MP
+ * TODO: RFC 4760 says MUST CAP-MP if propose to use CAP-MP !
+ *
  */
 static int
 bgp_msg_capability_restart (bgp_connection connection, sucker sr)

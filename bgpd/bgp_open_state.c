@@ -132,10 +132,8 @@ bgp_peer_open_state_init_new(bgp_open_state state, bgp_peer peer)
   /* Set our bgpd_id                                    */
   state->bgp_id = peer->local_id.s_addr ;
 
-  /* Do not send capability. */  /* TODO: can_capability? */
-  state->can_capability =
-                        CHECK_FLAG(peer->sflags, PEER_STATUS_CAPABILITY_OPEN)
-                  && (! CHECK_FLAG(peer->flags,  PEER_FLAG_DONT_CAPABILITY) ) ;
+  /* Whether to send capability or not                  */
+  state->can_capability = ! CHECK_FLAG(peer->flags, PEER_FLAG_DONT_CAPABILITY) ;
 
   /* Announce self as AS4 speaker always                */
   if (!bm->as2_speaker)
@@ -295,6 +293,31 @@ bgp_open_state_afi_safi_cap(bgp_open_state state, unsigned index)
 
 /* Received an open, update the peer's state
  *
+ * Takes the peer->session->open_recv and fills in:
+ *
+ *   peer->v_holdtime       ) per negotiated values
+ *   peer->v_keepalive      )
+ *
+ *   peer->remote_id.s_addr
+ *
+ *   peer->cap              ) updated per open_recv -- assumes all recv flags
+ *   peer->af_cap           ) have been cleared.
+ *
+ *   peer->v_gr_restart       set to value received (if any)
+ *
+ *   peer->afc_recv           set/cleared according to what is advertised
+ *                            BUT if !open_recv->can_capability or
+ *                                     neighbor override-capability, then
+ *                                                        all flags are cleared.
+ *
+ *   peer->afc_nego           set/cleared according to what is advertised and
+ *                            what is activated.
+ *                            BUT if !open_recv->can_capability or
+ *                                     neighbor override-capability, then
+ *                                      set everything which has been activated.
+ *
+ *
+ *
  * NB: for safety, best to have the session locked -- though won't, in fact,
  *     change any of this information after the session is established.
  */
@@ -310,6 +333,10 @@ bgp_peer_open_state_receive(bgp_peer peer)
 
   /* Check neighbor as number. */
   assert(open_recv->my_as == peer->as);
+
+  /* If had to suppress sending of capabilities, note that              */
+  if (session->cap_suppress)
+    SET_FLAG (peer->cap, PEER_CAP_SUPPRESSED) ;
 
   /* holdtime */
   /* From the rfc: A reasonable maximum time between KEEPALIVE messages
@@ -335,16 +362,13 @@ bgp_peer_open_state_receive(bgp_peer peer)
 
   /* AFI/SAFI -- as received, or assumed or overridden                  */
 
-  if (!open_recv->can_capability ||
-                        CHECK_FLAG (peer->flags, PEER_FLAG_OVERRIDE_CAPABILITY))
+  if (!open_recv->can_capability || session->cap_override)
     {
       /* There were no capabilities, or are OVERRIDING AFI/SAFI, so force
-       * not having received any AFI/SAFI, but apply this set.
+       * not having received any AFI/SAFI, but apply all known.
        */
       recv = 0 ;
-      qbs  = qafx_ipv4_unicast_bit | qafx_ipv4_multicast_bit |
-             qafx_ipv6_unicast_bit | qafx_ipv6_multicast_bit |
-             qafx_ipv4_mpls_vpn_bit ;
+      qbs  = qafx_known_bits ;
     }
   else
     {
@@ -361,6 +385,11 @@ bgp_peer_open_state_receive(bgp_peer peer)
           {
             peer->afc_recv[afi][safi] = recv ;
             peer->afc_nego[afi][safi] = peer->afc[afi][safi] ;
+          }
+        else
+          {
+            peer->afc_recv[afi][safi] = 0 ;
+            peer->afc_nego[afi][safi] = 0 ;
           } ;
       } ;
 

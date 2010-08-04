@@ -1945,12 +1945,28 @@ static bgp_fsm_action(bgp_fsm_error)
  *
  * Next state will be sIdle, except if is sEstablished, when will be sStopping.
  *
- * NB: requires the session LOCKED
+ * Per RFC 5492: if get a NOTIFICATION: "Open/Unsupported Optional Parameter"
+ *               then suppress sending of capabilities.
  *
- * TODO: deal with: BGP_NOMC_OPEN/BGP_NOMS_O_OPTION & squash capabilities.
+ *               If didn't send capabilities the last time, doesn't make any
+ *               difference if suppress them from now on !
+ *
+ * NB: requires the session LOCKED
  */
 static bgp_fsm_action(bgp_fsm_recv_nom)
 {
+  if (connection->state != bgp_fsm_sEstablished)
+    {
+      if (   (connection->notification->code    == BGP_NOMC_OPEN)
+          && (connection->notification->subcode == BGP_NOMS_O_OPTION) )
+        {
+          if (!connection->cap_suppress)
+            BGP_FSM_DEBUG(connection, "Suppressing Capabilities") ;
+
+          connection->cap_suppress = true ;
+        } ;
+    } ;
+
   return bgp_fsm_catch(connection, next_state) ;
 } ;
 

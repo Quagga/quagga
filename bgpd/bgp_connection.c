@@ -130,6 +130,7 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
    *   * fsm_active               not active
    *   * notification             NULL -- none received or sent
    *   * err                      no error, so far
+   *   * cap_suppress             do not suppress capabilities
    *   * su_local                 NULL -- no address, yet
    *   * su_remote                NULL -- no address, yet
    *   * hold_timer_interval      none -- set when connection is opened
@@ -275,11 +276,14 @@ bgp_connection_make_primary(bgp_connection connection)
   assert(session->connections[bgp_connection_secondary] == NULL) ;
 
   /* Move the open_state to the session.
+   * Copy the state of the cap_suppress flag
    * Change the connection host to drop the primary/secondary distinction.
    * Copy the negotiated hold_timer_interval and keepalive_timer_interval
    * Copy the su_local and su_remote
    */
   bgp_open_state_set_mov(&session->open_recv, &connection->open_recv) ;
+
+  session->cap_suppress = connection->cap_suppress ;
 
   if (connection->host != NULL)
     XFREE(MTYPE_BGP_PEER_HOST, connection->host) ;
@@ -596,6 +600,7 @@ bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
  * Does not touch:
  *
  *   * state of the connection (including exception and follow-on event)
+ *   * capabilities suppress flag
  *   * timers -- FSM looks after those
  *
  * NB: nothing can be written until bgp_connection_start() has been called.
