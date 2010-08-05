@@ -20,9 +20,15 @@
   $QuaggaId: $Format:%an, %ai, %h$ $
 */
 
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <string.h>
 
 #include "pim_igmp_join.h"
+
+#ifndef SOL_IP
+#define SOL_IP IPPROTO_IP
+#endif
 
 #ifndef MCAST_JOIN_SOURCE_GROUP
 #define MCAST_JOIN_SOURCE_GROUP 46

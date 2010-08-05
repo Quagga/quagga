@@ -25,9 +25,9 @@
 #include <errno.h>
 #include <string.h>
 #include <unistd.h>
-#include <net/if.h>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <net/if.h>
 #include <arpa/inet.h>
 
 #include "pim_igmp_join.h"
