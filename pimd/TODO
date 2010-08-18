@@ -396,5 +396,30 @@ T42 Static igmp join fails when loading config at boot time
     Interface Address         ifi Vif  PktsIn PktsOut    BytesIn   BytesOut
     eth0      200.202.112.3     2   2       0       0          0          0
     lo        127.0.0.1         1   1       0       0          0          0
+
+T43 PIM Neighbor Reduction
+    https://datatracker.ietf.org/doc/draft-wijnands-pim-neighbor-reduction/
+    
+    "In a transit LAN (no directly connected source or receiver), many
+    of the PIM procedures don't apply. (...) This proposal describes
+    a procedure to reduce the amount of neighbors established over a
+    transit LAN."
+
+T44 Single Stream Multicast Fast Reroute (SMFR) Method
+    https://datatracker.ietf.org/doc/draft-liu-pim-single-stream-multicast-frr/
+
+    "This document proposes an IP multicast fast convergence method
+    based on differentiating primary and backup PIM join."
+
+T45 RFC5384 - The Join Attribute Format
+    "This document describes a modification of the Join message that
+    allows a node to associate attributes with a particular tree."
+
+T46 PIM Multi-Topology ID (MT-ID) Join-Attribute
+    http://tools.ietf.org/html/draft-cai-pim-mtid-00
+    Depends on T45.
+
+    "This draft introduces a new type of PIM Join Attribute used to
+    encode the identity of the topology PIM uses for RPF."
     
 -x-
