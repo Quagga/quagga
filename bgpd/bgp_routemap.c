@@ -694,6 +694,63 @@ struct route_map_rule_cmd route_match_aspath_cmd =
   route_match_aspath_free
 };
 
+/*------------------------------------------------------------------------------
+ * match as-origin ASN
+ */
+
+static route_map_result_t
+route_match_as_origin (void* p_asn, struct prefix *prefix,
+                       route_map_object_t type, void *object)
+{
+  struct bgp_info *bgp_info;
+
+  if (type == RMAP_BGP)
+    {
+      bgp_info = object ;
+
+      return *((as_t*)p_asn) == aspath_origin(bgp_info->attr->aspath)
+                ? RMAP_MATCH : RMAP_NOMATCH ;
+    }
+  return RMAP_NOMATCH;
+}
+
+static void *
+route_match_as_origin_compile (const char *arg)
+{
+  as_t* p_asn ;
+  unsigned long tmp ;
+  char*         ep ;
+
+  errno = 0 ;
+  ep    = NULL ;
+
+  tmp = strtoul (arg, &ep, 10) ;
+  if ((errno != 0) || (*ep != '\0'))
+    return NULL ;
+
+  p_asn = XCALLOC(MTYPE_ROUTE_MAP_COMPILED, sizeof(as_t)) ;
+
+  *p_asn = tmp ;
+
+  return p_asn ;
+} ;
+
+static void
+route_match_as_origin_free (void* p_asn)
+{
+  XFREE (MTYPE_ROUTE_MAP_COMPILED, p_asn);
+}
+
+/* Route map commands for as-origin matching. */
+struct route_map_rule_cmd route_match_as_origin_cmd =
+{
+  "as-origin",
+  route_match_as_origin,
+  route_match_as_origin_compile,
+  route_match_as_origin_free
+} ;
+
+/*----------------------------------------------------------------------------*/
 /* `match community COMMUNIY' */
 struct rmap_community
 {
@@ -2854,6 +2911,42 @@ ALIAS (no_match_aspath,
        "Match BGP AS path list\n"
        "AS path access-list name\n")
 
+/*------------------------------------------------------------------------------
+ * match as-origin 9999
+ * no match as-origin
+ * no match as-origin 9999
+ */
+
+DEFUN (match_as_origin,
+       match_as_origin_cmd,
+       "match as-origin " CMD_AS_RANGE,
+       MATCH_STR
+       "Match BGP AS path origin ASN\n"
+       "AS path origin ASN\n")
+{
+  return bgp_route_match_add (vty, vty->index, "as-origin", argv[0]);
+}
+
+DEFUN (no_match_as_origin,
+       no_match_as_origin_cmd,
+       "no match as-origin",
+       NO_STR
+       MATCH_STR
+       "Match BGP AS path origin ASN\n")
+{
+  return bgp_route_match_delete (vty, vty->index, "as-origin", NULL);
+}
+
+ALIAS (no_match_as_origin,
+       no_match_as_origin_val_cmd,
+       "no match as-origin " CMD_AS_RANGE,
+       NO_STR
+       MATCH_STR
+       "Match BGP AS path origin ASN\n"
+       "AS path origin ASN\n")
+
+/*----------------------------------------------------------------------------*/
+
 DEFUN (match_origin,
        match_origin_cmd,
        "match origin (egp|igp|incomplete)",
@@ -3835,6 +3928,7 @@ bgp_route_map_init (void)
   route_map_install_match (&route_match_ip_next_hop_prefix_list_cmd);
   route_map_install_match (&route_match_ip_route_source_prefix_list_cmd);
   route_map_install_match (&route_match_aspath_cmd);
+  route_map_install_match (&route_match_as_origin_cmd);
   route_map_install_match (&route_match_community_cmd);
   route_map_install_match (&route_match_ecommunity_cmd);
   route_map_install_match (&route_match_metric_cmd);
@@ -3884,6 +3978,9 @@ bgp_route_map_init (void)
   install_element (RMAP_NODE, &match_aspath_cmd);
   install_element (RMAP_NODE, &no_match_aspath_cmd);
   install_element (RMAP_NODE, &no_match_aspath_val_cmd);
+  install_element (RMAP_NODE, &match_as_origin_cmd);
+  install_element (RMAP_NODE, &no_match_as_origin_cmd);
+  install_element (RMAP_NODE, &no_match_as_origin_val_cmd);
   install_element (RMAP_NODE, &match_metric_cmd);
   install_element (RMAP_NODE, &no_match_metric_cmd);
   install_element (RMAP_NODE, &no_match_metric_val_cmd);

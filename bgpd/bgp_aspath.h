@@ -21,6 +21,11 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGP_ASPATH_H
 #define _QUAGGA_BGP_ASPATH_H
 
+/* Macro in case there are particular compiler issues.    */
+#ifndef Inline
+  #define Inline static inline
+#endif
+
 /* AS path segment type.  */
 #define AS_SET                       1
 #define AS_SEQUENCE                  2
@@ -47,14 +52,14 @@ struct assegment
 };
 
 /* AS path may be include some AsSegments.  */
-struct aspath 
+struct aspath
 {
   /* Reference count to this aspath.  */
   unsigned long refcnt;
 
   /* segment data */
   struct assegment *segments;
-  
+
   /* String expression of AS path.  This string is used by vty output
      and AS path regular expression match.  */
   char *str;
@@ -102,5 +107,23 @@ extern unsigned int aspath_has_as4 (struct aspath *);
 
 /* For SNMP BGP4PATHATTRASPATHSEGMENT, might be useful for debug */
 extern u_char *aspath_snmp_pathseg (struct aspath *, size_t *);
+
+Inline as_t
+aspath_origin(struct aspath* asp)
+{
+  struct assegment* seg ;
+
+  if ((asp == NULL) || (asp->segments == NULL))
+    return 0 ;
+
+  seg = asp->segments ;
+  while (seg->next != NULL)
+    seg = seg->next ;
+
+  if ((seg->length == 0) || (seg->type != AS_SEQUENCE))
+    return 0 ;
+
+  return seg->as[seg->length - 1] ;
+} ;
 
 #endif /* _QUAGGA_BGP_ASPATH_H */
