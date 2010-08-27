@@ -17,5 +17,7 @@ if [ -f ./bootstrap.sh ]; then
 	./bootstrap.sh
 else
 	msg missing ./bootstrap.sh from quagga
-	autoreconf -i --force
+	#autoreconf -i --force
+	#bootstrap from tarball prefers autoreconf -i
+	autoreconf -i
 fi
