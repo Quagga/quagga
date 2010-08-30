@@ -869,52 +869,77 @@ bgp_attr_origin (struct peer *peer, bgp_size_t length,
   return 0;
 }
 
-/* Parse AS path information.  This function is wrapper of
-   aspath_parse. */
-static int
+/* Parse AS path information.  This function is wrapper of aspath_parse.
+ *
+ * Parses AS_PATH or AS4_PATH.
+ *
+ * Returns: if valid: address of struct aspath in the hash of known aspaths,
+ *                    with reference count incremented.
+ *              else: NULL
+ *
+ * NB: empty AS path (length == 0) is valid.  The returned struct aspath will
+ *     have segments == NULL and str == zero length string (unique).
+ */
+static struct aspath *
 bgp_attr_aspath (struct peer *peer, bgp_size_t length,
-		 struct attr *attr, u_char flag, u_char *startp)
+                 struct attr *attr, u_char flag, u_char *startp, int as4_path)
 {
-  bgp_size_t total;
+  u_char require ;
+  struct aspath *asp ;
 
-  total = length + (CHECK_FLAG (flag, BGP_ATTR_FLAG_EXTLEN) ? 4 : 3);
+  /* Check the attribute flags                                          */
+  require = as4_path ? BGP_ATTR_FLAG_OPTIONAL | BGP_ATTR_FLAG_TRANS
+                     :                          BGP_ATTR_FLAG_TRANS ;
 
-  /* Flag check. */
-  if (CHECK_FLAG (flag, BGP_ATTR_FLAG_OPTIONAL)
-      || ! CHECK_FLAG (flag, BGP_ATTR_FLAG_TRANS))
+  if ((flag & (BGP_ATTR_FLAG_OPTIONAL | BGP_ATTR_FLAG_TRANS)) != require)
     {
+      const char* path_type ;
+      bgp_size_t total;
+
+      path_type = as4_path ? "AS4_PATH" : "AS_PATH" ;
+
+      if (!CHECK_FLAG(flag, BGP_ATTR_FLAG_TRANS))
       zlog (peer->log, LOG_ERR,
-	    "As-Path attribute flag isn't transitive %d", flag);
-      bgp_peer_down_error_with_data (peer,
-                                       BGP_NOTIFY_UPDATE_ERR,
-                                       BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR,
-                                       startp, total);
-      return -1;
-    }
+            "%s attribute flag isn't transitive %d", path_type, flag) ;
 
-  /*
-   * peer with AS4 => will get 4Byte ASnums provided AS4 was advertised
-   * otherwise, will get 16 Bit
+      if ((flag & BGP_ATTR_FLAG_OPTIONAL) != (require & BGP_ATTR_FLAG_OPTIONAL))
+        zlog (peer->log, LOG_ERR,
+            "%s attribute flag must %sbe optional %d", path_type,
+            (flag & BGP_ATTR_FLAG_OPTIONAL) ? "not " : "", flag) ;
+
+      total = length + (CHECK_FLAG (flag, BGP_ATTR_FLAG_EXTLEN) ? 4 : 3);
+
+      bgp_peer_down_error_with_data (peer, BGP_NOTIFY_UPDATE_ERR,
+                                           BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR,
+                                           startp, total) ;
+
+      return NULL ;
+    } ;
+
+  /* Parse the AS_PATH/AS4_PATH body.
+   *
+   * For AS_PATH  peer with AS4 => 4Byte ASN otherwise 2Byte ASN
+   *     AS4_PATH 4Byte ASN
    */
-  attr->aspath = aspath_parse (peer->ibuf, length, PEER_CAP_AS4_USE(peer)) ;
+  asp = aspath_parse (peer->ibuf, length,
+                                 as4_path || PEER_CAP_AS4_USE(peer), as4_path) ;
 
-  /* In case of IBGP, length will be zero. */
-  if (! attr->aspath)
+  if (asp != NULL)
+    {
+      attr->flag |= ATTR_FLAG_BIT (as4_path ? BGP_ATTR_AS4_PATH
+                                            : BGP_ATTR_AS_PATH) ;
+    }
+  else
     {
       zlog (peer->log, LOG_ERR, "Malformed AS path length is %d", length);
+
+      /* TODO: should BGP_NOTIFY_UPDATE_MAL_AS_PATH be sent for AS4_PATH ??  */
       bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
-                                   BGP_NOTIFY_UPDATE_MAL_AS_PATH);
-      return -1;
-    }
+                                 BGP_NOTIFY_UPDATE_MAL_AS_PATH) ;
+    } ;
 
-  /* Forward pointer. */
-/*  stream_forward_getp (peer->ibuf, length);*/
-
-  /* Set aspath attribute flag. */
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_AS_PATH);
-
-  return 0;
-}
+  return asp ;
+} ;
 
 static int bgp_attr_aspath_check( struct peer *peer,
 		struct attr *attr)
@@ -967,21 +992,6 @@ static int bgp_attr_aspath_check( struct peer *peer,
 
   return 0;
 
-}
-
-/* Parse AS4 path information.  This function is another wrapper of
-   aspath_parse. */
-static int
-bgp_attr_as4_path (struct peer *peer, bgp_size_t length,
-		 struct attr *attr, struct aspath **as4_path)
-{
-  *as4_path = aspath_parse (peer->ibuf, length, 1);
-
-  /* Set aspath attribute flag. */
-  if (as4_path)
-    attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_AS4_PATH);
-
-  return 0;
 }
 
 /* Nexthop attribute. */
@@ -1723,11 +1733,13 @@ bgp_attr_parse (struct peer *peer, struct attr *attr, bgp_size_t size,
 	  ret = bgp_attr_origin (peer, length, attr, flag, startp);
 	  break;
 	case BGP_ATTR_AS_PATH:
-	  ret = bgp_attr_aspath (peer, length, attr, flag, startp);
-	  break;
+          attr->aspath = bgp_attr_aspath (peer, length, attr, flag, startp, 0);
+          ret = attr->aspath ? 0 : -1 ;
+          break;
 	case BGP_ATTR_AS4_PATH:
-	  ret = bgp_attr_as4_path (peer, length, attr, &as4_path );
-	  break;
+          as4_path = bgp_attr_aspath (peer, length, attr, flag, startp, 1);
+          ret = as4_path  ? 0 : -1 ;
+          break;
 	case BGP_ATTR_NEXT_HOP:
 	  ret = bgp_attr_nexthop (peer, length, attr, flag, startp);
 	  break;

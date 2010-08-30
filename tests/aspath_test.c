@@ -21,7 +21,7 @@ struct thread_master *master = NULL;
 static int failed = 0;
 
 /* specification for a test - what the results should be */
-struct test_spec 
+struct test_spec
 {
   const char *shouldbe; /* the string the path should parse to */
   const char *shouldbe_delete_confed; /* ditto, but once confeds are deleted */
@@ -44,9 +44,9 @@ static struct test_segment {
   const u_char asdata[1024];
   int len;
   struct test_spec sp;
-} test_segments [] = 
+} test_segments [] =
 {
-  { /* 0 */ 
+  { /* 0 */
     "seq1",
     "seq(8466,3,52737,4096)",
     { 0x2,0x4, 0x21,0x12, 0x00,0x03, 0xce,0x01, 0x10,0x00 },
@@ -68,7 +68,7 @@ static struct test_segment {
   { /* 2 */
     "seq3",
     "seq(8466,3,52737,4096,8722,4)",
-    { 0x2,0x6, 0x21,0x12, 0x00,0x03, 0xce,0x01, 0x10,0x00, 
+    { 0x2,0x6, 0x21,0x12, 0x00,0x03, 0xce,0x01, 0x10,0x00,
                0x22,0x12, 0x00,0x04},
     14,
     { "8466 3 52737 4096 8722 4",
@@ -90,7 +90,7 @@ static struct test_segment {
     "seq(8467, 59649) set(4196,48658) set(17322,30745)",
     { 0x2,0x2, 0x21,0x13, 0xe9,0x01,
       0x1,0x2, 0x10,0x64, 0xbe,0x12,
-      0x1,0x2, 0x43,0xaa, 0x78,0x19 },    
+      0x1,0x2, 0x43,0xaa, 0x78,0x19 },
     18,
     { "8467 59649 {4196,48658} {17322,30745}",
       "8467 59649 {4196,48658} {17322,30745}",
@@ -150,7 +150,7 @@ static struct test_segment {
   { /* 10 */
     "seq4",
     "seq(8466,2,52737,4096,8722,4)",
-    { 0x2,0x6, 0x21,0x12, 0x00,0x02, 0xce,0x01, 0x10,0x00, 
+    { 0x2,0x6, 0x21,0x12, 0x00,0x02, 0xce,0x01, 0x10,0x00,
                0x22,0x12, 0x00,0x04},
     14,
     { "8466 2 52737 4096 8722 4",
@@ -160,7 +160,7 @@ static struct test_segment {
   { /* 11 */
     "tripleseq1",
     "seq(8466,2,52737) seq(4096,8722,4) seq(8722)",
-    { 0x2,0x3, 0x21,0x12, 0x00,0x02, 0xce,0x01, 
+    { 0x2,0x3, 0x21,0x12, 0x00,0x02, 0xce,0x01,
       0x2,0x3, 0x10,0x00, 0x22,0x12, 0x00,0x04,
       0x2,0x1, 0x22,0x12},
     20,
@@ -168,7 +168,7 @@ static struct test_segment {
       "8466 2 52737 4096 8722 4 8722",
       7, 0, NOT_ALL_PRIVATE, 4096, 1, 8466 },
   },
-  { /* 12 */ 
+  { /* 12 */
     "someprivate",
     "seq(8466,64512,52737,65535)",
     { 0x2,0x4, 0x21,0x12, 0xfc,0x00, 0xce,0x01, 0xff,0xff },
@@ -177,7 +177,7 @@ static struct test_segment {
       "8466 64512 52737 65535",
       4, 0, NOT_ALL_PRIVATE, 65535, 4, 8466 },
   },
-  { /* 13 */ 
+  { /* 13 */
     "allprivate",
     "seq(65534,64512,64513,65535)",
     { 0x2,0x4, 0xff,0xfe, 0xfc,0x00, 0xfc,0x01, 0xff,0xff },
@@ -186,7 +186,7 @@ static struct test_segment {
       "65534 64512 64513 65535",
       4, 0, ALL_PRIVATE, 65534, 4, 65534 },
   },
-  { /* 14 */ 
+  { /* 14 */
     "long",
     "seq(8466,3,52737,4096,34285,<repeated 49 more times>)",
     { 0x2,0xfa, 0x21,0x12, 0x00,0x03, 0xce,0x01, 0x10,0x00, 0x85,0xed,
@@ -265,7 +265,7 @@ static struct test_segment {
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285 "
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285 "
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285",
-      
+
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285 "
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285 "
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285 "
@@ -293,7 +293,7 @@ static struct test_segment {
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285",
       250, 0, NOT_ALL_PRIVATE, 4096, 4, 8466 },
   },
-  { /* 15 */ 
+  { /* 15 */
     "seq1extra",
     "seq(8466,3,52737,4096,3456)",
     { 0x2,0x5, 0x21,0x12, 0x00,0x03, 0xce,0x01, 0x10,0x00, 0x0d,0x80 },
@@ -309,7 +309,7 @@ static struct test_segment {
     0,
     { "", "", 0, 0, 0, 0, 0, 0 },
   },
-  { /* 17 */ 
+  { /* 17 */
     "redundantset",
     "seq(8466,3,52737,4096,3456) set(7099,8153,8153,8153)",
     { 0x2,0x5, 0x21,0x12, 0x00,0x03, 0xce,0x01, 0x10,0x00, 0x0d,0x80,
@@ -337,7 +337,7 @@ static struct test_segment {
   { /* 19 */
     "reconcile_new_asp",
     "set(2457,61697,4369), seq(1842,41591,51793)",
-    { 
+    {
       0x1,0x3, 0x09,0x99, 0xf1,0x01, 0x11,0x11,
       0x2,0x3, 0x07,0x32, 0xa2,0x77, 0xca,0x51 },
     16,
@@ -390,7 +390,7 @@ static struct test_segment {
       "23456 23456 23456 6435 59408",
       5, 0, NOT_ALL_PRIVATE, 59408, 1, 23456 },
   },
-  { /* 24 */ 
+  { /* 24 */
     "redundantset2",
     "seq(8466,3,52737,4096,3456) set(7099,8153,8153,8153,7099)",
     { 0x2,0x5, 0x21,0x12, 0x00,0x03, 0xce,0x01, 0x10,0x00, 0x0d,0x80,
@@ -402,7 +402,7 @@ static struct test_segment {
       "8466 3 52737 4096 3456 {7099,8153}",
       6, 0, NOT_ALL_PRIVATE, 4096, 4, 8466 },
   },
-  { /* 25 */ 
+  { /* 25 */
     "zero-size overflow",
     "#ASNs = 0, data = seq(8466 3 52737 4096 3456)",
     { 0x2,0x0, 0x21,0x12, 0x00,0x03, 0xce,0x01, 0x10,0x00, 0x0d,0x80 },
@@ -410,10 +410,10 @@ static struct test_segment {
     { "", "",
       0, 0, 0, 0, 0, 0 },
   },
-  { /* 26  */ 
+  { /* 26  */
     "zero-size overflow + valid segment",
     "seq(#AS=0:8466 3 52737),seq(4096 3456)",
-    { 0x2,0x0, 0x21,0x12, 0x00,0x03, 0xce,0x01, 
+    { 0x2,0x0, 0x21,0x12, 0x00,0x03, 0xce,0x01,
       0x2,0x2, 0x10,0x00, 0x0d,0x80 },
     14
     ,
@@ -428,7 +428,7 @@ static struct tests {
   const struct test_segment *test1;
   const struct test_segment *test2;
   struct test_spec sp;
-} prepend_tests[] = 
+} prepend_tests[] =
 {
   { &test_segments[0], &test_segments[1],
     { "8466 3 52737 4096 8722 4",
@@ -504,7 +504,7 @@ static struct tests {
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285 "
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285 "
       "8466 2 52737 4096 8722 4 8722",
-      
+
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285 "
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285 "
       "8466 3 52737 4096 34285 8466 3 52737 4096 34285 "
@@ -570,7 +570,7 @@ struct tests reconcile_tests[] =
   },
   { NULL, NULL, { NULL, 0, 0, 0, 0, 0, 0, } },
 };
-  
+
 struct tests aggregate_tests[] =
 {
   { &test_segments[0], &test_segments[2],
@@ -603,7 +603,7 @@ struct tests aggregate_tests[] =
   { NULL, NULL, { NULL, 0, 0}  },
 };
 
-struct compare_tests 
+struct compare_tests
 {
   int test_index1;
   int test_index2;
@@ -643,17 +643,17 @@ make_aspath (const u_char *data, size_t len, int use32bit)
 {
   struct stream *s = NULL;
   struct aspath *as;
-  
+
   if (len)
     {
       s = stream_new (len);
       stream_put (s, data, len);
     }
-  as = aspath_parse (s, len, use32bit);
-  
+  as = aspath_parse (s, len, use32bit, 0);
+
   if (s)
     stream_free (s);
-  
+
   return as;
 }
 
@@ -670,7 +670,7 @@ printbytes (const u_char *bytes, int len)
       i++;
     }
   printf ("\n");
-}  
+}
 
 /* validate the given aspath */
 static int
@@ -681,27 +681,27 @@ validate (struct aspath *as, const struct test_spec *sp)
   const u_char *out;
   static struct stream *s;
   struct aspath *asinout, *asconfeddel, *asstr, *as4;
-  
+
   out = aspath_snmp_pathseg (as, &bytes);
   asinout = make_aspath (out, bytes, 0);
-  
+
   /* Excercise AS4 parsing a bit, with a dogfood test */
   if (!s)
     s = stream_new (4096);
   bytes4 = aspath_put (s, as, 1);
   as4 = make_aspath (STREAM_DATA(s), bytes4, 1);
-  
+
   asstr = aspath_str2aspath (sp->shouldbe);
-  
+
   asconfeddel = aspath_delete_confed_seq (aspath_dup (asinout));
-  
+
   printf ("got: %s\n", aspath_print(as));
-  
+
   /* the parsed path should match the specified 'shouldbe' string.
    * We should pass the "eat our own dog food" test, be able to output
    * this path and then input it again. Ie the path resulting from:
    *
-   *   aspath_parse(aspath_put(as)) 
+   *   aspath_parse(aspath_put(as))
    *
    * should:
    *
@@ -716,7 +716,7 @@ validate (struct aspath *as, const struct test_spec *sp)
    *
    *   aspath_parse(aspath_put(as,USE32BIT))
    *
-   * Confederation related tests: 
+   * Confederation related tests:
    * - aspath_delete_confed_seq(aspath) should match shouldbe_confed
    * - aspath_delete_confed_seq should be idempotent.
    */
@@ -737,9 +737,9 @@ validate (struct aspath *as, const struct test_spec *sp)
       fails++;
       printf ("shouldbe:\n%s\n", sp->shouldbe);
       printf ("as4:\n%s\n", aspath_print (as4));
-      printf ("hash keys: in: %d out->in: %d\n", 
+      printf ("hash keys: in: %d out->in: %d\n",
               aspath_key_make (as), aspath_key_make (asinout));
-      printf ("hops: %d, counted %d %d\n", sp->hops, 
+      printf ("hops: %d, counted %d %d\n", sp->hops,
               aspath_count_hops (as),
               aspath_count_hops (asinout) );
       printf ("confeds: %d, counted %d %d\n", sp->confeds,
@@ -749,13 +749,13 @@ validate (struct aspath *as, const struct test_spec *sp)
       printbytes (out, bytes);
     }
          /* basic confed related tests */
-  if ((aspath_print (asconfeddel) == NULL 
+  if ((aspath_print (asconfeddel) == NULL
           && sp->shouldbe_delete_confed != NULL)
-      || (aspath_print (asconfeddel) != NULL 
+      || (aspath_print (asconfeddel) != NULL
           && sp->shouldbe_delete_confed == NULL)
       || strcmp(aspath_print (asconfeddel), sp->shouldbe_delete_confed)
          /* delete_confed_seq should be idempotent */
-      || (aspath_key_make (asconfeddel) 
+      || (aspath_key_make (asconfeddel)
           != aspath_key_make (aspath_delete_confed_seq (asconfeddel))))
     {
       failed++;
@@ -772,7 +772,7 @@ validate (struct aspath *as, const struct test_spec *sp)
       fails++;
       printf ("asstr: %s\n", aspath_print (asstr));
     }
-  
+
     /* loop, private and first as checks */
   if ((sp->does_loop && aspath_loop_check (as, sp->does_loop) == 0)
       || (sp->doesnt_loop && aspath_loop_check (as, sp->doesnt_loop) != 0)
@@ -792,11 +792,11 @@ validate (struct aspath *as, const struct test_spec *sp)
     }
   aspath_unintern (asinout);
   aspath_unintern (as4);
-  
+
   aspath_free (asconfeddel);
   aspath_free (asstr);
   stream_reset (s);
-  
+
   return fails;
 }
 
@@ -811,9 +811,9 @@ empty_get_test ()
     printf ("%s\n", OK);
   else
     printf ("%s!\n", FAILED);
-  
+
   printf ("\n");
-  
+
   aspath_free (as);
 }
 
@@ -822,7 +822,7 @@ static void
 parse_test (struct test_segment *t)
 {
   struct aspath *asp;
-  
+
   printf ("%s: %s\n", t->name, t->desc);
 
   asp = make_aspath (t->asdata, t->len, 0);
@@ -833,7 +833,7 @@ parse_test (struct test_segment *t)
     printf (OK "\n");
   else
     printf (FAILED "\n");
-  
+
   printf ("\n");
   aspath_unintern (asp);
 }
@@ -843,25 +843,25 @@ static void
 prepend_test (struct tests *t)
 {
   struct aspath *asp1, *asp2, *ascratch;
-  
+
   printf ("prepend %s: %s\n", t->test1->name, t->test1->desc);
   printf ("to %s: %s\n", t->test2->name, t->test2->desc);
-  
+
   asp1 = make_aspath (t->test1->asdata, t->test1->len, 0);
   asp2 = make_aspath (t->test2->asdata, t->test2->len, 0);
-  
+
   ascratch = aspath_dup (asp2);
   aspath_unintern (asp2);
-  
+
   asp2 = aspath_prepend (asp1, ascratch);
-  
+
   printf ("aspath: %s\n", aspath_print (asp2));
-  
+
   if (!validate (asp2, &t->sp))
     printf ("%s\n", OK);
   else
     printf ("%s!\n", FAILED);
-  
+
   printf ("\n");
   aspath_unintern (asp1);
   aspath_free (asp2);
@@ -872,24 +872,24 @@ static void
 empty_prepend_test (struct test_segment *t)
 {
   struct aspath *asp1, *asp2, *ascratch;
-  
+
   printf ("empty prepend %s: %s\n", t->name, t->desc);
-  
+
   asp1 = make_aspath (t->asdata, t->len, 0);
   asp2 = aspath_empty ();
-  
+
   ascratch = aspath_dup (asp2);
   aspath_unintern (asp2);
-  
+
   asp2 = aspath_prepend (asp1, ascratch);
-  
+
   printf ("aspath: %s\n", aspath_print (asp2));
-  
+
   if (!validate (asp2, &t->sp))
     printf (OK "\n");
   else
     printf (FAILED "!\n");
-  
+
   printf ("\n");
   aspath_unintern (asp1);
   aspath_free (asp2);
@@ -900,20 +900,20 @@ static void
 as4_reconcile_test (struct tests *t)
 {
   struct aspath *asp1, *asp2, *ascratch;
-  
+
   printf ("reconciling %s:\n  %s\n", t->test1->name, t->test1->desc);
   printf ("with %s:\n  %s\n", t->test2->name, t->test2->desc);
-  
+
   asp1 = make_aspath (t->test1->asdata, t->test1->len, 0);
   asp2 = make_aspath (t->test2->asdata, t->test2->len, 0);
-  
+
   ascratch = aspath_reconcile_as4 (asp1, asp2);
-  
+
   if (!validate (ascratch, &t->sp))
     printf (OK "\n");
   else
     printf (FAILED "!\n");
-  
+
   printf ("\n");
   aspath_unintern (asp1);
   aspath_unintern (asp2);
@@ -926,20 +926,20 @@ static void
 aggregate_test (struct tests *t)
 {
   struct aspath *asp1, *asp2, *ascratch;
-  
+
   printf ("aggregate %s: %s\n", t->test1->name, t->test1->desc);
   printf ("with %s: %s\n", t->test2->name, t->test2->desc);
-  
+
   asp1 = make_aspath (t->test1->asdata, t->test1->len, 0);
   asp2 = make_aspath (t->test2->asdata, t->test2->len, 0);
-  
+
   ascratch = aspath_aggregate (asp1, asp2);
-  
+
   if (!validate (ascratch, &t->sp))
     printf (OK "\n");
   else
     printf (FAILED "!\n");
-  
+
   printf ("\n");
   aspath_unintern (asp1);
   aspath_unintern (asp2);
@@ -960,23 +960,23 @@ cmp_test ()
       struct test_segment *t1 = &test_segments[left_compare[i].test_index1];
       struct test_segment *t2 = &test_segments[left_compare[i].test_index2];
       struct aspath *asp1, *asp2;
-      
+
       printf ("left cmp %s: %s\n", t1->name, t1->desc);
       printf ("and %s: %s\n", t2->name, t2->desc);
-      
+
       asp1 = make_aspath (t1->asdata, t1->len, 0);
       asp2 = make_aspath (t2->asdata, t2->len, 0);
-      
+
       if (aspath_cmp_left (asp1, asp2) != left_compare[i].shouldbe_cmp
           || aspath_cmp_left (asp2, asp1) != left_compare[i].shouldbe_cmp
-          || aspath_cmp_left_confed (asp1, asp2) 
+          || aspath_cmp_left_confed (asp1, asp2)
                != left_compare[i].shouldbe_confed
-          || aspath_cmp_left_confed (asp2, asp1) 
+          || aspath_cmp_left_confed (asp2, asp1)
                != left_compare[i].shouldbe_confed)
         {
           failed++;
           printf (FAILED "\n");
-          printf ("result should be: cmp: %d, confed: %d\n", 
+          printf ("result should be: cmp: %d, confed: %d\n",
                   left_compare[i].shouldbe_cmp,
                   left_compare[i].shouldbe_confed);
           printf ("got: cmp %d, cmp_confed: %d\n",
@@ -987,13 +987,13 @@ cmp_test ()
         }
       else
         printf (OK "\n");
-      
+
       printf ("\n");
       aspath_unintern (asp1);
       aspath_unintern (asp2);
     }
 }
-     
+
 int
 main (void)
 {
@@ -1004,30 +1004,30 @@ main (void)
       parse_test (&test_segments[i]);
       empty_prepend_test (&test_segments[i++]);
     }
-  
+
   i = 0;
   while (prepend_tests[i].test1)
     prepend_test (&prepend_tests[i++]);
-  
+
   i = 0;
   while (aggregate_tests[i].test1)
     aggregate_test (&aggregate_tests[i++]);
-  
+
   i = 0;
-  
+
   while (reconcile_tests[i].test1)
     as4_reconcile_test (&reconcile_tests[i++]);
-  
+
   i = 0;
-  
+
   cmp_test();
-  
+
   i = 0;
-  
+
   empty_get_test();
-  
+
   printf ("failures: %d\n", failed);
   printf ("aspath count: %ld\n", aspath_count());
-  
+
   return (failed + aspath_count());
 }

@@ -405,7 +405,7 @@ bgp_damp_parameter_set (int hlife, int reuse, int sup, int maxsup)
 
   /* Decay-array computations */
   damp->decay_array_size = ceil ((double) damp->max_suppress_time / DELTA_T);
-  damp->decay_array = XMALLOC (MTYPE_BGP_DAMP_ARRAY,
+  damp->decay_array = XCALLOC (MTYPE_BGP_DAMP_ARRAY,
 			       sizeof(double) * (damp->decay_array_size));
   damp->decay_array[0] = 1.0;
   damp->decay_array[1] = exp ((1.0/((double)damp->half_life/DELTA_T)) * log(0.5));
@@ -423,14 +423,10 @@ bgp_damp_parameter_set (int hlife, int reuse, int sup, int maxsup)
   damp->reuse_list = XCALLOC (MTYPE_BGP_DAMP_ARRAY,
 			      damp->reuse_list_size
 			      * sizeof (struct bgp_reuse_node *));
-  memset (damp->reuse_list, 0x00,
-          damp->reuse_list_size * sizeof (struct bgp_reuse_node *));
 
   /* Reuse-array computations */
-  damp->reuse_index = XMALLOC (MTYPE_BGP_DAMP_ARRAY,
+  damp->reuse_index = XCALLOC (MTYPE_BGP_DAMP_ARRAY,
 			       sizeof(int) * damp->reuse_index_size);
-  memset (damp->reuse_index, 0x00,
-          damp->reuse_list_size * sizeof (int));
 
   reuse_max_ratio = (double)damp->ceiling/damp->reuse_limit;
   j = (exp((double)damp->max_suppress_time/damp->half_life) * log10(2.0));
