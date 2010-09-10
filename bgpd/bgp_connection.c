@@ -658,24 +658,21 @@ bgp_connection_start(bgp_connection connection, union sockunion* su_local,
 } ;
 
 /*------------------------------------------------------------------------------
- * Stop connection
+ * Stop connection buffering -- may leave write buffer to be emptied.
  *
  *   * reset stream buffers
  *   * empty out any pending queue
  *   * remove from the BGP Engine connection queue, if there
- *   * clear session->active flag, so will not process any more messages
- *     that expect some message to be sent.
  *   * no notification pending (yet)
  *
  * If required:
  *
- *   * set write buffer unwritable
- *   * disable file in write mode
+ *   * set write buffer unwritable and empty
  *
  * NB: requires the session to be LOCKED.
  */
 static void
-bgp_connection_stop(bgp_connection connection, int stop_writer)
+bgp_connection_stop(bgp_connection connection, bool stop_writer)
 {
   /* Reset all stream buffering empty.                                  */
   stream_reset(connection->ibuf) ;
@@ -705,7 +702,8 @@ bgp_connection_enable_accept(bgp_connection connection)
   bgp_session session = connection->session ;
 
   assert(connection->ordinal == bgp_connection_secondary) ;
-  assert((session != NULL) && (session->active)) ;
+  assert(session != NULL) ;
+  assert(session->active) ;
 
   session->accept = true ;
 } ;
@@ -821,8 +819,8 @@ bgp_connection_full_close(bgp_connection connection, int unset_timers)
   sockunion_unset(&connection->su_local) ;
   sockunion_unset(&connection->su_remote) ;
 
-  /* Bring connection to a stop.                                        */
-  bgp_connection_stop(connection, 1) ;
+  /* Stop all buffering activity, including write buffer.               */
+  bgp_connection_stop(connection, true) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -848,10 +846,9 @@ bgp_connection_full_close(bgp_connection connection, int unset_timers)
  *
  * NB: requires the session to be LOCKED.
  */
-extern int
+extern bool
 bgp_connection_part_close(bgp_connection connection)
 {
-  bgp_session session = connection->session ;
   bgp_wbuffer wb = &connection->wbuff ;
   int         fd ;
   uint8_t*    p ;
@@ -861,18 +858,14 @@ bgp_connection_part_close(bgp_connection connection)
   fd = qps_file_fd(connection->qf) ;
 
   if (fd == fd_undef)
-    return 0 ;
+    return false ;
 
   /* Shutdown the read side of this connection                          */
   shutdown(fd, SHUT_RD) ;
   qps_disable_modes(connection->qf, qps_read_mbit) ;
 
   /* Stop all buffering activity, except for write buffer.              */
-  bgp_connection_stop(connection, 0) ;
-
-  /* Turn off session->active (if still attached).                      */
-  if (session != NULL)
-    session->active = false ;
+  bgp_connection_stop(connection, false) ;
 
   /* Purge wbuff of all but current partly written message (if any)     */
   if (wb->p_in != wb->p_out)    /* will be equal if buffer is empty     */
@@ -898,7 +891,7 @@ bgp_connection_part_close(bgp_connection connection)
     bgp_write_buffer_reset(wb) ;
 
   /* OK -- part closed, ready to send NOTIFICATION              */
-  return 1 ;
+  return true ;
 } ;
 
 /*==============================================================================
@@ -969,7 +962,7 @@ bgp_connection_write_action(qps_file qf, void* file_info)
   int ret ;
 
   /* Try to empty the write buffer.                                     */
-  have = bgp_write_buffer_pending(wb) ;
+  have = bgp_write_buffer_has(wb) ;
   while (have != 0)
     {
       ret = write(qps_file_fd(qf), wb->p_out, have) ;

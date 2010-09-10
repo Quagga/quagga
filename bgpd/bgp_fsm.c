@@ -2146,7 +2146,11 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
    *
    * The state transition stuff looks after timers.  In particular an error
    * in Connect/Active states leaves the ConnectRetryTimer running.
+   *
+   * However, in any event, no longer require any Keepalive.
    */
+  qtimer_unset(connection->keepalive_timer) ;
+
   if ((send_notification != NULL) && bgp_connection_part_close(connection))
     {
       /* If not changing to stopping, we hold in the current state until
@@ -2154,9 +2158,6 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
        */
       if (next_state != bgp_fsm_sStopping)
         next_state = connection->state ;
-
-      /* Make sure that cannot pop out a Keepalive !                        */
-      qtimer_unset(connection->keepalive_timer) ;
 
       /* Write the message                                                  */
       bgp_msg_write_notification(connection, send_notification) ;

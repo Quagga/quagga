@@ -237,10 +237,10 @@ bgp_connection_make_primary(bgp_connection connection) ;
 extern void
 bgp_connection_full_close(bgp_connection connection, int unset_timers) ;
 
-#define bgp_connection_close(conn) bgp_connection_full_close(conn, 0)
-#define bgp_connection_close_down(conn) bgp_connection_full_close(conn, 1)
+#define bgp_connection_close(conn) bgp_connection_full_close(conn, false)
+#define bgp_connection_close_down(conn) bgp_connection_full_close(conn, true)
 
-extern int
+extern bool
 bgp_connection_part_close(bgp_connection connection) ;
 
 extern void
@@ -261,7 +261,7 @@ bgp_connection_queue_del(bgp_connection connection) ;
 extern int
 bgp_connection_queue_process(void) ;
 
-Inline int
+Inline bool
 bgp_connection_no_pending(bgp_connection connection, bgp_connection* is_pending)
 {
   return (   (mqueue_local_head(&connection->pending_queue) == NULL)
@@ -296,7 +296,7 @@ bgp_write_buffer_reset(bgp_wbuffer wb)
  *
  * NB: there is never any room in an unallocated buffer.
  */
-Inline int
+Inline bool
 bgp_write_buffer_cannot(bgp_wbuffer wb, size_t want)
 {
   return ((size_t)(wb->limit - wb->p_in) <= want) ;
@@ -309,7 +309,7 @@ bgp_write_buffer_cannot(bgp_wbuffer wb, size_t want)
  */
 enum { bgp_write_buffer_full_threshold = BGP_MSG_MAX_L + 1 } ;
 
-Inline int
+Inline bool
 bgp_write_buffer_cannot_max(bgp_wbuffer wb)
 {
   return bgp_write_buffer_cannot(wb, BGP_MSG_MAX_L) ;
@@ -321,11 +321,11 @@ bgp_write_buffer_cannot_max(bgp_wbuffer wb)
  * If empty, ensures that the buffer has been allocated, and sets the pointers
  * to the start of the buffer -- so all set to go.
  */
-Inline int
+Inline bool
 bgp_write_buffer_empty(bgp_wbuffer wb)
 {
   if (wb->p_out < wb->p_in)
-    return 0 ;                  /* not empty => has buffer      */
+    return false ;              /* not empty => has buffer      */
 
   dassert(wb->p_out == wb->p_in) ;
 
@@ -333,7 +333,7 @@ bgp_write_buffer_empty(bgp_wbuffer wb)
 
   bgp_write_buffer_reset(wb) ;  /* pointers to start of buffer  */
 
-  return 1 ;                    /* empty and all ready to go    */
+  return true ;                 /* empty and all ready to go    */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -344,7 +344,7 @@ bgp_write_buffer_empty(bgp_wbuffer wb)
  *     > 0 => allocated.
  */
 Inline int
-bgp_write_buffer_pending(bgp_wbuffer wb)
+bgp_write_buffer_has(bgp_wbuffer wb)
 {
   dassert(wb->p_out <= wb->p_in) ;
   return (wb->p_in - wb->p_out) ;
@@ -353,7 +353,7 @@ bgp_write_buffer_pending(bgp_wbuffer wb)
 /*------------------------------------------------------------------------------
  * As above, for connection
  */
-Inline int
+Inline bool
 bgp_connection_write_cannot_max(bgp_connection connection)
 {
   return bgp_write_buffer_cannot_max(&connection->wbuff) ;
@@ -362,7 +362,7 @@ bgp_connection_write_cannot_max(bgp_connection connection)
 /*------------------------------------------------------------------------------
  * As above, for connection
  */
-Inline int
+Inline bool
 bgp_connection_write_empty(bgp_connection connection)
 {
   return bgp_write_buffer_empty(&connection->wbuff) ;
