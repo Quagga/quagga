@@ -182,8 +182,8 @@ struct bgp_connection
   unsigned  keepalive_timer_interval ;  /* subject to negotiation         */
 
   bool              as4 ;               /* subject to negotiation         */
-  bool              route_refresh ;     /* subject to negotiation         */
-  bool              orf_prefix ;        /* subject to negotiation         */
+  bgp_form_t        route_refresh ;     /* subject to negotiation         */
+  bgp_form_t        orf_prefix ;        /* subject to negotiation         */
 
   qtimer            hold_timer ;
   qtimer            keepalive_timer ;

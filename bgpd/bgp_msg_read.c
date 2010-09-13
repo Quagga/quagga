@@ -132,7 +132,7 @@ static bgp_msg_handler* const bgp_type_handler[] =
   [qBGP_MT_UPDATE]            = bgp_msg_update_receive,
   [qBGP_MT_NOTIFICATION]      = bgp_msg_notify_receive,
   [qBGP_MT_KEEPALIVE]         = bgp_msg_keepalive_receive,
-  [qBGP_MT_ROUTE_REFRESH]     = bgp_msg_keepalive_receive,
+  [qBGP_MT_ROUTE_REFRESH]     = bgp_msg_route_refresh_receive,
   [qBGP_MT_CAPABILITY]        = bgp_msg_capability_receive,
   [qBGP_MT_ROUTE_REFRESH_pre] = bgp_msg_route_refresh_receive
 } ;

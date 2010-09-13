@@ -293,8 +293,10 @@ bgp_connection_make_primary(bgp_connection connection)
   session->keepalive_timer_interval   = connection->keepalive_timer_interval ;
 
   session->as4                        = connection->as4 ;
-  session->route_refresh_pre          = connection->route_refresh ;
-  session->orf_prefix_pre             = connection->orf_prefix ;
+  session->route_refresh_pre          = connection->route_refresh
+                                                               == bgp_form_pre ;
+  session->orf_prefix_pre             = connection->orf_prefix
+                                                               == bgp_form_pre ;
 
   sockunion_set_dup(&session->su_local,  connection->su_local) ;
   sockunion_set_dup(&session->su_remote, connection->su_remote) ;
