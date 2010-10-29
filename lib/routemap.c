@@ -212,9 +212,10 @@ vty_show_route_map_entry (struct vty *vty, struct route_map *map)
 
   for (index = map->head; index; index = index->next)
     {
-      vty_out (vty, "route-map %s, %s, sequence %d%s",
+      vty_out (vty, "route-map %s, %s, sequence %lu%s",
                map->name, route_map_type_str (index->type),
-               index->pref, VTY_NEWLINE);
+               (unsigned long)index->seq, VTY_NEWLINE);
+      confirm(sizeof(index->seq) <= sizeof(unsigned long)) ;
 
       /* Description */
       if (index->description)
@@ -239,12 +240,25 @@ vty_show_route_map_entry (struct vty *vty, struct route_map *map)
 
       /* Exit Policy */
       vty_out (vty, "  Action:%s", VTY_NEWLINE);
-      if (index->exitpolicy == RMAP_GOTO)
-        vty_out (vty, "    Goto %d%s", index->nextpref, VTY_NEWLINE);
-      else if (index->exitpolicy == RMAP_NEXT)
-        vty_out (vty, "    Continue to next entry%s", VTY_NEWLINE);
-      else if (index->exitpolicy == RMAP_EXIT)
-        vty_out (vty, "    Exit routemap%s", VTY_NEWLINE);
+      switch (index->exitpolicy)
+      {
+        case RMAP_GOTO:
+          vty_out (vty, "    Goto %lu%s", (unsigned long)index->goto_seq,
+                                                                   VTY_NEWLINE);
+          confirm(sizeof(index->goto_seq) <= sizeof(unsigned long)) ;
+          break ;
+
+        case RMAP_NEXT:
+          vty_out (vty, "    Continue to next entry%s", VTY_NEWLINE);
+          break ;
+
+        case RMAP_EXIT:
+          vty_out (vty, "    Exit routemap%s", VTY_NEWLINE);
+          break ;
+
+        default:
+          zabort("invalid route-map 'exitpolicy'") ;
+      } ;
     }
 }
 
@@ -329,13 +343,12 @@ route_map_index_delete (struct route_map_index *index, int notify)
 /* Lookup index from route map. */
 static struct route_map_index *
 route_map_index_lookup (struct route_map *map, enum route_map_type type,
-			int pref)
+                          route_map_seq_t seq)
 {
   struct route_map_index *index;
 
   for (index = map->head; index; index = index->next)
-    if ((index->type == type || type == RMAP_ANY)
-	&& index->pref == pref)
+    if ((index->type == type || type == RMAP_ANY) && index->seq == seq)
       return index;
   return NULL;
 }
@@ -343,20 +356,20 @@ route_map_index_lookup (struct route_map *map, enum route_map_type type,
 /* Add new index to route map. */
 static struct route_map_index *
 route_map_index_add (struct route_map *map, enum route_map_type type,
-		     int pref)
+                       route_map_seq_t seq)
 {
   struct route_map_index *index;
   struct route_map_index *point;
 
-  /* Allocate new route map inex. */
+  /* Allocate new route map index.      */
   index = route_map_index_new ();
-  index->map = map;
+  index->map  = map;
   index->type = type;
-  index->pref = pref;
+  index->seq  = seq;
 
-  /* Compare preference. */
+  /* Compare sequence number            */
   for (point = map->head; point; point = point->next)
-    if (point->pref >= pref)
+    if (point->seq >= seq)
       break;
 
   if (map->head == NULL)
@@ -395,11 +408,11 @@ route_map_index_add (struct route_map *map, enum route_map_type type,
 /* Get route map index. */
 static struct route_map_index *
 route_map_index_get (struct route_map *map, enum route_map_type type,
-		     int pref)
+                        route_map_seq_t seq)
 {
   struct route_map_index *index;
 
-  index = route_map_index_lookup (map, RMAP_ANY, pref);
+  index = route_map_index_lookup (map, RMAP_ANY, seq);
   if (index && index->type != type)
     {
       /* Delete index from route map. */
@@ -407,7 +420,7 @@ route_map_index_get (struct route_map *map, enum route_map_type type,
       index = NULL;
     }
   if (index == NULL)
-    index = route_map_index_add (map, type, pref);
+    index = route_map_index_add (map, type, seq);
   return index;
 }
 
@@ -713,7 +726,7 @@ route_map_delete_set (struct route_map_index *index, const char *set_name,
       -If Call statement is present jump to the specified route-map, if it
          denies the route we finish.
       -If NEXT is specified, goto NEXT statement
-      -If GOTO is specified, goto the first clause where pref > nextpref
+      -If GOTO is specified, goto the first clause where seq > goto_seq
       -If nothing is specified, do as Cisco and finish
    deny)
       -Route is denied by route-map.
@@ -838,9 +851,9 @@ route_map_apply (struct route_map *map, struct prefix *prefix,
                     {
                       /* Find the next clause to jump to */
                       struct route_map_index *next = index->next;
-                      int nextpref = index->nextpref;
+                      route_map_seq_t goto_seq = index->goto_seq;
 
-                      while (next && next->pref < nextpref)
+                      while (next && next->seq < goto_seq)
                         {
                           index = next;
                           next = next->next;
@@ -902,7 +915,7 @@ route_map_finish (void)
 /* VTY related functions. */
 DEFUN (route_map,
        route_map_cmd,
-       "route-map WORD (deny|permit) <1-65535>",
+       "route-map WORD (deny|permit) <1-4294967295>",
        "Create route-map or enter route-map command mode\n"
        "Route map tag\n"
        "Route map denies set operations\n"
@@ -910,7 +923,7 @@ DEFUN (route_map,
        "Sequence to insert to/delete from existing route-map entry\n")
 {
   int permit;
-  unsigned long pref;
+  unsigned long seq;
   struct route_map *map;
   struct route_map_index *index;
   char *endptr = NULL;
@@ -926,23 +939,24 @@ DEFUN (route_map,
       return CMD_WARNING;
     }
 
-  /* Preference check. */
-  pref = strtoul (argv[2], &endptr, 10);
-  if (pref == ULONG_MAX || *endptr != '\0')
+  /* Sequence number check. */
+  seq = strtoul (argv[2], &endptr, 10);
+  confirm(sizeof(route_map_seq_t) <= sizeof(unsigned long)) ;
+  if (seq == ULONG_MAX || *endptr != '\0')
     {
       vty_out (vty, "the fourth field must be positive integer%s",
 	       VTY_NEWLINE);
       return CMD_WARNING;
     }
-  if (pref == 0 || pref > 65535)
+  if (seq == 0 || seq > 4294967295)
     {
-      vty_out (vty, "the fourth field must be <1-65535>%s", VTY_NEWLINE);
+      vty_out (vty, "the fourth field must be <1-4294967295>%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
 
   /* Get route map. */
   map = route_map_get (argv[0]);
-  index = route_map_index_get (map, permit, pref);
+  index = route_map_index_get (map, permit, seq);
 
   vty->index = index;
   vty_set_node(vty, RMAP_NODE) ;
@@ -973,7 +987,7 @@ DEFUN (no_route_map_all,
 
 DEFUN (no_route_map,
        no_route_map_cmd,
-       "no route-map WORD (deny|permit) <1-65535>",
+       "no route-map WORD (deny|permit) <1-4294967295>",
        NO_STR
        "Create route-map or enter route-map command mode\n"
        "Route map tag\n"
@@ -982,7 +996,7 @@ DEFUN (no_route_map,
        "Sequence to insert to/delete from existing route-map entry\n")
 {
   int permit;
-  unsigned long pref;
+  unsigned long seq;
   struct route_map *map;
   struct route_map_index *index;
   char *endptr = NULL;
@@ -998,17 +1012,18 @@ DEFUN (no_route_map,
       return CMD_WARNING;
     }
 
-  /* Preference. */
-  pref = strtoul (argv[2], &endptr, 10);
-  if (pref == ULONG_MAX || *endptr != '\0')
+  /* Sequence number    */
+  seq = strtoul (argv[2], &endptr, 10);
+  confirm(sizeof(route_map_seq_t) <= sizeof(unsigned long)) ;
+  if (seq == ULONG_MAX || *endptr != '\0')
     {
       vty_out (vty, "the fourth field must be positive integer%s",
 	       VTY_NEWLINE);
       return CMD_WARNING;
     }
-  if (pref == 0 || pref > 65535)
+  if (seq == 0 || seq > 4294967295)
     {
-      vty_out (vty, "the fourth field must be <1-65535>%s", VTY_NEWLINE);
+      vty_out (vty, "the fourth field must be <1-4294967295>%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
 
@@ -1022,7 +1037,7 @@ DEFUN (no_route_map,
     }
 
   /* Lookup route map index. */
-  index = route_map_index_lookup (map, permit, pref);
+  index = route_map_index_lookup (map, permit, seq);
   if (index == NULL)
     {
       vty_out (vty, "%% Could not find route-map entry %s %s%s",
@@ -1075,22 +1090,23 @@ DEFUN (no_rmap_onmatch_next,
 
 DEFUN (rmap_onmatch_goto,
        rmap_onmatch_goto_cmd,
-       "on-match goto <1-65535>",
+       "on-match goto <1-4294967295>",
        "Exit policy on matches\n"
        "Goto Clause number\n"
        "Number\n")
 {
   struct route_map_index *index = vty->index;
-  int d = 0;
+  route_map_seq_t d = 0;
 
   if (index)
     {
       if (argc == 1 && argv[0])
-        VTY_GET_INTEGER_RANGE("route-map index", d, argv[0], 1, 65536);
+        /* TODO: why did the on-match goto range include 65536 ?        */
+        VTY_GET_INTEGER_RANGE("route-map index", d, argv[0], 1, 4294967295);
       else
-        d = index->pref + 1;
+        d = index->seq + 1;
 
-      if (d <= index->pref)
+      if (d <= index->seq)
 	{
 	  /* Can't allow you to do that, Dave */
 	  vty_out (vty, "can't jump backwards in route-maps%s",
@@ -1100,7 +1116,7 @@ DEFUN (rmap_onmatch_goto,
       else
 	{
 	  index->exitpolicy = RMAP_GOTO;
-	  index->nextpref = d;
+	  index->goto_seq = d;
 	}
     }
   return CMD_SUCCESS;
@@ -1138,13 +1154,13 @@ ALIAS (no_rmap_onmatch_goto,
 /* GNU Zebra compatible */
 ALIAS (rmap_onmatch_goto,
        rmap_continue_seq_cmd,
-       "continue <1-65535>",
+       "continue <1-4294967295>",
        "Continue on a different entry within the route-map\n"
        "Route-map entry sequence number\n")
 
 ALIAS (no_rmap_onmatch_goto,
        no_rmap_continue_seq,
-       "no continue <1-65535>",
+       "no continue <1-4294967295>",
        NO_STR
        "Continue on a different entry within the route-map\n"
        "Route-map entry sequence number\n")
@@ -1164,7 +1180,7 @@ DEFUN (rmap_show_name,
 
 ALIAS (rmap_onmatch_goto,
       rmap_continue_index_cmd,
-      "continue <1-65536>",
+      "continue <1-4294967295>",
       "Exit policy on matches\n"
       "Goto Clause number\n")
 
@@ -1259,10 +1275,11 @@ route_map_config_write (struct vty *vty)
 	else
 	  first = 0;
 
-	vty_out (vty, "route-map %s %s %d%s",
+	vty_out (vty, "route-map %s %s %lu%s",
 		 map->name,
 		 route_map_type_str (index->type),
-		 index->pref, VTY_NEWLINE);
+		 (unsigned long)index->seq, VTY_NEWLINE);
+	confirm(sizeof(index->seq) <= sizeof(unsigned long)) ;
 
 	if (index->description)
 	  vty_out (vty, " description %s%s", index->description, VTY_NEWLINE);
@@ -1276,12 +1293,15 @@ route_map_config_write (struct vty *vty)
 	  vty_out (vty, " set %s %s%s", rule->cmd->str,
 		   rule->rule_str ? rule->rule_str : "",
 		   VTY_NEWLINE);
-   if (index->nextrm)
-     vty_out (vty, " call %s%s", index->nextrm, VTY_NEWLINE);
-	if (index->exitpolicy == RMAP_GOTO)
-      vty_out (vty, " on-match goto %d%s", index->nextpref, VTY_NEWLINE);
-	if (index->exitpolicy == RMAP_NEXT)
-	  vty_out (vty," on-match next%s", VTY_NEWLINE);
+
+       if (index->nextrm)
+         vty_out (vty, " call %s%s", index->nextrm, VTY_NEWLINE);
+       if (index->exitpolicy == RMAP_GOTO)
+         vty_out (vty, " on-match goto %lu%s", (unsigned long)index->goto_seq,
+                                                                   VTY_NEWLINE);
+       confirm(sizeof(index->goto_seq) <= sizeof(unsigned long)) ;
+       if (index->exitpolicy == RMAP_NEXT)
+         vty_out (vty," on-match next%s", VTY_NEWLINE);
 
 	write++;
       }

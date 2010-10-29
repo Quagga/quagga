@@ -22,6 +22,8 @@
 #ifndef _ZEBRA_ROUTEMAP_H
 #define _ZEBRA_ROUTEMAP_H
 
+#include <stdint.h>
+
 /* Route map's type. */
 enum route_map_type
 {
@@ -107,25 +109,28 @@ struct route_map_rule_list
   struct route_map_rule *tail;
 };
 
-/* Route map index structure. */
+/* Route map sequence number    */
+typedef uint32_t route_map_seq_t ;
+
+/* Route map index structure.   */
 struct route_map_index
 {
   struct route_map *map;
   char *description;
 
   /* Preference of this route map rule. */
-  int pref;
+  route_map_seq_t       seq;
 
   /* Route map type permit or deny. */
-  enum route_map_type type;
+  enum route_map_type   type;
 
   /* Do we follow old rules, or hop forward? */
-  route_map_end_t exitpolicy;
+  route_map_end_t       exitpolicy;
 
   /* If we're using "GOTO", to where do we go? */
-  int nextpref;
+  route_map_seq_t       goto_seq;
 
-  /* If we're using "CALL", to which route-map do ew go? */
+  /* If we're using "CALL", to which route-map do we go? */
   char *nextrm;
 
   /* Matching rule list. */

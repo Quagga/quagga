@@ -180,7 +180,7 @@ prefix_max_length(afi_t afi)
       return IPV6_MAX_BITLEN ;
 #endif
     default:
-      assert(0) ;	/* Should not get here ! */
+      zabort("invalid address family") ;
       return 0 ;
   } ;
 } ;
@@ -416,8 +416,9 @@ prefix_list_apply (struct prefix_list *plist, void *object)
       for (VECTOR_ITEMS(&plist->list, pe, i))
 	{
 	  ++pe->refcnt ;
-	  if ((((pe->prefix.u.prefix4.s_addr ^ ip) & pe->mask) == 0)
-		&& (plen >= pe->ge) && (plen <= pe->le))
+	  if ((plen < pe->ge) || (plen > pe->le))
+	    continue ;
+	  if (((pe->prefix.u.prefix4.s_addr ^ ip) & pe->mask) == 0)
 	    {
 	      ++pe->hitcnt;
 	      return pe->type ;
@@ -433,19 +434,20 @@ prefix_list_apply (struct prefix_list *plist, void *object)
 #endif
       for (VECTOR_ITEMS(&plist->list, pe, i))
 	{
-	  int l = pe->last ;
-	  int j ;
+	  int j, l ;
 	  ++pe->refcnt ;
+          if ((plen < pe->ge) || (plen > pe->le))
+            continue ;
 #ifdef s6_addr32
 	  pep = pe->prefix.u.prefix6.s6_addr32 ;
 #else
 	  pep = pe->prefix.u.prefix6.s6_addr ;
 #endif
+          l = pe->last ;
 	  for (j = 0 ; j < l ; j++)
 	    if (pep[j] != pp[j])
 	      goto NEXT ;
-	  if ((((pep[l] ^ pp[l]) & pe->mask) == 0)
-	      && (plen >= pe->ge) && (plen <= pe->le))
+	  if (((pep[l] ^ pp[l]) & pe->mask) == 0)
 	    {
 	      ++pe->hitcnt;
 	      return pe->type ;
@@ -455,7 +457,7 @@ prefix_list_apply (struct prefix_list *plist, void *object)
       break ;
 
     default:
-      assert(0) ;
+      zabort("invalid address family") ;
   } ;
 
   return PREFIX_DENY;
@@ -491,7 +493,7 @@ prefix_list_new(struct prefix_master* pm, struct symbol* sym, afi_t afi)
       break ;
 #endif
     default:
-      assert(0) ;	/* Should not get here ! */
+      zabort("invalid address family") ;
   } ;
 
   symbol_set_value(sym, new) ;
@@ -837,7 +839,7 @@ prefix_list_entry_insert(struct prefix_list *plist,
   vector_index i, ic ;
   int ret, retc ;
   u_int32_t mask ;
-  int pl ;
+  int pl, sh ;
 
   /* See if we have an entry like this one, if we do:
    *
@@ -916,26 +918,63 @@ prefix_list_entry_insert(struct prefix_list *plist,
   /* Now we can set the value of the entry.   */
   *pe = *temp ;
 
-  /* Set mask and last ready to apply the filter.			*/
-  /* Note: if we don't have s6_addr32, we must handle IPv6 byte-wise !	*/
+  /* Set mask and last ready to apply the filter.
+   *
+   *    pl  sh     mask     last
+   *     0   0  0x00000000    0   case sh == 0 && pl == 0
+   *     1   1  0x80000000    0
+   *    ..       ..        .
+   *    31  31  0xFFFFFFFE    0
+   *    32   0  0xFFFFFFFF    0   case sh == 0
+   *    33   1  0x80000000    1
+   *    ..       ..        .
+   *    64   0  0xFFFFFFFF    1   case sh == 0
+   *    65   1  0x80000000    2
+   *    ..       ..        .
+   *   128   0  0xFFFFFFFF    3   case sh == 0
+   *
+   * Note: if we don't have s6_addr32, we must handle IPv6 byte-wise !
+   */
   pl = pe->prefix.prefixlen ;
-  mask = htonl((0xFFFFFFFF >> (pl & 0x1F)) ^ 0xFFFFFFFF) ;
+
+  sh = pl & 0x1F ;
+  if (sh == 0)
+    mask = (pl == 0) ? 0x00000000 : 0xFFFFFFFF ;
+  else
+    mask = (0xFFFFFFFF >> sh) ^ 0xFFFFFFFF ;
+
   switch (plist->afi)
     {
       case AFI_IP:
-	pe->mask = mask ;
+	pe->mask = htonl(mask) ;
+	pe->last = 0 ;
 	break ;
+
       case AFI_IP6:
 #ifdef s6_addr32
-	pe->mask = mask ;
+	pe->mask = htonl(mask) ;
 	pe->last = (pl == 0) ? 0 : (pl - 1) >> 5 ;
 #else
-	pe->mask = (0xFF >> (pl & 0x07)) ^ 0xFF ;
+	/* Need to shift 32 bit mask to 8 bit mask
+	 *
+	 * For pl == 0 mask == 0, otherwise:
+	 *
+	 * (pl - 1) & 0x18 ->  0 for pl =  1.. 8, 33..40, 65..72, 97..104
+	 *                     8 for pl =  9..16, etc
+	 *            (0x10)  16 for pl = 17..24, etc
+	 *            (0x18)  24 for pl = 25..32, etc
+	 *
+	 * So need to shift down by 24 - that, and then mask to byte.
+	 */
+	if (pl != 0)
+	  mask >>= (24 - ((pl - 1) & 0x18)) ;
+	pe->mask = mask & 0xFF ;
 	pe->last = (pl == 0) ? 0 : (pl - 1) >> 3 ;
 #endif
 	break ;
+
       default:
-	assert(0) ;
+        zabort("invalid address family") ;
     } ;
 
   /* Run hook function. */
@@ -1017,7 +1056,7 @@ prefix_afi_name_str(afi_t afi)
       return "ipv6" ;
 #endif
     default:
-      assert(0) ;	/* Should not get here ! */
+      zabort("invalid address family") ;
       return "?" ;
   } ;
 } ;
