@@ -633,17 +633,22 @@ prefix_seq_cmp(const int** seq, const struct prefix_list_entry** pe)
  * Returns:  CMD_SUCCESS -- it's OK
  *           CMD_WARNING -- something amiss with the ge and/or le setting
  *
- * If ge: must be <= maximum prefix length and > actual prefix length
- *  else: set to prefix length
+ * Cisco say:
  *
- * If le: must be <= maximum prefix length and > actual prefix length
- *  else: if ge or any set to maximum prefix length
- *  else: set to prefix length
+ *   If ge: must be <= maximum prefix length and > actual prefix length
+ *    else: set to prefix length
  *
- * If both ge and le: must have le > ge
+ *   If le: must be <= maximum prefix length and > actual prefix length
+ *    else: if ge or any set to maximum prefix length
+ *    else: set to prefix length
  *
- * XXX TODO: see if we can allow explicit ge == prefix_length
- *                           and explicit le == ge
+ *   If both ge and le: must have length < ge < le <= maximum
+ *
+ * But Cisco will apparently allow: length < ge <= le <= maximum
+ *
+ * We allow:  length <= ge <= le <= maximum
+ *
+ * GMCH TODO: check on wisdom of all this.
  */
 static int
 prefix_list_entry_ge_le_check(struct prefix_list_entry* pe, afi_t afi)
@@ -654,25 +659,24 @@ prefix_list_entry_ge_le_check(struct prefix_list_entry* pe, afi_t afi)
   /* If we had ge, check in range, otherwise set to prefixlen.     */
   if (pe->flags & PREFIX_GE)
     {
-      if (!(pe->ge <= pl_max) || !(pe->ge > pl))
+      if ( !( (pl <= pe->ge) && (pe->ge <= pl_max) ) )
         return CMD_WARNING ;
     }
   else
     pe->ge = pl ;
 
-  /* If we had le, check in range, otherwise set as required.      */
+  /* If we had le, check in range, otherwise set as required.
+   *
+   * Note that if had ge, then we've checked that already, otherwise
+   * we have set ge = pl -- so can check ge <= le.
+   */
   if (pe->flags & PREFIX_LE)
     {
-      if (!(pe->le <= pl_max) || !(pe->le > pl))
+      if ( !( (pe->ge <= pe->le) && (pe->le <= pl_max) ) )
 	return CMD_WARNING ;
     }
   else
     pe->le = (pe->flags & (PREFIX_ANY | PREFIX_GE)) ? pl_max : pl ;
-
-  /* If had both ge and le, check that le > ge.                          */
-  if ((pe->flags & (PREFIX_GE | PREFIX_LE)) == (PREFIX_GE | PREFIX_LE))
-    if (pe->le <= pe->ge)
-      return CMD_WARNING ;
 
   return CMD_SUCCESS ;
 } ;
@@ -1267,7 +1271,7 @@ vty_prefix_list_process(struct vty *vty, struct prefix_list_entry* pe,
 
   if (ret != CMD_SUCCESS)
     vty_out (vty, "%% Invalid prefix range for %s, make sure: "
-						"len < ge-value <= le-value%s",
+					        "len <= ge-value <= le-value%s",
 			prefix_str, VTY_NEWLINE);
 
   return ret ;
