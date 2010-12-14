@@ -7310,7 +7310,7 @@ bgp_show_route_in_table (struct vty *vty, struct bgp *bgp,
   ret = str2prefix (ip_str, &match);
   if (! ret)
     {
-      vty_out (vty, "address is malformed%s", VTY_NEWLINE);
+      vty_out (vty, "%% address is malformed%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
 

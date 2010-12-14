@@ -963,36 +963,41 @@ peer_group_lookup (struct bgp *bgp, const char *name)
   return NULL;
 }
 
+/*------------------------------------------------------------------------------
+ * Get existing peer-group in given bgp instance, or make a new one.
+ *
+ * Returns: the peer-group (pre-existing or new)
+ */
 struct peer_group *
 peer_group_get (struct bgp *bgp, const char *name)
 {
   struct peer_group *group;
 
   group = peer_group_lookup (bgp, name);
-  if (group)
-    return group;
+  if (group == NULL)
+    {
+      group = peer_group_new ();
+      group->bgp = bgp;
+      group->name = strdup (name);
+      group->peer = list_new ();
+      group->conf = bgp_peer_new (bgp);
+      if (! bgp_flag_check (bgp, BGP_FLAG_NO_DEFAULT_IPV4))
+        group->conf->afc[AFI_IP][SAFI_UNICAST] = 1;
+      group->conf->host = XSTRDUP (MTYPE_BGP_PEER_HOST, name);
+      group->conf->group = group;
+      group->conf->as = 0;
+      group->conf->ttl = 1;
+      group->conf->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+      UNSET_FLAG (group->conf->config, PEER_CONFIG_TIMER);
+      UNSET_FLAG (group->conf->config, PEER_CONFIG_CONNECT);
+      group->conf->keepalive = 0;
+      group->conf->holdtime = 0;
+      group->conf->connect = 0;
+      SET_FLAG (group->conf->sflags, PEER_STATUS_GROUP);
+      listnode_add_sort (bgp->group, group);
+    } ;
 
-  group = peer_group_new ();
-  group->bgp = bgp;
-  group->name = strdup (name);
-  group->peer = list_new ();
-  group->conf = bgp_peer_new (bgp);
-  if (! bgp_flag_check (bgp, BGP_FLAG_NO_DEFAULT_IPV4))
-    group->conf->afc[AFI_IP][SAFI_UNICAST] = 1;
-  group->conf->host = XSTRDUP (MTYPE_BGP_PEER_HOST, name);
-  group->conf->group = group;
-  group->conf->as = 0;
-  group->conf->ttl = 1;
-  group->conf->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
-  UNSET_FLAG (group->conf->config, PEER_CONFIG_TIMER);
-  UNSET_FLAG (group->conf->config, PEER_CONFIG_CONNECT);
-  group->conf->keepalive = 0;
-  group->conf->holdtime = 0;
-  group->conf->connect = 0;
-  SET_FLAG (group->conf->sflags, PEER_STATUS_GROUP);
-  listnode_add_sort (bgp->group, group);
-
-  return 0;
+  return group ;
 }
 
 static void

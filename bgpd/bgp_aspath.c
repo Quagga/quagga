@@ -44,7 +44,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define AS16_VALUE_SIZE	      sizeof (as16_t)
 
 /* Maximum protocol segment length value */
-#define AS_SEGMENT_MAX		255
+#define AS_SEGMENT_MAX          255
+#define AS_SEGMENT_MIN            1
 
 /* The following length and size macros relate specifically to Quagga's
  * internal representation of AS-Segments, not per se to the on-wire
@@ -705,6 +706,9 @@ assegments_parse (struct stream *s, size_t length, int use32bit, int as4_path)
         {
           segh.type   = stream_getc (s);
           segh.length = stream_getc (s);
+          confirm((sizeof(segh.length) == 1) && (AS_SEGMENT_MIN ==   1)
+                                             && (AS_SEGMENT_MAX == 255)) ;
+                                                /* 1..255 is valid      */
 
           seg_size    = ASSEGMENT_SIZE(segh.length, use32bit);
                           /* includes the segment type and length red tape  */
@@ -740,7 +744,8 @@ assegments_parse (struct stream *s, size_t length, int use32bit, int as4_path)
        *
        *   "path segment value field contains one or more AS numbers"
        */
-      if ((seg_size == 0) || (seg_size > length) || (segh.length == 0))
+      if ((seg_size == 0) || (seg_size > length)
+                          || (segh.length < AS_SEGMENT_MIN))
         {
           assegment_free_all (head);
           return NULL;

@@ -256,55 +256,54 @@ prefix_ipv4_free (struct prefix_ipv4 *p)
 
 /* When string format is valid return 1 otherwise return 0.
  *
- * Some callers of this function treat non-0 as OK and 0 as invalid (which is
- * what inet_aton() is defined to do).
+ * inet_aton() returns 1 <=> valid, 0 <=> invalid.
+ * inet_pton() returns 1 <=> valid, 0 <=> invalid, -1 <=> error
+ *                                where error => unknown address family argument
  *
- * Some callers treat > 0 as OK and <= 0 as invalid (which is similar to what
- * inet_pton() is defined to do).
+ * Callers of this function vary in how they test the return:
  *
- * The actual returns are consistent with both usages.
+ *   1) some treat non-0 as OK and 0 as invalid -- consistent with inet_aton().
+ *
+ *   2) some treat > 0 as OK and <= 0 as invalid -- consistent with inet_pton().
+ *
+ * Since this function returns 1 <=> valid and 0 <=> invalid, both the above
+ * work.
  */
 int
 str2prefix_ipv4 (const char *str, struct prefix_ipv4 *p)
 {
-  int ret;
-  int plen;
-  char *pnt;
-  char *cp;
+  char*    pnt ;
+  char*    cp ;
+  int      ret ;
+  unsigned plen ;
 
-  /* Find slash inside string. */
   pnt = strchr (str, '/');
 
-  /* String doesn't contail slash. */
   if (pnt == NULL)
     {
-      /* Convert string to prefix. */
+      /* No / => simple address                 */
+      plen = IPV4_MAX_BITLEN;
       ret = inet_aton (str, &p->prefix);
-      if (ret == 0)
-	return 0;
-
-      /* If address doesn't contain slash we assume it host address. */
-      p->family = AF_INET;
-      p->prefixlen = IPV4_MAX_BITLEN;
-
-      return 1 ;
     }
   else
     {
+      /* With / => prefix                       */
+      plen = (unsigned)atoi (pnt + 1) ;
+      if (plen > IPV4_MAX_PREFIXLEN)
+        return 0;
+
       cp = XMALLOC (MTYPE_TMP, (pnt - str) + 1);
       strncpy (cp, str, pnt - str);
       *(cp + (pnt - str)) = '\0';
       ret = inet_aton (cp, &p->prefix);
       XFREE (MTYPE_TMP, cp);
-
-      /* Get prefix length. */
-      plen = (u_char) atoi (++pnt);
-      if (plen > IPV4_MAX_PREFIXLEN)
-	return 0;
-
-      p->family = AF_INET;
-      p->prefixlen = plen;
     }
+
+  if (ret <= 0)   /* should not return < 0, but it would not be valid ! */
+    return 0;
+
+  p->family    = AF_INET;
+  p->prefixlen = plen;
 
   return 1 ;
 }
@@ -416,58 +415,57 @@ prefix_ipv6_free (struct prefix_ipv6 *p)
 
 /* If given string is valid IPv6 address or prefix return 1 else return 0
  *
- * Of inet_pton() POSIX 1003.1, 2004 says:
+ * inet_aton() returns 1 <=> valid, 0 <=> invalid.
+ * inet_pton() returns 1 <=> valid, 0 <=> invalid, -1 <=> error
+ *                                where error => unknown address family argument
  *
- *   The inet_pton() function shall return 1 if the conversion succeeds, with
- *   the address pointed to by dst in network byte order. It shall return 0 if
- *   the input is not either a valid IPv4 dotted-decimal string or a valid IPv6
- *   address string (if IPv6 supported), or return -1 with errno set to
- *   [EAFNOSUPPORT] if the af argument is unknown.
+ * Any error returned by inet_pton() is reported as an invalid address or
+ * prefix.  So best not to call this if IPv6 is not supported.
  *
- * Any error returned is reported as an invalid address or prefix.  So best not
- * to call this if IPv6 is not supported.
+ * Callers of this function vary in how they test the return:
  *
- * Some callers treat > 0 as OK and <= 0 as invalid (which is consistent with
- * what inet_pton() is defined to do).
+ *   1) some treat non-0 as OK and 0 as invalid -- consistent with inet_aton().
  *
- * Some callers of this function treat non-0 as OK and 0 as invalid.
+ *   2) some treat > 0 as OK and <= 0 as invalid -- consistent with inet_pton().
  *
- * The actual returns are consistent with both usages.
+ * Since this function returns 1 <=> valid and 0 <=> invalid, both the above
+ * work.
  */
 int
 str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
 {
-  char *pnt;
-  char *cp;
-  int ret;
+  char*    pnt ;
+  char*    cp ;
+  int      ret ;
+  unsigned plen ;
 
   pnt = strchr (str, '/');
 
-  /* If string doesn't contain `/' treat it as host route. */
   if (pnt == NULL)
     {
-      ret = inet_pton (AF_INET6, str, &p->prefix);
-      if (ret <= 0)
-	return 0;
-      p->prefixlen = IPV6_MAX_BITLEN;
+      /* No / => simple address                 */
+      plen = IPV6_MAX_BITLEN;
+      ret  = inet_pton (AF_INET6, str, &p->prefix);
     }
   else
     {
-      int plen;
+      /* With / => prefix                       */
+      plen = (unsigned) atoi (pnt + 1) ;
+      if (plen > IPV6_MAX_PREFIXLEN)
+        return 0 ;
 
-      cp = XMALLOC (0, (pnt - str) + 1);
+      cp = XMALLOC (MTYPE_TMP, (pnt - str) + 1);
       strncpy (cp, str, pnt - str);
       *(cp + (pnt - str)) = '\0';
       ret = inet_pton (AF_INET6, cp, &p->prefix);
-      free (cp);
-      if (ret <= 0)
-	return 0;
-      plen = (u_char) atoi (++pnt);
-      if (plen > 128)
-	return 0;
-      p->prefixlen = plen;
+      XFREE (MTYPE_TMP, cp);
     }
-  p->family = AF_INET6;
+
+  if (ret <= 0)
+    return 0 ;
+
+  p->family    = AF_INET6;
+  p->prefixlen = plen;
 
   return 1 ;
 }
@@ -667,25 +665,28 @@ prefix_blen (const struct prefix *p)
   return 0;
 }
 
-/* Generic function for conversion string to struct prefix. */
+/* Generic function for conversion string to struct prefix.
+ *
+ * Accepts addresses without '/' and prefixes with.
+ *
+ * Returns 1 <=> valid IPv4 or (if HAVE_IPV6) IPv6 address or prefix.
+ *         0 <=> not a a valid address or prefix
+ */
 int
 str2prefix (const char *str, struct prefix *p)
 {
   int ret;
 
-  /* First we try to convert string to struct prefix_ipv4. */
+  /* First we try to convert string to struct prefix_ipv4.      */
   ret = str2prefix_ipv4 (str, (struct prefix_ipv4 *) p);
-  if (ret)
-    return ret;
 
 #ifdef HAVE_IPV6
-  /* Next we try to convert string to struct prefix_ipv6. */
-  ret = str2prefix_ipv6 (str, (struct prefix_ipv6 *) p);
-  if (ret <= 0)
-    return ret;
+  /* If not IPv4, try to convert to struct prefix_ipv6.         */
+  if (ret == 0)
+    ret = str2prefix_ipv6 (str, (struct prefix_ipv6 *) p);
 #endif /* HAVE_IPV6 */
 
-  return 0;
+  return ret;
 }
 
 int
