@@ -1156,8 +1156,6 @@ bgp_peer_enable(bgp_peer peer)
               && !CHECK_FLAG (peer->sflags, PEER_STATUS_PREFIX_OVERFLOW))
             {
               /* enable the session */
-              zlog_err ("%s: enabling peer %s:", __func__, peer->host) ;
-
               bgp_peer_reset_idle(peer) ;       /* tidy up      */
               bgp_session_enable(peer);
             } ;
