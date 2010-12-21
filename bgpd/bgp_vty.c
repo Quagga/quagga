@@ -10379,8 +10379,8 @@ DEFUN (show_ip_community_list,
     {
       list = symbol_get_value(sym) ;
       if (list != NULL)
-        community_list_show (vty, list) ;
-    }
+        community_list_show (vty, list);
+    } ;
 
   vector_free(extract) ;	/* discard temporary vector */
 
@@ -10726,6 +10726,7 @@ DEFUN (show_ip_extcommunity_list,
   vector extract ;
   vector_index_t i ;
   struct symbol* sym ;
+  struct community_list *list;
 
   table = community_list_master_lookup (bgp_clist, EXTCOMMUNITY_LIST_MASTER);
   if (table == NULL)
@@ -10737,8 +10738,8 @@ DEFUN (show_ip_extcommunity_list,
     {
       list = symbol_get_value(sym) ;
       if (list != NULL)
-        extcommunity_list_show (vty, list) ;
-    }
+        extcommunity_list_show (vty, list);
+    } ;
 
   vector_free(extract) ;	/* discard temporary vector */
 
