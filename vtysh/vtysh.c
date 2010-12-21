@@ -31,13 +31,14 @@
 #include <readline/history.h>
 
 #include "command.h"
+#include "command_execute.h"
 #include "memory.h"
 #include "vtysh/vtysh.h"
 #include "log.h"
 #include "bgpd/bgp_vty.h"
 
 /* Struct VTY. */
-struct vty *vty;
+static struct vty* vtysh_vty;
 
 /* VTY shell pager name. */
 char *vtysh_pager_name = NULL;
@@ -51,13 +52,13 @@ struct vtysh_client
   const char *path;
 } vtysh_client[] =
 {
-  { .fd = -1, .name = "zebra", .flag = VTYSH_ZEBRA, .path = ZEBRA_VTYSH_PATH},
-  { .fd = -1, .name = "ripd", .flag = VTYSH_RIPD, .path = RIP_VTYSH_PATH},
+  { .fd = -1, .name = "zebra",  .flag = VTYSH_ZEBRA,  .path = ZEBRA_VTYSH_PATH},
+  { .fd = -1, .name = "ripd",   .flag = VTYSH_RIPD,   .path = RIP_VTYSH_PATH},
   { .fd = -1, .name = "ripngd", .flag = VTYSH_RIPNGD, .path = RIPNG_VTYSH_PATH},
-  { .fd = -1, .name = "ospfd", .flag = VTYSH_OSPFD, .path = OSPF_VTYSH_PATH},
+  { .fd = -1, .name = "ospfd",  .flag = VTYSH_OSPFD,  .path = OSPF_VTYSH_PATH},
   { .fd = -1, .name = "ospf6d", .flag = VTYSH_OSPF6D, .path = OSPF6_VTYSH_PATH},
-  { .fd = -1, .name = "bgpd", .flag = VTYSH_BGPD, .path = BGP_VTYSH_PATH},
-  { .fd = -1, .name = "isisd", .flag = VTYSH_ISISD, .path = ISIS_VTYSH_PATH},
+  { .fd = -1, .name = "bgpd",   .flag = VTYSH_BGPD,   .path = BGP_VTYSH_PATH},
+  { .fd = -1, .name = "isisd",  .flag = VTYSH_ISISD,  .path = ISIS_VTYSH_PATH},
 };
 
 #define VTYSH_INDEX_MAX (sizeof(vtysh_client)/sizeof(vtysh_client[0]))
@@ -250,7 +251,7 @@ vtysh_client_execute (struct vtysh_client *vclient, const char *line, FILE *fp)
     }
 }
 
-void
+static void
 vtysh_exit_ripd_only (void)
 {
   if (ripd_client)
@@ -284,27 +285,27 @@ vtysh_execute_func (const char *line, int pager)
   int saved_ret, saved_node;
 
   /* TODO: how well does vtysh_execute_func work ?? -- esp. qpthreads_enabled */
-  vty->buf = line ;
+  vtysh_vty->buf = line ;
 
-  saved_ret = ret = cmd_execute_command (vty, cmd_parse_completion, &cmd);
+  saved_ret = ret = cmd_execute_command (vtysh_vty, cmd_parse_completion, &cmd);
 
   if ((ret == CMD_SUCCESS) && (cmd == NULL))
     return ret ;                /* quit if nothing to do ???            */
 
-  saved_node = vty->node;
+  saved_node = vtysh_vty->node;
 
   /* If command doesn't succeeded in current node, try to walk up in node tree.
-   * Changing vty->node is enough to try it just out without actual walkup in
-   * the vtysh. */
+   * Changing vtysh_vty->node is enough to try it just out without actual
+   * walkup in the vtysh. */
   while (ret != CMD_SUCCESS && ret != CMD_SUCCESS_DAEMON && ret != CMD_WARNING
-	 && vty->node > CONFIG_NODE)
+	 && vtysh_vty->node > CONFIG_NODE)
     {
-      vty->node = node_parent(vty->node);
-      ret = cmd_execute_command (vty, cmd_parse_completion, &cmd);
+      vtysh_vty->node = node_parent(vtysh_vty->node);
+      ret = cmd_execute_command (vtysh_vty, cmd_parse_completion, &cmd);
       tried++;
     }
 
-  vty->node = saved_node;
+  vtysh_vty->node = saved_node;
 
   /* If command succeeded in any other node than current (tried > 0) we have
    * to move into node in the vtysh where it succeeded. */
@@ -338,7 +339,7 @@ vtysh_execute_func (const char *line, int pager)
   switch (ret)
     {
     case CMD_WARNING:
-      if (vty->type == VTY_FILE)
+      if (vtysh_vty->type == VTY_FILE)
 	fprintf (stdout,"Warning...\n");
       break;
     case CMD_ERR_AMBIGUOUS:
@@ -382,16 +383,16 @@ vtysh_execute_func (const char *line, int pager)
 	      {
 		line = "end";
 
-		vty->buf = line ;
+		vtysh_vty->buf = line ;
 
-		ret = cmd_execute_command (vty, cmd_parse_completion, &cmd);
+		ret = cmd_execute_command (vtysh_vty, cmd_parse_completion, &cmd);
 		if (ret != CMD_SUCCESS_DAEMON)
 		  break;
 	      }
 	    else
 	      if (cmd->func)
 		{
-		  (*cmd->func) (cmd, vty, 0, NULL);
+		  (*cmd->func) (cmd, vtysh_vty, 0, NULL);
 		  break;
 		}
 	  }
@@ -410,7 +411,7 @@ vtysh_execute_func (const char *line, int pager)
 	  break;
 
 	if (cmd->func)
-	  (*cmd->func) (cmd, vty, 0, NULL);
+	  (*cmd->func) (cmd, vtysh_vty, 0, NULL);
       }
     }
   if (pager && vtysh_pager_name && fp && closepager)
@@ -524,7 +525,7 @@ vtysh_config_from_file (struct vty *vty, FILE *fp)
 }
 
 /* We don't care about the point of the cursor when '?' is typed. */
-int
+static int
 vtysh_rl_describe (void)
 {
   int ret;
@@ -546,7 +547,7 @@ vtysh_rl_describe (void)
     if (rl_end && isspace ((int) rl_line_buffer[rl_end - 1]))
       vector_set (vline, '\0');
 
-  describe = cmd_describe_command (vline, vty->node, &ret);
+  describe = cmd_describe_command (vline, vtysh_vty->node, &ret);
 
   fprintf (stdout,"\n");
 
@@ -626,7 +627,7 @@ command_generator (const char *text, int state)
     {
       index = 0;
 
-      if (vty->node == AUTH_NODE || vty->node == AUTH_ENABLE_NODE)
+      if (vtysh_vty->node == AUTH_NODE || vtysh_vty->node == AUTH_ENABLE_NODE)
 	return NULL;
 
       vline = cmd_make_strvec (rl_line_buffer);
@@ -636,7 +637,7 @@ command_generator (const char *text, int state)
       if (rl_end && isspace ((int) rl_line_buffer[rl_end - 1]))
 	vector_set (vline, '\0');
 
-      matched = cmd_complete_command (vline, vty->node, &complete_status);
+      matched = cmd_complete_command (vline, vtysh_vty->node, &complete_status);
     }
 
   if (matched && matched[index])
@@ -671,7 +672,7 @@ vtysh_completion (char *text, int start, int end)
   vector vline;
   char **matched = NULL;
 
-  if (vty->node == AUTH_NODE || vty->node == AUTH_ENABLE_NODE)
+  if (vtysh_vty->node == AUTH_NODE || vtysh_vty->node == AUTH_ENABLE_NODE)
     return NULL;
 
   vline = cmd_make_strvec (rl_line_buffer);
@@ -682,7 +683,7 @@ vtysh_completion (char *text, int start, int end)
   if (rl_end && isspace ((int) rl_line_buffer[rl_end - 1]))
     vector_set (vline, '\0');
 
-  matched = cmd_complete_command (vline, vty, &ret);
+  matched = cmd_complete_command (vline, vtysh_vty, &ret);
 
   cmd_free_strvec (vline);
 
@@ -791,17 +792,17 @@ static struct cmd_node keychain_key_node =
 extern struct cmd_node vty_node;
 
 /* When '^Z' is received from vty, move down to the enable mode. */
-int
+static int
 vtysh_end (void)
 {
-  switch (vty->node)
+  switch (vtysh_vty->node)
     {
     case VIEW_NODE:
     case ENABLE_NODE:
       /* Nothing to do. */
       break;
     default:
-      vty->node = ENABLE_NODE;
+      vtysh_vty->node = ENABLE_NODE;
       break;
     }
   return CMD_SUCCESS;
@@ -2196,17 +2197,17 @@ vtysh_prompt (void)
       hostname = names.nodename;
     }
 
-  snprintf (buf, sizeof buf, cmd_prompt (vty->node), hostname);
+  snprintf (buf, sizeof buf, cmd_prompt (vtysh_vty->node), hostname);
 
   return buf;
 }
 
-void
+struct vty*
 vtysh_init_vty (void)
 {
-  /* Make vty structure. */
-  vty = vty_open(VTY_SHELL);
-  vty->node = VIEW_NODE;
+  /* Make vtysh_vty structure. */
+  vtysh_vty = vty_open(VTY_SHELL);
+  vtysh_vty->node = VIEW_NODE;
 
   /* Initialize commands. */
   cmd_init (0);
@@ -2437,4 +2438,5 @@ vtysh_init_vty (void)
   install_element (CONFIG_NODE, &vtysh_enable_password_text_cmd);
   install_element (CONFIG_NODE, &no_vtysh_enable_password_cmd);
 
+  return vtysh_vty ;
 }

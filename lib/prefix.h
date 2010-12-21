@@ -23,11 +23,8 @@
 #ifndef _ZEBRA_PREFIX_H
 #define _ZEBRA_PREFIX_H
 
+#include "misc.h"
 #include "sockunion.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 typedef const union sockunion* const_sockunion ;
 

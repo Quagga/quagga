@@ -30,7 +30,7 @@
 
 #define _GMCH_BGP_H  "19-Dec-2009"
 
-#include <stdint.h>
+#include "misc.h"
 #include "confirm.h"
 
 /*##############################################################################

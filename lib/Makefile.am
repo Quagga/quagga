@@ -14,8 +14,9 @@ libzebra_la_SOURCES = \
 	zclient.c sockopt.c smux.c md5.c if_rmap.c keychain.c privs.c \
 	sigevent.c pqueue.c jhash.c memtypes.c workqueue.c symtab.c heap.c \
 	qtime.c qpthreads.c mqueue.c qpselect.c qtimers.c qpnexus.c \
-	command_queue.c qlib_init.c pthread_safe.c list_util.c \
-	vty_io.c vty_cli.c keystroke.c qstring.c vio_fifo.c vio_lines.c \
+	command_parse.c command_queue.c qlib_init.c pthread_safe.c list_util.c \
+	vty_io.c vty_io_file.c vty_io_shell.c vty_io_term.c vty_cli.c \
+	vty_io_basic.c keystroke.c qstring.c vio_fifo.c vio_lines.c \
 	qiovec.c qfstring.c  errno_names.c
 
 BUILT_SOURCES = memtypes.h route_types.h
@@ -33,9 +34,11 @@ pkginclude_HEADERS = \
 	privs.h sigevent.h pqueue.h jhash.h zassert.h memtypes.h \
 	workqueue.h route_types.h symtab.h heap.h \
 	qtime.h qpthreads.h mqueue.h qpselect.h qtimers.h qpnexus.h \
-	command_queue.h qlib_init.h qafi_safi.h \
-	confirm.h miyagi.h pthread_safe.h list_util.h node_type.h uty.h \
-	vty_io.h vty_cli.h keystroke.h qstring.h vio_fifo.h vio_lines.h \
+	command_parse.h command_queue.h qlib_init.h qafi_safi.h \
+	confirm.h misc.h vargs.h miyagi.h pthread_safe.h list_util.h \
+	tstring.h node_type.h uty.h \
+        vty_io.h vty_io_file.h vty_io_shell.h vty_io_term.h vty_cli.h \
+	vty_io_basic.h keystroke.h qstring.h vio_fifo.h vio_lines.h \
 	qiovec.h qfstring.h errno_names.h \
 	route_types.h command_execute.h
 

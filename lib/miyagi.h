@@ -17,9 +17,7 @@
 #ifndef _ZEBRA_MIYAGI_H
 #define _ZEBRA_MIYAGI_H
 
-#ifndef Inline
-#define Inline static inline
-#endif
+#include "misc.h"
 
 /*==============================================================================
  * Ghastly kludge to discard "const" from pointer

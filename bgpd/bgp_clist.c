@@ -127,7 +127,7 @@ community_list_lookup (struct community_list_handler *ch,
   if (!table)
     return NULL;
 
-  return symbol_get_value(symbol_seek(table, name)) ;
+  return symbol_get_value(symbol_lookup(table, name, no_add)) ;
 }
 
 static struct community_list *
@@ -145,7 +145,7 @@ community_list_get (struct community_list_handler *ch,
   if (!table)
     return NULL;
 
-  sym = symbol_find(table, name) ;
+  sym = symbol_lookup(table, name, add) ;
   list = symbol_get_value(sym) ;
   if (!list)
     {
@@ -768,10 +768,10 @@ community_list_terminate (struct community_list_handler *ch)
 {
   struct community_list *list ;
 
-  while ((list = symbol_table_ream_keep(&ch->community_list)))
+  while ((list = symbol_table_ream(&ch->community_list, keep_it)))
     community_list_delete(list) ;
 
-  while ((list = symbol_table_ream_keep(&ch->extcommunity_list)))
+  while ((list = symbol_table_ream(&ch->extcommunity_list, keep_it)))
     community_list_delete(list) ;
 
   XFREE (MTYPE_COMMUNITY_LIST_HANDLER, ch);

@@ -76,6 +76,7 @@ enum node_type
   FORWARDING_NODE,		/* IP forwarding node. */
   PROTOCOL_NODE,                /* protocol filtering node */
   VTY_NODE,			/* Vty node. */
-};
+} ;
+typedef enum node_type node_type_t ;
 
 #endif /* _ZEBRA_NODE_TYPE_H */

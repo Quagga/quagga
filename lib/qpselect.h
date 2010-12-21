@@ -25,13 +25,10 @@
 #include <sys/select.h>
 #include <errno.h>
 
+#include "misc.h"
 #include "zassert.h"
 #include "qtime.h"
 #include "vector.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * Quagga pselect -- qps_xxxx

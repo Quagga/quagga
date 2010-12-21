@@ -24,7 +24,7 @@
 #ifndef _ZEBRA_VTY_H
 #define _ZEBRA_VTY_H
 
-#include <stdbool.h>
+#include "misc.h"
 
 #include "thread.h"
 #include "log.h"
@@ -37,11 +37,6 @@
 #include "qstring.h"
 #include "node_type.h"
 
-/* Macro in case there are particular compiler issues.    */
-#ifndef Inline
-  #define Inline static inline
-#endif
-
 /*==============================================================================
  * The VTYSH uses a unix socket to talk to the daemon.
  *
@@ -50,50 +45,59 @@
  * option is turned into a testable constant.
  */
 #ifdef VTYSH
-# define VTYSH_DEFINED 1
+  enum { VTYSH_ENABLED = true  } ;
 #else
-# define VTYSH_DEFINED 0
+  enum { VTYSH_ENABLED = false } ;
 #endif
-
-enum { VTYSH_ENABLED = VTYSH_DEFINED } ;
-
-#undef VTYSH_DEFINED
 
 /*==============================================================================
  * VTY Types
  */
-enum vty_type
+enum vty_type           /* Command output                               */
 {
-  VTY_NONE  = 0,        /* no type at all                               */
+  VTY_TERMINAL,         /* a telnet terminal server                     */
+  VTY_SHELL_SERVER,     /* a vty_shell server                           */
 
-  VTY_TERM,             /* a telnet terminal    -- input and output     */
-  VTY_SHELL_SERV,       /* a vty_shell slave    -- input and output     */
+  VTY_SHELL_CLIENT,     /* a vty_shell client                           */
 
-  VTY_CONFIG_READ,      /* reading config file  -- output is to buffer
-                                                -- no input             */
+  VTY_CONFIG_READ,      /* configuration file reader                    */
 
-  VTY_CONFIG_WRITE,     /* writing config file  -- output is to file
-                                                -- no input             */
+  VTY_STDOUT,           /* stdout                                       */
+  VTY_STDERR,           /* stderr                                       */
+} ;
+typedef enum vty_type vty_type_t ;
 
-  VTY_STDOUT,           /* general output       -- output is to stdout
-                                                -- no input             */
+/*==============================================================================
+ *
+ *
+ *
+ *
+ */
 
-  VTY_STDERR,           /* general output       -- output is to stderr
-                                                -- no input             */
+typedef unsigned long vty_timer_time ;  /* Time out time in seconds     */
 
-  VTY_SHELL,            /* vty in vtysh         -- output is to stdout  */
+enum
+{
+  VTY_WATCH_DOG_INTERVAL    =   5,      /* interval between barks       */
+
+  VTY_HALF_CLOSE_TIMEOUT    = 120,      /* timeout after half_close     */
+
+  VTY_TIMEOUT_DEFAULT       = 600,      /* terminal timeout value       */
 } ;
 
 /*==============================================================================
  * VTY struct.
  */
 
-typedef struct vty_io* vty_io ; /* private to vty.c     */
+typedef struct vty_io* vty_io ; /* private to vty.c                     */
 
 struct cmd_parsed ;             /* in case vty.h expanded before command.h */
 
+typedef struct vty* vty ;
 struct vty
 {
+  vty_type_t    type ;
+
   /*----------------------------------------------------------------------
    * The following are the context in which commands are executed.
    */
@@ -120,8 +124,8 @@ struct vty
    */
   void  *index_sub ;
 
-  /* String which is newline...  read only -- no locking                */
-  const char* newline ;
+  /* In configure mode.                                                 */
+  bool  config;
 
   /*----------------------------------------------------------------------------
    * The current command line.
@@ -135,13 +139,17 @@ struct vty
   struct cmd_parsed*    parsed ;
   unsigned              lineno ;
 
+  bool          output_enabled ;
+  bool          reflect_enabled ;
+  bool          more_enabled ;
+
+  bool          reflected ;
+
   /*----------------------------------------------------------------------
    * The following are used inside vty.c only.
    */
-
-  /* Pointer to related vty_io structure                                */
-  vty_io   vio ;
-};
+  vty_io                vio ;   /* one vio object per vty       */
+} ;
 
 /*------------------------------------------------------------------------------
  * Can now include this
@@ -158,18 +166,15 @@ struct vty
 /* Integrated configuration file. */
 #define INTEGRATE_DEFAULT_CONFIG "Quagga.conf"
 
-/* Small macro to determine newline is newline only or linefeed needed. */
-#define VTY_NEWLINE (((vty) != NULL) ? (vty)->newline : "\n")
+/* Conversion of "\n" to "\r\n" is done at output time.                 */
+#define VTY_NEWLINE "\n"
+#define VTY_NL      "\n"
 
 /* For indenting, mostly.	*/
 extern const char vty_spaces_string[] ;
 enum { VTY_MAX_SPACES = 40 } ;
 #define VTY_SPACES(n) (vty_spaces_string + ((n) < VTY_MAX_SPACES \
 					      ? VTY_MAX_SPACES - (n) : 0))
-
-/* Default time out value */
-#define VTY_TIMEOUT_DEFAULT 600
-
 /* Vty read buffer size. */
 #define VTY_READ_BUFSIZ 512
 
@@ -217,7 +222,7 @@ do { \
   VTY_GET_INTEGER_RANGE(NAME,V,STR,0U,UINT32_MAX)
 
 #define VTY_GET_IPV4_ADDRESS(NAME,V,STR)                                      \
-do {                                                                             \
+do {                                                                          \
   int retv;                                                                   \
   retv = inet_aton ((STR), &(V));                                             \
   if (!retv)                                                                  \
@@ -228,7 +233,7 @@ do {                                                                            
 } while (0)
 
 #define VTY_GET_IPV4_PREFIX(NAME,V,STR)                                       \
-do {                                                                             \
+do {                                                                          \
   int retv;                                                                   \
   retv = str2prefix_ipv4 ((STR), &(V));                                       \
   if (retv <= 0)                                                              \
@@ -253,7 +258,7 @@ extern void vty_start(const char *addr, unsigned short port, const char *path) ;
 extern void vty_restart(const char *addr, unsigned short port,
                                                              const char *path) ;
 extern struct vty* vty_open(enum vty_type type) ;
-extern void vty_close(struct vty *);
+extern void vty_close_final(struct vty *);
 
 extern void vty_init_vtysh (void);
 extern void vty_terminate (void);
@@ -261,7 +266,9 @@ extern void vty_reset (void);
 extern void vty_reset_because(const char* why) ;
 
 extern int vty_out (struct vty *, const char *, ...) PRINTF_ATTRIBUTE(2, 3);
-extern void vty_out_indent(struct vty *vty, int indent) ;
+extern int vty_out_indent(struct vty *vty, int indent) ;
+extern int vty_out_error (struct vty *vty, const char *format, ...)
+                                                     PRINTF_ATTRIBUTE(2, 3);
 extern void vty_out_clear(struct vty *vty) ;
 
 extern void vty_read_config (char *config_file, char *config_default);
@@ -273,9 +280,6 @@ extern void vty_time_print (struct vty *, int);
 
 extern char *vty_get_cwd (void);
 
-extern bool vty_shell (struct vty *);
-extern bool vty_term (struct vty *);
-extern bool vty_shell_serv (struct vty *);
 extern void vty_hello (struct vty *);
 extern enum node_type vty_get_node(struct vty *);
 extern void vty_set_node(struct vty *, enum node_type);

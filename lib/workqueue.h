@@ -24,9 +24,7 @@
 #ifndef _QUAGGA_WORK_QUEUE_H
 #define _QUAGGA_WORK_QUEUE_H
 
-#ifndef Inline
-#define Inline static inline
-#endif
+#include "misc.h"
 
 /* Hold time for the initial schedule of a queue run, in  millisec */
 #define WORK_QUEUE_DEFAULT_HOLD  50

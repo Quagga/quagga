@@ -268,7 +268,7 @@ static void
 prefix_master_reset(struct prefix_master * pm)
 {
   struct prefix_list* plist ;
-  while ((plist = symbol_table_ream_keep(&(pm->table))))
+  while ((plist = symbol_table_ream(&(pm->table), keep_it)))
       prefix_list_delete(plist) ;
 
   pm->seqnum_flag = 1 ;         /* Default is to generate sequence numbers.   */
@@ -326,7 +326,8 @@ prefix_list_set_ref(prefix_list_ref* p_ref, afi_t afi, const char* name)
   if (pm == NULL)
     return NULL ;
 
-  return *p_ref = symbol_set_ref(*p_ref, symbol_find(&(pm->table), name)) ;
+  return *p_ref = symbol_set_ref(*p_ref,
+                                       symbol_lookup(&(pm->table), name, add)) ;
 } ;
 
 /* Copy reference to prefix_list.
@@ -389,7 +390,7 @@ prefix_list_apply (struct prefix_list *plist, void *object)
   struct prefix *p ;
   int plen ;
   struct prefix_list_entry* pe ;
-  vector_index i ;
+  vector_index_t i ;
 
   in_addr_t ip ;
 #ifdef s6_addr32
@@ -575,7 +576,7 @@ prefix_list_delete (struct prefix_list* plist)
 static struct prefix_list *
 prefix_list_seek (struct prefix_master* pm, const char *name)
 {
-  return symbol_get_value(symbol_seek(&(pm->table), name)) ;
+  return symbol_get_value(symbol_lookup(&(pm->table), name, no_add)) ;
 } ;
 
 /* Lookup prefix_list by afi and name -- if afi is known, and name not NULL.
@@ -603,7 +604,7 @@ prefix_list_get (struct prefix_master* pm, const char *name, afi_t afi)
 
   assert((pm != NULL) && (name != NULL)) ;
 
-  sym = symbol_find(&(pm->table), name) ; /* creates if required */
+  sym = symbol_lookup(&(pm->table), name, add) ;  /* creates if required */
   plist = symbol_get_value(sym) ;
 
   return plist ? plist : prefix_list_new(pm, sym, afi) ;
@@ -691,7 +692,7 @@ prefix_list_entry_ge_le_check(struct prefix_list_entry* pe, afi_t afi)
  *   result >  0 -- not found.  index returned is of the entry with the largest
  *                              sequence number smaller than the given one.
  */
-static vector_index
+static vector_index_t
 prefix_list_entry_lookup_seq(struct prefix_list *plist, int seq, int* result)
 {
   return vector_bsearch(&plist->list, (vector_bsearch_cmp*)prefix_seq_cmp,
@@ -725,7 +726,7 @@ prefix_list_entry_lookup_seq(struct prefix_list *plist, int seq, int* result)
  *
  *            Note that the cache is never empty.
  */
-static vector_index
+static vector_index_t
 prefix_list_entry_lookup_val(struct prefix_list *plist,
 			     struct prefix_list_entry* temp,
 			     vector* cache,
@@ -753,7 +754,7 @@ prefix_list_entry_lookup_val(struct prefix_list *plist,
   else
     {
       struct prefix_list_entry* pe ;
-      vector_index i ;
+      vector_index_t i ;
       *cache  = NULL ;		/* Not found in cache.	*/
       *result = 0 ;		/* Assume found !	*/
       for (VECTOR_ITEMS(&plist->list, pe, i))
@@ -781,12 +782,12 @@ prefix_list_entry_lookup_val(struct prefix_list *plist,
  *   -- result != 0   not found -- index is immaterial
  *
  * */
-static vector_index
+static vector_index_t
 prefix_list_entry_lookup (struct prefix_list* plist,
 			  struct prefix_list_entry* pe_seek, int* result)
 {
   struct prefix_list_entry* pe_found ;
-  vector_index i ;
+  vector_index_t i ;
 
   if (pe_seek->flags & PREFIX_SEQ)
     {
@@ -840,7 +841,7 @@ prefix_list_entry_insert(struct prefix_list *plist,
 {
   struct prefix_list_entry* pe ;
   vector cache ;
-  vector_index i, ic ;
+  vector_index_t i, ic ;
   int ret, retc ;
   u_int32_t mask ;
   int pl, sh ;
@@ -901,7 +902,7 @@ prefix_list_entry_insert(struct prefix_list *plist,
       if (cache)
 	{
 	  /* We need to know where the old value was.  */
-	  vector_index io ;
+	  vector_index_t io ;
 	  int reto ;
 	  io = vector_bsearch(cache, (vector_bsearch_cmp*)plist->cmp, pe,
 									&reto) ;
@@ -1005,7 +1006,7 @@ prefix_list_entry_delete (struct prefix_list *plist,
 			  struct prefix_list_entry *pe_seek)
 {
   struct prefix_list_entry* pe ;
-  vector_index i ;
+  vector_index_t i ;
   int ret ;
 
   i = prefix_list_entry_lookup (plist, pe_seek, &ret) ;
@@ -1155,7 +1156,7 @@ static void __attribute__ ((unused))
 prefix_list_print (struct prefix_list *plist)
 {
   struct prefix_list_entry* pe ;
-  vector_index i ;
+  vector_index_t i ;
   struct vty* vty = NULL ;
 
   if (plist == NULL)
@@ -1461,7 +1462,7 @@ vty_show_prefix_entry (struct vty *vty, struct prefix_list *plist,
   if (dtype != summary_display)
     {
       struct prefix_list_entry* pe ;
-      vector_index i ;
+      vector_index_t i ;
       int with_seq   = pm->seqnum_flag ;
       int with_stats = (dtype == detail_display)
 		     ||(dtype == sequential_display) ;
@@ -1507,7 +1508,7 @@ vty_show_prefix_list (struct vty *vty, afi_t afi, const char *name,
   else
     {
       vector extract ;
-      vector_index i ;
+      vector_index_t i ;
       struct symbol* sym ;
 
       if (dtype == detail_display || dtype == summary_display)
@@ -1542,7 +1543,7 @@ vty_show_prefix_list_prefix (struct vty *vty, afi_t afi, const char *name,
 {
   struct prefix_list *plist;
   struct prefix_list_entry* pe ;
-  vector_index i ;
+  vector_index_t i ;
   struct prefix p;
   int ret;
   int match;
@@ -1598,7 +1599,7 @@ vty_clear_prefix_list (struct vty *vty, afi_t afi, const char *name,
   int ret;
   struct prefix p;
   struct prefix_list_entry* pe ;
-  vector_index i ;
+  vector_index_t i ;
 
   pm = prefix_master_get (afi);
   if (pm == NULL)
@@ -1609,8 +1610,13 @@ vty_clear_prefix_list (struct vty *vty, afi_t afi, const char *name,
       struct symbol_walker walker ;
       symbol_walk_start(&pm->table, &walker) ;
       while ((plist = symbol_get_value(symbol_walk_next(&walker))))
-	for (VECTOR_ITEMS(&plist->list, pe, i))
-	  pe->hitcnt = 0 ;
+        {
+          if (plist == NULL)
+            continue ;
+
+          for (VECTOR_ITEMS(&plist->list, pe, i))
+            pe->hitcnt = 0 ;
+        } ;
     }
   else
     {
@@ -2815,7 +2821,7 @@ config_write_prefix_afi (afi_t afi, struct vty *vty)
   struct prefix_master *pm;
   int write = 0;
   vector extract ;
-  vector_index i, ipe ;
+  vector_index_t i, ipe ;
   struct symbol* sym ;
 
   pm = prefix_master_get (afi);
@@ -2870,7 +2876,7 @@ prefix_bgp_orf_entry (struct stream *s, prefix_list_ref ref,
 		      u_char init_flag, u_char permit_flag, u_char deny_flag)
 {
   struct prefix_list_entry *pe;
-  vector_index i ;
+  vector_index_t i ;
 
   struct prefix_list *plist = prefix_list_ref_plist(ref) ;
 
@@ -2895,7 +2901,7 @@ prefix_bgp_orf_entry (struct stream *s, prefix_list_ref ref,
  * return 0 - no such entry
  */
 int
-prefix_bgp_orf_get(struct prefix_list *plist, vector_index i,
+prefix_bgp_orf_get(struct prefix_list *plist, vector_index_t i,
     struct orf_prefix *orfpe, enum prefix_list_type *pe_type)
 {
   struct prefix_list_entry *pe = NULL;
@@ -2986,7 +2992,7 @@ prefix_bgp_show_prefix_list (struct vty *vty, afi_t afi, char *name)
   if (vty)
     {
       struct prefix_list_entry* pe ;
-      vector_index i ;
+      vector_index_t i ;
 
       vty_prefix_list_name_count_print(vty, plist, VTY_NEWLINE) ;
 

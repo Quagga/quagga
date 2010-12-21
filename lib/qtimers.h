@@ -22,15 +22,11 @@
 #ifndef _ZEBRA_QTIMERS_H
 #define _ZEBRA_QTIMERS_H
 
-#include <stdbool.h>
+#include "misc.h"
 
 #include "zassert.h"
 #include "qtime.h"
 #include "heap.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * Quagga Timers -- qtimer_xxxx
@@ -76,7 +72,7 @@ struct qtimer_pile
 extern qtimer_pile qtimer_pile_init_new(qtimer_pile qtp) ;
 extern bool qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto) ;
 extern qtime_t qtimer_pile_top_wait(qtimer_pile qtp, qtime_t max_wait) ;
-extern qtimer qtimer_pile_ream(qtimer_pile qtp, int free_structure) ;
+extern qtimer qtimer_pile_ream(qtimer_pile qtp, free_keep_b free_structure) ;
 
 /* Ream out qtimer pile and free the qtimer structure.   */
 #define qtimer_pile_ream_free(qtp) qtimer_pile_ream(qtp, 1)

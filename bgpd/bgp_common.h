@@ -22,17 +22,12 @@
 #ifndef _QUAGGA_BGP_COMMON_H
 #define _QUAGGA_BGP_COMMON_H
 
-#include <stdint.h>
-#include <stdbool.h>
+#include "misc.h"
 #include <sys/socket.h>
 
 #include "bgpd/bgp.h"
 #include "qafi_safi.h"
 #include "lib/zassert.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * Here are a number of "incomplete" declarations, which allow a number of

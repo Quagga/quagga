@@ -25,9 +25,12 @@
 #ifndef _ZEBRA_VTY_IO_H
 #define _ZEBRA_VTY_IO_H
 
-#include <stdbool.h>
+#include "zebra.h"
+#include "misc.h"
+
 #include <errno.h>
 
+#include "vty_io_basic.h"
 #include "uty.h"
 #include "vty.h"
 #include "vio_fifo.h"
@@ -62,85 +65,105 @@
  *
  */
 
+/*==============================================================================
+ * VTY CLI and OUT types
+ */
+enum vio_in_type        /* Command input                                */
+{
+  VIN_NONE  = 0,        /* no input at all                              */
+
+  VIN_TERM,             /* telnet terminal                              */
+  VIN_SHELL,            /* vty_shell input                              */
+
+  VIN_FILE,             /* ordinary file input                          */
+  VIN_PIPE,             /* pipe (from child process)                    */
+
+  VIN_CONFIG,           /* config file ??                               */
+} ;
+typedef enum vio_in_type vio_in_type_t ;
+
+enum vio_out_type       /* Command output                               */
+{
+  VOUT_NONE  = 0,       /* no output at all                             */
+
+  VOUT_TERM,            /* a telnet terminal                            */
+  VOUT_SHELL,           /* a vty_shell output pipe                      */
+
+  VOUT_FILE,            /* ordinary file                                */
+  VOUT_PIPE,            /* pipe (to child process)                      */
+
+  VOUT_STDOUT,          /* stdout                                       */
+  VOUT_STDERR,          /* stderr                                       */
+};
+typedef enum vio_out_type vio_out_type_t ;
+
 /*------------------------------------------------------------------------------
- * VTY sock structure
+ * VIO file structure
  *
- * Used for VTY_TERM and VTY_SHELL_SERV VTY types, which are attached to TCP
- * and UNIX sockets, respectively.
+ * All I/O is non-blocking for all sources and sinks of VIO stuff.
  *
  * Also used for the associated listeners.
  */
+typedef struct vio_vf* vio_vf ;
 
-typedef int thread_action(struct thread *) ;
-
-union sock_action
+struct vio_vf
 {
-  qps_action*    qnexus ;
-  thread_action* thread ;
-  void*          anon ;
-} ;
+  vty_io  vio ;                 /* parent               */
 
-union timer_action
-{
-  qtimer_action* qnexus ;
-  thread_action* thread ;
-  void*          anon ;
-} ;
+  vio_in_type_t     vin_type ;
+  vio_vf            vin_next ;  /* list of inputs       */
 
-struct vio_sock_actions
-{
-  union sock_action     read ;
-  union sock_action     write ;
-  union timer_action    timer ;
-};
+  vio_out_type_t    vout_type ;
+  vio_vf            vout_next ; /* list of outputs      */
 
-typedef struct vio_sock* vio_sock ;
-struct vio_sock
-{
-  int fd ;
+  vio_fifo          obuf ;      /* pointer to fifo      */
+  vio_line_control  olc ;       /* pointer to lc        */
 
-  void* info ;                  /* for action routines                  */
+  vio_fd  vfd ;
 
-  struct vio_sock_actions  action ;
+  bool    blocking ;            /* using blocking reads                 */
+  bool    closing ;             /* suppress read/write ready            */
 
-  bool  read_open ;             /* read returns 0 if not open           */
-  bool  write_open ;            /* write completes instantly if not open */
-  int   error_seen ;            /* non-zero => failed                   */
+  bool    read_open ;           /* reads returns 0 if not               */
+  bool    write_open ;          /* writes complete instantly if not     */
+  int     error_seen ;          /* non-zero => failed                   */
 
-  qps_file qf ;                 /* when running qnexus                  */
+  on_off_b        read_on ;
+  on_off_b        write_on ;
 
-  struct thread *t_read;        /* when running threads                 */
-  struct thread *t_write;
-
-  unsigned long v_timeout;      /* time-out in seconds -- 0 => none     */
-  bool  timer_running ;         /* true when timer is running           */
-
-  qtimer qtr;                   /* when running qnexus                  */
-  struct thread *t_timer;       /* when running threads                 */
-
-} ;
-
-enum
-{
-  on   = true,
-  off  = false
+  vty_timer_time  read_timeout ;
+  vty_timer_time  write_timeout ;
 } ;
 
 enum vty_readiness      /* bit significant      */
 {
-  not_ready   = 0,
-  read_ready  = 1,
-  write_ready = 2,      /* takes precedence     */
-  now_ready   = 4
+  not_ready     = 0,
+  read_ready    = 1,
+  write_ready   = 2,    /* takes precedence     */
+  now_ready     = 4
 } ;
 
 /*------------------------------------------------------------------------------
  * The vty_io structure
+ *
+ *
+ *
+ *
+ *
  */
 
-struct vty_io {
+struct vty_io
+{
   struct vty*   vty ;           /* the related vty                      */
   char  *name ;                 /* for VTY_TERM is IP address)          */
+
+  /* vin stack                                                          */
+  vio_vf    vin ;
+  vio_vf    vin_base ;
+
+  /* vout stack                                                         */
+  vio_vf    vout ;
+  vio_vf    vout_base ;
 
   /* List of all vty_io objects                                         */
   struct dl_list_pair(vty_io) vio_list ;
@@ -148,18 +171,19 @@ struct vty_io {
   /* List of all vty_io that are in monitor state                       */
   struct dl_list_pair(vty_io) mon_list ;
 
-  /* VTY type and sock stuff                                            */
-  enum vty_type type;
+  /* VTY state                                                          */
 
-  struct vio_sock  sock ;       /* for VTY_TERM and VTY_SHELL_SERV      */
-
-  bool  half_closed ;           /* => on death watch list               */
+  bool  half_closed ;           /* => on death watch list until closed  */
   bool  closed ;                /* => all I/O terminated
                                       will also be half_closed          */
 
-  const char* close_reason ;    /* message to be sent, once all other
+  char* close_reason ;          /* message to be sent, once all other
                                    output has completed, giving reason
                                    for closing the VTY.                 */
+
+
+
+
 
   /* When writing configuration file                                    */
   enum vty_type real_type ;
@@ -167,8 +191,32 @@ struct vty_io {
   int   file_fd ;
   int   file_error ;
 
-  /*--------------------------------------------------------------------*/
-  /* Command line and related state                                     */
+  /* Failure count for login attempts                                   */
+  int           fail;
+
+  /* History of commands                                                */
+  vector_t      hist ;
+  int           hp ;            /* History lookup current point */
+  int           hindex;         /* History insert end point     */
+
+  /* Window width/height as reported by Telnet.  0 => unknown           */
+  int           width;
+  int           height;
+
+  /* Configure lines.                                                   */
+  int           lines;
+  bool          lines_set ;     /* true <=> explicitly set              */
+
+  /* Terminal monitor.                                                  */
+  bool          monitor ;
+  bool          monitor_busy ;
+
+  /* Terminal timeout in seconds -- 0 => none     */
+  vty_timer_time v_timeout ;
+
+  /*-------------------------------------------------------------------------
+   * CLI_TERM stuff.
+   */
 
   keystroke_stream key_stream ;
 
@@ -242,69 +290,111 @@ struct vty_io {
   /* CLI output buffering                                               */
   vio_fifo_t    cli_obuf ;
 
-  /* Command output buffering                                           */
-  vio_fifo_t    cmd_obuf ;
+} ;
 
-  vio_line_control cmd_lc ;
-
-  /* Failure count for login attempts                                   */
-  int           fail;
-
-  /* History of commands                                                */
-  vector_t      hist ;
-  int           hp ;            /* History lookup current point */
-  int           hindex;         /* History insert end point     */
-
-  /* Window width/height as reported by Telnet.  0 => unknown           */
-  int           width;
-  int           height;
-
-  /* Configure lines.                                                   */
-  int           lines;
-  bool          lines_set ;     /* true <=> explicitly set              */
-
-  /* Terminal monitor.                                                  */
-  bool          monitor ;
-  bool          monitor_busy ;
-
-  /* In configure mode.                                                 */
-  bool          config;
+/*==============================================================================
+ * If possible, will use getaddrinfo() to find all the things to listen on.
+ */
+enum {
+#if defined(HAVE_IPV6) && !defined(NRL)
+  VTY_USE_ADDRINFO = 1,
+#else
+  VTY_USE_ADDRINFO = 0,
+#endif
 } ;
 
 /*==============================================================================
  * Functions
  */
 
-extern struct vty* uty_new (enum vty_type type, int sock_fd) ;
+extern vty uty_new (vty_type_t type, int sock_fd) ;
+extern void uty_close (vty_io vio, const char* reason) ;
+extern void uty_close_final(vty_io vio, const char* reason) ;
+
+
+extern void uty_vin_add(vty_io vio, vio_vf vf, vio_in_type_t type,
+            vio_fd_action* read_action,  vio_timer_action* read_timer_action) ;
+extern void uty_vout_add(vty_io vio, vio_vf vf, vio_out_type_t type,
+            vio_fd_action* write_action, vio_timer_action* write_timer_action) ;
+
+
+
+extern vio_vf uty_vf_new(vty_io vio, int fd, vfd_type_t type,
+                                                        vfd_io_type_t io_type) ;
+Inline int uty_vf_fd(vio_vf vf) ;
+extern on_off_t uty_vf_set_read(vio_vf vf, on_off_t on) ;
+extern on_off_t uty_vf_set_read_timeout(vio_vf vf,
+                                                  vty_timer_time read_timeout) ;
+extern on_off_t uty_vf_set_write(vio_vf vf, on_off_t on) ;
+extern on_off_t uty_vf_set_write_timeout(vio_vf vf,
+                                                 vty_timer_time write_timeout) ;
+
+
 
 extern void uty_open_listeners(const char *addr, unsigned short port,
                                                              const char *path) ;
+extern void uty_add_listener(int fd, vio_fd_accept* accept) ;
 extern void uty_close_listeners(void) ;
 
+extern void uty_watch_dog_init(void) ;
 extern void uty_watch_dog_start(void) ;
 extern void uty_watch_dog_stop(void) ;
 
-extern void uty_half_close (vty_io vio, const char* reason) ;
-extern void uty_close (vty_io vio) ;
 
-extern int uty_out (struct vty *vty, const char *format, ...)
+
+extern int uty_output (struct vty *vty, const char *format, ...)
                                                         PRINTF_ATTRIBUTE(2, 3) ;
-extern int uty_vout(struct vty *vty, const char *format, va_list args) ;
+extern int uty_vprintf(struct vty *vty, const char *format, va_list args) ;
+extern int uty_reflect(struct vty *vty) ;
 extern void uty_out_clear(vty_io vio) ;
 extern void uty_out_fflush(vty_io vio, FILE* file) ;
 
 extern void uty_set_height(vty_io vio) ;
 extern void uty_cmd_output_start(vty_io vio) ;
 
-extern void uty_sock_set_readiness(vio_sock sock, enum vty_readiness ready) ;
-extern void uty_sock_set_timer(vio_sock sock, unsigned long timeout) ;
+extern void uty_file_set_readiness(vio_vf vf, enum vty_readiness ready) ;
+extern void uty_file_set_timer(vio_vf vf, unsigned long timeout) ;
 
 extern int uty_read (vty_io vio, keystroke steal) ;
 extern int utysh_read (vty_io vio, qstring cl, qstring buf) ;
 
-
 extern const char* uty_get_name(vty_io vio) ;
 
 extern void uty_set_monitor(vty_io vio, bool on) ;
+
+/*==============================================================================
+ * Inline Functions
+ */
+
+/*------------------------------------------------------------------------------
+ * Return the fd from a vio_fd structure
+ */
+Inline int
+uty_vf_fd(vio_vf vf)
+{
+  return vio_fd_fd(vf->vfd) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Return the fd from a vio_fd structure
+ */
+
+Inline bool
+uty_is_terminal(struct vty *vty)
+{
+  return vty->type == VTY_TERMINAL ;
+}
+
+Inline bool
+uty_is_shell_server(struct vty *vty)
+{
+  return vty->type == VTY_SHELL_SERVER ;
+}
+
+Inline bool
+uty_is_shell_client(struct vty *vty)
+{
+  return vty->type == VTY_SHELL_CLIENT ;
+}
 
 #endif /* _ZEBRA_VTY_IO_H */

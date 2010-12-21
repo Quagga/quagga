@@ -56,24 +56,25 @@ test_symbol_table_init_new(void)
   assert_true(table != NULL, "table == NULL");
 
   /* expect to not find */
-  sym = symbol_lookup(table, name, 0);
+  sym = symbol_lookup(table, name, no_add);
   assert_true(sym == NULL, "sym != NULL");
 
   /* add */
-  sym = symbol_lookup(table, name, 1);
+  sym = symbol_lookup(table, name, add);
   symbol_set_value(sym, value);
   assert_true(sym != NULL, "sym == NULL");
-  assert_true(strcmp(symbol_get_name(sym), name) == 0, "strcmp(symbol_get_name(sym), name) != 0");
+  assert_true(strcmp(symbol_get_name(sym), name) == 0,
+                                     "strcmp(symbol_get_name(sym), name) != 0");
 
   /* find */
-  sym2 = symbol_lookup(table, name, 0);
+  sym2 = symbol_lookup(table, name, no_add);
   assert_true(sym == sym2, "sym != sym2");
   assert_true(symbol_get_value(sym) == value, "symbol_get_value(sym) != value");
 
   old_value = symbol_delete(sym);
   assert_true(value == old_value, "value != old_value");
 
-  while ((old_value = symbol_table_ream(table, 1)) != NULL)
+  while ((old_value = symbol_table_ream(table, keep_it)) != NULL)
     {
     }
 
@@ -98,7 +99,7 @@ test_symbol_table_lookup(void)
   for (i = 0; i < len; ++i)
     {
       sprintf(buf, "%d-name", i);
-      sym = symbol_lookup(table, buf, 1);
+      sym = symbol_lookup(table, buf, add);
       assert_true(sym != NULL, "add: sym == NULL");
       assert_true(strcmp(symbol_get_name(sym), buf) == 0,
           "strcmp(symbol_get_name(sym), buf) != 0");
@@ -114,7 +115,7 @@ test_symbol_table_lookup(void)
   for (i = 0; i < len; ++i)
     {
       sprintf(buf, "%d-name", i);
-      sym = symbol_lookup(table, buf, 0);
+      sym = symbol_lookup(table, buf, no_add);
       assert_true(sym != NULL, "find: sym == NULL");
       assert_true(strcmp(symbol_get_name(sym), buf) == 0,
           "strcmp(symbol_get_name(sym), buf) != 0");
@@ -162,12 +163,12 @@ test_call_back(void)
 
   /* add */
   symbol_table_set_value_call_back(table, call_back_function_set);
-  sym = symbol_lookup(table, name, 1);
+  sym = symbol_lookup(table, name, add);
   symbol_set_value(sym, value);
 
   /* change */
   symbol_table_set_value_call_back(table, call_back_function_change);
-  sym = symbol_lookup(table, name, 1);
+  sym = symbol_lookup(table, name, add);
   symbol_set_value(sym, new_value);
 
   /* delete */
@@ -216,7 +217,7 @@ test_ref(void)
   table = symbol_table_init_new(table, NULL, 0, 0, NULL, NULL);
 
   /* add */
-  sym = symbol_lookup(table, name, 1);
+  sym = symbol_lookup(table, name, add);
   symbol_set_value(sym, value);
 
   /* create references, in reverse order so that walk in order */
@@ -272,7 +273,7 @@ test_ref_heavy(void)
   table = symbol_table_init_new(table, NULL, 0, 0, NULL, NULL);
 
   /* add */
-  sym = symbol_lookup(table, name, 1);
+  sym = symbol_lookup(table, name, add);
   symbol_set_value(sym, value);
 
   /* create references, in reverse order so that walk in order */

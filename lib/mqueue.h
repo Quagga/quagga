@@ -22,15 +22,10 @@
 #ifndef _ZEBRA_MQUEUE_H
 #define _ZEBRA_MQUEUE_H
 
-#include <stddef.h>
-#include <stdbool.h>
+#include "misc.h"
 
 #include "qpthreads.h"
 #include "qtime.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * Message Queue Blocks -- mqb

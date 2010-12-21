@@ -36,7 +36,7 @@
 /* vtysh local configuration file. */
 #define VTYSH_DEFAULT_CONFIG "vtysh.conf"
 
-void vtysh_init_vty (void);
+struct vty* vtysh_init_vty (void);
 void vtysh_init_cmd (void);
 extern int vtysh_connect_all (const char *optional_daemon_name);
 void vtysh_readline_init (void);
@@ -63,7 +63,5 @@ void vtysh_pager_init (void);
 
 /* Child process execution flag. */
 extern int execute_flag;
-
-extern struct vty *vty;
 
 #endif /* VTYSH_H */

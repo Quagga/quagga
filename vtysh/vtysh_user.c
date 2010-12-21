@@ -21,6 +21,7 @@
 
 #include <zebra.h>
 #include <lib/version.h>
+#include <vtysh_user.h>
 
 #include <pwd.h>
 
@@ -98,19 +99,21 @@ struct vtysh_user
 
 struct list *userlist;
 
-struct vtysh_user *
+static struct vtysh_user *
 user_new ()
 {
   return XCALLOC (0, sizeof (struct vtysh_user));
 }
 
-void
+static void user_free (struct vtysh_user *user)   __attribute__((unused)) ;
+
+static void
 user_free (struct vtysh_user *user)
 {
   XFREE (0, user);
 }
 
-struct vtysh_user *
+static struct vtysh_user *
 user_lookup (const char *name)
 {
   struct listnode *node, *nnode;
@@ -124,8 +127,10 @@ user_lookup (const char *name)
   return NULL;
 }
 
-void
-user_config_write ()
+static void user_config_write (void)   __attribute__((unused)) ;
+
+static void
+user_config_write (void)
 {
   struct listnode *node, *nnode;
   struct vtysh_user *user;
@@ -137,7 +142,7 @@ user_config_write ()
     }
 }
 
-struct vtysh_user *
+static struct vtysh_user *
 user_get (const char *name)
 {
   struct vtysh_user *user;
@@ -165,8 +170,8 @@ DEFUN (username_nopassword,
   return CMD_SUCCESS;
 }
 
-int
-vtysh_auth ()
+extern int
+vtysh_auth(void)
 {
   struct vtysh_user *user;
   struct passwd *passwd;
@@ -186,8 +191,8 @@ vtysh_auth ()
   return 0;
 }
 
-void
-vtysh_user_init ()
+extern void
+vtysh_user_init(void)
 {
   userlist = list_new ();
   install_element (CONFIG_NODE, &username_nopassword_cmd);

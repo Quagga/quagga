@@ -24,13 +24,7 @@
 
 #include "zebra.h"
 
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
-
-#ifndef Inline
-#define Inline static inline
-#endif
+#include "misc.h"
 
 /*==============================================================================
  * Flexible size "struct iovec"

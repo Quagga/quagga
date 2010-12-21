@@ -59,7 +59,7 @@
  */
 
 static struct symbol_table  bgp_peer_index ;    /* lookup by 'name'     */
-static struct vector        bgp_peer_id_index ; /* lookup by peer-id    */
+static vector_t             bgp_peer_id_index ; /* lookup by peer-id    */
 
 static qpt_mutex            bgp_peer_index_mutex = NULL ;
 
@@ -112,7 +112,7 @@ bgp_peer_index_init(void* parent)
           sockunion_symbol_hash,  /* "name" is an IP Address            */
           NULL) ;                 /* no value change call-back          */
 
-  vector_init_new(&bgp_peer_id_index, bgp_peer_id_unit) ;
+  vector_init_new(bgp_peer_id_index, bgp_peer_id_unit) ;
 
   /* Initialise table entirely empty                                    */
   bgp_peer_id_table     = NULL ;
@@ -149,11 +149,11 @@ bgp_peer_index_reset(void)
   bgp_peer_id_table_chunk chunk ;
 
   /* Ream out the peer id vector -- checking that all entries are empty */
-  while ((entry = vector_ream_keep(&bgp_peer_id_index)) != NULL)
+  while ((entry = vector_ream(bgp_peer_id_index, keep_it)) != NULL)
     passert((entry->peer == NULL) && (entry->next_free != entry)) ;
 
   /* Discard body of symbol table -- must be empty !                    */
-  symbol_table_reset_keep(&bgp_peer_index) ;
+  symbol_table_reset(&bgp_peer_index, keep_it) ;
 
   /* Discard the empty chunks of entries                                */
   while (bgp_peer_id_table != NULL)
@@ -204,7 +204,7 @@ bgp_peer_index_register(bgp_peer peer, union sockunion* su)
   entry = bgp_peer_id_free_head ;
   bgp_peer_id_free_head = entry->next_free ;
 
-  assert(vector_get_item(&bgp_peer_id_index, entry->id) == entry) ;
+  assert(vector_get_item(bgp_peer_id_index, entry->id) == entry) ;
 
   /* Initialise the entry -- the id is already set                          */
   entry->peer       = peer ;
@@ -213,7 +213,7 @@ bgp_peer_index_register(bgp_peer peer, union sockunion* su)
   peer->index_entry = entry;
 
   /* Insert the new entry into the symbol table.                            */
-  entry = symbol_set_value(symbol_find(&bgp_peer_index, su), entry) ;
+  entry = symbol_set_value(symbol_lookup(&bgp_peer_index, su, add), entry) ;
 
   BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
@@ -241,7 +241,7 @@ bgp_peer_index_deregister(bgp_peer peer, union sockunion* su)
 
   BGP_PEER_INDEX_LOCK() ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
-  sym = symbol_seek(&bgp_peer_index, su) ;
+  sym = symbol_lookup(&bgp_peer_index, su, no_add) ;
   passert(sym != NULL) ;
 
   entry = symbol_delete(sym) ;
@@ -288,7 +288,7 @@ bgp_peer_index_seek_entry(union sockunion* su)
 
   /* Only the Routing Engine can add/delete entries -- so no lock required  */
 
-  entry = symbol_get_value(symbol_seek(&bgp_peer_index, su)) ;
+  entry = symbol_get_value(symbol_lookup(&bgp_peer_index, su, no_add)) ;
 
   if (entry != NULL)
     assert((entry->peer != NULL) && (entry->next_free = entry)) ;
@@ -340,7 +340,7 @@ bgp_peer_index_seek_accept(union sockunion* su, bool* p_found)
 
   BGP_PEER_INDEX_LOCK() ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
-  entry = symbol_get_value(symbol_seek(&bgp_peer_index, su)) ;
+  entry = symbol_get_value(symbol_lookup(&bgp_peer_index, su, no_add)) ;
 
   if (entry != NULL)
     {
@@ -375,7 +375,7 @@ static void
 bgp_peer_id_table_free_entry(bgp_peer_index_entry entry)
 {
   assert((entry != NULL) && (entry->id < bgp_peer_id_count)) ;
-  assert(vector_get_item(&bgp_peer_id_index, entry->id) == entry) ;
+  assert(vector_get_item(bgp_peer_id_index, entry->id) == entry) ;
 
   if (bgp_peer_id_free_head == NULL)
     bgp_peer_id_free_head = entry ;
@@ -424,7 +424,7 @@ bgp_peer_id_table_make_ids(void)
 
   while (id_new < bgp_peer_id_count)
     {
-      vector_set_item(&bgp_peer_id_index, id_new, entry) ;
+      vector_set_item(bgp_peer_id_index, id_new, entry) ;
 
       entry->id = id_new ;
       bgp_peer_id_table_free_entry(entry) ;

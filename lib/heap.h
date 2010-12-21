@@ -17,12 +17,8 @@
 #ifndef _ZEBRA_HEAP_H
 #define _ZEBRA_HEAP_H
 
+#include "misc.h"
 #include "vector.h"
-
-/* Macro in case there are particular compiler issues.    */
-#ifndef Inline
-  #define Inline static inline
-#endif
 
 /*==============================================================================
  * Data structures etc.
@@ -34,7 +30,7 @@ enum heap_state {
   Heap_Has_Backlink  = 0x01,    /* Set if backlink set  */
 } ;
 
-typedef vector_index heap_backlink_t ;
+typedef vector_index_t heap_backlink_t ;
 
 typedef struct heap* heap ;
 
@@ -45,7 +41,7 @@ struct heap
   enum heap_state state ;
   unsigned int backlink_offset ;
 
-  struct vector v ;
+  vector_t v ;
 } ;
 
 /*==============================================================================
@@ -66,17 +62,8 @@ extern heap heap_re_init(heap h, unsigned int size, heap_cmp* cmp,
 #define heap_re_init_backlinked(h, size, cmp, offset) \
   heap_re_init(h, size, cmp, 1, offset)
 
-extern heap heap_reset(heap h, int free_structure) ;
-extern p_vector_item heap_ream(heap h, int free_structure) ;
-
-/* Reset heap and free the heap structure.	*/
-#define heap_reset_free(h) heap_reset(h, 1)
-/* Reset heap but keep the heap structure.	*/
-#define heap_reset_keep(h) heap_reset(h, 0)
-/* Ream out heap and free the heap structure.	*/
-#define heap_ream_free(h) heap_ream(h, 1)
-/* Ream out heap but keep the heap structure.	*/
-#define heap_ream_keep(h) heap_ream(h, 0)
+extern heap heap_reset(heap h, free_keep_b free_structure) ;
+extern p_vector_item heap_ream(heap h, free_keep_b free_structure) ;
 
 Inline void heap_push_item(heap h, p_vector_item p_v) ;
 extern p_vector_item heap_pop_item(heap h) ;
@@ -102,20 +89,16 @@ extern vector heap_pop_vector(vector v, heap h, int move_heap) ;
  * This are extern only for use in Inline and other friends
  */
 
-#ifndef private
-  #define private extern
-#endif
+Private void
+heap_bubble(heap h, vector_index_t i, p_vector_item p_v) ;
 
-private void
-heap_bubble(heap h, vector_index i, p_vector_item p_v) ;
+Private void
+heap_bubble_up(heap h, vector_index_t i, p_vector_item p_v) ;
 
-private void
-heap_bubble_up(heap h, vector_index i, p_vector_item p_v) ;
+Private void
+heap_bubble_down(heap h, vector_index_t i, p_vector_item p_v) ;
 
-private void
-heap_bubble_down(heap h, vector_index i, p_vector_item p_v) ;
-
-private vector_index
+Private vector_index_t
 heap_find_item(heap h, p_vector_item p_v) ;
 
 /*==============================================================================
@@ -128,7 +111,7 @@ Inline void
 heap_push_item(heap h, p_vector_item p_v)
 {
   dassert(p_v != NULL) ;        /* no NULLs, thank you.  */
-  heap_bubble_up(h, vector_extend_by_1(&h->v), p_v) ;
+  heap_bubble_up(h, vector_extend_by_1(h->v), p_v) ;
 } ;
 
 /* Get copy of top heap item (does not pop).
@@ -138,7 +121,7 @@ heap_push_item(heap h, p_vector_item p_v)
 Inline p_vector_item
 heap_top_item(heap h)
 {
-  return vector_get_first_item(&h->v) ;  /* if any */
+  return vector_get_first_item(h->v) ;  /* if any */
 } ;
 
 /* Update heap to reflect new value of top item.

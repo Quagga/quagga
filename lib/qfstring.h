@@ -22,21 +22,8 @@
 #ifndef _ZEBRA_QFSTRING_H
 #define _ZEBRA_QFSTRING_H
 
-#include "zebra.h"
-
-#include <stddef.h>
-#include <stdint.h>
-
-#ifndef Inline
-#define Inline static inline
-#endif
-
-/* GCC have printf type attribute check.  */
-#ifdef __GNUC__
-#define PRINTF_ATTRIBUTE(a,b) __attribute__ ((__format__ (__printf__, a, b)))
-#else
-#define PRINTF_ATTRIBUTE(a,b)
-#endif /* __GNUC__ */
+#include "misc.h"
+#include "vargs.h"
 
 /*==============================================================================
  * These "qfstrings" address the issues of dealing with *fixed* length
@@ -68,21 +55,21 @@ enum pf_flags
   pf_none       = 0,
 
   /* The following correspond to the "flags"                    */
-  pf_commas     = 1 <<  0,      /* "'" seen             */
-  pf_plus       = 1 <<  1,      /* "+" seen             */
-  pf_space      = 1 <<  2,      /* " " seen             */
-  pf_zeros      = 1 <<  3,      /* "0" seen             */
-  pf_alt        = 1 <<  4,      /* "#" seen             */
+  pf_commas     = BIT( 0),      /* "'" seen             */
+  pf_plus       = BIT( 1),      /* "+" seen             */
+  pf_space      = BIT( 2),      /* " " seen             */
+  pf_zeros      = BIT( 3),      /* "0" seen             */
+  pf_alt        = BIT( 4),      /* "#" seen             */
 
-  pf_precision  = 1 <<  7,      /* '.' seen             */
+  pf_precision  = BIT( 7),      /* '.' seen             */
 
   /* The following signal how to render the value               */
-  pf_hex        = 1 <<  8,      /* hex                  */
-  pf_uc         = 1 <<  9,      /* upper-case           */
+  pf_hex        = BIT( 8),      /* hex                  */
+  pf_uc         = BIT( 9),      /* upper-case           */
 
   /* The following signal the type of value                     */
-  pf_ptr        = 1 << 14,      /* is a pointer         */
-  pf_unsigned   = 1 << 15,      /* unsigned value       */
+  pf_ptr        = BIT(14),      /* is a pointer         */
+  pf_unsigned   = BIT(15),      /* unsigned value       */
 
   /* Common combination                                         */
   pf_hex_x      = pf_unsigned | pf_hex,

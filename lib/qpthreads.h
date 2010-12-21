@@ -22,23 +22,14 @@
 #ifndef _ZEBRA_QPTHREADS_H
 #define _ZEBRA_QPTHREADS_H
 
-#include <stdint.h>
+#include "misc.h"
 #include <time.h>
 #include <pthread.h>
 #include <unistd.h>
 #include <errno.h>
-#include <stdbool.h>
 
 #include "zassert.h"
 #include "qtime.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
-
-#ifndef private
-#define private extern
-#endif
 
 /*==============================================================================
  * Quagga Pthread Interface -- qpt_xxxx
@@ -133,13 +124,13 @@ qpt_thread_join(qpt_thread_t thread_id) ;
 /*==============================================================================
  * qpthreads_enabled support -- NOT FOR PUBLIC CONSUMPTION !
  */
-private uint8_t qpthreads_enabled_flag ;        /* DO NOT TOUCH THIS PLEASE  */
-private uint8_t qpthreads_thread_created_flag ; /* DO NOT TOUCH THIS PLEASE  */
+Private uint8_t qpthreads_enabled_flag ;        /* DO NOT TOUCH THIS PLEASE  */
+Private uint8_t qpthreads_thread_created_flag ; /* DO NOT TOUCH THIS PLEASE  */
 
-private int
+Private int
 qpt_set_qpthreads_enabled(int how) ;    /* qpthreads_enabled := how          */
 
-private int
+Private int
 qpt_freeze_qpthreads_enabled(void) ;    /* get and freeze qpthreads_enabled  */
 
 /*==============================================================================

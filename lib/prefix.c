@@ -27,6 +27,7 @@
 #include "sockunion.h"
 #include "memory.h"
 #include "log.h"
+#include "tstring.h"
 
 /* Maskbit. */
 static const u_char maskbit[] = { 0x00, 0x80, 0xc0, 0xe0, 0xf0,
@@ -272,18 +273,19 @@ prefix_ipv4_free (struct prefix_ipv4 *p)
 int
 str2prefix_ipv4 (const char *str, struct prefix_ipv4 *p)
 {
-  char*    pnt ;
-  char*    cp ;
-  int      ret ;
-  unsigned plen ;
+  tstring_t(ipv4, 24) ;
+  char*       pnt ;
+  const char* cp ;
+  int         ret ;
+  unsigned    plen ;
 
   pnt = strchr (str, '/');
 
   if (pnt == NULL)
     {
       /* No / => simple address                 */
-      plen = IPV4_MAX_BITLEN;
-      ret = inet_aton (str, &p->prefix);
+      plen = IPV4_MAX_BITLEN ;
+      cp   = str ;
     }
   else
     {
@@ -292,18 +294,17 @@ str2prefix_ipv4 (const char *str, struct prefix_ipv4 *p)
       if (plen > IPV4_MAX_PREFIXLEN)
         return 0;
 
-      cp = XMALLOC (MTYPE_TMP, (pnt - str) + 1);
-      strncpy (cp, str, pnt - str);
-      *(cp + (pnt - str)) = '\0';
-      ret = inet_aton (cp, &p->prefix);
-      XFREE (MTYPE_TMP, cp);
-    }
+      cp = tstring_set_n(ipv4, str, (pnt - str)) ;
+    } ;
 
+  ret = inet_aton (cp, &p->prefix);
   if (ret <= 0)   /* should not return < 0, but it would not be valid ! */
     return 0;
 
   p->family    = AF_INET;
   p->prefixlen = plen;
+
+  tstring_free(ipv4) ;
 
   return 1 ;
 }
@@ -434,10 +435,11 @@ prefix_ipv6_free (struct prefix_ipv6 *p)
 int
 str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
 {
-  char*    pnt ;
-  char*    cp ;
-  int      ret ;
-  unsigned plen ;
+  tstring_t(ipv6, 64) ;
+  char*       pnt ;
+  const char* cp ;
+  int         ret ;
+  unsigned    plen ;
 
   pnt = strchr (str, '/');
 
@@ -445,7 +447,7 @@ str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
     {
       /* No / => simple address                 */
       plen = IPV6_MAX_BITLEN;
-      ret  = inet_pton (AF_INET6, str, &p->prefix);
+      cp   = str ;
     }
   else
     {
@@ -454,18 +456,17 @@ str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
       if (plen > IPV6_MAX_PREFIXLEN)
         return 0 ;
 
-      cp = XMALLOC (MTYPE_TMP, (pnt - str) + 1);
-      strncpy (cp, str, pnt - str);
-      *(cp + (pnt - str)) = '\0';
-      ret = inet_pton (AF_INET6, cp, &p->prefix);
-      XFREE (MTYPE_TMP, cp);
-    }
+      cp = tstring_set_n(ipv6, str, (pnt - str)) ;
+    } ;
 
+  ret  = inet_pton (AF_INET6, cp, &p->prefix);
   if (ret <= 0)
     return 0 ;
 
   p->family    = AF_INET6;
   p->prefixlen = plen;
+
+  tstring_free(ipv6) ;
 
   return 1 ;
 }

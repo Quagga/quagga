@@ -24,11 +24,14 @@
 #define _ZEBRA_COMMAND_EXECUTE_H
 
 #include "command.h"
+#include "command_parse.h"
+#include "node_type.h"
 
 extern vector cmd_make_strvec (const char *);
 extern vector cmd_add_to_strvec (vector v, const char* str) ;
 extern void cmd_free_strvec (vector);
-extern vector cmd_describe_command (vector, int, int *status);
+extern vector cmd_describe_command (const char* line, node_type_t node,
+                                                    cmd_return_code_t* status) ;
 extern vector cmd_complete_command (vector, int, int *status);
 extern const char *cmd_prompt (enum node_type);
 extern enum cmd_return_code
@@ -50,9 +53,8 @@ Inline enum cmd_return_code
 cmd_dispatch_call(struct vty* vty)
 {
   cmd_parsed parsed = vty->parsed ;
-  return (*(parsed->cmd->func))(parsed->cmd, vty,
-                                               vector_length(&parsed->vline),
-                           (const char * const*)vector_body(&parsed->vline)) ;
+  return (*(parsed->cmd->func))(parsed->cmd, vty, cmd_arg_vector_argc(parsed),
+                                                  cmd_arg_vector_argv(parsed)) ;
 } ;
 
 #define cmd_parse_reset_keep(parsed) cmd_parse_reset(parsed, 0)

@@ -776,7 +776,7 @@ bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
   bgp_orf_entry orfpe = NULL;
   struct prefix_list *plist = NULL;
   struct orf_prefix orfp;
-  vector_index i;
+  vector_index_t i;
   int orf_refresh = 0;
   enum prefix_list_type pe_type;
 
@@ -1837,7 +1837,7 @@ bgp_route_refresh_recv(bgp_peer peer, bgp_route_refresh rr)
 {
   afi_t afi;
   safi_t safi;
-  vector_index i;
+  vector_index_t i, e;
   char name[BUFSIZ];
   int ret;
 
@@ -1852,11 +1852,11 @@ bgp_route_refresh_recv(bgp_peer peer, bgp_route_refresh rr)
   ret = snprintf (name, BUFSIZ, "%s.%d.%d", peer->host, afi, safi);
   assert(ret < BUFSIZ);
 
-  if (rr->entries.end > 0)
+  if ((e = bgp_orf_get_count(rr)) > 0)
     {
-      for (i = 0; i < rr->entries.end; ++i)
+      for (i = 0; i < e; ++i)
         {
-          bgp_orf_entry orfep = vector_slot(&rr->entries, i);
+          bgp_orf_entry orfep = vector_slot(rr->entries, i);
 
           /* ignore unknown */
           if (orfep->unknown)

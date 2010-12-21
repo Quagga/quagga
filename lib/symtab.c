@@ -212,11 +212,11 @@ symbol_base(symbol_table table, u_int32_t hash)
  *     any existing chain base array, symbols and symbol references are simply
  *     discarded -- which will leak memory and is probably a mistake.
  */
-symbol_table
+extern symbol_table
 symbol_table_init_new(symbol_table table,
-		      void* parent,
-		      unsigned int base_count,
-		      unsigned int density,
+		      void*        parent,
+		      uint         base_count,
+		      uint         density,
 		      symbol_hash_function*      hash_function,
 		      symbol_call_back_function* value_call_back)
 {
@@ -240,21 +240,21 @@ symbol_table_init_new(symbol_table table,
 } ;
 
 /* Set "parent" of symbol table.  */
-void
+extern void
 symbol_table_set_parent(symbol_table table, void* parent)
 {
   table->parent = parent ;
 } ;
 
 /* Get "parent" of symbol table.  */
-void*
+extern void*
 symbol_table_get_parent(symbol_table table)
 {
   return table->parent ;
 } ;
 
 /* Set the value_call_back                                                */
-void
+extern void
 symbol_table_set_value_call_back(symbol_table table,
                                  symbol_call_back_function* value_call_back)
 {
@@ -311,8 +311,8 @@ symbol_table_setup(symbol_table table)
  *
  * NB: must only be done when the table is empty -- see assertion !
  */
-symbol_table
-symbol_table_reset(symbol_table table, int free_structure)
+extern symbol_table
+symbol_table_reset(symbol_table table, free_keep_b free_structure)
 {
   if (table== NULL)
     return NULL ;	/* allow for already freed table	*/
@@ -321,6 +321,8 @@ symbol_table_reset(symbol_table table, int free_structure)
 
   if (table->bases)
     XFREE(MTYPE_SYMBOL_BASES, table->bases);
+
+  confirm(free_it == true) ;
 
   if (free_structure)
     {
@@ -416,8 +418,8 @@ symbol_free(symbol sym)
  * NB: it is the caller's responsibility to unset all references and release
  *     any that need to be released -- either before or after this operation.
  */
-void*
-symbol_table_ream(symbol_table table, int free_structure)
+extern void*
+symbol_table_ream(symbol_table table, free_keep_b free_structure)
 {
   void* value ;
   symbol sym ;
@@ -470,8 +472,8 @@ symbol_table_ream(symbol_table table, int free_structure)
  *     value and no references.  Where that distinction matters, it is
  *     necessary to do an extra lookup.
  */
-symbol
-symbol_lookup(symbol_table table, const void* name, int add)
+extern symbol
+symbol_lookup(symbol_table table, const void* name, add_b add)
 {
   struct symbol*  this ;
   struct symbol** base ;
@@ -485,7 +487,7 @@ symbol_lookup(symbol_table table, const void* name, int add)
 
   base = symbol_base(table, hash.hash) ;
   this = *base ;
-  while (this)
+  while (this != NULL)
     {
       if ((this->hash == hash.hash)
 	    && (this->name_len == hash.name_len)
@@ -554,7 +556,7 @@ symbol_lookup(symbol_table table, const void* name, int add)
  * NB: orphan symbols can be deleted.  The effect is to free the symbol if
  *     possible.
  */
-void*
+extern void*
 symbol_delete(symbol sym)
 {
   void* old_value = symbol_unset_value(sym) ;
@@ -578,7 +580,7 @@ symbol_delete(symbol sym)
 static u_int32_t crc_table[] ;
 
 /* Standard symbol string hash function.  */
-void
+extern void
 symbol_hash_string(symbol_hash p_hash, const char* string) {
   u_int32_t  h = 0 ;
   const char* p = string ;
@@ -595,7 +597,7 @@ symbol_hash_string(symbol_hash p_hash, const char* string) {
 } ;
 
 /* Standard symbol byte vector hash function.  */
-void
+extern void
 symbol_hash_bytes(symbol_hash p_hash, const void* bytes, size_t len) {
   assert(len < 0xFFFF) ;
 
@@ -670,8 +672,8 @@ symbol_extend_bases(symbol_table table)
 
 /* Zeroise the reference count.*/
 
-symbol
-symbol_zero_ref(symbol sym, int force)
+Private symbol
+symbol_zero_ref(symbol sym, bool force)
 {
   assert((sym->ref_count == 1) || force) ;
 
@@ -807,7 +809,7 @@ symbol_ref_is_bookmark(symbol_ref ref)
 } ;
 
 /* Start walk of symbol references */
-void
+extern void
 symbol_ref_walk_start(symbol sym, symbol_ref walk)
 {
   symbol_init_ref(walk) ;         /* keeping things tidy              */
@@ -817,7 +819,7 @@ symbol_ref_walk_start(symbol sym, symbol_ref walk)
 } ;
 
 /* Step walk and return the next reference (if any).  */
-symbol_ref
+extern symbol_ref
 symbol_ref_walk_step(symbol_ref walk)
 {
   symbol_ref next_ref ;
@@ -850,7 +852,7 @@ symbol_ref_walk_step(symbol_ref walk)
  * NB: if the symbol is not defined and has no references or bookmarks it
  *     will now be freed.
  */
-void
+extern void
 symbol_ref_walk_end(symbol_ref walk)
 {
   assert(symbol_ref_is_bookmark(walk)) ;  /* must be a bookmark ! */
@@ -876,7 +878,7 @@ symbol_ref_walk_end(symbol_ref walk)
  *
  * Returns previous value -- which may require releasing.
  */
-void*
+extern void*
 symbol_set_value(symbol sym, void* new_value)
 {
   void* old_value ;
@@ -912,7 +914,7 @@ symbol_set_value(symbol sym, void* new_value)
  */
 
 /* Initialise symbol reference -- allocate if required.   */
-symbol_ref
+extern symbol_ref
 symbol_init_ref(symbol_ref ref)
 {
   if (ref == NULL)
@@ -936,7 +938,7 @@ symbol_init_ref(symbol_ref ref)
  *
  *     if reference is not allocated, the parent and tag are unchanged.
  */
-symbol_ref
+extern symbol_ref
 symbol_set_ref(symbol_ref ref, struct symbol* sym)
 {
   if (ref != NULL)
@@ -944,7 +946,7 @@ symbol_set_ref(symbol_ref ref, struct symbol* sym)
       if (ref->sym == sym)
 	return ref ;      /* Nothing more to do if already set to given value */
       if (ref->sym != NULL)
-	symbol_unset_ref_keep(ref) ;
+	symbol_unset_ref(ref, keep_it) ;
     }
   else
     ref = symbol_init_ref(NULL) ;
@@ -967,8 +969,8 @@ symbol_set_ref(symbol_ref ref, struct symbol* sym)
  *
  * NB: copes if the reference is already unset, of course.
  */
-symbol_ref
-symbol_unset_ref(symbol_ref ref, int free_ref_structure)
+extern symbol_ref
+symbol_unset_ref(symbol_ref ref, free_keep_b free_ref_structure)
 {
   if (ref == NULL) return ref ;
 
@@ -979,6 +981,7 @@ symbol_unset_ref(symbol_ref ref, int free_ref_structure)
       ref->sym = NULL ;
     } ;
 
+  confirm(free_it == true) ;
   if (free_ref_structure)
     XFREE(MTYPE_SYMBOL_REF, ref) ;	/* ref is set to NULL */
 
@@ -1008,7 +1011,7 @@ symbol_unset_ref(symbol_ref ref, int free_ref_structure)
  *     progress -- up to and including deleting it.  Any other changes to
  *     the table must NOT be attempted.
  */
-void
+extern void
 symbol_walk_start(symbol_table table, struct symbol_walker* walker)
 {
   walker->next       = NULL ;
@@ -1016,7 +1019,7 @@ symbol_walk_start(symbol_table table, struct symbol_walker* walker)
   walker->base_count = table->base_count ;
 } ;
 
-symbol
+extern symbol
 symbol_walk_next(struct symbol_walker* walker)
 {
   symbol this = walker->next ;
@@ -1049,9 +1052,9 @@ symbol_walk_next(struct symbol_walker* walker)
  *     caller's responsibility to avoid deleting any symbol whose pointer
  *     in the vector they expect to rely on !
  */
-vector
+extern vector
 symbol_table_extract(symbol_table table,
-		     symbol_select_cmp* selector, const void* p_val, int most,
+		     symbol_select_cmp* selector, const void* p_val, bool most,
 							  symbol_sort_cmp* sort)
 {
   vector extract ;
@@ -1093,7 +1096,7 @@ symbol_table_extract(symbol_table table,
  *
  * This comparison treats substrings of digits as numbers, so "a10" is > "a1".
  */
-int
+extern int
 symbol_mixed_name_cmp(const symbol* p_a,
 		      const symbol* p_b)
 {

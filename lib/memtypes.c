@@ -15,6 +15,7 @@
 struct memory_list memory_list_lib[] =
 {
   { MTYPE_TMP,			"Temporary memory"		},
+  { MTYPE_STRING,               "String (general)"              },
   { MTYPE_STRVEC,               "String vector"                 },
   { MTYPE_VECTOR,               "Vector structure"              },
   { MTYPE_VECTOR_BODY,          "Vector body"                   },
@@ -44,6 +45,7 @@ struct memory_list memory_list_lib[] =
   { MTYPE_TSD,                  "Thread specific data"          },
   { MTYPE_VTY,			"VTY"				},
   { MTYPE_CMD_PARSED,           "Parsed command"                },
+  { MTYPE_TOKEN,                "Command token"                 },
   { MTYPE_MARSHAL,              "marshalled commands"           },
   { MTYPE_VTY_OUT_BUF,		"VTY output buffer"		},
   { MTYPE_VTY_HIST,             "VTY history"                   },
@@ -53,7 +55,6 @@ struct memory_list memory_list_lib[] =
   { MTYPE_VIO_FIFO_LUMP,        "VTY IO FIFO Lump"              },
   { MTYPE_VIO_LC,               "VTY IO Line Control"           },
   { MTYPE_QSTRING,              "qstring structure"             },
-  { MTYPE_QSTRING_BODY,         "qstring body"                  },
   { MTYPE_QIOVEC,               "qiovec structure"              },
   { MTYPE_QIOVEC_VEC,           "qiovec iovec vector"           },
   { MTYPE_IF,			"Interface"			},

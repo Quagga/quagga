@@ -60,7 +60,7 @@ bgp_route_refresh_new(iAFI_t afi, iSAFI_t safi, unsigned count)
   rr->afi       = afi ;
   rr->safi      = safi ;
 
-  vector_init_new(&rr->entries, count) ;
+  vector_init_new(rr->entries, count) ;
 
   /* rest of bgp_route_refresh zeroised -- not relevant when vector empty */
 
@@ -74,7 +74,7 @@ extern void
 bgp_route_refresh_free(bgp_route_refresh rr)
 {
   bgp_orf_entry entry ;
-  while((entry = vector_ream_keep(&rr->entries)) != NULL)
+  while((entry = vector_ream(rr->entries, keep_it)) != NULL)
     XFREE(MTYPE_BGP_ORF_ENTRY, entry) ;
 
   XFREE(MTYPE_BGP_ROUTE_REFRESH, rr) ;
@@ -130,7 +130,7 @@ bgp_orf_entry_new(bgp_route_refresh rr, uint8_t orf_type, bgp_form_t form,
   orfe->form     = form ;
   orfe->unknown  = (unknown_size != 0) ;
 
-  vector_push_item(&rr->entries, orfe) ;
+  vector_push_item(rr->entries, orfe) ;
 
   return orfe ;
 } ;

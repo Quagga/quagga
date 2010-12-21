@@ -24,12 +24,8 @@
 #ifndef _QUAGGA_BGP_NOTIFY_H
 #define _QUAGGA_BGP_NOTIFY_H
 
-#include <stddef.h>
+#include "lib/misc.h"
 #include "bgpd/bgp_common.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * BGP NOTIFICATION message codes.

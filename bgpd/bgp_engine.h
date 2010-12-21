@@ -22,15 +22,13 @@
 #ifndef _QUAGGA_BGP_ENGINE_H
 #define _QUAGGA_BGP_ENGINE_H
 
+#include "lib/misc.h"
+
 #include "bgpd/bgpd.h"
 
 #include "lib/mqueue.h"
 #include "lib/qpnexus.h"
 #include "lib/log.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 enum { qdebug =
 #ifdef QDEBUG

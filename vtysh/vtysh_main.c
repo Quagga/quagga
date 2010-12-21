@@ -63,7 +63,7 @@ struct thread_master *master;
 FILE *logfile;
 
 /* SIGTSTP handler.  This function care user's ^Z input. */
-void
+static void
 sigtstp (int sig)
 {
   /* Execute "end" command. */
@@ -84,7 +84,7 @@ sigtstp (int sig)
 }
 
 /* SIGINT handler.  This function care user's ^Z input.  */
-void
+static void
 sigint (int sig)
 {
   /* Check this process is not child process. */
@@ -98,7 +98,7 @@ sigint (int sig)
 
 /* Signale wrapper for vtysh. We don't use sigevent because
  * vtysh doesn't use threads. TODO */
-RETSIGTYPE *
+static RETSIGTYPE *
 vtysh_signal_set (int signo, void (*func)(int))
 {
   int ret;
@@ -121,7 +121,7 @@ vtysh_signal_set (int signo, void (*func)(int))
 }
 
 /* Initialization of signal handles. */
-void
+static void
 vtysh_signal_init ()
 {
   vtysh_signal_set (SIGINT, sigint);
@@ -168,7 +168,7 @@ struct option longopts[] =
 };
 
 /* Read a string, and return a pointer to it.  Returns NULL on EOF. */
-char *
+static char *
 vtysh_rl_gets ()
 {
   HIST_ENTRY *last;
@@ -202,7 +202,7 @@ static void log_it(const char *line)
 {
   time_t t = time(NULL);
   struct tm *tmp = localtime(&t);
-  char *user = getenv("USER") ? : "boot";
+  const char *user = getenv("USER") ? : "boot";
   char tod[64];
 
   strftime(tod, sizeof tod, "%Y%m%d-%H:%M.%S", tmp);
@@ -214,6 +214,7 @@ static void log_it(const char *line)
 int
 main (int argc, char **argv, char **env)
 {
+  struct vty* vty ;
   char *p;
   int opt;
   int dryrun = 0;
@@ -292,7 +293,7 @@ main (int argc, char **argv, char **env)
   vtysh_signal_init ();
 
   /* Make vty structure and register commands. */
-  vtysh_init_vty ();
+  vty = vtysh_init_vty ();
   vtysh_init_cmd ();
   vtysh_user_init ();
   vtysh_config_init ();

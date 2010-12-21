@@ -24,8 +24,7 @@
 #ifndef _QUAGGA_BGP_MSG_WRITE_H
 #define _QUAGGA_BGP_MSG_WRITE_H
 
-#include <stdint.h>
-#include <stdbool.h>
+#include "misc.h"
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_connection.h"

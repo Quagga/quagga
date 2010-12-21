@@ -23,19 +23,10 @@
 #define _ZEBRA_VIO_FIFO_H
 
 #include "zebra.h"
-#include <stdint.h>
-#include <stdbool.h>
+#include "misc.h"
 
 #include "list_util.h"
 #include "zassert.h"
-
-#ifndef Inline                  /* in case of compiler issues           */
-#define Inline static inline
-#endif
-
-#ifndef Private                 /* extern, but for "friends" only       */
-#define Private extern
-#endif
 
 /* GCC have printf type attribute check.  */
 #ifdef __GNUC__

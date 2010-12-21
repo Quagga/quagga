@@ -22,14 +22,8 @@
 #ifndef _ZEBRA_SYMTAB_H
 #define _ZEBRA_SYMTAB_H
 
+#include "misc.h"
 #include "vector.h"
-#include <stddef.h>
-#include <stdint.h>
-
-/* Macro in case there are particular compiler issues.    */
-#ifndef Inline
-  #define Inline static inline
-#endif
 
 /* Maximum number of symbol table bases -- something has gone tragically wrong
  * if we hit this.  Assume can multiply this by 2 and get valid size_t result.
@@ -145,21 +139,18 @@ struct symbol_walker
 
 /* Symbol Table Operations.	*/
 
-extern symbol_table
-symbol_table_init_new(symbol_table table,
-		      void* parent,
-		      unsigned bases,
-		      unsigned density,
-		      symbol_hash_function* hash_function,
-		      symbol_call_back_function* value_call_back) ;
-void symbol_table_set_parent(symbol_table table, void* parent) ;
-void* symbol_table_get_parent(symbol_table table) ;
-void* symbol_table_ream(symbol_table table, int free_structure) ;
-#define symbol_table_ream_free(table) symbol_table_ream(table, 1)
-#define symbol_table_ream_keep(table) symbol_table_ream(table, 0)
-symbol_table symbol_table_reset(symbol_table table, int free_structure) ;
-#define symbol_table_reset_free(table) symbol_table_reset(table, 1)
-#define symbol_table_reset_keep(table) symbol_table_reset(table, 0)
+extern symbol_table symbol_table_init_new(
+                                symbol_table table,
+                                void* parent,
+                                uint bases,
+                                uint density,
+                                symbol_hash_function* hash_function,
+                                symbol_call_back_function* value_call_back) ;
+extern void  symbol_table_set_parent(symbol_table table, void* parent) ;
+extern void* symbol_table_get_parent(symbol_table table) ;
+extern void* symbol_table_ream(symbol_table table, free_keep_b free_structure) ;
+extern symbol_table symbol_table_reset(symbol_table table,
+                                                   free_keep_b free_structure) ;
 
 extern void symbol_hash_string(struct symbol_hash* p_hash, const char* string) ;
 extern void symbol_hash_bytes(struct symbol_hash* p_hash, const void* bytes,
@@ -169,28 +160,31 @@ extern void symbol_table_set_value_call_back(symbol_table table,
 
 extern void symbol_table_free(symbol_table) ;
 
-extern symbol symbol_lookup(symbol_table table, const void* name, int add) ;
-
-#define symbol_seek(table, name) symbol_lookup(table, name, 0)
-#define symbol_find(table, name) symbol_lookup(table, name, 1)
+extern symbol symbol_lookup(symbol_table table, const void* name, add_b add) ;
 
 extern void* symbol_delete(symbol sym) ;
 
 extern void* symbol_set_value(symbol sym, void* new_value) ;
-#define symbol_unset_value(sym) symbol_set_value(sym, NULL)
+Inline void*
+symbol_unset_value(symbol sym)
+{
+  symbol_set_value(sym, NULL) ;
+} ;
 
-void symbol_ref_walk_start(symbol sym, symbol_ref walk) ;
-symbol_ref symbol_ref_walk_step(symbol_ref walk) ;
-void symbol_ref_walk_end(symbol_ref walk) ;
+extern void symbol_ref_walk_start(symbol sym, symbol_ref walk) ;
+extern symbol_ref symbol_ref_walk_step(symbol_ref walk) ;
+extern void symbol_ref_walk_end(symbol_ref walk) ;
 
-void symbol_walk_start(symbol_table table, struct symbol_walker* walker) ;
-symbol symbol_walk_next(struct symbol_walker* walker) ;
+extern void symbol_walk_start(symbol_table table, struct symbol_walker* walker);
+extern symbol symbol_walk_next(struct symbol_walker* walker) ;
 
 typedef int symbol_select_cmp(const symbol, const void*) ;
 typedef int symbol_sort_cmp(const symbol*, const symbol*) ;
-vector symbol_table_extract(symbol_table table,
-			    symbol_select_cmp* select, const void* p_value,
-			    int most, symbol_sort_cmp* sort) ;
+extern vector symbol_table_extract(symbol_table table,
+	                           symbol_select_cmp* select,
+	                           const void* p_value,
+			           bool most,
+			           symbol_sort_cmp* sort) ;
 
 extern symbol_sort_cmp symbol_mixed_name_cmp ;
 
@@ -226,29 +220,22 @@ symbol_inc_ref(symbol sym)
   return sym ;
 } ;
 
-extern symbol symbol_zero_ref(symbol sym, int force) ;
+Private symbol symbol_zero_ref(symbol sym, bool force) ;
 
 Inline symbol
 symbol_dec_ref(symbol sym)
 {
   if (sym->ref_count <= 1)
-    return symbol_zero_ref(sym, 0) ;
+    return symbol_zero_ref(sym, false) ;
 
   --sym->ref_count ;
   return sym ;
 } ;
 
-extern symbol_ref
-symbol_init_ref(symbol_ref ref) ;
-
-extern symbol_ref
-symbol_set_ref(symbol_ref ref, symbol sym) ;
-
-extern symbol_ref
-symbol_unset_ref(symbol_ref ref, int free_ref_structure) ;
-
-#define symbol_unset_ref_free(ref) symbol_unset_ref(ref, 1) ;
-#define symbol_unset_ref_keep(ref) symbol_unset_ref(ref, 0) ;
+extern symbol_ref symbol_init_ref(symbol_ref ref) ;
+extern symbol_ref symbol_set_ref(symbol_ref ref, symbol sym) ;
+extern symbol_ref symbol_unset_ref(symbol_ref ref,
+                                               free_keep_b free_ref_structure) ;
 
 /* Access functions -- argument is address of symbol_ref.                     */
 /* These cope if address of symbol_ref is null, or reference is undefined.    */

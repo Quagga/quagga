@@ -24,19 +24,16 @@
 #ifndef _ZEBRA_UTY_H
 #define _ZEBRA_UTY_H
 
-#include <stdbool.h>
+#include "misc.h"
+#include "vargs.h"
 
 #include "qpthreads.h"
 #include "qpnexus.h"
 #include "thread.h"
 #include "list_util.h"
 #include "vty.h"
+#include "vty_io_basic.h"
 #include "node_type.h"
-
-/* Macro in case there are particular compiler issues.    */
-#ifndef Inline
-  #define Inline static inline
-#endif
 
 /*==============================================================================
  * This is stuff which is used by the close family of:
@@ -66,15 +63,6 @@
 extern vty_io vio_list_base ;
 extern vty_io vio_monitors_base ;
 extern vty_io vio_death_watch ;
-
-union vty_watch_dog
-{
-  qtimer          qnexus ;      /* when running qnexus  */
-  struct thread*  thread;       /* when running threads */
-  void*           anon ;
-};
-
-extern union vty_watch_dog vty_watch_dog ;
 
 extern struct thread_master* vty_master ;
 
@@ -125,7 +113,7 @@ extern int vty_assert_fail ;
 #endif
 
 Inline void
-VTY_LOCK(void)
+VTY_LOCK(void)          /* if is qpthreads_enabled, lock vty_mutex      */
 {
   qpt_mutex_lock(&vty_mutex) ;
   if (VTY_DEBUG)
@@ -133,11 +121,17 @@ VTY_LOCK(void)
 } ;
 
 Inline void
-VTY_UNLOCK(void)
+VTY_UNLOCK(void)        /* if is qpthreads_enabled, unlock vty_mutex    */
 {
   if (VTY_DEBUG)
     --vty_lock_count ;
   qpt_mutex_unlock(&vty_mutex) ;
+} ;
+
+Inline bool             /* true => is (effectively) cli thread          */
+vty_is_cli_thread(void)
+{
+  return !qpthreads_enabled || qpt_thread_is_self(vty_cli_nexus->thread_id) ;
 } ;
 
 /* For debug (and documentation) purposes, will VTY_ASSERT_LOCKED where that
@@ -167,9 +161,8 @@ VTY_ASSERT_LOCKED(void)
 Inline void
 VTY_ASSERT_CLI_THREAD(void)
 {
-  if (qpthreads_enabled)
-    if (!qpt_thread_is_self(vty_cli_nexus->thread_id))
-      VTY_ASSERT_FAILED() ;
+  if (!vty_is_cli_thread())
+    VTY_ASSERT_FAILED() ;
 } ;
 
 #else

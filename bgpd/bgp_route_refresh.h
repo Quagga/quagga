@@ -22,15 +22,11 @@
 #ifndef _QUAGGA_BGP_ROUTE_REFRESH_H
 #define _QUAGGA_BGP_ROUTE_REFRESH_H
 
-#include <stddef.h>
+#include "lib/misc.h"
 #include "bgpd/bgp_common.h"
 
 #include "lib/prefix.h"
 #include "lib/plist.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * Structures to hold ROUTE-REFRESH and ORF
@@ -81,7 +77,7 @@ struct bgp_route_refresh
   iAFI_t        afi ;           /* NB: Internet AFI/SAFI                */
   iSAFI_t       safi ;
 
-  struct vector entries ;       /* empty => simple ROUTE-REFRESH        */
+  vector_t      entries ;       /* empty => simple ROUTE-REFRESH        */
 
   bool          defer ;         /* otherwise: immediate                 */
 
@@ -120,13 +116,13 @@ bgp_orf_add_unknown(bgp_route_refresh rr, uint8_t orf_type, bgp_size_t length,
 Inline unsigned
 bgp_orf_get_count(bgp_route_refresh rr)
 {
-  return vector_end(&rr->entries) ;
+  return vector_end(rr->entries) ;
 } ;
 
 Inline bgp_orf_entry
 bgp_orf_get_entry(bgp_route_refresh rr, unsigned index)
 {
-  return vector_get_item(&rr->entries, index) ;
+  return vector_get_item(rr->entries, index) ;
 } ;
 
 #endif /* _QUAGGA_BGP_ROUTE_REFRESH_H */

@@ -21,10 +21,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGP_ASPATH_H
 #define _QUAGGA_BGP_ASPATH_H
 
-/* Macro in case there are particular compiler issues.    */
-#ifndef Inline
-  #define Inline static inline
-#endif
+#include "lib/misc.h"
 
 /* AS path segment type.  */
 #define AS_SET                       1

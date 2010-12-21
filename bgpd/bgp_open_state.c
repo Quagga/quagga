@@ -48,7 +48,7 @@ bgp_open_state_init_new(bgp_open_state state)
   else
     memset(state, 0, sizeof(struct bgp_open_state)) ;
 
-  vector_init_new(&state->unknowns, 0) ;
+  vector_init_new(state->unknowns, 0) ;
 
   return state ;
 }
@@ -66,10 +66,10 @@ bgp_open_state_free(bgp_open_state state)
 
   if (state != NULL)
     {
-      while ((unknown = vector_ream_keep(&state->unknowns)) != NULL)
+      while ((unknown = vector_ream(state->unknowns, keep_it)) != NULL)
         XFREE(MTYPE_TMP, unknown) ;
 
-      while ((afi_safi = vector_ream_keep(&state->afi_safi)) != NULL)
+      while ((afi_safi = vector_ream(state->afi_safi, keep_it)) != NULL)
         XFREE(MTYPE_TMP, afi_safi) ;
 
       XFREE(MTYPE_BGP_OPEN_STATE, state) ;
@@ -222,7 +222,7 @@ bgp_open_state_unknown_add(bgp_open_state state, uint8_t code,
   if (length != 0)
     memcpy(unknown->value, value, length) ;
 
-  vector_push_item(&state->unknowns, unknown) ;
+  vector_push_item(state->unknowns, unknown) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -231,7 +231,7 @@ bgp_open_state_unknown_add(bgp_open_state state, uint8_t code,
 extern int
 bgp_open_state_unknown_count(bgp_open_state state)
 {
-  return vector_end(&state->unknowns) ;
+  return vector_end(state->unknowns) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -240,7 +240,7 @@ bgp_open_state_unknown_count(bgp_open_state state)
 extern bgp_cap_unknown
 bgp_open_state_unknown_cap(bgp_open_state state, unsigned index)
 {
-  return vector_get_item(&state->unknowns, index) ;
+  return vector_get_item(state->unknowns, index) ;
 } ;
 
 /*==============================================================================
@@ -264,7 +264,7 @@ bgp_open_state_afi_safi_add(bgp_open_state state, iAFI_t afi, iSAFI_t safi,
   afi_safi->safi             = safi ;
   afi_safi->cap_code         = cap_code ;
 
-  vector_push_item(&state->afi_safi, afi_safi) ;
+  vector_push_item(state->afi_safi, afi_safi) ;
 
   return afi_safi ;
 } ;
@@ -275,7 +275,7 @@ bgp_open_state_afi_safi_add(bgp_open_state state, iAFI_t afi, iSAFI_t safi,
 extern int
 bgp_open_state_afi_safi_count(bgp_open_state state)
 {
-  return vector_end(&state->afi_safi) ;
+  return vector_end(state->afi_safi) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -284,7 +284,7 @@ bgp_open_state_afi_safi_count(bgp_open_state state)
 extern bgp_cap_afi_safi
 bgp_open_state_afi_safi_cap(bgp_open_state state, unsigned index)
 {
-  return vector_get_item(&state->afi_safi, index) ;
+  return vector_get_item(state->afi_safi, index) ;
 } ;
 
 /*==============================================================================

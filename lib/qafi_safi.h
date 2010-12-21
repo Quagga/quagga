@@ -23,7 +23,7 @@
 #ifndef _QUAGGA_AFI_SAFI_H
 #define _QUAGGA_AFI_SAFI_H
 
-#include <stdint.h>
+#include "misc.h"
 #include "lib/zassert.h"
 
 /*==============================================================================

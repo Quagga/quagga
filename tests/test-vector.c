@@ -424,12 +424,12 @@ void
 do_test_insert(const int rider)
 {
   vector v = NULL;
-  const vector_index len = 100;
-  const vector_index ins = 50;
-  vector_index i;
+  const vector_length_t len = 100;
+  const vector_index_t  ins = 50;
+  vector_index_t i;
   char buf[10];
-  vector_index check_end = len + 1;
-  vector_index check_ins = ins;
+  vector_length_t check_end = len + 1;
+  vector_index_t  check_ins = ins;
   int check_shift = 1;
 
   switch(rider)
@@ -563,9 +563,9 @@ test_vector_bsearch(void)
   const int len = 2000;
   char buf[20];
   char target[20];
-  vector_index target_index = 0;
+  vector_index_t target_index = 0;
   int result;
-  vector_index index;
+  vector_index_t index;
 
   printf("test_vector_bsearch\n");
 
@@ -614,14 +614,14 @@ void
 do_test_move_item_here(const int rider)
 {
   vector v = NULL;
-  const vector_index len = 100;
-  const vector_index ins = 50;
-  const vector_index src = 70;
-  vector_index i;
+  const vector_length_t len = 100;
+  const vector_index_t  ins = 50;
+  const vector_index_t  src = 70;
+  vector_index_t i;
   char buf[10];
-  vector_index check_dest = 0;
-  vector_index check_src = 0;
-  vector_index check_end = 0;
+  vector_index_t check_dest = 0;
+  vector_index_t check_src = 0;
+  vector_index_t check_end = 0;
   int check_shift = 0;
   p_vector_item dest_item = NULL;
 
@@ -711,10 +711,10 @@ void
 test_vector_part_reverse(void)
 {
   vector v = NULL;
-  const vector_index len = 100;
-  const vector_index rstart = 50;
-  const vector_index rstop = 70;
-  vector_index i;
+  const vector_length_t len = 100;
+  const vector_index_t  rstart = 50;
+  const vector_index_t  rstop = 70;
+  vector_index_t i;
   char buf[10];
 
   printf("test_vector_part_reverse\n");
@@ -770,8 +770,8 @@ test_vector_copy_here(void)
 {
   vector v1 = NULL;
   vector v2 = NULL;
-  vector_index i;
-  const vector_index len = 100;
+  vector_index_t i;
+  const vector_length_t len = 100;
   char buf[10];
 
   printf("test_vector_copy_here\n");
@@ -809,8 +809,8 @@ test_vector_move_here(void)
 {
   vector v1 = NULL;
   vector v2 = NULL;
-  vector_index i;
-  const vector_index len = 100;
+  vector_index_t i;
+  const vector_length_t len = 100;
   char buf[10];
 
   printf("test_vector_move_here\n");
@@ -851,8 +851,8 @@ test_vector_copy_append(void)
 {
   vector v1 = NULL;
   vector v2 = NULL;
-  vector_index i;
-  const vector_index len = 100;
+  vector_index_t i;
+  const vector_length_t len = 100;
   char buf[10];
 
   printf("test_vector_copy_append\n");
@@ -900,8 +900,8 @@ test_vector_move_append(void)
 {
   vector v1 = NULL;
   vector v2 = NULL;
-  vector_index i;
-  const vector_index len = 100;
+  vector_index_t i;
+  const vector_length_t len = 100;
   char buf[10];
 
   printf("test_vector_move_append\n");
@@ -949,10 +949,10 @@ void
 test_vector_insert(void)
 {
   vector v = NULL;
-  vector_index i;
-  const vector_index len = 100;
-  const vector_index istart = 50;
-  const vector_index istop = 70;
+  vector_index_t i;
+  const vector_length_t len = 100;
+  const vector_index_t  istart = 50;
+  const vector_index_t  istop = 70;
   char buf[10];
 
   printf("test_vector_insert\n");
@@ -1004,10 +1004,10 @@ void
 test_vector_delete(void)
 {
   vector v = NULL;
-  vector_index i;
-  const vector_index len = 100;
-  const vector_index dstart = 50;
-  const vector_index dstop = 70;
+  vector_index_t i;
+  const vector_length_t len = 100;
+  const vector_index_t  dstart = 50;
+  const vector_index_t  dstop = 70;
   char buf[10];
 
   printf("test_vector_delete\n");
@@ -1060,9 +1060,9 @@ void
 test_vector_discard(void)
 {
   vector v = NULL;
-  vector_index i;
-  const vector_index len = 100;
-  const vector_index dstart = 50;
+  vector_index_t i;
+  const vector_length_t len = 100;
+  const vector_index_t  dstart = 50;
   char buf[10];
 
   printf("test_vector_discard\n");
@@ -1110,12 +1110,12 @@ test_vector_sak(void)
   vector v1 = NULL;
   vector v2 = NULL;
   vector v3 = NULL;
-  vector_index i;
-  const vector_index len = 100;
-  const vector_index sstart = 60;
-  const vector_index sstop = 70;
-  const vector_index dstart = 40;
-  const vector_index dstop = 50;
+  vector_index_t i;
+  const vector_length_t len = 100;
+  const vector_index_t  sstart = 60;
+  const vector_index_t  sstop = 70;
+  const vector_index_t  dstart = 40;
+  const vector_index_t  dstop = 50;
   char buf[10];
 
   printf("test_vector_sak\n");
@@ -1132,7 +1132,7 @@ test_vector_sak(void)
   }
 
   v1 = vector_sak(1, v1, v2, dstart, dstop - dstart,
-      v3, sstart, sstop - sstart, 0);
+                         v3, sstart, sstop - sstart, 0);
   assert_true(v1 != NULL, "v1 == NULL");
 
   assert_true(vector_end(v1) == (dstop - dstart),

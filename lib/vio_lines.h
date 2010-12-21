@@ -23,15 +23,8 @@
 #define _ZEBRA_VIO_LINES_H
 
 #include "zebra.h"
-
-#include <stddef.h>
-#include <stdint.h>
-
+#include "misc.h"
 #include "qiovec.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  *

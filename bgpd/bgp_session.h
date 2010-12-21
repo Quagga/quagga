@@ -22,8 +22,8 @@
 #ifndef _QUAGGA_BGP_SESSION_H
 #define _QUAGGA_BGP_SESSION_H
 
-#include <stdbool.h>
 #include <zebra.h>
+#include "lib/misc.h"
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_engine.h"
@@ -36,10 +36,6 @@
 #include "lib/qpthreads.h"
 #include "lib/sockunion.h"
 #include "lib/mqueue.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * BGP Session data structure.

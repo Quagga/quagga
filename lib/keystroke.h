@@ -22,18 +22,12 @@
 #ifndef _ZEBRA_KEYSTROKE_H
 #define _ZEBRA_KEYSTROKE_H
 
-#include <stddef.h>
-#include <stdint.h>
-#include <stdbool.h>
+#include "misc.h"
 
 #include <arpa/telnet.h>
 
 #include "zassert.h"
 #include "vio_fifo.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * Keystroke buffering

@@ -39,6 +39,8 @@ extern struct mlist mlists[];
 
 #include "lib/memtypes.h"
 
+typedef enum MTYPE mtype_t ;
+
 /* #define MEMORY_LOG */
 #ifdef MEMORY_LOG
 #define XMALLOC(mtype, size) \

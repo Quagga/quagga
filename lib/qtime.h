@@ -22,7 +22,7 @@
 #ifndef _ZEBRA_QTIME_H
 #define _ZEBRA_QTIME_H
 
-#include <stdint.h>
+#include "misc.h"
 #include <stdlib.h>
 #include <time.h>
 #include <sys/time.h>
@@ -30,10 +30,6 @@
 
 #include "zassert.h"
 #include "config.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * qtime_t -- signed 64-bit integer.

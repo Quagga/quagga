@@ -22,15 +22,11 @@
 #ifndef _QUAGGA_BGP_OPEN_STATE_H
 #define _QUAGGA_BGP_OPEN_STATE_H
 
-#include <stdint.h>
+#include "misc.h"
 
 #include "bgpd/bgp.h"
 #include "bgpd/bgp_common.h"
 #include "lib/vector.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * BGP Open State.
@@ -114,8 +110,8 @@ struct bgp_open_state
   bool        has_restarted ;         /* Restart State flag                 */
   unsigned    restart_time ;          /* Restart Time in seconds            */
 
-  struct vector   unknowns ;          /* list of bgp_cap_unknown            */
-  struct vector   afi_safi ;          /* various afi/safi capabilities      */
+  vector_t    unknowns ;              /* list of bgp_cap_unknown            */
+  vector_t    afi_safi ;              /* various afi/safi capabilities      */
 } ;
 
 /*==============================================================================

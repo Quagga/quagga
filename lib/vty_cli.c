@@ -31,6 +31,7 @@
 #include "vio_lines.h"
 
 #include "command.h"
+#include "command_parse.h"
 #include "command_execute.h"
 #include "command_queue.h"
 
@@ -262,7 +263,7 @@ uty_new_host_name(const char* name)
  * The CLI
  */
 
-#define CONTROL(X)  ((X) - '@')
+#define CONTROL(X)  ((X) & 0x1F)
 
 static void uty_cli_cmd_complete(vty_io vio, enum cmd_return_code ret) ;
 static enum vty_readiness uty_cli_standard(vty_io vio) ;
@@ -309,7 +310,7 @@ static void uty_dont_lflow_ahead (vty_io vio) ;
 extern void
 uty_cli_init(vty_io vio)
 {
-  assert(vio->type == VTY_TERM) ;
+  assert(vio->vty->type == VTY_TERMINAL) ;
 
   vio->cmd_in_progress  = 1 ;
   vio->cli_blocked      = 1 ;
@@ -350,7 +351,7 @@ extern void
 uty_cli_close(vty_io vio)
 {
   VTY_ASSERT_LOCKED() ;
-  assert(vio->type == VTY_TERM) ;
+  assert(vio->vty->type == VTY_TERMINAL) ;
 
   cq_revoke(vio->vty) ;
 
@@ -373,7 +374,7 @@ extern enum vty_readiness
 uty_cli(vty_io vio)
 {
   VTY_ASSERT_LOCKED() ;
-  assert(vio->type == VTY_TERM) ;
+  assert(vio->vty_type == VTY_TERM) ;
 
   if (vio->half_closed)
     return not_ready ;          /* Nothing more if half closed          */
@@ -411,7 +412,7 @@ static enum vty_readiness
 uty_cli_standard(vty_io vio)
 {
   VTY_ASSERT_LOCKED() ;
-  assert(vio->type == VTY_TERM) ;
+  assert(vio->vty_type == VTY_TERM) ;
 
   /* cli_blocked is set when is waiting for a command, or its output to
    * complete -- unless either of those has happened, is still blocked.
@@ -598,7 +599,7 @@ vty_queued_result(struct vty *vty, enum cmd_return_code ret)
 
   VTY_LOCK() ;
 
-  vio = vty->vio ;
+  vio = vty->tos ;
 
   if (!vio->closed)
     {
@@ -622,9 +623,7 @@ vty_queued_result(struct vty *vty, enum cmd_return_code ret)
       /* If the VTY is closed, the only reason it still exists is because
        * there was cmd_in_progress.
        */
-      vio->cmd_in_progress = 0 ;
-
-      uty_close(vio) ;          /* Final close                          */
+      vio->cmd_in_progress = 0 ;  /* death watch will apply coup de grace */
     } ;
 
   VTY_UNLOCK() ;
@@ -660,7 +659,7 @@ uty_cli_cmd_complete(vty_io vio, enum cmd_return_code ret)
   assert(vio->cmd_in_progress && !vio->cmd_out_enabled) ;
 
   if (ret == CMD_CLOSE)
-    uty_half_close(vio, NULL) ;
+    uty_close(vio, NULL) ;
 
   vio->cmd_in_progress  = 0 ;   /* command complete                     */
   vio->cmd_out_enabled  = 1 ;   /* enable the output                    */
@@ -1405,7 +1404,7 @@ uty_cli_process(vty_io vio, enum node_type node)
 
   /* Now process as much as possible of what there is                   */
   ret = cli_do_nothing ;
-  while (1)
+  while (ret == cli_do_nothing)
     {
       if (!vio->cli_drawn)
         uty_cli_draw_this(vio, node) ;
@@ -1565,6 +1564,7 @@ uty_cli_process(vty_io vio, enum node_type node)
             case ('D'):
               uty_cli_backwards(vio, 1);
               break;
+
             default:
               break ;
           } ;
@@ -1580,16 +1580,12 @@ uty_cli_process(vty_io vio, enum node_type node)
           zabort("unknown keystroke type") ;
       } ;
 
-      /* After each keystroke.....                                      */
-
-      if (ret != cli_do_nothing)
-        {
-          uty_cli_eol (vio) ;   /* go to the end of the line    */
-          break ;               /* stop processing              */
-        } ;
     } ;
 
   /* Tidy up and return where got to.                                   */
+
+  if (ret != cli_do_nothing)
+    uty_cli_eol (vio) ;         /* go to the end of the line    */
 
   qs_term(&vio->cl) ;           /* add '\0'                     */
 
@@ -1997,14 +1993,14 @@ uty_cli_hist_add (vty_io vio, const char* cmd_line)
   qs_dummy(&line, cmd_line, 1) ;        /* set cursor to the end        */
 
   /* make sure have a suitable history vector                           */
-  vector_set_min_length(&vio->hist, VTY_MAXHIST) ;
+  vector_set_min_length(vio->hist, VTY_MAXHIST) ;
 
   /* find the previous command line in the history                      */
   prev_index = vio->hindex - 1 ;
   if (prev_index < 0)
     prev_index = VTY_MAXHIST - 1 ;
 
-  prev_line = vector_get_item(&vio->hist, prev_index) ;
+  prev_line = vector_get_item(vio->hist, prev_index) ;
 
   /* If the previous line is NULL, that means the history is empty.
    *
@@ -2018,10 +2014,10 @@ uty_cli_hist_add (vty_io vio, const char* cmd_line)
   if ((prev_line == NULL) || (qs_cmp_sig(prev_line, &line) == 0))
     vio->hindex = prev_index ;
   else
-    prev_line = vector_get_item(&vio->hist, vio->hindex) ;
+    prev_line = vector_get_item(vio->hist, vio->hindex) ;
 
   /* Now replace the hindex entry                                       */
-  vector_set_item(&vio->hist, vio->hindex, qs_copy(prev_line, &line)) ;
+  vector_set_item(vio->hist, vio->hindex, qs_copy(prev_line, &line)) ;
 
   /* Advance to the near future and reset the history pointer           */
   vio->hindex++;
@@ -2063,8 +2059,8 @@ uty_cli_history_use(vty_io vio, int step)
       /* before stepping back from the present, take a copy of the
        * current command line -- so can get back to it.
        */
-      hist = vector_get_item(&vio->hist, vio->hindex) ;
-      vector_set_item(&vio->hist, vio->hindex, qs_copy(hist, &vio->cl)) ;
+      hist = vector_get_item(vio->hist, vio->hindex) ;
+      vector_set_item(vio->hist, vio->hindex, qs_copy(hist, &vio->cl)) ;
     } ;
 
   /* Advance or retreat                                                 */
@@ -2074,7 +2070,7 @@ uty_cli_history_use(vty_io vio, int step)
   else if (index >= VTY_MAXHIST)
     index = 0 ;
 
-  hist = vector_get_item(&vio->hist, index) ;
+  hist = vector_get_item(vio->hist, index) ;
 
   /* If moving backwards in time, may not move back to the insertion
    * point (that would be wrapping round to the present) and may not
@@ -2232,35 +2228,32 @@ uty_cli_complete_command (vty_io vio, enum node_type node)
  * Command Description
  */
 static void
-uty_cli_describe_command (vty_io vio, enum node_type node)
+uty_cli_describe_command (vty_io vio, node_type_t node)
 {
-  int ret;
-  vector vline;
-  vector describe;
+  cmd_return_code_t ret ;
+  vector            describe ;
 
   VTY_ASSERT_LOCKED() ;
 
   /* Try and match the tokenised command line                           */
-  vline = uty_cli_cmd_prepare(vio, 1) ;
-  describe = cmd_describe_command (vline, node, &ret);
-  cmd_free_strvec (vline);
+  describe = cmd_describe_command (qs_term(&vio->cl), node, &ret);
 
   uty_cli_out_newline(vio);     /* clears cli_drawn     */
 
   /* Deal with result.                                                  */
   switch (ret)
     {
-    case CMD_ERR_AMBIGUOUS:
-      uty_cli_out_CMD_ERR_AMBIGUOUS(vio) ;
-      break ;
+      case CMD_ERR_AMBIGUOUS:
+        uty_cli_out_CMD_ERR_AMBIGUOUS(vio) ;
+        break ;
 
-    case CMD_ERR_NO_MATCH:
-      uty_cli_out_CMD_ERR_NO_MATCH(vio) ;
-      break ;
+      case CMD_ERR_NO_MATCH:
+        uty_cli_out_CMD_ERR_NO_MATCH(vio) ;
+        break ;
 
-    default:
-      uty_cli_describe_show(vio, describe) ;
-      break ;
+      default:
+        uty_cli_describe_show(vio, describe) ;
+        break ;
     } ;
 
   if (describe != NULL)

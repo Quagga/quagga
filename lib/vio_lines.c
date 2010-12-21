@@ -19,8 +19,7 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#include <stdint.h>
-
+#include "misc.h"
 #include "memory.h"
 #include "zassert.h"
 
@@ -148,6 +147,9 @@ vio_lc_reset(vio_line_control lc, bool free_structure)
 extern void
 vio_lc_clear(vio_line_control lc)
 {
+  if (lc == NULL)
+    return ;
+
   qiovec_clear(&lc->qiov) ;
 
   lc->pause   = 0 ;

@@ -213,11 +213,12 @@ qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto)
  *     and the process MUST be run to completion.
  */
 qtimer
-qtimer_pile_ream(qtimer_pile qtp, int free_structure)
+qtimer_pile_ream(qtimer_pile qtp, free_keep_b free_structure)
 {
   qtimer qtr ;
+  confirm(free_it == true) ;
 
-  qtr = heap_ream_keep(&qtp->timers) ;  /* ream, keeping the heap structure   */
+  qtr = heap_ream(&qtp->timers, keep_it) ; /* ream, keeping the heap    */
   if (qtr != NULL)
     qtr->active = false ;               /* has been removed from pile         */
   else
@@ -413,8 +414,8 @@ qtimer_pile_verify(qtimer_pile qtp)
 {
   heap   th = &qtp->timers ;
   vector v ;
-  vector_index i ;
-  vector_index e ;
+  vector_index_t  i ;
+  vector_length_t e ;
   qtimer qtr ;
   bool seen ;
 
@@ -429,7 +430,7 @@ qtimer_pile_verify(qtimer_pile qtp)
   assert(th->state           == Heap_Has_Backlink) ;
   assert(th->backlink_offset == offsetof(qtimer_t, backlink)) ;
 
-  v = &th->v ;
+  v = th->v ;
   e = vector_end(v) ;
   for (i = 0 ; i < e ; ++i)
     {

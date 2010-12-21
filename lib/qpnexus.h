@@ -22,7 +22,7 @@
 #ifndef _ZEBRA_QPNEXUS_H
 #define _ZEBRA_QPNEXUS_H
 
-#include <stdint.h>
+#include "misc.h"
 #include <time.h>
 #include <pthread.h>
 #include <unistd.h>
@@ -33,10 +33,6 @@
 #include "qtimers.h"
 #include "mqueue.h"
 #include "qpselect.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * Quagga Nexus Interface -- qpn_xxxx

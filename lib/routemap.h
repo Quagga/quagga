@@ -22,7 +22,7 @@
 #ifndef _ZEBRA_ROUTEMAP_H
 #define _ZEBRA_ROUTEMAP_H
 
-#include <stdint.h>
+#include "misc.h"
 
 /* Route map's type. */
 enum route_map_type

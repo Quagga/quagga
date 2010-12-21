@@ -33,7 +33,7 @@ extern void _zlog_abort_err (const char *mess, int err, const char *file,
 
 #define zassert(EX) ((void)((EX) ?  0 :	\
 			    (_zlog_assert_failed(#EX, __FILE__, __LINE__, \
-						 __ASSERT_FUNCTION), 0)))
+                                                        __ASSERT_FUNCTION), 0)))
 
 /* Implicitly *permanent* assert() -- irrespective of NDEBUG    */
 #undef assert

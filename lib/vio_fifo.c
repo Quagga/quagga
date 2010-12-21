@@ -19,7 +19,7 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#include <stddef.h>
+#include "misc.h"
 #include <string.h>
 
 #include "vio_fifo.h"
@@ -215,15 +215,18 @@ vio_fifo_ptr_unset(vio_fifo vf)
  * Clear out contents of FIFO -- will continue to use the FIFO.
  *
  * Keeps one FIFO lump.  (Frees everything else, including any spare.)
+ *
+ * Does nothing if there is no FIFO !
  */
 extern void
 vio_fifo_clear(vio_fifo vf)
 {
   vio_fifo_lump tail ;
 
-  VIO_FIFO_DEBUG_VERIFY(vf) ;
+  if (vf == NULL)
+    return ;
 
-  assert(vf != NULL) ;
+  VIO_FIFO_DEBUG_VERIFY(vf) ;
 
   tail = ddl_tail(vf->base) ;
 

@@ -683,7 +683,7 @@ static qps_file
 qps_file_lookup_fd(qps_selection qps, int fd, qps_file insert)
 {
   qps_file qf ;
-  vector_index i ;
+  vector_index_t i ;
   int   ret ;
 
   dassert((fd >= 0) && (fd < (int)FD_SETSIZE)) ;
@@ -772,9 +772,9 @@ qps_file_remove(qps_selection qps, qps_file qf)
     {
       qps_file qf_last ;
       int ret ;
-      vector_index i = vector_bsearch(&qps->files,
-                                      (vector_bsearch_cmp*)qps_fd_cmp,
-                                      &qf->fd, &ret) ;
+      vector_index_t i = vector_bsearch(&qps->files,
+                                        (vector_bsearch_cmp*)qps_fd_cmp,
+                                        &qf->fd, &ret) ;
       if (ret == 0)
         qfd = vector_delete_item(&qps->files, i) ;
       else
@@ -1279,9 +1279,9 @@ qps_selection_validate(qps_selection qps)
   int   enabled_count[qps_mnum_count] ;
   fd_full_set enabled ;
 
-  qps_file     qf ;
-  int          fd, n, mnum, p_mnum ;
-  vector_index i ;
+  qps_file       qf ;
+  int            fd, n, mnum, p_mnum ;
+  vector_index_t  i ;
 
   /* 1..4)  Run down the selection vector and check.            */
   /*        Collect new enabled_count and enabled bit vectors.  */

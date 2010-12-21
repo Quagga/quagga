@@ -23,15 +23,11 @@
 #ifndef _ZEBRA_COMMAND_H
 #define _ZEBRA_COMMAND_H
 
-#include <stdbool.h>
+#include "misc.h"
 
 #include "node_type.h"
 #include "vector.h"
 #include "qstring.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 struct vty ;                            /* in case command.h expanded first */
 
@@ -89,6 +85,7 @@ struct cmd_node
 
 enum
 {
+  CMD_ATTR_SIMPLE     = 0x00,
   /* bit significant */
   CMD_ATTR_DEPRECATED = 0x01,
   CMD_ATTR_HIDDEN     = 0x02,
@@ -113,6 +110,7 @@ enum cmd_return_code
   CMD_EMPTY,
   CMD_SUCCESS_DAEMON,
 
+  CMD_WAIT_INPUT,
   CMD_CLOSE,
   CMD_QUEUED,
 
@@ -125,6 +123,8 @@ enum cmd_return_code
   CMD_COMPLETE_LIST_MATCH,
   CMD_COMPLETE_ALREADY
 } ;
+
+typedef enum cmd_return_code cmd_return_code_t ;
 
 #define MSG_CMD_ERR_AMBIGUOUS      "Ambiguous command"
 #define MSG_CMD_ERR_NO_MATCH       "Unrecognised command"
@@ -148,57 +148,23 @@ typedef DEFUN_CMD_FUNCTION((cmd_function)) ;
 
 struct cmd_element
 {
-  const char *string;		/* Command specification by string. */
-  cmd_function* func ;
-  const char *doc;		/* Documentation of this command. */
-  int daemon;                   /* Daemon to which this command belong. */
-  vector strvec;		/* Pointing out each description vector. */
-  unsigned int cmdsize;		/* Command index count. */
-  char *config;			/* Configuration string */
-  vector subconfig;		/* Sub configuration string */
-  u_char attr;			/* Command attributes */
+  const char*    string ;       /* Command specification by string.     */
+  cmd_function*  func ;
+  const char*    doc ;          /* Documentation of this command.       */
+  int            daemon ;       /* Daemon to which this command belong. */
+  vector         strvec ;       /* Vector of vectors of struct desc     */
+  unsigned int   cmdsize ;      /* Command index count.                 */
+  char*          config ;       /* Configuration string                 */
+  vector         subconfig ;    /* Sub configuration string             */
+  u_char         attr ;         /* Command attributes                   */
 };
 
-/* Command description structure.       */
+/* Command description structure.                                       */
 struct desc
 {
-  char *cmd;                    /* Command string. */
-  char *str;                    /* Command's description. */
+  char* cmd;                    /* Command string.                      */
+  char* str;                    /* Command's description.               */
 };
-
-/* Command parsing options                                              */
-enum cmd_parse_type               /* bit significant      */
-{
-  cmd_parse_completion  = 0x00,
-  cmd_parse_strict      = 0x01,
-
-  cmd_parse_do          = 0x02,
-  cmd_parse_tree        = 0x04,
-} ;
-
-/* Parsed command                                                       */
-typedef struct cmd_parsed* cmd_parsed ;
-struct cmd_parsed
-{
-  struct cmd_element *cmd ;     /* NULL if empty command
-                                        or fails to parse       */
-
-  enum node_type  cnode ;       /* node command is in           */
-  enum node_type  onode ;       /* node the parser started in   */
-
-  bool            do_shortcut ; /* true => is "do" command      */
-
-  qstring_t       words ;       /* the words, '\0' separated    */
-
-  vector_t        vline ;       /* pointers to the words        */
-} ;
-
-
-/* Command dispatch options                                             */
-enum {
-  cmd_no_queue  = true,
-  cmd_may_queue = false,
-} ;
 
 /*------------------------------------------------------------------------------
  * Can now include these
@@ -313,9 +279,9 @@ enum {
 #define CMD_VARARG(S)   ((S[0]) == '.')
 #define CMD_RANGE(S)	((S[0] == '<'))
 
-#define CMD_IPV4(S)	   ((strcmp ((S), "A.B.C.D") == 0))
-#define CMD_IPV4_PREFIX(S) ((strcmp ((S), "A.B.C.D/M") == 0))
-#define CMD_IPV6(S)        ((strcmp ((S), "X:X::X:X") == 0))
+#define CMD_IPV4(S)	   ((strcmp ((S), "A.B.C.D")    == 0))
+#define CMD_IPV4_PREFIX(S) ((strcmp ((S), "A.B.C.D/M")  == 0))
+#define CMD_IPV6(S)        ((strcmp ((S), "X:X::X:X")   == 0))
 #define CMD_IPV6_PREFIX(S) ((strcmp ((S), "X:X::X:X/M") == 0))
 
 /* Common descriptions. */

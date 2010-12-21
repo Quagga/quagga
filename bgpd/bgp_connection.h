@@ -22,7 +22,7 @@
 #ifndef _QUAGGA_BGP_CONNECTION_H
 #define _QUAGGA_BGP_CONNECTION_H
 
-#include <stdbool.h>
+#include "lib/misc.h"
 
 #include "lib/mqueue.h"
 #include "lib/qpthreads.h"
@@ -39,10 +39,6 @@
 #include "bgpd/bgp_open_state.h"
 #include "bgpd/bgp_notification.h"
 #include "bgpd/bgp_msg_read.h"
-
-#ifndef Inline
-#define Inline static inline
-#endif
 
 /*==============================================================================
  * The BGP Finite State Machine: states and events

@@ -20,10 +20,10 @@ static void test_ddl(void);
   } while (0)
 
 static void
-test_assert_fail(const char* true, const char* message, const char* func,
+test_assert_fail(const char* truth, const char* message, const char* func,
                                                                        int line)
 {
-  printf("*** %s %d: (%s) not true: %s\n", func, line, true, message) ;
+  printf("*** %s %d: (%s) not true: %s\n", func, line, truth, message) ;
 
 } ;
 

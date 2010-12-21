@@ -19,10 +19,8 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#include <stdbool.h>
-#include <stdint.h>
-
 #include "qfstring.h"
+#include "zassert.h"
 
 /*==============================================================================
  */

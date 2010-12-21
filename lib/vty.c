@@ -22,7 +22,7 @@
  */
 
 #include "zebra.h"
-#include <stdbool.h>
+#include "misc.h"
 #include "lib/version.h"
 
 #include "vty_io.h"
@@ -94,9 +94,6 @@ bool no_password_check = 0;
 const bool restricted_mode_default = 0 ;
       bool restricted_mode         = 0 ;
 
-/* Watch-dog timer.                                                     */
-union vty_watch_dog vty_watch_dog = { NULL } ;
-
 /*------------------------------------------------------------------------------
  * VTYSH stuff
  */
@@ -110,6 +107,9 @@ char integrate_default[] = SYSCONFDIR INTEGRATE_DEFAULT_CONFIG ;
 static void uty_reset (bool final, const char* why) ;
 static void uty_init_commands (void) ;
 static void vty_save_cwd (void) ;
+static bool vty_terminal (struct vty *);
+static bool vty_shell_server (struct vty *);
+static bool vty_shell_client (struct vty *);
 
 /*------------------------------------------------------------------------------
  * Tracking the initialisation state.
@@ -159,7 +159,7 @@ vty_init (struct thread_master *master_thread)
   vty_cli_nexus       = NULL ;  /* not running qnexus-wise              */
   vty_cmd_nexus       = NULL ;
 
-  vty_watch_dog.anon  = NULL ;  /* no watch dog                         */
+  uty_watch_dog_init() ;        /* empty watch dog                      */
 
   uty_init_commands() ;         /* install nodes                        */
 
@@ -440,16 +440,13 @@ uty_reset (bool curtains, const char* why)
       vio  = next ;
       next = sdl_next(vio, vio_list) ;
 
-      if (vio->type == VTY_TERM)
+      if (uty_is_terminal(vio->vty))
         cq_revoke(vio->vty) ;
 
-      if (why != NULL)
-        vio->close_reason = why ;
-
       if (curtains)
-        uty_close(vio) ;
+        uty_close_final(vio, why) ;
       else
-        uty_half_close(vio, why) ;
+        uty_close(vio, why) ;
     } ;
 
   vty_timeout_val = VTY_TIMEOUT_DEFAULT;
@@ -512,31 +509,79 @@ vty_close (struct vty *vty)
 /*==============================================================================
  * General VTY output.
  *
- * This is mostly used during command execution, to output the results of the
- * command.
+ * This is used during command execution, to output the results of commands.
  *
  * All these end up in uty_vout -- see vty_io.
  */
 
 /*------------------------------------------------------------------------------
  * VTY output -- cf fprintf !
+ *
+ * This is for command output, which may be suppressed
+ *
+ * Returns: >= 0 => OK
+ *          <  0 => failed (see errno)
  */
 extern int
 vty_out (struct vty *vty, const char *format, ...)
 {
-  int result;
+  int     ret ;
+  va_list args ;
 
   VTY_LOCK() ;
-  va_list args;
-  va_start (args, format);
-  result = uty_vout(vty, format, args);
-  va_end (args);
+
+  if (vty->output_enabled)
+    {
+      va_start (args, format) ;
+      ret = uty_vprintf(vty, format, args) ;
+      va_end (args) ;
+    }
+  else
+    ret = 0 ;
+
   VTY_UNLOCK() ;
-  return result;
+  return ret ;
+}
+
+/*------------------------------------------------------------------------------
+ * VTY output error message -- cf fprintf !
+ *
+ * If command has not yet been reflected, do that first.
+ *
+ * Returns: >= 0 => OK
+ *          <  0 => failed (see errno)
+ */
+extern int
+vty_out_error (struct vty *vty, const char *format, ...)
+{
+  int     ret ;
+  va_list args ;
+
+  VTY_LOCK() ;
+
+  if (!vty->reflected)
+    ret = uty_reflect(vty) ;
+  else
+    ret = 0 ;
+
+  if (ret == 0)
+    {
+      va_start (args, format) ;
+      ret = uty_vprintf(vty, format, args) ;
+      va_end (args) ;
+    } ;
+
+  VTY_UNLOCK() ;
+  return ret ;
 }
 
 /*------------------------------------------------------------------------------
  * VTY output -- output a given numnber of spaces
+ *
+ * This is for command output, which may be suppressed
+ *
+ * Returns: >= 0 => OK
+ *          <  0 => failed (see errno)
  */
 
 /*                                         1         2         3         4 */
@@ -544,14 +589,19 @@ vty_out (struct vty *vty, const char *format, ...)
 const char vty_spaces_string[] = "                                        " ;
 CONFIRM(VTY_MAX_SPACES == (sizeof(vty_spaces_string) - 1)) ;
 
-extern void
+extern int
 vty_out_indent(struct vty *vty, int indent)
 {
-  while (indent > 0)
+  int     ret ;
+
+  ret = 0 ;
+  while ((indent > 0) && (ret >= 0))
     {
-      vty_out(vty, VTY_SPACES(indent)) ;
+      ret = vty_out(vty, VTY_SPACES(indent)) ;
       indent -= VTY_MAX_SPACES ;
     }
+
+  return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -565,9 +615,9 @@ vty_time_print (struct vty *vty, int cr)
   quagga_timestamp(0, buf, sizeof(buf)) ;
 
   if (cr)
-    vty_out (vty, "%s%s", buf, VTY_NEWLINE);
+    vty_out(vty, "%s\n", buf);
   else
-    vty_out (vty, "%s ", buf);
+    vty_out(vty, "%s ", buf);
 
   return;
 }
@@ -581,7 +631,7 @@ vty_hello (struct vty *vty)
   VTY_LOCK() ;
 
 #ifdef QDEBUG
-  uty_out (vty, "%s%s", debug_banner, VTY_NEWLINE);
+  uty_out (vty, "%s\n", debug_banner);
 #endif
   if (host.motdfile)
     {
@@ -598,15 +648,15 @@ vty_hello (struct vty *vty)
               for (s = buf + strlen (buf); (s > buf) && isspace ((int)*(s - 1));
                    s--);
               *s = '\0';
-              uty_out (vty, "%s%s", buf, VTY_NEWLINE);
+              uty_output (vty, "%s\n", buf);
             }
           fclose (f);
         }
       else
-        uty_out (vty, "MOTD file %s not found%s", host.motdfile, VTY_NEWLINE);
+        uty_output (vty, "MOTD file %s not found\n", host.motdfile);
     }
   else if (host.motd)
-    uty_out (vty, "%s", host.motd);
+    uty_output (vty, "%s", host.motd);
 
   VTY_UNLOCK() ;
 }
@@ -643,7 +693,7 @@ uty_command(struct vty *vty)
   VTY_ASSERT_LOCKED() ;
   VTY_ASSERT_CLI_THREAD() ;
 
-  assert(vty->vio->type == VTY_TERM) ;
+  assert(uty_is_terminal(vty)) ;
 
   /* Parse the command and add to history (if not empty)                */
   ret = cmd_parse_command(vty,
@@ -679,15 +729,15 @@ uty_command(struct vty *vty)
   switch (ret)
   {
     case CMD_ERR_AMBIGUOUS:
-      uty_out (vty, "%% Ambiguous command.%s", VTY_NEWLINE);
+      vty_out_error(vty, "%% Ambiguous command.\n");
       break;
 
     case CMD_ERR_NO_MATCH:
-      uty_out (vty, "%% Unknown command.%s", VTY_NEWLINE) ;
+      vty_out_error(vty, "%% Unknown command.\n") ;
       break;
 
     case CMD_ERR_INCOMPLETE:
-      uty_out (vty, "%% Command incomplete.%s", VTY_NEWLINE);
+      vty_out_error(vty, "%% Command incomplete.\n");
       break;
 
     default:
@@ -795,14 +845,14 @@ uty_auth (struct vty *vty, const char *buf, enum cli_do cli_do)
 	{
 	  if (vty->node == AUTH_NODE)
 	    {
-	      ret = uty_cmd_close(vty, "Bad passwords, too many failures!%s") ;
+	      ret = uty_cmd_close(vty, "Bad passwords, too many failures!") ;
 	    }
 	  else
 	    {
 	      /* AUTH_ENABLE_NODE */
 	      vio->fail = 0;
-	      uty_out (vty, "%% Bad enable passwords, too many failures!%s",
-	                                                           VTY_NEWLINE);
+	      vty_out_error(vty,
+	                      "%% Bad enable passwords, too many failures!\n") ;
 	      vty->node = restricted_mode ? RESTRICTED_NODE : VIEW_NODE;
 
 	      ret = CMD_WARNING ;
@@ -833,7 +883,7 @@ vty_cmd_exit(struct vty* vty)
     case VIEW_NODE:
     case ENABLE_NODE:
     case RESTRICTED_NODE:
-      if (vty_shell (vty))
+      if (uty_shell_client(vty))
         exit (0);
       else
         ret = uty_cmd_close(vty, "Exit") ;
@@ -1349,6 +1399,33 @@ vty_read_file (FILE *confp, struct cmd_element* first_cmd, bool ignore_warnings)
   VTY_UNLOCK() ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Flush the contents of the command output FIFO to the given file.
+ *
+ * Takes no notice of any errors !
+ */
+extern void
+uty_out_fflush(vty_io vio, FILE* file)
+{
+  char*   src ;
+  size_t  have ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  fflush(file) ;
+
+  while ((src = vio_fifo_get_lump(&vio->cmd_obuf, &have)) != NULL)
+    {
+      fwrite(src, 1, have, file) ;
+      vio_fifo_got_upto(&vio->cmd_obuf, src + have) ;
+    } ;
+
+  fflush(file) ;
+} ;
+
+
+
+
 /*==============================================================================
  * Configuration node/state handling
  *
@@ -1369,13 +1446,13 @@ vty_config_lock (struct vty *vty, enum node_type node)
 
   VTY_LOCK() ;
 
-  if (vty_config == 0)
+  if (!vty_config)
     {
-      vty->vio->config = 1 ;
-      vty_config       = 1 ;
+      vty->config = true ;
+      vty_config  = true ;
     } ;
 
-  result = vty->vio->config;
+  result = vty->config;
 
   if (result)
     vty->node = node ;
@@ -1407,10 +1484,10 @@ extern void
 uty_config_unlock (struct vty *vty, enum node_type node)
 {
   VTY_ASSERT_LOCKED() ;
-  if ((vty_config == 1) && (vty->vio->config == 1))
+  if (vty_config && vty->config)
     {
-      vty->vio->config = 0;
-      vty_config       = 0;
+      vty->config = false ;
+      vty_config  = false ;
     }
 
   assert(node <= MAX_NON_CONFIG_NODE) ;
@@ -1434,9 +1511,8 @@ DEFUN_CALL (config_who,
   vio = vio_list_base ;
   while (vio != NULL)   /* TODO: show only VTY_TERM ???         */
     {
-      uty_out (vty, "%svty[%d] connected from %s.%s",
-	       vio->config ? "*" : " ",
-	       i, uty_get_name(vio), VTY_NEWLINE);
+      uty_output (vty, "%svty[%d] connected from %s.\n",
+	       vio->vty->config ? "*" : " ", i, uty_get_name(vio));
       vio = sdl_next(vio, vio_list) ;
     } ;
   VTY_UNLOCK() ;
@@ -1476,7 +1552,7 @@ exec_timeout (struct vty *vty, const char *min_str, const char *sec_str)
 
   vty_timeout_val = timeout;
 
-  if (vty_term(vty) || vty_shell_serv(vty))
+  if (uty_is_terminal(vty) || uty_is_shell_server(vty))
     uty_sock_set_timer(&vty->vio->sock, timeout) ;
 
   VTY_UNLOCK() ;
@@ -1542,8 +1618,7 @@ DEFUN_CALL (no_vty_access_class,
   VTY_LOCK() ;
   if (! vty_accesslist_name || (argc && strcmp(vty_accesslist_name, argv[0])))
     {
-      uty_out (vty, "Access-class is not currently applied to vty%s",
-	       VTY_NEWLINE);
+      vty_out_error(vty, "Access-class is not currently applied to vty\n");
       result = CMD_WARNING;
     }
   else
@@ -1591,8 +1666,7 @@ DEFUN_CALL (no_vty_ipv6_access_class,
   if (! vty_ipv6_accesslist_name ||
       (argc && strcmp(vty_ipv6_accesslist_name, argv[0])))
     {
-      uty_out (vty, "IPv6 access-class is not currently applied to vty%s",
-	       VTY_NEWLINE);
+      vty_out_error(vty, "IPv6 access-class is not currently applied to vty\n") ;
       result = CMD_WARNING;
     }
   else
@@ -1732,9 +1806,9 @@ DEFUN_CALL (show_history,
 	  continue;
 	}
 
-      line = vector_get_item(&vty->vio->hist, index) ;
+      line = vector_get_item(vty->vio->hist, index) ;
       if (line != NULL)
-	uty_out (vty, "  %s%s", line->char_body, VTY_NEWLINE);
+	uty_output (vty, "  %s\n", line->char_body);
 
       index++;
     }
@@ -1751,35 +1825,32 @@ DEFUN_CALL (show_history,
 static int
 vty_config_write (struct vty *vty)
 {
-  vty_out (vty, "line vty%s", VTY_NEWLINE);
+  vty_out (vty, "line vty\n");
 
   if (vty_accesslist_name)
-    vty_out (vty, " access-class %s%s",
-	     vty_accesslist_name, VTY_NEWLINE);
+    vty_out (vty, " access-class %s\n", vty_accesslist_name);
 
   if (vty_ipv6_accesslist_name)
-    vty_out (vty, " ipv6 access-class %s%s",
-	     vty_ipv6_accesslist_name, VTY_NEWLINE);
+    vty_out (vty, " ipv6 access-class %s\n", vty_ipv6_accesslist_name);
 
   /* exec-timeout */
   if (vty_timeout_val != VTY_TIMEOUT_DEFAULT)
-    vty_out (vty, " exec-timeout %ld %ld%s",
-	     vty_timeout_val / 60,
-	     vty_timeout_val % 60, VTY_NEWLINE);
+    vty_out (vty, " exec-timeout %ld %ld\n", vty_timeout_val / 60,
+                          	             vty_timeout_val % 60);
 
   /* login */
   if (no_password_check)
-    vty_out (vty, " no login%s", VTY_NEWLINE);
+    vty_out (vty, " no login\n");
 
   if (restricted_mode != restricted_mode_default)
     {
       if (restricted_mode_default)
-        vty_out (vty, " no anonymous restricted%s", VTY_NEWLINE);
+        vty_out (vty, " no anonymous restricted\n");
       else
-        vty_out (vty, " anonymous restricted%s", VTY_NEWLINE);
+        vty_out (vty, " anonymous restricted\n");
     }
 
-  vty_out (vty, "!%s", VTY_NEWLINE);
+  vty_out (vty, "!\n");
 
   return CMD_SUCCESS;
 }
@@ -1824,32 +1895,32 @@ vty_get_cwd ()
  * Access functions for VTY values, where locking is or might be required.
  */
 
-bool
-vty_shell (struct vty *vty)
+static bool
+vty_is_terminal(struct vty *vty)
 {
   bool result;
   VTY_LOCK() ;
-  result = (vty->vio->type == VTY_SHELL) ;
+  result = uty_is_terminal(vty) ;
   VTY_UNLOCK() ;
   return result;
 }
 
-bool
-vty_term(struct vty *vty)
+static bool
+vty_is_shell_server (struct vty *vty)
 {
   bool result;
   VTY_LOCK() ;
-  result = (vty->vio->type == VTY_TERM);
+  result = uty_is_shell_server(vty) ;
   VTY_UNLOCK() ;
   return result;
 }
 
-bool
-vty_shell_serv (struct vty *vty)
+static bool
+vty_is_shell_client (struct vty *vty)
 {
   bool result;
   VTY_LOCK() ;
-  result = (vty->vio->type == VTY_SHELL_SERV);
+  result = uty_is_shell_client(vty) ;
   VTY_UNLOCK() ;
   return result;
 }

@@ -84,11 +84,13 @@
  */
 
 #define P_ITEMS_SIZE(n) SIZE(p_vector_item, n)
+
 /*==============================================================================
  * Initialisation, allocation, reset etc.
  */
 
-/* Initialise a brand new vector, setting it empty.
+/*------------------------------------------------------------------------------
+ * Initialise a brand new vector, setting it empty.
  *
  * Allocates vector structure if none given -- that is, if v == NULL.
  *
@@ -98,41 +100,50 @@
  * NB: discards any existing vector body -- so it is the caller's responsibility
  *     to release any existing body, and any items in that body.
  */
-vector
-vector_init_new(vector v, unsigned int size)
+extern vector
+vector_init_new(vector v, vector_length_t limit)
 {
   if (v == NULL)
     v = XCALLOC(MTYPE_VECTOR, sizeof(struct vector)) ;
   else
     memset(v, 0, sizeof(struct vector)) ;
 
-  if (size != 0)
+  if (limit != 0)
     {
-      v->p_items = XMALLOC(MTYPE_VECTOR_BODY, P_ITEMS_SIZE(size)) ;
-      v->limit   = size ;
+      v->p_items = XMALLOC(MTYPE_VECTOR_BODY, P_ITEMS_SIZE(limit)) ;
+      v->limit   = limit ;
     } ;
 
   return v ;
 } ;
 
-/* Initialize vector : allocate memory and return vector.
+/*------------------------------------------------------------------------------
+ * Initialize vector : allocate memory and return vector.
  *                     allocates body with at least 1 entry.
+ *
+ * This is a "legacy" function.
  */
-vector
-vector_init (unsigned int size)
+extern vector
+vector_init (vector_length_t limit)
 {
-  return vector_init_new(NULL, size ? size : 1) ;	/* at least 1 entry */
+  return vector_init_new(NULL, limit ? limit : 1) ;     /* at least 1 entry */
 } ;
 
-/* Basic: free the vector body and the vector structure.	*/
+/*------------------------------------------------------------------------------
+ * Basic: free the vector body and the vector structure.
+ *
+ * NB: it is the caller's responsibility to release any vector item values
+ *     *before* doing this.
+ */
 void
 vector_free (vector v)
 {
   XFREE (MTYPE_VECTOR_BODY, v->p_items);
   XFREE (MTYPE_VECTOR, v);
-}
+} ;
 
-/* Re-Initialize vector (or create new one), setting it empty.
+/*------------------------------------------------------------------------------
+ * Re-initialise vector (or create new one), setting it empty.
  *
  * Allocates vector structure if none given -- that is, if v == NULL.
  *
@@ -142,27 +153,29 @@ vector_free (vector v)
  * Otherwise ensures existing body is at least the required size, or a body
  * of exactly the required size is allocated.
  *
- * NB: when re-initialising an existing vector it is the caller's
- *     responsibility to release any vector item values *before* doing this.
+ * NB: when re-initialising an existing vector it is the caller's responsibility
+ *     to release any vector item values *before* doing this.
  * */
-vector
-vector_re_init(vector v, unsigned int size)
+extern vector
+vector_re_init(vector v, vector_length_t limit)
 {
   if ((v == NULL) || (v->p_items == NULL))
-    return vector_init_new(v, size) ;
+    return vector_init_new(v, limit) ;
 
   v->end = 0 ;
 
-  if (v->limit < size)
+  if (v->limit < limit)
     {
-      v->p_items = XREALLOC(MTYPE_VECTOR_BODY, v->p_items, P_ITEMS_SIZE(size)) ;
-      v->limit = size ;
+      v->p_items = XREALLOC(MTYPE_VECTOR_BODY, v->p_items,
+                                                          P_ITEMS_SIZE(limit)) ;
+      v->limit = limit ;
     } ;
 
   return v ;
 } ;
 
-/* Free the vector body, and free the vector structure or reset it.
+/*------------------------------------------------------------------------------
+ * Free the vector body, and (if required) free the vector structure.
  *
  * Return NULL if releases vector, otherwise the address of the vector.
  *
@@ -170,16 +183,17 @@ vector_re_init(vector v, unsigned int size)
  *     *before* doing this.
  */
 vector
-vector_reset(vector v, int free_structure)
+vector_reset(vector v, free_keep_b free_structure)
 {
   if (v == NULL)
-    return NULL ;	/* allow for already freed vector	*/
+    return NULL ;       /* allow for already freed vector       */
 
   if (v->p_items != NULL)
     XFREE(MTYPE_VECTOR_BODY, v->p_items) ;
 
   if (free_structure)
     {
+      confirm(free_it == true) ;
       XFREE(MTYPE_VECTOR, v) ;
       return NULL ;
     }
@@ -187,7 +201,8 @@ vector_reset(vector v, int free_structure)
     return vector_init_new(v, 0) ;
 } ;
 
-/* Set vector length to be (at least) the given fixed length.
+/*------------------------------------------------------------------------------
+ * Set vector length to be (at least) the given fixed length.
  *
  * There must be a vector.
  *
@@ -201,8 +216,8 @@ vector_reset(vector v, int free_structure)
  *
  * Note that the existing contents of the vector are preserved in all cases.
  */
-extern void
-vector_set_new_min_length(vector v, unsigned int len)
+Private void
+vector_set_new_min_length(vector v, vector_length_t len)
 {
   assert (v != NULL) ;
 
@@ -211,7 +226,8 @@ vector_set_new_min_length(vector v, unsigned int len)
       if (v->p_items == NULL)
         v->p_items = XMALLOC(MTYPE_VECTOR_BODY, P_ITEMS_SIZE(len)) ;
       else
-        v->p_items = XREALLOC(MTYPE_VECTOR_BODY, v->p_items, P_ITEMS_SIZE(len));
+        v->p_items = XREALLOC(MTYPE_VECTOR_BODY, v->p_items,
+                                                            P_ITEMS_SIZE(len)) ;
       v->limit = len ;
     } ;
 
@@ -219,8 +235,8 @@ vector_set_new_min_length(vector v, unsigned int len)
     vector_extend(v, len) ;
 } ;
 
-/* Pop item from vector, stepping past any NULLs.
- *
+/*------------------------------------------------------------------------------
+ * Pop item from vector, stepping past any NULLs.
  * If vector is empty, free the body and, if required, the vector structure.
  *
  * Useful for emptying out and discarding a vector:
@@ -231,7 +247,7 @@ vector_set_new_min_length(vector v, unsigned int len)
  * Returns NULL if vector was empty and has now been freed as required.
  */
 p_vector_item
-vector_ream(vector v, int free_structure)
+vector_ream(vector v, free_keep_b free_structure)
 {
   p_vector_item p_v ;
 
@@ -242,61 +258,23 @@ vector_ream(vector v, int free_structure)
     {
       p_v = v->p_items[--v->end] ;
       if (p_v != NULL)
-        return p_v ;  /* return non-NULL item */
+        return p_v ;    /* return non-NULL item */
     } ;
 
   /* vector is empty: free the body, and (if required) the vector structure.  */
   vector_reset(v, free_structure) ;
 
-  return NULL ;         /* signals end */
+  return NULL ;         /* signals end          */
 } ;
 
 /*==============================================================================
  * Unset item, condensing and trimming vector.
- */
-
-/* Trim any NULL entries at the current (logical) end of the vector.
  *
- * Returns the (new) end of the vector.
+ * These are legacy operations.
  */
-extern vector_index
-vector_trim(vector v)
-{
-  vector_index i = v->end ;
-  while ((i > 0) && (v->p_items[i - 1] == NULL))
-    --i ;
-  v->end = i ;
-  return i ;
-} ;
 
-/* Removes any NULL entries from the given vector.
- *
- * Returns the (new) end of the vector.
- */
-extern vector_index vector_condense(vector v)
-{
-  vector_index i = 0 ;
-  vector_index j ;
-
-  /* Find first NULL, if any                    */
-  while ((i < v->end) && (v->p_items[i] != NULL))
-    ++i ;
-
-  /* Quit if no NULLs (or vector is empty)      */
-  if (i == v->end)
-    return i ;
-
-  /* Shuffle any remaining non-NULL down        */
-  for (j = i + 1 ; j < v->end ; ++j)
-    if (v->p_items[j] != NULL)
-      v->p_items[i++] = v->p_items[j] ;
-
-  v->end = i ;
-
-  return i ;
-} ;
-
-/* Unset item at given index (ie set it NULL).
+/*------------------------------------------------------------------------------
+ * Unset item at given index (ie set it NULL).
  *
  * Return the old value of the item.
  *
@@ -304,7 +282,7 @@ extern vector_index vector_condense(vector v)
  * end backwards until finds a non-NULL item, or the vector becomes empty.
  */
 extern p_vector_item
-vector_unset_item(vector v, vector_index i)
+vector_unset_item(vector v, vector_index_t i)
 {
   p_vector_item was ;
 
@@ -324,15 +302,60 @@ vector_unset_item(vector v, vector_index i)
   return was ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Trim any NULL entries at the current (logical) end of the vector.
+ *
+ * Returns the (new) length (end) of the vector.
+ */
+extern vector_length_t
+vector_trim(vector v)
+{
+  vector_length_t e = v->end ;
+  while ((e > 0) && (v->p_items[e - 1] == NULL))
+    --e ;
+  v->end = e ;
+  return e ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Removes any NULL entries from the given vector.
+ *
+ * Returns the (new) length (end) of the vector.
+ */
+extern vector_length_t
+vector_condense(vector v)
+{
+  vector_length_t e = 0 ;
+  vector_index_t j ;
+
+  /* Find first NULL, if any                    */
+  while ((e < v->end) && (v->p_items[e] != NULL))
+    ++e ;
+
+  /* Quit if no NULLs (or vector is empty)      */
+  if (e == v->end)
+    return e ;
+
+  /* Shuffle any remaining non-NULL down        */
+  for (j = e + 1 ; j < v->end ; ++j)
+    if (v->p_items[j] != NULL)
+      v->p_items[e++] = v->p_items[j] ;
+
+  v->end = e ;
+
+  return e ;
+} ;
+
 /*==============================================================================
  * Inserting and deleting items.
  */
 
-/* Insert item in vector, before item at given position
+/*------------------------------------------------------------------------------
+ * Insert item in vector, before item at given position
  * Move items and extend vector as required.
  */
-void
-vector_insert_item(vector v, vector_index i, void* p_v)
+extern void
+vector_insert_item(vector v, vector_index_t i, void* p_v)
 {
   if ((i == v->end) && (i < v->limit))
     ++v->end ;
@@ -342,7 +365,8 @@ vector_insert_item(vector v, vector_index i, void* p_v)
   v->p_items[i] = (p_vector_item)p_v ;
 } ;
 
-/* Insert item in vector at given position with rider:
+/*------------------------------------------------------------------------------
+ * Insert item in vector at given position with rider:
  *
  *   rider <  0 -- insert before the item at the given position
  *   rider == 0 -- insert at the given position -- REPLACING any existing value
@@ -353,8 +377,8 @@ vector_insert_item(vector v, vector_index i, void* p_v)
  *
  * Move items and extend vector as required.
  */
-void
-vector_insert_item_here(vector v, vector_index i, int rider,
+extern void
+vector_insert_item_here(vector v, vector_index_t i, int rider,
                                                           p_vector_item p_v)
 {
   if (rider == 0)
@@ -365,18 +389,21 @@ vector_insert_item_here(vector v, vector_index i, int rider,
   vector_insert_item(v, i, p_v) ;
 } ;
 
-/* Delete item from vector.
+/*------------------------------------------------------------------------------
+ * Delete item from vector.
  *
  * Move items as required.  Reduces number of items in the vector (unless
  * the item in question is beyond the end of the vector !)
+ *
+ * Returns: the item that has just been deleted.
  *
  * NB: it is the caller's responsibility to release memory used by any
  *     current value of the item, if required.
  *
  * NB: does NOT change the size of the vector body.
  */
-p_vector_item
-vector_delete_item(vector v, vector_index i)
+extern p_vector_item
+vector_delete_item(vector v, vector_index_t i)
 {
   p_vector_item p_e ;
   if (i < v->end)
@@ -396,19 +423,23 @@ vector_delete_item(vector v, vector_index i)
  * Moving items within vector.
  */
 
-/* Move item in vector from source position to destination position.
+/*------------------------------------------------------------------------------
+ * Move item in vector from source position to destination position.
+ *
  * Moves intervening items up or down as required.
+ *
  * Extends vector to include the destination, if required.
+ *
  * A source item beyond the end of the vector is implicitly NULL.
  */
-void
-vector_move_item(vector v, vector_index i_dst, vector_index i_src)
+extern void
+vector_move_item(vector v, vector_index_t i_dst, vector_index_t i_src)
 {
   p_vector_item* pp_s ;
   p_vector_item* pp_d ;
   p_vector_item p_e ;
 
-  vector_index old_end = v->end ;
+  vector_length_t old_end = v->end ;
 
   /* Worry about whether both source and destination exist.        */
   if (i_dst >= old_end)
@@ -437,7 +468,8 @@ vector_move_item(vector v, vector_index i_dst, vector_index i_src)
   *pp_d = p_e ;                   /* put down the item to move     */
 } ;
 
-/* Move item in vector to given position with rider:
+/*------------------------------------------------------------------------------
+ * Move item in vector to given position with rider:
  *
  *   rider <  0 -- move to before the item at the given position
  *   rider == 0 -- move to replace item at the given position
@@ -448,14 +480,14 @@ vector_move_item(vector v, vector_index i_dst, vector_index i_src)
  *
  * Move items and extend vector as required.
  */
-void
-vector_move_item_here(vector v, vector_index i_dst, int rider,
-                                                             vector_index i_src)
+extern void
+vector_move_item_here(vector v, vector_index_t i_dst, int rider,
+                                                           vector_index_t i_src)
 {
   if (rider != 0)
     {
       if (rider > 0)
-	++i_dst ;
+        ++i_dst ;
       vector_move_item(v, i_dst, i_src) ;
     }
   else
@@ -466,21 +498,23 @@ vector_move_item_here(vector v, vector_index i_dst, int rider,
     } ;
 } ;
 
-/* Reverse vector: reverse the order of items in the vector.
+/*------------------------------------------------------------------------------
+ * Reverse vector: reverse the order of items in the vector.
  */
-void
+extern void
 vector_reverse(vector v)
 {
   if (v != NULL)
     vector_part_reverse(v, 0, v->end) ;
 } ;
 
-/* Reverse portion of vector.
+/*------------------------------------------------------------------------------
+ * Reverse portion of vector.
  */
-void
-vector_part_reverse(vector v, vector_index i, unsigned int n)
+extern void
+vector_part_reverse(vector v, vector_index_t i, vector_length_t n)
 {
-  vector_index j ;
+  vector_index_t j ;
 
   if (v == NULL)
     return ;
@@ -504,12 +538,16 @@ vector_part_reverse(vector v, vector_index i, unsigned int n)
  * Copying, moving and appending entire vectors.
  */
 
-static void vector_new_limit(vector v, vector_index new_end) ;
+static void vector_new_limit(vector v, vector_length_t new_end) ;
 
-/* Shallow vector copy -- copies pointers to item values, not the values.  */
-/* Creates a new vector.						   */
-/* NB: copies whole body, including stuff beyond (logical) end !           */
-/*     TODO: is this behaviour required ?                                  */
+/*------------------------------------------------------------------------------
+ * Shallow vector copy -- copies pointers to item values, not the values.
+ *
+ * Creates a new vector.
+ *
+ * NB: creates new vector with same limit as existing one, but copies only
+ *     the known items (ie up to end, not up to limit).
+ */
 vector
 vector_copy (vector v)
 {
@@ -518,12 +556,13 @@ vector_copy (vector v)
   new->end = v->end;
 
   if (v->limit > 0)
-    memcpy(new->p_items, v->p_items, P_ITEMS_SIZE(v->limit)) ;
+    memcpy(new->p_items, v->p_items, P_ITEMS_SIZE(v->end)) ;
 
   return new;
 }
 
-/* Shallow vector copy -- copies pointers to item values, not the values.
+/*------------------------------------------------------------------------------
+ * Shallow vector copy -- copies pointers to item values, not the values.
  * Creates a new vector or re-initialises an existing one.
  *
  * NB: creates new vector with same limit as existing one, but copies only
@@ -552,7 +591,9 @@ vector_copy_here(vector dst, vector src)
   return dst ;
 } ;
 
-/* Vector move -- moves body of vector.
+/*------------------------------------------------------------------------------
+ * Vector move -- moves body of vector.
+ *
  * Creates a new vector or re-initialises an existing one.
  * Leaves the source vector empty -- does not release the structure.
  *
@@ -564,7 +605,7 @@ vector_copy_here(vector dst, vector src)
  *
  * NB: do NOT try moving a vector to itself !!
  */
-vector
+extern vector
 vector_move_here(vector dst, vector src)
 {
   assert((src != NULL) && (src != dst)) ;
@@ -574,23 +615,26 @@ vector_move_here(vector dst, vector src)
   else
     dst = vector_init_new(dst, 0) ;  /* Create new structure sans body.       */
 
-  *dst = *src ;		             /* Copy the vector structure             */
+  *dst = *src ;                      /* Copy the vector structure             */
 
-  vector_init_new(src, 0) ;	     /* Set empty, forgetting body            */
+  vector_init_new(src, 0) ;          /* Set empty, forgetting body            */
 
   return dst ;
 }
 
-/* Shallow vector copy append -- copies pointers to item values, not the values.
+/*------------------------------------------------------------------------------
+ * Shallow vector copy append -- copies pointers to item values, not the values.
+ *
  * Appends copied pointers to the destination vector.
+ *
  * Creates a new destination vector if required.
  *
  * NB: Can append to self.
  */
-vector
+extern vector
 vector_copy_append(vector dst, vector src)
 {
-  vector_index new_end ;
+  vector_index_t new_end ;
 
   assert(src != NULL) ;
 
@@ -613,14 +657,18 @@ vector_copy_append(vector dst, vector src)
   return dst ;
 } ;
 
-/* Vector move append -- moves pointers to item values.
+/*------------------------------------------------------------------------------
+ * Vector move append -- moves pointers to item values.
+ *
  * Appends moved pointers to the destination vector.
+ *
  * Creates a new destination vector if required (dst == NULL).
+ *
  * Leaves the source vector empty -- does not release the structure.
  *
  * NB: do NOT try moving a vector to itself !!
  */
-vector
+extern vector
 vector_move_append(vector dst, vector src)
 {
   assert((src != NULL) && (src != dst)) ;
@@ -629,7 +677,7 @@ vector_move_append(vector dst, vector src)
     return vector_move_here(dst, src) ;  /* Easy way to do it if dst empty  */
 
   vector_copy_append(dst, src) ;  /* Extend dst and copy src      */
-  vector_init_new(src, 0) ;	  /* Set empty, forgetting body   */
+  vector_init_new(src, 0) ;       /* Set empty, forgetting body   */
 
   return dst ;
 } ;
@@ -717,19 +765,19 @@ vector_move_append(vector dst, vector src)
  *     to ensure the vector structure is currently valid (by vector_init_new()
  *     or by ensuring it is zeroized).
  */
-vector
+extern vector
 vector_sak(int to_copy, vector to,
-           vector dst, vector_index i_dst, unsigned int n_dst,
-           vector src, vector_index i_src, unsigned int n_src, int src_move)
+         vector dst, vector_index_t i_dst, vector_length_t n_dst,
+         vector src, vector_index_t i_src, vector_length_t n_src, int src_move)
 {
   int dst_replace ;               /* true => replace portion of 'dst'   */
 
-  vector_index new_dst_end = 0 ;  /* new end of dst                     */
+  vector_index_t new_dst_end = 0 ;  /* new end of dst                   */
 
-  unsigned int n_dst_nulls ;      /* number of implicit NULLs to add    */
-  unsigned int n_dst_move ;       /* number of items to move up or down */
-  unsigned int n_src_real ;       /* number of items to really copy     */
-  unsigned int n_src_nulls ;      /* number of implicit NULLs to "copy" */
+  vector_length_t n_dst_nulls ;   /* number of implicit NULLs to add    */
+  vector_length_t n_dst_move ;    /* number of items to move up or down */
+  vector_length_t n_src_real ;    /* number of items to really copy     */
+  vector_length_t n_src_nulls ;   /* number of implicit NULLs to "copy" */
 
   assert((to  == NULL) || (dst == NULL) || (to  != dst)) ;
   assert((src == NULL) || (dst == NULL) || (src != dst)) ;
@@ -855,11 +903,15 @@ vector_sak(int to_copy, vector to,
  * Legacy Vector Operations
  */
 
-/* Set value to the smallest empty slot. */
-int
+/*------------------------------------------------------------------------------
+ * Set value to the smallest empty slot.
+ *
+ * Returns: index of slot used.
+ */
+extern int
 vector_set (vector v, void *val)
 {
-  vector_index i;
+  vector_index_t i;
 
   i = 0 ;
   while (1)
@@ -878,41 +930,55 @@ vector_set (vector v, void *val)
 
   v->p_items[i] = val;
 
-  return i;
+  return i ;
 }
 
-/* Set value to specified index slot. */
-int
-vector_set_index (vector v, vector_index i, void *val)
+/*------------------------------------------------------------------------------
+ * Set value to specified index slot.
+ *
+ * Returns: index of slot (as given)
+ */
+extern int
+vector_set_index (vector v, vector_index_t i, void *val)
 {
   vector_ensure (v, i);
   v->p_items[i] = val;
   return i;
 }
 
-/* Look up vector.  */
-p_vector_item
-vector_lookup (vector v, vector_index i)
+/*------------------------------------------------------------------------------
+ * Look up vector -- get the i'th item.
+ *
+ * Returns: the i'th item -- NULL if item is null, or i >= logical len of vector
+ */
+extern p_vector_item
+vector_lookup (vector v, vector_index_t i)
 {
   if (i >= v->end)
     return NULL;
   return v->p_items[i];
 }
 
-/* Lookup vector, ensure it. */
-p_vector_item
-vector_lookup_ensure (vector v, vector_index i)
+/*------------------------------------------------------------------------------
+ * Lookup vector, ensure it -- get i'th item and ensure logical len > i.
+ *
+ * Returns: the i'th item -- NULL if item is null
+ */
+extern p_vector_item
+vector_lookup_ensure (vector v, vector_index_t i)
 {
   vector_ensure (v, i);
   return v->p_items[i];
 }
 
-/* Count the number of not empty slots. */
-vector_index
+/*------------------------------------------------------------------------------
+ * Count the number of not empty slots.
+ */
+extern vector_length_t
 vector_count (vector v)
 {
-  vector_index i;
-  unsigned count = 0;
+  vector_index_t  i;
+  vector_length_t count = 0;
 
   for (i = 0; i < v->end; i++)
     if (v->p_items[i] != NULL)
@@ -925,7 +991,8 @@ vector_count (vector v)
  * Sorting and Searching vector.
  */
 
-/* Sort the given vector.
+/*------------------------------------------------------------------------------
+ * Sort the given vector.
  *
  * NB: the comparison function receives a pointer to the pointer to the
  *     vector item's value.
@@ -933,18 +1000,19 @@ vector_count (vector v)
  * NB: if there are NULL items in the vector, the comparison function MUST
  *     be ready for them.
  */
-void
+extern void
 vector_sort(vector v, vector_sort_cmp* cmp)
 {
   if (v->end <= 1)
-    return ;		/* Stop dead if 0 or 1 items */
+    return ;            /* Stop dead if 0 or 1 items */
 
   typedef int qsort_cmp(const void*, const void*) ;
 
   qsort(v->p_items, v->end, sizeof(p_vector_item), (qsort_cmp*)cmp) ;
 } ;
 
-/* Perform binary search on the given vector.
+/*------------------------------------------------------------------------------
+ * Perform binary search on the given vector.
  *
  * The vector MUST be sorted in the order implied by the comparison function
  * given.  The vector need not contain unique values, but this search makes
@@ -978,17 +1046,17 @@ vector_sort(vector v, vector_sort_cmp* cmp)
  * NB: if there are NULL items in the vector, the comparison function MUST
  *     be ready for them.
  */
-vector_index
+extern vector_index_t
 vector_bsearch(vector v, vector_bsearch_cmp* cmp, const void* p_val,
-								    int* result)
+                                                                    int* result)
 {
-  vector_index il, iv, ih ;
+  vector_index_t il, iv, ih ;
   int c ;
 
   if (v->end <= 1)
     {
       *result = (v->end == 0) ? -1 : cmp(&p_val, (const void**)&v->p_items[0]) ;
-      return 0 ;		/* Stop dead if 0 or 1 items */
+      return 0 ;                /* Stop dead if 0 or 1 items */
     } ;
 
   /* We have at least two items.    */
@@ -998,36 +1066,36 @@ vector_bsearch(vector v, vector_bsearch_cmp* cmp, const void* p_val,
   /* Pick off the edge cases: >= last and <= first.  */
   if ((c = cmp(&p_val, (const void**)&v->p_items[ih])) >= 0)
     {
-      *result = c ;	/* 0 => found.  +1 => val > last	*/
-      return ih ;	/* return high index.                   */
+      *result = c ;     /* 0 => found.  +1 => val > last        */
+      return ih ;       /* return high index.                   */
     } ;
   if ((c = cmp(&p_val, (const void**)&v->p_items[il])) <= 0)
     {
-      *result = c ;	/* 0 => found.  -1 => val < first      */
-      return il ;	/* return low index.                   */
+      *result = c ;     /* 0 => found.  -1 => val < first      */
+      return il ;       /* return low index.                   */
     }
 
-  /* Now binary chop.  We know that item[il] < val < item[ih]	*/
-  /*                   We also know that il < ih		*/
+  /* Now binary chop.  We know that item[il] < val < item[ih]   */
+  /*                   We also know that il < ih                */
   while (1)
     {
       iv = (il + ih) / 2 ;
-      if (iv == il)	/* true if (ih == il+1) 			*/
-	{
-	  *result = +1 ;
-	  return il ;	/* return il: item[il] < val < item[il+1]	*/
-	} ;
-      /* We now know that il < iv < ih	*/
+      if (iv == il)     /* true if (ih == il+1)                         */
+        {
+          *result = +1 ;
+          return il ;   /* return il: item[il] < val < item[il+1]       */
+        } ;
+      /* We now know that il < iv < ih  */
       c = cmp(&p_val, (const void**)&v->p_items[iv]) ;
       if (c == 0)
-	{
-	  *result = 0 ;
-	  return iv ;	/* found !!				*/
-	}
+        {
+          *result = 0 ;
+          return iv ;   /* found !!                             */
+        }
       if (c <  0)
-	ih = iv ;	/* step down	iv > il, so new ih > il	*/
+        ih = iv ;       /* step down    iv > il, so new ih > il */
       else
-	il = iv ;	/* step up	iv < ih, so new il < ih	*/
+        il = iv ;       /* step up      iv < ih, so new il < ih */
     } ;
 } ;
 
@@ -1041,7 +1109,8 @@ vector_bsearch(vector v, vector_bsearch_cmp* cmp, const void* p_val,
 /* Round 'x' up to a multiple of 'm'            */
 #define multiple(x, m) ((((x) + (m) - 1) / (m)) * (m))
 
-/* Set new limit to suit new end for given vector.
+/*------------------------------------------------------------------------------
+ * Set new limit to suit new end for given vector.
  *
  * The new limit will be at least: VECTOR_LIMIT_MIN.
  *
@@ -1070,10 +1139,10 @@ vector_bsearch(vector v, vector_bsearch_cmp* cmp, const void* p_val,
  *       of P_ITEMS_SIZE will ?
  */
 static void
-vector_new_limit(vector v, vector_index new_end)
+vector_new_limit(vector v, vector_index_t new_end)
 {
-  vector_index old_limit = v->limit ;
-  vector_index new_limit ;
+  vector_length_t old_limit = v->limit ;
+  vector_length_t new_limit ;
 
   if (new_end > ((VECTOR_LIMIT_DOUBLE_MAX * 7) / 8))
     {
@@ -1102,17 +1171,18 @@ vector_new_limit(vector v, vector_index new_end)
   v->limit = new_limit ;
 } ;
 
-/* Extend vector and set new (logical) end.
+/*------------------------------------------------------------------------------
+ * Extend vector and set new (logical) end.
  *
  * Extends body if required.
  * Ensures everything between old and new end is set NULL.
  *
  * NB: expects new end > old end, but copes with new end <= old end.
  */
-void
-vector_extend(vector v, vector_index new_end)
+extern void
+vector_extend(vector v, vector_length_t new_end)
 {
-  vector_index old_end = v->end ;
+  vector_length_t old_end = v->end ;
 
   if (new_end > v->limit)
     vector_new_limit(v, new_end) ;
@@ -1122,16 +1192,17 @@ vector_extend(vector v, vector_index new_end)
     memset(&v->p_items[old_end], 0, P_ITEMS_SIZE(new_end - old_end)) ;
 } ;
 
-/* Insert entries into vector: insert 'n' NULL entries at location 'i'.
+/*------------------------------------------------------------------------------
+ * Insert entries into vector: insert 'n' NULL entries at location 'i'.
  *
  * Updates end (and limit) to be at least 'i' + 'n'.
  * (So if 'i' < end then end becomes end + 'n', else end becomes 'i' + 'n'.)
  */
-void
-vector_insert(vector v, vector_index i, unsigned int n)
+extern void
+vector_insert(vector v, vector_index_t i, vector_length_t n)
 {
-  vector_index old_end, new_end ;
-  unsigned int n_above ;
+  vector_length_t old_end, new_end ;
+  vector_length_t n_above ;
 
   /* If i < old end, then we are inserting n NULLs, and need
    *                      to shuffle at least one item up.
@@ -1142,19 +1213,19 @@ vector_insert(vector v, vector_index i, unsigned int n)
   if (i < old_end)
     {
       if (n == 0)
-	return ;		/* give up now if not inserting anything  */
-      n_above = old_end - i ;	/* number of items to shuffle up.. >= 1   */
+        return ;                /* give up now if not inserting anything  */
+      n_above = old_end - i ;   /* number of items to shuffle up.. >= 1   */
       new_end = old_end + n ;
     }
   else
     {
-      n_above = 0 ;		/* nothing to shuffle up.		  */
+      n_above = 0 ;             /* nothing to shuffle up.                 */
       new_end = i + n ;
       i = old_end ;             /* where to zeroize from                  */
       n = new_end - old_end ;   /* how much to zeroize                    */
     } ;
 
-  /* Now we extend the body if we need to.           	    */
+  /* Now we extend the body if we need to.                  */
   if (new_end > v->limit)
     vector_new_limit(v, new_end) ;
   v->end = new_end ;
@@ -1165,7 +1236,8 @@ vector_insert(vector v, vector_index i, unsigned int n)
   memset(&v->p_items[i], 0, P_ITEMS_SIZE(n)) ;
 } ;
 
-/* Delete items from vector: delete 'n' items at location 'i'.
+/*------------------------------------------------------------------------------
+ * Delete items from vector: delete 'n' items at location 'i'.
  *
  * Does nothing if 'i' is beyond current end of vector or if 'n' == 0.
  *
@@ -1176,10 +1248,10 @@ vector_insert(vector v, vector_index i, unsigned int n)
  * NB: it is the caller's responsibility to have released any memory allocated
  *     for the items that are being deleted.
 */
-void
-vector_delete(vector v, vector_index i, unsigned int n)
+extern void
+vector_delete(vector v, vector_index_t i, vector_length_t n)
 {
-  vector_index old_end, new_end ;
+  vector_length_t old_end, new_end ;
 
   old_end = v->end ;
 
@@ -1190,7 +1262,7 @@ vector_delete(vector v, vector_index i, unsigned int n)
   if ((i + n) < old_end)
     {
       memmove(&v->p_items[i], &v->p_items[i + n],
-					      P_ITEMS_SIZE(old_end - (i + n))) ;
+                                              P_ITEMS_SIZE(old_end - (i + n))) ;
       new_end = old_end - n ;
     }
   else
@@ -1202,7 +1274,8 @@ vector_delete(vector v, vector_index i, unsigned int n)
   v->end = new_end ;            /* account for stuff dropped        */
 } ;
 
-/* Discard entries from vector: discard entries from location 'i' onwards.
+/*------------------------------------------------------------------------------
+ * Discard entries from vector: discard entries from location 'i' onwards.
  *
  * Releases memory from 'i' onwards.
  * Releases the body altogether if this sets the vector empty ('i' == 0).
@@ -1213,8 +1286,8 @@ vector_delete(vector v, vector_index i, unsigned int n)
  * NB: it is the caller's responsibility to have released any memory allocated
  *     for the items that are being discarded.
 */
-void
-vector_discard(vector v, vector_index i)
+extern void
+vector_discard(vector v, vector_index_t i)
 {
   if (i >= v->limit)
     return ;
@@ -1230,34 +1303,37 @@ vector_discard(vector v, vector_index i)
     } ;
 } ;
 
-/* Chop vector at the current (logical) end.
+/*------------------------------------------------------------------------------
+ * Chop vector at the current (logical) end.
  *
  * Releases the body altogether if the vector is currently empty.
-*/
-void
+ */
+extern void
 vector_chop(vector v)
 {
-  vector_index new_limit = v->end ;
+  vector_length_t new_limit = v->end ;
 
   if (new_limit == 0)
     vector_reset(v, 0) ;        /* reset, without releasing the structure */
   else if (new_limit != v->limit)
     {
       v->limit = new_limit ;
-      v->p_items = XREALLOC(MTYPE_VECTOR_BODY, v->p_items, P_ITEMS_SIZE(new_limit)) ;
+      v->p_items = XREALLOC(MTYPE_VECTOR_BODY, v->p_items,
+                                                      P_ITEMS_SIZE(new_limit)) ;
     } ;
 } ;
 
-/* Decant vector into a new body allocated to current logical size, and
+/*------------------------------------------------------------------------------
+ * Decant vector into a new body allocated to current logical size, and
  * release the old body.
  *
  * Releases the body altogether if the vector is currently empty.
 */
-void
+extern void
 vector_decant(vector v)
 {
   p_vector_item* p_old_body ;
-  vector_index new_limit = v->end ;
+  vector_length_t new_limit = v->end ;
 
   if (new_limit == 0)
     vector_reset(v, 0) ;          /* reset, without releasing the structure */

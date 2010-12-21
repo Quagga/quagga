@@ -22,12 +22,7 @@
 #ifndef _ZEBRA_LIST_UTIL_H
 #define _ZEBRA_LIST_UTIL_H
 
-#include <stddef.h>
-
-/* Macro in case there are particular compiler issues.    */
-#ifndef Inline
-  #define Inline static inline
-#endif
+#include "misc.h"
 
 /*------------------------------------------------------------------------------
  * Note that the following fell foul of "strict-aliasing":
@@ -47,7 +42,7 @@
  *    } ;
  *
  * the assignment to *p_base is, apparently, unacceptable.  This works
- * perfectly well as am ordinary function.  Using a GNUC extension it is
+ * perfectly well as an ordinary function.  Using a GNUC extension it is
  * possible to avoid the function call... hence the ugly skips.
  */
 #ifdef __GNUC__

@@ -25,29 +25,30 @@
 #ifndef _ZEBRA_VECTOR_H
 #define _ZEBRA_VECTOR_H
 
-/* Macro in case there are particular compiler issues.    */
-#ifndef Inline
-  #define Inline static inline
-#endif
+#include "misc.h"
 
 /*------------------------------------------------------------------------------
  * types and struct for vector
  *
  * NB: an entirely zero structure represents an entirely empty vector.
- *
- * TODO: could force vector_index to be 32 bits ?
  */
 typedef void*         p_vector_item ;
-typedef unsigned int  vector_index ;
+typedef unsigned int  vector_index_t ;
+typedef unsigned int  vector_length_t ;
 
-typedef struct vector* vector ;         /* pointer to vector structure  */
-typedef struct vector  vector_t ;       /* embedded vector structure    */
+enum {
+  VECTOR_LENGTH_MAX = (vector_length_t)INT_MAX + 1
+} ;
+
 struct vector
 {
-  p_vector_item* p_items ;  /* pointer to array of vector item pointers */
-  vector_index   end ;      /* number of "active" item entries          */
-  vector_index   limit ;    /* number of allocated item entries         */
+  p_vector_item*  p_items ;     /* pointer to array of vector item pointers */
+  vector_length_t end ;         /* number of "active" item entries          */
+  vector_length_t limit ;       /* number of allocated item entries         */
 };
+
+typedef struct vector  vector_t[1] ;    /* embedded vector structure    */
+typedef struct vector* vector ;         /* pointer to vector structure  */
 
 /* Under very controlled circumstances, may access the vector body      */
 typedef p_vector_item const* vector_body_t ;
@@ -83,7 +84,7 @@ typedef p_vector_item const* vector_body_t ;
 
 /* To walk all items in a vector:
  *
- *   vector_index i ;
+ *   vector_index_t i ;
  *   xxxxx* p_v ;
  *
  *   for (VECTOR_ITEMS(v, p_v, i))
@@ -104,71 +105,65 @@ typedef p_vector_item const* vector_body_t ;
  *  Prototypes.
  */
 
-extern vector vector_init (unsigned int size);
-Inline void vector_ensure(vector v, vector_index i) ;
+extern vector vector_init (vector_length_t size);
+Inline void vector_ensure(vector v, vector_index_t i) ;
 extern int vector_set (vector v, void *val);
-extern int vector_set_index (vector v, vector_index i, void *val);
+extern int vector_set_index (vector v, vector_index_t i, void *val);
 #define vector_unset(v, i) (void)vector_unset_item(v, i)
-extern vector_index vector_count (vector v);
+extern vector_length_t vector_count (vector v);
 extern void vector_free (vector v);
 extern vector vector_copy (vector v);
 
-extern void *vector_lookup (vector, vector_index);
-extern void *vector_lookup_ensure (vector, vector_index);
+extern void *vector_lookup (vector, vector_index_t);
+extern void *vector_lookup_ensure (vector, vector_index_t);
 
-extern vector vector_init_new(vector v, unsigned int size) ;
-extern vector vector_re_init(vector v, unsigned int size) ;
-extern vector vector_reset(vector v, int free_structure) ;
-extern p_vector_item vector_ream(vector v, int free_structure) ;
+extern vector vector_init_new(vector v, vector_length_t size) ;
+extern vector vector_re_init(vector v, vector_length_t size) ;
+extern vector vector_reset(vector v, free_keep_b free_structure) ;
+extern p_vector_item vector_ream(vector v, free_keep_b free_structure) ;
 
-/* Reset vector and free the vector structure.	*/
-#define vector_reset_free(v) vector_reset(v, 1)
-/* Reset vector but free the heap structure.	*/
-#define vector_reset_keep(v) vector_reset(v, 0)
-/* Ream out vector and free the vector structure.	*/
-#define vector_ream_free(v) vector_ream(v, 1)
-/* Ream out vector but keep the vector structure.	*/
-#define vector_ream_keep(v) vector_ream(v, 0)
+Inline  void vector_set_min_length(vector v, vector_length_t len) ;
+Private void vector_set_new_min_length(vector v, vector_length_t len) ;
 
-Inline void vector_set_min_length(vector v, unsigned int len) ;
-extern void vector_set_new_min_length(vector v, unsigned int len) ;
-
-Inline void vector_set_length(vector v, unsigned int len) ;
+Inline void vector_set_length(vector v, vector_length_t len) ;
 #define     vector_set_end(v, l) vector_set_length(v, l)
 
-Inline vector_index vector_length(vector v) ;
-#define             vector_end(v) vector_length(v)
-Inline int vector_is_empty(vector v) ;
+Inline vector_length_t vector_length(vector v) ;
+#define                vector_end(v) vector_length(v)
+Inline bool vector_is_empty(vector v) ;
 
 Inline vector_body_t vector_body(vector v) ;
 
-Inline p_vector_item vector_get_item(vector v, vector_index i) ;
+Inline p_vector_item vector_get_item(vector v, vector_index_t i) ;
 Inline p_vector_item vector_get_first_item(vector v) ;
 Inline p_vector_item vector_get_last_item(vector v) ;
-Inline void vector_set_item(vector v, vector_index i, p_vector_item p_v) ;
-Inline void vector_assign_item(vector v, vector_index dst, vector_index src) ;
-extern p_vector_item vector_unset_item(vector v, vector_index i) ;
-extern vector_index vector_trim(vector v) ;
-extern vector_index vector_condense(vector v) ;
+Inline void vector_set_item(vector v, vector_index_t i, p_vector_item p_v) ;
+Inline void vector_assign_item(vector v, vector_index_t dst,
+                                         vector_index_t src) ;
+extern p_vector_item vector_unset_item(vector v, vector_index_t i) ;
+extern vector_length_t vector_trim(vector v) ;
+extern vector_length_t vector_condense(vector v) ;
 
-extern void vector_insert_item(vector v, vector_index i, p_vector_item p_v) ;
-extern void vector_insert_item_here(vector v, vector_index i, int rider,
+extern void vector_insert_item(vector v, vector_index_t i, p_vector_item p_v) ;
+extern void vector_insert_item_here(vector v, vector_index_t i, int rider,
 							  p_vector_item p_v) ;
-extern void vector_move_item(vector v, vector_index dst, vector_index src) ;
-extern void vector_move_item_here(vector v, vector_index dst, int rider,
-							    vector_index src) ;
-extern p_vector_item vector_delete_item(vector v, vector_index i) ;
+extern void vector_move_item(vector v, vector_index_t dst, vector_index_t src) ;
+extern void vector_move_item_here(vector v, vector_index_t dst, int rider,
+							   vector_index_t src) ;
+extern p_vector_item vector_delete_item(vector v, vector_index_t i) ;
 extern void vector_reverse(vector v) ;
-extern void vector_part_reverse(vector v, vector_index i, unsigned int n) ;
+extern void vector_part_reverse(vector v, vector_index_t i, vector_length_t n) ;
 
 Inline void vector_push_item(vector v, p_vector_item p_v) ;
 Inline p_vector_item vector_pop_item(vector v) ;
+Inline void vector_unshift_item(vector v, p_vector_item p_v) ;
+Inline p_vector_item vector_shift_item(vector v) ;
 
-extern void vector_insert(vector v, vector_index i, unsigned int n) ;
-extern void vector_delete(vector v, vector_index i, unsigned int n) ;
+extern void vector_insert(vector v, vector_index_t i, vector_length_t n) ;
+extern void vector_delete(vector v, vector_index_t i, vector_length_t n) ;
 
 typedef int vector_bsearch_cmp(const void** pp_val, const void** item) ;
-vector_index vector_bsearch(vector v, vector_bsearch_cmp* cmp,
+vector_index_t vector_bsearch(vector v, vector_bsearch_cmp* cmp,
 					      const void* p_val, int* result) ;
 typedef int vector_sort_cmp(const void** a, const void** b) ;
 void vector_sort(vector v, vector_sort_cmp* cmp) ;
@@ -192,15 +187,15 @@ extern vector vector_move_append(vector dst, vector src) ;
   vector_sak(0, NULL, dst, i_dst, n_dst, src, i_src, n_src, 1)
 
 extern vector vector_sak(int to_copy, vector to,
-           vector dst, vector_index i_dst, unsigned int n_dst,
-           vector src, vector_index i_src, unsigned int n_src, int src_move) ;
+        vector dst, vector_index_t i_dst, vector_length_t n_dst,
+        vector src, vector_index_t i_src, vector_length_t n_src, int src_move) ;
 
-extern void vector_discard(vector v, vector_index i) ;
+extern void vector_discard(vector v, vector_index_t i) ;
 extern void vector_chop(vector v) ;
 extern void vector_decant(vector v) ;
 
-Inline vector_index vector_extend_by_1(vector v) ;
-extern void vector_extend(vector v, vector_index new_end) ;
+Inline vector_index_t vector_extend_by_1(vector v) ;
+extern void vector_extend(vector v, vector_length_t new_end) ;
 
 /*==============================================================================
  * The inline functions:
@@ -209,10 +204,10 @@ extern void vector_extend(vector v, vector_index new_end) ;
 /* Extend vector by one item at the end, which is about to be set.      */
 /* Returns index of new least item in the vector.                       */
 /* NB: if left unset, the item may be UNDEFINED.                        */
-Inline vector_index
+Inline vector_index_t
 vector_extend_by_1(vector v)
 {
-  vector_index i = v->end ;
+  vector_index_t i = v->end ;
 
   if (i < v->limit)
     return v->end++ ;                   /* simple if we have room       */
@@ -225,7 +220,7 @@ vector_extend_by_1(vector v)
 /* Adjusts logical and physical end of the vector as required, filling  */
 /* with NULLs upto any new logical end.                                 */
 Inline void
-vector_ensure(vector v, vector_index i)
+vector_ensure(vector v, vector_index_t i)
 {
   if (i < v->end)                       /* trivial if within vector     */
     return ;
@@ -241,7 +236,7 @@ vector_ensure(vector v, vector_index i)
 /* with NULLs upto any new logical end -- does not allocate any more    */
 /* than is exactly necessary.                                           */
 Inline void
-vector_set_min_length(vector v, unsigned int len)
+vector_set_min_length(vector v, vector_length_t len)
 {
   if (len > v->end)                     /* will not reduce the length   */
     vector_set_new_min_length(v, len) ;
@@ -256,7 +251,7 @@ vector_set_min_length(vector v, unsigned int len)
 /* with NULLs upto any new logical end -- does not allocate any more    */
 /* than is exactly necessary.                                           */
 Inline void
-vector_set_length(vector v, unsigned int len)
+vector_set_length(vector v, vector_length_t len)
 {
   if (len > v->end)
     vector_set_new_min_length(v, len) ; /* Extend if new length greater */
@@ -265,14 +260,14 @@ vector_set_length(vector v, unsigned int len)
 } ;
 
 /* Return index of end of vector (index of last item + 1)               */
-Inline vector_index
+Inline vector_length_t
 vector_length(vector v)
 {
   return v->end ;
 } ;
 
 /* Returns whether vector is empty or not.                              */
-Inline int
+Inline bool
 vector_is_empty(vector v)
 {
   return (v->end == 0) ;
@@ -295,7 +290,7 @@ vector_body(vector v)
 
 /* Get pointer to item.  Returns NULL if accessing beyond end.		*/
 Inline p_vector_item
-vector_get_item(vector v, vector_index i)
+vector_get_item(vector v, vector_index_t i)
 {
   return (i < v->end) ? v->p_items[i] : NULL ;
 } ;
@@ -318,7 +313,7 @@ vector_get_last_item(vector v)
 /* NB: it is the caller's responsibility to release memory used by any  */
 /*     current value of the item, if required.                          */
 Inline void
-vector_set_item(vector v, vector_index i, void* p_v)
+vector_set_item(vector v, vector_index_t i, p_vector_item p_v)
 {
   vector_ensure(v, i) ;
   v->p_items[i] = (p_vector_item)p_v ;
@@ -330,16 +325,16 @@ vector_set_item(vector v, vector_index i, void* p_v)
  *     used by the current dst item or the new (duplicated) src item.
  */
 Inline void
-vector_assign_item(vector v, vector_index dst, vector_index src)
+vector_assign_item(vector v, vector_index_t dst, vector_index_t src)
 {
   vector_set_item(v, dst, vector_get_item(v, src)) ;
 } ;
 
 /* Push value onto vector, extending as required.			*/
 Inline void
-vector_push_item(vector v, void* p_v)
+vector_push_item(vector v, p_vector_item p_v)
 {
-  vector_index i = vector_extend_by_1(v) ;
+  vector_index_t i = vector_extend_by_1(v) ;
   v->p_items[i] = (p_vector_item)p_v ;
 } ;
 
@@ -349,6 +344,24 @@ Inline p_vector_item
 vector_pop_item(vector v)
 {
   return (v->end > 0) ? v->p_items[--v->end] : NULL ;
+} ;
+
+/* Unshift value onto start of vector, extending as required.           */
+Inline void
+vector_unshift_item(vector v, p_vector_item p_v)
+{
+  vector_insert(v, 0, 1) ;
+  v->p_items[0] = p_v ;
+} ;
+
+/* Pop value from vector.  Returns NULL if vector is empty.             */
+/* NB: does NOT change the size of the vector body.                     */
+Inline p_vector_item
+vector_shift_item(vector v)
+{
+  p_vector_item p_v = vector_get_first_item(v) ;
+  vector_delete(v, 0, 1) ;
+  return p_v ;
 } ;
 
 #endif /* _ZEBRA_VECTOR_H */
