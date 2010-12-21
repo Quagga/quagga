@@ -1609,8 +1609,13 @@ vty_clear_prefix_list (struct vty *vty, afi_t afi, const char *name,
       struct symbol_walker walker ;
       symbol_walk_start(&pm->table, &walker) ;
       while ((plist = symbol_get_value(symbol_walk_next(&walker))))
-	for (VECTOR_ITEMS(&plist->list, pe, i))
-	  pe->hitcnt = 0 ;
+        {
+          if (plist == NULL)
+            continue ;
+
+          for (VECTOR_ITEMS(&plist->list, pe, i))
+            pe->hitcnt = 0 ;
+        } ;
     }
   else
     {

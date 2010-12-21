@@ -10367,6 +10367,7 @@ DEFUN (show_ip_community_list,
   vector extract ;
   vector_index i ;
   struct symbol* sym ;
+  struct community_list *list;
 
   table = community_list_master_lookup (bgp_clist, COMMUNITY_LIST_MASTER);
   if (table == NULL)
@@ -10375,7 +10376,11 @@ DEFUN (show_ip_community_list,
   extract = symbol_table_extract(table, NULL, NULL, 0, symbol_mixed_name_cmp) ;
 
   for (VECTOR_ITEMS(extract, sym, i))
-    community_list_show (vty, symbol_get_value(sym));
+    {
+      list = symbol_get_value(sym) ;
+      if (list != NULL)
+        community_list_show (vty, list);
+    } ;
 
   vector_free(extract) ;	/* discard temporary vector */
 
@@ -10721,6 +10726,7 @@ DEFUN (show_ip_extcommunity_list,
   vector extract ;
   vector_index i ;
   struct symbol* sym ;
+  struct community_list *list;
 
   table = community_list_master_lookup (bgp_clist, EXTCOMMUNITY_LIST_MASTER);
   if (table == NULL)
@@ -10729,7 +10735,11 @@ DEFUN (show_ip_extcommunity_list,
   extract = symbol_table_extract(table, NULL, NULL, 0, symbol_mixed_name_cmp) ;
 
   for (VECTOR_ITEMS(extract, sym, i))
-    extcommunity_list_show (vty, symbol_get_value(sym));
+    {
+      list = symbol_get_value(sym) ;
+      if (list != NULL)
+        extcommunity_list_show (vty, list);
+    } ;
 
   vector_free(extract) ;	/* discard temporary vector */
 
@@ -10796,6 +10806,10 @@ community_list_config_write_list(struct vty* vty, int what)
   for (VECTOR_ITEMS(extract, sym, i))
     {
       list = symbol_get_value(sym) ;
+
+      if (list == NULL)
+        continue ;
+
       for (entry = list->head; entry; entry = entry->next)
 	{
 	  const char* list_type  = "" ;
