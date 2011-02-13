@@ -272,7 +272,7 @@ struct keystroke_state
 
 struct keystroke_stream
 {
-  vio_fifo_t    fifo ;          /* the keystrokes                       */
+  vio_fifo_t    fifo ;          /* the keystrokes -- embedded           */
 
   keystroke_callback* iac_callback ;
   void*               iac_callback_context ;
@@ -301,7 +301,8 @@ enum { keystroke_buffer_len = 2000 } ;  /* should be plenty !   */
 static void keystroke_in_push(keystroke_stream stream, uint8_t u) ;
 static void keystroke_in_pop(keystroke_stream stream) ;
 
-inline static int keystroke_set_null(keystroke_stream stream, keystroke stroke);
+inline static bool keystroke_set_null(keystroke_stream stream,
+                                                             keystroke stroke) ;
 inline static uint8_t keystroke_get_byte(keystroke_stream stream) ;
 inline static void keystroke_add_raw(keystroke_stream stream, uint8_t u) ;
 static void keystroke_put_char(keystroke_stream stream, uint32_t u) ;
@@ -368,7 +369,7 @@ keystroke_stream_new(uint8_t csi_char, keystroke_callback* iac_callback,
   stream->iac_callback         = iac_callback ;
   stream->iac_callback_context = iac_callback_context ;
 
-  vio_fifo_init_new(&stream->fifo, keystroke_buffer_len) ;
+  vio_fifo_init_new(stream->fifo, keystroke_buffer_len) ;
 
   stream->CSI = (csi_char != '\0') ? csi_char : 0x1B ;
 
@@ -385,7 +386,7 @@ keystroke_stream_free(keystroke_stream stream)
 {
   if (stream != NULL)
     {
-      vio_fifo_reset_keep(&stream->fifo) ;
+      vio_fifo_reset(stream->fifo, keep_it) ;
 
       XFREE(MTYPE_KEY_STREAM, stream) ;
     } ;
@@ -407,7 +408,7 @@ keystroke_stream_free(keystroke_stream stream)
 extern bool
 keystroke_stream_empty(keystroke_stream stream)
 {
-  return (stream == NULL) || vio_fifo_empty(&stream->fifo) ;
+  return (stream == NULL) || vio_fifo_empty(stream->fifo) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -428,7 +429,7 @@ keystroke_stream_eof(keystroke_stream stream)
    * is converted to a broken keystroke and placed in the stream.
    * (So eof_met => no partial keystroke.)
    */
-  return (stream == NULL) || (vio_fifo_empty(&stream->fifo) && stream->eof_met);
+  return (stream == NULL) || (vio_fifo_empty(stream->fifo) && stream->eof_met);
 } ;
 
 /*------------------------------------------------------------------------------
@@ -441,7 +442,7 @@ keystroke_stream_eof(keystroke_stream stream)
 extern void
 keystroke_stream_set_eof(keystroke_stream stream)
 {
-  vio_fifo_reset_keep(&stream->fifo) ;
+  vio_fifo_reset(stream->fifo, keep_it) ;
 
   stream->eof_met         = true ;      /* essential information        */
 
@@ -858,10 +859,10 @@ keystroke_in_pop(keystroke_stream stream)
 /*==============================================================================
  * Fetch next keystroke from keystroke stream
  *
- * Returns: 1 => have a stroke type != ks_null
- *          0 => stroke type is ks_null (may be EOF).
+ * Returns: true  => have a stroke type != ks_null
+ *          false => stroke type is ks_null (may be EOF).
  */
-extern int
+extern bool
 keystroke_get(keystroke_stream stream, keystroke stroke)
 {
   int       b ;
@@ -869,7 +870,7 @@ keystroke_get(keystroke_stream stream, keystroke stroke)
   uint8_t*  e ;
 
   /* Get first byte and deal with FIFO empty response                   */
-  b = vio_fifo_get_byte(&stream->fifo) ;
+  b = vio_fifo_get_byte(stream->fifo) ;
 
   if (b < 0)
     return keystroke_set_null(stream, stroke) ;
@@ -884,7 +885,7 @@ keystroke_get(keystroke_stream stream, keystroke stroke)
       stroke->len     = 1 ;
       stroke->buf[0]  = b ;
 
-      return 1 ;
+      return true ;
     } ;
 
   /* Sex the compound keystroke                                         */
@@ -954,7 +955,7 @@ keystroke_get(keystroke_stream stream, keystroke stroke)
       zabort("unknown keystroke type") ;
   } ;
 
-  return 1 ;
+  return true ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -962,7 +963,7 @@ keystroke_get(keystroke_stream stream, keystroke stroke)
  *
  * Returns: 0
  */
-inline static int
+inline static bool
 keystroke_set_null(keystroke_stream stream, keystroke stroke)
 {
   stroke->type  = ks_null ;
@@ -971,7 +972,7 @@ keystroke_set_null(keystroke_stream stream, keystroke stroke)
   stroke->flags = 0 ;
   stroke->len   = 0 ;
 
-  return 0 ;
+  return false ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -983,7 +984,7 @@ keystroke_set_null(keystroke_stream stream, keystroke stroke)
 inline static uint8_t
 keystroke_get_byte(keystroke_stream stream)
 {
-  int b = vio_fifo_get_byte(&stream->fifo) ;
+  int b = vio_fifo_get_byte(stream->fifo) ;
 
   passert(b >= 0) ;
 
@@ -1013,7 +1014,7 @@ static void
 keystroke_put_char(keystroke_stream stream, uint32_t u)
 {
   if (u < 0x80)
-    vio_fifo_put_byte(&stream->fifo, (uint8_t)u) ;
+    vio_fifo_put_byte(stream->fifo, (uint8_t)u) ;
   else
     {
       uint8_t  buf[4] ;
@@ -1140,12 +1141,12 @@ keystroke_put(keystroke_stream stream, enum keystroke_type type, bool broken,
       type |= kf_truncated ;
     } ;
 
-  vio_fifo_put_byte(&stream->fifo,
+  vio_fifo_put_byte(stream->fifo,
                                 kf_compound | (broken ? kf_broken : 0) | type) ;
-  vio_fifo_put_byte(&stream->fifo, len) ;
+  vio_fifo_put_byte(stream->fifo, len) ;
 
   if (len > 0)
-    vio_fifo_put(&stream->fifo, (void*)bytes, len) ;
+    vio_fifo_put_bytes(stream->fifo, (void*)bytes, len) ;
 } ;
 
 /*------------------------------------------------------------------------------

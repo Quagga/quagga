@@ -22,10 +22,12 @@
 #ifndef COMMAND_QUEUE_H_
 #define COMMAND_QUEUE_H_
 
-#include "command.h"
+#include "vty_local.h"
+#include "command_execute.h"
 #include "qpnexus.h"
 
-extern void cq_enqueue(struct vty *vty, qpn_nexus dst) ;
-extern void cq_revoke(struct vty* vty) ;
+extern void cq_dispatch(vty vty, cmd_do_t to_do, qstring line) ;
+extern void cq_go_fetch(vty vty) ;
+extern void cq_revoke(vty vty) ;
 
 #endif /* COMMAND_QUEUE_H_ */

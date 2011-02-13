@@ -959,7 +959,7 @@ DEFUN (route_map,
   index = route_map_index_get (map, permit, seq);
 
   vty->index = index;
-  vty_set_node(vty, RMAP_NODE) ;
+  vty->node  = RMAP_NODE ;
   return CMD_SUCCESS;
 }
 

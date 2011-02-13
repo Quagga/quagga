@@ -89,33 +89,36 @@ extern qpn_nexus vty_cmd_nexus ;
 
 extern qpt_mutex_t vty_mutex ;
 
-#ifdef  NDEBUG
-# define  VTY_DEBUG 0           /* NDEBUG override                      */
+#ifdef VTY_DEBUG                /* Can be forced from outside           */
+# if VTY_DEBUG
+#  define VTY_DEBUG 1           /* Force 1 or 0                         */
 #else
-# ifndef  VTY_DEBUG
-#  define VTY_DEBUG 1           /* Set to 1 to turn on debug checks     */
+#  define VTY_DEBUG 0
+# endif
+#else
+# ifdef  QDEBUG
+#  define VTY_DEBUG 1           /* Follow QDEBUG                        */
+#else
+#  define VTY_DEBUG 0
 # endif
 #endif
 
-#if VTY_DEBUG
+enum { vty_debug = VTY_DEBUG } ;
 
 extern int vty_lock_count ;
-extern int vty_assert_fail ;
-
-#endif
 
 Inline void
 VTY_LOCK(void)          /* if is qpthreads_enabled, lock vty_mutex      */
 {
   qpt_mutex_lock(&vty_mutex) ;
-  if (VTY_DEBUG)
+  if (vty_debug)
     ++vty_lock_count ;
 } ;
 
 Inline void
 VTY_UNLOCK(void)        /* if is qpthreads_enabled, unlock vty_mutex    */
 {
-  if (VTY_DEBUG)
+  if (vty_debug)
     --vty_lock_count ;
   qpt_mutex_unlock(&vty_mutex) ;
 } ;
@@ -136,6 +139,8 @@ vty_is_cli_thread(void)
  * run qpthreaded !
  */
 #if VTY_DEBUG
+
+extern int vty_assert_fail ;
 
 Inline void
 VTY_ASSERT_FAILED(void)

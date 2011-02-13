@@ -1,4 +1,4 @@
-/* VTY top level
+/* VTY external interface -- header
  * Copyright (C) 1997, 98 Kunihiro Ishiguro
  *
  * Revisions: Copyright (C) 2010 Chris Hall (GMCH), Highwayman
@@ -25,6 +25,10 @@
 #define _ZEBRA_VTY_H
 
 #include "misc.h"
+#include "vargs.h"
+
+#include "command_common.h"     /* NB: *not* command.h          */
+#include "vty_common.h"         /* struct vty & VTY types       */
 
 #include "thread.h"
 #include "log.h"
@@ -35,127 +39,11 @@
 #include "list_util.h"
 #include "vector.h"
 #include "qstring.h"
-#include "node_type.h"
 
 /*==============================================================================
- * The VTYSH uses a unix socket to talk to the daemon.
- *
- * The ability to respond to a connection from VTYSH appears to be a *compile*
- * time option.  In the interests of keeping the code up to date, the VTYSH
- * option is turned into a testable constant.
+ * These are definitions and functions for things which are required outside
+ * the vty and command family.
  */
-#ifdef VTYSH
-  enum { VTYSH_ENABLED = true  } ;
-#else
-  enum { VTYSH_ENABLED = false } ;
-#endif
-
-/*==============================================================================
- * VTY Types
- */
-enum vty_type           /* Command output                               */
-{
-  VTY_TERMINAL,         /* a telnet terminal server                     */
-  VTY_SHELL_SERVER,     /* a vty_shell server                           */
-
-  VTY_SHELL_CLIENT,     /* a vty_shell client                           */
-
-  VTY_CONFIG_READ,      /* configuration file reader                    */
-
-  VTY_STDOUT,           /* stdout                                       */
-  VTY_STDERR,           /* stderr                                       */
-} ;
-typedef enum vty_type vty_type_t ;
-
-/*==============================================================================
- *
- *
- *
- *
- */
-
-typedef unsigned long vty_timer_time ;  /* Time out time in seconds     */
-
-enum
-{
-  VTY_WATCH_DOG_INTERVAL    =   5,      /* interval between barks       */
-
-  VTY_HALF_CLOSE_TIMEOUT    = 120,      /* timeout after half_close     */
-
-  VTY_TIMEOUT_DEFAULT       = 600,      /* terminal timeout value       */
-} ;
-
-/*==============================================================================
- * VTY struct.
- */
-
-typedef struct vty_io* vty_io ; /* private to vty.c                     */
-
-struct cmd_parsed ;             /* in case vty.h expanded before command.h */
-
-typedef struct vty* vty ;
-struct vty
-{
-  vty_type_t    type ;
-
-  /*----------------------------------------------------------------------
-   * The following are the context in which commands are executed.
-   */
-
-  /* Node status of this vty
-   *
-   * NB: when using qpthreads should lock VTY to access this -- so use
-   *     vty_get_node() and vty_set_node().
-   */
-  enum node_type node ;
-
-  /* For current referencing point of interface, route-map, access-list
-   * etc...
-   *
-   * NB: this value is private to the command execution, which is assumed
-   *     to all be in the one thread... so no lock required.
-   */
-  void  *index ;
-
-  /* For multiple level index treatment such as key chain and key.
-   *
-   * NB: this value is private to the command execution, which is assumed
-   *     to all be in the one thread... so no lock required.
-   */
-  void  *index_sub ;
-
-  /* In configure mode.                                                 */
-  bool  config;
-
-  /*----------------------------------------------------------------------------
-   * The current command line.
-   *
-   * These are set when a command is parsed and dispatched.
-   *
-   * They are not touched until the command completes -- so may be read while
-   * the command is being parsed and executed.
-   */
-  const char*           buf ;
-  struct cmd_parsed*    parsed ;
-  unsigned              lineno ;
-
-  bool          output_enabled ;
-  bool          reflect_enabled ;
-  bool          more_enabled ;
-
-  bool          reflected ;
-
-  /*----------------------------------------------------------------------
-   * The following are used inside vty.c only.
-   */
-  vty_io                vio ;   /* one vio object per vty       */
-} ;
-
-/*------------------------------------------------------------------------------
- * Can now include this
- */
-
-#include "command.h"
 
 /*------------------------------------------------------------------------------
  *
@@ -186,13 +74,6 @@ enum { VTY_MAX_SPACES = 40 } ;
 #ifndef IS_DIRECTORY_SEP
 #define IS_DIRECTORY_SEP(c) ((c) == DIRECTORY_SEP)
 #endif
-
-/* GCC have printf type attribute check.  */
-#ifdef __GNUC__
-#define PRINTF_ATTRIBUTE(a,b) __attribute__ ((__format__ (__printf__, a, b)))
-#else
-#define PRINTF_ATTRIBUTE(a,b)
-#endif /* __GNUC__ */
 
 /* Utility macros to convert VTY argument to unsigned long or integer. */
 #define VTY_GET_LONG(NAME,V,STR) \
@@ -267,22 +148,23 @@ extern void vty_reset_because(const char* why) ;
 
 extern int vty_out (struct vty *, const char *, ...) PRINTF_ATTRIBUTE(2, 3);
 extern int vty_out_indent(struct vty *vty, int indent) ;
-extern int vty_out_error (struct vty *vty, const char *format, ...)
-                                                     PRINTF_ATTRIBUTE(2, 3);
 extern void vty_out_clear(struct vty *vty) ;
 
-extern void vty_read_config (char *config_file, char *config_default);
-extern void vty_read_config_first_cmd_special(
-                             char *config_file, char *config_default,
-                          struct cmd_element* first_cmd, bool ignore_warnings) ;
+
+
+
+
+extern void vty_read_config (const char* config_file,
+                             const char* config_default);
+extern void vty_read_config_first_cmd_special(const char* config_file,
+                                              const char* config_default,
+                                              cmd_command first_cmd,
+                                              bool ignore_warnings) ;
 
 extern void vty_time_print (struct vty *, int);
 
 extern char *vty_get_cwd (void);
 
 extern void vty_hello (struct vty *);
-extern enum node_type vty_get_node(struct vty *);
-extern void vty_set_node(struct vty *, enum node_type);
-extern void vty_set_lines(struct vty *, int);
 
 #endif /* _ZEBRA_VTY_H */

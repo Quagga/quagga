@@ -466,7 +466,7 @@ bgp_session_has_disabled(bgp_session session)
   session->state = bgp_session_sDisabled ;
 
   /* Immediately discard any other messages for this session.           */
-  mqueue_revoke(routing_nexus->queue, session) ;
+  mqueue_revoke(routing_nexus->queue, session, 0) ;
 
   /* If the session is marked "delete_me", do that.
    *

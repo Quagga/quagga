@@ -19,6 +19,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 02111-1307, USA.  */
 
 #include <zebra.h>
+#include "misc.h"
 
 #include "prefix.h"
 #include "thread.h"
@@ -4691,7 +4692,7 @@ bgp_init (void)
  *
  */
 void
-bgp_terminate (int terminating, int retain_mode)
+bgp_terminate (bool terminating, bool retain_mode)
 {
   struct bgp *bgp;
   struct peer *peer;

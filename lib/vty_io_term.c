@@ -20,11 +20,15 @@
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
  */
+#include "zconfig.h"
+#include "misc.h"
 
-#include "zebra.h"
-
+#include "vty_local.h"
+#include "vty_io.h"
 #include "vty_io_term.h"
 #include "vty_cli.h"
+#include "vty_command.h"
+#include "vio_fifo.h"
 
 #include "qstring.h"
 #include "keystroke.h"
@@ -38,10 +42,51 @@
 #include "network.h"
 
 #include <arpa/telnet.h>
-#include <sys/un.h>             /* for VTYSH    */
 #include <sys/socket.h>
+#include <errno.h>
 
-#define VTYSH_DEBUG 0
+/*==============================================================================
+ * The I/O side of Telnet VTY_TERMINAL.  The CLI side is vty_cli.c.
+ *
+ * A VTY_TERMINAL comes into being when a telnet connection is accepted, and
+ * is closed either on command, or on timeout, or when the daemon is reset
+ * or terminated.
+ *
+ *
+ *
+ *
+ */
+
+
+
+
+
+
+/*==============================================================================
+ * If possible, will use getaddrinfo() to find all the things to listen on.
+ */
+#if defined(HAVE_IPV6) && !defined(NRL)
+# define VTY_USE_ADDRINFO 1
+#else
+# define VTY_USE_ADDRINFO 0
+#endif
+
+/*==============================================================================
+ * Opening and closing VTY_TERMINAL type
+ */
+
+static void uty_term_ready(vio_vfd vfd, void* action_info) ;
+static vty_timer_time uty_term_read_timeout(vio_timer_t* timer,
+                                                            void* action_info) ;
+static vty_timer_time uty_term_write_timeout(vio_timer_t* timer,
+                                                            void* action_info) ;
+static vty_readiness_t uty_term_write(vio_vf vf) ;
+
+static void uty_term_will_echo(vty_cli cli) ;
+static void uty_term_will_suppress_go_ahead(vty_cli cli) ;
+static void uty_term_dont_linemode(vty_cli cli) ;
+static void uty_term_do_window_size(vty_cli cli) ;
+static void uty_term_dont_lflow_ahead(vty_cli cli) ;
 
 /*------------------------------------------------------------------------------
  * Create new vty of type VTY_TERMINAL -- ie attached to a telnet session.
@@ -49,138 +94,107 @@
  * This is called by the accept action for the VTY_TERMINAL listener.
  */
 static void
-uty_term_accept_new(int sock_fd, union sockunion *su)
+uty_term_open(int sock_fd, union sockunion *su)
 {
-  struct vty *vty ;
-  vty_io vio ;
-  enum vty_readiness ready ;
+  vty     vty ;
+  vty_io  vio ;
+  vio_vf  vf ;
 
   VTY_ASSERT_LOCKED() ;
   VTY_ASSERT_CLI_THREAD() ;
 
   /* Allocate new vty structure and set up default values.              */
-  vty = uty_new(VTY_TERMINAL, sock_fd) ;
+  vty = uty_new(VTY_TERMINAL) ;
   vio = vty->vio ;
 
-  /* The text form of the address identifies the VTY                    */
-  vty->vio->name = sockunion_su2str (su, MTYPE_VTY_NAME);
-
-  /* Set the initial node                                               */
-  if (no_password_check)
+  /* The initial vty->node depends on a number of vty type things, so
+   * we set that now.
+   *
+   * This completes the initialisation of the vty object, except that the
+   * execution and vio objects are largely empty.
+   */
+  if (host.no_password_check)
     {
-      if (restricted_mode)
-        vty->node = RESTRICTED_NODE;
+      if (host.restricted_mode)
+        vio->vty->node = RESTRICTED_NODE;
       else if (host.advanced)
-        vty->node = ENABLE_NODE;
+        vio->vty->node = ENABLE_NODE;
       else
-        vty->node = VIEW_NODE;
+        vio->vty->node = VIEW_NODE;
     }
   else
-    vty->node = AUTH_NODE;
+    vio->vty->node = AUTH_NODE;
 
-  /* Pick up current timeout setting                                    */
-  vio->sock.v_timeout = vty_timeout_val;
+  /* Complete the initialisation of the vty_io object.
+   *
+   * Note that the defaults for:
+   *
+   *   - read_timeout     -- default = 0     => no timeout
+   *   - write_timeout    -- default = 0     => no timeout
+   *
+   *   - parse_type       -- default = cmd_parse_standard
+   *   - reflect_enabled  -- default = false
+   *   - out_enabled      -- default = true iff vfd_io_write
+   *
+   * Are OK, except that we want the read_timeout set to the current EXEC
+   * timeout value.
+   *
+   * The text form of the address identifies the VTY.
+   */
+  vf = uty_vf_new(vio, sutoa(su).str, sock_fd, vfd_socket, vfd_io_read_write) ;
 
-  /* Use global 'lines' setting, as default.  May be -1 => unset        */
-  vio->lines = host.lines ;
+  uty_vin_open( vio, vf, VIN_TERM,  uty_term_ready,
+                                    uty_term_read_timeout,
+                                    0) ;        /* no ibuf required     */
+  uty_vout_open(vio, vf, VOUT_TERM, uty_term_ready,
+                                    uty_term_write_timeout,
+                                    4096) ;     /* obuf is required     */
 
-  /* For VTY_TERM use vio_line_control for '\n' and "--more--"          */
-  vio->cmd_lc = vio_lc_init_new(NULL, 0, 0) ;
-  uty_set_height(vio) ;         /* set initial state    */
+  vf->read_timeout = host.vty_timeout_val ; /* current EXEC timeout     */
 
-  /* Initialise the CLI, ready for start-up messages etc.               */
-  uty_cli_init(vio) ;
+  /* Set up the CLI object & initialise                                 */
+  vf->cli = uty_cli_new(vf) ;
 
-  /* Reject connection if password isn't set, and not "no password"     */
-  if ((host.password == NULL) && (host.password_encrypt == NULL)
-                                                        && ! no_password_check)
+  /* When we get here the VTY is set up and all ready to go.            */
+  uty_cmd_prepare(vio) ;
+
+  /* Issue Telnet commands/escapes to be a good telnet citizen -- not much
+   * real negotiating going on -- just a statement of intentions !
+   */
+  uty_term_will_echo (vf->cli);
+  uty_term_will_suppress_go_ahead (vf->cli);
+  uty_term_dont_linemode (vf->cli);
+  uty_term_do_window_size (vf->cli);
+  if (0)
+    uty_term_dont_lflow_ahead (vf->cli) ;
+
+  /* Say hello                                                          */
+  vty_hello(vty);
+
+  /* If need password, issue prompt or give up if no password to check
+   * against !
+   */
+  if (vty->node == AUTH_NODE)
     {
-      uty_close(vio, "Vty password is not set.");
-      vty = NULL;
-    }
-  else
-    {
-      /* Say hello to the world. */
-      vty_hello (vty);
-
-      if (! no_password_check)
-        uty_output (vty, "\nUser Access Verification\n\n");
+      if (host.password != NULL)
+        vty_out(vty, "\nUser Access Verification\n\n");
+      else
+        uty_close(vio, false, qs_set(NULL, "vty password is not set."));
     } ;
 
-  /* Now start the CLI and set a suitable state of readiness            */
-  ready = uty_cli_start(vio) ;
-  uty_sock_set_readiness(&vio->sock, ready) ;
+  /* Push the output to date and start the CLI                          */
+  uty_cmd_out_push(vio) ;
+  uty_cli_start(vf->cli, vty->node) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Construct vio_vf structure for new VTY_TERMINAL type VTY, and add same.
+ * Close the reading side of VTY_TERMINAL, and close down CLI as far as
+ * possible, given that output may be continuing.
  *
- *
- */
-
-static void
-uty_term_new(vty_io vio, int sock_fd)
-{
-  vio_vf      vf ;
-
-  enum vty_readiness ready ;
-
-  VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
-
-  /* May only be the first vio_vf !                                     */
-  assert((vio->vin_base == NULL) && (vio->vout_base == NULL)) ;
-
-  /* Construct and add to the vio                                       */
-  vf = uty_vf_new(vio, sock_fd, vfd_socket, vfd_io_read_write) ;
-
-  uty_vin_add(vio, vf, VIN_TERM, uty_term_ready, uty_term_read_timeout) ;
-  uty_vout_add(vio, vf, VIN_TERM, uty_term_ready, uty_term_write_timeout) ;
-
-  /* Allocate and initialise a keystroke stream     TODO: CSI ??        */
-  vio->key_stream = keystroke_stream_new('\0', uty_cli_iac_callback, vio) ;
-
-  /* Pick up current timeout setting                                    */
-  vf->read_timeout = vty_timeout_val;
-
-  /* Use global 'lines' setting, as default.  May be -1 => unset        */
-  vio->lines = host.lines ;
-
-  /* For VTY_TERM use vio_line_control for '\n' and "--more--"          */
-  vf->olc = vio_lc_init_new(NULL, 0, 0) ;
-  uty_set_height(vio) ;         /* set initial state    */
-
-  /* Initialise the CLI, ready for start-up messages etc.               */
-  uty_cli_init(vio) ;
-
-  /* Reject connection if password isn't set, and not "no password"     */
-  if ((host.password == NULL) && (host.password_encrypt == NULL)
-                                                        && ! no_password_check)
-    {
-      uty_close(vio, "Vty password is not set.");
-      vty = NULL;
-    }
-  else
-    {
-      /* Say hello to the world. */
-      vty_hello (vty);
-
-      if (! no_password_check)
-        uty_output (vty, "\nUser Access Verification\n\n");
-    } ;
-
-  /* Now start the CLI and set a suitable state of readiness            */
-  ready = uty_cli_start(vio) ;
-  uty_sock_set_readiness(&vio->sock, ready) ;
-} ;
-
-
-
-/*------------------------------------------------------------------------------
- *
+ * Expects to be called once only for the VTY_TERMINAL.
  */
 extern void
-uty_term_half_close(vio_vf vf)
+uty_term_read_close(vio_vf vf)
 {
   vty_io  vio ;
 
@@ -193,92 +207,59 @@ uty_term_half_close(vio_vf vf)
    * Note that half closing the file sets a new timeout, sets read off
    * and write on.
    */
-
-
-
   uty_set_monitor(vio, 0) ;
 
-  /* Discard everything in the keystroke stream and force it to EOF     */
-  if (vio->key_stream != NULL)
-    keystroke_stream_set_eof(vio->key_stream) ;
-
-  /* Turn off "--more--" so that all output clears without interruption.
-   *
-   * If is sitting on a "--more--" prompt, then exit the wait_more CLI.
-   */
-  vio->cli_more_enabled = 0 ;
-
-  if (vio->cli_more_wait)
-    uty_cli_exit_more_wait(vio) ;
-
-  /* If a command is not in progress, enable output, which will clear
-   * the output buffer if there is anything there, plus any close reason,
-   * and then close.
-   *
-   * If command is in progress, then this process will start when it
-   * completes.
-   */
-  if (!vio->cmd_in_progress)
-    vio->cmd_out_enabled = 1 ;
+  uty_cli_close(vf->cli, false) ;
 
   /* Log closing of VTY_TERM                                            */
   assert(vio->vty->type == VTY_TERMINAL) ;
-  uzlog (NULL, LOG_INFO, "Vty connection (fd %d) close", uty_vf_fd(vf)) ;
+  uzlog (NULL, LOG_INFO, "Vty connection (fd %d) close", vio_vfd_fd(vf->vfd)) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * vprintf to VTY_TERM
+ * Close the writing side of VTY_TERMINAL.
  *
- * All output goes to output fifo until command completes.
+ * Pushes any buffered stuff to output and
  *
- * NB: MUST be cmd_in_progress
- *
- *     Discards output if the socket is not open for whatever reason.
  */
-extern int
-uty_term_vprintf(vio_vf vf, const char *format, va_list args)
+extern bool
+uty_term_write_close(vio_vf vf, bool final)
 {
-  VTY_ASSERT_LOCKED() ;
+  vty_io  vio ;
+  vty_readiness_t ready ;
 
-  if (!vf->write_open)
-    return 0 ;                      /* discard output if not open ! */
+  /* Get the vio and ensure that we are all straight                    */
+  vio = vf->vio ;
+  assert((vio->vin == vio->vin_base) && (vio->vin == vf)) ;
 
-  assert(vf->vio->cmd_in_progress) ;
+  /* Do the file side of things
+   *
+   * Note that half closing the file sets a new timeout, sets read off
+   * and write on.
+   */
+  uty_set_monitor(vio, 0) ;
 
-  return vio_fifo_vprintf(vf->obuf, format, args) ;
-} ;
+  vf->cli->out_active = true ; /* force the issue      */
 
-/*------------------------------------------------------------------------------
- * Set/Clear "monitor" state:
- *
- *  set:   if VTY_TERM and not already "monitor" (and write_open !)
- *  clear: if is "monitor"
- */
-extern void
-uty_set_monitor(vty_io vio, bool on)
-{
-  VTY_ASSERT_LOCKED() ;
-
-  if      (on && !vio->monitor)
+  do
     {
-      if ((vio->type == VTY_TERM) && vio->sock.write_open)
-        {
-          vio->monitor = 1 ;
-          sdl_push(vio_monitors_base, vio, mon_list) ;
-        } ;
-    }
-  else if (!on && vio->monitor)
-    {
-      vio->monitor = 0 ;
-      sdl_del(vio_monitors_base, vio, mon_list) ;
-    }
+      vf->cli->out_done = false ;
+      ready = uty_term_write(vf) ;
+    } while ((ready != write_ready) && vf->cli->out_active) ;
+
+  final = final || !vf->cli->out_active ;
+
+  if (!final)
+    uty_term_set_readiness(vf, ready) ;
+
+  vf->cli = uty_cli_close(vf->cli, final) ;
+
+  return final ;
 } ;
 
 /*==============================================================================
  * Action routines for VIN_TERM/VOUT_TERM type vin/vout objects
  */
-
-static enum vty_readiness uty_term_write(vio_vf vf) ;
 
 /*==============================================================================
  * Readiness and the VIN_TERM type vin.
@@ -289,7 +270,23 @@ static enum vty_readiness uty_term_write(vio_vf vf) ;
  *
  * The VIN_TERM uses read ready only when it doesn't set write ready.  Does
  * not set both at once.
+ */
+
+/*------------------------------------------------------------------------------
+ * Set read/write readiness -- for VIN_TERM/VOUT_TERM
  *
+ * Note that sets only one of read or write, and sets write for preference.
+ */
+extern void
+uty_term_set_readiness(vio_vf vf, vty_readiness_t ready)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  uty_vf_set_read(vf,  (ready == read_ready)) ;
+  uty_vf_set_write(vf, (ready >= write_ready)) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * So there is only one, common, uty_term_ready function, which:
  *
  *   1. attempts to clear any output it can.
@@ -326,38 +323,40 @@ static enum vty_readiness uty_term_write(vio_vf vf) ;
  * Resets the timer because something happened.
  */
 static void
-uty_term_ready(vio_fd vfd, void* action_info)
+uty_term_ready(vio_vfd vfd, void* action_info)
 {
-  enum vty_readiness ready ;
+  vty_readiness_t ready ;
 
   vio_vf  vf   = action_info ;
-  vty_io  vio =  vf->vio ;
+
+  assert(vfd == vf->vfd) ;
 
   VTY_ASSERT_LOCKED() ;
-
-  vio->cmd_out_done = 0 ;               /* not done any command output yet  */
 
   uty_term_write(vf) ;                  /* try to clear outstanding stuff   */
   do
     {
-      ready  = uty_cli(vio) ;           /* do any CLI work...               */
+      ready  = uty_cli(vf->cli) ;      /* do any CLI work...               */
       ready |= uty_term_write(vf) ;     /* ...and any output that generates */
     } while (ready >= now_ready) ;
 
-  uty_file_set_readiness(vf, ready) ;
+  uty_term_set_readiness(vf, ready) ;
 } ;
 
 /*==============================================================================
- * Reading from VTY_TERM.
+ * Reading from VTY_TERMINAL.
  *
- * The select/pselect call-back ends up in uty_read_ready().
- *
- * Note that uty_write_ready() also calls uty_read_ready, in order to kick the
- * current CLI.
+ * The select/pselect call-back ends up in uty_term_ready().
  */
 
 /*------------------------------------------------------------------------------
  * Read a lump of bytes and shovel into the keystroke stream
+ *
+ * This function is called from the vty_cli to top up the keystroke buffer,
+ * or in the stealing of a keystroke to end "--more--" state.
+ *
+ * NB: need not be in the term_ready path.  Indeed, when the VTY_TERMINAL is
+ *     initialised, this is called to suck up any telnet preamble.
  *
  * Steal keystroke if required -- see keystroke_input()
  *
@@ -366,25 +365,24 @@ uty_term_ready(vio_fd vfd, void* action_info)
  *          -1 => EOF (or not open, or failed)
  */
 extern int
-uty_read (vty_io vio, keystroke steal)
+uty_term_read(vio_vf vf, keystroke steal)
 {
   unsigned char buf[500] ;
   int get ;
 
-  if (!vio->sock.read_open)
-    return -1 ;                 /* at EOF if not open           */
+  if (vf->vin_state != vf_open)
+    return -1 ;                 /* at EOF if not open                   */
 
-  get = read_nb(vio->sock.fd, buf, sizeof(buf)) ;
+  get = read_nb(vio_vfd_fd(vf->vfd), buf, sizeof(buf)) ;
   if      (get >= 0)
-    keystroke_input(vio->key_stream, buf, get, steal) ;
+    keystroke_input(vf->cli->key_stream, buf, get, steal) ;
   else if (get < 0)
     {
       if (get == -1)
-        uty_file_error(vio, "read") ;
+        uty_vf_error(vf, "read", errno) ;
 
-      vio->sock.read_open = 0 ;
-      keystroke_input(vio->key_stream, NULL, 0, steal) ;
-
+      keystroke_input(vf->cli->key_stream, NULL, 0, steal) ;
+                                /* Tell keystroke stream that EOF met   */
       get = -1 ;
     } ;
 
@@ -396,10 +394,10 @@ uty_read (vty_io vio, keystroke steal)
  *
  * There are two sets of buffering:
  *
- *   cli -- command line   -- which reflects the status of the command line
+ *   cli->cbuf -- command line   -- reflects the status of the command line
  *
- *   cmd -- command output -- which is written to the file only while
- *                            cmd_out_enabled.
+ *   vf->obuf  -- command output -- which is written to the file only while
+ *                                  out_active.
  *
  * The cli output takes precedence.
  *
@@ -407,8 +405,8 @@ uty_read (vty_io vio, keystroke steal)
  * "--more--" mechanism.
  */
 
-static int uty_write_lc(vio_vf vf, vio_fifo vfifo, vio_line_control lc) ;
-static int uty_write_fifo_lc(vio_vf vf, vio_fifo vfifo, vio_line_control lc) ;
+static int uty_write_lc(vio_vf vf, vio_fifo vff, vio_line_control lc) ;
+static int uty_write_fifo_lc(vio_vf vf, vio_fifo vff, vio_line_control lc) ;
 
 /*------------------------------------------------------------------------------
  * Write as much as possible of what there is.
@@ -426,83 +424,79 @@ static int uty_write_fifo_lc(vio_vf vf, vio_fifo vfifo, vio_line_control lc) ;
  *          now_ready    if should loop back and try again
  *          not_ready    otherwise
  */
-static enum vty_readiness
+static vty_readiness_t
 uty_term_write(vio_vf vf)
 {
-  vty_io  vio = vf->vio ;
+  vty_cli cli = vf->cli ;
   int     ret ;
 
   VTY_ASSERT_LOCKED() ;
 
   ret = -1 ;
-  while (vf->write_open)
+  while (vf->vout_state == vf_open)
     {
       /* Any outstanding line control output takes precedence           */
-      if (vf->olc != NULL)
-        {
-          ret = uty_write_lc(vf, vf->obuf, vf->olc) ;
-          if (ret != 0)
-            break ;
-        }
+      ret = uty_write_lc(vf, vf->obuf, cli->olc) ;
+      if (ret != 0)
+        break ;
 
       /* Next: empty out the cli output                                 */
-      ret = vio_fifo_write_nb(&vf->cli_obuf, vio->sock.fd, true) ;
+      ret = vio_fifo_write_nb(cli->cbuf, vio_vfd_fd(vf->vfd), true) ;
       if (ret != 0)
         break ;
 
       /* Finished now if not allowed to progress the command stuff      */
-      if (!vio->cmd_out_enabled)
+      if (!cli->out_active)
         return not_ready ;      /* done all can do      */
 
-      /* Last: if there is something in the command buffer, do that     */
+      /* If there is something in the command buffer, do that           */
       if (!vio_fifo_empty(vf->obuf))
         {
-          if (vio->cmd_out_done)
+#if 0
+          if (cli->out_done)
             break ;                     /* ...but not if done once      */
 
-          vio->cmd_out_done = 1 ;       /* done this once               */
+          cli->out_done = true ;        /* done this once               */
+#endif
+          assert(!cli->more_wait) ;
 
-          assert(!vio->cli_more_wait) ;
-
-          if (vio->cmd_lc != NULL)
-            ret = uty_write_fifo_lc(vf, vf->obuf, vf->olc) ;
-          else
-            ret = vio_fifo_write_nb(vf->obuf, vio->sock.fd, true) ;
-
-          /* If moved into "--more--" state@
-           *
-           *   * the "--more--" prompt is ready to be written, so do that now
-           *
-           *   * if that completes, then want to run the CLI *now* to perform the
-           *     first stage of the "--more--" process.
-           */
-          if (vio->cli_more_wait)
-            {
-              ret = vio_fifo_write_nb(vf->obuf, vio->sock.fd, true) ;
-              if (ret == 0)
-                return now_ready ;
-            } ;
-
+          ret = uty_write_fifo_lc(vf, vf->obuf, cli->olc) ;
           if (ret != 0)
-            break ;
-        }
+            {
+              if (ret < 0)
+                break ;                 /* failed                       */
+
+              if (!cli->more_wait)
+                return write_ready ;    /* done a tranche               */
+
+              /* Moved into "--more--" state
+               *
+               *   * the "--more--" prompt is ready to be written, so do that
+               *     now
+               *
+               *   * if that completes, then want to run the CLI *now* to
+               *     perform the first stage of the "--more--" process.
+               */
+              ret = vio_fifo_write_nb(cli->cbuf, vio_vfd_fd(vf->vfd), true) ;
+              if (ret != 0)
+                break ;
+
+              return now_ready ;
+            } ;
+        } ;
 
       /* Exciting stuff: there is nothing left to output...
        *
        * ... watch out for half closed state.
        */
-      if (vio->half_closed)
+#if 0
+      if (vio->closing)
         {
           if (vio->close_reason != NULL)
             {
-              vio->cmd_in_progress = 1 ;    /* TODO: not use vty_out ?  */
-
-              struct vty* vty = vio->vty ;
-              if (vio->cli_drawn || vio->cli_dirty)
-                vty_out(vty, VTY_NEWLINE) ;
-              vty_out(vty, "%% %s%s", vio->close_reason, VTY_NEWLINE) ;
-
-              vio->cmd_in_progress = 0 ;
+              if (cli->drawn || cli->dirty)
+                uty_out(vio, "\n") ;
+              uty_out(vio, "%% %s\n", vio->close_reason) ;
 
               vio->close_reason = NULL ;    /* MUST discard now...      */
               continue ;                    /* ... and write away       */
@@ -513,42 +507,39 @@ uty_term_write(vio_vf vf)
 
           return not_ready ;                /* it's all over            */
         } ;
+#endif
 
-      /* For VTY_TERM: if the command line is not drawn, now is a good
-       * time to do that.
-       */
-      if (vio->vty_type == VTY_TERM)
-        if (uty_cli_draw_if_required(vio))
-          continue ;                    /* do that now.                 */
+      if (uty_cli_draw_if_required(cli))
+        continue ;                          /* do that now.             */
 
       /* There really is nothing left to output                         */
+      cli->out_active = false ;
+
       return not_ready ;
     } ;
 
   /* Arrives here if there is more to do, or failed (or was !write_open)    */
 
-  if (ret >= 0)
+  if (ret > 0)
     return write_ready ;
+
+  if (ret == 0)                 /* just in case         */
+    return not_ready ;
 
   /* If is write_open, then report the error
    *
    * If still read_open, let the reader pick up and report the error, when it
    * has finished anything it has buffered.
    */
-  if (vf->write_open)
-    {
-      if (!vf->read_open)
-        uty_file_error(vio, "write") ;
-
-      vf->write_open = false ;          /* crash close write            */
-    } ;
+  if (vf->vout_state == vf_open)
+    uty_vf_error(vf, "write", errno) ;
 
   /* For whatever reason, is no longer write_open -- clear all buffers.
    */
-  vio_fifo_clear(vf->obuf) ;            /* throw away cli stuff         */
-  uty_out_clear(vio) ;                  /* throw away cmd stuff         */
+  vio_fifo_clear(vf->obuf, true) ;      /* throw away cli stuff         */
+  uty_cli_out_clear(cli) ;              /* throw away cmd stuff         */
 
-  vio->close_reason = NULL ;            /* too late for this            */
+  cli->out_active = false ;
 
   return not_ready ;                    /* NB: NOT blocked by I/O       */
 } ;
@@ -575,6 +566,7 @@ uty_term_write(vio_vf vf)
  *            0 => all gone
  *          < 0 => failed (or !write_open)
  */
+#if 0
 static int
 uty_write_monitor(vio_vf vf)
 {
@@ -592,11 +584,12 @@ uty_write_monitor(vio_vf vf)
         return ret ;
     } ;
 
-  return  vio_fifo_write_nb(vf->obuf, uty_vf_fd(vf), true) ;
+  return  vio_fifo_write_nb(vf->obuf, vio_vfd_fd(vf), true) ;
 } ;
+#endif
 
 /*------------------------------------------------------------------------------
- * Write the given FIFO to output -- subject to possible line control.
+ * Write the given FIFO to output -- subject to line control.
  *
  * Note that even if no "--more--" is set, will have set some height, so
  * that does not attempt to empty the FIFO completely all in one go.
@@ -606,16 +599,19 @@ uty_write_monitor(vio_vf vf)
  *
  * NB: expects that the sock is write_open
  *
- * Returns: > 0 => blocked   or completed one tranche
+ * Returns: > 0 => blocked   or completed one tranche (more to go)
  *            0 => all gone
  *          < 0 => failed
  */
 static int
-uty_write_fifo_lc(vio_vf vf, vio_fifo vfifo, vio_line_control lc)
+uty_write_fifo_lc(vio_vf vf, vio_fifo vff, vio_line_control lc)
 {
   int     ret ;
   char*   src ;
   size_t  have ;
+  vty_cli cli ;
+
+  cli = vf->cli ;
 
   /* Collect another line_control height's worth of output.
    *
@@ -624,24 +620,29 @@ uty_write_fifo_lc(vio_vf vf, vio_fifo vfifo, vio_line_control lc)
    */
   vio_lc_set_pause(lc) ;        /* clears lc->paused                    */
 
-  src = vio_fifo_get_rdr(vfifo, &have) ;
+  vio_fifo_set_hold_mark(vff) ;
 
+  src = vio_fifo_get(vff, &have) ;
   while ((src != NULL) && (!lc->paused))
     {
       size_t  take ;
+
+      if (src == NULL)
+        break ;
+
       take = vio_lc_append(lc, src, have) ;
-      src  = vio_fifo_step_rdr(vfifo, &have, take) ;
+      src = vio_fifo_step_get(vff, &have, take) ;
     } ;
 
-  vf->vio->cli_dirty = (lc->col != 0) ;
+  cli->dirty = (lc->col != 0) ;
 
   /* Write the contents of the line control                             */
-  ret = uty_write_lc(vf, vfifo, lc) ;
+  ret = uty_write_lc(vf, vff, lc) ;
 
   if (ret < 0)
     return ret ;                /* give up now if failed.               */
 
-  if ((ret == 0) && vio_fifo_empty(vfifo))
+  if ((ret == 0) && vio_fifo_empty(vff))
     return 0 ;                  /* FIFO and line control empty          */
 
   /* If should now do "--more--", now is the time to prepare for that.
@@ -652,8 +653,8 @@ uty_write_fifo_lc(vio_vf vf, vio_fifo vfifo, vio_line_control lc)
    * The "--more--" cli will not do anything until the CLI buffer has
    * cleared.
    */
-  if (lc->paused && vf->vio->cli_more_enabled)
-    uty_cli_enter_more_wait(vf->vio) ;
+  if (lc->paused && cli->more_enabled)
+    uty_cli_enter_more_wait(cli) ;
 
   return 1 ;                    /* FIFO or line control, not empty      */
 } ;
@@ -670,17 +671,20 @@ uty_write_fifo_lc(vio_vf vf, vio_fifo vfifo, vio_line_control lc)
  *          < 0 => failed
  */
 static int
-uty_write_lc(vio_vf vf, vio_fifo vfifo, vio_line_control lc)
+uty_write_lc(vio_vf vf, vio_fifo vff, vio_line_control lc)
 {
   int ret ;
 
-  ret = vio_lc_write_nb(uty_vf_fd(vf), lc) ;
+  ret = vio_lc_write_nb(vio_vfd_fd(vf->vfd), lc) ;
 
   if (ret <= 0)
-    vio_fifo_sync_rdr(vfifo) ;     /* finished with FIFO contents  */
+    vio_fifo_clear_hold_mark(vff) ;   /* finished with FIFO contents  */
 
   return ret ;
 } ;
+
+
+#if 0
 
 /*------------------------------------------------------------------------------
  * Start command output -- clears down the line control.
@@ -693,137 +697,60 @@ uty_cmd_output_start(vio_vf vf)
 {
   if (vf->olc != NULL)
     vio_lc_clear(vf->olc) ;
+
+  vio_fifo_set_hold_mark(vf->obuf) ;    /* mark to keep until all gone  */
 } ;
 
-/*------------------------------------------------------------------------------
- * Set the effective height for line control (if any)
- *
- * If using line_control, may enable the "--more--" output handling.
- *
- * If not, want some limit on the amount of stuff output at a time.
- *
- * Sets the line control window width and height.
- * Sets cli_more_enabled if "--more--" is enabled.
- */
-extern void
-uty_set_height(vio_vf vf)
-{
-  vty_io vio = vf->vio ;
-  bool   on ;
+#endif
 
-  on = 0 ;              /* default state        */
 
-  if ((vf->olc != NULL) && !vio->half_closed)
-    {
-      int height ;
 
-      height = 0 ;      /* default state        */
-
-      if ((vio->width) != 0)
-        {
-          /* If window size is known, use lines or given height         */
-          if (vio->lines >= 0)
-            height = vio->lines ;
-          else
-            {
-              /* Window height, leaving one line from previous "page"
-               * and one line for the "--more--" -- if at all possible
-               */
-              height = vio->height - 2 ;
-              if (height < 1)
-                height = 1 ;
-            } ;
-        }
-      else
-        {
-          /* If window size not known, use lines if that has been set
-           * explicitly for this terminal.
-           */
-          if (vio->lines_set)
-            height = vio->lines ;
-        } ;
-
-      if (height > 0)
-        on = 1 ;        /* have a defined height        */
-      else
-        height = 200 ;  /* but no "--more--"            */
-
-      vio_lc_set_window(vio->cmd_lc, vio->width, height) ;
-    } ;
-
-  vio->cli_more_enabled = on ;
-} ;
 
 /*==============================================================================
- * Timer for VTY_TERM (and VTY_SHELL_SERV).
+ * Timer actions for VTY_TERMINAL
  */
 
 /*------------------------------------------------------------------------------
- * Timer has expired.
+ * Read timer has expired.
  *
- * If half_closed, then this is curtains -- have waited long enough !
+ * If closing, then this is curtains -- have waited long enough !
+ *
+ * TODO .... sort out the VTY_TERMINAL time-out & death-watch timeout
  *
  * Otherwise, half close the VTY and leave it to the death-watch to sweep up.
  */
-static void
-uty_timer_expired (vty_io vio)
+static vty_timer_time
+uty_term_read_timeout(vio_timer_t* timer, void* action_info)
 {
+  vty_io vio = action_info ;
+
   VTY_ASSERT_LOCKED() ;
 
-  if (vio->half_closed)
-    return uty_close(vio) ;             /* curtains                     */
+  uty_close(vio, true, qs_set(NULL, "Timed out")) ;
 
-  uty_close(vio, "Timed out") ;         /* bring input side to a halt   */
+  return 0 ;
  } ;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /*------------------------------------------------------------------------------
- * Set read/write readiness -- for VTY_TERM
+ * Write timer has expired.
  *
- * Note that for VTY_TERM, set only one of read or write, and sets write for
- * preference.
+ * If closing, then this is curtains -- have waited long enough !
+ *
+ * TODO .... sort out the VTY_TERMINAL time-out & death-watch timeout
+ *
+ * Otherwise, half close the VTY and leave it to the death-watch to sweep up.
  */
-extern void
-uty_file_set_readiness(vio_vf vf, enum vty_readiness ready)
+static vty_timer_time
+uty_term_write_timeout(vio_timer_t* timer, void* action_info)
 {
+  vty_io vio = action_info ;
+
   VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
 
-  vio_fd_set_read(vf, (ready == read_ready)) ;
-  vio_fd_set_write(vf, (ready >= write_ready)) ;
+  uty_close(vio, true, qs_set(NULL, "Timed out")) ;
+
+  return 0 ;
 } ;
-
-/*------------------------------------------------------------------------------
- * Set a new timer value.
- */
-extern void
-uty_file_set_timer(vio_vf vf, unsigned long timeout)
-{
-  VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
-
-  vf->v_timeout = timeout ;
-} ;
-
-
-
-
-
 
 /*==============================================================================
  * VTY Listener(s) for VTY_TERMINAL
@@ -1055,7 +982,7 @@ uty_term_listen_open(sa_family_t family, int type, int protocol,
 } ;
 
 /*------------------------------------------------------------------------------
- * Accept action -- create and dispatch VTY_TERM
+ * Accept action -- create and dispatch VTY_TERMINAL
  */
 static void
 uty_term_accept(int sock_listen)
@@ -1093,24 +1020,24 @@ uty_term_accept(int sock_listen)
   p = sockunion2hostprefix (&su);
   ret = 0 ;     /* so far, so good              */
 
-  if ((p->family == AF_INET) && vty_accesslist_name)
+  if ((p->family == AF_INET) && host.vty_accesslist_name)
     {
       /* VTY's accesslist apply.                                        */
       struct access_list* acl ;
 
-      if ((acl = access_list_lookup (AFI_IP, vty_accesslist_name)) &&
-          (access_list_apply (acl, p) == FILTER_DENY))
+      if ((acl = access_list_lookup (AFI_IP, host.vty_accesslist_name))
+            && (access_list_apply (acl, p) == FILTER_DENY))
         ret = -1 ;
     }
 
 #ifdef HAVE_IPV6
-  if ((p->family == AF_INET6) && vty_ipv6_accesslist_name)
+  if ((p->family == AF_INET6) && host.vty_ipv6_accesslist_name)
     {
       /* VTY's ipv6 accesslist apply.                                   */
       struct access_list* acl ;
 
-      if ((acl = access_list_lookup (AFI_IP6, vty_ipv6_accesslist_name)) &&
-          (access_list_apply (acl, p) == FILTER_DENY))
+      if ((acl = access_list_lookup (AFI_IP6, host.vty_ipv6_accesslist_name))
+            && (access_list_apply (acl, p) == FILTER_DENY))
         ret = -1 ;
     }
 #endif /* HAVE_IPV6 */
@@ -1132,14 +1059,297 @@ uty_term_accept(int sock_listen)
     uzlog (NULL, LOG_INFO, "can't set sockopt to socket %d: %s",
                                                sock_fd, errtoa(errno, 0).str) ;
 
-  /* All set -- create the VTY_TERM                                     */
-  uty_term_accept_new(sock_fd, &su);
+  /* All set -- create the VTY_TERMINAL and set it going                */
+  uty_term_open(sock_fd, &su);
 
   /* Log new VTY                                                        */
   uzlog (NULL, LOG_INFO, "Vty connection from %s (fd %d)", sutoa(&su).str,
                                                                       sock_fd) ;
 
   return ;
+} ;
+
+/*==============================================================================
+ * VTY telnet stuff
+ *
+ * Note that all telnet commands (escapes) and any debug stuff is treated as
+ * CLI output.
+ */
+
+#define TELNET_OPTION_DEBUG 0           /* 0 to turn off        */
+
+static const char* telnet_commands[256] =
+{
+  [tn_IAC  ] = "IAC",
+  [tn_DONT ] = "DONT",
+  [tn_DO   ] = "DO",
+  [tn_WONT ] = "WONT",
+  [tn_WILL ] = "WILL",
+  [tn_SB   ] = "SB",
+  [tn_GA   ] = "GA",
+  [tn_EL   ] = "EL",
+  [tn_EC   ] = "EC",
+  [tn_AYT  ] = "AYT",
+  [tn_AO   ] = "AO",
+  [tn_IP   ] = "IP",
+  [tn_BREAK] = "BREAK",
+  [tn_DM   ] = "DM",
+  [tn_NOP  ] = "NOP",
+  [tn_SE   ] = "SE",
+  [tn_EOR  ] = "EOR",
+  [tn_ABORT] = "ABORT",
+  [tn_SUSP ] = "SUSP",
+  [tn_EOF  ] = "EOF",
+} ;
+
+static const char* telnet_options[256] =
+{
+  [to_BINARY]       = "BINARY",      /* 8-bit data path                  */
+  [to_ECHO]         = "ECHO",        /* echo                             */
+  [to_RCP]          = "RCP",         /* prepare to reconnect             */
+  [to_SGA]          = "SGA",         /* suppress go ahead                */
+  [to_NAMS]         = "NAMS",        /* approximate message size         */
+  [to_STATUS]       = "STATUS",      /* give status                      */
+  [to_TM]           = "TM",          /* timing mark                      */
+  [to_RCTE]         = "RCTE",        /* remote controlled tx and echo    */
+  [to_NAOL]         = "NAOL",        /* neg. about output line width     */
+  [to_NAOP]         = "NAOP",        /* neg. about output page size      */
+  [to_NAOCRD]       = "NAOCRD",      /* neg. about CR disposition        */
+  [to_NAOHTS]       = "NAOHTS",      /* neg. about horizontal tabstops   */
+  [to_NAOHTD]       = "NAOHTD",      /* neg. about horizontal tab disp.  */
+  [to_NAOFFD]       = "NAOFFD",      /* neg. about formfeed disposition  */
+  [to_NAOVTS]       = "NAOVTS",      /* neg. about vertical tab stops    */
+  [to_NAOVTD]       = "NAOVTD",      /* neg. about vertical tab disp.    */
+  [to_NAOLFD]       = "NAOLFD",      /* neg. about output LF disposition */
+  [to_XASCII]       = "XASCII",      /* extended ascii character set     */
+  [to_LOGOUT]       = "LOGOUT",      /* force logout                     */
+  [to_BM]           = "BM",          /* byte macro                       */
+  [to_DET]          = "DET",         /* data entry terminal              */
+  [to_SUPDUP]       = "SUPDUP",      /* supdup protocol                  */
+  [to_SUPDUPOUTPUT] = "SUPDUPOUTPUT",/* supdup output                    */
+  [to_SNDLOC]       = "SNDLOC",      /* send location                    */
+  [to_TTYPE]        = "TTYPE",       /* terminal type                    */
+  [to_EOR]          = "EOR",         /* end or record                    */
+  [to_TUID]         = "TUID",        /* TACACS user identification       */
+  [to_OUTMRK]       = "OUTMRK",      /* output marking                   */
+  [to_TTYLOC]       = "TTYLOC",      /* terminal location number         */
+  [to_3270REGIME]   = "3270REGIME",  /* 3270 regime                      */
+  [to_X3PAD]        = "X3PAD",       /* X.3 PAD                          */
+  [to_NAWS]         = "NAWS",        /* window size                      */
+  [to_TSPEED]       = "TSPEED",      /* terminal speed                   */
+  [to_LFLOW]        = "LFLOW",       /* remote flow control              */
+  [to_LINEMODE]     = "LINEMODE",    /* Linemode option                  */
+  [to_XDISPLOC]     = "XDISPLOC",    /* X Display Location               */
+  [to_OLD_ENVIRON]  = "OLD_ENVIRON", /* Old - Environment variables      */
+  [to_AUTHENTICATION] = "AUTHENTICATION",  /* Authenticate               */
+  [to_ENCRYPT]      = "ENCRYPT",     /* Encryption option                */
+  [to_NEW_ENVIRON]  = "NEW_ENVIRON", /* New - Environment variables      */
+  [to_EXOPL]        = "EXOPL",       /* extended-options-list            */
+} ;
+
+/*------------------------------------------------------------------------------
+ * For debug.  Put string or value as decimal.
+ */
+static void
+uty_cli_out_dec(vty_cli cli, const char* str, unsigned char u)
+{
+  if (str != NULL)
+    uty_cli_out(cli, "%s ", str) ;
+  else
+    uty_cli_out(cli, "%d ", (int)u) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * For debug.  Put string or value as hex.
+ */
+static void
+uty_cli_out_hex(vty_cli cli, const char* str, unsigned char u)
+{
+  if (str != NULL)
+    uty_cli_out(cli, "%s ", str) ;
+  else
+    uty_cli_out(cli, "0x%02x ", (unsigned)u) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Send telnet: "WILL TELOPT_ECHO"
+ */
+static void
+uty_term_will_echo (vty_cli cli)
+{
+  unsigned char cmd[] = { tn_IAC, tn_WILL, to_ECHO };
+  VTY_ASSERT_LOCKED() ;
+  uty_cli_write (cli, (char*)cmd, (int)sizeof(cmd));
+}
+
+/*------------------------------------------------------------------------------
+ * Send telnet: "suppress Go-Ahead"
+ */
+static void
+uty_term_will_suppress_go_ahead (vty_cli cli)
+{
+  unsigned char cmd[] = { tn_IAC, tn_WILL, to_SGA };
+  VTY_ASSERT_LOCKED() ;
+  uty_cli_write (cli, (char*)cmd, (int)sizeof(cmd));
+}
+
+/*------------------------------------------------------------------------------
+ * Send telnet: "don't use linemode"
+ */
+static void
+uty_term_dont_linemode (vty_cli cli)
+{
+  unsigned char cmd[] = { tn_IAC, tn_DONT, to_LINEMODE };
+  VTY_ASSERT_LOCKED() ;
+  uty_cli_write (cli, (char*)cmd, (int)sizeof(cmd));
+}
+
+/*------------------------------------------------------------------------------
+ * Send telnet: "Use window size"
+ */
+static void
+uty_term_do_window_size (vty_cli cli)
+{
+  unsigned char cmd[] = { tn_IAC, tn_DO, to_NAWS };
+  VTY_ASSERT_LOCKED() ;
+  uty_cli_write (cli, (char*)cmd, (int)sizeof(cmd));
+}
+
+/*------------------------------------------------------------------------------
+ * Send telnet: "don't use lflow"       -- not currently used
+ */
+static void
+uty_term_dont_lflow_ahead (vty_cli cli)
+{
+  unsigned char cmd[] = { tn_IAC, tn_DONT, to_LFLOW };
+  VTY_ASSERT_LOCKED() ;
+  uty_cli_write (cli, (char*)cmd, (int)sizeof(cmd));
+}
+
+/*------------------------------------------------------------------------------
+ * Process incoming Telnet Option(s)
+ *
+ * May be called during keystroke iac callback, or when processing CLI
+ * keystrokes.
+ *
+ * In particular: get telnet window size.
+ *
+ * Returns: true <=> dealt with, for:
+ *
+ *                    * telnet window size.
+ */
+extern bool
+uty_telnet_command(vio_vf vf, keystroke stroke, bool callback)
+{
+  uint8_t* p ;
+  uint8_t  o ;
+  int left ;
+  bool dealt_with ;
+
+  vty_cli cli = vf->cli ;
+
+  /* Echo to the other end if required                                  */
+  if (TELNET_OPTION_DEBUG)
+    {
+      uty_cli_wipe(cli, 0) ;
+
+      p    = stroke->buf ;
+      left = stroke->len ;
+
+      uty_cli_out_hex(cli, telnet_commands[tn_IAC], tn_IAC) ;
+
+      if (left-- > 0)
+        uty_cli_out_dec(cli, telnet_commands[*p], *p) ;
+      ++p ;
+
+      if (left-- > 0)
+        uty_cli_out_dec(cli, telnet_options[*p], *p) ;
+      ++p ;
+
+      if (left > 0)
+        {
+          while(left-- > 0)
+            uty_cli_out_hex(cli, NULL, *p++) ;
+
+          if (stroke->flags & kf_truncated)
+            uty_cli_out(cli, "... ") ;
+
+          if (!(stroke->flags & kf_broken))
+            {
+              uty_cli_out_hex(cli, telnet_commands[tn_IAC], tn_IAC) ;
+              uty_cli_out_hex(cli, telnet_commands[tn_SE], tn_SE) ;
+            }
+        } ;
+
+      if (stroke->flags & kf_broken)
+        uty_cli_out (cli, "BROKEN") ;
+
+      uty_cli_out_newline(cli) ;
+    } ;
+
+  /* Process the telnet command                                         */
+  dealt_with = false ;
+
+  if (stroke->flags != 0)
+    return dealt_with ;         /* go no further if broken              */
+
+  p    = stroke->buf ;
+  left = stroke->len ;
+
+  passert(left >= 1) ;            /* must be if not broken !            */
+  passert(stroke->value == *p) ;  /* or something is wrong              */
+
+  ++p ;         /* step past X of IAC X */
+  --left ;
+
+  /* Decode the one command that is interesting -- "NAWS"               */
+  switch (stroke->value)
+  {
+    case tn_SB:
+      passert(left > 0) ;       /* or parser failed     */
+
+      o = *p++ ;                /* the option byte      */
+      --left ;
+      switch(o)
+      {
+        case to_NAWS:
+          if (left != 4)
+            {
+              uzlog(NULL, LOG_WARNING,
+                        "RFC 1073 violation detected: telnet NAWS option "
+                        "should send %d characters, but we received %d",
+                        (3 + 4 + 2), (3 + left + 2)) ;
+            }
+          else
+            {
+              int width, height ;
+
+              width   = *p++ << 8 ; width  += *p++ ;
+              height  = *p++ << 8 ; height += *p ;
+
+              if (TELNET_OPTION_DEBUG)
+                {
+                  uty_cli_out(cli, "TELNET NAWS window size received: "
+                                   "width %d, height %d", width, height) ;
+                  uty_cli_out_newline(cli) ;
+                } ;
+
+              uty_cli_set_window(cli, width, height) ;
+
+              dealt_with = true ;
+            } ;
+          break ;
+
+        default:        /* no other IAC SB <option>     */
+          break ;
+      } ;
+      break ;
+
+    default:            /* no other IAC X               */
+      break ;
+  } ;
+
+  return dealt_with ;
 } ;
 
 /*==============================================================================
@@ -1230,6 +1440,7 @@ uty_log(struct logline* ll, struct zlog *zl, int priority,
    */
   while (vio != NULL)
     {
+#if 0
       if (!vio->monitor_busy)
         {
           int ret ;
@@ -1241,7 +1452,7 @@ uty_log(struct logline* ll, struct zlog *zl, int priority,
           ret = uty_write_monitor(vio) ;
           if (ret == 0)
             {
-              ret = write_nb(uty_vf_fd(vf), ll->line, ll->len) ;
+              ret = write_nb(vio_vfd_fd(vf->vfd), ll->line, ll->len) ;
 
               if (ret >= 0)
                 {
@@ -1258,7 +1469,7 @@ uty_log(struct logline* ll, struct zlog *zl, int priority,
           if (ret >= 0)
             vio->monitor_busy = 0 ;
         } ;
-
+#endif
       vio = sdl_next(vio, mon_list) ;
     } ;
 } ;
@@ -1280,8 +1491,8 @@ vty_log_fixed (const char *buf, size_t len)
   vio = sdl_head(vio_monitors_base) ;
   while (vio != NULL)
     {
-      write(uty_vf_fd(vf), buf, len) ;
-      write(uty_vf_fd(vf), "\r\n", 2) ;
+      write(vio_vfd_fd(vio->vout_base->vfd), buf, len) ;
+      write(vio_vfd_fd(vio->vout_base->vfd), "\r\n", 2) ;
 
       vio = sdl_next(vio, mon_list) ;
     } ;

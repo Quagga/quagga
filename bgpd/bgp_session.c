@@ -461,7 +461,7 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
   /* Can revoke whatever may be queued already.  Will revoke again when the
    * disable is acknowledged to finally clear the session out of the queue.
    */
-  mqueue_revoke(routing_nexus->queue, session) ;
+  mqueue_revoke(routing_nexus->queue, session, 0) ;
 
   /* Now change to limping state                                        */
   session->state = bgp_session_sLimping;
@@ -517,7 +517,7 @@ bgp_session_do_disable(mqueue_block mqb, mqb_flag_t flag)
   if (flag == mqb_action)
     {
       /* Immediately discard any other messages for this session.       */
-      mqueue_revoke(bgp_nexus->queue, session) ;
+      mqueue_revoke(bgp_nexus->queue, session, 0) ;
 
       /* Get the FSM to send any notification and close connections     */
       bgp_fsm_disable_session(session, args->notification) ;

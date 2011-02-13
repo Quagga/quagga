@@ -28,16 +28,16 @@
 #include "misc.h"
 #include <errno.h>
 
-#include "uty.h"
 #include "vty.h"
 #include "vty_io_basic.h"
 #include "vty_io.h"
+#include "vty_cli.h"
 
 #include "vio_fifo.h"
 #include "vio_lines.h"
 #include "keystroke.h"
 #include "thread.h"
-#include "command.h"
+#include "command_local.h"
 #include "qstring.h"
 
 /*==============================================================================
@@ -54,8 +54,15 @@
 
 extern void uty_term_new(vty_io vio, int sock_fd) ;
 
-extern void uty_term_half_close(vio_vf vf) ;
-extern int uty_term_vprintf(vio_vf vf, const char *format, va_list args) ;
+extern void uty_term_read_close(vio_vf vf) ;
+extern bool uty_term_write_close(vio_vf vf, bool final) ;
+
+extern int uty_term_read(vio_vf vf, keystroke steal) ;
+extern void uty_term_set_readiness(vio_vf vf, vty_readiness_t ready) ;
+
+
+
+extern bool uty_telnet_command(vio_vf, keystroke stroke, bool callback) ;
 
 
 extern void uty_term_open_listeners(const char *addr, unsigned short port) ;

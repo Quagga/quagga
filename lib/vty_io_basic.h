@@ -27,7 +27,7 @@
 
 #include "misc.h"
 
-#include "vty.h"
+//#include "vty_local.h"
 
 #include "qpselect.h"
 #include "thread.h"
@@ -55,15 +55,23 @@ typedef enum vfd_type vfd_type_t ;
 enum vfd_io_type                /* NB: *bit*significant*        */
 {
   vfd_io_none       = 0,
-  vfd_io_read       = 1,
-  vfd_io_write      = 2,
-  vfd_io_read_write = 3,
+
+  vfd_io_read       = BIT(0),
+  vfd_io_write      = BIT(1),
+  vfd_io_read_write = vfd_io_read | vfd_io_write,
+
+  vfd_io_append     = BIT(2),
+  vfd_io_blocking   = BIT(3),
 } ;
 typedef enum vfd_io_type vfd_io_type_t ;
 
 /*------------------------------------------------------------------------------
  * Timers -- implemented as qtimer or thread timer, depending on environment.
+ *
+ * Timer action function returns a new value for the timer; 0 => off.
  */
+typedef unsigned long vty_timer_time ;  /* Time out time in seconds     */
+
 typedef struct vio_timer vio_timer_t ;
 typedef vty_timer_time vio_timer_action(vio_timer_t* timer, void* action_info) ;
 
@@ -88,10 +96,11 @@ struct vio_timer
  * Implemented as qps_file or as read/write thread, depending on the
  * environment.
  */
-typedef struct vio_fd* vio_fd ;
-typedef void vio_fd_action(vio_fd vfd, void* action_info) ;
+typedef struct vio_vfd* vio_vfd ;
 
-struct vio_fd
+typedef void vio_vfd_action(vio_vfd vfd, void* action_info) ;
+
+struct vio_vfd
 {
   int             fd ;
   bool            active ;      /* used for close message               */
@@ -99,8 +108,8 @@ struct vio_fd
   vfd_type_t      type ;        /* used for half-close                  */
   vfd_io_type_t   io_type ;     /* read, write, read/write              */
 
-  vio_fd_action*  read_action ;
-  vio_fd_action*  write_action ;
+  vio_vfd_action* read_action ;
+  vio_vfd_action* write_action ;
 
   vio_timer_t     read_timer ;
   vio_timer_t     write_timer ;
@@ -127,39 +136,41 @@ struct vio_fd
 
 typedef struct vio_listener* vio_listener ;
 
-typedef void vio_fd_accept(int fd) ;
+typedef void vio_vfd_accept(int fd) ;
 
 struct vio_listener
 {
   vio_listener    next ;        /* ssl type list        */
-  vio_fd          vfd ;
-  vio_fd_accept*  accept_action ;
+  vio_vfd         vfd ;
+  vio_vfd_accept* accept_action ;
 };
 
 /*==============================================================================
  * Functions
  */
 
-extern vio_fd vio_fd_new(int fd, vfd_type_t type,
-                                     vfd_io_type_t io_type, void* action_info) ;
-extern void vio_fd_set_fd(vio_fd vfd, int fd, vfd_type_t type,
-                                                        vfd_io_type_t io_type) ;
-extern void vio_fd_set_read_action(vio_fd vfd, vio_fd_action* action) ;
-extern void vio_fd_set_write_action(vio_fd vfd, vio_fd_action* action) ;
-extern void vio_fd_set_read_timeout_action(vio_fd vfd,
-                                                     vio_timer_action* action) ;
-extern void vio_fd_set_write_timeout_action(vio_fd vfd,
-                                                     vio_timer_action* action) ;
-extern void vio_fd_set_action_info(vio_fd vfd, void* action_info) ;
-extern vio_fd vio_fd_half_close(vio_fd vfd) ;
-extern vio_fd vio_fd_close(vio_fd vfd) ;
-extern on_off_t vio_fd_set_read(vio_fd vfd, on_off_t on,
-                                                       vty_timer_time timeout) ;
-extern on_off_t vio_fd_set_write(vio_fd vfd, on_off_t on,
-                                                       vty_timer_time timeout) ;
-Inline int vio_fd_fd(vio_fd vfd) ;
+extern int uty_vfd_file_open(const char* name, vfd_io_type_t io_type) ;
 
-extern vio_listener vio_listener_new(int fd, vio_fd_accept* accept) ;
+extern vio_vfd vio_vfd_new(int fd, vfd_type_t type,
+                                     vfd_io_type_t io_type, void* action_info) ;
+extern void vio_vfd_set_fd(vio_vfd vfd, int fd, vfd_type_t type,
+                                                        vfd_io_type_t io_type) ;
+extern void vio_vfd_set_read_action(vio_vfd vfd, vio_vfd_action* action) ;
+extern void vio_vfd_set_write_action(vio_vfd vfd, vio_vfd_action* action) ;
+extern void vio_vfd_set_read_timeout_action(vio_vfd vfd,
+                                                     vio_timer_action* action) ;
+extern void vio_vfd_set_write_timeout_action(vio_vfd vfd,
+                                                     vio_timer_action* action) ;
+extern void vio_vfd_set_action_info(vio_vfd vfd, void* action_info) ;
+extern vio_vfd vio_vfd_read_close(vio_vfd vfd) ;
+extern vio_vfd vio_vfd_close(vio_vfd vfd) ;
+extern on_off_b vio_vfd_set_read(vio_vfd vfd, on_off_b on,
+                                                       vty_timer_time timeout) ;
+extern on_off_b vio_vfd_set_write(vio_vfd vfd, on_off_b on,
+                                                       vty_timer_time timeout) ;
+Inline int vio_vfd_fd(vio_vfd vfd) ;
+
+extern vio_listener vio_listener_new(int fd, vio_vfd_accept* accept) ;
 extern void vio_listener_close(vio_listener listener) ;
 
 extern void vio_timer_init(vio_timer_t* timer, vio_timer_action* action,
@@ -175,10 +186,10 @@ extern void vio_timer_unset(vio_timer_t* timer) ;
  */
 
 /*------------------------------------------------------------------------------
- * Return the fd from a vio_fd structure
+ * Return the fd from a vio_vfd structure
  */
 Inline int
-vio_fd_fd(vio_fd vfd)
+vio_vfd_fd(vio_vfd vfd)
 {
   return vfd->fd ;
 } ;

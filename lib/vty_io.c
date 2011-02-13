@@ -24,10 +24,14 @@
 #include "vty.h"
 #include "vty_io.h"
 #include "vty_io_term.h"
+#include "vty_io_file.h"
 #include "vty_cli.h"
+#include "vty_command.h"
 #include "qstring.h"
 #include "keystroke.h"
 #include "list_util.h"
+#include "command_parse.h"
+#include "command_execute.h"
 
 #include "memory.h"
 
@@ -45,20 +49,18 @@
 
 /*==============================================================================
  * Basic output to VTY.
- *
- *
  */
 
 /*------------------------------------------------------------------------------
- * UTY output function -- cf fprintf
+ * VTY output -- cf fprintf !  Same as vty_out, less the VTY_LOCK().
  *
- * NB: this is NOT suppressed by ! vty->output_enabled
+ * This is for command output, which may later be suppressed
  *
  * Returns: >= 0 => OK
  *          <  0 => failed (see errno)
  */
 extern int
-uty_output(struct vty *vty, const char *format, ...)
+uty_out(vty_io vio, const char *format, ...)
 {
   int     ret ;
   va_list args ;
@@ -66,122 +68,10 @@ uty_output(struct vty *vty, const char *format, ...)
   VTY_ASSERT_LOCKED() ;
 
   va_start (args, format) ;
-  ret = uty_vprintf(vty, format, args) ;
+  ret = uty_vprintf(vio, format, args) ;
   va_end (args) ;
 
   return ret ;
-}
-
-/*------------------------------------------------------------------------------
- * UTY reflect command line, if not already reflected
- *
- * NB: this is NOT suppressed by ! vty->output_enabled
- *
- * Returns: >= 0 => OK
- *          <  0 => failed (see errno)
- */
-extern int
-uty_reflect(struct vty *vty)
-{
-  int   ret ;
-
-  if (!vty->reflected)
-    ret = uty_output(vty, "%s\n", vty->buf) ;
-  else
-    ret = 0 ;
-
-  vty->reflected = true ;
-
-  return ret ;
-} ;
-
-/*------------------------------------------------------------------------------
- * VTY output function -- cf vfprintf
- *
- * Returns: >= 0 => OK
- *          <  0 => failed (see errno)
- *
- * NB: for VTY_TERM and for VTY_SHELL_SERV -- this is command output:
- *
- *     * MAY NOT do any command output if !cmd_enabled
- *
- *        * first, the life of a vty is not guaranteed unless cmd_in_progress,
- *          so should not attempt to use a vty anywhere other than command
- *          execution.
- *
- *        * second, cmd_out_enabled is false most of the time, and is only
- *          set true when a command completes, and it is time to write away
- *          the results.
- *
- *     * all output is placed in the vio->cmd_obuf.  When the command completes,
- *       the contents of the cmd_obuf will be written away -- subject to line
- *       control.
- *
- *     * output is discarded if the vty is no longer write_open
- */
-extern int
-uty_vprintf(struct vty *vty, const char *format, va_list args)
-{
-  vio_vf vf ;
-  int    ret ;
-
-  VTY_ASSERT_LOCKED() ;
-
-  vf = vty->vio->vout ;
-
-  switch (vf->vout_type)
-  {
-    case VOUT_NONE:
-      ret = 0 ;
-      break ;
-
-    case VOUT_TERM:
-      ret = uty_term_vprintf(vf, format, args) ;
-      break ;
-
-    case VOUT_SHELL:
-      ret = uty_shell_vprintf(vf, format, args) ;
-      break ;
-
-    case VOUT_FILE:
-      ret = uty_file_vprintf(vf, format, args) ;
-      break ;
-
-    case VOUT_PIPE:
-      ret = uty_pipe_vprintf(vf, format, args) ;
-      break ;
-
-    case VOUT_STDOUT:
-      ret = uty_stdout_vprintf(vf, format, args) ;
-      break ;
-
-    case VOUT_STDERR:
-      ret = uty_stderr_vprintf(vf, format, args) ;
-      break ;
-
-    default:
-      zabort("impossible VTY Output type") ;
-  } ;
-
-  return ret ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Clear the contents of the command output FIFO etc.
- *
- * NB: does not change any of the cli_blocked/cmd_in_progress/cli_wait_more/etc
- *     flags -- competent parties must deal with those
- */
-extern void
-uty_out_clear(vty_io vio)
-{
-  VTY_ASSERT_LOCKED() ;
-
-  if (vio->vout != NULL)
-    {
-      vio_fifo_clear(vio->vout->obuf) ;
-      vio_lc_clear(vio->vout->olc) ;
-    } ;
 } ;
 
 /*==============================================================================
@@ -238,7 +128,7 @@ uty_watch_dog_stop(void)
 static vty_timer_time
 uty_watch_dog_bark(vio_timer_t* timer, void* info)
 {
-  uty_check_host_name() ;       /* check for host name change           */
+  cmd_host_name(true) ;         /* check for host name change           */
 
   uty_death_watch_scan(false) ; /* scan the death-watch list            */
 
@@ -248,11 +138,12 @@ uty_watch_dog_bark(vio_timer_t* timer, void* info)
 /*------------------------------------------------------------------------------
  * Scan the death watch list.
  *
- * A vty may finally be freed if it is closed and there is no command in
- * progress.
+ * A vty can finally be freed if it is closed and there is no command running.
+ *
+ * At curtains the command running state is forced off.
  */
 static bool
-uty_death_watch_scan(bool final)
+uty_death_watch_scan(bool curtains)
 {
   vty_io  vio ;
   vty_io  next ;
@@ -263,21 +154,19 @@ uty_death_watch_scan(bool final)
       vio  = next ;
       next = sdl_next(vio, vio_list) ;
 
-      if (final && !vio->closed)
+      /* If this is curtains, override cmd_running !            */
+      if (curtains)
+        vio->cmd_running = false ;
 
-
-      if (vio->closed)
-
-
-      if (vio->closed && !vio->cmd_in_progress)
+      if (uty_close(vio, curtains, NULL))
         {
-          uty_close(vio) ;      /* closes again to ensure that all buffers
-                                   are released.                            */
+          vty vty = vio->vty ;
 
           sdl_del(vio_death_watch, vio, vio_list) ;
 
-          XFREE(MTYPE_VTY, vio->vty) ;
-          XFREE(MTYPE_VTY, vio) ;
+          cmd_exec_free(vty->exec) ;
+          XFREE(MTYPE_VTY, vty->vio) ;
+          XFREE(MTYPE_VTY, vty) ;
         } ;
     } ;
 
@@ -288,189 +177,128 @@ uty_death_watch_scan(bool final)
  * Prototypes.
  */
 
-static void uty_vf_half_close(vio_vf vf) ;
-static void uty_vf_close(vio_vf vf) ;
+static void uty_vf_read_close(vio_vf vf) ;
+static bool uty_vf_write_close(vio_vf vf, bool final) ;
+static vio_vf uty_vf_free(vio_vf vf) ;
 
 /*==============================================================================
  * Creation and destruction of VTY objects
  */
 
 /*------------------------------------------------------------------------------
- * Allocate new vty struct
+ * Allocate new vty structure, including empty vty_io and empty execution
+ * structures.
  *
- *   VTY_TERMINAL         a telnet terminal server
+ * Caller must complete the initialisation of the vty_io, which means:
  *
- *     Must be in cli thread.
+ *   * constructing a suitable vio_vf and doing uty_vin_open() to set the
+ *     vin_base.
  *
- *     Requires fd = socket for telnet terminal.
+ *     All vty_io MUST have a vin_base, even if it is /dev/null.
  *
- *   VTY_SHELL_SERVER     a vty_shell server
+ *   * constructing a suitable vio_vf and doing uty_vout_open() to set the
+ *     vout_base.
  *
- *     Must be in cli thread.
+ *     All vty_io MUST have a vout_base, even if it is /dev/null.
  *
- *     Requires fd = socket for talking to the VTY_SHELL_CLIENT
+ *   * setting the vio->obuf to the vout_base obuf...   TODO ???
  *
- *   VTY_SHELL_CLIENT     a vty_shell client
+ *   * setting vio->cli, if required.
  *
- *   VTY_CONFIG_READ      configuration file reader
- *
- *     Requires fd = file descriptor for reading config file
- *
- *   VTY_STDOUT           stdout
- *   VTY_STDERR           stderr
- *
- *
- *
- *
- *
- *
- *
- *
- * Allocates and initialises basic vty and vty_io structures, setting the
- * given type.
- *
- * Note that where is not setting up a vty_file, this *may* be called from
- * any thread.
- *
- * Returns: new vty
+ * Caller must also set the initial vty->node, if any.
  */
-extern struct vty *
-uty_new(enum vty_type type, int fd)
+extern vty
+uty_new(vty_type_t type)
 {
   vty      vty ;
   vty_io   vio ;
+
+  bool             execution ;
 
   VTY_ASSERT_LOCKED() ;
 
   /* Basic allocation                                                   */
 
-  vty = XCALLOC (MTYPE_VTY, sizeof (struct vty)) ;
-  vio = XCALLOC (MTYPE_VTY, sizeof (struct vty_io)) ;
+  vty = XCALLOC(MTYPE_VTY, sizeof(struct vty)) ;
+  /* Zeroising the vty structure has set:
+   *
+   *   type      = X          -- set to actual type, below
+   *
+   *   node      = NULL_NODE  -- set to something sensible elsewhere
+   *
+   *   index     = NULL       -- nothing, yet
+   *   index_sub = NULL       -- nothing, yet
+   *
+   *   config    = false      -- not in configure mode
+   *
+   *   execution = X          -- set below
+   *   vio       = X          -- set below
+   */
+  confirm(NULL_NODE == 0) ;
+  confirm(QSTRING_INIT_ALL_ZEROS) ;
+
+  vty->type   = type ;
+
+  vio = XCALLOC(MTYPE_VTY, sizeof(struct vty_io)) ;
+
+  /* Zeroising the vty_io structure has set:
+   *
+   *   vty          = X      -- set to point to parent vty, below
+   *
+   *   name         = NULL   -- no name, yet               TODO ???
+   *
+   *   vin          = NULL   -- empty input stack
+   *   vin_base     = NULL   -- empty input stack
+   *   vin_depth    = 0      -- no stacked vin's, yet
+   *
+   *   vout         = NULL   -- empty output stack
+   *   vout_base    = NULL   -- empty output stack
+   *   vout_depth   = 0      -- no stacked vout's, yet
+   *
+   *   vout_closing = NULL   -- nothing closing yet
+   *
+   *   vio_list     = NULLs  -- not on the vio_list, yet
+   *   mon_list     = NULLs  -- not on the monitors list
+   *
+   *   blocking     = X      -- set below: false unless VTY_CONFIG_READ
+   *   cmd_running  = false  -- no commands running, yet
+   *
+   *   state        = X      -- set vf_open, below.
+   *
+   *   close_reason = NULL   -- not closed, yet
+   *
+   *   obuf         = NULL   -- no output buffer, yet
+   */
 
   vty->vio = vio ;
   vio->vty = vty ;
 
-  /* Zeroising the vty_io structure has set:
-   *
-   *   name                = NULL -- no name, yet
-   *
-   *   vio_list      both pointers NULL
-   *   mon_list      both pointers NULL
-   *
-   *   half_closed         = 0    -- NOT half closed (important !)
-   *   closed              = 0    -- NOT closed      (important !)
-   *   close_reason        = NULL -- no reason, yet
-   *
-   *   real_type           = 0    -- not material
-   *   file_fd             = 0    -- not material
-   *   file_error          = 0    -- not material
-   *
-   *   key_stream          = NULL -- no key stream (always empty, at EOF)
-   *
-   *   cli_drawn           = 0    -- not drawn
-   *   cli_dirty           = 0    -- not dirty
-   *   cli_prompt_len      = 0 )
-   *   cli_extra_len       = 0 )     not material
-   *   cli_echo_suppress   = 0 )
-   *
-   *   cli_prompt_node     = 0    -- not material
-   *   cli_prompt_set      = 0    -- so prompt needs to be constructed
-   *
-   *   cli_blocked         = 0    -- not blocked
-   *   cmd_in_progress     = 0    -- no command in progress
-   *   cmd_out_enabled     = 0    -- command output is disabled
-   *   cli_wait_more       = 0    -- not waiting for response to "--more--"
-   *
-   *   cli_more_enabled    = 0    -- not enabled for "--more--"
-   *
-   *   cmd_out_done        = 0    -- not material
-   *
-   *   cli_do              = 0    == cli_do_nothing
-   *
-   *   cmd_lc              = NULL -- no line control
-   *
-   *   fail                = 0    -- no login failures yet
-   *
-   *   hist                = empty vector
-   *   hp                  = 0    -- at the beginning
-   *   hindex              = 0    -- the beginning
-   *
-   *   width               = 0    -- unknown console width
-   *   height              = 0    -- unknown console height
-   *
-   *   lines               = 0    -- no limit
-   *   lines_set           = 0    -- no explicit setting
-   *
-   *   monitor             = 0    -- not a monitor
-   *   monitor_busy        = 0    -- not a busy monitor
-   *
-   *   config              = 0    -- not holder of "config" mode
-   */
-  confirm(cli_do_nothing == 0) ;
-  confirm(AUTH_NODE == 0) ;     /* default node type    */
+  vio->blocking = (type == VTY_CONFIG_READ) ;
+  vio->state    = vf_open ;
 
-  vty->type   = type ;
+  /* Create and initialise the command execution environment (if any)   */
+  execution = true ;
 
-
-
-
-
-  /* Zeroising the vty structure has set:
-   *
-   *   node      = 0  TODO: something better for node value ????
-   *   buf       = NULL -- no command line, yet
-   *   parsed    = NULL -- no parsed command, yet
-   *   lineno    = 0    -- nothing read, yet
-   *   index     = NULL -- nothing, yet
-   *   index_sub = NULL -- nothing, yet
-   */
-
-  /* If this is a VTY_TERM or a VTY_SHELL, place     */
-  switch (type)
+  switch(type)
   {
-    case VTY_TERMINAL:          /* Require fd -- Telnet session         */
-      VTY_ASSERT_CLI_THREAD() ;
-      assert(fd >= 0) ;
-
-      uty_term_new(vio, fd) ;
-      break ;
-
-    case VTY_SHELL_SERVER:      /* Require fd -- Unix socket            */
-      VTY_ASSERT_CLI_THREAD() ;
-      assert(fd >= 0) ;
-
-
-      break ;
-
-    case VTY_CONFIG_READ:       /* Require fd -- file to read           */
-      assert(fd >= 0) ;
+    case VTY_TERMINAL:
+    case VTY_SHELL_SERVER:
+    case VTY_SHELL_CLIENT:
+    case VTY_CONFIG_READ:
+      execution = true ;
       break ;
 
     case VTY_STDOUT:
     case VTY_STDERR:
-    case VTY_SHELL_CLIENT:
-      fd = -1 ;                 /* No fd -- output to stdout/stderr     */
+      execution = false ;
       break ;
 
     default:
-      zabort("unknown VTY type") ;
+      zabort("unknown vty type") ;
   } ;
 
-
-
-
-  /* Make sure all buffers etc. are initialised clean and empty.
-   *
-   * Note that no buffers are actually allocated at this stage.
-   */
-  qs_init_new(&vio->cli_prompt_for_node, 0) ;
-
-  qs_init_new(&vio->cl,  0) ;
-  qs_init_new(&vio->clx, 0) ;
-
-  vio_fifo_init_new(&vio->cli_obuf, 2 * 1024) ; /* allocate in 2K lumps */
-
-  vio_fifo_init_new(&vio->cmd_obuf, 8 * 1024) ;
+  if (execution)
+    vty->exec = cmd_exec_new(vty) ;
 
   /* Place on list of known vio/vty                                     */
   sdl_push(vio_list_base, vio, vio_list) ;
@@ -483,73 +311,127 @@ uty_new(enum vty_type type, int fd)
  *
  * Sets the vf->vin_type and set vf->read_open.
  *
+ * Initialises an input buffer if required, and sets line_complete and
+ * line_step so that first attempt to fetch a line will give line 1.
+ *
  * Sets the read ready action and the read timer timeout action.
  *
- * NB: may add a VIN_NONE *only* as the first vin item.
+ * NB: a uty_cmd_prepare() is required before command processing can continue.
  *
- *     Can have a write only VTY_XXX object, which requires a vin entry so that
- *     do not have to everywhere deal with NULL vio_vf pointers.
- *
- *     But for subsequent write only vio_vf objects, must not add to the vin
- *     stack.
+ *     That is not done here because the vin state may not be complete (in
+ *     particular the vin->parse_type and vin->reflect_enabled !).
  */
 extern void
-uty_vin_add(vty_io vio, vio_vf vf, vio_in_type_t type,
-                vio_fd_action* read_action, vio_timer_action* read_timer_action)
+uty_vin_open(vty_io vio, vio_vf vf, vio_in_type_t type,
+                                    vio_vfd_action* read_action,
+                                    vio_timer_action* read_timer_action,
+                                    usize ibuf_size)
 {
   vf->vin_type  = type ;
-  vf->read_open = true ;
+  vf->vin_state = vf_open ;
 
-  vio_fd_set_read_action(vf->vfd, read_action) ;
-  vio_fd_set_read_timeout_action(vf->vfd, read_timer_action) ;
+  if (type < VIN_SPECIALS)
+    {
+      vio_vfd_set_read_action(vf->vfd, read_action) ;
+      vio_vfd_set_read_timeout_action(vf->vfd, read_timer_action) ;
+    } ;
 
   ssl_push(vio->vin, vf, vin_next) ;
   if (vio->vin_base == NULL)
-    vio->vin_base = vf ;
+    {
+      assert(vio->vin_depth == 0) ;
+      vio->vin_base = vf ;
+    }
   else
-    assert(type != VIN_NONE) ;
+    {
+      assert(type != VIN_NONE) ;
+      ++vio->vin_depth ;
+    } ;
+
+  if (ibuf_size != 0)
+    {
+      vf->ibuf = vio_fifo_init_new(NULL, ibuf_size) ;
+
+      vf->line_complete = true ;
+      vf->line_step     = 1 ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Add a new vf to the vio->vout stack, and set write stuff.
+ * Push a new vf to the vio->vout stack, and set write stuff.
  *
  * Sets the vf->vout_type and set vf->write_open.
  *
  * Sets the write ready action and the write timer timeout action.
  *
- * NB: may add a VOUT_NONE *only* as the first vout item.
+ * Initialises an output buffer and sets an end_mark.
  *
- *     Can have a read only VTY_XXX object, which requires a vout entry so that
- *     do not have to everywhere deal with NULL vio_vf pointers.
+ * NB: VOUT_DEV_NULL, VOUT_STDOUT and VOUT_STDERR are special.
  *
- *     But for subsequent read only vio_vf objects, must not add to the vout
- *     stack.
+ *     The write_action and the write_timer_action are ignored.
+ *
+ *     All actual I/O to these outputs is direct, blocking and via standard
+ *     I/O -- except VOUT_DEV_NULL where all I/O is discarded.
+ *
+ * NB: all outputs are set up with an obuf, so all output is collected, even
+ *     if it is later to be discarded.
+ *
+ * NB: a uty_cmd_prepare() is required before command processing can continue.
+ *
+ *     That is not done here because the vout state may not be complete (in
+ *     particular the vout->out_enabled !).
  */
 extern void
-uty_vout_add(vty_io vio, vio_vf vf, vio_out_type_t type,
-              vio_fd_action* write_action, vio_timer_action* write_timer_action)
+uty_vout_open(vty_io vio, vio_vf vf, vio_out_type_t type,
+                                    vio_vfd_action* write_action,
+                                    vio_timer_action* write_timer_action,
+                                    usize obuf_size)
 {
   vf->vout_type  = type ;
-  vf->write_open = true ;
+  vf->vout_state = vf_open ;
 
-  vio_fd_set_write_action(vf->vfd, write_action) ;
-  vio_fd_set_write_timeout_action(vf->vfd, write_timer_action) ;
+  if (type < VOUT_SPECIALS)
+    {
+      vio_vfd_set_write_action(vf->vfd, write_action) ;
+      vio_vfd_set_write_timeout_action(vf->vfd, write_timer_action) ;
+    } ;
 
   ssl_push(vio->vout, vf, vout_next) ;
   if (vio->vout_base == NULL)
-    vio->vout_base = vf ;
+    {
+      assert(vio->vout_depth == 0) ;
+      vio->vout_base = vf ;
+    }
   else
-    assert(type != VOUT_NONE) ;
+    {
+      assert(type != VOUT_NONE) ;
+      ++vio->vout_depth ;
+    } ;
+
+  vf->obuf = vio_fifo_init_new(NULL, obuf_size) ;
+  vio_fifo_set_end_mark(vf->obuf) ;
+
+  vio->obuf = vio->vout->obuf ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Set timeout value.
+ *
+ * This is only ever called when a command (eg exec-timeout) sets a new
+ * time out value -- which applies only to VIN_TERM and VTY_VTYSH.
+ */
+extern void
+uty_set_timeout(vty_io vio, vty_timer_time timeout)
+{
+  vio_in_type_t vt ;
 
+  VTY_ASSERT_LOCKED() ;
 
+  vt = vio->vin_base->vin_type ;
 
-
-
-
-
-
+  if ((vt == VIN_TERM) || (vt == VIN_VTYSH))
+    uty_vf_set_read_timeout(vio->vin_base, timeout) ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Set/Clear "monitor" state:
@@ -561,10 +443,10 @@ extern void
 uty_set_monitor(vty_io vio, bool on)
 {
   VTY_ASSERT_LOCKED() ;
-
+#if 0
   if      (on && !vio->monitor)
     {
-      if ((vio->vty->type == VTY_TERMINAL) && !vio->half_closed)
+      if ((vio->vty->type == VTY_TERMINAL) && !vio->closing)
         {
           vio->monitor = 1 ;
           sdl_push(vio_monitors_base, vio, mon_list) ;
@@ -575,267 +457,278 @@ uty_set_monitor(vty_io vio, bool on)
       vio->monitor = 0 ;
       sdl_del(vio_monitors_base, vio, mon_list) ;
     }
+#endif
 } ;
 
 /*------------------------------------------------------------------------------
- * Return "name" of VTY
+ * Return "name" of VTY.
  *
- * For VTY_TERM this is the IP address of the far end of the telnet connection.
+ * The name of the base vin, or (failing that) the base vout.
  */
 extern const char*
 uty_get_name(vty_io vio)
 {
-  return (vio->name != NULL) ? vio->name : "?" ;
+  const char* name ;
+
+  name = vio->vin_base->name ;
+  if (name == NULL)
+    name = vio->vout_base->name ;
+
+  return (name != NULL) ? name : "?" ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Close all the readers.
+ * Close all vin excluding the vin_base.
  *
- * Half-close everything on the vin stack.  Empties the vin stack down to the
- * base entry.  Discards any read-only vio_vf (except for last vin entry).
+ * This is done on close and when there is a command error.
+ */
+extern void
+uty_vin_close_stack(vty_io vio)
+{
+  while (vio->vin != vio->vin_base)
+    uty_vin_close(vio) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Close all vout except for the vout_base.
  *
- * VIO is placed on death watch, and will stay there until:
+ * This is done on close and when there is a command error.
  *
- *   * outstanding commands complete.
- *
- *   * outstanding output completes, or times out, or program terminates.
- *
- * For VTY_TERMINAL  (must be in CLI thread):
- *
- *   * shut the socket for reading
- *   * discard all buffered input, setting it to "EOF"
- *   * turns off any monitor status !
- *   * drop down to RESTRICTED_NODE
- *
- * For VTY_SHELL_SERVER  (must be in CLI thread):
- *
- *   * shut the socket for reading
- *   * discard all buffered input
- *   * drop down to RESTRICTED_NODE
+ * Should only be "final" on a call from the watch-dog !
+ */
+extern void
+uty_vout_close_stack(vty_io vio, bool final)
+{
+  while (vio->vout != vio->vout_base)
+    uty_vout_close(vio, final) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Close VTY -- may be called any number of times !
  *
  * If no reason for the close has already been set, sets the given reason.
+ * The close reason is reported at the end of the output to the vout_base.
  *
- * If already half-closed, does nothing else.
+ * Once a VTY has been closed, it will provide no further input.  However, until
+ * "final" close, it will continue to output anything which is pending at the
+ * time of the close, which includes: (a) anything in the output buffer,
+ * (b) any further output from a then running command and (c) anything that an
+ * out_pipe may be in the process of returning.
  *
- * Returns true <=> first half close.
+ * The main complication is that in a multi-threaded world there may be a
+ * vio->cmd_running.  The close shuts down everything on the input stack, so
+ * any active command loop will come to a halt as soon as the current command
+ * does complete.  The output stack is preserved, but will be closed on
+ * completion of the command.
+ *
+ * Closing a VTY places it on the death-watch list.  Once any pending output
+ * has been dealt with and any cmd_running has completed, then the death-watch
+ * will apply the coup de grace.
+ *
+ * Getting the death-watch to finally close the VTY also allows the vty to be
+ * closed from somewhere deep (e.g. when there is an I/O error) without
+ * destroying the VTY and upsetting code that might not realise the VTY has
+ * vanished.
+ *
+ * The close sequence is:
+ *
+ *   1. if a close reason has not already been set, set any given one.
+ *
+ *   2. if not already closing -- ie this is the first call of uty_close()
+ *
+ *       a. transfer to death-watch list & set closing.
+ *
+ *       b. turn off any monitor state
+ *
+ *       c. close down the input/read side completely.
+ *
+ *          Empties the vin stack down to vin_base, closing all input.
+ *
+ *          Close the vin_base.  The vin_base is left !read_open.
+ *
+ *          All read-only vio_vf (except the vin_base) are freed.
+ *
+ *          Note that everything is read closed before anything is write
+ *          closed.
+ *
+ *          A vio_vf is read closed once and only once.
+ *
+ *          The vin_base is closed only by this function.  Until the final
+ *          uty_close, there is always at least the vin_base, even if it is
+ *          read_closed.
+ *
+ *   3. try to close everything on the vout_closing list.
+ *
+ *      even if cmd_running
+ *
+ *
  */
-static bool
-uty_do_half_close(vty_io vio, const char* reason)
+extern bool
+uty_close(vty_io vio, bool final, qstring reason)
 {
-  vio_vf vf ;
+  vio_vf vf_next ;
 
   VTY_ASSERT_LOCKED() ;
 
-  if ((vio->close_reason == NULL) && (reason != NULL))
-    vio->close_reason = XSTRDUP(MTYPE_TMP, reason) ;
+  /* quit if already closed                                             */
+  if (vio->state == vf_closed)
+    return true ;
 
-  if (vio->half_closed)
-    return false ;
-
-  /* Half close everything on the vin stack.
-   *
-   * Leave stack with just the base entry (closed for read).
-   */
-  while (1)
+  /* Set the close reason, if not already set.                          */
+  if (reason != NULL)
     {
-      vf = vio->vin ;                   /* Current first on list        */
-
-      uty_vf_half_close(vf) ;           /* fd level half close etc.     */
-
-      switch(vf->vin_type)              /* tidy up each type            */
-      {
-        case VIN_NONE:
-          break ;
-
-        case VIN_TERM:
-          uty_term_half_close(vf) ;
-          uty_cli_close(vio) ;        /* tell the CLI to stop             */
-          break ;
-
-        case VIN_SHELL:
-          break ;
-
-        case VIN_FILE:
-          break ;
-
-        case VIN_PIPE:
-          break ;
-
-        case VIN_CONFIG:
-          break ;
-
-        default:
-          zabort("unknown VIN type") ;
-      } ;
-
-      /* Finished if half closed the last on the list                   */
-      if (vf == vio->vin_base)
-        break ;
-
-      /* Hack off head of list.  If it is read-only, close & free.      */
-      ssl_del_head(vio->vin, vin_next) ;
-
-      if (vf->vout_type == VOUT_NONE)
-        uty_vf_close(vf) ;
+      if (vio->close_reason == NULL)
+        vio->close_reason = reason ;
+      else
+        qs_reset(reason, free_it) ;
     } ;
 
+  /* If not already closing, set closing and transfer to the death watch
+   * list -- turn off any "monitor" status immediately.
+   */
+  if (vio->state == vf_open)
+    {
+      vio->state = vf_closing ;
+
+      /* Transfer to the death-watch                                    */
+      sdl_del(vio_list_base, vio, vio_list) ;
+      sdl_push(vio_death_watch, vio, vio_list) ;
+
+      /* TODO turn off any "monitor" IMMEDIATELY.                       */
+
+      /* Flush the vin stack.
+       *
+       * Where possible this will revoke commands bring command processing to
+       * as sudden a halt as possible -- though may still be processing
+       * commands.
+       */
+      uty_vin_close_stack(vio) ;
+      assert(vio->vin == vio->vin_base) ;
+      uty_vf_read_close(vio->vin) ;
+    } ;
+
+  /* If there is anything on the vout_closing list, give it a shove in case
+   * that manages to close anything -- which it will do if "final".
+   */
+  vf_next = vio->vout_closing ;
+  while (vf_next != NULL)
+    {
+      vio_vf vf = vf_next ;
+      vf_next = ssl_next(vf, vout_next) ;
+
+      uty_vf_write_close(vf, final) ;   /* removes from vout_closing if
+                                           is now completely closed.    */
+    } ;
+
+  /* If is vio->cmd_running, this is as far as we can go this time.     */
+  if (vio->cmd_running)
+    return false ;
+
   /* Make sure no longer holding the config symbol of power             */
-  uty_config_unlock(vio->vty, RESTRICTED_NODE) ;
+  uty_config_unlock(vio->vty, NULL_NODE) ;
 
-  /* Move to the death watch list                                       */
-  sdl_del(vio_list_base, vio, vio_list) ;
-  sdl_push(vio_death_watch, vio, vio_list) ;
+  /* Flush the vout stack.
+   *
+   * If cannot completely close a vf, places it on the vout_closing list,
+   * except for the vout_base.
+   */
+  uty_vout_close_stack(vio, final) ;
+  assert(vio->vout == vio->vout_base) ;
+  uty_vf_write_close(vio->vout, final) ;
 
-  vio->half_closed = true ;
+  /* See if have now successfully closed everything.                    */
+  if ((vio->vout_closing != NULL) || (vio->vout_base->vout_state != vf_closed))
+    return false ;              /* something is still open      */
 
+  /* Empty everything out of the vio and return the good news.
+   *
+   * NB: retains vio->vty & the vio->vio_list for death-watch.
+   */
+  assert((vio->vin == vio->vin_base) && (vio->vin_depth == 0)) ;
+
+  if (vio->vin != vio->vout)
+    vio->vin = uty_vf_free(vio->vin) ;
+  else
+    vio->vin = NULL ;
+  vio->vin_base = NULL ;
+
+  assert((vio->vout == vio->vout_base) && (vio->vout_depth == 0)) ;
+
+  vio->vout = uty_vf_free(vio->vout) ;
+
+  vio->close_reason = qs_reset(vio->close_reason, free_it) ;
+
+  vio->obuf = NULL ;
+
+  vio->state = vf_closed ;
   return true ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Close VTY.
+ * Pop and close the top of the vin stack -- MUST NOT be vin_base.
  *
+ * Read closes the vio_vfd -- if the vio_vfd was read-only, this will fully
+ * close it, and the vio_vfd will have been freed.
  *
+ * If this is read-only will free the vio_vf and all its contents.
  *
- * If no reason for the close has already been set, sets the given reason.
+ * NB: a uty_cmd_prepare() is required before command processing can continue.
  *
- * If not already half-closed, close all readers as described above, and then
- * kick everything on the vout stack and apply VTY_HALF_CLOSE_TIMEOUT.
- *
- *
+ *     That is not done here because this may be called from outside the
+ *     command loop -- in particular by uty_close().
  */
 extern void
-uty_close (vty_io vio, const char* reason)
+uty_vin_close(vty_io vio)
 {
-  if (uty_do_half_close(vio, reason))
-    {
-      vio_vf vf ;
+  vio_vf vf ;
 
-      /* Run down the vout stack, and write-ready enable everything with
-       * the half close timeout set.
-       *
-       * This will have the effect of kicking all output.
-       */
-      vf = vio->vout ;
-      while (vf != NULL)
-        {
-          vf->write_timeout = 0 ;
-          uty_vf_set_write(vf, on) ;
+  vf = vio->vin ;
 
-          vf = ssl_next(vf, vout_next) ;
-        } ;
-    } ;
+  assert(vf != vio->vin_base) ;
+  assert(vio->vin_depth > 0) ;
+
+  ssl_del_head(vio->vin, vin_next) ;
+  --vio->vin_depth ;
+
+  uty_vf_read_close(vf) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Closing down VTY.
+ * Pop and close the top of the vout stack -- MUST NOT be vout_base.
  *
- * Shuts down everything and discards all buffers etc. etc.
+ * Moves the vio_vf to the vout_closing list.
  *
- * If cmd_in_progress, cannot complete the process -- but sets the closed
- * flag.
+ * Before closing, push any outstanding output.
  *
- * Can call vty_close() any number of times.
+ * Unless "final", the close is soft, that is, if there is any output still
+ * outstanding does not actually close the vout.
  *
- * The vty structure is placed on death watch, which will finally free the
- * structure once no longer cmd_in_progress.
+ * If there is no outstanding output (or if final) will completely close the
+ * vf and free it.
  *
+ * NB: a uty_cmd_prepare() is required before command processing can continue.
  *
- * If no reason for the close has already been set, sets the given reason.
- *
+ *     That is not done here because this may be called from outside the
+ *     command loop -- in particular by uty_close().
  */
 extern void
-uty_close_final(vty_io vio, const char* reason)
+uty_vout_close(vty_io vio, bool final)
 {
-  VTY_ASSERT_LOCKED() ;
+  vio_vf vf ;
 
-  /* If not already closed, close.                                      */
-  uty_do_half_close(vio, reason) ;  /* set reason if required, and
-                                       make sure is half closed.        */
-  if (!vio->closed)
-    {
-      vio_vf vf ;
+  vf = vio->vout ;
 
-      /* Empty the vin stack                                            */
-      assert(vio->vin != NULL) ;
-      assert(vio->vin == vio->vin_base) ;
-      if (vio->vin != vio->vout_base)
-        uty_vf_close(vio->vin) ;
-      vio->vin_base = vio->vin = NULL ;
+  assert(vf != vio->vout_base) ;
+  assert(vio->vout_depth > 0) ;
 
-      /* Now kick everything in the vout stack, in case can get stuff
-       * written away.  And then close.
-       */
-      while (ssl_pop(&vf, vio->vout, vout_next) != NULL)
-        {
-          uty_vf_set_write(vf, off) ;   /* stop any write ready...      */
-          vf->closing = true ;          /* ...permanently.              */
+  ssl_del_head(vio->vout, vout_next) ;
+  --vio->vout_depth ;
 
-          switch(vf->vout_type)         /* tidy up each type            */
-          {
-            case VOUT_NONE:
-              break ;
+  ssl_push(vio->vout_closing, vf, vout_next) ;
 
-            case VOUT_TERM:
-              break ;
+  vio->obuf = vio->vout->obuf ;
 
-            case VOUT_SHELL:
-              break ;
-
-            case VOUT_FILE:
-              break ;
-
-            case VOUT_PIPE:
-              break ;
-
-            case VOUT_STDOUT:
-              break ;
-
-            case VOUT_STDERR:
-              break ;
-
-            default:
-              zabort("unknown VOUT type") ;
-          } ;
-
-          uty_vf_close(vf) ;            /* close and free               */
-        } ;
-
-      vio->vout_base = NULL ;           /* stack is empty               */
-      vio->closed = true ;              /* now closed                   */
-    } ;
-
-  /* Nothing more should happen, so can now release almost everything,
-   * the exceptions being the things that are related to a cmd_in_progress.
-   *
-   * All writing to buffers is suppressed, and as the sock has been closed,
-   * there will be no more read_ready or write_ready events.
-   */
-  if (vio->name != NULL)
-    XFREE(MTYPE_VTY_NAME, vio->name) ;
-
-  vio->key_stream = keystroke_stream_free(vio->key_stream) ;
-
-  qs_reset(&vio->cli_prompt_for_node, keep_it) ;
-  qs_reset(&vio->cl, keep_it) ;
-
-  {
-    qstring line ;
-    while ((line = vector_ream(vio->hist, keep_it)) != NULL)
-      qs_reset_free(line) ;
-  } ;
-
-  /* The final stage cannot be completed if cmd_in_progress.
-   *
-   * The clx is pointed at by vty->buf -- containing the current command.
-   *
-   * Once everything is released, can take the vty off death watch, and
-   * release the vio and the vty.
-   */
-  if (!vio->cmd_in_progress)
-    {
-      qs_reset(&vio->clx, keep_it) ;
-      vio->vty->buf = NULL ;
-    } ;
+  uty_vf_write_close(vf, final) ;
 } ;
 
 /*==============================================================================
@@ -847,85 +740,281 @@ uty_close_final(vty_io vio, const char* reason)
  *
  * There are no errors, yet.
  *
- * This leaves most things unset/NULL/false.  Caller will want to set:
+ * This leaves most things unset/NULL/false.  Caller will need to:
  *
+ *   - uty_vin_open() and/or uty_vout_open()
  *
+ *   - once those are done, the following optional items remain to be set
+ *     if they are required:
  *
- * Sets timeout to no timeout at all -- timeout is optional.
+ *       read_timeout     -- default = 0     => no timeout
+ *       write_timeout    -- default = 0     => no timeout
+ *
+ *       parse_type       -- default = cmd_parse_standard
+ *       reflect_enabled  -- default = false
+ *       out_enabled      -- default = true iff vfd_io_write
+ *
+ * If vio->blocking, adds vfd_io_blocking to the io_type.
+ *
+ * NB: if there is no fd for this vio_vf, it should be set to -1, and the
+ *     type (recommend vfd_none) and io_type are ignored -- except for
+ *     vfd_io_write and the out_enabled state.
+ *
+ *     A VTY_STDOUT or a VTY_STDERR (output only, to the standard I/O) can
+ *     be set up without an fd, and with/without out_enabled.
+ *
+ *     A VTY_CONFIG_READ can be set up with the fd of the input file, but
+ *     MUST be type = vfd_file and io_type = vfd_io_read -- because the fd
+ *     is for input only.  This will set out_enabled false (as required).
+ *     The required VOUT_STDERR will be set by uty_vout_open().
  */
 extern vio_vf
-uty_vf_new(vty_io vio, int fd, vfd_type_t type, vfd_io_type_t io_type)
+uty_vf_new(vty_io vio, const char* name, int fd, vfd_type_t type,
+                                              vfd_io_type_t io_type)
 {
   vio_vf  vf ;
 
   VTY_ASSERT_LOCKED() ;
 
+  if (vio->blocking)
+    io_type |= vfd_io_blocking ;
+
   vf = XCALLOC (MTYPE_VTY, sizeof(struct vio_vf)) ;
 
   /* Zeroising the structure has set:
    *
-   *   vin_type       = 0     -- VIN_NONE
-   *   vin_next       = NULL  -- not on a vin list, yet
+   *   vio              = X     -- set below
+   *   name             = X     -- set below
    *
-   *   vout_type      = NULL  -- VOUT_NONE
-   *   vout_next      = NULL  -- not on a vout list, yet
+   *   vin_type         = VIN_NONE            -- see uty_vin_open()
+   *   vin_state        = vf_closed           -- see uty_vin_open()
+   *   vin_next         = NULL                -- see uty_vin_open()
    *
-   *   obuf           = NULL  -- none, yet
-   *   olc            = NULL  -- none, yet
+   *   cli              = NULL  -- no CLI, yet
    *
-   *   blocking       = false
-   *   closing        = false
+   *   ibuf             = NULL  -- none, yet  -- see uty_vin_open()
    *
-   *   read_open      = false
-   *   write_open     = false
-   *   error_seen     = 0     -- no error seen, yet
+   *   cl               = zeros -- empty qstring (embedded)
+   *   line_complete    = false               -- see uty_vout_open()
+   *   line_number      = 0     -- nothing yet
+   *   line_step        = 0                   -- see uty_vout_open()
    *
-   *   read_timeout   = 0     -- none
-   *   write_timeout  = 0     -- none
+   *   parse_type       = cmd_parse_standard
+   *   reflect_enabled  = false
+   *
+   *   vout_type        = VOUT_NONE           -- see uty_vout_open()
+   *   vout_state       = vf_closed           -- see uty_vout_open()
+   *   vout_next        = NULL                -- see uty_vout_open()
+   *
+   *   obuf             = NULL  -- none, yet  -- see uty_vout_open()
+   *
+   *   out_enabled      = X     -- set below: true iff vfd_io_write
+   *
+   *   vfd              = NULL  -- no vfd, yet
+   *
+   *   blocking         = false -- default is non-blocking I/O
+   *   closing          = false -- definitely not
+   *
+   *   error_seen       = 0     -- no error seen, yet
+   *
+   *   read_on          = false
+   *   write_on         = false
+   *
+   *   read_timeout     = 0     -- none
+   *   write_timeout    = 0     -- none
    */
   confirm((VIN_NONE == 0) && (VOUT_NONE == 0)) ;
+  confirm(vf_closed == 0) ;
+  confirm(QSTRING_INIT_ALL_ZEROS) ;
+  confirm(cmd_parse_standard == 0) ;
 
   vf->vio = vio ;
-  vf->vfd = vio_fd_new(fd, type, io_type, vf) ;
+
+  if (name != NULL)
+    vf->name = XSTRDUP(MTYPE_VTY_NAME, name) ;
+
+  if (fd >= 0)
+    vf->vfd = vio_vfd_new(fd, type, io_type, vf) ;
+
+  vf->out_enabled = ((io_type & vfd_io_write) != 0) ;
 
   return vf ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Half close a vio_vf.
+ * Close the read side of the given vio_vf.
  *
- * Half closes the vio_fd and shuts down all reading.  If the vio_fd was
- * read-only, the half-close will fully close it, and the vio_fd will have
- * been freed.
+ * Read closes the vio_vfd -- if the vio_vfd was read-only, this will fully
+ * close it, and the vio_vfd will have been freed.
+ *
+ * If this is read-only (ie vout_type == VOUT_NONE) will free the vio_vf as
+ * well as the vio_vfd -- unless this is the vin_base.
+ *
+ * Note that read_close is effective immediately, there is no delay as there is
+ * with write_close -- so no need for a "final" option.
  */
 static void
-uty_vf_half_close(vio_vf vf)
+uty_vf_read_close(vio_vf vf)
 {
-  /* the vfd level half close will close completely if is read only.    */
-  vf->vfd = vio_fd_half_close(vf->vfd) ;
+  assert(vf->vin_state != vf_closed) ;
 
-  vf->read_open = false ;       /* no more read operations      */
-  vf->read_on   = off ;         /* of course                    */
+  /* Do the vfd level read close and mark the vf no longer read_open    */
+  if (vf->vin_type < VIN_SPECIALS)
+    vf->vfd = vio_vfd_read_close(vf->vfd) ;
 
-  if (vf->vfd == NULL)          /* check really was read-only   */
-    assert(!vf->write_open && !vf->read_on) ;
+  vf->vin_state = vf_closed ;
+  vf->read_on   = off ;
+
+  /* Now the vin_type specific clean up.                                */
+  switch(vf->vin_type)
+  {
+    case VIN_NONE:
+      zabort("invalid VIN_NONE") ;
+      break ;
+
+    case VIN_TERM:
+      uty_term_read_close(vf) ;
+      break ;
+
+    case VIN_VTYSH:
+      break ;
+
+    case VIN_FILE:
+      uty_file_read_close(vf) ;
+      break ;
+
+    case VIN_PIPE:
+      break ;
+
+    case VIN_CONFIG:
+      break ;
+
+    case VIN_DEV_NULL:
+      break ;
+
+    default:
+      zabort("unknown VIN type") ;
+  } ;
+
+  if ((vf->vout_type == VOUT_NONE) && (vf != vf->vio->vin_base))
+    uty_vf_free(vf) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Close given vio_vf and free the vio_vf structure and all its contents.
+ * Close the write side of the given vio_vf, if can.
  *
- * Assumes has been removed from vio->vin and vio->vout !
+ * Pushes any outstanding output -- non-blocking if not a blocking vty.
+ *
+ * The vio_vf MUST either be on the vout_closing list or be vout_base.
+ * The vio_vf MUST be write_open and MUST NOT be read_open.
+ *
+ * If output is empty, or if final, close the vf, then if it is on the
+ * vout_closing list, remove and free it.
+ *
+ * Returns whether output was empty or not.
  */
-static void
-uty_vf_close(vio_vf vf)
+static bool
+uty_vf_write_close(vio_vf vf, bool final)
 {
-  vf->vfd  = vio_fd_close(vf->vfd) ;
+  bool  empty ;
 
-  vf->obuf = vio_fifo_reset_free(vf->obuf) ;
-  vf->olc  = vio_lc_reset_free(vf->olc) ;
+  assert((vf->vout_state != vf_closed) && (vf->vin_state == vf_closed)) ;
+
+  /* Worry about remaining return input from vout pipe        TODO      */
+
+  /* Worry about appending the close reason to the vout_base  TODO      */
+
+  /* Now the vout_type specific clean up.                               */
+  empty = false ;
+
+  switch(vf->vout_type)
+  {
+    case VOUT_NONE:
+      zabort("invalid VOUT_NONE") ;
+      break ;
+
+    case VOUT_TERM:
+      empty = uty_term_write_close(vf, final) ;
+      break ;
+
+    case VOUT_VTYSH:
+      break ;
+
+    case VOUT_FILE:
+      empty = uty_file_write_close(vf, final) ;
+      break ;
+
+    case VOUT_PIPE:
+      break ;
+
+    case VOUT_CONFIG:
+      break ;
+
+    case VOUT_DEV_NULL:
+    case VOUT_STDOUT:
+    case VOUT_STDERR:
+      empty = true ;
+      break ;
+
+    default:
+      zabort("unknown VOUT type") ;
+  } ;
+
+  if (empty || final)
+    {
+      /* Do the vfd level close and mark the vf no longer write_open        */
+      if (vf->vout_type < VOUT_SPECIALS)
+        vf->vfd = vio_vfd_close(vf->vfd) ;
+      else
+        assert(vf->vfd == NULL) ;
+
+      vf->vout_state = vf_closed ;
+      vf->write_on   = off ;
+
+      if (ssl_del(vf->vio->vout_closing, vf, vout_next))
+        uty_vf_free(vf) ;
+      else
+        assert(vf == vf->vio->vout_base) ;
+    } ;
+
+  return empty ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free the given vio_vf structure and all its contents.
+ *
+ * Expects the vfd to already have been closed, but will close it if not.
+ *
+ * Expects any cli to be closed, but will close it if not.
+ *
+ * Assumes has been removed from any and all lists !
+ */
+static vio_vf
+uty_vf_free(vio_vf vf)
+{
+  XFREE(MTYPE_VTY_NAME, vf->name) ;
+
+  vf->ibuf = vio_fifo_reset(vf->ibuf, free_it) ;
+  vf->obuf = vio_fifo_reset(vf->obuf, free_it) ;
+
+  qs_reset(vf->cl, keep_it) ;
+
+  vf->cli = uty_cli_close(vf->cli, true) ;
+  vf->vfd = vio_vfd_close(vf->vfd) ;   /* for completeness     */
 
   XFREE(MTYPE_VTY, vf) ;
+
+  return NULL ;
 } ;
+
+/*------------------------------------------------------------------------------
+ *
+ *
+ */
+
+
+
+
 
 /*------------------------------------------------------------------------------
  * Dealing with an I/O error on VTY socket
@@ -934,9 +1023,11 @@ uty_vf_close(vio_vf vf)
  *
  * If is a "monitor", turn that off, *before* issuing log message.
  */
-static int
-uty_vf_error(vty_io vio, const char* what)
+extern int
+uty_vf_error(vio_vf vf, const char* what, int err)
 {
+  vty_io vio = vf->vio ;
+
   VTY_ASSERT_LOCKED() ;
   VTY_ASSERT_CLI_THREAD() ;
 
@@ -944,24 +1035,14 @@ uty_vf_error(vty_io vio, const char* what)
   uty_set_monitor(vio, 0) ;
 
   /* if this is the first error, log it                                 */
-  if (vio->sock.error_seen == 0)
+  if (vf->error_seen == 0)
     {
-      const char* type ;
-      switch (vio->vty_type)
-      {
-        case VTY_TERM:
-          type = "VTY Terminal" ;
-          break ;
-        case VTY_SHELL:
-          type = "VTY Shell Server" ;
-          break ;
-        default:
-          zabort("unknown VTY type for uty_file_error()") ;
-      } ;
+      const char* type = "?" ;  /* TODO */
 
-      vio->sock.error_seen = errno ;
+
+      vf->error_seen = err ;
       uzlog(NULL, LOG_WARNING, "%s: %s failed on fd %d: %s",
-                type, what, vio->sock.fd, errtoa(vio->sock.error_seen, 0).str) ;
+                          type, what, vio_vfd_fd(vf->vfd), errtoa(err, 0).str) ;
     } ;
 
   return -1 ;
@@ -970,33 +1051,34 @@ uty_vf_error(vty_io vio, const char* what)
 /*------------------------------------------------------------------------------
  * Set required read ready state.  Applies the current read timeout.
  *
- * Forces off if:   vf->closing
+ * Forces off if:   vf->vin_state != vf_open
  *
- * Does nothing if: !vf->read_open
+ * Does nothing if: vf->vin_state == vf_closed
  *              or: vf->vfd == NULL
+ *
+ * Returns new state of vf->read_on
  */
-extern on_off_t
-uty_vf_set_read(vio_vf vf, on_off_t how)
+extern on_off_b
+uty_vf_set_read(vio_vf vf, on_off_b how)
 {
-  if (vf->closing)
+  if (vf->vin_state != vf_open)
     how = off ;
-  return vf->read_on = vf->read_open
-                          ? vio_fd_set_read(vf->vfd, how, vf->read_timeout)
+
+  return vf->read_on = (vf->vin_state != vf_closed)
+                          ? vio_vfd_set_read(vf->vfd, how, vf->read_timeout)
                           : off ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Set required read ready timeout -- if already read_on, restart it.
  *
- * Forces read ready off if: vf->closing
- *
- * Does nothing if: !vf->read_open
- *              or: vf->vfd == NULL
+ * Returns new state of vf->read_on
  */
-extern on_off_t
+extern on_off_b
 uty_vf_set_read_timeout(vio_vf vf, vty_timer_time read_timeout)
 {
   vf->read_timeout = read_timeout ;
+
   return vf->read_on ? uty_vf_set_read(vf, on)
                      : off ;
 } ;
@@ -1004,34 +1086,34 @@ uty_vf_set_read_timeout(vio_vf vf, vty_timer_time read_timeout)
 /*------------------------------------------------------------------------------
  * Set required write ready state.  Applies the current write timeout.
  *
- * Forces off if:   vf->closing
+ * Forces off if:   vf->vout_state != vf_open
  *
- * Does nothing if: !vf->write_open
+ * Does nothing if: vf->vout_state == vf_closed
  *              or: vf->vfd == NULL
+ *
+ * Returns new state of vf->write_on
  */
-extern on_off_t
-uty_vf_set_write(vio_vf vf, on_off_t how)
+extern on_off_b
+uty_vf_set_write(vio_vf vf, on_off_b how)
 {
-  if (vf->closing)
+  if (vf->vout_state != vf_open)
     how = off ;
 
-  return vf->write_on = vf->write_open
-                           ? vio_fd_set_write(vf->vfd, how, vf->write_timeout)
+  return vf->write_on = (vf->vout_state != vf_closed)
+                           ? vio_vfd_set_write(vf->vfd, how, vf->write_timeout)
                            : off ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Set required write ready timeout -- if already write_on, restart it.
  *
- * Forces write ready off if: vf->closing
- *
- * Does nothing if: !vf->write_open
- *              or: vf->vfd == NULL
+ * Returns new state of vf->write_on
  */
-extern on_off_t
+extern on_off_b
 uty_vf_set_write_timeout(vio_vf vf, vty_timer_time write_timeout)
 {
   vf->write_timeout = write_timeout ;
+
   return vf->write_on ? uty_vf_set_write(vf, on)
                       : off ;
 } ;
@@ -1061,9 +1143,11 @@ uty_open_listeners(const char *addr, unsigned short port, const char *path)
   if (port)
     uty_term_open_listeners(addr, port) ;
 
+#if 0
   /* If want to listen for vtysh, set up listener now                   */
   if (VTYSH_ENABLED && (path != NULL))
     uty_serv_vtysh(path) ;
+#endif
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1072,7 +1156,7 @@ uty_open_listeners(const char *addr, unsigned short port, const char *path)
  * Adds to list of listeners for close down.
  */
 extern void
-uty_add_listener(int fd, vio_fd_accept* accept_action)
+uty_add_listener(int fd, vio_vfd_accept* accept_action)
 {
   vio_listener  vl ;
 

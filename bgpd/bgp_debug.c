@@ -367,7 +367,7 @@ DEFUN (debug_bgp_as4,
        BGP_STR
        "BGP AS4 actions\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_ON (as4, AS4);
   else
     {
@@ -385,7 +385,7 @@ DEFUN (no_debug_bgp_as4,
        BGP_STR
        "BGP AS4 actions\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_OFF (as4, AS4);
   else
     {
@@ -410,7 +410,7 @@ DEFUN (debug_bgp_as4_segment,
        BGP_STR
        "BGP AS4 aspath segment handling\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_ON (as4, AS4_SEGMENT);
   else
     {
@@ -428,7 +428,7 @@ DEFUN (no_debug_bgp_as4_segment,
        BGP_STR
        "BGP AS4 aspath segment handling\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_OFF (as4, AS4_SEGMENT);
   else
     {
@@ -453,7 +453,7 @@ DEFUN (debug_bgp_fsm,
        BGP_STR
        "BGP Finite State Machine\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_ON (fsm, FSM);
   else
     {
@@ -471,7 +471,7 @@ DEFUN (no_debug_bgp_fsm,
        BGP_STR
        "Finite State Machine\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_OFF (fsm, FSM);
   else
     {
@@ -496,7 +496,7 @@ DEFUN (debug_bgp_events,
        BGP_STR
        "BGP events\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_ON (events, EVENTS);
   else
     {
@@ -514,7 +514,7 @@ DEFUN (no_debug_bgp_events,
        BGP_STR
        "BGP events\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_OFF (events, EVENTS);
   else
     {
@@ -538,7 +538,7 @@ DEFUN (debug_bgp_filter,
        BGP_STR
        "BGP filters\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_ON (filter, FILTER);
   else
     {
@@ -556,7 +556,7 @@ DEFUN (no_debug_bgp_filter,
        BGP_STR
        "BGP filters\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_OFF (filter, FILTER);
   else
     {
@@ -580,7 +580,7 @@ DEFUN (debug_bgp_keepalive,
        BGP_STR
        "BGP keepalives\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_ON (keepalive, KEEPALIVE);
   else
     {
@@ -598,7 +598,7 @@ DEFUN (no_debug_bgp_keepalive,
        BGP_STR
        "BGP keepalives\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_OFF (keepalive, KEEPALIVE);
   else
     {
@@ -622,7 +622,7 @@ DEFUN (debug_bgp_update,
        BGP_STR
        "BGP updates\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     {
       DEBUG_ON (update, UPDATE_IN);
       DEBUG_ON (update, UPDATE_OUT);
@@ -645,7 +645,7 @@ DEFUN (debug_bgp_update_direct,
        "Inbound updates\n"
        "Outbound updates\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     {
       if (strncmp ("i", argv[0], 1) == 0)
 	{
@@ -684,7 +684,7 @@ DEFUN (no_debug_bgp_update,
        BGP_STR
        "BGP updates\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     {
       DEBUG_OFF (update, UPDATE_IN);
       DEBUG_OFF (update, UPDATE_OUT);
@@ -711,7 +711,7 @@ DEFUN (debug_bgp_normal,
        DEBUG_STR
        BGP_STR)
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_ON (normal, NORMAL);
   else
     {
@@ -728,7 +728,7 @@ DEFUN (no_debug_bgp_normal,
        DEBUG_STR
        BGP_STR)
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_OFF (normal, NORMAL);
   else
     {
@@ -751,7 +751,7 @@ DEFUN (debug_bgp_zebra,
        BGP_STR
        "BGP Zebra messages\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_ON (zebra, ZEBRA);
   else
     {
@@ -769,7 +769,7 @@ DEFUN (no_debug_bgp_zebra,
        BGP_STR
        "BGP Zebra messages\n")
 {
-  if (vty_get_node(vty) == CONFIG_NODE)
+  if (vty->node == CONFIG_NODE)
     DEBUG_OFF (zebra, ZEBRA);
   else
     {

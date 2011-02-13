@@ -867,10 +867,10 @@ DEFUN (no_debug_ospf6_lsa_type,
   return CMD_SUCCESS;
 }
 
-struct cmd_element debug_ospf6_lsa_type_cmd;
-struct cmd_element debug_ospf6_lsa_type_detail_cmd;
-struct cmd_element no_debug_ospf6_lsa_type_cmd;
-struct cmd_element no_debug_ospf6_lsa_type_detail_cmd;
+struct cmd_command debug_ospf6_lsa_type_cmd;
+struct cmd_command debug_ospf6_lsa_type_detail_cmd;
+struct cmd_command no_debug_ospf6_lsa_type_cmd;
+struct cmd_command no_debug_ospf6_lsa_type_detail_cmd;
 
 void
 install_element_ospf6_debug_lsa (void)

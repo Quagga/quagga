@@ -240,14 +240,17 @@ sighup (void)
 
 }
 
-/* SIGINT handler. */
+/* SIGINT and SIGTERM handler. */
 void
 sigint (void)
 {
   zlog_notice ("Terminating on signal");
 
+  vty_reset_because("Terminating");
+
   /* tell the routing engine to send notifies to peers and wait
-   * for all sessions to be disabled */
+   * for all sessions to be disabled, then terminate.
+   */
   sigterm_enqueue();
 }
 
@@ -301,6 +304,7 @@ bgp_exit (int status)
   /* reverse bgp_zebra_init/if_init */
   if (retain_mode)
     if_add_hook (IF_DELETE_HOOK, NULL);
+
   for (ALL_LIST_ELEMENTS (iflist, node, nnode, ifp))
     {
       struct listnode *c_node, *c_nnode;
@@ -366,10 +370,10 @@ bgp_exit (int status)
 
   if (qpthreads_enabled)
     {
-      qpn_reset_free(routing_nexus);
-      qpn_reset_free(bgp_nexus);
+      qpn_reset(routing_nexus, free_it);
+      qpn_reset(bgp_nexus, free_it);
     } ;
-  cli_nexus = qpn_reset_free(cli_nexus);
+  cli_nexus = qpn_reset(cli_nexus, free_it);
 
   if (CONF_BGP_DEBUG (normal, NORMAL))
     log_memstats_stderr ("bgpd");
@@ -744,16 +748,17 @@ sighup_action(mqueue_block mqb, mqb_flag_t flag)
     {
       zlog_info ("bgpd restarting!");
 
-      bgp_terminate (0, 0); /* send notifies */
+      bgp_terminate (false, false);     /* send notifies                */
       bgp_reset ();
 
-      /* Reload config file. */
-      vty_read_config (config_file, config_default);
+      /* Reload config file -- no special first command, now            */
+      vty_read_config_first_cmd_special(config_file, config_default,
+                                                 NULL, config_ignore_warnings) ;
 
-      /* Create VTY's socket */
+      /* Create VTY's socket                                            */
       vty_restart(vty_addr, vty_port, BGP_VTYSH_PATH);
 
-      /* Try to return to normal operation. */
+      /* Try to return to normal operation.                             */
     }
 
   mqb_free(mqb);
@@ -807,7 +812,7 @@ sigterm_action(mqueue_block mqb, mqb_flag_t flag)
        */
       program_terminating = true ;
 
-      bgp_terminate(1, retain_mode);
+      bgp_terminate(true, retain_mode);
 
       qpn_add_hook_function(&routing_nexus->foreground,
                                        program_terminate_if_all_peers_deleted) ;

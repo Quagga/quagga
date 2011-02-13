@@ -34,6 +34,8 @@
 
 #define QUAGGA_COPYRIGHT "Copyright 1996-2005 Kunihiro Ishiguro, et al."
 
+#include <sys/types.h>
+
 pid_t pid_output (const char *);
 
 #ifndef HAVE_DAEMON

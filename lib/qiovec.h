@@ -22,9 +22,8 @@
 #ifndef _ZEBRA_QIOVEC_H
 #define _ZEBRA_QIOVEC_H
 
-#include "zebra.h"
-
 #include "misc.h"
+#include <sys/uio.h>            /* iovec stuff                  */
 
 /*==============================================================================
  * Flexible size "struct iovec"

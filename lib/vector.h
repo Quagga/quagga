@@ -50,6 +50,16 @@ struct vector
 typedef struct vector  vector_t[1] ;    /* embedded vector structure    */
 typedef struct vector* vector ;         /* pointer to vector structure  */
 
+/* Setting a vector object to all zeros is enough to initialise it to
+ * an empty vector.
+ */
+enum
+{
+  VECTOR_INIT_ALL_ZEROS = true
+} ;
+
+#define VECTOR_INIT_EMPTY  { .p_items = NULL, .end = 0, .limit = 0 }
+
 /* Under very controlled circumstances, may access the vector body      */
 typedef p_vector_item const* vector_body_t ;
 
@@ -162,10 +172,10 @@ Inline p_vector_item vector_shift_item(vector v) ;
 extern void vector_insert(vector v, vector_index_t i, vector_length_t n) ;
 extern void vector_delete(vector v, vector_index_t i, vector_length_t n) ;
 
-typedef int vector_bsearch_cmp(const void** pp_val, const void** item) ;
+typedef int vector_bsearch_cmp(const cvp* pp_val, const cvp* item) ;
 vector_index_t vector_bsearch(vector v, vector_bsearch_cmp* cmp,
 					      const void* p_val, int* result) ;
-typedef int vector_sort_cmp(const void** a, const void** b) ;
+typedef int vector_sort_cmp(const cvp* a, const cvp* b) ;
 void vector_sort(vector v, vector_sort_cmp* cmp) ;
 
 extern vector vector_copy_here(vector dst, vector src) ;

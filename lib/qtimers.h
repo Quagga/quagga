@@ -35,6 +35,22 @@
  * each with an action to be executed when the timer expires.
  */
 
+#ifdef QTIMERS_DEBUG            /* Can be forced from outside           */
+# if QTIMERS_DEBUG
+#  define QTIMERS_DEBUG 1       /* Force 1 or 0                         */
+#else
+#  define QTIMERS_DEBUG 0
+# endif
+#else
+# ifdef  QDEBUG
+#  define QTIMERS_DEBUG 1       /* Follow QDEBUG                        */
+#else
+#  define QTIMERS_DEBUG 0
+# endif
+#endif
+
+enum { qtimers_debug  = QTIMERS_DEBUG } ;
+
 /*==============================================================================
  * Data Structures.
  */

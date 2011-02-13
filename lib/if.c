@@ -556,7 +556,7 @@ DEFUN (interface,
 #endif /* SUNOS_5 */
 
   vty->index = ifp;
-  vty_set_node(vty, INTERFACE_NODE) ;
+  vty->node  = INTERFACE_NODE ;
 
   return CMD_SUCCESS;
 }

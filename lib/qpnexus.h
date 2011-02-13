@@ -146,9 +146,6 @@ extern qpn_nexus qpn_init_new(qpn_nexus qpn, bool main_thread);
 extern void qpn_add_hook_function(qpn_hook_list list, void* hook) ;
 extern void qpn_exec(qpn_nexus qpn);
 extern void qpn_terminate(qpn_nexus qpn);
-extern qpn_nexus qpn_reset(qpn_nexus qpn, bool free_structure);
-
-#define qpn_reset_free(qpn) qpn_reset(qpn, 1)
-#define qpn_reset_keep(qpn) qpn_reset(qpn, 0)
+extern qpn_nexus qpn_reset(qpn_nexus qpn, free_keep_b free_structure);
 
 #endif /* _ZEBRA_QPNEXUS_H */

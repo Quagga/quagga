@@ -57,9 +57,7 @@ extern struct in_addr router_id_zebra;
 afi_t
 bgp_node_afi (struct vty *vty)
 {
-  enum node_type node = vty_get_node(vty) ;
-
-  if (node == BGP_IPV6_NODE || node == BGP_IPV6M_NODE)
+  if (vty->node == BGP_IPV6_NODE || vty->node == BGP_IPV6M_NODE)
     return AFI_IP6;
   return AFI_IP;
 }
@@ -69,11 +67,9 @@ bgp_node_afi (struct vty *vty)
 safi_t
 bgp_node_safi (struct vty *vty)
 {
-  enum node_type node = vty_get_node(vty) ;
-
-  if (node == BGP_VPNV4_NODE)
+  if (vty->node == BGP_VPNV4_NODE)
     return SAFI_MPLS_VPN;
-  if (node == BGP_IPV4M_NODE || node == BGP_IPV6M_NODE)
+  if (vty->node == BGP_IPV4M_NODE || vty->node == BGP_IPV6M_NODE)
     return SAFI_MULTICAST;
   return SAFI_UNICAST;
 }
@@ -352,7 +348,7 @@ DEFUN (router_bgp,
       return CMD_WARNING;
     }
 
-  vty_set_node(vty, BGP_NODE) ;
+  vty->node  = BGP_NODE ;
   vty->index = bgp;
 
   return CMD_SUCCESS;
@@ -601,7 +597,7 @@ ALIAS (no_bgp_confederation_identifier,
 
 DEFUN (bgp_confederation_peers,
        bgp_confederation_peers_cmd,
-       "bgp confederation peers ." CMD_AS_RANGE,
+       "bgp confederation peers .ASs",
        "BGP specific commands\n"
        "AS confederation parameters\n"
        "Peer ASs in BGP confederation\n"
@@ -631,7 +627,7 @@ DEFUN (bgp_confederation_peers,
 
 DEFUN (no_bgp_confederation_peers,
        no_bgp_confederation_peers_cmd,
-       "no bgp confederation peers ." CMD_AS_RANGE,
+       "no bgp confederation peers .ASs",
        NO_STR
        "BGP specific commands\n"
        "AS confederation parameters\n"
@@ -4018,7 +4014,7 @@ DEFUN (address_family_ipv4,
        "Enter Address Family command mode\n"
        "Address family\n")
 {
-  vty_set_node(vty, BGP_IPV4_NODE) ;
+  vty->node = BGP_IPV4_NODE ;
   return CMD_SUCCESS;
 }
 
@@ -4031,9 +4027,9 @@ DEFUN (address_family_ipv4_safi,
        "Address Family modifier\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    vty_set_node(vty, BGP_IPV4M_NODE) ;
+    vty->node = BGP_IPV4M_NODE ;
   else
-    vty_set_node(vty, BGP_IPV4_NODE) ;
+    vty->node = BGP_IPV4_NODE ;
 
   return CMD_SUCCESS;
 }
@@ -4044,7 +4040,7 @@ DEFUN (address_family_ipv6,
        "Enter Address Family command mode\n"
        "Address family\n")
 {
-  vty_set_node(vty, BGP_IPV6_NODE) ;
+  vty->node = BGP_IPV6_NODE ;
   return CMD_SUCCESS;
 }
 
@@ -4057,9 +4053,9 @@ DEFUN (address_family_ipv6_safi,
        "Address Family modifier\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    vty_set_node(vty, BGP_IPV6M_NODE) ;
+    vty->node = BGP_IPV6M_NODE ;
   else
-    vty_set_node(vty, BGP_IPV6_NODE) ;
+    vty->node = BGP_IPV6_NODE ;
 
   return CMD_SUCCESS;
 }
@@ -4070,7 +4066,7 @@ DEFUN (address_family_vpnv4,
        "Enter Address Family command mode\n"
        "Address family\n")
 {
-  vty_set_node(vty, BGP_VPNV4_NODE) ;
+  vty->node = BGP_VPNV4_NODE ;
   return CMD_SUCCESS;
 }
 
@@ -4086,14 +4082,14 @@ DEFUN (exit_address_family,
        "exit-address-family",
        "Exit from Address Family configuration mode\n")
 {
-  enum node_type node = vty_get_node(vty) ;
+  node_type_t node = vty->node ;
 
   if (node == BGP_IPV4_NODE
       || node == BGP_IPV4M_NODE
       || node == BGP_VPNV4_NODE
       || node == BGP_IPV6_NODE
       || node == BGP_IPV6M_NODE)
-    vty_set_node(vty, BGP_NODE);
+    vty->node = BGP_NODE ;
   return CMD_SUCCESS;
 }
 
@@ -8869,37 +8865,50 @@ bgp_config_write_redistribute (struct vty *vty, struct bgp *bgp, afi_t afi,
 /* BGP node structure. */
 static struct cmd_node bgp_node =
 {
-  BGP_NODE,
-  "%s(config-router)# ",
-  1,
+  .node   = BGP_NODE,
+  .prompt = "%s(config-router)# ",
+
+  .config_to_vtysh  = true,
 };
 
 static struct cmd_node bgp_ipv4_unicast_node =
 {
-  BGP_IPV4_NODE,
-  "%s(config-router-af)# ",
-  1,
+  .node   = BGP_IPV4_NODE,
+  .prompt = "%s(config-router-af)# ",
+
+  .parent = BGP_NODE,
+
+  .config_to_vtysh  = true,
 };
 
 static struct cmd_node bgp_ipv4_multicast_node =
 {
-  BGP_IPV4M_NODE,
-  "%s(config-router-af)# ",
-  1,
+  .node   = BGP_IPV4M_NODE,
+  .prompt = "%s(config-router-af)# ",
+
+  .parent = BGP_NODE,
+
+  .config_to_vtysh  = true,
 };
 
 static struct cmd_node bgp_ipv6_unicast_node =
 {
-  BGP_IPV6_NODE,
-  "%s(config-router-af)# ",
-  1,
+  .node   = BGP_IPV6_NODE,
+  .prompt = "%s(config-router-af)# ",
+
+  .parent = BGP_NODE,
+
+  .config_to_vtysh  = true,
 };
 
 static struct cmd_node bgp_ipv6_multicast_node =
 {
-  BGP_IPV6M_NODE,
-  "%s(config-router-af)# ",
-  1,
+  .node   = BGP_IPV6M_NODE,
+  .prompt = "%s(config-router-af)# ",
+
+  .parent = BGP_NODE,
+
+  .config_to_vtysh  = true,
 };
 
 static struct cmd_node bgp_vpnv4_node =

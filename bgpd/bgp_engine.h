@@ -30,13 +30,25 @@
 #include "lib/qpnexus.h"
 #include "lib/log.h"
 
-enum { qdebug =
-#ifdef QDEBUG
-  1
+/*==============================================================================
+ * DEBUG setting
+ */
+
+#ifdef BGP_ENGINE_DEBUG         /* Can be forced from outside           */
+# if BGP_ENGINE_DEBUG
+#  define BGP_ENGINE_DEBUG 1    /* Force 1 or 0                         */
 #else
-  0
+#  define BGP_ENGINE_DEBUG 0
+# endif
+#else
+# ifdef  QDEBUG
+#  define BGP_ENGINE_DEBUG 1    /* Follow QDEBUG                        */
+#else
+#  define BGP_ENGINE_DEBUG 0
+# endif
 #endif
-};
+
+enum { bgp_engine_debug = BGP_ENGINE_DEBUG } ;
 
 /*==============================================================================
  *
@@ -117,10 +129,10 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 /* Send given message to the BGP Engine -- priority/ordinary
  */
 Inline void
-bgp_to_bgp_engine(mqueue_block mqb, enum mqb_rank priority)
+bgp_to_bgp_engine(mqueue_block mqb, mqb_rank_b priority)
 {
   mqueue_enqueue(bgp_nexus->queue, mqb, priority) ;
-  if (qdebug)
+  if (bgp_engine_debug)
     bgp_queue_logging("BGP Engine", bgp_nexus->queue, &bgp_engine_queue_stats) ;
 } ;
 
@@ -131,10 +143,10 @@ bgp_to_bgp_engine(mqueue_block mqb, enum mqb_rank priority)
 /* Send given message to the Routing Engine -- priority/ordinary
  */
 Inline void
-bgp_to_routing_engine(mqueue_block mqb, enum mqb_rank priority)
+bgp_to_routing_engine(mqueue_block mqb, mqb_rank_b priority)
 {
   mqueue_enqueue(routing_nexus->queue, mqb, priority) ;
-  if (qdebug)
+  if (bgp_engine_debug)
     bgp_queue_logging("Routing Engine", routing_nexus->queue,
                                                  &routing_engine_queue_stats) ;
 } ;

@@ -23,8 +23,6 @@
 #define _ZEBRA_ELSTRING_H
 
 #include "misc.h"
-#include "zassert.h"
-#include "memory.h"
 
 /*==============================================================================
  * This is some very simple support for strings which are Length/Body
@@ -34,8 +32,8 @@
  *     is the simplest possible encapsulation of strings which are NOT '\0'
  *     terminated.
  *
- *
- *
+ * NB: this object knows NOTHING about whether there is a '\0' beyond the
+ *     'len' of the string.
  */
 struct elstring
 {
@@ -46,7 +44,6 @@ struct elstring
   } body ;
 
   ulen  len ;
-  bool  term ;          /* true <=> body is '\0' terminated     */
 } ;
 
 typedef struct elstring  elstring_t[1] ;
@@ -60,15 +57,48 @@ enum
   ELSTRING_INIT_ALL_ZEROS = true
 } ;
 
-/*------------------------------------------------------------------------------
- * Various forms of body -- NB:
+/*==============================================================================
+ * Pointer pair and unsigned pointer pair and const versions.
+ */
+struct pp
+{
+  char*   p ;
+  char*   e ;
+} ;
+typedef struct pp  pp_t[1] ;
+typedef struct pp* pp ;
+
+struct cpp
+{
+  const char*   p ;
+  const char*   e ;
+} ;
+typedef struct cpp  cpp_t[1] ;
+typedef struct cpp* cpp ;
+
+/*==============================================================================
+ * NULLs for all types of pp and for els
+ */
+Inline void pp_null(pp p)   { p->p = p->e = NULL ; } ;
+Inline void cpp_null(cpp p) { p->p = p->e = NULL ; } ;
+
+Inline void els_null(elstring els) { els->body.v = NULL ; els->len = 0 ; } ;
+
+/*==============================================================================
+ * Access functions.
  */
 
-Inline void*
-els_body_nn(elstring els)
-{
-  return els->body.v ;
-} ;
+Inline void* els_body(elstring els) ;
+Inline void* els_body_nn(elstring els) ;
+Inline ulen els_len(elstring els) ;
+Inline ulen els_len_nn(elstring els) ;
+Inline void* els_end(elstring els) ;
+Inline void* els_end_nn(elstring els) ;
+
+Inline void els_pp(pp p, elstring els) ;
+Inline void els_pp_nn(pp p, elstring els) ;
+Inline void els_cpp(cpp p, elstring els) ;
+Inline void els_cpp_nn(cpp p, elstring els) ;
 
 Inline void*
 els_body(elstring els)
@@ -76,10 +106,10 @@ els_body(elstring els)
   return (els != NULL) ? els_body_nn(els)  : NULL ;
 } ;
 
-Inline ulen
-els_len_nn(elstring els)
+Inline void*
+els_body_nn(elstring els)
 {
-  return els->len ;
+  return els->body.v ;
 } ;
 
 Inline ulen
@@ -88,37 +118,69 @@ els_len(elstring els)
   return (els != NULL) ? els_len_nn(els) : 0 ;
 } ;
 
-Inline bool
-els_term_nn(elstring els)
+Inline ulen
+els_len_nn(elstring els)
 {
-  return els->term ;
+  return els->len ;
 } ;
 
-Inline bool
-els_term(elstring els)
+Inline void*
+els_end(elstring els)
 {
-  return (els != NULL) ? els_term_nn(els) : false ;
+  return (els != NULL) ? els_end_nn(els) : NULL ;
+} ;
+
+Inline void*
+els_end_nn(elstring els)
+{
+  return (void*)((char*)els->body.v + els->len);
+} ;
+
+Inline void
+els_pp(pp p, elstring els)
+{
+  if (els != NULL)
+    els_pp_nn(p, els) ;
+  else
+    pp_null(p) ;
+} ;
+
+Inline void
+els_pp_nn(pp p, elstring els)
+{
+  p->p = els->body.v ;
+  p->e = p->p + els->len ;
+} ;
+
+Inline void
+els_cpp(cpp p, elstring els)
+{
+  if (els != NULL)
+    els_cpp_nn(p, els) ;
+  else
+    cpp_null(p) ;
+} ;
+
+Inline void
+els_cpp_nn(cpp p, elstring els)
+{
+  p->p = els->body.cv ;
+  p->e = p->p + els->len ;
 } ;
 
 /*==============================================================================
- * All so simple that everything is implemented as Inline
+ * All so simple that most is implemented as Inline
  */
 
-/*------------------------------------------------------------------------------
- * Initialise or create a new elstring
- */
-Inline elstring
-els_init_new(elstring els)
-{
-  if (els == NULL)
-    els = XCALLOC(MTYPE_TMP, sizeof(elstring_t)) ;
-  else
-    memset(els, 0, sizeof(elstring_t)) ;
+extern elstring els_init_new(elstring els) ;
+extern elstring els_new(void) ;
+extern elstring els_free(elstring els) ;
 
-  confirm(ELSTRING_INIT_ALL_ZEROS) ;
-
-  return els ;
-} ;
+extern int els_cmp(elstring a, elstring b) ;
+extern int els_cmp_word(elstring a, const char* w) ;
+extern int els_cmp_sig(elstring a, elstring b) ;
+extern bool els_equal(elstring a, elstring b) ;
+extern bool els_substring(elstring a, elstring b) ;
 
 /*------------------------------------------------------------------------------
  * Set elstring value from ordinary string.
@@ -134,7 +196,6 @@ els_set_nn(elstring els, const void* str)
 {
   els->body.cv = str ;
   els->len     = (str != NULL) ? strlen(str) : 0 ;
-  els->term    = (str != NULL) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -148,7 +209,7 @@ Inline elstring
 els_set(elstring els, const void* str)
 {
   if (els == NULL)
-    els = XCALLOC(MTYPE_TMP, sizeof(elstring_t)) ;
+    els = els_new() ;
 
   els_set_nn(els, str) ;
 
@@ -169,7 +230,6 @@ els_set_n_nn(elstring els, const void* body, ulen len)
 {
   els->body.cv = body ;
   els->len     = len ;
-  els->term    = false ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -183,7 +243,7 @@ Inline elstring
 els_set_n(elstring els, const void* body, ulen len)
 {
   if (els == NULL)
-    els = XCALLOC(MTYPE_TMP, sizeof(elstring_t)) ;
+    els = els_new() ;
 
   els_set_n_nn(els, body, len) ;
 
@@ -203,31 +263,13 @@ els_clear(elstring els)
     {
       els->body.v  = NULL ;
       els->len     = 0 ;
-      els->term    = false ;
     } ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Release dynamically allocated elstring.
+ * Set elstring 'len'.
  *
- * Returns NULL.
- *
- * NB: it is the callers responsibility to free the contents of the elstring.
- *     if that is required, before freeing the elstring itself.
- */
-Inline elstring
-els_free(elstring els)
-{
-  if (els != NULL)
-    XFREE(MTYPE_TMP, els) ;
-
-  return NULL ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Set elstring length.  And set term false.
- *
- * NB: it is the caller's responsibility to set a valid length !!
+ * NB: it is the caller's responsibility to set a valid body !!
  *
  * NB: elstring MUST NOT be NULL.
  */
@@ -235,13 +277,14 @@ Inline void
 els_set_len_nn(elstring els, ulen len)
 {
   els->len     = len ;
-  els->term    = false ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Set elstring body.  And set term false.
+ * Set elstring body.
  *
  * NB: it is the caller's responsibility to set a valid body !!
+ *
+ * NB: it is the caller's responsibility to set a valid 'len'.
  *
  * NB: elstring MUST NOT be NULL.
  */
@@ -249,106 +292,6 @@ Inline void
 els_set_body_nn(elstring els, const void* body)
 {
   els->body.cv  = body ;
-  els->term     = false ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Set elstring terminated.
- *
- * NB: it is the caller's responsibility to set a valid body !!
- *
- * NB: elstring MUST NOT be NULL.
- */
-Inline void
-els_set_term_nn(elstring els, bool term)
-{
-  els->term     = term ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Compare two elstrings -- returns the usual -ve, 0, +ve cmp result.
- */
-Inline int
-els_cmp(elstring a, elstring b)
-{
-  const uchar* ap ;
-  const uchar* bp ;
-  ulen  al, bl ;
-  ulen  n ;
-
-  ap = els_body(a) ;
-  bp = els_body(b) ;
-  al = els_len(a) ;
-  bl = els_len(b) ;
-
-  n = (al <= bl) ? al : bl ;
-
-  while (n)
-    {
-      int d = *ap++ - *bp++ ;
-      if (d != 0)
-        return d ;
-      --n ;
-    } ;
-
-  return al < bl ? -1 : (al == bl) ? 0 : +1 ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Are two elstrings equal ?  -- returns true if strings equal.
- */
-Inline bool
-els_equal(elstring a, elstring b)
-{
-  const uchar* ap ;
-  const uchar* bp ;
-  ulen  n ;
-
-  n = els_len(b) ;
-  if (n != els_len(a))
-    return false ;
-
-  ap = els_body(a) ;
-  bp = els_body(b) ;
-
-  while (n)
-    {
-      if (*ap++ != *bp++)
-        return false ;
-      --n ;
-    } ;
-
-  return true ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Is 'b' a leading substring of 'a' ?  -- returns true if it is.
- *
- * If 'b' is empty it is always a leading substring.
- */
-Inline int
-els_substring(elstring a, elstring b)
-{
-  const uchar* ap ;
-  const uchar* bp ;
-  ulen  n ;
-
-  n = els_len(b) ;
-  if (n > els_len(a))
-    return false ;
-
-  ap = els_body(a) ;
-  bp = els_body(b) ;
-
-  while (n)
-    {
-      if (*ap++ != *bp++)
-        return false ;
-      --n ;
-    } ;
-
-  return true ;
 } ;
 
 #endif /* _ZEBRA_ELSTRING_H */
-

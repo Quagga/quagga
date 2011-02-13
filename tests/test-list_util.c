@@ -1,4 +1,5 @@
 #include <zebra.h>
+#include "misc.h"
 #include <list_util.h>
 #include <string.h>
 
@@ -253,12 +254,12 @@ test_ssl(void)
   this = base ;
   first = base->next ;
   ret = ssl_del(base, this, next) ;
-  test_assert(ret == 0, "ssl_del did not return 0") ;
+  test_assert(ret == true, "ssl_del did not return true") ;
   test_assert(first == base, "ssl_del of first item failed") ;
 
   this = other->base ;
   ret = ssl_del(other->base, this, other_next) ;
-  test_assert(ret == 0, "ssl_del did not return 0") ;
+  test_assert(ret == true, "ssl_del did not return true") ;
   test_assert(first == other->base, "ssl_del of first item failed") ;
 
   printf("\n") ;
@@ -271,9 +272,9 @@ test_ssl(void)
    */
   printf("  Deleting arbitrary items") ;
   ret = ssl_del(base, del, next) ;
-  test_assert(ret == 0, "ssl_del did not return 0") ;
+  test_assert(ret == true, "ssl_del did not return true") ;
   ret = ssl_del(ssl_parent.base, other_del, other_next) ;
-  test_assert(ret == 0, "ssl_del did not return 0") ;
+  test_assert(ret == true, "ssl_del did not return true") ;
   printf("\n") ;
 
   /* Deletion of items from arbitrary place in list
@@ -282,9 +283,9 @@ test_ssl(void)
    */
   printf("  Deleting non-existant items") ;
   ret = ssl_del(base, &dummy, next) ;
-  test_assert(ret == -1, "ssl_del did not return -1") ;
+  test_assert(ret == false, "ssl_del did not return false") ;
   ret = ssl_del(other->base, &dummy, other_next) ;
-  test_assert(ret == -1, "ssl_del did not return -1") ;
+  test_assert(ret == false, "ssl_del did not return false") ;
   printf("\n") ;
 
   /* Deletion of NULL items
@@ -296,10 +297,10 @@ test_ssl(void)
   this = NULL ;
 
   ret = ssl_del(base, this, next) ;
-  test_assert(ret == 0, "ssl_del did not return 0") ;
+  test_assert(ret == false, "ssl_del did not return false") ;
 
   ret = ssl_del(ssl_parent.base, this, other_next) ;
-  test_assert(ret == 0, "ssl_del did not return 0") ;
+  test_assert(ret == false, "ssl_del did not return false") ;
 
   printf("\n") ;
 
@@ -567,21 +568,21 @@ test_ssl(void)
   test_assert(other->base == NULL, "ssl_del of first and only item failed") ;
 
   ret = ssl_del(base, del, next) ;
-  test_assert(ret == -1, "ssl_del did not return -1") ;
+  test_assert(ret == false, "ssl_del did not return false") ;
   test_assert(base == NULL, "ssl_del on empty list") ;
 
   ret = ssl_del(other->base, other_del, other_next) ;
-  test_assert(ret == -1, "ssl_del did not return -1") ;
+  test_assert(ret == false, "ssl_del did not return false") ;
   test_assert(other->base == NULL, "ssl_del on empty list") ;
 
   this = NULL ;
 
   ret = ssl_del(base, this, next) ;
-  test_assert(ret == 0, "ssl_del did not return 0") ;
+  test_assert(ret == false, "ssl_del did not return false") ;
   test_assert(base == NULL, "ssl_del on empty list") ;
 
   ret = ssl_del(other->base, this, other_next) ;
-  test_assert(ret == 0, "ssl_del did not return 0") ;
+  test_assert(ret == false, "ssl_del did not return false") ;
   test_assert(other->base == NULL, "ssl_del on empty list") ;
 
   printf("\n") ;

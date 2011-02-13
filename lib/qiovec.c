@@ -18,14 +18,28 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
+#include "zconfig.h"            /* Otherwise IOV_MAX is not defined !   */
 
-#include "zebra.h"
+#include <errno.h>
+#include "misc.h"
 
 #include "memory.h"
-#include "zassert.h"
 #include "miyagi.h"
 
 #include "qiovec.h"
+
+/*==============================================================================
+ * IOV_MAX is defined by POSIX to appear in <limits.h>.
+ *
+ * This does not appear unless "zconfig.h" is included, first...
+ * ...but although it compiles OK, Eclipse cannot see where the value has
+ * come from.
+ */
+#ifdef IOV_MAX                  /* Stops Eclipse whinging       */
+#if IOV_MAX < 64                /* check for a reasonable value */
+#error IOV_MAX < 64
+#endif
+#endif
 
 /*==============================================================================
  * Initialise, allocate and reset qiovec

@@ -25,168 +25,39 @@
 
 #include "misc.h"
 
-#include "node_type.h"
+#include "command_common.h"
+#include "vty.h"
+
 #include "vector.h"
 #include "qstring.h"
 
-struct vty ;                            /* in case command.h expanded first */
-
-/* Host configuration variable */
-struct host
-{
-  /* Host name of this router. */
-  char *name;
-
-  /* Password for vty interface. */
-  char *password;
-  char *password_encrypt;
-
-  /* Enable password */
-  char *enable;
-  char *enable_encrypt;
-
-  /* System wide terminal lines. */
-  int lines;
-
-  /* Log filename. */
-  char *logfile;
-
-  /* config file name of this host */
-  char *config;
-
-  /* Flags for services */
-  int advanced;
-  int encrypt;
-
-  /* Banner configuration. */
-  const char *motd;
-  char *motdfile;
-};
-
-/* Node which has some commands and prompt string and configuration
-   function pointer . */
-struct cmd_node
-{
-  /* Node index. */
-  enum node_type node;
-
-  /* Prompt character at vty interface. */
-  const char *prompt;
-
-  /* Is this node's configuration goes to vtysh ? */
-  int vtysh;
-
-  /* Node's configuration write function */
-  int (*func) (struct vty *);
-
-  /* Vector of this node's command list. */
-  vector cmd_vector;
-};
-
-enum
-{
-  CMD_ATTR_SIMPLE     = 0x00,
-  /* bit significant */
-  CMD_ATTR_DEPRECATED = 0x01,
-  CMD_ATTR_HIDDEN     = 0x02,
-  CMD_ATTR_CALL       = 0x04,
-};
-
-/* Return values for command handling.
- *
- * NB: when a command is executed it may return CMD_SUCCESS or CMD_WARNING.
- *
- *     In both cases any output required (including any warning or error
- *     messages) must already have been output.
- *
- *     All other return codes are for use within the command handler.
+/*==============================================================================
+ * This contains everything required for command handling from outside the
+ * library.
  */
-enum cmd_return_code
-{
-  CMD_SUCCESS              =  0,
-  CMD_WARNING              =  1,
-  CMD_ERROR,
-
-  CMD_EMPTY,
-  CMD_SUCCESS_DAEMON,
-
-  CMD_WAIT_INPUT,
-  CMD_CLOSE,
-  CMD_QUEUED,
-
-  CMD_ERR_NO_MATCH,
-  CMD_ERR_AMBIGUOUS,
-  CMD_ERR_INCOMPLETE,
-
-  CMD_COMPLETE_FULL_MATCH,
-  CMD_COMPLETE_MATCH,
-  CMD_COMPLETE_LIST_MATCH,
-  CMD_COMPLETE_ALREADY
-} ;
-
-typedef enum cmd_return_code cmd_return_code_t ;
-
-#define MSG_CMD_ERR_AMBIGUOUS      "Ambiguous command"
-#define MSG_CMD_ERR_NO_MATCH       "Unrecognised command"
-#define MSG_CMD_ERR_NO_MATCH_old   "There is no matched command"
-
-/* Structure of command element.        */
-
-struct cmd_element ;
-typedef struct cmd_element* cmd_element ;
-
-typedef const char* const argv_t[] ;
-
-#define DEFUN_CMD_ARG_UNUSED __attribute__ ((unused))
-#define DEFUN_CMD_FUNCTION(name) \
-  enum cmd_return_code name (cmd_element self   DEFUN_CMD_ARG_UNUSED, \
-	                     struct vty* vty    DEFUN_CMD_ARG_UNUSED, \
-	                     int argc           DEFUN_CMD_ARG_UNUSED, \
-	                     argv_t argv        DEFUN_CMD_ARG_UNUSED)
-
-typedef DEFUN_CMD_FUNCTION((cmd_function)) ;
-
-struct cmd_element
-{
-  const char*    string ;       /* Command specification by string.     */
-  cmd_function*  func ;
-  const char*    doc ;          /* Documentation of this command.       */
-  int            daemon ;       /* Daemon to which this command belong. */
-  vector         strvec ;       /* Vector of vectors of struct desc     */
-  unsigned int   cmdsize ;      /* Command index count.                 */
-  char*          config ;       /* Configuration string                 */
-  vector         subconfig ;    /* Sub configuration string             */
-  u_char         attr ;         /* Command attributes                   */
-};
-
-/* Command description structure.                                       */
-struct desc
-{
-  char* cmd;                    /* Command string.                      */
-  char* str;                    /* Command's description.               */
-};
-
 /*------------------------------------------------------------------------------
- * Can now include these
+ * Turn off these macros when using cpp with extract.pl
  */
-
-#include "vty.h"
-#include "uty.h"
-
-/*----------------------------------------------------------------------------*/
-/* Turn off these macros when uisng cpp with extract.pl */
 #ifndef VTYSH_EXTRACT_PL
 
-/* helper defines for end-user DEFUN* macros */
-#define DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, attrs, dnum) \
-  struct cmd_element cmdname = \
+/* helper defines for end-user DEFUN* macros                            */
+#define DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, attrs, dnum) \
+  struct cmd_command cmdname = \
   { \
-    .string = cmdstr, \
-    .func = funcname, \
-    .doc = helpstr, \
-    .attr = attrs, \
-    .daemon = dnum, \
-  };
+    .string = cmdstr,   \
+    .func   = funcname, \
+    .doc    = helpstr,  \
+    .attr   = attrs,    \
+    .daemon = dnum,     \
+    \
+    .items    = NULL,   \
+    .nt_min   = 0,      \
+    .nt       = 0,      \
+    .nt_max   = 0,      \
+    .vararg   = NULL,   \
+    .r_string = NULL,   \
+    .r_doc    = NULL,   \
+  } ;
 
 #define DEFUN_CMD_FUNC_DECL(funcname) \
   static cmd_function funcname;
@@ -194,50 +65,52 @@ struct desc
 #define DEFUN_CMD_FUNC_TEXT(funcname) \
   static DEFUN_CMD_FUNCTION(funcname)
 
-/* DEFUN for vty command interafce. Little bit hacky ;-). */
+/* DEFUN for vty command interface. Little bit hacky ;-).               */
 #define DEFUN(funcname, cmdname, cmdstr, helpstr) \
   DEFUN_CMD_FUNC_DECL(funcname) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, 0, 0) \
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, 0, 0) \
   DEFUN_CMD_FUNC_TEXT(funcname)
 
 #define DEFUN_ATTR(funcname, cmdname, cmdstr, helpstr, attr) \
   DEFUN_CMD_FUNC_DECL(funcname) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, attr, 0) \
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, attr, 0) \
   DEFUN_CMD_FUNC_TEXT(funcname)
+
+#define DEFUN_CALL(funcname, cmdname, cmdstr, helpstr) \
+  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DIRECT)
 
 #define DEFUN_HIDDEN(funcname, cmdname, cmdstr, helpstr) \
   DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_HIDDEN)
 
 #define DEFUN_HID_CALL(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, (CMD_ATTR_CALL | CMD_ATTR_HIDDEN))
+  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, \
+                                            (CMD_ATTR_DIRECT | CMD_ATTR_HIDDEN))
 
 #define DEFUN_DEPRECATED(funcname, cmdname, cmdstr, helpstr) \
   DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED)
 
 #define DEFUN_DEP_CALL(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, (CMD_ATTR_CALL | CMD_ATTR_DEPRECATED))
+  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, \
+                                        (CMD_ATTR_DIRECT | CMD_ATTR_DEPRECATED))
 
-#define DEFUN_CALL(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_CALL)
-
-/* DEFUN_NOSH for commands that vtysh should ignore */
+/* DEFUN_NOSH for commands that vtysh should ignore                     */
 #define DEFUN_NOSH(funcname, cmdname, cmdstr, helpstr) \
   DEFUN(funcname, cmdname, cmdstr, helpstr)
 
-/* DEFSH for vtysh. */
+/* DEFSH for vtysh.                                                     */
 #define DEFSH(daemon, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_ELEMENT(NULL, cmdname, cmdstr, helpstr, 0, daemon)
+  DEFUN_CMD_COMMAND(NULL, cmdname, cmdstr, helpstr, 0, daemon)
 
-/* DEFUN + DEFSH */
+/* DEFUN + DEFSH                                                        */
 #define DEFUNSH(daemon, funcname, cmdname, cmdstr, helpstr) \
   DEFUN_CMD_FUNC_DECL(funcname) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, 0, daemon) \
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, 0, daemon) \
   DEFUN_CMD_FUNC_TEXT(funcname)
 
-/* DEFUN + DEFSH with attributes */
+/* DEFUN + DEFSH with attributes                                        */
 #define DEFUNSH_ATTR(daemon, funcname, cmdname, cmdstr, helpstr, attr) \
   DEFUN_CMD_FUNC_DECL(funcname) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, attr, daemon) \
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, attr, daemon) \
   DEFUN_CMD_FUNC_TEXT(funcname)
 
 #define DEFUNSH_HIDDEN(daemon, funcname, cmdname, cmdstr, helpstr) \
@@ -246,43 +119,33 @@ struct desc
 #define DEFUNSH_DEPRECATED(daemon, funcname, cmdname, cmdstr, helpstr) \
   DEFUNSH_ATTR (daemon, funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED)
 
-/* ALIAS macro which define existing command's alias. */
+/* ALIAS macro which define existing command's alias.                   */
 #define ALIAS(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, 0, 0)
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, 0, 0)
 
 #define ALIAS_ATTR(funcname, cmdname, cmdstr, helpstr, attr) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, attr, 0)
-
-#define ALIAS_HIDDEN(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_HIDDEN, 0)
-
-#define ALIAS_DEPRECATED(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED, 0)
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, attr, 0)
 
 #define ALIAS_CALL(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_CALL, 0)
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DIRECT, 0)
+
+#define ALIAS_HIDDEN(funcname, cmdname, cmdstr, helpstr) \
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_HIDDEN, 0)
+
+#define ALIAS_DEPRECATED(funcname, cmdname, cmdstr, helpstr) \
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED, 0)
 
 #define ALIAS_SH(daemon, funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, 0, daemon)
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, 0, daemon)
 
 #define ALIAS_SH_HIDDEN(daemon, funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_HIDDEN, daemon)
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_HIDDEN, daemon)
 
 #define ALIAS_SH_DEPRECATED(daemon, funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_ELEMENT(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED, daemon)
+  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED,\
+                                                                         daemon)
 
 #endif /* VTYSH_EXTRACT_PL */
-
-/* Some macroes */
-#define CMD_OPTION(S)   ((S[0]) == '[')
-#define CMD_VARIABLE(S) (((S[0]) >= 'A' && (S[0]) <= 'Z') || ((S[0]) == '<'))
-#define CMD_VARARG(S)   ((S[0]) == '.')
-#define CMD_RANGE(S)	((S[0] == '<'))
-
-#define CMD_IPV4(S)	   ((strcmp ((S), "A.B.C.D")    == 0))
-#define CMD_IPV4_PREFIX(S) ((strcmp ((S), "A.B.C.D/M")  == 0))
-#define CMD_IPV6(S)        ((strcmp ((S), "X:X::X:X")   == 0))
-#define CMD_IPV6_PREFIX(S) ((strcmp ((S), "X:X::X:X/M") == 0))
 
 /* Common descriptions. */
 #define SHOW_STR "Show running system information\n"
@@ -347,17 +210,29 @@ extern void cmd_terminate (void);
 extern void print_version (const char *);
 
 extern void install_node (struct cmd_node *, int (*) (struct vty *));
-extern void install_default (enum node_type);
-extern void install_element (enum node_type, struct cmd_element *);
+extern void install_default (node_type_t);
+extern void install_element (node_type_t, struct cmd_command *);
 extern void sort_node (void);
+
+extern const char* cmd_host_name(bool fresh) ;
+
+extern node_type_t cmd_node_parent(node_type_t node) ;
+extern node_type_t cmd_node_exit_to(node_type_t node) ;
+extern node_type_t cmd_node_end_to(node_type_t node) ;
 
 /* Concatenates argv[shift] through argv[argc-1] into a single NUL-terminated
    string with a space between each element (allocated using
    XMALLOC(MTYPE_TMP)).  Returns NULL if shift >= argc. */
 extern char *argv_concat (const char* const* argv, int argc, int shift);
 
-/* struct host global, ick */
-extern struct host host;
+/* Export typical functions. */
+extern struct cmd_command config_end_cmd;
+extern struct cmd_command config_exit_cmd;
+extern struct cmd_command config_quit_cmd;
+extern struct cmd_command config_help_cmd;
+extern struct cmd_command config_list_cmd;
+extern char *host_config_file (void);
+extern void host_config_set (const char *);
 
 #ifdef QDEBUG
 extern const char *debug_banner ;

@@ -43,6 +43,7 @@
 
 #define VTYSH_DEBUG 0
 
+#if 0
 
 /*------------------------------------------------------------------------------
  * Create new vty of type VTY_SHELL_SERV -- ie attached to a vtysh session.
@@ -62,7 +63,7 @@ uty_new_shell_serv(int sock_fd)
   vio = vty->vio ;
 
   /* Set the action functions                                           */
-  if (vty_cli_nexus)
+  if (vty_nexus)
     {
       vio->sock.action.read.qnexus  = vtysh_read_qnexus ;
       vio->sock.action.write.qnexus = vty_write_qnexus ;
@@ -364,3 +365,5 @@ utysh_read (vty_io vio, qstring cl, qstring buf)
         } ;
     } ;
 } ;
+
+#endif

@@ -173,9 +173,10 @@ bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
 
 	  if (rn->prn)
 	    prd = (struct prefix_rd *) &rn->prn->p;
-          if (binfo && binfo->extra)
+          if (binfo)
             {
-              tag = binfo->extra->tag;
+              if (binfo->extra)
+                tag = binfo->extra->tag;
               from = binfo->peer;
             }
 

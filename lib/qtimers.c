@@ -27,14 +27,6 @@
 #include "memory.h"
 #include "heap.h"
 
-enum { qdebug =
-#ifdef QDEBUG
-  1
-#else
-  0
-#endif
-};
-
 /*==============================================================================
  * Quagga Timers -- qtimer_xxxx
  *
@@ -170,7 +162,7 @@ qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto)
 {
   qtimer   qtr ;
 
-  if (qdebug)
+  if (qtimers_debug)
     qtimer_pile_verify(qtp) ;
 
   qtr = heap_top_item(&qtp->timers) ;
@@ -343,7 +335,7 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
   qtp = qtr->pile ;
   assert(qtp != NULL) ;
 
-  if (qdebug)
+  if (qtimers_debug)
     qtimer_pile_verify(qtp) ;
 
   qtr->time = when ;
@@ -371,7 +363,7 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
   else
     assert(qtr->action != NULL) ;
 
-  if (qdebug)
+  if (qtimers_debug)
     qtimer_pile_verify(qtp) ;
 } ;
 
@@ -387,7 +379,7 @@ qtimer_unset(qtimer qtr)
 
   assert(qtp != NULL) ;
 
-  if (qdebug)
+  if (qtimers_debug)
     qtimer_pile_verify(qtp) ;
 
   if (qtr->active)
@@ -397,7 +389,7 @@ qtimer_unset(qtimer qtr)
 
       heap_delete_item(&qtp->timers, qtr) ;
 
-      if (qdebug)
+      if (qtimers_debug)
         qtimer_pile_verify(qtp) ;
 
       qtr->active = false ;

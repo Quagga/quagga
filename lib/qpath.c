@@ -68,7 +68,7 @@ qpath_init_new(qpath qp, const char* path)
 
   /* Worry about fields other than the path             */
 
-  qs_init_new(&qp->path, 0) ;
+  qs_init_new(qp->path, 0) ;
 
   if (path != NULL)
     qpath_set(qp, path) ;
@@ -119,7 +119,7 @@ qpath_set(qpath qp, const char* path)
       if (path != NULL)
         qs_set(&qp->path, path) ;
       else
-        qs_clear(&qp->path) ;
+        qs_clear(qp->path) ;
       /* Worry about fields other than the path             */
     } ;
 
@@ -521,7 +521,7 @@ qpath_push_str(qpath qp, const char* path)
     len = 0 ;
 
   /* Worry about whether need to add a '/' to the path before pushing   */
-  sp  = qs_chars(qs) ;
+  sp  = qs_char(qs) ;
   ep  = qs_ep_char(qs) ;        /* points at trailing '\0'              */
 
   if (sp == NULL)

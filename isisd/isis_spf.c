@@ -3,21 +3,21 @@
  *                                              The SPT algorithm
  *
  * Copyright (C) 2001,2002   Sampo Saaristo
- *                           Tampere University of Technology      
+ *                           Tampere University of Technology
  *                           Institute of Communications Engineering
  *
- * This program is free software; you can redistribute it and/or modify it 
- * under the terms of the GNU General Public Licenseas published by the Free 
- * Software Foundation; either version 2 of the License, or (at your option) 
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public Licenseas published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
  * any later version.
  *
- * This program is distributed in the hope that it will be useful,but WITHOUT 
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or 
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for 
+ * This program is distributed in the hope that it will be useful,but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
 
- * You should have received a copy of the GNU General Public License along 
- * with this program; if not, write to the Free Software Foundation, Inc., 
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
@@ -64,7 +64,7 @@ remove_excess_adjs (struct list *adjs)
   struct isis_adjacency *adj, *candidate = NULL;
   int comp;
 
-  for (ALL_LIST_ELEMENTS_RO (adjs, node, adj)) 
+  for (ALL_LIST_ELEMENTS_RO (adjs, node, adj))
     {
       if (excess == NULL)
 	excess = node;
@@ -229,7 +229,7 @@ isis_spftree_del (struct isis_spftree *spftree)
 
   return;
 }
-#endif 
+#endif
 
 void
 spftree_area_init (struct isis_area *area)
@@ -241,7 +241,7 @@ spftree_area_init (struct isis_area *area)
       area->spftree6[0] = isis_spftree_new ();
 #endif
 
-      /*    thread_add_timer (master, isis_run_spf_l1, area, 
+      /*    thread_add_timer (master, isis_run_spf_l1, area,
          isis_jitter (PERIODIC_SPF_INTERVAL, 10)); */
     }
 
@@ -251,7 +251,7 @@ spftree_area_init (struct isis_area *area)
 #ifdef HAVE_IPV6
       area->spftree6[1] = isis_spftree_new ();
 #endif
-      /*    thread_add_timer (master, isis_run_spf_l2, area, 
+      /*    thread_add_timer (master, isis_run_spf_l2, area,
          isis_jitter (PERIODIC_SPF_INTERVAL, 10)); */
     }
 
@@ -416,7 +416,7 @@ isis_spf_add2tent (struct isis_spftree *spftree, enum vertextype vtype,
       listnode_add (spftree->tents, vertex);
       return vertex;
     }
-  
+
   /* XXX: This cant use the standard ALL_LIST_ELEMENT macro */
   for (node = listhead (spftree->tents); node; node = listnextnode (node))
     {
@@ -613,7 +613,7 @@ lspfragloop:
       if (family == AF_INET && lsp->tlv_data.ipv4_int_reachs)
 	{
 	  prefix.family = AF_INET;
-          for (ALL_LIST_ELEMENTS_RO (lsp->tlv_data.ipv4_int_reachs, 
+          for (ALL_LIST_ELEMENTS_RO (lsp->tlv_data.ipv4_int_reachs,
                                      node, ipreach))
 	    {
 	      dist = cost + ipreach->metrics.metric_default;
@@ -658,7 +658,7 @@ lspfragloop:
       if (family == AF_INET6 && lsp->tlv_data.ipv6_reachs)
 	{
 	  prefix.family = AF_INET6;
-          for (ALL_LIST_ELEMENTS_RO (lsp->tlv_data.ipv6_reachs, 
+          for (ALL_LIST_ELEMENTS_RO (lsp->tlv_data.ipv6_reachs,
                                      node, ip6reach))
 	    {
 	      dist = cost + ip6reach->metric;
@@ -789,7 +789,7 @@ isis_spf_preload_tent (struct isis_spftree *spftree,
       if (family == AF_INET6 && !circuit->ipv6_router)
 	continue;
 #endif /* HAVE_IPV6 */
-      /* 
+      /*
        * Add IP(v6) addresses of this circuit
        */
       if (family == AF_INET)
@@ -872,7 +872,7 @@ isis_spf_preload_tent (struct isis_spftree *spftree,
 	    }
 	  list_delete (adj_list);
 	  /*
-	   * Add the pseudonode 
+	   * Add the pseudonode
 	   */
 	  if (level == 1)
 	    memcpy (lsp_id, circuit->u.bc.l1_desig_is, ISIS_SYS_ID_LEN + 1);
@@ -1272,7 +1272,7 @@ isis_spf_schedule6 (struct isis_area *area, int level)
       spftree->pending = 1;
       return retval;
     }
-  
+
   THREAD_TIMER_OFF (spftree->t_spf);
 
   if (diff < MINIMUM_SPF_INTERVAL)
@@ -1323,7 +1323,7 @@ isis_print_paths (struct vty *vty, struct list *paths)
 	continue;
       if (memcmp (vertex->N.id, isis->sysid, ISIS_SYS_ID_LEN) == 0)
 	{
-	  vty_out (vty, "%s             --%s", host.name?host.name:"",
+	  vty_out (vty, "%s             --%s", cmd_host_name(true),
 		   VTY_NEWLINE);
 	}
       else

@@ -161,7 +161,7 @@ extern void work_queue_unplug (struct work_queue *wq);
 
 /* Helpers, exported for thread.c and command.c */
 extern int work_queue_run (struct thread *);
-extern struct cmd_element show_work_queues_cmd;
+extern struct cmd_command show_work_queues_cmd;
 
 /*==============================================================================
  * The Inline functions

@@ -49,28 +49,28 @@
  *
  *     Note again the cast to (void**).
  *
- * Returns: 0 => OK -- removed item from list (OR item == NULL)
- *         -1 => item not found on list
+ * Returns: true  => removed item from list
+ *          false => item not found on list (or item == NULL)
  */
-extern int
+extern bool
 ssl_del_func(void* p_this, void* item, size_t link_offset)
 {
   void* this ;
 
   if (item == NULL)
-    return 0 ;
+    return false ;
 
   while ((this = *(void**)p_this) != item)
     {
       if (this == NULL)
-        return -1 ;
+        return false ;
 
       p_this = _sl_p_next(this, link_offset) ;
     } ;
 
   *(void**)p_this = _sl_next(item, link_offset) ;
 
-  return 0 ;
+  return true ;
 } ;
 
 /*==============================================================================

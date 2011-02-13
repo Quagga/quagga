@@ -133,10 +133,10 @@ struct dl_void_base_pair base_pair(void*) ;
  *
  *   ssl_del(base, item, next)      -- delete from list
  *
- *     Treat as function returning int.  Does nothing if the item is NULL.
+ *     Treat as function returning bool.  Does nothing if the item is NULL.
  *
- *     Returns: 0 => OK -- removed item from list (OR item == NULL)
- *             -1 => item not found on list
+ *     Returns: true  => removed item from list
+ *              false => item not found on list (or item was NULL)
  *
  *   ssl_del_head(base, next)       -- delete head of list
  *
@@ -237,7 +237,7 @@ struct dl_void_base_pair base_pair(void*) ;
        (base) = item ;                                          \
   } while (0)
 
-extern int ssl_del_func(void* p_this, void* obj, size_t link_offset)
+extern bool ssl_del_func(void* p_this, void* obj, size_t link_offset)
                                                     __attribute__((noinline)) ;
 
 #define ssl_del(base, item, next)                               \
@@ -506,7 +506,7 @@ extern int ssl_del_func(void* p_this, void* obj, size_t link_offset)
  *
  *     Treat as function returning void*.
  *
- *     Returns old head in dst and as return from "function".
+ *     Returns old tail in dst and as return from "function".
  *
  *     Returns NULL and sets dst == NULL if list is empty.
  *

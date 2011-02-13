@@ -1,8 +1,6 @@
-/* VTY IO FILE -- File I/O -- header
- * Virtual terminal [aka TeletYpe] interface routine.
- * Copyright (C) 1997, 98 Kunihiro Ishiguro
+/* VTY I/O for Files -- Header
  *
- * Revisions: Copyright (C) 2010 Chris Hall (GMCH), Highwayman
+ * Copyright (C) 2010 Chris Hall (GMCH), Highwayman
  *
  * This file is part of GNU Zebra.
  *
@@ -26,17 +24,8 @@
 #define _ZEBRA_VTY_IO_FILE_H
 
 #include "misc.h"
-#include <errno.h>
 
-#include "uty.h"
-#include "vty.h"
 #include "vty_io.h"
-#include "vio_fifo.h"
-#include "vio_lines.h"
-#include "keystroke.h"
-#include "thread.h"
-#include "command.h"
-#include "qstring.h"
 
 /*==============================================================================
  * Here are structures and other definitions which are shared by:
@@ -50,7 +39,15 @@
  * Functions
  */
 
-extern int uty_vprintf_file(vty_io vio, const char *format, va_list args) ;
+extern cmd_return_code_t uty_file_read_open(vty_io vio, qstring name,
+                                                                 bool reflect) ;
+extern cmd_return_code_t uty_file_write_open(vty_io vio, qstring name,
+                                                                  bool append) ;
 
+extern cmd_return_code_t uty_file_fetch_command_line(vio_vf vf, qstring* line) ;
+extern cmd_return_code_t uty_file_out_push(vio_vf vf) ;
+
+extern void uty_file_read_close(vio_vf vf) ;
+extern bool uty_file_write_close(vio_vf vf, bool final) ;
 
 #endif /* _ZEBRA_VTY_IO_FILE_H */

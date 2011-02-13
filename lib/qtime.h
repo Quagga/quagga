@@ -23,13 +23,10 @@
 #define _ZEBRA_QTIME_H
 
 #include "misc.h"
-#include <stdlib.h>
+
 #include <time.h>
 #include <sys/time.h>
 #include <unistd.h>
-
-#include "zassert.h"
-#include "config.h"
 
 /*==============================================================================
  * qtime_t -- signed 64-bit integer.
@@ -64,17 +61,13 @@ typedef qtime_t qtime_tod_t ;   /* qtime_t value, timeofday time-base...  */
 /* Note that the time to convert may be a float.                */
 #define QTIME(s) ((qtime_t)((s) * (qtime_t)QTIME_SECOND))
 
-Inline qtime_t
-timespec2qtime(struct timespec* p_ts) ;
-
-Inline qtime_t
-timeval2qtime(struct timeval* p_tv) ;
-
-Inline struct timespec*
-qtime2timespec(struct timespec* p_ts, qtime_t qt) ;
-
-Inline struct timeval*
-qtime2timeval(struct timeval* p_tv, qtime_t qt) ;
+/*==============================================================================
+ * Conversion functions
+ */
+Inline qtime_t timespec2qtime(struct timespec* p_ts) ;
+Inline qtime_t timeval2qtime(struct timeval* p_tv) ;
+Inline struct timespec* qtime2timespec(struct timespec* p_ts, qtime_t qt) ;
+Inline struct timeval* qtime2timeval(struct timeval* p_tv, qtime_t qt) ;
 
 /*==============================================================================
  * Clocks.
@@ -93,44 +86,37 @@ qtime2timeval(struct timeval* p_tv, qtime_t qt) ;
  *     a manufactured equivalent using times() -- see qt_craft_monotonic().
  */
 
-Inline qtime_real_t
-qt_get_realtime(void) ;         /* clock_gettime(CLOCK_REALTIME, ...)   */
+Inline qtime_real_t qt_get_realtime(void) ;
+                                /* clock_gettime(CLOCK_REALTIME, ...)   */
+Inline qtime_mono_t qt_add_realtime(qtime_t interval) ;
+                                /* qt_get_realtime() + interval         */
 
-Inline qtime_mono_t
-qt_add_realtime(qtime_t interval) ;   /* qt_get_realtime() + interval   */
-
-Inline qtime_mono_t
-qt_get_monotonic(void) ;        /* clock_gettime(CLOCK_MONOTONIC, ...)  */
+Inline qtime_mono_t qt_get_monotonic(void) ;
+                                /* clock_gettime(CLOCK_MONOTONIC, ...)  */
                                 /* OR equivalent using times()          */
-Inline qtime_mono_t
-qt_add_monotonic(qtime_t interval) ;  /* qt_get_monotonic() + interval  */
-
-Inline qtime_mono_t             /* monotonic time from CLOCK_REALTIME   */
-qt_realtime2monotonic(qtime_real_t realtime) ;
-Inline qtime_real_t             /* CLOCK_REALTIME from monotonic time   */
-qt_monotonic2realtime(qtime_mono_t monotonic) ;
-
-/* Function to manufacture a monotonic clock.   */
-extern qtime_mono_t
-qt_craft_monotonic(void) ;
+Inline qtime_mono_t qt_add_monotonic(qtime_t interval) ;
+                                /* qt_get_monotonic() + interval        */
 
 /* These are provided just in case gettimeofday() != CLOCK_REALTIME     */
-Inline qtime_tod_t
-qt_get_timeofday(void) ;        /* gettimeofday(&tv, NULL)              */
+Inline qtime_tod_t qt_get_timeofday(void) ;
+                                /* gettimeofday(&tv, NULL)              */
+Inline qtime_tod_t qt_add_timeofday(qtime_t interval) ;
+                                /* qt_get_timeofday() + interval        */
 
-Inline qtime_tod_t
-qt_add_timeofday(qtime_t interval) ;  /* qt_get_timeofday() + interval  */
-
-Inline qtime_mono_t             /* monotonic time from timeofday        */
-qt_timeofday2monotonic(qtime_tod_t timeofday) ;
-Inline qtime_tod_t              /* timeofday from monotonic time        */
-qt_monotonic2timeofday(qtime_mono_t monotonic) ;
+/*==============================================================================
+ * Primitive random number generation.
+ *
+ * Uses time and other stuff to produce something which is not particularly
+ * predictable.
+ */
+extern uint32_t qt_random(uint32_t seed) ;
 
 /*==============================================================================
  * Inline conversion functions
  */
 
-/* Convert timespec to qtime_t
+/*------------------------------------------------------------------------------
+ * Convert timespec to qtime_t
  *
  * Returns qtime_t value.
  */
@@ -141,7 +127,8 @@ timespec2qtime(struct timespec* p_ts)
   confirm(QTIME_SECOND == TIMESPEC_SECOND) ;
 } ;
 
-/* Convert timeval to qtime_t
+/*------------------------------------------------------------------------------
+ * Convert timeval to qtime_t
  *
  * Returns qtime_t value.
  */
@@ -152,7 +139,8 @@ timeval2qtime(struct timeval* p_tv)
   confirm(QTIME_SECOND == TIMEVAL_SECOND      * 1000) ;
 } ;
 
-/* Convert qtime_t to timespec
+/*------------------------------------------------------------------------------
+ * Convert qtime_t to timespec
  *
  * Takes address of struct timespec and returns that address.
  */
@@ -169,7 +157,8 @@ qtime2timespec(struct timespec* p_ts, qtime_t qt)
   return p_ts ;
 } ;
 
-/* Convert timespec to qtime_t
+/*------------------------------------------------------------------------------
+ * Convert timespec to qtime_t
  *
  * Takes address of struct timespec and returns that address.
  */
@@ -190,7 +179,11 @@ qtime2timeval(struct timeval* p_tv, qtime_t qt)
  * Inline Clock Functions.
  */
 
-/* Read given clock & return a qtime_t value.
+/* Function to manufacture a monotonic clock.   */
+Private qtime_mono_t qt_craft_monotonic(void) ;
+
+/*------------------------------------------------------------------------------
+ * Read given clock & return a qtime_t value.
  *
  * While possibility of error is essentially theoretical, must treat it as a
  * FATAL error -- cannot continue with broken time value !
@@ -207,7 +200,8 @@ qt_clock_gettime(clockid_t clock_id)
   return timespec2qtime(&ts) ;
 } ;
 
-/* clock_gettime(CLOCK_REALTIME, ...) -- returning qtime_t value
+/*------------------------------------------------------------------------------
+ * clock_gettime(CLOCK_REALTIME, ...) -- returning qtime_t value
  *
  * While possibility of error is essentially theoretical, must treat it as a
  * FATAL error -- cannot continue with broken time value !
@@ -218,7 +212,8 @@ qt_get_realtime(void)
   return qt_clock_gettime(CLOCK_REALTIME) ;
 } ;
 
-/* qt_get_realtime() + interval
+/*------------------------------------------------------------------------------
+ * qt_get_realtime() + interval
  */
 Inline qtime_real_t
 qt_add_realtime(qtime_t interval)
@@ -226,7 +221,8 @@ qt_add_realtime(qtime_t interval)
   return qt_get_realtime() + interval;
 } ;
 
-/* clock_gettime(CLOCK_MONOTONIC, ...) OR qt_craft_monotonic()
+/*------------------------------------------------------------------------------
+ * clock_gettime(CLOCK_MONOTONIC, ...) OR qt_craft_monotonic()
  *                                                   -- returning qtime_t value
  *
  * While possibility of error is essentially theoretical, must treat it as a
@@ -242,7 +238,8 @@ qt_get_monotonic(void)
 #endif
 } ;
 
-/* qt_get_monotonic() + interval
+/*------------------------------------------------------------------------------
+ * qt_get_monotonic() + interval
  */
 Inline qtime_mono_t
 qt_add_monotonic(qtime_t interval)
@@ -250,7 +247,8 @@ qt_add_monotonic(qtime_t interval)
   return qt_get_monotonic() + interval;
 } ;
 
-/* gettimeofday(&tv, NULL) -- returning qtime_t value
+/*------------------------------------------------------------------------------
+ * gettimeofday(&tv, NULL) -- returning qtime_t value
  */
 Inline qtime_tod_t
 qt_get_timeofday(void)
@@ -260,44 +258,13 @@ qt_get_timeofday(void)
   return timeval2qtime(&tv) ;
 }
 
-/* qt_get_timeofday() + interval
+/*------------------------------------------------------------------------------
+ * qt_get_timeofday() + interval
  */
 Inline qtime_tod_t
 qt_add_timeofday(qtime_t interval)
 {
   return qt_get_timeofday() + interval;
-} ;
-
-/*==============================================================================
- * Conversion between realtime/timeofday and monotonic
- */
-
-/* Convert a CLOCK_REALTIME time to our local monotonic time.           */
-Inline qtime_mono_t
-qt_realtime2monotonic(qtime_real_t realtime)
-{
-  return qt_get_monotonic() + (realtime - qt_get_realtime()) ;
-} ;
-
-/* Convert a local monotonic time to CLOCK_REALTIME time.               */
-Inline qtime_real_t
-qt_monotonic2realtime(qtime_mono_t monotonic)
-{
-  return qt_get_realtime() + (monotonic - qt_get_monotonic()) ;
-} ;
-
-/* Convert a gettimeofday() time to our local monotonic time.           */
-Inline qtime_mono_t
-qt_timeofday2monotonic(qtime_tod_t timeofday)
-{
-  return qt_get_monotonic() + (timeofday - qt_get_timeofday()) ;
-} ;
-
-/* Convert a local monotonic time to gettimeofday() time.               */
-Inline qtime_tod_t
-qt_monotonic2timeofday(qtime_mono_t monotonic)
-{
-  return qt_get_timeofday() + (monotonic - qt_get_monotonic()) ;
 } ;
 
 #endif /* _ZEBRA_QTIME_H */

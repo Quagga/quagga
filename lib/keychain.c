@@ -238,7 +238,7 @@ DEFUN (key_chain,
 
   keychain = keychain_get (argv[0]);
   vty->index = keychain;
-  vty_set_node(vty, KEYCHAIN_NODE) ;
+  vty->node  = KEYCHAIN_NODE ;
 
   return CMD_SUCCESS;
 }
@@ -281,7 +281,7 @@ DEFUN (key,
   VTY_GET_INTEGER ("key identifier", index, argv[0]);
   key = key_get (keychain, index);
   vty->index_sub = key;
-  vty_set_node(vty, KEYCHAIN_KEY_NODE) ;
+  vty->node = KEYCHAIN_KEY_NODE ;
 
   return CMD_SUCCESS;
 }
@@ -309,7 +309,7 @@ DEFUN (no_key,
 
   key_delete (keychain, key);
 
-  vty_set_node(vty, KEYCHAIN_NODE) ;
+  vty->node = KEYCHAIN_NODE ;
 
   return CMD_SUCCESS;
 }
@@ -850,16 +850,20 @@ DEFUN (send_lifetime_duration_month_day,
 
 static struct cmd_node keychain_node =
 {
-  KEYCHAIN_NODE,
-  "%s(config-keychain)# ",
-  1
+  .node   = KEYCHAIN_NODE,
+  .prompt ="%s(config-keychain)# ",
+
+  .config_to_vtysh = true
 };
 
 static struct cmd_node keychain_key_node =
 {
-  KEYCHAIN_KEY_NODE,
-  "%s(config-keychain-key)# ",
-  1
+  .node   = KEYCHAIN_KEY_NODE,
+  .prompt = "%s(config-keychain-key)# ",
+
+  .parent = KEYCHAIN_NODE,
+
+  .config_to_vtysh = true
 };
 
 static int

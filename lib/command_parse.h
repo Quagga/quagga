@@ -24,13 +24,15 @@
 #ifndef _ZEBRA_COMMAND_PARSE_H
 #define _ZEBRA_COMMAND_PARSE_H
 
-#include <zebra.h>
+#include "zconfig.h"            /* HAVE_IPV6    */
 #include "misc.h"
 
-#include "node_type.h"
+#include "command_common.h"
 #include "vector.h"
 #include "qstring.h"
+#include "elstring.h"
 
+#if 0
 /*==============================================================================
  * Parsing of tokens
  */
@@ -51,42 +53,397 @@ enum cmd_token_spec
   cmd_ts_ipv6_prefix,
 
   cmd_ts_vararg,
-
-
-
 } ;
 typedef enum cmd_token_spec cmd_token_spec_t ;
+#endif
 
 /*==============================================================================
- * Completion match types.
+ * Sexing of token types in command descriptions
+ */
+#define CMD_OPTION(S)   ((S[0]) == '[')
+#define CMD_VARIABLE(S) (((S[0]) >= 'A' && (S[0]) <= 'Z') || ((S[0]) == '<'))
+#define CMD_VARARG(S)   ((S[0]) == '.')
+#define CMD_RANGE(S)    ((S[0] == '<'))
+
+#define CMD_IPV4(S)        ((strcmp ((S), "A.B.C.D")    == 0))
+#define CMD_IPV4_PREFIX(S) ((strcmp ((S), "A.B.C.D/M")  == 0))
+#define CMD_IPV6(S)        ((strcmp ((S), "X:X::X:X")   == 0))
+#define CMD_IPV6_PREFIX(S) ((strcmp ((S), "X:X::X:X/M") == 0))
+
+/*==============================================================================
+ * Command Items.
  *
- * NB: the order of these is significant -- in particular as confirmed below.
+ * A command is compiled into a vector of lists of command items -- the
+ * cmd_command->items (so called).
+ *
+ */
+
+/* Command item types
+ *
+ * NB: the command items sort according to this -- highest first.
+ *
+ * NB: this is in the same order as the match_type -- and should remain so.
+ *     See match_type below for further discussion of the hierarchy.
+ */
+enum cmd_item_type
+{
+  item_null,
+
+  item_eol,
+
+  item_option_word,
+
+  item_vararg,                  /* rest of the line                     */
+  item_word,
+
+  item_ipv6_prefix,
+  item_ipv6_address,
+  item_ipv4_prefix,
+  item_ipv4_address,
+
+  item_range,
+
+  item_keyword,
+
+  item_type_count,              /* number of types                      */
+} ;
+typedef enum cmd_item_type cmd_item_type_t ;
+
+enum {
+  item_max_number = 0xFFFFFFFF  /* can be +/- this                      */
+} ;
+
+CONFIRM(LONG_MAX >= item_max_number) ;
+
+/*------------------------------------------------------------------------------
+ * Sex cmd_item_type and return whether it is an "option" type, or not.
+ *
+ * NB: tolerates item_null -- others may well not.
+ */
+Inline bool
+cmd_item_is_option(cmd_item_type_t itt)
+{
+  const static bool is_option[item_type_count] =
+      {
+          [item_null]         = false,
+
+          [item_eol]          = false,
+
+          [item_option_word]  = true,
+
+          [item_vararg]       = false,
+          [item_word]         = false,
+
+          [item_ipv6_prefix]  = false,
+          [item_ipv6_address] = false,
+          [item_ipv4_prefix]  = false,
+          [item_ipv4_address] = false,
+
+          [item_range]        = false,
+
+          [item_keyword]      = false,
+      } ;
+
+  assert((itt >= 0) && (itt < item_type_count)) ;
+
+  return is_option[itt] ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Sex cmd_item_type and return whether it is an "vararg" type, or not.
+ *
+ * NB: tolerates item_null -- others may well not.
+ */
+Inline bool
+cmd_item_is_vararg(cmd_item_type_t itt)
+{
+  const static bool is_vararg[item_type_count] =
+      {
+          [item_null]         = false,
+
+          [item_eol]          = false,
+
+          [item_option_word]  = false,
+
+          [item_vararg]       = true,
+          [item_word]         = false,
+
+          [item_ipv6_prefix]  = false,
+          [item_ipv6_address] = false,
+          [item_ipv4_prefix]  = false,
+          [item_ipv4_address] = false,
+
+          [item_range]        = false,
+
+          [item_keyword]      = false,
+      } ;
+
+  assert((itt >= 0) && (itt < item_type_count)) ;
+
+  return is_vararg[itt] ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * The command item structure.
+ */
+typedef struct cmd_item* cmd_item ;
+struct cmd_item
+{
+  const char*  str ;    /* in r_string -- original string form  */
+  const char*  doc ;    /* in r_doc    -- description text      */
+
+  cmd_item     next ;   /* Next possibility (if any)            */
+
+  cmd_item_type_t  type ;
+  bool         arg ;    /* include in argv                      */
+
+  /* For item_range values                                      */
+  bool  range_sign_allowed ;
+  bool  range_sign_required ;
+  long  range_min ;
+  long  range_max ;
+} ;
+
+/*==============================================================================
+ * Match strengths types and filter settings.
+ *
+ * When matching a token, may have a number of competing items, possibly of
+ * different types.
+ *
+ * For execution a token must match completely -- or, for keyword items,
+ * match partially at most one possible keyword.
+ */
+
+/* Match strength
+ *
+ * When matching a token against an item, the following are the possible
+ * results.
+ */
+enum match_strength
+{
+  ms_no_match     = 0,  /* match failed: token is definitely NOT
+                         * the item in question.
+                         */
+
+  ms_min_parse    = ms_no_match + 1,
+                        /* for parsing must match somehow !             */
+
+  ms_partial,           /* match OK up to the end of the token, but
+                         * more is required to complete it.
+                         * This is used by the variable matches.
+                         */
+
+  ms_min_execute  = ms_partial + 1,
+                        /* for execution must be at least this          */
+
+  ms_anything,          /* matches because will match anything.
+                         * This is used for WORD and such like items.
+                         */
+
+  ms_kwd_incomplete,    /* keyword match OK, but not complete.
+                         */
+
+  ms_var_complete,      /* match succeeded: token is a complete and
+                         * valid instance of the item in question
+                         */
+
+  ms_kwd_complete       /* match succeeded: token is a complete and
+                         * valid instance of the item in question
+                         */
+} ;
+typedef enum match_strength match_strength_t ;
+
+
+/* The match type indicates what has been matched and the strength of the
+ * match.
+ *
+ * NB: the order of these is significant, higher numbered match types are
+ *     preferred over lower numbered ones.
+ *
+ * NB: this is in the same order as the cmd_item_type -- and should remain so.
+ *
+ * During the command filtering, when a token and an item match, and the
+ * match type is better than the match type to date, then all previous matches
+ * are discarded.
+ *
+ * The hierarchy means that, for example, '22' will match an IPv4 prefix
+ * partially, but that will be forgotten if it later matches a WORD, and that
+ * will be forgotten if it later matches a number range.
+ *
+ * The IPv6 items have a lower priority so that a simple decimal will prefer
+ * the simpler IPv4 address form.  As soon as there is an 'a'..'f' or a ':',
+ * the IPv4 will no longer match.
+ *
+ * The partial keyword match is preferred over a partial anything else, but
+ * cannot mask a complete value !
+ *
+ * The relative ranking of: mt_option_word_match, mt_vararg_match, and
+ * mt_word_match, is more or less arbitrary -- if these are ever candidates
+ * at the same time, the commands are ambiguous.
+ *
  */
 enum match_type
 {
-  no_match       = 0,   /* nope                                         */
-  any_match      = 1,
+  mt_no_match,
 
-  extend_match   = any_match,
+  mt_eol_partial,               /* a partial match !                    */
 
-  ipv4_prefix_match,
-  ipv4_match,
-  ipv6_prefix_match,
-  ipv6_match,
-  range_match,
-  vararg_match,
+  mt_ipv6_address_partial,
+  mt_ipv6_prefix_partial,
+  mt_ipv4_address_partial,
+  mt_ipv4_prefix_partial,
 
-  partly_match,         /* OK as far as it went                         */
-  exact_match,          /* Syntactically complete -- greatest match     */
+  mt_range_partial,
+
+  mt_eol,                       /* an ms_anything match                 */
+
+  mt_option_word_match,         /* anything can match a [WORD]          */
+
+  mt_vararg_match,              /* anything can match a .vararg         */
+  mt_word_match,                /* anything can match a WORD            */
+
+  mt_keyword_incomplete,
+
+  mt_ipv6_prefix_complete,
+  mt_ipv6_address_complete,
+  mt_ipv4_prefix_complete,
+  mt_ipv4_address_complete,
+
+  mt_range_complete,
+
+  mt_keyword_complete,
 
   match_type_count      /* Number of match types                        */
 } ;
 typedef enum match_type match_type_t ;
 
-CONFIRM(no_match == false) ;
-CONFIRM(extend_match == (no_match + 1)) ;
-CONFIRM(partly_match == (exact_match - 1)) ;
-CONFIRM(exact_match  == (match_type_count - 1)) ;
+/*------------------------------------------------------------------------------
+ * Map match_type -> cmd_item_type
+ *
+ * From a match type extract the type of item which has been match, partially
+ * or completely.
+ */
+Inline cmd_item_type_t
+match_item_type(match_type_t mt)
+{
+  static cmd_item_type_t  match_item_type[match_type_count] =
+    {
+        [mt_no_match]                = item_null,
+
+        [mt_eol_partial]             = item_eol,
+
+        [mt_ipv4_prefix_partial]     = item_ipv4_prefix,
+        [mt_ipv4_address_partial]    = item_ipv4_address,
+        [mt_ipv6_prefix_partial]     = item_ipv6_prefix,
+        [mt_ipv6_address_partial]    = item_ipv6_address,
+
+        [mt_range_partial]           = item_range,
+
+        [mt_eol]                     = item_eol,
+
+        [mt_option_word_match]       = item_option_word,
+
+        [mt_vararg_match]            = item_vararg,
+        [mt_word_match]              = item_word,
+
+        [mt_keyword_incomplete]      = item_keyword,
+
+        [mt_ipv6_prefix_complete]    = item_ipv6_prefix,
+        [mt_ipv6_address_complete]   = item_ipv6_address,
+        [mt_ipv4_prefix_complete]    = item_ipv4_prefix,
+        [mt_ipv4_address_complete]   = item_ipv4_address,
+
+        [mt_range_complete]          = item_range,
+
+        [mt_keyword_complete]        = item_keyword,
+    } ;
+
+  assert((mt >= 0) && (mt < match_type_count)) ;
+
+  return match_item_type[mt] ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Map match_type -> match_strength.
+ *
+ * From a match type extract the strength of the match.
+ */
+Inline match_strength_t
+match_match_strength(match_type_t mt)
+{
+  const static match_strength_t  match_match_strength[match_type_count] =
+    {
+        [mt_no_match]                = ms_no_match,
+
+        [mt_eol_partial]             = ms_partial,
+
+        [mt_ipv6_prefix_partial]     = ms_partial,
+        [mt_ipv6_address_partial]    = ms_partial,
+        [mt_ipv4_prefix_partial]     = ms_partial,
+        [mt_ipv4_address_partial]    = ms_partial,
+
+        [mt_range_partial]           = ms_partial,
+
+        [mt_eol]                     = ms_anything,
+
+        [mt_option_word_match]       = ms_anything,
+
+        [mt_vararg_match]            = ms_anything,
+        [mt_word_match]              = ms_anything,
+
+        [mt_keyword_incomplete]      = ms_kwd_incomplete,
+
+        [mt_ipv6_prefix_complete]    = ms_var_complete,
+        [mt_ipv6_address_complete]   = ms_var_complete,
+        [mt_ipv4_prefix_complete]    = ms_var_complete,
+        [mt_ipv4_address_complete]   = ms_var_complete,
+
+        [mt_range_complete]          = ms_var_complete,
+
+        [mt_keyword_complete]        = ms_kwd_complete,
+    } ;
+
+  assert((mt >= 0) && (mt < match_type_count)) ;
+
+  return match_match_strength[mt] ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Map cmd_item_type -> best possible match type.
+ *
+ * This gives the most optimistic outcome of an attempt to match to the given
+ * type of item.
+ *
+ * NB: tolerates item_null -- others may not
+ */
+Inline match_type_t
+item_best_match(cmd_item_type_t it)
+{
+  const static match_type_t  item_best_match[item_type_count] =
+    {
+        [item_null]          = mt_no_match,
+
+        [item_eol]           = mt_eol,
+
+        [item_option_word]   = mt_option_word_match,
+
+        [item_vararg]        = mt_vararg_match,
+        [item_word]          = mt_word_match,
+
+        [item_ipv6_prefix]   = mt_ipv6_prefix_complete,
+        [item_ipv6_address]  = mt_ipv6_address_complete,
+        [item_ipv4_prefix]   = mt_ipv4_prefix_complete,
+        [item_ipv4_address]  = mt_ipv4_address_complete,
+
+        [item_range]         = mt_range_complete,
+
+        [item_keyword]       = mt_keyword_complete,
+    } ;
+
+  assert((it >= 0) && (it < item_type_count)) ;
+
+  return item_best_match[it] ;
+} ;
 
 /*==============================================================================
  *
@@ -95,11 +452,13 @@ CONFIRM(exact_match  == (match_type_count - 1)) ;
 /* Command parsing options                                              */
 enum cmd_parse_type               /* bit significant      */
 {
-  cmd_parse_completion  = 0,
-  cmd_parse_strict      = BIT(0),
+  cmd_parse_standard    = 0,            /* accept short command parts   */
 
-  cmd_parse_do          = BIT(1),
-  cmd_parse_tree        = BIT(2),
+  cmd_parse_strict      = BIT(0),
+  cmd_parse_no_do       = BIT(1),
+  cmd_parse_no_tree     = BIT(2),
+
+  cmd_parse_execution   = BIT(3),       /* wish to execute command      */
 } ;
 typedef enum cmd_parse_type cmd_parse_type_t ;
 
@@ -108,28 +467,44 @@ enum cmd_pipe_type              /* bit significant      */
 {
   cmd_pipe_none       = 0,
 
-  cmd_pipe_in_file    = BIT(0),
-  cmd_pipe_in_shell   = BIT(1),
+  cmd_pipe_file       = BIT(0),
+  cmd_pipe_shell      = BIT(1),
+  cmd_pipe_dev_null   = BIT(2),         /* out pipe only -- black hole  */
 
-  cmd_pipe_reflect    = BIT(4),
-  cmd_pipe_output     = BIT(5),
-  cmd_pipe_more       = BIT(6),
+  /* For in pipes                                                       */
+  cmd_pipe_reflect    = BIT(4),         /* + option                     */
 
-  cmd_pipe_out_file         = BIT( 8),
-  cmd_pipe_out_file_append  = BIT( 9),
-  cmd_pipe_out_shell        = BIT(10),
+  /* For out file pipes                                                 */
+  cmd_pipe_append     = BIT(4),         /* >>                           */
 } ;
 typedef enum cmd_pipe_type cmd_pipe_type_t ;
+
+/* Parsed parts                                                         */
+enum cmd_parts                  /* bit significant      */
+{
+  cmd_parts_none      = 0,
+
+  cmd_part_do         = BIT(0),
+  cmd_part_command    = BIT(1),
+
+  cmd_part_in_pipe    = BIT(2),
+  cmd_part_out_pipe   = BIT(3),
+
+  cmd_parts_pipe      = (cmd_part_in_pipe | cmd_part_out_pipe),
+
+  cmd_part_comment    = BIT(4),
+} ;
+typedef enum cmd_parts cmd_parts_t ;
+
 
 /*------------------------------------------------------------------------------
  * Token object -- a qstring and some other properties.
  */
 enum cmd_token_type     /* *bit* significant    */
 {
-  cmd_tok_null          = 0,            /* used for empty lines */
+  cmd_tok_eol           = 0,            /* all lines have one           */
 
   cmd_tok_simple        = BIT( 0),
-  cmd_tok_trailing      = BIT( 1),
 
   cmd_tok_sq            = BIT( 8),
   cmd_tok_dq            = BIT( 9),      /* '\\' within "..." are not
@@ -138,20 +513,24 @@ enum cmd_token_type     /* *bit* significant    */
 
   cmd_tok_incomplete    = (cmd_tok_sq | cmd_tok_dq | cmd_tok_esc),
 
-  cmd_tok_pipe_in       = BIT(12),
-  cmd_tok_pipe_out      = BIT(13),
-  cmd_tok_comment       = BIT(14),
+  cmd_tok_in_pipe       = BIT(12),      /* token starting '<'           */
+  cmd_tok_out_pipe      = BIT(13),      /* token starting '>'           */
+  cmd_tok_comment       = BIT(14),      /* token starting '!' or '#"    */
 } ;
 typedef enum cmd_token_type cmd_token_type_t ;
 
-struct token
+struct cmd_token
 {
   cmd_token_type_t  type ;
-  qstring_t         qs ;
-  size_t            tp ;
+  qstring_t         qs ;        /* token string                         */
+
+  bool              term ;      /* token has been '\0' terminated       */
+
+  usize             tp ;        /* location of token in the line        */
+  elstring_t        ot ;        /* original token in the line           */
 } ;
-typedef struct token  token_t[1] ;
-typedef struct token* token ;
+
+typedef struct cmd_token* cmd_token ;
 
 /*------------------------------------------------------------------------------
  * Token vector -- a vector of token objects
@@ -164,6 +543,10 @@ struct token_vector
 typedef struct token_vector  token_vector_t[1] ;
 typedef struct token_vector* token_vector ;
 
+enum {
+  TOKEN_VECTOR_INIT_ALL_ZEROS = VECTOR_INIT_ALL_ZEROS
+} ;
+
 /*------------------------------------------------------------------------------
  * Argument vector -- a vector of const char*
  */
@@ -173,6 +556,10 @@ struct arg_vector
 } ;
 typedef struct arg_vector  arg_vector_t[1] ;
 typedef struct arg_vector* arg_vector ;
+
+enum {
+  ARG_VECTOR_INIT_ALL_ZEROS = VECTOR_INIT_ALL_ZEROS
+} ;
 
 /*------------------------------------------------------------------------------
  * Parsed command line
@@ -191,79 +578,154 @@ typedef struct arg_vector* arg_vector ;
  * emptied -- see cmd_empty_parsed_tokens() -- but the next command to be
  * parsed will tidy up before proceeding.
  */
-typedef struct cmd_parsed* cmd_parsed ;
 struct cmd_parsed
 {
-  struct cmd_element *cmd ;     /* NULL if empty command
-                                        or fails to parse       */
+  cmd_parts_t   parts ;         /* What parts are present               */
 
-  const char*     line ;        /* the current line             */
+  cmd_token_type_t tok_total ;  /* What token types are present         */
 
-  enum node_type  cnode ;       /* node command is in           */
-  enum node_type  onode ;       /* node the parser started in   */
+  usize         elen ;          /* effective length (less trailing spaces) */
+  usize         tsp ;           /* number of trailing spaces            */
 
-  bool            do_shortcut ; /* true => is "do" command      */
+  uint        num_tokens ;      /* number of tokens parsed              */
 
-  token_vector_t  tokens ;      /* vector of token objects      */
-  arg_vector_t    args ;        /* vector of arguments          */
+  token_vector_t  tokens ;      /* vector of token objects              */
 
-  cmd_pipe_type_t pipes ;       /* if any                       */
+  /* NB: the following are significant only if there is a command part
+   *     or a do part
+   */
+  struct cmd_command *cmd ;     /* NULL if empty command
+                                        or fails to parse               */
+  node_type_t   cnode ;         /* node command is in                   */
 
-  token_vector_t  read_pipe_tokens ;
-  token_vector_t  write_pipe_tokens ;
+  arg_vector_t  args ;          /* vector of arguments -- embedded      */
+
+  /* NB: the following are significant only if an error is returned     */
+
+  const char*   emess ;         /* parse error                          */
+  usize         eloc ;          /* error location                       */
+
+  /* NB: the following are significant only if respective part is
+   *     present.
+   */
+  cmd_pipe_type_t in_pipe ;     /* if any                               */
+  cmd_pipe_type_t out_pipe ;    /* if any                               */
+
+  uint          first_in_pipe ;
+  uint          num_in_pipe ;
+
+  uint          first_do ;
+  uint          num_do ;
+
+  uint          first_command ;
+  uint          num_command ;
+
+  uint          first_out_pipe ;
+  uint          num_out_pipe ;
+
+  uint          first_comment ;
+  uint          num_comment ;
+
+  /* The following are significant after cmd_token_position()           */
+
+  uint          cti ;   /* cursor token index -- may be eol token       */
+  uint          ctl ;   /* cursor token length -- 0 <=> eol token       */
+  int           rp ;    /* cursor relative to start of cursor token     */
+
+  /* The following are used while filtering commands                    */
+
+  vector_t      cmd_v ;         /* working vector -- embedded           */
+  vector_t      item_v ;        /* working vector -- embedded           */
+
+  match_strength_t  strongest ;
+  match_type_t      best_complete ;
+
+  match_strength_t  min_strength ;      /* for execution                */
+  bool              strict ;            /* for strict keyword match     */
 } ;
+
+enum
+{
+  CMD_PARSED_INIT_ALL_ZEROS = (cmd_pipe_none == 0)
+                           && TOKEN_VECTOR_INIT_ALL_ZEROS
+                           && ARG_VECTOR_INIT_ALL_ZEROS
+} ;
+
+typedef struct cmd_parsed  cmd_parsed_t[1] ;
+typedef struct cmd_parsed* cmd_parsed ;
 
 /* Command dispatch options                                             */
-enum {
-  cmd_no_queue  = true,
-  cmd_may_queue = false,
+enum cmd_queue_b
+{
+  cmd_no_queue  = false,
+  cmd_queue_it  = true,
 } ;
-
-/*------------------------------------------------------------------------------
- * Vector of spare token objects -- declared here to allow inlines, defined
- * in command_parse.c
- */
-extern token_vector_t spare_tokens ;
+typedef enum cmd_queue_b cmd_queue_b ;
 
 /*==============================================================================
  * Prototypes
  */
-extern void cmd_spare_tokens_init(void) ;
-extern void cmd_spare_tokens_free(void) ;
+extern void cmd_compile(cmd_command cmd) ;
+extern void cmd_compile_check(cmd_command cmd) ;
 
-extern cmd_parsed cmd_parse_init_new(cmd_parsed parsed) ;
-extern cmd_parsed cmd_parse_reset(cmd_parsed parsed, bool free_structure) ;
+extern cmd_parsed cmd_parsed_init_new(cmd_parsed parsed) ;
+extern cmd_parsed cmd_parsed_reset(cmd_parsed parsed,
+                                                   free_keep_b free_structure) ;
+extern bool cmd_is_empty(elstring line) ;
 
-extern cmd_token_type_t cmd_tokenise(cmd_parsed parsed, const char *line,
-                                                             node_type_t node) ;
-Inline const char* cmd_token_string(token t) ;
-Inline int cmd_token_count(token_vector tv) ;
-Inline token cmd_token_get(token_vector tv, vector_index_t i) ;
-Inline token cmd_token_pop(token_vector tv) ;
-Inline void cmd_token_push(token_vector tv, token t) ;
-Inline token cmd_token_shift(token_vector tv) ;
-Inline void cmd_token_unshift(token_vector tv, token t) ;
-Inline token cmd_token_make(void) ;
-Inline token cmd_token_new(cmd_token_type_t type, const char* p,
-                                                        size_t len, size_t tp) ;
+extern cmd_return_code_t cmd_parse_command(cmd_parsed parsed,
+                                      node_type_t node, cmd_parse_type_t type) ;
 
-Inline void cmd_empty_token_vector(token_vector tv) ;
-Inline void cmd_empty_parsed_tokens(cmd_parsed parsed) ;
+extern bool cmd_token_position(cmd_parsed parsed, qstring line) ;
+extern const char* cmd_help_preflight(cmd_parsed parsed) ;
+extern cmd_return_code_t cmd_completion(cmd_parsed parsed, node_type_t node) ;
 
-Inline bool cmd_token_complete(token t) ;
-extern bool cmd_token_do_complete(token t) ;
+extern void cmd_complete_keyword(cmd_parsed parsed,
+                                       int* pre, int* rep, int* ins, int* mov) ;
 
-extern match_type_t cmd_ipv4_match (const char *str) ;
-extern match_type_t cmd_ipv4_prefix_match (const char *str) ;
+
+
+
+
+
+//extern vector cmd_make_strvec (const char *);
+//extern vector cmd_add_to_strvec (vector v, const char* str) ;
+//extern void cmd_free_strvec (vector);
+extern vector cmd_describe_command (const char* line, node_type_t node,
+                                                    cmd_return_code_t* status) ;
+extern vector cmd_complete_command (vector, int, int *status);
+
+
+
+extern void cmd_tokenise(cmd_parsed parsed, qstring line) ;
+//extern cmd_return_code_t cmd_parse_error(cmd_parsed parsed, cmd_token t,
+//                                                usize off, const char* mess) ;
+
+//Inline const char* cmd_token_string(cmd_token t) ;
+//Inline char* cmd_token_make_string(cmd_token t) ;
+//Inline int cmd_token_count(token_vector tv) ;
+//Inline cmd_token cmd_token_get(token_vector tv, vector_index_t i) ;
+//Inline void  cmd_token_set(token_vector tv, vector_index_t i,
+//                    cmd_token_type_t type, const char* p, usize len, usize tp) ;
+
+//extern cmd_return_code_t cmd_token_complete(cmd_parsed parsed, cmd_token t) ;
+//Inline const char* cmd_token_string(cmd_token t) ;
+//extern cmd_return_code_t cmd_parse_in_pipe(cmd_parsed parsed, cmd_token t) ;
+//extern cmd_return_code_t cmd_parse_out_pipe(cmd_parsed parsed, cmd_token t) ;
+
+//extern match_type_t cmd_ipv4_match (const char *str) ;
+//extern match_type_t cmd_ipv4_prefix_match (const char *str) ;
 #if HAVE_IPV6
-extern match_type_t cmd_ipv6_match (const char *str) ;
-extern match_type_t cmd_ipv6_prefix_match (const char *str) ;
+//extern match_type_t cmd_ipv6_match (const char *str) ;
+//extern match_type_t cmd_ipv6_prefix_match (const char *str) ;
 #endif
-extern bool cmd_range_match (const char *range, const char *str) ;
+//extern bool cmd_range_match (const char *range, const char *str) ;
 
 /*==============================================================================
  * Inline Functions
  */
+
+Private cmd_token cmd_token_new(void) ;
 
 /*------------------------------------------------------------------------------
  * Get pointer to token value.
@@ -271,9 +733,9 @@ extern bool cmd_range_match (const char *range, const char *str) ;
  * Returns NULL if token NULL or no string.
  */
 Inline char*
-cmd_token_value(token t)
+cmd_token_value(cmd_token t)
 {
-  return (t == NULL) ? NULL : qs_chars(t->qs) ;
+  return (t == NULL) ? NULL : qs_char_nn(t->qs) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -281,162 +743,44 @@ cmd_token_value(token t)
  *
  * Returns an empty (not NULL) string if token NULL or no string.
  */
-Inline const char*
-cmd_token_string(token t)
+Inline char*
+cmd_token_make_string(cmd_token t)
 {
-  const char* s = cmd_token_value(t) ;
-  return (s == NULL) ? "" : s ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Get number of tokens in the given token vector
- */
-Inline int
-cmd_token_count(token_vector tv)
-{
-  return vector_length(tv->body) ;
+  if (t->term)
+    return qs_char_nn(t->qs) ;
+  else
+    {
+      t->term = true ;
+      return qs_make_string(t->qs) ;
+    }
 } ;
 
 /*------------------------------------------------------------------------------
  * Get i'th token from given token vector -- zero origin
  */
-Inline token
+Inline cmd_token
 cmd_token_get(token_vector tv, vector_index_t i)
 {
   return vector_get_item(tv->body, i) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Pop token from end of given token vector -- if any.
- */
-Inline token
-cmd_token_pop(token_vector tv)
-{
-  return vector_pop_item(tv->body) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Push token onto end of given token vector.
+ * Set i'th token from given token vector -- zero origin
  */
 Inline void
-cmd_token_push(token_vector tv, token t)
+cmd_token_set(token_vector tv, vector_index_t i,
+                      cmd_token_type_t type, const char* p, usize len, usize tp)
 {
-  vector_push_item(tv->body, t) ;
-} ;
+  cmd_token t = cmd_token_get(tv, i) ;
 
-/*------------------------------------------------------------------------------
- * Shift first token off front of given token vector -- if any.
- */
-Inline token
-cmd_token_shift(token_vector tv)
-{
-  return vector_shift_item(tv->body) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Unshift token onto front of given token vector.
- */
-Inline void
-cmd_token_unshift(token_vector tv, token t)
-{
-  vector_unshift_item(tv->body, t) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Make a brand new token object
- */
-Inline token
-cmd_token_make(void)
-{
-  return XCALLOC(MTYPE_TOKEN, sizeof(struct token)) ;
-
-  /* Zeroising the new structure sets:
-   *
-   *   type       = 0    -- cmd_tok_null
-   *   qs         = zeroised qstring  -- empty string
-   */
-  confirm(cmd_tok_null == 0) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Create new 'cmd_tok_simple' token from given characters + length
- */
-Inline token
-cmd_token_new(cmd_token_type_t type, const char* p, size_t len, size_t tp)
-{
-  token t ;
-
-  t = cmd_token_pop(spare_tokens) ;
   if (t == NULL)
-    t = cmd_token_make() ;
+    vector_set_item(tv->body, i, (t = cmd_token_new())) ;
 
-  t->type = type ;
-  qs_set_n(&t->qs, p, len) ;
-  t->tp   = tp ;
-
-  return t ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Discard given token -- give back to spare tokens list
- */
-Inline void
-cmd_token_discard(token t)
-{
-  if (t != NULL)
-    vector_push_item(spare_tokens->body, t) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Release contents of token vector -- move to the spare_token_strings.
- */
-Inline void
-cmd_empty_token_vector(token_vector tv)
-{
-  if (cmd_token_count(tv) != 0)
-    vector_move_append(spare_tokens->body, tv->body) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Release contents of all token vectors in given parsed object.
- */
-Inline void
-cmd_empty_parsed_tokens(cmd_parsed parsed)
-{
-  cmd_empty_token_vector(parsed->tokens) ;
-  cmd_empty_token_vector(parsed->read_pipe_tokens) ;
-  cmd_empty_token_vector(parsed->write_pipe_tokens) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * If token is incomplete (contains quotes or escapes) process those down.
- *
- * Returns: true <=> OK
- *          false => invalid escape
- */
-Inline bool
-cmd_token_complete(token t)
-{
-  return ((t->type & cmd_tok_incomplete) == 0) ? true
-                                               : cmd_token_do_complete(t) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Initialise arg_vector object in cmd_parsed.
- */
-Inline void
-cmd_arg_vector_init(cmd_parsed parsed)
-{
-  vector_init_new(parsed->args->body, 0) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Free the body of the arg_vector object in cmd_parsed.
- */
-Inline void
-cmd_arg_vector_free(cmd_parsed parsed)
-{
-  vector_reset(parsed->args->body, keep_it) ;
+  t->type     = type ;
+  t->term     = false ;
+  t->tp       = tp ;
+  qs_set_alias_n(t->qs, p, len) ;
+  qs_els_copy_nn(t->ot, t->qs) ;
 } ;
 
 /*------------------------------------------------------------------------------

@@ -18,9 +18,8 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
-
-#include <zebra.h>
-#include <stdbool.h>
+#include "misc.h"
+#include <signal.h>
 
 #include "qpnexus.h"
 #include "memory.h"
@@ -91,7 +90,7 @@ qpn_add_hook_function(qpn_hook_list list, void* hook)
  * object is empty or otherwise out of action.
  */
 extern qpn_nexus
-qpn_reset(qpn_nexus qpn, bool free_structure)
+qpn_reset(qpn_nexus qpn, free_keep_b free_structure)
 {
   qps_file qf;
   qtimer qtr;
@@ -115,11 +114,8 @@ qpn_reset(qpn_nexus qpn, bool free_structure)
       qpn->selection = NULL ;
     }
 
-  if (qpn->queue != NULL)
-    qpn->queue = mqueue_reset(qpn->queue, 1);
-
-  if (qpn->mts != NULL)
-    qpn->mts = mqueue_thread_signal_reset(qpn->mts, 1);
+  qpn->queue = mqueue_reset(qpn->queue, free_it);
+  qpn->mts   = mqueue_thread_signal_reset(qpn->mts, free_it);
 
   if (free_structure)
     XFREE(MTYPE_QPN_NEXUS, qpn) ;       /* sets qpn = NULL      */

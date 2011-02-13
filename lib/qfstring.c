@@ -26,10 +26,10 @@
  */
 
 /*------------------------------------------------------------------------------
- * Initialise qf_str -- to given size (which includes the '\n')
+ * Initialise qf_str -- to given size (which includes the '\0')
  *
  * Sets pointers and terminates an empty string with one byte reserved for the
- * terminating '\n'.
+ * terminating '\0'.
  *
  * This operation is async-signal-safe.
  */
@@ -47,12 +47,12 @@ qfs_init(qf_str qfs, char* str, size_t size)
 
 /*------------------------------------------------------------------------------
  * Initialise qf_str which already contains string -- to given size (which
- * includes the '\n')
+ * includes the '\0')
  *
  * This may be used to prepare for appending to a buffer which already contains
  * something.
  *
- * Sets pointers, setting the write pointer to the existing terminating '\n'.
+ * Sets pointers, setting the write pointer to the existing terminating '\0'.
  *
  * This operation is async-signal-safe.
  */
@@ -331,7 +331,7 @@ qfs_pointer(qf_str qfs, void* p_val, enum pf_flags flags,
  *
  * If the precision is < 0 it is ignored (unless pf_hex, see below).
  *
- * If the precision is 0 it is ignored unless bf_precision is set.
+ * If the precision is 0 it is ignored unless pf_precision is set.
  *
  * Precedence issues:
  *
@@ -776,7 +776,7 @@ qfs_vprintf(qf_str qfs, const char *format, va_list args)
                       if (precision < 0)
                         {
                           precision = 0 ;
-                          flags &= ~pf_precision ;
+                          flags &= ~pf_precision ;  /* completely ignore */
                         } ;
                     }
                   else
@@ -885,7 +885,7 @@ qfs_vprintf(qf_str qfs, const char *format, va_list args)
  * %s handler -- tolerates NULL pointer
  *
  * Accepts:    width
- *             precision
+ *             precision    -- ignored if < 0
  *             pf_precision -- explicit precision
  *
  * Rejects:    pf_commas    -- "'" seen
@@ -912,6 +912,12 @@ qfs_arg_string(qf_str qfs, va_list args, enum pf_flags flags,
 
   if (flags != (flags & pf_precision))
     return pfp_failed ;
+
+  if (precision < 0)            /* make sure            */
+    {
+      precision = 0 ;
+      flags &= ~pf_precision ;
+    } ;
 
   len = (src != NULL) ? strlen(src) : 0 ;
   if (((precision > 0) || (flags & pf_precision)) && (len > precision))

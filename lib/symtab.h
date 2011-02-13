@@ -168,7 +168,7 @@ extern void* symbol_set_value(symbol sym, void* new_value) ;
 Inline void*
 symbol_unset_value(symbol sym)
 {
-  symbol_set_value(sym, NULL) ;
+  return symbol_set_value(sym, NULL) ;
 } ;
 
 extern void symbol_ref_walk_start(symbol sym, symbol_ref walk) ;

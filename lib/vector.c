@@ -22,7 +22,7 @@
  * 02111-1307, USA.
  */
 
-#include <zebra.h>
+//#include <zebra.h>
 
 #include "vector.h"
 #include "memory.h"
@@ -1055,7 +1055,7 @@ vector_bsearch(vector v, vector_bsearch_cmp* cmp, const void* p_val,
 
   if (v->end <= 1)
     {
-      *result = (v->end == 0) ? -1 : cmp(&p_val, (const void**)&v->p_items[0]) ;
+      *result = (v->end == 0) ? -1 : cmp(&p_val, (const cvp*)&v->p_items[0]) ;
       return 0 ;                /* Stop dead if 0 or 1 items */
     } ;
 
@@ -1064,12 +1064,12 @@ vector_bsearch(vector v, vector_bsearch_cmp* cmp, const void* p_val,
   ih = v->end - 1 ;
 
   /* Pick off the edge cases: >= last and <= first.  */
-  if ((c = cmp(&p_val, (const void**)&v->p_items[ih])) >= 0)
+  if ((c = cmp(&p_val, (const cvp*)&v->p_items[ih])) >= 0)
     {
       *result = c ;     /* 0 => found.  +1 => val > last        */
       return ih ;       /* return high index.                   */
     } ;
-  if ((c = cmp(&p_val, (const void**)&v->p_items[il])) <= 0)
+  if ((c = cmp(&p_val, (const cvp*)&v->p_items[il])) <= 0)
     {
       *result = c ;     /* 0 => found.  -1 => val < first      */
       return il ;       /* return low index.                   */
@@ -1086,7 +1086,7 @@ vector_bsearch(vector v, vector_bsearch_cmp* cmp, const void* p_val,
           return il ;   /* return il: item[il] < val < item[il+1]       */
         } ;
       /* We now know that il < iv < ih  */
-      c = cmp(&p_val, (const void**)&v->p_items[iv]) ;
+      c = cmp(&p_val, (const cvp*)&v->p_items[iv]) ;
       if (c == 0)
         {
           *result = 0 ;

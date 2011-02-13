@@ -20,17 +20,20 @@
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
  */
+#include "misc.h"
+#include <ctype.h>
 
-#include <zebra.h>
-
-#include "keystroke.h"
-#include "vty.h"
-#include "uty.h"
+#include "vty_local.h"
+#include "vty_command.h"
 #include "vty_cli.h"
+#include "vty_io_term.h"
 #include "vty_io.h"
 #include "vio_lines.h"
+#include "vio_fifo.h"
 
-#include "command.h"
+#include "keystroke.h"
+
+#include "command_common.h"
 #include "command_parse.h"
 #include "command_execute.h"
 #include "command_queue.h"
@@ -38,86 +41,323 @@
 #include "memory.h"
 
 /*==============================================================================
- * Host name handling
+ * Construct and destroy CLI object
  *
- * The host name is used in the command line prompt.  The name used is either
- * the name set by "hostname" command, or the current machine host name.
  *
- * Static variables -- under the VTY_LOCK !
+ *
  */
-
-static char* vty_host_name = NULL ;
-int vty_host_name_set      = 0 ;
-
-static void uty_new_host_name(const char* name) ;
+static bool uty_cli_iac_callback(keystroke_iac_callback_args) ;
+static void uty_cli_update_more(vty_cli cli) ;
 
 /*------------------------------------------------------------------------------
- * Update vty_host_name as per "hostname" or "no hostname" command
+ * Construct and initialise a new CLI object -- never embedded.
+ *
+ * The CLI is started up in the state it is in waiting for a command to
+ * complete.  This means that all start-up messages etc. are handled as the
+ * output from an implied start command.  uty_cli_start() is called when the
+ * start-up messages etc. are complete.
+ *
+ * Note that the vty_io_term stuff sends out a bunch of telnet commands, which
+ * will be buffered in the CLI buffer.  That will be output, before the
+ * start-up messages etc. on uty_cli_start().
+ */
+extern vty_cli
+uty_cli_new(vio_vf vf)
+{
+  vty_cli cli ;
+
+  cli = XCALLOC(MTYPE_VTY_CLI, sizeof(struct vty_cli)) ;
+
+  /* Zeroising has initialised:
+   *
+   *   vf           = NULL           -- set below
+   *
+   *   hist         = empty vector (embedded) -- set up when first used.
+   *   hp           = 0              -- hp == h_now => in the present ...
+   *   h_now        = 0              --    ... see uty_cli_hist_add()
+   *
+   *   width        = 0              -- unknown width  ) Telnet window size
+   *   height       = 0              -- unknown height )
+   *
+   *   lines        = 0              -- set below
+   *   lines_set    = false          -- set below
+   *
+   *   monitor      = false          -- not a "monitor"
+   *   monitor_busy = false          -- so not busy either
+   *
+   *   v_timeout    = ???
+   *
+   *   key_stream   = X              -- set below
+   *
+   *   drawn        = false
+   *   dirty        = false
+   *
+   *   prompt_len   = 0              -- not drawn, in any case
+   *   extra_len    = 0              -- not drawn, in any case
+   *
+   *   echo_suppress = false
+   *
+   *   prompt_node  = NULL_NODE      -- so not set !
+   *   prompt_gen   = 0              -- not a generation number
+   *   prompt_for_node = empty qstring (embedded)
+   *
+   *   password_fail = 0             -- so far, so good.
+   *
+   *   blocked      = false          -- see below
+   *   in_progress  = false          -- see below
+   *   out_active   = false
+   *
+   *   more_wait    = false
+   *   more_active  = false
+   *
+   *   out_done     = false          -- not that it matters
+   *
+   *   more_enabled = false          -- not in "--More--" state
+   *
+   *   node         = NULL_NODE      -- set in vty_cli_start()
+   *   to_do        = cmd_do_nothing
+   *
+   *   cl           = NULL qstring   -- set below
+   *   clx          = NULL qstring   -- set below
+   *
+   *   parsed       = all zeros      -- empty parsed object
+   *   cbuf         = empty fifo (embedded)
+   *
+   *   olc          = empty line control (embedded)
+   */
+  confirm(VECTOR_INIT_ALL_ZEROS) ;              /* hist                 */
+  confirm(QSTRING_INIT_ALL_ZEROS) ;             /* prompt_for_node      */
+  confirm(NULL_NODE == 0) ;                     /* prompt_node & node   */
+  confirm(cmd_do_nothing == 0) ;                /* to_do                */
+  confirm(VIO_FIFO_INIT_ALL_ZEROS) ;            /* cbuf                 */
+  confirm(VIO_LINE_CONTROL_INIT_ALL_ZEROS) ;    /* olc                  */
+  confirm(CMD_PARSED_INIT_ALL_ZEROS) ;          /* parsed               */
+
+  cli->vf = vf ;
+
+  /* Allocate and initialise a keystroke stream     TODO: CSI ??        */
+  cli->key_stream = keystroke_stream_new('\0', uty_cli_iac_callback, cli) ;
+
+  /* Set up cl and clx qstrings and the command line output fifo        */
+  cli->cl  = qs_init_new(NULL, 120) ;   /* reasonable line length       */
+  cli->clx = qs_init_new(NULL, 120) ;
+
+  vio_fifo_init_new(cli->cbuf, 500) ;   /* just for the CLI stuff       */
+
+  /* Use global 'lines' setting, as default -- but 'lines_set' false.   */
+  uty_cli_set_lines(cli, host.lines, false) ;
+  uty_cli_update_more(cli) ;    /* and update the olc etc to suit.      */
+
+  /* Ready to be started -- out_active & more_wait are false.           */
+  cli->blocked      = true ;
+  cli->in_progress  = true ;
+
+  return cli ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Start the CLI.
+ *
+ * The implied start "command" is complete and everything is ready to start
+ * the CLI.
+ *
+ * Note that before releasing any pending output, calls
+ *
+ * Returns: write_ready -- so the first event is a write event, to flush
+ *                         any output to date.
  */
 extern void
-uty_set_host_name(const char* name)
+uty_cli_start(vty_cli cli, node_type_t node)
 {
+  uty_cli_done_command(cli, node) ;     /* implied push output          */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Close CLI object, if any -- may be called more than once.
+ *
+ * Shuts down and discards anything to do with the input.
+ *
+ * Revokes anything that can be revoked, which may allow output to proceed
+ * and the vty to clear itself down.
+ *
+ * If in_progress and not final, keeps the cbuf, the olc and clx if in_progress.
+ * If not final, keeps the cbuf and the olc.
+ *
+ * Destroys self if final.
+ *
+ * Expects other code to:
+ *
+ *   - close down command loop and empty the vin/vout stacks.
+ *
+ *   - turn of any monitor status.
+ *
+ *   - half close the telnet connection.
+ */
+extern vty_cli
+uty_cli_close(vty_cli cli, bool final)
+{
+  if (cli == NULL)
+    return NULL ;
+
   VTY_ASSERT_LOCKED() ;
+  VTY_ASSERT_CLI_THREAD() ;
 
-  vty_host_name_set = (name != NULL) ;
+  /* Revoke any command that is in flight.                              */
+  cq_revoke(cli->vf->vio->vty) ;
 
-  if (vty_host_name_set)
-    uty_new_host_name(name) ;
-  else
-    uty_check_host_name() ;
+  /* Bring as much of the command handling to a stop as possible, and
+   * turn off "---more--" etc. so that output can proceed.
+   */
+  cli->more_enabled = false ;
+  cli->lines        = 0 ;       /* so will not be re-enabled            */
+
+  uty_cli_wipe(cli, 0) ;        /* wipe anything the CLI has on screen  */
+
+  cli->more_wait   = false ;    /* exit more_wait (if was in it)        */
+  cli->more_active = false ;    /* and so cannot be this                */
+
+  cli->out_active = true ;      /* if there is any output, it can go    */
+
+  /* Ream out the history.                                              */
+  {
+    qstring line ;
+    while ((line = vector_ream(cli->hist, keep_it)) != NULL)
+      qs_reset(line, free_it) ;
+  } ;
+
+  /* Empty the keystroke handling.                                      */
+  cli->key_stream = keystroke_stream_free(cli->key_stream) ;
+
+  /* Can discard active command line if not in_progress.                */
+  if (!cli->in_progress || final)
+    cli->clx = qs_reset(cli->clx, free_it) ;
+
+  /* Can discard parsed object.                                         */
+  cmd_parsed_reset(cli->parsed, keep_it) ;
+
+  /* If final, free the CLI object.                                     */
+  if (final)
+    {
+      qs_reset(cli->prompt_for_node, keep_it) ;
+      cli->cl = qs_reset(cli->cl, free_it) ;
+
+      vio_fifo_reset(cli->cbuf, keep_it) ;  /* embedded fifo            */
+      vio_lc_reset(cli->olc, keep_it) ;     /* embedded line control    */
+
+      XFREE(MTYPE_VTY_CLI, cli) ;               /* sets cli = NULL      */
+  } ;
+
+  return cli ;
 } ;
 
 /*------------------------------------------------------------------------------
- * If vty_host_name is set, free it.
- */
-extern void
-uty_free_host_name(void)
-{
-  if (vty_host_name != NULL)
-    XFREE (MTYPE_HOST, vty_host_name) ; /* sets vty_host_name = NULL */
-} ;
-
-/*------------------------------------------------------------------------------
- * If the host name is not set by command, see if the actual host name has
- * changed, and if so change it.
+ * The keystroke iac callback function.
  *
- * This is done periodically in case the actual host name changes !
+ * This deals with IAC sequences that should be dealt with as soon as they
+ * are read -- not stored in the keystroke stream for later processing.
  */
-extern void
-uty_check_host_name(void)
+static bool
+uty_cli_iac_callback(keystroke_iac_callback_args)
 {
-  struct utsname names ;
-
-  VTY_ASSERT_LOCKED() ;
-
-  if (vty_host_name_set)
-    return ;                    /* nothing to do if set by command      */
-
-  uname (&names) ;
-
-  if ((vty_host_name == NULL) || (strcmp(vty_host_name, names.nodename) != 0))
-    uty_new_host_name(names.nodename) ;
+  return uty_telnet_command(((vty_cli)context)->vf, stroke, true) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Set new vty_host_name and run along list of VTYs to mark the change.
+ * Set the cli->lines, explicitly or implicitly, and update the "--more--"
+ * state to suit.
+ *
+ *   lines < 0 => use whatever telnet has said, or no "--more--"
+ *   lines = 0 => no "--more--"
+ *   lines > 0 => use
+ */
+extern void
+uty_cli_set_lines(vty_cli cli, int lines, bool explicit)
+{
+  cli->lines     = lines ;
+  cli->lines_set = explicit ;
+
+  uty_cli_update_more(cli) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set the cli->lines, explicitly or implicitly, and update the "--more--"
+ * state to suit.
+ *
+ *   lines < 0 => use whatever telnet has said, or no "--more--"
+ *   lines = 0 => no "--more--"
+ *   lines > 0 =>
+ */
+extern void
+uty_cli_set_window(vty_cli cli, int width, int height)
+{
+  cli->width  = width ;
+  cli->height = height ;
+
+  uty_cli_update_more(cli) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Update the "--more--" state, after changing one or more of:
+ *
+ *   cli->lines
+ *   cli->lines_set
+ *   cli->width
+ *   cli->height
+ *
+ * Set the effective height for line control, if required, which may enable the
+ * "--more--" output handling.
+ *
+ * If not, want some limit on the amount of stuff output at a time.
+ *
+ * Sets the line control window width and height.
+ * Sets cli_more_enabled if "--more--" is enabled.
  */
 static void
-uty_new_host_name(const char* name)
+uty_cli_update_more(vty_cli cli)
 {
-  vty_io vio ;
+  bool    on ;
 
-  VTY_ASSERT_LOCKED() ;
+  on = false ;          /* default state        */
 
-  uty_free_host_name() ;
-  vty_host_name = XSTRDUP(MTYPE_HOST, name) ;
-
-  vio = vio_list_base ;
-  while (vio != NULL)
+  if (cli->vf->vout_state == vf_open)
     {
-      vio->cli_prompt_set = 0 ;
-      vio = sdl_next(vio, vio_list) ;
+      int height ;
+
+      height = 0 ;      /* default state: no "--more--"                 */
+
+      if ((cli->width) != 0)
+        {
+          /* If window size is known, use lines or given height         */
+          if (cli->lines >= 0)
+            height = cli->lines ;
+          else
+            {
+              /* Window height, leaving one line from previous "page"
+               * and one line for the "--more--" -- if at all possible
+               */
+              height = cli->height - 2 ;
+              if (height < 1)
+                height = 1 ;
+            } ;
+        }
+      else
+        {
+          /* If window size not known, use lines if that has been set
+           * explicitly for this terminal.
+           */
+          if (cli->lines_set)
+            height = cli->lines ;
+        } ;
+
+      if (height > 0)
+        on = true ;     /* have a defined height        */
+      else
+        height = 200 ;  /* but no "--more--"            */
+
+      vio_lc_set_window(cli->olc, cli->width, height) ;
     } ;
+
+  cli->more_enabled = on ;
 } ;
 
 /*==============================================================================
@@ -132,31 +372,49 @@ uty_new_host_name(const char* name)
  *   -- setting read or write on, means enabling the file for select/pselect to
  *      consider it for read_ready or write_ready, respectively.
  *
+ * All command actions are dispatched via the command queue -- commands are
+ * not executed in the cli.  [For legacy threads the event queue is used.  If
+ * that is too slow, a priority event queue will have to be invented.]
+ *
  * State of the CLI:
  *
- *   cli_blocked      -- the CLI is unable to process any further keystrokes.
+ *   in_progress  -- a command has been dispatched and has not yet completed.
  *
- *   cmd_in_progress  -- a command has been dispatched and has not yet
- *                       completed (may have been queued).
+ *                   The command may be a in_pipe, so there may be many commands
+ *                   to be completed before the CLI level command is.
  *
- *   cmd_out_enabled  -- the command FIFO is may be emptied.
+ *                   or: the CLI has been closed.
  *
- *                       This is set when a command completes, and cleared when
- *                       everything is written away.
+ *   blocked      -- is in_progress and a further command is now ready to be
+ *                   dispatched.
  *
- *   cli_more_wait     -- is in "--more--" wait state
+ *                   or: the CLI has been closed.
+ *
+ *   out_active   -- the command output FIFO is being emptied.
+ *
+ *                   This is set when a command completes, and cleared when
+ *                   everything is written away.
+ *
+ *                   Note that in this context a command is an individual
+ *                   command -- where in_progress may cover any number of
+ *                   command if the CLI level command is an in_pipe.
+ *
+ *   more_wait    -- is in "--more--" wait state
+ *
+ *   more_active  -- is in "--more--" wait state, and the "--more--" prompt
+ *                   has not been written away, yet.
  *
  * The following are the valid combinations:
  *
- *     blkd :  cip : o_en : m_wt :
- *     -----:------:------:------:--------------------------------------------
- *       0  :   0  :   0  :   0  : collecting a new command
- *       0  :   1  :   0  :   0  : command dispatched
- *       1  :   1  :   0  :   0  : waiting for (queued) command to complete
- *       1  :   0  :   1  :   0  : waiting for command output to complete
- *       1  :   0  :   0  :   1  : waiting for "--more--" to be written away
- *       0  :   0  :   0  :   1  : waiting for "--more--" response
- *       1  :   1  :   1  :   0  : waiting for command to complete, after the
+ *     in_p: blkd: o_ac: m_wt: m_ac:
+ *     ----:-----:-----:-----:-----:-----------------------------------------
+ *       0 :   0 :   0 :   0 :   0 : collecting a new command
+ *       0 :   0 :   1 :   0 :   0 : waiting for command output to finish
+ *       1 :   0 :   X :   0 :   0 : command dispatched
+ *       1 :   1 :   X :   0 :   0 : waiting for command to complete
+ *       X :   X :   0 :   1 :   1 : waiting for "--more--" to be written away
+ *       X :   X :   0 :   1 :   0 : waiting for "--more--" response
+ *       1 :   1 :   1 :   0 :   0 : waiting for command to complete, after the
  *                                                           CLI has been closed
  *
  * There are two output FIFOs:
@@ -166,9 +424,9 @@ uty_new_host_name(const char* name)
  *   2. for output generated by commands -- vty_out and friends.
  *
  * The CLI FIFO is emptied whenever possible, in preference to the command
- * FIFO.  The command FIFO is emptied when cmd_out_enabled.  While
- * cmd_in_progress is also !cmd_out_enabled -- so that all the output from a
- * given command is collected together before being sent to the file.
+ * FIFO.  The command FIFO is emptied when out_active.  While a command is
+ * in_progress all its output is collected in the command output buffer,
+ * to be written away when the command completes.
  *
  * Note that only sets read on when the keystroke stream is empty and has not
  * yet hit eof.  The CLI process is driven mostly by write_ready -- which
@@ -188,31 +446,19 @@ uty_new_host_name(const char* name)
  *
  * This is largely buried in the output handling.
  *
- * While cmd_in_progress is true cmd_out_enabled will be false.  When the
- * command completes:
- *
- *  * cmd_in_progress is cleared
- *
- *  * cmd_out_enabled is set
- *
- *  * cli_blocked will be set
- *
- *  * the line_control structure is reset
- *
- *  * the output process is kicked off by setting write on
+ * When a command completes and its output is pushed to written away,
+ * out_active will be set (and any command line will be wiped).  The output
+ * process is then kicked.
  *
  * The output process used the line_control structure to manage the output, and
  * occasionally enter the trivial "--more--" CLI.  This is invisible to the
- * main CLI.  (See the cli_more_wait flag and its handling.)
+ * main CLI.  (See the more_wait and more_active flags and their handling.)
  *
- * When all the output has completed the CLI will be kicked, which will see
- * that the output buffer is now empty, and it can proceed.
+ * When all the output has completed the out_active flag is cleared and the CLI
+ * will be kicked.
  *
  * It is expected that the output will end with a newline -- so that when the
  * CLI is kicked, the cursor will be at the start of an empty line.
- *
- * This mechanism means that the command output FIFO only ever contains the
- * output from the last command executed.
  *
  * If the user decides to abandon output at the "--more--" prompt, then the
  * contents of the command output FIFO are discarded.
@@ -265,102 +511,15 @@ uty_new_host_name(const char* name)
 
 #define CONTROL(X)  ((X) & 0x1F)
 
-static void uty_cli_cmd_complete(vty_io vio, enum cmd_return_code ret) ;
-static enum vty_readiness uty_cli_standard(vty_io vio) ;
-static enum vty_readiness uty_cli_more_wait(vty_io vio) ;
-static void uty_cli_draw(vty_io vio) ;
-static void uty_cli_draw_this(vty_io vio, enum node_type node) ;
-static void uty_cli_wipe(vty_io vio, int len) ;
-
-static void uty_will_echo (vty_io vio) ;
-static void uty_will_suppress_go_ahead (vty_io vio) ;
-static void uty_dont_linemode (vty_io vio) ;
-static void uty_do_window_size (vty_io vio) ;
-static void uty_dont_lflow_ahead (vty_io vio) ;
+static enum vty_readiness uty_cli_standard(vty_cli cli) ;
+static enum vty_readiness uty_cli_more_wait(vty_cli cli) ;
+static void uty_cli_draw(vty_cli cli) ;
+static void uty_cli_draw_this(vty_cli cli, node_type_t node) ;
 
 /*------------------------------------------------------------------------------
- * Initialise CLI.
+ * CLI for VTY_TERMINAL
  *
- * It is assumed that the following have been initialised, empty or zero:
- *
- *   cli_prompt_for_node
- *   cl
- *   clx
- *   cli_vbuf
- *   cli_obuf
- *
- *   cli_drawn
- *   cli_dirty
- *
- *   cli_prompt_set
- *
- *   cli_blocked
- *   cmd_in_progress
- *   cmd_out_enabled
- *   cli_wait_more
- *
- *   cli_more_enabled
- *
- * Sets the CLI such that there is apparently a command in progress, so that
- * further initialisation (in particular hello messages and the like) is
- * treated as a "start up command".
- *
- * Sends a suitable set of Telnet commands to start the process.
- */
-extern void
-uty_cli_init(vty_io vio)
-{
-  assert(vio->vty->type == VTY_TERMINAL) ;
-
-  vio->cmd_in_progress  = 1 ;
-  vio->cli_blocked      = 1 ;
-
-  vio->cli_do           = cli_do_nothing ;
-
-  /* Setting up terminal.                                               */
-  uty_will_echo (vio);
-  uty_will_suppress_go_ahead (vio);
-  uty_dont_linemode (vio);
-  uty_do_window_size (vio);
-  if (0)
-    uty_dont_lflow_ahead (vio) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Start the CLI.
- *
- * All start-up operations are complete -- so the "command" is now complete.
- *
- * Returns: write_ready -- so the first event is a write event, to flush
- *                         any output to date.
- */
-extern enum vty_readiness
-uty_cli_start(vty_io vio)
-{
-  uty_cli_cmd_complete(vio, CMD_SUCCESS) ;
-  return write_ready ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Close the CLI
- *
- * Note that if any command is revoked, then will clear cmd_in_progress and
- * set cmd_out_enabled -- so any output can now clear.
- */
-extern void
-uty_cli_close(vty_io vio)
-{
-  VTY_ASSERT_LOCKED() ;
-  assert(vio->vty->type == VTY_TERMINAL) ;
-
-  cq_revoke(vio->vty) ;
-
-  vio->cli_blocked     = 1 ;    /* don't attempt any more       */
-  vio->cmd_out_enabled = 1 ;    /* allow output to clear        */
-} ;
-
-/*------------------------------------------------------------------------------
- * CLI for VTY_TERM
+ * Called by uty_term_ready(), so driven by read/write ready.
  *
  * Do nothing at all if half closed.
  *
@@ -370,29 +529,33 @@ uty_cli_close(vty_io vio)
  * NB: on return, requires that an attempt is made to write away anything that
  *     may be ready for that.
  */
-extern enum vty_readiness
-uty_cli(vty_io vio)
+extern vty_readiness_t
+uty_cli(vty_cli cli)
 {
   VTY_ASSERT_LOCKED() ;
-  assert(vio->vty_type == VTY_TERM) ;
 
-  if (vio->half_closed)
-    return not_ready ;          /* Nothing more if half closed          */
+  if (cli->vf->vin_state != vf_open)
+    return not_ready ;          /* Nothing more from CLI if closing     */
 
   /* Standard or "--more--" CLI ?                                       */
-  if (vio->cli_more_wait)
-    return uty_cli_more_wait(vio) ;
+  if (cli->more_wait)
+    return uty_cli_more_wait(cli) ;
   else
-    return uty_cli_standard(vio) ;
+    return uty_cli_standard(cli) ;
 } ;
 
 /*==============================================================================
  * The Standard CLI
  */
 
-static enum cli_do uty_cli_process(vty_io vio, enum node_type node) ;
-static void uty_cli_response(vty_io vio, enum cli_do cli_do) ;
-static bool uty_cli_dispatch(vty_io vio) ;
+static cmd_do_t uty_cli_process(vty_cli cli, node_type_t node) ;
+static void uty_cli_response(vty_cli cli, cmd_do_t cmd_do) ;
+
+
+static void uty_cli_dispatch(vty_cli cli) ;
+static cmd_do_t uty_cli_command(vty_cli cli) ;
+static void uty_cli_hist_add (vty_cli cli, qstring clx) ;
+
 
 /*------------------------------------------------------------------------------
  * Standard CLI for VTY_TERM -- if not blocked, runs until:
@@ -408,34 +571,21 @@ static bool uty_cli_dispatch(vty_io vio) ;
  *          write_ready  if there is anything in the keystroke stream
  *          read_ready   otherwise
  */
-static enum vty_readiness
-uty_cli_standard(vty_io vio)
+static vty_readiness_t
+uty_cli_standard(vty_cli cli)
 {
   VTY_ASSERT_LOCKED() ;
-  assert(vio->vty_type == VTY_TERM) ;
 
-  /* cli_blocked is set when is waiting for a command, or its output to
-   * complete -- unless either of those has happened, is still blocked.
+  assert(!cli->more_wait) ;     /* cannot be here in more_wait state !  */
+
+  /* cli_blocked is set when is waiting for a command, or some output to
+   * complete.
    *
    * NB: in both these cases, assumes that other forces are at work to
    *     keep things moving.
    */
-  if (vio->cli_blocked)
-    {
-      assert(vio->cmd_in_progress || vio->cmd_out_enabled) ;
-
-      if (vio->cmd_in_progress)
-        {
-          assert(!vio->cmd_out_enabled) ;
-          return not_ready ;
-        } ;
-
-      if (!vio_fifo_empty(&vio->cmd_obuf))
-        return not_ready ;
-
-      vio->cli_blocked     = 0 ;
-      vio->cmd_out_enabled = 0 ;
-    } ;
+  if (cli->blocked || cli->out_active)
+    return not_ready ;
 
   /* If there is nothing pending, then can run the CLI until there is
    * something to do, or runs out of input.
@@ -444,26 +594,26 @@ uty_cli_standard(vty_io vio)
    * now completed, which may have wiped the pending command or changed
    * the required prompt.
    */
-  if (vio->cli_do == cli_do_nothing)
-    vio->cli_do = uty_cli_process(vio, vio->vty->node) ;
+  if (cli->to_do == cmd_do_nothing)
+    cli->to_do = uty_cli_process(cli, cli->node) ;
   else
-    uty_cli_draw_this(vio, vio->vty->node) ;
+    uty_cli_draw_this(cli, cli->node) ;
 
-  /* If have something to do, do it.                                */
-  if (vio->cli_do != cli_do_nothing)
+  /* If have something to do, do it if we can.                          */
+  if (cli->to_do != cmd_do_nothing)
     {
-      /* Reflect immediate response                                 */
-      uty_cli_response(vio, vio->cli_do) ;
+      /* Reflect immediate response                                     */
+      uty_cli_response(cli, cli->to_do) ;
 
       /* If command not already in progress, dispatch this one, which may
        * set the CLI blocked.
        *
        * Otherwise is now blocked until queued command completes.
        */
-      if (!vio->cmd_in_progress)
-        vio->cli_blocked = uty_cli_dispatch(vio) ;
+      if (cli->in_progress)
+        cli->blocked = true ;   /* blocked waiting for previous         */
       else
-        vio->cli_blocked = 1 ;
+        uty_cli_dispatch(cli) ; /* can dispatch the latest              */
     } ;
 
   /* Use write_ready as a proxy for read_ready on the keystroke stream.
@@ -475,115 +625,150 @@ uty_cli_standard(vty_io vio)
    * defensive: at worst will generate one unnecessary read_ready/write_ready
    * event.
    */
-  if (keystroke_stream_empty(vio->key_stream))
+  if (keystroke_stream_empty(cli->key_stream))
     return read_ready ;
   else
     return write_ready ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Dispatch the current vio->cli_do -- queueing it if necessary.
+ * Dispatch the current cli->to_do -- queueing it if necessary.
  *
  * Requires that are NOT blocked and NO command is queued.
  *
  * Expects to be on new blank line, and when returns will be on new, blank
  * line.
  *
- * Returns: true <=> command completed and output is pending
- *         false  => command has been queued and is now in progress
+ * Generally sets cli->to_do = cmd_do_nothing and clears cli->cl to empty.
  *
- * Generally sets vio->cl_do = cli_do_nothing and clears vio->cl to empty.
- *
- * Can set vio->cl_do = and vio->cl to be a follow-on command.
+ * Can set cli->cl_do = and cli->cl to be a follow-on command.
  */
-static bool
-uty_cli_dispatch(vty_io vio)
+static void
+uty_cli_dispatch(vty_cli cli)
 {
-  qstring_t tmp ;
-  enum cli_do cli_do ;
-  enum cmd_return_code ret ;
+  qstring   tmp ;
+  cmd_do_t  to_do_now ;
 
-  struct vty* vty = vio->vty ;
+  vty_io  vio = cli->vf->vio ;
 
   VTY_ASSERT_LOCKED() ;
-  assert(!vio->cli_blocked && !vio->cmd_in_progress) ;
 
-  /* Set vio->clx to the command about to execute.
+  /* About to dispatch a command, so must be in the following state.    */
+  assert(!cli->in_progress && !cli->out_active && !cli->blocked) ;
+  assert(cli->node == vio->vty->node) ;
+
+  /* Set cli->clx to the command about to execute & pick up cli->to_do.
    *
-   * Clear vio->cl  and vio->cl_do.
+   * Clear cli->cl  and cli->to_do.
    */
-  vio->cmd_in_progress  = 1 ;           /* => vty->buf is valid         */
-  vio->cmd_out_enabled  = 0 ;           /* => collect all output        */
+  tmp      = cli->clx ;                 /* swap clx and cl              */
+  cli->clx = cli->cl ;
+  cli->cl  = tmp ;
 
-  tmp      = vio->clx ;                 /* swap clx and cl              */
-  vio->clx = vio->cl ;
-  vio->cl  = tmp ;
+  to_do_now = cli->to_do ;              /* current operation            */
 
-  qs_term(&vio->clx) ;                  /* ensure string is terminated  */
-  vty->buf = qs_chars(&vio->clx) ;      /* terminated command line      */
-  cli_do = vio->cli_do ;                /* current operation            */
+  cli->to_do = cmd_do_nothing ;         /* clear                        */
+  qs_clear(cli->cl) ;                   /* set cl empty                 */
 
-  vio->cli_do = cli_do_nothing ;        /* clear                        */
-  qs_clear(&vio->cl) ;                  /* set cl empty (with '\0')     */
-
-  /* Reset the command output FIFO and line_control                     */
-  assert(vio_fifo_empty(&vio->cmd_obuf)) ;
-  uty_out_clear(vio) ;                  /* clears FIFO and line control */
+  /* Reset the command output FIFO and line_control TODO                */
+//uty_out_clear(cli->vio) ;             /* clears FIFO and line control */
 
   /* Dispatch command                                                       */
-  if ((vty->node == AUTH_NODE) || (vty->node == AUTH_ENABLE_NODE))
-    {
-      /* AUTH_NODE and AUTH_ENABLE_NODE are unique                          */
-      ret = uty_auth(vty, vty->buf, cli_do) ;
-    }
+  if      ((cli->node == AUTH_NODE)        && (to_do_now != cmd_do_nothing))
+    to_do_now |= cmd_do_auth ;
+  else if ((cli->node == AUTH_ENABLE_NODE) && (to_do_now != cmd_do_nothing))
+    to_do_now |= cmd_do_auth_enable ;
   else
     {
       /* All other nodes...                                                 */
-      switch (cli_do)
+      switch (to_do_now)
       {
-        case cli_do_nothing:
-          ret = CMD_SUCCESS ;
+        case cmd_do_nothing:
+        case cmd_do_ctrl_c:
+        case cmd_do_eof:
           break ;
 
-        case cli_do_command:
-          ret = uty_command(vty) ;
+        case cmd_do_command:
+          to_do_now = uty_cli_command(cli) ;
           break ;
 
-        case cli_do_ctrl_c:
-          ret = uty_stop_input(vty) ;
+        case cmd_do_ctrl_d:
+          zabort("invalid cmd_do_ctrl_d") ;
           break ;
 
-        case cli_do_ctrl_d:
-          ret = uty_down_level(vty) ;
-          break ;
+        case cmd_do_ctrl_z:
+          to_do_now = uty_cli_command(cli) ;
 
-        case cli_do_ctrl_z:
-          ret = uty_command(vty) ;
-          if (ret == CMD_QUEUED)
-            vio->cli_do = cli_do_ctrl_z ;       /* defer the ^Z action  */
+          if (to_do_now == cmd_do_nothing)
+            to_do_now = cmd_do_ctrl_z ;
           else
-            ret = uty_end_config(vty) ;         /* do the ^Z now        */
-          break ;
+            cli->to_do = cmd_do_ctrl_z ;        /* defer the ^Z       */
 
-        case cli_do_eof:
-          ret = uty_cmd_close(vio->vty, "End") ;
           break ;
 
         default:
-          zabort("unknown cli_do_xxx value") ;
+          zabort("unknown cmd_do_xxx value") ;
       } ;
     } ;
 
-  if (ret == CMD_QUEUED)
+  cli->hp = cli->h_now ;        /* in any event, back to the present    */
+
+  if (to_do_now != cmd_do_nothing)
     {
-      uty_cli_draw(vio) ;       /* draw the prompt              */
-      return false ;            /* command not complete         */
+      cli->in_progress = true ;
+      uty_cmd_dispatch(vio, to_do_now, cli->clx) ;
     }
   else
+    uty_cli_draw(cli) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Enqueue command -- adding to history -- if is not empty or just comment
+ *
+ * This is for VTY_TERM type VTY.
+ *
+ * Returns: CMD_SUCCESS  => empty command line (or just comment)
+ *          CMD_WAITING  => enqueued for parse and execute
+ */
+static cmd_do_t
+uty_cli_command(vty_cli cli)
+{
+  VTY_ASSERT_LOCKED() ;
+  VTY_ASSERT_CLI_THREAD() ;
+
+  if (cmd_is_empty(qs_els_nn(cli->clx)))
+    return cmd_do_nothing ;     /* easy when nothing to do !            */
+
+  /* Add not empty command to history                                   */
+  uty_cli_hist_add(cli, cli->clx) ;
+
+  return cmd_do_command ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * A command has completed, and there is (or may be) some output to now
+ * write away.
+ */
+extern void
+uty_cli_out_push(vty_cli cli)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  if (cli->more_wait)
+    return ;                    /* can do nothing                       */
+
+  if (vio_fifo_empty(cli->vf->obuf))
     {
-      uty_cli_cmd_complete(vio, ret) ;
-      return true ;             /* command complete             */
+      assert(!cli->out_active ) ;
+      return ;                  /* need do nothing if is empty          */
     } ;
+
+  uty_cli_wipe(cli, 0) ;        /* wipe any partly constructed line     */
+
+  cli->out_active   = true ;    /* enable the output                    */
+
+  uty_term_set_readiness(cli->vf, write_ready) ;
+                                /* kick the write side into action      */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -591,50 +776,13 @@ uty_cli_dispatch(vty_io vio)
  *
  * Note that sets write on whether there is anything in the output buffer
  * or not... write_ready will kick read_ready.
- */
-extern void
-vty_queued_result(struct vty *vty, enum cmd_return_code ret)
-{
-  vty_io vio ;
 
-  VTY_LOCK() ;
 
-  vio = vty->tos ;
-
-  if (!vio->closed)
-    {
-      uty_cli_wipe(vio, 0) ;    /* wipe any partly constructed line     */
-
-      /* Do the command completion actions that were deferred because the
-       * command was queued.
-       *
-       * Return of CMD_QUEUED => command was revoked before being executed.
-       * However interesting that might be... frankly don't care.
-       */
-      uty_cli_cmd_complete(vio, ret) ;
-
-      /* Kick the socket -- to write away any outstanding output, and
-       * re-enter the CLI when that's done.
-       */
-      uty_sock_set_readiness(&vio->sock, write_ready) ;
-    }
-  else
-    {
-      /* If the VTY is closed, the only reason it still exists is because
-       * there was cmd_in_progress.
-       */
-      vio->cmd_in_progress = 0 ;  /* death watch will apply coup de grace */
-    } ;
-
-  VTY_UNLOCK() ;
-}
-
-/*------------------------------------------------------------------------------
  * Command has completed, so:
  *
  *   * clear cmd_in_progress
- *   * set   cmd_out_enabled -- so any output can now proceed
- *   * set   cli_blocked     -- waiting for output to complete
+ *   * set   cmd_out_active -- so any output can now proceed
+ *   * set   cli_blocked    -- waiting for output to complete
  *   * and prepare the line control for output
  *
  * If the return is CMD_CLOSE, then also now does the required half close.
@@ -650,33 +798,153 @@ vty_queued_result(struct vty *vty, enum cmd_return_code ret)
  *
  * It also means that the decision about whether there is anything to output
  * is left to the output code.
+
+
+
  */
-static void
-uty_cli_cmd_complete(vty_io vio, enum cmd_return_code ret)
+extern void
+uty_cli_done_command(vty_cli cli, node_type_t node)
 {
   VTY_ASSERT_LOCKED() ;
 
-  assert(vio->cmd_in_progress && !vio->cmd_out_enabled) ;
+  uty_cli_out_push(cli) ;       /* just in case                         */
 
-  if (ret == CMD_CLOSE)
-    uty_close(vio, NULL) ;
+  cli->in_progress  = false ;   /* command complete                     */
+  cli->blocked      = false ;   /* releases possibly blocked command    */
+  cli->node         = node ;    /* and now in this node                 */
 
-  vio->cmd_in_progress  = 0 ;   /* command complete                     */
-  vio->cmd_out_enabled  = 1 ;   /* enable the output                    */
-  vio->cli_blocked      = 1 ;   /* now blocked waiting for output       */
+  /* Reach all the way back, and get the now current node.              */
+  cli->node = cli->vf->vio->vty->node ;
 
-  vio->vty->buf = NULL ;        /* finished with command line           */
+  uty_term_set_readiness(cli->vf, write_ready) ;
+                                /* kick the write side into action      */
+} ;
 
-  uty_cmd_output_start(vio) ;   /* reset line control (belt & braces)   */
+/*==============================================================================
+ * All commands are dispatched to command_queue.
+ *
+ * Some commands are VLI specific... and end up back here.
+ */
+
+/*------------------------------------------------------------------------------
+ * Authentication of vty
+ *
+ * Note that if the AUTH_NODE password fails too many times, the terminal is
+ * closed.
+ *
+ * Returns: CMD_SUCCESS  -- OK, one way or another
+ *          CMD_WARNING  -- with error message sent to output
+ *          CMD_CLOSE    -- too many password failures
+ */
+extern cmd_return_code_t
+uty_cli_auth(vty_cli cli)
+{
+  char *crypt (const char *, const char *);
+
+  char*         passwd    = NULL ;
+  bool          encrypted = false ;
+  node_type_t   next_node = 0 ;
+  cmd_return_code_t  ret ;
+  vty_io        vio ;
+  cmd_exec      exec ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  vio  = cli->vf->vio ;
+  exec = vio->vty->exec ;
+
+  /* Deal with the exotic terminators.                                  */
+  switch (exec->to_do & cmd_do_mask)
+  {
+    case cmd_do_nothing:
+    case cmd_do_ctrl_c:
+    case cmd_do_ctrl_z:
+      return CMD_SUCCESS ;
+
+    case cmd_do_command:
+      break ;
+
+    case cmd_do_ctrl_d:
+    case cmd_do_eof:
+      return uty_cmd_close(vio, "End") ;
+
+    default:
+      zabort("unknown or invalid cmd_do") ;
+  } ;
+
+  /* Ordinary command dispatch -- see if password is OK.
+   *
+   * Select the password we need to check against.
+   */
+  if      ((exec->to_do & ~cmd_do_mask) == cmd_do_auth)
+    {
+      passwd    = host.password ;
+      encrypted = host.password_encrypted ;
+
+      if (host.advanced)
+        next_node = host.enable ? VIEW_NODE : ENABLE_NODE;
+      else
+        next_node = VIEW_NODE;
+    }
+  else if ((exec->to_do & ~cmd_do_mask) == cmd_do_auth_enable)
+    {
+      passwd    = host.enable ;
+      encrypted = host.enable_encrypted ;
+
+      next_node = ENABLE_NODE;
+    }
+  else
+    zabort("unknown to_do_value") ;
+
+  /* Check against selected password (if any)                           */
+  if (passwd != NULL)
+    {
+      char* candidate = qs_make_string(exec->line) ;
+
+      if (encrypted)
+        candidate = crypt(candidate, passwd) ;
+
+      if (strcmp(candidate, passwd) == 0)
+        {
+          cli->password_fail = 0 ;      /* forgive any recent failures  */
+          vio->vty->node = next_node;
+
+          return CMD_SUCCESS ;          /* <<< SUCCESS <<<<<<<<         */
+        } ;
+    } ;
+
+  /* Password failed -- or none set !                                   */
+  cli->password_fail++ ;
+
+  ret = CMD_SUCCESS ;           /* OK so far                            */
+
+  if (cli->password_fail >= 3)
+    {
+      if ((exec->to_do & ~cmd_do_mask) == cmd_do_auth)
+        {
+          ret = uty_cmd_close(vio, "Bad passwords, too many failures!") ;
+        }
+      else
+        {
+          /* AUTH_ENABLE_NODE                                       */
+          cli->password_fail = 0 ;  /* allow further attempts       */
+          uty_out(vio, "%% Bad enable passwords, too many failures!\n") ;
+          vio->vty->node = host.restricted_mode ? RESTRICTED_NODE
+                                                : VIEW_NODE ;
+          ret = CMD_WARNING ;
+        } ;
+    } ;
+
+  return ret ;
 } ;
 
 /*==============================================================================
  * The "--more--" CLI
  *
- * While command output is being cleared from its FIFO, the CLI is cli_blocked.
+ * While command output is being cleared from its FIFO, the CLI is blocked.
  *
  * When the output side signals that "--more--" is required, it sets the
- * cli_more_wait flag and clears the cmd_out_enabled flag.
+ * more_wait flag and clears the out_active flag.
  *
  * The first stage of handling "--more--" is to suck the input dry, so that
  * (as far as is reasonably possible) does not steal a keystroke as the
@@ -691,19 +959,20 @@ uty_cli_cmd_complete(vty_io vio, enum cmd_return_code ret)
  * Outputs the new prompt line.
  */
 extern void
-uty_cli_enter_more_wait(vty_io vio)
+uty_cli_enter_more_wait(vty_cli cli)
 {
   VTY_ASSERT_LOCKED() ;
 
-  assert(vio->cli_blocked && vio->cmd_out_enabled && !vio->cli_more_wait) ;
+  assert(cli->out_active && !cli->more_wait) ;
 
-  uty_cli_wipe(vio, 0) ;        /* make absolutely sure that command line is
+  uty_cli_wipe(cli, 0) ;        /* make absolutely sure that command line is
                                    wiped before change the CLI state    */
 
-  vio->cmd_out_enabled  = 0 ;   /* stop output pro tem                  */
-  vio->cli_more_wait    = 1 ;   /* new state                            */
+  cli->out_active  = false ;    /* stop output pro tem                  */
+  cli->more_wait   = true ;     /* new state                            */
+  cli->more_active = true ;     /* drawing the "--more--"               */
 
-  uty_cli_draw(vio) ;           /* draw the "--more--"                  */
+  uty_cli_draw(cli) ;           /* draw the "--more--"                  */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -717,27 +986,26 @@ uty_cli_enter_more_wait(vty_io vio)
  * possible that the '--more--' prompt is yet to be completely written away,
  * so:
  *
- *   * assert that is either: !vio->cli_blocked (most of the time it will)
- *                        or: !vio_fifo_empty(&vio->cli_obuf)
+ *   * assert that is either: !cli->blocked (most of the time it will)
+ *                        or: !vio_fifo_empty(cli->cbuf)
  *
  *   * note that can wipe the prompt even though it hasn't been fully
  *     written away yet.  (The effect is to append the wipe action to the
  *     cli_obuf !)
  */
 extern void
-uty_cli_exit_more_wait(vty_io vio)
+uty_cli_exit_more_wait(vty_cli cli)
 {
   VTY_ASSERT_LOCKED() ;
 
-  assert( (!vio->cli_blocked || !vio_fifo_empty(&vio->cli_obuf))
-         && !vio->cmd_out_enabled && vio->cli_more_wait) ;
+  assert(cli->more_wait) ;
 
-  uty_cli_wipe(vio, 0) ;        /* wipe the prompt ('--more--')
+  uty_cli_wipe(cli, 0) ;        /* wipe the prompt ('--more--')
                                    before changing the CLI state        */
 
-  vio->cli_blocked      = 1 ;   /* back to blocked waiting for output   */
-  vio->cli_more_wait    = 0 ;   /* exit more_wait                       */
-  vio->cmd_out_enabled  = 1 ;   /* re-enable output                     */
+  cli->more_wait   = false ;    /* exit more_wait                       */
+  cli->more_active = false ;    /* tidy                                 */
+  cli->out_active  = true ;     /* re-enable output                     */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -754,35 +1022,37 @@ uty_cli_exit_more_wait(vty_io vio)
  *          now_ready   -- just left cli_more_wait
  *          not_ready   -- otherwise
  */
-static enum vty_readiness
-uty_cli_more_wait(vty_io vio)
+static vty_readiness_t
+uty_cli_more_wait(vty_cli cli)
 {
   struct keystroke steal ;
 
   VTY_ASSERT_LOCKED() ;
 
+  assert(cli->more_wait) ;      /* must be in more_wait state !         */
+
   /* Deal with the first stage of "--more--"                            */
-  if (vio->cli_blocked)
+  if (cli->more_active)
     {
       int  get ;
 
       /* If the CLI buffer is not yet empty, then is waiting for the
        * initial prompt to clear, so nothing to be done here.
        */
-      if (!vio_fifo_empty(&vio->cli_obuf))
-        return not_ready ;
+      if (!vio_fifo_empty(cli->cbuf))
+        return write_ready ;
 
-      vio->cli_blocked = 0 ;
+      cli->more_active = false ;
 
       /* empty the input buffer into the keystroke stream               */
       do
         {
-          get = uty_read(vio, NULL) ;
+          get = uty_term_read(cli->vf, NULL) ;
         } while (get > 0) ;
     } ;
 
-  /* Go through the "--more--" process, unless no longer write_open (!) */
-  if (vio->sock.write_open)
+  /* Go through the "--more--" process, unless closing                  */
+  if (cli->vf->vout_state == vf_open)
     {
       /* The read fetches a reasonable lump from the I/O -- so if there
        * is a complete keystroke available, expect to get it.
@@ -791,15 +1061,18 @@ uty_cli_more_wait(vty_io vio)
        *
        * If has hit EOF (or error etc), returns knull_eof.
        */
-      uty_read(vio, &steal) ;
+      uty_term_read(cli->vf, &steal) ;
 
       /* If nothing stolen, make sure prompt is drawn and wait for more
        * input.
        */
       if ((steal.type == ks_null) && (steal.value != knull_eof))
         {
-          if (uty_cli_draw_if_required(vio))    /* "--more--" if req.   */
-            return write_ready ;
+          if (uty_cli_draw_if_required(cli))    /* "--more--" if req.   */
+            {
+              cli->more_active = true ;  /* written "--more--" again    */
+              return write_ready ;
+            }
           else
             return read_ready ;
         } ;
@@ -812,7 +1085,7 @@ uty_cli_more_wait(vty_io vio)
             case CONTROL('C'):
             case 'q':
             case 'Q':
-              uty_out_clear(vio) ;
+              uty_out_clear(cli->vf->vio) ;
               break;
 
             default:                /* everything else, thrown away     */
@@ -828,7 +1101,7 @@ uty_cli_more_wait(vty_io vio)
    * Return write_ready to tidy up the screen and, unless cleared, write
    * some more.
    */
-  uty_cli_exit_more_wait(vio) ;
+  uty_cli_exit_more_wait(cli) ;
 
   return now_ready ;
 } ;
@@ -838,18 +1111,17 @@ uty_cli_more_wait(vty_io vio)
  *
  * This is buffered separately from the general (command) VTY output above.
  *
- * Has a dedicated buffer in the struct vty, which is flushed regularly during
- * command processing.
+ * Has a dedicated buffer in the struct vty_cli, which is flushed regularly
+ * during command processing.
  *
  * It is expected that can flush straight to the file, since this is running at
  * CLI speed.  However, if the CLI is being driven by something other than a
  * keyboard, or "monitor" output has filled the buffers, then may need to
  * have intermediate buffering.
  *
- * No actual I/O takes place here-- all "output" is to vio->cli_obuf
- *                                              and/or vio->cli_ex_obuf
+ * No actual I/O takes place here-- all "output" is to cli->cbuf
  *
- * The "cli_echo" functions discard the output if vio->cli_echo_suppress != 0.
+ * The "cli_echo" functions discard the output if cli->echo_suppress.
  * This is used while passwords are entered and to allow command line changes
  * to be made while the line is not visible.
  */
@@ -857,8 +1129,9 @@ uty_cli_more_wait(vty_io vio)
 enum { cli_rep_count = 32 } ;
 
 typedef const char cli_rep_char[cli_rep_count] ;
+typedef const char cli_rep[] ;
 
-static const char telnet_backspaces[] =
+static cli_rep telnet_backspaces =
                           { 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
                             0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
                             0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08,
@@ -866,35 +1139,39 @@ static const char telnet_backspaces[] =
                           } ;
 CONFIRM(sizeof(telnet_backspaces) == sizeof(cli_rep_char)) ;
 
-static const char telnet_spaces[] =
-                          {  ' ',  ' ',  ' ',  ' ',  ' ',  ' ',  ' ',  ' ',
-                             ' ',  ' ',  ' ',  ' ',  ' ',  ' ',  ' ',  ' ',
-                             ' ',  ' ',  ' ',  ' ',  ' ',  ' ',  ' ',  ' ',
-                             ' ',  ' ',  ' ',  ' ',  ' ',  ' ',  ' ',  ' '
-                          } ;
-CONFIRM(sizeof(telnet_spaces)     == sizeof(cli_rep_char)) ;
+/*                              12345678901234567890123456789012        */
+static cli_rep telnet_spaces = "                                " ;
+static cli_rep telnet_dots   = "................................" ;
+
+CONFIRM(sizeof(telnet_spaces)  == (sizeof(cli_rep_char) + 1)) ;
+CONFIRM(sizeof(telnet_dots)    == (sizeof(cli_rep_char) + 1)) ;
 
 static const char* telnet_newline = "\r\n" ;
 
-static void uty_cli_write(vty_io vio, const char *this, int len) ;
-static void uty_cli_write_n(vty_io vio, cli_rep_char chars, int n) ;
+static void uty_cli_write_n(vty_cli cli, cli_rep_char chars, int n) ;
 
 /*------------------------------------------------------------------------------
  * CLI VTY output -- cf fprintf()
  */
-static void
-uty_cli_out(vty_io vio, const char *format, ...)
+extern void
+uty_cli_out(vty_cli cli, const char *format, ...)
 {
+  va_list args ;
+
   VTY_ASSERT_LOCKED() ;
 
-  if (vio->sock.write_open)
-    {
-      va_list args ;
+  va_start (args, format);
+  vio_fifo_vprintf(cli->cbuf, format, args) ;
+  va_end(args);
+} ;
 
-      va_start (args, format);
-      vio_fifo_vprintf(&vio->cli_obuf, format, args) ;
-      va_end(args);
-    } ;
+/*------------------------------------------------------------------------------
+ * Completely empty the cli command buffer
+ */
+extern void
+uty_cli_out_clear(vty_cli cli)
+{
+  vio_fifo_clear(cli->cbuf, true) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -903,14 +1180,12 @@ uty_cli_out(vty_io vio, const char *format, ...)
  * Do nothing if echo suppressed (eg in AUTH_NODE) or not write_open
  */
 static void
-uty_cli_echo(vty_io vio, const char *this, size_t len)
+uty_cli_echo(vty_cli cli, const char *this, size_t len)
 {
   VTY_ASSERT_LOCKED() ;
 
-  if (vio->cli_echo_suppress || !vio->sock.write_open)
-    return ;
-
-  uty_cli_write(vio, this, len) ;
+  if (!cli->echo_suppress)
+    uty_cli_write(cli, this, len) ;
 }
 
 /*------------------------------------------------------------------------------
@@ -919,33 +1194,30 @@ uty_cli_echo(vty_io vio, const char *this, size_t len)
  * Do nothing if echo suppressed (eg in AUTH_NODE)
  */
 static void
-uty_cli_echo_n(vty_io vio, cli_rep_char chars, int n)
+uty_cli_echo_n(vty_cli cli, cli_rep_char chars, int n)
 {
   VTY_ASSERT_LOCKED() ;
 
-  if (vio->cli_echo_suppress || !vio->sock.write_open)
-    return ;
-
-  uty_cli_write_n(vio, chars, n) ;
+  if (!cli->echo_suppress)
+    uty_cli_write_n(cli, chars, n) ;
 }
 
 /*------------------------------------------------------------------------------
  * CLI VTY output -- cf write()
  */
-inline static void
-uty_cli_write(vty_io vio, const char *this, int len)
+extern void
+uty_cli_write(vty_cli cli, const char *this, int len)
 {
   VTY_ASSERT_LOCKED() ;
 
-  if (vio->sock.write_open)
-    vio_fifo_put(&vio->cli_obuf, this, len) ;
+  vio_fifo_put_bytes(cli->cbuf, this, len) ;
 } ;
 
 /*------------------------------------------------------------------------------
  * CLI VTY output -- write 'n' characters using a cli_rep_char string
  */
 static void
-uty_cli_write_n(vty_io vio, cli_rep_char chars, int n)
+uty_cli_write_n(vty_cli cli, cli_rep_char chars, int n)
 {
   int len ;
 
@@ -954,7 +1226,7 @@ uty_cli_write_n(vty_io vio, cli_rep_char chars, int n)
     {
       if (n < len)
         len = n ;
-      uty_cli_write(vio, chars, len) ;
+      uty_cli_write(cli, chars, len) ;
       n -= len ;
     } ;
 } ;
@@ -965,13 +1237,13 @@ uty_cli_write_n(vty_io vio, cli_rep_char chars, int n)
  * Returns length of string.
  */
 static int
-uty_cli_write_s(vty_io vio, const char *str)
+uty_cli_write_s(vty_cli cli, const char *str)
 {
   int len ;
 
   len = strlen(str) ;
   if (len != 0)
-    uty_cli_write(vio, str, len) ;
+    uty_cli_write(cli, str, len) ;
 
   return len ;
 } ;
@@ -985,12 +1257,12 @@ uty_cli_write_s(vty_io vio, const char *str)
  *
  * Clears the cli_drawn and the cli_dirty flags.
  */
-static void
-uty_cli_out_newline(vty_io vio)
+extern void
+uty_cli_out_newline(vty_cli cli)
 {
-  uty_cli_write(vio, telnet_newline, 2) ;
-  vio->cli_drawn = 0 ;
-  vio->cli_dirty = 0 ;
+  uty_cli_write(cli, telnet_newline, 2) ;
+  cli->drawn = false ;
+  cli->dirty = false ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1000,23 +1272,23 @@ uty_cli_out_newline(vty_io vio)
  *    'n' > 0, wipes characters forwards, leaving cursor where it is
  */
 static void
-uty_cli_out_wipe_n(vty_io vio, int n)
+uty_cli_out_wipe_n(vty_cli cli, int n)
 {
   if (n < 0)
     {
       n = abs(n) ;
-      uty_cli_write_n(vio, telnet_backspaces, n);
+      uty_cli_write_n(cli, telnet_backspaces, n);
     } ;
 
   if (n > 0)
     {
-      uty_cli_write_n(vio, telnet_spaces,     n) ;
-      uty_cli_write_n(vio, telnet_backspaces, n) ;
+      uty_cli_write_n(cli, telnet_spaces,     n) ;
+      uty_cli_write_n(cli, telnet_backspaces, n) ;
     } ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Send response to the given cli_do
+ * Send response to the given cmd_do
  *
  * If no command is in progress, then will send newline to signal that the
  * command is about to be dispatched.
@@ -1024,113 +1296,126 @@ uty_cli_out_wipe_n(vty_io vio, int n)
  * If command is in progress, then leaves cursor on '^' to signal that is now
  * waiting for previous command to complete.
  */
-static const char* cli_response [2][cli_do_count] =
+static const char* cli_response [2][cmd_do_count] =
 {
   { /* when not waiting for previous command to complete        */
-    [cli_do_command]  = "",
-    [cli_do_ctrl_c]   = "^C",
-    [cli_do_ctrl_d]   = "^D",
-    [cli_do_ctrl_z]   = "^Z",
-    [cli_do_eof]      = "^*"
+    [cmd_do_command]  = "",
+    [cmd_do_ctrl_c]   = "^C",
+    [cmd_do_ctrl_d]   = "^D",
+    [cmd_do_ctrl_z]   = "^Z",
+    [cmd_do_eof]      = "^*"
   },
   { /* when waiting for a previous command to complete          */
-    [cli_do_command]  = "^",
-    [cli_do_ctrl_c]   = "^C",
-    [cli_do_ctrl_d]   = "^D",
-    [cli_do_ctrl_z]   = "^Z",
-    [cli_do_eof]      = "^*"
+    [cmd_do_command]  = "^",
+    [cmd_do_ctrl_c]   = "^C",
+    [cmd_do_ctrl_d]   = "^D",
+    [cmd_do_ctrl_z]   = "^Z",
+    [cmd_do_eof]      = "^*"
   }
 } ;
 
 static void
-uty_cli_response(vty_io vio, enum cli_do cli_do)
+uty_cli_response(vty_cli cli, cmd_do_t to_do)
 {
   const char* str ;
   int len ;
 
-  if ((cli_do == cli_do_nothing) || (vio->half_closed))
+  if ((to_do == cmd_do_nothing) || (cli->vf->vin_state != vf_open))
     return ;
 
-  str = (cli_do < cli_do_count)
-          ? cli_response[vio->cmd_in_progress ? 1 : 0][cli_do]  : NULL ;
+  str = (to_do < cmd_do_count)
+          ? cli_response[cli->in_progress ? 1 : 0][to_do]  : NULL ;
   assert(str != NULL) ;
 
-  len = uty_cli_write_s(vio, str) ;
+  len = uty_cli_write_s(cli, str) ;
 
-  if (vio->cmd_in_progress)
+  if (cli->in_progress)
     {
-      vio->cli_extra_len = len ;
-      uty_cli_write_n(vio, telnet_backspaces, len) ;
+      cli->extra_len = len ;
+      uty_cli_write_n(cli, telnet_backspaces, len) ;
     }
   else
     {
-      uty_cli_out_newline(vio) ;
+      uty_cli_out_newline(cli) ;
     } ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Send various messages with trailing newline.
  */
-
+#if 0
 static void
-uty_cli_out_CMD_ERR_AMBIGUOUS(vty_io vio)
+uty_cli_out_CMD_ERR_AMBIGUOUS(vty_cli cli)
 {
-  uty_cli_write_s(vio, "% " MSG_CMD_ERR_AMBIGUOUS ".") ;
-  uty_cli_out_newline(vio) ;
+  uty_cli_write_s(cli, "% " MSG_CMD_ERR_AMBIGUOUS ".") ;
+  uty_cli_out_newline(cli) ;
 } ;
 
 static void
-uty_cli_out_CMD_ERR_NO_MATCH(vty_io vio)
+uty_cli_out_CMD_ERR_NO_MATCH(vty_cli cli)
 {
-  uty_cli_write_s(vio, "% " MSG_CMD_ERR_NO_MATCH ".") ;
-  uty_cli_out_newline(vio) ;
+  uty_cli_write_s(cli, "% " MSG_CMD_ERR_NO_MATCH ".") ;
+  uty_cli_out_newline(cli) ;
 } ;
-
+#endif
 /*==============================================================================
  * Command line draw and wipe
  */
 
 /*------------------------------------------------------------------------------
- * Wipe the current console line -- if any.
+ * Current prompt length
  */
-static void
-uty_cli_wipe(vty_io vio, int len)
+extern ulen
+uty_cli_prompt_len(vty_cli cli)
+{
+  return cli->prompt_len ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Wipe the current console line -- if any.
+ *
+ * If it is known that some characters will immediately be written, then
+ * passing the number of them as "len" will reduce the number of characters
+ * that have to be sent.
+ */
+extern void
+uty_cli_wipe(vty_cli cli, int len)
 {
   int a ;
   int b ;
 
-  if (!vio->cli_drawn)
+  if (!cli->drawn)
     return ;                    /* quit if already wiped        */
 
-  assert(vio->cl.cp <= vio->cl.len) ;
+  assert(qs_cp_nn(cli->cl) <= qs_len_nn(cli->cl)) ;
 
   /* Establish how much ahead and how much behind the cursor            */
-  a = vio->cli_extra_len ;
-  b = vio->cli_prompt_len ;
+  a = cli->extra_len ;
+  b = cli->prompt_len ;
 
-  if (!vio->cli_echo_suppress && !vio->cli_more_wait)
+  if (!cli->echo_suppress && !cli->more_wait)
     {
-      a += vio->cl.len - vio->cl.cp ;
-      b += vio->cl.cp ;
+      a += qs_len_nn(cli->cl) - qs_cp_nn(cli->cl) ;
+      b += qs_cp_nn(cli->cl) ;
     } ;
 
   /* Wipe anything ahead of the current position and ahead of new len   */
   if ((a + b) > len)
-    uty_cli_out_wipe_n(vio, +a) ;
+    uty_cli_out_wipe_n(cli, +a) ;
 
   /* Wipe anything behind current position, but ahead of new len        */
   if (b > len)
     {
-      uty_cli_out_wipe_n(vio, -(b - len)) ;
+      uty_cli_out_wipe_n(cli, -(b - len)) ;
       b = len ;         /* moved the cursor back        */
     } ;
 
   /* Back to the beginning of the line                                  */
-  uty_cli_write_n(vio, telnet_backspaces, b) ;
+  uty_cli_write_n(cli, telnet_backspaces, b) ;
 
   /* Nothing there any more                                             */
-  vio->cli_drawn = 0 ;
-  vio->cli_dirty = 0 ;
+  cli->drawn = false ;
+  cli->dirty = false ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1140,12 +1425,12 @@ uty_cli_wipe(vty_io vio, int len)
  * See uty_cli_draw().
  */
 extern bool
-uty_cli_draw_if_required(vty_io vio)
+uty_cli_draw_if_required(vty_cli cli)
 {
-  if (vio->cli_drawn)
+  if (cli->drawn)
     return false ;
 
-  uty_cli_draw(vio) ;
+  uty_cli_draw(cli) ;
 
   return true ;
 } ;
@@ -1156,9 +1441,9 @@ uty_cli_draw_if_required(vty_io vio)
  * See uty_cli_draw_this()
  */
 static void
-uty_cli_draw(vty_io vio)
+uty_cli_draw(vty_cli cli)
 {
-  uty_cli_draw_this(vio, vio->vty->node) ;
+  uty_cli_draw_this(cli, cli->node) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1171,7 +1456,7 @@ uty_cli_draw(vty_io vio)
  *
  * Draws prompt according to the given 'node', except:
  *
- *   * if is half_closed, draw nothing -- wipes the current line
+ *   * if is closing, draw nothing -- wipes the current line
  *
  *   * if is cli_more_wait, draw the "--more--" prompt
  *
@@ -1187,34 +1472,34 @@ uty_cli_draw(vty_io vio)
  *       cli_echo_suppress = (AUTH_NODE or AUTH_ENABLE_NODE)
  */
 static void
-uty_cli_draw_this(vty_io vio, enum node_type node)
+uty_cli_draw_this(vty_cli cli, enum node_type node)
 {
   const char* prompt ;
   size_t l_len ;
   int    p_len ;
 
-  if (vio->cli_dirty)
-    uty_cli_out_newline(vio) ;  /* clears cli_dirty and cli_drawn       */
+  if (cli->dirty)
+    uty_cli_out_newline(cli) ;  /* clears cli_dirty and cli_drawn       */
 
   /* Sort out what the prompt is.                                       */
-  if (vio->half_closed)
+  if (cli->vf->vin_state != vf_open)
     {
       prompt = "" ;
       p_len  = 0 ;
       l_len  = 0 ;
     }
-  else if (vio->cli_more_wait)
+  else if (cli->more_wait)
     {
       prompt = "--more--" ;
       p_len  = strlen(prompt) ;
       l_len  = 0 ;
     }
-  else if (vio->cmd_in_progress)
+  else if (cli->in_progress)
     {
       /* If there is a queued command, the prompt is a minimal affair.  */
       prompt = "~ " ;
       p_len  = strlen(prompt) ;
-      l_len  = vio->cl.len ;
+      l_len  = qs_len_nn(cli->cl) ;
     }
   else
     {
@@ -1225,49 +1510,46 @@ uty_cli_draw_this(vty_io vio, enum node_type node)
        *
        * If the host name changes, the cli_prompt_set flag is cleared.
        */
-      if (!vio->cli_prompt_set || (node != vio->cli_prompt_node))
+      if ((node != cli->prompt_node) || (host.name_gen != cli->prompt_gen))
         {
           const char* prompt ;
-
-          if (vty_host_name == NULL)
-            uty_check_host_name() ;         /* should never be required  */
 
           prompt = cmd_prompt(node) ;
           if (prompt == NULL)
             {
-              zlog_err("vty %s has node %d", uty_get_name(vio), node) ;
+              zlog_err("vty %s has node %d", uty_get_name(cli->vf->vio), node) ;
               prompt = "%s ???: " ;
             } ;
 
-          qs_printf(&vio->cli_prompt_for_node, prompt, vty_host_name);
+          qs_printf(cli->prompt_for_node, prompt, host.name);
 
-          vio->cli_prompt_node = node ;
-          vio->cli_prompt_set  = 1 ;
+          cli->prompt_node = node ;
+          cli->prompt_gen  = host.name_gen ;
         } ;
 
-      prompt = vio->cli_prompt_for_node.body ;
-      p_len  = vio->cli_prompt_for_node.len ;
-      l_len  = vio->cl.len ;
+      prompt = qs_char(cli->prompt_for_node) ;
+      p_len  = qs_len(cli->prompt_for_node) ;
+      l_len  = qs_len_nn(cli->cl) ;
     } ;
 
   /* Now, if line is currently drawn, time to wipe it                   */
-  if (vio->cli_drawn)
-    uty_cli_wipe(vio, p_len + l_len) ;
+  if (cli->drawn)
+    uty_cli_wipe(cli, p_len + l_len) ;
 
   /* Set about writing the prompt and the line                          */
-  vio->cli_drawn     = 1 ;
-  vio->cli_extra_len = 0 ;
-  vio->cli_echo_suppress = (node == AUTH_NODE || node == AUTH_ENABLE_NODE) ;
+  cli->drawn         = true ;
+  cli->extra_len     = false ;
+  cli->echo_suppress = (node == AUTH_NODE || node == AUTH_ENABLE_NODE) ;
 
-  vio->cli_prompt_len = p_len ;
+  cli->prompt_len = p_len ;
 
-  uty_cli_write(vio, prompt, p_len) ;
+  uty_cli_write(cli, prompt, p_len) ;
 
   if (l_len != 0)
     {
-      uty_cli_write(vio, qs_chars(&vio->cl), l_len) ;
-      if (vio->cl.cp < l_len)
-        uty_cli_write_n(vio, telnet_backspaces, l_len - vio->cl.cp) ;
+      uty_cli_write(cli, qs_char(cli->cl), l_len) ;
+      if (qs_cp_nn(cli->cl) < l_len)
+        uty_cli_write_n(cli, telnet_backspaces, l_len - qs_cp_nn(cli->cl)) ;
     } ;
 } ;
 
@@ -1298,11 +1580,11 @@ uty_cli_draw_this(vty_io vio, enum node_type node)
   * Wipe any existing command line.
   */
 extern void
-uty_cli_pre_monitor(vty_io vio, size_t len)
+uty_cli_pre_monitor(vty_cli cli, size_t len)
 {
   VTY_ASSERT_LOCKED() ;
 
-  uty_cli_wipe(vio, len) ;
+  uty_cli_wipe(cli, len) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1317,16 +1599,16 @@ uty_cli_pre_monitor(vty_io vio, size_t len)
  *         > 0 => rump not empty or some command line stuff written
  */
 extern int
-uty_cli_post_monitor(vty_io vio, const char* buf, size_t len)
+uty_cli_post_monitor(vty_cli cli, const char* buf, size_t len)
 {
   VTY_ASSERT_LOCKED() ;
 
   if (len != 0)
-    uty_cli_write(vio, buf, len) ;
+    uty_cli_write(cli, buf, len) ;
 
-  if (vio->cli_more_wait || (vio->cl.len != 0))
+  if (cli->more_wait || (qs_len_nn(cli->cl) != 0))
     {
-      uty_cli_draw(vio) ;
+      uty_cli_draw(cli) ;
       ++len ;
     } ;
 
@@ -1337,48 +1619,52 @@ uty_cli_post_monitor(vty_io vio, const char* buf, size_t len)
  * Command line processing loop
  */
 
-static bool uty_telnet_command(vty_io vio, keystroke stroke, bool callback) ;
-static int uty_cli_insert (vty_io vio, const char* chars, int n) ;
-static int uty_cli_overwrite (vty_io vio, char* chars, int n) ;
-static int uty_cli_word_overwrite (vty_io vio, char *str) ;
-static int uty_cli_forwards(vty_io vio, int n) ;
-static int uty_cli_backwards(vty_io vio, int n) ;
-static int uty_cli_del_forwards(vty_io vio, int n) ;
-static int uty_cli_del_backwards(vty_io vio, int n) ;
-static int uty_cli_bol (vty_io vio) ;
-static int uty_cli_eol (vty_io vio) ;
-static int uty_cli_word_forwards_delta(vty_io vio) ;
-static int uty_cli_word_forwards(vty_io vio) ;
-static int uty_cli_word_backwards_delta(vty_io vio, int eat_spaces) ;
-static int uty_cli_word_backwards_pure (vty_io vio) ;
-static int uty_cli_word_backwards (vty_io vio) ;
-static int uty_cli_del_word_forwards(vty_io vio) ;
-static int uty_cli_del_word_backwards(vty_io vio) ;
-static int uty_cli_del_to_eol (vty_io vio) ;
-static int uty_cli_clear_line(vty_io vio) ;
-static int uty_cli_transpose_chars(vty_io vio) ;
-static void uty_cli_history_use(vty_io vio, int step) ;
-static void uty_cli_next_line(vty_io vio) ;
-static void uty_cli_previous_line (vty_io vio) ;
-static void uty_cli_complete_command (vty_io vio, enum node_type node) ;
-static void uty_cli_describe_command (vty_io vio, enum node_type node) ;
+static int uty_cli_insert (vty_cli cli, const char* chars, int n) ;
+static int uty_cli_overwrite (vty_cli cli, char* chars, int n) ;
+//static int uty_cli_word_overwrite (vty_cli cli, char *str) ;
+static int uty_cli_forwards(vty_cli cli, int n) ;
+static int uty_cli_backwards(vty_cli cli, int n) ;
+static int uty_cli_del_forwards(vty_cli cli, int n) ;
+static int uty_cli_del_backwards(vty_cli cli, int n) ;
+static int uty_cli_bol (vty_cli cli) ;
+static int uty_cli_eol (vty_cli cli) ;
+static int uty_cli_word_forwards_delta(vty_cli cli) ;
+static int uty_cli_word_forwards(vty_cli cli) ;
+static int uty_cli_word_backwards_delta(vty_cli cli, int eat_spaces) ;
+//static int uty_cli_word_backwards_pure (vty_cli cli) ;
+static int uty_cli_word_backwards (vty_cli cli) ;
+static int uty_cli_del_word_forwards(vty_cli cli) ;
+static int uty_cli_del_word_backwards(vty_cli cli) ;
+static int uty_cli_del_to_eol (vty_cli cli) ;
+static int uty_cli_clear_line(vty_cli cli) ;
+static int uty_cli_transpose_chars(vty_cli cli) ;
+static void uty_cli_hist_use(vty_cli cli, int step) ;
+static void uty_cli_hist_next(vty_cli cli) ;
+static void uty_cli_hist_previous(vty_cli cli) ;
+static void uty_cli_complete_command (vty_cli cli, node_type_t node) ;
+static void uty_cli_describe_command (vty_cli cli, node_type_t node) ;
 
 /*------------------------------------------------------------------------------
  * Fetch next keystroke, reading from the file if required.
  */
-static inline bool
-uty_cli_get_keystroke(vty_io vio, keystroke stroke)
+static bool
+uty_cli_get_keystroke(vty_cli cli, keystroke stroke)
 {
-  if (keystroke_get(vio->key_stream, stroke))
-    return 1 ;
+  int got ;
 
-  uty_read(vio, NULL) ;         /* not stealing */
+  do
+    {
+      if (keystroke_get(cli->key_stream, stroke))
+        return true ;
 
-  return keystroke_get(vio->key_stream, stroke) ;
+      got = uty_term_read(cli->vf, NULL) ;    /* not stealing */
+    } while (got > 0) ;
+
+  return false ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Process keystrokes until run out of input, or get something to cli_do.
+ * Process keystrokes until run out of input, or get something to cmd_do.
  *
  * If required, draw the prompt and command line.
  *
@@ -1388,30 +1674,30 @@ uty_cli_get_keystroke(vty_io vio, keystroke stroke)
  * Processes the contents of the keystroke stream.  If exhausts that, will set
  * ready to read and return.  (To give some "sharing".)
  *
- * Returns: cli_do_xxxx
+ * Returns: cmd_do_xxxx
  *
  * When returns the cl is '\0' terminated.
  */
-static enum cli_do
-uty_cli_process(vty_io vio, enum node_type node)
+static cmd_do_t
+uty_cli_process(vty_cli cli, node_type_t node)
 {
-  struct keystroke stroke ;
-  uint8_t u ;
-  int auth ;
-  enum cli_do ret ;
+  struct   keystroke stroke ;
+  uint8_t  u ;
+  bool     auth ;
+  cmd_do_t to_do ;
 
   auth = (node == AUTH_NODE || node == AUTH_ENABLE_NODE) ;
 
   /* Now process as much as possible of what there is                   */
-  ret = cli_do_nothing ;
-  while (ret == cli_do_nothing)
+  to_do = cmd_do_nothing ;
+  while (to_do == cmd_do_nothing)
     {
-      if (!vio->cli_drawn)
-        uty_cli_draw_this(vio, node) ;
+      if (!cli->drawn)
+        uty_cli_draw_this(cli, node) ;
 
-      if (!uty_cli_get_keystroke(vio, &stroke))
+      if (!uty_cli_get_keystroke(cli, &stroke))
         {
-          ret = (stroke.value == knull_eof) ? cli_do_eof : cli_do_nothing ;
+          to_do = (stroke.value == knull_eof) ? cmd_do_eof : cmd_do_nothing ;
           break ;
         } ;
 
@@ -1431,87 +1717,91 @@ uty_cli_process(vty_io vio, enum node_type node)
           switch (stroke.value)
           {
             case CONTROL('A'):
-              uty_cli_bol (vio);
+              uty_cli_bol (cli);
               break;
 
             case CONTROL('B'):
-              uty_cli_backwards(vio, 1);
+              uty_cli_backwards(cli, 1);
               break;
 
             case CONTROL('C'):
-              ret = cli_do_ctrl_c ;     /* Exit on ^C ..................*/
+              to_do = cmd_do_ctrl_c ;   /* Exit on ^C ..................*/
               break ;
 
             case CONTROL('D'):
-              if (vio->cl.len == 0)     /* if at start of empty line    */
-                ret = cli_do_ctrl_d ;   /* Exit on ^D ..................*/
+              if (auth)
+                to_do = cmd_do_ctrl_d ; /* Exit on ^D ..................*/
               else
-                uty_cli_del_forwards(vio, 1);
+                uty_cli_del_forwards(cli, 1);
               break;
 
             case CONTROL('E'):
-              uty_cli_eol (vio);
+              uty_cli_eol (cli);
               break;
 
             case CONTROL('F'):
-              uty_cli_forwards(vio, 1);
+              uty_cli_forwards(cli, 1);
               break;
 
             case CONTROL('H'):
             case 0x7f:
-              uty_cli_del_backwards(vio, 1);
+              uty_cli_del_backwards(cli, 1);
               break;
 
             case CONTROL('K'):
-              uty_cli_del_to_eol (vio);
+              uty_cli_del_to_eol (cli);
               break;
 
             case CONTROL('N'):
-              uty_cli_next_line (vio);
+              uty_cli_hist_next (cli);
               break;
 
             case CONTROL('P'):
-              uty_cli_previous_line (vio);
+              uty_cli_hist_previous(cli);
               break;
 
             case CONTROL('T'):
-              uty_cli_transpose_chars (vio);
+              uty_cli_transpose_chars (cli);
               break;
 
             case CONTROL('U'):
-              uty_cli_clear_line(vio);
+              uty_cli_clear_line(cli);
               break;
 
             case CONTROL('W'):
-              uty_cli_del_word_backwards (vio);
+              uty_cli_del_word_backwards (cli);
               break;
 
             case CONTROL('Z'):
-              ret = cli_do_ctrl_z ;     /* Exit on ^Z ..................*/
+              to_do = cmd_do_ctrl_z ;   /* Exit on ^Z ..................*/
               break;
 
             case '\n':
             case '\r':
-              ret = cli_do_command ;    /* Exit on CR or LF.............*/
+              to_do = cmd_do_command ;  /* Exit on CR or LF.............*/
               break ;
 
             case '\t':
               if (auth)
-                break ;
+                uty_cli_insert (cli, " ", 1) ;
+              else if (cmd_token_position(cli->parsed, cli->cl))
+                uty_cli_insert (cli, " ", 1) ;
               else
-                uty_cli_complete_command (vio, node);
+                uty_cli_complete_command (cli, node);
               break;
 
             case '?':
-              if (auth)
-                uty_cli_insert (vio, (char*)&u, 1);
+              if       (auth)
+                uty_cli_insert (cli, (char*)&u, 1) ;
+              else if (cmd_token_position(cli->parsed, cli->cl))
+                uty_cli_insert (cli, (char*)&u, 1) ;
               else
-                uty_cli_describe_command (vio, node);
+                uty_cli_describe_command (cli, node);
               break;
 
             default:
               if ((stroke.value >= 0x20) && (stroke.value < 0x7F))
-                uty_cli_insert (vio, (char*)&u, 1) ;
+                uty_cli_insert (cli, (char*)&u, 1) ;
               break;
             }
           break ;
@@ -1521,20 +1811,20 @@ uty_cli_process(vty_io vio, enum node_type node)
           switch (stroke.value)
           {
             case 'b':
-              uty_cli_word_backwards (vio);
+              uty_cli_word_backwards (cli);
               break;
 
             case 'f':
-              uty_cli_word_forwards (vio);
+              uty_cli_word_forwards (cli);
               break;
 
             case 'd':
-              uty_cli_del_word_forwards (vio);
+              uty_cli_del_word_forwards (cli);
               break;
 
             case CONTROL('H'):
             case 0x7f:
-              uty_cli_del_word_backwards (vio);
+              uty_cli_del_word_backwards (cli);
               break;
 
             default:
@@ -1549,20 +1839,20 @@ uty_cli_process(vty_io vio, enum node_type node)
 
           switch (stroke.value)
           {
-            case ('A'):
-              uty_cli_previous_line (vio);
+            case ('A'):         /* up arrow     */
+              uty_cli_hist_previous(cli);
               break;
 
-            case ('B'):
-              uty_cli_next_line (vio);
+            case ('B'):         /* down arrow   */
+              uty_cli_hist_next (cli);
               break;
 
-            case ('C'):
-              uty_cli_forwards(vio, 1);
+            case ('C'):         /* right arrow  */
+              uty_cli_forwards(cli, 1);
               break;
 
-            case ('D'):
-              uty_cli_backwards(vio, 1);
+            case ('D'):         /* left arrow   */
+              uty_cli_backwards(cli, 1);
               break;
 
             default:
@@ -1572,7 +1862,7 @@ uty_cli_process(vty_io vio, enum node_type node)
 
         /* Telnet Command ----------------------------------------------------*/
         case ks_iac:
-          uty_telnet_command(vio, &stroke, false) ;
+          uty_telnet_command(cli->vf, &stroke, false) ;
           break ;
 
         /* Unknown -----------------------------------------------------------*/
@@ -1584,12 +1874,10 @@ uty_cli_process(vty_io vio, enum node_type node)
 
   /* Tidy up and return where got to.                                   */
 
-  if (ret != cli_do_nothing)
-    uty_cli_eol (vio) ;         /* go to the end of the line    */
+  if (to_do != cmd_do_nothing)
+    uty_cli_eol (cli) ;         /* go to the end of the line    */
 
-  qs_term(&vio->cl) ;           /* add '\0'                     */
-
-  return ret ;
+  return to_do ;
 } ;
 
 /*==============================================================================
@@ -1602,25 +1890,25 @@ uty_cli_process(vty_io vio, enum node_type node)
  * Returns number of characters inserted -- ie 'n'
  */
 static int
-uty_cli_insert (vty_io vio, const char* chars, int n)
+uty_cli_insert (vty_cli cli, const char* chars, int n)
 {
   int after ;
 
   VTY_ASSERT_LOCKED() ;
 
-  assert((vio->cl.cp <= vio->cl.len) && (n >= 0)) ;
+  assert((qs_cp_nn(cli->cl) <= qs_len_nn(cli->cl)) && (n >= 0)) ;
 
   if (n <= 0)
     return n ;          /* avoid trouble        */
 
-  after = qs_insert(&vio->cl, chars, n) ;
+  after = qs_insert(cli->cl, chars, n) ;
 
-  uty_cli_echo(vio, qs_cp_char(&vio->cl), after + n) ;
+  uty_cli_echo(cli, qs_cp_char(cli->cl), after) ;
 
-  if (after != 0)
-    uty_cli_echo_n(vio, telnet_backspaces, after) ;
+  if ((after - n) != 0)
+    uty_cli_echo_n(cli, telnet_backspaces, after - n) ;
 
-  vio->cl.cp  += n ;
+  qs_move_cp_nn(cli->cl, n) ;
 
   return n ;
 } ;
@@ -1633,23 +1921,57 @@ uty_cli_insert (vty_io vio, const char* chars, int n)
  * Returns number of characters inserted -- ie 'n'
  */
 static int
-uty_cli_overwrite (vty_io vio, char* chars, int n)
+uty_cli_overwrite (vty_cli cli, char* chars, int n)
 {
   VTY_ASSERT_LOCKED() ;
 
-  assert((vio->cl.cp <= vio->cl.len) && (n >= 0)) ;
+  assert((qs_cp_nn(cli->cl) <= qs_len_nn(cli->cl)) && (n >= 0)) ;
 
   if (n > 0)
     {
-      qs_replace(&vio->cl, chars, n) ;
-      uty_cli_echo(vio, chars, n) ;
+      qs_replace(cli->cl, n, chars, n) ;
+      uty_cli_echo(cli, chars, n) ;
 
-      vio->cl.cp += n ;
+      qs_move_cp_nn(cli->cl, n) ;
     } ;
 
   return n ;
 }
 
+/*------------------------------------------------------------------------------
+ * Replace 'm' characters at the current position, by 'n' characters and leave
+ * cursor at the end of the inserted characters.
+ *
+ * Returns number of characters inserted -- ie 'n'
+ */
+static int
+uty_cli_replace(vty_cli cli, int m, const char* chars, int n)
+{
+  int a, b ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  assert((qs_cp_nn(cli->cl) <= qs_len_nn(cli->cl)) && (n >= 0) && (m >= 0)) ;
+
+  b = qs_len_nn(cli->cl) - qs_cp_nn(cli->cl) ;
+  a = qs_replace(cli->cl, m, chars, n) ;
+
+  uty_cli_echo(cli, qs_cp_char(cli->cl), a) ;
+
+  if (a < b)
+    uty_cli_echo_n(cli, telnet_spaces, b - a) ;
+  else
+    b = a ;
+
+  if (b > n)
+    uty_cli_echo_n(cli, telnet_backspaces, b - n) ;
+
+  qs_move_cp_nn(cli->cl, n) ;
+
+  return n ;
+} ;
+
+#if 0
 /*------------------------------------------------------------------------------
  * Insert a word into vty interface with overwrite mode.
  *
@@ -1658,17 +1980,18 @@ uty_cli_overwrite (vty_io vio, char* chars, int n)
  * Returns number of characters inserted -- ie length of string
  */
 static int
-uty_cli_word_overwrite (vty_io vio, char *str)
+uty_cli_word_overwrite (vty_cli cli, char *str)
 {
   int n ;
   VTY_ASSERT_LOCKED() ;
 
-  n = uty_cli_overwrite(vio, str, strlen(str)) ;
+  n = uty_cli_overwrite(cli, str, strlen(str)) ;
 
-  vio->cl.len = vio->cl.cp ;
+  qs_set_len_nn(cli->cl, qs_cp_nn(cli->cl)) ;
 
   return n ;
 }
+#endif
 
 /*------------------------------------------------------------------------------
  * Forward 'n' characters -- stop at end of line.
@@ -1676,12 +1999,12 @@ uty_cli_word_overwrite (vty_io vio, char *str)
  * Returns number of characters actually moved
  */
 static int
-uty_cli_forwards(vty_io vio, int n)
+uty_cli_forwards(vty_cli cli, int n)
 {
   int have ;
   VTY_ASSERT_LOCKED() ;
 
-  have = vio->cl.len - vio->cl.cp ;
+  have = qs_after_cp_nn(cli->cl) ;
   if (have < n)
     n = have ;
 
@@ -1689,12 +2012,12 @@ uty_cli_forwards(vty_io vio, int n)
 
   if (n > 0)
     {
-      uty_cli_echo(vio, qs_cp_char(&vio->cl), n) ;
-      vio->cl.cp += n ;
+      uty_cli_echo(cli, qs_cp_char(cli->cl), n) ;
+      qs_move_cp_nn(cli->cl, n) ;
     } ;
 
   return n ;
-}
+} ;
 
 /*------------------------------------------------------------------------------
  * Backwards 'n' characters -- stop at start of line.
@@ -1702,23 +2025,43 @@ uty_cli_forwards(vty_io vio, int n)
  * Returns number of characters actually moved
  */
 static int
-uty_cli_backwards(vty_io vio, int n)
+uty_cli_backwards(vty_cli cli, int n)
 {
   VTY_ASSERT_LOCKED() ;
 
-  if ((int)vio->cl.cp < n)
-    n = vio->cl.cp ;
+  if ((int)qs_cp_nn(cli->cl) < n)
+    n = qs_cp_nn(cli->cl) ;
 
   assert(n >= 0) ;
 
   if (n > 0)
     {
-      uty_cli_echo_n(vio, telnet_backspaces, n) ;
-      vio->cl.cp -= n ;
+      uty_cli_echo_n(cli, telnet_backspaces, n) ;
+      qs_move_cp_nn(cli->cl, -n) ;
     } ;
 
   return n ;
-}
+} ;
+
+/*------------------------------------------------------------------------------
+ * Move forwards (if n > 0) or backwards (if n < 0) -- stop at start or end of
+ * line.
+ *
+ * Returns number of characters actually moved -- signed
+ */
+static int
+uty_cli_move(vty_cli cli, int n)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  if (n < 0)
+    return - uty_cli_backwards(cli, -n) ;
+
+  if (n > 0)
+    return + uty_cli_forwards(cli, +n) ;
+
+  return 0 ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Delete 'n' characters -- forwards -- stop at end of line.
@@ -1726,14 +2069,14 @@ uty_cli_backwards(vty_io vio, int n)
  * Returns number of characters actually deleted.
  */
 static int
-uty_cli_del_forwards(vty_io vio, int n)
+uty_cli_del_forwards(vty_cli cli, int n)
 {
   int after ;
   int have ;
 
   VTY_ASSERT_LOCKED() ;
 
-  have = vio->cl.len - vio->cl.cp ;
+  have = qs_after_cp_nn(cli->cl) ;
   if (have < n)
     n = have ;          /* cannot delete more than have */
 
@@ -1742,13 +2085,13 @@ uty_cli_del_forwards(vty_io vio, int n)
   if (n <= 0)
     return 0 ;
 
-  after = qs_delete(&vio->cl, n) ;
+  after = qs_delete(cli->cl, n) ;
 
   if (after > 0)
-    uty_cli_echo(vio, qs_cp_char(&vio->cl), after) ;
+    uty_cli_echo(cli, qs_cp_char(cli->cl), after) ;
 
-  uty_cli_echo_n(vio, telnet_spaces,     n) ;
-  uty_cli_echo_n(vio, telnet_backspaces, after + n) ;
+  uty_cli_echo_n(cli, telnet_spaces,     n) ;
+  uty_cli_echo_n(cli, telnet_backspaces, after + n) ;
 
   return n ;
 }
@@ -1759,9 +2102,9 @@ uty_cli_del_forwards(vty_io vio, int n)
  * Returns number of characters actually deleted.
  */
 static int
-uty_cli_del_backwards(vty_io vio, int n)
+uty_cli_del_backwards(vty_cli cli, int n)
 {
-  return uty_cli_del_forwards(vio, uty_cli_backwards(vio, n)) ;
+  return uty_cli_del_forwards(cli, uty_cli_backwards(cli, n)) ;
 }
 
 /*------------------------------------------------------------------------------
@@ -1770,9 +2113,9 @@ uty_cli_del_backwards(vty_io vio, int n)
  * Returns number of characters moved over.
  */
 static int
-uty_cli_bol (vty_io vio)
+uty_cli_bol (vty_cli cli)
 {
-  return uty_cli_backwards(vio, vio->cl.cp) ;
+  return uty_cli_backwards(cli, qs_cp_nn(cli->cl)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1781,9 +2124,9 @@ uty_cli_bol (vty_io vio)
  * Returns number of characters moved over
  */
 static int
-uty_cli_eol (vty_io vio)
+uty_cli_eol (vty_cli cli)
 {
-  return uty_cli_forwards(vio, vio->cl.len - vio->cl.cp) ;
+  return uty_cli_forwards(cli, qs_after_cp_nn(cli->cl)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1794,7 +2137,7 @@ uty_cli_eol (vty_io vio)
  * Steps over non-space characters and then any spaces.
  */
 static int
-uty_cli_word_forwards_delta(vty_io vio)
+uty_cli_word_forwards_delta(vty_cli cli)
 {
   char* cp ;
   char* tp ;
@@ -1802,10 +2145,10 @@ uty_cli_word_forwards_delta(vty_io vio)
 
   VTY_ASSERT_LOCKED() ; ;
 
-  assert(vio->cl.cp <= vio->cl.len) ;
+  assert(qs_cp_nn(cli->cl) <= qs_len_nn(cli->cl)) ;
 
-  cp = qs_cp_char(&vio->cl) ;
-  ep = qs_ep_char(&vio->cl) ;
+  cp = qs_cp_char(cli->cl) ;
+  ep = qs_ep_char(cli->cl) ;
 
   tp = cp ;
 
@@ -1824,9 +2167,9 @@ uty_cli_word_forwards_delta(vty_io vio)
  * Moves past any non-spaces, then past any spaces.
  */
 static int
-uty_cli_word_forwards(vty_io vio)
+uty_cli_word_forwards(vty_cli cli)
 {
-  return uty_cli_forwards(vio, uty_cli_word_forwards_delta(vio)) ;
+  return uty_cli_forwards(cli, uty_cli_word_forwards_delta(cli)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1838,7 +2181,7 @@ uty_cli_word_forwards(vty_io vio)
  * Steps back until next (backwards) character is space, or hits start of line.
  */
 static int
-uty_cli_word_backwards_delta(vty_io vio, int eat_spaces)
+uty_cli_word_backwards_delta(vty_cli cli, int eat_spaces)
 {
   char* cp ;
   char* tp ;
@@ -1846,10 +2189,10 @@ uty_cli_word_backwards_delta(vty_io vio, int eat_spaces)
 
   VTY_ASSERT_LOCKED() ; ;
 
-  assert(vio->cl.cp <= vio->cl.len) ;
+  assert(qs_cp_nn(cli->cl) <= qs_len_nn(cli->cl)) ;
 
-  cp = qs_cp_char(&vio->cl) ;
-  sp = qs_chars(&vio->cl) ;
+  cp = qs_cp_char(cli->cl) ;
+  sp = qs_char(cli->cl) ;
 
   tp = cp ;
 
@@ -1863,6 +2206,7 @@ uty_cli_word_backwards_delta(vty_io vio, int eat_spaces)
   return cp - tp ;
 } ;
 
+#if 0
 /*------------------------------------------------------------------------------
  * Backward word, but not trailing spaces.
  *
@@ -1871,10 +2215,11 @@ uty_cli_word_backwards_delta(vty_io vio, int eat_spaces)
  * Returns number of characters stepped over.
  */
 static int
-uty_cli_word_backwards_pure (vty_io vio)
+uty_cli_word_backwards_pure (vty_cli cli)
 {
-  return uty_cli_backwards(vio, uty_cli_word_backwards_delta(vio, 0)) ;
+  return uty_cli_backwards(cli, uty_cli_word_backwards_delta(cli, 0)) ;
 } ;
+#endif
 
 /*------------------------------------------------------------------------------
  * Backward word -- move to start of previous word.
@@ -1885,9 +2230,9 @@ uty_cli_word_backwards_pure (vty_io vio)
  * Returns number of characters stepped over.
  */
 static int
-uty_cli_word_backwards (vty_io vio)
+uty_cli_word_backwards (vty_cli cli)
 {
-  return uty_cli_backwards(vio, uty_cli_word_backwards_delta(vio, 1)) ;
+  return uty_cli_backwards(cli, uty_cli_word_backwards_delta(cli, 1)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1898,9 +2243,9 @@ uty_cli_word_backwards (vty_io vio)
  * Returns number of characters deleted.
  */
 static int
-uty_cli_del_word_forwards(vty_io vio)
+uty_cli_del_word_forwards(vty_cli cli)
 {
-  return uty_cli_del_forwards(vio, uty_cli_word_forwards_delta(vio)) ;
+  return uty_cli_del_forwards(cli, uty_cli_word_forwards_delta(cli)) ;
 }
 
 /*------------------------------------------------------------------------------
@@ -1911,9 +2256,9 @@ uty_cli_del_word_forwards(vty_io vio)
  * Returns number of characters deleted.
  */
 static int
-uty_cli_del_word_backwards(vty_io vio)
+uty_cli_del_word_backwards(vty_cli cli)
 {
-  return uty_cli_del_backwards(vio, uty_cli_word_backwards_delta(vio, 1)) ;
+  return uty_cli_del_backwards(cli, uty_cli_word_backwards_delta(cli, 1)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1922,9 +2267,9 @@ uty_cli_del_word_backwards(vty_io vio)
  * Returns number of characters deleted.
  */
 static int
-uty_cli_del_to_eol (vty_io vio)
+uty_cli_del_to_eol (vty_cli cli)
 {
-  return uty_cli_del_forwards(vio, vio->cl.len - vio->cl.cp) ;
+  return uty_cli_del_forwards(cli, qs_after_cp_nn(cli->cl)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1933,10 +2278,10 @@ uty_cli_del_to_eol (vty_io vio)
  * Returns number of characters deleted.
  */
 static int
-uty_cli_clear_line(vty_io vio)
+uty_cli_clear_line(vty_cli cli)
 {
-  uty_cli_bol(vio) ;
-  return uty_cli_del_to_eol(vio) ;
+  uty_cli_bol(cli) ;
+  return uty_cli_del_to_eol(cli) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1945,7 +2290,7 @@ uty_cli_clear_line(vty_io vio)
  * Return number of characters affected.
  */
 static int
-uty_cli_transpose_chars(vty_io vio)
+uty_cli_transpose_chars(vty_cli cli)
 {
   char  chars[2] ;
   char* cp ;
@@ -1953,54 +2298,79 @@ uty_cli_transpose_chars(vty_io vio)
   VTY_ASSERT_LOCKED() ;
 
   /* Give up if < 2 characters or at start of line.                     */
-  if ((vio->cl.len < 2) || (vio->cl.cp < 1))
+  if ((qs_len_nn(cli->cl) < 2) || (qs_cp_nn(cli->cl) < 1))
     return 0 ;
 
   /* Move back to first of characters to exchange                       */
-  if (vio->cl.cp == vio->cl.len)
-    uty_cli_backwards(vio, 2) ;
+  if (qs_cp_nn(cli->cl) == qs_len_nn(cli->cl))
+    uty_cli_backwards(cli, 2) ;
   else
-    uty_cli_backwards(vio, 1) ;
+    uty_cli_backwards(cli, 1) ;
 
   /* Pick up in the new order                                           */
-  cp = qs_cp_char(&vio->cl) ;
+  cp = qs_cp_char(cli->cl) ;
   chars[1] = *cp++ ;
   chars[0] = *cp ;
 
   /* And overwrite                                                      */
-  return uty_cli_overwrite(vio, chars, 2) ;
+  return uty_cli_overwrite(cli, chars, 2) ;
 } ;
 
 /*==============================================================================
  * Command line history handling
+ *
+ *   cli->hist   is vector of qstrings
+ *   cli->h_now  is index of the present time
+ *   cli->hp     is index of most recent line read back
+ *
+ * cli->hist is initialised empty, with h_now == hp == 0.
+ *
+ * On first use it is set to VTY_MAX_HIST entries, and its size never changes.
+ * Before VTY_MAX_HIST lines have been inserted, a NULL entry signals the end
+ * of history (to date).
+ *
+ * h_now is incremented after a line is inserted (and wraps round).  So
+ * stepping +1 moves towards the present (down) and -1 moves towards the past
+ * (up).
+ *
+ * hp == h_now means we are in the present.
+ *
+ * Cannot step forwards from hp == h_now (into the future !).
+ *
+ * Before stepping backwards from hp == hp_now, sets hp_now to be a copy of
+ * the current line (complete with cp), so can return to the present.
+ *
+ * Cannot step backwards to hp == hp_now -- that would be to wrap round from
+ * the ancient past to the now time.
+ *
+ * When storing a line in the history, replaces the last line stored if that
+ * is the same as the new line, apart from whitespace.
  */
 
 /*------------------------------------------------------------------------------
  * Add given command line to the history buffer.
  *
  * This is inserting the vty->buf line into the history.
+ *
+ * Resets hp == h_now.
  */
-extern void
-uty_cli_hist_add (vty_io vio, const char* cmd_line)
+static void
+uty_cli_hist_add (vty_cli cli, qstring clx)
 {
-  qstring   prev_line ;
-  qstring_t line ;
-  int   prev_index ;
+  qstring   hist_line ;
+  int       prev ;
 
   VTY_ASSERT_LOCKED() ;
 
-  /* Construct a dummy qstring for the given command line               */
-  qs_dummy(&line, cmd_line, 1) ;        /* set cursor to the end        */
-
   /* make sure have a suitable history vector                           */
-  vector_set_min_length(vio->hist, VTY_MAXHIST) ;
+  vector_set_min_length(cli->hist, VTY_MAXHIST) ;
 
-  /* find the previous command line in the history                      */
-  prev_index = vio->hindex - 1 ;
-  if (prev_index < 0)
-    prev_index = VTY_MAXHIST - 1 ;
+  /* get the previous command line                                      */
+  prev = cli->h_now - 1 ;
+  if (prev < 0)
+    prev = VTY_MAXHIST - 1 ;
 
-  prev_line = vector_get_item(vio->hist, prev_index) ;
+  hist_line = vector_get_item(cli->hist, prev) ;
 
   /* If the previous line is NULL, that means the history is empty.
    *
@@ -2008,23 +2378,32 @@ uty_cli_hist_add (vty_io vio, const char* cmd_line)
    * replace it with the current line -- so that the latest whitespace
    * version is saved.
    *
-   * Either way, replace the the previous line entry by moving hindex
-   * back !
+   * In both those cases, replace the the previous line entry by moving
+   * h_now back to it -- leaving hist_line pointing at it.
+   *
+   * Otherwise, leave cli->h_now and point hist_line at the most ancient
+   * line in history.
    */
-  if ((prev_line == NULL) || (qs_cmp_sig(prev_line, &line) == 0))
-    vio->hindex = prev_index ;
+  if ((hist_line == NULL) || (qs_cmp_sig(hist_line, clx) == 0))
+    cli->h_now = prev ;
   else
-    prev_line = vector_get_item(vio->hist, vio->hindex) ;
+    hist_line = vector_get_item(cli->hist, cli->h_now) ;
 
-  /* Now replace the hindex entry                                       */
-  vector_set_item(vio->hist, vio->hindex, qs_copy(prev_line, &line)) ;
+  /* Now replace the h_now entry
+   *
+   * Note that the line inserted in the history has it's 'cp' set to the end of
+   * the line -- so that it is there when it comes back out again.
+   */
+  hist_line = qs_copy(hist_line, clx) ;
+  qs_set_cp_nn(hist_line, qs_len_nn(hist_line)) ;
+  vector_set_item(cli->hist, cli->h_now, hist_line) ;
 
   /* Advance to the near future and reset the history pointer           */
-  vio->hindex++;
-  if (vio->hindex == VTY_MAXHIST)
-    vio->hindex = 0;
+  cli->h_now++;
+  if (cli->h_now == VTY_MAXHIST)
+    cli->h_now = 0;
 
-  vio->hp = vio->hindex;
+  cli->hp = cli->h_now;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2032,233 +2411,372 @@ uty_cli_hist_add (vty_io vio, const char* cmd_line)
  *
  * This function is called from vty_next_line and vty_previous_line.
  *
- * Step +1 is towards the present
- *      -1 is into the past
+ * Step -1 is into the past (up)
+ *      +1 is towards the present (down)
  */
 static void
-uty_cli_history_use(vty_io vio, int step)
+uty_cli_hist_use(vty_cli cli, int step)
 {
-  int       index ;
-  unsigned  old_len ;
-  unsigned  after ;
-  unsigned  back ;
-  qstring   hist ;
+  int       hp ;
+  ulen      old_len ;
+  ulen      new_len ;
+  ulen      after ;
+  ulen      back ;
+  qstring   hist_line ;
 
   VTY_ASSERT_LOCKED() ;
 
   assert((step == +1) || (step == -1)) ;
 
-  index = vio->hp ;
+  hp = cli->hp ;
 
   /* Special case of being at the insertion point                       */
-  if (index == vio->hindex)
+  if (hp == cli->h_now)
     {
       if (step > 0)
         return ;        /* already in the present               */
 
       /* before stepping back from the present, take a copy of the
        * current command line -- so can get back to it.
+       *
+       * Note that the 'cp' is stored with the line.  If return to here
+       * and later enter the line it will replace this.
        */
-      hist = vector_get_item(vio->hist, vio->hindex) ;
-      vector_set_item(vio->hist, vio->hindex, qs_copy(hist, &vio->cl)) ;
+      hist_line = vector_get_item(cli->hist, cli->h_now) ;
+      vector_set_item(cli->hist, cli->h_now, qs_copy(hist_line, cli->cl)) ;
     } ;
 
   /* Advance or retreat                                                 */
-  index += step ;
-  if      (index < 0)
-    index = VTY_MAXHIST - 1 ;
-  else if (index >= VTY_MAXHIST)
-    index = 0 ;
+  hp += step ;
+  if      (hp < 0)
+    hp = VTY_MAXHIST - 1 ;
+  else if (hp >= VTY_MAXHIST)
+    hp = 0 ;
 
-  hist = vector_get_item(vio->hist, index) ;
+  hist_line = vector_get_item(cli->hist, hp) ;
 
-  /* If moving backwards in time, may not move back to the insertion
+  /* If moving backwards in time, may not move back to the h_now
    * point (that would be wrapping round to the present) and may not
    * move back to a NULL entry (that would be going back before '.').
+   *
+   * If moving forwards in time, may return to the present, with
+   * hp == cli->h_now.
    */
   if (step < 0)
-    if ((hist == NULL) || (index == vio->hindex))
+    if ((hist_line == NULL) || (hp == cli->h_now))
       return ;
 
-  /* Now, if arrived at the insertion point, this is returning to the
-   * present, which is fine.
-   */
-  vio->hp = index;
+  cli->hp = hp ;
 
   /* Move back to the start of the current line                         */
-  uty_cli_bol(vio) ;
+  uty_cli_bol(cli) ;
 
   /* Get previous line from history buffer and echo that                */
-  old_len = vio->cl.len ;
-  qs_copy(&vio->cl, hist) ;
+  old_len = qs_len_nn(cli->cl) ;
+  qs_copy(cli->cl, hist_line) ;
+  new_len = qs_len_nn(cli->cl) ;
 
   /* Sort out wiping out any excess and setting the cursor position     */
-  if (old_len > vio->cl.len)
-    after = old_len - vio->cl.len ;
+  if (old_len > new_len)
+    after = old_len - new_len ;
   else
     after = 0 ;
 
-  back = after ;
-  if (vio->cl.len > vio->cl.cp)
-    back += (vio->cl.len - vio->cl.cp) ;
+  /* Return cursor to stored 'cp' -- which will be end of line unless
+   * this is the copy of the original current line stored above.
+   */
+  back = after + qs_after_cp_nn(cli->cl) ;
 
-  if (vio->cl.len > 0)
-    uty_cli_echo(vio, vio->cl.body, vio->cl.len) ;
+  if (new_len > 0)
+    uty_cli_echo(cli, qs_char_nn(cli->cl), new_len) ;
 
   if (after > 0)
-    uty_cli_echo_n(vio, telnet_spaces,     after) ;
+    uty_cli_echo_n(cli, telnet_spaces,     after) ;
 
   if (back > 0)
-    uty_cli_echo_n(vio, telnet_backspaces, back) ;
+    uty_cli_echo_n(cli, telnet_backspaces, back) ;
 
   return ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Use next history line, if any.
+ * Use previous history line, if any (up arrow).
  */
 static void
-uty_cli_next_line(vty_io vio)
+uty_cli_hist_previous(vty_cli cli)
 {
-  uty_cli_history_use(vio, +1) ;
+  uty_cli_hist_use(cli, -1) ;
 }
 
 /*------------------------------------------------------------------------------
- * Use previous history line, if any.
+ * Use next history line, if any (down arrow).
  */
 static void
-uty_cli_previous_line (vty_io vio)
+uty_cli_hist_next(vty_cli cli)
 {
-  uty_cli_history_use(vio, -1) ;
+  uty_cli_hist_use(cli, +1) ;
 }
+
+/*------------------------------------------------------------------------------
+ * Show the contents of the history
+ */
+extern void
+uty_cli_hist_show(vty_cli cli)
+{
+  int       hp ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  hp = cli->h_now ;
+
+  while(1)
+    {
+      qstring line ;
+
+      ++hp ;
+      if (hp == VTY_MAXHIST)
+        hp = 0 ;
+
+      if (hp == cli->h_now)
+        break ;                 /* wrapped round to "now"               */
+
+      line = vector_get_item(cli->hist, hp) ;
+
+      if (line == NULL)
+        break ;                 /* reached limit of history so far      */
+
+      uty_out(cli->vf->vio, "  %s\n", qs_string(line));
+    }
+} ;
 
 /*==============================================================================
  * Command Completion and Command Description
  *
  */
-static void uty_cli_describe_show(vty_io vio, vector describe) ;
-static void uty_cli_describe_fold (vty_io vio, int cmd_width,
-                                   unsigned int desc_width, struct desc *desc) ;
-static void uty_cli_describe_line(vty_io vio, int cmd_width, const char* cmd,
-                                                             const char* str) ;
+static uint uty_cli_help_parse(vty_cli cli, node_type_t node) ;
+static void uty_cli_out_message(vty_cli cli, const char* msg) ;
 
-static vector uty_cli_cmd_prepare(vty_io vio, int help) ;
+static void uty_cli_complete_keyword(vty_cli cli, const char* keyword) ;
+static void uty_cli_complete_list(vty_cli cli, vector item_v) ;
+
+static void uty_cli_describe_list(vty_cli cli, vector item_v) ;
+static void uty_cli_describe_line(vty_cli cli, uint str_width, const char* str,
+                                                    const char* doc, uint len) ;
+
+static uint uty_cli_width_to_use(vty_cli cli) ;
 
 /*------------------------------------------------------------------------------
  * Command completion
+ *
+ * Requires that cmd_token_position() has been called to tokenise the line and
+ * establish which token the cursor is in.  Must NOT call this if the cursor
+ * is in a "special" place.
+ *
  */
 static void
-uty_cli_complete_command (vty_io vio, enum node_type node)
+uty_cli_complete_command (vty_cli cli, node_type_t node)
 {
-  unsigned i ;
-  int ret ;
-  int len ;
-  int n ;
-  vector matched ;
-  vector vline ;
+  uint        n_items ;
+  cmd_parsed  parsed ;
+  cmd_item    item ;
 
   VTY_ASSERT_LOCKED() ;
 
-  /* Try and match the tokenised command line                           */
-  vline = uty_cli_cmd_prepare(vio, 1) ;
-  matched = cmd_complete_command (vline, node, &ret);
-  cmd_free_strvec (vline);
+  parsed = cli->parsed ;
 
-  /* Show the result.                                                   */
-  switch (ret)
-    {
-      case CMD_ERR_AMBIGUOUS:
-        uty_cli_out_newline(vio) ;              /* clears cli_drawn     */
-        uty_cli_out_CMD_ERR_AMBIGUOUS(vio) ;
-        break ;
+  /* Establish what items may be present at the current token position. */
+  n_items = uty_cli_help_parse(cli, node) ;
 
-      case CMD_ERR_NO_MATCH:
-        uty_cli_out_newline(vio) ;              /* clears cli_drawn     */
-        uty_cli_out_CMD_ERR_NO_MATCH(vio) ;
-        break ;
+  if (n_items == 0)             /* quit if nothing to consider          */
+    return ;
 
-      case CMD_COMPLETE_FULL_MATCH:
-        uty_cli_eol (vio) ;
-        uty_cli_word_backwards_pure (vio);
-        uty_cli_word_overwrite (vio, vector_get_item(matched, 0));
-        uty_cli_insert(vio, " ", 1);
-        break ;
+  if (n_items > 1)              /* render list of alternatives          */
+    return uty_cli_complete_list(cli, parsed->item_v) ;
 
-      case CMD_COMPLETE_MATCH:
-        uty_cli_eol (vio) ;
-        uty_cli_word_backwards_pure (vio);
-        uty_cli_word_overwrite (vio, vector_get_item(matched, 0));
-        break ;
+  /* One possible item -- one or more possible commands                 */
+  item = vector_get_item(parsed->item_v, 0) ;
 
-      case CMD_COMPLETE_LIST_MATCH:
-        len = 6 ;
-        for (i = 0; i < vector_end(matched); i++)
-          {
-            int sl = strlen((char*)vector_get_item(matched, i)) ;
-            if (len < sl)
-              len = sl ;
-          } ;
+  switch (item->type)
+  {
+    case item_null:
+      zabort("invalid item_null") ;
 
-        n = vio->width ;
-        if (n == 0)
-          n = 60 ;
-        n = n / (len + 2) ;
-        if (n == 0)
-          n = 1 ;
+    case item_eol:
 
-        for (i = 0; i < vector_end(matched); i++)
-          {
-            if ((i % n) == 0)
-              uty_cli_out_newline(vio) ;        /* clears cli_drawn     */
-            uty_cli_out(vio, "%-*s  ", len, (char*)vector_get_item(matched, i));
-          }
-        uty_cli_out_newline(vio) ;
+    case item_option_word:
 
-        break;
+    case item_vararg:
 
-      case CMD_COMPLETE_ALREADY:
-      default:
-        break;
-    } ;
+    case item_word:
 
-  cmd_free_strvec(matched);
+    case item_ipv6_prefix:
+    case item_ipv6_address:
+    case item_ipv4_prefix:
+    case item_ipv4_address:
+
+    case item_range:
+      return uty_cli_describe_list(cli, parsed->item_v) ;
+
+    case item_keyword:
+      return uty_cli_complete_keyword(cli, item->str) ;
+
+    default:
+      zabort("unknown item type") ;
+  } ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Command Description
  */
 static void
-uty_cli_describe_command (vty_io vio, node_type_t node)
+uty_cli_describe_command (vty_cli cli, node_type_t node)
 {
-  cmd_return_code_t ret ;
-  vector            describe ;
+  uint        n_items ;
 
   VTY_ASSERT_LOCKED() ;
 
-  /* Try and match the tokenised command line                           */
-  describe = cmd_describe_command (qs_term(&vio->cl), node, &ret);
+  /* Establish what items may be present at the current token position. */
+  n_items = uty_cli_help_parse(cli, node) ;
 
-  uty_cli_out_newline(vio);     /* clears cli_drawn     */
+  if (n_items > 0)              /* render list of possibilities         */
+    uty_cli_describe_list(cli, cli->parsed->item_v) ;
+} ;
 
-  /* Deal with result.                                                  */
-  switch (ret)
+/*------------------------------------------------------------------------------
+ * Parse for command completion and command description.
+ *
+ * Requires that cmd_token_position() has been called to tokenise the line and
+ * establish which token the cursor is in.  Must NOT call this if the cursor
+ * is in a "special" place.
+ *
+ * Deal with all cases which yield no items at all.
+ *
+ * Returns:  number of items to consider.
+ */
+static uint
+uty_cli_help_parse(vty_cli cli, node_type_t node)
+{
+  const char* msg ;
+  cmd_return_code_t ret ;
+  uint  n_items ;
+
+  /* The preflight checks avoid getting into trouble doing command completion
+   * on a line with comment
+   */
+  msg = cmd_help_preflight(cli->parsed) ;
+  if (msg != NULL)
     {
-      case CMD_ERR_AMBIGUOUS:
-        uty_cli_out_CMD_ERR_AMBIGUOUS(vio) ;
-        break ;
-
-      case CMD_ERR_NO_MATCH:
-        uty_cli_out_CMD_ERR_NO_MATCH(vio) ;
-        break ;
-
-      default:
-        uty_cli_describe_show(vio, describe) ;
-        break ;
+      uty_cli_out_message(cli, msg) ;
+      return 0 ;
     } ;
 
-  if (describe != NULL)
-    vector_free (describe);
-}
+  /* Now see what the cmd_completion can come up with.                  */
+  ret = cmd_completion(cli->parsed, node) ;
+
+  if (ret == CMD_ERR_PARSING)
+    {
+      uint eloc = cli->prompt_len + cli->parsed->eloc ;
+
+      uty_cli_out_newline(cli) ;              /* clears cli_drawn     */
+      uty_cli_write_n(cli, telnet_dots, eloc) ;
+      uty_cli_write_s(cli, "^") ;
+
+      uty_cli_out_message(cli, cli->parsed->emess) ;
+
+      return 0 ;
+    } ;
+
+  /* Will now have 0, 1 or more items which match at the current
+   * cursor token.
+   */
+  n_items = vector_length(cli->parsed->item_v) ;
+
+  if (n_items == 0)
+    uty_cli_out_message(cli, "command not recognised") ;
+
+  return n_items ;
+} ;
+
+
+
+
+
+
+
+
+static void
+uty_cli_out_message(vty_cli cli, const char* msg)
+{
+  uty_cli_out_newline(cli) ;              /* clears cli_drawn     */
+  uty_cli_write_s(cli, "% ") ;
+  uty_cli_write_s(cli, msg) ;
+  uty_cli_out_newline(cli) ;
+} ;
+
+
+
+static void
+uty_cli_complete_keyword(vty_cli cli, const char* keyword)
+{
+  int pre, rep, ins, mov ;
+
+  cmd_complete_keyword(cli->parsed, &pre, &rep, &ins, &mov) ;
+
+  uty_cli_move(cli, pre) ;              /* move to start of token */
+  uty_cli_replace(cli, rep, keyword, strlen(keyword)) ;
+
+  if (ins > 0)
+    uty_cli_insert(cli, " ", ins) ;
+
+  uty_cli_move(cli, mov) ;
+
+  return ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Show the command completions -- usually more than one.
+ *
+ * Generates a table of possible items, with fixed width entries, depending
+ * on the longest option.
+ *
+ * NB: the items will have been sorted before we get here.  Inter alia, that
+ *     ensures that any <cr> is shown last.
+ */
+static void
+uty_cli_complete_list(vty_cli cli, vector item_v)
+{
+  uint i, len, n ;
+
+  len = 6 ;
+  for (i = 0 ; i < vector_length(item_v) ; ++i)
+    {
+      cmd_item item ;
+      uint sl ;
+
+      item = vector_get_item(item_v, i) ;
+
+      sl = strlen(item->str) ;
+      if (len < sl)
+        len = sl ;
+    } ;
+
+  n = uty_cli_width_to_use(cli) / (len + 2) ;
+
+  if (n == 0)
+    n = 1 ;
+
+  for (i = 0 ; i < vector_length(item_v) ; ++i)
+    {
+      cmd_item item ;
+      item = vector_get_item(item_v, i) ;
+
+      if ((i % n) == 0)
+        uty_cli_out_newline(cli) ;        /* clears cli_drawn     */
+
+      uty_cli_out(cli, "%-*s  ", len, item->str) ;
+    }
+  uty_cli_out_newline(cli) ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Show the command description.
@@ -2274,426 +2792,122 @@ uty_cli_describe_command (vty_io vio, node_type_t node)
  *   word     description ..................................
  *            .............text
  *
- * If one of the options is '<cr>', that is always shown last.
+ * NB: the items will have been sorted before we get here.  Inter alia, that
+ *     ensures that any <cr> is shown last.
  */
 static void
-uty_cli_describe_show(vty_io vio, vector describe)
+uty_cli_describe_list(vty_cli cli, vector item_v)
 {
-  unsigned int i, cmd_width, desc_width;
-  struct desc *desc, *desc_cr ;
+  uint     i, str_width, doc_width, width ;
 
   /* Get width of the longest "word"                                    */
-  cmd_width = 0;
-  for (i = 0; i < vector_active (describe); i++)
-    if ((desc = vector_slot (describe, i)) != NULL)
-      {
-        unsigned int len;
-
-        if (desc->cmd[0] == '\0')
-          continue;
-
-        len = strlen (desc->cmd);
-        if (desc->cmd[0] == '.')
-          len--;
-
-        if (cmd_width < len)
-          cmd_width = len;
-      }
-
-  /* Set width of description string.                                   */
-  desc_width = vio->width - (cmd_width + 6);
-
-  /* Print out description.                                             */
-  desc_cr = NULL ;      /* put <cr> last if it appears  */
-
-  for (i = 0; i < vector_active (describe); i++)
-    if ((desc = vector_slot (describe, i)) != NULL)
-      {
-        if (desc->cmd[0] == '\0')
-          continue;
-
-        if (strcmp (desc->cmd, command_cr) == 0)
-          {
-            desc_cr = desc;
-            continue;
-          }
-
-        uty_cli_describe_fold (vio, cmd_width, desc_width, desc);
-      }
-
-  if (desc_cr != NULL)
-    uty_cli_describe_fold (vio, cmd_width, desc_width, desc_cr);
-} ;
-
-/*------------------------------------------------------------------------------
- * Show one word and the description, folding the description as required.
- */
-static void
-uty_cli_describe_fold (vty_io vio, int cmd_width,
-                       unsigned int desc_width, struct desc *desc)
-{
-  char *buf;
-  const char *cmd, *p;
-  int pos;
-
-  VTY_ASSERT_LOCKED() ;
-
-  cmd = desc->cmd[0] == '.' ? desc->cmd + 1 : desc->cmd;
-  p = desc->str ;
-
-  /* If have a sensible description width                       */
-  if (desc_width > 20)
+  str_width = 0;
+  for (i = 0 ; i < vector_length(item_v) ; ++i)
     {
-      buf = XCALLOC (MTYPE_TMP, strlen (desc->str) + 1);
+      cmd_item item ;
+      uint len ;
 
-      while (strlen (p) > desc_width)
-        {
-          /* move back to first space                   */
-          for (pos = desc_width; pos > 0; pos--)
-            if (*(p + pos) == ' ')
-              break;
+      item = vector_get_item(item_v, i) ;
 
-          /* if did not find a space, break at width    */
-          if (pos == 0)
-            pos = desc_width ;
+      len = strlen(item->str) ;
+      if (item->str[0] == '.')
+        len--;
 
-          strncpy (buf, p, pos);
-          buf[pos] = '\0';
-          uty_cli_describe_line(vio, cmd_width, cmd, buf) ;
-
-          cmd = "";             /* for 2nd and subsequent lines */
-
-          p += pos ;            /* step past what just wrote    */
-          while (*p == ' ')
-            ++p ;               /* skip spaces                  */
-        } ;
-
-      XFREE (MTYPE_TMP, buf);
+      if (len > str_width)
+        str_width = len ;
     } ;
 
-  uty_cli_describe_line(vio, cmd_width, cmd, p) ;
+  /* Set width of description string.
+   *
+   * Format is:
+   *
+   *   __wo.....rd__description...
+   *                ...continues
+   *
+   * The width of the word part has been established above as the width of the
+   * widest word.
+   *
+   * There are two spaces on either side of the word, so we here calculate the
+   * width of the description part
+   */
+  width = uty_cli_width_to_use(cli) ;
+
+  if (width > ((str_width + 6) + 20))
+    doc_width = width - (str_width + 6) ;
+  else
+    doc_width = 0 ;
+
+  /* Print out description.                                             */
+  for (i = 0 ; i < vector_length(item_v) ; ++i)
+    {
+      cmd_item item ;
+      const char* str, * dp, * ep ;
+
+      item = vector_get_item(item_v, i) ;
+
+      str = item->str[0] == '.' ? item->str + 1 : item->str;
+      dp  = item->doc ;
+      ep  = dp + strlen(dp) ;
+
+      /* If have a sensible description width                       */
+      if (doc_width > 20)
+        {
+          while ((ep - dp) > doc_width)
+            {
+              const char* np ;
+
+              np = dp + doc_width ;         /* target next position */
+
+              while ((np > dp) && (*np != ' '))
+                --np ;                      /* seek back to ' '     */
+
+              if (np == dp)                 /* if no space...       */
+                np = dp + doc_width ;       /* ...force break       */
+
+              uty_cli_describe_line(cli, str_width, str, dp, np - dp) ;
+
+              str = "";             /* for 2nd and subsequent lines */
+
+              dp = np ;             /* step past what just wrote    */
+              while (*dp == ' ')
+                ++dp ;              /* skip spaces                  */
+            } ;
+        } ;
+
+      uty_cli_describe_line(cli, str_width, str, dp, ep - dp) ;
+    } ;
+
+  uty_cli_out_newline(cli) ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Show one description line.
  */
 static void
-uty_cli_describe_line(vty_io vio, int cmd_width, const char* cmd,
-                                                      const char* str)
+uty_cli_describe_line(vty_cli cli, uint str_width, const char* str,
+                                                   const char* doc, uint len)
 {
-  if (str != NULL)
-    uty_cli_out (vio, "  %-*s  %s", cmd_width, cmd, str) ;
+  if ((*str == '\0') && (len == 0))
+    return ;            /* quit if nothing to say               */
+
+  uty_cli_out_newline(cli) ;
+
+  if (len == 0)
+    uty_cli_out(cli, "  %s", str) ;     /* left justify */
   else
-    uty_cli_out (vio, "  %-s", cmd) ;
-  uty_cli_out_newline(vio) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Prepare "vline" token array for command handler.
- *
- * For "help" (command completion/description), if the command line is empty,
- * or ends in ' ', adds an empty token to the end of the token array.
- */
-static vector
-uty_cli_cmd_prepare(vty_io vio, int help)
-{
-  vector vline ;
-
-  vline = cmd_make_strvec(qs_term(&vio->cl)) ;
-
-  /* Note that if there is a vector of tokens, then there is at least one
-   * token, so can guarantee that vio->cl.len >= 1 !
-   */
-  if (help)
-    if ((vline == NULL) || isspace(*qs_chars_at(&vio->cl, vio->cl.len - 1)))
-      vline = cmd_add_to_strvec(vline, "") ;
-
-  return vline ;
-} ;
-
-/*==============================================================================
- * VTY telnet stuff
- */
-
-#define TELNET_OPTION_DEBUG 0           /* 0 to turn off        */
-
-static const char* telnet_commands[256] =
-{
-  [tn_IAC  ] = "IAC",
-  [tn_DONT ] = "DONT",
-  [tn_DO   ] = "DO",
-  [tn_WONT ] = "WONT",
-  [tn_WILL ] = "WILL",
-  [tn_SB   ] = "SB",
-  [tn_GA   ] = "GA",
-  [tn_EL   ] = "EL",
-  [tn_EC   ] = "EC",
-  [tn_AYT  ] = "AYT",
-  [tn_AO   ] = "AO",
-  [tn_IP   ] = "IP",
-  [tn_BREAK] = "BREAK",
-  [tn_DM   ] = "DM",
-  [tn_NOP  ] = "NOP",
-  [tn_SE   ] = "SE",
-  [tn_EOR  ] = "EOR",
-  [tn_ABORT] = "ABORT",
-  [tn_SUSP ] = "SUSP",
-  [tn_EOF  ] = "EOF",
-} ;
-
-static const char* telnet_options[256] =
-{
-  [to_BINARY]       = "BINARY",      /* 8-bit data path                  */
-  [to_ECHO]         = "ECHO",        /* echo                             */
-  [to_RCP]          = "RCP",         /* prepare to reconnect             */
-  [to_SGA]          = "SGA",         /* suppress go ahead                */
-  [to_NAMS]         = "NAMS",        /* approximate message size         */
-  [to_STATUS]       = "STATUS",      /* give status                      */
-  [to_TM]           = "TM",          /* timing mark                      */
-  [to_RCTE]         = "RCTE",        /* remote controlled tx and echo    */
-  [to_NAOL]         = "NAOL",        /* neg. about output line width     */
-  [to_NAOP]         = "NAOP",        /* neg. about output page size      */
-  [to_NAOCRD]       = "NAOCRD",      /* neg. about CR disposition        */
-  [to_NAOHTS]       = "NAOHTS",      /* neg. about horizontal tabstops   */
-  [to_NAOHTD]       = "NAOHTD",      /* neg. about horizontal tab disp.  */
-  [to_NAOFFD]       = "NAOFFD",      /* neg. about formfeed disposition  */
-  [to_NAOVTS]       = "NAOVTS",      /* neg. about vertical tab stops    */
-  [to_NAOVTD]       = "NAOVTD",      /* neg. about vertical tab disp.    */
-  [to_NAOLFD]       = "NAOLFD",      /* neg. about output LF disposition */
-  [to_XASCII]       = "XASCII",      /* extended ascii character set     */
-  [to_LOGOUT]       = "LOGOUT",      /* force logout                     */
-  [to_BM]           = "BM",          /* byte macro                       */
-  [to_DET]          = "DET",         /* data entry terminal              */
-  [to_SUPDUP]       = "SUPDUP",      /* supdup protocol                  */
-  [to_SUPDUPOUTPUT] = "SUPDUPOUTPUT",/* supdup output                    */
-  [to_SNDLOC]       = "SNDLOC",      /* send location                    */
-  [to_TTYPE]        = "TTYPE",       /* terminal type                    */
-  [to_EOR]          = "EOR",         /* end or record                    */
-  [to_TUID]         = "TUID",        /* TACACS user identification       */
-  [to_OUTMRK]       = "OUTMRK",      /* output marking                   */
-  [to_TTYLOC]       = "TTYLOC",      /* terminal location number         */
-  [to_3270REGIME]   = "3270REGIME",  /* 3270 regime                      */
-  [to_X3PAD]        = "X3PAD",       /* X.3 PAD                          */
-  [to_NAWS]         = "NAWS",        /* window size                      */
-  [to_TSPEED]       = "TSPEED",      /* terminal speed                   */
-  [to_LFLOW]        = "LFLOW",       /* remote flow control              */
-  [to_LINEMODE]     = "LINEMODE",    /* Linemode option                  */
-  [to_XDISPLOC]     = "XDISPLOC",    /* X Display Location               */
-  [to_OLD_ENVIRON]  = "OLD_ENVIRON", /* Old - Environment variables      */
-  [to_AUTHENTICATION] = "AUTHENTICATION",  /* Authenticate               */
-  [to_ENCRYPT]      = "ENCRYPT",     /* Encryption option                */
-  [to_NEW_ENVIRON]  = "NEW_ENVIRON", /* New - Environment variables      */
-  [to_EXOPL]        = "EXOPL",       /* extended-options-list            */
-} ;
-
-/*------------------------------------------------------------------------------
- * For debug.  Put string or value as decimal.
- */
-static void
-uty_cli_out_dec(vty_io vio, const char* str, unsigned char u)
-{
-  if (str != NULL)
-    uty_cli_out(vio, "%s ", str) ;
-  else
-    uty_cli_out(vio, "%d ", (int)u) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * For debug.  Put string or value as hex.
- */
-static void
-uty_cli_out_hex(vty_io vio, const char* str, unsigned char u)
-{
-  if (str != NULL)
-    uty_cli_out(vio, "%s ", str) ;
-  else
-    uty_cli_out(vio, "0x%02x ", (unsigned)u) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Send telnet: "WILL TELOPT_ECHO"
- */
-static void
-uty_will_echo (vty_io vio)
-{
-  unsigned char cmd[] = { tn_IAC, tn_WILL, to_ECHO };
-  VTY_ASSERT_LOCKED() ;
-  uty_cli_write (vio, (char*)cmd, (int)sizeof(cmd));
-}
-
-/*------------------------------------------------------------------------------
- * Send telnet: "suppress Go-Ahead"
- */
-static void
-uty_will_suppress_go_ahead (vty_io vio)
-{
-  unsigned char cmd[] = { tn_IAC, tn_WILL, to_SGA };
-  VTY_ASSERT_LOCKED() ;
-  uty_cli_write (vio, (char*)cmd, (int)sizeof(cmd));
-}
-
-/*------------------------------------------------------------------------------
- * Send telnet: "don't use linemode"
- */
-static void
-uty_dont_linemode (vty_io vio)
-{
-  unsigned char cmd[] = { tn_IAC, tn_DONT, to_LINEMODE };
-  VTY_ASSERT_LOCKED() ;
-  uty_cli_write (vio, (char*)cmd, (int)sizeof(cmd));
-}
-
-/*------------------------------------------------------------------------------
- * Send telnet: "Use window size"
- */
-static void
-uty_do_window_size (vty_io vio)
-{
-  unsigned char cmd[] = { tn_IAC, tn_DO, to_NAWS };
-  VTY_ASSERT_LOCKED() ;
-  uty_cli_write (vio, (char*)cmd, (int)sizeof(cmd));
-}
-
-/*------------------------------------------------------------------------------
- * Send telnet: "don't use lflow"       -- not currently used
- */
-static void
-uty_dont_lflow_ahead (vty_io vio)
-{
-  unsigned char cmd[] = { tn_IAC, tn_DONT, to_LFLOW };
-  VTY_ASSERT_LOCKED() ;
-  uty_cli_write (vio, (char*)cmd, (int)sizeof(cmd));
-}
-
-/*------------------------------------------------------------------------------
- * The keystroke iac callback function.
- *
- * This deals with IAC sequences that should be dealt with as soon as they
- * are read -- not stored in the keystroke stream for later processing.
- */
-extern bool
-uty_cli_iac_callback(keystroke_iac_callback_args)
-{
-  return uty_telnet_command((vty_io)context, stroke, true) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Process incoming Telnet Option(s)
- *
- * May be called during keystroke iac callback, or when processing CLI
- * keystrokes.
- *
- * In particular: get telnet window size.
- *
- * Returns: true <=> dealt with, for:
- *
- *                    * telnet window size.
- */
-static bool
-uty_telnet_command(vty_io vio, keystroke stroke, bool callback)
-{
-  uint8_t* p ;
-  uint8_t  o ;
-  int left ;
-  bool dealt_with ;
-
-  /* Echo to the other end if required                                  */
-  if (TELNET_OPTION_DEBUG)
     {
-      uty_cli_wipe(vio, 0) ;
-
-      p    = stroke->buf ;
-      left = stroke->len ;
-
-      uty_cli_out_hex(vio, telnet_commands[tn_IAC], tn_IAC) ;
-
-      if (left-- > 0)
-        uty_cli_out_dec(vio, telnet_commands[*p], *p) ;
-      ++p ;
-
-      if (left-- > 0)
-        uty_cli_out_dec(vio, telnet_options[*p], *p) ;
-      ++p ;
-
-      if (left > 0)
-        {
-          while(left-- > 0)
-            uty_cli_out_hex(vio, NULL, *p++) ;
-
-          if (stroke->flags & kf_truncated)
-            uty_cli_out(vio, "... ") ;
-
-          if (!(stroke->flags & kf_broken))
-            {
-              uty_cli_out_hex(vio, telnet_commands[tn_IAC], tn_IAC) ;
-              uty_cli_out_hex(vio, telnet_commands[tn_SE], tn_SE) ;
-            }
-        } ;
-
-      if (stroke->flags & kf_broken)
-        uty_cli_out (vio, "BROKEN") ;
-
-      uty_cli_out (vio, "\r\n") ;
+      uty_cli_out(cli, "  %-*s  ", str_width, str) ;
+      uty_cli_write(cli, doc, len) ;
     } ;
+} ;
 
-  /* Process the telnet command                                         */
-  dealt_with = false ;
-
-  if (stroke->flags != 0)
-    return dealt_with ;         /* go no further if broken              */
-
-  p    = stroke->buf ;
-  left = stroke->len ;
-
-  passert(left >= 1) ;            /* must be if not broken !            */
-  passert(stroke->value == *p) ;  /* or something is wrong              */
-
-  ++p ;         /* step past X of IAC X */
-  --left ;
-
-  /* Decode the one command that is interesting -- "NAWS"               */
-  switch (stroke->value)
-  {
-    case tn_SB:
-      passert(left > 0) ;       /* or parser failed     */
-
-      o = *p++ ;                /* the option byte      */
-      --left ;
-      switch(o)
-      {
-        case to_NAWS:
-          if (left != 4)
-            {
-              uzlog(NULL, LOG_WARNING,
-                        "RFC 1073 violation detected: telnet NAWS option "
-                        "should send %d characters, but we received %d",
-                        (3 + 4 + 2), (3 + left + 2)) ;
-            }
-          else
-            {
-              vio->width   = *p++ << 8 ;
-              vio->width  += *p++ ;
-              vio->height  = *p++ << 8 ;
-              vio->height += *p ;
-
-              if (TELNET_OPTION_DEBUG)
-                uty_cli_out(vio, "TELNET NAWS window size received: "
-                                 "width %d, height %d%s",
-                                  vio->width, vio->height, telnet_newline) ;
-              uty_set_height(vio) ;
-
-              dealt_with = true ;
-            } ;
-          break ;
-
-        default:        /* no other IAC SB <option>     */
-          break ;
-      } ;
-      break ;
-
-    default:            /* no other IAC X               */
-      break ;
-  } ;
-
-  return dealt_with ;
+/*------------------------------------------------------------------------------
+ * Return the actual or assumed console width.
+ *
+ * If we know the width we use it.  Otherwise just assume something reasonable.
+ */
+static uint
+uty_cli_width_to_use(vty_cli cli)
+{
+  return (cli->width == 0) ? 60 : cli->width ;
 } ;

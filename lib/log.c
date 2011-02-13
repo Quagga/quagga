@@ -26,9 +26,8 @@
 
 #include "log.h"
 #include "vty.h"
-#include "uty.h"
 #include "memory.h"
-#include "command.h"
+#include "command_local.h"
 #ifndef SUNOS_5
 #include <sys/un.h>
 #endif

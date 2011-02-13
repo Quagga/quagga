@@ -119,7 +119,7 @@ vio_lc_init_new(vio_line_control lc, int width, int height)
  * Returns: address of vio_line_control (if any) -- NULL if structure released
  */
 extern vio_line_control
-vio_lc_reset(vio_line_control lc, bool free_structure)
+vio_lc_reset(vio_line_control lc, free_keep_b free_structure)
 {
   if (lc != NULL)
     {

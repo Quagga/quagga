@@ -52,6 +52,22 @@
 #error Require _POSIX_THREADS
 #endif
 
+#ifdef QPTHREADS_DEBUG          /* Can be forced from outside           */
+# if QPTHREADS_DEBUG
+#  define QPTHREADS_DEBUG 1     /* Force 1 or 0                         */
+#else
+#  define QPTHREADS_DEBUG 0
+# endif
+#else
+# ifdef  QDEBUG
+#  define QPTHREADS_DEBUG 1     /* Follow QDEBUG                        */
+#else
+#  define QPTHREADS_DEBUG 0
+# endif
+#endif
+
+enum { qpthreads_debug = QPTHREADS_DEBUG } ;
+
 /*==============================================================================
  * Global Switch -- this allows the library to be run WITHOUT pthreads !
  *
@@ -165,7 +181,7 @@ Inline bool qpt_thread_is_self(qpt_thread_t id)
  *
  * Quagga's default mutex type is:
  *
- *   * PTHREAD_MUTEX_ERRORCHECK unless NDEBUG && NDEBUG_QPTHREADS
+ *   * PTHREAD_MUTEX_ERRORCHECK if QPTHREADS_DEBUG
  *   * QPT_MUTEX_TYPE_DEFAULT
  *
  * QPT_MUTEX_TYPE_DEFAULT may be set elsewhere.  If it is not set then it is
@@ -200,10 +216,10 @@ enum qpt_mutex_options
 # define QPT_MUTEX_TYPE_DEFAULT  PTHREAD_MUTEX_NORMAL
 #endif
 
-#if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
-# define QPT_MUTEX_TYPE  QPT_MUTEX_TYPE_DEFAULT
-#else
+#if QPTHREADS_DEBUG
 # define QPT_MUTEX_TYPE  PTHREAD_MUTEX_ERRORCHECK
+#else
+# define QPT_MUTEX_TYPE  QPT_MUTEX_TYPE_DEFAULT
 #endif
 
 extern qpt_mutex                        /* freezes qpthreads_enabled    */

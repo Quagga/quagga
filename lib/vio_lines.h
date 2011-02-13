@@ -22,7 +22,6 @@
 #ifndef _ZEBRA_VIO_LINES_H
 #define _ZEBRA_VIO_LINES_H
 
-#include "zebra.h"
 #include "misc.h"
 #include "qiovec.h"
 
@@ -35,9 +34,6 @@
  *
  * NB: a completely zero structure is a valid, clear vio_line_control.
  */
-
-typedef struct vio_line_control* vio_line_control ;
-typedef struct vio_line_control  vio_line_control_t ;
 struct vio_line_control
 {
   unsigned      width ;   /* console width       -- 0 => HUGE           */
@@ -54,15 +50,21 @@ struct vio_line_control
   bool          writing ; /* write started, but not completed           */
 } ;
 
+typedef struct vio_line_control* vio_line_control ;
+typedef struct vio_line_control  vio_line_control_t[1] ;
+
+enum
+{
+  VIO_LINE_CONTROL_INIT_ALL_ZEROS = true
+} ;
+
 /*==============================================================================
  * Functions
  */
 extern vio_line_control vio_lc_init_new(vio_line_control lc, int width,
                                                                    int height) ;
-extern vio_line_control vio_lc_reset(vio_line_control lc, bool free_structure) ;
-
-#define vio_lc_reset_keep(lc) vio_lc_reset(lc, 0)
-#define vio_lc_reset_free(lc) vio_lc_reset(lc, 1)
+extern vio_line_control vio_lc_reset(vio_line_control lc,
+                                                   free_keep_b free_structure) ;
 
 Inline bool vio_lc_empty(vio_line_control lc) ;
 extern void vio_lc_clear(vio_line_control lc) ;

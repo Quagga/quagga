@@ -3065,7 +3065,7 @@ DEFUN (set_metric,
 
 ALIAS (set_metric,
        set_metric_addsub_cmd,
-       "set metric <+/-metric>",
+       "set metric <+/-32b>",
        SET_STR
        "Metric value for destination routing protocol\n"
        "Add or subtract metric\n")
@@ -3155,11 +3155,11 @@ ALIAS (no_set_weight,
 
 DEFUN (set_aspath_prepend,
        set_aspath_prepend_cmd,
-       "set as-path prepend ." CMD_AS_RANGE,
+       "set as-path prepend .ASs",
        SET_STR
        "Transform BGP AS_PATH attribute\n"
        "Prepend to the as-path\n"
-       "AS number\n")
+       "AS number(s)\n")
 {
   int ret;
   char *str;
@@ -3193,20 +3193,20 @@ DEFUN (no_set_aspath_prepend,
 
 ALIAS (no_set_aspath_prepend,
        no_set_aspath_prepend_val_cmd,
-       "no set as-path prepend ." CMD_AS_RANGE,
+       "no set as-path prepend .ASs",
        NO_STR
        SET_STR
        "Transform BGP AS_PATH attribute\n"
        "Prepend to the as-path\n"
-       "AS number\n")
+       "AS number(s)\n")
 
 DEFUN (set_aspath_exclude,
        set_aspath_exclude_cmd,
-       "set as-path exclude ." CMD_AS_RANGE,
+       "set as-path exclude .ASs",
        SET_STR
        "Transform BGP AS-path attribute\n"
        "Exclude from the as-path\n"
-       "AS number\n")
+       "AS number(s)\n")
 {
   int ret;
   char *str;
@@ -3239,12 +3239,12 @@ DEFUN (no_set_aspath_exclude,
 
 ALIAS (no_set_aspath_exclude,
        no_set_aspath_exclude_val_cmd,
-       "no set as-path exclude ." CMD_AS_RANGE,
+       "no set as-path exclude .ASs",
        NO_STR
        SET_STR
        "Transform BGP AS_PATH attribute\n"
        "Exclude from the as-path\n"
-       "AS number\n")
+       "AS number(s)\n")
 
 DEFUN (set_community,
        set_community_cmd,

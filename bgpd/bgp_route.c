@@ -5033,7 +5033,7 @@ DEFUN (bgp_network_mask_natural_backdoor,
 
 ALIAS (bgp_network_mask_natural_backdoor,
        bgp_network_mask_natural_backdoor_ttl_cmd,
-       "network A.B.C.D backdoor pathlimit (1-255>",
+       "network A.B.C.D backdoor pathlimit <1-255>",
        "Specify a network to announce via BGP\n"
        "Network number\n"
        "Specify a BGP backdoor route\n"

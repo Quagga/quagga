@@ -191,83 +191,48 @@ struct mqueue_local_queue
  * Functions
  */
 
-extern void
-mqueue_initialise(void) ;
+extern void mqueue_initialise(void) ;
+extern void mqueue_finish(void) ;
 
-extern void
-mqueue_finish(void) ;
+extern mqueue_queue mqueue_init_new(mqueue_queue mq,
+                                                  enum mqueue_queue_type type) ;
+extern void mqueue_empty(mqueue_queue mq) ;
+extern mqueue_queue mqueue_reset(mqueue_queue mq, free_keep_b free_structure) ;
 
-extern mqueue_queue
-mqueue_init_new(mqueue_queue mq, enum mqueue_queue_type type) ;
+extern mqueue_local_queue mqueue_local_init_new(mqueue_local_queue lmq) ;
+extern mqueue_local_queue mqueue_local_reset(mqueue_local_queue lmq,
+                                                   free_keep_b free_structure) ;
 
-extern void
-mqueue_empty(mqueue_queue mq) ;
+extern void mqueue_set_timeout_interval(mqueue_queue mq, qtime_t interval) ;
+extern mqueue_thread_signal mqueue_thread_signal_init(mqueue_thread_signal mqt,
+                                              qpt_thread_t thread, int signum) ;
+mqueue_thread_signal mqueue_thread_signal_reset(mqueue_thread_signal mqt,
+                                                   free_keep_b free_structure) ;
 
-extern mqueue_queue
-mqueue_reset(mqueue_queue mq, int free_structure) ;
-
-#define mqueue_reset_keep(mq) mqueue_reset(mq, 0)
-#define mqueue_reset_free(mq) mqueue_reset(mq, 1)
-
-extern mqueue_local_queue
-mqueue_local_init_new(mqueue_local_queue lmq) ;
-
-extern mqueue_local_queue
-mqueue_local_reset(mqueue_local_queue lmq, int free_structure) ;
-
-#define mqueue_local_reset_keep(lmq) mqueue_local_reset(lmq, 0)
-#define mqueue_local_reset_free(lmq) mqueue_local_reset(lmq, 1)
-
-extern void
-mqueue_set_timeout_interval(mqueue_queue mq, qtime_t interval) ;
-
-extern mqueue_thread_signal
-mqueue_thread_signal_init(mqueue_thread_signal mqt, qpt_thread_t thread,
-                                                                   int signum) ;
-mqueue_thread_signal
-mqueue_thread_signal_reset(mqueue_thread_signal mqt, int free_structure) ;
-
-#define mqueue_thread_signal_reset_keep(mqt) mqueue_thread_signal_reset(mqt, 0)
-#define mqueue_thread_signal_reset_free(mqt) mqueue_thread_signal_reset(mqt, 1)
-
-extern mqueue_block
-mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0) ;
-
-extern mqueue_block
-mqb_re_init(mqueue_block mqb, mqueue_action action, void* arg0) ;
-
-extern void
-mqb_free(mqueue_block mqb) ;
+extern mqueue_block mqb_init_new(mqueue_block mqb, mqueue_action action,
+                                                                   void* arg0) ;
+extern mqueue_block mqb_re_init(mqueue_block mqb, mqueue_action action,
+                                                                   void* arg0) ;
+extern void mqb_free(mqueue_block mqb) ;
 
 enum mqb_rank
 {
   mqb_priority  = true,
   mqb_ordinary  = false
 } ;
+typedef enum mqb_rank mqb_rank_b ;
 
-extern void
-mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, enum mqb_rank priority) ;
+extern void mqueue_enqueue(mqueue_queue mq, mqueue_block mqb,
+                                                          mqb_rank_b priority) ;
+extern mqueue_block mqueue_dequeue(mqueue_queue mq, int wait, void* arg) ;
+extern int mqueue_revoke(mqueue_queue mq, void* arg0, int num) ;
 
-extern mqueue_block
-mqueue_dequeue(mqueue_queue mq, int wait, void* arg) ;
+extern int mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig) ;
 
-extern void
-mqueue_revoke(mqueue_queue mq, void* arg0) ;
-
-extern int
-mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig) ;
-
-extern void
-mqueue_local_enqueue(mqueue_local_queue lmq, mqueue_block mqb) ;
-
-extern void
-mqueue_local_enqueue_head(mqueue_local_queue lmq, mqueue_block mqb) ;
-
-Inline mqueue_block
-mqueue_local_head(mqueue_local_queue lmq) ;
-
-extern mqueue_block
-mqueue_local_dequeue(mqueue_local_queue lmq) ;
+extern void mqueue_local_enqueue(mqueue_local_queue lmq, mqueue_block mqb) ;
+extern void mqueue_local_enqueue_head(mqueue_local_queue lmq, mqueue_block mqb) ;
+Inline mqueue_block mqueue_local_head(mqueue_local_queue lmq) ;
+extern mqueue_block mqueue_local_dequeue(mqueue_local_queue lmq) ;
 
 /*==============================================================================
  * Access functions for mqueue_block fields -- mqb_set_xxx/mqb_get_xxx

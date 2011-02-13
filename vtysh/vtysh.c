@@ -30,8 +30,8 @@
 #include <readline/readline.h>
 #include <readline/history.h>
 
-#include "command.h"
 #include "command_execute.h"
+#include "command.h"
 #include "memory.h"
 #include "vtysh/vtysh.h"
 #include "log.h"
@@ -278,7 +278,7 @@ vtysh_execute_func (const char *line, int pager)
 {
   int ret, cmd_stat;
   u_int i;
-  struct cmd_element *cmd;
+  struct cmd_command *cmd;
   FILE *fp = NULL;
   int closepager = 0;
   int tried = 0;
@@ -287,7 +287,7 @@ vtysh_execute_func (const char *line, int pager)
   /* TODO: how well does vtysh_execute_func work ?? -- esp. qpthreads_enabled */
   vtysh_vty->buf = line ;
 
-  saved_ret = ret = cmd_execute_command (vtysh_vty, cmd_parse_completion, &cmd);
+  saved_ret = ret = cmd_execute_command (vtysh_vty, cmd_parse_standard, &cmd);
 
   if ((ret == CMD_SUCCESS) && (cmd == NULL))
     return ret ;                /* quit if nothing to do ???            */
@@ -300,8 +300,8 @@ vtysh_execute_func (const char *line, int pager)
   while (ret != CMD_SUCCESS && ret != CMD_SUCCESS_DAEMON && ret != CMD_WARNING
 	 && vtysh_vty->node > CONFIG_NODE)
     {
-      vtysh_vty->node = node_parent(vtysh_vty->node);
-      ret = cmd_execute_command (vtysh_vty, cmd_parse_completion, &cmd);
+      vtysh_vty->node = cmd_node_parent(vtysh_vty->node);
+      ret = cmd_execute_command (vtysh_vty, cmd_parse_standard, &cmd);
       tried++;
     }
 
@@ -385,7 +385,7 @@ vtysh_execute_func (const char *line, int pager)
 
 		vtysh_vty->buf = line ;
 
-		ret = cmd_execute_command (vtysh_vty, cmd_parse_completion, &cmd);
+		ret = cmd_execute_command (vtysh_vty, cmd_parse_standard, &cmd);
 		if (ret != CMD_SUCCESS_DAEMON)
 		  break;
 	      }
@@ -442,7 +442,7 @@ int
 vtysh_config_from_file (struct vty *vty, FILE *fp)
 {
   int ret;
-  struct cmd_element *cmd;
+  struct cmd_command *cmd;
 
   /* TODO: (1) allocate buffer for vty->buf  (2) what about CMD_QUEUED ??    */
 
@@ -592,14 +592,14 @@ vtysh_rl_describe (void)
 	if (desc->cmd[0] == '\0')
 	  continue;
 
-	if (! desc->str)
+	if (! desc->doc)
 	  fprintf (stdout,"  %-s\n",
 		   desc->cmd[0] == '.' ? desc->cmd + 1 : desc->cmd);
 	else
 	  fprintf (stdout,"  %-*s  %s\n",
 		   width,
 		   desc->cmd[0] == '.' ? desc->cmd + 1 : desc->cmd,
-		   desc->str);
+		   desc->doc);
       }
 
   cmd_free_strvec (vline);

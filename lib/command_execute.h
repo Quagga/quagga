@@ -23,59 +23,104 @@
 #ifndef _ZEBRA_COMMAND_EXECUTE_H
 #define _ZEBRA_COMMAND_EXECUTE_H
 
-#include "command.h"
+#include "command_local.h"
 #include "command_parse.h"
-#include "node_type.h"
+#include "vty_common.h"
+#include "qstring.h"
+#include "mqueue.h"
+#include "qpnexus.h"
+#include "thread.h"
 
-extern vector cmd_make_strvec (const char *);
-extern vector cmd_add_to_strvec (vector v, const char* str) ;
-extern void cmd_free_strvec (vector);
-extern vector cmd_describe_command (const char* line, node_type_t node,
-                                                    cmd_return_code_t* status) ;
-extern vector cmd_complete_command (vector, int, int *status);
-extern const char *cmd_prompt (enum node_type);
-extern enum cmd_return_code
-config_from_file (struct vty* vty, FILE *fp, struct cmd_element* first_cmd,
-                                            qstring buf, bool stop_on_warning) ;
-extern enum node_type node_parent (enum node_type);
-extern enum cmd_return_code cmd_execute_command (struct vty *vty,
-                           enum cmd_parse_type type, struct cmd_element **cmd) ;
-extern enum cmd_return_code cmd_execute_command_strict (struct vty *vty,
-                          enum cmd_parse_type type, struct cmd_element **cmd) ;
+/*==============================================================================
+ * This is stuff which is used to parse and then execute commands.
+ */
 
-extern cmd_parsed cmd_parse_init_new(cmd_parsed parsed) ;
-extern cmd_parsed cmd_parse_reset(cmd_parsed parsed, bool free_structure) ;
-extern enum cmd_return_code cmd_parse_command(struct vty* vty,
-                                                     enum cmd_parse_type type) ;
-extern enum cmd_return_code cmd_dispatch(struct vty* vty, bool no_queue) ;
-
-Inline enum cmd_return_code
-cmd_dispatch_call(struct vty* vty)
+/* State of the execution loop
+ */
+enum cmd_exec_state
 {
-  cmd_parsed parsed = vty->parsed ;
-  return (*(parsed->cmd->func))(parsed->cmd, vty, cmd_arg_vector_argc(parsed),
-                                                  cmd_arg_vector_argv(parsed)) ;
+  exec_null   = 0,
+
+  exec_special,         /* not a simple command         */
+
+  exec_fetch,
+  exec_parse,
+  exec_open_pipes,
+  exec_execute,
+  exec_success,
+  exec_complete,
+} ;
+typedef enum cmd_exec_state cmd_exec_state_t ;
+
+typedef struct cmd_exec* cmd_exec ;
+
+struct cmd_exec
+{
+  vty           vty ;                   /* parent                       */
+
+  qstring       line ;                  /* pointer to qstring in vf     */
+  cmd_do_t      to_do ;                 /* for cli driven stuff         */
+
+  cmd_parse_type_t  parse_type ;        /* how should parse             */
+  bool          out_enabled ;           /* as required                  */
+  bool          reflect_enabled ;       /* as required                  */
+
+  cmd_parsed_t      parsed ;            /* embedded                     */
+
+  cmd_exec_state_t  state ;             /* for cq_process               */
+  qpn_nexus         locus ;             /* for cq_process               */
+
+  cmd_return_code_t ret ;               /* for cq_process               */
+
+  union
+  {
+    mqueue_block    mqb ;               /* for cq_process               */
+    struct thread*  thread ;
+  } cq ;
 } ;
 
-#define cmd_parse_reset_keep(parsed) cmd_parse_reset(parsed, 0)
-#define cmd_parse_reset_free(parsed) cmd_parse_reset(parsed, 1)
+/*==============================================================================
+ * Functions
+ *
+ */
 
-extern void config_replace_string (struct cmd_element *, char *, ...);
+extern cmd_exec cmd_exec_new(vty vty) ;
+extern cmd_exec cmd_exec_free(cmd_exec exec) ;
 
-/* Export typical functions. */
-extern struct cmd_element config_end_cmd;
-extern struct cmd_element config_exit_cmd;
-extern struct cmd_element config_quit_cmd;
-extern struct cmd_element config_help_cmd;
-extern struct cmd_element config_list_cmd;
-extern char *host_config_file (void);
-extern void host_config_set (char *);
+extern cmd_return_code_t cmd_read_config(vty vty, cmd_command first_cmd,
+                                                          bool ignore_warning) ;
+extern cmd_return_code_t cmd_end(vty vty) ;
+extern cmd_return_code_t cmd_exit(vty vty) ;
 
-/* "<cr>" global */
-extern char *command_cr;
+extern cmd_return_code_t cmd_open_pipes(vty vty) ;
 
-#ifdef QDEBUG
-extern const char *debug_banner;
+extern cmd_return_code_t cmd_execute(vty vty) ;
+
+
+
+
+
+
+#if 0
+
+extern enum cmd_return_code cmd_execute_command (vty vty,
+                              cmd_parse_type_t type, struct cmd_command **cmd) ;
+extern enum cmd_return_code cmd_execute_command_strict (vty vty,
+                          enum cmd_parse_type type, struct cmd_command **cmd) ;
+
+
+extern void config_replace_string (cmd_command, char *, ...);
+
 #endif
+
+/*==============================================================================
+ * Inlines
+ */
+
+Inline bool
+cmd_is_direct(cmd_parsed parsed)
+{
+  return ((parsed->cmd->attr & CMD_ATTR_DIRECT) != 0) ;
+} ;
 
 #endif /* _ZEBRA_COMMAND_EXECUTE_H */

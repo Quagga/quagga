@@ -22,6 +22,7 @@
 #include "bgpd/bgp_connection.h"
 
 #include <zebra.h>
+#include "misc.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_fsm.h"
@@ -685,7 +686,7 @@ bgp_connection_stop(bgp_connection connection, bool stop_writer)
   connection->notification_pending = 0 ;
 
   /* Empty out the pending queue and remove from connection queue       */
-  mqueue_local_reset_keep(&connection->pending_queue) ;
+  mqueue_local_reset(&connection->pending_queue, keep_it) ;
   bgp_connection_queue_del(connection) ;
 
   /* If required: set write buffer *unwritable* (and empty).            */

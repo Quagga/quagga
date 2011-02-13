@@ -299,7 +299,8 @@ errtox(strerror_t* st, int err, int len, int want)
       if ((len + ql) <= qfs_left(&qfs)) /* accounting for "quotes"      */
         qfs_printf(&qfs, "%s%s%s", q, errm, q) ;
       else
-        qfs_printf(&qfs, "%s%.*s...%s", q, qfs_left(&qfs) - ql - 3, errm, q) ;
+        qfs_printf(&qfs, "%s%.*s...%s",
+                                   q, (int)(qfs_left(&qfs) - ql - 3), errm, q) ;
                                         /* -ve precision is ignored !   */
     } ;
 

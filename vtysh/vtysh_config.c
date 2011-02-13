@@ -285,12 +285,19 @@ vtysh_config_parse (char *line)
 
 /* Macro to check delimiter is needed between each configuration line
  * or not. */
-#define NO_DELIMITER(I)  \
-  ((I) == ACCESS_NODE || (I) == PREFIX_NODE || (I) == IP_NODE \
-   || (I) == AS_LIST_NODE || (I) == COMMUNITY_LIST_NODE || \
-   (I) == ACCESS_IPV6_NODE || (I) == PREFIX_IPV6_NODE \
-   || (I) == SERVICE_NODE || (I) == FORWARDING_NODE || (I) == DEBUG_NODE \
-   || (I) == AAA_NODE)
+#define NO_DELIMITER(I) ( \
+    (I) == ACCESS_NODE         || \
+    (I) == PREFIX_NODE         || \
+    (I) == IP_NODE             || \
+    (I) == AS_LIST_NODE        || \
+    (I) == COMMUNITY_LIST_NODE || \
+    (I) == ACCESS_IPV6_NODE    || \
+    (I) == PREFIX_IPV6_NODE    || \
+    (I) == SERVICE_NODE        || \
+    (I) == FORWARDING_NODE     || \
+    (I) == DEBUG_NODE          || \
+    (I) == AAA_NODE            || \
+                      0 )
 
 /* Display configuration to file pointer. */
 void

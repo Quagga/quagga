@@ -47,6 +47,7 @@ enum keystroke_type
 
   ks_type_reserved = 0x0F,
 } ;
+typedef enum keystroke_type keystroke_type ;
 CONFIRM(ks_type_count <= ks_type_reserved) ;
 
 enum keystroke_null
@@ -68,8 +69,9 @@ enum keystroke_flags
 
   kf_type_mask  = 0x0F, /* extraction of type                   */
 } ;
+typedef enum keystroke_type keystroke_flags ;
 
-CONFIRM(ks_type_reserved == kf_type_mask) ;
+CONFIRM(ks_type_reserved == (keystroke_type)kf_type_mask) ;
 
 typedef struct keystroke*        keystroke ;
 typedef struct keystroke_stream* keystroke_stream ;
@@ -182,7 +184,7 @@ keystroke_stream_eof(keystroke_stream stream) ;
 extern void
 keystroke_input(keystroke_stream stream, uint8_t* ptr, size_t len,
                                                               keystroke steal) ;
-extern int
+extern bool
 keystroke_get(keystroke_stream stream, keystroke stroke) ;
 
 #endif /* _ZEBRA_KEYSTROKE_H */

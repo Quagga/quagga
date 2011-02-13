@@ -24,12 +24,11 @@
 #include <zebra.h>
 
 #include "vty.h"
-#include "uty.h"
 #include "vty_cli.h"
+#include "vty_command.h"
 #include "vty_io.h"
 #include "vio_lines.h"
 
-#include "command.h"
 #include "command_execute.h"
 #include "command_queue.h"
 
@@ -194,7 +193,7 @@
  *
  */
 
-
+#if 0
 
 
 
@@ -684,7 +683,7 @@ uty_cli_dispatch(vty_io vio)
   cli_do = vio->cli_do ;                /* current operation            */
 
   vio->cli_do = cli_do_nothing ;        /* clear                        */
-  qs_clear(&vio->cl) ;                  /* set cl empty (with '\0')     */
+  qs_clear(vio->cl) ;                   /* set cl empty (with '\0')     */
 
   /* Reset the command output FIFO and line_control                     */
   assert(vio_fifo_empty(&vio->cmd_obuf)) ;
@@ -706,7 +705,7 @@ uty_cli_dispatch(vty_io vio)
           break ;
 
         case cli_do_command:
-          ret = uty_command(vty) ;
+          ret = uty_dispatch_command(vty) ;
           break ;
 
         case cli_do_ctrl_c:
@@ -1401,7 +1400,7 @@ uty_cli_draw_this(vty_io vio, enum node_type node)
               prompt = "%s ???: " ;
             } ;
 
-          qs_printf(&vio->cli_prompt_for_node, prompt, vty_host_name);
+          qs_printf(vio->cli_prompt_for_node, prompt, vty_host_name);
 
           vio->cli_prompt_node = node ;
           vio->cli_prompt_set  = 1 ;
@@ -1778,12 +1777,12 @@ uty_cli_insert (vty_io vio, const char* chars, int n)
   if (n <= 0)
     return n ;          /* avoid trouble        */
 
-  after = qs_insert(&vio->cl, chars, n) ;
+  after = qs_insert(vio->cl, chars, n) ;
 
-  uty_cli_echo(vio, qs_cp_char(&vio->cl), after + n) ;
+  uty_cli_echo(vio, qs_cp_char(vio->cl), after) ;
 
-  if (after != 0)
-    uty_cli_echo_n(vio, telnet_backspaces, after) ;
+  if ((after - n) != 0)
+    uty_cli_echo_n(vio, telnet_backspaces, after - n) ;
 
   vio->cl.cp  += n ;
 
@@ -1806,7 +1805,7 @@ uty_cli_overwrite (vty_io vio, char* chars, int n)
 
   if (n > 0)
     {
-      qs_replace(&vio->cl, chars, n) ;
+      qs_replace(vio->cl, n, chars, n) ;
       uty_cli_echo(vio, chars, n) ;
 
       vio->cl.cp += n ;
@@ -1854,7 +1853,7 @@ uty_cli_forwards(vty_io vio, int n)
 
   if (n > 0)
     {
-      uty_cli_echo(vio, qs_cp_char(&vio->cl), n) ;
+      uty_cli_echo(vio, qs_cp_char(vio->cl), n) ;
       vio->cl.cp += n ;
     } ;
 
@@ -1907,10 +1906,10 @@ uty_cli_del_forwards(vty_io vio, int n)
   if (n <= 0)
     return 0 ;
 
-  after = qs_delete(&vio->cl, n) ;
+  after = qs_delete(vio->cl, n) ;
 
   if (after > 0)
-    uty_cli_echo(vio, qs_cp_char(&vio->cl), after) ;
+    uty_cli_echo(vio, qs_cp_char(vio->cl), after) ;
 
   uty_cli_echo_n(vio, telnet_spaces,     n) ;
   uty_cli_echo_n(vio, telnet_backspaces, after + n) ;
@@ -1969,8 +1968,8 @@ uty_cli_word_forwards_delta(vty_io vio)
 
   assert(vio->cl.cp <= vio->cl.len) ;
 
-  cp = qs_cp_char(&vio->cl) ;
-  ep = qs_ep_char(&vio->cl) ;
+  cp = qs_cp_char(vio->cl) ;
+  ep = qs_ep_char(vio->cl) ;
 
   tp = cp ;
 
@@ -2013,8 +2012,8 @@ uty_cli_word_backwards_delta(vty_io vio, int eat_spaces)
 
   assert(vio->cl.cp <= vio->cl.len) ;
 
-  cp = qs_cp_char(&vio->cl) ;
-  sp = qs_chars(&vio->cl) ;
+  cp = qs_cp_char(vio->cl) ;
+  sp = qs_chars(vio->cl) ;
 
   tp = cp ;
 
@@ -2128,7 +2127,7 @@ uty_cli_transpose_chars(vty_io vio)
     uty_cli_backwards(vio, 1) ;
 
   /* Pick up in the new order                                           */
-  cp = qs_cp_char(&vio->cl) ;
+  cp = qs_cp_char(vio->cl) ;
   chars[1] = *cp++ ;
   chars[0] = *cp ;
 
@@ -2176,13 +2175,13 @@ uty_cli_hist_add (vty_io vio, const char* cmd_line)
    * Either way, replace the the previous line entry by moving hindex
    * back !
    */
-  if ((prev_line == NULL) || (qs_cmp_sig(prev_line, &line) == 0))
+  if ((prev_line == NULL) || (qs_cmp_sig(prev_line, line) == 0))
     vio->hindex = prev_index ;
   else
     prev_line = vector_get_item(vio->hist, vio->hindex) ;
 
   /* Now replace the hindex entry                                       */
-  vector_set_item(vio->hist, vio->hindex, qs_copy(prev_line, &line)) ;
+  vector_set_item(vio->hist, vio->hindex, qs_copy(prev_line, line)) ;
 
   /* Advance to the near future and reset the history pointer           */
   vio->hindex++;
@@ -2225,7 +2224,7 @@ uty_cli_history_use(vty_io vio, int step)
        * current command line -- so can get back to it.
        */
       hist = vector_get_item(&vio->hist, vio->hindex) ;
-      vector_set_item(vio->hist, vio->hindex, qs_copy(hist, &vio->cl)) ;
+      vector_set_item(vio->hist, vio->hindex, qs_copy(hist, vio->cl)) ;
     } ;
 
   /* Advance or retreat                                                 */
@@ -2255,7 +2254,7 @@ uty_cli_history_use(vty_io vio, int step)
 
   /* Get previous line from history buffer and echo that                */
   old_len = vio->cl.len ;
-  qs_copy(&vio->cl, hist) ;
+  qs_copy(vio->cl, hist) ;
 
   /* Sort out wiping out any excess and setting the cursor position     */
   if (old_len > vio->cl.len)
@@ -2448,7 +2447,7 @@ static void
 uty_cli_describe_show(vty_io vio, vector describe)
 {
   unsigned int i, cmd_width, desc_width;
-  struct desc *desc, *desc_cr ;
+  struct desc *desc, *cr_item ;
 
   /* Get width of the longest "word"                                    */
   cmd_width = 0;
@@ -2472,7 +2471,7 @@ uty_cli_describe_show(vty_io vio, vector describe)
   desc_width = vio->width - (cmd_width + 6);
 
   /* Print out description.                                             */
-  desc_cr = NULL ;      /* put <cr> last if it appears  */
+  cr_item = NULL ;      /* put <cr> last if it appears  */
 
   for (i = 0; i < vector_active (describe); i++)
     if ((desc = vector_slot (describe, i)) != NULL)
@@ -2480,17 +2479,17 @@ uty_cli_describe_show(vty_io vio, vector describe)
         if (desc->cmd[0] == '\0')
           continue;
 
-        if (strcmp (desc->cmd, command_cr) == 0)
+        if (strcmp (desc->cmd, cr_string) == 0)
           {
-            desc_cr = desc;
+            cr_item = desc;
             continue;
           }
 
         uty_cli_describe_fold (vio, cmd_width, desc_width, desc);
       }
 
-  if (desc_cr != NULL)
-    uty_cli_describe_fold (vio, cmd_width, desc_width, desc_cr);
+  if (cr_item != NULL)
+    uty_cli_describe_fold (vio, cmd_width, desc_width, cr_item);
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2865,3 +2864,5 @@ uty_telnet_command(vty_io vio, keystroke stroke, bool callback)
 
   return dealt_with ;
 } ;
+
+#endif

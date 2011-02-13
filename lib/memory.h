@@ -58,11 +58,21 @@ typedef enum MTYPE mtype_t ;
   mtype_zstrdup (__FILE__, __LINE__, (mtype), (str))
 #else
 
-#ifdef QDEBUG
-#define MEMORY_TRACKER 1
+#ifdef MEMORY_TRACKER           /* Can be forced from outside           */
+# if MEMORY_TRACKER
+#  define MEMORY_TRACKER 1      /* Force 1 or 0                         */
+#else
+#  define MEMORY_TRACKER 0
+# endif
+#else
+# ifdef  QDEBUG
+#  define MEMORY_TRACKER 1      /* Follow QDEBUG                        */
+#else
+#  define MEMORY_TRACKER 0
+# endif
 #endif
 
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
 #define MEMORY_TRACKER_NAME  , const char* name
 #define MEMORY_TRACKER_FUNC , __func__
 #else

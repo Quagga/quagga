@@ -192,3 +192,51 @@ qt_craft_monotonic(void) {
     return (monotonic * times_scale_q) +
                                 ((monotonic * times_scale_r) / times_clk_tcks) ;
 } ;
+
+/*==============================================================================
+ * A simple minded random number generator.
+ *
+ * Designed to be reasonably unpredictable... particularly the ms bits !
+ */
+
+static inline uint32_t
+qt_rand(uint64_t q, uint64_t s)
+{
+  /* Takes q ^ s and reduces to 32 bits by xoring ms and ls halves
+   * then uses Knuth recommended linear congruent to randomise that, so that
+   * most of the original bits affect the result.
+   *
+   * Note that linear congruent tends to be "more random" in the ms bits.
+   */
+  q ^= s ;
+  q = (q ^ (q >> 32)) & 0xFFFFFFFF ;
+  return ((q * 2650845021) + 5) & 0xFFFFFFFF ;
+} ;
+
+extern uint32_t
+qt_random(uint32_t seed)
+{
+  uint32_t x, y ;
+  uint64_t t ;
+
+  t = qt_get_realtime() ;
+
+  /* Set x by munging the time, the address of x, the current contents of x,
+   * and the "seed".  (Munge the seed a bit for good measure.)
+   */
+  x = qt_rand(t ^ (uint64_t)x ^ (uint64_t)&x, seed ^ 3141592653) ;
+                  /* munge the address and the contents with the seed   */
+
+  /* Set y by munging the time, the address of y, the current contents of y,
+   * and the "seed".  (Munge the seed a bit for good measure.)
+   */
+  y = qt_rand(t ^ (uint64_t)y ^ (uint64_t)&y, seed ^ 3562951413) ;
+                  /* munge the current real time with the seed          */
+
+  /* Return x and y munged together.
+   *
+   * Note that we swap the halves of y before munging, in order to spread
+   * the "more random" part of y down to the ls end of the result.
+   */
+  return x ^ ((y >> 16) & 0xFFFF) ^ ((y & 0xFFFF) << 16) ;
+} ;

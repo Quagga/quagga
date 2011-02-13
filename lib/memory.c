@@ -72,7 +72,7 @@ mem_tracker_zeroise(struct mem_tracker* mem)
   memset(mem, 0, sizeof(struct mem_tracker)) ;
 } ;
 
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
 #include "mem_tracker.c"
 #endif
 
@@ -130,7 +130,7 @@ zmalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
   else
     {
       mstat.mt[mtype].alloc++;
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
       mem_md_malloc(mtype, memory, size, name) ;
 #endif
       UNLOCK ;
@@ -159,7 +159,7 @@ zcalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
   else
     {
       mstat.mt[mtype].alloc++;
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
       mem_md_malloc(mtype, memory, size, name) ;
 #endif
       UNLOCK ;
@@ -188,7 +188,7 @@ zrealloc (enum MTYPE mtype, void *ptr, size_t size  MEMORY_TRACKER_NAME)
     {
       if (ptr == NULL)
         mstat.mt[mtype].alloc++;
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
       mem_md_realloc(mtype, ptr, memory, size, name) ;
 #endif
       UNLOCK ;
@@ -210,7 +210,7 @@ zfree (enum MTYPE mtype, void *ptr)
       assert(mstat.mt[mtype].alloc > 0) ;
 
       mstat.mt[mtype].alloc--;
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
       mem_md_free(mtype, ptr) ;
 #endif
 
@@ -230,7 +230,7 @@ zstrdup (enum MTYPE mtype, const char *str  MEMORY_TRACKER_NAME)
 
   LOCK ;
 
-  dup = strdup (str);
+  dup = strdup (str ? str : "");
   if (dup == NULL)
     {
       UNLOCK ;
@@ -239,7 +239,7 @@ zstrdup (enum MTYPE mtype, const char *str  MEMORY_TRACKER_NAME)
   else
     {
       mstat.mt[mtype].alloc++;
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
       mem_md_malloc(mtype, dup, strlen(str)+1, name) ;
 #endif
       UNLOCK ;
@@ -443,7 +443,7 @@ show_memory_type_vty (struct vty *vty, const char* name,
     vty_out (vty, "-----------------------------%s", VTY_NEWLINE) ;
 
     vty_out (vty, "%-30s:", name) ;
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
     show_memory_tracker_detail(vty, mt, alloc) ;
 #else
     vty_out (vty, " %10ld", alloc) ;
@@ -464,13 +464,13 @@ show_memory_vty (struct vty *vty, struct memory_list *m, struct mlist* ml,
   struct mem_tracker  mem_one ;
   struct mem_tracker* mt ;
 
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
   struct mem_type_tracker mem_tt ;
 #endif
 
   LOCK ;
   mst    = mstat ;
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
   mem_tt = mem_type_tracker ;
 #endif
   UNLOCK ;
@@ -499,7 +499,7 @@ show_memory_vty (struct vty *vty, struct memory_list *m, struct mlist* ml,
       else
         {
           alloc = mst.mt[m->index].alloc ;
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
           mt = &(mem_tt.mt[m->index]) ;
 #else
           mt = &mem_one ;
@@ -580,7 +580,7 @@ DEFUN_CALL (show_memory_summary,
        "Memory statistics\n"
        "Summary memory statistics\n")
 {
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
   show_memory_tracker_summary(vty) ;
 #else
   long alloc = 0 ;
@@ -613,7 +613,7 @@ DEFUN_CALL (show_memory_all,
 #ifdef HAVE_MALLINFO
   needsep  |= show_memory_mallinfo (vty);
 #endif /* HAVE_MALLINFO */
-#ifdef MEMORY_TRACKER
+#if MEMORY_TRACKER
   needsep |= show_memory_tracker_summary(vty) ;
 #endif
 

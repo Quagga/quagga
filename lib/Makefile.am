@@ -14,9 +14,10 @@ libzebra_la_SOURCES = \
 	zclient.c sockopt.c smux.c md5.c if_rmap.c keychain.c privs.c \
 	sigevent.c pqueue.c jhash.c memtypes.c workqueue.c symtab.c heap.c \
 	qtime.c qpthreads.c mqueue.c qpselect.c qtimers.c qpnexus.c \
-	command_parse.c command_queue.c qlib_init.c pthread_safe.c list_util.c \
-	vty_io.c vty_io_file.c vty_io_shell.c vty_io_term.c vty_cli.c \
-	vty_io_basic.c keystroke.c qstring.c vio_fifo.c vio_lines.c \
+	command_parse.c command_execute.c command_queue.c vty_command.c \
+	vty_io.c vty_io_file.c vty_io_shell.c vty_io_vsh.c vty_io_term.c vty_cli.c \
+	vty_io_basic.c keystroke.c qstring.c elstring.c vio_fifo.c vio_lines.c \
+	qlib_init.c pthread_safe.c list_util.c \
 	qiovec.c qfstring.c  errno_names.c
 
 BUILT_SOURCES = memtypes.h route_types.h
@@ -26,19 +27,19 @@ libzebra_la_DEPENDENCIES = @LIB_REGEX@
 libzebra_la_LIBADD = @LIB_REGEX@
 
 pkginclude_HEADERS = \
-	buffer.h checksum.h command.h filter.h getopt.h hash.h \
+	zebra.h zconfig.h buffer.h checksum.h command.h filter.h getopt.h hash.h \
 	if.h linklist.h log.h \
 	memory.h network.h prefix.h routemap.h distribute.h sockunion.h \
-	str.h stream.h table.h thread.h vector.h version.h vty.h zebra.h \
+	str.h stream.h table.h thread.h vector.h version.h vty.h \
 	plist.h zclient.h sockopt.h smux.h md5.h if_rmap.h keychain.h \
 	privs.h sigevent.h pqueue.h jhash.h zassert.h memtypes.h \
 	workqueue.h route_types.h symtab.h heap.h \
 	qtime.h qpthreads.h mqueue.h qpselect.h qtimers.h qpnexus.h \
-	command_parse.h command_queue.h qlib_init.h qafi_safi.h \
+	command_parse.h command_queue.h vty_command.h qlib_init.h qafi_safi.h \
 	confirm.h misc.h vargs.h miyagi.h pthread_safe.h list_util.h \
-	tstring.h node_type.h uty.h \
-        vty_io.h vty_io_file.h vty_io_shell.h vty_io_term.h vty_cli.h \
-	vty_io_basic.h keystroke.h qstring.h vio_fifo.h vio_lines.h \
+	tstring.h command_common.h command_local.h vty_common.h vty_local.h \
+  vty_io.h vty_io_file.h vty_io_shell.h vty_io_vsh.h vty_io_term.h vty_cli.h \
+	vty_io_basic.h keystroke.h qstring.h elstring.h vio_fifo.h vio_lines.h \
 	qiovec.h qfstring.h errno_names.h \
 	route_types.h command_execute.h
 

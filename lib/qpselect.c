@@ -29,13 +29,24 @@
 #include "memory.h"
 #include "vector.h"
 
-enum { qdebug =
-#ifdef QDEBUG
-  1
+/*------------------------------------------------------------------------------
+ * Sort out any debug setting
+ */
+#ifdef QPSELECT_DEBUG           /* Can be forced from outside           */
+# if QPSELECT_DEBUG
+#  define QPSELECT_DEBUG 1      /* Force 1 or 0                         */
 #else
-  0
+#  define QPSELECT_DEBUG 0
+# endif
+#else
+# ifdef  QDEBUG
+#  define QPSELECT_DEBUG 1      /* Follow QDEBUG                        */
+#else
+#  define QPSELECT_DEBUG 0
+# endif
 #endif
-};
+
+enum { qpselect_debug = QPSELECT_DEBUG } ;
 
 /*==============================================================================
  * Quagga pselect -- qps_xxxx
@@ -319,7 +330,7 @@ qps_pselect(qps_selection qps, qtime_t max_wait)
   fd_set*     p_fds[qps_mnum_count] ;
   int  n ;
 
-  if (qdebug)
+  if (qpselect_debug)
     qps_selection_validate(qps) ;
 
   /* If there is stuff still pending, tidy up by zeroising the result   */
@@ -415,7 +426,7 @@ qps_dispatch_next(qps_selection qps)
   qps_file   qf ;
   qps_mnum_t mnum ;
 
-  if (qdebug)
+  if (qpselect_debug)
     qps_selection_validate(qps) ;
 
   if (qps->pend_count == 0)

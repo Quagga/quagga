@@ -22,37 +22,35 @@
 #ifndef _ZEBRA_VIO_FIFO_H
 #define _ZEBRA_VIO_FIFO_H
 
-#include "zebra.h"
 #include "misc.h"
+#include "vargs.h"
+#include <stdio.h>
 
 #include "list_util.h"
-#include "zassert.h"
-
-/* GCC have printf type attribute check.  */
-#ifdef __GNUC__
-#define PRINTF_ATTRIBUTE(a,b) __attribute__ ((__format__ (__printf__, a, b)))
-#else
-#define PRINTF_ATTRIBUTE(a,b)
-#endif /* __GNUC__ */
 
 /*==============================================================================
  * VTY I/O FIFO -- buffering of arbitrary amounts of I/O.
  */
 
-#ifdef  NDEBUG
-# define  VIO_FIFO_DEBUG 0      /* NDEBUG override                      */
+#ifdef VIO_FIFO_DEBUG           /* Can be forced from outside           */
+# if VIO_FIFO_DEBUG
+#  define VIO_FIFO_DEBUG 1      /* Force 1 or 0                         */
 #else
-# ifndef VIO_FIFO_DEBUG
-#  define VIO_FIFO_DEBUG 1      /* Set to 1 to turn on debug checks     */
+#  define VIO_FIFO_DEBUG 0
+# endif
+#else
+# ifdef  QDEBUG
+#  define VIO_FIFO_DEBUG 1      /* Follow QDEBUG                        */
+#else
+#  define VIO_FIFO_DEBUG 0
 # endif
 #endif
+
+enum { vio_fifo_debug = VIO_FIFO_DEBUG } ;
 
 /*==============================================================================
  * Data Structures
  */
-typedef struct vio_fifo  vio_fifo_t ;
-typedef struct vio_fifo* vio_fifo ;
-
 typedef struct vio_fifo_lump  vio_fifo_lump_t ;
 typedef struct vio_fifo_lump* vio_fifo_lump ;
 
@@ -60,21 +58,45 @@ struct vio_fifo
 {
   struct dl_base_pair(vio_fifo_lump) base ;
 
-  bool    one ;
+  bool    set ;                 /* have at least one lump               */
 
-  char*   put_ptr ;
-  char*   put_end ;
+  bool    as_one ;              /* get_lump == tail && !end_mark
+                                   => get_end may not be up to date     */
 
+  bool    hold_mark ;           /* hold stuff while getting             */
+  bool    end_mark ;            /* do not get beyond end                */
+
+  char*   hold_ptr ;            /* implicitly in the head lump          */
+                                /* used only if "hold_mark"             */
+
+  vio_fifo_lump get_lump ;      /* head lump unless "hold_mark"         */
   char*   get_ptr ;
   char*   get_end ;
 
-  vio_fifo_lump rdr_lump ;
-  char*         rdr_ptr ;
+  vio_fifo_lump end_lump ;      /* tail lump unless "end_mark"          */
+  char*   end_end ;             /* used only if "end_mark"              */
+
+  char*   put_ptr ;             /* implicitly in the tail lump          */
+  char*   put_end ;
 
   size_t  size ;
 
   vio_fifo_lump spare ;
 } ;
+
+typedef struct vio_fifo  vio_fifo_t[1] ;        /* embedded     */
+typedef struct vio_fifo* vio_fifo ;
+
+/* Setting a FIFO object to all zeros is enough to initialise it to an
+ * empty FIFO (with default lump sizes).
+ */
+enum
+{
+  VIO_FIFO_INIT_ALL_ZEROS     = true,
+  VIO_FIFO_DEFAULT_LUMP_SIZE  = 4 * 1024
+} ;
+
+#define VIO_FIFO_INIT_EMPTY  { 0 }
 
 struct vio_fifo_lump
 {
@@ -89,76 +111,114 @@ struct vio_fifo_lump
  * Functions
  */
 
-extern vio_fifo vio_fifo_init_new(vio_fifo vf, size_t size) ;
-extern vio_fifo vio_fifo_reset(vio_fifo vf, int free_structure) ;
+extern vio_fifo vio_fifo_init_new(vio_fifo vff, size_t size) ;
+extern vio_fifo vio_fifo_reset(vio_fifo vff, free_keep_b free_structure) ;
 
-#define vio_fifo_reset_keep(vf) vio_fifo_reset(vf, 0)
-#define vio_fifo_reset_free(vf) vio_fifo_reset(vf, 1)
+extern void vio_fifo_clear(vio_fifo vff, bool clear_marks) ;
+Inline bool vio_fifo_empty(vio_fifo vff) ;
+extern size_t vio_fifo_room(vio_fifo vff) ;
 
-extern void vio_fifo_clear(vio_fifo vf) ;
-Inline bool vio_fifo_empty(vio_fifo vf) ;
-extern size_t vio_fifo_room(vio_fifo vf) ;
+extern void vio_fifo_put_bytes(vio_fifo vff, const char* src, size_t n) ;
+Inline void vio_fifo_put_byte(vio_fifo vff, char b) ;
 
-extern void vio_fifo_put(vio_fifo vf, const char* src, size_t n) ;
-Inline void vio_fifo_put_byte(vio_fifo vf, char b) ;
-
-extern int vio_fifo_printf(vio_fifo vf, const char* format, ...)
+extern int vio_fifo_printf(vio_fifo vff, const char* format, ...)
                                                         PRINTF_ATTRIBUTE(2, 3) ;
-extern int vio_fifo_vprintf(vio_fifo vf, const char *format, va_list args) ;
+extern int vio_fifo_vprintf(vio_fifo vff, const char *format, va_list args) ;
+extern int vio_fifo_read_nb(vio_fifo vff, int fd, size_t request) ;
 
-extern size_t vio_fifo_get(vio_fifo vf, void* dst, size_t n) ;
-Inline int vio_fifo_get_byte(vio_fifo vf) ;
-extern void* vio_fifo_get_lump(vio_fifo vf, size_t* have) ;
-extern void vio_fifo_got_upto(vio_fifo vf, void* here) ;
+extern size_t vio_fifo_get_bytes(vio_fifo vff, void* dst, size_t n) ;
+Inline int vio_fifo_get_byte(vio_fifo vff) ;
+extern void* vio_fifo_get(vio_fifo vff, size_t* have) ;
+extern void vio_fifo_step(vio_fifo vff, size_t step) ;
+extern void* vio_fifo_step_get(vio_fifo vff, size_t* p_have, size_t step) ;
 
-Inline bool vio_fifo_full_lump(vio_fifo vf) ;
-extern int vio_fifo_write_nb(vio_fifo vf, int fd, bool all) ;
+extern vio_fifo vio_fifo_copy(vio_fifo dst, vio_fifo src) ;
+extern vio_fifo vio_fifo_copy_tail(vio_fifo dst, vio_fifo src) ;
 
-extern void* vio_fifo_get_rdr(vio_fifo vf, size_t* have) ;
-extern void* vio_fifo_step_rdr(vio_fifo vf, size_t* have, size_t step) ;
-extern void vio_fifo_sync_rdr(vio_fifo vf) ;
-extern void vio_fifo_drop_rdr(vio_fifo vf) ;
+Inline bool vio_fifo_full_lump(vio_fifo vff) ;
+extern int vio_fifo_write_nb(vio_fifo vff, int fd, bool all) ;
+extern int vio_fifo_fwrite(vio_fifo vff, FILE* file) ;
 
-Private void vio_fifo_lump_new(vio_fifo vf, size_t size) ;
-Private int vio_fifo_get_next_byte(vio_fifo vf) ;
+extern void vio_fifo_skip_to_end(vio_fifo vff) ;
+extern void vio_fifo_set_end_mark(vio_fifo vff) ;
+extern void vio_fifo_step_end_mark(vio_fifo vff) ;
+extern void vio_fifo_clear_end_mark(vio_fifo vff) ;
+extern void vio_fifo_back_to_end_mark(vio_fifo vff, bool keep) ;
+extern void vio_fifo_set_hold_mark(vio_fifo vff) ;
+extern void vio_fifo_clear_hold_mark(vio_fifo vff) ;
+extern void vio_fifo_back_to_hold_mark(vio_fifo vff, bool keep) ;
 
 /*==============================================================================
  * Debug -- verification function
  */
 
-Private void vio_fifo_verify(vio_fifo vf) ;
+Private void vio_fifo_verify(vio_fifo vff) ;
 
 #if VIO_FIFO_DEBUG
-# define VIO_FIFO_DEBUG_VERIFY(vf) vio_fifo_verify(vf)
+# define VIO_FIFO_DEBUG_VERIFY(vff) vio_fifo_verify(vff)
 #else
-# define VIO_FIFO_DEBUG_VERIFY(vf)
+# define VIO_FIFO_DEBUG_VERIFY(vff)
 #endif
 
 /*==============================================================================
  * Inline Functions
  */
 
+Private void vio_fifo_lump_new(vio_fifo vff, size_t size) ;
+Private int vio_fifo_get_next_byte(vio_fifo vff) ;
+Private bool vio_fifo_do_empty(vio_fifo vff) ;
+
 /*------------------------------------------------------------------------------
- * Returns true <=> FIFO is empty
+ * Returns true <=> FIFO is empty -- at least: get_ptr == end_end (if any)
+ *                                         or: get_ptr == put_ptr.
  */
 Inline bool
-vio_fifo_empty(vio_fifo vf)
+vio_fifo_empty(vio_fifo vff)
 {
-  return (vf->get_ptr == vf->put_ptr) ;
-}
+  /* if vff is NULL, treat as empty !
+   * if !set, then all pointers should be NULL    (so get_ptr == put_ptr)
+   * if !end_mark, then vff->end_end will be NULL (so get_ptr != end_end,
+   *                                                               unless !set)
+   * Is definitely empty if any of the following is true.
+   */
+  if ((vff == NULL) || (vff->get_ptr == vff->put_ptr)
+                    || (vff->get_ptr == vff->end_end))
+    return true ;
+
+  /* If get_ptr < get_end is NOT empty                                  */
+  if (vff->get_ptr < vff->get_end)
+    return false ;
+
+  /* See if can advance get_ptr, and if so whether is then empty.       */
+  return vio_fifo_do_empty(vff) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Returns true <=> FIFO is empty beyond end_end (if any).
+ */
+Inline bool
+vio_fifo_empty_tail(vio_fifo vff)
+{
+  /* if vff is NULL, treat as empty !
+   * if !set, then all pointers should be NULL (so end_end == put_ptr)
+   * if !end_mark, then tail is empty !
+   *               else tail is empty iff end_end == put_ptr.
+   */
+  return (vff == NULL) || !vff->end_mark || (vff->end_end == vff->put_ptr) ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Put one byte to the FIFO
  */
 Inline void
-vio_fifo_put_byte(vio_fifo vf, char b)
+vio_fifo_put_byte(vio_fifo vff, char b)
 {
-  if (vf->put_ptr >= vf->put_end)
-    vio_fifo_lump_new(vf, vf->size) ;   /* traps put_ptr > put_end      */
+  if (vff->put_ptr >= vff->put_end)
+    vio_fifo_lump_new(vff, 0) ;         /* traps put_ptr > put_end      */
 
-  VIO_FIFO_DEBUG_VERIFY(vf) ;
+  VIO_FIFO_DEBUG_VERIFY(vff) ;
 
-  *vf->put_ptr++ = b ;
+  *vff->put_ptr++ = b ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -168,14 +228,12 @@ vio_fifo_put_byte(vio_fifo vf, char b)
  *          -1         => FIFO is empty.
  */
 Inline int
-vio_fifo_get_byte(vio_fifo vf)
+vio_fifo_get_byte(vio_fifo vff)
 {
-  if (vf->get_end <= (vf->get_ptr + 1))
-    return vio_fifo_get_next_byte(vf) ;
+  if (vff->get_ptr < vff->get_end)
+    return (uchar)*vff->get_ptr++ ;
 
-  VIO_FIFO_DEBUG_VERIFY(vf) ;
-
-  return (unsigned char)*vf->get_ptr++ ;
+  return vio_fifo_get_next_byte(vff) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -188,9 +246,9 @@ vio_fifo_get_byte(vio_fifo vf)
  *                   (excluding the last lump if it happens to be full)
  */
 Inline bool
-vio_fifo_full_lump(vio_fifo vf)
+vio_fifo_full_lump(vio_fifo vff)
 {
-  return (!vf->one && (vf->put_ptr != NULL)) ;
+  return (ddl_head(vff->base) != ddl_tail(vff->base)) ;
 } ;
 
 #endif /* _ZEBRA_VIO_FIFO_H */

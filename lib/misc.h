@@ -22,13 +22,16 @@
 #ifndef _ZEBRA_MISC_H
 #define _ZEBRA_MISC_H
 
+#include "zconfig.h"
+
 /* Stuff which we generally expect to have                              */
+#include <limits.h>
+#include <string.h>
+
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
-#include <limits.h>
-#include <stdbool.h>
 #include <stdlib.h>
-#include <string.h>
 
 #include "zassert.h"
 
@@ -42,6 +45,9 @@
  * used by an inline function -- but are not for public consumption.
  */
 #define Private extern
+
+/* For use in switch/case                                               */
+#define fall_through
 
 /* Other names of true/false                                            */
 enum on_off
@@ -67,14 +73,26 @@ enum free_keep
 } ;
 typedef enum free_keep free_keep_b ;
 
-/* We really want to be able to assume that an int is at least 32 bits  */
-CONFIRM(UINT_MAX >= 0xFFFFFFFF) ;
+/* We really want to be able to assume that an int is at least 32 bits
+ * and that a long is at least 64 bits !
+ */
+CONFIRM(UINT_MAX  >= 0xFFFFFFFF) ;
+CONFIRM(ULONG_MAX >= 0xFFFFFFFFFFFFFFFF) ;
 
 /* Some useful shorthand                                                */
 typedef unsigned char byte ;
 typedef unsigned char uchar ;
+
 typedef unsigned int  uint ;
 typedef unsigned int  usize ;
 typedef unsigned int  ulen ;
+
+typedef unsigned long ulong ;
+
+/*       cvp  == const void*         -- ptr to constant void
+ *       cvp* == void * const*       -- ptr to ptr to constant void
+ * const cvp* == void const* const*  -- ptr to constant ptr to constant void
+ */
+typedef const void* cvp ;
 
 #endif /* _ZEBRA_MISC_H */

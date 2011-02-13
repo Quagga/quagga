@@ -3,21 +3,21 @@
  *                             Miscellanous routines
  *
  * Copyright (C) 2001,2002   Sampo Saaristo
- *                           Tampere University of Technology      
+ *                           Tampere University of Technology
  *                           Institute of Communications Engineering
  *
- * This program is free software; you can redistribute it and/or modify it 
- * under the terms of the GNU General Public Licenseas published by the Free 
- * Software Foundation; either version 2 of the License, or (at your option) 
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public Licenseas published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
  * any later version.
  *
- * This program is distributed in the hope that it will be useful,but WITHOUT 
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or 
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for 
+ * This program is distributed in the hope that it will be useful,but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
 
- * You should have received a copy of the GNU General Public License along 
- * with this program; if not, write to the Free Software Foundation, Inc., 
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
@@ -96,7 +96,7 @@ isonet_print (u_char * from, int len)
 
 /*
  * Returns 0 on error, length of buff on ok
- * extract dot from the dotted str, and insert all the number in a buff 
+ * extract dot from the dotted str, and insert all the number in a buff
  */
 int
 dotformat2buff (u_char * buff, const u_char * dotted)
@@ -464,7 +464,7 @@ isis_jitter (unsigned long timer, unsigned long jitter)
 
   if (timer == 1)
     return timer;
-  /* 
+  /*
    * randomizing just the percent value provides
    * no good random numbers - hence the spread
    * to RANDOM_SPREAD (100000), which is ok as
@@ -496,16 +496,5 @@ newprefix2inaddr (u_char * prefix_start, u_char prefix_masklen)
 const char *
 unix_hostname (void)
 {
-  static struct utsname names;
-  const char *hostname;
-  extern struct host host;
-
-  hostname = host.name;
-  if (!hostname)
-    {
-      uname (&names);
-      hostname = names.nodename;
-    }
-
-  return hostname;
-}
+  return cmd_host_name(true) ;  /* if required, get fresh system hostname */
+} ;
