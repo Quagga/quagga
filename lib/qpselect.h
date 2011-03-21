@@ -140,8 +140,7 @@ struct qps_selection
   qps_mnum_t  pend_mnum ;   /* error/read/write mode pending (if any)     */
   int         pend_fd ;     /* fd pending                    (if any)     */
 
-  int         signum ;  /* signal that sigmask is enabling -- 0 => none   */
-  sigset_t    sigmask ; /* sigmask to use for duration of pselect         */
+  const sigset_t* sigmask ; /* sigmask to use for duration of pselect     */
 } ;
 
 struct qps_file
@@ -181,7 +180,7 @@ qps_selection_ream(qps_selection qps, int free_structure) ;
 #define qps_selection_ream_keep(qps) qps_selection_ream(qps, 0)
 
 extern void
-qps_set_signal(qps_selection qps, int signum, sigset_t sigmask) ;
+qps_set_signal(qps_selection qps, const sigset_t* sigmask) ;
 
 extern int
 qps_pselect(qps_selection qps, qtime_mono_t timeout) ;
@@ -234,5 +233,26 @@ qps_set_file_info(qps_file qf, void* info)
 {
   qf->file_info = info ;
 } ;
+
+/*==============================================================================
+ * Miniature pselect
+ *
+ */
+struct qps_mini
+{
+  fd_full_set sets ;    /* bit vectors for pselect enabled stuff          */
+  int   fd_last ;       /* highest numbered fd; -1 => none at all         */
+
+  qtime_t       interval ;
+  qtime_mono_t  end_time ;
+} ;
+
+typedef struct qps_mini  qps_mini_t[1] ;
+typedef struct qps_mini* qps_mini ;
+
+extern qps_mini qps_mini_set(qps_mini qm, int fd, qps_mnum_t mode,
+                                                                 uint timeout) ;
+extern qps_mini qps_mini_add(qps_mini qm, int fd, qps_mnum_t mode) ;
+extern int qps_mini_wait(qps_mini qm, const sigset_t* sigmask, bool signal) ;
 
 #endif /* _ZEBRA_QPSELECT_H */

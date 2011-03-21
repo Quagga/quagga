@@ -22,7 +22,13 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define _ZEBRA_CONFIG_H
 
 #ifdef HAVE_CONFIG_H
+
 #include "config.h"
+
+#if _GNU_SOURCE
+#include <features.h>
+#endif
+
 #endif /* HAVE_CONFIG_H */
 
 #endif /* _ZEBRA_CONFIG_H */

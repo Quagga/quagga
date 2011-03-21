@@ -25,32 +25,34 @@
 #define _QUAGGA_SIGNAL_H
 
 #include <thread.h>
+#include <signal.h>
 
 #define QUAGGA_SIGNAL_TIMER_INTERVAL 2L
 #define Q_SIGC(sig) (sizeof(sig)/sizeof(sig[0]))
 
+typedef void qsig_event(void) ;
+
 struct quagga_signal_t
 {
-  int signal;                     /* signal number    */
-  void (*handler) (void);         /* handler to call  */
+  int           signal ;        /* signal number        */
+  qsig_event*   handler ;       /* event function      */
+} ;
 
-  volatile sig_atomic_t caught;   /* private member   */
-};
-
-/* initialise sigevent system
- * takes:
- * - pointer to valid struct thread_master
- * - number of elements in passed in signals array
- * - array of quagga_signal_t's describing signals to handle
- *   and handlers to use for each signal
- */
 extern void signal_init (struct thread_master *m, int sigc,
-                         struct quagga_signal_t *signals);
+                                             struct quagga_signal_t *signals);
 
-/* check whether there are signals to handle, process any found */
 extern int quagga_sigevent_process (void);
 
-/* turn off trap for SIGABRT !                                  */
+extern const sigset_t* signal_get_hard_set(void) ;
 extern void quagga_sigabrt_no_trap(void) ;
+extern void quagga_signal_reset(void) ;
+
+extern void sigmakeset(sigset_t* set, ...) ;
+extern void sigcopyset(sigset_t* dst, const sigset_t* src) ;
+extern void sigaddsets(sigset_t* a, const sigset_t* b) ;
+extern void sigsubsets(sigset_t* a, const sigset_t* b) ;
+extern void siginvset(sigset_t* a, const sigset_t* b) ;
+extern int sigincommon(const sigset_t* a, const sigset_t* b) ;
+extern int sighasmember(const sigset_t* a) ;
 
 #endif /* _QUAGGA_SIGNAL_H */

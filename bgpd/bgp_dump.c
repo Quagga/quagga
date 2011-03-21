@@ -21,6 +21,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include <zebra.h>
 
 #include "log.h"
+#include "vty.h"
 #include "stream.h"
 #include "sockunion.h"
 #include "command.h"
@@ -28,6 +29,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "thread.h"
 #include "linklist.h"
 #include "bgpd/bgp_table.h"
+#include "qpath.h"
+#include "qstring.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_route.h"
@@ -97,8 +100,8 @@ bgp_dump_open_file (struct bgp_dump *bgp_dump)
   int ret;
   time_t clock;
   struct tm tm;
-  char fullpath[MAXPATHLEN];
-  char realpath[MAXPATHLEN];
+  qpath   path ;
+  qstring name ;
   mode_t oldumask;
 
   time (&clock);
@@ -106,11 +109,17 @@ bgp_dump_open_file (struct bgp_dump *bgp_dump)
 
   if (bgp_dump->filename[0] != DIRECTORY_SEP)
     {
-      sprintf (fullpath, "%s/%s", vty_get_cwd (), bgp_dump->filename);
-      ret = strftime (realpath, MAXPATHLEN, fullpath, &tm);
+      path = vty_getcwd(NULL) ;
+      qpath_append_str(path, bgp_dump->filename) ;
     }
   else
-    ret = strftime (realpath, MAXPATHLEN, bgp_dump->filename, &tm);
+    path = qpath_set(NULL, bgp_dump->filename) ;
+
+  name = qs_new_size(NULL, qpath_len(path) + 60) ;
+
+  ret = strftime (qs_char_nn(name), qs_len_nn(name), qpath_string(path), &tm);
+
+  qpath_free(path) ;
 
   if (ret == 0)
     {
@@ -123,11 +132,12 @@ bgp_dump_open_file (struct bgp_dump *bgp_dump)
 
 
   oldumask = umask(0777 & ~LOGFILE_MASK);
-  bgp_dump->fp = fopen (realpath, "w");
+  bgp_dump->fp = fopen (qs_char_nn(name), "w");
 
   if (bgp_dump->fp == NULL)
     {
-      zlog_warn("bgp_dump_open_file: %s: %s", realpath, errtoa(errno, 0).str);
+      zlog_warn("bgp_dump_open_file: %s: %s", qs_char_nn(name),
+                                                          errtoa(errno, 0).str);
       umask(oldumask);
       return NULL;
     }

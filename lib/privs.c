@@ -21,7 +21,8 @@
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
  */
-#include <zebra.h>
+#include "zebra.h"
+#include "zconfig.h"
 #include "log.h"
 #include "privs.h"
 #include "memory.h"
@@ -29,8 +30,8 @@
 
 /* Needs to be qpthread safe */
 static qpt_mutex_t privs_mutex;
-#define LOCK qpt_mutex_lock(&privs_mutex);
-#define UNLOCK qpt_mutex_unlock(&privs_mutex);
+#define LOCK qpt_mutex_lock(privs_mutex);
+#define UNLOCK qpt_mutex_unlock(privs_mutex);
 
 #ifdef HAVE_CAPABILITIES
 /* sort out some generic internal types for:
@@ -675,20 +676,28 @@ zprivs_state_null (void)
 void
 zprivs_init_r()
 {
-  qpt_mutex_init(&privs_mutex, qpt_mutex_quagga);
+  qpt_mutex_init(privs_mutex, qpt_mutex_quagga);
 }
 
 void
 zprivs_finish(void)
 {
-  qpt_mutex_destroy(&privs_mutex, 0);
+  qpt_mutex_destroy(privs_mutex, 0);
 }
 
+/*------------------------------------------------------------------------------
+ * Initialise privilege handling and set any running group.
+ *
+ * Returns with lowered privileges.
+ *
+ * Must be initialised before vty.  Will be initialised very early in the
+ * morning, before daemonisation and therefore before any pthreads.
+ */
 void
 zprivs_init(struct zebra_privs_t *zprivs)
 {
   struct passwd *pwentry = NULL;
-  struct group *grentry = NULL;
+  struct group  *grentry = NULL;
 
   if (!zprivs)
     {
@@ -696,18 +705,18 @@ zprivs_init(struct zebra_privs_t *zprivs)
       exit (1);
     }
 
-  LOCK
-
-  /* NULL privs */
-  if (! (zprivs->user || zprivs->group
-         || zprivs->cap_num_p || zprivs->cap_num_i) )
+  /* NULL privs                                                         */
+  if ( (zprivs->user == NULL) && (zprivs->group == NULL)
+                              && (zprivs->cap_num_p == 0)
+                              && (zprivs->cap_num_i == 0) )
     {
-      zprivs->change = zprivs_change_null;
+      zprivs->change        = zprivs_change_null;
       zprivs->current_state = zprivs_state_null;
-      UNLOCK
+
       return;
     }
 
+  /* Get uid for configured user (if any)                               */
   if (zprivs->user)
     {
       if ( (pwentry = getpwnam (zprivs->user)) )
@@ -719,11 +728,11 @@ zprivs_init(struct zebra_privs_t *zprivs)
           /* cant use log.h here as it depends on vty */
           fprintf (stderr, "privs_init: could not lookup user %s\n",
                    zprivs->user);
-          UNLOCK
           exit (1);
         }
     }
 
+  /* Get gid for vty_group and add to our groups                        */
   grentry = NULL;
 
   if (zprivs->vty_group)
@@ -736,7 +745,6 @@ zprivs_init(struct zebra_privs_t *zprivs)
             {
               fprintf (stderr, "privs_init: could not setgroups, %s\n",
                                                        errtostr(errno, 0).str) ;
-              UNLOCK
               exit (1);
             }
         }
@@ -744,11 +752,11 @@ zprivs_init(struct zebra_privs_t *zprivs)
         {
           fprintf (stderr, "privs_init: could not lookup vty group %s\n",
                    zprivs->vty_group);
-          UNLOCK
           exit (1);
         }
     }
 
+  /* Get gid for configured group and switch to same, now.              */
   if (zprivs->group)
     {
       if ( (grentry = getgrnam (zprivs->group)) )
@@ -759,15 +767,13 @@ zprivs_init(struct zebra_privs_t *zprivs)
         {
           fprintf (stderr, "privs_init: could not lookup group %s\n",
                    zprivs->group);
-          UNLOCK
           exit (1);
         }
-      /* change group now, forever. uid we do later */
+      /* change group now, forever. uid we do later                     */
       if ( setregid (zprivs_state.zgid, zprivs_state.zgid) )
         {
           fprintf (stderr, "zprivs_init: could not setregid, %s\n",
                                                        errtostr(errno, 0).str) ;
-          UNLOCK
           exit (1);
         }
     }
@@ -775,7 +781,8 @@ zprivs_init(struct zebra_privs_t *zprivs)
 #ifdef HAVE_CAPABILITIES
   zprivs_caps_init (zprivs);
 #else /* !HAVE_CAPABILITIES */
-  /* we dont have caps. we'll need to maintain rid and saved uid
+
+  /* We don't have caps. we'll need to maintain rid and saved uid
    * and change euid back to saved uid (who we presume has all necessary
    * privileges) whenever we are asked to raise our privileges.
    *
@@ -784,20 +791,23 @@ zprivs_init(struct zebra_privs_t *zprivs)
   zprivs_state.zsuid = geteuid();
   if ( zprivs_state.zuid )
     {
+      /* If the zuid != real uid, will set the saved uid == zuid, leaving
+       * just the two zuid to choose from -- though if the real uid is root,
+       * this makes little difference.
+       */
       if ( setreuid (-1, zprivs_state.zuid) )
         {
           fprintf (stderr, "privs_init (uid): could not setreuid, %s\n",
                    errtoa(errno, 0).str);
-          UNLOCK
           exit (1);
         }
     }
 
-  zprivs->change = zprivs_change_uid;
-  zprivs->current_state = zprivs_state_uid;
+  zprivs->change        = zprivs_change_uid ;
+  zprivs->current_state = zprivs_state_uid ;
+
 #endif /* HAVE_CAPABILITIES */
 
-  UNLOCK
 }
 
 void
@@ -826,9 +836,9 @@ zprivs_terminate (struct zebra_privs_t *zprivs)
      }
 #endif /* HAVE_LCAPS */
 
-  zprivs->change = zprivs_change_null;
+  zprivs->change        = zprivs_change_null;
   zprivs->current_state = zprivs_state_null;
-  zprivs_null_state = ZPRIVS_LOWERED;
+  zprivs_null_state     = ZPRIVS_LOWERED;
   raise_count = 0;
 
   UNLOCK
@@ -841,12 +851,12 @@ zprivs_get_ids(struct zprivs_ids_t *ids)
   LOCK
 
   ids->uid_priv = getuid();
-  (zprivs_state.zuid) ? (ids->uid_normal = zprivs_state.zuid)
-                     : (ids->uid_normal = -1);
-  (zprivs_state.zgid) ? (ids->gid_normal = zprivs_state.zgid)
-                     : (ids->gid_normal = -1);
+  (zprivs_state.zuid)   ? (ids->uid_normal = zprivs_state.zuid)
+                        : (ids->uid_normal = -1);
+  (zprivs_state.zgid)   ? (ids->gid_normal = zprivs_state.zgid)
+                        : (ids->gid_normal = -1);
   (zprivs_state.vtygrp) ? (ids->gid_vty = zprivs_state.vtygrp)
-                       : (ids->gid_vty = -1);
+                        : (ids->gid_vty = -1);
 
    UNLOCK
    return;

@@ -29,8 +29,11 @@
 
 #include "command_common.h"
 #include "vector.h"
+#include "vio_fifo.h"
 #include "qstring.h"
+#include "qpath.h"
 #include "elstring.h"
+#include "memory.h"
 
 #if 0
 /*==============================================================================
@@ -449,19 +452,6 @@ item_best_match(cmd_item_type_t it)
  *
  */
 
-/* Command parsing options                                              */
-enum cmd_parse_type               /* bit significant      */
-{
-  cmd_parse_standard    = 0,            /* accept short command parts   */
-
-  cmd_parse_strict      = BIT(0),
-  cmd_parse_no_do       = BIT(1),
-  cmd_parse_no_tree     = BIT(2),
-
-  cmd_parse_execution   = BIT(3),       /* wish to execute command      */
-} ;
-typedef enum cmd_parse_type cmd_parse_type_t ;
-
 /* Pipe types                                                           */
 enum cmd_pipe_type              /* bit significant      */
 {
@@ -476,6 +466,9 @@ enum cmd_pipe_type              /* bit significant      */
 
   /* For out file pipes                                                 */
   cmd_pipe_append     = BIT(4),         /* >>                           */
+
+  /* For out shell pipes                                                */
+  cmd_pipe_shell_only = BIT(4),         /* | at start of line           */
 } ;
 typedef enum cmd_pipe_type cmd_pipe_type_t ;
 
@@ -506,15 +499,17 @@ enum cmd_token_type     /* *bit* significant    */
 
   cmd_tok_simple        = BIT( 0),
 
-  cmd_tok_sq            = BIT( 8),
-  cmd_tok_dq            = BIT( 9),      /* '\\' within "..." are not
+  cmd_tok_sq            = BIT( 4),
+  cmd_tok_dq            = BIT( 5),      /* '\\' within "..." are not
                                            registered separately.       */
-  cmd_tok_esc           = BIT(10),
+  cmd_tok_esc           = BIT( 6),
 
   cmd_tok_incomplete    = (cmd_tok_sq | cmd_tok_dq | cmd_tok_esc),
 
-  cmd_tok_in_pipe       = BIT(12),      /* token starting '<'           */
-  cmd_tok_out_pipe      = BIT(13),      /* token starting '>'           */
+  cmd_tok_in_pipe       = BIT( 8),      /* token starting '<'           */
+  cmd_tok_out_pipe      = BIT( 9),      /* token starting '>'           */
+  cmd_tok_out_shell     = BIT(10),      /* token starting '|'           */
+
   cmd_tok_comment       = BIT(14),      /* token starting '!' or '#"    */
 } ;
 typedef enum cmd_token_type cmd_token_type_t ;
@@ -522,11 +517,11 @@ typedef enum cmd_token_type cmd_token_type_t ;
 struct cmd_token
 {
   cmd_token_type_t  type ;
-  qstring_t         qs ;        /* token string                         */
+  usize             tp ;        /* location of token in the line        */
 
   bool              term ;      /* token has been '\0' terminated       */
 
-  usize             tp ;        /* location of token in the line        */
+  qstring_t         qs ;        /* token string                         */
   elstring_t        ot ;        /* original token in the line           */
 } ;
 
@@ -587,9 +582,9 @@ struct cmd_parsed
   usize         elen ;          /* effective length (less trailing spaces) */
   usize         tsp ;           /* number of trailing spaces            */
 
-  uint        num_tokens ;      /* number of tokens parsed              */
+  uint          num_tokens ;    /* number of tokens parsed              */
 
-  token_vector_t  tokens ;      /* vector of token objects              */
+  token_vector  tokens ;      /* vector of token objects              */
 
   /* NB: the following are significant only if there is a command part
    *     or a do part
@@ -597,13 +592,14 @@ struct cmd_parsed
   struct cmd_command *cmd ;     /* NULL if empty command
                                         or fails to parse               */
   node_type_t   cnode ;         /* node command is in                   */
+  node_type_t   nnode ;         /* node to set if command succeeds      */
 
-  arg_vector_t  args ;          /* vector of arguments -- embedded      */
+  arg_vector    args ;          /* vector of arguments                  */
 
   /* NB: the following are significant only if an error is returned     */
 
-  const char*   emess ;         /* parse error                          */
-  usize         eloc ;          /* error location                       */
+  qstring       emess ;         /* parse error                          */
+  ssize         eloc ;          /* error location                       */
 
   /* NB: the following are significant only if respective part is
    *     present.
@@ -634,8 +630,8 @@ struct cmd_parsed
 
   /* The following are used while filtering commands                    */
 
-  vector_t      cmd_v ;         /* working vector -- embedded           */
-  vector_t      item_v ;        /* working vector -- embedded           */
+  vector        cmd_v ;         /* working vector                       */
+  vector        item_v ;        /* working vector                       */
 
   match_strength_t  strongest ;
   match_type_t      best_complete ;
@@ -647,20 +643,65 @@ struct cmd_parsed
 enum
 {
   CMD_PARSED_INIT_ALL_ZEROS = (cmd_pipe_none == 0)
-                           && TOKEN_VECTOR_INIT_ALL_ZEROS
-                           && ARG_VECTOR_INIT_ALL_ZEROS
 } ;
 
 typedef struct cmd_parsed  cmd_parsed_t[1] ;
 typedef struct cmd_parsed* cmd_parsed ;
 
-/* Command dispatch options                                             */
-enum cmd_queue_b
+/*==============================================================================
+ * This is the stuff that defines the context in which commands are parsed,
+ * and then executed.
+ *
+ * The context lives in the cmd_exec.  The CLI has a copy of the context,
+ * which it uses for the prompt and for command line help handling.
+ *
+ * Each time a new vin is pushed, the current context is copied to the current
+ * TOS (before the push).
+ *
+ * Easch time a vin is popped, the context is restored.
+ *
+ * Each time a vin or vout is pushed or popped the context the cmd_exec
+ * out_suppress and reflect flags must be updated.
+ */
+struct cmd_context
 {
-  cmd_no_queue  = false,
-  cmd_queue_it  = true,
+  /* The node between commands.                                         */
+
+  node_type_t   node ;                  /* updated on CMD_SUCCESS       */
+
+  /* These properties affect the parsing of command lines.              */
+
+  bool          full_lex ;              /* as required                  */
+
+  bool          parse_execution ;       /* parsing to execute           */
+
+  bool          parse_only ;            /* do not execute               */
+
+  bool          parse_strict ;          /* no incomplete keywords       */
+  bool          parse_no_do ;           /* no 'do' commands             */
+  bool          parse_no_tree ;         /* no tree walking              */
+
+  bool          can_auth_enable ;       /* if required                  */
+  bool          can_enable ;            /* no (further) password needed */
+
+  /* These properties affect the execution of parsed commands.          */
+
+  bool          reflect_enabled ;       /* per the pipe                 */
+
+  /* Special for AUTH_ENABLE_NODE -- going from/to                      */
+
+  node_type_t   onode ;                 /* VIEW_NODE or RESTRICTED_NODE */
+  node_type_t   tnode ;                 /* ENABLE_NODE or CONFIG_NODE   */
+
+  /* The current directories.                                           */
+
+  qpath         dir_cd ;                /* chdir directory              */
+  qpath         dir_home ;              /* "~/" directory               */
+  qpath         dir_here ;              /* "~./" directory              */
 } ;
-typedef enum cmd_queue_b cmd_queue_b ;
+
+typedef struct cmd_context  cmd_context_t[1] ;
+typedef struct cmd_context* cmd_context ;
 
 /*==============================================================================
  * Prototypes
@@ -668,21 +709,24 @@ typedef enum cmd_queue_b cmd_queue_b ;
 extern void cmd_compile(cmd_command cmd) ;
 extern void cmd_compile_check(cmd_command cmd) ;
 
-extern cmd_parsed cmd_parsed_init_new(cmd_parsed parsed) ;
-extern cmd_parsed cmd_parsed_reset(cmd_parsed parsed,
-                                                   free_keep_b free_structure) ;
-extern bool cmd_is_empty(elstring line) ;
+extern cmd_parsed cmd_parsed_new(void) ;
+extern cmd_parsed cmd_parsed_free(cmd_parsed parsed) ;
+
+extern bool cmd_is_empty(qstring line) ;
+extern void cmd_tokenize(cmd_parsed parsed, qstring line, bool full_lex) ;
+extern qstring cmd_tokens_concat(cmd_parsed parsed, uint ti, uint nt) ;
 
 extern cmd_return_code_t cmd_parse_command(cmd_parsed parsed,
-                                      node_type_t node, cmd_parse_type_t type) ;
+                                                          cmd_context context) ;
 
 extern bool cmd_token_position(cmd_parsed parsed, qstring line) ;
 extern const char* cmd_help_preflight(cmd_parsed parsed) ;
-extern cmd_return_code_t cmd_completion(cmd_parsed parsed, node_type_t node) ;
+extern cmd_return_code_t cmd_completion(cmd_parsed parsed, cmd_context context);
 
 extern void cmd_complete_keyword(cmd_parsed parsed,
                                        int* pre, int* rep, int* ins, int* mov) ;
 
+extern void cmd_get_parse_error(vio_fifo ebuf, cmd_parsed parsed, uint indent) ;
 
 
 
@@ -697,7 +741,6 @@ extern vector cmd_complete_command (vector, int, int *status);
 
 
 
-extern void cmd_tokenise(cmd_parsed parsed, qstring line) ;
 //extern cmd_return_code_t cmd_parse_error(cmd_parsed parsed, cmd_token t,
 //                                                usize off, const char* mess) ;
 
@@ -722,84 +765,8 @@ extern void cmd_tokenise(cmd_parsed parsed, qstring line) ;
 //extern bool cmd_range_match (const char *range, const char *str) ;
 
 /*==============================================================================
- * Inline Functions
+ * Inlines
  */
-
-Private cmd_token cmd_token_new(void) ;
-
-/*------------------------------------------------------------------------------
- * Get pointer to token value.
- *
- * Returns NULL if token NULL or no string.
- */
-Inline char*
-cmd_token_value(cmd_token t)
-{
-  return (t == NULL) ? NULL : qs_char_nn(t->qs) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Get string value of given token.
- *
- * Returns an empty (not NULL) string if token NULL or no string.
- */
-Inline char*
-cmd_token_make_string(cmd_token t)
-{
-  if (t->term)
-    return qs_char_nn(t->qs) ;
-  else
-    {
-      t->term = true ;
-      return qs_make_string(t->qs) ;
-    }
-} ;
-
-/*------------------------------------------------------------------------------
- * Get i'th token from given token vector -- zero origin
- */
-Inline cmd_token
-cmd_token_get(token_vector tv, vector_index_t i)
-{
-  return vector_get_item(tv->body, i) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Set i'th token from given token vector -- zero origin
- */
-Inline void
-cmd_token_set(token_vector tv, vector_index_t i,
-                      cmd_token_type_t type, const char* p, usize len, usize tp)
-{
-  cmd_token t = cmd_token_get(tv, i) ;
-
-  if (t == NULL)
-    vector_set_item(tv->body, i, (t = cmd_token_new())) ;
-
-  t->type     = type ;
-  t->term     = false ;
-  t->tp       = tp ;
-  qs_set_alias_n(t->qs, p, len) ;
-  qs_els_copy_nn(t->ot, t->qs) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Empty the body of the arg_vector object in cmd_parsed.
- */
-Inline void
-cmd_arg_vector_empty(cmd_parsed parsed)
-{
-  vector_set_length(parsed->args->body, 0) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Empty the body of the arg_vector object in cmd_parsed.
- */
-Inline void
-cmd_arg_vector_push(cmd_parsed parsed, char* arg)
-{
-  vector_push_item(parsed->args->body, arg) ;
-} ;
 
 /*------------------------------------------------------------------------------
  * Get the body of the argument vector.

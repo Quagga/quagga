@@ -47,13 +47,14 @@ enum keystroke_type
 
   ks_type_reserved = 0x0F,
 } ;
-typedef enum keystroke_type keystroke_type ;
+typedef enum keystroke_type keystroke_type_t ;
 CONFIRM(ks_type_count <= ks_type_reserved) ;
 
 enum keystroke_null
 {
   knull_not_eof,
-  knull_eof
+  knull_eof,
+  knull_timed_out,
 };
 
 enum keystroke_flags
@@ -69,23 +70,30 @@ enum keystroke_flags
 
   kf_type_mask  = 0x0F, /* extraction of type                   */
 } ;
-typedef enum keystroke_type keystroke_flags ;
+typedef enum keystroke_type keystroke_flags_t ;
 
-CONFIRM(ks_type_reserved == (keystroke_type)kf_type_mask) ;
+/* The keystroke type and flags are designed so that they can be packed
+ * together as a single byte, the first of a "compound character".
+ */
+typedef uint8_t keystroke_compound_t ;
+
+CONFIRM(ks_type_reserved == (keystroke_type_t)kf_type_mask) ;
+CONFIRM((kf_compound | kf_flag_mask | kf_type_mask) <= 0xFF) ;
 
 typedef struct keystroke*        keystroke ;
 typedef struct keystroke_stream* keystroke_stream ;
 
 struct keystroke
 {
-  enum keystroke_type   type ;
-  uint8_t       flags ;         /* the kf_flag_mask flags       */
+  keystroke_type_t  type ;
+  keystroke_flags_t flags ;     /* just the kf_flag_mask bits   */
 
   uint32_t      value ;
 
   unsigned      len ;
   uint8_t       buf[keystroke_max_len] ;
 } ;
+typedef struct keystroke keystroke_t[1] ;
 
 #define keystroke_iac_callback_args void* context, keystroke stroke
 typedef bool (keystroke_callback)(keystroke_iac_callback_args) ;
@@ -171,7 +179,7 @@ keystroke_stream_new(uint8_t csi_char, keystroke_callback* iac_callback,
                                                    void* iac_callback_context) ;
 
 extern void
-keystroke_stream_set_eof(keystroke_stream stream) ;
+keystroke_stream_set_eof(keystroke_stream stream, bool timed_out) ;
 
 extern keystroke_stream
 keystroke_stream_free(keystroke_stream stream) ;

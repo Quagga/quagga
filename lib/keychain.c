@@ -227,12 +227,13 @@ key_delete (struct keychain *keychain, struct key *key)
   key_free (key);
 }
 
-DEFUN (key_chain,
-       key_chain_cmd,
-       "key chain WORD",
-       "Authentication key management\n"
-       "Key-chain management\n"
-       "Key-chain name\n")
+DEFUN_ATTR (key_chain,
+            key_chain_cmd,
+            "key chain WORD",
+            "Authentication key management\n"
+            "Key-chain management\n"
+            "Key-chain name\n",
+            CMD_ATTR_NODE + KEYCHAIN_NODE)
 {
   struct keychain *keychain;
 
@@ -266,11 +267,12 @@ DEFUN (no_key_chain,
   return CMD_SUCCESS;
 }
 
-DEFUN (key,
-       key_cmd,
-       "key <0-2147483647>",
-       "Configure a key\n"
-       "Key identifier number\n")
+DEFUN_ATTR (key,
+           key_cmd,
+           "key <0-2147483647>",
+           "Configure a key\n"
+           "Key identifier number\n",
+           CMD_ATTR_NODE + KEYCHAIN_KEY_NODE)
 {
   struct keychain *keychain;
   struct key *key;
@@ -286,12 +288,13 @@ DEFUN (key,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_key,
-       no_key_cmd,
-       "no key <0-2147483647>",
-       NO_STR
-       "Delete a key\n"
-       "Key identifier number\n")
+DEFUN_ATTR (no_key,
+            no_key_cmd,
+            "no key <0-2147483647>",
+            NO_STR
+            "Delete a key\n"
+            "Key identifier number\n",
+            CMD_ATTR_NODE + KEYCHAIN_NODE)
 {
   struct keychain *keychain;
   struct key *key;

@@ -26,6 +26,7 @@
 #include "misc.h"
 
 #include "vty_io.h"
+#include "command_parse.h"
 
 /*==============================================================================
  * Here are structures and other definitions which are shared by:
@@ -38,16 +39,32 @@
 /*==============================================================================
  * Functions
  */
+extern vty vty_config_read_open(int fd, const char* name, bool full_lex) ;
+extern cmd_return_code_t uty_config_read_close(vio_vf vf, bool final) ;
 
 extern cmd_return_code_t uty_file_read_open(vty_io vio, qstring name,
-                                                                 bool reflect) ;
+                                                          cmd_context context) ;
 extern cmd_return_code_t uty_file_write_open(vty_io vio, qstring name,
-                                                                  bool append) ;
+                                             bool append, cmd_context context) ;
 
-extern cmd_return_code_t uty_file_fetch_command_line(vio_vf vf, qstring* line) ;
-extern cmd_return_code_t uty_file_out_push(vio_vf vf) ;
+extern cmd_return_code_t uty_file_fetch_command_line(vio_vf vf,
+                                                            cmd_action action) ;
+extern cmd_return_code_t uty_file_out_push(vio_vf vf, bool final) ;
 
-extern void uty_file_read_close(vio_vf vf) ;
-extern bool uty_file_write_close(vio_vf vf, bool final) ;
+extern cmd_return_code_t uty_file_read_close(vio_vf vf, bool final) ;
+extern cmd_return_code_t uty_file_write_close(vio_vf vf, bool final, bool base) ;
 
-#endif /* _ZEBRA_VTY_IO_FILE_H */
+
+extern cmd_return_code_t uty_pipe_read_open(vty_io vio, qstring command,
+                                                          cmd_context context) ;
+extern cmd_return_code_t uty_pipe_write_open(vty_io vio, qstring command,
+                                                              bool shell_only) ;
+extern cmd_return_code_t uty_pipe_fetch_command_line(vio_vf vf,
+                                                            cmd_action action) ;
+extern cmd_return_code_t uty_pipe_out_push(vio_vf vf, bool final) ;
+extern void uty_pipe_return_slave_ready(vio_vf slave) ;
+extern cmd_return_code_t uty_pipe_read_close(vio_vf vf, bool final) ;
+extern cmd_return_code_t uty_pipe_write_close(vio_vf vf, bool final, bool base,
+                                                              bool shell_only) ;
+
+#endif

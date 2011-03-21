@@ -39,6 +39,7 @@
 #include "thread.h"
 #include "command_local.h"
 #include "qstring.h"
+#include "qtimers.h"
 
 /*==============================================================================
  * Here are structures and other definitions which are shared by:
@@ -54,13 +55,20 @@
 
 extern void uty_term_new(vty_io vio, int sock_fd) ;
 
-extern void uty_term_read_close(vio_vf vf) ;
-extern bool uty_term_write_close(vio_vf vf, bool final) ;
+extern cmd_return_code_t uty_term_fetch_command_line(vio_vf vf,
+                                       cmd_action action, cmd_context context) ;
+extern cmd_return_code_t uty_term_out_push(vio_vf vf, bool final) ;
+extern uint uty_term_show_error_context(vio_vf vf, vio_fifo ebuf, uint depth) ;
+extern cmd_return_code_t uty_term_read_close(vio_vf vf, bool final) ;
+extern void uty_term_close_reason(vio_vf vf, const char* reason) ;
+extern cmd_return_code_t uty_term_write_close(vio_vf vf, bool final, bool base);
 
 extern int uty_term_read(vio_vf vf, keystroke steal) ;
 extern void uty_term_set_readiness(vio_vf vf, vty_readiness_t ready) ;
 
+extern qtimer_action vty_term_pause_timeout ;
 
+extern void uty_term_mon_write(vio_vf vf) ;
 
 extern bool uty_telnet_command(vio_vf, keystroke stroke, bool callback) ;
 

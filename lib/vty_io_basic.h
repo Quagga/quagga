@@ -72,8 +72,8 @@ typedef enum vfd_io_type vfd_io_type_t ;
  */
 typedef unsigned long vty_timer_time ;  /* Time out time in seconds     */
 
-typedef struct vio_timer vio_timer_t ;
-typedef vty_timer_time vio_timer_action(vio_timer_t* timer, void* action_info) ;
+typedef struct vio_timer* vio_timer ;
+typedef vty_timer_time vio_timer_action(vio_timer timer, void* action_info) ;
 
 struct vio_timer
 {
@@ -89,6 +89,9 @@ struct vio_timer
     void*           anon ;
   } t ;
 } ;
+typedef struct vio_timer vio_timer_t[1] ;
+
+enum { VIO_TIMER_INIT_ZERO = true } ;
 
 /*------------------------------------------------------------------------------
  * File descriptors -- looks after ready to read and/or write.
@@ -100,21 +103,40 @@ typedef struct vio_vfd* vio_vfd ;
 
 typedef void vio_vfd_action(vio_vfd vfd, void* action_info) ;
 
+typedef struct
+{
+  bool            set ;
+  on_off_b        on ;
+  vty_timer_time  timeout ;
+} vfd_request_t ;
+
 struct vio_vfd
 {
   int             fd ;
-  bool            active ;      /* used for close message               */
 
   vfd_type_t      type ;        /* used for half-close                  */
   vfd_io_type_t   io_type ;     /* read, write, read/write              */
 
+  /* The rest of the vfd is to do with managing read/write ready and
+   * read/write timeouts.
+   *
+   * At the vf level we manage "blocking" vfs, which do not and must not
+   * use read/write ready or read/write timeouts.  When the vfd is created
+   * this is passed, so that mistakes can be spotted !
+   *
+   * Non-blocking vfs may only be created and closed in the cli thread (or
+   * when running in the legacy threads environment).  This is because can
+   * only dismantle qps_file structure while in the owning thread.
+   */
+  bool            blocking_vf ; /* Reject read/write ready etc.         */
+
+  void*           action_info ; /* for all action and time-out          */
+
   vio_vfd_action* read_action ;
   vio_vfd_action* write_action ;
 
-  vio_timer_t     read_timer ;
-  vio_timer_t     write_timer ;
-
-  void*           action_info ; /* for all action and time-out          */
+  vio_timer       read_timer ;
+  vio_timer       write_timer ;
 
   union
   {
@@ -127,7 +149,20 @@ struct vio_vfd
     } thread ;
   } f ;
 
-  mqueue_block  mqb ;
+  /* To support remote setting clearing of read/write ready and read/write
+   * timeout -- by remote we mean anything such action not in the cli thread.
+   *
+   * This is required because the qpselect and qtimer stuff assumes that those
+   * structures are private to the thread whose qnexus they belong to !
+   *
+   * This stuff is only required when running multi-pthreaded.
+   */
+  bool  queued ;                /* message is on queue                  */
+
+  vfd_request_t read_req ;
+  vfd_request_t write_req ;
+
+  mqueue_block  mqb ;           /* message if any                       */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -152,9 +187,7 @@ struct vio_listener
 extern int uty_vfd_file_open(const char* name, vfd_io_type_t io_type) ;
 
 extern vio_vfd vio_vfd_new(int fd, vfd_type_t type,
-                                     vfd_io_type_t io_type, void* action_info) ;
-extern void vio_vfd_set_fd(vio_vfd vfd, int fd, vfd_type_t type,
-                                                        vfd_io_type_t io_type) ;
+                                   vfd_io_type_t io_type, void* action_info) ;
 extern void vio_vfd_set_read_action(vio_vfd vfd, vio_vfd_action* action) ;
 extern void vio_vfd_set_write_action(vio_vfd vfd, vio_vfd_action* action) ;
 extern void vio_vfd_set_read_timeout_action(vio_vfd vfd,
@@ -173,13 +206,13 @@ Inline int vio_vfd_fd(vio_vfd vfd) ;
 extern vio_listener vio_listener_new(int fd, vio_vfd_accept* accept) ;
 extern void vio_listener_close(vio_listener listener) ;
 
-extern void vio_timer_init(vio_timer_t* timer, vio_timer_action* action,
+extern vio_timer vio_timer_init_new(vio_timer timer, vio_timer_action* action,
                                                             void* action_info) ;
-extern void vio_timer_set_action(vio_timer_t* timer, vio_timer_action* action) ;
-extern void vio_timer_set_info(vio_timer_t* timer, void* action_info) ;
-extern void vio_timer_reset(vio_timer_t* timer) ;
-extern void vio_timer_set(vio_timer_t* timer, vty_timer_time time) ;
-extern void vio_timer_unset(vio_timer_t* timer) ;
+extern vio_timer vio_timer_reset(vio_timer timer, free_keep_b free_structure) ;
+extern void vio_timer_set_action(vio_timer timer, vio_timer_action* action) ;
+extern void vio_timer_set_info(vio_timer timer, void* action_info) ;
+extern void vio_timer_set(vio_timer timer, vty_timer_time time) ;
+extern void vio_timer_unset(vio_timer timer) ;
 
 /*==============================================================================
  * Inline Functions

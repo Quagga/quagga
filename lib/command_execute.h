@@ -39,16 +39,14 @@
  */
 enum cmd_exec_state
 {
-  exec_null   = 0,
-
-  exec_special,         /* not a simple command         */
-
-  exec_fetch,
-  exec_parse,
-  exec_open_pipes,
-  exec_execute,
-  exec_success,
-  exec_complete,
+  exec_null   = 0,      /* not started, yet                     */
+  exec_fetch,           /* fetch command line                   */
+  exec_open_pipes,      /* open pipes on command line           */
+  exec_execute,         /* execute standard command             */
+  exec_special,         /* execute special command              */
+  exec_done_cmd,        /* command has completed                */
+  exec_hiatus,          /* while issues are dealt with          */
+  exec_stopped,         /* command loop has stopped             */
 } ;
 typedef enum cmd_exec_state cmd_exec_state_t ;
 
@@ -56,25 +54,27 @@ typedef struct cmd_exec* cmd_exec ;
 
 struct cmd_exec
 {
-  vty           vty ;                   /* parent                       */
+  vty           vty ;           /* parent                       */
 
-  qstring       line ;                  /* pointer to qstring in vf     */
-  cmd_do_t      to_do ;                 /* for cli driven stuff         */
+  cmd_action_t  action ;        /* to do + line                 */
 
-  cmd_parse_type_t  parse_type ;        /* how should parse             */
-  bool          out_enabled ;           /* as required                  */
-  bool          reflect_enabled ;       /* as required                  */
+  cmd_context   context ;       /* how to parse/execute         */
 
-  cmd_parsed_t      parsed ;            /* embedded                     */
+  bool          out_suppress ;  /* for configuration reading    */
+  bool          reflect ;       /* actually reflect             */
 
-  cmd_exec_state_t  state ;             /* for cq_process               */
-  qpn_nexus         locus ;             /* for cq_process               */
+  cmd_parsed    parsed ;        /* parsing and its result       */
 
-  cmd_return_code_t ret ;               /* for cq_process               */
+  uint    password_failures ;   /* AUTH_NODE & AUTH_ENABLE_NODE */
+
+  cmd_exec_state_t  state ;     /* for cq_process               */
+  qpn_nexus         locus ;     /* for cq_process               */
+
+  cmd_return_code_t ret ;       /* for cq_process               */
 
   union
   {
-    mqueue_block    mqb ;               /* for cq_process               */
+    mqueue_block    mqb ;       /* for cq_process               */
     struct thread*  thread ;
   } cq ;
 } ;
@@ -89,16 +89,14 @@ extern cmd_exec cmd_exec_free(cmd_exec exec) ;
 
 extern cmd_return_code_t cmd_read_config(vty vty, cmd_command first_cmd,
                                                           bool ignore_warning) ;
-extern cmd_return_code_t cmd_end(vty vty) ;
-extern cmd_return_code_t cmd_exit(vty vty) ;
-
 extern cmd_return_code_t cmd_open_pipes(vty vty) ;
 
 extern cmd_return_code_t cmd_execute(vty vty) ;
 
-
-
-
+extern cmd_context cmd_context_new(void) ;
+extern cmd_context cmd_context_new_save(cmd_context src, qpath file_here) ;
+extern cmd_context cmd_context_restore(cmd_context dst, cmd_context src) ;
+extern cmd_context cmd_context_free(cmd_context context, bool copy) ;
 
 
 #if 0

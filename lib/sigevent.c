@@ -19,11 +19,19 @@
  * 02111-1307, USA.
  */
 
-#include <zebra.h>
-#include <sigevent.h>
-#include <log.h>
+#include "zebra.h"
+#include "misc.h"
+#include "sigevent.h"
+#include "log.h"
+#include "vty.h"
+#include "qpnexus.h"
+#include "qpthreads.h"
 
-#ifdef SA_SIGINFO
+#include <stdarg.h>
+
+/*------------------------------------------------------------------------------
+ * Want to get some context for core and exit handlers.
+ */
 #ifdef HAVE_UCONTEXT_H
 #ifdef GNU_LINUX
 /* get REG_EIP from ucontext.h */
@@ -33,50 +41,407 @@
 #endif /* GNU_LINUX */
 #include <ucontext.h>
 #endif /* HAVE_UCONTEXT_H */
-#endif /* SA_SIGINFO */
 
+/*------------------------------------------------------------------------------
+ * Use SA_SIGINFO type handlers throughout
+ */
+#ifndef SA_SIGINFO
+#error Sorry... require SA_SIGINFO
+#endif
 
-/* master signals descriptor struct */
-struct quagga_sigevent_master_t
+typedef void sig_handler(int signo, siginfo_t* info, void* context) ;
+
+/*==============================================================================
+ * Signal handling for Quagga.
+ *
+ * The objectives are:
+ *
+ *   1) to handle the abnormal terminations so that they are logged, and
+ *      any available information logged with them.
+ *
+ *   2) to ignore a number of signals that have no significance
+ *
+ *   3) to catch some signals such that they are treated as events in either
+ *      the qpthreads or the legacy threads worlds.
+ *
+ *      For the qpthreads world, these are all handled in the main thread.
+ *
+ *      These may not be any of the "hard" signals or any of the signals
+ *      reserved by the library.
+ *
+ *   4) to catch some signals such that they cause an "interrupt" to, e.g.
+ *      pselect(), but have no other effect.
+ *
+ *      SIGUSR2 is reserved for this purpose for qpthreads world
+ *      (aka SIG_INTERRUPT).
+ *
+ * Signal disposition is established early in the morning, and is static from
+ * then on.
+ */
+
+/*==============================================================================
+ * Signal Sets.
+ *
+ * The following signal sets are initialised by signal_init().
+ *
+ *   * hard_signals   -- signals that mean that the program has misbehaved, and
+ *                       should exit, now -- e.g. SIGSEGV or SIGILL.
+ *
+ *                       In the pthreaded world, these signals are handled
+ *                       (or at least, not blocked) by all threads, and it is
+ *                       expected that they will be given to the thread which
+ *                       has failed.
+ *
+ *                       These signals are not blocked.
+ *
+ *                       This includes SIGKILL and SIGSTOP, which cannot be
+ *                       blocked, caught or ignored.
+ *
+ *   * core_signals   -- signals that by default are terminate + core, so this
+ *                       more or less the hard_signals, except:
+ *
+ *                         * excludes SIGKILL and SIGSTOP
+ *
+ *                         * includes at least one (SIGQUIT) signal that is
+ *                           not a hard_signal.
+ *
+ *                       The default action is to catch these signals, log the
+ *                       event and then abort() -- having turned off the
+ *                       SIGABRT handler !
+ *
+ *   * exit_signals   -- signals that by default are terminate, so this
+ *                       includes, e.g., SIGTERM or SIGINT.
+ *
+ *                       The default action is to catch these signals, log the
+ *                       event and then exit().
+ *
+ *   * ignore_signals -- signals which, by default, we wish to ignore, so are
+ *                       set to SIG_IGN.
+ *
+ *   * qsig_signals   -- signals which are caught, and are later signalled to
+ *                       quagga_sigevent_process().
+ *
+ *                       Note that multiple signals may be seen before
+ *                       quagga_sigevent_process() is run, but they will only
+ *                       generate one event.
+ *
+ *   * qsig_interrupts -- signals which are caught, but otherwise ignored,
+ *                       so their only function is to interrupt -- in particular
+ *                       to interrupt pselect().
+ *
+ *   * qsig_reserved  -- signal which the library reserves for itself.
+ *
+ * In the pthreads world, all signals other than the hard_signals are blocked
+ * by all threads other than the main thread.
+ *
+ * Note that we leave SIGTRAP alone -- so do not disturb debuggger(s).
+ */
+static bool signals_initialised = false ;
+
+static sigset_t  hard_signals[1] ;
+static sigset_t  core_signals[1] ;
+static sigset_t  exit_signals[1] ;
+static sigset_t  ignore_signals[1] ;
+static sigset_t  qsig_signals[1] ;
+static sigset_t  qsig_interrupts[1] ;
+static sigset_t  qsig_reserved[1] ;
+
+static void qsig_add(int signo, qsig_event* event) ;
+static int signal_set_set(sigset_t* set, sig_handler* handler) ;
+static int signal_set(int signo, sig_handler* handler) ;
+
+static void __attribute__ ((noreturn))
+  core_handler(int signo, siginfo_t *info, void *context) ;
+static void __attribute__ ((noreturn))
+  exit_handler(int signo, siginfo_t* info, void* context) ;
+static void
+  quagga_signal_handler(int signo, siginfo_t* info, void* context) ;
+static void
+  quagga_interrupt_handler(int signo, siginfo_t* info, void* context) ;
+
+/*------------------------------------------------------------------------------
+ * The following signals are not known to POSIX (2008) or are extensions.
+ */
+#ifndef  SIGEMT
+# define SIGEMT  0
+#endif
+#ifndef  SIGIO
+# define SIGIO   0
+#endif
+#ifndef  SIGIOT
+# define SIGIOT  0
+#endif
+#ifndef  SIGPOLL
+# define SIGPOLL 0
+#endif
+#ifndef  SIGPROF
+# define SIGPROF 0
+#endif
+#ifndef  SIGPWR
+# define SIGPWR  0
+#endif
+#ifndef  SIGSTKFLT
+# define SIGSTKFLT 0
+#endif
+#ifndef  SIGSYS
+# define SIGSYS  0
+#endif
+#ifndef  SIGVTALRM
+# define SIGVTALRM 0
+#endif
+#ifndef  SIGWINCH
+# define SIGWINCH 0
+#endif
+#ifndef  SIGXRES
+# define SIGXRES 0
+#endif
+
+/*------------------------------------------------------------------------------
+ * The signal handling below assumes that no signal that we have any interest
+ * in will have a signal number greater than the following.
+ *
+ * All the signals we are interested in are initialised in signal_init, so
+ * asserts in the code below will trap, very early on, any signal with a
+ * larger number than this.
+ *
+ * This value is used to place a very outside limit on the signal numbers that
+ * will attempt to deal with.
+ */
+enum { SIG_MAX = 128, SIG_COUNT } ;
+
+/* The value is established at signal_init() time, as the maximum signal
+ * number to consider -- established by sigaddset() on an empty set.
+ */
+int sig_max = 0 ;
+
+/*------------------------------------------------------------------------------
+ * Quagga signals descriptor struct
+ *
+ * Maps real signal numbers to "qso" ordinals...  A relatively limited number
+ * of signals need to be fed into the event system, this mechanism minimises
+ * the work required to discover which signal has gone off.
+ *
+ * The qsig actions are held in a small vector in the static sigmaster
+ * structure.
+ */
+enum
 {
+  sig_null   =   0,             /* no real signal is this               */
+  sig_min    =   1,             /* first real signal is at least this   */
+} ;
+typedef uchar sig_num_t ;       /* signal number                        */
+CONFIRM(SIG_MAX <= UCHAR_MAX) ;
+
+enum
+{
+  qso_null   =   0,             /* no qsig uses this                    */
+  qso_min    =   1,             /* first qsig is this                   */
+  qso_max    =  10,             /* only a handful are really required   */
+
+  qso_count,                    /* number qs ordinals                   */
+} ;
+typedef uchar qs_ord_t ;        /* qs ordinal                           */
+
+/*------------------------------------------------------------------------------
+ * Static structure for all known qsig_signals.
+ *
+ * Note that the qsig_interrupts are not recorded here !
+ */
+struct quagga_sigevent_master
+{
+  qs_ord_t      qsigc ;                 /* number of signals known      */
+  volatile sig_atomic_t caught[qso_count] ;
+
+  qsig_event*   event[qso_count] ;      /* how to deal with them        */
+
+  qs_ord_t      map[SIG_COUNT] ;        /* real signal to qs ordinal    */
+
+#ifdef SIGEVENT_SCHEDULE_THREAD
   struct thread *t;
+#endif
 
-  struct quagga_signal_t *signals;
-  int sigc;
+} qsig_master ;
 
-  volatile sig_atomic_t caught;
-} sigmaster;
+/*------------------------------------------------------------------------------
+ * Initialise signals.
+ *
+ *   1. construct the signal sets discussed above.
+ *
+ *   2. set default handlers for: core_signals   -- core_handler()
+ *                                exit_signals   -- exit_handler()
+ *                                ignore_signals -- SIG_IGN
+ *
+ *   3. set handlers for signals used by library
+ *
+ *   4. set handlers for signals used by the daemon.
+ *
+ * This is done once, and once only, early in the morning.
+ */
+extern void
+signal_init (struct thread_master *m, int sigc,
+             struct quagga_signal_t signals[])
+{
+  int i ;
 
-/* Generic signal handler
- * Schedules signal event thread
+  /* Set sig_max by experiment                                          */
+  {
+    sigset_t trial[1] ;
+    int      signo ;
+
+    sigemptyset(trial) ;
+    for (signo = sig_min ; signo <= SIG_COUNT ; ++signo)
+      {
+        if (sigaddset(trial, signo) < 0)
+          break ;
+      } ;
+
+    --signo ;           /* last acceptable signo        */
+    if ((signo < sig_min) || (signo > SIG_MAX))
+      zabort("cannot establish reasonable 'sig_max'") ;
+
+    sig_max = signo ;
+  } ;
+
+  /* Construct the standard sets of signals.                            */
+  sigmakeset(hard_signals, SIGABRT, SIGBUS, SIGFPE, SIGILL, SIGKILL,
+                           SIGSEGV, SIGSTOP, SIGXCPU, SIGXFSZ,
+                           SIGSYS,
+                           SIGEMT, SIGIOT, SIGXRES,
+                           -1) ;
+
+  sigcopyset(core_signals, hard_signals) ;
+  sigaddset(core_signals, SIGQUIT) ;
+  sigdelset(core_signals, SIGKILL) ;
+  sigdelset(core_signals, SIGSTOP) ;
+
+  sigmakeset(exit_signals, SIGALRM, SIGHUP, SIGINT, SIGTERM, SIGUSR1, SIGUSR2,
+                           SIGIO, SIGPOLL, SIGPROF, SIGPWR, SIGSTKFLT,
+                           SIGVTALRM,
+                           -1) ;
+
+  sigmakeset(ignore_signals, SIGCHLD, SIGCONT, SIGPIPE, SIGTSTP, SIGTTIN,
+                             SIGTTOU, SIGURG, SIGWINCH,
+                           -1) ;
+
+  /* Initialise the sig_master, qsig_signals and qsig_interrupts.
+   *
+   * Reserve all the hard_signals.
+   */
+  memset(&qsig_master, 0, sizeof(qsig_master)) ;
+
+  sigemptyset(qsig_signals) ;
+  sigemptyset(qsig_interrupts) ;
+  sigcopyset(qsig_reserved, hard_signals) ;
+
+  /* The signals used by the library.
+   *
+   * Added to qsig_signals or qsig_interrupts and to qsig_reserved.
+   */
+  qsig_add(SIGCHLD, vty_sigchld) ;
+  qsig_add(SIG_INTERRUPT, NULL) ;
+
+  /* Now collect the daemon's own signals.
+   *
+   * Added to qsig_signals or qsig_interrupts and to qsig_reserved.
+   */
+  for (i = 0 ; i < sigc ; ++i)
+    qsig_add(signals[i].signal, signals[i].handler) ;
+
+  /* In case signals with different names are the same, and to make the
+   * required reservations, let qsig_reserved take precedence over exit_signals
+   * and those take precedence over ignore_signals.
+   */
+  sigsubsets(exit_signals,   qsig_reserved) ;
+  sigsubsets(ignore_signals, qsig_reserved) ;
+  sigsubsets(ignore_signals, exit_signals) ;
+
+  /* Also, remove anything from core_signals which is now qsig_signals or
+   * qsig_interrupts (possibly SIGQUIT !).
+   */
+  sigsubsets(core_signals, qsig_signals) ;
+  sigsubsets(core_signals, qsig_interrupts) ;
+
+  /* Install handlers                                                   */
+  signal_set_set(core_signals,    core_handler) ;
+  signal_set_set(exit_signals,    exit_handler) ;
+  signal_set_set(ignore_signals,  NULL) ;
+  signal_set_set(qsig_signals,    quagga_signal_handler) ;
+  signal_set_set(qsig_interrupts, quagga_interrupt_handler) ;
+
+  /* If using a timer thread to scan for signal events, start that now.
+   */
+#ifdef SIGEVENT_SCHEDULE_THREAD
+  sig_master.t =
+    thread_add_timer (m, quagga_signal_timer, &sig_master,
+                      QUAGGA_SIGNAL_TIMER_INTERVAL);
+#endif /* SIGEVENT_SCHEDULE_THREAD */
+
+  /* Signals are now initialised                                        */
+  signals_initialised = true ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the hard_signals set
+ */
+extern const sigset_t*
+signal_get_hard_set(void)
+{
+  assert(signals_initialised) ;
+  return hard_signals ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Add signal to those to be caught either for quagga_sigevent_process() or
+ * to then be dropped (so called interrupt signals).
+ *
+ * Checks that signal is not amongst the reserved signals.
+ *
+ * Add signal to the reserved signals.
  */
 static void
-quagga_signal_handler (int signo)
+qsig_add(int signo, qsig_event* event)
 {
-  int i;
-  struct quagga_signal_t *sig;
+  int s ;
 
-  for (i = 0; i < sigmaster.sigc; i++)
+  s = sigismember(qsig_reserved, signo) ;
+  if ((s < 0) || (signo > sig_max))
+    zabort("invalid or unknown signal number") ;
+  if (s > 0)
+    zabort("signal is reserved (or already set)") ;
+
+  sigaddset(qsig_reserved, signo) ;
+
+  if (event == NULL)
+    sigaddset(qsig_interrupts, signo) ;
+  else
     {
-      sig = &(sigmaster.signals[i]);
+      sigaddset(qsig_signals, signo) ;
 
-      if (sig->signal == signo)
-        sig->caught = 1;
-    }
+      if (qsig_master.qsigc >= qso_count)
+        zabort("too many signals to be caught") ;
 
-  sigmaster.caught = 1;
-}
+      ++qsig_master.qsigc ;
 
-/* check if signals have been caught and run appropriate handlers
+      qsig_master.map[signo] = qsig_master.qsigc ;
+      qsig_master.event[qsig_master.qsigc] = event ;
+
+    } ;
+} ;
+
+/*==============================================================================
+ * The event level handling of qsig_signals, delivered via qsig_master.
+ */
+
+/*------------------------------------------------------------------------------
+ * check if signals have been caught and run respective event functions
  *
  * Returns: 0 => nothing to do
  *         -1 => failed
  *        > 0 => done this many signals
  */
-int
+extern int
 quagga_sigevent_process (void)
 {
-  struct quagga_signal_t *sig;
   int i;
   int done ;
 #ifdef SIGEVENT_BLOCK_SIGNALS
@@ -100,21 +465,18 @@ quagga_sigevent_process (void)
 #endif /* SIGEVENT_BLOCK_SIGNALS */
 
   done = 0 ;
-  if (sigmaster.caught > 0)
+  if (qsig_master.caught[qso_null] != 0)
     {
-      sigmaster.caught = 0;
-      /* must not read or set sigmaster.caught after here,
+      qsig_master.caught[qso_null] = 0;
+      /* must not read or set sigmaster.caught[0] after here,
        * race condition with per-sig caught flags if one does
        */
-
-      for (i = 0; i < sigmaster.sigc; i++)
+      for (i = 1 ; i <= qsig_master.qsigc ; i++)
         {
-          sig = &(sigmaster.signals[i]);
-
-          if (sig->caught > 0)
+          if (qsig_master.caught[i] != 0)
             {
-              sig->caught = 0;
-              sig->handler ();
+              qsig_master.caught[i] = 0;
+              (qsig_master.event[i])() ;
               ++done ;
             }
         }
@@ -128,6 +490,9 @@ quagga_sigevent_process (void)
   return done ;
 }
 
+/*------------------------------------------------------------------------------
+ * Optional timer thread to poll for signals
+ */
 #ifdef SIGEVENT_SCHEDULE_THREAD
 /* timer thread to check signals. Shouldnt be needed */
 int
@@ -144,246 +509,395 @@ quagga_signal_timer (struct thread *t)
 }
 #endif /* SIGEVENT_SCHEDULE_THREAD */
 
-/* Initialization of signal handles. */
-/* Signal wrapper. */
-static int
-signal_set (int signo)
+/*==============================================================================
+ * The signal handlers.
+ */
+static void * program_counter(void *context) ;
+
+/*------------------------------------------------------------------------------
+ * Terminate + Core
+ */
+static void __attribute__ ((noreturn))
+core_handler(int signo, siginfo_t *info, void *context)
 {
-  int ret;
-  struct sigaction sig;
-  struct sigaction osig;
-
-  sig.sa_handler = &quagga_signal_handler;
-  sigfillset (&sig.sa_mask);
-  sig.sa_flags = 0;
-  if (signo == SIGALRM) {
-#ifdef SA_INTERRUPT
-      sig.sa_flags |= SA_INTERRUPT; /* SunOS */
-#endif
-  } else {
-#ifdef SA_RESTART
-      sig.sa_flags |= SA_RESTART;
-#endif /* SA_RESTART */
-  }
-
-  ret = sigaction (signo, &sig, &osig);
-  if (ret < 0)
-    return ret;
-  else
-    return 0;
+  zlog_signal(signo, "aborting...", info, program_counter(context)) ;
+  zabort_abort();
 }
 
-#ifdef SA_SIGINFO
+/*------------------------------------------------------------------------------
+ * Terminate
+ */
+static void __attribute__ ((noreturn))
+exit_handler(int signo, siginfo_t* info, void* context)
+{
+  zlog_signal(signo, "exiting...", info, program_counter(context));
+  _exit(128+signo);
+}
 
-/* XXX This function should be enhanced to support more platforms
-       (it currently works only on Linux/x86). */
+/*------------------------------------------------------------------------------
+ * Generic signal handler -- captures signals in the sig_master caught vector.
+ *
+ * quagga_sigevent_process() deals with the caught signals.
+ */
+static void
+quagga_signal_handler(int signo, siginfo_t* info, void* context)
+{
+  qs_ord_t qso ;
+
+  if (sigismember(qsig_signals, signo) <= 0)
+    {
+      zlog_signal(signo, "quagga_signal_handler: unknown or invalid signal",
+                                               info, program_counter(context)) ;
+      zabort_abort();
+    } ;
+
+  qso = qsig_master.map[signo] ;
+
+  /* Set individual caught flag before composite.
+   *
+   * This works if quagga_signal_handler() and quagga_sigevent_process()
+   * were to run at the same time -- unlikely though that may be.
+   *
+   * If quagga_sigevent_process() sees individual flag before the composite,
+   * that's fine -- worst that happens is will run through a further time
+   * and not find anything.
+   *
+   * If flags were set in the opposite order, could clear the composite
+   * and miss the individual, so lose the signal till the next time the
+   * composite is set.
+   */
+  qsig_master.caught[qso]      = 1 ;
+  qsig_master.caught[qso_null] = 1 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Generic signal handler -- where signal is to be caught, and immediately
+ * dropped.
+ */
+static void
+quagga_interrupt_handler(int signo, siginfo_t* info, void* context)
+{
+  if (sigismember(qsig_interrupts, signo) <= 0)
+    {
+      zlog_signal(signo, "quagga_interrupt_handler: unknown or invalid signal",
+                                               info, program_counter(context)) ;
+      zabort_abort();
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Extract program counter from context.
+ *
+ * XXX This function should be enhanced to support more platforms
+ *     (it currently works only on Linux/x86).
+ */
 static void *
 program_counter(void *context)
 {
 #ifdef HAVE_UCONTEXT_H
-#ifdef GNU_LINUX
-#ifdef REG_EIP
+# ifdef GNU_LINUX
+#  ifdef REG_EIP
   if (context)
     return (void *)(((ucontext_t *)context)->uc_mcontext.gregs[REG_EIP]);
-#endif /* REG_EIP */
-#endif /* GNU_LINUX */
+#  endif /* REG_EIP */
+#  ifdef REG_RIP
+  if (context)
+    return (void *)(((ucontext_t *)context)->uc_mcontext.gregs[REG_RIP]);
+#  endif /* REG_RIP */
+# endif /* GNU_LINUX */
 #endif /* HAVE_UCONTEXT_H */
   return NULL;
-}
-
-#endif /* SA_SIGINFO */
-
-static void __attribute__ ((noreturn))
-exit_handler(int signo
-#ifdef SA_SIGINFO
-	     , siginfo_t *siginfo, void *context
-#endif
-	    )
-{
-  zlog_signal(signo, "exiting..."
-#ifdef SA_SIGINFO
-	      , siginfo, program_counter(context)
-#endif
-	     );
-  _exit(128+signo);
-}
-
-static void __attribute__ ((noreturn))
-core_handler(int signo
-#ifdef SA_SIGINFO
-	     , siginfo_t *siginfo, void *context
-#endif
-	    )
-{
-  zlog_signal(signo, "aborting..."
-#ifdef SA_SIGINFO
-	      , siginfo, program_counter(context)
-#endif
-	     );
-  zabort_abort();
-}
-
-/* For the signals known to Quagga, and which are in their default state,
- * set a Quagga default handler.
- */
-static void
-trap_default_signals(void)
-{
-  static const int core_signals[] = {
-    SIGQUIT,
-    SIGILL,
-    SIGABRT,
-#ifdef SIGEMT
-    SIGEMT,
-#endif
-#ifdef SIGIOT
-    SIGIOT,
-#endif
-    SIGFPE,
-    SIGBUS,
-    SIGSEGV,
-#ifdef SIGSYS
-    SIGSYS,
-#endif
-#ifdef SIGXCPU
-    SIGXCPU,
-#endif
-#ifdef SIGXFSZ
-    SIGXFSZ,
-#endif
-  };
-
-  static const int exit_signals[] = {
-    SIGHUP,
-    SIGINT,
-    SIGALRM,
-    SIGTERM,
-    SIGUSR1,
-    SIGUSR2,
-#ifdef SIGPOLL
-    SIGPOLL,
-#endif
-#ifdef SIGVTALRM
-    SIGVTALRM,
-#endif
-#ifdef SIGSTKFLT
-    SIGSTKFLT,
-#endif
-  };
-
-  static const int ignore_signals[] = {
-    SIGPIPE,
-  };
-
-  static const struct {
-    const int *sigs;
-    u_int nsigs;
-    void (*handler)(int signo
-#ifdef SA_SIGINFO
-		    , siginfo_t *info, void *context
-#endif
-		   );
-  } sigmap[] = {
-    { core_signals, sizeof(core_signals)/sizeof(core_signals[0]), core_handler},
-    { exit_signals, sizeof(exit_signals)/sizeof(exit_signals[0]), exit_handler},
-    { ignore_signals, sizeof(ignore_signals)/sizeof(ignore_signals[0]), NULL},
-  };
-  u_int i;
-
-  for (i = 0; i < sizeof(sigmap)/sizeof(sigmap[0]); i++)
-    {
-      u_int j;
-
-      for (j = 0; j < sigmap[i].nsigs; j++)
-        {
-	  struct sigaction oact;
-          if (sigaction(sigmap[i].sigs[j], NULL, &oact) < 0)
-            zlog_warn("Unable to get signal handler for signal %d: %s",
-                      sigmap[i].sigs[j], errtoa(errno, 0).str);
-          else {
-#ifdef SA_SIGINFO
-            if (oact.sa_flags & SA_SIGINFO)
-              continue ;                /* Don't set again              */
-#endif
-            if (oact.sa_handler != SIG_DFL)
-              continue ;                /* Don't set again              */
-          }
-	  if ( (sigaction(sigmap[i].sigs[j], NULL, &oact) == 0) &&
-	                                          (oact.sa_handler == SIG_DFL) )
-	    {
-	      struct sigaction act;
-	      sigfillset (&act.sa_mask);
-	      if (sigmap[i].handler == NULL)
-	        {
-		  act.sa_handler = SIG_IGN;
-		  act.sa_flags   = 0;
-	        }
-	      else
-	        {
-#ifdef SA_SIGINFO
-		  /* Request extra arguments to signal handler. */
-		  act.sa_sigaction = sigmap[i].handler;
-		  act.sa_flags     = SA_SIGINFO;
-#else
-		  act.sa_handler   = sigmap[i].handler;
-		  act.sa_flags     = 0;
-#endif
-	        }
-	      if (sigaction(sigmap[i].sigs[j], &act, NULL) < 0)
-	        zlog_warn("Unable to set signal handler for signal %d: %s",
-			  sigmap[i].sigs[j], errtoa(errno, 0).str);
-
-	    }
-        }
-    }
-}
-
-void
-signal_init (struct thread_master *m, int sigc,
-             struct quagga_signal_t signals[])
-{
-
-  int i = 0;
-  struct quagga_signal_t *sig;
-
-  /* First establish some default handlers that can be overridden by
-     the application. */
-  trap_default_signals();
-
-  while (i < sigc)
-    {
-      sig = &signals[i];
-      if ( signal_set (sig->signal) < 0 )
-        exit (-1);
-      i++;
-    }
-
-  sigmaster.sigc = sigc;
-  sigmaster.signals = signals;
-
-#ifdef SIGEVENT_SCHEDULE_THREAD
-  sigmaster.t =
-    thread_add_timer (m, quagga_signal_timer, &sigmaster,
-                      QUAGGA_SIGNAL_TIMER_INTERVAL);
-#endif /* SIGEVENT_SCHEDULE_THREAD */
-}
-
-/* turn off trap for SIGABRT !                                  */
-extern void quagga_sigabrt_no_trap(void)
-{
-  struct sigaction new_act ;
-  sigset_t set ;
-
-  sigfillset(&set) ;
-
-  new_act.sa_handler = SIG_DFL ;
-  new_act.sa_mask    = set ;
-  new_act.sa_flags   = 0 ;
-  sigaction(SIGABRT, &new_act, NULL) ;
-
-  sigemptyset(&set) ;
-  sigaddset(&set, SIGABRT) ;
-  sigprocmask(SIG_UNBLOCK, &set, NULL) ;
-
 } ;
 
+/*==============================================================================
+ * Signal clearing for abort() and fork()/vfork().
+ */
+
+/*------------------------------------------------------------------------------
+ * Set default sigaction for given signo
+ */
+static int
+sigaction_set_default(int signo)
+{
+  struct sigaction act[1] ;
+
+  memset(act, 0, sizeof(act)) ; /* inter alia, clear sa_flags   */
+  act->sa_handler = SIG_DFL ;   /* return to default state      */
+  sigemptyset(&act->sa_mask) ;  /* no extra masking             */
+
+  return sigaction(signo, act, NULL) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * When finally aborting, need to turn off the handling of SIGABRT, and need
+ * to make sure that the signal is not blocked.
+ */
+extern void
+quagga_sigabrt_no_trap(void)
+{
+  sigset_t set[1] ;
+
+  sigaction_set_default(SIGABRT) ;
+
+  sigemptyset(set) ;
+  sigaddset(set, SIGABRT) ;
+  qpt_thread_sigmask(SIG_UNBLOCK, set, NULL) ;
+                               /* sigprocmask() if !qpthreads_enabled   */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Having forked, make sure that all signals are in default state and that
+ * no signals are blocked.
+ *
+ * Expects not to fail.
+ */
+extern void
+quagga_signal_reset(void)
+{
+  sigset_t set[1] ;
+  int      signo ;
+
+  /* Before changing the handling of any signals, mask everything and
+   * clear out any pending signals.
+   */
+  sigfillset(set) ;
+  sigprocmask(SIG_SETMASK, set, NULL) ;
+
+  while (1)
+    {
+      sigpending(set) ;
+      if (sighasmember(set) == 0)
+        break ;
+      sigwait(set, &signo) ;
+    } ;
+
+  /* Set all signals to default handler.                                */
+  for (signo = sig_min ; signo <= sig_max ; ++signo)
+    {
+      if ((signo == SIGKILL) || (signo == SIGSTOP))
+        continue ;
+
+      sigaction_set_default(signo) ;
+    } ;
+
+  /* Unmask everything                                                  */
+  sigemptyset(set) ;
+  sigprocmask(SIG_SETMASK, set, NULL) ;
+} ;
+
+/*==============================================================================
+ * Functions to install signal handlers.
+ */
+
+/*------------------------------------------------------------------------------
+ * Set given handler for given set of signals.  NULL handler => SIG_IGN.
+ *
+ * Returns:  < 0 => failed  -- value is - failing signo !
+ */
+static int
+signal_set_set(sigset_t* set, sig_handler* handler)
+{
+  int     signo ;
+
+  signo = 0 ;
+  for (signo = sig_min ; signo <= sig_max ; ++signo)
+    {
+      int s ;
+      s = sigismember(set, signo) ;
+      if (s < 0)
+        break ;
+      if (s > 0)
+        if (signal_set(signo, handler) < 0)
+          return -signo ;
+    } ;
+
+  return 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set given handler for given signal.  NULL handler => SIG_IGN.
+ *
+ * Returns:  < 0 => failed
+ */
+#ifndef  SA_INTERRUPT
+# define SA_INTERRUPT 0
+#endif
+#ifndef  SA_RESTART
+# define SA_RESTART   0
+#endif
+
+static int
+signal_set(int signo, sig_handler* handler)
+{
+  struct sigaction act[1] ;
+
+  if (handler == NULL)
+    {
+      act->sa_handler   = SIG_IGN ;
+      act->sa_flags     = 0 ;
+    }
+  else
+    {
+      act->sa_sigaction = handler ;
+      act->sa_flags     = SA_SIGINFO ;
+    } ;
+
+  sigfillset (&act->sa_mask) ;          /* mask everything              */
+
+  if (signo == SIGALRM)
+    act->sa_flags |= SA_INTERRUPT ;     /* want SIGALRM to interrupt    */
+  else
+    act->sa_flags |= SA_RESTART ;       /* all others want restart      */
+
+  act->sa_flags |= SA_NOCLDSTOP ;
+
+  return sigaction (signo, act, NULL) ;
+} ;
+
+/*==============================================================================
+ * Additional signal set support.
+ */
+
+/*------------------------------------------------------------------------------
+ * Make a signal set.
+ *
+ * Takes variable list of signal number arguments:
+ *
+ *   * ignores zeros
+ *
+ *   * stops on first value < 0
+ */
+extern void
+sigmakeset(sigset_t* set, ...)
+{
+  va_list va ;
+  int     signo ;
+
+  va_start(va, set) ;
+
+  sigemptyset(set) ;
+  while ((signo = va_arg(va, int)) >= 0)
+    {
+      if (signo != 0)
+        if (sigaddset(set, signo) < 0)
+          zabort("invalid signal number") ;
+    } ;
+
+  va_end(va) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Copy a signal set.
+ */
+extern void
+sigcopyset(sigset_t* dst, const sigset_t* src)
+{
+  *dst = *src ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Add signal set 'b' into set 'a'.
+ */
+extern void
+sigaddsets(sigset_t* a, const sigset_t* b)
+{
+  int     signo ;
+
+  for (signo = sig_min ; signo < SIG_MAX ; ++signo)
+    {
+      int s ;
+      s = sigismember(b, signo) ;
+      if (s < 0)
+        break ;
+      if (s > 0)
+        sigaddset(a, signo) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Subtract signal set 'b' from set 'a'.
+ */
+extern void
+sigsubsets(sigset_t* a, const sigset_t* b)
+{
+  int     signo ;
+
+  for (signo = sig_min ; signo < SIG_MAX ; ++signo)
+    {
+      int s ;
+      s = sigismember(b, signo) ;
+      if (s < 0)
+        break ;
+      if (s > 0)
+        sigdelset(a, signo) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Make set 'a' be the inverse of set 'b'
+ */
+extern void
+siginvset(sigset_t* a, const sigset_t* b)
+{
+  int     signo ;
+
+  sigfillset(a) ;
+
+  for (signo = sig_min ; signo < SIG_MAX ; ++signo)
+    {
+      int s ;
+      s = sigismember(b, signo) ;
+      if (s < 0)
+        break ;
+      if (s > 0)
+        sigdelset(a, signo) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * See if there is any intersection between two sets.
+ *
+ * Returns:  first signo of intersection -- may be more !
+ *           0 <=> none
+ */
+extern int
+sigincommon(const sigset_t* a, const sigset_t* b)
+{
+  int     signo ;
+
+  for (signo = sig_min ; signo < SIG_MAX ; ++signo)
+    {
+      int s ;
+      s = sigismember(a, signo) ;
+      if (s < 0)
+        return 0 ;
+      if ((s > 0) && (sigismember(b, signo) > 0))
+        return signo ;
+    } ;
+
+  return 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * See if there is anything in the given set.
+ *
+ * Returns:  first signo found -- may be more !
+ *           0 <=> none
+ */
+extern int
+sighasmember(const sigset_t* a)
+{
+  int     signo ;
+
+  for (signo = sig_min ; signo < SIG_MAX ; ++signo)
+    {
+      int s ;
+      s = sigismember(a, signo) ;
+      if (s < 0)
+        return 0 ;
+      if (s > 0)
+        return signo ;
+    } ;
+
+  return 0 ;
+} ;

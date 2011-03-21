@@ -30,9 +30,6 @@
  * strings, particularly where the string handling must be async-signal-safe.
  */
 
-typedef struct qf_str  qf_str_t ;
-typedef struct qf_str* qf_str ;
-
 /* When initialised a qf_string is set:
  *
  *   str    = start of string -- and this is never changed
@@ -46,6 +43,9 @@ struct qf_str
   char* ptr ;           /* current position     */
   char* end ;           /* end of string        */
 } ;
+
+typedef struct qf_str  qf_str_t[1] ;
+typedef struct qf_str* qf_str ;
 
 /*------------------------------------------------------------------------------
  * Print format flags for number printing

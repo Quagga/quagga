@@ -304,12 +304,12 @@ MQB_ARGS_SIZE_OK(bgp_session_ttl_args) ;
 
 inline static void BGP_SESSION_LOCK(bgp_session session)
 {
-  qpt_mutex_lock(&session->mutex) ;
+  qpt_mutex_lock(session->mutex) ;
 } ;
 
 inline static void BGP_SESSION_UNLOCK(bgp_session session)
 {
-  qpt_mutex_unlock(&session->mutex) ;
+  qpt_mutex_unlock(session->mutex) ;
 } ;
 
 /*==============================================================================

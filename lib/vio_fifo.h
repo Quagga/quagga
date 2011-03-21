@@ -32,16 +32,33 @@
  * VTY I/O FIFO -- buffering of arbitrary amounts of I/O.
  */
 
-#ifdef VIO_FIFO_DEBUG           /* Can be forced from outside           */
-# if VIO_FIFO_DEBUG
-#  define VIO_FIFO_DEBUG 1      /* Force 1 or 0                         */
-#else
-#  define VIO_FIFO_DEBUG 0
+/*------------------------------------------------------------------------------
+ * Sort out VIO_FIFO_DEBUG.
+ *
+ *   Set to 1 if defined, but blank.
+ *   Set to QDEBUG if not defined.
+ *
+ *   Force to 0 if VIO_FIFO_NO_DEBUG is defined and not zero.
+ *
+ * So: defaults to same as QDEBUG, but no matter what QDEBUG is set to:
+ *
+ *       * can set VIO_FIFO_DEBUG    == 0 to turn off debug
+ *       *  or set VIO_FIFO_DEBUG    != 0 to turn on debug
+ *       *  or set VIO_FIFO_NO_DEBUG != 0 to force debug off
+ */
+
+#ifdef VIO_FIFO_DEBUG           /* If defined, make it 1 or 0           */
+# if IS_BLANK_OPTION(VIO_FIFO_DEBUG)
+#  undef  VIO_FIFO_DEBUG
+#  define VIO_FIFO_DEBUG 1
 # endif
-#else
-# ifdef  QDEBUG
-#  define VIO_FIFO_DEBUG 1      /* Follow QDEBUG                        */
-#else
+#else                           /* If not defined, follow QDEBUG        */
+# define VIO_FIFO_DEBUG QDEBUG
+#endif
+
+#ifdef VIO_FIFO_NO_DEBUG        /* Override, if defined                 */
+# if IS_NOT_ZERO_OPTION(VIO_FIFO_NO_DEBUG)
+#  undef  VIO_FIFO_DEBUG
 #  define VIO_FIFO_DEBUG 0
 # endif
 #endif
@@ -116,6 +133,7 @@ extern vio_fifo vio_fifo_reset(vio_fifo vff, free_keep_b free_structure) ;
 
 extern void vio_fifo_clear(vio_fifo vff, bool clear_marks) ;
 Inline bool vio_fifo_empty(vio_fifo vff) ;
+Inline bool vio_fifo_tail_empty(vio_fifo vff) ;
 extern size_t vio_fifo_room(vio_fifo vff) ;
 
 extern void vio_fifo_put_bytes(vio_fifo vff, const char* src, size_t n) ;
@@ -124,7 +142,7 @@ Inline void vio_fifo_put_byte(vio_fifo vff, char b) ;
 extern int vio_fifo_printf(vio_fifo vff, const char* format, ...)
                                                         PRINTF_ATTRIBUTE(2, 3) ;
 extern int vio_fifo_vprintf(vio_fifo vff, const char *format, va_list args) ;
-extern int vio_fifo_read_nb(vio_fifo vff, int fd, size_t request) ;
+extern int vio_fifo_read_nb(vio_fifo vff, int fd, uint request) ;
 
 extern size_t vio_fifo_get_bytes(vio_fifo vff, void* dst, size_t n) ;
 Inline int vio_fifo_get_byte(vio_fifo vff) ;
@@ -147,6 +165,7 @@ extern void vio_fifo_back_to_end_mark(vio_fifo vff, bool keep) ;
 extern void vio_fifo_set_hold_mark(vio_fifo vff) ;
 extern void vio_fifo_clear_hold_mark(vio_fifo vff) ;
 extern void vio_fifo_back_to_hold_mark(vio_fifo vff, bool keep) ;
+extern void vio_fifo_set_get_wrt_hold(vio_fifo vff, size_t hold_offset) ;
 
 /*==============================================================================
  * Debug -- verification function
@@ -154,11 +173,7 @@ extern void vio_fifo_back_to_hold_mark(vio_fifo vff, bool keep) ;
 
 Private void vio_fifo_verify(vio_fifo vff) ;
 
-#if VIO_FIFO_DEBUG
-# define VIO_FIFO_DEBUG_VERIFY(vff) vio_fifo_verify(vff)
-#else
-# define VIO_FIFO_DEBUG_VERIFY(vff)
-#endif
+#define VIO_FIFO_DEBUG_VERIFY(vff) if (vio_fifo_debug) vio_fifo_verify(vff)
 
 /*==============================================================================
  * Inline Functions
@@ -197,7 +212,7 @@ vio_fifo_empty(vio_fifo vff)
  * Returns true <=> FIFO is empty beyond end_end (if any).
  */
 Inline bool
-vio_fifo_empty_tail(vio_fifo vff)
+vio_fifo_tail_empty(vio_fifo vff)
 {
   /* if vff is NULL, treat as empty !
    * if !set, then all pointers should be NULL (so end_end == put_ptr)

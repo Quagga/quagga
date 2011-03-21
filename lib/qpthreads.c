@@ -18,21 +18,13 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
-
-/* This MUST come first...  otherwise we don't get __USE_UNIX98, which is     */
-/* essential if glibc is to allow pthread_mutexattr_settype() to be used.     */
-#include "config.h"
+#include "misc.h"
 
 #include <signal.h>
 #include <string.h>
 
 #include "qpthreads.h"
 #include "memory.h"
-
-/* If this is not set, will get errors later.   */
-//#ifndef __USE_UNIX98
-//#error "_USE_UNIX98 not defined"
-//#endif
 
 /*==============================================================================
  * Quagga Pthread Interface -- qpt_xxxx
@@ -251,49 +243,56 @@ enum qpthreads_enabled_state
   qpt_state_set_disabled  = 2,
   qpt_state_set_enabled   = 3,
 } ;
+typedef enum qpthreads_enabled_state qpthreads_enabled_state_t ;
 
-static enum qpthreads_enabled_state qpthreads_enabled_state = qpt_state_unset ;
+static qpthreads_enabled_state_t qpthreads_enabled_state = qpt_state_unset ;
 
-uint8_t qpthreads_enabled_flag          = 0 ;
-uint8_t qpthreads_thread_created_flag   = 0 ;
+bool qpthreads_enabled_flag          = false ;
+bool qpthreads_thread_created_flag   = false ;
 
-/* Function to set qpthreads_enabled, one way or the other.
+/*------------------------------------------------------------------------------
+ * Function to set qpthreads_enabled, one way or the other.
  *
  * Returns:  true <=> successful set the required state.
  *          false <=> it is too late to enable qpthreads :-(
  *
  * NB: can repeatedly set to the same state, but not change state once set.
  */
-extern int
-qpt_set_qpthreads_enabled(int how)
+extern bool
+qpt_set_qpthreads_enabled(bool want_enabled)
 {
   switch (qpthreads_enabled_state)
-  {
-  case qpt_state_unset:
-    break ;
-  case qpt_state_set_frozen:
-    if (how != 0)
-      return 0 ;
-    break ;
-  case qpt_state_set_disabled:
-    if (how != 0)
-      zabort("qpthreads_enabled is already set: cannot set enabled") ;
-    break ;
-  case qpt_state_set_enabled:
-    if (how == 0)
-      zabort("qpthreads_enabled is already set: cannot set disabled") ;
-    break ;
-  default:
-    break ;
-  }
+    {
+      case qpt_state_unset:
+        break ;
 
-  qpthreads_enabled_flag  = (how != 0) ;
-  qpthreads_enabled_state = (how != 0) ? qpt_state_set_enabled
-                                       : qpt_state_set_disabled ;
-  return 1 ;
+      case qpt_state_set_frozen:
+        if (want_enabled)
+          return false ;        /* too late to set the state    */
+        break ;
+
+      case qpt_state_set_disabled:
+        if (want_enabled)
+          zabort("qpthreads_enabled is already set: cannot set enabled") ;
+        break ;
+
+      case qpt_state_set_enabled:
+        if (!want_enabled)
+          zabort("qpthreads_enabled is already set: cannot set disabled") ;
+        break ;
+
+      default:
+        break ;
+    } ;
+
+  qpthreads_enabled_flag  = want_enabled ;
+  qpthreads_enabled_state = want_enabled ? qpt_state_set_enabled
+                                         : qpt_state_set_disabled ;
+  return true ;
 } ;
 
-/* Get state of qpthreads_enabled, and freeze if not yet explictly set.
+/*------------------------------------------------------------------------------
+ * Get state of qpthreads_enabled, and freeze if not yet explictly set.
  *
  * Where some initialisation depends on the state of qpthreads_enabled(), this
  * returns the state and freezes it if it is implicitly not enabled.
@@ -320,7 +319,8 @@ qpt_freeze_qpthreads_enabled(void)
  * are NULL, then the system defaults are used.
  */
 
-/* Initialise a set of attributes -- setting the scheduling options.
+/*------------------------------------------------------------------------------
+ * Initialise a set of attributes -- setting the scheduling options.
  *
  * Options:
  *
@@ -351,7 +351,7 @@ qpt_freeze_qpthreads_enabled(void)
  *
  * Returns the address of the qpt_thread_attr_t structure.
  */
-qpt_thread_attr_t*
+extern qpt_thread_attr_t*
 qpt_thread_attr_init(qpt_thread_attr_t* attr, enum qpt_attr_options opts,
                                             int scope, int policy, int priority)
 {
@@ -420,7 +420,8 @@ qpt_thread_attr_init(qpt_thread_attr_t* attr, enum qpt_attr_options opts,
   return attr ;
 } ;
 
-/* Create Thread with given attributes (if any).
+/*------------------------------------------------------------------------------
+ * Create Thread with given attributes (if any).
  *
  * If no attributes are given (attr == NULL) the thread is created with system
  * default attributes -- *except* that it is created joinable.
@@ -429,7 +430,7 @@ qpt_thread_attr_init(qpt_thread_attr_t* attr, enum qpt_attr_options opts,
  *
  * Returns the qpt_thread_t "thread id".
  */
-qpt_thread_t
+extern qpt_thread_t
 qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr)
 {
   qpt_thread_attr_t thread_attr ;
@@ -438,7 +439,7 @@ qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr)
   int err ;
 
   passert(qpthreads_enabled) ;
-  qpthreads_thread_created_flag = 1 ;   /* and at least one thread created  */
+  qpthreads_thread_created_flag = true ;  /* at least one thread created */
 
   default_attr = (attr == NULL) ;
   if (default_attr)
@@ -458,7 +459,8 @@ qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr)
   return thread_id ;
 } ;
 
-/* Join given thread -- do nothing if !qpthreads_enabled
+/*------------------------------------------------------------------------------
+ * Join given thread -- do nothing if !qpthreads_enabled
  *
  * Tolerates ESRCH (no thread known by given id).
  *
@@ -490,7 +492,8 @@ qpt_thread_join(qpt_thread_t thread_id)
  * Mutex initialise and destroy.
  */
 
-/* Initialise Mutex (allocating if required)
+/*------------------------------------------------------------------------------
+ * Initialise Mutex (allocating if required)
  *
  * Does nothing if !qpthreads_enabled -- but freezes the state (attempting to
  * later enable qpthreads will be a FATAL error).
@@ -508,7 +511,7 @@ qpt_thread_join(qpt_thread_t thread_id)
  *
  * Returns the mutex -- or original mx if !qpthreads_enabled.
  */
-qpt_mutex
+extern qpt_mutex
 qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts)
 {
   pthread_mutexattr_t mutex_attr ;
@@ -569,7 +572,8 @@ qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts)
   return mx ;
 } ;
 
-/* Destroy given mutex, and (if required) free it.
+/*------------------------------------------------------------------------------
+ * Destroy given mutex, and (if required) free it.
  *                                       -- or do nothing if !qpthreads_enabled.
  *
  * Returns NULL if freed the mutex, otherwise the address of same.
@@ -578,7 +582,7 @@ qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts)
  *     anything, so there can be nothing to release -- so does nothing, but
  *     returns the original mutex address (if any).
  */
-qpt_mutex
+extern qpt_mutex
 qpt_mutex_destroy(qpt_mutex mx, int free_mutex)
 {
   int err ;
@@ -600,7 +604,8 @@ qpt_mutex_destroy(qpt_mutex mx, int free_mutex)
  * Condition Variable initialise and destroy.
  */
 
-/* Initialise Condition Variable (allocating if required).
+/*------------------------------------------------------------------------------
+ * Initialise Condition Variable (allocating if required).
  *
  * Does nothing if !qpthreads_enabled -- but freezes the state (attempting to
  * later enable qpthreads will be a FATAL error).
@@ -615,7 +620,7 @@ qpt_mutex_destroy(qpt_mutex mx, int free_mutex)
  *
  * Returns the condition variable -- or original cv id !qpthreads_enabled.
  */
-qpt_cond
+extern qpt_cond
 qpt_cond_init_new(qpt_cond cv, enum qpt_cond_options opts)
 {
   pthread_condattr_t cond_attr ;
@@ -662,7 +667,8 @@ qpt_cond_init_new(qpt_cond cv, enum qpt_cond_options opts)
   return cv ;
 } ;
 
-/* Destroy given condition variable, and (if required) free it
+/*------------------------------------------------------------------------------
+ * Destroy given condition variable, and (if required) free it
  *                                       -- or do nothing if !qpthreads_enabled.
  *
  * NB: if !qpthreads_enabled qpt_cond_init_new() will not have allocated
@@ -671,7 +677,7 @@ qpt_cond_init_new(qpt_cond cv, enum qpt_cond_options opts)
  *
  * Returns NULL if freed the condition variable, otherwise the address of same.
  */
-qpt_cond
+extern qpt_cond
 qpt_cond_destroy(qpt_cond cv, int free_cond)
 {
   int err ;
@@ -689,7 +695,8 @@ qpt_cond_destroy(qpt_cond cv, int free_cond)
   return cv ;
 } ;
 
-/* Wait for given condition variable or time-out
+/*------------------------------------------------------------------------------
+ * Wait for given condition variable or time-out
  *                         -- or return immediate success if !qpthreads_enabled.
  *
  * Returns: wait succeeded (1 => success, 0 => timed-out).
@@ -698,8 +705,7 @@ qpt_cond_destroy(qpt_cond cv, int free_cond)
  *
  * Has to check the return value, so zabort_errno if not EBUSY.
  */
-
-int
+extern int
 qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t timeout_time)
 {
   struct timespec ts ;
@@ -729,40 +735,43 @@ qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t timeout_time)
  * Signal Handling.
  */
 
-/* Set thread signal mask   -- requires qpthreads_enabled.
+/*------------------------------------------------------------------------------
+ * Set thread signal mask.
  *
- * Thin wrapper around pthread_sigmask.
+ * If !qpthreads_enabled will use sigprocmask(), otherwise pthread_sigmask().
+ *
+ * In fact pthread_sigmask() works for single-threaded processes, but we avoid
+ * depending on pthread library if it's not essential.
  *
  * zaborts if gets any error.
- *
- * NB: it is a FATAL error to do this if !qpthreads_enabled.
- *
- *     This is mostly because wish to avoid all pthreads_xxx calls when not
- *     using pthreads.  There is no reason not to use this in a single threaded
- *     program.
  */
-void
+extern void
 qpt_thread_sigmask(int how, const sigset_t* set, sigset_t* oset)
 {
-  int err ;
-
-  passert(qpthreads_enabled) ;
-
   if (oset != NULL)
     sigemptyset(oset) ;         /* to make absolutely sure      */
 
-  err = pthread_sigmask(how, set, oset) ;
-  if (err != 0)
-    zabort_err("pthread_sigmask failed", err) ;
+  if (qpthreads_enabled)
+    {
+      int err = pthread_sigmask(how, set, oset) ;
+      if (err != 0)
+        zabort_err("pthread_sigmask failed", err) ;
+    }
+  else
+    {
+      if (sigprocmask(how, set, oset) != 0)
+        zabort_errno("sigprocmask failed") ;
+    } ;
 } ;
 
-/* Send given thread the given signal   -- requires qpthreads_enabled (!)
+/*------------------------------------------------------------------------------
+ * Send given thread the given signal   -- requires qpthreads_enabled (!)
  *
  * Thin wrapper around pthread_kill.
  *
  * zaborts if gets any error.
  */
-void
+extern void
 qpt_thread_signal(qpt_thread_t thread, int signum)
 {
   int err ;
@@ -772,4 +781,59 @@ qpt_thread_signal(qpt_thread_t thread, int signum)
   err = pthread_kill(thread, signum) ;
   if (err != 0)
     zabort_err("pthread_kill failed", err) ;
+} ;
+
+/*==============================================================================
+ * Thread Specific Data Handling.
+ *
+ * When creating a key for a piece of thread specific data one could:
+ *
+ *   a. arrange for all keys to be created before any threads are
+ *      created -- or at least before any have a need for the key.
+ *
+ *   b. use pthread_once() to protect the creation of the key.
+ *
+ *      Note that there does not appear to be a way of distinguishing a key
+ *      that has been created from one that has not.
+ *
+ * For !qpthreads_enabled systems, the "thread specific" data is embedded in
+ * the qpt_data object.
+ */
+
+/*------------------------------------------------------------------------------
+ * Create the given thread specific data.
+ *
+ * NB: if no value is ever set, then qpt_data_get_value() will return NULL
+ *     (whether qpthreads_enabled, or not).
+ */
+extern void
+qpt_data_create(qpt_data data)
+{
+  memset(data, 0, sizeof(union qpt_data)) ;
+
+  if (qpthreads_enabled_freeze)
+    {
+      int err = pthread_key_create(&data->key, NULL) ;
+      if (err != 0)
+        zabort_err("pthread_key_create failed", err) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Delete the given thread specific data.
+ *
+ * NB: it is the caller's responsibility to release any memory the value of
+ *     the thread specific data may refer to.
+ */
+extern void
+qpt_data_delete(qpt_data data)
+{
+  if (qpthreads_enabled)
+    {
+      int err = pthread_key_delete(data->key) ;
+      if (err != 0)
+        zabort_err("pthread_key_delete failed", err) ;
+    } ;
+
+  memset(data, 0, sizeof(union qpt_data)) ;
 } ;

@@ -26,9 +26,12 @@
 #include "vty_local.h"
 #include "vty_io.h"
 #include "vty_io_term.h"
+#include "vty_io_file.h"
 #include "vty_cli.h"
 #include "vty_command.h"
 #include "vio_fifo.h"
+
+#include "log_local.h"
 
 #include "qstring.h"
 #include "keystroke.h"
@@ -75,12 +78,21 @@
  * Opening and closing VTY_TERMINAL type
  */
 
-static void uty_term_ready(vio_vfd vfd, void* action_info) ;
-static vty_timer_time uty_term_read_timeout(vio_timer_t* timer,
+typedef enum {
+  utw_error     = 0,
+  utw_done      = BIT(0),       /* all possible is done                 */
+  utw_stopped   = BIT(1),
+  utw_blocked   = BIT(2),       /* I/O blocked                          */
+  utw_paused    = utw_blocked | utw_stopped,
+} utw_ret_t ;
+
+static void uty_term_read_ready(vio_vfd vfd, void* action_info) ;
+static void uty_term_write_ready(vio_vfd vfd, void* action_info) ;
+static vty_timer_time uty_term_read_timeout(vio_timer timer,
                                                             void* action_info) ;
-static vty_timer_time uty_term_write_timeout(vio_timer_t* timer,
+static vty_timer_time uty_term_write_timeout(vio_timer timer,
                                                             void* action_info) ;
-static vty_readiness_t uty_term_write(vio_vf vf) ;
+static utw_ret_t uty_term_write(vio_vf vf) ;
 
 static void uty_term_will_echo(vty_cli cli) ;
 static void uty_term_will_suppress_go_ahead(vty_cli cli) ;
@@ -96,34 +108,38 @@ static void uty_term_dont_lflow_ahead(vty_cli cli) ;
 static void
 uty_term_open(int sock_fd, union sockunion *su)
 {
+  node_type_t  node ;
   vty     vty ;
   vty_io  vio ;
   vio_vf  vf ;
 
-  VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
+  VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
-  /* Allocate new vty structure and set up default values.              */
-  vty = uty_new(VTY_TERMINAL) ;
-  vio = vty->vio ;
+  /* The initial vty->node will be authentication, unless the host does not
+   * require that, in which case it may be a number of other things.
+   *
+   * Note that setting NULL_NODE at this point will cause the terminal to be
+   * closed very quickly, after issuing suitable message.
+   */
+  node = (host.password != NULL) ? AUTH_NODE : NULL_NODE ;
 
-  /* The initial vty->node depends on a number of vty type things, so
-   * we set that now.
+  if (host.no_password_check)
+    {
+      if      (host.restricted_mode)
+        node = RESTRICTED_NODE;
+      else if (host.advanced && (host.enable == NULL))
+        node = ENABLE_NODE;
+      else
+        node = VIEW_NODE;
+    } ;
+
+  /* Allocate new vty structure and set up default values.
    *
    * This completes the initialisation of the vty object, except that the
    * execution and vio objects are largely empty.
    */
-  if (host.no_password_check)
-    {
-      if (host.restricted_mode)
-        vio->vty->node = RESTRICTED_NODE;
-      else if (host.advanced)
-        vio->vty->node = ENABLE_NODE;
-      else
-        vio->vty->node = VIEW_NODE;
-    }
-  else
-    vio->vty->node = AUTH_NODE;
+  vty = uty_new(VTY_TERMINAL, node) ;
+  vio = vty->vio ;
 
   /* Complete the initialisation of the vty_io object.
    *
@@ -134,7 +150,6 @@ uty_term_open(int sock_fd, union sockunion *su)
    *
    *   - parse_type       -- default = cmd_parse_standard
    *   - reflect_enabled  -- default = false
-   *   - out_enabled      -- default = true iff vfd_io_write
    *
    * Are OK, except that we want the read_timeout set to the current EXEC
    * timeout value.
@@ -143,10 +158,10 @@ uty_term_open(int sock_fd, union sockunion *su)
    */
   vf = uty_vf_new(vio, sutoa(su).str, sock_fd, vfd_socket, vfd_io_read_write) ;
 
-  uty_vin_open( vio, vf, VIN_TERM,  uty_term_ready,
+  uty_vin_push( vio, vf, VIN_TERM,  uty_term_read_ready,
                                     uty_term_read_timeout,
                                     0) ;        /* no ibuf required     */
-  uty_vout_open(vio, vf, VOUT_TERM, uty_term_ready,
+  uty_vout_push(vio, vf, VOUT_TERM, uty_term_write_ready,
                                     uty_term_write_timeout,
                                     4096) ;     /* obuf is required     */
 
@@ -154,9 +169,6 @@ uty_term_open(int sock_fd, union sockunion *su)
 
   /* Set up the CLI object & initialise                                 */
   vf->cli = uty_cli_new(vf) ;
-
-  /* When we get here the VTY is set up and all ready to go.            */
-  uty_cmd_prepare(vio) ;
 
   /* Issue Telnet commands/escapes to be a good telnet citizen -- not much
    * real negotiating going on -- just a statement of intentions !
@@ -171,90 +183,221 @@ uty_term_open(int sock_fd, union sockunion *su)
   /* Say hello                                                          */
   vty_hello(vty);
 
-  /* If need password, issue prompt or give up if no password to check
-   * against !
+  /* If about to authenticate, issue friendly message.
+   *
+   * If cannot authenticate, issue an error message.
    */
-  if (vty->node == AUTH_NODE)
-    {
-      if (host.password != NULL)
-        vty_out(vty, "\nUser Access Verification\n\n");
-      else
-        uty_close(vio, false, qs_set(NULL, "vty password is not set."));
-    } ;
+  if      (vty->node == AUTH_NODE)
+    vty_out(vty, "User Access Verification\n") ;
+  else if (vty->node == NULL_NODE)
+    vty_out(vty, "%% Cannot continue because no password is set\n") ;
 
-  /* Push the output to date and start the CLI                          */
-  uty_cmd_out_push(vio) ;
-  uty_cli_start(vf->cli, vty->node) ;
+  /* Enter the command loop.                                            */
+  uty_cmd_loop_enter(vio) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Close the reading side of VTY_TERMINAL, and close down CLI as far as
+ * Command line fetch from a VTY_TERMINAL.
+ *
+ * Fetching a command line <=> the previous command has completed.
+ *
+ * Returns: CMD_SUCCESS    -- have another command line ready to go
+ *          CMD_WAITING    -- would not wait for input  <=> non-blocking
+ *          CMD_EOF        -- ??????
+ *
+ * This can be called in any thread.
+ *
+ * NB: this does not signal CMD_EOF TODO ????
+ */
+extern cmd_return_code_t
+uty_term_fetch_command_line(vio_vf vf, cmd_action action, cmd_context context)
+{
+  return uty_cli_want_command(vf->cli, action, context) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Showing error context for the VTY_TERMINAL command line.
+ *
+ * If the stack is at level == 1, then the last full line displayed will be
+ * the line in which the error occurred (unless have monitor output, which
+ * there is little we can do about).  So there is no further output required.
+ * The command line is indented by the current prompt.
+ *
+ * If the stack is at level > 1, then may or may not have had output separating
+ * the command line from the current position, so we output the command line
+ * to provide context.
+ *
+ * Returns: indent position of command line
+ */
+extern uint
+uty_term_show_error_context(vio_vf vf, vio_fifo ebuf, uint depth)
+{
+  if (depth == 1)
+    return uty_cli_prompt_len(vf->cli) ;
+
+  vio_fifo_printf(ebuf, "%% in command line:\n") ;
+  vio_fifo_printf(ebuf, " %s\n", qs_make_string(vf->cli->clx)) ;
+
+  return 2 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Push output to the terminal.
+ *
+ * Returns:  CMD_SUCCESS   -- all buffers are empty, or final
+ *           CMD_WAITING   -- all buffers are not empty
+ *           CMD_IO_ERROR  -- failed -- final or not.
+ *
+ * This can be called in any thread.  If "final" will not turn on any
+ * read/write ready stuff.
+ */
+extern cmd_return_code_t
+uty_term_out_push(vio_vf vf, bool final)
+{
+  vty_cli cli = vf->cli ;
+  utw_ret_t done ;
+
+  /* If have something in the obuf that needs to be written, then if not already
+   * out_active, make sure the command line is clear, and set out_active.
+   */
+  if (!cli->out_active && !vio_fifo_empty(vf->obuf))
+    {
+      uty_cli_wipe(cli, 0) ;
+      cli->out_active = true ;
+      vio_lc_counter_reset(cli->olc) ;
+    } ;
+
+  /* Give the terminal writing a shove.
+   *
+   * If final, keep pushing while succeeds in writing without blocking.
+   */
+  if (final)
+    cli->flush = cli->out_active ;      /* make sure empty everything   */
+
+  do
+    {
+      if (final)
+        vio_lc_counter_reset(cli->olc) ;
+
+      done = uty_term_write(vf) ;
+    }
+  while (final && (done == utw_paused)) ;
+
+  if (!final)
+    {
+      if (done == utw_error)
+        return CMD_IO_ERROR ;           /* TODO */
+
+      if ((done & utw_blocked) != 0)
+        {
+          confirm((utw_paused & utw_blocked) != 0) ;
+
+          uty_term_set_readiness(vf, write_ready) ;
+          return CMD_WAITING ;
+        } ;
+    } ;
+
+  return CMD_SUCCESS ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * The read side of the vfd has been closed.   Close down CLI as far as
  * possible, given that output may be continuing.
  *
  * Expects to be called once only for the VTY_TERMINAL.
+ *
+ * There is no difference between final and not-final close in this case.
+ *
+ * Note that this is only closed when the VTY_TERMINAL is forcibly closed, or
+ * when the user quits.
+ *
+ * Returns:  CMD_SUCCESS   -- all is quiet.
  */
-extern void
-uty_term_read_close(vio_vf vf)
+extern cmd_return_code_t
+uty_term_read_close(vio_vf vf, bool final)
 {
   vty_io  vio ;
 
   /* Get the vio and ensure that we are all straight                    */
   vio = vf->vio ;
   assert((vio->vin == vio->vin_base) && (vio->vin == vf)) ;
+  assert(vio->vin->vin_state == vf_closing) ;
 
-  /* Do the file side of things
-   *
-   * Note that half closing the file sets a new timeout, sets read off
-   * and write on.
+  /*
    */
   uty_set_monitor(vio, 0) ;
 
+  /* Close the CLI as far as possible, leaving output side intact.
+   *
+   * Can generate some final output, which will be dealt with as the output
+   * side is closed.
+   */
   uty_cli_close(vf->cli, false) ;
 
-  /* Log closing of VTY_TERM                                            */
+  /* Log closing of VTY_TERMINAL
+   */
   assert(vio->vty->type == VTY_TERMINAL) ;
-  uzlog (NULL, LOG_INFO, "Vty connection (fd %d) close", vio_vfd_fd(vf->vfd)) ;
+  zlog (NULL, LOG_INFO, "Vty connection (fd %d) close", vio_vfd_fd(vf->vfd)) ;
+
+  return CMD_SUCCESS ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Try to output the close reason to the given VOUT_TERM.
+ *
+ * If there is anything pending to be output, discard it, first.  The obuf has
+ * already been cleared.
+ *
+ * This will be pushed out when the VOUT_TERM is finally closed.
+ */
+extern void
+uty_term_close_reason(vio_vf vf, const char* reason)
+{
+  vio_lc_clear(vf->cli->olc) ;
+  vio_fifo_clear(vf->cli->cbuf, true) ;
+
+  uty_cli_out(vf->cli, "%% %s%s", reason, uty_cli_newline) ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Close the writing side of VTY_TERMINAL.
  *
- * Pushes any buffered stuff to output and
+ * Assumes that the read side has been closed already, and so this is the last
+ * thing to be closed.
  *
+ * Kicks the output side:
+ *
+ *   if final, will push as much as possible until would block.
+ *
+ *   if not final, will push another tranche and let the uty_term_ready() keep
+ *   pushing until buffers empty and can uty_cmd_signal().
+ *
+ * Returns:  CMD_SUCCESS    => all written (or final) and CLI closed.
+ *           CMD_WAITING    => write ready running to empty the buffers
+ *           CMD_IO_ERROR   =>
+ *           others                TODO
  */
-extern bool
-uty_term_write_close(vio_vf vf, bool final)
+extern cmd_return_code_t
+uty_term_write_close(vio_vf vf, bool final, bool base)
 {
+  cmd_return_code_t  ret ;
   vty_io  vio ;
-  vty_readiness_t ready ;
 
-  /* Get the vio and ensure that we are all straight                    */
-  vio = vf->vio ;
-  assert((vio->vin == vio->vin_base) && (vio->vin == vf)) ;
-
-  /* Do the file side of things
+  /* Get the vio and ensure that we are all straight
    *
-   * Note that half closing the file sets a new timeout, sets read off
-   * and write on.
+   * Can only be the vout_base and must also be the vin_base, and the vin_base
+   * must now be closed.
    */
-  uty_set_monitor(vio, 0) ;
+  vio = vf->vio ;
+  assert((vio->vout == vio->vout_base) && (vio->vout == vf)) ;
+  assert((vio->vin  == vio->vin_base)  && (vio->vin->vin_state == vf_closed)) ;
 
-  vf->cli->out_active = true ; /* force the issue      */
+  ret = uty_term_out_push(vf, final) ;
 
-  do
-    {
-      vf->cli->out_done = false ;
-      ready = uty_term_write(vf) ;
-    } while ((ready != write_ready) && vf->cli->out_active) ;
+  if (final)
+    vf->cli = uty_cli_close(vf->cli, final) ;
 
-  final = final || !vf->cli->out_active ;
-
-  if (!final)
-    uty_term_set_readiness(vf, ready) ;
-
-  vf->cli = uty_cli_close(vf->cli, final) ;
-
-  return final ;
+  return ret ;
 } ;
 
 /*==============================================================================
@@ -272,6 +415,8 @@ uty_term_write_close(vio_vf vf, bool final)
  * not set both at once.
  */
 
+static void uty_term_ready(vio_vf vf) ;
+
 /*------------------------------------------------------------------------------
  * Set read/write readiness -- for VIN_TERM/VOUT_TERM
  *
@@ -282,12 +427,41 @@ uty_term_set_readiness(vio_vf vf, vty_readiness_t ready)
 {
   VTY_ASSERT_LOCKED() ;
 
-  uty_vf_set_read(vf,  (ready == read_ready)) ;
-  uty_vf_set_write(vf, (ready >= write_ready)) ;
+  if      ((ready & write_ready) != 0)
+    uty_vf_set_write(vf, on) ;
+  else if ((ready & read_ready)  != 0)
+    uty_vf_set_read(vf, on) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * So there is only one, common, uty_term_ready function, which:
+ * Terminal read ready
+ */
+static void
+uty_term_read_ready(vio_vfd vfd, void* action_info)
+{
+  vio_vf vf = action_info ;
+
+  assert(vfd == vf->vfd) ;
+
+  vf->cli->paused = false ;     /* read ready clears paused     */
+  uty_term_ready(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Terminal write ready
+ */
+static void
+uty_term_write_ready(vio_vfd vfd, void* action_info)
+{
+  vio_vf vf = action_info ;
+
+  assert(vfd == vf->vfd) ;
+
+  uty_term_ready(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Terminal, something is ready -- read, write or no longer paused.
  *
  *   1. attempts to clear any output it can.
  *
@@ -323,24 +497,142 @@ uty_term_set_readiness(vio_vf vf, vty_readiness_t ready)
  * Resets the timer because something happened.
  */
 static void
-uty_term_ready(vio_vfd vfd, void* action_info)
+uty_term_ready(vio_vf vf)
 {
   vty_readiness_t ready ;
-
-  vio_vf  vf   = action_info ;
-
-  assert(vfd == vf->vfd) ;
+  utw_ret_t done ;
 
   VTY_ASSERT_LOCKED() ;
 
-  uty_term_write(vf) ;                  /* try to clear outstanding stuff   */
-  do
+  /* Start by trying to write away any outstanding stuff, and then another
+   * tranche of any outstanding output.
+   */
+  ready = not_ready ;
+
+  if (!vf->cli->more_enabled)
+    vio_lc_counter_reset(vf->cli->olc) ;        /* do one tranche       */
+
+  done = uty_term_write(vf) ;
+
+  while (done != utw_error)
     {
-      ready  = uty_cli(vf->cli) ;      /* do any CLI work...               */
-      ready |= uty_term_write(vf) ;     /* ...and any output that generates */
-    } while (ready >= now_ready) ;
+      utw_ret_t  done_before ;
+      done_before = done ;
+
+      /* Kick the CLI, which may advance either because there is more input,
+       * or because some output has now completed, or for any other reason.
+       *
+       * This may return write_ready, which is a proxy for CLI ready, and
+       * MUST be honoured, even (especially) if the output buffers are empty.
+       */
+      ready = uty_cli(vf->cli) ;
+
+      /* Now try to write away any new output which may have been generated
+       * by the CLI.
+       */
+      done = uty_term_write(vf) ;
+
+      if (done == done_before)
+        break ;                 /* quit if no change in response        */
+    } ;
+
+  if (done == utw_error)
+    ;                                   /* TODO !!      */
+
+  if ((done & utw_blocked) != 0)
+    {
+      confirm((utw_paused & utw_blocked) != 0) ;
+      ready |= write_ready ;
+    } ;
+
+  if ((done != utw_blocked) && (done != utw_error))
+    {
+      /* Since is not output blocked, tell master that is now ready.    */
+      if (vf->pr_master != NULL)
+        uty_pipe_return_slave_ready(vf) ;
+    } ;
 
   uty_term_set_readiness(vf, ready) ;
+
+  /* Signal the command loop if out_active and the buffers empty out.
+   */
+  if (done == utw_done)
+    uty_cmd_signal(vf->vio, CMD_SUCCESS) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Read timer has expired.
+ *
+ * If closing, then this is curtains -- have waited long enough !
+ *
+ * TODO .... sort out the VTY_TERMINAL time-out & death-watch timeout
+ *
+ * Otherwise, half close the VTY and leave it to the death-watch to sweep up.
+ */
+static vty_timer_time
+uty_term_read_timeout(vio_timer timer, void* action_info)
+{
+  vio_vf  vf   = action_info ;
+
+  assert(timer == vf->vfd->read_timer) ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  vf->vin_state = vf_timed_out ;
+  keystroke_stream_set_eof(vf->cli->key_stream, true) ;
+
+  vf->cli->paused = false ;
+
+  uty_term_ready(vf) ;
+
+  return 0 ;
+ } ;
+
+/*------------------------------------------------------------------------------
+ * Write timer has expired.
+ *
+ * If closing, then this is curtains -- have waited long enough !
+ *
+ * TODO .... sort out the VTY_TERMINAL time-out & death-watch timeout
+ *
+ * Otherwise, half close the VTY and leave it to the death-watch to sweep up.
+ */
+static vty_timer_time
+uty_term_write_timeout(vio_timer timer, void* action_info)
+{
+  vio_vf  vf   = action_info ;
+
+  assert(timer == vf->vfd->read_timer) ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  vf->cli->paused = false ;
+
+//uty_close(vio, true, qs_set(NULL, "Timed out")) ;     TODO
+
+  return 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Timeout on the cli->paused timer -- clear paused and treat as CLI ready.
+ */
+extern void
+vty_term_pause_timeout(qtimer qtr, void* timer_info, qtime_mono_t when)
+{
+  vty_cli cli ;
+
+  VTY_LOCK() ;
+
+  cli = timer_info ;
+  assert(cli->pause_timer == qtr) ;
+
+  if (cli->paused)
+    {
+      cli->paused = false ;
+      uty_term_ready(cli->vf) ;
+    } ;
+
+  VTY_UNLOCK() ;
 } ;
 
 /*==============================================================================
@@ -362,7 +654,7 @@ uty_term_ready(vio_vfd vfd, void* action_info)
  *
  * Returns:  0 => nothing available
  *         > 0 => read at least one byte
- *          -1 => EOF (or not open, or failed)
+ *          -1 => EOF (or not open, or failed, or timed out, ...)
  */
 extern int
 uty_term_read(vio_vf vf, keystroke steal)
@@ -397,7 +689,7 @@ uty_term_read(vio_vf vf, keystroke steal)
  *   cli->cbuf -- command line   -- reflects the status of the command line
  *
  *   vf->obuf  -- command output -- which is written to the file only while
- *                                  out_active.
+ *                                  out_active, and not blocked in more_wait.
  *
  * The cli output takes precedence.
  *
@@ -405,351 +697,256 @@ uty_term_read(vio_vf vf, keystroke steal)
  * "--more--" mechanism.
  */
 
-static int uty_write_lc(vio_vf vf, vio_fifo vff, vio_line_control lc) ;
-static int uty_write_fifo_lc(vio_vf vf, vio_fifo vff, vio_line_control lc) ;
+static utw_ret_t uty_term_write_lc(vio_line_control lc, vio_vf vf,
+                                                                 vio_fifo vff) ;
+
+/*------------------------------------------------------------------------------
+ * Have some (more) monitor output to send to the vty.
+ *
+ * Make sure the command line is clear, then claim screen for monitor output
+ * and attempt to empty out buffers.
+ */
+extern void
+uty_term_mon_write(vio_vf vf)
+{
+  utw_ret_t  done ;
+
+  uty_cli_pre_monitor(vf->cli) ;        /* make sure in a fit state     */
+
+  done = uty_term_write(vf) ;           /* TODO -- errors !!            */
+
+  if ((done & utw_blocked) != 0)
+    {
+      confirm((utw_paused & utw_blocked) != 0) ;
+
+      uty_term_set_readiness(vf, write_ready) ;
+    } ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Write as much as possible of what there is.
  *
- * If not cmd_in_progress, clears cli_blocked if both FIFOs are, or become,
- * empty.
+ * Move to more_wait if required.              TODO
  *
- * Note that if !write_open, or becomes !write_open, then the FIFOs are empty
- * and all output instantly successful.
+ * If is cli->flush, then when all buffers are emptied out, clears itself and
+ * the out_active flag.
  *
- * Sets write on if prevented from writing everything available for output
- * by write() threatening to block.
+ * Returns:
  *
- * Returns: write_ready  if should now set write on
- *          now_ready    if should loop back and try again
- *          not_ready    otherwise
+ *      utw_error -- I/O error -- see errno  (utw_error = -1)
+ *
+ *    utw_blocked -- write blocked -- some write operation would block
+ *
+ *     utw_paused -- have written as much as line control allows in one go.
+ *
+ *                   NB: this does NOT mean is now in more_wait, it means that
+ *                       to write more it is necessary to clear the line
+ *                       control pause state.
+ *
+ *    utw_stopped -- have done as much as can do -- no more output is possible
+ *                   until some external event changes things.
+ *
+ *                   This implies that any pending output has completed, in
+ *                   particular the line control iovec and the cli->cbuf are
+ *                   both empty.
+ *
+ *                   This state includes:
+ *
+ *                     * !out_active -- if there is something in the vf->obuf,
+ *                       we are not yet ready to output it.
+ *
+ *                     * more_wait -- waiting for user
+ *
+ *       utw_done -- have written everything can find, unless more output
+ *                   arrives, there is no more to do.
+ *
+ *                   If was cli->flush the all output really has gone, as
+ *                   well as any incomplete line.  Also the out_active and
+ *                   the flush flags will have been cleared.
+ *
+ *                   If was not cli->flush, the out_active state persists,
+ *                   and there may be an incomplete line still pending.
  */
-static vty_readiness_t
+static utw_ret_t
 uty_term_write(vio_vf vf)
 {
   vty_cli cli = vf->cli ;
-  int     ret ;
+  utw_ret_t  ret ;
+  int        did ;
+  size_t     have, take ;
+  char*      src ;
 
   VTY_ASSERT_LOCKED() ;
 
-  ret = -1 ;
-  while (vf->vout_state == vf_open)
+  /* If the vout is neither vf_open, not vf_closing, discard all buffered
+   * output, and return all done.
+   */
+  if ((vf->vout_state != vf_open) && (vf->vout_state != vf_closing))
     {
-      /* Any outstanding line control output takes precedence           */
-      ret = uty_write_lc(vf, vf->obuf, cli->olc) ;
-      if (ret != 0)
-        break ;
+      vio_fifo_clear(vf->obuf,  false) ;
+      vio_fifo_clear(cli->cbuf, false) ;
+      vio_lc_clear(cli->olc) ;
 
-      /* Next: empty out the cli output                                 */
-      ret = vio_fifo_write_nb(cli->cbuf, vio_vfd_fd(vf->vfd), true) ;
-      if (ret != 0)
-        break ;
-
-      /* Finished now if not allowed to progress the command stuff      */
-      if (!cli->out_active)
-        return not_ready ;      /* done all can do      */
-
-      /* If there is something in the command buffer, do that           */
-      if (!vio_fifo_empty(vf->obuf))
-        {
-#if 0
-          if (cli->out_done)
-            break ;                     /* ...but not if done once      */
-
-          cli->out_done = true ;        /* done this once               */
-#endif
-          assert(!cli->more_wait) ;
-
-          ret = uty_write_fifo_lc(vf, vf->obuf, cli->olc) ;
-          if (ret != 0)
-            {
-              if (ret < 0)
-                break ;                 /* failed                       */
-
-              if (!cli->more_wait)
-                return write_ready ;    /* done a tranche               */
-
-              /* Moved into "--more--" state
-               *
-               *   * the "--more--" prompt is ready to be written, so do that
-               *     now
-               *
-               *   * if that completes, then want to run the CLI *now* to
-               *     perform the first stage of the "--more--" process.
-               */
-              ret = vio_fifo_write_nb(cli->cbuf, vio_vfd_fd(vf->vfd), true) ;
-              if (ret != 0)
-                break ;
-
-              return now_ready ;
-            } ;
-        } ;
-
-      /* Exciting stuff: there is nothing left to output...
-       *
-       * ... watch out for half closed state.
-       */
-#if 0
-      if (vio->closing)
-        {
-          if (vio->close_reason != NULL)
-            {
-              if (cli->drawn || cli->dirty)
-                uty_out(vio, "\n") ;
-              uty_out(vio, "%% %s\n", vio->close_reason) ;
-
-              vio->close_reason = NULL ;    /* MUST discard now...      */
-              continue ;                    /* ... and write away       */
-            } ;
-
-          if (!vio->closed)                 /* avoid recursion          */
-            uty_close(vio) ;
-
-          return not_ready ;                /* it's all over            */
-        } ;
-#endif
-
-      if (uty_cli_draw_if_required(cli))
-        continue ;                          /* do that now.             */
-
-      /* There really is nothing left to output                         */
       cli->out_active = false ;
+      cli->flush      = false ;
 
-      return not_ready ;
+      cli->more_wait  = false ;
+      cli->more_enter = false ;
+
+      return utw_done ;
     } ;
 
-  /* Arrives here if there is more to do, or failed (or was !write_open)    */
+  /* Any outstanding line control output takes precedence               */
+  ret = uty_term_write_lc(cli->olc, vf, vf->obuf) ;
+  if (ret != utw_done)
+    return ret ;                /* utw_blocked or utw_error     */
 
-  if (ret > 0)
-    return write_ready ;
+  /* Next: empty out the cli output                                     */
+  did = vio_fifo_write_nb(cli->cbuf, vio_vfd_fd(vf->vfd), true) ;
+  if (did != 0)
+    return (did < 0) ? utw_error : utw_blocked ;
 
-  if (ret == 0)                 /* just in case         */
-    return not_ready ;
-
-  /* If is write_open, then report the error
+  /* Next: if there is monitor output to deal with, deal with it.
    *
-   * If still read_open, let the reader pick up and report the error, when it
-   * has finished anything it has buffered.
+   * Note that the mon_active flag is set under VTY_LOCK(), so do not
+   * need to LOG_LOCK() to discover whether there is anything to do.
+   *
+   * But the vio->mbuf is filled under LOG_LOCK(), so need to write it
+   * under the same.
    */
-  if (vf->vout_state == vf_open)
-    uty_vf_error(vf, "write", errno) ;
-
-  /* For whatever reason, is no longer write_open -- clear all buffers.
-   */
-  vio_fifo_clear(vf->obuf, true) ;      /* throw away cli stuff         */
-  uty_cli_out_clear(cli) ;              /* throw away cmd stuff         */
-
-  cli->out_active = false ;
-
-  return not_ready ;                    /* NB: NOT blocked by I/O       */
-} ;
-
-/*------------------------------------------------------------------------------
- * Write as much as possible -- for "monitor" output.
- *
- * Outputs only:
- *
- *   a. outstanding line control stuff.
- *
- *   b. contents of CLI buffer
- *
- * And:
- *
- *   a. does not report any errors.
- *
- *   b. does not change anything except the state of the buffers.
- *
- *      In particular, for the qpthreaded world, does not attempt to change
- *      the state of the qfile or any other "thread private" structures.
- *
- * Returns: > 0 => blocked
- *            0 => all gone
- *          < 0 => failed (or !write_open)
- */
-#if 0
-static int
-uty_write_monitor(vio_vf vf)
-{
-  VTY_ASSERT_LOCKED() ;
-
-  if (!vf->write_open)
-    return -1 ;
-
-  if (vf->olc != NULL)
+  if (cli->mon_active)
     {
-      int ret ;
-      ret = uty_write_lc(vf, vf->obuf, vf->olc) ;
+      LOG_LOCK() ;
 
-      if (ret != 0)
-        return ret ;
+      did = vio_fifo_write_nb(vf->vio->mbuf, vio_vfd_fd(vf->vfd), true) ;
+
+      LOG_UNLOCK() ;
+
+      if (did != 0)
+        return (did < 0) ? utw_error : utw_blocked ;
+
+      uty_cli_post_monitor(vf->cli) ;
     } ;
 
-  return  vio_fifo_write_nb(vf->obuf, vio_vfd_fd(vf), true) ;
-} ;
-#endif
-
-/*------------------------------------------------------------------------------
- * Write the given FIFO to output -- subject to line control.
- *
- * Note that even if no "--more--" is set, will have set some height, so
- * that does not attempt to empty the FIFO completely all in one go.
- *
- * If the line control becomes "paused", it is time to enter "--more--" state
- * -- unless the FIFO is empty (or "--more--" is not enabled).
- *
- * NB: expects that the sock is write_open
- *
- * Returns: > 0 => blocked   or completed one tranche (more to go)
- *            0 => all gone
- *          < 0 => failed
- */
-static int
-uty_write_fifo_lc(vio_vf vf, vio_fifo vff, vio_line_control lc)
-{
-  int     ret ;
-  char*   src ;
-  size_t  have ;
-  vty_cli cli ;
-
-  cli = vf->cli ;
-
-  /* Collect another line_control height's worth of output.
-   *
-   * Expect the line control to be empty at this point, but it does not have
-   * to be.
+  /* If not out_active, or in more_wait, then we are stopped, waiting for some
+   * external event to move things on.
    */
-  vio_lc_set_pause(lc) ;        /* clears lc->paused                    */
+  if (cli->flush)
+    assert(cli->out_active) ;           /* makes no sense, otherwise    */
 
-  vio_fifo_set_hold_mark(vff) ;
+  if (!cli->out_active || cli->more_wait)
+    return utw_stopped ;
 
-  src = vio_fifo_get(vff, &have) ;
-  while ((src != NULL) && (!lc->paused))
+  /* Push the output fifo and any complete line fragments that may be buffered
+   * in hand in the line control -- this will stop if the line counter becomes
+   * exhausted.
+   *
+   * Note that this arranges for vio_lc_append() to be called at least once,
+   * even if the fifo is empty -- this deals with any parts of a complete
+   * line that may be held in the line control due to counter exhaustion.
+   *
+   * If the fifo is or becomes empty, then if is cli->flush, flush out any
+   * incomplete line which may be held in the line control -- in effect,
+   * cli->flush is a phantom '\n' at the end of the output fifo !
+   */
+  vio_fifo_set_hold_mark(vf->obuf) ;    /* released in uty_term_write_lc() */
+
+  src = vio_fifo_get(vf->obuf, &have) ;
+  while (1)
     {
-      size_t  take ;
+      take = vio_lc_append(cli->olc, src, have) ;
 
-      if (src == NULL)
+      if (take == 0)
         break ;
 
-      take = vio_lc_append(lc, src, have) ;
-      src = vio_fifo_step_get(vff, &have, take) ;
+      src = vio_fifo_step_get(vf->obuf, &have, take) ;
+
+      if (have == 0)
+        break ;
     } ;
 
-  cli->dirty = (lc->col != 0) ;
+  if ((have == 0) && (cli->flush))
+    vio_lc_flush(cli->olc) ;
 
-  /* Write the contents of the line control                             */
-  ret = uty_write_lc(vf, vff, lc) ;
+  ret = uty_term_write_lc(cli->olc, vf, vf->obuf) ;
+  if (ret != utw_done)
+    return ret ;                /* utw_blocked or utw_error     */
 
-  if (ret < 0)
-    return ret ;                /* give up now if failed.               */
-
-  if ((ret == 0) && vio_fifo_empty(vff))
-    return 0 ;                  /* FIFO and line control empty          */
-
-  /* If should now do "--more--", now is the time to prepare for that.
+  /* If arrive here, then:
    *
-   * Entering more state issues a new prompt in the CLI buffer, which can
-   * be written once line control write completes.
+   *   * no output is blocked and no errors have occurred.
    *
-   * The "--more--" cli will not do anything until the CLI buffer has
-   * cleared.
+   *   * the cli->cbuf is empty.
+   *
+   *   * the line control iovec buffer is empty.
+   *
+   * If the fifo is not empty or there is a some part of a complete line in
+   * hand, then the line counter must be exhausted.
    */
-  if (lc->paused && cli->more_enabled)
-    uty_cli_enter_more_wait(cli) ;
+  if ((have != 0) || vio_lc_have_complete_line_in_hand(cli->olc))
+    {
+      assert(vio_lc_counter_is_exhausted(cli->olc)) ;
 
-  return 1 ;                    /* FIFO or line control, not empty      */
+      if (cli->more_enabled)
+        {
+          uty_cli_enter_more_wait(cli) ;
+          return utw_stopped ;
+        }
+      else
+        return utw_paused ;     /* artificial block     */
+    } ;
+
+  /* Exciting stuff: there is nothing left to output...
+   *
+   * ...with the sole possible exception of an incomplete line buffered
+   * in the line control, which can do nothing about until there is more
+   * to be output, or the output is flushed...
+   *
+   * ...if not cli->flush, we are stopped, waiting for something else to
+   * happen.
+   */
+  assert(!cli->more_wait && !cli->more_enter) ;
+
+  if (cli->flush)
+    {
+      /* Even more exciting: is cli->flush !
+       *
+       * This means that any incomplete line must have been flushed, above.
+       * So all buffers MUST be empty.
+       */
+      assert(vio_fifo_empty(vf->obuf) && vio_lc_is_empty(cli->olc)) ;
+
+      cli->out_active = false ;
+      cli->flush      = false ;
+    } ;
+
+  return utw_done ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Write contents of line control (if any).
+ * Write contents of line control iovec buffer (if any).
  *
- * NB: expects that the sock is write_open
+ * NB: expects that the vf is write_open
  *
  * NB: does nothing other than write() and buffer management.
  *
- * Returns: > 0 => blocked
- *            0 => all gone
- *          < 0 => failed
+ * Returns: utw_blocked => blocked
+ *          utw_done    => all gone (may still have stuff "in hand")
+ *          utw_error   => failed
  */
-static int
-uty_write_lc(vio_vf vf, vio_fifo vff, vio_line_control lc)
+static utw_ret_t
+uty_term_write_lc(vio_line_control lc, vio_vf vf, vio_fifo vff)
 {
-  int ret ;
+  int did ;
 
-  ret = vio_lc_write_nb(vio_vfd_fd(vf->vfd), lc) ;
+  did = vio_lc_write_nb(vio_vfd_fd(vf->vfd), lc) ;
 
-  if (ret <= 0)
-    vio_fifo_clear_hold_mark(vff) ;   /* finished with FIFO contents  */
+  if (did > 0)
+    return utw_blocked ;
 
-  return ret ;
-} ;
+  vio_fifo_clear_hold_mark(vff) ;       /* finished with FIFO contents  */
 
-
-#if 0
-
-/*------------------------------------------------------------------------------
- * Start command output -- clears down the line control.
- *
- * Requires that that current line is empty -- restarts the line control
- * on the basis that is at column 0.
- */
-extern void
-uty_cmd_output_start(vio_vf vf)
-{
-  if (vf->olc != NULL)
-    vio_lc_clear(vf->olc) ;
-
-  vio_fifo_set_hold_mark(vf->obuf) ;    /* mark to keep until all gone  */
-} ;
-
-#endif
-
-
-
-
-/*==============================================================================
- * Timer actions for VTY_TERMINAL
- */
-
-/*------------------------------------------------------------------------------
- * Read timer has expired.
- *
- * If closing, then this is curtains -- have waited long enough !
- *
- * TODO .... sort out the VTY_TERMINAL time-out & death-watch timeout
- *
- * Otherwise, half close the VTY and leave it to the death-watch to sweep up.
- */
-static vty_timer_time
-uty_term_read_timeout(vio_timer_t* timer, void* action_info)
-{
-  vty_io vio = action_info ;
-
-  VTY_ASSERT_LOCKED() ;
-
-  uty_close(vio, true, qs_set(NULL, "Timed out")) ;
-
-  return 0 ;
- } ;
-
-/*------------------------------------------------------------------------------
- * Write timer has expired.
- *
- * If closing, then this is curtains -- have waited long enough !
- *
- * TODO .... sort out the VTY_TERMINAL time-out & death-watch timeout
- *
- * Otherwise, half close the VTY and leave it to the death-watch to sweep up.
- */
-static vty_timer_time
-uty_term_write_timeout(vio_timer_t* timer, void* action_info)
-{
-  vty_io vio = action_info ;
-
-  VTY_ASSERT_LOCKED() ;
-
-  uty_close(vio, true, qs_set(NULL, "Timed out")) ;
-
-  return 0 ;
+  return (did == 0) ? utw_done : utw_error ;
 } ;
 
 /*==============================================================================
@@ -778,7 +975,7 @@ uty_term_open_listeners(const char *addr, unsigned short port)
     n = uty_term_listen_simple(addr, port);
 
   if (n == 0)
-    uzlog(NULL, LOG_ERR, "could not open any VTY_TERMINAL listeners") ;
+    zlog(NULL, LOG_ERR, "could not open any VTY_TERMINAL listeners") ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -875,7 +1072,7 @@ uty_term_listen_simple(const char *addr, unsigned short port)
       if (ret == 0)
         sa = &su_addr.sa ;
       else
-        uzlog(NULL, LOG_ERR, "bad address %s, cannot listen for VTY", addr);
+        zlog(NULL, LOG_ERR, "bad address %s, cannot listen for VTY", addr);
     } ;
 
   /* Try for AF_INET                                                    */
@@ -896,7 +1093,7 @@ uty_term_listen_simple(const char *addr, unsigned short port)
 
   /* If not used the address... something wrong                         */
   if (sa != NULL)
-    uzlog(NULL, LOG_ERR, "could not use address %s, to listen for VTY", addr);
+    zlog(NULL, LOG_ERR, "could not use address %s, to listen for VTY", addr);
 
   /* Done                                                               */
   return n ;
@@ -1003,7 +1200,7 @@ uty_term_accept(int sock_listen)
   if (sock_fd < 0)
     {
       if (sock_fd == -1)
-        uzlog (NULL, LOG_WARNING, "can't accept vty socket : %s",
+        zlog (NULL, LOG_WARNING, "can't accept vty socket : %s",
                                                          errtoa(errno, 0).str) ;
       return ;
     }
@@ -1046,7 +1243,7 @@ uty_term_accept(int sock_listen)
 
   if (ret != 0)
     {
-      uzlog (NULL, LOG_INFO, "Vty connection refused from %s", sutoa(&su).str) ;
+      zlog (NULL, LOG_INFO, "Vty connection refused from %s", sutoa(&su).str) ;
       close (sock_fd);
       return ;
     } ;
@@ -1056,14 +1253,14 @@ uty_term_accept(int sock_listen)
   ret = setsockopt (sock_fd, IPPROTO_TCP, TCP_NODELAY,
                                                     (void*)&on, sizeof (on));
   if (ret < 0)
-    uzlog (NULL, LOG_INFO, "can't set sockopt to socket %d: %s",
+    zlog (NULL, LOG_INFO, "can't set sockopt to socket %d: %s",
                                                sock_fd, errtoa(errno, 0).str) ;
 
   /* All set -- create the VTY_TERMINAL and set it going                */
   uty_term_open(sock_fd, &su);
 
   /* Log new VTY                                                        */
-  uzlog (NULL, LOG_INFO, "Vty connection from %s (fd %d)", sutoa(&su).str,
+  zlog (NULL, LOG_INFO, "Vty connection from %s (fd %d)", sutoa(&su).str,
                                                                       sock_fd) ;
 
   return ;
@@ -1315,7 +1512,7 @@ uty_telnet_command(vio_vf vf, keystroke stroke, bool callback)
         case to_NAWS:
           if (left != 4)
             {
-              uzlog(NULL, LOG_WARNING,
+              zlog(NULL, LOG_WARNING,
                         "RFC 1073 violation detected: telnet NAWS option "
                         "should send %d characters, but we received %d",
                         (3 + 4 + 2), (3 + left + 2)) ;
@@ -1352,148 +1549,3 @@ uty_telnet_command(vio_vf vf, keystroke stroke, bool callback)
   return dealt_with ;
 } ;
 
-/*==============================================================================
- * Output to vty which are set to "monitor".
- *
- * This is VERY TRICKY.
- *
- * If not running qpthreaded, then the objective is to get the message away
- * immediately -- do not wish it to be delayed in any way by the thread
- * system.
- *
- * So proceed as follows:
- *
- *   a. wipe command line        -- which adds output to the CLI buffer
- *
- *   b. write the CLI buffer to the sock and any outstanding line control.
- *
- *   c. write the monitor output.
- *
- *      If that does not complete, put the tail end to the CLI buffer.
- *
- *   d. restore any command line -- which adds output to the CLI buffer
- *
- *   e. write the CLI buffer to the sock
- *
- * If that all succeeds, nothing has changed as far as the VTY stuff is
- * concerned -- except that possibly some CLI output was sent before it got
- * round to it.
- *
- * Note that step (b) will deal with any output hanging around from an
- * earlier step (e).  If cannot complete that, then does not add fuel to the
- * fire -- but the message will be discarded.
- *
- * If that fails, or does not complete, then can set write on, to signal that
- * there is some output in the CLI buffer that needs to be sent, or some
- * error to be dealt with.
- *
- * The output should be tidy.
- *
- * To cut down the clutter, step (d) is performed only if the command line
- * is not empty (or if in cli_more_wait).  Once a the user has started to enter
- * a command, the prompt and the command will remain visible.
- *
- * When logging an I/O error for a vty that happens to be a monitor, the
- * monitor-ness has already been turned off.  The monitor output code does not
- * attempt to log any errors, sets write on so that the error will be picked
- * up that way.
- *
- * However, in the event of an assertion failure, it is possible that an
- * assertion will fail inside the monitor output.  The monitor_busy flag
- * prevents disaster.  It is also left set if I/O fails in monitor output, so
- * will not try to use the monitor again.
- *
- * Note that an assertion which is false for all vty monitors will recurse
- * through all the monitors, setting each one busy, in turn !
- *
-
-
- * TODO: sort out write on in the qpthreads world ??
- *
- * The problem is that the qpselect structure is designed to be accessed ONLY
- * within the thread to which it belongs.  This makes it impossible for the
- * monitor output to set/clear read/write on the vty sock... so some way
- * around this is required.
- */
-
-/*------------------------------------------------------------------------------
- * Output logging information to all vty which are set to "monitor".
- */
-extern void
-uty_log(struct logline* ll, struct zlog *zl, int priority,
-                                                 const char *format, va_list va)
-{
-  vty_io  vio ;
-
-  VTY_ASSERT_LOCKED() ;
-
-  vio = sdl_head(vio_monitors_base) ;
-
-  if (vio == NULL)
-    return ;                    /* go no further if no "monitor" vtys   */
-
-  /* Prepare line for output.                                           */
-  uvzlog_line(ll, zl, priority, format, va, llt_crlf) ; /* with crlf    */
-
-  /* write to all known "monitor" vty
-   *
-   */
-  while (vio != NULL)
-    {
-#if 0
-      if (!vio->monitor_busy)
-        {
-          int ret ;
-
-          vio->monitor_busy = 1 ;       /* close the door               */
-
-          uty_cli_pre_monitor(vio, ll->len - 2) ;  /* claim the console */
-
-          ret = uty_write_monitor(vio) ;
-          if (ret == 0)
-            {
-              ret = write_nb(vio_vfd_fd(vf->vfd), ll->line, ll->len) ;
-
-              if (ret >= 0)
-                {
-                  ret = uty_cli_post_monitor(vio, ll->line + ret,
-                                                  ll->len  - ret) ;
-                  if (ret > 0)
-                    ret = uty_write_monitor(vio) ;
-                } ;
-            } ;
-
-          if (ret != 0)
-            /* need to prod   */ ;
-
-          if (ret >= 0)
-            vio->monitor_busy = 0 ;
-        } ;
-#endif
-      vio = sdl_next(vio, mon_list) ;
-    } ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Async-signal-safe version of vty_log for fixed strings.
- *
- * This is last gasp operation.
- */
-void
-vty_log_fixed (const char *buf, size_t len)
-{
-  vty_io  vio ;
-
-  /* Write to all known "monitor" vty
-   *
-   * Forget all the niceties -- about to die in any case.
-   */
-  vio = sdl_head(vio_monitors_base) ;
-  while (vio != NULL)
-    {
-      write(vio_vfd_fd(vio->vout_base->vfd), buf, len) ;
-      write(vio_vfd_fd(vio->vout_base->vfd), "\r\n", 2) ;
-
-      vio = sdl_next(vio, mon_list) ;
-    } ;
-} ;

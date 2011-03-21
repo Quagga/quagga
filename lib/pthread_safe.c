@@ -203,7 +203,7 @@ errtox(strerror_t* st, int err, int len, int want)
 
   if ((len <= 0) || (len >= (int)sizeof(st->str)))
     len = sizeof(st->str) - 1 ;
-  qfs_init(&qfs, st->str, len + 1) ;
+  qfs_init(qfs, st->str, len + 1) ;
 
   q  = "" ;
   ql = 0 ;
@@ -214,15 +214,15 @@ errtox(strerror_t* st, int err, int len, int want)
       const char* name = errno_name_lookup(err) ;
 
       if (name != NULL)
-        qfs_append(&qfs, name) ;
+        qfs_append(qfs, name) ;
       else
-        qfs_printf(&qfs, "ERRNO=%d", err) ;
+        qfs_printf(qfs, "ERRNO=%d", err) ;
     } ;
 
   /* name and string ?                                          */
   if (want == 3)
     {
-      qfs_append(&qfs, " ") ;
+      qfs_append(qfs, " ") ;
       q  = "'" ;
       ql = 2 ;
     } ;
@@ -285,8 +285,8 @@ errtox(strerror_t* st, int err, int len, int want)
               else
                 {
                   qf_str_t qfs_b ;
-                  qfs_init(&qfs_b, buf, sizeof(buf)) ;
-                  qfs_printf(&qfs_b, "strerror%s(%d) returned error %d",
+                  qfs_init(qfs_b, buf, sizeof(buf)) ;
+                  qfs_printf(qfs_b, "strerror%s(%d) returned error %d",
                                       qpthreads_enabled ? "_r" : "", err, ret) ;
                   errm = buf ;
                 } ;
@@ -296,11 +296,11 @@ errtox(strerror_t* st, int err, int len, int want)
       /* Add strerror to the result... looking out for overflow.        */
       len = strlen(errm) ;
 
-      if ((len + ql) <= qfs_left(&qfs)) /* accounting for "quotes"      */
-        qfs_printf(&qfs, "%s%s%s", q, errm, q) ;
+      if ((len + ql) <= qfs_left(qfs)) /* accounting for "quotes"      */
+        qfs_printf(qfs, "%s%s%s", q, errm, q) ;
       else
-        qfs_printf(&qfs, "%s%.*s...%s",
-                                   q, (int)(qfs_left(&qfs) - ql - 3), errm, q) ;
+        qfs_printf(qfs, "%s%.*s...%s",
+                                   q, (int)(qfs_left(qfs) - ql - 3), errm, q) ;
                                         /* -ve precision is ignored !   */
     } ;
 
@@ -421,7 +421,7 @@ eaitox(strerror_t* st, int eai, int err, int len, int want)
 
   if ((len <= 0) || (len >= (int)sizeof(st->str)))
     len = sizeof(st->str) - 1 ;
-  qfs_init(&qfs, st->str, len + 1) ;
+  qfs_init(qfs, st->str, len + 1) ;
 
   q  = "" ;
   ql = 0 ;
@@ -432,15 +432,15 @@ eaitox(strerror_t* st, int eai, int err, int len, int want)
       const char* name = eaino_name_lookup(eai) ;
 
       if (name != NULL)
-        qfs_append(&qfs, name) ;
+        qfs_append(qfs, name) ;
       else
-        qfs_printf(&qfs, "EAI=%d", eai) ;
+        qfs_printf(qfs, "EAI=%d", eai) ;
     } ;
 
   /* name and string ?                                          */
   if (want == 3)
     {
-      qfs_append(&qfs, " ") ;
+      qfs_append(qfs, " ") ;
       q  = "'" ;
       ql = 2 ;
     } ;
@@ -458,10 +458,10 @@ eaitox(strerror_t* st, int eai, int err, int len, int want)
       /* Add strerror to the result... looking out for overflow.        */
       len = strlen(eaim) ;
 
-      if ((len + ql) <= qfs_left(&qfs)) /* accounting for "quotes"      */
-        qfs_printf(&qfs, "%s%s%s", q, eaim, q) ;
+      if ((len + ql) <= qfs_left(qfs)) /* accounting for "quotes"      */
+        qfs_printf(qfs, "%s%s%s", q, eaim, q) ;
       else
-        qfs_printf(&qfs, "%s%.*s...%s", q, qfs_left(&qfs) - ql - 3, eaim, q) ;
+        qfs_printf(qfs, "%s%.*s...%s", q, qfs_left(qfs) - ql - 3, eaim, q) ;
                                         /* -ve precision is ignored !   */
     } ;
 

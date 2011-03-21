@@ -46,6 +46,7 @@ Boston, MA 02111-1307, USA.  */
 #include "vty_local.h"
 #include "vty_command.h"
 #include "vty_io.h"
+#include "network.h"
 
 /* Vector of cmd_node, one for each known node, built during daemon
  * initialisation.
@@ -57,52 +58,57 @@ vector node_vector = NULL ;
 /*==============================================================================
  * Default motd string.
  */
-#define DEFAULT_MOTD \
-"\n" \
-"Hello, this is " QUAGGA_PROGNAME " (version " QUAGGA_VERSION ")\n" \
- QUAGGA_COPYRIGHT "\n" \
+const char* default_motd =
 "\n"
+"Hello, this is " QUAGGA_PROGNAME " (version " QUAGGA_VERSION ")\n"
+ QUAGGA_COPYRIGHT "\n"
+"\n" ;
 
-#ifdef QDEBUG
-const char *debug_banner =
-    QUAGGA_PROGNAME " version " QUAGGA_VERSION " QDEBUG=" QDEBUG " "
-    __DATE__ " " __TIME__;
-#endif
+const char* debug_banner =
+    QUAGGA_PROGNAME " version " QUAGGA_VERSION " QDEBUG=" QDEBUG_NAME " "
+    __DATE__ " " __TIME__ ;
 
 /*==============================================================================
  * Host information structure -- shared across command/vty
+ *
+ * Must have VTY_LOCK() or not be running multiple pthreads to access this !
  */
 struct host host =
 {
     /* Host name of this router.                                */
-    .name_set         = false,
-    .name             = NULL,   /* set by cmd_init      */
-    .name_gen         = 0,      /* set by cmd_init      */
+    .name              = NULL,  /* set by cmd_init      */
+    .name_set          = false,
+    .name_gen          = 0,     /* set by cmd_init      */
 
     /* Password for vty interface.                              */
-    .password         = NULL,
+    .password          = NULL,
     .password_encrypted = false,
 
     /* Enable password                                          */
-    .enable           = NULL,
-    .enable_encrypted = false,
+    .enable            = NULL,
+    .enable_encrypted  = false,
 
     /* System wide terminal lines.                              */
-    .lines            = -1,     /* unset                */
+    .lines             = -1,    /* unset                */
 
     /* Log filename.                                            */
-    .logfile          = NULL,
+    .logfile           = NULL,
 
     /* config file name of this host                            */
-    .config_file      = NULL,
+    .config_file       = NULL,
+    .config_dir        = NULL,
 
     /* Flags for services                                       */
-    .advanced         = false,
-    .encrypt          = false,
+    .advanced          = false,
+    .encrypt           = false,
 
     /* Banner configuration.                                    */
-    .motd             = DEFAULT_MOTD,
-    .motdfile         = NULL,
+    .motd              = NULL,
+    .motdfile          = NULL,
+
+    /* Nobody has the config symbol of power                    */
+    .config            = false,
+    .config_brand      = 0,
 
     /* allow VTY to start without password                      */
     .no_password_check = false,
@@ -119,8 +125,8 @@ struct host host =
     /* Vty access-class for IPv6.                               */
     .vty_ipv6_accesslist_name = NULL,
 
-    /* Current directory -- initialised in vty_init()            */
-    .vty_cwd           = NULL,
+    /* Current directory -- initialised in cmd_getcwd()         */
+    .cwd                = NULL,
 } ;
 
 /*==============================================================================
@@ -220,6 +226,8 @@ cmd_get_sys_host_name(void)
 static void
 cmd_new_host_name(const char* name)
 {
+  VTY_ASSERT_LOCKED() ;
+
   if ((host.name == NULL) || (strcmp(host.name, name) != 0))
     {
       XFREE(MTYPE_HOST, host.name) ;
@@ -239,7 +247,7 @@ static struct cmd_node auth_node =
   .prompt       = "Password: ",
 
   .parent       = AUTH_NODE,    /* self => no parent    */
-  .exit_to      = AUTH_NODE,    /* self => no exit      */
+  .exit_to      = NULL_NODE,    /* close !              */
   .end_to       = AUTH_NODE,    /* self => no end       */
 };
 
@@ -248,7 +256,7 @@ static struct cmd_node view_node =
   .node         = VIEW_NODE,
   .prompt       = "%s> ",
 
-  .parent       = AUTH_NODE,    /* self => no parent    */
+  .parent       = VIEW_NODE,    /* self => no parent    */
   .exit_to      = NULL_NODE,    /* close !              */
   .end_to       = VIEW_NODE,    /* self => no end       */
 };
@@ -258,7 +266,7 @@ static struct cmd_node restricted_node =
   .node         = RESTRICTED_NODE,
   .prompt       = "%s$ ",
 
-  .parent       = AUTH_NODE,        /* self => no parent    */
+  .parent       = RESTRICTED_NODE,  /* self => no parent    */
   .exit_to      = NULL_NODE,        /* close !              */
   .end_to       = RESTRICTED_NODE,  /* self => no end       */
 };
@@ -269,7 +277,7 @@ static struct cmd_node auth_enable_node =
   .prompt       = "Password: ",
 
   .parent       = AUTH_ENABLE_NODE, /* self => no parent    */
-  .exit_to      = NULL_NODE,        /* close !              */
+  .exit_to      = VIEW_NODE,        /* fall back            */
   .end_to       = AUTH_ENABLE_NODE, /* self => no end       */
 };
 
@@ -288,7 +296,7 @@ static struct cmd_node config_node =
   .node         = CONFIG_NODE,
   .prompt       = "%s(config)# ",
 
-  .parent       = CONFIG_NODE,  /* self => no parent            */
+  .parent       = ENABLE_NODE,  /* more or less                 */
   .exit_to      = ENABLE_NODE,  /* exit == end for CONFIG_NODE  */
   .end_to       = ENABLE_NODE,  /* standard end action          */
 
@@ -465,13 +473,14 @@ cmp_desc (const void *p, const void *q)
  *
  * Default parent node:
  *
- *   * all nodes >= NODE_CONFIG have NODE_CONFIG as a parent
- *   * all nodes <  NODE_CONFIG are their own parents
+ *   * all nodes >  NODE_CONFIG have NODE_CONFIG as parent
+ *   *     node  == NODE_CONFIG has  ENABLE_NODE as parent
+ *   * all nodes <  NODE_CONFIG are their own parents (including ENABLE_NODE)
  *
  * Default exit_to:
  *
  *   * all nodes >  NODE_CONFIG exit_to their parent
- *   *     node  == NODE_CONFIG exit_to ENABLE_NODE (same as end_to !)
+ *   *     node  == NODE_CONFIG exit_to ENABLE_NODE (its parent)
  *   * all nodes <  NODE_CONFIG exit_to close
  *
  * Default end_to:
@@ -488,8 +497,10 @@ install_node (struct cmd_node *node,
 
   if (node->parent == NULL_NODE)
     {
-      if (node->node >= CONFIG_NODE)
+      if      (node->node >  CONFIG_NODE)
         node->parent = CONFIG_NODE ;
+      else if (node->node == CONFIG_NODE)
+        node->parent = ENABLE_NODE ;
       else
         node->parent = node->node ;
     } ;
@@ -504,10 +515,8 @@ install_node (struct cmd_node *node,
 
   if (node->exit_to == NULL_NODE)
     {
-      if      (node->node > CONFIG_NODE)
+      if (node->node >= CONFIG_NODE)
         node->exit_to = node->parent ;
-      else if (node->node == CONFIG_NODE)
-        node->exit_to = ENABLE_NODE ;
       else
         node->exit_to = NULL_NODE ;
     } ;
@@ -553,15 +562,13 @@ cmd_node_exit_to(node_type_t node)
 } ;
 
 /*------------------------------------------------------------------------------
- * Return parent node
+ * Return end_to node
  */
 extern node_type_t
 cmd_node_end_to(node_type_t node)
 {
   return (cmd_cmd_node(node))->end_to ;
 } ;
-
-
 
 /*------------------------------------------------------------------------------
  * Sorting of all node cmd_vectors.
@@ -582,15 +589,15 @@ sort_node ()
 
   for (i = 0; i < vector_length(node_vector); i++)
     {
-      struct cmd_node *cnode;
+      struct cmd_node *cn;
       vector cmd_vector ;
 
-      cnode = vector_get_item(node_vector, i) ;
+      cn = vector_get_item(node_vector, i) ;
 
-      if (cnode == NULL)
+      if (cn == NULL)
         continue ;
 
-      cmd_vector = cnode->cmd_vector;
+      cmd_vector = cn->cmd_vector;
       if (cmd_vector == NULL)
         continue ;
 
@@ -609,7 +616,7 @@ extern vector
 cmd_make_strvec (const char *string)
 {
 #if 0
-  return cmd_tokenise(NULL, string) ;
+  return cmd_tokenize(NULL, string) ;
 #error sort this one out
 #endif
   return NULL ;
@@ -654,22 +661,22 @@ cmd_free_strvec (vector items)
 extern const char *
 cmd_prompt(node_type_t node)
 {
-  struct cmd_node *cnode;
+  struct cmd_node *cn ;
 
   assert(node_vector != NULL) ;
   assert(node_vector->p_items != NULL) ;
 
-  cnode = NULL ;
+  cn = NULL ;
   if (node < node_vector->limit)
-    cnode = vector_get_item (node_vector, node);
+    cn = vector_get_item (node_vector, node);
 
-  if (cnode == NULL)
+  if (cn == NULL)
     {
       zlog_err("Could not find prompt for node %d for", node) ;
       return NULL ;
     } ;
 
-  return cnode->prompt;
+  return cn->prompt;
 }
 
 /*------------------------------------------------------------------------------
@@ -679,18 +686,18 @@ cmd_prompt(node_type_t node)
 extern void
 install_element(node_type_t ntype, cmd_command cmd)
 {
-  cmd_node cnode;
+  cmd_node cn ;
 
-  cnode = vector_get_item (node_vector, ntype);
+  cn = vector_get_item (node_vector, ntype);
 
-  if (cnode == NULL)
+  if (cn == NULL)
     {
       fprintf (stderr, "Command node %d doesn't exist, please check it\n",
 	       ntype);
       exit (1);
     }
 
-  vector_set (cnode->cmd_vector, cmd);
+  vector_set (cn->cmd_vector, cmd);
 
   /* A cmd_command may appear in a number of cmd_vectors, but the cmd->items
    * etc. need only be set up once.
@@ -736,350 +743,454 @@ zencrypt (const char *passwd)
 
 /* This function write configuration of this host. */
 static int
-config_write_host (struct vty *vty)
+config_write_host (vty vty)
 {
+  vty_io vio ;
+
   VTY_LOCK() ;
 
+  vio = vty->vio ;
+
   if (qpthreads_enabled)
-    vty_out (vty, "threaded%s", VTY_NEWLINE);
+    uty_out (vio, "threaded\n");
 
   if (host.name_set)
-    vty_out (vty, "hostname %s%s", host.name, VTY_NEWLINE);
+    uty_out (vio, "hostname %s\n", host.name);
 
   if (host.password != NULL)
     {
       if (host.password_encrypted)
-        vty_out (vty, "password 8 %s\n", host.password);
+        uty_out (vio, "password 8 %s\n", host.password);
       else
-        vty_out (vty, "password %s\n", host.password);
+        uty_out (vio, "password %s\n", host.password);
     } ;
 
   if (host.enable != NULL)
     {
       if (host.enable_encrypted)
-        vty_out (vty, "enable password 8 %s\n", host.enable);
+        uty_out (vio, "enable password 8 %s\n", host.enable);
       else
-        vty_out (vty, "enable password %s\n", host.enable);
+        uty_out (vio, "enable password %s\n", host.enable);
     } ;
 
   if (zlog_get_default_lvl(NULL) != LOG_DEBUG)
     {
-      vty_out (vty, "! N.B. The 'log trap' command is deprecated.%s",
-	       VTY_NEWLINE);
-      vty_out (vty, "log trap %s%s",
-	       zlog_priority[zlog_get_default_lvl(NULL)], VTY_NEWLINE);
+      uty_out (vio, "! N.B. The 'log trap' command is deprecated.\n");
+      uty_out (vio, "log trap %s\n", zlog_priority[zlog_get_default_lvl(NULL)]);
     }
 
   if (host.logfile && (zlog_get_maxlvl(NULL, ZLOG_DEST_FILE) != ZLOG_DISABLED))
     {
-      vty_out (vty, "log file %s", host.logfile);
+      uty_out (vio, "log file %s", qpath_string(host.logfile));
       if (zlog_get_maxlvl(NULL, ZLOG_DEST_FILE) != zlog_get_default_lvl(NULL))
-	vty_out (vty, " %s",
+	uty_out (vio, " %s",
 		 zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_FILE)]);
-      vty_out (vty, "%s", VTY_NEWLINE);
+      uty_out (vio, "\n");
     }
 
   if (zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT) != ZLOG_DISABLED)
     {
-      vty_out (vty, "log stdout");
+      uty_out (vio, "log stdout");
       if (zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT) != zlog_get_default_lvl(NULL))
-	vty_out (vty, " %s",
+	uty_out (vio, " %s",
 		 zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT)]);
-      vty_out (vty, "%s", VTY_NEWLINE);
+      uty_out (vio, "\n");
     }
 
   if (zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR) == ZLOG_DISABLED)
-    vty_out(vty,"no log monitor%s",VTY_NEWLINE);
+    uty_out(vio,"no log monitor%s",VTY_NEWLINE);
   else if (zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR) != zlog_get_default_lvl(NULL))
-    vty_out(vty,"log monitor %s%s",
-	    zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR)],VTY_NEWLINE);
+    uty_out(vio,"log monitor %s\n",
+	    zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR)]);
 
   if (zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG) != ZLOG_DISABLED)
     {
-      vty_out (vty, "log syslog");
+      uty_out (vio, "log syslog");
       if (zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG) != zlog_get_default_lvl(NULL))
-	vty_out (vty, " %s",
+	uty_out (vio, " %s",
 		 zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG)]);
-      vty_out (vty, "%s", VTY_NEWLINE);
+      uty_out (vio, "\n");
     }
 
   if (zlog_get_facility(NULL) != LOG_DAEMON)
-    vty_out (vty, "log facility %s%s",
-	     facility_name(zlog_get_facility(NULL)), VTY_NEWLINE);
+    uty_out (vio, "log facility %s\n", facility_name(zlog_get_facility(NULL)));
 
   if (zlog_get_record_priority(NULL) == 1)
-    vty_out (vty, "log record-priority%s", VTY_NEWLINE);
+    uty_out (vio, "log record-priority\n");
 
   if (zlog_get_timestamp_precision(NULL) > 0)
-    vty_out (vty, "log timestamp precision %d%s",
-        zlog_get_timestamp_precision(NULL), VTY_NEWLINE);
+    uty_out (vio, "log timestamp precision %d\n",
+                                            zlog_get_timestamp_precision(NULL));
 
   if (host.advanced)
-    vty_out (vty, "service advanced-vty%s", VTY_NEWLINE);
+    uty_out (vio, "service advanced-vty\n");
 
   if (host.encrypt)
-    vty_out (vty, "service password-encryption%s", VTY_NEWLINE);
+    uty_out (vio, "service password-encryption\n");
 
   if (host.lines >= 0)
-    vty_out (vty, "service terminal-length %d%s", host.lines,
-	     VTY_NEWLINE);
+    uty_out (vio, "service terminal-length %d\n", host.lines);
 
   if      (host.motdfile)
-    vty_out (vty, "banner motd file %s%s", host.motdfile, VTY_NEWLINE);
+    uty_out (vio, "banner motd file %s\n", qpath_string(host.motdfile));
   else if (! host.motd)
-    vty_out (vty, "no banner motd%s", VTY_NEWLINE);
+    uty_out (vio, "no banner motd\n");
 
   VTY_UNLOCK() ;
 
   return 1;
 }
 
-/*============================================================================*/
+/*==============================================================================
+ * Commands and other stuff related to:
+ *
+ *   * end (and ^Z)   -- go to ENABLE_NODE (aka Privileged Exec) if above that,
+ *                       otherwise do nothing.
+ *
+ *                       This is installed in all nodes.
+ *
+ *   * exit           -- go to parent node, if in CONFIG_NODE or any of its
+ *                       sub-nodes.
+ *
+ *                       Parent of CONFIG_NODE is ENABLE_NODE.
+ *
+ *                       For all other nodes, this is EOF (which for the
+ *                       terminal is "close").
+ *
+ *                       This is installed in all nodes.
+ *
+ *   * enable         -- go to ENABLE_NODE, if can.
+ *
+ *                       This is installed in VIEW_NODE and RESTRICTED_NODE.
+ *
+ *                       It is also installed in ENABLE_NODE (and hence is
+ *                       available anywhere), where it is a synonym for 'end' !
+ *
+ *                       For configuration reading (VTY_CONFIG_READ) and for
+ *                       VTY_SHELL_SERVER, no password is required.
+ *
+ *                       For VTY_TERMINAL, must already have authenticated
+ *                       once, or must be able to enter AUTH_ENABLE_NODE.
+ *
+ *   * disable        -- go to VIEW_NODE (aka User Exec).
+ *
+ *                       This is installed in ENABLE_NODE *only*.
+ *
+ *                       Note, however, that all ENABLE_NODE commands are
+ *                       available at ENABLE_NODE and above !
+ */
 
-/*----------------------------------------------------------------------------*/
-
-/* Configration from terminal */
-DEFUN_CALL (config_terminal,
-       config_terminal_cmd,
-       "configure terminal",
-       "Configuration from vty interface\n"
-       "Configuration terminal\n")
+/*------------------------------------------------------------------------------
+ * Enter CONFIG_NODE, possibly via password check.
+ *
+ * If the parser established that can enter CONFIG_NODE directly, that's what
+ * happens.
+ *
+ * If the parser established that must authenticate, then may fail here if
+ * we are not in the right state to run the authentication.
+ *
+ * The authentication itself may fail...
+ *
+ * NB: installed in VIEW_NODE, RESTRICTED_NODE and ENABLE_NODE.
+ */
+DEFUN_ATTR (config_terminal,
+            config_terminal_cmd,
+            "configure terminal",
+            "Configuration from vty interface\n"
+            "Configuration terminal\n",
+            CMD_ATTR_DIRECT + cmd_sp_configure)
 {
-  if (vty_config_lock (vty, CONFIG_NODE))
-    return CMD_SUCCESS;
+  if (vty->exec->parsed->nnode == CONFIG_NODE)
+    return vty_cmd_config_lock(vty) ; ;
 
-  vty_out (vty, "VTY configuration is locked by other VTY%s", VTY_NEWLINE);
-  return CMD_WARNING;
+  /* Otherwise, must authenticate to enter CONFIG_NODE.                 */
+  return vty_cmd_can_auth_enable(vty) ;
+} ;
+
+ALIAS_ATTR (config_terminal,
+            config_enable_configure_cmd,
+            "enable configure",
+            "Turn on privileged mode command\n"
+            "Configuration terminal\n",
+            CMD_ATTR_DIRECT + cmd_sp_configure)
+
+/*------------------------------------------------------------------------------
+ * Enter ENABLE_NODE, possibly via password check.
+ *
+ * If the parser established that can enter ENABLE_NODE directly, that's what
+ * happens.
+ *
+ * If the parser established that must authenticate, then may fail here if
+ * we are not in the right state to run the authentication.
+ *
+ * The authentication itself may fail...
+ *
+ * NB: installed in VIEW_NODE, RESTRICTED_NODE and ENABLE_NODE.
+ */
+DEFUN_ATTR (enable,
+            config_enable_cmd,
+            "enable",
+            "Turn on privileged mode command\n",
+            CMD_ATTR_DIRECT + cmd_sp_enable)
+{
+  if (vty->exec->parsed->nnode == ENABLE_NODE)
+    return CMD_SUCCESS ;
+
+  /* Otherwise, must authenticate to enter ENABLE_NODE.                 */
+  return vty_cmd_can_auth_enable(vty) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * disable command: end enabled state -> VIEW_NODE.
+ *
+ * NB: although only installed in ENABLE_NODE, it will be implicitly available
+ *     in all higher nodes -- as a quick way of crashing out to VIEW_NODE !
+ */
+DEFUN_ATTR(disable,
+           config_disable_cmd,
+           "disable",
+           "Turn off privileged mode command\n",
+           CMD_ATTR_DIRECT + CMD_ATTR_NODE + VIEW_NODE)
+{
+  return CMD_SUCCESS ;  /* will disable to parsed->nnode        */
 }
 
-/* Enable command */
-DEFUN_CALL (enable,
-       config_enable_cmd,
-       "enable",
-       "Turn on privileged mode command\n")
+/*------------------------------------------------------------------------------
+ * exit command: down one node level, including exit command processor.
+ */
+DEFUN_ATTR(config_exit,
+           config_exit_cmd,
+           "exit",
+           "Exit current mode and down to previous mode\n",
+           CMD_ATTR_DIRECT + cmd_sp_exit)
 {
-  /* If enable password is NULL, change to ENABLE_NODE */
-  if ((host.enable == NULL) || (vty->type == VTY_SHELL_SERVER))
-    vty->node = ENABLE_NODE ;
-  else
-    vty->node = AUTH_ENABLE_NODE ;
-
-  return CMD_SUCCESS;
+  return CMD_SUCCESS ;  /* will exit to parsed->nnode   */
 }
 
-/* Disable command */
-DEFUN_CALL (disable,
-       config_disable_cmd,
-       "disable",
-       "Turn off privileged mode command\n")
+/* quit is alias of exit.                                               */
+ALIAS_ATTR (config_exit,
+            config_quit_cmd,
+            "quit",
+            "Exit current mode and down to previous mode\n",
+            CMD_ATTR_DIRECT + cmd_sp_exit) ;
+
+/*------------------------------------------------------------------------------
+ * end command: down to enable mode.
+ */
+DEFUN_ATTR (config_end,
+            config_end_cmd,
+            "end",
+            "End current mode and change to enable mode\n",
+            CMD_ATTR_DIRECT + cmd_sp_end)
 {
-  if (vty->node == ENABLE_NODE)
-    vty->node = VIEW_NODE;
-  return CMD_SUCCESS;
+  return CMD_SUCCESS ;  /* will end to parsed->nnode    */
 }
 
-/* Down vty node level. */
-DEFUN_CALL (config_exit,
-       config_exit_cmd,
-       "exit",
-       "Exit current mode and down to previous mode\n")
-{
-  return cmd_exit(vty) ;
-}
-
-/* quit is alias of exit. */
-ALIAS_CALL (config_exit,
-       config_quit_cmd,
-       "quit",
-       "Exit current mode and down to previous mode\n")
-
-/* End of configuration. */
-DEFUN_CALL (config_end,
-       config_end_cmd,
-       "end",
-       "End current mode and change to enable mode\n")
-{
-  return cmd_end(vty) ;
-}
-
-/* Show version. */
+/* Show version.                                                        */
 DEFUN_CALL (show_version,
-       show_version_cmd,
-       "show version",
-       SHOW_STR
-       "Displays zebra version\n")
+            show_version_cmd,
+            "show version",
+            SHOW_STR
+            "Displays zebra version\n")
 {
-  vty_out (vty, "Quagga %s (%s).%s", QUAGGA_VERSION, host.name?host.name:"",
-	   VTY_NEWLINE);
-  vty_out (vty, "%s%s", QUAGGA_COPYRIGHT, VTY_NEWLINE);
+  VTY_LOCK() ;
+
+  uty_out (vty->vio, "Quagga %s (%s).\n", QUAGGA_VERSION,
+                                        (host.name != NULL) ? host.name : "") ;
+  uty_out (vty->vio, "%s\n", QUAGGA_COPYRIGHT);
+
+  VTY_UNLOCK() ;
 
   return CMD_SUCCESS;
 }
 
-/* Help display function for all node. */
+/* Help display function for all node.                                  */
 DEFUN_CALL (config_help,
        config_help_cmd,
        "help",
        "Description of the interactive help system\n")
 {
   vty_out (vty,
-	   "Quagga VTY provides advanced help feature.  When you need help,%s\
-anytime at the command line please press '?'.%s\
-%s\
-If nothing matches, the help list will be empty and you must backup%s\
- until entering a '?' shows the available options.%s\
-Two styles of help are provided:%s\
-1. Full help is available when you are ready to enter a%s\
-command argument (e.g. 'show ?') and describes each possible%s\
-argument.%s\
-2. Partial help is provided when an abbreviated argument is entered%s\
-   and you want to know what arguments match the input%s\
-   (e.g. 'show me?'.)%s%s", VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE,
-	   VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE,
-	   VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
+      "Quagga VTY provides advanced help feature.  When you need help,\n"
+      "anytime at the command line please press '?'.\n"
+      "\n"
+      "If nothing matches, the help list will be empty and you must backup\n"
+      "until entering a '?' shows the available options.\n"
+      "Two styles of help are provided:\n"
+      "  1. Full help is available when you are ready to enter a\n"
+      "     command argument (e.g. 'show ?') and describes each possible\n"
+      "     argument.\n"
+      "  2. Partial help is provided when an abbreviated argument is entered\n"
+      "     and you want to know what arguments match the input\n"
+      "     (e.g. 'show me?'.)\n"
+      "\n") ;
   return CMD_SUCCESS;
 }
 
-/* Help display function for all node. */
+/* Help display function for all node.                                  */
 DEFUN_CALL (config_list,
-       config_list_cmd,
-       "list",
-       "Print command list\n")
+            config_list_cmd,
+            "list",
+            "Print command list\n")
 {
   unsigned int i;
-  struct cmd_node *cnode = vector_get_item (node_vector, vty->node);
+  struct cmd_node *cn ;
   struct cmd_command *cmd;
 
-  for (i = 0; i < vector_length (cnode->cmd_vector); i++)
-    if ((cmd = vector_get_item (cnode->cmd_vector, i)) != NULL
-        && !(cmd->attr & (CMD_ATTR_DEPRECATED | CMD_ATTR_HIDDEN)))
-      vty_out (vty, "  %s%s", cmd->string,
-	       VTY_NEWLINE);
+  cn = vector_get_item (node_vector, vty->node);
+
+  for (i = 0; i < vector_length (cn->cmd_vector); i++)
+    if ( ((cmd = vector_get_item (cn->cmd_vector, i)) != NULL)
+            && ((cmd->attr & (CMD_ATTR_DEPRECATED | CMD_ATTR_HIDDEN)) == 0) )
+      vty_out (vty, "  %s\n", cmd->string);
+
   return CMD_SUCCESS;
 }
 
-/* Write current configuration into file. */
+/* Write current configuration into file.                               */
 DEFUN (config_write_file,
        config_write_file_cmd,
        "write file",
        "Write running configuration to memory, network, or terminal\n"
        "Write to configuration file\n")
 {
-  unsigned int i;
-  int fd;
-  int err;
-  struct cmd_node *node;
-  char *config_file;
-  char *config_file_tmp = NULL;
-  char *config_file_sav = NULL;
-  int ret = CMD_WARNING;
+  qpath  path ;
+  qpath  temp ;
+  qpath  save ;
+  cmd_return_code_t ret, retw ;
+  unsigned int i ;
+  int fd, err ;
+  struct cmd_node *cn;
+  const char *config_name ;
+  const char *save_name ;
+  char* temp_name ;
 
-  /* Check and see if we are operating under vtysh configuration */
-  if (host.config_file == NULL)
+  err = 0 ;     /* so far, so good      */
+
+  VTY_LOCK() ;
+  path = (host.config_file != NULL) ? qpath_dup(host.config_file) : NULL ;
+  VTY_UNLOCK() ;
+
+  /* Check and see if we are operating under vtysh configuration        */
+  if (path == NULL)
     {
-      vty_out (vty, "Can't save to configuration file, using vtysh.%s",
-	       VTY_NEWLINE);
+      vty_out (vty, "%% Cannot save to configuration file, using vtysh.\n");
       return CMD_WARNING;
     }
 
-  /* Get filename. */
-  config_file = host.config_file;
+  /* Set up the file names.                                             */
+  config_name = qpath_string(path) ;
 
-  config_file_sav =
-    XMALLOC (MTYPE_TMP, strlen (config_file) + strlen (CONF_BACKUP_EXT) + 1);
-  strcpy (config_file_sav, config_file);
-  strcat (config_file_sav, CONF_BACKUP_EXT);
+  save = qpath_dup(path) ;
+  qpath_extend_str(save, CONF_BACKUP_EXT) ;
+  save_name = qpath_string(save) ;
 
+  temp = qpath_dup(path) ;
+  qpath_extend_str(temp, ".XXXXXX") ;
+  temp_name = qpath_char_string(temp) ;
 
-  config_file_tmp = XMALLOC (MTYPE_TMP, strlen (config_file) + 8);
-  sprintf (config_file_tmp, "%s.XXXXXX", config_file);
-
-  /* Open file to configuration write. */
-  fd = mkstemp (config_file_tmp);
+  /* Open file to configuration write.                                  */
+  fd = mkstemp (temp_name);
   if (fd < 0)
     {
-      vty_out (vty, "Can't open configuration file %s.\n", config_file_tmp) ;
+      err = errno ;
+      vty_out (vty, "%% Can't open configuration file %s", temp_name) ;
       goto finished;
     }
 
-  /* Make vty for configuration file. */
+  /* Make vty for configuration file.                                   */
   vty_open_config_write(vty, fd) ;
 
-  /* Config file header print. */
   vty_out (vty, "!\n! Zebra configuration saved from vty\n!   ");
   vty_time_print (vty, 1);
   vty_out (vty, "!\n");
 
+  retw = CMD_SUCCESS ;
+
   for (i = 0; i < vector_length (node_vector); i++)
     {
-      if ((node = vector_get_item (node_vector, i)) && node->config_write)
+      if ((cn = vector_get_item (node_vector, i)) && cn->config_write)
         {
-          if ((*node->config_write) (vty))
+          if ((*cn->config_write) (vty))
             vty_out (vty, "!\n");
 
-          vty_cmd_out_push(vty) ;       /* Push stuff so far            */
-        }
+          retw = vty_cmd_out_push(vty) ; /* Push stuff so far    */
+
+          if (retw != CMD_SUCCESS)
+            break ;
+        } ;
     } ;
 
-  err = vty_close_config_write(vty) ;
+  ret = vty_close_config_write(vty, (retw != CMD_SUCCESS)) ;
 
-  if (err != 0)
+  if ((ret != CMD_SUCCESS) || (retw != CMD_SUCCESS))
     {
-      vty_out (vty, "Failed while writing configuration file %s.%s",
-                                                  config_file_tmp, VTY_NEWLINE);
+      vty_out (vty, "%% Failed while writing configuration file %s.\n",
+                                                                    temp_name) ;
       goto finished;
     }
 
-  if (unlink (config_file_sav) != 0)
+  /* Now move files around to make .sav and the real file               */
+  ret = CMD_WARNING ;
+
+  if (unlink (save_name) != 0)
     if (errno != ENOENT)
       {
-	vty_out (vty, "Can't unlink backup configuration file %s.%s",
-	                                          config_file_sav, VTY_NEWLINE);
+        err = errno ;
+        vty_out (vty, "%% Can't unlink backup configuration file %s",
+                                                                    save_name) ;
         goto finished;
       } ;
 
-  if (link (config_file, config_file_sav) != 0)
+  if (link (config_name, save_name) != 0)
     {
-      vty_out (vty, "Can't backup old configuration file %s.%s",
-                                                  config_file_sav, VTY_NEWLINE);
+      err = errno ;
+      vty_out (vty, "%% Can't backup old configuration file %s", config_name) ;
       goto finished;
     } ;
 
   sync () ;
 
-  if (unlink (config_file) != 0)
+  if (unlink (config_name) != 0)
     {
-      vty_out (vty, "Can't unlink configuration file %s.%s",
-                                                      config_file, VTY_NEWLINE);
+      err = errno ;
+      vty_out (vty, "%% Can't unlink configuration file %s", config_name);
       goto finished;
     } ;
 
-  if (link (config_file_tmp, config_file) != 0)
+  if (link (temp_name, config_name) != 0)
     {
-      vty_out (vty, "Can't save configuration file %s.%s",
-                                                      config_file, VTY_NEWLINE);
+      err = errno ;
+      vty_out (vty, "%% Can't save configuration file %s", config_name);
       goto finished;
     } ;
 
   sync ();
 
-  if (chmod (config_file, CONFIGFILE_MASK) != 0)
+  if (chmod (config_name, CONFIGFILE_MASK) != 0)
     {
-      vty_out (vty, "Can't chmod configuration file %s: %s (%s).\n",
-	config_file, errtostr(errno, 0).str, errtoname(errno, 0).str);
+      err = errno ;
+      vty_out (vty, "%% Can't chmod configuration file %s", config_name) ;
       goto finished;
     }
 
-  vty_out (vty, "Configuration saved to %s\n", config_file);
+  vty_out (vty, "Configuration saved to %s\n", config_name) ;
 
   ret = CMD_SUCCESS;
 
 finished:
-  unlink (config_file_tmp);
-  XFREE (MTYPE_TMP, config_file_tmp);
-  XFREE (MTYPE_TMP, config_file_sav);
+  if (err != 0)
+    vty_out(vty, ": %s (%s).\n", errtostr(errno, 0).str,
+                                 errtoname(errno, 0).str) ;
+  if (fd >= 0)
+    unlink (temp_name);
+
+  qpath_free(temp) ;
+  qpath_free(save) ;
+  qpath_free(path) ;
+
   return ret;
-}
+} ;
 
 ALIAS (config_write_file,
        config_write_cmd,
@@ -1099,7 +1210,7 @@ ALIAS (config_write_file,
        "Copy running config to... \n"
        "Copy running config to startup config (same as write file)\n")
 
-/* Write current configuration into the terminal. */
+/* Write current configuration into the terminal.                       */
 DEFUN (config_write_terminal,
        config_write_terminal_cmd,
        "write terminal",
@@ -1138,48 +1249,40 @@ DEFUN (config_write_terminal,
   return CMD_SUCCESS;
 }
 
-/* Write current configuration into the terminal. */
+/* Write current configuration into the terminal.                       */
 ALIAS (config_write_terminal,
        show_running_config_cmd,
        "show running-config",
        SHOW_STR
        "running configuration\n")
 
-/* Write startup configuration into the terminal. */
+/* Write startup configuration into the terminal.                       */
 DEFUN (show_startup_config,
        show_startup_config_cmd,
        "show startup-config",
        SHOW_STR
-       "Contentes of startup configuration\n")
+       "Contents of startup configuration\n")
 {
-  char buf[BUFSIZ];
-  FILE *confp;
+  cmd_return_code_t ret ;
+  qpath  path ;
 
-  confp = fopen (host.config_file, "r");
-  if (confp == NULL)
+  VTY_LOCK() ;
+  path = (host.config_file != NULL) ? qpath_dup(host.config_file) : NULL ;
+  VTY_UNLOCK() ;
+
+  if (path == NULL)
     {
-      vty_out (vty, "Can't open configuration file [%s]%s",
-	       host.config_file, VTY_NEWLINE);
+      vty_out (vty, "%% Cannot show configuration file, using vtysh.\n");
       return CMD_WARNING;
-    }
+    } ;
 
-  while (fgets (buf, BUFSIZ, confp))
-    {
-      char *cp = buf;
+  ret = vty_cat_file(vty, path, "configuration file") ;
+  qpath_free(path) ;
 
-      while (*cp != '\r' && *cp != '\n' && *cp != '\0')
-	cp++;
-      *cp = '\0';
-
-      vty_out (vty, "%s%s", buf, VTY_NEWLINE);
-    }
-
-  fclose (confp);
-
-  return CMD_SUCCESS;
+  return ret ;
 }
 
-/* Hostname configuration */
+/* Hostname configuration                                               */
 DEFUN_CALL (config_hostname,
        hostname_cmd,
        "hostname WORD",
@@ -1453,6 +1556,10 @@ DEFUN_HID_CALL (do_echo,
   return CMD_SUCCESS;
 }
 
+/*==============================================================================
+ * Logging configuration.
+ */
+
 DEFUN_CALL (config_logmsg,
        config_logmsg_cmd,
        "logmsg "LOG_LEVELS" .MESSAGE",
@@ -1601,54 +1708,34 @@ DEFUN_CALL (no_config_log_monitor,
   return CMD_SUCCESS;
 }
 
+/*------------------------------------------------------------------------------
+ * Set new logging file and level -- "log file FILENAME [LEVEL]"
+ *
+ * Note that even if fail to open the new log file, will set host.logfile.
+ *
+ * Failure here is an error.
+ */
 static int
 set_log_file(struct vty *vty, const char *fname, int loglevel)
 {
-  int ret;
-  char *p = NULL;
-  const char *fullpath;
+  int    err ;
 
-  /* Path detection. */
-  if (! IS_DIRECTORY_SEP (*fname))
-    {
-      char cwd[MAXPATHLEN+1];
-      cwd[MAXPATHLEN] = '\0';
+  VTY_LOCK() ;
 
-      if (getcwd (cwd, MAXPATHLEN) == NULL)
-        {
-          zlog_err ("config_log_file: Unable to alloc mem!");
-          return CMD_WARNING;
-        }
+  host.logfile = uty_cmd_path_name_complete(host.logfile, fname,
+                                                           vty->exec->context) ;
+  err  = zlog_set_file (NULL, qpath_string(host.logfile), loglevel) ;
 
-      if ( (p = XMALLOC (MTYPE_TMP, strlen (cwd) + strlen (fname) + 2))
-          == NULL)
-        {
-          zlog_err ("config_log_file: Unable to alloc mem!");
-          return CMD_WARNING;
-        }
-      sprintf (p, "%s/%s", cwd, fname);
-      fullpath = p;
-    }
-  else
-    fullpath = fname;
+  VTY_UNLOCK() ;
 
-  ret = zlog_set_file (NULL, fullpath, loglevel);
+  if (err == 0)
+    return CMD_SUCCESS ;
 
-  if (p)
-    XFREE (MTYPE_TMP, p);
-
-  if (!ret)
-    {
-      vty_out (vty, "can't open logfile %s\n", fname);
-      return CMD_WARNING;
-    }
-
-  if (host.logfile)
-    XFREE (MTYPE_HOST, host.logfile);
-
-  host.logfile = XSTRDUP (MTYPE_HOST, fname);
-
-  return CMD_SUCCESS;
+  vty_out(vty, "%% failed to open log file %s: %s (%s)\n",
+                                                  qpath_string(host.logfile),
+                                                        errtostr(err, 0).str,
+                                                        errtoname(err, 0).str) ;
+  return CMD_WARNING ;
 }
 
 DEFUN_CALL (config_log_file,
@@ -1663,7 +1750,7 @@ DEFUN_CALL (config_log_file,
 
 DEFUN_CALL (config_log_file_level,
        config_log_file_level_cmd,
-       "log file FILENAME "LOG_LEVELS,
+       "log file FILENAME " LOG_LEVELS,
        "Logging control\n"
        "Logging to file\n"
        "Logging filename\n"
@@ -1673,6 +1760,7 @@ DEFUN_CALL (config_log_file_level,
 
   if ((level = level_match(argv[1])) == ZLOG_DISABLED)
     return CMD_ERR_NO_MATCH;
+
   return set_log_file(vty, argv[0], level);
 }
 
@@ -1684,13 +1772,13 @@ DEFUN_CALL (no_config_log_file,
        "Cancel logging to file\n"
        "Logging file name\n")
 {
+  VTY_LOCK() ;
+
   zlog_reset_file (NULL);
 
-  if (host.logfile)
-    XFREE (MTYPE_HOST, host.logfile);
+  host.logfile = qpath_free(host.logfile) ;
 
-  host.logfile = NULL;
-
+  VTY_UNLOCK() ;
   return CMD_SUCCESS;
 }
 
@@ -1878,21 +1966,43 @@ DEFUN_CALL (no_config_log_timestamp_precision,
   return CMD_SUCCESS;
 }
 
+/*==============================================================================
+ * MOTD commands and set up.
+ *
+ * Note that can set a MOTD file that does not exist at the time.  A friendly
+ * message warns about this, but it is not an error.  The message will not be
+ * seen while reading the configuration file -- but it is not worth stopping
+ * the configuration file reader for this !
+ */
 DEFUN_CALL (banner_motd_file,
        banner_motd_file_cmd,
-       "banner motd file [FILE]",
+       "banner motd file FILE",
        "Set banner\n"
        "Banner for motd\n"
        "Banner from a file\n"
        "Filename\n")
 {
-  if (host.motdfile)
-    XFREE (MTYPE_HOST, host.motdfile);
+  int    err ;
 
-  host.motdfile = XSTRDUP (MTYPE_HOST, argv[0]);
+  VTY_LOCK() ;
 
-  return CMD_SUCCESS;
-}
+  host.motdfile = uty_cmd_path_name_complete(host.motdfile,
+                                                  argv[0], vty->exec->context) ;
+  err  = qpath_stat_is_file(host.motdfile) ;
+
+  if (err != 0)
+    {
+      vty_out(vty, "NB: '%s': ", qpath_string(host.motdfile)) ;
+      if (err < 0)
+        vty_out(vty, "is not a file\n") ;
+      else
+        vty_out(vty, "%s (%s)\n", errtostr(err, 0).str,
+                                  errtoname(err, 0).str) ;
+    } ;
+
+  VTY_UNLOCK() ;
+  return CMD_SUCCESS ;
+} ;
 
 DEFUN_CALL (banner_motd_default,
        banner_motd_default_cmd,
@@ -1901,7 +2011,11 @@ DEFUN_CALL (banner_motd_default,
        "Strings for motd\n"
        "Default string\n")
 {
-  host.motd = DEFAULT_MOTD ;
+  VTY_LOCK() ;
+
+  host.motd = default_motd ;
+
+  VTY_UNLOCK() ;
   return CMD_SUCCESS;
 }
 
@@ -1912,23 +2026,114 @@ DEFUN_CALL (no_banner_motd,
        "Set banner string\n"
        "Strings for motd\n")
 {
-  host.motd = NULL;
-  if (host.motdfile)
-    XFREE (MTYPE_HOST, host.motdfile);
-  host.motdfile = NULL;
+  VTY_LOCK() ;
+
+  host.motd     = NULL ;
+  host.motdfile = qpath_free(host.motdfile) ;
+
+  VTY_UNLOCK() ;
   return CMD_SUCCESS;
 }
 
-/* Set config filename.  Called from vty.c */
-extern void
-host_config_set (const char* file_name)
+/*==============================================================================
+ * Current directory handling
+ */
+DEFUN_CALL (do_chdir,
+       chdir_cmd,
+       "chdir DIR",
+       "Set current directory\n"
+       "Directory to set\n")
 {
-  if (host.config_file)
-    XFREE (MTYPE_HOST, host.config_file);
-  host.config_file = XSTRDUP (MTYPE_HOST, file_name);
+  cmd_return_code_t ret ;
+  qpath  path ;
+  int    err ;
+
+  ret = CMD_SUCCESS ;
+
+  path = uty_cmd_path_name_complete(NULL, argv[0], vty->exec->context) ;
+  err  = qpath_stat_is_directory(path) ;
+
+  if (err == 0)
+    qpath_copy(vty->exec->context->dir_cd, path) ;
+  else
+    {
+      vty_out(vty, "%% chdir %s: ", qpath_string(path)) ;
+      if (err < 0)
+        vty_out(vty, "is not a directory\n") ;
+      else
+        vty_out(vty, "%s (%s)\n", errtostr(err, 0).str,
+                                  errtoname(err, 0).str) ;
+      ret = CMD_WARNING ;
+    } ;
+
+  qpath_free(path) ;
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get cwd.
+ *
+ * This is done very early in the morning, before lowering privileges, to
+ * minimise chance of not being able to get the cwd.  If cwd itself is not
+ * accessible in lowered privilege state, that will later become clear.
+ *
+ * Sets host.cwd, which is torn down in cmd_terminate().
+ *
+ */
+extern void
+cmd_getcwd(void)
+{
+  host.cwd = qpath_getcwd(NULL) ;
+
+  if (host.cwd == NULL)
+    {
+      fprintf(stderr, "Cannot getcwd()\n") ;
+      exit(1) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set host.config_file and host.config_dir.
+ */
+extern void
+cmd_host_config_set (qpath config_file)
+{
+  VTY_LOCK() ;
+
+  host.config_file = qpath_copy(host.config_file, config_file) ;
+  host.config_dir  = qpath_copy(host.config_dir,  config_file) ;
+
+  qpath_shave(host.config_dir) ;
+
+  VTY_UNLOCK() ;
 }
 
-void
+/*------------------------------------------------------------------------------
+ * Set the lexical level for further command processing.
+ */
+DEFUN_CALL (lexical_level,
+       lexical_level_cmd,
+       "lexical-level <0-1>",
+       "Set lexical level\n"
+       "The required lexical level\n")
+{
+  int level ;
+
+  level = strtol(argv[0], NULL, 0) ;
+
+  vty_cmd_set_full_lex(vty, (level != 0)) ;
+
+  return CMD_SUCCESS;
+}
+
+/*==============================================================================
+ * Command handling initialisation and termination.
+ */
+
+/*------------------------------------------------------------------------------
+ * Install copy of the default commands in the given node.
+ */
+extern void
 install_default (enum node_type node)
 {
   install_element (node, &config_exit_cmd);
@@ -1944,12 +2149,27 @@ install_default (enum node_type node)
   install_element (node, &show_running_config_cmd);
 }
 
-/* Initialize command interface. Install basic nodes and commands. */
-void
-cmd_init (int terminal)
+/*------------------------------------------------------------------------------
+ * Initialise command handling.
+ *
+ * Install basic nodes and commands.  Initialise the host structure.
+ *
+ * Sets srand(time(NULL))
+ */
+extern void
+cmd_init (bool terminal)
 {
+  srand(time(NULL)) ;
+
+  if (host.cwd == NULL)         /* in case cmd_cwd() not called, yet    */
+    cmd_getcwd() ;
+
   /* Allocate initial top vector of commands.                           */
   node_vector = vector_init(0);
+
+  /* Set default motd                                                   */
+  host.motd         = default_motd ;
+  host.config_brand = rand() ;
 
   /* Default host value settings are already set, see above             */
 
@@ -1972,30 +2192,41 @@ cmd_init (int terminal)
       install_element (VIEW_NODE, &config_quit_cmd);
       install_element (VIEW_NODE, &config_help_cmd);
       install_element (VIEW_NODE, &config_enable_cmd);
+      install_element (VIEW_NODE, &config_enable_configure_cmd);
+      install_element (VIEW_NODE, &config_terminal_cmd);
       install_element (VIEW_NODE, &config_terminal_length_cmd);
       install_element (VIEW_NODE, &config_terminal_no_length_cmd);
       install_element (VIEW_NODE, &show_logging_cmd);
       install_element (VIEW_NODE, &echo_cmd);
+      install_element (VIEW_NODE, &chdir_cmd);
 
       install_element (RESTRICTED_NODE, &config_list_cmd);
       install_element (RESTRICTED_NODE, &config_exit_cmd);
       install_element (RESTRICTED_NODE, &config_quit_cmd);
       install_element (RESTRICTED_NODE, &config_help_cmd);
       install_element (RESTRICTED_NODE, &config_enable_cmd);
+      install_element (RESTRICTED_NODE, &config_enable_configure_cmd);
+      install_element (RESTRICTED_NODE, &config_terminal_cmd);
       install_element (RESTRICTED_NODE, &config_terminal_length_cmd);
       install_element (RESTRICTED_NODE, &config_terminal_no_length_cmd);
       install_element (RESTRICTED_NODE, &echo_cmd);
+      install_element (RESTRICTED_NODE, &chdir_cmd);
     }
 
   if (terminal)
     {
       install_default (ENABLE_NODE);
       install_element (ENABLE_NODE, &config_disable_cmd);
+      install_element (ENABLE_NODE, &config_enable_cmd);
+      install_element (ENABLE_NODE, &config_enable_configure_cmd);
       install_element (ENABLE_NODE, &config_terminal_cmd);
       install_element (ENABLE_NODE, &copy_runningconfig_startupconfig_cmd);
     }
+
   install_element (ENABLE_NODE, &show_startup_config_cmd);
   install_element (ENABLE_NODE, &show_version_cmd);
+  install_element (ENABLE_NODE, &lexical_level_cmd);
+  install_element (ENABLE_NODE, &chdir_cmd);
 
   if (terminal)
     {
@@ -2010,9 +2241,12 @@ cmd_init (int terminal)
 
   install_element (CONFIG_NODE, &hostname_cmd);
   install_element (CONFIG_NODE, &no_hostname_cmd);
+  install_element (CONFIG_NODE, &lexical_level_cmd);
 
   if (terminal)
     {
+      install_element (CONFIG_NODE, &echo_cmd);
+
       install_element (CONFIG_NODE, &password_cmd);
       install_element (CONFIG_NODE, &password_text_cmd);
       install_element (CONFIG_NODE, &enable_password_cmd);
@@ -2050,27 +2284,38 @@ cmd_init (int terminal)
       install_element (CONFIG_NODE, &service_terminal_length_cmd);
       install_element (CONFIG_NODE, &no_service_terminal_length_cmd);
 
+      install_element (RESTRICTED_NODE, &show_thread_cpu_cmd);
       install_element (VIEW_NODE, &show_thread_cpu_cmd);
       install_element (ENABLE_NODE, &show_thread_cpu_cmd);
-      install_element (RESTRICTED_NODE, &show_thread_cpu_cmd);
       install_element (VIEW_NODE, &show_work_queues_cmd);
       install_element (ENABLE_NODE, &show_work_queues_cmd);
-    }
-  srand(time(NULL));
-}
+    } ;
+} ;
 
+/*------------------------------------------------------------------------------
+ * Close down command interface.
+ *
+ * Dismantle the node_vector and all commands.
+ *
+ * Clear out the host structure.
+ */
 void
 cmd_terminate ()
 {
   cmd_node     cmd_node;
   cmd_command  cmd ;
 
+  /* Ream out the vector of command nodes.                              */
   while ((cmd_node = vector_ream(node_vector, free_it)) != NULL)
     {
-      while ((cmd = vector_ream(cmd_node->cmd_vector, free_it)) != NULL)
+      /* Ream out the (embedded) vector of commands per node.           */
+      while ((cmd = vector_ream(cmd_node->cmd_vector, keep_it)) != NULL)
         {
-          /* Note that each cmd is a static structure, which may appear in
-           * more than one cmd_vector.
+          /* Ream out the vector of items for each command.
+           *
+           * Note that each cmd is a static structure, which may appear in
+           * more than one cmd_vector -- but the "compiled" portions are
+           * dynamically allocated.
            */
           cmd_item next_item ;
 
@@ -2098,10 +2343,11 @@ cmd_terminate ()
   XFREE(MTYPE_HOST, host.name);
   XFREE(MTYPE_HOST, host.password);
   XFREE(MTYPE_HOST, host.enable);
-  XFREE(MTYPE_HOST, host.logfile);
-  XFREE(MTYPE_HOST, host.motdfile);
-  XFREE(MTYPE_HOST, host.config_file);
+  host.logfile     = qpath_free(host.logfile) ;
+  host.motdfile    = qpath_free(host.motdfile) ;
+  host.config_file = qpath_free(host.config_file) ;
+  host.config_dir  = qpath_free(host.config_dir) ;
   XFREE(MTYPE_HOST, host.vty_accesslist_name);
   XFREE(MTYPE_HOST, host.vty_ipv6_accesslist_name);
-  XFREE(MTYPE_HOST, host.vty_cwd);
+  host.cwd        = qpath_free(host.cwd) ;
 } ;

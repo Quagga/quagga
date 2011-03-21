@@ -36,18 +36,39 @@ static void qpn_in_thread_init(qpn_nexus qpn);
 
  */
 
+/*------------------------------------------------------------------------------
+ * Initialise the qpnexus handling -- to be done as soon as state of
+ * qpthreads_enabled is established.
+ */
+extern void
+qpn_init(void)
+{
+  qpt_data_create(qpn_self) ;   /* thread specific data */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set the thread's qpn_self to point at its qpnexus.
+ */
+static void
+qpn_self_knowledge(qpn_nexus qpn)
+{
+  qpt_data_set_value(qpn_self, qpn) ;
+} ;
+
 /*==============================================================================
  * Initialisation, add hook, free etc.
  *
  */
 
 /*------------------------------------------------------------------------------
- *  Initialise a nexus -- allocating it if required.
+ * Initialise a nexus -- allocating it if required.
  *
- * If main_thread is set then no new thread will be created
- * when qpn_exec() is called, instead the finite state machine will be
- * run in the calling thread.  The main thread will only block the
- * message queue's signal.  Non-main threads will block most signals.
+ * If main_thread is set then no new thread will be created when qpn_exec() is
+ * called, instead the finite state machine will be run in the calling thread.
+ *
+ * The main thread will only block the message queue's signal.
+ *
+ * Non-main threads will block most signals.
  *
  * Returns the qpn_nexus.
  */
@@ -66,10 +87,13 @@ qpn_init_new(qpn_nexus qpn, bool main_thread)
   qpn->start       = qpn_start;
 
   if (main_thread)
-    qpn->thread_id = qpt_thread_self();
+    {
+      qpn->thread_id = qpt_thread_self();
+      qpn_self_knowledge(qpn) ;
+    } ;
 
   return qpn;
-}
+} ;
 
 /*------------------------------------------------------------------------------
  * Add a hook function to the given nexus.
@@ -259,50 +283,38 @@ qpn_start(void* arg)
 static void
 qpn_in_thread_init(qpn_nexus qpn)
 {
-  sigset_t newmask;
+  sigset_t sigmask[1];
 
   qpn->thread_id = qpt_thread_self();
+  qpn_self_knowledge(qpn) ;
 
+  /* Signal mask.
+   *
+   * The main thread blocks nothing, except SIG_INTERRUPT.  So (a) all
+   * signals other than the "hard cases" are routed to the main thread, and
+   * (b) SIG_INTERRUPT is masked until it is unmasked in pselect.
+   *
+   * Other threads block everything except the hard cases and SIG_INTERRUPT.
+   */
   if (qpn->main_thread)
-    {
-      /* Main thread, block the message queue's signal */
-      sigemptyset (&newmask);
-      sigaddset (&newmask, SIGMQUEUE);
-    }
+    sigmakeset(sigmask, SIG_INTERRUPT, -1) ;
   else
-    {
-      /*
-       * Not main thread.  Block most signals, but be careful not to
-       * defer SIGTRAP because doing so breaks gdb, at least on
-       * NetBSD 2.0.  Avoid asking to block SIGKILL, just because
-       * we shouldn't be able to do so.  Avoid blocking SIGFPE,
-       * SIGILL, SIGSEGV, SIGBUS as this is undefined by POSIX.
-       * Don't block SIGPIPE so that is gets ignored on this thread.
-       */
-      sigfillset (&newmask);
-      sigdelset (&newmask, SIGTRAP);
-      sigdelset (&newmask, SIGKILL);
-      sigdelset (&newmask, SIGPIPE);
-      sigdelset (&newmask, SIGFPE);
-      sigdelset (&newmask, SIGILL);
-      sigdelset (&newmask, SIGSEGV);
-      sigdelset (&newmask, SIGBUS);
-    }
+    siginvset(sigmask, signal_get_hard_set()) ;
 
-  if (qpthreads_enabled)
-    qpt_thread_sigmask(SIG_BLOCK, &newmask, NULL);
-  else
-    {
-      if (sigprocmask(SIG_BLOCK, &newmask, NULL) != 0)
-        zabort_errno("sigprocmask failed") ;
-    }
+  qpt_thread_sigmask(SIG_BLOCK, sigmask, NULL);
 
-  /* Now we have thread_id and mask, prep for using message queue. */
+  /* The signal mask to be used during pselect()                        */
+  sigcopyset(qpn->pselect_mask, sigmask) ;
+  sigdelset(qpn->pselect_mask, SIG_INTERRUPT) ;
+  qpn->pselect_signal = SIG_INTERRUPT ;
+
+  /* Now we have thread_id and mask, prep for using message queue.      */
   if (qpn->queue != NULL)
-    qpn->mts = mqueue_thread_signal_init(qpn->mts, qpn->thread_id, SIGMQUEUE);
+    qpn->mts = mqueue_thread_signal_init(qpn->mts, qpn->thread_id,
+                                                                SIG_INTERRUPT) ;
   if (qpn->selection != NULL)
-    qps_set_signal(qpn->selection, SIGMQUEUE, newmask);
-}
+    qps_set_signal(qpn->selection, qpn->pselect_mask);
+} ;
 
 /*------------------------------------------------------------------------------
  * Ask the thread to terminate itself quickly and cleanly.
@@ -318,6 +330,6 @@ qpn_terminate(qpn_nexus qpn)
 
       /* wake up any pselect */
       if (qpthreads_enabled)
-        qpt_thread_signal(qpn->thread_id, SIGMQUEUE);
+        qpt_thread_signal(qpn->thread_id, SIG_INTERRUPT);
     } ;
 }

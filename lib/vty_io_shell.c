@@ -106,7 +106,7 @@ uty_serv_vtysh(const char *path)
   path_len = strlen(path) + 1 ;
   if (path_len >= (int)sizeof(sa_un.sun_path))
     {
-      uzlog(NULL, LOG_ERR, "path too long for unix stream socket: '%s'", path);
+      zlog(NULL, LOG_ERR, "path too long for unix stream socket: '%s'", path);
       return -1 ;
     } ;
 
@@ -117,7 +117,7 @@ uty_serv_vtysh(const char *path)
   sock = socket (AF_UNIX, SOCK_STREAM, 0);
   if (sock < 0)
     {
-      uzlog(NULL, LOG_ERR, "Cannot create unix stream socket: %s",
+      zlog(NULL, LOG_ERR, "Cannot create unix stream socket: %s",
                                                          errtoa(errno, 0).str) ;
       return -1 ;
     }
@@ -137,7 +137,7 @@ uty_serv_vtysh(const char *path)
 
   ret = bind (sock, (struct sockaddr *) &sa_un, sa_len) ;
   if (ret < 0)
-    uzlog(NULL, LOG_ERR, "Cannot bind path %s: %s", path, errtoa(errno, 0).str);
+    zlog(NULL, LOG_ERR, "Cannot bind path %s: %s", path, errtoa(errno, 0).str);
 
   if (ret >= 0)
     ret = set_nonblocking(sock);
@@ -146,7 +146,7 @@ uty_serv_vtysh(const char *path)
     {
       ret = listen (sock, 5);
       if (ret < 0)
-        uzlog(NULL, LOG_ERR, "listen(fd %d) failed: %s", sock,
+        zlog(NULL, LOG_ERR, "listen(fd %d) failed: %s", sock,
                                                          errtoa(errno, 0).str) ;
     } ;
 
@@ -156,7 +156,7 @@ uty_serv_vtysh(const char *path)
     {
       /* set group of socket */
       if ( chown (path, -1, ids.gid_vty) )
-        uzlog (NULL, LOG_ERR, "uty_serv_vtysh: could chown socket, %s",
+        zlog (NULL, LOG_ERR, "uty_serv_vtysh: could chown socket, %s",
                                                          errtoa(errno, 0).str) ;
     }
 
@@ -196,7 +196,7 @@ uty_accept_shell_serv (vty_listener listener)
 
   if (sock_fd < 0)
     {
-      uzlog (NULL, LOG_WARNING, "can't accept vty shell socket : %s",
+      zlog (NULL, LOG_WARNING, "can't accept vty shell socket : %s",
                                                          errtoa(errno, 0).str) ;
       return -1;
     }
@@ -216,7 +216,7 @@ uty_accept_shell_serv (vty_listener listener)
   uty_new_shell_serv(sock_fd) ;
 
   /* Log new VTY                                                        */
-  uzlog (NULL, LOG_INFO, "Vty shell connection (fd %d)", sock_fd);
+  zlog (NULL, LOG_INFO, "Vty shell connection (fd %d)", sock_fd);
   return 0;
 }
 

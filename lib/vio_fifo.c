@@ -957,8 +957,11 @@ vio_fifo_vprintf(vio_fifo vff, const char *format, va_list args)
 /*------------------------------------------------------------------------------
  * Read part of file into FIFO -- assuming non-blocking file
  *
- * Will read up to the end of the lump which meets, or exceeds the number of
- * bytes requested, or until would block.
+ * Will read up to the end of the current lump, then will read as may whole
+ * lumps as are requested -- request of 0 reads up to the end of the current
+ * lump (at least 1 byte).  Will stop if would block.
+ *
+ * Except where blocking intervenes, this reads in units of the lump size.
  *
  * Returns: 0..n -- number of bytes read
  *         -1 => failed -- see errno
@@ -969,7 +972,7 @@ vio_fifo_vprintf(vio_fifo vff, const char *format, va_list args)
  *       something, error or EOF.
  */
 extern int
-vio_fifo_read_nb(vio_fifo vff, int fd, size_t request)
+vio_fifo_read_nb(vio_fifo vff, int fd, uint request)
 {
   size_t total ;
 
@@ -980,7 +983,12 @@ vio_fifo_read_nb(vio_fifo vff, int fd, size_t request)
       int  got ;
 
       if (vff->put_ptr >= vff->put_end)
-        vio_fifo_lump_new(vff, 0) ;     /* traps put_ptr > put_end      */
+        {
+          vio_fifo_lump_new(vff, 0) ;     /* traps put_ptr > put_end      */
+
+          if (request > 0)
+            --request ;
+        } ;
 
       got = read_nb(fd, vff->put_ptr, vff->put_end - vff->put_ptr) ;
 
@@ -995,7 +1003,7 @@ vio_fifo_read_nb(vio_fifo vff, int fd, size_t request)
       vff->put_ptr += got ;
       total        += got ;
 
-    } while (total < request) ;
+    } while (request > 0) ;
 
   return total ;
 } ;
@@ -1023,9 +1031,6 @@ vio_fifo_copy(vio_fifo dst, vio_fifo src)
     {
       vio_fifo_lump src_lump ;
       char*         src_ptr ;
-
-      if (src->get_ptr >= src->get_end)
-        vio_fifo_sync_get(src) ;
 
       src_lump = src->get_lump ;
       src_ptr  = src->get_ptr ;
@@ -1346,7 +1351,7 @@ vio_fifo_step_get(vio_fifo vff, size_t* p_have, size_t step)
  * Write contents of FIFO -- assuming non-blocking file
  *
  * Will write all of FIFO up to end mark or put_ptr, or upto but excluding
- * the last lump.
+ * the end_lump.
  *
  * Returns: > 0 => blocked
  *            0 => all gone (up to last lump if !all)
@@ -1492,9 +1497,10 @@ vio_fifo_clear_hold_mark(vio_fifo vff)
 } ;
 
 /*------------------------------------------------------------------------------
- * If there is an hold_mark, reset get_ptr *back* to it.
+ * If there is an hold_mark, reset get_ptr *back* to it, and leave the mark
+ * set or clear.
  *
- * Leave hold mark set or clear.
+ * If there is no hold mark, set one at the current position, if required.
  */
 extern void
 vio_fifo_back_to_hold_mark(vio_fifo vff, bool mark)
@@ -1516,7 +1522,67 @@ vio_fifo_back_to_hold_mark(vio_fifo vff, bool mark)
       VIO_FIFO_DEBUG_VERIFY(vff) ;
     }
   else if (mark)
-    vio_fifo_set_end_mark(vff) ;
+    vio_fifo_set_hold_mark(vff) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set the get_ptr to the hold_mark plus the given offset.
+ *
+ * If the offset is zero, and there was no hold mark, set one at the current
+ * get_ptr.
+ *
+ * If the offset is not zero, it is a mistake to do this if there is no
+ * hold_mark, or if the offset would take the get_ptr beyond the end_mark
+ * (if any) or the put_ptr.
+ */
+extern void
+vio_fifo_set_get_wrt_hold(vio_fifo vff, size_t hold_offset)
+{
+  if (hold_offset == 0)
+    {
+      /* Offset of zero can be set under all conditions                 */
+      vio_fifo_back_to_hold_mark(vff, true) ;
+    }
+  else
+    {
+      vio_fifo_lump lump ;
+      char*         ptr ;
+
+      /* There must be a hold_mark and must have something held         */
+      assert(vff->hold_mark && vff->set) ;
+
+      lump = ddl_head(vff->base) ;
+      ptr  = vff->hold_ptr ;
+
+      while (1)
+        {
+          size_t have ;
+
+          if (lump == vff->end_lump)
+            have = (vff->end_mark ? vff->end_end : vff->put_ptr) - ptr ;
+          else
+            have = lump->end - ptr ;
+
+          if (have <= hold_offset)
+            break ;
+
+          hold_offset -= have ;
+
+          assert(lump != vff->end_lump) ;
+
+          lump = ddl_next(lump, list) ;
+          ptr  = lump->data ;
+        } ;
+
+      /* Note that may be about to set the get_ptr to the end of the
+       * current lump, which will be correct if that is the end of the
+       * fifo, but in any case is dealt with by vio_fifo_sync_get().
+       */
+      vio_fifo_set_get_ptr(vff, ptr + hold_offset, lump) ;
+      vio_fifo_sync_get(vff) ;
+    } ;
+
+  VIO_FIFO_DEBUG_VERIFY(vff) ;
 } ;
 
 /*==============================================================================

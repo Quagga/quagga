@@ -26,6 +26,7 @@
 
 #include "vty_local.h"
 #include "vector.h"
+#include "qpath.h"
 
 /*==============================================================================
  * This is for access to some things in command.c which are not required
@@ -63,39 +64,41 @@ struct host
   int        lines;
 
   /* Log filename.                                      */
-  char*      logfile;
+  qpath      logfile;
 
   /* config file name of this host                      */
-  char*      config_file ;
+  qpath      config_file ;
+  qpath      config_dir ;
 
   /* Flags for services                                 */
   bool       advanced;
   bool       encrypt;
 
   /* Banner configuration.                              */
-  const char* motd;
-  char*      motdfile;
+  const char* motd ;
+  qpath      motdfile;
 
   /* Someone has the config symbol of power             */
   bool       config ;
+  ulong      config_brand ;
 
-  /* Allow VTY to start without password                */
+  /* Allow vty to start without password                */
   bool       no_password_check ;
 
   /* Restrict unauthenticated logins?                   */
   bool       restricted_mode ;
 
-  /* Vty timeout value -- see "exec timeout" command    */
+  /* vty timeout value -- see "exec timeout" command    */
   unsigned long vty_timeout_val ;
 
-  /* Vty access-class command                           */
+  /* vty access-class command                           */
   char*      vty_accesslist_name ;
 
-  /* Vty access-class for IPv6.                         */
+  /* vty access-class for IPv6.                         */
   char*      vty_ipv6_accesslist_name ;
 
-  /* Current directory -- initialised in vty_init()     */
-  char*      vty_cwd ;
+  /* Current directory -- initialised cmd_cwd()         */
+  qpath      cwd ;
 } ;
 
 enum
@@ -115,22 +118,38 @@ enum cmd_do
 
   cmd_do_command  = 1,  /* dispatch the current command line    */
 
-  cmd_do_ctrl_c,        /* received ^c                          */
-  cmd_do_ctrl_d,        /* received ^d                          */
-  cmd_do_ctrl_z,        /* received ^z                          */
+  cmd_do_ctrl_c,        /* received ^C                          */
+  cmd_do_ctrl_d,        /* received ^D                          */
+  cmd_do_ctrl_z,        /* received ^Z                          */
 
   cmd_do_eof,           /* hit "EOF"                            */
+  cmd_do_timed_out,     /* terminal timed out                   */
 
   cmd_do_count,         /* number of different cli_do_xxx       */
 
   cmd_do_mask        = 0x0F,
+
   cmd_do_auth        = 0x10,
-  cmd_do_auth_enable = 0x20,
+
+  cmd_do_keystroke   = 0xFF,    /* special for keystroke reader */
 } ;
 
 CONFIRM(cmd_do_count <= (cmd_do_mask + 1)) ;
 
 typedef enum cmd_do cmd_do_t ;
+
+/*------------------------------------------------------------------------------
+ * Command action -- qualifier + line
+ */
+struct cmd_action
+{
+  cmd_do_t      to_do ;
+  qstring       line ;
+} ;
+typedef struct cmd_action  cmd_action_t[1] ;
+typedef struct cmd_action* cmd_action ;
+
+enum { CMD_ACTION_ALL_ZEROS = (cmd_do_nothing == 0) } ;
 
 /*------------------------------------------------------------------------------
  * Vector of nodes -- defined in command.c, declared here so the parser can
@@ -149,13 +168,36 @@ extern vector node_vector ;
  */
 
 extern const char* cmd_host_name(bool fresh) ;
-extern char *host_config_file(void);
-extern void host_config_set(const char* file_name);
+extern void cmd_host_config_set(qpath config_file);
 
 extern const char* cmd_prompt(node_type_t node) ;
 
 extern node_type_t cmd_node_parent(node_type_t node) ;
 extern node_type_t cmd_node_exit_to(node_type_t node) ;
 extern node_type_t cmd_node_end_to(node_type_t node) ;
+
+/*==============================================================================
+ *
+ */
+Inline void
+cmd_action_clear(cmd_action act)
+{
+  act->to_do = cmd_do_nothing ;
+  act->line  = NULL ;           /* not essential, but tidy      */
+} ;
+
+Inline void
+cmd_action_set(cmd_action act, cmd_do_t to_do, qstring line)
+{
+  act->to_do = to_do ;
+  act->line  = line ;
+} ;
+
+Inline void
+cmd_action_take(cmd_action dst, cmd_action src)
+{
+  *dst = *src ;
+  cmd_action_clear(src) ;
+} ;
 
 #endif /* _ZEBRA_COMMAND_LOCAL_H */

@@ -22,12 +22,14 @@
 #include "qlib_init.h"
 #include "zassert.h"
 #include "memory.h"
+#include "qpnexus.h"
 #include "qpthreads.h"
 #include "qpselect.h"
 #include "thread.h"
 #include "privs.h"
 #include "mqueue.h"
 #include "pthread_safe.h"
+#include "log_local.h"
 
 /*==============================================================================
  * Quagga Library Initialise/Closedown
@@ -66,30 +68,33 @@
  *
  */
 
-void
+extern void
 qlib_init_first_stage(void)
 {
   qps_start_up() ;
 }
 
-void
-qlib_init_second_stage(int pthreads)
+extern void
+qlib_init_second_stage(bool pthreads)
 {
   qpt_set_qpthreads_enabled(pthreads);
+  qpn_init() ;
   memory_init_r();
   thread_init_r();
+  log_init_r() ;
   zprivs_init_r();
   mqueue_initialise();
   safe_init_r();
 }
 
 
-void
+extern void
 qexit(int exit_code)
 {
   safe_finish();
   mqueue_finish();
   zprivs_finish();
+  log_finish();
   thread_finish();
   memory_finish();
   exit (exit_code);

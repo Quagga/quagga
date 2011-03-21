@@ -204,7 +204,8 @@
 #endif /* HAVE_IPV6 */
 
 /* Prototypes. */
-extern void cmd_init (int);
+extern void cmd_getcwd(void) ;
+extern void cmd_init (bool);
 extern void cmd_terminate (void);
 
 extern void print_version (const char *);
@@ -231,11 +232,7 @@ extern struct cmd_command config_exit_cmd;
 extern struct cmd_command config_quit_cmd;
 extern struct cmd_command config_help_cmd;
 extern struct cmd_command config_list_cmd;
-extern char *host_config_file (void);
-extern void host_config_set (const char *);
 
-#ifdef QDEBUG
 extern const char *debug_banner ;
-#endif
 
 #endif /* _ZEBRA_COMMAND_H */

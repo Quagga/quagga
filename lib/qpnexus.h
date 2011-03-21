@@ -24,9 +24,9 @@
 
 #include "misc.h"
 #include <time.h>
-#include <pthread.h>
 #include <unistd.h>
 #include <errno.h>
+#include <signal.h>
 
 #include "zassert.h"
 #include "qpthreads.h"
@@ -42,15 +42,17 @@
  * action routines.
  *
  */
+enum
+{
+  /* maximum time in seconds to sit in a pselect  */
+  MAX_PSELECT_WAIT = 10,
 
-/* maximum time in seconds to sit in a pselect  */
-#define MAX_PSELECT_WAIT 10
+  /* signal for message queues                    */
+  SIG_INTERRUPT    = SIGUSR2,
 
-/* signal for message queues                    */
-#define SIGMQUEUE SIGUSR2
-
-/* number of hooks per hook list                */
-enum { qpn_hooks_max = 4 } ;
+  /* number of hooks per hook list                */
+  qpn_hooks_max    = 4,
+} ;
 
 /*==============================================================================
  * Data Structures.
@@ -70,26 +72,30 @@ typedef struct qpn_nexus* qpn_nexus ;
 
 struct qpn_nexus
 {
-  /* set true to terminate the thread (eventually) */
+  /* set true to terminate the thread (eventually)      */
   bool terminate;
 
-  /* true if this is the main thread */
+  /* true if this is the main thread                    */
   bool main_thread;
 
-  /* thread ID */
-  qpt_thread_t thread_id;
+  /* thread ID                                          */
+  qpt_thread_t  thread_id;
 
-  /* pselect handler */
+  /* Signal mask for pselect                            */
+  sigset_t      pselect_mask[1] ;
+  int           pselect_signal ;
+
+  /* pselect handler                                    */
   qps_selection selection;
 
-  /* timer pile */
+  /* timer pile                                         */
   qtimer_pile pile;
 
-  /* message queue */
+  /* message queue                                      */
   mqueue_queue queue;
   mqueue_thread_signal mts;
 
-  /* qpthread routine, can override */
+  /* qpthread routine, can override                     */
   void* (*start)(void*);
 
   /* in-thread initialise, can override.  Called within the thread after all
@@ -138,10 +144,22 @@ struct qpn_nexus
   struct qpn_hook_list background ;
 };
 
+/*------------------------------------------------------------------------------
+ * Each thread that has a qpnexus uses this piece of thread specific data in
+ * order to be able to find its own nexus.
+ */
+qpt_data_t qpn_self ;           /* thread specific data */
+
+Inline qpn_nexus
+qpn_find_self(void)
+{
+  return qpt_data_get_value(qpn_self) ;
+} ;
+
 /*==============================================================================
  * Functions
  */
-
+extern void qpn_init(void) ;
 extern qpn_nexus qpn_init_new(qpn_nexus qpn, bool main_thread);
 extern void qpn_add_hook_function(qpn_hook_list list, void* hook) ;
 extern void qpn_exec(qpn_nexus qpn);

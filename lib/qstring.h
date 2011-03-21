@@ -66,6 +66,7 @@ struct qstring
   usize       b_size ;
 
   bool        alias ;
+  char*       empty ;
 } ;
 
 typedef struct qstring  qstring_t[1] ;
@@ -116,9 +117,13 @@ Inline void* qs_body(qstring qs) ;
 Inline void* qs_body_nn(qstring qs) ;
 Inline void qs_set_body_nn(qstring qs, const void* body) ;
 
+Inline usize qs_size(qstring qs) ;
+Inline usize qs_size_nn(qstring qs) ;
+
 Inline ulen qs_len(qstring qs) ;
 Inline ulen qs_len_nn(qstring qs) ;
 Inline void qs_set_len_nn(qstring qs, ulen len) ;
+Inline void qs_set_strlen_nn(qstring qs) ;
 
 Inline ulen qs_cp(qstring qs) ;
 Inline ulen qs_cp_nn(qstring qs) ;
@@ -259,6 +264,20 @@ qs_set_body_nn(qstring qs, const void* body)
   els_set_body_nn(qs->els, body) ;
 } ;
 
+/* Size of qstring body -- zero if qstring is NULL, or is alias.        */
+Inline usize
+qs_size(qstring qs)
+{
+  return (qs != NULL) ? qs_size_nn(qs) : 0 ;
+} ;
+
+/* Size of qstring (not NULL).                                          */
+Inline usize
+qs_size_nn(qstring qs)
+{
+  return (qs->size) ;
+} ;
+
 /*----------------------------------------------------------------------------*/
 
 /* 'len' of qstring -- returns 0 if qstring is NULL                     */
@@ -280,6 +299,13 @@ Inline void
 qs_set_len_nn(qstring qs, ulen len)
 {
   els_set_len_nn(qs->els, len) ;
+} ;
+
+/* set 'len' of qstring according to strlen(body) -- nothing NULL !     */
+Inline void
+qs_set_strlen_nn(qstring qs)
+{
+  els_set_len_nn(qs->els, strlen(qs_body_nn(qs))) ;
 } ;
 
 /*----------------------------------------------------------------------------*/
@@ -378,10 +404,11 @@ Inline void qs_set_real_body_nn(qstring qs)
  * Functions
  */
 
-extern qstring qs_new(void) ;
+extern qstring qs_new(usize slen) ;
 extern qstring qs_new_with_body(usize slen) ;
 extern qstring qs_init_new(qstring qs, usize len) ;
 extern qstring qs_reset(qstring qs, free_keep_b free_structure) ;
+Inline qstring qs_free(qstring qs) ;
 
 Inline char* qs_make_string(qstring qs) ;
 Inline const char* qs_string(qstring qs) ;
@@ -400,9 +427,9 @@ extern qstring qs_set_fill(qstring qs, usize len, const char* src) ;
 extern qstring qs_set_fill_n(qstring qs, usize len, const char* src,
                                                                    usize flen) ;
 
-extern qstring qs_append(qstring qs, const char* src) ;
-extern qstring qs_append_n(qstring qs, const char* src, usize n) ;
-extern qstring qs_append_qs(qstring qs, qstring src) ;
+extern qstring qs_append_str(qstring qs, const char* src) ;
+extern qstring qs_append_str_n(qstring qs, const char* src, usize n) ;
+extern qstring qs_append(qstring qs, qstring src) ;
 extern qstring qs_append_els(qstring qs, elstring src) ;
 
 extern qstring qs_set_alias(qstring qs, const char* src) ;
@@ -437,6 +464,15 @@ Inline bool qs_substring(qstring a, qstring b) ;
  */
 
 /*------------------------------------------------------------------------------
+ * Free given qstring
+ */
+Inline qstring
+qs_free(qstring qs)
+{
+  return qs_reset(qs, free_it) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Return pointer to string value -- ensure not alias and '\0' terminated.
  *
  * If is alias, copies that before adding '\0' terminator.
@@ -444,31 +480,36 @@ Inline bool qs_substring(qstring a, qstring b) ;
  * Sets the '\0' terminator at the 'len' position, extending string if that
  * is required.
  *
- * If qs == NULL or 'len' == 0 returns pointer to constant empty '\0'
- * terminated string (ie "").
+ * If qs == NULL returns pointer to empty '\0' terminated string.
  *
  * NB: The qstring should not be changed or reset until this pointer has been
  *     discarded !
+ *
+ * NB: The value returned is not "const" BUT caller is NOT entitled to change
+ *     any part of the string -- CERTAINLY nothing from the '\0' onwards !
  */
 Inline char*
 qs_make_string(qstring qs)
 {
+  static char empty_string[1] ;
+
   usize len ;
   char* p ;
 
   if      (qs == NULL)
     {
       len = 0 ;
-      qs = qs_new_with_body(len) ;
+      p   = empty_string ;
     }
   else
     {
       len = qs_len_nn(qs) ;
       if (len >= qs->size)              /* for alias, qs_size == 0      */
         qs_make_to_size(qs, len, len) ; /* extend and/or copy any alias */
+
+      p = qs_char_nn(qs) ;
     } ;
 
-  p = qs_char_nn(qs) ;
   *(p + len) = '\0' ;
 
   return p ;
@@ -517,6 +558,9 @@ qs_string(qstring qs)
  * If is an alias qstring, discard the alias.
  *
  * NB: does not create a qstring body if there isn't one.
+ *
+ * NB: does not change the qstring body if there is one.  (Which is used in
+ *     vio_lc_write_nb().
  */
 Inline void
 qs_clear(qstring qs)

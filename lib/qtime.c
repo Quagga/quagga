@@ -240,3 +240,88 @@ qt_random(uint32_t seed)
    */
   return x ^ ((y >> 16) & 0xFFFF) ^ ((y & 0xFFFF) << 16) ;
 } ;
+
+/*==============================================================================
+ * Tracking the local timezone, so can:
+ *
+ *   a) rapidly convert clock_gettime(CLOCK_REALTIME, ...) times
+ *
+ *   b) do that thread-safe
+ *
+ *   c) do that async-signal-safe
+ *
+ * Assumptions:
+ *
+ *   a) that timezones are on at most 5 minute boundaries (15 probably!)
+ *
+ *   b) that DST changes are at least 60 days apart
+ *
+ *   c) that DST changes occur on times which are on 5 minute boundaries
+ *      (60 probably -- but this means that the DST change is on a 5 minute
+ *       bounderay in local and epoch times !)
+ *
+ * Sets up and maintains a table containing 8 entries:
+ *
+ *   [-3] previous - 2
+ *   [-2] previous - 1
+ *   [-1] previous     -- previous 0-7 days
+ *   [ 0] current      -- current  0-7 days
+ *   [+1] next         -- next     0-7 days
+ *   [+2] next     + 1
+ *   [+3] next     + 2
+ *   [ X] sentinal
+ *
+ * These are configured before any threads or anything else very much runs, so
+ * they are essentially static.  There is a "current index", which is set to
+ * '0' to start with.
+ *
+ * Each entry comprises:
+ *
+ *   * start time      -- entry is valid for epoch times >= start
+ *   * end time        -- entry is valid for epoch times <  end
+ *   * offset          -- add to epoch time to get local
+ *
+ * When set up the current timezone initially starts on the nearest 5 minute
+ * boundary in the past, and covers up to 7 days into the future, unless the
+ * timezone changes in that time.  The timezones on either side are set
+ * similarly.
+ *
+ * At most one of these timezones may be a short one -- so this covers at least
+ * 14 days into the past and 21 into the future, and as time advances, upto
+ * 21 days into the past and down to 14 days into the future.
+ *
+ * Maximum range is 56 days -- which is within the assumed 60 days between
+ * DST changes.
+ *
+ * When time advances past the current entry the next, next + 1 and + 2 cover
+ * at least 14 days (21 if none are short entries).
+ *
+ * Every now and then (say every 5 minutes) a background process can check the
+ * current time.  If that is no longer in the current entry, needs to update
+ * the table.  Assuming time is moving forward: sets sentinal to be the next
+ * 0-7 days following the current last entry, and updates the "current index".
+ *
+ * BIG ASSUMPTION: that the "current index" value is written atomically, wrt
+ *                 to threads as well as signals.
+ *
+ *                 It doesn't matter if a thread or signal action code picks
+ *                 up an out of date "current index" value, because all the
+ *                 entries for the old state are still valid.
+ *
+ *                 No entry is changed while it is covered by the current
+ *                 index -3..+3.
+ *
+ * This works fine, UNLESS the clock_gettime(CLOCK_REALTIME, ...) changes
+ * dramatically -- as might happen if the operator adjusts the system clock a
+ * long way !
+ *
+ * To cope with this, a spare set of 8 entries are kept, and a new table can
+ * be built (under mutex).  The worst that happens is that threads may be
+ * blocked waiting for the table to be updated.
+ *
+ * If the table is found to be out of date when a signal is bringing the
+ * system down, then the times logged will just have to use either the first
+ * or the last entry, and have done with it.
+ */
+
+

@@ -35,8 +35,8 @@
  */
 static qpt_mutex_t memory_mutex;
 
-#define LOCK   qpt_mutex_lock(&memory_mutex);
-#define UNLOCK qpt_mutex_unlock(&memory_mutex);
+#define LOCK   qpt_mutex_lock(memory_mutex);
+#define UNLOCK qpt_mutex_unlock(memory_mutex);
 
 static void log_memstats(int log_priority);
 
@@ -50,8 +50,13 @@ static const struct message mstr [] =
   { 0, NULL },
 };
 
-/* If using the mem_tracker, include it now.                            */
-
+/*------------------------------------------------------------------------------
+ * Include the memory tracker, if required.
+ *
+ * Makes sure that the tracker is always part of the source -- so kept up to
+ * date -- depending on dead code removal to eliminate overhead when not
+ * used.
+ */
 typedef struct mem_tracker* mem_tracker ;
 struct mem_tracker
 {
@@ -72,9 +77,7 @@ mem_tracker_zeroise(struct mem_tracker* mem)
   memset(mem, 0, sizeof(struct mem_tracker)) ;
 } ;
 
-#if MEMORY_TRACKER
 #include "mem_tracker.c"
-#endif
 
 /*==============================================================================
  * Keeping track of number of allocated objects of given type
@@ -130,9 +133,9 @@ zmalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
   else
     {
       mstat.mt[mtype].alloc++;
-#if MEMORY_TRACKER
-      mem_md_malloc(mtype, memory, size, name) ;
-#endif
+      if (memory_tracker)
+        mem_md_malloc(mtype, memory, size, MEMORY_TRACKER_NAME_ARG) ;
+
       UNLOCK ;
     } ;
 
@@ -159,9 +162,8 @@ zcalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
   else
     {
       mstat.mt[mtype].alloc++;
-#if MEMORY_TRACKER
-      mem_md_malloc(mtype, memory, size, name) ;
-#endif
+      if (memory_tracker)
+        mem_md_malloc(mtype, memory, size, MEMORY_TRACKER_NAME_ARG) ;
       UNLOCK ;
     } ;
 
@@ -170,6 +172,8 @@ zcalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
 
 /*------------------------------------------------------------------------------
  * Memory reallocation.
+ *
+ * NB: just like real realloc(), is same as malloc() if ptr == NULL.
  */
 void *
 zrealloc (enum MTYPE mtype, void *ptr, size_t size  MEMORY_TRACKER_NAME)
@@ -188,9 +192,8 @@ zrealloc (enum MTYPE mtype, void *ptr, size_t size  MEMORY_TRACKER_NAME)
     {
       if (ptr == NULL)
         mstat.mt[mtype].alloc++;
-#if MEMORY_TRACKER
-      mem_md_realloc(mtype, ptr, memory, size, name) ;
-#endif
+      if (memory_tracker)
+        mem_md_realloc(mtype, ptr, memory, size, MEMORY_TRACKER_NAME_ARG) ;
       UNLOCK ;
     } ;
 
@@ -199,6 +202,8 @@ zrealloc (enum MTYPE mtype, void *ptr, size_t size  MEMORY_TRACKER_NAME)
 
 /*------------------------------------------------------------------------------
  * Memory free.
+ *
+ * NB: just like real free(), does nothing if ptr == NULL.
  */
 void
 zfree (enum MTYPE mtype, void *ptr)
@@ -210,9 +215,8 @@ zfree (enum MTYPE mtype, void *ptr)
       assert(mstat.mt[mtype].alloc > 0) ;
 
       mstat.mt[mtype].alloc--;
-#if MEMORY_TRACKER
-      mem_md_free(mtype, ptr) ;
-#endif
+      if (memory_tracker)
+        mem_md_free(mtype, ptr) ;
 
       free (ptr);
 
@@ -239,9 +243,9 @@ zstrdup (enum MTYPE mtype, const char *str  MEMORY_TRACKER_NAME)
   else
     {
       mstat.mt[mtype].alloc++;
-#if MEMORY_TRACKER
-      mem_md_malloc(mtype, dup, strlen(str)+1, name) ;
-#endif
+      if (memory_tracker)
+        mem_md_malloc(mtype, dup, strlen(str)+1, MEMORY_TRACKER_NAME_ARG) ;
+
       UNLOCK ;
     } ;
 
@@ -443,11 +447,12 @@ show_memory_type_vty (struct vty *vty, const char* name,
     vty_out (vty, "-----------------------------%s", VTY_NEWLINE) ;
 
     vty_out (vty, "%-30s:", name) ;
-#if MEMORY_TRACKER
-    show_memory_tracker_detail(vty, mt, alloc) ;
-#else
-    vty_out (vty, " %10ld", alloc) ;
-#endif
+
+    if (memory_tracker)
+      show_memory_tracker_detail(vty, mt, alloc) ;
+    else
+      vty_out (vty, " %10ld", alloc) ;
+
     vty_out (vty, "%s", VTY_NEWLINE);
 } ;
 
@@ -464,15 +469,13 @@ show_memory_vty (struct vty *vty, struct memory_list *m, struct mlist* ml,
   struct mem_tracker  mem_one ;
   struct mem_tracker* mt ;
 
-#if MEMORY_TRACKER
   struct mem_type_tracker mem_tt ;
-#endif
 
   LOCK ;
+
   mst    = mstat ;
-#if MEMORY_TRACKER
   mem_tt = mem_type_tracker ;
-#endif
+
   UNLOCK ;
 
   mem_tracker_zeroise(&mem_tot) ;
@@ -499,12 +502,11 @@ show_memory_vty (struct vty *vty, struct memory_list *m, struct mlist* ml,
       else
         {
           alloc = mst.mt[m->index].alloc ;
-#if MEMORY_TRACKER
-          mt = &(mem_tt.mt[m->index]) ;
-#else
-          mt = &mem_one ;
+          if (memory_tracker)
+            mt = &(mem_tt.mt[m->index]) ;
+          else
+            mt = &mem_one ;
           mt->tracked_count = alloc ;
-#endif
 
           mem_tot.malloc_count      += mt->malloc_count ;
           mem_tot.free_count        += mt->free_count ;
@@ -580,23 +582,23 @@ DEFUN_CALL (show_memory_summary,
        "Memory statistics\n"
        "Summary memory statistics\n")
 {
-#if MEMORY_TRACKER
-  show_memory_tracker_summary(vty) ;
-#else
-  long alloc = 0 ;
-  int  mtype ;
+  if (memory_tracker)
+    show_memory_tracker_summary(vty) ;
+  else
+    {
+      long alloc = 0 ;
+      int  mtype ;
 
 # ifdef HAVE_MALLINFO
-  show_memory_mallinfo (vty);
+      show_memory_mallinfo (vty);
 # endif /* HAVE_MALLINFO */
 
-  LOCK ;
-  for (mtype = 1 ; mtype < MTYPE_MAX ; ++mtype)
-    alloc += mstat.mt[mtype].alloc ;
-  UNLOCK
-  vty_out(vty, "%ld items allocated%s", alloc, VTY_NEWLINE) ;
-
-#endif /* MEMORY_TRACKER */
+      LOCK ;
+      for (mtype = 1 ; mtype < MTYPE_MAX ; ++mtype)
+        alloc += mstat.mt[mtype].alloc ;
+      UNLOCK
+      vty_out(vty, "%ld items allocated%s", alloc, VTY_NEWLINE) ;
+    } ;
 
   return CMD_SUCCESS;
 }
@@ -613,9 +615,9 @@ DEFUN_CALL (show_memory_all,
 #ifdef HAVE_MALLINFO
   needsep  |= show_memory_mallinfo (vty);
 #endif /* HAVE_MALLINFO */
-#if MEMORY_TRACKER
-  needsep |= show_memory_tracker_summary(vty) ;
-#endif
+
+  if (memory_tracker)
+    needsep |= show_memory_tracker_summary(vty) ;
 
   show_memory_vty (vty, NULL, mlists, needsep);
 
@@ -720,14 +722,14 @@ DEFUN_CALL (show_memory_isis,
 void
 memory_init_r (void)
 {
-  qpt_mutex_init(&memory_mutex, qpt_mutex_quagga);
+  qpt_mutex_init(memory_mutex, qpt_mutex_quagga);
 }
 
 /* Finished with module */
 void
 memory_finish (void)
 {
-  qpt_mutex_destroy(&memory_mutex, 0);
+  qpt_mutex_destroy(memory_mutex, 0);
 }
 
 void

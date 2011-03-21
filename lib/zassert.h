@@ -6,6 +6,7 @@
 #define _QUAGGA_ASSERT_H
 
 #include "confirm.h"
+#include "misc.h"
 
 extern void _zlog_assert_failed (const char *assertion, const char *file,
 				 unsigned int line, const char *function)
@@ -44,10 +45,13 @@ extern void _zlog_abort_err (const char *mess, int err, const char *file,
 
 /* NDEBUG time assert()                                         */
 #ifndef NDEBUG
-#define dassert(EX) zassert(EX)
+# define dassert(EX) zassert(EX)
 #else
-#define dassert(EX)
+# define dassert(EX)
 #endif
+
+/* Assert iff QDEBUG                                            */
+#define qassert(EX) if (qdebug) zassert(EX)
 
 /* Abort with message                                           */
 #define zabort(MS) _zlog_abort_mess(MS, __FILE__, __LINE__, __ASSERT_FUNCTION)

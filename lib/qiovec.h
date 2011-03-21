@@ -26,22 +26,54 @@
 #include <sys/uio.h>            /* iovec stuff                  */
 
 /*==============================================================================
+ * Alternative naming for struct iovec and its entries.
+ */
+struct qiov_item
+{
+  const char*  base ;
+  size_t       len ;
+} ;
+
+typedef struct qiov_item* qiov_item ;
+typedef struct qiov_item  qiov_item_t[1] ;
+typedef struct qiov_item* qiov_vector ;
+
+union
+{
+  struct qiov_item   q ;
+  struct iovec       s ;
+} union_iovec ;
+
+CONFIRM(sizeof(struct qiov_item) == sizeof(struct iovec)) ;
+
+CONFIRM(offsetof(struct qiov_item, base) == offsetof(struct iovec, iov_base)) ;
+CONFIRM(sizeof  (union_iovec.q.    base) == sizeof  (union_iovec.s.iov_base)) ;
+CONFIRM(offsetof(struct qiov_item, len)  == offsetof(struct iovec, iov_len)) ;
+CONFIRM(sizeof  (union_iovec.q.    len)  == sizeof  (union_iovec.s.iov_len)) ;
+
+/*==============================================================================
  * Flexible size "struct iovec"
  *
  * NB: a completely zero structure is a valid, empty qiovec.
  */
-typedef struct qiovec* qiovec ;
-typedef struct qiovec  qiovec_t ;
 struct qiovec
 {
-  struct iovec* vec ;           /* the actual iovec array       */
+  qiov_vector   vec ;           /* the actual iovec array       */
+
+  uint          i_get ;         /* next entry to get            */
+  uint          i_put ;         /* next entry to put            */
+
+  uint          i_alloc ;       /* number of entries allocated  */
 
   bool          writing ;       /* started, but not finished    */
+} ;
 
-  unsigned      i_get ;         /* next entry to get            */
-  unsigned      i_put ;         /* next entry to put            */
+typedef struct qiovec* qiovec ;
+typedef struct qiovec  qiovec_t[1] ;
 
-  unsigned      i_alloc ;       /* number of entries allocated  */
+enum
+{
+  QIOVEC_INIT_ALL_ZEROS = true
 } ;
 
 /*==============================================================================
@@ -50,17 +82,38 @@ struct qiovec
 
 extern qiovec qiovec_init_new(qiovec qiov) ;
 extern qiovec qiovec_reset(qiovec qiov, bool free_structure) ;
-
-#define qiovec_reset_keep(qiov) qiovec_reset(qiov, 0)
-#define qiovec_reset_free(qiov) qiovec_reset(qiov, 1)
+Inline qiovec qiovec_free(qiovec qiov) ;
 
 Inline bool qiovec_empty(qiovec qiov) ;
+extern size_t qiovec_length(qiovec qiov) ;
 extern void qiovec_clear(qiovec qiov) ;
-extern void qiovec_push(qiovec qiov, const void* base, size_t len) ;
 extern int qiovec_write_nb(int fd, qiovec qiov) ;
+
+Inline uint qiovec_count(qiovec qiov) ;
+Inline void qiovec_push_this(qiovec qiov, const void* base, size_t len) ;
+Inline void qiovec_push(qiovec qiov, qiov_item item) ;
+Inline void qiovec_pop(qiovec qiov, qiov_item item) ;
+Inline void qiovec_shift(qiovec qiov, qiov_item item) ;
+Inline void qiovec_unshift(qiovec qiov, qiov_item item) ;
 
 extern int iovec_write_nb(int fd, struct iovec* p_iov, int n) ;
 Inline void iovec_set(struct iovec* p_iov, const void* base, size_t len) ;
+
+Private void qiovec_extend(qiovec qiov) ;
+Private void qiovec_shuffle(qiovec qiov) ;
+
+/*------------------------------------------------------------------------------
+ * Free given qiovec
+ *
+ * It is the caller's responsibility to free anything that the qiovec may
+ * point to.
+ *
+ * Returns:  NULL
+ */
+Inline qiovec qiovec_free(qiovec qiov)
+{
+  return qiovec_reset(qiov, free_it) ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Is given qiov empty ?
@@ -72,6 +125,107 @@ Inline bool
 qiovec_empty(qiovec qiov)
 {
   return (qiov->i_get == qiov->i_put) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * How many entries in the given qiov ?
+ */
+Inline uint
+qiovec_count(qiovec qiov)
+{
+  return (qiov->i_put - qiov->i_get) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Push to qiov -- same as qiovec_push, but with item.
+ *
+ * Ignores zero length items.
+ */
+Inline void
+qiovec_push_this(qiovec qiov, const void* base, size_t len)
+{
+  qiov_item_t item ;
+
+  item->base = base ;
+  item->len  = len ;
+  qiovec_push(qiov, item) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Push (copy of) item to qiov -- ie append it to the end of the vector.
+ */
+Inline void
+qiovec_push(qiovec qiov, qiov_item item)
+{
+  if (item->len != 0)
+    {
+      if (qiov->i_put >= qiov->i_alloc)
+        qiovec_extend(qiov) ;
+
+      qiov->vec[qiov->i_put++] = *item ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Pop last item from qiov -- return empty item if none.
+ */
+Inline void
+qiovec_pop(qiovec qiov, qiov_item item)
+{
+  if (qiov->i_get < qiov->i_put)
+    {
+      *item = qiov->vec[--qiov->i_put] ;
+      if (qiov->i_get == qiov->i_put)
+        qiov->i_get = qiov->i_put = 0 ;
+    }
+  else
+    {
+      assert(qiov->i_get == qiov->i_put) ;
+      item->base = NULL ;
+      item->len  = 0 ;
+
+      qiov->i_get = qiov->i_put = 0 ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Shift first item off qiov -- return empty item if none.
+ */
+Inline void
+qiovec_shift(qiovec qiov, qiov_item item)
+{
+  if (qiov->i_get < qiov->i_put)
+    {
+      *item = qiov->vec[qiov->i_get++] ;
+      if (qiov->i_get == qiov->i_put)
+        qiov->i_get = qiov->i_put = 0 ;
+    }
+  else
+    {
+      assert(qiov->i_get == qiov->i_put) ;
+      item->base = NULL ;
+      item->len  = 0 ;
+
+      qiov->i_get = qiov->i_put = 0 ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Unshift item onto qiov -- ie prepend it to the start of the vector.
+ */
+Inline void
+qiovec_unshift(qiovec qiov, qiov_item item)
+{
+  if (qiov->i_get == 0)
+    {
+      if (qiov->i_put == 0)
+        return qiovec_push(qiov, item) ;
+
+      qiovec_shuffle(qiov) ;
+    } ;
+
+  if (item->len != 0)
+    qiov->vec[--qiov->i_get] = *item ;
 } ;
 
 /*------------------------------------------------------------------------------

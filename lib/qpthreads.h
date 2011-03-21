@@ -22,6 +22,8 @@
 #ifndef _ZEBRA_QPTHREADS_H
 #define _ZEBRA_QPTHREADS_H
 
+#include "zconfig.h"
+
 #include "misc.h"
 #include <time.h>
 #include <pthread.h>
@@ -52,16 +54,33 @@
 #error Require _POSIX_THREADS
 #endif
 
-#ifdef QPTHREADS_DEBUG          /* Can be forced from outside           */
-# if QPTHREADS_DEBUG
-#  define QPTHREADS_DEBUG 1     /* Force 1 or 0                         */
-#else
-#  define QPTHREADS_DEBUG 0
+/*------------------------------------------------------------------------------
+ * Sort out QPTHREADS_DEBUG.
+ *
+ *   Set to 1 if defined, but blank.
+ *   Set to QDEBUG if not defined.
+ *
+ *   Force to 0 if QPTHREADS_NO_DEBUG is defined and not zero.
+ *
+ * So: defaults to same as QDEBUG, but no matter what QDEBUG is set to:
+ *
+ *       * can set QPTHREADS_DEBUG    == 0 to turn off debug
+ *       *  or set QPTHREADS_DEBUG    != 0 to turn on debug
+ *       *  or set QPTHREADS_NO_DEBUG != 0 to force debug off
+ */
+
+#ifdef QPTHREADS_DEBUG          /* If defined, make it 1 or 0           */
+# if IS_BLANK_OPTION(QPTHREADS_DEBUG)
+#  undef  QPTHREADS_DEBUG
+#  define QPTHREADS_DEBUG 1
 # endif
-#else
-# ifdef  QDEBUG
-#  define QPTHREADS_DEBUG 1     /* Follow QDEBUG                        */
-#else
+#else                           /* If not defined, follow QDEBUG        */
+# define QPTHREADS_DEBUG QDEBUG
+#endif
+
+#ifdef QPTHREADS_NO_DEBUG       /* Override, if defined                 */
+# if IS_NOT_ZERO_OPTION(QPTHREADS_NO_DEBUG)
+#  undef  QPTHREADS_DEBUG
 #  define QPTHREADS_DEBUG 0
 # endif
 #endif
@@ -81,42 +100,41 @@ enum { qpthreads_debug = QPTHREADS_DEBUG } ;
  *      qpthreads_enabled_freeze -- to test and freeze unset if not yet enabled
  */
 
-#define qpthreads_enabled         ((const uint8_t)qpthreads_enabled_flag)
+#define qpthreads_enabled         ((const bool)qpthreads_enabled_flag)
 #define qpthreads_enabled_freeze  qpt_freeze_qpthreads_enabled()
 
-#define qpthreads_thread_created  ((const uint8_t) \
-                                                  qpthreads_thread_created_flag)
+#define qpthreads_thread_created  ((const bool)qpthreads_thread_created_flag)
 
 /*==============================================================================
  * Data types
  */
-
 typedef pthread_t        qpt_thread_t ;
-typedef pthread_mutex_t  qpt_mutex_t ;
-typedef pthread_cond_t   qpt_cond_t ;
+
+typedef pthread_mutex_t  qpt_mutex_t[1] ;
+typedef pthread_mutex_t* qpt_mutex ;
+
+typedef pthread_cond_t   qpt_cond_t[1] ;
+typedef pthread_cond_t*  qpt_cond ;
 
 typedef pthread_attr_t   qpt_thread_attr_t ;
 
-typedef qpt_mutex_t*     qpt_mutex ;
-typedef qpt_cond_t*      qpt_cond ;
 
 /*==============================================================================
  * Thread Creation -- see qpthreads.c for further discussion.
  *
  * NB: it is a FATAL error to attempt these if !qpthreads_enabled.
  */
-
 enum qpt_attr_options
 {
   qpt_attr_joinable        = 0,         /* the default for Quagga       */
 
-  qpt_attr_detached        = 0x0001,    /* otherwise will set joinable  */
+  qpt_attr_detached        = BIT(0),    /* otherwise will set joinable  */
 
-  qpt_attr_sched_inherit   = 0x0002,    /* otherwise will use default   */
+  qpt_attr_sched_inherit   = BIT(1),    /* otherwise will use default   */
 
-  qpt_attr_sched_scope     = 0x0004,    /* otherwise inherit/default    */
-  qpt_attr_sched_policy    = 0x0008,    /* otherwise inherit/default    */
-  qpt_attr_sched_priority  = 0x0010,    /* otherwise inherit/default    */
+  qpt_attr_sched_scope     = BIT(2),    /* otherwise inherit/default    */
+  qpt_attr_sched_policy    = BIT(3),    /* otherwise inherit/default    */
+  qpt_attr_sched_priority  = BIT(4),    /* otherwise inherit/default    */
 } ;
 
 #define qpt_attr_sched_explicit  ( qpt_attr_sched_scope   \
@@ -140,11 +158,11 @@ qpt_thread_join(qpt_thread_t thread_id) ;
 /*==============================================================================
  * qpthreads_enabled support -- NOT FOR PUBLIC CONSUMPTION !
  */
-Private uint8_t qpthreads_enabled_flag ;        /* DO NOT TOUCH THIS PLEASE  */
-Private uint8_t qpthreads_thread_created_flag ; /* DO NOT TOUCH THIS PLEASE  */
+Private bool qpthreads_enabled_flag ;        /* DO NOT TOUCH THIS PLEASE  */
+Private bool qpthreads_thread_created_flag ; /* DO NOT TOUCH THIS PLEASE  */
 
-Private int
-qpt_set_qpthreads_enabled(int how) ;    /* qpthreads_enabled := how          */
+Private bool
+qpt_set_qpthreads_enabled(bool want_enabled) ; /* qpthreads_enabled := want  */
 
 Private int
 qpt_freeze_qpthreads_enabled(void) ;    /* get and freeze qpthreads_enabled  */
@@ -205,22 +223,25 @@ Inline bool qpt_thread_is_self(qpt_thread_t id)
 
 enum qpt_mutex_options
 {
-  qpt_mutex_quagga      = 0x0000,       /* Quagga's default     */
-  qpt_mutex_normal      = 0x0001,
-  qpt_mutex_recursive   = 0x0002,
-  qpt_mutex_errorcheck  = 0x0003,
-  qpt_mutex_default     = 0x0004,       /* system default       */
+  qpt_mutex_quagga      = 0,            /* Quagga's default     */
+  qpt_mutex_normal,
+  qpt_mutex_recursive,
+  qpt_mutex_errorcheck,
+  qpt_mutex_default,                    /* system default       */
 } ;
 
 #ifndef QPT_MUTEX_TYPE_DEFAULT
 # define QPT_MUTEX_TYPE_DEFAULT  PTHREAD_MUTEX_NORMAL
 #endif
 
+enum
+{
 #if QPTHREADS_DEBUG
-# define QPT_MUTEX_TYPE  PTHREAD_MUTEX_ERRORCHECK
+  QPT_MUTEX_TYPE  = PTHREAD_MUTEX_ERRORCHECK
 #else
-# define QPT_MUTEX_TYPE  QPT_MUTEX_TYPE_DEFAULT
+  QPT_MUTEX_TYPE  = QPT_MUTEX_TYPE_DEFAULT
 #endif
+} ;
 
 extern qpt_mutex                        /* freezes qpthreads_enabled    */
 qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts) ;
@@ -320,7 +341,7 @@ qpt_mutex_lock(qpt_mutex mx)
 {
   if (qpthreads_enabled)
     {
-#if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
+#if QPTHREADS_DEBUG
       pthread_mutex_lock(mx) ;
 #else
       int err = pthread_mutex_lock(mx) ;
@@ -330,7 +351,8 @@ qpt_mutex_lock(qpt_mutex mx)
     } ;
 } ;
 
-/* Try to lock given mutex  -- every time a winner if !qpthreads_enabled.
+/*------------------------------------------------------------------------------
+ * Try to lock given mutex  -- every time a winner if !qpthreads_enabled.
  *
  * Returns: lock succeeded (1 => have locked, 0 => unable to lock).
  *
@@ -354,23 +376,19 @@ qpt_mutex_trylock(qpt_mutex mx)
     return 1 ;
 } ;
 
-/* Unlock given mutex  -- or do nothing if !qpthreads_enabled.
+/*------------------------------------------------------------------------------
+ * Unlock given mutex  -- or do nothing if !qpthreads_enabled.
  *
- * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
- * return value is valid -- zabort_errno if it isn't.
+ * Checks that the return value is valid -- zabort_err if it isn't.
  */
 Inline void
 qpt_mutex_unlock(qpt_mutex mx)
 {
   if (qpthreads_enabled)
     {
-#if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
-      pthread_mutex_unlock(mx) ;
-#else
       int err = pthread_mutex_unlock(mx) ;
       if (err != 0)
         zabort_err("pthread_mutex_unlock failed", err) ;
-#endif
     } ;
 } ;
 
@@ -378,73 +396,111 @@ qpt_mutex_unlock(qpt_mutex mx)
  * Condition variable inline functions
  */
 
-/* Wait for given condition variable  -- do nothing if !qpthreads_enabled
+/*------------------------------------------------------------------------------
+ * Wait for given condition variable  -- do nothing if !qpthreads_enabled
  *
- * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
- * return value is valid -- zabort_errno if it isn't.
+ * Checks that the return value is valid -- zabort_err if it isn't.
  */
 Inline void
 qpt_cond_wait(qpt_cond cv, qpt_mutex mx)
 {
   if (qpthreads_enabled)
     {
-#if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
-      pthread_cond_wait(cv, mx) ;
-#else
       int err = pthread_cond_wait(cv, mx) ;
       if (err != 0)
         zabort_err("pthread_cond_wait failed", err) ;
-#endif
     } ;
 } ;
 
-/* Signal given condition   -- do nothing if !qpthreads_enabled
+/*------------------------------------------------------------------------------
+ * Signal given condition   -- do nothing if !qpthreads_enabled
  *
- * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
- * return value is valid -- zabort_errno if it isn't.
+ * Checks that the return value is valid -- zabort_err if it isn't.
  */
 Inline void
 qpt_cond_signal(qpt_cond cv)
 {
   if (qpthreads_enabled)
     {
-#if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
-      pthread_cond_signal(cv) ;
-#else
       int err = pthread_cond_signal(cv) ;
       if (err != 0)
         zabort_err("pthread_cond_signal failed", err) ;
-#endif
     } ;
 } ;
 
-/* Broadcast given condition   -- do nothing if !qpthreads_enabled
+/*------------------------------------------------------------------------------
+ * Broadcast given condition   -- do nothing if !qpthreads_enabled
  *
- * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
- * return value is valid -- zabort_errno if it isn't.
+ * Checks that the return value is valid -- zabort_err if it isn't.
  */
 Inline void
 qpt_cond_broadcast(qpt_cond cv)
 {
   if (qpthreads_enabled)
     {
-#if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
-      pthread_cond_broadcast(cv) ;
-#else
       int err = pthread_cond_broadcast(cv) ;
       if (err != 0)
         zabort_err("pthread_cond_broadcast failed", err) ;
-#endif
     } ;
 } ;
 
 /*==============================================================================
  * Signal Handling.
  */
-void                            /* FATAL error if !qpthreads_enabled  */
+extern void                     /* sigprocmask() if !qpthreads_enabled  */
 qpt_thread_sigmask(int how, const sigset_t* set, sigset_t* oset) ;
 
-void                            /* FATAL error if !qpthreads_enabled  */
+extern void                     /* FATAL error if !qpthreads_enabled    */
 qpt_thread_signal(qpt_thread_t thread, int signum) ;
+
+/*==============================================================================
+ * Thread Specific Data Handling.
+ *
+ * Note that if !qpthreads_enabled, this maintains the data value, without
+ * using any pthread primitives.
+ *
+ * Note also that this does not support the pthread value destructor -- because
+ * cannot support that for non qpthreads_enabled (straightforwardly, anyway).
+ */
+union qpt_data
+{
+  pthread_key_t key ;         /* if qpthreads_enabled         */
+  void*         value ;       /* otherwise                    */
+  const void*   cvalue ;
+} ;
+
+typedef union qpt_data  qpt_data_t[1] ;
+typedef union qpt_data* qpt_data ;
+
+extern void qpt_data_create(qpt_data data) ;
+extern void qpt_data_delete(qpt_data data) ;
+
+/*------------------------------------------------------------------------------
+ * Set thread specific data value -- value is void*
+ */
+Inline void
+qpt_data_set_value(qpt_data data, const void* value)
+{
+  if (qpthreads_enabled)
+    {
+      int err = pthread_setspecific(data->key, value) ;
+      if (err != 0)
+        zabort_err("pthread_setspecific failed", err) ;
+    }
+  else
+    data->cvalue = value ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get thread specific data value -- value is void*
+ */
+Inline void*
+qpt_data_get_value(qpt_data data)
+{
+  if (qpthreads_enabled)
+    return pthread_getspecific(data->key) ;
+  else
+    return data->value ;
+} ;
 
 #endif /* _ZEBRA_QPTHREADS_H */

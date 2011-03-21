@@ -913,14 +913,15 @@ route_map_finish (void)
 }
 
 /* VTY related functions. */
-DEFUN (route_map,
-       route_map_cmd,
-       "route-map WORD (deny|permit) <1-4294967295>",
-       "Create route-map or enter route-map command mode\n"
-       "Route map tag\n"
-       "Route map denies set operations\n"
-       "Route map permits set operations\n"
-       "Sequence to insert to/delete from existing route-map entry\n")
+DEFUN_ATTR (route_map,
+           route_map_cmd,
+           "route-map WORD (deny|permit) <1-4294967295>",
+           "Create route-map or enter route-map command mode\n"
+           "Route map tag\n"
+           "Route map denies set operations\n"
+           "Route map permits set operations\n"
+           "Sequence to insert to/delete from existing route-map entry\n",
+           CMD_ATTR_NODE + RMAP_NODE)
 {
   int permit;
   unsigned long seq;

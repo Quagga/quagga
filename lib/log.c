@@ -25,13 +25,14 @@
 #include <zebra.h>
 
 #include "log.h"
-#include "vty.h"
+#include "log_local.h"
+#include "vty_log.h"
 #include "memory.h"
-#include "command_local.h"
+
 #ifndef SUNOS_5
 #include <sys/un.h>
 #endif
-/* for printstack on solaris */
+/* for printstack on solaris    */
 #ifdef HAVE_UCONTEXT_H
 #include <ucontext.h>
 #endif
@@ -39,18 +40,11 @@
 #include "qfstring.h"
 #include "sigevent.h"
 
-/* log is protected by the same mutext as vty, see comments in vty.c */
-
-/* prototypes */
-static int uzlog_reset_file (struct zlog *zl);
-static void zlog_abort (const char *mess) __attribute__ ((noreturn));
-static void vzlog (struct zlog *zl, int priority, const char *format, va_list args);
+/*------------------------------------------------------------------------------
+ * Prototypes
+ */
+static void zlog_abort (const char *mess) __attribute__ ((noreturn)) ;
 static void uzlog_backtrace(int priority);
-static void uvzlog (struct zlog *zl, int priority, const char *format, va_list args);
-
-static int logfile_fd = -1;	/* Used in signal handler. */
-
-struct zlog *zlog_default = NULL;
 
 const char *zlog_proto_names[] =
 {
@@ -80,7 +74,281 @@ const char *zlog_priority[] =
   NULL,
 };
 
+/*------------------------------------------------------------------------------
+ * Static variables
+ */
+struct zlog* zlog_default = NULL;
+
+struct zlog* zlog_list    = NULL ;
+
+static volatile sig_atomic_t max_maxlvl = INT_MAX ;
+
+qpt_mutex_t log_mutex ;
+
+int log_lock_count    = 0 ;
+int log_assert_fail   = 0 ;
+
 /*==============================================================================
+ * Log locking and relationship with VTY.
+ *
+ * For pthreads purposes there is a LOG_LOCK() mutex.
+ *
+ * To support interaction with the VTY:
+ *
+ *   a. setting logging configuration.
+ *
+ *   b. issuing log messages within the VTY
+ *
+ * the LOG_LOCK() may be collected while VTY_LOCK() -- BUT NOT vice versa !
+ * This is not too difficult, because the logging has no need to call VTY
+ * functions...  except for "vty monitor" VTY, so, for that purpose:
+ *
+ *   a. for each monitor VTY there is a "monitor_fifo", into which log messages
+ *      are place if required.  This buffer and some related flags must be
+ *      handled under the LOG_LOCK().
+ *
+ *      The vty_log() function takes care of this, and takes care of prompting
+ *      the vty(s) to output the contents of the fifo.
+ *
+ *      This will be called under LOG_LOCK().  It will NOT VTY_LOCK().  It
+ *      will return promptly.
+ *
+ *   b. once any logging has been handed to the VTY, the logging can forget
+ *      about it.
+ *
+ *   c. the interface from logging to VTY is in vty_log.h
+ *
+ * The logging system supports some logging once a signal (in particular,
+ * the hard exceptions, such as SIGSEGV) has gone off and the system is being
+ * brought to a dead stop.  A separate mechanism is provided for outputting
+ * directly to any vty monitor VTY -- at a file descriptor level !
+ *
+ * The VTY may call logging functions in the same was as any other part of the
+ * system.  When interacting with configuration etc, may need to acquire the
+ * LOG_LOCK, etc.  The interface from VTY to logging is in log_local.h.
+ */
+
+/*------------------------------------------------------------------------------
+ * Further initialisation for qpthreads.
+ *
+ * This is done during "second stage" initialisation, when all nexuses have
+ * been set up and the qpthread_enabled state established.
+ *
+ * Initialise mutex.
+ *
+ * NB: may be called once and once only.
+ */
+extern void
+log_init_r(void)
+{
+  qpt_mutex_init(log_mutex, qpt_mutex_recursive);
+} ;
+
+/*------------------------------------------------------------------------------
+ * Close down for qpthreads.
+ */
+extern void
+log_finish(void)
+{
+  qpt_mutex_destroy(log_mutex, 0);
+} ;
+
+/*==============================================================================
+ * The actual logging function and creation of the logging lines.
+ *
+ */
+#define TIMESTAMP_FORM "%Y/%m/%d %H:%M:%S"
+
+/* Structure used to hold line for log output -- so that need be generated
+ * just once even if output to multiple destinations.
+ *
+ * Note that the buffer length is a hard limit (including terminating "\n")
+ * Do not wish to malloc any larger buffer while logging.
+ */
+enum { logline_buffer_len = 1008 } ;
+
+struct logline {
+  size_t  len ;         /* length including either '\r''\n' or '\n'     */
+
+  char line[logline_buffer_len]; /* buffer                              */
+} ;
+
+typedef struct logline  logline_t[1] ;
+typedef struct logline* logline ;
+
+static void uvzlog_line(logline ll, struct zlog *zl, int priority,
+                                               const char *format, va_list va) ;
+static void uquagga_timestamp(qf_str qfs, int timestamp_precision) ;
+
+/*==============================================================================
+ * The main logging function.
+ */
+extern void
+zlog (struct zlog *zl, int priority, const char *format, ...)
+{
+  logline_t     ll ;
+
+  /* Decide whether any logging at all is required.
+   *
+   * NB: the max_maxlvl is established every time any change is made to
+   *     logging facilities.  Those changes are made under LOG_LOCK(), so
+   *     only one thread will write to max_max_lvl at any time, and that
+   *     will be consistent with the state of all known logging at the
+   *     time.
+   *
+   *     The max_maxlvl is sig_atomic_t and volatile.  So, we assume that:
+   *
+   *       a) writing to max_maxlvl is atomic wrt all forms of interrupt.
+   *          So the variable cannot exist in a partly written state (with,
+   *          say, some bytes of the old value and some of the new).
+   *
+   *       b) reading max_maxlvl will either collect the state before some
+   *          change to the logging levels, or after.
+   *
+   *          If passes the initial test, immediately acquires the LOG_LOCK().
+   *
+   *          So, if the logging facilities are being changed, then:
+   *
+   *            a) if the level is about to be increased, so the current
+   *               priority would pass, then that change is just too late
+   *               for this particular logging operation.
+   *
+   *            b) if the level is about to be reduced, will get past the
+   *               initial test, but will fail the later tests, under the
+   *               LOG_LOCK().
+   *
+   * NB: max_maxlvl is statically initialised to INT_MAX !
+   */
+  if (priority > max_maxlvl)
+    return ;
+
+  /* Decide where we are logging to.                                    */
+
+  LOG_LOCK() ;
+
+  if (zl == NULL)
+    {
+      zl = zlog_default ;
+
+      if (zl == NULL)
+        {
+          /* Have to get up very early in the morning to get to here, because
+           * zlog_default should be initialised -- by openzlog() -- very early
+           * indeed.
+           *
+           * So... "log" to stderr.
+           */
+          va_list va;
+          va_start(va, format);
+          uvzlog_line(ll, zl, priority, format, va) ;
+          va_end (va);
+
+          write(fileno(stderr), ll->line, ll->len) ;
+
+          return ;
+        } ;
+    } ;
+
+  /* Step through the logging destinations and log as required.         */
+
+  ll->len = 0 ;                 /* Nothing generated, yet               */
+
+  /* Syslog output                                          */
+  if (priority <= zl->emaxlvl[ZLOG_DEST_SYSLOG])
+    {
+      va_list va;
+      va_start(va, format);
+      vsyslog (priority|zlog_default->facility, format, va);
+      va_end(va);
+    }
+
+  /* File output.                                           */
+  if (priority <= zl->emaxlvl[ZLOG_DEST_FILE])
+    {
+      if (ll->len == 0)
+        {
+          va_list va;
+          va_start(va, format);
+          uvzlog_line(ll, zl, priority, format, va) ;
+          va_end (va);
+        } ;
+      write(zl->file_fd, ll->line, ll->len) ;
+    }
+
+  /* stdout output.                                         */
+  if (priority <= zl->emaxlvl[ZLOG_DEST_STDOUT])
+    {
+      if (ll->len == 0)
+        {
+          va_list va;
+          va_start(va, format);
+          uvzlog_line(ll, zl, priority, format, va) ;
+          va_end (va);
+        } ;
+      write(zl->stdout_fd, ll->line, ll->len) ;
+    }
+
+  /* Terminal monitor.                                      */
+  if (priority <= zl->emaxlvl[ZLOG_DEST_MONITOR])
+    {
+      if (ll->len == 0)
+        {
+          va_list va;
+          va_start(va, format);
+          uvzlog_line(ll, zl, priority, format, va) ;
+          va_end (va);
+        } ;
+      vty_log(priority, ll->line, ll->len - 1) ;    /* less the '\n' */
+    } ;
+
+  LOG_UNLOCK() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Preparation of line to send to logging: file, stdout or "monitor" terminals.
+ */
+static void
+uvzlog_line(logline ll, struct zlog *zl, int priority,
+                                               const char *format, va_list va)
+{
+  const char* q ;
+  qf_str_t    qfs ;
+
+  qfs_init(qfs, ll->line, sizeof(ll->line) - 1) ; /* leave space for '\n' */
+  /* "<time stamp>"                                                     */
+  uquagga_timestamp(qfs, (zl != NULL) ? zl->timestamp_precision : 0) ;
+
+  qfs_append_n(qfs, " ", 1) ;
+
+  /* "<priority>: " if required                                         */
+  if ((zl != NULL) && zl->record_priority)
+    {
+      qfs_append(qfs, zlog_priority[priority]) ;
+      qfs_append(qfs, ": ") ;
+    } ;
+
+  /* "<protocol>: " or "unknown: "                                      */
+  if (zl != NULL)
+    q = zlog_proto_names[zl->protocol] ;
+  else
+    q = "unknown" ;
+
+  qfs_append(qfs, q) ;
+  qfs_append(qfs, ": ") ;
+
+  /* Now the log line itself (uses a *copy* of the va_list)             */
+  qfs_vprintf(qfs, format, va) ;
+
+  /* Set pointer to where the '\n' is going                             */
+  qfs_append_n(qfs, "\n", 1) ;
+  ll->len = qfs_len(qfs) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Fill buffer with current time, to given number of decimal digits.
+ *
+ * If given buffer is too small, provides as many characters as possible.
+
  * Time stamp handling -- gettimeofday(), localtime() and strftime().
  *
  * Maintains a cached form of the current time (under the vty/log mutex), so
@@ -88,15 +356,28 @@ const char *zlog_priority[] =
  *
  * The value from gettimeofday() is in micro-seconds.  Can provide timestamp
  * with any number of decimal digits, but at most 6 will be significant.
- */
-
-static void uquagga_timestamp(qf_str qfs, int timestamp_precision) ;
-
-/*------------------------------------------------------------------------------
- * Fill buffer with current time, to given number of decimal digits.
  *
- * If given buffer is too small, provides as many characters as possible.
+ * Puts a current timestamp in buf and returns the number of characters
+ * written (not including the terminating NUL).  The purpose of
+ * this function is to avoid calls to localtime appearing all over the code.
+ * It caches the most recent localtime result and can therefore
+ * avoid multiple calls within the same second.
  *
+ * The buflen MUST be > 1 and the buffer address MUST NOT be NULL.
+ *
+ * If buflen is too small, writes buflen-1 characters followed by '\0'.
+ *
+ * Time stamp is rendered in the form: %Y/%m/%d %H:%M:%S
+ *
+ * This has a fixed length (leading zeros are included) of 19 characters
+ * (unless this code is still in use beyond the year 9999 !)
+ *
+ * Which may be followed by "." and a number of decimal digits, usually 1..6.
+ *
+ * So the maximum time stamp is 19 + 1 + 6 = 26.  Adding the trailing '\n', and
+ * rounding up for good measure -- buffer size = 32.
+
+
  * Returns: number of characters in buffer, not including trailing '\0'.
  *
  * NB: does no rounding.
@@ -108,18 +389,21 @@ quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
 {
   qf_str_t qfs ;
 
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  qfs_init(&qfs, buf, buflen) ;
-  uquagga_timestamp(&qfs, timestamp_precision) ;
+  qfs_init(qfs, buf, buflen) ;
+  uquagga_timestamp(qfs, timestamp_precision) ;
 
-  VTY_UNLOCK() ;
-  return qfs_len(&qfs) ;
+  LOG_UNLOCK() ;
+  return qfs_len(qfs) ;
 }
 
 /*------------------------------------------------------------------------------
  * unprotected version for when mutex already held
  */
+
+// used in uvzlog_line
+
 static void
 uquagga_timestamp(qf_str qfs, int timestamp_precision)
 {
@@ -134,7 +418,7 @@ uquagga_timestamp(qf_str qfs, int timestamp_precision)
   /* would it be sufficient to use global 'recent_time' here?  I fear not... */
   gettimeofday(&clock, NULL);
 
-  /* first, we update the cache if the time has changed */
+  /* first, we update the cache if the seconds time has changed             */
   if (cache.last != clock.tv_sec)
     {
       struct tm tm;
@@ -173,137 +457,54 @@ uquagga_timestamp(qf_str qfs, int timestamp_precision)
 } ;
 
 /*==============================================================================
- * va_list version of zlog
- */
-static void
-vzlog (struct zlog *zl, int priority, const char *format, va_list args)
-{
-  VTY_LOCK() ;
-  uvzlog(zl, priority, format, args);
-  VTY_UNLOCK() ;
-}
-
-/* va_list version of zlog. Unprotected assumes mutex already held*/
-static void
-uvzlog (struct zlog *zl, int priority, const char *format, va_list va)
-{
-  struct logline ll ;           /* prepares line for output, here       */
-
-  VTY_ASSERT_LOCKED() ;
-
-  ll.p_nl = NULL ;              /* Nothing generated, yet               */
-
-  /* If zlog is not specified, use default one.                 */
-  if (zl == NULL)
-    zl = zlog_default ;
-
-  /* When zlog_default is also NULL, use stderr for logging.    */
-  if (zl == NULL)
-    {
-      uvzlog_line(&ll, zl, priority, format, va, llt_lf) ;
-      write(fileno(stderr), ll.line, ll.len) ;
-    }
-  else
-    {
-      /* Syslog output                                          */
-      if (priority <= zl->maxlvl[ZLOG_DEST_SYSLOG])
-        {
-          va_list ac;
-          va_copy(ac, va);
-          vsyslog (priority|zlog_default->facility, format, ac);
-          va_end(ac);
-        }
-
-      /* File output.                                           */
-      if ((priority <= zl->maxlvl[ZLOG_DEST_FILE]) && zl->fp)
-        {
-          uvzlog_line(&ll, zl, priority, format, va, llt_lf) ;
-          write(fileno(zl->fp), ll.line, ll.len) ;
-        }
-
-      /* stdout output. */
-      if (priority <= zl->maxlvl[ZLOG_DEST_STDOUT])
-        {
-          uvzlog_line(&ll, zl, priority, format, va, llt_lf) ;
-          write(fileno(zl->fp), ll.line, ll.len) ;
-        }
-
-      /* Terminal monitor. */
-      if (priority <= zl->maxlvl[ZLOG_DEST_MONITOR])
-        uty_log(&ll, zl, priority, format, va) ;
-    }
-}
-
-/*------------------------------------------------------------------------------
- * Preparation of line to send to logging: file, stdout or "monitor" terminals.
  *
- * Takes copy of va_list before using it, so the va_list is unchanged.
  */
-extern void
-uvzlog_line(struct logline* ll, struct zlog *zl, int priority,
-                              const char *format, va_list va, enum ll_term term)
+
+void
+_zlog_assert_failed (const char *assertion, const char *file,
+    unsigned int line, const char *function)
 {
-  char*       p ;
-  const char* q ;
+  const static size_t buff_size = 1024;
+  char buff[buff_size];
+  snprintf(buff, buff_size,
+          "Assertion `%s' failed in file %s, line %u, function %s",
+          assertion, file, line, (function ? function : "?"));
+  zlog_abort(buff);
+}
 
-  p = ll->p_nl ;
+/* Abort with message                                           */
+void
+_zlog_abort_mess (const char *mess, const char *file,
+    unsigned int line, const char *function)
+{
+  const static size_t buff_size = 1024;
+  char buff[buff_size];
+  snprintf(buff, buff_size, "%s, in file %s, line %u, function %s",
+          mess, file, line, (function ? function : "?"));
+  zlog_abort(buff);
+}
 
-  if (p != NULL)
-    {
-      /* we have the line -- just need to worry about the crlf state    */
-      if (term == ll->term)
-        return ;                /* exit here if all set */
-    }
-  else
-    {
-      /* must construct the line                                        */
-      qf_str_t qfs ;
-      va_list vac ;
+/* Abort with message and errno and strerror() thereof          */
+void
+_zlog_abort_errno (const char *mess, const char *file,
+    unsigned int line, const char *function)
+{
+  _zlog_abort_err(mess, errno, file, line, function);
+}
 
-      qfs_init(&qfs, ll->line, sizeof(ll->line) - 2) ;
-                                      /* leave space for '\n' or '\r''\n'   */
-      /* "<time stamp>"                                                     */
-      uquagga_timestamp(&qfs, (zl != NULL) ? zl->timestamp_precision : 0) ;
-
-      qfs_append_n(&qfs, " ", 1) ;
-
-      /* "<priority>: " if required                                     */
-      if ((zl != NULL) && (zl->record_priority))
-        {
-          qfs_append(&qfs, zlog_priority[priority]) ;
-          qfs_append(&qfs, ": ") ;
-        } ;
-
-      /* "<protocol>: " or "unknown: "                                  */
-      if (zl != NULL)
-        q = zlog_proto_names[zl->protocol] ;
-      else
-        q = "unknown" ;
-
-      qfs_append(&qfs, q) ;
-      qfs_append(&qfs, ": ") ;
-
-      /* Now the log line itself                                        */
-      va_copy(vac, va);
-      qfs_vprintf(&qfs, format, vac) ;
-      va_end(vac);
-
-      /* Set pointer to where the '\0' is.                              */
-      p = ll->p_nl = qfs_ptr(&qfs) ;
-    } ;
-
-  /* finish off with '\r''\n''\0' or '\n''\0' as required               */
-  if (term == llt_crlf)
-    *p++ = '\r' ;
-
-  if (term != llt_nul)
-    *p++ = '\n' ;
-
-  *p = '\0' ;
-
-  ll->len = p - ll->line ;
-  ll->term = term ;
-} ;
+/* Abort with message and given error and strerror() thereof    */
+void
+_zlog_abort_err (const char *mess, int err, const char *file,
+    unsigned int line, const char *function)
+{
+  const static size_t buff_size = 1024;
+  char buff[buff_size];
+  snprintf(buff, buff_size,
+          "%s, in file %s, line %u, function %s, %s",
+          mess, file, line, (function ? function : "?"),
+          errtoa(err, 0).str);
+  zlog_abort(buff);
+}
 
 /*============================================================================*/
 
@@ -444,18 +645,18 @@ open_crashlog(void)
 #undef CRASHLOG_PREFIX
 }
 
-/* Note: the goal here is to use only async-signal-safe functions. */
-void
-zlog_signal(int signo, const char *action
-#ifdef SA_SIGINFO
-	    , siginfo_t *siginfo, void *program_counter
-#endif
-	   )
+/*------------------------------------------------------------------------------
+ * Note: the goal here is to use only async-signal-safe functions.
+ */
+extern void
+zlog_signal(int signo, const char *action, siginfo_t *siginfo,
+                                                          void *program_counter)
 {
   time_t now;
   char buf[sizeof("DEFAULT: Received signal S at T (si_addr 0xP, PC 0xP); aborting...")+100];
   char *s = buf;
   char *msgstart = buf;
+  int  file_fd ;
 #define LOC s,buf+sizeof(buf)-s
 
   time(&now);
@@ -489,10 +690,16 @@ zlog_signal(int signo, const char *action
   /* N.B. implicit priority is most severe */
 #define PRI LOG_CRIT
 
-#define DUMP(FD) write(FD, buf, s-buf);
+#define DUMP(FD) write(FD, buf, s - buf);
+
   /* If no file logging configured, try to write to fallback log file. */
-  if ((logfile_fd >= 0) || ((logfile_fd = open_crashlog()) >= 0))
-    DUMP(logfile_fd)
+  file_fd = (zlog_default != NULL) ? zlog_default->file_fd : -1 ;
+  if (file_fd < 0)
+    file_fd = open_crashlog() ;
+
+  if (file_fd >= 0)
+    DUMP(file_fd)
+
   if (!zlog_default)
     DUMP(STDERR_FILENO)
   else
@@ -502,7 +709,7 @@ zlog_signal(int signo, const char *action
       /* Remove trailing '\n' for monitor and syslog */
       *--s = '\0';
       if (PRI <= zlog_default->maxlvl[ZLOG_DEST_MONITOR])
-        vty_log_fixed(buf,s-buf);
+        vty_log_fixed(buf, s - buf);
       if (PRI <= zlog_default->maxlvl[ZLOG_DEST_SYSLOG])
 	syslog_sigsafe(PRI|zlog_default->facility,msgstart,s-msgstart);
     }
@@ -537,6 +744,7 @@ zlog_backtrace_sigsafe(int priority, void *program_counter)
   int size;
   char buf[100];
   char *s, **bt = NULL;
+  int  file_fd ;
 #define LOC s,buf+sizeof(buf)-s
 
 #ifdef HAVE_GLIBC_BACKTRACE
@@ -567,8 +775,13 @@ zlog_backtrace_sigsafe(int priority, void *program_counter)
   s = num_append(LOC,size);
   s = str_append(LOC," stack frames:\n");
 
-  if ((logfile_fd >= 0) || ((logfile_fd = open_crashlog()) >= 0))
-    DUMP(logfile_fd)
+  file_fd = (zlog_default != NULL) ? zlog_default->file_fd : -1 ;
+  if (file_fd < 0)
+    file_fd = open_crashlog() ;
+
+  if (file_fd >= 0)
+    DUMP(file_fd)
+
   if (!zlog_default)
     DUMP(STDERR_FILENO)
   else
@@ -616,16 +829,16 @@ zlog_backtrace_sigsafe(int priority, void *program_counter)
 void
 zlog_backtrace(int priority)
 {
-  VTY_LOCK() ;
+  LOG_LOCK() ;
   uzlog_backtrace(priority);
-  VTY_UNLOCK() ;
+  LOG_UNLOCK() ;
 }
 
 static void
 uzlog_backtrace(int priority)
 {
 #ifndef HAVE_GLIBC_BACKTRACE
-  uzlog(NULL, priority, "No backtrace available on this platform.");
+  zlog(NULL, priority, "No backtrace available on this platform.");
 #else
   void *array[20];
   int size, i;
@@ -634,161 +847,79 @@ uzlog_backtrace(int priority)
   if (((size = backtrace(array,sizeof(array)/sizeof(array[0]))) <= 0) ||
       ((size_t)size > sizeof(array)/sizeof(array[0])))
     {
-      uzlog(NULL, LOG_ERR, "Cannot get backtrace, returned invalid # of frames %d "
+      zlog(NULL, LOG_ERR, "Cannot get backtrace, returned invalid # of frames %d "
 	       "(valid range is between 1 and %lu)",
 	       size, (unsigned long)(sizeof(array)/sizeof(array[0])));
       return;
     }
-  uzlog(NULL, priority, "Backtrace for %d stack frames:", size);
+  zlog(NULL, priority, "Backtrace for %d stack frames:", size);
   if (!(strings = backtrace_symbols(array, size)))
     {
-      uzlog(NULL, LOG_ERR, "Cannot get backtrace symbols (out of memory?)");
+      zlog(NULL, LOG_ERR, "Cannot get backtrace symbols (out of memory?)");
       for (i = 0; i < size; i++)
-	uzlog(NULL, priority, "[bt %d] %p",i,array[i]);
+	zlog(NULL, priority, "[bt %d] %p",i,array[i]);
     }
   else
     {
       for (i = 0; i < size; i++)
-	uzlog(NULL, priority, "[bt %d] %s",i,strings[i]);
+	zlog(NULL, priority, "[bt %d] %s",i,strings[i]);
       free(strings);
     }
 #endif /* HAVE_GLIBC_BACKTRACE */
 }
 
-/* unlocked version */
-void
-uzlog (struct zlog *zl, int priority, const char *format, ...)
-{
-  va_list args;
-
-  va_start(args, format);
-  uvzlog (zl, priority, format, args);
-  va_end (args);
-}
-
-void
-zlog (struct zlog *zl, int priority, const char *format, ...)
-{
-  va_list args;
-
-  va_start(args, format);
-  vzlog (zl, priority, format, args);
-  va_end (args);
-}
-
-#define ZLOG_FUNC(FUNCNAME,PRIORITY) \
-void \
-FUNCNAME(const char *format, ...) \
-{ \
-  va_list args; \
-  va_start(args, format); \
-  vzlog (NULL, PRIORITY, format, args); \
-  va_end(args); \
-}
-
-ZLOG_FUNC(zlog_err, LOG_ERR)
-
-ZLOG_FUNC(zlog_warn, LOG_WARNING)
-
-ZLOG_FUNC(zlog_info, LOG_INFO)
-
-ZLOG_FUNC(zlog_notice, LOG_NOTICE)
-
-ZLOG_FUNC(zlog_debug, LOG_DEBUG)
-
-#undef ZLOG_FUNC
-
-#define PLOG_FUNC(FUNCNAME,PRIORITY) \
-void \
-FUNCNAME(struct zlog *zl, const char *format, ...) \
-{ \
-  va_list args; \
-  va_start(args, format); \
-  vzlog (zl, PRIORITY, format, args); \
-  va_end(args); \
-}
-
-PLOG_FUNC(plog_err, LOG_ERR)
-
-PLOG_FUNC(plog_warn, LOG_WARNING)
-
-PLOG_FUNC(plog_info, LOG_INFO)
-
-PLOG_FUNC(plog_notice, LOG_NOTICE)
-
-PLOG_FUNC(plog_debug, LOG_DEBUG)
-
-#undef PLOG_FUNC
-
-void
-_zlog_assert_failed (const char *assertion, const char *file,
-    unsigned int line, const char *function)
-{
-  const static size_t buff_size = 1024;
-  char buff[buff_size];
-  snprintf(buff, buff_size,
-          "Assertion `%s' failed in file %s, line %u, function %s",
-          assertion, file, line, (function ? function : "?"));
-  zlog_abort(buff);
-}
-
-/* Abort with message                                           */
-void
-_zlog_abort_mess (const char *mess, const char *file,
-    unsigned int line, const char *function)
-{
-  const static size_t buff_size = 1024;
-  char buff[buff_size];
-  snprintf(buff, buff_size, "%s, in file %s, line %u, function %s",
-          mess, file, line, (function ? function : "?"));
-  zlog_abort(buff);
-}
-
-/* Abort with message and errno and strerror() thereof          */
-void
-_zlog_abort_errno (const char *mess, const char *file,
-    unsigned int line, const char *function)
-{
-  _zlog_abort_err(mess, errno, file, line, function);
-}
-
-/* Abort with message and given error and strerror() thereof    */
-void
-_zlog_abort_err (const char *mess, int err, const char *file,
-    unsigned int line, const char *function)
-{
-  const static size_t buff_size = 1024;
-  char buff[buff_size];
-  snprintf(buff, buff_size,
-          "%s, in file %s, line %u, function %s, %s",
-          mess, file, line, (function ? function : "?"),
-          errtoa(err, 0).str);
-  zlog_abort(buff);
-}
+static void uzlog_set_effective_level(struct zlog* zl) ;
 
 
 static void
 zlog_abort (const char *mess)
 {
-#if VTY_DEBUG
+#if LOG_DEBUG
   /* May not be locked -- but that doesn't matter any more              */
-  ++vty_lock_count ;
+  ++log_lock_count ;
 #endif
 
-  /* Force fallback file logging? */
-  if (zlog_default && !zlog_default->fp &&
-      ((logfile_fd = open_crashlog()) >= 0) &&
-      ((zlog_default->fp = fdopen(logfile_fd, "w")) != NULL))
-    zlog_default->maxlvl[ZLOG_DEST_FILE] = LOG_ERR;
+  if (zlog_default != NULL)
+    {
+      if (zlog_default->file_fd < 0)
+        zlog_default->file_fd = open_crashlog() ;
 
-  uzlog(NULL, LOG_CRIT, "%s", mess);
+      if (zlog_default->file_fd >= 0)
+        {
+          zlog_default->maxlvl[ZLOG_DEST_FILE] = LOG_ERR;
+          uzlog_set_effective_level(zlog_default) ;
+        } ;
+    } ;
+
+  zlog(NULL, LOG_CRIT, "%s", mess);
   uzlog_backtrace(LOG_CRIT);
   zabort_abort();
 }
 
+/*==============================================================================
+ * Opening, closing, setting log levels etc.
+ *
+ */
+static int uzlog_set_file(struct zlog *zl, const char *filename, int level) ;
+static int uzlog_reset_file(struct zlog *zl) ;
+static void uzlog_set_effective_level(struct zlog* zl) ;
 
-/* Open log stream */
-struct zlog *
+/*------------------------------------------------------------------------------
+ * Get the effective zlog stream.
+ */
+static inline struct zlog* zlog_actual(struct zlog* zl)
+{
+  return zl != NULL ? zl : zlog_default ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Open logging -- create and initialise a struct zlog object.
+ *
+ * Opens a connection to syslog.
+ *
+ * This must be done very early in the morning, before any pthreading starts.
+ */
+extern struct zlog *
 openzlog (const char *progname, zlog_proto_t protocol,
 	  int syslog_flags, int syslog_facility)
 {
@@ -797,438 +928,515 @@ openzlog (const char *progname, zlog_proto_t protocol,
 
   zl = XCALLOC(MTYPE_ZLOG, sizeof (struct zlog));
 
-  zl->ident = progname;
-  zl->protocol = protocol;
-  zl->facility = syslog_facility;
+  zl->ident          = progname;
+  zl->protocol       = protocol;
+  zl->facility       = syslog_facility;
   zl->syslog_options = syslog_flags;
 
-  /* Set default logging levels. */
-  for (i = 0; i < sizeof(zl->maxlvl)/sizeof(zl->maxlvl[0]); i++)
-    zl->maxlvl[i] = ZLOG_DISABLED;
-  zl->maxlvl[ZLOG_DEST_MONITOR] = LOG_DEBUG;
-  zl->default_lvl = LOG_DEBUG;
+  /* Set default logging levels.                        */
+  for (i = 0 ; i < ZLOG_DEST_COUNT ; ++i)
+    zl->maxlvl[i]  = ZLOG_DISABLED ;
+
+  zl->default_lvl    = LOG_DEBUG ;
 
   openlog (progname, syslog_flags, zl->facility);
 
-  return zl;
-}
+  zl->syslog    = true ;                /* have syslog          */
+  zl->stdout_fd = fileno(stdout) ;      /* assume have stdout   */
+  zl->file_fd   = -1 ;                  /* no file, yet         */
+  zl->monitors  = 0 ;                   /* no monitors, yet     */
 
-void
+  assert(zlog_list == NULL) ;           /* can do this once !   */
+  zlog_list = zl ;
+
+  uzlog_set_effective_level(zl) ;
+
+  return zl;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Close logging -- destroy struct zlog object.
+ *
+ * Closes connection to syslog and any log file.
+ */
+extern void
 closezlog (struct zlog *zl)
 {
-  closelog();
+  assert((zl == zlog_list) && (zl->next == NULL)) ;     /* pro tem      */
 
-  if (zl->fp != NULL)
-    fclose (zl->fp);
+  closelog();
+  if (zl->file_fd >= 0)
+    close (zl->file_fd) ;
+
+  if (zl->filename != NULL)
+    free (zl->filename) ;
+
+  zl->syslog    = false ;
+  zl->file_fd   = -1 ;
+  zl->stdout_fd = -1 ;
+  zl->monitors  =  0 ;           /* TODO... state of VTY ??             */
+
+  uzlog_set_effective_level(zl) ;
 
   XFREE (MTYPE_ZLOG, zl);
 }
 
-/* Called from command.c. */
-void
-zlog_set_level (struct zlog *zl, zlog_dest_t dest, int log_level)
+/*------------------------------------------------------------------------------
+ * Set new logging level for the given destination.
+ *
+ * Update the effective maxlvl for this zlog, and the max_maxlvl for all zlog.
+ */
+extern void
+zlog_set_level (struct zlog *zl, zlog_dest_t dest, int level)
 {
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
-
-  if (zl != NULL)
+  if ((zl = zlog_actual(zl)) != NULL)
     {
-      zl->maxlvl[dest] = log_level;
+      zl->maxlvl[dest] = level ;
+      uzlog_set_effective_level(zl) ;
     }
 
-  VTY_UNLOCK() ;
+  LOG_UNLOCK() ;
 }
 
-int
-zlog_set_file (struct zlog *zl, const char *filename, int log_level)
+/*------------------------------------------------------------------------------
+ * Set new log file: name and level.
+ *
+ * Note that this closes any existing file
+ *
+ * Returns:  0 => OK
+ *           errno otherwise.
+ */
+extern int
+zlog_set_file(struct zlog *zl, const char *filename, int level)
 {
-  FILE *fp;
-  mode_t oldumask;
-  int result = 1;
+  int err ;
 
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  /* There is opend file.  */
-  uzlog_reset_file (zl);
+  err = uzlog_set_file(zl, filename, level) ;
 
-  /* Set default zl. */
-  if (zl == NULL)
-    zl = zlog_default;
-
-  if (zl != NULL)
-    {
-      /* Open file. */
-      oldumask = umask (0777 & ~LOGFILE_MASK);
-      fp = fopen (filename, "a");
-      umask(oldumask);
-      if (fp == NULL)
-        result = 0;
-      else
-        {
-        /* Set flags. */
-        zl->filename = strdup (filename);
-        zl->maxlvl[ZLOG_DEST_FILE] = log_level;
-        zl->fp = fp;
-        logfile_fd = fileno(fp);
-        }
-    }
-
-  VTY_UNLOCK() ;
-  return result;
-}
-
-/* Reset opend file. */
-int
-zlog_reset_file (struct zlog *zl)
-{
-  int result;
-  VTY_LOCK() ;
-  result = uzlog_reset_file(zl);
-  VTY_UNLOCK() ;
-  return result;
+  LOG_UNLOCK() ;
+  return err ;
 }
 
 static int
-uzlog_reset_file (struct zlog *zl)
-  {
-  if (zl == NULL)
-    zl = zlog_default;
+uzlog_set_file(struct zlog *zl, const char *filename, int level)
+{
+  int err ;
 
-  if (zl != NULL)
+  LOG_ASSERT_LOCKED() ;
+
+  err = 0 ;
+  if ((zl = zlog_actual(zl)) != NULL)
     {
-      if (zl->fp)
-        fclose (zl->fp);
-      zl->fp = NULL;
-      logfile_fd = -1;
+      mode_t oldumask;
+      int fd ;
+
+      /* Close any existing file                                        */
+      uzlog_reset_file(zl);
+
+      /* Open file making damn sure we get the mode we want !           */
+      oldumask = umask (0777 & ~LOGFILE_MASK);
+      fd = open(filename, O_WRONLY | O_APPEND | O_CREAT, LOGFILE_MASK);
+      if (fd < 0)
+        err = errno ;
+      else
+        {
+          /* Set flags. */
+          zl->filename = strdup (filename) ;
+          zl->file_fd  = fd ;
+          zl->maxlvl[ZLOG_DEST_FILE] = level;
+
+          uzlog_set_effective_level(zl) ;
+        } ;
+
+       umask(oldumask);
+    } ;
+
+  return err ;
+}
+
+/*------------------------------------------------------------------------------
+ * Close any existing log file.  Set level to ZLOG_DISABLED.
+ *
+ * Note that this closes any existing file
+ *
+ * Returns:  1
+ */
+extern int
+zlog_reset_file(struct zlog *zl)
+{
+  int ret ;
+  LOG_LOCK() ;
+
+  ret = uzlog_reset_file(zl) ;
+
+  LOG_UNLOCK() ;
+  return ret ;
+}
+
+static int
+uzlog_reset_file(struct zlog *zl)
+{
+  LOG_ASSERT_LOCKED() ;
+
+  if ((zl = zlog_actual(zl)) != NULL)
+    {
+      if (zl->file_fd >= 0)
+        close (zl->file_fd) ;
+
+      zl->file_fd = -1 ;
       zl->maxlvl[ZLOG_DEST_FILE] = ZLOG_DISABLED;
 
-      if (zl->filename)
-        free (zl->filename);
-      zl->filename = NULL;
-    }
+      if (zl->filename != NULL)
+        free (zl->filename) ;
+
+      zl->filename = NULL ;
+
+      uzlog_set_effective_level(zl) ;
+    } ;
 
   return 1;
 }
 
-/* Reopen log file. */
-int
+/*------------------------------------------------------------------------------
+ * Close and reopen log file  -- TODO and the point ??
+ */
+extern int
 zlog_rotate (struct zlog *zl)
 {
-  int level;
-  int result = 1;
+  int   err ;
+  char* filename ;
 
-  VTY_LOCK() ;
+  filename = NULL ;
+  err      = 0 ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  LOG_LOCK() ;
 
-  if (zl != NULL)
+  if ((zl = zlog_actual(zl)) != NULL)
     {
-      if (zl->fp)
-        fclose (zl->fp);
-      zl->fp = NULL;
-      logfile_fd = -1;
-      level = zl->maxlvl[ZLOG_DEST_FILE];
-      zl->maxlvl[ZLOG_DEST_FILE] = ZLOG_DISABLED;
-
-      if (zl->filename)
+      if (zl->file_fd >= 0)
         {
-          mode_t oldumask;
-          int save_errno;
+          filename = zl->filename ;
+          zl->filename = NULL ;         /* co-opt the name      */
 
-          oldumask = umask (0777 & ~LOGFILE_MASK);
-          zl->fp = fopen (zl->filename, "a");
-          save_errno = errno;
-          umask(oldumask);
-          if (zl->fp == NULL)
-            {
-              /* can't call logging while locked */
-              char *fname = strdup(zl->filename);
-              uzlog(NULL, LOG_ERR,
-                   "Log rotate failed: cannot open file %s for append: %s",
-	  	   fname, errtoa(save_errno, 0).str);
-              free(fname);
-              result = -1;
-            }
-          else
-            {
-              logfile_fd = fileno(zl->fp);
-              zl->maxlvl[ZLOG_DEST_FILE] = level;
-            }
-        }
-    }
-  VTY_UNLOCK() ;
-  return result;
+          err = uzlog_set_file(zl, filename, zl->maxlvl[ZLOG_DEST_FILE]) ;
+        } ;
+    } ;
+
+  LOG_UNLOCK() ;
+
+  if (err != 0)
+    zlog(NULL, LOG_ERR,
+           "Log rotate failed: cannot open file %s for append: %s",
+                                                 filename, errtoa(err, 0).str) ;
+  if (filename != NULL)
+    free(filename) ;                    /* discard old copy     */
+
+  return (err == 0) ? 1 : -1 ;
 }
 
-int
+/*------------------------------------------------------------------------------
+ * Increment or decrement the number of monitor terminals.
+ */
+extern void
+uzlog_add_monitor(struct zlog *zl, int count)
+{
+  if ((zl = zlog_actual(zl)) != NULL)
+    {
+      zl->monitors += count ;
+      uzlog_set_effective_level(zl) ;
+    } ;
+}
+
+
+/*------------------------------------------------------------------------------
+ * get the current default level
+ */
+extern int
 zlog_get_default_lvl (struct zlog *zl)
 {
-  int result = LOG_DEBUG;
+  int level ;
 
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  zl = zlog_actual(zl) ;
+  level = (zl != NULL) ? zl->default_lvl : LOG_DEBUG ;
 
-  if (zl != NULL)
-    {
-      result = zl->default_lvl;
-    }
-
-  VTY_UNLOCK() ;
-  return result;
+  LOG_UNLOCK() ;
+  return level ;
 }
 
-void
+/*------------------------------------------------------------------------------
+ * set the default level
+ */
+extern void
 zlog_set_default_lvl (struct zlog *zl, int level)
 {
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  if ((zl = zlog_actual(zl)) != NULL)
+    zl->default_lvl = level;
 
-  if (zl != NULL)
-    {
-      zl->default_lvl = level;
-    }
-
-  VTY_UNLOCK() ;
+  LOG_UNLOCK() ;
 }
 
-/* Set logging level and default for all destinations */
-void
+/*------------------------------------------------------------------------------
+ * Set default logging level and the level for any destination not ZLOG_DISABLED
+ *
+ * Note that on openzlog(), all destinations are set ZLOG_DISABLED.
+ */
+extern void
 zlog_set_default_lvl_dest (struct zlog *zl, int level)
 {
-  int i;
+  LOG_LOCK() ;
 
-  VTY_LOCK() ;
-
-  if (zl == NULL)
-    zl = zlog_default;
-
-  if (zl != NULL)
+  if ((zl = zlog_actual(zl)) != NULL)
     {
+      int i;
+
       zl->default_lvl = level;
 
-      for (i = 0; i < ZLOG_NUM_DESTS; i++)
+      for (i = 0; i < ZLOG_DEST_COUNT; i++)
         if (zl->maxlvl[i] != ZLOG_DISABLED)
-          zl->maxlvl[i] = level;
-    }
+          zl->maxlvl[i] = level ;
 
-  VTY_UNLOCK() ;
-}
+      uzlog_set_effective_level(zl) ;
+    } ;
 
-int
+  LOG_UNLOCK() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the current level for the given destination.
+ */
+extern int
 zlog_get_maxlvl (struct zlog *zl, zlog_dest_t dest)
 {
-  int result = ZLOG_DISABLED;
+  int level ;
 
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  zl = zlog_actual(zl) ;
+  level = (zl != NULL) ? zl->maxlvl[dest] : ZLOG_DISABLED ;
 
-  if (zl != NULL)
-    {
-      result = zl->maxlvl[dest];
-    }
-
-  VTY_UNLOCK() ;
-  return result;
+  LOG_UNLOCK() ;
+  return level;
 }
 
-int
+/*------------------------------------------------------------------------------
+ * Get the current facility setting for syslog
+ */
+extern int
 zlog_get_facility (struct zlog *zl)
 {
-  int result = LOG_DAEMON;
+  int facility ;
 
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  zl = zlog_actual(zl) ;
+  facility = (zl != NULL) ? zl->facility : LOG_DAEMON ;
 
-  if (zl != NULL)
-    {
-      result = zl->facility;
-    }
+  LOG_UNLOCK() ;
+  return facility ;
+} ;
 
-  VTY_UNLOCK() ;
-  return result;
-}
-
-void
+/*------------------------------------------------------------------------------
+ * Set the current facility setting for syslog
+ */
+extern void
 zlog_set_facility (struct zlog *zl, int facility)
 {
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  if ((zl = zlog_actual(zl)) != NULL)
+    zl->facility = facility ;
 
-  if (zl != NULL)
-    {
-      zl->facility = facility;
-    }
-
-  VTY_UNLOCK() ;
+  LOG_UNLOCK() ;
 }
 
-int
+/*------------------------------------------------------------------------------
+ * Get the record priority setting
+ */
+extern bool
 zlog_get_record_priority (struct zlog *zl)
 {
-  int result = 0;
+  bool priority ;
 
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  zl = zlog_actual(zl) ;
+  priority = (zl != NULL) ? zl->record_priority : false ;
 
-  if (zl != NULL)
-    {
-      result = zl->record_priority;
-    }
-
-  VTY_UNLOCK() ;
-  return result;
+  LOG_UNLOCK() ;
+  return priority ;
 }
 
-void
-zlog_set_record_priority (struct zlog *zl, int record_priority)
+/*------------------------------------------------------------------------------
+ * Set the record priority setting
+ */
+extern void
+zlog_set_record_priority (struct zlog *zl, bool record_priority)
 {
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  if ((zl = zlog_actual(zl)) != NULL)
+    zl->record_priority = record_priority ;
 
-  if (zl != NULL)
-    {
-      zl->record_priority = record_priority;
-    }
-  VTY_UNLOCK() ;
+  LOG_UNLOCK() ;
 }
 
-int
+/*------------------------------------------------------------------------------
+ * Get the timestamp precision setting
+ */
+extern int
 zlog_get_timestamp_precision (struct zlog *zl)
 {
-  int result = 0;
+  int precision = 0;
 
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  zl = zlog_actual(zl) ;
+  precision = (zl != NULL) ? zl->timestamp_precision : 0 ;
 
-  if (zl != NULL)
-    {
-      result = zl->timestamp_precision;
-    }
-  VTY_UNLOCK() ;
-  return result;
+  LOG_UNLOCK() ;
+  return precision ;
 }
 
-void
+/*------------------------------------------------------------------------------
+ * Get the timestamp precision setting
+ */
+extern void
 zlog_set_timestamp_precision (struct zlog *zl, int timestamp_precision)
 {
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  if ((zl = zlog_actual(zl)) != NULL)
+    zl->timestamp_precision = timestamp_precision;
 
-  if (zl != NULL)
-    {
-      zl->timestamp_precision = timestamp_precision;
-    }
-
-  VTY_UNLOCK() ;
+  LOG_UNLOCK() ;
 }
 
-/* returns name of ZLOG_NONE if no zlog given and no default set */
-const char *
+/*------------------------------------------------------------------------------
+ * Get name of the protocol -- name of ZLOG_NONE if no zlog set up yet.
+ */
+extern const char *
 zlog_get_proto_name (struct zlog *zl)
 {
-  const char * result;
-  VTY_LOCK() ;
-  result = uzlog_get_proto_name(zl);
-  VTY_UNLOCK() ;
-  return result;
+  const char* name ;
+  LOG_LOCK() ;
+
+  zl = zlog_actual(zl) ;
+  name = zlog_proto_names[(zl != NULL) ? zl->protocol : ZLOG_NONE] ;
+
+  LOG_UNLOCK() ;
+  return name ;
 }
 
-/* unprotected version, assumes mutex held */
-const char *
-uzlog_get_proto_name (struct zlog *zl)
-{
-  zlog_proto_t protocol = ZLOG_NONE;
-
-  if (zl == NULL)
-    zl = zlog_default;
-
-  if (zl != NULL)
-    {
-      protocol = zl->protocol;
-    }
-
-  return zlog_proto_names[protocol];
-}
-
-/* caller must free result */
-char *
+/*------------------------------------------------------------------------------
+ * caller must free result
+ */
+extern char *
 zlog_get_filename (struct zlog *zl)
 {
-  char * result = NULL;
+  char* name = NULL;
 
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
-
-  if (zl != NULL && zl->filename != NULL)
-    {
-      result = strdup(zl->filename);
-    }
-
-  VTY_UNLOCK() ;
-  return result;
+  zl = zlog_actual(zl) ;
+  name = ((zl != NULL) && (zl->filename != NULL)) ? strdup(zl->filename)
+                                                  : NULL ;
+  LOG_UNLOCK() ;
+  return name ;
 }
 
-const char *
+/*------------------------------------------------------------------------------
+ * Get address of ident string
+ */
+extern const char *
 zlog_get_ident (struct zlog *zl)
 {
-  const char * result = NULL;
+  const char* ident ;
 
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  zl = zlog_actual(zl) ;
+  ident = (zl != NULL) ? zl->ident : NULL ;
 
-  if (zl != NULL)
-    {
-      result = zl->ident;
-    }
-
-  VTY_UNLOCK() ;
-  return result;
+  LOG_UNLOCK() ;
+  return ident ;
 }
 
-/* logging to a file? */
-int
+/*------------------------------------------------------------------------------
+ * logging to a file?
+ */
+extern bool
 zlog_is_file (struct zlog *zl)
 {
-  int result = 0;
+  bool is_file ;
 
-  VTY_LOCK() ;
+  LOG_LOCK() ;
 
-  if (zl == NULL)
-    zl = zlog_default;
+  zl = zlog_actual(zl) ;
+  is_file = (zl != NULL) ? (zl->file_fd >= 0) : false ;
 
-  if (zl != NULL)
-    {
-      result = (zl->fp != NULL);
-    }
-
-  VTY_UNLOCK() ;;
-  return result;
+  LOG_UNLOCK() ;;
+  return is_file ;
 }
+
+/*------------------------------------------------------------------------------
+ * Setting of emaxlvl for given destination.
+ */
+inline static void
+uzlog_set_emaxlvl(struct zlog *zl, zlog_dest_t dest, bool test)
+{
+  zl->emaxlvl[dest] = test ? zl->maxlvl[dest] : ZLOG_DISABLED ;
+};
+
+/*------------------------------------------------------------------------------
+ * Update effective logging level for the given destination, and max_maxlvl.
+ *
+ * The effective logging level takes into account whether the destination is
+ * enabled or not.
+ */
+static void
+uzlog_set_effective_level(struct zlog *zl)
+{
+  int emaxlvl ;
+
+  LOG_ASSERT_LOCKED() ;
+
+  /* Re-establish the emaxlvl for this logging stream.                  */
+  uzlog_set_emaxlvl(zl, ZLOG_DEST_SYSLOG,  zl->syslog        ) ;
+  uzlog_set_emaxlvl(zl, ZLOG_DEST_FILE,    zl->file_fd   >= 0) ;
+  uzlog_set_emaxlvl(zl, ZLOG_DEST_STDOUT,  zl->stdout_fd >= 0) ;
+  uzlog_set_emaxlvl(zl, ZLOG_DEST_MONITOR, zl->monitors  >  0) ;
+  confirm(ZLOG_DEST_COUNT == 4) ;
+
+  /* Scan all known logging streams, and re-establish max_maxlvl.
+   *
+   * Do not expect there to be many of these, or that we will change them very
+   * often -- so nothing clever, here.
+   */
+  emaxlvl = ZLOG_DISABLED ;
+  zl = zlog_list ;
+  while (zl != NULL)
+    {
+      uint i ;
+      for (i = 0 ; i < ZLOG_DEST_COUNT ; ++i)
+        if (emaxlvl < zl->emaxlvl[i])
+          emaxlvl = zl->emaxlvl[i] ;
+      zl = zl->next ;
+    } ;
+
+  max_maxlvl = emaxlvl ;
+} ;
+
+/*==============================================================================
+ *
+ */
 
 /* Message lookup function. */
 const char *

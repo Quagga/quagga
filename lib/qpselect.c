@@ -18,6 +18,7 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
+#include "misc.h"
 
 #include <signal.h>
 #include <string.h>
@@ -30,18 +31,32 @@
 #include "vector.h"
 
 /*------------------------------------------------------------------------------
- * Sort out any debug setting
+ * Sort out QPSELECT_DEBUG.
+ *
+ *   Set to 1 if defined, but blank.
+ *   Set to QDEBUG if not defined.
+ *
+ *   Force to 0 if VTY_NO_DEBUG is defined and not zero.
+ *
+ * So: defaults to same as QDEBUG, but no matter what QDEBUG is set to:
+ *
+ *       * can set QPSELECT_DEBUG    == 0 to turn off debug
+ *       *  or set QPSELECT_DEBUG    != 0 to turn on debug
+ *       *  or set QPSELECT_NO_DEBUG != to force debug off
  */
-#ifdef QPSELECT_DEBUG           /* Can be forced from outside           */
-# if QPSELECT_DEBUG
-#  define QPSELECT_DEBUG 1      /* Force 1 or 0                         */
-#else
-#  define QPSELECT_DEBUG 0
+
+#ifdef QPSELECT_DEBUG           /* If defined, make it 1 or 0           */
+# if IS_BLANK_OPTION(QPSELECT_DEBUG)
+#  undef  QPSELECT_DEBUG
+#  define QPSELECT_DEBUG 1
 # endif
-#else
-# ifdef  QDEBUG
-#  define QPSELECT_DEBUG 1      /* Follow QDEBUG                        */
-#else
+#else                           /* If not defined, follow QDEBUG        */
+# define QPSELECT_DEBUG QDEBUG
+#endif
+
+#ifdef QPSELECT_NO_DEBUG        /* Override, if defined                 */
+# if IS_NOT_ZERO_OPTION(QPSELECT_NO_DEBUG)
+#  undef  QPSELECT_DEBUG
 #  define QPSELECT_DEBUG 0
 # endif
 #endif
@@ -283,29 +298,18 @@ qps_selection_ream(qps_selection qps, int free_structure)
 /*------------------------------------------------------------------------------
  * Set the signal mask for the selection.
  *
- * This supports the unmasking of a single signal for the duration of the
+ * This supports the unmasking of one or more signals for the duration of the
  * pselect operation.
  *
- * It is assumed that the set of signals generally masked by a thread is
- * essentially static.  So this function is passed that set.  (So the sigmask
- * argument must have the signum signal masked.)
- *
- * If the set of signals masked by the thread changes, then this function
+ *  * If the set of signals masked by the thread changes, then this function
  * should be called again.
  *
- * Setting a signum == 0 turns OFF the use of the sigmask.
+ * Setting a sigmask == NULL turns OFF the use of the sigmask.
  */
-void
-qps_set_signal(qps_selection qps, int signum, sigset_t sigmask)
+extern void
+qps_set_signal(qps_selection qps, const sigset_t* sigmask)
 {
-  qps->signum  = signum ;
-
-  if (signum != 0)
-    {
-      assert(sigismember(&sigmask, signum)) ;
-      sigdelset(&sigmask, signum) ;
-      qps->sigmask = sigmask ;
-    } ;
+  qps->sigmask = sigmask ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -377,7 +381,7 @@ qps_pselect(qps_selection qps, qtime_t max_wait)
                                 p_fds[qps_write_mnum],
                                 p_fds[qps_error_mnum],
                                 qtime2timespec(&ts, max_wait),
-                                (qps->signum != 0) ? &qps->sigmask : NULL) ;
+                                qps->sigmask) ;
 
   /* If have something, set and return the pending count.               */
   if (n > 0)
@@ -1423,3 +1427,97 @@ qps_selection_validate(qps_selection qps)
   if (n != qps->pend_count)
     zabort("Non-empty bit vector where tried count == 0") ;
 } ;
+
+/*==============================================================================
+ * Miniature pselect -- for where want to wait for a small number of things.
+ */
+
+/*------------------------------------------------------------------------------
+ * Initialise a qps_mini and set one fd in the given mode.
+ *
+ * If the fd is < 0, sets nothing (returns empty qps_mini).
+ *
+ * Zero timeout is an indefinite wait !
+ */
+extern qps_mini
+qps_mini_set(qps_mini qm, int fd, qps_mnum_t mode, uint timeout)
+{
+  qps_super_set_zero(qm->sets, qps_mnum_count) ;
+  qm->fd_last = -1 ;
+
+  qm->interval = QTIME(timeout) ;   /* convert from time in seconds */
+  qm->end_time = qt_add_monotonic(qm->interval) ;
+
+  qps_mini_add(qm, fd, mode) ;
+
+  return qm ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Add given fd in the given mode to the given qps_mini.
+ *
+ * If the fd is < 0, adds nothing (returns qps_mini unchanged).
+ */
+extern qps_mini
+qps_mini_add(qps_mini qm, int fd, qps_mnum_t mode)
+{
+  if (fd >= 0)
+    {
+      FD_SET(fd, &(qm->sets[mode].fdset)) ;
+      if (fd > qm->fd_last)
+        qm->fd_last = fd ;
+    } ;
+
+  return qm ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Wait for a qps_mini -- with given timeout, in seconds.
+ *
+ * If !signal, loops on EINTR, so will not exit until gets ready state or a
+ * timeout.
+ *
+ * If signal, will exit on EINTR.  Can call this again after an EINTR return,
+ * and will continue to wait the *remainder* of the timeout interval.
+ *
+ * Returns what pselect returns:  > 0   number of bits set
+ *                               == 0   no bits set <=> timed out
+ *                                < 0   EINTR (iff signal)
+ */
+extern int
+qps_mini_wait(qps_mini qm, const sigset_t* sigmask, bool signal)
+{
+  while (1)
+    {
+      struct timespec ts[1] ;
+      int n ;
+
+      n = pselect(qm->fd_last + 1,
+                         &(qm->sets[qps_read_mnum].fdset),
+                         &(qm->sets[qps_write_mnum].fdset),
+                         &(qm->sets[qps_error_mnum].fdset),
+                         (qm->interval > 0) ? qtime2timespec(ts, qm->interval)
+                                            : NULL,
+                         sigmask) ;
+      if (n >= 0)
+        return n ;
+
+      if (errno != EINTR)
+        break ;
+
+      if (qm->interval > 0)
+        {
+          /* set new interval, in case comes back               */
+          qm->interval = qm->end_time - qt_get_monotonic() ;
+          if (qm->interval < 0)
+            return 0 ;
+        } ;
+
+      if (signal)
+        return -1 ;             /* signal EINTR                 */
+    } ;
+
+  zabort_errno("Failed in pselect") ;
+} ;
+
+

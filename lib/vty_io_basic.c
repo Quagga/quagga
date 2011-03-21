@@ -34,7 +34,7 @@
  *
  */
 
-/*==============================================================================
+/*------------------------------------------------------------------------------
  * Try to open the given file for the given type of I/O.
  *
  *   vfd_io_write      => create if does not exist (mode 0600)
@@ -80,7 +80,7 @@ uty_vfd_file_open(const char* name, vfd_io_type_t io_type)
   if ((io_type & vfd_io_blocking) == 0)
     oflag |= O_NONBLOCK ;
 
-  return open(name, oflag, S_IRUSR | S_IWUSR) ;
+  return open(name, oflag, S_IRUSR | S_IWUSR) ; /* TODO umask etc ?     */
 } ;
 
 /*==============================================================================
@@ -90,25 +90,8 @@ uty_vfd_file_open(const char* name, vfd_io_type_t io_type)
  * and an old thread environment are encapsulated here.
  */
 
-struct vio_io_set_args                  /* to CLI thread                */
-{
-  bool      active ;    /* set when queued, cleared when dequeued       */
-  bool      close ;     /* close and free the vio_vfd and mqb           */
-
-  bool      readable ;  /* set when read state to be changed            */
-  on_off_b  read_on ;   /* what to change read to                       */
-  vty_timer_time read_timeout ;
-                        /* what to set the timeout to, if any           */
-
-  bool      writable ;  /* set when write state to be changed           */
-  on_off_b  write_on ;  /* what to change write to                      */
-  vty_timer_time write_timeout ;
-                        /* what to set the timeout to, if any           */
-} ;
-MQB_ARGS_SIZE_OK(vio_io_set_args) ;
-
-static void vio_vfd_mqb_dispatch(vio_vfd vfd) ;
-static struct vio_io_set_args* vio_vfd_mqb_args(vio_vfd vfd) ;
+static void vio_vfd_mqb_kick(vio_vfd vfd) ;
+static void vio_vfd_mqb_free(vio_vfd vfd) ;
 
 /*==============================================================================
  * File Descriptor handling
@@ -130,24 +113,30 @@ static void vio_vfd_qps_write_action(qps_file qf, void* file_info) ;
 static int vio_vfd_thread_read_action(struct thread *thread) ;
 static int vio_vfd_thread_write_action(struct thread *thread) ;
 
-static void vio_timer_squelch(vio_timer_t* timer) ;
+static void vio_timer_squelch(vio_timer timer) ;
 
 Inline void
 vio_vfd_do_read_action(vio_vfd vfd)
 {
-  if (vfd->active)
+  if (vfd->read_action != NULL)
     vfd->read_action(vfd, vfd->action_info) ;
 }
 
 Inline void
 vio_vfd_do_write_action(vio_vfd vfd)
 {
-  if (vfd->active)
+  if (vfd->write_action != NULL)
     vfd->write_action(vfd, vfd->action_info) ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Create a new vfd structure.
+ *
+ * Note that sets the same action info for read, write, read timeout and
+ * write timeout.
+ *
+ * Sets the blocking_vf state, which will disallow any attempt to set read/write
+ * ready/timeout -- but enable open/close when not in cli thread.
  */
 extern vio_vfd
 vio_vfd_new(int fd, vfd_type_t type, vfd_io_type_t io_type, void* action_info)
@@ -158,45 +147,59 @@ vio_vfd_new(int fd, vfd_type_t type, vfd_io_type_t io_type, void* action_info)
 
   /* Has set:
    *
-   *   active         -- false !
+   *   fd             -- X           -- see below
+   *   active         -- X           -- see below
+   *
+   *   type           -- X           -- see below
+   *   io_type        -- X           -- see below
+   *
+   *   blocking_vf    -- X           -- see below
+   *
+   *   action_info    -- NULL        -- set below if !blocking_vf
    *
    *   read_action    -- NULL
    *   write_action   -- NULL
    *
-   *   f.qf           -- NULL
+   *   read_timer     -- NULL        -- set below if !blocking_vf
+   *   write_timer    -- NULL        -- set below if !blocking_vf
+   *
+   *   f.qf           -- NULL        -- set below if !blocking_vf
+   *
    *   f.thread.read  -- NULL
    *   f.thread.write -- NULL
    *
-   *   mqb            -- NULL
+   *   queued         -- false
+   *
+   *   read_req       -- all zeros   -- none set
+   *   write_req      -- all zeros   -- none set
+   *
+   *   mqb            -- NULL        -- none, yet
    */
-
-  vio_vfd_set_fd(vfd, fd, type, io_type) ;
-
-  vio_timer_init(&vfd->read_timer, NULL, NULL) ;
-  vio_timer_init(&vfd->write_timer, NULL, NULL) ;
-
-  vio_vfd_set_action_info(vfd, action_info) ;
-
-  return vfd ;
-} ;
-
-/*------------------------------------------------------------------------------
- * If vfd was not fully set up when created, set it up now.
- *
- * To close an active vfd, use vio_vfd_close() !
- *
- * NB: for use when vfd has been created, but the fd was not known at that
- *     time -- ie the vfd is NOT active.
- */
-extern void
-vio_vfd_set_fd(vio_vfd vfd, int fd, vfd_type_t type, vfd_io_type_t io_type)
-{
-  assert(!vfd->active) ;
+  confirm(VIO_TIMER_INIT_ZERO) ;
 
   vfd->fd          = fd ;
-  vfd->active      = (fd >= 0) ;
   vfd->type        = type ;
   vfd->io_type     = io_type ;
+
+  vfd->blocking_vf = (io_type & vfd_io_blocking) != 0 ;
+
+  if (!vfd->blocking_vf)
+    {
+      VTY_ASSERT_CLI_THREAD() ;
+
+      if (vty_nexus)
+        {
+          vfd->f.qf = qps_file_init_new(NULL, NULL) ;
+          qps_add_file(vty_cli_nexus->selection, vfd->f.qf, vfd->fd, vfd) ;
+        } ;
+
+      vfd->read_timer  = vio_timer_init_new(NULL, NULL, NULL) ;
+      vfd->write_timer = vio_timer_init_new(NULL, NULL, NULL) ;
+
+      vio_vfd_set_action_info(vfd, action_info) ;
+    } ;
+
+  return vfd ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -223,7 +226,7 @@ vio_vfd_set_write_action(vio_vfd vfd, vio_vfd_action* action)
 extern void
 vio_vfd_set_read_timeout_action(vio_vfd vfd, vio_timer_action* action)
 {
-  vio_timer_set_action(&vfd->read_timer, action) ;
+  vio_timer_set_action(vfd->read_timer, action) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -232,7 +235,7 @@ vio_vfd_set_read_timeout_action(vio_vfd vfd, vio_timer_action* action)
 extern void
 vio_vfd_set_write_timeout_action(vio_vfd vfd, vio_timer_action* action)
 {
-  vio_timer_set_action(&vfd->write_timer, action) ;
+  vio_timer_set_action(vfd->write_timer, action) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -242,8 +245,8 @@ extern void
 vio_vfd_set_action_info(vio_vfd vfd, void* action_info)
 {
   vfd->action_info = action_info ;
-  vio_timer_set_info(&vfd->read_timer, action_info) ;
-  vio_timer_set_info(&vfd->write_timer, action_info) ;
+  vio_timer_set_info(vfd->read_timer,  action_info) ;
+  vio_timer_set_info(vfd->write_timer, action_info) ;
 } ;
 
 #if 0
@@ -278,6 +281,8 @@ vio_vfd_kick_write_action(vio_vfd vfd)
  * In any case, turns off any read ready and read ready timeout.
  *
  * Returns original vfd, or NULL if it has been closed.
+ *
+ * NB: if this is not a "blocking_vf", then MUST be in the cli thread.
  */
 extern vio_vfd
 vio_vfd_read_close(vio_vfd vfd)
@@ -287,47 +292,60 @@ vio_vfd_read_close(vio_vfd vfd)
   if (vfd == NULL)
     return NULL ;
 
-  if (vfd->fd >= 0)
-    {
-      assert(vfd->active) ;
+  if (!vfd->blocking_vf)
+    VTY_ASSERT_CLI_THREAD() ;
 
-      if (vfd->io_type & vfd_io_read)
+  if ((vfd->io_type & vfd_io_read) != 0)
+    {
+      if ((vfd->io_type & vfd_io_write) != 0)
         {
-          if (vfd->io_type & vfd_io_write)
+          /* read & write, so really half-close if can                  */
+          if (vfd->fd >= 0)
             {
-              /* read & write, so really half-close if can              */
               if (vfd->type == vfd_socket)
                 shutdown(vfd->fd, SHUT_RD) ;    /* ignore errors TODO   */
               vio_vfd_set_read(vfd, off, 0) ;
-              vfd->io_type ^= vfd_io_read ;         /* now write only ! */
-            }
-          else
-            {
-              /* read only, so fully close                              */
-              vfd = vio_vfd_close(vfd) ;
+              vfd->io_type ^= vfd_io_read ;     /* now write only !     */
             } ;
+        }
+      else
+        {
+          /* read only, so fully close                                  */
+          vfd = vio_vfd_close(vfd) ;
         } ;
-    }
-  else
-    assert(!vfd->active) ;
+    } ;
 
   return vfd ;
 } ;
 
 /*------------------------------------------------------------------------------
- * If there is an fd, close it.
+ * Close the given vfd (if any).
  *
- * Stops any read/write waiting and releases all memory, including the vfd
- * itself if required..
+ * If there is an fd, close it.  Stops any read/write waiting and releases all
+ * memory.
+ *
+ * NB: if this is not a "blocking_vf", then MUST be in the cli thread.
+ *     Inter alia, this guarantees that cannot be in the middle of a read/write
+ *     ready/timeout operation -- so the file can be closed down, and
+ *     any pending ready/timeout will be swept away.
  */
-static void
-vio_vfd_do_close(vio_vfd vfd, free_keep_b free)
+extern vio_vfd
+vio_vfd_close(vio_vfd vfd)
 {
-  if (vfd == NULL)
-    return ;
-
   VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
+
+  if (vfd == NULL)
+    return NULL ;
+
+  if (!vfd->blocking_vf)
+    VTY_ASSERT_CLI_THREAD() ;
+
+  /* Close the underlying fd, if any                                    */
+
+  if (vfd->fd >= 0)
+    close(vfd->fd) ;            /* ignores errors TODO  */
+
+  /* Clear out the vfd then free it                                     */
 
   if (vty_nexus)
     {
@@ -337,11 +355,7 @@ vio_vfd_do_close(vio_vfd vfd, free_keep_b free)
           vfd->f.qf = qps_file_free(vfd->f.qf) ;
         } ;
 
-      if (vfd->mqb != NULL)
-        {
-          mqb_free(vfd->mqb) ;
-          vfd->mqb = NULL ;
-        } ;
+      vio_vfd_mqb_free(vfd) ;
     }
   else
     {
@@ -362,85 +376,10 @@ vio_vfd_do_close(vio_vfd vfd, free_keep_b free)
       assert(vfd->mqb == NULL) ;
     } ;
 
-  if (vfd->fd >= 0)
-    close(vfd->fd) ;            /* ignores errors TODO  */
+  vfd->read_timer  = vio_timer_reset(vfd->read_timer,  free_it) ;
+  vfd->write_timer = vio_timer_reset(vfd->write_timer, free_it) ;
 
-  vio_timer_reset(&vfd->read_timer) ;
-  vio_timer_reset(&vfd->write_timer) ;
-
-  if (free == free_it)
-    XFREE(MTYPE_VTY, vfd) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Close the given vfd (if any).
- *
- * If there is an fd, close it.  Stops any read/write waiting and releases all
- * memory.
- *
- * NB: this can done from any thread, but if not done from the CLI thread,
- *     and there is a qf, a message must be sent to the CLI thread to actually
- *     implement: which passes the vio_vfd to the CLI thread for later
- *     close and destruction.
- *
- *     The actual close has to be delayed, so that cannot open another fd
- *     and bang into a still active qps_file !
- *
- *     The message looks after freeing the vio_vfd, the qps_file and the mqb.
- */
-extern vio_vfd
-vio_vfd_close(vio_vfd vfd)
-{
-  VTY_ASSERT_LOCKED() ;
-
-  if (vfd == NULL)
-    return NULL ;
-
-  if (vfd->fd < 0)
-    {
-      /* closing an inactive vio_vfd -- make sure all is quiet           */
-      assert(!vfd->active) ;
-      if (vty_nexus)
-        {
-          assert(vfd->f.qf == NULL) ;
-        }
-      else
-        {
-          assert(vfd->f.thread.read  == NULL) ;
-          assert(vfd->f.thread.write == NULL) ;
-        } ;
-      assert(vfd->mqb == NULL) ;
-    }
-  else
-    {
-      /* closing an active vio_vfd                                       */
-      if (vty_is_cli_thread())
-        {
-          /* In cli thread, so close directly                           */
-          vio_vfd_do_close(vfd, free_it) ;
-        }
-      else
-        {
-          /* Rats... have to send message to cli thread to close        */
-          struct vio_io_set_args* args = vio_vfd_mqb_args(vfd) ;
-
-          args->close = true ;
-
-          /* in case something goes ready before the close message
-           * is processed, squelch.
-           */
-          vfd->active       = false ;
-          vfd->read_action  = NULL ;
-          vfd->write_action = NULL ;
-          vfd->action_info  = NULL ;
-
-          vio_timer_squelch(&vfd->read_timer) ;
-          vio_timer_squelch(&vfd->write_timer) ;
-
-          assert(vfd == mqb_get_arg0(vfd->mqb)) ;
-          vio_vfd_mqb_dispatch(vfd) ;
-        } ;
-    } ;
+  XFREE(MTYPE_VTY, vfd) ;
 
   return NULL ;
 } ;
@@ -448,48 +387,39 @@ vio_vfd_close(vio_vfd vfd)
 /*------------------------------------------------------------------------------
  * Set or unset read ready state on given vio_vfd (if any) if it is active.
  *
+ * Do nothing if vfd NULL, fd < 0 or not a read type of fd.
+ *
  * If setting read_on, starts any read timeout timer (or stops it if 0).
  * If setting read off, stops any read timeout timer.
  *
  * NB: this can done from any thread, but if not done from the CLI thread,
  *     a message must be sent to the CLI thread to actually implement.
+ *
+ * NB: must NOT be a "blocking_vf" !!
  */
 extern on_off_b
 vio_vfd_set_read(vio_vfd vfd, on_off_b on, vty_timer_time timeout)
 {
-  struct vio_io_set_args* args ;
-
   VTY_ASSERT_LOCKED() ;
 
-  if ((vfd == NULL) || (!vfd->active))
+  if ((vfd == NULL) || (vfd->fd < 0) || ((vfd->io_type & vfd_io_read) == 0))
     return off ;
+
+  assert(!vfd->blocking_vf) ;
 
   if (vty_is_cli_thread())
     {
       /* In the cli thread (effectively) so do things directly.         */
 
-      if (vfd->mqb != NULL)
-        {
-          /* discard/override any pending message setting               */
-          args = mqb_get_args(vfd->mqb) ;
-          args->readable = false ;
-        } ;
+      vfd->read_req.set = false ;       /* doing or overriding request  */
 
       if (on)
         {
           assert(vfd->read_action != NULL) ;
 
           if (vty_nexus)
-            {
-              if (vfd->f.qf == NULL)
-                {
-                  vfd->f.qf = qps_file_init_new(NULL, NULL);
-                  qps_add_file(vty_cli_nexus->selection, vfd->f.qf,
-                                                           vfd->fd, vfd) ;
-                } ;
               qps_enable_mode(vfd->f.qf, qps_read_mnum,
                                                        vio_vfd_qps_read_action) ;
-            }
           else
             {
               if (vfd->f.thread.read == NULL)
@@ -497,34 +427,31 @@ vio_vfd_set_read(vio_vfd vfd, on_off_b on, vty_timer_time timeout)
                                       vio_vfd_thread_read_action, vfd, vfd->fd) ;
             } ;
 
-          vio_timer_set(&vfd->read_timer, timeout) ;
+          vio_timer_set(vfd->read_timer, timeout) ;
         }
       else
         {
           if (vty_nexus)
-            {
-              if (vfd->f.qf != NULL)
-                qps_disable_modes(vfd->f.qf, qps_read_mbit) ;
-            }
+            qps_disable_modes(vfd->f.qf, qps_read_mbit) ;
           else
             {
               if (vfd->f.thread.read != NULL)
                 thread_cancel (vfd->f.thread.read) ;
             } ;
 
-          vio_timer_unset(&vfd->read_timer) ;
+          vio_timer_unset(vfd->read_timer) ;
         } ;
     }
   else
     {
       /* In other threads, must send message to cli thread              */
+      vfd->read_req.set     = true ;
+      vfd->read_req.on      = on ;
+      vfd->read_req.timeout = timeout ;
 
-      args = vio_vfd_mqb_args(vfd) ;
-      args->readable     = true ;
-      args->read_on      = on ;
-      args->read_timeout = timeout ;
-      vio_timer_squelch(&vfd->read_timer) ;
-      vio_vfd_mqb_dispatch(vfd) ;
+      vio_timer_squelch(vfd->read_timer) ;
+
+      vio_vfd_mqb_kick(vfd) ;
     } ;
 
   return on ;
@@ -533,48 +460,39 @@ vio_vfd_set_read(vio_vfd vfd, on_off_b on, vty_timer_time timeout)
 /*------------------------------------------------------------------------------
  * Set or unset write ready state on given vio_vfd (if any) if it is active.
  *
+ * Do nothing if vfd NULL, fd < 0 or not a write type of fd.
+ *
  * If setting write_on, starts any write timeout timer.
  * If setting write off, stops any write timeout timer.
  *
  * NB: this can done from any thread, but if not done from the CLI thread,
  *     a message must be sent to the CLI thread to actually implement.
+ *
+ * NB: must NOT be a "blocking_vf" !!
  */
 extern on_off_b
 vio_vfd_set_write(vio_vfd vfd, on_off_b on, vty_timer_time timeout)
 {
-  struct vio_io_set_args* args ;
-
   VTY_ASSERT_LOCKED() ;
 
-  if ((vfd == NULL) || (!vfd->active))
+  if ((vfd == NULL) || (vfd->fd < 0) || ((vfd->io_type & vfd_io_write) == 0))
     return off ;
+
+  assert(!vfd->blocking_vf) ;
 
   if (vty_is_cli_thread())
     {
       /* In the cli thread (effectively) so do things directly.         */
 
-      if (vfd->mqb != NULL)
-        {
-          /* discard/override any pending message setting               */
-          args = mqb_get_args(vfd->mqb) ;
-          args->writable = false ;
-        } ;
+      vfd->write_req.set = false ;      /* doing or overriding request  */
 
       if (on)
         {
           assert(vfd->write_action != NULL) ;
 
           if (vty_nexus)
-            {
-              if (vfd->f.qf == NULL)
-                {
-                  vfd->f.qf = qps_file_init_new(NULL, NULL);
-                  qps_add_file(vty_cli_nexus->selection, vfd->f.qf,
-                                                           vfd->fd, vfd) ;
-                } ;
-              qps_enable_mode(vfd->f.qf, qps_write_mnum,
+            qps_enable_mode(vfd->f.qf, qps_write_mnum,
                                                      vio_vfd_qps_write_action) ;
-            }
           else
             {
               if (vfd->f.thread.write == NULL)
@@ -582,34 +500,31 @@ vio_vfd_set_write(vio_vfd vfd, on_off_b on, vty_timer_time timeout)
                                     vio_vfd_thread_write_action, vfd, vfd->fd) ;
             } ;
 
-          vio_timer_set(&vfd->write_timer, timeout) ;
+          vio_timer_set(vfd->write_timer, timeout) ;
         }
       else
         {
           if (vty_nexus)
-            {
-              if (vfd->f.qf != NULL)
-                qps_disable_modes(vfd->f.qf, qps_write_mbit) ;
-            }
+            qps_disable_modes(vfd->f.qf, qps_write_mbit) ;
           else
             {
               if (vfd->f.thread.write != NULL)
                 thread_cancel (vfd->f.thread.write) ;
             } ;
 
-          vio_timer_unset(&vfd->write_timer) ;
+          vio_timer_unset(vfd->write_timer) ;
         } ;
     }
   else
     {
       /* In other threads, must send message to cli thread              */
+      vfd->write_req.set     = true ;
+      vfd->write_req.on      = on ;
+      vfd->write_req.timeout = timeout ;
 
-      args = vio_vfd_mqb_args(vfd) ;
-      args->writable      = true ;
-      args->write_on      = on ;
-      args->write_timeout = timeout ;
-      vio_timer_squelch(&vfd->write_timer) ;
-      vio_vfd_mqb_dispatch(vfd) ;
+      vio_timer_squelch(vfd->write_timer) ;
+
+      vio_vfd_mqb_kick(vfd) ;
     } ;
 
   return on ;
@@ -619,24 +534,21 @@ vio_vfd_set_write(vio_vfd vfd, on_off_b on, vty_timer_time timeout)
  * Callback -- qnexus: ready to read
  *
  * Clears read ready state and unsets any read timer.
- *
- * NB: if !vfd->active, then has been closed in another thread, but close
- *     message is yet to be procesed.
  */
 static void
 vio_vfd_qps_read_action(qps_file qf, void* file_info)
 {
   vio_vfd vfd ;
 
-  VTY_ASSERT_CLI_THREAD() ;
   VTY_LOCK() ;
+  VTY_ASSERT_CLI_THREAD() ;
 
   vfd = file_info ;
 
   assert((vfd->fd == qf->fd) && (vfd->f.qf == qf)) ;
 
   qps_disable_modes(vfd->f.qf, qps_read_mbit) ;
-  vio_timer_unset(&vfd->read_timer) ;
+  vio_timer_unset(vfd->read_timer) ;
 
   vio_vfd_do_read_action(vfd) ;
 
@@ -656,15 +568,15 @@ vio_vfd_thread_read_action(struct thread *thread)
 {
   vio_vfd vfd ;
 
-  VTY_ASSERT_CLI_THREAD() ;
   VTY_LOCK() ;
+  VTY_ASSERT_CLI_THREAD() ;
 
   vfd = THREAD_ARG(thread);
 
   assert(vfd->fd == THREAD_FD(thread)) ;
 
   vfd->f.thread.read = NULL ;           /* implicitly   */
-  vio_timer_unset(&vfd->read_timer) ;
+  vio_timer_unset(vfd->read_timer) ;
 
   vio_vfd_do_read_action(vfd) ;
 
@@ -685,13 +597,13 @@ vio_vfd_qps_write_action(qps_file qf, void* file_info)
 {
   vio_vfd vfd = file_info ;
 
-  VTY_ASSERT_CLI_THREAD() ;
   VTY_LOCK() ;
+  VTY_ASSERT_CLI_THREAD() ;
 
   assert((vfd->fd == qf->fd) && (vfd->f.qf == qf)) ;
 
   qps_disable_modes(vfd->f.qf, qps_write_mbit) ;
-  vio_timer_unset(&vfd->write_timer) ;
+  vio_timer_unset(vfd->write_timer) ;
 
   vio_vfd_do_write_action(vfd) ;
 
@@ -711,11 +623,11 @@ vio_vfd_thread_write_action(struct thread *thread)
 {
   vio_vfd vfd = THREAD_ARG (thread);
 
-  VTY_ASSERT_CLI_THREAD() ;
   VTY_LOCK() ;
+  VTY_ASSERT_CLI_THREAD() ;
 
   assert(vfd->fd == THREAD_FD(thread)) ;
-  vio_timer_unset(&vfd->write_timer) ;
+  vio_timer_unset(vfd->write_timer) ;
 
   vfd->f.thread.write = NULL ;          /* implicitly   */
 
@@ -740,37 +652,42 @@ vio_vfd_thread_write_action(struct thread *thread)
  * which it will do when it is dequeued and actioned.
  */
 
-static void vio_vfd_set_action(mqueue_block mqb, mqb_flag_t flag) ;
-
-/*------------------------------------------------------------------------------
- * Get mqb for the given vfd -- make one if required.
- */
-static struct vio_io_set_args*
-vio_vfd_mqb_args(vio_vfd vfd)
-{
-  VTY_ASSERT_LOCKED() ;
-
-  if (vfd->mqb == NULL)
-    vfd->mqb = mqb_init_new(NULL, vio_vfd_set_action, vfd) ;
-
-  return mqb_get_args(vfd->mqb) ;
-} ;
+static void vio_vfd_mqb_action(mqueue_block mqb, mqb_flag_t flag) ;
 
 /*------------------------------------------------------------------------------
  * Dispatch mqb, if not already active
  */
 static void
-vio_vfd_mqb_dispatch(vio_vfd vfd)
+vio_vfd_mqb_kick(vio_vfd vfd)
 {
-  struct vio_io_set_args* args = mqb_get_args(vfd->mqb) ;
-
   VTY_ASSERT_LOCKED() ;
 
-  if (!args->active)
+  if (!vfd->queued)
     {
-      args->active  = true ;
-      mqueue_enqueue(vty_cli_nexus->queue, vfd->mqb, mqb_ordinary) ;
+      vfd->queued  = true ;
+
+      if (vfd->mqb == NULL)
+        vfd->mqb = mqb_init_new(NULL, vio_vfd_mqb_action, vfd) ;
+
+      mqueue_enqueue(vty_cli_nexus->queue, vfd->mqb, mqb_priority) ;
     } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free mqb, if exists.
+ */
+static void
+vio_vfd_mqb_free(vio_vfd vfd)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  if (vfd->queued)
+    mqb_set_arg0(vfd->mqb, NULL) ;      /* mqb will suicide     */
+  else
+    mqb_free(vfd->mqb) ;                /* kill now (if any)    */
+
+  vfd->queued  = false ;
+  vfd->mqb     = NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -783,36 +700,33 @@ vio_vfd_mqb_dispatch(vio_vfd vfd)
  * If the mqb is being revoked
  */
 static void
-vio_vfd_set_action(mqueue_block mqb, mqb_flag_t flag)
+vio_vfd_mqb_action(mqueue_block mqb, mqb_flag_t flag)
 {
-  struct vio_io_set_args* args ;
-  vio_vfd                 vfd ;
+  vio_vfd  vfd ;
 
-  VTY_ASSERT_CLI_THREAD() ;
   VTY_LOCK() ;
+  VTY_ASSERT_CLI_THREAD() ;
 
-  args = mqb_get_args(mqb) ;
   vfd  = mqb_get_arg0(mqb) ;
 
-  args->active = false ;
-
-  if ((flag != mqb_destroy) && (!args->close))
+  if (vfd != NULL)
     {
-      if (args->readable)
-        vio_vfd_set_read(vfd, args->read_on, args->read_timeout) ;
-      if (args->writable)
-        vio_vfd_set_write(vfd, args->write_on, args->write_timeout) ;
+      assert(mqb == vfd->mqb) ;
+      vfd->queued = false ;
+    } ;
+
+  if ((flag != mqb_destroy) && (vfd != NULL))
+    {
+      if (vfd->read_req.set)
+        vio_vfd_set_read(vfd, vfd->read_req.on, vfd->read_req.timeout) ;
+      if (vfd->write_req.set)
+        vio_vfd_set_write(vfd, vfd->write_req.on, vfd->write_req.timeout) ;
     }
   else
     {
-      /* Revoke and/or close.
-       *
-       * If close can free the vfd.
-       *
-       * If just revoke (should not happen), then cannot free the vfd, because
-       * somewhere there can be a dangling reference.
-       */
-      vio_vfd_do_close(vfd, args->close) ;         /* frees the mqb        */
+      mqb_free(mqb) ;           /* Suicide              */
+      if (vfd != NULL)
+        vfd->mqb = NULL ;       /* make sure vfd knows  */
     } ;
 
   VTY_UNLOCK() ;
@@ -839,8 +753,7 @@ vio_listener_new(int fd, vio_vfd_accept* accept_action)
 {
   vio_listener listener ;
 
-  VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
+  VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
   listener = XCALLOC(MTYPE_VTY, sizeof(struct vio_listener)) ;
   /* sets the next pointer to NULL              */
@@ -864,8 +777,7 @@ vio_listener_new(int fd, vio_vfd_accept* accept_action)
 extern void
 vio_listener_close(vio_listener listener)
 {
-  VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
+  VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
   vio_vfd_close(listener->vfd) ;
   XFREE(MTYPE_VTY, listener) ;
@@ -881,8 +793,7 @@ vio_accept(vio_vfd vfd, void* info)
 {
   vio_listener listener ;
 
-  VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
+  VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
   listener = info ;
   assert(vfd == listener->vfd) ;
@@ -896,7 +807,7 @@ vio_accept(vio_vfd vfd, void* info)
  * Timer Handling
  *
  * Provides timer primitives that work either in qnexus environment or in
- * a thread environment.
+ * a thread environment.  Timer times are seconds.
  *
  * The main difference is that thread environment timers are 'one-shot', set up
  * for one timing run and then destroyed.
@@ -906,14 +817,17 @@ static void vio_timer_qtr_action(qtimer qtr, void* timer_info, qtime_t when) ;
 static int vio_timer_thread_action(struct thread *thread) ;
 
 /*------------------------------------------------------------------------------
- * Initialise vio_timer structure.  Assumes is all new.
- *
- * This assumes the vio_timer structure is embedded in another structure.
+ * Allocate and/or initialise vio_timer structure.
  */
-extern void
-vio_timer_init(vio_timer_t* timer, vio_timer_action* action, void* action_info)
+extern vio_timer
+vio_timer_init_new(vio_timer timer, vio_timer_action* action, void* action_info)
 {
-  memset(timer, 0, sizeof(vio_timer_t)) ;
+  if (timer == NULL)
+    timer = XCALLOC(MTYPE_VTY, sizeof(vio_timer_t)) ;
+  else
+    memset(timer, 0, sizeof(vio_timer_t)) ;
+
+  confirm(VIO_TIMER_INIT_ZERO) ;
 
   /* active     -- 0, false
    * squelch    -- 0, false
@@ -922,74 +836,88 @@ vio_timer_init(vio_timer_t* timer, vio_timer_action* action, void* action_info)
 
   timer->action      = action ;
   timer->action_info = action_info ;
+
+  return timer ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Set the action field for the given timer.
  */
 extern void
-vio_timer_set_action(vio_timer_t* timer, vio_timer_action* action)
+vio_timer_set_action(vio_timer timer, vio_timer_action* action)
 {
-  timer->action = action ;
+  if (timer != NULL)
+    timer->action = action ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Set the info field for the given timer.
  */
 extern void
-vio_timer_set_info(vio_timer_t* timer, void* action_info)
+vio_timer_set_info(vio_timer timer, void* action_info)
 {
-  timer->action_info = action_info ;
+  if (timer != NULL)
+    timer->action_info = action_info ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Kill vio_timer -- used when closing .
+ * Squelch the given timer -- if it goes off, do not call the action routine,
+ * and leave the rimer inactive.
+ *
+ * Used when doing read/write ready from not-cli thread.
  */
 static void
-vio_timer_squelch(vio_timer_t* timer)
+vio_timer_squelch(vio_timer timer)
 {
   VTY_ASSERT_LOCKED() ;
 
-  timer->squelch = true ;
+  if (timer != NULL)
+    timer->squelch = true ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Reset vio_timer structure.  Stops any timer and releases all memory.
- *
- * This assumes the vio_timer structure is embedded in another structure.
  */
-extern void
-vio_timer_reset(vio_timer_t* timer)
+extern vio_timer
+vio_timer_reset(vio_timer timer, free_keep_b free_structure)
 {
   VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
 
-  if (timer->t.anon != NULL)
+  if (timer != NULL)
     {
-      if (vty_nexus)
-        qtimer_free(timer->t.qtr) ;
-      else
-        thread_cancel(timer->t.thread) ;
+      VTY_ASSERT_CLI_THREAD() ;
 
-      timer->t.anon = NULL ;
+      if (timer->t.anon != NULL)
+        {
+          if (vty_nexus)
+            qtimer_free(timer->t.qtr) ;
+          else
+            thread_cancel(timer->t.thread) ;
+
+          timer->t.anon = NULL ;
+        } ;
+
+      timer->active  = false ;
+      timer->squelch = false ;
+
+      if (free_structure)
+        XFREE(MTYPE_VTY, timer) ;       /* sets timer = NULL    */
     } ;
 
-  timer->active  = false ;
-  timer->squelch = false ;
+  return timer ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Set vio_timer going, with the given time.
+ * Set vio_timer going, with the given time (in seconds).
  *
  * If timer is running, set to new time.
  *
  * If the time == 0, stop any current timer, do not restart.
  */
 extern void
-vio_timer_set(vio_timer_t* timer, vty_timer_time time)
+vio_timer_set(vio_timer timer, vty_timer_time time)
 {
-  VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
+  VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
   if (time == 0)
     {
@@ -1022,10 +950,9 @@ vio_timer_set(vio_timer_t* timer, vty_timer_time time)
  * Stop vio_timer, if any.
  */
 extern void
-vio_timer_unset(vio_timer_t* timer)
+vio_timer_unset(vio_timer timer)
 {
-  VTY_ASSERT_LOCKED() ;
-  VTY_ASSERT_CLI_THREAD() ;
+  VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
   if (timer->active)
     {
@@ -1053,11 +980,11 @@ vio_timer_unset(vio_timer_t* timer)
 static void
 vio_timer_qtr_action(qtimer qtr, void* timer_info, qtime_t when)
 {
-  vio_timer_t* timer ;
+  vio_timer timer ;
   vty_timer_time time ;
 
-  VTY_ASSERT_CLI_THREAD() ;
   VTY_LOCK() ;
+  VTY_ASSERT_CLI_THREAD() ;
 
   timer = timer_info ;
 
@@ -1084,11 +1011,11 @@ vio_timer_qtr_action(qtimer qtr, void* timer_info, qtime_t when)
 static int
 vio_timer_thread_action(struct thread *thread)
 {
-  vio_timer_t* timer ;
+  vio_timer      timer ;
   vty_timer_time time ;
 
-  VTY_ASSERT_CLI_THREAD() ;
   VTY_LOCK() ;
+  VTY_ASSERT_CLI_THREAD() ;
 
   timer = THREAD_ARG(thread) ;
   timer->t.thread = NULL ;      /* implicitly                   */

@@ -314,12 +314,13 @@ DEFUN_DEPRECATED (neighbor_version,
 }
 
 /* "router bgp" commands. */
-DEFUN (router_bgp,
-       router_bgp_cmd,
-       "router bgp " CMD_AS_RANGE,
-       ROUTER_STR
-       BGP_STR
-       AS_STR)
+DEFUN_ATTR (router_bgp,
+            router_bgp_cmd,
+            "router bgp " CMD_AS_RANGE,
+            ROUTER_STR
+            BGP_STR
+            AS_STR,
+            CMD_ATTR_NODE + BGP_NODE)
 {
   int ret;
   as_t as;
@@ -338,9 +339,11 @@ DEFUN (router_bgp,
       vty_out (vty, "Please specify 'bgp multiple-instance' first%s",
 	       VTY_NEWLINE);
       return CMD_WARNING;
+
     case BGP_ERR_AS_MISMATCH:
       vty_out (vty, "BGP is already running; AS is %u%s", as, VTY_NEWLINE);
       return CMD_WARNING;
+
     case BGP_ERR_INSTANCE_MISMATCH:
       vty_out (vty, "BGP view name and AS number mismatch%s", VTY_NEWLINE);
       vty_out (vty, "BGP instance is already running; AS is %u%s",
@@ -354,14 +357,15 @@ DEFUN (router_bgp,
   return CMD_SUCCESS;
 }
 
-ALIAS (router_bgp,
-       router_bgp_view_cmd,
-       "router bgp " CMD_AS_RANGE " view WORD",
-       ROUTER_STR
-       BGP_STR
-       AS_STR
-       "BGP view\n"
-       "view name\n")
+ALIAS_ATTR (router_bgp,
+            router_bgp_view_cmd,
+            "router bgp " CMD_AS_RANGE " view WORD",
+            ROUTER_STR
+            BGP_STR
+            AS_STR
+            "BGP view\n"
+            "view name\n",
+            CMD_ATTR_NODE + BGP_NODE)
 
 /* "no router bgp" commands. */
 DEFUN (no_router_bgp,
@@ -4008,90 +4012,118 @@ DEFUN (no_neighbor_allowas_in,
 }
 
 /* Address family configuration.  */
-DEFUN (address_family_ipv4,
-       address_family_ipv4_cmd,
-       "address-family ipv4",
-       "Enter Address Family command mode\n"
-       "Address family\n")
+DEFUN_ATTR (address_family_ipv4,
+            address_family_ipv4_cmd,
+            "address-family ipv4",
+            "Enter Address Family command mode\n"
+            "Address family\n",
+            CMD_ATTR_NODE + BGP_IPV4_NODE)
 {
   vty->node = BGP_IPV4_NODE ;
   return CMD_SUCCESS;
 }
 
-DEFUN (address_family_ipv4_safi,
-       address_family_ipv4_safi_cmd,
-       "address-family ipv4 (unicast|multicast)",
-       "Enter Address Family command mode\n"
-       "Address family\n"
-       "Address Family modifier\n"
-       "Address Family modifier\n")
+DEFUN_ATTR (address_family_ipv4_safi_unicast,
+            address_family_ipv4_safi_unicast_cmd,
+            "address-family ipv4 unicast",
+            "Enter Address Family command mode\n"
+            "Address family\n"
+            "Address Family modifier\n",
+            CMD_ATTR_NODE + BGP_IPV4_NODE)
 {
-  if (strncmp (argv[0], "m", 1) == 0)
-    vty->node = BGP_IPV4M_NODE ;
-  else
-    vty->node = BGP_IPV4_NODE ;
-
+  vty->node = BGP_IPV4_NODE ;
   return CMD_SUCCESS;
 }
 
-DEFUN (address_family_ipv6,
-       address_family_ipv6_cmd,
-       "address-family ipv6",
-       "Enter Address Family command mode\n"
-       "Address family\n")
+DEFUN_ATTR (address_family_ipv4_safi_multicast,
+            address_family_ipv4_safi_multicast_cmd,
+            "address-family ipv4 multicast",
+            "Enter Address Family command mode\n"
+            "Address family\n"
+            "Address Family modifier\n",
+            CMD_ATTR_NODE + BGP_IPV4M_NODE)
+{
+  vty->node = BGP_IPV4M_NODE ;
+  return CMD_SUCCESS;
+}
+
+DEFUN_ATTR (address_family_ipv6,
+            address_family_ipv6_cmd,
+            "address-family ipv6",
+            "Enter Address Family command mode\n"
+            "Address family\n",
+            CMD_ATTR_NODE + BGP_IPV6_NODE)
 {
   vty->node = BGP_IPV6_NODE ;
   return CMD_SUCCESS;
 }
 
-DEFUN (address_family_ipv6_safi,
-       address_family_ipv6_safi_cmd,
-       "address-family ipv6 (unicast|multicast)",
-       "Enter Address Family command mode\n"
-       "Address family\n"
-       "Address Family modifier\n"
-       "Address Family modifier\n")
+DEFUN_ATTR (address_family_ipv6_safi_unicast,
+            address_family_ipv6_safi_unicast_cmd,
+            "address-family ipv6 unicast",
+            "Enter Address Family command mode\n"
+            "Address family\n"
+            "Address Family modifier\n",
+            CMD_ATTR_NODE + BGP_IPV6_NODE)
 {
-  if (strncmp (argv[0], "m", 1) == 0)
-    vty->node = BGP_IPV6M_NODE ;
-  else
-    vty->node = BGP_IPV6_NODE ;
-
+  vty->node = BGP_IPV6_NODE ;
   return CMD_SUCCESS;
 }
 
-DEFUN (address_family_vpnv4,
-       address_family_vpnv4_cmd,
-       "address-family vpnv4",
-       "Enter Address Family command mode\n"
-       "Address family\n")
+DEFUN_ATTR (address_family_ipv6_safi_multicast,
+            address_family_ipv6_safi_multicast_cmd,
+            "address-family ipv6 multicast",
+            "Enter Address Family command mode\n"
+            "Address family\n"
+            "Address Family modifier\n",
+            CMD_ATTR_NODE + BGP_IPV6M_NODE)
+{
+  vty->node = BGP_IPV6M_NODE ;
+  return CMD_SUCCESS;
+}
+
+DEFUN_ATTR (address_family_vpnv4,
+            address_family_vpnv4_cmd,
+            "address-family vpnv4",
+            "Enter Address Family command mode\n"
+            "Address family\n",
+            CMD_ATTR_NODE + BGP_VPNV4_NODE)
 {
   vty->node = BGP_VPNV4_NODE ;
   return CMD_SUCCESS;
 }
 
-ALIAS (address_family_vpnv4,
+ALIAS_ATTR (address_family_vpnv4,
        address_family_vpnv4_unicast_cmd,
        "address-family vpnv4 unicast",
        "Enter Address Family command mode\n"
        "Address family\n"
-       "Address Family Modifier\n")
+       "Address Family Modifier\n",
+       CMD_ATTR_NODE + BGP_VPNV4_NODE)
 
-DEFUN (exit_address_family,
-       exit_address_family_cmd,
-       "exit-address-family",
-       "Exit from Address Family configuration mode\n")
+DEFUN_ATTR (exit_address_family,
+            exit_address_family_cmd,
+            "exit-address-family",
+            "Exit from Address Family configuration mode\n",
+            CMD_ATTR_NODE + BGP_NODE)
 {
   node_type_t node = vty->node ;
 
-  if (node == BGP_IPV4_NODE
+  if (   node == BGP_IPV4_NODE
       || node == BGP_IPV4M_NODE
       || node == BGP_VPNV4_NODE
       || node == BGP_IPV6_NODE
       || node == BGP_IPV6M_NODE)
-    vty->node = BGP_NODE ;
-  return CMD_SUCCESS;
-}
+    {
+      vty->node = BGP_NODE ;
+      return CMD_SUCCESS ;
+    }
+  else
+    {
+      vty_out(vty, "%% No address family to leave\n") ;
+      return CMD_WARNING ;
+    } ;
+} ;
 
 /* BGP clear sort. */
 enum clear_sort
@@ -9626,10 +9658,12 @@ bgp_vty_init (void)
 
   /* address-family commands. */
   install_element (BGP_NODE, &address_family_ipv4_cmd);
-  install_element (BGP_NODE, &address_family_ipv4_safi_cmd);
+  install_element (BGP_NODE, &address_family_ipv4_safi_unicast_cmd);
+  install_element (BGP_NODE, &address_family_ipv4_safi_multicast_cmd);
 #ifdef HAVE_IPV6
   install_element (BGP_NODE, &address_family_ipv6_cmd);
-  install_element (BGP_NODE, &address_family_ipv6_safi_cmd);
+  install_element (BGP_NODE, &address_family_ipv6_safi_unicast_cmd);
+  install_element (BGP_NODE, &address_family_ipv6_safi_multicast_cmd);
 #endif /* HAVE_IPV6 */
   install_element (BGP_NODE, &address_family_vpnv4_cmd);
   install_element (BGP_NODE, &address_family_vpnv4_unicast_cmd);

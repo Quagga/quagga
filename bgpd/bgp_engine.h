@@ -31,19 +31,31 @@
 #include "lib/log.h"
 
 /*==============================================================================
- * DEBUG setting
+ * BGP_ENGINE_DEBUG setting
+ *
+ *   Set to 1 if defined, but blank.
+ *   Set to QDEBUG if not defined.
+ *
+ *   Force to 0 if BGP_ENGINE_NO_DEBUG is defined and not zero.
+ *
+ * So: defaults to same as QDEBUG, but no matter what QDEBUG is set to:
+ *
+ *       * can set BGP_ENGINE_DEBUG == 0 to turn off debug
+ *       *  or set BGP_ENGINE_DEBUG != 0 to turn on debug
+ *       *  or set BGP_ENGINE_NO_DEBUG != to force debug off
  */
-
-#ifdef BGP_ENGINE_DEBUG         /* Can be forced from outside           */
-# if BGP_ENGINE_DEBUG
-#  define BGP_ENGINE_DEBUG 1    /* Force 1 or 0                         */
-#else
-#  define BGP_ENGINE_DEBUG 0
+#ifdef BGP_ENGINE_DEBUG         /* If defined, make it 1 or 0           */
+# if IS_BLANK_OPTION(BGP_ENGINE_DEBUG)
+#  undef  BGP_ENGINE_DEBUG
+#  define BGP_ENGINE_DEBUG 1
 # endif
-#else
-# ifdef  QDEBUG
-#  define BGP_ENGINE_DEBUG 1    /* Follow QDEBUG                        */
-#else
+#else                           /* If not defined, follow QDEBUG        */
+# define BGP_ENGINE_DEBUG QDEBUG
+#endif
+
+#ifdef BGP_ENGINE_NO_DEBUG      /* Override, if defined                 */
+# if IS_NOT_ZERO_OPTION(BGP_ENGINE_NO_DEBUG)
+#  undef  BGP_ENGINE_DEBUG
 #  define BGP_ENGINE_DEBUG 0
 # endif
 #endif
@@ -80,7 +92,7 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 
   ++stats->count ;
 
-  qpt_mutex_lock(&mq->mutex) ;
+  qpt_mutex_lock(mq->mutex) ;
 
   if (mq->count > stats->max)
     stats->max    = mq->count ;
@@ -91,7 +103,7 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 
   if (stats->count < 1000)
     {
-      qpt_mutex_unlock(&mq->mutex) ;
+      qpt_mutex_unlock(mq->mutex) ;
       return ;
     } ;
 
@@ -106,7 +118,7 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 
   assert(my_count == mq->count) ;
 
-  qpt_mutex_unlock(&mq->mutex) ;
+  qpt_mutex_unlock(mq->mutex) ;
 
   average = stats->total * 1000 ;
   average = (average / stats->count) + 5 ;

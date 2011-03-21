@@ -44,8 +44,8 @@ static unsigned short timers_inited;
 
 /* cpu stats needs to be qpthread safe. */
 static qpt_mutex_t thread_mutex;
-#define LOCK qpt_mutex_lock(&thread_mutex);
-#define UNLOCK qpt_mutex_unlock(&thread_mutex);
+#define LOCK qpt_mutex_lock(thread_mutex);
+#define UNLOCK qpt_mutex_unlock(thread_mutex);
 static struct hash *cpu_record = NULL;
 
 /* Pointer to qtimer pile to be used, if any    */
@@ -468,7 +468,7 @@ thread_master_create ()
 {
 #ifdef USE_MQUEUE
   sigfillset (&newmask);
-  sigdelset (&newmask, SIGMQUEUE);
+  sigdelset (&newmask, SIG_INTERRUPT);
 #endif
 
   if (cpu_record == NULL)
@@ -1399,14 +1399,14 @@ funcname_thread_execute (struct thread_master *m,
 void
 thread_init_r (void)
 {
-  qpt_mutex_init(&thread_mutex, qpt_mutex_quagga);
+  qpt_mutex_init(thread_mutex, qpt_mutex_quagga);
 }
 
 /* Finished with module */
 void
 thread_finish (void)
 {
-  qpt_mutex_destroy(&thread_mutex, 0);
+  qpt_mutex_destroy(thread_mutex, 0);
 }
 
 #undef USE_MQUEUE

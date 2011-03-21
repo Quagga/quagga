@@ -28,18 +28,6 @@
  */
 
 /*------------------------------------------------------------------------------
- * Create a new, empty qs
- */
-extern qstring
-qs_new(void)
-{
-  /* zeroising sets a completely empty qstring -- see qs_init_new()     */
-  return XCALLOC(MTYPE_QSTRING, sizeof(qstring_t)) ;
-
-  confirm(QSTRING_INIT_ALL_ZEROS) ;
-} ;
-
-/*------------------------------------------------------------------------------
  * Create a new body or extend existing one to accommodate at least slen + 1.
  *
  * Sets size to multiple of 8 (minimum 16), with at least 9 bytes free beyond
@@ -62,17 +50,39 @@ qs_new_body(qstring qs, usize slen, bool keep_alias)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Create a new, empty qs
+ *
+ * If non-zero slen is given, a body is allocated (size = slen + 1).
+ * If zero slen is given, no body is allocated.
+ *
+ * Sets 'len' = 'cp' = 0.
+ *
+ * Returns: address of qstring
+ */
+extern qstring
+qs_new(usize slen)
+{
+  qstring qs ;
+
+  /* zeroising sets a completely empty qstring -- see qs_init_new()     */
+
+  qs = XCALLOC(MTYPE_QSTRING, sizeof(qstring_t)) ;
+
+  confirm(QSTRING_INIT_ALL_ZEROS) ;
+
+  if (slen != 0)
+    qs_new_body(qs, slen, false) ;
+
+  return qs ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Create a new, empty qs with body
  */
 extern qstring
 qs_new_with_body(usize slen)
 {
-  qstring qs ;
-
-  qs = qs_new() ;
-  qs_new_body(qs, slen, false) ;
-
-  return qs ;
+  return qs_new(slen | 1) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -92,9 +102,9 @@ extern qstring
 qs_init_new(qstring qs, usize slen)
 {
   if (qs == NULL)
-    qs = qs_new() ;
-  else
-    memset(qs, 0, sizeof(qstring_t)) ;
+    return qs_new(slen) ;
+
+  memset(qs, 0, sizeof(qstring_t)) ;
 
   confirm(QSTRING_INIT_ALL_ZEROS) ;
 
@@ -346,8 +356,22 @@ qs_set_fill_n(qstring qs, usize len, const char* src, usize flen)
  * Sets 'len' to new length.
  * Does not affect 'cp'.
  *
+ * Will work even if the stuff being appended is somewhere in the body of the
+ * qstring !!
+ *
  * Returns: address of the qstring (allocated if required).
  */
+
+/*------------------------------------------------------------------------------
+ * Append given qstring to a qstring.
+ *
+ * See notes above.
+ */
+extern qstring
+qs_append(qstring qs, qstring src)
+{
+  return qs_append_str_n(qs, qs_body(src), qs_len(src)) ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Append given string to a qstring.
@@ -359,9 +383,9 @@ qs_set_fill_n(qstring qs, usize len, const char* src, usize flen)
  *
  * See notes above.
  */
-extern qstring qs_append(qstring qs, const char* src)
+extern qstring qs_append_str(qstring qs, const char* src)
 {
-  return qs_append_n(qs, src, (src != NULL) ? strlen(src) : 0) ;
+  return qs_append_str_n(qs, src, (src != NULL) ? strlen(src) : 0) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -373,26 +397,15 @@ extern qstring qs_append(qstring qs, const char* src)
  * See notes above.
  */
 extern qstring
-qs_append_n(qstring qs, const char* src, usize n)
+qs_append_str_n(qstring qs, const char* src, usize n)
 {
   qs = qs_extend(qs, n) ; /* allocate, copy any alias, extend body,
                              set new length, etc                        */
 
   if (n != 0)
-    memcpy(qs_ep_char_nn(qs) - n, src, n) ;
+    memmove(qs_ep_char_nn(qs) - n, src, n) ;
 
   return qs ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Append given qstring to a qstring.
- *
- * See notes above.
- */
-extern qstring
-qs_append_qs(qstring qs, qstring src)
-{
-  return qs_append_n(qs, qs_body(src), qs_len(src)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -403,11 +416,8 @@ qs_append_qs(qstring qs, qstring src)
 extern qstring
 qs_append_els(qstring qs, elstring src)
 {
-  return qs_append_n(qs, els_body(src), els_len(src)) ;
+  return qs_append_str_n(qs, els_body(src), els_len(src)) ;
 } ;
-
-
-
 
 /*==============================================================================
  * Setting of alias.
@@ -461,7 +471,7 @@ extern qstring
 qs_set_alias_n(qstring qs, const char* src, usize n)
 {
   if (qs == NULL)
-    qs = qs_new() ;
+    qs = qs_new(0) ;
 
   /* Make the alias.  Note that any existing b_body and b_size are preserved,
    * so that any current body can be reused at a later date.
@@ -596,7 +606,7 @@ qs_vprintf(qstring qs, const char *format, va_list args)
 
   qqs = qs ;            /* NULL => need to make qs                      */
   if (qs == NULL)
-    qqs = qs_new() ;    /* Sets size, cp & len = 0                      */
+    qqs = qs_new(0) ;   /* Sets size, cp & len = 0                      */
   else
     qs_clear(qqs) ;     /* Sets cp & len = 0, discard any alias, but
                            keep existing body                           */
@@ -641,6 +651,9 @@ qs_vprintf(qstring qs, const char *format, va_list args)
  * Replace 'r' bytes at 'cp' by 'n' bytes -- extending if required.
  *
  * May increase or decrease 'len'. but does not affect 'cp'.
+ *
+ * If the given src is NULL, do not insert anything, just leave the space
+ * ready for it.
  *
  * Returns: number of bytes beyond 'cp' that now exist.
  *
@@ -691,7 +704,7 @@ qs_replace(qstring qs, usize r, const void* src, usize n)
   if (after > 0)                /* move the after part before inserting */
     memmove(np + cp + n, ap + cp + r, after) ;
 
-  if (n > 0)                    /* insert                               */
+  if ((n > 0) && (src != NULL)) /* insert                               */
     memmove(np + cp, src, n) ;
 
   /* Set new 'len'                                                      */

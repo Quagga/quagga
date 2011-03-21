@@ -30,32 +30,38 @@
 #include "vty_local.h"
 #include "vty_io.h"
 
-extern cmd_return_code_t uty_cmd_dispatch(vty_io vio, cmd_do_t to_do,
-                                                                 qstring line) ;
+extern void vty_cmd_loop_prepare(vty vty) ;
+extern void uty_cmd_loop_enter(vty_io vio) ;
+extern void uty_cmd_signal(vty_io vio, cmd_return_code_t ret) ;
+extern void uty_cmd_loop_close(vty_io vio, bool curtains) ;
+extern void vty_cmd_loop_exit(vty vty) ;
+
 extern cmd_return_code_t vty_cmd_fetch_line(vty vty) ;
+extern cmd_return_code_t vty_cmd_hiatus(vty vty, cmd_return_code_t ret) ;
 extern cmd_return_code_t vty_cmd_special(vty vty) ;
-extern void vty_cmd_reflect_line(vty vty) ;
-extern void vty_cmd_out_push(vty vty) ;
-extern void uty_cmd_out_push(vty_io vio) ;
+extern cmd_return_code_t vty_cmd_can_auth_enable(vty vty) ;
+extern cmd_return_code_t vty_cmd_reflect_line(vty vty) ;
+extern cmd_return_code_t vty_cmd_out_push(vty vty) ;
+extern cmd_return_code_t uty_cmd_out_push(vio_vf vf, bool final) ;
 
-extern cmd_return_code_t vty_cmd_open_in_pipe_file(vty vty, qstring name,
-                                                                 bool reflect) ;
-extern cmd_return_code_t vty_cmd_open_in_pipe_shell(vty vty) ;
-extern cmd_return_code_t vty_cmd_open_out_pipe_file(vty vty, qstring name,
-                                                                  bool append) ;
-extern cmd_return_code_t vty_cmd_open_out_dev_null(vty vty) ;
-extern cmd_return_code_t vty_cmd_open_out_pipe_shell(vty vty) ;
+extern void vty_cmd_set_full_lex(vty vty, bool full_lex) ;
+
+extern void uty_cmd_depth_mark(vty_io vio) ;
+extern cmd_return_code_t uty_cmd_open_in_pipe_file(vty_io vio,
+                   cmd_context context, qstring name,    cmd_pipe_type_t type) ;
+extern cmd_return_code_t uty_cmd_open_in_pipe_shell(vty_io vio,
+                   cmd_context context, qstring command, cmd_pipe_type_t type) ;
+extern cmd_return_code_t uty_cmd_open_out_pipe_file(vty_io vio,
+                   cmd_context context, qstring name,    cmd_pipe_type_t type) ;
+extern cmd_return_code_t uty_cmd_open_out_dev_null(vty_io vio) ;
+extern cmd_return_code_t uty_cmd_open_out_pipe_shell(vty_io vio,
+                   cmd_context context, qstring command, cmd_pipe_type_t type) ;
+extern qpath uty_cmd_path_name_complete(qpath dst, const char* name,
+                                                         cmd_context context) ;
+
 extern cmd_return_code_t vty_cmd_success(vty vty) ;
-extern cmd_return_code_t vty_cmd_loop_exit(vty vty, cmd_return_code_t ret) ;
 
-extern void uty_cmd_prepare(vty_io vio) ;
-
-extern cmd_return_code_t uty_cmd_close(vty_io vio, const char* reason) ;
-
-extern bool vty_config_lock (vty vty, node_type_t node);
-extern void vty_config_unlock (vty vty, node_type_t node);
-extern void uty_config_unlock (vty vty, node_type_t node) ;
-
-
+extern cmd_return_code_t vty_cmd_config_lock (vty vty) ;
+extern void vty_cmd_config_lock_check(struct vty *vty, node_type_t node) ;
 
 #endif /* _ZEBRA_VTY_COMMAND_H */

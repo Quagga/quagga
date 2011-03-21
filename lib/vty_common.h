@@ -44,7 +44,7 @@
  * The "struct vty" is used extensively across the Quagga daemons, where it
  * has two functions relating to command handling as:
  *
- *   1) a "file handle" for output produced by commands
+ *   1) a "handle" for output produced by commands
  *
  *   2) the holder of some context -- notably the current command "node" -- for
  *      command execution to use
@@ -53,7 +53,7 @@
  * factored out into the "struct vty_io" -- opaque to users of the struct vty.
  *
  * There is also context used when parsing and executing commands which is
- * private to command.c et al, and is factored out into the "struct execution"
+ * private to command.c et al, and is factored out into the "struct cmd_exec"
  * -- also opaque to users of the struct vty.
  */
 enum vty_type           /* Command output                               */
@@ -110,18 +110,30 @@ struct vty
   void* index_sub ;
 
   /* In configure mode (owner of the symbol of power)                   */
-  bool  config;
+  bool  config ;                /* we own               */
+  ulong config_brand ;          /* and this is our mark */
 
   /*----------------------------------------------------------------------------
    * The current cmd_exec environment -- used in command_execute.c et al
    *
-   * This is accessed freely by the command handling code while
-   * vio->cmd_running.
+   * This is accessed freely by the command handling code because there is
+   * only one thread of execution per vty -- though for some vty types (notably
+   * VTY_TERMINAL) that may be in the vty_cli_thread or in the vty_cmd_thread
+   * at different times.
+   *
+   * Where information from the vio is required, the VTY_LOCK is acquired.
    */
   struct cmd_exec* exec ;               /* one per vty          */
 
   /*----------------------------------------------------------------------
    * The following is used inside vty.c etc only -- under VTY_LOCK.
+   *
+   * The lock is required because the vty_cli_thread may be doing I/O and
+   * other stuff at the same time as the vty_cmd_thread is doing I/O, or at the
+   * same time as other vty are being serviced.
+   *
+   * Could have one lock per vty -- but would then need a lock for the common
+   * parts of the cli thread, so one lock keeps things relatively simple.
    */
   struct vty_io* vio ;                  /* one per vty          */
 } ;

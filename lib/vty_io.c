@@ -44,6 +44,7 @@
 #include <arpa/telnet.h>
 #include <sys/un.h>             /* for VTYSH    */
 #include <sys/socket.h>
+#include <wait.h>
 
 #define VTYSH_DEBUG 0
 
@@ -88,8 +89,10 @@ uty_out(vty_io vio, const char *format, ...)
 /* Watch-dog timer.                                                     */
 static vio_timer_t vty_watch_dog ;
 
-static vty_timer_time uty_watch_dog_bark(vio_timer_t* timer, void* info) ;
-static bool uty_death_watch_scan(bool final) ;
+static vty_timer_time uty_watch_dog_bark(vio_timer timer, void* info) ;
+static void uty_death_watch_scan(bool final) ;
+
+static vty_io uty_dispose(vty_io vio) ;
 
 /*------------------------------------------------------------------------------
  * Initialise watch dog -- at start-up time.
@@ -97,7 +100,7 @@ static bool uty_death_watch_scan(bool final) ;
 extern void
 uty_watch_dog_init(void)
 {
-  vio_timer_init(&vty_watch_dog, NULL, NULL) ; /* empty         */
+  vio_timer_init_new(vty_watch_dog, NULL, NULL) ; /* empty         */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -106,8 +109,8 @@ uty_watch_dog_init(void)
 extern void
 uty_watch_dog_start(void)
 {
-  vio_timer_init(&vty_watch_dog, uty_watch_dog_bark, NULL) ;
-  vio_timer_set(&vty_watch_dog, VTY_WATCH_DOG_INTERVAL) ;
+  vio_timer_init_new(vty_watch_dog, uty_watch_dog_bark, NULL) ;
+  vio_timer_set(vty_watch_dog, VTY_WATCH_DOG_INTERVAL) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -118,7 +121,7 @@ uty_watch_dog_start(void)
 extern void
 uty_watch_dog_stop(void)
 {
-  vio_timer_reset(&vty_watch_dog) ;
+  vio_timer_reset(vty_watch_dog, keep_it) ;
   uty_death_watch_scan(true) ;  /* scan the death-watch list            */
 }
 
@@ -126,7 +129,7 @@ uty_watch_dog_stop(void)
  * Watch dog vio_timer action
  */
 static vty_timer_time
-uty_watch_dog_bark(vio_timer_t* timer, void* info)
+uty_watch_dog_bark(vio_timer timer, void* info)
 {
   cmd_host_name(true) ;         /* check for host name change           */
 
@@ -136,49 +139,40 @@ uty_watch_dog_bark(vio_timer_t* timer, void* info)
 } ;
 
 /*------------------------------------------------------------------------------
- * Scan the death watch list.
+ * Process the death watch list -- anything on the list can be disposed of.
  *
- * A vty can finally be freed if it is closed and there is no command running.
- *
- * At curtains the command running state is forced off.
+ * At curtains...
  */
-static bool
-uty_death_watch_scan(bool curtains)
+static void
+uty_death_watch_scan(bool final)
 {
-  vty_io  vio ;
-  vty_io  next ;
+  VTY_ASSERT_CLI_THREAD() ;
 
-  next = vio_death_watch ;
-  while (next != NULL)
+  /* Dispose of anything on the death watch list.                       */
+
+  while (vio_death_watch != NULL)
     {
-      vio  = next ;
-      next = sdl_next(vio, vio_list) ;
+      vty     vty ;
+      vty_io  vio ;
 
-      /* If this is curtains, override cmd_running !            */
-      if (curtains)
-        vio->cmd_running = false ;
+      vio             = vio_death_watch ;
+      vio_death_watch = sdl_next(vio, vio_list) ;  /* take off death watch */
 
-      if (uty_close(vio, curtains, NULL))
-        {
-          vty vty = vio->vty ;
+      vty = vio->vty ;
 
-          sdl_del(vio_death_watch, vio, vio_list) ;
+      vty->vio = uty_dispose(vty->vio) ;
+      assert(vty->exec == NULL) ;
 
-          cmd_exec_free(vty->exec) ;
-          XFREE(MTYPE_VTY, vty->vio) ;
-          XFREE(MTYPE_VTY, vty) ;
-        } ;
+      XFREE(MTYPE_VTY, vty) ;
     } ;
-
-  return (vio_death_watch == NULL) ;
 } ;
 
 /*==============================================================================
  * Prototypes.
  */
-
-static void uty_vf_read_close(vio_vf vf) ;
-static bool uty_vf_write_close(vio_vf vf, bool final) ;
+static void uty_vout_close_reason(vio_vf vf, const char* reason) ;
+static cmd_return_code_t uty_vf_read_close(vio_vf vf, bool final) ;
+static cmd_return_code_t uty_vf_write_close(vio_vf vf, bool final) ;
 static vio_vf uty_vf_free(vio_vf vf) ;
 
 /*==============================================================================
@@ -191,29 +185,27 @@ static vio_vf uty_vf_free(vio_vf vf) ;
  *
  * Caller must complete the initialisation of the vty_io, which means:
  *
- *   * constructing a suitable vio_vf and doing uty_vin_open() to set the
+ *   * constructing a suitable vio_vf and doing uty_vin_push() to set the
  *     vin_base.
  *
  *     All vty_io MUST have a vin_base, even if it is /dev/null.
  *
- *   * constructing a suitable vio_vf and doing uty_vout_open() to set the
- *     vout_base.
+ *   * constructing a suitable vio_vf and doing uty_vout_push() to set the
+ *     vout_base and the vio->obuf.
  *
  *     All vty_io MUST have a vout_base, even if it is /dev/null.
  *
- *   * setting the vio->obuf to the vout_base obuf...   TODO ???
+ *   * setting vio->cli, if required
  *
- *   * setting vio->cli, if required.
+ *   * etc.
  *
- * Caller must also set the initial vty->node, if any.
+ * No "exec" is allocated.  That is done when the command loop is entered.
  */
 extern vty
-uty_new(vty_type_t type)
+uty_new(vty_type_t type, node_type_t node)
 {
   vty      vty ;
   vty_io   vio ;
-
-  bool             execution ;
 
   VTY_ASSERT_LOCKED() ;
 
@@ -224,20 +216,22 @@ uty_new(vty_type_t type)
    *
    *   type      = X          -- set to actual type, below
    *
-   *   node      = NULL_NODE  -- set to something sensible elsewhere
+   *   node      = X          -- set to actual node, below
    *
    *   index     = NULL       -- nothing, yet
    *   index_sub = NULL       -- nothing, yet
    *
-   *   config    = false      -- not in configure mode
+   *   config    = false      -- not owner of configuration symbol of power
+   *   config_brand = 0       -- none, yet
    *
-   *   execution = X          -- set below
+   *   exec      = NULL       -- execution state set up when required
    *   vio       = X          -- set below
    */
   confirm(NULL_NODE == 0) ;
   confirm(QSTRING_INIT_ALL_ZEROS) ;
 
   vty->type   = type ;
+  vty->node   = node ;
 
   vio = XCALLOC(MTYPE_VTY, sizeof(struct vty_io)) ;
 
@@ -251,57 +245,37 @@ uty_new(vty_type_t type)
    *   vin_base     = NULL   -- empty input stack
    *   vin_depth    = 0      -- no stacked vin's, yet
    *
+   *   real_depth   = 0      -- nothing stacked, yet
+   *
    *   vout         = NULL   -- empty output stack
    *   vout_base    = NULL   -- empty output stack
    *   vout_depth   = 0      -- no stacked vout's, yet
    *
-   *   vout_closing = NULL   -- nothing closing yet
+   *   depth_mark   = 0      -- no stacked vin/vout, yet
+   *
+   *   err_hard     = false  -- no error at all, yet
+   *   ebuf         = NULL   -- no error at all, yet
    *
    *   vio_list     = NULLs  -- not on the vio_list, yet
    *   mon_list     = NULLs  -- not on the monitors list
    *
    *   blocking     = X      -- set below: false unless VTY_CONFIG_READ
-   *   cmd_running  = false  -- no commands running, yet
    *
-   *   state        = X      -- set vf_open, below.
+   *   state        = vc_null -- not started vty command loop
    *
-   *   close_reason = NULL   -- not closed, yet
+   *   close_reason = NULL    -- none set
    *
-   *   obuf         = NULL   -- no output buffer, yet
+   *   obuf         = NULL     -- no output buffer, yet
    */
+  confirm(vc_null == 0) ;
 
   vty->vio = vio ;
   vio->vty = vty ;
 
   vio->blocking = (type == VTY_CONFIG_READ) ;
-  vio->state    = vf_open ;
-
-  /* Create and initialise the command execution environment (if any)   */
-  execution = true ;
-
-  switch(type)
-  {
-    case VTY_TERMINAL:
-    case VTY_SHELL_SERVER:
-    case VTY_SHELL_CLIENT:
-    case VTY_CONFIG_READ:
-      execution = true ;
-      break ;
-
-    case VTY_STDOUT:
-    case VTY_STDERR:
-      execution = false ;
-      break ;
-
-    default:
-      zabort("unknown vty type") ;
-  } ;
-
-  if (execution)
-    vty->exec = cmd_exec_new(vty) ;
 
   /* Place on list of known vio/vty                                     */
-  sdl_push(vio_list_base, vio, vio_list) ;
+  sdl_push(vio_live_list, vio, vio_list) ;
 
   return vty;
 } ;
@@ -316,13 +290,13 @@ uty_new(vty_type_t type)
  *
  * Sets the read ready action and the read timer timeout action.
  *
- * NB: a uty_cmd_prepare() is required before command processing can continue.
+ * NB: is usually called from the cli thread, but may be called from the cmd
+ *     thread for vf which is blocking !
  *
- *     That is not done here because the vin state may not be complete (in
- *     particular the vin->parse_type and vin->reflect_enabled !).
+ * NB: a uty_cmd_prepare() is required before command processing can continue.
  */
 extern void
-uty_vin_open(vty_io vio, vio_vf vf, vio_in_type_t type,
+uty_vin_push(vty_io vio, vio_vf vf, vio_in_type_t type,
                                     vio_vfd_action* read_action,
                                     vio_timer_action* read_timer_action,
                                     usize ibuf_size)
@@ -330,31 +304,55 @@ uty_vin_open(vty_io vio, vio_vf vf, vio_in_type_t type,
   vf->vin_type  = type ;
   vf->vin_state = vf_open ;
 
-  if (type < VIN_SPECIALS)
+  assert(type != VIN_NONE) ;
+
+  if ((type < VIN_SPECIALS) && (!vf->blocking))
     {
       vio_vfd_set_read_action(vf->vfd, read_action) ;
       vio_vfd_set_read_timeout_action(vf->vfd, read_timer_action) ;
     } ;
 
   ssl_push(vio->vin, vf, vin_next) ;
+  vio->real_depth = ++vio->vin_depth ;
+
   if (vio->vin_base == NULL)
     {
-      assert(vio->vin_depth == 0) ;
+      assert(vio->vin_depth == 1) ;
       vio->vin_base = vf ;
-    }
-  else
-    {
-      assert(type != VIN_NONE) ;
-      ++vio->vin_depth ;
     } ;
 
   if (ibuf_size != 0)
     {
       vf->ibuf = vio_fifo_init_new(NULL, ibuf_size) ;
-
+      vf->cl   = qs_init_new(NULL, 120) ;
       vf->line_complete = true ;
       vf->line_step     = 1 ;
     } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Save the given context in the current top of the vin stack.
+ *
+ * This is done when a new pipe is opened, so that:
+ *
+ *   a) saves the current context in the current vin (the new pipe has
+ *      not yet been pushed) so that uty_vin_pop() can restore this context
+ *      after closing the then top of the stack.
+ *
+ *   b) can update context for about to be run vin, eg:
+ *
+ *        - dir_here -- if required
+ *
+ *        - can_enable
+ *
+ * So the top of the vin stack does not contain the current context, that is
+ * in the vty->exec !
+ */
+extern void
+uty_vin_new_context(vty_io vio, cmd_context context, qpath file_here)
+{
+  assert(vio->vin->context == NULL) ;
+  vio->vin->context = cmd_context_new_save(context, file_here) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -365,6 +363,15 @@ uty_vin_open(vty_io vio, vio_vf vf, vio_in_type_t type,
  * Sets the write ready action and the write timer timeout action.
  *
  * Initialises an output buffer and sets an end_mark.
+ *
+ * The depth_mark is set to the current vio->depth_mark + 1.  This is the
+ * vin_depth below which the vout should be closed.  Before a command line
+ * is fetched (and hence after the previous command line has completed) the
+ * vout->depth_mark is checked.  If it is > the current vin_depth, then
+ * the vout is closed before a command line can be fetched.
+ *
+ * NB: is usually called from the cli thread, but may be called from the cmd
+ *     thread for vf which is blocking !
  *
  * NB: VOUT_DEV_NULL, VOUT_STDOUT and VOUT_STDERR are special.
  *
@@ -377,41 +384,41 @@ uty_vin_open(vty_io vio, vio_vf vf, vio_in_type_t type,
  *     if it is later to be discarded.
  *
  * NB: a uty_cmd_prepare() is required before command processing can continue.
- *
- *     That is not done here because the vout state may not be complete (in
- *     particular the vout->out_enabled !).
  */
 extern void
-uty_vout_open(vty_io vio, vio_vf vf, vio_out_type_t type,
-                                    vio_vfd_action* write_action,
-                                    vio_timer_action* write_timer_action,
-                                    usize obuf_size)
+uty_vout_push(vty_io vio, vio_vf vf, vio_out_type_t type,
+                                     vio_vfd_action* write_action,
+                                     vio_timer_action* write_timer_action,
+                                     usize obuf_size)
 {
+  VTY_ASSERT_LOCKED() ;
+
   vf->vout_type  = type ;
   vf->vout_state = vf_open ;
 
-  if (type < VOUT_SPECIALS)
+  assert(type != VOUT_NONE) ;
+
+  if ((type < VOUT_SPECIALS) && (!vf->blocking))
     {
       vio_vfd_set_write_action(vf->vfd, write_action) ;
       vio_vfd_set_write_timeout_action(vf->vfd, write_timer_action) ;
     } ;
 
   ssl_push(vio->vout, vf, vout_next) ;
+  ++vio->vout_depth ;
+
   if (vio->vout_base == NULL)
     {
-      assert(vio->vout_depth == 0) ;
+      assert(vio->vout_depth == 1) ;
       vio->vout_base = vf ;
-    }
-  else
-    {
-      assert(type != VOUT_NONE) ;
-      ++vio->vout_depth ;
     } ;
 
   vf->obuf = vio_fifo_init_new(NULL, obuf_size) ;
   vio_fifo_set_end_mark(vf->obuf) ;
 
-  vio->obuf = vio->vout->obuf ;
+  vf->depth_mark = vio->depth_mark + 1 ;
+
+  vio->obuf = vf->obuf ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -434,33 +441,6 @@ uty_set_timeout(vty_io vio, vty_timer_time timeout)
 } ;
 
 /*------------------------------------------------------------------------------
- * Set/Clear "monitor" state:
- *
- *  set:   if VTY_TERM and not already "monitor" (and write_open !)
- *  clear: if is "monitor"
- */
-extern void
-uty_set_monitor(vty_io vio, bool on)
-{
-  VTY_ASSERT_LOCKED() ;
-#if 0
-  if      (on && !vio->monitor)
-    {
-      if ((vio->vty->type == VTY_TERMINAL) && !vio->closing)
-        {
-          vio->monitor = 1 ;
-          sdl_push(vio_monitors_base, vio, mon_list) ;
-        } ;
-    }
-  else if (!on && vio->monitor)
-    {
-      vio->monitor = 0 ;
-      sdl_del(vio_monitors_base, vio, mon_list) ;
-    }
-#endif
-} ;
-
-/*------------------------------------------------------------------------------
  * Return "name" of VTY.
  *
  * The name of the base vin, or (failing that) the base vout.
@@ -478,257 +458,391 @@ uty_get_name(vty_io vio)
 } ;
 
 /*------------------------------------------------------------------------------
- * Close all vin excluding the vin_base.
+ * Close VTY -- final.
  *
- * This is done on close and when there is a command error.
+ * Two forms: "curtains" and "not-curtains".
+ *
+ * At "curtains" the system is being terminated, and all message and event
+ * handling has stopped.  Can assume that a vty is not in any command loop,
+ * so can be killed off here and now.
+ *
+ * At "not-curtains" messages and event handling is still running.  It is
+ * possible that a vty is running a command in the cmd_thread, so cannot
+ * completely close things down -- must leave enough for the command loop
+ * to continue to work, up to the point that the closing of the vty is
+ * detected.
+ *
+ * For everything that is closed, uses "final" close, which stops things
+ * instantly -- will not block, or set any read/write ready, or continue the
+ * command loop, or take any notice of errors.
+ *
+ * This close is called by:
+ *
+ *    * uty_reset()     -- SIGHUP -- !curtains
+ *
+ *      Will close "final" everything except vout_base.
+ *
+ *      If the command loop is not already stopped, it is signalled to stop
+ *      as soon as possible.  When it does it will return here via
+ *      vty_cmd_loop_exit().
+ *
+ *      If command loop has already stopped, then will proceed to complete
+ *      close -- see below.
+ *
+ *    * uty_reset()     -- SIGTERM -- curtains
+ *
+ *      Will close "final" everything except vout_base.
+ *
+ *      The command loop will be set stopped, and will proceed to complete
+ *      close -- see below.
+ *
+ *    * vty_cmd_loop_exit()  -- when the command loop has stopped -- !curtains
+ *
+ *      The command loop may have stopped in response to a vc_close_trap,
+ *      which means that have been here before, and the vty is pretty much
+ *      closed already.
+ *
+ *      The command loop may have stopped:
+ *
+ *         - because has reached the end of the vin_base input
+ *         - vin_base has timed out
+ *         - there was a command error, on non-interactive vty
+ *         - there was an I/O error
+ *
+ *      In all these cases, the stack will already have been closed final or
+ *      otherwise, except for vout_base, and all output will have been pushed.
+ *
+ *      vout_base will have been closed, but not "final", so will be sitting
+ *      in vf_closing state.
+ *
+ *      So the vio is ready for complete close.
+ *
+ * For complete close any remaining vf are closed final, and the close reason
+ * is output to the vout_base, if any and if possible.
+ *
+ * The vty is then closed and placed on death watch to be finally reaped.
  */
 extern void
-uty_vin_close_stack(vty_io vio)
+uty_close(vty_io vio, const char* reason, bool curtains)
 {
-  while (vio->vin != vio->vin_base)
-    uty_vin_close(vio) ;
-} ;
+  VTY_ASSERT_CAN_CLOSE(vio->vty) ;
 
-/*------------------------------------------------------------------------------
- * Close all vout except for the vout_base.
- *
- * This is done on close and when there is a command error.
- *
- * Should only be "final" on a call from the watch-dog !
- */
-extern void
-uty_vout_close_stack(vty_io vio, bool final)
-{
+  /* Stamp on any monitor output instantly.                             */
+  uty_set_monitor(vio, off) ;
+
+  /* Save the close reason for later, unless one is already set.        */
+  if ((reason != NULL) && (vio->close_reason == NULL))
+    vio->close_reason = XSTRDUP(MTYPE_TMP, reason) ;
+
+  /* Close the command loop -- if not already stopped (or closed !)
+   *
+   * If command loop is not already stopped, the if "curtains" will stop it
+   * instantly, otherwise will signal to the command loop to close, soonest.
+   */
+  uty_cmd_loop_close(vio, curtains) ;
+
+  /* Close all vin including the vin_base.
+   *
+   * Note that the vin_base is closed, but is still on the vin stack.
+   */
+  do
+    uty_vin_pop(vio, true, NULL) ;      /* final close, discard context */
+  while (vio->vin != vio->vin_base) ;
+
+  /* Close all the vout excluding the vout_base.                        */
   while (vio->vout != vio->vout_base)
-    uty_vout_close(vio, final) ;
+    uty_vout_pop(vio, true) ;         /* final close                  */
+
+  /* If command loop is still running, this is as far as can go.
+   *
+   * The command loop will hit the vc_close_trap or execute CMD_CLOSE, and
+   * that will cause this function to be called again, in vc_stopped state.
+   *
+   * Save the close_reason for later.
+   */
+  if ((vio->state == vc_running) || (vio->state == vc_close_trap))
+    return ;
+
+  /* If the vout_base is not closed, try to output the close reason,
+   * if any.
+   */
+  if ((vio->close_reason != NULL) && (vio->vout_base->vout_state != vf_closed))
+    uty_vout_close_reason(vio->vout_base, vio->close_reason) ;
+
+  /* Now final close the vout_base.
+   *
+   * Note that the vout_base will be closed, but on the vout stack with an
+   * empty obuf... just in case TODO ?
+   */
+  uty_vout_pop(vio, true) ;           /* final close                  */
+
+  assert(vio->obuf == vio->vout_base->obuf) ;
+  vio_fifo_clear(vio->obuf, true) ;     /* and discard any marks        */
+
+  /* All should now be very quiet indeed.                               */
+  if (vty_debug)
+    {
+      assert(vio->vin == vio->vin_base) ;
+      assert(vio->vin_depth  == 0) ;
+      assert(vio->real_depth == 0) ;
+
+      assert(vio->vout == vio->vout_base) ;
+      assert(vio->vout_depth == 0) ;
+
+      assert(vio->vin->vin_state   == vf_closed) ;
+      assert(vio->vout->vout_state == vf_closed) ;
+    } ;
+
+  /* Can dispose of these now -- leave vin/vout for final disposition   */
+  vio->vty->exec = cmd_exec_free(vio->vty->exec) ;
+  vio->ebuf = vio_fifo_reset(vio->ebuf, free_it) ;
+
+  /* Command loop is not running, so can place on death watch for final
+   * disposition.
+   */
+  if (vio->state == vc_stopped)
+    {
+      vio->state = vc_closed ;
+
+      sdl_del(vio_live_list, vio, vio_list) ;
+      sdl_push(vio_death_watch, vio, vio_list) ;
+    } ;
+
+  assert(vio->state == vc_closed) ;     /* thank you and good night     */
 } ;
 
 /*------------------------------------------------------------------------------
- * Close VTY -- may be called any number of times !
+ * Dispose unwanted vty.
  *
- * If no reason for the close has already been set, sets the given reason.
- * The close reason is reported at the end of the output to the vout_base.
- *
- * Once a VTY has been closed, it will provide no further input.  However, until
- * "final" close, it will continue to output anything which is pending at the
- * time of the close, which includes: (a) anything in the output buffer,
- * (b) any further output from a then running command and (c) anything that an
- * out_pipe may be in the process of returning.
- *
- * The main complication is that in a multi-threaded world there may be a
- * vio->cmd_running.  The close shuts down everything on the input stack, so
- * any active command loop will come to a halt as soon as the current command
- * does complete.  The output stack is preserved, but will be closed on
- * completion of the command.
- *
- * Closing a VTY places it on the death-watch list.  Once any pending output
- * has been dealt with and any cmd_running has completed, then the death-watch
- * will apply the coup de grace.
- *
- * Getting the death-watch to finally close the VTY also allows the vty to be
- * closed from somewhere deep (e.g. when there is an I/O error) without
- * destroying the VTY and upsetting code that might not realise the VTY has
- * vanished.
- *
- * The close sequence is:
- *
- *   1. if a close reason has not already been set, set any given one.
- *
- *   2. if not already closing -- ie this is the first call of uty_close()
- *
- *       a. transfer to death-watch list & set closing.
- *
- *       b. turn off any monitor state
- *
- *       c. close down the input/read side completely.
- *
- *          Empties the vin stack down to vin_base, closing all input.
- *
- *          Close the vin_base.  The vin_base is left !read_open.
- *
- *          All read-only vio_vf (except the vin_base) are freed.
- *
- *          Note that everything is read closed before anything is write
- *          closed.
- *
- *          A vio_vf is read closed once and only once.
- *
- *          The vin_base is closed only by this function.  Until the final
- *          uty_close, there is always at least the vin_base, even if it is
- *          read_closed.
- *
- *   3. try to close everything on the vout_closing list.
- *
- *      even if cmd_running
- *
- *
+ * Called from deathwatch -- must already be removed from deathwatch list.
  */
-extern bool
-uty_close(vty_io vio, bool final, qstring reason)
+static vty_io
+uty_dispose(vty_io vio)
 {
-  vio_vf vf_next ;
+  VTY_ASSERT_LOCKED() ;
+
+  assert(vio->state == vc_closed) ;
+
+  /* Stop pointing at vout_base obuf                                    */
+  vio->obuf = NULL ;
+
+  /* Clear out vout and vin (may be the same)                           */
+  assert(vio->vin == vio->vin_base) ;
+  vio->vin_base = uty_vf_free(vio->vin_base) ;
+
+  assert(vio->vout == vio->vout_base) ;
+  if (vio->vout != vio->vin)
+    vio->vout_base = uty_vf_free(vio->vout_base) ;
+
+  vio->vin  = NULL ;
+  vio->vout = NULL ;
+
+  /* Remainder of contents of the vio                                   */
+  vio->ebuf = vio_fifo_reset(vio->ebuf, free_it) ;
+
+  /* Really cannot be a monitor any more !                              */
+  assert(!vio->monitor) ;
+  vio->mbuf = vio_fifo_reset(vio->mbuf, free_it) ;
+
+  XFREE(MTYPE_VTY, vio) ;
+
+  return NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Close top of the vin stack and pop when done -- see uty_vf_read_close().
+ *
+ * If succeeds in closing, unless is vin_base, pops the vin stack and if this
+ * is read-only will free the vio_vf and all its contents.  (So if this is
+ * vin_base, it is left on the stack, but vf_closed/vf_closing.)
+ *
+ * If the given context is not NULL, having popped the vin stack, the context
+ * in the new top of stack is restored to the given context.
+ *
+ * On final close, will completely close the input, even if errors occur (and
+ * no errors are posted).
+ *
+ * Returns:  CMD_SUCCESS  -- input completely closed
+ *           CMD_WAITING  -- waiting for input to close   <=> not-blocking
+ *                           (not if final)
+ *           CMD_IO_ERROR -- error or timeout
+ *
+ * NB: a uty_cmd_prepare() is required before command processing can continue.
+ */
+extern cmd_return_code_t
+uty_vin_pop(vty_io vio, bool final, cmd_context context)
+{
+  cmd_return_code_t ret ;
 
   VTY_ASSERT_LOCKED() ;
 
-  /* quit if already closed                                             */
-  if (vio->state == vf_closed)
-    return true ;
+  ret = uty_vf_read_close(vio->vin, final) ;
 
-  /* Set the close reason, if not already set.                          */
-  if (reason != NULL)
+  if ((ret == CMD_SUCCESS) || final)
     {
-      if (vio->close_reason == NULL)
-        vio->close_reason = reason ;
+      assert(vio->vin->vin_state == vf_closed) ;
+
+      if (vio->vin_depth > 1)
+        {
+          vio_vf vf ;
+
+          vf = ssl_pop(&vf, vio->vin, vin_next) ;
+          --vio->vin_depth ;
+
+          if (vf->vout_state == vf_closed)
+            uty_vf_free(vf) ;
+        }
       else
-        qs_reset(reason, free_it) ;
+        {
+          assert(vio->vin == vio->vin_base) ;
+          vio->vin_depth = 0 ;          /* may already have been closed */
+        } ;
+
+      if (vio->real_depth > vio->vin_depth)
+        vio->real_depth = vio->vin_depth ;
+
+      if (vio->vin->context != NULL)
+        {
+          if (context != NULL)
+            vio->vin->context = cmd_context_restore(context, vio->vin->context);
+          else
+            vio->vin->context = cmd_context_free(vio->vin->context, false) ;
+                                                    /* Not a copy       */
+        } ;
     } ;
 
-  /* If not already closing, set closing and transfer to the death watch
-   * list -- turn off any "monitor" status immediately.
-   */
-  if (vio->state == vf_open)
-    {
-      vio->state = vf_closing ;
-
-      /* Transfer to the death-watch                                    */
-      sdl_del(vio_list_base, vio, vio_list) ;
-      sdl_push(vio_death_watch, vio, vio_list) ;
-
-      /* TODO turn off any "monitor" IMMEDIATELY.                       */
-
-      /* Flush the vin stack.
-       *
-       * Where possible this will revoke commands bring command processing to
-       * as sudden a halt as possible -- though may still be processing
-       * commands.
-       */
-      uty_vin_close_stack(vio) ;
-      assert(vio->vin == vio->vin_base) ;
-      uty_vf_read_close(vio->vin) ;
-    } ;
-
-  /* If there is anything on the vout_closing list, give it a shove in case
-   * that manages to close anything -- which it will do if "final".
-   */
-  vf_next = vio->vout_closing ;
-  while (vf_next != NULL)
-    {
-      vio_vf vf = vf_next ;
-      vf_next = ssl_next(vf, vout_next) ;
-
-      uty_vf_write_close(vf, final) ;   /* removes from vout_closing if
-                                           is now completely closed.    */
-    } ;
-
-  /* If is vio->cmd_running, this is as far as we can go this time.     */
-  if (vio->cmd_running)
-    return false ;
-
-  /* Make sure no longer holding the config symbol of power             */
-  uty_config_unlock(vio->vty, NULL_NODE) ;
-
-  /* Flush the vout stack.
-   *
-   * If cannot completely close a vf, places it on the vout_closing list,
-   * except for the vout_base.
-   */
-  uty_vout_close_stack(vio, final) ;
-  assert(vio->vout == vio->vout_base) ;
-  uty_vf_write_close(vio->vout, final) ;
-
-  /* See if have now successfully closed everything.                    */
-  if ((vio->vout_closing != NULL) || (vio->vout_base->vout_state != vf_closed))
-    return false ;              /* something is still open      */
-
-  /* Empty everything out of the vio and return the good news.
-   *
-   * NB: retains vio->vty & the vio->vio_list for death-watch.
-   */
-  assert((vio->vin == vio->vin_base) && (vio->vin_depth == 0)) ;
-
-  if (vio->vin != vio->vout)
-    vio->vin = uty_vf_free(vio->vin) ;
-  else
-    vio->vin = NULL ;
-  vio->vin_base = NULL ;
-
-  assert((vio->vout == vio->vout_base) && (vio->vout_depth == 0)) ;
-
-  vio->vout = uty_vf_free(vio->vout) ;
-
-  vio->close_reason = qs_reset(vio->close_reason, free_it) ;
-
-  vio->obuf = NULL ;
-
-  vio->state = vf_closed ;
-  return true ;
+  return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Pop and close the top of the vin stack -- MUST NOT be vin_base.
+ * Close top of the vout stack and pop when done -- see uty_vf_write_close().
  *
- * Read closes the vio_vfd -- if the vio_vfd was read-only, this will fully
- * close it, and the vio_vfd will have been freed.
+ * If is vout_base, does not completely close, unless is "final" -- if not
+ * final, CMD_SUCCESS means that the output buffers are empty and the
+ * vout_depth has been reduced, but the vio_vf is still writeable, held in
+ * vf_closing state.
  *
- * If this is read-only will free the vio_vf and all its contents.
+ * Unless is vout_base, pops the vout stack.  If this is write-only will free
+ * the vio_vf and all its contents.
  *
- * NB: a uty_cmd_prepare() is required before command processing can continue.
+ * If this is vout_base, does not actually close the vfd and does not close
+ * the vout side of the vf.  This leaves an active vio->obuf (inter alia.)
  *
- *     That is not done here because this may be called from outside the
- *     command loop -- in particular by uty_close().
- */
-extern void
-uty_vin_close(vty_io vio)
-{
-  vio_vf vf ;
-
-  vf = vio->vin ;
-
-  assert(vf != vio->vin_base) ;
-  assert(vio->vin_depth > 0) ;
-
-  ssl_del_head(vio->vin, vin_next) ;
-  --vio->vin_depth ;
-
-  uty_vf_read_close(vf) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Pop and close the top of the vout stack -- MUST NOT be vout_base.
- *
- * Moves the vio_vf to the vout_closing list.
- *
- * Before closing, push any outstanding output.
+ * Before closing, discard anything after end_mark, then push any outstanding
+ * output.
  *
  * Unless "final", the close is soft, that is, if there is any output still
  * outstanding does not actually close the vout.
  *
  * If there is no outstanding output (or if final) will completely close the
- * vf and free it.
+ * vf and free it (except for vout_base).
+ *
+ * Returns:  CMD_SUCCESS  -- input completely closed
+ *           CMD_WAITING  -- waiting for input to close   <=> not-blocking
+ *           CMD_IO_ERROR -- error or timeout
  *
  * NB: a uty_cmd_prepare() is required before command processing can continue.
  *
  *     That is not done here because this may be called from outside the
  *     command loop -- in particular by uty_close().
+ *
+ *     However, ensures that vio->obuf is up to date !
  */
-extern void
-uty_vout_close(vty_io vio, bool final)
+extern cmd_return_code_t
+uty_vout_pop(vty_io vio, bool final)
 {
-  vio_vf vf ;
+  cmd_return_code_t ret ;
 
-  vf = vio->vout ;
+  VTY_ASSERT_LOCKED() ;
 
-  assert(vf != vio->vout_base) ;
-  assert(vio->vout_depth > 0) ;
+  ret = uty_vf_write_close(vio->vout, final) ;
 
-  ssl_del_head(vio->vout, vout_next) ;
-  --vio->vout_depth ;
+  if ((ret == CMD_SUCCESS) || final)
+    {
+      if (vio->vout_depth > 1)
+        {
+          vio_vf vf ;
 
-  ssl_push(vio->vout_closing, vf, vout_next) ;
+          vf = ssl_pop(&vf, vio->vout, vout_next) ;
+          --vio->vout_depth ;
 
-  vio->obuf = vio->vout->obuf ;
+          uty_vf_free(vf) ;
+        }
+      else
+        {
+          assert(vio->vout == vio->vout_base) ;
+          if (final)
+            assert(vio->vout->vout_state == vf_closed) ;
 
-  uty_vf_write_close(vf, final) ;
+          vio->vout_depth       = 0 ;   /* may already have been closed */
+
+          assert(vio->vin_depth == 0) ;
+          vio->vout->depth_mark = 0 ;   /* align with the end stop      */
+        } ;
+
+      vio->obuf = vio->vout->obuf ;
+    } ;
+
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Try to output the close reason to the vout_base.
+ *
+ * This is the final act for the vout_base.  Will attempt to output unless
+ * the thing is completely closed.
+ *
+ * Should by now not be any buffered output -- but if there is, that is
+ * discarded before the close reason is output.
+ *
+ * Any actual output may be done when the vout_base is finally closed.
+ */
+static void
+uty_vout_close_reason(vio_vf vf, const char* reason)
+{
+  if ((vf->vout_state == vf_closed) || (reason == NULL) || (*reason == '\0'))
+    return ;
+
+  vio_fifo_clear(vf->obuf, true) ;      /* clear any markers, too       */
+
+  if (vf->vout_type < VOUT_SPECIALS)
+    assert(vf->vfd != NULL) ;           /* make sure                    */
+
+  switch(vf->vout_type)
+  {
+    case VOUT_NONE:
+      zabort("invalid VOUT_NONE") ;
+      break ;
+
+    case VOUT_TERM:
+      uty_term_close_reason(vf, reason) ;
+      break ;
+
+    case VOUT_VTYSH:
+      break ;
+
+    case VOUT_FILE:
+    case VOUT_PIPE:
+    case VOUT_SHELL_ONLY:
+      break ;
+
+    case VOUT_CONFIG:
+      break ;
+
+    case VOUT_DEV_NULL:
+      break ;
+
+    case VOUT_STDOUT:
+      fprintf(stdout, "%% %s\n", reason) ;
+      break ;
+
+    case VOUT_STDERR:
+      fprintf(stderr, "%% %s\n", reason) ;
+      break ;
+
+    default:
+      zabort("unknown VOUT type") ;
+  } ;
 } ;
 
 /*==============================================================================
@@ -742,7 +856,7 @@ uty_vout_close(vty_io vio, bool final)
  *
  * This leaves most things unset/NULL/false.  Caller will need to:
  *
- *   - uty_vin_open() and/or uty_vout_open()
+ *   - uty_vin_push() and/or uty_vout_push()
  *
  *   - once those are done, the following optional items remain to be set
  *     if they are required:
@@ -750,23 +864,30 @@ uty_vout_close(vty_io vio, bool final)
  *       read_timeout     -- default = 0     => no timeout
  *       write_timeout    -- default = 0     => no timeout
  *
- *       parse_type       -- default = cmd_parse_standard
- *       reflect_enabled  -- default = false
- *       out_enabled      -- default = true iff vfd_io_write
- *
- * If vio->blocking, adds vfd_io_blocking to the io_type.
+ *   - for pipes the child state needs to be set, and for out pipes the return
+ *     state needs to be set in this vio_vf (the master) and in the next
+ *     vout (the slave).
  *
  * NB: if there is no fd for this vio_vf, it should be set to -1, and the
- *     type (recommend vfd_none) and io_type are ignored -- except for
- *     vfd_io_write and the out_enabled state.
+ *     type (recommend vfd_none) and io_type are ignored.
  *
  *     A VTY_STDOUT or a VTY_STDERR (output only, to the standard I/O) can
- *     be set up without an fd, and with/without out_enabled.
+ *     be set up without an fd.
  *
  *     A VTY_CONFIG_READ can be set up with the fd of the input file, but
  *     MUST be type = vfd_file and io_type = vfd_io_read -- because the fd
- *     is for input only.  This will set out_enabled false (as required).
- *     The required VOUT_STDERR will be set by uty_vout_open().
+ *     is for input only.  The required VOUT_STDERR will be set by
+ *     uty_vout_push().
+ *
+ * NB: if the parent vio is blocking, then the vf will be blocking, and so
+ *     will any vfd.  An individual vf may be set blocking by setting
+ *     vfd_io_blocking in the io_type.
+ *
+ *     The vty stuff opens all files, pipes etc. non-blocking.  A non-blocking
+ *     vf simulates blocking by local pselect.  As far as the vfd level is
+ *     concerned, once the file, pipe etc. is open, there is no difference
+ *     between blocking and non-blocking except that non-blocking vfd are not
+ *     allowed to set read/write ready.
  */
 extern vio_vf
 uty_vf_new(vty_io vio, const char* name, int fd, vfd_type_t type,
@@ -776,9 +897,6 @@ uty_vf_new(vty_io vio, const char* name, int fd, vfd_type_t type,
 
   VTY_ASSERT_LOCKED() ;
 
-  if (vio->blocking)
-    io_type |= vfd_io_blocking ;
-
   vf = XCALLOC (MTYPE_VTY, sizeof(struct vio_vf)) ;
 
   /* Zeroising the structure has set:
@@ -786,49 +904,61 @@ uty_vf_new(vty_io vio, const char* name, int fd, vfd_type_t type,
    *   vio              = X     -- set below
    *   name             = X     -- set below
    *
-   *   vin_type         = VIN_NONE            -- see uty_vin_open()
-   *   vin_state        = vf_closed           -- see uty_vin_open()
-   *   vin_next         = NULL                -- see uty_vin_open()
+   *   vin_type         = VIN_NONE            -- see uty_vin_push()
+   *   vin_state        = vf_closed           -- see uty_vin_push()
+   *   vin_next         = NULL                -- see uty_vin_push()
+   *
+   *   context          = NULL                -- see uty_vin_new_context()
    *
    *   cli              = NULL  -- no CLI, yet
    *
-   *   ibuf             = NULL  -- none, yet  -- see uty_vin_open()
-   *
-   *   cl               = zeros -- empty qstring (embedded)
-   *   line_complete    = false               -- see uty_vout_open()
+   *   ibuf             = NULL  -- none, yet  -- see uty_vin_push()
+   *   cl               = NULL  -- none, yet  -- see uty_vin_push()
+   *   line_complete    = false               -- see uty_vin_push()
    *   line_number      = 0     -- nothing yet
-   *   line_step        = 0                   -- see uty_vout_open()
+   *   line_step        = 0                   -- see uty_vin_push()
    *
-   *   parse_type       = cmd_parse_standard
-   *   reflect_enabled  = false
+   *   vout_type        = VOUT_NONE           -- see uty_vout_push()
+   *   vout_state       = vf_closed           -- see uty_vout_push()
+   *   vout_next        = NULL                -- see uty_vout_push()
    *
-   *   vout_type        = VOUT_NONE           -- see uty_vout_open()
-   *   vout_state       = vf_closed           -- see uty_vout_open()
-   *   vout_next        = NULL                -- see uty_vout_open()
+   *   pr_master        = NULL  -- none       -- see uty_pipe_write_open()
    *
-   *   obuf             = NULL  -- none, yet  -- see uty_vout_open()
+   *   obuf             = NULL  -- none       -- see uty_vout_push()
    *
-   *   out_enabled      = X     -- set below: true iff vfd_io_write
+   *   depth_mark       = 0                   -- see uty_vout_push()
    *
    *   vfd              = NULL  -- no vfd, yet
    *
-   *   blocking         = false -- default is non-blocking I/O
-   *   closing          = false -- definitely not
+   *   blocking         = X                   -- see below
+   *   closing          = false -- not on the closing list, yet.
    *
    *   error_seen       = 0     -- no error seen, yet
    *
-   *   read_on          = false
-   *   write_on         = false
-   *
    *   read_timeout     = 0     -- none
    *   write_timeout    = 0     -- none
+   *
+   *   child            = 0     -- none   )
+   *   terminated       = false -- not    )   -- see uty_pipe_read/write_open()
+   *   term_status      = X     -- none   )
+   *
+   *   pr_state         = vf_closed           -- no pipe return vfd
+   *                                          -- see uty_pipe_read/write_open()
+   *   pr_vfd           = NULL  -- no vfd     -- see uty_pipe_read/write_open()
+   *
+   *   pr_slave         = NULL  -- none       -- see uty_pipe_read/write_open()
+   *
+   *   pr_only          = false               -- see uty_pipe_read/write_open()
    */
   confirm((VIN_NONE == 0) && (VOUT_NONE == 0)) ;
   confirm(vf_closed == 0) ;
   confirm(QSTRING_INIT_ALL_ZEROS) ;
-  confirm(cmd_parse_standard == 0) ;
 
-  vf->vio = vio ;
+  if (vio->blocking)
+    io_type |= vfd_io_blocking ;        /* inherit blocking state       */
+
+  vf->vio      = vio ;
+  vf->blocking = (io_type & vfd_io_blocking) != 0 ;
 
   if (name != NULL)
     vf->name = XSTRDUP(MTYPE_VTY_NAME, name) ;
@@ -836,34 +966,57 @@ uty_vf_new(vty_io vio, const char* name, int fd, vfd_type_t type,
   if (fd >= 0)
     vf->vfd = vio_vfd_new(fd, type, io_type, vf) ;
 
-  vf->out_enabled = ((io_type & vfd_io_write) != 0) ;
-
   return vf ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Close the read side of the given vio_vf.
+ * Close the read side of the given vio_vf -- if can.
  *
  * Read closes the vio_vfd -- if the vio_vfd was read-only, this will fully
  * close it, and the vio_vfd will have been freed.
  *
- * If this is read-only (ie vout_type == VOUT_NONE) will free the vio_vf as
- * well as the vio_vfd -- unless this is the vin_base.
+ * For not-final close, if there is any other related I/O, then waits until
+ * that has completed.  For example, with a VIN_PIPE:
  *
- * Note that read_close is effective immediately, there is no delay as there is
- * with write_close -- so no need for a "final" option.
+ *   * waits for any return input to complete, and pushes it to the relevant
+ *     vout.
+ *
+ *   * waits to collect the child, and its termination state.
+ *
+ * This means that a not-final close may return errors.  For not-blocking vf
+ * may return waiting state.  For blocking vf, may block and may later return
+ * timeout error.
+ *
+ * For a final close, if there is any related I/O then will attempt to complete
+ * it -- but will give up if would block.  I/O errors on final close are
+ * ignored.  A final close may be called in terminating state, so does not
+ * do any "vty_cmd_signal".
+ *
+ * Returns: CMD_SUCCESS     -- is all closed
+ *          CMD_WAITING     -- cannot close at the moment   <=> non-blocking
+ *                             (not if "final")
+ *          CMD_IO_ERROR    -- something went wrong
+ *
+ * NB: on "final" close returns CMD_SUCCESS no matter what happened, and all
+ *     input will have been closed down, and the vf closed.
  */
-static void
-uty_vf_read_close(vio_vf vf)
+static cmd_return_code_t
+uty_vf_read_close(vio_vf vf, bool final)
 {
-  assert(vf->vin_state != vf_closed) ;
+  cmd_return_code_t  ret ;
+
+  VTY_ASSERT_CAN_CLOSE_VF(vf) ;
+
+  ret = CMD_SUCCESS ;
+
+  if (vf->vin_state == vf_closed)
+    return ret ;                /* quit if already closed               */
+
+  vf->vin_state = vf_closing ;  /* TODO wipes out error etc ?           */
 
   /* Do the vfd level read close and mark the vf no longer read_open    */
   if (vf->vin_type < VIN_SPECIALS)
     vf->vfd = vio_vfd_read_close(vf->vfd) ;
-
-  vf->vin_state = vf_closed ;
-  vf->read_on   = off ;
 
   /* Now the vin_type specific clean up.                                */
   switch(vf->vin_type)
@@ -873,60 +1026,126 @@ uty_vf_read_close(vio_vf vf)
       break ;
 
     case VIN_TERM:
-      uty_term_read_close(vf) ;
+      ret = uty_term_read_close(vf, final) ;
       break ;
 
     case VIN_VTYSH:
+       zabort("tba VIN_VTYSH") ;
+       break ;
+
+    case VIN_CONFIG:
+      ret = uty_config_read_close(vf, final) ;
       break ;
 
     case VIN_FILE:
-      uty_file_read_close(vf) ;
+      ret = uty_file_read_close(vf, final) ;
       break ;
 
     case VIN_PIPE:
-      break ;
-
-    case VIN_CONFIG:
+      ret = uty_pipe_read_close(vf, final) ;
       break ;
 
     case VIN_DEV_NULL:
+      ret = CMD_SUCCESS ;
       break ;
 
     default:
       zabort("unknown VIN type") ;
   } ;
 
-  if ((vf->vout_type == VOUT_NONE) && (vf != vf->vio->vin_base))
-    uty_vf_free(vf) ;
+  if ((ret == CMD_SUCCESS) || final)
+    {
+      vf->vin_state = vf_closed ;
+      assert(vf->pr_state == vf_closed) ;
+    } ;
+
+  return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Close the write side of the given vio_vf, if can.
  *
- * Pushes any outstanding output -- non-blocking if not a blocking vty.
+ * Discards anything beyond the current end_mark, and clears the end_mark.
  *
- * The vio_vf MUST either be on the vout_closing list or be vout_base.
- * The vio_vf MUST be write_open and MUST NOT be read_open.
+ * Pushes any outstanding output, and if is pipe will attempt to collect
+ * the child.  On not-final close, if cannot complete everything, will return
+ * CMD_WAITING for non-blocking, or block (and may time out).  On final close,
+ * will do as much as possible without blocking, and will then close even if
+ * there is outstanding output or child has not been collected.
  *
- * If output is empty, or if final, close the vf, then if it is on the
- * vout_closing list, remove and free it.
+ * For not-final close, for example, with a VOUT_PIPE:
  *
- * Returns whether output was empty or not.
+ *   * waits for any return input to complete, and pushes it to the relevant
+ *     vout.
+ *
+ *   * waits to collect the child, and its termination state.
+ *
+ * This means that a not-final close may return errors.
+ *
+ * For a final close, if there is any related I/O then will attempt to complete
+ * it -- but will give up if would block.  I/O errors on final close are
+ * ignored.  A final close may be called in terminating state, so does not
+ * do any "vty_cmd_signal".
+ *
+ * If this is the vout_base, unless "final", does NOT actually close the vf or
+ * the vfd -- so the vout_base will still work -- but is marked vf_closing !
+ * The effect is, essentially, to try to empty out any buffers, but not to
+ * do anything that would prevent further output.  This is used so that a
+ * command loop can close the vout_base in the usual way, waiting until all
+ * output is flushed, but when uty_close() is finally called, it can output
+ * any close reason there is to hand.
+ *
+ * Returns: CMD_SUCCESS     -- is all closed
+ *          CMD_WAITING     -- cannot close at the moment   <=> non-blocking
+ *                             (not if "final")
+ *          CMD_IO_ERROR    -- something went wrong
+ *
+ * NB: on "final" all output will have been closed down, and the vfd closed,
+ *     no matter what the return value says.
+ *
+ * NB: must not have open vins at this or a higher level in the stack.
+ *
+ * NB: does not at this stage discard the obuf.
  */
-static bool
+static cmd_return_code_t
 uty_vf_write_close(vio_vf vf, bool final)
 {
-  bool  empty ;
+  cmd_return_code_t  ret ;
+  bool base ;
 
-  assert((vf->vout_state != vf_closed) && (vf->vin_state == vf_closed)) ;
+  VTY_ASSERT_CAN_CLOSE_VF(vf) ;
 
-  /* Worry about remaining return input from vout pipe        TODO      */
+  ret = CMD_SUCCESS ;
 
-  /* Worry about appending the close reason to the vout_base  TODO      */
+  if (vf->vout_state == vf_closed)
+    return ret ;                /* quit if already closed               */
 
-  /* Now the vout_type specific clean up.                               */
-  empty = false ;
+  vf->vout_state = vf_closing ; /* TODO wipes out error etc ?           */
 
+  base = (vf == vf->vio->vout_base) ;
+
+  /* Must close vin before closing vout at the same level.
+   *
+   * Note that cannot currently be a pipe return slave, because if was
+   * slave to a VOUT_PIPE/VOUT_SHELL_ONLY that vout must have been closed
+   * already, and if was slave to a VIN_PIPE, then that too will have been
+   * closed already (because of the above).
+   */
+  assert( (vf->vio->vin_depth < vf->vio->vout->depth_mark)
+                                           || (vf->vio->vout_depth ==0) ) ;
+  assert(vf->pr_master == NULL) ;
+
+  /* If there is anything in the obuf beyond the end_mark, then it is
+   * assumed to be surplus to requirements, and we clear the end_mark.
+   */
+  vio_fifo_back_to_end_mark(vf->obuf, false) ;
+
+  /* The vout_type specific close functions will attempt to write
+   * everything away.
+   *
+   * If "final", will only keep going until blocks -- at which point will
+   * bring everything to a shuddering halt.
+   */
   switch(vf->vout_type)
   {
     case VOUT_NONE:
@@ -934,50 +1153,54 @@ uty_vf_write_close(vio_vf vf, bool final)
       break ;
 
     case VOUT_TERM:
-      empty = uty_term_write_close(vf, final) ;
+      ret = uty_term_write_close(vf, final, base) ;
       break ;
 
     case VOUT_VTYSH:
       break ;
 
     case VOUT_FILE:
-      empty = uty_file_write_close(vf, final) ;
+      ret = uty_file_write_close(vf, final, base) ;
       break ;
 
     case VOUT_PIPE:
+    case VOUT_SHELL_ONLY:
+      ret = uty_pipe_write_close(vf, final, base,
+                                         vf->vout_type == VOUT_SHELL_ONLY) ;
       break ;
 
     case VOUT_CONFIG:
+      ret = uty_file_write_close(vf, final, base) ;   /* treat as file */
       break ;
 
     case VOUT_DEV_NULL:
     case VOUT_STDOUT:
     case VOUT_STDERR:
-      empty = true ;
+      ret = CMD_SUCCESS ;
       break ;
 
     default:
       zabort("unknown VOUT type") ;
   } ;
 
-  if (empty || final)
+  assert(vf->vin_state == vf_closed) ;
+
+  if (((ret == CMD_SUCCESS) && !base) || final)
     {
-      /* Do the vfd level close and mark the vf no longer write_open        */
+
+      assert(vf->vio->obuf == vf->obuf) ;
+      assert(vio_fifo_empty(vf->obuf)) ;
+
+
       if (vf->vout_type < VOUT_SPECIALS)
         vf->vfd = vio_vfd_close(vf->vfd) ;
       else
         assert(vf->vfd == NULL) ;
 
       vf->vout_state = vf_closed ;
-      vf->write_on   = off ;
-
-      if (ssl_del(vf->vio->vout_closing, vf, vout_next))
-        uty_vf_free(vf) ;
-      else
-        assert(vf == vf->vio->vout_base) ;
     } ;
 
-  return empty ;
+  return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -992,26 +1215,26 @@ uty_vf_write_close(vio_vf vf, bool final)
 static vio_vf
 uty_vf_free(vio_vf vf)
 {
+  assert((vf->vin_state == vf_closed) && (vf->vout_state == vf_closed)
+                                      && (vf->pr_state == vf_closed)) ;
+
   XFREE(MTYPE_VTY_NAME, vf->name) ;
 
-  vf->ibuf = vio_fifo_reset(vf->ibuf, free_it) ;
-  vf->obuf = vio_fifo_reset(vf->obuf, free_it) ;
+  assert(vf->cli == NULL) ;
 
-  qs_reset(vf->cl, keep_it) ;
+  vf->ibuf   = vio_fifo_reset(vf->ibuf, free_it) ;
+  vf->cl     = qs_reset(vf->cl, free_it) ;
+  vf->obuf   = vio_fifo_reset(vf->obuf, free_it) ;
 
-  vf->cli = uty_cli_close(vf->cli, true) ;
-  vf->vfd = vio_vfd_close(vf->vfd) ;   /* for completeness     */
+  vf->context = cmd_context_free(vf->context, false) ;  /* not a copy   */
+
+  vf->vfd    = vio_vfd_close(vf->vfd) ;         /* for completeness     */
+  vf->pr_vfd = vio_vfd_close(vf->pr_vfd) ;      /* for completeness     */
 
   XFREE(MTYPE_VTY, vf) ;
 
   return NULL ;
 } ;
-
-/*------------------------------------------------------------------------------
- *
- *
- */
-
 
 
 
@@ -1032,7 +1255,7 @@ uty_vf_error(vio_vf vf, const char* what, int err)
   VTY_ASSERT_CLI_THREAD() ;
 
   /* can no longer be a monitor !  *before* any logging !               */
-  uty_set_monitor(vio, 0) ;
+  uty_set_monitor(vio, off) ;
 
   /* if this is the first error, log it                                 */
   if (vf->error_seen == 0)
@@ -1041,12 +1264,15 @@ uty_vf_error(vio_vf vf, const char* what, int err)
 
 
       vf->error_seen = err ;
-      uzlog(NULL, LOG_WARNING, "%s: %s failed on fd %d: %s",
+      zlog(NULL, LOG_WARNING, "%s: %s failed on fd %d: %s",
                           type, what, vio_vfd_fd(vf->vfd), errtoa(err, 0).str) ;
     } ;
 
   return -1 ;
 } ;
+
+
+
 
 /*------------------------------------------------------------------------------
  * Set required read ready state.  Applies the current read timeout.
@@ -1056,31 +1282,31 @@ uty_vf_error(vio_vf vf, const char* what, int err)
  * Does nothing if: vf->vin_state == vf_closed
  *              or: vf->vfd == NULL
  *
- * Returns new state of vf->read_on
+ * NB: must NOT be a "blocking" vf
  */
-extern on_off_b
+extern void
 uty_vf_set_read(vio_vf vf, on_off_b how)
 {
   if (vf->vin_state != vf_open)
     how = off ;
 
-  return vf->read_on = (vf->vin_state != vf_closed)
-                          ? vio_vfd_set_read(vf->vfd, how, vf->read_timeout)
-                          : off ;
+  if (vf->vin_state != vf_closed)
+    vio_vfd_set_read(vf->vfd, how, vf->read_timeout) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Set required read ready timeout -- if already read_on, restart it.
+ * Set required read ready timeout -- if already read on, restart it.
  *
- * Returns new state of vf->read_on
+ * If this is a blocking vf, will set the timeout value, but since can never
+ * be "read on", will never attempt to restart any timer !
  */
-extern on_off_b
+extern void
 uty_vf_set_read_timeout(vio_vf vf, vty_timer_time read_timeout)
 {
   vf->read_timeout = read_timeout ;
 
-  return vf->read_on ? uty_vf_set_read(vf, on)
-                     : off ;
+  if (!vf->blocking)
+    uty_vf_set_read(vf, on) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1091,31 +1317,511 @@ uty_vf_set_read_timeout(vio_vf vf, vty_timer_time read_timeout)
  * Does nothing if: vf->vout_state == vf_closed
  *              or: vf->vfd == NULL
  *
- * Returns new state of vf->write_on
+ * NB: must NOT be a "blocking" vf
  */
-extern on_off_b
+extern void
 uty_vf_set_write(vio_vf vf, on_off_b how)
 {
-  if (vf->vout_state != vf_open)
+  if ((vf->vout_state != vf_open) && (vf->vout_state != vf_closing))
     how = off ;
 
-  return vf->write_on = (vf->vout_state != vf_closed)
-                           ? vio_vfd_set_write(vf->vfd, how, vf->write_timeout)
-                           : off ;
+  if (vf->vout_state != vf_closed)
+    vio_vfd_set_write(vf->vfd, how, vf->write_timeout) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Set required write ready timeout -- if already write_on, restart it.
+ * Set required write ready timeout -- if already write on, restart it.
  *
- * Returns new state of vf->write_on
+ * If this is a blocking vf, will set the timeout value, but since can never
+ * be "write on", will never attempt to restart any timer !
  */
-extern on_off_b
+extern void
 uty_vf_set_write_timeout(vio_vf vf, vty_timer_time write_timeout)
 {
   vf->write_timeout = write_timeout ;
 
-  return vf->write_on ? uty_vf_set_write(vf, on)
-                      : off ;
+  if (!vf->blocking)
+    uty_vf_set_write(vf, on) ;
+} ;
+
+/*==============================================================================
+ * Child care.
+ *
+ * Management of vio_child objects and the vio_childer_list.
+ *
+ * When child is registered it is placed on the vio_childer_list.  It remains
+ * there until it is "collected", that is until a waitpid() has returned a
+ * "report" for the child.
+ *
+ * When a parent waits for a child to be collected, it may be in one of three
+ * states:
+ *
+ * TODO
+ *
+ * When a child is collected, or becomes overdue, the parent is signalled (if
+ * required) and the child->awaited state is cleared.
+ *
+ * When a parent "dismisses" a child, if it has not yet been collected it is
+ * "smacked" -- kill(SIGTERM) -- but kept on the register until it is
+ * collected.  When a child which has been collected is dismissed it is freed.
+ *
+ * At "curtains" the register may contain children which have been dismissed,
+ * but not yet collected.  Should NOT contain any children with living parents.
+ * All children remaining on the register are smacked, and all with no living
+ * parents are freed.  (This could leave children on the register, but avoids
+ * the possibility of a dangling reference from a parent.)
+ */
+static void uty_child_collected(vio_child child, int report) ;
+static vty_timer_time vty_child_overdue(vio_timer timer, void* action_info) ;
+static void uty_child_signal_parent(vio_child child) ;
+static vio_child uty_child_free(vio_child child) ;
+
+/*------------------------------------------------------------------------------
+ * Set vty_child_signal_nexus() -- if required.
+ *
+ * Note that this is set/cleared under VTY_LOCK() and its own mutex.  This
+ * allows it to be read under its own mutex and/or VTY_LOCK().
+ */
+extern void
+uty_child_signal_nexus_set(vty_io vio)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  assert(vio->blocking) ;
+
+  if (!vty_is_cli_thread())
+    {
+      qpt_mutex_lock(vty_child_signal_mutex) ;
+
+      vty_child_signal_nexus = qpn_find_self() ;
+
+      qpt_mutex_unlock(vty_child_signal_mutex) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If there is a nexus to signal, clear the indicator and signal the
+ * associated thread.
+ */
+extern void
+vty_child_signal_nexus_signal(void)
+{
+  qpt_mutex_lock(vty_child_signal_mutex) ;
+
+  if (vty_child_signal_nexus != NULL)
+    qpt_thread_signal(vty_child_signal_nexus->thread_id,
+                                       vty_child_signal_nexus->pselect_signal) ;
+
+  qpt_mutex_unlock(vty_child_signal_mutex) ;
+}
+
+/*------------------------------------------------------------------------------
+ * Set vty_child_signal_nexus() -- if required.
+ *
+ * Note that this is set/cleared under VTY_LOCK() and its own mutex.  This
+ * allows it to be read under its own mutex and/or VTY_LOCK().
+ */
+extern void
+uty_child_signal_nexus_clear(vty_io vio)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  assert(vio->blocking) ;
+
+  if (!vty_is_cli_thread())
+    {
+      qpt_mutex_lock(vty_child_signal_mutex) ;
+
+      vty_child_signal_nexus = NULL ;
+
+      qpt_mutex_unlock(vty_child_signal_mutex) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * New child.
+ *
+ * NB: must register child promptly (under VTY_LOCK, at same time as fork)
+ *     in order to avoid missing the SIG_CHLD !
+ */
+extern vio_child
+uty_child_register(pid_t pid, vio_vf parent)
+{
+  vio_child child ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  child = XCALLOC(MTYPE_VTY, sizeof(struct vio_child)) ;
+
+  /* Zeroising has set:
+   *
+   *   list         -- NULLs         -- added to vio_childer_list, below
+   *
+   *   parent       -- NULL          -- parent vf set, below
+   *
+   *   pid          -- X             -- child pid set below
+   *   collected    -- false         -- not yet collected
+   *   report       -- X             -- not relevant until collected
+   *
+   *   awaited      -- false         -- not waiting for child
+   *   overdue      -- false         -- child not overdue
+   *   timer        -- NULL          -- no waiting timer set
+   */
+
+  child->parent  = parent ;
+  child->pid     = pid ;
+
+  sdl_push(vio_childer_list, child, list) ;
+
+  return child ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set waiting for child to be collected.
+ *
+ * This is for !vf->blocking: set timer and leave, waiting for SIGCHLD event.
+ */
+extern void
+uty_child_awaited(vio_child child, vty_timer_time timeout)
+{
+  VTY_ASSERT_CLI_THREAD_LOCKED() ;
+
+  assert(child->parent != NULL) ;
+  assert(!child->parent->blocking) ;
+
+  child->awaited = true ;
+
+  if (child->timer == NULL)
+    child->timer = vio_timer_init_new(NULL, vty_child_overdue, child) ;
+
+  vio_timer_set(child->timer, timeout) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * See if parent can collect child -- directly.
+ *
+ * This is for vf->blocking,
+ *
+ * If can, will collect now -- marking collected and taking off the
+ * vio_childer_list.
+ *
+ * If cannot immediately collect, if final mark overdue and return.
+ *
+ * Otherwise wait for up to timeout seconds for a suitable SIGCHLD or related
+ * wake-up signal.
+ *
+ * NB: this blocks with the VTY_LOCK() in its hands !!  But this is only
+ *     required for configuration file reading...  and timeout is limited.
+ *
+ * Returns:  true <=> collected
+ *          false  => timed out or final
+ */
+extern bool
+uty_child_collect(vio_child child, vty_timer_time timeout, bool final)
+{
+  bool first ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  assert(child->parent != NULL) ;
+  assert(child->parent->blocking) ;
+  assert(child->timer == NULL) ;
+
+  assert(child->pid > 0) ;
+
+  first = true ;
+  while (1)
+    {
+      pid_t      pid ;
+      int        report ;
+
+      qps_mini_t qm ;
+      sigset_t*  sig_mask = NULL ;
+
+      if (child->collected)
+        return true ;                   /* have collected               */
+
+      pid = waitpid(child->pid, &report, WNOHANG) ;
+
+      if (pid == child->pid)
+        {
+          /* Collected the child                                        */
+          uty_child_collected(child, report) ;
+
+          return true ;                 /* have collected               */
+        } ;
+
+      if (pid != 0)
+        {
+          int err = 0 ;
+
+          /* With the exception of EINTR, all other returns are, essentially,
+           * impossible...
+           *
+           *   (1) ECHLD means that the given pid is not a child...
+           *       ...which is impossible if not collected -- but treat as
+           *       "overdue".
+           *
+           *   (2) only other known error is EINVAL -- invalid options...
+           *       absolutely impossible.
+           *
+           *   (3) some pid other than the given child is an invalid response !
+           */
+          if (pid < 0)
+            {
+              if (errno == EINTR)
+                continue ;
+
+              err = errno ;
+
+              zlog_err("waitpid(%d) returned %s", child->pid,
+                                                          errtoa(err, 0).str) ;
+            }
+          else
+            zlog_err("waitpid(%d) returned pid=%d", child->pid, pid) ;
+
+          if (err != ECHILD)
+            zabort("impossible return from waitpid()") ;
+
+          final = true ;                /* treat ECHLD as last straw !  */
+        } ;
+
+      /* Waiting for child.                                             */
+      if (final)
+        {
+          child->overdue = true ;
+          return false ;                /* overdue                      */
+        } ;
+
+      /* Need to wait -- if this is the first time through, prepare for
+       * that.
+       */
+      if (first)
+        {
+          qps_mini_set(qm, -1, 0, 6) ;
+
+          if (vty_is_cli_thread())
+            sig_mask  = NULL ;
+          else
+            sig_mask  = vty_child_signal_nexus->pselect_mask ;
+
+          first = false ;
+        } ;
+
+      /* Wait on pselect.                                               */
+      if (qps_mini_wait(qm, sig_mask, true) == 0)
+        final = true ;          /* timed out => now final               */
+  } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Dismiss child -- if not collected, smack but leave to be collected in
+ * due course (or swept up at "curtains").
+ */
+extern vio_child
+uty_child_dismiss(vio_child child, bool final)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  if (child != NULL)
+    {
+      if (!child->collected)
+        {
+          assert(child->pid > 0) ;
+
+          kill(child->pid, SIGKILL) ;   /* hasten the end       */
+
+          if (final)
+            {
+              assert(child->parent == NULL) ;
+              sdl_del(vio_childer_list, child, list) ;
+              child->collected = true ;         /* forceably    */
+            } ;
+
+          child->overdue = true ;       /* too late for parent  */
+        } ;
+
+      child->parent  = NULL ;   /* orphan from now on   */
+      child->awaited = false ;  /* nobody waiting       */
+
+      if (child->collected)
+        uty_child_free(child) ;
+    } ;
+
+  return NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * At "curtains" -- empty out anything left in the child register.
+ *
+ * The only children that can be left are dismissed children that have yet to
+ * be collected.
+ */
+extern void
+vty_child_close_register(void)
+{
+  while (vio_childer_list != NULL)
+    uty_child_dismiss(vio_childer_list, true) ;         /* final        */
+} ;
+
+/*------------------------------------------------------------------------------
+ * See whether any children are ready for collection, and check each one
+ * against the register.
+ *
+ * Perform waitpid( , , WNOHANG) until no child is returned, and process
+ * each one against the register.
+ *
+ * The is done when a SIGCHLD is route through the event mechanism.
+ *
+ * If another SIGCHLD occurs while this is being done,  that will later cause
+ * another call of this function -- at worst it may find that the child in
+ * question has already been collected.
+ *
+ * This is also done when about to block waiting for a child.
+ *
+ * Set any children that can be collected, collected and signal to any parents
+ * that their children are now ready.
+ */
+extern void
+uty_sigchld(void)
+{
+  VTY_ASSERT_CLI_THREAD_LOCKED() ;
+
+  while (1)
+    {
+      vio_child child ;
+      pid_t     pid ;
+      int       report ;
+
+      pid = waitpid(-1, &report, WNOHANG) ;
+
+      if (pid == 0)
+        break ;
+
+      if (pid < 0)
+        {
+          if (errno == EINTR)
+            continue ;          /* loop on "Interrupted"        */
+
+          if (errno != ECHILD)  /* returns ECHLD if no children */
+            zlog_err("waitpid(-1) returned %s", errtoa(errno, 0).str) ;
+
+          break ;
+        } ;
+
+      child = vio_childer_list ;
+      while (1)
+        {
+          if (child == NULL)
+            {
+              zlog_err("waitpid(-1) returned pid %d, which is not registered",
+                                                                          pid) ;
+              break ;
+            } ;
+
+          if (child->pid == pid)
+            {
+              /* Have collected child.
+               *
+               * Remove from the vio_childer_list, set collected flag.
+               *
+               * We can leave any timer object -- if it goes off it will be
+               * ignored, because the child is no longer awaited.  Timer will
+               * be discarded when the child is dismissed/freed.
+               *
+               * If no parent, can free child object now.
+               */
+              uty_child_collected(child, report) ;
+
+              if      (child->parent == NULL)
+                uty_child_free(child) ;
+              else if (child->awaited)
+                uty_child_signal_parent(child) ;
+
+              break ;
+            } ;
+
+          child = sdl_next(child, list) ;
+        } ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set the child collected and set the report.
+ *
+ * Remove from the vio_childer_list -- is now either back in the hands of the
+ * parent, or ready to be freed.
+ */
+static void
+uty_child_collected(vio_child child, int report)
+{
+  assert(!child->collected) ;   /* can only collect once        */
+
+  sdl_del(vio_childer_list, child, list) ;
+
+  child->collected = true ;
+  child->report    = report ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set child as overdue -- vio_timer action routine.
+ *
+ * NB: the timer may go off after the child has been collected, but before the
+ *     parent has got round to stopping the timer.
+ */
+static vty_timer_time
+vty_child_overdue(vio_timer timer, void* action_info)
+{
+  vio_child child ;
+
+  VTY_LOCK() ;
+
+  child = action_info ;
+  assert(timer == child->timer) ;
+
+  if (child->awaited)
+    {
+      child->overdue = true ;
+      uty_child_signal_parent(child) ;
+    } ;
+
+  VTY_UNLOCK() ;
+
+  return 0 ;            /* stop timer   */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Signal that child is ready -- collected or overdue.
+ *
+ * Must be "awaited" -- so not "blocking"
+ */
+static void
+uty_child_signal_parent(vio_child child)
+{
+  assert(child->awaited && (child->parent != NULL)) ;
+
+  assert(!child->parent->vio->blocking) ;
+
+  child->awaited = false ;
+  uty_cmd_signal(child->parent->vio, CMD_SUCCESS) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free the child -- caller must ensure that any parent has disowned the child,
+ * and that it is collected (so not on the vio_childer_list).
+ */
+static vio_child
+uty_child_free(vio_child child)
+{
+  if (child != NULL)
+    {
+      assert(child->collected && (child->parent == NULL)) ;
+
+      child->timer = vio_timer_reset(child->timer, free_it) ;
+      XFREE(MTYPE_VTY, child) ;         /* sets child = NULL    */
+    } ;
+
+  return child ;
 } ;
 
 /*==============================================================================

@@ -33,6 +33,7 @@
 #include "vio_fifo.h"
 #include "vio_lines.h"
 #include "qstring.h"
+#include "qtimers.h"
 #include "keystroke.h"
 
 /*------------------------------------------------------------------------------
@@ -45,9 +46,10 @@ struct vty_cli
   vio_vf        vf ;            /* parent                               */
 
   /* History of commands                                                */
-  vector_t      hist ;          /* embedded                     */
-  int           hp ;            /* current place in history     */
-  int           h_now ;         /* the present moment           */
+  vector        hist ;          /* embedded                     */
+  uint          hp ;            /* current place in history     */
+  uint          h_now ;         /* the present moment           */
+  bool          h_repeat ;      /* latest entry is repeat       */
 
   /* Window width/height as reported by Telnet.  0 => unknown           */
   int           width;
@@ -67,12 +69,23 @@ struct vty_cli
   /* The incoming stuff                                                 */
   keystroke_stream key_stream ;
 
-  /* drawn <=> the current prompt and user input occupy the current
-   *           line on the screen.
+  /* drawn           <=> the current prompt and user input occupy the current
+   *                     line on the screen.
    *
-   * dirty <=> the last command output did not end with a newline.
+   *                     This flag <=> the CLI "owns" the screen.  This flag
+   *                     must be cleared -- by wiping the command line -- before
+   *                     any other output can use the screen.
+   *
+   *                     In particular, must be cleared before setting
+   *                     out_active -- see below.
+   *
+   * dirty           <=> the last command output did not end with a newline.
+   *
+   * tilde_enabled  <=> do not do the "~ " one command line ahead.
    *
    * If drawn is true, the following are valid:
+   *
+   *   tilde_prompt  -- the prompt is the "~ "
    *
    *   prompt_len    -- the length of the prompt part.
    *                    (will be the "--more--" prompt in cli_more_wait)
@@ -87,6 +100,9 @@ struct vty_cli
   bool          drawn ;
   bool          dirty ;
 
+  bool          tilde_prompt ;
+  bool          tilde_enabled ;
+
   int           prompt_len ;
   int           extra_len ;
 
@@ -95,80 +111,112 @@ struct vty_cli
   /* "cache" for prompt -- when node or host name changes, prompt does  */
   node_type_t   prompt_node ;
   name_gen_t    prompt_gen ;
-  qstring_t     prompt_for_node ;
-
-  /* password failure count -- main login or enable login.              */
-  int           password_fail ;
+  qstring       prompt_for_node ;
 
   /* State of the CLI
    *
-   *   in_progress  -- command dispatched
+   *   dispatched   -- command dispatched by CLI
+   *   in_progress  -- command taken by the command loop
    *   blocked      -- blocked until current command completes
-   *   out_active   -- contents of the command FIFO are being written away
+   *   paused       -- command dispatched and nothing else happened
+   *
+   *   mon_active   -- there is stuff in the logging monitor buffer
+   *
+   *   out_active   -- contents of the obuf FIFO are being written away
+   *                   though may be blocked in more_wait
+   *
+   *                   This flag <=> that the command output "owns" the screen.
+   *
+   *                   While this flag is set, the CLI may not write to the
+   *                   screen.
+   *
+   *   flush        -- this flag => out_active.
+   *
+   *                   When the CLI is ready to read the next CLI command, it
+   *                   must wait for all command output to complete.  This
+   *                   flag is set, so that (a) any final but incomplete
+   *                   line of command output will be flushed, and (b) to
+   *                   signal that out_active must be cleared when all output
+   *                   has completed.
    *
    *   more_wait    -- is in "--more--" wait state
-   *   more_active  -- more_wait and waiting for "--more--" prompt to be
-   *                                 written away.
+   *   more_enter   -- more_wait and waiting for "--more--" prompt to be
+   *                             written away and keystrokes to be consumed.
    */
+  bool          dispatched ;
   bool          in_progress ;
   bool          blocked ;
+  bool          paused ;
+
+  bool          mon_active ;
   bool          out_active ;
+  bool          flush ;
 
   bool          more_wait ;
-  bool          more_active ;
-
-  /* This is used to control command output, so that each write_ready event
-   * generates at most one tranche of output.
-   */
-  bool          out_done ;
+  bool          more_enter ;
 
   /* This is set only if the "--more--" handling is enabled             */
   bool          more_enabled ;
 
+  /* Timer for paused state -- multi-threaded only                      */
+  qtimer        pause_timer ;
+
   /* Command Line(s)
    *
-   * node    -- the node that the CLI is in.  This may be some way behind
-   *            the VTY, but is updated when the CLI level command completes.
+   * context  -- the node etc. that the CLI is in.  This may be some way behind
+   *             the VTY, but is updated when the CLI level command completes.
    *
-   * to_do   -- when current command being prepared is completed (by
-   *            CR/LF or otherwise) this says what there now is to be done.
+   *             Note that this is a copy of the state of exec->context when
+   *             uty_want_command() was last called.
    *
-   * cl      -- current command line being prepared.
+   * auth_context  -- true <=> context->node is AUTH_NODE or AUTH_ENABLE_NODE
    *
-   * clx     -- current command line being executed.
+   * parsed   -- the parsed object used to parse command for cli help
+   *
+   * to_do    -- when current command being prepared is completed (by
+   *             CR/LF or otherwise) this says what there now is to be done.
+   *
+   * cl       -- current command line being prepared.
+   * cls      -- current command line on the screen
+   *
+   * clx      -- current command line being executed.
+   *
+   * dispatch -- the last action dispatched.
    *
    * NB: during command execution vty->buf is set to point at the '\0'
    *     terminated current command line being executed.
    */
-  node_type_t   node ;
+  cmd_context   context ;
+  bool          auth_context ;
+
+  cmd_parsed    parsed ;
 
   cmd_do_t      to_do ;
-
   qstring       cl ;
+  qstring       cls ;
+
   qstring       clx ;
 
-  cmd_parsed_t  parsed ;        /* embedded             */
+  cmd_action_t  dispatch ;
 
-  /* CLI line buffering                                                 */
-  vio_fifo_t    cbuf ;          /* embedded             */
-
-  /* CLI line control for command output & "--more--" stuff             */
-  vio_line_control_t    olc ;   /* embedded             */
+  /* CLI line buffering and line control                                */
+  vio_fifo          cbuf ;
+  vio_line_control  olc ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Functions
+ */
 extern vty_cli uty_cli_new(vio_vf vf) ;
-extern void uty_cli_start(vty_cli cli, node_type_t node) ;
-
 extern vty_cli uty_cli_close(vty_cli cli, bool final) ;
 
-extern cmd_return_code_t uty_cli_auth(vty_cli) ;
 extern void uty_cli_hist_show(vty_cli cli) ;
 extern ulen uty_cli_prompt_len(vty_cli cli) ;
 
 extern vty_readiness_t uty_cli(vty_cli cli) ;
-extern void uty_cli_out_push(vty_cli cli) ;
-extern void uty_cli_done_command(vty_cli cli, node_type_t node) ;
 
+extern cmd_return_code_t uty_cli_want_command(vty_cli cli, cmd_action action,
+                                                          cmd_context context) ;
 extern void uty_cli_out(vty_cli cli, const char *format, ...)
                                                         PRINTF_ATTRIBUTE(2, 3) ;
 extern void uty_cli_out_newline(vty_cli cli) ;
@@ -183,7 +231,12 @@ extern void uty_cli_exit_more_wait(vty_cli cli) ;
 
 extern bool uty_cli_draw_if_required(vty_cli cli) ;
 
-extern void uty_cli_pre_monitor(vty_cli cli, size_t len) ;
-extern int uty_cli_post_monitor(vty_cli cli, const char* buf, size_t len) ;
+extern void uty_cli_pre_monitor(vty_cli cli) ;
+extern void uty_cli_post_monitor(vty_cli cli) ;
+
+/*------------------------------------------------------------------------------
+ * Pro tem -- "\r\n" string
+ */
+extern const char* uty_cli_newline ;
 
 #endif /* _ZEBRA_VTY_CLI_H */

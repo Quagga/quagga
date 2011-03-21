@@ -26,8 +26,9 @@
 /* Both readn and writen are deprecated and will be removed.  They are not
    suitable for use with non-blocking file descriptors.
  */
-extern int readn (int, u_char *, int);
-extern int writen (int, const u_char *, int);
+extern int readn (int, void*, int);
+extern int writen (int, const void*, int);
+extern int copyn (int dst_fd, int src_fd) ;
 
 /* Set the file descriptor to use non-blocking I/O.  Returns 0 for success,
    -1 on error. */
@@ -35,7 +36,7 @@ extern int set_nonblocking(int fd);
 
 /* Non-Blocking versions of read/write                                        */
 int read_nb(int fd, void* buf, size_t nbyte) ;
-int write_nb(int fd, void* buf, size_t nbyte) ;
+int write_nb(int fd, const void* buf, size_t nbyte) ;
 
 /* Does the I/O error indicate that the operation should be retried later? */
 #define ERRNO_IO_RETRY(EN) \

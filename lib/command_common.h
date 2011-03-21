@@ -38,7 +38,7 @@ enum node_type
   AUTH_NODE,            /* VTY login -> VIEW_NODE                             */
   RESTRICTED_NODE,      /* if no login required, may use this node            */
   VIEW_NODE,            /* aka user EXEC                                      */
-  AUTH_ENABLE_NODE,     /* enable login -> ENABLE_NODE                        */
+  AUTH_ENABLE_NODE,     /* enable login -> ENABLE_NODE/CONFIG_NODE            */
   ENABLE_NODE,          /* aka privileged EXEC                                */
 
   MIN_DO_SHORTCUT_NODE = ENABLE_NODE,
@@ -86,6 +86,9 @@ enum node_type
   FORWARDING_NODE,      /* forwarding config write -- see zserv.c             */
   PROTOCOL_NODE,        /* protocol config write -- see zebra_vty.c           */
   VTY_NODE,             /* line vty commands                                  */
+
+  MAX_PLUS_1_NODE,
+  MAX_NODE   = MAX_PLUS_1_NODE - 1
 } ;
 typedef enum node_type node_type_t ;
 
@@ -110,30 +113,44 @@ typedef enum node_type node_type_t ;
  */
 enum cmd_return_code
 {
-  CMD_SUCCESS     =  0,
+  CMD_SUCCESS     = 0,          /* used generally                       */
+
+  /* Return codes suitable for command execution functions              */
+
   CMD_WARNING     =  1,
   CMD_ERROR,
 
-  CMD_IO_ERROR,                 /* I/O -- failed :-(                    */
-
-  CMD_SUCCESS_DAEMON,           /* parser: success & command is for vtysh ? */
-
-  CMD_CLOSE,                    /* command: used by "exit"              */
+  /* Return codes from the command parser                               */
 
   CMD_EMPTY,                    /* parser: nothing to execute           */
-  CMD_WAITING,                  /* I/O: waiting for more input          */
-  CMD_EOF,                      /* I/O: nothing more to come            */
 
   CMD_ERR_PARSING,              /* parser: general parser error         */
   CMD_ERR_NO_MATCH,             /* parser: command/argument not recognised  */
   CMD_ERR_AMBIGUOUS,            /* parser: more than on command matches */
   CMD_ERR_INCOMPLETE,
 
+  CMD_CLOSE,                    /* command: used by "exit"              */
+
+
+
+  CMD_WAITING,                  /* I/O: waiting for more input          */
+  CMD_EOF,                      /* I/O: nothing more to come            */
+
+  CMD_HIATUS,                   /* Something requires attention         */
+
+  CMD_IO_ERROR,                 /* I/O -- failed :-(                    */
+  CMD_IO_TIMEOUT,               /* I/O -- timed out :-(                 */
+
+  /* For the chop ????                          */
+
 
   CMD_COMPLETE_FULL_MATCH,      /* cmd_completion returns               */
   CMD_COMPLETE_MATCH,
   CMD_COMPLETE_LIST_MATCH,
-  CMD_COMPLETE_ALREADY
+  CMD_COMPLETE_ALREADY,
+
+
+  CMD_SUCCESS_DAEMON,           /* parser: success & command is for vtysh ? */
 } ;
 
 typedef enum cmd_return_code cmd_return_code_t ;
@@ -166,18 +183,66 @@ typedef struct cmd_node  cmd_node_t ;
 typedef struct cmd_node* cmd_node ;
 
 /*------------------------------------------------------------------------------
- * Command elements -- contents of the node's cmd_vector
+ * Commands -- contents of the nodes' cmd_vector(s).
+ *
+ * A cmd_command is a static structure, which contains dynamic elements
+ * which are set when a command is installed.  Note that is not uncommon for
+ * one cmd_command to appear in more than one node.
+ *
+ * The command attributes affect:
+ *
+ *   * the parsing of the command -- in particular how the next_node is
+ *     established.
+ *
+ *   * whether the command is shown in help (or some forms of help if
+ *     deprecated.
+ *
+ *   * whether the command can be executed directly in the cli thread
+ *     (avoiding having to wait for the cmd thread's attention -- this may be
+ *      less useful now that all commands are treated a "priority" messages
+ *      going into the cmd thread).
+ *
+ * If the command is marked CMD_ATTR_NODE, then the CMD_ATTR_MASK will
+ * extract the node_type_t that the command will set, if CMD_SUCCESS.  This
+ * means that can parse commands without executing them.
+ *
+ * If the command is not marked CMD_ATTR_NODE, then the CMD_ATTR_MASK will
+ * extract the cmd_special_t value for the command -- which will be
+ * interesting if it isn't cmd_sp_simple.
  */
 enum cmd_attr
 {
-  CMD_ATTR_SIMPLE     = 0,              /* bit significant */
-  CMD_ATTR_DEPRECATED = BIT(0),
-  CMD_ATTR_HIDDEN     = BIT(1),
-  CMD_ATTR_DIRECT     = BIT(2),
+  CMD_ATTR_SIMPLE     = 0,              /* bit significant              */
+
+  CMD_ATTR_NODE       = BIT(7),         /* sets given node              */
+  CMD_ATTR_MASK       = CMD_ATTR_NODE - 1,
+
+  CMD_ATTR_DEPRECATED = BIT(12),
+  CMD_ATTR_HIDDEN     = BIT(13),        /* not shown in help            */
+  CMD_ATTR_DIRECT     = BIT(14),        /* can run in cli thread        */
 };
 typedef enum cmd_attr cmd_attr_t ;
 
-/* Structure of command element.        */
+CONFIRM(CMD_ATTR_MASK >= (cmd_attr_t)MAX_NODE) ;
+
+/* Special commands, which require extra processing at parse time.      */
+enum cmd_special
+{
+  cmd_sp_simple  = 0,
+
+  cmd_sp_end,
+  cmd_sp_exit,
+  cmd_sp_enable,
+  cmd_sp_configure,
+
+  cmd_sp_max_plus_1,
+  cmd_sp_max     = cmd_sp_max_plus_1 - 1
+} ;
+typedef enum cmd_special cmd_special_t ;
+
+CONFIRM(CMD_ATTR_MASK >= (cmd_attr_t)cmd_sp_max) ;
+
+/* Command functions and macros to define same                          */
 
 struct cmd_command ;
 typedef struct cmd_command* cmd_command ;
@@ -192,6 +257,8 @@ typedef const char* const argv_t[] ;
                              argv_t argv        DEFUN_CMD_ARG_UNUSED)
 
 typedef DEFUN_CMD_FUNCTION((cmd_function)) ;
+
+/* The cmd_command structure itself                                     */
 
 struct cmd_item ;               /* Defined in command_parse.h           */
 

@@ -21,27 +21,37 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _ZEBRA_MEMORY_H
 #define _ZEBRA_MEMORY_H
 
-#include <stddef.h>
+#include "misc.h"
 
-/* For pretty printing of memory allocate information. */
-struct memory_list
+/*------------------------------------------------------------------------------
+ * The file "lib/memtypes.h is created automatically (in the make) from
+ * memtypes.c, and contains a large enum which defines all the memory type
+ * names.
+ *
+ * The file memtypes.c contains a number of arrays of struct memory_list, which
+ * map memory type names to a string, for printing.  Those arrays are
+ * collected together in an array of struvt mlist.
+ */
+struct memory_list              /* one per memory type                  */
 {
   int index;
   const char *format;
 };
 
-struct mlist {
+struct mlist {                  /* one per class of memory types        */
   struct memory_list *list;
   const char *name;
 };
 
-extern struct mlist mlists[];
+extern struct mlist mlists[];   /* all classes of memory                */
 
 #include "lib/memtypes.h"
 
 typedef enum MTYPE mtype_t ;
 
-/* #define MEMORY_LOG */
+/*------------------------------------------------------------------------------
+ * Option for logging memory operations.
+ */
 #ifdef MEMORY_LOG
 #define XMALLOC(mtype, size) \
   mtype_zmalloc (__FILE__, __LINE__, (mtype), (size))
@@ -58,27 +68,52 @@ typedef enum MTYPE mtype_t ;
   mtype_zstrdup (__FILE__, __LINE__, (mtype), (str))
 #else
 
-#ifdef MEMORY_TRACKER           /* Can be forced from outside           */
-# if MEMORY_TRACKER
-#  define MEMORY_TRACKER 1      /* Force 1 or 0                         */
-#else
-#  define MEMORY_TRACKER 0
+/*------------------------------------------------------------------------------
+ * Sort out MEMORY_TRACKER -- option to keep track of memory allocation.
+ *
+ *   Set to 1 if defined, but blank.
+ *   Set to QDEBUG if not defined.
+ *
+ *   Force to 0 if NO_MEMORY_TRACKER is defined and not zero.
+ *
+ * So: defaults to same as QDEBUG, but no matter what QDEBUG is set to:
+ *
+ *       * can set MEMORY_TRACKER == 0 to turn off debug
+ *       *  or set MEMORY_TRACKER != 0 to turn on debug
+ *       *  or set VTY_NO_DEBUG != to force debug off
+ */
+
+#ifdef MEMORY_TRACKER           /* If defined, make it 1 or 0           */
+# if IS_BLANK_OPTION(MEMORY_TRACKER)
+#  undef  MEMORY_TRACKER
+#  define MEMORY_TRACKER 1
 # endif
-#else
-# ifdef  QDEBUG
-#  define MEMORY_TRACKER 1      /* Follow QDEBUG                        */
-#else
+#else                           /* If not defined, follow QDEBUG        */
+# define MEMORY_TRACKER QDEBUG
+#endif
+
+#ifdef NO_MEMORY_TRACKER        /* Override, if defined.                */
+# if IS_NOT_ZERO_OPTION(VTY_NO_DEBUG)
+#  undef  MEMORY_TRACKER
 #  define MEMORY_TRACKER 0
 # endif
 #endif
 
+enum { memory_tracker = MEMORY_TRACKER } ;
+
 #if MEMORY_TRACKER
-#define MEMORY_TRACKER_NAME  , const char* name
-#define MEMORY_TRACKER_FUNC , __func__
+#define MEMORY_TRACKER_NAME_ARG name
+#define MEMORY_TRACKER_NAME     , const char* MEMORY_TRACKER_NAME_ARG
+#define MEMORY_TRACKER_FUNC     , __func__
 #else
+#define MEMORY_TRACKER_NAME_ARG "*dummy*"
 #define MEMORY_TRACKER_NAME
 #define MEMORY_TRACKER_FUNC
 #endif
+
+/*------------------------------------------------------------------------------
+ * The macros used for all Quagga dynamic memory.
+ */
 
 #define XMALLOC(mtype, size)       zmalloc ((mtype), (size) \
                                                             MEMORY_TRACKER_FUNC)
@@ -86,10 +121,8 @@ typedef enum MTYPE mtype_t ;
                                                             MEMORY_TRACKER_FUNC)
 #define XREALLOC(mtype, ptr, size) zrealloc ((mtype), (ptr), (size) \
                                                             MEMORY_TRACKER_FUNC)
-#define XFREE(mtype, ptr)          do { \
-                                     zfree ((mtype), (ptr)); \
-                                     ptr = NULL; } \
-                                   while (0)
+#define XFREE(mtype, ptr)          do { zfree ((mtype), (ptr)); \
+                                        ptr = NULL;   } while (0)
 #define XSTRDUP(mtype, str)        zstrdup ((mtype), (str) \
                                                             MEMORY_TRACKER_FUNC)
 

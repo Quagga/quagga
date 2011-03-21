@@ -1,5 +1,5 @@
-/* Command Message Queue -- header
- * Copyright (C) 2009 Chris Hall (GMCH), Highwayman
+/* Pseudo Random Sequence
+ * Copyright (C) 2010 Chris Hall (GMCH), Highwayman
  *
  * This file is part of GNU Zebra.
  *
@@ -19,15 +19,30 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#ifndef COMMAND_QUEUE_H_
-#define COMMAND_QUEUE_H_
+#include "qrand.h"
 
-#include "vty_local.h"
-#include "command_execute.h"
-#include "qpnexus.h"
+/*==============================================================================
+ * Simple 32 bit random sequence.
+ */
 
-extern void cq_loop_enter(vty vty, cmd_return_code_t ret) ;
-extern void cq_continue(vty vty, cmd_return_code_t ret) ;
-extern bool cq_revoke(vty vty) ;
+/*------------------------------------------------------------------------------
+ * Return next in the given sequence.
+ *
+ * Returns value in range 0..range-1, or 0..0x7FFF_FFFF if range == 0
+ *
+ * If range == 1, returns 0 every time !
+ */
+extern int
+qrand(qrand_seq seq, int range)
+{
+  uint64_t  r ;
 
-#endif /* COMMAND_QUEUE_H_ */
+  r = seq->last ^ 3141592653 ;
+  r = ((r * 2650845021) + 5) & 0xFFFFFFFF ;     /* see Knuth    */
+  seq->last = r ;
+
+  if (range == 0)
+    return r >> 1 ;
+  else
+    return (r % range) ;
+} ;

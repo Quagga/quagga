@@ -35,16 +35,33 @@
  * each with an action to be executed when the timer expires.
  */
 
-#ifdef QTIMERS_DEBUG            /* Can be forced from outside           */
-# if QTIMERS_DEBUG
-#  define QTIMERS_DEBUG 1       /* Force 1 or 0                         */
-#else
-#  define QTIMERS_DEBUG 0
+/*------------------------------------------------------------------------------
+ * Sort out QTIMERS_DEBUG.
+ *
+ *   Set to 1 if defined, but blank.
+ *   Set to QDEBUG if not defined.
+ *
+ *   Force to 0 if QTIMERS_NO_DEBUG is defined and not zero.
+ *
+ * So: defaults to same as QDEBUG, but no matter what QDEBUG is set to:
+ *
+ *       * can set QTIMERS_DEBUG    == 0 to turn off debug
+ *       *  or set QTIMERS_DEBUG    != 0 to turn on debug
+ *       *  or set QTIMERS_NO_DEBUG != 0 to force debug off
+ */
+
+#ifdef QTIMERS_DEBUG            /* If defined, make it 1 or 0           */
+# if IS_BLANK_OPTION(QTIMERS_DEBUG)
+#  undef  QTIMERS_DEBUG
+#  define QTIMERS_DEBUG 1
 # endif
-#else
-# ifdef  QDEBUG
-#  define QTIMERS_DEBUG 1       /* Follow QDEBUG                        */
-#else
+#else                           /* If not defined, follow QDEBUG        */
+# define QTIMERS_DEBUG QDEBUG
+#endif
+
+#ifdef QTIMERS_NO_DEBUG         /* Override, if defined                 */
+# if IS_NOT_ZERO_OPTION(QTIMERS_NO_DEBUG)
+#  undef  QTIMERS_DEBUG
 #  define QTIMERS_DEBUG 0
 # endif
 #endif

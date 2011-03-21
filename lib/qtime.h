@@ -52,10 +52,10 @@ typedef qtime_t qtime_mono_t ;  /* qtime_t value, monotonic time-base     */
 typedef qtime_t qtime_tod_t ;   /* qtime_t value, timeofday time-base...  */
                                 /* ...just in case != CLOCK_REALTIME !    */
 
-/* A qtime_t second       123456789 -- nano-seconds             */
-#define QTIME_SECOND     1000000000
-#define TIMESPEC_SECOND  1000000000
-#define TIMEVAL_SECOND   1000000
+/* A qtime_t second                 123456789 -- nano-seconds             */
+#define QTIME_SECOND     ((qtime_t)1000000000)
+#define TIMESPEC_SECOND            1000000000
+#define TIMEVAL_SECOND             1000000
 
 /* Macro to convert time in seconds to a qtime_t                */
 /* Note that the time to convert may be a float.                */

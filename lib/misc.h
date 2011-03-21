@@ -87,6 +87,9 @@ typedef unsigned int  uint ;
 typedef unsigned int  usize ;
 typedef unsigned int  ulen ;
 
+typedef          int  ssize ;
+typedef          int  slen ;
+
 typedef unsigned long ulong ;
 
 /*       cvp  == const void*         -- ptr to constant void
@@ -94,5 +97,47 @@ typedef unsigned long ulong ;
  * const cvp* == void const* const*  -- ptr to constant ptr to constant void
  */
 typedef const void* cvp ;
+
+/* Macros for sexing value of compilation options.
+ *
+ * In particular allow a blank option to be treated as true, and a zero option
+ * to be treated as false.
+ *
+ * NB: the option MUST be defined, and must be decimal numeric !!
+ */
+#define STRING_VALUE_INNER(x)  #x
+#define STRING_VALUE(x) STRING_VALUE_INNER(x)
+
+#define IS_BLANK_OPTION(x)     IS_BLANK_OPTION_INNER(x)
+#define IS_ZERO_OPTION(x)      IS_ZERO_OPTION_INNER(x)
+#define IS_NOT_ZERO_OPTION(x)  IS_NOT_OPTION_ZERO_INNER(x)
+
+#define IS_BLANK_OPTION_INNER(x)    (1##x##1 ==  11)
+#define IS_ZERO_OPTION_INNER(x)     (1##x##1 == 101)
+#define IS_NOT_ZERO_OPTION_INNER(x) (1##x##1 != 101)
+
+/* If QDEBUG is defined, make QDEBUG_NAME and set QDEBUG
+ *
+ *  Numeric value for QDEBUG:  undefined      => 0
+ *                            defined, blank => 1
+ *                            defined, 0     => 0
+ *                            defined, other => other
+ *
+ * Template for turning compilation option into a value.
+ */
+#ifdef QDEBUG
+# if IS_BLANK_OPTION(QDEBUG)
+#  undef  QDEBUG
+#  define QDEBUG 1
+# endif
+#else
+# define QDEBUG 0
+#endif
+
+enum { qdebug = QDEBUG } ;
+
+#ifndef QDEBUG_NAME
+# define QDEBUG_NAME STRING_VALUE(QDEBUG)
+#endif
 
 #endif /* _ZEBRA_MISC_H */

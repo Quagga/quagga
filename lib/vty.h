@@ -39,6 +39,7 @@
 #include "list_util.h"
 #include "vector.h"
 #include "qstring.h"
+#include "qpath.h"
 
 /*==============================================================================
  * These are definitions and functions for things which are required outside
@@ -48,8 +49,7 @@
 /*------------------------------------------------------------------------------
  *
  */
-#define VTY_BUFSIZ 512
-#define VTY_MAXHIST 51
+enum { VTY_HIST_COUNT  = 55 } ;
 
 /* Integrated configuration file. */
 #define INTEGRATE_DEFAULT_CONFIG "Quagga.conf"
@@ -79,7 +79,7 @@ enum { VTY_MAX_SPACES = 40 } ;
 #define VTY_GET_LONG(NAME,V,STR) \
 do { \
   char *endptr = NULL; \
-  (V) = strtoul ((STR), &endptr, 10); \
+  (V) = strtoul ((STR), &endptr, 0); \
   if (*endptr != '\0' || (V) == ULONG_MAX) \
     { \
       vty_out (vty, "%% Invalid %s value%s", NAME, VTY_NEWLINE); \
@@ -138,21 +138,16 @@ extern void vty_start(const char *addr, unsigned short port, const char *path) ;
 #define vty_serv_sock(addr, port, path) vty_start(addr, port, path)
 extern void vty_restart(const char *addr, unsigned short port,
                                                              const char *path) ;
-extern struct vty* vty_open(enum vty_type type) ;
-extern void vty_close_final(struct vty *);
-
-extern void vty_init_vtysh (void);
 extern void vty_terminate (void);
 extern void vty_reset (void);
 extern void vty_reset_because(const char* why) ;
 
 extern int vty_out (struct vty *, const char *, ...) PRINTF_ATTRIBUTE(2, 3);
+extern int vty_write(struct vty *vty, const void* buf, int n) ;
 extern int vty_out_indent(struct vty *vty, int indent) ;
 extern void vty_out_clear(struct vty *vty) ;
 
-
-
-
+extern void vty_sigchld(void) ;
 
 extern void vty_read_config (const char* config_file,
                              const char* config_default);
@@ -161,10 +156,14 @@ extern void vty_read_config_first_cmd_special(const char* config_file,
                                               cmd_command first_cmd,
                                               bool ignore_warnings) ;
 
-extern void vty_time_print (struct vty *, int);
+extern qpath vty_getcwd(qpath qp);
 
-extern char *vty_get_cwd (void);
-
-extern void vty_hello (struct vty *);
+/*------------------------------------------------------------------------------
+ * vtysh
+ */
+extern void vty_hello (vty vty);
+extern struct vty* vty_open(enum vty_type type, node_type_t node) ;
+extern void vty_close_final(vty vty);
+extern void vty_init_vtysh (void);
 
 #endif /* _ZEBRA_VTY_H */

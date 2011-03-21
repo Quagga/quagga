@@ -213,7 +213,7 @@ extern mqueue_block mqb_init_new(mqueue_block mqb, mqueue_action action,
                                                                    void* arg0) ;
 extern mqueue_block mqb_re_init(mqueue_block mqb, mqueue_action action,
                                                                    void* arg0) ;
-extern void mqb_free(mqueue_block mqb) ;
+extern mqueue_block mqb_free(mqueue_block mqb) ;
 
 enum mqb_rank
 {

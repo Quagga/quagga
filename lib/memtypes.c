@@ -57,6 +57,7 @@ struct memory_list memory_list_lib[] =
   { MTYPE_VIO_FIFO_LUMP,        "VTY IO FIFO Lump"              },
   { MTYPE_VIO_LC,               "VTY IO Line Control"           },
   { MTYPE_QSTRING,              "qstring structure"             },
+  { MTYPE_QPATH,                "qpath structure"               },
   { MTYPE_QIOVEC,               "qiovec structure"              },
   { MTYPE_QIOVEC_VEC,           "qiovec iovec vector"           },
   { MTYPE_IF,			"Interface"			},

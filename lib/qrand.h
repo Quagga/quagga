@@ -1,5 +1,5 @@
-/* Command Message Queue -- header
- * Copyright (C) 2009 Chris Hall (GMCH), Highwayman
+/* Pseudo Random Sequence  -- Header
+ * Copyright (C) 2010 Chris Hall (GMCH), Highwayman
  *
  * This file is part of GNU Zebra.
  *
@@ -19,15 +19,34 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#ifndef COMMAND_QUEUE_H_
-#define COMMAND_QUEUE_H_
+#ifndef _ZEBRA_QRAND_H
+#define _ZEBRA_QRAND_H
 
-#include "vty_local.h"
-#include "command_execute.h"
-#include "qpnexus.h"
+#include "misc.h"
 
-extern void cq_loop_enter(vty vty, cmd_return_code_t ret) ;
-extern void cq_continue(vty vty, cmd_return_code_t ret) ;
-extern bool cq_revoke(vty vty) ;
+/*==============================================================================
+ * Simple 32 bit random sequence.
+ *
+ * Produces 32-bit signed integers in 0..0x7FFF_FFFF.
+ *
+ * Object of the exercise is to be able to produce repeatable sequence, so can
+ * debug !
+ */
 
-#endif /* COMMAND_QUEUE_H_ */
+struct qrand_seq
+{
+  uint  last ;
+} ;
+
+typedef struct qrand_seq* qrand_seq ;
+typedef struct qrand_seq  qrand_seq_t[1] ;
+
+#define QRAND_SEQ_INIT(s) { { s } }
+
+/*==============================================================================
+ * Functions
+ */
+
+extern int qrand(qrand_seq seq, int range) ;
+
+#endif /* _ZEBRA_QRAND_H */

@@ -43,7 +43,7 @@
  * runs until the vin/vout stacks return to 0 -- the VTY_TERMINAL and
  * VTY_SHELL_SERVER.
  *
- * There are further issues:
+ * There are further issues:     fix to current state TODO
  *
  *   1) in the qpthreads world, commands are parsed in the CLI thread, but most
  *      are executed in the Routing thread.  So parsed commands are passed, by
@@ -53,7 +53,7 @@
  *      exit if a command line cannot be delivered immediately, and will be
  *      returned to later.
  *
- *   3) while a VTY is in the command loop it is marked vio->cmd_running.
+ *   3) while a VTY is in the command loop it is marked vio->cmd_running.  TODO
  *
  *      While that is true, the vty and the vty->exec are in the hands
  *      of the command loop.  The vty->vio is always accessed under VTY_LOCK().
@@ -72,7 +72,7 @@
  * running of the CLI thread.
  *
  * To close a VTY must (eventually) arrange for vio->cmd_running to be cleared.
- * While a vty is vio->cmd_running, it must be in one of these states:
+ * While a vty is vio->cmd_running, it must be in one of these states:   TODO
  *
  *   - on the vty_cli_nexus queue      (or the combined queue)
  *   - executing in the vty_cli_nexus  (or the single "both" nexus)
@@ -111,69 +111,54 @@
  * Prototypes
  */
 static void cq_enqueue(struct vty *vty, qpn_nexus dst, cmd_exec_state_t state,
-                                                        cmd_return_code_t ret) ;
+                                                       cmd_return_code_t ret) ;
 static void cq_action(mqueue_block mqb, mqb_flag_t flag);
 static int cq_thread(struct thread* thread) ;
-static void cq_process(vty vty) ;
+static void cq_process(vty vty, cmd_exec_state_t state, cmd_return_code_t ret) ;
 
 /*------------------------------------------------------------------------------
- * Enqueue vty for parse and execution of a command.
+ * Enqueue vty to enter the command loop -- must be exec_null
  *
- * Sets the vio->cmd_running flag, which will be cleared only when the
- * command is completed (including any nested pipes etc.) or when the vty
- * is blocked on input or it is revoked.
- *
- * Note that from now on, exec->ret reflects the state of the return
- * code when the vty was last enqueued.
- *
- * While vio_cmd_running is set, the CLI side MUST NOT fiddle with the main
- * part of the VTY or with the vty->exec state.
+ * Expects the vty start up process to have output some cheerful messages,
+ * which is treated as a dummy "login" command.  So the loop is entered at
+ * "exec_done_cmd", which will push out the output, deal with the return code,
+ * and loop round to fetch the first command line (if required).
  */
 extern void
-cq_dispatch(vty vty, cmd_do_t to_do, qstring line)
+cq_loop_enter(vty vty, cmd_return_code_t ret)
 {
   VTY_ASSERT_CLI_THREAD() ;
 
-  vty->exec->to_do = to_do ;
-  vty->exec->line  = line ;
-  vty->vio->cmd_running = true ;
-  cq_enqueue(vty, vty_cli_nexus,
-                     (to_do == cmd_do_command) ? exec_parse
-                                               : exec_special, CMD_SUCCESS) ;
+  assert(vty->exec->state == exec_null) ;
+
+  cq_enqueue(vty, vty_cli_nexus, exec_done_cmd, ret) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Enqueue vty for fetching a command line from an in_pipe which has just
- * received more input.
- *
- * Sets the vio->cmd_running flag, which will be cleared only when the
- * command is completed (including any nested pipes etc.) or when the vty
- * is blocked on input or it is revoked.
- *
- * While vio_cmd_running is set, the CLI side MUST NOT fiddle with the main
- * part of the VTY or with the vty->exec state.
+ * Continue (resume) at hiatus -- must be exec_hiatus
  */
 extern void
-cq_go_fetch(vty vty)
+cq_continue(vty vty, cmd_return_code_t ret)
 {
   VTY_ASSERT_CLI_THREAD() ;
 
-  vty->vio->cmd_running = true ;
-  cq_enqueue(vty, vty_cli_nexus, exec_fetch, CMD_SUCCESS) ;
+  assert(vty->exec->state == exec_hiatus) ;
+
+  cq_enqueue(vty, vty_cli_nexus, exec_hiatus, ret) ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Enqueue vty for execution in given nexus or issue thread event.
  *
- * Note that preserves the return code state.
+ * Will execute in the current exec->state, passing in the given return
+ * code.
  */
 static void
 cq_enqueue(vty vty, qpn_nexus dst, cmd_exec_state_t state,
-                                                        cmd_return_code_t ret)
+                                   cmd_return_code_t ret)
 {
   cmd_exec exec = vty->exec ;
 
-  assert(vty->vio->cmd_running) ;
   assert((dst == vty_cli_nexus) || (dst == vty_cmd_nexus)) ;
 
   exec->locus = dst ;
@@ -200,7 +185,7 @@ cq_enqueue(vty vty, qpn_nexus dst, cmd_exec_state_t state,
 /*------------------------------------------------------------------------------
  * Deal with command message -- in the qpthreads world.
  *
- * Note that if the command is revoked....
+ * Note that if the command is revoked....  TODO
  */
 static void
 cq_action(mqueue_block mqb, mqb_flag_t flag)
@@ -212,11 +197,12 @@ cq_action(mqueue_block mqb, mqb_flag_t flag)
   vty  = mqb_get_arg0(mqb);
 
   assert(vty->exec->cq.mqb == mqb) ;
-  assert(vty->vio->cmd_running) ;
 
   if (flag == mqb_action)
-    return cq_process(vty) ;            /* do not touch vty on way out  */
+    return cq_process(vty, vty->exec->state, vty->exec->ret) ;
+                                       /* do not touch vty on way out   */
 
+  /* Revoke action.                                                     */
   mqb_free(mqb) ;
   vty->exec->cq.mqb = NULL ;
 } ;
@@ -224,7 +210,7 @@ cq_action(mqueue_block mqb, mqb_flag_t flag)
 /*------------------------------------------------------------------------------
  * Deal with command message -- in the legacy threads world.
  *
- * Note that if the command is revoked....
+ * Note that if the command is revoked....  TODO
  */
 static int
 cq_thread(struct thread* thread)
@@ -232,63 +218,64 @@ cq_thread(struct thread* thread)
   vty   vty = THREAD_ARG(thread) ;
 
   assert(vty->exec->cq.thread == thread) ;
-  assert(vty->vio->cmd_running) ;
 
   vty->exec->cq.thread = NULL ;
 
-  cq_process(vty) ;                     /* do not touch vty on way out  */
-
+  cq_process(vty, vty->exec->state, vty->exec->ret) ;
+                                            /* do not touch vty on way out  */
   return 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Process command(s) queued from VTY_TERMINAL or from VTY_SHELL_SERVER.
  *
- * To get into the process loop, or to get back to it when more input has
- * arrived a message is sent:
+ * This is essentially a coroutine, where the state is in the vty, noting that:
  *
- *   cli -> cli   -- exec_parse   -- when a command line has been gathered
- *                                   from input and is ready to be processed.
+ *   vty->exec->state   is the "return address"
+ *   vty->exec->ret     is the "return code"
  *
- *   cli -> cli   -- exec_fetch   -- when was waiting for more input from an
- *                                   in_pipe of some sort.
+ * The command loop runs at the mqueue level in the qpnexus world, or is
+ * driven by "events" in the legacy threads world.  The two ways into the
+ * loop are:
  *
- * In the single-pthread world, where the vty_cli_nexus is the same as the
- * vty_cmd_nexus (either because not running qpthreaded, or because are
- * running in the legacy threads world), things are reasonably straightforward.
- * The process runs to completion or until an in_pipe would block, and the
- * above are the only messages in the system.
+ *   cq_loop_enter()   -- called once and once only to start the loop.
  *
- * In the multi-pthread world, things are more complicated...  The above
- * messages are sent, and in addition the following are sent back and forth to
- * transfer between threads in the following states:
+ *   cq_continue()     -- called when some I/O process has completed and
+ *                        the loop is in hiatus, waiting for I/O.
  *
- *   cmd -> cli   -- exec_open_pipes
- *   cli -> cmd   -- exec_execute
- *   cmd -> cli   -- exec_complete
+ * The one way out of the loop is when it hits a hiatus, which is triggered
+ * by any operation not returning CMD_SUCCESS.  In hiatus, vty_cmd_hiatus()
+ * is called and given the current return code to deal with.  It will
+ * return:
  *
- * Note that this means that in the multi-pthread world, only one sort of
- * message is sent to the vty_cmd_nexus.
+ *    CMD_SUCCESS   => can proceed to fetch the next command
+ *    CMD_WAITING   => must leave the command loop, waiting for I/O
+ *    CMD_EOF       => close the vty and leave command loop
+ *    CMD_IO_ERROR  => loop back and deal with the error
+ *
+ * The cq_loop_enter() and cq_continue() operations send a message (to the
+ * cli thread, in the mult-pthreaded world), whose action routine is to call
+ * cq_process().
+ *
+ * In the multi-pthreaded world, opening and closing files MUST be done in the
+ * cli thread.  Most commands MUST be executed in the cmd thread.  So the
+ * command loop is passed between the threads in a number of places.  (To keep
+ * life simple, switches back to the cli thread if ends up waiting for I/O.)
  *
  * The vty_io_basic stuff allows the multi-pthread vty_cmd_nexus to set read
  * and/or write ready state -- which may generate messages to the vty_cli_nexus.
- *
- * NB: if blocks in exec_fetch, then vty_cmd_fetch_line() will have cleared
- *     vio->cmd_running -- so on return from cq_process the vty MAY HAVE BEEN
- *     DELETED.
  */
 static void
-cq_process(vty vty)
+cq_process(vty vty, cmd_exec_state_t state, cmd_return_code_t ret)
 {
-  cmd_exec          exec   = vty->exec ;
-  cmd_parsed        parsed = exec->parsed ;
-  cmd_return_code_t ret    = exec->ret ;
+  cmd_exec    exec   = vty->exec ;
+  cmd_parsed  parsed = exec->parsed ;
 
   /* Have switch wrapped in a while(1) so that can change state by setting
    * exec->state and doing "continue".
    *
-   * Breaking out of the switch forces the exec state to exec_complete,
-   * with the current ret, in the CLI thread.
+   * Breaking out of the switch forces the exec state to exec_hiatus,
+   * with the current ret (which will switch to the CLI thread).
    *
    * The exec locus is either vty_cli_nexus or vty_cmd_nexus.  If these
    * are equal (including both NULL, in the legacy threads world), then is
@@ -296,79 +283,44 @@ cq_process(vty vty)
    */
   while (1)
     {
-      switch(exec->state)
+     switch(state)
       {
         /*--------------------------------------------------------------------
          * Should not get here in exec_null state.
          */
         case exec_null:
-          zabort("exec->state == exec_null") ;
+          zabort("exec state == exec_null") ;
           break ;
-
-        /*--------------------------------------------------------------------
-         * Deal with the "spacial" commands
-         */
-        case exec_special:
-          ret = vty_cmd_special(vty) ;
-          if (ret != CMD_SUCCESS)
-            break ;
-
-          exec->state = exec_fetch ;
-          /* continue by falling through        */
 
         /*--------------------------------------------------------------------
          * Need another command to execute => in_pipe !
          *
-         * Note that at vin_depth == 0 this will return CMD_EOF, and will
-         * drop out of the loop exec_complete.
-         *
-         * Will also receive CMD_EOF if the VTY has been closed.
-         *
-         * If multi-threaded: may be in either thread:
-         *
-         *   vty_cmd_fetch_line() may set read and/or write ready -- so in
-         *   vty_cmd_nexus may generate message to vty_cli_nexus.
+         * If multi-threaded: may be in either thread.  If vty_cmd_fetch_line()
+         * cannot, for any reason, return a command line, will return something
+         * other than CMD_SUCCESS -- which enters the exec_hiatus.
          */
         case exec_fetch:
           ret = vty_cmd_fetch_line(vty) ;
 
           if (ret != CMD_SUCCESS)
-            {
-              /* If is CMD_WAITING, then the vty_cmd_fetch_line() will
-               * have prepared for command to be re-queued when there is more
-               * to be read.  NB: vio->cmd_running has been cleared, so
-               * vty MAY HAVE BEEN DELETED !
-               *
-               * If is CMD_EOF then is "closing" or reached EOF on top-most
-               * pipe.
-               */
-              if (ret == CMD_WAITING)
-                return ;                /* <<<< DONE, pro tem           */
+            break ;
 
-              break ;                   /* => exec_complete             */
-            } ;
-
-          if (exec->to_do != cmd_do_command)
+          if (exec->action->to_do != cmd_do_command)
             {
-              exec->state = exec_special ;
+              state = exec_special ;
               continue ;
             } ;
 
-          exec->state = exec_parse ;
-          /* continue by falling through        */
+          fall_through ;                /* with ret == CMD_SUCCESS      */
 
         /*--------------------------------------------------------------------
          * Parse command in hand
          *
-         * If multi-threaded: may be in either thread:
-         *
-         *   vty_cmd_reflect_line() may set read and/or write ready -- so in
-         *   vty_cmd_nexus may generate message to vty_cli_nexus.
+         * If multi-threaded: may be in either thread.
          */
-        case exec_parse:
-          cmd_tokenise(parsed, exec->line) ;
-          ret = cmd_parse_command(parsed, vty->node,
-                                       exec->parse_type | cmd_parse_execution) ;
+          cmd_tokenize(parsed, exec->action->line, exec->context->full_lex) ;
+
+          ret = cmd_parse_command(parsed, exec->context) ;
           if (ret != CMD_SUCCESS)
             {
               if (ret != CMD_EMPTY)
@@ -381,15 +333,20 @@ cq_process(vty vty)
                */
               ret = CMD_SUCCESS ;
 
-              exec->state = exec_success ;
+              state = exec_done_cmd ;
               continue ;
             } ;
 
-          /* reflection now -- output always succeeds                   */
-          if (exec->reflect_enabled)
-            vty_cmd_reflect_line(vty) ;
+          /* reflection now                                             */
+          if (exec->reflect)
+            {
+              ret = vty_cmd_reflect_line(vty) ;
 
-          /* continue by falling through        */
+              if ((ret != CMD_SUCCESS) && (ret != CMD_WAITING))
+                break ;
+            } ;
+
+          fall_through ;
 
         /*--------------------------------------------------------------------
          * Pipe work if any
@@ -402,8 +359,6 @@ cq_process(vty vty)
         case exec_open_pipes:
           if ((parsed->parts & cmd_parts_pipe) != 0)
             {
-              exec->state = exec_open_pipes ;
-
               /* If running pthreaded, do open pipes in vty_cli_nexus   */
               if (exec->locus != vty_cli_nexus)
                 return cq_enqueue(vty, vty_cli_nexus, exec_open_pipes, ret) ;
@@ -414,11 +369,10 @@ cq_process(vty vty)
                 break ;                 /* quit if open fails           */
             } ;
 
-          exec->state = exec_execute ;
-          /* continue by falling through        */
+          fall_through ;                /* with ret == CMD_SUCCESS      */
 
         /*--------------------------------------------------------------------
-         * Execute command in hand
+         * Execute command in hand (if any)
          *
          * If multi-threaded: some commands can run in either thread, most must
          * run in the vty_cmd_nexus -- so may generate message to transfer to
@@ -428,8 +382,7 @@ cq_process(vty vty)
           if ((parsed->parts & cmd_part_command) != 0)
             {
               /* If running pthreaded, do most commands in vty_cmd_nexus  */
-              if ((exec->locus != vty_cmd_nexus) &&
-                                                       (!cmd_is_direct(parsed)))
+              if ((exec->locus != vty_cmd_nexus) && (!cmd_is_direct(parsed)))
                 return cq_enqueue(vty, vty_cmd_nexus, exec_execute, ret) ;
 
               /* Standard command handling                              */
@@ -449,59 +402,97 @@ cq_process(vty vty)
                   realtime = thread_consumed_time(&after, &before, &cputime) ;
                   if (realtime > CONSUMED_TIME_CHECK)
                     /* Warn about CPU hog that must be fixed. */
-                    uzlog(NULL, LOG_WARNING,
+                    zlog(NULL, LOG_WARNING,
                         "SLOW COMMAND: command took %lums (cpu time %lums): %s",
                                         realtime/1000, cputime/1000,
-                                        qs_make_string(exec->line)) ;
+                                        qs_make_string(exec->action->line)) ;
               } ;
 #endif /* CONSUMED_TIME_CHECK */
-
-              if (ret != CMD_SUCCESS)
-                break ;                 /* stop                         */
             } ;
 
-          exec->state = exec_success ;
-          /* continue by falling through        */
+          fall_through ;
 
         /*--------------------------------------------------------------------
-         * Command has completed successfully -- so push the output.
+         * Command has completed -- if successful, push output and loop back
+         * to fetch another command.
          *
-         * If the vout_depth > vin_depth, pops the vout's -- deals with single
-         * command lines with a pipe output.
-         *
-         * Output cannot block, so this always succeeds.
-         *
-         * Then loop back to fetch another command line, if can.
+         * Break if not successful, or push fails or must wait.
          *
          * If multi-threaded: may be in either thread:
          *
          *   vty_cmd_success() may set write ready -- so in vty_cmd_nexus may
          *   generate message to vty_cli_nexus.
          */
-        case exec_success:
-          assert(ret == CMD_SUCCESS) ;
+        case exec_done_cmd:
+          if (ret == CMD_SUCCESS)
+            ret = vty_cmd_success(vty) ;
 
-          vty_cmd_success(vty) ;
+          if ((ret != CMD_SUCCESS) && (ret != CMD_WAITING))
+            break ;                     /* stop                         */
 
-          exec->state = exec_fetch ;
+          state = exec_fetch ;
           continue ;
 
         /*--------------------------------------------------------------------
-         * End of the command loop !
-         *
-         * If multi-threaded: must return to the vty_cli_nexus.
+         * Deal with the "special" commands
          */
-        case exec_complete:
+        case exec_special:
           if (exec->locus != vty_cli_nexus)
-            break ;                     /* Will send back to the cli    */
+            return cq_enqueue(vty, vty_cli_nexus, exec_special, ret) ;
 
-          /* Now in the vty_cli_nexus                                   */
+          ret = vty_cmd_special(vty) ;
+          if (ret != CMD_SUCCESS)
+            break ;
 
-          exec->state = exec_null ;     /* all done !                   */
+          state = exec_done_cmd ;
+          continue ;
 
-          vty_cmd_loop_exit(vty, ret) ; /* clears vio->cmd_running      */
+        /*--------------------------------------------------------------------
+         * Hiatus state -- some return code to be dealt with !
+         */
+        case exec_hiatus:
+          if (exec->locus != vty_cli_nexus)
+            return cq_enqueue(vty, vty_cli_nexus, exec_hiatus, ret) ;
 
-          return ;                      /* <<<< Finally finished !      */
+          while (1)
+            {
+              /* Let vty_cmd_hiatus() deal with the return code, and adjust
+               * the stack as required.
+               */
+              ret = vty_cmd_hiatus(vty, ret) ;
+
+              if (ret == CMD_SUCCESS)
+                break ;
+
+              if (ret == CMD_WAITING)
+                {
+                  exec->state = exec_hiatus ;
+                  return ;              /* <<< DONE, pro tem            */
+                } ;
+
+              if (ret == CMD_EOF)
+                {
+                  exec->state = exec_stopped ;
+                  vty_cmd_loop_exit(vty) ;
+
+                  return ;              /* <<< DONE, permanently        */
+                } ;
+
+              if (ret == CMD_IO_ERROR)
+                continue ;
+
+              zabort("invalid return from vty_cmd_hiatus()") ;
+            } ;
+
+          state = exec_fetch ;
+          continue ;                    /* can fetch, again             */
+
+        /*--------------------------------------------------------------------
+         * Should not get here in exec_stopped state.
+         */
+        case exec_stopped:
+          zabort("exec state == exec_exit") ;
+          break ;
 
         /*----------------------------------------------------------------------
          * Unknown exec->state !
@@ -511,22 +502,9 @@ cq_process(vty vty)
           break ;
       } ;
 
-      /* Have broken out of the switch().  This means that for good or ill,
-       * the command is complete.  If we are not in the vty_cli_nexus, need to
-       * send back to the vty_cli_nexus for handling.
-       *
-       * At all times we treat CMD_EOF and CMD_SUCCESS.
-       *
-       * Otherwise, can continue in exec_complete state.
-       */
-      if (ret == CMD_EOF)
-        ret = CMD_SUCCESS ;
-
-      if (exec->locus != vty_cli_nexus)
-        return cq_enqueue(vty, vty_cli_nexus, exec_complete, ret) ;
-
-      exec->state = exec_complete ;
-  } ;
+      /* Have broken out of the switch() => exec_hiatus                 */
+      state = exec_hiatus ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -537,45 +515,41 @@ cq_process(vty vty)
  * See cq_process above for discussion of what messages there may be.  At any
  * time there is at most one message in flight.
  *
- * If we find a message in flight, then we vty_cmd_loop_exit() to bring things
- * to a stop tidily.
+ * In the single-threaded world (including legacy threads), messages or events
+ * are used to enter or resume the command loop.  If a message or event can
+ * be revoked, then the command loop is effectively stopped.
  *
- * In the single-threaded world, expect that a command, once started will run
- * to conclusion, or until blocked on an in_pipe.  So after this revoke the
- * vty should not be vio->cmd_running.
- *
- * In the multi-threaded world, this revoke will catch any vty which is on
- * either the vty_cli_nexus or vty_cmd_nexus queues, and force completion.
- * After this revoke, vio->cmd_running will be true iff the command is
- * currently being executed in the vty_cmd_nexus -- we expect that to run to
- * conclusion or block on an in_pipe, shortly, which will be collected when
- * the vty_cli_nexus message queue is next processed.
+ * In the multi-threaded world, messages are used to enter or resume the
+ * command loop, and to transfer it to and from the cli and cmd threads.  If
+ * a message can be revoked, the command loop is effectively stopped.
  *
  * Note that the revoke does not affect any vty_cli_nexus messages associated
  * with the vty_io_basic operations.
+ *
+ * Returns:  true <=> have revoked a pending message/event
  */
-extern void
+extern bool
 cq_revoke(vty vty)
 {
   int ret ;
 
-  VTY_ASSERT_CLI_THREAD() ;
+  VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
   if (vty_nexus)
     {
-      ret = mqueue_revoke(vty_cmd_nexus->queue, vty, 1) ;
+      ret = mqueue_revoke(vty_cli_nexus->queue, vty, 1) ;
 
-      if ((ret == 0) && (vty_cli_nexus != vty_cmd_nexus))
-        ret = mqueue_revoke(vty_cli_nexus->queue, vty, 1) ;
+      if ((ret == 0) && vty_multi_nexus)
+        ret = mqueue_revoke(vty_cmd_nexus->queue, vty, 1) ;
     }
   else
     ret = thread_cancel_event(vty_master, vty) ;
 
+  /* If revoked message/event, the command loop is stopped.             */
   if (ret != 0)
-    {
-      vty->exec->state = exec_null ;
-      vty_cmd_loop_exit(vty, vty->exec->ret) ;
-    } ;
+    vty->exec->state = exec_stopped ;
+
+  return (ret != 0) ;
 } ;
 
 

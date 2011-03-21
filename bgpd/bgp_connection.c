@@ -155,7 +155,7 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
 
   /* Link back to session, point at its mutex and point session here    */
   connection->session    = session ;
-  connection->p_mutex    = &session->mutex ;
+  connection->p_mutex    = session->mutex ;
   connection->lock_count = 0 ;  /* no question about it         */
 
   connection->paf = AF_UNSPEC ;

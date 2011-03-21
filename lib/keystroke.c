@@ -262,13 +262,15 @@ enum stream_state
   kst_iac_option,       /* waiting for option (just seen IAC X)         */
   kst_iac_sub,          /* waiting for IAC SE                           */
 } ;
+typedef enum stream_state stream_state_t ;
 
 struct keystroke_state
 {
-  enum stream_state state ;
-  unsigned      len ;
-  uint8_t       raw[keystroke_max_len] ;
+  stream_state_t state ;
+  uint           len ;
+  uint8_t        raw[keystroke_max_len] ;
 } ;
+typedef struct keystroke_state keystroke_state_t ;
 
 struct keystroke_stream
 {
@@ -280,14 +282,15 @@ struct keystroke_stream
   uint8_t       CSI ;           /* CSI character value (if any)         */
 
   bool          eof_met ;       /* nothing more to come                 */
+  bool          timed_out ;     /* eof because timed out                */
 
   bool          steal_this ;    /* steal current keystroke when complete */
 
   bool          iac ;           /* last character was an IAC            */
 
-  struct keystroke_state  in ;  /* current keystroke being collected    */
+  keystroke_state_t  in ;       /* current keystroke being collected    */
 
-  struct keystroke_state  pushed_in ;
+  keystroke_state_t  pushed_in ;
                                 /* keystroke interrupted by IAC         */
 } ;
 
@@ -318,7 +321,7 @@ static void keystroke_steal_esc(keystroke steal, keystroke_stream stream,
                                                                     uint8_t u) ;
 static void keystroke_steal_csi(keystroke steal, keystroke_stream stream,
                                                                     uint8_t u) ;
-static void keystroke_put(keystroke_stream stream, enum keystroke_type type,
+static void keystroke_put(keystroke_stream stream, keystroke_compound_t type,
                                          bool broken, uint8_t* bytes, int len) ;
 
 /*==============================================================================
@@ -354,12 +357,13 @@ keystroke_stream_new(uint8_t csi_char, keystroke_callback* iac_callback,
    *    iac_callback         = NULL -- none
    *    iac_callback_context = NULL -- none
    *
-   *    eof_met  = false -- no EOF yet
-   *    steal    = false -- no stealing set
-   *    iac      = false -- last character was not an IAC
+   *    eof_met    = false -- no EOF yet
+   *    timed_out  = false -- not timed out yet
+   *    steal      = false -- no stealing set
+   *    iac        = false -- last character was not an IAC
    *
-   *    in.state = kst_null
-   *    in.len   = 0     -- nothing in the buffer
+   *    in.state   = kst_null
+   *    in.len     = 0     -- nothing in the buffer
    *
    *    pushed_in.state ) ditto
    *    pushed_in.len   )
@@ -429,7 +433,7 @@ keystroke_stream_eof(keystroke_stream stream)
    * is converted to a broken keystroke and placed in the stream.
    * (So eof_met => no partial keystroke.)
    */
-  return (stream == NULL) || (vio_fifo_empty(stream->fifo) && stream->eof_met);
+  return (stream == NULL) || (vio_fifo_empty(stream->fifo) && stream->eof_met) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -437,14 +441,15 @@ keystroke_stream_eof(keystroke_stream stream)
  *
  *   * discard contents of the stream, including any partial keystroke.
  *
- *   * set the stream "eof_met".
+ *   * set the stream "eof_met" with or without timed_out
  */
 extern void
-keystroke_stream_set_eof(keystroke_stream stream)
+keystroke_stream_set_eof(keystroke_stream stream, bool timed_out)
 {
   vio_fifo_reset(stream->fifo, keep_it) ;
 
   stream->eof_met         = true ;      /* essential information        */
+  stream->timed_out       = timed_out ; /* variant of eof               */
 
   stream->steal_this      = false ;     /* keep tidy                    */
   stream->iac             = false ;
@@ -473,7 +478,7 @@ keystroke_stream_set_eof(keystroke_stream stream)
  * If steal != NULL the keystroke will be set to the stolen keystroke.  That
  * will be type ks_null if nothing was available, and may be knull_eof.
  *
- * Note that never steals broken or truncated keystrokes.
+ * Note that never steals broken or truncated keystrokes, or IAC.
  *
  * Passing len == 0 and ptr == NULL signals EOF to the keystroke_stream.
  *
@@ -496,6 +501,7 @@ keystroke_input(keystroke_stream stream, uint8_t* ptr, size_t len,
   if ((len == 0) && (ptr == NULL))
     {
       stream->eof_met    = true ;
+      stream->timed_out  = false ;
       stream->steal_this = false ;
 
       /* Loop to deal with any pending IAC and partial keystroke.
@@ -967,8 +973,9 @@ inline static bool
 keystroke_set_null(keystroke_stream stream, keystroke stroke)
 {
   stroke->type  = ks_null ;
-  stroke->value = stream->eof_met ? knull_eof : knull_not_eof ;
-
+  stroke->value = stream->eof_met ? (stream->timed_out ? knull_timed_out
+                                                       : knull_eof)
+                                  : knull_not_eof ;
   stroke->flags = 0 ;
   stroke->len   = 0 ;
 
@@ -1013,7 +1020,7 @@ keystroke_add_raw(keystroke_stream stream, uint8_t u)
 static void
 keystroke_put_char(keystroke_stream stream, uint32_t u)
 {
-  if (u < 0x80)
+  if (u < kf_compound)
     vio_fifo_put_byte(stream->fifo, (uint8_t)u) ;
   else
     {
@@ -1029,7 +1036,7 @@ keystroke_put_char(keystroke_stream stream, uint32_t u)
         }
       while (u != 0) ;
 
-      keystroke_put(stream, ks_char, 0, p, (buf + 4) - p) ;
+      keystroke_put(stream, ks_char, false, p, (buf + 4) - p) ;
     } ;
 } ;
 
@@ -1127,12 +1134,12 @@ keystroke_clear_iac(keystroke_stream stream)
 } ;
 
 /*------------------------------------------------------------------------------
- * Store <first> <len> [<bytes>]
+ * Store <first> <len> [<bytes>] -- compound keystroke.
  *
  * If len == 0, bytes may be NULL
  */
 static void
-keystroke_put(keystroke_stream stream, enum keystroke_type type, bool broken,
+keystroke_put(keystroke_stream stream, keystroke_compound_t type, bool broken,
                                                         uint8_t* bytes, int len)
 {
   if (len > keystroke_max_len)

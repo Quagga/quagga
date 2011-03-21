@@ -651,11 +651,11 @@ enum arg_num_type
   ant_default    = ant_int,
 };
 
-static enum pf_phase qfs_arg_string(qf_str qfs, va_list args,
+static enum pf_phase qfs_arg_string(qf_str qfs, const char* src,
                                 enum pf_flags flags, int width, int precision) ;
-static enum pf_phase qfs_arg_char(qf_str qfs, va_list args,
+static enum pf_phase qfs_arg_char(qf_str qfs, char ch,
                                 enum pf_flags flags, int width, int precision) ;
-static enum pf_phase qfs_arg_number(qf_str qfs, va_list args,
+static enum pf_phase qfs_arg_number(qf_str qfs, va_list* p_va,
          enum pf_flags flags, int width, int precision, enum arg_num_type ant) ;
 
 /*------------------------------------------------------------------------------
@@ -666,23 +666,29 @@ static enum pf_phase qfs_arg_number(qf_str qfs, va_list args,
 extern void
 qfs_printf(qf_str qfs, const char* format, ...)
 {
-  va_list args;
+  va_list va ;
 
-  va_start (args, format);
-  qfs_vprintf(qfs, format, args);
-  va_end (args);
+  va_start (va, format);
+  qfs_vprintf(qfs, format, va);
+  va_end (va);
 } ;
 
 /*------------------------------------------------------------------------------
  * Formatted print to qf_str -- cf vprintf()
  *
  * This operation is async-signal-safe.
+ *
+ * Operates on a copy of the va_list -- so the original is *unchanged*.
  */
 extern void
-qfs_vprintf(qf_str qfs, const char *format, va_list args)
+qfs_vprintf(qf_str qfs, const char *format, va_list va)
 {
+  va_list vac ;
+
   if (format == NULL)
     return ;
+
+  va_copy(vac, va) ;
 
   while ((qfs->ptr < qfs->end) && (*format != '\0'))
     {
@@ -768,11 +774,11 @@ qfs_vprintf(qf_str qfs, const char *format, va_list args)
                   if      (!star && !digit && (phase <= pfp_width))
                     {
                       phase = pfp_width ;
-                      width = va_arg(args, int) ;
+                      width = va_arg(vac, int) ;
                     }
                   else if (!star && !digit && (phase == pfp_precision))
                     {
-                      precision = va_arg(args, int) ;
+                      precision = va_arg(vac, int) ;
                       if (precision < 0)
                         {
                           precision = 0 ;
@@ -825,34 +831,36 @@ qfs_vprintf(qf_str qfs, const char *format, va_list args)
                   if (phase == pfp_num_type)
                     phase = pfp_failed ;        /* don't do 'l' etc.    */
                   else
-                    phase = qfs_arg_string(qfs, args, flags, width, precision) ;
+                    phase = qfs_arg_string(qfs, va_arg(vac, char*),
+                                                      flags, width, precision) ;
                   break ;
 
                 case 'c':
                   if (phase == pfp_num_type)
                     phase = pfp_failed ;        /* don't do 'l' etc.    */
                   else
-                    phase = qfs_arg_char(qfs, args, flags, width, precision) ;
+                    phase = qfs_arg_char(qfs, (char)va_arg(vac, int),
+                                                      flags, width, precision) ;
                   break ;
 
                 case 'd':
                 case 'i':
-                  phase = qfs_arg_number(qfs, args, flags, width, precision,
+                  phase = qfs_arg_number(qfs, &vac, flags, width, precision,
                                                                           ant) ;
                   break ;
 
                 case 'u':
-                  phase = qfs_arg_number(qfs, args, flags | pf_unsigned, width,
+                  phase = qfs_arg_number(qfs, &vac, flags | pf_unsigned, width,
                                                                precision, ant) ;
                   break ;
 
                 case 'x':
-                  phase = qfs_arg_number(qfs, args, flags | pf_hex_x, width,
+                  phase = qfs_arg_number(qfs, &vac, flags | pf_hex_x, width,
                                                                precision, ant) ;
                   break ;
 
                 case 'X':
-                  phase = qfs_arg_number(qfs, args, flags | pf_hex_X, width,
+                  phase = qfs_arg_number(qfs, &vac, flags | pf_hex_X, width,
                                                                precision, ant) ;
                   break ;
 
@@ -860,7 +868,7 @@ qfs_vprintf(qf_str qfs, const char *format, va_list args)
                   if (phase == pfp_num_type)
                     phase = pfp_failed ;
                   else
-                    phase = qfs_arg_number(qfs, args, flags | pf_void_p, width,
+                    phase = qfs_arg_number(qfs, &vac, flags | pf_void_p, width,
                                                          precision, ant_ptr_t) ;
                   break ;
 
@@ -879,6 +887,8 @@ qfs_vprintf(qf_str qfs, const char *format, va_list args)
     } ;
 
   *qfs->ptr = '\0' ;
+
+  va_end(vac) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -902,13 +912,10 @@ qfs_vprintf(qf_str qfs, const char *format, va_list args)
  * This operation is async-signal-safe.
  */
 static enum pf_phase
-qfs_arg_string(qf_str qfs, va_list args, enum pf_flags flags,
+qfs_arg_string(qf_str qfs, const char* src, enum pf_flags flags,
                                                        int width, int precision)
 {
-  const char* src ;
   int len ;
-
-  src = va_arg(args, char*) ;
 
   if (flags != (flags & pf_precision))
     return pfp_failed ;
@@ -949,13 +956,8 @@ qfs_arg_string(qf_str qfs, va_list args, enum pf_flags flags,
  * This operation is async-signal-safe.
  */
 static enum pf_phase
-qfs_arg_char(qf_str qfs, va_list args, enum pf_flags flags,
-                                                       int width, int precision)
+qfs_arg_char(qf_str qfs, char ch, enum pf_flags flags, int width, int precision)
 {
-  unsigned char ch ;
-
-  ch = va_arg(args, int) ;
-
   if ((flags != 0) || (precision != 0))
     return pfp_failed ;
 
@@ -986,7 +988,7 @@ qfs_arg_char(qf_str qfs, va_list args, enum pf_flags flags,
  * This operation is async-signal-safe.
  */
 static enum pf_phase
-qfs_arg_number(qf_str qfs, va_list args, enum pf_flags flags,
+qfs_arg_number(qf_str qfs, va_list* p_va, enum pf_flags flags,
                                 int width, int precision, enum arg_num_type ant)
 {
   uintmax_t     u_val ;
@@ -995,7 +997,7 @@ qfs_arg_number(qf_str qfs, va_list args, enum pf_flags flags,
   /* Special for hex with '0...  if no explicit precision, set -1 for byte
    * and -2 for everything else -- see qfs_number().
    */
-  if (((flags & pf_precision) == 0) && (flags & pf_hex))
+  if ((flags & (pf_hex | pf_precision)) == pf_hex)
     {
       if ((flags & (pf_commas | pf_zeros)) == (pf_commas | pf_zeros))
         {
@@ -1013,31 +1015,28 @@ qfs_arg_number(qf_str qfs, va_list args, enum pf_flags flags,
       {
         case ant_char:
         case ant_short:
-          u_val = va_arg(args, int) ;
-          break ;
-
         case ant_int:
-          u_val = va_arg(args, unsigned int) ;
+          u_val = va_arg(*p_va, unsigned int) ;
           break ;
 
         case ant_long:
-          u_val = va_arg(args, unsigned long) ;
+          u_val = va_arg(*p_va, unsigned long) ;
           break ;
 
         case ant_long_long:
-          u_val = va_arg(args, unsigned long long) ;
+          u_val = va_arg(*p_va, unsigned long long) ;
           break ;
 
         case ant_intmax_t:
-          u_val = va_arg(args, uintmax_t) ;
+          u_val = va_arg(*p_va, uintmax_t) ;
           break ;
 
         case ant_size_t:
-          u_val = va_arg(args, size_t) ;
+          u_val = va_arg(*p_va, size_t) ;
           break ;
 
         case ant_ptr_t:
-          u_val = va_arg(args, uintptr_t) ;
+          u_val = va_arg(*p_va, uintptr_t) ;
           break ;
 
         default:
@@ -1052,31 +1051,28 @@ qfs_arg_number(qf_str qfs, va_list args, enum pf_flags flags,
       {
         case ant_char:
         case ant_short:
-          s_val = va_arg(args, int) ;
-          break ;
-
         case ant_int:
-          s_val = va_arg(args, signed int) ;
+          s_val = va_arg(*p_va, signed int) ;
           break ;
 
         case ant_long:
-          s_val = va_arg(args, signed long) ;
+          s_val = va_arg(*p_va, signed long) ;
           break ;
 
         case ant_long_long:
-          s_val = va_arg(args, signed long long) ;
+          s_val = va_arg(*p_va, signed long long) ;
           break ;
 
         case ant_intmax_t:
-          s_val = va_arg(args, intmax_t) ;
+          s_val = va_arg(*p_va, intmax_t) ;
           break ;
 
         case ant_size_t:
-          s_val = va_arg(args, ssize_t) ;
+          s_val = va_arg(*p_va, ssize_t) ;
           break ;
 
         case ant_ptr_t:
-          s_val = va_arg(args, intptr_t) ;
+          s_val = va_arg(*p_va, intptr_t) ;
           break ;
 
         default:
@@ -1085,8 +1081,6 @@ qfs_arg_number(qf_str qfs, va_list args, enum pf_flags flags,
 
       qfs_signed(qfs, s_val, flags, width, precision) ;
     } ;
-
-  /* construct a digit string, the hard way                     */
 
   return pfp_done ;
 } ;

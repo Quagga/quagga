@@ -20,9 +20,29 @@
  * 02111-1307, USA.
  */
 
-#include <zebra.h>
+//#include <zebra.h>
+
+#include "misc.h"
+#include "qdebug_nb.h"
+
+#include <unistd.h>
+#include <stdio.h>
+#include <fcntl.h>
+#include <errno.h>
+
 #include "log.h"
 #include "network.h"
+#include "memory.h"
+
+/*==============================================================================
+ * Read and write loops -- assuming blocking or not-blocking.
+ *
+ *
+ *
+ */
+
+static ssize_t read_qdebug_nb(int fd, void* buf, size_t nbyte) ;
+static ssize_t write_qdebug_nb(int fd, const void* buf, size_t nbyte) ;
 
 /*------------------------------------------------------------------------------
  * Read nbytes from fd and store into ptr -- BLOCKING
@@ -34,8 +54,8 @@
  *
  * NB: if applied to a NON-BLOCKING fd, may return EAGAIN or EWOULDBLOCK
  */
-int
-readn (int fd, u_char *ptr, int nbytes)
+extern int
+readn (int fd, void* buf, int nbytes)
 {
   int nleft;
   int nread;
@@ -44,15 +64,17 @@ readn (int fd, u_char *ptr, int nbytes)
 
   while (nleft > 0)
     {
-      nread = read (fd, ptr, nleft);
+      nread = read (fd, buf, nleft);
 
       if (nread > 0)
         {
           nleft -= nread;
-          ptr   += nread;
+          buf    = (char*)buf + nread;
         }
+
       else if (nread == 0)
 	break;
+
       else
         {
           if (errno != EINTR)
@@ -73,57 +95,122 @@ readn (int fd, u_char *ptr, int nbytes)
  *         -1 => failed -- see errno
  *         -2 => EOF met immediately
  *
- * NB: if asked to write zero bytes, does nothing and will return 0.
+ * NB: if asked to read zero bytes, does nothing and will return 0.
  *
  *     Reading zero bytes is defined for all types of files, and may be used
  *     to probe for error state.
  */
-int
+extern int
 read_nb(int fd, void* buf, size_t nbyte)
 {
-  size_t nleft = nbyte ;
+  size_t nleft ;
+
+// char* p = buf ;
+
+  nleft = nbyte ;
 
   do
     {
-      int ret = read(fd, buf, nleft);
+      ssize_t ret ;
+
+      if (qdebug_nb)
+        ret = read_qdebug_nb(fd, buf, nleft) ;
+      else
+        ret = read(fd, buf, nleft) ;
 
       if (ret > 0)
         {
           buf    = (char*)buf + ret ;
           nleft -= ret ;
         }
+
       else if (ret == 0)
         {
           if (nleft < nbyte)
             break ;             /* if read something before EOF */
 
-          return -2 ;           /* hit EOF immediately          */
+// fprintf(stderr, "[read (%d) %s]\n", fd, (nbyte == 0) ? "OK" : "EOF") ;
+
+          return (nbyte == 0) ? 0 : -2 ;        /* OK or EOF    */
         }
+
       else
         {
           int err = errno ;
           if ((err == EAGAIN) || (err == EWOULDBLOCK))
             break ;
           if (err != EINTR)
+//          assert(0) ;         // PRO TEM
             return -1 ;         /* failed                       */
         } ;
     } while (nleft > 0) ;
+
+#if 0
+{
+  int n ;
+  char buffer[100] ;
+  char* q, * e ;
+  e = buffer + 95 ;
+
+  n = nbyte - nleft ;
+
+  fprintf(stderr, "[read (%d) %d: '", fd, n) ;
+  while (n > 0)
+    {
+      q = buffer ;
+      while ((q < e) && (n > 0))
+        {
+          char ch = *p++ ;
+          --n ;
+
+          if (ch < 0x20)
+            {
+              *q++ = '\\' ;
+              switch (ch)
+                {
+                  case '\n':
+                    ch = 'n' ;
+                    break ;
+
+                  case '\r':
+                    ch = 'r' ;
+                    break ;
+
+                  case '\t':
+                    ch = 't' ;
+                    break ;
+
+                  default:
+                    ch += '@' ;
+                    break ;
+                } ;
+            } ;
+
+          *q++ = ch ;
+        } ;
+      *q++ = '\0' ;
+
+      fprintf(stderr, "%s", buffer) ;
+    }
+  fprintf(stderr, "']\n") ;
+} ;
+#endif
 
   return (nbyte - nleft) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Write nbytes to fd from ptr -- BLOCKING
+ * Write nbytes to fd from buf -- BLOCKING
  *
  * Loops internally if gets EINTR.
  *
  * Returns: >= 0 -- number of bytes written
- *           < 0 => error
+ *            -1 => error
  *
  * NB: if applied to a NON-BLOCKING fd, may return EAGAIN or EWOULDBLOCK
  */
-int
-writen(int fd, const u_char *ptr, int nbytes)
+extern int
+writen(int fd, const void* buf, int nbytes)
 {
   int nleft;
   int nwritten;
@@ -132,21 +219,23 @@ writen(int fd, const u_char *ptr, int nbytes)
 
   while (nleft > 0)
     {
-      nwritten = write(fd, ptr, nleft);
+      nwritten = write(fd, buf, nleft);
 
-      if (nwritten > 0)
+      if (nwritten >= 0)
         {
+          /* write() is not expected to return 0 unless the request is 0,
+           * which in this case it isn't.  So cannot happen -- and if it did,
+           * wouldn't know what else to do with it !
+           */
           nleft -= nwritten;
-          ptr   += nwritten;
+          buf    = (const char*)buf + nwritten;
         }
-      else if (nwritten == 0)
-        break ;
       else
         {
           if (errno != EINTR)
-            return (nwritten);
-        }
-    }
+            return -1 ;
+        } ;
+    } ;
   return nbytes - nleft;
 }
 
@@ -163,29 +252,39 @@ writen(int fd, const u_char *ptr, int nbytes)
  *     Writing zero bytes is defined for "regular files", but not for anything
  *     else.
  */
-int
-write_nb(int fd, void* buf, size_t nbyte)
+extern int
+write_nb(int fd, const void* buf, size_t nbyte)
 {
-  size_t nleft = nbyte ;
+  size_t nleft ;
+
+  nleft = nbyte ;
 
   while (nleft > 0)
     {
-      int ret = write(fd, buf, nleft);
+      ssize_t ret ;
 
-      if (ret > 0)
+      if (qdebug_nb)
+        ret = write_qdebug_nb(fd, buf, nleft) ;
+      else
+        ret = write(fd, buf, nleft) ;
+
+      if      (ret > 0)
         {
-          buf    = (char*)buf + ret ;
+          buf    = (const char*)buf + ret ;
           nleft -= ret ;
         }
       else if (ret == 0)
-        break ;                 /* not sure can happen... but
-                                   cannot assume will go away   */
+        /* write() is not expected to return 0 unless the request is 0,
+         * which in this case it isn't.  So cannot happen -- but if it were
+         * to happen, this treats it as another form of "EAGAIN" !
+         */
+        break ;
       else
         {
-          int err = errno ;
-          if ((err == EAGAIN) || (err == EWOULDBLOCK))
+          if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
             break ;
-          if (err != EINTR)
+          if (errno != EINTR)
+//          assert(0) ;         // PRO TEM
             return -1 ;         /* failed                       */
         } ;
     } ;
@@ -194,12 +293,46 @@ write_nb(int fd, void* buf, size_t nbyte)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Copy from one fd to another -- blocking.
+ *
+ * NB: if applied to a NON-BLOCKING fd, may return EAGAIN or EWOULDBLOCK
+ */
+extern int
+copyn (int dst_fd, int src_fd)
+{
+  void* buffer ;
+  int   r, err ;
+
+  enum { buffer_size = 64 * 1024 } ;
+  buffer = XMALLOC(MTYPE_TMP, buffer_size) ;
+
+  do
+    {
+      r = readn(src_fd, buffer, buffer_size) ;
+      if (r > 0)
+        r = writen(dst_fd, buffer, r) ;
+    }
+  while (r > 0) ;
+
+  err = errno ;
+
+  XFREE(MTYPE_TMP, buffer) ;
+
+  errno = err ;
+  return r ;
+} ;
+
+/*==============================================================================
+ *
+ */
+
+/*------------------------------------------------------------------------------
  * Set fd to non-blocking
  *
  * Returns:  0 => OK
  *          -1 => failed
  */
-int
+extern int
 set_nonblocking(int fd)
 {
   int flags;
@@ -220,3 +353,52 @@ set_nonblocking(int fd)
     }
   return 0;
 }
+
+/*==============================================================================
+ * Simulate read/write with tiny buffers and a lot of blocking.
+ */
+
+static qrand_seq_t rseq = QRAND_SEQ_INIT(2001) ;
+static qrand_seq_t wseq = QRAND_SEQ_INIT(3001) ;
+
+static const int blocking_errs[] = { EAGAIN, EWOULDBLOCK, EINTR } ;
+
+/*------------------------------------------------------------------------------
+ * Simulate read(), with tiny input buffer and lots of blocking.
+ */
+static ssize_t
+read_qdebug_nb(int fd, void* buf, size_t nbyte)
+{
+  if (nbyte > 0)
+    {
+      if (qrand(rseq, 3) == 0)  /* 1/3 chance of blocking       */
+        {
+          errno = blocking_errs[qrand(rseq, 3)] ;
+          return -1 ;
+        } ;
+
+      nbyte = qrand(rseq, (nbyte < 200) ? nbyte : 200) + 1 ;
+    } ;
+
+
+  return read(fd, buf, nbyte) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Simulate write(), with tiny input buffer and lots of blocking.
+ */
+static ssize_t
+write_qdebug_nb(int fd, const void* buf, size_t nbyte)
+{
+  assert(nbyte > 0) ;
+
+  if (qrand(wseq, 3) == 0)      /* 1/3 chance of blocking       */
+    {
+      errno = blocking_errs[qrand(wseq, 3)] ;
+      return -1 ;
+    } ;
+
+  nbyte = qrand(wseq, (nbyte < 200) ? nbyte : 200) + 1 ;
+
+  return write(fd, buf, nbyte) ;
+} ;

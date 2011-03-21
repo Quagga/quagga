@@ -18,15 +18,15 @@ along with GNU Zebra; see the file COPYING.  If not, write to the Free
 Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 02111-1307, USA.  */
 
-#include <zebra.h>
-#include <stdbool.h>
+#include "zebra.h"
+#include "misc.h"
 
 #include "vector.h"
 #include "vty.h"
 #include "command.h"
 #include "getopt.h"
 #include "thread.h"
-#include <lib/version.h>
+#include "lib/version.h"
 #include "memory.h"
 #include "prefix.h"
 #include "log.h"
@@ -118,13 +118,13 @@ static zebra_capabilities_t _caps_p [] =
 struct zebra_privs_t bgpd_privs =
 {
 #if defined(QUAGGA_USER) && defined(QUAGGA_GROUP)
-  .user = QUAGGA_USER,
-  .group = QUAGGA_GROUP,
+  .user      = QUAGGA_USER,
+  .group     = QUAGGA_GROUP,
 #endif
 #ifdef VTY_GROUP
   .vty_group = VTY_GROUP,
 #endif
-  .caps_p = _caps_p,
+  .caps_p    = _caps_p,
   .cap_num_p = sizeof(_caps_p)/sizeof(_caps_p[0]),
   .cap_num_i = 0,
 };
@@ -184,7 +184,7 @@ void sigusr2 (void);
 
 /* prototypes */
 static void bgp_exit (int);
-static void init_second_stage(int pthreads);
+static void init_second_stage(bool pthreads);
 static void bgp_in_thread_init(void);
 static void routing_start(void) ;
 static void routing_finish(void) ;
@@ -204,10 +204,6 @@ static struct quagga_signal_t bgp_signals[] =
   {
     .signal = SIGUSR1,
     .handler = &sigusr1,
-  },
-  {
-    .signal = SIGUSR2,
-    .handler = &sigusr2,
   },
   {
     .signal = SIGINT,
@@ -259,17 +255,6 @@ void
 sigusr1 (void)
 {
   zlog_rotate (NULL);
-}
-
-/* SIGUSR2 handler. */
-void
-sigusr2 (void)
-{
-  /* Used to signal message queues */
-  if (qpthreads_enabled)
-    return;
-  else
-    exit(1);
 }
 
 /*------------------------------------------------------------------------------
@@ -392,8 +377,8 @@ bgp_exit (int status)
  *
  *   1. if it's there, invoke the command in the usual way
  *
- *   2. if it's not there, invoke the command but with a NULL set of arguments,
- *      which signals the "default" nature of the call.
+ *   2. if it's not there, invoke the command but with a *negative* count of
+ *      arguments, which signals the "default" nature of the call.
  *
  * This mechanism is used so that the "threaded_cmd" is the time at which
  * second stage initialisation is done.  (But only once -- not on rereading
@@ -408,8 +393,8 @@ DEFUN_HID_CALL (threaded,
        "threaded",
        "Use pthreads\n")
 {
-  if (argv != NULL)
-    config_threaded = 1 ;       /* Explicit command => turn on threading */
+  if (argc == 0)
+    config_threaded = true ;    /* Explicit command => turn on threading */
 
   if (!done_2nd_stage_init)
     init_second_stage(config_threaded) ;
@@ -425,7 +410,7 @@ DEFUN_HID_CALL (threaded,
  * the message queues are available for the configuration data.
  */
 static void
-init_second_stage(int pthreads)
+init_second_stage(bool pthreads)
 {
   assert(!done_2nd_stage_init) ;
 
@@ -435,13 +420,13 @@ init_second_stage(int pthreads)
   bgp_peer_index_mutex_init();
 
   /* Make nexus for main thread, always needed */
-  cli_nexus = qpn_init_new(cli_nexus, 1); /* main thread */
+  cli_nexus = qpn_init_new(cli_nexus, true);    /* main thread          */
 
   /* if using pthreads create additional nexus */
   if (qpthreads_enabled)
     {
-      bgp_nexus     = qpn_init_new(bgp_nexus, 0);
-      routing_nexus = qpn_init_new(routing_nexus, 0);
+      bgp_nexus     = qpn_init_new(bgp_nexus,     false);
+      routing_nexus = qpn_init_new(routing_nexus, false);
     }
   else
     {
@@ -499,9 +484,8 @@ main (int argc, char **argv)
   /* Set umask before anything for security */
   umask (0027);
 
-#ifdef QDEBUG
-  fprintf(stderr, "%s\n", debug_banner);
-#endif
+  if (qdebug)
+    fprintf(stderr, "%s\n", debug_banner);
 
   qlib_init_first_stage();
 
@@ -603,7 +587,11 @@ main (int argc, char **argv)
   /* Initializations. */
   srand (time (NULL));
   signal_init (master, Q_SIGC(bgp_signals), bgp_signals);
-  zprivs_init (&bgpd_privs);
+
+  cmd_getcwd() ;                        /* while have privilege         */
+
+  zprivs_init (&bgpd_privs);            /* lowers privileges            */
+
   cmd_init (1);
   install_element (CONFIG_NODE, &threaded_cmd);
   vty_init (master);
@@ -652,9 +640,9 @@ main (int argc, char **argv)
   vty_start(vty_addr, vty_port, BGP_VTYSH_PATH);
 
   /* Print banner. */
-#ifdef QDEBUG
-  zlog_notice("%s", debug_banner);
-#endif
+  if (qdebug)
+    zlog_notice("%s", debug_banner);
+
   zlog_notice ("BGPd %s%s starting: vty@%d, bgp@%s:%d",
                QUAGGA_VERSION,
                (qpthreads_enabled ? " pthreaded" : ""),

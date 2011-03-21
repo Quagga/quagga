@@ -532,11 +532,12 @@ if_sunwzebra_get (const char *name, size_t nlen)
 }
 #endif /* SUNOS_5 */
 
-DEFUN (interface,
-       interface_cmd,
-       "interface IFNAME",
-       "Select an interface to configure\n"
-       "Interface's name\n")
+DEFUN_ATTR (interface,
+            interface_cmd,
+            "interface IFNAME",
+            "Select an interface to configure\n"
+            "Interface's name\n",
+            CMD_ATTR_NODE + INTERFACE_NODE)
 {
   struct interface *ifp;
   size_t sl;

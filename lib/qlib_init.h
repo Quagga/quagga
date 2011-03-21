@@ -22,6 +22,8 @@
 #ifndef _ZEBRA_QLIB_INIT_H
 #define _ZEBRA_QLIB_INIT_H
 
+#include "misc.h"
+
 /*==============================================================================
  * Quagga Library Initialise/Closedown
  *
@@ -33,7 +35,7 @@
 
 extern void qlib_init_first_stage(void) ;
 
-extern void qlib_init_second_stage(int pthreads) ;
+extern void qlib_init_second_stage(bool pthreads) ;
 
 extern void qexit(int exit_code) ;
 

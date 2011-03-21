@@ -24,6 +24,9 @@
 
 #include "zassert.h"
 
+#include <unistd.h>
+#include <errno.h>
+
 /*==============================================================================
  * Some primitive path handling, based on qstrings.
  *
@@ -43,35 +46,40 @@
  *
  */
 
+static void qpath_reduce(qpath qp) ;
+
 /*------------------------------------------------------------------------------
  * Initialise a brand new qpath -- allocate if required.
  *
- * If a path is given, set that path -- allocating body even if path is zero
- * length.
- *
- * If no path is given, leaves qpath with no body.
- *
- * If path is given, the qpath is set and reduced (see above).
+ * The result is a path with a not-empty body.  All qpath values may be assumed
+ * to have a body at all times.
  *
  * Returns: address of qpath
  *
  * NB: assumes initialising a new structure.  If not, then caller should
- *     use qpath_reset() or qs_clear().
+ *     use qpath_reset() or qpath_clear().
  */
 extern qpath
-qpath_init_new(qpath qp, const char* path)
+qpath_init_new(qpath qp)
 {
   if (qp == NULL)
     qp = XCALLOC(MTYPE_QPATH, sizeof(qpath_t)) ;
   else
     memset(qp, 0, sizeof(qpath_t)) ;
 
-  /* Worry about fields other than the path             */
+  qs_init_new(qp->path, 50) ;           /* Always have a body   */
 
-  qs_init_new(qp->path, 0) ;
+  return qp ;
+} ;
 
-  if (path != NULL)
-    qpath_set(qp, path) ;
+/*------------------------------------------------------------------------------
+ * Create a new qpath if don't already have one.
+ */
+inline static qpath
+qpath_make_if_null(qpath qp)
+{
+  if (qp == NULL)
+    qp = qpath_init_new(NULL) ;
 
   return qp ;
 } ;
@@ -82,18 +90,31 @@ qpath_init_new(qpath qp, const char* path)
  * Discards all the contents of the qpath.
  */
 extern qpath
-qpath_reset(qpath qp, bool free_structure)
+qpath_reset(qpath qp, free_keep_b free_structure)
 {
   if (qp == NULL)
     return NULL ;
 
-  qs_reset_keep(&qp->path, keep_it) ;
+  qs_reset(qp->path, keep_it) ;
 
   if (free_structure)
     XFREE(MTYPE_QPATH, qp) ;            /* sets qp = NULL       */
   else
-    /* Worry about fields other than the path             */
     ;
+
+  return qp ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Clear down given qpath -- retaining any body, but setting it empty.
+ */
+extern qpath
+qpath_clear(qpath qp)
+{
+  if (qp == NULL)
+    return NULL ;
+
+  qs_clear(qp->path) ;
 
   return qp ;
 } ;
@@ -101,152 +122,218 @@ qpath_reset(qpath qp, bool free_structure)
 /*------------------------------------------------------------------------------
  * Set given qpath to copy of the given string -- allocate if required.
  *
- * If setting an existing qpath, discards any existing contents -- so the qpath
- * MUST have been initialised at some time (qpath_init_new).  Keeps any body
- * that has been allocated if possible.
- *
  * Reduces the path (see above).
- *
- * Sets the path len, but does not touch the path cp.
  */
 extern qpath
-qpath_set(qpath qp, const char* path)
+qpath_set(qpath dst, const char* src)
 {
-  if (qp == NULL)
-    qp = qpath_init_new(NULL, path) ;
+  return qpath_set_n(dst, src, (src != NULL) ? strlen(src) : 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set given qpath to copy of the given qstring -- allocate if required.
+ *
+ * Reduces the path (see above).
+ */
+extern qpath
+qpath_set_qs(qpath dst, const qstring src)
+{
+  return qpath_set_n(dst, qs_char(src), qs_len(src)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set given qpath to copy of the given string -- allocate if required.
+ *
+ * Reduces the path (see above).
+ */
+extern qpath
+qpath_set_n(qpath dst, const char* src, ulen n)
+{
+  dst = qpath_make_if_null(dst) ;
+
+  qs_set_n(dst->path, src, n) ;
+
+  qpath_reduce(dst) ;
+
+  return dst ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Copy qpath to the given qpath -- creating qpath if required.
+ * The result is an empty qpath if the given one is NULL.
+ */
+extern qpath
+qpath_copy(qpath dst, const qpath src)
+{
+  if (src != NULL)
+    return qpath_set_n(dst, qs_char_nn(src->path), qs_len_nn(src->path)) ;
   else
+    return qpath_set_n(dst, NULL, 0) ;
+} ;
+
+/*==============================================================================
+ * Interfaces to system.
+ */
+
+/*------------------------------------------------------------------------------
+ * Get the current working directory -- creates a qpath if required.
+ *
+ * Returns:  the (new) qpath if OK
+ *           NULL if not OK -- any existing qpath is cleared.
+ *
+ * If fails will be because some directory on the way back to the root is
+ * not readable or searchable (!).
+ */
+extern qpath
+qpath_getcwd(qpath dst)
+{
+  qpath  od ;
+
+  od = dst ;
+  dst = qpath_make_if_null(dst) ;
+
+  qs_new_size(dst->path, 50) ;
+
+  while (1)
     {
-      if (path != NULL)
-        qs_set(&qp->path, path) ;
-      else
-        qs_clear(qp->path) ;
-      /* Worry about fields other than the path             */
+      void*  r ;
+      usize  s ;
+
+      s = qs_size_nn(dst->path) ;
+      r = getcwd(qs_char_nn(dst->path), s) ;
+
+      if (r != NULL)
+        {
+          qs_set_strlen_nn(dst->path) ;
+          return dst ;                  /* exit here if OK.             */
+        } ;
+
+      if (errno != ERANGE)
+        break ;                         /* exit here on failure         */
+
+      qs_new_size(dst->path, s * 2) ;
     } ;
 
-  qpath_reduce(qp) ;
+  if (od == NULL)
+    qpath_reset(dst, free_it) ;
+  else
+    qpath_clear(dst) ;
+
+  return NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set the current working directory
+ *
+ * Returns:  0 <=> OK
+ *           errno otherwise
+ */
+extern int
+qpath_setcwd(qpath qp)
+{
+  return (chdir(qpath_string(qp)) == 0) ? 0 : errno ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Do "stat" for given path.
+ *
+ * Returns:  0 <=> OK
+ *           errno otherwise
+ */
+extern int
+qpath_stat(qpath qp, struct stat* sbuf)
+{
+  return (stat(qpath_string(qp), sbuf) == 0) ? 0 : errno ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Is given path a file we might access -- according to stat ?
+ *
+ * Returns: -1 <=> no    -- can access etc, but it's not a file
+ *           0 <=> yes
+ *           errno otherwise
+ */
+extern int
+qpath_stat_is_file(qpath qp)
+{
+  struct stat sbuf[1] ;
+  int err ;
+
+  err = qpath_stat(qp, sbuf) ;
+
+  return (err == 0) ? (S_ISREG(sbuf->st_mode) ? 0 : -1)
+                    : err ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Is given path a directory we might access -- according to stat ?
+ *
+ * Returns: -1 <=> no    -- can access etc, but it's not a directory
+ *           0 <=> yes
+ *           errno otherwise
+ */
+extern int
+qpath_stat_is_directory(qpath qp)
+{
+  struct stat sbuf[1] ;
+  int err ;
+
+  err = qpath_stat(qp, sbuf) ;
+
+  return (err == 0) ? (S_ISDIR(sbuf->st_mode) ? 0 : -1)
+                    : err ;
+} ;
+
+/*==============================================================================
+ * Path editing functions
+ *
+ *
+ */
+
+/*------------------------------------------------------------------------------
+ * Shave any file part off the end of the given path.
+ *
+ * This treats anything after the last '/' of the path as being the "file part".
+ *
+ * The cases are (where 'a' is anything except '/' and 'z' is anything):
+ *
+ *   1. ""        -- empty                -> unchanged
+ *
+ *   2. "aaa"     -- file part only       -> ""
+ *
+ *   3. "/"       -- root only, or        -> unchanged
+ *      "//"         double root only     -> unchanged
+ *
+ *   4. "/aaa"    -- routed file          -> "/"
+ *      "//aaa"      double routed file   -> "//"
+ *
+ *   5. "zzz/"    -- no file part         -> unchanged
+ *
+ *   6. "zzz/aaa" -- non-empty file part  -> "zzz/"
+ *
+ * Ensures that the path is "reduced" before shaving.
+ *
+ * Creates a new, empty path if qp is NULL.
+ */
+extern qpath
+qpath_shave(qpath qp)
+{
+  pp_t p ;
+
+  qp = qpath_make_if_null(qp) ;
+
+  qs_pp_nn(p, qp->path) ;
+
+  /* Track back to last '/'                     */
+  while ( (p->e > p->p) && (*(p->e - 1) != '/') )
+    --p->e ;
+
+  qs_set_len_nn(qp->path, p->e - p->p) ;
 
   return qp ;
 } ;
 
-/*------------------------------------------------------------------------------
- * Reduce multiple '/' to single '/' (except for exactly "//" at start).
- *
- * Reduce "/./" to "/".
- */
-static void
-qpath_reduce(qpath qp, size_t off)
-{
-  qpath   part ;
-  qstring qs ;
-  char*   sp ;
-  char*   p ;
-  char*   q ;
-
-  if (qp == NULL)
-    {
-      assert(off == 0) ;
-      return ;                  /* NULL qpath is empty                  */
-    } ;
-
-  qs = &qp->path ;
-  assert(off <= qs->len) ;      /* Make sure 'off' is kosher            */
-
-  sp = qs_chars(qs) ;           /* NULL if qpath is completely empty    */
-
-  if (sp == NULL)
-    return ;                    /* NULL path part is completely empty   */
-
-  p = sp + off ;
-
-  /* Deal with special case of "//" at start.
-   *
-   * If find "//x", where x is anything other than '/', step past the first
-   * '/'.  Could step past both "//", but that stops it seeing "//./zzz"
-   */
-  if ((*p == '/') && (*(p + 1) == '/') && (*(p + 2) != '/'))
-    ++p ;
-
-  /* Scan to see if there is anything that needs to be fixed.
-   *
-   * Looking for "//" and "/./".
-   */
-  while (1)
-    {
-      if (*p++ == '\0')
-        return ;                /* nothing to do if hit end of string   */
-
-      if ( (*p == '/') || ((*p == '.') && (*(p + 1) == '/')) )
-        {
-          if (*(p - 1) == '/')
-            break ;             /* found "//" or "/./"                  */
-        }
-    } ;
-
-  /* Rats... there is something to be fixed.
-   *
-   * *p is second '/' of "//" or '.' of "/./".
-   */
-  q = p ;
-
-  while (*p != '\0')
-    {
-      /* Step past any number of '/' and any number of "./".            */
-      while (1)
-        {
-          while (*p == '/')
-            ++p ;
-
-          if ((*p != '.') || (*p != '/'))
-            break ;
-
-          p += 2 ;
-        } ;
-
-      /* Scan, copying stuff, until get to '\0' or find "//" or "/./"   */
-      while (*p != '\0')
-        {
-          *q++ = *p++ ;         /* copy non-'\0'                        */
-
-          if ( (*p == '/') || ((*p == '.') && (*(p + 1) == '/')) )
-            {
-              if (*(p - 1) == '/')
-                break ;         /* found "//" or "/./"                  */
-            } ;
-        } ;
-    } ;
-
-  /* Adjust the length and terminate                                    */
-
-  qs->len = (q - sp) ;      /* set the new length (shorter !)   */
-  *q = '\0' ;               /* and terminate                    */
-} ;
-
-/*------------------------------------------------------------------------------
- * Make a copy of the given qpath.
- *
- * Creates a brand new qpath object, which is a full copy of the given one.
- *
- * The result is an empty qpath if the given one is NULL.
- */
-extern qpath
-qpath_copy(qpath qp_x)
-{
-  return qpath_init_new(NULL, qpath_path(qp_x)) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Make a copy of a qpath to the given qpath.
- *
- * If required, creates new qpath object -- so qpath_copy_to(NULL, ...) is the
- * same as qpath_copy(...).
- *
- * The result is an empty qpath if the given one is NULL.
- */
-extern qpath
-qpath_copy_to(qpath qp, qpath qp_x)
-{
-  return qpath_set(qp, qpath_path(qp_x)) ;
-} ;
+#if 0
 
 /*==============================================================================
  * Pop the last part of the given path.
@@ -291,7 +378,7 @@ qpath_copy_to(qpath qp, qpath qp_x)
  * Note that other forms of multiple '/' have been reduced, already.
  */
 extern qpath
-qpath_pop(qpath qp)
+qpath_pop(qpath to, qpath from)
 {
   qpath   part ;
   qstring qs ;
@@ -347,6 +434,9 @@ qpath_pop(qpath qp)
   /* Return the part we hacked off                              */
   return part ;
 } ;
+
+
+
 
 /*==============================================================================
  * Shift off the first part of the given path.
@@ -444,60 +534,85 @@ qpath_shift(qpath qp)
   /* Return the part we hacked off                      */
   return part ;
 } ;
+#endif
+
+/*==============================================================================
+ * Append, Prepend and Complete
+ */
+
+static ulen qpath_trim_home(const char* p, ulen n) ;
 
 /*------------------------------------------------------------------------------
- * Push one path onto the end of the given path.
+ * Append one path (src) onto the end of the given path (dst).
  *
- * If the given path is NULL, creates a new, empty qpath to push onto.
+ * If the dst path is NULL, creates a new, empty qpath to append to.
  *
- * The given path is assumed to be the path to a "directory".  An empty
- * given path is treated as "the current directory".
+ * The dst path is assumed to be the path to a "directory".  An empty dst path
+ * is treated as "the current directory".
  *
- * If the path to be pushed starts '/' or '~', then it is trimmed, removing
- * leading characters upto and including '/' (stopping at '\0' if no '/' found).
+ * If src path starts '/' or '~', then it is trimmed, removing leading
+ * characters up to and including '/'.
  *
- * If path to be pushed onto is not empty, and does not end '/', then an '/'
- * is appended before the path is pushed.
+ * If dst path is not empty, and does not end '/', then an '/' is appended
+ * before the src is appended.
  *
  * Note that this means:
  *
- *   -- pushing an empty path or one which is just "/", will leave the path
- *      ending "/" -- unless the given path is empty.
+ *   -- appending an empty path or one which is just "/", will leave the dst
+ *      path ending "/" -- unless the dst path is empty.
  *
- *   -- cannot create a rooted path by pushing a path onto an empty path.
+ *   -- cannot create a rooted path by appending a path onto an empty path.
  *
- *   -- pushing a "homed" path "~...." is assumed to be pushing onto the
+ *   -- appending a "homed" path "~..../" is assumed to be appending to the
  *      required "home".
  *
  * The resulting path is reduced (see above).
  */
-
 extern qpath
-qpath_push(qpath qp, qpath qp_a)
+qpath_append(qpath dst, const qpath src)
 {
-  return qpath_push_str(qp, qpath_path(qp_a)) ;
+  if (src != NULL)
+    return qpath_append_str_n(dst, qs_char_nn(src->path),
+                                   qs_len_nn(src->path)) ;
+  else
+    return qpath_append_str_n(dst, NULL, 0) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Push path string onto the end of the given path.
+ * Append src qstring onto the end of the dst path.
  *
- * See above for discussion of "push" operation.
+ * See above for discussion of "append" operation.
  */
 extern qpath
-qpath_push_str(qpath qp, const char* path)
+qpath_append_qs(qpath dst, const qstring src)
 {
-  qstring   qs ;
-  char*     ep ;
-  char*     sp ;
-  size_t    len ;
-  size_t    off ;
+  return qpath_append_str_n(dst, qs_char(src), qs_len(src)) ;
+} ;
 
-  if (qp == NULL)
-    qp = qpath_init_new(NULL, NULL) ;
+/*------------------------------------------------------------------------------
+ * Append src string onto the end of the dst path.
+ *
+ * See above for discussion of "append" operation.
+ */
+extern qpath
+qpath_append_str(qpath dst, const char* src)
+{
+  return qpath_append_str_n(dst, src, (src != NULL) ? strlen(src) : 0) ;
+} ;
 
-  qs = &qp->path ;
+/*------------------------------------------------------------------------------
+ * Append src string of given length onto the end of the dst path.
+ *
+ * See above for discussion of "append" operation.
+ */
+extern qpath
+qpath_append_str_n(qpath dst, const char* src, ulen n)
+{
+  ulen l ;
 
-  /* Trim the path to be pushed:
+  dst = qpath_make_if_null(dst) ;
+
+  /* Trim the path to be appended:
    *
    *   1. discard from any leading '~' to the first '/' or to '\0'.
    *
@@ -505,86 +620,256 @@ qpath_push_str(qpath qp, const char* path)
    *
    *   3. then establish length of result.
    */
-  if (path != NULL)
-    {
-      if (*path == '~')
-        do
-          {
-            ++path ;
-          } while ((*path != '/') && (*path != '\0')) ;
-
-      while (*path == '/')
-        ++path ;                /* Step past leading '/'                */
-      len = strlen(path) ;
-    }
-  else
-    len = 0 ;
+  l = n ;
+  n = qpath_trim_home(src, n) ;
+  src += (l - n) ;              /* step past stuff trimmed              */
 
   /* Worry about whether need to add a '/' to the path before pushing   */
-  sp  = qs_char(qs) ;
-  ep  = qs_ep_char(qs) ;        /* points at trailing '\0'              */
-
-  if (sp == NULL)
-    assert(ep == sp) ;          /* ie qs->len == 0 if qs->body == NULL  */
-
-  off = qs->len ;               /* where new stuff starts               */
-
-  if (ep != sp)
+  if (qs_len_nn(dst->path) != 0)
     {
-      if (*(ep - 1) == '/')
-        --off ;                 /* step back to the '/'                 */
-      else
-        {
-          /* Destination is not empty and does not end '/', so append one.
-           *
-           * Note that we ensure there is space for the path which are
-           * about to push, so at most one allocation required.
-           */
-          qs_need(qs, (ep - sp) + 1 + len) ;
-          qs_append_n(qs, "/", 1) ;
-        } ;
+      if (*(qs_ep_char_nn(dst->path) - 1) != '/')
+        qs_append_str_n(dst->path, "/", 1) ;
     } ;
 
-  /* Now push path                                                      */
-  qs_append_n(qs, path, len) ;
+  /* Now append the src                                                 */
+  qs_append_str_n(dst->path, src, n) ;
 
-  /* Reduce the new part of the result, and return
+  /* Reduce the new part of the result, and return                      */
+  qpath_reduce(dst) ;
+
+  return dst ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Extend given dst path by simply affixing the given src path.
+ *
+ * Does not introduce any '/' or any other stuff.
+ *
+ * The resulting path is reduced (see above).
+ */
+extern qpath
+qpath_extend(qpath dst, const qpath src)
+{
+  if (src != NULL)
+    return qpath_extend_str_n(dst, qs_char_nn(src->path),
+                                   qs_len_nn(src->path)) ;
+  else
+    return qpath_extend_str_n(dst, NULL, 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Extend given dst path by simply affixing the given src qstring.
+ */
+extern qpath
+qpath_extend_qs(qpath dst, const qstring src)
+{
+  return qpath_extend_str_n(dst, qs_char(src), qs_len(src)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Extend given dst path by simply affixing the given src string.
+ */
+extern qpath
+qpath_extend_str(qpath dst, const char* src)
+{
+  return qpath_extend_str_n(dst, src, (src != NULL) ? strlen(src) : 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Extend given dst path by simply affixing the given src string of the given
+ * length.
+ */
+extern qpath
+qpath_extend_str_n(qpath dst, const char* src, ulen n)
+{
+  dst = qpath_make_if_null(dst) ;
+
+  qs_append_str_n(dst->path, src, n) ;
+
+  qpath_reduce(dst) ;
+
+  return dst ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Prepend src path onto front of dst path.
+ *
+ * Like append, where the dst ends up being the dst appended to the src.
+ */
+extern qpath
+qpath_prepend(qpath dst, const qpath src)
+{
+  if (src != NULL)
+    return qpath_prepend_str_n(dst, qs_char_nn(src->path),
+                                    qs_len_nn(src->path)) ;
+  else
+    return qpath_prepend_str_n(dst, NULL, 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Prepend src qstring onto front of dst path.
+ *
+ * Like append, where the dst ends up being the dst appended to the src.
+ */
+extern qpath
+qpath_prepend_qs(qpath dst, const qstring src)
+{
+  return qpath_prepend_str_n(dst, qs_char(src), qs_len(src)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Prepend src string onto front of dst path.
+ *
+ * Like append, where the dst ends up being the dst appended to the src.
+ */
+extern qpath
+qpath_prepend_str(qpath dst, const char* src)
+{
+  return qpath_prepend_str_n(dst, src, (src != NULL) ? strlen(src) : 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Prepend src string of given length onto front of dst path.
+ *
+ * Like append, where the dst ends up being the dst appended to the src.
+ */
+extern qpath
+qpath_prepend_str_n(qpath dst, const char* src, ulen n)
+{
+  char* p ;
+  ulen  r ;
+  bool  need_slash ;
+
+  dst = qpath_make_if_null(dst) ;
+
+  /* Trim the path to be prepended to:
    *
-   * Note that the 'off' points at the '/' which precedes the new stuff.
-   * So will spot "/./" where the new stuff starts "./".
+   *   1. discard from any leading '~' to the first '/' (or end).
+   *
+   *   2. then discard any leading '/'
+   *
+   *   3. then establish length of any part to be replaced.
    */
-  qpath_reduce(qp, off) ;
+  r = qs_len_nn(dst->path) ;
+  r -= qpath_trim_home(qs_char_nn(dst->path), r) ;
 
-  return qp ;
+  /* Worry about whether need to add a '/' to the path before pushing   */
+  need_slash = (n > 0) && (*(src + n - 1) != '/') ;
+
+  /* Make room for src and possible slash in qstring                    */
+  qs_set_cp_nn(dst->path, 0) ;
+  qs_replace(dst->path, r, NULL, n + (need_slash ? 1 : 0)) ;
+
+  /* Now copy in the src                                                */
+  p = qs_char_nn(dst->path) ;
+
+  if (n > 0)
+    memmove(p, src, n) ;
+
+  if (need_slash)
+    *(p + n) = '/' ;
+
+  /* Reduce the new part of the result, and return                      */
+  qpath_reduce(dst) ;
+
+  return dst ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Join two paths to create a new path.
- *
- * Copies the destination path and then pushes the other path onto it.
+ * Make a qpath from the given string, completing it, if required, by
+ * prepending the given directory qpath.
  */
 extern qpath
-qpath_join(qpath qp, qpath qp_a)
+qpath_make(const char* src, const qpath dir)
 {
-  qpath qp_n ;
+  if (*src == '/')
+    return qpath_set(NULL, src) ;
 
-  qp_n = qpath_copy(qp) ;
-  return qpath_push(qp_n, qp_a) ;
+  return qpath_append_str(qpath_dup(dir), src) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Join path string to the given path to create a new path.
- *
- * Copies the destination path and then pushes the path string onto it.
+ * If given dst path is not rooted (does not start with '/', prepend the
+ * given src path to it.  Result is reduced.
  */
 extern qpath
-qpath_join_str(qpath qp, const char* path)
+qpath_complete(qpath dst, const qpath src)
 {
-  qpath qp_n ;
-
-  qp_n = qpath_copy(qp) ;
-  return qpath_push_str(qp_n, path) ;
+  if (src != NULL)
+    return qpath_prepend_str_n(dst, qs_char_nn(src->path),
+                                    qs_len_nn(src->path)) ;
+  else
+    return qpath_prepend_str_n(dst, NULL, 0) ;
 } ;
+
+/*------------------------------------------------------------------------------
+ * If given dst path is not rooted (does not start with '/', prepend the
+ * given src qstring to it.  Result is reduced.
+ */
+extern qpath
+qpath_complete_qs(qpath dst, const qstring src)
+{
+  return qpath_complete_str_n(dst, qs_char(src), qs_len(src)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If given dst path is not rooted (does not start with '/', prepend the
+ * given src string to it.  Result is reduced.
+ */
+extern qpath
+qpath_complete_str(qpath dst, const char* src)
+{
+  return qpath_prepend_str_n(dst, src, (src != NULL) ? strlen(src) : 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If given dst path is not rooted (does not start with '/', prepend the
+ * given src string of given length to it.  Result is reduced.
+ */
+extern qpath
+qpath_complete_str_n(qpath dst, const char* src, ulen n)
+{
+  dst = qpath_make_if_null(dst) ;
+
+  if ((qs_len_nn(dst->path) == 0) || (*(qs_char_nn(dst->path)) == '/'))
+    qpath_prepend_str_n(dst, src, n) ;
+  else
+    qpath_reduce(dst) ;
+
+  return dst ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Trim leading '~' up to and including one or more '/'.
+ *
+ * Return remaining length after the trim.
+ */
+static ulen
+qpath_trim_home(const char* p, ulen n)
+{
+  if ((n > 0) && (*p == '~'))
+    {
+      do                        /* Step past leadin '~' to first '/'    */
+        {
+          ++p ;
+          --n ;
+        } while ((n > 0) && (*p != '/')) ;
+    } ;
+
+  while ((n > 0) && (*p == '/'))
+    {
+      ++p ;                     /* Step past leading '/'                */
+      --n ;
+    } ;
+
+  return n ;
+} ;
+
+/*==============================================================================
+ *
+ */
+
+#if 0
 
 /*------------------------------------------------------------------------------
  * Does the given path start and end '/' ?
@@ -816,4 +1101,112 @@ qpath_is_atom(qpath qp)
 
   return false ;
 } ;
+
+#endif
+
+/*==============================================================================
+ *
+ *
+ *
+ */
+/*------------------------------------------------------------------------------
+ * Reduce multiple '/' to single '/' (except for exactly "//" at start).
+ *
+ * Reduce "/./" to "/".
+ */
+static void
+qpath_reduce(qpath qp)
+{
+  char*   sp ;
+  char*   p ;
+  char*   q ;
+
+  sp = qs_make_string(qp->path) ;
+  p = sp ;
+
+  /* Deal with special case of "//" at start.
+   *
+   * If find "//x", where x is anything other than '/', step past the first
+   * '/'.  Could step past both "//", but that stops it seeing "//./zzz"
+   */
+  if ((*p == '/') && (*(p + 1) == '/') && (*(p + 2) != '/'))
+    ++p ;
+
+  /* Scan to see if there is anything that needs to be fixed.
+   *
+   * Looking for "//" and "/./".
+   */
+  while (1)
+    {
+      if (*p == '\0')
+        return ;                /* scanned to end                       */
+
+      if (*p++ != '/')          /* scanning for '/'                     */
+        continue ;
+
+      if (*p == '/')
+        break ;                 /* second '/'                           */
+
+      if (*p != '.')
+        continue ;              /* not "//" and not "/."                */
+
+      if (*(p+1) == '/')
+        break ;                 /* found "/./"                          */
+    } ;
+
+  /* Rats... there is something to be fixed.
+   *
+   * *p is second '/' of "//" or '.' of "/./".
+   */
+  q = p ;                       /* keep the first '/'                   */
+
+  while (*p != '\0')
+    {
+      ++p ;                     /* step past '.' or second '/'          */
+
+      /* Step past any number of '/' and any number of "./".            */
+      while (*p != '\0')
+        {
+          while (*p == '/')     /* eat any number of these              */
+            ++p ;
+
+          if (*p != '.')        /* done if not '.'                      */
+            break ;
+
+          if (*(p+1) != '/')    /* done if not "./"                     */
+            break ;
+
+          p += 2 ;              /* Step past "./"                       */
+        } ;
+
+      /* Here we have *p which is not '/' and not "./", so unless is '\0'
+       * there is at least one character to move across.
+       *
+       * Copying stuff, until get to '\0' or find "//" or "/./"
+       */
+      while (*p != '\0')
+        {
+          *q++ = *p ;           /* copy non-'\0'                        */
+
+          if (*p++ != '/')
+            continue ;          /* keep going if wasn't '/'             */
+
+          if (*p == '/')
+            break ;             /* second '/'                           */
+
+          if (*p != '.')
+            continue ;          /* not "//" and not "/."                */
+
+          if (*(p+1) == '/')
+            break ;             /* found "/./"                          */
+        } ;
+    } ;
+
+  /* Adjust the length and terminate                                    */
+
+  qs_set_len_nn(qp->path, q - sp) ;   /* set the new length (shorter !) */
+} ;
+
+
+
 
