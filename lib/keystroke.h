@@ -75,7 +75,7 @@ enum keystroke_flags
   kf_type_mask  = 0x0F, /* extraction of type                   */
 } ;
 
-CONFIRM(ks_type_reserved == kf_type_mask) ;
+CONFIRM(ks_type_reserved == (enum keystroke_type)kf_type_mask) ;
 
 typedef struct keystroke*        keystroke ;
 typedef struct keystroke_stream* keystroke_stream ;

@@ -14,13 +14,14 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * along with GNU Zebra; see the file COPYING.  If not, write to the
+ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+ * Boston, MA 02111-1307, USA.
  */
 
 #include <zebra.h>
 #include <lib/version.h>
+#include <lib/zclient.h>
 
 #include "getopt.h"
 #include "thread.h"
@@ -36,6 +37,8 @@
 #include "sigevent.h"
 
 #include "ospf6d.h"
+#include "ospf6_asbr.h"
+#include "ospf6_message.h"
 
 /* Default configuration file name for ospf6d. */
 #define OSPF6_DEFAULT_CONFIG       "ospf6d.conf"
@@ -67,7 +70,7 @@ struct zebra_privs_t ospf6d_privs =
 };
 
 /* ospf6d options, we use GNU getopt library. */
-struct option longopts[] = 
+struct option longopts[] =
 {
   { "daemon",      no_argument,       NULL, 'd'},
   { "config_file", required_argument, NULL, 'f'},
@@ -104,7 +107,7 @@ usage (char *progname, int status)
   if (status != 0)
     fprintf (stderr, "Try `%s --help' for more information.\n", progname);
   else
-    {    
+    {
       printf ("Usage : %s [OPTION...]\n\n\
 Daemon which manages OSPF version 3.\n\n\
 -d, --daemon       Runs in daemon mode\n\
@@ -124,8 +127,37 @@ Report bugs to zebra@zebra.org\n", progname);
   exit (status);
 }
 
+static void
+ospf6_exit (int status)
+{
+  extern struct ospf6 *ospf6;
+  extern struct zclient *zclient;
+
+  if (ospf6)
+    ospf6_delete (ospf6);
+
+  ospf6_message_terminate ();
+  ospf6_asbr_terminate ();
+  ospf6_lsa_terminate ();
+
+  if_terminate ();
+  vty_terminate ();
+  cmd_terminate ();
+
+  if (zclient)
+    zclient_free (zclient);
+
+  if (master)
+    thread_master_free (master);
+
+  if (zlog_default)
+    closezlog (zlog_default);
+
+  exit (status);
+}
+
 /* SIGHUP handler. */
-static void 
+static void
 sighup (void)
 {
   zlog_info ("SIGHUP received");
@@ -136,7 +168,7 @@ static void
 sigint (void)
 {
   zlog_notice ("Terminating on signal SIGINT");
-  exit (0);
+  ospf6_exit (0);
 }
 
 /* SIGTERM handler. */
@@ -144,7 +176,7 @@ static void
 sigterm (void)
 {
   zlog_notice ("Terminating on signal SIGTERM");
-  exit (0);
+  ospf6_exit (0);
 }
 
 /* SIGUSR1 handler. */
@@ -195,14 +227,14 @@ main (int argc, char *argv[], char *envp[])
   progname = ((p = strrchr (argv[0], '/')) ? ++p : argv[0]);
 
   /* Command line argument treatment. */
-  while (1) 
+  while (1)
     {
       opt = getopt_long (argc, argv, "df:i:hp:A:P:u:g:vC", longopts, 0);
-    
+
       if (opt == EOF)
         break;
 
-      switch (opt) 
+      switch (opt)
         {
         case 0:
           break;
@@ -281,7 +313,7 @@ main (int argc, char *argv[], char *envp[])
   /* Start execution only if not in dry-run mode */
   if (dryrun)
     return(0);
-  
+
   if (daemon_mode && daemon (0, 0) < 0)
     {
       zlog_err("OSPF6d daemon failed: %s", strerror(errno));
@@ -308,7 +340,7 @@ main (int argc, char *argv[], char *envp[])
   zlog_warn ("Thread failed");
 
   /* Not reached. */
-  exit (0);
+  ospf6_exit (0);
 }
 
 

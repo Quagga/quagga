@@ -8,7 +8,7 @@
 ## $Id$
 AC_PREREQ(2.53)
 
-AC_INIT(Quagga, 0.99.15ex12, [http://bugzilla.quagga.net])
+AC_INIT(Quagga, 0.99.18ex14, [http://bugzilla.quagga.net])
 AC_CONFIG_SRCDIR(lib/zebra.h)
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -220,15 +220,14 @@ AC_ARG_WITH(libpam,
 AC_ARG_ENABLE(tcp-zebra,
 [  --enable-tcp-zebra      enable TCP/IP socket connection between zebra and protocol daemon])
 AC_ARG_ENABLE(opaque-lsa,
-[  --enable-opaque-lsa     enable OSPF Opaque-LSA with OSPFAPI support (RFC2370)])
+  AC_HELP_STRING([--disable-opaque-lsa],[do not build OSPF Opaque-LSA with OSPFAPI support (RFC2370)]))
 AC_ARG_ENABLE(ospfapi,
-[  --disable-ospfapi       do not build OSPFAPI to access the OSPF LSA Database, 
-                          (this is the default if --enable-opaque-lsa is not set)])
+[  --disable-ospfapi       do not build OSPFAPI to access the OSPF LSA Database])
 AC_ARG_ENABLE(ospfclient,
 [  --disable-ospfclient    do not build OSPFAPI client for OSPFAPI, 
                           (this is the default if --disable-ospfapi is set)])
 AC_ARG_ENABLE(ospf-te,
-[  --enable-ospf-te        enable Traffic Engineering Extension to OSPF])
+  AC_HELP_STRING([--disable-ospf-te],[disable Traffic Engineering Extension to OSPF]))
 AC_ARG_ENABLE(multipath,
 [  --enable-multipath=ARG  enable multipath function, ARG must be digit])
 AC_ARG_ENABLE(user,
@@ -293,11 +292,11 @@ if test "${enable_tcp_zebra}" = "yes"; then
   AC_DEFINE(HAVE_TCP_ZEBRA,,Use TCP for zebra communication)
 fi
 
-if test "${enable_opaque_lsa}" = "yes"; then
+if test "${enable_opaque_lsa}" != "no"; then
   AC_DEFINE(HAVE_OPAQUE_LSA,,OSPF Opaque LSA)
 fi
 
-if test "${enable_ospf_te}" = "yes"; then
+if test "${enable_ospf_te}" != "no"; then
   AC_DEFINE(HAVE_OPAQUE_LSA,,OSPF Opaque LSA)
   AC_DEFINE(HAVE_OSPF_TE,,OSPF TE)
 fi
@@ -783,15 +782,18 @@ AC_SUBST(OTHER_METHOD)
 dnl --------------------------
 dnl Determine IS-IS I/O method
 dnl --------------------------
+AC_DEFINE(ISIS_METHOD_PFPACKET,	1, [ constant value for isis method pfpacket ])
+AC_DEFINE(ISIS_METHOD_DLPI,	2, [ constant value for isis method dlpi ])
+AC_DEFINE(ISIS_METHOD_BPF,	3, [ constant value for isis method bpf ])
 AC_CHECK_HEADER(net/bpf.h)
 AC_CHECK_HEADER(sys/dlpi.h)
 AC_MSG_CHECKING(zebra IS-IS I/O method)
 if test x"$opsys" = x"gnu-linux"; then
   AC_MSG_RESULT(pfpacket)
-  ISIS_METHOD=isis_pfpacket.o
+  ISIS_METHOD_MACRO="ISIS_METHOD_PFPACKET"
 elif test x"$opsys" = x"sol2-6" -o x"$opsys" = x"sol8"; then
   AC_MSG_RESULT(DLPI)
-  ISIS_METHOD="isis_dlpi.o"
+  ISIS_METHOD_MACRO="ISIS_METHOD_DLPI"
 else
   if test $ac_cv_header_net_bpf_h = no; then
     if test $ac_cv_header_sys_dlpi_h = no; then
@@ -801,13 +803,13 @@ else
     else
       AC_MSG_RESULT(DLPI)
     fi
-    ISIS_METHOD="isis_dlpi.o"
+    ISIS_METHOD_MACRO="ISIS_METHOD_DLPI"
   else
     AC_MSG_RESULT(BPF)
-    ISIS_METHOD="isis_bpf.o"
+    ISIS_METHOD_MACRO="ISIS_METHOD_BPF"
   fi
 fi
-AC_SUBST(ISIS_METHOD)
+AC_DEFINE_UNQUOTED(ISIS_METHOD, $ISIS_METHOD_MACRO, [ selected method for isis, == one of the constants ])
 
 dnl ------------------------------------
 dnl check for broken CMSG_FIRSTHDR macro
@@ -1199,7 +1201,7 @@ else
 fi
 
 OSPFCLIENT=""
-if test "${enable_opaque_lsa}" = "yes"; then
+if test "${enable_opaque_lsa}" != "no"; then
   if test "${enable_ospfapi}" != "no";then
     AC_DEFINE(SUPPORT_OSPF_API,,OSPFAPI)
 

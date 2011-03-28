@@ -554,7 +554,7 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
       if (peer->uptime == 0)
 	return SNMP_INTEGER (0);
       else
-	return SNMP_INTEGER (time (NULL) - peer->uptime);
+	return SNMP_INTEGER (bgp_clock () - peer->uptime);
       break;
     case BGPPEERCONNECTRETRYINTERVAL:
       *write_method = write_bgpPeerTable;
@@ -592,7 +592,7 @@ bgpPeerTable (struct variable *v, oid name[], size_t *length,
       if (stats.update_time == 0)
 	return SNMP_INTEGER (0);
       else
-	return SNMP_INTEGER (time (NULL) - stats.update_time);
+	return SNMP_INTEGER (bgp_clock () - stats.update_time);
       break;
     default:
       return NULL;
@@ -867,7 +867,7 @@ bgpTrapEstablished (struct peer *peer)
   smux_trap (bgp_oid, sizeof bgp_oid / sizeof (oid),
 	     index, IN_ADDR_SIZE,
 	     bgpTrapList, sizeof bgpTrapList / sizeof (struct trap_object),
-	     bm->start_time - time (NULL), BGPESTABLISHED);
+	     bm->start_time - bgp_clock (), BGPESTABLISHED);
 }
 
 void
@@ -886,7 +886,7 @@ bgpTrapBackwardTransition (struct peer *peer)
   smux_trap (bgp_oid, sizeof bgp_oid / sizeof (oid),
 	     index, IN_ADDR_SIZE,
 	     bgpTrapList, sizeof bgpTrapList / sizeof (struct trap_object),
-	     bm->start_time - time (NULL), BGPBACKWARDTRANSITION);
+	     bm->start_time - bgp_clock (), BGPBACKWARDTRANSITION);
 }
 
 void

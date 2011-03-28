@@ -92,10 +92,11 @@ Hello, this is " QUAGGA_PROGNAME " (version " QUAGGA_VERSION ").\r\n\
 " QUAGGA_COPYRIGHT "\r\n\
 \r\n";
 
+
 #ifdef QDEBUG
-const char *debug_banner =
-    QUAGGA_PROGNAME " version " QUAGGA_VERSION " QDEBUG=" QDEBUG " "
-    __DATE__ " " __TIME__;
+const char* debug_banner =
+    QUAGGA_PROGNAME " version " QUAGGA_VERSION " QDEBUG=" QDEBUG_NAME " "
+    __DATE__ " " __TIME__ ;
 #endif
 
 static const struct facility_map {
@@ -4172,6 +4173,8 @@ cmd_init (int terminal)
       install_element (VIEW_NODE, &show_thread_cpu_cmd);
       install_element (ENABLE_NODE, &show_thread_cpu_cmd);
       install_element (RESTRICTED_NODE, &show_thread_cpu_cmd);
+      
+      install_element (ENABLE_NODE, &clear_thread_cpu_cmd);
       install_element (VIEW_NODE, &show_work_queues_cmd);
       install_element (ENABLE_NODE, &show_work_queues_cmd);
     }

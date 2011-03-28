@@ -3909,8 +3909,10 @@ peer_clear_soft (struct peer *peer, afi_t afi, safi_t safi,
   return 0;
 }
 
-/* Display peer uptime.*/
-/* XXX: why does this function return char * when it takes buffer? */
+/* Display peer uptime.
+ *
+ * Note that this is a time period -- not an actual time.
+ */
 char *
 peer_uptime (time_t uptime2, char *buf, size_t len)
 {
@@ -3934,8 +3936,7 @@ peer_uptime (time_t uptime2, char *buf, size_t len)
     }
 
   /* Get current time. */
-  uptime1 = time (NULL);
-  uptime1 -= uptime2;
+  uptime1 = bgp_clock () - uptime2;
   tm = gmtime (&uptime1);
 
   /* Making formatted timer strings. */
@@ -4629,7 +4630,7 @@ bgp_master_init (void)
   bm->bgp        = list_new ();
   bm->master     = thread_master_create ();
   bm->port       = BGP_PORT_DEFAULT;
-  bm->start_time = time (NULL);
+  bm->start_time = bgp_clock ();
 
   /* Implicitly:
    *

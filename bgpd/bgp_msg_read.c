@@ -1383,7 +1383,7 @@ bgp_msg_update_receive (bgp_connection connection, bgp_size_t body_size)
     } ;
 
   ++connection->session->stats.update_in ;
-  connection->session->stats.update_time = time(NULL) ;
+  connection->session->stats.update_time = bgp_clock() ;
 
   /* PRO TEM: pass raw update message across to Routing Engine          */
   /* TODO: decode update messages in the BGP Engine.                    */

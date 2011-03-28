@@ -112,6 +112,12 @@ zerror (const char *fname, int type, size_t size)
 
 /*------------------------------------------------------------------------------
  * Memory allocation.
+ *
+ * Allocate memory of a given size, to be tracked by a given type.
+ *
+ * Returns: pointer to usable memory.
+ *
+ * NB: If memory cannot be allocated, aborts execution.
  */
 void *
 zmalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
@@ -141,6 +147,8 @@ zmalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
 
 /*------------------------------------------------------------------------------
  * Memory allocation zeroising the allocated area.
+ *
+ * As zmalloc, plus zeroises the allocated memory.
  */
 void *
 zcalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
@@ -170,6 +178,16 @@ zcalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
 
 /*------------------------------------------------------------------------------
  * Memory reallocation.
+ *
+ * Given a pointer returned by zmalloc()/zcalloc()/zrealloc(), extend or
+ * contract the allocation to the given size -- retaining current type.
+ * The type given MUST be the original type.
+ *
+ * Given a NULL, allocate memory as zmalloc().
+ *
+ * Returns: pointer to usable memory.
+ *
+ * NB: If memory cannot be allocated, aborts execution.
  */
 void *
 zrealloc (enum MTYPE mtype, void *ptr, size_t size  MEMORY_TRACKER_NAME)
@@ -199,6 +217,11 @@ zrealloc (enum MTYPE mtype, void *ptr, size_t size  MEMORY_TRACKER_NAME)
 
 /*------------------------------------------------------------------------------
  * Memory free.
+ *
+ * Free memory allocated by zmalloc()/zcalloc()/zrealloc()/zstrdup().
+ * The type given MUST be the original type.
+ *
+ * Does nothing if the given pointer is NULL.
  */
 void
 zfree (enum MTYPE mtype, void *ptr)
@@ -222,6 +245,10 @@ zfree (enum MTYPE mtype, void *ptr)
 
 /*------------------------------------------------------------------------------
  * String duplication.
+ *
+ * Memory is allocated as zmalloc() and must later be freed by zfree().
+ *
+ * NB: If memory cannot be allocated, aborts execution.
  */
 char *
 zstrdup (enum MTYPE mtype, const char *str  MEMORY_TRACKER_NAME)

@@ -32,7 +32,10 @@
 /* master list of work_queues */
 static struct list work_queues;
 
-#define WORK_QUEUE_MIN_GRANULARITY 1
+enum {
+  WQ_MIN_GRANULARITY   = 1,
+  WQ_HYSTERESIS_FACTOR = 4,
+} ;
 
 static void
 work_queue_item_free (struct work_queue *wq, struct work_queue_item *item)
@@ -62,7 +65,7 @@ work_queue_new (struct thread_master *m, const char *queue_name)
 
   listnode_add (&work_queues, new);
 
-  new->cycles.granularity = WORK_QUEUE_MIN_GRANULARITY;
+  new->cycles.granularity = WQ_MIN_GRANULARITY;
 
   /* Default values, can be overriden by caller */
   new->spec.hold = WORK_QUEUE_DEFAULT_HOLD;
@@ -335,7 +338,7 @@ work_queue_run (struct thread *thread)
    *
    * Best: starts low, can only increase
    *
-   * Granularity: starts at WORK_QUEUE_MIN_GRANULARITY, can be decreased
+   * Granularity: starts at WQ_MIN_GRANULARITY, can be decreased
    *              if we run to end of time slot, can increase otherwise
    *              by a small factor.
    *
@@ -344,7 +347,7 @@ work_queue_run (struct thread *thread)
    * daemon has been running a long time.
    */
   if (wq->cycles.granularity == 0)
-    wq->cycles.granularity = WORK_QUEUE_MIN_GRANULARITY;
+    wq->cycles.granularity = WQ_MIN_GRANULARITY;
 
   next = wq->head ;
   while (next != NULL)
@@ -420,27 +423,25 @@ work_queue_run (struct thread *thread)
 
 stats:
 
-#define WQ_HYSTERIS_FACTOR 2
-
   /* we yielded, check whether granularity should be reduced */
   if (yielded && (cycles < wq->cycles.granularity))
     {
       wq->cycles.granularity = ((cycles > 0) ? cycles
-                                             : WORK_QUEUE_MIN_GRANULARITY);
+                                             : WQ_MIN_GRANULARITY);
     }
-
-  if (cycles >= (wq->cycles.granularity))
+  /* otherwise, should granularity increase? */
+  else if (cycles >= (wq->cycles.granularity))
     {
       if (cycles > wq->cycles.best)
         wq->cycles.best = cycles;
 
-      /* along with yielded check, provides hysteris for granularity */
-      if (cycles > (wq->cycles.granularity * WQ_HYSTERIS_FACTOR * 2))
-        wq->cycles.granularity *= WQ_HYSTERIS_FACTOR; /* quick ramp-up */
-      else if (cycles > (wq->cycles.granularity * WQ_HYSTERIS_FACTOR))
-        wq->cycles.granularity += WQ_HYSTERIS_FACTOR;
+      /* along with yielded check, provides hysteresis for granularity */
+      if (cycles > (wq->cycles.granularity * WQ_HYSTERESIS_FACTOR
+                                           * WQ_HYSTERESIS_FACTOR))
+        wq->cycles.granularity *= WQ_HYSTERESIS_FACTOR; /* quick ramp-up */
+      else if (cycles > (wq->cycles.granularity * WQ_HYSTERESIS_FACTOR))
+        wq->cycles.granularity += WQ_HYSTERESIS_FACTOR;
     }
-#undef WQ_HYSTERIS_FACTOR
 
   wq->runs++;
   wq->cycles.total += cycles;

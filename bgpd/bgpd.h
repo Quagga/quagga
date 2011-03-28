@@ -28,6 +28,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_peer.h"
 
 #include "plist.h"
+#include "qtime.h"
 
 /* For union sockunion.  */
 #include "sockunion.h"
@@ -401,6 +402,9 @@ enum bgp_clear_type
 #define BGP_ERR_PEER_EXISTS                     -30
 #define BGP_ERR_MAX                             -31
 
+/*------------------------------------------------------------------------------
+ * Globals.
+ */
 extern struct bgp_master *bm;
 
 extern struct thread_master *master;
@@ -409,7 +413,46 @@ extern qpn_nexus cli_nexus;
 extern qpn_nexus bgp_nexus;
 extern qpn_nexus routing_nexus;
 
-/* Prototypes. */
+/*------------------------------------------------------------------------------
+ * For many purposes BGP requires a CLOCK_MONOTONIC type time, in seconds.
+ */
+Inline time_t
+bgp_clock(void)
+{
+  return qt_get_mono_secs() ;
+}
+
+/*------------------------------------------------------------------------------
+ * For some purposes BGP requires a Wall Clock version of a time returned by
+ * bgp_clock() above.
+ *
+ * This is calculated from the current Wall Clock, the current bgp_clock and
+ * the bgp_clock time of some moment in the past.
+ *
+ * The fundamental problem is that the Wall Clock *may* (just may) be altered
+ * by the operator or automatically, if the system clock is wrong.  So there
+ * are, potentially, two versions of a past moment:
+ *
+ *   1) according to the Wall Clock at the time.
+ *
+ *   2) according to the Wall Clock now.
+ *
+ * There doesn't seem to be a good way of selecting between these if they are
+ * different... Here we take (2), which (a) doesn't require us to fetch and
+ * store both bgp_clock() and Wall Clock times every time we record the time
+ * of some event, and (b) assumes that if the Wall Clock has been adjusted,
+ * it was wrong before.  This can still cause confusion, because the Wall
+ * Clock time calculated now may differ from any logged Wall Clock times !!
+ */
+Inline time_t
+bgp_wall_clock(time_t bgp_time)
+{
+  return time(NULL) + (bgp_time - bgp_clock()) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Prototypes.
+ */
 extern void bgp_terminate (int, int);
 extern void bgp_reset (void);
 

@@ -9,7 +9,7 @@
  * under the terms of the GNU General Public License as published by the
  * Free Software Foundation; either version 2, or (at your option) any
  * later version.
- * 
+ *
  * GNU Zebra is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
@@ -133,7 +133,13 @@ static void ospf_mpls_te_config_write_router (struct vty *vty);
 static void ospf_mpls_te_config_write_if (struct vty *vty, struct interface *ifp);
 static void ospf_mpls_te_show_info (struct vty *vty, struct ospf_lsa *lsa);
 static int ospf_mpls_te_lsa_originate (void *arg);
+
+#if 0
 static void ospf_mpls_te_lsa_refresh (struct ospf_lsa *lsa);
+#else
+static struct ospf_lsa * ospf_mpls_te_lsa_refresh (struct ospf_lsa *lsa);
+#endif
+
 static void ospf_mpls_te_lsa_schedule (struct mpls_te_link *lp, enum sched_opcode);
 
 static void del_mpls_te_link (void *val);
@@ -282,7 +288,7 @@ ospf_mpls_te_foreach_area (
   void (*func)(struct mpls_te_link *lp, enum sched_opcode),
   enum sched_opcode sched_opcode)
 {
-  struct listnode *node, *nnode; 
+  struct listnode *node, *nnode;
   struct listnode *node2;
   struct mpls_te_link *lp;
   struct ospf_area *area;
@@ -1008,8 +1014,11 @@ ospf_mpls_te_lsa_originate (void *arg)
 out:
   return rc;
 }
-
+#if 0
 static void
+#else
+static struct ospf_lsa *
+#endif
 ospf_mpls_te_lsa_refresh (struct ospf_lsa *lsa)
 {
   struct mpls_te_link *lp;
@@ -1070,7 +1079,7 @@ ospf_mpls_te_lsa_refresh (struct ospf_lsa *lsa)
     }
 
 out:
-  return;
+  return NULL;
 }
 
 static void
@@ -1566,7 +1575,7 @@ DEFUN (mpls_te_router_addr,
               break;
             }
         }
-      
+
       for (ALL_LIST_ELEMENTS (OspfMplsTE.iflist, node, nnode, lp))
         {
           if (lp->area == NULL)

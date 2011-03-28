@@ -20,10 +20,9 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
+#include <zebra.h>
 
 #include "bgpd/bgp_peer.h"
-
-#include <zebra.h>
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_session.h"
@@ -180,7 +179,6 @@ static void bgp_session_has_established(bgp_session session);
 static void bgp_session_has_stopped(bgp_session session,
                                                       bgp_notify notification) ;
 static void bgp_session_has_disabled(bgp_session session);
-static void bgp_uptime_reset (struct peer *peer);
 static void bgp_peer_stop (struct peer *peer, bool nsf) ;
 static void bgp_peer_reset_idle(struct peer *peer) ;
 static void bgp_peer_down_notify(bgp_peer peer, peer_down_t why_down,
@@ -394,7 +392,7 @@ bgp_session_has_established(bgp_session session)
           SET_FLAG (peer->af_sflags[afi][safi], PEER_STATUS_ORF_WAIT_REFRESH);
 
   /* Reset uptime, send current table.                          */
-  bgp_uptime_reset (peer);
+  peer->uptime = bgp_clock ();
 
   bgp_announce_route_all (peer);
 
@@ -512,7 +510,7 @@ bgp_peer_stop (struct peer *peer, bool nsf)
   bgp_peer_change_status(peer, bgp_peer_pClearing) ;
 
   peer->dropped++ ;
-  peer->resettime = time (NULL) ;
+  peer->resettime = bgp_clock () ;
 
   /* bgp log-neighbor-changes of neighbor Down                          */
   if (bgp_flag_check (peer->bgp, BGP_FLAG_LOG_NEIGHBOR_CHANGES))
@@ -543,7 +541,7 @@ bgp_peer_stop (struct peer *peer, bool nsf)
     } ;
 
   /* Reset uptime. */
-  bgp_uptime_reset (peer);
+  peer->uptime = bgp_clock ();
 
 #ifdef HAVE_SNMP
   bgpTrapBackwardTransition (peer);
@@ -788,10 +786,10 @@ bgp_peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
     peer->afc[afi][safi] = 1;
 
   /* Last read time set */
-  peer->readtime = time (NULL);
+  peer->readtime = bgp_clock ();
 
   /* Last reset time set */
-  peer->resettime = time (NULL);
+  peer->resettime = bgp_clock ();
 
   /* Default TTL set. */
   peer->ttl = (peer_sort (peer) == BGP_PEER_IBGP ? 255 : 1);
@@ -1699,7 +1697,7 @@ bgp_routeadv_timer (struct thread *thread)
           "%s [FSM] Timer (routeadv timer expire)",
           peer->host);
 
-  peer->synctime = time (NULL);
+  peer->synctime = bgp_clock ();
 
   bgp_write(peer, NULL);
 
@@ -1718,13 +1716,6 @@ bgp_routeadv_timer (struct thread *thread)
   BGP_TIMER_ON (peer->t_routeadv, bgp_routeadv_timer, jittered) ;
 
   return 0;
-}
-
-/* Reset bgp update timer */
-static void
-bgp_uptime_reset (struct peer *peer)
-{
-  peer->uptime = time (NULL);
 }
 
 /*------------------------------------------------------------------------------

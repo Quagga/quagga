@@ -58,6 +58,7 @@
 #endif
 #define OSPF_MIN_LS_INTERVAL                     5
 #define OSPF_MIN_LS_ARRIVAL                      1
+#define OSPF_LSA_INITIAL_AGE                     0	/* useful for debug */
 #define OSPF_LSA_MAXAGE                       3600
 #define OSPF_CHECK_AGE                         300
 #define OSPF_LSA_MAXAGE_DIFF                   900
@@ -66,7 +67,6 @@
 #define OSPF_INITIAL_SEQUENCE_NUMBER    0x80000001
 #define OSPF_MAX_SEQUENCE_NUMBER        0x7fffffff
 
-#define OSPF_LSA_MAXAGE_CHECK_INTERVAL          30
 #define OSPF_NSSA_TRANS_STABLE_DEFAULT		40
 
 #define OSPF_ALLSPFROUTERS              0xe0000005      /* 224.0.0.5 */
@@ -251,7 +251,6 @@ struct ospf
   int redistribute;                     /* Num of redistributed protocols. */
 
   /* Threads. */
-  struct thread *t_router_lsa_update;   /* router-LSA update timer. */
   struct thread *t_abr_task;            /* ABR task timer. */
   struct thread *t_asbr_check;          /* ASBR check timer. */
   struct thread *t_distribute_update;   /* Distirbute list update timer. */
@@ -261,8 +260,13 @@ struct ospf
 #ifdef HAVE_OPAQUE_LSA
   struct thread *t_opaque_lsa_self;	/* Type-11 Opaque-LSAs origin event. */
 #endif /* HAVE_OPAQUE_LSA */
+
+#define OSFP_LSA_MAXAGE_REMOVE_DELAY_DEFAULT	60
+  unsigned int maxage_delay;		/* Delay on Maxage remover timer, sec */
   struct thread *t_maxage;              /* MaxAge LSA remover timer. */
+#define OSPF_LSA_MAXAGE_CHECK_INTERVAL		30
   struct thread *t_maxage_walker;       /* MaxAge LSA checking timer. */
+
   struct thread *t_deferred_shutdown;	/* deferred/stub-router shutdown timer*/
 
   struct thread *t_write;
@@ -433,7 +437,6 @@ struct ospf_area
   struct vertex *spf;
 
   /* Threads. */
-  struct thread *t_router_lsa_self;/* Self-originated router-LSA timer. */
   struct thread *t_stub_router;    /* Stub-router timer */
 #ifdef HAVE_OPAQUE_LSA
   struct thread *t_opaque_lsa_self;	/* Type-10 Opaque-LSAs origin. */

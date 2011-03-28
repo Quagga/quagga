@@ -3,7 +3,7 @@
  * Copyright (C) 2001, 2002 Ralph Keller
  *
  * This file is part of GNU Zebra.
- * 
+ *
  * GNU Zebra is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
  * by the Free Software Foundation; either version 2, or (at your
@@ -150,7 +150,7 @@ ospf_apiserver_init (void)
   /* Register opaque-independent call back functions. These functions
      are invoked on ISM, NSM changes and LSA update and LSA deletes */
   rc =
-    ospf_register_opaque_functab (0 /* all LSAs */, 
+    ospf_register_opaque_functab (0 /* all LSAs */,
 				  0 /* all opaque types */,
 				  ospf_apiserver_new_if,
 				  ospf_apiserver_del_if,
@@ -182,7 +182,7 @@ ospf_apiserver_term (void)
   struct ospf_apiserver *apiserv;
 
   /* Unregister wildcard [0/0] type */
-  ospf_delete_opaque_functab (0 /* all LSAs */, 
+  ospf_delete_opaque_functab (0 /* all LSAs */,
 			      0 /* all opaque types */);
 
   /*
@@ -335,7 +335,7 @@ ospf_apiserver_event (enum event event, int fd,
 }
 
 /* Free instance. First unregister all opaque types used by
-   application, flush opaque LSAs injected by application 
+   application, flush opaque LSAs injected by application
    from network and close connection. */
 void
 ospf_apiserver_free (struct ospf_apiserver *apiserv)
@@ -363,7 +363,7 @@ ospf_apiserver_free (struct ospf_apiserver *apiserv)
       thread_cancel (apiserv->t_async_write);
     }
 
-  /* Unregister all opaque types that application registered 
+  /* Unregister all opaque types that application registered
      and flush opaque LSAs if still in LSDB. */
 
   while ((node = listhead (apiserv->opaque_types)) != NULL)
@@ -528,7 +528,7 @@ ospf_apiserver_sync_write (struct thread *thread)
       ospf_apiserver_event (OSPF_APISERVER_SYNC_WRITE, apiserv->fd_sync,
                             apiserv);
     }
-  
+
  out:
 
   if (rc < 0)
@@ -906,7 +906,7 @@ ospf_apiserver_register_opaque_type (struct ospf_apiserver *apiserv,
 		 lsa_type);
       return OSPF_API_ILLEGALLSATYPE;
     }
-  
+
 
   /* Register opaque function table */
   /* NB: Duplicated registration will be detected inside the function. */
@@ -946,8 +946,8 @@ ospf_apiserver_register_opaque_type (struct ospf_apiserver *apiserv,
 
   if (IS_DEBUG_OSPF_EVENT)
     zlog_debug ("API: Add LSA-type(%d)/Opaque-type(%d) into"
-               " apiserv(%p), total#(%d)", 
-               lsa_type, opaque_type, apiserv, 
+               " apiserv(%p), total#(%d)",
+               lsa_type, opaque_type, apiserv,
                listcount (apiserv->opaque_types));
 
   return 0;
@@ -978,8 +978,8 @@ ospf_apiserver_unregister_opaque_type (struct ospf_apiserver *apiserv,
 
           if (IS_DEBUG_OSPF_EVENT)
             zlog_debug ("API: Del LSA-type(%d)/Opaque-type(%d)"
-                       " from apiserv(%p), total#(%d)", 
-                       lsa_type, opaque_type, apiserv, 
+                       " from apiserv(%p), total#(%d)",
+                       lsa_type, opaque_type, apiserv,
                        listcount (apiserv->opaque_types));
 
 	  return 0;
@@ -1114,13 +1114,13 @@ ospf_apiserver_notify_ready_type10 (struct ospf_apiserver *apiserv)
   struct listnode *node2, *nnode2;
   struct ospf *ospf;
   struct ospf_area *area;
-  
+
   ospf = ospf_lookup ();
 
   for (ALL_LIST_ELEMENTS (ospf->areas, node, nnode, area))
     {
       struct registered_opaque_type *r;
-      
+
       if (!ospf_apiserver_is_ready_type10 (area))
 	{
 	  continue;
@@ -1131,7 +1131,7 @@ ospf_apiserver_notify_ready_type10 (struct ospf_apiserver *apiserv)
       for (ALL_LIST_ELEMENTS (apiserv->opaque_types, node2, nnode2, r))
 	{
 	  struct msg *msg;
-	  
+
 	  if (r->lsa_type == OSPF_OPAQUE_AREA_LSA)
 	    {
 	      /* Yes, this opaque type is ready */
@@ -1176,7 +1176,7 @@ ospf_apiserver_notify_ready_type11 (struct ospf_apiserver *apiserv)
     {
       struct msg *msg;
       struct in_addr noarea_id = { .s_addr = 0L };
-      
+
       if (r->lsa_type == OSPF_OPAQUE_AS_LSA)
 	{
 	  /* Yes, this opaque type is ready */
@@ -1301,7 +1301,7 @@ apiserver_sync_callback (struct ospf_lsa *lsa, void *p_arg, int int_arg)
 
       /* Default interface for non Opaque9 LSAs */
       struct in_addr ifaddr = { .s_addr = 0L };
-      
+
       if (lsa->area)
 	{
 	  area_id = lsa->area->area_id;
@@ -1497,7 +1497,7 @@ ospf_apiserver_opaque_lsa_new (struct ospf_area *area,
     }
 
   /* Set opaque-LSA header fields. */
-  lsa_header_set (s, options, protolsa->type, protolsa->id, 
+  lsa_header_set (s, options, protolsa->type, protolsa->id,
                   ospf->router_id);
 
   /* Set opaque-LSA body fields. */
@@ -1596,7 +1596,7 @@ ospf_apiserver_handle_originate_request (struct ospf_apiserver *apiserv,
   int lsa_type, opaque_type;
   int ready = 0;
   int rc = 0;
-  
+
   ospf = ospf_lookup();
 
   /* Extract opaque LSA data from message */
@@ -1713,12 +1713,12 @@ out:
 
 
 /* -----------------------------------------------------------
- * Flood an LSA within its flooding scope. 
+ * Flood an LSA within its flooding scope.
  * -----------------------------------------------------------
  */
 
 /* XXX We can probably use ospf_flood_through instead of this function
-   but then we need the neighbor parameter. If we set nbr to 
+   but then we need the neighbor parameter. If we set nbr to
    NULL then ospf_flood_through crashes due to dereferencing NULL. */
 
 void
@@ -1831,7 +1831,11 @@ ospf_apiserver_lsa11_originator (void *arg)
 
 /* Periodically refresh opaque LSAs so that they do not expire in
    other routers. */
-void
+#if 0
+static void
+#else
+extern struct ospf_lsa *
+#endif
 ospf_apiserver_lsa_refresher (struct ospf_lsa *lsa)
 {
   struct ospf_apiserver *apiserv;
@@ -1904,7 +1908,7 @@ ospf_apiserver_lsa_refresher (struct ospf_lsa *lsa)
     }
 
 out:
-  return;
+  return NULL;
 }
 
 
@@ -2041,7 +2045,7 @@ ospf_apiserver_flush_opaque_lsa (struct ospf_apiserver *apiserv,
   struct listnode *node, *nnode;
   struct ospf * ospf;
   struct ospf_area *area;
-  
+
   ospf = ospf_lookup();
   assert(ospf);
 
@@ -2077,7 +2081,7 @@ ospf_apiserver_flush_opaque_lsa (struct ospf_apiserver *apiserv,
 
 
 /* -----------------------------------------------------------
- * Followings are callback functions to handle opaque types 
+ * Followings are callback functions to handle opaque types
  * -----------------------------------------------------------
  */
 
@@ -2108,10 +2112,10 @@ ospf_apiserver_new_if (struct interface *ifp)
   }
 
   oi = ospf_apiserver_if_lookup_by_ifp (ifp);
-  
+
   if (!oi) {
     /* This interface is known to Zebra but not to OSPF daemon yet. */
-    zlog_warn ("ospf_apiserver_new_if: interface %s not known to OSPFd?", 
+    zlog_warn ("ospf_apiserver_new_if: interface %s not known to OSPFd?",
 	       ifp->name);
     return 0;
   }
@@ -2359,9 +2363,9 @@ ospf_apiserver_clients_notify_ready_type11 (struct ospf *top)
   struct msg *msg;
   struct in_addr id_null = { .s_addr = 0L };
   struct ospf_apiserver *apiserv;
-  
+
   assert (top);
-  
+
   if (!ospf_apiserver_is_ready_type11 (top))
     {
       zlog_warn ("AS not ready for type 11?");
@@ -2432,10 +2436,10 @@ ospf_apiserver_clients_notify_ism_change (struct ospf_interface *oi)
   struct msg *msg;
   struct in_addr ifaddr = { .s_addr = 0L };
   struct in_addr area_id = { .s_addr = 0L };
-  
+
   assert (oi);
   assert (oi->ifp);
-  
+
   if (oi->address)
     {
       ifaddr = oi->address->u.prefix4;

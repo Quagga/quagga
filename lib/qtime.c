@@ -192,3 +192,14 @@ qt_craft_monotonic(void) {
     return (monotonic * times_scale_q) +
                                 ((monotonic * times_scale_r) / times_clk_tcks) ;
 } ;
+
+/*------------------------------------------------------------------------------
+ * Get crafted monotonic time -- in seconds
+ */
+extern time_t
+qt_craft_mono_secs(void)
+{
+  qt_craft_monotonic() ;        /* update the monotonic counter */
+
+  return monotonic / times_clk_tcks ;
+} ;

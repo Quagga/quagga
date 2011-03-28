@@ -167,10 +167,11 @@ Inline p_vector_item vector_pop_item(vector v) ;
 extern void vector_insert(vector v, vector_index i, unsigned int n) ;
 extern void vector_delete(vector v, vector_index i, unsigned int n) ;
 
-typedef int vector_bsearch_cmp(const void** pp_val, const void** item) ;
+typedef int vector_bsearch_cmp(const void* const* pp_val,
+                                                      const void* const* item) ;
 vector_index vector_bsearch(vector v, vector_bsearch_cmp* cmp,
 					      const void* p_val, int* result) ;
-typedef int vector_sort_cmp(const void** a, const void** b) ;
+typedef int vector_sort_cmp(const void* const* a, const void* const* b) ;
 void vector_sort(vector v, vector_sort_cmp* cmp) ;
 
 extern vector vector_copy_here(vector dst, vector src) ;
