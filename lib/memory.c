@@ -150,6 +150,8 @@ zmalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)
 
 /*------------------------------------------------------------------------------
  * Memory allocation zeroising the allocated area.
+ *
+ * As zmalloc, plus zeroises the allocated memory.
  */
 void *
 zcalloc (enum MTYPE mtype, size_t size  MEMORY_TRACKER_NAME)

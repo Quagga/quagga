@@ -332,7 +332,7 @@ vio_fifo_new(ulen size)
   if (vio_fifo_debug)
     size = 29 ;
 
-  total_size = offsetof(struct vio_fifo, own_lump->data[size]) ;
+  total_size = offsetof(struct vio_fifo, own_lump[0].data[size]) ;
 
   vff = XCALLOC(MTYPE_VIO_FIFO, total_size) ;
 

@@ -11550,7 +11550,7 @@ DEFUN (show_ip_bgp_view_rsclient_prefix,
   if (argc == 3)
     peer = peer_lookup_in_view (vty, argv[0], argv[1]);
   else
-  peer = peer_lookup_in_view (vty, NULL, argv[0]);
+    peer = peer_lookup_in_view (vty, NULL, argv[0]);
 
   if (! peer)
     return CMD_WARNING;
@@ -11639,11 +11639,11 @@ DEFUN (show_bgp_view_ipv4_safi_rsclient_prefix,
       vty_out (vty, "%% Activate the neighbor for the address family first%s",
             VTY_NEWLINE);
       return CMD_WARNING;
-}
+    }
 
   if ( ! CHECK_FLAG (peer->af_flags[AFI_IP][safi],
               PEER_FLAG_RSERVER_CLIENT))
-{
+    {
       vty_out (vty, "%% Neighbor is not a Route-Server client%s",
             VTY_NEWLINE);
     return CMD_WARNING;
@@ -13463,8 +13463,10 @@ bgp_route_init (void)
    */
   install_element (RESTRICTED_NODE, &show_bgp_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_route_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_prefix_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_community_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_community_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_community2_cmd);
@@ -13743,8 +13745,10 @@ bgp_route_init (void)
   install_element (BGP_IPV4M_NODE, &no_bgp_network_mask_backdoor_ttl_cmd);
   install_element (BGP_IPV4M_NODE, &no_bgp_network_mask_natural_backdoor_ttl_cmd);
 
+#ifdef HAVE_IPV6
   install_element (BGP_IPV6_NODE, &ipv6_bgp_network_ttl_cmd);
   install_element (BGP_IPV6_NODE, &no_ipv6_bgp_network_ttl_cmd);
+#endif
 }
 
 void

@@ -25,7 +25,7 @@ void test_vector_insert_item(void);
 void test_vector_insert_item_here(void);
 void test_vector_delete_item(void);
 void do_test_insert(const int rider);
-int sort_cmp(void const* const* a, void const* const* b);
+int sort_cmp(const void* const* a, const void* const* b);
 void test_vector_sort(void);
 void test_vector_bsearch(void);
 void test_vector_move_item_here(void);
@@ -550,7 +550,7 @@ test_vector_sort(void)
 }
 
 int
-sort_cmp(void const* const* a, void const* const* b)
+sort_cmp(const void* const* a, const void* const* b)
 {
   return strcmp(*a, *b);
 }

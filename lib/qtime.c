@@ -72,15 +72,37 @@
  * (But seems unlikely that such a system would not support CLOCK_MONOTONIC !)
  *
  * When clock_t is a 32-bit integer must be at least ready for wrap around.
- * There are two cases:
+ * We take the clock_t signed values and widen to 64-bit signed, so we have
+ * the current sample (this) and the previous one (last), and two cases to
+ * consider:
  *
- *   * +ve wrap around.  new < old value, and new >= 0
+ *   * +ve wrap around -- so value is 31-bit unsigned, and wraps from large
+ *                        +ve value to small +ve value.
  *
- *       step = (INT32_MAX - old + 1) + new
+ *       step = this - last   will be -ve
  *
- *   * -ve wrap around.  new < old value, and new <  0 (and old > 0)
+ *     'last' will be some value ((INT32_MAX + 1) - x), and 'this' will be some
+ *     (relatively) small value y.  The step is x + y, we have:
  *
- *       step = (INT32_MAX - old + 1) - (INT32_MIN - new)
+ *       step = y - ((INT32_MAX + 1) - x) = (x + y) - (INT32_MAX + 1)
+ *
+ *     so we correct by adding (INT32_MAX + 1).
+ *
+ *   * -ve wrap around -- so value is 32-bit signed, and wraps from a large
+ *                        +ve value to a very -ve value.
+ *
+ *       step = this - last   will be -ve
+ *
+ *     'last will' be some value (INT32_MAX + 1) - x, and 'this' will be some
+ *     value (y - (INT32_MAX + 1)).  The step is x + y, we have:
+ *
+ *       step = (y - (INT32_MAX + 1)) - ((INT32_MAX + 1) - x)
+ *            = (x + y) - 2 * (INT32_MAX + 1)
+ *
+ *     so we correct by adding (INT32_MAX + 1).
+ *
+ * In both cases the wrap around gives an apparently -ve 'step', and that is
+ * corrected by adding (INT32_MAX + 1) until it goes +ve.
  *
  * In any event, a step > 24 hours is taken to means that something has gone
  * very, very badly wrong.
@@ -339,5 +361,4 @@ qt_random(uint32_t seed)
  * system down, then the times logged will just have to use either the first
  * or the last entry, and have done with it.
  */
-
 

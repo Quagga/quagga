@@ -985,6 +985,9 @@ closezlog (struct zlog *zl)
 
   uzlog_set_effective_level(zl) ;
 
+  if (zl->filename != NULL)
+    free (zl->filename);
+
   XFREE (MTYPE_ZLOG, zl);
 }
 

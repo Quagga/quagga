@@ -523,23 +523,41 @@ qfs_number(qf_str qfs, uintmax_t val, int sign, enum pf_flags flags,
 
   /* Set up any required sign and radix prefix                          */
   if ((flags & pf_unsigned) || (sign == 0))
-    sign_str = "" ;
+    {
+      sign_str = "" ;
+      sign_len = 0 ;
+    }
   else if (sign < 0)
-    sign_str = "-" ;
+    {
+      sign_str = "-" ;
+      sign_len = 1 ;
+    }
   else if (flags & pf_plus)
-    sign_str = "+" ;
+    {
+      sign_str = "+" ;
+      sign_len = 1 ;
+    }
   else if (flags & pf_space)
-    sign_str = " " ;
+    {
+      sign_str = " " ;
+      sign_len = 1 ;
+    }
   else
-    sign_str = "" ;
+    {
+      sign_str = "" ;
+      sign_len = 0 ;
+    } ;
 
-  sign_len = strlen(sign_str) ;
-
-  radix_str = "" ;
   if ((flags & (pf_hex | pf_alt)) == (pf_hex | pf_alt))
-    radix_str = (flags & pf_uc) ? "0X" : "0x" ;
-
-  radix_len = strlen(radix_str) ;
+    {
+      radix_str = (flags & pf_uc) ? "0X" : "0x" ;
+      radix_len = 2 ;
+    }
+  else
+    {
+      radix_str = "" ;
+      radix_len = 0 ;
+    } ;
 
   /* Turn off zero fill if left justify (width < 0)                     */
   if (width < 0)

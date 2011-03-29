@@ -54,7 +54,7 @@ Boston, MA 02111-1307, USA.  */
 vector node_vector = NULL ;
 
 /*==============================================================================
- * Default motd string.
+ * Default motd string and debug hello message.
  */
 static const char* default_motd =
 "\n"
@@ -2285,6 +2285,7 @@ cmd_init (bool terminal)
       install_element (RESTRICTED_NODE, &show_thread_cpu_cmd);
       install_element (VIEW_NODE, &show_thread_cpu_cmd);
       install_element (ENABLE_NODE, &show_thread_cpu_cmd);
+
       install_element (ENABLE_NODE, &clear_thread_cpu_cmd);
       install_element (VIEW_NODE, &show_work_queues_cmd);
       install_element (ENABLE_NODE, &show_work_queues_cmd);

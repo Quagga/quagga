@@ -1280,13 +1280,13 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
       /* Calculate select wait timer if nothing else to do */
       if (m->ready.count == 0)
         {
-      quagga_get_relative (NULL);
-      timer_wait = thread_timer_wait (&m->timer, &timer_val);
-      timer_wait_bg = thread_timer_wait (&m->background, &timer_val_bg);
+          quagga_get_relative (NULL);
+          timer_wait = thread_timer_wait (&m->timer, &timer_val);
+          timer_wait_bg = thread_timer_wait (&m->background, &timer_val_bg);
 
-      if (timer_wait_bg &&
-	  (!timer_wait || (timeval_cmp (*timer_wait, *timer_wait_bg) > 0)))
-	timer_wait = timer_wait_bg;
+          if (timer_wait_bg &&
+              (!timer_wait || (timeval_cmp (*timer_wait, *timer_wait_bg) > 0)))
+            timer_wait = timer_wait_bg;
         }
       else
         {
