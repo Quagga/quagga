@@ -442,10 +442,10 @@ vio_fifo_clear(vio_fifo vff, bool clear_marks)
 
   lump = ddl_tail(vff->base) ;
 
-  vio_fifo_release_upto(vff, lump) ;
-
-  vff->get_lump = lump ;
+  vff->get_lump = lump ;                /* before releasing     */
   vff->end_lump = lump ;
+
+  vio_fifo_release_upto(vff, lump) ;
 
   vio_fifo_reset_ptrs(vff) ;
 

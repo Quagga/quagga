@@ -243,7 +243,7 @@ uty_term_show_error_context(vio_vf vf, vio_fifo ebuf, uint depth)
 /*------------------------------------------------------------------------------
  * Push output to the terminal.
  *
- * Returns:  CMD_SUCCESS   -- all buffers are empty, or final
+ * Returns:  CMD_SUCCESS   -- all buffers are empty
  *           CMD_WAITING   -- all buffers are not empty
  *           CMD_IO_ERROR  -- failed -- final or not.
  *
@@ -500,6 +500,7 @@ uty_term_ready(vio_vf vf)
 {
   vty_readiness_t ready ;
   utw_ret_t done ;
+  bool signal ;
 
   VTY_ASSERT_LOCKED() ;
 
@@ -512,6 +513,7 @@ uty_term_ready(vio_vf vf)
     vio_lc_counter_reset(vf->cli->olc) ;        /* do one tranche       */
 
   done = uty_term_write(vf) ;
+  signal = done == utw_done ;
 
   while (done != utw_error)
     {
@@ -533,6 +535,9 @@ uty_term_ready(vio_vf vf)
 
       if (done == done_before)
         break ;                 /* quit if no change in response        */
+
+      if (done == utw_done)
+        signal = true ;
     } ;
 
   if (done == utw_error)
@@ -555,7 +560,7 @@ uty_term_ready(vio_vf vf)
 
   /* Signal the command loop if out_active and the buffers empty out.
    */
-  if (done == utw_done)
+  if (signal)
     uty_cmd_signal(vf->vio, CMD_SUCCESS) ;
 } ;
 
@@ -905,18 +910,18 @@ uty_term_write(vio_vf vf)
    */
   assert(!cli->more_wait && !cli->more_enter) ;
 
-  if (cli->flush)
-    {
-      /* Even more exciting: is cli->flush !
-       *
-       * This means that any incomplete line must have been flushed, above.
-       * So all buffers MUST be empty.
-       */
-      assert(vio_fifo_empty(vf->obuf) && vio_lc_is_empty(cli->olc)) ;
+  if (!cli->flush)
+    return utw_stopped ;
 
-      cli->out_active = false ;
-      cli->flush      = false ;
-    } ;
+  /* Even more exciting: is cli->flush !
+   *
+   * This means that any incomplete line must have been flushed, above.
+   * So all buffers MUST be empty.
+   */
+  assert(vio_fifo_empty(vf->obuf) && vio_lc_is_empty(cli->olc)) ;
+
+  cli->out_active = false ;
+  cli->flush      = false ;
 
   return utw_done ;
 } ;

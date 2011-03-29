@@ -297,6 +297,7 @@ vty_cmd_loop_exit(vty vty)
   uty_cmd_config_lock_check(vty, NULL_NODE) ;
 
   /* Can now close the vty                                              */
+  vty->vio->state = vc_stopped ;
   uty_close(vty->vio, NULL, false) ;    /* not curtains */
 
   VTY_UNLOCK() ;
@@ -941,10 +942,14 @@ uty_cmd_hiatus(vty_io vio, cmd_return_code_t ret)
       return ret ;              /* <<< exit here on CMD_WAITING         */
 
     case CMD_EOF:
-    case CMD_CLOSE:
       uty_out_accept(vio) ;     /* accept any buffered remarks.         */
       assert(vio->real_depth > 0) ;
       --vio->real_depth ;
+      break ;
+
+    case CMD_CLOSE:
+      uty_out_accept(vio) ;     /* accept any buffered remarks.         */
+      vio->real_depth = 0 ;     /* which it may already be              */
       break ;
 
     default:

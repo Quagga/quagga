@@ -971,6 +971,8 @@ closezlog (struct zlog *zl)
 {
   assert((zl == zlog_list) && (zl->next == NULL)) ;     /* pro tem      */
 
+  LOG_LOCK() ;
+
   closelog();
   if (zl->file_fd >= 0)
     close (zl->file_fd) ;
@@ -985,10 +987,9 @@ closezlog (struct zlog *zl)
 
   uzlog_set_effective_level(zl) ;
 
-  if (zl->filename != NULL)
-    free (zl->filename);
-
   XFREE (MTYPE_ZLOG, zl);
+
+  LOG_UNLOCK() ;
 }
 
 /*------------------------------------------------------------------------------
