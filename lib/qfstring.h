@@ -28,20 +28,31 @@
 /*==============================================================================
  * These "qfstrings" address the issues of dealing with *fixed* length
  * strings, particularly where the string handling must be async-signal-safe.
+ *
+ * Are also used to support snprintf() style printing, but to one or more
+ * fixed length buffers.
  */
 
 /* When initialised a qf_string is set:
  *
- *   str    = start of string -- and this is never changed
- *   ptr    = start of string -- this is moved as stuff is appended
- *   end    = last possible position for terminating '\0'
- *                            -- and this is never changed
+ *   str      = start of string -- and this is never changed
+ *   ptr      = start of string -- this is moved as stuff is appended
+ *   end      = end of string   -- and this is never changed
+ *   offset   = number of characters left to omit -- used to collect a long
+ *              string in more than one section
+ *   overflow = number of characters that had to leave out, because string
+ *              was too short.
+ *
+ * When filling the string, will work right up to the byte just before the
+ * end.  Does not terminate the string -- that must be done explicitly.
  */
 struct qf_str
 {
-  char* str ;           /* start of string      */
-  char* ptr ;           /* current position     */
-  char* end ;           /* end of string        */
+  char*  str ;          /* start of string              */
+  char*  ptr ;          /* current position             */
+  char*  end ;          /* end of string                */
+  uint   offset ;       /* number of chars to omit      */
+  uint   overflow ;     /* number of excess chars       */
 } ;
 
 typedef struct qf_str  qf_str_t[1] ;
@@ -82,22 +93,26 @@ enum pf_flags
  * Functions
  */
 
-extern void qfs_init(qf_str qfs, char* str, size_t size) ;
-extern void qfs_init_as_is(qf_str qfs, char* str, size_t size) ;
+extern void qfs_init(qf_str qfs, char* str, uint size) ;
+extern void qfs_init_offset(qf_str qfs, char* str, uint size, uint offset) ;
+extern void qfs_reset_offset(qf_str qfs, uint offset) ;
+extern void qfs_init_as_is(qf_str qfs, char* str, uint size) ;
 
-extern void qfs_term(qf_str qfs, const char* src) ;
+Inline uint qfs_overflow(qf_str qfs) ;
+Inline uint qfs_term(qf_str qfs) ;
+extern void qfs_term_string(qf_str qfs, const char* src, uint n) ;
 
-Inline int   qfs_len(qf_str qfs) ;
+Inline uint  qfs_len(qf_str qfs) ;
 Inline void* qfs_ptr(qf_str qfs) ;
-Inline int   qfs_left(qf_str qfs) ;
+Inline uint  qfs_left(qf_str qfs) ;
 
 extern void qfs_append(qf_str qfs, const char* src) ;
-extern void qfs_append_n(qf_str qfs, const char* src, size_t n) ;
+extern void qfs_append_n(qf_str qfs, const char* src, uint n) ;
 
-extern void qfs_append_ch_x_n(qf_str qfs, char ch, size_t n) ;
+extern void qfs_append_ch_x_n(qf_str qfs, char ch, uint n) ;
 extern void qfs_append_justified(qf_str qfs, const char* src, int width) ;
 extern void qfs_append_justified_n(qf_str qfs, const char* src,
-                                                          size_t n, int width) ;
+                                                            uint n, int width) ;
 
 extern void qfs_signed(qf_str qfs, intmax_t s_val, enum pf_flags flags,
                                                      int width, int precision) ;
@@ -106,25 +121,27 @@ extern void qfs_unsigned(qf_str qfs, uintmax_t u_val, enum pf_flags flags,
 extern void qfs_pointer(qf_str qfs, void* p_val, enum pf_flags flags,
                                                      int width, int precision) ;
 
-extern void qfs_printf(qf_str qfs, const char* format, ...)
+extern uint qfs_printf(qf_str qfs, const char* format, ...)
                                                        PRINTF_ATTRIBUTE(2, 3) ;
-extern void qfs_vprintf(qf_str qfs, const char *format, va_list args) ;
+extern uint qfs_vprintf(qf_str qfs, const char *format, va_list args) ;
+
+Inline uint qfs_strlen(const char* str) ;
 
 /*==============================================================================
  * The Inline functions.
  */
 
 /*------------------------------------------------------------------------------
- * Current length of qf_str, not counting the terminating '\0'.
+ * Current length of qf_str.
  */
-Inline int
+Inline uint
 qfs_len(qf_str qfs)
 {
   return qfs->ptr - qfs->str ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Address of the terminating '\0'.
+ * Address for next byte -- assuming zero offset -- may be the end.
  */
 Inline void*
 qfs_ptr(qf_str qfs)
@@ -133,14 +150,63 @@ qfs_ptr(qf_str qfs)
 } ;
 
 /*------------------------------------------------------------------------------
- * Current space left in the qstr, given what has been reserved for terminating
- * '\0' and any other reservation.
+ * Current space left in the qstr -- assuming zero offset.
  */
-Inline int
+Inline uint
 qfs_left(qf_str qfs)
 {
   return qfs->end - qfs->ptr ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Did everything we put in the qfs, fit ?.
+ *
+ * Returns:  number of chars that did *not* fit.
+ */
+Inline uint
+qfs_overflow(qf_str qfs)
+{
+  return qfs->overflow ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Insert '\0' terminator -- overwrites the last byte, if required.
+ *
+ * Assumes the qfs is not zero length !
+ *
+ * Returns:  number of chars that did *not* fit (after using one for '\0').
+ *
+ * NB: does not advance pointer -- so length does not include the '\0'
+ */
+Inline uint
+qfs_term(qf_str qfs)
+{
+  if (qfs->ptr >= qfs->end)
+    {
+      assert((qfs->ptr == qfs->end) && (qfs->ptr > qfs->str)) ;
+      --qfs->ptr ;
+      ++qfs->overflow ;
+    } ;
+
+  *qfs->ptr = '\0' ;
+  return qfs->overflow ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * async-signal-safe strlen
+ */
+Inline uint
+qfs_strlen(const char* str)
+{
+  const char* s ;
+
+  s = str ;
+
+  if (s != NULL)
+    while (*s != '\0')
+      ++s ;
+
+  return s - str ;
+}
 
 #endif /* _ZEBRA_QSTRING_H */

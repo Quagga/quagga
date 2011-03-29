@@ -366,7 +366,7 @@ bgp_dump_routes_func (int afi, int first_run, unsigned int seq)
           stream_putw(obuf, info->peer->table_dump_index);
 
           /* Originated */
-          stream_putl (obuf, info->uptime);
+          stream_putl (obuf, bgp_wall_clock(info->uptime));
 
           /* Dump attribute. */
           /* Skip prefix & AFI/SAFI for MP_NLRI */

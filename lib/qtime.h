@@ -96,6 +96,9 @@ Inline qtime_mono_t qt_get_monotonic(void) ;
                                 /* OR equivalent using times()          */
 Inline qtime_mono_t qt_add_monotonic(qtime_t interval) ;
                                 /* qt_get_monotonic() + interval        */
+Inline time_t qt_get_mono_secs(void) ;
+                                /* clock_gettime(CLOCK_MONOTONIC, ...)  */
+                                /* OR equivalent using times()          */
 
 /* These are provided just in case gettimeofday() != CLOCK_REALTIME     */
 Inline qtime_tod_t qt_get_timeofday(void) ;
@@ -181,6 +184,7 @@ qtime2timeval(struct timeval* p_tv, qtime_t qt)
 
 /* Function to manufacture a monotonic clock.   */
 Private qtime_mono_t qt_craft_monotonic(void) ;
+Private time_t qt_craft_mono_secs(void) ;
 
 /*------------------------------------------------------------------------------
  * Read given clock & return a qtime_t value.
@@ -245,6 +249,30 @@ Inline qtime_mono_t
 qt_add_monotonic(qtime_t interval)
 {
   return qt_get_monotonic() + interval;
+} ;
+
+/*------------------------------------------------------------------------------
+ * clock_gettime(CLOCK_MONOTONIC, ...) OR qt_craft_monotonic()
+ *                                                    -- returning time_t value
+ *
+ * Value returned is in seconds -- for coarser grain timings.
+ *
+ * While possibility of error is essentially theoretical, must treat it as a
+ * FATAL error -- cannot continue with broken time value !
+ */
+Inline time_t
+qt_get_mono_secs(void)
+{
+#ifdef HAVE_CLOCK_MONOTONIC
+  struct timespec ts ;
+
+  if (clock_gettime(CLOCK_MONOTONIC, &ts) != 0)
+    zabort_errno("clock_gettime failed") ;
+
+  return ts.tv_sec ;
+#else
+  return qt_craft_mono_secs() ;
+#endif
 } ;
 
 /*------------------------------------------------------------------------------

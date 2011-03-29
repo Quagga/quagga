@@ -92,106 +92,14 @@ o Cisco route-map
       origin            :  Done
       tag               :  (This will not be implemented by bgpd)
       weight            :  Done
-      pathlimit		:  Done
 
 o Local extention
 
   set ipv6 next-hop global: Done
   set ipv6 next-hop local : Done
-  set pathlimit ttl       : Done
   set as-path exclude     : Done
-  match pathlimit as     : Done
 
 */
-
-/* Compiles either AS or TTL argument. It is amused the VTY code
- * has already range-checked the values to be suitable as TTL or ASN
- */
-static void *
-route_pathlimit_compile (const char *arg)
-{
-  unsigned long tmp;
-  u_int32_t *val;
-  char *endptr = NULL;
-
-  /* TTL or AS value shoud be integer. */
-  if (! all_digit (arg))
-    return NULL;
-
-  tmp = strtoul (arg, &endptr, 10);
-  if (*endptr != '\0' || tmp == ULONG_MAX || tmp > UINT32_MAX)
-    return NULL;
-
-  if (!(val = XMALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (u_int32_t))))
-    return NULL;
-
-  *val = tmp;
-
-  return val;
-}
-
-static void
-route_pathlimit_free (void *rule)
-{
-  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
-}
-
-static route_map_result_t
-route_match_pathlimit_as (void *rule, struct prefix *prefix, route_map_object_t type,
-      void *object)
-{
-  struct bgp_info *info = object;
-  struct attr *attr = info->attr;
-  uint32_t as = *(uint32_t *)rule;
-
-  if (type != RMAP_BGP)
-    return RMAP_NOMATCH;
-
-  if (!attr->pathlimit.as)
-    return RMAP_NOMATCH;
-
-  if (as == attr->pathlimit.as)
-    return RMAP_MATCH;
-
-  return RMAP_NOMATCH;
-}
-
-/* 'match pathlimit as' */
-struct route_map_rule_cmd route_match_pathlimit_as_cmd =
-{
-  "pathlimit as",
-  route_match_pathlimit_as,
-  route_pathlimit_compile,
-  route_pathlimit_free
-};
-
-/* Set pathlimit TTL. */
-static route_map_result_t
-route_set_pathlimit_ttl (void *rule, struct prefix *prefix,
-		         route_map_object_t type, void *object)
-{
-  struct bgp_info *info = object;
-  struct attr *attr = info->attr;
-  u_char ttl = *(uint32_t *)rule;
-
-  if (type == RMAP_BGP)
-    {
-      attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_AS_PATHLIMIT);
-      attr->pathlimit.ttl = ttl;
-      attr->pathlimit.as = 0;
-    }
-
-  return RMAP_OKAY;
-}
-
-/* Set local preference rule structure. */
-struct route_map_rule_cmd route_set_pathlimit_ttl_cmd =
-{
-  "pathlimit ttl",
-  route_set_pathlimit_ttl,
-  route_pathlimit_compile,
-  route_pathlimit_free,
-};
 
  /* 'match peer (A.B.C.D|X:X::X:X)' */
 
@@ -1551,6 +1459,13 @@ route_set_community_delete (void *rule, struct prefix *prefix,
 	  merge = community_list_match_delete (community_dup (old), list);
 	  new = community_uniq_sort (merge);
 	  community_free (merge);
+
+	  /* HACK: if the old community is not intern'd,
+	   * we should free it here, or all references to it may be lost.
+	   * Really need to clean up attribute caching sometime.
+	   */
+	  if (old->refcnt == 0)
+	    community_free(old) ;
 
 	  if (new->size == 0)
 	    {
@@ -3065,7 +2980,7 @@ DEFUN (set_metric,
 
 ALIAS (set_metric,
        set_metric_addsub_cmd,
-       "set metric <+/-32b>",
+       "set metric <-2147483647-+2147483647>",
        SET_STR
        "Metric value for destination routing protocol\n"
        "Add or subtract metric\n")
@@ -3155,11 +3070,11 @@ ALIAS (no_set_weight,
 
 DEFUN (set_aspath_prepend,
        set_aspath_prepend_cmd,
-       "set as-path prepend .ASs",
+       "set as-path prepend .ASNs",
        SET_STR
        "Transform BGP AS_PATH attribute\n"
        "Prepend to the as-path\n"
-       "AS number(s)\n")
+       "AS number\n")
 {
   int ret;
   char *str;
@@ -3193,20 +3108,20 @@ DEFUN (no_set_aspath_prepend,
 
 ALIAS (no_set_aspath_prepend,
        no_set_aspath_prepend_val_cmd,
-       "no set as-path prepend .ASs",
+       "no set as-path prepend .ASns",
        NO_STR
        SET_STR
        "Transform BGP AS_PATH attribute\n"
        "Prepend to the as-path\n"
-       "AS number(s)\n")
+       "AS number\n")
 
 DEFUN (set_aspath_exclude,
        set_aspath_exclude_cmd,
-       "set as-path exclude .ASs",
+       "set as-path exclude .ASNs",
        SET_STR
        "Transform BGP AS-path attribute\n"
        "Exclude from the as-path\n"
-       "AS number(s)\n")
+       "AS number\n")
 {
   int ret;
   char *str;
@@ -3239,19 +3154,20 @@ DEFUN (no_set_aspath_exclude,
 
 ALIAS (no_set_aspath_exclude,
        no_set_aspath_exclude_val_cmd,
-       "no set as-path exclude .ASs",
+       "no set as-path exclude .ASNs",
        NO_STR
        SET_STR
        "Transform BGP AS_PATH attribute\n"
        "Exclude from the as-path\n"
-       "AS number(s)\n")
+       "AS number\n")
 
 DEFUN (set_community,
        set_community_cmd,
        "set community .AA:NN",
        SET_STR
        "BGP community attribute\n"
-       "Community number in aa:nn format or local-AS|no-advertise|no-export|internet or additive\n")
+       "Community number in aa:nn format or """
+                     "local-AS|no-advertise|no-export|internet or additive\n")
 {
   int i;
   int first = 0;
@@ -3846,17 +3762,17 @@ ALIAS (no_set_originator_id,
        "BGP originator ID attribute\n"
        "IP address of originator\n")
 
-DEFUN (set_pathlimit_ttl,
+DEFUN_DEPRECATED (set_pathlimit_ttl,
        set_pathlimit_ttl_cmd,
        "set pathlimit ttl <1-255>",
        SET_STR
        "BGP AS-Pathlimit attribute\n"
        "Set AS-Path Hop-count TTL\n")
 {
-  return bgp_route_set_add (vty, vty->index, "pathlimit ttl", argv[0]);
+  return CMD_SUCCESS ;
 }
 
-DEFUN (no_set_pathlimit_ttl,
+DEFUN_DEPRECATED (no_set_pathlimit_ttl,
        no_set_pathlimit_ttl_cmd,
        "no set pathlimit ttl",
        NO_STR
@@ -3864,10 +3780,7 @@ DEFUN (no_set_pathlimit_ttl,
        "BGP AS-Pathlimit attribute\n"
        "Set AS-Path Hop-count TTL\n")
 {
-  if (argc == 0)
-    return bgp_route_set_delete (vty, vty->index, "pathlimit ttl", NULL);
-
-  return bgp_route_set_delete (vty, vty->index, "pathlimit ttl", argv[0]);
+  return CMD_SUCCESS;
 }
 
 ALIAS (no_set_pathlimit_ttl,
@@ -3878,17 +3791,17 @@ ALIAS (no_set_pathlimit_ttl,
        "BGP AS-Pathlimit attribute\n"
        "Set AS-Path Hop-count TTL\n")
 
-DEFUN (match_pathlimit_as,
+DEFUN_DEPRECATED (match_pathlimit_as,
        match_pathlimit_as_cmd,
        "match pathlimit as <1-65535>",
        MATCH_STR
        "BGP AS-Pathlimit attribute\n"
        "Match Pathlimit AS number\n")
 {
-  return bgp_route_match_add (vty, vty->index, "pathlimit as", argv[0]);
+  return CMD_SUCCESS ;
 }
 
-DEFUN (no_match_pathlimit_as,
+DEFUN_DEPRECATED (no_match_pathlimit_as,
        no_match_pathlimit_as_cmd,
        "no match pathlimit as",
        NO_STR
@@ -3896,10 +3809,7 @@ DEFUN (no_match_pathlimit_as,
        "BGP AS-Pathlimit attribute\n"
        "Match Pathlimit AS number\n")
 {
-  if (argc == 0)
-    return bgp_route_match_delete (vty, vty->index, "pathlimit as", NULL);
-
-  return bgp_route_match_delete (vty, vty->index, "pathlimit as", argv[0]);
+  return CMD_SUCCESS ;
 }
 
 ALIAS (no_match_pathlimit_as,
@@ -4066,10 +3976,9 @@ bgp_route_map_init (void)
   install_element (RMAP_NODE, &no_set_ipv6_nexthop_local_val_cmd);
 #endif /* HAVE_IPV6 */
 
-  /* AS-Pathlimit */
-  route_map_install_match (&route_match_pathlimit_as_cmd);
-  route_map_install_set (&route_set_pathlimit_ttl_cmd);
-
+  /* AS-Pathlimit: functionality removed, commands kept for
+   * compatibility.
+   */
   install_element (RMAP_NODE, &set_pathlimit_ttl_cmd);
   install_element (RMAP_NODE, &no_set_pathlimit_ttl_cmd);
   install_element (RMAP_NODE, &no_set_pathlimit_ttl_val_cmd);

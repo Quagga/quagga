@@ -399,7 +399,6 @@ ALIAS (no_debug_bgp_as4,
        undebug_bgp_as4_cmd,
        "undebug bgp as4",
        UNDEBUG_STR
-       DEBUG_STR
        BGP_STR
        "BGP AS4 actions\n")
 
@@ -408,6 +407,7 @@ DEFUN (debug_bgp_as4_segment,
        "debug bgp as4 segment",
        DEBUG_STR
        BGP_STR
+       "BGP AS4 actions\n"
        "BGP AS4 aspath segment handling\n")
 {
   if (vty->node == CONFIG_NODE)
@@ -426,6 +426,7 @@ DEFUN (no_debug_bgp_as4_segment,
        NO_STR
        DEBUG_STR
        BGP_STR
+       "BGP AS4 actions\n"
        "BGP AS4 aspath segment handling\n")
 {
   if (vty->node == CONFIG_NODE)
@@ -442,8 +443,8 @@ ALIAS (no_debug_bgp_as4_segment,
        undebug_bgp_as4_segment_cmd,
        "undebug bgp as4 segment",
        UNDEBUG_STR
-       DEBUG_STR
        BGP_STR
+       "BGP AS4 actions\n"
        "BGP AS4 aspath segment handling\n")
 
 DEFUN (debug_bgp_fsm,
@@ -485,7 +486,6 @@ ALIAS (no_debug_bgp_fsm,
        undebug_bgp_fsm_cmd,
        "undebug bgp fsm",
        UNDEBUG_STR
-       DEBUG_STR
        BGP_STR
        "Finite State Machine\n")
 
@@ -783,7 +783,6 @@ ALIAS (no_debug_bgp_zebra,
        undebug_bgp_zebra_cmd,
        "undebug bgp zebra",
        UNDEBUG_STR
-       DEBUG_STR
        BGP_STR
        "BGP Zebra messages\n")
 

@@ -20,7 +20,6 @@
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
  */
-#include "zconfig.h"
 #include "misc.h"
 
 #include "vty_local.h"
@@ -579,7 +578,7 @@ uty_term_read_timeout(vio_timer timer, void* action_info)
   VTY_ASSERT_LOCKED() ;
 
   vf->vin_state = vf_timed_out ;
-  keystroke_stream_set_eof(vf->cli->key_stream, true) ;
+  keystroke_stream_set_eof(vf->cli->key_stream, true) ; /* timed out    */
 
   vf->cli->paused = false ;
 
@@ -773,8 +772,7 @@ uty_term_write(vio_vf vf)
   vty_cli cli = vf->cli ;
   utw_ret_t  ret ;
   int        did ;
-  size_t     have, take ;
-  char*      src ;
+  ulen       have, take ;
 
   VTY_ASSERT_LOCKED() ;
 
@@ -851,15 +849,15 @@ uty_term_write(vio_vf vf)
    */
   vio_fifo_set_hold_mark(vf->obuf) ;    /* released in uty_term_write_lc() */
 
-  src = vio_fifo_get(vf->obuf, &have) ;
+  have = vio_fifo_get(vf->obuf) ;
   while (1)
     {
-      take = vio_lc_append(cli->olc, src, have) ;
+      take = vio_lc_append(cli->olc, vio_fifo_get_ptr(vf->obuf), have) ;
 
       if (take == 0)
         break ;
 
-      src = vio_fifo_step_get(vf->obuf, &have, take) ;
+      have = vio_fifo_step_get(vf->obuf, take) ;
 
       if (have == 0)
         break ;

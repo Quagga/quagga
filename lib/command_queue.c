@@ -18,8 +18,6 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
-
-#include "zconfig.h"            /* for CONSUMED_TIME_CHECK      */
 #include "misc.h"
 
 #include "qpnexus.h"

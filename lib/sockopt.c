@@ -641,8 +641,13 @@ sockopt_tcp_signature (int sock_fd, union sockunion *su, const char *password)
            su2->sin6.sin6_family = AF_INET6;
            /* V4Map the address */
            memset (&su2->sin6.sin6_addr, 0, sizeof (struct in6_addr));
-           su2->sin6.sin6_addr.s6_addr32[2] = htonl(0xffff);
-           memcpy (&su2->sin6.sin6_addr.s6_addr32[3], &su->sin.sin_addr, 4);
+           su2->sin6.sin6_addr.s6_addr[10] = 0xff ;
+           su2->sin6.sin6_addr.s6_addr[11] = 0xff ;
+#   ifdef s6_addr32
+           su2->sin6.sin6_addr.s6_addr32[3] = su->sin.sin_addr.s_addr ;
+#   else
+           memcpy (&su2->sin6.sin6_addr.s6_addr[12], &su->sin.sin_addr, 4);
+#   endif
         }
 #  endif
     }

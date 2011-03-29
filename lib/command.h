@@ -59,6 +59,9 @@
     .r_doc    = NULL,   \
   } ;
 
+/* Legacy name for cmd_command                                          */
+#define cmd_element cmd_command
+
 #define DEFUN_CMD_FUNC_DECL(funcname) \
   static cmd_function funcname;
 

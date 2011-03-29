@@ -18,9 +18,9 @@
  * $Name$
  */
 
+#include "zebra.h"
 #include <stdlib.h>
 #include <stddef.h>
-#include "zebra.h"
 #include "zassert.h"
 #define DICT_IMPLEMENTATION
 #include "dict.h"
@@ -32,7 +32,7 @@ static const char rcsid[] = "Id: dict.c,v 1.40.2.7 2000/11/13 01:36:44 kaz";
 /*
  * These macros provide short convenient names for structure members,
  * which are embellished with dict_ prefixes so that they are
- * properly confined to the documented namespace. It's legal for a 
+ * properly confined to the documented namespace. It's legal for a
  * program which uses dict to define, for instance, a macro called ``parent''.
  * Such a macro would interfere with the dnode_t struct definition.
  * In general, highly portable and reusable C modules which expose their
@@ -143,7 +143,7 @@ static void free_nodes(dict_t *dict, dnode_t *node, dnode_t *nil)
  * dict_next() successor function, verifying that the key of each node is
  * strictly lower than that of its successor, if duplicates are not allowed,
  * or lower or equal if duplicates are allowed.  This function is used for
- * debugging purposes. 
+ * debugging purposes.
  */
 
 static int verify_bintree(dict_t *dict)
@@ -203,7 +203,7 @@ static unsigned int verify_redblack(dnode_t *nil, dnode_t *root)
 	if (root->color != dnode_black)
 	    return 0;
 	return height_left + 1;
-    } 
+    }
     return 1;
 }
 
@@ -336,7 +336,7 @@ dict_t *dict_init(dict_t *dict, dictcount_t maxcount, dict_comp_t comp)
     return dict;
 }
 
-/* 
+/*
  * Initialize a dictionary in the likeness of another dictionary
  */
 
@@ -376,7 +376,7 @@ static void dict_clear(dict_t *dict)
  * debugging purposes, and should be placed in assert statements.   Just because
  * this function succeeds doesn't mean that the tree is not corrupt. Certain
  * corruptions in the tree may simply cause undefined behavior.
- */ 
+ */
 
 int dict_verify(dict_t *dict)
 {
@@ -430,7 +430,7 @@ int dict_similar(const dict_t *left, const dict_t *right)
 
 /*
  * Locate a node in the dictionary having the given key.
- * If the node is not found, a null a pointer is returned (rather than 
+ * If the node is not found, a null a pointer is returned (rather than
  * a pointer that dictionary's nil sentinel node), otherwise a pointer to the
  * located node is returned.
  */
@@ -494,9 +494,9 @@ dnode_t *dict_lower_bound(dict_t *dict, const void *key)
 		tentative = root;
 		root = root->left;
 	    }
-	} 
+	}
     }
-    
+
     return tentative;
 }
 
@@ -526,9 +526,9 @@ dnode_t *dict_upper_bound(dict_t *dict, const void *key)
 		tentative = root;
 		root = root->right;
 	    }
-	} 
+	}
     }
-    
+
     return tentative;
 }
 
@@ -708,10 +708,10 @@ dnode_t *dict_delete(dict_t *dict, dnode_t *delete)
 
 	child = (delete->left != nil) ? delete->left : delete->right;
 
-	child->parent = delparent = delete->parent;	    
+	child->parent = delparent = delete->parent;
 
 	if (delete == delparent->left) {
-	    delparent->left = child;    
+	    delparent->left = child;
 	} else {
 	    assert (delete == delparent->right);
 	    delparent->right = child;
@@ -1035,7 +1035,7 @@ void dict_load_next(dict_load_t *load, dnode_t *newnode, const void *key)
 {
     dict_t *dict = load->dictptr;
     dnode_t *nil = &load->nilnode;
-   
+
     assert (!dnode_is_in_a_dict(newnode));
     assert (dict->nodecount < dict->maxcount);
 
@@ -1141,7 +1141,7 @@ void dict_merge(dict_t *dest, dict_t *source)
     dict_load_t load;
     dnode_t *leftnode = dict_first(dest), *rightnode = dict_first(source);
 
-    assert (dict_similar(dest, source));	
+    assert (dict_similar(dest, source));
 
     if (source == dest)
 	return;
@@ -1174,7 +1174,7 @@ void dict_merge(dict_t *dest, dict_t *source)
 	    leftnode = next;
 	    continue;
 	}
-	
+
     copyright:
 	{
 	    dnode_t *next = dict_next(source, rightnode);
@@ -1202,7 +1202,7 @@ typedef char input_t[256];
 
 static int tokenize(char *string, ...)
 {
-    char **tokptr; 
+    char **tokptr;
     va_list arglist;
     int tokcount = 0;
 
@@ -1266,7 +1266,7 @@ static void construct(dict_t *d)
     dnode_t *dn;
     char *tok1, *tok2, *val;
     const char *key;
-    char *help = 
+    char *help =
 	"p                      turn prompt on\n"
 	"q                      finish construction\n"
 	"a <key> <val>          add new entry\n";

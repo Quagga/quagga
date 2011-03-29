@@ -1026,7 +1026,7 @@ uty_cmd_hiatus(vty_io vio, cmd_return_code_t ret)
           if (vio->ebuf != NULL)
             {
               vio_fifo_copy(vio->obuf, vio->ebuf) ;
-              vio->ebuf = vio_fifo_reset(vio->ebuf, free_it) ;
+              vio->ebuf = vio_fifo_free(vio->ebuf) ;
 
               ret = uty_cmd_out_push(vio->vout, vio->err_hard) ;
 
@@ -1351,9 +1351,9 @@ vty_cmd_success(vty vty)
       if (!vio_fifo_tail_empty(vio->obuf))
         {
           if (!vty->exec->out_suppress)
-            ret = uty_cmd_out_push(vio->vout, false) ;  /* not final    */
+            ret = uty_cmd_out_push(vio->vout, false) ;    /* not final      */
           else
-            uty_out_clear(vio) ;
+            vio_fifo_back_to_end_mark(vio->obuf, true) ;  /* keep end mark  */
         } ;
     } ;
 
@@ -1526,7 +1526,7 @@ uty_cmd_failed(vty_io vio, cmd_return_code_t ret)
   if (vio->ebuf != NULL)
     vio_fifo_clear(vio->ebuf, true) ;
   else
-    vio->ebuf = vio_fifo_init_new(NULL, 1000) ;
+    vio->ebuf = vio_fifo_new(1000) ;
 
   indent = uty_show_error_context(vio->ebuf, vio->vin) ;
 

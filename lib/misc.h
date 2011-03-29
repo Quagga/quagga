@@ -22,17 +22,37 @@
 #ifndef _ZEBRA_MISC_H
 #define _ZEBRA_MISC_H
 
+/* "zconfig.h" is included at the start of this "misc.h", and at the start
+ * of "zebra.h".  This ensures that we get <features.h> defined early, so
+ * that all other #includes get the same set of features.
+ */
+
 #include "zconfig.h"
 
+/* This is horrible... but for some purposes wish to turn *off* __USE_GNU.
+ *
+ * e.g: to persuade <string.h> to give POSIX version of strerror_r !!!
+ */
+#ifdef NO_USE_GNU
+# undef  NO_USE_GNU
+# ifdef  __USE_GNU
+#  define NO_USE_GNU 1
+#  undef __USE_GNU
+# endif
+#endif
+
 /* Stuff which we generally expect to have                              */
-#include <limits.h>
+
 #include <string.h>
+#include <limits.h>
+#include <unistd.h>
 
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
 
+#include "confirm.h"
 #include "zassert.h"
 
 /* Bit number to bit mask                                               */

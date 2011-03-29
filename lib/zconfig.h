@@ -25,9 +25,17 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 #include "config.h"
 
-#if _GNU_SOURCE
-#include <features.h>
+#undef  _THREAD_SAFE
+#define _THREAD_SAFE 1
+
+#undef  _REENTRANT
+#define _REENTRANT 1
+
+#ifdef _FEATURES_H
+#error Features defined
 #endif
+
+#include <features.h>
 
 #endif /* HAVE_CONFIG_H */
 

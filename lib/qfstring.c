@@ -18,57 +18,100 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
+#include "misc.h"
 
 #include "qfstring.h"
-#include "zassert.h"
 
 /*==============================================================================
  */
 
 /*------------------------------------------------------------------------------
- * Initialise qf_str -- to given size (which includes the '\0')
+ * Initialise qf_str -- to given size, zero offset and zero overflow.
  *
- * Sets pointers and terminates an empty string with one byte reserved for the
- * terminating '\0'.
+ * Note that does not terminate the string -- that must be done separately.
  *
  * This operation is async-signal-safe.
  */
 extern void
-qfs_init(qf_str qfs, char* str, size_t size)
+qfs_init(qf_str qfs, char* str, uint size)
 {
-  assert(size > 0) ;
-
-  qfs->str = str ;
-  qfs->end = str + size - 1 ;
-
-  *str = '\0' ;
-  qfs->ptr = str ;
+  qfs->str      = str ;
+  qfs->ptr      = str ;
+  qfs->end      = str + size ;
+  qfs->offset   = 0 ;
+  qfs->overflow = 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Initialise qf_str which already contains string -- to given size (which
- * includes the '\0')
+ * Initialise qf_str -- to given size, with given offset and zero overflow.
+ *
+ * Note that does not terminate the string -- that must be done separately.
+ *
+ * This operation is async-signal-safe.
+  */
+extern void
+qfs_init_offset(qf_str qfs, char* str, uint size, uint offset)
+{
+  qfs->str      = str ;
+  qfs->ptr      = str ;
+  qfs->end      = str + size ;
+  qfs->offset   = offset ;
+  qfs->overflow = 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Reset given qf_str -- with the given offset and zero overflow.
+ *
+ * Sets ptr back to the start of the string and set the given offset.
+ *
+ * This operation is async-signal-safe.
+ */
+extern void
+qfs_reset_offset(qf_str qfs, uint offset)
+{
+  qfs->ptr      = qfs->str ;
+  qfs->offset   = offset ;
+  qfs->overflow = 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialise qf_str which already contains string -- to given size with zero
+ * overflow.
  *
  * This may be used to prepare for appending to a buffer which already contains
  * something.
  *
- * Sets pointers, setting the write pointer to the existing terminating '\0'.
+ * Sets pointers, setting the write pointer to the existing '\0'.
  *
  * This operation is async-signal-safe.
+ *
+ * NB: it is a mistake if the size given is less than the length of the
+ *     string (excluding the trailing '\0').
  */
 extern void
-qfs_init_as_is(qf_str qfs, char* str, size_t size)
+qfs_init_as_is(qf_str qfs, char* str, uint size)
 {
   assert(size > 0) ;
 
-  qfs->str = str ;
-  qfs->end = str + size - 1 ;
+  qfs->str      = str ;
+  qfs->end      = str + size ;
+  qfs->offset   = 0 ;
+  qfs->overflow = 0 ;
 
-  qfs->ptr = strchr(str, '\0') ;
+  while (*str != '\0')
+    ++str ;
+
+  qfs->ptr = str ;      /* point at '\0'        */
+
+  assert(qfs->ptr <= qfs->end) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Terminate string with the given string.
+ * Terminate string with the given string if given length (which may include
+ * a '\0').
+ *
+ * This is for when the qstring has overflowed, and wish to indicate that at
+ * the end -- so takes no notice of offset.
  *
  * If necessary, characters are discarded from the end of the string in order
  * to fit in the terminating stuff.
@@ -80,34 +123,25 @@ qfs_init_as_is(qf_str qfs, char* str, size_t size)
  * This operation is async-signal-safe.
  */
 extern void
-qfs_term(qf_str qfs, const char* src)
+qfs_term_string(qf_str qfs, const char* src, uint n)
 {
-  int len ;
-  int excess ;
+  uint h ;
 
-  if ((src == NULL) || (*src == '\0'))
-    {
-      *qfs->ptr = '\0' ;        /* should be true anyway        */
-      return ;
-    } ;
+  h = qfs->end - qfs->ptr ;             /* space available              */
 
-  len = strlen(src) ;
-  excess = qfs_len(qfs) - len ;
-  if (excess > 0)
+  if (h < n)
     {
-      if (excess <= (qfs->ptr - qfs->str))
-        qfs->ptr -= excess ;
-      else
+      h = qfs->end - qfs->str ;         /* total space                  */
+      if (h < n)
         {
-          int want = len ;
-          len = qfs->end - qfs->str ;   /* take what can...     */
-          src += (want - len) ;         /* ... from the end     */
-          qfs->ptr = qfs->str ;
+          src += n - h ;                /* past what will not fit       */
+          n = h ;
         } ;
+      qfs->ptr = qfs->end - n ;
     } ;
 
-  memcpy(qfs->ptr, src, len + 1) ;      /* include the '\0'     */
-  qfs->ptr += len ;
+  while (n--)
+    *qfs->ptr++ = *src++ ;
 } ;
 
 /*==============================================================================
@@ -119,26 +153,29 @@ qfs_term(qf_str qfs, const char* src)
  *
  * May append nothing at all !
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 extern void
 qfs_append(qf_str qfs, const char* src)
 {
-  int n ;
-
-  if ((src == NULL) || (*src == '\0'))
+  if (src == NULL)
     return ;
 
-  n = strlen(src) ;
+  while (qfs->offset > 0)
+    {
+      if (*src++ == '\0')
+        return ;
+      --qfs->offset ;
+    } ;
 
-  if (n > qfs_left(qfs))
-    n = qfs_left(qfs) ;
-
-  if (n == 0)
-    return ;
-
-  memcpy(qfs->ptr, src, n + 1) ;
-  qfs->ptr += n ;
+  while (*src != '\0')
+    {
+      if (qfs->ptr < qfs->end)
+        *qfs->ptr++ = *src++ ;
+      else
+        ++qfs->overflow ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -147,43 +184,76 @@ qfs_append(qf_str qfs, const char* src)
  *
  * May append nothing at all !
  *
- * This operation is async-signal-safe.
+ * src may be NULL iff n == 0
+ *
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 extern void
-qfs_append_n(qf_str qfs, const char* src, size_t n)
+qfs_append_n(qf_str qfs, const char* src, uint n)
 {
-  if ((int)n > qfs_left(qfs))
-    n = qfs_left(qfs) ;
+  uint h ;
 
-  if (n <= 0)
-    return ;
+  if (qfs->offset > 0)
+    {
+      if (qfs->offset >= n)
+        {
+          qfs->offset -= n ;
+          return ;
+        } ;
 
-  memcpy(qfs->ptr, src, n) ;
-  qfs->ptr += n ;
+      src += qfs->offset ;
+      n   -= qfs->offset ;
 
-  *qfs->ptr = '\0' ;
+      qfs->offset = 0 ;
+    } ;
+
+  h = (qfs->end - qfs->ptr) ;
+  if (n > h)
+    {
+      qfs->overflow += n - h ;
+      n = h ;
+    } ;
+
+  while (n--)
+    *qfs->ptr++ = *src++ ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Append upto 'n' copies of the given character to the qf_str
+ * Append upto 'n' copies of the given character to the qf_str.
  *
  * May append nothing at all !
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 extern void
-qfs_append_ch_x_n(qf_str qfs, char ch, size_t n)
+qfs_append_ch_x_n(qf_str qfs, char ch, uint n)
 {
-  if ((int)n > qfs_left(qfs))
-    n = qfs_left(qfs) ;
+  uint h ;
 
-  if (n <= 0)
-    return ;
+  if (qfs->offset > 0)
+    {
+      if (qfs->offset >= n)
+        {
+          qfs->offset -= n ;
+          return ;
+        } ;
+
+      n   -= qfs->offset ;
+
+      qfs->offset = 0 ;
+    } ;
+
+  h = (qfs->end - qfs->ptr) ;
+  if (n > h)
+    {
+      qfs->overflow += n - h ;
+      n = h ;
+    } ;
 
   while (n--)
     *qfs->ptr++ = ch ;
-
-  *qfs->ptr = '\0' ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -196,19 +266,13 @@ qfs_append_ch_x_n(qf_str qfs, char ch, size_t n)
  *
  * May append nothing at all !
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 extern void
 qfs_append_justified(qf_str qfs, const char* src, int width)
 {
-  size_t n ;
-
-  if ((src == NULL) || (*src == '\0'))
-    n = 0 ;
-  else
-    n = strlen(src) ;
-
-  qfs_append_justified_n(qfs, src, n, width) ;
+  qfs_append_justified_n(qfs, src, qfs_strlen(src), width) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -221,10 +285,11 @@ qfs_append_justified(qf_str qfs, const char* src, int width)
  *
  * May append nothing at all !
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 extern void
-qfs_append_justified_n(qf_str qfs, const char* src, size_t n, int width)
+qfs_append_justified_n(qf_str qfs, const char* src, uint n, int width)
 {
   if ((int)n >= abs(width))
     width = 0 ;
@@ -236,6 +301,23 @@ qfs_append_justified_n(qf_str qfs, const char* src, size_t n, int width)
 
   if (width < 0)
     qfs_append_ch_x_n(qfs, ' ', - width - n) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Append single character.
+ *
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
+ */
+inline static void
+qfs_append_ch(qf_str qfs, char ch)
+{
+  if      (qfs->offset > 0)
+    --qfs->offset ;
+  else if (qfs->ptr < qfs->end)
+    *qfs->ptr++ = ch ;
+  else
+    ++qfs->overflow ;
 } ;
 
 /*==============================================================================
@@ -251,7 +333,8 @@ qfs_number(qf_str qfs, uintmax_t val, int sign, enum pf_flags flags,
  *
  * Result is appended to the given qf_str.
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 extern void
 qfs_signed(qf_str qfs, intmax_t s_val, enum pf_flags flags,
@@ -279,7 +362,8 @@ qfs_signed(qf_str qfs, intmax_t s_val, enum pf_flags flags,
  *
  * Result is appended to the given qf_str.
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 extern void
 qfs_unsigned(qf_str qfs, uintmax_t u_val, enum pf_flags flags,
@@ -293,7 +377,8 @@ qfs_unsigned(qf_str qfs, uintmax_t u_val, enum pf_flags flags,
  *
  * Result is appended to the given qf_str.
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 extern void
 qfs_pointer(qf_str qfs, void* p_val, enum pf_flags flags,
@@ -358,7 +443,8 @@ qfs_pointer(qf_str qfs, void* p_val, enum pf_flags flags,
  *       characters are to be generated -- ie no: pf_plus, pf_space, pf_zeros,
  *       or pf_alt (with pf_hex) -- then nothing is generated.
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 static void
 qfs_number(qf_str qfs, uintmax_t val, int sign, enum pf_flags flags,
@@ -473,8 +559,7 @@ qfs_number(qf_str qfs, uintmax_t val, int sign, enum pf_flags flags,
   base   = (flags & pf_hex) ? 16 : 10 ;
   digits = (flags & pf_uc)  ? uc : lc ;
 
-  e = p = num + sizeof(num) - 1 ;
-  *p = '\0' ;
+  e = p = num + sizeof(num) ;
   v = val ;
   do
     {
@@ -646,7 +731,7 @@ enum arg_num_type
   ant_long_long,        /* ll           */
   ant_intmax_t,         /* j            */
   ant_size_t,           /* z            */
-  ant_ptr_t,            /* void*        */
+  ant_ptr_t,            /* %p           */
 
   ant_default    = ant_int,
 };
@@ -659,42 +744,51 @@ static enum pf_phase qfs_arg_number(qf_str qfs, va_list* p_va,
          enum pf_flags flags, int width, int precision, enum arg_num_type ant) ;
 
 /*------------------------------------------------------------------------------
- * Formatted print to qf_str -- cf printf()
+ * Formatted print to qf_str -- cf printf() -- appends to the qf_str.
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow.
+ *
+ * Returns:  the resulting length of the qf_str.
  */
-extern void
+extern uint
 qfs_printf(qf_str qfs, const char* format, ...)
 {
   va_list va ;
+  uint did ;
 
   va_start (va, format);
-  qfs_vprintf(qfs, format, va);
+  did = qfs_vprintf(qfs, format, va);
   va_end (va);
+
+  return did ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Formatted print to qf_str -- cf vprintf()
+ * Formatted print to qf_str -- cf vprintf() -- appends to the qf_str.
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  *
  * Operates on a copy of the va_list -- so the original is *unchanged*.
+ *
+ * Returns:  the resulting length of the qf_str.
  */
-extern void
+extern uint
 qfs_vprintf(qf_str qfs, const char *format, va_list va)
 {
   va_list vac ;
 
   if (format == NULL)
-    return ;
+    return qfs_len(qfs) ;
 
   va_copy(vac, va) ;
 
-  while ((qfs->ptr < qfs->end) && (*format != '\0'))
+  while (*format != '\0')
     {
       /* Have space for one byte and current format byte is not '\0'    */
       if (*format != '%')
-        *qfs->ptr++ = *format++ ;
+        qfs_append_ch(qfs, *format++) ;
       else
         {
           const char* start = format++ ;  /* start points at the '%' ...
@@ -715,8 +809,12 @@ qfs_vprintf(qf_str qfs, const char *format, va_list va)
               {
                 case '%':       /* %% only                              */
                   if (phase == pfp_null)
-                    *qfs->ptr++ = '%' ;
-                  phase = (phase == pfp_null) ? pfp_done : pfp_failed ;
+                    {
+                      qfs_append_ch(qfs, '%') ;
+                      phase = pfp_done ;
+                    }
+                  else
+                    phase = pfp_failed ;
                   break ;
 
                 case '\'':
@@ -881,14 +979,14 @@ qfs_vprintf(qf_str qfs, const char *format, va_list va)
           if (phase == pfp_failed)
             {
               format = start ;          /* back to the start            */
-              *qfs->ptr++ = *format++ ; /* copy the '%'                 */
+              qfs_append_ch(qfs, *format++) ;
             } ;
         } ;
     } ;
 
-  *qfs->ptr = '\0' ;
-
   va_end(vac) ;
+
+  return qfs_len(qfs) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -909,7 +1007,8 @@ qfs_vprintf(qf_str qfs, const char *format, va_list va)
  *             pf_unsigned
  *             pf_ptr
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 static enum pf_phase
 qfs_arg_string(qf_str qfs, const char* src, enum pf_flags flags,
@@ -953,7 +1052,8 @@ qfs_arg_string(qf_str qfs, const char* src, enum pf_flags flags,
  *             pf_unsigned
  *             pf_ptr
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 static enum pf_phase
 qfs_arg_char(qf_str qfs, char ch, enum pf_flags flags, int width, int precision)
@@ -985,7 +1085,8 @@ qfs_arg_char(qf_str qfs, char ch, enum pf_flags flags, int width, int precision)
  *
  *     and: all the number argument types.
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe.  Takes into account the offset, and
+ * adds up any overflow
  */
 static enum pf_phase
 qfs_arg_number(qf_str qfs, va_list* p_va, enum pf_flags flags,

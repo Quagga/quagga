@@ -1,10 +1,11 @@
+#include <zebra.h>
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "random.c"
 
-#include <zebra.h>
 
 #include "thread.h"
 #include "vty.h"

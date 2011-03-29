@@ -25,7 +25,6 @@
 #ifndef _ZEBRA_LOG_H
 #define _ZEBRA_LOG_H
 
-#include "zconfig.h"
 #include "misc.h"
 #include <signal.h>
 #include <syslog.h>

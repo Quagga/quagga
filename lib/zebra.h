@@ -35,6 +35,7 @@ typedef unsigned char   u_int8_t;
 typedef int socklen_t;
 #endif /* HAVE_SOCKLEN_T */
 
+#include <string.h>
 #include <unistd.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -42,7 +43,6 @@ typedef int socklen_t;
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
-#include <string.h>
 #include <pwd.h>
 #include <grp.h>
 #ifdef HAVE_STROPTS_H

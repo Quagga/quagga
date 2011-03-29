@@ -447,7 +447,7 @@ vtysh_config_from_file (struct vty *vty, FILE *fp)
   /* TODO: (1) allocate buffer for vty->buf  (2) what about CMD_QUEUED ??    */
 
 
-  while (fgets (vty->buf, VTY_BUFSIZ, fp))
+  while (fgets (vty->buf, 2000, fp))
     {
       /* Execute configuration command : this is strict match. */
       ret = cmd_execute_command(vty, cmd_parse_strict, &cmd);

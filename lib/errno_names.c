@@ -18,8 +18,8 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
+#include "misc.h"
 
-#include <stddef.h>
 #include <errno.h>
 #include <netdb.h>
 

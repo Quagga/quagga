@@ -22,8 +22,6 @@
 #ifndef _ZEBRA_QPTHREADS_H
 #define _ZEBRA_QPTHREADS_H
 
-#include "zconfig.h"
-
 #include "misc.h"
 #include <time.h>
 #include <pthread.h>

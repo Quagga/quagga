@@ -110,7 +110,7 @@ uty_set_monitor(vty_io vio, bool on)
           vio->mon_kick = false ;
 
           if (vio->mbuf == NULL)
-            vio->mbuf   = vio_fifo_init_new(NULL, 8 * 1024) ;
+            vio->mbuf   = vio_fifo_new(8 * 1024) ;
 
           sdl_push(vio_monitor_list, vio, mon_list) ;
 

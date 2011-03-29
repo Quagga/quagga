@@ -30,7 +30,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  *
  * The file memtypes.c contains a number of arrays of struct memory_list, which
  * map memory type names to a string, for printing.  Those arrays are
- * collected together in an array of struvt mlist.
+ * collected together in an array of struct mlist.
  */
 struct memory_list              /* one per memory type                  */
 {

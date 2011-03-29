@@ -14,9 +14,9 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * along with GNU Zebra; see the file COPYING.  If not, write to the
+ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+ * Boston, MA 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -573,7 +573,7 @@ ospf6_lsa_unlock (struct ospf6_lsa *lsa)
   ospf6_lsa_delete (lsa);
 }
 
-
+
 /* ospf6 lsa expiry */
 int
 ospf6_lsa_expire (struct thread *thread)
@@ -660,7 +660,7 @@ ospf6_lsa_refresh (struct thread *thread)
   return 0;
 }
 
-
+
 
 /* enhanced Fletcher checksum algorithm, RFC1008 7.2 */
 #define MODX                4102
@@ -712,12 +712,17 @@ ospf6_lsa_init (void)
   ospf6_install_lsa_handler (&unknown_handler);
 }
 
-
+void
+ospf6_lsa_terminate (void)
+{
+  vector_free (ospf6_lsa_handler_vector);
+}
+
 static char *
 ospf6_lsa_handler_name (struct ospf6_lsa_handler *h)
 {
   static char buf[64];
-  unsigned int i; 
+  unsigned int i;
   unsigned int size = strlen (h->name);
 
   if (!strcmp(h->name, "Unknown") &&
@@ -867,10 +872,10 @@ DEFUN (no_debug_ospf6_lsa_type,
   return CMD_SUCCESS;
 }
 
-struct cmd_command debug_ospf6_lsa_type_cmd;
-struct cmd_command debug_ospf6_lsa_type_detail_cmd;
-struct cmd_command no_debug_ospf6_lsa_type_cmd;
-struct cmd_command no_debug_ospf6_lsa_type_detail_cmd;
+struct cmd_element debug_ospf6_lsa_type_cmd;
+struct cmd_element debug_ospf6_lsa_type_detail_cmd;
+struct cmd_element no_debug_ospf6_lsa_type_cmd;
+struct cmd_element no_debug_ospf6_lsa_type_detail_cmd;
 
 void
 install_element_ospf6_debug_lsa (void)

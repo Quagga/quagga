@@ -815,7 +815,8 @@ typedef U8 BGP_ATT_ORIGIN_T ;       /* one byte of data !                   */
 
 VALUE(BGP_ATT_ORIGIN_L      = sizeof(BGP_ATT_ORIGIN_T)) ;
 
-enum BGP_ATT_ORG {
+enum BGP_ATT_ORG
+{
   BGP_ATT_ORG_MIN           = 0,
 
   BGP_ATT_ORG_IGP           = 0,    /* NLRI is interior to originating AS   */
@@ -851,7 +852,8 @@ typedef U32 BGP_ATT_ASPS_AS4_T ;
 
 /* AS Path Segment Types......................................................*/
 
-enum BGP_AS_SEG {
+enum BGP_AS_SEG
+{
   BGP_AS_SET                = 1,
   BGP_AS_SEQUENCE           = 2,
   BGP_AS_CONFED_SEQUENCE    = 3,    /* RFC5065 */
@@ -862,7 +864,8 @@ enum BGP_AS_SEG {
 
 #define AS4(h, l) (((h) << 16) + (l))
 
-enum BGP_ASN {
+enum BGP_ASN
+{
   BGP_ASN_NULL      = 0,            /* Reserved */
 
   BGP_ASN_RES1_S    = 64496,        /* Start of Reservation 1        (0xFBF0) */
@@ -962,7 +965,8 @@ enum
   BGP_ATT_COM_MS_RES2  = 0xFFFF     /* 0xFFFF_0000..0xFFFF_FFFF are reserved */
 } ;
 
-enum BGP_COMM {
+enum BGP_COMM
+{
   BGP_ATT_COM_RES1_S        = 0x00000000,
 
   BGP_ATT_COM_INTERNET      = 0x00000000,

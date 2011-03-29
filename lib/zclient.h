@@ -7,12 +7,12 @@
  * under the terms of the GNU General Public License as published by
  * the Free Software Foundation; either version 2, or (at your option)
  * any later version.
- * 
+ *
  * GNU Zebra is distributed in the hope that it will be useful, but
  * WITHOUT ANY WARRANTY; without even the implied warranty of
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
  * General Public License for more details.
- * 
+ *
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
@@ -25,6 +25,7 @@
 /* For struct interface and struct connected. */
 #include "if.h"
 #include "qpnexus.h"
+#include "prefix.h"
 
 /* For input/output buffer to zebra. */
 #define ZEBRA_MAX_PACKET_SIZ          4096
@@ -161,7 +162,7 @@ extern struct interface *zebra_interface_state_read (struct stream *s);
 extern struct connected *zebra_interface_address_read (int, struct stream *);
 extern void zebra_interface_if_set_value (struct stream *, struct interface *);
 extern void zebra_router_id_update_read (struct stream *s, struct prefix *rid);
-extern int zapi_ipv4_route (u_char, struct zclient *, struct prefix_ipv4 *, 
+extern int zapi_ipv4_route (u_char, struct zclient *, struct prefix_ipv4 *,
                             struct zapi_ipv4 *);
 
 #ifdef HAVE_IPV6
@@ -186,7 +187,7 @@ struct zapi_ipv6
   u_int32_t metric;
 };
 
-extern int zapi_ipv6_route (u_char cmd, struct zclient *zclient, 
+extern int zapi_ipv6_route (u_char cmd, struct zclient *zclient,
                      struct prefix_ipv6 *p, struct zapi_ipv6 *api);
 #endif /* HAVE_IPV6 */
 

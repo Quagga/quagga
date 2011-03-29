@@ -21,7 +21,6 @@
 
 #include "misc.h"
 #include "memory.h"
-#include "zassert.h"
 
 #include "vio_lines.h"
 #include "qiovec.h"

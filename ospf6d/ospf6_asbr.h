@@ -14,13 +14,18 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * along with GNU Zebra; see the file COPYING.  If not, write to the
+ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+ * Boston, MA 02111-1307, USA.
  */
 
 #ifndef OSPF6_ASBR_H
 #define OSPF6_ASBR_H
+
+#include "ospf6_proto.h"
+#include "ospf6_lsa.h"
+#include "ospf6_route.h"
+#include "ospf6_top.h"
 
 /* Debug option */
 extern unsigned char conf_debug_ospf6_asbr;
@@ -79,6 +84,7 @@ extern void ospf6_asbr_redistribute_remove (int type, int ifindex,
 extern int ospf6_redistribute_config_write (struct vty *vty);
 
 extern void ospf6_asbr_init (void);
+extern void ospf6_asbr_terminate (void);
 
 extern int config_write_ospf6_debug_asbr (struct vty *vty);
 extern void install_element_ospf6_debug_asbr (void);

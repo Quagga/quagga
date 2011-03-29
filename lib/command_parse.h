@@ -24,7 +24,6 @@
 #ifndef _ZEBRA_COMMAND_PARSE_H
 #define _ZEBRA_COMMAND_PARSE_H
 
-#include "zconfig.h"            /* HAVE_IPV6    */
 #include "misc.h"
 
 #include "command_common.h"

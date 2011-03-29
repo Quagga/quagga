@@ -20,6 +20,7 @@
  */
 
 #include <zebra.h>
+#include "misc.h"
 
 #include "prefix.h"
 #include "vty.h"

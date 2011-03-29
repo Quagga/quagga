@@ -35,12 +35,12 @@ extern void safe_finish(void);
 extern const char * safe_strerror(int errnum);
 extern const char * safe_inet_ntoa (struct in_addr in);
 
-extern strerror_t errtoa(int err, int len) ;
-extern strerror_t errtoname(int err, int len) ;
-extern strerror_t errtostr(int err, int len) ;
+extern strerror_t errtoa(int err, uint len) ;
+extern strerror_t errtoname(int err, uint len) ;
+extern strerror_t errtostr(int err, uint len) ;
 
-extern strerror_t eaitoa(int eai, int err, int len) ;
-extern strerror_t eaitoname(int eai, int err, int len) ;
-extern strerror_t eaitostr(int eai, int err, int len) ;
+extern strerror_t eaitoa(int eai, int err, uint len) ;
+extern strerror_t eaitoname(int eai, int err, uint len) ;
+extern strerror_t eaitostr(int eai, int err, uint len) ;
 
 #endif /* PTHREAD_SAFE_H_ */

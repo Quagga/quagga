@@ -19,8 +19,7 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#include <stdbool.h>
-#include <string.h>
+#include "misc.h"
 
 #include "keystroke.h"
 
@@ -28,7 +27,6 @@
 
 #include "memory.h"
 #include "mqueue.h"
-#include "zassert.h"
 
 /*==============================================================================
  */
@@ -274,7 +272,7 @@ typedef struct keystroke_state keystroke_state_t ;
 
 struct keystroke_stream
 {
-  vio_fifo_t    fifo ;          /* the keystrokes -- embedded           */
+  vio_fifo      fifo ;          /* the keystrokes                       */
 
   keystroke_callback* iac_callback ;
   void*               iac_callback_context ;
@@ -373,7 +371,7 @@ keystroke_stream_new(uint8_t csi_char, keystroke_callback* iac_callback,
   stream->iac_callback         = iac_callback ;
   stream->iac_callback_context = iac_callback_context ;
 
-  vio_fifo_init_new(stream->fifo, keystroke_buffer_len) ;
+  stream->fifo = vio_fifo_new(keystroke_buffer_len) ;
 
   stream->CSI = (csi_char != '\0') ? csi_char : 0x1B ;
 
@@ -390,7 +388,7 @@ keystroke_stream_free(keystroke_stream stream)
 {
   if (stream != NULL)
     {
-      vio_fifo_reset(stream->fifo, keep_it) ;
+      stream->fifo = vio_fifo_free(stream->fifo) ;
 
       XFREE(MTYPE_KEY_STREAM, stream) ;
     } ;
@@ -446,7 +444,7 @@ keystroke_stream_eof(keystroke_stream stream)
 extern void
 keystroke_stream_set_eof(keystroke_stream stream, bool timed_out)
 {
-  vio_fifo_reset(stream->fifo, keep_it) ;
+  vio_fifo_clear(stream->fifo, true) ;  /* and clear marks              */
 
   stream->eof_met         = true ;      /* essential information        */
   stream->timed_out       = timed_out ; /* variant of eof               */

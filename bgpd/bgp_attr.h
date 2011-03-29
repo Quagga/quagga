@@ -1,4 +1,4 @@
-/* BGP attributes. 
+/* BGP attributes.
    Copyright (C) 1996, 97, 98 Kunihiro Ishiguro
 
 This file is part of GNU Zebra.
@@ -64,28 +64,28 @@ struct attr_extra
 
   /* Extended Communities attribute. */
   struct ecommunity *ecommunity;
-  
+
   /* Route-Reflector Cluster attribute */
   struct cluster_list *cluster;
-  
+
   /* Unknown transitive attribute. */
   struct transit *transit;
 
   struct in_addr mp_nexthop_global_in;
   struct in_addr mp_nexthop_local_in;
-  
+
   /* Aggregator Router ID attribute */
   struct in_addr aggregator_addr;
-  
+
   /* Route Reflector Originator attribute */
   struct in_addr originator_id;
-  
+
   /* Local weight, not actually an attribute */
   u_int32_t weight;
-  
+
   /* Aggregator ASN */
   as_t aggregator_as;
-  
+
   /* MP Nexthop length */
   u_char mp_nexthop_len;
 };
@@ -97,28 +97,22 @@ struct attr
   struct aspath *aspath;
 
   /* Community structure */
-  struct community *community;	
-  
+  struct community *community;
+
   /* Lazily allocated pointer to extra attributes */
   struct attr_extra *extra;
-  
+
   /* Reference count of this attribute. */
   unsigned long refcnt;
 
   /* Flag of attribute is set or not. */
   u_int32_t flag;
-  
+
   /* Apart from in6_addr, the remaining static attributes */
   struct in_addr nexthop;
   u_int32_t med;
   u_int32_t local_pref;
-  
-  /* AS-Pathlimit */
-  struct {
-    u_int32_t as;
-    u_char ttl;
-  } pathlimit;
-  
+
   /* Path origin attribute */
   u_char origin;
 };
@@ -156,14 +150,14 @@ extern void bgp_attr_flush (struct attr *);
 extern struct attr *bgp_attr_default_set (struct attr *attr, u_char);
 extern struct attr *bgp_attr_default_intern (u_char);
 extern struct attr *bgp_attr_aggregate_intern (struct bgp *, u_char,
-                                        struct aspath *, 
+                                        struct aspath *,
                                         struct community *, int as_set);
-extern bgp_size_t bgp_packet_attribute (struct bgp *bgp, struct peer *, 
-                                 struct stream *, struct attr *, 
-                                 struct prefix *, afi_t, safi_t, 
+extern bgp_size_t bgp_packet_attribute (struct bgp *bgp, struct peer *,
+                                 struct stream *, struct attr *,
+                                 struct prefix *, afi_t, safi_t,
                                  struct peer *, struct prefix_rd *, u_char *);
-extern bgp_size_t bgp_packet_withdraw (struct peer *peer, struct stream *s, 
-                                struct prefix *p, afi_t, safi_t, 
+extern bgp_size_t bgp_packet_withdraw (struct peer *peer, struct stream *s,
+                                struct prefix *p, afi_t, safi_t,
                                 struct prefix_rd *, u_char *);
 extern void bgp_dump_routes_attr (struct stream *, struct attr *,
 				  struct prefix *);

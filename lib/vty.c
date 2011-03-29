@@ -21,7 +21,6 @@
  * 02111-1307, USA.
  */
 
-#include "zconfig.h"
 #include "misc.h"
 #include "lib/version.h"
 

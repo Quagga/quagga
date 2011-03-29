@@ -20,7 +20,7 @@
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
  */
-
+#include "misc.h"
 #include "vty_io_basic.h"
 #include "vty_local.h"
 

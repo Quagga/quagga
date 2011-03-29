@@ -1,7 +1,7 @@
 /*
  * Router ID for zebra daemon.
  *
- * Copyright (C) 2004 James R. Leu 
+ * Copyright (C) 2004 James R. Leu
  *
  * This file is part of Quagga routing suite.
  *
@@ -66,11 +66,11 @@ router_id_bad_address (struct connected *ifc)
 {
   if (ifc->address->family != AF_INET)
     return 1;
-  
+
   /* non-redistributable addresses shouldn't be used for RIDs either */
   if (!zebra_check_addr (ifc->address))
     return 1;
-  
+
   return 0;
 }
 
@@ -134,7 +134,7 @@ router_id_add_address (struct connected *ifc)
     l = &rid_lo_sorted_list;
   else
     l = &rid_all_sorted_list;
-  
+
   if (!router_id_find_node (l, ifc))
     listnode_add_sort (l, ifc);
 
@@ -228,16 +228,12 @@ DEFUN (no_router_id,
 static int
 router_id_cmp (void *a, void *b)
 {
-  unsigned int A, B;
+  const struct connected *ifa = (const struct connected *)a;
+  const struct connected *ifb = (const struct connected *)b;
+  unsigned int A = ntohl(ifa->address->u.prefix4.s_addr);
+  unsigned int B = ntohl(ifb->address->u.prefix4.s_addr);
 
-  A = ((struct connected *) a)->address->u.prefix4.s_addr;
-  B = ((struct connected *) b)->address->u.prefix4.s_addr;
-
-  if (A > B)
-    return 1;
-  else if (A < B)
-    return -1;
-  return 0;
+  return (int) (A - B);
 }
 
 void

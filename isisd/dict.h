@@ -21,8 +21,7 @@
 #ifndef DICT_H
 #define DICT_H
 
-#include "zconfig.h"
-#include <limits.h>
+#include "misc.h"
 #ifdef KAZLIB_SIDEEFFECT_DEBUG
 #include "sfx.h"
 #endif

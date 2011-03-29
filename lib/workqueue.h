@@ -27,7 +27,7 @@
 #include "misc.h"
 
 /* Hold time for the initial schedule of a queue run, in  millisec */
-#define WORK_QUEUE_DEFAULT_HOLD  50
+enum { WORK_QUEUE_DEFAULT_HOLD =  50 } ;
 
 /* action value, for use by item processor and item error handlers */
 typedef enum

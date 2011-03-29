@@ -368,12 +368,12 @@ uty_fifo_command_line(vio_vf vf, cmd_action action)
   while (1)
     {
       char* s, * p, * e ;
-      size_t  have ;
+      ulen    have ;
       ulen    len ;
       bool    eol ;
 
       /* Get what we can from the fifo                                  */
-      s = vio_fifo_get(vf->ibuf, &have) ;
+      have = vio_fifo_get(vf->ibuf) ;
 
       /* If fifo is empty, may be last line before eof, eof or waiting  */
       if (have == 0)
@@ -399,7 +399,7 @@ uty_fifo_command_line(vio_vf vf, cmd_action action)
        * This means that we cope with "\r\n" line terminators.  But not
        * anything more exotic.
        */
-      p = s ;
+      p = s = vio_fifo_get_ptr(vf->ibuf) ;
       e = s + have ;       /* have != 0    */
 
       eol = false ;
@@ -955,6 +955,8 @@ uty_pipe_open_complete(vio_vf vf, pid_t pid, int ret_fd, vio_vf slave)
 
   if (!vf->blocking)
     vio_vfd_set_read_action(vf->pr_vfd, uty_pipe_return_ready) ;
+
+  vio_vfd_set_read_timeout_action(vf->pr_vfd, uty_pipe_return_timeout) ;
 
   /* Configure master/slave relationship.                               */
   slave->pr_master  = vf ;

@@ -5,8 +5,8 @@
 #ifndef _QUAGGA_ASSERT_H
 #define _QUAGGA_ASSERT_H
 
-#include "confirm.h"
 #include "misc.h"
+#include "confirm.h"
 
 extern void _zlog_assert_failed (const char *assertion, const char *file,
 				 unsigned int line, const char *function)

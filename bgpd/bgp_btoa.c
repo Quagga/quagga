@@ -18,8 +18,6 @@ along with GNU Zebra; see the file COPYING.  If not, write to the Free
 Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 02111-1307, USA.  */
 
-#include <zebra.h>
-
 #include "zebra.h"
 #include "stream.h"
 #include "log.h"
@@ -91,11 +89,11 @@ attr_parse (struct stream *s, u_int16_t len)
 	    aspath.str = aspath_make_str_count (&aspath);
 	    printf ("ASPATH: %s\n", aspath.str);
 	    free (aspath.str);
-	    
+
 	    stream_forward (s, length);
 	  }
 	  break;
-	case BGP_ATTR_NEXT_HOP:	
+	case BGP_ATTR_NEXT_HOP:
 	  {
 	    struct in_addr nexthop;
 	    nexthop.s_addr = stream_get_ipv4 (s);
@@ -144,7 +142,7 @@ main (int argc, char **argv)
       perror ("fopen");
       exit (1);
     }
-  
+
   while (1)
     {
       stream_reset (s);
@@ -279,7 +277,7 @@ main (int argc, char **argv)
 
 	  sip.s_addr = stream_get_ipv4 (s);
 	  dip.s_addr = stream_get_ipv4 (s);
-	  
+
 	  printf ("saddr: %s\n", inet_ntoa (sip));
 	  printf ("daddr: %s\n", inet_ntoa (dip));
 

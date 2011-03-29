@@ -155,7 +155,7 @@ uty_cli_new(vio_vf vf)
   cli->cls  = qs_new(120) ;
   cli->clx  = qs_new(120) ;
 
-  cli->cbuf = vio_fifo_init_new(NULL, 1000) ;
+  cli->cbuf = vio_fifo_new(1000) ;
 
   cli->olc  = vio_lc_new(0 , 0, telnet_newline) ;
 
@@ -258,12 +258,12 @@ uty_cli_close(vty_cli cli, bool final)
   /* If final, free the CLI object.                                     */
   if (final)
     {
-      cli->prompt_for_node = qs_reset(cli->prompt_for_node, free_it) ;
-      cli->cl   = qs_reset(cli->cl,  free_it) ;
-      cli->cls  = qs_reset(cli->cls, free_it) ;
+      cli->prompt_for_node = qs_free(cli->prompt_for_node) ;
+      cli->cl   = qs_free(cli->cl) ;
+      cli->cls  = qs_free(cli->cls) ;
 
-      cli->cbuf = vio_fifo_reset(cli->cbuf, free_it) ;
-      cli->olc  = vio_lc_reset(cli->olc, free_it) ;
+      cli->cbuf = vio_fifo_free(cli->cbuf) ;
+      cli->olc  = vio_lc_free(cli->olc) ;
 
       XFREE(MTYPE_VTY_CLI, cli) ;               /* sets cli = NULL      */
   } ;

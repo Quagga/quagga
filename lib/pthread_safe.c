@@ -25,6 +25,12 @@
  * safe_ function is called on the same thread
  */
 
+/* Need "NO_USE_GNU" to turn off __USE_GNU in "misc.h" in order to get the
+ * POSIX version of strerror_r() :-(
+ */
+#define NO_USE_GNU
+
+#include "misc.h"
 #include "pthread_safe.h"
 #include "qpthreads.h"
 #include "memory.h"
@@ -47,6 +53,8 @@ static char * thread_buff(void);
 
 static pthread_key_t tsd_key;
 static const int buff_size = 1024;
+
+static const char ellipsis[] = "..." ;
 
 /* Module initialization, before any threads have been created */
 void
@@ -134,7 +142,7 @@ safe_strerror(int errnum)
  * to show this has happened.
  */
 
-static void errtox(strerror_t* st, int err, int len, int want) ;
+static void errtox(strerror_t* st, int err, uint len, uint want) ;
 
 /*------------------------------------------------------------------------------
  * Construct string to describe the given error of the form:
@@ -144,7 +152,7 @@ static void errtox(strerror_t* st, int err, int len, int want) ;
  * Thread safe extension to strerror.  Never returns NULL.
  */
 extern strerror_t
-errtoa(int err, int len)
+errtoa(int err, uint len)
 {
   strerror_t  st ;
 
@@ -159,7 +167,7 @@ errtoa(int err, int len)
  * Thread-safe.  Never returns NULL.
  */
 extern strerror_t
-errtoname(int err, int len)
+errtoname(int err, uint len)
 {
   strerror_t  st ;
 
@@ -174,7 +182,7 @@ errtoname(int err, int len)
  * Thread safe replacement for strerror.  Never returns NULL.
  */
 extern strerror_t
-errtostr(int err, int len)
+errtostr(int err, uint len)
 {
   strerror_t  st ;
 
@@ -189,21 +197,23 @@ errtostr(int err, int len)
  *   want == 1 -- return just name
  *   want == 2 -- return just the strerror()
  *   want == 3 -- return both, with the strerror() in single quotes.
+ *
+ * NB: this is not async-signal-safe !
  */
 static void
-errtox(strerror_t* st, int err, int len, int want)
+errtox(strerror_t* st, int err, uint len, uint want)
 {
   qf_str_t qfs ;
 
   const char* q ;
-  int ql ;
+  uint ql ;
 
   /* Prepare.                                                   */
   int errno_saved = errno ;
 
-  if ((len <= 0) || (len >= (int)sizeof(st->str)))
-    len = sizeof(st->str) - 1 ;
-  qfs_init(qfs, st->str, len + 1) ;
+  if ((len <= 0) || (len >= sizeof(st->str)))
+    len = sizeof(st->str) ;
+  qfs_init(qfs, st->str, len) ;
 
   q  = "" ;
   ql = 0 ;
@@ -293,15 +303,20 @@ errtox(strerror_t* st, int err, int len, int want)
             } ;
         } ;
 
-      /* Add strerror to the result... looking out for overflow.        */
-      len = strlen(errm) ;
+      /* Add strerror to the result... with quotes as rquired           */
+      if (ql != 0)
+        qfs_append(qfs, q) ;
 
-      if ((len + ql) <= qfs_left(qfs)) /* accounting for "quotes"      */
-        qfs_printf(qfs, "%s%s%s", q, errm, q) ;
-      else
-        qfs_printf(qfs, "%s%.*s...%s",
-                                   q, (int)(qfs_left(qfs) - ql - 3), errm, q) ;
-                                        /* -ve precision is ignored !   */
+      qfs_append(qfs, errm) ;
+
+      if (ql != 0)
+        qfs_append(qfs, q) ;
+
+      /* '\0' terminate -- if has overflowed, replace last few characters
+       * by "..." -- noting that sizeof("...") includes the '\0'.
+       */
+      if (qfs_term(qfs) != 0)
+        qfs_term_string(qfs, ellipsis, sizeof(ellipsis)) ;
     } ;
 
   /* Put back errno                                                     */
@@ -341,7 +356,7 @@ errtox(strerror_t* st, int err, int len, int want)
  *     error.
  */
 
-static void eaitox(strerror_t* st, int eai, int err, int len, int want) ;
+static void eaitox(strerror_t* st, int eai, int err, uint len, uint want) ;
 
 /*------------------------------------------------------------------------------
  * Construct string to describe the given EAI_XXX error of the form:
@@ -352,7 +367,7 @@ static void eaitox(strerror_t* st, int eai, int err, int len, int want) ;
  * Thread safe.  Never returns NULL.
  */
 extern strerror_t
-eaitoa(int eai, int err, int len)
+eaitoa(int eai, int err, uint len)
 {
   strerror_t  st ;
 
@@ -369,7 +384,7 @@ eaitoa(int eai, int err, int len)
  * Thread-safe.  Never returns NULL.
  */
 extern strerror_t
-eaitoname(int eai, int err, int len)
+eaitoname(int eai, int err, uint len)
 {
   strerror_t  st ;
 
@@ -386,7 +401,7 @@ eaitoname(int eai, int err, int len)
  * Thread-safe.  Never returns NULL.
  */
 extern strerror_t
-eaitostr(int eai, int err, int len)
+eaitostr(int eai, int err, uint len)
 {
   strerror_t  st ;
 
@@ -405,12 +420,12 @@ eaitostr(int eai, int err, int len)
  *   err != 0 => if EAI_SYSTEM, return result for errno == err instead.
  */
 static void
-eaitox(strerror_t* st, int eai, int err, int len, int want)
+eaitox(strerror_t* st, int eai, int err, uint len, uint want)
 {
   qf_str_t qfs ;
 
   const char* q ;
-  int ql ;
+  uint ql ;
 
   /* Look out for mapping EAI_SYSTEM                             */
   if ((eai == EAI_SYSTEM) && (err != 0))
@@ -455,14 +470,20 @@ eaitox(strerror_t* st, int eai, int err, int len, int want)
       else
         eaim = gai_strerror(eai) ;
 
-      /* Add strerror to the result... looking out for overflow.        */
-      len = strlen(eaim) ;
+     /* Add strerror to the result... with quotes as rquired           */
+      if (ql != 0)
+        qfs_append(qfs, q) ;
 
-      if ((len + ql) <= qfs_left(qfs)) /* accounting for "quotes"      */
-        qfs_printf(qfs, "%s%s%s", q, eaim, q) ;
-      else
-        qfs_printf(qfs, "%s%.*s...%s", q, qfs_left(qfs) - ql - 3, eaim, q) ;
-                                        /* -ve precision is ignored !   */
+      qfs_append(qfs, eaim) ;
+
+      if (ql != 0)
+        qfs_append(qfs, q) ;
+
+      /* '\0' terminate -- if has overflowed, replace last few characters
+       * by "..." -- noting that sizeof("...") includes the '\0'.
+       */
+      if (qfs_term(qfs) != 0)
+        qfs_term_string(qfs, ellipsis, sizeof(ellipsis)) ;
     } ;
 
   /* Put back errno                                                     */

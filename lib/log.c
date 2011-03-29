@@ -306,6 +306,8 @@ zlog (struct zlog *zl, int priority, const char *format, ...)
 
 /*------------------------------------------------------------------------------
  * Preparation of line to send to logging: file, stdout or "monitor" terminals.
+ *
+ * Line ends in '\n', but no terminating '\0'.
  */
 static void
 uvzlog_line(logline ll, struct zlog *zl, int priority,
@@ -314,7 +316,7 @@ uvzlog_line(logline ll, struct zlog *zl, int priority,
   const char* q ;
   qf_str_t    qfs ;
 
-  qfs_init(qfs, ll->line, sizeof(ll->line) - 1) ; /* leave space for '\n' */
+  qfs_init(qfs, ll->line, sizeof(ll->line)) ;
   /* "<time stamp>"                                                     */
   uquagga_timestamp(qfs, (zl != NULL) ? zl->timestamp_precision : 0) ;
 
@@ -339,8 +341,13 @@ uvzlog_line(logline ll, struct zlog *zl, int priority,
   /* Now the log line itself (uses a *copy* of the va_list)             */
   qfs_vprintf(qfs, format, va) ;
 
-  /* Set pointer to where the '\n' is going                             */
+  /* Stick '\n' on the end                                              */
   qfs_append_n(qfs, "\n", 1) ;
+
+  /* Worry about overflow of message                                    */
+  if (qfs_overflow(qfs) != 0)
+    qfs_term_string(qfs, "...\n", sizeof("...\n") - 1) ;
+
   ll->len = qfs_len(qfs) ;
 } ;
 

@@ -20,6 +20,7 @@
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
  */
+#include "misc.h"
 
 #include "vty.h"
 #include "vty_io.h"
@@ -323,8 +324,8 @@ uty_vin_push(vty_io vio, vio_vf vf, vio_in_type_t type,
 
   if (ibuf_size != 0)
     {
-      vf->ibuf = vio_fifo_init_new(NULL, ibuf_size) ;
-      vf->cl   = qs_init_new(NULL, 120) ;
+      vf->ibuf = vio_fifo_new(ibuf_size) ;
+      vf->cl   = qs_new(150) ;
       vf->line_complete = true ;
       vf->line_step     = 1 ;
     } ;
@@ -413,7 +414,7 @@ uty_vout_push(vty_io vio, vio_vf vf, vio_out_type_t type,
       vio->vout_base = vf ;
     } ;
 
-  vf->obuf = vio_fifo_init_new(NULL, obuf_size) ;
+  vf->obuf = vio_fifo_new(obuf_size) ;
   vio_fifo_set_end_mark(vf->obuf) ;
 
   vf->depth_mark = vio->depth_mark + 1 ;
@@ -595,7 +596,7 @@ uty_close(vty_io vio, const char* reason, bool curtains)
 
   /* Can dispose of these now -- leave vin/vout for final disposition   */
   vio->vty->exec = cmd_exec_free(vio->vty->exec) ;
-  vio->ebuf = vio_fifo_reset(vio->ebuf, free_it) ;
+  vio->ebuf = vio_fifo_free(vio->ebuf) ;
 
   /* Command loop is not running, so can place on death watch for final
    * disposition.
@@ -638,11 +639,11 @@ uty_dispose(vty_io vio)
   vio->vout = NULL ;
 
   /* Remainder of contents of the vio                                   */
-  vio->ebuf = vio_fifo_reset(vio->ebuf, free_it) ;
+  vio->ebuf = vio_fifo_free(vio->ebuf) ;
 
   /* Really cannot be a monitor any more !                              */
   assert(!vio->monitor) ;
-  vio->mbuf = vio_fifo_reset(vio->mbuf, free_it) ;
+  vio->mbuf = vio_fifo_free(vio->mbuf) ;
 
   XFREE(MTYPE_VTY, vio) ;
 
@@ -1222,9 +1223,9 @@ uty_vf_free(vio_vf vf)
 
   assert(vf->cli == NULL) ;
 
-  vf->ibuf   = vio_fifo_reset(vf->ibuf, free_it) ;
+  vf->ibuf   = vio_fifo_free(vf->ibuf) ;
   vf->cl     = qs_reset(vf->cl, free_it) ;
-  vf->obuf   = vio_fifo_reset(vf->obuf, free_it) ;
+  vf->obuf   = vio_fifo_free(vf->obuf) ;
 
   vf->context = cmd_context_free(vf->context, false) ;  /* not a copy   */
 

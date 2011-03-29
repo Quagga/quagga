@@ -2934,7 +2934,13 @@ show_ip_ospf_interface_sub (struct vty *vty, struct ospf *ospf,
 		       inet_ntoa (nbr->address.u.prefix4), VTY_NEWLINE);
 	    }
 	}
-
+      
+      /* Next network-LSA sequence number we'll use, if we're elected DR */
+      if (oi->params && ntohl (oi->params->network_lsa_seqnum)
+                          != OSPF_INITIAL_SEQUENCE_NUMBER)
+        vty_out (vty, "  Saved Network-LSA sequence number 0x%x%s",
+                 ntohl (oi->params->network_lsa_seqnum), VTY_NEWLINE);
+      
       vty_out (vty, "  Multicast group memberships:");
       if (OI_MEMBER_CHECK(oi, MEMBER_ALLROUTERS)
           || OI_MEMBER_CHECK(oi, MEMBER_DROUTERS))
@@ -7027,7 +7033,7 @@ DEFUN (ospf_max_metric_router_lsa_admin,
       SET_FLAG (area->stub_router_state, OSPF_AREA_ADMIN_STUB_ROUTED);
       
       if (!CHECK_FLAG (area->stub_router_state, OSPF_AREA_IS_STUB_ROUTED))
-          ospf_router_lsa_timer_add (area);
+          ospf_router_lsa_update_area (area);
     }
   return CMD_SUCCESS;
 }
@@ -7053,7 +7059,7 @@ DEFUN (no_ospf_max_metric_router_lsa_admin,
           && !area->t_stub_router)
         {
           UNSET_FLAG (area->stub_router_state, OSPF_AREA_IS_STUB_ROUTED);
-          ospf_router_lsa_timer_add (area);
+          ospf_router_lsa_update_area (area);
         }
     }
   return CMD_SUCCESS;
@@ -7106,7 +7112,7 @@ DEFUN (no_ospf_max_metric_router_lsa_startup,
       if (!CHECK_FLAG (area->stub_router_state, OSPF_AREA_ADMIN_STUB_ROUTED))
         {
           UNSET_FLAG (area->stub_router_state, OSPF_AREA_IS_STUB_ROUTED);
-          ospf_router_lsa_timer_add (area);
+          ospf_router_lsa_update_area (area);
         }
     }
   return CMD_SUCCESS;

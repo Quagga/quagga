@@ -18,10 +18,9 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
-#include "zconfig.h"            /* Otherwise IOV_MAX is not defined !   */
+#include "misc.h"
 
 #include <errno.h>
-#include "misc.h"
 #include "qdebug_nb.h"
 
 #include "memory.h"

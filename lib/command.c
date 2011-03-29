@@ -21,10 +21,8 @@ along with GNU Zebra; see the file COPYING.  If not, write to the
 Free Software Foundation, Inc., 59 Temple Place - Suite 330,
 Boston, MA 02111-1307, USA.  */
 
-#include "zconfig.h"
-#include "version.h"
-
 #include "misc.h"
+#include "version.h"
 
 #include <ctype.h>
 #include <sys/param.h>
@@ -58,7 +56,7 @@ vector node_vector = NULL ;
 /*==============================================================================
  * Default motd string.
  */
-const char* default_motd =
+static const char* default_motd =
 "\n"
 "Hello, this is " QUAGGA_PROGNAME " (version " QUAGGA_VERSION ")\n"
  QUAGGA_COPYRIGHT "\n"
@@ -2287,6 +2285,7 @@ cmd_init (bool terminal)
       install_element (RESTRICTED_NODE, &show_thread_cpu_cmd);
       install_element (VIEW_NODE, &show_thread_cpu_cmd);
       install_element (ENABLE_NODE, &show_thread_cpu_cmd);
+      install_element (ENABLE_NODE, &clear_thread_cpu_cmd);
       install_element (VIEW_NODE, &show_work_queues_cmd);
       install_element (ENABLE_NODE, &show_work_queues_cmd);
     } ;

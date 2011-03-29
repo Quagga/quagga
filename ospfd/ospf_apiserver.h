@@ -3,7 +3,7 @@
  * Copyright (C) 2001, 2002 Ralph Keller
  *
  * This file is part of GNU Zebra.
- * 
+ *
  * GNU Zebra is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
  * by the Free Software Foundation; either version 2, or (at your
@@ -168,7 +168,7 @@ extern void ospf_apiserver_flood_opaque_lsa (struct ospf_lsa *lsa);
 
 
 /* -----------------------------------------------------------
- * Followings are callback functions to handle opaque types 
+ * Followings are callback functions to handle opaque types
  * -----------------------------------------------------------
  */
 
@@ -180,7 +180,11 @@ extern void ospf_apiserver_config_write_router (struct vty *vty);
 extern void ospf_apiserver_config_write_if (struct vty *vty, struct interface *ifp);
 extern void ospf_apiserver_show_info (struct vty *vty, struct ospf_lsa *lsa);
 extern int ospf_ospf_apiserver_lsa_originator (void *arg);
+#if 0
 extern void ospf_apiserver_lsa_refresher (struct ospf_lsa *lsa);
+#else
+extern struct ospf_lsa * ospf_apiserver_lsa_refresher (struct ospf_lsa *lsa);
+#endif
 extern void ospf_apiserver_flush_opaque_lsa (struct ospf_apiserver *apiserv,
 				      u_char lsa_type, u_char opaque_type);
 

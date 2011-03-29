@@ -18,11 +18,11 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
+#include "misc.h"
 
 #include <sys/times.h>
 #include <errno.h>
 
-#include "zassert.h"
 #include "qtime.h"
 
 /*==============================================================================
@@ -69,6 +69,7 @@
  * (It appears that 60, 100, 250 and 1,000 ticks/sec. are popular options.)
  *
  * If sizeof(clock_t) > 4, it is assumed large enough never to wrap around.
+ * (But seems unlikely that such a system would not support CLOCK_MONOTONIC !)
  *
  * When clock_t is a 32-bit integer must be at least ready for wrap around.
  * There are two cases:
@@ -97,23 +98,24 @@ CONFIRM((sizeof(clock_t) >= 4) && (sizeof(clock_t) <= 8)) ;
 #ifdef GNU_LINUX
 #define TIMES_TAKES_NULL 1
 #else
-#undef  TIMES_TAKES_NULL
+#define TIMES_TAKES_NULL 0
 #endif
 
-static uint64_t monotonic          = 0 ;  /* monotonic clock in _SC_CLK_TCK's */
-static int64_t  last_times_sample  = 0 ;  /* last value returned by times()   */
+static int64_t monotonic          = 0 ; /* monotonic clock in _SC_CLK_TCK's */
+static int64_t last_times_sample  = 0 ; /* last value returned by times()   */
 
-static uint64_t step_limit         = 0 ;  /* for sanity check                 */
+static int64_t step_limit         = 0 ; /* for sanity check                 */
 
-static int64_t  times_clk_tcks     = 0 ;  /* sysconf(_SC_CLK_TCK)             */
-static qtime_t  times_scale_q      = 0 ;  /* 10**9 / times_clk_tcks           */
-static qtime_t  times_scale_r      = 0 ;  /* 10**9 % times_clk_tcks           */
+static int64_t times_clk_tcks     = 0 ; /* sysconf(_SC_CLK_TCK)             */
+static qtime_t times_scale_q      = 0 ; /* 10**9 / times_clk_tcks           */
+static qtime_t times_scale_r      = 0 ; /* 10**9 % times_clk_tcks           */
 
 qtime_mono_t
 qt_craft_monotonic(void) {
-  struct tms dummy ;
-  int64_t    this_times_sample ;
-  uint64_t   step ;
+#if !TIMES_TAKES_NULL
+  struct tms dummy[1] ;
+#endif
+  clock_t   this_times_sample ;
 
   /* Set up times_scale_q & times_scale_q if not yet done.              */
   if (times_clk_tcks == 0)      /* Is zero until it's initialized       */
@@ -130,7 +132,7 @@ qt_craft_monotonic(void) {
       times_scale_q = qr.quot ;
       times_scale_r = qr.rem ;
 
-      step_limit = (uint64_t)24 * 60 * 60 * times_clk_tcks ;
+      step_limit = (int64_t)24 * 60 * 60 * times_clk_tcks ;
     } ;
 
   /* No errors are defined for times(), but a return of -1 is defined   */
@@ -139,51 +141,54 @@ qt_craft_monotonic(void) {
   /* The following deals carefully with this -- cannot afford for the   */
   /* clock either to jump or to get stuck !                             */
 
-#ifdef TIMES_TAKES_NULL
-  this_times_sample = times(NULL) ;       /* assume this saves effort !   */
+#if TIMES_TAKES_NULL
+# define TIMES_ARG  NULL
 #else
-  this_times_sample = times(&dummy) ;
+# define TIMES_ARG  dummy
 #endif
 
+  this_times_sample = times(TIMES_ARG) ;
   if (this_times_sample == -1)            /* deal with theoretical error  */
     {
        errno = 0 ;
-       this_times_sample = times(&dummy) ;
+       this_times_sample = times(TIMES_ARG) ;
        if (errno != 0)
          zabort_errno("times() failed") ;
     } ;
+#undef TIMES_ARG
 
-  /* Calculate the step and verify sensible.                            */
-  /*                                                                    */
-  /* Watch out for huge jumps and/or time going backwards.              */
-  /* For 32-bit clock_t, look out for wrap-around.                      */
-
-  if ((sizeof(clock_t) > 4) || (this_times_sample > last_times_sample))
-    /* time going backwards will appear as HUGE step forwards.          */
-    step = (uint64_t)(this_times_sample - last_times_sample) ;
+  /* If clock_t is large enough, treat as monotonic (!).
+   *
+   * Otherwise calculate the difference between this sample and the
+   * previous one -- the step.
+   *
+   * We do the sum in signed 64 bits, and the samples are signed 64 bits.
+   */
+  if (sizeof(clock_t) > 4)
+    monotonic = this_times_sample ;
   else
     {
-      if (this_times_sample > 0)
-        /* both samples +ve => +ve wrap around.                         */
-        step = (uint64_t)( ((int64_t)INT32_MAX - last_times_sample + 1)
-                                                        + this_times_sample  ) ;
-      else
-        /* this sample -ve and last sample +ve => -ve wrap round        */
-        /* this sample -ve and last sample -ve => time gone backwards   */
-        /*                     (which appears as a HUGE step forwards). */
-        step = (uint64_t)( ((int64_t)INT32_MAX - last_times_sample + 1)
-                                  - ((int64_t)INT32_MIN - this_times_sample) ) ;
+      int64_t step ;
+
+      step = this_times_sample - last_times_sample ;
+
+      while (step < 0)
+        {
+          /* If times() wraps unsigned, then result needs INT32_MAX + 1
+           * adding to it to get to +ve result.
+           *
+           * If times() wraps signed, then result needs INT32_MAX + 1 adding
+           * to it *twice*.
+           */
+          step += (uint64_t)INT32_MAX + 1 ;
+        } ;
+
+      if (step > step_limit)
+        zabort("Sudden large monotonic clock jump") ;
+
+      monotonic        += step ;
+      last_times_sample = this_times_sample ;
     } ;
-
-  /*  TODO: better error messaging for large clock jumps.               */
-  if (step > step_limit)
-    zabort("Sudden large monotonic clock jump") ;
-
-  /* Advance the monotonic clock in sysconf(_SC_CLK_TCK) units.         */
-  monotonic += step ;
-
-  /* Remember what we got, for next time.                               */
-  last_times_sample = this_times_sample ;
 
   /* Scale to qtime_t units.                                            */
   if (times_scale_r == 0)
@@ -191,6 +196,17 @@ qt_craft_monotonic(void) {
   else
     return (monotonic * times_scale_q) +
                                 ((monotonic * times_scale_r) / times_clk_tcks) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get crafted monotonic time -- in seconds
+ */
+extern time_t
+qt_craft_mono_secs(void)
+{
+  qt_craft_monotonic() ;        /* update the monotonic counter */
+
+  return monotonic / times_clk_tcks ;
 } ;
 
 /*==============================================================================

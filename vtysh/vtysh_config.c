@@ -403,7 +403,7 @@ vtysh_read_config (char *config_default_dir)
 
   vtysh_read_file (confp);
   fclose (confp);
-  host_config_set (config_default_dir);
+  cmd_host_config_set (config_default_dir);
 
   return (0);
 }

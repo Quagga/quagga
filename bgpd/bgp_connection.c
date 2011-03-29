@@ -19,11 +19,9 @@
  * Boston, MA 02111-1307, USA.
  */
 
-#include "bgpd/bgp_connection.h"
-
-#include <zebra.h>
 #include "misc.h"
 
+#include "bgpd/bgp_connection.h"
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_fsm.h"
 #include "bgpd/bgp_engine.h"

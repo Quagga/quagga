@@ -20,8 +20,6 @@
  * 02111-1307, USA.
  */
 
-//#include <zebra.h>
-
 #include "misc.h"
 #include "qdebug_nb.h"
 

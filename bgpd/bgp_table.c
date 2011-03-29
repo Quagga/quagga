@@ -30,7 +30,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 static void bgp_node_delete (struct bgp_node *);
 static void bgp_table_free (struct bgp_table *);
-
+
 struct bgp_table *
 bgp_table_init (afi_t afi, safi_t safi)
 {
@@ -42,7 +42,7 @@ bgp_table_init (afi_t afi, safi_t safi)
   rt->type = BGP_TABLE_MAIN;
   rt->afi = afi;
   rt->safi = safi;
-  
+
   return rt;
 }
 
@@ -83,7 +83,7 @@ static struct bgp_node *
 bgp_node_set (struct bgp_table *table, struct prefix *prefix)
 {
   struct bgp_node *node;
-  
+
   node = bgp_node_create ();
 
   prefix_copy (&node->p, prefix);
@@ -106,7 +106,7 @@ bgp_table_free (struct bgp_table *rt)
 {
   struct bgp_node *tmp_node;
   struct bgp_node *node;
- 
+
   if (rt == NULL)
     return;
 
@@ -154,7 +154,7 @@ bgp_table_free (struct bgp_table *rt)
 	  break;
 	}
     }
- 
+
   assert (rt->count == 0);
 
   if (rt->owner)
@@ -169,7 +169,7 @@ bgp_table_free (struct bgp_table *rt)
 }
 
 /* Utility mask array. */
-static u_char maskbit[] = 
+static const u_char maskbit[] =
 {
   0x00, 0x80, 0xc0, 0xe0, 0xf0, 0xf8, 0xfc, 0xfe, 0xff
 };
@@ -249,7 +249,7 @@ bgp_node_match (const struct bgp_table *table, struct prefix *p)
 
   /* Walk down tree.  If there is matched route then store it to
      matched. */
-  while (node && node->p.prefixlen <= p->prefixlen && 
+  while (node && node->p.prefixlen <= p->prefixlen &&
 	 prefix_match (&node->p, p))
     {
       if (node->info)
@@ -300,7 +300,7 @@ bgp_node_lookup (const struct bgp_table *table, struct prefix *p)
 
   node = table->top;
 
-  while (node && node->p.prefixlen <= p->prefixlen && 
+  while (node && node->p.prefixlen <= p->prefixlen &&
 	 prefix_match (&node->p, p))
     {
       if (node->p.prefixlen == p->prefixlen && node->info)
@@ -322,7 +322,7 @@ bgp_node_get (struct bgp_table *const table, struct prefix *p)
 
   match = NULL;
   node = table->top;
-  while (node && node->p.prefixlen <= p->prefixlen && 
+  while (node && node->p.prefixlen <= p->prefixlen &&
 	 prefix_match (&node->p, p))
     {
       if (node->p.prefixlen == p->prefixlen)
@@ -358,7 +358,6 @@ bgp_node_get (struct bgp_table *const table, struct prefix *p)
       if (new->p.prefixlen != p->prefixlen)
 	{
 	  match = new;
-	  bgp_lock_node (match);
 	  new = bgp_node_set (table, p);
 	  set_link (match, new);
 	  table->count++;
@@ -366,7 +365,7 @@ bgp_node_get (struct bgp_table *const table, struct prefix *p)
     }
   table->count++;
   bgp_lock_node (new);
-  
+
   return new;
 }
 
@@ -403,9 +402,9 @@ bgp_node_delete (struct bgp_node *node)
     }
   else
     node->table->top = child;
-  
+
   node->table->count--;
-  
+
   bgp_node_free (node);
 
   /* If parent node is stub then delete it also. */
