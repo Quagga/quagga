@@ -343,8 +343,6 @@ struct vty_io                   /* typedef appears above                */
   vio_vf    vout_base ;
   uint      vout_depth ;
 
-  uint      depth_mark ;        /* vin_depth before pipes opened        */
-
   /* Error handling                                                     */
   bool      err_hard ;          /* eg I/O error                         */
   vio_fifo  ebuf ;              /* buffer for error message             */
@@ -441,6 +439,7 @@ extern void uty_vout_push(vty_io vio, vio_vf vf, vio_out_type_t type,
                                           vio_vfd_action* write_action,
                                           vio_timer_action* write_timer_action,
                                           usize obuf_size) ;
+extern void uty_vout_sync_depth(vty_io vio) ;
 extern cmd_return_code_t uty_vin_pop(vty_io vio, bool final,
                                                           cmd_context context) ;
 extern cmd_return_code_t uty_vout_pop(vty_io vio, bool final) ;

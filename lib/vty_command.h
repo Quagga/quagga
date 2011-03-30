@@ -46,7 +46,6 @@ extern cmd_return_code_t uty_cmd_out_push(vio_vf vf, bool final) ;
 
 extern void vty_cmd_set_full_lex(vty vty, bool full_lex) ;
 
-extern void uty_cmd_depth_mark(vty_io vio) ;
 extern cmd_return_code_t uty_cmd_open_in_pipe_file(vty_io vio,
                    cmd_context context, qstring name,    cmd_pipe_type_t type) ;
 extern cmd_return_code_t uty_cmd_open_in_pipe_shell(vty_io vio,

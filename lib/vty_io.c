@@ -252,8 +252,6 @@ uty_new(vty_type_t type, node_type_t node)
    *   vout_base    = NULL   -- empty output stack
    *   vout_depth   = 0      -- no stacked vout's, yet
    *
-   *   depth_mark   = 0      -- no stacked vin/vout, yet
-   *
    *   err_hard     = false  -- no error at all, yet
    *   ebuf         = NULL   -- no error at all, yet
    *
@@ -365,11 +363,16 @@ uty_vin_new_context(vty_io vio, cmd_context context, qpath file_here)
  *
  * Initialises an output buffer and sets an end_mark.
  *
- * The depth_mark is set to the current vio->depth_mark + 1.  This is the
+ * The depth_mark is set to the current vio->vin_depth + 1.  This is the
  * vin_depth below which the vout should be closed.  Before a command line
  * is fetched (and hence after the previous command line has completed) the
  * vout->depth_mark is checked.  If it is > the current vin_depth, then
  * the vout is closed before a command line can be fetched.
+ *
+ * NB: where a vin and vout are opened together, so the vout should NOT
+ *     be closed until after the vin, need to call uty_vout_sync_depth()
+ *     *both* the vin and the vout are pushed, in order to set the correct
+ *     depth_mark.
  *
  * NB: is usually called from the cli thread, but may be called from the cmd
  *     thread for vf which is blocking !
@@ -417,9 +420,23 @@ uty_vout_push(vty_io vio, vio_vf vf, vio_out_type_t type,
   vf->obuf = vio_fifo_new(obuf_size) ;
   vio_fifo_set_end_mark(vf->obuf) ;
 
-  vf->depth_mark = vio->depth_mark + 1 ;
+  vf->depth_mark = vio->vin_depth + 1 ;
 
   vio->obuf = vf->obuf ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Synchronise vout->depth_mark to current vin_depth.
+ *
+ * This *must* be called after a vin and vout have been opened together, and
+ * they are intended to be at the same depth.  This applies when the base
+ * vin/vout are opened, and when an in pipe and an out pipe are present together
+ * on a command line.
+ */
+extern void
+uty_vout_sync_depth(vty_io vio)
+{
+  vio->vout->depth_mark = vio->vin_depth ;
 } ;
 
 /*------------------------------------------------------------------------------

@@ -75,6 +75,8 @@ vty_config_read_open(int fd, const char* name, bool full_lex)
   uty_vin_push( vio, vf, VIN_CONFIG, NULL, NULL, 64 * 1024) ;
   uty_vout_push(vio, vf, VOUT_STDERR, NULL, NULL, 4 * 1024) ;
 
+  uty_vout_sync_depth(vio) ;    /* vin & vout are at same level         */
+
   /* Deal with the possibility that while reading the configuration file, may
    * use a pipe, and therefore may block waiting to collect a child process.
    *

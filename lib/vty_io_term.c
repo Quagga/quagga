@@ -164,6 +164,8 @@ uty_term_open(int sock_fd, union sockunion *su)
                                     uty_term_write_timeout,
                                     4096) ;     /* obuf is required     */
 
+  uty_vout_sync_depth(vio) ;    /* vin & vout are at same level         */
+
   vf->read_timeout = host.vty_timeout_val ; /* current EXEC timeout     */
 
   /* Set up the CLI object & initialise                                 */

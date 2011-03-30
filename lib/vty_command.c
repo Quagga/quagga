@@ -1155,15 +1155,6 @@ vty_cmd_reflect_line(vty vty)
 } ;
 
 /*------------------------------------------------------------------------------
- * Set the vio->depth_mark -- about to push vin and/or vout
- */
-extern void
-uty_cmd_depth_mark(vty_io vio)
-{
-  vio->depth_mark = vio->vin_depth ;
-}
-
-/*------------------------------------------------------------------------------
  * Open the given file as an in pipe, if possible.
  *
  * Puts error messages to vty if fails.

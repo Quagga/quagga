@@ -473,13 +473,13 @@ cmd_open_pipes(vty vty)
   cmd_parsed        parsed = exec->parsed ;
   cmd_return_code_t ret ;
   vty_io            vio ;
-
+  bool              sync_depth ;
   VTY_LOCK() ;
   vio = vty->vio ;
 
   ret = CMD_SUCCESS ;
 
-  uty_cmd_depth_mark(vio) ;     /* about to push vin and/or vout        */
+  sync_depth = false ;          /* assuming no in pipe                  */
 
   /* Deal with any in pipe stuff                                        */
   if ((parsed->parts & cmd_part_in_pipe) != 0)
@@ -499,6 +499,8 @@ cmd_open_pipes(vty vty)
         zabort("invalid in pipe state") ;
 
       qs_free(args) ;
+
+      sync_depth = true ;
     } ;
 
   /* Deal with any out pipe stuff                                       */
@@ -511,14 +513,17 @@ cmd_open_pipes(vty vty)
 
       if      ((parsed->out_pipe & cmd_pipe_file) != 0)
         ret = uty_cmd_open_out_pipe_file(vio, exec->context, args,
-                                                             parsed->out_pipe) ;
+                                                            parsed->out_pipe) ;
       else if ((parsed->out_pipe & cmd_pipe_shell) != 0)
         ret = uty_cmd_open_out_pipe_shell(vio, exec->context, args,
-                                                             parsed->out_pipe) ;
+                                                            parsed->out_pipe) ;
       else if ((parsed->out_pipe & cmd_pipe_dev_null) != 0)
         ret = uty_cmd_open_out_dev_null(vio) ;
       else
         zabort("invalid out pipe state") ;
+
+      if (sync_depth && (ret == CMD_SUCCESS))
+        uty_vout_sync_depth(vio) ;
 
       qs_free(args) ;
     } ;
