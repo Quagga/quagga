@@ -982,17 +982,21 @@ vty_read_config_file (int fd, const char* name, cmd_command first_cmd,
 {
   cmd_return_code_t ret ;
   vty     vty ;
+  qtime_t taking ;
 
   vty = vty_config_read_open(fd, name, full_lex) ;
 
   vty_cmd_loop_prepare(vty) ;
 
-  zlog_info("Started reading configuration: %s", name) ;
+  taking = qt_get_monotonic() ;
 
   ret = cmd_read_config(vty, first_cmd, ignore_warnings) ;
 
-  zlog_info("Finished reading configuration%s",
-                                (ret == CMD_SUCCESS) ? "." : " -- FAILED") ;
+  taking = (qt_get_monotonic() - taking) / (QTIME_SECOND / 1000) ;
+
+  zlog_info("Finished reading configuration '%s' in %d.%d secs%s",
+                        name, (int)(taking / 1000), (int)(taking % 1000),
+                                   (ret == CMD_SUCCESS) ? "." : " -- FAILED") ;
 
   vty_cmd_loop_exit(vty) ;
 

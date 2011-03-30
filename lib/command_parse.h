@@ -30,6 +30,7 @@
 #include "vector.h"
 #include "vio_fifo.h"
 #include "qstring.h"
+#include "elstring.h"
 #include "qpath.h"
 #include "elstring.h"
 #include "memory.h"
@@ -117,6 +118,22 @@ enum {
 
 CONFIRM(LONG_MAX >= item_max_number) ;
 
+enum cmd_item_type_bit
+{
+  item_null_bit          = BIT(item_null),
+  item_eol_bit           = BIT(item_eol),
+  item_option_word_bit   = BIT(item_option_word),
+  item_vararg_bit        = BIT(item_vararg),
+  item_word_bit          = BIT(item_word),
+  item_ipv6_prefix_bit   = BIT(item_ipv6_prefix),
+  item_ipv6_address_bit  = BIT(item_ipv6_address),
+  item_ipv4_prefix_bit   = BIT(item_ipv4_prefix),
+  item_ipv4_address_bit  = BIT(item_ipv4_address),
+  item_range_bit         = BIT(item_range),
+  item_keyword_bit       = BIT(item_keyword),
+} ;
+typedef enum cmd_item_type_bit cmd_item_type_bit_t ;
+
 /*------------------------------------------------------------------------------
  * Sex cmd_item_type and return whether it is an "option" type, or not.
  *
@@ -191,15 +208,16 @@ cmd_item_is_vararg(cmd_item_type_t itt)
 typedef struct cmd_item* cmd_item ;
 struct cmd_item
 {
-  const char*  str ;    /* in r_string -- original string form  */
-  const char*  doc ;    /* in r_doc    -- description text      */
+  elstring_t   str ;            /* in some word_lump                    */
 
-  cmd_item     next ;   /* Next possibility (if any)            */
+  const char*  doc ;            /* in r_doc    -- description text      */
+
+  cmd_item     next ;           /* Next possibility (if any)            */
 
   cmd_item_type_t  type ;
-  bool         arg ;    /* include in argv                      */
+  bool         arg ;            /* include in argv                      */
 
-  /* For item_range values                                      */
+  /* For item_range values                                              */
   bool  range_sign_allowed ;
   bool  range_sign_required ;
   long  range_min ;
@@ -522,6 +540,14 @@ struct cmd_token
 
   qstring_t         qs ;        /* token string                         */
   elstring_t        ot ;        /* original token in the line           */
+
+  const void*       word ;      /* set when a word match is done        */
+  ulen              w_len ;     /* length of word match                 */
+  int               cw ;        /* result of the word match             */
+
+  cmd_item_type_bit_t  seen ;   /* bit set when match done              */
+  match_type_t         match[item_type_count] ;
+                                /* result of match seen                 */
 } ;
 
 typedef struct cmd_token* cmd_token ;
@@ -727,7 +753,7 @@ extern void cmd_complete_keyword(cmd_parsed parsed,
 
 extern void cmd_get_parse_error(vio_fifo ebuf, cmd_parsed parsed, uint indent) ;
 
-
+extern void cmd_parser_init(void) ;
 
 
 

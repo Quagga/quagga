@@ -2159,6 +2159,8 @@ cmd_init (bool terminal)
 {
   srand(time(NULL)) ;
 
+  cmd_parser_init() ;
+
   if (host.cwd == NULL)         /* in case cmd_cwd() not called, yet    */
     cmd_getcwd() ;
 
@@ -2333,7 +2335,6 @@ cmd_terminate ()
 
           cmd->items = NULL ;                           /* gone         */
 
-          XFREE (MTYPE_CMD_STRING, cmd->r_string) ;     /* sets NULL    */
           XFREE (MTYPE_CMD_STRING, cmd->r_doc) ;
         } ;
     }

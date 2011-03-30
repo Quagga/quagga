@@ -77,22 +77,12 @@ els_free(elstring els)
  */
 
 /*------------------------------------------------------------------------------
- * Compare two elstrings -- returns the usual -ve, 0, +ve cmp result.
- *
- * NULL elstring is treated as empty.
+ * Basic string/length vs string/length comparison
  */
-extern int
-els_cmp(elstring a, elstring b)
+inline static int
+str_nn_cmp(const uchar* ap, ulen al, const uchar* bp, ulen bl)
 {
-  const uchar* ap ;
-  const uchar* bp ;
-  ulen  al, bl ;
   ulen  n ;
-
-  ap = els_body(a) ;            /* NULL if a is NULL                    */
-  bp = els_body(b) ;
-  al = els_len(a) ;             /* zero if a is NULL                    */
-  bl = els_len(b) ;
 
   n = (al <= bl) ? al : bl ;    /* min(al, bl)                          */
 
@@ -108,7 +98,29 @@ els_cmp(elstring a, elstring b)
 } ;
 
 /*------------------------------------------------------------------------------
- * Compare elstring against word.
+ * Compare two elstrings -- returns the usual -ve, 0, +ve cmp result.
+ *
+ * NULL elstring is treated as empty.
+ */
+extern int
+els_cmp(elstring a, elstring b)
+{
+  return str_nn_cmp(els_body(a), els_len(a), els_body(b), els_len(b)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Compare two string/length values -- returns the usual -ve, 0, +ve cmp result
+ *
+ * (Not really an elstring function, but the infrastructure is here.)
+ */
+extern int
+els_nn_cmp(const void* ap, ulen al, const void* bp, ulen bl)
+{
+  return str_nn_cmp(ap, al, bp, bl) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Compare elstring against word elstring.
  *
  *   Returns:  -1 => elstring and word match to end of elstring
  *              0 => elstring and word match completely
@@ -120,13 +132,13 @@ els_cmp(elstring a, elstring b)
  * An empty elstring will partly match any non-empty word.
  */
 extern int
-els_cmp_word(elstring a, const char* w)
+els_cmp_word(elstring a, elstring w)
 {
-  const uchar* ap, * ep ;
+  const uchar* ap, * ep, * wp ;
   ulen  al, wl ;
 
   al = els_len(a) ;                     /* zero if a is NULL            */
-  wl = (w != NULL) ? strlen(w) : 0 ;    /* zero if w is NULL            */
+  wl = els_len(w) ;                     /* zero if w is NULL            */
 
   if (al > wl)
     return +1 ;                         /* no match if longer           */
@@ -135,16 +147,17 @@ els_cmp_word(elstring a, const char* w)
     return (wl == 0) ? 0 : -1 ;         /* exact or partial if empty    */
 
   ap = els_body_nn(a) ;
+  wp = els_body_nn(w) ;
 
   /* Neither string is empty                                            */
 
-  if (*ap != *w)
+  if (*ap != *wp)
     return +1 ;                 /* quick out if no match for 1st char   */
 
   ep = ap + al - 1 ;
   while (ap < ep)
     {
-      if (*++ap != *++w)
+      if (*++ap != *++wp)
         return 1 ;
     } ;
 

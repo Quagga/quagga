@@ -2556,12 +2556,12 @@ uty_cli_hist_show(vty_cli cli)
  */
 static uint uty_cli_help_parse(vty_cli cli) ;
 
-static void uty_cli_complete_keyword(vty_cli cli, const char* keyword) ;
+static void uty_cli_complete_keyword(vty_cli cli, elstring keyword) ;
 static void uty_cli_complete_list(vty_cli cli, vector item_v) ;
 
 static void uty_cli_describe_list(vty_cli cli, vector item_v) ;
 static void uty_cli_describe_line(vty_cli cli, uint str_width, const char* str,
-                                                    const char* doc, uint len) ;
+                                  ulen str_len, const char* doc, ulen doc_len) ;
 static uint uty_cli_width_to_use(vty_cli cli) ;
 
 static void uty_cli_help_message(vty_cli cli, const char* msg) ;
@@ -2717,14 +2717,14 @@ uty_cli_help_parse(vty_cli cli)
  * Can complete a keyword.
  */
 static void
-uty_cli_complete_keyword(vty_cli cli, const char* keyword)
+uty_cli_complete_keyword(vty_cli cli, elstring keyword)
 {
   int pre, rep, ins, mov ;
 
   cmd_complete_keyword(cli->parsed, &pre, &rep, &ins, &mov) ;
 
   uty_cli_move(cli->cl, pre) ;          /* move to start of token */
-  uty_cli_replace(cli->cl, rep, keyword, strlen(keyword)) ;
+  uty_cli_replace(cli->cl, rep, els_body_nn(keyword), els_len_nn(keyword)) ;
 
   assert(ins <= 2) ;
   if (ins > 0)
@@ -2747,22 +2747,20 @@ uty_cli_complete_keyword(vty_cli cli, const char* keyword)
 static void
 uty_cli_complete_list(vty_cli cli, vector item_v)
 {
-  uint i, len, n ;
+  uint i, str_width, n ;
 
-  len = 6 ;
+  str_width = 6 ;
   for (i = 0 ; i < vector_length(item_v) ; ++i)
     {
       cmd_item item ;
-      uint sl ;
 
       item = vector_get_item(item_v, i) ;
 
-      sl = strlen(item->str) ;
-      if (len < sl)
-        len = sl ;
+      if (str_width < els_len_nn(item->str))
+        str_width = els_len_nn(item->str) ;
     } ;
 
-  n = uty_cli_width_to_use(cli) / (len + 2) ;
+  n = uty_cli_width_to_use(cli) / (str_width + 2) ;
 
   if (n == 0)
     n = 1 ;
@@ -2770,12 +2768,20 @@ uty_cli_complete_list(vty_cli cli, vector item_v)
   for (i = 0 ; i < vector_length(item_v) ; ++i)
     {
       cmd_item item ;
+      ulen     str_len ;
+      ulen     pad ;
+
       item = vector_get_item(item_v, i) ;
 
       if ((i % n) == 0)
         uty_cli_out_newline(cli) ;        /* clears cli_drawn     */
 
-      uty_cli_out(cli, "%-*s  ", len, item->str) ;
+      str_len = els_len_nn(item->str) ;
+      uty_cli_write(cli, els_body_nn(item->str), str_len) ;
+
+      pad = (str_len < str_width) ? str_width - str_len : 0 ;
+
+      uty_cli_write_n(cli, telnet_spaces, pad + 2) ;
     }
   uty_cli_help_newline(cli) ;
 } ;
@@ -2811,8 +2817,8 @@ uty_cli_describe_list(vty_cli cli, vector item_v)
 
       item = vector_get_item(item_v, i) ;
 
-      len = strlen(item->str) ;
-      if (item->str[0] == '.')
+      len = els_len_nn(item->str) ;
+      if (*((char*)els_body_nn(item->str)) == '.')
         len--;
 
       if (len > str_width)
@@ -2844,10 +2850,18 @@ uty_cli_describe_list(vty_cli cli, vector item_v)
     {
       cmd_item item ;
       const char* str, * dp, * ep ;
+      ulen     str_len ;
 
       item = vector_get_item(item_v, i) ;
 
-      str = item->str[0] == '.' ? item->str + 1 : item->str;
+      str =     els_body_nn(item->str) ;
+      str_len = els_len_nn(item->str) ;
+      if (*str == '.')
+        {
+          ++str ;
+          --str_len ;
+        } ;
+
       dp  = item->doc ;
       ep  = dp + strlen(dp) ;
 
@@ -2866,9 +2880,9 @@ uty_cli_describe_list(vty_cli cli, vector item_v)
               if (np == dp)                 /* if no space...       */
                 np = dp + doc_width ;       /* ...force break       */
 
-              uty_cli_describe_line(cli, str_width, str, dp, np - dp) ;
+              uty_cli_describe_line(cli, str_width, str, str_len, dp, np - dp) ;
 
-              str = "";             /* for 2nd and subsequent lines */
+              str_len = 0 ;         /* for 2nd and subsequent lines */
 
               dp = np ;             /* step past what just wrote    */
               while (*dp == ' ')
@@ -2876,7 +2890,7 @@ uty_cli_describe_list(vty_cli cli, vector item_v)
             } ;
         } ;
 
-      uty_cli_describe_line(cli, str_width, str, dp, ep - dp) ;
+      uty_cli_describe_line(cli, str_width, str, str_len, dp, ep - dp) ;
     } ;
 
   uty_cli_help_newline(cli) ;
@@ -2887,19 +2901,27 @@ uty_cli_describe_list(vty_cli cli, vector item_v)
  */
 static void
 uty_cli_describe_line(vty_cli cli, uint str_width, const char* str,
-                                                   const char* doc, uint len)
+                                    ulen str_len, const char* doc, ulen doc_len)
 {
-  if ((*str == '\0') && (len == 0))
+  if ((str_len == 0) && (doc_len == 0))
     return ;            /* quit if nothing to say               */
 
   uty_cli_help_newline(cli) ;
 
-  if (len == 0)
-    uty_cli_out(cli, "  %s", str) ;     /* left justify */
-  else
+  if (str_len > 0)
     {
-      uty_cli_out(cli, "  %-*s  ", str_width, str) ;
-      uty_cli_write(cli, doc, len) ;
+      uty_cli_write(cli, "  ", 2) ;
+      uty_cli_write(cli, str, str_len) ;
+    }
+  else
+    str_width += 2 ;
+
+  if (doc_len > 0)
+    {
+      ulen pad ;
+      pad = (str_len < str_width) ? str_width - str_len : 0 ;
+      uty_cli_write_n(cli, telnet_spaces, pad + 2) ;
+      uty_cli_write(cli, doc, doc_len) ;
     } ;
 } ;
 

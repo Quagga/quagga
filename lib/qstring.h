@@ -454,7 +454,7 @@ Inline usize qs_delete(qstring qs, usize n)
 } ;
 
 Inline int qs_cmp(qstring a, qstring b) ;
-Inline int qs_cmp_word(qstring a, const char* w) ;
+Inline int qs_cmp_word(qstring a, qstring w) ;
 Inline int qs_cmp_sig(qstring a, qstring b) ;
 Inline bool qs_equal(qstring a, qstring b) ;
 Inline bool qs_substring(qstring a, qstring b) ;
@@ -666,9 +666,9 @@ qs_cmp(qstring a, qstring b)
  * Compare qstrings to given word -- see els_cmp_word
  */
 Inline int
-qs_cmp_word(qstring a, const char* w)
+qs_cmp_word(qstring a, qstring w)
 {
-  return els_cmp_word(qs_els(a), w) ;
+  return els_cmp_word(qs_els(a), qs_els(w)) ;
 } ;
 
 /*------------------------------------------------------------------------------

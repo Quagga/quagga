@@ -700,7 +700,7 @@ uty_file_read_close(vio_vf vf, bool final)
 extern cmd_return_code_t
 uty_file_write_close(vio_vf vf, bool final, bool base)
 {
-  VTY_ASSERT_CLI_THREAD_LOCKED() ;
+  VTY_ASSERT_CAN_CLOSE_VF(vf) ;
   assert(vf->vout_state == vf_closing) ;
   assert((vf->vout_type == VOUT_FILE) || (vf->vout_type == VOUT_CONFIG)) ;
 

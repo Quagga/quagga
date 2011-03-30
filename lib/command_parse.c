@@ -29,6 +29,8 @@
 #include "command_local.h"
 #include "command_parse.h"
 #include "memory.h"
+#include "list_util.h"
+#include "elstring.h"
 
 /*==============================================================================
  * Command Description objects.
@@ -44,13 +46,35 @@ static int cmd_cmp_item(const cmd_item* a, const cmd_item* b) ;
 static int cmd_cmp_range_items(const cmd_item a, const cmd_item b) ;
 static bool cmd_item_is_option(cmd_item_type_t it) ;
 static bool cmd_item_is_vararg(cmd_item_type_t it) ;
+static void cmd_set_str(cmd_item n, const char* str) ;
 
 /*------------------------------------------------------------------------------
- * Dummy eol_item
+ * Table of known "words" -- so that a word can be represented by its
+ * address in this table and its length.
+ *
+ * See: cmd_set_str()
+ */
+enum { word_lump_length = 500 * 8 } ;           /* plenty ?     */
+enum { command_specification_length = 500 } ;   /* plenty !!    */
+
+typedef struct word_lump* word_lump ;
+
+struct word_lump
+{
+  word_lump  next ;
+
+  char*      end ;   /* points at the terminating '\0'       */
+  char       words[word_lump_length] ;
+} ;
+
+static struct dl_base_pair(word_lump) word_lumps = INIT_DL_BASE_PAIR ;
+
+/*------------------------------------------------------------------------------
+ * Dummy eol_item -- completed in cmd_parse_init()
  */
 static struct cmd_item eol_item =
 {
-  .str    = "<cr>",
+  .str    = ELSTRING_INIT,      /* see cmd_parse_init()         */
   .doc    = "",
 
   .next   = NULL,
@@ -152,15 +176,18 @@ extern void
 cmd_compile(cmd_command cmd)
 {
   vector multvec ;
+  const char* p ;
   char* cp ;
   char* qp ;
   char* dp ;
   bool  opt ;
   bool  vararg ;
 
+  char  spec[command_specification_length + 1] ;
+
   /* Initialise the compiled version of the command                     */
 
-  assert((cmd->r_doc  == NULL) && (cmd->r_string == NULL)) ;
+  assert(cmd->r_doc  == NULL) ;
 
   cmd->items    = vector_init_new(NULL, 10) ; /* plenty !       */
   cmd->nt_min   = 0 ;
@@ -168,63 +195,68 @@ cmd_compile(cmd_command cmd)
   cmd->nt_max   = 0 ;
   cmd->vararg   = NULL ;
   cmd->r_doc    = XSTRDUP(MTYPE_CMD_STRING, cmd->doc) ;  /* NULL => "" */
-  cmd->r_string = XSTRDUP(MTYPE_CMD_STRING, cmd->string) ;
+
+  if (strlen(cmd->string) > command_specification_length)
+    cmd_fail_item(cmd, "command specification *too* long") ;
 
   /* Simplify the command line string by replacing TABs by spaces, and barfing
    * on control characters.  Strip leading and trailing spaces and any spaces
-   * between brackets... checking for matching brackets.
+   * between brackets -- checking for matching brackets -- and squeeze out
+   * multiple spaces.
    */
-  cp = cmd->r_string ;
-  while (*cp != '\0')
+  qp = spec ;
+  p  = cmd->string ;
+
+  while ((*p == ' ') || (*p == '\t'))
+    ++p ;                       /* squeeze out leading spaces           */
+
+  while (*p != '\0')            /* starts with not ' ' and not '\t'     */
     {
-      if      (!iscntrl(*cp))
-        ++cp ;
-      else if (*cp == '\t')
-        *cp++ = ' ' ;
+      if      (!iscntrl(*p))
+        *qp = *p ;
+      else if (*p == '\t')
+        *qp = ' ' ;
       else
         cmd_fail_item(cmd, "improper control character in string") ;
+
+      if ((*qp != ' ') || (*(qp - 1) != ' '))
+        ++qp ;                  /* squeeze out multiple spaces          */
+
+      ++p ;
     } ;
 
-  cp = cmd->r_string ;
-  while (*cp == ' ')
-    ++cp ;
+  while ((qp > spec) && (*(qp - 1) == ' '))
+    --qp ;                      /* squeeze out trailing spaces          */
 
-  qp = cmd->r_string ;
+  *qp = '\0' ;
+
+  cp = spec ;
+  qp = spec ;
   while (*cp != '\0')
     {
-      if (*cp != ' ')
+      if ((*cp == '(') || (*cp == '[') || (*cp == '<') || (*cp == '{'))
         {
-          if ((*cp == '(') || (*cp == '[') || (*cp == '<') || (*cp == '{'))
+          /* Check for balanced brackets and remove any spaces between.
+           *
+           * Checks for enclosed brackets being balanced as well.
+           *
+           * Leaves cp pointing at the trailing bracket.
+           */
+          char* sp = cp ;
+          cp = cmd_item_brackets(cmd, cp) ;
+          while (sp < cp)
             {
-              /* Check for balanced brackets and remove any spaces between.
-               *
-               * Checks for enclosed brackets being balanced as well.
-               *
-               * Leaves cp pointing at the trailing bracket.
-               */
-              char* sp = cp ;
-              cp = cmd_item_brackets(cmd, cp) ;
-              while (sp < cp)
-                {
-                  if (*sp != ' ')
-                    *qp++ = *sp++ ;
-                  else
-                    ++sp ;
-                } ;
+              if (*sp != ' ')
+                *qp++ = *sp++ ;
+              else
+                ++sp ;
             } ;
-        }
-      else
-        {
-          while (*(cp + 1) == ' ')
-            ++cp ;
-          if (*(cp + 1) == '\0')
-            break ;
         } ;
 
       *qp++ = *cp++ ;
     } ;
 
-  *qp++ = '\0' ;        /* terminate reduced string             */
+  *qp = '\0' ;          /* terminate reduced string             */
 
   /* Simplify the documentation string by replacing TABs by spaces, and barfing
    * on control characters other than '\n'.
@@ -265,11 +297,11 @@ cmd_compile(cmd_command cmd)
         *qp++ = *dp++ ;
     } ;
 
-  *qp++ = '\0' ;        /* terminate reduced string             */
+  *qp  = '\0' ;         /* terminate reduced string             */
 
   /* Processing loop                                                    */
 
-  cp = cmd->r_string ;
+  cp = spec ;
   dp = cmd->r_doc ;
 
   opt    = false ;
@@ -380,7 +412,7 @@ cmd_compile(cmd_command cmd)
           if      (cmd_item_is_option(n->type))
             opt = true ;
           else if (opt)
-              cmd_fail_item(cmd, "can only have [option] after [option]") ;
+            cmd_fail_item(cmd, "can only have [option] after [option]") ;
 
           /* Check vararg item state -- can only be trailing            */
           if      (vararg)
@@ -434,7 +466,8 @@ cmd_compile(cmd_command cmd)
                   bool repeat ;
 
                   if      (n->type == item_keyword)
-                    repeat = strcmp(n->str, p->str) == 0 ;
+                    repeat = (els_body_nn(n->str) == els_body_nn(p->str))
+                                 && (els_len_nn(n->str) == els_len_nn(p->str)) ;
                   else if (n->type == item_range)
                     repeat = cmd_cmp_range_items(n, p) == 0 ;
                   else
@@ -478,7 +511,6 @@ cmd_compile_check(cmd_command cmd)
   if (   (cmd->string    == NULL)
       || (cmd->func      == NULL)
       || (cmd->items     == NULL)
-      || (cmd->r_string  == NULL)
       || (cmd->r_doc     == NULL) )
     ok = false ;
 
@@ -666,7 +698,8 @@ cmd_make_item(cmd_command cmd, char* cp, char* dp)
 
   /* Zeroising has set:
    *
-   *   * cmd     = NULL        -- set below
+   *   * str     = NULL        -- set below
+   *   * str_len = 0           -- set below
    *   * doc     = NULL        -- set below
    *
    *   * next    = NULL        -- set elsewhere if multiple.
@@ -681,7 +714,7 @@ cmd_make_item(cmd_command cmd, char* cp, char* dp)
    */
   confirm(item_null == 0) ;
 
-  n->str  = cp ;
+  cmd_set_str(n, cp) ;
   n->doc  = dp ;
 
   /* Worry about option state                                           */
@@ -931,7 +964,7 @@ cmd_cmp_item(const cmd_item* a, const cmd_item* b)
       if ((*a)->type == item_range)
         return cmd_cmp_range_items(*a, *b) ;
       else
-        return strcmp ((*a)->str, (*b)->str);
+        return els_cmp((*a)->str, (*b)->str) ;
     } ;
 } ;
 
@@ -956,6 +989,59 @@ cmd_cmp_range_items(const cmd_item a, const cmd_item b)
     return (as < bs) ? -1 : +1 ;
 
   return 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set the str and str_len entries for a given item.
+ *
+ * The str entry of a cmd_item is set to point at a pool of known values.
+ * This means that where two str entries are the same, they will have the
+ * same address !
+ */
+static void
+cmd_set_str(cmd_item n, const char* str)
+{
+  uint      len ;
+  word_lump lump ;
+  char*     word ;
+
+  len = strlen(str) ;
+
+  lump = dsl_head(word_lumps) ;
+  while (1)
+    {
+      if (lump == NULL)
+        {
+          lump = XCALLOC(MTYPE_CMD_STRING, sizeof(struct word_lump)) ;
+          lump->end = lump->words ;
+
+          dsl_append(word_lumps, lump, next) ;
+        } ;
+
+      word = strstr(lump->words, str) ;
+      if (word != NULL)
+        break ;
+
+      if (dsl_next(lump, next) != NULL)
+        {
+          lump = dsl_next(lump, next) ;
+          continue ;
+        } ;
+
+      if (len >= (&lump->words[word_lump_length] - lump->end))
+        {
+          lump = NULL ;
+          continue ;
+        } ;
+
+      word = lump->end ;
+      memcpy(word, str, len) ;
+      lump->end += len ;
+      *lump->end = '\0' ;
+      break ;
+    } ;
+
+  els_set_n_nn(n->str, word, len) ;
 } ;
 
 /*==============================================================================
@@ -1062,6 +1148,9 @@ cmd_token_set(token_vector tv, vector_index_t i,
 
   qs_set_alias_n(t->qs, p, len) ;
   qs_els_copy_nn(t->ot, t->qs) ;
+
+  t->w_len    = 0 ;             /* no words matched to, yet     */
+  t->seen     = 0 ;             /* no matches attempted, yet    */
 } ;
 
 
@@ -2249,15 +2338,23 @@ static match_type_t
 cmd_ipv4_address_match(cmd_token t)
 {
   match_strength_t ms ;
+  match_type_t     mt ;
+
+  if ((t->seen & item_ipv4_address_bit) != 0)
+    return t->match[item_ipv4_address] ;
 
   ms = cmd_ipv4_match(cmd_token_make_string(t), 0) ;
 
-  if (ms == ms_var_complete)
-    return mt_ipv4_address_complete ;
-  if (ms == ms_partial)
-    return mt_ipv4_address_partial ;
+  if      (ms == ms_var_complete)
+    mt = mt_ipv4_address_complete ;
+  else if (ms == ms_partial)
+    mt = mt_ipv4_address_partial ;
+  else
+    mt = mt_no_match ;
 
-  return mt_no_match ;
+  t->seen |= item_ipv4_address_bit ;
+
+  return t->match[item_ipv4_address] = mt ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2277,15 +2374,23 @@ static match_type_t
 cmd_ipv4_prefix_match(cmd_token t)
 {
   match_strength_t ms ;
+  match_type_t     mt ;
+
+  if ((t->seen & item_ipv4_prefix_bit) != 0)
+    return t->match[item_ipv4_prefix] ;
 
   ms = cmd_ipv4_match(cmd_token_make_string(t), 32) ;
 
-  if (ms == ms_var_complete)
-    return mt_ipv4_prefix_complete ;
-  if (ms == ms_partial)
-    return mt_ipv4_prefix_partial ;
+  if      (ms == ms_var_complete)
+    mt = mt_ipv4_prefix_complete ;
+  else if (ms == ms_partial)
+    mt = mt_ipv4_prefix_partial ;
+  else
+    mt = mt_no_match ;
 
-  return mt_no_match ;
+  t->seen |= item_ipv4_prefix_bit ;
+
+  return t->match[item_ipv4_prefix] = mt ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2425,15 +2530,23 @@ static match_type_t
 cmd_ipv6_address_match (cmd_token t)
 {
   match_strength_t ms ;
+  match_type_t     mt ;
+
+  if ((t->seen & item_ipv6_address_bit) != 0)
+    return t->match[item_ipv6_address] ;
 
   ms = cmd_ipv6_match(cmd_token_make_string(t), 0) ;
 
-  if (ms == ms_var_complete)
-    return mt_ipv6_address_complete ;
-  if (ms == ms_partial)
-    return mt_ipv6_address_partial ;
+  if      (ms == ms_var_complete)
+    mt = mt_ipv6_address_complete ;
+  else if (ms == ms_partial)
+    mt = mt_ipv6_address_partial ;
+  else
+    mt = mt_no_match ;
 
-  return mt_no_match ;
+  t->seen |= item_ipv6_address_bit ;
+
+  return t->match[item_ipv6_address] = mt ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2452,15 +2565,23 @@ static match_type_t
 cmd_ipv6_prefix_match(cmd_token t)
 {
   match_strength_t ms ;
+  match_type_t     mt ;
+
+  if ((t->seen & item_ipv6_prefix_bit) != 0)
+    return t->match[item_ipv6_prefix] ;
 
   ms = cmd_ipv6_match(cmd_token_make_string(t), 128) ;
 
-  if (ms == ms_var_complete)
-    return mt_ipv6_prefix_complete ;
-  if (ms == ms_partial)
-    return mt_ipv6_prefix_partial ;
+  if      (ms == ms_var_complete)
+    mt = mt_ipv6_prefix_complete ;
+  else if (ms == ms_partial)
+    mt = mt_ipv6_prefix_partial ;
+  else
+    mt = mt_no_match ;
 
-  return mt_no_match ;
+  t->seen |= item_ipv6_prefix_bit ;
+
+  return t->match[item_ipv6_prefix] = mt ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2988,7 +3109,7 @@ cmd_item_filter(cmd_parsed parsed, cmd_item item, cmd_token t)
    */
   if (t->type == cmd_tok_eol)
     {
-//    mt = (item->type == item_eol) ? mt_eol : mt_eol_partial ;
+      mt = (item->type == item_eol) ? mt_eol : mt_eol_partial ;
       mt = mt_eol_partial ;
     }
   else
@@ -3003,7 +3124,16 @@ cmd_item_filter(cmd_parsed parsed, cmd_item item, cmd_token t)
           break ;
 
         case item_keyword:
-          cw = els_cmp_word(t->ot, item->str) ;
+          if ((t->word == els_body_nn(item->str))
+                                        && (t->w_len == els_len_nn(item->str)))
+            cw = t->cw ;
+          else
+            {
+              cw = els_cmp_word(t->ot, item->str) ;
+              t->word  = els_body_nn(item->str) ;
+              t->w_len = els_len_nn(item->str) ;
+              t->cw    = cw ;
+            } ;
 
           if      (cw  > 0)             /* nope                 */
             mt = mt_no_match ;
@@ -4738,8 +4868,14 @@ cmd_complete_command (vector tokens, int node, int *status)
   return NULL;
 } ;
 
-
-
-
-
-
+/*==============================================================================
+ * Initialise command parsing -- done before first command is installed.
+ *
+ * Complete the (much used) eol_item.
+ */
+extern void
+cmd_parser_init(void)
+{
+  dsl_init(word_lumps) ;
+  cmd_set_str(&eol_item, "<cr>") ;
+} ;

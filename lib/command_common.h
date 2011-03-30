@@ -278,8 +278,7 @@ struct cmd_command
 
   struct cmd_item*  vararg ;    /* if there is a vararg item            */
 
-  char*         r_string ;
-  char*         r_doc ;
+  char*         r_doc ;         /* rendered documentation               */
 
 //char*         config ;        /* Configuration string                 */
 //vector        subconfig ;     /* Sub configuration string             */

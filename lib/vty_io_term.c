@@ -515,7 +515,7 @@ uty_term_ready(vio_vf vf)
     vio_lc_counter_reset(vf->cli->olc) ;        /* do one tranche       */
 
   done = uty_term_write(vf) ;
-  signal = done == utw_done ;
+  signal = ((done == utw_done) || (done == utw_stopped)) ;
 
   while (done != utw_error)
     {
@@ -538,7 +538,7 @@ uty_term_ready(vio_vf vf)
       if (done == done_before)
         break ;                 /* quit if no change in response        */
 
-      if (done == utw_done)
+      if ((done == utw_done) || (done == utw_stopped))
         signal = true ;
     } ;
 

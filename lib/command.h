@@ -55,7 +55,6 @@
     .nt       = 0,      \
     .nt_max   = 0,      \
     .vararg   = NULL,   \
-    .r_string = NULL,   \
     .r_doc    = NULL,   \
   } ;
 

@@ -52,10 +52,9 @@ typedef struct elstring* elstring ;
 /* Setting an elstring object to all zeros is enough to initialise it to
  * an empty string.
  */
-enum
-{
-  ELSTRING_INIT_ALL_ZEROS = true
-} ;
+enum { ELSTRING_INIT_ALL_ZEROS = true } ;
+
+#define ELSTRING_INIT { { { NULL }, 0 } }
 
 /*==============================================================================
  * Pointer pair and unsigned pointer pair and const versions.
@@ -177,7 +176,8 @@ extern elstring els_new(void) ;
 extern elstring els_free(elstring els) ;
 
 extern int els_cmp(elstring a, elstring b) ;
-extern int els_cmp_word(elstring a, const char* w) ;
+extern int els_nn_cmp(const void* ap, ulen al, const void* bp, ulen bl) ;
+extern int els_cmp_word(elstring a, elstring w) ;
 extern int els_cmp_sig(elstring a, elstring b) ;
 extern bool els_equal(elstring a, elstring b) ;
 extern bool els_substring(elstring a, elstring b) ;

@@ -53,14 +53,14 @@
  *          false => item not found on list (or item == NULL)
  */
 extern bool
-ssl_del_func(void* p_this, void* item, size_t link_offset)
+ssl_del_func(void** p_this, void* item, size_t link_offset)
 {
   void* this ;
 
   if (item == NULL)
     return false ;
 
-  while ((this = *(void**)p_this) != item)
+  while ((this = *p_this) != item)
     {
       if (this == NULL)
         return false ;
@@ -68,12 +68,66 @@ ssl_del_func(void* p_this, void* item, size_t link_offset)
       p_this = _sl_p_next(this, link_offset) ;
     } ;
 
-  *(void**)p_this = _sl_next(item, link_offset) ;
+  *p_this = _sl_next(item, link_offset) ;
 
   return true ;
 } ;
 
 /*==============================================================================
- * Single Base, Double Link
+ * Double Base, Single Link
  */
+
+/*------------------------------------------------------------------------------
+ * Deleting item
+ *
+ * Have to chase down list to find item.
+ *
+ * Note that p_this:
+ *
+ *   * starts as pointer to the base pointer, so should really be void**,
+ *     but that causes all sorts of problems with strict-aliasing.
+ *
+ *     So: have to cast to (void**) before dereferencing to get the address
+ *         of the first item on the list.
+ *
+ *   * as steps along the list p_this points to the "next pointer" in the
+ *     previous item.
+ *
+ *     The _sl_p_next() macro adds the offset of the "next pointer" to the
+ *     address of the this item.
+ *
+ *   * at the end, assigns the item's "next pointer" to the "next pointer"
+ *     field pointed at by p_this.
+ *
+ *     Note again the cast to (void**).
+ *
+ * Returns: true  => removed item from list
+ *          false => item not found on list (or item == NULL)
+ */
+extern bool
+dsl_del_func(struct dl_void_base_pair* p_base, void* item, size_t link_offset)
+{
+  void*  this ;
+  void** p_this ;
+
+  if (item == NULL)
+    return false ;
+
+  p_this = &p_base->head ;
+
+  while ((this = *p_this) != item)
+    {
+      if (this == NULL)
+        return false ;
+
+      p_this = _sl_p_next(this, link_offset) ;
+    } ;
+
+  *p_this = _sl_next(item, link_offset) ;
+
+  if (item == p_base->tail)
+    p_base->tail = *p_this ;
+
+  return true ;
+} ;
 
