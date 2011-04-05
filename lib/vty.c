@@ -1291,6 +1291,7 @@ vty_read_file (FILE *confp, struct cmd_element* first_cmd, bool ignore_warnings)
 {
   enum cmd_return_code ret ;
   struct vty *vty ;
+  qtime_t taking ;
 
   /* Set up configuration file reader VTY -- which buffers all output   */
   vty = vty_open(VTY_CONFIG_READ);
@@ -1302,9 +1303,17 @@ vty_read_file (FILE *confp, struct cmd_element* first_cmd, bool ignore_warnings)
   qs_need(&vty->vio->clx, VTY_BUFSIZ) ;
   vty->buf = qs_chars(&vty->vio->clx) ;
 
+  taking = qt_get_monotonic() ;
+
   /* Execute configuration file                                         */
   ret = config_from_file (vty, confp, first_cmd, &vty->vio->clx,
                                                               ignore_warnings) ;
+
+  taking = (qt_get_monotonic() - taking) / (QTIME_SECOND / 1000) ;
+
+  zlog_info("Finished reading configuration in %d.%dsecs%s",
+                            (int)(taking / 1000), (int)(taking % 1000),
+                                   (ret == CMD_SUCCESS) ? "." : " -- FAILED") ;
 
   VTY_LOCK() ;
 

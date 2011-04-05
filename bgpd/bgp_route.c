@@ -5039,7 +5039,7 @@ ALIAS_DEPRECATED (bgp_network_mask_natural,
 
 ALIAS_DEPRECATED (bgp_network_mask_natural_backdoor,
        bgp_network_mask_natural_backdoor_ttl_cmd,
-       "network A.B.C.D backdoor pathlimit (1-255>",
+       "network A.B.C.D backdoor pathlimit <1-255>",
        "Specify a network to announce via BGP\n"
        "Network number\n"
        "Specify a BGP backdoor route\n"
@@ -13463,8 +13463,10 @@ bgp_route_init (void)
    */
   install_element (RESTRICTED_NODE, &show_bgp_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_route_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_prefix_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_community_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_community_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_community2_cmd);
