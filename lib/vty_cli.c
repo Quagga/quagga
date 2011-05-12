@@ -373,7 +373,7 @@ extern enum vty_readiness
 uty_cli(vty_io vio)
 {
   VTY_ASSERT_LOCKED() ;
-  assert(vio->type == VTY_TERM) ;
+  assert((vio->type == VTY_TERM) || (vio->real_type == VTY_TERM)) ;
 
   if (vio->half_closed)
     return not_ready ;          /* Nothing more if half closed          */
@@ -411,7 +411,6 @@ static enum vty_readiness
 uty_cli_standard(vty_io vio)
 {
   VTY_ASSERT_LOCKED() ;
-  assert(vio->type == VTY_TERM) ;
 
   /* cli_blocked is set when is waiting for a command, or its output to
    * complete -- unless either of those has happened, is still blocked.
