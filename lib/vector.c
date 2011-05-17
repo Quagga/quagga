@@ -441,10 +441,12 @@ vector_move_item(vector v, vector_index i_dst, vector_index i_src)
  *
  *   rider <  0 -- move to before the item at the given position
  *   rider == 0 -- move to replace item at the given position
- *   rider >  0 -- insert after the item at the given position
+ *   rider >  0 -- move to after the item at the given position
  *
  * NB: it is the caller's responsibility to release the any existing value
  *     that will be replaced.
+ *
+ * NB: replacing an item by itself (rider == 0, i_dst == i_src) deletes it !
  *
  * Move items and extend vector as required.
  */
@@ -454,8 +456,17 @@ vector_move_item_here(vector v, vector_index i_dst, int rider,
 {
   if (rider != 0)
     {
-      if (rider > 0)
-	++i_dst ;
+      if      (i_src < i_dst)
+        {
+          if (rider < 0)
+            --i_dst ;           /* moving up places src after dst       */
+        }
+      else if (i_src > i_dst)
+        {
+          if (rider > 0)
+            ++i_dst ;           /* moving down places src before dst    */
+        } ;
+
       vector_move_item(v, i_dst, i_src) ;
     }
   else
