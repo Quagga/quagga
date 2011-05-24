@@ -59,50 +59,74 @@ pid_output (const char *path)
 pid_t
 pid_output (const char *path)
 {
-  int tmp;
-  int fd;
-  pid_t pid;
-  char buf[16];
-  struct flock lock;
-  mode_t oldumask;
+  const char* fail ;
+  int         err ;
+
+  pid_t  pid ;
+  mode_t oldumask ;
+  int    fd ;
+  struct flock lock ;
+  char   buf[32] ;
+  size_t pidsize ;
 
   pid = getpid ();
 
   oldumask = umask(0777 & ~PIDFILE_MASK);
-  fd = open (path, O_RDWR | O_CREAT, PIDFILE_MASK);
+
+  fail = "Failed to open pid lock file '%s' for pid %d (%s)" ;
+  fd   = open (path, O_RDWR | O_CREAT, PIDFILE_MASK) ;
+  err  = errno ;
+
+  umask(oldumask);
+
   if (fd < 0)
+    goto failed_err ;
+
+  memset (&lock, 0, sizeof(lock));
+  lock.l_type = F_WRLCK;
+  lock.l_whence = SEEK_SET;
+
+  if (fcntl(fd, F_SETLK, &lock) < 0)
     {
-      zlog_err("Can't create pid lock file %s (%s), exiting",
-	       path, errtoa(errno, 0).str);
-      umask(oldumask);
-      exit(1);
-    }
-  else
-    {
-      size_t pidsize;
+      fail = "Failed to write lock pid lock file '%s' for pid %d (%s)" ;
+      err  = errno ;
 
-      umask(oldumask);
-      memset (&lock, 0, sizeof(lock));
-
-      lock.l_type = F_WRLCK;
-      lock.l_whence = SEEK_SET;
-
-      if (fcntl(fd, F_SETLK, &lock) < 0)
+      if ((err == EACCES) || (err == EAGAIN))
         {
-          zlog_err("Could not lock pid_file %s, exiting", path);
-          exit(1);
-        }
+          fail = "Failed to write lock pid lock file '%s', "
+                                                      "blocked by pid %d (%s)" ;
+          fcntl(fd, F_GETLK, &lock) ;
+          pid = lock.l_pid ;
+        } ;
 
-      sprintf (buf, "%d\n", (int) pid);
-      pidsize = strlen(buf);
-      if ((tmp = write (fd, buf, pidsize)) != (int)pidsize)
-        zlog_err("Could not write pid %d to pid_file %s, rc was %d: %s",
-	         (int)pid,path,tmp, errtoa(errno, 0).str);
-      else if (ftruncate(fd, pidsize) < 0)
-        zlog_err("Could not truncate pid_file %s to %u bytes: %s",
-	         path,(u_int)pidsize, errtoa(errno, 0).str);
-    }
+      goto failed_err ;
+    } ;
+
+  pidsize = sprintf (buf, "%d\n", (int)pid) ;
+
+  fail = "Failed to write pid to pid lock file '%s' for pid %d (%s)" ;
+  if (write(fd, buf, pidsize) != (ssize_t)pidsize)
+    goto failed ;
+
+  fail = "Failed to truncate pid lock file '%s' to length for pid %d (%s)" ;
+  if (ftruncate(fd, pidsize) < 0)
+    goto failed ;
+
+  fail = "Failed to fsync pid lock file '%s' for pid %d (%s)" ;
+  if (fsync(fd) < 0)
+    goto failed ;
+
   return pid;
+
+failed:
+  err = errno ;
+
+failed_err:
+  zlog_err(fail, path, (int)pid, errtoa(err, 0).str) ;
+  fprintf(stderr, fail, path, (int)pid, errtoa(err, 0).str) ;
+  fprintf(stderr, "\n") ;
+
+  exit(1) ;
 }
 
 #endif /* HAVE_FCNTL */

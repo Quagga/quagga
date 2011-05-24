@@ -984,6 +984,30 @@ vty_read_config_file (int fd, const char* name, cmd_command first_cmd,
   vty     vty ;
   qtime_t taking ;
 
+  /* Set up configuration file reader VTY -- which buffers all output   */
+  vty = vty_open(VTY_CONFIG_READ);
+  vty->node = CONFIG_NODE;
+
+  /* Make sure we have a suitable buffer, and set vty->buf to point at
+   * it -- same like other command execution.
+   */
+  qs_need(&vty->vio->clx, VTY_BUFSIZ) ;
+  vty->buf = qs_chars(&vty->vio->clx) ;
+
+  taking = qt_get_monotonic() ;
+
+  /* Execute configuration file                                         */
+  ret = config_from_file (vty, confp, first_cmd, &vty->vio->clx,
+                                                              ignore_warnings) ;
+
+  taking = (qt_get_monotonic() - taking) / (QTIME_SECOND / 1000) ;
+
+  zlog_info("Finished reading configuration in %d.%dsecs%s",
+                            (int)(taking / 1000), (int)(taking % 1000),
+                                   (ret == CMD_SUCCESS) ? "." : " -- FAILED") ;
+
+  VTY_LOCK() ;
+
   vty = vty_config_read_open(fd, name, full_lex) ;
 
   vty_cmd_loop_prepare(vty) ;
