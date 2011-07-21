@@ -53,11 +53,22 @@ dnl ------------
 dnl Check CFLAGS
 dnl ------------
 AC_ARG_WITH(cflags,
-[  --with-cflags           Set CFLAGS for use in compilation.])
+[  --with-cflags=FLAGS     Set CFLAGS for use in compilation.])
 if test "x$with_cflags" != "x" ; then
   CFLAGS="$with_cflags" ; cflags_specified=yes ;
 elif test -n "$CFLAGS" ; then
   cflags_specified=yes ;
+fi
+
+dnl -------------
+dnl Check DEFINES
+dnl -------------
+AC_ARG_WITH(defines,
+[  --with-defines=DEFS     Set DEFINES for use in compilation.])
+if test "x$with_defines" != "x" ; then
+  DEFINES="$with_defines" ; defines_specified=yes ;
+elif test -n "$DEFINES" ; then
+  defines_specified=yes ;
 fi
 
 dnl --------------------
@@ -96,7 +107,7 @@ else
 fi
 
 dnl ---------------------------------------------
-dnl If CLFAGS doesn\'t exist set default value
+dnl If CFLAGS doesn\'t exist set default value
 dnl AC_PROG_CC will have set minimal default
 dnl already, eg "-O2 -g" for gcc, "-g" for others
 dnl (Wall is gcc specific... have to make sure
@@ -128,7 +139,7 @@ if test "x${cflags_specified}" = "x" ; then
   	CFLAGS="${CFLAGS} -Wbad-function-cast -Wwrite-strings"
   	CFLAGS="${CFLAGS} -Wmissing-prototypes -Wmissing-declarations"
   	CFLAGS="${CFLAGS} -Wchar-subscripts -Wcast-qual"
-  	CFLAGS="${CFLAGS} -pthread -rdynamic"
+  	CFLAGS="${CFLAGS} -pthread"
   	# TODO: conditionally addd -Wpacked if handled
   	AC_MSG_RESULT([gcc default])
   	;;
@@ -142,6 +153,27 @@ if test "x${cflags_specified}" = "x" ; then
   esac
 else
   AC_MSG_RESULT([CFLAGS supplied by user])
+fi
+
+dnl --------------
+dnl Append DEFINES
+dnl --------------
+
+AC_MSG_CHECKING([whether to append DEFINES])
+if test "x${defines_specified}" != "x" ; then
+  CFLAGS="${CFLAGS} ${DEFINES}"
+  AC_MSG_RESULT([appended ${DEFINES}])
+else
+  AC_MSG_RESULT([no])
+fi
+
+dnl -------------------
+dnl With MEMORY_TRACKER
+dnl -------------------
+AC_ARG_WITH(memory_tracker,
+[  --with-memory-tracker   Set -DMEMORY_TRACKER])
+if test "x$with_memory_tracker" != "x" ; then
+  CFLAGS="$CFLAGS -DMEMORY_TRACKER" ;
 fi
 
 dnl --------------
@@ -252,19 +284,25 @@ AC_ARG_ENABLE(capabilities,
 AC_ARG_ENABLE(gcc_ultra_verbose,
 [  --enable-gcc-ultra-verbose    enable ultra verbose GCC warnings])
 AC_ARG_ENABLE(linux24_tcp_md5,
-[  --enable-linux24-tcp-md5  enable support for old, Linux-2.4 RFC2385 patch])
+[  --enable-linux24-tcp-md5      enable support for old, Linux-2.4 RFC2385 patch])
 AC_ARG_ENABLE(gcc-rdynamic,
-[  --enable-gcc-rdynamic   enable gcc linking with -rdynamic for better backtraces])
+[  --enable-gcc-rdynamic         enable gcc linking with -rdynamic for better backtraces])
+AC_ARG_ENABLE(gcc-debug,
+[  --enable-gcc-debug            enable gcc debug (-O0 -g3)])
 AC_ARG_ENABLE(time-check,
 [  --disable-time-check          disable slow thread warning messages])
 AC_ARG_ENABLE(pcreposix,
-[  --enable-pcreposix          enable using PCRE Posix libs for regex functions])
+[  --enable-pcreposix            enable using PCRE Posix libs for regex functions])
 
 if test x"${enable_gcc_ultra_verbose}" = x"yes" ; then
   CFLAGS="${CFLAGS} -W -Wcast-qual -Wstrict-prototypes"
   CFLAGS="${CFLAGS} -Wmissing-declarations -Wmissing-noreturn"
   CFLAGS="${CFLAGS} -Wmissing-format-attribute -Wunreachable-code"
   CFLAGS="${CFLAGS} -Wpacked -Wpadded"
+fi
+
+if test x"${enable_gcc_debug}" = x"yes" ; then
+  CFLAGS="${CFLAGS} -O0 -g3"
 fi
 
 if test x"${enable_gcc_rdynamic}" = x"yes" ; then
@@ -1548,7 +1586,7 @@ echo "
 Quagga configuration
 --------------------
 quagga version          : ${PACKAGE_VERSION}
-host operating system  : ${host_os}
+host operating system   : ${host_os}
 source code location    : ${srcdir}
 compiler                : ${CC}
 compiler flags          : ${CFLAGS}
@@ -1558,9 +1596,9 @@ linker flags            : ${LDFLAGS} ${LIBS} ${LIBCAP} ${LIBREADLINE} ${LIBM}
 state file directory    : ${quagga_statedir}
 config file directory   : `eval echo \`echo ${sysconfdir}\``
 example directory       : `eval echo \`echo ${exampledir}\``
-user to run as		: ${enable_user}
-group to run as		: ${enable_group}
-group for vty sockets	: ${enable_vty_group}
+user to run as          : ${enable_user}
+group to run as         : ${enable_group}
+group for vty sockets   : ${enable_vty_group}
 config file mask        : ${enable_configfile_mask}
 log file mask           : ${enable_logfile_mask}
 
