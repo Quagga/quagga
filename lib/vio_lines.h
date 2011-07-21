@@ -82,6 +82,7 @@ Inline void vio_lc_clear_pause(vio_line_control lc) ;
 Inline bool vio_lc_counter_is_exhausted(vio_line_control lc) ;
 Inline bool vio_lc_have_complete_line_in_hand(vio_line_control lc) ;
 Inline bool vio_lc_is_empty(vio_line_control lc) ;
+Inline bool vio_lc_pending(vio_line_control lc) ;
 
 extern size_t vio_lc_append(vio_line_control lc, const void* buf, size_t len) ;
 extern bool vio_lc_flush(vio_line_control lc) ;
@@ -170,6 +171,17 @@ Inline bool
 vio_lc_is_empty(vio_line_control lc)
 {
   return qiovec_empty(lc->qiov) && qiovec_empty(lc->fragments) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Is there something pending, still to be written, in the qiov ?
+ *
+ * NB: ignoring anything that there may be in hand.
+ */
+Inline bool
+vio_lc_pending(vio_line_control lc)
+{
+  return lc->qiov->writing ;
 } ;
 
 #endif /* _ZEBRA_VIO_LINES_H */

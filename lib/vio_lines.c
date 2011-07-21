@@ -446,7 +446,7 @@ vio_lc_flush(vio_line_control lc)
 
       if (item->len == 0)
         {
-          assert(qiovec_empty(lc->fragments)) ;
+          qassert(qiovec_empty(lc->fragments)) ;
           return false ;        /* it was all whitespace which has all
                                    been discarded.                      */
         } ;

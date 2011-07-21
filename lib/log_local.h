@@ -24,6 +24,7 @@
 
 #include "misc.h"
 
+#include "log_common.h"
 #include "qpthreads.h"
 
 /*==============================================================================
@@ -133,23 +134,35 @@ LOG_ASSERT_LOCKED(void)
       LOG_ASSERT_FAILED() ;
 } ;
 
+/*==============================================================================
+ * Functions in log.c -- used in any of the log/command/vty
+ */
+extern void log_init_r(void) ;
+extern void log_finish(void);
 
-
-enum { timestamp_buffer_len = 32 } ;
 
 extern size_t quagga_timestamp(int timestamp_precision /* # subsecond digits */,
                                char *buf, size_t buflen);
 
+extern void uzlog_set_monitor(struct zlog *zl, int level) ;
+extern int uzlog_get_monitor_lvl(struct zlog *zl) ;
 
-/*==============================================================================
- * Functions in log.c -- used in any of the log/command/vty
- */
-struct zlog ;
+extern int zlog_set_file(struct zlog *zl, const char *filename, int log_level);
+extern int zlog_reset_file(struct zlog *zl);
 
-extern void uzlog_add_monitor(struct zlog *zl, int count) ;
-
-extern void log_init_r(void) ;
-extern void log_finish(void);
+extern int  zlog_get_default_lvl (struct zlog *zl);
+extern void zlog_set_default_lvl (struct zlog *zl, int level);
+extern void zlog_set_default_lvl_dest (struct zlog *zl, int level);
+extern int  zlog_get_maxlvl (struct zlog *zl, zlog_dest_t dest);
+extern int  zlog_get_facility (struct zlog *zl);
+extern void zlog_set_facility (struct zlog *zl, int facility);
+extern bool zlog_get_record_priority (struct zlog *zl);
+extern void zlog_set_record_priority (struct zlog *zl, bool record_priority);
+extern int  zlog_get_timestamp_precision (struct zlog *zl);
+extern void zlog_set_timestamp_precision (struct zlog *zl, int timestamp_precision);
+extern const char * zlog_get_ident (struct zlog *zl);
+extern char * zlog_get_filename (struct zlog *zl);
+extern bool zlog_is_file (struct zlog *zl);
 
 
 #endif /* _ZEBRA_LOG_LOCAL_H */

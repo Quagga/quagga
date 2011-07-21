@@ -20,10 +20,25 @@
  */
 
 #include "vty.h"
+#include <sys/mman.h>
 
 /*==============================================================================
  * Memory Tracker
  */
+typedef struct mem_region  mem_region_t ;
+typedef struct mem_region* mem_region ;
+struct mem_region
+{
+  void*     base ;
+  void*     limit ;
+
+  uint64_t  allocated ;
+
+  uint64_t  used ;
+  uint64_t  overhead ;
+} ;
+
+typedef struct mem_descriptor  mem_descriptor_t ;
 typedef struct mem_descriptor* mem_descriptor ;
 struct mem_descriptor
 {
@@ -34,7 +49,7 @@ struct mem_descriptor
   uint32_t    size ;    /* LS Type is encoded as MS 4 bits      */
 } ;
 
-typedef uint32_t md_index ;
+typedef uint32_t md_index_t ;
 
 enum
 {
@@ -72,13 +87,13 @@ static struct mem_type_tracker
 static mem_descriptor mem_page_table[md_page_count] ;
 
 static mem_descriptor mem_free_descriptors ;
-static md_index       mem_next_index ;
+static md_index_t     mem_next_index ;
 
 static struct mem_tracker mem ;
 
 uint32_t  mem_base_count ;
 
-md_index* mem_bases ;
+md_index_t* mem_bases ;
 
 inline static void
 mem_md_set_type(mem_descriptor md, enum MTYPE mtype)
@@ -97,7 +112,7 @@ mem_md_set_type(mem_descriptor md, enum MTYPE mtype)
 } ;
 
 inline static void
-mem_md_set_next(mem_descriptor md, md_index next)
+mem_md_set_next(mem_descriptor md, md_index_t next)
 {
   md->next = (md->next & ~md_next_mask) | (next & md_next_mask) ;
 } ;
@@ -116,7 +131,7 @@ mem_md_type(mem_descriptor md)
         | ( (md->size >> md_size_bits) & md_size_type_mask ) ;
 } ;
 
-inline static md_index
+inline static md_index_t
 mem_md_next(mem_descriptor md)
 {
   return md->next & md_next_mask ;
@@ -129,7 +144,7 @@ mem_md_size(mem_descriptor md)
 } ;
 
 inline static mem_descriptor
-mem_md_ptr(md_index mdi)
+mem_md_ptr(md_index_t mdi)
 {
   mem_descriptor page ;
 
@@ -143,7 +158,7 @@ mem_md_ptr(md_index mdi)
 
 static void mem_md_make_bases(void) ;
 
-inline static md_index*
+inline static md_index_t*
 mem_md_base(void* address)
 {
   if (mem_bases == NULL)
@@ -155,23 +170,32 @@ mem_md_base(void* address)
 static void
 mem_md_make_bases(void)
 {
-  md_index* bases_was = mem_bases ;
-  uint32_t  count_was = mem_base_count ;
+  md_index_t* bases_was = mem_bases ;
+  uint32_t    count_was = mem_base_count ;
 
   mem_base_count += 256 * 1024 ;
   mem_base_count |= 1 ;
-  mem_bases       = calloc(mem_base_count, sizeof(md_index)) ;
 
+#ifdef HAVE_MMAP
+  mem_bases = mmap(NULL, mem_base_count * sizeof(md_index_t),
+                                           PROT_READ | PROT_WRITE,
+                                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) ;
+  passert(mem_bases != MAP_FAILED) ;
+#else
+  mem_bases = malloc(mem_base_count * sizeof(md_index_t)) ;
   passert(mem_bases != NULL) ;
+#endif
+
+  memset(mem_bases, 0, mem_base_count * sizeof(md_index_t)) ;
 
   if (bases_was == NULL)
     passert(count_was == 0) ;
   else
     {
-      md_index*      base = bases_was ;
-      md_index*      new_base ;
-      md_index       this ;
-      md_index       next ;
+      md_index_t*    base = bases_was ;
+      md_index_t*    new_base ;
+      md_index_t     this ;
+      md_index_t     next ;
       mem_descriptor md ;
 
       while (count_was)
@@ -190,7 +214,14 @@ mem_md_make_bases(void)
           --count_was ;
         } ;
 
+#ifdef HAVE_MMAP
+      {
+        int rc = munmap(bases_was, count_was * sizeof(md_index_t)) ;
+        passert(rc >= 0) ;
+      } ;
+#else
       free(bases_was) ;
+#endif
     } ;
 } ;
 
@@ -198,17 +229,25 @@ static void
 mem_md_make_descriptors(void)
 {
   mem_descriptor  md ;
-  md_index        mdi ;
+  md_index_t      mdi ;
 
   mdi = mem_next_index ;
   passert(mdi < md_index_max) ;
 
-  mem_free_descriptors
-               = mem_page_table[(mdi >> md_i_index_bits) & md_page_mask]
-                 = calloc(md_i_index_count, sizeof(struct mem_descriptor)) ;
-
+#ifdef HAVE_MMAP
+  mem_free_descriptors = mmap(NULL, md_i_index_count * sizeof(mem_descriptor_t),
+                                           PROT_READ | PROT_WRITE,
+                                           MAP_PRIVATE | MAP_ANONYMOUS, -1, 0) ;
+  passert(mem_free_descriptors != MAP_FAILED) ;
+#else
+  mem_free_descriptors = malloc(md_i_index_count * sizeof(mem_descriptor_t)) ;
   passert(mem_free_descriptors != NULL) ;
+#endif
 
+  memset(mem_free_descriptors, 0, md_i_index_count * sizeof(mem_descriptor_t)) ;
+
+  mem_page_table[(mdi >> md_i_index_bits) & md_page_mask]
+                                                        = mem_free_descriptors ;
   mem_next_index += md_i_index_count ;
 
   if (mdi == 0)
@@ -232,9 +271,9 @@ inline static void
 mem_md_malloc(enum MTYPE mtype, void* address, size_t size, const char* name)
 {
   mem_tracker     mtt ;
-  md_index*       base ;
+  md_index_t*       base ;
   mem_descriptor  md ;
-  md_index        mdi ;
+  md_index_t        mdi ;
 
   passert(size <= md_size_max) ;
 
@@ -286,9 +325,9 @@ inline static void
 mem_md_free(enum MTYPE mtype, void* address)
 {
   mem_tracker     mtt ;
-  md_index*       base ;
+  md_index_t*       base ;
   mem_descriptor  md, prev_md ;
-  md_index        this, next ;
+  md_index_t        this, next ;
 
   if (address == NULL)
     return ;
@@ -344,9 +383,9 @@ mem_md_realloc(enum MTYPE mtype, void* old_address, void* new_address,
                                                   size_t size, const char* name)
 {
   mem_tracker     mtt ;
-  md_index*       base ;
+  md_index_t*       base ;
   mem_descriptor  md, prev_md ;
-  md_index        this, next ;
+  md_index_t        this, next ;
 
   if (old_address == NULL)
     {
@@ -534,7 +573,7 @@ show_memory_tracker_summary(struct vty *vty)
 
   LOCK ;
   overhead =   (sizeof(struct mem_descriptor) * mem_next_index)
-             + (sizeof(md_index)              * mem_base_count)
+             + (sizeof(md_index_t)              * mem_base_count)
              + (sizeof(mem_descriptor)        * md_page_count) ;
 
   mt = mem ;    /* copy the overall memory information  */

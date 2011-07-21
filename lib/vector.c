@@ -482,7 +482,7 @@ vector_move_item(vector v, vector_index_t i_dst, vector_index_t i_src)
  *
  * Move items and extend vector as required.
  */
-extern void
+void
 vector_move_item_here(vector v, vector_index_t i_dst, int rider,
                                                            vector_index_t i_src)
 {

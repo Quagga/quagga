@@ -1955,7 +1955,7 @@ cmd_parse_out_pipe(cmd_parsed parsed, cmd_token t)
   switch (cpp_getch(p))
   {
     case '|':
-      parsed->out_pipe = cmd_pipe_shell | cmd_pipe_shell_only ;
+      parsed->out_pipe = cmd_pipe_shell | cmd_pipe_shell_cmd ;
       break ;
 
     case '>':

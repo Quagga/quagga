@@ -34,6 +34,7 @@ extern void uty_init_monitor(void) ;
 extern void uty_terminate_monitor(void) ;
 
 extern void uty_set_monitor(vty_io vio, bool on) ;
+extern void vty_set_monitor_level(vty vty, int level) ;
 
 extern void vty_log(int priority, const char* line, uint len) ;
 extern void vty_log_fixed(const char* buf, uint len) ;

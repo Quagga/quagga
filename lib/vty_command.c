@@ -39,63 +39,97 @@
 #include "qstring.h"
 
 /*==============================================================================
- * Variables etc.
+ * vty_command.c contains functions used by the command processing, where
+ * that interacts with the vty -- in particular vty I/O.
+ *
+ * There are two command loops -- cmd_read_config() and cq_process().  Each
+ * command loop appears to be a thread of control sucking in command lines,
+ * parsing and executing them.  In the process, input and output pipes are
+ * opened and closed, and the vty stack grows and shrinks.
+ *
+ * For cmd_read_config() -- see command_execute.c -- the command loop is,
+ * indeed, a thread of control and all the I/O operations are "blocking", so
+ * that any waiting required is done inside the loop.
+ *
+ * For cq_process() -- see command_queue.c -- things are a lot more
+ * complicated: first, I/O is non-blocking, so I/O operations may return
+ * CMD_WAITING and the command loop must exit and be able to restart, when
+ * the I/O completes in the background; second, in a multi-pthread environment
+ * some operations must be performed in the CLI pthread while others must be
+ * performed in the command (the Routing Engine, generally) pthread.  (It would
+ * be easier if each cq_process instance were a separate pthread, but we here
+ * implement it as a form of co-routine, driven by messages.)
+ *
+ * The I/O is structured so that all output either completes before the I/O
+ * operation returns, or will be autonomously completed by the background
+ * pselect() process.  Only when waiting for input does the loop need to exit
+ * waiting for I/O.
+ *
+ * So a command loop takes the general form:
+ *
+ *   loop:   fetch command line
+ *           parse command line
+ *            loop if empty or all comment
+ *           reflect command line
+ *           deal with any pipe open actions
+ *           dispatch command (if any)
+ *           push command output to output
+ *            loop
+ *
+ *   hiatus: deal with issue
+ *             loop if OK and not waiting for input
+ *           exit command loop
+ *
+ * In the loop, if any operation receives a return code it cannot immediately
+ * deal with, it jumps to the "hiatius".  For everything except the command
+ * line fetch this will be some sort of error -- either I/O or command -- or
+ * some external event closing down the loop.  For the command line fetch
+ * this may be because must now wait for input, or because the current input
+ * has reached EOF and must now be closed (which may pop things off the
+ * vty stack).  In any event, once the issue is dealt with, can leave the
+ * hiatus and return to the top of the loop.
+ *
+ * Note that in hiatus the command loop may be waiting for some output I/O
+ * to complete -- e.g. while closing an output pipe.
+ *
+ * So, most obviously for cq_process(), the loop is a co-routine which exits
+ * and is re-entered at the hiatus.  When the loop does exit, it has either
+ * come to a dead stop (for a number of reasons) or it is waiting for input.
+ *
+ * The state of the command loop is vty->vio->state.  The main states are:
+ *
+ *   vc_running   -- somewhere in the command loop, doing things.
+ *
+ *   vc_waiting   -- waiting for I/O
+ *
+ * When some event (such as some input arriving) occurs it is signalled to
+ * the command loop by uty_cmd_signal(), where the value of the signal is
+ * a CMD_XXXX code.  If the loop is in vc_waiting state, the loop can be
+ * re-entered (at the hiatus point) with the return code.  Otherwise, what
+ * happens depends on the state and the return code -- see uty_cmd_signal().
+ *
+ * Functions called by the various steps in the command loop will check for
+ * a pending signal, and will force a jump to hiatus -- using CMD_HIATUS return
+ * code.  (This is how the command loop may be "interrupted" by, for example
+ * an I/O error detected in the pselect() process.)
  */
 
 /*------------------------------------------------------------------------------
  * Prototypes
  */
-
-static void uty_cmd_loop_prepare(vty_io vio) ;
+static bool uty_cmd_loop_prepare(vty_io vio) ;
+static void uty_cmd_stopping(vty_io vio, bool exeunt) ;
 static cmd_return_code_t uty_cmd_hiatus(vty_io vio, cmd_return_code_t ret) ;
 static cmd_return_code_t vty_cmd_auth(vty vty, node_type_t* p_next_node) ;
+static void uty_cmd_out_cancel(vio_vf vf, bool base) ;
 static uint uty_show_error_context(vio_fifo ebuf, vio_vf vf) ;
 static uint uty_cmd_failed(vty_io vio, cmd_return_code_t ret) ;
 static void uty_cmd_prepare(vty_io vio) ;
-static void uty_cmd_config_lock(vty vty) ;
+static bool uty_cmd_config_lock(vty vty) ;
 static void uty_cmd_config_lock_check(struct vty *vty, node_type_t node) ;
 
 /*==============================================================================
- * There are two command loops -- cmd_read_config() and cq_process().  These
- * functions support those command loops:  TODO update !!
- *
- *   * uty_cmd_prepare()
- *
- *     After opening or closing a vin/vout object, the state of the execution
- *     context must be set to reflect the current top of the vin/vout stack.
- *
- *   * uty_cmd_dispatch_line()
- *
- *     This is for command lines which come from "push" sources, eg the
- *     Telnet VTY CLI or the VTYSH.
- *
- *     Hands command line over to the vty_cli_nexus message queue.
- *
- *     NB: from this point onwards, the vio is vio->cmd_running ! TODO
- *
- *   * vty_cmd_fetch_line()
- *
- *     This is for command lines which are "pulled" by one of the command
- *     execution loops, eg files and pipes.  If not in cmd_read_config())
- *     can return CMD_WAITING.
- *
- *   * vty_cmd_open_in_pipe_file()
- *   * vty_cmd_open_in_pipe_shell()
- *   * vty_cmd_open_out_pipe_file()
- *   * vty_cmd_open_out_pipe_shell()
- *
- *     These do the I/O side of the required opens, pushing the new vty_vf
- *     onto the vin/vout stack.
- *
- *   * vty_cmd_success()
- *
- *     When a command returns success, this is called either to push all
- *     buffered output to the current vout, or to discard all buffered
- *     output (which is what cmd_read_config() does).
- *
- *     If required, pops any vout(s).
- *
- *
+ * Starting up, communicating with and closing down a command loop.
  */
 
 /*------------------------------------------------------------------------------
@@ -103,32 +137,47 @@ static void uty_cmd_config_lock_check(struct vty *vty, node_type_t node) ;
  *
  * Initialise exec object, and copy required settings from the current vin
  * and vout.
+ *
+ * Returns:  true  <=> acquired or did not need config symbol of power
+ *       or: false <=> needed but could not acquire symbol of power
  */
-extern void
-vty_cmd_loop_prepare(vty vty)
+extern bool
+vty_cmd_config_loop_prepare(vty vty)
 {
+  bool ok ;
+
   VTY_LOCK() ;
 
   assert(vty->type == VTY_CONFIG_READ) ;
 
-  uty_cmd_loop_prepare(vty->vio) ;   /* by vty->type & vty->node     */
+  ok = uty_cmd_loop_prepare(vty->vio) ; /* by vty->type & vty->node     */
+
   VTY_UNLOCK() ;
+
+  return ok ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Enter the command_queue command loop.
  */
 extern void
-uty_cmd_loop_enter(vty_io vio)
+uty_cmd_queue_loop_enter(vty_io vio)
 {
+  bool ok ;
+
   VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
   assert(vio->vty->type == VTY_TERMINAL) ;
 
-  uty_cmd_loop_prepare(vio) ;   /* by vty->type & vty->node     */
+  ok = uty_cmd_loop_prepare(vio) ;      /* by vty->type & vty->node     */
 
-  cq_loop_enter(vio->vty, vio->vty->node != NULL_NODE ? CMD_SUCCESS
-                                                      : CMD_CLOSE) ;
+  if (!ok)
+    uty_out(vio, "%% unable to start in config mode\n") ;
+
+  qassert(vio->state == vc_running) ;
+  cq_loop_enter(vio->vty, (vio->vty->node == NULL_NODE) ? CMD_CLOSE
+                                                        : ok ? CMD_SUCCESS
+                                                             : CMD_WARNING) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -136,88 +185,123 @@ uty_cmd_loop_enter(vty_io vio)
  *
  * Initialise cmd_exec object, and its cmd_context -- given vty->type and
  * vty->node.
+ *
+ * Returns:  true  <=> acquired or did not need config symbol of power
+ *       or: false <=> needed but could not acquire symbol of power
  */
-static void
+static bool
 uty_cmd_loop_prepare(vty_io vio)
 {
+  bool ok ;
+
   VTY_ASSERT_LOCKED() ;
 
   assert(vio->vty->exec == NULL) ;
-  assert(vio->state     == vc_null) ;
 
   vio->vty->exec = cmd_exec_new(vio->vty) ;
   vio->state     = vc_running ;
 
+  ok = true ;
   if (vio->vty->node > MAX_NON_CONFIG_NODE)
-    uty_cmd_config_lock(vio->vty) ;             /* TODO cannot fail !?  */
+    {
+      ok = uty_cmd_config_lock(vio->vty) ;
+      if (!ok)
+        vio->vty->node = ENABLE_NODE ;
+    } ;
 
   uty_cmd_prepare(vio) ;
+
+  return ok ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * When entering command loop, or after opening or closing a vin/vout object,
+ * update the vty->exec context.
+ *
+ * Output to the vout_base is suppressed for reading of configuration files.
+ *
+ * Reflection of the command line depends on the current context, and on the
+ * state of output suppression.
+ */
+static void
+uty_cmd_prepare(vty_io vio)
+{
+  cmd_exec exec = vio->vty->exec ;
+
+  exec->reflect       = exec->context->reflect_enabled ;
+  exec->out_suppress  = (vio->vty->type == VTY_CONFIG_READ)
+                                             && (vio->vout_depth == 1)
+                                             && !exec->reflect ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Signal to the command loop that some I/O has completed -- successfully, or
- * with some I/O error (including time out).
+ * with some I/O error (including time out), or otherwise.
  *
- * If the vio is in vc_waiting state -- so will be exec_hiatus -- send message
- * so that command loop continues.
+ * Accepts the following return codes:
  *
- * Otherwise, if is vc_running and have CMD_IO_ERROR, set the vc_io_error_trap,
- * so that the next interaction with the vty (other than output) will signal
- * a pending error.
+ *   CMD_SUCCESS  -- if vc_waiting,  passed in
+ *                   otherwise,      ignored
  *
- * Accepts:
+ *   CMD_WAITING  --                 ignored
  *
- *   CMD_SUCCESS  -- if vc_waiting,       passed in.
- *                   otherwise,           ignored
+ *   CMD_IO_ERROR -- if vc_waiting,  passed in
+ *                   if vc_running,  set signal, unless already CMD_STOP
+ *                   otherwise,      ignored
  *
- *   CMD_WAITING  -- ignored
+ *   CMD_CANCEL   -- if vc_waiting,  passed in
+ *                   if vc_running,  set signal, unless already CMD_STOP
+ *                                                           or CMD_IO_ERROR
+ *                   otherwise,      ignored
  *
- *   CMD_IO_ERROR -- if vc_waiting,       passed in
- *                   if vc_running,       set vc_io_error_trap
+ * NB: if sets CMD_CANCEL signal, sets vio->cancel.
  *
- *   CMD_CLOSE    -- if vc_waiting,       passed in
- *                   if vc_running,       set vc_close_trap
- *                   if vc_io_error_trap, set vc_close_trap
+ *     if passes CMD_CANCEL in, sets vio->cancel.
  */
 extern void
 uty_cmd_signal(vty_io vio, cmd_return_code_t ret)
 {
   VTY_ASSERT_LOCKED() ;
 
-  if (ret == CMD_WAITING)
-    return ;
-
-  assert((ret == CMD_SUCCESS) || (ret == CMD_IO_ERROR) || (ret == CMD_CLOSE)) ;
+  qassert( (ret == CMD_SUCCESS) || (ret == CMD_WAITING)
+                                || (ret == CMD_IO_ERROR)
+                                || (ret == CMD_CANCEL) ) ;
 
   switch (vio->state)
     {
-      case vc_null:
-        zabort("invalid vc_null") ;
+      case vc_running:
+        if ((ret == CMD_SUCCESS) || (ret == CMD_WAITING))
+          break ;                       /* Ignored                      */
+
+        if (vio->signal == CMD_STOP)
+          break ;                       /* Cannot override CMD_STOP     */
+
+        if (ret != CMD_IO_ERROR)
+          {
+            qassert(ret == CMD_CANCEL) ;
+
+            if (vio->signal == CMD_IO_ERROR)
+              break ;                   /* Cannot override CMD_IO_ERROR */
+
+            vio->cancel = true ;
+          } ;
+
+        vio->signal = ret ;
+
         break ;
 
-      case vc_running:          /* ignore CMD_SUCCESS                   */
-        if (ret == CMD_IO_ERROR)
-          vio->state = vc_io_error_trap ;
-        if (ret == CMD_CLOSE)
-          vio->state = vc_close_trap ;
+      case vc_waiting:          /* pass in the return code              */
+        if (ret != CMD_WAITING)
+          {
+            vio->state = vc_running ;
+            if (ret == CMD_CANCEL)
+              vio->cancel = true ;
+
+            cq_continue(vio->vty, ret) ;
+          } ;
         break ;
 
-      case vc_waiting:          /* pass in the return code continue     */
-        vio->state = vc_running ;
-        cq_continue(vio->vty, ret) ;
-        break ;
-
-      case vc_io_error_trap:    /* ignore CMD_SUCCESS or duplicate      */
-        if (ret == CMD_CLOSE)   /*                        CMD_IO_ERROR. */
-          vio->state = vc_close_trap ;
-        break ;
-
-      case vc_close_trap:       /* ignore CMD_SUCCESS, CMD_IO_ERROR,    */
-      case vc_stopped:          /*    and duplicate/too late CMD_CLOSE. */
-        break ;
-
-      case vc_closed:
-        zabort("invalid vc_closed") ;
+      case vc_stopped:          /* ignore everything                    */
         break ;
 
       default:
@@ -227,64 +311,141 @@ uty_cmd_signal(vty_io vio, cmd_return_code_t ret)
 } ;
 
 /*------------------------------------------------------------------------------
- * Reset the command loop.
+ * Stop the command loop.
  *
- * This is used by uty_close() to try to shut down the command loop.
+ * If the loop is vc_null, it has never started, so is stopped.
  *
- * Does nothing if already closed or never got going.
+ * If is non-blocking then revoke any in-flight message (or legacy thread
+ * event), *and* if does that, then the command loop may be stopped.
  *
- * "curtains" means that the program is being terminated, so no message or
- * event handling is running any more, and all threads other than the main
- * thread have stopped.  This means that whatever the state of the command
- * loop, we can terminate it now.  Revokes any outstanding messages/events,
- * in order to tidy up.
+ * The loop may then be:
  *
- * If not curtains, then push a CMD_CLOSE into the command loop, to bring it
- * to a shuddering halt.
+ *   vc_running           -- for multi-pthread world this means that the
+ *                           command loop is executing, and must be sent a
+ *                           CMD_STOP signal.  (Is not waiting for a message,
+ *                           because we just tried revoking.)  Because this
+ *                           function is in the vty_cli_nexus, the command loop
+ *                           *must* be running in the vty_cmd_nexus.
  *
- * Will leave the vio->state:
+ *                           for single-pthread (or legacy thread), this should
+ *                           be impossible -- this code cannot run at the same
+ *                           time as the command loop.  However, we send a
+ *                           CMD_STOP signal.
  *
- *   vc_running      -- a CMD_CLOSE has been passed in (was vc_waiting).
- *                      Will not be the case if "curtains".
+ *   vc_waiting           -- can stop the command loop now.  Setting vc_stopped
+ *                           turns off any further signals to the command loop.
  *
- *   vc_close_trap   -- command loop is running, but will stop as soon as it
- *                      sees this trap.
- *                      Will not be the case if "curtains".
+ *   vc_stopped           -- already stopped (or never started).
  *
- *   vc_stopped      -- command loop is stopped
- *                      Will be the case if "curtains" (unless vc_null or
- *                      vc_closed).
- *                      Otherwise will only be the case if the loop had already
- *                      stopped.
+ *                           Note: we still revoke any in-flight messages.
+ *                           This deals with the case of the command loop
+ *                           picking up a CMD_STOP signal in the vty_cmd_nexus,
+ *                           but the message transferring the command loop to
+ *                           the vty_cli_nexus has not been picked up yet.
  *
- *   vc_null         -- never been kissed
- *   vc_closed       -- was already closed
+ *                           Note: if the command loop is exiting normally,
+ *                           then it will already be vc_stopped -- see
+ *                           vty_cmd_loop_exit()
  *
- * No other states are possible.
+ * NB: if this is "curtains" then this *should* find the command loop already
+ *     vc_stopped -- see uty_close() -- but will force the issue.
+ *
+ * Returns:  true <=> the command loop is vc_stopped
+ *          false  => the command loop is running, but a CMD_STOP signal has
+ *                    been set.
  */
-extern void
-uty_cmd_loop_close(vty_io vio, bool curtains)
+extern bool
+uty_cmd_loop_stop(vty_io vio, bool curtains)
 {
-  VTY_ASSERT_LOCKED() ;
+  VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
-   if ((vio->state == vc_null) || (vio->state == vc_closed))
-    return ;
-
-  if (curtains)
+  if (vio->blocking || !cq_revoke(vio->vty))
     {
-      if (!vio->blocking)
-        cq_revoke(vio->vty) ;   /* collect any outstanding message      */
+      if ((vio->state == vc_running) && !curtains)
+        {
+          uty_set_monitor(vio, off) ;   /* instantly                    */
+          vio->signal = CMD_STOP ;
 
-      vio->state = vc_stopped ;
-    }
-  else
-    uty_cmd_signal(vio, CMD_CLOSE) ;
+          return false ;
+        } ;
+
+      qassert(vio->state != vc_running) ;
+    } ;
+
+  uty_cmd_stopping(vio, true) ;         /* -> vc_stopped                */
+
+  return true ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Exit command loop.
+ * Set the command loop stopped -- forced exit.
+ */
+extern void
+vty_cmd_set_stopped(vty vty)
+{
+  VTY_LOCK() ;
+  uty_cmd_stopping(vty->vio, true) ; /* forced exit  */
+  VTY_UNLOCK() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * The command loop is stopping or closing.
  *
- * Final close of the VTY, giving a reason, if required.
+ * We drop the config symbol of power and effectively discard all input.
+ * Stops any log monitoring, immediately.
+ *
+ * This is done as soon as a CMD_CLOSE, CMD_STOP or CMD_STOP signal is seen, so
+ * that the symbol of power is not held while a vty is closing its vio stack,
+ * or while the command loop is being transferred from the vty_cmd_nexus to the
+ * vty_cli_nexus.
+ *
+ * If exeunt, set vc_stopped -- otherwise leave vc_running to tidy up.
+ *
+ * This can be called any number of times.
+ */
+static void
+uty_cmd_stopping(vty_io vio, bool exeunt)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  uty_set_monitor(vio, off) ;   /* instantly            */
+
+  vio->vin_true_depth = 0 ;     /* all stop             */
+  uty_cmd_config_lock_check(vio->vty, NULL_NODE) ;
+
+  if (exeunt)
+    vio->state  = vc_stopped ;  /* don't come back      */
+  else
+    qassert(vio->state == vc_running) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If we have a CMD_STOP on our hands, then drop the config symbol of power.
+ *
+ * This is done so that on SIGHUP the symbol of power can be acquired to read
+ * the configuration file, without an interlock to wait for closing then
+ * current vty.
+ */
+extern void
+vty_cmd_check_stop(vty vty, cmd_return_code_t ret)
+{
+  VTY_LOCK() ;
+
+  if ((ret == CMD_STOP) || (vty->vio->signal == CMD_STOP))
+    {
+      vty->vio->signal = CMD_STOP ;             /* make sure signal set */
+
+      uty_cmd_stopping(vty->vio, false) ;       /* not exit, yet        */
+    } ;
+
+  VTY_UNLOCK() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Exit command loop, with final close of the VTY.
+ *
+ * NB: on exit the VTY has been release, so do NOT attempt to touch the VTY
+ *     or any of its components.
  */
 extern void
 vty_cmd_loop_exit(vty vty)
@@ -293,20 +454,150 @@ vty_cmd_loop_exit(vty vty)
 
   VTY_ASSERT_CAN_CLOSE(vty) ;
 
-  /* Make sure no longer holding the config symbol of power             */
-  uty_cmd_config_lock_check(vty, NULL_NODE) ;
-
-  /* Can now close the vty                                              */
-  vty->vio->state = vc_stopped ;
-  uty_close(vty->vio, NULL, false) ;    /* not curtains */
+  uty_cmd_stopping(vty->vio, true) ;    /* exit -- set vc_stopping      */
+  uty_close(vty->vio) ;                 /* down close the vty           */
 
   VTY_UNLOCK() ;
 } ;
+
+/*==============================================================================
+ * Command line fetch.
+ *
+ * Will read command lines from the current input, until that signals EOF.
+ *
+ * Before attempting to read, will check for a vio->signal, and that the input
+ * and output stack depths do not require attention.  The CMD_HIATUS return
+ * code signals that something needs to be dealt with before any input is
+ * attempted.
+ *
+ * NB: all closing of inputs and/or outputs is done in the hiatus, below.
+ */
+
+/*------------------------------------------------------------------------------
+ * Fetch the next command line to be executed.
+ *
+ * Returns: CMD_SUCCESS  => OK -- have a line ready to be processed.
+ *
+ *                          vty->exec->line   points at the line
+ *                          vty->exec->to_do  says what to do with it
+ *
+ *      or: CMD_WAITING  => OK -- but waiting for command line to arrive
+ *                                                             <=> non-blocking
+ *
+ *      or: CMD_EOF      => OK -- but nothing to fetch from the current vin
+ *
+ *                          Need to close the current vin and pop vin/vout
+ *                          as necessary.
+ *
+ *      or: CMD_HIATUS   => OK -- but need to close one or more vin/vout
+ *                                to adjust stack.
+ *
+ *      or: CMD_CANCEL   => cancel vio->signal detected.
+ *
+ *      or: CMD_IO_ERROR => failed (here or signal) -- I/O error or timeout.
+ *
+ *      or: CMD_STOP     => stop vio->signal detected.
+ *
+ * NB: can be called from any thread -- because does no closing of files or
+ *     anything other than read/write.
+ */
+extern cmd_return_code_t
+vty_cmd_fetch_line(vty vty)
+{
+  cmd_return_code_t ret ;
+  vty_io    vio ;
+  vio_vf    vf ;
+  cmd_exec  exec ;
+
+  VTY_LOCK() ;
+
+  vio    = vty->vio ;                   /* once locked          */
+  exec   = vty->exec ;
+
+  cmd_action_clear(exec->action) ;      /* tidy                 */
+
+  vf = vio->vin ;
+
+  ret = vio->signal ;
+
+  if (ret == CMD_SUCCESS)
+    {
+      if ( (vio->vin_depth < vio->vout_depth) ||
+           (vio->vin_depth > vio->vin_true_depth) )
+        ret = CMD_HIATUS ;
+      else
+        {
+          qassert(vio->vin_depth == vio->vin_true_depth) ;
+          qassert(vio->vin_depth != 0) ;
+
+          switch (vf->vin_state)
+            {
+              case vf_closed:
+                zabort("invalid vf->vin_state (vf_closed)") ;
+                break ;
+
+              case vf_open:
+                switch (vf->vin_type)
+                  {
+                    case VIN_NONE:
+                      zabort("invalid VIN_NONE") ;
+                      break ;
+
+                    case VIN_TERM:
+                      ret = uty_term_fetch_command_line(vf, exec->action,
+                                                                exec->context) ;
+                      break ;
+
+                    case VIN_VTYSH:
+                      zabort("invalid VIN_VTYSH") ;
+                      break ;
+
+                    case VIN_DEV_NULL:
+                      ret = CMD_EOF ;
+                      break ;
+
+                    case VIN_FILE:
+                    case VIN_CONFIG:
+                      ret = uty_file_fetch_command_line(vf, exec->action) ;
+                      break ;
+
+                    case VIN_PIPE:
+                      ret = uty_pipe_fetch_command_line(vf, exec->action) ;
+                      break ;
+
+                    default:
+                      zabort("unknown vin_type") ;
+                  } ;
+
+                break ;
+
+              case vf_end:         /* Should be dealt with in hiatus... */
+                ret = CMD_HIATUS ; /* ...so go (back) there !           */
+                break ;
+
+              default:
+                zabort("unknown vf->vin_state") ;
+                break ;
+            } ;
+        } ;
+    } ;
+
+  VTY_UNLOCK() ;
+
+  return ret ;
+} ;
+
+/*==============================================================================
+ * Special command handling functions.
+ */
 
 /*------------------------------------------------------------------------------
  * Handle a "special" command -- anything not cmd_do_command.
  *
  * These "commands" are related to VTY_TERMINAL CLI only.
+ *
+ * Returns:  CMD_SUCCESS    -- OK, carry on
+ *           CMD_CLOSE      -- bring everything to an orderly stop
  */
 extern cmd_return_code_t
 vty_cmd_special(vty vty)
@@ -330,6 +621,7 @@ vty_cmd_special(vty vty)
   switch (to_do & cmd_do_mask)
     {
       case cmd_do_nothing:
+      case cmd_do_ctrl_c:
         break ;
 
       case cmd_do_eof:
@@ -360,7 +652,6 @@ vty_cmd_special(vty vty)
           zabort("invalid cmd_do_ctrl_d") ;
         break ;
 
-      case cmd_do_ctrl_c:
       case cmd_do_ctrl_z:
         next_node = cmd_node_end_to(vty->node) ;
         break ;
@@ -380,6 +671,7 @@ vty_cmd_special(vty vty)
       vty->exec->context->node = next_node ;
       vty_cmd_config_lock_check(vty, next_node) ;
     } ;
+
   return ret ;
 } ;
 
@@ -478,12 +770,12 @@ vty_cmd_can_auth_enable(vty vty)
  *      Significant iff there is no enable password, when it sets ENABLE_NODE
  *      as the start up node (if no_password_check) or post AUTH_NODE node.
  *
- *   4. host.password  -- set by "password xxx"
+ *   4. host.password  -- set by "password xx"
  *
  *      Unless no_password_check, if there is no password, you cannot start
  *      a vty.
  *
- *   5. host.enable  -- set by "enable password xxx"
+ *   5. host.enable  -- set by "enable password xx"
  *
  *      If this is set, then must authenticate against it for vty to reach
  *      ENABLE_NODE.
@@ -524,7 +816,7 @@ vty_cmd_auth(vty vty, node_type_t* p_next_node)
 
   pass      = false ;
 
-  VTY_LOCK() ;                  /* while access host.xxx        */
+  VTY_LOCK() ;                  /* while access host.xx         */
 
   switch (vty->node)
     {
@@ -649,125 +941,38 @@ vty_cmd_auth(vty vty, node_type_t* p_next_node)
   return ret ;
 } ;
 
-/*------------------------------------------------------------------------------
- * Fetch the next command line to be executed.
+/*==============================================================================
+ * Hiatus handling.
  *
- * Returns: CMD_SUCCESS  => OK -- have a line ready to be processed.
+ * The hiatus must deal with a number of slightly different things:
  *
- *                          vty->exec->line   points at the line
- *                          vty->exec->to_do  says what to do with it
+ *   * closing of inputs and/or outputs, and adjusting the stacks.
  *
- *      or: CMD_WAITING  => OK -- but waiting for command line to arrive
- *                                                             <=> non-blocking
+ *     All pipe closing is done here.
  *
- *      or: CMD_EOF      => OK -- but nothing to fetch from the current vin
+ *   * command errors
  *
- *                          Need to close the current vin and pop vin/vout
- *                          as necessary.
+ *   * cancel
  *
- *      or: CMD_HIATUS   => OK -- but need to close one or more vin/vout
- *                                to adjust stack.
+ *   * I/O errors and time-outs
  *
- *      or: any other return code from the current vin when it attempts to
- *          fetch another command line -- including I/O error or timeout.
+ *   * closing of vty altogether, either:
  *
- * NB: can be called from any thread -- because does no closing of files or
- *     anything other than read/write.
+ *       CMD_CLOSE   -- which closes everything, completing all I/O
  *
- * TODO -- dealing with states other than vf_open !!
+ *       CMD_STOP    -- which stops the command loop, and lets uty_close()
+ *                      close everything "final".
+ *
+ * Note that while closing, for non-blocking vio, may return from the hiatus
+ * CMD_WAITING, and the hiatus will be called again (possibly a number of
+ * times) until all necessary closes and related I/O are complete.
  */
-extern cmd_return_code_t
-vty_cmd_fetch_line(vty vty)
-{
-  cmd_return_code_t ret ;
-  vty_io    vio ;
-  vio_vf    vf ;
-  cmd_exec  exec ;
-
-  VTY_LOCK() ;
-
-  vio    = vty->vio ;                   /* once locked          */
-  exec   = vty->exec ;
-
-  cmd_action_clear(exec->action) ;      /* tidy                 */
-
-  vf = vio->vin ;
-
-  ret = CMD_SUCCESS ;                   /* assume all is well   */
-
-  /* Worry about all the things that stop us from being able to fetch the
-   * next command line.
-   */
-  if ( (vty->vio->state != vc_running)
-                                   || (vio->vin_depth < vio->vout->depth_mark)
-                                   || (vio->vin_depth > vio->real_depth) )
-    ret = CMD_HIATUS ;
-  else
-    {
-      switch (vf->vin_state)
-        {
-          case vf_open:
-          case vf_eof:
-          case vf_timed_out:
-            switch (vf->vin_type)
-              {
-                case VIN_NONE:
-                  zabort("invalid VIN_NONE") ;
-                  break ;
-
-                case VIN_TERM:
-                  ret = uty_term_fetch_command_line(vf, exec->action,
-                                                                exec->context) ;
-                  break ;
-
-                case VIN_VTYSH:
-                  zabort("invalid VIN_VTYSH") ;
-                  break ;
-
-                case VIN_DEV_NULL:
-                  ret = CMD_EOF ;
-                  break ;
-
-                case VIN_FILE:
-                case VIN_CONFIG:
-                  ret = uty_file_fetch_command_line(vf, exec->action) ;
-                  break ;
-
-                case VIN_PIPE:
-                  ret = uty_pipe_fetch_command_line(vf, exec->action) ;
-                  break ;
-
-                default:
-                  zabort("unknown vin_type") ;
-              } ;
-            break ;
-
-          case vf_closed:       /* TODO treat closed as EOF ?   */
-            ret = CMD_EOF ;
-            break ;
-
-          case vf_error:
-            ret = CMD_IO_ERROR ;
-            break ;
-
-          case vf_closing:
-            assert(!vf->blocking) ;
-            ret = CMD_WAITING ;
-            break ;
-
-          default:
-            zabort("invalid vf->vin_state") ;
-            break ;
-        } ;
-    } ;
-
-  VTY_UNLOCK() ;
-
-  return ret ;
-} ;
 
 /*------------------------------------------------------------------------------
  * Deal with return code at the "exec_hiatus" point in the command loop.
+ *
+ * May be entering the hiatus because a signal has been detected, which may
+ * override the given return code.  Any signal is then cleared.
  *
  * The command_queue command loop runs until something happens that it
  * cannot immediately deal with, at which point it enters "exec_hiatus", and
@@ -781,11 +986,24 @@ vty_cmd_fetch_line(vty vty)
  *
  *                        - the vio->state needs to be checked.
  *
- *   CMD_EOF         -- from vty_cmd_fetch_line() => current vin has hit eof,
- *                      and must be closed and popped.
+ *   CMD_STOP        -- stop the command loop and exit, closing vty
  *
- *   CMD_CLOSE       -- from a command return (or otherwise) => must close
- *                      and pop the current vin (same as CMD_EOF, really).
+ *   CMD_EOF         -- from vty_cmd_fetch_line() => current vin has hit eof,
+ *                      or an end/exit command has forced the issue.
+ *
+ *                      The vin_real_depth must be reduced, and the top vin
+ *                      then closed.
+ *
+ *   CMD_CLOSE       -- from a command return => must close the entire vty.
+ *
+ *                      CMD_CLOSE causes the vty to be closed in an orderly
+ *                      fashion, dealing with all pending I/O, including
+ *                      all pipe return etc.
+ *
+ *                      Once everything has been closed down to the
+ *
+ *   CMD_CANCEL      -- cancel all output & close everything except the
+ *                      vin/vout base.
  *
  *   CMD_WAITING     -- from vty_cmd_fetch_line() or elsewhere => must go to
  *                      vc_waiting and the command loop MUST exit.
@@ -808,11 +1026,16 @@ vty_cmd_fetch_line(vty vty)
  *     Pending output will be pushed out, and pipe return stuff will be sucked
  *     in and blown out, until the return signals EOF.
  *
- *   * I/O errors will cause all levels of  TODO  ... depending on error location ??
+ *   * I/O errors and timeouts in any level of the stack other than vin_base
+ *     and vout_base will cause everything except the vin_base and vout_base
+ *     to be closed.
  *
- *     I/O errors also cause all closes to be "final", so pending output is
- *     attempted -- but will be abandoned if would block.  Also, any further
- *     I/O errors will be discarded.
+ *     I/O errors and time-outs in vin_base cause everything to be closed, but
+ *     will try to put error messages and outstanding stuff to vout_base.
+ *
+ *     I/O errors and time-outs in vout_base cause everything to be closed.
+ *
+ *     Does the standard close... so will try to flush all outstanding stuff.
  *
  * This function will return:
  *
@@ -825,150 +1048,208 @@ vty_cmd_fetch_line(vty vty)
  *
  *                            state == vc_waiting
  *
- *   CMD_EOF         => OK -- but nothing more to fetch, close the vty and exit
- *                            command loop.
- *                                            <=> the vin_base is now closed.
+ *   CMD_STOP        => OK -- all done: close the vty and exit command loop.
  *
  *                            state == vc_stopped
  *
- *   CMD_IO_ERROR    => some error has occurred while closing stuff.
+ *                            If CMD_STOP is passed in, or a CMD_STOP signal
+ *                            is picked up, then has done nothing with the
+ *                            stacks -- uty_close() will do close "final".
  *
- *                            state == vc_io_error_trap
+ *                            Otherwise, will have completing all pending stuff,
+ *                            and closed everything except the vout_base.
  *
- * And nothing else.
+ * And nothing else, except:
  *
- * The CMD_IO_ERROR is returned so that errors are not hidden inside here.
- * At some point vty_cmd_hiatus() must be called again to deal with the
- * error.
+ *   CMD_IO_ERROR    => an I/O error or time-out has been hit, probably while
+ *                      trying to close something.
+ *
+ *                      This error should be sent straight back to this
+ *                      function -- but is passed out so that any error is not
+ *                      hidden -- see cmd_read_config().
  *
  * When the command loop has gone vc_waiting, the I/O side of things can wake
  * it up by uty_cmd_signal(), which passes in a return code.  When the
  * command loop runs it will call this function to handle the new return code.
  * If CMD_SUCCESS is passed in, will continue trying to adjust the vin/vout
- * stacks.
+ * stacks, if required.
  *
  * The configuration reader command loop also uses vty_cmd_hiatus() to handle
- * all return codes.  However, it will exit the command loop at the slightest
+ * all return codes.  However, it will exit the command loop at the first
  * hint of trouble.
  *
- * All this TODO (after discussion of error handling)
-
  * NB: can be called from any thread if !blocking, otherwise MUST be cli thread.
  */
 extern cmd_return_code_t
 vty_cmd_hiatus(vty vty, cmd_return_code_t ret)
 {
+  vty_io vio ;
+
   VTY_LOCK() ;
   VTY_ASSERT_CAN_CLOSE(vty) ;
 
-  ret = uty_cmd_hiatus(vty->vio, ret) ;
+  vio = vty->vio ;
+
+  qassert(vio->state == vc_running) ;
+
+  ret = uty_cmd_hiatus(vio, ret) ;
+
+  switch (ret)
+    {
+      case CMD_SUCCESS:                 /* ready to continue            */
+      case CMD_IO_ERROR:                /* for information              */
+        break ;
+
+      case CMD_WAITING:
+        qassert(!vio->blocking) ;
+        vio->state = vc_waiting ;
+        break ;
+
+      case CMD_STOP:                    /* exit                         */
+        uty_cmd_stopping(vio, true) ;   /* vio->state -> vc_stopped     */
+        break ;
+
+      default:
+        zabort("invalid return code from uty_cmd_hiatus") ;
+    } ;
 
   VTY_UNLOCK() ;
+
   return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Inside of vty_cmd_hiatus() -- can return at any time.
+ * Inside of vty_cmd_hiatus() -- see above.
  */
 static cmd_return_code_t
 uty_cmd_hiatus(vty_io vio, cmd_return_code_t ret)
 {
-  /* (0) worry about state of the vio.
+  /* (1) Handle any vio->signal.
    *
-   *     We expect it to generally be be vc_running or vc_waiting, otherwise:
+   *     If there is a signal it overrides most return codes, except:
    *
-   *       vc_io_error_trap => an I/O error has been posted asynchronously
+   *       CMD_CANCEL   -- trumped by: CMD_STOP, CMD_CLOSE or CMD_IO_ERROR
    *
-   *                           set state to vc_running and return code to
-   *                           the pending CMD_IO_ERROR.
+   *       CMD_IO_ERROR -- trumped by: CMD_STOP or CMD_CLOSE
    *
-   *       vc_close_trap    => the vty has been reset asynchronously
+   *       CMD_STOP     -- trumps everything
    *
-   *                           set state to vc_running and return code to
-   *                           the pending CMD_CLOSE.
-   *
-   *       vc_stopped       )
-   *       vc_closed        )  invalid -- cannot be here in this state
-   *       vc_null          )
+   *     The vio_signal is now cleared (unless was CMD_STOP).
    */
-  switch (vio->state)
+  switch (vio->signal)
     {
-      case vc_null:
-      case vc_stopped:
-      case vc_closed:
-        zabort("invalid vc_xxxx") ;
+      case CMD_SUCCESS:
         break ;
 
-      case vc_running:
-      case vc_waiting:
+      case CMD_CANCEL:
+        if ((ret != CMD_STOP) && (ret != CMD_CLOSE) && (ret != CMD_IO_ERROR))
+          ret = CMD_CANCEL ;
+
+        vio->signal = CMD_SUCCESS ;
         break ;
 
-      case vc_io_error_trap:
-        ret = CMD_IO_ERROR ;    /* convert pending IO error             */
+      case CMD_IO_ERROR:
+        if ((ret != CMD_STOP) && (ret != CMD_CLOSE))
+          ret = CMD_IO_ERROR ;
+
+        vio->signal = CMD_SUCCESS ;
         break ;
 
-      case vc_close_trap:
-        ret = CMD_CLOSE ;       /* convert pending close                */
+      case CMD_STOP:
+        ret = CMD_STOP ;
         break ;
 
       default:
-        zabort("unknown vio->state") ;
+        zabort("Invalid vio->signal value") ;
+    } ;
+
+  /* (2) Handle the return code/signal
+   *
+   *     Deal here with the return codes that signify success, or signify
+   *     success but some vin and/or vout need to be closed.
+   *
+   *     Call uty_cmd_failed() to deal with return codes that signify some
+   *     sort of failure.  A failure generally means closing all the way to
+   *     the vin_/vout_base, or possibly completely.
+   *
+   * CMD_WAITING is immediately returned
+   *
+   * CMD_STOP, whether passed in or from vio->signal is also immediately
+   * returned.
+   */
+  switch (ret)
+    {
+      case CMD_SUCCESS:
+      case CMD_EMPTY:
+      case CMD_HIATUS:
+        ret = CMD_SUCCESS ;             /* OK                           */
+        break ;
+
+      case CMD_STOP:
+        return CMD_STOP ;       /* <<< ...exit here on CMD_STOP         */
+
+      case CMD_WAITING:
+        return CMD_WAITING ;    /* <<< ...exit here on CMD_WAITING      */
+
+      case CMD_EOF:
+        uty_out_accept(vio) ;           /* accept any buffered stuff.   */
+
+        qassert(vio->vin_true_depth > 0) ;
+        --vio->vin_true_depth ;         /* cause vin stack to pop       */
+
+        ret = CMD_SUCCESS ;             /* OK                           */
+        break ;
+
+      case CMD_CANCEL:
+        qassert(vio->vin_true_depth > 0) ;
+        vio->vin_true_depth = 1 ;       /* cause vin stack to pop       */
+        vio->cancel = true ;            /* suppress output              */
+
+        ret = CMD_SUCCESS ;             /* OK                           */
+        break ;
+
+      case CMD_CLOSE:
+        uty_out_accept(vio) ;           /* accept any buffered stuff.   */
+
+        vio->vin_true_depth = 0 ;       /* cause vin stack to close     */
+
+        ret = CMD_SUCCESS ;             /* OK                           */
+        break ;
+
+      default:                          /* some sort of error           */
         break ;
     } ;
 
-  vio->state = vc_running ;                     /* running in hiatus    */
-
-  /* (1) Handle the return code.
-   *
-   * Deal here with the return codes that signify success, or signify
-   * success but some vin and/or vout need to be closed.
-   *
-   * Call uty_cmd_failed() to deal with return codes that signify some
-   * sort of failure.  A failure generally means closing all the way to
-   * the vin_/vout_base, or possibly completely.
-   *
-   * Note that CMD_WAITING is immediately returned !
+  /* If the return code is (still) not CMD_SUCCESS, then must be an error
+   * of some kind, for which we now construct a suitable error message, and
+   * update the vin_true_depth as required.
    */
-  switch (ret)
-  {
-    case CMD_SUCCESS:
-    case CMD_EMPTY:
-    case CMD_HIATUS:
-      break ;
+  if (ret != CMD_SUCCESS)
+    {
+      uint depth ;
 
-    case CMD_WAITING:
-      assert(!vio->blocking) ;
-      vio->state  = vc_waiting ;
-      return ret ;              /* <<< exit here on CMD_WAITING         */
+      depth = uty_cmd_failed(vio, ret) ;
+      if (depth < vio->vin_true_depth)
+        vio->vin_true_depth = depth ;
 
-    case CMD_EOF:
-      uty_out_accept(vio) ;     /* accept any buffered remarks.         */
-      assert(vio->real_depth > 0) ;
-      --vio->real_depth ;
-      break ;
+       ret = CMD_SUCCESS ;               /* Is now OK.                   */
+    } ;
 
-    case CMD_CLOSE:
-      uty_out_accept(vio) ;     /* accept any buffered remarks.         */
-      vio->real_depth = 0 ;     /* which it may already be              */
-      break ;
+  /* Have established the (new) vio->vin_true_depth, so now need to make
+   * sure that the stack conforms to that.
+   *
+   * Adjusting the stack may take a while.  So, if the vin_true_depth is 0,
+   * now is a good time to give up the config symbol of power.  (This is
+   * for SIGHUP, which closes all vty before reading the configuration.)
+   *
+   * Note that because vin_true_depth is zero, could not fetch any further
+   * command lines or attempt to execute any commands, and don't care
+   * whether own the symbol of power or not.
+   */
+  if (vio->vin_true_depth == 0)
+    uty_cmd_stopping(vio, false) ;      /* not exit, yet                */
 
-    default:
-      /* If not any of the above, must be an error of some kind:
-       *
-       *   * set real_depth to close all pipes and files.
-       *
-       *     Depending on the type of vin_base/vout_base and the type of
-       *     error, may or may not leave the bas I/O open.
-       *
-       *   * create error messages in the vout_base.
-       */
-      vio->real_depth = uty_cmd_failed(vio, ret) ;
-      break ;
-  } ;
-
-  ret = CMD_SUCCESS ;           /* OK, so far                           */
-
-  /* (2) Do we need to close one or more vin, or are we waiting for one to
+  /* (3) Do we need to close one or more vin, or are we waiting for one to
    *     close ?
    *
    *     The close will immediately close the input, and discard anything
@@ -980,179 +1261,121 @@ uty_cmd_hiatus(vty_io vio, cmd_return_code_t ret)
    *
    *     For non-blocking vio, close operations may return CMD_WAITING
    *     (eg: VIN_PIPE where the child stderr is not yet at EOF, or the
-   *     child completion status has not yet been collected).  Where a
-   *     close operation does not complete, the vf is marked vf_closing,
-   *     and the stack stays at its current level.
+   *     child completion status has not yet been collected).
    *
-   *     For hard errors will do "final" close, which immediately closes the
-   *     input (and any pipe return) discarding any buffered input.  Any errors
-   *     that occur in the process are discarded.
+   *     Where a close does not succeed, exit here and expect to come back
+   *     later to complete the operation.
    */
-  while ((vio->vin_depth > vio->real_depth) && (ret == CMD_SUCCESS))
-    ret = uty_vin_pop(vio, vio->err_hard, vio->vty->exec->context) ;
+  while (vio->vin_depth > vio->vin_true_depth)
+    {
+      ret = uty_vin_pop(vio, vio->vty->exec->context, false) ;  /* not final */
+      if (ret != CMD_SUCCESS)
+        return ret ;
+    } ;
 
-  /* (3) And, do we need to close one or more vout, or are we waiting for
-   *     one to close ?  If so:
+  qassert(vio->vin_depth == vio->vin_true_depth) ;
+
+  /* (4) Do we need to close one or more vout, or are we waiting for
+   *     one to close ?
    *
-   *     Any output after the current end_mark is discarded.  Note that we
-   *     do not actually close the vout_base.
+   *     Note that we do not close the vout_base here -- that is left open
+   *     to the final minute, in case any parting messages are to be sent.
    *
-   *     In all cases we push any remaining output and collect any remaining
-   *     pipe return, and collect child termination condition.
+   *     Any remaining output is pushed and any remaining pipe return is
+   *     shovelled through, and any child process is collected, along
+   *     with its termination condition.
    *
    *     For blocking vio, close operations will either complete or fail.
    *
    *     For non-blocking vio, close operations may return CMD_WAITING
    *     (eg: where the output buffers have not yet been written away).
-   *     Where a close operation does not complete, the vf is marked
-   *     vf_closing, and the stack stays at its current level.
    *
-   *     For hard errors will attempt to write away anything which is,
-   *     pending, but will stop if would block and on any error, and close
-   *     the output -- discarding any remaining output and any errors.
-   *
-   *     NB: when we reach the vout_base, turn off the hard error -- so
-   *         never "final" close the vout    TODO error handling.
-   *
-   * Also: if we are at, or we reach, the vout_base, and there is an error
-   *       message in hand, now is the time to move that to the obuf and
-   *       push it.
+   *     Where a close does not succeed, exit here and expect to come back
+   *     later to complete the operation.
    */
-  while (ret == CMD_SUCCESS)
+  while ((vio->vin_depth < vio->vout_depth) && (vio->vout_depth > 1))
     {
-      assert(vio->vout->depth_mark >= vio->vout_depth) ;
+      if (vio->cancel)
+        uty_cmd_out_cancel(vio->vout, false) ; /* stop output & pipe return
+                                                 * not vout_base        */
 
-      if (vio->vout_depth == 1)
-        {
-          assert(vio->vout->depth_mark == 1) ;
+      ret = uty_vout_pop(vio, false) ;          /* not final            */
 
-          vio->err_hard = false ;
-
-          if (vio->ebuf != NULL)
-            {
-              vio_fifo_copy(vio->obuf, vio->ebuf) ;
-              vio->ebuf = vio_fifo_free(vio->ebuf) ;
-
-              ret = uty_cmd_out_push(vio->vout, vio->err_hard) ;
-
-              if (ret != CMD_SUCCESS)
-                break ;
-            } ;
-        } ;
-
-      if (vio->vout_depth == 0)
-        assert(vio->vout->depth_mark == 0) ;
-
-      if (vio->vin_depth < vio->vout->depth_mark)
-        ret = uty_vout_pop(vio, vio->err_hard) ;
-      else
-        break ;
+      if (ret != CMD_SUCCESS)
+        return ret ;
     } ;
 
-  /* (4) Quit now if not successful on stack adjustment
+  /* (5) If we are now at the vout_base, then:
+   *
+   *     If there is anything in the pipe stderr return, copy that to the
+   *     obuff -- unless vio->cancel.
+   *
+   *     If there is an error message in hand, now is the time to move that to
+   *     the obuf and clear the error message buffer.  (If the vout_base has
+   *     failed, then the error message is going nowhere, but there's nothing
+   *     we can do about that -- the error has been logged in any case.)
+   *
+   *     Push any outstanding output (including any error message) to the
+   *     vout_base.
+   *
+   *     If the vty is about to be closed, this step ensures that all output
+   *     is tidily dealt with, before uty_close() performs its "final" close.
    */
-  if (ret != CMD_SUCCESS)
+  if (vio->vout_depth == 1)
     {
-      if (ret == CMD_WAITING)
+      if (vio->cancel)
         {
-          assert(!vio->blocking) ;
-          vio->state  = vc_waiting ;
-          return ret ;                  /* <<< exit here on CMD_WAITING */
+          /* Once we have cleared the output buffer etc., clear the cancel
+           * flag and output "^C" to show what has happened.
+           */
+          uty_cmd_out_cancel(vio->vout, true) ; /* stop output & pipe return
+                                                  * is vout_base        */
+          uty_out(vio, " ^C\n") ;
         } ;
 
-      if (ret == CMD_IO_ERROR)
+      if (!vio_fifo_empty(vio->ps_buf))
         {
-          vio->state  = vc_io_error_trap ;
-          return ret ;
+          if (!vio->cancel)
+            vio_fifo_copy(vio->obuf, vio->ps_buf) ;
+          vio_fifo_clear(vio->ps_buf, true) ;   /* clear any marks too  */
         } ;
 
-      zabort("invalid return code") ;
+      vio->cancel = false ;
+
+      if (!vio_fifo_empty(vio->ebuf))
+        {
+          vio_fifo_copy(vio->obuf, vio->ebuf) ;
+          vio_fifo_clear(vio->ebuf, true) ;     /* clear any marks too  */
+        } ;
+
+      ret = uty_cmd_out_push(vio->vout, false) ;
+
+      if (ret != CMD_SUCCESS)
+        return ret ;                    /* CMD_WAITING or CMD_IO_ERROR  */
     } ;
 
-  /* (5) Having dealt with closing of files and adjustment of stack, may
-   *     now be EOF on the vin_base.
+  /* (6) Stacks are straight.
+   *
+   *     If there is no input left, the command loop must now stop, close the
+   *     vty and exit.
+   *
+   *     Otherwise, prepare to execute commands at the, presumed new, stack
+   *     depth.
    */
-  if (vio->real_depth == 0)
-    {
-      vio->state  = vc_stopped ;
-      return CMD_EOF ;
-    } ;
+  qassert(ret == CMD_SUCCESS) ;
 
-  /* (6) All ready now to continue processing commands.
-   */
-  uty_cmd_prepare(vio) ;    /* update vty->exec state               */
+  if (vio->vin_depth == 0)
+    return CMD_STOP ;
+
+  uty_cmd_prepare(vio) ;
 
   return CMD_SUCCESS ;
 } ;
 
-/*------------------------------------------------------------------------------
- * When entering command loop, or after opening or closing a vin/vout object,
- * update the vty->exec context.
- *
- * Output to the vout_base is suppressed for reading of configuration files.
- *
- * Reflection of the command line depends on the current context, and on the
- * state of output suppression.
+/*==============================================================================
+ * Opening of pipes and adjustment of stacks.
  */
-static void
-uty_cmd_prepare(vty_io vio)
-{
-  cmd_exec exec = vio->vty->exec ;
-
-  exec->out_suppress  = (vio->vty->type == VTY_CONFIG_READ) &&
-                                                       (vio->vout_depth == 1) ;
-  exec->reflect       = exec->context->reflect_enabled && !exec->out_suppress ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Set the full_lex flag for further commands, and for any further pipes.
- */
-extern void
-vty_cmd_set_full_lex(vty vty, bool full_lex)
-{
-  VTY_LOCK() ;
-
-  vty->exec->context->full_lex = full_lex ;
-
-  VTY_UNLOCK() ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Reflect the command line to the current vio->obuf.
- *
- * Advances the end_mark past the reflected line, so that output (in particular
- * error stuff) is separate.
- *
- * NB: pushes the output, so that if the command takes a long time to process,
- *     it is visible while it proceeds.
- */
-extern cmd_return_code_t
-vty_cmd_reflect_line(vty vty)
-{
-  cmd_return_code_t  ret ;
-
-  VTY_LOCK() ;
-
-  if (vty->vio->state != vc_running)
-    ret = CMD_HIATUS ;
-  else
-    {
-      vio_fifo obuf ;
-      qstring  line ;
-
-      obuf = vty->vio->obuf ;       /* once locked          */
-      line = vty->exec->action->line ;
-
-      vio_fifo_put_bytes(obuf, qs_char_nn(line), qs_len_nn(line)) ;
-      vio_fifo_put_byte(obuf, '\n') ;
-
-      ret = uty_cmd_out_push(vty->vio->vout, false) ;       /* not final    */
-    } ;
-
-  VTY_UNLOCK() ;
-
-  return ret ;
-} ;
+static void uty_cmd_command_path(qstring name, cmd_context context) ;
 
 /*------------------------------------------------------------------------------
  * Open the given file as an in pipe, if possible.
@@ -1170,9 +1393,9 @@ uty_cmd_open_in_pipe_file(vty_io vio, cmd_context context,
 
   VTY_ASSERT_LOCKED() ;
 
-  if (vio->state != vc_running)
-    ret = CMD_HIATUS ;
-  else
+  ret = vio->signal ;           /* signal can interrupt         */
+
+  if (ret == CMD_SUCCESS)
     {
       ret = uty_file_read_open(vio, name, context) ;
 
@@ -1204,10 +1427,11 @@ uty_cmd_open_in_pipe_shell(vty_io vio, cmd_context context, qstring command,
 
   VTY_ASSERT_LOCKED() ;
 
-  if (vio->state != vc_running)
-    ret = CMD_HIATUS ;
-  else
+  ret = vio->signal ;           /* signal can interrupt         */
+
+  if (ret == CMD_SUCCESS)
     {
+      uty_cmd_command_path(command, context) ;
       ret = uty_pipe_read_open(vio, command, context) ;
 
       if (ret == CMD_SUCCESS)
@@ -1229,16 +1453,18 @@ uty_cmd_open_in_pipe_shell(vty_io vio, cmd_context context, qstring command,
  */
 extern cmd_return_code_t
 uty_cmd_open_out_pipe_file(vty_io vio, cmd_context context, qstring name,
-                                                          cmd_pipe_type_t type)
+                                               cmd_pipe_type_t type, bool after)
 {
   cmd_return_code_t ret ;
 
-  if (vio->state != vc_running)
-    ret = CMD_HIATUS ;
-  else
+  VTY_ASSERT_LOCKED() ;
+
+  ret = vio->signal ;           /* signal can interrupt         */
+
+  if (ret == CMD_SUCCESS)
     {
       ret = uty_file_write_open(vio, name,
-                                     ((type & cmd_pipe_append) != 0), context) ;
+                              ((type & cmd_pipe_append) != 0), context, after) ;
       if (ret == CMD_SUCCESS)
         uty_cmd_prepare(vio) ;
     } ;
@@ -1253,16 +1479,19 @@ uty_cmd_open_out_pipe_file(vty_io vio, cmd_context context, qstring name,
  */
 extern cmd_return_code_t
 uty_cmd_open_out_pipe_shell(vty_io vio, cmd_context context, qstring command,
-                                                           cmd_pipe_type_t type)
+                                               cmd_pipe_type_t type, bool after)
 {
   cmd_return_code_t ret ;
 
-  if (vio->state != vc_running)
-    ret = CMD_HIATUS ;
-  else
+  VTY_ASSERT_LOCKED() ;
+
+  ret = vio->signal ;           /* signal can interrupt         */
+
+  if (ret == CMD_SUCCESS)
     {
+      uty_cmd_command_path(command, context) ;
       ret = uty_pipe_write_open(vio, command,
-                                           ((type & cmd_pipe_shell_only) !=0)) ;
+                                    ((type & cmd_pipe_shell_cmd) != 0), after) ;
 
       if (ret == CMD_SUCCESS)
         uty_cmd_prepare(vio) ;
@@ -1277,19 +1506,19 @@ uty_cmd_open_out_pipe_shell(vty_io vio, cmd_context context, qstring command,
  * Puts error messages to vty if fails.
  */
 extern cmd_return_code_t
-uty_cmd_open_out_dev_null(vty_io vio)
+uty_cmd_open_out_dev_null(vty_io vio, bool after)
 {
   cmd_return_code_t ret ;
   vio_vf   vf ;
 
   VTY_ASSERT_LOCKED() ;
 
-  if (vio->state != vc_running)
-    ret = CMD_HIATUS ;
-  else
+  ret = vio->signal ;           /* signal can interrupt         */
+
+  if (ret == CMD_SUCCESS)
     {
       vf = uty_vf_new(vio, "dev_null", -1, vfd_none, vfd_io_none) ;
-      uty_vout_push(vio, vf, VOUT_DEV_NULL, NULL, NULL, 0) ;
+      uty_vout_push(vio, vf, VOUT_DEV_NULL, NULL, NULL, 0, after) ;
 
       uty_cmd_prepare(vio) ;
 
@@ -1312,15 +1541,138 @@ uty_cmd_path_name_complete(qpath dst, const char* name, cmd_context context)
 
   if      (*name != '~')
     dst = qpath_copy(dst, context->dir_cd) ;
-  else if ((*(name + 1) == '/') || (*(name + 1) == '\0'))
-    dst = qpath_copy(dst, context->dir_home) ;
-  else if ((*(name + 1) == '.') &&
-                             ( (*(name + 2) == '/') || (*(name + 2) == '\0')) )
-    dst = qpath_copy(dst, context->dir_here) ;
   else
-    return qpath_set(dst, name) ;       /* no idea... probably an error */
+    {
+      /* Have a leading '~' -- deal with:
+       *
+       *   "~~/???" or "~~\0", which for Quagga -> configuration directory
+       *
+       *   "~./???" or "~.\0", which for Quagga -> "here" (same as enclosing
+       *                                                   pipe)
+       *
+       *   "~/???" or "~\0", which         -> HOME environment variable
+       *                                      or initial working directory
+       *                                      for login.
+       *
+       *   "~user/???" or "~user\0", which -> initial working directory
+       *                                      for given user
+       */
+      if      ((*(name + 1) == '~') &&
+                             ( (*(name + 2) == '/') || (*(name + 2) == '\0')) )
+        dst = qpath_copy(dst, context->dir_home) ;
+      else if ((*(name + 1) == '.') &&
+                             ( (*(name + 2) == '/') || (*(name + 2) == '\0')) )
+        dst = qpath_copy(dst, context->dir_here) ;
+      else
+        {
+          qpath was = dst ;
+
+          dst = qpath_get_home(dst, name + 1) ;
+
+          /* If didn't get a home, return the original name
+           */
+          if (dst == NULL)
+            return qpath_set(was, name) ;
+        } ;
+    } ;
 
   return qpath_append_str(dst, name) ;  /* create the full path         */
+} ;
+
+/*------------------------------------------------------------------------------
+ * If the given qstring starts with a '~' directory or is a relative path,
+ * then now is the time to complete it.
+ */
+static void
+uty_cmd_command_path(qstring command, cmd_context context)
+{
+  const char* p, * s ;
+  qstring cmd ;
+  qpath   qp ;
+
+  s = p = qs_string(command) ;
+
+  if ((*p == '/') || (*p == '\0'))
+    return ;                    /* absolute path or empty !     */
+
+  do
+    {
+      ++p ;
+      if (*p <= ' ')
+        return ;                /* no path involved             */
+    }
+  while (*p != '/') ;           /* look for '/'                 */
+
+  do
+    ++p ;
+  while (*p > ' ') ;            /* look for end                 */
+
+  cmd = qs_set_n(NULL, s, p - s) ;
+  qp  = uty_cmd_path_name_complete(NULL, qs_string(cmd), context) ;
+
+  qs_set_cp_nn(command, 0) ;
+  qs_replace(command, p - s, qpath_string(qp), qpath_len(qp)) ;
+
+  qs_free(cmd) ;
+  qpath_free(qp) ;
+} ;
+
+/*==============================================================================
+ * Output before and after command execution.
+ *
+ * All output goes to a fifo, after a fifo "end mark".  After reflecting a
+ * command and after completing a command, all outstanding output is pushed
+ * out -- advancing the end mark past all output to date.
+ */
+
+/*------------------------------------------------------------------------------
+ * Reflect the command line to the current vio->obuf.
+ *
+ * Advances the end_mark past the reflected line, so that output (in particular
+ * error stuff) is separate.
+ *
+ * NB: pushes the output, so that if the command takes a long time to process,
+ *     it is visible while it proceeds.
+ *
+ * Returns:  CMD_SUCCESS   -- all buffers are empty
+ *           CMD_WAITING   -- all buffers are not empty
+ *           CMD_IO_ERROR  -- error or time-out
+ *           CMD_HIATUS    -- the vty is not in vc_running state.
+ *
+ * This can be called in any thread.
+ *
+ * Note that CMD_WAITING requires no further action from the caller, the
+ * background pselect process will complete the output and may signal the
+ * result via uty_cmd_signal() (CMD_SUCCESS or CMD_IO_ERROR).
+ */
+extern cmd_return_code_t
+vty_cmd_reflect_line(vty vty)
+{
+  cmd_return_code_t  ret ;
+  vty_io vio ;
+
+  VTY_LOCK() ;
+  vio = vty->vio ;              /* once locked  */
+
+  ret = vio->signal ;           /* signal can interrupt         */
+
+  if (ret == CMD_SUCCESS)
+    {
+      vio_fifo obuf ;
+      qstring  line ;
+
+      obuf = vio->obuf ;
+      line = vty->exec->action->line ;
+
+      vio_fifo_put_bytes(obuf, qs_char_nn(line), qs_len_nn(line)) ;
+      vio_fifo_put_byte(obuf, '\n') ;
+
+      ret = uty_cmd_out_push(vio->vout, false) ;        /* not final    */
+    } ;
+
+  VTY_UNLOCK() ;
+
+  return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1338,11 +1690,9 @@ vty_cmd_success(vty vty)
   VTY_LOCK() ;
   vio = vty->vio ;              /* once locked  */
 
-  ret = CMD_SUCCESS ;
+  ret = vio->signal ;           /* signal can interrupt         */
 
-  if (vio->state != vc_running)
-    ret = CMD_HIATUS ;
-  else
+  if (ret == CMD_SUCCESS)
     {
       if (!vio_fifo_tail_empty(vio->obuf))
         {
@@ -1361,19 +1711,24 @@ vty_cmd_success(vty vty)
 /*------------------------------------------------------------------------------
  * If there is anything after the end_mark, push it to be written, now.
  *
+ * This is used by configuration file output, which outputs to the fifo and
+ * pushes every now and then.
+ *
  * See uty_cmd_out_push() below.
  */
 extern cmd_return_code_t
 vty_cmd_out_push(vty vty)
 {
   cmd_return_code_t ret ;
+  vty_io vio ;
 
   VTY_LOCK() ;
+  vio = vty->vio ;              /* once locked  */
 
-  if (vty->vio->state != vc_running)
-    ret = CMD_HIATUS ;
-  else
-    ret = uty_cmd_out_push(vty->vio->vout, false) ;     /* not final    */
+  ret = vio->signal ;           /* signal can interrupt         */
+
+  if (ret == CMD_SUCCESS)
+    ret = uty_cmd_out_push(vio->vout, false) ;  /* not final    */
 
   VTY_UNLOCK() ;
 
@@ -1381,22 +1736,36 @@ vty_cmd_out_push(vty vty)
 } ;
 
 /*------------------------------------------------------------------------------
- * If there is anything after the end_mark, push it to be written, now.
+ * If there is anything after the end_mark, advance the end mark and attempt to
+ * write away contents of the buffer.
  *
- * For most outputs we kick the I/O side so that the pselect processing deals
- * with the required write.  For VOUT_STDERR and VOUT_STDOUT, output goes
- * directly to standard I/O.
+ * For non-blocking vf, will write as much as possible here, and anything left
+ * will be left to the pselect() process, unless "final".
  *
- * Advances the end_mark past the stuff pushed.
+ * For blocking vf, may block here, unless "final".
+ *
+ * If "final", will attempt to write etc., but will not block and may turn
+ * off the pselect() processing of this vf.  "final" is used when a pipe of
+ * some kind is being closed "final", and the slave output is being pushed.
  *
  * NB: takes no notice of vf->out_suppress, which applies only to buffered
  *     output present when successfully complete a command -- vty_cmd_success().
  *
- * TODO: worry about closing state !
- * TODO: need a vf level one of these.
+ * Returns:  CMD_SUCCESS   -- done everything possible
+ *           CMD_WAITING   -- not "final" => waiting for output to complete
+ *                                                          <=> not vf->blocking
+ *                                "final" => would have waited *or* blocked,
+ *                                           but did not.
+ *           CMD_IO_ERROR  -- error or time-out (may be "final")
+ *
+ * This can be called in any thread.
+ *
+ * Note that CMD_WAITING requires no further action from the caller, the
+ * background pselect process will complete the output and may signal the
+ * result via uty_cmd_signal() (CMD_SUCCESS or CMD_IO_ERROR).
  */
 extern cmd_return_code_t
-uty_cmd_out_push(vio_vf vf, bool final) /* TODO: write errors & blocking   */
+uty_cmd_out_push(vio_vf vf, bool final)
 {
   cmd_return_code_t ret ;
 
@@ -1409,7 +1778,6 @@ uty_cmd_out_push(vio_vf vf, bool final) /* TODO: write errors & blocking   */
   switch (vf->vout_state)
     {
       case vf_open:
-      case vf_closing:
         switch (vf->vout_type)
           {
             case VOUT_NONE:
@@ -1417,15 +1785,19 @@ uty_cmd_out_push(vio_vf vf, bool final) /* TODO: write errors & blocking   */
               break ;
 
             case VOUT_TERM:
-              ret = uty_term_out_push(vf, final) ;
+              /* Note that we ignore "final" -- the VOUT_TERM runs until
+               * it is closed.
+               */
+              ret = uty_term_out_push(vf, false) ;
               break ;
 
             case VOUT_VTYSH:
-              /* Kick the writer    */
+              /* Kick the writer                */
               break ;
 
             case VOUT_FILE:
-              ret = uty_file_out_push(vf, final) ;
+              /* push everything if the vty is being closed.            */
+              ret = uty_file_out_push(vf, final, vf->vio->vin_depth == 0) ;
               break ;
 
             case VOUT_PIPE:
@@ -1433,20 +1805,27 @@ uty_cmd_out_push(vio_vf vf, bool final) /* TODO: write errors & blocking   */
               break ;
 
             case VOUT_CONFIG:
-              ret = uty_file_out_push(vf, final) ;  /* treat as file        */
+              /* push everything if the vty is being closed.            */
+              ret = uty_file_out_push(vf, final, vf->vio->vin_depth == 0) ;
               break ;
 
             case VOUT_DEV_NULL:
-            case VOUT_SHELL_ONLY:
-              vio_fifo_clear(vf->obuf, false) ;     /* keep end mark        */
+            case VOUT_SH_CMD:
+              vio_fifo_clear(vf->obuf, false) ;     /* keep end mark    */
               break ;
 
             case VOUT_STDOUT:
-              vio_fifo_fwrite(vf->obuf, stdout) ;   // TODO errors
+              if (vf->vio->cancel)
+                vio_fifo_clear(vf->obuf, false) ;   /* keep end mark        */
+              else
+                vio_fifo_fwrite(vf->obuf, stdout) ;     // TODO errors
               break ;
 
             case VOUT_STDERR:
-              vio_fifo_fwrite(vf->obuf, stderr) ;   // TODO errors
+              if (vf->vio->cancel)
+                vio_fifo_clear(vf->obuf, false) ;   /* keep end mark        */
+              else
+                vio_fifo_fwrite(vf->obuf, stderr) ;     // TODO errors
               break ;
 
             default:
@@ -1455,16 +1834,9 @@ uty_cmd_out_push(vio_vf vf, bool final) /* TODO: write errors & blocking   */
         break ;
 
       case vf_closed:
-      case vf_timed_out:
-        break ;                 /* immediate success !  */
-
-      case vf_eof:
-        zabort("vf->vout cannot be vf_eof") ;
-        break ;
-
-      case vf_error:
-        ret = CMD_IO_ERROR ;
-        break ;
+      case vf_end:
+        vio_fifo_clear(vf->obuf, false) ;       /* keep end mark        */
+        break ;                                 /* immediate success !  */
 
       default:
         zabort("unknown vf->vout_state") ;
@@ -1475,38 +1847,73 @@ uty_cmd_out_push(vio_vf vf, bool final) /* TODO: write errors & blocking   */
 } ;
 
 /*------------------------------------------------------------------------------
+ * Bring output and any pipe return to a sudden halt.
+ */
+static void
+uty_cmd_out_cancel(vio_vf vf, bool base)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  /* Dump contents of obuf and if not base: force vf_end (if vf_open)
+   */
+  vio_fifo_clear(vf->obuf, false) ;
+
+  if (!base && (vf->vout_state == vf_open))
+    vf->vout_state = vf_end ;
+
+  /* If there is a pipe return, close that down, too.
+   */
+  if (vf->pr_state == vf_open)
+    uty_pipe_return_cancel(vf) ;
+} ;
+
+/*==============================================================================
+ * Error handling
+ */
+
+/*------------------------------------------------------------------------------
  * Dealing with error of some kind.
  *
- * The current vio->obuf will have an end_mark.  After the end_mark will be
- * any output generated since the start of the current command (or any out_push
- * since then).  For command errors, that output is expected to be error
- * messages associated with the error.
+ * In general any error causes the vin/vout stack to be closed either
+ * completely or down to the base vin/vout.  vio->err_depth contains the
+ * default depth to close back to.  An I/O error in either vin_base or
+ * vout_base will set the err_depth to 0.
  *
- * A new "ebuf" fifo is created, and the location of the error is written to
- * that fifo.  Once the contents of the "ebuf" are output, the command line in
- * which the error occurred should be the last thing output.
+ * The vio->ebuf contains all error messages collected so far for the vio,
+ * and will be output to the vout_base when the stack has been closed to
+ * that point.  The vio->ebuf will then be emptied.
  *
- * Any other error message is then appended to the ebuf.
+ * For command and parser errors:
  *
- * For command errors, the tail of the vio->obuf (stuff after the end_mark) is
- * moved to the ebuf.
+ *   The current vio->obuf will have an end_mark.  After the end_mark will be
+ *   any output generated since the start of the current command (or any
+ *   out_push since then).  For command errors, that output is expected to be
+ *   messages associated with the error.
+ *
+ *   The location of the error is written to the vio->ebuf, and then the
+ *   contents of the vio->obuf are moved to the end the vio->ebuf, possibly
+ *   with other diagnostic information.
+ *
+ * For I/O errors:
+ *
+ *   The contents of vio->obuf are left untouched -- the closing of the
+ *   stack will do what it can with those.
+ *
+ *   The vio->ebuf will already contain the required error message(s).  The
+ *   vio->err_depth will have been set to close as far as vin_base/vout_base,
+ *   or to close the vty completely.
  *
  * Deals with:
  *
- *   CMD_WARNING     =                 TODO
- *   CMD_ERROR       =>
+ *   CMD_WARNING            command: general failed or not fully succeeded
+ *   CMD_ERROR              command: definitely failed
  *
- *   CMD_ERR_PARSING,              parser: general parser error
- *   CMD_ERR_NO_MATCH,             parser: command/argument not recognised
- *   CMD_ERR_AMBIGUOUS,            parser: more than on command matches
- *   CMD_ERR_INCOMPLETE,
+ *   CMD_ERR_PARSING        parser:  general parser error
+ *   CMD_ERR_NO_MATCH       parser:  command/argument not recognised
+ *   CMD_ERR_AMBIGUOUS      parser:  more than on command matches
+ *   CMD_ERR_INCOMPLETE
  *
- *   CMD_IO_ERROR                  I/O -- failed :-(
- *   CMD_IO_TIMEOUT                I/O -- timed out :-(
- *
- * In any event, need to separate out any output from the failing command,
- * so that can report error location and type, before showing the error
- * message(s).
+ *   CMD_IO_ERROR           I/O:     error or time-out
  *
  * NB: does not expect to see all the possible CMD_XXX return codes (see
  *     below), but treats all as a form of error !
@@ -1514,54 +1921,61 @@ uty_cmd_out_push(vio_vf vf, bool final) /* TODO: write errors & blocking   */
 static uint
 uty_cmd_failed(vty_io vio, cmd_return_code_t ret)
 {
-  ulen        indent ;
+  ulen  indent ;
+  uint  depth ;
 
   VTY_ASSERT_LOCKED() ;
 
-  /* Process the vin stack to generate the error location(s)            */
-  if (vio->ebuf != NULL)
-    vio_fifo_clear(vio->ebuf, true) ;
-  else
-    vio->ebuf = vio_fifo_new(1000) ;
-
-  indent = uty_show_error_context(vio->ebuf, vio->vin) ;
+  /* Stack depth to close back to.
+   *
+   * This could be overridden by the return code type.
+   */
+  depth = vio->err_depth  ;
 
   /* Now any additional error message if required                       */
+  uty_cmd_get_ebuf(vio) ;
+
   switch (ret)
   {
     case CMD_WARNING:
+      uty_show_error_context(vio->ebuf, vio->vin) ;
+
       if (vio_fifo_tail_empty(vio->obuf))
         vio_fifo_printf(vio->ebuf, "%% WARNING: non-specific warning\n") ;
       break ;
 
     case CMD_ERROR:
+      uty_show_error_context(vio->ebuf, vio->vin) ;
+
       if (vio_fifo_tail_empty(vio->obuf))
         vio_fifo_printf(vio->ebuf, "%% ERROR: non-specific error\n") ;
       break ;
 
     case CMD_ERR_PARSING:
+      indent = uty_show_error_context(vio->ebuf, vio->vin) ;
       cmd_get_parse_error(vio->ebuf, vio->vty->exec->parsed, indent) ;
       break ;
 
     case CMD_ERR_NO_MATCH:
+      uty_show_error_context(vio->ebuf, vio->vin) ;
       vio_fifo_printf(vio->ebuf, "%% Unknown command.\n") ;
       break;
 
     case CMD_ERR_AMBIGUOUS:
+      uty_show_error_context(vio->ebuf, vio->vin) ;
       vio_fifo_printf(vio->ebuf, "%% Ambiguous command.\n");
       break;
 
     case CMD_ERR_INCOMPLETE:
+      uty_show_error_context(vio->ebuf, vio->vin) ;
       vio_fifo_printf(vio->ebuf, "%% Command incomplete.\n");
       break;
 
-    case CMD_IO_ERROR:
-      break ;
-
-    case CMD_IO_TIMEOUT:
+    case CMD_IO_ERROR:          /* Diagnostic already posted to ebuf    */
       break ;
 
     default:
+      zlog_err("%s: unexpected return code (%d).", __func__, (int)ret) ;
       vio_fifo_printf(vio->ebuf, "%% Unexpected return code (%d).\n", (int)ret);
       break ;
   } ;
@@ -1572,8 +1986,8 @@ uty_cmd_failed(vty_io vio, cmd_return_code_t ret)
   vio_fifo_copy_tail(vio->ebuf, vio->obuf) ;
   vio_fifo_back_to_end_mark(vio->obuf, true) ;
 
-  /* Decide what stack level to close back to.                          */
-  return (vio->vty->type == VTY_TERMINAL) ? 1 : 0 ;  // TODO I/O error ??
+  /* Return what stack depth to close back to.                          */
+  return depth ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1650,10 +2064,29 @@ uty_show_error_context(vio_fifo ebuf, vio_vf vf)
   return indent ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * If there is no vio->ebuf, make one
+ */
+extern vio_fifo
+uty_cmd_get_ebuf(vty_io vio)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  if (vio->ebuf == NULL)
+    vio->ebuf = vio_fifo_new(1000) ;
+
+  return vio->ebuf ;
+} ;
+
 /*==============================================================================
  * Configuration node/state handling
  *
  * At most one VTY may hold the configuration symbol of power at any time.
+ *
+ * Only at vin_depth == 1 may the symbol of power be acquired, and only at
+ * vin_depth <= 1 will the symbol of power be released.  Inter alia, this
+ * means that the restoration of command context when an input pipe finishes
+ * does not have to worry about recovering or releasing the symbol of power.
  */
 
 /*------------------------------------------------------------------------------
@@ -1664,41 +2097,54 @@ uty_show_error_context(vio_fifo ebuf, vio_vf vf)
 extern cmd_return_code_t
 vty_cmd_config_lock (vty vty)
 {
+  bool  locked ;
+
   VTY_LOCK() ;
-  uty_cmd_config_lock(vty) ;
+  locked = uty_cmd_config_lock(vty) ;
   VTY_UNLOCK() ;
 
   if (vty->config)
     return CMD_SUCCESS ;
 
-  vty_out (vty, "VTY configuration is locked by other VTY\n") ;
+  if (locked)
+    vty_out(vty, "VTY configuration is locked by other VTY\n") ;
+  else
+    vty_out(vty, "VTY configuration is not available\n") ;
+
   return CMD_WARNING ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Attempt to gain the configuration symbol of power -- may already own it !
  *
- * Returns: true <=> now own the symbol of power (or already did).
+ * NB: cannot do this at any vin level except 1 !
  */
-static void
+static bool
 uty_cmd_config_lock (vty vty)
 {
+  VTY_ASSERT_LOCKED() ;
+
   if (!host.config)             /* If nobody owns the lock...           */
     {
-      host.config = true ;      /* ...rope it...                        */
-      vty->config = true ;
+      if (vty->vio->vin_depth == 1)
+        {
+          host.config = true ;          /* ...rope it...                */
+          vty->config = true ;
 
-      do
-        ++host.config_brand ;   /* ...update the brand...               */
-      while (host.config_brand == 0) ;
+          do
+            ++host.config_brand ;       /* ...update the brand...       */
+          while (host.config_brand == 0) ;
 
-      vty->config_brand = host.config_brand ;   /* ...brand it.         */
+          vty->config_brand = host.config_brand ;       /* ...brand it. */
+        } ;
     }
   else                          /* Somebody owns the lock...            */
     {
       if (vty->config)          /* ...if we think it is us, check brand */
         assert(host.config_brand == vty->config_brand) ;
     } ;
+
+  return host.config ;
 }
 
 /*------------------------------------------------------------------------------
@@ -1717,10 +2163,11 @@ vty_cmd_config_lock_check(vty vty, node_type_t node)
  * Check that given node and ownership of configuration symbol of power
  * are mutually consistent.
  *
- * If node >  MAX_NON_CONFIG_NODE, must own the symbol of power.
+ * If node >  MAX_NON_CONFIG_NODE, must own the symbol of power (unless
+ * vio->vin_true_depth == 0, in which case the node is irrelevant).
  *
  * If node <= MAX_NON_CONFIG_NODE, will release symbol of power, if own it,
- * PROVIDED is at vin_depth <= 1 !!
+ * PROVIDED is at vin_true_depth <= 1 !!
  */
 static void
 uty_cmd_config_lock_check(vty vty, node_type_t node)
@@ -1730,11 +2177,11 @@ uty_cmd_config_lock_check(vty vty, node_type_t node)
   if (vty->config)
     {
       /* We think we own it, so we better had                   */
-      assert(host.config) ;
-      assert(host.config_brand == vty->config_brand) ;
+      qassert(host.config) ;
+      qassert(host.config_brand == vty->config_brand) ;
 
       /* If no longer need it, release                          */
-      if ((node <= MAX_NON_CONFIG_NODE) && (vty->vio->vin_depth <= 1))
+      if ((node <= MAX_NON_CONFIG_NODE) && (vty->vio->vin_true_depth <= 1))
         {
           host.config  = false ;
           vty->config  = false ;
@@ -1744,9 +2191,12 @@ uty_cmd_config_lock_check(vty vty, node_type_t node)
     {
       /* We don't think we own it, so we had better not         */
       if (host.config)
-        assert(host.config_brand != vty->config_brand) ;
+        qassert(host.config_brand != vty->config_brand) ;
 
-      /* Also, node had better not require that we do.          */
-      assert(node <= MAX_NON_CONFIG_NODE) ;
+      /* Also, node had better not require that we do, noting that
+       * the node is irrelevant if the vin_true_depth is 0.
+       */
+      if (vty->vio->vin_true_depth > 0)
+        qassert(node <= MAX_NON_CONFIG_NODE) ;
     } ;
 } ;

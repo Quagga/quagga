@@ -840,7 +840,7 @@ funcname_thread_add_write (struct thread_master *m,
  *     THREAD_TIMER or a THREAD_BACKGROUND thread, then thread->u.qtr points
  *     at the qtimer.
  *
- *     AND, conversely, if there is no qtimer, then thread->u.ptr == NULL.
+ *     AND, conversely, if there is no qtimer, then thread->u.qtr == NULL.
  */
 
 /*------------------------------------------------------------------------------

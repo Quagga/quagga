@@ -30,11 +30,14 @@
 #include "vty_local.h"
 #include "vty_io.h"
 
-extern void vty_cmd_loop_prepare(vty vty) ;
-extern void uty_cmd_loop_enter(vty_io vio) ;
+extern bool vty_cmd_config_loop_prepare(vty vty) ;
+extern void uty_cmd_queue_loop_enter(vty_io vio) ;
 extern void uty_cmd_signal(vty_io vio, cmd_return_code_t ret) ;
-extern void uty_cmd_loop_close(vty_io vio, bool curtains) ;
+extern bool uty_cmd_loop_stop(vty_io vio, bool curtains) ;
+
 extern void vty_cmd_loop_exit(vty vty) ;
+extern void vty_cmd_set_stopped(vty vty) ;
+extern void vty_cmd_check_stop(vty vty, cmd_return_code_t ret) ;
 
 extern cmd_return_code_t vty_cmd_fetch_line(vty vty) ;
 extern cmd_return_code_t vty_cmd_hiatus(vty vty, cmd_return_code_t ret) ;
@@ -44,21 +47,22 @@ extern cmd_return_code_t vty_cmd_reflect_line(vty vty) ;
 extern cmd_return_code_t vty_cmd_out_push(vty vty) ;
 extern cmd_return_code_t uty_cmd_out_push(vio_vf vf, bool final) ;
 
-extern void vty_cmd_set_full_lex(vty vty, bool full_lex) ;
-
 extern cmd_return_code_t uty_cmd_open_in_pipe_file(vty_io vio,
                    cmd_context context, qstring name,    cmd_pipe_type_t type) ;
 extern cmd_return_code_t uty_cmd_open_in_pipe_shell(vty_io vio,
                    cmd_context context, qstring command, cmd_pipe_type_t type) ;
 extern cmd_return_code_t uty_cmd_open_out_pipe_file(vty_io vio,
-                   cmd_context context, qstring name,    cmd_pipe_type_t type) ;
-extern cmd_return_code_t uty_cmd_open_out_dev_null(vty_io vio) ;
+                   cmd_context context, qstring name,    cmd_pipe_type_t type,
+                                                                   bool after) ;
+extern cmd_return_code_t uty_cmd_open_out_dev_null(vty_io vio, bool after) ;
 extern cmd_return_code_t uty_cmd_open_out_pipe_shell(vty_io vio,
-                   cmd_context context, qstring command, cmd_pipe_type_t type) ;
+                   cmd_context context, qstring command, cmd_pipe_type_t type,
+                                                                   bool after) ;
 extern qpath uty_cmd_path_name_complete(qpath dst, const char* name,
                                                          cmd_context context) ;
 
 extern cmd_return_code_t vty_cmd_success(vty vty) ;
+extern vio_fifo uty_cmd_get_ebuf(vty_io vio) ;
 
 extern cmd_return_code_t vty_cmd_config_lock (vty vty) ;
 extern void vty_cmd_config_lock_check(struct vty *vty, node_type_t node) ;

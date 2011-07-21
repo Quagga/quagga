@@ -35,7 +35,7 @@
 
 enum { keystroke_max_len = 100 } ;
 
-enum keystroke_type
+typedef enum keystroke_type
 {
   ks_null   = 0,        /* nothing, nada, bupkis...             */
   ks_char,              /* character -- uint32_t                */
@@ -46,19 +46,21 @@ enum keystroke_type
   ks_type_count,
 
   ks_type_reserved = 0x0F,
-} ;
-typedef enum keystroke_type keystroke_type_t ;
+} keystroke_type_t ;
+
 CONFIRM(ks_type_count <= ks_type_reserved) ;
 
-enum keystroke_null
+typedef enum keystroke_null
 {
   knull_not_eof,
   knull_eof,
   knull_timed_out,
-};
+} keystroke_null_t ;
 
-enum keystroke_flags
+typedef enum keystroke_flags
 {
+  kf_null       =    0,
+
   kf_compound   = 0x80, /* marker on all compound characters    */
 
   kf_reserved   = 0x40,
@@ -69,8 +71,7 @@ enum keystroke_flags
   kf_flag_mask  = 0x70, /* flags for the keystroke              */
 
   kf_type_mask  = 0x0F, /* extraction of type                   */
-} ;
-typedef enum keystroke_type keystroke_flags_t ;
+} keystroke_flags_t ;
 
 /* The keystroke type and flags are designed so that they can be packed
  * together as a single byte, the first of a "compound character".
@@ -95,8 +96,8 @@ struct keystroke
 } ;
 typedef struct keystroke keystroke_t[1] ;
 
-#define keystroke_iac_callback_args void* context, keystroke stroke
-typedef bool (keystroke_callback)(keystroke_iac_callback_args) ;
+#define keystroke_callback_args void* context, keystroke stroke
+typedef bool (keystroke_callback)(keystroke_callback_args) ;
 
 /* Telnet commands/options                                             */
 enum tn_Command
@@ -174,25 +175,21 @@ enum tn_Option
 /*==============================================================================
  * Functions
  */
-extern keystroke_stream
-keystroke_stream_new(uint8_t csi_char, keystroke_callback* iac_callback,
-                                                   void* iac_callback_context) ;
+extern keystroke_stream keystroke_stream_new(uint8_t csi_char,
+                         const char* interrupts,
+                         keystroke_callback* callback, void* callback_context) ;
 
-extern void
-keystroke_stream_set_eof(keystroke_stream stream, bool timed_out) ;
+extern void keystroke_stream_set_eof(keystroke_stream stream, bool timed_out) ;
 
-extern keystroke_stream
-keystroke_stream_free(keystroke_stream stream) ;
+extern keystroke_stream keystroke_stream_free(keystroke_stream stream) ;
 
-extern bool
-keystroke_stream_empty(keystroke_stream stream) ;
-extern bool
-keystroke_stream_eof(keystroke_stream stream) ;
+extern bool keystroke_get(keystroke_stream stream, keystroke stroke) ;
+extern bool keystroke_steal(keystroke_stream stream, keystroke stroke) ;
+extern void keystroke_steal_clear(keystroke_stream stream) ;
+extern bool keystroke_stream_empty(keystroke_stream stream) ;
+extern bool keystroke_stream_at_eof(keystroke_stream stream) ;
+extern bool keystroke_stream_met_eof(keystroke_stream stream) ;
 
-extern void
-keystroke_input(keystroke_stream stream, uint8_t* ptr, size_t len,
-                                                              keystroke steal) ;
-extern bool
-keystroke_get(keystroke_stream stream, keystroke stroke) ;
+extern void keystroke_input(keystroke_stream stream, uint8_t* ptr, int len) ;
 
 #endif /* _ZEBRA_KEYSTROKE_H */

@@ -28,8 +28,6 @@
 #include "vty_common.h"         /* First and foremost                   */
 #include "command_common.h"
 
-//#include "log_local.h"          /* NB:                                  */
-
 #include "vargs.h"
 
 #include "qpthreads.h"
@@ -67,7 +65,6 @@
  */
 extern struct vty_io* vio_live_list ;
 extern struct vty_io* vio_monitor_list ;
-extern struct vty_io* vio_death_watch ;
 
 extern struct vio_child* vio_childer_list ;
 
@@ -214,7 +211,7 @@ VTY_ASSERT_CLI_THREAD_LOCKED(void)
 } ;
 
 /*==============================================================================
- * Functions in vty.c -- used in any of the family
+ * Functions in vty.c -- used in any of the vty and command family
  */
 extern void vty_hello (vty vty);
 
@@ -224,11 +221,11 @@ extern int vty_out_indent(vty vty, int indent) ;
 extern void vty_out_clear(vty vty) ;
 extern cmd_return_code_t vty_cat_file(vty vty, qpath path, const char* desc) ;
 
-extern void vty_time_print (struct vty *, int);
+extern void vty_time_print (struct vty *, int) ;
 
-extern void vty_set_lines(vty vty, int lines);
+extern void vty_set_lines(vty vty, int lines) ;
 
-extern void vty_open_config_write(vty vty, int fd) ;
-extern cmd_return_code_t vty_close_config_write(struct vty* vty, bool final) ;
+extern void vty_config_write_open(vty vty, int fd) ;
+extern cmd_return_code_t vty_config_write_close(struct vty* vty) ;
 
 #endif /* _ZEBRA_VTY_LOCAL_H */

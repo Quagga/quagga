@@ -445,9 +445,9 @@ bgp_clock(void)
  * Clock time calculated now may differ from any logged Wall Clock times !!
  */
 Inline time_t
-bgp_wall_clock(time_t bgp_time)
+bgp_wall_clock(time_t mono)
 {
-  return time(NULL) + (bgp_time - bgp_clock()) ;
+  return time(NULL) - (bgp_clock() - mono) ;
 } ;
 
 /*------------------------------------------------------------------------------

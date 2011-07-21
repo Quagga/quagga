@@ -348,7 +348,7 @@ bgp_connection_free(bgp_connection connection)
   /* Free any components which still exist                              */
   connection->qf              = qps_file_free(connection->qf) ;
   connection->hold_timer      = qtimer_free(connection->hold_timer) ;
-  connection->keepalive_timer = qtimer_free(connection->hold_timer) ;
+  connection->keepalive_timer = qtimer_free(connection->keepalive_timer) ;
 
   bgp_notify_unset(&connection->notification) ;
   bgp_open_state_unset(&connection->open_recv) ;

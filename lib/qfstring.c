@@ -625,6 +625,7 @@ qfs_number(qf_str qfs, uintmax_t val, int sign, enum pf_flags flags,
           while (t--)
             *cp++ = *cq++ ;
           *cp++ = comma ;
+          t = interval ;
         } ;
 
       assert(len == (e - p)) ;
@@ -1043,7 +1044,10 @@ qfs_arg_string(qf_str qfs, const char* src, enum pf_flags flags,
       flags &= ~pf_precision ;
     } ;
 
-  len = (src != NULL) ? strlen(src) : 0 ;
+  len = 0 ;
+  if (src != NULL)
+    while (*(src + len) != '\0') ++len ;
+
   if (((precision > 0) || (flags & pf_precision)) && (len > precision))
     len = precision ;
 

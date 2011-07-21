@@ -45,26 +45,26 @@ extern cmd_return_code_t uty_config_read_close(vio_vf vf, bool final) ;
 extern cmd_return_code_t uty_file_read_open(vty_io vio, qstring name,
                                                           cmd_context context) ;
 extern cmd_return_code_t uty_file_write_open(vty_io vio, qstring name,
-                                             bool append, cmd_context context) ;
+                                 bool append, cmd_context context, bool after) ;
 
 extern cmd_return_code_t uty_file_fetch_command_line(vio_vf vf,
                                                             cmd_action action) ;
-extern cmd_return_code_t uty_file_out_push(vio_vf vf, bool final) ;
+extern cmd_return_code_t uty_file_out_push(vio_vf vf, bool final, bool all) ;
 
 extern cmd_return_code_t uty_file_read_close(vio_vf vf, bool final) ;
-extern cmd_return_code_t uty_file_write_close(vio_vf vf, bool final, bool base) ;
+extern cmd_return_code_t uty_file_write_close(vio_vf vf, bool final) ;
 
 
 extern cmd_return_code_t uty_pipe_read_open(vty_io vio, qstring command,
                                                           cmd_context context) ;
 extern cmd_return_code_t uty_pipe_write_open(vty_io vio, qstring command,
-                                                              bool shell_only) ;
+                                                  bool shell_cmd, bool after) ;
 extern cmd_return_code_t uty_pipe_fetch_command_line(vio_vf vf,
                                                             cmd_action action) ;
 extern cmd_return_code_t uty_pipe_out_push(vio_vf vf, bool final) ;
-extern void uty_pipe_return_slave_ready(vio_vf slave) ;
 extern cmd_return_code_t uty_pipe_read_close(vio_vf vf, bool final) ;
-extern cmd_return_code_t uty_pipe_write_close(vio_vf vf, bool final, bool base,
-                                                              bool shell_only) ;
+extern cmd_return_code_t uty_pipe_write_close(vio_vf vf, bool final) ;
+extern void uty_pipe_return_stop(vio_vf vf) ;
+extern void uty_pipe_return_cancel(vio_vf vf) ;
 
 #endif

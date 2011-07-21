@@ -86,28 +86,28 @@ struct vio_fifo
 {
   struct dl_base_pair(vio_fifo_lump) base ;
 
-  char**  p_start ;             /* -> hold_ptr/get_ptr                  */
+  char**  p_start ;             /* -> hold_ptr/get_ptr                    */
 
-  char*   hold_ptr ;            /* implicitly in the head lump          */
-                                /* NULL <=> no hold_ptr                 */
+  char*   hold_ptr ;            /* p_start == &hold_ptr <=> hold mark set */
+                                /* implicitly in the head lump, if set    */
 
-  vio_fifo_lump get_lump ;      /* head lump unless "hold_ptr"          */
+  vio_fifo_lump get_lump ;      /* head lump unless "hold_ptr"            */
   char*   get_ptr ;
 
-  char**  p_get_end ;           /* -> lump->end/end_ptr/put_ptr         */
-  char**  p_end ;               /* -> end_ptr/put_ptr                   */
+  char**  p_get_end ;           /* -> lump->end/end_ptr/put_ptr           */
+  char**  p_end ;               /* -> end_ptr/put_ptr                     */
 
-  vio_fifo_lump end_lump ;      /* tail lump unless "end_ptr"           */
-  char*   end_ptr ;             /* NULL <=> no end_ptr                  */
+  vio_fifo_lump end_lump ;      /* tail lump unless "end_ptr"             */
+  char*   end_ptr ;             /* p_end == &end_ptr <=> end mark set     */
 
-  char*   put_ptr ;             /* implicitly in the tail lump          */
+  char*   put_ptr ;             /* implicitly in the tail lump            */
   char*   put_end ;
 
-  ulen    size ;                /* set when initialised                 */
+  ulen    size ;                /* set when initialised                   */
 
-  vio_fifo_lump   spare ;       /* may be "own_lump"                    */
+  vio_fifo_lump   spare ;       /* may be "own_lump"                      */
 
-  vio_fifo_lump_t own_lump[] ;  /* embedded lump                        */
+  vio_fifo_lump_t own_lump[] ;  /* embedded lump                          */
 } ;
 
 typedef struct vio_fifo  vio_fifo_t[1] ;        /* embedded     */
@@ -141,6 +141,7 @@ extern int vio_fifo_printf(vio_fifo vff, const char* format, ...)
                                                         PRINTF_ATTRIBUTE(2, 3) ;
 extern int vio_fifo_vprintf(vio_fifo vff, const char *format, va_list args) ;
 extern int vio_fifo_read_nb(vio_fifo vff, int fd, ulen request) ;
+extern void vio_fifo_trim(vio_fifo vff, bool term) ;
 
 extern ulen vio_fifo_get_bytes(vio_fifo vff, void* dst, ulen n) ;
 Inline int vio_fifo_get_byte(vio_fifo vff) ;

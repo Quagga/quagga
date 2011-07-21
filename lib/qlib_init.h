@@ -39,4 +39,14 @@ extern void qlib_init_second_stage(bool pthreads) ;
 
 extern void qexit(int exit_code) ;
 
+/*==============================================================================
+ * System parameters, set at qlib_init_first_stage() time.
+ */
+
+int qlib_iov_max ;      /* Maximum length of iovec vector       */
+
+int qlib_open_max ;     /* Maximum number of file descriptors   */
+
+int qlib_pagesize ;     /* Size of system page                  */
+
 #endif /* _ZEBRA_QLIB_INIT_H */

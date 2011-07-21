@@ -36,6 +36,7 @@
 #include "thread.h"
 #include "command_execute.h"
 #include "qstring.h"
+#include "qfstring.h"
 #include "list_util.h"
 
 /*==============================================================================
@@ -72,8 +73,6 @@ enum vio_in_type        /* Command input                                */
 
   VIN_CONFIG,           /* config file                                  */
 
-  VIN_PIPE_RETURN,      /* */
-
   /* The VIN types >= VIN_SPECIALS do not have an associated fd.
    *
    * These can coexist with a VOUT which does have an associated fd.
@@ -106,7 +105,7 @@ enum vio_out_type       /* Command output                               */
   VOUT_DEV_NULL = VOUT_SPECIALS,
                         /* black hole output                            */
 
-  VOUT_SHELL_ONLY,      /* pipe (but only back from child process       */
+  VOUT_SH_CMD,          /* pipe for shell command (no actual output)    */
 
   VOUT_STDOUT,          /* stdout                                       */
   VOUT_STDERR,          /* stderr                                       */
@@ -124,22 +123,15 @@ enum vf_state
   vf_open,              /* the vf has been opened, and any required vfd
                          * is open and I/O is possible.                 */
 
-  vf_eof,               /* for a vin: end of file has been reached or
-                         * input has been terminated.  The vfd may have
-                         * been closed -- but in any case no further
-                         * I/O should be attempted, and any buffered
-                         * input will be discarded.                     */
-
-  vf_closing,           /* for a vout: open, but in process of closing.
-                         * May still output stuff.                      */
-
-  vf_error,             /* an I/O error has been reported.
-                         * The vfd may or may not have been closed and
-                         * I/O may or may not be possible TODO          */
-
-  vf_timed_out,         /* a timout has been reported.
-                         * The vfd may or may not have been closed and
-                         * I/O may or may not be possible TODO          */
+  vf_end,               /* for a vin: EOF has been reached or input has
+                         * been terminated, or an error or timeout has
+                         * been met.
+                         *
+                         * for a vout: output has been terminated, or an
+                         * error or tineout has been met.
+                         *
+                         * The vfd may have been closed -- but in any
+                         * case no further vfd I/O should be attempted. */
 } ;
 typedef enum vf_state vf_state_t ;
 
@@ -219,33 +211,32 @@ struct vio_vf
   vf_state_t      vout_state ;
   vio_vf          vout_next ;   /* list of outputs                      */
 
-  vio_vf      pr_master ;       /* receiving return stuff from there    */
-
   vio_fifo    obuf ;            /* output fifo (if required)            */
 
   uint        depth_mark ;      /* depth of this vout                   */
 
-  /* I/O                                                                */
+  /* General I/O                                                        */
+
+  bool        blocking ;        /* using blocking I/O (eg config read)  */
 
   vio_vfd     vfd ;             /* vty_io_basic "file descriptor"       */
-
-  bool        blocking ;        /* using blocking I/O (config read)     */
-
-  int         error_seen ;      /* non-zero => failed                   */
 
   vty_timer_time  read_timeout ;
   vty_timer_time  write_timeout ;
 
-  /* Pipe extras                                                        */
+  /* Pipe extras -- child and pipe returns                              */
 
   vio_child   child ;           /* state of child                       */
 
-  vf_state_t  pr_state ;        /* iff pipe                             */
-  vio_vfd     pr_vfd ;          /* if pr_state == vf_open               */
+  vf_state_t  pr_state ;        /* iff VOUT_PIPE/VOUT_SH_CMD            */
+  vio_vfd     pr_vfd ;          /* if pr_state != vf_closed             */
+  vty_timer_time  pr_timeout ;  /* set once closing pipe return         */
 
-  vio_vf      pr_slave ;        /* sending return stuff to there        */
+  vf_state_t  ps_state ;        /* stderr for all pipe types            */
+  vio_vfd     ps_vfd ;          /* if ps_state != vf_closed             */
+  vty_timer_time  ps_timeout ;  /* set once closing pipe return         */
 
-  bool        pr_only ;         /* no vfd                               */
+  vio_fifo    ps_buf ;          /* to be moved to vio->ps_buf           */
 } ;
 
 enum vty_readiness              /* bit significant      */
@@ -261,69 +252,95 @@ typedef enum vty_readiness vty_readiness_t ;
  */
 enum vc_state
 {
-  vc_null  = 0,         /* the command loop has not yet been entered.   */
+  vc_stopped,           /* the command loop has stopped, and will not run
+                         * again.
+                         *
+                         * or, the command loop has never started.      */
+
+  vc_waiting,           /* the command loop is waiting for I/O.
+                         * command queue command loop only              */
 
   vc_running,           /* the command loop is running, and the vty is
                          * in its hands.                                */
-
-  vc_io_error_trap,     /* the command loop is running, but an I/O
-                         * error has been posted.                       */
-
-  vc_close_trap,        /* the command loop is running, but the vty is
-                         * reset and must be closed                     */
-
-  vc_waiting,           /* the command loop is waiting for I/O.         */
-
-  vc_stopped,           /* the command loop has stopped, the vty is due
-                           to be closed (loop cannot run again)         */
-
-  vc_closed,            /* the command loop has finished and the vty
-                         * has been closed.                             */
 } ;
 typedef enum vc_state vc_state_t ;
 
 /*------------------------------------------------------------------------------
+ * I/O and time-out error types
+ */
+enum vio_err_type
+{
+  verr_none             = 0,
+
+  verr_vin              = 1,
+  verr_vout             = 2,
+  verr_pr               = 3,    /* pipe return (read)           */
+  verr_ps               = 4,    /* pipe stderr return (read)    */
+
+  verr_mask             = BIT(4) - 1,
+
+  verr_io               = BIT(4) * 0,
+  verr_to               = BIT(4) * 1,
+
+  verr_io_vin           = verr_vin  | verr_io,
+  verr_io_vout          = verr_vout | verr_io,
+  verr_io_pr            = verr_pr   | verr_io,
+  verr_io_ps            = verr_ps   | verr_io,
+
+  verr_to_vin           = verr_vin  | verr_to,
+  verr_to_vout          = verr_vout | verr_to,
+  verr_to_pr            = verr_pr   | verr_to,
+  verr_to_ps            = verr_ps   | verr_to,
+} ;
+typedef enum vio_err_type  vio_err_type_t ;
+
+QFB_T(verr_mess, 200) ;
+
+/*------------------------------------------------------------------------------
  * The vty_io structure
  *
- * The main elements of the vty_io object are the vin and vout stacks.
+ * The main elements of the vty_io (aka vio) object are the vin and vout stacks.
  *
- * One of the challenges is managing the closing of VTY objects.  First,
- * cannot close and free a VTY object which is in the hands of a command
- * function, or which is queued to or from a command function.  Second,
- * do not wish to completely close an output until have given it a chance
- * to clear any buffered output.
+ * The first entry in the vin/vout stacks is the "base" and is a bit special.
+ * This entry is at stack depth 1.  Stack depth 0 is reserved for all closed,
+ * or about to be.
  *
+ * The vin_depth counts the number of command inputs which have been opened
+ * and pushed on the stack.
  *
+ * The vout_depth reflects the vin_depth at which the vout was opened, and
+ * will be:
  *
- * "cmd_running" means that the VTY is in hands of (or has been passed to) TODO
- * a command loop -- the VTY cannot be fully closed until that is no
- * longer the case.
+ *   * vout_depth == vin_depth + 1
  *
- * "blocking" is set for configuration reading VTY, so that everything is
- * done with blocking I/O.
+ *     this is true after a command line such as:
  *
- * "closing" means that the vty has been closed (!), but a command
- * and or output may still be active:
+ *        ...some command... > some_file
  *
- *   - if is a socket, will have shut_down the read side (half-closed)
+ *     When the command completes, and all output is pushed out, then the
+ *     vout will be closed and the vout_depth reduced.
  *
- *   - any further attempts to read will give "eof"
+ *   * vout_depth == vin_depth
  *
- *   - there may be a command in execution -- see "cmd_running".  TODO
+ *     this is true when a vty is set up (and the depths will be 1), and also
+ *     if vin and a vout are opened together, as in:
  *
- *   - further writing will be honoured.
+ *        < some_file  > some_other_file
  *
- *   - the write side may still be active, attempting to empty out any
- *     pending output.
+ *     When the vin reaches eof (or fails) and is closed, then the vout_depth
+ *     will be vin_depth + 1, which triggers the closing of the vout.
  *
- * "closed" means the vty has been fully and finally closed.
+ *  * vout_depth < vin_depth
  *
- *   - any further attempts to write will be ignored, but return instant
- *     success.
+ *    This is true when one or vins have been opened and are stacked on top
+ *    of each other.  As the vins are closed, the vin_depth reduces until
+ *    it hits the vout_depth, as above.
  *
- *   - the file/socket has been fully closed.
+ * When a vout is opened, the then current vout_depth is stored in the
+ * vf->depth_mark, and restored from there when the vout is closed.
  *
- *   - the VTY and all attached structures can be reaped by the death_watch.
+ * The vin_depth drives the closing of vouts.  The vin_true_depth drives the
+ * closing of vins.
  */
 struct vty_cli ;                /* forward reference -- vty_cli.h is
                                    *not* included, because that refers
@@ -333,22 +350,27 @@ struct vty_io                   /* typedef appears above                */
 {
   vty       vty ;               /* the related vty                      */
 
+  /* List of all vty_io objects                                         */
+  struct dl_list_pair(vty_io) vio_list ;
+
+  /* The vin/vout stacks                                                */
+
   vio_vf    vin ;               /* vin stack                            */
   vio_vf    vin_base ;
   uint      vin_depth ;
-
-  uint      real_depth ;        /* less than vin_depth when closing     */
+  uint      vin_true_depth ;    /* less than vin_depth when closing     */
 
   vio_vf    vout ;              /* vout stack                           */
   vio_vf    vout_base ;
   uint      vout_depth ;
 
+  bool      cancel ;
+
   /* Error handling                                                     */
-  bool      err_hard ;          /* eg I/O error                         */
+
   vio_fifo  ebuf ;              /* buffer for error message             */
 
-  /* List of all vty_io objects                                         */
-  struct dl_list_pair(vty_io) vio_list ;
+  int       err_depth ;         /* on error, close stack to this depth  */
 
   /* State
    *
@@ -357,11 +379,16 @@ struct vty_io                   /* typedef appears above                */
    *
    * "state" as described above.
    */
-  bool  blocking ;              /* => all I/O is blocking.              */
+  bool      blocking ;          /* => all I/O is blocking.              */
 
-  vc_state_t  state ;
+  vc_state_t  state ;           /* command loop state                   */
+  cmd_return_code_t signal ;    /* signal sent to command loop          */
 
-  char*       close_reason ;    /* MTYPE_TMP (if any)                   */
+  char*     close_reason ;      /* MTYPE_TMP (if any)                   */
+
+  /* Pipe stderr return buffer.
+   */
+  vio_fifo  ps_buf ;
 
   /* For ease of output, pointer to current vout->obuf
    *
@@ -375,15 +402,14 @@ struct vty_io                   /* typedef appears above                */
    * With the exception of the "monitor" flag, need the LOG_MUTEX in order
    * to change any of this.
    */
-  bool  monitor ;               /* is in monitor state                  */
+  struct dl_list_pair(vty_io) mon_list ;
 
-  bool  mon_kick ;              /* vty needs a kick                     */
-  int   maxlvl ;                /* message level wish to see            */
+  bool      monitor ;           /* is in monitor state                  */
+
+  bool      mon_kick ;          /* vty needs a kick                     */
+  int       maxlvl ;            /* message level wish to see            */
 
   vio_fifo  mbuf ;              /* monitor output pending               */
-
-  /* List of all vty_io that are in monitor state                       */
-  struct dl_list_pair(vty_io) mon_list ;
 } ;
 
 /*==============================================================================
@@ -425,7 +451,7 @@ Inline void uty_out_accept(vty_io vio) ;
 Inline void uty_out_reject(vty_io vio) ;
 
 extern vty uty_new (vty_type_t type, node_type_t node) ;
-extern void uty_close(vty_io vio, const char* reason, bool curtains) ;
+extern void uty_close(vty_io vio) ;
 
 extern void uty_set_timeout(vty_io vio, vty_timer_time timeout) ;
 
@@ -438,10 +464,10 @@ extern void uty_vin_push(vty_io vio, vio_vf vf, vio_in_type_t type,
 extern void uty_vout_push(vty_io vio, vio_vf vf, vio_out_type_t type,
                                           vio_vfd_action* write_action,
                                           vio_timer_action* write_timer_action,
-                                          usize obuf_size) ;
-extern void uty_vout_sync_depth(vty_io vio) ;
-extern cmd_return_code_t uty_vin_pop(vty_io vio, bool final,
-                                                          cmd_context context) ;
+                                          usize obuf_size,
+                                          bool after) ;
+extern cmd_return_code_t uty_vin_pop(vty_io vio, cmd_context context,
+                                                                   bool final) ;
 extern cmd_return_code_t uty_vout_pop(vty_io vio, bool final) ;
 
 
@@ -451,14 +477,17 @@ extern void uty_vf_set_read(vio_vf vf, on_off_b on) ;
 extern void uty_vf_set_read_timeout(vio_vf vf, vty_timer_time read_timeout) ;
 extern void uty_vf_set_write(vio_vf vf, on_off_b on) ;
 extern void uty_vf_set_write_timeout(vio_vf vf, vty_timer_time write_timeout) ;
-extern int uty_vf_error(vio_vf vf, const char* what, int err) ;
 
+extern cmd_return_code_t uty_vf_error(vio_vf vf, vio_err_type_t err_type,
+                                                                      int err) ;
+extern verr_mess_t uty_error_message(vio_vf vf, vio_err_type_t err_type,
+                                                            int err, bool log) ;
 extern vio_child uty_child_register(pid_t pid, vio_vf parent) ;
 extern void vty_child_close_register(void) ;
 extern void uty_child_awaited(vio_child child, vty_timer_time timeout) ;
 extern bool uty_child_collect(vio_child child, vty_timer_time timeout,
                                                                    bool final) ;
-extern vio_child uty_child_dismiss(vio_child child, bool final) ;
+extern void uty_child_dismiss(vio_child child, bool final) ;
 extern void uty_sigchld(void) ;
 
 extern void uty_child_signal_nexus_set(vty_io vio) ;
@@ -471,7 +500,6 @@ extern void uty_open_listeners(const char *addr, unsigned short port,
 extern void uty_add_listener(int fd, vio_vfd_accept* accept) ;
 extern void uty_close_listeners(void) ;
 
-extern void uty_watch_dog_init(void) ;
 extern void uty_watch_dog_start(void) ;
 extern void uty_watch_dog_stop(void) ;
 

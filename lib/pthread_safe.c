@@ -47,16 +47,25 @@
 #include "qfstring.h"
 #include "errno_names.h"
 
-/* prototypes */
-static void destructor(void* data);
-static char * thread_buff(void);
-
+/*==============================================================================
+ * Initialisation, close down and local variables.
+ *
+ * Note that the "thread_safe" mutex is recursive, so one thread safe function
+ * can call another, if required.
+ */
 static pthread_key_t tsd_key;
 static const int buff_size = 1024;
 
+static qpt_mutex thread_safe = NULL ;
+
 static const char ellipsis[] = "..." ;
 
-/* Module initialization, before any threads have been created */
+static void destructor(void* data);
+static char * thread_buff(void);
+
+/*------------------------------------------------------------------------------
+ * Module initialization, before any threads have been created
+ */
 void
 safe_init_r(void)
 {
@@ -66,48 +75,34 @@ safe_init_r(void)
       status = pthread_key_create(&tsd_key, destructor);
       if (status != 0)
         zabort("Can't create thread specific data key");
-    }
+
+      qassert(thread_safe == NULL) ;
+
+      thread_safe = qpt_mutex_init_new(NULL, qpt_mutex_recursive) ;
+    } ;
 }
 
-/* Clean up */
+/*------------------------------------------------------------------------------
+ * Clean up
+ */
 void
 safe_finish(void)
 {
   if (qpthreads_enabled)
-    pthread_key_delete(tsd_key);
-}
+    {
+      pthread_key_delete(tsd_key) ;
 
-/* called when thread terminates, clean up */
+      thread_safe = qpt_mutex_destroy(thread_safe, free_it) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * called when thread terminates, clean up
+ */
 static void
 destructor(void* data)
 {
   XFREE(MTYPE_TSD, data);
-}
-
-/* Thread safe version of strerror.  Never returns NULL.
- * Contents of result remains intact until another call of
- * a safe_ function.
- */
-const char *
-safe_strerror(int errnum)
-{
-  static const char * unknown = "Unknown error";
-  if (qpthreads_enabled)
-    {
-      char * buff = thread_buff();
-      int ret = strerror_r(errnum, buff, buff_size);
-
-      return (ret >= 0)
-          ? buff
-          : unknown;
-    }
-  else
-    {
-      const char *s = strerror(errnum);
-      return (s != NULL)
-          ? s
-          : unknown;
-    }
 }
 
 /*==============================================================================
@@ -311,13 +306,13 @@ errtox(strerror_t* st, int err, uint len, uint want)
 
       if (ql != 0)
         qfs_append(qfs, q) ;
-
-      /* '\0' terminate -- if has overflowed, replace last few characters
-       * by "..." -- noting that sizeof("...") includes the '\0'.
-       */
-      if (qfs_term(qfs) != 0)
-        qfs_term_string(qfs, ellipsis, sizeof(ellipsis)) ;
     } ;
+
+  /* '\0' terminate -- if has overflowed, replace last few characters
+   * by "..." -- noting that sizeof("...") includes the '\0'.
+   */
+  if (qfs_term(qfs) != 0)
+    qfs_term_string(qfs, ellipsis, sizeof(ellipsis)) ;
 
   /* Put back errno                                                     */
   errno = errno_saved ;
@@ -490,9 +485,83 @@ eaitox(strerror_t* st, int eai, int err, uint len, uint want)
   errno = errno_saved ;
 } ;
 
-/*============================================================================*/
+/*==============================================================================
+ * Miscellaneous thread-safe functions
+ */
 
-/* Thread safe version of inet_ntoa.  Never returns NULL.
+/*------------------------------------------------------------------------------
+ * getenv_r -- fetch environment variable into the given buffer.
+ *
+ * If buffer is not long enough, fetches as much as can and '\0' terminates.
+ *
+ * Returns:   -1 => not found -- buffer set empty
+ *          >= 0 == length of environment variable
+ *
+ * NB: this is NOT signal safe.  If need value of environment variable in
+ *     a signal action -- make OTHER arrangements !!
+ */
+extern int
+getenv_r(const char* name, char* buf, int buf_len)
+{
+  char* val ;
+  int   len ;
+  int   cl ;
+
+  qpt_mutex_lock(thread_safe) ;
+
+  val = getenv(name) ;
+  if (val == NULL)
+    {
+      len = -1 ;
+      cl  = 0 ;
+    }
+  else
+    {
+      len = strlen(val) ;
+      cl  = (len < buf_len) ? len : buf_len - 1 ;
+    } ;
+
+  if (buf_len > 0)
+    {
+      if (cl > 0)
+        memcpy(buf, val, cl) ;
+      buf[cl] = '\0' ;
+    } ;
+
+  qpt_mutex_unlock(thread_safe) ;
+
+  return len ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Thread safe version of strerror.  Never returns NULL.
+ * Contents of result remains intact until another call of
+ * a safe_ function.
+ */
+const char *
+safe_strerror(int errnum)
+{
+  static const char * unknown = "Unknown error";
+  if (qpthreads_enabled)
+    {
+      char * buff = thread_buff();
+      int ret = strerror_r(errnum, buff, buff_size);
+
+      return (ret >= 0)
+          ? buff
+          : unknown;
+    }
+  else
+    {
+      const char *s = strerror(errnum);
+      return (s != NULL)
+          ? s
+          : unknown;
+    }
+}
+
+/*------------------------------------------------------------------------------
+ * Thread safe version of inet_ntoa.  Never returns NULL.
  * Contents of result remains intact until another call of
  * a safe_ function.
  */
@@ -511,7 +580,8 @@ safe_inet_ntoa (struct in_addr in)
       : unknown;
 }
 
-/* Return the thread's buffer, create it if necessary.
+/*------------------------------------------------------------------------------
+ * Return the thread's buffer, create it if necessary.
  * (pthread Thread Specific Data)
  */
 static char *

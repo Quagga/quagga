@@ -23,23 +23,24 @@
 #include <errno.h>
 #include "qdebug_nb.h"
 
+#include "qlib_init.h"
 #include "memory.h"
 #include "miyagi.h"
 
 #include "qiovec.h"
 
 /*==============================================================================
- * IOV_MAX is defined by POSIX to appear in <limits.h>.
- *
- * This does not appear unless "zconfig.h" is included, first...
- * ...but although it compiles OK, Eclipse cannot see where the value has
- * come from.
+ * We collect the _SC_IOV_MAX very early in the morning, but in any case
+ * only use up to 100 entries -- in order not to let a single operation hog
+ * the cpu.
  */
-#ifdef IOV_MAX                  /* Stops Eclipse whinging       */
-#if IOV_MAX < 64                /* check for a reasonable value */
-#error IOV_MAX < 64
-#endif
-#endif
+static int qiov_max ;
+
+extern void
+qiovec_start_up(void)
+{
+  qiov_max = (qlib_iov_max < 100) ? qlib_iov_max : 100 ;
+}
 
 /*==============================================================================
  * Initialise, allocate and reset qiovec
@@ -287,7 +288,7 @@ qiovec_write_nb(int fd, qiovec qiov)
 
   l = iovec_write_nb(fd, (struct iovec*)(&qiov->vec[qiov->i_get]), n) ;
 
-  if (l == 0)
+  if (l <= 0)
     {
       qiov->writing = false ;
       qiov->i_get   = qiov->i_put = 0 ;
@@ -342,11 +343,14 @@ iovec_write_nb(int fd, struct iovec p_iov[], int n)
   while (n > 0)
     {
       ssize_t ret ;
+      int m ;
+
+      m = (n < qiov_max) ? n : qiov_max ;
 
       if (qdebug_nb)
-        ret = writev_qdebug_nb(fd, p_iov, (n < IOV_MAX ? n : IOV_MAX)) ;
+        ret = writev_qdebug_nb(fd, p_iov, m) ;
       else
-        ret = writev          (fd, p_iov, (n < IOV_MAX ? n : IOV_MAX)) ;
+        ret = writev          (fd, p_iov, m) ;
 
       if (ret > 0)
         {
@@ -378,7 +382,6 @@ iovec_write_nb(int fd, struct iovec p_iov[], int n)
           if ((err == EAGAIN) || (err == EWOULDBLOCK))
             break ;
           if (err != EINTR)
-//          assert(0) ;         // Pro tem
             return -1 ;         /* failed                       */
         } ;
     } ;

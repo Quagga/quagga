@@ -30,7 +30,6 @@ Boston, MA 02111-1307, USA.  */
 #include <sys/utsname.h>
 
 #include "memory.h"
-#include "log.h"
 #include "thread.h"
 #include "vector.h"
 #include "qstring.h"
@@ -41,9 +40,11 @@ Boston, MA 02111-1307, USA.  */
 #include "command_parse.h"
 #include "command_execute.h"
 #include "command_queue.h"
+#include "log_local.h"
 #include "vty_local.h"
 #include "vty_command.h"
 #include "vty_io.h"
+#include "vty_log.h"
 #include "network.h"
 
 /* Vector of cmd_node, one for each known node, built during daemon
@@ -1097,7 +1098,7 @@ DEFUN (config_write_file,
     }
 
   /* Make vty for configuration file.                                   */
-  vty_open_config_write(vty, fd) ;
+  vty_config_write_open(vty, fd) ;
 
   vty_out (vty, "!\n! Zebra configuration saved from vty\n!   ");
   vty_time_print (vty, 1);
@@ -1119,7 +1120,7 @@ DEFUN (config_write_file,
         } ;
     } ;
 
-  ret = vty_close_config_write(vty, (retw != CMD_SUCCESS)) ;
+  ret = vty_config_write_close(vty) ;
 
   if ((ret != CMD_SUCCESS) || (retw != CMD_SUCCESS))
     {
@@ -1505,7 +1506,9 @@ static cmd_return_code_t
 set_host_lines(int lines)
 {
   VTY_LOCK() ;
+
   host.lines = lines ;
+
   VTY_UNLOCK() ;
   return CMD_SUCCESS ;
 } ;
@@ -1556,6 +1559,14 @@ DEFUN_HID_CALL (do_echo,
 
 /*==============================================================================
  * Logging configuration.
+ *
+ * Each VTY has its own logging level for monitor logging, and its own
+ * enable/disable.  When logging is enabled, the current monitor logging
+ * level is set for the VTY.
+ *
+ * The monitor logging level is a bit special -- setting this level affects
+ * the current VTY (if it is a VTY_TERMINAL) and any future VTY.  It also
+ * affects the level which will be written away to any configuration file.
  */
 
 DEFUN_CALL (config_logmsg,
@@ -1583,51 +1594,43 @@ DEFUN_CALL (show_logging,
        SHOW_STR
        "Show current logging configuration\n")
 {
+  int lvl ;
+
   vty_out (vty, "Syslog logging: ");
-  if (zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG) == ZLOG_DISABLED)
-    vty_out (vty, "disabled");
+  if ((lvl = zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG)) == ZLOG_DISABLED)
+    vty_out (vty, "disabled\n");
   else
-    vty_out (vty, "level %s, facility %s, ident %s",
-	     zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_SYSLOG)],
-	     facility_name(zlog_get_facility(NULL)), zlog_get_ident(NULL));
-  vty_out (vty, "%s", VTY_NEWLINE);
+    vty_out (vty, "level %s, facility %s, ident %s\n", zlog_priority[lvl],
+                 facility_name(zlog_get_facility(NULL)), zlog_get_ident(NULL)) ;
 
   vty_out (vty, "Stdout logging: ");
-  if (zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT) == ZLOG_DISABLED)
-    vty_out (vty, "disabled");
+  if ((lvl = zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT)) == ZLOG_DISABLED)
+    vty_out (vty, "disabled\n");
   else
-    vty_out (vty, "level %s",
-	     zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_STDOUT)]);
-  vty_out (vty, "%s", VTY_NEWLINE);
+    vty_out (vty, "level %s\n", zlog_priority[lvl]) ;
 
   vty_out (vty, "Monitor logging: ");
-  if (zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR) == ZLOG_DISABLED)
-    vty_out (vty, "disabled");
+  if ((lvl = zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR)) == ZLOG_DISABLED)
+    vty_out (vty, "disabled\n");
   else
-    vty_out (vty, "level %s",
-	     zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_MONITOR)]);
-  vty_out (vty, "%s", VTY_NEWLINE);
+    vty_out (vty, "level %s\n", zlog_priority[lvl]);
 
   vty_out (vty, "File logging: ");
-  if ((zlog_get_maxlvl(NULL, ZLOG_DEST_FILE) == ZLOG_DISABLED) ||
-      !zlog_is_file(NULL))
-    vty_out (vty, "disabled");
+  if (((lvl = zlog_get_maxlvl(NULL, ZLOG_DEST_FILE)) == ZLOG_DISABLED) ||
+                                                            !zlog_is_file(NULL))
+    vty_out (vty, "disabled\n");
   else
     {
       char * filename = zlog_get_filename(NULL);
-      vty_out (vty, "level %s, filename %s",
-	     zlog_priority[zlog_get_maxlvl(NULL, ZLOG_DEST_FILE)],
-	     filename);
+      vty_out (vty, "level %s, filename %s\n", zlog_priority[lvl], filename) ;
       free(filename);
     }
-  vty_out (vty, "%s", VTY_NEWLINE);
 
-  vty_out (vty, "Protocol name: %s%s",
-      zlog_get_proto_name(NULL), VTY_NEWLINE);
-  vty_out (vty, "Record priority: %s%s",
-  	   (zlog_get_record_priority(NULL) ? "enabled" : "disabled"), VTY_NEWLINE);
-  vty_out (vty, "Timestamp precision: %d%s",
-      zlog_get_timestamp_precision(NULL), VTY_NEWLINE);
+  vty_out (vty, "Protocol name: %s\n", zlog_get_proto_name(NULL));
+  vty_out (vty, "Record priority: %s\n",
+                    (zlog_get_record_priority(NULL) ? "enabled" : "disabled")) ;
+  vty_out (vty, "Timestamp precision: %d\n",
+                                           zlog_get_timestamp_precision(NULL)) ;
 
   return CMD_SUCCESS;
 }
@@ -1675,7 +1678,9 @@ DEFUN_CALL (config_log_monitor,
        "Logging control\n"
        "Set terminal line (monitor) logging level\n")
 {
-  zlog_set_level (NULL, ZLOG_DEST_MONITOR, zlog_get_default_lvl(NULL));
+  int level = zlog_get_default_lvl(NULL) ;
+  zlog_set_level (NULL, ZLOG_DEST_MONITOR, level) ;
+  vty_set_monitor_level(vty, level) ;
   return CMD_SUCCESS;
 }
 
@@ -1690,7 +1695,9 @@ DEFUN_CALL (config_log_monitor_level,
 
   if ((level = level_match(argv[0])) == ZLOG_DISABLED)
     return CMD_ERR_NO_MATCH;
+
   zlog_set_level (NULL, ZLOG_DEST_MONITOR, level);
+  vty_set_monitor_level(vty, level) ;
   return CMD_SUCCESS;
 }
 
@@ -1703,6 +1710,7 @@ DEFUN_CALL (no_config_log_monitor,
        "Logging level\n")
 {
   zlog_set_level (NULL, ZLOG_DEST_MONITOR, ZLOG_DISABLED);
+  vty_set_monitor_level(vty, ZLOG_DISABLED) ;
   return CMD_SUCCESS;
 }
 
@@ -2033,8 +2041,8 @@ DEFUN_CALL (no_banner_motd,
   return CMD_SUCCESS;
 }
 
-/*==============================================================================
- * Current directory handling
+/*------------------------------------------------------------------------------
+ * Set current directory
  */
 DEFUN_CALL (do_chdir,
        chdir_cmd,
@@ -2056,6 +2064,41 @@ DEFUN_CALL (do_chdir,
   else
     {
       vty_out(vty, "%% chdir %s: ", qpath_string(path)) ;
+      if (err < 0)
+        vty_out(vty, "is not a directory\n") ;
+      else
+        vty_out(vty, "%s (%s)\n", errtostr(err, 0).str,
+                                  errtoname(err, 0).str) ;
+      ret = CMD_WARNING ;
+    } ;
+
+  qpath_free(path) ;
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Show given directory path
+ */
+DEFUN_CALL (do_shdir,
+       shdir_cmd,
+       "shdir DIR",
+       "Show directory\n"
+       "Directory to show\n")
+{
+  cmd_return_code_t ret ;
+  qpath  path ;
+  int    err ;
+
+  ret = CMD_SUCCESS ;
+
+  path = uty_cmd_path_name_complete(NULL, argv[0], vty->exec->context) ;
+  err  = qpath_stat_is_directory(path) ;
+
+  if (err == 0)
+    vty_out(vty, "%s\n", qpath_string(path)) ;
+  else
+    {
+      vty_out(vty, "%% %s: ", qpath_string(path)) ;
       if (err < 0)
         vty_out(vty, "is not a directory\n") ;
       else
@@ -2119,7 +2162,7 @@ DEFUN_CALL (lexical_level,
 
   level = strtol(argv[0], NULL, 0) ;
 
-  vty_cmd_set_full_lex(vty, (level != 0)) ;
+  vty->exec->context->full_lex = (level != 0) ;
 
   return CMD_SUCCESS;
 }
@@ -2199,6 +2242,7 @@ cmd_init (bool terminal)
       install_element (VIEW_NODE, &show_logging_cmd);
       install_element (VIEW_NODE, &echo_cmd);
       install_element (VIEW_NODE, &chdir_cmd);
+      install_element (VIEW_NODE, &shdir_cmd);
 
       install_element (RESTRICTED_NODE, &config_list_cmd);
       install_element (RESTRICTED_NODE, &config_exit_cmd);
@@ -2211,6 +2255,7 @@ cmd_init (bool terminal)
       install_element (RESTRICTED_NODE, &config_terminal_no_length_cmd);
       install_element (RESTRICTED_NODE, &echo_cmd);
       install_element (RESTRICTED_NODE, &chdir_cmd);
+      install_element (RESTRICTED_NODE, &shdir_cmd);
     }
 
   if (terminal)
@@ -2227,6 +2272,7 @@ cmd_init (bool terminal)
   install_element (ENABLE_NODE, &show_version_cmd);
   install_element (ENABLE_NODE, &lexical_level_cmd);
   install_element (ENABLE_NODE, &chdir_cmd);
+  install_element (ENABLE_NODE, &shdir_cmd);
 
   if (terminal)
     {

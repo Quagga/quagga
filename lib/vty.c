@@ -57,8 +57,8 @@
  *   vty          -- level visible from outside the vty/command/log family
  *                   and within those families.
  *
- *   vty_common.h -- definitions ...
- *   vty_local.h
+ *   vty_common.h -- definitions used by both external and internal users
+ *   vty_local.h  -- definitions used within the family only
  *
  *   vty_io       -- top level of the vio handling
  *
@@ -76,11 +76,9 @@
  *                   thread/select worlds.
  *
  *   vio_lines    -- for terminal: handles width, CRLF, line counting etc.
- *   vio_fifo     --
- *   qiovec
- *
+ *   vio_fifo     -- for all vty types, indefinite size buffer
+ *   qiovec       -- using writev() to output contents of buffers
  */
-
 
 /*==============================================================================
  * Variables etc. (see vty_local.h)
@@ -119,9 +117,6 @@ vty_io vio_live_list       = NULL ;
 /* List of all vty which are in monitor state.                          */
 vty_io vio_monitor_list    = NULL ;
 
-/* List of all vty which are on death watch                             */
-vty_io vio_death_watch     = NULL ;
-
 /* List of child processes in our care                                  */
 vio_child vio_childer_list = NULL ;
 
@@ -139,7 +134,7 @@ char integrate_default[] = SYSCONFDIR INTEGRATE_DEFAULT_CONFIG ;
 /*------------------------------------------------------------------------------
  * Prototypes
  */
-static void uty_reset (bool final, const char* why) ;
+static void uty_reset (const char* why, bool curtains) ;
 static void uty_init_commands (void) ;
 
 //static bool vty_terminal (struct vty *);
@@ -186,7 +181,6 @@ vty_init (struct thread_master *master_thread)
   vty_master = master_thread;   /* Local pointer to the master thread   */
 
   vio_live_list       = NULL ;  /* no VTYs yet                          */
-  vio_death_watch     = NULL ;
   vio_childer_list    = NULL ;
 
   vty_nexus           = false ; /* not running qnexus-wise              */
@@ -195,8 +189,6 @@ vty_init (struct thread_master *master_thread)
   vty_cmd_nexus       = NULL ;
 
   vty_child_signal_nexus = NULL ;       /* none, yet                    */
-
-  uty_watch_dog_init() ;        /* empty watch dog                      */
 
   uty_init_monitor() ;
 
@@ -290,22 +282,26 @@ extern void
 vty_reset()
 {
   vty_reset_because("Reset") ;
-}
+} ;
 
 /*------------------------------------------------------------------------------
- * Reset all VTY status
+ * Reset all VTY.
  *
- * This is done in response to SIGHUP/SIGINT/SIGTERM -- and runs in the
- * CLI thread (if there is one).
+ * This is done in response to SIGHUP/SIGINT -- and runs in the CLI pthread
+ * (if there is one).
  *
- * Closes all VTY, leaving the death watch to tidy up once all output and any
- * command in progress have completed.
+ * Stops any command loop and closes all VTY, "final".  Issues the "why"
+ * message just before closing the base output.
+ *
+ * Note that if a command loop is currently executing a command in the
+ * Routing Engine pthread, then when that completes the command loop will stop
+ * and close the VTY.  So completion of the close depends on the CLI pthread
+ * continuing to run and consume messages.  The Routing Engine will act on
+ * the SIGHUP/SIGINT/SIGTERM when it consumes a message sent to it, so any
+ * currently executing command will complete, before any further action is
+ * taken.
  *
  * Closes all listening sockets.
- *
- * TODO: revoke ?
- *
- * NB: old code discarded all output and hard closed all the VTY...
  */
 extern void
 vty_reset_because(const char* why)
@@ -317,15 +313,16 @@ vty_reset_because(const char* why)
     {
       assert(vty_init_state == vty_init_started) ;
 
-      uty_reset(false, why) ;   /* not final !  */
+      uty_reset(why, false) ;   /* not curtains         */
 
       vty_init_state = vty_init_reset ;
     } ;
+
   VTY_UNLOCK() ;
-}
+} ;
 
 /*------------------------------------------------------------------------------
- * Restart the VTY, following a vty_reset().
+ * Restart the VTY, following a vty_reset()/vty_reset_because().
  *
  * This starts the listeners for VTY_TERMINAL and VTY_SHELL_SERVER, again.
  *
@@ -444,7 +441,7 @@ vty_terminate (void)
   assert(  (vty_init_state > vty_init_pending)
         && (vty_init_state < vty_init_terminated)  ) ;
 
-  uty_reset(true, "Shut down") ;        /* final reset          */
+  uty_reset("Shut down", true) ;        /* curtains             */
 
   vty_child_close_register() ;
 
@@ -457,35 +454,71 @@ vty_terminate (void)
 }
 
 /*------------------------------------------------------------------------------
- * Reset -- for SIGHUP or at final curtain.
+ * Reset -- for SIGHUP/SIGINT or at final curtain.
  *
- * For SIGHUP is called via vty_reset_because(), and is sitting in the
- * vty_cli_nexus (if pthreaded) with the message queues still running.
+ * Closes listeners and resets the vty timeout and access lists.
  *
- * For final curtain will
+ * Closes all vty "final" -- see uty_close().  Before can close the vty must
+ * stop any related command loop -- see uty_cmd_loop_stop():
  *
+ *   * at "not-curtains" this is called in the *CLI* pthread, with all message
+ *     and event handling is still running.
  *
- *  is called by vty_terminate(), by which time all qnexus
- * have been shut down, so no message queues and no timers etc, are running.
+ *     This is called *before* a message is sent to the Routing Engine pthread
+ *     to inform it that a SIGHUP/SIGINT/SIGTERM has been seen.
  *
+ *     It is possible that the command loop for a given vty cannot be stopped
+ *     immediately and must be left to continue, until it sees the CMD_STOP
+ *     vio->signal which will be set.
  *
- * Closes listeners.
+ *   * at "curtains" the system is being terminated, all threads have been
+ *     joined, so is implicity in the CLI thread, but all message and event
+ *     handling has stopped
  *
- * Revokes any outstanding commands and close (SIGHUP) or close_final
- * (curtains) all VTY.
+ *     At "curtains" it is always possible to stop any command loop.
  *
+ *     This is part of vty_terminate -- see above.
  *
+ * Close down is then a two step process:
  *
- * Resets the vty timeout and access lists.
+ *   1. vty_reset()/vty_reset_because() -- which immediately closes everything
+ *      that does not have to wait for a command loop to stop, and anything
+ *      that remains will be closed, automatically, as soon as possible.
  *
- * When reach final reset it should not be possible for there to be any
- * commands still in progress.  If there are, they are simply left on the
- * death-watch list... there is no pressing need to do anything more radical,
- * and the presence of anything on the death watch is grounds for some debug
- * activity !
+ *   2. vty_terminate() -- which sweeps up and closes anything that remains
+ *      to be closed, and which the automatic mechanism has not got to yet.
+ *
+ * So, for each vty, if uty_cmd_loop_stop() does stop the command loop, then:
+ *
+ *   * the close of the vty proceeds immediately.
+ *
+ * Otherwise:
+ *
+ *   * the CMD_STOP vio->signal has been set and the vty is left open.
+ *
+ *     Note that the command loop *must* be running in the vty_cmd_nexus
+ *     -- see uty_cmd_loop_stop().
+ *
+ *   * nothing further will happen until the Routing Engine collects the
+ *     CMD_STOP vio->signal, and sends a message to pass the command loop
+ *     back to the CLI pthread, to deal with the CMD_STOP.
+ *
+ *     Before passing the command loop back, the Routing Engine will release
+ *     the config symbol of power.  So, if the Routing Engine goes on to
+ *     re-read the configuration, it does not have to wait for the CLI to get
+ *     round to stopping the vty.
+ *
+ *   * when the CLI pthread receives the command loop back, it will collect the
+ *     CMD_STOP (again) stop the command loop and close the vty.
+ *
+ *   * when the Routing Engine picks up any SIGHUP/SIGTERM/etc message, it
+ *     will either re-read the configuration or vty_terminate().
+ *
+ *     The Routing Engine will not do this until after it has come out
+ *     of the command loop, after dealing with the vio->signal, as above.
  */
 static void
-uty_reset (bool curtains, const char* why)
+uty_reset (const char* why, bool curtains)
 {
   vty_io vio ;
   vty_io next ;
@@ -500,7 +533,16 @@ uty_reset (bool curtains, const char* why)
       vio  = next ;
       next = sdl_next(vio, vio_list) ;
 
-      uty_close(vio, why, curtains) ;
+      /* Save the close reason for later, unless one is already set.        */
+      if ((why != NULL) && (vio->close_reason == NULL))
+        vio->close_reason = XSTRDUP(MTYPE_TMP, why) ;
+
+      /* Stop the command loop -- if not already stopped.
+       *
+       * If command loop is running, it will be signalled to stop, soonest.
+       */
+      if (uty_cmd_loop_stop(vio, curtains))
+        uty_close(vio) ;
     } ;
 
   host.vty_timeout_val = VTY_TIMEOUT_DEFAULT;
@@ -512,7 +554,7 @@ uty_reset (bool curtains, const char* why)
                            /* sets host.vty_ipv6_accesslist_name = NULL */
 
   if (curtains)
-    uty_watch_dog_stop() ;      /* and final death watch run    */
+    uty_watch_dog_stop() ;
 } ;
 
 /*==============================================================================
@@ -680,6 +722,8 @@ vty_hello (struct vty *vty)
 
 /*------------------------------------------------------------------------------
  * "cat" file to vty
+ *
+ *
  */
 extern cmd_return_code_t
 vty_cat_file(vty vty, qpath path, const char* desc)
@@ -687,7 +731,7 @@ vty_cat_file(vty vty, qpath path, const char* desc)
   int   fd ;
   void* buf ;
 
-  fd = uty_vfd_file_open(qpath_string(path), vfd_io_read | vfd_io_blocking) ;
+  fd = uty_fd_file_open(qpath_string(path), vfd_io_read | vfd_io_blocking, 0) ;
 
   if (fd < 0)
     {
@@ -697,7 +741,7 @@ vty_cat_file(vty vty, qpath path, const char* desc)
       return CMD_WARNING;
     } ;
 
-  enum { buffer_size = 64 * 1024 } ;
+  enum { buffer_size = 32 * 1024 } ;
   buf = XMALLOC(MTYPE_TMP, buffer_size) ;
 
   while (1)
@@ -717,6 +761,7 @@ vty_cat_file(vty vty, qpath path, const char* desc)
         } ;
     } ;
 
+  XFREE(MTYPE_TMP, buf) ;
   close(fd) ;
 
   return CMD_SUCCESS;
@@ -849,7 +894,7 @@ vty_read_config_first_cmd_special(const char *config_file,
   name = qpath_string(path) ;
 
   /* try to open the configuration file                                 */
-  conf_fd = uty_vfd_file_open(name, vfd_io_read) ;
+  conf_fd = uty_fd_file_open(name, vfd_io_read, 0) ;
 
   if (conf_fd < 0)
     {
@@ -908,8 +953,8 @@ vty_use_backup_config (qpath path)
   sav_fd = -1 ;
   tmp_fd = -1 ;
 
-  sav_fd = uty_vfd_file_open(qpath_string(temp),
-                                                vfd_io_read | vfd_io_blocking) ;
+  sav_fd = uty_fd_file_open(qpath_string(temp),
+                                             vfd_io_read | vfd_io_blocking, 0) ;
 
   /* construct a temporary file and copy "<fullpath.sav>" to it.        */
   qpath_extend_str(temp, ".XXXXXX") ;
@@ -950,7 +995,7 @@ vty_use_backup_config (qpath path)
   qpath_free(temp) ;    /* done with the qpath                          */
 
   if (ok)
-    return uty_vfd_file_open(qpath_string(path), vfd_io_read) ;
+    return uty_fd_file_open(qpath_string(path), vfd_io_read, 0) ;
 
   errno = err ;
   return -1 ;
@@ -977,93 +1022,40 @@ vty_use_backup_config (qpath path)
  * so all commands are executed directly.
  */
 static void
-vty_read_config_file (int fd, const char* name, cmd_command first_cmd,
+vty_read_config_file(int fd, const char* name, cmd_command first_cmd,
                                             bool ignore_warnings, bool full_lex)
 {
   cmd_return_code_t ret ;
   vty     vty ;
   qtime_t taking ;
 
-  /* Set up configuration file reader VTY -- which buffers all output   */
-  vty = vty_open(VTY_CONFIG_READ);
-  vty->node = CONFIG_NODE;
-
-  /* Make sure we have a suitable buffer, and set vty->buf to point at
-   * it -- same like other command execution.
-   */
-  qs_need(&vty->vio->clx, VTY_BUFSIZ) ;
-  vty->buf = qs_chars(&vty->vio->clx) ;
-
-  taking = qt_get_monotonic() ;
-
-  /* Execute configuration file                                         */
-  ret = config_from_file (vty, confp, first_cmd, &vty->vio->clx,
-                                                              ignore_warnings) ;
-
-  taking = (qt_get_monotonic() - taking) / (QTIME_SECOND / 1000) ;
-
-  zlog_info("Finished reading configuration in %d.%dsecs%s",
-                            (int)(taking / 1000), (int)(taking % 1000),
-                                   (ret == CMD_SUCCESS) ? "." : " -- FAILED") ;
-
-  VTY_LOCK() ;
-
   vty = vty_config_read_open(fd, name, full_lex) ;
 
-  vty_cmd_loop_prepare(vty) ;
+  if (vty_cmd_config_loop_prepare(vty))
+    {
+      taking = qt_get_monotonic() ;
 
-  taking = qt_get_monotonic() ;
+      ret = cmd_read_config(vty, first_cmd, ignore_warnings) ;
 
-  ret = cmd_read_config(vty, first_cmd, ignore_warnings) ;
+      taking = (qt_get_monotonic() - taking) / (QTIME_SECOND / 1000) ;
 
-  taking = (qt_get_monotonic() - taking) / (QTIME_SECOND / 1000) ;
-
-  zlog_info("Finished reading configuration '%s' in %d.%d secs%s",
+      zlog_info("Finished reading configuration '%s' in %d.%d secs%s",
                         name, (int)(taking / 1000), (int)(taking % 1000),
                                    (ret == CMD_SUCCESS) ? "." : " -- FAILED") ;
+    }
+  else
+    {
+      /* This should be impossible -- before reading the configuration,
+       * all other vty are closed.
+       */
+      zlog_err("%s: Failed to gain config capability !", __func__) ;
+      ret = CMD_ERROR ;
+    } ;
 
-  vty_cmd_loop_exit(vty) ;
+  vty_cmd_loop_exit(vty) ;      /* the vty is released          */
 
   if (ret != CMD_SUCCESS)
     exit(1) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Push the given fd as the VOUT_CONFIG.
- *
- * Note that this is a "blocking" vf, so can open and close in the cmd thread.
- */
-extern void
-vty_open_config_write(vty vty, int fd)
-{
-  vty_io vio ;
-  vio_vf vf ;
-
-  VTY_LOCK() ;
-
-  vio = vty->vio ;
-
-  vf = uty_vf_new(vio, "config write", fd, vfd_file,
-                                                vfd_io_read | vfd_io_blocking) ;
-  uty_vout_push(vio, vf, VOUT_CONFIG, NULL, NULL, 32 * 1024) ;
-
-  VTY_UNLOCK() ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Write away any pending stuff, and pop the VOUT_CONFIG.
- */
-extern cmd_return_code_t
-vty_close_config_write(struct vty* vty, bool final)
-{
-  cmd_return_code_t ret ;
-  VTY_LOCK() ;
-
-  ret = uty_vout_pop(vty->vio, final) ;
-
-  VTY_UNLOCK() ;
-
-  return ret ;
 } ;
 
 /*==============================================================================
@@ -1391,7 +1383,7 @@ vty_config_write (struct vty *vty)
 {
   vty_io vio ;
 
-  VTY_LOCK() ;                  /* while accessing the host.xxx         */
+  VTY_LOCK() ;                  /* while accessing the host.xx          */
 
   vio = vty->vio ;
 
@@ -1483,8 +1475,11 @@ vty_is_shell_client (struct vty *vty)
 
 #endif
 
-void
-vty_set_lines(struct vty *vty, int lines)
+/*------------------------------------------------------------------------------
+ * When terminal length is set, change the current CLI setting, if required.
+ */
+extern void
+vty_set_lines(vty vty, int lines)
 {
   VTY_LOCK() ;
 
@@ -1592,7 +1587,8 @@ DEFUN (delay_secs,
               a = (rand() % 4) + 1 ;
             } ;
 
-          *q++ = '\n' ;
+          if (n != 0)
+            *q++ = '\n' ;
           *q++ = '\0' ;
 
           vty_out(vty, buf) ;

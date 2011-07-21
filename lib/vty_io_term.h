@@ -61,9 +61,9 @@ extern cmd_return_code_t uty_term_out_push(vio_vf vf, bool final) ;
 extern uint uty_term_show_error_context(vio_vf vf, vio_fifo ebuf, uint depth) ;
 extern cmd_return_code_t uty_term_read_close(vio_vf vf, bool final) ;
 extern void uty_term_close_reason(vio_vf vf, const char* reason) ;
-extern cmd_return_code_t uty_term_write_close(vio_vf vf, bool final, bool base);
+extern cmd_return_code_t uty_term_write_close(vio_vf vf, bool final);
 
-extern int uty_term_read(vio_vf vf, keystroke steal) ;
+extern int uty_term_read(vio_vf vf) ;
 extern void uty_term_set_readiness(vio_vf vf, vty_readiness_t ready) ;
 
 extern qtimer_action vty_term_pause_timeout ;

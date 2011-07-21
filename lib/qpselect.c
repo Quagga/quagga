@@ -1432,6 +1432,8 @@ qps_selection_validate(qps_selection qps)
  * Miniature pselect -- for where want to wait for a small number of things.
  */
 
+uint qps_mini_timeout_debug = 0 ;
+
 /*------------------------------------------------------------------------------
  * Initialise a qps_mini and set one fd in the given mode.
  *
@@ -1461,6 +1463,14 @@ qps_mini_set(qps_mini qm, int fd, qps_mnum_t mode, uint timeout)
 extern qps_mini
 qps_mini_add(qps_mini qm, int fd, qps_mnum_t mode)
 {
+  if (qdebug && (qps_mini_timeout_debug > 0))
+    {
+      if (qps_mini_timeout_debug == 1)
+        fd = -1 ;
+
+      --qps_mini_timeout_debug ;
+    } ;
+
   if (fd >= 0)
     {
       FD_SET(fd, &(qm->sets[mode].fdset)) ;

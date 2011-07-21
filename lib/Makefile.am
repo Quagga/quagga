@@ -33,7 +33,7 @@ pkginclude_HEADERS = \
 	command_local.h  command_parse.h  command_queue.h  confirm.h \
 	distribute.h  elstring.h  errno_names.h  filter.h  getopt.h \
 	hash.h  heap.h  if.h  if_rmap.h  jhash.h  keychain.h \
-	keystroke.h  linklist.h  list_util.h  log.h  log_local.h \
+	keystroke.h  linklist.h  list_util.h  log.h  log_common.h  log_local.h \
 	md5.h  memory.h  memtypes.h  misc.h  miyagi.h  mqueue.h \
 	network.h  plist.h  pqueue.h  prefix.h  privs.h \
 	pthread_safe.h  qafi_safi.h  qdebug_nb.h  qfstring.h  qiovec.h \

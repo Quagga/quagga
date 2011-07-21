@@ -35,6 +35,8 @@
  * This supports the "vty monitor" facility -- which reflects logging
  * information to one or more VTY_TERMINAL vty.
  *
+ * NB: this *only* only to the base_vout of a VTY_TERMINAL.
+ *
  * There are a number of issues:
  *
  *   a) output of logging information should not be held up any longer than
@@ -46,14 +48,16 @@
  *   c) zlog() et al, hold the LOG_LOCK(), which is at a lower level than the
  *      VTY_LOCK().
  *
+ *      MUST NOT require the VTY_LOCK() in order to complete a zlog() operation,
+ *      hence the buffering and other mechanisms.
+ *
  *   d) may have one or more monitor vty, possibly at different levels of
  *      message.
  *
- *   e) must avoid logging error messages for given vty on that vty !
+ *   e) must avoid logging I/O error log messages for given vty on that vty !
  *
- *
- *
- *
+ *      The I/O error handling turns off log monitoring for the vty if the
+ *      vin_base or the vout_base is the locus of the error.
  */
 static vio_fifo monitor_buffer   = NULL ;
 static uint     monitor_count    = 0 ;
@@ -62,6 +66,7 @@ static bool         mon_kicked   = false ;
 static mqueue_block mon_mqb      = NULL ;
 
 static void vty_mon_action(mqueue_block mqb, mqb_flag_t flag) ;
+static void uty_monitor_update(void) ;
 
 /*------------------------------------------------------------------------------
  * Initialise the vty monitor facility.
@@ -91,12 +96,12 @@ extern void
 uty_set_monitor(vty_io vio, bool on)
 {
   int level ;
-  int count ;
+  int delta ;
 
   VTY_ASSERT_LOCKED() ;
 
   level = 0 ;
-  count = 0 ;
+  delta = 0 ;
 
   LOG_LOCK() ;
 
@@ -106,7 +111,7 @@ uty_set_monitor(vty_io vio, bool on)
         {
           vio->monitor  = true ;
 
-          vio->maxlvl   = INT_MAX ;     /* pro tem TODO         */
+          vio->maxlvl   = uzlog_get_monitor_lvl(NULL) ;
           vio->mon_kick = false ;
 
           if (vio->mbuf == NULL)
@@ -114,26 +119,82 @@ uty_set_monitor(vty_io vio, bool on)
 
           sdl_push(vio_monitor_list, vio, mon_list) ;
 
-          count = +1 ;
+          delta = +1 ;
         } ;
     }
   else if (!on && vio->monitor)
     {
       vio->monitor = false ;
 
-      vio->maxlvl   = INT_MAX ;     /* pro tem TODO         */
+      vio->maxlvl   = ZLOG_DISABLED ;
       vio->mon_kick = false ;
 
       sdl_del(vio_monitor_list, vio, mon_list) ;
-      count = -1 ;
+      delta = -1 ;
     }
 
-  if (count != 0)
-    uzlog_add_monitor(NULL, count) ;
+  monitor_count += delta ;
 
-  monitor_count += count ;
+  if (delta != 0)
+    uty_monitor_update() ;  /* tell logging if number of monitors changes   */
 
   LOG_UNLOCK() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If the current VTY is a log monitor, set a new level
+ */
+extern void
+vty_set_monitor_level(vty vty, int level)
+{
+  VTY_LOCK() ;
+
+  if (vty->vio->monitor)
+    {
+      LOG_LOCK() ;
+
+      vty->vio->maxlvl = level ;
+      uty_monitor_update() ;
+
+      LOG_UNLOCK() ;
+    } ;
+
+  VTY_UNLOCK() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Establish the maximum level of all monitors and tell the logging levels.
+ *
+ * This is used when a monitor is enabled or disabled, and when a VTY's monitor
+ * level is changed.
+ */
+static void
+uty_monitor_update(void)
+{
+  int    level ;
+  uint   count ;
+  vty_io vio ;
+
+  VTY_ASSERT_LOCKED() ;
+  LOG_ASSERT_LOCKED() ;
+
+  vio   = vio_monitor_list ;
+  count = 0 ;
+  level = ZLOG_DISABLED ;
+  while (vio != NULL)
+    {
+      ++count ;
+      qassert(vio->vout_base->vout_type == VOUT_TERM) ;
+
+      if (level <= vio->maxlvl)
+        level = vio->maxlvl ;
+
+      vio = sdl_next(vio, mon_list) ;
+    } ;
+
+  qassert(monitor_count == count) ;
+
+  uzlog_set_monitor(NULL, level) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -158,6 +219,8 @@ vty_log(int priority, const char* line, uint len)
   kick = false ;
   while (vio != NULL)
     {
+      qassert(vio->vout_base->vout_type == VOUT_TERM) ;
+
       if (priority <= vio->maxlvl)
         {
           vio_fifo_put_bytes(vio->mbuf, line, len) ;
@@ -209,7 +272,7 @@ vty_mon_action(mqueue_block mqb, mqb_flag_t flag)
       vio  = vio_monitor_list ;
       while (vio != NULL)
         {
-          assert(vio->vout_base->vout_type == VOUT_TERM) ;
+          qassert(vio->vout_base->vout_type == VOUT_TERM) ;
 
           if (vio->mon_kick)
             {
@@ -244,6 +307,8 @@ vty_log_fixed (const char *buf, uint len)
   vio = sdl_head(vio_monitor_list) ;
   while (vio != NULL)
     {
+      qassert(vio->vout_base->vout_type == VOUT_TERM) ;
+
       write(vio_vfd_fd(vio->vout_base->vfd), buf, len) ;
       write(vio_vfd_fd(vio->vout_base->vfd), "\r\n", 2) ;
 

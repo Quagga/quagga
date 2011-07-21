@@ -19,13 +19,15 @@
  * Boston, MA 02111-1307, USA.
  */
 #include "misc.h"
-#include "qpath.h"
-#include "qstring.h"
-
-#include "zassert.h"
 
 #include <unistd.h>
 #include <errno.h>
+#include <pwd.h>
+
+#include "qpath.h"
+#include "qstring.h"
+#include "memory.h"
+#include "pthread_safe.h"
 
 /*==============================================================================
  * Some primitive path handling, based on qstrings.
@@ -41,11 +43,9 @@
  * So this code reduces runs of '/' to single '/' -- except for the special
  * case.
  *
- * This code also replaces "/./" by "/".
- *
- *
+ * This code also replaces "/./" by "/", and removes xxxx/.. !  Does not strip
+ * trailing '/'.
  */
-
 static void qpath_reduce(qpath qp) ;
 
 /*------------------------------------------------------------------------------
@@ -284,6 +284,149 @@ qpath_stat_is_directory(qpath qp)
                     : err ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Get home directory for the given user.
+ *
+ * The name may be terminated by '\0' or '/'.
+ *
+ * If the qp path is NULL, creates a new qpath if required.
+ *
+ * Returns: qpath  => OK
+ *          NULL   => errno == 0 => user not found ) existing qp set empty.
+ *                    errno != 0 => some error     )
+ */
+extern qpath
+qpath_get_home(qpath qp, const char* name)
+{
+  qpath dst ;
+  const char* p ;
+
+  bool  done ;
+  qpath home ;
+  int   err ;
+
+  /* Prepare for action.
+   */
+  p = name ;
+
+  while ((*p != '\0') && (*p != '/'))
+    ++p ;                       /* find terminator      */
+
+  dst = qpath_set_n(qp, name, p - name) ;
+                                /* set user name        */
+
+  done = false ;                /* no result, yet       */
+  home = NULL ;                 /* empty result, so far */
+  err  = 0 ;                    /* no error, yet        */
+
+  /* If the name is empty, attempt to get the HOME environment variable,
+   * failing that set the user name to the getlogin_r() name.
+   */
+  if ((p - name) == 0)
+    {
+      int  l, s ;
+
+      while (1)
+        {
+          s = qs_size_nn(dst->path) ;
+          l = getenv_r("HOME", qs_char_nn(dst->path), s) ;
+
+          if (l < s)
+            break ;
+
+          qs_new_size(dst->path, l) ;
+        } ;
+
+      if (l >= 0)
+        {
+          qs_set_len_nn(dst->path, l) ;
+          home = dst ;          /* Successfully fetched HOME    */
+          done = true ;
+        }
+      else
+        {
+          while (1)
+            {
+              s = qs_size_nn(dst->path) ;
+              qassert(s > 0) ;
+              err = getlogin_r(qs_char_nn(dst->path), s) ;
+
+              if (err != ERANGE)
+                break ;
+
+              qs_new_size(dst->path, s * 2) ;
+            } ;
+
+          if (err == 0)
+            {
+              qs_set_strlen_nn(dst->path) ;
+
+              if (qs_len_nn(dst->path) == 0)
+                done  = true ;
+            }
+          else
+            done  = true ;
+        } ;
+    } ;
+
+  /* If name was empty, or not found "HOME", then proceed to getpwd_r
+   */
+  if (!done)
+    {
+      struct passwd  pwd_s ;
+      struct passwd* pwd ;
+
+      char* scratch ;
+      uint  scratch_size ;
+      char  buffer[200] ;           /* should be plenty     */
+
+      scratch      = buffer ;
+      scratch_size = sizeof(buffer) ;
+
+      while (1)
+        {
+          err = getpwnam_r(qpath_string(dst),
+                                          &pwd_s, scratch, scratch_size, &pwd) ;
+          if (err == EINTR)
+            continue ;
+
+          if (err != ERANGE)
+            break ;
+
+          scratch_size *= 2 ;
+          if (scratch == buffer)
+            scratch = XMALLOC(MTYPE_TMP, scratch_size) ;
+          else
+            scratch = XREALLOC(MTYPE_TMP, scratch, scratch_size) ;
+        } ;
+
+      done = true ;
+
+      if (pwd != NULL)
+        {
+          qpath_set(dst, pwd->pw_dir) ;
+          home = dst ;
+        } ;
+
+      if (scratch != buffer)
+        XFREE(MTYPE_TMP, scratch) ;
+    } ;
+
+  /* Complete result
+   */
+  if (home == NULL)
+    {
+      if (qp != NULL)
+        qs_set_len_nn(qp->path, 0) ;    /* chop existing path   */
+      else
+        qpath_free(dst) ;               /* discard temporary    */
+
+      errno = err ;                     /* as promised          */
+    } ;
+
+  return home ;
+} ;
+
 /*==============================================================================
  * Path editing functions
  *
@@ -331,6 +474,22 @@ qpath_shave(qpath qp)
   qs_set_len_nn(qp->path, p->e - p->p) ;
 
   return qp ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * See if path ends '/'.
+ */
+extern bool
+qpath_has_trailing_slash(qpath qp)
+{
+  pp_t p ;
+
+  if (qp == NULL)
+    return false ;
+
+  qs_pp_nn(p, qp->path) ;
+
+  return (p->e > p->p) && (*(p->e - 1) == '/') ;
 } ;
 
 #if 0
@@ -1112,14 +1271,37 @@ qpath_is_atom(qpath qp)
 /*------------------------------------------------------------------------------
  * Reduce multiple '/' to single '/' (except for exactly "//" at start).
  *
- * Reduce "/./" to "/".
+ * Reduce "zzz/./zzz" to "zzz/zzz"         -- s/\/\.(\/|\0)/$1/g
+ *        "zzz/./"    to "zzz/"
+ *        "zzz/."     to "zzz/"
+ *        "/./"       to "/"
+ *        "/."        to "/"
+ *
+ *        where zzz is anything, including '/'
+ *
+ * Reduce "zzz/aaa/../zzz"  to "zzz/zzz"   -- s/\.*([^/.]+\.*)+\/\.\.\/?//g
+ *        "aaa/../zzz"      to "zzz"
+ *        "/aaa/../zzz"     to "/zzz"
+ *        "/aaa/../"        to "/"
+ *        "aaa/../"         to ""
+ *        "aaa/.."          to ""
+ *
+ *        where aaa is anything except '/'
+ *
+ * NB:
+ *
+ * NB: does not strip trailing '/' (including '/' of trailing "/." or "/..")
+ *
+ *     does not reduce leading "./" or single "." to nothing.
  */
 static void
 qpath_reduce(qpath qp)
 {
-  char*   sp ;
-  char*   p ;
-  char*   q ;
+  char* sp ;
+  char* p ;
+  char* q ;
+  char  ch ;
+  bool  eat ;
 
   sp = qs_make_string(qp->path) ;
   p = sp ;
@@ -1134,79 +1316,213 @@ qpath_reduce(qpath qp)
 
   /* Scan to see if there is anything that needs to be fixed.
    *
-   * Looking for "//" and "/./".
+   * Looking for "//", "/./", "/.\0", "/../" or "/..\0".
+   *
+   * NB: does not consider that "." needs to be fixed, nor "./", and does not
+   *     strip trailing "/".
    */
   while (1)
     {
-      if (*p == '\0')
-        return ;                /* scanned to end                       */
+      ch = *p++ ;
 
-      if (*p++ != '/')          /* scanning for '/'                     */
+      if (ch == '\0')
+        return ;        /* scanned to end               */
+
+      if (ch != '/')    /* scanning for '/'             */
         continue ;
 
-      if (*p == '/')
-        break ;                 /* second '/'                           */
+      ch = *p++ ;       /* get char after '/'           */
 
-      if (*p != '.')
-        continue ;              /* not "//" and not "/."                */
+      if (ch == '\0')
+        return ;        /* scanned to end               */
 
-      if (*(p+1) == '/')
-        break ;                 /* found "/./"                          */
+      if (ch == '/')
+        break ;         /* second '/'                   */
+
+      if (ch != '.')
+        continue ;      /* not "//" and not "/."        */
+
+      ch = *p ;         /* get char after "/."          */
+
+      if ((ch == '/') || (ch == '\0'))
+        break ;         /* found "/./" or "/.\0"        */
+
+      if (ch != '.')
+        continue ;      /* not "/..", either            */
+
+      ch = *(p+1) ;     /* get char after "/.."         */
+
+      if ((ch == '/') || (ch == '\0'))
+        break ;         /* found "/../" or "/..\0"      */
     } ;
 
   /* Rats... there is something to be fixed.
    *
-   * *p is second '/' of "//" or '.' of "/./".
+   * Enter the reduction loop ready to eat the first item.
    */
-  q = p ;                       /* keep the first '/'                   */
+  --p ;         /* back to  second '/' or '.'   */
+  q = p ;       /* keep the first '/'           */
 
-  while (*p != '\0')
+  eat = true ;
+
+  while (1)
     {
-      ++p ;                     /* step past '.' or second '/'          */
-
-      /* Step past any number of '/' and any number of "./".            */
-      while (*p != '\0')
+      if (eat)
         {
-          while (*p == '/')     /* eat any number of these              */
+          eat = false ;
+
+          /* At this point:
+           *
+           *   *p is         '/', which is second of "//???"
+           *      or (first) '.' of "./???", ".\0", "../???" or "..\0"
+           *
+           *   *q is start of path or just after a '/'
+           *
+           * NB: after the first time through, p != q (or not necessarily).
+           */
+          qassert((*p == '/') || (*p == '.')) ;
+          if (*p == '.')
+            qassert((*(p+1) == '\0') || (*(p+1) == '/') || (*(p+1) == '.')) ;
+
+          qassert((q == sp) || (*(q-1) == '/')) ;
+
+          if ((*p == '.') && (*(p+1) == '.'))
+            {
+              char* sq = q ;            /* in case find leading '~'     */
+
+              qassert((*(p+2) == '\0') || (*(p+2) == '/')) ;
+
+              /* Deal with "../???" or "..\0"
+               *
+               * Before can strip the "..", have to verify that we have
+               * something to step back over.
+               *
+               * Can eat the ".." unless : is at start of path
+               *                           have nothing before the '/'
+               *                    (only) have '/'     before the '/'
+               *                      only have "."     before the '/'
+               *                      only have ".."    before the '/'
+               *                           have "/.."   before the '/'
+               *
+               * Note: can only have '/' before the '/' at the start.
+               *
+               * If cannot eat the '..', go back to the top of the loop, with
+               * eat == false, and process as an ordinary item.
+               */
+              if (q <= (sp + 1))
+                continue ;              /* at start or
+                                         * nothing before the '/'       */
+              if (*(q-2) == '/')
+                continue ;              /* '/' before the '/'           */
+
+              if (*(q-2) == '.')
+                {
+                  /* Have '.' before the '/'                            */
+                  if (q == (sp + 2))
+                    continue ;          /* only '.' before the '/'      */
+
+                  if (*(q-3) == '.')
+                    {
+                      /* Have ".." before the '/'                       */
+                      if (q == (sp + 3))
+                        continue ;      /* only ".." before the '/'     */
+
+                      if (*(q-4) == '/')
+                        continue ;      /* "/.." before the '/'         */
+                    } ;
+                } ;
+
+                /* Eat the preceding item, including the final '/'
+                 *
+                 *   *p == "../" or "..\0" to eat
+                 *   *q == just after '/' at end of item to eat
+                 */
+                do                      /* starts with q just past '/'  */
+                  --q ;
+                while ((q > sp) && (*(q-1) != '/')) ;
+
+                /* Very special case: if have reduced the path to nothing,
+                 * but path started with '~' then need to undo everything,
+                 * and treate the '..' as ordinary item.
+                 *
+                 * Copes with ~fred/.. !!
+                 */
+                if ((q == sp) && (*q == '~'))
+                  {
+                    q = sq ;            /* put back item                */
+                    continue ;          /* keep the '..'                */
+                  } ;
+
+                /* Eat the '..' and stop now if nothing more to come.
+                 */
+                p += 2 ;
+
+                if (*p == '\0')
+                  break ;
+
+                qassert(*p == '/') ;
+            } ;
+
+          /* Now discard '.' or '/' and any number of following '/'.
+           *
+           *   *p == the '.' or first '/' to be discarded
+           *
+           * Ends up at first character after a '/' -- which may be anything,
+           * including a possible '.'
+           */
+          do
             ++p ;
+          while (*p == '/') ;
+        }
+      else
+        {
+          /* Ordinary item (or '..') to copy across -- eat == false.
+           *
+           * Copying stuff, until get to '\0' or copy a '/'.
+           */
+          do
+            {
+              ch = *p ;
 
-          if (*p != '.')        /* done if not '.'                      */
-            break ;
+              if (ch == '\0')
+                break ;
 
-          if (*(p+1) != '/')    /* done if not "./"                     */
-            break ;
-
-          p += 2 ;              /* Step past "./"                       */
+              ++p ;
+              *q++ = ch ;
+            }
+          while (ch != '/') ;
         } ;
 
-      /* Here we have *p which is not '/' and not "./", so unless is '\0'
-       * there is at least one character to move across.
+      /* Have processed to '\0' and/or just past a '/'
        *
-       * Copying stuff, until get to '\0' or find "//" or "/./"
+       * Decide whether to continue, and if so whether to eat what follows
+       * or copy it across.
        */
-      while (*p != '\0')
+      ch = *p ;
+
+      if (ch == '\0')
+        break ;
+
+      qassert(!eat) ;
+
+      if      (ch == '/')
+        eat = true ;            /* second '/' after '/'         */
+      else if (ch == '.')
         {
-          *q++ = *p ;           /* copy non-'\0'                        */
-
-          if (*p++ != '/')
-            continue ;          /* keep going if wasn't '/'             */
-
-          if (*p == '/')
-            break ;             /* second '/'                           */
-
-          if (*p != '.')
-            continue ;          /* not "//" and not "/."                */
-
-          if (*(p+1) == '/')
-            break ;             /* found "/./"                          */
+          ch = *(p+1) ;
+          if      ((ch == '/') || (ch == '\0'))
+            eat = true ;        /* "./???" or ".\0" after '/'   */
+          else if (ch == '.')
+            {
+              ch = *(p+2) ;
+              if ((ch == '/') || (ch == '\0'))
+                eat = true ;    /* "../???" or "..\0" after '/' */
+            } ;
         } ;
     } ;
 
-  /* Adjust the length and terminate                                    */
-
+  /* Adjust the length and terminate
+   */
   qs_set_len_nn(qp->path, q - sp) ;   /* set the new length (shorter !) */
 } ;
-
-
-
 

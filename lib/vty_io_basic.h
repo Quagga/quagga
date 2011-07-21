@@ -54,14 +54,16 @@ typedef enum vfd_type vfd_type_t ;
 
 enum vfd_io_type                /* NB: *bit*significant*        */
 {
-  vfd_io_none       = 0,
+  vfd_io_none         = 0,
 
-  vfd_io_read       = BIT(0),
-  vfd_io_write      = BIT(1),
-  vfd_io_read_write = vfd_io_read | vfd_io_write,
+  vfd_io_read         = BIT(0),
+  vfd_io_write        = BIT(1),
+  vfd_io_read_write   = vfd_io_read | vfd_io_write,
 
-  vfd_io_append     = BIT(2),
-  vfd_io_blocking   = BIT(3),
+  vfd_io_append       = BIT(2),
+  vfd_io_blocking     = BIT(3),
+
+  vfd_io_ps_blocking  = BIT(4),
 } ;
 typedef enum vfd_io_type vfd_io_type_t ;
 
@@ -183,8 +185,8 @@ struct vio_listener
 /*==============================================================================
  * Functions
  */
-
-extern int uty_vfd_file_open(const char* name, vfd_io_type_t io_type) ;
+extern int uty_fd_file_open(const char* name, vfd_io_type_t io_type,
+                                                                 mode_t cmode) ;
 
 extern vio_vfd vio_vfd_new(int fd, vfd_type_t type,
                                    vfd_io_type_t io_type, void* action_info) ;

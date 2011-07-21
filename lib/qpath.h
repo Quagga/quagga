@@ -85,12 +85,14 @@ Inline qpath qpath_dup(const qpath qp) ;
 Inline qpath qpath_dup_str(const char* src) ;
 
 extern qpath qpath_getcwd(qpath dst) ;
+extern qpath qpath_get_home(qpath qp, const char* name) ;
 extern int qpath_setcwd(qpath dst) ;
 extern int qpath_stat(qpath qp, struct stat* stat) ;
 extern int qpath_stat_is_file(qpath qp) ;
 extern int qpath_stat_is_directory(qpath qp) ;
 
 extern qpath qpath_shave(qpath qp) ;
+extern bool qpath_has_trailing_slash(qpath qp) ;
 
 extern qpath qpath_append(qpath dst, const qpath src) ;
 extern qpath qpath_append_qs(qpath dst, const qstring src) ;

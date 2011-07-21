@@ -51,7 +51,7 @@ extern void _zlog_abort_err (const char *mess, int err, const char *file,
 #endif
 
 /* Assert iff QDEBUG                                            */
-#define qassert(EX) if (qdebug) zassert(EX)
+#define qassert(EX) zassert(qdebug && (EX))
 
 /* Abort with message                                           */
 #define zabort(MS) _zlog_abort_mess(MS, __FILE__, __LINE__, __ASSERT_FUNCTION)

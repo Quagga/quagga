@@ -27,13 +27,11 @@
 typedef struct strerror strerror_t ;
 struct strerror
 {
-  char str[121] ;       /* cannot imagine anything as big       */
+  char str[120] ;       /* cannot imagine anything as big       */
 } ;
 
 extern void safe_init_r(void);
 extern void safe_finish(void);
-extern const char * safe_strerror(int errnum);
-extern const char * safe_inet_ntoa (struct in_addr in);
 
 extern strerror_t errtoa(int err, uint len) ;
 extern strerror_t errtoname(int err, uint len) ;
@@ -42,5 +40,9 @@ extern strerror_t errtostr(int err, uint len) ;
 extern strerror_t eaitoa(int eai, int err, uint len) ;
 extern strerror_t eaitoname(int eai, int err, uint len) ;
 extern strerror_t eaitostr(int eai, int err, uint len) ;
+
+extern int getenv_r(const char* name, char* buf, int buf_len) ;
+extern const char * safe_strerror(int errnum);
+extern const char * safe_inet_ntoa (struct in_addr in);
 
 #endif /* PTHREAD_SAFE_H_ */

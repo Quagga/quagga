@@ -57,7 +57,6 @@ enum
 /*==============================================================================
  * Data Structures.
  */
-
 typedef int qpn_hook_function(void) ;   /* dispatch of tasks    */
 typedef int qpn_init_function(void) ;   /* start/stop work      */
 

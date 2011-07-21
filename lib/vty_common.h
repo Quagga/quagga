@@ -33,7 +33,10 @@
  *
  *   vty.h            -- which is used by all "external" code.
  *
- *   command_local.h  -- which is used by all "internal" code.
+ *   vty_local.h      -- which is used by all "internal" code on the I/O side.
+ *
+ *   command_local.h  -- which is used by all "internal" code on the command
+ *                       processing side.
  *
  * This allows some things not to be published to "external" code.
  */

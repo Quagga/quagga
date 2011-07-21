@@ -112,6 +112,9 @@ typedef          int  slen ;
 
 typedef unsigned long ulong ;
 
+typedef          long long llong ;
+typedef unsigned long long ullong ;
+
 /*       cvp  == const void*         -- ptr to constant void
  *       cvp* == void * const*       -- ptr to ptr to constant void
  * const cvp* == void const* const*  -- ptr to constant ptr to constant void
@@ -138,7 +141,7 @@ typedef const void* cvp ;
 
 /* If QDEBUG is defined, make QDEBUG_NAME and set QDEBUG
  *
- *  Numeric value for QDEBUG:  undefined      => 0
+ *  Numeric value for QDEBUG: undefined      => 0
  *                            defined, blank => 1
  *                            defined, 0     => 0
  *                            defined, other => other

@@ -63,9 +63,6 @@ struct vty_cli
   bool          monitor ;
   bool          monitor_busy ;
 
-  /* Terminal timeout in seconds -- 0 => none                           */
-  vty_timer_time v_timeout ;
-
   /* The incoming stuff                                                 */
   keystroke_stream key_stream ;
 
@@ -79,9 +76,7 @@ struct vty_cli
    *                     In particular, must be cleared before setting
    *                     out_active -- see below.
    *
-   * dirty           <=> the last command output did not end with a newline.
-   *
-   * tilde_enabled  <=> do not do the "~ " one command line ahead.
+   * tilde_enabled   <=> do the "~ " one command line ahead.
    *
    * If drawn is true, the following are valid:
    *
@@ -98,15 +93,12 @@ struct vty_cli
    * NB: echo_suppress is only used for password entry.
    */
   bool          drawn ;
-  bool          dirty ;
 
   bool          tilde_prompt ;
   bool          tilde_enabled ;
 
   int           prompt_len ;
   int           extra_len ;
-
-  bool          echo_suppress ;
 
   /* "cache" for prompt -- when node or host name changes, prompt does  */
   node_type_t   prompt_node ;
@@ -130,14 +122,7 @@ struct vty_cli
    *                   While this flag is set, the CLI may not write to the
    *                   screen.
    *
-   *   flush        -- this flag => out_active.
-   *
-   *                   When the CLI is ready to read the next CLI command, it
-   *                   must wait for all command output to complete.  This
-   *                   flag is set, so that (a) any final but incomplete
-   *                   line of command output will be flushed, and (b) to
-   *                   signal that out_active must be cleared when all output
-   *                   has completed.
+   *                   Flag is cleared when obuf is empty, and is !in_progress.
    *
    *   more_wait    -- is in "--more--" wait state
    *   more_enter   -- more_wait and waiting for "--more--" prompt to be
@@ -150,7 +135,6 @@ struct vty_cli
 
   bool          mon_active ;
   bool          out_active ;
-  bool          flush ;
 
   bool          more_wait ;
   bool          more_enter ;
@@ -220,7 +204,6 @@ extern cmd_return_code_t uty_cli_want_command(vty_cli cli, cmd_action action,
 extern void uty_cli_out(vty_cli cli, const char *format, ...)
                                                         PRINTF_ATTRIBUTE(2, 3) ;
 extern void uty_cli_out_newline(vty_cli cli) ;
-extern void uty_cli_out_clear(vty_cli cli) ;
 extern void uty_cli_write(vty_cli cli, const char *this, int len) ;
 extern void uty_cli_wipe(vty_cli cli, int len) ;
 
@@ -228,8 +211,6 @@ extern void uty_cli_set_lines(vty_cli cli, int lines, bool explicit) ;
 extern void uty_cli_set_window(vty_cli cli, int width, int height) ;
 extern void uty_cli_enter_more_wait(vty_cli cli) ;
 extern void uty_cli_exit_more_wait(vty_cli cli) ;
-
-extern bool uty_cli_draw_if_required(vty_cli cli) ;
 
 extern void uty_cli_pre_monitor(vty_cli cli) ;
 extern void uty_cli_post_monitor(vty_cli cli) ;

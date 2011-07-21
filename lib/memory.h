@@ -50,23 +50,32 @@ extern struct mlist mlists[];   /* all classes of memory                */
 typedef enum MTYPE mtype_t ;
 
 /*------------------------------------------------------------------------------
+ * Basic counting -- count of allocated objects of each type of memory
+ *
+ */
+struct mem_stats                /* wrap in struct so can copy trivially */
+{
+  ulong  alloc[MTYPE_MAX] ;
+} ;
+
+typedef struct mem_stats  mem_stats_t ;
+
+/*------------------------------------------------------------------------------
  * Option for logging memory operations.
  */
-#ifdef MEMORY_LOG
-#define XMALLOC(mtype, size) \
-  mtype_zmalloc (__FILE__, __LINE__, (mtype), (size))
-#define XCALLOC(mtype, size) \
-  mtype_zcalloc (__FILE__, __LINE__, (mtype), (size))
-#define XREALLOC(mtype, ptr, size)  \
-  mtype_zrealloc (__FILE__, __LINE__, (mtype), (ptr), (size))
-#define XFREE(mtype, ptr) \
-  do { \
-    mtype_zfree (__FILE__, __LINE__, (mtype), (ptr)); \
-    ptr = NULL; } \
-  while (0)
-#define XSTRDUP(mtype, str) \
-  mtype_zstrdup (__FILE__, __LINE__, (mtype), (str))
+#ifdef MEMORY_LOGGER            /* Takes precedence over MEMORY_TRACKER */
+
+#undef  MEMORY_LOGGER
+#define MEMORY_LOGGER 1
+
+#undef  MEMORY_TRACKER
+#define MEMORY_TRACKER 0
+
 #else
+
+#define MEMORY_LOGGER 0
+
+#endif
 
 /*------------------------------------------------------------------------------
  * Sort out MEMORY_TRACKER -- option to keep track of memory allocation.
@@ -82,7 +91,6 @@ typedef enum MTYPE mtype_t ;
  *       *  or set MEMORY_TRACKER != 0 to turn on debug
  *       *  or set VTY_NO_DEBUG != to force debug off
  */
-
 #ifdef MEMORY_TRACKER           /* If defined, make it 1 or 0           */
 # if IS_BLANK_OPTION(MEMORY_TRACKER)
 #  undef  MEMORY_TRACKER
@@ -99,68 +107,84 @@ typedef enum MTYPE mtype_t ;
 # endif
 #endif
 
-enum { memory_tracker = MEMORY_TRACKER } ;
+/*------------------------------------------------------------------------------
+ * Argument macros to make everything look much the same
+ */
 
-#if MEMORY_TRACKER
-#define MEMORY_TRACKER_NAME_ARG name
-#define MEMORY_TRACKER_NAME     , const char* MEMORY_TRACKER_NAME_ARG
-#define MEMORY_TRACKER_FUNC     , __func__
+#if   MEMORY_LOGGER
+#define MEMORY_EXTRA_DATA   , __FILE__, __LINE__
+#define MEMORY_EXTRA_ARGS   , const char* file, int line
+#define MEMORY_LOGGING_ARGS file, line
+#elif MEMORY_TRACKER
+#define MEMORY_EXTRA_DATA   , __func__
+#define MEMORY_EXTRA_ARGS   , const char* func
+#define MEMORY_TRACKER_ARG  func
 #else
-#define MEMORY_TRACKER_NAME_ARG "*dummy*"
-#define MEMORY_TRACKER_NAME
-#define MEMORY_TRACKER_FUNC
+#define MEMORY_EXTRA_DATA
+#define MEMORY_EXTRA_ARGS
 #endif
+
+#ifndef MEMORY_LOGGING_ARGS
+#define MEMORY_LOGGING_ARGS "*dummy*", -1
+#endif
+#ifndef MEMORY_TRACKER_ARG
+#define MEMORY_TRACKER_ARG  "*dummy*"
+#endif
+
+enum
+{
+  memory_logger  = MEMORY_LOGGER,
+  memory_tracker = MEMORY_TRACKER,
+} ;
 
 /*------------------------------------------------------------------------------
  * The macros used for all Quagga dynamic memory.
  */
 
 #define XMALLOC(mtype, size)       zmalloc ((mtype), (size) \
-                                                            MEMORY_TRACKER_FUNC)
+                                                           MEMORY_EXTRA_DATA)
 #define XCALLOC(mtype, size)       zcalloc ((mtype), (size) \
-                                                            MEMORY_TRACKER_FUNC)
+                                                           MEMORY_EXTRA_DATA)
 #define XREALLOC(mtype, ptr, size) zrealloc ((mtype), (ptr), (size) \
-                                                            MEMORY_TRACKER_FUNC)
-#define XFREE(mtype, ptr)          do { zfree ((mtype), (ptr)); \
+                                                           MEMORY_EXTRA_DATA)
+#define XFREE(mtype, ptr)          do { zfree ((mtype), (ptr) \
+                                                           MEMORY_EXTRA_DATA); \
                                         ptr = NULL;   } while (0)
 #define XSTRDUP(mtype, str)        zstrdup ((mtype), (str) \
-                                                            MEMORY_TRACKER_FUNC)
-
-#endif /* MEMORY_LOG */
+                                                           MEMORY_EXTRA_DATA)
 
 #define SIZE(t,n) (sizeof(t) * (n))
 
-/* Prototypes of memory function. */
-extern void *zmalloc (enum MTYPE type, size_t size       MEMORY_TRACKER_NAME);
-extern void *zcalloc (enum MTYPE type, size_t size       MEMORY_TRACKER_NAME);
-extern void *zrealloc (enum MTYPE type, void *ptr, size_t size
-                                                         MEMORY_TRACKER_NAME);
-extern void  zfree (enum MTYPE type, void *ptr);
-extern char *zstrdup (enum MTYPE type, const char *str   MEMORY_TRACKER_NAME);
+/*------------------------------------------------------------------------------
+ * Prototypes of memory functions
+ */
+extern void *zmalloc (mtype_t mtype, size_t size       MEMORY_EXTRA_ARGS) ;
+extern void *zcalloc (mtype_t mtype, size_t size       MEMORY_EXTRA_ARGS) ;
+extern void *zrealloc (mtype_t mtype, void *ptr, size_t size
+                                                       MEMORY_EXTRA_ARGS) ;
+extern void  zfree (mtype_t mtype, void *ptr           MEMORY_EXTRA_ARGS) ;
+extern char *zstrdup (mtype_t mtype, const char *str   MEMORY_EXTRA_ARGS) ;
 
-extern void *mtype_zmalloc (const char *file, int line, enum MTYPE type,
-                                                                   size_t size);
+extern void* mem_mmap(size_t size) ;
+extern void mem_munmap(void* p, size_t size) ;
 
-extern void *mtype_zcalloc (const char *file, int line, enum MTYPE type,
-                                                                   size_t size);
-
-extern void *mtype_zrealloc (const char *file, int line, enum MTYPE type,
-                                                        void *ptr, size_t size);
-
-extern void mtype_zfree (const char *file, int line, enum MTYPE type,
-		                                                     void *ptr);
-
-extern char *mtype_zstrdup (const char *file, int line, enum MTYPE type,
-		                                               const char *str);
+extern void memory_start(void) ;
 extern void memory_init (void);
 extern void memory_init_r (void);
 extern void memory_finish (void);
 extern void log_memstats_stderr (const char *);
 
-/* return number of allocations outstanding for the type */
-extern unsigned long mtype_stats_alloc (enum MTYPE);
+/* Return number of allocations outstanding for all memory types        */
+extern void mem_get_stats(mem_stats_t* mst) ;
 
-/* Human friendly string for given byte count */
+/* Return number of allocations outstanding for the given memory type   */
+extern ulong mem_get_alloc(mem_stats_t* mst, mtype_t mtype) ;
+
+/* Return number of allocations outstanding for the given memory type   */
+extern ulong mtype_stats_alloc(mtype_t mtype) ;
+
+/* Human friendly string for given byte count                           */
 #define MTYPE_MEMSTR_LEN 20
-extern const char *mtype_memstr (char *, size_t, unsigned long);
+extern const char *mtype_memstr (char *, size_t, ulong);
+
 #endif /* _ZEBRA_MEMORY_H */

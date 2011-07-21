@@ -234,7 +234,7 @@ uty_file_read_open(vty_io vio, qstring name, bool reflect)
   iot =  vfd_io_read | vfd_io_blocking ;        /* TODO blocking        */
 
   /* Do the basic file open.                                            */
-  fd = uty_vfd_file_open(name_str, iot) ;
+  fd = uty_fd_file_open(name_str, iot) ;
 
   if (fd < 0)
     {
@@ -273,7 +273,7 @@ uty_file_write_open(vty_io vio, qstring name, bool append)
   name_str = qs_make_string(name) ;
 
   /* Do the basic file open.                                            */
-  fd = uty_vfd_file_open(name_str, iot) ;
+  fd = uty_fd_file_open(name_str, iot) ;
 
   if (fd < 0)
     {

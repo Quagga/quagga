@@ -147,8 +147,8 @@ static sigset_t  qsig_interrupts[1] ;
 static sigset_t  qsig_reserved[1] ;
 
 static void qsig_add(int signo, qsig_event* event) ;
-static int signal_set_set(sigset_t* set, sig_handler* handler) ;
-static int signal_set(int signo, sig_handler* handler) ;
+static int signal_set_set(sigset_t* set, sig_handler* handler, bool required) ;
+static int signal_set(int signo, sig_handler* handler, bool required) ;
 
 static void __attribute__ ((noreturn))
   core_handler(int signo, siginfo_t *info, void *context) ;
@@ -362,11 +362,11 @@ signal_init (struct thread_master *m, int sigc,
   sigsubsets(core_signals, qsig_interrupts) ;
 
   /* Install handlers                                                   */
-  signal_set_set(core_signals,    core_handler) ;
-  signal_set_set(exit_signals,    exit_handler) ;
-  signal_set_set(ignore_signals,  NULL) ;
-  signal_set_set(qsig_signals,    quagga_signal_handler) ;
-  signal_set_set(qsig_interrupts, quagga_interrupt_handler) ;
+  signal_set_set(core_signals,    core_handler, false) ;
+  signal_set_set(exit_signals,    exit_handler, false) ;
+  signal_set_set(ignore_signals,  NULL, false) ;
+  signal_set_set(qsig_signals,    quagga_signal_handler, true) ;
+  signal_set_set(qsig_interrupts, quagga_interrupt_handler, true) ;
 
   /* If using a timer thread to scan for signal events, start that now.
    */
@@ -695,7 +695,7 @@ quagga_signal_reset(void)
  * Returns:  < 0 => failed  -- value is - failing signo !
  */
 static int
-signal_set_set(sigset_t* set, sig_handler* handler)
+signal_set_set(sigset_t* set, sig_handler* handler, bool required)
 {
   int     signo ;
 
@@ -707,7 +707,7 @@ signal_set_set(sigset_t* set, sig_handler* handler)
       if (s < 0)
         break ;
       if (s > 0)
-        if (signal_set(signo, handler) < 0)
+        if (signal_set(signo, handler, required) < 0)
           return -signo ;
     } ;
 
@@ -727,9 +727,25 @@ signal_set_set(sigset_t* set, sig_handler* handler)
 #endif
 
 static int
-signal_set(int signo, sig_handler* handler)
+signal_set(int signo, sig_handler* handler, bool required)
 {
   struct sigaction act[1] ;
+
+  /* If a signal handler is already set for the given signal then we leave
+   * that as it is -- unless this is one of the "required" signals, used by
+   * Quagga.
+   */
+  sigaction(signo, NULL, act) ;
+
+  if ((act->sa_handler != SIG_DFL) && (act->sa_handler != SIG_IGN))
+    {
+      if (!required)
+        return 0 ;
+    } ;
+
+  /* Set our handler                                                    */
+
+  memset(act, 0, sizeof(struct sigaction)) ;
 
   if (handler == NULL)
     {

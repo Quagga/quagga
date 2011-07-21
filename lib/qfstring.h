@@ -209,4 +209,90 @@ qfs_strlen(const char* str)
   return s - str ;
 }
 
-#endif /* _ZEBRA_QSTRING_H */
+/*==============================================================================
+ * Fixed Size String Buffers
+ *
+ * This supports the common case of a function whose task is to construct a
+ * (small) string of known maximum length, which will promptly be output
+ * or something similar.
+ *
+ * This scheme removes the need for the caller to construct a small buffer
+ * and pass it to the string constructor.  The "magic" is to make the callee
+ * return a struct containing the result.  So the callee is, for example:
+ *
+ *   foo_t make_foo(...) { ... } ;
+ *
+ * where foo_t is a struct, with a "str" element large enough for all known
+ * foo.  So the caller can, for example:
+ *
+ *   printf("...%s...", ..., make_foo(...).str, ...) ;
+ *
+ * All the fiddling around with buffers and buffer sizes is hidden from the
+ * caller.  And, since the buffer is implicitly on the stack, this is thread
+ * safe (and async-signal-safe, provided make_foo() is).
+ *
+ * The macro: qfb_t(name, len) declares a fixed length buffer type.  So:
+ *
+ *   QFB_T(foo, 79) ;
+ *
+ * declares:
+ *
+ *   typedef struct { char str[79 + 1] ; } foo_t ;
+ *
+ * NB: the length given *excludes* the terminating '\0' ;
+ *
+ * NB: the type declared has the "_t" added *automatically*.
+ *
+ * Having declared a suitable type, function(s) can be declared to return
+ * a string in a value of that type.
+ *
+ * A string generating function can use the buffer directly, for example:
+ *
+ *   foo_t make_foo(...)
+ *   {
+ *     foo_t foo ;
+ *
+ *       ...  foo.str          is the address of the string buffer
+ *       ...  sizeof(foo.str)  is its length *including* the '\0'
+ *
+ *     return foo ;
+ *   } ;
+ *
+ * The qfstring facilities may be used to construct the string, and to
+ * facilitate that, the macro: qfb_qfs(buf, qfs) declares the buffer and a
+ * qf_str_t and initialises same, thus:
+ *
+ *   QFB_QFS(foo, foo_qfs) ;
+ *
+ * declares:
+ *
+ *   foo_t    foo ;
+ *   qf_str_t foo_qfs = { ...initialised for empty foo... } ;
+ *
+ * So the string generator can use foo_qfs and qfstring facilities to fill in
+ * the string in foo, and then return foo (having terminated it) as above.
+ *
+ * So... with two macros we reduce the amount of fiddling about required to
+ * do something reasonably simple.
+ *
+ * NB: it is quite possible that the compiler will allocate two buffers, one
+ *     in the caller's stack frame and one in the callee's, and returning the
+ *     value will involve copying from one to the other.
+ */
+#define QFB_T(name, len) \
+  typedef struct { char str[((len) | 7) + 1] ; } name##_t
+
+#define QFB_QFS(qfb, qfs) \
+  qfb##_t     qfb ;       \
+  qf_str_t  qfs = { { .str      = qfb.str,                   \
+                      .ptr      = qfb.str,                   \
+                      .end      = qfb.str + sizeof(qfb.str), \
+                      .offset   = 0,                         \
+                      .overflow = 0  } }
+
+/* And, finally, a "standard" qfb for general use: qfb_gen_t !          */
+
+enum { qfb_gen_len = 200 } ;    /* More than enough for most purposes ! */
+QFB_T(qfb_gen, qfb_gen_len) ;
+
+#endif /* _ZEBRA_QFSTRING_H */

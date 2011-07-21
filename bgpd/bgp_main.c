@@ -340,6 +340,7 @@ bgp_exit (int status)
 
   cmd_terminate ();
   vty_terminate ();
+
   if (zclient)
     zclient_free (zclient);
   if (zlookup)
@@ -717,8 +718,6 @@ routing_background(void)
 
 /*------------------------------------------------------------------------------
  * SIGHUP: message sent to Routeing engine and the action it then takes.
- *
- * TODO: should SIGHUP be a priority message (!)
  */
 static void
 sighup_enqueue(void)

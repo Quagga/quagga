@@ -65,4 +65,17 @@ END {
 			printf (mlistformat "\n", mlists[i]);
 	}
 	printf (footer);
+
+        printf ("\n") ;
+        printf ("#ifdef MEM_MTYPE_MAP_REQUIRED\n") ;
+        printf ("static const char* const mem_mtype_map[] = {\n") ;
+
+        printf ("  [%-30d] = \"*MTYPE = 0*\",\n", 0) ;
+
+	for (i = 0; i < tcount; i++) {
+          printf ("  [%-30s] = \"%s\",\n", mtype[i], mtype[i]);
+        } ;
+
+        printf ("} ;\n") ;
+        printf ("#endif /* MEM_MTYPE_MAP_REQUIRED */\n") ; 
 }

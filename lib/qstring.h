@@ -518,16 +518,16 @@ qs_make_string(qstring qs)
 /*------------------------------------------------------------------------------
  * Return pointer to string value.
  *
- * If possible, writes '\0' at 'len' in order to return a terminated string.
+ * Writes '\0' at 'len' in order to return a terminated string, if required.
  *
  * If qs == NULL or body == NULL, or 'len' == 0 returns pointer to constant
  * empty '\0' terminated string (ie "").
  *
  * NB: if 'len' is beyond the current 'size' of the of the qstring, then
- *     does NOT write '\0' (does NOT extend the string).
+ *     will extend the string.
  *
- * NB: if string is an alias, this returns its address, whether it is
- *     terminated or not.
+ * NB: if string is an alias, and that is not '\0' terminated, will make a
+ *     copy, before writing '\0' at end.
  *
  * NB: In any event, the string should not be changed or reset until this
  *     pointer has been discarded !
@@ -542,8 +542,16 @@ qs_string(qstring qs)
                     || ((p   = qs_char_nn(qs)) == NULL) )
     return "" ;
 
-  if (len < qs->size)           /* for alias, qs_size == 0      */
-    *(p + len) = '\0' ;
+  if (len >= qs->size)              /* for alias, qs_size == 0      */
+    {
+      if (qs->alias && (*(p + len) == '\0'))
+        return p ;
+
+      qs_make_to_size(qs, len, len) ;   /* extend and/or copy alias */
+      p = qs_char_nn(qs) ;
+    } ;
+
+  *(p + len) = '\0' ;
 
   return p ;
 } ;

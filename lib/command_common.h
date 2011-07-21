@@ -42,7 +42,7 @@ enum node_type
   ENABLE_NODE,          /* aka privileged EXEC                                */
 
   MIN_DO_SHORTCUT_NODE = ENABLE_NODE,
-                        /* May not "do xxx" at any node lower                 */
+                        /* May not "do xx" at any node lower                  */
   MAX_NON_CONFIG_NODE  = ENABLE_NODE,
                         /* May not be higher than this without owning
                          * the configuration symbol of power                  */
@@ -117,8 +117,10 @@ enum cmd_return_code
 
   /* Return codes suitable for command execution functions              */
 
-  CMD_WARNING     =  1,
-  CMD_ERROR,
+  CMD_WARNING     =  1,         /* command: not 100% successful         */
+  CMD_ERROR,                    /* command: failed badly                */
+
+  CMD_CLOSE,                    /* command: finish up and close vty     */
 
   /* Return codes from the command parser                               */
 
@@ -129,25 +131,26 @@ enum cmd_return_code
   CMD_ERR_AMBIGUOUS,            /* parser: more than on command matches */
   CMD_ERR_INCOMPLETE,
 
-  CMD_CLOSE,                    /* command: used by "exit"              */
+  /* Return codes used in command loop                                  */
 
+  CMD_HIATUS,                   /* loop: something requires attention   */
+  CMD_STOP,                     /* loop: stop and close vty (final)     */
 
+  CMD_CANCEL,                   /* loop: stop and close down to base
+                                 *       vin/vout and discard output.   */
+
+  /* Return codes from I/O layers                                       */
 
   CMD_WAITING,                  /* I/O: waiting for more input          */
   CMD_EOF,                      /* I/O: nothing more to come            */
-
-  CMD_HIATUS,                   /* Something requires attention         */
-
-  CMD_IO_ERROR,                 /* I/O -- failed :-(                    */
-  CMD_IO_TIMEOUT,               /* I/O -- timed out :-(                 */
+  CMD_IO_ERROR,                 /* I/O: error or time-out               */
 
   /* For the chop ????                          */
 
-
-  CMD_COMPLETE_FULL_MATCH,      /* cmd_completion returns               */
-  CMD_COMPLETE_MATCH,
-  CMD_COMPLETE_LIST_MATCH,
-  CMD_COMPLETE_ALREADY,
+//CMD_COMPLETE_FULL_MATCH,      /* cmd_completion returns               */
+//CMD_COMPLETE_MATCH,
+//CMD_COMPLETE_LIST_MATCH,
+//CMD_COMPLETE_ALREADY,
 
 
   CMD_SUCCESS_DAEMON,           /* parser: success & command is for vtysh ? */

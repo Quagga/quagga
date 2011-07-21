@@ -41,36 +41,68 @@
 #include "sigevent.h"
 
 /*------------------------------------------------------------------------------
- * Prototypes
+ * Logging is managed using struct zlog, which represents a set of logging
+ * destinations, which are output to in parallel, each with its own log
+ * priority.
+ *
+ * Notionally, there may be more than one strct zlog, but in practice there is
+ * only one and that is the one pointed at by zlog_default.
  */
-static void zlog_abort (const char *mess) __attribute__ ((noreturn)) ;
-static void uzlog_backtrace(int priority);
+struct zlog
+{
+  struct zlog* next ;           /* To support multiple logging streams  */
 
+  const char *ident;            /* daemon name (first arg to openlog)   */
+  zlog_proto_t protocol ;
+
+  int maxlvl[ZLOG_DEST_COUNT];  /* maximum priority set                 */
+  int monitor_lvl ;             /* last monitor level specified         */
+  int default_lvl ;             /* maxlvl to use if none is specified   */
+
+  int emaxlvl[ZLOG_DEST_COUNT]; /* effective maximum priority           */
+
+  bool syslog ;                 /* have active syslog                   */
+  int  file_fd ;                /* fd for ZLOG_DEST_FILE (if any)       */
+  int  stdout_fd ;              /* fd for ZLOG_DEST_STDOUT              */
+
+  char *filename;               /* for ZLOG_DEST_FILE                   */
+
+  int facility;                 /* as per syslog facility               */
+  int syslog_options;           /* 2nd arg to openlog                   */
+
+  int  timestamp_precision;     /* # of digits of subsecond precision   */
+  bool record_priority;         /* should messages logged through stdio
+                                   include the priority of the message? */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Tables of protocol and log priority names.
+ */
 const char *zlog_proto_names[] =
 {
-  "NONE",
-  "DEFAULT",
-  "ZEBRA",
-  "RIP",
-  "BGP",
-  "OSPF",
-  "RIPNG",
-  "OSPF6",
-  "ISIS",
-  "MASC",
+  [ZLOG_NONE]    = "NONE",
+  [ZLOG_DEFAULT] = "DEFAULT",
+  [ZLOG_ZEBRA]   = "ZEBRA",
+  [ZLOG_RIP]     = "RIP",
+  [ZLOG_BGP]     = "BGP",
+  [ZLOG_OSPF]    = "OSPF",
+  [ZLOG_RIPNG]   = "RIPNG",
+  [ZLOG_OSPF6]   = "OSPF6",
+  [ZLOG_ISIS]    = "ISIS",
+  [ZLOG_MASC]    = "MASC",
   NULL,
-};
+} ;
 
 const char *zlog_priority[] =
 {
-  "emergencies",
-  "alerts",
-  "critical",
-  "errors",
-  "warnings",
-  "notifications",
-  "informational",
-  "debugging",
+  [LOG_EMERG]    = "emergencies",
+  [LOG_ALERT]    = "alerts",
+  [LOG_CRIT]     = "critical",
+  [LOG_ERR]      = "errors",
+  [LOG_WARNING]  = "warnings",
+  [LOG_NOTICE]   = "notifications",
+  [LOG_INFO]     = "informational",
+  [LOG_DEBUG]    = "debugging",
   NULL,
 };
 
@@ -81,12 +113,18 @@ struct zlog* zlog_default = NULL;
 
 struct zlog* zlog_list    = NULL ;
 
-static volatile sig_atomic_t max_maxlvl = INT_MAX ;
+static volatile sig_atomic_t max_maxlvl = ZLOG_DISABLED ;
 
 qpt_mutex_t log_mutex ;
 
 int log_lock_count    = 0 ;
 int log_assert_fail   = 0 ;
+
+/*------------------------------------------------------------------------------
+ * Prototypes
+ */
+static void zlog_abort (const char *mess) __attribute__ ((noreturn)) ;
+static void uzlog_backtrace(int priority);
 
 /*==============================================================================
  * Log locking and relationship with VTY.
@@ -155,10 +193,7 @@ log_finish(void)
 
 /*==============================================================================
  * The actual logging function and creation of the logging lines.
- *
  */
-#define TIMESTAMP_FORM "%Y/%m/%d %H:%M:%S"
-
 /* Structure used to hold line for log output -- so that need be generated
  * just once even if output to multiple destinations.
  *
@@ -182,6 +217,19 @@ static void uquagga_timestamp(qf_str qfs, int timestamp_precision) ;
 
 /*==============================================================================
  * The main logging function.
+ *
+ * This writes the logging information directly to all logging destinations,
+ * except the vty_log(), so that it is externally visible as soon as possible.
+ * This assumes that syslog and file output is essentially instantaneous, and
+ * will not block.
+ *
+ * Does not attempt to pick up or report any I/O errors.
+ *
+ * For vty_log(), any logging is buffered and dealt with by the VTY handler.
+ *
+ * So, having acquired the LOG_LOCK() the logging will proceed without
+ * requiring any further locks.  Indeed, apart from vty_log() and
+ * uquagga_timestamp() (TODO) the process is async_signal_safe, even.
  */
 extern void
 zlog (struct zlog *zl, int priority, const char *format, ...)
@@ -196,28 +244,33 @@ zlog (struct zlog *zl, int priority, const char *format, ...)
    *     will be consistent with the state of all known logging at the
    *     time.
    *
-   *     The max_maxlvl is sig_atomic_t and volatile.  So, we assume that:
+   *     The max_maxlvl is sig_atomic_t and volatile, and we assume that:
    *
-   *       a) writing to max_maxlvl is atomic wrt all forms of interrupt.
-   *          So the variable cannot exist in a partly written state (with,
-   *          say, some bytes of the old value and some of the new).
+   *       writing to max_maxlvl is atomic wrt all forms of interrupt,
+   *       and wrt any processor cache invalidation.
    *
-   *       b) reading max_maxlvl will either collect the state before some
-   *          change to the logging levels, or after.
+   *     That is:
    *
-   *          If passes the initial test, immediately acquires the LOG_LOCK().
+   *       the variable cannot be read in a partly written state (with,
+   *       say, some bytes of the old value and some of the new).
    *
-   *          So, if the logging facilities are being changed, then:
+   *     Hence, reading max_maxlvl will either collect the state before some
+   *     change to the logging levels, or after.
    *
-   *            a) if the level is about to be increased, so the current
-   *               priority would pass, then that change is just too late
-   *               for this particular logging operation.
+   *     If the given priority > max_maxlvl, this function exits, otherwise it
+   *     immediately acquires the LOG_LOCK().
    *
-   *            b) if the level is about to be reduced, will get past the
-   *               initial test, but will fail the later tests, under the
-   *               LOG_LOCK().
+   *     So, if the logging facilities are being changed, then:
    *
-   * NB: max_maxlvl is statically initialised to INT_MAX !
+   *       a) if the level is being increased, so the current priority would
+   *          would pass, then that change is just too late for this logging
+   *          operation.
+   *
+   *       b) if the level is about to be reduced, then will get past the
+   *          initial test, but after acquiring the LOG_LOCK(), will find that
+   *          there is no logging to be done after all.
+   *
+   * NB: max_maxlvl is statically initialised to ZLOG_DISABLED.
    */
   if (priority > max_maxlvl)
     return ;
@@ -308,6 +361,9 @@ zlog (struct zlog *zl, int priority, const char *format, ...)
  * Preparation of line to send to logging: file, stdout or "monitor" terminals.
  *
  * Line ends in '\n', but no terminating '\0'.
+ *
+ * TODO: apart from uquagga_timestamp, this is all async_signal_safe.
+ *
  */
 static void
 uvzlog_line(logline ll, struct zlog *zl, int priority,
@@ -374,8 +430,10 @@ uvzlog_line(logline ll, struct zlog *zl, int priority,
  *
  * If buflen is too small, writes buflen-1 characters followed by '\0'.
  *
- * Time stamp is rendered in the form: %Y/%m/%d %H:%M:%S
- *
+ * Time stamp is rendered in the form:
+ */
+#define TIMESTAMP_FORM "%Y/%m/%d %H:%M:%S"
+/*
  * This has a fixed length (leading zeros are included) of 19 characters
  * (unless this code is still in use beyond the year 9999 !)
  *
@@ -383,8 +441,9 @@ uvzlog_line(logline ll, struct zlog *zl, int priority,
  *
  * So the maximum time stamp is 19 + 1 + 6 = 26.  Adding the trailing '\n', and
  * rounding up for good measure -- buffer size = 32.
-
-
+ */
+CONFIRM(timestamp_buffer_len >= 32) ;
+/*
  * Returns: number of characters in buffer, not including trailing '\0'.
  *
  * NB: does no rounding.
@@ -940,10 +999,11 @@ openzlog (const char *progname, zlog_proto_t protocol,
   zl->facility       = syslog_facility;
   zl->syslog_options = syslog_flags;
 
-  /* Set default logging levels.                        */
+  /* Set initial logging levels.                                */
   for (i = 0 ; i < ZLOG_DEST_COUNT ; ++i)
-    zl->maxlvl[i]  = ZLOG_DISABLED ;
+    zl->maxlvl[i]    = ZLOG_DISABLED ;
 
+  zl->monitor_lvl    = LOG_DEBUG ;
   zl->default_lvl    = LOG_DEBUG ;
 
   openlog (progname, syslog_flags, zl->facility);
@@ -951,7 +1011,6 @@ openzlog (const char *progname, zlog_proto_t protocol,
   zl->syslog    = true ;                /* have syslog          */
   zl->stdout_fd = fileno(stdout) ;      /* assume have stdout   */
   zl->file_fd   = -1 ;                  /* no file, yet         */
-  zl->monitors  = 0 ;                   /* no monitors, yet     */
 
   assert(zlog_list == NULL) ;           /* can do this once !   */
   zlog_list = zl ;
@@ -983,7 +1042,6 @@ closezlog (struct zlog *zl)
   zl->syslog    = false ;
   zl->file_fd   = -1 ;
   zl->stdout_fd = -1 ;
-  zl->monitors  =  0 ;           /* TODO... state of VTY ??             */
 
   uzlog_set_effective_level(zl) ;
 
@@ -995,7 +1053,17 @@ closezlog (struct zlog *zl)
 /*------------------------------------------------------------------------------
  * Set new logging level for the given destination.
  *
+ * If the log_level is ZLOG_DISABLED, then the destination is, effectively,
+ * disabled.
+ *
+ * Note that for file logging need to use zlog_set_file() to set a file in
+ * the first place and zlog_reset_file() to actually close a file destination.
+ *
  * Update the effective maxlvl for this zlog, and the max_maxlvl for all zlog.
+ *
+ * Note that for monitor the sets the separate zl->monitor_lvl.  The entry
+ * in the zl->maxlvl[] vector is the maximum of all *active* monitors, not
+ * the current configured level.
  */
 extern void
 zlog_set_level (struct zlog *zl, zlog_dest_t dest, int level)
@@ -1004,12 +1072,17 @@ zlog_set_level (struct zlog *zl, zlog_dest_t dest, int level)
 
   if ((zl = zlog_actual(zl)) != NULL)
     {
-      zl->maxlvl[dest] = level ;
-      uzlog_set_effective_level(zl) ;
+      if (dest != ZLOG_DEST_MONITOR)
+        {
+          zl->maxlvl[dest] = level ;
+          uzlog_set_effective_level(zl) ;
+        }
+      else
+        zl->monitor_lvl = level ;
     }
 
   LOG_UNLOCK() ;
-}
+} ;
 
 /*------------------------------------------------------------------------------
  * Set new log file: name and level.
@@ -1150,18 +1223,18 @@ zlog_rotate (struct zlog *zl)
 }
 
 /*------------------------------------------------------------------------------
- * Increment or decrement the number of monitor terminals.
+ * Set the current maximum monitor level and the effective level (the same in
+ * this case).
  */
 extern void
-uzlog_add_monitor(struct zlog *zl, int count)
+uzlog_set_monitor(struct zlog *zl, int level)
 {
   if ((zl = zlog_actual(zl)) != NULL)
     {
-      zl->monitors += count ;
+      zl->maxlvl[ZLOG_DEST_MONITOR] = level ;
       uzlog_set_effective_level(zl) ;
     } ;
-}
-
+} ;
 
 /*------------------------------------------------------------------------------
  * get the current default level
@@ -1222,6 +1295,10 @@ zlog_set_default_lvl_dest (struct zlog *zl, int level)
 
 /*------------------------------------------------------------------------------
  * Get the current level for the given destination.
+ *
+ * Note that for monitor the gets the separate zl->monitor_lvl.  The entry
+ * in the zl->maxlvl[] vector is the maximum of all *active* monitors, not
+ * the current configured level.
  */
 extern int
 zlog_get_maxlvl (struct zlog *zl, zlog_dest_t dest)
@@ -1231,11 +1308,26 @@ zlog_get_maxlvl (struct zlog *zl, zlog_dest_t dest)
   LOG_LOCK() ;
 
   zl = zlog_actual(zl) ;
-  level = (zl != NULL) ? zl->maxlvl[dest] : ZLOG_DISABLED ;
+  if (zl == NULL)
+    level = ZLOG_DISABLED ;
+  else
+    level = (dest != ZLOG_DEST_MONITOR) ? zl->maxlvl[dest] : zl->monitor_lvl ;
 
   LOG_UNLOCK() ;
   return level;
-}
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the current monitor level
+ */
+extern int
+uzlog_get_monitor_lvl(struct zlog *zl)
+{
+  LOG_ASSERT_LOCKED() ;
+
+  zl = zlog_actual(zl) ;
+  return (zl == NULL) ? ZLOG_DISABLED : zl->monitor_lvl ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Get the current facility setting for syslog
@@ -1423,7 +1515,7 @@ uzlog_set_effective_level(struct zlog *zl)
   uzlog_set_emaxlvl(zl, ZLOG_DEST_SYSLOG,  zl->syslog        ) ;
   uzlog_set_emaxlvl(zl, ZLOG_DEST_FILE,    zl->file_fd   >= 0) ;
   uzlog_set_emaxlvl(zl, ZLOG_DEST_STDOUT,  zl->stdout_fd >= 0) ;
-  uzlog_set_emaxlvl(zl, ZLOG_DEST_MONITOR, zl->monitors  >  0) ;
+  uzlog_set_emaxlvl(zl, ZLOG_DEST_MONITOR, true) ;
   confirm(ZLOG_DEST_COUNT == 4) ;
 
   /* Scan all known logging streams, and re-establish max_maxlvl.

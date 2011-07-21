@@ -485,7 +485,7 @@ enum cmd_pipe_type              /* bit significant      */
   cmd_pipe_append     = BIT(4),         /* >>                           */
 
   /* For out shell pipes                                                */
-  cmd_pipe_shell_only = BIT(4),         /* | at start of line           */
+  cmd_pipe_shell_cmd  = BIT(4),         /* | at start of line           */
 } ;
 typedef enum cmd_pipe_type cmd_pipe_type_t ;
 

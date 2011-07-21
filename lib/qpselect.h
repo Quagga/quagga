@@ -255,4 +255,6 @@ extern qps_mini qps_mini_set(qps_mini qm, int fd, qps_mnum_t mode,
 extern qps_mini qps_mini_add(qps_mini qm, int fd, qps_mnum_t mode) ;
 extern int qps_mini_wait(qps_mini qm, const sigset_t* sigmask, bool signal) ;
 
+extern uint qps_mini_timeout_debug ;
+
 #endif /* _ZEBRA_QPSELECT_H */

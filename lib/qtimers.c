@@ -406,7 +406,7 @@ qtimer_pile_verify(qtimer_pile qtp)
   vector_index_t  i ;
   vector_length_t e ;
   qtimer qtr ;
-  bool seen ;
+  bool seen = false ;
 
   assert(qtp != NULL) ;
 
@@ -427,7 +427,10 @@ qtimer_pile_verify(qtimer_pile qtp)
       assert(qtr != NULL) ;
 
       if (qtr == qtp->implicit_unset)
-        seen = 1 ;
+        {
+          assert(!seen) ;
+          seen = true ;
+        } ;
 
       assert(qtr->active) ;
 
