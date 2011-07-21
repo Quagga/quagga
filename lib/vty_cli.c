@@ -179,7 +179,9 @@ uty_cli_new(vio_vf vf)
     {
       cli->pause_timer   = qtimer_init_new(NULL, vty_cli_nexus->pile,
                                                 vty_term_pause_timeout, cli) ;
-      cli->tilde_enabled = vty_multi_nexus && false ;
+#if 0
+      cli->tilde_enabled = vty_multi_nexus ;
+#endif
     } ;
 
   /* Ready to be started -- paused, out_active & more_wait are false.
@@ -259,7 +261,9 @@ uty_cli_close(vty_cli cli, bool final)
   /* Discard any pause_timer, and suppress */
   cli->pause_timer    = qtimer_free(cli->pause_timer) ;
   cli->paused         = false ;
+#if 0
   cli->tilde_enabled  = false ;
+#endif
 
   /* If final, free the CLI object.                                     */
   if (final)
@@ -813,7 +817,11 @@ uty_cli_dispatch(vty_cli cli)
 
       uty_cmd_signal(vio, CMD_SUCCESS) ;
 
-      cli->blocked = (to_do_now != cmd_do_command) || !cli->tilde_enabled ;
+      cli->blocked = (to_do_now != cmd_do_command)
+#if 0
+                                                   || !cli->tilde_enabled
+#endif
+          ;
     }
   else
     {

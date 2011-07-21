@@ -95,7 +95,9 @@ struct vty_cli
   bool          drawn ;
 
   bool          tilde_prompt ;
+#if 0
   bool          tilde_enabled ;
+#endif
 
   int           prompt_len ;
   int           extra_len ;

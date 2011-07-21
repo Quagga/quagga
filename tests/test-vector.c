@@ -29,7 +29,10 @@ int sort_cmp(void const* const* a, void const* const* b);
 void test_vector_sort(void);
 void test_vector_bsearch(void);
 void test_vector_move_item_here(void);
-void do_test_move_item_here(const int rider);
+void do_test_move_item_here(const int rider, vector_index_t ins,
+                                             vector_index_t src,
+                                             char strings[][10],
+                                             const vector_length_t len) ;
 void test_vector_part_reverse(void);
 void test_vector_copy_here(void);
 void test_vector_move_here(void);
@@ -605,107 +608,279 @@ test_vector_bsearch(void)
 void
 test_vector_move_item_here(void)
 {
-  do_test_move_item_here(-1);
-  do_test_move_item_here(0);
-  do_test_move_item_here(1);
+  const uint n = 20 ;
+  const uint l = n - 1 ;
+  char strings[n][10] ;
+  uint i ;
+
+  for (i = 0 ; i < n ; ++i)
+    sprintf(strings[i], "item=%2u", i) ;
+
+  do_test_move_item_here(-1,  8, 16, strings, n);
+  do_test_move_item_here( 0,  8, 16, strings, n);
+  do_test_move_item_here(+1,  8, 16, strings, n);
+
+  do_test_move_item_here(-1, 16,  8, strings, n);
+  do_test_move_item_here( 0, 16,  8, strings, n);
+  do_test_move_item_here(+1, 16,  8, strings, n);
+
+  do_test_move_item_here(-1,  9,  9, strings, n);
+  do_test_move_item_here( 0,  9,  9, strings, n);
+  do_test_move_item_here(+1,  9,  9, strings, n);
+
+  do_test_move_item_here(-1, 10,  9, strings, n);
+  do_test_move_item_here( 0, 10,  9, strings, n);
+  do_test_move_item_here(+1, 10,  9, strings, n);
+
+  do_test_move_item_here(-1,  9, 10, strings, n);
+  do_test_move_item_here( 0,  9, 10, strings, n);
+  do_test_move_item_here(+1,  9, 10, strings, n);
+
+  do_test_move_item_here(-1, 11,  9, strings, n);
+  do_test_move_item_here( 0, 11,  9, strings, n);
+  do_test_move_item_here(+1, 11,  9, strings, n);
+
+  do_test_move_item_here(-1,  9, 11, strings, n);
+  do_test_move_item_here( 0,  9, 11, strings, n);
+  do_test_move_item_here(+1,  9, 11, strings, n);
+
+  do_test_move_item_here(-1,  0, 10, strings, n);
+  do_test_move_item_here( 0,  0, 10, strings, n);
+  do_test_move_item_here(+1,  0, 10, strings, n);
+
+  do_test_move_item_here(-1, 10,  0, strings, n);
+  do_test_move_item_here( 0, 10,  0, strings, n);
+  do_test_move_item_here(+1, 10,  0, strings, n);
+
+  do_test_move_item_here(-1,  0,  l, strings, n);
+  do_test_move_item_here( 0,  0,  l, strings, n);
+  do_test_move_item_here(+1,  0,  l, strings, n);
+
+  do_test_move_item_here(-1,  l,  0, strings, n);
+  do_test_move_item_here( 0,  l,  0, strings, n);
+  do_test_move_item_here(+1,  l,  0, strings, n);
+
+  do_test_move_item_here(-1, 10,  l, strings, n);
+  do_test_move_item_here( 0, 10,  l, strings, n);
+  do_test_move_item_here(+1, 10,  l, strings, n);
+
+  do_test_move_item_here(-1,  l, 10, strings, n);
+  do_test_move_item_here( 0,  l, 10, strings, n);
+  do_test_move_item_here(+1,  l, 10, strings, n);
+
+  do_test_move_item_here(-1,  0,  0, strings, n);
+  do_test_move_item_here( 0,  0,  0, strings, n);
+  do_test_move_item_here(+1,  0,  0, strings, n);
+
+  do_test_move_item_here(-1,  1,  1, strings, n);
+  do_test_move_item_here( 0,  1,  1, strings, n);
+  do_test_move_item_here(+1,  1,  1, strings, n);
+
+  do_test_move_item_here(-1,  0,  1, strings, n);
+  do_test_move_item_here( 0,  0,  1, strings, n);
+  do_test_move_item_here(+1,  0,  1, strings, n);
+
+  do_test_move_item_here(-1,  1,  0, strings, n);
+  do_test_move_item_here( 0,  1,  0, strings, n);
+  do_test_move_item_here(+1,  1,  0, strings, n);
+
+  do_test_move_item_here(-1,  0,  2, strings, n);
+  do_test_move_item_here( 0,  0,  2, strings, n);
+  do_test_move_item_here(+1,  0,  2, strings, n);
+
+  do_test_move_item_here(-1,  2,  0, strings, n);
+  do_test_move_item_here( 0,  2,  0, strings, n);
+  do_test_move_item_here(+1,  2,  0, strings, n);
+
+  do_test_move_item_here(-1,  l,  l, strings, n);
+  do_test_move_item_here( 0,  l,  l, strings, n);
+  do_test_move_item_here(+1,  l,  l, strings, n);
+
+  do_test_move_item_here(-1,l-1,  l, strings, n);
+  do_test_move_item_here( 0,l-1,  l, strings, n);
+  do_test_move_item_here(+1,l-1,  l, strings, n);
+
+  do_test_move_item_here(-1,  l,l-1, strings, n);
+  do_test_move_item_here( 0,  l,l-1, strings, n);
+  do_test_move_item_here(+1,  l,l-1, strings, n);
 }
 
 void
-do_test_move_item_here(const int rider)
+do_test_move_item_here(const int rider, vector_index_t ins,
+                                        vector_index_t src,
+                                        char strings[][10],
+                                        const vector_length_t len)
 {
   vector v = NULL;
-  const vector_length_t len = 100;
-  const vector_index_t  ins = 50;
-  const vector_index_t  src = 70;
-  vector_index_t i;
-  char buf[10];
-  vector_index_t check_dest = 0;
-  vector_index_t check_src = 0;
-  vector_index_t check_end = 0;
-  int check_shift = 0;
-  p_vector_item dest_item = NULL;
+  vector_index_t i, e, check_end ;
+  vector_index_t hi, lo ;
+  char* expect[len] ;
 
+  p_vector_item dest_item = NULL;
 
   switch(rider)
   {
   case -1:
-    printf("test_vector_move_here before\n");
-    check_dest = ins;
-    check_src = src;
-    check_end = len;
-    check_shift = 1;
+    printf("test_vector_move_here before dst=%2d, src=%2d\n", src, ins);
     break;
+
   case 0:
-    printf("test_vector_move_here at\n");
-    check_dest = ins;
-    check_src = src - 1;
-    check_end = len - 1;
-    check_shift = 0;
+    printf("test_vector_move_here at     dst=%2d, src=%2d\n", src, ins);
     break;
+
   case 1:
-    printf("test_vector_move_here after\n");
-    check_dest = ins + 1;
-    check_src = src;
-    check_end = len;
-    check_shift = 1;
+    printf("test_vector_move_here after  dst=%2d, src=%2d\n", src, ins);
     break;
-  }
+  } ;
+
+  /* Build the test vector and perform action                           */
 
   v = vector_init_new(v, 0);
 
   for (i = 0; i < len; ++i)
-  {
-    sprintf(buf, "%u", i);
-    vector_set_item(v, i, strdup(buf));
-  }
+    vector_set_item(v, i, strdup(strings[i]));
 
   dest_item = vector_get_item(v, ins); /* item to free if rider == 0 */
 
   vector_move_item_here(v, ins, rider, src);
+
+  /* Build the expected result.                                         */
+
+  if (ins <= src)
+    {
+      lo = ins ;
+      hi = src ;
+    }
+  else
+    {
+      lo = src ;
+      hi = ins ;
+    } ;
+
+  check_end = (rider != 0) ? len : len - 1 ;
+  i = 0 ;
+  e = 0 ;
+
+  while (i < lo)
+    expect[i++] = strings[e++] ;
+
+  if      (lo == hi)
+    {
+      /* Special case -- do nothing if rider != 0
+       *                 drop entry if rider == 0
+       */
+      if (rider == 0)
+        ++e ;
+    }
+  else if (lo == (hi - 1))
+    {
+      /* Special case -- ins and src next to each other !
+       *
+       * If rider != 0 -- insert ins and src in the required order
+       * If rider == 0 -- insert just src
+       */
+      if      (rider < 0)
+        {
+          expect[i++] = strings[src] ;
+          expect[i++] = strings[ins] ;
+        }
+      else if (rider == 0)
+        {
+          expect[i++] = strings[src] ;
+        }
+      else
+        {
+          expect[i++] = strings[ins] ;
+          expect[i++] = strings[src] ;
+        } ;
+      e += 2 ;
+    }
+  else
+    {
+      /* Now we know that ins and src are separated by at least 1 entry.
+       */
+      uint be ;
+
+      be = hi - 1 ;
+
+      if (ins < src)
+        {
+          /* At insertion point, so insert ins and src in the required order
+           * or insert juist the src.
+           */
+          if      (rider < 0)
+            {
+              expect[i++] = strings[src] ;
+              expect[i++] = strings[ins] ;
+              ++be ;
+            }
+          else if (rider == 0)
+            {
+              expect[i++] = strings[src] ;
+            }
+          else
+            {
+              expect[i++] = strings[ins] ;
+              expect[i++] = strings[src] ;
+              ++be ;
+            } ;
+
+          ++be ;
+        } ;
+
+      e += 1 ;
+
+      while (i < be)
+        expect[i++] = strings[e++] ;
+
+      if (ins > src)
+        {
+          /* At insertion point, so insert ins and src in the required order
+           * or insert juist the src.
+           */
+          if      (rider < 0)
+            {
+              expect[i++] = strings[src] ;
+              expect[i++] = strings[ins] ;
+            }
+          else if (rider == 0)
+            {
+              expect[i++] = strings[src] ;
+            }
+          else
+            {
+              expect[i++] = strings[ins] ;
+              expect[i++] = strings[src] ;
+            } ;
+        } ;
+
+      e = hi + 1 ;
+    } ;
+
+  while (i < check_end)
+    expect[i++] = strings[e++] ;
+
+  /* check contents are correct                                         */
   assert_true(vector_end(v) == check_end, "vector_end(v) != check_end");
 
-  /* check contents are correct */
-
-  /* from start to insertion point */
-  for (i = 0; i < check_dest - 1; ++i)
+  for (i = 0 ; i < check_end ; ++i)
     {
-      sprintf(buf, "%u", i);
-      assert_true(strcmp(vector_get_item(v, i), buf) == 0,
-          "vector_get_item(v, i) != buf");
-    }
+      if (strcmp(vector_get_item(v, i), expect[i]) != 0)
+        {
+          assert_true(0, "vector_get_item(v, i) != expected") ;
+          break ;
+        } ;
+    } ;
 
-  /* at insertion point */
-  sprintf(buf, "%u", src);
-  assert_true(strcmp(vector_get_item(v, check_dest), buf) == 0,
-      "vector_get_item(v, check_dest) != buf");
-
-  /* from insertion point to src */
-  for (i = check_dest + 1; i <= check_src; ++i)
-    {
-      sprintf(buf, "%u", i - check_shift);
-      assert_true(strcmp(vector_get_item(v, i), buf) == 0, "vector_get_item(v, i) != buf");
-    }
-
-  /* from src to end */
-  for (i = check_src + 1; i < check_end; ++i)
-    {
-      sprintf(buf, "%u", i - (check_shift - 1));
-      assert_true(strcmp(vector_get_item(v, i), buf) == 0, "vector_get_item(v, i) != buf");
-    }
-
-  /* free contents */
+  /* free contents                                                      */
   for (i = 0; i < vector_end(v); ++i)
-    {
-      free(vector_slot(v, i));
-    }
+    free(vector_slot(v, i));
 
   if (rider == 0)
-    {
-      free(dest_item);
-    }
+    free(dest_item);
 
-  vector_free(v);
-}
+   vector_free(v);
+} ;
 
 void
 test_vector_part_reverse(void)
