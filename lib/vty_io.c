@@ -1195,7 +1195,7 @@ uty_sock_close(vio_sock sock)
   sock->fd      = -1 ;
 
   if (sock->t_read != NULL)
-    thread_cancel(sock->t_write) ;
+    thread_cancel(sock->t_read) ;
   if (sock->t_write != NULL)
     thread_cancel(sock->t_write) ;
 
