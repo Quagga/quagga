@@ -40,6 +40,7 @@
 #include "filter.h"
 #include "privs.h"
 #include "sockunion.h"
+#include "sockopt.h"
 #include "network.h"
 
 #include <arpa/telnet.h>

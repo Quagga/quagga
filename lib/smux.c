@@ -38,6 +38,7 @@
 #include <lib/version.h>
 #include "memory.h"
 #include "sockunion.h"
+#include "sockopt.h"
 #include "smux.h"
 
 #define min(A,B) ((A) < (B) ? (A) : (B))
@@ -215,8 +216,8 @@ smux_socket (void)
       sock = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
       if (sock < 0)
 	continue;
-      sockopt_reuseaddr (sock);
-      sockopt_reuseport (sock);
+      setsockopt_reuseaddr (sock);
+      setsockopt_reuseport (sock);
       ret = connect (sock, res->ai_addr, res->ai_addrlen);
       if (ret < 0)
 	{
@@ -251,8 +252,8 @@ smux_socket (void)
 
   serv.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
 
-  sockopt_reuseaddr (sock);
-  sockopt_reuseport (sock);
+  setsockopt_reuseaddr (sock);
+  setsockopt_reuseport (sock);
 
   ret = connect (sock, (struct sockaddr *) &serv, sizeof (struct sockaddr_in));
   if (ret < 0)

@@ -195,8 +195,6 @@ struct bgp_rd
 
 
 
-
-
 #define PEER_PASSWORD_MINLEN	(1)
 #define PEER_PASSWORD_MAXLEN	(80)
 
@@ -342,16 +340,16 @@ struct bgp_nlri
 
 /* IBGP/EBGP identifier.  We also have a CONFED peer, which is to say,
    a peer who's AS is part of our Confederation.  */
-enum
+typedef enum
 {
   BGP_PEER_IBGP,
   BGP_PEER_EBGP,
   BGP_PEER_INTERNAL,
   BGP_PEER_CONFED
-};
+} bgp_peer_sort_t ;
 
 /* Flag for peer_clear_soft().  */
-enum bgp_clear_type
+typedef enum
 {
   BGP_CLEAR_SOFT_NONE,
   BGP_CLEAR_SOFT_OUT,
@@ -359,7 +357,7 @@ enum bgp_clear_type
   BGP_CLEAR_SOFT_BOTH,
   BGP_CLEAR_SOFT_IN_ORF_PREFIX,
   BGP_CLEAR_SOFT_RSCLIENT
-};
+} bgp_clear_type_t ;
 
 /* Macros. */
 #define BGP_INPUT(P)         ((P)->ibuf)
@@ -400,7 +398,9 @@ enum bgp_clear_type
 #define BGP_ERR_CANNOT_HAVE_LOCAL_AS_SAME_AS    -28
 #define BGP_ERR_TCPSIG_FAILED			-29
 #define BGP_ERR_PEER_EXISTS                     -30
-#define BGP_ERR_MAX                             -31
+#define BGP_ERR_NO_EBGP_MULTIHOP_WITH_GTSM	-31
+#define BGP_ERR_NO_IBGP_WITH_TTLHACK		-32
+#define BGP_ERR_MAX				-33
 
 /*------------------------------------------------------------------------------
  * Globals.
@@ -600,8 +600,10 @@ extern int peer_maximum_prefix_set (struct peer *, afi_t, safi_t, u_int32_t, u_c
 extern int peer_maximum_prefix_unset (struct peer *, afi_t, safi_t);
 
 extern int peer_clear (struct peer *);
-extern int peer_clear_soft (struct peer *, afi_t, safi_t, enum bgp_clear_type);
+extern int peer_clear_soft (struct peer *, afi_t, safi_t, bgp_clear_type_t);
 
 extern void program_terminate_if_all_disabled(void);
+extern int peer_ttl_security_hops_set (struct peer *, int);
+extern int peer_ttl_security_hops_unset (struct peer *);
 
 #endif /* _QUAGGA_BGPD_H */

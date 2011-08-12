@@ -157,6 +157,7 @@ struct bgp_session
                                            match                          */
 
   int               ttl ;               /* TTL to set, if not zero        */
+  bool              gtsm ;              /* ttl set by ttl-security        */
   unsigned short    port ;              /* destination port for peer      */
 
   /* TODO: ifindex and ifaddress should be rebound if the peer hears any
@@ -294,7 +295,8 @@ enum { BGP_XON_REFRESH     = 40,
 
 struct bgp_session_ttl_args             /* to bgp Engine                */
 {
-  int                  ttl ;            /* time to live                 */
+  int                  ttl ;
+  bool                 gtsm ;
 } ;
 MQB_ARGS_SIZE_OK(bgp_session_ttl_args) ;
 
@@ -357,7 +359,7 @@ extern int
 bgp_session_dec_flow_count(bgp_peer peer) ;
 
 extern void
-bgp_session_set_ttl(bgp_session session, int ttl);
+bgp_session_set_ttl(bgp_session session, int ttl, bool gtsm);
 
 extern void
 bgp_session_get_stats(bgp_session session, struct bgp_session_stats *stats);

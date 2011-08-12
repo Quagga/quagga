@@ -139,11 +139,6 @@ typedef struct qAFI_SAFI  qAFI_SAFI_t ;
 typedef struct qAFI_SAFI* qAFI_SAFI ;
 
 /*==============================================================================
- * POSIX address family type
- */
-typedef int pAF_t ;
-
-/*==============================================================================
  * Quagga AFI/SAFI values -- original macro definitions
  */
 

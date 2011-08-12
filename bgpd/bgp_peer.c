@@ -772,10 +772,19 @@ bgp_peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
   peer->local_id    = bgp->router_id;
   peer->v_holdtime  = bgp->default_holdtime;
   peer->v_keepalive = bgp->default_keepalive;
+
   if (peer_sort (peer) == BGP_PEER_IBGP)
-    peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
-  else
-    peer->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+    {
+      peer->ttl        = MAXTTL ;
+      peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
+
+    }
+  else  /* BGP_PEER_EBGP or BGP_PEER_CONFED     */
+    {
+      peer->ttl        = 1 ;
+      peer->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+    } ;
+  peer->gtsm = false ;
 
   SET_FLAG(peer->sflags, PEER_STATUS_REAL_PEER) ;
   peer = bgp_peer_lock (peer);          /* bgp peer list reference */
@@ -790,9 +799,6 @@ bgp_peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
 
   /* Last reset time set */
   peer->resettime = bgp_clock ();
-
-  /* Default TTL set. */
-  peer->ttl = (peer_sort (peer) == BGP_PEER_IBGP ? 255 : 1);
 
   /* Make peer's address string. */
   peer->host = sockunion_su2str (su, MTYPE_BGP_PEER_HOST) ;
@@ -1352,7 +1358,7 @@ bgp_peer_down_error(struct peer* peer,
  * session.
  *
  * Same as above, except that this accepts a data part for the notification
- * message.
+ * message -- but len may be 0 (and data may be null iff len == 0).
  */
 extern void
 bgp_peer_down_error_with_data (struct peer* peer,
@@ -1888,7 +1894,7 @@ bgp_stop_with_error (struct peer *peer)
  * If has a choice, uses address that best matches the peer's address.
  */
 extern sockunion
-bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, pAF_t paf)
+bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, sa_family_t af)
 {
   struct interface* ifp ;
   struct connected* connected;
@@ -1913,7 +1919,7 @@ bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, pAF_t paf)
 
   for (ALL_LIST_ELEMENTS_RO (ifp->connected, node, connected))
     {
-      if (connected->address->family != paf)
+      if (connected->address->family != af)
         continue ;
 
       this = prefix_common_bits (connected->address, peer_prefix) ;

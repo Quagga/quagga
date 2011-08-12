@@ -110,7 +110,7 @@ const iSAFI_t iSAFI_map[] =
     [qafx_num_other]        = iSAFI_Reserved,
   } ;
 
-const pAF_t pAF_map[] =
+const sa_family_t sa_family_map[] =
   {
     [qafx_ipv4_unicast]     = AF_INET,
     [qafx_ipv4_multicast]   = AF_INET,

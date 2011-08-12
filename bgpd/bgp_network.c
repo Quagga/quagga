@@ -49,21 +49,15 @@ extern struct zebra_privs_t bgpd_privs;
  */
 
 /* Forward references.                                                        */
-static void
-bgp_connect_action(qps_file qf, void* file_info) ;
-
-static void
-bgp_accept_action(qps_file qf, void* file_info) ;
-
-static int
-bgp_get_names(int sock_fd, union sockunion* su_local,
+static void bgp_connect_action(qps_file qf, void* file_info) ;
+static void bgp_accept_action(qps_file qf, void* file_info) ;
+static int bgp_get_names(int sock_fd, union sockunion* su_local,
                                                    union sockunion* su_remote) ;
-
-static int
-bgp_socket_set_common_options(int sock_fd, union sockunion* su, int ttl,
-                                                         const char* password) ;
-static int
-bgp_md5_set_listeners(union sockunion* su, const char* password) ;
+static int bgp_socket_set_common_options(int sock_fd, union sockunion* su,
+                                                    bgp_connection connection) ;
+static int bgp_set_ttl(int sock_fd, bgp_connection connnection,
+                                                           int ttl, bool gtsm) ;
+static int bgp_md5_set_listeners(union sockunion* su, const char* password) ;
 
 /*==============================================================================
  * Open and close the listeners.
@@ -333,7 +327,7 @@ bgp_open_listener(sockunion su, unsigned short port,
   int sock_fd ;
 
   /* Construct socket and set the common options.                       */
-  sock_fd = socket (sockunion_family(su), sock_type, sock_protocol) ;
+  sock_fd = sockunion_socket(su, sock_type, sock_protocol) ;
   if (sock_fd < 0)
     {
       err = errno ;
@@ -342,7 +336,7 @@ bgp_open_listener(sockunion su, unsigned short port,
       return errno = err ;
     }
 
-  err = bgp_socket_set_common_options(sock_fd, su, 0, NULL) ;
+  err = bgp_socket_set_common_options(sock_fd, su, NULL) ;
 
   /* Want only IPV6 on ipv6 socket (not mapped addresses)
    *
@@ -352,18 +346,10 @@ bgp_open_listener(sockunion su, unsigned short port,
    * Also, for all the apparent utility of IPv4-mapped addresses, the semantics
    * are simpler if IPv6 sockets speak IPv6 and IPv4 sockets speak IPv4.
    */
-#if defined(HAVE_IPV6) && defined(IPV6_V6ONLY)
+#ifdef HAVE_IPV6
   if ((err == 0) && (sockunion_family(su) == AF_INET6))
-    {
-      int on = 1;
-      ret = setsockopt (sock_fd, IPPROTO_IPV6, IPV6_V6ONLY, &on, sizeof(on));
-      if (ret < 0)
-        {
-          err = errno ;
-          zlog_err("%s: could not set IPV6_V6ONLY: %s", __func__,
-                                                           errtoa(err, 0).str) ;
-        }
-    } ;
+    if (setsockopt_ipv6_v6only(sock_fd) < 0)
+      err = errno ;
 #endif
 
   /* Bind to port and address (if any)                                  */
@@ -575,9 +561,17 @@ bgp_accept_action(qps_file qf, void* file_info)
   bool exists ;
   int  sock_fd ;
   int  err ;
-  int  family ;
 
-  /* Accept client connection.                                              */
+  /* Accept client connection.
+   *
+   * We arrange for an IPv4 listener *and* an IPv6 one (assuming have IPv6),
+   * and we arrange for AF_INET6 listener to be IPV6_V6ONLY.  This means that
+   * should NOT get an IPv4 mapped address.  However, should we get such an
+   * address, the su_remote will be set to the actual IPv4 address.
+   *
+   * This means: the address family of su_remote is the address family of the
+   * underlying connection, NOT NECESSARILY the socket -- should that matter.
+   */
   sock_fd = sockunion_accept(qps_file_fd(qf), &su_remote) ;
   if (sock_fd < 0)
     {
@@ -620,19 +614,11 @@ bgp_accept_action(qps_file qf, void* file_info)
   /* Set the common socket options.
    * Does not set password -- that is inherited from the listener.
    *
-   * At this point, su_remote is the value returned by accept(), so is the
-   * actual address (which may be IPv6 mapped IPv4).
+   * At this point, su_remote is the value returned by sockunion_accept(), so
+   * if we have an AF_INET6 socket with an IPv4 mapped address, then su_remote
+   * is an AF_INET.
    */
-  err = bgp_socket_set_common_options(sock_fd, &su_remote,
-                                             connection->session->ttl, NULL) ;
-
-  /* Get the actual socket family.                                      */
-  if (err == 0)
-    {
-      family = sockunion_getsockfamily(sock_fd) ;
-      if (family < 0)
-        err = errno ;
-    } ;
+  err = bgp_socket_set_common_options(sock_fd, &su_remote, connection) ;
 
   /* Get the local and remote addresses -- noting that IPv6 mapped IPv4
    * addresses are rendered as IPv4 addresses.
@@ -644,7 +630,7 @@ bgp_accept_action(qps_file qf, void* file_info)
   * to go.  Set session not to accept further inbound connections.
   */
   if (err == 0)
-    bgp_connection_open(connection, sock_fd, family) ;
+    bgp_connection_open(connection, sock_fd) ;
   else
     close(sock_fd) ;
 
@@ -658,6 +644,7 @@ bgp_accept_action(qps_file qf, void* file_info)
  * Open BGP Connection -- connect() to the other end
  */
 
+static int bgp_md5_set_socket(int sock_fd, sockunion su, const char *password) ;
 static int bgp_bind_ifname(bgp_connection connection, int sock_fd) ;
 static int bgp_bind_ifaddress(bgp_connection connection, int sock_fd) ;
 
@@ -676,23 +663,31 @@ static int bgp_bind_ifaddress(bgp_connection connection, int sock_fd) ;
 extern void
 bgp_open_connect(bgp_connection connection)
 {
-  int   sock_fd ;
-  int   err ;
-  int   family ;
-  union sockunion* su = connection->session->su_peer ;
+  int sock_fd ;
+  int err ;
+
+  sockunion su = connection->session->su_peer ;
 
   err = 0 ;
 
   /* Make socket for the connect connection.                            */
-  family = sockunion_family(su) ;
-  sock_fd = sockunion_socket(family, SOCK_STREAM, 0) ;
+  sock_fd = sockunion_socket(su, SOCK_STREAM, 0) ;
   if (sock_fd < 0)
     err = errno ;
 
+  if (BGP_DEBUG(events, EVENTS))
+    plog_debug(connection->log, "%s [Event] Connect start to %s socket %d%s",
+               connection->host, connection->host, sock_fd,
+                                          (sock_fd < 0) ? " -- failed" : "" ) ;
+
   /* Set the common options.                                            */
   if (err == 0)
-    err = bgp_socket_set_common_options(sock_fd, su, connection->session->ttl,
-                                                connection->session->password) ;
+    err = bgp_socket_set_common_options(sock_fd, su, connection) ;
+
+  /* Set the TCP MD5 "password", if required.                           */
+  if (err== 0)
+    if (connection->session->password != NULL)
+      err = bgp_md5_set_socket(sock_fd, su, connection->session->password) ;
 
   /* Bind socket.                                                       */
   if (err == 0)
@@ -701,10 +696,6 @@ bgp_open_connect(bgp_connection connection)
   /* Update source bind.                                                */
   if (err == 0)
     err = bgp_bind_ifaddress(connection, sock_fd) ;
-
-  if (BGP_DEBUG(events, EVENTS))
-    plog_debug(connection->log, "%s [Event] Connect start to %s socket %d",
-	       connection->host, connection->host, sock_fd);
 
   /* Connect to the remote peer.        */
   if (err == 0)
@@ -742,7 +733,7 @@ bgp_open_connect(bgp_connection connection)
    * in any case, this will be handled by the qpselect action.
    */
 
-  bgp_connection_open(connection, sock_fd, family) ;
+  bgp_connection_open(connection, sock_fd) ;
 
   qps_enable_mode(connection->qf, qps_read_mnum,  bgp_connect_action) ;
   qps_enable_mode(connection->qf, qps_write_mnum, bgp_connect_action) ;
@@ -830,7 +821,7 @@ bgp_connect_action(qps_file qf, void* file_info)
  * Set the TTL for the given connection (if any), if there is an sock_fd.
  */
 extern void
-bgp_set_ttl(bgp_connection connection, int ttl)
+bgp_set_new_ttl(bgp_connection connection, int ttl, bool gtsm)
 {
   int sock_fd ;
 
@@ -841,8 +832,50 @@ bgp_set_ttl(bgp_connection connection, int ttl)
   if (sock_fd < 0)
     return ;
 
-  if (ttl != 0)
-    sockopt_ttl(sock_fd, ttl) ;
+  bgp_set_ttl(sock_fd, connection, ttl, gtsm) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * BGP set minttl (GTSM) and/or ttl.
+ *
+ * A ttl of <= 0 is treated as "turn off" -- effectively MAXTTL, forcing gtsm
+ * *off*.
+ *
+ * If GTSM is not supported, then sets ttl.
+ *
+ * Returns:  0 : OK (so far so good)
+ *        != 0 : error number (from errno or otherwise)
+ */
+static int
+bgp_set_ttl(int sock_fd, bgp_connection connection, int ttl, bool gtsm)
+{
+  int ret ;
+
+  if (gtsm && (ttl > 0))
+    {
+      ret = setsockopt_minttl(sock_fd, ttl) ;
+
+      if      (ret >= 0)
+        {
+          ttl = MAXTTL ;
+          connection->gtsm = true ;
+        }
+      else if (errno != EOPNOTSUPP)
+        return errno ;
+    }
+  else if (connection->gtsm)
+    {
+      ret = setsockopt_minttl(sock_fd, 0) ;     /* turn off     */
+
+      if (ret < 0)      /* must have turned it on, so should not fail   */
+        return errno ;
+
+      connection->gtsm = false ;
+    } ;
+
+  ret = setsockopt_ttl(sock_fd, ttl) ;
+
+  return (ret >= 0) ? 0 : errno ;
 } ;
 
 /*==============================================================================
@@ -927,7 +960,9 @@ bgp_bind_ifname(bgp_connection connection, int sock_fd)
 } ;
 
 /*------------------------------------------------------------------------------
- * Update source selection.
+ * Update source selection -- if connection specifies an IP address.
+ *
+ * If required, tries to bind the given socket to the given address.
  *
  * Returns:  0 : OK (so far so good)
  *        != 0 : error number (from errno or otherwise)
@@ -937,27 +972,11 @@ bgp_bind_ifaddress(bgp_connection connection, int sock_fd)
 {
   if (connection->session->ifaddress != NULL)
     {
-      union sockunion su ;
+      union sockunion su[1] ;
       int ret ;
-      int family ;
 
-      sockunion_new_sockaddr(&su, &connection->session->ifaddress->sa) ;
-
-      family = sockunion_getsockfamily(sock_fd) ;
-      if (family < 0)
-        return errno ;
-
-#ifdef HAVE_IPV6
-      if (family != sockunion_family(&su))
-        {
-          if (family == AF_INET)
-            sockunion_unmap_ipv4(&su) ;
-          if (family == AF_INET6)
-            sockunion_map_ipv4(&su) ;
-        } ;
-#endif
-
-      ret = sockunion_bind (sock_fd, &su, 0, &su) ;
+      sockunion_new_sockaddr(su, &connection->session->ifaddress->sa) ;
+      ret = sockunion_bind (sock_fd, su, 0, false) ;
 
       if (ret < 0)
         return errno ;
@@ -969,29 +988,28 @@ bgp_bind_ifaddress(bgp_connection connection, int sock_fd)
  * BGP Socket Option handling
  */
 
-static int
-bgp_md5_set_socket(int sock_fd, union sockunion *su, const char *password) ;
-
 /*------------------------------------------------------------------------------
  * Common socket options:
  *
  *   * non-blocking -- at all times
  *   * reuseaddr
  *   * reuseport
- *   * set TTL            if given ttl != 0
- *   * set password       if given password != NULL
+ *   * set security ttl (GTSM) and/or ttl -- if connection given.
  *   * for IPv4, set TOS  if required
  *
- * These options are set on all sockets: connect/listen/accept
+ * These options are set on all sockets: listen/connect/accept
+ * (except either form of ttl, which is not set on listen).
+ *
+ * Note that the family of the given sockunion is the *protocol*, not the
+ * *socket* family.
  *
  * Returns:  0 => OK
  *        != 0 == errno -- not that we really expect any errors here
  */
 static int
-bgp_socket_set_common_options(int sock_fd, union sockunion* su, int ttl,
-                                                           const char* password)
+bgp_socket_set_common_options(int sock_fd, union sockunion* su,
+                                                      bgp_connection connection)
 {
-  int err ;
   int val ;
 
   /* Make socket non-blocking                                           */
@@ -1002,23 +1020,27 @@ bgp_socket_set_common_options(int sock_fd, union sockunion* su, int ttl,
     return errno ;
 
   /* Reuse addr and port                                                */
-  if (sockopt_reuseaddr(sock_fd) < 0)
+  if (setsockopt_reuseaddr(sock_fd) < 0)
     return errno ;
-  if (sockopt_reuseport(sock_fd) < 0)
+  if (setsockopt_reuseport(sock_fd) < 0)
     return errno ;
 
   /* Adjust ttl if required                                             */
-  if (ttl != 0)
-    if (sockopt_ttl(sock_fd, ttl) != 0)
-      return errno ;
-
-  /* Set the TCP MD5 "password", if required.                           */
-  if (password != NULL)
-    if ((err = bgp_md5_set_socket(sock_fd, su, password)) != 0)
-      return err ;
+  if (connection != NULL)
+    {
+      int err ;
+      err = bgp_set_ttl(sock_fd, connection, connection->session->ttl,
+                                             connection->session->gtsm) ;
+      if (err != 0)
+        return err ;
+    } ;
 
 #ifdef IPTOS_PREC_INTERNETCONTROL
-  /* set IPPROTO_IP/IP_TOS -- if is AF_INET                             */
+  /* set IPPROTO_IP/IP_TOS -- if is AF_INET
+   *
+   * We assume that if the socket is an AF_INET6 with an IPv4 mapped address,
+   * then can still set IP_PROTOCOL/IP_TOS.
+   */
   if (sockunion_family(su) == AF_INET)
     if (setsockopt_ipv4_tos(sock_fd, IPTOS_PREC_INTERNETCONTROL) < 0)
       return errno ;
@@ -1035,13 +1057,13 @@ bgp_socket_set_common_options(int sock_fd, union sockunion* su, int ttl,
  * Returns:  0 => OK
  *     otherwise: errno
  *
- * NB: if MD5 is not supported, returns ENOSYS error (but it should not come
- *     to this !).
+ * NB: if MD5 is not supported, returns EOPNOTSUPP error (but it should not
+ *     come to this !).
  *
  * NB: has to change up privileges, which can fail (if things are badly set up)
  */
 static int
-bgp_md5_set_socket(int sock_fd, union sockunion *su, const char *password)
+bgp_md5_set_socket(int sock_fd, sockunion su, const char *password)
 {
   int err, ret ;
 
@@ -1055,9 +1077,9 @@ bgp_md5_set_socket(int sock_fd, union sockunion *su, const char *password)
       zlog_err("%s: could not raise privs: %s", __func__, errtoa(errno, 0).str);
     } ;
 
-  ret = sockopt_tcp_signature(sock_fd, su, password) ;
+  ret = setsockopt_tcp_signature(sock_fd, su, password) ;
 
-  if (ret != 0)         /* TODO: error already logged as zlog_err()     */
+  if (ret != 0)
     err = errno ;
 
   if (bgpd_privs.change(ZPRIVS_LOWER))
@@ -1066,10 +1088,6 @@ bgp_md5_set_socket(int sock_fd, union sockunion *su, const char *password)
         err = errno ;
       zlog_err("%s: could not lower privs: %s", __func__, errtoa(errno, 0).str);
     } ;
-
-  if (err != 0)
-    zlog (NULL, LOG_WARNING, "cannot set TCP_MD5SIG option on socket %d: %s",
-                                                  sock_fd, errtoa(err, 0).str) ;
   return err ;
 } ;
 

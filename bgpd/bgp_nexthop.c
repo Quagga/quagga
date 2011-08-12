@@ -461,7 +461,8 @@ bgp_scan (afi_t afi, safi_t safi)
 	      changed = 0;
 	      metricchanged = 0;
 
-	      if (peer_sort (bi->peer) == BGP_PEER_EBGP && bi->peer->ttl == 1)
+	      if ((peer_sort (bi->peer) == BGP_PEER_EBGP)
+	                                                && (bi->peer->ttl == 1))
 		valid = bgp_nexthop_check_ebgp (afi, bi->attr);
 	      else
 		valid = bgp_nexthop_lookup (afi, bi->peer, bi,

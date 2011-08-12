@@ -1795,7 +1795,8 @@ static bgp_fsm_action(bgp_fsm_fatal)
  */
 static bgp_fsm_action(bgp_fsm_retry)
 {
-  bgp_connection_close(connection) ;            /* FSM does timers  */
+  bgp_connection_close(connection, true) ;      /* true => keep timers, the
+                                                 * FSM handles them.    */
 
   bgp_fsm_throw(connection, bgp_session_eRetry, NULL, 0,
                                                            bgp_fsm_eBGP_Start) ;
@@ -1830,8 +1831,8 @@ static bgp_fsm_action(bgp_fsm_expire)
   /* The process of sending a NOTIFICATION comes to an end here.        */
   if (connection->notification_pending)
     {
-      bgp_connection_close(connection) ;      /* FSM deals with timers  */
-
+      bgp_connection_close(connection, true) ;  /* true => keep timers, the
+                                                 * FSM handles them.    */
       return next_state ;
     } ;
 
@@ -2176,8 +2177,8 @@ bgp_fsm_catch(bgp_connection connection, bgp_fsm_state_t next_state)
     }
   else
     {
-      bgp_connection_close(connection) ;        /* FSM deals with timers  */
-
+      bgp_connection_close(connection, true) ;  /* true => keep timers, the
+                                                 * FSM handles them.    */
       if (next_state == bgp_fsm_sStopping)      /* can exit if sStopping  */
         bgp_fsm_event(connection, bgp_fsm_eBGP_Stop) ;
     } ;

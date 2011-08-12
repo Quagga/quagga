@@ -26,11 +26,15 @@
 #include "vargs.h"
 
 /*==============================================================================
- * These "qfstrings" address the issues of dealing with *fixed* length
+ * These "qfstring" address the issues of dealing with *fixed* length
  * strings, particularly where the string handling must be async-signal-safe.
  *
  * Are also used to support snprintf() style printing, but to one or more
  * fixed length buffers.
+ *
+ * All operations that can possibly be async-signal-safe, are.  Notable
+ * exception is anything involving floating point values -- because of the
+ * state contain in floating point status/option registers !
  */
 
 /* When initialised a qf_string is set:
@@ -75,8 +79,9 @@ enum pf_flags
   pf_precision  = BIT( 7),      /* '.' seen             */
 
   /* The following signal how to render the value               */
-  pf_hex        = BIT( 8),      /* hex                  */
-  pf_uc         = BIT( 9),      /* upper-case           */
+  pf_oct        = BIT( 8),      /* octal                */
+  pf_hex        = BIT( 9),      /* hex                  */
+  pf_uc         = BIT(10),      /* upper-case           */
 
   /* The following signal the type of value                     */
   pf_ptr        = BIT(14),      /* is a pointer         */

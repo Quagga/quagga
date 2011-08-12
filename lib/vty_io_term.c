@@ -41,6 +41,7 @@
 #include "filter.h"
 #include "privs.h"
 #include "sockunion.h"
+#include "sockopt.h"
 #include "network.h"
 
 #include <arpa/telnet.h>
@@ -1173,8 +1174,8 @@ static int
 uty_term_listen_open(sa_family_t family, int type, int protocol,
                                        struct sockaddr* sa, unsigned short port)
 {
-  union sockunion su ;
-  int sock ;
+  union sockunion su[1] ;
+  int sock_fd ;
   int ret ;
 
   VTY_ASSERT_LOCKED() ;
@@ -1182,55 +1183,52 @@ uty_term_listen_open(sa_family_t family, int type, int protocol,
   /* Is there an address and is it for this family ?                    */
   if ((sa != NULL) || (sa->sa_family == family))
     /* Set up sockunion containing required family and address          */
-    sockunion_new_sockaddr(&su, sa) ;
+    sockunion_new_sockaddr(su, sa) ;
   else
     {
       /* no address or wrong family -- set up empty sockunion of
        * required family                                                */
-      sockunion_init_new(&su, family) ;
+      sockunion_init_new(su, family) ;
       sa = NULL ;
     } ;
 
   /* Open the socket and set its properties                             */
-  sock = sockunion_socket(family, type, protocol) ;
-  if (sock < 0)
+  sock_fd = sockunion_socket(su, type, protocol) ;
+  if (sock_fd < 0)
     return -1 ;
 
-  ret = sockopt_reuseaddr (sock);
+  ret = setsockopt_reuseaddr (sock_fd);
 
   if (ret >= 0)
-    ret = sockopt_reuseport (sock);
+    ret = setsockopt_reuseport (sock_fd);
 
   if (ret >= 0)
-    ret = set_nonblocking(sock);
+    ret = set_nonblocking(sock_fd);
 
-#if defined(HAVE_IPV6) && defined(IPV6_V6ONLY)
-  /* Want only IPV6 on ipv6 socket (not mapped addresses)
+#ifdef HAVE_IPV6
+  /* Want only IPv6 on AF_INET6 socket (not mapped addresses)
    *
    * This distinguishes 0.0.0.0 from :: -- without this, bind() will reject the
    * attempt to bind to :: after binding to 0.0.0.0.
    */
-  if ((ret >= 0) && (sa->sa_family == AF_INET6))
-  {
-    int on = 1;
-    ret = setsockopt (sock, IPPROTO_IPV6, IPV6_V6ONLY, (void *)&on, sizeof(on));
-  }
+  if ((ret >= 0) && (family == AF_INET6))
+    ret = setsockopt_ipv6_v6only(sock_fd) ;
 #endif
 
   if (ret >= 0)
-    ret = sockunion_bind (sock, &su, port, sa) ;
+    ret = sockunion_bind (sock_fd, su, port, (sa == NULL)) ;
 
   if (ret >= 0)
-    ret = sockunion_listen (sock, 3);
+    ret = sockunion_listen (sock_fd, 3);
 
   if (ret < 0)
     {
-      close (sock);
+      close (sock_fd);
       return -1 ;
     }
 
   /* Socket is open -- set VTY_TERMINAL listener going                  */
-  uty_add_listener(sock, uty_term_accept) ;
+  uty_add_listener(sock_fd, uty_term_accept) ;
 
   /* Return OK and signal whether used address or not                   */
   return (sa != NULL) ? 1 : 0 ;

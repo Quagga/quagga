@@ -96,7 +96,7 @@ ospf6_serv_sock (void)
 
   /* set socket options */
 #if 1
-  sockopt_reuseaddr (ospf6_sock);
+  setsockopt_reuseaddr (ospf6_sock);
 #else
   ospf6_set_reuseaddr ();
 #endif /*1*/

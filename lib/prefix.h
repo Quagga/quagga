@@ -40,8 +40,8 @@ typedef const union sockunion* const_sockunion ;
 /* IPv4 and IPv6 unified prefix structure. */
 struct prefix
 {
-  u_char family;
-  u_char prefixlen;
+  sa_family_t   family;
+  u_char        prefixlen;
   union
   {
     u_char prefix;
@@ -61,36 +61,66 @@ struct prefix
 /* IPv4 prefix structure. */
 struct prefix_ipv4
 {
-  u_char family;
-  u_char prefixlen;
+  sa_family_t   family;
+  u_char        prefixlen;
   struct in_addr prefix __attribute__ ((aligned (8)));
 };
+CONFIRM(offsetof(struct prefix_ipv4, family)
+     == offsetof(struct prefix,      family)) ;
+CONFIRM(offsetof(struct prefix_ipv4, prefixlen)
+     == offsetof(struct prefix,      prefixlen)) ;
+CONFIRM(offsetof(struct prefix_ipv4, prefix)
+     == offsetof(struct prefix,      u.prefix4)) ;
+CONFIRM(sizeof(struct prefix_ipv4) <= sizeof(struct prefix)) ;
 
 /* IPv6 prefix structure. */
 #ifdef HAVE_IPV6
 struct prefix_ipv6
 {
-  u_char family;
-  u_char prefixlen;
+  sa_family_t   family;
+  u_char        prefixlen;
   struct in6_addr prefix __attribute__ ((aligned (8)));
 };
+CONFIRM(offsetof(struct prefix_ipv6, family)
+     == offsetof(struct prefix,      family)) ;
+CONFIRM(offsetof(struct prefix_ipv6, prefixlen)
+     == offsetof(struct prefix,      prefixlen)) ;
+CONFIRM(offsetof(struct prefix_ipv6, prefix)
+     == offsetof(struct prefix,      u.prefix6)) ;
+CONFIRM(sizeof(struct prefix_ipv6) <= sizeof(struct prefix)) ;
 #endif /* HAVE_IPV6 */
 
 struct prefix_ls
 {
-  u_char family;
-  u_char prefixlen;
+  sa_family_t   family;
+  u_char        prefixlen;
   struct in_addr id __attribute__ ((aligned (8)));
   struct in_addr adv_router;
 };
+CONFIRM(offsetof(struct prefix_ls,   family)
+     == offsetof(struct prefix,      family)) ;
+CONFIRM(offsetof(struct prefix_ls,   prefixlen)
+     == offsetof(struct prefix,      prefixlen)) ;
+CONFIRM(offsetof(struct prefix_ls,   id)
+     == offsetof(struct prefix,      u.lp.id)) ;
+CONFIRM(offsetof(struct prefix_ls,   adv_router)
+     == offsetof(struct prefix,      u.lp.adv_router)) ;
+CONFIRM(sizeof(struct prefix_ls)   <= sizeof(struct prefix)) ;
 
 /* Prefix for routing distinguisher. */
 struct prefix_rd
 {
-  u_char family;
-  u_char prefixlen;
-  u_char val[8] __attribute__ ((aligned (8)));
+  sa_family_t   family;
+  u_char        prefixlen;
+  u_char        val[8] __attribute__ ((aligned (8)));
 };
+CONFIRM(offsetof(struct prefix_rd,   family)
+     == offsetof(struct prefix,      family)) ;
+CONFIRM(offsetof(struct prefix_rd,   prefixlen)
+     == offsetof(struct prefix,      prefixlen)) ;
+CONFIRM(offsetof(struct prefix_rd,   val)
+     == offsetof(struct prefix,      u.val)) ;
+CONFIRM(sizeof(struct prefix_rd)   <= sizeof(struct prefix)) ;
 
 #ifndef INET_ADDRSTRLEN
 #define INET_ADDRSTRLEN 16

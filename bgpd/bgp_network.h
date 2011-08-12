@@ -24,22 +24,11 @@
 
 #include "bgpd/bgp_connection.h"
 
-extern int
-bgp_open_listeners(const char *address, unsigned short port) ;
-
-extern void
-bgp_close_listeners(void) ;
-
-extern void
-bgp_open_connect(bgp_connection connection) ;
-
-extern void
-bgp_prepare_to_accept(bgp_connection connection) ;
-
-extern void
-bgp_not_prepared_to_accept(bgp_connection connection) ;
-
-extern void
-bgp_set_ttl(bgp_connection connection, int ttl) ;
+extern int bgp_open_listeners(const char *address, unsigned short port) ;
+extern void bgp_close_listeners(void) ;
+extern void bgp_open_connect(bgp_connection connection) ;
+extern void bgp_prepare_to_accept(bgp_connection connection) ;
+extern void bgp_not_prepared_to_accept(bgp_connection connection) ;
+extern void bgp_set_new_ttl(bgp_connection connection, int ttl, bool gtsm) ;
 
 #endif /* _QUAGGA_BGP_NETWORK_H */

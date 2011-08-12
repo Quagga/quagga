@@ -24,6 +24,7 @@
 #define _ZEBRA_SOCKUNION_H
 
 #include "zebra.h"
+#include <stdbool.h>
 #include "symtab.h"
 #include "prefix.h"
 #include "memory.h"
@@ -101,36 +102,36 @@ struct sockunion_string
 
 /* Prototypes. */
 extern sockunion sockunion_init_new(sockunion su, sa_family_t family) ;
+extern int sockunion_get_len(sockunion su) ;
 extern int sockunion_set_port(sockunion su, in_port_t port) ;
-extern int str2sockunion (const char *, union sockunion *);
-extern const char *sockunion2str (union sockunion *, char *, size_t);
+extern int str2sockunion (const char * str, sockunion su);
+extern const char *sockunion2str (sockunion su, char* buf, size_t size);
 extern sockunion_string_t sutoa(sockunion su) ;
-extern int sockunion_cmp (union sockunion *, union sockunion *);
-extern int sockunion_same (union sockunion *, union sockunion *);
+extern int sockunion_cmp (sockunion su1, sockunion su2);
+extern int sockunion_same (sockunion su1, sockunion su2);
 
-extern char* sockunion_su2str (union sockunion* su, enum MTYPE type) ;
-extern union sockunion *sockunion_str2su (const char *str);
-extern struct in_addr sockunion_get_in_addr (union sockunion *su);
-extern int sockunion_accept (int sock_fd, union sockunion *);
-extern int sockunion_stream_socket (union sockunion *);
-extern int sockopt_reuseaddr (int);
-extern int sockopt_reuseport (int);
-extern int sockunion_bind (int sock_fd, union sockunion *,
-                                                     unsigned short, void* any);
-extern int sockunion_socket (sa_family_t family, int type, int protocol) ;
-extern int sockunion_connect (int sock_fd, union sockunion *su,
-                                            unsigned short port, unsigned int) ;
+extern char* sockunion_su2str (sockunion su, enum MTYPE type) ;
+extern sockunion sockunion_str2su (const char *str);
+extern struct in_addr sockunion_get_in_addr (sockunion su);
+extern int sockunion_accept (int sock_fd, sockunion su);
+extern int sockunion_stream_socket (sockunion su);
+extern int sockunion_bind (int sock_fd, sockunion su,
+                                                unsigned short port, bool any) ;
+extern int sockunion_socket (sockunion su, int type, int protocol) ;
+extern int sockunion_connect (int sock_fd, sockunion su,
+                                    unsigned short port, unsigned int ifindex) ;
 extern int sockunion_listen(int sock_fd, int backlog) ;
 
 extern int sockunion_getsockfamily(int sock_fd) ;
-extern int sockunion_getsockname (int, union sockunion*);
-extern int sockunion_getpeername (int, union sockunion*);
-extern void sockunion_unmap_ipv4 (union sockunion *su) ;
-extern void sockunion_map_ipv4 (union sockunion *su) ;
+extern int sockunion_getprotofamily(int sock_fd) ;
+extern int sockunion_getsockname (int sock_fd, sockunion su);
+extern int sockunion_getpeername (int sock_fd, sockunion su);
+extern void sockunion_unmap_ipv4 (sockunion su) ;
+extern void sockunion_map_ipv4 (sockunion su) ;
 
-extern union sockunion *sockunion_dup (union sockunion *);
+extern sockunion sockunion_dup (sockunion src);
 extern void sockunion_copy (sockunion dst, sockunion src) ;
-extern void sockunion_free (union sockunion *);
+extern void sockunion_free (sockunion su);
 
 extern sockunion sockunion_new_prefix(sockunion su, prefix p) ;
 extern sockunion sockunion_new_sockaddr(sockunion su, struct sockaddr* sa) ;

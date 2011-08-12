@@ -324,11 +324,12 @@ bgp_session_enable(bgp_peer peer)
   session->open_send = bgp_peer_open_state_init_new(session->open_send, peer) ;
   bgp_open_state_unset(&session->open_recv) ;
 
-  session->connect  = (peer->flags & PEER_FLAG_PASSIVE) == 0 ;
-  session->listen   = 1 ;
+  session->connect   = (peer->flags & PEER_FLAG_PASSIVE) == 0 ;
+  session->listen    = true ;
 
-  session->ttl      = peer->ttl ;
-  session->port     = peer->port ;
+  session->ttl       = peer->ttl ;
+  session->gtsm      = peer->gtsm ;
+  session->port      = peer->port ;
 
   if (session->ifname != NULL)
     free(session->ifname) ;
@@ -952,23 +953,26 @@ bgp_session_do_XON(mqueue_block mqb, mqb_flag_t flag)
 }
 
 /*==============================================================================
- * Routing Engine: send set ttl message to BGP Engine
- *
-  */
+ * Routing Engine: send set ttl message to BGP Engine, if session is active.
+ */
 void
-bgp_session_set_ttl(bgp_session session, int ttl)
+bgp_session_set_ttl(bgp_session session, int ttl, bool gtsm)
 {
   mqueue_block   mqb ;
   struct bgp_session_ttl_args *args;
 
-  mqb = mqb_init_new(NULL, bgp_session_do_set_ttl, session) ;
+  if (bgp_session_is_active(session))
+    {
+      mqb = mqb_init_new(NULL, bgp_session_do_set_ttl, session) ;
 
-  args = mqb_get_args(mqb) ;
-  args->ttl = ttl ;
+      args = mqb_get_args(mqb) ;
+      args->ttl  = ttl ;
+      args->gtsm = gtsm ;
 
-  ++bgp_engine_queue_stats.event ;
+      ++bgp_engine_queue_stats.event ;
 
-  bgp_to_bgp_engine(mqb, mqb_ordinary) ;
+      bgp_to_bgp_engine(mqb, mqb_ordinary) ;
+    } ;
 }
 
 /*------------------------------------------------------------------------------
@@ -985,10 +989,13 @@ bgp_session_do_set_ttl(mqueue_block mqb, mqb_flag_t flag)
 
       BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
-      session->ttl = args->ttl ;
+      session->ttl  = args->ttl ;
+      session->gtsm = args->gtsm ;
 
-      bgp_set_ttl(session->connections[bgp_connection_primary],   session->ttl);
-      bgp_set_ttl(session->connections[bgp_connection_secondary], session->ttl);
+      bgp_set_new_ttl(session->connections[bgp_connection_primary],
+                                                  session->ttl, session->gtsm) ;
+      bgp_set_new_ttl(session->connections[bgp_connection_secondary],
+                                                  session->ttl, session->gtsm) ;
 
       BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
     }

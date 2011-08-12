@@ -166,7 +166,7 @@ struct bgp_connection
   bgp_open_state    open_recv ;         /* the open received.             */
 
   qps_file          qf ;                /* qpselect file structure        */
-  pAF_t             paf ;               /* address family                 */
+  bool              gtsm ;              /* minttl has been set            */
 
   union sockunion*  su_local ;          /* address of the near end        */
   union sockunion*  su_remote ;         /* address of the far end         */
@@ -206,56 +206,24 @@ struct bgp_connection
  * The functions
  */
 
-extern bgp_connection
-bgp_connection_init_new(bgp_connection connection, bgp_session session,
-                                                 bgp_connection_ord_t ordinal) ;
-extern void
-bgp_connection_open(bgp_connection connection, int fd, int family) ;
-
-extern void
-bgp_connection_start(bgp_connection connection, union sockunion* su_local,
-                                                union sockunion* su_remote) ;
-extern void
-bgp_connection_enable_accept(bgp_connection connection) ;
-
-extern void
-bgp_connection_disable_accept(bgp_connection connection) ;
-
-extern bgp_connection
-bgp_connection_query_accept(bgp_session session) ;
-
-extern bgp_connection
-bgp_connection_get_sibling(bgp_connection connection) ;
-
-extern void
-bgp_connection_make_primary(bgp_connection connection) ;
-
-extern void
-bgp_connection_full_close(bgp_connection connection, int unset_timers) ;
-
-#define bgp_connection_close(conn) bgp_connection_full_close(conn, false)
-#define bgp_connection_close_down(conn) bgp_connection_full_close(conn, true)
-
-extern bool
-bgp_connection_part_close(bgp_connection connection) ;
-
-extern void
-bgp_connection_exit(bgp_connection connection) ;
-
-extern void
-bgp_connection_read_enable(bgp_connection connection) ;
-
-extern int
-bgp_connection_write(bgp_connection connection, struct stream* s) ;
-
-extern void
-bgp_connection_queue_add(bgp_connection connection) ;
-
-extern void
-bgp_connection_queue_del(bgp_connection connection) ;
-
-extern int
-bgp_connection_queue_process(void) ;
+extern bgp_connection bgp_connection_init_new(bgp_connection connection,
+                            bgp_session session, bgp_connection_ord_t ordinal) ;
+extern void bgp_connection_open(bgp_connection connection, int sock_fd) ;
+extern void bgp_connection_start(bgp_connection connection, sockunion su_local,
+                                                          sockunion su_remote) ;
+extern void bgp_connection_enable_accept(bgp_connection connection) ;
+extern void bgp_connection_disable_accept(bgp_connection connection) ;
+extern bgp_connection bgp_connection_query_accept(bgp_session session) ;
+extern bgp_connection bgp_connection_get_sibling(bgp_connection connection) ;
+extern void bgp_connection_make_primary(bgp_connection connection) ;
+extern void bgp_connection_close(bgp_connection connection, bool keep_timers) ;
+extern bool bgp_connection_part_close(bgp_connection connection) ;
+extern void bgp_connection_exit(bgp_connection connection) ;
+extern void bgp_connection_read_enable(bgp_connection connection) ;
+extern int bgp_connection_write(bgp_connection connection, struct stream* s) ;
+extern void bgp_connection_queue_add(bgp_connection connection) ;
+extern void bgp_connection_queue_del(bgp_connection connection) ;
+extern int bgp_connection_queue_process(void) ;
 
 Inline bool
 bgp_connection_no_pending(bgp_connection connection, bgp_connection* is_pending)
@@ -264,9 +232,8 @@ bgp_connection_no_pending(bgp_connection connection, bgp_connection* is_pending)
           || (*is_pending != NULL) ) ;
 } ;
 
-extern void
-bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
-                                                   bgp_connection* is_pending) ;
+extern void bgp_connection_add_pending(bgp_connection connection,
+                                 mqueue_block mqb, bgp_connection* is_pending) ;
 
 /*------------------------------------------------------------------------------
  * Set buffer *unwritable* (buffer appears full, but nothing pending).
