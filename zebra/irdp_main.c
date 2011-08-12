@@ -29,7 +29,7 @@
  */
 
 /* 
- * Thanks to Jens Låås at Swedish University of Agricultural Sciences
+ * Thanks to Jens Lï¿½ï¿½s at Swedish University of Agricultural Sciences
  * for reviewing and tests.
  */
 
@@ -108,7 +108,7 @@ irdp_sock_init (void)
     return ret;
   };
   
-  ret = setsockopt_ifindex (AF_INET, sock, 1);
+  ret = setsockopt_pktinfo (AF_INET, sock, 1);
   if (ret < 0) {
     zlog_warn ("IRDP: can't do irdp sockopt %s", safe_strerror(errno));
     close(sock);

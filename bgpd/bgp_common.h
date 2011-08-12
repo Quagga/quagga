@@ -334,14 +334,14 @@ get_iSAFI(qafx_num_t num)
  * NB: it is a mistake to try to map qafx_num_undef (FATAL unless NDEBUG).
  */
 
-extern const pAF_t pAF_map[] ;
+extern const sa_family_t sa_family_map[] ;
 
-Inline pAF_t
-get_pAF(qafx_num_t num)
+Inline sa_family_t
+get_sa_family(qafx_num_t num)
 {
   dassert((num >= qafx_num_min) && (num <= qafx_num_max)) ;
 
-  return pAF_map[num] ;
+  return sa_family_map[num] ;
 } ;
 
 /*==============================================================================

@@ -236,7 +236,9 @@ struct peer
   bgp_peer_index_entry  index_entry ;
   bgp_session  session ;        /* Current session                      */
 
-  int ttl;                      /* TTL of TCP connection to the peer.   */
+  int   ttl ;                   /* TTL of TCP connection to the peer.   */
+  bool  gtsm ;                  /* ttl set by neighbor xxx ttl_security */
+
   char *desc;                   /* Description of the peer.             */
   unsigned short port;          /* Destination port for peer            */
   char *host;                   /* Printable address of the peer.       */
@@ -471,44 +473,23 @@ extern const char *peer_down_str[];
  *
  */
 
-extern void
-bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag);
-
-extern void
-bgp_peer_enable(bgp_peer peer);
-
-extern void
-bgp_peer_down(bgp_peer peer, peer_down_t why_down) ;
-
-extern void
-bgp_peer_down_error(struct peer* peer,
-                              bgp_nom_code_t code, bgp_nom_subcode_t subcode) ;
-extern void
-bgp_peer_down_error_with_data (struct peer* peer,
+extern void bgp_session_do_event(mqueue_block mqb, mqb_flag_t flag);
+extern void bgp_peer_enable(bgp_peer peer);
+extern void bgp_peer_down(bgp_peer peer, peer_down_t why_down) ;
+extern void bgp_peer_down_error(bgp_peer peer,
+                               bgp_nom_code_t code, bgp_nom_subcode_t subcode) ;
+extern void bgp_peer_down_error_with_data (bgp_peer peer,
                               bgp_nom_code_t code, bgp_nom_subcode_t subcode,
                                          const u_int8_t* data, size_t datalen) ;
-
-extern void
-bgp_peer_clearing_completed(struct peer *peer) ;
-
-extern struct peer *
-bgp_peer_new (struct bgp *bgp);
-
-extern struct peer *
-bgp_peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
+extern void bgp_peer_clearing_completed(bgp_peer peer) ;
+extern bgp_peer bgp_peer_new (struct bgp *bgp);
+extern bgp_peer bgp_peer_create (sockunion su, struct bgp *bgp, as_t local_as,
                                         as_t remote_as, afi_t afi, safi_t safi);
-
-extern struct
-peer *bgp_peer_lock (struct peer *) ;
-
-extern struct
-peer *bgp_peer_unlock (struct peer *) ;
-
-extern int
-bgp_peer_delete (struct peer *peer);
-
-extern sockunion
-bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname, pAF_t paf) ;
+extern bgp_peer bgp_peer_lock (bgp_peer peer) ;
+extern bgp_peer bgp_peer_unlock (bgp_peer peer) ;
+extern int bgp_peer_delete (bgp_peer peer);
+extern sockunion bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname,
+                                                               sa_family_t af) ;
 
 #endif /* _QUAGGA_BGP_PEER_H */
 

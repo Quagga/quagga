@@ -221,6 +221,11 @@ bgp_vty_return (struct vty *vty, int ret)
       break;
     case BGP_ERR_PEER_EXISTS:
       str = "Cannot have the same neighbor in different bgp views";
+    case BGP_ERR_NO_EBGP_MULTIHOP_WITH_GTSM:
+      str = "ebgp-multihop and ttl-security cannot be configured together";
+      break;
+    case BGP_ERR_NO_IBGP_WITH_TTLHACK:
+      str = "ttl-security only allowed for EBGP peers";
       break;
     }
   if (str)
@@ -2683,13 +2688,11 @@ peer_ebgp_multihop_set_vty (struct vty *vty, const char *ip_str,
     return CMD_WARNING;
 
   if (! ttl_str)
-    ttl = TTL_MAX;
+    ttl = MAXTTL;
   else
-    VTY_GET_INTEGER_RANGE ("TTL", ttl, ttl_str, 1, 255);
+    VTY_GET_INTEGER_RANGE ("TTL", ttl, ttl_str, 1, MAXTTL);
 
-  peer_ebgp_multihop_set (peer, ttl);
-
-  return CMD_SUCCESS;
+  return bgp_vty_return (vty,  peer_ebgp_multihop_set (peer, ttl));
 }
 
 static int
@@ -2701,9 +2704,7 @@ peer_ebgp_multihop_unset_vty (struct vty *vty, const char *ip_str)
   if (! peer)
     return CMD_WARNING;
 
-  peer_ebgp_multihop_unset (peer);
-
-  return CMD_SUCCESS;
+  return bgp_vty_return (vty, peer_ebgp_multihop_unset (peer));
 }
 
 /* neighbor ebgp-multihop. */
@@ -4011,6 +4012,43 @@ DEFUN (no_neighbor_allowas_in,
   return bgp_vty_return (vty, ret);
 }
 
+
+DEFUN (neighbor_ttl_security,
+       neighbor_ttl_security_cmd,
+       NEIGHBOR_CMD2 "ttl-security hops <1-254>",
+       NEIGHBOR_STR
+       NEIGHBOR_ADDR_STR2
+       "Specify the maximum number of hops to the BGP peer\n")
+{
+  struct peer *peer;
+  int gtsm_hops;
+
+  peer = peer_and_group_lookup_vty (vty, argv[0]);
+  if (! peer)
+    return CMD_WARNING;
+
+  VTY_GET_INTEGER_RANGE ("", gtsm_hops, argv[1], 1, 254);
+
+  return bgp_vty_return (vty, peer_ttl_security_hops_set (peer, gtsm_hops));
+}
+
+DEFUN (no_neighbor_ttl_security,
+       no_neighbor_ttl_security_cmd,
+       NO_NEIGHBOR_CMD2 "ttl-security hops <1-254>",
+       NO_STR
+       NEIGHBOR_STR
+       NEIGHBOR_ADDR_STR2
+       "Specify the maximum number of hops to the BGP peer\n")
+{
+  struct peer *peer;
+
+  peer = peer_and_group_lookup_vty (vty, argv[0]);
+  if (! peer)
+    return CMD_WARNING;
+
+  return bgp_vty_return (vty, peer_ttl_security_hops_unset (peer));
+}
+
 /* Address family configuration.  */
 DEFUN (address_family_ipv4,
        address_family_ipv4_cmd,
@@ -4098,14 +4136,14 @@ DEFUN (exit_address_family,
 }
 
 /* BGP clear sort. */
-enum clear_sort
+typedef enum
 {
   clear_all,
   clear_peer,
   clear_group,
   clear_external,
   clear_as
-};
+} clear_sort_t ;
 
 static void
 bgp_clear_vty_error (struct vty *vty, struct peer *peer, afi_t afi,
@@ -4131,7 +4169,7 @@ bgp_clear_vty_error (struct vty *vty, struct peer *peer, afi_t afi,
 /* `clear ip bgp' functions. */
 static int
 bgp_clear (struct vty *vty, struct bgp *bgp,  afi_t afi, safi_t safi,
-           enum clear_sort sort,enum bgp_clear_type stype, const char *arg)
+           clear_sort_t sort, bgp_clear_type_t stype, const char *arg)
 {
   int ret;
   struct peer *peer;
@@ -4273,8 +4311,7 @@ bgp_clear (struct vty *vty, struct bgp *bgp,  afi_t afi, safi_t safi,
 
 static int
 bgp_clear_vty (struct vty *vty, const char *name, afi_t afi, safi_t safi,
-               enum clear_sort sort, enum bgp_clear_type stype,
-               const char *arg)
+                        clear_sort_t sort, bgp_clear_type_t stype, const char *arg)
 {
   struct bgp *bgp;
 
@@ -7682,10 +7719,17 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 		 p->host, VTY_NEWLINE);
     }
 
-  /* EBGP Multihop */
-  if (peer_sort (p) != BGP_PEER_IBGP && p->ttl > 1)
-    vty_out (vty, "  External BGP neighbor may be up to %d hops away.%s",
-	     p->ttl, VTY_NEWLINE);
+  /* EBGP Multihop and GTSM */
+  if (peer_sort (p) != BGP_PEER_IBGP)
+    {
+      if (p->gtsm)
+	vty_out (vty, "  External BGP neighbor may be up to %d hops away"
+	                                                    " -- using GTSM.%s",
+		 p->ttl, VTY_NEWLINE);
+      else if (p->ttl > 1)
+	vty_out (vty, "  External BGP neighbor may be up to %d hops away.%s",
+		 p->ttl, VTY_NEWLINE);
+    }
 
   /* Local address. */
   if (p->su_local)
@@ -10138,6 +10182,10 @@ bgp_vty_init (void)
   install_element (BGP_IPV6_NODE, &no_bgp_redistribute_ipv6_rmap_metric_cmd);
   install_element (BGP_IPV6_NODE, &no_bgp_redistribute_ipv6_metric_rmap_cmd);
 #endif /* HAVE_IPV6 */
+
+  /* ttl_security commands */
+  install_element (BGP_NODE, &neighbor_ttl_security_cmd);
+  install_element (BGP_NODE, &no_neighbor_ttl_security_cmd);
 
   /* "show bgp memory" commands. */
   install_element (VIEW_NODE, &show_bgp_memory_cmd);

@@ -646,6 +646,7 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp)
   int flags;
   u_char distance;
   struct peer *peer;
+  bgp_peer_sort_t sort ;
 
   if (zclient->sock < 0)
     return;
@@ -654,15 +655,16 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp)
     return;
 
   flags = 0;
-  peer = info->peer;
+  peer  = info->peer;
+  sort  = peer_sort(peer) ;
 
-  if (peer_sort (peer) == BGP_PEER_IBGP || peer_sort (peer) == BGP_PEER_CONFED)
+  if ((sort == BGP_PEER_IBGP) || (sort == BGP_PEER_CONFED))
     {
       SET_FLAG (flags, ZEBRA_FLAG_IBGP);
       SET_FLAG (flags, ZEBRA_FLAG_INTERNAL);
     }
 
-  if ((peer_sort (peer) == BGP_PEER_EBGP && peer->ttl != 1)
+  if (((sort == BGP_PEER_EBGP) && (peer->ttl != 1))
       || CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
     SET_FLAG (flags, ZEBRA_FLAG_INTERNAL);
 
@@ -780,6 +782,7 @@ bgp_zebra_withdraw (struct prefix *p, struct bgp_info *info)
 {
   int flags;
   struct peer *peer;
+  bgp_peer_sort_t sort ;
 
   if (zclient->sock < 0)
     return;
@@ -787,16 +790,17 @@ bgp_zebra_withdraw (struct prefix *p, struct bgp_info *info)
   if (! zclient->redist[ZEBRA_ROUTE_BGP])
     return;
 
-  peer = info->peer;
   flags = 0;
+  peer  = info->peer;
+  sort  = peer_sort(peer) ;
 
-  if (peer_sort (peer) == BGP_PEER_IBGP)
+  if (sort == BGP_PEER_IBGP)
     {
       SET_FLAG (flags, ZEBRA_FLAG_INTERNAL);
       SET_FLAG (flags, ZEBRA_FLAG_IBGP);
     }
 
-  if ((peer_sort (peer) == BGP_PEER_EBGP && peer->ttl != 1)
+  if (((sort == BGP_PEER_EBGP) && (peer->ttl != 1))
       || CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
     SET_FLAG (flags, ZEBRA_FLAG_INTERNAL);
 

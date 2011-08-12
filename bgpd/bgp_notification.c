@@ -106,7 +106,8 @@ bgp_notify_new_expect(bgp_nom_code_t code, bgp_nom_subcode_t subcode,
 /*------------------------------------------------------------------------------
  * Allocate and initialise new notification, complete with data
  *
- * Can specify an expected amount of data.
+ * Can specify an expected amount of data -- copes with len == 0 (and data may
+ * be NULL iff len == 0).
  *
  * NB: returns a 'NOT received' notification.
  */
@@ -260,7 +261,7 @@ bgp_notify_reset(bgp_notify notification, bgp_nom_code_t code,
 /*==============================================================================
  * Append data to given notification
  *
- * Copes with zero length append.
+ * Copes with zero length append (and data may be NULL if len == 0).
  *
  * NB: returns possibly NEW ADDRESS of the notification.
  */
@@ -268,7 +269,7 @@ extern void
 bgp_notify_append_data(bgp_notify notification, const void* data,
                                                                  bgp_size_t len)
 {
-  bgp_size_t new_length = notification->length + len ;
+  bgp_size_t new_length = notification->length + len ;	/* unsigned	*/
 
   if (new_length > notification->size)
     {

@@ -21,6 +21,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #ifndef _QUAGGA_BGP_ASPATH_H
 #define _QUAGGA_BGP_ASPATH_H
 
+#include <stdbool.h>
+
 /* Macro in case there are particular compiler issues.    */
 #ifndef Inline
   #define Inline static inline
@@ -70,7 +72,7 @@ struct aspath
 /* Prototypes. */
 extern void aspath_init (void);
 extern void aspath_finish (void);
-extern struct aspath *aspath_parse (struct stream *, size_t, int, int);
+extern struct aspath *aspath_parse (struct stream *, size_t, bool, bool);
 extern struct aspath *aspath_dup (struct aspath *);
 extern struct aspath *aspath_aggregate (struct aspath *, struct aspath *);
 extern struct aspath *aspath_prepend (struct aspath *, struct aspath *);
@@ -85,7 +87,7 @@ extern struct aspath *aspath_empty_get (void);
 extern struct aspath *aspath_str2aspath (const char *);
 extern void aspath_free (struct aspath *);
 extern struct aspath *aspath_intern (struct aspath *);
-extern void aspath_unintern (struct aspath *);
+extern void aspath_unintern (struct aspath **);
 extern const char *aspath_print (struct aspath *);
 extern void aspath_print_vty (struct vty *, const char *, struct aspath *, const char *);
 extern void aspath_print_all_vty (struct vty *);

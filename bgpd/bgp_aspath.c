@@ -341,19 +341,21 @@ aspath_free (struct aspath *aspath)
 
 /* Unintern aspath from AS path bucket. */
 void
-aspath_unintern (struct aspath *aspath)
+aspath_unintern (struct aspath **aspath)
 {
   struct aspath *ret;
+  struct aspath *asp = *aspath;
 
-  if (aspath->refcnt)
-    aspath->refcnt--;
+  if (asp->refcnt)
+    asp->refcnt--;
 
-  if (aspath->refcnt == 0)
+  if (asp->refcnt == 0)
     {
       /* This aspath must exist in aspath hash table. */
-      ret = hash_release (ashash, aspath);
+      ret = hash_release (ashash, asp);
       assert (ret != NULL);
-      aspath_free (aspath);
+      aspath_free (asp);
+      *aspath = NULL;
     }
 }
 
@@ -790,7 +792,7 @@ assegments_parse (struct stream *s, size_t length, int use32bit, int as4_path)
  *     have segments == NULL and str == zero length string (unique).
  */
 struct aspath *
-aspath_parse (struct stream *s, size_t length, int use32bit, int as4_path)
+aspath_parse (struct stream *s, size_t length, bool use32bit, bool as4_path)
 {
   struct aspath as;
   struct aspath *find;
@@ -1643,7 +1645,7 @@ aspath_segment_add (struct aspath *as, int type)
 struct aspath *
 aspath_empty (void)
 {
-  return aspath_parse (NULL, 0, 1, 0); /* 32Bit ;-) not AS4_PATH */
+  return aspath_parse (NULL, 0, true, false);   /* 32Bit ;-) not AS4_PATH */
 }
 
 struct aspath *

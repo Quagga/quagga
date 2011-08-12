@@ -38,7 +38,8 @@
 #include "log.h"
 #include "thread.h"
 #include "hash.h"
-#include "sockunion.h"		/* for inet_aton() */
+#include "sockunion.h"          /* for inet_aton() */
+#include "sockopt.h"
 #include "buffer.h"
 
 #include <sys/types.h>
@@ -617,8 +618,7 @@ ospf_apiserver_serv_sock_family (unsigned short port, int family)
   int accept_sock;
   int rc;
 
-  memset (&su, 0, sizeof (union sockunion));
-  su.sa.sa_family = family;
+  sockunion_init_new(&su, family) ;
 
   /* Make new socket */
   accept_sock = sockunion_stream_socket (&su);
@@ -626,11 +626,11 @@ ospf_apiserver_serv_sock_family (unsigned short port, int family)
     return accept_sock;
 
   /* This is a server, so reuse address and port */
-  sockopt_reuseaddr (accept_sock);
-  sockopt_reuseport (accept_sock);
+  setsockopt_reuseaddr (accept_sock);
+  setsockopt_reuseport (accept_sock);
 
   /* Bind socket to address and given port. */
-  rc = sockunion_bind (accept_sock, &su, port, NULL);
+  rc = sockunion_bind (accept_sock, &su, port, true);   /* true => any  */
   if (rc < 0)
     {
       close (accept_sock);	/* Close socket */
@@ -1831,11 +1831,7 @@ ospf_apiserver_lsa11_originator (void *arg)
 
 /* Periodically refresh opaque LSAs so that they do not expire in
    other routers. */
-#if 0
-static void
-#else
 extern struct ospf_lsa *
-#endif
 ospf_apiserver_lsa_refresher (struct ospf_lsa *lsa)
 {
   struct ospf_apiserver *apiserv;
@@ -1908,7 +1904,7 @@ ospf_apiserver_lsa_refresher (struct ospf_lsa *lsa)
     }
 
 out:
-  return NULL;
+  return new;
 }
 
 

@@ -313,7 +313,9 @@ qfs_pointer(qf_str qfs, void* p_val, enum pf_flags flags,
  *          pf_plus       -- requires '+' or '-'
  *          pf_space      -- requires space or '-'
  *          pf_zeros      -- zero fill to width
- *          pf_alt        -- add '0x' or '0X' if hex (no effect on decimal)
+ *          pf_alt        -- add '0x' or '0X' if hex -- depending on pf_uc
+ *                           add '0' if octal and not zero.
+ *                           no effect otherwise
  *
  *          pf_precision  -- explicit precision (needed if precision == 0)
  *
@@ -346,7 +348,11 @@ qfs_pointer(qf_str qfs, void* p_val, enum pf_flags flags,
  *
  *   * pf_unsigned or sign == 0 takes precedence over pf_plus and pf_space.
  *
- * For hex output, pf_commas groups digits in 4's, separated by '_'.
+ * For decimal output, pf_commas groups digits in 3's, separated by ','.
+ * For hex output,     pf_commas groups digits in 4's, separated by '_'.
+ * For oct output,     pf_commas is ignored.
+ *
+ * Note that pf_commas is a glibc extension, which does not apply to hex !
  *
  * For hex output if precision is:
  *
@@ -436,6 +442,9 @@ qfs_number(qf_str qfs, uintmax_t val, int sign, enum pf_flags flags,
   if ((flags & pf_precision) || (width <= 0))
     flags &= ~pf_zeros ;        /* turn off zero fill           */
 
+  if (flags & pf_oct)
+    flags &= ~pf_commas ;       /* turn off commas              */
+
   /* Set up any required sign and radix prefix                          */
   if ((flags & pf_unsigned) || (sign == 0))
     sign_str = "" ;
@@ -451,8 +460,15 @@ qfs_number(qf_str qfs, uintmax_t val, int sign, enum pf_flags flags,
   sign_len = strlen(sign_str) ;
 
   radix_str = "" ;
-  if ((flags & (pf_hex | pf_alt)) == (pf_hex | pf_alt))
-    radix_str = (flags & pf_uc) ? "0X" : "0x" ;
+  if (flags & pf_alt)
+    {
+      if (flags & pf_hex)
+        radix_str = (flags & pf_uc) ? "0X" : "0x" ;
+      else if ((flags & pf_oct) && (val != 0))
+        radix_str = "0" ;
+
+      confirm(pf_uc != 0) ;
+    } ;
 
   radix_len = strlen(radix_str) ;
 
@@ -471,8 +487,14 @@ qfs_number(qf_str qfs, uintmax_t val, int sign, enum pf_flags flags,
     } ;
 
   /* Start with the basic digit conversion.                             */
-  base   = (flags & pf_hex) ? 16 : 10 ;
+  base   = 10 ;
+  if      (flags & pf_hex)
+    base = 16 ;
+  else if (flags & pf_oct)
+    base = 8 ;
+
   digits = (flags & pf_uc)  ? uc : lc ;
+  confirm(pf_uc != 0) ;
 
   e = p = num + sizeof(num) - 1 ;
   *p = '\0' ;
@@ -631,11 +653,14 @@ enum pf_phase
   pfp_flags,
   pfp_width,
   pfp_precision,
-  pfp_num_type,
+  pfp_int_type,
+  pfp_float_type,
 
   pfp_done,
   pfp_failed
 } ;
+
+CONFIRM(pfp_float_type > pfp_int_type) ;
 
 /* Number types for printing                                    */
 enum arg_num_type
@@ -648,6 +673,7 @@ enum arg_num_type
   ant_intmax_t,         /* j            */
   ant_size_t,           /* z            */
   ant_ptr_t,            /* void*        */
+  ant_long_double,      /* L for float  */
 
   ant_default    = ant_int,
 };
@@ -656,13 +682,15 @@ static enum pf_phase qfs_arg_string(qf_str qfs, const char* src,
                                 enum pf_flags flags, int width, int precision) ;
 static enum pf_phase qfs_arg_char(qf_str qfs, char ch,
                                 enum pf_flags flags, int width, int precision) ;
-static enum pf_phase qfs_arg_number(qf_str qfs, va_list* p_va,
+static enum pf_phase qfs_arg_integer(qf_str qfs, va_list* p_va,
          enum pf_flags flags, int width, int precision, enum arg_num_type ant) ;
+static enum pf_phase qfs_arg_float(qf_str qfs, va_list* p_va,
+                        const char* start, size_t flen, enum arg_num_type ant) ;
 
 /*------------------------------------------------------------------------------
  * Formatted print to qf_str -- cf printf()
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe -- EXCEPT for floating point values.
  */
 extern void
 qfs_printf(qf_str qfs, const char* format, ...)
@@ -677,7 +705,7 @@ qfs_printf(qf_str qfs, const char* format, ...)
 /*------------------------------------------------------------------------------
  * Formatted print to qf_str -- cf vprintf()
  *
- * This operation is async-signal-safe.
+ * This operation is async-signal-safe -- EXCEPT for floating point values.
  *
  * Operates on a copy of the va_list -- so the original is *unchanged*.
  */
@@ -732,6 +760,11 @@ qfs_vprintf(qf_str qfs, const char *format, va_list va)
 
                 case '+':
                   flags |= pf_plus ;
+                  phase = (phase <= pfp_flags) ? pfp_flags : pfp_failed ;
+                  break ;
+
+                case '#':
+                  flags |= pf_alt ;
                   phase = (phase <= pfp_flags) ? pfp_flags : pfp_failed ;
                   break ;
 
@@ -793,13 +826,13 @@ qfs_vprintf(qf_str qfs, const char *format, va_list va)
                   break ;
 
                 case '.':
-                  phase = (phase <= pfp_precision) ? pfp_precision : pfp_failed;
+                  phase = (phase < pfp_precision) ? pfp_precision : pfp_failed ;
                   flags |= pf_precision ;
                   precision = 0 ;
                   break ;
 
                 case 'l':       /* 1 or 2 'l', not 'h', 'j' or 'z'      */
-                  phase = pfp_num_type ;
+                  phase = (phase <= pfp_int_type) ? pfp_int_type : pfp_failed ;
                   if      (ant == ant_default)
                     ant = ant_long ;
                   else if (ant == ant_long)
@@ -809,7 +842,7 @@ qfs_vprintf(qf_str qfs, const char *format, va_list va)
                   break ;
 
                 case 'h':       /* 1 or 2 'h', not 'l', 'j' or 'z'      */
-                  phase = pfp_num_type ;
+                  phase = (phase <= pfp_int_type) ? pfp_int_type : pfp_failed ;
                   if      (ant == ant_default)
                     ant = ant_short ;
                   else if (ant == ant_short)
@@ -819,17 +852,22 @@ qfs_vprintf(qf_str qfs, const char *format, va_list va)
                   break ;
 
                 case 'j':       /* 1 'j', not 'h', 'l' or 'z'           */
-                  phase = (phase <= pfp_num_type) ? pfp_num_type : pfp_failed ;
+                  phase = (phase <= pfp_int_type) ? pfp_int_type : pfp_failed ;
                   ant = ant_intmax_t ;
                   break ;
 
                 case 'z':       /* 1 'z', not 'h', 'l' or 'j'           */
-                  phase = (phase <= pfp_num_type) ? pfp_num_type : pfp_failed ;
+                  phase = (phase <= pfp_int_type) ? pfp_int_type : pfp_failed ;
                   ant = ant_size_t ;
                   break ;
 
+                case 'L':       /* 1 'L', not for integers !            */
+                  phase = (phase < pfp_int_type) ? pfp_float_type : pfp_failed ;
+                  ant = ant_long_double ;
+                  break ;
+
                 case 's':
-                  if (phase == pfp_num_type)
+                  if (phase == pfp_int_type)
                     phase = pfp_failed ;        /* don't do 'l' etc.    */
                   else
                     phase = qfs_arg_string(qfs, va_arg(vac, char*),
@@ -837,7 +875,7 @@ qfs_vprintf(qf_str qfs, const char *format, va_list va)
                   break ;
 
                 case 'c':
-                  if (phase == pfp_num_type)
+                  if (phase == pfp_int_type)
                     phase = pfp_failed ;        /* don't do 'l' etc.    */
                   else
                     phase = qfs_arg_char(qfs, (char)va_arg(vac, int),
@@ -846,31 +884,51 @@ qfs_vprintf(qf_str qfs, const char *format, va_list va)
 
                 case 'd':
                 case 'i':
-                  phase = qfs_arg_number(qfs, &vac, flags, width, precision,
+                  phase = qfs_arg_integer(qfs, &vac, flags, width, precision,
                                                                           ant) ;
                   break ;
 
                 case 'u':
-                  phase = qfs_arg_number(qfs, &vac, flags | pf_unsigned, width,
+                  phase = qfs_arg_integer(qfs, &vac, flags | pf_unsigned, width,
+                                                               precision, ant) ;
+                  break ;
+
+                case 'o':
+                  phase = qfs_arg_integer(qfs, &vac, flags | pf_oct, width,
                                                                precision, ant) ;
                   break ;
 
                 case 'x':
-                  phase = qfs_arg_number(qfs, &vac, flags | pf_hex_x, width,
+                  phase = qfs_arg_integer(qfs, &vac, flags | pf_hex_x, width,
                                                                precision, ant) ;
                   break ;
 
                 case 'X':
-                  phase = qfs_arg_number(qfs, &vac, flags | pf_hex_X, width,
+                  phase = qfs_arg_integer(qfs, &vac, flags | pf_hex_X, width,
                                                                precision, ant) ;
                   break ;
 
                 case 'p':
-                  if (phase == pfp_num_type)
+                  if (phase == pfp_int_type)
                     phase = pfp_failed ;
                   else
-                    phase = qfs_arg_number(qfs, &vac, flags | pf_void_p, width,
+                    phase = qfs_arg_integer(qfs, &vac, flags | pf_void_p, width,
                                                          precision, ant_ptr_t) ;
+                  break ;
+
+                case 'e':
+                case 'E':
+                case 'f':
+                case 'F':
+                case 'g':
+                case 'G':
+                case 'a':
+                case 'A':
+                  if (phase == pfp_int_type)
+                    phase = pfp_failed ;
+                  else
+                    phase = qfs_arg_float(qfs, &vac, start, format - start,
+                                                                          ant) ;
                   break ;
 
                 default:                /* unrecognised format          */
@@ -968,14 +1026,16 @@ qfs_arg_char(qf_str qfs, char ch, enum pf_flags flags, int width, int precision)
 } ;
 
 /*------------------------------------------------------------------------------
- * %d, %i, %u, %x, %X and %p handler
+ * %d, %i, %u, %o, %x, %X and %p handler
  *
- * Accepts: pf_commas     -- format with commas
+ * Accepts: pf_commas     -- format with commas or '_' for hex (non-standard)
+ *                           ignored for octal.
  *          pf_minus      -- left justify (any width will be -ve)
  *          pf_plus       -- requires sign
  *          pf_space      -- requires space or '-'
  *          pf_zeros      -- zero fill to width
  *          pf_alt        -- '0x' or '0X' for hex
+ *                           '0' for octal
  *
  *          pf_precision  -- precision specified
  *
@@ -986,14 +1046,22 @@ qfs_arg_char(qf_str qfs, char ch, enum pf_flags flags, int width, int precision)
  *
  *     and: all the number argument types.
  *
+ * Rejects: ant == ant_long_double -- which is how the parser spots an
+ *          erroneous %Ld for example.
+ *
  * This operation is async-signal-safe.
  */
 static enum pf_phase
-qfs_arg_number(qf_str qfs, va_list* p_va, enum pf_flags flags,
+qfs_arg_integer(qf_str qfs, va_list* p_va, enum pf_flags flags,
                                 int width, int precision, enum arg_num_type ant)
 {
   uintmax_t     u_val ;
   intmax_t      s_val ;
+
+  /* Reject if seen an 'L'
+   */
+  if (ant == ant_long_double)
+    return pfp_failed ;
 
   /* Special for hex with '0...  if no explicit precision, set -1 for byte
    * and -2 for everything else -- see qfs_number().
@@ -1086,3 +1154,51 @@ qfs_arg_number(qf_str qfs, va_list* p_va, enum pf_flags flags,
   return pfp_done ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * %e, %E, %f, %F, %g, %G, %a and %A handler
+ *
+ * This uses the standard library sprintf() to do the business, so this is
+ * NOT async-signal-safe.  This means that we get the full precision supported
+ * by the system !  Attempting to construct async-signal-safe conversion is
+ * doomed to failure, because any floating point operation may affect flags
+ * and other state in the processor :-(
+ *
+ * This operation is *NOT* async-signal-safe.
+ */
+static enum pf_phase
+qfs_arg_float(qf_str qfs, va_list* p_va, const char* start, size_t flen,
+                                                          enum arg_num_type ant)
+{
+  char format[flen + 1] ;
+  int  want ;
+  int  have ;
+
+  memcpy(format, start, flen) ;
+  format[flen + 1] = '\0' ;
+
+  have = qfs_left(qfs) + 1 ;
+
+  if (ant == ant_default)
+    {
+      double val ;
+      val  = va_arg(*p_va, double) ;
+      want = snprintf(qfs_ptr(qfs), have, format, val) ;
+    }
+  else
+    {
+      long double val ;
+      assert(ant == ant_long_double) ;
+      val  = va_arg(*p_va, long double) ;
+      want = snprintf(qfs_ptr(qfs), have, format, val) ;
+    } ;
+
+  if      (want < 0)
+    return pfp_failed ;
+
+  if (want < have)
+    qfs->ptr += want ;
+  else
+    qfs->ptr = qfs->end ;
+
+  return pfp_done ;
+} ;

@@ -98,7 +98,7 @@ validate (struct ecommunity *ecom, const struct test_spec *sp)
               str1,
               (etmp && str2) ? str2 : "NULL");
     }
-  ecommunity_free (etmp);
+  ecommunity_free (&etmp);
   XFREE (MTYPE_ECOMMUNITY_STR, str1);
   XFREE (MTYPE_ECOMMUNITY_STR, str2);
 
@@ -123,7 +123,7 @@ parse_test (struct test_segment *t)
     printf ("failed\n");
 
   printf ("\n");
-  ecommunity_unintern (ecom);
+  ecommunity_unintern (&ecom);
 }
 
 

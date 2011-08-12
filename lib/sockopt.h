@@ -1,4 +1,4 @@
-/* Router advertisement
+/* Setting and getting socket options -- utility functions.
  * Copyright (C) 1999 Kunihiro Ishiguro
  *
  * This file is part of GNU Zebra.
@@ -24,18 +24,20 @@
 
 #include "sockunion.h"
 
-extern int setsockopt_so_recvbuf (int sock_fd, int size);
-extern int setsockopt_so_sendbuf (const int sock_fd, int size);
-extern int getsockopt_so_sendbuf (const int sock_fd);
+extern int setsockopt_reuseaddr (int sock_fd) ;
+extern int setsockopt_reuseport (int sock_fd) ;
+extern int setsockopt_broadcast (int sock_fd) ;
 
-#ifdef HAVE_IPV6
-extern int setsockopt_ipv6_pktinfo (int, int);
-extern int setsockopt_ipv6_checksum (int, int);
-extern int setsockopt_ipv6_multicast_hops (int, int);
-extern int setsockopt_ipv6_unicast_hops (int, int);
-extern int setsockopt_ipv6_hoplimit (int, int);
-extern int setsockopt_ipv6_multicast_loop (int, int);
-#endif /* HAVE_IPV6 */
+extern int setsockopt_ttl (int sock_fd, int ttl);
+extern int setsockopt_minttl (int sock_fd, int ttl);
+extern int setsockopt_cork (int sock_fd, int onoff);
+
+extern int setsockopt_so_recvbuf (int sock_fd, int size);
+extern int setsockopt_so_sendbuf (int sock_fd, int size);
+extern int getsockopt_so_sendbuf (int sock_fd);
+
+extern int setsockopt_tcp_signature(int sock_fd, union sockunion *su,
+                                                        const char *password);
 
 /*
  * It is OK to reference in6_pktinfo here without a protecting #if
@@ -92,7 +94,7 @@ extern int setsockopt_multicast_ipv4(int sock_fd, int optname,
 extern int setsockopt_ipv4_tos(int sock_fd, int tos);
 
 /* Ask for, and get, ifindex, by whatever method is supported. */
-extern int setsockopt_ifindex (int, int, int);
+extern int setsockopt_pktinfo (int, int, int);
 extern int getsockopt_ifindex (int, struct msghdr *);
 
 /* swab the fields in iph between the host order and system order expected
@@ -101,7 +103,16 @@ extern int getsockopt_ifindex (int, struct msghdr *);
 extern void sockopt_iphdrincl_swab_htosys (struct ip *iph);
 extern void sockopt_iphdrincl_swab_systoh (struct ip *iph);
 
-extern int sockopt_ttl (int sock_fd, int ttl);
-extern int sockopt_tcp_signature(int sock_fd, union sockunion *su,
-                                 const char *password);
+#ifdef HAVE_IPV6
+
+extern int setsockopt_ipv6_v6only(int sock_fd) ;
+extern int setsockopt_ipv6_pktinfo (int, int);
+extern int setsockopt_ipv6_checksum (int, int);
+extern int setsockopt_ipv6_multicast_hops (int, int);
+extern int setsockopt_ipv6_unicast_hops (int, int);
+extern int setsockopt_ipv6_hoplimit (int, int);
+extern int setsockopt_ipv6_multicast_loop (int, int);
+
+#endif /* HAVE_IPV6 */
+
 #endif /*_ZEBRA_SOCKOPT_H */

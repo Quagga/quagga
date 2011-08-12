@@ -1716,11 +1716,11 @@ bgp_msg_orf_recv(bgp_connection connection, bgp_route_refresh rr,
 static int
 bgp_msg_orf_prefix_recv(orf_prefix orfpe, qafx_bit_t qb, sucker sr)
 {
-  pAF_t paf ;
+  sa_family_t paf ;
   int left ;
 
   assert(qb != 0) ;
-  paf = get_pAF(qafx_num(qb)) ;
+  paf = get_sa_family(qafx_num(qb)) ;
 
   /* Must have the minimum Prefix ORF entry, less the common byte, left */
   left = suck_left(sr) - (BGP_ORF_E_P_MIN_L - BGP_ORF_E_COM_L) ;

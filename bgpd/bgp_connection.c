@@ -18,10 +18,9 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
+#include <zebra.h>
 
 #include "bgpd/bgp_connection.h"
-
-#include <zebra.h>
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_fsm.h"
@@ -131,6 +130,7 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
    *   * notification             NULL -- none received or sent
    *   * err                      no error, so far
    *   * cap_suppress             do not suppress capabilities
+   *   * gtsm                     false -- no minttl set, yet
    *   * su_local                 NULL -- no address, yet
    *   * su_remote                NULL -- no address, yet
    *   * hold_timer_interval      none -- set when connection is opened
@@ -156,8 +156,6 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
   connection->session    = session ;
   connection->p_mutex    = &session->mutex ;
   connection->lock_count = 0 ;  /* no question about it         */
-
-  connection->paf = AF_UNSPEC ;
 
   connection->ordinal  = ordinal ;
   connection->accepted = (ordinal == bgp_connection_secondary) ;
@@ -318,7 +316,7 @@ bgp_connection_make_primary(bgp_connection connection)
 extern void
 bgp_connection_exit(bgp_connection connection)
 {
-  bgp_connection_close_down(connection) ;       /* make sure    */
+  bgp_connection_close(connection, false) ;   /* false => not keep timers   */
 
   assert(connection->state == bgp_fsm_sStopping) ;
 
@@ -344,7 +342,7 @@ bgp_connection_free(bgp_connection connection)
   /* Make sure is closed, so no active file, no timers, pending queue is empty,
    * not on the connection queue, etc.
    */
-  bgp_connection_close_down(connection) ;
+  bgp_connection_close(connection, false) ;     /* false => not keep timers  */
 
   /* Free any components which still exist                              */
   connection->qf              = qps_file_free(connection->qf) ;
@@ -587,7 +585,7 @@ bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
  * Sets:
  *
  *   * if secondary connection, turn off accept()
- *   * sets the qfile and fd ready for use -- disabled in all modes
+ *   * sets the qfile and sock_fd ready for use -- disabled in all modes
  *   * clears err -- must be OK so far
  *   * discards any open_state
  *   * copies hold_timer_interval and keep_alive_timer_interval from session
@@ -610,27 +608,22 @@ bgp_connection_add_pending(bgp_connection connection, mqueue_block mqb,
  * NB: requires the session to be LOCKED.
  */
 extern void
-bgp_connection_open(bgp_connection connection, int fd, int family)
+bgp_connection_open(bgp_connection connection, int sock_fd)
 {
   bgp_session session = connection->session ;
 
-  /* Make sure that there is no file and that buffers are clear, etc.   */
-  /* If this is the secondary connection, do not accept any more.       */
-  bgp_connection_close(connection) ;    /* FSM deals with timers        */
+  /* Make sure that there is no file and that buffers are clear, etc.
+   * If this is the secondary connection, do not accept any more.
+   * The FSM deals with the timers.
+   */
+  bgp_connection_close(connection, true) ;      /* true => keep timers  */
 
   /* Set the file going                                                 */
-  qps_add_file(bgp_nexus->selection, connection->qf, fd, connection) ;
+  qps_add_file(bgp_nexus->selection, connection->qf, sock_fd, connection) ;
 
   connection->err     = 0 ;                     /* so far, so good      */
 
   bgp_open_state_unset(&connection->open_recv) ;
-
-  /* Note the address family for the socket.
-   *
-   * This is the real family -- so is IPv6 independent of whether one or
-   * both addresses are actually mapped IPv4.
-   */
-  connection->paf = family ;
 
   /* Copy the original hold_timer_interval and keepalive_timer_interval
    * Assume these have sensible initial values.
@@ -759,7 +752,7 @@ bgp_connection_query_accept(bgp_session session)
 /*------------------------------------------------------------------------------
  * Close connection.
  *
- *   * if there is an fd, close it
+ *   * if there is an sock_fd, close it
  *   * if qfile is active, remove it
  *   * forget any addresses
  *   * reset all stream buffers to empty
@@ -775,7 +768,7 @@ bgp_connection_query_accept(bgp_session session)
  *
  *   * state of the connection
  *   * links to and from the session
- *   * the timers remain initialised (but may have been unset)
+ *   * the timers remain initialised -- and remain on or are unset
  *   * the buffers remain (but reset)
  *   * logging and host string
  *   * any open_state that has been received
@@ -793,19 +786,19 @@ bgp_connection_query_accept(bgp_session session)
  * NB: requires the session to be LOCKED.
  */
 extern void
-bgp_connection_full_close(bgp_connection connection, int unset_timers)
+bgp_connection_close(bgp_connection connection, bool keep_timers)
 {
-  int fd ;
+  int sock_fd ;
 
   /* Close connection's file, if any.                                   */
   qps_remove_file(connection->qf) ;
 
-  fd = qps_file_unset_fd(connection->qf) ;
-  if (fd != fd_undef)
-    close(fd) ;
+  sock_fd = qps_file_unset_fd(connection->qf) ;
+  if (sock_fd != fd_undef)
+    close(sock_fd) ;
 
   /* If required, unset the timers.                                     */
-  if (unset_timers)
+  if (!keep_timers)
     {
       qtimer_unset(connection->hold_timer) ;
       qtimer_unset(connection->keepalive_timer) ;
@@ -831,7 +824,8 @@ bgp_connection_full_close(bgp_connection connection, int unset_timers)
  * This is done when the connection is about to be fully closed, but need to
  * send a NOTIFICATION message before finally closing.
  *
- *   * if there is an fd, shutdown(, SHUT_RD) and disable the qfile for reading
+ *   * if there is an sock_fd, shutdown(, SHUT_RD) and disable the qfile for
+ *     reading
  *   * reset all read buffering to empty
  *   * discard all output except any partially written message
  *   * empty the pending queue
@@ -852,18 +846,18 @@ extern bool
 bgp_connection_part_close(bgp_connection connection)
 {
   bgp_wbuffer wb = &connection->wbuff ;
-  int         fd ;
+  int         sock_fd ;
   uint8_t*    p ;
   bgp_size_t  mlen ;
 
   /* Check that have a usable file descriptor                           */
-  fd = qps_file_fd(connection->qf) ;
+  sock_fd = qps_file_fd(connection->qf) ;
 
-  if (fd == fd_undef)
+  if (sock_fd == fd_undef)
     return false ;
 
   /* Shutdown the read side of this connection                          */
-  shutdown(fd, SHUT_RD) ;
+  shutdown(sock_fd, SHUT_RD) ;
   qps_disable_modes(connection->qf, qps_read_mbit) ;
 
   /* Stop all buffering activity, except for write buffer.              */

@@ -133,13 +133,7 @@ static void ospf_mpls_te_config_write_router (struct vty *vty);
 static void ospf_mpls_te_config_write_if (struct vty *vty, struct interface *ifp);
 static void ospf_mpls_te_show_info (struct vty *vty, struct ospf_lsa *lsa);
 static int ospf_mpls_te_lsa_originate (void *arg);
-
-#if 0
-static void ospf_mpls_te_lsa_refresh (struct ospf_lsa *lsa);
-#else
-static struct ospf_lsa * ospf_mpls_te_lsa_refresh (struct ospf_lsa *lsa);
-#endif
-
+static struct ospf_lsa *ospf_mpls_te_lsa_refresh (struct ospf_lsa *lsa);
 static void ospf_mpls_te_lsa_schedule (struct mpls_te_link *lp, enum sched_opcode);
 
 static void del_mpls_te_link (void *val);
@@ -1014,11 +1008,8 @@ ospf_mpls_te_lsa_originate (void *arg)
 out:
   return rc;
 }
-#if 0
-static void
-#else
+
 static struct ospf_lsa *
-#endif
 ospf_mpls_te_lsa_refresh (struct ospf_lsa *lsa)
 {
   struct mpls_te_link *lp;
@@ -1079,7 +1070,7 @@ ospf_mpls_te_lsa_refresh (struct ospf_lsa *lsa)
     }
 
 out:
-  return NULL;
+  return new;
 }
 
 static void

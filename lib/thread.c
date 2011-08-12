@@ -438,8 +438,7 @@ DEFUN_CALL(show_thread_cpu,
 }
 
 static void
-cpu_record_hash_clear (struct hash_backet *bucket,
-                     void *args)
+cpu_record_hash_clear (struct hash_backet *bucket, void *args)
 {
   thread_type *filter = args;
   struct cpu_thread_history *a = bucket->data;
@@ -1217,7 +1216,6 @@ thread_timer_process (struct thread_list *list, struct timeval *timenow)
 /*------------------------------------------------------------------------------
  * Move the given list of threads to the back of the THREAD_READY queue.
  */
-/* process a list en masse, e.g. for event thread lists */
 static unsigned int
 thread_process (struct thread_list *list)
 {
@@ -1246,9 +1244,9 @@ thread_fetch (struct thread_master *m, struct thread *fetch)
   fd_set readfd;
   fd_set writefd;
   fd_set exceptfd;
-  struct timeval timer_val;
+  struct timeval timer_val ;
   struct timeval timer_val_bg;
-  struct timeval *timer_wait;
+  struct timeval *timer_wait ;
   struct timeval *timer_wait_bg;
 
   while (1)

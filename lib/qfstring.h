@@ -39,8 +39,12 @@
 #endif /* __GNUC__ */
 
 /*==============================================================================
- * These "qfstrings" address the issues of dealing with *fixed* length
+ * These "qfstring" address the issues of dealing with *fixed* length
  * strings, particularly where the string handling must be async-signal-safe.
+ *
+ * All operations that can possibly be async-signal-safe, are.  Notable
+ * exception is anything involving floating point values -- because of the
+ * state contain in floating point status/option registers !
  */
 
 typedef struct qf_str  qf_str_t ;
@@ -77,8 +81,9 @@ enum pf_flags
   pf_precision  = 1 <<  7,      /* '.' seen             */
 
   /* The following signal how to render the value               */
-  pf_hex        = 1 <<  8,      /* hex                  */
-  pf_uc         = 1 <<  9,      /* upper-case           */
+  pf_oct        = 1 <<  8,      /* octal                */
+  pf_hex        = 1 <<  9,      /* hex                  */
+  pf_uc         = 1 << 10,      /* upper-case           */
 
   /* The following signal the type of value                     */
   pf_ptr        = 1 << 14,      /* is a pointer         */
@@ -154,6 +159,5 @@ qfs_left(qf_str qfs)
 {
   return qfs->end - qfs->ptr ;
 } ;
-
 
 #endif /* _ZEBRA_QSTRING_H */

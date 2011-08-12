@@ -1360,8 +1360,8 @@ zebra_serv ()
 #endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
   addr.sin_addr.s_addr = htonl (INADDR_LOOPBACK);
 
-  sockopt_reuseaddr (accept_sock);
-  sockopt_reuseport (accept_sock);
+  setsockopt_reuseaddr (accept_sock);
+  setsockopt_reuseport (accept_sock);
 
   if ( zserv_privs.change(ZPRIVS_RAISE) )
     zlog (NULL, LOG_ERR, "Can't raise privileges");
