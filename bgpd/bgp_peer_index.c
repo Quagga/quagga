@@ -59,10 +59,10 @@
  * setting the peer->session pointer is done under the Peer Index Mutex.
  */
 
-static struct symbol_table  bgp_peer_index ;    /* lookup by 'name'     */
-static vector_t             bgp_peer_id_index ; /* lookup by peer-id    */
+static symbol_table  bgp_peer_index = NULL ;    /* lookup by 'name'     */
+static vector_t      bgp_peer_id_index ;        /* lookup by peer-id    */
 
-static qpt_mutex            bgp_peer_index_mutex = NULL ;
+static qpt_mutex     bgp_peer_index_mutex = NULL ;
 
 CONFIRM(bgp_peer_id_null == 0) ;
 
@@ -93,9 +93,21 @@ static bgp_peer_id_table_chunk bgp_peer_id_table = NULL ;
 static bgp_peer_index_entry    bgp_peer_id_free_head = NULL ;
 static bgp_peer_index_entry    bgp_peer_id_free_tail = NULL ;
 
-/* Forward references   */
+/* Forward references                                                   */
 static void bgp_peer_id_table_free_entry(bgp_peer_index_entry entry) ;
 static void bgp_peer_id_table_make_ids(void) ;
+
+static int  bgp_peer_index_cmp(bgp_peer_index_entry entry, sockunion su) ;
+static void bgp_peer_index_free(bgp_peer_index_entry entry) ;
+
+/* The symbol table magic                                               */
+static const symbol_funcs_t peer_index_symbol_funcs =
+{
+  .hash   = (symbol_hash_func*)sockunion_symbol_hash,
+  .cmp    = (symbol_cmp_func*)bgp_peer_index_cmp,
+  .tell   = NULL,
+  .free   = (symbol_free_func*)bgp_peer_index_free,
+} ;
 
 /*------------------------------------------------------------------------------
  * Initialise the bgp_peer_index.
@@ -105,13 +117,11 @@ static void bgp_peer_id_table_make_ids(void) ;
 extern void
 bgp_peer_index_init(void* parent)
 {
-  symbol_table_init_new(
-          &bgp_peer_index,
+  bgp_peer_index = symbol_table_new(
           parent,
-          10,                     /* start ready for a few sessions     */
+          50,                     /* start ready for a few sessions     */
           200,                    /* allow to be quite dense            */
-          sockunion_symbol_hash,  /* "name" is an IP Address            */
-          NULL) ;                 /* no value change call-back          */
+          &peer_index_symbol_funcs) ;
 
   vector_init_new(bgp_peer_id_index, bgp_peer_id_unit) ;
 
@@ -121,7 +131,6 @@ bgp_peer_index_init(void* parent)
   bgp_peer_id_free_tail = NULL ;
 
   bgp_peer_id_count = 0 ;
-
 } ;
 
 /*------------------------------------------------------------------------------
@@ -148,13 +157,17 @@ bgp_peer_index_reset(void)
 {
   bgp_peer_index_entry    entry ;
   bgp_peer_id_table_chunk chunk ;
+  symbol sym ;
 
   /* Ream out the peer id vector -- checking that all entries are empty */
   while ((entry = vector_ream(bgp_peer_id_index, keep_it)) != NULL)
     passert((entry->peer == NULL) && (entry->next_free != entry)) ;
 
   /* Discard body of symbol table -- must be empty !                    */
-  symbol_table_reset(&bgp_peer_index, keep_it) ;
+  sym = NULL ;
+  while ((sym = symbol_table_ream(bgp_peer_index, sym, NULL)) != NULL)
+    ;
+  bgp_peer_index = NULL ;
 
   /* Discard the empty chunks of entries                                */
   while (bgp_peer_id_table != NULL)
@@ -190,15 +203,16 @@ bgp_peer_index_mutex_free(void)
  *     registered.
  */
 extern void
-bgp_peer_index_register(bgp_peer peer, union sockunion* su)
+bgp_peer_index_register(bgp_peer peer, sockunion su)
 {
   bgp_peer_index_entry entry ;
+  symbol sym ;
 
   BGP_PEER_INDEX_LOCK() ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
-  /* First need an entry, which allocates a peer_id.  May need to extend    */
-  /* the bgp_peer_id_table -- so need to be locked for this.                */
-
+  /* First need an entry, which allocates a peer_id.  May need to extend
+   * the bgp_peer_id_table -- so need to be locked for this.
+   */
   if (bgp_peer_id_free_head == NULL)
     bgp_peer_id_table_make_ids() ;
 
@@ -209,12 +223,14 @@ bgp_peer_index_register(bgp_peer peer, union sockunion* su)
 
   /* Initialise the entry -- the id is already set                          */
   entry->peer       = peer ;
-  entry->next_free  = entry ;
+  entry->next_free  = entry ;   /* pointing to self => in use   */
+  entry->su         = *su ;
 
   peer->index_entry = entry;
 
   /* Insert the new entry into the symbol table.                            */
-  entry = symbol_set_value(symbol_lookup(&bgp_peer_index, su, add), entry) ;
+  sym = symbol_lookup(bgp_peer_index, &entry->su, add) ;
+  entry = symbol_set(sym, entry) ;
 
   BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
@@ -235,17 +251,17 @@ bgp_peer_index_register(bgp_peer peer, union sockunion* su)
  * NB: it is a FATAL error to deregister a peer which is not registered.
  */
 extern void
-bgp_peer_index_deregister(bgp_peer peer, union sockunion* su)
+bgp_peer_index_deregister(bgp_peer peer, sockunion su)
 {
   bgp_peer_index_entry entry ;
   symbol  sym ;
 
   BGP_PEER_INDEX_LOCK() ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
-  sym = symbol_lookup(&bgp_peer_index, su, no_add) ;
+  sym = symbol_lookup(bgp_peer_index, su, no_add) ;
   passert(sym != NULL) ;
 
-  entry = symbol_delete(sym) ;
+  entry = symbol_delete(sym, NULL) ;
 
   passert( (entry != NULL) && (entry->id        != bgp_peer_id_null)
                            && (entry->peer      == peer)
@@ -264,7 +280,7 @@ bgp_peer_index_deregister(bgp_peer peer, union sockunion* su)
  * Returns the bgp_peer -- NULL if not found.
  */
 extern bgp_peer
-bgp_peer_index_seek(union sockunion* su)
+bgp_peer_index_seek(sockunion su)
 {
   bgp_peer_index_entry entry ;
 
@@ -283,13 +299,13 @@ bgp_peer_index_seek(union sockunion* su)
  * Returns the bgp_peer_index_entry -- NULL if not found.
  */
 extern bgp_peer_index_entry
-bgp_peer_index_seek_entry(union sockunion* su)
+bgp_peer_index_seek_entry(sockunion su)
 {
   bgp_peer_index_entry entry ;
 
   /* Only the Routing Engine can add/delete entries -- so no lock required  */
 
-  entry = symbol_get_value(symbol_lookup(&bgp_peer_index, su, no_add)) ;
+  entry = symbol_get_value(symbol_lookup(bgp_peer_index, su, no_add)) ;
 
   if (entry != NULL)
     assert((entry->peer != NULL) && (entry->next_free = entry)) ;
@@ -341,7 +357,7 @@ bgp_peer_index_seek_accept(union sockunion* su, bool* p_found)
 
   BGP_PEER_INDEX_LOCK() ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
 
-  entry = symbol_get_value(symbol_lookup(&bgp_peer_index, su, no_add)) ;
+  entry = symbol_get_value(symbol_lookup(bgp_peer_index, su, no_add)) ;
 
   if (entry != NULL)
     {
@@ -357,6 +373,27 @@ bgp_peer_index_seek_accept(union sockunion* su, bool* p_found)
   BGP_PEER_INDEX_UNLOCK() ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
 
   return accept ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Comparison function -- symbol_cmp_func
+ */
+static int
+bgp_peer_index_cmp(bgp_peer_index_entry entry, sockunion su)
+{
+  return sockunion_cmp(&entry->su, su) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Value free function -- symbol_free_func
+ *
+ * The bgp_peer_index only ever deletes the symbols, and when it does, it sets
+ * the value NULL -- so should never call this !
+ */
+static void
+bgp_peer_index_free(bgp_peer_index_entry entry)
+{
+  qassert(false) ;
 } ;
 
 /*==============================================================================

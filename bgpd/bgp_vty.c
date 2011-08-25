@@ -10573,21 +10573,20 @@ community_list_show (struct vty *vty, struct community_list *list)
 {
   struct community_entry *entry;
 
-  const char* list_name = symbol_get_name(list->sym) ;
   for (entry = list->head; entry; entry = entry->next)
     {
       if (entry == list->head)
 	{
-	  if (all_digit (list_name))
+	  if (all_digit (list->name))
 	    vty_out (vty, "Community %s list %s%s",
 		     entry->style == COMMUNITY_LIST_STANDARD ?
 		     "standard" : "(expanded) access",
-		     list_name, VTY_NEWLINE);
+		     list->name, VTY_NEWLINE);
 	  else
 	    vty_out (vty, "Named Community %s list %s%s",
 		     entry->style == COMMUNITY_LIST_STANDARD ?
 		     "standard" : "expanded",
-		     list_name, VTY_NEWLINE);
+		     list->name, VTY_NEWLINE);
 	}
       if (entry->any)
 	vty_out (vty, "    %s%s",
@@ -10600,6 +10599,14 @@ community_list_show (struct vty *vty, struct community_list *list)
 		 VTY_NEWLINE);
     }
 }
+
+static int
+community_list_symbol_cmp(const symbol* a, const symbol* b)
+{
+  return symbol_mixed_name_cmp(
+                        ((struct community_list*)symbol_get_value(*a))->name,
+                        ((struct community_list*)symbol_get_value(*b))->name ) ;
+} ;
 
 DEFUN (show_ip_community_list,
        show_ip_community_list_cmd,
@@ -10618,7 +10625,8 @@ DEFUN (show_ip_community_list,
   if (table == NULL)
     return CMD_SUCCESS;
 
-  extract = symbol_table_extract(table, NULL, NULL, 0, symbol_mixed_name_cmp) ;
+  extract = symbol_table_extract(table, NULL, NULL, 0,
+                                                    community_list_symbol_cmp) ;
 
   for (VECTOR_ITEMS(extract, sym, i))
     {
@@ -10931,22 +10939,20 @@ extcommunity_list_show (struct vty *vty, struct community_list *list)
 {
   struct community_entry *entry;
 
-  const char* list_name = symbol_get_name(list->sym) ;
-
   for (entry = list->head; entry; entry = entry->next)
     {
       if (entry == list->head)
 	{
-	  if (all_digit (list_name))
+	  if (all_digit (list->name))
 	    vty_out (vty, "Extended community %s list %s%s",
 		     entry->style == EXTCOMMUNITY_LIST_STANDARD ?
 		     "standard" : "(expanded) access",
-		     list_name, VTY_NEWLINE);
+		     list->name, VTY_NEWLINE);
 	  else
 	    vty_out (vty, "Named extended community %s list %s%s",
 		     entry->style == EXTCOMMUNITY_LIST_STANDARD ?
 		     "standard" : "expanded",
-		     list_name, VTY_NEWLINE);
+		     list->name, VTY_NEWLINE);
 	}
       if (entry->any)
 	vty_out (vty, "    %s%s",
@@ -10977,7 +10983,8 @@ DEFUN (show_ip_extcommunity_list,
   if (table == NULL)
     return CMD_SUCCESS;
 
-  extract = symbol_table_extract(table, NULL, NULL, 0, symbol_mixed_name_cmp) ;
+  extract = symbol_table_extract(table, NULL, NULL, 0,
+                                                    community_list_symbol_cmp) ;
 
   for (VECTOR_ITEMS(extract, sym, i))
     {
@@ -11047,7 +11054,8 @@ community_list_config_write_list(struct vty* vty, int what)
 
   table = community_list_master_lookup (bgp_clist, what);
 
-  extract = symbol_table_extract(table, NULL, NULL, 0, symbol_mixed_name_cmp) ;
+  extract = symbol_table_extract(table, NULL, NULL, 0,
+                                                    community_list_symbol_cmp) ;
   for (VECTOR_ITEMS(extract, sym, i))
     {
       list = symbol_get_value(sym) ;
@@ -11059,7 +11067,6 @@ community_list_config_write_list(struct vty* vty, int what)
 	{
 	  const char* list_type  = "" ;
 	  const char* list_style = "" ;
-	  const char* list_name  = symbol_get_name(list->sym) ;
 
 	  switch (entry->style)
 	    {
@@ -11080,11 +11087,11 @@ community_list_config_write_list(struct vty* vty, int what)
 		list_style = "expanded " ;
 		break ;
 	    } ;
-	  if (all_digit(list_name))
+	  if (all_digit(list->name))
 	    list_style = "" ;	/* squash style for all digit names	*/
 
 	  vty_out (vty, "ip %s %s%s %s %s%s",
-		     list_type, list_style, list_name,
+		     list_type, list_style, list->name,
 		     community_direct_str (entry->direct),
 		     community_list_config_str (entry),
 		     VTY_NEWLINE);

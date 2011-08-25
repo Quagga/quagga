@@ -891,10 +891,8 @@ sockunion_print (union sockunion *su)
 int
 sockunion_cmp (union sockunion *su1, union sockunion *su2)
 {
-  if (su1->sa.sa_family > su2->sa.sa_family)
-    return 1;
-  if (su1->sa.sa_family < su2->sa.sa_family)
-    return -1;
+  if (su1->sa.sa_family != su2->sa.sa_family)
+    return (su1->sa.sa_family < su2->sa.sa_family) ? -1 : +1 ;
 
   switch (su1->sa.sa_family)
   {
@@ -1091,28 +1089,26 @@ sockunion_set_mov(sockunion* p_dst, sockunion* p_src)
 /*==============================================================================
  * Symbol Table Hash function -- for symbols whose name is an address.
  */
-extern void
-sockunion_symbol_hash(symbol_hash p_hash, const void* name)
+extern symbol_hash_t
+sockunion_symbol_hash(const void* name)
 {
   const union sockunion* su = name ;
 
   switch (su->sa.sa_family)
     {
       case AF_INET:
-        confirm(sizeof(p_hash->hash) == sizeof(su->sin.sin_addr.s_addr)) ;
-        p_hash->hash          = su->sin.sin_addr.s_addr ;
-        p_hash->name          = (const void*)&su->sin.sin_addr.s_addr ;
-        p_hash->name_len      = sizeof(su->sin.sin_addr.s_addr) ;
-        p_hash->name_copy_len = sizeof(su->sin.sin_addr.s_addr) ;
+        return symbol_hash_word(su->sin.sin_addr.s_addr) ;
         break ;
 
 #ifdef HAVE_IPV6
       case AF_INET6:
-        symbol_hash_bytes(p_hash, (const void*)&su->sin6.sin6_addr,
+        return symbol_hash_bytes((const void*)&su->sin6.sin6_addr,
                                                    sizeof(su->sin6.sin6_addr)) ;
         break ;
 #endif /* HAVE_IPV6 */
       default:
         zabort("Unknown address family") ;
     } ;
+
+  return 0 ;
 } ;

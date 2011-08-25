@@ -44,15 +44,18 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* Community-list.  */
 struct community_list
 {
-  /* Pointer to symbol entry of the community-list.  */
-  struct symbol* sym ;
+  /* Pointer to symbol entry of the community-list.     */
+  symbol sym ;
 
   /* String or number.  */
 //int sort;
 
-  /* Community-list entry in this community-list.  */
+  /* Community-list entry in this community-list.       */
   struct community_entry *head;
   struct community_entry *tail;
+
+  /* Name of community-list                             */
+  char  name[] ;
 };
 
 /* Each entry in community-list.  */

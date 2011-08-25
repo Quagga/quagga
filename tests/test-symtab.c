@@ -1,14 +1,25 @@
 #include <zebra.h>
 #include <symtab.h>
+#include "qlib_init.h"
 
 /* Symtab torture tests
  *
  */
 
+struct test_value
+{
+  int   val ;
+
+  bool  defined ;
+  bool  seen ;
+
+  char  name[] ;
+} ;
+
 /* prototypes */
 void assert_true(int result, const char * message);
 int main(int argc, char **argv);
-void test_symbol_table_init_new(void);
+void test_symbol_table_new(void);
 void test_symbol_table_lookup(void);
 void call_back_function_set(symbol sym, void* value);
 void call_back_function_change(symbol sym, void* value);
@@ -16,6 +27,8 @@ void call_back_function_unset(symbol sym, void* value);
 void test_call_back(void);
 void test_ref(void);
 void test_ref_heavy(void);
+
+static void scan_symbol_table(symbol_table table) ;
 
 struct thread_master *master;
 
@@ -31,28 +44,74 @@ assert_true(int result, const char * message)
 int
 main(int argc, char **argv)
 {
+  qlib_init_first_stage() ;
 
-  test_symbol_table_init_new();
+  test_symbol_table_new();
   test_symbol_table_lookup();
+#if 0
   test_call_back();
   test_ref();
   test_ref_heavy();
+#endif
 
   return 0;
 }
 
+static int
+test_symbol_cmp(const void* val, const void* name)
+{
+  return strcmp(((const struct test_value*)val)->name, name) ;
+} ;
+
+static int value_count = 0 ;
+
+static struct test_value*
+test_symbol_make(const char* name, int val)
+{
+  struct test_value* value ;
+
+  value = calloc(1, sizeof(struct test_value) + strlen(name) + 1) ;
+  strcpy(value->name, name) ;
+
+  value->val     = val ;
+  value->defined = true ;
+  value->seen    = false ;
+
+  ++value_count ;
+
+  return value ;
+} ;
+
+static void
+test_symbol_free(void* val)
+{
+  assert_true(!((struct test_value*)val)->defined, "freeing defined value") ;
+  free(val) ;
+
+  --value_count ;
+} ;
+
+static const symbol_funcs_t test_symbol_funcs =
+{
+  .hash   = symbol_hash_string,
+  .cmp    = test_symbol_cmp,
+  .tell   = NULL,
+  .free   = test_symbol_free,
+} ;
+
+
 void
-test_symbol_table_init_new(void)
+test_symbol_table_new(void)
 {
   symbol_table table = NULL;
   char name[] = "name";
-  char value[] = "value";
+  struct test_value* value ;
   symbol sym = NULL;
   symbol sym2 = NULL;
   void * old_value = NULL;
 
   printf("test_symbol_table_init_new\n");
-  table = symbol_table_init_new(table, NULL, 0, 0, NULL, NULL);
+  table = symbol_table_new(NULL, 0, 0, &test_symbol_funcs);
   assert_true(table != NULL, "table == NULL");
 
   /* expect to not find */
@@ -61,93 +120,126 @@ test_symbol_table_init_new(void)
 
   /* add */
   sym = symbol_lookup(table, name, add);
-  symbol_set_value(sym, value);
   assert_true(sym != NULL, "sym == NULL");
-  assert_true(strcmp(symbol_get_name(sym), name) == 0,
-                                     "strcmp(symbol_get_name(sym), name) != 0");
+  assert_true(symbol_get_value(sym) == NULL, "sym->value != NULL") ;
+
+  value = test_symbol_make(name, 777) ;
+  symbol_set(sym, value) ;
 
   /* find */
   sym2 = symbol_lookup(table, name, no_add);
   assert_true(sym == sym2, "sym != sym2");
   assert_true(symbol_get_value(sym) == value, "symbol_get_value(sym) != value");
 
-  old_value = symbol_delete(sym);
+  old_value = symbol_delete(sym, NULL);
   assert_true(value == old_value, "value != old_value");
 
-  while ((old_value = symbol_table_ream(table, keep_it)) != NULL)
-    {
-    }
+  free(value) ;
+  --value_count ;
 
-}
+  assert_true(value_count == 0, "value_count != 0") ;
+
+  sym = NULL ;
+  while ((sym = symbol_table_ream(table, sym, NULL)) != NULL)
+    assert_true(sym == NULL, "table not empty") ;
+} ;
+
+static int
+test_symbol_sort(const symbol* a, const symbol* b)
+{
+  return symbol_mixed_name_cmp(
+                 ((struct test_value*)symbol_get_value(*a))->name,
+                 ((struct test_value*)symbol_get_value(*b))->name ) ;
+} ;
 
 void
 test_symbol_table_lookup(void)
 {
   symbol_table table = NULL;
-  char buf[20];
+  char name[20];
   symbol sym = NULL;
-  int i;
-  char *value = NULL;
+  int i ;
+  uint j ;
+  struct test_value* value = NULL;
   const int len = 100000;
   struct symbol_walker itr;
   vector v = NULL;
 
   printf("test_symbol_table_lookup\n");
-  table = symbol_table_init_new(table, NULL, 0, 0, NULL, NULL);
+  table = symbol_table_new(NULL, 0, 200, &test_symbol_funcs);
 
   /* add */
   for (i = 0; i < len; ++i)
     {
-      sprintf(buf, "%d-name", i);
-      sym = symbol_lookup(table, buf, add);
+      sprintf(name, "%d-name", i);
+      sym = symbol_lookup(table, name, add);
       assert_true(sym != NULL, "add: sym == NULL");
-      assert_true(strcmp(symbol_get_name(sym), buf) == 0,
-          "strcmp(symbol_get_name(sym), buf) != 0");
+      assert_true(symbol_get_value(sym) == NULL, "sym->value != NULL") ;
 
-      sprintf(buf, "%d-value", i);
-      value = strdup(buf);
-      symbol_set_value(sym, value);
+      value = test_symbol_make(name, i) ;
+      symbol_set(sym, value);
       assert_true(symbol_get_value(sym) == value,
-          "symbol_get_value(sym) != value");
+                                            "symbol_get_value(sym) != value");
     }
+
+  scan_symbol_table(table) ;
 
   /* find */
   for (i = 0; i < len; ++i)
     {
-      sprintf(buf, "%d-name", i);
-      sym = symbol_lookup(table, buf, no_add);
+      sprintf(name, "%d-name", i);
+      sym = symbol_lookup(table, name, no_add);
       assert_true(sym != NULL, "find: sym == NULL");
-      assert_true(strcmp(symbol_get_name(sym), buf) == 0,
-          "strcmp(symbol_get_name(sym), buf) != 0");
+      value = symbol_get_value(sym) ;
+      assert_true(value != NULL, "symbol_get_value(sym) == NULL");
 
-      sprintf(buf, "%d-value", i);
-      assert_true(strcmp(symbol_get_value(sym), buf) == 0,
-          "strcmp(symbol_get_value(sym), buf) != 0");
+      assert_true(strcmp(value->name, name) == 0,
+                                             "strcmp(value->name, name) != 0");
+      assert_true(value->val == i, "value->val != i");
     }
 
   /* walk with symbol_walker */
   symbol_walk_start(table, &itr);
   i = 0;
-  do
+  while ((sym = symbol_walk_next(&itr)) != NULL)
     {
-      sym = symbol_walk_next(&itr);
-      if (sym != NULL) {
-        ++i;
-      }
+      value = symbol_get_value(sym) ;
+      assert_true(!value->seen, "value seen already") ;
+      value->seen = true ;
+      ++i;
     } while (sym != NULL);
   assert_true(i == len, "i != len");
 
   /* extract vector */
-  v = symbol_table_extract(table, NULL, NULL, 1, NULL);
+  v = symbol_table_extract(table, NULL, NULL, 1, test_symbol_sort);
   assert_true(vector_end(v) == (unsigned)len, "vector_get_end(v) != len");
+
+  i = 0 ;
+  for (VECTOR_ITEMS(v, sym, j))
+    {
+      value = symbol_get_value(sym) ;
+      assert_true(value->val == i, "value->val != i") ;
+      ++i ;
+    }
+  assert_true(i == len, "i != len");
+
   vector_free(v);
 
-  while ((value = symbol_table_ream(table, 1)) != NULL)
+  /* Ream out                                                   */
+  sym = NULL ;
+  i = 0 ;
+  while ((sym = symbol_table_ream(table, sym, value)) != NULL)
     {
-      free(value);
-    }
+      value = symbol_get_value(sym) ;
+      value->defined = false ;
+      ++i ;
+    } ;
+  assert_true(i == len, "i != len");
+
+  assert_true(value_count == 0, "value_count != 0") ;
 }
 
+#if 0
 void
 test_call_back(void)
 {
@@ -162,17 +254,17 @@ test_call_back(void)
   assert_true(table != NULL, "table == NULL");
 
   /* add */
-  symbol_table_set_value_call_back(table, call_back_function_set);
+  symbol_table_set_call_back(table, call_back_function_set);
   sym = symbol_lookup(table, name, add);
   symbol_set_value(sym, value);
 
   /* change */
-  symbol_table_set_value_call_back(table, call_back_function_change);
+  symbol_table_set_call_back(table, call_back_function_change);
   sym = symbol_lookup(table, name, add);
   symbol_set_value(sym, new_value);
 
   /* delete */
-  symbol_table_set_value_call_back(table, call_back_function_unset);
+  symbol_table_set_call_back(table, call_back_function_unset);
   symbol_unset_value(sym);
 
   while ((symbol_table_ream(table, 1)) != NULL)
@@ -305,6 +397,119 @@ test_ref_heavy(void)
     }
 }
 
+#endif
+
+
+/*==============================================================================
+ * Scanning symbol table and showing properties.
+ */
+static void show_histogram(uint length[], uint n, uint t) ;
+
+static void
+scan_symbol_table(symbol_table table)
+{
+  uint   n = 10 ;           /* 0..10 and >10        */
+  uint   length[n+2] ;
+  uint   i ;
+  uint*  comp ;
+
+  for (i = 0 ; i < (n + 2) ; ++i)
+    length[i] = 0 ;
+
+  fprintf(stderr, "Symbol Table %'d entries: %'d bases and %'d extend_thresh"
+                                                         " @ density %0.2f\n",
+                   table->entry_count, table->base_count,
+                   table->extend_thresh, table->density) ;
+
+  for (i = 0 ; i < table->base_count ; ++i)
+    {
+      symbol sym ;
+      uint   l ;
+
+      l = 0 ;
+      sym = table->bases[i] ;
+
+      while (sym != NULL)
+        {
+          ++l ;
+          sym = sym->u.next ;
+        } ;
+
+      if (l <= n)
+        ++length[l] ;
+      else
+        ++length[n + 1] ;
+    } ;
+
+  show_histogram(length, n, table->entry_count) ;
+
+  for (i = 0 ; i < (n + 2) ; ++i)
+    length[i] = 0 ;
+
+  fprintf(stderr, "  RAND_MAX == 0x%x\n", RAND_MAX) ;
+
+  comp = calloc(table->base_count, sizeof(uint)) ;
+  for (i = 0 ; i < table->entry_count ; ++i)
+    {
+      uint q = rand() % table->base_count ;
+      ++comp[q] ;
+    } ;
+
+  for (i = 0 ; i < table->base_count ; ++i)
+    {
+      uint   l ;
+
+      l = comp[i] ;
+
+      if (l <= n)
+        ++length[l] ;
+      else
+        ++length[n + 1] ;
+    } ;
+
+  show_histogram(length, n, table->entry_count) ;
+} ;
+
+
+
+static void
+show_histogram(uint length[], uint n, uint t)
+{
+  uint   i ;
+  uint   m ;
+  uint   c ;
+
+  m = 0 ;
+  for (i = 0 ; i < (n + 2) ; ++i)
+    if (length[i] > m)
+      m = length[i] ;
+
+  c = 0 ;
+  for (i = 0 ; i < (n + 2) ; ++i)
+    {
+      uint j ;
+      uint s ;
+
+      if (i <= n)
+        fprintf(stderr, "   %2d: ", i) ;
+      else
+        fprintf(stderr, "  >%2d: ", n) ;
+
+      s = (length[i] * 50) / m ;
+      for (j = 0 ; j < 51 ; ++j)
+        if (j < s)
+          fprintf(stderr, "=") ;
+        else
+          fprintf(stderr, " ") ;
+
+      j = i * length[i] ;
+      c += j ;
+      fprintf(stderr, "%'6d   %6d  %4.1f%%  %5.1f%% :%2d\n", length[i], j,
+                                               ((double)j * 100.0)/(double)t,
+                                               ((double)c * 100.0)/(double)t,
+                                                                           i) ;
+    } ;
+} ;
 
 /*
  *
@@ -315,7 +520,7 @@ symbol_table_set_parent
 symbol_table_get_parent
 symbol_hash_string
 symbol_hash_bytes
-symbol_table_set_value_call_back
+symbol_table_set_call_back
 symbol_table_free
 symbol_unset_value
 symbol_select_cmp

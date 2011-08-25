@@ -94,23 +94,26 @@ enum free_keep
 typedef enum free_keep free_keep_b ;
 
 /* We really want to be able to assume that an int is at least 32 bits
- * and that a long is at least 64 bits !
+ * and that a long is at least 64 bits !  (And short is at least 16 bits.)
  */
+CONFIRM(USHRT_MAX >= 0xFFFF) ;
 CONFIRM(UINT_MAX  >= 0xFFFFFFFF) ;
 CONFIRM(ULONG_MAX >= 0xFFFFFFFFFFFFFFFF) ;
 
 /* Some useful shorthand                                                */
-typedef unsigned char byte ;
-typedef unsigned char uchar ;
+typedef unsigned char  byte ;
+typedef unsigned char  uchar ;
 
-typedef unsigned int  uint ;
-typedef unsigned int  usize ;
-typedef unsigned int  ulen ;
+typedef unsigned short ushort ;
 
-typedef          int  ssize ;
-typedef          int  slen ;
+typedef unsigned int   uint ;
+typedef unsigned int   usize ;
+typedef unsigned int   ulen ;
 
-typedef unsigned long ulong ;
+typedef          int   ssize ;
+typedef          int   slen ;
+
+typedef unsigned long  ulong ;
 
 typedef          long long llong ;
 typedef unsigned long long ullong ;

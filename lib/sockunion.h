@@ -47,6 +47,7 @@ union sockunion {
 typedef struct prefix* prefix ;
 
 typedef union sockunion* sockunion ;
+typedef union sockunion  sockunion_t ;
 union sockunion
 {
   struct sockaddr sa;
@@ -153,7 +154,6 @@ extern int inet_pton (int family, const char *strptr, void *addrptr);
 extern int inet_aton (const char *cp, struct in_addr *inaddr);
 #endif
 
-extern void
-sockunion_symbol_hash(symbol_hash p_hash, const void* name) ;
+extern symbol_hash_t sockunion_symbol_hash(const void* name) ;
 
 #endif /* _ZEBRA_SOCKUNION_H */

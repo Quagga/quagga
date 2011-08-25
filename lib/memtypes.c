@@ -24,6 +24,8 @@ struct memory_list memory_list_lib[] =
   { MTYPE_SYMBOL_BASES,         "Symbol Table chain bases"      },
   { MTYPE_SYMBOL,               "Symbol"                        },
   { MTYPE_SYMBOL_REF,           "Symbol Reference"              },
+  { MTYPE_RB_TREE,              "Red-Black Tree structure"      },
+  { MTYPE_RBT_NODES,            "Red-Black Tree nodes"          },
   { MTYPE_HEAP,                 "Heap structure"                },
   { MTYPE_LINK_LIST,		"Link List"			},
   { MTYPE_LINK_NODE,		"Link Node"			},

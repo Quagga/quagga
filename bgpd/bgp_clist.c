@@ -40,26 +40,23 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 */
 struct community_list_handler
 {
-  /* Community-list.  */
-  struct symbol_table community_list ;
-
-  /* Exteded community-list.  */
-  struct symbol_table extcommunity_list ;
+  symbol_table community_list ;
+  symbol_table extcommunity_list ;
 };
 
 
 /* Lookup master structure for community-list or
    extcommunity-list.  */
-struct symbol_table*
+extern symbol_table
 community_list_master_lookup (struct community_list_handler *ch, int master)
 {
   if (ch)
     switch (master)
       {
       case COMMUNITY_LIST_MASTER:
-	return &ch->community_list;
+	return ch->community_list;
       case EXTCOMMUNITY_LIST_MASTER:
-	return &ch->extcommunity_list;
+	return ch->extcommunity_list;
       }
   return NULL;
 }
@@ -103,17 +100,28 @@ community_entry_free (struct community_entry *entry)
 
 /* Allocate a new community-list.  */
 static struct community_list *
-community_list_new (void)
+community_list_new(symbol sym, const char* name)
 {
-  return XCALLOC (MTYPE_COMMUNITY_LIST, sizeof (struct community_list));
+  struct community_list * list ;
+
+  list = XCALLOC (MTYPE_COMMUNITY_LIST, sizeof (struct community_list)
+                                                           + strlen(name) + 1) ;
+  /* Zeroising the new community_list has set:
+   *
+   *   sym          -- NULL, set below
+   *
+   *   head         -- NULL, empty list
+   *   tail         -- NULL, empty list
+   *
+   *   name         -- empty, set below
+   */
+
+  list->sym = sym ;
+  strcpy(list->name, name) ;
+
+  return list ;
 }
 
-/* Free community-list.  */
-static void
-community_list_free (struct community_list *list)
-{
-  XFREE (MTYPE_COMMUNITY_LIST, list);
-}
 struct community_list *
 community_list_lookup (struct community_list_handler *ch,
 		       const char *name, int master)
@@ -138,29 +146,53 @@ community_list_get (struct community_list_handler *ch,
   struct symbol_table* table;
   struct symbol* sym ;
 
-  if (!name)
+  if (name == NULL)
     return NULL;
 
   table = community_list_master_lookup (ch, master);
-  if (!table)
+  if (table == NULL)
     return NULL;
 
-  sym = symbol_lookup(table, name, add) ;
+  sym  = symbol_lookup(table, name, add) ;
   list = symbol_get_value(sym) ;
-  if (!list)
+  if (list == NULL)
     {
       /* Allocate new community_list and tie symbol and list together.  */
-      list = community_list_new ();
+      list = community_list_new (sym, name);
 
-      symbol_set_value(sym, list) ;
-      list->sym = symbol_inc_ref(sym) ;
+      symbol_set(sym, list) ;
     }
 
   return list;
 }
 
+/*------------------------------------------------------------------------------
+ * Hash the community list name -- symbol_hash_func
+ */
+static int
+community_list_cmp(const struct community_list* list, const char* name)
+{
+  return strcmp(list->name, name) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free community list -- symbol_free_func.
+ */
 static void
-community_list_delete (struct community_list *list)
+community_list_free (struct community_list *list)
+{
+  qassert(list->head == NULL) ;         /* must be empty by now */
+
+  XFREE(MTYPE_COMMUNITY_LIST, list) ;
+}
+
+/*------------------------------------------------------------------------------
+ * Flush away entire contents of given community list.
+ *
+ * Leaves list completely empty, apart from symbol and name.
+ */
+static void
+community_list_flush(struct community_list *list)
 {
   struct community_entry *entry, *next;
 
@@ -173,14 +205,19 @@ community_list_delete (struct community_list *list)
     {
       next = entry->next;
       community_entry_free (entry);
-    }
+    } ;
 
-  /* Kill value in related symbol and drop reference.   */
-  symbol_unset_value(list->sym) ;
-  list->sym = symbol_dec_ref(list->sym) ;
+  list->head = list->tail = NULL ;
+}
 
-  /* Free community list structure                      */
-  community_list_free (list);
+/*------------------------------------------------------------------------------
+ * Flush contents of community list and unset the symbol.
+ */
+static void
+community_list_delete(struct community_list *list)
+{
+  community_list_flush(list) ;
+  symbol_unset(list->sym, list) ;
 }
 
 static int
@@ -204,7 +241,7 @@ community_list_entry_add (struct community_list *list,
   list->tail = entry;
 }
 
-/* Delete community-list entry from the list.  */
+/* Delete community-list entry from the list.                           */
 static void
 community_list_entry_delete (struct community_list *list,
                              struct community_entry *entry, int style)
@@ -744,7 +781,15 @@ extcommunity_list_unset (struct community_list_handler *ch,
   return 0;
 }
 
-/* Initializa community-list.  Return community-list handler.  */
+static const symbol_funcs_t community_list_symbol_funcs =
+{
+  .hash   = symbol_hash_string,
+  .cmp    = (symbol_cmp_func*)community_list_cmp,
+  .tell   = NULL,
+  .free   = (symbol_free_func*)community_list_free,
+} ;
+
+/* Initialize community-list.  Return community-list handler.           */
 struct community_list_handler*
 community_list_init (void)
 {
@@ -752,8 +797,10 @@ community_list_init (void)
   ch = XCALLOC (MTYPE_COMMUNITY_LIST_HANDLER,
                 sizeof (struct community_list_handler));
 
-  symbol_table_init_new(&ch->community_list,    &ch, 20, 200, NULL, NULL) ;
-  symbol_table_init_new(&ch->extcommunity_list, &ch, 20, 200, NULL, NULL) ;
+  ch->community_list    = symbol_table_new(ch, 20, 200,
+                                                 &community_list_symbol_funcs) ;
+  ch->extcommunity_list = symbol_table_new(ch, 20, 200,
+                                                 &community_list_symbol_funcs) ;
 
   return ch;
 }
@@ -767,12 +814,17 @@ void
 community_list_terminate (struct community_list_handler *ch)
 {
   struct community_list *list ;
+  symbol sym ;
 
-  while ((list = symbol_table_ream(&ch->community_list, keep_it)))
-    community_list_delete(list) ;
+  sym = NULL ;
+  while ((sym = symbol_table_ream(ch->community_list, sym, list)) != NULL)
+    community_list_flush(list = symbol_get_value(sym)) ;
+  ch->community_list = NULL ;
 
-  while ((list = symbol_table_ream(&ch->extcommunity_list, keep_it)))
-    community_list_delete(list) ;
+  sym = NULL ;
+  while ((sym = symbol_table_ream(ch->extcommunity_list, sym, list)) != NULL)
+    community_list_flush(list = symbol_get_value(sym)) ;
+  ch->extcommunity_list = NULL ;
 
   XFREE (MTYPE_COMMUNITY_LIST_HANDLER, ch);
 }

@@ -45,6 +45,8 @@ struct bgp_peer_index_entry
 
   bgp_peer      peer ;          /* NULL if entry is not in use          */
 
+  sockunion_t   su ;            /* The "name".                          */
+
   bgp_peer_id_t id ;            /* maps IP address to peer_id           */
 } ;
 

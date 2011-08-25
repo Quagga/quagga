@@ -7,7 +7,7 @@ lib_LTLIBRARIES = libzebra.la
 libzebra_la_LDFLAGS = -version-info 0:0:0
 
 libzebra_la_SOURCES = \
-	buffer.c  checksum.c  command.c  command_execute.c \
+	avl.c  buffer.c  checksum.c  command.c  command_execute.c \
 	command_parse.c  command_queue.c  daemon.c  distribute.c \
 	elstring.c  errno_names.c  filter.c  getopt.c  getopt1.c \
 	hash.c  heap.c  if.c  if_rmap.c  jhash.c  keychain.c  keystroke.c \
@@ -29,7 +29,7 @@ libzebra_la_DEPENDENCIES = @LIB_REGEX@
 libzebra_la_LIBADD = @LIB_REGEX@
 
 pkginclude_HEADERS = \
-	command.h  command_common.h  command_execute.h \
+	avl.h  command.h  command_common.h  command_execute.h \
 	command_local.h  command_parse.h  command_queue.h  confirm.h \
 	distribute.h  elstring.h  errno_names.h  filter.h  getopt.h \
 	hash.h  heap.h  if.h  if_rmap.h  jhash.h  keychain.h \

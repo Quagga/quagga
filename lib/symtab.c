@@ -18,76 +18,107 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
+#include "misc.h"
 
-#include <zebra.h>
-#include <stddef.h>
+#include <ctype.h>
 
 #include "symtab.h"
 #include "memory.h"
 
-/* A symbol table maps symbol "names" to symbol values and, for each symbol,
+/*==============================================================================
+ * A symbol table maps symbol "names" to symbol values and, for each symbol,
  * has two ways of keeping track of references to the symbol.
  *
- * The symbol name can be an arbitrary collection of bytes, or a string.  All
+ * A symbol's "name" can be an arbitrary collection of bytes, or a string.  All
  * names in a symbol table are unique.
  *
- * The symbol value is a void* -- whose contents are no concern of this code.
+ * The symbol value is a void* -- whose contents are no concern of this code,
+ * except that the value must point to or contain the name -- so that the table
+ * function symbol_cmp_func can test whether a symbol has the given name.
+ *
+ * Once a name has been mapped to a symbol, the symbol can be referred to using
+ * its address or via a symbol reference -- see below.
+ *
+ * A symbol table can be walked to visit all symbols, and there is support for
+ * extracting a vector of all symbols which satisfy a given criterion, and
+ * sorting same.
  *
  * A symbol table comprises:
  *
  *   * symbol table structure   -- containing all "red-tape"
  *   * array of chain-bases     -- for the hash table
- *   * symbol entries           -- each containing name and value of a symbol
+ *   * symbol entries           -- each containing the value of a symbol
  *
- * The symbol table structure may be statically allocated, embedded in another
- * structure, or allocated dynamically.  In any case the symbol table operations
- * require the address of the symbol table structure -- see typedef for
- * symbol_table.
+ * The symbol table structure may only be dynamically allocated.
  *
- * A symbol table may point to its "parent" -- which could be an enclosing
- * structure, or any other higher level data.  The symbol table code does not
+ * A symbol table may point to its "parent".  The symbol table code does not
  * use or need this -- it is for the convenience of the caller.
  *
- * A symbol table structure which is zeroised is implicitly an empty symbol
- * table, using the default symbol name type -- a null terminated string.
- *
- * Each Symbol Table requires a hash function, which takes a pointer to
- * whatever and returns a 32-bit hash value and a canonical form of the
- * symbol "name".  When a new symbol is created the canonical form of the name
- * is copied to the symbol entry.
+ * The "name" of a symbol may be anything at all.  As far as the symbol table
+ * is concerned the name is defined by the symbol_hash_func and
+ * symbol_cmp_func -- see symbol_table_new().
  *
  * The array of chain-bases is dynamically allocated and will grow to maintain
  * an approximate given maximum number of symbols per chain base.  This density
  * is set when the symbol table is initialised.  The array does not
  * automatically reduce in size.
  *
- * The number of chain bases is always odd.  The hash function returns a 32-bit
+ * The number of chain bases is always odd.  The hash function returns an
  * unsigned value, which is mapped to the chain bases modulo their number.
  * Since that is odd, it is co-prime with the hash, so contributes to the hash
  * process.
  *
  * Each symbol in the table has a dynamically allocated entry, which includes:
  *
- *   * symbol value   -- void*
- *   * symbol name
+ *   * symbol value   -- void*  (which includes the "name" in some way)
  *   * count of references
- *   * list of references
+ *   * list of reference objects
  *
- * Symbols may have the value NULL.  Deleting a symbol is not the same as
- * setting its value to NULL.  If the value is set NULL and later set to
- * something else, all references to the symbol will see the new value.  If the
- * symbol is deleted, all references will see its value set to NULL, but if a
- * new symbol with the same name is later created, all references to the old
- * symbol are unchanged, and continue to see the (orphan) NULL.
+ * While in the symbol table a symbol may *not* have a NULL value, because
+ * the symbol table requires access to the name when searching the table.
+ *
+ * A symbol may be in one of three states:
+ *
+ *   * set     -- symbol is in the table and the value is set to something.
+ *
+ *                Even if there are no references to it, the symbol is kept in
+ *                the table.
+ *
+ *   * unset   -- symbol is in the table but the value is unset or empty.
+ *
+ *                There is at least one reference to the symbol, and it is kept
+ *                in the table until the references reduce to zero.  When the
+ *                references do reduce to zero, the symbol is removed from the
+ *                table and it and the value are freed.
+ *
+ *   * deleted -- symbol is not in the table, and the value is unset.
+ *
+ *                There is at least one reference to the symbol, and it is kept
+ *                in the table until the references reduce to zero.  When the
+ *                references do reduce to zero, the symbol and any remaining
+ *                value are freed.
+ *
+ *                An deleted symbol may have no value.
+ *
+ * Setting or unsetting a symbol moves it between the two states.  When a
+ * symbol is unset all existing references point at the empty value, if the
+ * value is later set again, then the references point at the new value.
+ *
+ * Deleting a symbol moves it into deleted state.  The value is assumed to be
+ * unset/empty, but may be set completely NULL -- in the later case, the symbol
+ * no longer even has a name.  If a new value with the same name is later
+ * invented, all existing references to the deleted symbol will continue to
+ * point at the deleted symbol.  This is intended for when a symbol table is
+ * being dismantled (so no new value will ever be set) but may have other uses.
+ *
+ * The value of a symbol may be changed at any time -- provided the "name"
+ * remains the same.  The symbol refers to the value (and "name"), so
+ * provides one level of indirection.
+ *
+ * See symbol_set, symbol_unset, symbol_delete and symbol_table_ream.
  *
  * Keeping track of references is important because it ensures that symbols
- * can be deleted without leaving dangling references.  When a symbol is
- * deleted, it is removed from the symbol table and its value is set to NULL.
- * If there are no references to the symbol, the symbol entry is released.
- * If there are references to the symbol, it is preserved (as an orphan) until
- * all references are unset.  The value of an orphaned symbol should not be
- * changed (but may be unset, since it is already unset).
- *
+ * can be deleted or their value unset, without leaving dangling references.
  * There are two, parallel mechanisms for keeping track of references to a
  * symbol:
  *
@@ -97,524 +128,309 @@
  *       * ptr_to_symbol = symbol_inc_ref(sym)  -- set reference & count up
  *       * ptr_to_symbol = symbol_dec_ref(sym)  -- unset reference & count down
  *
+ *      NB: when a symbol is created the reference count is set to 1.  For
+ *          ordinary reference counting, the count increases/decreases by 2.
+ *
+ *          So, while a symbol is "set", it will not be freed.
+ *
  *   2. list of references -- this is for when it is useful to visit all
  *      references to a given symbol, for example when the value of the symbol
  *      is set and all users of the symbol need to adjust to the new state.
  *
- *      A symbol reference contains a pointer to the symbol, and lives on the
- *      list of references to the symbol.  When the value is set, a call-back
- *      associated with the table is called (if it is set).  That call-back may
- *      walk the list of references to the symbol.  Each reference contains a
- *      pointer and a pointer/long int value, which may be used to identify the
- *      reference.
+ *      A walk mechanism is provided so that all references to a given symbol
+ *      may be processed sequentially.
  *
  *      A symbol reference may be statically allocated, embedded in another
  *      structure, or allocated dynamically.  In any case the symbol reference
  *      operations require the address of the symbol reference structure -- see
  *      typedef for symbol_ref.
  *
- * Symbol references are the responsibility of of the owner of the reference,
- * who must look after setting, unsetting and (if required) releasing them.
+ * Symbol references of both kinds are the responsibility of of the owner of
+ * the reference, who must look after setting, unsetting and (if required)
+ * releasing them.
  *
  * It may seem profligate to have two mechanisms.  However, it is simpler than
  * having two types of symbol, or two types of symbol table.  It may also be
  * useful to have both simple references and references for dealing with
- * value changes.  Suppose, for instance, that the value of a symbol has a
- * pointer to the symbol -- so that the value of the symbol can refer back to
- * its name, for example.  This requires only a simple reference, even if
- * more generally a list of references is required.
+ * value changes.
  *
- * A symbol table can be walked to visit all symbols, and there is support for
- * extracting a vector of all symbols which satisfy a given criterion.
+ * Deleting a symbol from the table will leave it in existence (but orphaned)
+ * if there are any references to the symbol.  Once deleted, when the number
+ * of references is reduced to zero, the symbol will be freed and any value
+ * still associated with it is freed (using the symbol_free_func).
+ *
+ * A symbol_tell_func may be set (but is optional).  When the value is set or
+ * unset or the symbol is deleted the tell function is called:
+ *
+ *   symbol_tell_func(symbol sym, symbol_change_t why, symbol_ref walk) ;
+ *
+ * where the "why" indicates whether the symbol has been set (or set again),
+ * unset or deleted.  The "walk" is set if there is at least one symbol_ref,
+ * and may be used to walk all such references.  See symbol_table_init(),
+ * below.
  */
 
+/*==============================================================================
+ * Symbol table operations
+ */
+static uint symbol_table_new_bases(symbol_table table, uint new_base_count) ;
 static void symbol_extend_bases(symbol_table table) ;
-static void symbol_free(symbol sym) ;
 
-/* Return true iff there are no references to the given symbol  */
-inline static int
-symbol_no_references(symbol sym)
-{
-  return (sym->ref_count == 0) && (sym->ref_list == NULL) ;
-} ;
+inline static uint symbol_base_index(symbol_table table, symbol_hash_t hash) ;
+inline static symbol* symbol_base(symbol_table table, symbol_hash_t hash) ;
 
-/* If symbol is an orphan with no references/bookmarks, free it.
+/*------------------------------------------------------------------------------
+ * Allocate and initialise a new symbol table.
  *
- * NB: if symbol is an orphan, then it implicitly has a NULL value, because
- *     to become an orphan it must have been deleted, which unsets the value.
- */
-inline static void
-symbol_free_if_redundant(symbol sym)
-{
-  if ((sym->table == NULL) && symbol_no_references(sym))
-    symbol_free(sym) ;
-} ;
-
-/* Return chain base for given hash value.      */
-inline static symbol*
-symbol_base(symbol_table table, u_int32_t hash)
-{
-  return &table->bases[hash % table->base_count] ;
-} ;
-
-/* Initialise a new symbol table -- allocate if required.
+ * Requires:
  *
- * table      -- address of table to initialise.  NULL -> allocate.
- *               NB: if allocated, it is the caller's responsibility to free.
+ *   parent   -- address of some parent or other higher level data structure.
  *
- * parent     -- address of some parent or other higher level data structure.
  *               This is not used by the symbol table code and may be NULL if
  *               the caller has no use for it.
  *
- * bases      -- number of list bases to start the symbol table at.
+ *   bases    -- number of list bases to start the symbol table at.
+ *
  *               Symbol table grows as required, but can set initial size if
  *               have some expectations and wish to avoid growth steps.
  *
- * density    -- %-age of entries/bases.  0 => use default.
+ *               A minimum of SYMBOL_TABLE_BASES_MIN will be allocated.
  *
- * hash_function
- *            -- function to fill in symbol_hash from a given "name".
- *               see: description of struct symbol_hash and default function,
- *               symbol_hash_string, below.
- *               NULL => the names in this symbol table are null terminated
- *                       strings, so use symbol_hash_string.
+ *   density  -- %-age of entries/bases.   0 => use default.
+ *                                       150 => 1.50 entries/base (for example)
  *
- * value_call_back
- *            -- function to be called when the symbol value is set or unset.
- *               (Or the symbol is about to be deleted -- which starts by
- *               unsetting it).
+ *   funcs    -- address of struct symbol_funcs, filled in:
  *
- *               The function is passed the new state of the symbol and its
- *               previous value.
+ *     hash     -- symbol_hash_func*
  *
- *               The value of the symbol is a pointer to some data.  If the
- *               data changes symbol_set_value() must be called if its
- *               address changes and may be called even if its address doesn't
- *               change.
+ *                 function to calculate symbol_hash_t from a given "name".
+ *                 see, for example: symbol_hash_string(), below.
  *
- *               In any event, value_call_back is called when symbol_set_value()
- *               is called -- except where the symbol is being set to NULL and
- *               the value is already NULL.
+ *     cmp      -- symbol_cmp_func*
  *
- *               During the call-back the symbol may be set again or unset,
- *               which will cause the call-back to be called inside itself.
- *               Also, references may be set or unset.
+ *                 function to compare name of a given value with a given name.
  *
- *               In the call-back the reference list may be walked to signal
- *               to all holders of the reference that something has changed.
+ *     tell     -- symbol_tell_func*
  *
- * NB: A completely zeroized symbol_table structure is a valid, empty
- *     symbol table.  The first time it is used it will be set up to default
- *     state -- in particular: symbol names are null terminated strings (a
- *     state which *cannot* then be changed).
+ *                 function to be called when the symbol value is set or
+ *                 changed or unset, or if the symbol is about to be deleted.
  *
- * NB: when this is used to re-initialising an existing symbol table structure,
- *     any existing chain base array, symbols and symbol references are simply
- *     discarded -- which will leak memory and is probably a mistake.
+ *                 NULL => no symbol_tell_func.
+ *
+ *                 The function is passed the new value, and the symbol will
+ *                 be set or unset depending on its new state.  Note that if
+ *                 the symbol is about to be deleted, it will be unset, but
+ *                 not yet deleted.
+ *
+ *                 During the symbol_tell_func, references to the symbol may be
+ *                 set or unset, but the value may not be changed.
+ *
+ *                 If there are one or more symbol_ref objects, then sets up a
+ *                 symbol_ref walker and passes it to the symbol_tell_func,
+ *                 which may:
+ *
+ *                   symbol_ref  ref ;
+ *                   while ((ref = symbol_ref_walk_step(walk)) != NULL)
+ *                   .... whatever
+ *
+ *                 to walk all the references.  The symbol_tell_func does not
+ *                 need to symbol_ref_walk_start() or symbol_ref_walk_end().
+ *
+ *     free     -- symbol_free_func*
+ *
+ *                 function to be called when the number of references to a
+ *                 symbol reduce to zero and the value is unset (or deleted).
+ *
+ * Returns:  address of new symbol table
  */
 extern symbol_table
-symbol_table_init_new(symbol_table table,
-		      void*        parent,
-		      uint         base_count,
-		      uint         density,
-		      symbol_hash_function*      hash_function,
-		      symbol_call_back_function* value_call_back)
+symbol_table_new(void* parent, uint base_count, uint density,
+                                                      symbol_funcs_c funcs)
 {
+  symbol_table table ;
+
   assert(base_count <= SYMBOL_TABLE_BASES_MAX) ;
 
-  if (table == NULL)
-    table = XCALLOC(MTYPE_SYMBOL_TABLE, sizeof (struct symbol_table)) ;
+  table = XCALLOC(MTYPE_SYMBOL_TABLE, sizeof (struct symbol_table)) ;
 
+  /* The XCALLOC sets:
+   *
+   *   parent         -- NULL  -- set below
+   *
+   *   bases          -- NULL  -- set below, by symbol_table_new_bases()
+   *   base_count     -- 0     -- set below, ditto
+   *
+   *   entry_count    -- 0     -- table is empty !
+   *   extend_thresh  -- 0     -- set below, by symbol_table_new_bases()
+   *
+   *   density        -- 0     -- set below
+   *
+   *   func           -- NULLs -- set below
+   */
   table->parent        = parent ;
 
-  table->bases         = NULL ;		/* Allocated when required	*/
-  table->base_count    = base_count ;
+  if (density == 0)
+    density = SYMBOL_TABLE_DEFAULT_DENSITY ;
 
-  table->entry_count   = 0 ;
-  table->extend_thresh = density ;	/* Fixed up when required	*/
+  table->density = (float)density / 100.0 ;
 
-  table->hash_function = hash_function ;
-  symbol_table_set_value_call_back(table, value_call_back) ;
+  symbol_table_new_bases(table, base_count) ;
+
+  table->func = *funcs ;
 
   return table ;
 } ;
 
-/* Set "parent" of symbol table.  */
+/*------------------------------------------------------------------------------
+ * Set "parent" of symbol table.
+ */
 extern void
 symbol_table_set_parent(symbol_table table, void* parent)
 {
   table->parent = parent ;
 } ;
 
-/* Get "parent" of symbol table.  */
+/*------------------------------------------------------------------------------
+ * Get "parent" of symbol table.
+ */
 extern void*
 symbol_table_get_parent(symbol_table table)
 {
   return table->parent ;
 } ;
 
-/* Set the value_call_back                                                */
+/*------------------------------------------------------------------------------
+ * Set the symbol_tell_func
+ *
+ * May be set to NULL to turn off.
+ */
 extern void
-symbol_table_set_value_call_back(symbol_table table,
-                                 symbol_call_back_function* value_call_back)
+symbol_table_set_tell(symbol_table table, symbol_tell_func* tell)
 {
-  table->value_call_back = value_call_back ;
+  table->func.tell = tell ;
 } ;
 
-/* Create and set new chain bases and threshold for next extension.       */
-/*                                                                        */
-/* Ensures that the base count is at least the minimum and is odd,        */
-/* and returns the value set.                                             */
-static unsigned int
-symbol_table_new_bases(symbol_table table,
-                                     unsigned int new_base_count, float density)
-{
-  if (new_base_count < SYMBOL_TABLE_BASES_MIN)
-    new_base_count = SYMBOL_TABLE_BASES_MIN ;
-  new_base_count |= 1 ;
-
-  table->bases = XCALLOC(MTYPE_SYMBOL_BASES, new_base_count * sizeof(symbol)) ;
-  table->extend_thresh     = new_base_count * density ;
-  return table->base_count = new_base_count ;
-} ;
-
-/* Setup symbol table body for use.
+/*------------------------------------------------------------------------------
+ * Ream out given Symbol Table -- if any.
  *
- * Used for "lazy" allocation of chain bases and allows symbol_lookup
- * to operate on a completely zeroized symbol_table structure.
- */
-static void
-symbol_table_setup(symbol_table table)
-{
-  float density ;
-
-  /* If density was set explicitly, extend_thresh entry is a %age.      */
-
-  if (table->extend_thresh != 0)
-    density = (float)table->extend_thresh / (float)100 ;
-  else
-    density = (float)2 ;        /* Default density                      */
-
-  /* Initialise the chain bases -- enforces minimum base_count and odd-ness */
-  symbol_table_new_bases(table, table->base_count, density) ;
-
-  /* make default hash_function explicit.                               */
-  if (table->hash_function == NULL)
-    table->hash_function = (symbol_hash_function*)symbol_hash_string ;
-} ;
-
-/* Reset symbol table.
- *
- * Free the symbol table body, and free the symbol table structure or reset it.
- *
- * Return NULL if frees symbol table structure, otherwise the address of same.
- *
- * NB: must only be done when the table is empty -- see assertion !
- */
-extern symbol_table
-symbol_table_reset(symbol_table table, free_keep_b free_structure)
-{
-  if (table== NULL)
-    return NULL ;	/* allow for already freed table	*/
-
-  assert(table->entry_count == 0) ;
-
-  if (table->bases)
-    XFREE(MTYPE_SYMBOL_BASES, table->bases);
-
-  confirm(free_it == true) ;
-
-  if (free_structure)
-    {
-      XFREE(MTYPE_VECTOR, table) ;
-      return NULL ;
-    }
-  else
-    return memset(table, 0, sizeof(struct symbol_table)) ;
-} ;
-
-/* Remove symbol from its symbol table (if any).                        */
-
-static void
-symbol_remove(symbol sym)
-{
-  symbol_table  table ;
-  symbol*       base ;
-  symbol        prev ;
-
-  table = sym->table ;
-  if (table != NULL)            /* Deleted symbols have no parent table.  */
-    {
-      assert(table->entry_count != 0) ;
-
-      base = symbol_base(table, sym->hash) ;
-      if (*base == sym)
-        *base = sym->next ;
-      else
-        {
-          prev = *base ;
-          while (prev->next != sym)
-            prev = prev->next ;
-          prev->next = sym->next ;
-        } ;
-
-      sym->table = NULL ;       /* Symbol is now an orphan.               */
-      --table->entry_count ;
-    } ;
-} ;
-
-/* Free symbol, removing it from the symbol table.
- *
- * NB: the value and all references MUST already have been unset, because:
- *
- *      * any value may well need to be released, and have no idea how to do
- *        that here.
- *
- *      * similarly, references may need to be released and should not, in
- *        any case, be left dangling.
- */
-static void
-symbol_free(symbol sym)
-{
-  assert((sym->value == NULL) && symbol_no_references(sym)) ;
-
-  symbol_remove(sym) ;          /* Remove from table, if any.   */
-
-  XFREE(MTYPE_SYMBOL, sym) ;
-} ;
-
-/* Ream out symbols.
- *
- * Delete symbols -- but do not invoke the value_call_back.
- *
- * When the table is (or becomes) empty, the chain bases are freed, and the
- * structure freed or reset (depending on the free_structure argument).
- *
- * This is intended for use when the symbol table is being destroyed, and all
- * references have been, or will be unset.
+ * This is effectively a symbol_delete() for all symbols, followed by freeing
+ * the given symbol table.
  *
  * Returns the value of the next non-NULL symbol (if any).  So may be used, for
  * example:
  *
  *    xxxx* val ;
+ *    symbol sym ;
  *    ...
- *    while ((val = symbol_table_ream(table, free_structure)) != NULL)
+ *    sym = NULL ;
+ *    while ((sym = symbol_table_ream(table, sym, val)) != NULL)
  *      {
- *         ... do what's required to release the value ...
+ *         val = symbol_get_value(sym) ;
+ *         ... do what's required to release the value       ...
+ *         ... may set val == NULL, or to new, reduced value ...
+ *         ... MUST loop back with sym *unchanged*           ...
+ *         ... when loops back will symbol_delete(sym, val)  ...
  *      }
  *
- * Noting that the symbol may already have been released when its value is
- * returned.  (If the symbol is required when the value is released, then the
- * value should hold a simple reference to the symbol.)
+ * Note that the symbol returned by symbol_table_ream() is deleted when it is
+ * passed in to symbol_table_ream() the next time around the loop.
  *
- * Returns NULL when the table is empty.
+ * Returns NULL when the table is empty, at which point the table will have
+ * been freed, and any pointers to it should be forgotten.
  *
  * Symbols which have one or more references when they are deleted are left as
  * orphans, which will be freed when all their references are unset.
  *
  * NB: do NOT attempt to do anything else with the symbol table once reaming
- *     has started.
+ *     has started and do not stop until this function returns NULL.
  *
  * NB: it is the caller's responsibility to unset all references and release
  *     any that need to be released -- either before or after this operation.
  */
-extern void*
-symbol_table_ream(symbol_table table, free_keep_b free_structure)
+extern symbol
+symbol_table_ream(symbol_table table, symbol sym, void* value)
 {
-  void* value ;
-  symbol sym ;
-  unsigned int i ;
+  uint i ;
 
-  /* There are no actual bases until they have been allocated.            */
-  i = (table->bases != NULL) ? table->base_count : 0 ;
+  if (table == NULL)
+    return NULL ;               /* already reamed or never kissed       */
 
-  while (i--)
+  /* Delete last symbol, or start process.                              */
+  if (sym != NULL)
     {
-      while ((sym = table->bases[i]) != NULL)
-        {
-          assert(table->entry_count != 0) ;
+      qassert(table == sym->table) ;
 
-          /* the following is effectively symbol_delete, but avoids the   */
-          /* value_call_back and returns only if the value is not NULL.   */
-
-          table->bases[i] = sym->next ;   /* remove from table            */
-          --table->entry_count ;          /* count down                   */
-
-          sym->table = NULL ;             /* orphan symbol                */
-          value = sym->value ;            /* pick up value.               */
-          sym->value = NULL ;             /* and set symbol undefined     */
-
-          if (symbol_no_references(sym))
-            symbol_free(sym) ;  /* not in table, no value, no references  */
-
-          if (value != NULL)
-            {
-              table->base_count = i + 1 ; /* where we've got to           */
-              return value ;  /* <<< RETURN: caller must deal with value  */
-            } ;
-        } ;
+      i = symbol_base_index(table, sym->hash) ;
+      symbol_delete(sym, value) ;
+    }
+  else
+    {
+      qassert(table->base_count != 0) ;
+      i = table->base_count - 1 ;
     } ;
 
-  symbol_table_reset(table, free_structure) ;
-                                      /* asserts(table->entry_count == 0) */
+  /* There are no actual bases until they have been allocated.          */
+
+  while (table->entry_count != 0)
+    {
+      sym = table->bases[i] ;
+
+      if (sym != NULL)
+        return sym ;
+
+      qassert(i != 0) ;
+
+      --i ;
+    } ;
+
+  while (qdebug)
+    {
+      qassert(table->bases[i] == NULL) ;
+
+      if (i == 0)
+        break ;
+
+      --i ;
+    } ;
+
+  /* No entries, so now can free the symbol table.                      */
+
+  XFREE(MTYPE_SYMBOL_BASES, table->bases);
+  XFREE(MTYPE_SYMBOL_TABLE, table) ;
+
   return NULL ;
 } ;
 
-/* Look-up name in given symbol table.  Add if required.
+/*------------------------------------------------------------------------------
+ * Create and set new chain bases and threshold for next extension.
  *
- * Returns NULL if not found and not required to add.
+ * Ensures that the base count is at least the minimum and is odd,
+ * and returns the value set.
  *
- * NB: the name argument is passed to the symbol table's hash function.  That
- *     function is required to return with a 32-bit hash
+ * Sets new: table->bases
+ *           table->base_count
+ *           table->extend_thresh
  *
- * NB: if required to add, the caller cannot distinguish between a symbol
- *     which did not previously exist, and one which did exist but had no
- *     value and no references.  Where that distinction matters, it is
- *     necessary to do an extra lookup.
+ * Returns: the actual new base count
  */
-extern symbol
-symbol_lookup(symbol_table table, const void* name, add_b add)
+static unsigned int
+symbol_table_new_bases(symbol_table table, uint new_base_count)
 {
-  struct symbol*  this ;
-  struct symbol** base ;
-  struct symbol_hash hash ;
+  if (new_base_count < SYMBOL_TABLE_BASES_MIN)
+    new_base_count = SYMBOL_TABLE_BASES_MIN ;
 
-  assert(table != NULL) ;
-  if (table->bases == NULL)
-    symbol_table_setup(table) ;	  /* Lazy allocation of chain bases etc.  */
+  new_base_count |= 1 ;         /* ENSURE is odd                */
 
-  table->hash_function(&hash, name) ;
+  table->bases = XCALLOC(MTYPE_SYMBOL_BASES, new_base_count * sizeof(symbol)) ;
+  table->base_count    = new_base_count ;
+  table->extend_thresh = new_base_count * table->density ;
 
-  base = symbol_base(table, hash.hash) ;
-  this = *base ;
-  while (this != NULL)
-    {
-      if ((this->hash == hash.hash)
-	    && (this->name_len == hash.name_len)
-	    && (memcmp(this->name, hash.name, this->name_len) == 0))
-        return this ;
-      this = this->next ;
-    } ;
-
-  /* Not found -- quit now if not required to add */
-  if (!add) return NULL ;
-
-  /* Adding: first, carve a new, empty symbol entry           */
-  this = XCALLOC(MTYPE_SYMBOL, sizeof(struct symbol) + hash.name_copy_len) ;
-
-  this->table     = table ;
-  this->value     = NULL ;
-  this->ref_list  = NULL ;
-  this->ref_count = 0 ;
-  this->hash      = hash.hash ;
-  this->name_len  = hash.name_len ;
-  memcpy(this->name, hash.name, hash.name_copy_len) ;
-
-  /* Second, if required, extend the array of list bases.  We extend if     */
-  /* we have a collision *and* we exceed threshold of number of entries.    */
-  if ((*base != NULL) && (table->entry_count > table->extend_thresh))
-    {
-      symbol_extend_bases(table) ;
-      base = symbol_base(table, hash.hash) ;
-    } ;
-
-  /* Third, chain in the new entry, count it in and return  */
-  this->next = *base ;
-  *base = this ;
-
-  ++table->entry_count ;
-
-  return this ;
+  return new_base_count ;
 } ;
 
-/* Delete symbol.
- *
- * The first effect of this is to set the symbol value to NULL, which may
- * trigger a value_call_back etc.
- *
- * Then the symbol is removed from the table (and the symbol becomes an orphan).
- *
- * Then, if there are no (remaining) references the symbol is freed.  Otherwise
- * the symbol entry remains in existence until there are no more references
- * (at which point it will finally be destroyed).
- *
- * Returns the last value of the symbol -- which may itself need to be
- * destroyed -- noting that the symbol may already have been released.  (If the
- * symbol is required when the value is released, then the value should hold a
- * simple reference to the symbol.)
- *
- * NB: the effect of deleting a symbol is to leave all remaining references
- *     pointing at an NULL value, orphaned symbol.
- *
- *     If a new symbol is created with the same name, that will be a
- *     completely different symbol -- references to the old symbol will
- *     continue to be to the vestigial NULL value.
- *
- *     This is different from setting the symbol value to NULL and later
- *     giving it a new value.
- *
- * NB: orphan symbols can be deleted.  The effect is to free the symbol if
- *     possible.
+/*------------------------------------------------------------------------------
+ * Extend the array of list bases.
  */
-extern void*
-symbol_delete(symbol sym)
-{
-  void* old_value = symbol_unset_value(sym) ;
-
-  if (symbol_no_references(sym))
-    symbol_free(sym) ;     /* free symbol now if no references              */
-  else
-    symbol_remove(sym) ;   /* else just remove it from the table -- will be */
-                           /* freed when all references are unset.          */
-  return old_value ;
-} ;
-
-/* The hash functions provided here use CRC32 as a hash.
- *
- * CRC32 is not intended as a hash function, and is not a perfect one.
- * However it is fast -- requiring a few simple operations per byte.  Taken
- * with the secondary effect of using the hash produced modulo an odd number,
- * experience suggests this is sufficient.
- */
-
-static u_int32_t crc_table[] ;
-
-/* Standard symbol string hash function.  */
-extern void
-symbol_hash_string(symbol_hash p_hash, const char* string) {
-  u_int32_t  h = 0 ;
-  const char* p = string ;
-
-  while (*p != 0)
-    h = crc_table[(h & 0xFF) ^ (u_int8_t)*p++] ^ (h >> 8) ;
-
-  assert((p - string) < 0xFFFF) ;
-
-  p_hash->hash          = h ;
-  p_hash->name          = string ;
-  p_hash->name_len      = (p - string) ;
-  p_hash->name_copy_len = p_hash->name_len + 1 ;
-} ;
-
-/* Standard symbol byte vector hash function.  */
-extern void
-symbol_hash_bytes(symbol_hash p_hash, const void* bytes, size_t len) {
-  assert(len < 0xFFFF) ;
-
-  u_int32_t  h = len ;		/* So strings of zeros don't CRC the same ! */
-  const u_int8_t*  p = bytes ;
-  const u_int8_t*  e = p + len ;
-
-  while (p < e)
-    h = crc_table[(h & 0xFF) ^ *p++] ^ (h >> 8) ;
-
-  p_hash->hash          = h ;
-  p_hash->name          = (const void*)bytes ;
-  p_hash->name_len      = len ;
-  p_hash->name_copy_len = len ;
-} ;
-
-/* Extend the array of list bases. */
 static void
 symbol_extend_bases(symbol_table table)
 {
@@ -623,16 +439,13 @@ symbol_extend_bases(symbol_table table)
   symbol* old_bases ;
   symbol* new_bases ;
   symbol* base ;
-  unsigned int	new_base_count ;
-  unsigned int	old_base_count ;
+  uint    new_base_count ;
+  uint    old_base_count ;
 
   old_bases      = table->bases ;
   old_base_count = table->base_count ;
 
   assert((old_bases != NULL) && (old_base_count != 0)) ;
-
-  /* TODO: should look out for overflowing base_count and requiring     */
-  /*       impossible amounts of memory ?!                              */
 
   new_base_count = (table->base_count | 1) - 1 ; /* trim enforced odd-ness */
 
@@ -641,8 +454,9 @@ symbol_extend_bases(symbol_table table)
   else
     new_base_count += SYMBOL_TABLE_BASES_DOUBLE_MAX ;
 
-  new_base_count = symbol_table_new_bases(table, new_base_count,
-                              (float)table->extend_thresh / table->base_count) ;
+  assert(new_base_count > old_base_count) ;
+
+  new_base_count = symbol_table_new_bases(table, new_base_count) ;
 
   /* Rehome everything on the new chain bases.          */
   new_bases = table->bases ;
@@ -652,15 +466,475 @@ symbol_extend_bases(symbol_table table)
        while (next != NULL)
          {
            this = next ;
-           next = this->next ;
+           next = this->u.next ;
            base = &new_bases[this->hash % new_base_count] ;
-           this->next = *base ;
+           this->u.next = *base ;
            *base = this ;
          } ;
     } ;
 
   /* Release the old chain bases, and we're done.       */
   XFREE(MTYPE_SYMBOL_BASES, old_bases) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Return chain base index for given hash value.
+ */
+inline static uint
+symbol_base_index(symbol_table table, symbol_hash_t hash)
+{
+  return hash % table->base_count ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Return chain base for given hash value.
+ */
+inline static symbol*
+symbol_base(symbol_table table, symbol_hash_t hash)
+{
+  return &table->bases[symbol_base_index(table, hash)] ;
+} ;
+
+/*==============================================================================
+ * Symbol operations
+ */
+
+/*------------------------------------------------------------------------------
+ * Look-up name in given symbol table.  Add if required.
+ *
+ * Returns NULL if not found and not required to add.
+ *
+ * If adds, the symbol returned will have a NULL value.  That value MUST be
+ * set BEFORE any further symbol table operations, and that value MUST have
+ * the same "name" value as given here.
+ *
+ * If does not add, and symbol exists, the symbol returned will NOT have a NULL
+ * value.  The function symbol_is_set() will return false for an unset symbol
+ * (which is still in the symbol table because there is at least one remaining
+ * reference to it).
+ *
+ * NB: the name argument is passed to the symbol table's hash function.
+ */
+extern symbol
+symbol_lookup(symbol_table table, const void* name, add_b add)
+{
+  struct symbol*  this ;
+  struct symbol** base ;
+  symbol_hash_t   hash ;
+
+  qassert((table != NULL) && (table->bases != NULL)) ;
+
+  hash = table->func.hash(name) ;
+
+  base = symbol_base(table, hash) ;
+  this = *base ;
+  while (this != NULL)
+    {
+      qassert((this->table == table) && (this->value != NULL)) ;
+      if ((this->hash == hash) && (table->func.cmp(this->value, name) == 0))
+        return this ;
+
+      this = this->u.next ;
+    } ;
+
+  /* Not found -- quit now if not required to add       */
+  if (!add)
+    return NULL ;
+
+  /* Adding: first, carve a new, empty symbol entry
+   *
+   * XCALLOC sets:
+   *
+   *   table       = NULL -- set below
+   *   next        = NULL
+   *   value       = NULL
+   *   ref_list    = NULL
+   *   ref_count   = 0
+   *   hash        = 0    -- set below
+   */
+  this = XCALLOC(MTYPE_SYMBOL, sizeof(struct symbol)) ;
+
+  this->table     = table ;
+  this->hash      = hash ;
+
+  /* Second, if required, extend the array of list bases.  We extend if
+   * we have a collision *and* we exceed threshold of number of entries.
+   */
+  if ((*base != NULL) && (table->entry_count > table->extend_thresh))
+    {
+      symbol_extend_bases(table) ;
+      base = symbol_base(table, hash) ;
+    } ;
+
+  /* Third, chain in the new entry, count it in and return              */
+  this->u.next = *base ;
+  *base = this ;
+
+  ++table->entry_count ;
+
+  return this ;
+} ;
+
+/*==============================================================================
+ * Symbol Value handling.
+ */
+
+static void symbol_do_tell(symbol sym, symbol_change_t ch) ;
+static void symbol_remove(symbol sym, bool free) ;
+inline static bool symbol_redundant(symbol sym) ;
+inline static void symbol_remove_if_redundant(symbol sym) ;
+
+/*------------------------------------------------------------------------------
+ * Set the given symbol's value -- must NOT be NULL.
+ *
+ * Sets the new value, sets the symbol_is_set_bit and then invokes the
+ * symbol_tell_func, if required.
+ *
+ * May set the symbol any number of times, but each time the "name" MUST be the
+ * same as the original name.
+ *
+ * A set symbol may be unset or deleted.
+ *
+ * An unset symbol may be set again.  A deleted symbol may not.
+ *
+ * Returns:  the old value (NULL if setting initial value)
+ */
+extern void*
+symbol_set(symbol sym, void* value)
+{
+  void* old_value ;
+
+  qassert((sym->table != NULL) && (value != NULL)) ;
+
+  old_value = sym->value ;
+
+  sym->value      = value ;
+  sym->ref_count |= symbol_is_set_bit ;
+
+  if (sym->table->func.tell != NULL)
+    symbol_do_tell(sym, sym_set) ;
+
+  return old_value ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Unsets the given symbol's value -- must NOT be NULL.
+ *
+ * Sets the new value, clears the symbol_is_set_bit and then invokes the
+ * symbol_tell_func, if required.  The new value may be a "cut down" value, but
+ * it MUST contain the current "name" and symbol_cmp_func must still work.  The
+ * new value should be set "empty" or "undef" in some way which is obvious to
+ * anyone if the symbol and its value is used later.
+ *
+ * After the symbol_tell_func (if any) returns:
+ *
+ *   * If there are no references, the symbol will be immediately removed from
+ *     the symbol table, and it and the *new* value will be freed.  So the
+ *     symbol may disappear immediately, taking the new value with it.
+ *
+ *   * If there is at least one reference, the symbol remains in the symbol
+ *     table, marked unset, until:
+ *
+ *       * symbol_set() is used to set a value again
+ *
+ *       * the number of references is reduced to zero -- in which case the
+ *         symbol is removed and it and the value freed.
+ *
+ *       * symbol_delete() is used to remove it from the symbol table.
+ *
+ *     While the symbol remains, the function symbol_is_set() will return false
+ *     and symbol_is_unset() will return true.
+ *
+ *     Note that if the caller has some way of knowing that the value has not
+ *     yet been freed, then the value may safely point to the symbol -- because
+ *     when the symbol is freed the value is also freed.
+ *
+ * After symbol_unset() the caller must assume that the symbol and its new
+ * value are, or will be at some time, removed from the symbol table and freed
+ * (unless the caller holds a reference).
+ *
+ * The straightforward approach to unsetting a value is to release all
+ * possible memory so that the value has the minimum footprint, subject to
+ * the need for the symbol_cmp_func to work, and then forget both the
+ * value and the symbol once symbol_unset() has been called.  The value will
+ * be freed if/when there are no references, or may be "rediscovered" by
+ * symbol_lookup().
+ *
+ * Returns:  the old value iff different from the new one
+ *
+ * NB: it is the caller's responsibility to free the old value, if required.
+ */
+extern void*
+symbol_unset(symbol sym, void* value)
+{
+  void* old_value ;
+
+  qassert((sym->table != NULL) && (value != NULL)) ;
+
+  old_value = sym->value ;
+  if (old_value == value)
+    old_value = NULL ;
+  else
+    sym->value = value ;
+
+  sym->ref_count &= ~(symbol_ref_count_t)symbol_is_set_bit ;
+
+  if (sym->table->func.tell != NULL)
+    symbol_do_tell(sym, sym_unset) ;
+
+  symbol_remove_if_redundant(sym) ;
+
+  return old_value ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Delete symbol -- new value may be NULL.
+ *
+ * Sets the new value, clears the symbol_is_set_bit and then invokes the
+ * symbol_tell_func, if required.  The new value may be a "cut down" value, as
+ * in symbol_unset() above.
+ *
+ * The new value may be NULL -- it is up to the caller to cope with that.  (The
+ * symbol table has no further interest in the value.)
+ *
+ * Note that the symbol_tell_func is called with the new value and in unset
+ * state, but before it is removed from the symbol table -- so the symbol will
+ * not show as symbol_is_deleted() (yet).
+ *
+ * After the symbol_tell_func (if any) returns, the symbol is removed from
+ * the symbol table, and then:
+ *
+ *   * If there are no references, the symbol and the *new* value will be freed.
+ *     So the symbol may disappear immediately, taking the new value with it.
+ *
+ *   * If there is at least one reference, the symbol remains, as an orphan,
+ *     until the number of references is reduced to zero -- in which case the
+ *     symbol is removed and it and the value freed.
+ *
+ * After symbol_delete(), the caller should forget about the symbol and
+ * its value, leaving it up to the reference system to sweep up, if required.
+ *
+ * NB: this operation leaves any existing references pointing at the orphan
+ *     symbol.  If a new symbol is created, with the same name, those
+ *     references will NOT then point at the new value.
+ *
+ * NB: can use use symbol_delete() thus:
+ *
+ *       val = symbol_delete(sym, NULL) ;
+ *
+ *     which removes the symbol from the table, sets the value NULL and returns
+ *     the value as was.  The symbol_free_func will not be called.
+ *
+ *     This works particularly well if there are no references, or the
+ *     referencers can cope with a NULL value.
+ *
+ * Returns:  the old value iff different from the new one
+ *
+ * NB: it is the caller's responsibility to free the old value, if required.
+ */
+extern void*
+symbol_delete(symbol sym, void* value)
+{
+  void* old_value ;
+
+  old_value = sym->value ;
+  if (old_value == value)
+    old_value = NULL ;
+  else
+    sym->value = value ;
+
+  sym->ref_count &= ~(symbol_ref_count_t)symbol_is_set_bit ;
+
+  if ((sym->table != NULL) && (sym->table->func.tell != NULL))
+    symbol_do_tell(sym, sym_delete) ;
+
+  symbol_remove(sym, symbol_redundant(sym)) ;
+
+  return old_value ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Invoke the call-back -- there must be one !
+ *
+ * If there are one or more symbol_ref objects, then sets up a symbol_ref
+ * walker and passes it to the symbol_tell_func, which may:
+ *
+ *   symbol_ref  ref ;
+ *   while ((ref = symbol_ref_walk_step(walk)) != NULL)
+ *      .... whatever
+ *
+ * to walk all the references.  The symbol_tell_func does not need to do the
+ * symbol_ref_walk_start() or symbol_ref_walk_end() -- that is taken care of,
+ * here.
+ *
+ * NB: the symbol_tell_func may set/unset references, but may NOT change the
+ *     value.
+ *
+ * NB: arranges for symbol NOT to be removed, even if references drop to
+ *     zero -- caller must deal with that.
+ */
+static void
+symbol_do_tell(symbol sym, symbol_change_t ch)
+{
+  symbol_ref  walk ;
+  struct symbol_ref walk_s ;
+
+  qassert((sym->table != NULL) && (sym->table->func.tell != NULL)) ;
+
+  sym->ref_count += symbol_ref_increment ;      /* hold         */
+
+  if (sym->ref_list == NULL)
+    walk = NULL ;
+  else
+    symbol_ref_walk_start(sym, (walk = &walk_s)) ;
+
+  sym->table->func.tell(sym, ch, walk) ;
+
+  if (walk != NULL)
+    symbol_ref_walk_end(walk) ;
+
+  sym->ref_count -= symbol_ref_increment ;      /* release      */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Remove symbol from its symbol table (if any) and if required free the symbol
+ * and any value.
+ *
+ * If symbol is not freed, it is left deleted, to be tidied up when there are
+ * no references left.
+ *
+ * NB: symbol MUST be unset (and may already be deleted) !
+ */
+static void
+symbol_remove(symbol sym, bool free)
+{
+  symbol_table  table ;
+  symbol*       base ;
+  symbol        prev ;
+
+  qassert(symbol_is_unset(sym)) ;
+
+  table = sym->table ;
+  if (table != NULL)            /* Deleted symbols have no parent table.  */
+    {
+      assert(table->entry_count != 0) ;
+
+      base = symbol_base(table, sym->hash) ;
+      if (*base == sym)
+        *base = sym->u.next ;
+      else
+        {
+          prev = *base ;
+          while (1)
+            {
+              assert(prev != NULL) ;
+
+              if (prev->u.next == sym)
+                break ;
+
+              prev = prev->u.next ;
+            } ;
+          prev->u.next = sym->u.next ;
+        } ;
+
+      sym->table = NULL ;       /* Symbol is now an orphan.             */
+      --table->entry_count ;
+
+      sym->u.free = table->func.free ;
+                                /* Need to keep a hold of this          */
+    } ;
+
+  if (free) ;
+    {
+      if (sym->value != NULL)
+        sym->u.free(sym->value) ;
+
+      XFREE(MTYPE_SYMBOL, sym) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Return true iff the symbol is not set and there are no references to it.
+ *
+ * Note that the LS bit of the ref_count is the "symbol is set bit".
+ */
+inline static bool
+symbol_redundant(symbol sym)
+{
+  confirm(symbol_is_set_bit == 1) ;
+
+  return (sym->ref_count == 0) && (sym->ref_list == NULL) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Remove symbol and free it and value if it is now redundant.
+ */
+inline static void
+symbol_remove_if_redundant(symbol sym)
+{
+  if (symbol_redundant(sym))
+    symbol_remove(sym, true) ;
+} ;
+
+/*==============================================================================
+ * Simple hashing functions.
+ *
+ * The hash functions provided here use CRC32 as a hash.
+ *
+ * CRC32 is not intended as a hash function, and is not a perfect one.
+ * However it is fast -- requiring a few simple operations per byte.  Taken
+ * with the secondary effect of using the hash produced modulo an odd number,
+ * experience suggests this is sufficient.
+ */
+static u_int32_t crc_table[] ;
+
+/*------------------------------------------------------------------------------
+ * Simple hash function for '\0' terminated strings.
+ *
+ * Can be used directly in a struct symbol_funcs.
+ */
+extern symbol_hash_t
+symbol_hash_string(const void* string)
+{
+  uint32_t  h = 0x31415927 ;
+  const u_int8_t* p = string ;
+
+  while (*p != '\0')
+    h = crc_table[(h & 0xFF) ^ *p++] ^ (h >> 8) ;
+
+  return h ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Simple symbol byte vector hash function.
+ */
+extern  symbol_hash_t
+symbol_hash_bytes(const void* bytes, size_t len) {
+  uint32_t  h = (uint32_t)len * 0x31415927 ;
+                                /* So strings of zeros don't CRC the same ! */
+  const u_int8_t*  p = bytes ;
+  const u_int8_t*  e = p + len ;
+
+  if ((len & 3) != 0)
+    {
+      if ((len & 2) != 0)
+        {
+          h = crc_table[(h & 0xFF) ^ *p++] ^ (h >> 8) ;
+          h = crc_table[(h & 0xFF) ^ *p++] ^ (h >> 8) ;
+        } ;
+      if ((len & 1) != 0)
+        h = crc_table[(h & 0xFF) ^ *p++] ^ (h >> 8) ;
+    } ;
+
+  while (p < e)
+    {
+      h = crc_table[(h & 0xFF) ^ *p++] ^ (h >> 8) ;
+      h = crc_table[(h & 0xFF) ^ *p++] ^ (h >> 8) ;
+      h = crc_table[(h & 0xFF) ^ *p++] ^ (h >> 8) ;
+      h = crc_table[(h & 0xFF) ^ *p++] ^ (h >> 8) ;
+    } ;
+
+  return h ;
 } ;
 
 /*==============================================================================
@@ -670,15 +944,16 @@ symbol_extend_bases(symbol_table table)
  *   symbol_dec_ref(sym)  -- declared Inline
  */
 
-/* Zeroise the reference count.*/
-
+/*------------------------------------------------------------------------------
+ * Zeroise the reference count -- count is <= symbol_ref_increment
+ */
 Private symbol
-symbol_zero_ref(symbol sym, bool force)
+symbol_zero_ref(symbol sym)
 {
-  assert((sym->ref_count == 1) || force) ;
+  qassert(sym->ref_count == symbol_ref_increment) ;
 
   sym->ref_count = 0 ;
-  symbol_free_if_redundant(sym) ;
+  symbol_remove_if_redundant(sym) ;
 
   return NULL ;
 } ;
@@ -688,21 +963,119 @@ symbol_zero_ref(symbol sym, bool force)
  *
  * References are added at the head of the list -- which is significant when
  * adding references during a symbol reference walk.
+ *
+ * Implementation note: the next and prev pointers in the symbol_ref structure
+ * are significant only if the sym pointer is not NULL.
  */
 
-/* Insert symbol_ref at head of symbol's list of references.  */
+static inline void symbol_add_ref(symbol sym, symbol_ref ref) ;
+static inline void symbol_del_ref(symbol sym, symbol_ref ref) ;
+
+/*------------------------------------------------------------------------------
+ * Initialise symbol reference -- allocate if required.
+ */
+extern symbol_ref
+symbol_init_ref(symbol_ref ref)
+{
+  if (ref == NULL)
+    return XCALLOC(MTYPE_SYMBOL_REF, sizeof(struct symbol_ref)) ;
+  else
+    return memset(ref, 0, sizeof(struct symbol_ref)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set symbol reference -- allocate if required (ref == NULL).
+ *
+ * NB: does nothing if reference already set to the given symbol.
+ *
+ * NB: unsets (but does not free) reference if was not NULL (and is not
+ *     same as symbol being set to) before setting new reference.
+ *
+ * NB: setting reference to NULL unsets any existing reference, but does NOT
+ *     release the reference structure.
+ *
+ * NB: if reference is allocated, the parent is set NULL and the tag is set
+ *     NULL/0.
+ *
+ *     if reference is not allocated, the parent and tag are unchanged.
+ */
+extern symbol_ref
+symbol_set_ref(symbol_ref ref, struct symbol* sym)
+{
+  if (ref != NULL)
+    {
+      if (ref->sym == sym)
+        return ref ;      /* Nothing more to do if already set to given value */
+
+      if (ref->sym != NULL)
+        symbol_unset_ref(ref, keep_it) ;
+    }
+  else
+    ref = symbol_init_ref(NULL) ;
+
+  ref->sym = sym ;
+  if (sym != NULL)
+    symbol_add_ref(sym, ref) ;
+
+  return ref ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Unset symbol reference.  Free the structure if required.
+ *
+ * NB: does nothing if address of reference is NULL.
+ *
+ * NB: if reference is not freed, the parent and tag are unchanged.
+ *
+ * NB: removing the last reference to an symbol that has been deleted causes
+ *     the symbol to be freed.
+ *
+ * NB: copes if the reference is already unset, of course.
+ */
+extern symbol_ref
+symbol_unset_ref(symbol_ref ref, free_keep_b free_ref_structure)
+{
+  symbol sym ;
+
+  if (ref == NULL)
+    return ref ;
+
+  sym = ref->sym ;
+  if (sym != NULL)         /* NULL => reference already unset     */
+    {
+      symbol_del_ref(sym, ref) ;
+      ref->sym = NULL ;
+
+      symbol_remove_if_redundant(sym) ;
+    } ;
+
+  confirm(free_it == true) ;
+  if (free_ref_structure)
+    XFREE(MTYPE_SYMBOL_REF, ref) ;      /* ref is set to NULL */
+
+  return ref ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Insert symbol_ref at head of symbol's list of references.
+ */
 static inline void
 symbol_add_ref(symbol sym, symbol_ref ref)
 {
-  symbol_ref next = sym->ref_list ;
-  sym->ref_list = ref ;
-  if (next)
-    next->prev = ref ;
-  ref->next = next ;
-  ref->prev = (void*)sym ;	/* marker for first on list	*/
+  symbol_ref next ;
+
+  next = sym->ref_list ;        /* current first on list, if any        */
+
+  sym->ref_list = ref ;         /* new first on list                    */
+  ref->next = next ;            /* point to old first on list           */
+  ref->prev = (void*)sym ;      /* mark as first on list                */
+
+  if (next != NULL)
+    next->prev = ref ;          /* update old first on list             */
 } ;
 
-/* Clip symbol_ref from symbol's list of references.
+/*------------------------------------------------------------------------------
+ * Clip symbol_ref from symbol's list of references.
  *
  * If symbol_ref has already been deleted the prev pointer is NULL, and this
  * function copes -- and does not need the symbol to be valid (sym may be NULL).
@@ -718,45 +1091,29 @@ symbol_del_ref(symbol sym, symbol_ref ref)
       if (prev == (void*)sym)
 	{
 	  assert(sym->ref_list == ref) ;
-	  sym->ref_list = next ;
+	  sym->ref_list = next ;        /* remove from head of list     */
 	}
       else
-        prev->next = next ;
+        prev->next = next ;             /* remove from place in list    */
 
       if (next != NULL)
-	next->prev = prev ;
+	next->prev = prev ;             /* update next's prev ptr       */
     } ;
+
   ref->next = ref->prev = NULL ;
 } ;
 
 /*==============================================================================
- * The value_call_back handling and symbol reference list walking.
- *
- * If there is one, the value_call_back function is called when the value of
- * a symbol is set -- except when it is set NULL and is already NULL.  Note
- * that setting the same non-NULL value *does* invoke the value_call_back.
- *
- * The value_call_back function is passed the current state of the symbol,
- * complete with new value, and the old value of the symbol.
- *
- * During the value_call_back the symbol reference list may be walked, so that
- * users of the value may be updated.
- *
- * During the value_call_back the symbol may be set, unset or deleted, and
- * references added or taken away.  This may cause nested calls of the
- * call-back.  Note that each call-back holds a reference to the symbol, so if
- * the symbol is deleted it won't be freed until the outermost call-back
- * returns.
- *
  * Procedure for walking the references to a symbol:
  *
- *   struct symbol_ref  walk ;
- *   symbol      sym ;
- *   symbol_ref  ref ;
- *   symbol_ref_walk_start(sym, &walk) ;
- *   while ((ref = symbol_ref_walk_step(&walk)) != NULL)
+ *   symbol_ref_t walk[1] ;
+ *   symbol       sym ;
+ *   symbol_ref   ref ;
+ *
+ *   symbol_ref_walk_start(sym, walk) ;
+ *   while ((ref = symbol_ref_walk_step(walk)) != NULL)
  *   	.... whatever
- *   symbol_ref_walk_end(&walk) ;
+ *   symbol_ref_walk_end(walk) ;
  *
  *  NB: it is *essential* to call symbol_ref_walk_end() exactly once at some
  *      time after symbol_ref_walk_start.
@@ -794,31 +1151,27 @@ symbol_del_ref(symbol sym, symbol_ref ref)
  *       If that does not suit, don't fiddle with symbol values during a
  *       symbol reference walk.
  */
+static inline bool symbol_ref_is_bookmark(symbol_ref ref) ;
 
-/* Bookmarks are symbol_ref structures, distinguished from ordinary symbol_ref
- * structures by setting the sym field to point at the bookmark symbol_ref
- * itself.
+/*------------------------------------------------------------------------------
+ * Start walk of symbol references
  *
- * (It would be nicer to use the parent field for this... but what is put
- *  there in ordinary symbol_ref structures is not guaranteed...)
+ * NB: given walk symbol_ref may NOT be NULL.
  */
-static inline int
-symbol_ref_is_bookmark(symbol_ref ref)
-{
-  return (void*)ref->sym == (void*)ref ;
-} ;
-
-/* Start walk of symbol references */
 extern void
 symbol_ref_walk_start(symbol sym, symbol_ref walk)
 {
+  assert(walk != NULL) ;
+
   symbol_init_ref(walk) ;         /* keeping things tidy              */
   walk->sym     = (void*)walk ;   /* bookmark signature               */
   walk->parent  = sym ;
   symbol_add_ref(sym, walk) ;     /* insert bookmark at head of list  */
 } ;
 
-/* Step walk and return the next reference (if any).  */
+/*------------------------------------------------------------------------------
+ * Step walk and return the next reference (if any).
+ */
 extern symbol_ref
 symbol_ref_walk_step(symbol_ref walk)
 {
@@ -847,10 +1200,11 @@ symbol_ref_walk_step(symbol_ref walk)
   return next_ref ;
 } ;
 
-/* End of symbol reference walk.
+/*------------------------------------------------------------------------------
+ * End of symbol reference walk.
  *
- * NB: if the symbol is not defined and has no references or bookmarks it
- *     will now be freed.
+ * NB: if the symbol is not set and has no references or bookmarks it will
+ *     now be removed from the symbol table, and it and the value freed.
  */
 extern void
 symbol_ref_walk_end(symbol_ref walk)
@@ -859,133 +1213,21 @@ symbol_ref_walk_end(symbol_ref walk)
 
   symbol_del_ref((symbol)(walk->parent), walk) ;  /* make sure */
 
-  symbol_free_if_redundant((symbol)(walk->parent)) ;
+  symbol_remove_if_redundant((symbol)(walk->parent)) ;
 } ;
 
-/*==============================================================================
- * Symbol Value handling.
+/*------------------------------------------------------------------------------
+ * Bookmarks are symbol_ref structures, distinguished from ordinary symbol_ref
+ * structures by setting the sym field to point at the bookmark symbol_ref
+ * itself.
+ *
+ * (It would be nicer to use the parent field for this... but what is put
+ *  there in ordinary symbol_ref structures is not guaranteed...)
  */
-
-/* Set symbol value.  NB: setting to NULL == symbol_unset_value.
- *                    NB: setting same value as currently looks like a change.
- *                        (except for setting NULL to NULL !)
- *
- * Invokes change call-back, if any -- except when setting to NULL and is
- * already NULL.
- *
- * It is possible for the call-back to set the value again, to unset it, to
- * change references, etc.
- *
- * Returns previous value -- which may require releasing.
- */
-extern void*
-symbol_set_value(symbol sym, void* new_value)
+static inline bool
+symbol_ref_is_bookmark(symbol_ref ref)
 {
-  void* old_value ;
-
-  old_value  = sym->value ;
-  sym->value = new_value ;
-
-  if (sym->table == NULL)               /* watch out for orphans        */
-    {
-      assert((new_value == NULL) && (old_value == NULL)) ;
-      return NULL ;
-    } ;
-
-  /* Invoke value_call_back (if any).                                   */
-  /* Note that the value_call_back may set/unset references and/or      */
-  /* define/undefine the value.                                         */
-  if (((sym)->table->value_call_back != NULL)
-        && ( (new_value != NULL) || (old_value != NULL) ))
-    {
-      symbol_inc_ref(sym) ;     /* preserve until call-back returns     */
-      sym->table->value_call_back(sym, old_value) ;
-      symbol_dec_ref(sym) ;     /* may now free if has been deleted     */
-    } ;
-
-  return old_value ;
-} ;
-
-/*==============================================================================
- * Symbol Reference handling.
- *
- * Implementation note: the next and prev pointers in the symbol_ref structure
- * are significant only if the sym pointer is not NULL.
- */
-
-/* Initialise symbol reference -- allocate if required.   */
-extern symbol_ref
-symbol_init_ref(symbol_ref ref)
-{
-  if (ref == NULL)
-    return XCALLOC(MTYPE_SYMBOL_REF, sizeof(struct symbol_ref)) ;
-  else
-    return memset(ref, 0, sizeof(struct symbol_ref)) ;
-} ;
-
-/* Set symbol reference -- allocate if required (ref == NULL).
- *
- * NB: does nothing if reference already set to the given symbol.
- *
- * NB: unsets (but does not free) reference if was not NULL (and is not
- *     same as symbol being set to) before setting new reference.
- *
- * NB: setting reference to NULL unsets any existing reference, but does NOT
- *     release the reference structure.
- *
- * NB: if reference is allocated, the parent is set NULL and the tag is set
- *     NULL/0.
- *
- *     if reference is not allocated, the parent and tag are unchanged.
- */
-extern symbol_ref
-symbol_set_ref(symbol_ref ref, struct symbol* sym)
-{
-  if (ref != NULL)
-    {
-      if (ref->sym == sym)
-	return ref ;      /* Nothing more to do if already set to given value */
-      if (ref->sym != NULL)
-	symbol_unset_ref(ref, keep_it) ;
-    }
-  else
-    ref = symbol_init_ref(NULL) ;
-
-  ref->sym = sym ;
-  if (sym != NULL)
-    symbol_add_ref(sym, ref) ;
-
-  return ref ;
-} ;
-
-/* Unset symbol reference.  Free the structure if required.
- *
- * NB: does nothing if address of reference is NULL.
- *
- * NB: if reference is not freed, the parent and tag are unchanged.
- *
- * NB: removing the last reference to an symbol that has been deleted causes
- *     the symbol to be freed.
- *
- * NB: copes if the reference is already unset, of course.
- */
-extern symbol_ref
-symbol_unset_ref(symbol_ref ref, free_keep_b free_ref_structure)
-{
-  if (ref == NULL) return ref ;
-
-  if (ref->sym != NULL)		/* NULL => reference already unset     */
-    {
-      symbol_del_ref(ref->sym, ref) ;
-      symbol_free_if_redundant(ref->sym) ;
-      ref->sym = NULL ;
-    } ;
-
-  confirm(free_it == true) ;
-  if (free_ref_structure)
-    XFREE(MTYPE_SYMBOL_REF, ref) ;	/* ref is set to NULL */
-
-  return ref ;
+  return (void*)ref->sym == (void*)ref ;
 } ;
 
 /*==============================================================================
@@ -998,7 +1240,10 @@ symbol_unset_ref(symbol_ref ref, free_keep_b free_ref_structure)
  *              vector as required.
  */
 
-/* Walk the given symbol table.  Usage:
+/*------------------------------------------------------------------------------
+ * Walk the given symbol table.
+ *
+ * Usage:
  *
  *   struct symbol_walker walker ;
  *   symbol sym ;
@@ -1012,31 +1257,35 @@ symbol_unset_ref(symbol_ref ref, free_keep_b free_ref_structure)
  *     the table must NOT be attempted.
  */
 extern void
-symbol_walk_start(symbol_table table, struct symbol_walker* walker)
+symbol_walk_start(symbol_table table, symbol_walker walk)
 {
-  walker->next       = NULL ;
-  walker->base       = table->bases ;
-  walker->base_count = table->base_count ;
+  assert(walk != NULL) ;
+
+  walk->next       = NULL ;
+  walk->base       = table->bases ;
+  walk->base_count = table->base_count ;
 } ;
 
 extern symbol
-symbol_walk_next(struct symbol_walker* walker)
+symbol_walk_next(symbol_walker walk)
 {
-  symbol this = walker->next ;
+  symbol this = walk->next ;
 
   while (this == NULL)
     {
-      if (walker->base_count == 0)
+      if (walk->base_count == 0)
         return NULL ;
-      --walker->base_count ;
-      this = *(walker->base++) ;
+
+      --walk->base_count ;
+      this = *(walk->base++) ;
     } ;
 
-  walker->next = this->next ;
+  walk->next = this->u.next ;
   return this ;
 } ;
 
-/* Extract Symbols.
+/*------------------------------------------------------------------------------
+ * Extract Symbols.
  *
  * Walk symbol table and select symbols to add to a new vector.  Then sort the
  * vector, if required.  Takes:
@@ -1077,7 +1326,7 @@ symbol_table_extract(symbol_table table,
 	{
 	  if ((selector == NULL) || selector(sym, p_val))
 	    vector_push_item(extract, sym) ;
-	  sym = sym->next ;
+	  sym = sym->u.next ;
 	} ;
     } ;
 
@@ -1091,39 +1340,45 @@ symbol_table_extract(symbol_table table,
  * Some common comparison functions for symbol table extracts.
  */
 
-/* Comparison function to sort names which are a mixture of digits and other
+/*------------------------------------------------------------------------------
+ * Comparison function to sort names which are a mixture of digits and other
  * characters.
+ *
+ * Assumes that symbol_get_name() returns address of '\0' terminated string.
  *
  * This comparison treats substrings of digits as numbers, so "a10" is > "a1".
  */
 extern int
-symbol_mixed_name_cmp(const symbol* p_a,
-		      const symbol* p_b)
+symbol_mixed_name_cmp(const char* a,
+		      const char* b)
 {
-  const char* a  = symbol_get_name(*p_a) ;
-  const char* b  = symbol_get_name(*p_b) ;
+  const char* ap ;
+  const char* bp ;
   int la, lb ;
 
+  ap = a ;
+  bp = b ;
+
   while (1) {
-    if (isdigit(*a) && isdigit(*b))
+    if (isdigit(*ap) && isdigit(*bp))
       {
-	char* as ;	/* Required to stop the compiler whining */
-	char* bs ;
-	unsigned long int na = strtoul(a, (char** restrict)&as, 10) ;
-	unsigned long int nb = strtoul(b, (char** restrict)&bs, 10) ;
+	char* aq ;	/* Required to stop the compiler whining */
+	char* bq ;
+	ulong na = strtoul(ap, (char** restrict)&aq, 10) ;
+	ulong nb = strtoul(bp, (char** restrict)&bq, 10) ;
 	if (na != nb)
 	  return (na < nb) ? -1 : +1 ;
-	a = as ;
-	b = bs ;
+	ap = aq ;
+	bp = bq ;
       }
     else
       {
-	if (*a != *b)
-	  return (*a < *b) ? -1 : +1 ;
-	if (*a == '\0')
+	if (*ap != *bp)
+	  return (*ap < *bp) ? -1 : +1 ;
+	if (*ap == '\0')
 	  break ;
-	++a ;
-	++b ;
+	++ap ;
+	++bp ;
       }
   } ;
 
@@ -1131,8 +1386,8 @@ symbol_mixed_name_cmp(const symbol* p_a,
    * But may be different lengths if have number part(s) with leading zeros,
    */
 
-  la = symbol_get_name_len(*p_a) ;
-  lb = symbol_get_name_len(*p_b) ;
+  la = strlen(a) ;
+  lb = strlen(b) ;
   if (la != lb)
     return (la < lb) ? -1 : +1 ;
   return 0 ;
