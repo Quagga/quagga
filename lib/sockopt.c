@@ -232,7 +232,7 @@ setsockopt_ttl (int sock_fd, int ttl)
  *           < 0 => failed or not supported -- see errno
  *                                             EOPNOTSUPP if not supported
  *
- * Logs a LOG_WARNING message if fails (and is supported).
+ * Logs a LOG_WARNING message if fails (including not supported).
  *
  * NB: for AF_INET6 where have: IN6_IS_ADDR_V4MAPPED, there is the question
  *     of whether to use IPPROTO_IP/IP_TTL or IPPROTO_IPV6/IPV6_UNICAST_HOPS.
@@ -290,7 +290,7 @@ setsockopt_minttl (int sock_fd, int ttl)
           ipv6_minhopcount      = IPV6_MINHOPCOUNT
 # else
           have_ipv6_minhopcount = false,
-          ipv6_minhopcount      = IPV6_MINHOPCOUNT
+          ipv6_minhopcount      = 0
 # endif
         } ;
 #endif /* HAVE_IPV6 */
