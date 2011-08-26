@@ -290,7 +290,7 @@ setsockopt_minttl (int sock_fd, int ttl)
           ipv6_minhopcount      = IPV6_MINHOPCOUNT
 # else
           have_ipv6_minhopcount = false,
-          ipv6_minhopcount      = IPV6_MINHOPCOUNT
+          ipv6_minhopcount      = 0
 # endif
         } ;
 #endif /* HAVE_IPV6 */
