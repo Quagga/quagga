@@ -266,10 +266,11 @@ setsockopt_minttl (int sock_fd, int ttl)
         {
 #ifdef  IP_MINTTL
           have_ip_minttl = true,
+          ip_minttl      = IP_MINTTL
 #else
           have_ip_minttl = false,
+          ip_minttl      = 0
 #endif
-          ip_minttl      = IP_MINTTL + 0
         } ;
 
 #ifdef HAVE_IPV6
@@ -286,10 +287,11 @@ setsockopt_minttl (int sock_fd, int ttl)
         {
 # ifdef  IPV6_MINHOPCOUNT
           have_ipv6_minhopcount = true,
+          ipv6_minhopcount      = IPV6_MINHOPCOUNT
 # else
           have_ipv6_minhopcount = false,
+          ipv6_minhopcount      = IPV6_MINHOPCOUNT
 # endif
-          ipv6_minhopcount = IPV6_MINHOPCOUNT + 0
         } ;
 #endif /* HAVE_IPV6 */
 
