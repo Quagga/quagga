@@ -98,11 +98,18 @@ struct sockunion_string
 #define sock2ip6(X)  (((struct sockaddr_in6 *)(X))->sin6_addr.s6_addr)
 #endif /* HAVE_IPV6 */
 
-#define sockunion_family(X)  (X)->sa.sa_family
+inline static sa_family_t
+sockunion_family(sockunion su)
+{
+  return su->sa.sa_family ;
+} ;
 
 /* Prototypes. */
 extern sockunion sockunion_init_new(sockunion su, sa_family_t family) ;
+extern afi_t sockunion_get_afi(sockunion su) ;
 extern int sockunion_get_len(sockunion su) ;
+extern int sockunion_get_addr_len(sockunion su) ;
+extern void* sockunion_get_addr(sockunion su) ;
 extern int sockunion_set_port(sockunion su, in_port_t port) ;
 extern int str2sockunion (const char * str, sockunion su);
 extern const char *sockunion2str (sockunion su, char* buf, size_t size);

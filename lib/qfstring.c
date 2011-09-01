@@ -222,7 +222,7 @@ qfs_append_n(qf_str qfs, const char* src, uint n)
 } ;
 
 /*------------------------------------------------------------------------------
- * Append upto 'n' copies of the given character to the qf_str.
+ * Append upto 'n' copies of the given character to the qf_str
  *
  * May append nothing at all !
  *
@@ -1374,3 +1374,459 @@ qfs_arg_float(qf_str qfs, va_list* p_va, const char* start, size_t flen,
 
   return (want >= 0) ? pfp_done : pfp_failed ;
 } ;
+
+/*==============================================================================
+ * Construction of scaled numbers.
+ *
+ *
+ *
+ *
+ */
+
+enum { scale_max = 6 } ;
+
+static const char* scale_d_tags [] =
+{
+    [0] = " " ,
+    [1] = "k",
+    [2] = "m",
+    [3] = "g",
+    [4] = "t",          /* Tera 10^12   */
+    [5] = "p",          /* Peta 10^15   */
+    [6] = "e",          /* Exa  10^18   */
+} ;
+CONFIRM((sizeof(scale_d_tags) / sizeof(char*)) == (scale_max + 1)) ;
+
+static const char* scale_b_tags [] =
+{
+    [0] = "   " ,
+    [1] = "KiB",
+    [2] = "MiB",
+    [3] = "GiB",
+    [4] = "TiB",
+    [5] = "PiB",
+    [6] = "EiB",
+} ;
+CONFIRM((sizeof(scale_b_tags) / sizeof(char*)) == (scale_max + 1)) ;
+
+static const ulong p10 [] =
+{
+    [ 0] = 1l,
+    [ 1] = 10l,
+    [ 2] = 100l,
+    [ 3] = 1000l,
+    [ 4] = 10000l,
+    [ 5] = 100000l,
+    [ 6] = 1000000l,
+    [ 7] = 10000000l,
+    [ 8] = 100000000l,
+    [ 9] = 1000000000l,
+    [10] = 10000000000l,
+    [11] = 100000000000l,
+    [12] = 1000000000000l,
+    [13] = 10000000000000l,
+    [14] = 100000000000000l,
+    [15] = 1000000000000000l,
+    [16] = 10000000000000000l,
+    [17] = 100000000000000000l,
+    [18] = 1000000000000000000l,
+    [19] = (ulong)LONG_MAX + 1,         /* all signed values < this     */
+} ;
+CONFIRM((sizeof(p10) / sizeof(ulong)) == ((scale_max * 3) + 2)) ;
+CONFIRM((LONG_MAX / 10) < 1000000000000000000l) ;
+
+static const long q10 [] =
+{
+    [ 0] = 1l / 2,
+    [ 1] = 10l / 2,
+    [ 2] = 100l / 2,
+    [ 3] = 1000l / 2,
+    [ 4] = 10000l / 2,
+    [ 5] = 100000l / 2,
+    [ 6] = 1000000l / 2,
+    [ 7] = 10000000l / 2,
+    [ 8] = 100000000l / 2,
+    [ 9] = 1000000000l / 2,
+    [10] = 10000000000l / 2,
+    [11] = 100000000000l / 2,
+    [12] = 1000000000000l / 2,
+    [13] = 10000000000000l / 2,
+    [14] = 100000000000000l / 2,
+    [15] = 1000000000000000l / 2,
+    [16] = 10000000000000000l / 2,
+    [17] = 100000000000000000l / 2,
+    [18] = 1000000000000000000l / 2,
+} ;
+CONFIRM((sizeof(q10) / sizeof(long)) == ((scale_max * 3) + 1)) ;
+
+static void qfs_form_scaled(qf_str qfs, long v, uint f, uint d, const char* tag,
+                                                          enum pf_flags flags) ;
+
+/*------------------------------------------------------------------------------
+ * Form value scaled to 4 significant digits, or as simple decimal.
+ *
+ * When scaling, scale by powers of 1,000, to produce:
+ *
+ *    0..999                as simple 1, 2 or 3 digits, followed by " "
+ *    1,000..9,999          as 4 digits with comma, followed by " "
+ *
+ *    10,000..99,994        as 99.99k -- rounded
+ *    99,995..999,949       as 999.9k -- rounded
+ *    999,950..9,999,499    as 9,999k -- rounded
+ *
+ *    thereafter, as for 'k', but with 'm', 'g', etc.
+ *
+ * When not scaling, produce simple decimal with no trailing space.
+ *
+ * In any case, produce a leading sign if required.
+ *
+ * Accepts the following pf_xxx flags:
+ *
+ *   pf_scale    -- scale as above (if not, no scaling)
+ *   pf_trailing -- include blank scale for units
+ *   pf_commas   -- format with commas -- implied if pf_scale
+ *   pf_plus     -- add '+' sign if not -ve
+ *   pf_space    -- add ' ' "sign" if not -ve
+ */
+extern qfs_num_str_t
+qfs_dec_value(long val, enum pf_flags flags)
+{
+  qfs_num_str_t num ;
+  qf_str_t qfs ;
+
+  qfs_init(qfs, num.str, sizeof(num.str)) ;
+
+  flags &= (pf_commas | pf_plus | pf_space | pf_scale | pf_trailing) ;
+
+  if ((flags & pf_scale) == 0)
+    {
+      qfs_signed(qfs, val, flags & ~pf_trailing, 0, 0) ;
+    }
+  else
+    {
+      int s ;
+      uint    i, d ;
+      ldiv_t  r ;
+
+      i = 0 ;
+      d = 0 ;
+
+      if (val >= 0)
+        s = +1 ;
+      else
+        {
+          s = -1 ;
+          val = -val ;
+        } ;
+
+      /* Find the power of 1,000 which val is ... */
+
+      while (((ulong)val >= p10[i + 4]) && (i < ((scale_max - 1) * 3)))
+        i += 3 ;
+
+      if (i == 0)
+        {
+          r.quot = val ;
+          r.rem  = 0 ;
+        }
+      else
+        {
+          /* Maximum i == (scale_max - 1) * 3 -- and have p10 upto and
+           * including scale_max * 3.
+           */
+          if      ((ulong)val < p10[i + 1])
+            d = 3 ;
+          else if ((ulong)val < p10[i + 2])
+            d = 2 ;
+          else if ((ulong)val < p10[i + 3])
+            d = 1 ;
+          else
+            d = 0 ;
+
+          /* Scale down to required number of decimals and round.
+           *
+           * If is thousands, then i = 3, if value = 10,000 (smallest possible)
+           * then d == 2.  So divide by 5 (q10[3 - 2]) to make ls bit the
+           * rounding bit, add one and shift off the rounding bit.
+           *
+           * The result should be 1000..9999, unless value is greater than our
+           * ability to scale, or has rounded up one decade.
+           */
+          val = ((val / q10[i - d]) + 1) >> 1 ;
+
+          qassert(val >= 1000) ;
+
+          if (val > 9999)
+            {
+              if (d == 0)
+                {
+                  if (i < (scale_max * 3))
+                    {
+                      qassert(val == 10000) ;
+
+                      val = 1000 ;
+                      d   = 2 ;
+                      i  += 3 ;
+                    } ;
+                }
+              else
+                {
+                  qassert(val == 10000) ;
+
+                  val = 1000 ;
+                  d  -= 1 ;
+                } ;
+            } ;
+
+          r = ldiv(val, p10[d]) ;
+        } ;
+
+      qfs_form_scaled(qfs, r.quot * s, r.rem, d, scale_d_tags[i / 3], flags) ;
+    } ;
+
+  qfs_term(qfs) ;
+
+  return num ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Form value scaled to 4 significant digits, or as simple decimal.
+ *
+ * When scaling, scale by powers of 1,024, to produce:
+ *
+ *    0..999                as simple 1, 2 or 3 digits, followed by "   "
+ *    1,000..9,999          as 4 digits with comma, followed by "   "
+ *
+ *    10,000..99,994        as 99.99KiB -- rounded
+ *    99,995..999,949       as 999.9KiB-- rounded
+ *    999,950..9,999,499    as 9,999KiB-- rounded
+ *
+ *    thereafter, as for 'KiB', but with 'MiB', 'GiB', etc.
+ *
+ * When not scaling, produce simple decimal with no trailing space.
+ *
+ * In any case, produce a leading sign if required.
+ *
+ * Accepts the following pf_xxx flags:
+ *
+ *   pf_scale    -- scale as above (if not, no scaling)
+ *   pf_trailing -- include blank scale for units
+ *   pf_commas   -- format with commas -- implied if pf_scale
+ *   pf_plus     -- add '+' sign if not -ve
+ *   pf_space    -- add ' ' "sign" if not -ve
+ */
+extern qfs_num_str_t
+qfs_bin_value(long val, enum pf_flags flags)
+{
+  qfs_num_str_t num ;
+  qf_str_t qfs ;
+
+  qfs_init(qfs, num.str, sizeof(num.str)) ;
+
+  flags &= (pf_commas | pf_plus | pf_space | pf_scale | pf_trailing) ;
+
+  if ((flags & pf_scale) == 0)
+    {
+      qfs_signed(qfs, val, flags & ~pf_trailing, 0, 0) ;
+    }
+  else
+    {
+      int s ;
+
+      ulong v ;
+      uint i, d, f ;
+
+      i = 0 ;
+      d = 0 ;
+      f = 0 ;
+
+      if (val >= 0)
+        s = +1 ;
+      else
+        {
+          s = -1 ;
+          val = -val ;
+        } ;
+
+      v = val ;
+      while ((v >= 1024) && (i < scale_max))
+        {
+          v >>= 10 ;            /* find power of 1024 scale     */
+          i += 1 ;
+        } ;
+
+      if (i > 0)
+        {
+          ulong e ;
+          int   is ;
+
+          if      (v < 10)
+            d = 3 ;             /* number of decimals expected  */
+          else if (v < 100)
+            d = 2 ;
+          else if (v < 1000)
+            d = 1 ;
+          else
+            d = 0 ;             /* should be already            */
+
+          /* Scale up to the required number of decimals, shift down so that
+           * only ms bit of fraction is left, round and shift off rounding bit.
+           *
+           * If d != 0, then will scale up by 10, 100 or 1000.  If the value is
+           * greater than ULONG_MAX / 1024, then we do the bottom 10 bits
+           * separately, and scale the calculation down by 10 bits.
+           */
+          v = val ;             /* operate on unsigned v        */
+
+          e  = 0 ;              /* assume no extra bits         */
+          is = i * 10 ;         /* the shift down               */
+
+          if ((d != 0) && (v > (ULONG_MAX >> 10)))
+            {
+              e = (v & 0x3FF) * p10[d] ;        /* take bottom 10 bits  */
+              e >>= 10 ;        /* discard 10 bits of extra part        */
+              v >>= 10 ;        /* scale down value                     */
+              is -= 10 ;        /* reduce shift                         */
+            } ;
+
+          v = ((((v * p10[d]) + e) >> (is - 1)) + 1) >> 1 ;
+
+//        qassert(v >= 1000) ;
+
+          if (d == 0)
+            {
+              if ((v == 1024) && (i < scale_max))
+                {
+                  v  = 1000 ;       /* rounded up to next power of 1024     */
+                  d  = 3 ;
+                  i += 1 ;
+                }
+            }
+          else
+            {
+              if (v >= 10000)
+                {
+//                qassert(v == 10000) ;
+
+                  v  = 1000 ;       /* rounded up to one less decimals      */
+                  d -= 1 ;
+                } ;
+            } ;
+
+          val = v / p10[d] ;
+          f   = v % p10[d] ;
+       } ;
+
+      qfs_form_scaled(qfs, val * s, f, d, scale_d_tags[i / 3], flags) ;
+    } ;
+
+  qfs_term(qfs) ;
+
+  return num ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Form a time period value.
+ *
+ *    +/-999d99h99m99h99.999s
+ *
+ * Accepts the following pf_xxx flags:
+ *
+ *   pf_commas   -- format with commas (very unlikely !)
+ *   pf_plus     -- add '+' sign if not -ve
+ *   pf_space    -- add ' ' "sign" if not -ve
+ */
+extern qfs_num_str_t
+qfs_time_period(qtime_t val, enum pf_flags flags)
+{
+  qfs_num_str_t num ;
+  qf_str_t qfs ;
+  int s ;
+  int w ;
+
+  qfs_init(qfs, num.str, sizeof(num.str)) ;
+
+  flags &= (pf_commas | pf_plus | pf_space) ;
+
+  if (val >= 0)
+    s = +1 ;
+  else
+    {
+      s = -1 ;
+      val = -val ;
+    } ;
+
+  /* Round value to milli seconds
+   */
+  val = (val + (QTIME_SECOND / 2000)) / (QTIME_SECOND / 1000) ;
+
+  w = 0 ;
+
+  if (val >= (2 * 24 * 60 * 60 * 1000))
+    {
+      qfs_signed(qfs, (val / (24 * 60 * 60 * 1000)) * s, flags, w, w) ;
+      qfs_append_ch(qfs, 'd') ;
+
+      val %= (24 * 60 * 60 * 1000) ;
+      s = 1 ;
+      flags = pf_zeros ;
+      w = 2 ;
+    } ;
+
+  if ((val >= (2 * 60 * 60 * 1000)) || (w > 0))
+    {
+      qfs_signed(qfs, (val / (60 * 60 * 1000)) * s, flags, w, w) ;
+      qfs_append_ch(qfs, 'h') ;
+
+      val %= (60 * 60 * 1000) ;
+      s = 1 ;
+      flags = pf_zeros ;
+      w = 2 ;
+    } ;
+
+  if ((val >= (2 * 60 * 1000)) || (w > 0))
+    {
+      qfs_signed(qfs, (val / (60 * 1000)) * s, flags, w, w) ;
+      qfs_append_ch(qfs, 'm') ;
+
+      val %= (60 * 1000) ;
+      s = 1 ;
+      flags = pf_zeros ;
+      w = 2 ;
+    } ;
+
+  qfs_signed(qfs, (val / 1000) * s, flags, w, w) ;
+  qfs_append_ch(qfs, '.') ;
+  qfs_unsigned(qfs, val % 1000, pf_zeros, 3, 3) ;
+  qfs_append_ch(qfs, 's') ;
+
+  qfs_term(qfs) ;
+
+  return num ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Form string for number, with commas and "d" decimal digits, followed by
+ * the given tag -- where d = 0..4
+ *
+ * So: val=1234567, d=2, tag="k" -> "12,345.67k".
+ *     val=1234,    d=0, tag=""  -> "1,234"
+ */
+static void
+qfs_form_scaled(qf_str qfs, long v, uint f, uint d, const char* tag,
+                                                            enum pf_flags flags)
+{
+  if (d == 0)
+    qfs_signed(qfs, v, flags | pf_commas, 0, 0) ;
+  else
+    {
+      qfs_signed(qfs, v, flags, 0, 0) ;
+      qfs_append_ch(qfs, '.') ;
+      qfs_unsigned(qfs, f, pf_zeros, d, 0) ;
+    } ;
+
+  if ((*tag != ' ') || ((flags & pf_trailing) != 0))
+    qfs_append(qfs, tag) ;
+} ;
+
+

@@ -396,7 +396,7 @@ zclient_start (struct zclient *zclient)
     return 0;
 
   /* Check timer */
-  if (zclient->qtr && zclient->qtr->active)
+  if (qtimer_is_active(zclient->qtr))
     return 0;
 
   /* Make socket. */
@@ -1169,11 +1169,11 @@ zclient_event_r (enum event event, struct zclient *zclient)
   switch (event)
     {
     case ZLOOKUP_SCHEDULE:
-      if (!zclient->qtr->active)
+      if (!qtimer_is_active(zclient->qtr))
         qtimer_set(zclient->qtr, qt_get_monotonic(), zlookup_connect_r) ;
       break;
     case ZCLIENT_SCHEDULE:
-      if (!zclient->qtr->active)
+      if (!qtimer_is_active(zclient->qtr))
         qtimer_set(zclient->qtr, qt_get_monotonic(), zclient_connect_r) ;
       break;
     case ZCLIENT_CONNECT:
@@ -1182,7 +1182,7 @@ zclient_event_r (enum event event, struct zclient *zclient)
       if (zclient_debug)
 	zlog_debug ("zclient connect schedule interval is %d",
 		   zclient->fail < 3 ? 10 : 60);
-      if (!zclient->qtr->active)
+      if (!qtimer_is_active(zclient->qtr))
         qtimer_set(zclient->qtr,
           qt_add_monotonic(QTIME(zclient->fail < 3 ? 10 : 60)), zclient_connect_r) ;
       break;

@@ -73,18 +73,22 @@ qpn_self_knowledge(qpn_nexus qpn)
  * Returns the qpn_nexus.
  */
 extern qpn_nexus
-qpn_init_new(qpn_nexus qpn, bool main_thread)
+qpn_init_new(qpn_nexus qpn, bool main_thread, const char* name)
 {
   if (qpn == NULL)
     qpn = XCALLOC(MTYPE_QPN_NEXUS, sizeof(struct qpn_nexus)) ;
   else
     memset(qpn, 0,  sizeof(struct qpn_nexus)) ;
 
+  qpn->name        = name ;
+
   qpn->selection   = qps_selection_init_new(qpn->selection);
   qpn->pile        = qtimer_pile_init_new(qpn->pile);
   qpn->queue       = mqueue_init_new(qpn->queue, mqt_signal_unicast);
   qpn->main_thread = main_thread;
   qpn->start       = qpn_start;
+
+  qpt_spin_init(qpn->stats_slk) ;
 
   if (main_thread)
     {
@@ -187,6 +191,7 @@ qpn_exec(qpn_nexus qpn)
  *
  *   6) Timers -- qtimers
  *
+ *   7) Low priority pending work
  */
 static void*
 qpn_start(void* arg)
@@ -198,7 +203,8 @@ qpn_start(void* arg)
   qtime_t      max_wait ;
   unsigned i;
   unsigned done ;
-  unsigned wait ;
+  unsigned prev ;
+  bool     wait ;
 
   /* now in our thread, complete initialisation                         */
   qpn_in_thread_init(qpn);
@@ -208,25 +214,40 @@ qpn_start(void* arg)
     ((qpn_init_function*)(qpn->in_thread_init.hooks[i++]))() ;
 
   /* Until required to terminate, loop                                  */
+  prev = 1 ;
   done = 1 ;
   while (!qpn->terminate)
     {
+      ++qpn->raw.cycles ;
+
       /* Signals are highest priority -- only execute for main thread   */
       if (qpn->main_thread)
-        done |= quagga_sigevent_process() ;
+        {
+          int ret = quagga_sigevent_process() ;
+          if (ret != 0)
+            {
+              ++done ;                  /* count each signal            */
+              ++qpn->raw.signals ;
+            } ;
+        } ;
 
       /* Foreground hooks, if any.                                      */
-      for (i = 0; i < qpn->foreground.count ;)
-        done |= ((qpn_hook_function*)(qpn->foreground.hooks[i++]))() ;
+      for (i = 0; i < qpn->foreground.count ; ++i)
+        {
+          int ret = ((qpn_hook_function*)(qpn->foreground.hooks[i]))() ;
+          if (ret != 0)
+            {
+              ++done ;                  /* count each foreground action */
+              ++qpn->raw.foreg ;
+            } ;
+        } ;
 
       /* take stuff from the message queue
        *
-       * If nothing done the last time around the loop then may wait this
-       * time if the queue is empty first time through.
+       * If nothing done this time and last time around the loop then will
+       * arrange to wait iff the queue is empty first time through.
        */
-      wait = (done == 0) ;      /* may wait this time only if nothing
-                                   found to do on the last pass         */
-      done = 0 ;
+      wait = ((prev == 0) && (done == 0)) ;
       do
         {
           mqb = mqueue_dequeue(qpn->queue, wait, qpn->mts) ;
@@ -235,39 +256,87 @@ qpn_start(void* arg)
 
           mqb_dispatch(mqb, mqb_action);
 
-          ++done ;              /* done another                         */
-          wait = 0 ;            /* done something, so turn off wait     */
+          wait = false ;
+          ++done ;
         } while (done < 200) ;
+
+      qpn->raw.dispatch += done ;
 
       /* block for some input, output, signal or timeout
        *
-       * wait will be true iff did nothing the last time round the loop, and
-       * not found anything to be done up to this point either.
+       * wait will be true iff found nothing to do this and last time round the
+       * loop.
        */
+      now = qt_get_monotonic() ;
+
       if (wait)
-        max_wait = qtimer_pile_top_wait(qpn->pile, QTIME(MAX_PSELECT_WAIT)) ;
+        max_wait = qtimer_pile_top_wait(qpn->pile, QTIME(MAX_PSELECT_WAIT),
+                                                                          now) ;
       else
         max_wait = 0 ;
 
-      actions = qps_pselect(qpn->selection, max_wait) ;
-      done |= actions ;
+      /* We are about to do a pselect, which may wait.  Now is the time to
+       * set the "raw" current time, and publish the stats.
+       */
+      qpn->raw.last_time = now ;
+
+      qpt_spin_lock(qpn->stats_slk) ;
+      qpn->stats = qpn->raw ;
+      qpt_spin_unlock(qpn->stats_slk) ;
+
+      /* Do pselect, which may now wait
+       *
+       * After pselect, if is "wait", then will have set the message queue
+       * waiting, which can now be cleared.  Also, any time since
+       * "raw.last_time" must be counted as idle time.
+       *
+       * Remember current "done" as "prev", and set done 0 or 1, depending on
+       * I/O action count -- processing I/O actions and/or timers is counted as
+       * a single activity.
+       */
+      do
+        actions = qps_pselect(qpn->selection, max_wait) ;
+      while (actions < 0) ;
+
+      now = qt_get_monotonic() ;
 
       if (wait)
-        mqueue_done_waiting(qpn->queue, qpn->mts);
+        {
+          qpn->raw.idle += now - qpn->raw.last_time ;
 
-      /* process I/O actions                                            */
+          mqueue_done_waiting(qpn->queue, qpn->mts) ;
+        } ;
+
+      prev = done ;
+      done = (actions != 0) ? 1 : 0 ;
+      qpn->raw.io_acts += actions ;
+
       while (actions)
         actions = qps_dispatch_next(qpn->selection) ;
 
-      /* process timers                                                 */
-      now = qt_get_monotonic() ;
+      /* process timers -- also counts as one activity
+       */
       while (qtimer_pile_dispatch_next(qpn->pile, now))
-        done = 1 ;
+        {
+          ++qpn->raw.timers ;
+          done = 1 ;                    /* Done something in this pass  */
+        } ;
 
-      /* If nothing done in this pass, see if anything in the background */
-      if (done == 0)
-        for (i = 0; i < qpn->background.count ; ++i)
-          done |= ((qpn_hook_function*)(qpn->background.hooks[i]))() ;
+      /* If nothing done so far in this pass, and nothing in the previous,
+       * see if anything in the background
+       */
+      if ((prev == 0) && (done == 0))
+        {
+          for (i = 0; i < qpn->background.count ; ++i)
+            {
+              int ret = ((qpn_hook_function*)(qpn->background.hooks[i]))() ;
+              if (ret != 0)
+                {
+                  ++done ;
+                  ++qpn->raw.backg ;
+                } ;
+            } ;
+        } ;
     } ;
 
   /* custom in-thread finalization                                      */
@@ -284,6 +353,14 @@ static void
 qpn_in_thread_init(qpn_nexus qpn)
 {
   sigset_t sigmask[1];
+
+  memset(&qpn->raw, 0, sizeof(qpn_stats_t)) ;
+  qpn->raw.start_time = qt_get_monotonic() ;
+  qpn->raw.last_time  = qpn->raw.start_time ;
+
+  qpt_spin_lock(qpn->stats_slk) ;
+  qpn->prev_stats = qpn->stats = qpn->raw ;
+  qpt_spin_unlock(qpn->stats_slk) ;
 
   qpn->thread_id = qpt_thread_self();
   qpn_self_knowledge(qpn) ;
@@ -332,4 +409,22 @@ qpn_terminate(qpn_nexus qpn)
       if (qpthreads_enabled)
         qpt_thread_signal(qpn->thread_id, SIG_INTERRUPT);
     } ;
-}
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get a copy of the current stats for the given nexus.
+ *
+ * This copies the stats to the "prev_stats" area in the nexus.
+ */
+extern void
+qpn_get_stats(qpn_nexus qpn, qpn_stats curr, qpn_stats prev)
+{
+  qpt_spin_lock(qpn->stats_slk) ;
+
+  *prev = qpn->prev_stats ;
+  *curr = qpn->stats ;
+
+  qpn->prev_stats = qpn->stats ;
+
+  qpt_spin_unlock(qpn->stats_slk) ;
+} ;

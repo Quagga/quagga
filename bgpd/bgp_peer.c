@@ -35,7 +35,6 @@
 #include "bgpd/bgp_packet.h"
 #include "bgpd/bgp_network.h"
 #include "bgpd/bgp_route.h"
-#include "bgpd/bgp_dump.h"
 #include "bgpd/bgp_open.h"
 #include "bgpd/bgp_advertise.h"
 
@@ -1595,7 +1594,8 @@ bgp_peer_clearing_completed(struct peer *peer)
 /*------------------------------------------------------------------------------
  * Set new peer state.
  *
- * If state changes, do dump new state and log state change if required.
+ * If state changes log state change if required and deal with dropping back to
+ * pIdle.
  *
  * In any case, set timers for the new state -- so if state hasn't changed,
  * will restart those timers.
@@ -1605,8 +1605,6 @@ bgp_peer_change_status (bgp_peer peer, bgp_peer_state_t new_state)
 {
   if (peer->state != new_state)
     {
-      bgp_dump_state (peer, peer->state, new_state);
-
       /* Preserve old status and change into new status. */
       peer->ostate = peer->state ;
       peer->state  = new_state ;

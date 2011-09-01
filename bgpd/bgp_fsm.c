@@ -32,6 +32,7 @@
 #include "bgpd/bgp_fsm.h"
 #include "bgpd/bgp_msg_write.h"
 #include "bgpd/bgp_msg_read.h"
+#include "bgpd/bgp_dump.h"
 
 #include "lib/qtimers.h"
 #include "lib/sockunion.h"
@@ -2326,8 +2327,12 @@ static void
 bgp_fsm_state_change(bgp_connection connection, bgp_fsm_state_t new_state)
 {
   bgp_connection sibling ;
-  unsigned  interval ;
+  uint interval ;
+
   bgp_session    session = connection->session ;
+
+  if (bgp_dump_state_flag)
+    bgp_dump_state(connection, new_state) ;
 
   switch (new_state)
     {

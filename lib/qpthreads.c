@@ -72,17 +72,21 @@
  *
  *   * qpt_mutex_init_new
  *   * qpt_cond_init_new
+ *   * qpt_splin_init_new
  *
  * This allows the application to decide as late as possible (but no later)
- * whether to enable pthreads.  If a mutex or a condition variable has been
- * initialised before the application gets around to enabling qpthreads, that
- * will be trapped when qpthreads is finally enabled.
+ * whether to enable pthreads.  If a mutex, condition variable or spin lock has
+ * been initialised before the application gets around to enabling qpthreads,
+ * that will be trapped when qpthreads is finally enabled.
  *
  * Pthread Requirements
  * ====================
  *
- * This is assuming support for 1003.1-2004 -- XOPEN Issue 6, with [THR] and
- * [XSI] options.
+ * This is assuming support for 1003.1-2004 -- XOPEN Issue 6, with [THR], [SPI]
+ * and [XSI] options.
+ *
+ * In 1003.1-2008, XOPEN issue 7, [THR], [SPI] and pthread_mutexattr_settype()
+ * have been moved to Base.
  *
  * The [XSI] is required for pthread_mutexattr_settype(), only.
  *
@@ -117,12 +121,7 @@
  *   pthread_rwlockattr_init()/_destroy()                 [THR]      pro tem
  *   pthread_rwlockattr_getpshared()/_setpshared()        [TSH]
  *
- *   pthread_spin_xxx()                                   [SPI]
- *
  * [CS] (Clock Select) is assumed if HAVE_CLOCK_MONOTONIC.
- *
- * In 1003.1-2008, XOPEN issue 7, [THR] and pthread_mutexattr_settype() have
- * been moved to Base.
  *
  * NB: it is essential that pthread_kill() delivers the signal to the target
  *     thread only -- ie, it must be POSIX compliant.  That rules out the old
@@ -616,9 +615,9 @@ qpt_mutex_destroy(qpt_mutex mx, int free_mutex)
  *   qpt_cond_realtime   -- force CLOCK_REALTIME
  *   qpt_cond_monotonic  -- force CLOCK_MONOTONIC  (if available)
  *
- * NB: FATAL error to attempt this is !qptthreads_enabled.
+ * NB: FATAL error to attempt this if !qptthreads_enabled.
  *
- * Returns the condition variable -- or original cv id !qpthreads_enabled.
+ * Returns the condition variable -- or original cv if !qpthreads_enabled.
  */
 extern qpt_cond
 qpt_cond_init_new(qpt_cond cv, enum qpt_cond_options opts)
@@ -729,6 +728,49 @@ qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t timeout_time)
     }
   else
     return 0 ;
+} ;
+
+/*==============================================================================
+ * Spinlock initialise and destroy.
+ */
+
+/* Initialise Spinlock -- NB: no allocation option
+ *
+ * Does nothing if !qpthreads_enabled -- but freezes the state.
+ */
+extern void
+qpt_spin_init(qpt_spin slk)
+{
+  int err ;
+
+  if (!qpthreads_enabled_freeze)
+    return ;
+
+  enum {
+#ifndef PTHREAD_PROCESS_PRIVATE
+    pthread_process_private = 0
+#else
+    pthread_process_private = PTHREAD_PROCESS_PRIVATE
+#endif
+  } ;
+
+  err = pthread_spin_init(slk, pthread_process_private) ;
+  if (err != 0)
+    zabort_err("pthread_spin_init failed", err) ;
+} ;
+
+/* Destroy given spin lock -- NB: no free option
+ *                                       -- or do nothing if !qpthreads_enabled.
+ */
+extern void
+qpt_spin_destroy(qpt_spin slk)
+{
+  if (qpthreads_enabled)
+    {
+      int err = pthread_spin_destroy(slk) ;
+      if (err != 0)
+        zabort_err("pthread_spin_destroy failed", err) ;
+    } ;
 } ;
 
 /*==============================================================================

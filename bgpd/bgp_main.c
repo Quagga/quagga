@@ -38,6 +38,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "plist.h"
 #include "qpnexus.h"
 #include "qlib_init.h"
+#include "qfstring.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_attr.h"
@@ -194,6 +195,7 @@ static void sighup_action(mqueue_block mqb, mqb_flag_t flag);
 static void sighup_enqueue(void);
 static void sigterm_action(mqueue_block mqb, mqb_flag_t flag);
 static void sigterm_enqueue(void);
+static void bgp_show_nexus_init(void) ;
 
 static struct quagga_signal_t bgp_signals[] =
 {
@@ -267,7 +269,7 @@ sigusr1 (void)
  * For example, "retain_mode" may be set.
  *
  * Note that by the time reach here, only the main (CLI) thread is running,
- *
+ * so may release things that belong to any thread !
  */
 static void
 bgp_exit (int status)
@@ -421,13 +423,15 @@ init_second_stage(bool pthreads)
   bgp_peer_index_mutex_init();
 
   /* Make nexus for main thread, always needed */
-  cli_nexus = qpn_init_new(cli_nexus, true);    /* main thread          */
+  cli_nexus = qpn_init_new(cli_nexus, 1,                /* main thread  */
+                         qpthreads_enabled ? "CLI thread"
+                                           : "bgpd (no threads)");
 
   /* if using pthreads create additional nexus */
   if (qpthreads_enabled)
     {
-      bgp_nexus     = qpn_init_new(bgp_nexus,     false);
-      routing_nexus = qpn_init_new(routing_nexus, false);
+      bgp_nexus     = qpn_init_new(bgp_nexus, 0, "BGP Engine thread");
+      routing_nexus = qpn_init_new(routing_nexus, 0, "Routing Engine thread");
     }
   else
     {
@@ -465,6 +469,8 @@ init_second_stage(bool pthreads)
   /* Now we have our nexus we can init BGP. */
   /* BGP related initialization.  */
   bgp_init ();
+
+  bgp_show_nexus_init() ;
 
   /* Sort CLI commands. */
   sort_node ();
@@ -807,4 +813,105 @@ sigterm_action(mqueue_block mqb, mqb_flag_t flag)
 
   mqb_free(mqb);
 } ;
+
+/*==============================================================================
+ * CLI for showing what nexuses are up to
+ */
+static void bgp_do_show_nexus(struct vty* vty, qpn_nexus qpn) ;
+
+DEFUN_CALL(bgp_show_nexus,
+      bgp_show_nexus_cmd,
+      "show nexus (all|cli|routing|bgp)",
+      SHOW_STR
+      "For nexus activity\n"
+      "all nexuses\n"
+      "CLI nexus\n"
+      "Routing Engine\n"
+      "BGP Engine\n")
+{
+  if ((*(argv[0]) == 'a') && qpthreads_enabled)
+    {
+      bgp_do_show_nexus(vty, cli_nexus) ;
+      bgp_do_show_nexus(vty, bgp_nexus) ;
+      bgp_do_show_nexus(vty, routing_nexus) ;
+    }
+  else
+    {
+      qpn_nexus qpn = cli_nexus ;
+
+      if (qpthreads_enabled)
+        {
+          if (*(argv[0]) == 'r')
+            qpn = routing_nexus ;
+          else if (*(argv[0]) == 'b')
+            qpn = bgp_nexus ;
+        } ;
+
+      bgp_do_show_nexus(vty, qpn) ;
+    } ;
+
+  return CMD_SUCCESS ;
+} ;
+
+static void
+bgp_show_nexus_init(void)
+{
+  install_element (VIEW_NODE, &bgp_show_nexus_cmd);
+  install_element (ENABLE_NODE, &bgp_show_nexus_cmd);
+} ;
+
+static void
+bgp_do_show_nexus(struct vty* vty, qpn_nexus qpn)
+{
+  qpn_stats_t prev ;
+  qpn_stats_t curr ;
+
+  qtime_t  now ;
+  qtime_t  delta ;
+  qtime_t  idle_delta ;
+
+  qpn_get_stats(qpn, &curr, &prev) ;
+  now = qt_get_monotonic() ;
+
+  delta = curr.last_time - prev.last_time ;
+  idle_delta = curr.idle - prev.idle ;
+
+  vty_out(vty, "%s updated %s ago: %s(%s/%s) cycles\n",
+          qpn->name,
+          qfs_time_period(curr.last_time - now, 0).str,
+          qfs_dec_value(curr.cycles, pf_scale).str,
+          qfs_dec_value(curr.cycles - prev.cycles, pf_scale | pf_plus).str,
+          qfs_time_period(delta, pf_plus).str) ;
+
+  vty_out(vty, "  %s(%s) active  %s(%s) idle\n",
+      qfs_time_period((curr.last_time - curr.start_time) - curr.idle, 0).str,
+      qfs_time_period(delta - idle_delta, pf_plus).str,
+      qfs_time_period(curr.idle, 0).str,
+      qfs_time_period(idle_delta, pf_plus).str) ;
+
+  vty_out(vty, "  %s(%s) signals",
+      qfs_dec_value(curr.signals, pf_scale).str,
+      qfs_dec_value(curr.signals - prev.signals, pf_scale | pf_plus).str) ;
+
+  vty_out(vty, "  %s(%s) foreg.",
+      qfs_dec_value(curr.foreg, pf_scale).str,
+      qfs_dec_value(curr.foreg - prev.foreg, pf_scale | pf_plus).str) ;
+
+  vty_out(vty, "  %s(%s) dispatch\n",
+      qfs_dec_value(curr.dispatch, pf_scale).str,
+      qfs_dec_value(curr.dispatch - prev.dispatch, pf_scale | pf_plus).str) ;
+
+  vty_out(vty, "  %s(%s) i/o act.",
+      qfs_dec_value(curr.io_acts, pf_scale).str,
+      qfs_dec_value(curr.io_acts - prev.io_acts, pf_scale | pf_plus).str) ;
+
+  vty_out(vty, "  %s(%s) timers",
+      qfs_dec_value(curr.timers, pf_scale).str,
+      qfs_dec_value(curr.timers - prev.timers, pf_scale | pf_plus).str) ;
+
+  vty_out(vty, "  %s(%s) backg.\n",
+      qfs_dec_value(curr.backg, pf_scale).str,
+      qfs_dec_value(curr.backg - prev.backg, pf_scale | pf_plus).str) ;
+} ;
+
 

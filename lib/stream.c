@@ -928,7 +928,6 @@ stream_recvmsg (struct stream *s, int fd, struct msghdr *msgh, int flags,
 size_t
 stream_write (struct stream *s, const void *ptr, size_t size)
 {
-
   CHECK_SIZE(s, size);
 
   STREAM_VERIFY_SANE(s);

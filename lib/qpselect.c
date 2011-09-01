@@ -136,11 +136,11 @@ static short fd_byte_count[FD_SETSIZE] ;    /* number of bytes for fds 0..fd */
 /* Forward references   */
 static void qps_make_super_set_map(void) ;
 static void qps_selection_re_init(qps_selection qps) ;
-static qps_file qps_file_lookup_fd(qps_selection qps, int fd, qps_file insert) ;
+static qps_file qps_file_lookup_fd(qps_selection qps, fd_t fd, qps_file insert);
 static void qps_file_remove(qps_selection qps, qps_file qf) ;
 static void qps_super_set_zero(fd_super_set* p_set, int n) ;
 static int qps_super_set_cmp(fd_super_set* p_a, fd_super_set* p_b, int n) ;
-static int qps_next_fd_pending(fd_super_set* pending, int fd, int fd_last) ;
+static int qps_next_fd_pending(fd_super_set* pending, fd_t fd, fd_t fd_last) ;
 static void qps_selection_validate(qps_selection qps) ;
 
 /*------------------------------------------------------------------------------
@@ -164,7 +164,7 @@ qps_start_up(void)
  *     is the caller's responsibility to have dealt with its contents before
  *     calling this.
  */
-qps_selection
+extern qps_selection
 qps_selection_init_new(qps_selection qps)
 {
   if (qps == NULL)
@@ -209,7 +209,7 @@ qps_selection_re_init(qps_selection qps)
    *
    * So nothing much else to do:
    */
-  qps->fd_last = -1 ;   /* not an fd in sight.  */
+  qps->fd_last = fd_undef ;     /* not an fd in sight.  */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -222,8 +222,8 @@ qps_selection_re_init(qps_selection qps)
  *
  * Adding a file which is already a member a selection is a FATAL error.
  */
-void
-qps_add_file(qps_selection qps, qps_file qf, int fd, void* file_info)
+extern void
+qps_add_file(qps_selection qps, qps_file qf, fd_t fd, void* file_info)
 {
   passert(qf->selection == NULL) ;
 
@@ -245,7 +245,7 @@ qps_add_file(qps_selection qps, qps_file qf, int fd, void* file_info)
  *
  * When the file is removed it is disabled in all modes.
  */
-void
+extern void
 qps_remove_file(qps_file qf)
 {
   if (qf->selection != NULL)
@@ -274,7 +274,7 @@ qps_remove_file(qps_file qf)
  * NB: once reaming has started, the selection MUST NOT be used for anything,
  *     and the process MUST be run to completion.
  */
-qps_file
+extern qps_file
 qps_selection_ream(qps_selection qps, int free_structure)
 {
   qps_file qf ;
@@ -326,7 +326,7 @@ qps_set_signal(qps_selection qps, const sigset_t* sigmask)
  *
  * The qps_dispatch_next() processes the returns from pselect().
  */
-int
+extern int
 qps_pselect(qps_selection qps, qtime_t max_wait)
 {
   struct timespec ts ;
@@ -423,10 +423,10 @@ qps_pselect(qps_selection qps, qtime_t max_wait)
  *     result bit vectors should be zeroised again.  Also, this allows the
  *     search to proceed from the last known fd -- won't find it again !
  */
-int
+extern int
 qps_dispatch_next(qps_selection qps)
 {
-  int        fd ;
+  fd_t       fd ;
   qps_file   qf ;
   qps_mnum_t mnum ;
 
@@ -489,7 +489,7 @@ qps_dispatch_next(qps_selection qps)
  *
  * Returns the qps_file.
  */
-qps_file
+extern qps_file
 qps_file_init_new(qps_file qf, qps_file template)
 {
   if (qf == NULL)
@@ -534,7 +534,7 @@ qps_file_free(qps_file qf)
       if (qf->selection != NULL)
         qps_remove_file(qf) ;
 
-      if (qf->fd >= 0)
+      if (qf->fd >= fd_first)
         {
           close(qf->fd) ;
           qf->fd = fd_undef ;
@@ -556,7 +556,7 @@ qps_file_free(qps_file qf)
  * NB: It is a FATAL error to enable modes for a file which is not in a
  *     selection.
  */
-void
+extern void
 qps_enable_mode(qps_file qf, qps_mnum_t mnum, qps_action* action)
 {
   qps_mbit_t    mbit = qps_mbit(mnum) ;
@@ -590,7 +590,7 @@ qps_enable_mode(qps_file qf, qps_mnum_t mnum, qps_action* action)
  *
  * NB: it is a fatal error to unset an action for a mode which is enabled.
  */
-void
+extern void
 qps_set_action(qps_file qf, qps_mnum_t mnum, qps_action* action)
 {
   dassert((mnum >= 0) && (mnum <= qps_mnum_count)) ;
@@ -628,7 +628,7 @@ static qps_mnum_t qps_first_mnum[qps_mbit(qps_mnum_count)] =
 
 CONFIRM(qps_mbit(qps_mnum_count) == 8) ;
 
-void
+extern void
 qps_disable_modes(qps_file qf, qps_mbit_t mbits)
 {
   qps_mnum_t  mnum ;
@@ -695,7 +695,7 @@ qps_fd_cmp(const int** pp_fd, const qps_file* p_qf)
  * NB: FATAL error to insert file with same fd as an existing one.
  */
 static qps_file
-qps_file_lookup_fd(qps_selection qps, int fd, qps_file insert)
+qps_file_lookup_fd(qps_selection qps, fd_t fd, qps_file insert)
 {
   qps_file qf ;
   vector_index_t i ;
@@ -773,7 +773,7 @@ static void
 qps_file_remove(qps_selection qps, qps_file qf)
 {
   qps_file qfd ;
-  int   fd_last ;
+  fd_t     fd_last ;
 
   passert((qf->fd >= 0) && (qf->fd <= qps->fd_last) && (qps == qf->selection)) ;
 
@@ -917,13 +917,13 @@ CONFIRM((qps_cc_bit_ord  == 70) || (qps_cc_bit_ord  == 7)) ;
 /* Functions required for the cross check.                              */
 
 static inline int
-qpd_cc_word(int fd)
+qpd_cc_word(fd_t fd)
 {
   return fd / qps_cc_word_bits ;
 } ;
 
 static inline int
-qps_cc_byte(int fd)
+qps_cc_byte(fd_t fd)
 {
   if (qps_cc_byte_ord == 10)
     return (qpd_cc_word(fd) * qps_cc_word_bytes)
@@ -933,7 +933,7 @@ qps_cc_byte(int fd)
 } ;
 
 static inline uint8_t
-qps_cc_bit(int fd)
+qps_cc_bit(fd_t fd)
 {
   if (qps_cc_bit_ord == 70)
     return 0x01 << (fd & 0x7) ;
@@ -942,7 +942,7 @@ qps_cc_bit(int fd)
 } ;
 
 static int
-ccFD_ISSET(int fd, fd_set* set)
+ccFD_ISSET(fd_t fd, fd_set* set)
 {
   return (*((uint8_t*)set + qps_cc_byte(fd)) & qps_cc_bit(fd)) != 0 ;
 } ;
@@ -955,7 +955,7 @@ ccFD_ISSET(int fd, fd_set* set)
  * Returns next fd, or -1 if none.
  */
 static int
-qps_next_fd_pending(fd_super_set* pending, int fd, int fd_last)
+qps_next_fd_pending(fd_super_set* pending, fd_t fd, fd_t fd_last)
 {
   uint8_t b ;
 
@@ -1001,12 +1001,13 @@ static void
 qps_make_super_set_map(void)
 {
   fd_super_set test ;
-  int fd, i, iw, ib ;
+  fd_t fd ;
+  int i, iw, ib ;
 
   /* (1) check that a zeroised fd_super_set is an empty one.    */
   qps_super_set_zero(&test, 1) ;
 
-  for (fd = 0 ; fd < (int)FD_SETSIZE ; ++fd)
+  for (fd = fd_first ; fd < (int)FD_SETSIZE ; ++fd)
     if (FD_ISSET(fd, &test.fdset))
       zabort("Zeroised fd_super_set is not empty") ;
 
@@ -1018,7 +1019,7 @@ qps_make_super_set_map(void)
 
   /* (3) check that setting one fd sets one bit, and construct the      */
   /*     fd_word_map[], fd_byte_map[] and fd_bit_map[].                 */
-  for (fd = 0 ; fd < (int)FD_SETSIZE ; ++fd)
+  for (fd = fd_first ; fd < (int)FD_SETSIZE ; ++fd)
     {
       fd_word_t w ;
 
@@ -1064,7 +1065,7 @@ qps_make_super_set_map(void)
   /*     make sure that have  8 contiguous fd to a byte.                */
   /*     make sure that have 32 contiguous fd to a word.                */
 
-  for (fd = 0 ; fd < (int)FD_SETSIZE ; fd += 8)
+  for (fd = fd_first ; fd < (int)FD_SETSIZE ; fd += 8)
     {
       int fds ;
       ib  = fd_byte_map[fd] ;
@@ -1121,7 +1122,7 @@ qps_make_super_set_map(void)
   /*     include fds 0..fd.                                             */
 
   i = 0 ;
-  for (fd = 0 ; fd < (int)FD_SETSIZE ; ++fd)
+  for (fd = fd_first ; fd < (int)FD_SETSIZE ; ++fd)
     {
       int c = fd_byte_map[fd] + 1 ;
 
@@ -1140,7 +1141,7 @@ qps_make_super_set_map(void)
    * Checking that the maps have been correctly deduced -- where know what
    * the mapping really is !
    */
-  for (fd = 0 ; fd < (int)FD_SETSIZE ; ++fd)
+  for (fd = fd_first ; fd < (int)FD_SETSIZE ; ++fd)
     {
       uint8_t b ;
       short   c ;
@@ -1290,13 +1291,13 @@ qps_super_set_count(fd_super_set* p_set, int n)
 static void
 qps_selection_validate(qps_selection qps)
 {
-  int   fd_last ;
+  fd_t  fd, fd_last ;
   int   enabled_count[qps_mnum_count] ;
   fd_full_set enabled ;
 
   qps_file       qf ;
-  int            fd, n, mnum, p_mnum ;
-  vector_index_t  i ;
+  int            n, mnum, p_mnum ;
+  vector_index_t i ;
 
   /* 1..4)  Run down the selection vector and check.            */
   /*        Collect new enabled_count and enabled bit vectors.  */

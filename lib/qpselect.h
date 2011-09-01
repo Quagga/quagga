@@ -65,7 +65,12 @@ enum qps_mbits                  /* "mode" bits: error/read/write        */
 typedef enum qps_mbits qps_mbit_t ;
 
 /* "fd_undef" -- used when fd is undefined                              */
-enum { fd_undef = -1 } ;
+typedef enum
+{
+  fd_undef = -1,
+  fd_first = 0,
+  fd_huge  = 8192
+} fd_t ;
 
 /* Forward references   */
 typedef struct qps_selection* qps_selection ;
@@ -148,7 +153,7 @@ struct qps_file
   qps_selection selection ;
 
   void*   file_info ;
-  int     fd ;
+  fd_t    fd ;
 
   qps_mbit_t    enabled_bits ;
 
@@ -158,80 +163,77 @@ struct qps_file
 /*==============================================================================
  * qps_selection handling
  */
-
-extern void
-qps_start_up(void) ;
-
-extern qps_selection
-qps_selection_init_new(qps_selection qps) ;
-
-extern void
-qps_add_file(qps_selection qps, qps_file qf, int fd, void* file_info) ;
-
-extern void
-qps_remove_file(qps_file qf) ;
-
-extern qps_file
-qps_selection_ream(qps_selection qps, int free_structure) ;
+extern void qps_start_up(void) ;
+extern qps_selection qps_selection_init_new(qps_selection qps) ;
+extern void qps_add_file(qps_selection qps, qps_file qf, fd_t fd,
+                                                              void* file_info) ;
+extern void qps_remove_file(qps_file qf) ;
+extern qps_file qps_selection_ream(qps_selection qps, int free_structure) ;
 
 /* Ream out selection and free the selection structure.   */
 #define qps_selection_ream_free(qps) qps_selection_ream(qps, 1)
 /* Ream out selection but keep the selection structure.   */
 #define qps_selection_ream_keep(qps) qps_selection_ream(qps, 0)
 
-extern void
-qps_set_signal(qps_selection qps, const sigset_t* sigmask) ;
-
-extern int
-qps_pselect(qps_selection qps, qtime_mono_t timeout) ;
-
-extern int
-qps_dispatch_next(qps_selection qps) ;
+extern void qps_set_signal(qps_selection qps, const sigset_t* sigmask) ;
+extern int qps_pselect(qps_selection qps, qtime_mono_t timeout) ;
+extern int qps_dispatch_next(qps_selection qps) ;
 
 /*==============================================================================
  * qps_file structure handling
  */
+extern qps_file qps_file_init_new(qps_file qf, qps_file template) ;
+extern qps_file qps_file_free(qps_file qf) ;
+extern void qps_enable_mode(qps_file qf, qps_mnum_t mnum, qps_action* action) ;
+extern void qps_set_action(qps_file qf, qps_mnum_t mnum, qps_action* action) ;
+extern void qps_disable_modes(qps_file qf, qps_mbit_t mbits) ;
 
-extern qps_file
-qps_file_init_new(qps_file qf, qps_file template) ;
+Inline void* qps_file_info(qps_file qf) ;
+Inline fd_t qps_file_fd(qps_file qf) ;
+Inline fd_t qps_file_unset_fd(qps_file qf) ;
+Inline void qps_set_file_info(qps_file qf, void* info) ;
 
-extern qps_file
-qps_file_free(qps_file qf) ;
+/*==============================================================================
+ * Inline functions
+ */
 
-extern void
-qps_enable_mode(qps_file qf, qps_mnum_t mnum, qps_action* action) ;
-
-extern void
-qps_set_action(qps_file qf, qps_mnum_t mnum, qps_action* action) ;
-
-extern void
-qps_disable_modes(qps_file qf, qps_mbit_t mbits) ;
-
+/*------------------------------------------------------------------------------
+ * Get the "file_info"
+ */
 Inline void*
 qps_file_info(qps_file qf)
 {
   return qf->file_info ;
 } ;
 
-Inline int
+/*------------------------------------------------------------------------------
+ * Set the "file_info"
+ */
+Inline void
+qps_set_file_info(qps_file qf, void* info)
+{
+  qf->file_info = info ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the "fd"
+ */
+Inline fd_t
 qps_file_fd(qps_file qf)
 {
   return qf->fd ;
 } ;
 
-Inline int
+/*------------------------------------------------------------------------------
+ * Unset the "fd" and return previous value
+ */
+Inline fd_t
 qps_file_unset_fd(qps_file qf)
 {
   int fd = qf->fd ;
   qf->fd = fd_undef ;
 
   return fd ;
-} ;
-
-Inline void
-qps_set_file_info(qps_file qf, void* info)
-{
-  qf->file_info = info ;
 } ;
 
 /*==============================================================================

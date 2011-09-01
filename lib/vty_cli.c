@@ -261,9 +261,7 @@ uty_cli_close(vty_cli cli, bool final)
   /* Discard any pause_timer, and suppress */
   cli->pause_timer    = qtimer_free(cli->pause_timer) ;
   cli->paused         = false ;
-#if 0
   cli->tilde_enabled  = false ;
-#endif
 
   /* If final, free the CLI object.                                     */
   if (final)
@@ -817,11 +815,7 @@ uty_cli_dispatch(vty_cli cli)
 
       uty_cmd_signal(vio, CMD_SUCCESS) ;
 
-      cli->blocked = (to_do_now != cmd_do_command)
-#if 0
-                                                   || !cli->tilde_enabled
-#endif
-          ;
+      cli->blocked = (to_do_now != cmd_do_command) || !cli->tilde_enabled ;
     }
   else
     {

@@ -77,12 +77,23 @@ typedef struct qtimer_pile*  qtimer_pile ;
 
 typedef void (qtimer_action)(qtimer qtr, void* timer_info, qtime_mono_t when) ;
 
+typedef enum
+{
+  qtrs_inactive      = 0,
+  qtrs_active        = 1,
+
+  qtrs_unset_pending = 2,
+  qtrs_free_pending  = 4,
+
+  qtrs_dispatch      = 8,
+} qtr_state_t ;
+
 struct qtimer
 {
   qtimer_pile     pile ;        /* pile currently allocated to          */
   heap_backlink_t backlink ;
 
-  bool            active ;      /* true => in the pile                  */
+  qtr_state_t     state ;
 
   qtime_mono_t    time ;        /* current time to trigger action       */
   qtimer_action*  action ;
@@ -94,8 +105,6 @@ struct qtimer
 struct qtimer_pile
 {
   struct heap timers ;
-
-  qtimer      implicit_unset ;  /* used during dispatch                 */
 } ;
 
 /*==============================================================================
@@ -104,7 +113,8 @@ struct qtimer_pile
 
 extern qtimer_pile qtimer_pile_init_new(qtimer_pile qtp) ;
 extern bool qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto) ;
-extern qtime_t qtimer_pile_top_wait(qtimer_pile qtp, qtime_t max_wait) ;
+extern qtime_t qtimer_pile_top_wait(qtimer_pile qtp, qtime_t max_wait,
+                                                                  qtime_t now) ;
 extern qtimer qtimer_pile_ream(qtimer_pile qtp, free_keep_b free_structure) ;
 
 /* Ream out qtimer pile and free the qtimer structure.   */
@@ -199,5 +209,14 @@ qtimer_get_interval(qtimer qtr)
 {
   return qtr->interval ;
 } ;
+
+/*------------------------------------------------------------------------------
+ * See if given qtimer (if any) is active
+ */
+Inline bool
+qtimer_is_active(qtimer qtr)
+{
+  return (qtr != NULL) && ((qtr->state & qtrs_active) != 0) ;
+}
 
 #endif /* _ZEBRA_QTIMERS_H */
