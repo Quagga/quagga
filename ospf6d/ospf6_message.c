@@ -14,9 +14,9 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * along with GNU Zebra; see the file COPYING.  If not, write to the
+ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+ * Boston, MA 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -542,6 +542,8 @@ ospf6_dbdesc_recv_master (struct ospf6_header *oh,
           ospf6_lsa_delete (his);
           continue;
           break;
+        default:
+          break ;
         }
 
       if (ntohs (his->header->type) == OSPF6_LSTYPE_AS_EXTERNAL &&
@@ -764,6 +766,8 @@ ospf6_dbdesc_recv_slave (struct ospf6_header *oh,
           ospf6_lsa_delete (his);
           continue;
           break;
+        default:
+          break ;
         }
 
       if (OSPF6_LSA_SCOPE (his->header->type) == OSPF6_SCOPE_AS &&
@@ -1078,6 +1082,8 @@ ospf6_lsack_recv (struct in6_addr *src, struct in6_addr *dst,
           ospf6_lsa_delete (his);
           continue;
           break;
+        default:
+          break ;
         }
 
       if (IS_OSPF6_DEBUG_MESSAGE (oh->type, RECV))
@@ -1925,7 +1931,7 @@ ospf6_lsack_send_interface (struct thread *thread)
   return 0;
 }
 
-
+
 /* Commands */
 DEFUN (debug_ospf6_message,
        debug_ospf6_message_cmd,
@@ -1999,7 +2005,7 @@ ALIAS (debug_ospf6_message,
        "Debug only receiving message\n"
        )
 
-
+
 DEFUN (no_debug_ospf6_message,
        no_debug_ospf6_message_cmd,
        "no debug ospf6 message (unknown|hello|dbdesc|lsreq|lsupdate|lsack|all)",

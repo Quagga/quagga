@@ -1508,6 +1508,10 @@ aspath_reconcile_as4 ( struct aspath *aspath, struct aspath *as4path)
 	  case AS_SEQUENCE:
 	    cpasns = MIN(seg->length, hops);
 	    hops -= seg->length;
+	    break ;
+
+	  default:
+	    break ;
 	}
 
       assert (cpasns <= seg->length);
@@ -1726,6 +1730,8 @@ aspath_gettoken (const char *buf, enum as_token *token, u_long *asno)
       *token = as_token_confed_set_end;
       p++;
       return p;
+    default:
+      break ;
     }
 
   /* Check actual AS value. */

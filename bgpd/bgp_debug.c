@@ -307,6 +307,8 @@ bgp_notify_print(struct peer *peer, bgp_notify notification)
       if (subcode != 0)
         subcode_str = LOOKUP (bgp_notify_capability_msg, subcode);
       break;
+    default:
+      break ;
     }
 
   /* Construct hex_form of data, if required.                           */

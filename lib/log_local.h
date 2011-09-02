@@ -119,7 +119,7 @@ extern int log_assert_fail ;
 Inline void
 LOG_ASSERT_FAILED(void)
 {
-  if (log_assert_fail == 0) ;
+  if (log_assert_fail == 0)
     {
       log_assert_fail = 1 ;
       assert(0) ;

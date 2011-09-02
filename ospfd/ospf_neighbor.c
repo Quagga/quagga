@@ -3,7 +3,7 @@
  * Copyright (C) 1999, 2000 Toshiaki Takada
  *
  * This file is part of GNU Zebra.
- * 
+ *
  * GNU Zebra is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published
  * by the Free Software Foundation; either version 2, or (at your
@@ -121,7 +121,7 @@ ospf_nbr_free (struct ospf_neighbor *nbr)
   ospf_lsdb_cleanup (&nbr->db_sum);
   ospf_lsdb_cleanup (&nbr->ls_req);
   ospf_lsdb_cleanup (&nbr->ls_rxmt);
-  
+
   /* Clear last send packet. */
   if (nbr->last_send)
     ospf_packet_free (nbr->last_send);
@@ -153,7 +153,7 @@ ospf_nbr_delete (struct ospf_neighbor *nbr)
   struct prefix p;
 
   oi = nbr->oi;
-  
+
   /* get appropriate prefix 'key' */
   ospf_nbr_key (oi, nbr, &p);
 
@@ -168,7 +168,7 @@ ospf_nbr_delete (struct ospf_neighbor *nbr)
        * should never have NULL info.
        */
       assert (rn->info);
-      
+
       if (rn->info)
 	{
 	  rn->info = NULL;
@@ -215,7 +215,7 @@ ospf_nbr_add_self (struct ospf_interface *oi)
   oi->nbr_self->router_id = oi->ospf->router_id;
   oi->nbr_self->src = oi->address->u.prefix4;
   oi->nbr_self->state = NSM_TwoWay;
-  
+
   switch (oi->area->external_routing)
     {
       case OSPF_AREA_DEFAULT:
@@ -228,11 +228,13 @@ ospf_nbr_add_self (struct ospf_interface *oi)
         UNSET_FLAG (oi->nbr_self->options, OSPF_OPTION_E);
         SET_FLAG (oi->nbr_self->options, OSPF_OPTION_NP);
         break;
+      default:
+        break ;
     }
-  
+
   /* Add nbr_self to nbrs table */
   ospf_nbr_key (oi, oi->nbr_self, &p);
-  
+
   rn = route_node_get (oi->nbrs, &p);
   if (rn->info)
     {
@@ -282,7 +284,7 @@ ospf_nbr_count_opaque_capable (struct ospf_interface *oi)
 #endif /* HAVE_OPAQUE_LSA */
 
 /* lookup nbr by address - use this only if you know you must
- * otherwise use the ospf_nbr_lookup() wrapper, which deals 
+ * otherwise use the ospf_nbr_lookup() wrapper, which deals
  * with virtual link neighbours
  */
 struct ospf_neighbor *
@@ -300,7 +302,7 @@ ospf_nbr_lookup_by_addr (struct route_table *nbrs,
   rn = route_node_lookup (nbrs, &p);
   if (! rn)
     return NULL;
-  
+
   /* See comment in ospf_nbr_delete */
   assert (rn->info);
 
@@ -386,7 +388,7 @@ ospf_nbr_add (struct ospf_interface *oi, struct ospf_header *ospfh,
               struct prefix *p)
 {
   struct ospf_neighbor *nbr;
-  
+
   nbr = ospf_nbr_new (oi);
   nbr->state = NSM_Down;
   nbr->src = p->u.prefix4;
@@ -412,15 +414,15 @@ ospf_nbr_add (struct ospf_interface *oi, struct ospf_header *ospfh,
             }
         }
     }
-      
+
   /* New nbr, save the crypto sequence number if necessary */
   if (ntohs (ospfh->auth_type) == OSPF_AUTH_CRYPTOGRAPHIC)
     nbr->crypt_seqnum = ospfh->u.crypt.crypt_seqnum;
-  
+
   if (IS_DEBUG_OSPF_EVENT)
     zlog_debug ("NSM[%s:%s]: start", IF_NAME (nbr->oi),
                inet_ntoa (nbr->router_id));
-  
+
   return nbr;
 }
 
@@ -431,7 +433,7 @@ ospf_nbr_get (struct ospf_interface *oi, struct ospf_header *ospfh,
   struct route_node *rn;
   struct prefix key;
   struct ospf_neighbor *nbr;
-  
+
   key.family = AF_INET;
   key.prefixlen = IPV4_MAX_BITLEN;
 
@@ -445,7 +447,7 @@ ospf_nbr_get (struct ospf_interface *oi, struct ospf_header *ospfh,
     {
       route_unlock_node (rn);
       nbr = rn->info;
-      
+
       if (oi->type == OSPF_IFTYPE_NBMA && nbr->state == NSM_Attempt)
         {
           nbr->src = iph->ip_src;
@@ -456,7 +458,7 @@ ospf_nbr_get (struct ospf_interface *oi, struct ospf_header *ospfh,
     {
       rn->info = nbr = ospf_nbr_add (oi, ospfh, p);
     }
-  
+
   nbr->router_id = ospfh->router_id;
 
   return nbr;

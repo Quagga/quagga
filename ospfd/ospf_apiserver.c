@@ -106,7 +106,7 @@ ospf_apiserver_if_lookup_by_ifp (struct interface *ifp)
   struct ospf_interface *oi;
   struct ospf *ospf;
 
-  if (!(ospf = ospf_lookup ()));
+  if ((ospf = ospf_lookup ()) == NULL)
     return NULL;
 
   for (ALL_LIST_ELEMENTS (ospf->oiflist, node, nnode, oi))
@@ -332,6 +332,8 @@ ospf_apiserver_event (enum event event, int fd,
 	    thread_add_write (master, ospf_apiserver_async_write, apiserv, fd);
 	}
       break;
+    default:
+      break ;
     }
 }
 
@@ -1049,6 +1051,8 @@ ospf_apiserver_handle_register_opaque_type (struct ospf_apiserver *apiserv,
     case OSPF_OPAQUE_AS_LSA:
       ospf_apiserver_notify_ready_type11 (apiserv);
       break;
+    default:
+      break ;
     }
 out:
   return rc;
@@ -1754,6 +1758,8 @@ ospf_apiserver_flood_opaque_lsa (struct ospf_lsa *lsa)
 	/* Flood LSA through AS. */
 	ospf_flood_through_as (ospf, NULL /*nbr */ , lsa);
 	break;
+    default:
+      break ;
       }
     }
 }

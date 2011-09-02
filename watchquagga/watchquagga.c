@@ -434,6 +434,8 @@ sigchild(void)
     case 0:
       zlog_warn("SIGCHLD received, but waitpid did not reap a child");
       return;
+    default:
+      break ;
     }
 
   if ((restart = find_child(child)) != NULL)
@@ -869,6 +871,8 @@ phase_check(void)
       THREAD_OFF(gs.t_phase_hanging);
       zlog_notice("Phased global restart has completed.");
       break;
+    default:
+      break ;
     }
 }
 
@@ -1273,6 +1277,8 @@ main(int argc, char **argv)
 	  return usage(progname,1);
 	}
       break;
+    default:
+      break ;
     }
 
   if (blankstr)

@@ -379,6 +379,8 @@ isis_find_vertex (struct list *list, void *id, enum vertextype vtype)
 		      PSIZE (p1->prefixlen)) == 0)
 	    return vertex;
 	  break;
+	default:
+	  break ;
 	}
     }
 

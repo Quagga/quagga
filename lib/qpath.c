@@ -98,9 +98,9 @@ qpath_reset(qpath qp, free_keep_b free_structure)
   qs_reset(qp->path, keep_it) ;
 
   if (free_structure)
-    XFREE(MTYPE_QPATH, qp) ;            /* sets qp = NULL       */
+    XFREE(MTYPE_QPATH, qp) ;    /* sets qp = NULL                       */
   else
-    ;
+    {;};                        /* currently nothing else to do         */
 
   return qp ;
 } ;

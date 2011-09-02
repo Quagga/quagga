@@ -142,7 +142,7 @@ typedef enum cmd_item_type_bit cmd_item_type_bit_t ;
 Inline bool
 cmd_item_is_option(cmd_item_type_t itt)
 {
-  const static bool is_option[item_type_count] =
+  static const bool is_option[item_type_count] =
       {
           [item_null]         = false,
 
@@ -176,7 +176,7 @@ cmd_item_is_option(cmd_item_type_t itt)
 Inline bool
 cmd_item_is_vararg(cmd_item_type_t itt)
 {
-  const static bool is_vararg[item_type_count] =
+  static const bool is_vararg[item_type_count] =
       {
           [item_null]         = false,
 
@@ -391,7 +391,7 @@ match_item_type(match_type_t mt)
 Inline match_strength_t
 match_match_strength(match_type_t mt)
 {
-  const static match_strength_t  match_match_strength[match_type_count] =
+  static const match_strength_t  match_match_strength[match_type_count] =
     {
         [mt_no_match]                = ms_no_match,
 
@@ -439,7 +439,7 @@ match_match_strength(match_type_t mt)
 Inline match_type_t
 item_best_match(cmd_item_type_t it)
 {
-  const static match_type_t  item_best_match[item_type_count] =
+  static const match_type_t  item_best_match[item_type_count] =
     {
         [item_null]          = mt_no_match,
 

@@ -114,7 +114,6 @@ static const bgp_size_t bgp_type_min_size[] =
   [qBGP_MT_unknown]           = BGP_MSG_MAX_L + 1,      /* invalid !    */
 
   [qBGP_MT_OPEN]              = BGP_OPM_MIN_L,
-  [qBGP_MT_OPEN]              = BGP_OPM_MIN_L,
   [qBGP_MT_UPDATE]            = BGP_UPM_MIN_L,
   [qBGP_MT_NOTIFICATION]      = BGP_NOM_MIN_L,
   [qBGP_MT_KEEPALIVE]         = BGP_KAM_L,

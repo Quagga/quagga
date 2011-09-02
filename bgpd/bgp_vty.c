@@ -223,13 +223,17 @@ bgp_vty_return (struct vty *vty, int ret)
     case BGP_ERR_NO_IBGP_WITH_TTLHACK:
       str = "ttl-security only allowed for EBGP peers";
       break;
-    }
-  if (str)
-    {
-      vty_out (vty, "%% %s%s", str, VTY_NEWLINE);
+    default:
+      if (ret >= 0)
+        return CMD_SUCCESS ;
+
+      vty_out (vty, "%% unknown error %d%s", ret, VTY_NEWLINE);
       return CMD_WARNING;
-    }
-  return CMD_SUCCESS;
+    } ;
+
+  vty_out (vty, "%% %s%s", str, VTY_NEWLINE);
+
+  return CMD_WARNING ;
 }
 
 /* BGP global configuration.  */
@@ -340,20 +344,27 @@ DEFUN_ATTR (router_bgp,
   ret = bgp_get (&bgp, &as, name);
   switch (ret)
     {
-    case BGP_ERR_MULTIPLE_INSTANCE_NOT_SET:
-      vty_out (vty, "Please specify 'bgp multiple-instance' first%s",
-	       VTY_NEWLINE);
-      return CMD_WARNING;
+      case 0:
+        break ;
 
-    case BGP_ERR_AS_MISMATCH:
-      vty_out (vty, "BGP is already running; AS is %u%s", as, VTY_NEWLINE);
-      return CMD_WARNING;
+      case BGP_ERR_MULTIPLE_INSTANCE_NOT_SET:
+        vty_out (vty, "Please specify 'bgp multiple-instance' first%s",
+                                                                  VTY_NEWLINE);
+        return CMD_WARNING;
 
-    case BGP_ERR_INSTANCE_MISMATCH:
-      vty_out (vty, "BGP view name and AS number mismatch%s", VTY_NEWLINE);
-      vty_out (vty, "BGP instance is already running; AS is %u%s",
-	       as, VTY_NEWLINE);
-      return CMD_WARNING;
+      case BGP_ERR_AS_MISMATCH:
+        vty_out (vty, "BGP is already running; AS is %u%s", as, VTY_NEWLINE);
+        return CMD_WARNING;
+
+      case BGP_ERR_INSTANCE_MISMATCH:
+        vty_out (vty, "BGP view name and AS number mismatch%s", VTY_NEWLINE);
+        vty_out (vty, "BGP instance is already running; AS is %u%s",
+                                                              as, VTY_NEWLINE);
+        return CMD_WARNING;
+
+      default:
+        vty_out (vty, "%% unknown error %d%s", ret, VTY_NEWLINE);
+        return CMD_WARNING ;
     }
 
   vty->node  = BGP_NODE ;
@@ -1299,6 +1310,8 @@ peer_remote_as_vty (struct vty *vty, const char *peer_str,
     case BGP_ERR_PEER_GROUP_PEER_TYPE_DIFFERENT:
       vty_out (vty, "%% The AS# can not be changed from %u to %s, peer-group members must be all internal or all external%s", as, as_str, VTY_NEWLINE);
       return CMD_WARNING;
+    default:
+      break ;
     }
   return bgp_vty_return (vty, ret);
 }
@@ -7836,16 +7849,20 @@ bgp_show_neighbor (struct vty *vty, struct bgp *bgp,
     {
       switch (type)
 	{
-	case show_all:
-	  bgp_show_peer (vty, peer);
-	  break;
-	case show_peer:
-	  if (sockunion_same (&peer->su, su))
-	    {
-	      find = 1;
-	      bgp_show_peer (vty, peer);
-	    }
-	  break;
+          case show_all:
+            bgp_show_peer (vty, peer);
+            break;
+
+          case show_peer:
+            if (sockunion_same (&peer->su, su))
+              {
+                find = 1;
+                bgp_show_peer (vty, peer);
+              }
+            break;
+
+	  default:
+	    break ;
 	}
     }
 
@@ -10287,6 +10304,8 @@ community_list_perror (struct vty *vty, int ret)
     case COMMUNITY_LIST_ERR_EXPANDED_CONFLICT:
       vty_out (vty, "%% Community name conflict, previously defined as expanded community%s", VTY_NEWLINE);
       break;
+    default:
+      break ;
     }
 }
 
@@ -11079,6 +11098,8 @@ community_list_config_write_list(struct vty* vty, int what)
 		list_type  = "extcommunity-list" ;
 		list_style = "expanded " ;
 		break ;
+	      default:
+	        break ;
 	    } ;
 	  if (all_digit(list_name))
 	    list_style = "" ;	/* squash style for all digit names	*/

@@ -177,7 +177,7 @@ extern int vty_assert_fail ;
 Inline void
 VTY_ASSERT_FAILED(void)
 {
-  if (vty_assert_fail == 0) ;
+  if (vty_assert_fail == 0)
     {
       vty_assert_fail = 1 ;
       assert(0) ;

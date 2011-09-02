@@ -533,6 +533,8 @@ parse_test (struct peer *peer, struct test_segment *t, int type)
         stream_putw (s, 0);
         stream_putc (s, BGP_MSG_CAPABILITY);*/
         break;
+      default:
+        break ;
     }
   stream_write (peer->ibuf, t->data, t->len);
 

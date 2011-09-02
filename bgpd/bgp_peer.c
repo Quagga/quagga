@@ -1485,6 +1485,7 @@ bgp_peer_map_peer_down(peer_down_t why_down)
 
     /* To keep the compiler happy.      */
     case PEER_DOWN_count:
+    default:
       break ;                   /* should have asserted already         */
   } ;
 
