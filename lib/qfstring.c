@@ -1691,7 +1691,7 @@ qfs_bin_value(long val, enum pf_flags flags)
 
           v = ((((v * p10[d]) + e) >> (is - 1)) + 1) >> 1 ;
 
-//        qassert(v >= 1000) ;
+          qassert(v >= 1000) ;
 
           if (d == 0)
             {
@@ -1706,7 +1706,7 @@ qfs_bin_value(long val, enum pf_flags flags)
             {
               if (v >= 10000)
                 {
-//                qassert(v == 10000) ;
+                  qassert(v == 10000) ;
 
                   v  = 1000 ;       /* rounded up to one less decimals      */
                   d -= 1 ;
@@ -1733,7 +1733,7 @@ qfs_bin_value(long val, enum pf_flags flags)
  * Accepts the following pf_xxx flags:
  *
  *   pf_commas   -- format with commas (very unlikely !)
- *   pf_plus     -- add '+' sign if not -ve
+ *   pf_plus     -- add '+' sign if > 0
  *   pf_space    -- add ' ' "sign" if not -ve
  */
 extern qfs_num_str_t
@@ -1741,20 +1741,27 @@ qfs_time_period(qtime_t val, enum pf_flags flags)
 {
   qfs_num_str_t num ;
   qf_str_t qfs ;
-  int s ;
   int w ;
 
   qfs_init(qfs, num.str, sizeof(num.str)) ;
 
-  flags &= (pf_commas | pf_plus | pf_space) ;
-
-  if (val >= 0)
-    s = +1 ;
-  else
+  /* Worry about the sign
+   */
+  if      (val >= 0)
     {
-      s = -1 ;
+      if      ((val > 0) && ((flags & pf_plus) != 0))
+        qfs_append_ch(qfs, '+') ;
+      else if ((flags & pf_space) != 0)
+        qfs_append_ch(qfs, ' ') ;
+    }
+  else if (val < 0)
+    {
+      qfs_append_ch(qfs, '-') ;
+
       val = -val ;
-    } ;
+    }
+
+  flags &= pf_commas ;  /* unlikely though that is !    */
 
   /* Round value to milli seconds
    */
@@ -1764,38 +1771,35 @@ qfs_time_period(qtime_t val, enum pf_flags flags)
 
   if (val >= (2 * 24 * 60 * 60 * 1000))
     {
-      qfs_signed(qfs, (val / (24 * 60 * 60 * 1000)) * s, flags, w, w) ;
+      qfs_signed(qfs, val / (24 * 60 * 60 * 1000), flags, w, w) ;
       qfs_append_ch(qfs, 'd') ;
 
       val %= (24 * 60 * 60 * 1000) ;
-      s = 1 ;
       flags = pf_zeros ;
       w = 2 ;
     } ;
 
   if ((val >= (2 * 60 * 60 * 1000)) || (w > 0))
     {
-      qfs_signed(qfs, (val / (60 * 60 * 1000)) * s, flags, w, w) ;
+      qfs_signed(qfs, val / (60 * 60 * 1000), flags, w, w) ;
       qfs_append_ch(qfs, 'h') ;
 
       val %= (60 * 60 * 1000) ;
-      s = 1 ;
       flags = pf_zeros ;
       w = 2 ;
     } ;
 
   if ((val >= (2 * 60 * 1000)) || (w > 0))
     {
-      qfs_signed(qfs, (val / (60 * 1000)) * s, flags, w, w) ;
+      qfs_signed(qfs, val / (60 * 1000), flags, w, w) ;
       qfs_append_ch(qfs, 'm') ;
 
       val %= (60 * 1000) ;
-      s = 1 ;
       flags = pf_zeros ;
       w = 2 ;
     } ;
 
-  qfs_signed(qfs, (val / 1000) * s, flags, w, w) ;
+  qfs_signed(qfs, val / 1000, flags, w, w) ;
   qfs_append_ch(qfs, '.') ;
   qfs_unsigned(qfs, val % 1000, pf_zeros, 3, 3) ;
   qfs_append_ch(qfs, 's') ;
@@ -1828,5 +1832,3 @@ qfs_form_scaled(qf_str qfs, long v, uint f, uint d, const char* tag,
   if ((*tag != ' ') || ((flags & pf_trailing) != 0))
     qfs_append(qfs, tag) ;
 } ;
-
-
