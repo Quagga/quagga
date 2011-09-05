@@ -50,6 +50,7 @@ test_symbol_table_init_new(void)
   symbol sym = NULL;
   symbol sym2 = NULL;
   void * old_value = NULL;
+  const void* get_name ;
 
   printf("test_symbol_table_init_new\n");
   table = symbol_table_init_new(table, NULL, 0, 0, NULL, NULL);
@@ -63,7 +64,8 @@ test_symbol_table_init_new(void)
   sym = symbol_lookup(table, name, add);
   symbol_set_value(sym, value);
   assert_true(sym != NULL, "sym == NULL");
-  assert_true(strcmp(symbol_get_name(sym), name) == 0,
+  get_name = symbol_get_name(sym) ;
+  assert_true(strcmp(get_name, name) == 0,
                                      "strcmp(symbol_get_name(sym), name) != 0");
 
   /* find */
@@ -98,11 +100,14 @@ test_symbol_table_lookup(void)
   /* add */
   for (i = 0; i < len; ++i)
     {
+      const void* get_name ;
+
       sprintf(buf, "%d-name", i);
       sym = symbol_lookup(table, buf, add);
       assert_true(sym != NULL, "add: sym == NULL");
-      assert_true(strcmp(symbol_get_name(sym), buf) == 0,
-          "strcmp(symbol_get_name(sym), buf) != 0");
+      get_name = symbol_get_name(sym) ;
+      assert_true(strcmp(get_name, buf) == 0,
+                                    "strcmp(symbol_get_name(sym), buf) != 0");
 
       sprintf(buf, "%d-value", i);
       value = strdup(buf);
@@ -114,11 +119,14 @@ test_symbol_table_lookup(void)
   /* find */
   for (i = 0; i < len; ++i)
     {
+      const void* get_name ;
+
       sprintf(buf, "%d-name", i);
       sym = symbol_lookup(table, buf, no_add);
       assert_true(sym != NULL, "find: sym == NULL");
-      assert_true(strcmp(symbol_get_name(sym), buf) == 0,
-          "strcmp(symbol_get_name(sym), buf) != 0");
+      get_name = symbol_get_name(sym) ;
+      assert_true(strcmp(get_name, buf) == 0,
+                                    "strcmp(symbol_get_name(sym), buf) != 0");
 
       sprintf(buf, "%d-value", i);
       assert_true(strcmp(symbol_get_value(sym), buf) == 0,
