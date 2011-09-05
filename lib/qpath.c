@@ -948,21 +948,21 @@ qpath_make(const char* src, const qpath dir)
 } ;
 
 /*------------------------------------------------------------------------------
- * If given dst path is not rooted (does not start with '/', prepend the
+ * If given dst path is not rooted (does not start with '/'), prepend the
  * given src path to it.  Result is reduced.
  */
 extern qpath
 qpath_complete(qpath dst, const qpath src)
 {
   if (src != NULL)
-    return qpath_prepend_str_n(dst, qs_char_nn(src->path),
-                                    qs_len_nn(src->path)) ;
+    return qpath_complete_str_n(dst, qs_char_nn(src->path),
+                                     qs_len_nn(src->path)) ;
   else
-    return qpath_prepend_str_n(dst, NULL, 0) ;
+    return qpath_complete_str_n(dst, NULL, 0) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * If given dst path is not rooted (does not start with '/', prepend the
+ * If given dst path is not rooted (does not start with '/'), prepend the
  * given src qstring to it.  Result is reduced.
  */
 extern qpath
@@ -972,7 +972,7 @@ qpath_complete_qs(qpath dst, const qstring src)
 } ;
 
 /*------------------------------------------------------------------------------
- * If given dst path is not rooted (does not start with '/', prepend the
+ * If given dst path is not rooted (does not start with '/'), prepend the
  * given src string to it.  Result is reduced.
  */
 extern qpath
@@ -982,7 +982,7 @@ qpath_complete_str(qpath dst, const char* src)
 } ;
 
 /*------------------------------------------------------------------------------
- * If given dst path is not rooted (does not start with '/', prepend the
+ * If given dst path is not rooted (does not start with '/'), prepend the
  * given src string of given length to it.  Result is reduced.
  */
 extern qpath
@@ -990,7 +990,7 @@ qpath_complete_str_n(qpath dst, const char* src, ulen n)
 {
   dst = qpath_make_if_null(dst) ;
 
-  if ((qs_len_nn(dst->path) == 0) || (*(qs_char_nn(dst->path)) == '/'))
+  if ((qs_len_nn(dst->path) == 0) || (*(qs_char_nn(dst->path)) != '/'))
     qpath_prepend_str_n(dst, src, n) ;
   else
     qpath_reduce(dst) ;
