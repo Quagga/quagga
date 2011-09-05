@@ -202,9 +202,10 @@ qpn_start(void* arg)
   qtime_mono_t now ;
   qtime_t      max_wait ;
   unsigned i;
-  unsigned done ;
-  unsigned prev ;
-  bool     wait ;
+  bool this ;
+  bool prev ;
+  bool wait ;
+  bool idle ;
 
   /* now in our thread, complete initialisation                         */
   qpn_in_thread_init(qpn);
@@ -214,8 +215,9 @@ qpn_start(void* arg)
     ((qpn_init_function*)(qpn->in_thread_init.hooks[i++]))() ;
 
   /* Until required to terminate, loop                                  */
-  prev = 1 ;
-  done = 1 ;
+  prev = true ;
+  this = true ;
+  idle = false ;
   while (!qpn->terminate)
     {
       ++qpn->raw.cycles ;
@@ -226,7 +228,7 @@ qpn_start(void* arg)
           int ret = quagga_sigevent_process() ;
           if (ret != 0)
             {
-              ++done ;                  /* count each signal            */
+              this = true ;
               ++qpn->raw.signals ;
             } ;
         } ;
@@ -237,7 +239,7 @@ qpn_start(void* arg)
           int ret = ((qpn_hook_function*)(qpn->foreground.hooks[i]))() ;
           if (ret != 0)
             {
-              ++done ;                  /* count each foreground action */
+              this = true ;
               ++qpn->raw.foreg ;
             } ;
         } ;
@@ -246,30 +248,64 @@ qpn_start(void* arg)
        *
        * If nothing done this time and last time around the loop then will
        * arrange to wait iff the queue is empty first time through.
-       */
-      wait = ((prev == 0) && (done == 0)) ;
-      do
-        {
-          mqb = mqueue_dequeue(qpn->queue, wait, qpn->mts) ;
-          if (mqb == NULL)
-            break;
-
-          mqb_dispatch(mqb, mqb_action);
-
-          wait = false ;
-          ++done ;
-        } while (done < 200) ;
-
-      qpn->raw.dispatch += done ;
-
-      /* block for some input, output, signal or timeout
        *
-       * wait will be true iff found nothing to do this and last time round the
-       * loop.
+       * If there is nothing on the queue, then "wait" => the queue is set so
+       * that anything added to the queue will generate a signal.
+       *
+       * If there is something in the queue, then we are not "idle".
+       */
+      wait = !this && !prev ;
+      mqb = mqueue_dequeue(qpn->queue, wait, qpn->mts) ;
+
+      if (mqb != NULL)
+        {
+          uint done ;
+
+          this = true ;
+          wait = false ;
+
+          done = 0 ;
+          do
+            {
+              mqb_dispatch(mqb, mqb_action);
+              ++done ;
+
+              if (done == 200)
+                break ;
+
+              mqb = mqueue_dequeue(qpn->queue, false, NULL) ;
+            } while (mqb != NULL) ;
+
+          qpn->raw.dispatch += done ;
+        } ;
+
+      /* If we have done nothing this time around, see if anything in the
+       * background.
+       *
+       * If do something in the background, then set "this".
+       */
+      if (!this)
+        {
+          for (i = 0; i < qpn->background.count ; ++i)
+            {
+              int ret = ((qpn_hook_function*)(qpn->background.hooks[i]))() ;
+              if (ret != 0)
+                {
+                  this = true ;
+                  ++qpn->raw.backg ;
+                } ;
+            } ;
+        } ;
+
+      /* Prepare to block for some input, output, signal or timeout
+       *
+       * Note: only if is completely "idle" -- which includes found nothing to
+       *       do in the background -- will we actually block.
        */
       now = qt_get_monotonic() ;
 
-      if (wait)
+      idle = (!this && !prev) ;
+      if (idle)
         max_wait = qtimer_pile_top_wait(qpn->pile, QTIME(MAX_PSELECT_WAIT),
                                                                           now) ;
       else
@@ -287,55 +323,40 @@ qpn_start(void* arg)
       /* Do pselect, which may now wait
        *
        * After pselect, if is "wait", then will have set the message queue
-       * waiting, which can now be cleared.  Also, any time since
+       * waiting, which can now be cleared.  If is "idle", any time since
        * "raw.last_time" must be counted as idle time.
        *
-       * Remember current "done" as "prev", and set done 0 or 1, depending on
-       * I/O action count -- processing I/O actions and/or timers is counted as
-       * a single activity.
+       * Remember current "done" as "prev", and set done depending on I/O
+       * action count.
        */
-      do
-        actions = qps_pselect(qpn->selection, max_wait) ;
-      while (actions < 0) ;
+      actions = qps_pselect(qpn->selection, max_wait) ;
 
       now = qt_get_monotonic() ;
 
+      if (idle)
+        qpn->raw.idle += now - qpn->raw.last_time ;
+
       if (wait)
+        mqueue_done_waiting(qpn->queue, qpn->mts) ;
+
+      prev = this ;
+      this = (actions != 0) ;           /* actions < 0 => Signal        */
+
+      if (actions > 0)
         {
-          qpn->raw.idle += now - qpn->raw.last_time ;
+          qpn->raw.io_acts += actions ;
 
-          mqueue_done_waiting(qpn->queue, qpn->mts) ;
+          do
+            actions = qps_dispatch_next(qpn->selection) ;
+          while (actions > 0) ;
         } ;
-
-      prev = done ;
-      done = (actions != 0) ? 1 : 0 ;
-      qpn->raw.io_acts += actions ;
-
-      while (actions)
-        actions = qps_dispatch_next(qpn->selection) ;
 
       /* process timers -- also counts as one activity
        */
       while (qtimer_pile_dispatch_next(qpn->pile, now))
         {
           ++qpn->raw.timers ;
-          done = 1 ;                    /* Done something in this pass  */
-        } ;
-
-      /* If nothing done so far in this pass, and nothing in the previous,
-       * see if anything in the background
-       */
-      if ((prev == 0) && (done == 0))
-        {
-          for (i = 0; i < qpn->background.count ; ++i)
-            {
-              int ret = ((qpn_hook_function*)(qpn->background.hooks[i]))() ;
-              if (ret != 0)
-                {
-                  ++done ;
-                  ++qpn->raw.backg ;
-                } ;
-            } ;
+          this = true ;                 /* done something in this pass  */
         } ;
     } ;
 
@@ -359,7 +380,7 @@ qpn_in_thread_init(qpn_nexus qpn)
   qpn->raw.last_time  = qpn->raw.start_time ;
 
   qpt_spin_lock(qpn->stats_slk) ;
-  qpn->prev_stats = qpn->stats = qpn->raw ;
+  qpn->prev_stats = qpn->stats = qpn->raw ;     /* share start time etc.  */
   qpt_spin_unlock(qpn->stats_slk) ;
 
   qpn->thread_id = qpt_thread_self();
