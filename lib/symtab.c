@@ -844,7 +844,7 @@ symbol_remove(symbol sym, bool free)
                                 /* Need to keep a hold of this          */
     } ;
 
-  if (free) ;
+  if (free)
     {
       if (sym->value != NULL)
         sym->u.free(sym->value) ;

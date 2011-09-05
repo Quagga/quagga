@@ -275,12 +275,22 @@ setsockopt_minttl (int sock_fd, int ttl)
 
 #ifdef HAVE_IPV6
 
-# ifdef GNU_LINUX
-  /* The #include to bring in IPV6_MINHOPCOUNT is buried more or less as
-   * deep as we can get it, because it also redefines a number of things
-   * that we do not want redefined.
+# ifndef IPV6_MINHOPCOUNT
+  /* IPV6_MINHOPCOUNT ought to find its way into in.h at some point.
+   *
+   * For GNU_LINUX it is currently found in linux/in6.h.  Unfortunately, that
+   * seems to redefine a number of things which are defined in in.h... so,
+   * the #include to bring in IPV6_MINHOPCOUNT is buried more or less as
+   * deep as we can get it.
+   *
+   * However, this trick does not always work... for example, if linux/in6.h
+   * redefines "extern const struct in6_addr in6addr_any" !!  Do not know
+   * any way to fix that, so -DNO_LINUX_IN6_H will turn this off -- and will
+   * have to live without IPV6_MINHOPCOUNT pro tem.
    */
-  #include <linux/in6.h>
+#  if defined(GNU_LINUX) && !defined(NO_LINUX_IN6_H)
+    #include <linux/in6.h>
+#  endif
 # endif
 
       enum

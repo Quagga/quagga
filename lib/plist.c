@@ -286,6 +286,7 @@ prefix_master_reset(struct prefix_master * pm)
   struct prefix_list* plist ;
   symbol sym ;
 
+  plist = NULL ;                /* calm down compiler   */
   sym = NULL ;
   while ((sym = symbol_table_ream(pm->table, sym, plist)) != NULL)
     prefix_list_flush(plist = symbol_get_value(sym)) ;
