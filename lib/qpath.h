@@ -75,7 +75,7 @@ Inline qpath qpath_free(qpath qp) ;
 Inline const char* qpath_string(qpath qp) ;
 Inline char* qpath_char_string(qpath qp) ;
 Inline ulen qpath_len(qpath qp) ;
-Inline const qstring qpath_qs(qpath qp) ;
+Inline qstring qpath_qs(qpath qp) ;
 
 extern qpath qpath_set(qpath dst, const char* src) ;
 extern qpath qpath_set_n(qpath dst, const char* src, ulen n) ;
@@ -208,7 +208,7 @@ qpath_len(qpath qp)
  *
  * For a NULL qpath returns NULL qstring.
  */
-Inline const qstring
+Inline qstring
 qpath_qs(qpath qp)
 {
   return (qp != NULL) ? qp->path : NULL ;

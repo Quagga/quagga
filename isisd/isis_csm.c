@@ -2,21 +2,21 @@
  * IS-IS Rout(e)ing protocol - isis_csm.c
  *                             IS-IS circuit state machine
  * Copyright (C) 2001,2002    Sampo Saaristo
- *                            Tampere University of Technology      
+ *                            Tampere University of Technology
  *                            Institute of Communications Engineering
  *
- * This program is free software; you can redistribute it and/or modify it 
- * under the terms of the GNU General Public Licenseas published by the Free 
- * Software Foundation; either version 2 of the License, or (at your option) 
+ * This program is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public Licenseas published by the Free
+ * Software Foundation; either version 2 of the License, or (at your option)
  * any later version.
  *
- * This program is distributed in the hope that it will be useful,but WITHOUT 
- * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or 
- * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for 
+ * This program is distributed in the hope that it will be useful,but WITHOUT
+ * ANY WARRANTY; without even the implied warranty of MERCHANTABILITY or
+ * FITNESS FOR A PARTICULAR PURPOSE.  See the GNU General Public License for
  * more details.
  *
- * You should have received a copy of the GNU General Public License along 
- * with this program; if not, write to the Free Software Foundation, Inc., 
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
  * 59 Temple Place - Suite 330, Boston, MA  02111-1307, USA.
  */
 
@@ -103,6 +103,8 @@ isis_csm_state_change (int event, struct isis_circuit *circuit, void *arg)
 	case IF_DOWN_FROM_Z:
 	  zlog_warn ("circuit already disconnected");
 	  break;
+	default:
+	  break ;
 	}
       break;
     case C_STATE_INIT:
@@ -127,6 +129,8 @@ isis_csm_state_change (int event, struct isis_circuit *circuit, void *arg)
 	  isis_circuit_del (circuit);
 	  circuit = NULL;
 	  break;
+	default:
+	  break ;
 	}
       break;
     case C_STATE_CONF:
@@ -149,6 +153,8 @@ isis_csm_state_change (int event, struct isis_circuit *circuit, void *arg)
 	case IF_DOWN_FROM_Z:
 	  zlog_warn ("circuit already disconnected");
 	  break;
+	default:
+	  break ;
 	}
       break;
     case C_STATE_UP:
@@ -171,6 +177,8 @@ isis_csm_state_change (int event, struct isis_circuit *circuit, void *arg)
 	  circuit->state = C_STATE_CONF;
 	  isis_event_circuit_state_change (circuit, 0);
 	  break;
+	default:
+	  break ;
 	}
       break;
 

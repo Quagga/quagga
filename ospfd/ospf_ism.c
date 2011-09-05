@@ -1,6 +1,6 @@
 /*
  * OSPF version 2  Interface State Machine
- *   From RFC2328 [OSPF Version 2] 
+ *   From RFC2328 [OSPF Version 2]
  * Copyright (C) 1999, 2000 Toshiaki Takada
  *
  * This file is part of GNU Zebra.
@@ -44,7 +44,7 @@
 #include "ospfd/ospf_flood.h"
 #include "ospfd/ospf_abr.h"
 #include "ospfd/ospf_snmp.h"
-
+
 /* elect DR and BDR. Refer to RFC2319 section 9.4 */
 static struct ospf_neighbor *
 ospf_dr_election_sub (struct list *routers)
@@ -228,7 +228,7 @@ ospf_dr_election (struct ospf_interface *oi)
       !(new_state == ISM_DROther && old_state < ISM_DROther))
     {
       ospf_elect_bdr (oi, el_list);
-      ospf_elect_dr (oi, el_list); 
+      ospf_elect_dr (oi, el_list);
 
       new_state = ospf_ism_state (oi);
 
@@ -246,7 +246,7 @@ ospf_dr_election (struct ospf_interface *oi)
   return new_state;
 }
 
-
+
 int
 ospf_hello_timer (struct thread *thread)
 {
@@ -264,7 +264,7 @@ ospf_hello_timer (struct thread *thread)
 
   /* Hello timer set. */
   OSPF_HELLO_TIMER_ON (oi);
-  
+
   return 0;
 }
 
@@ -322,7 +322,7 @@ ism_timer_set (struct ospf_interface *oi)
 	 virtual link. The router attempts to form an adjacency with
 	 neighboring router. Hello packets are also sent. */
       /* send first hello immediately */
-      OSPF_ISM_TIMER_MSEC_ON (oi->t_hello, ospf_hello_timer, 1);      
+      OSPF_ISM_TIMER_MSEC_ON (oi->t_hello, ospf_hello_timer, 1);
       OSPF_ISM_TIMER_OFF (oi->t_wait);
       OSPF_ISM_TIMER_ON (oi->t_ls_ack, ospf_ls_ack_timer, oi->v_ls_ack);
       break;
@@ -348,6 +348,8 @@ ism_timer_set (struct ospf_interface *oi)
       OSPF_ISM_TIMER_OFF (oi->t_wait);
       OSPF_ISM_TIMER_ON (oi->t_ls_ack, ospf_ls_ack_timer, oi->v_ls_ack);
       break;
+    default:
+      break ;
     }
 }
 
@@ -518,7 +520,7 @@ struct {
     { ism_ignore,          ISM_DR },            /* UnloopInd      */
     { ism_interface_down,  ISM_Down },          /* InterfaceDown  */
   },
-};  
+};
 
 static const char *ospf_ism_event_str[] =
 {
@@ -549,7 +551,7 @@ ism_change_state (struct ospf_interface *oi, int state)
   oi->state_change++;
 
 #ifdef HAVE_SNMP
-  /* Terminal state or regression */ 
+  /* Terminal state or regression */
   if ((state == ISM_DR) || (state == ISM_Backup) || (state == ISM_DROther) ||
       (state == ISM_PointToPoint) || (state < old_state))
     {

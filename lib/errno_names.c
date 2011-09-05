@@ -178,7 +178,9 @@ static const char* errno_name_table[] =
   ERRNO(ECOMM),           /* Communication error on send                      */
 #endif
 #ifdef EDEADLOCK
+# ifndef EDEADLK
   ERRNO(EDEADLOCK),       /* same as EDEADLK                                  */
+# endif
 #endif
 #ifdef EDOTDOT
   ERRNO(EDOTDOT),         /* RFS specific error                               */

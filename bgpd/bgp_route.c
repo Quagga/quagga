@@ -1732,6 +1732,7 @@ bgp_process_announce_selected (struct peer *peer, struct bgp_info *selected,
         else
           bgp_adj_out_unset (rn, peer, p, afi, safi);
         break;
+
       case BGP_TABLE_RSCLIENT:
         /* Announcement to peer->conf.  If the route is filtered,
            withdraw it. */
@@ -1741,6 +1742,9 @@ bgp_process_announce_selected (struct peer *peer, struct bgp_info *selected,
         else
 	  bgp_adj_out_unset (rn, peer, p, afi, safi);
         break;
+
+      default:
+        break ;
     }
 
   bgp_attr_extra_free (&attr);
@@ -9971,9 +9975,13 @@ bgp_table_stats_walker (struct thread *t)
       case AF_INET:
         space = IPV4_MAX_BITLEN;
         break;
+
       case AF_INET6:
         space = IPV6_MAX_BITLEN;
         break;
+
+      default:
+        return 0 ;
     }
 
   ts->counts[BGP_STATS_MAXBITLEN] = space;

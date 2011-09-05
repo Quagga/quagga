@@ -256,7 +256,32 @@ sockunion_init_new(sockunion su, sa_family_t family)
 } ;
 
 /*------------------------------------------------------------------------------
- * Get the length of the address in the given sockunion.
+ * Get the AFI for the sockaddr in the given sockunion.
+ *
+ * Returns zero if AF_UNSPEC or not any known address family.
+ */
+extern afi_t
+sockunion_get_afi(sockunion su)
+{
+  switch (su->sa.sa_family)
+  {
+    case AF_INET:
+      return AFI_IP ;
+
+#ifdef HAVE_IPV6
+    case AF_INET6:
+      return AFI_IP6 ;
+#endif
+
+    default:
+      return 0 ;
+  } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the length of the sockaddr in the given sockunion.
+ *
+ * This length includes the family, port number, protocol address, etc.
  *
  * Returns zero if AF_UNSPEC or not any known address family.
  */
@@ -271,6 +296,56 @@ sockunion_get_len(sockunion su)
 #ifdef HAVE_IPV6
     case AF_INET6:
       return sizeof(struct sockaddr_in6) ;
+#endif
+
+    default:
+      return 0 ;
+  } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the length of the protocol address in the given sockunion.
+ *
+ * This length is for just the IPv4, IPv6, etc. address.
+ *
+ * Returns zero if AF_UNSPEC or not any known address family.
+ */
+extern int
+sockunion_get_addr_len(sockunion su)
+{
+  switch (su->sa.sa_family)
+  {
+    case AF_INET:
+      return sizeof(su->sin.sin_addr.s_addr) ;
+
+#ifdef HAVE_IPV6
+    case AF_INET6:
+      return sizeof(su->sin6.sin6_addr.s6_addr) ;
+#endif
+
+    default:
+      return 0 ;
+  } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get pointer to the protocol address in the given sockunion.
+ *
+ * Note that IP and IPv6 addresses are in Network Order.
+ *
+ * Returns NULL if AF_UNSPEC or not any known address family.
+ */
+extern void*
+sockunion_get_addr(sockunion su)
+{
+  switch (su->sa.sa_family)
+  {
+    case AF_INET:
+      return &su->sin.sin_addr.s_addr ;
+
+#ifdef HAVE_IPV6
+    case AF_INET6:
+      return &su->sin6.sin6_addr.s6_addr ;
 #endif
 
     default:

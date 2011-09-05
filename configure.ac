@@ -134,11 +134,14 @@ if test "x${cflags_specified}" = "x" ; then
         AC_MSG_RESULT([Intel default])
         ;;
     "GCC")
-  	CFLAGS="-Os -fno-omit-frame-pointer -g -std=gnu99 -Wall"
-  	CFLAGS="${CFLAGS} -Wsign-compare -Wpointer-arith"
-  	CFLAGS="${CFLAGS} -Wbad-function-cast -Wwrite-strings"
-  	CFLAGS="${CFLAGS} -Wmissing-prototypes -Wmissing-declarations"
-  	CFLAGS="${CFLAGS} -Wchar-subscripts -Wcast-qual"
+  	CFLAGS="-O2 -fno-omit-frame-pointer -g -std=c99 -Wall -Wextra"
+    CFLAGS="${CFLAGS} -Wno-missing-field-initializers -Wno-type-limits"
+    CFLAGS="${CFLAGS} -Wno-unused-parameter"
+    CFLAGS="${CFLAGS} -Wbad-function-cast -Wcast-qual -Wchar-subscripts"
+  	CFLAGS="${CFLAGS} -Wmissing-declarations -Wmissing-prototypes"
+    CFLAGS="${CFLAGS} -Wpointer-arith -Wwrite-strings"
+  # CFLAGS="${CFLAGS} -Wswitch-default"    -- interesting, but tedious
+  # CFLAGS="${CFLAGS} -Wtype-limits"       -- interesting, but tedious 
   	CFLAGS="${CFLAGS} -pthread"
   	# TODO: conditionally addd -Wpacked if handled
   	AC_MSG_RESULT([gcc default])

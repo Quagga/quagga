@@ -57,6 +57,8 @@ community_list_master_lookup (struct community_list_handler *ch, int master)
 	return ch->community_list;
       case EXTCOMMUNITY_LIST_MASTER:
 	return ch->extcommunity_list;
+      default:
+        break ;
       }
   return NULL;
 }
@@ -816,6 +818,7 @@ community_list_terminate (struct community_list_handler *ch)
   struct community_list *list ;
   symbol sym ;
 
+  list = NULL ;         /* calm down compiler   */
   sym = NULL ;
   while ((sym = symbol_table_ream(ch->community_list, sym, list)) != NULL)
     community_list_flush(list = symbol_get_value(sym)) ;

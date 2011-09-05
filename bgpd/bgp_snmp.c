@@ -451,6 +451,8 @@ write_bgpPeerTable (int action, u_char *var_val,
     case BGPPEERMINROUTEADVERTISEMENTINTERVAL:
       peer->v_routeadv = intval;
       break;
+    default:
+      break ;
     }
   return SNMP_ERR_NOERROR;
 }
@@ -840,6 +842,8 @@ bgp4PathAttrTable (struct variable *v, oid name[], size_t *length,
       *var_len = 0;
       return NULL;
       break;
+    default:
+      break ;
     }
   return NULL;
 }

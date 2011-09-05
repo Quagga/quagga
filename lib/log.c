@@ -530,9 +530,8 @@ void
 _zlog_assert_failed (const char *assertion, const char *file,
     unsigned int line, const char *function)
 {
-  const static size_t buff_size = 1024;
-  char buff[buff_size];
-  snprintf(buff, buff_size,
+  char buff[1024];
+  snprintf(buff, sizeof(buff),
           "Assertion `%s' failed in file %s, line %u, function %s",
           assertion, file, line, (function ? function : "?"));
   zlog_abort(buff);
@@ -543,9 +542,9 @@ void
 _zlog_abort_mess (const char *mess, const char *file,
     unsigned int line, const char *function)
 {
-  const static size_t buff_size = 1024;
-  char buff[buff_size];
-  snprintf(buff, buff_size, "%s, in file %s, line %u, function %s",
+  char buff[1024];
+  snprintf(buff, sizeof(buff),
+          "%s, in file %s, line %u, function %s",
           mess, file, line, (function ? function : "?"));
   zlog_abort(buff);
 }
@@ -563,9 +562,8 @@ void
 _zlog_abort_err (const char *mess, int err, const char *file,
     unsigned int line, const char *function)
 {
-  const static size_t buff_size = 1024;
-  char buff[buff_size];
-  snprintf(buff, buff_size,
+  char buff[1024];
+  snprintf(buff, sizeof(buff),
           "%s, in file %s, line %u, function %s, %s",
           mess, file, line, (function ? function : "?"),
           errtoa(err, 0).str);

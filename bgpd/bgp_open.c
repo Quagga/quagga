@@ -158,10 +158,17 @@ bgp_afi_safi_valid_indices (afi_t afi, safi_t *safi)
             case SAFI_MULTICAST:
             case SAFI_MPLS_VPN:
               return 1;
-          }
-    }
-  zlog_debug ("unknown afi/safi (%u/%u)", afi, *safi);
 
+            default:
+              break ;
+          } ;
+        break ;
+
+      default:
+        break ;
+    } ;
+
+  zlog_debug ("unknown afi/safi (%u/%u)", afi, *safi);
   return 0;
 }
 
@@ -350,6 +357,8 @@ bgp_capability_orf_entry (struct peer *peer, struct capability_header *hdr)
 	  case ORF_MODE_RECEIVE:
 	    SET_FLAG (peer->af_cap[afi][safi], rm_cap);
 	    break;
+	  default:
+	    break ;
 	}
     }
   return 0;

@@ -2205,12 +2205,18 @@ bgp_route_match_add (struct vty *vty, struct route_map_index *index,
     {
       switch (ret)
 	{
-	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
-	  return CMD_WARNING;
-	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
-	  return CMD_WARNING;
+          case RMAP_RULE_MISSING:
+            vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+            return CMD_WARNING;
+
+          case RMAP_COMPILE_ERROR:
+            vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+            return CMD_WARNING;
+
+          default:
+            vty_out (vty, "%% Route map *internal* error %d.%s", ret,
+                                                                   VTY_NEWLINE);
+            return CMD_WARNING;
 	}
     }
   return CMD_SUCCESS;
@@ -2231,9 +2237,15 @@ bgp_route_match_delete (struct vty *vty, struct route_map_index *index,
 	case RMAP_RULE_MISSING:
 	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
+
 	case RMAP_COMPILE_ERROR:
 	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
+
+        default:
+          vty_out (vty, "%% Route map *internal* error %d.%s", ret,
+                                                                 VTY_NEWLINE);
+          return CMD_WARNING;
 	}
     }
   return CMD_SUCCESS;
@@ -2254,9 +2266,15 @@ bgp_route_set_add (struct vty *vty, struct route_map_index *index,
 	case RMAP_RULE_MISSING:
 	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
+
 	case RMAP_COMPILE_ERROR:
 	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
+
+        default:
+          vty_out (vty, "%% Route map *internal* error %d.%s", ret,
+                                                                 VTY_NEWLINE);
+          return CMD_WARNING;
 	}
     }
   return CMD_SUCCESS;
@@ -2277,9 +2295,15 @@ bgp_route_set_delete (struct vty *vty, struct route_map_index *index,
 	case RMAP_RULE_MISSING:
 	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
+
 	case RMAP_COMPILE_ERROR:
 	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
+
+        default:
+          vty_out (vty, "%% Route map *internal* error %d.%s", ret,
+                                                                 VTY_NEWLINE);
+          return CMD_WARNING;
 	}
     }
   return CMD_SUCCESS;
