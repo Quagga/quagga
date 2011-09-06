@@ -2398,233 +2398,28 @@ mem_mt_get_stats(mem_tracker_data mtd, bool locked)
  * Creation of "friendly" counts and sizes display.
  */
 
-enum { scale_max = 4 } ;
-
-static const char* scale_d_tags [] =
-{
-    [0] = "  " ,
-    [1] = "'k",
-    [2] = "'m",
-    [3] = "'g",
-    [4] = "'t",
-} ;
-
-static const char* scale_b_tags [] =
-{
-    [0] = "  " ,
-    [1] = "'K",
-    [2] = "'M",
-    [3] = "'G",
-    [4] = "'T",
-} ;
-
-static const ulong p10 [] =
-{
-    [ 0] = 1ul,
-    [ 1] = 10ul,
-    [ 2] = 100ul,
-    [ 3] = 1000ul,
-    [ 4] = 10000ul,
-    [ 5] = 100000ul,
-    [ 6] = 1000000ul,
-    [ 7] = 10000000ul,
-    [ 8] = 100000000ul,
-    [ 9] = 1000000000ul,
-    [10] = 10000000000ul,
-    [11] = 100000000000ul,
-    [12] = 1000000000000ul,
-    [13] = 10000000000000ul,
-    [14] = 100000000000000ul,
-    [15] = 1000000000000000ul           /* 10^((4*3) + 3)       */
-} ;
-
-static const ulong q10 [] =
-{
-    [ 0] = 1ul / 2,
-    [ 1] = 10ul / 2,
-    [ 2] = 100ul / 2,
-    [ 3] = 1000ul / 2,
-    [ 4] = 10000ul / 2,
-    [ 5] = 100000ul / 2,
-    [ 6] = 1000000ul / 2,
-    [ 7] = 10000000ul / 2,
-    [ 8] = 100000000ul / 2,
-    [ 9] = 1000000000ul / 2,
-    [10] = 10000000000ul / 2,
-    [11] = 100000000000ul / 2,
-    [12] = 1000000000000ul / 2,
-    [13] = 10000000000000ul / 2,
-    [14] = 100000000000000ul / 2,
-    [15] = 1000000000000000ul / 2,      /* 10^((4*3) + 3) / 2   */
-} ;
-
 /*------------------------------------------------------------------------------
- * Form string for number, with commas and "d" decimal digits, followed by
- * the given tag -- where d = 0..4
+ * Form count with 4 significant digits -- 6 character field.
  *
- * So: val=1234567, d=2, tag="k" -> "12,345.67k".
- *     val=1234,    d=0, tag=""  -> "1,234"
+ * NB: although count is nominally ulong, we only do 0..LONG_MAX
  */
-static num_str_t
-mem_form_commas(ulong v, const char* tag, uint d, uint f)
-{
-  QFB_QFS(num_str, qfs) ;
-
-  if (d == 0)
-    qfs_unsigned(qfs, v, pf_commas, 0, 0) ;
-  else
-    {
-      qfs_unsigned(qfs, v, 0, 0, 0) ;
-      qfs_append(qfs, ".") ;
-      qfs_unsigned(qfs, f, pf_zeros, d, 0) ;
-    } ;
-
-  qfs_append(qfs, tag) ;
-  qfs_term(qfs) ;
-
-  return num_str ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Form count with 4 significant digits, up to multiples of trillions.
- */
-static num_str_t
+static inline qfs_num_str_t
 mem_form_count(ulong val)
 {
-  uint    i, d ;
-  ldiv_t  r ;
-
-  i = 0 ;
-  d = 0 ;
-
-  while ((val >= p10[i + 4]) && (i < (scale_max * 3)))
-    i += 3 ;
-
-  if (i == 0)
-    {
-      r.quot = val ;
-      r.rem  = 0 ;
-    }
-  else
-    {
-      if      (val < p10[i + 1])
-        d = 3 ;
-      else if (val < p10[i + 2])
-        d = 2 ;
-      else if (val < p10[i + 3])
-        d = 1 ;
-
-      /* Scale down to required number of decimals and round.
-       *
-       * If is thousands, then i = 3,  if value = 10,000 (smallest possible)
-       * then d == 2.  So divide by 5 (q10[3 - 2]) to make ls bit the rounding
-       * bit, add one and shift off the rounding bit.
-       *
-       * The result should be 1000..9999, unless value is greater than our
-       * ability to scale, or has rounded up one decade.
-       */
-      val = ((val / q10[i - d]) + 1) >> 1 ;
-
-      qassert(val >= 1000) ;
-
-      if (val > 9999)
-        {
-          if (d == 0)
-            {
-              if (i < (scale_max * 3))
-                {
-                  qassert(val == 10000) ;
-
-                  val = 1000 ;
-                  d   = 2 ;
-                  i  += 3 ;
-                } ;
-            }
-          else
-            {
-              qassert(val == 10000) ;
-
-              val = 1000 ;
-              d  -= 1 ;
-            } ;
-        } ;
-
-      r = ldiv(val, p10[d]) ;
-    } ;
-
-  return mem_form_commas(r.quot, scale_d_tags[i / 3], d, r.rem) ;
+  qassert(val <= LONG_MAX) ;
+  return qfs_dec_value((long)val, pf_scale | pf_commas | pf_trailing) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Form count with 4 significant digits, up to multiples of Terabytes.
+ * Form byte count with 4 significant digits -- 6 character field
  *
- * So: 1023
+ * NB: although count is nominally ulong, we only do 0..LONG_MAX
  */
-static num_str_t
+static qfs_num_str_t
 mem_form_byte_count(ulong val)
 {
-  ulong v ;
-  uint i, d, f ;
-
-  i = 0 ;
-  d = 0 ;
-  v = val ;
-  f = 0 ;
-
-  while ((v >= 1024) && (i < scale_max))
-    {
-      v >>= 10 ;        /* find power of 1024 scale     */
-      i += 1 ;
-    } ;
-
-  if (i > 0)
-    {
-      if      (v < 10)
-        d = 3 ;         /* number of decimals expected  */
-      else if (v < 100)
-        d = 2 ;
-      else if (v < 1000)
-        d = 1 ;
-
-      /* Scale up to the required number of decimals, shift down so that
-       * only ms bit of fraction is left, round and shift off rounding bit.
-       *
-       * If d != 0, then will scale up by 10, 100 or 1000.  The largest value
-       * to be scaled up is 1000 * (2^(scale_max * 10)) - 1, which will be
-       * multiplied by 10.  The maximum scaled value is, therefore, bound to
-       * be < 2^(((scale_max + 1) * 10) + 4)
-       */
-      confirm((sizeof(ulong) * 8) >= (((scale_max + 1) * 10) + 4)) ;
-
-      v = (((val * p10[d]) >> ((i * 10) - 1)) + 1) >> 1 ;
-
-      qassert(v >= 1000) ;
-
-      if (d == 0)
-        {
-          if ((v == 1024) && (i < scale_max))
-            {
-              v  = 1000 ;       /* rounded up to next power of 1024     */
-              d  = 3 ;
-              i += 1 ;
-            }
-        }
-      else
-        {
-          if (v >= 10000)
-            {
-              qassert(v == 10000) ;
-
-              v  = 1000 ;       /* rounded up to one less decimals      */
-              d -= 1 ;
-            } ;
-        } ;
-
-      f = v % p10[d] ;
-      v = v / p10[d] ;
-   } ;
-
-  return mem_form_commas(v, scale_b_tags[i], d, f) ;
+  qassert(val <= LONG_MAX) ;
+  return qfs_bin_value((long)val, pf_scale | pf_commas | pf_trailing) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2634,21 +2429,21 @@ static void
 show_memory_tracker_summary(vty vty, mem_tracker_data mtd)
 {
   vty_out (vty, "Memory Tracker Statistics:\n");
-  vty_out (vty, "  Current memory allocated:  %13s\n",
+  vty_out (vty, "  Current memory allocated:  %12s\n",
            mem_form_byte_count(mtd->tot->total_size).str) ;
   vty_out (vty, "  Current allocated objects: %'11lu\n",
                                mtd->tot->item_count);
-  vty_out (vty, "  Maximum memory allocated:  %13s\n",
+  vty_out (vty, "  Maximum memory allocated:  %12s\n",
            mem_form_byte_count(mtd->tot->peak_total_size).str) ;
   vty_out (vty, "  Maximum allocated objects: %'11lu\n",
                                mtd->tot->peak_item_count) ;
-  vty_out (vty, "  malloc/calloc call count:  %13s\n",
+  vty_out (vty, "  malloc/calloc call count:  %12s\n",
            mem_form_count     (mtd->tot->malloc_count).str);
-  vty_out (vty, "  realloc_call_count:        %13s\n",
+  vty_out (vty, "  realloc_call_count:        %12s\n",
            mem_form_count     (mtd->tot->realloc_count).str);
-  vty_out (vty, "  free call count:           %13s\n",
+  vty_out (vty, "  free call count:           %12s\n",
            mem_form_count     (mtd->tot->free_count).str);
-  vty_out (vty, "  Memory Tracker overhead:   %13s\n",
+  vty_out (vty, "  Memory Tracker overhead:   %12s\n",
            mem_form_byte_count(mtd->tracker_overhead).str);
 } ;
 
@@ -2829,8 +2624,8 @@ mem_show_region_info(vty vty, mem_tracker_data mtd)
       if (name == NULL)
         name = "????" ;
 
-                 /* 12--7:90-789-678-5          */
-      vty_out(vty, " %-6s: %8s %8s %8s",
+                 /* 12--7:9-678-567-4          */
+      vty_out(vty, " %-6s:%8s %8s %8s",
                 name,
                 mem_form_byte_count(rs->size).str,
                 mem_form_byte_count(rs->present).str,
@@ -2839,21 +2634,25 @@ mem_show_region_info(vty vty, mem_tracker_data mtd)
 
       if (rs->sex != mrx_grand_total)
         {
-                     /* 67-4                    */
+                     /* 56-3                    */
           vty_out(vty, " %8s", ((rs->count != 0) || memory_tracker)
                                   ? mem_form_count(rs->count).str
                                   : "-  ") ;
 
           if (memory_tracker && (rs->sex >= mrx_heap))
-                        /* 56-345-234-1         */
+                        /* 45-234-123-0         */
             vty_out (vty, " %8s %8s %8s",
                           mem_form_byte_count(rs->used).str,
                           mem_form_byte_count(rs->overhead).str,
                           mem_form_byte_count(rs->unused).str) ;
+          else
+            vty_out (vty, " %8s %8s %8s", ". ", ". ", ". ") ;
 
           if (rs->data != 0)
-                        /* 23-0                 */
+                       /* 12-9                  */
             vty_out(vty, " %8s", mem_form_byte_count(rs->data).str) ;
+          else
+            vty_out(vty, " %8s", ". ") ;
         } ;
 
       vty_out(vty, "\n") ;
@@ -2934,12 +2733,12 @@ show_memory_type_vty (vty vty, const char* name, mem_tracker_item mt, bool sep)
       if (memory_tracker)
         {
                      /* 123456789012    */
-          vty_out(vty, "---Size--"
+          vty_out(vty, "---Size-"
                        "--Peak-Count"
-                       "-P-Size--"
-                       "-malloc--"
-                       "realloc--"
-                       "---free--") ;
+                       "-P-Size-"
+                       "-malloc-"
+                       "realloc-"
+                       "---free-") ;
         } ;
 
       vty_out (vty, "\n") ;
@@ -2949,12 +2748,12 @@ show_memory_type_vty (vty vty, const char* name, mem_tracker_item mt, bool sep)
 
   if (memory_tracker)
     {
-      vty_out(vty, "%9s", mem_form_byte_count(mt->total_size).str) ;
+      vty_out(vty, "%8s", mem_form_byte_count(mt->total_size).str) ;
       vty_out(vty, "%'12lu", mt->peak_item_count) ;
-      vty_out(vty, "%9s", mem_form_byte_count(mt->peak_total_size).str) ;
-      vty_out(vty, "%9s", mem_form_count(mt->malloc_count).str) ;
-      vty_out(vty, "%9s", mem_form_count(mt->realloc_count).str) ;
-      vty_out(vty, "%9s", mem_form_count(mt->free_count).str) ;
+      vty_out(vty, "%8s", mem_form_byte_count(mt->peak_total_size).str) ;
+      vty_out(vty, "%8s", mem_form_count(mt->malloc_count).str) ;
+      vty_out(vty, "%8s", mem_form_count(mt->realloc_count).str) ;
+      vty_out(vty, "%8s", mem_form_count(mt->free_count).str) ;
 
     } ;
 
@@ -3162,8 +2961,6 @@ DEFUN_CALL (show_memory_isis,
  * Initialisation and close down
  */
 
-static void bd_form_test(void) ;
-
 /*------------------------------------------------------------------------------
  * First stage initialisation
  */
@@ -3182,9 +2979,6 @@ memory_start(void)
   mem_pagesize = qlib_pagesize ;
 
   mem_alloc_discover() ;
-
-  if (false)
-    bd_form_test() ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -3348,275 +3142,3 @@ mem_munmap(void* p, size_t size)
   free(p) ;
 #endif
 } ;
-
-/*==============================================================================
- * Testing the number formatting
- */
-static ulong t_val(double v, ulong s) ;
-static void b_test(ulong v) ;
-static void d_test(ulong v) ;
-static void c_val(char* e, ulong u, uint d, const char* t) ;
-
-static void
-bd_form_test(void)
-{
-  ulong s ;
-  int   g = 0 ;
-
-  fprintf(stderr, "Group %d\n", g) ;
-  b_test(0    ) ;
-  b_test(1    ) ;
-  b_test(9    ) ;
-  b_test(10   ) ;
-  b_test(99   ) ;
-  b_test(100  ) ;
-  b_test(999  ) ;
-  b_test(1023 ) ;
-  b_test(1024 ) ;
-  b_test(1025 ) ;
-  b_test(9999 ) ;
-  b_test(10000) ;
-  b_test(10007) ;
-
-  s = 1 ;
-  for (g = 1 ; g <= 5 ; ++g)
-    {
-      fprintf(stderr, "Group %d\n", g) ;
-      s *= 1024ul ;
-      b_test(t_val(.31414, s)    ) ;
-      b_test(t_val(.31415, s)    ) ;
-      b_test(t_val(.31416, s)    ) ;
-      b_test(t_val(.99995, s) - 1) ;
-      b_test(t_val(.99995, s)    ) ;
-      b_test(t_val(.99995, s) + 1) ;
-      b_test(t_val(1.2345, s)    ) ;
-      b_test(t_val(9.9995, s) - 1) ;
-      b_test(t_val(9.9995, s)    ) ;
-      b_test(t_val(9.9995, s) + 1) ;
-      b_test(t_val(3.1415, s) - 1) ;
-      b_test(t_val(3.1415, s)    ) ;
-      b_test(t_val(3.1416, s)    ) ;
-      b_test(t_val(99.995, s) - 1) ;
-      b_test(t_val(99.995, s)    ) ;
-      b_test(t_val(99.995, s) + 1) ;
-      b_test(t_val(314.15, s) - 1) ;
-      b_test(t_val(314.15, s)    ) ;
-      b_test(t_val(314.16, s)    ) ;
-      b_test(t_val(999.95, s) - 1) ;
-      b_test(t_val(999.95, s)    ) ;
-      b_test(t_val(999.95, s) + 1) ;
-      b_test(t_val(1023.5, s) - 1) ;
-      b_test(t_val(1023.5, s)    ) ;
-      b_test(t_val(1023.5, s) + 1) ;
-      b_test(t_val(3141.5, s) - 1) ;
-      b_test(t_val(3141.5, s)    ) ;
-      b_test(t_val(3141.6, s)    ) ;
-      b_test(t_val(9999.5, s) - 1) ;
-      b_test(t_val(9999.5, s)    ) ;
-      b_test(t_val(9999.5, s) + 1) ;
-    } ;
-
-  g = 0 ;
-  fprintf(stderr, "Group %d\n", g) ;
-  d_test(0    ) ;
-  d_test(1    ) ;
-  d_test(9    ) ;
-  d_test(10   ) ;
-  d_test(11   ) ;
-  d_test(99   ) ;
-  d_test(100  ) ;
-  d_test(999  ) ;
-  d_test(1000 ) ;
-  d_test(1001 ) ;
-  d_test(9999 ) ;
-  d_test(10000) ;
-  d_test(10001) ;
-
-  s = 1 ;
-  for (g = 1 ; g <= 4 ; ++g)
-    {
-      fprintf(stderr, "Group %d\n", g) ;
-      s *= 1000ul ;
-      d_test(t_val(1.2345, s) - 1) ;
-      d_test(t_val(1.2345, s)    ) ;
-      d_test(t_val(9.9995, s) - 1) ;
-      d_test(t_val(9.9995, s)    ) ;
-      d_test(t_val(21.235, s) - 1) ;
-      d_test(t_val(21.235, s)    ) ;
-      d_test(t_val(99.995, s) - 1) ;
-      d_test(t_val(99.995, s)    ) ;
-      d_test(t_val(312.35, s) - 1) ;
-      d_test(t_val(312.35, s)    ) ;
-      d_test(t_val(999.95, s) - 1) ;
-      d_test(t_val(999.95, s)    ) ;
-      d_test(t_val(4321.5, s) - 1) ;
-      d_test(t_val(4321.5, s)    ) ;
-      d_test(t_val(9999.5, s) - 1) ;
-      d_test(t_val(9999.5, s)    ) ;
-    } ;
-
-  g = 5 ;
-  fprintf(stderr, "Group %d\n", g) ;
-  s *= 1000ul ;
-  d_test(t_val(1.2345, s) - 1) ;
-  d_test(t_val(1.2345, s)    ) ;
-  d_test(t_val(9.9995, s) - 1) ;
-  d_test(t_val(9.9995, s)    ) ;
-  d_test(t_val(21.2345, s) - 1) ;
-  d_test(t_val(21.2345, s)    ) ;
-  d_test(t_val(99.9995, s) - 1) ;
-  d_test(t_val(99.9995, s)    ) ;
-  d_test(t_val(312.6785, s) - 1) ;
-  d_test(t_val(312.6785, s)    ) ;
-  d_test(t_val(999.9995, s) - 1) ;
-  d_test(t_val(999.9995, s)    ) ;
-  d_test(t_val(4321.5675, s) - 1) ;
-  d_test(t_val(4321.5675, s)    ) ;
-  d_test(t_val(9999.9995, s) - 1) ;
-  d_test(t_val(9999.9995, s)    ) ;
-} ;
-
-static ulong
-t_val(double v, ulong s)
-{
-  return v * s ;
-} ;
-
-static void
-b_test(ulong v)
-{
-  num_str_t g ;
-  char      e[50] ;
-  ulong     u ;
-  uint      i ;
-  uint      d ;
-
-  d = 0 ;
-  u = v ;
-  i = 0 ;
-  if (u >= 1024)
-    {
-      uint n ;
-
-      while ((u >= 1024) && (i < scale_max))
-        {
-          u >>= 10 ;
-          i  += 1 ;
-        }
-      n = i * 10 ;
-
-      u = v ;
-      while (u < (1000ul << n))
-        {
-          u *= 10 ;
-          d += 1 ;
-        } ;
-
-      u = ((u >> (n - 1)) + 1) >> 1 ;
-
-      if (d == 0)
-        {
-          if ((u == 1024) && (i < scale_max))
-            {
-              u  = 1000 ;
-              i += 1 ;
-              d  = 3 ;
-            } ;
-        }
-      else
-        {
-          assert(u <= 10000) ;
-          if (u == 10000)
-            {
-              u  = 1000 ;
-              d -= 1 ;
-            } ;
-        } ;
-    } ;
-
-  c_val(e, u, d, scale_b_tags[i]) ;
-
-  g = mem_form_byte_count(v) ;
-
-  fprintf(stderr, "%16lx %'20lu -> '%7s'", v, v, g.str) ;
-
-  if (strcmp(e, g.str) == 0)
-    fputs(" -- OK\n", stderr) ;
-  else
-    fprintf(stderr, " *** expect: '%7s'\n", e) ;
-} ;
-
-static void
-d_test(ulong v)
-{
-  num_str_t g ;
-  char      e[50] ;
-  ulong     u ;
-  uint      i ;
-  uint      n ;
-  uint      d ;
-
-  d = 0 ;
-  i = 0 ;
-  u = v ;
-  n = (v == 0) ? 0 : 1 ;
-
-  while (u >= 10)
-    {
-      u /= 10 ;
-      n += 1 ;
-    } ;
-
-  u = v ;
-
-  if (n > 4)
-    {
-      if (n > ((scale_max * 3) + 3))
-        {
-          u = (u + q10[scale_max * 3]) / p10[scale_max * 3] ;
-          i = scale_max ;
-        }
-      else
-        {
-          u = (u + q10[n - 4]) / p10[n - 4] ;
-
-          if (u > 9999)
-            {
-              u /= 10 ;
-              n += 1 ;
-            } ;
-
-          i = (n - 2) / 3 ;
-          d = (i * 3) + 4 - n ;
-        } ;
-    } ;
-
-  c_val(e, u, d, scale_d_tags[i]) ;
-
-  g = mem_form_count(v) ;
-
-  fprintf(stderr, "%'20lu -> '%7s'", v, g.str) ;
-
-  if (strcmp(e, g.str) == 0)
-    fputs(" -- OK\n", stderr) ;
-  else
-    fprintf(stderr, " *** expect: '%7s'\n", e) ;
-} ;
-
-static void
-c_val(char* e, ulong u, uint d, const char* t)
-{
-  if      (d != 0)
-    sprintf(e, "%lu.%0*lu%s", u / p10[d], (int)d, u % p10[d], t) ;
-  else
-    {
-      if      (u < 1000)
-        sprintf(e, "%lu%s", u, t) ;
-      else if (u < 1000000)
-        sprintf(e, "%lu,%03lu%s", u / 1000, u % 1000, t) ;
-      else
-        sprintf(e, "%lu,%03lu,%03lu%s", u / 1000000, (u / 1000) % 1000,
-                                                                 u % 1000, t) ;
-    } ;
-} ;
-

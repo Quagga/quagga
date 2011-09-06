@@ -74,6 +74,7 @@ Inline qpath qpath_free(qpath qp) ;
 
 Inline const char* qpath_string(qpath qp) ;
 Inline char* qpath_char_string(qpath qp) ;
+Inline char* qpath_char(qpath qp) ;
 Inline ulen qpath_len(qpath qp) ;
 Inline qstring qpath_qs(qpath qp) ;
 
@@ -179,14 +180,28 @@ qpath_string(qpath qp)
  * This is *temporary* to the extent that when the qpath is changed or freed,
  * this pointer will be INVALID -- you have been warned.
  *
- * This is a *const* pointer.
- *
- * qpath may *not* be NULL qpath.
+ * For a NULL qpath, or an empty qpath, returns pointer to an empty string
+ * ('\0' terminated "").
  */
 Inline char*
 qpath_char_string(qpath qp)
 {
-  return qs_make_string(qp->path) ;
+  static char empty[] = "" ;
+  return (qp != NULL) ? qs_make_string(qp->path) : empty ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get *temporary* address of the path in given qpath -- NULL if NULL
+ *
+ * This is *temporary* to the extent that when the qpath is changed or freed,
+ * this pointer will be INVALID -- you have been warned.
+ *
+ * NB: the path is not guaranteed to be '\0' terminated.
+ */
+Inline char*
+qpath_char(qpath qp)
+{
+  return (qp != NULL) ? qs_char_nn(qp->path) : 0 ;
 } ;
 
 /*------------------------------------------------------------------------------

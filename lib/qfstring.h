@@ -74,23 +74,30 @@ enum pf_flags
 {
   pf_none       = 0,
 
-  /* The following correspond to the "flags"                    */
-  pf_commas     = BIT( 0),      /* "'" seen             */
-  pf_plus       = BIT( 1),      /* "+" seen             */
-  pf_space      = BIT( 2),      /* " " seen             */
-  pf_zeros      = BIT( 3),      /* "0" seen             */
-  pf_alt        = BIT( 4),      /* "#" seen             */
+  /* The following correspond to the standard "flags"
+   *
+   * Note that C standard specifies that ' ' is ignored if '+' seen.
+   */
+  pf_commas     = BIT( 0),      /* "'": *non-standard*          */
+  pf_plus       = BIT( 1),      /* '+': add '+' if >= 0         */
+  pf_space      = BIT( 2),      /* ' ': add ' ' if >= 0         */
+  pf_zeros      = BIT( 3),      /* '0': add leading 0's         */
+  pf_alt        = BIT( 4),      /* '#': "alternative" form      */
 
-  pf_precision  = 1 <<  5,      /* '.' seen             */
+  /* Non-standard flags                                         */
+  pf_plus_nz    = BIT( 5),      /* add '+' if > 0               */
 
-  /* For scaled formatting of decimals and byte counts          */
-  pf_scale      = 1 <<  6,
-  pf_trailing   = 1 <<  7,      /* add blank scale if required  */
+  /* A precision part (empty or otherwise) has been seen        */
+  pf_precision  = BIT( 7),      /* '.' seen                     */
 
   /* The following signal how to render the value               */
   pf_oct        = BIT( 8),      /* octal                */
   pf_hex        = BIT( 9),      /* hex                  */
   pf_uc         = BIT(10),      /* upper-case           */
+
+  /* For scaled formatting of decimals and byte counts          */
+  pf_scale      = BIT(11),      /* scale and add scale tag      */
+  pf_trailing   = BIT(12),      /* add blank scale if required  */
 
   /* The following signal the type of value                     */
   pf_ptr        = BIT(14),      /* is a pointer         */
@@ -103,142 +110,7 @@ enum pf_flags
   pf_void_p     = pf_ptr | pf_hex_x,
 } ;
 
-/*==============================================================================
- * Functions
- */
-
-extern void qfs_init(qf_str qfs, char* str, uint size) ;
-extern void qfs_init_offset(qf_str qfs, char* str, uint size, uint offset) ;
-extern void qfs_reset_offset(qf_str qfs, uint offset) ;
-extern void qfs_init_as_is(qf_str qfs, char* str, uint size) ;
-
-Inline uint qfs_overflow(qf_str qfs) ;
-Inline uint qfs_term(qf_str qfs) ;
-extern void qfs_term_string(qf_str qfs, const char* src, uint n) ;
-
-Inline uint  qfs_len(qf_str qfs) ;
-Inline void* qfs_ptr(qf_str qfs) ;
-Inline uint  qfs_left(qf_str qfs) ;
-
-extern void qfs_append(qf_str qfs, const char* src) ;
-extern void qfs_append_n(qf_str qfs, const char* src, uint n) ;
-extern void qfs_append_ch_x_n(qf_str qfs, char ch, uint n) ;
-extern void qfs_append_justified(qf_str qfs, const char* src, int width) ;
-extern void qfs_append_justified_n(qf_str qfs, const char* src,
-                                                            uint n, int width) ;
-
-extern void qfs_signed(qf_str qfs, intmax_t s_val, enum pf_flags flags,
-                                                     int width, int precision) ;
-extern void qfs_unsigned(qf_str qfs, uintmax_t u_val, enum pf_flags flags,
-                                                     int width, int precision) ;
-extern void qfs_pointer(qf_str qfs, void* p_val, enum pf_flags flags,
-                                                     int width, int precision) ;
-
-extern uint qfs_printf(qf_str qfs, const char* format, ...)
-                                                       PRINTF_ATTRIBUTE(2, 3) ;
-extern uint qfs_vprintf(qf_str qfs, const char *format, va_list args) ;
-
-Inline uint qfs_strlen(const char* str) ;
-
-/* Construction of numbers from long
- *
- * Need enough space for groups of 3 decimal digits plus ',' or '\0', and an
- * extra group for sign and some slack.  For 64 bits comes out at 32 bytes !
- */
-enum { qfs_number_len = (((64 + 9) / 10) + 1) * (3 + 1) } ;
-
-CONFIRM((sizeof(long) * 8) <= 64) ;
-
-typedef struct qfs_num_str_t
-{
-  char   str[qfs_number_len] ;
-} qfs_num_str_t;
-
-extern qfs_num_str_t qfs_dec_value(long val, enum pf_flags flags) ;
-extern qfs_num_str_t qfs_bin_value(long val, enum pf_flags flags) ;
-extern qfs_num_str_t qfs_time_period(qtime_t val, enum pf_flags flags) ;
-
-/*==============================================================================
- * The Inline functions.
- */
-
-/*------------------------------------------------------------------------------
- * Current length of qf_str.
- */
-Inline uint
-qfs_len(qf_str qfs)
-{
-  return qfs->ptr - qfs->str ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Address for next byte -- assuming zero offset -- may be the end.
- */
-Inline void*
-qfs_ptr(qf_str qfs)
-{
-  return qfs->ptr ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Current space left in the qstr -- assuming zero offset.
- */
-Inline uint
-qfs_left(qf_str qfs)
-{
-  return qfs->end - qfs->ptr ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Did everything we put in the qfs, fit ?.
- *
- * Returns:  number of chars that did *not* fit.
- */
-Inline uint
-qfs_overflow(qf_str qfs)
-{
-  return qfs->overflow ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Insert '\0' terminator -- overwrites the last byte, if required.
- *
- * Assumes the qfs is not zero length !
- *
- * Returns:  number of chars that did *not* fit (after using one for '\0').
- *
- * NB: does not advance pointer -- so length does not include the '\0'
- */
-Inline uint
-qfs_term(qf_str qfs)
-{
-  if (qfs->ptr >= qfs->end)
-    {
-      assert((qfs->ptr == qfs->end) && (qfs->ptr > qfs->str)) ;
-      --qfs->ptr ;
-      ++qfs->overflow ;
-    } ;
-
-  *qfs->ptr = '\0' ;
-  return qfs->overflow ;
-} ;
-
-/*------------------------------------------------------------------------------
- * async-signal-safe strlen
- */
-Inline uint
-qfs_strlen(const char* str)
-{
-  const char* s ;
-
-  s = str ;
-
-  if (s != NULL)
-    while (*s != '\0')
-      ++s ;
-
-  return s - str ;
-}
+typedef enum pf_flags pf_flags_t ;
 
 /*==============================================================================
  * Fixed Size String Buffers
@@ -325,5 +197,144 @@ qfs_strlen(const char* str)
 
 enum { qfb_gen_len = 200 } ;    /* More than enough for most purposes ! */
 QFB_T(qfb_gen, qfb_gen_len) ;
+
+/*==============================================================================
+ * Functions
+ */
+extern void qfs_init(qf_str qfs, char* str, uint size) ;
+extern void qfs_init_offset(qf_str qfs, char* str, uint size, uint offset) ;
+extern void qfs_reset_offset(qf_str qfs, uint offset) ;
+extern void qfs_init_as_is(qf_str qfs, char* str, uint size) ;
+
+Inline uint qfs_overflow(qf_str qfs) ;
+Inline uint qfs_term(qf_str qfs) ;
+extern void qfs_term_string(qf_str qfs, const char* src, uint n) ;
+
+Inline uint  qfs_len(qf_str qfs) ;
+Inline void* qfs_ptr(qf_str qfs) ;
+Inline uint  qfs_left(qf_str qfs) ;
+
+extern void qfs_append(qf_str qfs, const char* src) ;
+extern void qfs_append_n(qf_str qfs, const char* src, uint n) ;
+extern void qfs_append_ch_x_n(qf_str qfs, char ch, uint n) ;
+extern void qfs_append_justified(qf_str qfs, const char* src, int width) ;
+extern void qfs_append_justified_n(qf_str qfs, const char* src,
+                                                            uint n, int width) ;
+
+extern void qfs_signed(qf_str qfs, intmax_t s_val, pf_flags_t flags,
+                                                     int width, int precision) ;
+extern void qfs_unsigned(qf_str qfs, uintmax_t u_val, pf_flags_t flags,
+                                                     int width, int precision) ;
+extern void qfs_pointer(qf_str qfs, void* p_val, pf_flags_t flags,
+                                                     int width, int precision) ;
+
+extern uint qfs_printf(qf_str qfs, const char* format, ...)
+                                                       PRINTF_ATTRIBUTE(2, 3) ;
+extern uint qfs_vprintf(qf_str qfs, const char *format, va_list args) ;
+
+Inline uint qfs_strlen(const char* str) ;
+
+/*------------------------------------------------------------------------------
+ * Construction of numbers from long and other stuff.
+ *
+ * Need enough space for sign, then groups of 3 decimal digits plus ',' or '\0'.
+ * For 64 bits comes out at 29 bytes !
+ */
+enum { qfs_number_len = 1 + (((64 + 9) / 10) * (3 + 1)) } ;
+
+CONFIRM((sizeof(long) * 8) <= 64) ;
+
+QFB_T(qfs_num_str, qfs_number_len) ;    /* construct qfs_num_str_t      */
+
+extern qfs_num_str_t qfs_dec_value(long val, pf_flags_t flags) ;
+extern qfs_num_str_t qfs_bin_value(long val, pf_flags_t flags) ;
+
+/* Time period expressed as +999,999d99h99m99.999s (22 characters !)
+ */
+CONFIRM(qfs_number_len > (1+4+4+3+3+3+4)) ;
+
+extern qfs_num_str_t qfs_time_period(qtime_t val, pf_flags_t flags) ;
+
+/*==============================================================================
+ * The Inline functions.
+ */
+
+/*------------------------------------------------------------------------------
+ * Current length of qf_str.
+ */
+Inline uint
+qfs_len(qf_str qfs)
+{
+  return qfs->ptr - qfs->str ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Address for next byte -- assuming zero offset -- may be the end.
+ */
+Inline void*
+qfs_ptr(qf_str qfs)
+{
+  return qfs->ptr ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Current space left in the qstr -- assuming zero offset.
+ */
+Inline uint
+qfs_left(qf_str qfs)
+{
+  return qfs->end - qfs->ptr ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Did everything we put in the qfs, fit ?.
+ *
+ * Returns:  number of chars that did *not* fit.
+ */
+Inline uint
+qfs_overflow(qf_str qfs)
+{
+  return qfs->overflow ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Insert '\0' terminator -- overwrites the last byte, if required.
+ *
+ * Assumes the qfs is not zero length !
+ *
+ * Returns:  number of chars that did *not* fit (after using one for '\0').
+ *
+ * NB: does not advance pointer -- so length does not include the '\0'
+ */
+Inline uint
+qfs_term(qf_str qfs)
+{
+  if (qfs->ptr >= qfs->end)
+    {
+      assert((qfs->ptr == qfs->end) && (qfs->ptr > qfs->str)) ;
+      --qfs->ptr ;
+      ++qfs->overflow ;
+    } ;
+
+  *qfs->ptr = '\0' ;
+  return qfs->overflow ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * async-signal-safe strlen
+ */
+Inline uint
+qfs_strlen(const char* str)
+{
+  const char* s ;
+
+  s = str ;
+
+  if (s != NULL)
+    while (*s != '\0')
+      ++s ;
+
+  return s - str ;
+}
 
 #endif /* _ZEBRA_QFSTRING_H */

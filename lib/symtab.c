@@ -580,7 +580,7 @@ symbol_lookup(symbol_table table, const void* name, add_b add)
  */
 
 static void symbol_do_tell(symbol sym, symbol_change_t ch) ;
-static void symbol_remove(symbol sym, bool free) ;
+static void symbol_remove(symbol sym, free_keep_b free) ;
 inline static bool symbol_redundant(symbol sym) ;
 inline static void symbol_remove_if_redundant(symbol sym) ;
 
@@ -806,7 +806,7 @@ symbol_do_tell(symbol sym, symbol_change_t ch)
  * NB: symbol MUST be unset (and may already be deleted) !
  */
 static void
-symbol_remove(symbol sym, bool free)
+symbol_remove(symbol sym, free_keep_b free)
 {
   symbol_table  table ;
   symbol*       base ;
@@ -844,6 +844,7 @@ symbol_remove(symbol sym, bool free)
                                 /* Need to keep a hold of this          */
     } ;
 
+  confirm(free_it) ;    /* true => free it      */
   if (free)
     {
       if (sym->value != NULL)
@@ -873,7 +874,7 @@ inline static void
 symbol_remove_if_redundant(symbol sym)
 {
   if (symbol_redundant(sym))
-    symbol_remove(sym, true) ;
+    symbol_remove(sym, free_it) ;
 } ;
 
 /*==============================================================================

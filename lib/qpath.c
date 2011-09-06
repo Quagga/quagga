@@ -730,11 +730,7 @@ static ulen qpath_trim_home(const char* p, ulen n) ;
 extern qpath
 qpath_append(qpath dst, const qpath src)
 {
-  if (src != NULL)
-    return qpath_append_str_n(dst, qs_char_nn(src->path),
-                                   qs_len_nn(src->path)) ;
-  else
-    return qpath_append_str_n(dst, NULL, 0) ;
+  return qpath_append_str_n(dst, qpath_char(src), qpath_len(src)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -809,11 +805,7 @@ qpath_append_str_n(qpath dst, const char* src, ulen n)
 extern qpath
 qpath_extend(qpath dst, const qpath src)
 {
-  if (src != NULL)
-    return qpath_extend_str_n(dst, qs_char_nn(src->path),
-                                   qs_len_nn(src->path)) ;
-  else
-    return qpath_extend_str_n(dst, NULL, 0) ;
+  return qpath_extend_str_n(dst, qpath_char(src), qpath_len(src)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -858,11 +850,7 @@ qpath_extend_str_n(qpath dst, const char* src, ulen n)
 extern qpath
 qpath_prepend(qpath dst, const qpath src)
 {
-  if (src != NULL)
-    return qpath_prepend_str_n(dst, qs_char_nn(src->path),
-                                    qs_len_nn(src->path)) ;
-  else
-    return qpath_prepend_str_n(dst, NULL, 0) ;
+  return qpath_prepend_str_n(dst, qpath_char(src), qpath_len(src)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -954,11 +942,7 @@ qpath_make(const char* src, const qpath dir)
 extern qpath
 qpath_complete(qpath dst, const qpath src)
 {
-  if (src != NULL)
-    return qpath_complete_str_n(dst, qs_char_nn(src->path),
-                                     qs_len_nn(src->path)) ;
-  else
-    return qpath_complete_str_n(dst, NULL, 0) ;
+  return qpath_complete_str_n(dst, qpath_char(src), qpath_len(src)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -978,7 +962,7 @@ qpath_complete_qs(qpath dst, const qstring src)
 extern qpath
 qpath_complete_str(qpath dst, const char* src)
 {
-  return qpath_prepend_str_n(dst, src, (src != NULL) ? strlen(src) : 0) ;
+  return qpath_complete_str_n(dst, src, (src != NULL) ? strlen(src) : 0) ;
 } ;
 
 /*------------------------------------------------------------------------------

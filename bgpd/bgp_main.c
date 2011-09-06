@@ -880,38 +880,38 @@ bgp_do_show_nexus(struct vty* vty, qpn_nexus qpn)
           qpn->name,
           qfs_time_period(curr.last_time - now, 0).str,
           qfs_dec_value(curr.cycles, pf_scale).str,
-          qfs_dec_value(curr.cycles - prev.cycles, pf_scale | pf_plus).str,
-          qfs_time_period(delta, pf_plus).str) ;
+          qfs_dec_value(curr.cycles - prev.cycles, pf_scale | pf_plus_nz).str,
+          qfs_time_period(delta, pf_plus_nz).str) ;
 
   vty_out(vty, "  %s(%s) active  %s(%s) idle\n",
       qfs_time_period((curr.last_time - curr.start_time) - curr.idle, 0).str,
-      qfs_time_period(delta - idle_delta, pf_plus).str,
+      qfs_time_period(delta - idle_delta, pf_plus_nz).str,
       qfs_time_period(curr.idle, 0).str,
-      qfs_time_period(idle_delta, pf_plus).str) ;
+      qfs_time_period(idle_delta, pf_plus_nz).str) ;
 
   vty_out(vty, "  %s(%s) signals",
       qfs_dec_value(curr.signals, pf_scale).str,
-      qfs_dec_value(curr.signals - prev.signals, pf_scale | pf_plus).str) ;
+      qfs_dec_value(curr.signals - prev.signals, pf_scale | pf_plus_nz).str) ;
 
   vty_out(vty, "  %s(%s) foreg.",
       qfs_dec_value(curr.foreg, pf_scale).str,
-      qfs_dec_value(curr.foreg - prev.foreg, pf_scale | pf_plus).str) ;
+      qfs_dec_value(curr.foreg - prev.foreg, pf_scale | pf_plus_nz).str) ;
 
   vty_out(vty, "  %s(%s) dispatch\n",
       qfs_dec_value(curr.dispatch, pf_scale).str,
-      qfs_dec_value(curr.dispatch - prev.dispatch, pf_scale | pf_plus).str) ;
+      qfs_dec_value(curr.dispatch - prev.dispatch, pf_scale | pf_plus_nz).str) ;
 
   vty_out(vty, "  %s(%s) i/o act.",
       qfs_dec_value(curr.io_acts, pf_scale).str,
-      qfs_dec_value(curr.io_acts - prev.io_acts, pf_scale | pf_plus).str) ;
+      qfs_dec_value(curr.io_acts - prev.io_acts, pf_scale | pf_plus_nz).str) ;
 
   vty_out(vty, "  %s(%s) timers",
       qfs_dec_value(curr.timers, pf_scale).str,
-      qfs_dec_value(curr.timers - prev.timers, pf_scale | pf_plus).str) ;
+      qfs_dec_value(curr.timers - prev.timers, pf_scale | pf_plus_nz).str) ;
 
   vty_out(vty, "  %s(%s) backg.\n",
       qfs_dec_value(curr.backg, pf_scale).str,
-      qfs_dec_value(curr.backg - prev.backg, pf_scale | pf_plus).str) ;
+      qfs_dec_value(curr.backg - prev.backg, pf_scale | pf_plus_nz).str) ;
 } ;
 
 
