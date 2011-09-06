@@ -3247,10 +3247,9 @@ static node_type_t cmd_auth_specials(cmd_context context, node_type_t target) ;
  *
  *                           - parsed->parts is what was found
  *
- *                           - parsed->cmd->daemon => daemon
+ *                             NB: may be empty or comment only !
  *
- *           CMD_EMPTY   => line is empty, except perhaps for comment
- *                          (iff parsing for execution)
+ *                           - parsed->cmd->daemon => daemon
  *
  *           CMD_ERR_INCOMPLETE => "do" and nothing more
  *                          (iff parsing for execution)
@@ -3317,13 +3316,10 @@ cmd_parse_command(cmd_parsed parsed, cmd_context context)
    */
   if (((parsed->parts & cmd_part_command) == 0) && context->parse_execution)
     {
-      if ((parsed->parts & ~cmd_part_comment) == cmd_parts_none)
-        return CMD_EMPTY ;              /* accept empty         */
-
       if ((parsed->parts & cmd_part_do) != 0)
-        return CMD_ERR_INCOMPLETE ;     /* reject "do" alone    */
+        return CMD_ERR_INCOMPLETE ;     /* reject "do" alone            */
 
-      return CMD_SUCCESS ;              /* accept pipes         */
+      return CMD_SUCCESS ;              /* accept pipes and empty       */
     } ;
 
   /* Level 2 parsing

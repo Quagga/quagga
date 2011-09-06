@@ -476,15 +476,18 @@ enum cmd_pipe_type              /* bit significant      */
 
   cmd_pipe_file       = BIT(0),
   cmd_pipe_shell      = BIT(1),
-  cmd_pipe_dev_null   = BIT(2),         /* out pipe only -- black hole  */
+  cmd_pipe_dev_null   = BIT(2), /* out pipe only -- black hole  */
 
-  /* For in pipes                                                       */
-  cmd_pipe_reflect    = BIT(4),         /* + option                     */
+  /* For in pipes
+   */
+  cmd_pipe_reflect    = BIT(4), /* + option                     */
 
-  /* For out file pipes                                                 */
+  /* For out file pipes
+   */
   cmd_pipe_append     = BIT(4),         /* >>                           */
 
-  /* For out shell pipes                                                */
+  /* For out shell pipes
+   */
   cmd_pipe_shell_cmd  = BIT(4),         /* | at start of line           */
 } ;
 typedef enum cmd_pipe_type cmd_pipe_type_t ;
@@ -494,15 +497,17 @@ enum cmd_parts                  /* bit significant      */
 {
   cmd_parts_none      = 0,
 
-  cmd_part_do         = BIT(0),
-  cmd_part_command    = BIT(1),
+  cmd_part_do         = BIT(0), /* command has leading "do"     */
+  cmd_part_command    = BIT(1), /* command part exists          */
 
-  cmd_part_in_pipe    = BIT(2),
-  cmd_part_out_pipe   = BIT(3),
+  cmd_part_in_pipe    = BIT(2), /* in pipe part exists          */
+  cmd_part_out_pipe   = BIT(3), /* out pipe part exists         */
 
-  cmd_parts_pipe      = (cmd_part_in_pipe | cmd_part_out_pipe),
+  cmd_parts_pipe      = cmd_part_in_pipe | cmd_part_out_pipe,
 
-  cmd_part_comment    = BIT(4),
+  cmd_parts_execute   = cmd_part_command | cmd_parts_pipe,
+
+  cmd_part_comment    = BIT(4), /* commend part exists          */
 } ;
 typedef enum cmd_parts cmd_parts_t ;
 

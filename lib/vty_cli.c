@@ -60,8 +60,6 @@ static const char* telnet_newline  = TELNET_NEWLINE ;
 static bool uty_cli_callback(keystroke_callback_args) ;
 static void uty_cli_update_more(vty_cli cli) ;
 
-static void uty_cli_cancel(vty_cli cli) ;
-
 /*------------------------------------------------------------------------------
  * Construct and initialise a new CLI object -- never embedded.
  *
@@ -102,27 +100,16 @@ uty_cli_new(vio_vf vf)
    *   key_stream     = X              -- set below
    *
    *   drawn          = false
-   *
-   *   tilde_prompt   = false          -- tilde prompt is not drawn
-   *   tilde_enabled  = false          -- set below if ! multi-threaded
+   *   more_drawn     = false
    *
    *   prompt_len     = 0              -- not drawn, in any case
-   *   extra_len      = 0              -- not drawn, in any case
    *
    *   prompt_node    = NULL_NODE      -- so not set !
    *   prompt_gen     = 0              -- not a generation number
    *   prompt_for_node = NULL          -- not set, yet
    *
-   *   dispatched     = false          -- see below
-   *   in_progress    = false          -- see below
-   *   blocked        = false          -- see below
-   *   paused         = false
-   *
-   *   mon_active     = false
-   *   out_active     = false
-   *
-   *   more_wait      = false
-   *   more_enter     = false
+   *   state          = X              -- set below
+   *   out_state      = cos_idle
    *
    *   more_enabled   = false          -- not in "--More--" state
    *
@@ -142,6 +129,7 @@ uty_cli_new(vio_vf vf)
    *
    *   olc            = NULL           -- see below
    */
+  confirm(cos_idle == 0) ;
   confirm(NULL_NODE == 0) ;                     /* prompt_node & node   */
   confirm(cmd_do_nothing == 0) ;                /* to_do                */
   confirm(CMD_ACTION_ALL_ZEROS) ;               /* dispatch             */
@@ -170,28 +158,18 @@ uty_cli_new(vio_vf vf)
   uty_cli_set_lines(cli, host.lines, false) ;
   uty_cli_update_more(cli) ;    /* and update the olc etc to suit.      */
 
-  /* Enable "~ " prompt and pause timer if multi-threaded
-   *
-   * TODO decide whether to ditch the '~' prompt, given the priority given
-   * to commands.
+  /* Enable pause timer if multi-threaded
    */
   if (vty_nexus)
-    {
-      cli->pause_timer   = qtimer_init_new(NULL, vty_cli_nexus->pile,
-                                                vty_term_pause_timeout, cli) ;
-#if 0
-      cli->tilde_enabled = vty_multi_nexus ;
-#endif
-    } ;
+    cli->pause_timer = qtimer_init_new(NULL, vty_cli_nexus->pile,
+                                                 vty_term_pause_timeout, cli) ;
 
-  /* Ready to be started -- paused, out_active & more_wait are false.
+  /* Ready to be started -- note that out_state is cos_idle.
    *
    * Is started by the first call of uty_cli_want_command(), which (inter alia)
    * set the cli->context so CLI knows how to prompt etc.
    */
-  cli->dispatched   = true ;
-  cli->in_progress  = true ;
-  cli->blocked      = true ;
+  cli->state = cst_in_progress ;        /* start up "command" is running  */
 
   return cli ;
 } ;
@@ -227,17 +205,24 @@ uty_cli_close(vty_cli cli, bool final)
 
   /* Bring as much of the command handling to a stop as possible, and
    * turn off "---more--" etc. so that output can proceed.
+   *
+   * If it is drawn, we wipe the command line (issuing ^C).  We can, then,
+   * enable output -- which turns off any "--more--" stuff, but keep any
+   * existing pending monitor output (though forget any pause).
+   *
+   * We set the CLI stopped, so that nothing further will happen, including
+   * when any in_progress command completes.
    */
   cli->more_enabled = false ;
   cli->lines        = 0 ;       /* so will not be re-enabled            */
 
-  uty_cli_cancel(cli) ;         /* " ^C\r\n" unless believed blank      */
+  uty_cli_cancel(cli, true) ;   /* " ^C\r\n" unless believed blank      */
 
-  cli->more_wait  = false ;     /* exit more_wait (if was in it)        */
-  cli->more_enter = false ;     /* and so cannot be this                */
-
-  cli->blocked     = true ;     /* do not renter the CLI                */
-  cli->out_active  = true ;     /* if there is any output, it can go    */
+  if (cli->state == cst_dispatched)
+    {
+      cmd_action_clear(cli->dispatch) ;
+      cli->state = cst_active ; /* never happened       */
+    } ;
 
   /* Ream out the history.                                              */
   {
@@ -247,31 +232,32 @@ uty_cli_close(vty_cli cli, bool final)
     cli->hist = NULL ;
   } ;
 
-  /* Empty the keystroke handling.                                      */
+  /* Empty the keystroke handling.
+   */
   cli->key_stream = keystroke_stream_free(cli->key_stream) ;
 
-  /* Can discard active command line if not dispatched                  */
-  if (!cli->dispatched || final)
-    cli->clx = qs_reset(cli->clx, free_it) ;
-
-  /* Can discard context and parsed objects                             */
-  cli->context = cmd_context_free(cli->context, true) ; /* its a copy   */
+  /* Can discard parsed objects
+   */
   cli->parsed  = cmd_parsed_free(cli->parsed) ;
 
-  /* Discard any pause_timer, and suppress */
+  /* Discard any pause_timer
+   */
   cli->pause_timer    = qtimer_free(cli->pause_timer) ;
-  cli->paused         = false ;
-  cli->tilde_enabled  = false ;
 
-  /* If final, free the CLI object.                                     */
+  /* If final, free the CLI object and stuff that has been kept while
+   * the output side closes.
+   */
   if (final)
     {
       cli->prompt_for_node = qs_free(cli->prompt_for_node) ;
       cli->cl   = qs_free(cli->cl) ;
+      cli->clx  = qs_free(cli->clx) ;
       cli->cls  = qs_free(cli->cls) ;
 
       cli->cbuf = vio_fifo_free(cli->cbuf) ;
       cli->olc  = vio_lc_free(cli->olc) ;
+
+      cli->context = cmd_context_free(cli->context, true) ; /* its a copy   */
 
       XFREE(MTYPE_VTY_CLI, cli) ;               /* sets cli = NULL      */
   } ;
@@ -292,20 +278,60 @@ static bool
 uty_cli_callback(keystroke_callback_args /* void* context, keystroke stroke */)
 {
   vty_cli cli = context ;
+  cli_out_state_t out_state ;
 
   switch (stroke->type)
     {
       case ks_char:             /* character -- uint32_t                */
-        if ((cli->in_progress || cli->out_active) && !cli->more_wait)
+        /* We pick up the ^C as a cancel iff:
+         *
+         *   is already cos_cancel -- has no further effect
+         *
+         *   is cst_dispatched -- cancels before even started
+         *
+         *   is cst_in_progress or cst_complete, provided is not in either
+         *   cos_more_enter or cos_more_wait -- which deal with ^C themselves.
+         */
+        out_state = cli->out_state & cos_mask ;
+
+        if (out_state == cos_cancel)
+          return true ;                 /* eat duplicates               */
+
+        switch (cli->state)
           {
-            vty_io vio = cli->vf->vio ;
+            case cst_active:
+              qassert(out_state == cos_idle) ;
+              return false ;
 
-            uty_cmd_signal(vio, CMD_CANCEL) ;   /* ^C                   */
+            case cst_dispatched:
+              /* Managing to cancel before even started to run !!
+               *
+               * Clear the dispatched command, and then promote to
+               * cst_in_progress -- the current line contains the prompt
+               * and command, which the cancel handling will append ^C to.
+               */
+              qassert(out_state == cos_idle) ;
 
-            return true ;
+              cmd_action_clear(cli->dispatch) ;
+              cli->state = cst_in_progress ;
+
+              break ;
+
+            case cst_in_progress:
+            case cst_complete:
+              if ((out_state == cos_more_enter) || (out_state == cos_more_wait))
+                return false ;
+
+              break ;
+
+            default:
+              return false ;
           } ;
 
-        return false ;
+        cli->out_state ^= (out_state ^ cos_cancel) ;
+        uty_cmd_signal(cli->vf->vio, CMD_CANCEL) ;
+
+        return true ;
 
       case ks_iac:              /* Telnet command                       */
         return uty_telnet_command(cli->vf, stroke, true) ;
@@ -436,69 +462,84 @@ uty_cli_update_more(vty_cli cli)
  *
  * State of the CLI:
  *
- *   dispatched   -- a command line has been dispatched, and is waiting for
- *   (dsp)           command loop to fetch it.
+ *   cst_active      -- is busy drawing prompt, fetching input, processing same,
+ *                      etc. -- preparing the next command.
  *
- *   in_progress  -- a command has been taken by the command loop, and is still
- *   (inp)           running -- or at least no further command has been
- *                   fetched by the command loop.
+ *   cst_dispatched  -- a command line has been dispatched, and is waiting for
+ *                      command loop to fetch it.
  *
- *                   The command may be an in_pipe, so there may be many
- *                   commands to be completed before the CLI level command is.
+ *                      Note that command line is drawn, and cursor is at
+ *                      the end of the line.
  *
- *                   or: the CLI has been closed.
+ *   cst_in_progress -- a command has been taken by the command loop, and is
+ *                      still running -- or at least no further command has
+ *                      been fetched by the command loop.
  *
- *   blocked      -- is in_progress and a further command is now ready to be
- *   (bkd)           dispatched.
+ *                      The command may be an in_pipe, so there may be many
+ *                      commands to be completed before the CLI level command
+ *                      is.
  *
- *                   or: the CLI has been closed.
+ *   cst_complete    -- the last CLI level command has completed, and we are
+ *                      waiting for the output to go cos_idle before continuing
+ *                      to cst_active.
  *
- *   out_active   -- the command output FIFO is being emptied.
- *   (oa)
- *                   This is set when output is pushed, and cleared when
- *                   everything is written away and in_progress is not set.
- *                   When it is set, any current command line is wiped.
+ * State of the output:
  *
- *                   Note that what this flag does is prevent the CLI from
- *                   running until the output completes, and in particular
- *                   prevents it from writing anything to the CLI buffer.
+ *   cos_idle        -- all output (other than the CLI line) is idle.
  *
- *   more_wait    -- is in "--more--" wait state.  => out_active !
- *   (mwt)
- *                   The "--more--" CLI uses the CLI output buffer to draw
- *                   and undraw the "--more--" prompt.  The buffer will
- *                   otherwise be empty because is out_active.
+ *   cos_active      -- the command output FIFO is being emptied.
  *
- *   more_enter   -- is in the process of entering the "--more--" wait state,
- *   (men)           waiting to write the "--more--" prompt and prepare the
- *                   keystroke input.
+ *                      This is set when output is pushed, and cleared when
+ *                      everything is written away and is cst_complete.
  *
- * The following are the valid combinations:
+ *   cos_cancel      -- all command output is frozen until the command loop
+ *                      deals with the cancel action.
  *
- *     dsp:inp:bkd: oa:mwt:men:
- *     ---:---:---:---:---:---:-----------------------------------------
- *      0 : 0 : 0 : 0 : 0 : 0 : collecting a new command
- *      1 : 0 : 0 : 0 : 0 : 0 : waiting for command to be fetched
- *      1 : 1 : 0 : X : 0 : 0 : command fetched and running
- *      1 : 1 : 1 : X : 0 : 0 : waiting for command to complete
- *      0 : 0 : 0 : 1 : 0 : 0 : waiting for command output to finish
- *      1 : X : X : 1 : 1 : 1 : waiting for "--more--" to start
- *      1 : X : X : 1 : 1 : 0 : waiting for "--more--" response
- *      1 : 1 : 1 : 1 : 0 : 0 : waiting for command to complete,
- *                                                after the CLI has been closed
+ *   cos_more_enter  -- in the process of entering "--more--" state
  *
- * There are two output FIFOs:
+ *   cos_more_wait   -- in the "--more--" state
+ *
+ *   cos_monitor     -- is busy outputting monitor stuff.
+ *
+ *                      This state "qualifier" may be applied to any of the
+ *                      above states.
+ *
+ *                      This is set when monitor output is ready, and when it
+ *                      is set any current command line is wiped.
+ *
+ *   cos_paused      -- is pausing after monitor output, before continuing
+ *                      to output stuff, or redraw CLI line -- in case more
+ *                      monitor stuff rolls up.
+ *
+ *                      This state "qualifier" may be applied to any of the
+ *                      above states.
+ *
+ *                      If running threaded, this is set and the associated
+ *                      timer is started, when monitor output completes.
+ *
+ *                      NB: cos_monitor and cos_paused are mutually exclusive.
+ *
+ *                      NB: cos_monitor and cos_paused take priority over
+ *                          other output state.
+ *
+ * There are three output FIFOs:
  *
  *   1. for the CLI itself               -- uty_cli_out and friends
  *
- *   2. for output generated by commands -- vty_out and friends.
+ *   2. for monitor output
  *
- * The CLI FIFO is emptied whenever possible, in preference to the command
- * FIFO.  The command FIFO is emptied when out_active.  While a command is
- * in_progress all its output is collected in the command output buffer,
- * to be written away when the command completes, or if it pushes the output
+ *   3. for output generated by commands -- vty_out and friends.
+ *
+ * The CLI FIFO is emptied whenever possible, in preference to the other
+ * FIFOs.
+ *
+ * The monitor FIFO is emptied in preference to the command FIFO.
+ *
+ * The command FIFO is emptied when cos_active.  While a command is in
+ * progress all its output is collected in the command output buffer, to be
+ * written away when the command completes, or if it pushes the output
  * explicitly.  Note that where the CLI level command is an in_pipe, the first
- * output will set out_active, and that will persist until returns to the CLI
+ * output will set cos_active, and that will persist until returns to the CLI
  * level.  Between commands in the pipe, the output will be pushed, so will
  * output stuff more or less as it is generated.
  *
@@ -527,7 +568,8 @@ uty_cli_update_more(vty_cli cli)
  *
  * The output process used the line_control structure to manage the output, and
  * occasionally enter the trivial "--more--" CLI.  This is invisible to the
- * main CLI.  (See the more_wait and more_enter flags and their handling.)
+ * main CLI.  (See the cos_more_wait and cos_more_enter states and their
+ * handling.)
  *
  * If the user decides to abandon output at the "--more--" prompt, then the
  * then contents of the command output FIFO are discarded.
@@ -538,19 +580,10 @@ uty_cli_update_more(vty_cli cli)
  * When running in qnexus mode, many commands are not executed directly in the
  * CLI, but are queued for execution by the main "routeing" nexus.
  *
- * The parsing of commands is context sensitive.  The context depends may
- * change during the execution of a command.  So... it is not possible to
- * dispatch a command until the previous one has completed.
- *
- * In qnexus mode, when a command is queued, the CLI does not go cli_blocked,
- * even if some output has already been generated.  This allows a further
- * command to be entered while the previous one is executed.  However, if the
- * command is dispatched before the previous one completes, then the cli will
- * block.
- *
- * While the previous command is executing, the current command line has a
- * minimal prompt -- to show that the context is not known.  When the previous
- * command completes, the command line is redrawn in the new context.
+ * The parsing of commands is context sensitive, as is the prompt.  The context
+ * depends may change during the execution of a command.  So... it is not
+ * possible to read and dispatch a command until the previous one has
+ * completed.
  *
  *------------------------------------------------------------------------------
  * Command line drawn state.
@@ -561,17 +594,11 @@ uty_cli_update_more(vty_cli cli)
  *
  * The command line can be "wiped" -- see uty_cli_wipe() -- which removes all
  * output and prompt, and leaves the console at the start of an empty line
- * where the command line used to be.
+ * where the command line used to be.  On entry to the CLI, it will draw the
+ * command line again if it has been wiped.
  *
- * On entry to the CLI, it will draw the command line again if it has been
- * wiped.
- *
- * This mechanism is used to support the partial command line that may be
- * entered while a queued command executes.
- *
- * It is also used for the command help/completion system.
- *
- * It is also used to support the "monitor" output.
+ * This is used for the command help/completion system and for the "monitor"
+ * output.
  */
 
 /*==============================================================================
@@ -583,7 +610,7 @@ uty_cli_update_more(vty_cli cli)
 static enum vty_readiness uty_cli_standard(vty_cli cli) ;
 static cmd_do_t uty_cli_auth(vty_cli cli) ;
 static enum vty_readiness uty_cli_more_wait(vty_cli cli) ;
-static void uty_cli_draw(vty_cli cli) ;
+static void uty_cli_draw(vty_cli cli, bool more_prompt) ;
 
 /*------------------------------------------------------------------------------
  * CLI for VTY_TERMINAL
@@ -606,11 +633,34 @@ uty_cli(vty_cli cli)
   if (cli->vf->vin_state == vf_closed)
     return not_ready ;          /* Nothing more from CLI if closed      */
 
-  /* Standard or "--more--" CLI ?                                       */
-  if (cli->more_wait)
-    return uty_cli_more_wait(cli) ;
-  else
-    return uty_cli_standard(cli) ;
+  /* Standard or "--more--" CLI ?
+   *
+   * If cos_idle, then can run standard CLI if is cst_active or cst_complete.
+   *
+   * If cos_more_wait or cos_more_enter, then can run more_wait CLI.
+   *
+   * Note that cos_cancel, cos_monitor and cos_paused preclude entry to any
+   * CLI.
+   */
+  switch (cli->out_state)
+    {
+      case cos_idle:
+        if (cli->state == cst_complete)
+          cli->state = cst_active ;
+
+        if (cli->state == cst_active)
+          return uty_cli_standard(cli) ;
+        break ;
+
+      case cos_more_enter:
+      case cos_more_wait:
+        return uty_cli_more_wait(cli) ;
+
+      default:
+        break ;
+    } ;
+
+  return not_ready ;
 } ;
 
 /*==============================================================================
@@ -618,17 +668,18 @@ uty_cli(vty_cli cli)
  */
 
 static cmd_do_t uty_cli_process(vty_cli cli) ;
-static void uty_cli_response(vty_cli cli, cmd_do_t cmd_do) ;
+static void uty_cli_response(vty_cli cli, cmd_do_t to_do) ;
 
-static bool uty_cli_dispatch(vty_cli cli) ;
+static void uty_cli_dispatch(vty_cli cli, cmd_do_t to_do) ;
 static cmd_do_t uty_cli_command(vty_cli cli) ;
 static void uty_cli_hist_add (vty_cli cli, qstring clx) ;
 
-static void uty_cli_pause_start(vty_cli cli) ;
 static void uty_cli_goto_end_if_drawn(vty_cli cli) ;
 
 /*------------------------------------------------------------------------------
- * Standard CLI for VTY_TERM -- if not blocked, runs until:
+ * Standard CLI for VTY_TERM
+ *
+ * Entered only if cst_active && cos_idle.  Runs until:
  *
  *   * runs out of keystrokes
  *   * executes a command
@@ -637,126 +688,86 @@ static void uty_cli_goto_end_if_drawn(vty_cli cli) ;
  * is to allow for a modicum of sharing of the system.  For real keyboard input
  * this will make no difference at all !
  *
- * Returns: not_ready    blocked and was blocked when entered
- *          write_ready  if there is anything in the keystroke stream
- *          read_ready   otherwise
+ * NB: it is expected that the caller will attempt to flush any output
+ *     generated.
+ *
+ * Returns: write_ready if the keystroke buffer is not empty and is not
+ *          blocked, which uses write_ready to return here.
  */
 static vty_readiness_t
 uty_cli_standard(vty_cli cli)
 {
-  bool need_prompt ;
+  cmd_do_t to_do ;
 
   VTY_ASSERT_LOCKED() ;
 
-  assert(!cli->more_wait) ;     /* cannot be here in more_wait state !  */
-
-  /* cli_blocked is set when is waiting for a command, or some output to
-   * complete.
-   *
-   * NB: in both these cases, assumes that other forces are at work to
-   *     keep things moving.
-   */
-  if (cli->blocked || cli->out_active || cli->paused || cli->mon_active)
-    return not_ready ;
+  qassert((cli->state == cst_active) && (cli->out_state == cos_idle)) ;
 
   /* Make sure that the command line is drawn.
    *
    * If there is nothing pending, then can run the CLI until there is
    * something to do, or runs out of input.
    */
-  if (!cli->drawn)
-    uty_cli_draw(cli) ;
+  if (!cli->drawn || cli->more_drawn)
+    uty_cli_draw(cli, false) ;
 
-  if (cli->to_do == cmd_do_nothing)
-    cli->to_do = cli->auth_context ? uty_cli_auth(cli)
-                                   : uty_cli_process(cli) ;
+  to_do = cli->to_do ;                  /* pick up any pending "to_do"  */
 
-  /* If have something to do, do it if we can.                          */
-  need_prompt = false ;
+  if (to_do == cmd_do_nothing)
+    to_do = cli->auth_context ? uty_cli_auth(cli)
+                              : uty_cli_process(cli) ;
+  else
+    cli->to_do = cmd_do_nothing ;       /* clear pending "to_do"        */
 
-  if (cli->to_do != cmd_do_nothing)
-    {
-      /* Reflect immediate response                                     */
-      uty_cli_response(cli, cli->to_do) ;
-
-      /* If command not already in progress, dispatch this one, which may
-       * set the CLI blocked.
-       *
-       * Otherwise is now blocked until queued command completes.
-       */
-      if (cli->dispatched)
-        cli->blocked = true ;                   /* waiting for previous */
-      else
-        need_prompt = uty_cli_dispatch(cli) ;   /* dispatch latest      */
-    } ;
-
-  /* If blocked, must wait for some other event to continue in CLI.
-   *
-   * Note that will be blocked if have just dispatched a command, and is
-   * not "tilde_enabled" -- which is the case if single threaded, and may be
-   * so for other reasons.
-   *
-   * If the keystroke stream is not empty, use write_ready as a proxy for
-   * CLI ready -- no point doing anything until any buffered output has been
-   * written away.
-   *
-   * If command prompt has been redrawn, need to kick writer to deal with
-   * that -- will reenter to then process any keystrokes.
+  /* If we have something to do, now is the time to do it.
    */
-  assert(!cli->paused) ;
+  if (to_do != cmd_do_nothing)
+    uty_cli_dispatch(cli, to_do) ;
 
-  if (cli->blocked)
-    return not_ready ;
-
-  if (!keystroke_stream_empty(cli->key_stream) || need_prompt)
+  /* If not active, must wait for some other event to continue in CLI.
+   *
+   * Otherwise, if the keystroke stream is not empty, use write_ready as a
+   * proxy for CLI ready -- no point doing anything until any buffered output
+   * has been written away.
+   */
+  if ((cli->state != cst_active) || keystroke_stream_empty(cli->key_stream))
+    return read_ready ;
+  else
     return write_ready ;
-
-  /* The keystroke stream is empty, but CLI is not blocked.
-   *
-   * If a command is dispatched, and output is not active, and the command
-   * line is not drawn, then go to paused state, so that will delay output
-   * of the prompt slightly (or until a keystroke arrives, or the current
-   * command completes, or something else happens).
-   *
-   * Note that if a command has been dispatched, and is !tilde_enabled, then
-   * will now be blocked, so won't be here.
-   */
-  if (cli->dispatched && !cli->out_active && !cli->drawn)
-    uty_cli_pause_start(cli) ;
-
-  return read_ready ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Dispatch the current cli->to_do -- queueing it if necessary.
+ * Dispatch the given "to_do".
  *
- * Requires that are NOT blocked and NO command is queued.
+ * Requires that are NOT blocked and NO command is queued etc.
  *
- * Expects to be on new blank line, and when returns will be on new, blank
- * line.
+ * Expects to be at the end of the command line for the command to be
+ * executed -- issues suitable response on the command line..
  *
  * Generally sets cli->to_do = cmd_do_nothing and clears cli->cl to empty.
  *
- * Can set cli->cl_do = and cli->cl to be a follow-on command.
+ * Can set cli->to_do = and cli->cl to be a follow-on command.
  *
- * Returns:  true <=> nothing, in fact, to do: prompt has been redrawn.
+ * If there is something to do, it is queued for the command loop to deal with,
+ * will then be cst_dispatched.  NB: the current line is still drawn, and
+ * cursor is at the end of the line.
+ *
+ * If there is nothing to do, issues newline and the prompt, and returns.
  */
-static bool
-uty_cli_dispatch(vty_cli cli)
+static void
+uty_cli_dispatch(vty_cli cli, cmd_do_t to_do)
 {
   qstring   tmp ;
-  cmd_do_t  to_do_now ;
 
   vty_io  vio = cli->vf->vio ;
 
   VTY_ASSERT_LOCKED() ;
 
   /* About to dispatch a command, so must be in the following state.    */
-  qassert(!cli->dispatched && !cli->in_progress
-                                        && !cli->blocked && !cli->out_active) ;
+  qassert((cli->state == cst_active) && (cli->out_state == cos_idle)) ;
   qassert(cli->context->node == vio->vty->exec->context->node) ;
 
-  /* Set cli->clx to the command about to execute & pick up cli->to_do.
+  /* Set cli->clx to the command about to execute.
    *
    * Clear cli->cl  and cli->to_do.
    */
@@ -764,18 +775,19 @@ uty_cli_dispatch(vty_cli cli)
   cli->clx  = cli->cl ;
   cli->cl   = tmp ;
 
-  to_do_now = cli->to_do ;              /* current operation            */
-
   cli->to_do = cmd_do_nothing ;         /* clear                        */
   qs_clear(cli->cl) ;                   /* set cl empty                 */
 
+  /* Produce suitable response for the to_do_now                        */
+  uty_cli_response(cli, to_do) ;
+
   /* Dispatch command                                                   */
   if (cli->auth_context)
-    to_do_now |= cmd_do_auth ;
+    to_do |= cmd_do_auth ;
   else
     {
       /* All other nodes...                                             */
-      switch (to_do_now)
+      switch (to_do)
       {
         case cmd_do_nothing:
         case cmd_do_ctrl_c:
@@ -784,7 +796,7 @@ uty_cli_dispatch(vty_cli cli)
           break ;
 
         case cmd_do_command:
-          to_do_now = uty_cli_command(cli) ;
+          to_do = uty_cli_command(cli) ;
           break ;
 
         case cmd_do_ctrl_d:
@@ -792,12 +804,12 @@ uty_cli_dispatch(vty_cli cli)
           break ;
 
         case cmd_do_ctrl_z:
-          to_do_now = uty_cli_command(cli) ;
+          to_do = uty_cli_command(cli) ;
 
-          if (to_do_now == cmd_do_nothing)
-            to_do_now = cmd_do_ctrl_z ;
+          if (to_do == cmd_do_nothing)
+            to_do = cmd_do_ctrl_z ;     /* restore ^Z if line empty     */
           else
-            cli->to_do = cmd_do_ctrl_z ;        /* defer the ^Z       */
+            cli->to_do = cmd_do_ctrl_z ;        /* defer the ^Z         */
 
           break ;
 
@@ -808,24 +820,19 @@ uty_cli_dispatch(vty_cli cli)
 
   cli->hp = cli->h_now ;        /* in any event, back to the present    */
 
-  if (to_do_now != cmd_do_nothing)
+  if (to_do != cmd_do_nothing)
     {
-      cmd_action_set(cli->dispatch, to_do_now, cli->clx) ;
-      cli->dispatched = true ;
+      cmd_action_set(cli->dispatch, to_do, cli->clx) ;
+      cli->state = cst_dispatched ;
 
       uty_cmd_signal(vio, CMD_SUCCESS) ;
-
-      cli->blocked = (to_do_now != cmd_do_command) || !cli->tilde_enabled ;
     }
   else
     {
       cmd_action_clear(cli->dispatch) ;
-      cli->dispatched = false ;
-
-      uty_cli_draw(cli) ;
+      uty_cli_out_newline(cli) ;
+      uty_cli_draw(cli, false) ;
     } ;
-
-  return !cli->dispatched ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -849,89 +856,35 @@ uty_cli_command(vty_cli cli)
 /*------------------------------------------------------------------------------
  * Want another command line from the CLI.
  *
- * If in_progress this <=> any previous command has completed, and output may
- * be active writing the results away.  Will:
- *
- *   * clear cli->dispatched
- *   * clear cli->in_progress
- *   * clear cli->blocked
- *
- * May be in more_wait state -- so avoids touching that.
- *
- * If not in_progress, then if dispatched, we have a new command ready to pass
- * to the command loop -- which we do here, and set cli->in_progress.
- *
- * Returns:  CMD_SUCCESS -- the given action has been set to next command
- *       or: CMD_WAITING -- no command available (yet)
- *
- * Note that for the CLI eof and read time-out are handled as cmd_do_eof and
- * cmd_do_timed_out -- so will float through as CMD_SUCCESS and be processed
- * as commands.
- *
- * Write I/O errors and time-outs are signalled by uty_vf_error(), and
- * therefore caught in the command loop.
- *
- * Read I/O errors are signalled by uty_vf_error().  Read timeout is treated
- * as above.
+ * If have one, return it and CMD_SUCCESS and set cst_in_progress.
+ * Otherwise, return CMD_WAITING.
  */
 extern cmd_return_code_t
-uty_cli_want_command(vty_cli cli, cmd_action action, cmd_context context)
+uty_cli_want_command(vty_cli cli, cmd_action action)
 {
   VTY_ASSERT_LOCKED() ;
 
-  if      (cli->in_progress)
-    {
-      /* Previous command has completed
-       *
-       * Make sure state reflects the fact that we are now waiting for a
-       * command.
-       */
-      cli->dispatched  = false ;    /* no longer have a dispatched command  */
-      cli->in_progress = false ;    /* command complete                     */
-      cli->blocked     = false ;    /* releases possibly blocked command    */
-      cli->paused      = false ;    /* override paused state                */
-
-      *cli->context    = *context ; /* make sure is up to date              */
-      cli->auth_context = (   (cli->context->node == AUTH_NODE)
-                           || (cli->context->node == AUTH_ENABLE_NODE) ) ;
-
-      /* If the output is owned by command output, then when the buffers
-       * empty, and in_progress is seen to be false, out_active will be
-       * cleared.
-       *
-       * If the output side is not owned by command output, rewrite the
-       * command line, so that prompt is up to date and visible.
-       *
-       * In any case, kick write_ready to ensure output clears and prompt is
-       * written and so on.
-       */
-      if (!cli->out_active)
-        uty_cli_draw(cli) ;
-
-      uty_term_set_readiness(cli->vf, write_ready) ;
-    }
-  else if (cli->dispatched)
+  if (cli->state == cst_dispatched)
     {
       /* New command has been dispatched -- can now pass that to the
        * command loop -- setting it in_progress.
+       *
+       * This is the moment we issue the newline, which we want written away.
        */
-      assert(cli->dispatch->to_do != cmd_do_nothing) ;
+      qassert(cli->dispatch->to_do != cmd_do_nothing) ;
+      qassert((cli->out_state & cos_mask) == cos_idle) ;
+
       cmd_action_take(action, cli->dispatch) ;
 
-      cli->in_progress = true ;
+      cli->state = cst_in_progress ;
+
+      uty_cli_out_newline(cli) ;
+      uty_term_set_readiness(cli->vf, write_ready) ;
+
+      return CMD_SUCCESS ;
     } ;
 
-  return cli->in_progress ? CMD_SUCCESS : CMD_WAITING ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Start pause timer and set paused.
- */
-static void
-uty_cli_pause_start(vty_cli cli)
-{
-  qtimer_set(cli->pause_timer, qt_add_monotonic(QTIME(0.2)), NULL) ;
-  cli->paused = true ;
+  return CMD_WAITING ;
 } ;
 
 /*==============================================================================
@@ -940,13 +893,14 @@ uty_cli_pause_start(vty_cli cli)
  * While command output is being cleared from its FIFO, the CLI is blocked.
  *
  * When the output side signals that "--more--" is required, it sets the
- * more_wait and more_enter flags.
+ * cos_more_enter out state.
  *
  * The first stage of handling "--more--" is to suck the input dry, so that
  * (as far as is reasonably possible) does not steal a keystroke as the
- * "--more--" response which was typed before the prompt was issued.
+ * "--more--" response which was typed before the prompt was issued.  This is
+ * the cos_more_enter state.
  *
- * The more_enter flag indicates that the CLI is in this first stage.
+ * Once is waiting for a keystroke, is in cos_more_wait state.
  */
 
 /*------------------------------------------------------------------------------
@@ -959,30 +913,29 @@ uty_cli_enter_more_wait(vty_cli cli)
 {
   VTY_ASSERT_LOCKED() ;
 
-  qassert(cli->out_active && !cli->more_wait && !cli->drawn) ;
+  qassert((cli->out_state == cos_active) && !cli->drawn) ;
 
-  cli->more_wait  = true ;      /* new state                            */
-  cli->more_enter = true ;      /* drawing the "--more--" etc.          */
+  cli->out_state = cos_more_enter ;     /* draw the "--more--" etc.     */
 } ;
 
 /*------------------------------------------------------------------------------
  * Handle the "--more--" state.
  *
- * If is paused or the monitor is active, do nothing -- those override the
- * "--more--" state.
+ * Entered only if cos_more_enter or cos_more_wait.  So does not get here if
+ * cos_monitor or cos_paused are set.
  *
- * If more_enter is set, then need to make sure the "--more--" prompt is
+ * If cos_more_enter is set, then need to make sure the "--more--" prompt is
  * written, and that any keystrokes which arrived before the prompt is
  * written are taken into the keystroke stream -- so not stolen.
  *
  * Note that the "--more--" state may be interrupted by monitor output,
- * which, once complete, sets more_enter again.
+ * which, once complete, sets cos_more_enter again.
  *
- * If more_enter is not set, tries to steal a keystroke, and if succeeds wipes
- * the "--more--" prompt and exits cli_more_wait -- and may cancel all
+ * If cos_more_wait is set, tries to steal a keystroke, and if succeeds wipes
+ * the "--more--" prompt and exits cos_more_wait -- and may cancel all
  * outstanding output.
  *
- * EOF on input causes immediate exit from cli_more_state.
+ * EOF on input causes immediate exit from "--more--"
  *
  * Returns: read_ready   -- waiting to steal a keystroke
  *          write_ready  -- waiting to draw or undraw the "--more--" prompt
@@ -996,32 +949,32 @@ uty_cli_more_wait(vty_cli cli)
 
   VTY_ASSERT_LOCKED() ;
 
-  assert(cli->more_wait) ;      /* must be in more_wait state !         */
+  qassert( (cli->out_state == cos_more_enter) ||
+           (cli->out_state == cos_more_wait) ) ;
 
-  if (cli->paused || cli->mon_active)
-    return not_ready ;
-
-  /* Deal with the first stage of "--more--"                            */
-  if (cli->more_enter)
+  /* Deal with the first stage of "--more--"
+   *
+   * If the "--more--" is not drawn, draw it.
+   *
+   * Hoover up any input there is pending -- probably none, but this seems
+   * tidy.
+   *
+   * If the "--more--" prompt has been written away, we are ready to steal
+   * a keystroke -- ie go to cos_more_wait.
+   *
+   * In any event, exit write_ready ready to keep things moving.
+   */
+  if (cli->out_state == cos_more_enter)
     {
-      int  get ;
+      if (!cli->drawn || !cli->more_drawn)
+        uty_cli_draw(cli, true) ;       /* draw the "--more--"          */
 
-      if (!cli->drawn)
-        uty_cli_draw(cli) ;             /* draw the "--more--"          */
+      uty_term_read(cli->vf) ;          /* hoover up.                   */
 
-      /* If the CLI buffer is not yet empty, then is waiting for the
-       * initial prompt to clear, so nothing to be done here.
-       */
-      if (!vio_fifo_empty(cli->cbuf))
-        return write_ready ;
+      if (vio_fifo_empty(cli->cbuf))
+        cli->out_state = cos_more_wait ;
 
-      cli->more_enter = false ;
-
-      /* empty the input buffer into the keystroke stream               */
-      do
-        {
-          get = uty_term_read(cli->vf) ;
-        } while (get > 0) ;
+      return write_ready ;
     } ;
 
   /* Try to get a stolen keystroke.  If the keystroke stream has hit
@@ -1078,15 +1031,13 @@ uty_cli_more_wait(vty_cli cli)
    * Return write_ready to tidy up the screen and, unless cleared, write
    * some more.
    */
+  cli->out_state = cos_active ;         /* revert to active state       */
   if (cancel)
     {
       vio_fifo_clear(cli->vf->obuf, false) ;
-      vio_lc_clear(cli->olc) ;  /* clear & reset counter        */
+      vio_lc_clear(cli->olc) ;          /* clear & reset counter        */
 
-      uty_cli_goto_end_if_drawn(cli) ;
-      cli->drawn = false ;
-
-      qassert(cli->out_active) ;
+      cli->out_state = cos_cancel ;
 
       uty_cmd_signal(cli->vf->vio, CMD_CANCEL) ;        /* ^C   */
     }
@@ -1095,9 +1046,6 @@ uty_cli_more_wait(vty_cli cli)
       vio_lc_counter_reset(cli->olc) ;
       uty_cli_wipe(cli, 0) ;
     } ;
-
-  cli->more_wait  = false ;     /* exit more_wait               */
-  cli->more_enter = false ;     /* tidy                         */
 
   return write_ready ;
 } ;
@@ -1124,7 +1072,7 @@ uty_cli_more_wait(vty_cli cli)
  */
 
  /*-----------------------------------------------------------------------------
-  * Prepare for new monitor output line.
+  * Prepare for new monitor output line (s).
   *
   * Wipe any existing command line.
   */
@@ -1135,7 +1083,7 @@ uty_cli_pre_monitor(vty_cli cli)
 
   uty_cli_wipe(cli, 0) ;
 
-  cli->mon_active = true ;      /* block cli & enable empty of fifo     */
+  cli->out_state = (cli->out_state | cos_monitor) & ~cos_paused ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1143,7 +1091,8 @@ uty_cli_pre_monitor(vty_cli cli)
  *
  * If monitor line failed to complete, append the rump to the CLI buffer.
  *
- * If have a non-empty command line, or is cli_more_wait, redraw the command
+ *
+ * If have a non-empty command line, or is cos_more_wait, redraw the command
  * line.
  *
  * Returns:  0 => rump was empty and no command line stuff written
@@ -1154,12 +1103,31 @@ uty_cli_post_monitor(vty_cli cli)
 {
   VTY_ASSERT_LOCKED() ;
 
-  uty_cli_pause_start(cli) ;    /* do not draw prompt immediately       */
+  /* Clear the monitor output state.
+   *
+   * Should not be cos_paused -- but clear that too.
+   */
+  qassert((cli->out_state & (cos_monitor | cos_paused)) == cos_monitor) ;
 
-  cli->more_enter = cli->more_wait ;
-                                /* revert to more_enter state           */
+  cli->out_state &= ~(cos_monitor | cos_paused) ;
 
-  cli->mon_active = false ;     /* unblock cli & turn off output        */
+  /* If was cos_more_wait, then fall back to cos_more_enter.
+   *
+   * Note that does not set cos_cancel on top of cos_more_wait/cos_more_enter !
+   */
+  if (cli->out_state == cos_more_wait)
+    cli->out_state = cos_more_enter ;
+
+  /* If not cos_cancel, if we have a pause_timer, then set that going, now.
+   *
+   * Note that when the cli is closed any timer is freed.
+   */
+  if ((cli->out_state != cos_cancel) && (cli->pause_timer != NULL))
+    {
+      qtimer_set(cli->pause_timer, qt_add_monotonic(QTIME(0.2)), NULL) ;
+      cli->out_state |= cos_paused ;
+    } ;
+
 } ;
 
 /*==============================================================================
@@ -1272,10 +1240,9 @@ uty_cli_write_s(vty_cli cli, const char *str)
 extern void
 uty_cli_out_newline(vty_cli cli)
 {
-  uty_cli_goto_end_if_drawn(cli) ;
+  uty_cli_goto_end_if_drawn(cli) ;              /* clears cli->drawn    */
 
   uty_cli_write(cli, telnet_newline, 2) ;
-  cli->drawn = false ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1305,16 +1272,15 @@ uty_cli_out_wipe_n(vty_cli cli, int n)
  *
  * Clears cli->drawn.
  */
-static void
-uty_cli_cancel(vty_cli cli)
+extern void
+uty_cli_cancel(vty_cli cli, bool cntrl_c)
 {
   if (cli->drawn)
     {
-      uty_cli_goto_end_if_drawn(cli) ;
+      uty_cli_goto_end_if_drawn(cli) ;  /* clears cli->drawn    */
 
-      uty_cli_write_s(cli, " ^C" TELNET_NEWLINE) ;
-
-      cli->drawn = false ;
+      if (cntrl_c)
+        uty_cli_write_s(cli, " ^C" TELNET_NEWLINE) ;
     } ;
 } ;
 
@@ -1322,70 +1288,52 @@ uty_cli_cancel(vty_cli cli)
  * If the command line is drawn and the cursor is not at the end of the line,
  * move the physical cursor to the end of the line.
  *
- * Assumes about to issue newline.
+ * Assumes about to issue newline, so clears cli->drawn
  */
 static void
 uty_cli_goto_end_if_drawn(vty_cli cli)
 {
-  ulen after ;
+  if (cli->drawn && !cli->more_drawn)
+    {
+      ulen after ;
 
-  if (cli->drawn && ( (after = qs_after_cp_nn(cli->cl)) != 0 ))
-    uty_cli_write(cli, qs_cp_char_nn(cli->cl), after) ;
+      after = qs_after_cp_nn(cli->cl) ;
+
+      if (after != 0)
+        uty_cli_write(cli, qs_cp_char_nn(cli->cl), after) ;
+    } ;
+
+  cli->drawn = false ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Send response to the given cmd_do
+ * Send any special response -- depending on what's to_do.
  *
- * If no command is in progress, then will send newline to signal that the
- * command is about to be dispatched.
- *
- * If command is in progress, then leaves cursor on '^' to signal that is now
- * waiting for previous command to complete.
+ * NB: at this point MUST be at end of cli->cl.
  */
-static const char* cli_response [2][cmd_do_count] =
+static const char* cli_response [cmd_do_count] =
 {
-  { /* when not waiting for previous command to complete        */
-    [cmd_do_command]   = "",
+    [cmd_do_command]   = NULL,
     [cmd_do_ctrl_c]    = "^C",
     [cmd_do_ctrl_d]    = "^D",
     [cmd_do_ctrl_z]    = "^Z",
     [cmd_do_eof]       = "^*",
-    [cmd_do_timed_out] = "^!"
-  },
-  { /* when waiting for a previous command to complete          */
-    [cmd_do_command]   = "^",
-    [cmd_do_ctrl_c]    = "^C",
-    [cmd_do_ctrl_d]    = "^D",
-    [cmd_do_ctrl_z]    = "^Z",
-    [cmd_do_eof]       = "^*",
-    [cmd_do_timed_out] = "^!"
-  }
+    [cmd_do_timed_out] = "^!",
 } ;
 
 static void
 uty_cli_response(vty_cli cli, cmd_do_t to_do)
 {
   const char* str ;
-  int len ;
 
-  assert((to_do != cmd_do_nothing) && cli->drawn
+  qassert((to_do != cmd_do_nothing) && cli->drawn
                                  && (qs_cp_nn(cli->cl) == qs_len_nn(cli->cl))) ;
+  qassert(to_do < cmd_do_count) ;
 
-  str = (to_do < cmd_do_count)
-          ? cli_response[cli->dispatched ? 1 : 0][to_do]  : NULL ;
-  assert(str != NULL) ;
+  str = (to_do < cmd_do_count) ? cli_response[to_do] : NULL ;
 
-  len = uty_cli_write_s(cli, str) ;
-
-  if (cli->dispatched)
-    {
-      cli->extra_len = len ;
-      uty_cli_write_n(cli, telnet_backspaces, len) ;
-    }
-  else
-    {
-      uty_cli_out_newline(cli) ;
-    } ;
+  if (str != NULL)
+    uty_cli_write_s(cli, str) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1416,10 +1364,10 @@ uty_cli_wipe(vty_cli cli, int len)
   assert(qs_cp_nn(cli->cl) <= qs_len_nn(cli->cl)) ;
 
   /* Establish how much ahead and how much behind the cursor            */
-  a = cli->extra_len ;
+  a = 0 ;
   b = cli->prompt_len ;
 
-  if (!cli->more_wait)
+  if (!cli->more_drawn)
     {
       a += qs_len_nn(cli->cl) - qs_cp_nn(cli->cl) ;
       b += qs_cp_nn(cli->cl) ;
@@ -1440,7 +1388,7 @@ uty_cli_wipe(vty_cli cli, int len)
   uty_cli_write_n(cli, telnet_backspaces, b) ;
 
   /* Nothing there any more                                             */
-  cli->drawn = false ;
+  cli->drawn      = false ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1464,10 +1412,9 @@ uty_cli_wipe(vty_cli cli, int len)
  *
  * Sets: cli->drawn         = true
  *       cli->prompt_len    = length of prompt used
- *       cli->extra_len     = 0
  */
 static void
-uty_cli_draw(vty_cli cli)
+uty_cli_draw(vty_cli cli, bool more_prompt)
 {
   const char* prompt ;
   size_t l_len ;
@@ -1480,18 +1427,11 @@ uty_cli_draw(vty_cli cli)
       p_len  = 0 ;
       l_len  = 0 ;
     }
-  else if (cli->more_wait)
+  else if (more_prompt)
     {
       prompt = "--more--" ;
       p_len  = strlen(prompt) ;
       l_len  = 0 ;
-    }
-  else if (cli->dispatched)
-    {
-      /* If there is a queued command, the prompt is a minimal affair.  */
-      prompt = "~ " ;
-      p_len  = strlen(prompt) ;
-      l_len  = qs_len_nn(cli->cl) ;
     }
   else
     {
@@ -1533,8 +1473,7 @@ uty_cli_draw(vty_cli cli)
 
   /* Set about writing the prompt and the line                          */
   cli->drawn         = true ;
-  cli->extra_len     = false ;
-
+  cli->more_drawn    = more_prompt ;
   cli->prompt_len    = p_len ;
 
   uty_cli_write(cli, prompt, p_len) ;
@@ -2008,13 +1947,12 @@ uty_cli_get_keystroke(vty_cli cli, keystroke stroke)
           if (stroke->type != ks_iac)
             return cmd_do_keystroke ;           /* have a keystroke     */
 
-          /* Deal with telnet command, so invisible to upper level      */
+          /* Deal with telnet command, so invisible to upper level
+           */
           uty_telnet_command(cli->vf, stroke, false) ;
         }
       else
         {
-          int get ;
-
           qassert(stroke->type == ks_null) ;
 
           switch (stroke->value)
@@ -2033,10 +1971,7 @@ uty_cli_get_keystroke(vty_cli cli, keystroke stroke)
                 break ;
             } ;
 
-          get = uty_term_read(cli->vf) ;        /* sets eof in key_stream
-                                                   if hit eof or error      */
-          if ((get == 0) || (get == -1))
-            return cmd_do_nothing ;
+          return cmd_do_nothing ;
         } ;
     } ;
 } ;
@@ -2986,7 +2921,7 @@ uty_cli_help_finish(vty_cli cli)
 {
   if (!cli->drawn)
     {
-      uty_cli_draw(cli) ;
+      uty_cli_draw(cli, false) ;
       qs_copy(cli->cls, cli->cl) ;
     } ;
 } ;

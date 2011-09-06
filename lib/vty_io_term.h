@@ -56,14 +56,16 @@
 extern void uty_term_new(vty_io vio, int sock_fd) ;
 
 extern cmd_return_code_t uty_term_fetch_command_line(vio_vf vf,
-                                       cmd_action action, cmd_context context) ;
+                                                            cmd_action action) ;
+extern void uty_term_cmd_complete(vio_vf vf, cmd_context context) ;
 extern cmd_return_code_t uty_term_out_push(vio_vf vf, bool final) ;
+extern void uty_term_out_cancelled(vio_vf vf) ;
 extern uint uty_term_show_error_context(vio_vf vf, vio_fifo ebuf, uint depth) ;
 extern cmd_return_code_t uty_term_read_close(vio_vf vf, bool final) ;
 extern void uty_term_close_reason(vio_vf vf, const char* reason) ;
 extern cmd_return_code_t uty_term_write_close(vio_vf vf, bool final);
 
-extern int uty_term_read(vio_vf vf) ;
+extern void uty_term_read(vio_vf vf) ;
 extern void uty_term_set_readiness(vio_vf vf, vty_readiness_t ready) ;
 
 extern qtimer_action vty_term_pause_timeout ;
