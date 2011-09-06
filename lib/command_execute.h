@@ -44,7 +44,8 @@ enum cmd_exec_state
   exec_open_pipes,      /* open pipes on command line           */
   exec_execute,         /* execute standard command             */
   exec_special,         /* execute special command              */
-  exec_done_cmd,        /* command has completed                */
+  exec_cmd_done,        /* command completed somehow            */
+  exec_cmd_success,     /* command completed successfully       */
   exec_hiatus,          /* while issues are dealt with          */
   exec_stopped,         /* command loop has stopped             */
 } ;

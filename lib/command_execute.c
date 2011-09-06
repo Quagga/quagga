@@ -313,7 +313,7 @@ cmd_read_config(struct vty *vty, cmd_command first_cmd, bool ignore_warning)
     {
       /* Deal with anything which is not success !
        */
-      if ((ret != CMD_SUCCESS) && (ret != CMD_EMPTY))
+      if (ret != CMD_SUCCESS)
         {
           /* Will drop straight out of the loop if have anything other
            * than CMD_HIATUS, CMD_EOF or CMD_CLOSE, which are all signals
@@ -335,22 +335,25 @@ cmd_read_config(struct vty *vty, cmd_command first_cmd, bool ignore_warning)
             break ;
         } ;
 
-      /* If all is well, need another command line                      */
-
+      /* All is well, need another command line
+       */
       ret = vty_cmd_fetch_line(vty) ;   /* sets exec->action    */
       if (ret != CMD_SUCCESS)
         continue ;
 
-      /* Parse the command line we now have                             */
-      assert(exec->action->to_do == cmd_do_command) ;
+      /* Parse the command line we now have -- loop if failed or there is
+       * nothing to execute.
+       */
+      qassert(exec->action->to_do == cmd_do_command) ;
 
       cmd_tokenize(parsed, exec->action->line, exec->context->full_lex) ;
       ret = cmd_parse_command(parsed, exec->context) ;
 
-      if (ret != CMD_SUCCESS)
+      if ( (ret != CMD_SUCCESS) || ((parsed->parts & cmd_parts_execute) == 0) )
         continue ;
 
-      /* Special handling before first active line.                     */
+      /* Special handling before first active line.
+       */
       if (first_cmd != NULL)
         {
           if (first_cmd != parsed->cmd)
@@ -362,7 +365,8 @@ cmd_read_config(struct vty *vty, cmd_command first_cmd, bool ignore_warning)
           first_cmd = NULL ;
         } ;
 
-      /* reflection now.....                                            */
+      /* reflection now.....
+       */
       if (exec->reflect)
         {
           ret = vty_cmd_reflect_line(vty) ;
@@ -370,19 +374,23 @@ cmd_read_config(struct vty *vty, cmd_command first_cmd, bool ignore_warning)
             continue ;
         } ;
 
-      /* Pipe work, if any                                              */
+      /* Pipe work, if any
+       */
       if ((parsed->parts & cmd_parts_pipe) != 0)
         {
           ret = cmd_open_pipes(vty) ;
-          if (ret != CMD_SUCCESS)
+          if ((ret != CMD_SUCCESS) || ((parsed->parts & cmd_part_command) == 0))
             continue ;
         } ;
 
-      /* Command execution, if any                                      */
-      if ((parsed->parts & cmd_part_command) != 0)
-        ret = cmd_execute(vty) ;
+      /* Command execution
+       */
+      qassert((parsed->parts & cmd_part_command) != 0) ;
 
-      /* Deal with success (or suppressed warning).                     */
+      ret = cmd_execute(vty) ;
+
+      /* Deal with success (or suppressed warning).
+       */
       if ((ret == CMD_SUCCESS) || ((ret == CMD_WARNING) && ignore_warning))
         ret = vty_cmd_success(vty) ;
     } ;
@@ -398,8 +406,8 @@ cmd_read_config(struct vty *vty, cmd_command first_cmd, bool ignore_warning)
    * Deal with any errors -- generate suitable error messages and close back
    * to (but excluding) vout_base.
    *
-   * CMD_SUCCESS and CMD_EMPTY are impossible at this point -- they should
-   * have been dealt with in the loop.
+   * CMD_SUCCESS is impossible at this point -- they should have been dealt
+   * with in the loop.
    *
    * CMD_EOF is also impossible -- vty_cmd_fetch_line() or vty_cmd_hiatus()
    * can return that, but that will have been dealt with.
@@ -410,7 +418,6 @@ cmd_read_config(struct vty *vty, cmd_command first_cmd, bool ignore_warning)
    * CMD_WAITING is not valid for blocking vio !
    */
   qassert(ret != CMD_SUCCESS) ;
-  qassert(ret != CMD_EMPTY) ;
   qassert(ret != CMD_EOF) ;
   qassert(ret != CMD_CLOSE) ;
   qassert(ret != CMD_WAITING) ;

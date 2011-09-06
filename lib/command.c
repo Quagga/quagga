@@ -994,9 +994,10 @@ DEFUN_CALL (show_version,
 {
   VTY_LOCK() ;
 
-  uty_out (vty->vio, "Quagga %s (%s).\n", QUAGGA_VERSION,
-                                        (host.name != NULL) ? host.name : "") ;
-  uty_out (vty->vio, "%s\n", QUAGGA_COPYRIGHT);
+  uty_out (vty->vio, QUAGGA_PROGNAME " %s (%s%s).\n", QUAGGA_VERSION,
+                                     (host.name != NULL) ? host.name    : "",
+                                         vty_multi_nexus ? " pthreaded" : "") ;
+  uty_out (vty->vio, "%s\n", QUAGGA_COPYRIGHT) ;
 
   VTY_UNLOCK() ;
 

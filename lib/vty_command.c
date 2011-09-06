@@ -121,6 +121,7 @@ static bool uty_cmd_loop_prepare(vty_io vio) ;
 static void uty_cmd_stopping(vty_io vio, bool exeunt) ;
 static cmd_return_code_t uty_cmd_hiatus(vty_io vio, cmd_return_code_t ret) ;
 static cmd_return_code_t vty_cmd_auth(vty vty, node_type_t* p_next_node) ;
+static void uty_cmd_complete(vty_io vio) ;
 static void uty_cmd_out_cancel(vio_vf vf, bool base) ;
 static uint uty_show_error_context(vio_fifo ebuf, vio_vf vf) ;
 static uint uty_cmd_failed(vty_io vio, cmd_return_code_t ret) ;
@@ -544,8 +545,7 @@ vty_cmd_fetch_line(vty vty)
                       break ;
 
                     case VIN_TERM:
-                      ret = uty_term_fetch_command_line(vf, exec->action,
-                                                                exec->context) ;
+                      ret = uty_term_fetch_command_line(vf, exec->action) ;
                       break ;
 
                     case VIN_VTYSH:
@@ -976,8 +976,8 @@ vty_cmd_auth(vty vty, node_type_t* p_next_node)
  *
  * The command_queue command loop runs until something happens that it
  * cannot immediately deal with, at which point it enters "exec_hiatus", and
- * this function is called.  The command loop will deal with CMD_SUCCESS and
- * CMD_EMPTY, but otherwise this function must deal with:
+ * this function is called.  The command loop will deal with CMD_SUCCESS,
+ * but otherwise this function must deal with:
  *
  *   CMD_HIATUS      -- something requires attention, eg:
  *
@@ -1009,8 +1009,6 @@ vty_cmd_auth(vty vty, node_type_t* p_next_node)
  *                      vc_waiting and the command loop MUST exit.
  *
  *   CMD_SUCCESS     -- see below
- *
- *   CMD_EMPTY       -- should not appear, but is treated as CMD_SUCCESS
  *
  *   anything else   -- treated as a command or I/O or other error.
  *
@@ -1180,7 +1178,6 @@ uty_cmd_hiatus(vty_io vio, cmd_return_code_t ret)
   switch (ret)
     {
       case CMD_SUCCESS:
-      case CMD_EMPTY:
       case CMD_HIATUS:
         ret = CMD_SUCCESS ;             /* OK                           */
         break ;
@@ -1320,6 +1317,11 @@ uty_cmd_hiatus(vty_io vio, cmd_return_code_t ret)
    *
    *     If the vty is about to be closed, this step ensures that all output
    *     is tidily dealt with, before uty_close() performs its "final" close.
+   *
+   *     If we are also down to the vin_base, then signal that the last base
+   *     level command has completed.  Need to do this even if the vin_depth
+   *     is zero -- so that, if required, the output side will signal that
+   *     all I/O is complete.
    */
   if (vio->vout_depth == 1)
     {
@@ -1327,6 +1329,8 @@ uty_cmd_hiatus(vty_io vio, cmd_return_code_t ret)
         {
           /* Once we have cleared the output buffer etc., clear the cancel
            * flag and output "^C" to show what has happened.
+           *
+           * Also, for VTY_TERMINAL, clears the cos_cancel down to cos_active.
            */
           uty_cmd_out_cancel(vio->vout, true) ; /* stop output & pipe return
                                                   * is vout_base        */
@@ -1349,6 +1353,9 @@ uty_cmd_hiatus(vty_io vio, cmd_return_code_t ret)
         } ;
 
       ret = uty_cmd_out_push(vio->vout, false) ;
+
+      if (vio->vin_depth <= 1)
+        uty_cmd_complete(vio) ;
 
       if (ret != CMD_SUCCESS)
         return ret ;                    /* CMD_WAITING or CMD_IO_ERROR  */
@@ -1688,24 +1695,86 @@ vty_cmd_success(vty vty)
   vty_io vio ;
 
   VTY_LOCK() ;
-  vio = vty->vio ;              /* once locked  */
+  vio = vty->vio ;              /* once locked                  */
 
   ret = vio->signal ;           /* signal can interrupt         */
 
-  if (ret == CMD_SUCCESS)
+  /* out_suppress is set only when is VTY_CONFIG_READ and the output is not
+   * required -- not even if there is a signal outstanding.
+   *
+   * NB: we do not need to worry about uty_cmd_complete() for VTY_CONFIG_READ.
+   *
+   * If not interrupted by a signal, push anything there is to push, and
+   * if we are at the base stack level, signal uty_cmd_complete().
+   */
+  if    (vty->exec->out_suppress)
+    vio_fifo_back_to_end_mark(vio->obuf, true) ;        /* keep end mark  */
+  else if (ret == CMD_SUCCESS)
     {
       if (!vio_fifo_tail_empty(vio->obuf))
-        {
-          if (!vty->exec->out_suppress)
-            ret = uty_cmd_out_push(vio->vout, false) ;    /* not final      */
-          else
-            vio_fifo_back_to_end_mark(vio->obuf, true) ;  /* keep end mark  */
-        } ;
+        ret = uty_cmd_out_push(vio->vout, false) ;      /* not final      */
+
+      if ((vio->vin_depth == 1) && (vio->vout_depth == 1))
+        uty_cmd_complete(vio) ;
     } ;
 
   VTY_UNLOCK() ;
 
   return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * A command has completed -- for whatever reason -- no further output will
+ * appear, so the output buffer can now emptied out (including any trailing
+ * line without a line ending) and when that finishes the output is, again,
+ * idle.
+ *
+ * This is *only* when is at the base vin and vout level (or if vin is closed
+ * and is at base vout).
+ *
+ * For VTY_TERMINAL, the completion of all output associated with a command
+ * signals the time to start fetching the next one.
+ *
+ * For VTY_SHELL_SERVER, ditto.
+ *
+ * For VTY_CONFIG_READ, nothing is required.
+ */
+static void
+uty_cmd_complete(vty_io vio)
+{
+  VTY_ASSERT_LOCKED() ;
+
+  qassert((vio->vin_depth <= 1) && (vio->vout_depth == 1)) ;
+
+  switch (vio->vin->vin_type)
+    {
+      case VIN_NONE:
+        zabort("invalid vin_none") ;
+        break ;
+
+      case VIN_TERM:
+        uty_term_cmd_complete(vio->vin, vio->vty->exec->context) ;
+        break ;
+
+      case VIN_VTYSH:
+        /* Signal end of command return                 */
+        break ;
+
+      case VIN_FILE:
+        break ;
+
+      case VIN_PIPE:
+        break ;
+
+      case VIN_CONFIG:
+        break ;                 /* do nothing !         */
+
+      case VIN_DEV_NULL:
+        break ;
+
+      default:
+        zabort("unknown vin_type") ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1857,6 +1926,9 @@ uty_cmd_out_cancel(vio_vf vf, bool base)
   /* Dump contents of obuf and if not base: force vf_end (if vf_open)
    */
   vio_fifo_clear(vf->obuf, false) ;
+
+  if (vf->vout_type == VOUT_TERM)
+    uty_term_out_cancelled(vf) ;
 
   if (!base && (vf->vout_state == vf_open))
     vf->vout_state = vf_end ;

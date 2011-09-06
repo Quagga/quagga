@@ -37,6 +37,35 @@
 #include "keystroke.h"
 
 /*------------------------------------------------------------------------------
+ * States of the CLI and related output.
+ */
+typedef enum cli_state
+{
+  cst_active      = 0,
+  cst_dispatched  = 1,
+  cst_in_progress = 2,
+  cst_complete    = 3,
+
+} cli_state_t ;
+
+typedef enum cli_out_state
+{
+  cos_idle        = 0,
+
+  cos_active      = 1,
+  cos_cancel      = 2,
+
+  cos_more_enter  = 3,
+  cos_more_wait   = 4,
+
+  cos_mask        = BIT(4) - 1,
+
+  cos_monitor     = BIT(6),
+  cos_paused      = BIT(7),
+
+} cli_out_state_t ;
+
+/*------------------------------------------------------------------------------
  * The vty_cli structure pointed to by the vty_io structure.
  */
 typedef struct vty_cli* vty_cli ;
@@ -74,70 +103,33 @@ struct vty_cli
    *                     any other output can use the screen.
    *
    *                     In particular, must be cleared before setting
-   *                     out_active -- see below.
+   *                     cos_active -- see below.
    *
-   * tilde_enabled   <=> do the "~ " one command line ahead.
+   * more_drawn      <=> what is drawn is the "--more--" prompt.
+   *                  => drawn
    *
    * If drawn is true, the following are valid:
    *
-   *   tilde_prompt  -- the prompt is the "~ "
-   *
    *   prompt_len    -- the length of the prompt part.
    *                    (will be the "--more--" prompt in cli_more_wait)
-   *
-   *   extra_len     -- the length of any ^X at the cursor position
-   *                    (for when blocked waiting for queued command)
    *
    *   echo_suppress -- the user part of the command line is suppressed
    *
    * NB: echo_suppress is only used for password entry.
    */
   bool          drawn ;
-
-  bool          tilde_prompt ;
-  bool          tilde_enabled ;
-
+  bool          more_drawn ;
   int           prompt_len ;
-  int           extra_len ;
 
   /* "cache" for prompt -- when node or host name changes, prompt does  */
   node_type_t   prompt_node ;
   name_gen_t    prompt_gen ;
   qstring       prompt_for_node ;
 
-  /* State of the CLI
-   *
-   *   dispatched   -- command dispatched by CLI
-   *   in_progress  -- command taken by the command loop
-   *   blocked      -- blocked until current command completes
-   *   paused       -- command dispatched and nothing else happened
-   *
-   *   mon_active   -- there is stuff in the logging monitor buffer
-   *
-   *   out_active   -- contents of the obuf FIFO are being written away
-   *                   though may be blocked in more_wait
-   *
-   *                   This flag <=> that the command output "owns" the screen.
-   *
-   *                   While this flag is set, the CLI may not write to the
-   *                   screen.
-   *
-   *                   Flag is cleared when obuf is empty, and is !in_progress.
-   *
-   *   more_wait    -- is in "--more--" wait state
-   *   more_enter   -- more_wait and waiting for "--more--" prompt to be
-   *                             written away and keystrokes to be consumed.
+  /* State of the CLI and its output
    */
-  bool          dispatched ;
-  bool          in_progress ;
-  bool          blocked ;
-  bool          paused ;
-
-  bool          mon_active ;
-  bool          out_active ;
-
-  bool          more_wait ;
-  bool          more_enter ;
+  cli_state_t      state ;
+  cli_out_state_t  out_state ;
 
   /* This is set only if the "--more--" handling is enabled             */
   bool          more_enabled ;
@@ -199,13 +191,13 @@ extern ulen uty_cli_prompt_len(vty_cli cli) ;
 
 extern vty_readiness_t uty_cli(vty_cli cli) ;
 
-extern cmd_return_code_t uty_cli_want_command(vty_cli cli, cmd_action action,
-                                                          cmd_context context) ;
+extern cmd_return_code_t uty_cli_want_command(vty_cli cli, cmd_action action) ;
 extern void uty_cli_out(vty_cli cli, const char *format, ...)
                                                         PRINTF_ATTRIBUTE(2, 3) ;
 extern void uty_cli_out_newline(vty_cli cli) ;
 extern void uty_cli_write(vty_cli cli, const char *this, int len) ;
 extern void uty_cli_wipe(vty_cli cli, int len) ;
+extern void uty_cli_cancel(vty_cli cli, bool cntrl_c) ;
 
 extern void uty_cli_set_lines(vty_cli cli, int lines, bool explicit) ;
 extern void uty_cli_set_window(vty_cli cli, int width, int height) ;

@@ -124,8 +124,6 @@ enum cmd_return_code
 
   /* Return codes from the command parser                               */
 
-  CMD_EMPTY,                    /* parser: nothing to execute           */
-
   CMD_ERR_PARSING,              /* parser: general parser error         */
   CMD_ERR_NO_MATCH,             /* parser: command/argument not recognised  */
   CMD_ERR_AMBIGUOUS,            /* parser: more than on command matches */

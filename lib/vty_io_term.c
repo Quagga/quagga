@@ -181,6 +181,11 @@ uty_term_open(int sock_fd, union sockunion *su)
   if (0)
     uty_term_dont_lflow_ahead (vf->cli) ;
 
+  /* Hoover up any currently available input -- possibly Telnet commands/
+   * escapes from the other end.
+   */
+  uty_term_read(vf) ;
+
   /* Say hello                                                          */
   vty_hello(vty);
 
@@ -215,13 +220,53 @@ uty_term_open(int sock_fd, union sockunion *su)
  * CMD_IO_ERROR -- any errors are dealt with by signalling the command loop.
  */
 extern cmd_return_code_t
-uty_term_fetch_command_line(vio_vf vf, cmd_action action, cmd_context context)
+uty_term_fetch_command_line(vio_vf vf, cmd_action action)
 {
   VTY_ASSERT_LOCKED() ;
 
   qassert(vf->vin_state == vf_open) ;
 
-  return uty_cli_want_command(vf->cli, action, context) ;
+  return uty_cli_want_command(vf->cli, action) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Command has completed.
+ *
+ * If is cst_in_progress:
+ *
+ *   -- set cst_complete
+ *
+ *   -- collect current context
+ *
+ *   -- if is cos_idle then force cos_active -- the obuf etc. will be
+ *      empty, but we want to make sure that all other buffers empty out,
+ *      and that the output side will signal when that's so.
+ *
+ *   -- kick write_ready to make sure that things move along.
+ */
+extern void
+uty_term_cmd_complete(vio_vf vf, cmd_context context)
+{
+  vty_cli cli = vf->cli ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  if (cli->state == cst_in_progress)
+    {
+      cli->state = cst_complete ;
+
+      if (cli->out_state == cos_idle)
+        {
+          vio_fifo_clear(vf->obuf, false) ;     /* keep end mark        */
+          cli->out_state = cos_active ;
+        } ;
+
+      *cli->context = *context ;
+      cli->auth_context = (   (cli->context->node == AUTH_NODE)
+                           || (cli->context->node == AUTH_ENABLE_NODE) ) ;
+
+      uty_term_set_readiness(vf, write_ready) ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -269,27 +314,35 @@ uty_term_out_push(vio_vf vf, bool final)
 {
   vty_cli cli = vf->cli ;
   utw_ret_t done ;
+  cli_out_state_t out_state ;
 
   qassert(vf->vout_state == vf_open) ;
   qassert(!vf->blocking) ;
 
-  /* If squelching, dump anything we have in the obuf.
+  out_state = cli->out_state & cos_mask ;
+
+  /* If squelching, discard anything we have in the obuf.
    */
   if (vf->vio->cancel)
     vio_fifo_clear(vf->obuf, false) ;   /* keep end mark        */
 
-  /* If have something in the obuf that needs to be written, then if not
-   * already out_active, make sure the command line is clear, and set
-   * out_active.
+  /* If we have something in the obuf that needs to be written, then if
+   * is cos_idle, make sure the command line is clear, and set cos_active.
+   *
+   * Note that may be cos_idle | cos_monitor, for which we need to keep the
+   * monitor flag but update to cos_active -- the cli will already be wiped.
    */
-  if (!cli->out_active && !vio_fifo_empty(vf->obuf))
+  if (!vio_fifo_empty(vf->obuf) && (out_state == cos_idle))
     {
       uty_cli_wipe(cli, 0) ;
-      cli->out_active = true ;
+      cli->out_state ^= (cos_active ^ cos_idle) ;
       vio_lc_counter_reset(cli->olc) ;
     } ;
 
   /* Give the terminal writing a shove.
+   *
+   * Note that there may be stuff pending, and stuff in the cbuf, etc.  We
+   * depend on the uty_term_write() to know all about what can be done.
    *
    * If final, keep pushing while succeeds in writing without blocking.
    *
@@ -310,21 +363,52 @@ uty_term_out_push(vio_vf vf, bool final)
 
   /* Deal with the result
    *
-   * If required and if not final make sure that write ready is set, so
-   * that the pselect() process can pursue the issue.
+   * If not failed and not final, set write ready if:
+   *
+   *    not utw_done   => output blocked.
+   *
+   *    cli->out_state == cos_idle  => CLI may run
    *
    * Return code depends on utw_xxx
    */
-  if (done == utw_done)
-    return CMD_SUCCESS ;        /* don't set write ready        */
-
   if (done == utw_error)
     return CMD_IO_ERROR ;       /* don't set write ready        */
 
   if (!final)
-    uty_term_set_readiness(vf, write_ready) ;
+    {
+      if ((done != utw_done) || (cli->out_state == cos_idle))
+        uty_term_set_readiness(vf, write_ready) ;
+    } ;
 
-  return CMD_WAITING ;          /* waiting for write ready      */
+  return (done == utw_done) ? CMD_SUCCESS : CMD_WAITING ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Completed the cancelling of command(s) and output.
+ *
+ * Caller is about to output "^C" to signal completion of the cancellation
+ * process -- sets the cli->state to cos_active, to allow final output to
+ * proceed, and the command loop continue.
+ *
+ * Clears any cos_paused !
+ *
+ * If the current line is "drawn", make sure we are at the end of it, and then
+ * clear the "drawn" state, because "^C\n" is about to follow.
+ *
+ * Clear the line control, to make sure that cannot now interfere.
+ */
+extern void
+uty_term_out_cancelled(vio_vf vf)
+{
+  vty_cli cli = vf->cli ;
+
+  qassert((cli->out_state & cos_mask) == cos_cancel) ;
+
+  cli->out_state = cos_active | (cli->out_state & cos_monitor) ;
+
+  vio_lc_counter_reset(cli->olc) ;
+
+  uty_cli_cancel(cli, false) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -377,8 +461,8 @@ uty_term_close_reason(vio_vf vf, const char* reason)
 {
   vio_lc_clear(vf->cli->olc) ;
 
-  vf->cli->mon_active  = false ;        /* stamp on any monitor output  */
-
+  vf->cli->out_state = cos_idle ;       /* stamp on monitor or other output
+                                         * clear cancel and paused      */
   uty_cli_out(vf->cli, "%% %s%s", reason, uty_cli_newline) ;
 } ;
 
@@ -487,7 +571,7 @@ uty_term_read_ready(vio_vfd vfd, void* action_info)
 
   qassert(vfd == vf->vfd) ;
 
-  vf->cli->paused = false ;     /* read ready clears paused     */
+  vf->cli->out_state &= ~cos_paused ;   /* read ready clears paused     */
 
   uty_term_read(vf) ;
   uty_term_ready(vf) ;
@@ -547,6 +631,7 @@ uty_term_ready(vio_vf vf)
 {
   vty_readiness_t ready ;
   utw_ret_t done, done_before ;
+  cli_out_state_t out_state ;
 
   VTY_ASSERT_LOCKED() ;
 
@@ -562,6 +647,7 @@ uty_term_ready(vio_vf vf)
    * This is because the CLI may generate more to write, and writing stuff
    * away may release the CLI.
    */
+  out_state = vf->cli->out_state ;
   done   = utw_null ;
   do
     {
@@ -595,9 +681,9 @@ uty_term_ready(vio_vf vf)
 
   uty_term_set_readiness(vf, ready) ;
 
-  /* Signal the command loop if not waiting for write any more.
+  /* Signal the command loop if the cli->out_state has changed significantly
    */
-  if ((ready & write_ready) == 0)
+  if ((vf->cli->out_state == cos_idle) && (out_state != cos_idle))
     uty_cmd_signal(vf->vio, CMD_SUCCESS) ;
 } ;
 
@@ -618,7 +704,7 @@ uty_term_read_timeout(vio_timer timer, void* action_info)
 
   keystroke_stream_set_eof(vf->cli->key_stream, true) ; /* timed out    */
 
-  vf->cli->paused = false ;
+  vf->cli->out_state &= ~cos_paused ;
 
   uty_term_ready(vf) ;
 
@@ -639,7 +725,7 @@ uty_term_write_timeout(vio_timer timer, void* action_info)
 
   VTY_ASSERT_LOCKED() ;
 
-  vf->cli->paused = false ;
+  vf->cli->out_state &= ~cos_paused ;
 
   uty_vf_error(vf, verr_to_vout, 0) ;
 
@@ -659,9 +745,9 @@ vty_term_pause_timeout(qtimer qtr, void* timer_info, qtime_mono_t when)
   cli = timer_info ;
   assert(cli->pause_timer == qtr) ;
 
-  if (cli->paused)
+  if (cli->out_state & cos_paused)
     {
-      cli->paused = false ;
+      cli->out_state ^= cos_paused ;
       uty_term_ready(cli->vf) ;
     } ;
 
@@ -675,15 +761,13 @@ vty_term_pause_timeout(qtimer qtr, void* timer_info, qtime_mono_t when)
  */
 
 /*------------------------------------------------------------------------------
- * Read a lump of bytes and shovel into the keystroke stream
+ * Hoover up input and shovel into the keystroke stream
  *
  * NB: need not be in the term_ready path.  Indeed, when the VTY_TERMINAL is
  *     initialised, this is called to suck up any telnet preamble.
  *
- * NB: the terminal is permanently read-ready, so will keep calling this
- *     until all input is hoovered up.  For real terminals it is assumed that
- *     reading a lump of bytes this small will immediately empty the input
- *     buffer.
+ * NB: the terminal is permanently read-ready, so the keystroke stream
+ *     should be permanently topped up.
  *
  * When reaches EOF on the input eof is set in the keystroke stream, and the
  * vfd is read closed.  Read closing the vfd turns off any timeout and prevents
@@ -691,23 +775,16 @@ vty_term_pause_timeout(qtimer qtr, void* timer_info, qtime_mono_t when)
  * NOT set vf->vin_state to vf_end, because that is not true until the
  * keystroke stream is empty.  Once eof is set in the keystroke stream, this
  * code will not attempt any further input from the vfd.
- *
- * Returns:  0 => nothing available
- *         > 0 => read at least one byte
- *       == -1 => I/O error
- *       == -2 => hit EOF (without reading anything else)
  */
-extern int
+extern void
 uty_term_read(vio_vf vf)
 {
   keystroke_stream stream ;
-  unsigned char buf[500] ;
-  int get ;
 
   stream = vf->cli->key_stream ;
 
   if (keystroke_stream_met_eof(stream))
-    return -2 ;                 /* already seen EOF                     */
+    return ;                    /* already seen EOF                     */
 
   if (vf->vin_state != vf_open)
     {
@@ -716,33 +793,51 @@ uty_term_read(vio_vf vf)
        * force it to EOF.
        */
       keystroke_stream_set_eof(vf->cli->key_stream, false) ;
-      return -2 ;
+      return ;
     } ;
 
   /* OK: read from input and pass result to keystroke stream.
+   *
+   *     Uses a relatively small buffer, which should be fine for actual
+   *     terminals !
    */
-  get = read_nb(vio_vfd_fd(vf->vfd), buf, sizeof(buf)) ;
-                                /* -1 <=> error, -2 <=> EOF             */
-  if (get != 0)
+  while (1)
     {
-      if (get == -1)
+      unsigned char buf[500] ;
+      int get ;
+
+      get = read_nb(vio_vfd_fd(vf->vfd), buf, sizeof(buf)) ;
+                                /* -1 <=> error, -2 <=> EOF     */
+      if (get == 0)
+        return ;
+
+      if (get != -1)
         {
-          /* Error: signal to command loop and force key_stream empty   */
-          uty_vf_error(vf, verr_io_vin, errno) ;
-          keystroke_stream_set_eof(vf->cli->key_stream, false) ;
-                                                    /* not timed-out    */
+          /* Not error.  get < 0 => EOF and that is set in key_stream.
+           */
+          keystroke_input(vf->cli->key_stream, buf, get) ;
         }
       else
         {
-          /* Not error.  get < 0 => EOF and that is set in key_stream.  */
-          keystroke_input(vf->cli->key_stream, buf, get) ;
+          /* Error: signal to command loop and force key_stream empty
+           */
+          uty_vf_error(vf, verr_io_vin, errno) ;
+          keystroke_stream_set_eof(vf->cli->key_stream, false) ;
+                                                   /* not timed-out    */
         } ;
 
-      if (get < 0)
-        vio_vfd_read_close(vf->vfd) ;
-    } ;
+      if (get > 0)
+        continue ;              /* hoover up all there is.      */
 
-  return get ;
+      /* Error or EOF -- close the input half of the socket, and we're done.
+       *
+       * NB: this does not affect the vin_state, which (if not error) continues
+       *     vf_open until hits EOF on the keystroke stream.
+       */
+      vio_vfd_read_close(vf->vfd) ;
+
+      return ;
+    } ;
 } ;
 
 /*==============================================================================
@@ -752,8 +847,8 @@ uty_term_read(vio_vf vf)
  *
  *   cli->cbuf -- command line   -- reflects the status of the command line
  *
- *   vf->obuf  -- command output -- which is written to the file only while
- *                                  out_active, and not blocked in more_wait.
+ *   vf->obuf  -- command output -- which is written to the terminal only while
+ *                                  cos_active.
  *
  * The cli output takes precedence.
  *
@@ -786,10 +881,14 @@ uty_term_mon_write(vio_vf vf)
 /*------------------------------------------------------------------------------
  * Write as much as possible of what there is.
  *
- * Move to more_wait if required.
+ * If there is anything in the CLI buffer, try to empty that.
  *
- * If is cli->flush, then when all buffers are emptied out, clears itself and
- * the out_active flag.
+ * If is cos_monitor, try to empty the mbuf.
+ *
+ * If cos_active, try to empty the obuf.  Move to more_wait if required.
+ *
+ * If is not "in_progress", then when all buffers are emptied out, clears
+ * itself and the cos_active state.
  *
  * Returns:
  *
@@ -833,10 +932,7 @@ uty_term_write(vio_vf vf)
       vio_fifo_clear(cli->cbuf, false) ;
       vio_lc_clear(cli->olc) ;
 
-      cli->out_active = false ;
-
-      cli->more_wait  = false ;
-      cli->more_enter = false ;
+      cli->out_state = cos_idle ;       /* stamps on everything */
 
       return utw_error ;
     } ;
@@ -863,13 +959,13 @@ uty_term_write(vio_vf vf)
 
   /* Next: if there is monitor output to deal with, deal with it.
    *
-   * Note that the mon_active flag is set under VTY_LOCK(), so do not
+   * Note that the cos_monitor state is set under VTY_LOCK(), so do not
    * need to LOG_LOCK() to discover whether there is anything to do.
    *
    * But the vio->mbuf is filled under LOG_LOCK(), so need to write it
    * under the same.
    */
-  if (cli->mon_active)
+  if (cli->out_state & cos_monitor)
     {
       LOG_LOCK() ;
 
@@ -886,13 +982,13 @@ uty_term_write(vio_vf vf)
           return utw_error ;
         } ;
 
-      uty_cli_post_monitor(vf->cli) ;
+      uty_cli_post_monitor(vf->cli) ;   /* clears monitor output state  */
     } ;
 
-  /* If not out_active, or in more_wait, then we are done, waiting for some
-   * external event to move things on.
+  /* If not cos_active we are done, waiting for some external event to move
+   * things on.
    */
-  if ((!cli->out_active) || (cli->more_wait))
+  if (cli->out_state != cos_active)
     return utw_done ;                   /* can do no more               */
 
   /* Push the output fifo and any complete line fragments that may be buffered
@@ -903,9 +999,8 @@ uty_term_write(vio_vf vf)
    * even if the fifo is empty -- this deals with any parts of a complete
    * line that may be held in the line control due to counter exhaustion.
    *
-   * If the fifo is or becomes empty, then if is cli->flush, flush out any
-   * incomplete line which may be held in the line control -- in effect,
-   * cli->flush is a phantom '\n' at the end of the output fifo !
+   * If the fifo is or becomes empty, then if the command has completed, flush
+   * out any incomplete line which may be held in the line control.
    */
   vio_fifo_set_hold_mark(vf->obuf) ;    /* released in uty_term_write_lc() */
 
@@ -923,7 +1018,7 @@ uty_term_write(vio_vf vf)
         break ;
     } ;
 
-  if ((have == 0) && !cli->in_progress)
+  if ((have == 0) && (cli->state == cst_complete))
     vio_lc_flush(cli->olc) ;
 
   ret = uty_term_write_lc(cli->olc, vf, vf->obuf) ;
@@ -957,25 +1052,23 @@ uty_term_write(vio_vf vf)
   /* Exciting stuff: there is nothing left to output...
    *
    * ...with the sole possible exception of an incomplete line buffered
-   * in the line control, which can do nothing about until there is more
-   * to be output, or the output is flushed...
+   * in the line control -- if not cst_complete.
    *
-   * ...if not cli->flush, we are stopped, waiting for something else to
-   * happen.
+   * ...if is cst_complete, all output has gone, so can fall back to cos_idle.
    */
-  qassert(!cli->more_wait && !cli->more_enter) ;
+  qassert(cli->out_state = cos_active) ;
 
-  if (cli->in_progress)
-    return utw_done ;           /* can do no more               */
+  if (cli->state == cst_complete)
+    {
+      /* Even more exciting: is cst_complete
+       *
+       * This means that any incomplete line must have been flushed, above.
+       * So all buffers MUST be empty.
+       */
+      qassert(vio_fifo_empty(vf->obuf) && vio_lc_is_empty(cli->olc)) ;
 
-  /* Even more exciting: is !cli->in_progress !
-   *
-   * This means that any incomplete line must have been flushed, above.
-   * So all buffers MUST be empty.
-   */
-  qassert(vio_fifo_empty(vf->obuf) && vio_lc_is_empty(cli->olc)) ;
-
-  cli->out_active = false ;
+      cli->out_state = cos_idle ;
+    } ;
 
   return utw_done ;             /* absolutely all done          */
 } ;
