@@ -45,6 +45,7 @@ typedef enum cli_state
   cst_dispatched  = 1,
   cst_in_progress = 2,
   cst_complete    = 3,
+  cst_closing     = 4,
 
 } cli_state_t ;
 

@@ -30,6 +30,22 @@
 #include "vty_local.h"
 #include "vty_io.h"
 
+/*==============================================================================
+ * VTY functions used in command execution.
+ */
+typedef enum uty_cmd_push_types
+{
+  ucmd_push_simple,
+  ucmd_push_final,
+
+  ucmd_push_complete,
+  ucmd_push_closing,
+
+} uty_cmd_push_types_t ;
+
+/*------------------------------------------------------------------------------
+ */
+
 extern bool vty_cmd_config_loop_prepare(vty vty) ;
 extern void uty_cmd_queue_loop_enter(vty_io vio) ;
 extern void uty_cmd_signal(vty_io vio, cmd_return_code_t ret) ;
@@ -45,7 +61,7 @@ extern cmd_return_code_t vty_cmd_special(vty vty) ;
 extern cmd_return_code_t vty_cmd_can_auth_enable(vty vty) ;
 extern cmd_return_code_t vty_cmd_reflect_line(vty vty) ;
 extern cmd_return_code_t vty_cmd_out_push(vty vty) ;
-extern cmd_return_code_t uty_cmd_out_push(vio_vf vf, bool final) ;
+extern cmd_return_code_t uty_cmd_out_push(vio_vf vf, uty_cmd_push_types_t how) ;
 
 extern cmd_return_code_t uty_cmd_open_in_pipe_file(vty_io vio,
                    cmd_context context, qstring name,    cmd_pipe_type_t type) ;

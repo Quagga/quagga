@@ -219,6 +219,7 @@ uty_new(vty_type_t type, node_type_t node)
    *   blocking     = false       -- set below: false unless VTY_CONFIG_READ
    *   state        = vc_stopped  -- not started vty command loop
    *   signal       = CMD_SUCCESS -- OK (null signal)
+   *   signal_success = false     -- no success signal, yet
    *   close_reason = NULL        -- none set
    *
    *   ps_buf       = NULL        -- no pipe stderr return buffer, yet
