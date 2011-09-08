@@ -340,9 +340,11 @@ cq_process(vty vty, cmd_exec_state_t state, cmd_return_code_t ret)
           /*--------------------------------------------------------------------
            * Need another command to execute => in_pipe !
            *
-           * If multi-threaded: may be in either thread. TODO !!  If vty_cmd_fetch_line()
-           * cannot, for any reason, return a command line, will return something
-           * other than CMD_SUCCESS -- which enters the exec_hiatus.
+           * If multi-threaded: may be in either thread.
+           *
+           * If vty_cmd_fetch_line() cannot, for any reason, return a command
+           * line, will return something other than CMD_SUCCESS -- which enters
+           * the exec_hiatus (transferring to vty_cli_nexus).
            */
           case exec_fetch:
             ret = vty_cmd_fetch_line(vty) ;
@@ -377,7 +379,8 @@ cq_process(vty vty, cmd_exec_state_t state, cmd_return_code_t ret)
                 continue ;
               } ;
 
-            /* reflect if required
+            /* reflect if required -- CMD_WAITING is fine, let the output side
+             *                        deal with that.
              */
             if (exec->reflect)
               {
@@ -392,8 +395,7 @@ cq_process(vty vty, cmd_exec_state_t state, cmd_return_code_t ret)
            *
            * Will receive CMD_EOF if the VTY has been closed.
            *
-           * If multi-threaded: must be in vty_cli_nexus to proceed -- so may
-           * generate message to transfer to vty_cli_nexus.
+           * If multi-threaded: must be in vty_cli_nexus to proceed.
            */
           case exec_open_pipes:
             if ((parsed->parts & cmd_parts_pipe) != 0)
@@ -492,7 +494,8 @@ cq_process(vty vty, cmd_exec_state_t state, cmd_return_code_t ret)
         case exec_cmd_success:
           qassert(ret == CMD_SUCCESS) ;
 
-          ret = vty_cmd_success(vty) ;
+          ret = vty_cmd_success(vty) ;  /* CMD_WAITING is fine, let the
+                                         * output side deal with that.  */
 
           if ((ret != CMD_SUCCESS) && (ret != CMD_WAITING))
             break ;

@@ -25,9 +25,7 @@
 #ifndef _ZEBRA_VTY_IO_H
 #define _ZEBRA_VTY_IO_H
 
-//#include "zebra.h"
 #include "misc.h"
-//#include <errno.h>
 
 #include "vty_local.h"
 #include "command_local.h"
@@ -48,7 +46,6 @@
  * The vin and vout stacks contain one or more struct vty_vf -- one per
  * input and/or output associated with the VTY.
  */
-
 enum
 {
   VTY_WATCH_DOG_INTERVAL    =   5,      /* interval between barks       */
@@ -383,6 +380,7 @@ struct vty_io                   /* typedef appears above                */
 
   vc_state_t  state ;           /* command loop state                   */
   cmd_return_code_t signal ;    /* signal sent to command loop          */
+  bool      signal_success ;    /* => CMD_SUCCESS sent                  */
 
   char*     close_reason ;      /* MTYPE_TMP (if any)                   */
 

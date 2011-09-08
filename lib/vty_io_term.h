@@ -32,6 +32,7 @@
 #include "vty_io_basic.h"
 #include "vty_io.h"
 #include "vty_cli.h"
+#include "vty_command.h"
 
 #include "vio_fifo.h"
 #include "vio_lines.h"
@@ -57,8 +58,9 @@ extern void uty_term_new(vty_io vio, int sock_fd) ;
 
 extern cmd_return_code_t uty_term_fetch_command_line(vio_vf vf,
                                                             cmd_action action) ;
-extern void uty_term_cmd_complete(vio_vf vf, cmd_context context) ;
-extern cmd_return_code_t uty_term_out_push(vio_vf vf, bool final) ;
+extern cmd_return_code_t uty_term_cmd_complete(vio_vf vf, cmd_context context,
+                                                                 bool closing) ;
+extern cmd_return_code_t uty_term_out_push(vio_vf vf, uty_cmd_push_types_t how) ;
 extern void uty_term_out_cancelled(vio_vf vf) ;
 extern uint uty_term_show_error_context(vio_vf vf, vio_fifo ebuf, uint depth) ;
 extern cmd_return_code_t uty_term_read_close(vio_vf vf, bool final) ;

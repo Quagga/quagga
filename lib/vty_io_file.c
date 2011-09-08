@@ -700,12 +700,17 @@ vty_file_read_timeout(vio_timer timer, void* action_info)
  * This can be called in any thread.
  */
 extern cmd_return_code_t
-uty_file_out_push(vio_vf vf, bool final, bool all)
+uty_file_out_push(vio_vf vf, uty_cmd_push_types_t how)
 {
+  bool all, final ;
+
   VTY_ASSERT_LOCKED() ;         /* In any thread                */
 
   qassert((vf->vout_type == VOUT_FILE) || (vf->vout_type == VOUT_CONFIG)) ;
   qassert(vf->vout_state == vf_open) ;
+
+  final = (how == ucmd_push_final) ;
+  all   = (how == ucmd_push_closing) || final ;
 
   /* If squelching, dump anything we have in the obuf.
    *
@@ -720,7 +725,7 @@ uty_file_out_push(vio_vf vf, bool final, bool all)
           qps_mini_t qm ;
           int n ;
 
-          n = vio_fifo_write_nb(vf->obuf, vio_vfd_fd(vf->vfd), all || final) ;
+          n = vio_fifo_write_nb(vf->obuf, vio_vfd_fd(vf->vfd), all) ;
 
           if (n < 0)
             return uty_vf_error(vf, verr_io_vout, errno) ;
@@ -778,16 +783,12 @@ vty_file_write_ready(vio_vfd vfd, void* action_info)
    * off -- but kicking the command loop will not hurt.
    */
   if (vf->vout_state == vf_open)
-    {
-      /* Push, not final and not all -- re-enables write ready if required  */
-      ret = uty_file_out_push(vf, false, false) ;
-    }
+    ret = uty_file_out_push(vf, ucmd_push_simple) ;
   else
     ret = CMD_SUCCESS ;
 
-  if (ret != CMD_WAITING)
-    uty_cmd_signal(vf->vio, ret) ;  /* CMD_SUCCESS or CMD_IO_ERROR  */
-
+  uty_cmd_signal(vf->vio, ret) ;        /* CMD_SUCCESS or CMD_IO_ERROR,
+                                         * CMD_WAITING is ignored       */
   VTY_UNLOCK() ;
 } ;
 
@@ -853,7 +854,7 @@ uty_file_write_close(vio_vf vf, bool final)
   qassert((vf->vout_type == VOUT_FILE) || (vf->vout_type == VOUT_CONFIG)) ;
 
   if (vf->vout_state == vf_open)
-    return uty_file_out_push(vf, final, true) ; /* write all    */
+    return uty_file_out_push(vf, final ? ucmd_push_final : ucmd_push_closing) ;
   else
     return CMD_SUCCESS ;
 } ;
@@ -1695,14 +1696,18 @@ uty_pipe_fetch_command_line(vio_vf vf, cmd_action action)
  * This can be called in any thread.
  */
 extern cmd_return_code_t
-uty_pipe_out_push(vio_vf vf, bool final)
+uty_pipe_out_push(vio_vf vf, uty_cmd_push_types_t how)
 {
+  bool final ;
+
   VTY_ASSERT_LOCKED() ;         /* In any thread                */
 
   qassert((vf->vout_type == VOUT_PIPE) || (vf->vout_type == VOUT_SH_CMD)) ;
 
   if (vf->vout_state != vf_open)
     return CMD_SUCCESS ;        /* Get out if going nowhere     */
+
+  final = (how == ucmd_push_final) ;
 
   /* If blocking, keep the stderr return moving.
    */
@@ -1896,7 +1901,9 @@ uty_pipe_shovel(vio_vf vf, bool final)
 
       else if (get >  0)                /* Read something               */
         {
-          ret = uty_cmd_out_push(vf->vout_next, final) ; /* may block   */
+          ret = uty_cmd_out_push(vf->vout_next, final ? ucmd_push_final
+                                                      : ucmd_push_simple) ;
+                                        /* may block                    */
 
           if (ret == CMD_SUCCESS)
             continue ;                  /* Loop back if emptied buffer  */
@@ -2149,8 +2156,8 @@ vty_pipe_return_ready(vio_vfd vfd, void* action_info)
   if (vf->pr_state == vf_open)
     vio_vfd_set_read(vf->pr_vfd, on, vf->pr_timeout) ;
   else if (vf->ps_state != vf_open)
-    uty_cmd_signal(vf->vio, ret) ;      /* CMD_SUCCESS or CMD_IO_ERROR  */
-
+    uty_cmd_signal(vf->vio, ret) ;      /* CMD_SUCCESS or CMD_IO_ERROR,
+                                         * CMD_WAITING is ignored       */
   VTY_UNLOCK() ;
 } ;
 
@@ -2196,8 +2203,8 @@ vty_pipe_stderr_return_ready(vio_vfd vfd, void* action_info)
   if (vf->ps_state == vf_open)
     vio_vfd_set_read(vf->ps_vfd, on, vf->ps_timeout) ;
   else if (vf->pr_state != vf_open)
-    uty_cmd_signal(vf->vio, ret) ;      /* CMD_SUCCESS or CMD_IO_ERROR  */
-
+    uty_cmd_signal(vf->vio, ret) ;      /* CMD_SUCCESS or CMD_IO_ERROR,
+                                         * CMD_WAITING is ignored       */
   VTY_UNLOCK() ;
 } ;
 
@@ -2285,15 +2292,12 @@ vty_pipe_write_ready(vio_vfd vfd, void* action_info)
    * off -- but kicking the command loop will not hurt.
    */
   if (vf->vout_state == vf_open)
-    {
-      ret = uty_pipe_out_push(vf, false) ;  /* not final    */
-    }
+    ret = uty_pipe_out_push(vf, ucmd_push_simple) ;
   else
     ret = CMD_SUCCESS ;
 
-  if (ret != CMD_WAITING)
-    uty_cmd_signal(vf->vio, ret) ;      /* CMD_SUCCESS or CMD_IO_ERROR  */
-
+  uty_cmd_signal(vf->vio, ret) ;        /* CMD_SUCCESS or CMD_IO_ERROR,
+                                         * CMD_WAITING is ignored       */
   VTY_UNLOCK() ;
 } ;
 
@@ -2393,7 +2397,7 @@ uty_pipe_write_close(vio_vf vf, bool final)
     {
       cmd_return_code_t ret ;
 
-      ret = uty_pipe_out_push(vf, final) ;
+      ret = uty_pipe_out_push(vf, final ? ucmd_push_final : ucmd_push_closing) ;
 
       if ((ret == CMD_WAITING) && !final)
         return ret ;
