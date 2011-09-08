@@ -2605,7 +2605,7 @@ mem_show_region_info(vty vty, mem_tracker_data mtd)
   /* Now can show what we have
    */
              /* 12345678901234567890123456789012345678901234    */
-  vty_out(vty, "Region     Size  Present  Swapped    Count  ") ;
+  vty_out(vty, "Region :   Size  Present  Swapped    Count  ") ;
   if (memory_tracker)
                /* 567890123456789012345678901                   */
     vty_out(vty, "   Used   Overhd   Unused  ") ;
@@ -2639,14 +2639,17 @@ mem_show_region_info(vty vty, mem_tracker_data mtd)
                                   ? mem_form_count(rs->count).str
                                   : "-  ") ;
 
-          if (memory_tracker && (rs->sex >= mrx_heap))
-                        /* 45-234-123-0         */
-            vty_out (vty, " %8s %8s %8s",
-                          mem_form_byte_count(rs->used).str,
-                          mem_form_byte_count(rs->overhead).str,
-                          mem_form_byte_count(rs->unused).str) ;
-          else
-            vty_out (vty, " %8s %8s %8s", ". ", ". ", ". ") ;
+          if (memory_tracker)
+            {
+              if (rs->sex >= mrx_heap)
+                            /* 45-234-123-0         */
+                vty_out (vty, " %8s %8s %8s",
+                                   mem_form_byte_count(rs->used).str,
+                                   mem_form_byte_count(rs->overhead).str,
+                                   mem_form_byte_count(rs->unused).str) ;
+              else
+                vty_out (vty, " %8s %8s %8s", ". ", ". ", ". ") ;
+            } ;
 
           if (rs->data != 0)
                        /* 12-9                  */
