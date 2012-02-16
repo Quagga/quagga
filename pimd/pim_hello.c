@@ -124,12 +124,12 @@ static void tlv_trace_list(const char *label, const char *tlv_name,
   if (isset) {
     char src_str[100];
     pim_inet4_dump("<src?>", src_addr, src_str, sizeof(src_str));
-    zlog_debug("%s: PIM hello option from %s on interface %s: %s size=%d list=%x",
+    zlog_debug("%s: PIM hello option from %s on interface %s: %s size=%d list=%p",
 	       label, 
 	       src_str, ifname,
 	       tlv_name,
 	       addr_list ? ((int) listcount(addr_list)) : -1,
-	       (unsigned) addr_list);
+	       (void *) addr_list);
   }
 }
 

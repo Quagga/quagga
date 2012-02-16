@@ -30,6 +30,7 @@
 
 #include "pim_time.h"
 
+#if 0
 static int pim_gettime(int clk_id, struct timeval *tv)
 {
   struct timespec ts;
@@ -58,6 +59,7 @@ static int pim_gettime(int clk_id, struct timeval *tv)
 
   return result;
 }
+#endif
 
 static int gettime_monotonic(struct timeval *tv)
 {

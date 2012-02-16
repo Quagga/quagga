@@ -548,7 +548,7 @@ static int redist_read_ipv4_route(int command, struct zclient *zclient,
   }
 
   api.distance = CHECK_FLAG(api.message, ZAPI_MESSAGE_DISTANCE) ?
-    api.distance = stream_getc(s) :
+    stream_getc(s) :
     0;
 
   api.metric = CHECK_FLAG(api.message, ZAPI_MESSAGE_METRIC) ?
