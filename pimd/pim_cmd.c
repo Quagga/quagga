@@ -2222,7 +2222,7 @@ static void show_ssmpingd(struct vty *vty)
     char source_str[100];
     char ss_uptime[10];
     struct sockaddr_in bind_addr;
-    int len = sizeof(bind_addr);
+    socklen_t len = sizeof(bind_addr);
     char bind_addr_str[100];
 
     pim_inet4_dump("<src?>", ss->source_addr, source_str, sizeof(source_str));

@@ -52,6 +52,6 @@ int pim_socket_recvfromto(int fd, char *buf, size_t len,
 
 int pim_socket_mcastloop_get(int fd);
 
-int pim_socket_getsockname(int fd, struct sockaddr *name, int *namelen);
+int pim_socket_getsockname(int fd, struct sockaddr *name, socklen_t *namelen);
 
 #endif /* PIM_SOCK_H */

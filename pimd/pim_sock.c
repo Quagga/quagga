@@ -375,7 +375,7 @@ int pim_socket_mcastloop_get(int fd)
   return loop;
 }
 
-int pim_socket_getsockname(int fd, struct sockaddr *name, int *namelen)
+int pim_socket_getsockname(int fd, struct sockaddr *name, socklen_t *namelen)
 {
   if (getsockname(fd, name, namelen)) {
     int e = errno;
