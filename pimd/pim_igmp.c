@@ -930,7 +930,7 @@ static int pim_igmp_read(struct thread *t)
   struct sockaddr_in to;
   socklen_t fromlen = sizeof(from);
   socklen_t tolen = sizeof(to);
-  char buf[PIM_IGMP_BUFSIZE_READ];
+  uint8_t buf[PIM_IGMP_BUFSIZE_READ];
   int len;
   int ifindex = -1;
   int result = -1; /* defaults to bad */
@@ -995,7 +995,7 @@ static int pim_igmp_read(struct thread *t)
   }
 #endif
 
-  if (pim_igmp_packet(igmp, buf, len)) {
+  if (pim_igmp_packet(igmp, (char *)buf, len)) {
     goto done;
   }
 

@@ -27,7 +27,7 @@
 #include "pim_msg.h"
 #include "pim_util.h"
 
-void pim_msg_build_header(char *pim_msg, int pim_msg_size,
+void pim_msg_build_header(uint8_t *pim_msg, int pim_msg_size,
 			  uint8_t pim_msg_type)
 {
   uint16_t checksum;
@@ -50,9 +50,9 @@ void pim_msg_build_header(char *pim_msg, int pim_msg_size,
   *(uint16_t *) PIM_MSG_HDR_OFFSET_CHECKSUM(pim_msg) = checksum;
 }
 
-char *pim_msg_addr_encode_ipv4_ucast(char *buf,
-				     int buf_size,
-				     struct in_addr addr)
+uint8_t *pim_msg_addr_encode_ipv4_ucast(uint8_t *buf,
+					int buf_size,
+					struct in_addr addr)
 {
   const int ENCODED_IPV4_UCAST_SIZE = 6;
 
@@ -67,9 +67,9 @@ char *pim_msg_addr_encode_ipv4_ucast(char *buf,
   return buf + ENCODED_IPV4_UCAST_SIZE;
 }
 
-char *pim_msg_addr_encode_ipv4_group(char *buf,
-				     int buf_size,
-				     struct in_addr addr)
+uint8_t *pim_msg_addr_encode_ipv4_group(uint8_t *buf,
+					int buf_size,
+					struct in_addr addr)
 {
   const int ENCODED_IPV4_GROUP_SIZE = 8;
 
@@ -86,9 +86,9 @@ char *pim_msg_addr_encode_ipv4_group(char *buf,
   return buf + ENCODED_IPV4_GROUP_SIZE;
 }
 
-char *pim_msg_addr_encode_ipv4_source(char *buf,
-				      int buf_size,
-				      struct in_addr addr)
+uint8_t *pim_msg_addr_encode_ipv4_source(uint8_t *buf,
+					 int buf_size,
+					 struct in_addr addr)
 {
   const int ENCODED_IPV4_SOURCE_SIZE = 8;
 

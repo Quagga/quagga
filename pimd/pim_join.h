@@ -32,7 +32,7 @@
 int pim_joinprune_recv(struct interface *ifp,
 		       struct pim_neighbor *neigh,
 		       struct in_addr src_addr,
-		       char *tlv_buf, int tlv_buf_size);
+		       uint8_t *tlv_buf, int tlv_buf_size);
 
 int pim_joinprune_send(struct interface *ifp,
 		       struct in_addr upstream_addr,

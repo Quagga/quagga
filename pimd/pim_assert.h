@@ -51,7 +51,7 @@ void pim_ifassert_winner_set(struct pim_ifchannel     *ch,
 int pim_assert_recv(struct interface *ifp,
 		    struct pim_neighbor *neigh,
 		    struct in_addr src_addr,
-		    char *buf, int buf_size);
+		    uint8_t *buf, int buf_size);
 
 int pim_assert_metric_better(const struct pim_assert_metric *m1,
 			     const struct pim_assert_metric *m2);

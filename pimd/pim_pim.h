@@ -60,11 +60,11 @@ void pim_sock_delete(struct interface *ifp, const char *delete_message);
 void pim_hello_restart_now(struct interface *ifp);
 void pim_hello_restart_triggered(struct interface *ifp);
 
-int pim_pim_packet(struct interface *ifp, char *buf, size_t len);
+int pim_pim_packet(struct interface *ifp, uint8_t *buf, size_t len);
 
 int pim_msg_send(int fd,
 		 struct in_addr dst,
-		 char *pim_msg,
+		 uint8_t *pim_msg,
 		 int pim_msg_size,
 		 const char *ifname);
 

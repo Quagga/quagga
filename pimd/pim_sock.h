@@ -45,7 +45,7 @@ int pim_socket_join_source(int fd, int ifindex,
 			   struct in_addr group_addr,
 			   struct in_addr source_addr,
 			   const char *ifname);
-int pim_socket_recvfromto(int fd, char *buf, size_t len,
+int pim_socket_recvfromto(int fd, uint8_t *buf, size_t len,
 			  struct sockaddr_in *from, socklen_t *fromlen,
 			  struct sockaddr_in *to, socklen_t *tolen,
 			  int *ifindex);

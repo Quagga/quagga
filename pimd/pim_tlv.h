@@ -71,63 +71,63 @@ typedef uint32_t pim_hello_options;
 #define PIM_TLV_MIN_SIZE                (PIM_TLV_TYPE_SIZE + PIM_TLV_LENGTH_SIZE)
 #define PIM_TLV_OPTION_SIZE(option_len) (PIM_TLV_MIN_SIZE + (option_len))
 
-char *pim_tlv_append_uint16(uint8_t *buf,
-			    const uint8_t *buf_pastend,
-			    uint16_t option_type,
-			    uint16_t option_value);
-char *pim_tlv_append_2uint16(uint8_t *buf,
-			     const uint8_t *buf_pastend,
-			     uint16_t option_type,
-			     uint16_t option_value1,
-			     uint16_t option_value2);
-char *pim_tlv_append_uint32(uint8_t *buf,
-			    const uint8_t *buf_pastend,
-			    uint16_t option_type,
-			    uint32_t option_value);
-char *pim_tlv_append_addrlist_ucast(uint8_t *buf,
-				    const uint8_t *buf_pastend,
-				    struct list *ifconnected);
+uint8_t *pim_tlv_append_uint16(uint8_t *buf,
+			       const uint8_t *buf_pastend,
+			       uint16_t option_type,
+			       uint16_t option_value);
+uint8_t *pim_tlv_append_2uint16(uint8_t *buf,
+				const uint8_t *buf_pastend,
+				uint16_t option_type,
+				uint16_t option_value1,
+				uint16_t option_value2);
+uint8_t *pim_tlv_append_uint32(uint8_t *buf,
+			       const uint8_t *buf_pastend,
+			       uint16_t option_type,
+			       uint32_t option_value);
+uint8_t *pim_tlv_append_addrlist_ucast(uint8_t *buf,
+				       const uint8_t *buf_pastend,
+				       struct list *ifconnected);
 
 int pim_tlv_parse_holdtime(const char *ifname, struct in_addr src_addr,
 			   pim_hello_options *hello_options,
 			   uint16_t *hello_option_holdtime,
 			   uint16_t option_len,
-			   const char *tlv_curr);
+			   const uint8_t *tlv_curr);
 int pim_tlv_parse_lan_prune_delay(const char *ifname, struct in_addr src_addr,
 				  pim_hello_options *hello_options,
 				  uint16_t *hello_option_propagation_delay,
 				  uint16_t *hello_option_override_interval,
 				  uint16_t option_len,
-				  const char *tlv_curr);
+				  const uint8_t *tlv_curr);
 int pim_tlv_parse_dr_priority(const char *ifname, struct in_addr src_addr,
 			      pim_hello_options *hello_options,
 			      uint32_t *hello_option_dr_priority,
 			      uint16_t option_len,
-			      const char *tlv_curr);
+			      const uint8_t *tlv_curr);
 int pim_tlv_parse_generation_id(const char *ifname, struct in_addr src_addr,
 				pim_hello_options *hello_options,
 				uint32_t *hello_option_generation_id,
 				uint16_t option_len,
-				const char *tlv_curr);
+				const uint8_t *tlv_curr);
 int pim_tlv_parse_addr_list(const char *ifname, struct in_addr src_addr,
 			    pim_hello_options *hello_options,
 			    struct list **hello_option_addr_list,
 			    uint16_t option_len,
-			    const char *tlv_curr);
+			    const uint8_t *tlv_curr);
 
 int pim_parse_addr_ucast(const char *ifname, struct in_addr src_addr,
 			 struct prefix *p,
-			 const char *buf,
+			 const uint8_t *buf,
 			 int buf_size);
 int pim_parse_addr_group(const char *ifname, struct in_addr src_addr,
 			 struct prefix *p,
-			 const char *buf,
+			 const uint8_t *buf,
 			 int buf_size);
 int pim_parse_addr_source(const char *ifname,
 			  struct in_addr src_addr,
 			  struct prefix *p,
 			  uint8_t *flags,
-			  const char *buf,
+			  const uint8_t *buf,
 			  int buf_size);
 
 #endif /* PIM_TLV_H */

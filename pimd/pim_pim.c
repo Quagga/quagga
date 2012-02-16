@@ -111,13 +111,13 @@ void pim_sock_delete(struct interface *ifp, const char *delete_message)
   sock_close(ifp);
 }
 
-int pim_pim_packet(struct interface *ifp, char *buf, size_t len)
+int pim_pim_packet(struct interface *ifp, uint8_t *buf, size_t len)
 {
   struct ip *ip_hdr;
   size_t ip_hlen; /* ip header length in bytes */
   char src_str[100];
   char dst_str[100];
-  char *pim_msg;
+  uint8_t *pim_msg;
   int pim_msg_len;
   uint8_t pim_version;
   uint8_t pim_type;
@@ -253,7 +253,7 @@ static int pim_sock_read(struct thread *t)
   struct sockaddr_in to;
   socklen_t fromlen = sizeof(from);
   socklen_t tolen = sizeof(to);
-  char buf[PIM_PIM_BUFSIZE_READ];
+  uint8_t buf[PIM_PIM_BUFSIZE_READ];
   int len;
   int ifindex = -1;
   int result = -1; /* defaults to bad */
@@ -437,7 +437,7 @@ void pim_sock_reset(struct interface *ifp)
 
 int pim_msg_send(int fd,
 		 struct in_addr dst,
-		 char *pim_msg,
+		 uint8_t *pim_msg,
 		 int pim_msg_size,
 		 const char *ifname)
 {
@@ -494,7 +494,7 @@ int pim_msg_send(int fd,
 static int hello_send(struct interface *ifp,
 		      uint16_t holdtime)
 {
-  char pim_msg[PIM_PIM_BUFSIZE_WRITE];
+  uint8_t pim_msg[PIM_PIM_BUFSIZE_WRITE];
   struct pim_interface *pim_ifp;
   int pim_tlv_size;
   int pim_msg_size;

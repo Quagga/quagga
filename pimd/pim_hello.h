@@ -29,10 +29,10 @@
 
 int pim_hello_recv(struct interface *ifp,
 		   struct in_addr src_addr,
-		   char *tlv_buf, int tlv_buf_size);
+		   uint8_t *tlv_buf, int tlv_buf_size);
 
 int pim_hello_build_tlv(const char *ifname,
-			char *tlv_buf, int tlv_buf_size,
+			uint8_t *tlv_buf, int tlv_buf_size,
 			uint16_t holdtime,
 			uint32_t dr_priority,
 			uint32_t generation_id,

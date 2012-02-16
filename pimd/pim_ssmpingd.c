@@ -215,7 +215,7 @@ static void ssmpingd_delete(struct ssmpingd_sock *ss)
 }
 
 static void ssmpingd_sendto(struct ssmpingd_sock *ss,
-			    const char *buf,
+			    const uint8_t *buf,
 			    int len,
 			    struct sockaddr_in to)
 {
@@ -250,7 +250,7 @@ static int ssmpingd_read_msg(struct ssmpingd_sock *ss)
   socklen_t fromlen = sizeof(from);
   socklen_t tolen = sizeof(to);
   int ifindex = -1;
-  char buf[1000];
+  uint8_t buf[1000];
   int len;
 
   ++ss->requests;

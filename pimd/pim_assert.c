@@ -236,13 +236,13 @@ static int dispatch_assert(struct interface *ifp,
 int pim_assert_recv(struct interface *ifp,
 		    struct pim_neighbor *neigh,
 		    struct in_addr src_addr,
-		    char *buf, int buf_size)
+		    uint8_t *buf, int buf_size)
 {
   struct prefix            msg_group_addr;
   struct prefix            msg_source_addr;
   struct pim_assert_metric msg_metric;
   int offset;
-  char *curr;
+  uint8_t *curr;
   int curr_size;
 
   on_trace(__PRETTY_FUNCTION__, ifp, src_addr);
@@ -445,7 +445,7 @@ static int pim_assert_do(struct pim_ifchannel *ch,
 {
   struct interface *ifp;
   struct pim_interface *pim_ifp;
-  char pim_msg[1000];
+  uint8_t pim_msg[1000];
   int pim_msg_size;
 
   ifp = ch->interface;

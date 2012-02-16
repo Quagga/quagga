@@ -3567,8 +3567,8 @@ DEFUN (test_pim_receive_dump,
        "Neighbor address\n"
        "Packet dump\n")
 {
-  char              buf[1000];
-  char             *pim_msg;
+  uint8_t           buf[1000];
+  uint8_t          *pim_msg;
   struct ip        *ip_hdr;
   size_t            ip_hlen; /* ip header length in bytes */
   int               ip_msg_len;
@@ -3685,8 +3685,8 @@ DEFUN (test_pim_receive_hello,
        "Neighbor LAN prune delay T-bit\n"
        "Neighbor secondary addresses\n")
 {
-  char              buf[1000];
-  char             *pim_msg;
+  uint8_t           buf[1000];
+  uint8_t          *pim_msg;
   struct ip        *ip_hdr;
   size_t            ip_hlen; /* ip header length in bytes */
   int               ip_msg_len;
@@ -3810,9 +3810,9 @@ DEFUN (test_pim_receive_assert,
        "Assert route metric\n"
        "Assert RPT bit flag\n")
 {
-  char              buf[1000];
-  char             *buf_pastend = buf + sizeof(buf);
-  char             *pim_msg;
+  uint8_t           buf[1000];
+  uint8_t          *buf_pastend = buf + sizeof(buf);
+  uint8_t          *pim_msg;
   struct ip        *ip_hdr;
   size_t            ip_hlen; /* ip header length in bytes */
   int               ip_msg_len;
@@ -3921,10 +3921,10 @@ static int recv_joinprune(struct vty *vty,
 			  const char *argv[],
 			  int src_is_join)
 {
-  char              buf[1000];
-  const char       *buf_pastend = buf + sizeof(buf);
-  char             *pim_msg;
-  char             *pim_msg_curr;
+  uint8_t           buf[1000];
+  const uint8_t    *buf_pastend = buf + sizeof(buf);
+  uint8_t          *pim_msg;
+  uint8_t          *pim_msg_curr;
   int               pim_msg_size;
   struct ip        *ip_hdr;
   size_t            ip_hlen; /* ip header length in bytes */

@@ -31,10 +31,10 @@
 #include "pim_str.h"
 #include "pim_msg.h"
 
-char *pim_tlv_append_uint16(uint8_t *buf,
-			    const uint8_t *buf_pastend,
-			    uint16_t option_type,
-			    uint16_t option_value)
+uint8_t *pim_tlv_append_uint16(uint8_t *buf,
+			       const uint8_t *buf_pastend,
+			       uint16_t option_type,
+			       uint16_t option_value)
 {
   uint16_t option_len = 2;
 
@@ -55,11 +55,11 @@ char *pim_tlv_append_uint16(uint8_t *buf,
   return buf;
 }
 
-char *pim_tlv_append_2uint16(uint8_t *buf,
-			     const uint8_t *buf_pastend,
-			     uint16_t option_type,
-			     uint16_t option_value1,
-			     uint16_t option_value2)
+uint8_t *pim_tlv_append_2uint16(uint8_t *buf,
+				const uint8_t *buf_pastend,
+				uint16_t option_type,
+				uint16_t option_value1,
+				uint16_t option_value2)
 {
   uint16_t option_len = 4;
 
@@ -82,10 +82,10 @@ char *pim_tlv_append_2uint16(uint8_t *buf,
   return buf;
 }
 
-char *pim_tlv_append_uint32(uint8_t *buf,
-			    const uint8_t *buf_pastend,
-			    uint16_t option_type,
-			    uint32_t option_value)
+uint8_t *pim_tlv_append_uint32(uint8_t *buf,
+			       const uint8_t *buf_pastend,
+			       uint16_t option_type,
+			       uint32_t option_value)
 {
   uint16_t option_len = 4;
 
@@ -108,9 +108,9 @@ char *pim_tlv_append_uint32(uint8_t *buf,
 
 #define ucast_ipv4_encoding_len (2 + sizeof(struct in_addr))
 
-char *pim_tlv_append_addrlist_ucast(uint8_t *buf,
-				    const uint8_t *buf_pastend,
-				    struct list *ifconnected)
+uint8_t *pim_tlv_append_addrlist_ucast(uint8_t *buf,
+				       const uint8_t *buf_pastend,
+				       struct list *ifconnected)
 {
   struct listnode *node;
   uint16_t option_len = 0;
@@ -243,7 +243,7 @@ int pim_tlv_parse_holdtime(const char *ifname, struct in_addr src_addr,
 			   pim_hello_options *hello_options,
 			   uint16_t *hello_option_holdtime,
 			   uint16_t option_len,
-			   const char *tlv_curr) 
+			   const uint8_t *tlv_curr) 
 {
   const char *label = "holdtime";
 
@@ -271,7 +271,7 @@ int pim_tlv_parse_lan_prune_delay(const char *ifname, struct in_addr src_addr,
 				  uint16_t *hello_option_propagation_delay,
 				  uint16_t *hello_option_override_interval,
 				  uint16_t option_len,
-				  const char *tlv_curr) 
+				  const uint8_t *tlv_curr) 
 {
   if (check_tlv_length(__PRETTY_FUNCTION__, "lan_prune_delay",
 		       ifname, src_addr,
@@ -305,7 +305,7 @@ int pim_tlv_parse_dr_priority(const char *ifname, struct in_addr src_addr,
 			      pim_hello_options *hello_options,
 			      uint32_t *hello_option_dr_priority,
 			      uint16_t option_len,
-			      const char *tlv_curr) 
+			      const uint8_t *tlv_curr) 
 {
   const char *label = "dr_priority";
 
@@ -332,7 +332,7 @@ int pim_tlv_parse_generation_id(const char *ifname, struct in_addr src_addr,
 				pim_hello_options *hello_options,
 				uint32_t *hello_option_generation_id,
 				uint16_t option_len,
-				const char *tlv_curr) 
+				const uint8_t *tlv_curr) 
 {
   const char *label = "generation_id";
 
@@ -357,12 +357,12 @@ int pim_tlv_parse_generation_id(const char *ifname, struct in_addr src_addr,
 
 int pim_parse_addr_ucast(const char *ifname, struct in_addr src_addr,
 			 struct prefix *p,
-			 const char *buf,
+			 const uint8_t *buf,
 			 int buf_size)
 {
   const int ucast_encoding_min_len = 3; /* 1 family + 1 type + 1 addr */
-  const char *addr;
-  const char *pastend;
+  const uint8_t *addr;
+  const uint8_t *pastend;
   int family;
   int type;
 
@@ -379,10 +379,8 @@ int pim_parse_addr_ucast(const char *ifname, struct in_addr src_addr,
   addr = buf;
   pastend = buf + buf_size;
 
-  family = *(const uint8_t *) addr;
-  ++addr;
-  type = *(const uint8_t *) addr;
-  ++addr;
+  family = *addr++;
+  type = *addr++;
 
   switch (family) {
   case PIM_MSG_ADDRESS_FAMILY_IPV4:
@@ -426,12 +424,12 @@ int pim_parse_addr_ucast(const char *ifname, struct in_addr src_addr,
 
 int pim_parse_addr_group(const char *ifname, struct in_addr src_addr,
 			 struct prefix *p,
-			 const char *buf,
+			 const uint8_t *buf,
 			 int buf_size)
 {
   const int grp_encoding_min_len = 4; /* 1 family + 1 type + 1 reserved + 1 addr */
-  const char *addr;
-  const char *pastend;
+  const uint8_t *addr;
+  const uint8_t *pastend;
   int family;
   int type;
   int mask_len;
@@ -449,13 +447,11 @@ int pim_parse_addr_group(const char *ifname, struct in_addr src_addr,
   addr = buf;
   pastend = buf + buf_size;
 
-  family = *(const uint8_t *) addr;
-  ++addr;
-  type = *(const uint8_t *) addr;
+  family = *addr++;
+  type = *addr++;
   ++addr;
   ++addr; /* skip b_reserved_z fields */
-  mask_len = *(const uint8_t *) addr;
-  ++addr;
+  mask_len = *addr++;
 
   switch (family) {
   case PIM_MSG_ADDRESS_FAMILY_IPV4:
@@ -503,12 +499,12 @@ int pim_parse_addr_source(const char *ifname,
 			  struct in_addr src_addr,
 			  struct prefix *p,
 			  uint8_t *flags,
-			  const char *buf,
+			  const uint8_t *buf,
 			  int buf_size)
 {
   const int src_encoding_min_len = 4; /* 1 family + 1 type + 1 reserved + 1 addr */
-  const char *addr;
-  const char *pastend;
+  const uint8_t *addr;
+  const uint8_t *pastend;
   int family;
   int type;
   int mask_len;
@@ -526,14 +522,10 @@ int pim_parse_addr_source(const char *ifname,
   addr = buf;
   pastend = buf + buf_size;
 
-  family = *(const uint8_t *) addr;
-  ++addr;
-  type = *(const uint8_t *) addr;
-  ++addr;
-  *flags = *(const uint8_t *) addr;
-  ++addr;
-  mask_len = *(const uint8_t *) addr;
-  ++addr;
+  family = *addr++;
+  type = *addr++;
+  *flags = *addr++;
+  mask_len = *addr++;
 
   switch (family) {
   case PIM_MSG_ADDRESS_FAMILY_IPV4:
@@ -607,10 +599,10 @@ int pim_tlv_parse_addr_list(const char *ifname, struct in_addr src_addr,
 			    pim_hello_options *hello_options,
 			    struct list **hello_option_addr_list,
 			    uint16_t option_len,
-			    const char *tlv_curr) 
+			    const uint8_t *tlv_curr) 
 {
-  const char *addr;
-  const char *pastend;
+  const uint8_t *addr;
+  const uint8_t *pastend;
 
   zassert(hello_option_addr_list);
 

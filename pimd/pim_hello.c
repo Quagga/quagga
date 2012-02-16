@@ -146,12 +146,12 @@ static void tlv_trace_list(const char *label, const char *tlv_name,
 
 int pim_hello_recv(struct interface *ifp,
 		   struct in_addr src_addr,
-		   char *tlv_buf, int tlv_buf_size)
+		   uint8_t *tlv_buf, int tlv_buf_size)
 {
   struct pim_interface *pim_ifp;
   struct pim_neighbor *neigh;
-  char *tlv_curr;
-  char *tlv_pastend;
+  uint8_t *tlv_curr;
+  uint8_t *tlv_pastend;
   pim_hello_options hello_options = 0; /* bit array recording options found */
   uint16_t hello_option_holdtime = 0;
   uint16_t hello_option_propagation_delay = 0;
@@ -422,7 +422,7 @@ int pim_hello_recv(struct interface *ifp,
 }
 
 int pim_hello_build_tlv(const char *ifname,
-			char *tlv_buf, int tlv_buf_size,
+			uint8_t *tlv_buf, int tlv_buf_size,
 			uint16_t holdtime,
 			uint32_t dr_priority,
 			uint32_t generation_id,
@@ -431,9 +431,9 @@ int pim_hello_build_tlv(const char *ifname,
 			int can_disable_join_suppression,
 			struct list *ifconnected)
 {
-  char *curr = tlv_buf;
-  char *pastend = tlv_buf + tlv_buf_size;
-  char *tmp;
+  uint8_t *curr = tlv_buf;
+  uint8_t *pastend = tlv_buf + tlv_buf_size;
+  uint8_t *tmp;
 
   /*
    * Append options

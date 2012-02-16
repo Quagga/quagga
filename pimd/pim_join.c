@@ -107,14 +107,14 @@ static void recv_prune(struct interface *ifp,
 int pim_joinprune_recv(struct interface *ifp,
 		       struct pim_neighbor *neigh,
 		       struct in_addr src_addr,
-		       char *tlv_buf, int tlv_buf_size)
+		       uint8_t *tlv_buf, int tlv_buf_size)
 {
   struct prefix   msg_upstream_addr;
   uint8_t         msg_num_groups;
   uint16_t        msg_holdtime;
   int             addr_offset;
-  char           *buf;
-  char           *pastend;
+  uint8_t        *buf;
+  uint8_t        *pastend;
   int             remain;
   int             group;
 
@@ -280,9 +280,9 @@ int pim_joinprune_send(struct interface *ifp,
 		       int send_join)
 {
   struct pim_interface *pim_ifp;
-  char pim_msg[1000];
-  const char *pastend = pim_msg + sizeof(pim_msg);
-  char *pim_msg_curr = pim_msg + PIM_MSG_HEADER_LEN; /* room for pim header */
+  uint8_t pim_msg[1000];
+  const uint8_t *pastend = pim_msg + sizeof(pim_msg);
+  uint8_t *pim_msg_curr = pim_msg + PIM_MSG_HEADER_LEN; /* room for pim header */
   int pim_msg_size;
   int remain;
 
