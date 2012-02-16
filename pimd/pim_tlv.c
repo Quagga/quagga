@@ -39,7 +39,7 @@ char *pim_tlv_append_uint16(uint8_t *buf,
   uint16_t option_len = 2;
 
   if ((buf + PIM_TLV_OPTION_SIZE(option_len)) > buf_pastend) {
-    zlog_warn("%s: buffer overflow: left=%d needed=%d",
+    zlog_warn("%s: buffer overflow: left=%zd needed=%d",
 	      __PRETTY_FUNCTION__,
 	      buf_pastend - buf, PIM_TLV_OPTION_SIZE(option_len));
     return 0;
@@ -64,7 +64,7 @@ char *pim_tlv_append_2uint16(uint8_t *buf,
   uint16_t option_len = 4;
 
   if ((buf + PIM_TLV_OPTION_SIZE(option_len)) > buf_pastend) {
-    zlog_warn("%s: buffer overflow: left=%d needed=%d",
+    zlog_warn("%s: buffer overflow: left=%zd needed=%d",
 	      __PRETTY_FUNCTION__,
 	      buf_pastend - buf, PIM_TLV_OPTION_SIZE(option_len));
     return 0;
@@ -90,7 +90,7 @@ char *pim_tlv_append_uint32(uint8_t *buf,
   uint16_t option_len = 4;
 
   if ((buf + PIM_TLV_OPTION_SIZE(option_len)) > buf_pastend) {
-    zlog_warn("%s: buffer overflow: left=%d needed=%d",
+    zlog_warn("%s: buffer overflow: left=%zd needed=%d",
 	      __PRETTY_FUNCTION__,
 	      buf_pastend - buf, PIM_TLV_OPTION_SIZE(option_len));
     return 0;
@@ -137,7 +137,7 @@ char *pim_tlv_append_addrlist_ucast(uint8_t *buf,
       continue;
 
     if ((curr + ucast_ipv4_encoding_len) > buf_pastend) {
-      zlog_warn("%s: buffer overflow: left=%d needed=%d",
+      zlog_warn("%s: buffer overflow: left=%zd needed=%zu",
 		__PRETTY_FUNCTION__,
 		buf_pastend - curr, ucast_ipv4_encoding_len);
       return 0;
@@ -155,7 +155,7 @@ char *pim_tlv_append_addrlist_ucast(uint8_t *buf,
   }
 
   if (PIM_DEBUG_PIM_TRACE) {
-    zlog_warn("%s: number of encoded secondary unicast IPv4 addresses: %d",
+    zlog_warn("%s: number of encoded secondary unicast IPv4 addresses: %zu",
 	      __PRETTY_FUNCTION__,
 	      option_len / ucast_ipv4_encoding_len);
   }
@@ -398,7 +398,7 @@ int pim_parse_addr_ucast(const char *ifname, struct in_addr src_addr,
     if ((addr + sizeof(struct in_addr)) > pastend) {
       char src_str[100];
       pim_inet4_dump("<src?>", src_addr, src_str, sizeof(src_str));
-      zlog_warn("%s: IPv4 unicast address overflow: left=%d needed=%d from %s on %s",
+      zlog_warn("%s: IPv4 unicast address overflow: left=%zd needed=%zu from %s on %s",
 		__PRETTY_FUNCTION__,
 		pastend - addr, sizeof(struct in_addr),
 		src_str, ifname);
@@ -471,7 +471,7 @@ int pim_parse_addr_group(const char *ifname, struct in_addr src_addr,
     if ((addr + sizeof(struct in_addr)) > pastend) {
       char src_str[100];
       pim_inet4_dump("<src?>", src_addr, src_str, sizeof(src_str));
-      zlog_warn("%s: IPv4 group address overflow: left=%d needed=%d from %s on %s",
+      zlog_warn("%s: IPv4 group address overflow: left=%zd needed=%zu from %s on %s",
 		__PRETTY_FUNCTION__,
 		pastend - addr, sizeof(struct in_addr),
 		src_str, ifname);
@@ -549,7 +549,7 @@ int pim_parse_addr_source(const char *ifname,
     if ((addr + sizeof(struct in_addr)) > pastend) {
       char src_str[100];
       pim_inet4_dump("<src?>", src_addr, src_str, sizeof(src_str));
-      zlog_warn("%s: IPv4 source address overflow: left=%d needed=%d from %s on %s",
+      zlog_warn("%s: IPv4 source address overflow: left=%zd needed=%zu from %s on %s",
 		__PRETTY_FUNCTION__,
 		pastend - addr, sizeof(struct in_addr),
 		src_str, ifname);

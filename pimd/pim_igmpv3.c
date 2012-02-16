@@ -1151,7 +1151,7 @@ static int group_retransmit_sources(struct igmp_group *group,
       if (num_sources_tosend1 > query_buf1_max_sources) {
 	char group_str[100];
 	pim_inet4_dump("<group?>", group->group_addr, group_str, sizeof(group_str));
-	zlog_warn("%s: group %s on %s: s_flag=1 unable to fit %d sources into buf_size=%d (max_sources=%d)",
+	zlog_warn("%s: group %s on %s: s_flag=1 unable to fit %d sources into buf_size=%zu (max_sources=%d)",
 		  __PRETTY_FUNCTION__, group_str, igmp->interface->name,
 		  num_sources_tosend1, sizeof(query_buf1), query_buf1_max_sources);
       }
@@ -1193,7 +1193,7 @@ static int group_retransmit_sources(struct igmp_group *group,
     if (num_sources_tosend2 > query_buf2_max_sources) {
       char group_str[100];
       pim_inet4_dump("<group?>", group->group_addr, group_str, sizeof(group_str));
-      zlog_warn("%s: group %s on %s: s_flag=0 unable to fit %d sources into buf_size=%d (max_sources=%d)",
+      zlog_warn("%s: group %s on %s: s_flag=0 unable to fit %d sources into buf_size=%zu (max_sources=%d)",
 		__PRETTY_FUNCTION__, group_str, igmp->interface->name,
 		num_sources_tosend2, sizeof(query_buf2), query_buf2_max_sources);
     }
@@ -1622,7 +1622,7 @@ void pim_igmp_send_membership_query(struct igmp_group *group,
 
   msg_size = IGMP_V3_SOURCES_OFFSET + (num_sources << 2);
   if (msg_size > query_buf_size) {
-    zlog_err("%s %s: unable to send: msg_size=%d larger than query_buf_size=%d",
+    zlog_err("%s %s: unable to send: msg_size=%zd larger than query_buf_size=%d",
 	     __FILE__, __PRETTY_FUNCTION__,
 	     msg_size, query_buf_size);
     return;
@@ -1662,7 +1662,7 @@ void pim_igmp_send_membership_query(struct igmp_group *group,
     char group_str[100];
     pim_inet4_dump("<dst?>", dst_addr, dst_str, sizeof(dst_str));
     pim_inet4_dump("<group?>", group_addr, group_str, sizeof(group_str));
-    zlog_debug("%s: to %s on %s: group=%s sources=%d msg_size=%d s_flag=%x QRV=%u QQI=%u QQIC=%02x checksum=%x",
+    zlog_debug("%s: to %s on %s: group=%s sources=%d msg_size=%zd s_flag=%x QRV=%u QQI=%u QQIC=%02x checksum=%x",
 	       __PRETTY_FUNCTION__,
 	       dst_str, ifname, group_str, num_sources,
 	       msg_size, s_flag, querier_robustness_variable,
@@ -1687,13 +1687,13 @@ void pim_igmp_send_membership_query(struct igmp_group *group,
     pim_inet4_dump("<dst?>", dst_addr, dst_str, sizeof(dst_str));
     pim_inet4_dump("<group?>", group_addr, group_str, sizeof(group_str));
     if (sent < 0) {
-      zlog_warn("%s: sendto() failure to %s on %s: group=%s msg_size=%d: errno=%d: %s",
+      zlog_warn("%s: sendto() failure to %s on %s: group=%s msg_size=%zd: errno=%d: %s",
 		__PRETTY_FUNCTION__,
 		dst_str, ifname, group_str, msg_size,
 		e, safe_strerror(e));
     }
     else {
-      zlog_warn("%s: sendto() partial to %s on %s: group=%s msg_size=%d: sent=%d",
+      zlog_warn("%s: sendto() partial to %s on %s: group=%s msg_size=%zd: sent=%zd",
 		__PRETTY_FUNCTION__,
 		dst_str, ifname, group_str,
 		msg_size, sent);

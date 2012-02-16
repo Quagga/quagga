@@ -201,7 +201,7 @@ static int mroute_read_msg(int fd)
   int rd;
 
   if (((int) sizeof(buf)) < msg_min_size) {
-    zlog_err("%s: fd=%d: buf size=%d lower than msg_min=%d",
+    zlog_err("%s: fd=%d: buf size=%zu lower than msg_min=%d",
 	     __PRETTY_FUNCTION__, fd, sizeof(buf), msg_min_size);
     return -1;
   }

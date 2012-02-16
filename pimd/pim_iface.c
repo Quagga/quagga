@@ -80,7 +80,7 @@ struct pim_interface *pim_if_new(struct interface *ifp, int igmp, int pim)
 
   pim_ifp = XMALLOC(MTYPE_PIM_INTERFACE, sizeof(*pim_ifp));
   if (!pim_ifp) {
-    zlog_err("PIM XMALLOC(%d) failure", sizeof(*pim_ifp));
+    zlog_err("PIM XMALLOC(%zu) failure", sizeof(*pim_ifp));
     return 0;
   }
 
@@ -911,7 +911,7 @@ static struct igmp_join *igmp_join_new(struct interface *ifp,
     char source_str[100];
     pim_inet4_dump("<grp?>", group_addr, group_str, sizeof(group_str));
     pim_inet4_dump("<src?>", source_addr, source_str, sizeof(source_str));
-    zlog_err("%s: XMALLOC(%d) failure for IGMP group %s source %s on interface %s",
+    zlog_err("%s: XMALLOC(%zu) failure for IGMP group %s source %s on interface %s",
 	     __PRETTY_FUNCTION__,
 	     sizeof(*ij), group_str, source_str, ifp->name);
     close(join_fd);

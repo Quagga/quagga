@@ -204,7 +204,7 @@ static struct pim_ifchannel *pim_ifchannel_new(struct interface *ifp,
 
   ch = XMALLOC(MTYPE_PIM_IFCHANNEL, sizeof(*ch));
   if (!ch) {
-    zlog_err("%s: PIM XMALLOC(%d) failure",
+    zlog_err("%s: PIM XMALLOC(%zu) failure",
 	     __PRETTY_FUNCTION__, sizeof(*ch));
     return 0;
   }

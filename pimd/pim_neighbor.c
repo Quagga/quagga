@@ -292,7 +292,7 @@ static struct pim_neighbor *pim_neighbor_new(struct interface *ifp,
 
   neigh = XMALLOC(MTYPE_PIM_NEIGHBOR, sizeof(*neigh));
   if (!neigh) {
-    zlog_err("%s: PIM XMALLOC(%d) failure",
+    zlog_err("%s: PIM XMALLOC(%zu) failure",
 	     __PRETTY_FUNCTION__, sizeof(*neigh));
     return 0;
   }

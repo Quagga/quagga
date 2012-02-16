@@ -99,7 +99,7 @@ static int ssmpingd_socket(struct in_addr addr, int port, int mttl)
   if (bind(fd, &sockaddr, sizeof(sockaddr))) {
     char addr_str[100];
     pim_inet4_dump("<addr?>", addr, addr_str, sizeof(addr_str));
-    zlog_warn("%s: bind(fd=%d,addr=%s,port=%d,len=%d) failure: errno=%d: %s",
+    zlog_warn("%s: bind(fd=%d,addr=%s,port=%d,len=%zu) failure: errno=%d: %s",
 	      __PRETTY_FUNCTION__,
 	      fd, addr_str, port, sizeof(sockaddr),
 	      errno, safe_strerror(errno));
@@ -373,7 +373,7 @@ static struct ssmpingd_sock *ssmpingd_new(struct in_addr source_addr)
   if (!ss) {
     char source_str[100];
     pim_inet4_dump("<src?>", source_addr, source_str, sizeof(source_str));
-    zlog_err("%s: XMALLOC(%d) failure for ssmpingd source %s",
+    zlog_err("%s: XMALLOC(%zu) failure for ssmpingd source %s",
 	     __PRETTY_FUNCTION__,
 	     sizeof(*ss), source_str);
     close(sock_fd);

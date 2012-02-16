@@ -1091,8 +1091,8 @@ static void show_rpf_refresh_stats(struct vty *vty, time_t now)
 	  "RPF Cache Refresh Last:     %s%s",
 	  qpim_rpf_cache_refresh_delay_msec, VTY_NEWLINE,
 	  pim_time_timer_remain_msec(qpim_rpf_cache_refresher), VTY_NEWLINE,
-	  qpim_rpf_cache_refresh_requests, VTY_NEWLINE,
-	  qpim_rpf_cache_refresh_events, VTY_NEWLINE,
+	  (long long)qpim_rpf_cache_refresh_requests, VTY_NEWLINE,
+	  (long long)qpim_rpf_cache_refresh_events, VTY_NEWLINE,
 	  refresh_uptime, VTY_NEWLINE);
 }
 
@@ -2241,7 +2241,7 @@ static void show_ssmpingd(struct vty *vty)
 	    bind_addr_str,
 	    ntohs(bind_addr.sin_port),
 	    ss_uptime,
-	    ss->requests,
+	    (long long)ss->requests,
 	    VTY_NEWLINE);
   }
 }
@@ -3642,7 +3642,7 @@ DEFUN (test_pim_receive_dump,
 
       left = sizeof(buf) - ip_hlen - pim_msg_size;
       if (left < 1) {
-	vty_out(vty, "%% Overflow buf_size=%d buf_left=%d at hex array arg %d=%s octet %02x%s",
+	vty_out(vty, "%% Overflow buf_size=%zu buf_left=%d at hex array arg %d=%s octet %02x%s",
 		sizeof(buf), left, argi, str, octet, VTY_NEWLINE);
 	return CMD_WARNING;
       }
@@ -3653,7 +3653,7 @@ DEFUN (test_pim_receive_dump,
 
   ip_msg_len = ip_hlen + pim_msg_size;
 
-  vty_out(vty, "Receiving: buf_size=%d ip_msg_size=%d pim_msg_size=%d%s",
+  vty_out(vty, "Receiving: buf_size=%zu ip_msg_size=%d pim_msg_size=%d%s",
 	  sizeof(buf), ip_msg_len, pim_msg_size, VTY_NEWLINE);
 
   /* "receive" message */
@@ -3873,7 +3873,7 @@ DEFUN (test_pim_receive_assert,
 
   remain = buf_pastend - buf;
   if (remain < (int) sizeof(struct ip)) {
-    vty_out(vty, "No room for ip header: buf_size=%d < ip_header_size=%d%s",
+    vty_out(vty, "No room for ip header: buf_size=%d < ip_header_size=%zu%s",
 	    remain, sizeof(struct ip), VTY_NEWLINE);
     return CMD_WARNING;
   }
@@ -4195,7 +4195,7 @@ DEFUN (test_pim_receive_upcall,
 
   result = pim_mroute_msg(-1, (char *) &msg, sizeof(msg));
   if (result) {
-    vty_out(vty, "pim_mroute_msg(len=%d) returned failure: %d%s",
+    vty_out(vty, "pim_mroute_msg(len=%zu) returned failure: %d%s",
 	    sizeof(msg), result, VTY_NEWLINE);
     return CMD_WARNING;
   }

@@ -355,7 +355,7 @@ static struct pim_upstream *pim_upstream_new(struct in_addr source_addr,
 
   up = XMALLOC(MTYPE_PIM_UPSTREAM, sizeof(*up));
   if (!up) {
-    zlog_err("%s: PIM XMALLOC(%d) failure",
+    zlog_err("%s: PIM XMALLOC(%zu) failure",
 	     __PRETTY_FUNCTION__, sizeof(*up));
     return 0;
   }

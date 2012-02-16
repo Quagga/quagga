@@ -69,7 +69,7 @@ static struct channel_oil *channel_oil_new(struct in_addr group_addr,
 
   c_oil = XCALLOC(MTYPE_PIM_CHANNEL_OIL, sizeof(*c_oil));
   if (!c_oil) {
-    zlog_err("PIM XCALLOC(%d) failure", sizeof(*c_oil));
+    zlog_err("PIM XCALLOC(%zu) failure", sizeof(*c_oil));
     return 0;
   }
 
@@ -91,7 +91,7 @@ static struct channel_oil *pim_add_channel_oil(struct in_addr group_addr,
 
   c_oil = channel_oil_new(group_addr, source_addr, input_vif_index);
   if (!c_oil) {
-    zlog_warn("PIM XCALLOC(%d) failure", sizeof(*c_oil));
+    zlog_warn("PIM XCALLOC(%zu) failure", sizeof(*c_oil));
     return 0;
   }
 

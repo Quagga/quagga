@@ -132,7 +132,7 @@ int pim_pim_packet(struct interface *ifp, char *buf, size_t len)
   }
     
   if (len < sizeof(*ip_hdr)) {
-    zlog_warn("PIM packet size=%d shorter than minimum=%d",
+    zlog_warn("PIM packet size=%zu shorter than minimum=%zu",
 	      len, sizeof(*ip_hdr));
     return -1;
   }
@@ -145,7 +145,7 @@ int pim_pim_packet(struct interface *ifp, char *buf, size_t len)
   ip_hlen = ip_hdr->ip_hl << 2; /* ip_hl gives length in 4-byte words */
 
   if (PIM_DEBUG_PIM_PACKETS) {
-    zlog_debug("Recv IP packet from %s to %s on %s: size=%d ip_header_size=%d ip_proto=%d",
+    zlog_debug("Recv IP packet from %s to %s on %s: size=%zu ip_header_size=%zu ip_proto=%d",
 	       src_str, dst_str, ifp->name, len, ip_hlen, ip_hdr->ip_p);
   }
 
@@ -156,12 +156,12 @@ int pim_pim_packet(struct interface *ifp, char *buf, size_t len)
   }
 
   if (ip_hlen < PIM_IP_HEADER_MIN_LEN) {
-    zlog_warn("IP packet header size=%d shorter than minimum=%d",
+    zlog_warn("IP packet header size=%zu shorter than minimum=%d",
 	      ip_hlen, PIM_IP_HEADER_MIN_LEN);
     return -1;
   }
   if (ip_hlen > PIM_IP_HEADER_MAX_LEN) {
-    zlog_warn("IP packet header size=%d greater than maximum=%d",
+    zlog_warn("IP packet header size=%zu greater than maximum=%d",
 	      ip_hlen, PIM_IP_HEADER_MAX_LEN);
     return -1;
   }
@@ -480,7 +480,7 @@ int pim_msg_send(int fd,
 		e, safe_strerror(e));
     }
     else {
-      zlog_warn("%s: sendto() partial to %s on %s: fd=%d msg_size=%d: sent=%d",
+      zlog_warn("%s: sendto() partial to %s on %s: fd=%d msg_size=%d: sent=%zd",
 		__PRETTY_FUNCTION__,
 		dst_str, ifname, fd,
 		pim_msg_size, sent);
