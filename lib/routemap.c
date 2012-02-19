@@ -898,9 +898,6 @@ route_map_event_hook (void (*func) (route_map_event_t, const char *))
 void
 route_map_init (void)
 {
-  /* Make vector for match and set. */
-  route_match_vec = vector_init (1);
-  route_set_vec = vector_init (1);
 }
 
 void
@@ -929,31 +926,17 @@ DEFUN_ATTR (route_map,
   struct route_map_index *index;
   char *endptr = NULL;
 
-  /* Permit check. */
-  if (strncmp (argv[1], "permit", strlen (argv[1])) == 0)
+  /* Permit/Deny -- already got through the parser, so assume is OK.
+   */
+  if (*((const char*)argv[1]) == 'p')
     permit = RMAP_PERMIT;
-  else if (strncmp (argv[1], "deny", strlen (argv[1])) == 0)
-    permit = RMAP_DENY;
   else
-    {
-      vty_out (vty, "the third field must be [permit|deny]%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
+    permit = RMAP_DENY;
 
-  /* Sequence number check. */
-  seq = strtoul (argv[2], &endptr, 10);
+  /* Sequence number -- already got through the parser, so assume is OK.
+   */
+  seq = strtoul (argv[2], &endptr, 0);
   confirm(sizeof(route_map_seq_t) <= sizeof(unsigned long)) ;
-  if (seq == ULONG_MAX || *endptr != '\0')
-    {
-      vty_out (vty, "the fourth field must be positive integer%s",
-	       VTY_NEWLINE);
-      return CMD_WARNING;
-    }
-  if (seq == 0 || seq > 4294967295)
-    {
-      vty_out (vty, "the fourth field must be <1-4294967295>%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
 
   /* Get route map. */
   map = route_map_get (argv[0]);
@@ -1002,31 +985,17 @@ DEFUN (no_route_map,
   struct route_map_index *index;
   char *endptr = NULL;
 
-  /* Permit check. */
-  if (strncmp (argv[1], "permit", strlen (argv[1])) == 0)
+  /* Permit/Deny -- already got through the parser, so assume is OK.
+   */
+  if (*((const char*)argv[1]) == 'p')
     permit = RMAP_PERMIT;
-  else if (strncmp (argv[1], "deny", strlen (argv[1])) == 0)
-    permit = RMAP_DENY;
   else
-    {
-      vty_out (vty, "the third field must be [permit|deny]%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
+    permit = RMAP_DENY;
 
-  /* Sequence number    */
-  seq = strtoul (argv[2], &endptr, 10);
+  /* Sequence number -- already got through the parser, so assume is OK.
+   */
+  seq = strtoul (argv[2], &endptr, 0);
   confirm(sizeof(route_map_seq_t) <= sizeof(unsigned long)) ;
-  if (seq == ULONG_MAX || *endptr != '\0')
-    {
-      vty_out (vty, "the fourth field must be positive integer%s",
-	       VTY_NEWLINE);
-      return CMD_WARNING;
-    }
-  if (seq == 0 || seq > 4294967295)
-    {
-      vty_out (vty, "the fourth field must be <1-4294967295>%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
 
   /* Existence check. */
   map = route_map_lookup_by_name (argv[0]);
@@ -1152,6 +1121,7 @@ ALIAS (no_rmap_onmatch_goto,
        NO_STR
        "Continue on a different entry within the route-map\n")
 
+#if 0           // TODO should these be used somewhere ???
 /* GNU Zebra compatible */
 ALIAS (rmap_onmatch_goto,
        rmap_continue_seq_cmd,
@@ -1165,6 +1135,7 @@ ALIAS (no_rmap_onmatch_goto,
        NO_STR
        "Continue on a different entry within the route-map\n"
        "Route-map entry sequence number\n")
+#endif
 
 DEFUN (rmap_show_name,
        rmap_show_name_cmd,
@@ -1276,80 +1247,79 @@ route_map_config_write (struct vty *vty)
 	else
 	  first = 0;
 
-	vty_out (vty, "route-map %s %s %lu%s",
-		 map->name,
-		 route_map_type_str (index->type),
-		 (unsigned long)index->seq, VTY_NEWLINE);
-	confirm(sizeof(index->seq) <= sizeof(unsigned long)) ;
+	vty_out (vty, "route-map %s %s %lu\n", map->name,
+	                   route_map_type_str (index->type), (ulong)index->seq);
+	confirm(sizeof(index->seq) <= sizeof(ulong)) ;
 
 	if (index->description)
-	  vty_out (vty, " description %s%s", index->description, VTY_NEWLINE);
+	  vty_out (vty, " description %s\n", index->description);
 
 	for (rule = index->match_list.head; rule; rule = rule->next)
-	  vty_out (vty, " match %s %s%s", rule->cmd->str,
-		   rule->rule_str ? rule->rule_str : "",
-		   VTY_NEWLINE);
+	  vty_out (vty, " match %s %s\n", rule->cmd->str,
+	                                  rule->rule_str ? rule->rule_str : "");
 
 	for (rule = index->set_list.head; rule; rule = rule->next)
-	  vty_out (vty, " set %s %s%s", rule->cmd->str,
-		   rule->rule_str ? rule->rule_str : "",
-		   VTY_NEWLINE);
+	  vty_out (vty, " set %s %s\n", rule->cmd->str,
+	                                  rule->rule_str ? rule->rule_str : "");
 
-       if (index->nextrm)
-         vty_out (vty, " call %s%s", index->nextrm, VTY_NEWLINE);
-       if (index->exitpolicy == RMAP_GOTO)
-         vty_out (vty, " on-match goto %lu%s", (unsigned long)index->goto_seq,
-                                                                   VTY_NEWLINE);
-       confirm(sizeof(index->goto_seq) <= sizeof(unsigned long)) ;
-       if (index->exitpolicy == RMAP_NEXT)
-         vty_out (vty," on-match next%s", VTY_NEWLINE);
+        if (index->nextrm)
+          vty_out (vty, " call %s\n", index->nextrm);
+
+        if (index->exitpolicy == RMAP_GOTO)
+          vty_out (vty, " on-match goto %lu\n", (ulong)index->goto_seq);
+        confirm(sizeof(index->goto_seq) <= sizeof(ulong)) ;
+
+        if (index->exitpolicy == RMAP_NEXT)
+          vty_out (vty," on-match next\n");
 
 	write++;
       }
   return write;
 }
 
-/* Route map node structure. */
-static struct cmd_node rmap_node =
+CMD_INSTALL_TABLE(static, routemap_cmd_table,
+                            RIPD | RIPNGD | OSPFD | OSPF6D | BGPD | ZEBRA) =
 {
-  RMAP_NODE,
-  "%s(config-route-map)# ",
-  1
-};
+  { CONFIG_NODE,     &route_map_cmd                                     },
+  { CONFIG_NODE,     &no_route_map_cmd                                  },
+  { CONFIG_NODE,     &no_route_map_all_cmd                              },
 
-/* Initialization of route map vector. */
-void
-route_map_init_vty (void)
-{
-  /* Install route map top node. */
-  install_node (&rmap_node, route_map_config_write);
+  /* Install the on-match stuff                         */
+  { RMAP_NODE,       &route_map_cmd                                     },
+  { RMAP_NODE,       &rmap_onmatch_next_cmd                             },
+  { RMAP_NODE,       &no_rmap_onmatch_next_cmd                          },
+  { RMAP_NODE,       &rmap_onmatch_goto_cmd                             },
+  { RMAP_NODE,       &no_rmap_onmatch_goto_cmd                          },
 
-  /* Install route map commands. */
-  install_default (RMAP_NODE);
-  install_element (CONFIG_NODE, &route_map_cmd);
-  install_element (CONFIG_NODE, &no_route_map_cmd);
-  install_element (CONFIG_NODE, &no_route_map_all_cmd);
+  /* Install the continue stuff (ALIAS of on-match).    */
+  { RMAP_NODE,       &rmap_continue_cmd                                 },
+  { RMAP_NODE,       &no_rmap_continue_cmd                              },
+  { RMAP_NODE,       &rmap_continue_index_cmd                           },
 
-  /* Install the on-match stuff */
-  install_element (RMAP_NODE, &route_map_cmd);
-  install_element (RMAP_NODE, &rmap_onmatch_next_cmd);
-  install_element (RMAP_NODE, &no_rmap_onmatch_next_cmd);
-  install_element (RMAP_NODE, &rmap_onmatch_goto_cmd);
-  install_element (RMAP_NODE, &no_rmap_onmatch_goto_cmd);
+  /* Install the call stuff.                            */
+  { RMAP_NODE,       &rmap_call_cmd                                     },
+  { RMAP_NODE,       &no_rmap_call_cmd                                  },
 
-  /* Install the continue stuff (ALIAS of on-match). */
-  install_element (RMAP_NODE, &rmap_continue_cmd);
-  install_element (RMAP_NODE, &no_rmap_continue_cmd);
-  install_element (RMAP_NODE, &rmap_continue_index_cmd);
-
-  /* Install the call stuff. */
-  install_element (RMAP_NODE, &rmap_call_cmd);
-  install_element (RMAP_NODE, &no_rmap_call_cmd);
-
-  /* Install description commands. */
-  install_element (RMAP_NODE, &rmap_description_cmd);
-  install_element (RMAP_NODE, &no_rmap_description_cmd);
+  /* Install description commands.                      */
+  { RMAP_NODE,       &rmap_description_cmd                              },
+  { RMAP_NODE,       &no_rmap_description_cmd                           },
 
   /* Install show command */
-  install_element (ENABLE_NODE, &rmap_show_name_cmd);
-}
+  { ENABLE_NODE,     &rmap_show_name_cmd                                },
+
+  CMD_INSTALL_END
+} ;
+
+/* Installation of routemap commands, and initialization of match/set options.
+ */
+extern void
+route_map_cmd_init (void)
+{
+  /* Install route map top node & basic commands                */
+  cmd_install_node_config_write (RMAP_NODE, route_map_config_write);
+  cmd_install_table(routemap_cmd_table) ;
+
+  /* Make vector for match and set. */
+  route_match_vec = vector_init (1);
+  route_set_vec   = vector_init (1);
+} ;

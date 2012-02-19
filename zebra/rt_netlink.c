@@ -18,6 +18,7 @@
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 
@@ -1818,9 +1819,6 @@ kernel_address_delete_ipv4 (struct interface *ifp, struct connected *ifc)
   return netlink_address (RTM_DELADDR, AF_INET, ifp, ifc);
 }
 
-
-extern struct thread_master *master;
-
 /* Kernel route reflection. */
 static int
 kernel_read (struct thread *thread)
@@ -1896,3 +1894,5 @@ kernel_init (void)
       thread_add_read (zebrad.master, kernel_read, NULL, netlink.sock);
     }
 }
+
+#endif /* VTYSH_EXTRACT_PL */

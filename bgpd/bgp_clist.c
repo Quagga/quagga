@@ -822,12 +822,12 @@ community_list_terminate (struct community_list_handler *ch)
   sym = NULL ;
   while ((sym = symbol_table_ream(ch->community_list, sym, list)) != NULL)
     community_list_flush(list = symbol_get_value(sym)) ;
-  ch->community_list = NULL ;
+  ch->community_list = symbol_table_free(ch->community_list) ;
 
   sym = NULL ;
   while ((sym = symbol_table_ream(ch->extcommunity_list, sym, list)) != NULL)
     community_list_flush(list = symbol_get_value(sym)) ;
-  ch->extcommunity_list = NULL ;
+  ch->extcommunity_list = symbol_table_free(ch->extcommunity_list) ;
 
   XFREE (MTYPE_COMMUNITY_LIST_HANDLER, ch);
 }

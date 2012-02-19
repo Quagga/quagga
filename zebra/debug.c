@@ -15,9 +15,9 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * along with GNU Zebra; see the file COPYING.  If not, write to the
+ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+ * Boston, MA 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -247,14 +247,6 @@ DEFUN (no_debug_zebra_rib_q,
   return CMD_SUCCESS;
 }
 
-/* Debug node. */
-struct cmd_node debug_node =
-{
-  DEBUG_NODE,
-  "",				/* Debug node has no interface. */
-  1
-};
-
 static int
 config_write_debug (struct vty *vty)
 {
@@ -305,42 +297,56 @@ config_write_debug (struct vty *vty)
   return write;
 }
 
-void
+/*------------------------------------------------------------------------------
+ * Zebra debug commands
+ */
+CMD_INSTALL_TABLE(static, zebra_debug_cmd_table, ZEBRA) =
+{
+  { VIEW_NODE,       &show_debugging_zebra_cmd                          },
+
+  { ENABLE_NODE,     &show_debugging_zebra_cmd                          },
+  { ENABLE_NODE,     &debug_zebra_events_cmd                            },
+  { ENABLE_NODE,     &debug_zebra_packet_cmd                            },
+  { ENABLE_NODE,     &debug_zebra_packet_direct_cmd                     },
+  { ENABLE_NODE,     &debug_zebra_packet_detail_cmd                     },
+  { ENABLE_NODE,     &debug_zebra_kernel_cmd                            },
+  { ENABLE_NODE,     &debug_zebra_rib_cmd                               },
+  { ENABLE_NODE,     &debug_zebra_rib_q_cmd                             },
+  { ENABLE_NODE,     &no_debug_zebra_events_cmd                         },
+  { ENABLE_NODE,     &no_debug_zebra_packet_cmd                         },
+  { ENABLE_NODE,     &no_debug_zebra_packet_direct_cmd                  },
+  { ENABLE_NODE,     &no_debug_zebra_kernel_cmd                         },
+  { ENABLE_NODE,     &no_debug_zebra_rib_cmd                            },
+  { ENABLE_NODE,     &no_debug_zebra_rib_q_cmd                          },
+
+  { CONFIG_NODE,     &debug_zebra_events_cmd                            },
+  { CONFIG_NODE,     &debug_zebra_packet_cmd                            },
+  { CONFIG_NODE,     &debug_zebra_packet_direct_cmd                     },
+  { CONFIG_NODE,     &debug_zebra_packet_detail_cmd                     },
+  { CONFIG_NODE,     &debug_zebra_kernel_cmd                            },
+  { CONFIG_NODE,     &debug_zebra_rib_cmd                               },
+  { CONFIG_NODE,     &debug_zebra_rib_q_cmd                             },
+  { CONFIG_NODE,     &no_debug_zebra_events_cmd                         },
+  { CONFIG_NODE,     &no_debug_zebra_packet_cmd                         },
+  { CONFIG_NODE,     &no_debug_zebra_kernel_cmd                         },
+  { CONFIG_NODE,     &no_debug_zebra_rib_cmd                            },
+  { CONFIG_NODE,     &no_debug_zebra_rib_q_cmd                          },
+
+  CMD_INSTALL_END
+} ;
+
+extern void
+zebra_debug_cmd_init (void)
+{
+  cmd_install_node_config_write (DEBUG_NODE, config_write_debug);
+  cmd_install_table(zebra_debug_cmd_table) ;
+}
+
+extern void
 zebra_debug_init (void)
 {
   zebra_debug_event = 0;
   zebra_debug_packet = 0;
   zebra_debug_kernel = 0;
   zebra_debug_rib = 0;
-
-  install_node (&debug_node, config_write_debug);
-
-  install_element (VIEW_NODE, &show_debugging_zebra_cmd);
-
-  install_element (ENABLE_NODE, &show_debugging_zebra_cmd);
-  install_element (ENABLE_NODE, &debug_zebra_events_cmd);
-  install_element (ENABLE_NODE, &debug_zebra_packet_cmd);
-  install_element (ENABLE_NODE, &debug_zebra_packet_direct_cmd);
-  install_element (ENABLE_NODE, &debug_zebra_packet_detail_cmd);
-  install_element (ENABLE_NODE, &debug_zebra_kernel_cmd);
-  install_element (ENABLE_NODE, &debug_zebra_rib_cmd);
-  install_element (ENABLE_NODE, &debug_zebra_rib_q_cmd);
-  install_element (ENABLE_NODE, &no_debug_zebra_events_cmd);
-  install_element (ENABLE_NODE, &no_debug_zebra_packet_cmd);
-  install_element (ENABLE_NODE, &no_debug_zebra_kernel_cmd);
-  install_element (ENABLE_NODE, &no_debug_zebra_rib_cmd);
-  install_element (ENABLE_NODE, &no_debug_zebra_rib_q_cmd);
-
-  install_element (CONFIG_NODE, &debug_zebra_events_cmd);
-  install_element (CONFIG_NODE, &debug_zebra_packet_cmd);
-  install_element (CONFIG_NODE, &debug_zebra_packet_direct_cmd);
-  install_element (CONFIG_NODE, &debug_zebra_packet_detail_cmd);
-  install_element (CONFIG_NODE, &debug_zebra_kernel_cmd);
-  install_element (CONFIG_NODE, &debug_zebra_rib_cmd);
-  install_element (CONFIG_NODE, &debug_zebra_rib_q_cmd);
-  install_element (CONFIG_NODE, &no_debug_zebra_events_cmd);
-  install_element (CONFIG_NODE, &no_debug_zebra_packet_cmd);
-  install_element (CONFIG_NODE, &no_debug_zebra_kernel_cmd);
-  install_element (CONFIG_NODE, &no_debug_zebra_rib_cmd);
-  install_element (CONFIG_NODE, &no_debug_zebra_rib_q_cmd);
 }

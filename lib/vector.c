@@ -90,6 +90,18 @@
  */
 
 /*------------------------------------------------------------------------------
+ * Allocate & Initialise a brand new vector, setting it empty.
+ *
+ * If size is given as zero, no body is allocated, otherwise body of exactly
+ * the required size is allocated.
+ */
+extern vector
+vector_new(vector_length_t limit)
+{
+  return vector_init_new(NULL, limit) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Initialise a brand new vector, setting it empty.
  *
  * Allocates vector structure if none given -- that is, if v == NULL.
@@ -239,12 +251,14 @@ vector_set_new_min_length(vector v, vector_length_t len)
  * Pop item from vector, stepping past any NULLs.
  * If vector is empty, free the body and, if required, the vector structure.
  *
+ * Does nothing if vector is NULL.
+ *
  * Useful for emptying out and discarding a vector:
  *
  *     while ((p_v = vector_ream_out(v, 1)))
  *       ... do what's required to release the item p_v
  *
- * Returns NULL if vector was empty and has now been freed as required.
+ * Returns NULL if vector was NULL or empty and has now been freed as required.
  */
 p_vector_item
 vector_ream(vector v, free_keep_b free_structure)
@@ -1005,6 +1019,8 @@ vector_count (vector v)
 /*------------------------------------------------------------------------------
  * Sort the given vector.
  *
+ * Does nothing if vector is NULL !
+ *
  * NB: the comparison function receives a pointer to the pointer to the
  *     vector item's value.
  *
@@ -1014,8 +1030,8 @@ vector_count (vector v)
 extern void
 vector_sort(vector v, vector_sort_cmp* cmp)
 {
-  if (v->end <= 1)
-    return ;            /* Stop dead if 0 or 1 items */
+  if ((v == NULL) || (v->end <= 1))
+    return ;            /* Stop dead if no vector or 0 or 1 items       */
 
   typedef int qsort_cmp(const void*, const void*) ;
 
@@ -1042,7 +1058,7 @@ vector_sort(vector v, vector_sort_cmp* cmp)
  *                 (The value sought belongs after this point.)
  *
  *   result == -1: value is less than everything in the vector, or the
- *                 vector is empty.
+ *                 vector is empty (or NULL).
  *                 index returned is 0
  *
  * NB: The comparison function takes arguments which are:
@@ -1064,10 +1080,15 @@ vector_bsearch(vector v, vector_bsearch_cmp* cmp, const void* p_val,
   vector_index_t il, iv, ih ;
   int c ;
 
-  if (v->end <= 1)
+  if (v == NULL)
+    {
+      *result = -1 ;
+      return 0 ;                /* stop dead if NULL vector     */
+    }
+  else if (v->end <= 1)
     {
       *result = (v->end == 0) ? -1 : cmp(&p_val, (const cvp*)&v->p_items[0]) ;
-      return 0 ;                /* Stop dead if 0 or 1 items */
+      return 0 ;                /* Stop dead if 0 or 1 items    */
     } ;
 
   /* We have at least two items.    */
@@ -1162,10 +1183,13 @@ vector_new_limit(vector v, vector_index_t new_end)
     }
   else
     {
-      /* Want the new_limit to be a power of 2.                           */
-      /* If the old_limit was a power of 2, start from there.             */
-      /* Otherwise start from a power of 2 less than new_end: either the  */
-      /* minimum value or a value mid way to VECTOR_LIMIT_DOUBLE_MAX.     */
+      /* Want the new_limit to be a power of 2.
+       *
+       * If the old_limit was a power of 2, start from there.
+       *
+       * Otherwise start from a power of 2 less than new_end: either the
+       * minimum value or a value mid way to VECTOR_LIMIT_DOUBLE_MAX.
+       */
       if ( (old_limit != 0) && (old_limit == lsbit(old_limit))
                             && (new_end >= old_limit) )
         new_limit = old_limit ;

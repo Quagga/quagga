@@ -63,33 +63,57 @@ enum
 /* Under very controlled circumstances, may access the vector body      */
 typedef p_vector_item const* vector_body_t ;
 
-/* Values that control the allocation of the vector body.                     */
-/* NB: these must all be powers of 2.                                         */
+/*------------------------------------------------------------------------------
+ * Values that control the allocation of the vector body.
+ * NB: these must all be powers of 2.
+ */
+enum
+{
+  /* The body, when allocated, will have at least this many entries.
+   */
+  VECTOR_LIMIT_MIN           = 8,
 
-/* The body, when allocated, will have at least this many entries.      */
-#define VECTOR_LIMIT_MIN            8
-/* When the body grows, it doubles in size, until it is this big.       */
-/* After that it grows in units of this much.				*/
-#define VECTOR_LIMIT_DOUBLE_MAX  2048
-/* "Midway" between VECTOR_LIMIT_MIN and VECTOR_LIMIT_DOUBLE_MAX.       */
-#define VECTOR_LIMIT_MID          128
-/* When growing in units of VECTOR_LIMIT_DOUBLE_MAX, this is the        */
-/* minimum slack space to leave after the logical end of the vector.    */
-#define VECTOR_LIMIT_SLACK_MIN   ((VECTOR_LIMIT_DOUBLE_MAX) / 8)
+  /* When the body grows, it doubles in size, until it is this big.
+   * After that it grows in units of this much.
+   */
+  VECTOR_LIMIT_DOUBLE_MAX   = 2048,
 
-/* (Sometimes) useful macros.						      */
+  /* "Midway" between VECTOR_LIMIT_MIN and VECTOR_LIMIT_DOUBLE_MAX.
+   */
+  VECTOR_LIMIT_MID          = 128,
 
-/* Reference item at given index.                                       */
-/* NB: does not guarantee the item is "active" (that is: within the     */
-/*     (logical) vector) -- but see vector_ensure.                      */
-/* Returns address of vector item.					*/
-/* See: VECTOR_ITEMS() for walking items in a vector.			*/
-/* See: vector_get_item(), which is preferable.                         */
+  /* When growing in units of VECTOR_LIMIT_DOUBLE_MAX, this is the
+   * minimum slack space to leave after the logical end of the vector.
+   */
+  VECTOR_LIMIT_SLACK_MIN    = ((VECTOR_LIMIT_DOUBLE_MAX) / 8)
+} ;
+
+CONFIRM(IS_POW_OF_2(VECTOR_LIMIT_MIN)) ;
+CONFIRM(IS_POW_OF_2(VECTOR_LIMIT_DOUBLE_MAX)) ;
+CONFIRM(IS_POW_OF_2(VECTOR_LIMIT_MID)) ;
+CONFIRM(IS_POW_OF_2(VECTOR_LIMIT_SLACK_MIN)) ;
+
+/*------------------------------------------------------------------------------
+ * (Sometimes) useful macros.
+ */
+
+/* Reference item at given index.
+ *
+ * NB: does not guarantee the item is "active" (that is: within the
+ *     (logical) vector) -- but see vector_ensure.
+ *
+ * Returns address of vector item.
+ *
+ * See: VECTOR_ITEMS() for walking items in a vector.
+ * See: vector_get_item(), which is preferable.
+ */
 #define vector_slot(V,I)  ((V)->p_items[(I)])
 
-/* Number of "active" item entries -- (logical) end of the vector.      */
-/* Note that this differs from vector_count() as this count will        */
-/* include any NULL items.                                              */
+/* Number of "active" item entries -- (logical) end of the vector.
+ *
+ * Note that this differs from vector_count() as this count will
+ * *include* any NULL items.
+ */
 #define vector_active(V) ((V)->end)
 
 /* To walk all items in a vector:
@@ -128,6 +152,7 @@ extern void *vector_lookup (vector, vector_index_t);
 extern void *vector_lookup_ensure (vector, vector_index_t);
 
 extern vector vector_init_new(vector v, vector_length_t size) ;
+extern vector vector_new(vector_length_t size) ;
 extern vector vector_re_init(vector v, vector_length_t size) ;
 extern vector vector_reset(vector v, free_keep_b free_structure) ;
 extern p_vector_item vector_ream(vector v, free_keep_b free_structure) ;
@@ -211,9 +236,11 @@ extern void vector_extend(vector v, vector_length_t new_end) ;
  * The inline functions:
  */
 
-/* Extend vector by one item at the end, which is about to be set.      */
-/* Returns index of new least item in the vector.                       */
-/* NB: if left unset, the item may be UNDEFINED.                        */
+/*------------------------------------------------------------------------------
+ * Extend vector by one item at the end, which is about to be set.
+ * Returns index of new least item in the vector.
+ * NB: if left unset, the item may be UNDEFINED.
+ */
 Inline vector_index_t
 vector_extend_by_1(vector v)
 {
@@ -226,9 +253,11 @@ vector_extend_by_1(vector v)
   return i ;
 } ;
 
-/* Ensure given index is "active".                                      */
-/* Adjusts logical and physical end of the vector as required, filling  */
-/* with NULLs upto any new logical end.                                 */
+/*------------------------------------------------------------------------------
+ * Ensure given index is "active".
+ * Adjusts logical and physical end of the vector as required, filling
+ * with NULLs upto any new logical end.
+ */
 Inline void
 vector_ensure(vector v, vector_index_t i)
 {
@@ -240,11 +269,13 @@ vector_ensure(vector v, vector_index_t i)
     vector_extend(v, i + 1) ;           /* do it the hard way           */
 } ;
 
-/* Want vector to be at least the given length.                         */
-/*                                                                      */
-/* Adjusts logical and physical end of the vector as required, filling  */
-/* with NULLs upto any new logical end -- does not allocate any more    */
-/* than is exactly necessary.                                           */
+/*------------------------------------------------------------------------------
+ * Want vector to be at least the given length.
+ *
+ * Adjusts logical and physical end of the vector as required, filling
+ * with NULLs upto any new logical end -- does not allocate any more
+ * than is exactly necessary.
+ */
 Inline void
 vector_set_min_length(vector v, vector_length_t len)
 {
@@ -252,14 +283,16 @@ vector_set_min_length(vector v, vector_length_t len)
     vector_set_new_min_length(v, len) ;
 } ;
 
-/* Want vector to be the given length.                                  */
-/*                                                                      */
-/* If this is less than the current length, items are discarded.  It    */
-/* is the caller's responsibility to have freed anything that needs it. */
-/*                                                                      */
-/* Adjusts logical and physical end of the vector as required, filling  */
-/* with NULLs upto any new logical end -- does not allocate any more    */
-/* than is exactly necessary.                                           */
+/*------------------------------------------------------------------------------
+ * Want vector to be the given length.
+ *
+ * If this is less than the current length, items are discarded.  It
+ * is the caller's responsibility to have freed anything that needs it.
+ *
+ * Adjusts logical and physical end of the vector as required, filling
+ * with NULLs upto any new logical end -- does not allocate any more
+ * than is exactly necessary.
+ */
 Inline void
 vector_set_length(vector v, vector_length_t len)
 {
@@ -269,59 +302,70 @@ vector_set_length(vector v, vector_length_t len)
     v->end = len ;                      /* chop                         */
 } ;
 
-/* Return index of end of vector (index of last item + 1)               */
+/*------------------------------------------------------------------------------
+ * Return index of end of vector (index of last item + 1)
+ */
 Inline vector_length_t
 vector_length(vector v)
 {
   return v->end ;
 } ;
 
-/* Returns whether vector is empty or not.                              */
+/*------------------------------------------------------------------------------
+ * Returns whether vector is empty or not.
+ */
 Inline bool
 vector_is_empty(vector v)
 {
   return (v->end == 0) ;
 } ;
 
-/* Returns highly restricted pointer to vector body                     */
-//Inline const void* const*
-//vector_body(vector v)
-//{
-//  return (const void* const*)v->p_items ;
-//} ;
-
+/*------------------------------------------------------------------------------
+ * Returns highly restricted pointer to vector body
+ */
 Inline vector_body_t
 vector_body(vector v)
 {
   return (vector_body_t)v->p_items ;
 } ;
 
-/* Access functions -- Inline for obvious reasons.			*/
+/*==============================================================================
+ * Access functions -- Inline for obvious reasons.
+ */
 
-/* Get pointer to item.  Returns NULL if accessing beyond end.		*/
+/*------------------------------------------------------------------------------
+ * Get pointer to item.  Returns NULL if accessing beyond end.
+ */
 Inline p_vector_item
 vector_get_item(vector v, vector_index_t i)
 {
   return (i < v->end) ? v->p_items[i] : NULL ;
 } ;
 
-/* Get pointer to first item.  Returns NULL if vector empty.		*/
+/*------------------------------------------------------------------------------
+ * Get pointer to first item.  Returns NULL if vector empty.
+ */
 Inline p_vector_item
 vector_get_first_item(vector v)
 {
   return (v->end != 0) ? v->p_items[0] : NULL ;
 } ;
 
-/* Get pointer to last item.  Returns NULL if vector empty.		*/
+/*------------------------------------------------------------------------------
+ * Get pointer to last item.  Returns NULL if vector empty.
+ */
 Inline p_vector_item
 vector_get_last_item(vector v)
 {
   return (v->end != 0) ? v->p_items[v->end - 1] : NULL ;
 } ;
 
-/* Set item value in vector.  Extend vector if required.		*/
-/* NB: it is the caller's responsibility to release memory used by any  */
-/*     current value of the item, if required.                          */
+/*------------------------------------------------------------------------------
+ * Set item value in vector.  Extend vector if required.
+ *
+ * NB: it is the caller's responsibility to release memory used by any
+ *     current value of the item, if required.
+ */
 Inline void
 vector_set_item(vector v, vector_index_t i, p_vector_item p_v)
 {
@@ -329,7 +373,8 @@ vector_set_item(vector v, vector_index_t i, p_vector_item p_v)
   v->p_items[i] = (p_vector_item)p_v ;
 } ;
 
-/* Set dst item to be a copy of the src item.  Extend vector if required.
+/*------------------------------------------------------------------------------
+ * Set dst item to be a copy of the src item.  Extend vector if required.
  *
  * NB: it is the caller's responsibility to look after the memory being
  *     used by the current dst item or the new (duplicated) src item.
@@ -340,7 +385,9 @@ vector_assign_item(vector v, vector_index_t dst, vector_index_t src)
   vector_set_item(v, dst, vector_get_item(v, src)) ;
 } ;
 
-/* Push value onto vector, extending as required.			*/
+/*------------------------------------------------------------------------------
+ * Push value onto vector, extending as required.
+ */
 Inline void
 vector_push_item(vector v, p_vector_item p_v)
 {
@@ -348,15 +395,20 @@ vector_push_item(vector v, p_vector_item p_v)
   v->p_items[i] = (p_vector_item)p_v ;
 } ;
 
-/* Pop value from vector.  Returns NULL if vector is empty.		*/
-/* NB: does NOT change the size of the vector body.                     */
+/*------------------------------------------------------------------------------
+ * Pop value from vector.  Returns NULL if vector is empty.
+ *
+ * NB: does NOT change the size of the vector body.
+ */
 Inline p_vector_item
 vector_pop_item(vector v)
 {
   return (v->end > 0) ? v->p_items[--v->end] : NULL ;
 } ;
 
-/* Unshift value onto start of vector, extending as required.           */
+/*------------------------------------------------------------------------------
+ * Unshift value onto start of vector, extending as required.
+ */
 Inline void
 vector_unshift_item(vector v, p_vector_item p_v)
 {
@@ -364,8 +416,10 @@ vector_unshift_item(vector v, p_vector_item p_v)
   v->p_items[0] = p_v ;
 } ;
 
-/* Pop value from vector.  Returns NULL if vector is empty.             */
-/* NB: does NOT change the size of the vector body.                     */
+/*------------------------------------------------------------------------------
+ * Pop value from vector.  Returns NULL if vector is empty.
+ * NB: does NOT change the size of the vector body.
+ */
 Inline p_vector_item
 vector_shift_item(vector v)
 {

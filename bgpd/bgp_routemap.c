@@ -523,10 +523,11 @@ route_match_metric_compile (const char *arg)
 {
   u_int32_t *med;
   char *endptr = NULL;
-  unsigned long tmpval;
+  unsigned long tmp;
 
-  tmpval = strtoul (arg, &endptr, 10);
-  if (*endptr != '\0' || tmpval == ULONG_MAX || tmpval > UINT32_MAX)
+  errno = 0 ;
+  tmp = strtoul (arg, &endptr, 10);
+  if ((*endptr != '\0') || (errno != 0) || (tmp > UINT32_MAX))
     return NULL;
 
   med = XMALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (u_int32_t));
@@ -534,7 +535,7 @@ route_match_metric_compile (const char *arg)
   if (!med)
     return med;
 
-  *med = tmpval;
+  *med = tmp;
   return med;
 }
 
@@ -627,14 +628,13 @@ route_match_as_origin_compile (const char *arg)
 {
   as_t* p_asn ;
   unsigned long tmp ;
-  char*         ep ;
+  char*         endptr ;
 
-  errno = 0 ;
-  ep    = NULL ;
-
-  tmp = strtoul (arg, &ep, 10) ;
-  if ((errno != 0) || (*ep != '\0'))
-    return NULL ;
+  endptr = NULL ;
+  errno  = 0 ;
+  tmp = strtoul (arg, &endptr, 10) ;
+  if ((*endptr != '\0') || (errno != 0) || (tmp > UINT32_MAX))
+    return NULL;
 
   p_asn = XCALLOC(MTYPE_ROUTE_MAP_COMPILED, sizeof(as_t)) ;
 
@@ -1000,8 +1000,9 @@ route_set_local_pref_compile (const char *arg)
   if (! all_digit (arg))
     return NULL;
 
+  errno = 0 ;
   tmp = strtoul (arg, &endptr, 10);
-  if (*endptr != '\0' || tmp == ULONG_MAX || tmp > UINT32_MAX)
+  if ((*endptr != '\0') || (errno != 0) || (tmp > UINT32_MAX))
     return NULL;
 
   local_pref = XMALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (u_int32_t));
@@ -1068,9 +1069,9 @@ route_set_weight_compile (const char *arg)
   if (! all_digit (arg))
     return NULL;
 
-
+  errno = 0 ;
   tmp = strtoul (arg, &endptr, 10);
-  if (*endptr != '\0' || tmp == ULONG_MAX || tmp > UINT32_MAX)
+  if ((*endptr != '\0') || (errno != 0) || (tmp > UINT32_MAX))
     return NULL;
 
   weight = XMALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (u_int32_t));
@@ -1159,8 +1160,9 @@ route_set_metric_compile (const char *arg)
   if (all_digit (arg))
     {
       /* set metric value check*/
+      errno = 0 ;
       larg = strtoul (arg, &endptr, 10);
-      if (*endptr != '\0' || larg == ULONG_MAX || larg > UINT32_MAX)
+      if (*endptr != '\0' || (errno != 0)|| larg > UINT32_MAX)
         return NULL;
       metric = larg;
     }
@@ -1172,8 +1174,9 @@ route_set_metric_compile (const char *arg)
 	   || (! all_digit (arg+1)))
 	return NULL;
 
+      errno = 0 ;
       larg = strtoul (arg+1, &endptr, 10);
-      if (*endptr != '\0' || larg == ULONG_MAX || larg > UINT32_MAX)
+      if (*endptr != '\0' || (errno != 0) || larg > UINT32_MAX)
 	return NULL;
       metric = larg;
     }
@@ -2968,6 +2971,7 @@ DEFUN (set_ip_nexthop_peer,
   return bgp_route_set_add (vty, vty->index, "ip next-hop", "peer-address");
 }
 
+#if 0
 DEFUN_DEPRECATED (no_set_ip_nexthop_peer,
        no_set_ip_nexthop_peer_cmd,
        "no set ip next-hop peer-address",
@@ -2979,7 +2983,7 @@ DEFUN_DEPRECATED (no_set_ip_nexthop_peer,
 {
   return bgp_route_set_delete (vty, vty->index, "ip next-hop", NULL);
 }
-
+#endif
 
 DEFUN (no_set_ip_nexthop,
        no_set_ip_nexthop_cmd,
@@ -3855,15 +3859,136 @@ ALIAS (no_match_pathlimit_as,
        "BGP AS-Pathlimit attribute\n"
        "Match Pathlimit ASN\n")
 
-
-/* Initialization of route map. */
-void
-bgp_route_map_init (void)
+/*------------------------------------------------------------------------------
+ * Table of bgp_route commands
+ */
+CMD_INSTALL_TABLE(static, bgp_routemap_cmd_table, BGPD) =
 {
-  route_map_init ();
-  route_map_init_vty ();
-  route_map_add_hook (bgp_route_map_update);
-  route_map_delete_hook (bgp_route_map_update);
+  { RMAP_NODE,       &match_peer_cmd                                    },
+  { RMAP_NODE,       &match_peer_local_cmd                              },
+  { RMAP_NODE,       &no_match_peer_cmd                                 },
+  { RMAP_NODE,       &no_match_peer_val_cmd                             },
+  { RMAP_NODE,       &no_match_peer_local_cmd                           },
+  { RMAP_NODE,       &match_ip_address_cmd                              },
+  { RMAP_NODE,       &no_match_ip_address_cmd                           },
+  { RMAP_NODE,       &no_match_ip_address_val_cmd                       },
+  { RMAP_NODE,       &match_ip_next_hop_cmd                             },
+  { RMAP_NODE,       &no_match_ip_next_hop_cmd                          },
+  { RMAP_NODE,       &no_match_ip_next_hop_val_cmd                      },
+  { RMAP_NODE,       &match_ip_route_source_cmd                         },
+  { RMAP_NODE,       &no_match_ip_route_source_cmd                      },
+  { RMAP_NODE,       &no_match_ip_route_source_val_cmd                  },
+  { RMAP_NODE,       &match_ip_address_prefix_list_cmd                  },
+  { RMAP_NODE,       &no_match_ip_address_prefix_list_cmd               },
+  { RMAP_NODE,       &no_match_ip_address_prefix_list_val_cmd           },
+  { RMAP_NODE,       &match_ip_next_hop_prefix_list_cmd                 },
+  { RMAP_NODE,       &no_match_ip_next_hop_prefix_list_cmd              },
+  { RMAP_NODE,       &no_match_ip_next_hop_prefix_list_val_cmd          },
+  { RMAP_NODE,       &match_ip_route_source_prefix_list_cmd             },
+  { RMAP_NODE,       &no_match_ip_route_source_prefix_list_cmd          },
+  { RMAP_NODE,       &no_match_ip_route_source_prefix_list_val_cmd      },
+  { RMAP_NODE,       &match_aspath_cmd                                  },
+  { RMAP_NODE,       &no_match_aspath_cmd                               },
+  { RMAP_NODE,       &no_match_aspath_val_cmd                           },
+  { RMAP_NODE,       &match_as_origin_cmd                               },
+  { RMAP_NODE,       &no_match_as_origin_cmd                            },
+  { RMAP_NODE,       &no_match_as_origin_val_cmd                        },
+  { RMAP_NODE,       &match_metric_cmd                                  },
+  { RMAP_NODE,       &no_match_metric_cmd                               },
+  { RMAP_NODE,       &no_match_metric_val_cmd                           },
+  { RMAP_NODE,       &match_community_cmd                               },
+  { RMAP_NODE,       &match_community_exact_cmd                         },
+  { RMAP_NODE,       &no_match_community_cmd                            },
+  { RMAP_NODE,       &no_match_community_val_cmd                        },
+  { RMAP_NODE,       &no_match_community_exact_cmd                      },
+  { RMAP_NODE,       &match_ecommunity_cmd                              },
+  { RMAP_NODE,       &no_match_ecommunity_cmd                           },
+  { RMAP_NODE,       &no_match_ecommunity_val_cmd                       },
+  { RMAP_NODE,       &match_origin_cmd                                  },
+  { RMAP_NODE,       &no_match_origin_cmd                               },
+  { RMAP_NODE,       &no_match_origin_val_cmd                           },
+  { RMAP_NODE,       &set_ip_nexthop_cmd                                },
+  { RMAP_NODE,       &set_ip_nexthop_peer_cmd                           },
+  { RMAP_NODE,       &no_set_ip_nexthop_cmd                             },
+  { RMAP_NODE,       &no_set_ip_nexthop_val_cmd                         },
+  { RMAP_NODE,       &set_local_pref_cmd                                },
+  { RMAP_NODE,       &no_set_local_pref_cmd                             },
+  { RMAP_NODE,       &no_set_local_pref_val_cmd                         },
+  { RMAP_NODE,       &set_weight_cmd                                    },
+  { RMAP_NODE,       &no_set_weight_cmd                                 },
+  { RMAP_NODE,       &no_set_weight_val_cmd                             },
+  { RMAP_NODE,       &set_metric_cmd                                    },
+  { RMAP_NODE,       &set_metric_addsub_cmd                             },
+  { RMAP_NODE,       &no_set_metric_cmd                                 },
+  { RMAP_NODE,       &no_set_metric_val_cmd                             },
+  { RMAP_NODE,       &set_aspath_prepend_cmd                            },
+  { RMAP_NODE,       &set_aspath_exclude_cmd                            },
+  { RMAP_NODE,       &no_set_aspath_prepend_cmd                         },
+  { RMAP_NODE,       &no_set_aspath_prepend_val_cmd                     },
+  { RMAP_NODE,       &no_set_aspath_exclude_cmd                         },
+  { RMAP_NODE,       &no_set_aspath_exclude_val_cmd                     },
+  { RMAP_NODE,       &set_origin_cmd                                    },
+  { RMAP_NODE,       &no_set_origin_cmd                                 },
+  { RMAP_NODE,       &no_set_origin_val_cmd                             },
+  { RMAP_NODE,       &set_atomic_aggregate_cmd                          },
+  { RMAP_NODE,       &no_set_atomic_aggregate_cmd                       },
+  { RMAP_NODE,       &set_aggregator_as_cmd                             },
+  { RMAP_NODE,       &no_set_aggregator_as_cmd                          },
+  { RMAP_NODE,       &no_set_aggregator_as_val_cmd                      },
+  { RMAP_NODE,       &set_community_cmd                                 },
+  { RMAP_NODE,       &set_community_none_cmd                            },
+  { RMAP_NODE,       &no_set_community_cmd                              },
+  { RMAP_NODE,       &no_set_community_val_cmd                          },
+  { RMAP_NODE,       &no_set_community_none_cmd                         },
+  { RMAP_NODE,       &set_community_delete_cmd                          },
+  { RMAP_NODE,       &no_set_community_delete_cmd                       },
+  { RMAP_NODE,       &no_set_community_delete_val_cmd                   },
+  { RMAP_NODE,       &set_ecommunity_rt_cmd                             },
+  { RMAP_NODE,       &no_set_ecommunity_rt_cmd                          },
+  { RMAP_NODE,       &no_set_ecommunity_rt_val_cmd                      },
+  { RMAP_NODE,       &set_ecommunity_soo_cmd                            },
+  { RMAP_NODE,       &no_set_ecommunity_soo_cmd                         },
+  { RMAP_NODE,       &no_set_ecommunity_soo_val_cmd                     },
+  { RMAP_NODE,       &set_vpnv4_nexthop_cmd                             },
+  { RMAP_NODE,       &no_set_vpnv4_nexthop_cmd                          },
+  { RMAP_NODE,       &no_set_vpnv4_nexthop_val_cmd                      },
+  { RMAP_NODE,       &set_originator_id_cmd                             },
+  { RMAP_NODE,       &no_set_originator_id_cmd                          },
+  { RMAP_NODE,       &no_set_originator_id_val_cmd                      },
+
+#ifdef HAVE_IPV6
+  { RMAP_NODE,       &match_ipv6_address_cmd                            },
+  { RMAP_NODE,       &no_match_ipv6_address_cmd                         },
+  { RMAP_NODE,       &match_ipv6_next_hop_cmd                           },
+  { RMAP_NODE,       &no_match_ipv6_next_hop_cmd                        },
+  { RMAP_NODE,       &match_ipv6_address_prefix_list_cmd                },
+  { RMAP_NODE,       &no_match_ipv6_address_prefix_list_cmd             },
+  { RMAP_NODE,       &set_ipv6_nexthop_global_cmd                       },
+  { RMAP_NODE,       &no_set_ipv6_nexthop_global_cmd                    },
+  { RMAP_NODE,       &no_set_ipv6_nexthop_global_val_cmd                },
+  { RMAP_NODE,       &set_ipv6_nexthop_local_cmd                        },
+  { RMAP_NODE,       &no_set_ipv6_nexthop_local_cmd                     },
+  { RMAP_NODE,       &no_set_ipv6_nexthop_local_val_cmd                 },
+#endif /* HAVE_IPV6 */
+
+  /* AS-Pathlimit: functionality removed, commands kept for
+   * compatibility.
+   */
+  { RMAP_NODE,       &set_pathlimit_ttl_cmd                             },
+  { RMAP_NODE,       &no_set_pathlimit_ttl_cmd                          },
+  { RMAP_NODE,       &no_set_pathlimit_ttl_val_cmd                      },
+  { RMAP_NODE,       &match_pathlimit_as_cmd                            },
+  { RMAP_NODE,       &no_match_pathlimit_as_cmd                         },
+  { RMAP_NODE,       &no_match_pathlimit_as_val_cmd                     },
+
+  CMD_INSTALL_END
+} ;
+
+/* Initialization of route map command handling                         */
+extern void
+bgp_route_map_cmd_init (void)
+{
+  route_map_cmd_init ();
 
   route_map_install_match (&route_match_peer_cmd);
   route_map_install_match (&route_match_ip_address_cmd);
@@ -3895,129 +4020,20 @@ bgp_route_map_init (void)
   route_map_install_set (&route_set_ecommunity_rt_cmd);
   route_map_install_set (&route_set_ecommunity_soo_cmd);
 
-  install_element (RMAP_NODE, &match_peer_cmd);
-  install_element (RMAP_NODE, &match_peer_local_cmd);
-  install_element (RMAP_NODE, &no_match_peer_cmd);
-  install_element (RMAP_NODE, &no_match_peer_val_cmd);
-  install_element (RMAP_NODE, &no_match_peer_local_cmd);
-  install_element (RMAP_NODE, &match_ip_address_cmd);
-  install_element (RMAP_NODE, &no_match_ip_address_cmd);
-  install_element (RMAP_NODE, &no_match_ip_address_val_cmd);
-  install_element (RMAP_NODE, &match_ip_next_hop_cmd);
-  install_element (RMAP_NODE, &no_match_ip_next_hop_cmd);
-  install_element (RMAP_NODE, &no_match_ip_next_hop_val_cmd);
-  install_element (RMAP_NODE, &match_ip_route_source_cmd);
-  install_element (RMAP_NODE, &no_match_ip_route_source_cmd);
-  install_element (RMAP_NODE, &no_match_ip_route_source_val_cmd);
-
-  install_element (RMAP_NODE, &match_ip_address_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ip_address_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ip_address_prefix_list_val_cmd);
-  install_element (RMAP_NODE, &match_ip_next_hop_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ip_next_hop_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ip_next_hop_prefix_list_val_cmd);
-  install_element (RMAP_NODE, &match_ip_route_source_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ip_route_source_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ip_route_source_prefix_list_val_cmd);
-
-  install_element (RMAP_NODE, &match_aspath_cmd);
-  install_element (RMAP_NODE, &no_match_aspath_cmd);
-  install_element (RMAP_NODE, &no_match_aspath_val_cmd);
-  install_element (RMAP_NODE, &match_as_origin_cmd);
-  install_element (RMAP_NODE, &no_match_as_origin_cmd);
-  install_element (RMAP_NODE, &no_match_as_origin_val_cmd);
-  install_element (RMAP_NODE, &match_metric_cmd);
-  install_element (RMAP_NODE, &no_match_metric_cmd);
-  install_element (RMAP_NODE, &no_match_metric_val_cmd);
-  install_element (RMAP_NODE, &match_community_cmd);
-  install_element (RMAP_NODE, &match_community_exact_cmd);
-  install_element (RMAP_NODE, &no_match_community_cmd);
-  install_element (RMAP_NODE, &no_match_community_val_cmd);
-  install_element (RMAP_NODE, &no_match_community_exact_cmd);
-  install_element (RMAP_NODE, &match_ecommunity_cmd);
-  install_element (RMAP_NODE, &no_match_ecommunity_cmd);
-  install_element (RMAP_NODE, &no_match_ecommunity_val_cmd);
-  install_element (RMAP_NODE, &match_origin_cmd);
-  install_element (RMAP_NODE, &no_match_origin_cmd);
-  install_element (RMAP_NODE, &no_match_origin_val_cmd);
-
-  install_element (RMAP_NODE, &set_ip_nexthop_cmd);
-  install_element (RMAP_NODE, &set_ip_nexthop_peer_cmd);
-  install_element (RMAP_NODE, &no_set_ip_nexthop_cmd);
-  install_element (RMAP_NODE, &no_set_ip_nexthop_val_cmd);
-  install_element (RMAP_NODE, &set_local_pref_cmd);
-  install_element (RMAP_NODE, &no_set_local_pref_cmd);
-  install_element (RMAP_NODE, &no_set_local_pref_val_cmd);
-  install_element (RMAP_NODE, &set_weight_cmd);
-  install_element (RMAP_NODE, &no_set_weight_cmd);
-  install_element (RMAP_NODE, &no_set_weight_val_cmd);
-  install_element (RMAP_NODE, &set_metric_cmd);
-  install_element (RMAP_NODE, &set_metric_addsub_cmd);
-  install_element (RMAP_NODE, &no_set_metric_cmd);
-  install_element (RMAP_NODE, &no_set_metric_val_cmd);
-  install_element (RMAP_NODE, &set_aspath_prepend_cmd);
-  install_element (RMAP_NODE, &set_aspath_exclude_cmd);
-  install_element (RMAP_NODE, &no_set_aspath_prepend_cmd);
-  install_element (RMAP_NODE, &no_set_aspath_prepend_val_cmd);
-  install_element (RMAP_NODE, &no_set_aspath_exclude_cmd);
-  install_element (RMAP_NODE, &no_set_aspath_exclude_val_cmd);
-  install_element (RMAP_NODE, &set_origin_cmd);
-  install_element (RMAP_NODE, &no_set_origin_cmd);
-  install_element (RMAP_NODE, &no_set_origin_val_cmd);
-  install_element (RMAP_NODE, &set_atomic_aggregate_cmd);
-  install_element (RMAP_NODE, &no_set_atomic_aggregate_cmd);
-  install_element (RMAP_NODE, &set_aggregator_as_cmd);
-  install_element (RMAP_NODE, &no_set_aggregator_as_cmd);
-  install_element (RMAP_NODE, &no_set_aggregator_as_val_cmd);
-  install_element (RMAP_NODE, &set_community_cmd);
-  install_element (RMAP_NODE, &set_community_none_cmd);
-  install_element (RMAP_NODE, &no_set_community_cmd);
-  install_element (RMAP_NODE, &no_set_community_val_cmd);
-  install_element (RMAP_NODE, &no_set_community_none_cmd);
-  install_element (RMAP_NODE, &set_community_delete_cmd);
-  install_element (RMAP_NODE, &no_set_community_delete_cmd);
-  install_element (RMAP_NODE, &no_set_community_delete_val_cmd);
-  install_element (RMAP_NODE, &set_ecommunity_rt_cmd);
-  install_element (RMAP_NODE, &no_set_ecommunity_rt_cmd);
-  install_element (RMAP_NODE, &no_set_ecommunity_rt_val_cmd);
-  install_element (RMAP_NODE, &set_ecommunity_soo_cmd);
-  install_element (RMAP_NODE, &no_set_ecommunity_soo_cmd);
-  install_element (RMAP_NODE, &no_set_ecommunity_soo_val_cmd);
-  install_element (RMAP_NODE, &set_vpnv4_nexthop_cmd);
-  install_element (RMAP_NODE, &no_set_vpnv4_nexthop_cmd);
-  install_element (RMAP_NODE, &no_set_vpnv4_nexthop_val_cmd);
-  install_element (RMAP_NODE, &set_originator_id_cmd);
-  install_element (RMAP_NODE, &no_set_originator_id_cmd);
-  install_element (RMAP_NODE, &no_set_originator_id_val_cmd);
-
-#ifdef HAVE_IPV6
   route_map_install_match (&route_match_ipv6_address_cmd);
   route_map_install_match (&route_match_ipv6_next_hop_cmd);
   route_map_install_match (&route_match_ipv6_address_prefix_list_cmd);
   route_map_install_set (&route_set_ipv6_nexthop_global_cmd);
   route_map_install_set (&route_set_ipv6_nexthop_local_cmd);
 
-  install_element (RMAP_NODE, &match_ipv6_address_cmd);
-  install_element (RMAP_NODE, &no_match_ipv6_address_cmd);
-  install_element (RMAP_NODE, &match_ipv6_next_hop_cmd);
-  install_element (RMAP_NODE, &no_match_ipv6_next_hop_cmd);
-  install_element (RMAP_NODE, &match_ipv6_address_prefix_list_cmd);
-  install_element (RMAP_NODE, &no_match_ipv6_address_prefix_list_cmd);
-  install_element (RMAP_NODE, &set_ipv6_nexthop_global_cmd);
-  install_element (RMAP_NODE, &no_set_ipv6_nexthop_global_cmd);
-  install_element (RMAP_NODE, &no_set_ipv6_nexthop_global_val_cmd);
-  install_element (RMAP_NODE, &set_ipv6_nexthop_local_cmd);
-  install_element (RMAP_NODE, &no_set_ipv6_nexthop_local_cmd);
-  install_element (RMAP_NODE, &no_set_ipv6_nexthop_local_val_cmd);
-#endif /* HAVE_IPV6 */
+  cmd_install_table(bgp_routemap_cmd_table) ;
+}
 
-  /* AS-Pathlimit: functionality removed, commands kept for
-   * compatibility.
-   */
-  install_element (RMAP_NODE, &set_pathlimit_ttl_cmd);
-  install_element (RMAP_NODE, &no_set_pathlimit_ttl_cmd);
-  install_element (RMAP_NODE, &no_set_pathlimit_ttl_val_cmd);
-  install_element (RMAP_NODE, &match_pathlimit_as_cmd);
-  install_element (RMAP_NODE, &no_match_pathlimit_as_cmd);
-  install_element (RMAP_NODE, &no_match_pathlimit_as_val_cmd);
+/* Initialization of route map                                          */
+void
+bgp_route_map_init (void)
+{
+  route_map_init ();
+  route_map_add_hook (bgp_route_map_update);
+  route_map_delete_hook (bgp_route_map_update);
 }

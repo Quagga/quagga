@@ -36,8 +36,6 @@
 /* Zebra client events. */
 enum event {ZLOOKUP_SCHEDULE, ZCLIENT_SCHEDULE, ZCLIENT_READ, ZCLIENT_CONNECT};
 
-extern struct thread_master *master;
-
 /* This file local debug flag. */
 int zclient_debug = 0;
 
@@ -58,13 +56,15 @@ zclient_new ()
   struct zclient *zclient;
   zclient = XCALLOC (MTYPE_ZCLIENT, sizeof (struct zclient));
 
+  zclient->sock = -1;
+
   zclient->ibuf = stream_new (ZEBRA_MAX_PACKET_SIZ);
   zclient->obuf = stream_new (ZEBRA_MAX_PACKET_SIZ);
-  zclient->wb = buffer_new(0);
+  zclient->wb   = buffer_new(0);
 
   if (zclient_nexus)
     {
-      zclient->qf = qps_file_init_new(zclient->qf, NULL);
+      zclient->qf  = qps_file_init_new(zclient->qf, NULL);
       zclient->qtr = qtimer_init_new(zclient->qtr, zclient_nexus->pile,
                                       zclient_connect_r, zclient);
     }
@@ -80,25 +80,16 @@ zclient_new ()
 void
 zclient_free (struct zclient *zclient)
 {
-  if (zclient->ibuf)
-    stream_free(zclient->ibuf);
-  if (zclient->obuf)
-    stream_free(zclient->obuf);
+  zclient_stop (zclient) ;      /* make sure stopped, socket closed etc */
+
+  stream_free(zclient->ibuf);   /* Free, if any */
+  stream_free(zclient->obuf);   /* Free, if any */
   if (zclient->wb)
     buffer_free(zclient->wb);
 
   /* qfile and qtimer */
-  if (zclient->qf)
-    {
-      qps_remove_file(zclient->qf);
-      qps_file_free(zclient->qf);
-      zclient->qf = NULL;
-    }
-  if (zclient->qtr)
-    {
-      qtimer_free(zclient->qtr);
-      zclient->qtr = NULL;
-    }
+  zclient->qf  = qps_file_free(zclient->qf) ;   /* Free, if any         */
+  zclient->qtr = qtimer_free(zclient->qtr) ;    /* Free, if any         */
 
   XFREE (MTYPE_ZCLIENT, zclient);
 }
@@ -111,7 +102,11 @@ zclient_init_r (qpn_nexus n)
 }
 
 /* Initialize zebra client.  Argument redist_default is unwanted
-   redistribute route type. */
+ * redistribute route type.
+ *
+ * Assumes is given a struct zclient* recently created by zclient_new(), or
+ * recently stopped by zclient_stop().
+ */
 void
 zclient_init (struct zclient *zclient, int redist_default)
 {
@@ -120,12 +115,15 @@ zclient_init (struct zclient *zclient, int redist_default)
   /* Enable zebra client connection by default. */
   zclient->enable = 1;
 
-  /* Set -1 to the default socket value. */
+  /* Set -1 to the default socket value.        */
   zclient->sock = -1;
 
-  /* Clear redistribution flags. */
+  /* Clear redistribution flags.                */
   for (i = 0; i < ZEBRA_ROUTE_MAX; i++)
     zclient->redist[i] = 0;
+
+  /* No failures, yet                           */
+  zclient->fail = 0;
 
   /* Set unwanted redistribute route.  bgpd does not need BGP route
      redistribution. */
@@ -135,7 +133,7 @@ zclient_init (struct zclient *zclient, int redist_default)
   /* Set default-information redistribute to zero. */
   zclient->default_information = 0;
 
-  /* Schedule first zclient connection. */
+  /* Schedule first zclient connection.         */
   if (zclient_debug)
     zlog_debug ("zclient start scheduled");
 
@@ -162,7 +160,13 @@ zclient_stop (struct zclient *zclient)
   THREAD_OFF(zclient->t_write);
 
   if (zclient->qf)
-    qps_remove_file(zclient->qf);
+    {
+      qassert(  ((zclient->sock < 0) && (qps_file_fd(zclient->qf) < 0))
+             || ( zclient->sock      ==  qps_file_fd(zclient->qf)     ) ) ;
+
+      qps_remove_file(zclient->qf) ;
+      qps_file_unset_fd(zclient->qf) ;
+    } ;
 
   if (zclient->qtr)
     qtimer_unset(zclient->qtr);
@@ -180,7 +184,6 @@ zclient_stop (struct zclient *zclient)
       close (zclient->sock);
       zclient->sock = -1;
     }
-  zclient->fail = 0;
 }
 
 void
@@ -587,7 +590,7 @@ zapi_ipv4_route (u_char cmd, struct zclient *zclient, struct prefix_ipv4 *p,
   /* Put prefix information. */
   psize = PSIZE (p->prefixlen);
   stream_putc (s, p->prefixlen);
-  stream_write (s, (u_char *) & p->prefix, psize);
+  stream_put (s, (u_char *) & p->prefix, psize);
 
   /* Nexthop, ifindex, distance and metric information. */
   if (CHECK_FLAG (api->message, ZAPI_MESSAGE_NEXTHOP))
@@ -648,7 +651,7 @@ zapi_ipv6_route (u_char cmd, struct zclient *zclient, struct prefix_ipv6 *p,
   /* Put prefix information. */
   psize = PSIZE (p->prefixlen);
   stream_putc (s, p->prefixlen);
-  stream_write (s, (u_char *)&p->prefix, psize);
+  stream_put (s, (u_char *)&p->prefix, psize);
 
   /* Nexthop, ifindex, distance and metric information. */
   if (CHECK_FLAG (api->message, ZAPI_MESSAGE_NEXTHOP))
@@ -658,7 +661,7 @@ zapi_ipv6_route (u_char cmd, struct zclient *zclient, struct prefix_ipv6 *p,
       for (i = 0; i < api->nexthop_num; i++)
 	{
 	  stream_putc (s, ZEBRA_NEXTHOP_IPV6);
-	  stream_write (s, (u_char *)api->nexthop[i], 16);
+	  stream_put (s, (u_char *)api->nexthop[i], 16);
 	}
       for (i = 0; i < api->ifindex_num; i++)
 	{
@@ -1011,11 +1014,11 @@ zclient_read (struct zclient *zclient)
     }
 
   /* Length check. */
-  if (length > STREAM_SIZE(zclient->ibuf))
+  if (length > stream_get_size(zclient->ibuf))
     {
       struct stream *ns;
-      zlog_warn("%s: message size %u exceeds buffer size %lu, expanding...",
-	        __func__, length, (u_long)STREAM_SIZE(zclient->ibuf));
+      zlog_warn("%s: message size %u exceeds buffer size %zu, expanding...",
+	                     __func__, length, stream_get_size(zclient->ibuf));
       ns = stream_new(length);
       stream_copy(ns, zclient->ibuf);
       stream_free (zclient->ibuf);

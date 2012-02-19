@@ -17,8 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 
@@ -41,7 +42,7 @@
 #endif /* _PATH_PROCNET_ROUTE6 */
 
 /* To read interface's name */
-#define INTERFACE_NAMSIZ 20  
+#define INTERFACE_NAMSIZ 20
 
 /* Reading buffer for one routing entry. */
 #define RT_BUFSIZ 1024
@@ -62,7 +63,7 @@ proc_route_read (void)
       zlog_warn ("Can't open %s : %s\n", _PATH_PROCNET_ROUTE, safe_strerror (errno));
       return -1;
     }
-  
+
   /* Drop first label line. */
   fgets (buf, RT_BUFSIZ, fp);
 
@@ -75,10 +76,10 @@ proc_route_read (void)
       u_char zebra_flags = 0;
 
       n = sscanf (buf, "%s %s %s %x %d %d %d %s %d %d %d",
-		  iface, dest, gate, &flags, &refcnt, &use, &metric, 
+		  iface, dest, gate, &flags, &refcnt, &use, &metric,
 		  mask, &mtu, &window, &rtt);
       if (n != 11)
-	{	
+	{
 	  zlog_warn ("can't read all of routing information\n");
 	  continue;
 	}
@@ -114,11 +115,11 @@ proc_ipv6_route_read ()
   fp = fopen (_PATH_PROCNET_ROUTE6, "r");
   if (fp == NULL)
     {
-      zlog_warn ("Can't open %s : %s", _PATH_PROCNET_ROUTE6, 
+      zlog_warn ("Can't open %s : %s", _PATH_PROCNET_ROUTE6,
 		safe_strerror (errno));
       return -1;
     }
-  
+
   /* There is no title line, so we don't drop first line.  */
   while (fgets (buf, RT_BUFSIZ, fp) != NULL)
     {
@@ -138,7 +139,7 @@ proc_ipv6_route_read ()
 		  &metric, &use, &refcnt, &flags, iface);
 
       if (n != 10)
-	{	
+	{
 	  /* zlog_warn ("can't read all of routing information %d\n%s\n", n, buf); */
 	  continue;
 	}
@@ -173,3 +174,5 @@ route_read (void)
   proc_ipv6_route_read ();
 #endif /* HAVE_IPV6 */
 }
+
+#endif /* VTYSH_EXTRACT_PL */

@@ -16,8 +16,10 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
+
+#if 0                   /* TODO: why is this compiled when not BSDI ??  */
 
 #include <zebra.h>
 
@@ -42,49 +44,49 @@ if_kvm_get_mtu (struct interface *ifp)
   struct ifnet ifnet;
   unsigned long ifnetaddr;
   int len;
- 
+
   char ifname[IFNAMSIZ];
   char tname[INTERFACE_NAMSIZ + 1];
   char buf[_POSIX2_LINE_MAX];
- 
-  struct nlist nl[] = 
+
+  struct nlist nl[] =
   {
     {"_ifnet"},
     {""}
   };
 
   ifp->mtu6 = ifp->mtu = -1;
-  
+
   kvmd = kvm_openfiles (NULL, NULL, NULL, O_RDONLY, buf);
 
-  if (kvmd == NULL) 
+  if (kvmd == NULL)
     return ;
-  
+
   kvm_nlist(kvmd, nl);
- 
+
   ifnetaddr = nl[0].n_value;
- 
-  if (kvm_read(kvmd, ifnetaddr, (char *)&ifnetaddr, sizeof ifnetaddr) < 0) 
+
+  if (kvm_read(kvmd, ifnetaddr, (char *)&ifnetaddr, sizeof ifnetaddr) < 0)
     {
       kvm_close (kvmd);
       return ;
     }
- 
-  while(ifnetaddr != 0) 
+
+  while(ifnetaddr != 0)
     {
-      if (kvm_read (kvmd, ifnetaddr, (char *)&ifnet, sizeof ifnet) < 0) 
+      if (kvm_read (kvmd, ifnetaddr, (char *)&ifnet, sizeof ifnet) < 0)
 	{
 	  kvm_close (kvmd);
 	  return ;
 	}
 
-      if (kvm_read (kvmd, (u_long)ifnet.if_name, ifname, IFNAMSIZ) < 0) 
+      if (kvm_read (kvmd, (u_long)ifnet.if_name, ifname, IFNAMSIZ) < 0)
 	{
 	  kvm_close (kvmd);
 	  return ;
 	}
 
-      len = snprintf (tname, INTERFACE_NAMSIZ + 1, 
+      len = snprintf (tname, INTERFACE_NAMSIZ + 1,
 		      "%s%d", ifname, ifnet.if_unit);
 
       if (strncmp (tname, ifp->name, len) == 0)
@@ -95,10 +97,11 @@ if_kvm_get_mtu (struct interface *ifp)
 
   kvm_close (kvmd);
 
-  if (ifnetaddr == 0) 
+  if (ifnetaddr == 0)
     {
       return ;
     }
 
   ifp->mtu6 = ifp->mtu = ifnet.if_mtu;
 }
+#endif

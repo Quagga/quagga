@@ -16,11 +16,13 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_SNMP_H
 #define _ZEBRA_SNMP_H
+
+#include "thread.h"
 
 #define SMUX_PORT_DEFAULT 199
 
@@ -144,14 +146,14 @@ struct trap_object
     (u_char *) &snmp_in_addr_val \
   )
 
-extern void smux_init (struct thread_master *tm);
+extern void smux_init (daemon_set_t daemons, struct thread_master *tm);
 extern void smux_start (void);
-extern void smux_register_mib(const char *, struct variable *, 
+extern void smux_register_mib(const char *, struct variable *,
                               size_t, int, oid [], size_t);
-extern int smux_header_generic (struct variable *, oid [], size_t *, 
+extern int smux_header_generic (struct variable *, oid [], size_t *,
                                 int, size_t *, WriteMethod **);
-extern int smux_trap (const oid *, size_t, const oid *, size_t, 
-		      const struct trap_object *, 
+extern int smux_trap (const oid *, size_t, const oid *, size_t,
+		      const struct trap_object *,
                       size_t, unsigned int, u_char);
 extern int oid_compare (oid *, int, oid *, int);
 extern void oid2in_addr (oid [], int, struct in_addr *);

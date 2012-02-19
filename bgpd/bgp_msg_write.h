@@ -33,29 +33,32 @@
 #include "bgpd/bgp_route_refresh.h"
 
 #include "lib/stream.h"
+#include "lib/sockunion.h"
 
-extern int
-bgp_msg_write_notification(bgp_connection connection, bgp_notify notification) ;
+/*==============================================================================
+ * Functions for use in BGP_Engine for construction and sending of BGP
+ * messages.
+ */
+extern int bgp_msg_write_notification(bgp_connection connection,
+                                                      bgp_notify notification) ;
+extern int bgp_msg_send_keepalive(bgp_connection connection, bool must_send) ;
+extern int bgp_msg_send_open(bgp_connection connection,
+                                                    bgp_open_state open_state) ;
+extern int bgp_msg_send_route_refresh(bgp_connection connection,
+                                                         bgp_route_refresh rr) ;
+extern int bgp_msg_send_update(bgp_connection connection, struct stream* s) ;
+extern int bgp_msg_send_end_of_rib(bgp_connection connection,
+                                                      iAFI_t afi, iSAFI_t safi);
 
-extern int
-bgp_msg_send_keepalive(bgp_connection connection, bool must_send) ;
+/*==============================================================================
+ * Functions for the construction of BGP messages
+ *
+ * Pro tem some messages are constructed in the Routing Engine, and use these
+ * when filling in the stream.
+ */
+extern void bgp_packet_set_marker(struct stream* s, uint8_t type) ;
+extern uint bgp_packet_set_size (struct stream* s) ;
 
-extern int
-bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state) ;
-
-extern int
-bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr) ;
-
-extern int
-bgp_msg_send_update(bgp_connection connection, struct stream* s) ;
-
-extern int
-bgp_msg_send_end_of_rib(bgp_connection connection, iAFI_t afi, iSAFI_t safi);
-
-extern int
-bgp_packet_set_marker(struct stream *s, uint8_t type) ;
-
-extern int
-bgp_packet_set_size (struct stream *s) ;
+extern uint bgp_packet_check_size(struct stream* s, sockunion remote) ;
 
 #endif /* _QUAGGA_BGP_MSG_WRITE_H */

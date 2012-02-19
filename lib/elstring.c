@@ -280,3 +280,35 @@ els_substring(elstring a, elstring b)
   return true ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Return length of leading substring of two strings
+ */
+extern ulen
+els_sub_len(elstring a, elstring b)
+{
+  const uchar* ap ;
+  const uchar* bp ;
+  ulen  n, m ;
+
+  n = els_len(a) ;              /* zero if a is NULL                    */
+  m = els_len(b) ;              /* zero if b is NULL                    */
+
+  if (n > m)
+    n = m ;                     /* choose the smaller                   */
+
+  ap = els_body(a) ;
+  bp = els_body(b) ;
+
+  m = n ;
+  while (n != 0)
+    {
+      if (*ap++ != *bp++)
+        break ;
+
+      --n ;
+    } ;
+
+  return m - n ;
+} ;
+
+

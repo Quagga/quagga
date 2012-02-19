@@ -25,30 +25,40 @@
 #include "misc.h"
 #include "vector.h"
 
-/* Various constants.                                                   */
+/*==============================================================================
+ * Symbol table definitions
+ *
+ * Note that count things in uint -- which is expected to be at least 32 bits.
+ *
+ * Expect to run out of memory before really challenge that assumption !  (At
+ * 8 bytes to a pointer, 4G of pointers is already 32G.)
+ */
 enum
 {
-  /* Maximum number of symbol table bases -- something has gone tragically
-   * wrong if we hit this.  Assume can multiply this by 2 and get valid size_t
-   * result.
+  /* Minimum and maximum number of symbol table bases.
+   *
+   * Something has gone tragically wrong if we hit the maximum !  We assume can
+   * multiply the maximum by 2 and get valid uint result.
    */
-  SYMBOL_TABLE_BASES_MAX         = (1024 * 1024 * 1024),
+  SYMBOL_TABLE_BASES_MIN = 50,
+  SYMBOL_TABLE_BASES_MAX = UINT_MAX / 2,
 
-  /* Minimum number of symbol table bases.                              */
-  SYMBOL_TABLE_BASES_MIN         = 10,
-
-  /* Point at which stops doubling the symbol table size (bases)        */
+  /* Point at which stops doubling the symbol table size (bases)
+   */
   SYMBOL_TABLE_BASES_DOUBLE_MAX  = 4000,
 
-  /* Default density.                                                   */
+  /* Default density
+   */
   SYMBOL_TABLE_DEFAULT_DENSITY   = 200,         /* 2.00 entries/base    */
 
-  /* LS bit of the reference count is used as symbol is set bit.        */
+  /* LS bit of the reference count is used as symbol is set bit.
+   */
   symbol_is_set_bit    = 1,
   symbol_ref_increment = 2,     /* so we count in 2's !                 */
 } ;
 
-/* Structures defined below.    */
+/* Structures defined below.
+ */
 struct symbol_table ;
 struct symbol ;
 struct symbol_ref ;
@@ -100,7 +110,8 @@ struct symbol_funcs
                                 /* called when symbol is destroyed      */
 } ;
 
-/* Symbol Table.
+/*------------------------------------------------------------------------------
+ * Symbol Table.
  *
  * Don't fiddle with this directly... see access functions below.
  */
@@ -112,6 +123,7 @@ struct symbol_table
   uint	   base_count ;         /* number of chain bases                */
 
   uint	   entry_count ;        /* number of entries in the table       */
+  uint     max_index ;          /* maximum index in the table           */
   uint	   extend_thresh ;      /* when to extend the hash table        */
 
   float    density ;            /* entries per chain base               */
@@ -119,7 +131,8 @@ struct symbol_table
   symbol_funcs_t func ;         /* the functions, as above              */
 } ;
 
-/* Symbol Table Entry.
+/*------------------------------------------------------------------------------
+ * Symbol Table Entry.
  *
  * Don't fiddle with this directly... see access macros/functions below.
  */
@@ -157,7 +170,8 @@ struct symbol_default_value
   char  value[] ;
 } ;
 
-/* Symbol Reference (or "bookmark").
+/*------------------------------------------------------------------------------
+ * Symbol Reference (or "bookmark").
  *
  * Don't fiddle with this directly...  see access macros/functions below
  */
@@ -180,7 +194,8 @@ struct symbol_ref
   symbol_ref_tag_t  tag ;   /* see: sym_ref_tag(sym_ref) etc.            */
 } ;
 
-/* Symbol Walk Iterator		*/
+/* Symbol Walk Iterator
+ */
 struct symbol_walker
 {
   symbol    next ;        /* next symbol to return (if any)         */
@@ -200,6 +215,8 @@ extern void symbol_table_set_tell(symbol_table table,
                                            symbol_tell_func* tell) ;
 
 extern symbol symbol_table_ream(symbol_table table, symbol sym, void* value) ;
+extern symbol_table symbol_table_free(symbol_table table) ;
+extern void symbol_table_reset(symbol_table table, uint base_count) ;
 
 extern symbol symbol_lookup(symbol_table table, const void* name, add_b add) ;
 
@@ -220,6 +237,7 @@ Inline symbol_table symbol_get_table(const symbol sym) ;
 
 Inline symbol symbol_inc_ref(symbol sym) ;
 Inline symbol symbol_dec_ref(symbol sym) ;
+
 Private symbol symbol_zero_ref(symbol sym) ;
 
 extern symbol_ref symbol_init_ref(symbol_ref ref) ;
@@ -297,7 +315,7 @@ symbol_get_value(const symbol sym)
   return (sym != NULL) ? sym->value : NULL ;
 } ;
 
-Inline struct symbol_table*
+Inline symbol_table
 symbol_get_table(const symbol sym)
 {
   return (sym != NULL) ? sym->table : NULL ;
@@ -332,65 +350,66 @@ Inline void*
 sym_ref_symbol(symbol_ref ref)
 {
   return (ref != NULL) ? ref->sym : NULL ;
-}
+} ;
 
 Inline void*
 sym_ref_value(symbol_ref ref)
 {
   return symbol_get_value(sym_ref_symbol(ref)) ;
-}
+} ;
 
 Inline void*
 sym_ref_parent(symbol_ref ref)
 {
   return (ref != NULL) ? ref->parent : NULL ;
-}
+} ;
 
 Inline void*
 sym_ref_p_tag(symbol_ref ref)
 {
   return (ref != NULL) ? ref->tag.p  : NULL ;
-}
+} ;
 
 Inline unsigned long int
 sym_ref_u_tag(symbol_ref ref)
 {
   return (ref != NULL) ? ref->tag.u : 0 ;
-}
+} ;
 
 Inline signed long int
 sym_ref_i_tag(symbol_ref ref)
 {
   return (ref != NULL) ? ref->tag.i : 0 ;
-}
+} ;
 
 /*------------------------------------------------------------------------------
  * Set properties of reference -- argument is address of symbol_ref, which is
  * assumed to NOT be NULL.
  */
+
 Inline void
 sym_ref_set_parent(symbol_ref ref, void* pa)
 {
   ref->parent = pa ;
-}
+} ;
 
 Inline void
 sym_ref_set_p_tag(symbol_ref ref, void* p_tag)
 {
   ref->tag.p  = p_tag ;
-}
+} ;
 
 Inline void
 sym_ref_set_u_tag(symbol_ref ref, unsigned long int u_tag)
 {
   ref->tag.u  = u_tag ;
-}
+} ;
 
 Inline void
 sym_ref_set_i_tag(symbol_ref ref, signed long int i_tag)
 {
   ref->tag.i  = i_tag ;
-}
+} ;
 
 /*------------------------------------------------------------------------------
  * Standard symbol integer hash function.

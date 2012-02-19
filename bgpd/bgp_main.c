@@ -21,13 +21,13 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "zebra.h"
 #include "misc.h"
 
+#include "memory.h"
 #include "vector.h"
 #include "vty.h"
 #include "command.h"
 #include "getopt.h"
 #include "thread.h"
 #include "lib/version.h"
-#include "memory.h"
 #include "prefix.h"
 #include "log.h"
 #include "privs.h"
@@ -53,29 +53,9 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_filter.h"
 #include "bgpd/bgp_network.h"
 #include "bgpd/bgp_engine.h"
+#include "bgpd/bgp_vty.h"
 #include "bgpd/bgp_zebra.h"
 
-/* bgpd options, we use GNU getopt library. */
-static const struct option longopts[] =
-{
-  { "daemon",      no_argument,       NULL, 'd'},
-  { "config_file", required_argument, NULL, 'f'},
-  { "pid_file",    required_argument, NULL, 'i'},
-  { "bgp_port",    required_argument, NULL, 'p'},
-  { "listenon",    required_argument, NULL, 'l'},
-  { "vty_addr",    required_argument, NULL, 'A'},
-  { "vty_port",    required_argument, NULL, 'P'},
-  { "retain",      no_argument,       NULL, 'r'},
-  { "no_kernel",   no_argument,       NULL, 'n'},
-  { "user",        required_argument, NULL, 'u'},
-  { "group",       required_argument, NULL, 'g'},
-  { "version",     no_argument,       NULL, 'v'},
-  { "dryrun",      no_argument,       NULL, 'C'},
-  { "help",        no_argument,       NULL, 'h'},
-  { "threaded",    no_argument,       NULL, 't'},
-  { "ignore_warnings", no_argument,   NULL, 'I'},
-  { 0 }
-};
 /* Configuration file and directory.                                    */
 char config_default[] = SYSCONFDIR BGP_DEFAULT_CONFIG;
 
@@ -89,27 +69,19 @@ static bool program_terminating = false ;
 static bool config_ignore_warnings = false;
 
 /* whether configured to run with qpthreads                             */
-static bool config_threaded     = false ;
+static bool pthreaded_option     = false ;
 
 /* whether configured to run as an AS2 speaker                          */
 static bool config_as2_speaker  = false ;
 
-/* Master of threads. */
-struct thread_master *master;
-
-/* Manually specified configuration file name.  */
-char *config_file = NULL;
-
-/* Have we done the second stage initialization? */
-static int done_2nd_stage_init = 0;
-/* Process ID saved for use by init system */
+/* Process ID saved for use by init system                              */
 static const char *pid_file = PATH_BGPD_PID;
 
-/* VTY port number and address.  */
+/* VTY port number and address.                                         */
 int   vty_port = BGP_VTY_PORT;
 char *vty_addr = NULL;
 
-/* privileges */
+/* privileges                                                           */
 static zebra_capabilities_t _caps_p [] =
 {
     ZCAP_BIND,
@@ -130,9 +102,58 @@ struct zebra_privs_t bgpd_privs =
   .cap_num_i = 0,
 };
 
-/* Help information display. */
+/*==============================================================================
+ *
+ */
+static void bgp_signal_init(void) ;
+static void bgp_cmd_init(void) ;
+
+/* prototypes */
+static void bgp_exit (int);
+static void bgp_init_second_stage(bool pthreads);
+static void bgp_in_thread_init(void);
+static void routing_start(void) ;
+static void routing_finish(void) ;
+static int routing_foreground(void);
+static int routing_background(void);
+static void bgp_show_nexus_cmd_init(void) ;
+
+/*==============================================================================
+ * Arguments and the main function for bgpd.
+ */
+
+/*------------------------------------------------------------------------------
+ * bgpd options, we use GNU getopt library.
+ */
+static const struct option longopts[] =
+{
+  { "daemon",      no_argument,       NULL, 'd'},
+  { "config_file", required_argument, NULL, 'f'},
+  { "pid_file",    required_argument, NULL, 'i'},
+  { "bgp_port",    required_argument, NULL, 'p'},
+  { "listenon",    required_argument, NULL, 'l'},
+  { "vty_addr",    required_argument, NULL, 'A'},
+  { "vty_port",    required_argument, NULL, 'P'},
+  { "retain",      no_argument,       NULL, 'r'},
+  { "no_kernel",   no_argument,       NULL, 'n'},
+  { "user",        required_argument, NULL, 'u'},
+  { "group",       required_argument, NULL, 'g'},
+  { "version",     no_argument,       NULL, 'v'},
+  { "dryrun",      no_argument,       NULL, 'C'},
+  { "help",        no_argument,       NULL, 'h'},
+  { "threaded",    no_argument,       NULL, 't'},
+  { "ignore_warnings", no_argument,   NULL, 'I'},
+  { "int_config",  required_argument, NULL, 'F'},
+  { "integrated",  no_argument,       NULL, 'Q'},
+  { "int_boot",    no_argument,       NULL, 'b'},
+  { 0 }
+};
+
+/*------------------------------------------------------------------------------
+ * Help information display.
+ */
 static void
-usage (char *progname, int status)
+usage (const char *progname, int status)
 {
   if (status != 0)
     fprintf (stderr, "Try `%s --help' for more information.\n", progname);
@@ -146,6 +167,9 @@ usage (char *progname, int status)
   "\n"
   "-d, --daemon       Runs in daemon mode\n"
   "-f, --config_file  Set configuration file name\n"
+  "-F, --int_config   Set integrated configuration file and name\n"
+  "-Q, --integrated   Use integrated configuration file\n"
+  "-b, --int_boot     Expect vtysh to provide configuration\n"
   "-i, --pid_file     Set process identifier file name\n"
   "-p, --bgp_port     Set bgp protocol's port number\n"
   "-l, --listenon     Listen on specified address (implies -n)\n"
@@ -167,96 +191,467 @@ usage (char *progname, int status)
 
   exit (status);
 }
-/*==============================================================================
- * Signal Handling.
- *
- * Actual signals are caught in lib/sigevent.  When a signal is caught, a flag
- * is set and the immediate signal handler returns.
- *
- * Those flags are polled in the qpnexus loop, and the Quagga level signal
- * handler called -- in the main (CLI) thread.
- */
-
-/* signal definitions */
-void sighup (void);
-void sigint (void);
-void sigusr1 (void);
-void sigusr2 (void);
-
-/* prototypes */
-static void bgp_exit (int);
-static void init_second_stage(bool pthreads);
-static void bgp_in_thread_init(void);
-static void routing_start(void) ;
-static void routing_finish(void) ;
-static int routing_foreground(void);
-static int routing_background(void);
-static void sighup_action(mqueue_block mqb, mqb_flag_t flag);
-static void sighup_enqueue(void);
-static void sigterm_action(mqueue_block mqb, mqb_flag_t flag);
-static void sigterm_enqueue(void);
-static void bgp_show_nexus_init(void) ;
-
-static struct quagga_signal_t bgp_signals[] =
-{
-  {
-    .signal = SIGHUP,
-    .handler = &sighup,
-  },
-  {
-    .signal = SIGUSR1,
-    .handler = &sigusr1,
-  },
-  {
-    .signal = SIGINT,
-    .handler = &sigint,
-  },
-  {
-    .signal = SIGTERM,
-    .handler = &sigint,
-  },
-};
 
 /*------------------------------------------------------------------------------
- * SIGHUP handler.
- *
- * The vty level is reset, closing all terminals and vtysh servers, and
- * closing all listeners.
- *
- * A message is sent to the Routeing Engine to restart.
- *
- * When the Routeing Engine has restarted, it will send a message to the CLI
- * to restart the listeners.
+ * Main routine of bgpd. Treatment of argument and start bgp finite
+ * state machine is handled at here.
  */
-void
-sighup (void)
+int
+main (int argc, char **argv)
 {
-  zlog (NULL, LOG_INFO, "SIGHUP received");
+  bool daemon_mode, dryrun, own_config, int_config, int_boot ;
+  bool invalid_option ;
+  const char* own_config_file ;
+  const char* int_config_file ;
 
-  vty_reset_because("Reloading configuration");
-  sighup_enqueue();             /* tell the Routeing Engine     */
+  if (qdebug)
+    fprintf(stderr, debug_banner, argv[0], "\n") ;
 
-}
-
-/* SIGINT and SIGTERM handler. */
-void
-sigint (void)
-{
-  zlog_notice ("Terminating on signal");
-
-  vty_reset_because("Terminating");
-
-  /* tell the routing engine to send notifies to peers and wait
-   * for all sessions to be disabled, then terminate.
+  /* First things first -- and qlib_init_first_stage() is absolutely first.
    */
-  sigterm_enqueue();
+  qlib_init_first_stage(0027);
+
+  host_init(argv[0]) ;
+
+  zlog_default = openzlog (cmd_host_program_name(), ZLOG_BGP,
+                                      LOG_CONS|LOG_NDELAY|LOG_PID, LOG_DAEMON) ;
+
+  /* BGP master init -- creates and initialises the bm->master thread_master.
+   */
+  bgp_master_init ();
+
+  /* Command line argument treatment.
+   */
+  daemon_mode     = false ;             /* no -d                */
+  dryrun          = false ;             /* no -C                */
+  own_config      = false ;             /* no -f xxxx           */
+  own_config_file = config_default ;    /* ditto                */
+  int_config      = false ;             /* no -F xxxx or -Q     */
+  int_config_file = NULL ;              /* no -F                */
+  int_boot        = false ;             /* no -b                */
+
+  invalid_option  = false ;
+
+  while (1)
+    {
+      int  result ;
+      int  val ;
+      int  opt;
+
+      opt = getopt_long (argc, argv, "df:i:hp:l:A:P:rnu:g:vCtI2F:Qb",
+                                                                 longopts, 0);
+      if (opt == EOF)
+        break;
+
+      switch (opt)
+        {
+        case 0:
+          break;
+
+        /* Expect vtysh to provide configuration.
+         */
+        case 'b':
+          int_boot    = true ;
+          break;
+
+        /* Enter daemon mode once read configuration.
+         */
+        case 'd':
+          daemon_mode = true ;
+          break;
+
+        /* Set own configuration file name
+         */
+        case 'f':
+          own_config_file = optarg;
+          own_config     = true ;
+          break;
+
+        /* Set name for and use integrated configuration file
+         */
+        case 'F':
+          int_config_file = optarg;
+          int_config      = true ;
+          break;
+
+        /* Use integrated configuration file -- redundant if -F
+         */
+        case 'Q':
+          int_config      = true ;
+          break;
+
+        /* Set pid file name
+         */
+        case 'i':
+          pid_file = optarg;
+          break;
+
+        /* Set port to listen on for BGP -- 0 => default.
+         */
+        case 'p':
+          val = strtoul_xr(optarg, &result, NULL, 0, 0xFFFF) ;
+
+          if (result >= 0)
+            {
+              if (val == 0)
+                bm->port = BGP_PORT_DEFAULT ;
+              else
+                bm->port = val ;
+            }
+          else
+            {
+              fprintf(stderr, "%% invalid BGP port '-p %s'\n", optarg) ;
+              invalid_option = true ;
+            } ;
+          break;
+
+        /* Set address to listen on for VTY connections.
+         */
+        case 'A':
+          vty_addr = optarg;
+          break;
+
+        /* Set port to listen on for VTY connections -- 0 => none.
+         */
+        case 'P':
+          val = strtoul_xr(optarg, &result, NULL, 0, 0xFFFF) ;
+
+          if (result >= 0)
+            vty_port = val ;
+          else
+            {
+              fprintf(stderr, "%% invalid BGP port '-p %s'\n", optarg) ;
+              invalid_option = true ;
+            } ;
+          break;
+
+        /* Retain routes after exit from bgpd
+         */
+        case 'r':
+          retain_mode = true ;
+          break;
+
+        /* Set address to listen on for BGP
+         */
+        case 'l':
+          bm->address = optarg;
+          fall_through ;                /* NB: -l => -n                 */
+
+        /* Set "no FIB" option
+         */
+        case 'n':
+          bgp_option_set (BGP_OPT_NO_FIB);
+          break;
+
+        /* Set user to run as.
+         */
+        case 'u':
+          bgpd_privs.user = optarg;
+          break;
+
+        /* Set group to run as.
+         */
+        case 'g':
+          bgpd_privs.group = optarg;
+          break;
+
+        /* Print program version and exit.
+         */
+        case 'v':
+          cmd_print_version (cmd_host_program_name());
+          exit (0);
+          break;
+
+        /* Set "dryrun" option -- read config file and then exit
+         */
+        case 'C':
+          dryrun = true ;
+          break;
+
+        /* Show "help"
+         */
+        case 'h':
+          usage (cmd_host_program_name(), 0);
+          break;
+
+        /* Set threaded option
+         */
+        case 't':
+          pthreaded_option = true ;
+          break;
+
+        /* Set ignore warnings for configuration reading
+         */
+        case 'I':
+          config_ignore_warnings = true ;
+          break ;
+
+        /* Set ASN2 speaker state
+         */
+        case '2':
+          config_as2_speaker = true ;
+          break ;
+
+        /* Show usage "help" and exit
+         */
+        default:
+          usage (cmd_host_program_name(), 1);
+          break;
+        }
+    }
+
+  if (invalid_option)
+    exit(1) ;
+
+  /* Initializations. */
+  bgp_signal_init() ;
+
+  zprivs_init (&bgpd_privs);            /* lowers privileges            */
+
+  bgp_cmd_init() ;                      /* all commands                 */
+
+  vty_init ();
+
+  /* Read config file.
+   *
+   * NB: second state initialisation is done in the threaded_cmd, which must
+   *     either be the first command in the file, or is executed by default
+   *     before the first command in the file.
+   *
+   * NB: if fails to open the configuration file, fails to read anything, or
+   *     it is completely empty (or effectively so), then may still need to do
+   *     second stage initialisation.
+   *
+   *     Also, if there is a vtysh integrated configuration file, will not
+   *     read any bgpd configuration, so will still need to do the second stage
+   *     initialisation.
+   */
+  cmd_host_config_set (own_config_file, own_config,
+                       int_config_file, int_config, int_boot) ;
+
+  cmd_host_pthreaded(pthreaded_option, bgp_init_second_stage) ;
+
+  vty_read_config_new(config_ignore_warnings, false /* show_warnings */) ;
+
+  bm->as2_speaker = config_as2_speaker ;
+
+  /* Start execution only if not in dry-run mode */
+  if (dryrun)
+    return(0);
+
+  /* only the calling thread survives in the child after a fork
+   * so ensure we haven't created any threads yet
+   */
+  assert(!qpthreads_thread_created);
+
+  /* Turn into daemon if daemon_mode is set.    */
+  if (daemon_mode && daemon (0, 0) < 0)
+    {
+      zlog_err("BGPd daemon failed: %s", errtoa(errno, 0).str);
+      return (1);
+    }
+
+  /* Process ID file creation.                  */
+  pid_output (pid_file);
+
+  /* Ready to run VTY now.                      */
+  vty_start(vty_addr, vty_port, BGP_VTYSH_PATH);
+
+  /* Print banner. */
+  if (qdebug)
+    zlog_notice(debug_banner, argv[0], "");
+
+  zlog_notice ("BGPd %s%s starting: vty@%d, bgp@%s:%d",
+               QUAGGA_VERSION,
+               (qpthreads_enabled ? " pthreaded" : ""),
+               vty_port,
+               (bm->address ? bm->address : "<all>"),
+               (int)bm->port);
+
+  /* Launch finite state machine(s) */
+  if (qpthreads_enabled)
+    {
+      void * thread_result = NULL;
+
+      qpn_exec(routing_nexus);
+      qpn_exec(bgp_nexus);
+      qpn_exec(cli_nexus);      /* must be last to start - on main thread */
+
+      /* terminating, wait for all threads to finish */
+      thread_result = qpt_thread_join(routing_nexus->thread_id);
+      thread_result = qpt_thread_join(bgp_nexus->thread_id);
+    }
+  else
+    {
+      qpn_exec(cli_nexus);      /* only nexus - on main thread          */
+    }
+
+  /* Note that from this point forward is running in the main (CLI) thread
+   * and any other threads have been joined
+   */
+  qpt_clear_qpthreads_active() ;
+
+  bgp_exit(0);
 }
 
-/* SIGUSR1 handler. */
-void
-sigusr1 (void)
+/*------------------------------------------------------------------------------
+ * Initialise command handling and all bgpd nodes/commands
+ */
+static void
+bgp_cmd_init(void)
 {
-  zlog_rotate (NULL);
+  cmd_table_init (BGPD);
+
+  bgp_vty_cmd_init() ;          /* Installs all the bgpd nodes  */
+
+  bgp_dump_cmd_init() ;
+  bgp_debug_cmd_init() ;
+  bgp_filter_cmd_init() ;
+  bgp_mplsvpn_cmd_init() ;
+  bgp_route_cmd_init() ;
+  bgp_route_map_cmd_init() ;
+  bgp_scan_cmd_init() ;
+  bgp_show_nexus_cmd_init() ;
+  community_list_cmd_init() ;
+
+  access_list_cmd_init() ;
+  prefix_list_cmd_init();
+
+  cmd_table_complete() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Second stage initialisation and qpthreads_enabled.
+ *
+ * Really want to do this before the configuration file is read.  However,
+ * also want to allow qpthreads to be enabled by configuration file.
+ *
+ * So... configuration file reader has a mechanism to look for a given
+ * command as the *first* in the file and:
+ *
+ *   1. if it's there, invoke the command in the usual way
+ *
+ *   2. if it's not there, invoke the command but with a *negative* count of
+ *      arguments, which signals the "default" nature of the call.
+ *
+ * This mechanism is used so that the "threaded_cmd" is the time at which
+ * second stage initialisation is done.  (But only once -- not on rereading
+ * the configuration file.)
+ */
+
+/*------------------------------------------------------------------------------
+ * Enable or disables pthreads.
+ *
+ * Create the nexus(es).
+ *
+ * Perform any post nexus creation initialization.
+ *
+ * The nexus(es) need to be created as soon as we know the pthread state so
+ * that the message queues are available for configuration commands to send
+ * messages to the bgp_engine.
+ */
+static void
+bgp_init_second_stage(bool pthreads)
+{
+  qlib_init_second_stage(pthreads);
+
+  bgp_peer_index_mutex_init();
+
+  /* Make nexus for main thread, always needed */
+  cli_nexus = qpn_init_new(cli_nexus, 1,                /* main thread  */
+                         qpthreads_enabled ? "CLI thread"
+                                           : "bgpd (no threads)");
+
+  /* if using pthreads create additional nexus */
+  if (qpthreads_enabled)
+    {
+      bgp_nexus     = qpn_init_new(bgp_nexus, 0, "BGP Engine thread");
+      routing_nexus = qpn_init_new(routing_nexus, 0, "Routing Engine thread");
+    }
+  else
+    {
+      /* we all share the single nexus and single thread */
+      bgp_nexus     = cli_nexus;
+      routing_nexus = cli_nexus;
+    }
+
+  /* Tell thread stuff to use this qtimer pile                          */
+  thread_set_qtimer_pile(routing_nexus->pile) ;
+
+  /* Nexus hooks.
+   * Beware if !qpthreads_enabled then there is only 1 nexus object
+   * with all nexus pointers being aliases for it.
+   */
+  qpn_add_hook_function(&routing_nexus->in_thread_init, routing_start) ;
+  qpn_add_hook_function(&bgp_nexus->in_thread_init,  bgp_in_thread_init) ;
+
+  qpn_add_hook_function(&routing_nexus->in_thread_final, routing_finish) ;
+  qpn_add_hook_function(&bgp_nexus->in_thread_final, bgp_close_listeners) ;
+
+  qpn_add_hook_function(&routing_nexus->foreground, routing_foreground) ;
+  qpn_add_hook_function(&bgp_nexus->foreground, bgp_connection_queue_process) ;
+
+  qpn_add_hook_function(&routing_nexus->background, routing_background) ;
+
+  confirm(qpn_hooks_max >= 2) ;
+
+  /* vty and zclient can use either nexus or threads.
+   * For bgp client we always want nexus, regardless of pthreads.
+   */
+  vty_init_r(cli_nexus, routing_nexus);
+  zclient_init_r(routing_nexus);
+
+  /* Now we have our nexus we can init BGP. */
+  /* BGP related initialization.  */
+  bgp_init ();
+} ;
+
+/*------------------------------------------------------------------------------
+ * bgp_nexus in-thread initialization
+ *
+ * This is invoked when the BGP Engine nexus is started.
+ */
+static void
+bgp_in_thread_init(void)
+{
+  bgp_open_listeners(bm->address, bm->port);
+}
+
+/*------------------------------------------------------------------------------
+ * routing_nexus in-thread initialisation/finish -- for gdb !
+ *
+ * This is invoked when the Routing Engine nexus is started.
+ */
+static int routing_started = 0 ;
+
+static void
+routing_start(void)
+{
+  routing_started = 1 ;
+}
+
+static void
+routing_finish(void)
+{
+  routing_started = 0 ;
+}
+
+/*------------------------------------------------------------------------------
+ * legacy threads in routing engine
+ */
+static int
+routing_foreground(void)
+{
+  return thread_dispatch(master) ;
+}
+
+/*------------------------------------------------------------------------------
+ * background threads in routing engine
+ */
+static int
+routing_background(void)
+{
+  return thread_dispatch_background(master) ;
 }
 
 /*------------------------------------------------------------------------------
@@ -335,22 +730,18 @@ bgp_exit (int status)
   /* reverse prefix_list_init */
   prefix_list_add_hook (NULL);
   prefix_list_delete_hook (NULL);
-  prefix_list_reset ();
+  prefix_list_reset (free_it);
 
   /* reverse community_list_init */
   community_list_terminate (bgp_clist);
 
-  cmd_terminate ();
+  cmd_table_terminate ();
   vty_terminate ();
 
   if (zclient)
     zclient_free (zclient);
   if (zlookup)
     zclient_free (zlookup);
-
-  /* reverse bgp_master_init */
-  if (master)
-    thread_master_free (master);
 
   if (zlog_default)
     closezlog (zlog_default);
@@ -363,359 +754,98 @@ bgp_exit (int status)
     } ;
   cli_nexus = qpn_reset(cli_nexus, free_it);
 
-  if (CONF_BGP_DEBUG (normal, NORMAL))
-    log_memstats_stderr ("bgpd");
+  host_finish() ;
 
-  qexit (status);
+  qexit (status, (CONF_BGP_DEBUG (normal, NORMAL) || qdebug)) ;
+}
+
+/*==============================================================================
+ * Signal Handling.
+ *
+ * Actual signals are caught in lib/sigevent.  When a signal is caught, a flag
+ * is set and the immediate signal handler returns.
+ *
+ * Those flags are polled in the qpnexus loop, and the Quagga level signal
+ * handler called -- in the main (CLI) thread.
+ */
+
+static void sighup (void);
+static void sigterm (void);
+static void sigusr1 (void);
+
+static void sighup_suspend_action(void) ;
+static void sighup_restart_action(void) ;
+static void sigterm_action(void) ;
+
+static struct quagga_signal_t bgp_signals[] =
+{
+  {
+    .signal = SIGHUP,
+    .handler = &sighup,
+  },
+  {
+    .signal = SIGUSR1,
+    .handler = &sigusr1,
+  },
+  {
+    .signal = SIGTERM,
+    .handler = &sigterm,
+  },
+  {
+    .signal = SIGINT,
+    .handler = &sigterm,
+  },
+};
+
+/*------------------------------------------------------------------------------
+ *
+ */
+static void
+bgp_signal_init(void)
+{
+  signal_init(master, Q_SIGC(bgp_signals), bgp_signals) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * SIGHUP handler.
+ *
+ * The vty level is reset, closing all terminals and vtysh servers, and
+ * closing all listeners.
+ *
+ * A message is sent to the Routeing Engine to restart.
+ *
+ * When the Routeing Engine has restarted, it will send a message to the CLI
+ * to restart the listeners.
+ */
+void
+sighup (void)
+{
+  const char* result ;
+
+  result = vty_suspend("reloading configuration (SIGHUP)",
+                                                         sighup_suspend_action);
+
+  zlog_info("SIGHUP received: %s to reload configuration", result) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * SIGINT and SIGTERM handler.
+ */
+void
+sigterm(void)
+{
+  zlog_notice ("Terminating on signal");
+
+  vty_stop("Terminating on signal (SIGTERM/SIGINT)", sigterm_action);
 }
 
 /*------------------------------------------------------------------------------
- * Second stage initialisation and qpthreads_enabled.
- *
- * Really want to do this before the configuration file is read.  However,
- * also want to allow qpthreads to be enabled by configuration file.
- *
- * So... configuration file reader has a mechanism to look for a given
- * command as the *first* in the file and:
- *
- *   1. if it's there, invoke the command in the usual way
- *
- *   2. if it's not there, invoke the command but with a *negative* count of
- *      arguments, which signals the "default" nature of the call.
- *
- * This mechanism is used so that the "threaded_cmd" is the time at which
- * second stage initialisation is done.  (But only once -- not on rereading
- * the configuration file.)
+ * SIGUSR1 handler.
  */
-
-/* Threaded command.  If present must be the first command in the
- * configuration file.  If not the first command it will log and abort.
- */
-DEFUN_HID_CALL (threaded,
-       threaded_cmd,
-       "threaded",
-       "Use pthreads\n")
+void
+sigusr1 (void)
 {
-  if (argc == 0)
-    config_threaded = true ;    /* Explicit command => turn on threading */
-
-  if (!done_2nd_stage_init)
-    init_second_stage(config_threaded) ;
-  else
-    vty_out(vty, "pthreads are %s\n", qpthreads_enabled ? "enabled"
-                                                        : "disabled") ;
-  return CMD_SUCCESS;
-}
-
-/* Enable or disables pthreads.  Create the nexus(es). Perform
- * any post nexus creation initialization. The nexus(es) need
- * to be created as soon as we know the pthread state so that
- * the message queues are available for the configuration data.
- */
-static void
-init_second_stage(bool pthreads)
-{
-  assert(!done_2nd_stage_init) ;
-
-  done_2nd_stage_init = 1;
-
-  qlib_init_second_stage(pthreads);
-  bgp_peer_index_mutex_init();
-
-  /* Make nexus for main thread, always needed */
-  cli_nexus = qpn_init_new(cli_nexus, 1,                /* main thread  */
-                         qpthreads_enabled ? "CLI thread"
-                                           : "bgpd (no threads)");
-
-  /* if using pthreads create additional nexus */
-  if (qpthreads_enabled)
-    {
-      bgp_nexus     = qpn_init_new(bgp_nexus, 0, "BGP Engine thread");
-      routing_nexus = qpn_init_new(routing_nexus, 0, "Routing Engine thread");
-    }
-  else
-    {
-      /* we all share the single nexus and single thread */
-      bgp_nexus     = cli_nexus;
-      routing_nexus = cli_nexus;
-    }
-
-  /* Tell thread stuff to use this qtimer pile                          */
-  thread_set_qtimer_pile(routing_nexus->pile) ;
-
-  /* Nexus hooks.
-   * Beware if !qpthreads_enabled then there is only 1 nexus object
-   * with all nexus pointers being aliases for it.
-   */
-  qpn_add_hook_function(&routing_nexus->in_thread_init, routing_start) ;
-  qpn_add_hook_function(&bgp_nexus->in_thread_init,  bgp_in_thread_init) ;
-
-  qpn_add_hook_function(&routing_nexus->in_thread_final, routing_finish) ;
-  qpn_add_hook_function(&bgp_nexus->in_thread_final, bgp_close_listeners) ;
-
-  qpn_add_hook_function(&routing_nexus->foreground, routing_foreground) ;
-  qpn_add_hook_function(&bgp_nexus->foreground, bgp_connection_queue_process) ;
-
-  qpn_add_hook_function(&routing_nexus->background, routing_background) ;
-
-  confirm(qpn_hooks_max >= 2) ;
-
-  /* vty and zclient can use either nexus or threads.
-   * For bgp client we always want nexus, regardless of pthreads.
-   */
-  vty_init_r(cli_nexus, routing_nexus);
-  zclient_init_r(routing_nexus);
-
-  /* Now we have our nexus we can init BGP. */
-  /* BGP related initialization.  */
-  bgp_init ();
-
-  bgp_show_nexus_init() ;
-
-  /* Sort CLI commands. */
-  sort_node ();
-}
-
-/* Main routine of bgpd. Treatment of argument and start bgp finite
-   state machine is handled at here. */
-int
-main (int argc, char **argv)
-{
-  char *p;
-  int  opt;
-  bool daemon_mode = false ;
-  bool dryrun      = false ;
-  char *progname;
-  int  tmp_port;
-
-  /* Set umask before anything for security */
-  umask (0027);
-
-  if (qdebug)
-    fprintf(stderr, "%s\n", debug_banner);
-
-  qlib_init_first_stage();
-
-  /* Preserve name of myself. */
-  progname = ((p = strrchr (argv[0], '/')) ? ++p : argv[0]);
-
-  zlog_default = openzlog (progname, ZLOG_BGP,
-			   LOG_CONS|LOG_NDELAY|LOG_PID, LOG_DAEMON);
-
-  /* BGP master init. */
-  bgp_master_init ();
-
-  /* Command line argument treatment. */
-  while (1)
-    {
-      opt = getopt_long (argc, argv, "df:i:hp:l:A:P:rnu:g:vCtI2", longopts, 0);
-
-      if (opt == EOF)
-	break;
-
-      switch (opt)
-	{
-	case 0:
-	  break;
-	case 'd':
-	  daemon_mode = true ;
-	  break;
-	case 'f':
-	  config_file = optarg;
-	  break;
-        case 'i':
-          pid_file = optarg;
-          break;
-	case 'p':
-	  tmp_port = atoi (optarg);
-	  if (tmp_port <= 0 || tmp_port > 0xffff)
-	    bm->port = BGP_PORT_DEFAULT;
-	  else
-	    bm->port = tmp_port;
-	  break;
-	case 'A':
-	  vty_addr = optarg;
-	  break;
-	case 'P':
-          /* Deal with atoi() returning 0 on failure, and bgpd not
-             listening on bgp port... */
-          if (strcmp(optarg, "0") == 0)
-            {
-              vty_port = 0;
-              break;
-            }
-          vty_port = atoi (optarg);
-	  if (vty_port <= 0 || vty_port > 0xffff)
-	    vty_port = BGP_VTY_PORT;
-	  break;
-	case 'r':
-	  retain_mode = true ;
-	  break;
-	case 'l':
-	  bm->address = optarg;
-	  /* listenon implies -n */
-	case 'n':
-	  bgp_option_set (BGP_OPT_NO_FIB);
-	  break;
-	case 'u':
-	  bgpd_privs.user = optarg;
-	  break;
-	case 'g':
-	  bgpd_privs.group = optarg;
-	  break;
-	case 'v':
-	  print_version (progname);
-	  exit (0);
-	  break;
-	case 'C':
-	  dryrun = true ;
-	  break;
-	case 'h':
-	  usage (progname, 0);
-	  break;
-        case 't':
-          config_threaded = true ;
-          break;
-        case 'I':
-          config_ignore_warnings = true ;
-	  break ;
-        case '2':
-          config_as2_speaker = true ;
-          break ;
-	default:
-	  usage (progname, 1);
-	  break;
-	}
-    }
-
-  /* Make thread master. */
-  master = bm->master;
-
-  /* Initializations. */
-  srand (time (NULL));
-  signal_init (master, Q_SIGC(bgp_signals), bgp_signals);
-
-  cmd_getcwd() ;                        /* while have privilege         */
-
-  zprivs_init (&bgpd_privs);            /* lowers privileges            */
-
-  cmd_init (1);
-  install_element (CONFIG_NODE, &threaded_cmd);
-  vty_init (master);
-  memory_init ();
-
-  /* Read config file.
-   *
-   * NB: second state initialisation is done in the threaded_cmd, which must
-   *     either be the first command in the file, or is executed by default
-   *     before the first command in the file.
-   *
-   * NB: if fails to open the configuration file, fails to read anything, or
-   *     it is completely empty (or effectively so), then may still need to do
-   *     second stage initialisation.
-   */
-  done_2nd_stage_init = 0 ;
-
-  vty_read_config_first_cmd_special(config_file, config_default,
-                                        &threaded_cmd, config_ignore_warnings) ;
-
-  if (!done_2nd_stage_init)
-    init_second_stage(config_threaded) ;
-
-  bm->as2_speaker = config_as2_speaker ;
-
-  /* Start execution only if not in dry-run mode */
-  if (dryrun)
-    return(0);
-
-  /* only the calling thread survives in the child after a fork
-   * so ensure we haven't created any threads yet
-   */
-  assert(!qpthreads_thread_created);
-
-  /* Turn into daemon if daemon_mode is set.    */
-  if (daemon_mode && daemon (0, 0) < 0)
-    {
-      zlog_err("BGPd daemon failed: %s", errtoa(errno, 0).str);
-      return (1);
-    }
-
-  /* Process ID file creation.                  */
-  pid_output (pid_file);
-
-  /* Ready to run VTY now.                      */
-  vty_start(vty_addr, vty_port, BGP_VTYSH_PATH);
-
-  /* Print banner. */
-  if (qdebug)
-    zlog_notice("%s", debug_banner);
-
-  zlog_notice ("BGPd %s%s starting: vty@%d, bgp@%s:%d",
-               QUAGGA_VERSION,
-               (qpthreads_enabled ? " pthreaded" : ""),
-	       vty_port,
-	       (bm->address ? bm->address : "<all>"),
-	       (int)bm->port);
-
-  /* Launch finite state machine(s) */
-  if (qpthreads_enabled)
-    {
-      void * thread_result = NULL;
-
-      qpn_exec(routing_nexus);
-      qpn_exec(bgp_nexus);
-      qpn_exec(cli_nexus);      /* must be last to start - on main thread */
-
-      /* terminating, wait for all threads to finish */
-      thread_result = qpt_thread_join(routing_nexus->thread_id);
-      thread_result = qpt_thread_join(bgp_nexus->thread_id);
-    }
-  else
-    {
-      qpn_exec(cli_nexus);      /* only nexus - on main thread          */
-    }
-
-  /* Note that from this point forward is running in the main (CLI) thread
-   * and any other threads have been joined and their nexuses freed.
-   */
-  bgp_exit(0);
-}
-
-/* bgp_nexus in-thread initialization                   */
-static void
-bgp_in_thread_init(void)
-{
-  bgp_open_listeners(bm->address, bm->port);
-}
-
-/* routing_nexus in-thread initialization -- for gdb !  */
-
-static int routing_started = 0 ;
-
-static void
-routing_start(void)
-{
-  routing_started = 1 ;
-}
-
-static void
-routing_finish(void)
-{
-  routing_started = 0 ;
-}
-
-/* legacy threads in routing engine                     */
-static int
-routing_foreground(void)
-{
-  return thread_dispatch(master) ;
-}
-
-/* background threads in routing engine */
-static int
-routing_background(void)
-{
-  return thread_dispatch_background(master) ;
+  zlog_rotate (NULL);
 }
 
 /*==============================================================================
@@ -723,39 +853,45 @@ routing_background(void)
  */
 
 /*------------------------------------------------------------------------------
- * SIGHUP: message sent to Routeing engine and the action it then takes.
+ * This runs in the Routing Engine.
+ *
+ * The SIGHUP was dealt with above (in the CLI thread), and has been passed,
+ * message-wise to the Routing Engine -- as a priority message.  This at least
+ * means that the Routing Engine completed any command that it might have been
+ * executing when the SIGHUP arrived.
+ *
+ * The CLI thread has set about suspending any running VTY.
+ *
+ * When vty_dispatch_restart() is called, the vty will arrange to wait until
+ * all VTY have suspended, and will then call sighup_restart_action.
  */
 static void
-sighup_enqueue(void)
+sighup_suspend_action(void)
 {
-  mqueue_block mqb = mqb_init_new(NULL, sighup_action, NULL) ;
+  zlog_info ("bgpd restarting!");
 
-  mqueue_enqueue(routing_nexus->queue, mqb, mqb_priority) ;
-}
+  bgp_terminate (false, false);
+  bgp_reset ();
 
-/* dispatch a command from the message queue block */
+  vty_dispatch_restart(sighup_restart_action) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * This runs in the Routing Engine.
+ *
+ * All vty are now suspended.  Can now re-read the configuration.  Once that
+ * starts it will run to completion -- unless interrupted by SIGTERM/SIGINT.
+ *
+ * When vty_resume is called, any remaining vty will resume -- unless has
+ * been interrupted by SIGTERM/SIGINT.
+ */
 static void
-sighup_action(mqueue_block mqb, mqb_flag_t flag)
+sighup_restart_action(void)
 {
-  if ((flag == mqb_action) && !program_terminating)
-    {
-      zlog_info ("bgpd restarting!");
+  vty_read_config_new(config_ignore_warnings, false /* show_warnings */) ;
 
-      bgp_terminate (false, false);     /* send notifies                */
-      bgp_reset ();
-
-      /* Reload config file -- no special first command, now            */
-      vty_read_config_first_cmd_special(config_file, config_default,
-                                                 NULL, config_ignore_warnings) ;
-
-      /* Create VTY's socket                                            */
-      vty_restart(vty_addr, vty_port, BGP_VTYSH_PATH);
-
-      /* Try to return to normal operation.                             */
-    }
-
-  mqb_free(mqb);
-}
+  vty_resume() ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Foreground task to see if all peers have been deleted yet.
@@ -784,21 +920,14 @@ program_terminate_if_all_peers_deleted(void)
 } ;
 
 /*------------------------------------------------------------------------------
- * SIGTERM: message sent to Routeing engine and the action it then takes.
+ * This runs in the Routing Engine.
+ *
+ *
  */
 static void
-sigterm_enqueue(void)
+sigterm_action(void)
 {
-  mqueue_block mqb = mqb_init_new(NULL, sigterm_action, NULL) ;
-
-  mqueue_enqueue(routing_nexus->queue, mqb, mqb_priority) ;
-} ;
-
-/* dispatch a command from the message queue block */
-static void
-sigterm_action(mqueue_block mqb, mqb_flag_t flag)
-{
-  if ((flag == mqb_action) && !program_terminating)
+  if (!program_terminating)
     {
       /* send notify to all peers, wait for all sessions to be disables
        * then terminate all pthreads
@@ -810,8 +939,6 @@ sigterm_action(mqueue_block mqb, mqb_flag_t flag)
       qpn_add_hook_function(&routing_nexus->foreground,
                                        program_terminate_if_all_peers_deleted) ;
     }
-
-  mqb_free(mqb);
 } ;
 
 /*==============================================================================
@@ -853,11 +980,18 @@ DEFUN_CALL(bgp_show_nexus,
   return CMD_SUCCESS ;
 } ;
 
-static void
-bgp_show_nexus_init(void)
+CMD_INSTALL_TABLE(static, bgp_main_show_nexus_cmd_table, BGPD) =
 {
-  install_element (VIEW_NODE, &bgp_show_nexus_cmd);
-  install_element (ENABLE_NODE, &bgp_show_nexus_cmd);
+  { VIEW_NODE,       &bgp_show_nexus_cmd                                },
+  { ENABLE_NODE,     &bgp_show_nexus_cmd                                },
+
+  CMD_INSTALL_END
+} ;
+
+static void
+bgp_show_nexus_cmd_init(void)
+{
+  cmd_install_table(bgp_main_show_nexus_cmd_table) ;
 } ;
 
 static void

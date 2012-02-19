@@ -167,7 +167,7 @@ bgp_peer_index_reset(void)
   sym = NULL ;
   while ((sym = symbol_table_ream(bgp_peer_index, sym, NULL)) != NULL)
     ;
-  bgp_peer_index = NULL ;
+  bgp_peer_index = symbol_table_free(bgp_peer_index) ;
 
   /* Discard the empty chunks of entries                                */
   while (bgp_peer_id_table != NULL)
@@ -191,7 +191,7 @@ bgp_peer_index_reset(void)
 extern void
 bgp_peer_index_mutex_free(void)
 {
-  qpt_mutex_destroy_free(bgp_peer_index_mutex) ;
+  qpt_mutex_destroy(bgp_peer_index_mutex, free_it) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -208,7 +208,7 @@ bgp_peer_index_register(bgp_peer peer, sockunion su)
   bgp_peer_index_entry entry ;
   symbol sym ;
 
-  BGP_PEER_INDEX_LOCK() ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_PEER_INDEX_LOCK() ;    /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<*/
 
   /* First need an entry, which allocates a peer_id.  May need to extend
    * the bgp_peer_id_table -- so need to be locked for this.
@@ -232,7 +232,7 @@ bgp_peer_index_register(bgp_peer peer, sockunion su)
   sym = symbol_lookup(bgp_peer_index, &entry->su, add) ;
   entry = symbol_set(sym, entry) ;
 
-  BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  BGP_PEER_INDEX_UNLOCK() ;  /*->->->->->->->->->->->->->->->->->->->->->->-->*/
 
   passert(entry == NULL) ;   /* Must be new entry */
 } ;
@@ -256,7 +256,7 @@ bgp_peer_index_deregister(bgp_peer peer, sockunion su)
   bgp_peer_index_entry entry ;
   symbol  sym ;
 
-  BGP_PEER_INDEX_LOCK() ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_PEER_INDEX_LOCK() ;    /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<*/
 
   sym = symbol_lookup(bgp_peer_index, su, no_add) ;
   passert(sym != NULL) ;
@@ -269,7 +269,7 @@ bgp_peer_index_deregister(bgp_peer peer, sockunion su)
 
   bgp_peer_id_table_free_entry(entry) ;
 
-  BGP_PEER_INDEX_UNLOCK() ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  BGP_PEER_INDEX_UNLOCK() ;  /*->->->->->->->->->->->->->->->->->->->->->->-->*/
 } ;
 
 /*------------------------------------------------------------------------------
@@ -323,11 +323,11 @@ bgp_peer_index_seek_entry(sockunion su)
 extern void
 bgp_peer_index_set_session(bgp_peer peer, bgp_session session)
 {
-  BGP_PEER_INDEX_LOCK() ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_PEER_INDEX_LOCK() ;   /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
   peer->session = session ;
 
-  BGP_PEER_INDEX_UNLOCK() ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  BGP_PEER_INDEX_UNLOCK() ; /*->->->->->->->->->->->->->->->->->->->->->->->->*/
 } ;
 
 /*------------------------------------------------------------------------------
@@ -355,7 +355,7 @@ bgp_peer_index_seek_accept(union sockunion* su, bool* p_found)
   bgp_connection       accept ;
   bgp_peer_index_entry entry ;
 
-  BGP_PEER_INDEX_LOCK() ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_PEER_INDEX_LOCK() ;   /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
   entry = symbol_get_value(symbol_lookup(bgp_peer_index, su, no_add)) ;
 
@@ -370,7 +370,7 @@ bgp_peer_index_seek_accept(union sockunion* su, bool* p_found)
       accept   = NULL ;
     } ;
 
-  BGP_PEER_INDEX_UNLOCK() ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  BGP_PEER_INDEX_UNLOCK() ; /*->->->->->->->->->->->->->->->->->->->->->->->->*/
 
   return accept ;
 } ;

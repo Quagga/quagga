@@ -68,8 +68,7 @@ enum { vio_fifo_debug = VIO_FIFO_DEBUG } ;
 /*==============================================================================
  * Data Structures
  *
- * Note that the main fifo structure contains the first "lump", so the fifo
- * always contains at least one.
+ * Note that we do not support an embedded fifo.
  */
 typedef struct vio_fifo_lump  vio_fifo_lump_t ;
 typedef struct vio_fifo_lump* vio_fifo_lump ;
@@ -105,24 +104,16 @@ struct vio_fifo
 
   ulen    size ;                /* set when initialised                   */
 
-  vio_fifo_lump   spare ;       /* may be "own_lump"                      */
-
-  vio_fifo_lump_t own_lump[] ;  /* embedded lump                          */
+  vio_fifo_lump   spare ;       /* keep back one spare when clearing      */
 } ;
 
-typedef struct vio_fifo  vio_fifo_t[1] ;        /* embedded     */
+typedef struct vio_fifo  vio_fifo_t ;
 typedef struct vio_fifo* vio_fifo ;
 
-/* Setting a FIFO object to all zeros is enough to initialise it to an
- * empty FIFO (with default lump sizes).
- */
 enum
 {
-  VIO_FIFO_INIT_ALL_ZEROS     = true,
   VIO_FIFO_DEFAULT_LUMP_SIZE  = 4 * 1024
 } ;
-
-#define VIO_FIFO_INIT_EMPTY  { 0 }
 
 /*==============================================================================
  * Functions
@@ -130,17 +121,21 @@ enum
 extern vio_fifo vio_fifo_new(ulen size) ;
 extern vio_fifo vio_fifo_free(vio_fifo vff) ;
 
-extern void vio_fifo_clear(vio_fifo vff, bool clear_marks) ;
-Inline bool vio_fifo_empty(vio_fifo vff) ;
-Inline bool vio_fifo_tail_empty(vio_fifo vff) ;
+extern void vio_fifo_clear(vio_fifo vff) ;
+extern void vio_fifo_reset(vio_fifo vff) ;
 
+Inline bool vio_fifo_is_empty(vio_fifo vff) ;
+Inline bool vio_fifo_is_quite_empty(vio_fifo vff) ;
+Inline bool vio_fifo_is_tail_empty(vio_fifo vff) ;
+
+extern void vio_fifo_put_string(vio_fifo vff, const char* src) ;
 extern void vio_fifo_put_bytes(vio_fifo vff, const char* src, ulen n) ;
 Inline void vio_fifo_put_byte(vio_fifo vff, char b) ;
 
 extern int vio_fifo_printf(vio_fifo vff, const char* format, ...)
                                                         PRINTF_ATTRIBUTE(2, 3) ;
 extern int vio_fifo_vprintf(vio_fifo vff, const char *format, va_list args) ;
-extern int vio_fifo_read_nb(vio_fifo vff, int fd, ulen request) ;
+extern int vio_fifo_read_nb(vio_fifo vff, int fd, ulen require, ulen request) ;
 extern void vio_fifo_trim(vio_fifo vff, bool term) ;
 
 extern ulen vio_fifo_get_bytes(vio_fifo vff, void* dst, ulen n) ;
@@ -152,6 +147,7 @@ Inline ulen vio_fifo_step_get(vio_fifo vff, ulen step) ;
 
 extern vio_fifo vio_fifo_copy(vio_fifo dst, vio_fifo src) ;
 extern vio_fifo vio_fifo_copy_tail(vio_fifo dst, vio_fifo src) ;
+extern vio_fifo vio_fifo_move(vio_fifo dst, vio_fifo src) ;
 
 extern int vio_fifo_write_nb(vio_fifo vff, int fd, bool all) ;
 extern int vio_fifo_fwrite(vio_fifo vff, FILE* file) ;
@@ -160,7 +156,7 @@ extern void vio_fifo_skip_to_end(vio_fifo vff) ;
 extern void vio_fifo_set_end_mark(vio_fifo vff) ;
 extern void vio_fifo_step_end_mark(vio_fifo vff) ;
 extern void vio_fifo_clear_end_mark(vio_fifo vff) ;
-extern void vio_fifo_back_to_end_mark(vio_fifo vff, bool keep) ;
+extern void vio_fifo_back_to_end_mark(vio_fifo vff) ;
 extern void vio_fifo_set_hold_mark(vio_fifo vff) ;
 extern void vio_fifo_clear_hold_mark(vio_fifo vff) ;
 extern void vio_fifo_back_to_hold_mark(vio_fifo vff, on_off_b on) ;
@@ -181,20 +177,37 @@ Private void vio_fifo_add_lump(vio_fifo vff) ;
 Private void vio_fifo_sync_get(vio_fifo vff) ;
 
 /*------------------------------------------------------------------------------
- * Returns true <=> FIFO is empty -- at least: get_ptr == end_ptr (if any)
- *                                         or: get_ptr == put_ptr.
+ * Returns true <=> FIFO is empty -- at least up to the end_ptr (if any)
+ *
+ * If there is an end marker, then there may be stuff beyond there.
+ *
+ * This test of emptiness is consistent with the various get operations, which
+ * do not read past the end marker if there is one.
  */
 Inline bool
-vio_fifo_empty(vio_fifo vff)
+vio_fifo_is_empty(vio_fifo vff)
 {
   return (vff == NULL) || (vff->get_ptr == *vff->p_end) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Returns true <=> FIFO is completely empty.
+ *
+ * So, ignoring the end marker, if there is one, see if the FIFO is empty.
+ *
+ * This is equivalent to: vio_fifo_is_empty(vff) && vio_fifo_is_tail_empty(vff)
+ */
+Inline bool
+vio_fifo_is_quite_empty(vio_fifo vff)
+{
+  return (vff == NULL) || (vff->get_ptr == vff->put_ptr) ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Returns true <=> FIFO is empty beyond end_ptr (if any).
  */
 Inline bool
-vio_fifo_tail_empty(vio_fifo vff)
+vio_fifo_is_tail_empty(vio_fifo vff)
 {
   /* if vff is NULL, treat as empty !
    * if end_ptr is NULL, then tail is empty !
@@ -245,7 +258,7 @@ vio_fifo_get_byte(vio_fifo vff)
  * There will always be at least 1 byte available in the current lump, unless
  * the FIFO is empty, or at the end mark.
  *
- * Returns: address of bytes to get
+ * Returns: number of bytes available at vio_fifo_get_ptr().
  */
 Inline ulen
 vio_fifo_get(vio_fifo vff)
@@ -284,7 +297,9 @@ vio_fifo_step(vio_fifo vff, ulen step)
 } ;
 
 /*------------------------------------------------------------------------------
- * vio_fifo_step() forllowed by vio_fifo_get() !
+ * vio_fifo_step() followed by vio_fifo_get() !
+ *
+ * Can start with a step == 0.
  */
 Inline ulen
 vio_fifo_step_get(vio_fifo vff, ulen step)

@@ -19,6 +19,7 @@
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 
@@ -30,3 +31,5 @@ extern void route_read (void)
 {
   netlink_route_read ();
 }
+
+#endif /* VTYSH_EXTRACT_PL */

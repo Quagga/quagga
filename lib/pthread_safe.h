@@ -23,26 +23,32 @@
 #define PTHREAD_SAFE_H_
 
 #include <netinet/in.h>
+#include <pwd.h>
 
-typedef struct strerror strerror_t ;
-struct strerror
-{
-  char str[120] ;       /* cannot imagine anything as big       */
-} ;
+#include "qstring.h"
+#include "qfstring.h"
+
+QFB_T(150) strerror_t ;
 
 extern void safe_init_r(void);
 extern void safe_finish(void);
 
-extern strerror_t errtoa(int err, uint len) ;
-extern strerror_t errtoname(int err, uint len) ;
-extern strerror_t errtostr(int err, uint len) ;
+extern strerror_t errtoa(int err, ulen len) ;
+extern strerror_t errtoname(int err, ulen len) ;
+extern strerror_t errtostr(int err, ulen len) ;
 
-extern strerror_t eaitoa(int eai, int err, uint len) ;
-extern strerror_t eaitoname(int eai, int err, uint len) ;
-extern strerror_t eaitostr(int eai, int err, uint len) ;
+extern strerror_t eaitoa(int eai, int err, ulen len) ;
+extern strerror_t eaitoname(int eai, int err, ulen len) ;
+extern strerror_t eaitostr(int eai, int err, ulen len) ;
 
 extern int getenv_r(const char* name, char* buf, int buf_len) ;
 extern const char * safe_strerror(int errnum);
 extern const char * safe_inet_ntoa (struct in_addr in);
+
+extern int safe_getpwnam(const char* name, struct passwd** p_pwd, void* buf,
+                                                                     ulen size);
+extern int safe_getpwuid(uid_t id, struct passwd** p_pwd, void* buf, ulen size);
+
+extern qstring qcrypt(const char* text, const char* salt) ;
 
 #endif /* PTHREAD_SAFE_H_ */

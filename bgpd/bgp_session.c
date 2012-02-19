@@ -32,7 +32,7 @@
 #include "bgpd/bgp_network.h"
 
 #include "bgpd/bgp_packet.h"
-#include "bgp_debug.h"
+#include "bgpd/bgp_debug.h"
 
 #include "lib/memory.h"
 #include "lib/sockunion.h"
@@ -237,9 +237,9 @@ bgp_session_delete(bgp_peer peer)
    * Without this, the qpt_mutex_destroy() can fail horribly, if the BGP
    * Engine sends the disable acknowledge before finally unlocking the session.
    */
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_SESSION_LOCK(session) ;   /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
-  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  BGP_SESSION_UNLOCK(session) ; /*->->->->->->->->->->->->->->->->->->->->*/
 
   qpt_mutex_destroy(session->mutex, 0) ;
 
@@ -413,12 +413,12 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
     {
       bgp_session session = mqb_get_arg0(mqb) ;
 
-      BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+      BGP_SESSION_LOCK(session) ;   /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
       session->active = true ;
       bgp_fsm_enable_session(session) ;
 
-      BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+      BGP_SESSION_UNLOCK(session) ; /*->->->->->->->->->->->->->->->->->->->->*/
     } ;
 
   mqb_free(mqb) ;
@@ -673,27 +673,27 @@ bgp_session_do_update_send(mqueue_block mqb, mqb_flag_t flag)
 /*------------------------------------------------------------------------------
  * Routing Engine: are we in XON state ?
  */
-extern int
+extern bool
 bgp_session_is_XON(bgp_peer peer)
 {
-  int result = 0;
-  bgp_session session = peer->session;
-
-  result = (session->flow_control > 0);
-
-  return result;
+  return peer->session->flow_control > 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Count down flow control -- signal if reached XON point.
+ * Count down flow control -- return true if reached XON point.
  */
-extern int
+extern bool
 bgp_session_dec_flow_count(bgp_peer peer)
 {
   bgp_session session = peer->session;
 
-  assert(session->flow_control > 0) ;
-  return (--session->flow_control == BGP_XON_KICK) ;
+  qassert(session->flow_control > 0) ;
+
+  if (session->flow_control > 0)
+    return (--session->flow_control == BGP_XON_KICK) ;
+
+  session->flow_control = 0 ;
+  return false ;
 } ;
 
 /*==============================================================================
@@ -987,7 +987,7 @@ bgp_session_do_set_ttl(mqueue_block mqb, mqb_flag_t flag)
       bgp_session session = mqb_get_arg0(mqb) ;
       struct bgp_session_ttl_args *args = mqb_get_args(mqb) ;
 
-      BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+      BGP_SESSION_LOCK(session) ;   /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
       session->ttl  = args->ttl ;
       session->gtsm = args->gtsm ;
@@ -997,7 +997,7 @@ bgp_session_do_set_ttl(mqueue_block mqb, mqb_flag_t flag)
       bgp_set_new_ttl(session->connections[bgp_connection_secondary],
                                                   session->ttl, session->gtsm) ;
 
-      BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+      BGP_SESSION_UNLOCK(session) ; /*->->->->->->->->->->->->->->->->->->->->*/
     }
 
   mqb_free(mqb) ;
@@ -1062,9 +1062,9 @@ bgp_session_get_stats(bgp_session session, struct bgp_session_stats *stats)
       return;
     }
 
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_SESSION_LOCK(session) ;   /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
   *stats = session->stats;
 
-  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  BGP_SESSION_UNLOCK(session) ; /*->->->->->->->->->->->->->->->->->->->->->->*/
 }

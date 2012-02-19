@@ -264,11 +264,12 @@ prefix_master_init(struct prefix_master * pm)
 {
   memset(pm, 0, sizeof(struct prefix_master)) ;
 
-  pm->table = symbol_table_new(pm, 20, 200, &prefix_symbol_funcs) ;
+  pm->table = symbol_table_new(pm, 50, 200, &prefix_symbol_funcs) ;
   pm->seqnum_flag = true ;	/* Default is to generate sequence numbers  */
 } ;
 
-/* Reset given prefix_master.
+/*------------------------------------------------------------------------------
+ * Reset given prefix_master.
  *
  * Frees all prefix lists and empties the symbol table.  Any references to
  * prefix lists are the responsibility of the reference owners.
@@ -277,11 +278,15 @@ prefix_master_init(struct prefix_master * pm)
  *
  * Retains current add_hook and delete_hook functions.
  *
- * NB: result needs to be reinitialsed before it can be used again -- in
- *     particular, the symbol table has been freed !
+ * NB: if "keep_it", the prefix_master may continue to be used.  Has reset to
+ *     the default sequence numbering state.  Retains current add_hook and
+ *     delete_hook functions.
+ *
+ *     if "free_it", will discard the symbol table, so needs to be
+ *     re-initialised before further use.
  */
 static void
-prefix_master_reset(struct prefix_master * pm)
+prefix_master_reset(struct prefix_master * pm, free_keep_b free)
 {
   struct prefix_list* plist ;
   symbol sym ;
@@ -295,6 +300,9 @@ prefix_master_reset(struct prefix_master * pm)
 
   pm->recent = NULL ;
   prefix_dup_cache_free(pm) ;
+
+  if (free == free_it)
+    pm->table = symbol_table_free(pm->table) ;
 } ;
 
 /* Add hook function. */
@@ -385,7 +393,7 @@ static void
 prefix_dup_cache_free(struct prefix_master* pm)
 {
   pm->cache_owner   = NULL ;
-  vector_reset(&pm->dup_cache, 0) ;
+  vector_reset(&pm->dup_cache, keep_it) ;
 }
 
 /* Delete prefix_list from prefix_list_master and free it and its contents.
@@ -806,12 +814,12 @@ prefix_list_entry_lookup_val(struct prefix_list *plist,
 
       if (pm->cache_owner != plist)
         {
-          /* Create new cache by copying vector.  Releases any old cache.     */
+          /* Create new cache by copying vector.  Releases any old cache.
+           * Sort the result so can binary chop it.
+           */
           vector_copy_here(&pm->dup_cache, &plist->list) ;
-          /* Sort the result so can binary chop it.			      */
           vector_sort(&pm->dup_cache, (vector_sort_cmp*)plist->cmp) ;
-          /* Now we own the cache.					      */
-          pm->cache_owner = plist ;
+          pm->cache_owner = plist ;     /* we now own cache     */
         } ;
 
       *cache = &pm->dup_cache ;
@@ -1182,7 +1190,7 @@ vty_prefix_list_desc_print(struct vty* vty, struct prefix_list* plist,
 /* Print value of given prefix_list_entry:
  *
  *     "[seq 999 ](permit|deny) (any|XXXXX/999)[ ge 99][ le 99]"
- *                       "[ '('hit count: 999, refcount: 999')']" <post>
+ *                       "[ '('hit count: 999, refcount: 999')']" "\n"
  *
  *  where: sequence number is included if "with_seq" specified
  *         ge and/or le are included if explicitly set
@@ -1190,7 +1198,7 @@ vty_prefix_list_desc_print(struct vty* vty, struct prefix_list* plist,
  */
 static void
 vty_prefix_list_value_print(struct vty* vty, struct prefix_list_entry* pe,
-				const char* post, int with_seq, int with_stats)
+	                                         bool with_seq, bool with_stats)
 {
   if (with_seq)
     vty_out(vty, "seq %d ", pe->seq) ;
@@ -1216,7 +1224,7 @@ vty_prefix_list_value_print(struct vty* vty, struct prefix_list_entry* pe,
   if (with_stats)
     vty_out (vty, " (hit count: %lu, refcount: %lu)", pe->hitcnt, pe->refcnt);
 
-  vty_out(vty, post) ;
+  vty_out(vty, "\n") ;
 }
 
 static void __attribute__ ((unused))
@@ -1234,7 +1242,7 @@ prefix_list_print (struct prefix_list *plist)
   for (VECTOR_ITEMS(&plist->list, pe, i))
     {
       vty_out_indent(vty, 2) ;
-      vty_prefix_list_value_print(vty, pe, VTY_NEWLINE, 1, 1) ;
+      vty_prefix_list_value_print(vty, pe, true /* seq */, true /* stats */) ;
     }
 }
 /*==============================================================================
@@ -1389,7 +1397,8 @@ vty_prefix_list_install (struct vty *vty, afi_t afi, const char *name,
       vty_out (vty, "%% Insertion failed - prefix-list entry exists:%s",
 	       VTY_NEWLINE);
       vty_out_indent(vty, 2) ;
-      vty_prefix_list_value_print(vty, &temp, VTY_NEWLINE, 1, 0) ;
+      vty_prefix_list_value_print(vty, &temp, true  /* seq    */,
+                                              false /* stats  */) ;
     }
 
   return CMD_SUCCESS;
@@ -1530,9 +1539,9 @@ vty_show_prefix_entry (struct vty *vty, struct prefix_list *plist,
     {
       struct prefix_list_entry* pe ;
       vector_index_t i ;
-      int with_seq   = pm->seqnum_flag ;
-      int with_stats = (dtype == detail_display)
-		     ||(dtype == sequential_display) ;
+      bool with_seq   = pm->seqnum_flag ;
+      bool with_stats = (dtype == detail_display) ||
+	                (dtype == sequential_display) ;
 
       for (VECTOR_ITEMS(&plist->list, pe, i))
 	{
@@ -1540,8 +1549,7 @@ vty_show_prefix_entry (struct vty *vty, struct prefix_list *plist,
 	    continue;
 
 	  vty_out_indent(vty, 3);
-	  vty_prefix_list_value_print(vty, pe, VTY_NEWLINE,
-							with_seq, with_stats) ;
+	  vty_prefix_list_value_print(vty, pe, with_seq, with_stats) ;
 	}
     }
 }
@@ -1620,9 +1628,9 @@ vty_show_prefix_list_prefix (struct vty *vty, afi_t afi, const char *name,
   struct prefix_list_entry* pe ;
   vector_index_t i ;
   struct prefix p;
-  int ret;
-  int match;
-  int with_stats ;
+  int  ret;
+  bool match;
+  bool with_stats ;
 
   /* Error if cannot find prefix list.	*/
   plist = vty_prefix_list_lookup(vty, afi, name);
@@ -1632,7 +1640,7 @@ vty_show_prefix_list_prefix (struct vty *vty, afi_t afi, const char *name,
   ret = str2prefix (prefix, &p);
   if (ret <= 0)
     {
-      vty_out (vty, "%% prefix is malformed%s", VTY_NEWLINE);
+      vty_out (vty, "%% prefix is malformed\n");
       return CMD_WARNING;
     }
 
@@ -1640,7 +1648,7 @@ vty_show_prefix_list_prefix (struct vty *vty, afi_t afi, const char *name,
 
   for (VECTOR_ITEMS(&plist->list, pe, i))
     {
-      match = 0;
+      match = false ;
 
       if     ((type == normal_display || type == first_match_display))
 	match = prefix_same(&p, &pe->prefix) ;
@@ -1650,7 +1658,7 @@ vty_show_prefix_list_prefix (struct vty *vty, afi_t afi, const char *name,
       if (match)
 	{
 	  vty_out_indent(vty, 3);
-	  vty_prefix_list_value_print(vty, pe, VTY_NEWLINE, 1, with_stats) ;
+	  vty_prefix_list_value_print(vty, pe, true /* seq */, with_stats) ;
 
 	  if (type == first_match_display)
 	    break ;
@@ -2095,7 +2103,7 @@ DEFUN (ip_prefix_list_sequence_number,
        PREFIX_LIST_STR
        "Include/exclude sequence numbers in NVGEN\n")
 {
-  prefix_master_ipv4.seqnum_flag = 1;
+  prefix_master_ipv4.seqnum_flag = true ;
   return CMD_SUCCESS;
 }
 
@@ -2107,7 +2115,7 @@ DEFUN (no_ip_prefix_list_sequence_number,
        PREFIX_LIST_STR
        "Include/exclude sequence numbers in NVGEN\n")
 {
-  prefix_master_ipv4.seqnum_flag = 0;
+  prefix_master_ipv4.seqnum_flag = false ;
   return CMD_SUCCESS;
 }
 
@@ -2681,7 +2689,7 @@ DEFUN (ipv6_prefix_list_sequence_number,
        PREFIX_LIST_STR
        "Include/exclude sequence numbers in NVGEN\n")
 {
-  prefix_master_ipv6.seqnum_flag = 1;
+  prefix_master_ipv6.seqnum_flag = true ;
   return CMD_SUCCESS;
 }
 
@@ -2693,7 +2701,7 @@ DEFUN (no_ipv6_prefix_list_sequence_number,
        PREFIX_LIST_STR
        "Include/exclude sequence numbers in NVGEN\n")
 {
-  prefix_master_ipv6.seqnum_flag = 0;
+  prefix_master_ipv6.seqnum_flag = false ;
   return CMD_SUCCESS;
 }
 
@@ -2900,15 +2908,17 @@ config_write_prefix_afi (afi_t afi, struct vty *vty)
   if (pm == NULL)
     return 0;
 
+  /* Setting for all prefix-list -- implicitly section 0.
+   */
   if (! pm->seqnum_flag)
-    {
-      vty_out (vty, "no ip%s prefix-list sequence-number%s",
-	       afi == AFI_IP ? "" : "v6", VTY_NEWLINE);
-      vty_out (vty, "!%s", VTY_NEWLINE);
-    }
+    vty_out (vty, "no %s prefix-list sequence-number\n"
+                  "!\n", prefix_afi_name_str(afi)) ;
 
   /* Extract a vector of all prefix_list symbols, in name order.	*/
   extract = symbol_table_extract(pm->table, NULL, NULL, 0, prefix_symbol_cmp) ;
+
+  cmd_show_config_section(vty, 1) ;
+
   for (VECTOR_ITEMS(extract, sym, i))
     {
       plist = symbol_get_value(sym) ;
@@ -2924,8 +2934,8 @@ config_write_prefix_afi (afi_t afi, struct vty *vty)
 	  for (VECTOR_ITEMS(&plist->list, pe, ipe))
 	    {
 	      vty_prefix_list_name_print(vty, plist, " ") ;
-	      vty_prefix_list_value_print(vty, pe, VTY_NEWLINE,
-							pm->seqnum_flag, 0) ;
+	      vty_prefix_list_value_print(vty, pe, pm->seqnum_flag,
+	                                                    false /* stats */) ;
 	      write++ ;
 	    }
 	}
@@ -2940,7 +2950,9 @@ config_write_prefix_afi (afi_t afi, struct vty *vty)
   vector_free(extract) ;	/* discard temporary vector */
 
   return write;
-}
+} ;
+
+
 
 struct stream *
 prefix_bgp_orf_entry (struct stream *s, prefix_list_ref ref,
@@ -3070,27 +3082,13 @@ prefix_bgp_show_prefix_list (struct vty *vty, afi_t afi, char *name)
       for (VECTOR_ITEMS(&plist->list, pe, i))
 	{
 	  vty_out_indent(vty, 3) ;
-	  vty_prefix_list_value_print(vty, pe, VTY_NEWLINE, 1, 1) ;
+	  vty_prefix_list_value_print(vty, pe, true /* seq   */,
+	                                       true /* stats */) ;
 	}
     }
 
   return vector_end(&plist->list);
 }
-
-static void
-prefix_list_reset_orf (void)
-{
-  prefix_master_reset(&prefix_master_orf) ;
-}
-
-
-/* Prefix-list node. */
-static struct cmd_node prefix_node =
-{
-  PREFIX_NODE,
-  "",				/* Prefix list has no interface. */
-  1
-};
 
 static int
 config_write_prefix_ipv4 (struct vty *vty)
@@ -3098,84 +3096,65 @@ config_write_prefix_ipv4 (struct vty *vty)
   return config_write_prefix_afi (AFI_IP, vty);
 }
 
-static void
-prefix_list_reset_ipv4 (void)
+CMD_INSTALL_TABLE(static, plist_ipv4_cmd_table,
+                                             RIPD | OSPFD | BGPD | ZEBRA) =
 {
-  prefix_master_reset(&prefix_master_ipv4) ;
-}
+  { VIEW_NODE,       &show_ip_prefix_list_cmd                           },
+  { VIEW_NODE,       &show_ip_prefix_list_name_cmd                      },
+  { VIEW_NODE,       &show_ip_prefix_list_name_seq_cmd                  },
+  { VIEW_NODE,       &show_ip_prefix_list_prefix_cmd                    },
+  { VIEW_NODE,       &show_ip_prefix_list_prefix_longer_cmd             },
+  { VIEW_NODE,       &show_ip_prefix_list_prefix_first_match_cmd        },
+  { VIEW_NODE,       &show_ip_prefix_list_summary_cmd                   },
+  { VIEW_NODE,       &show_ip_prefix_list_summary_name_cmd              },
+  { VIEW_NODE,       &show_ip_prefix_list_detail_cmd                    },
+  { VIEW_NODE,       &show_ip_prefix_list_detail_name_cmd               },
 
-static void
-prefix_list_init_ipv4 (void)
-{
-  prefix_master_init(&prefix_master_ipv4) ;
+  { ENABLE_NODE,     &show_ip_prefix_list_cmd                           },
+  { ENABLE_NODE,     &show_ip_prefix_list_name_cmd                      },
+  { ENABLE_NODE,     &show_ip_prefix_list_name_seq_cmd                  },
+  { ENABLE_NODE,     &show_ip_prefix_list_prefix_cmd                    },
+  { ENABLE_NODE,     &show_ip_prefix_list_prefix_longer_cmd             },
+  { ENABLE_NODE,     &show_ip_prefix_list_prefix_first_match_cmd        },
+  { ENABLE_NODE,     &show_ip_prefix_list_summary_cmd                   },
+  { ENABLE_NODE,     &show_ip_prefix_list_summary_name_cmd              },
+  { ENABLE_NODE,     &show_ip_prefix_list_detail_cmd                    },
+  { ENABLE_NODE,     &show_ip_prefix_list_detail_name_cmd               },
+  { ENABLE_NODE,     &clear_ip_prefix_list_cmd                          },
+  { ENABLE_NODE,     &clear_ip_prefix_list_name_cmd                     },
+  { ENABLE_NODE,     &clear_ip_prefix_list_name_prefix_cmd              },
 
-  install_node (&prefix_node, config_write_prefix_ipv4);
+  { CONFIG_NODE,     &ip_prefix_list_cmd                                },
+  { CONFIG_NODE,     &ip_prefix_list_ge_cmd                             },
+  { CONFIG_NODE,     &ip_prefix_list_ge_le_cmd                          },
+  { CONFIG_NODE,     &ip_prefix_list_le_cmd                             },
+  { CONFIG_NODE,     &ip_prefix_list_le_ge_cmd                          },
+  { CONFIG_NODE,     &ip_prefix_list_seq_cmd                            },
+  { CONFIG_NODE,     &ip_prefix_list_seq_ge_cmd                         },
+  { CONFIG_NODE,     &ip_prefix_list_seq_ge_le_cmd                      },
+  { CONFIG_NODE,     &ip_prefix_list_seq_le_cmd                         },
+  { CONFIG_NODE,     &ip_prefix_list_seq_le_ge_cmd                      },
+  { CONFIG_NODE,     &no_ip_prefix_list_cmd                             },
+  { CONFIG_NODE,     &no_ip_prefix_list_prefix_cmd                      },
+  { CONFIG_NODE,     &no_ip_prefix_list_ge_cmd                          },
+  { CONFIG_NODE,     &no_ip_prefix_list_ge_le_cmd                       },
+  { CONFIG_NODE,     &no_ip_prefix_list_le_cmd                          },
+  { CONFIG_NODE,     &no_ip_prefix_list_le_ge_cmd                       },
+  { CONFIG_NODE,     &no_ip_prefix_list_seq_cmd                         },
+  { CONFIG_NODE,     &no_ip_prefix_list_seq_ge_cmd                      },
+  { CONFIG_NODE,     &no_ip_prefix_list_seq_ge_le_cmd                   },
+  { CONFIG_NODE,     &no_ip_prefix_list_seq_le_cmd                      },
+  { CONFIG_NODE,     &no_ip_prefix_list_seq_le_ge_cmd                   },
+  { CONFIG_NODE,     &ip_prefix_list_description_cmd                    },
+  { CONFIG_NODE,     &no_ip_prefix_list_description_cmd                 },
+  { CONFIG_NODE,     &no_ip_prefix_list_description_arg_cmd             },
+  { CONFIG_NODE,     &ip_prefix_list_sequence_number_cmd                },
+  { CONFIG_NODE,     &no_ip_prefix_list_sequence_number_cmd             },
 
-  install_element (CONFIG_NODE, &ip_prefix_list_cmd);
-  install_element (CONFIG_NODE, &ip_prefix_list_ge_cmd);
-  install_element (CONFIG_NODE, &ip_prefix_list_ge_le_cmd);
-  install_element (CONFIG_NODE, &ip_prefix_list_le_cmd);
-  install_element (CONFIG_NODE, &ip_prefix_list_le_ge_cmd);
-  install_element (CONFIG_NODE, &ip_prefix_list_seq_cmd);
-  install_element (CONFIG_NODE, &ip_prefix_list_seq_ge_cmd);
-  install_element (CONFIG_NODE, &ip_prefix_list_seq_ge_le_cmd);
-  install_element (CONFIG_NODE, &ip_prefix_list_seq_le_cmd);
-  install_element (CONFIG_NODE, &ip_prefix_list_seq_le_ge_cmd);
-
-  install_element (CONFIG_NODE, &no_ip_prefix_list_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_prefix_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_ge_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_ge_le_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_le_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_le_ge_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_seq_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_seq_ge_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_seq_ge_le_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_seq_le_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_seq_le_ge_cmd);
-
-  install_element (CONFIG_NODE, &ip_prefix_list_description_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_description_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_description_arg_cmd);
-
-  install_element (CONFIG_NODE, &ip_prefix_list_sequence_number_cmd);
-  install_element (CONFIG_NODE, &no_ip_prefix_list_sequence_number_cmd);
-
-  install_element (VIEW_NODE, &show_ip_prefix_list_cmd);
-  install_element (VIEW_NODE, &show_ip_prefix_list_name_cmd);
-  install_element (VIEW_NODE, &show_ip_prefix_list_name_seq_cmd);
-  install_element (VIEW_NODE, &show_ip_prefix_list_prefix_cmd);
-  install_element (VIEW_NODE, &show_ip_prefix_list_prefix_longer_cmd);
-  install_element (VIEW_NODE, &show_ip_prefix_list_prefix_first_match_cmd);
-  install_element (VIEW_NODE, &show_ip_prefix_list_summary_cmd);
-  install_element (VIEW_NODE, &show_ip_prefix_list_summary_name_cmd);
-  install_element (VIEW_NODE, &show_ip_prefix_list_detail_cmd);
-  install_element (VIEW_NODE, &show_ip_prefix_list_detail_name_cmd);
-
-  install_element (ENABLE_NODE, &show_ip_prefix_list_cmd);
-  install_element (ENABLE_NODE, &show_ip_prefix_list_name_cmd);
-  install_element (ENABLE_NODE, &show_ip_prefix_list_name_seq_cmd);
-  install_element (ENABLE_NODE, &show_ip_prefix_list_prefix_cmd);
-  install_element (ENABLE_NODE, &show_ip_prefix_list_prefix_longer_cmd);
-  install_element (ENABLE_NODE, &show_ip_prefix_list_prefix_first_match_cmd);
-  install_element (ENABLE_NODE, &show_ip_prefix_list_summary_cmd);
-  install_element (ENABLE_NODE, &show_ip_prefix_list_summary_name_cmd);
-  install_element (ENABLE_NODE, &show_ip_prefix_list_detail_cmd);
-  install_element (ENABLE_NODE, &show_ip_prefix_list_detail_name_cmd);
-
-  install_element (ENABLE_NODE, &clear_ip_prefix_list_cmd);
-  install_element (ENABLE_NODE, &clear_ip_prefix_list_name_cmd);
-  install_element (ENABLE_NODE, &clear_ip_prefix_list_name_prefix_cmd);
-}
+  CMD_INSTALL_END
+} ;
 
 #ifdef HAVE_IPV6
-/* Prefix-list node. */
-static struct cmd_node prefix_ipv6_node =
-{
-    PREFIX_IPV6_NODE,
-    "",				/* Prefix list has no interface. */
-    1
-  };
 
 static int
 config_write_prefix_ipv6 (struct vty *vty)
@@ -3183,95 +3162,98 @@ config_write_prefix_ipv6 (struct vty *vty)
   return config_write_prefix_afi (AFI_IP6, vty);
 }
 
-static void
-prefix_list_reset_ipv6 (void)
+CMD_INSTALL_TABLE(static, plist_ipv6_cmd_table,
+                                            RIPNGD | OSPF6D | BGPD | ZEBRA) =
 {
-#ifdef HAVE_IPV6
-  prefix_master_reset(&prefix_master_ipv6) ;
-#endif
+  { VIEW_NODE,       &show_ipv6_prefix_list_cmd                         },
+  { VIEW_NODE,       &show_ipv6_prefix_list_name_cmd                    },
+  { VIEW_NODE,       &show_ipv6_prefix_list_name_seq_cmd                },
+  { VIEW_NODE,       &show_ipv6_prefix_list_prefix_cmd                  },
+  { VIEW_NODE,       &show_ipv6_prefix_list_prefix_longer_cmd           },
+  { VIEW_NODE,       &show_ipv6_prefix_list_prefix_first_match_cmd      },
+  { VIEW_NODE,       &show_ipv6_prefix_list_summary_cmd                 },
+  { VIEW_NODE,       &show_ipv6_prefix_list_summary_name_cmd            },
+  { VIEW_NODE,       &show_ipv6_prefix_list_detail_cmd                  },
+  { VIEW_NODE,       &show_ipv6_prefix_list_detail_name_cmd             },
+
+  { ENABLE_NODE,     &show_ipv6_prefix_list_cmd                         },
+  { ENABLE_NODE,     &show_ipv6_prefix_list_name_cmd                    },
+  { ENABLE_NODE,     &show_ipv6_prefix_list_name_seq_cmd                },
+  { ENABLE_NODE,     &show_ipv6_prefix_list_prefix_cmd                  },
+  { ENABLE_NODE,     &show_ipv6_prefix_list_prefix_longer_cmd           },
+  { ENABLE_NODE,     &show_ipv6_prefix_list_prefix_first_match_cmd      },
+  { ENABLE_NODE,     &show_ipv6_prefix_list_summary_cmd                 },
+  { ENABLE_NODE,     &show_ipv6_prefix_list_summary_name_cmd            },
+  { ENABLE_NODE,     &show_ipv6_prefix_list_detail_cmd                  },
+  { ENABLE_NODE,     &show_ipv6_prefix_list_detail_name_cmd             },
+  { ENABLE_NODE,     &clear_ipv6_prefix_list_cmd                        },
+  { ENABLE_NODE,     &clear_ipv6_prefix_list_name_cmd                   },
+  { ENABLE_NODE,     &clear_ipv6_prefix_list_name_prefix_cmd            },
+
+  { CONFIG_NODE,     &ipv6_prefix_list_cmd                              },
+  { CONFIG_NODE,     &ipv6_prefix_list_ge_cmd                           },
+  { CONFIG_NODE,     &ipv6_prefix_list_ge_le_cmd                        },
+  { CONFIG_NODE,     &ipv6_prefix_list_le_cmd                           },
+  { CONFIG_NODE,     &ipv6_prefix_list_le_ge_cmd                        },
+  { CONFIG_NODE,     &ipv6_prefix_list_seq_cmd                          },
+  { CONFIG_NODE,     &ipv6_prefix_list_seq_ge_cmd                       },
+  { CONFIG_NODE,     &ipv6_prefix_list_seq_ge_le_cmd                    },
+  { CONFIG_NODE,     &ipv6_prefix_list_seq_le_cmd                       },
+  { CONFIG_NODE,     &ipv6_prefix_list_seq_le_ge_cmd                    },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_cmd                           },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_prefix_cmd                    },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_ge_cmd                        },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_ge_le_cmd                     },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_le_cmd                        },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_le_ge_cmd                     },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_seq_cmd                       },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_seq_ge_cmd                    },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_seq_ge_le_cmd                 },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_seq_le_cmd                    },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_seq_le_ge_cmd                 },
+  { CONFIG_NODE,     &ipv6_prefix_list_description_cmd                  },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_description_cmd               },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_description_arg_cmd           },
+  { CONFIG_NODE,     &ipv6_prefix_list_sequence_number_cmd              },
+  { CONFIG_NODE,     &no_ipv6_prefix_list_sequence_number_cmd           },
+
+  CMD_INSTALL_END
 } ;
 
-static void
-prefix_list_init_ipv6 (void)
-{
-  prefix_master_init(&prefix_master_ipv6) ;
-
-  install_node (&prefix_ipv6_node, config_write_prefix_ipv6);
-
-  install_element (CONFIG_NODE, &ipv6_prefix_list_cmd);
-  install_element (CONFIG_NODE, &ipv6_prefix_list_ge_cmd);
-  install_element (CONFIG_NODE, &ipv6_prefix_list_ge_le_cmd);
-  install_element (CONFIG_NODE, &ipv6_prefix_list_le_cmd);
-  install_element (CONFIG_NODE, &ipv6_prefix_list_le_ge_cmd);
-  install_element (CONFIG_NODE, &ipv6_prefix_list_seq_cmd);
-  install_element (CONFIG_NODE, &ipv6_prefix_list_seq_ge_cmd);
-  install_element (CONFIG_NODE, &ipv6_prefix_list_seq_ge_le_cmd);
-  install_element (CONFIG_NODE, &ipv6_prefix_list_seq_le_cmd);
-  install_element (CONFIG_NODE, &ipv6_prefix_list_seq_le_ge_cmd);
-
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_prefix_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_ge_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_ge_le_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_le_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_le_ge_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_seq_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_seq_ge_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_seq_ge_le_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_seq_le_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_seq_le_ge_cmd);
-
-  install_element (CONFIG_NODE, &ipv6_prefix_list_description_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_description_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_description_arg_cmd);
-
-  install_element (CONFIG_NODE, &ipv6_prefix_list_sequence_number_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_prefix_list_sequence_number_cmd);
-
-  install_element (VIEW_NODE, &show_ipv6_prefix_list_cmd);
-  install_element (VIEW_NODE, &show_ipv6_prefix_list_name_cmd);
-  install_element (VIEW_NODE, &show_ipv6_prefix_list_name_seq_cmd);
-  install_element (VIEW_NODE, &show_ipv6_prefix_list_prefix_cmd);
-  install_element (VIEW_NODE, &show_ipv6_prefix_list_prefix_longer_cmd);
-  install_element (VIEW_NODE, &show_ipv6_prefix_list_prefix_first_match_cmd);
-  install_element (VIEW_NODE, &show_ipv6_prefix_list_summary_cmd);
-  install_element (VIEW_NODE, &show_ipv6_prefix_list_summary_name_cmd);
-  install_element (VIEW_NODE, &show_ipv6_prefix_list_detail_cmd);
-  install_element (VIEW_NODE, &show_ipv6_prefix_list_detail_name_cmd);
-
-  install_element (ENABLE_NODE, &show_ipv6_prefix_list_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_prefix_list_name_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_prefix_list_name_seq_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_prefix_list_prefix_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_prefix_list_prefix_longer_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_prefix_list_prefix_first_match_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_prefix_list_summary_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_prefix_list_summary_name_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_prefix_list_detail_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_prefix_list_detail_name_cmd);
-
-  install_element (ENABLE_NODE, &clear_ipv6_prefix_list_cmd);
-  install_element (ENABLE_NODE, &clear_ipv6_prefix_list_name_cmd);
-  install_element (ENABLE_NODE, &clear_ipv6_prefix_list_name_prefix_cmd);
-}
 #endif /* HAVE_IPV6 */
 
-void
-prefix_list_init ()
+extern void
+prefix_list_cmd_init (void)
 {
-  prefix_list_init_ipv4 ();
+  cmd_install_node_config_write(PREFIX_NODE, config_write_prefix_ipv4);
+  cmd_install_table(plist_ipv4_cmd_table) ;
+
 #ifdef HAVE_IPV6
-  prefix_list_init_ipv6 ();
+  cmd_install_node_config_write(PREFIX_IPV6_NODE, config_write_prefix_ipv6);
+  cmd_install_table(plist_ipv6_cmd_table) ;
 #endif /* HAVE_IPV6 */
+}
+
+extern void
+prefix_list_init (void)
+{
+  prefix_master_init(&prefix_master_ipv4) ;
+
+#ifdef HAVE_IPV6
+  prefix_master_init(&prefix_master_ipv6) ;
+#endif /* HAVE_IPV6 */
+
   prefix_master_init(&prefix_master_orf) ;
 }
 
 void
-prefix_list_reset ()
+prefix_list_reset (free_keep_b free)
 {
-  prefix_list_reset_ipv4 ();
+  prefix_master_reset(&prefix_master_ipv4, free) ;
+
 #ifdef HAVE_IPV6
-  prefix_list_reset_ipv6 ();
+  prefix_master_reset(&prefix_master_ipv6, free) ;
 #endif /* HAVE_IPV6 */
-  prefix_list_reset_orf ();
-}
+
+  prefix_master_reset(&prefix_master_orf, free) ;
+} ;

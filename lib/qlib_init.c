@@ -22,6 +22,7 @@
 
 #include <errno.h>
 #include <stdio.h>
+#include <sys/stat.h>
 
 #include "qlib_init.h"
 #include "zassert.h"
@@ -103,11 +104,29 @@ struct
     { .p_var = NULL }
 } ;
 
+/*------------------------------------------------------------------------------
+ * First stage initialisation.
+ *
+ * Required for all users of the quagga library, whether running pthreaded or
+ * not.
+ *
+ * Should be absolutely the first action -- other than, perhaps, saying hello
+ * on stderr or the like.
+ *
+ *
+ */
 extern void
-qlib_init_first_stage(void)
+qlib_init_first_stage(mode_t cmask)
 {
   int   i ;
 
+  /* Set umask at a very early stage, if required.
+   */
+  if (cmask != 0)
+    umask(cmask) ;
+
+  /* Fetch the system parameters per the table above
+   */
   for (i = 0 ; qlib_vars[i].p_var != NULL ; ++i)
     {
       long  val ;
@@ -137,15 +156,33 @@ qlib_init_first_stage(void)
       *(qlib_vars[i].p_var) = (int)val ;
     } ;
 
+  /* Initialise as required.
+   *
+   * NB: memory is the first to be initialised, and the last to be shut down.
+   */
+  memory_start_up() ;
   qps_start_up() ;
-  memory_start() ;
   qiovec_start_up() ;
-}
+  thread_start_up();
+} ;
 
+/*------------------------------------------------------------------------------
+ * Second stage initialisation.
+ *
+ * At this point we know whether will run pthreaded, and that is set for the
+ * duration, followed by any further initialisation that depends on knowing
+ * the pthreaded-ness.
+ *
+ * This is done fairly late during start up, after any configuration has been
+ * read which may choose whether to run pthreaded or not.
+ *
+ * Not required for daemons that do not use any of the newer facilities, but
+ * is recommended.
+ */
 extern void
-qlib_init_second_stage(bool pthreads)
+qlib_init_second_stage(bool pthreaded)
 {
-  qpt_set_qpthreads_enabled(pthreads);
+  qpt_set_qpthreads_enabled(pthreaded);
   qpn_init() ;
   memory_init_r();
   thread_init_r();
@@ -155,15 +192,27 @@ qlib_init_second_stage(bool pthreads)
   safe_init_r();
 }
 
+/*------------------------------------------------------------------------------
+ * Shut down
+ *
+ * NB: at this point it is assumed that all pthreads other than the main pthread
+ *     have stopped.
+ *
+ * NB: memory is the last thing to be shut down, and if the given
+ *     "mem_stats_name" is not NULL, will spew out information about any
+ *     memory that has not been freed to stderr !
+ */
 extern void
-qexit(int exit_code)
+qexit(int exit_code, bool mem_stats)
 {
+  qpt_clear_qpthreads_active() ;
+
   safe_finish();
   mqueue_finish();
   zprivs_finish();
   log_finish();
   thread_finish();
-  memory_finish();
+  memory_finish(mem_stats);
   exit (exit_code);
 }
 

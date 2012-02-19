@@ -233,9 +233,10 @@ str2tag (const char *str, u_char *tag)
   char *endptr;
   u_int32_t t;
 
+  errno = 0 ;
   l = strtoul (str, &endptr, 10);
 
-  if (*endptr == '\0' || l == ULONG_MAX || l > UINT32_MAX)
+  if ((*endptr != '\0') || (errno != 0) || (l > UINT32_MAX))
     return 0;
 
   t = (u_int32_t) l;
@@ -712,28 +713,37 @@ DEFUN (show_ip_bgp_vpnv4_rd_neighbor_advertised_routes,
   return show_adj_route_vpn (vty, peer, &prd);
 }
 
+CMD_INSTALL_TABLE(static, bgp_mplsvpn_cmd_table, BGPD) =
+{
+  { BGP_VPNV4_NODE,  &vpnv4_network_cmd                                 },
+  { BGP_VPNV4_NODE,  &no_vpnv4_network_cmd                              },
+  { VIEW_NODE,       &show_ip_bgp_vpnv4_all_cmd                         },
+  { VIEW_NODE,       &show_ip_bgp_vpnv4_rd_cmd                          },
+  { VIEW_NODE,       &show_ip_bgp_vpnv4_all_tags_cmd                    },
+  { VIEW_NODE,       &show_ip_bgp_vpnv4_rd_tags_cmd                     },
+  { VIEW_NODE,       &show_ip_bgp_vpnv4_all_neighbor_routes_cmd         },
+  { VIEW_NODE,       &show_ip_bgp_vpnv4_rd_neighbor_routes_cmd          },
+  { VIEW_NODE,       &show_ip_bgp_vpnv4_all_neighbor_advertised_routes_cmd },
+  { VIEW_NODE,       &show_ip_bgp_vpnv4_rd_neighbor_advertised_routes_cmd },
+  { ENABLE_NODE,     &show_ip_bgp_vpnv4_all_cmd                         },
+  { ENABLE_NODE,     &show_ip_bgp_vpnv4_rd_cmd                          },
+  { ENABLE_NODE,     &show_ip_bgp_vpnv4_all_tags_cmd                    },
+  { ENABLE_NODE,     &show_ip_bgp_vpnv4_rd_tags_cmd                     },
+  { ENABLE_NODE,     &show_ip_bgp_vpnv4_all_neighbor_routes_cmd         },
+  { ENABLE_NODE,     &show_ip_bgp_vpnv4_rd_neighbor_routes_cmd          },
+  { ENABLE_NODE,     &show_ip_bgp_vpnv4_all_neighbor_advertised_routes_cmd },
+  { ENABLE_NODE,     &show_ip_bgp_vpnv4_rd_neighbor_advertised_routes_cmd },
+
+  CMD_INSTALL_END
+} ;
+
+void
+bgp_mplsvpn_cmd_init (void)
+{
+  cmd_install_table(bgp_mplsvpn_cmd_table) ;
+}
+
 void
 bgp_mplsvpn_init (void)
 {
-  install_element (BGP_VPNV4_NODE, &vpnv4_network_cmd);
-  install_element (BGP_VPNV4_NODE, &no_vpnv4_network_cmd);
-
-
-  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_cmd);
-  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_cmd);
-  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_tags_cmd);
-  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_tags_cmd);
-  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_neighbor_routes_cmd);
-  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_neighbor_routes_cmd);
-  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_neighbor_advertised_routes_cmd);
-  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_neighbor_advertised_routes_cmd);
-
-  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_tags_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_tags_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_neighbor_routes_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_neighbor_routes_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_neighbor_advertised_routes_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_neighbor_advertised_routes_cmd);
 }

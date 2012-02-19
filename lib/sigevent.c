@@ -717,6 +717,9 @@ signal_set_set(sigset_t* set, sig_handler* handler, bool required)
 /*------------------------------------------------------------------------------
  * Set given handler for given signal.  NULL handler => SIG_IGN.
  *
+ * Note that this assumes that no supported O/S will restart select/pselect.
+ * (Conversely, an O/S that does restart select/pselect is not supported.)
+ *
  * Returns:  < 0 => failed
  */
 #ifndef  SA_INTERRUPT

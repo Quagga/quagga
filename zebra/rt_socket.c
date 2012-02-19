@@ -17,8 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 
@@ -50,7 +51,7 @@ sin_masklen (struct in_addr mask)
   int len;
   struct sockaddr_in sin;
 
-  if (mask.s_addr == 0) 
+  if (mask.s_addr == 0)
     return sizeof (long);
 
   sin.sin_addr = mask;
@@ -59,7 +60,7 @@ sin_masklen (struct in_addr mask)
   lim = (char *) &sin.sin_addr;
   p = lim + sizeof (sin.sin_addr);
 
-  while (*--p == 0 && p >= lim) 
+  while (*--p == 0 && p >= lim)
     len--;
   return len;
 }
@@ -159,8 +160,8 @@ kernel_rtm_ipv4 (int cmd, struct prefix *p, struct rib *rib, int family)
 	    }
 
 	  error = rtm_write (cmd,
-			     (union sockunion *)&sin_dest, 
-			     (union sockunion *)mask, 
+			     (union sockunion *)&sin_dest,
+			     (union sockunion *)mask,
 			     gate ? (union sockunion *)&sin_gate : NULL,
 			     ifindex,
 			     rib->flags,
@@ -177,7 +178,7 @@ kernel_rtm_ipv4 (int cmd, struct prefix *p, struct rib *rib, int family)
              else
                inet_ntop (AF_INET, &sin_gate.sin_addr, gate_buf, INET_ADDRSTRLEN);
            }
- 
+
            switch (error)
            {
              /* We only flag nexthops as being in FIB if rtm_write() did its work. */
@@ -189,7 +190,7 @@ kernel_rtm_ipv4 (int cmd, struct prefix *p, struct rib *rib, int family)
                if (cmd == RTM_ADD)
                  SET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
                break;
- 
+
              /* The only valid case for this error is kernel's failure to install
               * a multipath route, which is common for FreeBSD. This should be
               * ignored silently, but logged as an error otherwise.
@@ -200,7 +201,7 @@ kernel_rtm_ipv4 (int cmd, struct prefix *p, struct rib *rib, int family)
                    __func__, error, cmd);
                continue;
                break;
- 
+
              /* Given that our NEXTHOP_FLAG_FIB matches real kernel FIB, it isn't
               * normal to get any other messages in ANY case.
               */
@@ -220,7 +221,7 @@ kernel_rtm_ipv4 (int cmd, struct prefix *p, struct rib *rib, int family)
            zlog_debug ("%s: odd command %s for flags %d",
              __func__, lookup (rtm_type_str, cmd), nexthop->flags);
      } /* for (nexthop = ... */
- 
+
    /* If there was no useful nexthop, then complain. */
    if (nexthop_num == 0 && IS_ZEBRA_DEBUG_KERNEL)
      zlog_debug ("%s: No useful nexthops were found in RIB entry %p", __func__, rib);
@@ -267,10 +268,10 @@ sin6_masklen (struct in6_addr mask)
   int len;
 
 #if defined (INRIA)
-  if (IN_ANYADDR6 (mask)) 
+  if (IN_ANYADDR6 (mask))
     return sizeof (long);
 #else /* ! INRIA */
-  if (IN6_IS_ADDR_UNSPECIFIED (&mask)) 
+  if (IN6_IS_ADDR_UNSPECIFIED (&mask))
     return sizeof (long);
 #endif /* ! INRIA */
 
@@ -280,7 +281,7 @@ sin6_masklen (struct in6_addr mask)
   lim = (char *) & sin6.sin6_addr;
   p = lim + sizeof (sin6.sin6_addr);
 
-  while (*--p == 0 && p >= lim) 
+  while (*--p == 0 && p >= lim)
     len--;
 
   return len;
@@ -338,7 +339,7 @@ kernel_rtm_ipv6 (int message, struct prefix_ipv6 *dest,
       mask = &sin_mask;
     }
 
-  return rtm_write (message, 
+  return rtm_write (message,
 		    (union sockunion *) &sin_dest,
 		    (union sockunion *) mask,
 		    gate ? (union sockunion *)&sin_gate : NULL,
@@ -522,3 +523,5 @@ kernel_delete_ipv6_old (struct prefix_ipv6 *dest, struct in6_addr *gate,
   return route;
 }
 #endif /* HAVE_IPV6 */
+
+#endif /* VTYSH_EXTRACT_PL */

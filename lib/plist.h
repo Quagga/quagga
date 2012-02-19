@@ -49,8 +49,9 @@ struct orf_prefix
 };
 
 /* Prototypes. */
+extern void prefix_list_cmd_init (void);
 extern void prefix_list_init (void);
-extern void prefix_list_reset (void);
+extern void prefix_list_reset (free_keep_b free);
 extern void prefix_list_add_hook (void (*func) (struct prefix_list *));
 extern void prefix_list_delete_hook (void (*func) (struct prefix_list *));
 

@@ -653,7 +653,7 @@ bgp_dump_routes_index_table(bgp_dump bd, struct bgp *bgp)
 
       stream_putc (s, type) ;                   /* Peer's type          */
       stream_put_in_addr (s, &peer->remote_id); /* Peer's BGP ID        */
-      stream_write (s, sockunion_get_addr(su),  /* Peer's IP address    */
+      stream_put (s, sockunion_get_addr(su),  /* Peer's IP address    */
                        sockunion_get_addr_len(su)) ;
       stream_putl (s, peer->as);                /* Peer's AS (AS4-wise) */
 
@@ -733,7 +733,7 @@ bgp_dump_routes_family(bgp_dump bd, struct bgp *bgp, afi_t afi)
 
       stream_putl(s, bd->seq) ;                 /* Sequence number      */
       stream_putc(s, rn->p.prefixlen) ;         /* Prefix length        */
-      stream_write(s, &rn->p.u.prefix,          /* Prefix               */
+      stream_put(s, &rn->p.u.prefix,          /* Prefix               */
                       (rn->p.prefixlen+7)/8) ;  /* (zero is OK)         */
 
       sizep = stream_get_endp(s);               /* will set count later */
@@ -1334,14 +1334,6 @@ DEFUN (no_dump_bgp_routes,
   return bgp_dump_unset (vty, BGP_DUMP_TABLE);
 }
 
-/* BGP node structure. */
-static struct cmd_node bgp_dump_node =
-{
-  DUMP_NODE,
-  "",
-  1
-};
-
 #if 0
 char *
 config_time2str (unsigned int interval)
@@ -1375,7 +1367,9 @@ static int
 config_write_bgp_dump (struct vty *vty)
 {
   bgp_dump_type_t   type ;
+  int wrote ;
 
+  wrote = 0 ;
   for (type = 0 ; type < BGP_DUMP_TYPE_COUNT ; ++type)
     {
       bgp_dump_control  bdc ;
@@ -1390,10 +1384,42 @@ config_write_bgp_dump (struct vty *vty)
       if (bdc->interval_str != NULL)
         vty_out (vty, " %s", bdc->interval_str) ;
 
-      vty_out (vty, VTY_NEWLINE) ;
+      vty_out (vty, "\n") ;
+
+      ++wrote ;
     } ;
-  return 0;
+
+  return wrote ;
 }
+
+/*------------------------------------------------------------------------------
+ * Table of commands to be installed for bgp_dump
+ */
+CMD_INSTALL_TABLE(static, bgp_dump_cmd_table, BGPD) =
+{
+  { CONFIG_NODE,     &dump_bgp_all_cmd                                  },
+  { CONFIG_NODE,     &dump_bgp_all_interval_cmd                         },
+  { CONFIG_NODE,     &no_dump_bgp_all_cmd                               },
+  { CONFIG_NODE,     &dump_bgp_updates_cmd                              },
+  { CONFIG_NODE,     &dump_bgp_updates_interval_cmd                     },
+  { CONFIG_NODE,     &no_dump_bgp_updates_cmd                           },
+  { CONFIG_NODE,     &dump_bgp_routes_cmd                               },
+  { CONFIG_NODE,     &dump_bgp_routes_interval_cmd                      },
+  { CONFIG_NODE,     &no_dump_bgp_routes_cmd                            },
+
+  CMD_INSTALL_END
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialize BGP MRT dumping commands.
+ */
+extern void
+bgp_dump_cmd_init (void)
+{
+  cmd_install_node_config_write (DUMP_NODE, config_write_bgp_dump);
+
+  cmd_install_table(bgp_dump_cmd_table) ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Initialize BGP MRT dumping.
@@ -1403,17 +1429,6 @@ config_write_bgp_dump (struct vty *vty)
 extern void
 bgp_dump_init (void)
 {
-  install_node (&bgp_dump_node, config_write_bgp_dump);
-
-  install_element (CONFIG_NODE, &dump_bgp_all_cmd);
-  install_element (CONFIG_NODE, &dump_bgp_all_interval_cmd);
-  install_element (CONFIG_NODE, &no_dump_bgp_all_cmd);
-  install_element (CONFIG_NODE, &dump_bgp_updates_cmd);
-  install_element (CONFIG_NODE, &dump_bgp_updates_interval_cmd);
-  install_element (CONFIG_NODE, &no_dump_bgp_updates_cmd);
-  install_element (CONFIG_NODE, &dump_bgp_routes_cmd);
-  install_element (CONFIG_NODE, &dump_bgp_routes_interval_cmd);
-  install_element (CONFIG_NODE, &no_dump_bgp_routes_cmd);
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1447,7 +1462,7 @@ struct bgp_dump_engine_set_args         /* to BGP Engine                */
   bgp_dump_type_t type ;
   bgp_dump        bd ;
 } ;
-MQB_ARGS_SIZE_OK(bgp_dump_engine_set_args) ;
+MQB_ARGS_SIZE_OK(struct bgp_dump_engine_set_args) ;
 
 static void bgp_dump_engine_do_set(mqueue_block mqb, mqb_flag_t flag) ;
 static struct stream* bgp_dump_common (bgp_dump bd, bgp_connection connection,

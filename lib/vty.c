@@ -28,16 +28,20 @@
 #include <sys/stat.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <fcntl.h>
+#include <errno.h>
 
 #include "vty.h"
 #include "vty_local.h"
 #include "vty_io.h"
 #include "vty_io_file.h"
+#include "vty_io_std.h"
 #include "vty_command.h"
 #include "vty_cli.h"
 #include "vty_log.h"
 #include "vio_fifo.h"
 #include "log_local.h"
+#include "vty_vtysh.h"
 
 #include "list_util.h"
 
@@ -48,6 +52,7 @@
 #include "memory.h"
 #include "mqueue.h"
 #include "qstring.h"
+#include "qs_pcsub.h"
 #include "qpath.h"
 #include "network.h"
 
@@ -66,10 +71,11 @@
  *   vty_log      -- functions called by the log family
  *
  *   vty_cli      -- terminal command line handling
+ *   vty_vtysh    -- vtysh client support
  *   vty_io_term  -- terminal (telnet) I/O
- *   vty_io_vsh   -- vtysh I/O
- *   vty_io_file  -- file I/O
- *   vty_io_shell -- system shell I/O
+ *   vty_io_vtysh -- vtysh I/O
+ *   vty_io_file  -- file and pipe I/O
+ *   vty_io_std   -- stdout and stderr I/O
  *
  *   vty_io_basic -- common low level I/O handling
  *                   encapsulates the differences between qpselect and legacy
@@ -84,17 +90,15 @@
  * Variables etc. (see vty_local.h)
  */
 
-/* The mutex and related debug counters                                 */
-qpt_mutex_t vty_mutex ;
+/* The mutex and related debug counters
+ */
+qpt_mutex vty_mutex ;
 
 int vty_lock_count  = 0 ;
 
 #if VTY_DEBUG
 int vty_assert_fail = 0 ;
 #endif
-
-/* For thread handling -- initialised in vty_init                       */
-struct thread_master* vty_master = NULL ;
 
 /* In the qpthreads world, have nexus for the CLI and one for the Routeing
  * Engine.  Some commands are processed directly in the CLI, most have to
@@ -108,38 +112,41 @@ struct thread_master* vty_master = NULL ;
 bool vty_nexus ;                /* true <=> in the qpthreads world      */
 bool vty_multi_nexus ;          /* true <=> more than one qpthread      */
 
-qpn_nexus vty_cli_nexus    = NULL ;
-qpn_nexus vty_cmd_nexus    = NULL ;
+qpn_nexus vty_cli_nexus     = NULL ;
+qpn_nexus vty_cmd_nexus     = NULL ;
 
 /* List of all known vio                                                */
-vty_io vio_live_list       = NULL ;
+vio_list_t vio_live_list    = INIT_DL_BASE_PAIR ;
 
 /* List of all vty which are in monitor state.                          */
-vty_io vio_monitor_list    = NULL ;
+vio_list_t vio_monitor_list = INIT_DL_BASE_PAIR ;
 
 /* List of child processes in our care                                  */
-vio_child vio_childer_list = NULL ;
+vio_child vio_childer_list  = NULL ;
 
 /* See vty_child_signal_nexus_set()                                     */
-qpt_mutex_t vty_child_signal_mutex ;
+qpt_mutex vty_child_signal_mutex = NULL ;
 qpn_nexus vty_child_signal_nexus = NULL ;
 
 /*------------------------------------------------------------------------------
  * VTYSH stuff
  */
 
-/* Integrated configuration file path -- for VTYSH                      */
-char integrate_default[] = SYSCONFDIR INTEGRATE_DEFAULT_CONFIG ;
+/* Integrated configuration file path -- for VTYSH
+ */
+const char* integrate_default = SYSCONFDIR INTEGRATE_DEFAULT_CONFIG ;
+
+/*
+ *
+ */
+volatile sig_atomic_t vty_SIGINT = false ;
 
 /*------------------------------------------------------------------------------
  * Prototypes
  */
+static void uty_cmd_init (void) ;
+static void uty_init (void) ;
 static void uty_reset (const char* why, bool curtains) ;
-static void uty_init_commands (void) ;
-
-//static bool vty_terminal (struct vty *);
-//static bool vty_shell_server (struct vty *);
-//static bool vty_shell_client (struct vty *);
 
 /*------------------------------------------------------------------------------
  * Tracking the initialisation state.
@@ -150,37 +157,94 @@ enum vty_init_state
   vty_init_1st_stage,
   vty_init_2nd_stage,
   vty_init_started,
-  vty_init_reset,
+  vty_init_suspended,
+  vty_init_stopped,
   vty_init_terminated           /* final and highest numbered state     */
 };
 
 static enum vty_init_state vty_init_state ;
 
+static void (*vty_restart_action)(void) ;
+
 /*==============================================================================
  * Public Interface
  */
 
+static void uty_dispatch_action(qpn_nexus dst, void (*action)(void)) ;
+static void uty_qpn_action(mqueue_block mqb, mqb_flag_t flag) ;
+static int uty_thread_action(struct thread* thread) ;
+static void vty_resume_action(void) ;
+
 /*------------------------------------------------------------------------------
- * Initialise vty handling (threads and pthreads)
+ * Install vty's own commands like `who' command
  *
- * Install vty's own commands like `who' command.
+ * Called by cmd_table_init() -- which must be called *before* vty_init() or
+ * vty_init_for_vtysh().
+ */
+extern void
+vty_cmd_init (void)
+{
+  assert(vty_init_state == vty_init_pending) ;
+
+  uty_cmd_init() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialise vty handling (threads and pthreads) for all but vtysh
+ *
+ * This runs before any pthreads or nexus stuff starts -- so is, implicitly,
+ * in the CLI thread and no locking is required (and would have no effect).
+ *
+ * NB: is called before the configuration file is read for the first time.
+ *
+ * NB: from this point forward can do vty things *provided* is *blocking*.
+ *
+ * NB: may be called once and once only.
+ */
+extern void
+vty_init (void)
+{
+  uty_init () ;
+
+  vty_init_state = vty_init_1st_stage ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialise vty handling for vtysh
+ *
+ * Jumps directly to vty_init_started -- no further initialisation is required.
+ *
+ * Note that this means that the watch dog is not started and no listeners are
+ * set up.
+ *
+ * NB: may be called once and once only.
+ */
+extern void
+vty_init_for_vtysh(void)
+{
+  uty_init () ;
+
+  vty_init_state = vty_init_started ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Common initialisation for vty (threads and pthreads)
  *
  * This runs before any pthreads or nexus stuff starts -- so is, implicitly,
  * in the CLI thread.
  *
  * NB: may be called once and once only.
  */
-extern void
-vty_init (struct thread_master *master_thread)
+static void
+uty_init (void)
 {
-  VTY_ASSERT_CLI_THREAD() ;     /* True if !qpthreads_enabled           */
-  VTY_LOCK() ;                  /* Does nothing if !qpthreads_enabled   */
+  qassert(!qpthreads_enabled) ;
 
   assert(vty_init_state == vty_init_pending) ;
 
-  vty_master = master_thread;   /* Local pointer to the master thread   */
+  vty_mutex           = NULL ;
 
-  vio_live_list       = NULL ;  /* no VTYs yet                          */
+  ddl_init(vio_live_list) ;     /* no VTYs yet                          */
   vio_childer_list    = NULL ;
 
   vty_nexus           = false ; /* not running qnexus-wise              */
@@ -188,16 +252,11 @@ vty_init (struct thread_master *master_thread)
   vty_cli_nexus       = NULL ;
   vty_cmd_nexus       = NULL ;
 
+  vty_child_signal_mutex = NULL ;
   vty_child_signal_nexus = NULL ;       /* none, yet                    */
 
-  uty_init_monitor() ;
-
-  uty_init_commands() ;         /* install nodes                        */
-
-  vty_init_state = vty_init_1st_stage ;
-
-  VTY_UNLOCK() ;
-}
+  uty_monitor_init() ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Further initialisation for qpthreads.
@@ -226,35 +285,23 @@ vty_init_r (qpn_nexus cli, qpn_nexus cmd)
   vty_cli_nexus   = cli ;
   vty_cmd_nexus   = cmd ;
 
-  qpt_mutex_init(vty_mutex, qpt_mutex_recursive);
-
-  qpt_mutex_init(vty_child_signal_mutex, qpt_mutex_quagga);
+  vty_mutex              = qpt_mutex_init_new(NULL, qpt_mutex_recursive);
+  vty_child_signal_mutex = qpt_mutex_init_new(NULL, qpt_mutex_quagga);
 
   vty_init_state = vty_init_2nd_stage ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Initialisation for vtysh application.
+ * Start the VTY going for all daemons except the vtysh.
  *
- * TODO: work out what this needs to do !  (If anything.)
- */
-extern void
-vty_init_vtysh (void)
-{
-  VTY_LOCK() ;
-
-  VTY_UNLOCK() ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Start the VTY going.
- *
- * This starts the listeners for VTY_TERMINAL and VTY_SHELL_SERVER.
+ * This starts the listeners for VTY_TERMINAL and VTY_VTYSH_SERVER.
  *
  * Also starts the watch dog.
  *
  * This is run during early morning start, after any daemonisation, but before
  * any threads are started -- so is, implicitly, in the CLI thread.
+ *
+ * This is done *after* the configuration file is read for the first time.
  *
  * NB: may be called once and once only.
  */
@@ -269,147 +316,332 @@ vty_start(const char *addr, unsigned short port, const char *path)
 
   uty_watch_dog_start() ;
 
-  uty_open_listeners(addr, port, path) ;
+  host.vty_listen_addr   = (addr != NULL) ? XSTRDUP(MTYPE_HOST, addr)
+                                          : NULL ;
+  host.vty_listen_port   = port ;
+  host.vtysh_listen_path = (path != NULL) ? XSTRDUP(MTYPE_HOST, path)
+                                          : NULL ;
+
+  uty_open_listeners() ;
 
   vty_init_state = vty_init_started ;
+
   VTY_UNLOCK() ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Reset all VTY status for reasons unknown -- probably SIGHUP
+ * Suspend (if can, otherwise Stop) all known VTY, and turn off all listeners.
+ * Dispatch given action for execution in the cmd nexus.
+ *
+ * Chief use is SIGHUP and other configuration reload mechanisms.
+ *
+ * For SIGHUP, procedure is:
+ *
+ *   SIGHUP handled by cli nexus:
+ *
+ *     invokes the handler set up by the daemon, which calls this to
+ *     (a) suspend vty, (b) set "restart action" NULL, (c) dispatch the
+ *     given "suspend action" for execution in the cmd_nexus.
+ *
+ *   The cmd nexus executes the "suspend action"
+ *
+ *     while the vty are being suspended, this function runs in the cmd nexus,
+ *     doing whatever it needs to do to suspend itself.
+ *
+ *     When this is done, calls vty_dispatch_restart() to schedule the
+ *     restart action, once all vty are suspended -- if they are already all
+ *     suspended, dispatches the restart action immediately.
+ *
+ *   If vty are not all suspended
+ *
+ *     as each one becomes suspended or stops, will call uty_suspended() to see
+ *     if is time to dispatch the "restart action".
+ *
+ *   The cmd nexus executes the "restart action"
+ *
+ *     which is likely to reload the configuration and may do other stuff.
+ *
+ *     At the end of the "restart action",
+ *
+ * This is called in the CLI thread.
+ *
+ * Returns:  string for logging.
+ *
+ * String returned is expected to be added to eg: "SIGHUP: %s to reload ..."
  */
-extern void
-vty_reset()
+extern const char*
+vty_suspend(const char* why, void (*suspend_action)(void))
 {
-  vty_reset_because("Reset") ;
+  const char* result ;
+  vty_io next ;
+
+  VTY_ASSERT_CLI_THREAD() ;
+  VTY_LOCK() ;
+
+  switch (vty_init_state)
+    {
+      case vty_init_pending:
+      case vty_init_1st_stage:
+      case vty_init_2nd_stage:
+        result = "too early" ;
+        break ;
+
+      case vty_init_started:
+        uty_close_listeners() ;
+
+        next = ddl_head(vio_live_list) ;
+        while (next != NULL)
+          {
+            vty_io vio ;
+
+            vio  = next ;
+            next = sdl_next(vio, vio_list) ;
+
+            uty_cmd_loop_suspend(vio, why) ;
+          } ;
+
+        vty_restart_action = NULL ;           /* not set, yet */
+        vty_init_state = vty_init_suspended ;
+
+        uty_dispatch_action(vty_cmd_nexus, suspend_action) ;
+
+        result = "about" ;
+        break ;
+
+      case vty_init_suspended:
+        result = "already started" ;
+        break ;
+
+      case vty_init_stopped:
+      case vty_init_terminated:
+        result = "too late" ;
+        break ;
+
+      default:
+        result = "UNABLE (BUG)" ;
+        break ;
+    } ;
+
+  VTY_UNLOCK() ;
+
+  return result ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Reset all VTY.
+ * Set the action to restart once all vty are suspended.
  *
- * This is done in response to SIGHUP/SIGINT -- and runs in the CLI pthread
- * (if there is one).
+ * Does nothing if not vty_init_suspended -- so if has been stopped in the
+ * meantime, has no effect.
  *
- * Stops any command loop and closes all VTY, "final".  Issues the "why"
- * message just before closing the base output.
+ * If all vty are already suspended, will dispatch the restart action for
+ * execution in the cmd nexus, now.  Otherwise, leaves pending, for when all
+ * vty are suspended.
  *
- * Note that if a command loop is currently executing a command in the
- * Routing Engine pthread, then when that completes the command loop will stop
- * and close the VTY.  So completion of the close depends on the CLI pthread
- * continuing to run and consume messages.  The Routing Engine will act on
- * the SIGHUP/SIGINT/SIGTERM when it consumes a message sent to it, so any
- * currently executing command will complete, before any further action is
- * taken.
- *
- * Closes all listening sockets.
+ * Can be called in any thread.
  */
 extern void
-vty_reset_because(const char* why)
+vty_dispatch_restart(void (*action)(void))
+{
+  VTY_LOCK() ;
+
+  if (vty_init_state == vty_init_suspended)
+    {
+      vty_restart_action = action ;
+      uty_suspended_scan() ;
+    } ;
+
+  VTY_UNLOCK() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Check whether all vty are now suspended, and if so, dispatch the restart
+ * action if there is one and clear it.
+ *
+ * Does nothing if not vty_init_suspended -- so if has been stopped in the
+ * meantime, has no effect.
+ *
+ * Can be called in any thread.
+ */
+extern void
+uty_suspended_scan(void)
+{
+  bool   dispatch ;
+  vty_io vio ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  if (vty_init_state != vty_init_suspended)
+    return ;
+
+  dispatch = (vty_restart_action != NULL) ;   /* dispatch if have action */
+
+  vio = ddl_head(vio_live_list) ;
+  while ((vio != NULL) && dispatch)
+    {
+      dispatch = (vio->state & vst_suspended) ;
+      vio = sdl_next(vio, vio_list) ;
+    } ;
+
+  if (dispatch)
+    {
+      /* clear the action flag and ...*/
+      uty_dispatch_action(vty_cmd_nexus, vty_restart_action) ;
+      vty_restart_action = NULL ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Send message to the relevant nexus to execute the given action function.
+ *
+ * If running nexus-wise, enqueue a one time message.
+ * If running legacy threads use an event.
+ *
+ * Can be called in any thread.
+ */
+static void
+uty_dispatch_action(qpn_nexus dst, void (*action)(void))
+{
+  qassert((dst == vty_cli_nexus) || (dst == vty_cmd_nexus)) ;
+
+  if (vty_nexus)
+    {
+      mqueue_block mqb ;
+
+      mqb = mqb_init_new(NULL, uty_qpn_action, action) ;
+      mqueue_enqueue(dst->queue, mqb, mqb_priority) ;
+    }
+  else
+    {
+      thread_add_event(master, uty_thread_action, action, 0) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Execute action -- free the mqb.
+ */
+static void
+uty_qpn_action(mqueue_block mqb, mqb_flag_t flag)
+{
+  void (*action)(void) ;
+
+  assert(vty_nexus) ;                   /* must be running qnexus-wise  */
+
+  action = mqb_get_arg0(mqb);
+
+  mqb_free(mqb) ;
+
+  if (flag == mqb_action)
+    action() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Execute action -- in the legacy threads world.
+ */
+static int
+uty_thread_action(struct thread* thread)
+{
+  void (*action)(void) ;
+
+  action = THREAD_ARG(thread) ;
+  action() ;
+
+  return 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Suspended vty may now run again.
+ *
+ * Does nothing if not vty_init_suspended -- so if has been stopped in the
+ * meantime, has no effect.
+ *
+ * This can be called in any thread (but probably called in the Routing Engine
+ * thread) -- sends message to the CLI thread to do the work.
+ */
+extern void
+vty_resume(void)
+{
+  VTY_LOCK() ;
+
+  if (vty_init_state == vty_init_suspended)
+    {
+      uty_dispatch_action(vty_cli_nexus, vty_resume_action) ;
+
+      vty_init_state = vty_init_started ;
+    } ;
+
+  VTY_UNLOCK() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Suspended vty may now run again.
+ *
+ * This is run in the CLI thread.
+ */
+static void
+vty_resume_action(void)
+{
+  vty_io next ;
+
+  VTY_ASSERT_CLI_THREAD() ;
+  VTY_LOCK() ;
+
+  next = ddl_head(vio_live_list) ;
+  while (next != NULL)
+    {
+      vty_io vio ;
+
+      vio  = next ;
+      next = sdl_next(vio, vio_list) ;
+
+      uty_cmd_loop_resume(vio) ;
+    } ;
+
+  uty_open_listeners() ;
+
+  VTY_UNLOCK() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Stop all known VTY, and turn off all listeners.
+ *
+ * Sole use is SIGINT/SIGTERM and other close-down mechanisms.
+ *
+ * This is called in the CLI thread.
+ *
+ * The expectation is that this is called as early as possible in the shut down
+ * process, while message queues and events are still being processed.
+ *
+ * The next operation should be vty_terminate().
+ */
+extern void
+vty_stop(const char* why, void (*stop_action)(void))
 {
   VTY_ASSERT_CLI_THREAD() ;
   VTY_LOCK() ;
 
-  if (vty_init_state != vty_init_reset)
+  switch (vty_init_state)
     {
-      assert(vty_init_state == vty_init_started) ;
+      case vty_init_pending:
+        break ;
 
-      uty_reset(why, false) ;   /* not curtains         */
+      case vty_init_1st_stage:
+      case vty_init_2nd_stage:
+      case vty_init_started:
+      case vty_init_suspended:
+        uty_reset(why, false) ;
+        vty_init_state = vty_init_stopped ;
+        uty_dispatch_action(vty_cmd_nexus, stop_action) ;
+        break ;
 
-      vty_init_state = vty_init_reset ;
+      case vty_init_stopped:
+      case vty_init_terminated:
+        break ;
+
+      default:
+        break ;
     } ;
 
   VTY_UNLOCK() ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Restart the VTY, following a vty_reset()/vty_reset_because().
- *
- * This starts the listeners for VTY_TERMINAL and VTY_SHELL_SERVER, again.
- *
- * NB: may be called once, and once only, *after* a vty_reset().
- *
- * NB: need not be in the CLI thread (if any).
- */
-struct vty_restart_args
-{
-  char*          addr ;
-  unsigned short port ;
-  char*          path ;
-} ;
-MQB_ARGS_SIZE_OK(vty_restart_args) ;
-
-static void vty_restart_action(mqueue_block mqb, mqb_flag_t flag) ;
-static void uty_restart(const char *addr, unsigned short port,
-                                                             const char *path) ;
-extern void
-vty_restart(const char *addr, unsigned short port, const char *path)
-{
-  VTY_LOCK() ;
-
-  /* If not running qnexus-wise, call uty_restart directly.
-   *
-   * Otherwise, construct and dispatch message to do a uty_restart.
-   */
-  if (!vty_nexus)
-    uty_restart(addr, port, path) ;
-  else
-    {
-      mqueue_block mqb ;
-      struct vty_restart_args* args ;
-
-      mqb  = mqb_init_new(NULL, vty_restart_action, vty_cli_nexus) ;
-      args = mqb_get_args(mqb) ;
-
-      if (addr != NULL)
-        args->addr = XSTRDUP(MTYPE_TMP, addr) ;
-      else
-        args->addr = NULL ;
-
-      args->port = port ;
-
-      if (path != NULL)
-        args->path = XSTRDUP(MTYPE_TMP, path) ;
-      else
-        args->path = NULL ;
-
-      mqueue_enqueue(vty_cli_nexus->queue, mqb, mqb_priority) ;
-    } ;
-
-  VTY_UNLOCK() ;
-} ;
-
-/* Deal with the uty_restart message                                    */
-static void
-vty_restart_action(mqueue_block mqb, mqb_flag_t flag)
-{
-  struct vty_restart_args* args ;
-  args = mqb_get_args(mqb) ;
-
-  if (flag == mqb_action)
-    {
-      VTY_LOCK() ;
-
-      uty_restart(args->addr, args->port, args->path) ;
-
-      VTY_UNLOCK() ;
-    } ;
-
-  if (args->addr != NULL)
-    XFREE(MTYPE_TMP, args->addr) ;
-  if (args->path != NULL)
-    XFREE(MTYPE_TMP, args->path) ;
-} ;
-
-/* Do the actual restart                                                */
-static void
-uty_restart(const char *addr, unsigned short port, const char *path)
-{
-  VTY_ASSERT_LOCKED() ;
-  assert(vty_init_state == vty_init_reset) ;
-
-  uty_open_listeners(addr, port, path) ;
-
-  vty_init_state = vty_init_started ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -430,170 +662,70 @@ uty_restart(const char *addr, unsigned short port, const char *path)
 extern void
 vty_terminate (void)
 {
-  VTY_ASSERT_CLI_THREAD() ;
+  if ( (vty_init_state != vty_init_pending) &&
+       (vty_init_state != vty_init_terminated)  )
+    {
+      VTY_ASSERT_CLI_THREAD() ;
+      VTY_LOCK() ;
 
-  if (  (vty_init_state == vty_init_pending)
-     || (vty_init_state == vty_init_terminated)  )
-    return ;                            /* nothing to do !      */
+      qassert(!qpthreads_active) ;
 
-  VTY_LOCK() ;
+      uty_reset("Terminating", true) ;
 
-  assert(  (vty_init_state > vty_init_pending)
-        && (vty_init_state < vty_init_terminated)  ) ;
+      VTY_UNLOCK() ;
 
-  uty_reset("Shut down", true) ;        /* curtains             */
+      uty_watch_dog_stop() ;
+      vty_child_close_register() ;
 
-  vty_child_close_register() ;
-
-  VTY_UNLOCK() ;
-
-  qpt_mutex_destroy(vty_mutex, 0);
-  qpt_mutex_destroy(vty_child_signal_mutex, 0);
+      vty_mutex              = qpt_mutex_destroy(vty_mutex, free_it);
+      vty_child_signal_mutex = qpt_mutex_destroy(vty_child_signal_mutex,
+                                                                      free_it);
+    } ;
 
   vty_init_state = vty_init_terminated ;
-}
+} ;
 
 /*------------------------------------------------------------------------------
- * Reset -- for SIGHUP/SIGINT or at final curtain.
+ * Reset -- for SIGTERM/SIGINT or at final curtain -- vty_terminate.
  *
- * Closes listeners and resets the vty timeout and access lists.
+ * Closes listeners and then stops all command loops, and closes vty if can
+ * or if must (at curtains).
  *
- * Closes all vty "final" -- see uty_close().  Before can close the vty must
- * stop any related command loop -- see uty_cmd_loop_stop():
- *
- *   * at "not-curtains" this is called in the *CLI* pthread, with all message
- *     and event handling is still running.
- *
- *     This is called *before* a message is sent to the Routing Engine pthread
- *     to inform it that a SIGHUP/SIGINT/SIGTERM has been seen.
- *
- *     It is possible that the command loop for a given vty cannot be stopped
- *     immediately and must be left to continue, until it sees the CMD_STOP
- *     vio->signal which will be set.
- *
- *   * at "curtains" the system is being terminated, all threads have been
- *     joined, so is implicity in the CLI thread, but all message and event
- *     handling has stopped
- *
- *     At "curtains" it is always possible to stop any command loop.
- *
- *     This is part of vty_terminate -- see above.
- *
- * Close down is then a two step process:
- *
- *   1. vty_reset()/vty_reset_because() -- which immediately closes everything
- *      that does not have to wait for a command loop to stop, and anything
- *      that remains will be closed, automatically, as soon as possible.
- *
- *   2. vty_terminate() -- which sweeps up and closes anything that remains
- *      to be closed, and which the automatic mechanism has not got to yet.
- *
- * So, for each vty, if uty_cmd_loop_stop() does stop the command loop, then:
- *
- *   * the close of the vty proceeds immediately.
- *
- * Otherwise:
- *
- *   * the CMD_STOP vio->signal has been set and the vty is left open.
- *
- *     Note that the command loop *must* be running in the vty_cmd_nexus
- *     -- see uty_cmd_loop_stop().
- *
- *   * nothing further will happen until the Routing Engine collects the
- *     CMD_STOP vio->signal, and sends a message to pass the command loop
- *     back to the CLI pthread, to deal with the CMD_STOP.
- *
- *     Before passing the command loop back, the Routing Engine will release
- *     the config symbol of power.  So, if the Routing Engine goes on to
- *     re-read the configuration, it does not have to wait for the CLI to get
- *     round to stopping the vty.
- *
- *   * when the CLI pthread receives the command loop back, it will collect the
- *     CMD_STOP (again) stop the command loop and close the vty.
- *
- *   * when the Routing Engine picks up any SIGHUP/SIGTERM/etc message, it
- *     will either re-read the configuration or vty_terminate().
- *
- *     The Routing Engine will not do this until after it has come out
- *     of the command loop, after dealing with the vio->signal, as above.
+ * If not curtains, the command loop may continue, in vio->stop state, as
+ * it pushes out any pending stuff.  This will hang when message/thread
+ * processing stops.  When vty_terminate() is called, will again attempt to
+ * stop the command loop, but this time will force the issue and close the
+ * vty.
  */
 static void
-uty_reset (const char* why, bool curtains)
+uty_reset(const char* why, bool curtains)
 {
-  vty_io vio ;
   vty_io next ;
 
   VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
   uty_close_listeners() ;
 
-  next = sdl_head(vio_live_list) ;
+  next = ddl_head(vio_live_list) ;
   while (next != NULL)
     {
+      vty_io vio ;
+
       vio  = next ;
       next = sdl_next(vio, vio_list) ;
 
-      /* Save the close reason for later, unless one is already set.        */
-      if ((why != NULL) && (vio->close_reason == NULL))
-        vio->close_reason = XSTRDUP(MTYPE_TMP, why) ;
-
-      /* Stop the command loop -- if not already stopped.
-       *
-       * If command loop is running, it will be signalled to stop, soonest.
-       */
-      if (uty_cmd_loop_stop(vio, curtains))
-        uty_close(vio) ;
+      uty_cmd_loop_stop(vio, why, curtains) ;
     } ;
-
-  host.vty_timeout_val = VTY_TIMEOUT_DEFAULT;
-
-  XFREE(MTYPE_HOST, host.vty_accesslist_name) ;
-                                /* sets host.vty_accesslist_name = NULL */
-
-  XFREE(MTYPE_HOST, host.vty_ipv6_accesslist_name);
-                           /* sets host.vty_ipv6_accesslist_name = NULL */
-
-  if (curtains)
-    uty_watch_dog_stop() ;
-} ;
-
-/*==============================================================================
- * Opening and closing VTY.
- *
- * VTY without a socket may be opened and closed at will.
- *
- * TODO: sort out the relationship between the non-socket VTY and vty_reset()
- */
-
-/*------------------------------------------------------------------------------
- * Create a new VTY of the given type
- *
- * The type may NOT be: VTY_TERMINAL or VTY_SHELL_SERVER
- *
- * Appears only to be used by vtysh !!     TODO ????
- */
-extern vty
-vty_open(vty_type_t type, node_type_t node)
-{
-  struct vty* vty ;
-
-  VTY_LOCK() ;
-  vty = uty_new(type, node) ;
-  VTY_UNLOCK() ;
-
-  return vty ;
 } ;
 
 /*==============================================================================
  * General VTY output.
  *
  * This is used during command execution, to output the results of commands.
- *
- * All these end up in uty_vout -- see vty_io.
  */
 
 /*------------------------------------------------------------------------------
- * VTY output -- cf fprintf !
+ * VTY output -- cf fprintf(stdout, ...) !
  *
  * This is for command output, which may later be suppressed
  *
@@ -614,6 +746,35 @@ vty_out(struct vty *vty, const char *format, ...)
 
   VTY_UNLOCK() ;
   return ret ;
+}
+
+/*------------------------------------------------------------------------------
+ * VTY error output -- cf fprintf(stderr, ...) !
+ *
+ * This is for (serious) error output, where that may be early in the morning
+ * or at some other time where there is no terminal to send output to.
+ *
+ * If vout is VOUT_STDOUT, sends output to "stderr".
+ *
+ * Otherwise, sends output to the vty, in the usual way !
+ */
+extern void
+vty_err(struct vty *vty, const char *format, ...)
+{
+  va_list args ;
+
+  VTY_LOCK() ;
+
+  va_start (args, format) ;
+
+  if (vty->vio->vout->vout_type == VOUT_STDOUT)
+    uty_std_err_vprintf(format, args) ;
+  else
+    vio_fifo_vprintf(vty->vio->obuf, format, args) ;
+
+  va_end (args) ;
+
+  VTY_UNLOCK() ;
 }
 
 /*------------------------------------------------------------------------------
@@ -663,108 +824,197 @@ vty_out_indent(struct vty *vty, int indent)
 } ;
 
 /*------------------------------------------------------------------------------
- * VTY output -- output the current time in standard form, to the second.
- */
-extern void
-vty_time_print (struct vty *vty, int cr)
-{
-  char buf [timestamp_buffer_len];
-
-  quagga_timestamp(0, buf, sizeof(buf)) ;
-
-  if (cr)
-    vty_out(vty, "%s\n", buf);
-  else
-    vty_out(vty, "%s ", buf);
-
-  return;
-}
-
-/*------------------------------------------------------------------------------
  * Say hello to vty interface.
  */
 extern void
 vty_hello (struct vty *vty)
 {
   qpath       path ;
-  const char* string ;
+  qstring     motd ;
 
+  /* For debug, immediately output the debug banner.
+   */
+  if (qdebug)
+    vty_out (vty, debug_banner, host.full_progname, "\n") ;
+
+  /* Collect path of any motdfile and take copy of any motd string.
+   *
+   * Require VTY_LOCK() to access host structure, and we take copies of the
+   * data accessed.
+   *
+   * If there is no motdfile, then will use the motd string.  If there is no
+   * motd string, will output nothing at all.
+   */
   VTY_LOCK() ;
 
   path = (host.motdfile != NULL) ? qpath_dup(host.motdfile) : NULL ;
-  string = host.motd ;
+  motd = qs_set_str(NULL, host.motd) ;
 
   VTY_UNLOCK() ;
 
-  if (qdebug)
-    vty_out (vty, "%s\n", debug_banner);
-
-  if      (path != NULL)
-    vty_cat_file(vty, path, "motd file") ;
-  else if (string != NULL)
-    vty_out(vty, "%s", string);
-
-  /* This "\n" is a bit magic... if the motd file does not end in a "\n",
-   * then this makes sure that we start on a new line.
+  /* If there is a motd file, read its contents into the motd qstring.
    *
-   * Similarly, if the motd string doesn't end '\n', then this makes sure.
-   *
-   * This will also trim trailing space from the end of the motd message.
-   *
-   * Generally these will end in '\n', so this produces the extra blank line
-   * before the cheerful "User authentication" message, which is the most
-   * likely next line.
+   * The primitive line imager makes sure there are no control characters
+   * other than '\n'.
    */
-  vty_out(vty, "\n") ;
+  if (path != NULL)
+    {
+      vty_line_image  vli ;
 
+      vli = uty_fd_line_image_open(qpath_string(path)) ;
+
+      if (vli->fd >= 0)
+        {
+          qs_set_len_nn(motd, 0) ;
+
+          while (1)
+            {
+              int r ;
+
+              r = uty_fd_line_image_read(vli) ;
+
+              if (r <= 0)
+                break ;
+
+              qs_append_n(motd, vli->buffer, r) ;
+            } ;
+        } ;
+
+      if (vli->fd < 0)
+        {
+          vty_out(vty, "%% Failed while %s motd file '%s': %s\n", vli->when,
+                                           vli->name, errtoa(vli->err, 0).str) ;
+          qs_set_len_nn(motd, 0) ;
+        } ;
+
+      uty_fd_line_image_close(vli) ;
+    } ;
+
+  /* If the motd string is not empty then process and output same.
+   *
+   * Processing will substitute:
+   *
+   *   %% -> %
+   *
+   *   %P -> QUAGGA_PROGNAME
+   *   %C -> QUAGGA_COPYRIGHT
+   *   %V -> QUAGGA_VERSION
+   *   %D -> name of daemon
+   *
+   *   %d -> __DATE__
+   *   %t -> __TIME__
+   *
+   *   %q -> if QDEBUG: " QDEBUG/QDEBUG_NAME"
+   *              else: ""
+   *
+   * And will strip any trailing spaces and ensure result ends in '\n'.
+   */
+  if (qs_len_nn(motd) != 0)
+    {
+      char* p, * e ;
+
+      static qs_pcsub_table_t table = {
+          { .action = 'P', .parser = qs_pcsub_default, .extra = 0 },
+          { .action = 'C', .parser = qs_pcsub_default, .extra = 1 },
+          { .action = 'V', .parser = qs_pcsub_default, .extra = 2 },
+          { .action = 'D', .parser = qs_pcsub_default, .extra = 3 },
+          { .action = 'd', .parser = qs_pcsub_default, .extra = 4 },
+          { .action = 't', .parser = qs_pcsub_default, .extra = 5 },
+          { .action = 'q', .parser = qs_pcsub_default, .extra = 6 },
+
+          { .action = '%' }
+      } ;
+
+      qs_pcsub(motd, table, QUAGGA_PROGNAME,            /* %P =>  0 */
+                            QUAGGA_COPYRIGHT,           /* %C =>  1 */
+                            QUAGGA_VERSION,             /* %V =>  2 */
+                            host.progname,              /* %D =>  3 */
+
+                            __DATE__,                   /* %d =>  4 */
+                            __TIME__,                   /* %t =>  5 */
+#if QDEBUG
+                            " QDEBUG/" QDEBUG_NAME,     /* %q =>  6 */
+#else
+                            "",
+#endif
+                            NULL) ;
+
+      /* Final scan, replacing any control characters other than '\n' by ' ',
+       * just in case the motd string or one of the substitutions contains
+       * such rubbish.
+       */
+      p = qs_char_nn(motd) ;
+      e = qs_ep_char_nn(motd) ;
+
+      while (p < e)
+        {
+          byte b ;
+
+          b = *p ;
+          if ((b < ' ') && (b != '\n'))
+            *p = ' ' ;
+
+          ++p ;
+        } ;
+
+      /* Trim any trailing spaces and ensure all ends in a '\n'
+       */
+      p = qs_char_nn(motd) ;
+      while ((e > p) && (*(e - 1) == ' '))
+        --e ;
+
+      qs_set_len_nn(motd, e - p) ;
+
+      if ((e == p) || (*(e - 1) != '\n'))
+        qs_append_n(motd, "\n", 1) ;
+
+      /* Now we write the qstring to the vty buffer.
+       */
+      vty_write(vty, qs_char_nn(motd), qs_len_nn(motd)) ;
+    } ;
+
+  /* Tidy up and fin
+   */
+  qs_free(motd) ;
   qpath_free(path) ;
 } ;
 
 /*------------------------------------------------------------------------------
  * "cat" file to vty
- *
- *
  */
-extern cmd_return_code_t
+extern cmd_ret_t
 vty_cat_file(vty vty, qpath path, const char* desc)
 {
-  int   fd ;
-  void* buf ;
+  cmd_ret_t       ret ;
+  vty_line_image  vli ;
 
-  fd = uty_fd_file_open(qpath_string(path), vfd_io_read | vfd_io_blocking, 0) ;
+  ret = CMD_SUCCESS ;
 
-  if (fd < 0)
-    {
-      vty_out (vty, "Cannot open %s file '%s': %s (%s)\n", desc,
-                                  qpath_string(path), errtostr(errno, 0).str,
-                                                     errtoname(errno, 0).str) ;
-      return CMD_WARNING;
-    } ;
+  vli = uty_fd_line_image_open(qpath_string(path)) ;
 
-  enum { buffer_size = 32 * 1024 } ;
-  buf = XMALLOC(MTYPE_TMP, buffer_size) ;
-
-  while (1)
+  while ((vli->fd >= 0) && (ret == CMD_SUCCESS))
     {
       int r ;
 
-      r = readn(fd, buf, buffer_size) ;
+      r = uty_fd_line_image_read(vli) ;
 
-      if (r > 0)
-        vty_write(vty, buf, r) ;        // TODO push ??
-      else
-        {
-          if (r == 0)
-            break ;
+      if (r <= 0)
+        break ;
 
-          // TODO error handling ....
-        } ;
+      vty_write(vty, vli->buffer, r) ;
+      ret = vty_cmd_out_push(vty) ;
     } ;
 
-  XFREE(MTYPE_TMP, buf) ;
-  close(fd) ;
+  if (vli->fd < 0)
+    {
+      vty_out(vty, "%% Failed while %s %s '%s': %s\n", vli->when,
+                                     desc, vli->name, errtoa(vli->err, 0).str) ;
+      ret = CMD_WARNING ;
+    } ;
 
-  return CMD_SUCCESS;
+  uty_fd_line_image_close(vli) ;
+
+  return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -776,6 +1026,88 @@ vty_out_clear(vty vty)
   VTY_LOCK() ;
   uty_out_clear(vty->vio) ;
   VTY_UNLOCK() ;
+} ;
+
+/*==============================================================================
+ * Functions for VTY_GET_LONG
+ *               VTY_GET_INTEGER_RANGE
+ */
+
+/*------------------------------------------------------------------------------
+ * Decode string using stroul().
+ *
+ * Accepts everything which stroul(s, ..., 0) will accept.  Note that this
+ * includes values which are -ve (start with '-') and values which have an
+ * explicit '+'.  Negative values are cast to unsigned on return from strtoul.
+ *
+ * Rejects strings which have anything after the last digit.
+ *
+ * Rejects empty strings.
+ *
+ * If fails, puts error message to the vty.
+ *
+ * Returns:  if OK: value returned by strtoul() and errno == 0
+ *            else: ULONG_MAX                   and errno == EINVAL
+ */
+extern ulong
+vty_get_long(vty vty, const char* name, const char* str)
+{
+  ulong result ;
+  char *endptr = NULL;
+
+  errno = 0 ;
+  result = strtoul (str, &endptr, 0) ;
+
+  if ((*endptr == '\0') && (endptr != str) && (errno == 0))
+    return result ;
+
+  vty_out (vty, "%% Invalid %s value\n", name) ;
+  errno = EINVAL ;
+
+  return ULONG_MAX ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Decode string using stroul() and check for value in the given *unsigned*
+ * range.
+ *
+ * Accepts everything which stroul(s, ..., 0) will accept.  Note that this
+ * includes values which are -ve (start with '-') and values which have an
+ * explicit '+'.  Negative values are cast to unsigned on return from strtoul.
+ *
+ * Rejects strings which have anything after the last digit.
+ *
+ * Rejects empty strings.
+ *
+ * Rejects values outside the given unsigned range.
+ *
+ * If fails, puts error message to the vty, and sets errno == EINVAL or ERANGE.
+ *
+ * Returns:  if OK: value returned by strtoul() and errno == 0
+ *            else: ULONG_MAX                   and errno == EINVAL
+ */
+extern ulong
+vty_get_integer_range(vty vty, const char* name, const char* str,
+                                                           ulong min, ulong max)
+{
+  ulong result ;
+
+  result = vty_get_long(vty, name, str) ;
+
+  if ((errno == 0) && (result >= min) && (result <= max))
+    return result ;
+
+  if (errno == 0)
+    {
+      vty_out (vty, "%% Out of range %s value: %lu ", name, result) ;
+      if (result < min)
+        vty_out(vty, "< minimum %lu\n", min) ;
+      else
+        vty_out(vty, "> maximum %lu\n", max) ;
+      errno = ERANGE ;
+    } ;
+
+  return max ;
 } ;
 
 /*==============================================================================
@@ -811,198 +1143,286 @@ vty_sigchld(void)
  *      In the qpthreads world, this is running in whatever thread is executing
  *      commands.
  *
- * Sets up a VTY_CONFIG_READ in which to execute commands.  This has no CLI
- * and no socket.  All output is buffered in the cmd_obuf.  All commands are
- * run directly in the thread -- no commands are queued.
+ * Sets up a VTY_STDOUT onto which a VIN_CONFIG is pushed, from which to
+ * execute commands.  All commands are run directly in the thread -- no
+ * commands are queued.
  */
-
-static int vty_use_backup_config (qpath path) ;
-static void vty_read_config_file (int conf_fd, const char* name,
-                                  cmd_command first_cmd, bool ignore_warnings,
-                                                                bool full_lex) ;
+static bool vty_read_config_file (vty vty, int conf_fd, qpath path,
+                                                          bool ignore_warnings,
+                                                          bool show_warnings) ;
+static int vty_report_open_config_failed(vty vty, qpath conf, bool required,
+                                                                  bool backup) ;
 
 /*------------------------------------------------------------------------------
  * Read the given configuration file.
+ *
+ * If the config_file == NULL (ie no -f xxxx), use the config_default.
  */
 extern void
 vty_read_config (const char *config_file,
                  const char *config_default)
 {
-  vty_read_config_first_cmd_special(config_file, config_default, NULL, true);
+  bool own_flag ;
+
+  if (config_file == NULL)
+    {
+      config_file = config_default ;
+      own_flag = false ;
+    }
+  else
+    own_flag   = true ;
+
+  cmd_host_config_set (config_file, own_flag, NULL, false, false) ;
+  cmd_host_pthreaded(false, NULL) ;
+
+  vty_read_config_new(true /* ignore_warnings */, false /* show_warnings */) ;
 }
 
 /*------------------------------------------------------------------------------
- * Read the given configuration file.
+ * Read the configuration file -- unless depending on vtysh.
  *
- * The config_file (-f argument) is used if specified.
- *
- * If config_file is NULL, use the config_default.
- *
- * If using the config_default, if VTYSH_ENABLED, look for "vtysh" in the name.
- * If find "vtysh" and find the "integrate_default" file, then do nothing
- * now -- expect vtysh to connect in due course and provide the configuration.
- *
- * The config_file or config_default may be relative file names.
- *
- * May have a function to call after the first actual command is processed.
- * This mechanism supports the setting of qpthreads-ness by configuration file
- * command.
+ * In any case: if is host.newborn will invoke host.init_second_stage().
  */
 extern void
-vty_read_config_first_cmd_special(const char *config_file,
-                                  const char *config_default,
-                                  cmd_command first_cmd,
-                                  bool ignore_warnings)
+vty_read_config_new(bool ignore_warnings, bool show_warnings)
 {
-  const char *name ;
-  qpath  path ;
-  int    conf_fd ;
+  qpath path ;
 
-  /* Deal with VTYSH_ENABLED magic                                      */
-  if (VTYSH_ENABLED && (config_file == NULL))
+  VTY_LOCK() ;
+
+  if (host.config_file != NULL)
+    path = qpath_dup(host.config_file) ;
+  else
+    path = NULL ;               /* depending on vtysh ! */
+
+  /* XXX worry about configuration default state... for SIGHUP reload.
+   */
+  host.vty_timeout_val = VTY_TIMEOUT_DEFAULT;
+
+  VTY_UNLOCK() ;
+
+  if (path != NULL)
     {
-      int ret;
-      struct stat conf_stat;
+      vty   vty ;
+      int   conf_fd ;
+      bool  ok ;
 
-      /* !!!!PLEASE LEAVE!!!!
-       * This is NEEDED for use with vtysh -b, or else you can get
-       * a real configuration food fight with a lot garbage in the
-       * merged configuration file it creates coming from the per
-       * daemon configuration files.  This also allows the daemons
-       * to start if there default configuration file is not
-       * present or ignore them, as needed when using vtysh -b to
-       * configure the daemons at boot - MAG
-       */
+      vty = vty_std_write_open("config file") ;
 
-      /* Stat for vtysh Zebra.conf, if found startup and wait for
-       * boot configuration
-       */
+    //vty_cmd_wait_config_lock(vty) ;
 
-      if ( strstr(config_default, "vtysh") == NULL)
-        {
-          ret = stat (integrate_default, &conf_stat);
-          if (ret >= 0)
-            return;             /* TODO leaves host.config_file NULL    */
-        }
-    } ;
+      conf_fd = vty_open_config_file(vty, path, true /* required */) ;
 
-  /* Use default if necessary, and deal with constructing full path     */
-  if (config_file == NULL)
-    config_file = config_default ;
+      ok = (conf_fd >= 0) ;
 
-  path = qpath_make(config_file, host.cwd) ;
-  name = qpath_string(path) ;
-
-  /* try to open the configuration file                                 */
-  conf_fd = uty_fd_file_open(name, vfd_io_read, 0) ;
-
-  if (conf_fd < 0)
-    {
-      fprintf (stderr, "%s: failed to open configuration file %s: %s\n",
-                                      __func__, name, errtostr(errno, 0).str) ;
-
-      conf_fd = vty_use_backup_config (path);
-      if (conf_fd >= 0)
-        fprintf (stderr, "WARNING: using backup configuration file!\n");
-      else
-        {
-          fprintf (stderr, "can't open backup configuration file [%s%s]\n",
-                                                        name, CONF_BACKUP_EXT);
-          exit(1);
-        }
-    } ;
-
-  if (qdebug)
-    fprintf(stderr, "Reading config file: %s\n", name);
-
-  vty_read_config_file(conf_fd, name, first_cmd, ignore_warnings, false);
-
-  cmd_host_config_set(path) ;
-
-  qpath_free(path) ;
-
-  if (qdebug)
-    fprintf(stderr, "Finished reading config file\n");
-}
-
-/*------------------------------------------------------------------------------
- * Try to use a backup configuration file.
- *
- * Having failed to open the file "<path>", if there is a file called
- * "<path>.sav" that can be opened for reading, then:
- *
- *   - make a copy of that file
- *   - call it "<path>"
- *   - return an open FILE
- *
- * Returns: <  0 => no "<path>.sav", or failed doing any of the above
- *          >= 0 otherwise, fd file.
- */
-static int
-vty_use_backup_config (qpath path)
-{
-  qpath       temp ;
-  char*       name ;
-  int         sav_fd, tmp_fd, err ;
-  bool        ok ;
-
-  /* construct the name "<fullname>.sav", and try to open it.           */
-  temp = qpath_dup(path) ;
-  qpath_extend_str(temp, CONF_BACKUP_EXT) ;
-
-  sav_fd = -1 ;
-  tmp_fd = -1 ;
-
-  sav_fd = uty_fd_file_open(qpath_string(temp),
-                                             vfd_io_read | vfd_io_blocking, 0) ;
-
-  /* construct a temporary file and copy "<fullpath.sav>" to it.        */
-  qpath_extend_str(temp, ".XXXXXX") ;
-  name = qpath_char_string(temp) ;
-
-  if (sav_fd >= 0)
-    tmp_fd = mkstemp(name) ;
-
-  ok = ((sav_fd >= 0) && (tmp_fd >= 0)) ;
-
-  if (ok)
-    ok = (copyn(tmp_fd, sav_fd) == 0) ;
-
-  err = errno ;
-
-  if (tmp_fd >= 0)
-    close(tmp_fd) ;
-  if (sav_fd >= 0)
-    close(sav_fd) ;
-
-  /* If now OK, then have copied the .sav to the temporary file.        */
-
-  if (ok)
-    {
-      /* Make sure that have the required file status                   */
-      ok = chmod(name, CONFIGFILE_MASK) == 0 ;
-
-      /* Finally, make a link with the original name                    */
       if (ok)
-        ok = link(name, qpath_string(path)) == 0 ;
+        {
+          if (qdebug)
+            fprintf(stderr , "Reading config file: %s\n", qpath_string(path)) ;
 
-      err = errno ;
+          /* Read the configuration file in the configuration command loop,
+           * closing and discarding vty when finished.
+           */
+          ok = vty_read_config_file(vty, conf_fd, path, ignore_warnings,
+                                                        show_warnings) ;
+          if (qdebug)
+            fprintf(stderr, "Finished reading config file\n") ;
+        } ;
+
+      vty_close(vty) ;          /* the vty is released  */
+      qpath_free(path) ;
+
+      if (!ok)
+        exit(1) ;
     } ;
 
-  if (tmp_fd >= 0)      /* if made a temporary, done with it now        */
-    unlink(name) ;
-
-  qpath_free(temp) ;    /* done with the qpath                          */
-
-  if (ok)
-    return uty_fd_file_open(qpath_string(path), vfd_io_read, 0) ;
-
-  errno = err ;
-  return -1 ;
+  /* Finished the configuration step.  If not yet done the second stage
+   * initialisation, better do it now.
+   */
+  cmd_init_second_stage() ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Read the given configuration file.
+ * Try to open given configuration file.
+ *
+ * If fails to open main config file, and file does not exist, try to open the
+ * back-up version and restore the file.
+ *
+ * Issues error messages to the given vty by vty_err().
+ *
+ * Returns: >=  0 => OK, this is the fd
+ *          == -1 => failed (hard)
+ *          == -2 => not found && not required (soft)
+ */
+extern int
+vty_open_config_file(vty vty, qpath path, bool required)
+{
+  qpath  saved, temp ;
+  int    conf_fd, sav_fd, tmp_fd ;
+  bool   restored ;
+
+  saved     = NULL ;            /* none, yet            */
+  temp      = NULL ;            /* none, yet            */
+
+  restored  = false ;           /* not attempted, yet   */
+  conf_fd   = -1 ;
+  sav_fd    = tmp_fd = -1 ;     /* none, yet            */
+
+  /* try to open the configuration file                                 */
+  while (1)
+    {
+      bool ok ;
+      int  err ;
+
+      conf_fd = uty_fd_file_open(qpath_string(path), vfd_io_read, 0) ;
+
+      if (conf_fd >= 0)
+        break ;                 /* success !            */
+
+      /* Failed to open the configuration file.
+       *
+       * Say what happened.
+       *
+       * If the configuration file is not required, exit now, with whatever
+       * the error is -- will not attempt to restore from backup.
+       *
+       * If received a hard error -- ie this is not simply "not found", exit
+       * with the hard error.
+       *
+       * If have already restored the configuration file, but could not then
+       * find it... treat as hard error !
+       */
+      conf_fd = vty_report_open_config_failed(vty, path, required, false) ;
+
+      if (!required)
+        break ;                 /* give up in any case if !required     */
+
+      if (conf_fd == -1)
+        break ;                 /* give up on hard error                */
+
+      conf_fd = -1 ;            /* all errors from now on are hard      */
+
+      if (restored)
+        break ;                 /* give up if failed to find restored   */
+
+      /* Now set about restoring the backup configuration file, if we can
+       * find one.
+       *
+       * Note that we open the file genuinely O/S blocking, so that can copy
+       * simple mindedly.
+       */
+      saved = qpath_dup(path) ;
+      qpath_extend_str(saved, CONF_BACKUP_EXT) ;
+
+      sav_fd = uty_fd_file_open(qpath_string(saved),
+                                          vfd_io_read | vfd_io_os_blocking, 0) ;
+      if (sav_fd < 0)
+        {
+          vty_report_open_config_failed(vty, saved, true, true) ;
+          break ;
+        } ;
+
+      /* construct a temporary file and copy saved configuration to it.
+       */
+      temp = qpath_dup(path) ;
+      tmp_fd = qpath_mkstemp(temp) ;    /* opened blocking              */
+
+      if (tmp_fd < 0)
+        {
+          err = errno ;
+          vty_err(vty, "%% Failed to create temporary file %s: %s\n",
+                                       qpath_string(temp), errtoa(err, 0).str) ;
+          break ;
+        } ;
+
+      /* Copy the saved configuration to the new temporary file
+       */
+      if (copyn(tmp_fd, sav_fd) != 0)   /* TODO -- non-blocking ??      */
+        {
+          err = errno ;
+          vty_err(vty, "%% Failed to copy Backup configuration file %s: %s\n",
+                                      qpath_string(saved), errtoa(err, 0).str) ;
+          break ;
+        } ;
+
+      /* Now set permissions and restore name
+       */
+      ok = chmod(qpath_string(temp), CONFIGFILE_MASK) == 0 ;
+
+      if (ok)
+        ok = link(qpath_string(temp), qpath_string(path)) == 0 ;
+
+      if (!ok)
+        {
+          err = errno ;
+          vty_err(vty, "%% Failed to restore configuration file %s: %s\n",
+                                       qpath_string(path), errtoa(err, 0).str) ;
+          break ;
+        } ;
+
+      /* Wonderful -- have restored backup configuration file, which will
+       * now attempt to open.
+       */
+      vty_err(vty, "WARNING: using backup configuration file!\n");
+
+      restored = true ;
+    } ;
+
+  /* Tidy up and return the result.
+   */
+  if (sav_fd >= 0)
+    close(sav_fd) ;
+
+  if (tmp_fd >= 0)
+    {
+      close(tmp_fd) ;
+      unlink(qpath_string(temp)) ;
+    } ;
+
+  qpath_free(saved) ;
+  qpath_free(temp) ;
+
+  return conf_fd ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Failed to open the given configuration file
+ *
+ * Establish whether file exists, and report -- vty_err() -- accordingly.
+ *
+ * Report error if file or something else of the same name exists.
+ *
+ * If file does not exist, report not found if the file is required.
+ *
+ * Return:  -1 => hard error (file exists)
+ *          -2 => file not found
+ */
+static int
+vty_report_open_config_failed(vty vty, qpath conf, bool required, bool backup)
+{
+  int  ret ;
+  int  err ;
+
+  err = errno ;
+  ret = (qpath_stat_is_file(conf) != ENOENT) ? -1 : -2 ;
+
+  if (ret == -1)
+    /* Exists and failed to open
+     */
+    vty_err(vty, "%% Failed to open %sconfiguration file %s: %s\n",
+              backup ? "backup " : "", qpath_string(conf), errtoa(err, 0).str) ;
+  else if (required)
+    /* Does not exist, and is required
+     */
+    vty_err(vty, "%% %sonfiguration file %s: not found\n",
+                                backup ? "Backup c" : "C", qpath_string(conf)) ;
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Read the given configuration file -- using the config loop.
+ *
+ * Expects the vty to be vio->blocking, with the
  *
  * May have a function to call after the first actual command is processed.
  * This mechanism supports the setting of qpthreads-ness by configuration file
@@ -1020,28 +1440,51 @@ vty_use_backup_config (qpath path)
  *     quarter.
  *
  * so all commands are executed directly.
+ *
+ * Returns:  true <=> OK
  */
-static void
-vty_read_config_file(int fd, const char* name, cmd_command first_cmd,
-                                            bool ignore_warnings, bool full_lex)
+static bool
+vty_read_config_file(vty vty, int conf_fd, qpath path, bool ignore_warnings,
+                                                       bool show_warnings)
 {
-  cmd_return_code_t ret ;
-  vty     vty ;
-  qtime_t taking ;
+  cmd_ret_t   ret ;
+  qtime_t     taking ;
+  const char* name ;
 
-  vty = vty_config_read_open(fd, name, full_lex) ;
+  name = qpath_string(path) ;
 
-  if (vty_cmd_config_loop_prepare(vty))
+  if (vty_cmd_config_loop_prepare(vty, conf_fd, path, ignore_warnings,
+                                                      show_warnings))
     {
+      bool ignore ;
+      uint warnings ;
+
+      /* Do the work.
+       */
       taking = qt_get_monotonic() ;
 
-      ret = cmd_read_config(vty, first_cmd, ignore_warnings) ;
+      ret = cmd_read_config(vty, &warnings) ;
 
       taking = (qt_get_monotonic() - taking) / (QTIME_SECOND / 1000) ;
 
-      zlog_info("Finished reading configuration '%s' in %d.%d secs%s",
-                        name, (int)(taking / 1000), (int)(taking % 1000),
-                                   (ret == CMD_SUCCESS) ? "." : " -- FAILED") ;
+      /* Worry about the result
+       *
+       * By the time the configuration has been read, should have set the
+       * logging going, so should be able to get any warnings etc away.
+       */
+      ignore = (ret == CMD_WARNING) && ignore_warnings ;
+
+      if      (ret == CMD_SUCCESS)
+        zlog_info("Finished reading configuration '%s' in %d.%d secs -- OK",
+                             name, (int)(taking / 1000), (int)(taking % 1000)) ;
+      else if (ret == CMD_WARNING)
+        zlog_warn("Finished reading configuration '%s' -- %d WARNINGS -- %s",
+                                 name, warnings, ignore ? "ignored" : "FATAL") ;
+      else
+        zlog_err("Finished reading configuration '%s' -- FAILED (%d warnings)",
+                                                               name, warnings) ;
+      if (ignore)
+        ret = CMD_SUCCESS ;
     }
   else
     {
@@ -1052,10 +1495,403 @@ vty_read_config_file(int fd, const char* name, cmd_command first_cmd,
       ret = CMD_ERROR ;
     } ;
 
-  vty_cmd_loop_exit(vty) ;      /* the vty is released          */
+  return (ret == CMD_SUCCESS) ;
+} ;
 
+/*==============================================================================
+ * Writing of configuration to configuration file
+ *
+ * Is passed a call-back which outputs a given node's configuration to the
+ * vty -- returning false if the node has no configuration (or whose
+ * configuration is empty).
+ *
+ * Within a daemon only one write configuration command can run at any
+ * moment.  Uses a well known temporary output file name, and insists that it
+ * does not exist and cand be opened exclusively, which ensures only one
+ * process can be writing configuration at the same time.  It also ensures that
+ * if something goes wrong, the operator tidies up before we risk losing any
+ * good configuration file(s).
+ *
+ * TODO: what sense does it make to have an output pipe with this command !!??
+ *
+ * Returns:  CMD_SUCCESS    -- fine
+ *           CMD_ERROR      -- something failed, error reported
+ *           CMD_IO_ERROR   -- some I/O error occurred, error posted
+ *           CMD_CANCEL     -- cancel picked up
+ */
+extern cmd_ret_t
+vty_write_config_file(vty vty, qpath conf,
+                        int (*write_config_node)(svty vty, node_type_t node),
+                                                                bool integrated)
+{
+  qpath       temp ;
+  qpath       save ;
+  cmd_ret_t   ret, retw ;
+  int         fd, err ;
+  const char* conf_name ;
+  const char* temp_name ;
+  const char* save_name ;
+  const char* tag ;
+
+  tag = integrated ? "integrated " : "" ;
+
+  err = 0 ;                     /* so far, so good      */
+  ret = CMD_ERROR ;             /* but fear the worst   */
+
+  /* Set up the file names
+   */
+  temp      = qpath_dup(conf) ;
+  qpath_extend_str(temp, CONF_TEMP_EXT) ;
+
+  save      = qpath_dup(conf) ;
+  qpath_extend_str(save, CONF_BACKUP_EXT) ;
+
+  conf_name = qpath_string(conf) ;
+  temp_name = qpath_string(temp) ;
+  save_name = qpath_string(save) ;
+
+  /* Open the configuration temporary file for write -- will create, but
+   * it must not exist.
+   *
+   * If it does exist, it likely that some previous configuration write
+   * operation failed (at a late stage, during renames, which is unexpected),
+   * and it is best that the (human) operator makes sure that any mess is
+   * cleared up before proceeding.
+   *
+   * Note that being able to open the well known temporary file in this way,
+   * we are guaranteeing that only one attempt to write configuration can
+   * be active at any time.
+   *
+   * NB: file is opened non-blocking -- vty_config_write_open() sets "pseudo"
+   *     blocking.
+   */
+  fd = uty_fd_file_open(temp_name, vfd_io_write | vfd_io_excl, CONFIGFILE_MASK);
+
+  if (fd < 0)
+    {
+      err = errno ;
+
+      if (err == EEXIST)
+        {
+          vty_out(vty,
+            "%% %sconfiguration temporary file %s exists...\n"
+            "%% ...either a previous configuration write operation failed "
+                                               "or another is in progress...\n"
+            "%% ...having checked that nothing valuable will be lost, "
+                                                         "delete the file...\n"
+            "%% ...and try again.\n",
+            tag, temp_name) ;
+
+          err = 0 ;
+        }
+      else
+        {
+          vty_out(vty, "%% Cannot create %sconfiguration temporary file %s",
+                                                               tag, temp_name) ;
+        } ;
+
+      goto finished;
+    } ;
+
+  /* Make sure we have the required file mode... should be, since we just
+   * created the file, but this does not hurt !
+   */
+  if (chmod(temp_name, CONFIGFILE_MASK) != 0)
+    {
+      err = errno ;
+      vty_out(vty, "%% chmod failed for %sconfiguration temporary file %s",
+                                                               tag, temp_name) ;
+      goto finished;
+    } ;
+
+  /* Push vout for configuration file (vfd_io_ps_blocking) and output friendly
+   * heading
+   */
+  vty_config_write_open(vty, fd) ;
+
+  vty_out (vty, "!\n"
+                "! Quagga %sconfiguration%s%s saved from %s\n"
+                "!   %s\n"
+                "!\n",
+                tag,
+                integrated ? "" : " for ",
+                integrated ? "" : daemon_name,
+                integrated ? "vtysh" : "vty",
+                quagga_timestamp(0).str) ;
+
+  /* Run through the nodes and get call-back to do the required, sending
+   * output to the vty.
+   */
+  vty->config_to_vtysh = false ;        /* make sure            */
+  ret = vty_write_config(vty, write_config_node) ;
+  qassert(ret != CMD_WAITING) ;
+
+  /* Done with file, so close.
+   *
+   * NB: the underlying vfd is a bit special, it has vfd_io_no_close set, so
+   *     that as we now close the vin, everything is as normal, *except* that
+   *     the fd is not, in fact, closed.
+   */
+  retw = vty_config_write_close(vty) ;
+  qassert(retw != CMD_WAITING) ;
+
+  if (ret == CMD_SUCCESS)
+    ret = retw ;                        /* use if otherwise OK  */
+
+  /* Sort out what, if anything, went wrong.
+   */
   if (ret != CMD_SUCCESS)
-    exit(1) ;
+    {
+      /* Note that any I/O error has been posted to vio->ebuf, which will
+       * be picked up when CMD_IO_ERROR is processed.
+       */
+      qassert((ret == CMD_IO_ERROR) || (ret == CMD_CANCEL)) ;
+
+      if (ret != CMD_CANCEL)
+        vty_out(vty,
+                "%% Failed while writing %sconfiguration temporary file %s\n",
+                                                               tag, temp_name) ;
+      err = 0 ;
+      goto finished;
+    } ;
+
+  ret = CMD_ERROR ;             /* fear the worst, again        */
+
+  /* Now we can close the temp file.
+   */
+  while (1)
+    {
+      int rc ;
+
+      rc = fsync(fd) ;
+      if ((rc >= 0) || (errno == EINVAL))
+        rc = close(fd) ;
+
+      if (rc >= 0)
+        break ;
+
+      if (errno == EINTR)
+        continue ;
+
+      err = errno ;
+      vty_out (vty, "%% Failed closing %sconfiguration temporary file %s",
+                                                               tag, temp_name) ;
+      goto finished;
+    } ;
+
+  /* Successfully written and closed a shiny new .conf.new.
+   *
+   * From now on will retain .conf.new if anything fails.  In the code above,
+   * refuses to proceed if a .conf.new exists... so we hang on to the newly
+   * written configuration until the operator sorts things out.
+   */
+  fd = -1 ;                     /* File is closed               */
+  sync() ;                      /* possibly voodoo, but we try  */
+
+  /* Now move files around to save any existing .conf, and be ready to rename
+   * the .conf.new to .conf.
+   *
+   * If the .conf file exists, then want to rename that as the .conf.sav file.
+   */
+  err = qpath_stat_is_file(conf) ;
+  if (err != ENOENT)
+    {
+      /* If could not stat() the .conf file, or if it is something other than a
+       * file, then give up immediately.
+       */
+      if (err != 0)
+        {
+          if (err < 0)
+            {
+              vty_out(vty,
+                "%% %sconfiguration file %s exists\n"
+                "%% but is not a simple file -- unsafe to proceed\n",
+                tag, conf_name) ;
+
+              err = 0 ;
+            }
+          else
+            {
+              vty_out(vty,
+                "%% unsafe to proceed while state of %sconfiguration file "
+                                                      "cannot be established\n"
+                "%% stat(%s) failed",
+                tag, conf_name) ;
+            } ;
+
+          goto finished ;
+        } ;
+
+      /* Save .conf file as .conf.sav file, discarding any previous.
+       *
+       * At this point we have: .conf.new, .conf & .conf.sav.
+       *
+       * Discarding the .conf.sav leaves us with the old .conf and the new one,
+       * which is fine.  We assume that renaming .conf to .conf.sav will either
+       * work or will fail, leaving .conf exactly as it was.  So, if fails
+       * will end up with at least: .conf.new & .conf.  If succeeds, we end
+       * up with .conf.new and .conf.sav.
+       *
+       * The worst case would be for the renaming of .conf to fail in such
+       * a way that it is lost -- though this *really* should not happen.  In
+       * that case we would end up with .conf.new, only.  Note that this code
+       * will not delete .conf.new -- so that at least will be preserved.
+       *
+       * To minimise chances of the rename .conf to .conf.sav failing at all,
+       * we, carefully, unlink .conf.sav, first.
+       */
+      err = qpath_stat_is_file(save) ;
+      if (err != ENOENT)
+        {
+          /* If could not stat() the .conf.sav file, or if it is something other
+           * than a file, then give up immediately.
+           */
+          if (err != 0)
+            {
+              if (err < 0)
+                {
+                  vty_out(vty,
+                    "%% %sconfiguration backup file %s exists\n"
+                    "%% but is not a simple file -- unsafe to proceed\n",
+                    tag, save_name) ;
+
+                  err = 0 ;
+                }
+              else
+                {
+                  vty_out(vty,
+                    "%% unsafe to proceed while state of %sconfiguration "
+                                           "backup file cannot be established\n"
+                    "%% stat(%s) failed",
+                    tag, save_name) ;
+                } ;
+
+              goto finished ;
+            } ;
+
+          /* Exists and is ordinary file, so should be able to unlink, but
+           * proceed with caution in any case.
+           */
+          if (unlink(save_name) < 0)
+            {
+              err = errno ;
+              vty_out(vty, "%% Cannot delete %sconfiguration backup file %s",
+                                                               tag, save_name) ;
+              goto finished;
+            } ;
+        } ;
+
+      /* Now rename .conf -> .conf.sav
+       *
+       * At this point, the .conf.sav should not exist, so the rename should
+       * be a shoo-in.
+       */
+      if (rename(conf_name, save_name) < 0)
+        {
+          err = errno ;
+          vty_out(vty, "%% Cannot rename %sconfiguration file %s -> %s",
+                                                    tag, conf_name, save_name) ;
+          goto finished;
+        } ;
+
+      sync() ;                      /* possibly voodoo, but we try  */
+    } ;
+
+  /* Final step: rename .conf.new -> .conf
+   *
+   * At this point, the .conf should not exist, so the rename should
+   * be a shoo-in.
+   */
+  if (rename(temp_name, conf_name) < 0)
+    {
+      err = errno ;
+      vty_out(vty, "%% Cannot rename %sconfiguration file %s -> %s",
+                                                    tag, temp_name, conf_name) ;
+      goto finished;
+    }
+
+  sync() ;                      /* possibly voodoo, but we try  */
+
+  /* Success !
+   */
+  vty_out (vty, "Written %sconfiguration file %s\n", tag, conf_name) ;
+
+  ret = CMD_SUCCESS ;
+  err = 0 ;
+
+  /* On exit.
+   *
+   *   * complete any error message
+   *
+   *   * if we still have the temp file open, unlink and close it.
+   */
+finished:
+  if (err != 0)
+    vty_out(vty, ": %s\n", errtoa(err, 0).str) ;
+
+  if (fd >= 0)
+    {
+      unlink(temp_name) ;       /* Discard incomplete file      */
+      close(fd) ;
+    } ;
+
+  qpath_free(temp) ;
+  qpath_free(save) ;
+
+  return ret;
+} ;
+
+/*------------------------------------------------------------------------------
+ * For all possible nodes, invoke the given call-back to write any
+ * configuration for that node.
+ *
+ * Return from the call-back:
+ *
+ *   <  0 => do not push the output (probably because nothing to push)
+ *   == 0 => push the output
+ *   >  0 => add "!" separator, and push the output
+ *
+ * If not vty->config_to_vtysh, add an "end" at the end.
+ *
+ * Pushes the output as goes along, and at the end.
+ *
+ * Returns:  CMD_SUCCESS
+ *           CMD_WAITING    -- only if vout is not blocking.
+ *           CMD_IO_ERROR
+ *           CMD_CANCEL
+ */
+extern cmd_ret_t
+vty_write_config(vty vty, int (*write_config_node)(svty vty, node_type_t node))
+{
+  node_type_t node ;
+
+  for (node = MIN_NODE ; node <= MAX_NODE ; ++node)
+    {
+      int did ;
+
+      did = write_config_node(vty, node) ;
+
+      if (did > 0)
+        vty_out (vty, "!\n");
+
+      if (did >= 0)
+        {
+          cmd_ret_t ret ;
+
+          ret = vty_cmd_out_push(vty) ;    /* Push stuff so far    */
+
+          if ((ret != CMD_SUCCESS) && (ret != CMD_WAITING))
+            {
+              qassert((ret == CMD_IO_ERROR) || (ret == CMD_CANCEL)) ;
+              return ret ;
+            } ;
+        } ;
+    } ;
+
+  if (!vty->config_to_vtysh)
+    vty_out (vty, "end\n") ;
+
+  return vty_cmd_out_push(vty) ;
 } ;
 
 /*==============================================================================
@@ -1068,24 +1904,147 @@ DEFUN_CALL (config_who,
        "Display who is on vty\n")
 {
   unsigned int i = 0;
-  vty_io vio ;
+  vty_io vio_who ;
 
   VTY_LOCK() ;
 
-  vio = vio_live_list ;         /* once locked                          */
+  vio_who = ddl_head(vio_live_list) ;
 
-  while (vio != NULL)           /* TODO: show only VTY_TERM ???         */
+  while (vio_who != NULL)
     {
-      vty_out(vty, "%svty[%d] connected from %s.\n",
-	             vio->vty->config ? "*" : " ", i, uty_get_name(vio)) ;
-      vio = sdl_next(vio, vio_list) ;
+      uty_out(vty->vio, "%svty[%d] connected from %s.\n",
+               (vio_who->config != 0) ? "*" : " ", ++i, uty_get_name(vio_who)) ;
+      vio_who = ddl_next(vio_who, vio_list) ;
     } ;
 
   VTY_UNLOCK() ;
   return CMD_SUCCESS;
 }
 
-/* Move to vty configuration mode. */
+/*------------------------------------------------------------------------------
+ * Show history
+ */
+DEFUN_CALL (show_history,
+       show_history_cmd,
+       "show history",
+       SHOW_STR
+       "Display the session command history\n")
+{
+  cmd_ret_t ret ;
+
+  VTY_LOCK() ;
+
+  switch (vty->type)
+    {
+      case VTY_TERMINAL:
+        uty_cli_hist_show(vty->vio->vin_base->cli) ;
+        ret = CMD_SUCCESS ;
+        break ;
+
+      case VTY_VTYSH:
+        if (vtysh_cmd_call_backs != NULL)
+          ret = vtysh_cmd_call_backs->show_history(vty) ;
+        else
+          {
+            uty_out(vty->vio, "%% %s: no vtysh_cmd_call_backs !\n", __func__) ;
+            ret = CMD_ERROR ;
+          } ;
+        break ;
+
+      default:
+        ret = CMD_SUCCESS ;
+        break ;
+    } ;
+
+  VTY_UNLOCK() ;
+
+  return ret ;
+}
+
+/*------------------------------------------------------------------------------
+ * "terminal length 99" and "terminal no length"
+ *
+ * Limited effect:
+ *
+ *   * VTY_TERMINAL: only affects the *current* vty.
+ *
+ *   * VTY_VTYSH:    only affects the vtysh pager setting.
+ *
+ * Setting: lines == 0 turns *off* the "--more--" paging.
+ *          lines <  0 uses whatever the terminal says or some other default
+ *                     and turns *on* the "--more--" paging unless no
+ *                     default number of lines is available.
+ */
+static cmd_ret_t
+vty_set_lines(vty vty, int lines)
+{
+  cmd_ret_t ret ;
+
+  VTY_LOCK() ;
+
+  switch (vty->type)
+    {
+      case VTY_TERMINAL:
+        uty_cli_set_lines(vty->vio->vin_base->cli, lines, true) ;
+        ret = CMD_SUCCESS ;
+        break ;
+
+      case VTY_VTYSH:
+        if (vtysh_cmd_call_backs != NULL)
+          ret = vtysh_cmd_call_backs->terminal_length(vty, lines) ;
+        else
+          {
+            uty_out(vty->vio, "%% %s: no vtysh_cmd_call_backs !\n", __func__) ;
+            ret = CMD_ERROR ;
+          } ;
+        break ;
+
+      default:
+        ret = CMD_SUCCESS ;
+        break ;
+    } ;
+
+  VTY_UNLOCK() ;
+
+  return ret ;
+} ;
+
+DEFUN_CALL (config_terminal_length, config_terminal_length_cmd,
+       "terminal length <0-512>",
+       "Set terminal line parameters\n"
+       "Set number of lines on a screen\n"
+       "Number of lines on screen (0 for no pausing)\n")
+{
+  return vty_set_lines(vty, strtol(argv[0], NULL, 0)); /* parsed already  */
+}
+
+DEFUN_CALL (config_terminal_length_none, config_terminal_length_none_cmd,
+    "terminal length none",
+    "Set terminal line parameters\n"
+    "Set number of lines on a screen\n"
+    "No length -- no pausing\n")
+{
+  return vty_set_lines(vty, 0);
+}
+
+DEFUN_CALL (config_terminal_no_length, config_terminal_no_length_cmd,
+    "terminal no length",
+    "Set terminal line parameters\n"
+    NO_STR
+    "Set number of lines on a screen\n")
+{
+  return vty_set_lines(vty, -1);
+}
+
+ALIAS_CALL (config_terminal_no_length, config_terminal_length_default_cmd,
+    "terminal length default",
+    "Set terminal line parameters\n"
+    "Set number of lines on a screen\n"
+    "Default number of lines for screen\n") ;
+
+/*------------------------------------------------------------------------------
+ * Move to vty configuration mode.
+ */
 DEFUN_ATTR (line_vty,
             line_vty_cmd,
             "line vty",
@@ -1100,9 +2059,60 @@ DEFUN_ATTR (line_vty,
 }
 
 /*------------------------------------------------------------------------------
+ * "service terminal-length 99" and "no service terminal-length"
+ *
+ * Set the default terminal length for the next vty to open.
+ */
+static cmd_ret_t
+set_host_lines(int lines)
+{
+  VTY_LOCK() ;
+
+  host.lines = lines ;
+
+  VTY_UNLOCK() ;
+  return CMD_SUCCESS ;
+} ;
+
+DEFUN_CALL (service_terminal_length, service_terminal_length_cmd,
+       "service terminal-length <0-512>",
+       "Set up miscellaneous service\n"
+       "System wide terminal length configuration\n"
+       "Number of lines of VTY (0 means no line control)\n")
+{
+  return set_host_lines(strtol(argv[0], NULL, 0)) ;     /* parsed already */
+} ;
+
+DEFUN_CALL (service_terminal_length_none, service_terminal_length_none_cmd,
+       "service terminal-length none",
+       "Set up miscellaneous service\n"
+       "System wide terminal length configuration\n"
+       "No length -- no pausing\n")
+{
+  return set_host_lines(0) ;
+} ;
+
+DEFUN_CALL (no_service_terminal_length, no_service_terminal_length_cmd,
+       "no service terminal-length [<0-512>]",
+       NO_STR
+       "Set up miscellaneous service\n"
+       "System wide terminal length configuration\n"
+       "Number of lines of VTY (0 means no line control)\n")
+{
+  return set_host_lines(-1) ;
+}
+
+ALIAS_CALL (no_service_terminal_length, service_terminal_length_default_cmd,
+    "service terminal-length none",
+    "Set up miscellaneous service\n"
+    "System wide terminal length configuration\n"
+    "Default number of lines for terminal\n") ;
+
+/*------------------------------------------------------------------------------
  * Set time out value.
  *
- * Affects this and any future VTY_TERMINAL or VTY_SHELL_SERVER type VTY.
+ * Affects the current *and* any future VTY_TERMINAL or VTY_VTYSH_SERVER type
+ * VTY.
  */
 static int
 exec_timeout (struct vty *vty, const char *min_str, const char *sec_str)
@@ -1157,7 +2167,9 @@ DEFUN_CALL (no_exec_timeout,
   return exec_timeout (vty, NULL, NULL);
 }
 
-/* Set vty access class. */
+/*------------------------------------------------------------------------------
+ * Set vty access class.
+ */
 DEFUN_CALL (vty_access_class,
        vty_access_class_cmd,
        "access-class WORD",
@@ -1182,7 +2194,7 @@ DEFUN_CALL (no_vty_access_class,
        "Filter connections based on an IP access list\n"
        "IP access list\n")
 {
-  cmd_return_code_t ret ;
+  cmd_ret_t ret ;
 
   VTY_LOCK() ;
 
@@ -1231,7 +2243,7 @@ DEFUN_CALL (no_vty_ipv6_access_class,
        "Filter connections based on an IP access list\n"
        "IPv6 access list\n")
 {
-  cmd_return_code_t ret ;
+  cmd_ret_t ret ;
 
   VTY_LOCK() ;
 
@@ -1253,7 +2265,17 @@ DEFUN_CALL (no_vty_ipv6_access_class,
 }
 #endif /* HAVE_IPV6 */
 
-/* vty login. */
+/*------------------------------------------------------------------------------
+ * vty login -- enable/disable password check
+ *
+ * If "login" (no_password_check == false), must pass the AUTH_NODE password
+ * check in order to run a VTY_TERMINAL.  Will not run a VTY_TERMINAL at all if
+ * no password is set.
+ *
+ * If "no login", a VTY_TERMINAL will start in RESTRICTED_NODE/VIEW_NODE/
+ * ENABLE_NODE, without needing to pass the AUTH_NODE password -- whether or
+ * not a password is set.
+ */
 DEFUN_CALL (vty_login,
        vty_login_cmd,
        "login",
@@ -1277,7 +2299,18 @@ DEFUN_CALL (no_vty_login,
   return CMD_SUCCESS;
 }
 
-/* initial mode. */
+/*------------------------------------------------------------------------------
+ * initial mode -- enable/disable RESTRICTED_NODE
+ *
+ * If RESTRICTED_NODE is enabled, then if "no login" will start a VTY_TERMINAL
+ * in that restricted state.
+ *
+ * This takes precedence over "advanced-vty".
+ *
+ * This only affects the initial state of a VTY_TERMINAL.  In particular, once
+ * a VTY_TERMINAL starts in RESTRICTED_NODE it will stay there until it is
+ * able to change up to ENABLE_NODE (or CONFIG_NODE).
+ */
 DEFUN_CALL (vty_restricted_mode,
        vty_restricted_mode_cmd,
        "anonymous restricted",
@@ -1301,6 +2334,19 @@ DEFUN_CALL (vty_no_restricted_mode,
   return CMD_SUCCESS;
 }
 
+/*------------------------------------------------------------------------------
+ * Enable/Disable advanced-vty
+ *
+ * The "advanced-vty" setting only has effect if there is no enable password.
+ *
+ * So iff "advanced-vty" *and* no enable password:
+ *
+ *   * when a VTY_TERMINAL starts: if "no login" *and* "no anonymous restricted"
+ *     will start in ENABLE_NODE.
+ *
+ *   * thereafter, if in VIEW_NODE *and* a password is set, then on passing the
+ *     password check, will enter ENABLE_NODE.
+ */
 DEFUN_CALL (service_advanced_vty,
        service_advanced_vty_cmd,
        "service advanced-vty",
@@ -1326,6 +2372,9 @@ DEFUN_CALL (no_service_advanced_vty,
   return CMD_SUCCESS;
 }
 
+/*------------------------------------------------------------------------------
+ * Enable/Disable monitoring of logging on the *current* VTY_TERMINAL
+ */
 DEFUN_CALL (terminal_monitor,
        terminal_monitor_cmd,
        "terminal monitor",
@@ -1333,7 +2382,7 @@ DEFUN_CALL (terminal_monitor,
        "Copy debug output to the current terminal line\n")
 {
   VTY_LOCK() ;
-  uty_set_monitor(vty->vio, true);
+  uty_monitor_set(vty->vio, on);
   VTY_UNLOCK() ;
   return CMD_SUCCESS;
 }
@@ -1346,7 +2395,7 @@ DEFUN_CALL (terminal_no_monitor,
        "Copy debug output to the current terminal line\n")
 {
   VTY_LOCK() ;
-  uty_set_monitor(vty->vio, false);
+  uty_monitor_set(vty->vio, off);
   VTY_UNLOCK() ;
   return CMD_SUCCESS;
 }
@@ -1357,21 +2406,6 @@ ALIAS_CALL (terminal_no_monitor,
        NO_STR
        "Set terminal line parameters\n"
        "Copy debug output to the current terminal line\n")
-
-DEFUN_CALL (show_history,
-       show_history_cmd,
-       "show history",
-       SHOW_STR
-       "Display the session command history\n")
-{
-  VTY_LOCK() ;
-
-  if (vty->type == VTY_TERMINAL)
-    uty_cli_hist_show(vty->vio->vin->cli) ;
-
-  VTY_UNLOCK() ;
-  return CMD_SUCCESS;
-}
 
 /*==============================================================================
  * Output the current configuration
@@ -1474,20 +2508,6 @@ vty_is_shell_client (struct vty *vty)
 }
 
 #endif
-
-/*------------------------------------------------------------------------------
- * When terminal length is set, change the current CLI setting, if required.
- */
-extern void
-vty_set_lines(vty vty, int lines)
-{
-  VTY_LOCK() ;
-
-  if (vty->type == VTY_TERMINAL)
-    uty_cli_set_lines(vty->vio->vin->cli, lines, true) ;
-
-  VTY_UNLOCK() ;
-}
 
 /*==============================================================================
  *
@@ -1599,55 +2619,88 @@ DEFUN (delay_secs,
 }
 
 /*==============================================================================
- * The VTY command nodes
+ * The VTY commands
+ *
+ * These are commands which apply only to a VTY_TERMINAL, or to the
+ * configuration of a VTY_TERMINAL.
+ *
+ * These are installed in vtysh, but not for execution in the VTYSH_VD.
+ *
+ * These are not installed for BASIC_VD at all.
+ *
+ * The entries marked TERM do not execute in any real daemon when in the
+ * vtysh.  Where they are not executable in VTYSH_VD either, they will either
+ * do nothing (configuration files) or a warning will be issued (interactive
+ * commands).
  */
-
-struct cmd_node vty_node =
+CMD_INSTALL_TABLE(static, vty_cmd_table, ALL_RDS) =
 {
-  VTY_NODE,
-  "%s(config-line)# ",
-  1,
-};
+  { RESTRICTED_NODE, &config_terminal_length_cmd                        },
+  { RESTRICTED_NODE, &config_terminal_no_length_cmd                     },
+  { RESTRICTED_NODE, &config_terminal_length_none_cmd                   },
+  { RESTRICTED_NODE, &config_terminal_length_default_cmd                },
+  { RESTRICTED_NODE, &config_who_cmd                                    },
+  { RESTRICTED_NODE, &show_history_cmd                                  },
+
+  { VIEW_NODE,       &config_terminal_length_cmd         , TERM | VTYSH_VD },
+  { VIEW_NODE,       &config_terminal_no_length_cmd      , TERM | VTYSH_VD },
+  { VIEW_NODE,       &config_terminal_length_none_cmd    , TERM | VTYSH_VD },
+  { VIEW_NODE,       &config_terminal_length_default_cmd , TERM | VTYSH_VD },
+  { VIEW_NODE,       &config_who_cmd                                    },
+  { VIEW_NODE,       &show_history_cmd                   , TERM         },
+
+  { ENABLE_NODE,     &config_terminal_length_cmd         , TERM | VTYSH_VD },
+  { ENABLE_NODE,     &config_terminal_no_length_cmd      , TERM | VTYSH_VD },
+  { ENABLE_NODE,     &config_terminal_length_none_cmd    , TERM | VTYSH_VD },
+  { ENABLE_NODE,     &config_terminal_length_default_cmd , TERM | VTYSH_VD },
+  { ENABLE_NODE,     &config_who_cmd                                    },
+  { ENABLE_NODE,     &show_history_cmd                   , TERM | VTYSH_VD },
+
+  { ENABLE_NODE,     &terminal_monitor_cmd               , TERM         },
+  { ENABLE_NODE,     &terminal_no_monitor_cmd            , TERM         },
+  { ENABLE_NODE,     &no_terminal_monitor_cmd            , TERM         },
+
+  { CONFIG_NODE,     &line_vty_cmd                 /* -> VTY_NODE */    },
+
+  { CONFIG_NODE,     &service_terminal_length_cmd                       },
+  { CONFIG_NODE,     &no_service_terminal_length_cmd                    },
+  { CONFIG_NODE,     &service_terminal_length_none_cmd                  },
+  { CONFIG_NODE,     &service_terminal_length_default_cmd               },
+
+  { CONFIG_NODE,     &service_advanced_vty_cmd                          },
+  { CONFIG_NODE,     &no_service_advanced_vty_cmd                       },
+
+  /* Configuration node for vty
+   */
+  { VTY_NODE,        &exec_timeout_min_cmd                              },
+  { VTY_NODE,        &exec_timeout_sec_cmd                              },
+  { VTY_NODE,        &no_exec_timeout_cmd                               },
+  { VTY_NODE,        &vty_access_class_cmd                              },
+  { VTY_NODE,        &no_vty_access_class_cmd                           },
+  { VTY_NODE,        &vty_login_cmd                                     },
+  { VTY_NODE,        &no_vty_login_cmd                                  },
+  { VTY_NODE,        &vty_restricted_mode_cmd                           },
+  { VTY_NODE,        &vty_no_restricted_mode_cmd                        },
+#ifdef HAVE_IPV6
+  { VTY_NODE,        &vty_ipv6_access_class_cmd                         },
+  { VTY_NODE,        &no_vty_ipv6_access_class_cmd                      },
+#endif /* HAVE_IPV6 */
+
+#if QDEBUG
+  { VIEW_NODE,       &delay_secs_cmd                                    },
+  { RESTRICTED_NODE, &delay_secs_cmd                                    },
+  { ENABLE_NODE,     &delay_secs_cmd                                    },
+#endif
+
+  CMD_INSTALL_END
+} ;
 
 /*------------------------------------------------------------------------------
  * Install vty's own commands like `who' command.
  */
 static void
-uty_init_commands (void)
+uty_cmd_init (void)
 {
-  VTY_ASSERT_LOCKED() ;
-
-  install_node (&vty_node, vty_config_write);
-
-  install_element (VIEW_NODE, &delay_secs_cmd);
-  install_element (ENABLE_NODE, &delay_secs_cmd);
-
-  install_element (RESTRICTED_NODE, &config_who_cmd);
-  install_element (RESTRICTED_NODE, &show_history_cmd);
-  install_element (VIEW_NODE, &config_who_cmd);
-  install_element (VIEW_NODE, &show_history_cmd);
-  install_element (ENABLE_NODE, &config_who_cmd);
-  install_element (CONFIG_NODE, &line_vty_cmd);
-  install_element (CONFIG_NODE, &service_advanced_vty_cmd);
-  install_element (CONFIG_NODE, &no_service_advanced_vty_cmd);
-  install_element (CONFIG_NODE, &show_history_cmd);
-  install_element (ENABLE_NODE, &terminal_monitor_cmd);
-  install_element (ENABLE_NODE, &terminal_no_monitor_cmd);
-  install_element (ENABLE_NODE, &no_terminal_monitor_cmd);
-  install_element (ENABLE_NODE, &show_history_cmd);
-
-  install_default (VTY_NODE);
-  install_element (VTY_NODE, &exec_timeout_min_cmd);
-  install_element (VTY_NODE, &exec_timeout_sec_cmd);
-  install_element (VTY_NODE, &no_exec_timeout_cmd);
-  install_element (VTY_NODE, &vty_access_class_cmd);
-  install_element (VTY_NODE, &no_vty_access_class_cmd);
-  install_element (VTY_NODE, &vty_login_cmd);
-  install_element (VTY_NODE, &no_vty_login_cmd);
-  install_element (VTY_NODE, &vty_restricted_mode_cmd);
-  install_element (VTY_NODE, &vty_no_restricted_mode_cmd);
-#ifdef HAVE_IPV6
-  install_element (VTY_NODE, &vty_ipv6_access_class_cmd);
-  install_element (VTY_NODE, &no_vty_ipv6_access_class_cmd);
-#endif /* HAVE_IPV6 */
+  cmd_install_node_config_write (VTY_NODE, vty_config_write);
+  cmd_install_table(vty_cmd_table) ;
 } ;

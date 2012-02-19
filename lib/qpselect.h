@@ -168,12 +168,8 @@ extern qps_selection qps_selection_init_new(qps_selection qps) ;
 extern void qps_add_file(qps_selection qps, qps_file qf, fd_t fd,
                                                               void* file_info) ;
 extern void qps_remove_file(qps_file qf) ;
-extern qps_file qps_selection_ream(qps_selection qps, int free_structure) ;
-
-/* Ream out selection and free the selection structure.   */
-#define qps_selection_ream_free(qps) qps_selection_ream(qps, 1)
-/* Ream out selection but keep the selection structure.   */
-#define qps_selection_ream_keep(qps) qps_selection_ream(qps, 0)
+extern qps_file qps_selection_ream(qps_selection qps,
+                                                   free_keep_b free_structure) ;
 
 extern void qps_set_signal(qps_selection qps, const sigset_t* sigmask) ;
 extern int qps_pselect(qps_selection qps, qtime_mono_t timeout) ;
@@ -226,6 +222,8 @@ qps_file_fd(qps_file qf)
 
 /*------------------------------------------------------------------------------
  * Unset the "fd" and return previous value
+ *
+ * NB: MUST qps_remove_file() first !!
  */
 Inline fd_t
 qps_file_unset_fd(qps_file qf)
@@ -245,17 +243,18 @@ struct qps_mini
   fd_full_set sets ;    /* bit vectors for pselect enabled stuff          */
   int   fd_last ;       /* highest numbered fd; -1 => none at all         */
 
-  qtime_t       interval ;
+  bool  timeout_set ;   /* see qps_mini_wait                              */
+  bool  indefinite ;    /* no time-out                                    */
+
   qtime_mono_t  end_time ;
 } ;
 
 typedef struct qps_mini  qps_mini_t[1] ;
 typedef struct qps_mini* qps_mini ;
 
-extern qps_mini qps_mini_set(qps_mini qm, int fd, qps_mnum_t mode,
-                                                                 uint timeout) ;
-extern qps_mini qps_mini_add(qps_mini qm, int fd, qps_mnum_t mode) ;
-extern int qps_mini_wait(qps_mini qm, const sigset_t* sigmask, bool signal) ;
+extern qps_mini qps_mini_set(qps_mini qm, int fd, qps_mnum_t mode) ;
+extern void qps_mini_add(qps_mini qm, int fd, qps_mnum_t mode) ;
+extern int qps_mini_wait(qps_mini qm, uint timeout, const sigset_t* sigmask) ;
 
 extern uint qps_mini_timeout_debug ;
 

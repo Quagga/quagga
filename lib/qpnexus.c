@@ -126,19 +126,25 @@ qpn_reset(qpn_nexus qpn, free_keep_b free_structure)
   if (qpn == NULL)
     return NULL;
 
-  /* timers and the pile */
+  /* The qtimer pile.  If there are any timers still in the pile, they are
+   * removed and marked "inactive".  The owners of these timers are responsible
+   * for finally freeing them (if required).
+   */
   if (qpn->pile != NULL)
     {
-      while ((qtr = qtimer_pile_ream(qpn->pile, 1)))
-          qtimer_free(qtr);
+      while ((qtr = qtimer_pile_ream(qpn->pile, free_it)))
+        { ; } ;
       qpn->pile = NULL ;
     }
 
-  /* files and selection */
+  /* The file selection pile.  If there are any files still in the selection,
+   * they are removed.  The owners of these file are responsible for finally
+   * closing them and freeing the qf.
+   */
   if (qpn->selection != NULL)
     {
-      while ((qf = qps_selection_ream(qpn->selection, 1)))
-          qps_file_free(qf);
+      while ((qf = qps_selection_ream(qpn->selection, free_it)))
+        { ; } ;
       qpn->selection = NULL ;
     }
 

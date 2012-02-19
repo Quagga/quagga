@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -40,7 +40,7 @@
 #include "command.h"
 
 #ifdef USE_PAM
-static struct pam_conv conv = 
+static struct pam_conv conv =
 {
   PAM_CONV_FUNC,
   NULL
@@ -60,7 +60,7 @@ vtysh_pam (const char *user)
   if (ret == PAM_SUCCESS)
     ret = pam_authenticate (pamh, 0);
   /* printf ("ret %d\n", ret); */
-  
+
 #if 0
   /* Permitted access? */
   if (ret == PAM_SUCCESS)
@@ -70,7 +70,7 @@ vtysh_pam (const char *user)
   if (ret == PAM_AUTHINFO_UNAVAIL)
     ret = PAM_SUCCESS;
 #endif /* 0 */
-  
+
   /* This is where we have been authorized or not. */
 #ifdef DEBUG
   if (ret == PAM_SUCCESS)
@@ -80,7 +80,7 @@ vtysh_pam (const char *user)
 #endif /* DEBUG */
 
   /* close Linux-PAM */
-  if (pam_end (pamh, ret) != PAM_SUCCESS) 
+  if (pam_end (pamh, ret) != PAM_SUCCESS)
     {
       pamh = NULL;
       fprintf(stderr, "vtysh_pam: failed to release authenticator\n");
@@ -195,5 +195,5 @@ extern void
 vtysh_user_init(void)
 {
   userlist = list_new ();
-  install_element (CONFIG_NODE, &username_nopassword_cmd);
+//  cmd_install_command (CONFIG_NODE, &username_nopassword_cmd);
 }

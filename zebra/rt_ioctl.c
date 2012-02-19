@@ -17,8 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 
@@ -51,7 +52,7 @@ kernel_read (int sock)
 static struct sockaddr_in sin_proto =
 {
 #ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-  sizeof (struct sockaddr_in), 
+  sizeof (struct sockaddr_in),
 #endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
   AF_INET, 0, {0}, {0}
 };
@@ -136,7 +137,7 @@ kernel_add_route (struct prefix_ipv4 *dest, struct in_addr *gate,
   ret = ioctl (sock, SIOCADDRT, &rtentry);
   if (ret < 0)
     {
-      switch (errno) 
+      switch (errno)
 	{
 	case EEXIST:
 	  close (sock);
@@ -199,7 +200,7 @@ kernel_ioctl_ipv4 (u_long cmd, struct prefix *p, struct rib *rib, int family)
   /* Make gateway. */
   for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
     {
-      if ((cmd == SIOCADDRT 
+      if ((cmd == SIOCADDRT
 	   && CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE))
 	  || (cmd == SIOCDELRT
 	      && CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB)))
@@ -311,7 +312,7 @@ kernel_ioctl_ipv4 (u_long cmd, struct prefix *p, struct rib *rib, int family)
   ret = ioctl (sock, cmd, &rtentry);
   if (ret < 0)
     {
-      switch (errno) 
+      switch (errno)
 	{
 	case EEXIST:
 	  close (sock);
@@ -347,7 +348,7 @@ kernel_delete_ipv4 (struct prefix *p, struct rib *rib)
 {
   return kernel_ioctl_ipv4 (SIOCDELRT, p, rib, AF_INET);
 }
-
+
 #ifdef HAVE_IPV6
 
 /* Below is hack for GNU libc definition and Linux 2.1.X header. */
@@ -369,7 +370,7 @@ kernel_ioctl_ipv6 (u_long type, struct prefix_ipv6 *dest, struct in6_addr *gate,
   int ret;
   int sock;
   struct in6_rtmsg rtm;
-    
+
   memset (&rtm, 0, sizeof (struct in6_rtmsg));
 
   rtm.rtmsg_flags |= RTF_UP;
@@ -400,7 +401,7 @@ kernel_ioctl_ipv6 (u_long type, struct prefix_ipv6 *dest, struct in6_addr *gate,
     rtm.rtmsg_ifindex = 0;
 
   rtm.rtmsg_metric = 1;
-  
+
   sock = socket (AF_INET6, SOCK_DGRAM, 0);
   if (sock < 0)
     {
@@ -412,7 +413,7 @@ kernel_ioctl_ipv6 (u_long type, struct prefix_ipv6 *dest, struct in6_addr *gate,
   ret = ioctl (sock, type, &rtm);
   if (ret < 0)
     {
-      zlog_warn ("can't %s ipv6 route: %s\n", type == SIOCADDRT ? "add" : "delete", 
+      zlog_warn ("can't %s ipv6 route: %s\n", type == SIOCADDRT ? "add" : "delete",
 	   safe_strerror(errno));
       ret = errno;
       close (sock);
@@ -432,7 +433,7 @@ kernel_ioctl_ipv6_multipath (u_long cmd, struct prefix *p, struct rib *rib,
   struct in6_rtmsg rtm;
   struct nexthop *nexthop;
   int nexthop_num = 0;
-    
+
   memset (&rtm, 0, sizeof (struct in6_rtmsg));
 
   rtm.rtmsg_flags |= RTF_UP;
@@ -458,7 +459,7 @@ kernel_ioctl_ipv6_multipath (u_long cmd, struct prefix *p, struct rib *rib,
   /* Make gateway. */
   for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
     {
-      if ((cmd == SIOCADDRT 
+      if ((cmd == SIOCADDRT
 	   && CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE))
 	  || (cmd == SIOCDELRT
 	      && CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB)))
@@ -479,7 +480,7 @@ kernel_ioctl_ipv6_multipath (u_long cmd, struct prefix *p, struct rib *rib,
 		rtm.rtmsg_ifindex = nexthop->rifindex;
 	      else
 		rtm.rtmsg_ifindex = 0;
-	      
+
 	    }
 	  else
 	    {
@@ -527,7 +528,7 @@ kernel_ioctl_ipv6_multipath (u_long cmd, struct prefix *p, struct rib *rib,
   if (ret < 0)
     {
       zlog_warn ("can't %s ipv6 route: %s\n",
-		 cmd == SIOCADDRT ? "add" : "delete", 
+		 cmd == SIOCADDRT ? "add" : "delete",
 	   safe_strerror(errno));
       ret = errno;
       close (sock);
@@ -558,3 +559,5 @@ kernel_delete_ipv6_old (struct prefix_ipv6 *dest, struct in6_addr *gate,
   return kernel_ioctl_ipv6 (SIOCDELRT, dest, gate, index, flags);
 }
 #endif /* HAVE_IPV6 */
+
+#endif /* VTYSH_EXTRACT_PL */

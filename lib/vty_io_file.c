@@ -1,4 +1,4 @@
-/* VTY I/O for Files
+/* VTY I/O for Files and Pipes
  *
  * Copyright (C) 2010 Chris Hall (GMCH), Highwayman
  *
@@ -28,6 +28,7 @@
 
 #include "vty_io.h"
 #include "vty_io_file.h"
+#include "vty_io_std.h"
 #include "vty_io_basic.h"
 #include "vty_command.h"
 #include "network.h"
@@ -38,28 +39,16 @@
 /*==============================================================================
  * Here we handle:
  *
- *   * VIN_CONFIG/VOUT_CONFIG    -- configuration file read/write
+ *   * VIN_CONFIG/VOUT_CONFIG  -- configuration file read/write
  *
- *   * VIN_FILE/VOUT_FILE        -- file pipe read/write
+ *   * VIN_FILE/VOUT_FILE      -- file pipe read/write
  *
- *   * VIN_PIPE/VOUT_PIPE        -- shell command pipe read/write
+ *   * VIN_PIPE/VOUT_PIPE      -- shell command pipe read/write
  */
 
 #define PIPEFILE_MODE CONFIGFILE_MASK
 
-enum
-{
-  file_timeout   = 20,          /* for file read/write          */
-
-  pipe_timeout   = 30,          /* for pipe read/write          */
-
-  child_timeout  = 10,          /* for collecting child process */
-
-  config_buffer_size = 64 * 1024,       /* for config reading           */
-  file_buffer_size   = 16 * 1024,       /* for other file read/write    */
-
-  pipe_buffer_size   =  4 * 1024,       /* for pipe read/write          */
-} ;
+static void uty_file_read_ready(vio_vfd vfd, void* action_info, bool time_out) ;
 
 /*==============================================================================
  * VTY Configuration file I/O -- VIN_CONFIG and VOUT_CONFIG.
@@ -67,94 +56,46 @@ enum
  * The creation of configuration files is handled elsewhere, as is the actual
  * opening of input configuration files.
  *
- * Once open, VIN_CONFIG and VOUT_CONFIG are read/written in the same way as
- * VIN_FILE and VOUT_FILE.
+ * Reading configuration uses VIN_FILE read and close.
  *
- * These files are handled as "blocking" because the parent vio is marked as
- * "blocking".
+ * Writing configuration uses VOUT_FILE write, but has its own close.
  */
 
 /*------------------------------------------------------------------------------
- * Set up VTY on which to read configuration file -- using already open fd.
+ * Push vio_vf to read configuration file -- using already open fd.
  *
- * Sets the vout_base to be VOUT_STDERR.
+ * Assumes the given path is a complete path -- from /
  *
- * NB: sets up a blocking vio -- so that the vin_base, vout_base and all files
- *     and pipes will block waiting for I/O to complete (or to time out).
+ * Sets the "here" directory to the same as the given path.
  *
- * NB: the name is XSTRDUP() into the vio -- so the caller is responsible for
- *     disposing of its copy, if required.
+ * Apart from the type (VIN_CONFIG) and the buffer size, this is the same as
+ * a VIN_FILE.
  */
-extern vty
-vty_config_read_open(int fd, const char* name, bool full_lex)
+extern void
+uty_config_read_open(vty_io vio, int fd, qpath path)
 {
-  vty     vty ;
-  vty_io  vio ;
   vio_vf  vf ;
 
-  VTY_LOCK() ;
-
-  /* Create the vty and its vio.
-   *
-   * NB: VTY_CONFIG_READ type vty is set vio->blocking.
-   */
-  vty = uty_new(VTY_CONFIG_READ, CONFIG_NODE) ;
-
-  vio = vty->vio ;
-
-  /* Create the vin_base/vout_base vf
-   *
-   * NB: don't need to specify vfd_io_ps_blocking, because the vio is set
-   *     blocking.
-   */
-  qassert(vio->blocking) ;
-
-  vf = uty_vf_new(vio, name, fd, vfd_file, vfd_io_read) ;
-
-  uty_vin_push( vio, vf, VIN_CONFIG,  NULL, NULL, config_buffer_size) ;
-  vf->read_timeout   = file_timeout ;
-  uty_vout_push(vio, vf, VOUT_STDERR, NULL, NULL, pipe_buffer_size, true) ;
-  vf->write_timeout  = file_timeout ;
-
-  /* Deal with the possibility that while reading the configuration file, may
-   * use a pipe, and therefore may block waiting to collect a child process.
-   *
-   * Before there is any chance of a SIGCHLD being raised for a child of the
-   * configuration file, invoke the magic required for SIGCHLD to wake up
-   * a pselect() while waiting to collect child.
-   */
-  uty_child_signal_nexus_set(vio) ;
-
-  VTY_UNLOCK() ;
-
-  return vty ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Tidy up after config input file has been closed.
- *
- * There is now no further possibility that will block waiting for child to be
- * collected.
- *
- * Nothing further required -- input comes to a halt.
- */
-extern cmd_return_code_t
-uty_config_read_close(vio_vf vf, bool final)
-{
   VTY_ASSERT_LOCKED() ;
 
-  qassert(vf->vin_state == vf_end) ;
+  /* Create and push new VIN_CONFIG vio_vf.
+   */
+  vf = uty_vf_new(vio, qpath_string(path), fd, vfd_file, vfd_io_read) ;
 
-  uty_child_signal_nexus_clear(vf->vio) ;
+  uty_vin_push(vio, vf, VIN_CONFIG, uty_file_read_ready, config_buffer_size) ;
+  vf->read_timeout = file_timeout ;
 
-  return CMD_SUCCESS ;
+  uty_vin_set_here(vio, path) ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Push the given fd as the VOUT_CONFIG.
  *
- * Note that the fd is assumed to be genuine I/O blocking, so this is a
- * "blocking" vf, and so can be opened and closed in the cmd thread.
+ * NB: the fd is expected to be non-blocking, but is written as pseudo-
+ *     blocking for simplicity but will time-out reasonably promptly.
+ *
+ * NB: the vfd is marked vfd_io_no_close so that when vout is closed the fd
+ *     is not actually closed, because configuration writer still need it.
  */
 extern void
 vty_config_write_open(vty vty, int fd)
@@ -167,8 +108,10 @@ vty_config_write_open(vty vty, int fd)
   vio = vty->vio ;
 
   vf = uty_vf_new(vio, "config write", fd, vfd_file,
-                                                vfd_io_read | vfd_io_blocking) ;
-  uty_vout_push(vio, vf, VOUT_CONFIG, NULL, NULL, file_buffer_size, false) ;
+                          vfd_io_write | vfd_io_ps_blocking | vfd_io_no_close) ;
+  uty_vout_push(vio, vf, VOUT_CONFIG, NULL, file_buffer_size,
+                                                      false /* not "after" */) ;
+  vf->write_timeout = file_timeout ;
 
   VTY_UNLOCK() ;
 } ;
@@ -176,17 +119,20 @@ vty_config_write_open(vty vty, int fd)
 /*------------------------------------------------------------------------------
  * Write away any pending stuff, and pop the VOUT_CONFIG.
  *
- * This is a blocking vf -- so any outstanding output will complete here.
+ * It is assumed that the output has been pushed, and since this is
+ * vfd_io_ps_blocking, there should be no outstanding output, unless
+ * something has failed.
  */
-extern cmd_return_code_t
+extern cmd_ret_t
 vty_config_write_close(struct vty* vty)
 {
-  cmd_return_code_t ret ;
+  cmd_ret_t ret ;
+
   VTY_LOCK() ;
 
   qassert(vty->vio->vout->vout_type == VOUT_CONFIG) ;
 
-  ret = uty_vout_pop(vty->vio, false) ;
+  ret = uty_vout_pop(vty->vio) ;
 
   VTY_UNLOCK() ;
 
@@ -205,15 +151,27 @@ vty_config_write_close(struct vty* vty)
  * I/O is manufactured using a mini-pselect, so can time-out file writing
  * before too long.
  */
-static void vty_file_read_ready(vio_vfd vfd, void* action_info) ;
-static vty_timer_time vty_file_read_timeout(vio_timer timer,
-                                                            void* action_info) ;
+static cmd_ret_t uty_file_read_result(vio_vf vf, int get) ;
+static cmd_ret_t uty_file_read_block(vio_vf vf) ;
+static cmd_ret_t uty_file_write(vio_vf vf) ;
+static void uty_file_write_ready(vio_vfd vfd, void* action_info, bool timeout);
 
-static void vty_file_write_ready(vio_vfd vfd, void* action_info) ;
-static vty_timer_time vty_file_write_timeout(vio_timer timer,
-                                                            void* action_info) ;
+static cmd_ret_t uty_pipe_close(vio_vf vf) ;
+static cmd_ret_t uty_pipe_return_shovel(vio_vf vf) ;
+static cmd_ret_t uty_pipe_stderr_suck(vio_vf vf) ;
+static cmd_ret_t uty_pipe_return_set_read_ready(vio_vf vf,
+                                                      vty_timer_time time_out) ;
+static cmd_ret_t uty_pipe_stderr_set_read_ready(vio_vf vf,
+                                                      vty_timer_time time_out) ;
 
-static cmd_return_code_t uty_fifo_command_line(vio_vf vf, cmd_action action) ;
+/*------------------------------------------------------------------------------
+ * Buffer used when throwing away either stdout or stderr of the child, or
+ * throwing away pipe input.
+ *
+ * Since we are throwing stuff away, doesn't matter that there is only one of
+ * these !
+ */
+static char dev_null[4096] ;
 
 /*------------------------------------------------------------------------------
  * Open file for input, to be read as commands -- VIN_FILE.
@@ -224,16 +182,15 @@ static cmd_return_code_t uty_fifo_command_line(vio_vf vf, cmd_action action) ;
  * the new vin).
  *
  * Returns:  CMD_SUCCESS  -- all set to go
- *           CMD_WARNING  -- failed to open
+ *           CMD_ERROR    -- failed to open
  *
  * If "blocking" vf, this can be called from any thread, otherwise must be the
  * cli thread -- see uty_vfd_new().
  */
-extern cmd_return_code_t
-uty_file_read_open(vty_io vio, qstring name, cmd_context context)
+extern cmd_ret_t
+uty_file_read_open(vty_io vio, qpath path)
 {
-  cmd_return_code_t ret ;
-  qpath       path ;
+  cmd_ret_t   ret ;
   const char* pns ;
   int     fd ;
   vio_vf  vf ;
@@ -243,15 +200,13 @@ uty_file_read_open(vty_io vio, qstring name, cmd_context context)
 
   assert(vio->vin != NULL) ;            /* Not expected to be vin_base  */
 
-  /* Now is the time to complete the name, if required.                 */
-
-  path = uty_cmd_path_name_complete(NULL, qs_string(name), context) ;
-  pns  = qpath_string(path) ;
-
-  /* Do the basic file open.  May be vfd_io_ps_blocking, but we don't care
-   * about that here.
+  /* Do the basic file open.
+   *
+   * Note that we here open for non-blocking I/O.  In uty_vf_new() will set
+   * vfd_io_ps_blocking if required.
    */
   iot = vfd_io_read ;
+  pns = qpath_string(path) ;
 
   fd = uty_fd_file_open(pns, iot, (mode_t)0) ;  /* cmode not required   */
 
@@ -262,21 +217,18 @@ uty_file_read_open(vty_io vio, qstring name, cmd_context context)
     {
       uty_out(vio, "%% Could not open input file %s: %s\n", pns,
                                                          errtoa(errno, 0).str) ;
-      ret = CMD_WARNING ;
+      ret = CMD_ERROR ;
     }
   else
     {
-      uty_vin_new_context(vio, context, path) ;
-
       vf = uty_vf_new(vio, pns, fd, vfd_file, iot) ;
-      uty_vin_push(vio, vf, VIN_FILE, vty_file_read_ready,
-                                      vty_file_read_timeout, file_buffer_size) ;
-      vf->read_timeout   = file_timeout ;
+      uty_vin_push(vio, vf, VIN_FILE, uty_file_read_ready, file_buffer_size) ;
+      vf->read_timeout = file_timeout ;
+      uty_vin_set_here(vio, path) ;
 
       ret = CMD_SUCCESS ;
     } ;
 
-  qpath_free(path) ;
   return ret ;
 } ;
 
@@ -289,17 +241,15 @@ uty_file_read_open(vty_io vio, qstring name, cmd_context context)
  *             time.
  *
  * Returns:  CMD_SUCCESS  -- all set to go
- *           CMD_WARNING  -- failed to open
+ *           CMD_ERROR    -- failed to open
  *
- * If "blocking" vf, this can be called from any thread, otherwise must be the
+ * If "blocking", this can be called from any thread, otherwise must be the
  * cli thread -- see uty_vfd_new().
  */
-extern cmd_return_code_t
-uty_file_write_open(vty_io vio, qstring name, bool append, cmd_context context,
-                                                                     bool after)
+extern cmd_ret_t
+uty_file_write_open(vty_io vio, qpath path, bool append, bool after)
 {
-  cmd_return_code_t ret ;
-  qpath       path ;
+  cmd_ret_t   ret ;
   const char* pns ;
   int   fd ;
   vio_vf vf ;
@@ -307,15 +257,13 @@ uty_file_write_open(vty_io vio, qstring name, bool append, cmd_context context,
 
   VTY_ASSERT_LOCKED() ;
 
-  /* Now is the time to complete the name, if required.                 */
-
-  path = uty_cmd_path_name_complete(NULL, qs_string(name), context) ;
-  pns  = qpath_string(path) ;
-
-  /* Do the basic file open.  May be vfd_io_ps_blocking, but we don't care
-   * about that here.
+  /* Do the basic file open.
+   *
+   * Note that we here open for non-blocking I/O.  In uty_vf_new() will set
+   * vfd_io_ps_blocking if required.
    */
-  iot =  vfd_io_write | (append ? vfd_io_append : 0) ;
+  iot = vfd_io_write | (append ? vfd_io_append : 0) ;
+  pns = qpath_string(path) ;
 
   fd = uty_fd_file_open(pns, iot, PIPEFILE_MODE) ;
 
@@ -326,537 +274,741 @@ uty_file_write_open(vty_io vio, qstring name, bool append, cmd_context context,
     {
       uty_out(vio, "%% Could not open output file %s: %s\n", pns,
                                                          errtoa(errno, 0).str) ;
-      ret = CMD_WARNING ;
+      ret = CMD_ERROR ;
     }
   else
     {
       vf = uty_vf_new(vio, pns, fd, vfd_file, iot) ;
-      uty_vout_push(vio, vf, VOUT_FILE, vty_file_write_ready,
-                              vty_file_write_timeout, file_buffer_size, after) ;
-      vf->write_timeout  = file_timeout ;
+      uty_vout_push(vio, vf, VOUT_FILE, uty_file_write_ready,
+                                                      file_buffer_size, after) ;
+      vf->write_timeout = file_timeout ;
 
       ret = CMD_SUCCESS ;
     } ;
 
-  qpath_free(path) ;
   return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Command line fetch from a file -- VIN_FILE or VIN_CONFIG, in vf_open state.
+ * Command line fetch from a file -- VIN_FILE, VIN_CONFIG or VIN_PIPE.
  *
- * Returns: CMD_SUCCESS    -- have another command line ready to go
- *          CMD_WAITING    -- would not wait for input  <=> non-blocking
- *          CMD_EOF        -- ran into EOF (and nothing else)
- *          CMD_IO_ERROR   -- ran into an I/O error or time-out
+ * If gets line, sets it in the vf->context.
+ *
+ * Returns:  CMD_SUCCESS   -- have another command line ready to go
+ *           CMD_WAITING   -- waiting for input   => non-blocking
+ *           CMD_HIATUS    -- probably eof and/or vf_cease, possibly vf_cancel
+ *           CMD_IO_ERROR  -- ran into an I/O error or time-out
  *
  * In "non-blocking" state, on CMD_WAITING sets read ready, which will
  * vty_cmd_signal() the command loop to come round again.
  *
  * In "blocking" state, will not return until have something, or there is
- * nothing to be had, or times out.
+ * nothing to be had, or times out.  For VIN_PIPE, if gets nothing on the
+ * input, and is not eof, will suck on the pipe stderr return, to make sure
+ * that the other end is not stalled trying to write to stderr (!)
  *
  * This can be called in any thread.
  *
- * NB: the vin_state is set to vf_end when CMD_EOF is returned, and this
- *     code may not be called again.
- *
- * NB: the vin_state is set to vf_end when CMD_IO_ERROR is returned, and
- *     this code may not be called again.
- *
- *     When an error occurs it is signalled to the command loop.  This function
- *     is called from the command loop -- so, in fact, the CMD_IO_ERROR return
- *     code does the trick.
+ * NB: if is not vin_active, then will return CMD_HIATUS -- ie eof.
  */
-extern cmd_return_code_t
-uty_file_fetch_command_line(vio_vf vf, cmd_action action)
+extern cmd_ret_t
+uty_file_cmd_line_fetch(vio_vf vf)
 {
   VTY_ASSERT_LOCKED() ;         /* In any thread                */
 
-  qassert((vf->vin_type == VIN_FILE) || (vf->vin_type == VIN_CONFIG)) ;
-  qassert(vf->vin_state == vf_open) ;
+  qassert( (vf->vin_type == VIN_FILE) || (vf->vin_type == VIN_CONFIG)
+                                      || (vf->vin_type == VIN_PIPE) ) ;
 
   while (1)
     {
-      cmd_return_code_t ret ;
+      cmd_ret_t ret ;
+      int       get ;
 
-      /* Try to complete line straight from the buffer.
+      /* Try to complete line straight from the buffer.  If gets line, sets
+       * that in the vf->context.
        *
-       * If buffer is empty and have seen eof on the input, signal CMD_EOF.
+       * If is vf_cease or vf_cancel, uty_fifo_cmd_line_fetch() returns
+       * CMD_HIATUS.
+       *
+       * If is vf_end, uty_fifo_cmd_line_fetch() returns CMD_SUCCESS or
+       * CMD_HIATUS.
+       *
+       * If is vin_eof, uty_fifo_cmd_line_fetch() will clear vin_active, and
+       * return CMD_HIATUS if the current line and the buffer are empty.
        */
-      ret = uty_fifo_command_line(vf, action) ;
+      ret = uty_fifo_cmd_line_fetch(vf, true /* with '\' */) ;
 
       if (ret != CMD_WAITING)
         return ret ;
 
-      /* Could not complete line and exhausted contents of fifo         */
-      while (1)
-        {
-          qps_mini_t qm ;
-          int  get ;
+      qassert(vf->vin_state == vf_open) ;
+      qassert(vio_fifo_is_empty(vf->ibuf)) ;
 
-          get = vio_fifo_read_nb(vf->ibuf, vio_vfd_fd(vf->vfd), 1) ;
+      /* Try to get more from the file/pipe
+       */
+      get = vio_fifo_read_nb(vf->ibuf, uty_vf_read_fd(vf), 0, 1) ;
+                                /* read a lump at a time        */
+      if (get > 0)
+        continue ;              /* got something                */
 
-          if (get > 0)
-            break ;             /* loop back to uty_fifo_command_line() */
+      ret = uty_file_read_result(vf, get) ;
 
-          if (get == -1)
-            return uty_vf_error(vf, verr_io_vin, errno) ;
+      if (ret == CMD_HIATUS)
+        continue ;              /* eof                          */
 
-          if (get == -2)
-            {
-              /* Hit end of file, so set the vf into vf_end.
-               *
-               * NB: does not know has hit eof until tries to read and nothing
-               *     is returned.
-               *
-               * Loop back so that uty_fifo_command_line() can reconsider, now
-               * that we know that there is no more data to come -- it may
-               * signal CMD_SUCCESS (non-empty final line) or CMD_EOF.
-               */
-              qassert(vio_fifo_empty(vf->ibuf)) ;
+      if (ret != CMD_SUCCESS)
+        return ret ;            /* CMD_WAITING or CMD_IO_ERROR  */
 
-              vf->vin_state = vf_end ;
+      qassert(vf->blocking) ;
 
-              break ;           /* loop back to uty_fifo_command_line() */
-            } ;
+      ret = uty_file_read_block(vf) ;
 
-          /* Would block -- for non-blocking return CMD_WAITING, for
-           * blocking we block here with a timeout, and when there is more
-           * to read, loop back to vio_fifo_read_nb().
-           */
-          qassert(get == 0) ;
-
-          if (!vf->blocking)
-            {
-              uty_vf_set_read(vf, on) ;
-              return CMD_WAITING ;
-            } ;
-
-          /* Implement blocking I/O, with timeout                       */
-          qps_mini_set(qm, vio_vfd_fd(vf->vfd), qps_read_mnum,
-                                                             vf->read_timeout) ;
-          if (qps_mini_wait(qm, NULL, false) != 0)
-            continue ;          /* loop back to vio_fifo_read_nb()      */
-
-          return uty_vf_error(vf, verr_to_vin, 0) ;
-       } ;
+      if (ret != CMD_SUCCESS)
+        return ret ;
     } ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Try to complete a command line for the given vf, from the current input
- * fifo -- performs NO I/O.
+ * Deal with result of read from vin -- assuming is not "have something".
  *
- * Expects that most of the time will be able to set the vf->cl to point
- * directly at a command line in the fifo -- but at the edge of fifo buffers
- * (and if get continuation lines) will copy line fragments to the vf->cl.
+ * The main magic here is dealing with eof when there is a pipe stderr return.
+ * When the main vin hits eof, if the pipe stderr return is still active, then
+ * it must now have a timeout.
  *
- * Returns: CMD_SUCCESS   -- have a command line.
- *          CMD_EOF       -- there is no more
- *          CMD_WAITING   -- waiting for more
+ * Returns:  CMD_SUCCESS   -- waiting for blocking I/O
+ *           CMD_WAITING   -- waiting for non-blocking I/O -- is read-ready
+ *           CMD_HIATUS    -- result is eof
+ *           CMD_IO_ERROR  -- error or timeout
  *
- * If vf->vin_state == vf_end, will return CMD_SUCCESS if have last part line
- * in hand.  Otherwise will return CMD_EOF, any number of times.
+ * NB: CMD_WAITING => vf->vin_waiting.
  */
-static cmd_return_code_t
-uty_fifo_command_line(vio_vf vf, cmd_action action)
+static cmd_ret_t
+uty_file_read_result(vio_vf vf, int get)
 {
-  VTY_ASSERT_LOCKED() ;         /* In any thread                */
+  cmd_ret_t  ret ;
 
-  if (vf->line_complete)
+  if (get < 0)
     {
-      vio_fifo_set_hold_mark(vf->ibuf) ;        /* advance hold         */
+      if (get != -2)
+        return uty_vf_error(vf, verr_io_vin, errno) ;
 
-      vf->line_complete = false ;
-      vf->line_number  += vf->line_step ;
+      /* Hit end of file for the first time, set vf_end.
+       *
+       * If there is a pipe stderr return, it now needs to timeout.
+       */
+      uty_vf_read_stop(vf, vfs_stop_end) ;
 
-      qs_set_len_nn(vf->cl, 0) ;
-      vf->line_step = 0 ;
+      if (vf->ps_state != vf_closed)
+        {
+          ret = uty_pipe_stderr_set_read_ready(vf, pipe_timeout) ;
+          if (ret == CMD_IO_ERROR)
+            return ret ;
+        } ;
+
+      return CMD_HIATUS ;
     } ;
 
-  while (1)
+  qassert(get == 0) ;
+
+  /* We are waiting... for non-blocking, set read-ready and exit.
+   */
+  if (!vf->blocking)
     {
-      char* s, * p, * e ;
-      ulen    have ;
-      ulen    len ;
-      bool    eol ;
+      ret = uty_vf_set_read_ready(vf, on) ;
 
-      /* Get what we can from the fifo                                  */
-      have = vio_fifo_get(vf->ibuf) ;
+      vf->vin_waiting = (ret == CMD_WAITING) ;
 
-      /* If fifo is empty, may be last line before eof, eof or waiting  */
-      if (have == 0)
-        {
-          if (vf->vin_state == vf_end)
-            {
-              if (qs_len_nn(vf->cl) > 0)
-                break ;         /* have non-empty last line     */
-              else
-                return CMD_EOF ;
-            } ;
-
-          return CMD_WAITING ;
-        } ;
-
-      qassert(vf->vin_state != vf_end) ;        /* not empty => not eof */
-
-      /* Try to find a '\n' -- converting all other control chars to ' '
-       *
-       * When we find '\n' step back across any trailing ' ' (which includes
-       * any control chars before the '\n').
-       *
-       * This means that we cope with "\r\n" line terminators.  But not
-       * anything more exotic.
-       */
-      p = s = vio_fifo_get_ptr(vf->ibuf) ;
-      e = s + have ;       /* have != 0    */
-
-      eol = false ;
-      while (p < e)
-        {
-          if (*p++ < 0x20)
-            {
-              if (*(p-1) != '\n')
-                {
-                  *(p-1) = ' ' ;        /* everything other than '\n'   */
-                  continue ;
-                } ;
-
-              ++vf->line_step ;         /* got a '\n'                   */
-
-              eol = true ;
-              break ;
-            } ;
-        } ;
-
-      /* Step past what have just consumed -- we have a hold_mark, so
-       * stuff is still in the fifo.
-       */
-      vio_fifo_step(vf->ibuf, p - s) ;
-
-      /* If not found '\n', then we have a line fragment that needs to be
-       * appended to any previous line fragments.
-       *
-       * Loops back to try to get some more form the fifo.
-       */
-      if (!eol)
-        {
-          qs_append_str_n(vf->cl, s, p - s) ;
-          continue ;
-        } ;
-
-      /* Have an eol.  Step back across the '\n' and any trailing spaces
-       * we have in hand.
-       */
-      do --p ; while ((p > s) && (*(p-1) == ' ')) ;
-
-      /* If we have nothing so far, set alias to point at what we have in
-       * the fifo.  Otherwise, append to what we have.
-       *
-       * End up with: s = start of entire line, so far.
-       *              p = end of entire line so far.
-       */
-      len = p - s ;                     /* length to add        */
-      if (qs_len_nn(vf->cl) == 0)
-        qs_set_alias_n(vf->cl, s, len) ;
-      else
-        {
-          if (len != 0)
-            qs_append_str_n(vf->cl, s, len) ;
-
-          s = qs_char_nn(vf->cl) ;
-          p = s + qs_len_nn(vf->cl) ;
-
-          if ((len == 0) && (p > s) && (*(p-1) == ' '))
-            {
-              /* Have an empty end of line section, and the last character
-               * of what we have so far is ' ', so need now to trim trailing
-               * spaces off the stored stuff.
-               */
-              do --p ; while ((p > s) && (*(p-1) == ' ')) ;
-
-              qs_set_len_nn(vf->cl, p - s) ;
-            } ;
-        } ;
-
-      /* Now worry about possible trailing '\'.                         */
-
-      if ((p == s) || (*(p-1) != '\\'))
-        break ;                 /* no \ => no continuation => success   */
-
-      /* Have a trailing '\'.
-       *
-       * If there are an odd number of '\', strip the last one and loop
-       * round to collect the continuation.
-       *
-       * If there are an even number of '\', then this is not a continuation.
-       *
-       * Note that this rule deals with the case of the continuation line
-       * being empty... e.g. ....\\\     n     n  -- where n is '\n'
-       */
-      e = p ;
-      do --p ; while ((p > s) && (*(p-1) == '\\')) ;
-
-      if (((e - p) & 1) == 0)
-        break ;                 /* even => no continuation => success   */
-
-      qs_set_len_nn(vf->cl, p - s - 1) ;        /* strip odd '\'        */
-
-      continue ;                /* loop back to fetch more              */
+      return ret ;
     } ;
-
-  /* Success: have a line in hand                                       */
-
-  vf->line_complete = true ;
-
-  action->to_do = cmd_do_command ;
-  action->line  = vf->cl ;
 
   return CMD_SUCCESS ;
 } ;
 
 /*------------------------------------------------------------------------------
- * File is ready to read -- call-back for VIN_FILE.
+ * Block waiting for vin and/or pipe stderr return.
  *
- * This is used if the VIN_FILE is non-blocking.
+ * Returns:  CMD_SUCCESS    -- got something (may be stderr return)
+ *           CMD_HIATUS     -- nothing is vf_end.
+ *           CMD_IO_ERROR   -- error or timeout
+ */
+static cmd_ret_t
+uty_file_read_block(vio_vf vf)
+{
+  qps_mini_t qm ;
+
+  qm->timeout_set = false ;
+
+  qassert( (vf->vin_type == VIN_FILE) || (vf->vin_type == VIN_CONFIG)
+                                      || (vf->vin_type == VIN_PIPE) ) ;
+  qassert(vf->blocking) ;
+
+  while (1)
+    {
+      vty_timer_time timeout ;
+      cmd_ret_t  ret ;
+      int        get ;
+
+      /* Before blocking, suck on any pipe stderr return, to make sure empty.
+       */
+      if (vf_active(vf->ps_state))
+        {
+          qassert(vf->vin_type == VIN_PIPE) ;
+          qassert(vio_vfd_blocking(vf->ps_vfd)) ;
+
+          ret = uty_pipe_stderr_suck(vf) ;
+
+          qassert((ret == CMD_SUCCESS) || (ret == CMD_IO_ERROR)) ;
+
+          if (ret != CMD_SUCCESS)
+            return ret ;            /* cannot continue          */
+        } ;
+
+      /* Implement blocking I/O, with timeout
+       *
+       * For VIN_PIPE, we "block" on both the main vin and the stderr return.
+       *
+       * It may be that by the time we get here there is nothing more to wait
+       * for -- eg: the uty_pipe_stderr_suck() above may have drained the
+       * pipe stderr return.
+       */
+      qassert(vio_vfd_blocking(vf->vfd)) ;
+
+      timeout = 0 ;
+
+      if (vf_active(vf->vin_state))
+        {
+          qps_mini_set(qm, uty_vf_read_fd(vf), qps_read_mnum) ;
+          timeout = vf->read_timeout ;
+
+          qassert(timeout != 0) ;
+        } ;
+
+      if (vf_active(vf->ps_state))
+        {
+          qassert(vf->vin_type == VIN_PIPE) ;
+
+          qps_mini_add(qm, vio_vfd_fd(vf->ps_vfd), qps_read_mnum) ;
+          if (timeout == 0)
+            {
+              timeout = vf->ps_timeout ;
+              qassert(timeout != 0) ;
+            } ;
+        } ;
+
+      if (timeout == 0)
+        return CMD_HIATUS ;             /* nothing to get       */
+
+      get = qps_mini_wait(qm, timeout, NULL) ;
+
+      if (get > 0)
+        return CMD_SUCCESS ;            /* got something        */
+
+      if (get == -2)
+        continue ;                      /* EINTR                */
+
+      if (get == 0)
+        return uty_vf_error(vf, verr_to_vin, 0) ;
+      else
+        return uty_vf_error(vf, verr_io_vin, errno) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Ready to read or timed-out: call-back for VIN_FILE, VIN_CONFIG or VIN_PIPE.
  *
- * Signals command loop, so may continue if was waiting.
+ * This is used if the vin is non-blocking.  VIN_CONFIG is usually blocking.
  *
- * Note that the read_ready state and any time out are automatically
- * disabled when they go off.
+ * If timeout, if is vf_end signal the timeout error.
+ *
+ * Otherwise, signal CMD_SUCCESS.  Actual input is done in the command loop.
+ * It is possible that the signal is no longer required, but we err on the
+ * safe side.
+ *
+ * A vin is set read-ready when has tried to read and nothing is available.
+ * The read-ready is not then cleared until either it goes off, or the vin is
+ * closed.  So, if reading ceases, or is cancelled, then a timeout could go
+ * off, before the close.  We avoid spurious timeout by checking for vf_end
+ * and !vf_cancel.
+ *
+ * In any case, is no longer vin_waiting.
+ *
+ * Note that the read_ready state and any time out are automatically disabled
+ * when they go off -- so is now not read-ready.
  */
 static void
-vty_file_read_ready(vio_vfd vfd, void* action_info)
+uty_file_read_ready(vio_vfd vfd, void* action_info, bool time_out)
 {
-  vio_vf   vf ;
+  cmd_ret_t ret ;
+  vio_vf    vf ;
 
-  VTY_LOCK() ;
+  VTY_ASSERT_LOCKED() ;
   VTY_ASSERT_CLI_THREAD() ;
 
   vf = action_info ;
   assert(vf->vfd == vfd) ;
 
-  /* If the vin is no longer open then read ready should have been turned
-   * off -- but kicking the command loop will not hurt.
-   */
-  uty_cmd_signal(vf->vio, CMD_SUCCESS) ;
+  qassert((vf->vin_type == VIN_FILE) || (vf->vin_type == VIN_CONFIG)
+                                     || (vf->vin_type == VIN_PIPE)) ;
+  qassert(!vf->blocking) ;
 
-  VTY_UNLOCK() ;
+  vf->vin_waiting = false ;             /* read-ready cleared   */
+
+  if (time_out && ((vf->vin_state & (vf_cancel | vf_end)) == vf_end))
+    ret = uty_vf_error(vf, verr_to_vin, 0) ;
+  else
+    ret = CMD_SUCCESS ;
+
+  uty_cmd_signal(vf->vio, ret) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * File has timed out, waiting to read -- call-back for VIN_FILE.
+ * Command output push to a file/pipe: VOUT_FILE, VOUT_CONFIG, VOUT_PIPE or
+ *                                                                 VOUT_SH_CMD
+ * Does not block.
  *
- * This is used if the VIN_FILE is non-blocking.
+ * It is unlikely that a file/pipe would block.  If it would, then for
+ * non-blocking we set write-ready and let the pselect() process progress
+ * things (unless vst_final).   For blocking, we simply leave what has not
+ * been output for the next "push", or until the vf is closed
  *
- * Signals a timeout error to the command loop.
- */
-static vty_timer_time
-vty_file_read_timeout(vio_timer timer, void* action_info)
-{
-  vio_vf   vf ;
-
-  VTY_LOCK() ;
-  VTY_ASSERT_CLI_THREAD() ;
-
-  vf = action_info ;
-  assert(vf->vfd->read_timer == timer) ;
-
-  uty_vf_error(vf, verr_to_vin, 0) ;   /* signals command loop */
-
-  VTY_UNLOCK() ;
-
-  return 0 ;            /* Do not restart timer */
-} ;
-
-/*------------------------------------------------------------------------------
- * Command output push to a file -- VOUT_FILE or VOUT_CONFIG -- vf_open.
+ * If is vf_cease, then stops the main vout (clearing vout_active) as soon
+ * as the buffer empties.  The pipe return(s) are set !xx_open as soon as EOF
+ * is received.
  *
- * Unless all || final this will not write the end_lump of the fifo, so output
- * is in units of the fifo size -- which should be "chunky".
- *
- * Although it is unlikely to happen, if blocking, will block if cannot
- * completely write away what is required, or enable write ready.
- *
- * If final, will write as much as possible, but not block and will ignore
- * any errors (but will return an error return code).
- *
- * If an error occurred earlier, then returns immediately (CMD_SUCCESS).
- *
- * Returns:  CMD_SUCCESS   -- done everything possible
- *           CMD_WAITING   -- not "final" => waiting for output to complete
- *                                                          <=> not vf->blocking
- *                                "final" => would have waited *or* blocked,
- *                                           but did not.
- *           CMD_IO_ERROR  -- error or time-out (may be "final")
- *
- * If "non-blocking", on CMD_WAITING the pselect() background process
- * will complete the output and signal the result via uty_cmd_signal().
- *
- * If "blocking", will not return until have written away everything there is,
- * or cannot continue.
+ * Returns:  CMD_SUCCESS  -- done everything possible (at the moment)
+ *           CMD_WAITING  -- waiting for output to complete => non-blocking
+ *           CMD_IO_ERROR -- error or time-out
  *
  * This can be called in any thread.
  */
-extern cmd_return_code_t
-uty_file_out_push(vio_vf vf, uty_cmd_push_types_t how)
+extern cmd_ret_t
+uty_file_out_push(vio_vf vf)
 {
-  bool all, final ;
+  cmd_ret_t ret ;
 
   VTY_ASSERT_LOCKED() ;         /* In any thread                */
 
-  qassert((vf->vout_type == VOUT_FILE) || (vf->vout_type == VOUT_CONFIG)) ;
-  qassert(vf->vout_state == vf_open) ;
+  qassert( (vf->vout_type == VOUT_FILE) || (vf->vout_type == VOUT_CONFIG)
+                                        || (vf->vout_type == VOUT_PIPE)
+                                        || (vf->vout_type == VOUT_SH_CMD) ) ;
 
-  final = (how == ucmd_push_final) ;
-  all   = (how == ucmd_push_closing) || final ;
+  if ((vf->vout_type == VOUT_FILE) || (vf->vout_type == VOUT_CONFIG))
+    qassert((vf->pr_state == vf_closed) && (vf->ps_state == vf_closed)) ;
 
-  /* If squelching, dump anything we have in the obuf.
+  if (vf->vout_type == VOUT_SH_CMD)
+    qassert(vf->vout_state & vf_end) ;
+
+  /* For blocking, need to push the pipe return(s), to keep things moving.
    *
-   * Otherwise, write contents away.
+   * For non-blocking, the pipe returns run autonomously.  They are set
+   * read-ready when opened, and continue until closed or cancelled.  Note
+   * that for pipe return vf_cancel => vf_cease => vf_end.  (So do not
+   * have to worry about restarting input if vf_cancel had been set and then
+   * cleared again !)
+   *
+   * Note that for pipe return(s) we do not do vf_end with vf_cease.
    */
-  if (vf->vio->cancel)
-    vio_fifo_clear(vf->obuf, false) ;   /* keep end mark        */
-  else
+  if (vf->blocking)
     {
-      while (1)
+      if (vf_active(vf->pr_state))
         {
-          qps_mini_t qm ;
-          int n ;
+          qassert( (vf->vout_type == VOUT_PIPE)
+                || (vf->vout_type == VOUT_SH_CMD) ) ;
+          qassert(vio_vfd_blocking(vf->pr_vfd)) ;
 
-          n = vio_fifo_write_nb(vf->obuf, vio_vfd_fd(vf->vfd), all) ;
+          ret = uty_pipe_return_shovel(vf) ;
 
-          if (n < 0)
-            return uty_vf_error(vf, verr_io_vout, errno) ;
+          qassert((ret == CMD_SUCCESS) || (ret == CMD_IO_ERROR)) ;
 
-          if (n == 0)
-            break ;             /* all gone                             */
+          if (ret != CMD_SUCCESS)
+            return ret ;                /* cannot continue              */
+        } ;
 
-          /* Cannot write everything away without waiting               */
-          if (!vf->blocking)
-            {
-              if (!final)
-                uty_vf_set_write(vf, on) ;
-              return CMD_WAITING ;
-            } ;
+      if (vf_active(vf->ps_state))
+        {
+          qassert( (vf->vout_type == VOUT_PIPE)
+                || (vf->vout_type == VOUT_SH_CMD) ) ;
+          qassert(vio_vfd_blocking(vf->ps_vfd)) ;
 
-          /* Implement blocking I/O, with timeout                       */
-          if (final)
-            return CMD_WAITING ;
+          ret = uty_pipe_stderr_suck(vf) ;
 
-          qps_mini_set(qm, vio_vfd_fd(vf->vfd), qps_write_mnum,
-                                                          vf->write_timeout) ;
-          if (qps_mini_wait(qm, NULL, false) != 0)
-            continue ;          /* Loop back to vio_fifo_write_nb()     */
+          /* Return must be CMD_SUCCESS or CMD_IO_ERROR, only.
+           *
+           * If is CMD_SUCCESS, we do not expect the output to now be
+           * squelched -- but we check to be absolutely sure.
+           */
+          qassert((ret == CMD_SUCCESS) || (ret == CMD_IO_ERROR)) ;
 
-          return uty_vf_error(vf, verr_to_vout, 0) ;
+          if (ret != CMD_SUCCESS)
+            return ret ;                /* cannot continue              */
         } ;
     } ;
+
+  /* Write as much as possible
+   *
+   * If non-blocking, may set write-ready and return CMD_WAITING.
+   */
+  return uty_file_write(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Write to file/pipe -- VOUT_FILE, VOUT_PIPE, VOUT_CONFIG or VOUT_SH_CMD.
+ *
+ * For VOUT_FILE and VOUT_CONFIG, until is vf_cease, will not write the
+ * end_lump of the fifo, so output is in units of the fifo size -- which should
+ * be "chunky".
+ *
+ * If is vf_cancel or vf_end, does nothing and returns CMD_SUCCESS.
+ *
+ * If empties out the buffer, and is vf_cease, clears vf_end.
+ *
+ * Does not block.
+ *
+ * Returns:  CMD_SUCCESS  -- done everything possible (at the moment)
+ *           CMD_WAITING  -- waiting for output to complete => non-blocking
+ *           CMD_IO_ERROR -- error encountered when writing
+ *
+ * This can be called in any thread.
+ */
+static cmd_ret_t
+uty_file_write(vio_vf vf)
+{
+  int   put ;
+
+  VTY_ASSERT_LOCKED() ;         /* In any thread                */
+
+  qassert( (vf->vout_type == VOUT_FILE) || (vf->vout_type == VOUT_CONFIG)
+                                        || (vf->vout_type == VOUT_PIPE)
+                                        || (vf->vout_type == VOUT_SH_CMD) ) ;
+
+  if (vf->vout_state & (vf_cancel | vf_end))
+    return CMD_SUCCESS ;
+
+  put = vio_fifo_write_nb(vf->obuf, vio_vfd_fd(vf->vfd),
+                ((vf->vout_state & vf_cease) || (vf->vout_type == VOUT_PIPE))) ;
+
+  if (put > 0)
+    return (vf->blocking) ? CMD_SUCCESS : uty_vf_set_write_ready(vf, on) ;
+
+  if (put < 0)
+    return uty_vf_error(vf, verr_io_vout, errno) ;
+
+  if (vf->vout_state & vf_cease)
+    vf->vout_state |= vf_end ;
 
   return CMD_SUCCESS ;
 } ;
 
 /*------------------------------------------------------------------------------
- * File is ready to write -- call-back for VOUT_FILE.
+ * File is ready to write or time-out: call-back for VOUT_FILE or VOUT_PIPE.
  *
- * This is used if the VOUT_FILE is non-blocking.
+ * This is used if is non-blocking.
  *
- * Signals command loop, so may continue if was waiting.
+ * If the vout is vf_end, do uty_file_write() and deal with timeout.
+ *
+ * Unless is CMD_WAITING, whatever happens we signal the command loop.  The
+ * signal may not be required, but we err on the safe side.
+ *
+ * A vout is set write-ready a write() cannot write everything.  The write-
+ * ready is not then cleared until either it goes off, or the vout is closed.
+ * So, if writing ceases, or is cancelled, then a timeout could go off, before
+ * the vout is closed, or otherwise when it is not required.  What we do is
+ * call uty_file_write(), and if that returns CMD_WAITING it means that still
+ * want to output something, and still cannot output everything, so *then* we
+ * know we have a genuine timeout.
  *
  * Note that the write_ready state and any time out are automatically
  * disabled when they go off.
  */
 static void
-vty_file_write_ready(vio_vfd vfd, void* action_info)
+uty_file_write_ready(vio_vfd vfd, void* action_info, bool timeout)
 {
-  cmd_return_code_t ret ;
-  vio_vf   vf ;
+  cmd_ret_t ret ;
+  vio_vf    vf ;
 
-  VTY_LOCK() ;
+  VTY_ASSERT_LOCKED() ;
   VTY_ASSERT_CLI_THREAD() ;
 
   vf = action_info ;
   assert(vf->vfd == vfd) ;
 
-  /* If the vout is no longer open then write ready should have been turned
-   * off -- but kicking the command loop will not hurt.
+  qassert((vf->vout_type == VOUT_FILE) || (vf->vout_type == VOUT_PIPE)) ;
+  qassert(!vf->blocking) ;
+
+  ret = uty_file_write(vf) ;
+
+  if (timeout && (ret == CMD_WAITING))
+     ret = uty_vf_error(vf, verr_to_vout, 0) ;
+
+  /* Signal CMD_SUCCESS or CMD_IO_ERROR -- CMD_WAITING will be ignored.
+   *
+   * CMD_IO_ERROR should already have been signalled, but does no harm to
+   * signal it again.
    */
-  if (vf->vout_state == vf_open)
-    ret = uty_file_out_push(vf, ucmd_push_simple) ;
-  else
-    ret = CMD_SUCCESS ;
-
-  uty_cmd_signal(vf->vio, ret) ;        /* CMD_SUCCESS or CMD_IO_ERROR,
-                                         * CMD_WAITING is ignored       */
-  VTY_UNLOCK() ;
+  uty_cmd_signal(vf->vio, ret) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * File has timed out, waiting to write -- call-back for VOUT_FILE.
+ * Input file/pipe is being closed: VIN_FILE, VIN_CONFIG or VIN_PIPE.
  *
- * This is used if the VOUT_FILE is non-blocking.
+ * For VIN_FILE and VIN_CONFIG, we are done.
  *
- * Signals a timeout error to the command loop.
+ * For VIN_PIPE:
+ *
+ *   * if is ps_enabled and we need to drain the main vin, and suck the pipe
+ *     pipe stderr return dry, and then collect the child and deal with any
+ *     pipe stderr return and child return code stuff.
+ *
+ *   * if is not ps_enabled, can close the input and pipe stderr return, and
+ *     will make a perfunctory effort to collect the child, but will discard
+ *     any pipe stderr return stuff and the child return code.
+ *
+ * If we are vst_cancel or vst_final, will clear ps_enabled.  So, for
+ * vst_final, this will not block and will close, promptly.
+ *
+ * Will block as required.
+ *
+ * Returns:  CMD_SUCCESS  -- done everything possible
+ *           CMD_WAITING  -- waiting for output to complete => non-blocking
+ *                                                          => not final
+ *           CMD_IO_ERROR -- error encountered when writing (may be final)
+ *
+ * For blocking vf this can be called in any thread.  For non-blocking, must be
+ * the CLI thread.
  */
-static vty_timer_time
-vty_file_write_timeout(vio_timer timer, void* action_info)
-{
-  vio_vf   vf ;
-
-  VTY_LOCK() ;
-  VTY_ASSERT_CLI_THREAD() ;
-
-  vf = action_info ;
-  assert(vf->vfd->write_timer == timer) ;
-
-  uty_vf_error(vf, verr_to_vout, 0) ;  /* signals command loop */
-
-  VTY_UNLOCK() ;
-
-  return 0 ;            /* Do not restart timer */
-} ;
-
-/*------------------------------------------------------------------------------
- * Tidy up after input file has been closed -- VIN_FILE.
- *
- * Nothing further required -- input comes to a halt.
- *
- * Returns: CMD_SUCCESS   -- at all times
- */
-extern cmd_return_code_t
-uty_file_read_close(vio_vf vf, bool final)
-{
-  VTY_ASSERT_LOCKED() ;
-
-  qassert(vf->vin_type == VIN_FILE) ;
-
-  return CMD_SUCCESS ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Flush output buffer ready for close -- VOUT_FILE and VOUT_CONFIG.
- *
- * See uty_file_out_push()
- *
- * Returns:  CMD_SUCCESS   -- done everything possible
- *           CMD_WAITING   -- not "final" => waiting for output to complete
- *                                                          <=> not vf->blocking
- *                                "final" => would have waited *or* blocked,
- *                                           but did not.
- *           CMD_IO_ERROR  -- error or time-out (may be "final")
- */
-extern cmd_return_code_t
-uty_file_write_close(vio_vf vf, bool final)
+extern cmd_ret_t
+uty_file_read_close(vio_vf vf)
 {
   VTY_ASSERT_CAN_CLOSE_VF(vf) ;
 
-  qassert((vf->vout_type == VOUT_FILE) || (vf->vout_type == VOUT_CONFIG)) ;
+  qassert( (vf->vin_type == VIN_FILE) || (vf->vin_type == VIN_CONFIG)
+                                      || (vf->vin_type == VIN_PIPE) ) ;
+  qassert(vf->vin_state & vf_cease) ;
 
-  if (vf->vout_state == vf_open)
-    return uty_file_out_push(vf, final ? ucmd_push_final : ucmd_push_closing) ;
-  else
-    return CMD_SUCCESS ;
+  /* Closing files is easy.
+   */
+  if (vf->vin_type != VIN_PIPE)
+    {
+      qassert(vf->ps_state == vf_closed) ;
+      return CMD_SUCCESS ;      /* Easy !  Caller closes vfd    */
+    } ;
+
+  /* For VIN_PIPE deal with draining the input and sucking up any pipe stderr
+   * return and collection of child.
+   */
+  while (vf_active(vf->vin_state))
+    {
+      /* Drain the vin
+       *
+       * Read into scratch buffer and deal errors, eof, blocking etc.
+       *
+       * For non-blocking, the pipe stderr return proceeds autonomously.
+       */
+      cmd_ret_t ret ;
+      int       get ;
+
+      do
+        get = read_nb(uty_vf_read_fd(vf), dev_null, sizeof(dev_null)) ;
+      while (get > 0) ;
+
+      ret = uty_file_read_result(vf, get) ;
+
+      if (ret == CMD_HIATUS)
+        continue ;                      /* eof                          */
+
+      if (ret != CMD_SUCCESS)
+        return ret ;                    /* CMD_WAITING or CMD_IO_ERROR  */
+
+      qassert(vf->blocking) ;
+
+      ret = uty_file_read_block(vf) ;   /* sucks pipe stderr return     */
+
+      if (ret == CMD_IO_ERROR)
+        return ret ;
+    } ;
+
+  qassert(vf->ps_state != vf_closed) ;
+  qassert(vf->ps_timeout != 0) ;
+
+  while (vf_active(vf->ps_state))
+    {
+      /* Drain the pipe stderr return.
+       *
+       * For non-blocking, the pipe stderr return proceeds autonomously.
+       */
+      cmd_ret_t ret ;
+
+      if (!vf->blocking)
+        return CMD_WAITING ;
+
+      ret = uty_file_read_block(vf) ;   /* sucks pipe stderr return     */
+
+      if (ret == CMD_IO_ERROR)
+        return ret ;
+    } ;
+
+  /* All I/O is complete, now is the time to close pipe returns, collect the
+   * child process and post the pipe stderr return stuff.
+   */
+  return uty_pipe_close(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Flush output buffer ready for close: VOUT_FILE, VOUT_CONFIG, VOUT_PIPE or
+ *                                                                  VOUT_SH_CMD.
+ *
+ * For blocking we need to make sure that all output is complete, and any
+ * pipe return(s) are empty and closed.  Then for VOUT_PIPE and VOUT_SH_CMD,
+ * need to collect the child and deal with an pipe stderr return stuff.
+ *
+ * Will block as required.
+ *
+ * Returns:  CMD_SUCCESS  -- done everything possible or vst_final
+ *           CMD_WAITING  -- waiting for output to complete => non-blocking
+ *           CMD_IO_ERROR -- error encountered when writing (may be final)
+ *
+ * For blocking vf this can be called in any thread.  For non-blocking, must be
+ * the CLI thread.
+ *
+ * NB: if vio->final, returns CMD_SUCCESS or CMD_IO_ERROR *only*.
+ */
+extern cmd_ret_t
+uty_file_write_close(vio_vf vf)
+{
+  qps_mini_t qm ;
+
+  VTY_ASSERT_CAN_CLOSE_VF(vf) ;
+
+  qassert( (vf->vout_type == VOUT_FILE) || (vf->vout_type == VOUT_CONFIG)
+                                        || (vf->vout_type == VOUT_PIPE)
+                                        || (vf->vout_type == VOUT_SH_CMD) ) ;
+  qassert(vf->vout_state & vf_cease) ;
+
+  /* Loop to process any outstanding/remaining I/O.
+   *
+   * Loops if is blocking and not vio->final.
+   *
+   * If is non-blocking and not vio->final, leaves pselect() to do the work,
+   * and returns CMD_WAITING.
+   *
+   * If all I/O is complete, or is vio->final, breaks out of the loop.
+   */
+  qm->timeout_set = false ;
+
+  while (1)
+    {
+      cmd_ret_t  ret ;
+      int        get ;
+      vio_err_type_t err_type ;
+      vty_timer_time timeout ;
+
+      /* We push to do as much output as possible.
+       *
+       * Note that for vio->final, will close all parts having pushed what can,
+       * and will return CMD_SUCCESS if does not return CMD_IO_ERROR.
+       */
+      ret = uty_file_out_push(vf) ;
+
+      if (ret != CMD_SUCCESS)
+        return ret ;
+
+      /* We are done if all parts are not vf_open
+       *
+       * There is a hierachy here... while the main vout is vf_open, it owns
+       * the time-out and any errors reported by qps_mini_wait().  Then the
+       * pipe return and finally the pipe stderr return.
+       *
+       * Both pipe returns have zero time-outs until they "take charge".  That
+       * is dealt with here, and if non-blocking, the read-ready is reset to
+       * have the required time-out.  Note that these time-outs do not take
+       * effect until the pipe is closed, and the main vout is vf_end.
+       */
+      if (vf_active(vf->vout_state))
+        {
+          timeout  = vf->write_timeout ;
+          err_type = verr_vout ;
+        }
+      else
+        {
+          /* The vout is (no longer) active.
+           *
+           * For VOUT_PIPE this is a good moment to close it, to signal to the
+           * child process that we are done.
+           */
+          if (vf->vfd != NULL)
+            vf->vfd = vio_vfd_close(vf->vfd) ;
+
+          vf->vout_state |= vf_end ;
+
+          if (vf_active(vf->pr_state))
+            {
+              timeout  = pipe_timeout ;
+              err_type = verr_pr ;
+
+              if (vf->pr_timeout == 0)
+                {
+                  ret = uty_pipe_return_set_read_ready(vf, timeout) ;
+                  if (ret == CMD_IO_ERROR)
+                    return CMD_IO_ERROR ;
+                } ;
+            }
+          else if (vf_active(vf->ps_state))
+            {
+              timeout  = pipe_timeout ;
+              err_type = verr_ps ;
+
+              if (vf->ps_timeout == 0)
+                {
+                  ret = uty_pipe_stderr_set_read_ready(vf, timeout) ;
+                  if (ret == CMD_IO_ERROR)
+                    return CMD_IO_ERROR ;
+                } ;
+            }
+          else
+            break ;
+        } ;
+
+      /* Not done, so if non-blocking we are waiting.
+       */
+      if (!vf->blocking)
+        return CMD_WAITING ;
+
+      /* We are blocking, so now is the time to run the pseudo-blocking,
+       * for all remaining parts.
+       */
+      qps_mini_set(qm, -1, 0) ;
+
+      if (vf_active(vf->vout_state))
+        qps_mini_add(qm, uty_vf_write_fd(vf), qps_write_mnum) ;
+
+      if (vf_active(vf->pr_state))
+        qps_mini_add(qm, vio_vfd_fd(vf->pr_vfd), qps_read_mnum) ;
+
+      if (vf_active(vf->ps_state))
+        qps_mini_add(qm, vio_vfd_fd(vf->ps_vfd), qps_read_mnum) ;
+
+      get = qps_mini_wait(qm, timeout, NULL) ;
+
+      if ((get > 0) || (get == -2))
+        continue ;
+
+      if (get == 0)
+        return uty_vf_error(vf, verr_to | err_type, 0) ;
+      else
+        return uty_vf_error(vf, verr_io | err_type, errno) ;
+    } ;
+
+  /* All I/O is complete.
+   *
+   * For pipe types now is the time to close pipe returns, collect the child
+   * process and post the pipe stderr return stuff.
+   *
+   * Otherwise, we are done.
+   */
+  if ((vf->vout_type == VOUT_PIPE) || (vf->vout_type == VOUT_SH_CMD))
+    return uty_pipe_close(vf) ;
+
+  return CMD_SUCCESS ;
 } ;
 
 /*==============================================================================
@@ -892,17 +1044,18 @@ uty_file_write_close(vio_vf vf, bool final)
  *
  *       stdout  -- collected by Quagga and output to the next vout.
  *
- *       stderr  -- collected by Quagga and output (eventually) to the base
- *                  vout.
+ *                  If the next vout is !out_ordinary, then this will be
+ *                  discarded !
+ *
+ *       stderr  -- as VIN_PIPE.
  *
  *   *  VOUT_SH_CMD -- command line: | shell_command
  *
  *       stdin   -- none
  *
- *       stdout  -- collected by Quagga and output to the next vout.
+ *       stdout  -- as VOUT_PIPE
  *
- *       stderr  -- collected by Quagga and output (eventually) to the base
- *                  vout.
+ *       stderr  -- as VOUT_PIPE & VIN_PIPE
  *
  * When Quagga is collecting stdout for output, that is known as the
  * "pipe return", and is expected to be the result of the command.
@@ -957,8 +1110,8 @@ uty_file_write_close(vio_vf vf, bool final)
  *       with shell commands which take an unreasonable time.
  *
  *       The shell command's stdout is connected to the vf's pipe return.
- *       For non-blocking vf, the pipe return is read autonomously under
- *       pselect() and pushed to the next vout.  For blocking vf, the pipe
+ *       For non-blocking, the pipe return is read autonomously under
+ *       pselect() and pushed to the next vout.  For blocking, the pipe
  *       return is polled whenever the (main) vout is written to, and any
  *       available input is pushed to the slave vout.  No timeout is set
  *       until the main vout is closed.
@@ -1015,7 +1168,7 @@ uty_file_write_close(vio_vf vf, bool final)
  *      since there is no need for there to be any input.  But expect now to
  *      see at least eof in a reasonable time.
  *
- *      For non-blocking vf, the pr_vfd is set read ready.  Then for all
+ *      For non-blocking, the pr_vfd is set read ready.  Then for all
  *      non-blocking pipes, the remaining pipe return input proceeds in the
  *      pselect() process.
  *
@@ -1024,7 +1177,7 @@ uty_file_write_close(vio_vf vf, bool final)
  *
  *   2. collect remaining input and close the pipe stderr return.
  *
- *      For non-blocking vf, the ps_vfd is set read ready.  Then for all
+ *      For non-blocking, the ps_vfd is set read ready.  Then for all
  *      non-blocking pipes, the remaining pipe return input proceeds in the
  *      pselect() process -- complete with time-out.
  *
@@ -1039,27 +1192,27 @@ uty_file_write_close(vio_vf vf, bool final)
  *      If the return code is not 0, or anything else happens, a diagnostic
  *      message is appended to the vf->rbuf.
  *
- * For non-blocking vf the close may return CMD_WAITING, and must be called
+ * For non-blocking the close may return CMD_WAITING, and must be called
  * again later to progress the close.
  *
  * For "final" close will not block or return CMD_WAITING, but complete the
  * process as quickly as possible while outputting as much as possible.
  */
-typedef int  pipe_pair_t[2] ;
-typedef int* pipe_pair ;
+typedef int  fd_pair_t[2] ;     /* result of pipe()             */
+typedef int* fd_pair ;
 
-typedef enum pipe_half
+typedef enum fd_pair_half       /* naming of parts              */
 {
-  in_fd   = 0,
-  out_fd  = 1,
+  in_half  = 0,
+  out_half = 1,
 
-} pipe_half_t ;
+} fd_pair_half_t ;
 
-CONFIRM(STDIN_FILENO  == 0) ;
+CONFIRM(STDIN_FILENO  == 0) ;   /* make assumption explicit     */
 CONFIRM(STDOUT_FILENO == 1) ;
 CONFIRM(STDERR_FILENO == 2) ;
 
-typedef enum std_id
+typedef enum std_id             /* more naming of parts         */
 {
   stdin_fd  = STDIN_FILENO,
   stdout_fd = STDOUT_FILENO,
@@ -1069,17 +1222,9 @@ typedef enum std_id
 
 } std_id_t ;
 
-typedef enum pipe_id
-{
-  in_pipe,
-  out_pipe,
-  err_pipe,
+typedef fd_pair_t std_set[stds] ;
 
-  pipe_count
-
-} pipe_id_t ;
-
-typedef enum pipe_type
+typedef enum pipe_type          /* vty level pipe types         */
 {
   vin_pipe,
   vout_pipe,
@@ -1087,104 +1232,99 @@ typedef enum pipe_type
 
 } pipe_type_t ;
 
-typedef pipe_pair_t pipe_set[pipe_count] ;
-
-static pid_t uty_pipe_fork(vty_io vio, const char* cmd_str, pipe_set pipes,
+/*------------------------------------------------------------------------------
+ * Prototypes
+ */
+static pid_t uty_pipe_fork(vty_io vio, const char* cmd_str, std_set set,
                                                             pipe_type_t type) ;
-static bool uty_pipe_pair(vty_io vio, const char* cmd_str,
-                                      const char* what, pipe_set    pipes,
-                                                        pipe_id_t   id,
-                                                        pipe_half_t half) ;
+static bool uty_fd_pair(vty_io vio, const char* cmd_str,
+                                    const char* what, std_set  set,
+                                                      std_id_t id,
+                                                      fd_pair_half_t half) ;
 static bool uty_pipe_fork_fail(vty_io vio, const char* cmd_str,
-                                           const char* what, pipe_set pipes,
-                                           pipe_pair   pair,
+                                           const char* what,
+                                           std_set     set,
+                                           fd_pair     pair,
                                            const char* action) ;
-static void uty_pipe_close_half_pipe(pipe_pair pair, pipe_half_t half) ;
+static void uty_pipe_close_half(fd_pair pair, fd_pair_half_t half) ;
 static void uty_pipe_open_complete(vio_vf vf, pid_t pid, int pr_fd, int ps_fd) ;
-static bool uty_pipe_exec_prepare(vty_io vio, pipe_set pipes) ;
+static bool uty_pipe_exec_prepare(vty_io vio, std_set set) ;
 
-static cmd_return_code_t uty_pipe_return_close(vio_vf vf, bool final) ;
-static cmd_return_code_t uty_pipe_shovel(vio_vf vf, bool final) ;
-static cmd_return_code_t uty_pipe_stderr_suck(vio_vf vf, bool final) ;
 static vio_fifo uty_pipe_ps_buf(vio_vf vf) ;
 
-static void vty_pipe_read_ready(vio_vfd vfd, void* action_info) ;
-static vty_timer_time vty_pipe_read_timeout(vio_timer timer,
-                                                            void* action_info) ;
-static void vty_pipe_return_ready(vio_vfd vfd, void* action_info) ;
-static void vty_pipe_stderr_return_ready(vio_vfd vfd, void* action_info) ;
-static vty_timer_time vty_pipe_return_timeout(vio_timer timer,
-                                                            void* action_info) ;
-static vty_timer_time vty_pipe_stderr_return_timeout(vio_timer timer,
-                                                            void* action_info) ;
-static void vty_pipe_write_ready(vio_vfd vfd, void* action_info) ;
-static vty_timer_time vty_pipe_write_timeout(vio_timer timer,
-                                                            void* action_info) ;
+static void uty_pipe_return_ready(vio_vfd vfd, void* action_info,
+                                                                bool time_out) ;
+static void uty_pipe_stderr_ready(vio_vfd vfd, void* action_info,
+                                                                bool time_out) ;
 
 /*------------------------------------------------------------------------------
  * Open VIN_PIPE: pipe whose child's stdout is read and executed as commands.
  *
- * The child's stderr is read, separately, as the pipe return, and sent to the
- * current vout.
+ * The child's stderr is read, separately, as the pipe stderr return, and
+ * (eventually) sent to the base vout.
  *
  * The new vin has two vio_fd's, the standard one to read commands, and the
- * other (the pr_vfd) to collect any stderr output (the "return") from the
- * child, which is sent to the current vout.
- *
- * The current vout is made the "slave" of the new vin "master".  For the
- * return the pr_vd reads into the "slave" obuf.
+ * other (the ps_vfd) to collect any stderr output (the "stderr return").
  *
  * If could not open, issues message to the vio.
  *
  * Returns:  CMD_SUCCESS  -- all set to go
- *           CMD_WARNING  -- failed to open -- message sent to vio.
+ *           CMD_ERROR    -- failed to open -- message sent to vio.
  */
-extern cmd_return_code_t
-uty_pipe_read_open(vty_io vio, qstring command, cmd_context context)
+extern cmd_ret_t
+uty_pipe_read_open(vty_io vio, qstring command)
 {
-  pipe_set    pipes ;
+  std_set     set ;
   const char* cmd_str ;
   vio_vf      vf ;
   pid_t       child ;
-  qpath       dir ;
 
   VTY_ASSERT_LOCKED() ;
 
   assert(vio->vin != NULL) ;            /* Not expected to be vin_base  */
 
-  cmd_str = qs_make_string(command) ;
+  cmd_str = qs_string(command) ;
 
-  /* Fork it                                                            */
-  child = uty_pipe_fork(vio, cmd_str, pipes, vin_pipe) ;
+  /* Fork it
+   */
+  child = uty_pipe_fork(vio, cmd_str, set, vin_pipe) ;
 
   if (child < 0)
-    return CMD_WARNING ;
+    return CMD_ERROR ;
 
-  /* We have a pipe, so now save context                                */
-  dir = NULL ;
+  /* OK -- now push the new input onto the vin_stack.
+   *
+   * Note that all the naming is from the child's perspective.
+   *
+   * uty_vf_new() sets vf->blocking if the parent vio is blocking, and sets the
+   * vfd_io_ps_blocking.  The subsequent pipe stderr return will be set to
+   * suit.
+   */
+  vf = uty_vf_new(vio, cmd_str, set[stdout_fd][in_half], vfd_pipe, vfd_io_read);
+  uty_vin_push(vio, vf, VIN_PIPE, uty_file_read_ready, pipe_buffer_size) ;
+  vf->read_timeout = pipe_timeout ;
 
+  /* If command starts with '/', then we will want to set the 'here' directory
+   * to its directory.
+   */
   if (*cmd_str == '/')
     {
+      qpath       dir ;
       const char* p ;
+
       p = cmd_str ;
       while (*p > ' ')
         ++p ;
       dir = qpath_set_n(NULL, cmd_str, p - cmd_str) ;
+
+      uty_vin_set_here(vio, dir) ;
+      qpath_free(dir) ;
     } ;
 
-  uty_vin_new_context(vio, context, dir) ;
-
-  if (dir != NULL)
-    qpath_free(dir) ;
-
-  /* OK -- now push the new input onto the vin_stack.                   */
-  vf = uty_vf_new(vio, cmd_str, pipes[in_pipe][in_fd], vfd_pipe, vfd_io_read) ;
-  uty_vin_push(vio, vf, VIN_PIPE, vty_pipe_read_ready,
-                                  vty_pipe_read_timeout, pipe_buffer_size) ;
-  vf->read_timeout   = pipe_timeout ;
-
-  /* And the err_pair is set as the return from the child               */
-  uty_pipe_open_complete(vf, child, -1, pipes[err_pipe][in_fd]) ;
+  /* Record the child pid, set nothing for the pipe return but set the child's
+   * stderr as the stderr return.
+   */
+  uty_pipe_open_complete(vf, child, -1, set[stderr_fd][in_half]) ;
 
   return CMD_SUCCESS ;
 } ;
@@ -1194,57 +1334,67 @@ uty_pipe_read_open(vty_io vio, qstring command, cmd_context context)
  * (or not, if shell_cmd), where what the pipe returns will be output to the
  * current vout.
  *
- * The new vout becomes the "master", and has two vio_vfd's, one for output to
- * the pipe (this is NULL if shell_only) and the other for the pipe return.
- * The pipe return reads directly into the "slave" obuf.
+ * For VOUT_PIPE, output is sent to the child's stdin.  For VOUT_SH_CMD,
+ * nothing is set up for the child's stdin.
+ *
+ * In both cases the child's stdout is collected as the pipe return, and its
+ * stderr is collected as the stderr return.
  *
  * If could not open, issues message to the vio.
  *
  * Returns:  CMD_SUCCESS  -- all set to go
- *           CMD_WARNING  -- failed to open -- message sent to vio.
+ *           CMD_ERROR    -- failed to open -- message sent to vio.
  */
-extern cmd_return_code_t
+extern cmd_ret_t
 uty_pipe_write_open(vty_io vio, qstring command, bool shell_cmd, bool after)
 {
-  pipe_set    pipes ;
+  std_set     set ;
   const char* cmd_str ;
   pid_t    child ;
   vio_vf   vf ;
 
   VTY_ASSERT_LOCKED() ;
 
-  cmd_str = qs_make_string(command) ;
+  cmd_str = qs_string(command) ;
 
-  /* Do the basic file open.                                            */
-  child = uty_pipe_fork(vio, cmd_str, pipes, shell_cmd ? vout_sh_cmd
-                                                       : vout_pipe) ;
+  /* Do the basic file open.
+   */
+  child = uty_pipe_fork(vio, cmd_str, set, shell_cmd ? vout_sh_cmd
+                                                     : vout_pipe) ;
   if (child < 0)
-    return CMD_WARNING ;
+    return CMD_ERROR ;
 
   /* OK -- now push the new output onto the vout_stack.
    *
    * Note that for VOUT_SH_CMD no vfd is set up, and the vout_state is
    * immediately set to vf_end.
+   *
+   * uty_vf_new() sets vf->blocking if the parent vio is blocking, and sets
+   * vfd_io_ps_blocking.  The subsequent pipe returns will be set to suit.
    */
   if (shell_cmd)
     {
       vf = uty_vf_new(vio, cmd_str, -1, vfd_none, vfd_io_none) ;
-      uty_vout_push(vio, vf, VOUT_SH_CMD, NULL, NULL, 0, after) ;
-      vf->vout_state = vf_end ;
+      uty_vout_push(vio, vf, VOUT_SH_CMD, NULL, 0, after) ;
+
+      uty_vf_write_stop(vf, vfs_stop_cease) ;   /* immediately  */
+      uty_vf_write_stop(vf, vfs_stop_end) ;     /* instantly    */
     }
   else
     {
-      vf = uty_vf_new(vio, cmd_str, pipes[out_pipe][out_fd],
+      vf = uty_vf_new(vio, cmd_str, set[stdin_fd][out_half],
                                                        vfd_pipe, vfd_io_write) ;
-      uty_vout_push(vio, vf, VOUT_PIPE, vty_pipe_write_ready,
-                              vty_pipe_write_timeout, pipe_buffer_size, after) ;
+      uty_vout_push(vio, vf, VOUT_PIPE, uty_file_write_ready,
+                                                      pipe_buffer_size, after) ;
       vf->write_timeout  = pipe_timeout ;
     } ;
 
-  /* Record the child pid and set up the pr_vf and enslave vout_next    */
+  /* Record the child pid, set the child's stdout as the pipe return and set
+   * its stderr as the stderr return.
+   */
+  uty_pipe_open_complete(vf, child, set[stdout_fd][in_half],
+                                    set[stderr_fd][in_half]) ;
 
-  uty_pipe_open_complete(vf, child, pipes[in_pipe][in_fd],
-                                                       pipes[err_pipe][in_fd]) ;
   /* Until eof (or error or timeout) on the vin, neither wait for or timeout
    * the pipe return or the pipe stderr return.
    */
@@ -1257,11 +1407,19 @@ uty_pipe_write_open(vty_io vio, qstring command, bool shell_cmd, bool after)
 /*------------------------------------------------------------------------------
  * Complete the opening of a pipe.
  *
- * All pipes have a return.  For in_pipes this is the child's stderr, for
- * out_pipes this is the child's stdout and its stderr.
+ * Register the child.
  *
- * For non-blocking, sets up the pipe return and the pipe stderr return ready
- * and timeout actions, but leaves pr_timeout == 0 and ps_timeout == 0
+ * If there is a pipe return (vout_pipe and vout_sh_cmd), set up the pipe
+ * return fd etc.
+ *
+ * All pipes have a stderr pipe return, so set that fd etc.
+ *
+ * Pipe return timeouts are set to zero here -- no timeout is required until
+ * the vf is closed.
+ *
+ * Follows the blocking state of the vf.  For non-blocking, sets up the pipe
+ * return (if any) and the pipe stderr return ready and timeout actions, but
+ * leaves timeouts = 0.
  */
 static void
 uty_pipe_open_complete(vio_vf vf, pid_t pid, int pr_fd, int ps_fd)
@@ -1270,6 +1428,8 @@ uty_pipe_open_complete(vio_vf vf, pid_t pid, int pr_fd, int ps_fd)
 
   vf->child = uty_child_register(pid, vf) ;
 
+  /* The pr_vfd and ps_vfd blocking states must follow the vf.
+   */
   iot = vfd_io_read | (vf->blocking ? vfd_io_ps_blocking : 0) ;
 
   /* If there is a pipe return, set up vfd and for non-blocking prepare the
@@ -1278,19 +1438,18 @@ uty_pipe_open_complete(vio_vf vf, pid_t pid, int pr_fd, int ps_fd)
    * Note that do not at this stage set a timeout value, but do set the return
    * read ready, to proceed asynchronously.
    */
-  if (pr_fd >= 0)
+  vf->pr_enabled = (pr_fd >= 0) ;
+  if (vf->pr_enabled)
     {
       vf->pr_vfd   = vio_vfd_new(pr_fd, vfd_pipe, iot, vf) ;
       vf->pr_state = vf_open ;
 
-      qassert(vf->pr_timeout == 0) ;
+      vf->pr_timeout = 0 ;      /* for the avoidance of doubt   */
 
       if (!vf->blocking)
         {
-          vio_vfd_set_read_action(vf->pr_vfd, vty_pipe_return_ready) ;
-          vio_vfd_set_read_timeout_action(vf->pr_vfd, vty_pipe_return_timeout) ;
-
-          vio_vfd_set_read(vf->pr_vfd, on, vf->pr_timeout) ;
+          vio_vfd_set_read_action(vf->pr_vfd, uty_pipe_return_ready) ;
+          uty_pipe_return_set_read_ready(vf, vf->pr_timeout) ;
         } ;
     } ;
 
@@ -1300,35 +1459,39 @@ uty_pipe_open_complete(vio_vf vf, pid_t pid, int pr_fd, int ps_fd)
    * Note that do not at this stage set a timeout value, or set the return
    * read ready.
    */
-  vf->ps_vfd   = vio_vfd_new(ps_fd, vfd_pipe, iot, vf) ;
-  vf->ps_state = vf_open ;
+  qassert(ps_fd >= 0) ;
 
-  qassert(vf->ps_timeout == 0) ;
-
-  if (!vf->blocking)
+  vf->ps_enabled = (ps_fd >= 0) ;
+  if (vf->ps_enabled)
     {
-      vio_vfd_set_read_action(vf->ps_vfd, vty_pipe_stderr_return_ready) ;
-      vio_vfd_set_read_timeout_action(vf->ps_vfd, vty_pipe_stderr_return_timeout) ;
+      vf->ps_vfd   = vio_vfd_new(ps_fd, vfd_pipe, iot, vf) ;
+      vf->ps_state = vf_open ;
 
-      vio_vfd_set_read(vf->ps_vfd, on, vf->ps_timeout) ;
+      vf->ps_timeout = 0 ;      /* for the avoidance of doubt   */
+
+      if (!vf->blocking)
+        {
+          vio_vfd_set_read_action(vf->ps_vfd, uty_pipe_stderr_ready) ;
+          uty_pipe_stderr_set_read_ready(vf, vf->ps_timeout) ;
+        } ;
     } ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Fork fork fork
  *
- * Set up pipes according to type of fork:
+ * Set up pipes according to pipe_type_t of fork:
  *
- *   in_pipe    -- input from child's stdout as main fd
- *                 input from child's stderr as stderr return fd
+ *   vin_pipe    -- output to  child's stdin : not set up
+ *                  input from child's stdout: set up -> main fd
  *
- *   out_pipe   -- output to  child's stdin  as main fd
- *                 input from child's stdout as return fd
- *                 input from child's stderr as stderr return fd
+ *   vout_pipe   -- output to  child's stdin : set up -> main fd
+ *                  input from child's stdout: set up -> return
  *
- *   err_pipe   -- nothing for main fd
- *                 input from child's stdout as return fd
- *                 input from child's stderr as stderr return fd
+ *   vout_sh_cmd -- output to  child's stdin : not set up
+ *                  input from child's stdout: set up -> return
+ *
+ * In all cases, the input from the child's stdout: set up -> stderr return
  *
  * vfork to create child process and then:
  *
@@ -1343,32 +1506,35 @@ uty_pipe_open_complete(vio_vf vf, pid_t pid, int pr_fd, int ps_fd)
  * NB: only returns in the parent process -- exec's in the child.
  */
 static pid_t
-uty_pipe_fork(vty_io vio, const char* cmd_str, pipe_set pipes, pipe_type_t type)
+uty_pipe_fork(vty_io vio, const char* cmd_str, std_set set, pipe_type_t type)
 {
   pid_t child ;
   int   id ;
 
-  /* Set pipes empty                                                    */
-  for (id = 0 ; id < pipe_count ; ++id)
+  /* Empty the set
+   */
+  for (id = 0 ; id < stds ; ++id)
     {
-      pipes[id][in_fd]  = -1 ;
-      pipes[id][out_fd] = -1 ;
+      set[id][in_half]  = -1 ;
+      set[id][out_half] = -1 ;
     } ;
 
-  /* Open as many pipes as are required.                                */
+  /* Open as many fd pairs as are required -- sets non-blocking and close-on-
+   * exec on the parent's half of each one.
+   */
   if (type == vin_pipe)
-    if (!uty_pipe_pair(vio, cmd_str, "input pipe", pipes, in_pipe, in_fd))
+    if (!uty_fd_pair(vio, cmd_str, "input pipe", set, stdout_fd, in_half))
       return -1 ;
 
   if ((type == vout_pipe) || (type == vout_sh_cmd))
-    if (!uty_pipe_pair(vio, cmd_str, "return pipe", pipes, in_pipe, in_fd))
+    if (!uty_fd_pair(vio, cmd_str, "return pipe", set, stdout_fd, in_half))
       return -1 ;
 
   if (type == vout_pipe)
-    if (!uty_pipe_pair(vio, cmd_str, "output pipe", pipes, out_pipe, out_fd))
-    return -1 ;
+    if (!uty_fd_pair(vio, cmd_str, "output pipe", set, stdin_fd, out_half))
+      return -1 ;
 
-  if (!uty_pipe_pair(vio, cmd_str, "stderr pipe", pipes, err_pipe, in_fd))
+  if (!uty_fd_pair(vio, cmd_str, "stderr pipe", set, stderr_fd, in_half))
     return -1 ;
 
   /* Off to the races                                                   */
@@ -1377,74 +1543,92 @@ uty_pipe_fork(vty_io vio, const char* cmd_str, pipe_set pipes, pipe_type_t type)
 
   if      (child == 0)          /* In child                             */
     {
-      /* Prepare all file descriptors and then execute          */
-      if (uty_pipe_exec_prepare(vio, pipes))
+      /* Prepare all file descriptors and then execute the child
+       */
+      if (uty_pipe_exec_prepare(vio, set))
         execl("/bin/bash", "bash", "-c", cmd_str, NULL) ; /* does not return */
       else
         exit(0x80 | errno) ;
     }
   else if (child > 0)           /* In parent -- success                 */
     {
-      /* close the pipe fds we do not need                      */
-      uty_pipe_close_half_pipe(pipes[in_pipe],  out_fd) ;
-      uty_pipe_close_half_pipe(pipes[out_pipe], in_fd) ;
-      uty_pipe_close_half_pipe(pipes[err_pipe], out_fd) ;
+      /* close the fds we do not need in the parent
+       */
+      uty_pipe_close_half(set[stdin_fd],  in_half) ;
+      uty_pipe_close_half(set[stdout_fd], out_half) ;
+      uty_pipe_close_half(set[stderr_fd], out_half) ;
     }
   else if (child < 0)           /* In parent -- failed                  */
-    uty_pipe_fork_fail(vio, cmd_str, "vfork", pipes, NULL, "child") ;
+    uty_pipe_fork_fail(vio, cmd_str, "vfork", set, NULL, "child") ;
 
   return child ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Open a pipe pair -- generate suitable error message if failed and close
- * any earlier pipes that have been opened.
+ * any earlier pairs that have been opened.
+ *
+ * For the parent process half of the pair we set non-blocking and
+ * close-on-exec.
+ *
+ * The close-on-exec ensures that any other children of the main process do
+ * *not* inherit the parents connection(s) to other children.  In the
+ * uty_pipe_exec_prepare() we arrange for all children forked here to set
+ * absolutely everything except the child's pipes to be close-on-exec.
+ * The library popen() is not as tidy... so a child could be confused by the
+ * popen sibling having copies of the parent's pipes !!
  *
  * Returns:  true <=> success
  */
 static bool
-uty_pipe_pair(vty_io vio, const char* cmd_str,
-                          const char* what, pipe_set    pipes,
-                                            pipe_id_t   id,
-                                            pipe_half_t half)
+uty_fd_pair(vty_io vio, const char* cmd_str,
+                          const char* what, std_set    set,
+                                            std_id_t   id,
+                                            fd_pair_half_t parent_half)
 {
-  pipe_pair pair ;
+  fd_pair pair ;
 
-  pair = pipes[id] ;
+  pair = set[id] ;
 
   if (pipe(pair) < 0)
-    return uty_pipe_fork_fail(vio, cmd_str, what, pipes, pair, "open") ;
+    return uty_pipe_fork_fail(vio, cmd_str, what, set, pair, "open") ;
 
-  if (set_nonblocking(pair[half]) < 0)
-    return uty_pipe_fork_fail(vio, cmd_str, what, pipes, NULL,
+  if (set_nonblocking(pair[parent_half]) < 0)
+    return uty_pipe_fork_fail(vio, cmd_str, what, set, NULL,
                                                       "set non-blocking for") ;
+
+  if (set_close_on_exec(pair[parent_half]) < 0)
+    return uty_pipe_fork_fail(vio, cmd_str, what, set, NULL,
+                                                      "set close-on-exec for") ;
 
   return true ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Failed to open pipe: generate suitable error message and close any earlier
- * pipes that have been opened.
+ * pairs that have been opened.
  *
  * Returns:  false
  */
 static bool
 uty_pipe_fork_fail(vty_io vio, const char* cmd_str,
-                                           const char* what, pipe_set pipes,
-                                           pipe_pair   pair,
+                                           const char* what,
+                                           std_set     set,
+                                           fd_pair     pair,
                                            const char* action)
 {
   int   err = errno ;
   int   id ;
 
-  /* Close anything that has been opened                                */
-  for (id = 0 ; id < pipe_count ; ++id)
-    {
-      if (pipes[id] == pair)
-        continue ;              /* ignore if just failed to open        */
+  /* Close anything that has been opened -- starting by setting the failed
+   * pair to not opened.
+   */
+  pair[in_half] = pair[out_half] = -1 ; /* make sure    */
 
-      uty_pipe_close_half_pipe(pipes[id], in_fd) ;
-      uty_pipe_close_half_pipe(pipes[id], out_fd) ;
+  for (id = 0 ; id < stds ; ++id)
+    {
+      uty_pipe_close_half(set[id], in_half) ;
+      uty_pipe_close_half(set[id], out_half) ;
     } ;
 
   uty_out(vio, "%% Failed to %s %s for %s\n", action, what, cmd_str) ;
@@ -1455,10 +1639,10 @@ uty_pipe_fork_fail(vty_io vio, const char* cmd_str,
 } ;
 
 /*------------------------------------------------------------------------------
- * Close half of a pipe pair, if it is open.
+ * Close half of an fd_pair, if it is open.
  */
 static void
-uty_pipe_close_half_pipe(pipe_pair pair, pipe_half_t half)
+uty_pipe_close_half(fd_pair pair, fd_pair_half_t half)
 {
   if (pair[half] >= 0)
     {
@@ -1473,12 +1657,7 @@ uty_pipe_close_half_pipe(pipe_pair pair, pipe_half_t half)
  * Discard all fd's except for the those required for the shell command.
  *
  * Arrange for the pipe fd's to be stdin/stdout/stderr as required.  The pairs
- * are named wrt to the parent process:
- *
- *   in_pipe  -- if present, is: stdout for the child
- *   out_pipe -- if present, is: stdin  for the child
- *   err_pipe -- if present, is: stderr for the child
- *                          and: stdout for the child, if no in_pipe
+ * are named wrt to the child process.
  *
  * Set current directory.
  *
@@ -1488,16 +1667,16 @@ uty_pipe_close_half_pipe(pipe_pair pair, pipe_half_t half)
  *          false  => some sort of error -- see errno
  */
 static bool
-uty_pipe_exec_prepare(vty_io vio, pipe_set pipes)
+uty_pipe_exec_prepare(vty_io vio, std_set set)
 {
   int   std[stds] ;
   int   fd ;
 
   /* Assign fds to child's std[]                                        */
 
-  std[stdin_fd]  = pipes[out_pipe][in_fd] ;     /* stdin for child      */
-  std[stdout_fd] = pipes[in_pipe][out_fd] ;     /* stdout for child     */
-  std[stderr_fd] = pipes[err_pipe][out_fd] ;    /* stderr for child     */
+  std[stdin_fd]  = set[stdin_fd] [in_half] ;
+  std[stdout_fd] = set[stdout_fd][out_half] ;
+  std[stderr_fd] = set[stderr_fd][out_half] ;
 
   /* Mark everything to be closed on exec                               */
   for (fd = 0 ; fd < qlib_open_max ; ++fd)
@@ -1550,244 +1729,126 @@ uty_pipe_exec_prepare(vty_io vio, pipe_set pipes)
 } ;
 
 /*------------------------------------------------------------------------------
- * Command line fetch from a pipe -- VIN_PIPE in vf_open state.
+ * Shovel from the pipe return to the slave output and push: for VOUT_PIPE and
+ *                                                                  VOUT_SH_CMD
  *
- * Before attempting to fetch command line, will shovel any return into the
- * slave and push.  This means that any return is output between command lines.
+ * Reads as much as is available and pushes the slave, but does not block.
  *
- * In "non-blocking" state, on CMD_WAITING may be waiting for read ready on
- * this vf, or (indirectly) write ready on the slave.
+ * Forces EOF if is vio->cancel -- so stops collecting the pipe return, which
+ * will be thrown away, in any case.
  *
- * In "blocking" state, will not return until have something, or there is
- * nothing to be had, or times out.
+ * When gets EOF, sets pr_state = vf_end.
  *
- * Returns:  CMD_SUCCESS    -- have another command line ready to go
- *           CMD_WAITING    -- waiting for input not output  <=> non-blocking
- *           CMD_EOF        -- ran into EOF -- on input
- *           CMD_IO_ERROR   -- ran into an I/O error or time-out
+ * When has read everything available, but is not EOF, returns either
+ * CMD_SUCCESS (blocking or no longer vf_end), or CMD_WAITING (non-blocking,
+ * waiting for more).
+ *
+ * Returns:  CMD_SUCCESS  -- done everything possible (at the moment)
+ *           CMD_WAITING  -- waiting for more  => non-blocking
+ *           CMD_IO_ERROR -- error or time-out
  *
  * This can be called in any thread.
- *
- * NB: the vin_state is set to vf_end when CMD_EOF is returned, and this
- *     code may not be called again.
- *
- *     Signals CMD_EOF on the main input.  If this occurs before EOF on the
- *     return input, any remaining return input must be dealt with before
- *     the vf is finally closed -- see uty_pipe_read_close().
- *
- * NB: the vout_state is set to vf_end when CMD_IO_ERROR is returned, and
- *     this code may not be called again.
- *
- *     When an error occurs it is signalled to the command loop.  This function
- *     is called from the command loop -- so, in fact, the CMD_IO_ERROR
- *     return code does the trick.
  */
-extern cmd_return_code_t
-uty_pipe_fetch_command_line(vio_vf vf, cmd_action action)
+static cmd_ret_t
+uty_pipe_return_shovel(vio_vf vf)
 {
   VTY_ASSERT_LOCKED() ;         /* In any thread                */
 
-  qassert(vf->vin_type == VIN_PIPE) ;
-  qassert(vf->vin_state == vf_open) ;
+  qassert((vf->vout_type == VOUT_PIPE) || (vf->vout_type == VOUT_SH_CMD)) ;
 
-  while (1)             /* so blocking stuff can loop round     */
+  /* Suck and blow
+   */
+  while (vf_active(vf->pr_state))
     {
-      cmd_return_code_t ret ;
-      int     get ;
-      qps_mini_t qm ;
+      cmd_ret_t ret ;
+      int       get ;
 
-      /* Try to complete line straight from the buffer.
-       *
-       * If buffer is empty and have seen eof on the input, signal CMD_EOF.
-       */
-      ret = uty_fifo_command_line(vf, action) ;
+      if (vf->vout_next->vout_state & (vf_cancel | vf_end))
+        vf->pr_enabled = false ;
 
-      if (ret != CMD_WAITING)
-        return ret ;
+      if (vf->pr_enabled)
+        get = vio_fifo_read_nb(vf->vout_next->obuf, vio_vfd_fd(vf->pr_vfd),
+                                0, 1) ; /* read a lump at a time        */
+      else
+        get = read_nb(vio_vfd_fd(vf->pr_vfd), dev_null, sizeof(dev_null)) ;
 
-      /* If blocking, worry about the stderr return -- just to keep I/O moving.
-       *
-       * Expect only CMD_SUCCESS or CMD_IO_ERROR.
-       */
-      if (vf->blocking && (vf->ps_state == vf_open))
+      if (get > 0)                      /* Read something               */
         {
-          ret = uty_pipe_stderr_suck(vf, false) ;     /* not final */
+          if (vf->pr_enabled)
+            {
+              ret = uty_cmd_out_push(vf->vout_next) ;
 
-          qassert((ret == CMD_SUCCESS) || (ret == CMD_IO_ERROR)) ;
+              if (ret == CMD_IO_ERROR)
+                {
+                  /* The slave vout has failed, so we disable the pipe return
+                   * so that we don't send anything more.
+                   */
+                  vf->pr_enabled = false ;
+                  return ret ;
+                } ;
+            } ;
 
-          if (ret != CMD_SUCCESS)
-            return ret ;        /* cannot continue      */
+          continue ;
         } ;
 
-      /* Need more from the main input.
-       */
-      get = vio_fifo_read_nb(vf->ibuf, vio_vfd_fd(vf->vfd), 100) ;
-
-      if (get > 0)
-        continue ;              /* loop back                            */
-
-      if (get == -1)
-        return uty_vf_error(vf, verr_io_vin, errno) ;
-
-      if (get == -2)            /* EOF met immediately                  */
+      if (get < 0)
         {
-          vf->vin_state = vf_end ;
-          continue ;            /* loop back -- deals with possible
-                                   final line and the return.           */
+          if (get == -1)                /* Hit error                    */
+            return uty_vf_error(vf, verr_io_pr, errno) ;  /* CMD_IO_ERROR */
+                                /* will not return CMD_HIATUS, because
+                                 * vf->pr_state == vf_open !            */
+
+          qassert (get == -2) ;         /* eof on the return            */
+
+          uty_vf_return_stop(&vf->pr_state, vfs_stop_end) ;
+          break ;                       /* quit: OK                     */
         } ;
 
+      /* Nothing there to read, but not eof.
+       *
+       * If vio->final, force vf_end and return CMD_SUCCESS.
+       *
+       * If blocking return CMD_SUCCESS -- done everything we can.
+       *
+       * If non-blocking, return CMD_WAITING -- is permanently read-ready.
+       */
       qassert(get == 0) ;
 
-      /* We get here if main input is not yet at eof, but has nothing
-       * to read at the moment.
-       */
-      qassert(vf->vin_state == vf_open) ;
+      return (vf->blocking) ? CMD_SUCCESS : CMD_WAITING ;
+    } ;
+
+  return CMD_SUCCESS ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If there is a pipe return, set the given timeout, and...
+ *
+ * ...if is blocking: if not vf_end set read-ready with the given timeout,
+ *                                  otherwise clear read-ready.
+ *
+ * If fails to set read-ready, will post CMD_IO_ERROR.
+ *
+ * Returns:  CMD_WAITING   -- set read-ready
+ *           CMD_IO_ERROR  -- failed to set read-ready
+ *           CMD_SUCCESS   -- not ps_active or is blocking
+ */
+static cmd_ret_t
+uty_pipe_return_set_read_ready(vio_vf vf, vty_timer_time time_out)
+{
+  if (vf->pr_state != vf_closed)
+    {
+      vf->pr_timeout = time_out ;
 
       if (!vf->blocking)
         {
-          uty_vf_set_read(vf, on) ;
-          return CMD_WAITING ;
-        } ;
+          on_off_b how ;
 
-      /* Implement blocking I/O, with timeout
-       *
-       * Note that waits for both the main vin and the pipe return.
-       */
-      qps_mini_set(qm, (vf->vin_state == vf_open) ? vio_vfd_fd(vf->vfd)
-                                                  : -1,
-                                             qps_read_mnum, vf->read_timeout) ;
-      if (vf->pr_state == vf_open)
-        qps_mini_add(qm, vio_vfd_fd(vf->pr_vfd), qps_read_mnum) ;
+          how = (vf->pr_state & vf_end) ? off : on ;
 
-      if (qps_mini_wait(qm, NULL, false) != 0)
-        continue ;                      /* loop back            */
+          if (vio_vfd_set_read(vf->pr_vfd, how, vf->pr_timeout) != how)
+            return uty_vf_not_open_error(vf, verr_io_pr) ;
 
-      return uty_vf_error(vf, verr_to_vin, 0) ;
-    } ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Command output push to a pipe and (for blocking) shovel return into
- * slave and push.
- *
- * For blocking, does not push to the pipe while there is return input to be
- * read and pushed to the slave.  For non-blocking the return input/output is
- * handled autonomously.
- *
- * If final, will do final shovel from return to slave and also attempt to
- * empty any output buffer -- will not wait or block, and ignores errors.
- *
- * Returns:  CMD_SUCCESS   -- done everything possible
- *           CMD_WAITING   -- not "final" => waiting for output to complete
- *                                                          <=> not vf->blocking
- *                                "final" => would have waited *or* blocked,
- *                                           but did not.
- *           CMD_IO_ERROR  -- error or time-out (may be "final")
- *
- * In "non-blocking" state, on CMD_WAITING the slave output will put the
- * master return pr_vfd into read ready state when it sees write ready, or will
- * here set the pr_vfd into read ready state.  This requires no further action
- * from the caller, the background pselect process will complete the output and
- *  may signal the result via uty_cmd_signal().
- *
- * In "blocking" state, will not return until have written everything there is,
- * away, or cannot continue.
- *
- * This can be called in any thread.
- */
-extern cmd_return_code_t
-uty_pipe_out_push(vio_vf vf, uty_cmd_push_types_t how)
-{
-  bool final ;
-
-  VTY_ASSERT_LOCKED() ;         /* In any thread                */
-
-  qassert((vf->vout_type == VOUT_PIPE) || (vf->vout_type == VOUT_SH_CMD)) ;
-
-  if (vf->vout_state != vf_open)
-    return CMD_SUCCESS ;        /* Get out if going nowhere     */
-
-  final = (how == ucmd_push_final) ;
-
-  /* If blocking, keep the stderr return moving.
-   */
-  if (vf->blocking && (vf->ps_state == vf_open))
-    {
-      cmd_return_code_t ret ;
-
-      ret = uty_pipe_stderr_suck(vf, false) ; /* not final    */
-
-      qassert((ret == CMD_SUCCESS) || (ret == CMD_IO_ERROR)) ;
-
-      if (ret != CMD_SUCCESS)
-        return ret ;        /* cannot continue      */
-    } ;
-
-  /* If squelching, dump anything we have in the obuf.
-   *
-   * Otherwise, write contents away.
-   */
-  if (vf->vio->cancel)
-    vio_fifo_clear(vf->obuf, false) ;   /* keep end mark        */
-  else
-    {
-      while (1)
-        {
-          qps_mini_t qm ;
-          int put ;
-
-          /* If blocking, see if there is anything in the return, and shovel.
-           *
-           * For non-blocking, the pselect process looks after this.
-           */
-          if (vf->blocking && (vf->pr_state == vf_open))
-            {
-              cmd_return_code_t ret ;
-
-              ret = uty_pipe_shovel(vf, final) ;
-
-              if (ret != CMD_SUCCESS)
-                return ret ;                    /* cannot continue      */
-            } ;
-
-          if (vf->vout_state != vf_open)
-            break ;     /* Quit if error has stopped the main vout      */
-
-          /* Now write to the main vout, blocking if required.
-           */
-          put = vio_fifo_write_nb(vf->obuf, vio_vfd_fd(vf->vfd), true) ;
-
-          if (put == 0)                 /* all gone                     */
-            break ;
-
-          if (put < 0)
-            return uty_vf_error(vf, verr_io_vout, errno) ;
-
-          /* Cannot write everything away without waiting
-           */
-          if (!vf->blocking)
-            {
-              if (!final)
-                uty_vf_set_write(vf, on) ;
-              return CMD_WAITING ;
-            } ;
-
-          /* Implement blocking I/O, with timeout
-           *
-           * Note that waits for both the main vout and the pipe return.
-           */
-          if (final)
-            return CMD_WAITING ;
-
-          qps_mini_set(qm, vio_vfd_fd(vf->vfd), qps_write_mnum,
-                                                           vf->write_timeout) ;
-          if (vf->pr_state == vf_open)
-            qps_mini_add(qm, vio_vfd_fd(vf->pr_vfd), qps_read_mnum) ;
-
-          if (qps_mini_wait(qm, NULL, false) != 0)
-            continue ;                  /* Loop back                    */
-
-          return uty_vf_error(vf, verr_to_vout, 0) ;
+          return (how == on) ? CMD_WAITING : CMD_SUCCESS ;
         } ;
     } ;
 
@@ -1795,694 +1856,229 @@ uty_pipe_out_push(vio_vf vf, uty_cmd_push_types_t how)
 } ;
 
 /*------------------------------------------------------------------------------
- * Shovel from pipe return to slave, pushing the slave as we go.
+ * Pipe return is ready to read or timed out: call-back for VOUT_PIPE and
+ *                                                                  VOUT_SH_CMD.
  *
- * While the main vout is open, this function is used:
+ * This is used for non-blocking.
  *
- *   * VOUT_PIPE:   for blocking vf, this is called each time the output is
- *                  pushed -- to keep any returned stuff moving.  Does not
- *                  block reading the return, but may block writing to the
- *                  slave.
+ * If time_out and vf_open, signal time-out to the command loop.
  *
- *                  for non-blocking vf, this is called by the pselect
- *                  process, which keeps the return moving autonomously,
- *                  or may be called "final".
+ * Otherwise, if vf_open shovel from the return to the slave output, and set
+ * read-ready again if that returns CMD_WAITING.
  *
- *                  Note that pr_timeout == 0 while the main vout is open.
+ * If is not vf_open, signals the command loop, just in case.
  *
- *   * VOUT_SH_CMD: the main vin/vout is closed from the get go.
- *
- *                  All pipe return is handled by the close process.
- *
- * When the main vin/vout is closed:
- *
- *   * VOUT_PIPE & VOUT_SH_CMD:
- *
- *                  for blocking vf, this is called by the close function,
- *                  to suck up any remaining return, and push it to the slave.
- *                  May block reading the return and/or the slave.
- *
- *                  for non-blocking vf, this is called by the pselect
- *                  process, which keeps the return moving autonomously, or
- *                  may be called "final".
- *
- *                  Note that pr_timeout != 0 once the main vout is closed.
- *
- * Returns:  CMD_SUCCESS   -- done everything possible
- *           CMD_WAITING   -- not "final" => waiting for output to complete
- *                                                          <=> not vf->blocking
- *                                "final" => would have waited *or* blocked,
- *                                           but did not.
- *           CMD_IO_ERROR  -- error or time-out (may be "final")
- *
- * NB: if runs into I/O error or time-out on the slave output, then sets
- *     vf_end on the TODO
- *
- * This can be called in any thread.
- */
-static cmd_return_code_t
-uty_pipe_shovel(vio_vf vf, bool final)
-{
-  VTY_ASSERT_LOCKED() ;         /* In any thread                */
-
-  /* The pipe return MUST still be open, but may be cancelling all I/O
-   * or the slave may already be in error or otherwise not open.
-   */
-  qassert(vf->pr_state == vf_open) ;
-  qassert((vf->vout_type == VOUT_PIPE) || (vf->vout_type == VOUT_SH_CMD)) ;
-
-  if ((vf->vio->cancel) || (vf->vout_next->vout_state != vf_open))
-    return CMD_SUCCESS ;
-
-  /* Suck and blow -- may block in uty_cmd_out_push()
-   *
-   * Note that we do not push the slave if there is nothing new from the
-   * return -- there shouldn't be anything pending in the slave obuf.
-   */
-  while (1)
-    {
-      cmd_return_code_t ret ;
-      int get ;
-
-      get = vio_fifo_read_nb(vf->vout_next->obuf, vio_vfd_fd(vf->pr_vfd), 10) ;
-
-      if (get == 0)                     /* Nothing there, but not EOF   */
-        {
-          qps_mini_t qm ;
-
-          /* Nothing there to read.
-           *
-           * Returns if not blocking, if no timeout is set or if is "final".
-           *
-           * NB: before blocking on the pipe return, poll the pipe stderr
-           *     return to keep that moving -- so child cannot stall trying
-           *     to output to its stderr !
-           */
-          if (!vf->blocking || (vf->pr_timeout == 0) || final)
-            break ;                     /* do not block reading         */
-
-          if (vf->ps_state == vf_open)
-            {
-              ret = uty_pipe_stderr_suck(vf, false) ;   /* not final    */
-
-              qassert((ret == CMD_SUCCESS) || (ret == CMD_IO_ERROR)) ;
-
-              if (ret != CMD_SUCCESS)
-                return ret ;            /* cannot continue              */
-            } ;
-
-          qps_mini_set(qm, vio_vfd_fd(vf->pr_vfd), qps_read_mnum,
-                                                               vf->pr_timeout) ;
-          if (qps_mini_wait(qm, NULL, false) != 0)
-            continue ;                  /* loop back                    */
-
-          return uty_vf_error(vf, verr_to_pr, 0) ;      /* CMD_IO_ERROR */
-        }
-
-      else if (get >  0)                /* Read something               */
-        {
-          ret = uty_cmd_out_push(vf->vout_next, final ? ucmd_push_final
-                                                      : ucmd_push_simple) ;
-                                        /* may block                    */
-
-          if (ret == CMD_SUCCESS)
-            continue ;                  /* Loop back if emptied buffer  */
-
-          if (ret == CMD_IO_ERROR)
-            uty_pipe_return_stop(vf) ;
-                                        /* No point continuing          */
-          else
-            {
-              /* Is CMD_WAITING on the slave output.
-               *
-               * If we are "final":
-               *
-               *   for blocking vf that means would have blocked, but didn't.
-               *
-               *   for non-blocking vf, that means could not empty the buffer.
-               *
-               * If not "final":
-               *
-               *   cannot be a blocking vf !
-               *
-               *   for non-blocking vf, the output buffer will be serviced,
-               *   in due course and can leave it up to the pselect() process
-               *   to read anything more -- no need to do so now.
-               *
-               * ...in all cases don't want to try to input or output any more,
-               * so give up and return CMD_WAITING.
-               */
-              qassert(ret == CMD_WAITING) ;
-            } ;
-
-          return ret ;                  /* CMD_WAITING or CMD_IO_ERROR  */
-        }
-
-      else if (get == -1)               /* Hit error                    */
-        {
-          return uty_vf_error(vf, verr_io_pr, errno) ;  /* CMD_IO_ERROR */
-        }
-
-      else
-        {
-          assert (get == -2) ;          /* eof on the return            */
-
-          vf->pr_state = vf_end ;
-          break ;                       /* quit: OK                     */
-        } ;
-    } ;
-
-  return CMD_SUCCESS ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Suck the pipe stderr return to vf->ps_buf.
- *
- * While the main vin/vout is open or the pipe return is open, this function
- * is used:
- *
- *   for blocking vf, this is called each time the output is pushed, or the
- *   input is read, or the pipe return is read -- to keep any returned stuff
- *   moving.  Does not block reading the stderr return.
- *
- *   for non-blocking vf, this is called by the pselect which keeps the stderr
- *   return moving autonomously.
- *
- *   Note that ps_timeout == 0 under these conditions.
- *
- * When the main vin/vout and the pipe return are closed:
- *
- *   for blocking vf, this is called by the close function, to suck up any
- *   remaining stderr return, which may block.
- *
- *   for non-blocking vf, this is called by the pselect process, which keeps
- *   the stderr return moving autonomously, or may be called "final".
- *
- *   Note that ps_timeout != 0 under these conditions.
- *
- * Returns:  CMD_SUCCESS   -- done everything possible
- *           CMD_WAITING   -- not "final" => waiting for output to complete
- *                                                          <=> not vf->blocking
- *                                "final" => would have waited *or* blocked,
- *                                           but did not.
- *           CMD_IO_ERROR  -- error or time-out (may be "final")
- *
- * This can be called in any thread.
- */
-static cmd_return_code_t
-uty_pipe_stderr_suck(vio_vf vf, bool final)
-{
-  VTY_ASSERT_LOCKED() ;         /* In any thread                */
-
-  /* The pipe return MUST still be open, but may be cancelling all I/O
-   * or the slave may already be in error or otherwise not open.
-   */
-  qassert(vf->ps_state == vf_open) ;
-
-  /* Suck
-   */
-  while (1)
-    {
-      int get ;
-
-      if (vf->ps_buf == NULL)
-        {
-          char buf[100] ;
-          get = read_nb(vio_vfd_fd(vf->ps_vfd), buf, sizeof(buf)) ;
-
-          if (get > 0)
-            vio_fifo_put_bytes(uty_pipe_ps_buf(vf), buf, get) ;
-        }
-      else
-        get = vio_fifo_read_nb(vf->ps_buf, vio_vfd_fd(vf->ps_vfd), 10) ;
-
-      if (get == 0)                     /* Nothing there, but not EOF   */
-        {
-          qps_mini_t qm ;
-
-          /* Nothing there to read.
-           *
-           * Returns if not blocking, if no timeout is set or if is "final".
-           *
-           * NB: before blocking on the pipe return, poll the pipe stderr
-           *     return to keep that moving -- so child cannot stall trying
-           *     to output to its stderr !
-           */
-          if (!vf->blocking || (vf->ps_timeout == 0) || final)
-            break ;                     /* do not block reading         */
-
-          qps_mini_set(qm, vio_vfd_fd(vf->ps_vfd), qps_read_mnum,
-                                                               vf->ps_timeout) ;
-          if (qps_mini_wait(qm, NULL, false) != 0)
-            continue ;                  /* loop back                    */
-
-          return uty_vf_error(vf, verr_to_ps, 0) ;      /* CMD_IO_ERROR */
-        }
-
-      else if (get >  0)                /* Read something               */
-        {
-          continue ;
-        }
-
-      else if (get == -1)               /* Hit error on stderr return   */
-        {
-          return uty_vf_error(vf, verr_io_ps, errno) ;  /* CMD_IO_ERROR */
-        }
-
-      else
-        {
-          assert (get == -2) ;          /* eof on the stderr return     */
-
-          vf->ps_state = vf_end ;
-          break ;                       /* quit: OK                     */
-        } ;
-    } ;
-
-  return CMD_SUCCESS ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Pipe is ready to read -- call-back for VIN_PIPE.
- *
- * This is used if the VIN_PIPE is non-blocking.
- *
- * Signals command loop, so may continue if was waiting.
- *
- * Note that the read_ready state and any time out are automatically
+ * Note that the read-ready state and any time-out are automatically
  * disabled when they go off.
  */
 static void
-vty_pipe_read_ready(vio_vfd vfd, void* action_info)
+uty_pipe_return_ready(vio_vfd vfd, void* action_info, bool time_out)
 {
-  vio_vf   vf ;
+  vio_vf    vf ;
+  cmd_ret_t ret ;
 
-  VTY_LOCK() ;
-  VTY_ASSERT_CLI_THREAD() ;
-
-  vf = action_info ;
-  assert(vf->vfd == vfd) ;
-
-  /* If the vin is no longer vf_open then read ready should have been turned
-   * off -- but kicking the command loop will not hurt.
-   */
-  uty_cmd_signal(vf->vio, CMD_SUCCESS) ;
-
-  VTY_UNLOCK() ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Pipe has timed out, waiting to read -- call-back for VIN_PIPE.
- *
- * This is used if the VIN_PIPE is non-blocking.
- *
- * Signals a timeout error to the command loop.
- */
-static vty_timer_time
-vty_pipe_read_timeout(vio_timer timer, void* action_info)
-{
-  vio_vf   vf ;
-
-  VTY_LOCK() ;
-  VTY_ASSERT_CLI_THREAD() ;
-
-  vf = action_info ;
-  assert(vf->vfd->read_timer == timer) ;
-
-  uty_vf_error(vf, verr_to_vin, 0) ;   /* signals command loop */
-
-  VTY_UNLOCK() ;
-
-  return 0 ;            /* Do not restart timer */
-} ;
-
-/*------------------------------------------------------------------------------
- * Pipe return is ready to read -- call-back for VOUT_PIPE and VOUT_SH_CMD.
- *
- * This is used if the VOUT_PIPE/VOUT_SH_CMD is non-blocking.
- *
- * Shovels any available return input to the output.  If required, the shoveller
- * will set read ready when runs out of input.
- *
- * Signals to the command loop iff hits eof or an error or time-out.  (Also
- * signals to the command loop if is not open... just in case command loop is
- * waiting.)
- *
- * Note that the read_ready state and any time out are automatically
- * disabled when they go off.
- */
-static void
-vty_pipe_return_ready(vio_vfd vfd, void* action_info)
-{
-  cmd_return_code_t ret ;
-  vio_vf   vf ;
-
-  VTY_LOCK() ;
+  VTY_ASSERT_LOCKED() ;
   VTY_ASSERT_CLI_THREAD() ;
 
   vf = action_info ;
   assert(vf->pr_vfd == vfd) ;
 
-  /* If the pipe return is no longer open then read ready should have been
-   * turned off -- but kicking the command loop will not hurt.
-   *
-   * Note that uty_pipe_shovel() returns CMD_WAITING, unless hits eof
-   * (CMD_SUCCESS) or gets an I/O error or timeout (CMD_IO_ERROR).
-   */
-  if (vf->pr_state == vf_open)
-    ret = uty_pipe_shovel(vf, false) ;  /* not final                    */
-  else
-    ret = CMD_SUCCESS ;
+  qassert((vf->vout_type == VOUT_PIPE) || (vf->vout_type == VOUT_SH_CMD)) ;
+  qassert(!vf->blocking) ;
 
-  if (vf->pr_state == vf_open)
-    vio_vfd_set_read(vf->pr_vfd, on, vf->pr_timeout) ;
-  else if (vf->ps_state != vf_open)
-    uty_cmd_signal(vf->vio, ret) ;      /* CMD_SUCCESS or CMD_IO_ERROR,
-                                         * CMD_WAITING is ignored       */
-  VTY_UNLOCK() ;
+  if (vf->pr_state & vf_end)
+    ret = CMD_SUCCESS ;
+  else
+    {
+      if (time_out)
+        ret = uty_vf_error(vf, verr_to_pr, 0) ;
+      else
+        {
+          ret = uty_pipe_return_shovel(vf) ;
+
+          if (ret == CMD_WAITING)
+            ret = uty_pipe_return_set_read_ready(vf, vf->pr_timeout) ;
+        } ;
+    } ;
+
+  /* Signal CMD_SUCCESS or CMD_IO_ERROR -- CMD_WAITING will be ignored.
+   *
+   * CMD_IO_ERROR should already have been signalled, but does no harm to
+   * signal it again.
+   */
+  uty_cmd_signal(vf->vio, ret) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Pipe stderr return is ready to read -- call-back for VIN_PIPE, VOUT_PIPE and
- * VOUT_SH_CMD.
+ * Suck the pipe stderr return to vf->ps_buf or to scratch buffer if is
+ * !ps_enabled.
  *
- * This is used if the VIN_PIPE/VOUT_PIPE/VOUT_SH_CMD is non-blocking.
+ * Reads as much as is available, but does not block.
  *
- * Shovels any available return input to the output.  If required, the shoveller
- * will set read ready when runs out of input.
+ * When gets EOF, clears ps_open and closes the underlying vfd.
  *
- * Signals to the command loop iff hits eof or an error or time-out.  (Also
- * signals to the command loop if is not open... just in case command loop is
- * waiting.)
+ * When has read everything available, but is not EOF, returns either
+ * CMD_SUCCESS (blocking or no longer vf_end), or CMD_WAITING (non-blocking,
+ * waiting for more).
+ *
+ * Returns:  CMD_SUCCESS  -- done everything possible (at the moment)
+ *           CMD_WAITING  -- waiting for more  => non-blocking
+ *           CMD_IO_ERROR -- error or time-out
+ *
+ * This can be called in any thread.
+ */
+static cmd_ret_t
+uty_pipe_stderr_suck(vio_vf vf)
+{
+  int        get ;
+
+  VTY_ASSERT_LOCKED() ;         /* In any thread                */
+
+  qassert((vf->vin_type == VIN_PIPE) || (vf->vout_type == VOUT_PIPE)
+                                     || (vf->vout_type == VOUT_SH_CMD)) ;
+
+  while (vf_active(vf->ps_state))
+    {
+      if (vf->ps_enabled)
+        get = vio_fifo_read_nb(uty_pipe_ps_buf(vf), vio_vfd_fd(vf->ps_vfd),
+                                  0, 1) ; /* read a lump at a time      */
+      else
+        get = read_nb(vio_vfd_fd(vf->ps_vfd), dev_null, sizeof(dev_null)) ;
+
+      if (get > 0)              /* Read something                       */
+        continue ;
+
+      if (get < 0)
+        {
+          if (get == -1)        /* Hit error on stderr return   */
+            return uty_vf_error(vf, verr_io_ps, errno) ; /* CMD_IO_ERROR */
+
+          qassert (get == -2) ; /* eof on the stderr return             */
+
+          uty_vf_return_stop(&vf->ps_state, vfs_stop_end) ;
+          break ;               /* return CMD_SUCCESS                   */
+        } ;
+
+      /* Nothing there to read, but not eof.
+       *
+       * If blocking return CMD_SUCCESS -- done everything we can.
+       *
+       * If non-blocking, return CMD_WAITING -- is permanently read-ready.
+       */
+      qassert(get == 0) ;
+
+      return (vf->blocking) ? CMD_SUCCESS : CMD_WAITING ;
+    } ;
+
+  return CMD_SUCCESS ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If there is a pipe stderr return, set the given timeout, and...
+ *
+ * ...if is blocking: if not vf_end set read-ready with the given timeout,
+ *                                  otherwise clear read-ready.
+ *
+ * If fails to set read-ready, will post CMD_IO_ERROR.
+ *
+ * Returns:  CMD_WAITING   -- set read-ready
+ *           CMD_IO_ERROR  -- failed to set read-ready
+ *           CMD_SUCCESS   -- not ps_active or is blocking
+ */
+static cmd_ret_t
+uty_pipe_stderr_set_read_ready(vio_vf vf, vty_timer_time time_out)
+{
+  if (vf->ps_state != vf_closed)
+    {
+      vf->ps_timeout = time_out ;
+
+      if (!vf->blocking)
+        {
+          on_off_b how ;
+
+          how = (vf->ps_state & vf_end) ? off : on ;
+
+          if (vio_vfd_set_read(vf->ps_vfd, how, vf->ps_timeout) != how)
+            return uty_vf_not_open_error(vf, verr_io_ps) ;
+
+          return (how == on) ? CMD_WAITING : CMD_SUCCESS ;
+        } ;
+    } ;
+
+  return CMD_SUCCESS ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Pipe stderr return is ready to read or timed out: call-back for VIN_PIPE,
+ *                                                    VOUT_PIPE and VOUT_SH_CMD.
+ *
+ * This is used for non-blocking.
+ *
+ * If time_out and ps_open, signal time-out to the command loop.
+ *
+ * Otherwise, if ps_open suck at the stderr return, and set read-ready again
+ * if that returns CMD_WAITING.
+ *
+ * If is not vf_open, signals the command loop, just in case.
  *
  * Note that the read_ready state and any time out are automatically
  * disabled when they go off.
  */
 static void
-vty_pipe_stderr_return_ready(vio_vfd vfd, void* action_info)
+uty_pipe_stderr_ready(vio_vfd vfd, void* action_info, bool time_out)
 {
-  cmd_return_code_t ret ;
-  vio_vf   vf ;
+  vio_vf    vf ;
+  cmd_ret_t ret ;
 
-  VTY_LOCK() ;
+  VTY_ASSERT_LOCKED() ;
   VTY_ASSERT_CLI_THREAD() ;
 
   vf = action_info ;
   assert(vf->ps_vfd == vfd) ;
 
-  /* If the pipe stderr return is no longer open then read ready should have
-   * been turned off -- but kicking the command loop will not hurt.
-   *
-   * Note that uty_pipe_shovel() returns CMD_WAITING, unless hits eof
-   * (CMD_SUCCESS) or gets an I/O error or timeout (CMD_IO_ERROR).
-   */
-  if (vf->ps_state == vf_open)
-    ret = uty_pipe_stderr_suck(vf, false) ;     /* not final    */
-  else
+  qassert((vf->vin_type == VIN_PIPE) || (vf->vout_type == VOUT_PIPE)
+                                     || (vf->vout_type == VOUT_SH_CMD)) ;
+  qassert(!vf->blocking) ;
+
+  if (vf->ps_state & vf_end)
     ret = CMD_SUCCESS ;
-
-  if (vf->ps_state == vf_open)
-    vio_vfd_set_read(vf->ps_vfd, on, vf->ps_timeout) ;
-  else if (vf->pr_state != vf_open)
-    uty_cmd_signal(vf->vio, ret) ;      /* CMD_SUCCESS or CMD_IO_ERROR,
-                                         * CMD_WAITING is ignored       */
-  VTY_UNLOCK() ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Pipe return has timed out, waiting to read -- call-back for VIN_PIPE,
- * VOUT_PIPE and VOUT_SH_CMD.
- *
- * This is used if the VIN_PIPE/VOUT_PIPE/VOUT_SH_CMD is non-blocking.
- *
- * Signals a timeout error to the command loop.
- */
-static vty_timer_time
-vty_pipe_return_timeout(vio_timer timer, void* action_info)
-{
-  vio_vf   vf ;
-
-  VTY_LOCK() ;
-  VTY_ASSERT_CLI_THREAD() ;
-
-  vf = action_info ;
-  assert(vf->pr_vfd->read_timer == timer) ;
-
-  if (vf->ps_state == vf_open)
-    vio_vfd_set_read(vf->ps_vfd, off, 0) ;
-
-  uty_vf_error(vf, verr_to_ps, 0) ;     /* signals command loop */
-
-  VTY_UNLOCK() ;
-
-  return 0 ;            /* Do not restart timer */
-} ;
-
-/*------------------------------------------------------------------------------
- * Pipe return has timed out, waiting to read -- call-back for VIN_PIPE,
- * VOUT_PIPE and VOUT_SH_CMD.
- *
- * This is used if the VIN_PIPE/VOUT_PIPE/VOUT_SH_CMD is non-blocking.
- *
- * Signals a timeout error to the command loop.
- */
-static vty_timer_time
-vty_pipe_stderr_return_timeout(vio_timer timer, void* action_info)
-{
-  vio_vf   vf ;
-
-  VTY_LOCK() ;
-  VTY_ASSERT_CLI_THREAD() ;
-
-  vf = action_info ;
-  assert(vf->ps_vfd->read_timer == timer) ;
-
-  if (vf->pr_state == vf_open)
-    vio_vfd_set_read(vf->pr_vfd, off, 0) ;
-
-  uty_vf_error(vf, verr_to_pr, 0) ;     /* signals command loop */
-
-  VTY_UNLOCK() ;
-
-  return 0 ;            /* Do not restart timer */
-} ;
-
-/*------------------------------------------------------------------------------
- * Pipe is ready to write -- call-back for VOUT_PIPE.
- *
- * This is used if the VOUT_PIPE is non-blocking.
- *
- * Signals command loop, so may continue if was waiting.
- *
- * Note that the write_ready state and any time out are automatically
- * disabled when they go off.
- */
-static void
-vty_pipe_write_ready(vio_vfd vfd, void* action_info)
-{
-  cmd_return_code_t ret ;
-  vio_vf   vf ;
-
-  VTY_LOCK() ;
-  VTY_ASSERT_CLI_THREAD() ;
-
-  vf = action_info ;
-  assert(vf->vfd == vfd) ;
-
-  /* If the vout is no longer vf_open then write ready should have been turned
-   * off -- but kicking the command loop will not hurt.
-   */
-  if (vf->vout_state == vf_open)
-    ret = uty_pipe_out_push(vf, ucmd_push_simple) ;
   else
-    ret = CMD_SUCCESS ;
-
-  uty_cmd_signal(vf->vio, ret) ;        /* CMD_SUCCESS or CMD_IO_ERROR,
-                                         * CMD_WAITING is ignored       */
-  VTY_UNLOCK() ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Pipe has timed out, waiting to write -- call-back for VOUT_PIPE.
- *
- * This is used if the VOUT_PIPE is non-blocking.
- *
- * Signals a timeout error to the command loop.
- */
-static vty_timer_time
-vty_pipe_write_timeout(vio_timer timer, void* action_info)
-{
-  vio_vf   vf ;
-
-  VTY_LOCK() ;
-  VTY_ASSERT_CLI_THREAD() ;
-
-  vf = action_info ;
-  assert(vf->vfd->write_timer == timer) ;
-
-  uty_vf_error(vf, verr_to_vout, 0) ;  /* signals command loop */
-
-  VTY_UNLOCK() ;
-
-  return 0 ;            /* Do not restart timer */
-} ;
-
-/*------------------------------------------------------------------------------
- * Complete the close of a VIN_PIPE after the vfd has been read closed.
- *
- * Nothing needs to be done with the main input, but must close the return,
- * collect the child and release the slave.
- *
- * Returns:  CMD_SUCCESS   -- done everything possible, the return is done with
- *                            (and the vfd closed) and the child has been
- *                            collected (or is overdue).
- *           CMD_WAITING   -- not "final" => waiting for return I/O to complete
- *                                                          <=> not vf->blocking
- *                                "final" => would have waited *or* blocked,
- *                                           but did not.
- *           CMD_IO_ERROR  -- error or time-out (may be "final")
- *
- * NB: if "final", whatever the return code, the pipe return is closed and the
- *     child dismissed.
- *
- * If returns CMD_WAITING (and not "final") then the command loop will be
- * signalled when it is time to call this function again to progress the
- * close operation.
- */
-extern cmd_return_code_t
-uty_pipe_read_close(vio_vf vf, bool final)
-{
-  VTY_ASSERT_LOCKED() ;
-
-  qassert(vf->vin_type == VIN_PIPE) ;
-  qassert(vf->vin_state == vf_end) ;
-
-  return uty_pipe_return_close(vf, final) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Close VOUT_PIPE or VOUT_SH_CMD.
- *
- * For not-final, wish to flush output buffer.  If final will attempt to empty
- * the output buffer -- but will not wait or block, and ignores errors.
- *
- * Must then close the return, collect the child and release the slave.
- *
- * Returns:  CMD_SUCCESS   -- done everything possible, the vout and the
- *                            return are done with (and the vfds closed) and
- *                            the child has been collected (or is overdue).
- *           CMD_WAITING   -- not "final" => waiting for output or return I/O
- *                                           to complete    <=> not vf->blocking
- *                                "final" => would have waited *or* blocked,
- *                                           but did not.
- *           CMD_IO_ERROR  -- error or time-out (may be "final")
- *
- * NB: if "final", whatever the return code, the pipe return is closed and the
- *     child dismissed.
- *
- * If returns CMD_WAITING (and not "final") then the command loop will be
- * signalled when it is time to call this function again to progress the
- * close operation.
- */
-extern cmd_return_code_t
-uty_pipe_write_close(vio_vf vf, bool final)
-{
-  VTY_ASSERT_CAN_CLOSE_VF(vf) ;
-
-  qassert((vf->vout_type == VOUT_PIPE) || (vf->vout_type == VOUT_SH_CMD)) ;
-
-  /* If the main vfd is still there, keep pushing (which, for blocking vf,
-   * will keep shovelling from pipe return to slave).
-   */
-  if (vf->vout_state == vf_open)
     {
-      cmd_return_code_t ret ;
+      if (time_out)
+        ret = uty_vf_error(vf, verr_to_ps, 0) ;
+      else
+        {
+          ret = uty_pipe_stderr_suck(vf) ;
 
-      ret = uty_pipe_out_push(vf, final ? ucmd_push_final : ucmd_push_closing) ;
-
-      if ((ret == CMD_WAITING) && !final)
-        return ret ;
-
-      vf->vout_state = vf_end ;         /* no further output    */
+          if (ret == CMD_WAITING)
+            ret = uty_pipe_stderr_set_read_ready(vf, vf->ps_timeout) ;
+        } ;
     } ;
 
-  /* Now need to close the output vfd to signal to the child that we
-   * are done -- note that closing an already closed vfd does nothing.
+  /* Signal CMD_SUCCESS or CMD_IO_ERROR -- CMD_WAITING will be ignored.
+   *
+   * CMD_IO_ERROR should already have been signalled, but does no harm to
+   * signal it again.
    */
-  vf->vfd = vio_vfd_close(vf->vfd) ;
-
-  /* If the return is still open, try to empty and close that.          */
-  return uty_pipe_return_close(vf, final) ;
+  uty_cmd_signal(vf->vio, ret) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Close the return on a VIN_PIPE, VOUT_PIPE or a VOUT_SH_CMD.
+ * Collect the child and post and pipe stderr return to the vio->ps_buf (or
+ * discard, if vst_cancel).
  *
- * This is the second stage of closing a pipe, after the vin or the main vout
- * has reached vf_end, so all main I/O is complete (or failed).
+ * This is the final stage of closing a pipe, after all I/O has been dealt
+ * with.
  *
- * If returns CMD_WAITING from here, may be called again, any number of times,
- * to attempt to complete the process.
+ * Phase 0: close any remaining pipe returns
  *
- * If "final" then will close after making efforts to complete I/O and collect
- * child, short of blocking or waiting.
- *
- * Phase 1: if the return is vf_open:
- *
- *   Set the read time out for the return (want any remaining return stuff, and
- *   the eof) which (for non-blocking) indicates is now prepared to block.
- *
- *   If non-blocking:
- *
- *     if not "final", set the read ready timeout (if not already set), and
- *     leave CMD_WAITING.
- *
- *     if "final", kill the read ready stuff, and shovel once "final", just
- *     in case there is stuff there.
- *
- *   If blocking:
- *
- *     Shovel stuff from return to slave output.  If not "final", may block and
- *     may time-out.  If "final" will not block, but may return CMD_WAITING.
- *
- *   Once return is all dealt with (or fails) then close the vfd and set the
- *   pipe return vf_closed.
- *
- * Phase 2: if the stderr return is vf_open:
- *
- *   Set the read time out for the stderr return (want any remaining stderr
- *   return stuff, and the eof)  which (for non-blocking) indicates is now
- *   prepared to block.
- *
- *   Suck stderr return.  If "final", do not block or  wait for either input or
- *   output.  If not final, may block and may time-out or may return
- *   CMD_WAITING.
- *
- *   Once return is all dealt with (or fails) then close the vfd and set the
- *   pipe return vf_closed.
- *
- *   If non-blocking:
- *
- *     if not "final", set the read ready timeout (if not already set), and
- *     leave CMD_WAITING.
- *
- *     if "final", kill the read ready stuff, and shovel once "final", just
- *     in case there is stuff there.
- *
- *   If blocking:
- *
- *     Shovel stuff from return to slave output.  If not "final", may block and
- *     may time-out.  If "final" will not block, but may return CMD_WAITING.
- *
- *   Once return is all dealt with (or fails) then close the vfd and set the
- *   pipe return vf_closed.
- *
- * Phase 3: collect the child return code and deal with it:
+ * Phase 1: collect the child return code and deal with it:
  *
  *   If the child has yet to be collected:
  *
- *     if "final", collect child immediately or set overdue.
+ *     if vst_final, collect child immediately or set overdue.
  *
- *     if not "final":
+ *     if not vst_final:
  *
  *       if non-blocking, return CMD_WAITING and wait for the SIGCHLD to do
  *       the business or to time out.
@@ -2497,10 +2093,12 @@ uty_pipe_write_close(vio_vf vf, bool final)
  *
  *   In any case, dismiss child.
  *
- * Phase 4: transfer the pipe stderr return to the main vio pipe stderr return.
+ * Phase 2: transfer the pipe stderr return to the main vio pipe stderr return.
  *
  *   This leaves it up to the vout_base to deal with the pipe stderr return,
  *   in its own time -- e.g when the output stack closes.
+ *
+ *   Does nothing here if is vst_cancel !
  *
  * When this (eventually) returns CMD_SUCCESS, all pipe return has been
  * sucked up and has cleared the slave vout buffer, and the child has been
@@ -2508,131 +2106,75 @@ uty_pipe_write_close(vio_vf vf, bool final)
  * short-circuited.
  *
  * Returns:  CMD_SUCCESS   -- closed and child collected
- *           CMD_WAITING   -- not "final" => waiting for output to complete
- *                                                          <=> not vf->blocking
- *                                "final" => would have waited *or* blocked,
- *                                           but did not.
- *           CMD_IO_ERROR  -- error or time-out (may be "final")
+ *                            if "final" we might have needed to wait or to
+ *                                                           block, but did not.
+ *           CMD_WAITING   -- waiting for output to complete   => ! final
+ *                                                             => ! blocking
+ *           CMD_IO_ERROR  -- error or time-out                => ! final
  *
- * NB: if "final", whatever the return code, the pipe return is closed and the
+ * NB: if "final", whatever happens the pipe return(s) are closed and the
  *     child dismissed.
  */
-static cmd_return_code_t
-uty_pipe_return_close(vio_vf vf, bool final)
+static cmd_ret_t
+uty_pipe_close(vio_vf vf)
 {
   vty_io vio ;
+  bool cancelled ;
+  bool enabled ;
 
   VTY_ASSERT_CAN_CLOSE_VF(vf) ;
 
   vio = vf->vio ;
 
-  /* Phase 1: if return is still open, try to empty it -- subject to "final".
-   *          Sets timeout and will now block.
+  /* Phase 0: close the pipe returns
    *
-   *          If not blocking but "final", turn off read ready and any timeout,
-   *          and shovel one last time.
-   *
-   *          When return is all done, close it (which the child may see) and
-   *          mark it vf_closed.
+   * NB: this does not affect ps_enabled
    */
-  if (vf->pr_state == vf_open)
-    {
-      cmd_return_code_t ret ;
-      bool set_timeout ;
-
-      set_timeout = (vf->pr_timeout == 0) ;
-      vf->pr_timeout = pipe_timeout ;
-
-      if (!vf->blocking)
-        {
-          if (!final)
-            {
-              if (set_timeout)
-                vio_vfd_set_read(vf->pr_vfd, on, vf->pr_timeout) ;
-
-              return CMD_WAITING ;      /* in hands of pselect()        */
-            } ;
-
-          vio_vfd_set_read(vf->pr_vfd, off, 0) ;
-        } ;
-
-      ret = uty_pipe_shovel(vf, final) ;
-
-      if ((ret == CMD_WAITING) && !final)
-        return ret ;
-    } ;
-
   if (vf->pr_state != vf_closed)
     {
-      vf->pr_vfd   = vio_vfd_close(vf->pr_vfd) ;
-      vf->pr_state = vf_closed ;
-    } ;
+      vf->pr_vfd     = vio_vfd_close(vf->pr_vfd) ;
+      vf->pr_state   = vf_closed ;
+      vf->pr_enabled = false ;          /* for completeness     */
+    }
+  else
+    qassert(vf->pr_vfd == NULL) ;
 
-  /* Phase 2: if stderr return is still open, try to empty it -- subject to
-   *          "final".  Sets timeout and will now block.
-   *
-   *          If not blocking but "final", turn off read ready and any timeout,
-   *          and suck one last time.
-   *
-   *          When return is all done, close it (which the child may see) and
-   *          mark it vf_closed.
-   */
-  if (vf->ps_state == vf_open)
-    {
-      cmd_return_code_t ret ;
-      bool set_timeout ;
-
-      set_timeout = (vf->ps_timeout == 0) ;
-      vf->ps_timeout = pipe_timeout ;
-
-      if (!vf->blocking)
-        {
-          if (!final)
-            {
-              if (set_timeout)
-                vio_vfd_set_read(vf->ps_vfd, on, vf->pr_timeout) ;
-
-              return CMD_WAITING ;      /* in hands of pselect()        */
-            } ;
-
-          vio_vfd_set_read(vf->pr_vfd, off, 0) ;
-        } ;
-
-      ret = uty_pipe_stderr_suck(vf, final) ;
-
-      if ((ret == CMD_WAITING) && !final)
-        return ret ;
-    } ;
+  cancelled = vf->ps_state & vf_cancel ;
+  enabled   = vf->ps_enabled && !cancelled ;
 
   if (vf->ps_state != vf_closed)
     {
-      vf->ps_vfd   = vio_vfd_close(vf->ps_vfd) ;
-      vf->ps_state = vf_closed ;
-    } ;
+      vf->ps_vfd     = vio_vfd_close(vf->ps_vfd) ;
+      vf->ps_state   = vf_closed ;
+      vf->ps_enabled = false ;      /* for completness      */
+    }
+  else
+    qassert(vf->ps_vfd == NULL) ;
 
-  /* Phase 3: if not already collected, collect the child
+  /* Phase 1: if not already collected, collect the child
    *
-   * When does collect, or times out, will dismiss the child and set vf->child
-   * to NULL -- which indicates that the child is done with.
+   *          When does collect, or times out, will dismiss the child and set
+   *          vf->child to NULL -- which indicates that the child is done with.
    *
-   * Note that may write diagnostic message to slave, so in last phase we
-   * push the slave output to clear that out before releasing the slave.
+   *          If pipe was "quiet", or we are vst_final or vst_cancel, then
+   *          we complete this without blocking or waiting and whether or not
+   *          gets CMD_IO_ERROR.
    */
   if (vf->child != NULL)
     {
-      /* Collect -- blocking or not blocking                                */
+      /* Collect -- blocking or not blocking
+       */
       if (!vf->child->collected && !vf->child->overdue)
        {
-          /* If we are blocking or "final" or vio->cancel, try to collect the
-           * child here and now -- if not final or vio->cancel may block here.
+          /* If we are blocking or cancelled, try to collect the child here
+           * and now -- if not cancelled may block here.
            *
-           * For non-blocking and not "final", leave the child collection up to
-           * the SIGCHLD system.
+           * For non-blocking and not cancelled, leave the child collection up
+           * to the SIGCHLD system.
            */
-          if (vf->blocking || final || vf->vio->cancel)
+          if (vf->blocking || cancelled)
             {
-              uty_child_collect(vf->child, child_timeout,
-                                                     final || vf->vio->cancel) ;
+              uty_child_collect(vf->child, child_timeout, cancelled) ;
             }
           else
             {
@@ -2642,47 +2184,50 @@ uty_pipe_return_close(vio_vf vf, bool final)
        } ;
 
       /* If child is overdue, or did not terminate cleanly, write message to
-       * the pipe stderr return.
+       * the pipe stderr return -- provided that is (still) enabled.
        */
-      if      (!vf->child->collected)
+      if (enabled)
         {
-          vio_fifo_printf(uty_pipe_ps_buf(vf),
-                                      "%% child process still running\n") ;
-        }
-      else if (WIFEXITED(vf->child->report))
-        {
-          int status = WEXITSTATUS(vf->child->report) ;
-          if (status != 0)
-            vio_fifo_printf(uty_pipe_ps_buf(vf),
-                "%% child process ended normally, but with status = %d\n",
-                                                                   status) ;
-        }
-      else if (WIFSIGNALED(vf->child->report))
-        {
-          int signal = WTERMSIG(vf->child->report) ;
-          vio_fifo_printf(uty_pipe_ps_buf(vf),
-                "%% child process terminated by signal = %d\n", signal) ;
-        }
-      else
-        {
-          vio_fifo_printf(uty_pipe_ps_buf(vf),
-                "%% child process ended in unknown state = %d\n",
-                                                        vf->child->report) ;
-        } ;
+          if      (!vf->child->collected)
+            {
+              vio_fifo_printf(uty_pipe_ps_buf(vf),
+                                          "%% child process still running\n") ;
+            }
+          else if (WIFEXITED(vf->child->report))
+            {
+              int status = WEXITSTATUS(vf->child->report) ;
+              if (status != 0)
+                vio_fifo_printf(uty_pipe_ps_buf(vf),
+                    "%% child process ended normally, but with status = %d\n",
+                                                                       status) ;
+            }
+          else if (WIFSIGNALED(vf->child->report))
+            {
+              int signal = WTERMSIG(vf->child->report) ;
+              vio_fifo_printf(uty_pipe_ps_buf(vf),
+                    "%% child process terminated by signal = %d\n", signal) ;
+            }
+          else
+            {
+              vio_fifo_printf(uty_pipe_ps_buf(vf),
+                    "%% child process ended in unknown state = %d\n",
+                                                            vf->child->report) ;
+            } ;
+         } ;
 
       /* Can now dismiss the child -- if not collected, is left on the register.
        */
       uty_child_dismiss(vf->child, false) ;     /* not curtains         */
     } ;
 
-  /* Phase 4: if there is anything in the pipe stderr return buffer, finish
-   * it, and transfer to the vio->ps_buf (unless vio->cancel).
+  /* Phase 2: if there is anything in the pipe stderr return buffer, finish
+   *          it, and transfer to the vio->ps_buf (unless vio->cancel).
    */
-  if (vf->ps_buf != NULL)
+  if (enabled && (vf->ps_buf != NULL))
     {
       vio_fifo_trim(vf->ps_buf, true) ;         /* trim trailing whitespace
                                                  * and '\n' terminate   */
-      if (!vio_fifo_empty(vf->ps_buf) && !vio->cancel)
+      if (!vio_fifo_is_empty(vf->ps_buf))
         {
           const char* what ;
 
@@ -2699,50 +2244,13 @@ uty_pipe_return_close(vio_vf vf, bool final)
           vio_fifo_printf(vio->ps_buf, "%%--- in '%s %s':\n", what, vf->name) ;
           vio_fifo_copy(vio->ps_buf, vf->ps_buf) ;
         } ;
-
-      vf->ps_buf = vio_fifo_free(vf->ps_buf) ;
     } ;
 
+  vf->ps_buf = vio_fifo_free(vf->ps_buf) ;
+
+  /* Complete !  Note that always gets here if "final".
+   */
   return CMD_SUCCESS ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Stop pipe return and/or pipe stderr return.
- *
- * Then if either vin and/or vout is open, set to vf_end to terminate I/O.
- *
- * There is no point continuing with anything once either return is broken.
- */
-extern void
-uty_pipe_return_stop(vio_vf vf)
-{
-  if (vf->pr_state == vf_open)
-    vf->pr_state = vf_end ;
-
-  if (vf->ps_state == vf_open)
-    vf->ps_state = vf_end ;
-
-  if (vf->vin_state == vf_open)
-    vf->vin_state = vf_end ;
-
-  if (vf->vout_state == vf_open)
-    vf->vout_state = vf_end ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Cancel any further input from the pipe return.
- *
- * Note that does not touch anything buffered ready to be output in the
- * slave -- that must be dealt with separately.
- */
-extern void
-uty_pipe_return_cancel(vio_vf vf)
-{
-  qassert( (vf->vin_type  == VIN_PIPE) || (vf->vout_type == VOUT_PIPE)
-                                       || (vf->vout_type == VOUT_SH_CMD) ) ;
-  qassert(vf->pr_state == vf_open) ;
-
-  vf->pr_state = vf_end ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2756,10 +2264,4 @@ uty_pipe_ps_buf(vio_vf vf)
 
   return vf->ps_buf ;
 } ;
-
-/*==============================================================================
- * stdout and stderr
- *
- *
- */
 

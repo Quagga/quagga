@@ -24,6 +24,7 @@
 
 #include "sockunion.h"
 #include "sockopt.h"
+#include "network.h"
 #include "memory.h"
 #include "log.h"
 #include "if.h"
@@ -446,8 +447,9 @@ bgp_reset_listeners(bgp_listener* p_listener)
       listener = next ;
       next     = listener->next ;
 
-      close(qps_file_fd(&listener->qf)) ;
       qps_remove_file(&listener->qf) ;
+
+      close(qps_file_fd(&listener->qf)) ;
 
       XFREE(MTYPE_BGP_LISTENER, listener) ;
     } ;
@@ -609,7 +611,7 @@ bgp_accept_action(qps_file qf, void* file_info)
    * except under the mutex, and will not destroy the session.
    */
 
-  BGP_CONNECTION_SESSION_LOCK(connection) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_CONNECTION_SESSION_LOCK(connection) ;   /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
   /* Set the common socket options.
    * Does not set password -- that is inherited from the listener.
@@ -634,7 +636,7 @@ bgp_accept_action(qps_file qf, void* file_info)
   else
     close(sock_fd) ;
 
-  BGP_CONNECTION_SESSION_UNLOCK(connection) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  BGP_CONNECTION_SESSION_UNLOCK(connection) ; /*->->->->->->->->->->->->->->->*/
 
   /* Now kick the FSM in an appropriate fashion                         */
   bgp_fsm_connect_completed(connection, err, &su_local, &su_remote) ;
@@ -1010,20 +1012,19 @@ static int
 bgp_socket_set_common_options(int sock_fd, union sockunion* su,
                                                       bgp_connection connection)
 {
-  int val ;
+  /* Make socket non-blocking and close-on-exec
+   */
+  if (set_nonblocking(sock_fd) < 0)
+    return errno ;                      /* WARNING logged               */
 
-  /* Make socket non-blocking                                           */
-  val = fcntl(sock_fd, F_GETFL, 0) ;
-  if (val != -1)        /* POSIX says "return value is not negative"    */
-    val = fcntl(sock_fd, F_SETFL, val | O_NONBLOCK) ;
-  if (val == -1)
-    return errno ;
+  if (set_close_on_exec(sock_fd) < 0)
+    return errno ;                      /* WARNING logged               */
 
   /* Reuse addr and port                                                */
   if (setsockopt_reuseaddr(sock_fd) < 0)
-    return errno ;
+    return errno ;                      /* WARNING logged               */
   if (setsockopt_reuseport(sock_fd) < 0)
-    return errno ;
+    return errno ;                      /* WARNING logged               */
 
   /* Adjust ttl if required                                             */
   if (connection != NULL)
@@ -1032,7 +1033,7 @@ bgp_socket_set_common_options(int sock_fd, union sockunion* su,
       err = bgp_set_ttl(sock_fd, connection, connection->session->ttl,
                                              connection->session->gtsm) ;
       if (err != 0)
-        return err ;
+        return errno = err ;
     } ;
 
 #ifdef IPTOS_PREC_INTERNETCONTROL

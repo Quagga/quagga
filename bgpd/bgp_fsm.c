@@ -40,6 +40,7 @@
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_network.h"
 #include "bgpd/bgp_dump.h"
+#include "bgpd/bgp_names.h"
 
 /*==============================================================================
  * The BGP Finite State Machine
@@ -1456,7 +1457,7 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
    *     The session lock does nothing if no session is attached.
    */
 
-  BGP_CONNECTION_SESSION_LOCK(connection) ; /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_CONNECTION_SESSION_LOCK(connection) ; /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
   do
     {
@@ -1485,15 +1486,15 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
                        "%s [FSM] %s (%s->%s)",
                          connection->host,
                          bgp_event_str[event],
-                         LOOKUP (bgp_status_msg, prev_state),
-                         LOOKUP (bgp_status_msg, next_state)) ;
+                         map_direct(bgp_fsm_status_map, prev_state).str,
+                         map_direct(bgp_fsm_status_map, next_state).str) ;
 
           if (BGP_DEBUG(normal, NORMAL))
             zlog_debug ("%s on %s went from %s to %s",
                           connection->host,
                           bgp_event_str[event],
-                          LOOKUP (bgp_status_msg, prev_state),
-                          LOOKUP (bgp_status_msg, next_state));
+                          map_direct(bgp_fsm_status_map, prev_state).str,
+                          map_direct(bgp_fsm_status_map, next_state).str) ;
         } ;
 
       /* Pick up follow_on event -- if any                              */
@@ -1530,7 +1531,7 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
         BGP_CONNECTION_SESSION_CUT_LOOSE(connection) ;
     } ;
 
-  BGP_CONNECTION_SESSION_UNLOCK(connection) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_CONNECTION_SESSION_UNLOCK(connection) ;   /*->->->->->->->->->->->->->->*/
 } ;
 
 /*==============================================================================

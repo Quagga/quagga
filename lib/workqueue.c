@@ -245,46 +245,6 @@ work_queue_item_requeue (struct work_queue *wq, work_queue_item item)
   return next ;
 }
 
-DEFUN(show_work_queues,
-      show_work_queues_cmd,
-      "show work-queues",
-      SHOW_STR
-      "Work Queue information\n")
-{
-  struct listnode *node;
-  struct work_queue *wq;
-
-  vty_out (vty,
-           "%c %8s %5s %8s %21s%s",
-           ' ', "List","(ms) ","Q. Runs","Cycle Counts   ",
-           VTY_NEWLINE);
-  vty_out (vty,
-           "%c %8s %5s %8s %7s %6s %6s %s%s",
-           'P',
-           "Items",
-           "Hold",
-           "Total",
-           "Best","Gran.","Avg.",
-           "Name",
-           VTY_NEWLINE);
-
-  for (ALL_LIST_ELEMENTS_RO ((&work_queues), node, wq))
-    {
-      vty_out (vty,"%c %8d %5d %8ld %7d %6d %6u %s%s",
-               (CHECK_FLAG (wq->flags, WQ_UNPLUGGED) ? ' ' : 'P'),
-               wq->list_count,
-               wq->spec.hold,
-               wq->runs,
-               wq->cycles.best, wq->cycles.granularity,
-                 (wq->runs) ?
-                   (unsigned int) (wq->cycles.total / wq->runs) : 0,
-               wq->name,
-               VTY_NEWLINE);
-    }
-
-  return CMD_SUCCESS;
-}
-
 /* 'plug' a queue: Stop it from being scheduled,
  * ie: prevent the queue from draining.
  */
@@ -459,3 +419,55 @@ stats:
 
   return 0;
 }
+
+/*------------------------------------------------------------------------------
+ * Reporting command(s)
+ */
+DEFUN(show_work_queues,
+      show_work_queues_cmd,
+      "show work-queues",
+      SHOW_STR
+      "Work Queue information\n")
+{
+  struct listnode *node;
+  struct work_queue *wq;
+
+  vty_out (vty,
+           "%c %8s %5s %8s %21s%s",
+           ' ', "List","(ms) ","Q. Runs","Cycle Counts   ",
+           VTY_NEWLINE);
+  vty_out (vty,
+           "%c %8s %5s %8s %7s %6s %6s %s%s",
+           'P',
+           "Items",
+           "Hold",
+           "Total",
+           "Best","Gran.","Avg.",
+           "Name",
+           VTY_NEWLINE);
+
+  for (ALL_LIST_ELEMENTS_RO ((&work_queues), node, wq))
+    {
+      vty_out (vty,"%c %8d %5d %8ld %7d %6d %6u %s%s",
+               (CHECK_FLAG (wq->flags, WQ_UNPLUGGED) ? ' ' : 'P'),
+               wq->list_count,
+               wq->spec.hold,
+               wq->runs,
+               wq->cycles.best, wq->cycles.granularity,
+                 (wq->runs) ?
+                   (unsigned int) (wq->cycles.total / wq->runs) : 0,
+               wq->name,
+               VTY_NEWLINE);
+    }
+
+  return CMD_SUCCESS;
+} ;
+
+CMD_INSTALL_TABLE(extern, workqueue_cmd_table, ALL_RDS) =
+{
+  { RESTRICTED_NODE, &show_work_queues_cmd                              },
+  { VIEW_NODE,       &show_work_queues_cmd                              },
+  { ENABLE_NODE,     &show_work_queues_cmd                              },
+
+  CMD_INSTALL_END
+} ;

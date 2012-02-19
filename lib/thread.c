@@ -33,6 +33,8 @@
 #include "qpthreads.h"
 #include "qtimers.h"
 
+struct thread_master* master = NULL ;
+
 /* Recent absolute time of day */
 struct timeval recent_time;
 static struct timeval last_recent_time;
@@ -43,7 +45,7 @@ static struct timeval relative_time_base;
 static unsigned short timers_inited;
 
 /* cpu stats needs to be qpthread safe. */
-static qpt_mutex_t thread_mutex;
+static qpt_mutex thread_mutex = NULL ;
 #define LOCK qpt_mutex_lock(thread_mutex);
 #define UNLOCK qpt_mutex_unlock(thread_mutex);
 static struct hash *cpu_record = NULL;
@@ -51,7 +53,7 @@ static struct hash *cpu_record = NULL;
 /* Pointer to qtimer pile to be used, if any    */
 static qtimer_pile use_qtimer_pile     = NULL ;
 static qtimer      spare_qtimers       = NULL ;
-static unsigned    used_standard_timer = 0 ;
+static bool        used_standard_timer = false ;
 
 /* Struct timeval's tv_usec one second value.   */
 #define TIMER_SECOND_MICRO 1000000L
@@ -552,16 +554,6 @@ thread_master_debug (struct thread_master *m)
 struct thread_master *
 thread_master_create ()
 {
-#ifdef USE_MQUEUE
-  sigfillset (&newmask);
-  sigdelset (&newmask, SIG_INTERRUPT);
-#endif
-
-  if (cpu_record == NULL)
-    cpu_record
-      = hash_create_size (1011, (unsigned int (*) (void *))cpu_record_hash_key,
-                          (int (*) (const void *, const void *))cpu_record_hash_cmp);
-
   return (struct thread_master *) XCALLOC (MTYPE_THREAD_MASTER,
 					   sizeof (struct thread_master));
 }
@@ -647,36 +639,28 @@ thread_list_free (struct thread_master *m, struct thread_list *list)
     }
 }
 
-/* Stop thread scheduler. */
-void
+/*------------------------------------------------------------------------------
+ * Stop thread scheduler (if any).
+ *
+ * Empties out all the thread lists and releases the given thread master.
+ */
+extern struct thread_master *
 thread_master_free (struct thread_master *m)
 {
-  qtimer qtr ;
-
-  thread_list_free (m, &m->read);
-  thread_list_free (m, &m->write);
-  thread_list_free (m, &m->timer);
-  thread_list_free (m, &m->event);
-  thread_list_free (m, &m->ready);
-  thread_list_free (m, &m->unuse);
-  thread_list_free (m, &m->background);
-
-  XFREE (MTYPE_THREAD_MASTER, m);
-
-  LOCK
-  if (cpu_record)
+  if (m != NULL)
     {
-      hash_clean (cpu_record, cpu_record_hash_free);
-      hash_free (cpu_record);
-      cpu_record = NULL;
-    }
-  UNLOCK
+      thread_list_free (m, &m->read);
+      thread_list_free (m, &m->write);
+      thread_list_free (m, &m->timer);
+      thread_list_free (m, &m->event);
+      thread_list_free (m, &m->ready);
+      thread_list_free (m, &m->unuse);
+      thread_list_free (m, &m->background);
 
-  while ((qtr = spare_qtimers) != NULL)
-    {
-      spare_qtimers = (void*)(qtr->pile) ;
-      qtimer_free(qtr) ;
+      XFREE (MTYPE_THREAD_MASTER, m);   /* sets m = NULL        */
     } ;
+
+  return m ;
 }
 
 /* Thread list is empty or not.  */
@@ -864,11 +848,13 @@ thread_qtimer_unset(struct thread* thread)
 {
   qtimer qtr ;
   assert (thread->type == THREAD_TIMER || thread->type == THREAD_BACKGROUND);
-  assert (use_qtimer_pile != NULL) ;
 
   qtr = thread->u.qtr ;
   if (qtr != NULL)
     {
+      if ((qtr->state & qtrs_active) != 0)
+        qassert((use_qtimer_pile != NULL) && (use_qtimer_pile == qtr->pile)) ;
+
       qtimer_unset(qtr) ;
 
       qtr->pile = (void*)spare_qtimers ;
@@ -967,7 +953,7 @@ funcname_thread_add_timer_timeval(struct thread_master *m,
       else
         thread_list_add (list, thread);
 
-      used_standard_timer = 1 ;
+      used_standard_timer = true ;
     }
   else
     {
@@ -1520,18 +1506,74 @@ funcname_thread_execute (struct thread_master *m,
   return NULL;
 }
 
-/* Second state initialisation if qpthreaded */
+/* First stage initialisation -- before any pthreads are started
+ *
+ * Set up the global "master" thread_master.
+ */
+extern void
+thread_start_up(void)
+{
+  qassert(!qpthreads_enabled) ;
+
+  master = thread_master_create ();
+
+  cpu_record = hash_create_size (1011,
+                    (unsigned int (*) (void *))cpu_record_hash_key,
+                    (int (*) (const void *, const void *))cpu_record_hash_cmp) ;
+
+  thread_mutex        = NULL ;
+
+  use_qtimer_pile     = NULL ;
+  spare_qtimers       = NULL ;
+
+  used_standard_timer = false ;
+} ;
+
+/* Second stage initialisation if qpthreaded */
 void
 thread_init_r (void)
 {
-  qpt_mutex_init(thread_mutex, qpt_mutex_quagga);
+  thread_mutex = qpt_mutex_init_new(NULL, qpt_mutex_quagga);
 }
 
-/* Finished with module */
+/* Finished with module
+ */
 void
 thread_finish (void)
 {
-  qpt_mutex_destroy(thread_mutex, 0);
+  qtimer qtr ;
+
+  qassert(!qpthreads_active) ;
+
+  master = thread_master_free(master) ;
+
+  if (cpu_record != NULL)
+    {
+      hash_clean (cpu_record, cpu_record_hash_free);
+      hash_free (cpu_record);
+      cpu_record = NULL;
+    }
+
+  while ((qtr = spare_qtimers) != NULL)
+    {
+      spare_qtimers = (void*)(qtr->pile) ;
+      qtimer_free(qtr) ;
+    } ;
+
+  thread_mutex = qpt_mutex_destroy(thread_mutex, free_it);
 }
 
-#undef USE_MQUEUE
+/*------------------------------------------------------------------------------
+ * Thread commands
+ */
+CMD_INSTALL_TABLE(extern, thread_cmd_table, ALL_RDS) =
+{
+  { RESTRICTED_NODE, &show_thread_cpu_cmd                               },
+  { VIEW_NODE,       &show_thread_cpu_cmd                               },
+  { ENABLE_NODE,     &show_thread_cpu_cmd                               },
+
+  { ENABLE_NODE,     &clear_thread_cpu_cmd                              },
+
+  CMD_INSTALL_END
+} ;
+

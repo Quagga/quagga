@@ -9,8 +9,8 @@
 #include "avl.h"
 #include "symtab.h"
 #include "qlib_init.h"
-
-struct thread_master *master;   /* required so will link !      */
+#include "thread.h"
+#include "command.h"
 
 /*==============================================================================
  * prototypes
@@ -47,7 +47,9 @@ main(int argc, char **argv)
   int i ;
   uint s ;
 
-  qlib_init_first_stage() ;
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
+
   test_avl_init() ;
 
   test_avl_tree_new();

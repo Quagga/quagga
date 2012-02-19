@@ -71,10 +71,9 @@
  *
  * Messages take the form of a small block of information which contain:
  *
- *   * action      -- void action(mqueue_block)   message dispatch
- *   * arg0        -- void* argument
  *   * struct args -- embedded argument structure
- *   * argv        -- optional array of union of: *void/uintptr_t/intptr_t
+ *   * arg0        -- void* argument
+ *   * action      -- void action(mqueue_block)   message dispatch
  *
  * There are set/get functions for action/arguments -- users should not poke
  * around inside the structure.
@@ -101,21 +100,12 @@
  *     allocates mqueue block, filling in arg0 and the action func.  Then
  *     args can be used to fill in a "struct my_message" form of args.
  *
- * NB: the sizeof(struct my_message) MUST BE <= mqb_args_size_max !!!
+ * NB: the sizeof(struct my_message) MUST BE <= sizeof(mqb_args_t) !!!
  *
- * The argv is an optional, flexible list/array of optional array of
- * union of: *void/uintptr_t/intptr_t -- see mqb_arg_t et al.
+ *     The macro MQB_ARGS_SIZE_OK(s) is a CONFIRM for this, eg:
  *
- * May set any number of arguments in argv.
- *
- * A count of arguments is maintained, and is the highest index set + 1.  That
- * count can be fetched.  (So there is no need to maintain it separately.)
- *
- * May get any argument by its index -- but it is a fatal error to attempt to
- * access a non-existent argument (one beyond the known count).
- *
- * There is support for pushing values onto the argv "list" and for iterating
- * along the "list".  May also push and pop entire arrays of items.
+ *       struct my_args { ... } ;
+ *       MQB_ARGS_SIZE_OK(struct my_args) ;
  *
  *==============================================================================
  * Local Queues
@@ -183,7 +173,7 @@ mqueue_finish(void)
 
   assert(mqb_free_count == 0) ;
 
-  qpt_mutex_destroy_keep(&mqb_mutex) ;
+  qpt_mutex_destroy(&mqb_mutex, keep_it) ;
 } ;
 
 /*==============================================================================
@@ -201,19 +191,34 @@ mqueue_finish(void)
  *     qpthreads.
  */
 extern mqueue_queue
-mqueue_init_new(mqueue_queue mq, enum mqueue_queue_type type)
+mqueue_init_new(mqueue_queue mq, mqueue_queue_type_t type)
 {
   if (mq == NULL)
-    mq = XCALLOC(MTYPE_MQUEUE_QUEUE, sizeof(struct mqueue_queue)) ;
+    mq = XCALLOC(MTYPE_MQUEUE_QUEUE, sizeof(mqueue_queue_t)) ;
   else
-    memset(mq, 0, sizeof(struct mqueue_queue)) ;
+    memset(mq, 0, sizeof(mqueue_queue_t)) ;
+
+  /* Zeroising has set:
+   *
+   *    mutex           -- NULL     -- set below, if required
+   *
+   *    head            -- NULL
+   *    tail_priority   -- NULL
+   *    tail            -- NULL
+   *    count           -- 0
+   *
+   *    type            -- X        -- set below
+   *
+   *    revoking        -- false    -- not revoking !
+   *
+   *    waiters         -- 0
+   *
+   *    kick.cond       -- X        -- set below, if required
+   *    kick.signal     -- all zero -- see below
+   */
 
   if (qpt_freeze_qpthreads_enabled())
     qpt_mutex_init_new(mq->mutex, qpt_mutex_quagga) ;
-
-  /* head, tail and tail_priority set NULL already              */
-  /* count set zero already                                     */
-  /* waiters set zero already                                   */
 
   mq->type = type ;
   switch (type)
@@ -232,7 +237,9 @@ mqueue_init_new(mqueue_queue mq, enum mqueue_queue_type type)
 
       case mqt_signal_unicast:
       case mqt_signal_broadcast:
-        /* head/tail pointers set NULL already  */
+        /* kick.signal.head ) set to NULL already
+         * kick.signal.tail )
+         */
         break;
 
       default:
@@ -264,6 +271,8 @@ mqueue_empty(mqueue_queue mq)
  * Otherwise zeroises the structure, and returns address of same.
  *
  * NB: there MUST NOT be ANY waiters !
+ *
+ * NB: assumes caller has good reason to believe they have sole control !
  */
 extern mqueue_queue
 mqueue_reset(mqueue_queue mq, free_keep_b free_structure)
@@ -275,13 +284,13 @@ mqueue_reset(mqueue_queue mq, free_keep_b free_structure)
 
   passert(mq->waiters == 0) ;
 
-  qpt_mutex_destroy_keep(mq->mutex) ;
+  qpt_mutex_destroy(mq->mutex, keep_it) ;
 
   switch (mq->type)
     {
       case mqt_cond_unicast:
       case mqt_cond_broadcast:
-        qpt_cond_destroy_keep(mq->kick.cond.wait_here) ;
+        qpt_cond_destroy(mq->kick.cond.wait_here, keep_it) ;
         break;
 
       case mqt_signal_unicast:
@@ -296,7 +305,7 @@ mqueue_reset(mqueue_queue mq, free_keep_b free_structure)
   if (free_structure)
     XFREE(MTYPE_MQUEUE_QUEUE, mq) ;     /* sets mq == NULL      */
   else
-    memset(mq, 0, sizeof(struct mqueue_queue)) ;
+    memset(mq, 0, sizeof(mqueue_queue_t)) ;
 
   return mq ;
 } ;
@@ -310,9 +319,9 @@ extern mqueue_local_queue
 mqueue_local_init_new(mqueue_local_queue lmq)
 {
   if (lmq == NULL)
-    lmq = XCALLOC(MTYPE_MQUEUE_QUEUE, sizeof(struct mqueue_local_queue)) ;
+    lmq = XCALLOC(MTYPE_MQUEUE_QUEUE, sizeof(mqueue_local_queue_t)) ;
   else
-    memset(lmq, 0, sizeof(struct mqueue_local_queue)) ;
+    memset(lmq, 0, sizeof(mqueue_local_queue_t)) ;
 
   /* Zeroising the structure is enough to initialise:
    *
@@ -344,7 +353,7 @@ mqueue_local_reset(mqueue_local_queue lmq, free_keep_b free_structure)
   if (free_structure)
     XFREE(MTYPE_MQUEUE_QUEUE, lmq) ;    /* sets lmq = NULL      */
   else
-    memset(lmq, 0, sizeof(struct mqueue_local_queue)) ;
+    memset(lmq, 0, sizeof(mqueue_local_queue_t)) ;
 
   return lmq ;
 } ;
@@ -360,15 +369,15 @@ mqueue_local_reset(mqueue_local_queue lmq, free_keep_b free_structure)
 extern void
 mqueue_set_timeout_interval(mqueue_queue mq, qtime_t interval)
 {
-  qpt_mutex_lock(mq->mutex) ;
+  MQUEUE_LOCK(mq) ;
 
-  dassert( (mq->type == mqt_cond_unicast) ||
+  qassert( (mq->type == mqt_cond_unicast) ||
            (mq->type == mqt_cond_broadcast) ) ;
 
   mq->kick.cond.interval = interval ;
   mq->kick.cond.timeout  = (interval > 0) ? qt_add_monotonic(interval)
                                           : 0 ;
-  qpt_mutex_unlock(mq->mutex) ;
+  MQUEUE_UNLOCK(mq) ;
 } ;
 
 /*==============================================================================
@@ -385,11 +394,6 @@ mqueue_set_timeout_interval(mqueue_queue mq, qtime_t interval)
  * mqueue_initialise MUST be called before the first message block is allocated.
  */
 
-inline static size_t mqb_argv_size(mqb_index_t alloc)
-{
-  return alloc * sizeof(mqb_arg_t) ;
-} ;
-
 /*------------------------------------------------------------------------------
  * Initialise message block (allocate if required) and set action & arg0.
  *
@@ -402,82 +406,48 @@ mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0)
 {
   if (mqb == NULL)
     {
-      qpt_mutex_lock(&mqb_mutex) ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+      qpt_mutex_lock(&mqb_mutex) ;    /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
       mqb = mqb_free_list ;
       if (mqb == NULL)
         {
-          dassert(mqb_free_count == 0) ;
+          qassert(mqb_free_count == 0) ;
           mqb = XMALLOC(MTYPE_MQUEUE_BLOCK, sizeof(struct mqueue_block)) ;
         }
       else
         {
-          dassert(mqb_free_count >= 0) ;
+          qassert(mqb_free_count >= 0) ;
           mqb_free_list = mqb->next ;
           --mqb_free_count ;
         } ;
 
-      qpt_mutex_unlock(&mqb_mutex) ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+      qpt_mutex_unlock(&mqb_mutex) ;  /*->->->->->->->->->->->->->->->->->->->*/
     } ;
 
-  memset(mqb, 0, sizeof(struct mqueue_block)) ;
-
-  mqb->action = action ;
-  mqb->arg0   = arg0 ;
+  memset(mqb, 0, sizeof(mqueue_block_t)) ;
 
   /* Zeroising the mqb sets:
    *
-   *    next           -- NULL
-   *
    *    args           -- zeroised
    *
-   *    argv           -- NULL -- empty list/array
+   *    arg0           -- X       -- set below
    *
-   *    argv_count     -- 0 -- empty
-   *    argv_alloc     -- 0 -- nothing allocated
-   *    argv_next      -- 0 -- iterator reset
+   *    next           -- NULL
+   *
+   *    action         -- X       -- set below
+   *
+   *    state          -- 0       -- mqb_s_undef
    */
+  confirm(mqb_s_undef == 0) ;
 
-  return mqb ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Re-initialise message block (or allocate if required) and set action & arg0.
- *
- * NB: preserves any existing argv, but empties it.
- *
- * NB: it is the caller's responsibility to free the value of any argument that
- *     requires it.
- */
-extern mqueue_block
-mqb_re_init(mqueue_block mqb, mqueue_action action, void* arg0)
-{
-  mqb_index_t argv_alloc ;
-  mqb_arg_t*  argv ;
-
-  /* Exactly mqb_init_new if mqb is NULL                        */
-  if (mqb == NULL)
-    return mqb_init_new(NULL, action, arg0) ;
-
-  /* Otherwise, need to put argv to one side first              */
-  argv        = mqb->argv ;
-  argv_alloc  = mqb->argv_alloc ;
-
-  mqb_init_new(mqb, action, arg0) ;
-
-  /* Now zeroize the argv, and restore it                       */
-  memset(argv, 0, mqb_argv_size(argv_alloc)) ;
-
-  mqb->argv       = argv ;
-  mqb->argv_alloc = argv_alloc ;
+  mqb->action = action ;
+  mqb->arg0   = arg0 ;
 
   return mqb ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Free message block when done with it.
- *
- * Frees any argv argument vector.
  *
  * NB: it is the caller's responsibility to free the value of any argument that
  *     requires it.
@@ -488,16 +458,13 @@ mqb_free(mqueue_block mqb)
   if (mqb == NULL)
     return NULL ;
 
-  if (mqb->argv != NULL)
-    XFREE(MTYPE_MQUEUE_BLOCK_ARGV, mqb->argv) ;
-
-  qpt_mutex_lock(&mqb_mutex) ;    /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  qpt_mutex_lock(&mqb_mutex) ;    /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
   mqb->next = mqb_free_list ;
   mqb_free_list = mqb ;
   ++mqb_free_count ;
 
-  qpt_mutex_unlock(&mqb_mutex) ;  /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  qpt_mutex_unlock(&mqb_mutex) ;  /*->->->->->->->->->->->->->->->->->->->->->*/
 
   return NULL ;
 } ;
@@ -506,8 +473,10 @@ mqb_free(mqueue_block mqb)
  * Enqueue and dequeue messages.
  */
 
-static void mqueue_kick_signal(mqueue_queue mq, unsigned n) ;
+static void mqueue_kick_signal(mqueue_queue mq, uint n) ;
 static void mqueue_dequeue_signal(mqueue_queue mq, mqueue_thread_signal mtsig) ;
+static mqueue_block mqb_revoke_this(mqueue_block this, mqueue_queue mq,
+                                                            mqueue_block prev) ;
 
 /*------------------------------------------------------------------------------
  * Enqueue message.
@@ -530,7 +499,10 @@ static void mqueue_dequeue_signal(mqueue_queue mq, mqueue_thread_signal mtsig) ;
  *   for a signal type message queue, each message that arrives will kick one
  *   waiter.
  *
- * If mq is NULL, the message is not queued but is immediately destroyed.
+ * When queues message, sets mqb->state == mqb_s_queued.
+ *
+ * If mq is NULL, the message is not queued but is immediately destroyed.  The
+ *
  *
  * NB: this works perfectly well if !qpthreads enabled.  Of course, there can
  *     never be any waiters... so no kicking is ever done.
@@ -538,10 +510,20 @@ static void mqueue_dequeue_signal(mqueue_queue mq, mqueue_thread_signal mtsig) ;
 extern void
 mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, mqb_rank_b priority)
 {
-  if (mq == NULL)
-    return mqb_dispatch_destroy(mqb) ;
+  qassert(mqb->state != mqb_s_queued) ;
 
-  qpt_mutex_lock(mq->mutex) ;
+  if (mq == NULL)
+    {
+      /* Trying to queue on a non-existent list is daft... but if a queue once
+       * existed, but has been destroyed, then messages which were on the queue
+       * at the time would have been revoked... so we treat this as if it had
+       * made it to the queue before the queue was destroyed !
+       */
+      mqb->state = mqb_s_revoked ;
+      return mqb_dispatch_destroy(mqb) ;
+    } ;
+
+  MQUEUE_LOCK(mq) ;
 
   if (mq->head == NULL)
     {
@@ -575,18 +557,20 @@ mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, mqb_rank_b priority)
       }
     else
       {
-        dassert(mq->tail != NULL) ;
+        qassert(mq->tail != NULL) ;
         mqb->next = NULL ;
         mq->tail->next = mqb ;
         mq->tail = mqb ;
       } ;
     } ;
 
+  mqb->state = mqb_s_queued ;
+
   ++mq->count ;
 
   if (mq->waiters != 0)
     {
-      dassert(qpthreads_enabled) ;  /* waiters == 0 if !qpthreads_enabled */
+      qassert(qpthreads_enabled) ;  /* waiters == 0 if !qpthreads_enabled */
 
       switch (mq->type)
       {
@@ -607,7 +591,7 @@ mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, mqb_rank_b priority)
 
         case mqt_signal_broadcast:
           mqueue_kick_signal(mq, mq->waiters) ;
-          dassert(mq->kick.signal.head == NULL) ;
+          qassert(mq->kick.signal.head == NULL) ;
           break;
 
         default:
@@ -615,7 +599,7 @@ mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, mqb_rank_b priority)
       } ;
     } ;
 
-  qpt_mutex_unlock(mq->mutex) ;
+  MQUEUE_UNLOCK(mq) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -644,6 +628,8 @@ mqueue_enqueue(mqueue_queue mq, mqueue_block mqb, mqb_rank_b priority)
  *
  * Returns a message block if one is available.  (And not otherwise.)
  *
+ * When dequeues message, sets mqb->state == mqb_s_undef.
+ *
  * NB: if mq is NULL, returns NULL -- nothing available
  */
 extern mqueue_block
@@ -658,7 +644,7 @@ mqueue_dequeue(mqueue_queue mq, int wait, void* arg)
   if (mq == NULL)
     return NULL ;
 
-  qpt_mutex_lock(mq->mutex) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  MQUEUE_LOCK(mq) ;
 
   while (1)
     {
@@ -685,8 +671,8 @@ mqueue_dequeue(mqueue_queue mq, int wait, void* arg)
               timeout_time = (arg != NULL) ? *(qtime_mono_t*)arg
                                            : mq->kick.cond.timeout ;
 
-              if (qpt_cond_timedwait(mq->kick.cond.wait_here, mq->mutex,
-                                                             timeout_time) == 0)
+              if (!qpt_cond_timedwait(mq->kick.cond.wait_here, mq->mutex,
+                                                               timeout_time))
                 {
                   /* Timed out -- update timeout time, if required      */
                   if (mq->kick.cond.interval > 0)
@@ -708,7 +694,7 @@ mqueue_dequeue(mqueue_queue mq, int wait, void* arg)
         case mqt_signal_unicast:  /* Register desire for signal           */
         case mqt_signal_broadcast:
           mtsig = arg ;
-          dassert(mtsig != NULL) ;
+          qassert(mtsig != NULL) ;
 
           if (mq->kick.signal.head == NULL)
             {
@@ -731,21 +717,24 @@ mqueue_dequeue(mqueue_queue mq, int wait, void* arg)
       } ;
     } ;
 
-  /* Have something to pull off the queue       */
-
+  /* Have something to pull off the queue
+   */
   assert(mq->count > 0) ;
   --mq->count ;
 
   mq->head = mqb->next ;
 
-  /* fix tails if at tail */
+  mqb->state = mqb_s_undef ;
+
+  /* fix tails if at tail
+   */
   if (mqb == mq->tail)
     mq->tail = NULL ;
   if (mqb == mq->tail_priority)
     mq->tail_priority = NULL ;
 
 done:
-  qpt_mutex_unlock(mq->mutex) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  MQUEUE_UNLOCK(mq) ;
 
   return mqb ;
 } ;
@@ -770,6 +759,15 @@ done:
  *     happens a lot, could end up in an O(n^2) thing scanning the message
  *     queue once for each revoked object type.
  *
+ *     ALSO: mqb_dispatch_destroy() MUST NOT attempt to fiddle with the
+ *           queue !!
+ *
+ *     AND:  mqb_dispatch_destroy() MUST avoid deadlocking on other mutexes !!
+ *
+ *           Simplest is to avoid all locking, with the exception of memory
+ *           management or other "deep" stuff which definitely won't use this
+ *           message queue's lock !
+ *
  * If mq is NULL, does nothing.
  *
  * If num > 0, stops after revoking that many messages.
@@ -777,16 +775,17 @@ done:
  * Returns: number of messages revoked.
  */
 extern int
-mqueue_revoke(mqueue_queue mq, void* arg0, int num)
+mqueue_revoke(mqueue_queue mq, void* arg0, uint num)
 {
   mqueue_block mqb ;
   mqueue_block prev ;
-  int  did ;
+  uint  did ;
 
   if (mq == NULL)
     return 0 ;
 
-  qpt_mutex_lock(mq->mutex) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  MQUEUE_LOCK(mq) ;
+  mq->revoking = true ;
 
   did  = 0 ;
   prev = NULL ;
@@ -795,33 +794,15 @@ mqueue_revoke(mqueue_queue mq, void* arg0, int num)
     {
       if ((arg0 == NULL) || (arg0 == mqb->arg0))
         {
-          assert(mq->count > 0) ;
+          mqb = mqb_revoke_this(mqb, mq, prev) ;
 
-          if (prev == NULL)
-            mq->head   = mqb->next ;
-          else
-            prev->next = mqb->next ;
-
-          if (mqb == mq->tail)
-            mq->tail = prev ;
-
-          if (mqb == mq->tail_priority)
-            mq->tail_priority = prev ;
-
-          --mq->count ;
           ++did ;
 
-          mqb_dispatch_destroy(mqb) ;
-
-          if    (num == 1)
+          if (num == 1)
             break ;
-          else if (num > 1)
-            --num ;
 
-          if (prev == NULL)
-            mqb = mq->head ;
-          else
-            mqb = prev->next ;
+          if (num > 1)
+            --num ;
         }
       else
         {
@@ -830,9 +811,134 @@ mqueue_revoke(mqueue_queue mq, void* arg0, int num)
         } ;
     } ;
 
-  qpt_mutex_unlock(mq->mutex) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  mq->revoking = false ;
+  MQUEUE_UNLOCK(mq) ;
 
   return did ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Revoke given mqb from given queue.
+ *
+ * There is some deep magic here.  The problem is that where a message queue is
+ * used by more than one pthread, it is possible to become confused if more
+ * than one pthread may revoke a given message.
+ *
+ * To avoid confusion, the message queue in question could have a higher level
+ * lock, so that the state of a given message can be managed under that lock.
+ *
+ * But, it is possible for a message queue to be revoked, wholesale, which
+ * makes a higher level lock more problematic, particularly where a message
+ * queue may contain a number of quite different sorts of message.
+ *
+ * So, if we have a message that might be revoked by more than one pthread,
+ * then (provided, of course, that the mqb_destroy operation does not free
+ * the mqb) we can use this function to:
+ *
+ *   (a) revoke a given mqb, if it is on the queue -- in the usual way,
+ *       calling mqb_dispatch_destroy() under the message queue lock.
+ *
+ * or:
+ *
+ *   (b) discover that the mqb has already been revoked.
+ *
+ * Once revoked, the mqb stays in that state until it is queued again.
+ *
+ * So, an mqb can be revoked by mqueue_revoke() or by mqb_revoke(), and
+ * mqb_revoke() can be used to revoke or test the revocation state of a given
+ * mqb.
+ *
+ * NB: this is only really useful if one pthread is responsible for enqueuing
+ *     messages, or there is some other interlock to avoid being confused by
+ *     learning that an mqb has been revoked, but then it being requeued by
+ *     some other pthread !
+ *
+ * Returns: true <=> is now, or was already, revoked.
+ *          false => not revoked
+ */
+extern bool
+mqb_revoke(mqueue_block mqb, mqueue_queue mq)
+{
+  mqb_state_t mst ;
+
+  if (mq == NULL)
+    return true ;
+
+  MQUEUE_LOCK(mq) ;
+  mq->revoking = true ;
+
+  mst = mqb->state ;
+
+  if (mst == mqb_s_queued)
+    {
+      mqueue_block prev, this ;
+
+      prev = NULL ;
+      this = mq->head ;
+
+      while ((mqb != this) && (this != NULL))
+        {
+          prev = this ;
+          this = this->next ;
+        } ;
+
+      if (mqb == this)
+        {
+          /* Possible (if unlikely for this application) that the mqb will be
+           * freed, so we do not depend on "this" hereafter.
+           */
+          mqb_revoke_this(this, mq, prev) ;
+          mst = mqb_s_revoked ;
+        }
+      else
+        qassert(false) ;
+    } ;
+
+  mq->revoking = false ;
+  MQUEUE_UNLOCK(mq) ;
+
+  return (mst == mqb_s_revoked) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Revoke given mqb from given mqueue.
+ *
+ * Must have the mqueue locked.
+ *
+ * Sets mqb_s_revoked.
+ *
+ * May free the given mqb !
+ *
+ * Returns: the next mqb
+ */
+static mqueue_block
+mqb_revoke_this(mqueue_block this, mqueue_queue mq, mqueue_block prev)
+{
+  mqueue_block next ;
+
+  assert(mq->count > 0) ;
+  qassert(mq->revoking) ;
+
+  next = this->next ;
+
+  if (prev == NULL)
+    mq->head   = next ;
+  else
+    prev->next = next ;
+
+  if (this == mq->tail)
+    mq->tail = prev ;
+
+  if (this == mq->tail_priority)
+    mq->tail_priority = prev ;
+
+  --mq->count ;
+
+  this->state = mqb_s_revoked ;
+
+  mqb_dispatch_destroy(this) ;
+
+  return next ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -850,11 +956,11 @@ mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig)
   if (!qpthreads_enabled)
     return 0 ;
 
-  qpt_mutex_lock(mq->mutex) ;
+  MQUEUE_LOCK(mq) ;
 
-  dassert( (mq->type == mqt_signal_unicast) ||
+  qassert( (mq->type == mqt_signal_unicast) ||
            (mq->type == mqt_signal_broadcast) ) ;
-  dassert(mtsig != NULL) ;
+  qassert(mtsig != NULL) ;
 
   /* When the thread is signalled, the prev entry is set NULL and the   */
   /* waiters count is decremented.                                      */
@@ -867,7 +973,7 @@ mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig)
   if (!kicked)
     mqueue_dequeue_signal(mq, mtsig) ;
 
-  qpt_mutex_unlock(mq->mutex) ;
+  MQUEUE_UNLOCK(mq) ;
 
   return kicked ;
 } ;
@@ -985,7 +1091,7 @@ mqueue_kick_signal(mqueue_queue mq, unsigned n)
 {
   mqueue_thread_signal mtsig ;
 
-  dassert( (qpthreads_enabled) && (mq->waiters >= n) ) ;
+  qassert( (qpthreads_enabled) && (mq->waiters >= n) ) ;
   while (n--)
     {
       mqueue_dequeue_signal(mq, mtsig = mq->kick.signal.head) ;
@@ -1012,12 +1118,12 @@ mqueue_dequeue_signal(mqueue_queue mq, mqueue_thread_signal mtsig)
 
   if (prev == (void*)mq)    /* marker for head of list      */
     {
-      dassert(mq->kick.signal.head == mtsig) ;
+      qassert(mq->kick.signal.head == mtsig) ;
       mq->kick.signal.head = next ;
     }
   else
     {
-      dassert((prev != NULL) && (prev->next == mtsig)) ;
+      qassert((prev != NULL) && (prev->next == mtsig)) ;
       prev->next = next ;
     } ;
 
@@ -1028,318 +1134,6 @@ mqueue_dequeue_signal(mqueue_queue mq, mqueue_thread_signal mtsig)
   mtsig->prev = NULL ;          /* essential to show signal kicked      */
   --mq->waiters ;               /* one fewer waiter                     */
 
-  dassert( ((mq->kick.signal.head == NULL) && (mq->waiters == 0)) ||
+  qassert( ((mq->kick.signal.head == NULL) && (mq->waiters == 0)) ||
            ((mq->kick.signal.head != NULL) && (mq->waiters != 0)) ) ;
-} ;
-
-/*==============================================================================
- * Message Queue Block Argument Handling
- */
-
-static void mqb_argv_extend(mqueue_block mqb, mqb_index_t iv) ;
-
-/*------------------------------------------------------------------------------
- * Get pointer to argv[iv] -- extending if required
- */
-inline static mqb_arg_t*
-mqb_p_arg_set(mqueue_block mqb, mqb_index_t iv)
-{
-  if (iv >= mqb->argv_count)
-    {
-      if (iv >= mqb->argv_alloc)
-        mqb_argv_extend(mqb, iv) ;
-      mqb->argv_count = iv + 1 ;
-    } ;
-
-  return &mqb->argv[iv] ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Set pointer argv[iv] to given value.
- */
-extern void
-mqb_set_argv_p(mqueue_block mqb, mqb_index_t iv, mqb_ptr_t  p)
-{
-  mqb_arg_t* p_arg = mqb_p_arg_set(mqb, iv) ;
-  p_arg->p = p ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Set integer argv[iv] to given value.
- */
-extern void
-mqb_set_argv_i(mqueue_block mqb, mqb_index_t iv, mqb_int_t  i)
-{
-  mqb_arg_t* p_arg = mqb_p_arg_set(mqb, iv) ;
-  p_arg->i = i ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Set unsigned integer argv[iv] to given value.
- */
-extern void
-mqb_set_argv_u(mqueue_block mqb, mqb_index_t iv, mqb_uint_t u)
-{
-  mqb_arg_t* p_arg = mqb_p_arg_set(mqb, iv) ;
-  p_arg->u = u ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Set size of argv[].
- *
- * This is entirely optional, and may be used to ensure that at least the given
- * number of elements have been allocated.
- *
- * Does not change the "count".  Will not reduce the allocated size.
- *
- * Just avoids repeated extensions of argv if it is known that it will become
- * large.
- */
-extern void
-mqb_set_argv_size(mqueue_block mqb, unsigned n)
-{
-  if (n > mqb->argv_alloc)
-    mqb_argv_extend(mqb, n - 1) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Push a pointer onto the argv "list"
- */
-extern void
-mqb_push_argv_p(mqueue_block mqb, mqb_ptr_t  p)
-{
-  mqb_arg_t* p_arg ;
-
-  p_arg = mqb_p_arg_set(mqb, mqb->argv_count) ;
-  p_arg->p = p ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Push an integer onto the argv "list"
- */
-extern void
-mqb_push_argv_i(mqueue_block mqb, mqb_int_t  i)
-{
-  mqb_arg_t* p_arg ;
-
-  p_arg = mqb_p_arg_set(mqb, mqb->argv_count) ;
-  p_arg->i = i ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Push an unsigned integer onto the argv "list"
- */
-extern void
-mqb_push_argv_u(mqueue_block mqb, mqb_uint_t u)
-{
-  mqb_arg_t* p_arg ;
-
-  p_arg = mqb_p_arg_set(mqb, mqb->argv_count) ;
-  p_arg->u = u ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Push an array of 'n' void* pointers onto the argv "list"
- */
-extern void
-mqb_push_argv_array(mqueue_block mqb, unsigned n, void** array)
-{
-  mqb_index_t iv ;
-
-  /* need do nothing if n == 0, get out now to avoid edge cases         */
-  if (n == 0)
-    return ;
-
-  /* make sure we are allocated upto and including the last array item  */
-  iv = mqb->argv_count ;
-  mqb_set_argv_size(mqb, iv + n - 1) ;
-
-  /* require that mqb_ptr_t values exactly fill mqb_arg_t entries       */
-  /*     and that mqb_ptr_t values are exactly same as void* values     */
-  CONFIRM(sizeof(mqb_ptr_t) == sizeof(mqb_arg_t)) ;
-  CONFIRM(sizeof(mqb_ptr_t) == sizeof(void*)) ;
-
-  /* copy the pointers                                                  */
-  memcpy(&mqb->argv[iv], array, sizeof(void*) * n) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Get pointer to argv[iv] -- which MUST exist
- *
- * NB: it is a FATAL error to reference an argument beyond the last one set.
- */
-inline static mqb_arg_t*
-mqb_p_arg_get(mqueue_block mqb, mqb_index_t iv)
-{
-  if (iv >= mqb->argv_count)
-    zabort("invalid message block argument index") ;
-
-  return &mqb->argv[iv] ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Get pointer value of argv[iv]
- *
- * NB: it is a FATAL error to reference an argument beyond the last one set.
- *
- *     mqb_get_argv_count() returns the number of arguments set in argv.
- */
-extern mqb_ptr_t
-mqb_get_argv_p(mqueue_block mqb, mqb_index_t iv)
-{
-  mqb_arg_t* p_arg = mqb_p_arg_get(mqb, iv) ;
-  return p_arg->p ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Get integer value of argv[iv]
- *
- * NB: it is a FATAL error to reference an argument beyond the last one set.
- *
- *     mqb_get_argv_count() returns the number of arguments set in argv.
- */
-extern mqb_int_t
-mqb_get_argv_i(mqueue_block mqb, mqb_index_t iv)
-{
-  mqb_arg_t* p_arg = mqb_p_arg_get(mqb, iv) ;
-  return p_arg->i ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Get unsigned integer value of argv[iv]
- *
- * NB: it is a FATAL error to reference an argument beyond the last one set.
- *
- *     mqb_get_argv_count() returns the number of arguments set in argv.
- */
-extern mqb_uint_t
-mqb_get_argv_u(mqueue_block mqb, mqb_index_t iv)
-{
-  mqb_arg_t* p_arg = mqb_p_arg_get(mqb, iv) ;
-  return p_arg->u ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Get pointer value of next argv "list" argument -- if any.
- *
- * There is a "next" counter in the message queue block, which is reset when
- * the mqb is initialised or re-initialised, and by mqb_reset_argv_next().
- *
- * NB: returns NULL if there is no "list" or if already at the end of same.
- */
-extern mqb_ptr_t
-mqb_next_argv_p(mqueue_block mqb)
-{
-  if (mqb->argv_next >= mqb->argv_count)
-    return NULL ;
-
-  return mqb_get_argv_p(mqb, mqb->argv_next++) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Get integer value of next argv "list" argument -- if any.
- *
- * There is a "next" counter in the message queue block, which is reset when
- * the mqb is initialised or re-initialised, and by mqb_reset_argv_next().
- *
- * NB: returns 0 if there is no "list" or if already at the end of same.
- */
-extern mqb_int_t
-mqb_next_argv_i(mqueue_block mqb)
-{
-  if (mqb->argv_next >= mqb->argv_count)
-    return 0 ;
-
-  return mqb_get_argv_i(mqb, mqb->argv_next++) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Get unsigned integer value of next argv "list" argument -- if any.
- *
- * There is a "next" counter in the message queue block, which is reset when
- * the mqb is initialised or re-initialised, and by mqb_reset_argv_next().
- *
- * NB: returns 0 if there is no "list" or if already at the end of same.
- */
-extern mqb_uint_t
-mqb_next_argv_u(mqueue_block mqb)
-{
-  if (mqb->argv_next >= mqb->argv_count)
-    return 0 ;
-
-  return mqb_get_argv_u(mqb, mqb->argv_next++) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Pop an array of 'n' void* pointers from the argv "list"
- *
- * There is a "next" counter in the message queue block, which is reset when
- * the mqb is initialised or re-initialised, and by mqb_reset_argv_next().
- *
- * Treats from "next" to the end of the "list" as an array of void* pointers.
- *
- * Creates a temporary void* [] array (MTYPE_TMP), which caller must free.
- *
- * NB: returns NULL if there is no "list" or if already at the end of same.
- */
-extern void**
-mqb_pop_argv_array(mqueue_block mqb)
-{
-  void**      array ;
-  unsigned    n ;
-
-  mqb_index_t iv = mqb->argv_next ;
-
-  /* worry about state of "next" and get out if nothing to do.          */
-  if (iv >= mqb->argv_count)
-    return NULL ;
-
-  /* work out how much to pop and update "next"                         */
-  n  = mqb->argv_count - iv ;
-
-  mqb->argv_next = mqb->argv_count ;
-
-  /* construct target array                                             */
-  array = XMALLOC(MTYPE_TMP, sizeof(void*) * n) ;
-
-  /* require that mqb_ptr_t values exactly fill mqb_arg_t entries       */
-  /*     and that mqb_ptr_t values are exactly same as void* values     */
-  CONFIRM(sizeof(mqb_ptr_t) == sizeof(mqb_arg_t)) ;
-  CONFIRM(sizeof(mqb_ptr_t) == sizeof(void*)) ;
-
-  /* now transfer pointers to the array                                 */
-  memcpy(array, mqb->argv + iv, sizeof(void*) * n) ;
-
-  return array ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Extend the argv to include at least given iv.
- *
- * The number of argv slots allocated is arranged to be a multiple of
- * mqb_argv_size_unit.
- *
- * Ensures that newly created slots are zeroised.
- */
-static void
-mqb_argv_extend(mqueue_block mqb, mqb_index_t iv)
-{
-  mqb_index_t need ;                    /* total slots required         */
-  mqb_index_t have ;
-
-  have = mqb->argv_alloc ;
-  assert(have <= iv) ;
-
-  need = ((iv / mqb_argv_size_unit) + 1) * mqb_argv_size_unit ;
-
-  if (mqb->argv == NULL)
-    mqb->argv = XCALLOC(MTYPE_MQUEUE_BLOCK_ARGV, mqb_argv_size(need)) ;
-  else
-    {
-      mqb->argv = XREALLOC(MTYPE_MQUEUE_BLOCK_ARGV, mqb->argv,
-                                                 mqb_argv_size(need)) ;
-      memset(&mqb->argv[have], 0, mqb_argv_size(need - have)) ;
-    } ;
-
-  mqb->argv_alloc = need ;
 } ;

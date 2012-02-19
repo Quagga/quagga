@@ -205,7 +205,6 @@ cmd_item_is_vararg(cmd_item_type_t itt)
 /*------------------------------------------------------------------------------
  * The command item structure.
  */
-typedef struct cmd_item* cmd_item ;
 struct cmd_item
 {
   elstring_t   str ;            /* in some word_lump                    */
@@ -476,38 +475,56 @@ enum cmd_pipe_type              /* bit significant      */
 
   cmd_pipe_file       = BIT(0),
   cmd_pipe_shell      = BIT(1),
-  cmd_pipe_dev_null   = BIT(2), /* out pipe only -- black hole  */
+  cmd_pipe_dev_null   = BIT(2),         /* out pipe only -- black hole  */
 
-  /* For in pipes
+  /* For in file and shell pipes
    */
-  cmd_pipe_reflect    = BIT(4), /* + option                     */
+  cmd_pipe_strict          = BIT( 3),   /* << type                      */
+
+  cmd_pipe_reflect_enable  = BIT( 4),   /* + option                     */
+  cmd_pipe_reflect_disable = BIT( 5),   /* - option                     */
+  cmd_pipe_warn_continue   = BIT( 6),   /* % option                     */
+  cmd_pipe_warn_stop       = BIT( 7),   /* ! option                     */
+  cmd_pipe_out_enable      = BIT( 8),   /* = option                     */
+  cmd_pipe_out_disable     = BIT( 9),   /* # option                     */
+  cmd_pipe_quiet           = BIT(10),   /* * option                     */
 
   /* For out file pipes
    */
-  cmd_pipe_append     = BIT(4),         /* >>                           */
+  cmd_pipe_append          = BIT( 4),   /* >>                           */
 
   /* For out shell pipes
    */
-  cmd_pipe_shell_cmd  = BIT(4),         /* | at start of line           */
+  cmd_pipe_shell_cmd       = BIT( 4),   /* | at start of line           */
+
+  cmd_pipe_stderr_enable   = BIT( 6),   /* & option                     */
+  cmd_pipe_stderr_disable  = BIT( 7),   /* % option                     */
+  cmd_pipe_stdout_enable   = BIT( 8),   /* = option                     */
+  cmd_pipe_stdout_disable  = BIT( 9),   /* # option                     */
+  cmd_pipe_std_quiet       = BIT(10),   /* * option                     */
 } ;
+
+CONFIRM(cmd_pipe_std_quiet == cmd_pipe_quiet) ;
+
 typedef enum cmd_pipe_type cmd_pipe_type_t ;
 
 /* Parsed parts                                                         */
-enum cmd_parts                  /* bit significant      */
+enum cmd_parts
 {
-  cmd_parts_none      = 0,
+  cmd_parts_none      = 0,      /* bit significant              */
 
-  cmd_part_do         = BIT(0), /* command has leading "do"     */
-  cmd_part_command    = BIT(1), /* command part exists          */
+  cmd_part_command    = BIT(0), /* command part exists          */
+  cmd_part_do         = BIT(1), /* command has leading "do"     */
+  cmd_part_meta       = BIT(2), /* command has meta prefix      */
 
-  cmd_part_in_pipe    = BIT(2), /* in pipe part exists          */
-  cmd_part_out_pipe   = BIT(3), /* out pipe part exists         */
+  cmd_part_in_pipe    = BIT(4), /* in pipe part exists          */
+  cmd_part_out_pipe   = BIT(5), /* out pipe part exists         */
 
   cmd_parts_pipe      = cmd_part_in_pipe | cmd_part_out_pipe,
 
   cmd_parts_execute   = cmd_part_command | cmd_parts_pipe,
 
-  cmd_part_comment    = BIT(4), /* commend part exists          */
+  cmd_part_comment    = BIT(7), /* comment part exists          */
 } ;
 typedef enum cmd_parts cmd_parts_t ;
 
@@ -519,6 +536,8 @@ enum cmd_token_type     /* *bit* significant    */
 {
   cmd_tok_eol           = 0,            /* all lines have one           */
 
+  /* Simple token may contain quotes and escapes.
+   */
   cmd_tok_simple        = BIT( 0),
 
   cmd_tok_sq            = BIT( 4),
@@ -528,9 +547,13 @@ enum cmd_token_type     /* *bit* significant    */
 
   cmd_tok_incomplete    = (cmd_tok_sq | cmd_tok_dq | cmd_tok_esc),
 
+  /* These tokens will not contain quotes or escapes.
+   */
   cmd_tok_in_pipe       = BIT( 8),      /* token starting '<'           */
   cmd_tok_out_pipe      = BIT( 9),      /* token starting '>'           */
   cmd_tok_out_shell     = BIT(10),      /* token starting '|'           */
+
+  cmd_tok_meta_prefix   = BIT(13),      /* prefix of a meta command     */
 
   cmd_tok_comment       = BIT(14),      /* token starting '!' or '#"    */
 } ;
@@ -605,46 +628,44 @@ enum {
  */
 struct cmd_parsed
 {
-  cmd_parts_t   parts ;         /* What parts are present               */
-
+  /* The following are filled in when a command line is tokenised
+   */
   cmd_token_type_t tok_total ;  /* What token types are present         */
-
-  usize         elen ;          /* effective length (less trailing spaces) */
-  usize         tsp ;           /* number of trailing spaces            */
 
   uint          num_tokens ;    /* number of tokens parsed              */
 
-  token_vector  tokens ;      /* vector of token objects              */
+  token_vector  tokens ;        /* vector of token objects              */
 
-  /* NB: the following are significant only if there is a command part
-   *     or a do part
+  /* The following are filled in when a tokenised command line is parsed.
+   */
+  cmd_parts_t   parts ;         /* What parts are present               */
+
+  /* NB: the following are significant only if there is a command part.
    */
   struct cmd_command *cmd ;     /* NULL if empty command
                                         or fails to parse               */
   node_type_t   cnode ;         /* node command is in                   */
+  node_type_t   xnode ;         /* node command executes in             */
   node_type_t   nnode ;         /* node to set if command succeeds      */
 
   arg_vector    args ;          /* vector of arguments                  */
 
-  /* NB: the following are significant only if an error is returned     */
-
+  /* NB: the following are significant only if an error is returned
+   */
   qstring       emess ;         /* parse error                          */
   ssize         eloc ;          /* error location                       */
 
   /* NB: the following are significant only if respective part is
    *     present.
+   *
+   *     If there is a "do" or "#__" (meta) prefix then "first_action" is
+   *     implicitly the number of prefix items.
    */
   cmd_pipe_type_t in_pipe ;     /* if any                               */
   cmd_pipe_type_t out_pipe ;    /* if any                               */
 
-  uint          first_in_pipe ;
-  uint          num_in_pipe ;
-
-  uint          first_do ;
-  uint          num_do ;
-
-  uint          first_command ;
-  uint          num_command ;
+  uint          first_action ;  /* command or in pipe                   */
+  uint          num_action ;
 
   uint          first_out_pipe ;
   uint          num_out_pipe ;
@@ -652,14 +673,14 @@ struct cmd_parsed
   uint          first_comment ;
   uint          num_comment ;
 
-  /* The following are significant after cmd_token_position()           */
-
+  /* The following are significant after cmd_token_position()
+   */
   uint          cti ;   /* cursor token index -- may be eol token       */
   uint          ctl ;   /* cursor token length -- 0 <=> eol token       */
   int           rp ;    /* cursor relative to start of cursor token     */
 
-  /* The following are used while filtering commands                    */
-
+  /* The following are used while filtering commands
+   */
   vector        cmd_v ;         /* working vector                       */
   vector        item_v ;        /* working vector                       */
 
@@ -679,61 +700,6 @@ typedef struct cmd_parsed  cmd_parsed_t[1] ;
 typedef struct cmd_parsed* cmd_parsed ;
 
 /*==============================================================================
- * This is the stuff that defines the context in which commands are parsed,
- * and then executed.
- *
- * The context lives in the cmd_exec.  The CLI has a copy of the context,
- * which it uses for the prompt and for command line help handling.
- *
- * Each time a new vin is pushed, the current context is copied to the current
- * TOS (before the push).
- *
- * Easch time a vin is popped, the context is restored.
- *
- * Each time a vin or vout is pushed or popped the context the cmd_exec
- * out_suppress and reflect flags must be updated.
- */
-struct cmd_context
-{
-  /* The node between commands.                                         */
-
-  node_type_t   node ;                  /* updated on CMD_SUCCESS       */
-
-  /* These properties affect the parsing of command lines.              */
-
-  bool          full_lex ;              /* as required                  */
-
-  bool          parse_execution ;       /* parsing to execute           */
-
-  bool          parse_only ;            /* do not execute               */
-
-  bool          parse_strict ;          /* no incomplete keywords       */
-  bool          parse_no_do ;           /* no 'do' commands             */
-  bool          parse_no_tree ;         /* no tree walking              */
-
-  bool          can_auth_enable ;       /* if required                  */
-  bool          can_enable ;            /* no (further) password needed */
-
-  /* These properties affect the execution of parsed commands.          */
-
-  bool          reflect_enabled ;       /* per the pipe                 */
-
-  /* Special for AUTH_ENABLE_NODE -- going from/to                      */
-
-  node_type_t   onode ;                 /* VIEW_NODE or RESTRICTED_NODE */
-  node_type_t   tnode ;                 /* ENABLE_NODE or CONFIG_NODE   */
-
-  /* The current directories.                                           */
-
-  qpath         dir_cd ;                /* chdir directory              */
-  qpath         dir_home ;              /* "~/" directory               */
-  qpath         dir_here ;              /* "~./" directory              */
-} ;
-
-typedef struct cmd_context  cmd_context_t[1] ;
-typedef struct cmd_context* cmd_context ;
-
-/*==============================================================================
  * Prototypes
  */
 extern void cmd_compile(cmd_command cmd) ;
@@ -746,53 +712,23 @@ extern bool cmd_is_empty(qstring line) ;
 extern void cmd_tokenize(cmd_parsed parsed, qstring line, bool full_lex) ;
 extern qstring cmd_tokens_concat(cmd_parsed parsed, uint ti, uint nt) ;
 
-extern cmd_return_code_t cmd_parse_command(cmd_parsed parsed,
-                                                          cmd_context context) ;
+extern cmd_ret_t cmd_parse_command(cmd_parsed parsed, cmd_context context) ;
 
 extern bool cmd_token_position(cmd_parsed parsed, qstring line) ;
 extern const char* cmd_help_preflight(cmd_parsed parsed) ;
-extern cmd_return_code_t cmd_completion(cmd_parsed parsed, cmd_context context);
+extern cmd_ret_t cmd_completion(cmd_parsed parsed, cmd_context context);
 
 extern void cmd_complete_keyword(cmd_parsed parsed,
                                        int* pre, int* rep, int* ins, int* mov) ;
+extern bool cmd_part_complete(cmd_parsed parsed, elstring els) ;
 
 extern void cmd_get_parse_error(vio_fifo ebuf, cmd_parsed parsed, uint indent) ;
 
 extern void cmd_parser_init(void) ;
 
-
-
-//extern vector cmd_make_strvec (const char *);
-//extern vector cmd_add_to_strvec (vector v, const char* str) ;
-//extern void cmd_free_strvec (vector);
 extern vector cmd_describe_command (const char* line, node_type_t node,
-                                                    cmd_return_code_t* status) ;
+                                                            cmd_ret_t* status) ;
 extern vector cmd_complete_command (vector, int, int *status);
-
-
-
-//extern cmd_return_code_t cmd_parse_error(cmd_parsed parsed, cmd_token t,
-//                                                usize off, const char* mess) ;
-
-//Inline const char* cmd_token_string(cmd_token t) ;
-//Inline char* cmd_token_make_string(cmd_token t) ;
-//Inline int cmd_token_count(token_vector tv) ;
-//Inline cmd_token cmd_token_get(token_vector tv, vector_index_t i) ;
-//Inline void  cmd_token_set(token_vector tv, vector_index_t i,
-//                    cmd_token_type_t type, const char* p, usize len, usize tp) ;
-
-//extern cmd_return_code_t cmd_token_complete(cmd_parsed parsed, cmd_token t) ;
-//Inline const char* cmd_token_string(cmd_token t) ;
-//extern cmd_return_code_t cmd_parse_in_pipe(cmd_parsed parsed, cmd_token t) ;
-//extern cmd_return_code_t cmd_parse_out_pipe(cmd_parsed parsed, cmd_token t) ;
-
-//extern match_type_t cmd_ipv4_match (const char *str) ;
-//extern match_type_t cmd_ipv4_prefix_match (const char *str) ;
-#if HAVE_IPV6
-//extern match_type_t cmd_ipv6_match (const char *str) ;
-//extern match_type_t cmd_ipv6_prefix_match (const char *str) ;
-#endif
-//extern bool cmd_range_match (const char *range, const char *str) ;
 
 /*==============================================================================
  * Inlines
@@ -814,6 +750,15 @@ Inline unsigned
 cmd_arg_vector_argc(cmd_parsed parsed)
 {
   return vector_length(parsed->args->body) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get i'th token from given token vector -- zero origin
+ */
+Inline cmd_token
+cmd_token_get(token_vector tv, vector_index_t i)
+{
+  return vector_get_item(tv->body, i) ;
 } ;
 
 #endif /* _ZEBRA_COMMAND_PARSE_H */

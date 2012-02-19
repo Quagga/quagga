@@ -58,6 +58,22 @@
  *
  *      The I/O error handling turns off log monitoring for the vty if the
  *      vin_base or the vout_base is the locus of the error.
+ *
+ * The list of monitor vio is handled under the LOG_LOCK *and* the VTY_LOCK.
+ *
+ * Each vio has an mbuf FIFO, which is written to and read from under the
+ * LOG_LOCK -- so is set up and discarded under the same lock.
+ *
+ * To send a log message to a log monitor, the logging code (under the
+ * LOG_LOCK) appends to the relevant mbuf(s).  It must then alert the CLI
+ * thread to cause it to empty out the mbuf(s) -- which is done by sending a
+ * message to the CLI nexus.  The mon_kicked flag is set when the message is
+ * sent, and cleared when the CLI thread has emptied the buffers.
+ *
+ * If not running multi-nexus, the process is simpler.  The messages are
+ * queued in the mbuf(s), but there is no need to send any message, and the
+ * buffers are then promptly emptied -- as if a message had been sent, and
+ * immediately received.
  */
 static vio_fifo monitor_buffer   = NULL ;
 static uint     monitor_count    = 0 ;
@@ -65,78 +81,88 @@ static uint     monitor_count    = 0 ;
 static bool         mon_kicked   = false ;
 static mqueue_block mon_mqb      = NULL ;
 
-static void vty_mon_action(mqueue_block mqb, mqb_flag_t flag) ;
-static void uty_monitor_update(void) ;
+static void vty_monitor_action(mqueue_block mqb, mqb_flag_t flag) ;
+static void uty_monitor_update(int delta) ;
 
 /*------------------------------------------------------------------------------
  * Initialise the vty monitor facility.
  *
+ * This runs before any pthreads or nexus stuff starts -- so no lock required.
+ *
+ * Sets everything *off*.
+ *
+ * NB: can be used by vtysh !
  */
 extern void
-uty_init_monitor(void)
+uty_monitor_init(void)
 {
-  LOG_LOCK() ;
+  qassert(!qpthreads_enabled) ;
 
-  vio_monitor_list = NULL ;
+  ddl_init(vio_monitor_list) ;
   monitor_buffer   = NULL ;
 
   mon_kicked       = false ;
-  mon_mqb = mqb_init_new(NULL, vty_mon_action, &mon_mqb) ;
-
-  LOG_UNLOCK() ;
+  mon_mqb          = NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Set/Clear "monitor" state:
  *
- *  set:   if VTY_TERM and not already "monitor" (and write_open !)
- *  clear: if is "monitor"
+ *   set:   if VTY_TERM and not already "monitor" (and write_open !)
+ *   clear: if is "monitor"
+ *
+ * Note that we need the VTY_LOCK *and* the LOG_LOCK to change the list of
+ * monitors -- so we can walk the list with either locked.  But we only need
+ * the VTY_LOCK to set/clear the
  */
 extern void
-uty_set_monitor(vty_io vio, bool on)
+uty_monitor_set(vty_io vio, on_off_b how)
 {
-  int level ;
   int delta ;
 
   VTY_ASSERT_LOCKED() ;
 
-  level = 0 ;
-  delta = 0 ;
-
   LOG_LOCK() ;
 
-  if      (on && !vio->monitor)
+  if ((vio->vout_base->vout_type != VOUT_TERM) ||
+                             (vio->vout_base->vout_state & (vf_cease | vf_end)))
+    how = off ;
+
+  if (vio->monitor)
+    qassert(vio->vout_base->vout_type == VOUT_TERM) ;
+
+  delta = 0 ;
+
+  if      ((how == on) && !vio->monitor)
     {
-      if (vio->vty->type == VTY_TERMINAL)
-        {
-          vio->monitor  = true ;
+      /* Note that in the unlikely even that there is something pending in
+       * an existing mbuf, then that will be emptied out by the pselect()
+       * process.
+       */
+      delta        = +1 ;
+      vio->monitor = true ;
 
-          vio->maxlvl   = uzlog_get_monitor_lvl(NULL) ;
-          vio->mon_kick = false ;
+      vio->maxlvl  = uzlog_get_monitor_lvl(NULL) ;
 
-          if (vio->mbuf == NULL)
-            vio->mbuf   = vio_fifo_new(8 * 1024) ;
+      if (vio->mbuf == NULL)
+        vio->mbuf  = vio_fifo_new(8 * 1024) ;
 
-          sdl_push(vio_monitor_list, vio, mon_list) ;
-
-          delta = +1 ;
-        } ;
-    }
-  else if (!on && vio->monitor)
+      ddl_append(vio_monitor_list, vio, mon_list) ;
+   }
+  else if ((how == off) && vio->monitor)
     {
+      /* Note that if there is anything pending in the mbuf, then that will
+       * be emptied out by the pselect() process.
+       */
+      vio->maxlvl  = ZLOG_DISABLED ;
+
+      ddl_del(vio_monitor_list, vio, mon_list) ;
+
       vio->monitor = false ;
+      delta        = -1 ;
+    } ;
 
-      vio->maxlvl   = ZLOG_DISABLED ;
-      vio->mon_kick = false ;
-
-      sdl_del(vio_monitor_list, vio, mon_list) ;
-      delta = -1 ;
-    }
-
-  monitor_count += delta ;
-
-  if (delta != 0)
-    uty_monitor_update() ;  /* tell logging if number of monitors changes   */
+  uty_monitor_update(delta) ;   /* sort out effective log monitor level */
 
   LOG_UNLOCK() ;
 } ;
@@ -145,7 +171,7 @@ uty_set_monitor(vty_io vio, bool on)
  * If the current VTY is a log monitor, set a new level
  */
 extern void
-vty_set_monitor_level(vty vty, int level)
+vty_monitor_set_level(vty vty, int level)
 {
   VTY_LOCK() ;
 
@@ -154,7 +180,7 @@ vty_set_monitor_level(vty vty, int level)
       LOG_LOCK() ;
 
       vty->vio->maxlvl = level ;
-      uty_monitor_update() ;
+      uty_monitor_update(0) ;
 
       LOG_UNLOCK() ;
     } ;
@@ -169,7 +195,7 @@ vty_set_monitor_level(vty vty, int level)
  * level is changed.
  */
 static void
-uty_monitor_update(void)
+uty_monitor_update(int delta)
 {
   int    level ;
   uint   count ;
@@ -178,7 +204,9 @@ uty_monitor_update(void)
   VTY_ASSERT_LOCKED() ;
   LOG_ASSERT_LOCKED() ;
 
-  vio   = vio_monitor_list ;
+  monitor_count += delta ;
+
+  vio   = ddl_head(vio_monitor_list) ;
   count = 0 ;
   level = ZLOG_DISABLED ;
   while (vio != NULL)
@@ -189,7 +217,7 @@ uty_monitor_update(void)
       if (level <= vio->maxlvl)
         level = vio->maxlvl ;
 
-      vio = sdl_next(vio, mon_list) ;
+      vio = ddl_next(vio, mon_list) ;
     } ;
 
   qassert(monitor_count == count) ;
@@ -208,14 +236,14 @@ uty_monitor_update(void)
  * NB: expect incoming line to NOT include '\n' or any other line ending.
  */
 extern void
-vty_log(int priority, const char* line, uint len)
+vty_monitor_log(int priority, const char* line, uint len)
 {
   vty_io vio ;
   bool   kick ;
 
   LOG_ASSERT_LOCKED() ;
 
-  vio  = vio_monitor_list ;
+  vio  = ddl_head(vio_monitor_list) ;
   kick = false ;
   while (vio != NULL)
     {
@@ -226,12 +254,10 @@ vty_log(int priority, const char* line, uint len)
           vio_fifo_put_bytes(vio->mbuf, line, len) ;
           vio_fifo_put_bytes(vio->mbuf, "\r\n", 2) ;
 
-          vio->mon_kick = kick = true ;
-        }
-      else
-        vio->mon_kick = false ;
+          kick = true ;
+        } ;
 
-      vio = sdl_next(vio, mon_list) ;
+      vio = ddl_next(vio, mon_list) ;
     } ;
 
   if (kick)
@@ -240,63 +266,91 @@ vty_log(int priority, const char* line, uint len)
         {
           if (!mon_kicked)
             {
+              if (mon_mqb == NULL)
+                mon_mqb = mqb_init_new(NULL, vty_monitor_action, &mon_mqb) ;
+
               mon_kicked = true ;
               mqueue_enqueue(vty_cli_nexus->queue, mon_mqb, mqb_ordinary) ;
             } ;
         }
       else
-        vty_mon_action(NULL, mqb_action) ;
+        vty_monitor_action(NULL, mqb_action) ;
     } ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Put logging message to all suitable monitors.
+ * Action routine to kick all the monitor vty to empty out their mbuf(s).
  *
- * All we can do here is to shovel stuff into buffers and then boot the VTY
- * to do something.
+ * Note that for multi-nexus this is the action associated with an actual
+ * mqueue message.  So, we VTY_LOCK and LOG_LOCK (in that order) before
+ * proceeding.  Note also that uty_term_mon_write() will LOG_LOCK() again,
+ * so it must be a recursive lock.
  *
- * NB: expect incoming line to NOT include '\n' or any other line ending.
+ * For single nexus or legacy threads, this is called directly, when a log
+ * message is put into one or more mbufs.  Technically that violates the
+ * locking order, because will be LOG_LOCKed already -- but we don't care,
+ * since the locking is empty in this case !
+ *
+ * To minimise the time spent with the LOG_LOCK, we step through the monitors,
+ * and check for non-empty mbuf -- for which we need the LOG_LOCK.  Then we
+ * release the lock, and then step through the monitors, calling the write
+ * operation for each one that needs it.  That will LOG_LOCK again, for each
+ * one, as required.
  */
 static void
-vty_mon_action(mqueue_block mqb, mqb_flag_t flag)
+vty_monitor_action(mqueue_block mqb, mqb_flag_t flag)
 {
   VTY_LOCK() ;
-  LOG_LOCK() ;          /* IN THIS ORDER !!!                            */
 
-  mon_kicked = false ;  /* If anything else happens, need to kick again */
+  LOG_LOCK() ;          /* IN THIS ORDER !!!                            */
 
   if (flag == mqb_action)
     {
       vty_io vio ;
 
-      vio  = vio_monitor_list ;
+      vio  = ddl_head(vio_monitor_list) ;
       while (vio != NULL)
         {
           qassert(vio->vout_base->vout_type == VOUT_TERM) ;
 
-          if (vio->mon_kick)
-            {
-              vio->mon_kick = false ;
-              uty_term_mon_write(vio->vout_base) ;
-            } ;
+          vio->mwrite = !vio_fifo_is_empty(vio->mbuf) ;
 
-          vio = sdl_next(vio, mon_list) ;
+          vio = ddl_next(vio, mon_list) ;
         } ;
     }
   else
     mqb_free(mqb) ;     /* Suicide              */
 
+  mon_kicked = false ;  /* If anything else happens, need to kick again */
+
   LOG_UNLOCK() ;
+
+  if (flag == mqb_action)
+    {
+      vty_io vio ;
+
+      vio  = ddl_head(vio_monitor_list) ;
+      while (vio != NULL)
+        {
+          qassert(vio->vout_base->vout_type == VOUT_TERM) ;
+
+          if (vio->mwrite)
+            uty_term_mon_write(vio->vout_base) ;
+
+          vio = ddl_next(vio, mon_list) ;
+        } ;
+    } ;
+
   VTY_UNLOCK() ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Async-signal-safe version of vty_log for fixed strings.
+ * Async-signal-safe version of vty_monitor_log for fixed strings.
  *
  * This is last gasp operation.
  */
 extern void
-vty_log_fixed (const char *buf, uint len)
+vty_monitor_log_fixed (const char *buf, uint len)
 {
   vty_io  vio ;
 
@@ -304,7 +358,7 @@ vty_log_fixed (const char *buf, uint len)
    *
    * Forget all the niceties -- about to die in any case.
    */
-  vio = sdl_head(vio_monitor_list) ;
+  vio = ddl_head(vio_monitor_list) ;
   while (vio != NULL)
     {
       qassert(vio->vout_base->vout_type == VOUT_TERM) ;
@@ -312,12 +366,6 @@ vty_log_fixed (const char *buf, uint len)
       write(vio_vfd_fd(vio->vout_base->vfd), buf, len) ;
       write(vio_vfd_fd(vio->vout_base->vfd), "\r\n", 2) ;
 
-      vio = sdl_next(vio, mon_list) ;
+      vio = ddl_next(vio, mon_list) ;
     } ;
 } ;
-
-
-
-
-
-

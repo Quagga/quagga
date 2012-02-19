@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -83,7 +83,7 @@ if_zebra_new_hook (struct interface *ifp)
     rtadv->DefaultPreference = RTADV_PREF_MEDIUM;
 
     rtadv->AdvPrefixList = list_new ();
-  }    
+  }
 #endif /* RTADV */
 
   /* Initialize installed address chains tree. */
@@ -98,7 +98,7 @@ static int
 if_zebra_delete_hook (struct interface *ifp)
 {
   struct zebra_if *zebra_if;
-  
+
   if (ifp->info)
     {
       zebra_if = ifp->info;
@@ -142,7 +142,7 @@ if_subnet_add (struct interface *ifp, struct connected *ifc)
 
   /* Tie address at the tail of address list. */
   listnode_add (addr_list, ifc);
-  
+
   /* Return list element count. */
   return (addr_list->count);
 }
@@ -163,7 +163,7 @@ if_subnet_delete (struct interface *ifp, struct connected *ifc)
   if (! (rn && rn->info))
     return -1;
   route_unlock_node (rn);
-  
+
   /* Untie address from subnet's address list. */
   addr_list = rn->info;
   listnode_delete (addr_list, ifc);
@@ -180,10 +180,10 @@ if_subnet_delete (struct interface *ifp, struct connected *ifc)
 	  UNSET_FLAG (ifc->flags, ZEBRA_IFA_SECONDARY);
 	  zebra_interface_address_add_update (ifp, ifc);
 	}
-      
+
       return addr_list->count;
     }
-  
+
   /* Otherwise, free list and route node. */
   list_free (addr_list);
   rn->info = NULL;
@@ -198,10 +198,10 @@ if_subnet_delete (struct interface *ifp, struct connected *ifc)
  * ******************** Solaris flags hacks **************************
  *
  * Solaris IFF_UP flag reflects only the primary interface as the
- * routing socket only sends IFINFO for the primary interface.  Hence  
- * ~IFF_UP does not per se imply all the logical interfaces are also   
+ * routing socket only sends IFINFO for the primary interface.  Hence
+ * ~IFF_UP does not per se imply all the logical interfaces are also
  * down - which we only know of as addresses. Instead we must determine
- * whether the interface really is up or not according to how many   
+ * whether the interface really is up or not according to how many
  * addresses are still attached. (Solaris always sends RTM_DELADDR if
  * an interface, logical or not, goes ~IFF_UP).
  *
@@ -221,9 +221,9 @@ if_flags_mangle (struct interface *ifp, uint64_t *newflags)
 {
 #ifdef SUNOS_5
   struct zebra_if *zif = ifp->info;
-  
+
   zif->primary_state = *newflags & (IFF_UP & 0xff);
-  
+
   if (CHECK_FLAG (zif->primary_state, IFF_UP)
       || listcount(ifp->connected) > 0)
     SET_FLAG (*newflags, IFF_UP);
@@ -242,7 +242,7 @@ void
 if_flags_update (struct interface *ifp, uint64_t newflags)
 {
   if_flags_mangle (ifp, &newflags);
-    
+
   if (if_is_operative (ifp))
     {
       /* operative -> inoperative? */
@@ -272,7 +272,7 @@ if_addr_wakeup (struct interface *ifp)
   for (ALL_LIST_ELEMENTS (ifp->connected, node, nnode, ifc))
     {
       p = ifc->address;
-	
+
       if (CHECK_FLAG (ifc->conf, ZEBRA_IFC_CONFIGURED)
 	  && ! CHECK_FLAG (ifc->conf, ZEBRA_IFC_REAL))
 	{
@@ -298,7 +298,7 @@ if_addr_wakeup (struct interface *ifp)
 	      ret = if_set_prefix (ifp, ifc);
 	      if (ret < 0)
 		{
-		  zlog_warn ("Can't set interface's address: %s", 
+		  zlog_warn ("Can't set interface's address: %s",
 			     safe_strerror(errno));
 		  continue;
 		}
@@ -326,7 +326,7 @@ if_addr_wakeup (struct interface *ifp)
 	      ret = if_prefix_add_ipv6 (ifp, ifc);
 	      if (ret < 0)
 		{
-		  zlog_warn ("Can't set interface's address: %s", 
+		  zlog_warn ("Can't set interface's address: %s",
 			     safe_strerror(errno));
 		  continue;
 		}
@@ -363,7 +363,7 @@ if_add_update (struct interface *ifp)
       if_addr_wakeup (ifp);
 
       if (IS_ZEBRA_DEBUG_KERNEL)
-	zlog_debug ("interface %s index %d becomes active.", 
+	zlog_debug ("interface %s index %d becomes active.",
 		    ifp->name, ifp->ifindex);
     }
   else
@@ -374,7 +374,7 @@ if_add_update (struct interface *ifp)
 }
 
 /* Handle an interface delete event */
-void 
+void
 if_delete_update (struct interface *ifp)
 {
   struct connected *ifc;
@@ -393,7 +393,7 @@ if_delete_update (struct interface *ifp)
 
   /* Mark interface as inactive */
   UNSET_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE);
-  
+
   if (IS_ZEBRA_DEBUG_KERNEL)
     zlog_debug ("interface %s index %d is now inactive.",
 	       ifp->name, ifp->ifindex);
@@ -408,7 +408,7 @@ if_delete_update (struct interface *ifp)
 	{
 	  ifc = listgetdata (node);
 	  p = ifc->address;
-	  
+
 	  if (p->family == AF_INET
 	      && (rn = route_node_lookup (zebra_if->ipv4_subnets, p)))
 	    {
@@ -416,10 +416,10 @@ if_delete_update (struct interface *ifp)
 	      struct listnode *next;
 	      struct listnode *first;
 	      struct list *addr_list;
-	      
+
 	      route_unlock_node (rn);
 	      addr_list = (struct list *) rn->info;
-	      
+
 	      /* Remove addresses, secondaries first. */
 	      first = listhead (addr_list);
 	      for (anode = first->next; anode || first; anode = next)
@@ -443,7 +443,7 @@ if_delete_update (struct interface *ifp)
 		  /* Remove from subnet chain. */
 		  list_delete_node (addr_list, anode);
 		  route_unlock_node (rn);
-		  
+
 		  /* Remove from interface address list (unconditionally). */
 		  if (!CHECK_FLAG (ifc->conf, ZEBRA_IFC_CONFIGURED))
 		    {
@@ -669,7 +669,7 @@ if_dump_vty (struct vty *vty, struct interface *ifp)
   vty_out (vty, "Interface %s is ", ifp->name);
   if (if_is_up(ifp)) {
     vty_out (vty, "up, line protocol ");
-    
+
     if (CHECK_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION)) {
       if (if_is_running(ifp))
        vty_out (vty, "is up%s", VTY_NEWLINE);
@@ -692,8 +692,8 @@ if_dump_vty (struct vty *vty, struct interface *ifp)
     }
   else if (! CHECK_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE))
     {
-      vty_out(vty, "  index %d inactive interface%s", 
-	      ifp->ifindex, 
+      vty_out(vty, "  index %d inactive interface%s",
+	      ifp->ifindex,
 	      VTY_NEWLINE);
       return;
     }
@@ -703,10 +703,10 @@ if_dump_vty (struct vty *vty, struct interface *ifp)
 #ifdef HAVE_IPV6
   if (ifp->mtu6 != ifp->mtu)
     vty_out (vty, "mtu6 %d ", ifp->mtu6);
-#endif 
+#endif
   vty_out (vty, "%s  flags: %s%s", VTY_NEWLINE,
            if_flag_dump (ifp->flags), VTY_NEWLINE);
-  
+
   /* Hardware address. */
 #ifdef HAVE_STRUCT_SOCKADDR_DL
   sdl = &ifp->sdl;
@@ -731,7 +731,7 @@ if_dump_vty (struct vty *vty, struct interface *ifp)
       vty_out (vty, "%s", VTY_NEWLINE);
     }
 #endif /* HAVE_STRUCT_SOCKADDR_DL */
-  
+
   /* Bandwidth in kbps */
   if (ifp->bandwidth != 0)
     {
@@ -743,7 +743,7 @@ if_dump_vty (struct vty *vty, struct interface *ifp)
     {
       if (! rn->info)
 	continue;
-      
+
       for (ALL_LIST_ELEMENTS_RO ((struct list *)rn->info, node, connected))
         connected_dump_vty (vty, connected);
     }
@@ -834,50 +834,16 @@ if_dump_vty (struct vty *vty, struct interface *ifp)
 #endif /* HAVE_NET_RT_IFLIST */
 }
 
-/* Wrapper hook point for zebra daemon so that ifindex can be set 
- * DEFUN macro not used as extract.pl HAS to ignore this
- * See also interface_cmd in lib/if.c
- */ 
-DEFUN_NOSH (zebra_interface,
-	    zebra_interface_cmd,
-	    "interface IFNAME",
-	    "Select an interface to configure\n"
-	    "Interface's name\n")
-{
-  int ret;
-  struct interface * ifp;
-  
-  /* Call lib interface() */
-  if ((ret = interface_cmd.func (self, vty, argc, argv)) != CMD_SUCCESS)
-    return ret;
-
-  ifp = vty->index;  
-
-  if (ifp->ifindex == IFINDEX_INTERNAL)
-    /* Is this really necessary?  Shouldn't status be initialized to 0
-       in that case? */
-    UNSET_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE);
-
-  return ret;
-}
-
-struct cmd_node interface_node =
-{
-  INTERFACE_NODE,
-  "%s(config-if)# ",
-  1
-};
-
 /* Show all or specified interface to vty. */
 DEFUN (show_interface, show_interface_cmd,
-       "show interface [IFNAME]",  
+       "show interface [IFNAME]",
        SHOW_STR
        "Interface status and configuration\n"
        "Inteface name\n")
 {
   struct listnode *node;
   struct interface *ifp;
-  
+
 #ifdef HAVE_PROC_NET_DEV
   /* If system has interface statistics via proc file system, update
      statistics. */
@@ -891,7 +857,7 @@ DEFUN (show_interface, show_interface_cmd,
   if (argc != 0)
     {
       ifp = if_lookup_by_name (argv[0]);
-      if (ifp == NULL) 
+      if (ifp == NULL)
 	{
 	  vty_out (vty, "%% Can't find interface %s%s", argv[0],
 		   VTY_NEWLINE);
@@ -925,7 +891,7 @@ DEFUN (show_interface_desc,
 
       len = vty_out (vty, "%s", ifp->name);
       vty_out (vty, "%*s", (16 - len), " ");
-      
+
       if (if_is_up(ifp))
 	{
 	  vty_out (vty, "up      ");
@@ -1013,7 +979,7 @@ DEFUN (linkdetect,
 {
   struct interface *ifp;
   int if_was_operative;
-  
+
   ifp = (struct interface *) vty->index;
   if_was_operative = if_is_operative(ifp);
   SET_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION);
@@ -1040,7 +1006,7 @@ DEFUN (no_linkdetect,
   ifp = (struct interface *) vty->index;
   if_was_operative = if_is_operative(ifp);
   UNSET_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION);
-  
+
   /* Interface may come up after disabling link detection */
   if (if_is_operative(ifp) && !if_was_operative) if_up(ifp);
 
@@ -1102,9 +1068,9 @@ DEFUN (bandwidth_if,
        "Set bandwidth informational parameter\n"
        "Bandwidth in kilobits\n")
 {
-  struct interface *ifp;   
+  struct interface *ifp;
   unsigned int bandwidth;
-  
+
   ifp = (struct interface *) vty->index;
   bandwidth = strtol(argv[0], NULL, 10);
 
@@ -1114,13 +1080,13 @@ DEFUN (bandwidth_if,
       vty_out (vty, "Bandwidth is invalid%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  
+
   ifp->bandwidth = bandwidth;
 
   /* force protocols to recalculate routes due to cost change */
   if (if_is_operative (ifp))
     zebra_interface_up_update (ifp);
-  
+
   return CMD_SUCCESS;
 }
 
@@ -1130,12 +1096,12 @@ DEFUN (no_bandwidth_if,
        NO_STR
        "Set bandwidth informational parameter\n")
 {
-  struct interface *ifp;   
-  
+  struct interface *ifp;
+
   ifp = (struct interface *) vty->index;
 
   ifp->bandwidth = 0;
-  
+
   /* force protocols to recalculate routes due to cost change */
   if (if_is_operative (ifp))
     zebra_interface_up_update (ifp);
@@ -1149,7 +1115,7 @@ ALIAS (no_bandwidth_if,
        NO_STR
        "Set bandwidth informational parameter\n"
        "Bandwidth in kilobits\n")
-
+
 static int
 ip_address_install (struct vty *vty, struct interface *ifp,
 		    const char *addr_str, const char *peer_str,
@@ -1213,7 +1179,7 @@ ip_address_install (struct vty *vty, struct interface *ifp,
       ret = if_set_prefix (ifp, ifc);
       if (ret < 0)
 	{
-	  vty_out (vty, "%% Can't set interface IP address: %s.%s", 
+	  vty_out (vty, "%% Can't set interface IP address: %s.%s",
 		   safe_strerror(errno), VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
@@ -1265,7 +1231,7 @@ ip_address_uninstall (struct vty *vty, struct interface *ifp,
     return CMD_WARNING;
 
   UNSET_FLAG (ifc->conf, ZEBRA_IFC_CONFIGURED);
-  
+
   /* This is not real address or interface is not active. */
   if (! CHECK_FLAG (ifc->conf, ZEBRA_IFC_REAL)
       || ! CHECK_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE))
@@ -1279,7 +1245,7 @@ ip_address_uninstall (struct vty *vty, struct interface *ifp,
   ret = if_unset_prefix (ifp, ifc);
   if (ret < 0)
     {
-      vty_out (vty, "%% Can't unset interface IP address: %s.%s", 
+      vty_out (vty, "%% Can't unset interface IP address: %s.%s",
 	       safe_strerror(errno), VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -1407,7 +1373,7 @@ ipv6_address_install (struct vty *vty, struct interface *ifp,
 
       if (ret < 0)
 	{
-	  vty_out (vty, "%% Can't set interface IP address: %s.%s", 
+	  vty_out (vty, "%% Can't set interface IP address: %s.%s",
 		   safe_strerror(errno), VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
@@ -1468,7 +1434,7 @@ ipv6_address_uninstall (struct vty *vty, struct interface *ifp,
   ret = if_prefix_delete_ipv6 (ifp, ifc);
   if (ret < 0)
     {
-      vty_out (vty, "%% Can't unset interface IP address: %s.%s", 
+      vty_out (vty, "%% Can't unset interface IP address: %s.%s",
 	       safe_strerror(errno), VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -1522,7 +1488,7 @@ if_config_write (struct vty *vty)
       struct prefix *p;
 
       if_data = ifp->info;
-      
+
       vty_out (vty, "interface %s%s", ifp->name,
 	       VTY_NEWLINE);
 
@@ -1533,7 +1499,7 @@ if_config_write (struct vty *vty)
       /* Assign bandwidth here to avoid unnecessary interface flap
 	 while processing config script */
       if (ifp->bandwidth != 0)
-	vty_out(vty, " bandwidth %u%s", ifp->bandwidth, VTY_NEWLINE); 
+	vty_out(vty, " bandwidth %u%s", ifp->bandwidth, VTY_NEWLINE);
 
       if (CHECK_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION))
 	vty_out(vty, " link-detect%s", VTY_NEWLINE);
@@ -1580,43 +1546,57 @@ if_config_write (struct vty *vty)
   return 0;
 }
 
-/* Allocate and initialize interface vector. */
-void
+/*------------------------------------------------------------------------------
+ * Zebra interface commands
+ */
+CMD_INSTALL_TABLE(static, zebra_if_cmd_table, ZEBRA) =
+{
+  { VIEW_NODE,       &show_interface_cmd                                },
+  { ENABLE_NODE,     &show_interface_cmd                                },
+  { ENABLE_NODE,     &show_interface_desc_cmd                           },
+
+  { INTERFACE_NODE,  &multicast_cmd                                     },
+  { INTERFACE_NODE,  &no_multicast_cmd                                  },
+  { INTERFACE_NODE,  &linkdetect_cmd                                    },
+  { INTERFACE_NODE,  &no_linkdetect_cmd                                 },
+  { INTERFACE_NODE,  &shutdown_if_cmd                                   },
+  { INTERFACE_NODE,  &no_shutdown_if_cmd                                },
+  { INTERFACE_NODE,  &bandwidth_if_cmd                                  },
+  { INTERFACE_NODE,  &no_bandwidth_if_cmd                               },
+  { INTERFACE_NODE,  &no_bandwidth_if_val_cmd                           },
+  { INTERFACE_NODE,  &ip_address_cmd                                    },
+  { INTERFACE_NODE,  &no_ip_address_cmd                                 },
+
+#ifdef HAVE_IPV6
+  { INTERFACE_NODE,  &ipv6_address_cmd                                  },
+  { INTERFACE_NODE,  &no_ipv6_address_cmd                               },
+#endif /* HAVE_IPV6 */
+
+#ifdef HAVE_NETLINK
+  { INTERFACE_NODE,  &ip_address_label_cmd                              },
+  { INTERFACE_NODE,  &no_ip_address_label_cmd                           },
+#endif /* HAVE_NETLINK */
+
+  CMD_INSTALL_END
+} ;
+
+/* Install interface commands.
+ */
+extern void
+zebra_if_cmd_init (void)
+{
+  /* Install configuration write function. */
+  if_cmd_init(if_config_write);
+  cmd_install_table(zebra_if_cmd_table) ;
+}
+
+/* Initialize interface and new hook
+ */
+extern void
 zebra_if_init (void)
 {
   /* Initialize interface and new hook. */
   if_init ();
   if_add_hook (IF_NEW_HOOK, if_zebra_new_hook);
   if_add_hook (IF_DELETE_HOOK, if_zebra_delete_hook);
-  
-  /* Install configuration write function. */
-  install_node (&interface_node, if_config_write);
-
-  install_element (VIEW_NODE, &show_interface_cmd);
-  install_element (ENABLE_NODE, &show_interface_cmd);
-  install_element (ENABLE_NODE, &show_interface_desc_cmd);
-  install_element (CONFIG_NODE, &zebra_interface_cmd);
-  install_element (CONFIG_NODE, &no_interface_cmd);
-  install_default (INTERFACE_NODE);
-  install_element (INTERFACE_NODE, &interface_desc_cmd);
-  install_element (INTERFACE_NODE, &no_interface_desc_cmd);
-  install_element (INTERFACE_NODE, &multicast_cmd);
-  install_element (INTERFACE_NODE, &no_multicast_cmd);
-  install_element (INTERFACE_NODE, &linkdetect_cmd);
-  install_element (INTERFACE_NODE, &no_linkdetect_cmd);
-  install_element (INTERFACE_NODE, &shutdown_if_cmd);
-  install_element (INTERFACE_NODE, &no_shutdown_if_cmd);
-  install_element (INTERFACE_NODE, &bandwidth_if_cmd);
-  install_element (INTERFACE_NODE, &no_bandwidth_if_cmd);
-  install_element (INTERFACE_NODE, &no_bandwidth_if_val_cmd);
-  install_element (INTERFACE_NODE, &ip_address_cmd);
-  install_element (INTERFACE_NODE, &no_ip_address_cmd);
-#ifdef HAVE_IPV6
-  install_element (INTERFACE_NODE, &ipv6_address_cmd);
-  install_element (INTERFACE_NODE, &no_ipv6_address_cmd);
-#endif /* HAVE_IPV6 */
-#ifdef HAVE_NETLINK
-  install_element (INTERFACE_NODE, &ip_address_label_cmd);
-  install_element (INTERFACE_NODE, &no_ip_address_label_cmd);
-#endif /* HAVE_NETLINK */
 }

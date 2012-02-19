@@ -44,25 +44,17 @@ enum cmd_exec_state
   exec_open_pipes,      /* open pipes on command line           */
   exec_execute,         /* execute standard command             */
   exec_special,         /* execute special command              */
-  exec_cmd_done,        /* command completed somehow            */
-  exec_cmd_success,     /* command completed successfully       */
+  exec_cmd_complete,    /* command completed                    */
   exec_hiatus,          /* while issues are dealt with          */
   exec_stopped,         /* command loop has stopped             */
 } ;
 typedef enum cmd_exec_state cmd_exec_state_t ;
 
-typedef struct cmd_exec* cmd_exec ;
-
 struct cmd_exec
 {
   vty           vty ;           /* parent                       */
 
-  cmd_action_t  action ;        /* to do + line                 */
-
-  cmd_context   context ;       /* how to parse/execute         */
-
-  bool          out_suppress ;  /* for configuration reading    */
-  bool          reflect ;       /* actually reflect             */
+  cmd_context   context ;       /* current context at all times */
 
   cmd_parsed    parsed ;        /* parsing and its result       */
 
@@ -71,7 +63,7 @@ struct cmd_exec
   cmd_exec_state_t  state ;     /* for cq_process               */
   qpn_nexus         locus ;     /* for cq_process               */
 
-  cmd_return_code_t ret ;       /* for cq_process               */
+  cmd_ret_t ret ;       /* for cq_process               */
 
   union
   {
@@ -80,37 +72,29 @@ struct cmd_exec
   } cq ;
 } ;
 
+typedef struct cmd_exec cmd_exec_t ;
+
 /*==============================================================================
  * Functions
- *
  */
-
-extern cmd_exec cmd_exec_new(vty vty) ;
+extern cmd_exec cmd_exec_new(vty vty, cmd_context context) ;
 extern cmd_exec cmd_exec_free(cmd_exec exec) ;
 
-extern cmd_return_code_t cmd_read_config(vty vty, cmd_command first_cmd,
-                                                          bool ignore_warning) ;
-extern cmd_return_code_t cmd_open_pipes(vty vty) ;
+extern cmd_ret_t cmd_read_config(vty vty, uint* warnings) ;
+extern cmd_ret_t cmd_open_pipes(vty vty) ;
 
-extern cmd_return_code_t cmd_execute(vty vty) ;
+extern cmd_ret_t cmd_execute(vty vty) ;
 
 extern cmd_context cmd_context_new(void) ;
-extern cmd_context cmd_context_new_save(cmd_context src, qpath file_here) ;
-extern cmd_context cmd_context_restore(cmd_context dst, cmd_context src) ;
-extern cmd_context cmd_context_free(cmd_context context, bool copy) ;
+extern void cmd_context_init(cmd_context context, vty_type_t type,
+                                                  node_type_t node) ;
+extern void cmd_context_config_set(cmd_context context, bool ignore_warnings,
+                                                        bool show_warnings) ;
+extern cmd_context cmd_context_save(cmd_context tos) ;
+extern cmd_context cmd_context_restore(cmd_context tos, cmd_context saved) ;
 
-
-#if 0
-
-extern enum cmd_return_code cmd_execute_command (vty vty,
-                              cmd_parse_type_t type, struct cmd_command **cmd) ;
-extern enum cmd_return_code cmd_execute_command_strict (vty vty,
-                          enum cmd_parse_type type, struct cmd_command **cmd) ;
-
-
-extern void config_replace_string (cmd_command, char *, ...);
-
-#endif
+extern cmd_context cmd_context_copy(cmd_context dst, cmd_context src) ;
+extern cmd_context cmd_context_free(cmd_context context) ;
 
 /*==============================================================================
  * Inlines

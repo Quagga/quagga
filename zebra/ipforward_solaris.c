@@ -17,8 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 #include "log.h"
@@ -76,17 +77,17 @@ solaris_nd(const int cmd, const char* parameter, const int value)
   strioctl.ic_timout = 0;
   strioctl.ic_len = ND_BUFFER_SIZE;
   strioctl.ic_dp = nd_buf;
-  
+
   if ( zserv_privs.change (ZPRIVS_RAISE) )
        zlog_err ("solaris_nd: Can't raise privileges");
-  if ((fd = open (device, O_RDWR)) < 0) 
+  if ((fd = open (device, O_RDWR)) < 0)
     {
       zlog_warn("failed to open device %s - %s", device, safe_strerror(errno));
       if ( zserv_privs.change (ZPRIVS_LOWER) )
         zlog_err ("solaris_nd: Can't lower privileges");
       return -1;
     }
-  if (ioctl (fd, I_STR, &strioctl) < 0) 
+  if (ioctl (fd, I_STR, &strioctl) < 0)
     {
       int save_errno = errno;
       if ( zserv_privs.change (ZPRIVS_LOWER) )
@@ -99,19 +100,19 @@ solaris_nd(const int cmd, const char* parameter, const int value)
   close(fd);
   if ( zserv_privs.change (ZPRIVS_LOWER) )
          zlog_err ("solaris_nd: Can't lower privileges");
-  
-  if (cmd == ND_GET) 
+
+  if (cmd == ND_GET)
     {
       errno = 0;
       retval = atoi(nd_buf);
-      if (errno) 
+      if (errno)
         {
           zlog_warn("failed to convert returned value to integer - %s",
                     safe_strerror(errno));
           retval = -1;
         }
-    } 
-  else 
+    }
+  else
     {
       retval = 0;
     }
@@ -163,3 +164,5 @@ ipforward_ipv6_off (void)
   return ipforward_ipv6();
 }
 #endif /* HAVE_IPV6 */
+
+#endif /* VTYSH_EXTRACT_PL */

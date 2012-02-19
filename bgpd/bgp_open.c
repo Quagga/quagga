@@ -367,10 +367,13 @@ bgp_capability_orf_entry (struct peer *peer, struct capability_header *hdr)
 static int
 bgp_capability_orf (struct peer *peer, struct capability_header *hdr)
 {
-  struct stream *s = BGP_INPUT (peer);
-  size_t end = stream_get_getp (s) + hdr->length;
+  struct stream *s ;
+  size_t end ;
 
-  assert (stream_get_getp(s) + sizeof(struct capability_orf_entry) <= end);
+  s   = BGP_INPUT (peer);
+  end = stream_get_getp (s) + hdr->length;
+
+  qassert (stream_get_getp(s) + sizeof(struct capability_orf_entry) <= end);
 
   /* We must have at least one ORF entry, as the caller has already done
    * minimum length validation for the capability code - for ORF there must
@@ -496,12 +499,12 @@ bgp_capability_parse (struct peer *peer, size_t length, u_char **error)
   struct stream *s = BGP_INPUT (peer);
   size_t end = stream_get_getp (s) + length;
 
-  assert (STREAM_READABLE (s) >= length);
+  assert (stream_get_read_left(s) >= length);
 
   while (stream_get_getp (s) < end)
     {
       size_t start;
-      u_char *sp = stream_pnt (s);
+      u_char *sp = stream_get_pnt (s);
       struct capability_header caphdr;
 
       /* We need at least capability code and capability length. */
@@ -671,7 +674,7 @@ peek_for_as4_capability (struct peer *peer, u_char length)
   as_t as4 = 0;
 
   /* The full capability parser will better flag the error.. */
-  if (STREAM_READABLE(s) < length)
+  if (stream_get_read_left(s) < length)
     return 0;
 
   if (BGP_DEBUG (as4, AS4))
@@ -762,7 +765,7 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *capability)
       u_char opt_length;
 
       /* Must have at least an OPEN option header */
-      if (STREAM_READABLE(s) < 2)
+      if (stream_get_read_left(s) < 2)
 	{
 	  zlog_info ("%s Option length error", peer->host);
           /* TODO: Is this the right notification ??           */
@@ -775,7 +778,7 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *capability)
       opt_length = stream_getc (s);
 
       /* Option length check. */
-      if (STREAM_READABLE (s) < opt_length)
+      if (stream_get_read_left(s) < opt_length)
 	{
 	  zlog_info ("%s Option length error", peer->host);
           /* TODO: Is this the right notification ??           */

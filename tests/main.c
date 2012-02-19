@@ -23,14 +23,13 @@
 
 #include <lib/version.h>
 #include "getopt.h"
+#include "qlib_init.h"
 #include "thread.h"
 #include "vty.h"
 #include "command.h"
 #include "memory.h"
 
 extern void test_init();
-
-struct thread_master *master;
 
 struct option longopts[] =
 {
@@ -73,12 +72,12 @@ test_timer_init()
 static void
 test_vty_init()
 {
-  install_element (VIEW_NODE, &daemon_exit_cmd);
+  cmd_install_command (VIEW_NODE, &daemon_exit_cmd, BASIC_VD);  /* TODO */
 }
 
 /* Help information display. */
 static void
-usage (char *progname, int status)
+usage (const char *progname, int status)
 {
   if (status != 0)
     fprintf (stderr, "Try `%s --help' for more information.\n", progname);
@@ -103,22 +102,14 @@ Report bugs to %s\n", progname, ZEBRA_BUG_ADDRESS);
 int
 main (int argc, char **argv)
 {
-  char *p;
   char *vty_addr = NULL;
   int vty_port = 4000;
   int daemon_mode = 0;
-  char *progname;
   struct thread thread;
   char *config_file = NULL;
 
-  /* Set umask before anything for security */
-  umask (0027);
-
-  /* get program name */
-  progname = ((p = strrchr (argv[0], '/')) ? ++p : argv[0]);
-
-  /* master init. */
-  master = thread_master_create ();
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
 
   while (1)
     {
@@ -153,27 +144,28 @@ main (int argc, char **argv)
           vty_port = (vty_port ? vty_port : 4000);
   	  break;
 	case 'v':
-	  print_version (progname);
+	  cmd_print_version (cmd_host_program_name());
 	  exit (0);
 	  break;
 	case 'h':
-	  usage (progname, 0);
+	  usage (cmd_host_program_name(), 0);
 	  break;
 	default:
-	  usage (progname, 1);
+	  usage (cmd_host_program_name(), 1);
 	  break;
 	}
     }
 
   /* Library inits. */
-  cmd_init (1);
-  vty_init (master);
-  memory_init ();
+  cmd_table_init (BASIC_VD);
 
-  /* OSPF vty inits. */
   test_vty_init ();
 
-  sort_node ();
+  cmd_table_complete();
+
+  /* Other initialisation
+   */
+  vty_init ();
 
   /* Change to the daemon program. */
   if (daemon_mode && daemon (0, 0) < 0)
@@ -183,11 +175,11 @@ main (int argc, char **argv)
     }
 
   /* Create VTY socket */
-  vty_serv_sock (vty_addr, vty_port, "/tmp/.heavy.sock");
+  vty_start(vty_addr, vty_port, "/tmp/.heavy.sock");
 
   /* Configuration file read*/
   if (!config_file)
-    usage (progname, 1);
+    usage (cmd_host_program_name(), 1);
   vty_read_config (config_file, NULL);
 
   test_timer_init();

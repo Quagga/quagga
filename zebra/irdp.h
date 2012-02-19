@@ -16,10 +16,10 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
-/* 
+/*
  * This file is modified and completed for the Zebra IRDP implementation
  * by Robert Olsson, Swedish University of Agricultural Sciences
  */
@@ -51,7 +51,7 @@
 #endif /* INADDR_ALLRTRS_GROUP */
 
 /* Default irdp packet interval */
-#define IRDP_DEFAULT_INTERVAL 300 
+#define IRDP_DEFAULT_INTERVAL 300
 
 /* Router constants from RFC1256 */
 #define MAX_INITIAL_ADVERT_INTERVAL 16
@@ -69,8 +69,8 @@
 
 #define IRDP_RX_BUF 1500
 
-/* 
-     Comments comes from RFC1256 ICMP Router Discovery Messages. 
+/*
+     Comments comes from RFC1256 ICMP Router Discovery Messages.
 
      The IP destination address to be used for multicast Router
      Advertisements sent from the interface.  The only permissible
@@ -80,26 +80,26 @@
      all listening hosts support IP multicast.)
 
      Default: 224.0.0.1 if the router supports IP multicast on the
-     interface, else 255.255.255.255 
+     interface, else 255.255.255.255
 
      The maximum time allowed between sending multicast Router
      Advertisements from the interface, in seconds.  Must be no less
      than 4 seconds and no greater than 1800 seconds.
 
-     Default: 600 seconds 
+     Default: 600 seconds
 
      The minimum time allowed between sending unsolicited multicast
      Router Advertisements from the interface, in seconds.  Must be no
      less than 3 seconds and no greater than MaxAdvertisementInterval.
 
-     Default: 0.75 * MaxAdvertisementInterval 
+     Default: 0.75 * MaxAdvertisementInterval
 
      The value to be placed in the Lifetime field of Router
      Advertisements sent from the interface, in seconds.  Must be no
      less than MaxAdvertisementInterval and no greater than 9000
      seconds.
 
-     Default: 3 * MaxAdvertisementInterval 
+     Default: 3 * MaxAdvertisementInterval
 
      The preferability of the address as a default router address,
      relative to other router addresses on the same subnet.  A 32-bit,
@@ -108,10 +108,10 @@
      that the address, even though it may be advertised, is not to be
      used by neighboring hosts as a default router address.
 
-     Default: 0 
+     Default: 0
 */
 
-struct irdp_interface 
+struct irdp_interface
 {
   unsigned long MaxAdvertInterval;
   unsigned long MinAdvertInterval;
@@ -122,10 +122,10 @@ struct irdp_interface
 #define IF_ACTIVE               (1<<0) /* ICMP Active */
 #define IF_BROADCAST            (1<<1) /* 255.255.255.255 */
 #define IF_SOLICIT              (1<<2) /* Solicit active */
-#define IF_DEBUG_MESSAGES       (1<<3) 
-#define IF_DEBUG_PACKET         (1<<4) 
-#define IF_DEBUG_MISC           (1<<5) 
-#define IF_SHUTDOWN             (1<<6) 
+#define IF_DEBUG_MESSAGES       (1<<3)
+#define IF_DEBUG_PACKET         (1<<4)
+#define IF_DEBUG_MISC           (1<<5)
+#define IF_SHUTDOWN             (1<<6)
 
   struct interface *ifp;
   struct thread *t_advertise;
@@ -136,12 +136,13 @@ struct irdp_interface
 
 };
 
-struct Adv 
+struct Adv
 {
   struct in_addr ip;
   int pref;
 };
 
+extern void irdp_cmd_init(void);
 extern void irdp_init(void);
 extern int irdp_sock_init(void);
 extern void irdp_finish(void);

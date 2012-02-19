@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
- * Boston, MA 02111-1307, USA. 
+ * Boston, MA 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_FILTER_H
@@ -26,7 +26,7 @@
 #include "if.h"
 
 /* Filter type is made by `permit', `deny' and `dynamic'. */
-enum filter_type 
+enum filter_type
 {
   FILTER_DENY,
   FILTER_PERMIT,
@@ -57,6 +57,7 @@ struct access_list
 };
 
 /* Prototypes for access-list. */
+extern void access_list_cmd_init (void);
 extern void access_list_init (void);
 extern void access_list_reset (void);
 extern void access_list_add_hook (void (*func)(struct access_list *));

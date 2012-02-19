@@ -58,6 +58,12 @@
 /* Bit number to bit mask                                               */
 #define BIT(b)  (1 << b)
 
+/* The LS bit of a given value                                          */
+#define LS_BIT(v) ((v) ^ ((v) & ((v) - 1)))
+
+/* The given value is a power of 2                                      */
+#define IS_POW_OF_2(v) (((v) & ((v) - 1)) == 0)
+
 /* Just in case there are compiler issues                               */
 #define Inline static inline
 
@@ -92,6 +98,10 @@ enum free_keep
   keep_it = false
 } ;
 typedef enum free_keep free_keep_b ;
+
+/* Make sure cast to (bool) does what is expected
+ */
+CONFIRM(((bool)99 == true) && ((bool)0 == false)) ;
 
 /* We really want to be able to assume that an int is at least 32 bits
  * and that a long is at least 64 bits !  (And short is at least 16 bits.)
@@ -165,5 +175,26 @@ enum { qdebug = QDEBUG } ;
 #ifndef QDEBUG_NAME
 # define QDEBUG_NAME STRING_VALUE(QDEBUG)
 #endif
+
+/*==============================================================================
+ * Other useful functions
+ */
+typedef enum
+{
+  strtox_signed   = 1,          /* OK and '+' or '-' was present        */
+  strtox_ok       = 0,          /* OK                                   */
+
+  strtox_invalid  = -1,         /* badly formed number                  */
+  strtox_range    = -2,         /* out of range                         */
+} strtox_t ;
+
+extern long  strtol_x(const char* restrict str, strtox_t* p_tox, char** endp) ;
+extern ulong strtoul_x(const char* restrict str, strtox_t* p_tox, char** endp) ;
+extern long  strtol_xr(const char* restrict str, strtox_t* p_tox, char** endp,
+                                                                  long min,
+                                                                  long max) ;
+extern ulong strtoul_xr(const char* restrict str, strtox_t* p_tox, char** endp,
+                                                                   ulong min,
+                                                                   ulong max) ;
 
 #endif /* _ZEBRA_MISC_H */

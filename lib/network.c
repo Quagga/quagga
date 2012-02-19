@@ -47,8 +47,8 @@ static ssize_t write_qdebug_nb(int fd, const void* buf, size_t nbyte) ;
  *
  * Loops internally if gets EINTR.
  *
- * Returns: >= 0 -- number of bytes read
- *           < 0 => error
+ * Returns: >= 0 -- number of bytes read -- < request => EOF met
+ *            -1 => error
  *
  * NB: if applied to a NON-BLOCKING fd, may return EAGAIN or EWOULDBLOCK
  */
@@ -73,12 +73,9 @@ readn (int fd, void* buf, int nbytes)
       else if (nread == 0)
 	break;
 
-      else
-        {
-          if (errno != EINTR)
-            return (nread);
-        }
-    }
+      else if (errno != EINTR)
+        return -1 ;
+    } ;
 
   return nbytes - nleft;
 }
@@ -102,8 +99,12 @@ extern int
 read_nb(int fd, void* buf, size_t nbyte)
 {
   size_t nleft ;
+  char*  p ;
 
-// char* p = buf ;
+  enum { read_nb_debug = false } ;
+
+  if (read_nb_debug)
+    p = buf ;
 
   nleft = nbyte ;
 
@@ -132,67 +133,63 @@ read_nb(int fd, void* buf, size_t nbyte)
           return (nbyte == 0) ? 0 : -2 ;        /* OK or EOF    */
         }
 
-      else
-        {
-          int err = errno ;
-          if ((err == EAGAIN) || (err == EWOULDBLOCK))
-            break ;
-          if (err != EINTR)
-//          assert(0) ;         // PRO TEM
-            return -1 ;         /* failed                       */
-        } ;
+      else if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
+        break ;
+
+      else if (errno != EINTR)
+        return -1 ;             /* failed                       */
+
     } while (nleft > 0) ;
 
-#if 0
-{
-  int n ;
-  char buffer[100] ;
-  char* q, * e ;
-  e = buffer + 95 ;
-
-  n = nbyte - nleft ;
-
-  fprintf(stderr, "[read (%d) %d: '", fd, n) ;
-  while (n > 0)
+  if (read_nb_debug)
     {
-      q = buffer ;
-      while ((q < e) && (n > 0))
+      int n ;
+      char buffer[100] ;
+      char* q, * e ;
+      e = buffer + 95 ;
+
+      n = nbyte - nleft ;
+
+      fprintf(stderr, "[read (%d) %d: '", fd, n) ;
+      while (n > 0)
         {
-          char ch = *p++ ;
-          --n ;
-
-          if (ch < 0x20)
+          q = buffer ;
+          while ((q < e) && (n > 0))
             {
-              *q++ = '\\' ;
-              switch (ch)
+              char ch = *p++ ;
+              --n ;
+
+              if (ch < 0x20)
                 {
-                  case '\n':
-                    ch = 'n' ;
-                    break ;
+                  *q++ = '\\' ;
+                  switch (ch)
+                    {
+                      case '\n':
+                        ch = 'n' ;
+                        break ;
 
-                  case '\r':
-                    ch = 'r' ;
-                    break ;
+                      case '\r':
+                        ch = 'r' ;
+                        break ;
 
-                  case '\t':
-                    ch = 't' ;
-                    break ;
+                      case '\t':
+                        ch = 't' ;
+                        break ;
 
-                  default:
-                    ch += '@' ;
-                    break ;
+                      default:
+                        ch += '@' ;
+                        break ;
+                    } ;
                 } ;
+
+              *q++ = ch ;
             } ;
+          *q++ = '\0' ;
 
-          *q++ = ch ;
-        } ;
-      *q++ = '\0' ;
-
-      fprintf(stderr, "%s", buffer) ;
-    }
-  fprintf(stderr, "']\n") ;
-} ;
-#endif
+          fprintf(stderr, "%s", buffer) ;
+        }
+      fprintf(stderr, "']\n") ;
+    } ;
 
   return (nbyte - nleft) ;
 } ;
@@ -228,12 +225,10 @@ writen(int fd, const void* buf, int nbytes)
           nleft -= nwritten;
           buf    = (const char*)buf + nwritten;
         }
-      else
-        {
-          if (errno != EINTR)
-            return -1 ;
-        } ;
+      else if (errno != EINTR)
+        return -1 ;
     } ;
+
   return nbytes - nleft;
 }
 
@@ -271,20 +266,19 @@ write_nb(int fd, const void* buf, size_t nbyte)
           buf    = (const char*)buf + ret ;
           nleft -= ret ;
         }
+
       else if (ret == 0)
         /* write() is not expected to return 0 unless the request is 0,
          * which in this case it isn't.  So cannot happen -- but if it were
          * to happen, this treats it as another form of "EAGAIN" !
          */
         break ;
-      else
-        {
-          if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
-            break ;
-          if (errno != EINTR)
-//          assert(0) ;         // PRO TEM
-            return -1 ;         /* failed                       */
-        } ;
+
+      else if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
+        break ;
+
+      else if (errno != EINTR)
+        return -1 ;             /* failed                       */
     } ;
 
   return (nbyte - nleft) ;
@@ -328,7 +322,7 @@ copyn (int dst_fd, int src_fd)
  * Set fd to non-blocking
  *
  * Returns:  0 => OK
- *          -1 => failed
+ *          -1 => failed -- logged a warning, but errno preserved
  */
 extern int
 set_nonblocking(int fd)
@@ -339,16 +333,70 @@ set_nonblocking(int fd)
      never be negative. */
   if ((flags = fcntl(fd, F_GETFL)) < 0)
     {
-      zlog_warn("fcntl(F_GETFL) failed for fd %d: %s",
-      		fd, errtoa(errno, 0).str);
+      int err = errno ;
+
+      zlog_warn("%s: fcntl(%d, F_GETFL) failed: %s", __func__,
+      		                                       fd, errtoa(err, 0).str) ;
+      errno = err ;
       return -1;
-    }
-  if (fcntl(fd, F_SETFL, (flags | O_NONBLOCK)) < 0)
+    } ;
+
+  if ((flags & O_NONBLOCK) == 0)
     {
-      zlog_warn("fcntl failed setting fd %d non-blocking: %s",
-      		fd, errtoa(errno, 0).str);
+      flags |= O_NONBLOCK ;
+
+      if (fcntl(fd, F_SETFL, flags) < 0)
+        {
+          int err = errno ;
+
+          zlog_warn("%s: fcntl(%d, F_SETFL, 0x%x) failed: %s", __func__,
+      		                                fd, flags, errtoa(err, 0).str) ;
+          errno = err ;
+          return -1;
+        } ;
+    } ;
+
+  return 0;
+}
+
+/*------------------------------------------------------------------------------
+ * Set fd to close on exec
+ *
+ * Returns:  0 => OK
+ *          -1 => failed -- logged a warning, but errno preserved
+ */
+extern int
+set_close_on_exec(int fd)
+{
+  int flags;
+
+  /* According to the Single UNIX Spec, the return value for F_GETFD should
+     never be negative. */
+  if ((flags = fcntl(fd, F_GETFD)) < 0)
+    {
+      int err = errno ;
+
+      zlog_warn("%s: fcntl(%d, F_GETFD) failed: %s", __func__,
+                                                       fd, errtoa(err, 0).str) ;
+      errno = err ;
       return -1;
-    }
+    } ;
+
+  if ((flags & FD_CLOEXEC) == 0)
+    {
+      flags |= FD_CLOEXEC ;
+
+      if (fcntl(fd, F_SETFD, flags) < 0)
+        {
+          int err = errno ;
+
+          zlog_warn("%s: fcntl(%d, F_SETFD, 0x%x) failed: %s", __func__,
+                                                fd, flags, errtoa(err, 0).str) ;
+          errno = err ;
+          return -1;
+        } ;
+    } ;
+
   return 0;
 }
 

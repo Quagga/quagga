@@ -47,6 +47,7 @@ struct key
   struct key_range accept;
 };
 
+extern void keychain_cmd_init (void);
 extern void keychain_init (void);
 extern struct keychain *keychain_lookup (const char *);
 extern struct key *key_lookup_for_accept (const struct keychain *, u_int32_t);

@@ -30,6 +30,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "log.h"
 #include "sockunion.h"
 #include "memory.h"
+#include "qfstring.h"
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_engine.h"
@@ -43,7 +44,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_community.h"
-
+#include "bgpd/bgp_names.h"
 
 unsigned long conf_bgp_debug_as4;
 unsigned long conf_bgp_debug_fsm;
@@ -65,117 +66,9 @@ unsigned long term_bgp_debug_update;
 unsigned long term_bgp_debug_normal;
 unsigned long term_bgp_debug_zebra;
 
-/* messages for BGP-4 status */
-const struct message bgp_status_msg[] =
-{
-  { bgp_fsm_sInitial,     "Initial"     },
-  { bgp_fsm_sIdle,        "Idle"        },
-  { bgp_fsm_sConnect,     "Connect"     },
-  { bgp_fsm_sActive,      "Active"      },
-  { bgp_fsm_sOpenSent,    "OpenSent"    },
-  { bgp_fsm_sOpenConfirm, "OpenConfirm" },
-  { bgp_fsm_sEstablished, "Established" },
-  { bgp_fsm_sStopping,    "Stopping"    },
-};
-const int bgp_status_msg_max = bgp_fsm_last_state + 1 ;
-
-const struct message bgp_peer_status_msg[] =
-{
-  { bgp_peer_pIdle,        "Idle"        },
-  { bgp_peer_pEstablished, "Established" },
-  { bgp_peer_pClearing,    "Clearing"    },
-  { bgp_peer_pDeleting,    "Deleting"    },
-};
-const int bgp_peer_status_msg_max = bgp_peer_max_state + 1 ;
-
-/* BGP message type string. */
-const char *bgp_type_str[] =
-{
-  NULL,
-  "OPEN",
-  "UPDATE",
-  "NOTIFICATION",
-  "KEEPALIVE",
-  "ROUTE-REFRESH",
-  "CAPABILITY"
-};
-
-/* message for BGP-4 Notify */
-static const struct message bgp_notify_msg[] =
-{
-  { BGP_NOTIFY_HEADER_ERR,     "Message Header Error"       },
-  { BGP_NOTIFY_OPEN_ERR,       "OPEN Message Error"         },
-  { BGP_NOTIFY_UPDATE_ERR,     "UPDATE Message Error"       },
-  { BGP_NOTIFY_HOLD_ERR,       "Hold Timer Expired"         },
-  { BGP_NOTIFY_FSM_ERR,        "Finite State Machine Error" },
-  { BGP_NOTIFY_CEASE,          "Cease"                      },
-  { BGP_NOTIFY_CAPABILITY_ERR, "CAPABILITY Message Error"   },
-};
-static const int bgp_notify_msg_max = BGP_NOTIFY_MAX;
-
-static const struct message bgp_notify_head_msg[] =
-{
-  { BGP_NOTIFY_HEADER_NOT_SYNC,    "/Connection Not Synchronized" },
-  { BGP_NOTIFY_HEADER_BAD_MESLEN,  "/Bad Message Length"          },
-  { BGP_NOTIFY_HEADER_BAD_MESTYPE, "/Bad Message Type"            }
-};
-static const int bgp_notify_head_msg_max = BGP_NOTIFY_HEADER_MAX;
-
-static const struct message bgp_notify_open_msg[] =
-{
-  { BGP_NOTIFY_OPEN_UNSUP_VERSION,   "/Unsupported Version Number"     },
-  { BGP_NOTIFY_OPEN_BAD_PEER_AS,     "/Bad Peer AS"                    },
-  { BGP_NOTIFY_OPEN_BAD_BGP_IDENT,   "/Bad BGP Identifier"             },
-  { BGP_NOTIFY_OPEN_UNSUP_PARAM,     "/Unsupported Optional Parameter" },
-  { BGP_NOTIFY_OPEN_AUTH_FAILURE,    "/Authentication Failure"         },
-  { BGP_NOTIFY_OPEN_UNACEP_HOLDTIME, "/Unacceptable Hold Time"         },
-  { BGP_NOTIFY_OPEN_UNSUP_CAPBL,     "/Unsupported Capability"         },
-};
-static const int bgp_notify_open_msg_max = BGP_NOTIFY_OPEN_MAX;
-
-static const struct message bgp_notify_update_msg[] =
-{
-  { BGP_NOTIFY_UPDATE_MAL_ATTR,       "/Malformed Attribute List"          },
-  { BGP_NOTIFY_UPDATE_UNREC_ATTR,     "/Unrecognized Well-known Attribute" },
-  { BGP_NOTIFY_UPDATE_MISS_ATTR,      "/Missing Well-known Attribute"      },
-  { BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR,  "/Attribute Flags Error"             },
-  { BGP_NOTIFY_UPDATE_ATTR_LENG_ERR,  "/Attribute Length Error"            },
-  { BGP_NOTIFY_UPDATE_INVAL_ORIGIN,   "/Invalid ORIGIN Attribute"          },
-  { BGP_NOTIFY_UPDATE_AS_ROUTE_LOOP,  "/AS Routing Loop"                   },
-  { BGP_NOTIFY_UPDATE_INVAL_NEXT_HOP, "/Invalid NEXT_HOP Attribute"        },
-  { BGP_NOTIFY_UPDATE_OPT_ATTR_ERR,   "/Optional Attribute Error"          },
-  { BGP_NOTIFY_UPDATE_INVAL_NETWORK,  "/Invalid Network Field"             },
-  { BGP_NOTIFY_UPDATE_MAL_AS_PATH,    "/Malformed AS_PATH"                 },
-};
-static const int bgp_notify_update_msg_max = BGP_NOTIFY_UPDATE_MAX;
-
-static const struct message bgp_notify_cease_msg[] =
-{
-  { BGP_NOTIFY_CEASE_MAX_PREFIX,        "/Maximum Number of Prefixes Reached" },
-  { BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN,       "/Administratively Shutdown"       },
-  { BGP_NOTIFY_CEASE_PEER_UNCONFIG,        "/Peer Unconfigured"               },
-  { BGP_NOTIFY_CEASE_ADMIN_RESET,          "/Administratively Reset"          },
-  { BGP_NOTIFY_CEASE_CONNECT_REJECT,       "/Connection Rejected"             },
-  { BGP_NOTIFY_CEASE_CONFIG_CHANGE,        "/Other Configuration Change"      },
-  { BGP_NOTIFY_CEASE_COLLISION_RESOLUTION, "/Connection collision resolution" },
-  { BGP_NOTIFY_CEASE_OUT_OF_RESOURCE,      "/Out of Resource"                 },
-};
-static const int bgp_notify_cease_msg_max = BGP_NOTIFY_CEASE_MAX;
-
-static const struct message bgp_notify_capability_msg[] =
-{
-  { BGP_NOTIFY_CAPABILITY_INVALID_ACTION, "/Invalid Action Value"       },
-  { BGP_NOTIFY_CAPABILITY_INVALID_LENGTH, "/Invalid Capability Length"  },
-  { BGP_NOTIFY_CAPABILITY_MALFORMED_CODE, "/Malformed Capability Value" },
-  { 4,                                    "/Unsupported Capability"     }
-};
-static const int bgp_notify_capability_msg_max = BGP_NOTIFY_CAPABILITY_MAX;
-
-/* Origin strings. */
-const char *bgp_origin_str[] = {"i","e","?"};
-const char *bgp_origin_long_str[] = {"IGP","EGP","incomplete"};
-
-/* Dump attribute. */
+/*------------------------------------------------------------------------------
+ * Dump attribute to given buffer in human readable form.
+ */
 int
 bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
 {
@@ -187,7 +80,7 @@ bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
 
   if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_ORIGIN)))
     snprintf (buf + strlen (buf), size - strlen (buf), ", origin %s",
-	      bgp_origin_str[attr->origin]);
+                          map_direct(bgp_origin_short_map, attr->origin).str) ;
 
 #ifdef HAVE_IPV6
   if (attr->extra)
@@ -252,19 +145,20 @@ bgp_dump_attr (struct peer *peer, struct attr *attr, char *buf, size_t size)
     return 0;
 }
 
-/* dump notify packet */
+/*------------------------------------------------------------------------------
+ * Log given notification, if required.
+ */
 void
 bgp_notify_print(struct peer *peer, bgp_notify notification)
 {
-  const char* subcode_str ;
-  const char* code_str ;
+  map_direct_p subcode_map ;
   const char* hex_form ;
   bool  log_neighbor_changes ;
-  int   length ;
+  uint  length ;
   char* alloc ;
-  int subcode ;
 
-  /* See if we need to do any of this                                   */
+  /* See if we need to do any of this
+   */
   if      (bgp_flag_check (peer->bgp, BGP_FLAG_LOG_NEIGHBOR_CHANGES))
     log_neighbor_changes = true ;
   else if (BGP_DEBUG (normal, NORMAL))
@@ -272,46 +166,42 @@ bgp_notify_print(struct peer *peer, bgp_notify notification)
   else
     return ;                    /* quit if nothing to do        */
 
-  /* Sort out string forms of code and subcode                          */
-  code_str = LOOKUP (bgp_notify_msg, notification->code) ;
-
-  subcode     = notification->subcode ;
-  subcode_str = "/Unspecific";
-
+  /* Select map for subcode
+   */
   switch (notification->code)
     {
     case BGP_NOTIFY_HEADER_ERR:
-      if (subcode != 0)
-        subcode_str = LOOKUP (bgp_notify_head_msg, subcode);
+      subcode_map = bgp_notify_head_msg_map ;
       break;
+
     case BGP_NOTIFY_OPEN_ERR:
-      if (subcode != 0)
-        subcode_str = LOOKUP (bgp_notify_open_msg, subcode);
+      subcode_map = bgp_notify_open_msg_map ;
       break;
+
     case BGP_NOTIFY_UPDATE_ERR:
-      if (subcode != 0)
-        subcode_str = LOOKUP (bgp_notify_update_msg, subcode);
+      subcode_map = bgp_notify_update_msg_map ;
       break;
+
     case BGP_NOTIFY_HOLD_ERR:
     case BGP_NOTIFY_FSM_ERR:
-      if (subcode != 0)
-        subcode_str = "/*unknown*" ;
-      else
-        subcode_str = "";
+      subcode_map = bgp_notify_unspecific_msg_map ;
       break;
+
     case BGP_NOTIFY_CEASE:
-      if (subcode != 0)
-        subcode_str = LOOKUP (bgp_notify_cease_msg, subcode);
+      subcode_map = bgp_notify_cease_msg_map ;
       break;
+
     case BGP_NOTIFY_CAPABILITY_ERR:
-      if (subcode != 0)
-        subcode_str = LOOKUP (bgp_notify_capability_msg, subcode);
+      subcode_map = bgp_notify_capability_msg_map ;
       break;
+
     default:
+      subcode_map = bgp_notify_unknown_msg_map ;
       break ;
     }
 
-  /* Construct hex_form of data, if required.                           */
+  /* Construct hex_form of data, if required.
+   */
   length = bgp_notify_get_length(notification) ;
   if (length != 0)
     {
@@ -336,24 +226,33 @@ bgp_notify_print(struct peer *peer, bgp_notify notification)
       alloc = NULL ;
     } ;
 
-  /* Output the required logging                                        */
+  /* Output the required logging
+   */
   if (log_neighbor_changes)
-    zlog_info("%%NOTIFICATION: %s neighbor %s %d/%d (%s%s) %d bytes %s",
+    zlog_info("%%NOTIFICATION: %s neighbor %s %s%s (%d/%d) %d bytes %s",
               notification->received ? "received from" : "sent to", peer->host,
-              notification->code, notification->subcode,
-              code_str, subcode_str, length, hex_form) ;
+              map_direct(bgp_notify_msg_map, notification->code).str,
+              map_direct(subcode_map, notification->subcode).str,
+              notification->code, notification->subcode, length, hex_form) ;
   else
-    plog_debug(peer->log, "%s %s NOTIFICATION %d/%d (%s%s) %d bytes %s",
+    plog_debug(peer->log, "%s %s NOTIFICATION %s%s (%d/%d) %d bytes %s",
 	       peer->host, notification->received ? "received" : "sending",
-	       notification->code, notification->subcode,
-	       code_str, subcode_str, length, hex_form) ;
+               map_direct(bgp_notify_msg_map, notification->code).str,
+               map_direct(subcode_map, notification->subcode).str,
+	       notification->code, notification->subcode, length, hex_form) ;
 
-  /* Release the space allocated to the hex form of the data, if any    */
+  /* Release the space allocated to the hex form of the data, if any
+   */
   if (alloc != NULL)
     XFREE(MTYPE_TMP, alloc) ;
 } ;
 
-/* Debug option setting interface. */
+/*==============================================================================
+ * Debug option setting commands
+ */
+
+/* Debug option setting interface.
+ */
 unsigned long bgp_debug_option = 0;
 
 int
@@ -925,70 +824,73 @@ bgp_config_write_debug (struct vty *vty)
   return write;
 }
 
-static struct cmd_node debug_node =
+/*------------------------------------------------------------------------------
+ * Table of commands to be installed for bgp_debug
+ */
+CMD_INSTALL_TABLE(static, bgp_debug_cmd_table, BGPD) =
 {
-  DEBUG_NODE,
-  "",
-  1
-};
+  { ENABLE_NODE,     &show_debugging_bgp_cmd                            },
+  { ENABLE_NODE,     &debug_bgp_as4_cmd                                 },
+  { CONFIG_NODE,     &debug_bgp_as4_cmd                                 },
+  { ENABLE_NODE,     &debug_bgp_as4_segment_cmd                         },
+  { CONFIG_NODE,     &debug_bgp_as4_segment_cmd                         },
+  { ENABLE_NODE,     &debug_bgp_fsm_cmd                                 },
+  { CONFIG_NODE,     &debug_bgp_fsm_cmd                                 },
+  { ENABLE_NODE,     &debug_bgp_events_cmd                              },
+  { CONFIG_NODE,     &debug_bgp_events_cmd                              },
+  { ENABLE_NODE,     &debug_bgp_filter_cmd                              },
+  { CONFIG_NODE,     &debug_bgp_filter_cmd                              },
+  { ENABLE_NODE,     &debug_bgp_keepalive_cmd                           },
+  { CONFIG_NODE,     &debug_bgp_keepalive_cmd                           },
+  { ENABLE_NODE,     &debug_bgp_update_cmd                              },
+  { CONFIG_NODE,     &debug_bgp_update_cmd                              },
+  { ENABLE_NODE,     &debug_bgp_update_direct_cmd                       },
+  { CONFIG_NODE,     &debug_bgp_update_direct_cmd                       },
+  { ENABLE_NODE,     &debug_bgp_normal_cmd                              },
+  { CONFIG_NODE,     &debug_bgp_normal_cmd                              },
+  { ENABLE_NODE,     &debug_bgp_zebra_cmd                               },
+  { CONFIG_NODE,     &debug_bgp_zebra_cmd                               },
+  { ENABLE_NODE,     &no_debug_bgp_as4_cmd                              },
+  { ENABLE_NODE,     &undebug_bgp_as4_cmd                               },
+  { CONFIG_NODE,     &no_debug_bgp_as4_cmd                              },
+  { ENABLE_NODE,     &no_debug_bgp_as4_segment_cmd                      },
+  { ENABLE_NODE,     &undebug_bgp_as4_segment_cmd                       },
+  { CONFIG_NODE,     &no_debug_bgp_as4_segment_cmd                      },
+  { ENABLE_NODE,     &no_debug_bgp_fsm_cmd                              },
+  { ENABLE_NODE,     &undebug_bgp_fsm_cmd                               },
+  { CONFIG_NODE,     &no_debug_bgp_fsm_cmd                              },
+  { ENABLE_NODE,     &no_debug_bgp_events_cmd                           },
+  { ENABLE_NODE,     &undebug_bgp_events_cmd                            },
+  { CONFIG_NODE,     &no_debug_bgp_events_cmd                           },
+  { ENABLE_NODE,     &no_debug_bgp_filter_cmd                           },
+  { ENABLE_NODE,     &undebug_bgp_filter_cmd                            },
+  { CONFIG_NODE,     &no_debug_bgp_filter_cmd                           },
+  { ENABLE_NODE,     &no_debug_bgp_keepalive_cmd                        },
+  { ENABLE_NODE,     &undebug_bgp_keepalive_cmd                         },
+  { CONFIG_NODE,     &no_debug_bgp_keepalive_cmd                        },
+  { ENABLE_NODE,     &no_debug_bgp_update_cmd                           },
+  { ENABLE_NODE,     &undebug_bgp_update_cmd                            },
+  { CONFIG_NODE,     &no_debug_bgp_update_cmd                           },
+  { ENABLE_NODE,     &no_debug_bgp_normal_cmd                           },
+  { ENABLE_NODE,     &undebug_bgp_normal_cmd                            },
+  { CONFIG_NODE,     &no_debug_bgp_normal_cmd                           },
+  { ENABLE_NODE,     &no_debug_bgp_zebra_cmd                            },
+  { ENABLE_NODE,     &undebug_bgp_zebra_cmd                             },
+  { CONFIG_NODE,     &no_debug_bgp_zebra_cmd                            },
+  { ENABLE_NODE,     &no_debug_bgp_all_cmd                              },
+  { ENABLE_NODE,     &undebug_bgp_all_cmd                               },
 
-void
+  CMD_INSTALL_END
+} ;
+
+extern void
+bgp_debug_cmd_init (void)
+{
+  cmd_install_node_config_write (DEBUG_NODE, bgp_config_write_debug);
+  cmd_install_table(bgp_debug_cmd_table) ;
+} ;
+
+extern void
 bgp_debug_init (void)
 {
-  install_node (&debug_node, bgp_config_write_debug);
-
-  install_element (ENABLE_NODE, &show_debugging_bgp_cmd);
-
-  install_element (ENABLE_NODE, &debug_bgp_as4_cmd);
-  install_element (CONFIG_NODE, &debug_bgp_as4_cmd);
-  install_element (ENABLE_NODE, &debug_bgp_as4_segment_cmd);
-  install_element (CONFIG_NODE, &debug_bgp_as4_segment_cmd);
-
-  install_element (ENABLE_NODE, &debug_bgp_fsm_cmd);
-  install_element (CONFIG_NODE, &debug_bgp_fsm_cmd);
-  install_element (ENABLE_NODE, &debug_bgp_events_cmd);
-  install_element (CONFIG_NODE, &debug_bgp_events_cmd);
-  install_element (ENABLE_NODE, &debug_bgp_filter_cmd);
-  install_element (CONFIG_NODE, &debug_bgp_filter_cmd);
-  install_element (ENABLE_NODE, &debug_bgp_keepalive_cmd);
-  install_element (CONFIG_NODE, &debug_bgp_keepalive_cmd);
-  install_element (ENABLE_NODE, &debug_bgp_update_cmd);
-  install_element (CONFIG_NODE, &debug_bgp_update_cmd);
-  install_element (ENABLE_NODE, &debug_bgp_update_direct_cmd);
-  install_element (CONFIG_NODE, &debug_bgp_update_direct_cmd);
-  install_element (ENABLE_NODE, &debug_bgp_normal_cmd);
-  install_element (CONFIG_NODE, &debug_bgp_normal_cmd);
-  install_element (ENABLE_NODE, &debug_bgp_zebra_cmd);
-  install_element (CONFIG_NODE, &debug_bgp_zebra_cmd);
-
-  install_element (ENABLE_NODE, &no_debug_bgp_as4_cmd);
-  install_element (ENABLE_NODE, &undebug_bgp_as4_cmd);
-  install_element (CONFIG_NODE, &no_debug_bgp_as4_cmd);
-  install_element (ENABLE_NODE, &no_debug_bgp_as4_segment_cmd);
-  install_element (ENABLE_NODE, &undebug_bgp_as4_segment_cmd);
-  install_element (CONFIG_NODE, &no_debug_bgp_as4_segment_cmd);
-
-  install_element (ENABLE_NODE, &no_debug_bgp_fsm_cmd);
-  install_element (ENABLE_NODE, &undebug_bgp_fsm_cmd);
-  install_element (CONFIG_NODE, &no_debug_bgp_fsm_cmd);
-  install_element (ENABLE_NODE, &no_debug_bgp_events_cmd);
-  install_element (ENABLE_NODE, &undebug_bgp_events_cmd);
-  install_element (CONFIG_NODE, &no_debug_bgp_events_cmd);
-  install_element (ENABLE_NODE, &no_debug_bgp_filter_cmd);
-  install_element (ENABLE_NODE, &undebug_bgp_filter_cmd);
-  install_element (CONFIG_NODE, &no_debug_bgp_filter_cmd);
-  install_element (ENABLE_NODE, &no_debug_bgp_keepalive_cmd);
-  install_element (ENABLE_NODE, &undebug_bgp_keepalive_cmd);
-  install_element (CONFIG_NODE, &no_debug_bgp_keepalive_cmd);
-  install_element (ENABLE_NODE, &no_debug_bgp_update_cmd);
-  install_element (ENABLE_NODE, &undebug_bgp_update_cmd);
-  install_element (CONFIG_NODE, &no_debug_bgp_update_cmd);
-  install_element (ENABLE_NODE, &no_debug_bgp_normal_cmd);
-  install_element (ENABLE_NODE, &undebug_bgp_normal_cmd);
-  install_element (CONFIG_NODE, &no_debug_bgp_normal_cmd);
-  install_element (ENABLE_NODE, &no_debug_bgp_zebra_cmd);
-  install_element (ENABLE_NODE, &undebug_bgp_zebra_cmd);
-  install_element (CONFIG_NODE, &no_debug_bgp_zebra_cmd);
-  install_element (ENABLE_NODE, &no_debug_bgp_all_cmd);
-  install_element (ENABLE_NODE, &undebug_bgp_all_cmd);
-}
+} ;

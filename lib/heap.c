@@ -268,7 +268,7 @@ heap_pop_push_item(heap h, p_vector_item p_v)
 {
   p_vector_item p_x ;
 
-  dassert(p_v != NULL) ;           /* no NULLs, thank you.               */
+  qassert(p_v != NULL) ;           /* no NULLs, thank you.               */
 
   p_x = heap_top_item(h) ;         /* what we are popping                */
 
@@ -427,7 +427,7 @@ heap_bubble_up(heap h, vector_index_t i, p_vector_item p_v)
   vector_index_t ip ;                 /* index of parent         */
   p_vector_item  p_p ;                /* pointer to parent item  */
 
-  dassert(ha != NULL) ;
+  qassert(ha != NULL) ;
 
   while (i != 0)
     {
@@ -462,7 +462,7 @@ heap_bubble_down(heap h, vector_index_t i, p_vector_item p_v)
   p_vector_item   p_s ;               /* pointer to sibling   */
 
   p_vector_item* ha = h->v->p_items ; /* underlying array     */
-  dassert(ha != NULL) ;
+  qassert(ha != NULL) ;
 
   while (1)
     {

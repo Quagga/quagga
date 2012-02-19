@@ -173,11 +173,10 @@
 /*==============================================================================
  * Symbol table operations
  */
-static uint symbol_table_new_bases(symbol_table table, uint new_base_count) ;
-static void symbol_extend_bases(symbol_table table) ;
+static void symbol_table_new_bases(symbol_table table, uint new_base_count) ;
+static void symbol_table_extend_bases(symbol_table table) ;
 
 inline static uint symbol_base_index(symbol_table table, symbol_hash_t hash) ;
-inline static symbol* symbol_base(symbol_table table, symbol_hash_t hash) ;
 
 /*------------------------------------------------------------------------------
  * Allocate and initialise a new symbol table.
@@ -261,6 +260,7 @@ symbol_table_new(void* parent, uint base_count, uint density,
    *   base_count     -- 0     -- set below, ditto
    *
    *   entry_count    -- 0     -- table is empty !
+   *   max_index      -- 0     -- table is empty !
    *   extend_thresh  -- 0     -- set below, by symbol_table_new_bases()
    *
    *   density        -- 0     -- set below
@@ -313,8 +313,7 @@ symbol_table_set_tell(symbol_table table, symbol_tell_func* tell)
 /*------------------------------------------------------------------------------
  * Ream out given Symbol Table -- if any.
  *
- * This is effectively a symbol_delete() for all symbols, followed by freeing
- * the given symbol table.
+ * This is effectively a symbol_delete() for all symbols.
  *
  * Returns the value of the next non-NULL symbol (if any).  So may be used, for
  * example:
@@ -335,14 +334,20 @@ symbol_table_set_tell(symbol_table table, symbol_tell_func* tell)
  * Note that the symbol returned by symbol_table_ream() is deleted when it is
  * passed in to symbol_table_ream() the next time around the loop.
  *
- * Returns NULL when the table is empty, at which point the table will have
- * been freed, and any pointers to it should be forgotten.
- *
  * Symbols which have one or more references when they are deleted are left as
  * orphans, which will be freed when all their references are unset.
  *
- * NB: do NOT attempt to do anything else with the symbol table once reaming
- *     has started and do not stop until this function returns NULL.
+ * Returns NULL when the table is empty.
+ *
+ * Once the table is empty it may continue to be used, using the current
+ * set of bases.  To free the empty table: symbol_table_free().  To reset
+ * the number of bases: symbol_table_reset().
+ *
+ * NB: it is wise not to do anything else with the symbol table once reaming
+ *     has started and not to stop until this function returns NULL.  However,
+ *     will cope if the given symbol or other symbols are deleted between
+ *     calls.  Will even cope with symbols being added... but they will be
+ *     collected up and reamed out !
  *
  * NB: it is the caller's responsibility to unset all references and release
  *     any that need to be released -- either before or after this operation.
@@ -350,74 +355,185 @@ symbol_table_set_tell(symbol_table table, symbol_tell_func* tell)
 extern symbol
 symbol_table_ream(symbol_table table, symbol sym, void* value)
 {
-  uint i ;
+  bool rescan ;
+  uint index ;
 
   if (table == NULL)
-    return NULL ;               /* already reamed or never kissed       */
+    return NULL ;
 
-  /* Delete last symbol, or start process.                              */
+  qassert((table->bases != NULL) && (table->base_count > 0)) ;
+
+  /* Delete last symbol, if any.
+   *
+   * If not already deleted, must belong to the table in question !
+   */
   if (sym != NULL)
     {
-      qassert(table == sym->table) ;
-
-      i = symbol_base_index(table, sym->hash) ;
+      qassert((table == sym->table) || (sym->table == NULL)) ;
       symbol_delete(sym, value) ;
-    }
-  else
-    {
-      qassert(table->base_count != 0) ;
-      i = table->base_count - 1 ;
     } ;
 
-  /* There are no actual bases until they have been allocated.          */
+  /* Search for next entry.
+   */
+  rescan = false ;
+  index  = table->max_index ;
 
-  while (table->entry_count != 0)
+  if (table->entry_count > 0)
     {
-      sym = table->bases[i] ;
+      while (1)
+        {
+          sym = table->bases[index] ;
 
-      if (sym != NULL)
-        return sym ;
+          if (sym != NULL)
+            {
+              table->max_index = index ;
+              return sym ;
+            } ;
 
-      qassert(i != 0) ;
+          if (index == 0)
+            {
+              /* This should not happen.
+               *
+               * If it does, either the table->entry_count is wrong, or the
+               * table->max_index is.  In case it is the later, will rescan
+               * once, starting from the end.
+               */
+              qassert(false) ;
 
-      --i ;
+              if (rescan)
+                break ;
+
+              rescan = true ;
+              index = table->base_count ;
+            } ;
+
+            --index ;
+        } ;
     } ;
-
-  while (qdebug)
-    {
-      qassert(table->bases[i] == NULL) ;
-
-      if (i == 0)
-        break ;
-
-      --i ;
-    } ;
-
-  /* No entries, so now can free the symbol table.                      */
-
-  XFREE(MTYPE_SYMBOL_BASES, table->bases);
-  XFREE(MTYPE_SYMBOL_TABLE, table) ;
 
   return NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
+ * Free empty symbol table, if any.
+ *
+ * It is a mistake to free a table which has anything in it.  Any attempt to
+ * do so will ream it out, simply deleting the entries.
+ *
+ * Zeroises the symbol table structure, to trap dangling references ASAP.
+ *
+ * Returns:  NULL
+ */
+extern symbol_table
+symbol_table_free(symbol_table table)
+{
+  if (table != NULL)
+    {
+      symbol sym ;
+
+      sym = NULL ;
+      while ((sym = symbol_table_ream(table, sym, NULL)) != NULL)
+        ;
+
+      XFREE(MTYPE_SYMBOL_BASES, table->bases) ;
+
+      memset(table, 0, sizeof (struct symbol_table)) ;
+
+      XFREE(MTYPE_SYMBOL_TABLE, table) ;        /* table = NULL */
+    } ;
+  return table ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Reset number of bases in given table, if any.
+ *
+ * This is for use when a table has grown and then shrunk, and it is felt to
+ * be essential to recover space by reducing the number of chain bases.
+ *
+ * Sets the new number of bases to the number given, or such that the threshold
+ * for the next reorganisation is about 1.25 * number of entries currently
+ * have, whichever is the greater.
+ */
+extern void
+symbol_table_reset(symbol_table table, uint base_count)
+{
+  uint new_base_count ;
+
+  new_base_count = ((float)table->entry_count * (float)1.25) / table->density ;
+
+  if (new_base_count < base_count)
+    new_base_count = base_count ;
+
+  symbol_table_new_bases(table, new_base_count) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Extend the existing array of list bases.
+ *
+ * To be called when the number of entries exceeds the threshold.
+ */
+static void
+symbol_table_extend_bases(symbol_table table)
+{
+  uint    old_base_count ;
+  uint    new_base_count ;
+
+  qassert((table->bases != NULL) && (table->base_count != 0)) ;
+
+  /* Should be here because the number of entries in the table has exceeded
+   * the threshold.
+   *
+   * Depending on how big the table is, we either double it or add a reasonable
+   * chunk of bases.
+   */
+  old_base_count = table->base_count ;
+  new_base_count = (old_base_count | 1) - 1 ;   /* trim enforced odd-ness */
+
+  if (new_base_count <= SYMBOL_TABLE_BASES_DOUBLE_MAX)
+    new_base_count *= 2 ;
+  else
+    new_base_count += SYMBOL_TABLE_BASES_DOUBLE_MAX ;
+
+  assert(new_base_count > old_base_count) ;     /* check for overflow   */
+
+  /* Do the hard work of rearranging the bases
+   */
+  symbol_table_new_bases(table, new_base_count) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Create and set new chain bases and threshold for next extension.
  *
- * Ensures that the base count is at least the minimum and is odd,
- * and returns the value set.
+ * Ensures that the base count used is at least the minimum and is odd.
  *
- * Sets new: table->bases
- *           table->base_count
- *           table->extend_thresh
+ * The minumum is the larger of the absolute SYMBOL_TABLE_BASES_MIN, or enough
+ * for the number of entries to grow by 25% before the new threshold will be
+ * exceeded.
  *
- * Returns: the actual new base count
+ * If there is an existing set of chain bases, transfers entries from old
+ * to new chain bases, and frees the old bases.
  */
-static unsigned int
+static void
 symbol_table_new_bases(symbol_table table, uint new_base_count)
 {
-  if (new_base_count < SYMBOL_TABLE_BASES_MIN)
-    new_base_count = SYMBOL_TABLE_BASES_MIN ;
+  uint    new_minimum ;
+  symbol* old_bases ;
+  uint    old_base_count ;
+  uint    old_entry_count ;
+
+  /* Extract what we need to know about the old bases and create new ones.
+   */
+  old_bases       = table->bases ;
+  old_base_count  = table->base_count ;
+  old_entry_count = table->entry_count ;
+
+  new_minimum = ((float)table->entry_count * (float)1.25) / table->density ;
+
+  if (new_minimum < SYMBOL_TABLE_BASES_MIN)
+    new_minimum = SYMBOL_TABLE_BASES_MIN ;
+
+  if (new_base_count < new_minimum)
+    new_base_count = new_minimum ;
 
   new_base_count |= 1 ;         /* ENSURE is odd                */
 
@@ -425,55 +541,49 @@ symbol_table_new_bases(symbol_table table, uint new_base_count)
   table->base_count    = new_base_count ;
   table->extend_thresh = new_base_count * table->density ;
 
-  return new_base_count ;
-} ;
+  table->max_index     = 0 ;
+  table->entry_count   = 0 ;
 
-/*------------------------------------------------------------------------------
- * Extend the array of list bases.
- */
-static void
-symbol_extend_bases(symbol_table table)
-{
-  symbol  this ;
-  symbol  next ;
-  symbol* old_bases ;
-  symbol* new_bases ;
-  symbol* base ;
-  uint    new_base_count ;
-  uint    old_base_count ;
-
-  old_bases      = table->bases ;
-  old_base_count = table->base_count ;
-
-  assert((old_bases != NULL) && (old_base_count != 0)) ;
-
-  new_base_count = (table->base_count | 1) - 1 ; /* trim enforced odd-ness */
-
-  if (new_base_count <= SYMBOL_TABLE_BASES_DOUBLE_MAX)
-    new_base_count *= 2 ;
-  else
-    new_base_count += SYMBOL_TABLE_BASES_DOUBLE_MAX ;
-
-  assert(new_base_count > old_base_count) ;
-
-  new_base_count = symbol_table_new_bases(table, new_base_count) ;
-
-  /* Rehome everything on the new chain bases.          */
-  new_bases = table->bases ;
-  while (old_base_count--)
+  /* Finished if have just allocated the first set of bases.
+   */
+  if (old_bases == NULL)
     {
-       next = old_bases[old_base_count] ;
-       while (next != NULL)
-         {
-           this = next ;
-           next = this->u.next ;
-           base = &new_bases[this->hash % new_base_count] ;
-           this->u.next = *base ;
-           *base = this ;
-         } ;
+      qassert((old_base_count == 0) && (old_entry_count == 0)) ;
+      return ;
     } ;
 
-  /* Release the old chain bases, and we're done.       */
+  /* Rehome everything on the new chain bases.
+   */
+  qassert(old_base_count != 0) ;
+
+  while (old_base_count--)
+    {
+      symbol  next ;
+      next = old_bases[old_base_count] ;
+      while (next != NULL)
+        {
+          symbol  this ;
+          uint    index ;
+          symbol* base ;
+
+          this = next ;
+          next = this->u.next ;
+
+          index = symbol_base_index(table, this->hash) ;
+          base  = &table->bases[index] ;
+          this->u.next = *base ;
+          *base = this ;
+
+          if (index > table->max_index)
+            table->max_index = index ;
+          ++table->entry_count ;
+        } ;
+    } ;
+
+  qassert(table->entry_count == old_entry_count) ;
+
+  /* Release the old chain bases, and we're done
+   */
   XFREE(MTYPE_SYMBOL_BASES, old_bases) ;
 } ;
 
@@ -484,15 +594,6 @@ inline static uint
 symbol_base_index(symbol_table table, symbol_hash_t hash)
 {
   return hash % table->base_count ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Return chain base for given hash value.
- */
-inline static symbol*
-symbol_base(symbol_table table, symbol_hash_t hash)
-{
-  return &table->bases[symbol_base_index(table, hash)] ;
 } ;
 
 /*==============================================================================
@@ -520,14 +621,16 @@ symbol_lookup(symbol_table table, const void* name, add_b add)
 {
   struct symbol*  this ;
   struct symbol** base ;
+  uint            index ;
   symbol_hash_t   hash ;
 
   qassert((table != NULL) && (table->bases != NULL)) ;
 
   hash = table->func.hash(name) ;
 
-  base = symbol_base(table, hash) ;
-  this = *base ;
+  index = symbol_base_index(table, hash) ;
+  base  = &table->bases[index] ;
+  this  = *base ;
   while (this != NULL)
     {
       qassert((this->table == table) && (this->value != NULL)) ;
@@ -559,16 +662,26 @@ symbol_lookup(symbol_table table, const void* name, add_b add)
 
   /* Second, if required, extend the array of list bases.  We extend if
    * we have a collision *and* we exceed threshold of number of entries.
+   *
+   * Once extended, recalculate the index and select new base.
    */
   if ((*base != NULL) && (table->entry_count > table->extend_thresh))
     {
-      symbol_extend_bases(table) ;
-      base = symbol_base(table, hash) ;
+      symbol_table_extend_bases(table) ;
+
+      index = symbol_base_index(table, hash) ;
+      base  = &table->bases[index] ;
     } ;
 
-  /* Third, chain in the new entry, count it in and return              */
+  /* Third, chain in the new entry
+   */
   this->u.next = *base ;
   *base = this ;
+
+  /* Finally, count the new entry and update the max_index.
+   */
+  if (index > table->max_index)
+    table->max_index = index ;
 
   ++table->entry_count ;
 
@@ -819,7 +932,7 @@ symbol_remove(symbol sym, free_keep_b free)
     {
       assert(table->entry_count != 0) ;
 
-      base = symbol_base(table, sym->hash) ;
+      base = &table->bases[symbol_base_index(table, sym->hash)] ;
       if (*base == sym)
         *base = sym->u.next ;
       else
@@ -1246,11 +1359,13 @@ symbol_ref_is_bookmark(symbol_ref ref)
  *
  * Usage:
  *
- *   struct symbol_walker walker ;
+ * Usage:
+ *
+ *   symbol_walker_t walker ;
  *   symbol sym ;
  *   ....
- *   symbol_walk_start(table, &walker) ;
- *   while ((sym = symbol_walk_next(&walker)))
+ *   symbol_walk_start(table, walker) ;
+ *   while ((sym = symbol_walk_next(walker)))
  *     ....
  *
  * NB: it is possible to change the current symbol while the walk is in
@@ -1267,6 +1382,9 @@ symbol_walk_start(symbol_table table, symbol_walker walk)
   walk->base_count = table->base_count ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Walk to next symbol to consider
+ */
 extern symbol
 symbol_walk_next(symbol_walker walk)
 {

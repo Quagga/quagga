@@ -63,8 +63,8 @@ struct zclient
   struct thread *t_write;
 
   /* If using nexus, qfile and qtimer */
-  qps_file qf;
-  qtimer qtr;
+  qps_file  qf;
+  qtimer    qtr;
 
   /* Redistribute information. */
   u_char redist_default;

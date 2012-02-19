@@ -110,7 +110,7 @@ heap_find_item(heap h, p_vector_item p_v) ;
 Inline void
 heap_push_item(heap h, p_vector_item p_v)
 {
-  dassert(p_v != NULL) ;        /* no NULLs, thank you.  */
+  qassert(p_v != NULL) ;        /* no NULLs, thank you.  */
   heap_bubble_up(h, vector_extend_by_1(h->v), p_v) ;
 } ;
 

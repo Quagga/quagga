@@ -19,6 +19,7 @@ Free Software Foundation, Inc., 59 Temple Place - Suite 330,
 Boston, MA 02111-1307, USA.  */
 
 #include <zebra.h>
+#include <errno.h>
 
 #include "command.h"
 #include "memory.h"
@@ -388,8 +389,9 @@ key_str2time (const char *time_str, const char *day_str, const char *month_str,
 { \
   unsigned long tmpl; \
   char *endptr = NULL; \
+  errno = 0 ; \
   tmpl = strtoul ((STR), &endptr, 10); \
-  if (*endptr != '\0' || tmpl == ULONG_MAX) \
+  if (*endptr != '\0' || (errno != 0) || (endptr == (STR))) \
     return -1; \
   if ( tmpl < (MIN) || tmpl > (MAX)) \
     return -1; \
@@ -851,24 +853,6 @@ DEFUN (send_lifetime_duration_month_day,
 				    argv[3], argv[4]);
 }
 
-static struct cmd_node keychain_node =
-{
-  .node   = KEYCHAIN_NODE,
-  .prompt ="%s(config-keychain)# ",
-
-  .config_to_vtysh = true
-};
-
-static struct cmd_node keychain_key_node =
-{
-  .node   = KEYCHAIN_KEY_NODE,
-  .prompt = "%s(config-keychain-key)# ",
-
-  .parent = KEYCHAIN_NODE,
-
-  .config_to_vtysh = true
-};
-
 static int
 keychain_strftime (char *buf, int bufsiz, time_t *time)
 {
@@ -943,49 +927,52 @@ keychain_config_write (struct vty *vty)
   return 0;
 }
 
-void
-keychain_init ()
+CMD_INSTALL_TABLE(static, keychain_cmd_table, RIPD) =
+{
+  { CONFIG_NODE,       &key_chain_cmd                                     },
+  { CONFIG_NODE,       &no_key_chain_cmd                                  },
+
+  { KEYCHAIN_NODE,     &key_cmd                                           },
+  { KEYCHAIN_NODE,     &no_key_cmd                                        },
+  { KEYCHAIN_NODE,     &key_chain_cmd                                     },
+  { KEYCHAIN_NODE,     &no_key_chain_cmd                                  },
+
+  { KEYCHAIN_KEY_NODE, &key_string_cmd                                    },
+  { KEYCHAIN_KEY_NODE, &no_key_string_cmd                                 },
+  { KEYCHAIN_KEY_NODE, &key_chain_cmd                                     },
+  { KEYCHAIN_KEY_NODE, &no_key_chain_cmd                                  },
+  { KEYCHAIN_KEY_NODE, &key_cmd                                           },
+  { KEYCHAIN_KEY_NODE, &no_key_cmd                                        },
+  { KEYCHAIN_KEY_NODE, &accept_lifetime_day_month_day_month_cmd           },
+  { KEYCHAIN_KEY_NODE, &accept_lifetime_day_month_month_day_cmd           },
+  { KEYCHAIN_KEY_NODE, &accept_lifetime_month_day_day_month_cmd           },
+  { KEYCHAIN_KEY_NODE, &accept_lifetime_month_day_month_day_cmd           },
+  { KEYCHAIN_KEY_NODE, &accept_lifetime_infinite_day_month_cmd            },
+  { KEYCHAIN_KEY_NODE, &accept_lifetime_infinite_month_day_cmd            },
+  { KEYCHAIN_KEY_NODE, &accept_lifetime_duration_day_month_cmd            },
+  { KEYCHAIN_KEY_NODE, &accept_lifetime_duration_month_day_cmd            },
+  { KEYCHAIN_KEY_NODE, &send_lifetime_day_month_day_month_cmd             },
+  { KEYCHAIN_KEY_NODE, &send_lifetime_day_month_month_day_cmd             },
+  { KEYCHAIN_KEY_NODE, &send_lifetime_month_day_day_month_cmd             },
+  { KEYCHAIN_KEY_NODE, &send_lifetime_month_day_month_day_cmd             },
+  { KEYCHAIN_KEY_NODE, &send_lifetime_infinite_day_month_cmd              },
+  { KEYCHAIN_KEY_NODE, &send_lifetime_infinite_month_day_cmd              },
+  { KEYCHAIN_KEY_NODE, &send_lifetime_duration_day_month_cmd              },
+  { KEYCHAIN_KEY_NODE, &send_lifetime_duration_month_day_cmd              },
+
+  CMD_INSTALL_END
+} ;
+
+extern void
+keychain_cmd_init (void)
+{
+  cmd_install_node_config_write (KEYCHAIN_NODE, keychain_config_write);
+
+  cmd_install_table(keychain_cmd_table) ;
+}
+
+extern void
+keychain_init (void)
 {
   keychain_list = list_new ();
-
-  install_node (&keychain_node, keychain_config_write);
-  install_node (&keychain_key_node, NULL);
-
-  install_default (KEYCHAIN_NODE);
-  install_default (KEYCHAIN_KEY_NODE);
-
-  install_element (CONFIG_NODE, &key_chain_cmd);
-  install_element (CONFIG_NODE, &no_key_chain_cmd);
-  install_element (KEYCHAIN_NODE, &key_cmd);
-  install_element (KEYCHAIN_NODE, &no_key_cmd);
-
-  install_element (KEYCHAIN_NODE, &key_chain_cmd);
-  install_element (KEYCHAIN_NODE, &no_key_chain_cmd);
-
-  install_element (KEYCHAIN_KEY_NODE, &key_string_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &no_key_string_cmd);
-
-  install_element (KEYCHAIN_KEY_NODE, &key_chain_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &no_key_chain_cmd);
-
-  install_element (KEYCHAIN_KEY_NODE, &key_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &no_key_cmd);
-
-  install_element (KEYCHAIN_KEY_NODE, &accept_lifetime_day_month_day_month_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &accept_lifetime_day_month_month_day_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &accept_lifetime_month_day_day_month_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &accept_lifetime_month_day_month_day_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &accept_lifetime_infinite_day_month_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &accept_lifetime_infinite_month_day_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &accept_lifetime_duration_day_month_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &accept_lifetime_duration_month_day_cmd);
-
-  install_element (KEYCHAIN_KEY_NODE, &send_lifetime_day_month_day_month_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &send_lifetime_day_month_month_day_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &send_lifetime_month_day_day_month_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &send_lifetime_month_day_month_day_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &send_lifetime_infinite_day_month_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &send_lifetime_infinite_month_day_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &send_lifetime_duration_day_month_cmd);
-  install_element (KEYCHAIN_KEY_NODE, &send_lifetime_duration_month_day_cmd);
 }

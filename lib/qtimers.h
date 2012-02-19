@@ -117,11 +117,6 @@ extern qtime_t qtimer_pile_top_wait(qtimer_pile qtp, qtime_t max_wait,
                                                                   qtime_t now) ;
 extern qtimer qtimer_pile_ream(qtimer_pile qtp, free_keep_b free_structure) ;
 
-/* Ream out qtimer pile and free the qtimer structure.   */
-#define qtimer_pile_ream_free(qtp) qtimer_pile_ream(qtp, 1)
-/* Ream out qtimer pile but keep the qtimer structure.   */
-#define qtimer_pile_ream_keep(qtp) qtimer_pile_ream(qtp, 0)
-
 extern qtimer qtimer_init_new(qtimer qtr, qtimer_pile qtp,
                                       qtimer_action* action, void* timer_info) ;
 extern void qtimer_set_pile(qtimer qtr, qtimer_pile qtp) ;

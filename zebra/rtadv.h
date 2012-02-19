@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_RTADV_H
@@ -31,7 +31,7 @@ struct rtadv_prefix
 {
   /* Prefix to be advertised. */
   struct prefix prefix;
-  
+
   /* The value to be placed in the Valid Lifetime in the Prefix */
   u_int32_t AdvValidLifetime;
 #define RTADV_VALID_LIFETIME 2592000
@@ -56,6 +56,7 @@ struct rtadv_prefix
 };
 
 extern void rtadv_config_write (struct vty *, struct interface *);
+extern void rtadv_cmd_init (void);
 extern void rtadv_init (void);
 
 /* draft-ietf-mip6-mipext-advapi-03 */

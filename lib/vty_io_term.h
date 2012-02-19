@@ -26,28 +26,16 @@
 #define _ZEBRA_VTY_IO_TERM_H
 
 #include "misc.h"
-#include <errno.h>
 
-#include "vty.h"
-#include "vty_io_basic.h"
 #include "vty_io.h"
-#include "vty_cli.h"
 #include "vty_command.h"
 
 #include "vio_fifo.h"
-#include "vio_lines.h"
 #include "keystroke.h"
 #include "thread.h"
-#include "command_local.h"
-#include "qstring.h"
-#include "qtimers.h"
 
 /*==============================================================================
- * Here are structures and other definitions which are shared by:
- *
- *   vty_io.c   -- the main VTY I/O stuff
- *
- * for I/O to Telnet Terminal.
+ * Here are structures and other definitions for I/O to VTY_TERMINAL.
  */
 
 /*==============================================================================
@@ -56,19 +44,17 @@
 
 extern void uty_term_new(vty_io vio, int sock_fd) ;
 
-extern cmd_return_code_t uty_term_fetch_command_line(vio_vf vf,
-                                                            cmd_action action) ;
-extern cmd_return_code_t uty_term_cmd_complete(vio_vf vf, cmd_context context,
+extern cmd_ret_t uty_term_cmd_line_fetch(vio_vf vf) ;
+extern cmd_ret_t uty_term_cmd_complete(vio_vf vf, cmd_context context,
                                                                  bool closing) ;
-extern cmd_return_code_t uty_term_out_push(vio_vf vf, uty_cmd_push_types_t how) ;
-extern void uty_term_out_cancelled(vio_vf vf) ;
-extern uint uty_term_show_error_context(vio_vf vf, vio_fifo ebuf, uint depth) ;
-extern cmd_return_code_t uty_term_read_close(vio_vf vf, bool final) ;
-extern void uty_term_close_reason(vio_vf vf, const char* reason) ;
-extern cmd_return_code_t uty_term_write_close(vio_vf vf, bool final);
+extern cmd_ret_t uty_term_out_push(vio_vf vf) ;
+extern bool uty_term_out_cancelled(vio_vf vf) ;
+extern cmd_ret_t uty_term_read_close(vio_vf vf) ;
+extern void uty_term_close_reason(vio_vf vf, qstring wrapped) ;
+extern cmd_ret_t uty_term_write_close(vio_vf vf);
 
 extern void uty_term_read(vio_vf vf) ;
-extern void uty_term_set_readiness(vio_vf vf, vty_readiness_t ready) ;
+extern cmd_ret_t uty_term_set_readiness(vio_vf vf, cmd_ret_t ret) ;
 
 extern qtimer_action vty_term_pause_timeout ;
 

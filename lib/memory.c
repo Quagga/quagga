@@ -181,11 +181,6 @@ static mem_stats_t mstats ;             /* zeroised in memory_start()   */
 static size_t mem_pagesize = 0 ;        /* set in memory_start()        */
 
 /*------------------------------------------------------------------------------
- * Showing stuff
- */
-QFB_T(num_str, 30) ;
-
-/*------------------------------------------------------------------------------
  * Read in the mem_type_map array: MTYPE_XXX -> "MTYPE_XXX"
  */
 #define MEM_MTYPE_MAP_REQUIRED 1
@@ -1102,7 +1097,7 @@ mem_alloc_discover(void)
 static qfb_gen_t
 mem_alloc_unknown_message(void)
 {
-  QFB_QFS(qfb_gen, qfs) ;
+  qfb_gen_t QFB_QFS(qfb, qfs) ;
 
   switch (mem_alloc_failed)
     {
@@ -1148,7 +1143,7 @@ mem_alloc_unknown_message(void)
 
   qfs_term(qfs) ;
 
-  return qfb_gen ;
+  return qfb ;
 } ;
 
 /*==============================================================================
@@ -1790,7 +1785,7 @@ mem_read_pagemap(uint64_t* pm, int pagemap, uintptr_t v, uint count)
 static qfb_gen_t
 mem_form_region(mem_region reg)
 {
-  QFB_QFS(qfb_gen, qfs) ;
+  qfb_gen_t QFB_QFS(qfb, qfs) ;
 
   size_t a, b, s ;
   int    ch ;
@@ -1821,7 +1816,7 @@ mem_form_region(mem_region reg)
                                                 reg->inode, ch, reg->name) ;
   qfs_term(qfs) ;
 
-  return qfb_gen ;
+  return qfb ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2399,9 +2394,7 @@ mem_mt_get_stats(mem_tracker_data mtd, bool locked)
  */
 
 /*------------------------------------------------------------------------------
- * Form count with 4 significant digits -- 6 character field.
- *
- * NB: although count is nominally ulong, we only do 0..LONG_MAX
+ * Form count with 4 significant digits, up to multiples of trillions.
  */
 static inline qfs_num_str_t
 mem_form_count(ulong val)
@@ -2524,7 +2517,7 @@ log_memstats(int pri)
  * Output the number of each type of memory currently thought to be allocated,
  * to stderr.
  */
-extern void
+static void
 log_memstats_stderr (const char *prefix)
 {
   mem_stats_t mst ;
@@ -2533,6 +2526,9 @@ log_memstats_stderr (const char *prefix)
   bool seen_something ;
 
   mem_get_stats(&mst) ;
+
+  if (prefix == NULL)
+    prefix = "*progname unknown*" ;
 
   seen_something = false ;
   for (ml = mlists; ml->list; ml++)
@@ -2569,7 +2565,7 @@ log_memstats_stderr (const char *prefix)
     fprintf (stderr,
              "%s: memstats: No remaining tracked memory utilization.\n",
              prefix);
-}
+} ;
 
 /*------------------------------------------------------------------------------
  * Show all regions -- to vty.
@@ -2968,7 +2964,7 @@ DEFUN_CALL (show_memory_isis,
  * First stage initialisation
  */
 extern void
-memory_start(void)
+memory_start_up(void)
 {
 #ifdef MCHECK
   #include <mcheck.h>
@@ -2990,58 +2986,60 @@ memory_start(void)
 extern void
 memory_init_r (void)
 {
-  qpt_mutex_init(memory_mutex, qpt_mutex_quagga);
+  qpt_mutex_init_new(memory_mutex, qpt_mutex_quagga);
 }
 
 /*------------------------------------------------------------------------------
  * Finished with module
  */
 extern void
-memory_finish (void)
+memory_finish (bool mem_stats)
 {
-  qpt_mutex_destroy(memory_mutex, 0);
+  qpt_mutex_destroy(memory_mutex, keep_it);
+
+  if (mem_stats)
+    log_memstats_stderr (cmd_host_program_name()) ;
 }
 
 /*------------------------------------------------------------------------------
  * Set up of memory reporting commands
  */
-void
-memory_init (void)
+CMD_INSTALL_TABLE(extern, memory_cmd_table, ALL_RDS) =
 {
-  install_element (RESTRICTED_NODE, &show_memory_summary_cmd);
-  install_element (RESTRICTED_NODE, &show_memory_cmd);
-  install_element (RESTRICTED_NODE, &show_memory_all_cmd);
-  install_element (RESTRICTED_NODE, &show_memory_lib_cmd);
-  install_element (RESTRICTED_NODE, &show_memory_rip_cmd);
-  install_element (RESTRICTED_NODE, &show_memory_ripng_cmd);
-  install_element (RESTRICTED_NODE, &show_memory_bgp_cmd);
-  install_element (RESTRICTED_NODE, &show_memory_ospf_cmd);
-  install_element (RESTRICTED_NODE, &show_memory_ospf6_cmd);
-  install_element (RESTRICTED_NODE, &show_memory_isis_cmd);
+  { RESTRICTED_NODE, &show_memory_summary_cmd                           },
+  { RESTRICTED_NODE, &show_memory_cmd                                   },
+  { RESTRICTED_NODE, &show_memory_all_cmd                               },
+  { RESTRICTED_NODE, &show_memory_lib_cmd                               },
+  { RESTRICTED_NODE, &show_memory_rip_cmd                               },
+  { RESTRICTED_NODE, &show_memory_ripng_cmd                             },
+  { RESTRICTED_NODE, &show_memory_bgp_cmd                               },
+  { RESTRICTED_NODE, &show_memory_ospf_cmd                              },
+  { RESTRICTED_NODE, &show_memory_ospf6_cmd                             },
+  { RESTRICTED_NODE, &show_memory_isis_cmd                              },
+  { VIEW_NODE,       &show_memory_summary_cmd                           },
+  { VIEW_NODE,       &show_memory_cmd                                   },
+  { VIEW_NODE,       &show_memory_all_cmd                               },
+  { VIEW_NODE,       &show_memory_lib_cmd                               },
+  { VIEW_NODE,       &show_memory_rip_cmd                               },
+  { VIEW_NODE,       &show_memory_ripng_cmd                             },
+  { VIEW_NODE,       &show_memory_bgp_cmd                               },
+  { VIEW_NODE,       &show_memory_ospf_cmd                              },
+  { VIEW_NODE,       &show_memory_ospf6_cmd                             },
+  { VIEW_NODE,       &show_memory_isis_cmd                              },
+  { ENABLE_NODE,     &show_memory_summary_cmd                           },
+  { ENABLE_NODE,     &show_memory_cmd                                   },
+  { ENABLE_NODE,     &show_memory_all_cmd                               },
+  { ENABLE_NODE,     &show_memory_lib_cmd                               },
+  { ENABLE_NODE,     &show_memory_zebra_cmd                             },
+  { ENABLE_NODE,     &show_memory_rip_cmd                               },
+  { ENABLE_NODE,     &show_memory_ripng_cmd                             },
+  { ENABLE_NODE,     &show_memory_bgp_cmd                               },
+  { ENABLE_NODE,     &show_memory_ospf_cmd                              },
+  { ENABLE_NODE,     &show_memory_ospf6_cmd                             },
+  { ENABLE_NODE,     &show_memory_isis_cmd                              },
 
-  install_element (VIEW_NODE, &show_memory_summary_cmd);
-  install_element (VIEW_NODE, &show_memory_cmd);
-  install_element (VIEW_NODE, &show_memory_all_cmd);
-  install_element (VIEW_NODE, &show_memory_lib_cmd);
-  install_element (VIEW_NODE, &show_memory_rip_cmd);
-  install_element (VIEW_NODE, &show_memory_ripng_cmd);
-  install_element (VIEW_NODE, &show_memory_bgp_cmd);
-  install_element (VIEW_NODE, &show_memory_ospf_cmd);
-  install_element (VIEW_NODE, &show_memory_ospf6_cmd);
-  install_element (VIEW_NODE, &show_memory_isis_cmd);
-
-  install_element (ENABLE_NODE, &show_memory_summary_cmd);
-  install_element (ENABLE_NODE, &show_memory_cmd);
-  install_element (ENABLE_NODE, &show_memory_all_cmd);
-  install_element (ENABLE_NODE, &show_memory_lib_cmd);
-  install_element (ENABLE_NODE, &show_memory_zebra_cmd);
-  install_element (ENABLE_NODE, &show_memory_rip_cmd);
-  install_element (ENABLE_NODE, &show_memory_ripng_cmd);
-  install_element (ENABLE_NODE, &show_memory_bgp_cmd);
-  install_element (ENABLE_NODE, &show_memory_ospf_cmd);
-  install_element (ENABLE_NODE, &show_memory_ospf6_cmd);
-  install_element (ENABLE_NODE, &show_memory_isis_cmd);
-}
+  CMD_INSTALL_END
+} ;
 
 #undef UNLOCK
 #undef LOCK

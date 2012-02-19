@@ -32,8 +32,6 @@
 #include "lib/sockunion.h"
 #include "lib/stream.h"
 
-//#include "bgpd/bgp.h"
-
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_open_state.h"
@@ -196,7 +194,7 @@ struct bgp_connection
 
   int          notification_pending ;   /* waiting to write NOTIFICATION  */
 
-  struct mqueue_local_queue
+  mqueue_local_queue_t
                     pending_queue ;     /* pending write messages         */
 
   struct bgp_wbuffer wbuff ;            /* write buffer                   */

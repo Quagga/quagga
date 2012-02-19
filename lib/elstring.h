@@ -181,6 +181,7 @@ extern int els_cmp_word(elstring a, elstring w) ;
 extern int els_cmp_sig(elstring a, elstring b) ;
 extern bool els_equal(elstring a, elstring b) ;
 extern bool els_substring(elstring a, elstring b) ;
+extern ulen els_sub_len(elstring a, elstring b) ;
 
 /*------------------------------------------------------------------------------
  * Set elstring value from ordinary string.

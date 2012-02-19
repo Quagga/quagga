@@ -30,101 +30,56 @@
 /*==============================================================================
  * Message Queue Blocks -- mqb
  *
- * Messages in a message queue are held as Message Queue Blocks:
- *
- *   * action -- function to call when message is dispatched
- *
- *   * arg0   -- always a pointer -- used in specific revoke
- *
- *   * args   -- embedded structure -- to be overlaid by user structure
- *
- *   * argv   -- pointer to: list/array of pointer/integer/unsigned
- *
- * NB: the elements of argv are all exactly the same size and alignment.
- *
- *     So, as well as using the access functions, it is possible to use the
- *     argv array directly, as any of:
- *
- *       mqb_arg_t*  argv = mqb_get_argv(mqb) ;
- *
- *       void**      argv = mqb_get_argv(mqb) ;
- *       char**      argv = mqb_get_argv(mqb) ;
- *
- *       mqb_ptr_t*  argv = mqb_get_argv(mqb) ;
- *       mqb_int_t*  argv = mqb_get_argv(mqb) ;
- *       mqb_uint_t* argv = mqb_get_argv(mqb) ;
+ * NB: mqueue_block structures are malloced, which guarantees maximum alignment.
+ *     To guarantee maximum alignment for the user specified "struct args", it
+ *     is the first item !
  */
 
+typedef struct mqueue_block  mqueue_block_t ;
 typedef struct mqueue_block* mqueue_block ;
 
-typedef void*     mqb_ptr_t ;
-typedef intptr_t  mqb_int_t ;
-typedef uintptr_t mqb_uint_t ;
-
-typedef unsigned short mqb_index_t ;
-
-typedef union
-{
-  mqb_ptr_t  p ;
-  mqb_int_t  i ;
-  mqb_uint_t u ;
-} mqb_arg_t ;
-
-/* argv is an array of mqb_arg_t, which is the same as an array of....        */
-CONFIRM(sizeof(mqb_arg_t) == sizeof(void*)) ;       /* ... pointers           */
-CONFIRM(sizeof(mqb_arg_t) == sizeof(mqb_ptr_t)) ;   /* ... mqb_ptr_t          */
-CONFIRM(sizeof(mqb_arg_t) == sizeof(mqb_int_t)) ;   /* ... mqb_int_t          */
-CONFIRM(sizeof(mqb_arg_t) == sizeof(mqb_uint_t)) ;  /* ... mqb_uint_t         */
-                                                    /* ... or any combination */
-enum mqb_flag
+typedef enum
 {
   mqb_destroy   = 0,
   mqb_action    = 1
-} ;
+} mqb_flag_t ;
 
-typedef enum mqb_flag mqb_flag_t ;
+typedef enum
+{
+  mqb_s_undef    = 0,
+  mqb_s_queued   = 1,
+  mqb_s_revoked  = 2,
+} mqb_state_t ;
 
 typedef void mqueue_action(mqueue_block mqb, mqb_flag_t flag) ;
 
 enum { mqb_args_size_max  = 64 } ;      /* maximum size of struct args  */
-enum { mqb_argv_size_unit = 16 } ;      /* allocate argv in these units */
 
-struct mqb_args
+typedef struct mqb_args
 {
   char bytes[mqb_args_size_max] ;       /* empty space                  */
-} ;
+} mqb_args_t ;
 
-#define MQB_ARGS_SIZE_OK(s) CONFIRM(sizeof(struct s) <= mqb_args_size_max)
+#define MQB_ARGS_SIZE_OK(s) CONFIRM(sizeof(s) <= sizeof(mqb_args_t))
 
 struct mqueue_block
 {
-  struct mqb_args args ;                /* user structure               */
-
-  mqueue_block    next ;                /* single linked list           */
-
-  mqueue_action*  action ;              /* for message dispatch         */
-
+  mqb_args_t      args ;        /* user structure               */
   void*           arg0 ;
-  mqb_arg_t*      argv ;                /* argv, if any                 */
 
-  mqb_index_t argv_count ;              /* count of elements in argv    */
-  mqb_index_t argv_alloc ;              /* count of elements allocated  */
-  mqb_index_t argv_next ;               /* iterator                     */
+  mqueue_block    next ;        /* single linked list           */
+
+  mqueue_action*  action ;      /* for message dispatch         */
+
+  mqb_state_t     state ;       /* see...                       */
 } ;
 
-/* mqueue_block structures are malloced.  That guarantees maximum alignment.
- * To guarantee maximum alignment for "struct args", it must be first item !
- *
- * (The typedef is required to stop Eclipse (3.4.2 with CDT 5.0) whining
- *  about first argument of offsetof().)
- */
-typedef struct mqueue_block mqueue_block_t ;
 CONFIRM(offsetof(mqueue_block_t, args) == 0) ;
 
 /*==============================================================================
  * The Message Queue itself
  */
-
+typedef struct mqueue_thread_signal  mqueue_thread_signal_t ;
 typedef struct mqueue_thread_signal* mqueue_thread_signal ;
 
 struct mqueue_thread_signal {
@@ -135,16 +90,19 @@ struct mqueue_thread_signal {
   int           signum ;        /* signal to kick with          */
 } ;
 
-enum mqueue_queue_type {
+typedef enum {
   mqt_cond_unicast,     /* use qpt_cond_signal to kick the queue        */
   mqt_cond_broadcast,   /* use qpt_cond_broadcast to kick the queue     */
   mqt_signal_unicast,   /* use single qpt_signal to kick the queue      */
   mqt_signal_broadcast, /* use multiple qpt_signal to kick the queue    */
-};
+} mqueue_queue_type_t ;
 
 #ifndef  MQUEUE_DEFAULT_INTERVAL
 # define MQUEUE_DEFAULT_INTERVAL QTIME(5)
 #endif
+
+typedef struct mqueue_queue_cond  mqueue_queue_cond_t ;
+typedef struct mqueue_queue_cond* mqueue_queue_cond ;
 
 struct mqueue_queue_cond {
   qpt_cond_t   wait_here ;
@@ -152,11 +110,15 @@ struct mqueue_queue_cond {
   qtime_t      interval ;
 } ;
 
+typedef struct mqueue_queue_signal  mqueue_queue_signal_t ;
+typedef struct mqueue_queue_signal* mqueue_queue_signal ;
+
 struct mqueue_queue_signal {
   mqueue_thread_signal head ;   /* NULL => list is empty        */
   mqueue_thread_signal tail ;
 };
 
+typedef struct mqueue_queue  mqueue_queue_t ; /* Forward reference    */
 typedef struct mqueue_queue* mqueue_queue ;
 
 struct mqueue_queue
@@ -167,18 +129,20 @@ struct mqueue_queue
   mqueue_block  tail_priority ; /* last priority message (if any & not empty) */
   mqueue_block  tail ;          /* last message (if not empty)                */
 
-  unsigned      count ;         /* of items on the queue                      */
+  uint          count ;         /* of items on the queue                      */
 
-  enum mqueue_queue_type    type ;
+  mqueue_queue_type_t  type ;
+  bool          revoking ;
 
-  unsigned      waiters ;
+  uint          waiters ;
 
   union {
-    struct mqueue_queue_cond   cond ;
-    struct mqueue_queue_signal signal ;
+    mqueue_queue_cond_t   cond ;
+    mqueue_queue_signal_t signal ;
   } kick ;
 } ;
 
+typedef struct mqueue_local_queue  mqueue_local_queue_t ;
 typedef struct mqueue_local_queue* mqueue_local_queue ;
 
 struct mqueue_local_queue
@@ -188,14 +152,29 @@ struct mqueue_local_queue
 } ;
 
 /*==============================================================================
+ * Locking
+ */
+Inline void
+MQUEUE_LOCK(mqueue_queue mq)
+{
+  qpt_mutex_lock(mq->mutex) ;
+  qassert(!mq->revoking) ;
+} ;
+
+Inline void
+MQUEUE_UNLOCK(mqueue_queue mq)
+{
+  qpt_mutex_unlock(mq->mutex) ;
+} ;
+
+/*==============================================================================
  * Functions
  */
 
 extern void mqueue_initialise(void) ;
 extern void mqueue_finish(void) ;
 
-extern mqueue_queue mqueue_init_new(mqueue_queue mq,
-                                                  enum mqueue_queue_type type) ;
+extern mqueue_queue mqueue_init_new(mqueue_queue mq, mqueue_queue_type_t type) ;
 extern void mqueue_empty(mqueue_queue mq) ;
 extern mqueue_queue mqueue_reset(mqueue_queue mq, free_keep_b free_structure) ;
 
@@ -211,21 +190,20 @@ mqueue_thread_signal mqueue_thread_signal_reset(mqueue_thread_signal mqt,
 
 extern mqueue_block mqb_init_new(mqueue_block mqb, mqueue_action action,
                                                                    void* arg0) ;
-extern mqueue_block mqb_re_init(mqueue_block mqb, mqueue_action action,
-                                                                   void* arg0) ;
 extern mqueue_block mqb_free(mqueue_block mqb) ;
 
-enum mqb_rank
+typedef enum
 {
   mqb_priority  = true,
   mqb_ordinary  = false
-} ;
-typedef enum mqb_rank mqb_rank_b ;
+} mqb_rank_b ;
 
 extern void mqueue_enqueue(mqueue_queue mq, mqueue_block mqb,
                                                           mqb_rank_b priority) ;
 extern mqueue_block mqueue_dequeue(mqueue_queue mq, int wait, void* arg) ;
-extern int mqueue_revoke(mqueue_queue mq, void* arg0, int num) ;
+extern int mqueue_revoke(mqueue_queue mq, void* arg0, uint num) ;
+
+extern bool mqb_revoke(mqueue_block mqb, mqueue_queue mq) ;
 
 extern int mqueue_done_waiting(mqueue_queue mq, mqueue_thread_signal mtsig) ;
 
@@ -239,55 +217,35 @@ extern mqueue_block mqueue_local_dequeue(mqueue_local_queue lmq) ;
  *
  * Users should not poke around inside the mqueue_block structure.
  */
-
 Inline void mqb_set_action(mqueue_block mqb, mqueue_action action) ;
 
 Inline void mqb_set_arg0(mqueue_block mqb, void* p) ;
 
-extern void mqb_set_argv_size(mqueue_block mqb, unsigned n) ;
+Inline void* mqb_get_arg0(mqueue_block mqb) ;
+Inline void* mqb_get_args(mqueue_block mqb) ;
 
-extern void mqb_set_argv_p(mqueue_block mqb, mqb_index_t iv, mqb_ptr_t  p) ;
-extern void mqb_set_argv_i(mqueue_block mqb, mqb_index_t iv, mqb_int_t  i) ;
-extern void mqb_set_argv_u(mqueue_block mqb, mqb_index_t iv, mqb_uint_t u) ;
-
-extern void mqb_push_argv_p(mqueue_block mqb, mqb_ptr_t  p) ;
-extern void mqb_push_argv_i(mqueue_block mqb, mqb_int_t  i) ;
-extern void mqb_push_argv_u(mqueue_block mqb, mqb_uint_t u) ;
-
-extern void mqb_push_argv_array(mqueue_block mqb, unsigned n, void** array) ;
-
+/* NB: the following require that the mqb is *not* mqb_s_queued.
+ */
 Inline void mqb_dispatch(mqueue_block mqb, mqb_flag_t flag) ;
 Inline void mqb_dispatch_action(mqueue_block mqb) ;
 Inline void mqb_dispatch_destroy(mqueue_block mqb) ;
-
-Inline void* mqb_get_arg0(mqueue_block mqb) ;
-Inline void* mqb_get_args(mqueue_block mqb) ;
-Inline void* mqb_get_argv(mqueue_block mqb) ;
-
-Inline mqb_index_t mqb_get_argv_count(mqueue_block mqb) ;
-
-extern mqb_ptr_t  mqb_get_argv_p(mqueue_block mqb, mqb_index_t iv) ;
-extern mqb_int_t  mqb_get_argv_i(mqueue_block mqb, mqb_index_t iv) ;
-extern mqb_uint_t mqb_get_argv_u(mqueue_block mqb, mqb_index_t iv) ;
-
-extern mqb_ptr_t  mqb_next_argv_p(mqueue_block mqb) ;
-extern mqb_int_t  mqb_next_argv_i(mqueue_block mqb) ;
-extern mqb_uint_t mqb_next_argv_u(mqueue_block mqb) ;
-
-extern void** mqb_pop_argv_array(mqueue_block mqb) ;
 
 /*==============================================================================
  * The Inline functions.
  */
 
+/*------------------------------------------------------------------------------
+ * Get head of given local queue -- returns NULL if no queue (!)
+ */
 Inline mqueue_block
 mqueue_local_head(mqueue_local_queue lmq)
 {
-  return lmq->head ;
+  return (lmq != NULL) ? lmq->head : NULL ;
 } ;
 
-/* Set operations.      */
-
+/*------------------------------------------------------------------------------
+ * Set operations.
+ */
 Inline void
 mqb_set_action(mqueue_block mqb, mqueue_action action)
 {
@@ -300,25 +258,9 @@ mqb_set_arg0(mqueue_block mqb, void* arg0)
   mqb->arg0 = arg0 ;
 } ;
 
-/* Get operations       */
-
-Inline void
-mqb_dispatch(mqueue_block mqb, mqb_flag_t flag)
-{
-  mqb->action(mqb, flag) ;
-} ;
-
-Inline void
-mqb_dispatch_action(mqueue_block mqb)
-{
-  mqb->action(mqb, mqb_action) ;
-} ;
-
-Inline void
-mqb_dispatch_destroy(mqueue_block mqb)
-{
-  mqb->action(mqb, mqb_destroy) ;
-} ;
+/*------------------------------------------------------------------------------
+ * Get operations -- NB: mqb MUST exist !
+ */
 
 Inline void*
 mqb_get_arg0(mqueue_block mqb)
@@ -332,22 +274,36 @@ mqb_get_args(mqueue_block mqb)
   return &mqb->args ;
 } ;
 
-Inline void*
-mqb_get_argv(mqueue_block mqb)
-{
-  return mqb->argv ;
-} ;
+/*------------------------------------------------------------------------------
+ * It would be a BAD mistake to dispatch a message that was on a queue.
+ *
+ * Of course, while can check the mqb->state, it is possible for another thread
+ * to dequeue the mqb while this is going on.  So, the check is really just a
+ * reminder of required use.
+ *
+ * There might be a need to dispatch a message that has been revoked... but
+ * that is not something that is legislated for or against here.
+ */
 
-Inline mqb_index_t
-mqb_get_argv_count(mqueue_block mqb)
+Inline void
+mqb_dispatch(mqueue_block mqb, mqb_flag_t flag)
 {
-  return mqb->argv_count ;
+  qassert(mqb->state != mqb_s_queued) ;
+  mqb->action(mqb, flag) ;
 } ;
 
 Inline void
-mqb_reset_argv_next(mqueue_block mqb)
+mqb_dispatch_action(mqueue_block mqb)
 {
-  mqb->argv_next = 0 ;
+  qassert(mqb->state != mqb_s_queued) ;
+  mqb->action(mqb, mqb_action) ;
+} ;
+
+Inline void
+mqb_dispatch_destroy(mqueue_block mqb)
+{
+  qassert(mqb->state != mqb_s_queued) ;
+  mqb->action(mqb, mqb_destroy) ;
 } ;
 
 #endif /* _ZEBRA_MQUEUE_H */

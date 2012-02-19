@@ -49,7 +49,6 @@
 /*------------------------------------------------------------------------------
  *
  */
-enum { VTY_HIST_COUNT  = 55 } ;
 
 /* Integrated configuration file. */
 #define INTEGRATE_DEFAULT_CONFIG "Quagga.conf"
@@ -78,29 +77,20 @@ enum { VTY_MAX_SPACES = 40 } ;
 /* Utility macros to convert VTY argument to unsigned long or integer. */
 #define VTY_GET_LONG(NAME,V,STR) \
 do { \
-  char *endptr = NULL; \
-  (V) = strtoul ((STR), &endptr, 0); \
-  if (*endptr != '\0' || (V) == ULONG_MAX) \
-    { \
-      vty_out (vty, "%% Invalid %s value%s", NAME, VTY_NEWLINE); \
-      return CMD_WARNING; \
-    } \
+  (V) = vty_get_long(vty, NAME, STR); \
+  if (errno != 0) \
+    return CMD_WARNING; \
 } while (0)
 
 #define VTY_GET_INTEGER_RANGE(NAME,V,STR,MIN,MAX) \
 do { \
-  unsigned long tmpl; \
-  VTY_GET_LONG(NAME, tmpl, STR); \
-  if ( (tmpl < (MIN)) || (tmpl > (MAX))) \
-    { \
-      vty_out (vty, "%% Invalid %s value%s", NAME, VTY_NEWLINE); \
-      return CMD_WARNING; \
-    } \
-  (V) = tmpl; \
+  (V) = vty_get_integer_range(vty, NAME, STR, MIN, MAX); \
+  if (errno != 0) \
+    return CMD_WARNING; \
 } while (0)
 
 #define VTY_GET_INTEGER(NAME,V,STR) \
-  VTY_GET_INTEGER_RANGE(NAME,V,STR,0U,UINT32_MAX)
+  VTY_GET_INTEGER_RANGE(NAME,V,STR,0,UINT32_MAX)
 
 #define VTY_GET_IPV4_ADDRESS(NAME,V,STR)                                      \
 do {                                                                          \
@@ -124,46 +114,58 @@ do {                                                                          \
     }                                                                         \
 } while (0)
 
+
 /*------------------------------------------------------------------------------
  * Exported variables
  */
-extern char integrate_default[];
+extern const char* integrate_default ;
 
 /*------------------------------------------------------------------------------
  * Prototypes.
  */
-extern void vty_init (struct thread_master *);
+extern void vty_cmd_init (void);
+extern void vty_init (void);
 extern void vty_init_r (qpn_nexus, qpn_nexus);
 extern void vty_start(const char *addr, unsigned short port, const char *path) ;
-#define vty_serv_sock(addr, port, path) vty_start(addr, port, path)
-extern void vty_restart(const char *addr, unsigned short port,
-                                                             const char *path) ;
-extern void vty_terminate (void);
-extern void vty_reset (void);
-extern void vty_reset_because(const char* why) ;
+extern const char* vty_suspend(const char* why, void (*suspend_action)(void)) ;
+extern void vty_dispatch_restart(void (*restart_action)(void)) ;
+extern void vty_resume(void) ;
 
-extern int vty_out (struct vty *, const char *, ...) PRINTF_ATTRIBUTE(2, 3);
+//extern void vty_serv_sock(const char *addr, unsigned short port,
+//                                                           const char *path) ;
+
+extern void vty_stop(const char* why, void (*stop_action)(void)) ;
+extern void vty_terminate (void);
+
+extern int vty_out (struct vty *vty, const char *format, ...)
+                                                        PRINTF_ATTRIBUTE(2, 3) ;
+extern void vty_err(struct vty *vty, const char *format, ...)
+                                                        PRINTF_ATTRIBUTE(2, 3) ;
 extern int vty_write(struct vty *vty, const void* buf, int n) ;
 extern int vty_out_indent(struct vty *vty, int indent) ;
 extern void vty_out_clear(struct vty *vty) ;
+
+extern ulong vty_get_long(vty vty, const char* name, const char* str) ;
+extern ulong vty_get_integer_range(vty vty, const char* name, const char* str,
+                                                         ulong min, ulong max) ;
 
 extern void vty_sigchld(void) ;
 
 extern void vty_read_config (const char* config_file,
                              const char* config_default);
-extern void vty_read_config_first_cmd_special(const char* config_file,
-                                              const char* config_default,
-                                              cmd_command first_cmd,
-                                              bool ignore_warnings) ;
-
+extern void vty_read_config_new(bool ignore_warnings, bool show_warnings) ;
+extern int vty_open_config_file(vty vty, qpath path, bool required) ;
+extern cmd_ret_t vty_write_config_file(vty vty, qpath path,
+                        int (*write_config_node)(svty vty, node_type_t node),
+                                                              bool integrated) ;
+extern cmd_ret_t vty_write_config(vty vty,
+                        int (*write_config_node)(svty vty, node_type_t node)) ;
 extern qpath vty_getcwd(qpath qp);
 
 /*------------------------------------------------------------------------------
  * vtysh
  */
-extern void vty_hello (vty vty);
-extern struct vty* vty_open(enum vty_type type, node_type_t node) ;
-extern void vty_close_final(vty vty);
-extern void vty_init_vtysh (void);
+extern void vty_init_for_vtysh(void);
+extern void vty_hello(vty vty);
 
 #endif /* _ZEBRA_VTY_H */

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -40,7 +40,7 @@
 
 #include "zebra/rib.h"
 #include "zebra/zserv.h"
-
+
 #define IPFWMIB 1,3,6,1,2,1,4,24
 
 /* ipForwardTable */
@@ -84,7 +84,7 @@
 #define ROWSTATUS ASN_INTEGER
 #define IPADDRESS ASN_IPADDRESS
 #define OBJECTIDENTIFIER ASN_OBJECT_ID
-
+
 extern struct zebra_t zebrad;
 
 oid ipfw_oid [] = { IPFWMIB };
@@ -99,7 +99,7 @@ static u_char * ipCidrNumber (struct variable *, oid [], size_t *,
 static u_char * ipCidrTable (struct variable *, oid [], size_t *,
 			     int, size_t *, WriteMethod **);
 
-struct variable zebra_variables[] = 
+struct variable zebra_variables[] =
   {
     {0, GAUGE32, RONLY, ipFwNumber, 1, {1}},
     {IPFORWARDDEST, IPADDRESS, RONLY, ipFwTable, 3, {2, 1, 1}},
@@ -136,7 +136,7 @@ struct variable zebra_variables[] =
     {IPCIDRROUTESTATUS, ROWSTATUS, RONLY, ipCidrTable, 3, {4, 1, 16}}
   };
 
-
+
 static u_char *
 ipFwNumber (struct variable *v, oid objid[], size_t *objid_len,
 	    int exact, size_t *val_len, WriteMethod **write_method)
@@ -203,7 +203,7 @@ in_addr_cmp(u_char *p1, u_char *p2)
   return 0;
 }
 
-static int 
+static int
 in_addr_add(u_char *p, int num)
 {
   int i, ip0;
@@ -224,7 +224,7 @@ in_addr_add(u_char *p, int num)
     /* ip + num > 0xffffffff */
     return 0;
   }
-  
+
   return 1;
 }
 
@@ -257,7 +257,7 @@ proto_trans(int type)
 }
 
 static void
-check_replace(struct route_node *np2, struct rib *rib2, 
+check_replace(struct route_node *np2, struct rib *rib2,
               struct route_node **np, struct rib **rib)
 {
   int proto, proto2;
@@ -290,7 +290,7 @@ check_replace(struct route_node *np2, struct rib *rib2,
       return;
     }
 
-  if (in_addr_cmp((u_char *)&(*rib)->nexthop->gate.ipv4, 
+  if (in_addr_cmp((u_char *)&(*rib)->nexthop->gate.ipv4,
                   (u_char *)&rib2->nexthop->gate.ipv4) <= 0)
     return;
 
@@ -300,7 +300,7 @@ check_replace(struct route_node *np2, struct rib *rib2,
 }
 
 static void
-get_fwtable_route_node(struct variable *v, oid objid[], size_t *objid_len, 
+get_fwtable_route_node(struct variable *v, oid objid[], size_t *objid_len,
 		       int exact, struct route_node **np, struct rib **rib)
 {
   struct in_addr dest;
@@ -325,7 +325,7 @@ get_fwtable_route_node(struct variable *v, oid objid[], size_t *objid_len,
 
   proto = 0;
   policy = 0;
- 
+
   /* Init return variables */
 
   *np = NULL;
@@ -361,7 +361,7 @@ get_fwtable_route_node(struct variable *v, oid objid[], size_t *objid_len,
 
   if (!exact && (*objid_len >= (unsigned) v->namelen + 10))
     {
-      if (! in_addr_add((u_char *) &nexthop, 1)) 
+      if (! in_addr_add((u_char *) &nexthop, 1))
         return;
     }
 
@@ -547,7 +547,7 @@ ipFwTable (struct variable *v, oid objid[], size_t *objid_len,
     default:
       return NULL;
       break;
-    }  
+    }
   return NULL;
 }
 
@@ -562,14 +562,14 @@ ipCidrTable (struct variable *v, oid objid[], size_t *objid_len,
     default:
       return NULL;
       break;
-    }  
+    }
   return NULL;
 }
 
 void
 zebra_snmp_init ()
 {
-  smux_init (zebrad.master);
+  smux_init (ZEBRA, zebrad.master);
   REGISTER_MIB("mibII/ipforward", zebra_variables, variable, ipfw_oid);
 }
 #endif /* HAVE_SNMP */

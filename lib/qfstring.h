@@ -134,9 +134,9 @@ typedef enum pf_flags pf_flags_t ;
  * caller.  And, since the buffer is implicitly on the stack, this is thread
  * safe (and async-signal-safe, provided make_foo() is).
  *
- * The macro: qfb_t(name, len) declares a fixed length buffer type.  So:
+ * The macro: QFB_T(name, len) declares a fixed length buffer type.  So:
  *
- *   QFB_T(foo, 79) ;
+ *   QFB_T(79) foo_t ;
  *
  * declares:
  *
@@ -153,27 +153,28 @@ typedef enum pf_flags pf_flags_t ;
  *
  *   foo_t make_foo(...)
  *   {
- *     foo_t foo ;
+ *     foo_t foo_buf ;
  *
- *       ...  foo.str          is the address of the string buffer
- *       ...  sizeof(foo.str)  is its length *including* the '\0'
+ *       ...  foo_buf.str          is the address of the string buffer
+ *       ...  sizeof(foo_buf.str)  is its length *including* the '\0'
  *
- *     return foo ;
+ *     return foo_buf ;
  *   } ;
  *
  * The qfstring facilities may be used to construct the string, and to
- * facilitate that, the macro: qfb_qfs(buf, qfs) declares the buffer and a
- * qf_str_t and initialises same, thus:
+ * facilitate that, the macro QFB_QFS declares the buffer and a qf_str_t and
+ * initialises same, thus:
  *
- *   QFB_QFS(foo, foo_qfs) ;
+ *   foo_t QFB_QFS(foo_buf, foo_qfs) ;
  *
  * declares:
  *
- *   foo_t    foo ;
+ *   foo_t    foo_buf ;
  *   qf_str_t foo_qfs = { ...initialised for empty foo... } ;
  *
  * So the string generator can use foo_qfs and qfstring facilities to fill in
- * the string in foo, and then return foo (having terminated it) as above.
+ * the string in foo_buf, and then return foo_buf (having terminated it) as
+ * above.
  *
  * So... with two macros we reduce the amount of fiddling about required to
  * do something reasonably simple.
@@ -182,21 +183,40 @@ typedef enum pf_flags pf_flags_t ;
  *     in the caller's stack frame and one in the callee's, and returning the
  *     value will involve copying from one to the other.
  */
-#define QFB_T(name, len) \
-  typedef struct { char str[((len) | 7) + 1] ; } name##_t
+#define QFB_T(len) \
+  typedef struct { char str[((len) | 7) + 1] ; }
 
 #define QFB_QFS(qfb, qfs) \
-  qfb##_t     qfb ;       \
-  qf_str_t  qfs = { { .str      = qfb.str,                   \
-                      .ptr      = qfb.str,                   \
-                      .end      = qfb.str + sizeof(qfb.str), \
-                      .offset   = 0,                         \
-                      .overflow = 0  } }
+   qfb ; \
+  qf_str_t qfs = { { .str      = qfb.str,                   \
+                     .ptr      = qfb.str,                   \
+                     .end      = qfb.str + sizeof(qfb.str), \
+                     .offset   = 0,                         \
+                     .overflow = 0  } }
 
 /* And, finally, a "standard" qfb for general use: qfb_gen_t !          */
 
 enum { qfb_gen_len = 200 } ;    /* More than enough for most purposes ! */
-QFB_T(qfb_gen, qfb_gen_len) ;
+QFB_T(qfb_gen_len) qfb_gen_t ;
+
+/*==============================================================================
+ * Simple keyword support
+ *
+ * A "keyword table" is an array of qfs_keyword_t, the last entry of which
+ * has a NULL word, eg:
+ *
+ *   static qfs_keyword_t deny_permit_table[] =
+ *   {
+ *     { .word = "deny",    .val = 0 },
+ *     { .word = "permit",  .val = 1 },
+ *     { .word = NULL }
+ *   } ;
+ */
+typedef struct qfs_keyword
+{
+  const char* word ;
+  uint        val ;             /* NB: <= MAX_INT       */
+} qfs_keyword_t ;
 
 /*==============================================================================
  * Functions
@@ -234,6 +254,14 @@ extern uint qfs_vprintf(qf_str qfs, const char *format, va_list args) ;
 
 Inline uint qfs_strlen(const char* str) ;
 
+extern int qfs_keyword_lookup(qfs_keyword_t* table, const char* str,
+                                                                  bool strict) ;
+extern int qfs_keyword_lookup_nocase(qfs_keyword_t* table, const char* str,
+                                                                  bool strict) ;
+extern int qfs_keyword_lookup_abstract(void* a_array, const char* str,
+                                                                  bool strict,
+                           const char* (*a_lookup)(void* a_array, uint index)) ;
+
 /*------------------------------------------------------------------------------
  * Construction of numbers from long and other stuff.
  *
@@ -244,7 +272,7 @@ enum { qfs_number_len = 1 + (((64 + 9) / 10) * (3 + 1)) } ;
 
 CONFIRM((sizeof(long) * 8) <= 64) ;
 
-QFB_T(qfs_num_str, qfs_number_len) ;    /* construct qfs_num_str_t      */
+QFB_T(qfs_number_len) qfs_num_str_t ;
 
 extern qfs_num_str_t qfs_dec_value(long val, pf_flags_t flags) ;
 extern qfs_num_str_t qfs_bin_value(long val, pf_flags_t flags) ;

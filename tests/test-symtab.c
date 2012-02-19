@@ -1,6 +1,8 @@
 #include <zebra.h>
-#include <symtab.h>
+#include "misc.h"
 #include "qlib_init.h"
+#include "command.h"
+#include "symtab.h"
 
 /* Symtab torture tests
  *
@@ -30,8 +32,6 @@ void test_ref_heavy(void);
 
 static void scan_symbol_table(symbol_table table) ;
 
-struct thread_master *master;
-
 void
 assert_true(int result, const char * message)
 {
@@ -44,7 +44,8 @@ assert_true(int result, const char * message)
 int
 main(int argc, char **argv)
 {
-  qlib_init_first_stage() ;
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
 
   test_symbol_table_new();
   test_symbol_table_lookup();

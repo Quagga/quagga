@@ -4801,9 +4801,11 @@ bgp_master_init (void)
 
   bm = &bgp_master;
   bm->bgp        = list_new ();
-  bm->master     = thread_master_create ();
+  bm->master     = master ;             /* copy of the thread global    */
   bm->port       = BGP_PORT_DEFAULT;
   bm->start_time = bgp_clock ();
+
+  qassert(master != NULL) ;             /* initialised earlier          */
 
   /* Implicitly:
    *
@@ -4836,7 +4838,7 @@ bgp_init (void)
   bgp_mplsvpn_init ();
 
   /* Access list initialize. */
-  access_list_init ();
+  access_list_init();
   access_list_add_hook (peer_distribute_update);
   access_list_delete_hook (peer_distribute_update);
 
@@ -4846,7 +4848,7 @@ bgp_init (void)
   as_list_delete_hook (peer_aslist_update);
 
   /* Prefix list initialize.*/
-  prefix_list_init ();
+  prefix_list_init();
   prefix_list_add_hook (peer_prefix_list_update);
   prefix_list_delete_hook (peer_prefix_list_update);
 
@@ -4860,9 +4862,6 @@ bgp_init (void)
 
 /*------------------------------------------------------------------------------
  * If not terminating, reset all peers now
- *
- * If
- *
  */
 void
 bgp_terminate (bool terminating, bool retain_mode)

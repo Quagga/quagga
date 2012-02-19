@@ -1,6 +1,6 @@
 #! @PERL@
 ##
-## @configure_input@
+## vtysh/extract.pl.  Generated from extract.pl.in by configure.
 ##
 ## Virtual terminal interface shell command extractor.
 ## Copyright (C) 2000 Kunihiro Ishiguro
@@ -22,180 +22,185 @@
 ## Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 ## 02111-1307, USA.  
 ##
+use strict;
+use warnings ;
+
+my $includes = "-I@top_builddir@ ".
+               "-I@srcdir@/ ".
+               "-I@srcdir@/.. ".            
+               "-I@top_srcdir@/lib ".
+               "-I@top_srcdir@/isisd/topology ".
+               "@SNMP_INCLUDES@" ;
+
+# No further .in substitutions from here on
 
 print <<EOF;
-#include <zebra.h>
+#include "misc.h"
 #include "command.h"
-#include "vtysh.h"
+
+extern cmd_table vtysh_collected_cmd_table ;
 
 EOF
 
-$ignore{'"interface IFNAME"'} = "ignore";
-$ignore{'"ip vrf NAME"'} = "ignore";
-$ignore{'"router rip"'} = "ignore";
-$ignore{'"router ripng"'} = "ignore";
-$ignore{'"router ospf"'} = "ignore";
-$ignore{'"router ospf <0-65535>"'} = "ignore";
-$ignore{'"router ospf6"'} = "ignore";
-$ignore{'"router bgp " "<1-4294967295>"'} = "ignore";
-$ignore{'"router bgp " "<1-4294967295>" " view WORD"'} = "ignore";
-$ignore{'"router isis WORD"'} = "ignore";
-$ignore{'"router zebra"'} = "ignore";
-$ignore{'"address-family ipv4"'} = "ignore";
-$ignore{'"address-family ipv4 (unicast|multicast)"'} = "ignore";
-$ignore{'"address-family ipv6"'} = "ignore";
-$ignore{'"address-family ipv6 unicast"'} = "ignore";
-$ignore{'"address-family vpnv4"'} = "ignore";
-$ignore{'"address-family vpnv4 unicast"'} = "ignore";
-$ignore{'"address-family ipv4 vrf NAME"'} = "ignore";
-$ignore{'"exit-address-family"'} = "ignore";
-$ignore{'"key chain WORD"'} = "ignore";
-$ignore{'"key <0-2147483647>"'} = "ignore";
-$ignore{'"route-map WORD (deny|permit) <1-65535>"'} = "ignore";
-$ignore{'"show route-map"'} = "ignore";
-$ignore{'"line vty"'} = "ignore";
-$ignore{'"who"'} = "ignore";
-$ignore{'"terminal monitor"'} = "ignore";
-$ignore{'"terminal no monitor"'} = "ignore";
-$ignore{'"show history"'} = "ignore";
+print comment("Gathered commands from:"), "\n" ;
 
-foreach (@ARGV) {
-    $file = $_;
+my %odefun      = () ;
+my @vtysh_table = () ;
 
-    open (FH, "cpp -DHAVE_CONFIG_H -DVTYSH_EXTRACT_PL -DHAVE_IPV6 -I@top_builddir@ -I@srcdir@/ -I@srcdir@/.. -I@top_srcdir@/lib -I@top_srcdir@/isisd/topology @SNMP_INCLUDES@ $file |");
-    local $/; undef $/;
-    $line = <FH>;
+foreach (@ARGV)
+  {
+    my @defun   = () ;
+    my @install = () ;
+    
+    my $file = $_;
+
+    open (FH, "cpp -DVTYSH_EXTRACT_PL -DHAVE_CONFIG_H -DHAVE_IPV6 ".
+                                                           "$includes $file |");
+    local $/;
+    undef $/;
+    my $line = <FH>;
     close (FH);
 
-    @defun = ($line =~ /(?:DEFUN|ALIAS)\s*\((.+?)\);?\s?\s?\n/sg);
-    @install = ($line =~ /install_element \(\s*[0-9A-Z_]+,\s*&[^;]*;\s*\n/sg);
+    # Command definitions appear as: VTYSH_CMD_INSTALL{->>__VA_ARGS__<<-}
 
-    # DEFUN process
-    foreach (@defun) {
-	my (@defun_array);
-	@defun_array = split (/,/);
-	$defun_array[0] = '';
+    @defun = ($line =~ /\bVTYSH_CMD_INSTALL\s*\{\-\>\>\s*
+                       (.+?)
+                       \s*\<\<\-\}\s*\;/sgx);
 
+    # Install tables appear as: VTYSH_CMD_INSTALL_TABLE{->>__VA_ARGS__<<-} =
+                       
+    @install = ($line =~ /VTYSH_CMD_INSTALL_TABLE\s*\{\-\>\>\s*
+                         (.+?)      
+                         \<\<\-\s*\}\s*\;/sgx) ;
 
-	# Actual input command string.
-	$str = "$defun_array[2]";
-	$str =~ s/^\s+//g;
-	$str =~ s/\s+$//g;
+    # Loop if we have nothing, otherwise, announce file
 
-	# Get VTY command structure.  This is needed for searching
-	# install_element() command.
-	$cmd = "$defun_array[1]";
-	$cmd =~ s/^\s+//g;
-	$cmd =~ s/\s+$//g;
+    if ((scalar(@defun) + scalar(@install)) == 0)
+      { next ; } ;
 
-        # $protocol is VTYSH_PROTO format for redirection of user input
-    	if ($file =~ /lib/) {
-           if ($file =~ /keychain.c/) {
-              $protocol = "VTYSH_RIPD";
-           }
-           if ($file =~ /routemap.c/) {
-              $protocol = "VTYSH_RIPD|VTYSH_RIPNGD|VTYSH_OSPFD|VTYSH_OSPF6D|VTYSH_BGPD|VTYSH_ZEBRA";
-           }
-           if ($file =~ /filter.c/) {
-              $protocol = "VTYSH_ALL";
-           }
-           if ($file =~ /plist.c/) {
-	      if ($defun_array[1] =~ m/ipv6/) {
-                 $protocol = "VTYSH_RIPNGD|VTYSH_OSPF6D|VTYSH_BGPD|VTYSH_ZEBRA";
-              } else {
-                 $protocol = "VTYSH_RIPD|VTYSH_OSPFD|VTYSH_BGPD|VTYSH_ZEBRA";
+    print comment("   $file"), "\n" ;
+    print comment(sprintf(
+                  "                        -- %3d commands, %2d install tables",
+                                      scalar(@defun), scalar(@install))), "\n" ;
+
+    # DEFUN process -- discard the function name and append "_vtysh" to the
+    #                  command name
+    foreach (@defun)
+      {
+        my $cmd = $_ ;
+        if (s/.*?\,\s*(\w+)\s*\,\s*/$1_vtysh, /)
+          {
+            my $cmd = $1 ;
+            if (!exists($odefun{$cmd}))
+              {
+                $odefun{$cmd} = $_ ;
               }
-           }
-           if ($file =~ /distribute.c/) {
-              if ($defun_array[1] =~ m/ipv6/) {
-                 $protocol = "VTYSH_RIPNGD";
-              } else {
-                 $protocol = "VTYSH_RIPD";
-              }
-           }
-           if ($file =~ /if_rmap.c/) {
-              if ($defun_array[1] =~ m/ipv6/) {
-                 $protocol = "VTYSH_RIPNGD";
-              } else {
-                 $protocol = "VTYSH_RIPD";
-              }
-           }
-	   if ($file =~ /vty.c/) {
-	      $protocol = "VTYSH_ALL";
-	   }
-        } else {
-           ($protocol) = ($file =~ /^.*\/([a-z0-9]+)\/[a-zA-Z0-9_\-]+\.c$/);
-           $protocol = "VTYSH_" . uc $protocol;
-        }
+            else
+              {
+                print "#warning Duplicate command '$cmd'\n" ;
+              } ;
+          }
+        else      
+          {
+            print "#error Badly formed DEFUN: '$_'\n" ;
+          } ;
+      } ;
 
-	# Append _vtysh to structure then build DEFUN again
-	$defun_array[1] = $cmd . "_vtysh";
-	$defun_body = join (", ", @defun_array);
+    # install table process
+    
+    if (scalar(@install) == 0)
+      { next ; } ;
+    
+    push @vtysh_table, comment("from: $file", -2) ;
 
-	# $cmd -> $str hash for lookup
-	$cmd2str{$cmd} = $str;
-	$cmd2defun{$cmd} = $defun_body;
-	$cmd2proto{$cmd} = $protocol;
-    }
+    foreach (@install)
+      {
+        my ($table_name, $table_daemon, $table) = 
+                m/^\s*\w+\s*\,\s*
+                  (\w+)
+                  \s*\,\s*
+                  (.+?)
+                  \s*\=\s*
+                  ((?:\{.+?\}\s*\,\s*)+)
+                  \s*$/sx ;
+        
+        if (!defined($table_name) || !defined($table_daemon)
+                                  || !defined($table))
+          {
+            print "#error Badly formed VTYSH_CMD_INSTALL_TABLE '$_'\n" ;
+            next ;
+          } ;
 
-    # install_element() process
-    foreach (@install) {
-	my (@element_array);
-	@element_array = split (/,/);
+        $table_name =~ s/^\s+// ;
+        $table_name =~ s/\s+$// ;
 
-	# Install node
-	$enode = $element_array[0];
-	$enode =~ s/^\s+//g;
-	$enode =~ s/\s+$//g;
-	($enode) = ($enode =~ /([0-9A-Z_]+)$/);
+        $table_daemon =~ s/^\s+// ;
+        $table_daemon =~ s/\s+$// ;
 
-	# VTY command structure.
-	($ecmd) = ($element_array[1] =~ /&([^\)]+)/);
-	$ecmd =~ s/^\s+//g;
-	$ecmd =~ s/\s+$//g;
+        push @vtysh_table,
+                 comment("CMD_INSTALL_TABLE($table_name, $table_daemon)", -2) ;
+        
+        $table =~ s/\s*\{\s*//g ;
+        $table =~ s/\s*\}\s*\,\s*/;/g ;
+        
+        my (@table) = split(/;/, $table) ;
+        
+        foreach my $entry (@table)
+          {
+            my @parts = split(/\s*\,\s*/, $entry) ;
+            
+            $parts[1] .="_vtysh" ;
+            
+            if (defined($parts[2]) && ($parts[2] !~ m/^\s*0\s*$/))
+              { $parts[2] = "($table_daemon) | ($parts[2])" ; }
+            else
+              { $parts[2] = $table_daemon ; } ;
+            
+            push @vtysh_table, "{ ".join(', ', @parts)." }," ;
+          } ;
+          
+        push @vtysh_table, "" ;
+      } ;
+  } ;
 
-	# Register $ecmd
-	if (defined ($cmd2str{$ecmd})
-	    && ! defined ($ignore{$cmd2str{$ecmd}})) {
-	    my ($key);
-	    $key = $enode . "," . $cmd2str{$ecmd};
-	    $ocmd{$key} = $ecmd;
-	    $odefun{$key} = $cmd2defun{$ecmd};
-	    push (@{$oproto{$key}}, $cmd2proto{$ecmd});
-	}
-    }
-}
-
-# Check finaly alive $cmd;
-foreach (keys %odefun) {
-    my ($node, $str) = (split (/,/));
-    my ($cmd) = $ocmd{$_};
-    $live{$cmd} = $_;
-}
+print "\n" ;
 
 # Output DEFSH
-foreach (keys %live) {
-    my ($proto);
-    my ($key);
-    $key = $live{$_};
-    $proto = join ("|", @{$oproto{$key}});
-    printf "DEFSH ($proto$odefun{$key})\n\n";
+foreach (sort keys %odefun) {
+  print "DEFVTYSH($odefun{$_})\n";
 }
 
 # Output install_element
 print <<EOF;
-void
-vtysh_init_cmd ()
+
+CMD_INSTALL_TABLE(extern, vtysh_collected_cmd_table, 0) =
 {
 EOF
 
-foreach (keys %odefun) {
-    my ($node, $str) = (split (/,/));
-    $cmd = $ocmd{$_};
-    $cmd =~ s/_cmd/_cmd_vtysh/;
-    printf "  install_element ($node, &$cmd);\n";
+foreach (@vtysh_table) {
+  print "  $_\n";
 }
 
-print <<EOF
-}
+print <<EOF;
+  CMD_INSTALL_END
+} ;
 EOF
+
+# Enclose given line in leading "/* " and trailing " */", and pad with spaces
+# before the "*/" if the total width is less than the given width or 80 or
+# 80 + given width if is -ve.
+sub comment
+{
+  my ($str, $w) = @_ ;
+  
+  if (!defined($w))
+    { $w = 0 ; } ;
+  if ($w <= 0)
+    { $w = 80 + $w ; } ;
+  
+  $w = $w - 6 - length($str) ;
+  if ($w > 0)
+    { $str .= " " x $w ; } ;
+    
+  return "/* ".$str." */" ;  
+} ;

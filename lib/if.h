@@ -22,6 +22,7 @@ Boston, MA 02111-1307, USA.  */
 #define _ZEBRA_IF_H
 
 #include "linklist.h"
+#include "command_common.h"
 
 /*
   Interface name length.
@@ -69,7 +70,7 @@ struct if_stats
 #endif /* HAVE_PROC_NET_DEV */
 
 /* Interface structure */
-struct interface 
+struct interface
 {
   /* Interface name.  This should probably never be changed after the
      interface is created, because the configuration info for this interface
@@ -90,7 +91,7 @@ struct interface
 #define ZEBRA_INTERFACE_ACTIVE     (1 << 0)
 #define ZEBRA_INTERFACE_SUB        (1 << 1)
 #define ZEBRA_INTERFACE_LINKDETECTION (1 << 2)
-  
+
   /* Interface flags. */
   uint64_t flags;
 
@@ -112,9 +113,9 @@ struct interface
 
   /* interface bandwidth, kbits */
   unsigned int bandwidth;
-  
+
   /* description of the interface. */
-  char *desc;			
+  char *desc;
 
   /* Distribute list. */
   void *distribute_in;
@@ -129,7 +130,7 @@ struct interface
   /* Statistics fileds. */
 #ifdef HAVE_PROC_NET_DEV
   struct if_stats stats;
-#endif /* HAVE_PROC_NET_DEV */  
+#endif /* HAVE_PROC_NET_DEV */
 #ifdef HAVE_NET_RT_IFLIST
   struct if_data stats;
 #endif /* HAVE_NET_RT_IFLIST */
@@ -158,7 +159,7 @@ struct connected
 #define ZEBRA_IFA_PEER         (1 << 1)
   /* N.B. the ZEBRA_IFA_PEER flag should be set if and only if
      a peer address has been configured.  If this flag is set,
-     the destination field must contain the peer address.  
+     the destination field must contain the peer address.
      Otherwise, if this flag is not set, the destination address
      will either contain a broadcast address or be NULL.
    */
@@ -249,7 +250,7 @@ extern struct interface *if_get_by_name_len(const char *ifname, size_t namelen);
 
 
 /* Delete the interface, but do not free the structure, and leave it in the
-   interface list.  It is often advisable to leave the pseudo interface 
+   interface list.  It is often advisable to leave the pseudo interface
    structure because there may be configuration information attached. */
 extern void if_delete_retain (struct interface *);
 
@@ -266,6 +267,7 @@ extern int if_is_pointopoint (struct interface *);
 extern int if_is_multicast (struct interface *);
 extern void if_add_hook (int, int (*)(struct interface *));
 extern void if_init (void);
+extern void if_cmd_init(int (*config_write) (struct vty *)) ;
 extern void if_terminate (void);
 extern void if_dump_all (void);
 extern const char *if_flag_dump(unsigned long);
@@ -287,9 +289,9 @@ extern void connected_add (struct interface *, struct connected *);
 extern struct connected  *connected_add_by_prefix (struct interface *,
                                             struct prefix *,
                                             struct prefix *);
-extern struct connected  *connected_delete_by_prefix (struct interface *, 
+extern struct connected  *connected_delete_by_prefix (struct interface *,
                                                struct prefix *);
-extern struct connected  *connected_lookup_address (struct interface *, 
+extern struct connected  *connected_lookup_address (struct interface *,
                                              struct in_addr);
 
 #ifndef HAVE_IF_NAMETOINDEX
@@ -301,12 +303,5 @@ extern char *if_indextoname (unsigned int, char *);
 
 /* Exported variables. */
 extern struct list *iflist;
-extern struct cmd_command interface_desc_cmd;
-extern struct cmd_command no_interface_desc_cmd;
-extern struct cmd_command interface_cmd;
-extern struct cmd_command no_interface_cmd;
-extern struct cmd_command interface_pseudo_cmd;
-extern struct cmd_command no_interface_pseudo_cmd;
-extern struct cmd_command show_address_cmd;
 
 #endif /* _ZEBRA_IF_H */

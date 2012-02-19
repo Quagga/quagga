@@ -24,6 +24,7 @@
 
 #include "misc.h"
 #include <syslog.h>
+#include "qfstring.h"
 
 /*==============================================================================
  * This is for things which are required in log.h for external use, and in
@@ -74,6 +75,23 @@ typedef enum
  */
 struct zlog ;
 
-enum { timestamp_buffer_len = 32 } ;
+/*------------------------------------------------------------------------------
+ * Getting a timestamp, in the form:
+ */
+#define TIMESTAMP_FORM "%Y/%m/%d %H:%M:%S"
+/*
+ * This has a fixed length (leading zeros are included) of 19 characters
+ * (unless this code is still in use beyond the year 9999 !)
+ *
+ * Which may be followed by "." and a number of decimal digits, usually 1..6.
+ *
+ * So the maximum time stamp is 19 + 1 + 6 = 26.  Adding the trailing '\n', and
+ * rounding up for good measure...
+ */
+enum { timestamp_buffer_len = 30 } ;
+
+QFB_T(timestamp_buffer_len) timestamp_str_t ;
+
+extern timestamp_str_t quagga_timestamp(int timestamp_precision) ;
 
 #endif /* _ZEBRA_LOG_COMMON_H */

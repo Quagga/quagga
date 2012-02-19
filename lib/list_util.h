@@ -133,6 +133,12 @@ struct dl_void_base_pair dl_base_pair(void*) ;
  *
  *     Undefined if item is already on any list (including this one).
  *
+ *   ssl_insert(base, after, item, next)  -- insert after given item
+ *
+ *     Treat as void function.  The item may *not* be NULL.
+ *
+ *     Inserts at head of list if after is NULL.
+ *
  *   ssl_del(base, item, next)      -- delete from list
  *
  *     Treat as function returning bool.  Does nothing if the item is NULL.
@@ -241,6 +247,14 @@ struct dl_void_base_pair dl_base_pair(void*) ;
 
 Private bool ssl_del_func(void** p_this, void* obj, size_t link_offset)
                                                     __attribute__((noinline)) ;
+
+#define ssl_insert(base, after, item, next)                     \
+  do { if ((after) == NULL)                                     \
+         ssl_push(base, item, next) ;                           \
+       else                                                     \
+         { (item)->next  = (after)->next ;                      \
+           (after->next) = item ;  } ;                          \
+  } while (0)
 
 #define ssl_del(base, item, next)                               \
   ssl_del_func((void**)(&base), item, _lu_off(item, next))

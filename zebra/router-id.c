@@ -236,12 +236,26 @@ router_id_cmp (void *a, void *b)
   return (int) (A - B);
 }
 
-void
+/*------------------------------------------------------------------------------
+ * Zebra router id commands
+ */
+CMD_INSTALL_TABLE(static, zebra_router_id_cmd_table, ZEBRA) =
+{
+  { CONFIG_NODE,     &router_id_cmd                                     },
+  { CONFIG_NODE,     &no_router_id_cmd                                  },
+
+  CMD_INSTALL_END
+} ;
+
+extern void
+router_id_cmd_init (void)
+{
+  cmd_install_table(zebra_router_id_cmd_table) ;
+} ;
+
+extern void
 router_id_init (void)
 {
-  install_element (CONFIG_NODE, &router_id_cmd);
-  install_element (CONFIG_NODE, &no_router_id_cmd);
-
   memset (&rid_all_sorted_list, 0, sizeof (rid_all_sorted_list));
   memset (&rid_lo_sorted_list, 0, sizeof (rid_lo_sorted_list));
   memset (&rid_user_assigned, 0, sizeof (rid_user_assigned));
@@ -251,4 +265,4 @@ router_id_init (void)
 
   rid_user_assigned.family = AF_INET;
   rid_user_assigned.prefixlen = 32;
-}
+} ;

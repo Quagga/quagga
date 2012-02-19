@@ -18,419 +18,651 @@ along with GNU Zebra; see the file COPYING.  If not, write to the Free
 Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 02111-1307, USA.  */
 
-#include <zebra.h>
+#include "lib/misc.h"
 
-#include "command.h"
-#include "linklist.h"
-#include "memory.h"
+#include "lib/command.h"
+#include "lib/command_local.h"
+#include "lib/list_util.h"
+#include "lib/memory.h"
+#include "lib/qpath.h"
+#include "lib/pthread_safe.h"
+#include "lib/qpath.h"
+#include "lib/symtab.h"
+#include "lib/elstring.h"
 
 #include "vtysh/vtysh.h"
 
-vector configvec;
+#include "lib/vty_command.h"
+#include "lib/vty_vtysh.h"
+#include "lib/vty_io.h"
 
-extern int vtysh_writeconfig_integrated;
-
-struct config
-{
-  /* Configuration node name. */
-  char *name;
-
-  /* Configuration string line. */
-  struct list *line;
-
-  /* Configuration can be nest. */
-  struct config *config;
-
-  /* Index of this config. */
-  u_int32_t index;
-};
-
-struct list *config_top;
-
-static int
-line_cmp (const char *c1, const char *c2)
-{
-  return strcmp (c1, c2);
-}
-
-static void
-line_del (char *line)
-{
-  XFREE (MTYPE_VTYSH_CONFIG_LINE, line);
-}
-
-static struct config *
-config_new ()
-{
-  struct config *config;
-  config = XCALLOC (MTYPE_VTYSH_CONFIG, sizeof (struct config));
-  return config;
-}
-
-static int
-config_cmp (struct config *c1, struct config *c2)
-{
-  return strcmp (c1->name, c2->name);
-}
-
-static void
-config_del (struct config* config)
-{
-  list_delete (config->line);
-  if (config->name)
-    XFREE (MTYPE_VTYSH_CONFIG_LINE, config->name);
-  XFREE (MTYPE_VTYSH_CONFIG, config);
-}
-
-static struct config *
-config_get (int index, const char *line)
-{
-  struct config *config;
-  struct config *config_loop;
-  struct list *master;
-  struct listnode *node, *nnode;
-
-  config = config_loop = NULL;
-
-  master = vector_lookup_ensure (configvec, index);
-
-  if (! master)
-    {
-      master = list_new ();
-      master->del = (void (*) (void *))config_del;
-      master->cmp = (int (*)(void *, void *)) config_cmp;
-      vector_set_index (configvec, index, master);
-    }
-
-  for (ALL_LIST_ELEMENTS (master, node, nnode, config_loop))
-    {
-      if (strcmp (config_loop->name, line) == 0)
-	config = config_loop;
-    }
-
-  if (! config)
-    {
-      config = config_new ();
-      config->line = list_new ();
-      config->line->del = (void (*) (void *))line_del;
-      config->line->cmp = (int (*)(void *, void *)) line_cmp;
-      config->name = XSTRDUP (MTYPE_VTYSH_CONFIG_LINE, line);
-      config->index = index;
-      listnode_add (master, config);
-    }
-  return config;
-}
-
-static void
-config_add_line (struct list *config, const char *line)
-{
-  listnode_add (config, XSTRDUP (MTYPE_VTYSH_CONFIG_LINE, line));
-}
-
-static void
-config_add_line_uniq (struct list *config, const char *line)
-{
-  struct listnode *node, *nnode;
-  char *pnt;
-
-  for (ALL_LIST_ELEMENTS (config, node, nnode, pnt))
-    {
-      if (strcmp (pnt, line) == 0)
-	return;
-    }
-  listnode_add_sort (config, XSTRDUP (MTYPE_VTYSH_CONFIG_LINE, line));
-}
-
-static void
-vtysh_config_parse_line (const char *line)
-{
-  char c;
-  static struct config *config = NULL;
-
-  if (! line)
-    return;
-
-  c = line[0];
-
-  if (c == '\0')
-    return;
-
-  /* printf ("[%s]\n", line); */
-
-  switch (c)
-    {
-    case '!':
-    case '#':
-      break;
-    case ' ':
-      /* Store line to current configuration. */
-      if (config)
-	{
-	  if (strncmp (line, " address-family vpnv4",
-	      strlen (" address-family vpnv4")) == 0)
-	    config = config_get (BGP_VPNV4_NODE, line);
-	  else if (strncmp (line, " address-family ipv4 multicast",
-		   strlen (" address-family ipv4 multicast")) == 0)
-	    config = config_get (BGP_IPV4M_NODE, line);
-	  else if (strncmp (line, " address-family ipv6",
-		   strlen (" address-family ipv6")) == 0)
-	    config = config_get (BGP_IPV6_NODE, line);
-	  else if (config->index == RMAP_NODE ||
-	           config->index == INTERFACE_NODE ||
-		   config->index == VTY_NODE)
-	    config_add_line_uniq (config->line, line);
-	  else
-	    config_add_line (config->line, line);
-	}
-      else
-	config_add_line (config_top, line);
-      break;
-    default:
-      if (strncmp (line, "interface", strlen ("interface")) == 0)
-	config = config_get (INTERFACE_NODE, line);
-      else if (strncmp (line, "router-id", strlen ("router-id")) == 0)
-	config = config_get (ZEBRA_NODE, line);
-      else if (strncmp (line, "router rip", strlen ("router rip")) == 0)
-	config = config_get (RIP_NODE, line);
-      else if (strncmp (line, "router ripng", strlen ("router ripng")) == 0)
-	config = config_get (RIPNG_NODE, line);
-      else if (strncmp (line, "router ospf", strlen ("router ospf")) == 0)
-	config = config_get (OSPF_NODE, line);
-      else if (strncmp (line, "router ospf6", strlen ("router ospf6")) == 0)
-	config = config_get (OSPF6_NODE, line);
-      else if (strncmp (line, "router bgp", strlen ("router bgp")) == 0)
-	config = config_get (BGP_NODE, line);
-      else if (strncmp (line, "router isis", strlen ("router isis")) == 0)
-  	config = config_get (ISIS_NODE, line);
-      else if (strncmp (line, "router bgp", strlen ("router bgp")) == 0)
-	config = config_get (BGP_NODE, line);
-      else if (strncmp (line, "route-map", strlen ("route-map")) == 0)
-	config = config_get (RMAP_NODE, line);
-      else if (strncmp (line, "access-list", strlen ("access-list")) == 0)
-	config = config_get (ACCESS_NODE, line);
-      else if (strncmp (line, "ipv6 access-list",
-	       strlen ("ipv6 access-list")) == 0)
-	config = config_get (ACCESS_IPV6_NODE, line);
-      else if (strncmp (line, "ip prefix-list",
-	       strlen ("ip prefix-list")) == 0)
-	config = config_get (PREFIX_NODE, line);
-      else if (strncmp (line, "ipv6 prefix-list",
-	       strlen ("ipv6 prefix-list")) == 0)
-	config = config_get (PREFIX_IPV6_NODE, line);
-      else if (strncmp (line, "ip as-path access-list",
-	       strlen ("ip as-path access-list")) == 0)
-	config = config_get (AS_LIST_NODE, line);
-      else if (strncmp (line, "ip community-list",
-	       strlen ("ip community-list")) == 0)
-	config = config_get (COMMUNITY_LIST_NODE, line);
-      else if (strncmp (line, "ip route", strlen ("ip route")) == 0)
-	config = config_get (IP_NODE, line);
-      else if (strncmp (line, "ipv6 route", strlen ("ipv6 route")) == 0)
-   	config = config_get (IP_NODE, line);
-      else if (strncmp (line, "key", strlen ("key")) == 0)
-	config = config_get (KEYCHAIN_NODE, line);
-      else if (strncmp (line, "line", strlen ("line")) == 0)
-	config = config_get (VTY_NODE, line);
-      else if ( (strncmp (line, "ipv6 forwarding",
-		 strlen ("ipv6 forwarding")) == 0)
-	       || (strncmp (line, "ip forwarding",
-		   strlen ("ip forwarding")) == 0) )
-	config = config_get (FORWARDING_NODE, line);
-      else if (strncmp (line, "service", strlen ("service")) == 0)
-	config = config_get (SERVICE_NODE, line);
-      else if (strncmp (line, "debug", strlen ("debug")) == 0)
-	config = config_get (DEBUG_NODE, line);
-      else if (strncmp (line, "password", strlen ("password")) == 0
-	       || strncmp (line, "enable password",
-			   strlen ("enable password")) == 0)
-	config = config_get (AAA_NODE, line);
-      else if (strncmp (line, "ip protocol", strlen ("ip protocol")) == 0)
-	config = config_get (PROTOCOL_NODE, line);
-      else
-	{
-	  if (strncmp (line, "log", strlen ("log")) == 0
-	      || strncmp (line, "hostname", strlen ("hostname")) == 0
-	     )
-	    config_add_line_uniq (config_top, line);
-	  else
-	    config_add_line (config_top, line);
-	  config = NULL;
-	}
-      break;
-    }
-}
-
-void
-vtysh_config_parse (char *line)
-{
-  char *begin;
-  char *pnt;
-
-  begin = pnt = line;
-
-  while (*pnt != '\0')
-    {
-      if (*pnt == '\n')
-	{
-	  *pnt++ = '\0';
-	  vtysh_config_parse_line (begin);
-	  begin = pnt;
-	}
-      else
-	{
-	  pnt++;
-	}
-    }
-}
-
-/* Macro to check delimiter is needed between each configuration line
- * or not. */
-#define NO_DELIMITER(I) ( \
-    (I) == ACCESS_NODE         || \
-    (I) == PREFIX_NODE         || \
-    (I) == IP_NODE             || \
-    (I) == AS_LIST_NODE        || \
-    (I) == COMMUNITY_LIST_NODE || \
-    (I) == ACCESS_IPV6_NODE    || \
-    (I) == PREFIX_IPV6_NODE    || \
-    (I) == SERVICE_NODE        || \
-    (I) == FORWARDING_NODE     || \
-    (I) == DEBUG_NODE          || \
-    (I) == AAA_NODE            || \
-                      0 )
-
-/* Display configuration to file pointer. */
-void
-vtysh_config_dump (FILE *fp)
-{
-  struct listnode *node, *nnode;
-  struct listnode *mnode, *mnnode;
-  struct config *config;
-  struct list *master;
-  char *line;
-  unsigned int i;
-
-  for (ALL_LIST_ELEMENTS (config_top, node, nnode, line))
-    {
-      fprintf (fp, "%s\n", line);
-      fflush (fp);
-    }
-  fprintf (fp, "!\n");
-  fflush (fp);
-
-  for (i = 0; i < vector_active (configvec); i++)
-    if ((master = vector_slot (configvec, i)) != NULL)
-      {
-	for (ALL_LIST_ELEMENTS (master, node, nnode, config))
-	  {
-	    fprintf (fp, "%s\n", config->name);
-	    fflush (fp);
-
-	    for (ALL_LIST_ELEMENTS (config->line, mnode, mnnode, line))
-	      {
-		fprintf  (fp, "%s\n", line);
-		fflush (fp);
-	      }
-	    if (! NO_DELIMITER (i))
-	      {
-		fprintf (fp, "!\n");
-		fflush (fp);
-	      }
-	  }
-	if (NO_DELIMITER (i))
-	  {
-	    fprintf (fp, "!\n");
-	    fflush (fp);
-	  }
-      }
-
-  for (i = 0; i < vector_active (configvec); i++)
-    if ((master = vector_slot (configvec, i)) != NULL)
-      {
-	list_delete (master);
-	vector_slot (configvec, i) = NULL;
-      }
-  list_delete_all_node (config_top);
-}
-
-/* Read up configuration file from file_name. */
-static void
-vtysh_read_file (FILE *confp)
-{
-  int ret;
-  struct vty *vty;
-
-  vty = vty_open(VTY_STDOUT); /* stdout */
-  vty->node = CONFIG_NODE;
-
-  vtysh_execute_no_pager ("enable");
-  vtysh_execute_no_pager ("configure terminal");
-
-  /* Execute configuration file. */
-  ret = vtysh_config_from_file (vty, confp);
-
-  vtysh_execute_no_pager ("end");
-  vtysh_execute_no_pager ("disable");
-
-  vty_close_final(vty);
-
-  if (ret != CMD_SUCCESS)
-    {
-      switch (ret)
-	{
-	case CMD_ERR_AMBIGUOUS:
-	  fprintf (stderr, "Ambiguous command.\n");
-	  break;
-	case CMD_ERR_NO_MATCH:
-	  fprintf (stderr, "There is no such command.\n");
-	  break;
-	}
-      fprintf (stderr, "Error occured during reading below line.\n%s\n",
-	       vty->buf);
-      exit (1);
-    }
-}
-
-/* Read up configuration file from config_default_dir. */
-int
-vtysh_read_config (char *config_default_dir)
-{
-  FILE *confp = NULL;
-
-  confp = fopen (config_default_dir, "r");
-  if (confp == NULL)
-    return (1);
-
-  vtysh_read_file (confp);
-  fclose (confp);
-  cmd_host_config_set (config_default_dir);
-
-  return (0);
-}
-
-/* We don't write vtysh specific into file from vtysh. vtysh.conf should
- * be edited by hand. So, we handle only "write terminal" case here and
- * integrate vtysh specific conf with conf from daemons.
+/*==============================================================================
+ * Reading configuration from file and sending to all connected daemons.
+ *
+ *
  */
-void
-vtysh_config_write ()
-{
-  char line[81];
-  extern struct host host;
 
-  if (host.name)
+
+
+
+/*------------------------------------------------------------------------------
+ * Read given configuration file & set host config directory and file name.
+ *
+ * If "required", report error if file not found.
+ *
+ * Returns: true <=> OK (includes file not found if !required)
+ */
+extern bool
+vtysh_read_config(vty vty, qpath config_file, bool required,
+                                              bool ignore_warnings,
+                                              bool quiet)
+{
+  cmd_ret_t ret ;
+  int conf_fd ;
+
+  /* Do the standard configuration file open.
+   *
+   * Sets host.config_file/_dir in any event.
+   *
+   * Returns: -1 => hard error, -2 => not found
+   */
+  conf_fd = vty_open_config_file(vty, config_file, required) ;
+
+  if (conf_fd == -2)            /* not found    */
+    return !required ;
+
+  if (conf_fd < 0)
+    return false ;              /* hard error   */
+
+  /* Opened OK, so hoover up the contents, starting in "configure terminal"
+   * state, and dropping back to "enable" state afterwards.
+   *
+   * If we cannot start in "configure terminal", then does not read the
+   * file and return failed.  NB: failure at this point is CMD_ERROR !
+   *
+   * For the vtysh we read configuration file by treating it as an input
+   * file pipe.
+   */
+  if (!quiet)
+    vty_out(vty, "Reading configuration file %s\n", qpath_string(config_file)) ;
+
+  vty_cmd_vtysh_config_prepare(vty, conf_fd, config_file, ignore_warnings,
+                                                    false /* show_warnings */) ;
+
+  ret = vty_vtysh_command_loop(vty, NULL,
+                                    false /* not interactive */,
+                                        0 /* no prompt */) ;
+
+  return (ret == CMD_SUCCESS) ;
+} ;
+
+/*==============================================================================
+ * Configuration store.
+ *
+ * Configuration files are generated by calling the "config_write" function
+ * in each node that has one, in node number order.
+ *
+ * The nodes which have a "config write" are known as "configuration nodes".
+ *
+ * The integrated configuration file is built by reading configurations
+ * generated by all the connected daemons, and merging where possible.
+ *
+ * The "daemon" command allows the integrated configuration to be broken
+ * into sections which will only be used by the respective daemons.  This
+ * allows a number of things:
+ *
+ *   a) the integrated configuration file can be read directly by any
+ *      daemon -- it does not need to be filtered by the vtysh.
+ *
+ *   b) common items, such as route-maps, can be shared or not shared
+ *      between daemons, as required.
+ *
+ * For the integrated configuration file, there are three types of
+ * configuration node:
+ *
+ *   1. "verbatim"
+ *
+ *      These contain configuration specific to a single daemon, so are
+ *      put into the integrated configuration exactly as received, to be
+ *      read by that daemon.
+ *
+ *   2. "group"
+ *
+ *      These contain configuration which may be shared by more than one
+ *      daemon, where that configuration comes in groups of commands.
+ *
+ *      When output, groups used by more daemons will be output first.
+ *
+ *      Note that this assumes that the order of groups is not material.
+ *
+ *      But the order of commands within a group may be material -- so any
+ *      merging of groups will respect the ordering.  The configuration being
+ *      processed is machine generated, so commands may be expected appear
+ *      in a fixed order, even if the order is immaterial -- so respecting the
+ *      order should not make a difference.
+ *
+ *      Generally, all the command lines of a group will be contiguous for each
+ *      daemon (ignoring blank and comments).  Since the order of groups is
+ *      not material, a group which arrives split up will be made contiguous.
+ *
+ *      Within a group, will retain all lines as received, including any
+ *      separators.
+ *
+ *      A group may be divided into sections.  The rules for sections are:
+ *
+ *        * the sections for a given daemon will always appear in section
+ *          number order.
+ *
+ *        * for groups to be equal they must be in the same section.
+ *
+ *        * everything within a section appears in the order received, except
+ *          where group merging has occurred.
+ *
+ *        * retains the original order where possible.  So, if a given daemon
+ *          has no groups in common with any other, its sections will appear
+ *          together.
+ *
+ *      So sections may be used to maintain some partial ordering of
+ *      configuration items (including split groups).
+ *
+ *   3. "singular"
+ *
+ *      These contain configuration commands which stand by themselves, and
+ *      whose order is not material.  Also, some or all of the configuration
+ *      may be shared across daemons.
+ *
+ *      Where two or more daemons have identical commands, the second or
+ *      subsequent command will be dropped.  When output, commands used by
+ *      more daemons will be output first.
+ *
+ *      Note that dummy nodes can be created as required to distinguish
+ *      order sensitive commands from order insensitive ones.
+ *
+ *      An individual configuration node may also be divided into sections.
+ *
+ * Each merged configuration node is output in node number order.
+ */
+struct config_item_list_base ;
+typedef struct config_item_list_base* config_item_list_base ;
+
+typedef enum
+{
+  nt_verbatim  = 0,
+  nt_group,
+  nt_singular,
+
+} config_node_type_t ;
+
+typedef struct
+{
+  config_item_list_base items ;
+
+  node_type_t        node ;
+  config_node_type_t type ;
+
+}  config_node_t ;
+typedef config_node_t* config_node ;
+
+static config_node_t config_nodes[MAX_NODE] ;
+
+/* Prototypes
+ */
+static void vtysh_config_own_config(vty vty) ;
+static void vtysh_config_lumps_init(void) ;
+static void vtysh_config_nodes_init(void) ;
+static void vtysh_config_collect(daemon_set_t daemon, vio_fifo buf) ;
+static void vtysh_config_nodes_free(void) ;
+static void vtysh_config_lumps_free(void) ;
+
+/*------------------------------------------------------------------------------
+ * There is a double linked list of configuration nodes, in node number order.
+ *
+ * Each configuration node has a double linked list of configuration items
+ * hanging from it -- in arrival order.
+ *
+ * Each configuration item may be a line or a group.  Where an item was
+ * followed by a separator (a blank line or a line with just '!' on it), that
+ * is recorded with the item.
+ *
+ * When the configuration is collected from all the client daemons, it is
+ * collected as line items.  Before outputting the configuration the following
+ * processing is done to consolidate group and individual configuration nodes:
+ *
+ *   1. Merge.
+ *
+ *      Each section has its own name space.
+ *
+ *      May have the same name in different client's configurations, and that
+ *      will guide the merging of configuration.
+ *
+ *      For group nodes, the line items are scanned and a "name" extracted
+ *      for each one.  There are two forms of group:
+ *
+ *        * header + items  -- eg: route-map
+ *
+ *          The scanner identifies the header and returns a name for the group
+ *          as a "group header" name.
+ *
+ *          The scanner identifies item lines, and returns a "group item" flag.
+ *
+ *          NB: may not start a new section in between group items (!).
+ *
+ *        * named items -- eg: prefix-list
+ *
+ *          The scanner identifies the group name, and returns either a
+ *          "group item" flag (if the name is the same as the current group) or
+ *          a "group named item" flag.
+ *
+ *      For group nodes, all line items with the same group name are brought
+ *      together and considered separately from all other line items.
+ *
+ *      For singular nodes and for the line items in a group node, the line
+ *      items are scanned and a "name" extracted, which is the essence of the
+ *      line.  Two line items with equal names are deemed to be equivalent, and
+ *      will be merged.
+ *
+ *  2. Section Sort
+ *
+ *     The merge may change the order of line items, so need to make sure that
+ *     section ordering is not violated.
+ *
+ *     This is an iterative process, which scans for out of place items in
+ *     each section in turn, and moves any found.  An out of place item will
+ *     be moved as far up as possible -- to follow items from lower numbered
+ *     sections or earlier items from the same section.
+ *
+ *------------------------------------------------------------------------------
+ * Handling of comments and separators.
+ *
+ * Separators are lines that contain just a comment start character or are
+ * blank (ignoring any whitespace).
+ *
+ * Separators are attached to the immediately preceding line item.  Multiple
+ * separators are squashed into one -- retaining any comment start character.
+ * Merging lines merges the separators.  (Separators at the start are
+ * discarded).
+ *
+ * Comments are one or more comment or blank lines, starting with a not-empty
+ * comment line.  These are attached to the immediately following line item.
+ * Comments at the start of a given daemon's configuration -- before the first
+ * "#vtysh-config-node xx" are attached to a phantom "start" node.  Comments at
+ * the end of a given daemon's configuration are attached to a phantom "end"
+ * node.
+ *
+ * Equal comments are merged.  TODO ???
+ *
+ */
+
+/*------------------------------------------------------------------------------
+ * Start up initialisation of all integrated configuration handling.
+ */
+extern void
+vtysh_config_init_integrated (void)
+{
+  vtysh_config_lumps_init() ;
+  vtysh_config_nodes_init() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Collect the integrated configuration
+ */
+extern cmd_ret_t
+vtysh_config_collect_integrated(vty vty, bool show)
+{
+  cmd_ret_t   ret ;
+  vio_fifo    rbuf ;
+
+  vtysh_config_reset_integrated() ;     /* make sure all is tidy        */
+
+  /* Make up the vtysh's own configuration, and collect same.
+   *
+   * For simplicity the vty_vtysh_own_config() writes to vty_out() in the
+   * usual way.  But we here fix things so that the output actually goes to
+   * the rbuf, which we collect for later.
+   */
+  rbuf = vty->vio->vout_base->rbuf ;
+  vio_fifo_clear(rbuf) ;
+  vty->vio->obuf = rbuf ;
+
+  vtysh_config_own_config(vty) ;
+
+  vty->vio->obuf = vty->vio->vout->obuf ;
+  vtysh_config_collect(VTYSH_VD, rbuf) ;
+
+  /* Collect configuration from all client daemons
+   */
+  ret = vty_vtysh_fetch_config(vty, vtysh_config_collect, show) ;
+
+  /* If all is well, process and integrate the collected configuration.
+   */
+  if (ret == CMD_SUCCESS)
     {
-      sprintf (line, "hostname %s", host.name);
-      vtysh_config_parse_line(line);
-    }
-  if (vtysh_writeconfig_integrated)
-    vtysh_config_parse_line ("service integrated-vtysh-config");
-}
+      node_type_t node ;
 
-void
-vtysh_config_init ()
+      for (node = MIN_NODE ; node <= MAX_NODE ; ++node)
+        {
+          if (config_nodes[node].items == NULL)
+              continue ;
+
+//        ret = vtysh_config_integrate(vty, config_nodes[node]) ;
+          if (ret != CMD_SUCCESS)
+            break ;
+        } ;
+    } ;
+
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Blow the given integrated node configuration (if any) to the vty
+ *
+ * This is the call-back from vty_write_config_file().
+ *
+ * Returns: < 0 => nothing for the given node
+ *            0 => do not add "!" separator
+ *          > 0 => do add "!" separator
+ */
+extern int
+vtysh_config_write_config_node(vty vty, node_type_t node)
 {
-  config_top = list_new ();
-  config_top->del = (void (*) (void *))line_del;
-  configvec = vector_init (1);
-}
+  qassert(node <= MAX_NODE) ;
+  if ((node <= MAX_NODE) && (config_nodes[node].items != NULL))
+    {
+
+//
+
+    } ;
+
+  return -1 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Collect the integrated configuration
+ */
+extern void
+vtysh_config_reset_integrated(void)
+{
+  vtysh_config_nodes_free() ;
+  vtysh_config_lumps_free() ;
+} ;
+
+/*==============================================================================
+ * Raw configuration line handling
+ *
+ * When the configuration is fetched from each daemon, it arrives in a fifo.
+ *
+ * The contents of that fifo are co-opted into a config_lump, which is appended
+ * to the config_lump list.
+ *
+ * Thereafter the raw lines are collected up into configuration items.
+ */
+typedef struct config_lump  config_lump_t ;
+typedef struct config_lump* config_lump ;
+
+struct config_lump
+{
+  config_lump  next ;
+
+  daemon_set_t daemon ;
+  uint         line_no ;
+
+  vio_fifo     fifo ;
+  qstring      fragments ;
+} ;
+
+static struct dl_base_pair(config_lump) config_lump_list ;
+
+/*------------------------------------------------------------------------------
+ * Initialise the config raw line storage.
+ */
+static void
+vtysh_config_lumps_init(void)
+{
+  dsl_init(config_lump_list) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Collect another lump of configuration.
+ *
+ * Empties out the given fifo.
+ */
+static void
+vtysh_config_collect(daemon_set_t daemon, vio_fifo buf)
+{
+  config_lump  lump ;
+
+  lump = XCALLOC(MTYPE_TMP, sizeof(config_lump_t)) ;
+
+  dsl_append(config_lump_list, lump, next) ;
+
+  lump->daemon    = daemon ;
+  lump->line_no   = 0 ;
+
+  lump->fifo      = vio_fifo_move(NULL, buf) ;
+  lump->fragments = qs_new(100) ;
+
+  vio_fifo_clear_end_mark(lump->fifo) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free off all config raw line storage.
+ */
+static void
+vtysh_config_lumps_free(void)
+{
+  while (dsl_head(config_lump_list) != NULL)
+    {
+      config_lump  lump ;
+
+      lump = dsl_pop(&lump, config_lump_list, next) ;
+
+      lump->fifo      = vio_fifo_free(lump->fifo) ;
+      lump->fragments = qs_free(lump->fragments) ;
+
+      XFREE(MTYPE_TMP, lump) ;
+    } ;
+
+  vtysh_config_lumps_init() ;
+} ;
+
+/*==============================================================================
+ * Configuration Nodes and Items
+ *
+ *
+ */
+/*------------------------------------------------------------------------------
+ * The configuration, group and singular items
+ */
+typedef struct config_item    config_item_t ;
+typedef struct config_item*   config_item ;
+
+typedef struct group_item     group_item_t ;
+typedef struct group_item*    group_item ;
+
+typedef struct singular_item  singular_item_t ;
+typedef struct singular_item* singular_item ;
+
+typedef struct dl_list_pair(config_item) config_item_list_ptr_t ;
+typedef struct dl_base_pair(config_item) config_item_list_base_t ;
+
+typedef enum                    /* types of config_item */
+{
+  it_dummy   = 0,
+  it_group,
+  it_singular,
+
+} config_item_type_t ;
+
+typedef enum                    /* types of separator   */
+{
+  sep_none   = 0,
+  sep_blank,
+  sep_shriek,
+  sep_hash,
+
+} config_sep_type_t ;
+
+/* Configuration item list base
+ */
+struct config_item_list
+{
+  config_item_list_base_t items ;
+
+  symbol_table  match ;
+} ;
+typedef struct config_item_list config_item_list_t[1] ;
+
+/* Configuration item
+ */
+struct config_item
+{
+  config_item_list_ptr_t list ;
+
+  daemon_set_t  daemons ;
+  uint          section ;
+
+  config_item_type_t type ;
+  union
+  {
+    group_item    group ;
+    singular_item singular ;
+  } ip ;
+
+  config_item_list_t  pre_comments ;
+  config_sep_type_t   post_sep ;
+} ;
+
+/* Group item
+ */
+struct group_item
+{
+  config_item   parent ;
+
+  symbol        name ;
+
+  config_item_list_t group ;
+} ;
+
+/* Singular item
+ */
+struct singular_item
+{
+  config_item   parent ;
+
+  symbol        name ;
+
+  elstring      line ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * The nodes that we know can generate configuration of type nt_group or
+ * nt_singular.
+ *
+ * This is used to initialise the config_nodes[] array.  When fetching
+ * configuration, will treat any node not known to be nt_group or nt_singular
+ * as nt_verbatim.
+ */
+static const config_node_type_t config_node_types[MAX_NODE] =
+{
+
+} ;
+
+CONFIRM(nt_verbatim == 0) ;
+
+/*------------------------------------------------------------------------------
+ * Initialise the config_nodes[] array.
+ *
+ * Set every config_node empty, and set type/node for all the config nodes
+ * we know about.
+ */
+static void
+vtysh_config_nodes_init(void)
+{
+  node_type_t node ;
+
+  for (node = MIN_NODE ; node <= MAX_NODE ; ++node)
+    {
+      config_nodes[node].items = NULL ;
+
+      config_nodes[node].type  = config_node_types[node] ;
+      config_nodes[node].node  = node ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free contents of the config_nodes[] array.
+ */
+static void
+vtysh_config_nodes_free(void)
+{
+  node_type_t node ;
+
+  for (node = MIN_NODE ; node <= MAX_NODE ; ++node)
+    {
+    } ;
+} ;
+
+#if 0
+/*------------------------------------------------------------------------------
+ * Create new config_item of the given type, in the given section, for the
+ * given daemon(s), and append to the given config node.
+ */
+static config_item
+vtysh_config_item_new(config_node cn, daemon_set_t daemons, uint section,
+                                                          config_item_type_t it)
+{
+  config_item item ;
+
+  item = XCALLOC(MTYPE_TMP, sizeof(config_item_t)) ;
+
+  /* Zeroising sets:
+   *
+   *  list            -- all NULL -- list empty
+   *
+   *  daemons         -- X        -- set below
+   *  section         -- X        -- set below
+   *  type            -- X        -- set below
+   *
+   *  ip.group        -- NULL     -- set below, if type == it_group
+   *  ip.singular     -- NULL     -- set below, if type == it_singular
+   *
+   *  match           -- NULL
+   *
+   *  pre_comments    -- all NULL -- list empty
+   *  post_sep        -- sep_none
+   */
+  confirm(sep_none == 0) ;
+
+
+
+
+} ;
+#endif
+
+/*==============================================================================
+ * The vtysh own configuration.
+ *
+ * There is not much of this.
+ *
+ * We don't write vtysh specific into file from vtysh. vtysh.conf should
+ * be edited by hand.
+ */
+
+/*------------------------------------------------------------------------------
+ * Show vtysh own configuration -- same like client daemon #vtysh-config-write
+ *
+ * This is for collecting the integrated configuration.
+ */
+static void
+vtysh_config_own_config(vty vty)
+{
+  vty_out(vty, "#daemon vtysh\n") ;
+  vty_out(vty, "#vtysh-config-node %s\n", cmd_node_name(CONFIG_NODE)) ;
+
+  if (host.name_set)
+    vty_out(vty, "hostname %s\n", host.name) ;
+
+  if (vtysh_integrated_vtysh_config)
+    vty_out(vty, "service integrated-vtysh-config\n") ;
+} ;
+

@@ -17,8 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 
@@ -66,7 +67,7 @@
 
 #define RT_BUFSIZ		8192
 
-static void 
+static void
 handle_route_entry (mib2_ipRouteEntry_t *routeEntry)
 {
 	struct prefix_ipv4	prefix;
@@ -125,7 +126,7 @@ route_read (void)
 	MIB2hdr->level = MIB2_IP;
 	MIB2hdr->name = 0;
 	MIB2hdr->len = 0;
-	
+
 	msgdata.buf = storage;
 	msgdata.len = sizeof (struct T_optmgmt_req) + sizeof (struct opthdr);
 
@@ -230,3 +231,5 @@ route_read (void)
 exit:
 	close (dev);
 }
+
+#endif /* VTYSH_EXTRACT_PL */

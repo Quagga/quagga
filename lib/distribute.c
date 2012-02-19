@@ -755,30 +755,53 @@ distribute_list_reset ()
   hash_clean (disthash, (void (*) (void *)) distribute_free);
 }
 
-/* Initialize distribute list related hash. */
-void
-distribute_list_init (int node)
+CMD_INSTALL_TABLE(static, distribute_ripd_cmd_table, RIPD) =
+{
+  { RIP_NODE,         &distribute_list_all_cmd                           },
+  { RIP_NODE,         &no_distribute_list_all_cmd                        },
+  { RIP_NODE,         &distribute_list_cmd                               },
+  { RIP_NODE,         &no_distribute_list_cmd                            },
+  { RIP_NODE,         &distribute_list_prefix_all_cmd                    },
+  { RIP_NODE,         &no_distribute_list_prefix_all_cmd                 },
+  { RIP_NODE,         &distribute_list_prefix_cmd                        },
+  { RIP_NODE,         &no_distribute_list_prefix_cmd                     },
+
+  CMD_INSTALL_END
+} ;
+
+CMD_INSTALL_TABLE(static, distribute_ripngd_cmd_table, RIPNGD) =
+{
+  { RIPNG_NODE,       &ipv6_distribute_list_all_cmd                      },
+  { RIPNG_NODE,       &no_ipv6_distribute_list_all_cmd                   },
+  { RIPNG_NODE,       &ipv6_distribute_list_cmd                          },
+  { RIPNG_NODE,       &no_ipv6_distribute_list_cmd                       },
+  { RIPNG_NODE,       &ipv6_distribute_list_prefix_all_cmd               },
+  { RIPNG_NODE,       &no_ipv6_distribute_list_prefix_all_cmd            },
+  { RIPNG_NODE,       &ipv6_distribute_list_prefix_cmd                   },
+  { RIPNG_NODE,       &no_ipv6_distribute_list_prefix_cmd                },
+
+  CMD_INSTALL_END
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialize distribute list related commands.
+ *
+ * Installs commands in RIP_NODE and/or RIPNG_NODE -- so those had better be
+ * installed if required.
+ */
+extern void
+distribute_list_cmd_init (void)
+{
+  cmd_install_table(distribute_ripd_cmd_table) ;
+  cmd_install_table(distribute_ripngd_cmd_table) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialize distribute list related hash.
+ */
+extern void
+distribute_list_init (void)
 {
   disthash = hash_create (distribute_hash_make,
-                          (int (*) (const void *, const void *)) distribute_cmp);
-
-  if(node==RIP_NODE) {
-    install_element (RIP_NODE, &distribute_list_all_cmd);
-    install_element (RIP_NODE, &no_distribute_list_all_cmd);
-    install_element (RIP_NODE, &distribute_list_cmd);
-    install_element (RIP_NODE, &no_distribute_list_cmd);
-    install_element (RIP_NODE, &distribute_list_prefix_all_cmd);
-    install_element (RIP_NODE, &no_distribute_list_prefix_all_cmd);
-    install_element (RIP_NODE, &distribute_list_prefix_cmd);
-    install_element (RIP_NODE, &no_distribute_list_prefix_cmd);
-  } else {
-    install_element (RIPNG_NODE, &ipv6_distribute_list_all_cmd);
-    install_element (RIPNG_NODE, &no_ipv6_distribute_list_all_cmd);
-    install_element (RIPNG_NODE, &ipv6_distribute_list_cmd);
-    install_element (RIPNG_NODE, &no_ipv6_distribute_list_cmd);
-    install_element (RIPNG_NODE, &ipv6_distribute_list_prefix_all_cmd);
-    install_element (RIPNG_NODE, &no_ipv6_distribute_list_prefix_all_cmd);
-    install_element (RIPNG_NODE, &ipv6_distribute_list_prefix_cmd);
-    install_element (RIPNG_NODE, &no_ipv6_distribute_list_prefix_cmd);
-  }
-}
+                         (int (*) (const void *, const void *)) distribute_cmp);
+} ;

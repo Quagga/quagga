@@ -35,20 +35,26 @@
  * This contains everything required for command handling from outside the
  * library.
  */
-/*------------------------------------------------------------------------------
- * Turn off these macros when using cpp with extract.pl
- */
-#ifndef VTYSH_EXTRACT_PL
 
-/* helper defines for end-user DEFUN* macros                            */
-#define DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, attrs, dnum) \
-  struct cmd_command cmdname = \
+/*------------------------------------------------------------------------------
+ * Macros for the construction of commands.
+ */
+
+/* Legacy name for cmd_command
+ */
+#define cmd_element cmd_command
+
+/* Generic struct cmd_command
+ *
+ * Must have one or both of .attr= and .daemon= arguments.
+ */
+#define CMD_COMMAND_STRUCT(_func, _name, _cstr, _hstr, ...) \
+static cmd_command_t _name = \
   { \
-    .string = cmdstr,   \
-    .func   = funcname, \
-    .doc    = helpstr,  \
-    .attr   = attrs,    \
-    .daemon = dnum,     \
+    .string = _cstr,    \
+    .func   = _func,    \
+    .doc    = _hstr,    \
+    __VA_ARGS__,        \
     \
     .items    = NULL,   \
     .nt_min   = 0,      \
@@ -58,98 +64,153 @@
     .r_doc    = NULL,   \
   } ;
 
-/* Legacy name for cmd_command                                          */
-#define cmd_element cmd_command
+/* Generation of the DEFUN_CMD_STRUCT has one level of indirection, to allow
+ * for extracting of commands for vtysh.
+ *
+ * The extraction process scans for VTYSH_CMD_INSTALL to do the business.
+ */
+#ifndef VTYSH_EXTRACT_PL
+#define CMD_INSTALL(...) CMD_COMMAND_STRUCT(__VA_ARGS__)
+#else
+#undef  VTYSH_CMD_INSTALL
+#define CMD_INSTALL(...) VTYSH_CMD_INSTALL{->>__VA_ARGS__<<-};
+#endif
 
-#define DEFUN_CMD_FUNC_DECL(funcname) \
-  static cmd_function funcname;
+/* Generic command -- must have one or both of .attr= and .daemon=
+ */
+#define DEFUN_CMD(_func, _name, _cstr, _hstr, ...) \
+  static cmd_function _func; \
+  CMD_INSTALL(_func, _name, _cstr, _hstr, __VA_ARGS__) \
+  static DEFUN_CMD_FUNCTION(_func)
 
-#define DEFUN_CMD_FUNC_TEXT(funcname) \
-  static DEFUN_CMD_FUNCTION(funcname)
+/* Generic alias -- must have one or both of .attr= and .daemon=
+ */
+#define ALIAS_CMD(_func, _name, _cstr, _hstr, ...) \
+  CMD_INSTALL(_func, _name, _cstr, _hstr, __VA_ARGS__)
 
 /* DEFUN for vty command interface. Little bit hacky ;-).               */
-#define DEFUN(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_FUNC_DECL(funcname) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, 0, 0) \
-  DEFUN_CMD_FUNC_TEXT(funcname)
+#define DEFUN(_func, _name, _cmdstr, _helpstr) \
+  DEFUN_CMD(_func, _name, _cmdstr, _helpstr, .attr=0)
 
-#define DEFUN_ATTR(funcname, cmdname, cmdstr, helpstr, attr) \
-  DEFUN_CMD_FUNC_DECL(funcname) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, attr, 0) \
-  DEFUN_CMD_FUNC_TEXT(funcname)
+#define DEFUN_ATTR(_func, _name, _cstr, _hstr, _attr) \
+  DEFUN_CMD(_func, _name, _cstr, _hstr, .attr=_attr)
 
-#define DEFUN_CALL(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DIRECT)
+#define DEFUN_CALL(_func, _name, _cstr, _hstr) \
+  DEFUN_ATTR(_func, _name, _cstr, _hstr, CMD_ATTR_DIRECT)
 
-#define DEFUN_HIDDEN(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_HIDDEN)
+#define DEFUN_HIDDEN(_func, _name, _cstr, _hstr) \
+  DEFUN_ATTR(_func, _name, _cstr, _hstr, CMD_ATTR_HIDDEN)
 
-#define DEFUN_HID_CALL(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, \
-                                            (CMD_ATTR_DIRECT | CMD_ATTR_HIDDEN))
+#define DEFUN_HID_CALL(_func, _name, _cstr, _hstr) \
+  DEFUN_ATTR(_func, _name, _cstr, _hstr, (CMD_ATTR_DIRECT | CMD_ATTR_HIDDEN))
 
-#define DEFUN_DEPRECATED(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED)
+#define DEFUN_DEPRECATED(_func, _name, _cstr, _hstr) \
+  DEFUN_ATTR (_func, _name, _cstr, _hstr, CMD_ATTR_DEPRECATED)
 
-#define DEFUN_DEP_CALL(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_ATTR (funcname, cmdname, cmdstr, helpstr, \
+#define DEFUN_DEP_CALL(_func, _name, _cstr, _hstr) \
+  DEFUN_ATTR (_func, _name, _cstr, _hstr, \
                                         (CMD_ATTR_DIRECT | CMD_ATTR_DEPRECATED))
 
 /* DEFUN_NOSH for commands that vtysh should ignore                     */
-#define DEFUN_NOSH(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN(funcname, cmdname, cmdstr, helpstr)
+#define DEFUN_NOSH(_func, _name, _cstr, _hstr) \
+  DEFUN(_func, _name, _cstr, _hstr)
 
 /* DEFSH for vtysh.                                                     */
-#define DEFSH(daemon, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_COMMAND(NULL, cmdname, cmdstr, helpstr, 0, daemon)
+#define DEFSH(_daem, _name, _cstr, _hstr, ...) \
+  CMD_INSTALL(NULL, _name, _cstr, _hstr, .daemon=_daem, __VA_ARGS__)
 
 /* DEFUN + DEFSH                                                        */
-#define DEFUNSH(daemon, funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_FUNC_DECL(funcname) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, 0, daemon) \
-  DEFUN_CMD_FUNC_TEXT(funcname)
+#define DEFUNSH(_daem, _func, _name, _cstr, _hstr) \
+  DEFUN_CMD(_func, _name, _cstr, _hstr, .attr=0, .daemon=_daem)
 
 /* DEFUN + DEFSH with attributes                                        */
-#define DEFUNSH_ATTR(daemon, funcname, cmdname, cmdstr, helpstr, attr) \
-  DEFUN_CMD_FUNC_DECL(funcname) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, attr, daemon) \
-  DEFUN_CMD_FUNC_TEXT(funcname)
+#define DEFUNSH_ATTR(_daem, _func, _name, _cstr, _hstr, _attr) \
+  DEFUN_CMD(_func, _name, _cstr, _hstr, .attr=_attr, .daemon=_daem) \
 
-#define DEFUNSH_HIDDEN(daemon, funcname, cmdname, cmdstr, helpstr) \
-  DEFUNSH_ATTR (daemon, funcname, cmdname, cmdstr, helpstr, CMD_ATTR_HIDDEN)
+#define DEFUNSH_HIDDEN(_daem, _func, _name, _cstr, _hstr) \
+  DEFUNSH_ATTR (_daem, _func, _name, _cstr, _hstr, CMD_ATTR_HIDDEN)
 
-#define DEFUNSH_DEPRECATED(daemon, funcname, cmdname, cmdstr, helpstr) \
-  DEFUNSH_ATTR (daemon, funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED)
+#define DEFUNSH_DEPRECATED(_daem, _func, _name, _cstr, _hstr) \
+  DEFUNSH_ATTR (_daem, _func, _name, _cstr, _hstr, CMD_ATTR_DEPRECATED)
 
 /* ALIAS macro which define existing command's alias.                   */
-#define ALIAS(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, 0, 0)
+#define ALIAS(_func, _name, _cstr, _hstr) \
+  ALIAS_CMD(_func, _name, _cstr, _hstr, .attr=0)
 
-#define ALIAS_ATTR(funcname, cmdname, cmdstr, helpstr, attr) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, attr, 0)
+#define ALIAS_ATTR(_func, _name, _cstr, _hstr, _attr) \
+  ALIAS_CMD(_func, _name, _cstr, _hstr, .attr=_attr)
 
-#define ALIAS_CALL(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DIRECT, 0)
+#define ALIAS_CALL(_func, _name, _cstr, _hstr) \
+  ALIAS_ATTR(_func, _name, _cstr, _hstr, CMD_ATTR_DIRECT)
 
-#define ALIAS_HIDDEN(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_HIDDEN, 0)
+#define ALIAS_HIDDEN(_func, _name, _cstr, _hstr) \
+  ALIAS_ATTR(_func, _name, _cstr, _hstr, CMD_ATTR_HIDDEN)
 
-#define ALIAS_DEPRECATED(funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED, 0)
+#define ALIAS_DEPRECATED(_func, _name, _cstr, _hstr) \
+  ALIAS_ATTR(_func, _name, _cstr, _hstr, CMD_ATTR_DEPRECATED)
 
-#define ALIAS_SH(daemon, funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, 0, daemon)
+#define ALIAS_SH(_daem, _func, _name, _cstr, _hstr) \
+  ALIAS_CMD(_func, _name, _cstr, _hstr, .attr=0, .daemon=_daem)
 
-#define ALIAS_SH_HIDDEN(daemon, funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_HIDDEN, daemon)
+#define ALIAS_SH_ATTR(_daem, _func, _name, _cstr, _hstr, _attr) \
+  ALIAS_CMD(_func, _name, _cstr, _hstr, .attr=_attr, .daemon=_daem)
 
-#define ALIAS_SH_DEPRECATED(daemon, funcname, cmdname, cmdstr, helpstr) \
-  DEFUN_CMD_COMMAND(funcname, cmdname, cmdstr, helpstr, CMD_ATTR_DEPRECATED,\
-                                                                         daemon)
+#define ALIAS_SH_HIDDEN(_daem, _func, _name, _cstr, _hstr) \
+  ALIAS_SH_ATTR(_daem, _func, _name, _cstr, _hstr, CMD_ATTR_HIDDEN)
 
-#endif /* VTYSH_EXTRACT_PL */
+#define ALIAS_SH_DEPRECATED(_daem, _func, _name, _cstr, _hstr) \
+  ALIAS_SH_ATTR(_daem, _func, _name, _cstr, _hstr, CMD_ATTR_DEPRECATED)
 
-/* Common descriptions. */
+
+#define DEFVTYSH(...) CMD_COMMAND_STRUCT(NULL, __VA_ARGS__)
+
+
+/*------------------------------------------------------------------------------
+ * Macros for the creation of tables of commands to install
+ */
+#define CMDextern
+#define CMDstatic static
+
+#define CMD_INSTALL_TABLE_STRUCT(_sc, _name, _daem, ...) \
+  static   cmd_table_body _name##_body ;\
+  CMD##_sc cmd_table _name = {{ _name##_body, _daem, __VA_ARGS__ }} ;\
+  static   cmd_table_body _name##_body
+
+/* Generation of the DEFUN_CMD_STRUCT has one level of indirection, to allow
+ * for extracting of commands for vtysh.
+ *
+ * The extraction process scans for VTYSH_CMD_INSTALL to do the business.
+ *
+ * The arguments are:  1: static or extern, for the definition of the table
+ *                     2: the name of the table
+ *                     3: the daemon set for the table
+ *                     4: *optional* -- the del_daemon set for the table
+ *
+ * NB: the extract.pl assumes that the arguments can be identified by simple
+ *     split(/,/) -- so please avoid the ',' operator !!
+ *
+ *     the extract.pl works on the output from cpp, so comments are not an
+ *     issue -- feel free to add as much comment as you wish !
+ */
+#ifndef VTYSH_EXTRACT_PL
+#define CMD_INSTALL_TABLE(...) CMD_INSTALL_TABLE_STRUCT(__VA_ARGS__)
+#else
+#undef  VTYSH_CMD_INSTALL
+#define CMD_INSTALL_TABLE(...) VTYSH_CMD_INSTALL_TABLE{->>__VA_ARGS__
+#endif
+
+/* The end of table marker expands differently to help VTYSH_EXTRACT_PL
+ */
+#ifndef VTYSH_EXTRACT_PL
+#define CMD_INSTALL_END { NULL_NODE, NULL }
+#else
+#undef  VTYSH_CMD_INSTALL
+#define CMD_INSTALL_END <<-
+#endif
+
+/*------------------------------------------------------------------------------
+ * Common descriptions.
+ */
 #define SHOW_STR "Show running system information\n"
 #define IP_STR "IP information\n"
 #define IPV6_STR "IPv6 information\n"
@@ -180,12 +241,13 @@
 #define SECONDS_STR "<1-65535> Seconds\n"
 #define ROUTE_STR "Routing Table\n"
 #define PREFIX_LIST_STR "Build a prefix list\n"
-#define OSPF6_DUMP_TYPE_LIST \
-"(neighbor|interface|area|lsa|zebra|config|dbex|spf|route|lsdb|redistribute|hook|asbr|prefix|abr)"
+#define OSPF6_DUMP_TYPE_LIST "(neighbor|interface|area|lsa|zebra|config|dbex|"\
+"spf|route|lsdb|redistribute|hook|asbr|prefix|abr)"
 #define ISIS_STR "IS-IS information\n"
 #define AREA_TAG_STR "[area tag]\n"
 
 #define CONF_BACKUP_EXT ".sav"
+#define CONF_TEMP_EXT   ".new"
 
 /* IPv4 only machine should not accept IPv6 address for peer's IP
    address.  So we replace VTY command string like below. */
@@ -205,36 +267,49 @@
 #define NEIGHBOR_ADDR_STR2 "Neighbor address\nNeighbor tag\n"
 #endif /* HAVE_IPV6 */
 
-/* Prototypes. */
-extern void cmd_getcwd(void) ;
-extern void cmd_init (bool);
-extern void cmd_terminate (void);
+/*------------------------------------------------------------------------------
+ * Prototypes.
+ */
+extern void cmd_print_version (const char *);
 
-extern void print_version (const char *);
+extern void host_init(const char* arg0) ;
+extern void host_finish(void) ;
 
-extern void install_node (struct cmd_node *, int (*) (struct vty *));
-extern void install_default (node_type_t);
-extern void install_element (node_type_t, struct cmd_command *);
-extern void sort_node (void);
+extern void cmd_host_config_set(const char* own_config_file, bool own_flag,
+                                const char* int_config_file, bool int_flag,
+                                                             bool int_boot);
+extern void cmd_host_pthreaded(bool pthreaded_option,
+                                          init_second_stage init_second_stage) ;
+
+extern void cmd_table_init (daemon_set_t daemons);
+extern void cmd_install_node_config_write(node_type_t node,
+                                                    int (*config_write) (vty)) ;
+extern void cmd_install_table(cmd_table table) ;
+
+extern void cmd_install_command (node_type_t node, cmd_command cmd,
+                                                         daemon_set_t daemons) ;
+extern void cmd_table_complete (void);
+#define sort_node() cmd_table_complete()
+extern void cmd_table_terminate (void);
+
+extern void cmd_set_integrated_vtysh_config(on_off_b integrated) ;
+extern void cmd_show_config_section(vty vty, uint section) ;
 
 extern const char* cmd_host_name(bool fresh) ;
-
-extern node_type_t cmd_node_parent(node_type_t node) ;
-extern node_type_t cmd_node_exit_to(node_type_t node) ;
-extern node_type_t cmd_node_end_to(node_type_t node) ;
+extern const char* cmd_host_program_name(void) ;
+extern const char* cmd_host_full_program_name(void) ;
 
 /* Concatenates argv[shift] through argv[argc-1] into a single NUL-terminated
    string with a space between each element (allocated using
    XMALLOC(MTYPE_TMP)).  Returns NULL if shift >= argc. */
 extern char *argv_concat (const char* const* argv, int argc, int shift);
 
-/* Export typical functions. */
-extern struct cmd_command config_end_cmd;
-extern struct cmd_command config_exit_cmd;
-extern struct cmd_command config_quit_cmd;
-extern struct cmd_command config_help_cmd;
-extern struct cmd_command config_list_cmd;
-
+/*------------------------------------------------------------------------------
+ * Global variables
+ */
 extern const char *debug_banner ;
+
+extern daemon_set_t deamons_set ;
+extern const char*  daemon_name ;
 
 #endif /* _ZEBRA_COMMAND_H */

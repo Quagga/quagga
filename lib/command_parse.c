@@ -507,9 +507,12 @@ cmd_compile_check(cmd_command cmd)
 
   ok = true ;
 
-  /* Require the following to be set to something               */
+  /* Require the following to be set to something
+   *
+   * cmd->func may be NULL if this is a command entry for parsing only -- as
+   * in the complete table of commands collected for vtysh.
+   */
   if (   (cmd->string    == NULL)
-      || (cmd->func      == NULL)
       || (cmd->items     == NULL)
       || (cmd->r_doc     == NULL) )
     ok = false ;
@@ -821,6 +824,7 @@ cmd_make_item_inner(cmd_command cmd, cmd_item n, char* cp)
   if (eat_name_chars)
     {
       do ++cp ; while (   isalnum(*cp)
+                       || (*cp == '/')          // TODO pro tem ???
                        || (*cp == '-')
                        || (*cp == '_')
                        || (*cp == ':')
@@ -1094,6 +1098,8 @@ cmd_token_vector_free(token_vector tv)
 inline static char*
 cmd_token_make_string(cmd_token t)
 {
+  qassert((t != NULL) && (t->qs != NULL)) ;
+
   if (t->term)
     return qs_char_nn(t->qs) ;
   else
@@ -1101,15 +1107,6 @@ cmd_token_make_string(cmd_token t)
       t->term = true ;
       return qs_make_string(t->qs) ;
     }
-} ;
-
-/*------------------------------------------------------------------------------
- * Get i'th token from given token vector -- zero origin
- */
-Inline cmd_token
-cmd_token_get(token_vector tv, vector_index_t i)
-{
-  return vector_get_item(tv->body, i) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1248,18 +1245,16 @@ cmd_parsed_new(void)
 
   /* Zeroising the structure has set:
    *
-   *   parts       = 0          -- cleared by cmd_tokenize()
    *   tok_total   = 0          -- set by cmd_tokenize()
+   *   num_tokens  = 0          -- set by cmd_tokenize()
+   *   tokens      = NULL       -- filled in by cmd_tokenize() -- see below
    *
-   *   elen        = 0          -- set by cmd_tokenize()
-   *   tsp         = 0          -- set by cmd_tokenize()
+   *   parts       = 0          -- set by cmd_parse_command()
    *
    *   cmd         = NULL       -- no command yet
+   *   xnode       = 0          -- not set
    *   cnode       = 0          -- not set
    *   nnode       = 0          -- not set
-   *
-   *   num_tokens  = 0          -- set by cmd_tokenize()
-   *   tokens      = NULL       -- see below
    *
    *   args        = NULL       -- see below
    *
@@ -1269,12 +1264,8 @@ cmd_parsed_new(void)
    *   in_pipe     = cmd_pipe_none
    *   out_pipe    = cmd_pipe_none
    *
-   *   first_in_pipe  )
-   *   num_in_pipe    )
-   *   first_do       )
-   *   num_do         )
-   *   first_command  )  none
-   *   num_command    )
+   *   first_action   )  none
+   *   num_action     )
    *   first_out_pipe )
    *   num_out_pipe   )
    *   first_comment  )
@@ -1325,8 +1316,9 @@ cmd_parsed_free(cmd_parsed parsed)
  * Parsing error handling.
  *
  *
+ *
  */
-static cmd_return_code_t
+static cmd_ret_t
 cmd_set_parse_error(cmd_parsed parsed, cmd_token t, usize off,
                                const char* format, ...) PRINTF_ATTRIBUTE(4, 5) ;
 
@@ -1337,19 +1329,20 @@ cmd_set_parse_error(cmd_parsed parsed, cmd_token t, usize off,
  * start of that, for the location of the error.  If the offset is not zero,
  * it must be an offset in the original token (!).
  *
- * The message is a simple constant string (!).
+ * The error message is constructed as if by sprintf(), and stored in the
+ * parsed->emess.
  *
  * The message will be output as: ..........^ pointing to the location
- *                   followed by: % <mess>\n
+ *                   followed by: % <emess>\n
  *
- * (The mess does not need to include the '%' or the '\n'.)
+ * Note that the '%' and the trailing '\n' are added automatically.
  *
  * Sets:  parsed->emess
- *        parsed->eloc
+ *        parsed->eloc    -- set -ve if no known location
  *
- * Returns: CMD_ERR_PARSING -- which MUST only be returned if p
+ * Returns: CMD_ERR_PARSING
  */
-static cmd_return_code_t
+static cmd_ret_t
 cmd_set_parse_error(cmd_parsed parsed, cmd_token t, usize off,
                                                         const char* format, ...)
 {
@@ -1370,37 +1363,30 @@ cmd_set_parse_error(cmd_parsed parsed, cmd_token t, usize off,
 } ;
 
 /*------------------------------------------------------------------------------
- * Register a parsing error.
- *
- * Takes token in which parsing error was detected, and an offset from the
- * start of that, for the location of the error.  If the offset is not zero,
- * it must be an offset in the original token (!).
- *
- * The message is a simple constant string (!).
+ * Output parsing error message to given fifo.
  *
  * The message will be output as: ..........^ pointing to the location
- *                   followed by: % <mess>\n
+ *                   followed by: % <emess>\n
  *
- * (The mess does not need to include the '%' or the '\n'.)
+ * The ".....^" is omitted if no location is known, or if the indent is zero.
  *
- * Sets:  parsed->emess
+ * Uses:  parsed->emess
  *        parsed->eloc
- *
- * Returns: CMD_ERR_PARSING -- which MUST only be returned if p
  */
 extern void
 cmd_get_parse_error(vio_fifo ebuf, cmd_parsed parsed, uint indent)
 {
-  if (parsed->eloc >= 0)
+  if ((parsed->eloc >= 0) && (indent > 0))
     {
       qstring here ;
 
       here = qs_set_fill(NULL, indent + parsed->eloc, "....") ;
       vio_fifo_put_bytes(ebuf, qs_body_nn(here), qs_len_nn(here)) ;
-      qs_reset(here, free_it) ;
+      qs_free(here) ;
+      vio_fifo_printf(ebuf, "^\n") ;
     } ;
 
-  vio_fifo_printf(ebuf, "^\n%% %s\n", qs_make_string(parsed->emess)) ;
+  vio_fifo_printf(ebuf, "%% %s\n", qs_string(parsed->emess)) ;
 } ;
 
 /*==============================================================================
@@ -1441,7 +1427,7 @@ cmd_is_empty(qstring line)
 static bool
 cmd_pipe_reserved_char(char ch)
 {
-  return strchr("<|>%&*+-=?", ch) != NULL ;
+  return strchr("<|>%&*+-=?#!", ch) != NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1462,10 +1448,20 @@ cmd_pipe_reserved_char(char ch)
  *
  *   * if the first non-whitespace character is '!', this is a comment line.
  *
+ *   * if the first non-whitespace character is '#', this is a meta command
+ *     or a comment line.
+ *
+ *     This is an extension to previous lex rules -- where '#' would be an
+ *     error -- required to implement the vtysh #daemon etc. meta commands.
+ *
  * For the "full_lex" we more or less follow the usual shell conventions,
  * except:
  *
- *   * can have '!' as well as '#' to start comments
+ *   * if '#' is the first non-whitespace character, then if it is
+ *     *immediately* followed by an alphabetic or a '_', then that is the
+ *     start of a meta command.
+ *
+ *   * can have '!' as well as '#' to start comments (at start of token)
  *
  *   * may only have '|' at the start of a line.  '>|' must be used for
  *     piping command output to shell command.  So '|' is, effectively, a
@@ -1497,8 +1493,14 @@ cmd_pipe_reserved_char(char ch)
  *     leading whitespace) only.  It is then the start of an out_pipe
  *     token -- so self terminates after any pipe_reserved_chars.
  *
+ *   * the character '#' at the start of a line (after any leading whitespace),
+ *     followed by zero or more '_' and one or more alphabetic characters,
+ *     signals the start of a meta command.  The '#' and any '_' are treated
+ *     as an (insignificant) leading token, and the rest of the line is parsed
+ *     as a command line.
+ *
  *   * the characters '!', '#' are significant only at the start of a token,
- *     and then from there to end of line is comment.
+ *     and then from there to end of line is comment (except as above for '#').
  *
  *     Note that this means that comment after a token must be separated by
  *     at least one space from that token.
@@ -1516,19 +1518,11 @@ cmd_pipe_reserved_char(char ch)
  * NB: the elstring containing the line to be tokenized MUST NOT change
  *     until the parsed object is finished with.
  *
- * Returns: the types of all tokens or'd together.
- *          returns cmd_tok_null if the line is empty (apart from ' ' and '\t')
- *                               or if the elstring was or contained NULL.
+ * Sets the following parsed object values, ready for further parsing:
  *
- * Initialises the parsed object, ready for further parsing:
- *
- * Sets: parsed->parts      = cmd_parts_none
- *       parsed->num_tokens )
- *       parsed->elen       ) per the results
- *       parsed->tsp        )
- *       parsed->tokens     )
- *
- * Note that the num_tokens does not include the cmd_tok_eol on the end.
+ *   parsed->tokens      -- the tokens, including an eol token
+ *   parsed->num_tokens  -- number of tokens, *excluding* the eol token
+ *   parsed->tok_total   -- all the token types seen (excluding eol)
  */
 extern void
 cmd_tokenize(cmd_parsed parsed, qstring line, bool full_lex)
@@ -1655,6 +1649,23 @@ cmd_tokenize(cmd_parsed parsed, qstring line, bool full_lex)
               break ;
 
             case '#':
+              if ((nt == 0) && (cp == sp))
+                {
+                  const char* p ;
+
+                  p = cp + 1 ;
+                  while (*p == '_')
+                    ++p ;
+
+                  if (isalpha(*p))
+                    {
+                      type = cmd_tok_meta_prefix ;
+                      cp  = p ;
+                      end = true ;
+                      break ;
+                    } ;
+                } ;
+
               if (!full_lex)
                 {
                   ++cp ;
@@ -1688,181 +1699,21 @@ cmd_tokenize(cmd_parsed parsed, qstring line, bool full_lex)
   /* When we get here, tp points just after last character of last token,
    * or at start of line if the line is blank (other than whitespace).
    *
-   * If line is empty (apart from whitespace):
-   *
-   *  - the effective length is zero.
-   *  - the trailing space count is the number of (leading) spaces.
-   *
-   * If line is not empty:
-   *
-   *  - the start position of the first token is the number of leading spaces.
-   *  - the trailing space count is the number of spaces after the last
-   *    token.  (If the last token is comment, this will be zero.)
+   * Record the result of tokenisation and insert trailing eol token.  The
+   * eol token contains any whitespace between the end of the last token and
+   * the end of line.
    */
-  parsed->parts      = cmd_parts_none ;
   parsed->tok_total  = total ;
   parsed->num_tokens = nt ;
-  parsed->elen       = tp - lp->p ;
-  parsed->tsp        = lp->e - tp ;
 
   /* Append an empty end of line token.                                 */
   cmd_token_set(parsed->tokens, parsed->num_tokens, cmd_tok_eol,
                                                       lp->e, 0, lp->e - lp->p) ;
 } ;
 
-
-
-
-
 /*==============================================================================
- * VTY Command Line Input Pipe
- *
- * Here are the mechanics which support the:
- *
- *    < file_name
- *
- *    <| shell_command
- *
- * and the:
- *
- *    >  file_name
- *    >> file_name
- *    |  shell_command
- *
- *==============================================================================
- * The file_name handling
- *
- * Two directories are supported:
- *
- *   "home"    -- being the root for configuration files
- *
- *   "cd"      -- being the root for relative filenames, in the usual way
- *
- *   "here"    -- being the directory for the enclosing "< filename"
- *                see below for more detailed semantics
- *
- * There are the global values:
- *
- *   config home    -- defaults to directory for configuration file.
- *                     may be set by command.
- *
- *   config cd      -- defaults to cwd at start up
- *
- * There are the local values, within a given CLI instance (ie VTY):
- *
- *   cli home       -- set to config home when CLI instance starts, or when
- *                     config home is set within the CLI.
- *
- *   cli cd         -- similarly
- *
- *   cli here       -- outside < is same as cli home, unless explicitly set
- *                      - set by cli here
- *                      - pushed each time executes <, and set to directory for
- *                        the < filename.
- *                      - pushed each time executes <| and left unchanged
- *                      - popped each time exits < or <|
- *                      - set to parent by "no cli here" inside <, or to
- *                        default state outside <
- *
- * And then the filename syntax:
- *
- *    /path         -- absolute path       -- in the usual way
- *
- *    path          -- path wrt "cli cd"   -- in the usual way
- *
- *    ~/path        -- path in "cli home"  -- so "config" stuff
- *
- *    ~./path       -- path in "here"      -- so wrt to enclosing < file
- *
- *==============================================================================
- * The Input Pipe Commands
- *
- * These are "universal commands".
- *
- * They are:
- *
- *   < filename       -- filename as above
- *
- *                       treat contents of given file as command lines.
- *                       (That may include further < commands.)
- *
- *                       See notes on cli here for pushing/popping the here
- *                       directory.
- *
- * TODO:                 Filename and quotes ??
- *
- *   <| shell_command -- the shell command is executed "as is" by system().
- *
- *                       the stdout and stderr are collected.
- *
- *                       treats stdout as command lines.
- *                       (That may include further < commands.)
- *
- *                       anything from stderr is sent to the VTY output.
- *
- * As far as the top level CLI is concerned, these are discrete commands.
- * That is to say:
- *
- *   -- except where blocked while reading the "pipe", all commands are
- *      executed one after another, in one Routing Engine operation.
- *
- *   -- in any event, all output is gathered in the VTY buffering, and will
- *      be sent to the console (or where ever) only when the outermost command
- *      completes.
- *
- * There are three options associated with the output from a < operation:
- *
- *   -- suppress command line reflect
- *
- *      whether to suppress reflect of commands to the VTY before they are
- *      dispatched.
- *
- *      The default is not to suppress command line reflect.
- *
- *   -- suppress command results
- *
- *      whether to suppress any output generated by each command.
- *
- *      The default is not to suppress command results.
- *
- *   -- suppress "more"
- *
- *       whether to do "--more--", if currently applies, when finally
- *       outputting all the command results.
- *
- *       The default is not to suppress "more".
- *
- *       This option can only be set for the outermost < operation.
- *
- * Remembering that all output occurs in one go when the outermost < operation
- * completes.
- *
- * The default is to show everything and implement "--more--", pretty much as
- * if the commands had been typed in.  Except that "--more--" applies to
- * everything (including the command lines) together, rather than to the output
- * of each command individually.
- *
- * These options may be changed by flags attached to the <, as follows:
- *
- *   !   suppress command line reflect
- *
- *   ?   suppress "--more--"
- *
- *   *   suppress command output
- *
- * TODO: cli xxx commands for reflect and output suppression and notes ....
- *
- * TODO: Error handling....
- *
- * TODO: Closing the CLI....
- *
- * TODO: Time out and the CLI....
- *
- *
+ * VTY command line special token handling.
  */
-
-
-
 
 /*------------------------------------------------------------------------------
  * Get next cpp char & step -- unless at end of cpp.
@@ -1879,10 +1730,33 @@ cpp_getch(cpp p)
 /*------------------------------------------------------------------------------
  * Process in-pipe token and set the required bits in the pipe type word
  *
- * Known tokens are:   <  <|
- * Known options are:  +
+ * Known tokens are:   <  <| << <<|
+ *
+ * where << and <<| force lexical level 0 and requires strict keywords.
+ *
+ * Known options are:
+ *
+ *    +  -- enable  reflect command line
+ *    -  -- disable reflect command line
+ *    !  -- enable  warning output  & enable  stop on warning
+ *    %  -- enable  warning output  & disable stop on warning
+ *    =  -- enable  ordinary output
+ *    #  -- disable ordinary output
+ *    *  -- disable reflect command line
+ *        & disable warning output & disable stop on warning
+ *        & disable ordinary output  (quiet running)
+ *
+ * Rejects: more than one of either of '+' or '-'
+ *          more than one of either of '!' or '%'
+ *          more than one of either of '=' or '#'
+ *          more than one '*'
+ *
+ * Can combine '*' with '+', '!', '%' or '=' -- which has the meaning of
+ * disabling everything, then adding back enabled features.
+ *
+ * Can combine '*' with '-' or '#', but the latter are redundant.
  */
-static cmd_return_code_t
+static cmd_ret_t
 cmd_parse_in_pipe(cmd_parsed parsed, cmd_token t)
 {
   cpp_t p ;
@@ -1890,45 +1764,98 @@ cmd_parse_in_pipe(cmd_parsed parsed, cmd_token t)
 
   els_cpp(p, t->ot) ;
 
-  ok = true ;
+  parsed->in_pipe = cmd_pipe_none ;
 
-  switch (cpp_getch(p))
-  {
-    case '<':
-      switch (cpp_getch(p))
+  ok = (cpp_getch(p) == '<') ;  /* must start with '<'  */
+
+  if (ok)
+    switch (cpp_getch(p))
       {
-        default:
+        default:                /* "<" not followed by '\0', '<' or '|' */
           --p->p ;
           fall_through ;
 
-        case '\0':
-          parsed->in_pipe = cmd_pipe_file ;
-          break ;
+         case '\0':             /* "<" all on its own                   */
+           parsed->in_pipe = cmd_pipe_file ;
+           break ;
 
-        case '|':
-          parsed->in_pipe = cmd_pipe_shell ;
-          break ;
-      } ;
-      break ;
+         case '|':              /* "<|..."                              */
+           parsed->in_pipe = cmd_pipe_shell ;
+           break ;
 
-    default:
-      ok = false ;
-      break ;
-  } ;
+         case '<':              /* "<<..."                              */
+           switch (cpp_getch(p))
+             {
+               default:         /* "<<" not followed by '|'             */
+                 --p->p ;
+                 fall_through ;
+
+               case '\0':      /* "<<..."                              */
+                 parsed->in_pipe = cmd_pipe_file  | cmd_pipe_strict ;
+                 break ;
+
+               case '|':       /* "<<|..."                             */
+                 parsed->in_pipe = cmd_pipe_shell | cmd_pipe_strict ;
+                 break ;
+             } ;
+           break ;
+       } ;
 
   while (ok && (p->p < p->e))
-    {
-      switch (*p->p++)
+    switch (*p->p++)
       {
         case '+':
-          parsed->in_pipe |= cmd_pipe_reflect ;
+          ok = (parsed->in_pipe &
+                 (cmd_pipe_reflect_enable  | cmd_pipe_reflect_disable)) == 0 ;
+
+          parsed->in_pipe |= cmd_pipe_reflect_enable ;
+          break ;
+
+        case '-':
+          ok = (parsed->in_pipe &
+                   (cmd_pipe_reflect_enable  | cmd_pipe_reflect_disable)) == 0 ;
+
+          parsed->in_pipe |= cmd_pipe_reflect_disable ;
+          break ;
+
+        case '!':
+          ok = (parsed->in_pipe &
+                        (cmd_pipe_warn_stop  | cmd_pipe_warn_continue)) == 0 ;
+
+          parsed->in_pipe |= cmd_pipe_warn_stop ;
+          break ;
+
+        case '%':
+          ok = (parsed->in_pipe &
+                        (cmd_pipe_warn_stop  | cmd_pipe_warn_continue)) == 0 ;
+
+          parsed->in_pipe |= cmd_pipe_warn_continue ;
+          break ;
+
+        case '=':
+          ok = (parsed->in_pipe &
+                        (cmd_pipe_out_enable | cmd_pipe_out_disable)) == 0 ;
+
+          parsed->in_pipe |= cmd_pipe_out_enable ;
+          break ;
+
+        case '#':
+          ok = (parsed->in_pipe &
+                        (cmd_pipe_out_enable | cmd_pipe_out_disable)) == 0 ;
+
+          parsed->in_pipe |= cmd_pipe_out_disable ;
+          break ;
+
+        case '*':
+          ok = (parsed->in_pipe & cmd_pipe_quiet) == 0 ;
+
+          parsed->in_pipe |= cmd_pipe_quiet ;
           break ;
 
         default:
           ok = false ;
           break ;
       } ;
-    } ;
 
   if (ok)
     return CMD_SUCCESS ;
@@ -1940,9 +1867,27 @@ cmd_parse_in_pipe(cmd_parsed parsed, cmd_token t)
  * Process out-pipe token and set the required bits in the pipe type word
  *
  * Known tokens are:  | >  >>  >| >*
- * Known options are: none
+ *
+ * Known options for | and >| are:
+ *
+ *    &  -- enable  stderr return
+ *    ~  -- disable stderr return
+ *    =  -- enable  stdout return
+ *    #  -- disable stdout return
+ *    *  -- disable stdout and stderr returns
+ *
+ * Rejects: more than one of either of '&' or '~'
+ *          more than one of either of '=' or '#'
+ *          more than one '*'
+ *
+ * Can combine '*' with '&' or '=' -- which has the meaning of disabling
+ * everything, then adding back enabled features.
+ *
+ * Can combine '*' with '~' or '#', but the latter are redundant.
+ *
+ * No options for > >> >*
  */
-static cmd_return_code_t
+static cmd_ret_t
 cmd_parse_out_pipe(cmd_parsed parsed, cmd_token t)
 {
   cpp_t p ;
@@ -1988,14 +1933,52 @@ cmd_parse_out_pipe(cmd_parsed parsed, cmd_token t)
       break ;
   } ;
 
+  /* only the pipe shells have any options.
+   */
+  ok = (p->p == p->e) || (parsed->out_pipe & cmd_pipe_shell) ;
+
   while (ok && (p->p < p->e))
     {
       switch (*p->p++)
-      {
-        default:
-          ok = false ;
-          break ;
-      } ;
+        {
+          case '&':
+            ok = (parsed->out_pipe &
+                     (cmd_pipe_stderr_enable  | cmd_pipe_stderr_disable)) == 0 ;
+
+            parsed->out_pipe |= cmd_pipe_stderr_enable ;
+            break ;
+
+          case '~':
+            ok = (parsed->out_pipe &
+                     (cmd_pipe_stderr_enable  | cmd_pipe_stderr_disable)) == 0 ;
+
+            parsed->out_pipe |= cmd_pipe_stderr_disable ;
+            break ;
+
+          case '=':
+            ok = (parsed->out_pipe &
+                     (cmd_pipe_stdout_enable  | cmd_pipe_stdout_disable)) == 0 ;
+
+            parsed->out_pipe |= cmd_pipe_stdout_enable ;
+            break ;
+
+          case '#':
+            ok = (parsed->out_pipe &
+                     (cmd_pipe_stdout_enable  | cmd_pipe_stdout_disable)) == 0 ;
+
+            parsed->out_pipe |= cmd_pipe_stdout_disable ;
+            break ;
+
+          case '*':
+            ok = (parsed->out_pipe & cmd_pipe_std_quiet) == 0 ;
+
+            parsed->out_pipe |= cmd_pipe_std_quiet ;
+            break ;
+
+          default:
+            ok = false ;
+            break ;
+        } ;
     } ;
 
   if (ok)
@@ -2048,13 +2031,13 @@ cmd_parse_out_pipe(cmd_parsed parsed, cmd_token t)
  *
  * NB: if fails, returns token completed as far as possible.
  */
-static cmd_return_code_t
+static cmd_ret_t
 cmd_token_complete(cmd_parsed parsed, cmd_token t)
 {
-  cpp_t p ;
-  pp_t  q ;
-  bool  dq ;
-  cmd_return_code_t ret ;
+  cpp_t     p ;
+  pp_t      q ;
+  bool      dq ;
+  cmd_ret_t ret ;
 
   if ((t->type & cmd_tok_incomplete) == 0)
     return CMD_SUCCESS ;        /* Quick out if nothing to do   */
@@ -2219,17 +2202,32 @@ cmd_token_position(cmd_parsed parsed, qstring line)
   const char* e ;
   bool sq, dq, bs ;
 
-  /* Re-initialise parsed object and tokenize the given line            */
+  /* Re-initialise parsed object and tokenize the given line
+   *
+   * Resets to no parts at all.  Generally, should first look at parsed->parts
+   * to see if any of the other values are valid.  Here we make life a touch
+   * easier.
+   */
   cmd_tokenize(parsed, line, true) ;
 
-  /* Get the cursor position                                            */
-  cp = qs_cp_nn(line) ;
+  parsed->parts    = cmd_parts_none ;
+
+  parsed->in_pipe  = cmd_pipe_none ;
+  parsed->out_pipe = cmd_pipe_none ;
+
+  parsed->first_action   = 0 ;
+  parsed->num_action     = 0 ;
+  parsed->first_out_pipe = 0 ;
+  parsed->first_comment  = 0 ;
+  parsed->num_comment    = 0 ;
 
   /* Look for the last token whose end is <= cp
    *
    * Will position on last, "eol" token -- which is not counted in
    * parsed->num_tokens -- if is beyond the last real token on the line.
    */
+  cp = qs_cp_nn(line) ;
+
   t  = NULL ;
   ti = 0 ;
   while (1)
@@ -2866,14 +2864,20 @@ static int cmd_item_filter(cmd_parsed parsed, cmd_item item, cmd_token t) ;
 static uint
 cmd_filter_prepare(cmd_parsed parsed, cmd_context context)
 {
-  vector src_v ;
-  uint ci ;
-  uint nct ;
+  cmd_node cn ;
+  vector   src_v ;
+  uint     ci ;
+  uint     nct ;
+  ulen     src_v_len ;
 
-  /* get commands for the current node                                  */
-  src_v = ((cmd_node)vector_get_item(node_vector, parsed->cnode))->cmd_vector ;
+  /* Get the current node -- MUST be complete
+   */
+  cn = cmd_get_cmd_node(parsed->cnode) ;
 
-  assert(src_v != NULL) ;       /* invalid parsed->cnode ??     */
+  /* get commands for the current node
+   */
+  src_v = cn->cmd_vector ;
+  src_v_len = (src_v != NULL) ? vector_length(src_v) : 0 ;
 
   /* Empty the working commands vector, making sure big enough for the current
    * node's commands -- creates vector if required.
@@ -2881,15 +2885,15 @@ cmd_filter_prepare(cmd_parsed parsed, cmd_context context)
    * Note that the cmd_v lives for as long as the parsed object, so will
    * grow over time to accommodate what is required.
    */
-  parsed->cmd_v = vector_re_init(parsed->cmd_v, vector_length(src_v)) ;
+  parsed->cmd_v = vector_re_init(parsed->cmd_v, src_v_len) ;
 
   /* Filter out commands which are too short.
    *
    * For execution, can filter out commands which are too long.
    */
-  nct = parsed->num_command ;
+  nct = parsed->num_action ;
 
-  for (ci = 0 ; ci < vector_length(src_v) ; ++ci)
+  for (ci = 0 ; ci < src_v_len ; ++ci)
   {
     cmd_command cmd ;
 
@@ -2910,10 +2914,10 @@ cmd_filter_prepare(cmd_parsed parsed, cmd_context context)
    * strongest match is set from that.  This means that any match which does
    * not meet the minimum criterion is automatically excluded.
    */
-
   parsed->min_strength  = context->parse_execution ? ms_min_execute
                                                    : ms_min_parse ;
-  parsed->strict        = context->parse_strict ;
+  parsed->strict        = context->parse_strict ||
+                                (context->parse_execution && cn->parse_strict) ;
 
   parsed->strongest     = parsed->min_strength ;
   parsed->best_complete = mt_no_match ;
@@ -2961,8 +2965,8 @@ cmd_filter(cmd_parsed parsed, uint ii, bool keep_items)
   parsed->best_complete = mt_no_match ;
 
   /* Decide which token we are trying to match.                         */
-  if (ii < parsed->num_command)
-    ti = parsed->first_command + ii ;   /* map to token index   */
+  if (ii < parsed->num_action)
+    ti = parsed->first_action + ii ;   /* map to token index   */
   else
     {
       /* special case of filtering against the empty token at the end of
@@ -2971,7 +2975,7 @@ cmd_filter(cmd_parsed parsed, uint ii, bool keep_items)
        * Note that there may be out_pipe or even comment tokens in between,
        * so we here set the ti to the trailing eol token.
        */
-      assert(ii == parsed->num_command) ;
+      assert(ii == parsed->num_action) ;
       ti = parsed->num_tokens ;
     }
   t = cmd_token_get(parsed->tokens, ti) ;
@@ -3223,23 +3227,112 @@ cmd_item_filter(cmd_parsed parsed, cmd_item item, cmd_token t)
  * If 'tree':     move up the node tree to find command if not found in the
  *                current node.
  */
-
-static cmd_return_code_t cmd_parse_phase_one(cmd_parsed parsed,
-                                                        cmd_context context) ;
-static cmd_return_code_t cmd_parse_phase_one_b(cmd_parsed parsed, uint nt) ;
-static cmd_return_code_t cmd_parse_phase_two(cmd_parsed parsed,
-                                                        cmd_context context) ;
-static cmd_return_code_t cmd_parse_specials(cmd_parsed parsed,
-                                                        cmd_context context) ;
+static cmd_ret_t cmd_parse_phase_one(cmd_parsed parsed, cmd_context context) ;
+static cmd_ret_t cmd_parse_phase_one_b(cmd_parsed parsed) ;
+static cmd_ret_t cmd_parse_phase_two(cmd_parsed parsed, cmd_context context) ;
+static cmd_ret_t cmd_parse_specials(cmd_parsed parsed, cmd_context context) ;
 static node_type_t cmd_auth_specials(cmd_context context, node_type_t target) ;
 
 /*------------------------------------------------------------------------------
- * Parse a command in the given "node", or (if required) any of its ancestors.
+ * Parse a command in the given context.
  *
- * Requires command line to have been tokenized.
+ * Requires command line to have been tokenized.  Fills in the rest of the
+ * given struct cmd_parsed -- see its declaration -- in particular the "parts"
+ * entry.
+ *
+ * The context has these node settings as we start to parse:
+ *
+ *   context->node   -- this is the node the command handler is in, and to
+ *                      which all other context applies.
+ *
+ *   context->cnode  -- this is the mode in which to start parsing.
+ *
+ *                      This generally follows the context->node, but for
+ *                      vtysh server, may be set to an ancestor of that.
+ *
+ * The parsing operation will (if successful) set:
+ *
+ *   parsed->xnode   -- "execution node": the node to set vty->node to while
+ *                      executing the command.
+ *
+ *                      Generally this will be the same as context->node, but
+ *                      where there is an implicit node transfer, this will
+ *                      be the same as parsed->nnode.
+ *
+ *   parsed->nnode   -- "next node": the node to set context->node to iff
+ *                      the command succeeds.
+ *
+ *                      This may be an explicit node transfer (eg. "enable",
+ *                      "router bgp", "end", etc), or an implicit node
+ *                      transfer (eg. "route-map" in RMAP_NODE).
+ *
+ *                      Note that all implicit node transfers are up to an
+ *                      ancestor.
+ *
+ *   parsed->cnode   -- "command node": where the command comes from.
+ *
+ *                      Generally this will be the same as parsed->xnode, but
+ *                      where a "do", an implicit "do" or a meta command is
+ *                      being executed, this is an ENABLE node or META_NODE.
+ *
+ *   context->onode  )  these are especially for AUTH_ENABLE_NODE
+ *   context->tnode  )  see cmd_parse_specials()
+ *
+ * Node transfers have to follow quite strict rules, to avoid tripping up in
+ * general and in vtysh in particular:
+ *
+ *   * implicit node transfers
+ *
+ *     This is where a command is found in an ancestor of the current node.
+ *     Successful execution of the command implicitly causes a node change up
+ *     to the ancestor.
+ *
+ *     When the command executes, vty->node will be the ancestor -- copied from
+ *     parsed->xnode.
+ *
+ *     The execution context of the ancestor is a subset of the descendant's
+ *     context, so context does not need to be modified before executing the
+ *     command.
+ *
+ *     If the command succeeds, it may change the execution context to whatever
+ *     is valid for the vty->node.
+ *
+ *     If the command fails, it MUST NOT change the execution context, because
+ *     will fall back to the original child node.
+ *
+ *   * explicit node transfers
+ *
+ *     This is where the successful execution of a command in the current node
+ *     explicitly causes a node change, up or down.
+ *
+ *     When the command executes, vty->node will be the current node.  The
+ *     parsed->nnode will be the node to which will transfer if succeeds.
+ *
+ *     If the command succeeds, it may change the execution context to whatever
+ *     is valid for the parsed->nnode, and may change the vty->node to that.
+ *
+ *     If the command fails, it MUST NOT change the execution context, because
+ *     will fall back to the original child node.
+ *
+ *   * consistent node transfers
+ *
+ *     Commands which cause node transfers must cause the same node transfer
+ *     in whatever daemons they run in.
+ *
+ *     If this were not the case, the vtysh could get hopelessly lost.
+ *
+ *   * "do", implicit "do" and meta commands
+ *
+ *     These execute with vty->node and context set to the current node.  This
+ *     means that ENABLE node and META_NODE commands must be capable of
+ *     executing in any execution context !  If the command results in a node
+ *     transfer, if successful, the above rules apply.  If the command does not
+ *     change node, then it MUST NOT change the execution context.
  *
  * Returns:  CMD_SUCCESS => successfully parsed command, and the result is
  *                          in the given parsed structure, ready for execution.
+ *
+ *                           - parsed->xnode may not be the incoming node.
  *
  *                           - parsed->cnode may not be the incoming node.
  *
@@ -3254,8 +3347,6 @@ static node_type_t cmd_auth_specials(cmd_context context, node_type_t target) ;
  *           CMD_ERR_INCOMPLETE => "do" and nothing more
  *                          (iff parsing for execution)
  *
- *           CMD_SUCCESS_DAEMON => parsed successfully.  Something for vtysh ??
- *
  *           CMD_ERR_NO_MATCH   => could find nothing to match the command
  *                                 line.
  *
@@ -3269,7 +3360,7 @@ static node_type_t cmd_auth_specials(cmd_context context, node_type_t target) ;
  *     with parsed->cnode with node last tried.
  *
  * NB: unless cmd_parse_no_do, will have taken a leading "do", and pushed the
- *     parsed->cnode to ENABLE_NODE (if in MIN_DO_SHORTCUT_NODE or higher).
+ *     parsed->cnode to an ENABLE (if available).
  *
  * NB: the command line MUST be preserved until the parsed command is no
  *     longer required -- no copy is made.
@@ -3279,10 +3370,10 @@ static node_type_t cmd_auth_specials(cmd_context context, node_type_t target) ;
  *
  * See elsewhere for description of parsed structure.
  */
-extern cmd_return_code_t
+extern cmd_ret_t
 cmd_parse_command(cmd_parsed parsed, cmd_context context)
 {
-  cmd_return_code_t ret ;
+  cmd_ret_t ret ;
 
   /* Level 1 parsing
    *
@@ -3296,9 +3387,11 @@ cmd_parse_command(cmd_parsed parsed, cmd_context context)
    *
    * Unless CMD_ERR_PARSING:
    *
-   *   - sort out any "do" and cut from start of command.
-   *   - set parsed->cnode (from given node or according to "do")
-   *   - set parsed->nnode (from given node)
+   *   - sort out any "do" and cut from start of command
+   *   - deal with any meta command prefix
+   *   - set parsed->cnode (from context->cnode or according to "do" or "meta")
+   *   - set parsed->xnode (from context->node)
+   *   - set parsed->nnode (from context->node)
    *   - set parsed->cmd = NULL
    *   - empty the argv vector
    *
@@ -3307,8 +3400,8 @@ cmd_parse_command(cmd_parsed parsed, cmd_context context)
   ret = cmd_parse_phase_one(parsed, context) ;
   if (ret != CMD_SUCCESS)
     {
-      assert(ret == CMD_ERR_PARSING) ;  /* no other error at this point */
-      return ret ;
+      qassert(ret == CMD_ERR_PARSING) ; /* no other error at this point */
+      return CMD_ERR_PARSING ;
     } ;
 
   /* If no command tokens, and is parsing for execution, then we are done...
@@ -3324,11 +3417,10 @@ cmd_parse_command(cmd_parsed parsed, cmd_context context)
 
   /* Level 2 parsing
    *
-   * Try in the current node and then in parent nodes, if allowed.
+   * Try in the parsed->cnode and then in parent nodes, if allowed.
    *
-   * Will stop moving up the tree when hits a node which is its own parent.
-   * All nodes from NODE_CONFIG up have a parent.  All nodes from NODE_ENABLE
-   * down are their own parent.
+   * Will stop moving up the tree when hits a node which is its own parent, so
+   * will stop on an ENABLE node (or immediately if is VIEW or SPECIAL node).
    *
    * Note that when not parsing for execution, may get here with no command
    * tokens at all -- in which case cmd_parse_phase_two() will return
@@ -3351,27 +3443,42 @@ cmd_parse_command(cmd_parsed parsed, cmd_context context)
 
       pnode = cmd_node_parent(parsed->cnode) ;
 
-      if (pnode == parsed->cnode)
+      qassert(pnode != NULL_NODE) ;
+
+      if ((pnode == parsed->cnode) || (pnode == NULL_NODE))
         return CMD_ERR_NO_MATCH ; /* done if no parent node.            */
 
       parsed->cnode = pnode ;
     } ;
 
-  /* Parsed successfully -- worry about parsed->nnode.
+  /* Parsed successfully -- worry about parsed->xnode and parsed->nnode.
    *
-   * Currently parsed->nnode is set to the node we came in on.  If the
-   * parsed->cnode is not the same, then we have two choices:
+   * Here we deal with implicit node transfers and "do", implicit "do" and
+   * meta commands.
    *
-   *   (a) parsed->cnode is ENABLE_NODE -- either because have 'do' or by tree
-   *       walk -- in which case we leave parsed->nnode;
+   * Currently both parsed->xnode and parsed->nnode are set to the node we came
+   * in on (context->node).  If the node we have found the command in
+   * (parsed->cnode) is not the same, then we have two choices:
    *
-   *   (b) parsed->cnode is not ENABLE_NODE -- so this command, if successful
-   *       will change context, in which cas we need to set parsed->nnode.
+   *   (a) parsed->cnode is an ENABLE node -- either because have 'do' or by
+   *       tree walk -- in which case we leave both parsed->xnode and
+   *       parsed->nnode as they are;
+   *
+   *   (b) parsed->cnode is META_NODE -- in which case we also leave both
+   *       parsed->xnode and parsed->nnode as they are;
+   *
+   *   (c) otherwise: this command, if successful will implicitly change
+   *       context, in which case we need to set both parsed->xnode and
+   *       parsed->nnode.
    */
-  if ((parsed->nnode != parsed->cnode) && (parsed->cnode != ENABLE_NODE))
-    parsed->nnode = parsed->cnode ;
+  if (parsed->nnode != parsed->cnode)
+    {
+      if (!cmd_node_is_enable(parsed->cnode) && (parsed->cnode != META_NODE))
+        parsed->xnode = parsed->nnode = parsed->cnode ;
+    } ;
 
-  /* Worry about "special" commands and those that set the next node.   */
+  /* Worry about "special" commands and those that set the next node.
+   */
   if ((parsed->cmd->attr & (CMD_ATTR_NODE | CMD_ATTR_MASK)) != 0)
     {
       if ((parsed->cmd->attr & CMD_ATTR_NODE) != 0)
@@ -3402,7 +3509,7 @@ cmd_parse_command(cmd_parsed parsed, cmd_context context)
 
       cmd_arg_vector_empty(parsed) ;
 
-      for (ti = 0; ti < parsed->num_command ; ti++)
+      for (ti = 0; ti < parsed->num_action ; ti++)
         {
           bool take ;
 
@@ -3418,32 +3525,45 @@ cmd_parse_command(cmd_parsed parsed, cmd_context context)
           if (take)
             {
               cmd_token t ;
-              t = cmd_token_get(parsed->tokens, parsed->first_command + ti) ;
+              t = cmd_token_get(parsed->tokens, parsed->first_action + ti) ;
               cmd_arg_vector_push(parsed, cmd_token_make_string(t)) ;
             } ;
         } ;
     } ;
 
-  /* Return appropriate form of success                                 */
-  return parsed->cmd->daemon ? CMD_SUCCESS_DAEMON
-                             : CMD_SUCCESS ;
+  return CMD_SUCCESS ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Phase 1 of command parsing -- get ready to search the command system.
  *
- * Scan the tokens to break them up into the sections:
+ * Sets parsed->cnode to the context->cnode, or to an ancestor ENABLE if have
+ * 'do' (and the original node allows it), or to META_NODE for meta commands.
  *
- *    - in-pipe  -- '<' etc up to '>' or comment
- *    - do       -- leading 'do' on the command (empty if in-pipe)
- *    - command  -- actual command              (empty if in-pipe)
+ * Sets parsed->xnode to the context->node -- so default is execute in current
+ *
+ * Sets parsed->nnode to the context->node -- so default is no change.
+ *
+ * Scan the tokens to break them up into the parts:
+ *
+ *    - do/meta  -- leading 'do' or '#' on the command (empty if in-pipe)
+ *    - in-pipe  -- '<' etc           ) one of these
+ *    - command  -- actual command    )
  *    - out-pipe -- '>' etc up to comment
  *    - comment  -- '!' or '#' onwards
+ *                  or entire line if forced by context->daemons
  *
- * Sets parsed->cnode to the given node, or to ENABLE_NODE if have 'do' (and
- * the original node allows it).
+ * Sets parsed->parts and the required values out of:
  *
- * Sets parsed->nnode to the given node.
+ *    parsed->in_pipe
+ *    parsed->out_pipe
+ *
+ *    parsed->first_action
+ *    parsed->num_action
+ *    parsed->first_out_pipe
+ *    parsed->num_out_pipe
+ *    parsed->first_comment
+ *    parsed->num_comment
  *
  * Requires line to have been tokenized -- cmd_tokenize().
  *
@@ -3451,69 +3571,136 @@ cmd_parse_command(cmd_parsed parsed, cmd_context context)
  *          CMD_ERR_PARSING -- parsing error -- malformed or misplaced pipe
  *                                           -- malformed quotes/escapes
  */
-static cmd_return_code_t
+static cmd_ret_t
 cmd_parse_phase_one(cmd_parsed parsed, cmd_context context)
 {
-  uint  nt = parsed->num_tokens ;
+  uint  nt ;
 
-  /* Set command and parsing entries                            */
-  parsed->nnode = parsed->cnode = context->node ;
+  /* Set command and parsing entries to base state and prepare to process
+   */
+  parsed->nnode = parsed->xnode = context->node ;
+  parsed->cnode = context->cnode ;
   parsed->cmd   = NULL ;
 
-  /* pick off any comment                                       */
-  if ((parsed->tok_total & cmd_tok_comment) != 0)
+  nt = parsed->num_tokens ;
+
+  /* If context->daemons is zero, then we treat all command lines as
+   * comment, except for meta commands.
+   *
+   * Exit if nothing here to be parsed -- setting parsed->parts.
+   */
+  if ((context->daemons == DAEMON_NONE)
+                            && ((parsed->tok_total & cmd_tok_meta_prefix) == 0))
     {
-      parsed->num_comment   = 1 ;
-      parsed->first_comment = --nt ;    /* implicitly the last  */
-      parsed->tok_total   ^= cmd_tok_comment ;
-      parsed->parts       |= cmd_part_comment ;
+      /* Force entire line to be insignificant.
+       *
+       * Note that all tokens are deemed to be in a "cmd_part_comment", unless
+       * there are no tokens.
+       */
+      parsed->first_comment = 0 ;
+      parsed->num_comment   = parsed->num_tokens ;
+
+      if (parsed->num_comment == 0)
+        parsed->parts = cmd_parts_none ;
+      else
+        parsed->parts = cmd_part_comment ;
+
+      return CMD_SUCCESS ;
     } ;
 
-  /* If this is not a simple line need to do some extra work:
+  /* If this is a command line with one or more simple tokens, then record
+   * same -- this is a short cut for the 99% case !
    *
-   *   - identify and check any pipe items
-   *   -
+   * Otherwise, deal with everything else.
    */
-  if      (parsed->tok_total == cmd_tok_simple)
+  if (parsed->tok_total == cmd_tok_simple)
     {
-      /* All tokens are simple and there is at least one                */
-      parsed->first_command = 0 ;
-      parsed->num_command   = nt ;
-      parsed->parts        |= cmd_part_command ;
+      /* All tokens are simple
+       */
+      qassert(nt != 0) ;                /* must be one          */
+
+      parsed->first_action = 0 ;
+      parsed->num_action   = nt ;
+
+      if (parsed->num_action == 0)      /* for completeness     */
+        parsed->parts      = cmd_parts_none ;
+      else
+        parsed->parts      = cmd_part_command ;
     }
-  else if (parsed->tok_total != 0)
+  else
     {
-      /* There is at least one not-simple cmd_token.                        */
-      cmd_return_code_t ret ;
-      ret = cmd_parse_phase_one_b(parsed, nt) ;
+      /* Not simple only, may be empty, all comment etc.
+       *
+       * Sets parsed->parts
+       */
+      cmd_ret_t ret ;
+
+      parsed->parts = cmd_parts_none ;          /* nothing, yet */
+      ret = cmd_parse_phase_one_b(parsed) ;
 
       if (ret != CMD_SUCCESS)
         return ret ;
     } ;
 
-  /* If have a  have a 'do' at the front, account for it                */
+  /* Finally: if have a command part and have a "do" at the front deal with it.
+   *
+   *      or: if is a meta command, set META_NODE.
+   *
+   * Note that "do" is acted on in CONFIG and SPECIFIC nodes, ignored in any
+   * ENABLE node, but is left as is for all other nodes (most likely to be
+   * rejected as an error).
+   *
+   * Note that "do" does not apply to meta commands.
+   */
   if ((parsed->parts & cmd_part_command) != 0)
     {
-      /* Have a command -- worry about "do" if allowed                  */
-      if (!context->parse_no_do && (context->node >= MIN_DO_SHORTCUT_NODE))
+      /* Have a command -- worry about meta command or possible "do"
+       */
+      if      (parsed->parts & cmd_part_meta)
+        {
+          parsed->cnode = META_NODE ;   /* change to this node  */
+        }
+      else
         {
           cmd_token t ;
-          t = cmd_token_get(parsed->tokens, parsed->first_command) ;
+          t = cmd_token_get(parsed->tokens, parsed->first_action) ;
+
           if (els_len_nn(t->ot) == 2)
             {
               const char* p = els_body_nn(t->ot) ;
               if ((*p == 'd') && (*(p+1) == 'o'))
                 {
-                  parsed->cnode = ENABLE_NODE ; /* change to this node  */
+                  node_type_t cnode ;
 
-                  parsed->num_do   = 1 ;
-                  parsed->first_do = parsed->first_command ;
-                  --parsed->num_command ;
-                  ++parsed->first_command ;
-                  parsed->parts |= cmd_part_do ;
-                  /* If have *only* the "do", we don't have a command   */
-                  if (parsed->num_command == 0)
-                    parsed->parts ^= cmd_part_command ;
+                  cnode = parsed->cnode ;
+
+                  /* Do something with the 'do' if is ENABLE, CONFIG or
+                   * SPECIFIC node
+                   */
+                  if (!context->parse_no_do && cmd_node_is_ecs(cnode))
+                    {
+                      /* For CONFIG and SPECIFIC nodes the end_to node is
+                       * the parent ENABLE node
+                       */
+                      if (cmd_node_is_cs(cnode))
+                        cnode = cmd_node_end_to(cnode) ;
+
+                      qassert(cmd_node_is_enable(cnode)) ;
+
+                      if (cmd_node_is_enable(cnode))
+                        {
+                          parsed->cnode = cnode ;       /* parse from here */
+
+                          --parsed->num_action ;
+                          ++parsed->first_action ;
+                          parsed->parts |= cmd_part_do ;
+
+                          /* If have *only* the "do", we don't have a command
+                           */
+                          if (parsed->num_action == 0)
+                            parsed->parts ^= cmd_part_command ;
+                        } ;
+                    } ;
                 } ;
             } ;
         } ;
@@ -3527,6 +3714,7 @@ cmd_parse_phase_one(cmd_parsed parsed, cmd_context context)
  *
  * tokenizer found at least one of:
  *
+ *   - meta command prefix
  *   - in pipe token
  *   - out pipe token
  *   - token with quotes or escapes
@@ -3542,119 +3730,173 @@ cmd_parse_phase_one(cmd_parsed parsed, cmd_context context)
  *          CMD_ERR_PARSING -- parsing error -- malformed or misplaced pipe
  *                                           -- malformed quotes/escapes
  */
-static cmd_return_code_t
-cmd_parse_phase_one_b(cmd_parsed parsed, uint nt)
+static cmd_ret_t
+cmd_parse_phase_one_b(cmd_parsed parsed)
 {
-  cmd_return_code_t ret ;
-  cmd_token     t ;
-  cmd_parts_t   parts ;
-  uint i, n ;
-  uint* pn ;
+  cmd_ret_t   ret ;
+  cmd_parts_t cur_part ;
+  cmd_token   t ;
+  uint i, nt ;
+  uint* p_part_num ;
 
-  parts = cmd_parts_none ;      /* no parts yet                 */
-  n     = 0 ;                   /* no tokens in current part    */
-  pn    = NULL ;                /* no current part              */
+  i  = 0 ;                      /* starting at the beginning    */
+  t  = cmd_token_get(parsed->tokens, i) ;
+
+  nt = parsed->num_tokens ;
+
+  /* Pick off any comment and quit now if empty or comment only
+   *
+   * Initialise parsed->parts
+   */
+  if ((parsed->tok_total & cmd_tok_comment) == 0)
+    {
+      parsed->parts = cmd_parts_none ;  /* no parts yet         */
+
+      if (nt == 0)
+        {
+          qassert(t->type == cmd_tok_eol) ;
+          return CMD_SUCCESS ;
+        } ;
+    }
+  else
+    {
+      parsed->num_comment   = 1 ;
+      parsed->first_comment = --nt ;    /* implicitly the last  */
+
+      parsed->parts = cmd_part_comment ;
+
+      if (nt == 0)
+        {
+          qassert(t->type == cmd_tok_comment) ;
+          return CMD_SUCCESS ;
+        } ;
+    } ;
+
+  /* Check for meta command prefix
+   *
+   * If we have one, then expect to have at least two tokens the second of
+   * which is a simple token.
+   */
+  if ((t->type & cmd_tok_meta_prefix) != 0)
+    {
+      parsed->parts |= cmd_part_meta ;          /* note the meta part   */
+
+      t = cmd_token_get(parsed->tokens, ++i) ;  /* next token           */
+
+      if ((t->type & cmd_tok_simple) == 0)
+        {
+          qassert(false) ;
+          return cmd_set_parse_error(parsed, t, 0, "broken meta command") ;
+        } ;
+    } ;
 
   /* Walk the tokens, establishing the start and end of:
    *
    *   - command part   )
-   *   - in pipe part   ) exclusive
+   *   - in pipe part   ) exclusive, at start
    *   - out shell part )
    *   - out pipe part    which may only follow command or in pipe
    *
-   *
+   * Update parsed->parts as each part is recognised.
    */
-  for (i = 0 ; i < nt ; ++i)
+  cur_part = cmd_parts_none ;   /* current part -- nothing, yet */
+  while (i < nt)
     {
-      t = cmd_token_get(parsed->tokens, i) ;
-
-      /* Simple tokens can appear anywhere.
+      /* Simple tokens may appear anywhere.
        *
        * If this is the first token, start a cmd_part_command.
        */
       if      ((t->type & cmd_tok_simple) != 0)
         {
-          if (parts == cmd_parts_none)
+          if (cur_part == cmd_parts_none)
             {
-              parts = cmd_part_command ;
-              parsed->first_command  = i ;
-              pn = &parsed->num_command ;
-              n  = 0 ;
+              cur_part = cmd_part_command ;
+              parsed->first_action  = i ;
+              p_part_num  = &parsed->num_action ;
+              *p_part_num = 0 ;
             } ;
         }
 
-      /* '<' types of token can appear anywhere, except in a cmd_part_command.
-       *
-       * If this is the first token, start a cmd_part_in_pipe.
+      /* '<' tokens may appear only as the first token.
        */
       else if ((t->type & cmd_tok_in_pipe) != 0)
         {
-          if ((parts & (cmd_part_command | cmd_parts_pipe)) == cmd_part_command)
-            return cmd_set_parse_error(parsed, t, 0, "unexpected 'pipe in'") ;
-
-          if (parts == cmd_parts_none)
+          if (cur_part == cmd_parts_none)
             {
+              /* Parse the '<' token and set parsed->in_pipe
+               */
               ret = cmd_parse_in_pipe(parsed, t) ;
               if (ret != CMD_SUCCESS)
                 return ret ;
 
-              parts = cmd_part_in_pipe ;
-              parsed->first_in_pipe  = i ;
-              pn = &parsed->num_in_pipe ;
-              n  = 0 ;
+              cur_part = cmd_part_in_pipe ;
+              p_part_num  = &parsed->num_action ;
+              *p_part_num = 0 ;
             }
+          else
+            return cmd_set_parse_error(parsed, t, 0, "unexpected 'pipe in'") ;
         }
 
-      /* '|' tokens can appear anywhere.
+      /* '|' tokens may appear only as the first token.
        *
        * If this is the first token, start a cmd_part_out_pipe.
        */
       else if ((t->type & cmd_tok_out_shell) != 0)
         {
-          if ((parts & (cmd_part_command | cmd_parts_pipe)) == cmd_part_command)
-            return cmd_set_parse_error(parsed, t, 0, "unexpected 'shell pipe'") ;
-
-          if (parts == cmd_parts_none)
+         if (cur_part == cmd_parts_none)
             {
+             /* Parse the '|' token and set parsed->out_pipe
+              */
               ret = cmd_parse_out_pipe(parsed, t) ;
               if (ret != CMD_SUCCESS)
                 return ret ;
 
-              parts = cmd_part_out_pipe ;
+              cur_part = cmd_part_out_pipe ;
               parsed->first_out_pipe  = i ;
-              pn = &parsed->num_out_pipe ;
-              n  = 0 ;
-            } ;
+              p_part_num  = &parsed->num_out_pipe ;
+              *p_part_num = 0 ;
+            }
+         else
+           return cmd_set_parse_error(parsed, t, 0, "unexpected 'shell pipe'") ;
         }
 
-      /* '>' types of token can appear anywhere, except on an empty line.
-       *
-       * If not already in cmd_part_out_pipe, start a cmd_part_out_pipe.
+      /* '>' types of token may appear once, but not at the start and not
+       *     after a '|' token
        */
       else if ((t->type & cmd_tok_out_pipe) != 0)
         {
-          if (parts == cmd_parts_none)
-            return cmd_set_parse_error(parsed, t, 0, "unexpected 'pipe out'") ;
-
-          if ((parts & cmd_part_out_pipe) == 0)
+          if ((cur_part != cmd_parts_none) && (cur_part != cmd_part_out_pipe))
             {
+              /* Parse the '>' token and set parsed->out_pipe
+               */
               ret = cmd_parse_out_pipe(parsed, t) ;
               if (ret != CMD_SUCCESS)
                 return ret ;
 
-              *pn = n ;                     /* set number of in-pipe/cmd    */
-
-              parts |= cmd_part_out_pipe ;
+              cur_part = cmd_part_out_pipe ;
               parsed->first_out_pipe  = i ;
-              pn = &parsed->num_out_pipe ;
-              n  = 0 ;
-            } ;
+              p_part_num  = &parsed->num_out_pipe ;
+              *p_part_num = 0 ;
+            }
+          else
+            return cmd_set_parse_error(parsed, t, 0, "unexpected 'pipe out'") ;
+        }
+
+      /* Didn't recognise the token type !
+       */
+      else
+        {
+          qassert(false) ;
+          return cmd_set_parse_error(parsed, t, 0, "unexpected token") ;
         } ;
 
-      assert(parts != cmd_parts_none) ; /* dealt with all token types   */
+      /* Token recognised and accepted.  Update parts and part count.
+       */
+      parsed->parts |= cur_part ;
+      ++*p_part_num ;
 
-      /* Now deal with any "incompleteness"                             */
-
+      /* Now deal with any "incompleteness"
+       */
       if ((t->type & cmd_tok_incomplete) != 0)
         {
           ret = cmd_token_complete(parsed, t) ;
@@ -3662,54 +3904,56 @@ cmd_parse_phase_one_b(cmd_parsed parsed, uint nt)
             return ret ;
         } ;
 
-      ++n ;                         /* count up tokens              */
+      /* Next token, please
+       */
+      t = cmd_token_get(parsed->tokens, ++i) ;
     } ;
 
-  if (pn != NULL)
-    *pn = n ;                       /* number in last phase         */
-
   /* If have an in-pipe or an out-pipe, worry about the number of
-  * arguments
-  */
-  if ((parts & cmd_parts_pipe) != 0)
+   * arguments
+   */
+  if ((parsed->parts & cmd_parts_pipe) != 0)
     {
       const char*  msg  = NULL ;
       uint i ;
       bool e ;
 
-      /* If there is an in_pipe part, check number of arguments         */
-      if ((msg == NULL) && ((parts & cmd_part_in_pipe) != 0))
+      /* If there is an action part, ie in pipe, check number of arguments
+       */
+      if ((parsed->parts & cmd_part_in_pipe) != 0)
         {
-          assert(parsed->num_in_pipe > 0) ;
+          assert(parsed->num_action > 0) ;
 
           if (((parsed->in_pipe & cmd_pipe_file) != 0)
-                                                && (parsed->num_in_pipe != 2))
+                                                && (parsed->num_action != 2))
             {
-              if (parsed->num_in_pipe == 1)
+              if (parsed->num_action == 1)
                 {
-                  i    = parsed->first_in_pipe ;
+                  i    = parsed->first_action ;
                   e    = true ;
                   msg  = "requires file" ;
                 }
               else
                 {
-                  i    = parsed->first_in_pipe + 2 ;
+                  i    = parsed->first_action + 2 ;
                   e    = false ;
                   msg  = "expects file only" ;
                 } ;
             } ;
 
           if (((parsed->in_pipe & cmd_pipe_shell) != 0)
-                                                 && (parsed->num_in_pipe < 2))
+                                                 && (parsed->num_action < 2))
             {
-              i    = parsed->first_in_pipe ;
+              i    = parsed->first_action ;
               e    = true ;
               msg  = "requires shell command" ;
             } ;
         } ;
 
-      /* If there is an out_pipe part, check the number of arguments    */
-      if ((msg == NULL) && ((parts & cmd_part_out_pipe) != 0))
+      /* If there is an out_pipe part, check the number of arguments (unless
+       * already failed)
+       */
+      if (((parsed->parts & cmd_part_out_pipe) != 0) && (msg == NULL))
         {
           assert(parsed->num_out_pipe > 0) ;
 
@@ -3741,6 +3985,8 @@ cmd_parse_phase_one_b(cmd_parsed parsed, uint nt)
             } ;
         } ;
 
+      /* If failed, report
+       */
       if (msg != NULL)
         {
           t = cmd_token_get(parsed->tokens, i) ;
@@ -3748,9 +3994,8 @@ cmd_parse_phase_one_b(cmd_parsed parsed, uint nt)
         } ;
     } ;
 
-  /* It's OK -- so record the parts found and return success            */
-  parsed->parts |= parts ;
-
+  /* It's OK !
+   */
   return CMD_SUCCESS ;
 } ;
 
@@ -3759,15 +4004,15 @@ cmd_parse_phase_one_b(cmd_parsed parsed, uint nt)
  *
  * Assumes phase 1 completed successfully.
  *
- * Note that if parsed->num_command == 0, will have constructed a cmd_v, with
+ * Note that if parsed->num_action == 0, will have constructed a cmd_v, with
  * all possible commands in it (depending on cmd_parse_execution).
  *
  * Returns:  CMD_SUCCESS        -- parsed successfully
  *           CMD_ERR_NO_MATCH   -- could find nothing that matches
  *           CMD_ERR_AMBIGUOUS  -- found more than one match
- *                                   or parsed->num_command == 0
+ *                                   or parsed->num_action == 0
  */
-static cmd_return_code_t
+static cmd_ret_t
 cmd_parse_phase_two(cmd_parsed parsed, cmd_context context)
 {
   uint ii ;
@@ -3777,9 +4022,9 @@ cmd_parse_phase_two(cmd_parsed parsed, cmd_context context)
 
   cmd_filter_prepare(parsed, context) ;
 
-  match = 2 ;   /* in case parsed->num_command == 0 !   */
+  match = 2 ;   /* in case parsed->num_action == 0 !   */
 
-  for (ii = 0 ; ii < parsed->num_command ; ii++)
+  for (ii = 0 ; ii < parsed->num_action ; ii++)
     match = cmd_filter(parsed, ii, false) ;
 
   /* Should end up with one command to execute.                         */
@@ -3825,9 +4070,9 @@ cmd_parse_phase_two(cmd_parsed parsed, cmd_context context)
  *     Can go to ENABLE_NODE directly if can_enable is set in the context.
  *
  *     The can_enable is set when the vty starts if it does not require any
- *     authentication to enter ENABLE_NODE (eg VTY_CONFIG_READ) or because
- *     it started in ENABLE_NODE or greater (eg VTY_TERMINAL with no password
- *     and advanced mode !).
+ *     authentication to enter ENABLE_NODE (eg when reading configuration) or
+ *     because it started in ENABLE_NODE or greater (eg VTY_TERMINAL with no
+ *     password and advanced mode !).
  *
  *     Once can_enable is set it is not unset.  So getting to enable once is
  *     sufficient for a given VTY.
@@ -3835,8 +4080,8 @@ cmd_parse_phase_two(cmd_parsed parsed, cmd_context context)
  *     A pipe will inherit can_enable, provided that the parent is in
  *     ENABLE_NODE or better.
  *
- *     A pipe cannot inherit can_auth_enable -- this means that a pipe
- *     can either immediately enable, or cannot enable at all.
+ *     A pipe cannot run AUTH_ENABLE_NODE -- this means that a pipe can either
+ *     immediately enable, or cannot enable at all.
  *
  *     The effect of all this is that "enable" is straightforward, except for
  *     VTY_TERMINAL.  For VTY_TERMINAL:
@@ -3860,11 +4105,18 @@ cmd_parse_phase_two(cmd_parsed parsed, cmd_context context)
  *            no password, but host.restricted_mode is set.  Doesn't seem much
  *            point having a restricted_mode if you can go straight to
  *            ENABLE_NODE just because a password has not been set !
+ *
+ *   * "config terminal" and aliases
+ *
+ *     This is similar to "enable" above -- so can go direct from VIEW_NODE
+ *     or RESTRICTED_NODE to CONFIG_NODE, without touching ENABLE_NODE.
+ *
+ *   * "daemon" command, which if parsed we want to execute.
  */
-static cmd_return_code_t
+static cmd_ret_t
 cmd_parse_specials(cmd_parsed parsed, cmd_context context)
 {
-  cmd_return_code_t ret ;
+  cmd_ret_t ret ;
 
   ret = CMD_SUCCESS ;
 
@@ -3878,7 +4130,7 @@ cmd_parse_specials(cmd_parsed parsed, cmd_context context)
         parsed->nnode = cmd_node_end_to(parsed->cnode) ;
         break ;
 
-      case cmd_sp_exit:         /* NULL_NODE <=> CMD_EOF        */
+      case cmd_sp_exit:
         parsed->nnode = cmd_node_exit_to(parsed->cnode) ;
         break ;
 
@@ -3895,6 +4147,11 @@ cmd_parse_specials(cmd_parsed parsed, cmd_context context)
         break ;
     } ;
 
+  qassert(parsed->nnode != NULL_NODE) ;
+
+  if (parsed->nnode == NULL_NODE)
+    parsed->nnode = EXIT_NODE ;
+
   return ret ;
 } ;
 
@@ -3907,43 +4164,60 @@ cmd_parse_specials(cmd_parsed parsed, cmd_context context)
  * So if we can go directly to the target node, must establish that now.
  *
  * If cannot go to directly, we set that should go to AUTH_ENABLE_NODE.  That
- * may fail if not in a suitable state to  do that -- and issue suitable
+ * may fail if not in a suitable state to do that -- and issue suitable
  * message.
+ *
+ * Returns:  the target node, if does not need to authenticate.
+ *           otherwise: AUTH_ENABLE_NODE, and has set: context->onode
+ *                                                     context->tnode
  */
 static node_type_t
 cmd_auth_specials(cmd_context context, node_type_t target)
 {
+  node_type_t nnode ;
+
+  nnode = target ;              /* Assume can enable directly.  */
+
   if (!context->can_enable)
     {
+      bool no_pw ;
+
+      VTY_LOCK() ;
+        no_pw = (host.enable.text == NULL) ;
+      VTY_UNLOCK() ;
+
       /* Can enable if is already ENABLE_NODE or better (this should
        * not be required -- but does no harm).
        *
-       * If we are allowed to authenticate, then the authentication
-       * is trivial if there is no password set and we are in
-       * VIEW_NODE !
+       * If is in VIEW_NODE and there is no password, then we can, in fact
+       * enable.
+       *
+       * Otherwise, we need to authenticate before stepping up to the target
+       * node, so return AUTH_ENABLE_NODE as the next node -- having set
+       * the context->onode and tnode, which the AUTH_ENABLE_NODE needs.
+       *
+       * Note that setting AUTH_ENABLE_NODE does not guarantee we will reach
+       * that !  When the command actually executes, it must check that
+       * is allowed to proceed, and trigger suitable error/warning and
+       * messages.
        *
        * Note that if we are in RESTRICTED_NODE, then must authenticate,
        * which will later be refused if no password is set at the time !
        */
       if      (context->node >= ENABLE_NODE)
         context->can_enable = true ;
-      else if (context->can_auth_enable)
+      else if ((context->node == VIEW_NODE) && no_pw)
+        context->can_enable = true ;
+      else
         {
-          /* Can do a*/
-          bool no_pw ;
+          nnode = AUTH_ENABLE_NODE ;
 
-          VTY_LOCK() ;
-            no_pw = (host.enable == NULL) ;
-          VTY_UNLOCK() ;
-
-          context->can_enable = no_pw && (context->node == VIEW_NODE) ;
+          context->onode = context->node ;   /* see vty_cmd_auth()   */
+          context->tnode = target ;          /* see vty_cmd_auth()   */
         } ;
     } ;
 
-  context->onode = context->node ;   /* see vty_cmd_auth()   */
-  context->tnode = target ;          /* see vty_cmd_auth()   */
-
-  return context->can_enable ? target : AUTH_ENABLE_NODE ;
+  return nnode ;
 } ;
 
 #if 0
@@ -4086,8 +4360,7 @@ item_unique_string (vector v, const char *str)
  *     themselves need to be freed.)
  */
 extern vector
-cmd_describe_command (const char* line, node_type_t node,
-                                                      cmd_return_code_t* status)
+cmd_describe_command (const char* line, node_type_t node, cmd_ret_t* status)
 {
 #if 0
   vector ret ;
@@ -4384,21 +4657,14 @@ cmd_help_preflight(cmd_parsed parsed)
  * Returns:  CMD_ERR_PARSING   -- the parser could not make sense of the line.
  *
  */
-extern cmd_return_code_t
+extern cmd_ret_t
 cmd_completion(cmd_parsed parsed, cmd_context context)
 {
-  cmd_return_code_t ret ;
+  cmd_ret_t ret ;
 
-  /* Parse the line -- allow completion, allow do, allow backing up the tree,
-   *                   but do not parse for execution.
+  /* Parse the line -- use given context, but do not parse for execution.
    */
-  context->can_enable      = true ;
-  context->full_lex        = true ;
   context->parse_execution = false ;
-  context->parse_no_do     = false ;
-  context->parse_no_tree   = false ;
-  context->parse_strict    = false ;
-
   ret = cmd_parse_command(parsed, context) ;
 
   if (ret == CMD_ERR_PARSING)
@@ -4415,11 +4681,14 @@ cmd_completion(cmd_parsed parsed, cmd_context context)
    * will be filtering on the empty eol token -- which we arrange to match
    * anything, including eol -- which gives the dummy item_cr of type
    * item_eol.
+   *
+   * TODO ... does not work for 'do' when on the 'do' !
+   * TODO ... what about the automatic ENABLE_NODE stuff ?
    */
-  assert(parsed->cti >= parsed->first_command) ;
-  assert(parsed->cti <= parsed->first_command + parsed->num_command) ;
+  qassert(parsed->cti >= parsed->first_action) ;
+  qassert(parsed->cti <= parsed->first_action + parsed->num_action) ;
 
-  cmd_filter(parsed, parsed->cti - parsed->first_command, true) ;
+  cmd_filter(parsed, parsed->cti - parsed->first_action, true) ;
 
   /* Reduce the list of items available at the current position to
    * eliminate duplicates and have the possibilities sorted by type and
@@ -4489,11 +4758,11 @@ cmd_completion(cmd_parsed parsed, cmd_context context)
  *
  *      Otherwise, insert a space.
  *
- * Returns:  n = number of characters to move the cursor before
- *               starting to replace characters (may be -ve)
- *        *rep = number of characters to replace
- *        *ins = number of spaces to insert : 0..2
- *        *mov = number of spaces to move afterwards (may be -ve)
+ * Returns: *pre = number of characters to move the cursor before
+ *                 starting to replace characters (may be -ve)
+ *          *rep = number of characters to replace
+ *          *ins = number of spaces to insert : 0..2
+ *          *mov = number of spaces to move afterwards (may be -ve)
  */
 extern void
 cmd_complete_keyword(cmd_parsed parsed, int* pre, int* rep, int* ins, int* mov)
@@ -4649,7 +4918,7 @@ cmd_post_last(cmd_parsed parsed)
       cmd_command cmd ;
       cmd = vector_get_item(parsed->cmd_v, 0) ;
 
-      return ((parsed->cti - parsed->first_command + 1) == cmd->nt_max) ;
+      return ((parsed->cti - parsed->first_action + 1) == cmd->nt_max) ;
     } ;
 
   return false ;
@@ -4658,18 +4927,81 @@ cmd_post_last(cmd_parsed parsed)
 
 
 
+/*------------------------------------------------------------------------------
+ * Should we partly complete a token ?
+ *
+ * If cmd_completion() has returned two or more alternative completions, then
+ * we have two interesting cases:
+ *
+ *   1) the alternatives are all keywords, and the longest leading substring
+ *      of the alternatives is longer than the current token, then extend the
+ *      current token to that longest leading substring -- leaving the
+ *      cursor at the end of same.
+ *
+ *   2) in any case, if the cursor is not at the end of the token, move to the
+ *      end of the token.
+ *
+ * Returns: true  => yes, should partly complete the token
+ *                   sets the given "els" to be the what should replace token
+ *
+ *          false => no, should not
+ *                   does not set the els.
+ */
+extern bool
+cmd_part_complete(cmd_parsed parsed, elstring els)
+{
+  vector_index_t i ;
+  cmd_token      t ;
 
+  ulen           ep, pos ;
 
+  qassert(vector_length(parsed->item_v) > 1) ;
 
+  /* Do nothing if this is not a simple token.
+   */
+  t  = cmd_token_get(parsed->tokens, parsed->cti) ;
 
+  if ((t->type & cmd_tok_simple) == 0)
+    return false ;
 
+  /* Scan the item_v, and if they are all keywords, set els to be the longest
+   * common leading substring.
+   *
+   * Otherwise set els to be the keyword itself.
+   */
+  els_set_len_nn(els, 0) ;
 
+  for (i = 0 ; i < vector_length(parsed->item_v) ; ++i)
+    {
+      cmd_item item ;
 
+      item = vector_get_item(parsed->item_v, i) ;
 
+      if (item->type != item_keyword)
+        {
+          *els = *(t->ot) ;
+          break ;
+        } ;
 
+      if (els_len_nn(els) == 0)
+        *els = *(item->str) ;
+      else
+        els_set_len_nn(els, els_sub_len(els, item->str)) ;
+    } ;
 
+  /* If the els is longer than the current token, then need to replace
+   * the token with that -- moving to the end of the partial token.
+   *
+   * If the cursor is not at the end of the current token, then need to move
+   * to the end of the token.
+   */
+  ep  = t->tp + els_len_nn(t->ot) ;     /* end of current token         */
+  pos = t->tp + parsed->rp ;            /* current cursor position      */
 
+  qassert(ep >= pos) ;
 
+  return (els_len_nn(els) > els_len_nn(t->ot)) || (ep > pos) ;
+} ;
 
 #if 0
 static vector

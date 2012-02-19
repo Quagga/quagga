@@ -145,8 +145,8 @@ static void uzlog_backtrace(int priority);
  *      are place if required.  This buffer and some related flags must be
  *      handled under the LOG_LOCK().
  *
- *      The vty_log() function takes care of this, and takes care of prompting
- *      the vty(s) to output the contents of the fifo.
+ *      The vty_monitor_log() function takes care of this, and takes care of
+ *      prompting the vty(s) to output the contents of the fifo.
  *
  *      This will be called under LOG_LOCK().  It will NOT VTY_LOCK().  It
  *      will return promptly.
@@ -179,7 +179,7 @@ static void uzlog_backtrace(int priority);
 extern void
 log_init_r(void)
 {
-  qpt_mutex_init(log_mutex, qpt_mutex_recursive);
+  qpt_mutex_init_new(log_mutex, qpt_mutex_recursive);
 } ;
 
 /*------------------------------------------------------------------------------
@@ -219,16 +219,18 @@ static void uquagga_timestamp(qf_str qfs, int timestamp_precision) ;
  * The main logging function.
  *
  * This writes the logging information directly to all logging destinations,
- * except the vty_log(), so that it is externally visible as soon as possible.
+ * except the vty_monitor_log(), so that it is externally visible as soon as
+ * possible.
+ *
  * This assumes that syslog and file output is essentially instantaneous, and
  * will not block.
  *
  * Does not attempt to pick up or report any I/O errors.
  *
- * For vty_log(), any logging is buffered and dealt with by the VTY handler.
+ * For vty_monitor_log(), any logging is buffered and dealt with by the vty.
  *
  * So, having acquired the LOG_LOCK() the logging will proceed without
- * requiring any further locks.  Indeed, apart from vty_log() and
+ * requiring any further locks.  Indeed, apart from vty_monitor_log() and
  * uquagga_timestamp() (TODO) the process is async_signal_safe, even.
  */
 extern void
@@ -351,7 +353,7 @@ zlog (struct zlog *zl, int priority, const char *format, ...)
           uvzlog_line(ll, zl, priority, format, va) ;
           va_end (va);
         } ;
-      vty_log(priority, ll->line, ll->len - 1) ;    /* less the '\n' */
+      vty_monitor_log(priority, ll->line, ll->len - 1) ; /* less the '\n' */
     } ;
 
   LOG_UNLOCK() ;
@@ -408,103 +410,79 @@ uvzlog_line(logline ll, struct zlog *zl, int priority,
 } ;
 
 /*------------------------------------------------------------------------------
- * Fill buffer with current time, to given number of decimal digits.
+ * Return timestamp_str_t buffer current time, to given number of decimals.
  *
- * If given buffer is too small, provides as many characters as possible.
+ * See uquagga_timestamp(), below.
+ */
+extern timestamp_str_t
+quagga_timestamp(int timestamp_precision)
+{
+  timestamp_str_t QFB_QFS(str, qfs) ;
 
- * Time stamp handling -- gettimeofday(), localtime() and strftime().
+  LOG_LOCK() ;
+  uquagga_timestamp(qfs, timestamp_precision) ;
+  LOG_UNLOCK() ;
+
+  qfs_term(qfs) ;
+  return str ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * unprotected version for when mutex already held
  *
- * Maintains a cached form of the current time (under the vty/log mutex), so
- * that can avoid multiple calls of localtime() and strftime() per second.
+ * Append timestamp to the given qf_str -- assumes LOG_LOCK() is held, because
+ * keeps local cache of the text form of the timestamp, to the second !
+ *
+ * Time stamp handling: gettimeofday(), localtime() and strftime().
+ *
+ * NB: this is NOT async signal safe :-(
  *
  * The value from gettimeofday() is in micro-seconds.  Can provide timestamp
  * with any number of decimal digits, but at most 6 will be significant.
  *
- * Puts a current timestamp in buf and returns the number of characters
- * written (not including the terminating NUL).  The purpose of
- * this function is to avoid calls to localtime appearing all over the code.
- * It caches the most recent localtime result and can therefore
- * avoid multiple calls within the same second.
- *
- * The buflen MUST be > 1 and the buffer address MUST NOT be NULL.
- *
- * If buflen is too small, writes buflen-1 characters followed by '\0'.
- *
- * Time stamp is rendered in the form:
- */
-#define TIMESTAMP_FORM "%Y/%m/%d %H:%M:%S"
-/*
- * This has a fixed length (leading zeros are included) of 19 characters
- * (unless this code is still in use beyond the year 9999 !)
- *
- * Which may be followed by "." and a number of decimal digits, usually 1..6.
- *
- * So the maximum time stamp is 19 + 1 + 6 = 26.  Adding the trailing '\n', and
- * rounding up for good measure -- buffer size = 32.
- */
-CONFIRM(timestamp_buffer_len >= 32) ;
-/*
- * Returns: number of characters in buffer, not including trailing '\0'.
- *
  * NB: does no rounding.
- *
- * NB: buflen MUST be > 1 and buf MUST NOT be NULL.
  */
-extern size_t
-quagga_timestamp(int timestamp_precision, char *buf, size_t buflen)
-{
-  qf_str_t qfs ;
-
-  LOG_LOCK() ;
-
-  qfs_init(qfs, buf, buflen) ;
-  uquagga_timestamp(qfs, timestamp_precision) ;
-
-  LOG_UNLOCK() ;
-  return qfs_len(qfs) ;
-}
-
-/*------------------------------------------------------------------------------
- * unprotected version for when mutex already held
- */
-
-// used in uvzlog_line
-
 static void
 uquagga_timestamp(qf_str qfs, int timestamp_precision)
 {
+  /* This is the cached form of the current time (under the log mutex).
+   */
   static struct {
     time_t last;
     size_t len;
     char buf[timestamp_buffer_len];
-  } cache;
+  } cache ;
 
   struct timeval clock;
 
-  /* would it be sufficient to use global 'recent_time' here?  I fear not... */
+  /* would it be sufficient to use global 'recent_time' here?  I fear not...
+   */
   gettimeofday(&clock, NULL);
 
   /* first, we update the cache if the seconds time has changed             */
   if (cache.last != clock.tv_sec)
     {
       struct tm tm;
+
       cache.last = clock.tv_sec;
       localtime_r(&cache.last, &tm);
       cache.len = strftime(cache.buf, sizeof(cache.buf), TIMESTAMP_FORM, &tm) ;
-      assert(cache.len > 0) ;
-    }
 
-  /* note: it's not worth caching the subsecond part, because
-   * chances are that back-to-back calls are not sufficiently close together
-   * for the clock not to have ticked forward
-   */
+      qassert(cache.len > 0) ;
+    } ;
 
   qfs_append_n(qfs, cache.buf, cache.len) ;
 
-  /* Add decimal part as required.                                      */
+  /* Add decimal part as required.
+   *
+   * note: it's not worth caching the subsecond part, because chances are that
+   * back-to-back calls are not sufficiently close together for the clock not
+   * to have ticked forward
+   */
   if (timestamp_precision > 0)
     {
-      /* should we worry about locale issues?              */
+      /* should we worry about locale issues?
+       */
       static const int divisor[] = {     1,                     /* 0        */
                                     100000, 10000, 1000,        /* 1, 2, 3  */
                                        100,    10,    1};       /* 4, 5, 6  */
@@ -773,7 +751,7 @@ zlog_signal(int signo, const char *action, siginfo_t *siginfo,
       /* Remove trailing '\n' for monitor and syslog */
       *--s = '\0';
       if (PRI <= zlog_default->maxlvl[ZLOG_DEST_MONITOR])
-        vty_log_fixed(buf, s - buf);
+        vty_monitor_log_fixed(buf, s - buf);
       if (PRI <= zlog_default->maxlvl[ZLOG_DEST_SYSLOG])
 	syslog_sigsafe(PRI|zlog_default->facility,msgstart,s-msgstart);
     }
@@ -855,7 +833,7 @@ zlog_backtrace_sigsafe(int priority, void *program_counter)
       /* Remove trailing '\n' for monitor and syslog */
       *--s = '\0';
       if (priority <= zlog_default->maxlvl[ZLOG_DEST_MONITOR])
-	vty_log_fixed(buf,s-buf);
+	vty_monitor_log_fixed(buf,s-buf);
       if (priority <= zlog_default->maxlvl[ZLOG_DEST_SYSLOG])
 	syslog_sigsafe(priority|zlog_default->facility,buf,s-buf);
       {
@@ -877,7 +855,7 @@ zlog_backtrace_sigsafe(int priority, void *program_counter)
 	    }
 	    *s = '\0';
 	    if (priority <= zlog_default->maxlvl[ZLOG_DEST_MONITOR])
-	      vty_log_fixed(buf,s-buf);
+	      vty_monitor_log_fixed(buf,s-buf);
 	    if (priority <= zlog_default->maxlvl[ZLOG_DEST_SYSLOG])
 	      syslog_sigsafe(priority|zlog_default->facility,buf,s-buf);
 	  }
@@ -985,7 +963,7 @@ static inline struct zlog* zlog_actual(struct zlog* zl)
  */
 extern struct zlog *
 openzlog (const char *progname, zlog_proto_t protocol,
-	  int syslog_flags, int syslog_facility)
+	                                  int syslog_flags, int syslog_facility)
 {
   struct zlog *zl;
   u_int i;
@@ -997,7 +975,8 @@ openzlog (const char *progname, zlog_proto_t protocol,
   zl->facility       = syslog_facility;
   zl->syslog_options = syslog_flags;
 
-  /* Set initial logging levels.                                */
+  /* Set initial logging levels.
+   */
   for (i = 0 ; i < ZLOG_DEST_COUNT ; ++i)
     zl->maxlvl[i]    = ZLOG_DISABLED ;
 

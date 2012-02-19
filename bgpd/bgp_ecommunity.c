@@ -19,6 +19,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 02111-1307, USA.  */
 
 #include <zebra.h>
+#include <errno.h>
 
 #include "hash.h"
 #include "memory.h"
@@ -31,7 +32,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 /* Hash of community attribute. */
 static struct hash *ecomhash;
-
+
 /* Allocate a new ecommunities.  */
 static struct ecommunity *
 ecommunity_new (void)
@@ -105,12 +106,12 @@ ecommunity_uniq_sort (struct ecommunity *ecom)
   int i;
   struct ecommunity *new;
   struct ecommunity_val *eval;
-  
+
   if (! ecom)
     return NULL;
-  
+
   new = ecommunity_new ();
-  
+
   for (i = 0; i < ecom->size; i++)
     {
       eval = (struct ecommunity_val *) (ecom->val + (i * ECOMMUNITY_SIZE));
@@ -174,7 +175,7 @@ struct ecommunity *
 ecommunity_merge (struct ecommunity *ecom1, struct ecommunity *ecom2)
 {
   if (ecom1->val)
-    ecom1->val = XREALLOC (MTYPE_ECOMMUNITY_VAL, ecom1->val, 
+    ecom1->val = XREALLOC (MTYPE_ECOMMUNITY_VAL, ecom1->val,
 			   (ecom1->size + ecom2->size) * ECOMMUNITY_SIZE);
   else
     ecom1->val = XMALLOC (MTYPE_ECOMMUNITY_VAL,
@@ -216,7 +217,7 @@ ecommunity_unintern (struct ecommunity **ecom)
 
   if ((*ecom)->refcnt)
     (*ecom)->refcnt--;
-    
+
   /* Pull off from hash.  */
   if ((*ecom)->refcnt == 0)
     {
@@ -239,7 +240,7 @@ ecommunity_hash_make (void *arg)
 
   key = 0;
   pnt = ecom->val;
-  
+
   for (c = 0; c < ecom->size * ECOMMUNITY_SIZE; c++)
     key += pnt[c];
 
@@ -252,7 +253,7 @@ ecommunity_cmp (const void *arg1, const void *arg2)
 {
   const struct ecommunity *ecom1 = arg1;
   const struct ecommunity *ecom2 = arg2;
-  
+
   return (ecom1->size == ecom2->size
 	  && memcmp (ecom1->val, ecom2->val, ecom1->size * ECOMMUNITY_SIZE) == 0);
 }
@@ -270,7 +271,7 @@ ecommunity_finish (void)
   hash_free (ecomhash);
   ecomhash = NULL;
 }
-
+
 /* Extended Communities token enum. */
 enum ecommunity_token
 {
@@ -308,7 +309,7 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
     return NULL;
 
   /* "rt" and "soo" keyword parse. */
-  if (! isdigit ((int) *p)) 
+  if (! isdigit ((int) *p))
     {
       /* "rt" match check.  */
       if (tolower ((int) *p) == 'r')
@@ -356,7 +357,7 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
 	}
       goto error;
     }
-  
+
   /* What a mess, there are several possibilities:
    *
    * a) A.B.C.D:MN
@@ -370,7 +371,7 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
    * OPQR:    Four byte value
    *
    */
-  while (isdigit ((int) *p) || *p == ':' || *p == '.') 
+  while (isdigit ((int) *p) || *p == ':' || *p == '.')
     {
       if (*p == ':')
 	{
@@ -379,12 +380,12 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
 
 	  separator = 1;
 	  digit = 0;
-	  
+
 	  if ((p - str) > INET_ADDRSTRLEN)
 	    goto error;
           memset (buf, 0, INET_ADDRSTRLEN + 1);
           memcpy (buf, str, p - str);
-          
+
 	  if (dot)
 	    {
 	      /* Parsing A.B.C.D in:
@@ -397,8 +398,9 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
           else
             {
               /* ASN */
+              errno = 0 ;
               as = strtoul (buf, &endptr, 10);
-              if (*endptr != '\0' || as == BGP_AS4_MAX)
+              if (*endptr != '\0' || (errno != 0))
                 goto error;
             }
 	}
@@ -413,7 +415,7 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
       else
 	{
 	  digit = 1;
-	  
+
 	  /* We're past the IP/ASN part */
 	  if (separator)
 	    {
@@ -433,7 +435,7 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
     {
       if (val > UINT16_MAX)
         goto error;
-      
+
       eval->val[0] = ECOMMUNITY_ENCODE_IP;
       eval->val[1] = 0;
       memcpy (&eval->val[2], &ip, sizeof (struct in_addr));
@@ -444,7 +446,7 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
     {
       if (val > UINT16_MAX)
         goto error;
-      
+
       eval->val[0] = ECOMMUNITY_ENCODE_AS4;
       eval->val[1] = 0;
       eval->val[2] = (as >>24) & 0xff;
@@ -458,7 +460,7 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
     {
       eval->val[0] = ECOMMUNITY_ENCODE_AS;
       eval->val[1] = 0;
-      
+
       eval->val[2] = (as >>8) & 0xff;
       eval->val[3] = as & 0xff;
       eval->val[4] = (val >>24) & 0xff;
@@ -474,7 +476,7 @@ ecommunity_gettoken (const char *str, struct ecommunity_val *eval,
   return p;
 }
 
-/* Convert string to extended community attribute. 
+/* Convert string to extended community attribute.
 
    When type is already known, please specify both str and type.  str
    should not include keyword such as "rt" and "soo".  Type is
@@ -557,7 +559,7 @@ ecommunity_str2com (const char *str, int type, int keyword_included)
   return ecom;
 }
 
-/* Convert extended community attribute to string.  
+/* Convert extended community attribute to string.
 
    Due to historical reason of industry standard implementation, there
    are three types of format.
@@ -636,7 +638,7 @@ ecommunity_ecom2str (struct ecommunity *ecom, int format)
 	  first = 0;
 	  continue;
 	}
-      
+
       /* Low-order octet of type. */
       type = *pnt++;
       if (type !=  ECOMMUNITY_ROUTE_TARGET && type != ECOMMUNITY_SITE_ORIGIN)
@@ -718,7 +720,7 @@ ecommunity_ecom2str (struct ecommunity *ecom, int format)
 }
 
 int
-ecommunity_match (const struct ecommunity *ecom1, 
+ecommunity_match (const struct ecommunity *ecom1,
                   const struct ecommunity *ecom2)
 {
   int i = 0;

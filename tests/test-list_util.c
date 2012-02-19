@@ -1,13 +1,13 @@
 #include <zebra.h>
 #include "misc.h"
-#include <list_util.h>
+#include "qlib_init.h"
+#include "command.h"
+#include "list_util.h"
 #include <string.h>
 
 /* List util torture tests
  *
  */
-
-struct thread_master *master;           /* allow lib/zebra.c to link ! */
 
 /* prototypes */
 int main(int argc, char **argv);
@@ -34,6 +34,9 @@ test_assert_fail(const char* truth, const char* message, const char* func,
 int
 main(int argc, char **argv)
 {
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
+
   printf("Starting list_util tests -- %s\n",
 #ifdef __GNUC__LIST_UTIL
       "GNUC version"

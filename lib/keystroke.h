@@ -180,16 +180,19 @@ extern keystroke_stream keystroke_stream_new(uint8_t csi_char,
                          keystroke_callback* callback, void* callback_context) ;
 
 extern void keystroke_stream_set_eof(keystroke_stream stream, bool timed_out) ;
+extern void keystroke_stream_clear(keystroke_stream stream) ;
 
 extern keystroke_stream keystroke_stream_free(keystroke_stream stream) ;
 
 extern bool keystroke_get(keystroke_stream stream, keystroke stroke) ;
 extern bool keystroke_steal(keystroke_stream stream, keystroke stroke) ;
+extern bool keystroke_steal_state(keystroke_stream stream) ;
 extern void keystroke_steal_clear(keystroke_stream stream) ;
 extern bool keystroke_stream_empty(keystroke_stream stream) ;
 extern bool keystroke_stream_at_eof(keystroke_stream stream) ;
 extern bool keystroke_stream_met_eof(keystroke_stream stream) ;
 
-extern void keystroke_input(keystroke_stream stream, uint8_t* ptr, int len) ;
+extern void keystroke_input(keystroke_stream stream, uint8_t* ptr, ulen len) ;
+extern void keystroke_input_eof(keystroke_stream stream) ;
 
 #endif /* _ZEBRA_KEYSTROKE_H */

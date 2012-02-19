@@ -1,10 +1,11 @@
 #include <zebra.h>
+#include "misc.h"
+#include "qlib_init.h"
+#include "command.h"
 #include <stdlib.h>
 #include <time.h>
 
 #include "checksum.h"
-
-struct thread_master *master;
 
 struct acc_vals {
   int c0;
@@ -500,6 +501,9 @@ main(int argc, char **argv)
   u_char buffer[BUFSIZE];
   int exercise = 0;
 #define EXERCISESTEP 257
+
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
 
   srandom (time (NULL));
 

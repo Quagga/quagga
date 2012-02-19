@@ -92,7 +92,7 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 
   ++stats->count ;
 
-  qpt_mutex_lock(mq->mutex) ;
+  MQUEUE_LOCK(mq) ;
 
   if (mq->count > stats->max)
     stats->max    = mq->count ;
@@ -103,7 +103,7 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 
   if (stats->count < 1000)
     {
-      qpt_mutex_unlock(mq->mutex) ;
+      MQUEUE_UNLOCK(mq) ;
       return ;
     } ;
 
@@ -118,7 +118,7 @@ bgp_queue_logging(const char* name, mqueue_queue mq, struct queue_stats* stats)
 
   assert(my_count == mq->count) ;
 
-  qpt_mutex_unlock(mq->mutex) ;
+  MQUEUE_UNLOCK(mq) ;
 
   average = stats->total * 1000 ;
   average = (average / stats->count) + 5 ;

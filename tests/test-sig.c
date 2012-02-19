@@ -1,4 +1,7 @@
 #include <zebra.h>
+#include "misc.h"
+#include "qlib_init.h"
+#include "command.h"
 #include <sigevent.h>
 #include "lib/log.h"
 
@@ -40,13 +43,14 @@ struct quagga_signal_t sigs[] =
   }
 };
 
-struct thread_master *master;
 struct thread t;
 
 int
-main (void)
+main(int argc, char **argv)
 {
-  master = thread_master_create ();
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
+
   signal_init (master, Q_SIGC(sigs), sigs);
 
   zlog_default = openzlog("testsig", ZLOG_NONE,

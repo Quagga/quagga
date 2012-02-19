@@ -35,42 +35,11 @@
 #include "qstring.h"
 #include "qtimers.h"
 #include "keystroke.h"
-
-/*------------------------------------------------------------------------------
- * States of the CLI and related output.
- */
-typedef enum cli_state
-{
-  cst_active      = 0,
-  cst_dispatched  = 1,
-  cst_in_progress = 2,
-  cst_complete    = 3,
-  cst_closing     = 4,
-
-} cli_state_t ;
-
-typedef enum cli_out_state
-{
-  cos_idle        = 0,
-
-  cos_active      = 1,
-  cos_cancel      = 2,
-
-  cos_more_enter  = 3,
-  cos_more_wait   = 4,
-
-  cos_mask        = BIT(4) - 1,
-
-  cos_monitor     = BIT(6),
-  cos_paused      = BIT(7),
-
-} cli_out_state_t ;
+#include "vector.h"
 
 /*------------------------------------------------------------------------------
  * The vty_cli structure pointed to by the vty_io structure.
  */
-typedef struct vty_cli* vty_cli ;
-
 struct vty_cli
 {
   vio_vf        vf ;            /* parent                               */
@@ -99,82 +68,70 @@ struct vty_cli
   /* drawn           <=> the current prompt and user input occupy the current
    *                     line on the screen.
    *
-   *                     This flag <=> the CLI "owns" the screen.  This flag
-   *                     must be cleared -- by wiping the command line -- before
-   *                     any other output can use the screen.
+   *                     Will be true only when is vst_cmd_fetch, vst_cmd_dispatched
+   *                     or vst_cmd_more.  Changes to the state must ensure that
+   *                     the ownership of the current line is kept up to date.
    *
-   *                     In particular, must be cleared before setting
-   *                     cos_active -- see below.
+   * drawn_to_do     <=> what ^Z if any should be drawn after the command.
    *
-   * more_drawn      <=> what is drawn is the "--more--" prompt.
-   *                  => drawn
-   *
-   * If drawn is true, the following are valid:
-   *
-   *   prompt_len    -- the length of the prompt part.
-   *                    (will be the "--more--" prompt in cli_more_wait)
-   *
-   *   echo_suppress -- the user part of the command line is suppressed
-   *
-   * NB: echo_suppress is only used for password entry.
+   *                     Valid only if cli->state == vst_cmd_dispatched.
    */
   bool          drawn ;
-  bool          more_drawn ;
-  int           prompt_len ;
-
-  /* "cache" for prompt -- when node or host name changes, prompt does  */
-  node_type_t   prompt_node ;
-  name_gen_t    prompt_gen ;
-  qstring       prompt_for_node ;
+  const char*   drawn_to_do ;
 
   /* State of the CLI and its output
+   *
+   * The state specifies whether a CLI or the output side has "ownership"
+   * if the screen.  When the cli has ownership, the "drawn" states, above
+   * specify whether the current prompt, command line etc. is drawn on the
+   * screen.
+   *
+   * Note that if either vst_mon_active/vst_mon_blocked or vst_mon_paused is set,
+   * then the screen belongs to the output side.
    */
-  cli_state_t      state ;
-  cli_out_state_t  out_state ;
+//cli_state_t      state ;
 
-  /* This is set only if the "--more--" handling is enabled             */
+  /* ready  <=> must call uty_cli() ASAP -- to redraw prompt, or fetch from
+   *            keystroke buffer, etc.
+   *
+   *            The effect is to force write-ready in uty_term_set_readiness(),
+   *            provided the cli is in a suitable state.
+   */
+  bool          ready ;
+
+  /* This is set only if the "--more--" handling is enabled
+   */
   bool          more_enabled ;
 
-  /* Timer for paused state -- multi-threaded only                      */
+  /* Timer for paused state -- multi-threaded only
+   */
   qtimer        pause_timer ;
 
   /* Command Line(s)
    *
-   * context  -- the node etc. that the CLI is in.  This may be some way behind
-   *             the VTY, but is updated when the CLI level command completes.
+   * auth_node -- true <=> current node is AUTH_NODE or AUTH_ENABLE_NODE
    *
-   *             Note that this is a copy of the state of exec->context when
-   *             uty_want_command() was last called.
+   * help_parsed  -- parsed object used to parse command for cli help
+   * help_context -- context object used during cli help
    *
-   * auth_context  -- true <=> context->node is AUTH_NODE or AUTH_ENABLE_NODE
+   * to_do        -- used for current command line, when dispatched
+   * to_do_next   -- used for "follow-on" cmd_do_ctrl_z
    *
-   * parsed   -- the parsed object used to parse command for cli help
-   *
-   * to_do    -- when current command being prepared is completed (by
-   *             CR/LF or otherwise) this says what there now is to be done.
-   *
-   * cl       -- current command line being prepared.
-   * cls      -- current command line on the screen
-   *
-   * clx      -- current command line being executed.
-   *
-   * dispatch -- the last action dispatched.
+   * cl           -- current command line being prepared/executed.
+   * cls          -- current command line on the screen
    *
    * NB: during command execution vty->buf is set to point at the '\0'
    *     terminated current command line being executed.
    */
-  cmd_context   context ;
-  bool          auth_context ;
+  bool          auth_node ;
 
-  cmd_parsed    parsed ;
+  cmd_parsed    help_parsed ;
+  cmd_context   help_context ;
 
   cmd_do_t      to_do ;
+  cmd_do_t      to_do_next ;
   qstring       cl ;
   qstring       cls ;
-
-  qstring       clx ;
-
-  cmd_action_t  dispatch ;
 
   /* CLI line buffering and line control                                */
   vio_fifo          cbuf ;
@@ -182,31 +139,40 @@ struct vty_cli
 } ;
 
 /*------------------------------------------------------------------------------
+ * How active is the cli ?
+ */
+typedef enum cli_active
+{
+  cli_not_active,
+  cli_standard,
+  cli_more,
+
+} cli_active_t;
+
+/*------------------------------------------------------------------------------
  * Functions
  */
 extern vty_cli uty_cli_new(vio_vf vf) ;
-extern vty_cli uty_cli_close(vty_cli cli, bool final) ;
+extern vty_cli uty_cli_free(vty_cli cli) ;
+extern void uty_cli_close(vty_cli cli) ;
 
 extern void uty_cli_hist_show(vty_cli cli) ;
-extern ulen uty_cli_prompt_len(vty_cli cli) ;
 
-extern vty_readiness_t uty_cli(vty_cli cli) ;
+extern void uty_cli(vty_cli cli) ;
+extern cli_active_t uty_cli_is_active(vty_cli cli) ;
 
-extern cmd_return_code_t uty_cli_want_command(vty_cli cli, cmd_action action) ;
+extern cmd_ret_t uty_cli_want_command(vio_vf vf);
 extern void uty_cli_out(vty_cli cli, const char *format, ...)
                                                         PRINTF_ATTRIBUTE(2, 3) ;
 extern void uty_cli_out_newline(vty_cli cli) ;
-extern void uty_cli_write(vty_cli cli, const char *this, int len) ;
-extern void uty_cli_wipe(vty_cli cli, int len) ;
-extern void uty_cli_cancel(vty_cli cli, bool cntrl_c) ;
+extern void uty_cli_write(vty_cli cli, const char *this, ulen len) ;
+extern void uty_cli_wipe(vty_cli cli) ;
+extern bool uty_cli_out_cancel(vty_cli cli) ;
 
 extern void uty_cli_set_lines(vty_cli cli, int lines, bool explicit) ;
 extern void uty_cli_set_window(vty_cli cli, int width, int height) ;
-extern void uty_cli_enter_more_wait(vty_cli cli) ;
-extern void uty_cli_exit_more_wait(vty_cli cli) ;
 
-extern void uty_cli_pre_monitor(vty_cli cli) ;
-extern void uty_cli_post_monitor(vty_cli cli) ;
+extern vector uty_cli_make_describe_list(vector item_v, uint width) ;
 
 /*------------------------------------------------------------------------------
  * Pro tem -- "\r\n" string

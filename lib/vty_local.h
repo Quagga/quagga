@@ -25,6 +25,7 @@
 #define _ZEBRA_VTY_LOCAL_H
 
 #include "misc.h"
+#include "list_util.h"
 #include "vty_common.h"         /* First and foremost                   */
 #include "command_common.h"
 
@@ -32,7 +33,6 @@
 
 #include "qpthreads.h"
 #include "qpnexus.h"
-#include "thread.h"
 #include "qpath.h"
 
 /*==============================================================================
@@ -46,55 +46,6 @@
  * This may duplicate things published in vty.h, but also includes things
  * which are not intended for "external" use.
  */
-
-/*==============================================================================
- * The VTYSH uses a unix socket to talk to the daemon.
- *
- * The ability to respond to a connection from VTYSH appears to be a *compile*
- * time option.  In the interests of keeping the code up to date, the VTYSH
- * option is turned into a testable constant.
- */
-#ifdef VTYSH
-  enum { VTYSH_ENABLED = true  } ;
-#else
-  enum { VTYSH_ENABLED = false } ;
-#endif
-
-/*==============================================================================
- * Variables in vty.c -- used in any of the family
- */
-extern struct vty_io* vio_live_list ;
-extern struct vty_io* vio_monitor_list ;
-
-extern struct vio_child* vio_childer_list ;
-
-extern struct thread_master* vty_master ;
-
-extern bool vty_nexus ;
-extern bool vty_multi_nexus ;
-
-extern qpn_nexus vty_cli_nexus ;
-extern qpn_nexus vty_cmd_nexus ;
-
-extern qpt_mutex_t vty_child_signal_mutex ;
-extern qpn_nexus vty_child_signal_nexus ;
-
-/*==============================================================================
- * To make vty qpthread safe we use a single mutex.
- *
- * A recursive mutex is used, which allows for the vty internals to call
- * each other.
- *
- * There are some "uty" functions which assume the mutex is locked.
- *
- * vty is closely bound to the command handling -- the main vty structure
- * contains the context in which commands are parsed and executed.
- *
- * vty also interacts with logging functions.  Note that where it needs to
- * LOG_LOCK() and VTY_LOCK() it will acquire the VTY_LOCK() *first*.
- */
-
-extern qpt_mutex_t vty_mutex ;
 
 /*------------------------------------------------------------------------------
  * Sort out VTY_DEBUG.
@@ -130,12 +81,67 @@ extern qpt_mutex_t vty_mutex ;
 enum { vty_debug = VTY_DEBUG } ;
 
 /*------------------------------------------------------------------------------
+ * The VTYSH uses a unix socket to talk to the daemon.
+ *
+ * The ability to respond to a connection from VTYSH appears to be a *compile*
+ * time option.  In the interests of keeping the code up to date, the VTYSH
+ * option is turned into a testable constant.
+ */
+#ifdef VTYSH
+  enum { VTYSH_ENABLED = true  } ;
+#else
+  enum { VTYSH_ENABLED = false } ;
+#endif
+
+/*==============================================================================
+ * Variables in vty.c -- used in any of the family
+ */
+typedef struct dl_base_pair(vty_io) vio_list_t ;
+
+extern vio_list_t vio_live_list ;
+extern vio_list_t vio_monitor_list ;
+
+extern struct vio_child* vio_childer_list ;
+
+extern bool vty_nexus ;
+extern bool vty_multi_nexus ;
+
+extern qpn_nexus vty_cli_nexus ;
+extern qpn_nexus vty_cmd_nexus ;
+
+extern qpt_mutex vty_child_signal_mutex ;
+extern qpn_nexus vty_child_signal_nexus ;
+
+extern volatile sig_atomic_t vty_SIGINT ;
+
+/*==============================================================================
+ * To make vty qpthread safe we use a single mutex.
+ *
+ * A recursive mutex is used, which allows for the vty internals to call
+ * each other.
+ *
+ * There are some "uty" functions which assume the mutex is locked.
+ *
+ * vty is closely bound to the command handling -- the main vty structure
+ * contains the context in which commands are parsed and executed.
+ *
+ * vty also interacts with logging functions.  Note that where it needs to
+ * LOG_LOCK() and VTY_LOCK() it will acquire the VTY_LOCK() *first*.
+ */
+
+extern qpt_mutex vty_mutex ;
+
+/*------------------------------------------------------------------------------
  * Locking and related functions.
+ *
+ * Note that under vty_debug keeps track of the lock count, even if is not
+ * qpthreads_active -- however, VTY_ASSERT_LOCKED() only triggers an assert if
+ * is vty_debug AND is qpthreads_active.
  */
 extern int vty_lock_count ;
 
 Inline void
-VTY_LOCK(void)          /* if is qpthreads_enabled, lock vty_mutex      */
+VTY_LOCK(void)          /* if is qpthreads_active, lock vty_mutex       */
 {
   qpt_mutex_lock(vty_mutex) ;
   if (vty_debug)
@@ -143,7 +149,7 @@ VTY_LOCK(void)          /* if is qpthreads_enabled, lock vty_mutex      */
 } ;
 
 Inline void
-VTY_UNLOCK(void)        /* if is qpthreads_enabled, unlock vty_mutex    */
+VTY_UNLOCK(void)        /* if is qpthreads_active, unlock vty_mutex     */
 {
   if (vty_debug)
     --vty_lock_count ;
@@ -153,23 +159,33 @@ VTY_UNLOCK(void)        /* if is qpthreads_enabled, unlock vty_mutex    */
 Inline bool             /* true => is (effectively) cli thread          */
 vty_is_cli_thread(void)
 {
-  return !qpthreads_enabled || qpt_thread_is_self(vty_cli_nexus->thread_id) ;
+  return !qpthreads_active || qpt_thread_is_self(vty_cli_nexus->thread_id) ;
+} ;
+
+Inline bool             /* true => is (effectively) cmd thread          */
+vty_is_cmd_thread(void)
+{
+  return !qpthreads_active || qpt_thread_is_self(vty_cmd_nexus->thread_id) ;
 } ;
 
 Inline bool             /* true => running with more than one pthread   */
 vty_is_multi_pthreaded(void)
 {
-  return !qpthreads_enabled && (vty_cli_nexus != vty_cmd_nexus) ;
+  return !qpthreads_active && (vty_cli_nexus != vty_cmd_nexus) ;
 } ;
 
 /* For debug (and documentation) purposes, will VTY_ASSERT_LOCKED where that
- * is required.
+ * is required.  Note that the check is not precise... it may give a false
+ * positive if the vty_mutex is held by *another* pthread !
+ *
+ * Sadly, VTY_ASSERT_UNLOCKED is empty... because it would give a false
+ * negative if the vty_mutex is held by *another* pthread !
  *
  * In some cases, need also to be running in the CLI thread as well.
  *
- * Note that both these checks will pass if !qpthreads_enabled.  So can have
+ * Note that both these checks will pass if !qpthreads_active.  So can have
  * code which is called before qpthreads are started up, or which will never
- * run qpthreaded !
+ * run qpthreaded, or which is called after all threads have rejoined !
  */
 
 extern int vty_assert_fail ;
@@ -188,8 +204,13 @@ Inline void
 VTY_ASSERT_LOCKED(void)
 {
   if (vty_debug)
-    if ((vty_lock_count == 0) && (qpthreads_enabled))
+    if ((vty_lock_count == 0) && (qpthreads_active))
       VTY_ASSERT_FAILED() ;
+} ;
+
+Inline void
+VTY_ASSERT_UNLOCKED(void)
+{
 } ;
 
 Inline void
@@ -210,22 +231,26 @@ VTY_ASSERT_CLI_THREAD_LOCKED(void)
     } ;
 } ;
 
+Inline void
+VTY_ASSERT_CMD_THREAD(void)
+{
+  if (vty_debug)
+    if (!vty_is_cmd_thread())
+      VTY_ASSERT_FAILED() ;
+} ;
+
 /*==============================================================================
  * Functions in vty.c -- used in any of the vty and command family
  */
 extern void vty_hello (vty vty);
 
-extern int vty_out (vty vty, const char* format, ...) PRINTF_ATTRIBUTE(2, 3);
+extern int  vty_out(vty vty, const char *format, ...) PRINTF_ATTRIBUTE(2, 3) ;
+extern void vty_err(vty vty, const char *format, ...) PRINTF_ATTRIBUTE(2, 3) ;
+
 extern int vty_write(struct vty *vty, const void* buf, int n) ;
-extern int vty_out_indent(vty vty, int indent) ;
-extern void vty_out_clear(vty vty) ;
-extern cmd_return_code_t vty_cat_file(vty vty, qpath path, const char* desc) ;
 
-extern void vty_time_print (struct vty *, int) ;
+extern cmd_ret_t vty_cat_file(vty vty, qpath path, const char* desc) ;
 
-extern void vty_set_lines(vty vty, int lines) ;
-
-extern void vty_config_write_open(vty vty, int fd) ;
-extern cmd_return_code_t vty_config_write_close(struct vty* vty) ;
+extern void uty_suspended_scan(void) ;
 
 #endif /* _ZEBRA_VTY_LOCAL_H */

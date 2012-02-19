@@ -70,21 +70,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* AS_SEQUENCE segments can be packed together */
 /* Can the types of X and Y be considered for packing? */
 #define ASSEGMENT_TYPES_PACKABLE(X,Y) \
-  ( ((X)->type == (Y)->type) \
-   && ((X)->type == AS_SEQUENCE))
-/* Types and length of X,Y suitable for packing? */
-#define ASSEGMENTS_PACKABLE(X,Y) \
-  ( ASSEGMENT_TYPES_PACKABLE( (X), (Y)) \
-   && ( ((X)->length + (Y)->length) <= AS_SEGMENT_MAX ) )
-
-/* As segment header - the on-wire representation
- * NOT the internal representation!
- */
-struct assegment_header
-{
-  u_char type;
-  u_char length;
-};
+  ( ((X)->type == (Y)->type) && ((X)->type == AS_SEQUENCE) )
 
 /* Hash for aspath.  This is the top level structure of AS path. */
 static struct hash *ashash;
@@ -682,10 +668,9 @@ aspath_hash_alloc (void *arg)
  * Returns NULL if the AS_PATH or AS4_PATH is not valid.
  */
 static struct assegment *
-assegments_parse (struct stream *s, size_t length, int use32bit, int as4_path)
+assegments_parse (struct stream *s, size_t length, bool use32bit, bool as4_path)
 {
-  struct assegment_header segh;
-  struct assegment *seg, *prev = NULL, *head = NULL;
+  struct assegment *head, *prev ;
 
   assert (length > 0);  /* does not expect empty AS_PATH or AS4_PATH    */
 
@@ -693,34 +678,39 @@ assegments_parse (struct stream *s, size_t length, int use32bit, int as4_path)
     zlog_debug ("[AS4SEG] Parse aspath segment: got total byte length %lu",
 		(unsigned long) length);
 
-  /* double check that length does not exceed stream            */
-  if (STREAM_READABLE(s) < length)
+  /* double check that length does not exceed stream
+   */
+  if (stream_get_read_left(s) < length)
     return NULL;
 
-  /* deal with each segment in turn                             */
+  /* deal with each segment in turn
+   */
+  head = prev = NULL ;
   while (length > 0)
     {
-      int i;
+      struct assegment *seg ;
+      uint seg_type ;
+      uint seg_length ;
+      uint i ;
       size_t seg_size;
 
       /* softly softly, get the header first on its own */
       if (length >= AS_HEADER_SIZE)
         {
-          segh.type   = stream_getc (s);
-          segh.length = stream_getc (s);
-          confirm((sizeof(segh.length) == 1) && (AS_SEGMENT_MIN ==   1)
-                                             && (AS_SEGMENT_MAX == 255)) ;
+          seg_type   = stream_getc (s);
+          seg_length = stream_getc (s);
+          confirm((AS_SEGMENT_MIN == 1) && (AS_SEGMENT_MAX == 255)) ;
                                                 /* 1..255 is valid      */
 
-          seg_size    = ASSEGMENT_SIZE(segh.length, use32bit);
+          seg_size    = ASSEGMENT_SIZE(seg_length, use32bit);
                           /* includes the segment type and length red tape  */
 
           if (BGP_DEBUG (as4, AS4_SEGMENT))
             zlog_debug ("[AS4SEG] Parse aspath segment: got type %d, length %d",
-                        segh.type, segh.length);
+                        seg_type, seg_length);
 
           /* Check that the segment type is valid                           */
-          switch (segh.type)
+          switch (seg_type)
           {
             case AS_SEQUENCE:
             case AS_SET:
@@ -747,7 +737,7 @@ assegments_parse (struct stream *s, size_t length, int use32bit, int as4_path)
        *   "path segment value field contains one or more AS numbers"
        */
       if ((seg_size == 0) || (seg_size > length)
-                          || (segh.length < AS_SEGMENT_MIN))
+                          || (seg_length < AS_SEGMENT_MIN))
         {
           assegment_free_all (head);
           return NULL;
@@ -756,14 +746,14 @@ assegments_parse (struct stream *s, size_t length, int use32bit, int as4_path)
       length -= seg_size ;
 
       /* now its safe to trust lengths */
-      seg = assegment_new (segh.type, segh.length);
+      seg = assegment_new (seg_type, seg_length);
 
       if (head)
         prev->next = seg;
       else /* it's the first segment */
         head = prev = seg;
 
-      for (i = 0; i < segh.length; i++)
+      for (i = 0; i < seg_length; i++)
 	seg->as[i] = (use32bit) ? stream_getl (s) : stream_getw (s);
 
       if (BGP_DEBUG (as4, AS4_SEGMENT))
@@ -824,11 +814,11 @@ aspath_parse (struct stream *s, size_t length, bool use32bit, bool as4_path)
   return find;
 } ;
 
-static inline void
-assegment_data_put (struct stream *s, as_t *as, int num, int use32bit)
+static int
+assegment_data_put (struct stream *s, as_t *as, int num, bool use32bit)
 {
   int i;
-  assert (num <= AS_SEGMENT_MAX);
+  qassert ((num > 0) && (num <= AS_SEGMENT_MAX)) ;
 
   for (i = 0; i < num; i++)
     if ( use32bit )
@@ -839,93 +829,113 @@ assegment_data_put (struct stream *s, as_t *as, int num, int use32bit)
 	  stream_putw(s, as[i]);
 	else
 	  stream_putw(s, BGP_AS_TRANS);
-      }
-}
+      } ;
 
-static inline size_t
-assegment_header_put (struct stream *s, u_char type, int length)
-{
-  size_t lenp;
-  assert (length <= AS_SEGMENT_MAX);
-  stream_putc (s, type);
-  lenp = stream_get_endp (s);
-  stream_putc (s, length);
-  return lenp;
+  return ASSEGMENT_DATA_SIZE(num, use32bit) ;
 }
 
 /* write aspath data to stream */
 size_t
 aspath_put (struct stream *s, struct aspath *as, int use32bit )
 {
-  struct assegment *seg = as->segments;
-  size_t bytes = 0;
+  struct assegment* seg, * prev ;
+  size_t bytes ;
+  int    seg_count ;
 
-  if (!seg || seg->length == 0)
-    return 0;
+  seg       = as->segments ;
+  prev      = NULL ;
+  bytes     = 0 ;               /* nothing yet          */
+  seg_count = 0 ;               /* no segments, yet     */
 
-  if (seg)
+  while (seg != NULL)
     {
-      /*
-       * Hey, what do we do when we have > STREAM_WRITABLE(s) here?
-       * At the moment, we would write out a partial aspath, and our peer
-       * will complain and drop the session :-/
+      as_t*  asn ;
+      int    asn_count ;
+      size_t lenp;
+
+      /* Skip empty segments
        *
-       * The general assumption here is that many things tested will
-       * never happen.  And, in real live, up to now, they have not.
+       * Note that we leave "prev", so that is the previous *significant*
+       * segment.
        */
-      while (seg && (ASSEGMENT_LEN(seg, use32bit) <= STREAM_WRITEABLE(s)))
+      if (seg->length == 0)
         {
-          struct assegment *next = seg->next;
-          int written = 0;
-          int asns_packed = 0;
-          size_t lenp;
+          seg = seg->next ;
+          continue ;
+        } ;
 
-          /* Overlength segments have to be split up */
-          while ( (seg->length - written) > AS_SEGMENT_MAX)
-            {
-              assegment_header_put (s, seg->type, AS_SEGMENT_MAX);
-              assegment_data_put (s, seg->as, AS_SEGMENT_MAX, use32bit);
-              written += AS_SEGMENT_MAX;
-              bytes += ASSEGMENT_SIZE (written, use32bit);
-            }
+      /* seg_count is the number of ASes in the current segment in
+       * construction in the stream.
+       *
+       * If that is non-zero, then we will pack the current ases into it,
+       * and lenp points to the length byte in the stream.
+       *
+       * We really should not need to pack segments together here, but wish
+       * to ensure that the AS_PATH constructed does not contain unnecessary
+       * segments.
+       */
+      if ((prev == NULL) || !ASSEGMENT_TYPES_PACKABLE (prev, seg))
+        seg_count = 0 ;
 
-          /* write the final segment, probably is also the first */
-          lenp = assegment_header_put (s, seg->type, seg->length - written);
-          assegment_data_put (s, (seg->as + written), seg->length - written,
-                              use32bit);
+      asn_count = seg->length ;
+      asn       = seg->as ;
 
-          /* Sequence-type segments can be 'packed' together
-           * Case of a segment which was overlength and split up
-           * will be missed here, but that doesn't matter.
+      while (asn_count > 0)
+        {
+          /* Put all of asn_count ASN.  Append to current segment, if any,
+           * and break up into AS_SEGMENT_MAX segments, if required.
            */
-          while (next && ASSEGMENTS_PACKABLE (seg, next))
+          int take ;
+
+          if ((seg_count + asn_count) <= AS_SEGMENT_MAX)
+            take = asn_count ;
+          else
+            take = AS_SEGMENT_MAX - seg_count ;
+
+          qassert((take > 0) && (take <= AS_SEGMENT_MAX)) ;
+
+          if (seg_count == 0)
             {
-              /* NB: We should never normally get here given we
-               * normalise aspath data when parse them. However, better
-               * safe than sorry. We potentially could call
-               * assegment_normalise here instead, but it's cheaper and
-               * easier to do it on the fly here rather than go through
-               * the segment list twice every time we write out
-               * aspath's.
+              /* Start segment
                */
+              seg_count = take ;
 
-              /* Next segment's data can fit in this one */
-              assegment_data_put (s, next->as, next->length, use32bit);
+              stream_putc (s, seg->type) ;
+              lenp = stream_get_endp (s) ;
+              stream_putc (s, seg_count) ;
 
-              /* update the length of the segment header */
-	      stream_putc_at (s, lenp, seg->length - written + next->length);
-              asns_packed += next->length;
+              bytes += AS_HEADER_SIZE ;
+              confirm(AS_HEADER_SIZE == 2) ;
+            }
+          else
+            {
+              /* Continue segment
+               */
+              seg_count += take ;
+              stream_putc_at(s, lenp, seg_count) ;      /* update       */
+            } ;
 
-	      next = next->next;
-	    }
+          bytes += assegment_data_put (s, asn, take, use32bit);
 
-          bytes += ASSEGMENT_SIZE (seg->length - written + asns_packed,
-				   use32bit);
-          seg = next;
-        }
-    }
+          qassert((seg_count > 0) && (seg_count <= AS_SEGMENT_MAX)) ;
+
+          if (seg_count >= AS_SEGMENT_MAX)
+            seg_count = 0 ;
+
+          qassert(asn_count >= take) ;
+
+          asn_count -= take ;
+          asn       += take ;
+       } ;
+
+      /* Step to next segment.
+       */
+      prev = seg ;
+      seg  = seg->next ;
+    } ;
+
   return bytes;
-}
+} ;
 
 /* This is for SNMP BGP4PATHATTRASPATHSEGMENT
  * We have no way to manage the storage, so we use a static stream
@@ -949,7 +959,7 @@ aspath_snmp_pathseg (struct aspath *as, size_t *varlen)
   aspath_put (snmp_stream, as, 0); /* use 16 bit for now here */
 
   *varlen = stream_get_endp (snmp_stream);
-  return stream_pnt(snmp_stream);
+  return stream_get_pnt(snmp_stream);
 }
 
 #define min(A,B) ((A) < (B) ? (A) : (B))

@@ -23,6 +23,7 @@
 #define _ZEBRA_THREAD_H
 
 #include <sys/resource.h>
+#include "command_common.h"
 #include "qtime.h"
 #include "qpnexus.h"
 #include "qtimers.h"
@@ -106,7 +107,9 @@ enum quagga_clkid {
   QUAGGA_CLK_REALTIME_STABILISED, /* like realtime, but non-decrementing */
 };
 
-/* Thread types. */
+/*==============================================================================
+ * Thread types and the workhorse macros.
+ */
 #define THREAD_READ           0
 #define THREAD_WRITE          1
 #define THREAD_TIMER          2
@@ -165,9 +168,12 @@ enum quagga_clkid {
 /* The 4th arg to thread_add_background is the # of milliseconds to delay. */
 #define thread_add_background(m,f,a,v) funcname_thread_add_background(m,f,a,v,#f)
 
-/* Prototypes. */
+/*==============================================================================
+ * Prototypes.
+ */
+extern void thread_start_up (void);
 extern struct thread_master *thread_master_create (void);
-extern void thread_master_free (struct thread_master *);
+extern struct thread_master * thread_master_free (struct thread_master *);
 extern void thread_init_r (void);
 extern void thread_finish (void);
 extern void thread_set_qtimer_pile(qtimer_pile pile) ;
@@ -206,8 +212,7 @@ extern int thread_should_yield (struct thread *);
 
 /* Internal libzebra exports */
 extern void thread_getrusage (RUSAGE_T *);
-extern struct cmd_command show_thread_cpu_cmd;
-extern struct cmd_command clear_thread_cpu_cmd;
+extern cmd_table thread_cmd_table ;
 
 /* replacements for the system gettimeofday(), clock_gettime() and
  * time() functions, providing support for non-decrementing clock on
@@ -220,10 +225,20 @@ extern time_t quagga_time (time_t *);
 extern unsigned long thread_consumed_time(RUSAGE_T *after, RUSAGE_T *before,
 					  unsigned long *cpu_time_elapsed);
 
-/* Global variable containing a recent result from gettimeofday.  This can
-   be used instead of calling gettimeofday if a recent value is sufficient.
-   This is guaranteed to be refreshed before a thread is called. */
-extern struct timeval recent_time;
-/* Similar to recent_time, but a monotonically increasing time value */
-extern struct timeval recent_relative_time (void);
+/*==============================================================================
+ * Global variables containing a "recent" value of time, which can
+ * be used instead of calling gettimeofday if a recent value is sufficient.
+ * These are guaranteed to be refreshed before a thread is called.
+ */
+extern struct timeval recent_time;                      /* gettimeofday */
+extern struct timeval recent_relative_time (void);      /* monotonic    */
+
+/*==============================================================================
+ * Global "master" thread_master structure
+ *
+ * Pretty much every daemon uses a single "master", so it is declared here
+ * for convenience, defined in lib/thread.c and initialised by thread_init().
+ */
+extern struct thread_master* master ;
+
 #endif /* _ZEBRA_THREAD_H */

@@ -193,33 +193,43 @@ qtimer_pile_dispatch_next(qtimer_pile qtp, qtime_mono_t upto)
  *
  * If pile is empty, release the qtimer_pile structure, if required.
  *
- * See: #define qtimer_pile_ream_free(qtp)
- *      #define qtimer_pile_ream_keep(qtp)
- *
  * Useful for emptying out and discarding a pile of timers:
  *
  *     while ((p_qtr = qtimer_pile_ream_free(qtp)))
  *       ... do what's required to release the item p_qtr
  *
+ * Each qtr is set "inactive", so no longer in the pile.  The if the caller
+ * is able to release the qtr, then it should do so, otherwise it can be left
+ * for the owner to release (which they can do without reference to the pile,
+ * which may by then have been released).
+ *
  * Returns NULL when timer pile is empty (and has been released, if required).
  *
- * If the timer pile is not released, it may be reused without reinitialisation.
+ * If the timer pile is not released, it may be reused without reinitialisation,
+ * and any qtr not freed may also be reused.
  *
  * NB: once reaming has started, the timer pile MUST NOT be used for anything,
  *     and the process MUST be run to completion.
  */
-qtimer
+extern qtimer
 qtimer_pile_ream(qtimer_pile qtp, free_keep_b free_structure)
 {
   qtimer qtr ;
   confirm(free_it == true) ;
 
   qtr = heap_ream(&qtp->timers, keep_it) ; /* ream, keeping the heap    */
+
   if (qtr != NULL)
-    qtr->state = qtrs_inactive ;        /* has been removed from pile         */
+    {
+      qtr->state = qtrs_inactive ;      /* has been removed from pile   */
+      if (free_structure)
+        qtr->pile = NULL ;              /* no longer usable             */
+    }
   else
-    if (free_structure)                 /* pile is empty, may now free it     */
-      XFREE(MTYPE_QTIMER_PILE, qtp) ;
+    {
+      if (free_structure)               /* pile is empty, may now free it */
+        XFREE(MTYPE_QTIMER_PILE, qtp) ;
+    } ;
 
   return qtr ;
 } ;
@@ -238,7 +248,7 @@ qtimer_pile_ream(qtimer_pile qtp, free_keep_b free_structure)
  *
  * Returns the qtimer.
  */
-qtimer
+extern qtimer
 qtimer_init_new(qtimer qtr, qtimer_pile qtp,
                                         qtimer_action* action, void* timer_info)
 {
@@ -387,21 +397,21 @@ qtimer_set(qtimer qtr, qtime_mono_t when, qtimer_action* action)
  *
  * If the timer is active, removes from pile and sets inactive.
  *
- * If timer was pending being unset (because is the dispatched timer), then no
- * longer needs to be unset.
+ * If timer is pending being unset (because is the dispatched timer), then this
+ * does the unset (early) and the unset pending state is cleared.
  */
 extern void
 qtimer_unset(qtimer qtr)
 {
-  qtimer_pile qtp = qtr->pile ;
-
-  assert(qtp != NULL) ;
-
-  if (qtimers_debug)
-    qtimer_pile_verify(qtp) ;
-
   if ((qtr->state & qtrs_active) != 0)
     {
+      qtimer_pile qtp = qtr->pile ;
+
+      assert(qtp != NULL) ;
+
+      if (qtimers_debug)
+        qtimer_pile_verify(qtp) ;
+
       heap_delete_item(&qtp->timers, qtr) ;
 
       qtr->state &= ~(qtrs_unset_pending | qtrs_active);
@@ -410,9 +420,8 @@ qtimer_unset(qtimer qtr)
         qtimer_pile_verify(qtp) ;
     } ;
 
-  if (qdebug)
-    assert( (qtr->state ==  qtrs_inactive) ||
-            (qtr->state == (qtrs_inactive | qtrs_dispatch)) ) ;
+  qassert( (qtr->state ==  qtrs_inactive) ||
+           (qtr->state == (qtrs_inactive | qtrs_dispatch)) ) ;
 } ;
 
 /*==============================================================================

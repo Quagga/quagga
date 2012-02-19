@@ -30,13 +30,13 @@
 /*==============================================================================
  */
 
-extern void uty_init_monitor(void) ;
+extern void uty_monitor_init(void) ;
 extern void uty_terminate_monitor(void) ;
 
-extern void uty_set_monitor(vty_io vio, bool on) ;
-extern void vty_set_monitor_level(vty vty, int level) ;
+extern void uty_monitor_set(vty_io vio, on_off_b how) ;
+extern void vty_monitor_set_level(vty vty, int level) ;
 
-extern void vty_log(int priority, const char* line, uint len) ;
-extern void vty_log_fixed(const char* buf, uint len) ;
+extern void vty_monitor_log(int priority, const char* line, uint len) ;
+extern void vty_monitor_log_fixed(const char* buf, uint len) ;
 
 #endif /* _ZEBRA_VTY_LOG_H */

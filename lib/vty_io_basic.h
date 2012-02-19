@@ -27,8 +27,6 @@
 
 #include "misc.h"
 
-//#include "vty_local.h"
-
 #include "qpselect.h"
 #include "thread.h"
 #include "mqueue.h"
@@ -60,10 +58,16 @@ enum vfd_io_type                /* NB: *bit*significant*        */
   vfd_io_write        = BIT(1),
   vfd_io_read_write   = vfd_io_read | vfd_io_write,
 
-  vfd_io_append       = BIT(2),
-  vfd_io_blocking     = BIT(3),
+  vfd_io_append       = BIT(2), /* ignored if not vfd_io_write  */
+  vfd_io_excl         = BIT(3), /* ignored if not vfd_io_write  */
 
-  vfd_io_ps_blocking  = BIT(4),
+  vfd_io_os_blocking  = BIT(4), /* genuine, O/S level blocking  */
+
+  vfd_io_ps_blocking  = BIT(5), /* pseudo blocking              */
+
+  vfd_io_blocking     = vfd_io_os_blocking | vfd_io_ps_blocking,
+
+  vfd_io_no_close     = BIT(7),
 } ;
 typedef enum vfd_io_type vfd_io_type_t ;
 
@@ -101,14 +105,15 @@ enum { VIO_TIMER_INIT_ZERO = true } ;
  * Implemented as qps_file or as read/write thread, depending on the
  * environment.
  */
+typedef struct vio_vfd  vio_vfd_t ;
 typedef struct vio_vfd* vio_vfd ;
 
-typedef void vio_vfd_action(vio_vfd vfd, void* action_info) ;
+typedef void vio_vfd_action(vio_vfd vfd, void* action_info, bool time_out) ;
 
 typedef struct
 {
   bool            set ;
-  on_off_b        on ;
+  on_off_b        how ;
   vty_timer_time  timeout ;
 } vfd_request_t ;
 
@@ -120,18 +125,12 @@ struct vio_vfd
   vfd_io_type_t   io_type ;     /* read, write, read/write              */
 
   /* The rest of the vfd is to do with managing read/write ready and
-   * read/write timeouts.
+   * read/write timeouts for *non* blocking vfd.
    *
-   * At the vf level we manage "blocking" vfs, which do not and must not
-   * use read/write ready or read/write timeouts.  When the vfd is created
-   * this is passed, so that mistakes can be spotted !
-   *
-   * Non-blocking vfs may only be created and closed in the cli thread (or
+   * Non-blocking vfd may only be created and closed in the cli thread (or
    * when running in the legacy threads environment).  This is because can
    * only dismantle qps_file structure while in the owning thread.
    */
-  bool            blocking_vf ; /* Reject read/write ready etc.         */
-
   void*           action_info ; /* for all action and time-out          */
 
   vio_vfd_action* read_action ;
@@ -182,28 +181,52 @@ struct vio_listener
   vio_vfd_accept* accept_action ;
 };
 
+/*------------------------------------------------------------------------------
+ * Primitive line imaging
+ */
+enum { vty_line_image_unit  = 32 * 1024 } ;
+
+typedef struct
+{
+  byte*   buffer ;      /* MTYPE_TMP    */
+
+  byte*   kept ;
+  byte*   end ;
+
+  usize   size ;
+
+  char*   name ;        /* MTYPE_TMP    */
+  int     fd ;
+
+  const char* when ;    /* "opening"/"reading"/...      */
+  int     err ;         /* error number when failed     */
+
+} vty_line_image_t ;
+
+typedef vty_line_image_t* vty_line_image ;
+
 /*==============================================================================
  * Functions
  */
 extern int uty_fd_file_open(const char* name, vfd_io_type_t io_type,
                                                                  mode_t cmode) ;
+extern vty_line_image uty_fd_line_image_open(const char* name) ;
+extern int uty_fd_line_image_read(vty_line_image vli) ;
+extern vty_line_image uty_fd_line_image_close(vty_line_image vli) ;
 
 extern vio_vfd vio_vfd_new(int fd, vfd_type_t type,
                                    vfd_io_type_t io_type, void* action_info) ;
 extern void vio_vfd_set_read_action(vio_vfd vfd, vio_vfd_action* action) ;
 extern void vio_vfd_set_write_action(vio_vfd vfd, vio_vfd_action* action) ;
-extern void vio_vfd_set_read_timeout_action(vio_vfd vfd,
-                                                     vio_timer_action* action) ;
-extern void vio_vfd_set_write_timeout_action(vio_vfd vfd,
-                                                     vio_timer_action* action) ;
 extern void vio_vfd_set_action_info(vio_vfd vfd, void* action_info) ;
 extern vio_vfd vio_vfd_read_close(vio_vfd vfd) ;
 extern vio_vfd vio_vfd_close(vio_vfd vfd) ;
-extern on_off_b vio_vfd_set_read(vio_vfd vfd, on_off_b on,
+extern on_off_b vio_vfd_set_read(vio_vfd vfd, on_off_b how,
                                                        vty_timer_time timeout) ;
-extern on_off_b vio_vfd_set_write(vio_vfd vfd, on_off_b on,
+extern on_off_b vio_vfd_set_write(vio_vfd vfd, on_off_b how,
                                                        vty_timer_time timeout) ;
 Inline int vio_vfd_fd(vio_vfd vfd) ;
+Inline bool vio_vfd_blocking(vio_vfd vfd) ;
 
 extern vio_listener vio_listener_new(int fd, vio_vfd_accept* accept) ;
 extern void vio_listener_close(vio_listener listener) ;
@@ -226,7 +249,18 @@ extern void vio_timer_unset(vio_timer timer) ;
 Inline int
 vio_vfd_fd(vio_vfd vfd)
 {
-  return vfd->fd ;
+  return (vfd != NULL) ? vfd->fd : -1 ;
 } ;
+
+/*------------------------------------------------------------------------------
+ * Whether the given vfd is vfd_io_os_blocking and/or vfd_io_ps_blocking
+ *
+ * If there is no vfd, return as blocking !
+ */
+Inline bool
+vio_vfd_blocking(vio_vfd vfd)
+{
+  return (vfd == NULL) || ((vfd->io_type & vfd_io_blocking) != 0) ;
+}
 
 #endif /* _ZEBRA_VTY_IO_BASIC_H */

@@ -101,7 +101,7 @@ DEFUN (clear_foo,
 static void
 slow_vty_init()
 {
-  install_element (VIEW_NODE, &clear_foo_cmd);
+  cmd_install_command (ENABLE_NODE, &clear_foo_cmd, BASIC_VD);  // TODO
 }
 
 extern void test_init(void) ;

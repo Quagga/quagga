@@ -20,7 +20,6 @@
  * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
  * Boston, MA 02111-1307, USA.
  */
-
 #include "misc.h"
 
 #include "command_local.h"
@@ -29,12 +28,11 @@
 #include "command_queue.h"
 #include "vty_common.h"
 #include "vty_command.h"
+#include "vty_io.h"
 #include "memory.h"
 
 /*==============================================================================
- * Construct and destroy cmd_exec object.
- *
- *
+ * Construct and destroy cmd_exec and cmd_context objects.
  */
 
 /*------------------------------------------------------------------------------
@@ -45,22 +43,21 @@
  * The initial cmd_context reflects the vty->type and initial vty->node.
  */
 extern cmd_exec
-cmd_exec_new(vty vty)
+cmd_exec_new(vty vty, cmd_context context)
 {
   cmd_exec     exec ;
-  cmd_context  context ;
 
-  exec = XCALLOC(MTYPE_CMD_EXEC, sizeof(struct cmd_exec)) ;
+  exec = XCALLOC(MTYPE_CMD_EXEC, sizeof(cmd_exec_t)) ;
 
   /* Zeroising has set:
    *
    *   vty          = X         -- set below
    *
-   *   action       = all zeros
+   *   context      = X         -- set below
    *
-   *   context      = NULL      -- see below
+   *   parsed       =           -- see below
    *
-   *   parsed       = NULL      -- see below
+   *   reflect      = false
    *
    *   password_failures   = 0  -- none, yet
    *
@@ -70,173 +67,243 @@ cmd_exec_new(vty vty)
    *
    *   cq           = NULL      -- no mqb (qpthreads)
    *                            -- no thread (legacy thread)
+   *
+   *   line_buf     = NULL      -- none, yet
    */
-  confirm(CMD_ACTION_ALL_ZEROS) ;       /* action       */
   confirm(exec_null == 0) ;             /* state        */
-  confirm(CMD_SUCCESS == 0) ;           /* ret          */
 
   exec->vty     = vty ;
-
   exec->parsed  = cmd_parsed_new() ;
+  exec->context = context ;
 
-  /* Initialise the context                                             */
+  return exec ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Make a completely empty new context.
+ *
+ *   node             -- NULL_NODE
+ *
+ *   daemons          -- DAEMON_NONE
+ *
+ *   to_do            -- cmd_do_nothing
+ *   line             -- NULL => none
+ *
+ *   vxnode           -- NULL_NODE
+ *   vcnode           -- NULL_NODE
+ *
+ *   full_lex         -- false
+ *   parse_execution  -- false
+ *   parse_only       -- false
+ *
+ *   parse_strict     -- false
+ *   parse_no_do      -- false
+ *   parse_no_tree    -- false
+ *
+ *   can_enable       -- false
+ *
+ *   reflect          -- false
+ *   out_ordinary     -- false
+ *   out_warning      -- false
+ *   warn_stop        -- false
+ *
+ *   onode            -- NULL_NODE
+ *   tnode            -- NULL_NODE
+ *
+ *   dir_cd           -- NULL => none
+ *   dir_here         -- NULL => none
+ */
+extern cmd_context
+cmd_context_new(void)
+{
+  return XCALLOC(MTYPE_CMD_EXEC, sizeof(cmd_context_t)) ;
+
+  confirm(NULL_NODE == 0) ;
+  confirm(DAEMON_NONE == 0) ;
+  confirm(cmd_do_nothing == 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialise command context object.
+ *
+ * This is done when a command loop is entered, and result reflects the given
+ * vty_type_t and node_type_t.
+ */
+extern void
+cmd_context_init(cmd_context context, vty_type_t type, node_type_t node)
+{
   VTY_ASSERT_LOCKED() ;
 
-  exec->context = context = cmd_context_new() ;
+  context->node = context->cnode = node ;
 
-  context->node            = vty->node ;
+  context->daemons         = daemons_set ;
 
   context->parse_execution = true ;
   context->parse_only      = false ;
-  context->reflect_enabled = false ;
 
-  context->onode           = NULL_NODE ;
+  context->dir_cd          = qpath_dup(host.cwd) ;
+  context->dir_here        = qpath_dup(host.config_dir) ;
 
-  context->dir_cd   = qpath_dup(host.cwd) ;
-  context->dir_home = qpath_dup(host.config_dir) ;
-  context->dir_here = qpath_dup(host.config_dir) ;
+  /* The basic context settings -- some of which may be overridden for
+   * some vty types.
+   */
+  context->full_lex        = false ;
 
-  switch (vty->type)
+  context->parse_strict    = false ;
+  context->parse_no_do     = false ;
+  context->parse_no_tree   = false ;
+
+  context->can_enable      = false ;
+
+  context->reflect         = false ;
+  context->out_ordinary    = true ;
+  context->out_warning     = true ;
+  context->warn_stop       = true ;
+
+  /* Particular context settings -- depending on vty type
+   */
+  switch (type)
     {
       case VTY_TERMINAL:
-        context->full_lex      = true ;
+        context->full_lex        = true ;
 
-        context->parse_strict  = false ;
-        context->parse_no_do   = false ;
-        context->parse_no_tree = false ;
-
-        context->can_enable    = context->node >= ENABLE_NODE ;
-        context->can_auth_enable = true ;
+        context->can_enable      = cmd_node_is_ecs(context->node) ;
 
         break ;
 
-      case VTY_SHELL_SERVER:
-        zabort("missing VTY_SHELL_SERVER context") ;
-
-        context->full_lex      = true ;
-
-        context->parse_strict  = false ;
-        context->parse_no_do   = false ;
-        context->parse_no_tree = false ;
-
-        context->can_enable    = true ;
-        context->can_auth_enable = false ;
+      case VTY_VTYSH:
+        context->can_enable      = true ;
 
         break ;
 
-      case VTY_CONFIG_READ:
-        context->full_lex      = false ;
+      case VTY_VTYSH_SERVER:
+        context->can_enable      = true ;
 
-        context->parse_strict  = true ;
-        context->parse_no_do   = true ;
-        context->parse_no_tree = false ;
+        context->parse_no_do     = true ;
+        context->parse_no_tree   = true ;
 
-        context->can_enable    = true ;
-        context->can_auth_enable = false ;
+        break ;
+
+      case VTY_STDOUT:
+        context->can_enable      = false ;
 
         break ;
 
       default:
         zabort("vty type unknown to cmd_exec_new()") ;
     } ;
-
-  return exec ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Make a new context -- returns a completely empty context object.
+ * Set context specific to reading configuration files along with command line
+ * options.
  */
-extern cmd_context
-cmd_context_new(void)
+extern void
+cmd_context_config_set(cmd_context context, bool ignore_warnings,
+                                            bool show_warnings)
 {
-  return XCALLOC(MTYPE_CMD_EXEC, sizeof(struct cmd_context)) ;
+  context->full_lex        = false ;
+
+  context->parse_strict    = true ;
+  context->parse_no_do     = false ;
+  context->parse_no_tree   = false ;
+
+  context->can_enable      = true ;
+
+  context->reflect         = false ;
+  context->out_ordinary    = false ;
+  context->out_warning     = !ignore_warnings ;
+  context->warn_stop       = !(ignore_warnings || show_warnings) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Save current context and update for new, child vin.
+ * Save command context -- creates copy to be saved.
  *
- *   - updates the dir_here if required
- *
- *   - cannot inherit can_enable unless is ENABLE_NODE or better
- *
- *   - cannot inherit can_auth_enable, no how
+ * Note that the current "tos" is always the same, so this makes a copy of the
+ * tos, except that the tos gets new copies of the various paths, and the
+ * copy to be saved get the originals.  This is so that the restore operation
+ * can restore the tos exactly as it was.
  */
 extern cmd_context
-cmd_context_new_save(cmd_context context, qpath file_here)
+cmd_context_save(cmd_context tos)
 {
-  cmd_context  saved ;
+  cmd_context save ;
 
-  saved = cmd_context_new() ;
+  save = cmd_context_new() ;
 
-  *saved = *context ;         /* copy as is           */
+  *save = *tos ;        /* copy everything      */
 
-  /* The saved copy of the context now owns the current paths, so now need
-   * to duplicate (or set new) paths.
-   */
-  context->dir_cd   = qpath_dup(saved->dir_cd) ;
-  context->dir_home = qpath_dup(saved->dir_home) ;
+  tos->dir_cd   = qpath_copy(NULL, save->dir_cd) ;
+  tos->dir_here = qpath_copy(NULL, save->dir_here) ;
 
-  if (file_here == NULL)
-    context->dir_here = qpath_dup(saved->dir_here) ;
-  else
-    {
-      context->dir_here = qpath_dup(file_here) ;
-      qpath_shave(context->dir_here) ;
-    } ;
-
-  /* The inheritance of can_enable is tricky.  Will not bequeath can_enable
-   * is is not currently in ENABLE_NODE or better !
-   */
-  if (context->node <= ENABLE_NODE)
-    context->can_enable = false ;
-
-  context->can_auth_enable = false ;
-
-  return saved ;
+  return save ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Restore given context -- frees the copy restored from.
+ * Restore command context -- discards the saved copy.
  *
- * Has to free the directories in the context being restored to.
+ * Some care is required in the restoring of the node, but otherwise simply
+ * copy the context.
  *
- * Note that can restore any node it likes: if it was enabled, that's fine; if
- * it was in some config mode, will still have the symbol of power because
- * only at vin_depth <= 1 is the symbol of power actually released.
+ * Note that the current "tos" is always the same, so restore copies the saved
+ * copy to it, discarding the paths in the tos.
  *
- * Returns NULL.
+ * Note that we do not need to worry about the config symbol of power, see
+ *
  */
 extern cmd_context
-cmd_context_restore(cmd_context dst, cmd_context src)
+cmd_context_restore(cmd_context tos, cmd_context saved)
 {
-  assert(src != NULL) ;
+  node_type_t new_node ;
 
-  qpath_free(dst->dir_cd) ;
-  qpath_free(dst->dir_home) ;
-  qpath_free(dst->dir_here) ;
+  qpath_free(tos->dir_cd) ;
+  qpath_free(tos->dir_here) ;
 
-  *dst = *src ;         /* copy as is           */
+  new_node = tos->node ;
 
-  return cmd_context_free(src, true) ;
+  *tos = *saved ;       /* copy everything from saved value     */
+
+  XFREE(MTYPE_CMD_EXEC, saved) ;
+
+  tos->node = tos->cnode = cmd_node_restore(tos->node, new_node) ;
+
+  return tos ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Copy the given context to the given context -- creating a new one if
+ * required.
+ *
+ * Note that copying to an existing context copies the values of the various
+ * qpaths -- the copied to context is responsible for those.
+ */
+extern cmd_context
+cmd_context_copy(cmd_context dst, cmd_context src)
+{
+  cmd_context_t tmp[1] ;
+
+  if (dst == NULL)
+    dst = cmd_context_new() ;
+
+  *tmp = *dst ;         /* to keep existing qpath objects       */
+  *dst = *src ;         /* copy everything (else)               */
+
+  dst->dir_cd   = qpath_copy(tmp->dir_cd,   src->dir_cd) ;
+  dst->dir_here = qpath_copy(tmp->dir_here, src->dir_here) ;
+
+  return dst ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Free the given context.
- *
- * If the context is a copy of an existing context, then must not free the
- * directories -- they will be freed when that existing context is freed.
  */
 extern cmd_context
-cmd_context_free(cmd_context context, bool copy)
+cmd_context_free(cmd_context context)
 {
   if (context != NULL)
     {
-      if (!copy)
-        {
-          qpath_free(context->dir_cd) ;
-          qpath_free(context->dir_home) ;
-          qpath_free(context->dir_here) ;
-        } ;
+      qpath_free(context->dir_cd) ;
+      qpath_free(context->dir_here) ;
 
       XFREE(MTYPE_CMD_EXEC, context) ;
     } ;
@@ -252,10 +319,8 @@ cmd_exec_free(cmd_exec exec)
 {
   if (exec != NULL)
     {
-      exec->vty = NULL ;        /* no longer required.  */
-
-      exec->context = cmd_context_free(exec->context, false) ;  /* not a copy */
-      cmd_action_clear(exec->action) ;
+      exec->vty     = NULL ;    /* no longer required.  */
+      exec->context = NULL ;    /* ditto                */
       exec->parsed  = cmd_parsed_free(exec->parsed) ;
 
       if    (vty_nexus)
@@ -276,38 +341,71 @@ cmd_exec_free(cmd_exec exec)
  *
  */
 /*------------------------------------------------------------------------------
- * Read configuration from file.
+ * Read configuration from file -- vio->blocking command loop.
  *
- * In the qpthreads world this assumes that it is running with the vty
- * locked, and that all commands are to be executed directly.
+ * In the qpthreads world this assumes that it is running either in the only
+ * pthread (in fact, the CLI pthread), early in the morning, or in the command
+ * pthread, following SIGHUP.  So, all commands are to be executed directly.
  *
  * If the 'first_cmd' argument is not NULL it is the address of the first
  * command that is expected to appear.  If the first command is not this, then
- * the 'first_cmd' is called with argv == NULL (and argc == 0) to signal the
+ * the 'first_cmd' is called with argc == -1 (and argv == NULL) to signal the
  * command is being invoked by default.
  *
  * Command processing continues while CMD_SUCCESS is returned by the command
  * parser and command execution.
  *
- * If 'ignore_warning' is set, then any CMD_WARNING returned by command
- * execution is converted to CMD_SUCCESS.  Note that any CMD_WARNING returned
- * by command parsing (or in execution of any default 'first_cmd').
+ * Returns: CMD_SUCCESS    -- all went swimmingly
+ *          CMD_WARNING    -- at least one CMD_WARNING returned, but nothing
+ *                            more serious
+ *          CMD_ERROR      -- hit an error of some kind, including I/O and
+ *                            parsing errors
  *
- * Returns: cmd_return_code for last command or I/O operation
- *
- *          when returns, the entire vin/vout stack will have been closed.
- *
- * If reaches EOF on the config file, returns CMD_SUCCESS.  If anything else
- * happens, will generate an error message and exits the command loop.
+ *          when returns, the entire vin/vout stack will have been closed,
+ *          except for the vout.
  */
-extern cmd_return_code_t
-cmd_read_config(struct vty *vty, cmd_command first_cmd, bool ignore_warning)
+extern cmd_ret_t
+cmd_read_config(vty vty, uint* warnings)
 {
-  cmd_exec          exec   = vty->exec ;
-  cmd_parsed        parsed = exec->parsed ;
-  cmd_return_code_t ret, hret ;
+  cmd_context context ;
+  cmd_parsed  parsed ;
+  cmd_ret_t   ret, hret ;
 
-  ret = CMD_SUCCESS ;           /* so far, so good      */
+  qassert((vty->type == VTY_STDOUT) && (vty->vio->blocking)) ;
+
+  VTY_LOCK() ;
+
+  qassert(vty->vio->cl_state == vcl_stopped) ;
+  vty->vio->cl_state = vcl_running ;
+
+  VTY_UNLOCK() ;
+
+  /* Deal with the possibility that while reading the configuration file, may
+   * use a pipe, and therefore may block waiting to collect a child process.
+   *
+   * Before there is any chance of a SIGCHLD being raised for a child of the
+   * configuration file, invoke the magic required for SIGCHLD to wake up
+   * a pselect() while waiting to collect child.
+   *
+   * NB: we have to clear this again before returning.
+   */
+  vty_child_signal_nexus_set(vty) ;
+
+  /* Note that we have a single parser object for execution.
+   *
+   * Also, the context object is kept up to date as pipes are pushed and
+   * popped -- so the pointer to it remains valid.
+   */
+  context = vty->exec->context ;
+  parsed  = vty->exec->parsed ;
+
+  qassert(parsed  != NULL) ;
+  qassert(context != NULL) ;
+
+  ret       = CMD_SUCCESS ;     /* so far, so good              */
+  *warnings = 0 ;               /* no warnings seen             */
+
+  host.first_config_cmd = true ;
 
   while (1)
     {
@@ -315,59 +413,55 @@ cmd_read_config(struct vty *vty, cmd_command first_cmd, bool ignore_warning)
        */
       if (ret != CMD_SUCCESS)
         {
-          /* Will drop straight out of the loop if have anything other
-           * than CMD_HIATUS, CMD_EOF or CMD_CLOSE, which are all signals
-           * that some adjustment to the vin/vout stacks is required,
-           * or that we are all done here.
+          /* If is CMD_WARNING, drop out of the loop if context->warn_stop.
            *
-           * Everything else is deemed to be an error that stops the
-           * command loop.
+           * Otherwise, drop out of the loop if have anything other than
+           * CMD_HIATUS.
+           *
+           * Everything else is deemed to be an error that stops the command
+           * loop.
            */
-          if ((ret != CMD_HIATUS) && (ret != CMD_EOF) && (ret != CMD_CLOSE))
-            break ;
+          if (ret == CMD_WARNING)
+            {
+              if (context->warn_stop)
+                break ;
+            }
+          else
+            {
+              if (ret != CMD_HIATUS)
+                break ;
+            } ;
 
           ret = vty_cmd_hiatus(vty, ret) ;
 
-          if (ret == CMD_STOP)
-            return CMD_SUCCESS ;        /* the expected outcome !       */
+          if (ret == CMD_STOP)          /* the expected outcome !       */
+            break ;
 
           if (ret != CMD_SUCCESS)
-            break ;
+            continue ;
         } ;
 
       /* All is well, need another command line
        */
-      ret = vty_cmd_fetch_line(vty) ;   /* sets exec->action    */
+      ret = vty_cmd_line_fetch(vty) ;   /* sets exec->action    */
+
       if (ret != CMD_SUCCESS)
         continue ;
 
       /* Parse the command line we now have -- loop if failed or there is
        * nothing to execute.
        */
-      qassert(exec->action->to_do == cmd_do_command) ;
+      qassert(context->to_do == cmd_do_command) ;
 
-      cmd_tokenize(parsed, exec->action->line, exec->context->full_lex) ;
-      ret = cmd_parse_command(parsed, exec->context) ;
+      cmd_tokenize(parsed, context->line, context->full_lex);
+      ret = cmd_parse_command(parsed, context) ;
 
       if ( (ret != CMD_SUCCESS) || ((parsed->parts & cmd_parts_execute) == 0) )
         continue ;
 
-      /* Special handling before first active line.
-       */
-      if (first_cmd != NULL)
-        {
-          if (first_cmd != parsed->cmd)
-            {
-              ret = (*first_cmd->func)(first_cmd, vty, -1, NULL) ;
-              if (ret != CMD_SUCCESS)
-                continue ;
-            } ;
-          first_cmd = NULL ;
-        } ;
-
       /* reflection now.....
        */
-      if (exec->reflect)
+      if (context->reflect)
         {
           ret = vty_cmd_reflect_line(vty) ;
           if (ret != CMD_SUCCESS)
@@ -383,51 +477,68 @@ cmd_read_config(struct vty *vty, cmd_command first_cmd, bool ignore_warning)
             continue ;
         } ;
 
-      /* Command execution
-       */
       qassert((parsed->parts & cmd_part_command) != 0) ;
 
+      /* Special handling while host.first_config_cmd.
+       *
+       * When the configuration file is read the first time, there are some
+       * commands which may be executed before the daemon is fully initialised.
+       * Most meta commands are in this category, also (and especially) the
+       * "pthreads on" and related commands.
+       *
+       * As soon as we get a command which is *not* CMD_ATTR_FIRST, we turn
+       * off the host.first_config_cmd, and if is host.newborn, and there is
+       * a "init_second_stage" function, invoke that.
+       */
+      if (host.first_config_cmd && ((parsed->cmd->attr & CMD_ATTR_FIRST) == 0))
+        cmd_init_second_stage() ;
+
+      /* Command execution
+       */
       ret = cmd_execute(vty) ;
 
-      /* Deal with success (or suppressed warning).
+      if (ret == CMD_WARNING)
+        ++(*warnings) ;         /* count all warnings           */
+
+      /* Deal with success or suppressed warning.
        */
-      if ((ret == CMD_SUCCESS) || ((ret == CMD_WARNING) && ignore_warning))
-        ret = vty_cmd_success(vty) ;
+      ret = vty_cmd_complete(vty, ret) ;
     } ;
 
   /* Arrives here if:
    *
-   *   - vty_cmd_fetch_line() returns anything except CMD_SUCCESS, CMD_EOF or
-   *     CMD_HIATUS -- which are not errors.
+   *   - vty_cmd_line_fetch() returns anything except CMD_SUCCESS or CMD_HIATUS,
+   *     which are not errors.
    *
-   *   - any other operation returns anything except CMD_SUCCESS
-   *     (or CMD_WARNING, if they are being ignored), CMD_EOF or CMD_CLOSE.
+   *   - any other operation returns anything except CMD_SUCCESS or CMD_HIATUS
+   *     (or CMD_WARNING, if they are being ignored)
+   *
+   *   - hiatus returns CMD_STOP -- the expected result.
    *
    * Deal with any errors -- generate suitable error messages and close back
    * to (but excluding) vout_base.
    *
-   * CMD_SUCCESS is impossible at this point -- they should have been dealt
-   * with in the loop.
-   *
-   * CMD_EOF is also impossible -- vty_cmd_fetch_line() or vty_cmd_hiatus()
-   * can return that, but that will have been dealt with.
-   *
-   * CMD_CLOSE is also impossible -- will have been given to vty_cmd_hiatus(),
-   * which never returns it.
-   *
    * CMD_WAITING is not valid for blocking vio !
    */
-  qassert(ret != CMD_SUCCESS) ;
-  qassert(ret != CMD_EOF) ;
-  qassert(ret != CMD_CLOSE) ;
   qassert(ret != CMD_WAITING) ;
 
   hret = ret ;
-  do
+  while ((hret != CMD_STOP) && (hret != CMD_SUCCESS))
     hret = vty_cmd_hiatus(vty, hret) ;
-  while (hret == CMD_IO_ERROR) ;
 
-  return ret ;
+  /* Finished with all children
+   */
+  vty_child_signal_nexus_clear(vty) ;
+
+  /* Return CMD_SUCCESS/CMD_WARNING/CMD_ERROR
+   */
+  if (ret == CMD_WARNING)
+    return CMD_WARNING ;
+
+  if ((ret != CMD_SUCCESS) && (ret != CMD_STOP))
+    return CMD_ERROR ;
+
+  return (*warnings == 0) ? CMD_SUCCESS : CMD_WARNING ;
 } ;
 
 /*==============================================================================
@@ -441,44 +552,66 @@ cmd_read_config(struct vty *vty, cmd_command first_cmd, bool ignore_warning)
  *   - OK       -- CMD_SUCCESS
  *   - error    -- CMD_ERROR, etc
  */
-extern cmd_return_code_t
+extern cmd_ret_t
 cmd_open_pipes(vty vty)
 {
-  cmd_exec          exec   = vty->exec ;
-  cmd_parsed        parsed = exec->parsed ;
-  cmd_return_code_t ret ;
-  vty_io            vio ;
-  bool              after ;
+  cmd_exec   exec ;
+  cmd_parsed parsed ;
+  cmd_ret_t  ret ;
+  vty_io     vio ;
+  bool       together ;
+
   VTY_LOCK() ;
-  vio = vty->vio ;
+
+  vio    = vty->vio ;
+  exec   = vty->exec ;
+  parsed = exec->parsed ;
 
   ret = CMD_SUCCESS ;
 
-  after = false ;               /* assuming no in pipe                  */
+  /* We need to know whether this is opening/pushing a vin and a vout together,
+   * or just one at a time.
+   *
+   * This affects the handling of out_ordinary, because opening a vout
+   * implicitly sets out_ordinary *except* when opened together with a vin
+   * which explicitly clears out_ordinary.
+   *
+   * Also, the out_depth setting depends on this.
+   *
+   * Note that it is assumed elsewhere that when opened together the vin is
+   * opened before the vout, and when closed the vin is also closed first.
+   *
+   * Note that it is always possible that the output open could fail... so
+   * anything that really depends on the success of that should be delayed
+   * until then.
+   */
+  together = false ;
 
-  /* Deal with any in pipe stuff                                        */
+  /* Deal with any in pipe stuff
+   */
   if ((parsed->parts & cmd_part_in_pipe) != 0)
     {
       qstring args ;
 
-      args = cmd_tokens_concat(parsed, parsed->first_in_pipe,
-                                       parsed->num_in_pipe) ;
+      together = ((parsed->parts & cmd_part_out_pipe) != 0) ;
+
+      args = cmd_tokens_concat(parsed, parsed->first_action,
+                                       parsed->num_action) ;
 
       if      ((parsed->in_pipe & cmd_pipe_file) != 0)
         ret = uty_cmd_open_in_pipe_file(vio, exec->context, args,
-                                                              parsed->in_pipe) ;
+                                                    parsed->in_pipe, together) ;
       else if ((parsed->in_pipe & cmd_pipe_shell) != 0)
         ret = uty_cmd_open_in_pipe_shell(vio, exec->context, args,
-                                                              parsed->in_pipe) ;
+                                                    parsed->in_pipe, together) ;
       else
         zabort("invalid in pipe state") ;
 
       qs_free(args) ;
-
-      after = true ;
     } ;
 
-  /* Deal with any out pipe stuff                                       */
+  /* Deal with any out pipe stuff
+   */
   if (((parsed->parts & cmd_part_out_pipe) != 0) && (ret == CMD_SUCCESS))
     {
       qstring args ;
@@ -488,12 +621,12 @@ cmd_open_pipes(vty vty)
 
       if      ((parsed->out_pipe & cmd_pipe_file) != 0)
         ret = uty_cmd_open_out_pipe_file(vio, exec->context, args,
-                                                      parsed->out_pipe, after) ;
+                                                   parsed->out_pipe, together) ;
       else if ((parsed->out_pipe & cmd_pipe_shell) != 0)
         ret = uty_cmd_open_out_pipe_shell(vio, exec->context, args,
-                                                      parsed->out_pipe, after) ;
+                                                   parsed->out_pipe, together) ;
       else if ((parsed->out_pipe & cmd_pipe_dev_null) != 0)
-        ret = uty_cmd_open_out_dev_null(vio, after) ;
+        ret = uty_cmd_open_out_dev_null(vio, together) ;
       else
         zabort("invalid out pipe state") ;
 
@@ -509,67 +642,102 @@ cmd_open_pipes(vty vty)
  *
  * If !parse_only, set vty->node and dispatch the command.
  *
- * Returns: CMD_SUCCESS   -- it all want very well
+ * Returns: CMD_SUCCESS   -- it all went very well
  *          CMD_WARNING   -- not so good: warning message sent by vty_out()
- *          CMD_ERROR     -- not so good: warning message sent by vty_out()
- *          CMD_EOF       -- close the current input
+ *          CMD_ERROR     -- not so good: error   message sent by vty_out()
+ *
+ *          CMD_IO_ERROR  -- not so good: error   message posted to vio->ebuf
+ *          CMD_CANCEL    -- not so good: collected a CANCEL
+ *
+ *          The above are the only valid returns from a command.
+ *
+ *          CMD_IO_ERROR and CMD_CANCEL may be returned if the command does
+ *          vty_out_push().
+ *
+ * If get CMD_SUCCESS, then will update the context->node to the parsed->nnode.
+ * So all commands which change node state are known to the parser, which also
+ * knows what the next node will be, assuming success.
+ *
+ * EXIT_NODE is set by various forms of "exit".  When the next command line
+ * is fetched vty_cmd_line_fetch() will set the input to "eof".  At any stack
+ * level above the base "exit" means leave the current file/pipe/etc and return
+ * to the parent -- which restores the previous context, including its node.
+ *
+ * Note that any "exit" goes through the usual command complete process before
+ * any file/pipe/etc closing happens.
  *
  * NB: the distinction between CMD_WARNING and CMD_ERROR is that CMD_WARNING
- *     may be ignored when reading a configuration file.
+ *     may be ignored.
  *
  * NB: no other returns are acceptable !
  */
-extern cmd_return_code_t
+extern cmd_ret_t
 cmd_execute(vty vty)
 {
-  cmd_parsed  parsed  = vty->exec->parsed ;
-  cmd_context context = vty->exec->context ;
-  cmd_command cmd     = parsed->cmd ;
+  cmd_context  context = vty->exec->context ;
 
-  cmd_return_code_t ret ;
-
-  vty->node = parsed->cnode ;
+  cmd_ret_t ret ;
 
   if (context->parse_only)
     ret = CMD_SUCCESS ;
   else
-    ret = (*(cmd->func))(cmd, vty, cmd_arg_vector_argc(parsed),
-                                   cmd_arg_vector_argv(parsed)) ;
-
-  if (ret == CMD_SUCCESS)
     {
-      /* If the node is changed by the command, do that now and make sure
-       * that the configuration symbol of power is straight.
+      cmd_parsed  parsed = vty->exec->parsed ;
+      cmd_command cmd    = parsed->cmd ;
+
+      /* Set the vty->node in case the command cares, and then (finally) do
+       * the command.
        *
-       * If the new node is >= CONFIG_NODE, then MUST already have acquired
-       * the symbol of power (otherwise the command would have failed !)
+       * Note that the command is expected to return only one of: CMD_SUCCESS,
+       * CMD_WARNING or CMD_ERROR.
        *
-       * If the new node is < CONFIG_NODE, then we will here release the
-       * symbol of power iff we are at the vin_base !
-       *
-       * If the new node is NULL_NODE, then treat as CMD_EOF.
+       * If the command is a node changer, then if it returns CMD_SUCCESS, then
+       * change to the node as established by the parser.
        */
-      if (context->node != parsed->nnode)
+      vty->node = parsed->xnode ;
+
+      ret = (*(cmd->func))(cmd, vty, cmd_arg_vector_argc(parsed),
+                                     cmd_arg_vector_argv(parsed)) ;
+      if (ret == CMD_SUCCESS)
         {
-          context->node = parsed->nnode ;
-          vty_cmd_config_lock_check(vty, context->node) ;
+          /* If the node is changed by the command, do that now and make sure
+           * that the configuration symbol of power is straight.
+           *
+           * If the new node requires the symbol of power, then MUST already
+           * have acquired it (otherwise the command would have failed !)
+           * (Will get a CMD_ERROR at this late stage, if not !)
+           *
+           * If the new node does not require the symbol of power, then we will
+           * here release it iff we are at the vin_base !
+           */
+          if (context->node != parsed->nnode)
+            {
+              ret = vty_cmd_config_lock(vty, parsed->nnode) ;
+              if (ret == CMD_SUCCESS)
+                context->node = context->cnode = parsed->nnode ;
+            } ;
 
-          if (context->node == NULL_NODE)
-            ret = CMD_EOF ;
+          /* The vty->node is not used within the command handling, the
+           * context->node is the value that actually matters.  (Except while
+           * a vty is being initialised, when vty->node is the initial node.)
+           *
+           * Commands which change node (e.g. "address-family ipv4") no longer
+           * need to change vty->node.  But if they do, it had better be to
+           * the expected next node -- for if not, something is out of kilter.
+           */
+          qassert( (vty->node == parsed->xnode) ||
+                   (vty->node == parsed->nnode) ) ;
+        }
+      else
+        {
+          /* Enforce restrictions on return codes.                          */
+          qassert( (ret == CMD_WARNING) || (ret == CMD_ERROR)
+                                        || (ret == CMD_IO_ERROR)
+                                        || (ret == CMD_CANCEL) ) ;
         } ;
-
-      /* The command should (no longer) change the vty->node, but if it does,
-       * it had better be to the same as what the parser expected -- for if
-       * not, that will break "parse_only" and generally cause confusion.
-       */
-      qassert((vty->node == parsed->cnode) || (vty->node == parsed->nnode)) ;
-    }
-  else
-    {
-      /* Enforce restrictions on return codes.                          */
-      assert((ret == CMD_WARNING) || (ret == CMD_ERROR)
-                                  || (ret == CMD_EOF)) ;
     } ;
 
+  /* Return result
+   */
   return ret ;
 } ;

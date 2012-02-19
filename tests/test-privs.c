@@ -20,13 +20,16 @@
  */
 
 #include <zebra.h>
+#include "misc.h"
 
 #include <lib/version.h>
+#include "qlib_init.h"
+#include "command.h"
 #include "getopt.h"
 #include "privs.h"
 #include "memory.h"
 
-zebra_capabilities_t _caps_p [] = 
+zebra_capabilities_t _caps_p [] =
 {
   ZCAP_NET_RAW,
   ZCAP_BIND,
@@ -48,7 +51,7 @@ struct zebra_privs_t test_privs =
   .cap_num_i = 0
 };
 
-struct option longopts[] = 
+struct option longopts[] =
 {
   { "help",        no_argument,       NULL, 'h'},
   { "user",        required_argument, NULL, 'u'},
@@ -58,12 +61,12 @@ struct option longopts[] =
 
 /* Help information display. */
 static void
-usage (char *progname, int status)
+usage (const char *progname, int status)
 {
   if (status != 0)
     fprintf (stderr, "Try `%s --help' for more information.\n", progname);
   else
-    {    
+    {
       printf ("Usage : %s [OPTION...]\n\
 Daemon which does 'slow' things.\n\n\
 -u, --user         User to run as\n\
@@ -74,32 +77,26 @@ Report bugs to %s\n", progname, ZEBRA_BUG_ADDRESS);
     }
   exit (status);
 }
-
-struct thread_master *master;
+
 /* main routine. */
 int
 main (int argc, char **argv)
 {
-  char *p;
-  char *progname;
   struct zprivs_ids_t ids;
-  
-  /* Set umask before anything for security */
-  umask (0027);
 
-  /* get program name */
-  progname = ((p = strrchr (argv[0], '/')) ? ++p : argv[0]);
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
 
-  while (1) 
+  while (1)
     {
       int opt;
 
       opt = getopt_long (argc, argv, "hu:g:", longopts, 0);
-    
+
       if (opt == EOF)
 	break;
 
-      switch (opt) 
+      switch (opt)
 	{
 	case 0:
 	  break;
@@ -110,21 +107,20 @@ main (int argc, char **argv)
           test_privs.group = optarg;
           break;
 	case 'h':
-	  usage (progname, 0);
+	  usage (cmd_host_program_name(), 0);
 	  break;
 	default:
-	  usage (progname, 1);
+	  usage (cmd_host_program_name(), 1);
 	  break;
 	}
     }
 
   /* Library inits. */
-  memory_init ();
   zprivs_init (&test_privs);
 
 #define PRIV_STATE() \
   ((test_privs.current_state() == ZPRIVS_RAISED) ? "Raised" : "Lowered")
-  
+
   printf ("Initial state: %s\n", PRIV_STATE());
 
   test_privs.change(ZPRIVS_RAISE);
@@ -132,19 +128,19 @@ main (int argc, char **argv)
 
   test_privs.change(ZPRIVS_RAISE);
   printf ("Change raise: state: %s\n", PRIV_STATE());
-  
+
   test_privs.change(ZPRIVS_LOWER);
   printf ("Change lower: state: %s\n", PRIV_STATE());
 
   test_privs.change(ZPRIVS_LOWER);
   printf ("Change lower: state: %s\n", PRIV_STATE());
-  
+
   printf ("Get ids %s\n", PRIV_STATE());
-  zprivs_get_ids (&ids);  
-  
+  zprivs_get_ids (&ids);
+
   /* terminate privileges */
   zprivs_terminate(&test_privs);
-  
+
   /* but these should continue to work... */
   printf ("Terminated state: %s\n", PRIV_STATE());
 
@@ -153,16 +149,16 @@ main (int argc, char **argv)
 
   test_privs.change(ZPRIVS_RAISE);
   printf ("Change raise: state: %s\n", PRIV_STATE());
-  
+
   test_privs.change(ZPRIVS_LOWER);
   printf ("Change lower: state: %s\n", PRIV_STATE());
 
   test_privs.change(ZPRIVS_LOWER);
   printf ("Change lower: state: %s\n", PRIV_STATE());
-  
+
   printf ("Get ids %s\n", PRIV_STATE());
-  zprivs_get_ids (&ids);  
-  
+  zprivs_get_ids (&ids);
+
   printf ("terminating\n");
   return 0;
 }

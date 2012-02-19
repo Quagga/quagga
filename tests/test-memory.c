@@ -1,4 +1,7 @@
 #include <zebra.h>
+#include "misc.h"
+#include "qlib_init.h"
+#include "command.h"
 #include <memory.h>
 
 /* Memory torture tests
@@ -7,8 +10,6 @@
  * Paul's proposed memory 'quick' cache, which may never be included in
  * CVS
  */
-
-struct thread_master *master;
 
 #if 0 /* set to 1 to use system alloc directly */
 #undef XMALLOC
@@ -29,6 +30,9 @@ main(int argc, char **argv)
   void *a[10];
   int i;
 
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
+
   printf ("malloc x, malloc x, free, malloc x, free free\n\n");
   /* simple case, test cache */
   for (i = 0; i < TIMES; i++)
@@ -42,7 +46,7 @@ main(int argc, char **argv)
       XFREE(MTYPE_VTY, a[0]);
       XFREE(MTYPE_VTY, a[1]);
     }
-  
+
   printf ("malloc x, malloc y, free x, malloc y, free free\n\n");
   /* cache should go invalid, valid, invalid, etc.. */
   for (i = 0; i < TIMES; i++)
@@ -70,7 +74,7 @@ main(int argc, char **argv)
       XFREE(MTYPE_VTY, a[0]);
       /* alloc == 0, cache can become valid again on next request */
     }
-  
+
   printf ("calloc and realloc\n\n");
   /* check calloc + realloc */
   for (i = 0; i < TIMES; i++)
@@ -78,21 +82,21 @@ main(int argc, char **argv)
       printf ("calloc a0 1024\n");
       a[0] = XCALLOC (MTYPE_VTY, 1024);
       memset (a[0], 1, 1024/2);
-      
+
       printf ("calloc 1 1024\n");
       a[1] = XCALLOC (MTYPE_VTY, 1024);
       memset (a[1], 1, 1024/2);
-      
+
       printf ("realloc 0 1024\n");
       a[3] = XREALLOC (MTYPE_VTY, a[0], 2048); /* invalidate cache */
       if (a[3] != NULL)
         a[0] = a[3];
       memset (a[0], 1, 1024);
-      
+
       printf ("calloc 2 512\n");
       a[2] = XCALLOC (MTYPE_VTY, 512);
       memset (a[2], 1, 512);
-      
+
       printf ("free 1 0 2\n");
       XFREE(MTYPE_VTY, a[1]);
       XFREE(MTYPE_VTY, a[0]);

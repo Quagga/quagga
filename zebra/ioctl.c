@@ -19,6 +19,7 @@
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 
@@ -595,3 +596,5 @@ if_prefix_delete_ipv6 (struct interface *ifp, struct connected *ifc)
 #endif /* LINUX_IPV6 */
 
 #endif /* HAVE_IPV6 */
+
+#endif /* VTYSH_EXTRACT_PL */

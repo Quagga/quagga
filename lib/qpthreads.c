@@ -55,10 +55,38 @@
  * application has decided whether to use qpthreads or not.  (But does not have
  * to call this if it is happy to proceed in the default -- disabled -- state.)
  *
- * If this is never set, then the system runs without pthreads, and all the
- * mutex and condition variable functions are NOPs.  This allows, for example,
- * mutex operations to be placed where they are needed for thread-safety,
- * without affecting the code when running without pthreads.
+ * If qpthreads_enabled is never set, then the system runs without pthreads,
+ * and all the mutex and condition variable functions are NOPs.  This allows,
+ * for example, mutex operations to be placed where they are needed for
+ * thread-safety, without affecting the code when running without pthreads.
+ *
+ * There are two related flags:
+ *
+ *   * qpthreads_thread_created
+ *
+ *     This is set when the first pthread (other than the main pthread) is
+ *     created and dispatched.
+ *
+ *     A pthread cannot be created unless qpthreads_enabled == true.
+ *
+ *     This is used to check that no pthreads have been created before
+ *     daemonisation.
+ *
+ *   * qpthreads_active
+ *
+ *     This is set when qpthreads_thread_created is set.
+ *
+ *     This controls the action of mutexes and condition variables etc.  So,
+ *     until the first thread is created all mutex etc operations are NOPs.
+ *     Which is intended to allow for initialisation in the main thread to
+ *     proceed while not all mutexes etc have been set up.
+ *
+ *     This does mean that all mutexes etc MUST be expected to be UNLOCKED
+ *     at the moment that the first pthread is created.
+ *
+ *     The qpthreads_active flag may be cleared once all pthreads, other than
+ *     the main, have stopped.  This is to allow shut down operations to
+ *     proceed without requiring mutex locks etc.
  *
  * There are a very few operations which require qpthreads_enabled:
  *
@@ -247,6 +275,7 @@ typedef enum qpthreads_enabled_state qpthreads_enabled_state_t ;
 static qpthreads_enabled_state_t qpthreads_enabled_state = qpt_state_unset ;
 
 bool qpthreads_enabled_flag          = false ;
+bool qpthreads_active_flag           = false ;
 bool qpthreads_thread_created_flag   = false ;
 
 /*------------------------------------------------------------------------------
@@ -296,13 +325,38 @@ qpt_set_qpthreads_enabled(bool want_enabled)
  * Where some initialisation depends on the state of qpthreads_enabled(), this
  * returns the state and freezes it if it is implicitly not enabled.
  */
-extern int
+extern bool
 qpt_freeze_qpthreads_enabled(void)
 {
   if (qpthreads_enabled_state == qpt_state_unset)
     qpthreads_enabled_state = qpt_state_set_frozen ;
 
   return qpthreads_enabled_flag ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Clear qpthreads_active -- for shut down.
+ *
+ * Once all but one (probably the main) pthread have been brought to a halt,
+ * can turn off qpthreads_active, so that mutex locks and other operations are
+ * short circuited, which is useful during final shut down.
+ */
+extern void
+qpt_clear_qpthreads_active(void)
+{
+  qpthreads_active_flag = false ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Has the state of qpthreads been decided, yet ?
+ *
+ * Note that for daemons with no interaction with the pthreads stuff, the state
+ * is never decided.
+ */
+extern bool
+qpthreads_decided(void)
+{
+  return qpthreads_enabled_state != qpt_state_unset ;
 } ;
 
 /*==============================================================================
@@ -439,6 +493,7 @@ qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr)
 
   passert(qpthreads_enabled) ;
   qpthreads_thread_created_flag = true ;  /* at least one thread created */
+  qpthreads_active_flag         = true ;  /* is now active               */
 
   default_attr = (attr == NULL) ;
   if (default_attr)
@@ -582,11 +637,11 @@ qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts)
  *     returns the original mutex address (if any).
  */
 extern qpt_mutex
-qpt_mutex_destroy(qpt_mutex mx, int free_mutex)
+qpt_mutex_destroy(qpt_mutex mx, free_keep_b free_mutex)
 {
   int err ;
 
-  if (qpthreads_enabled)
+  if (qpthreads_enabled && (mx != NULL))
     {
       err = pthread_mutex_destroy(mx) ;
       if (err != 0)
@@ -677,11 +732,11 @@ qpt_cond_init_new(qpt_cond cv, enum qpt_cond_options opts)
  * Returns NULL if freed the condition variable, otherwise the address of same.
  */
 extern qpt_cond
-qpt_cond_destroy(qpt_cond cv, int free_cond)
+qpt_cond_destroy(qpt_cond cv, free_keep_b free_cond)
 {
   int err ;
 
-  if (qpthreads_enabled)
+  if (qpthreads_enabled && (cv != NULL))
     {
       err = pthread_cond_destroy(cv) ;
       if (err != 0)
@@ -696,21 +751,21 @@ qpt_cond_destroy(qpt_cond cv, int free_cond)
 
 /*------------------------------------------------------------------------------
  * Wait for given condition variable or time-out
- *                         -- or return immediate success if !qpthreads_enabled.
+ *                         -- or return immediate success if !qpthreads_active.
  *
- * Returns: wait succeeded (1 => success, 0 => timed-out).
+ * Returns: wait succeeded (false <=> timed-out).
  *
  * NB: timeout time is a qtime_mono_t (monotonic time).
  *
  * Has to check the return value, so zabort_errno if not EBUSY.
  */
-extern int
+extern bool
 qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t timeout_time)
 {
   struct timespec ts ;
   int err ;
 
-  if (qpthreads_enabled)
+  if (qpthreads_active)
     {
       if (QPT_COND_CLOCK_ID != CLOCK_MONOTONIC)
         {
@@ -720,14 +775,14 @@ qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t timeout_time)
 
       err = pthread_cond_timedwait(cv, mx, qtime2timespec(&ts, timeout_time)) ;
       if (err == 0)
-        return 1 ;                  /* got condition        */
+        return true ;               /* got condition        */
       if (err == ETIMEDOUT)
-        return 0 ;                  /* got time-out         */
+        return false ;              /* got time-out         */
 
       zabort_err("pthread_cond_timedwait failed", err) ;
     }
   else
-    return 0 ;
+    return true ;
 } ;
 
 /*==============================================================================
@@ -765,7 +820,7 @@ qpt_spin_init(qpt_spin slk)
 extern void
 qpt_spin_destroy(qpt_spin slk)
 {
-  if (qpthreads_enabled)
+  if (qpthreads_enabled && (slk != NULL))
     {
       int err = pthread_spin_destroy(slk) ;
       if (err != 0)
@@ -807,7 +862,7 @@ qpt_thread_sigmask(int how, const sigset_t* set, sigset_t* oset)
 } ;
 
 /*------------------------------------------------------------------------------
- * Send given thread the given signal   -- requires qpthreads_enabled (!)
+ * Send given thread the given signal -- requires qpthreads_enabled (!)
  *
  * Thin wrapper around pthread_kill.
  *

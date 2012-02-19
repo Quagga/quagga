@@ -16,12 +16,13 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
 
 #include <lib/version.h>
+#include "qlib_init.h"
 #include "getopt.h"
 #include "command.h"
 #include "thread.h"
@@ -51,9 +52,6 @@ struct zebra_t zebrad =
 /* process id. */
 pid_t pid;
 
-/* Pacify zclient.o in libzebra, which expects this variable. */
-struct thread_master *master;
-
 /* Route retain mode flag. */
 int retain_mode = 0;
 
@@ -66,7 +64,7 @@ u_int32_t nl_rcvbufsize = 0;
 #endif /* HAVE_NETLINK */
 
 /* Command line options. */
-struct option longopts[] = 
+struct option longopts[] =
 {
   { "batch",       no_argument,       NULL, 'b'},
   { "daemon",      no_argument,       NULL, 'd'},
@@ -87,7 +85,7 @@ struct option longopts[] =
   { 0 }
 };
 
-zebra_capabilities_t _caps_p [] = 
+zebra_capabilities_t _caps_p [] =
 {
   ZCAP_NET_ADMIN,
   ZCAP_SYS_ADMIN,
@@ -117,12 +115,12 @@ const char *pid_file = PATH_ZEBRA_PID;
 
 /* Help information display. */
 static void
-usage (char *progname, int status)
+usage (const char *progname, int status)
 {
   if (status != 0)
     fprintf (stderr, "Try `%s --help' for more information.\n", progname);
   else
-    {    
+    {
       printf ("Usage : %s [OPTION...]\n\n"\
 	      "Daemon which manages kernel routing table management and "\
 	      "redistribution between different routing protocols.\n\n"\
@@ -150,9 +148,9 @@ usage (char *progname, int status)
 
   exit (status);
 }
-
+
 /* SIGHUP handler. */
-static void 
+static void
 sighup (void)
 {
   zlog_info ("SIGHUP received");
@@ -185,8 +183,8 @@ sigusr1 (void)
 
 struct quagga_signal_t zebra_signals[] =
 {
-  { 
-    .signal = SIGHUP, 
+  {
+    .signal = SIGHUP,
     .handler = &sighup,
   },
   {
@@ -202,35 +200,32 @@ struct quagga_signal_t zebra_signals[] =
     .handler = &sigint,
   },
 };
-
+
 /* Main startup routine. */
 int
 main (int argc, char **argv)
 {
-  char *p;
   char *vty_addr = NULL;
   int vty_port = ZEBRA_VTY_PORT;
   int dryrun = 0;
   int batch_mode = 0;
   int daemon_mode = 0;
   char *config_file = NULL;
-  char *progname;
   struct thread thread;
 
-  /* Set umask before anything for security */
-  umask (0027);
+  /* First things first -- and qlib_init_first_stage() is absolutely first.
+   */
+  qlib_init_first_stage(0027);
+  host_init(argv[0]) ;
 
-  /* preserve my name */
-  progname = ((p = strrchr (argv[0], '/')) ? ++p : argv[0]);
-
-  zlog_default = openzlog (progname, ZLOG_ZEBRA,
+  zlog_default = openzlog (cmd_host_program_name(), ZLOG_ZEBRA,
 			   LOG_CONS|LOG_NDELAY|LOG_PID, LOG_DAEMON);
 
-  while (1) 
+  while (1)
     {
       int opt;
-  
-#ifdef HAVE_NETLINK  
+
+#ifdef HAVE_NETLINK
       opt = getopt_long (argc, argv, "bdkf:i:hA:P:ru:g:vs:C", longopts, 0);
 #else
       opt = getopt_long (argc, argv, "bdkf:i:hA:P:ru:g:vC", longopts, 0);
@@ -239,7 +234,7 @@ main (int argc, char **argv)
       if (opt == EOF)
 	break;
 
-      switch (opt) 
+      switch (opt)
 	{
 	case 0:
 	  break;
@@ -266,11 +261,11 @@ main (int argc, char **argv)
 	case 'P':
 	  /* Deal with atoi() returning 0 on failure, and zebra not
 	     listening on zebra port... */
-	  if (strcmp(optarg, "0") == 0) 
+	  if (strcmp(optarg, "0") == 0)
 	    {
 	      vty_port = 0;
 	      break;
-	    } 
+	    }
 	  vty_port = atoi (optarg);
 	  if (vty_port <= 0 || vty_port > 0xffff)
 	    vty_port = ZEBRA_VTY_PORT;
@@ -290,29 +285,45 @@ main (int argc, char **argv)
 	  zserv_privs.group = optarg;
 	  break;
 	case 'v':
-	  print_version (progname);
+	  cmd_print_version (cmd_host_program_name());
 	  exit (0);
 	  break;
 	case 'h':
-	  usage (progname, 0);
+	  usage (cmd_host_program_name(), 0);
 	  break;
 	default:
-	  usage (progname, 1);
+	  usage (cmd_host_program_name(), 1);
 	  break;
 	}
     }
 
-  /* Make master thread emulator. */
-  zebrad.master = thread_master_create ();
+  /* Make master thread emulator.       */
+  zebrad.master = master ;
 
-  /* privs initialise */
+  /* privs initialise                   */
   zprivs_init (&zserv_privs);
 
-  /* Vty related initialize. */
+  /* Signals.                           */
   signal_init (zebrad.master, Q_SIGC(zebra_signals), zebra_signals);
-  cmd_init (1);
-  vty_init (zebrad.master);
-  memory_init ();
+
+  /* Command and Vty                    */
+  cmd_table_init (ZEBRA);
+
+  zebra_cmd_init () ;
+  zebra_debug_cmd_init ();
+  router_id_cmd_init();
+  zebra_vty_cmd_init ();
+  zebra_if_cmd_init () ;
+  access_list_cmd_init ();
+  prefix_list_cmd_init ();
+  rtadv_cmd_init ();
+#ifdef HAVE_IRDP
+  irdp_cmd_init();
+#endif
+
+  cmd_table_complete();
+
+  vty_init ();
 
   /* Zebra related initialize. */
   zebra_init ();
@@ -336,9 +347,6 @@ main (int argc, char **argv)
   interface_list ();
   route_read ();
 
-  /* Sort VTY commands. */
-  sort_node ();
-
 #ifdef HAVE_SNMP
   zebra_snmp_init ();
 #endif /* HAVE_SNMP */
@@ -355,7 +363,7 @@ main (int argc, char **argv)
   /* Don't start execution if we are in dry-run mode */
   if (dryrun)
     return(0);
-  
+
   /* Clean up rib. */
   rib_weed_tables ();
 
@@ -391,7 +399,7 @@ main (int argc, char **argv)
   zebra_zserv_socket_init ();
 
   /* Make vty server socket. */
-  vty_serv_sock (vty_addr, vty_port, ZEBRA_VTYSH_PATH);
+  vty_start(vty_addr, vty_port, ZEBRA_VTYSH_PATH);
 
   /* Print banner. */
   zlog_notice ("Zebra %s starting: vty@%d", QUAGGA_VERSION, vty_port);

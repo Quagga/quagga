@@ -14,9 +14,9 @@
  * General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with GNU Zebra; see the file COPYING.  If not, write to the 
- * Free Software Foundation, Inc., 59 Temple Place - Suite 330, 
- * Boston, MA 02111-1307, USA.  
+ * along with GNU Zebra; see the file COPYING.  If not, write to the
+ * Free Software Foundation, Inc., 59 Temple Place - Suite 330,
+ * Boston, MA 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -43,7 +43,7 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
   struct in_addr mask;
   const char *ifname;
   u_char flag = 0;
-  
+
   ret = str2prefix (dest_str, &p);
   if (ret <= 0)
     {
@@ -113,7 +113,7 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
 
     return CMD_SUCCESS;
   }
-  
+
   /* When gateway is A.B.C.D format, gate is treated as nexthop
      address other case gate is treated as interface name. */
   ret = inet_aton (gate_str, &gate);
@@ -131,7 +131,7 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
 }
 
 /* Static route configuration.  */
-DEFUN (ip_route, 
+DEFUN (ip_route,
        ip_route_cmd,
        "ip route A.B.C.D/M (A.B.C.D|INTERFACE|null0)",
        IP_STR
@@ -301,7 +301,7 @@ DEFUN (ip_route_mask_flags_distance2,
   return zebra_static_ipv4 (vty, 1, argv[0], argv[1], NULL, argv[2], argv[3]);
 }
 
-DEFUN (no_ip_route, 
+DEFUN (no_ip_route,
        no_ip_route_cmd,
        "no ip route A.B.C.D/M (A.B.C.D|INTERFACE|null0)",
        NO_STR
@@ -427,6 +427,8 @@ DEFUN (no_ip_route_flags_distance2,
   return zebra_static_ipv4 (vty, 0, argv[0], NULL, NULL, argv[1], argv[2]);
 }
 
+#if 0           /* TODO: should this command be included ??     */
+
 DEFUN (no_ip_route_mask_distance,
        no_ip_route_mask_distance_cmd,
        "no ip route A.B.C.D A.B.C.D (A.B.C.D|INTERFACE|null0) <1-255>",
@@ -442,6 +444,8 @@ DEFUN (no_ip_route_mask_distance,
 {
   return zebra_static_ipv4 (vty, 0, argv[0], argv[1], argv[2], NULL, argv[3]);
 }
+
+#endif
 
 DEFUN (no_ip_route_mask_flags_distance,
        no_ip_route_mask_flags_distance_cmd,
@@ -537,7 +541,7 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn)
 
   for (rib = rn->info; rib; rib = rib->next)
     {
-      vty_out (vty, "Routing entry for %s/%d%s", 
+      vty_out (vty, "Routing entry for %s/%d%s",
 	       inet_ntoa (rn->p.u.prefix4), rn->p.prefixlen,
 	       VTY_NEWLINE);
       vty_out (vty, "  Known via \"%s\"", zebra_route_string (rib->type));
@@ -569,13 +573,13 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn)
 	  vty_out (vty, "  Last update ");
 
 	  if (uptime < ONE_DAY_SECOND)
-	    vty_out (vty,  "%02d:%02d:%02d", 
+	    vty_out (vty,  "%02d:%02d:%02d",
 		     tm->tm_hour, tm->tm_min, tm->tm_sec);
 	  else if (uptime < ONE_WEEK_SECOND)
-	    vty_out (vty, "%dd%02dh%02dm", 
+	    vty_out (vty, "%dd%02dh%02dm",
 		     tm->tm_yday, tm->tm_hour, tm->tm_min);
 	  else
-	    vty_out (vty, "%02dw%dd%02dh", 
+	    vty_out (vty, "%02dw%dd%02dh",
 		     tm->tm_yday/7,
 		     tm->tm_yday - ((tm->tm_yday/7) * 7), tm->tm_hour);
 	  vty_out (vty, " ago%s", VTY_NEWLINE);
@@ -615,7 +619,7 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn)
 	  if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
 	    {
 	      vty_out (vty, " (recursive");
-		
+
 	      switch (nexthop->rtype)
 		{
 		case NEXTHOP_TYPE_IPV4:
@@ -685,9 +689,9 @@ vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
 			 ? '*' : ' ',
 			 inet_ntop (AF_INET, &rn->p.u.prefix, buf, BUFSIZ),
 			 rn->p.prefixlen);
-		
+
 	  /* Distance and metric display. */
-	  if (rib->type != ZEBRA_ROUTE_CONNECT 
+	  if (rib->type != ZEBRA_ROUTE_CONNECT
 	      && rib->type != ZEBRA_ROUTE_KERNEL)
 	    len += vty_out (vty, " [%d/%d]", rib->distance,
 			    rib->metric);
@@ -725,7 +729,7 @@ vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
       if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
 	{
 	  vty_out (vty, " (recursive");
-		
+
 	  switch (nexthop->rtype)
 	    {
 	    case NEXTHOP_TYPE_IPV4:
@@ -788,13 +792,13 @@ vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
 #define ONE_WEEK_SECOND 60*60*24*7
 
 	  if (uptime < ONE_DAY_SECOND)
-	    vty_out (vty,  ", %02d:%02d:%02d", 
+	    vty_out (vty,  ", %02d:%02d:%02d",
 		     tm->tm_hour, tm->tm_min, tm->tm_sec);
 	  else if (uptime < ONE_WEEK_SECOND)
-	    vty_out (vty, ", %dd%02dh%02dm", 
+	    vty_out (vty, ", %dd%02dh%02dm",
 		     tm->tm_yday, tm->tm_hour, tm->tm_min);
 	  else
-	    vty_out (vty, ", %02dw%dd%02dh", 
+	    vty_out (vty, ", %02dw%dd%02dh",
 		     tm->tm_yday/7,
 		     tm->tm_yday - ((tm->tm_yday/7) * 7), tm->tm_hour);
 	}
@@ -859,7 +863,7 @@ DEFUN (show_ip_route_prefix_longer,
       vty_out (vty, "%% Malformed Prefix%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  
+
   table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
   if (! table)
     return CMD_SUCCESS;
@@ -891,7 +895,7 @@ DEFUN (show_ip_route_supernets,
   struct route_table *table;
   struct route_node *rn;
   struct rib *rib;
-  u_int32_t addr; 
+  u_int32_t addr;
   int first = 1;
 
   table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
@@ -906,7 +910,7 @@ DEFUN (show_ip_route_supernets,
 
 	if ((IN_CLASSC (addr) && rn->p.prefixlen < 24)
 	   || (IN_CLASSB (addr) && rn->p.prefixlen < 16)
-	   || (IN_CLASSA (addr) && rn->p.prefixlen < 8)) 
+	   || (IN_CLASSA (addr) && rn->p.prefixlen < 8))
 	  {
 	    if (first)
 	      {
@@ -954,12 +958,12 @@ DEFUN (show_ip_route_protocol,
     type = ZEBRA_ROUTE_RIP;
   else if (strncmp (argv[0], "s", 1) == 0)
     type = ZEBRA_ROUTE_STATIC;
-  else 
+  else
     {
       vty_out (vty, "Unknown route type%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  
+
   table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
   if (! table)
     return CMD_SUCCESS;
@@ -1076,46 +1080,46 @@ vty_show_ip_route_summary (struct vty *vty, struct route_table *table)
         {
 	  rib_cnt[ZEBRA_ROUTE_TOTAL]++;
 	  rib_cnt[rib->type]++;
-	  if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB)) 
+	  if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB))
 	    {
 	      fib_cnt[ZEBRA_ROUTE_TOTAL]++;
 	      fib_cnt[rib->type]++;
 	    }
-	  if (rib->type == ZEBRA_ROUTE_BGP && 
-	      CHECK_FLAG (rib->flags, ZEBRA_FLAG_IBGP)) 
+	  if (rib->type == ZEBRA_ROUTE_BGP &&
+	      CHECK_FLAG (rib->flags, ZEBRA_FLAG_IBGP))
 	    {
 	      rib_cnt[ZEBRA_ROUTE_IBGP]++;
-	      if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB)) 
+	      if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB))
 		fib_cnt[ZEBRA_ROUTE_IBGP]++;
 	    }
 	}
 
-  vty_out (vty, "%-20s %-20s %-20s %s", 
+  vty_out (vty, "%-20s %-20s %-20s %s",
 	   "Route Source", "Routes", "FIB", VTY_NEWLINE);
 
-  for (i = 0; i < ZEBRA_ROUTE_MAX; i++) 
+  for (i = 0; i < ZEBRA_ROUTE_MAX; i++)
     {
       if (rib_cnt[i] > 0)
 	{
 	  if (i == ZEBRA_ROUTE_BGP)
 	    {
-	      vty_out (vty, "%-20s %-20d %-20d %s", "ebgp", 
+	      vty_out (vty, "%-20s %-20d %-20d %s", "ebgp",
 		       rib_cnt[ZEBRA_ROUTE_BGP] - rib_cnt[ZEBRA_ROUTE_IBGP],
 		       fib_cnt[ZEBRA_ROUTE_BGP] - fib_cnt[ZEBRA_ROUTE_IBGP],
 		       VTY_NEWLINE);
-	      vty_out (vty, "%-20s %-20d %-20d %s", "ibgp", 
+	      vty_out (vty, "%-20s %-20d %-20d %s", "ibgp",
 		       rib_cnt[ZEBRA_ROUTE_IBGP], fib_cnt[ZEBRA_ROUTE_IBGP],
 		       VTY_NEWLINE);
 	    }
-	  else 
-	    vty_out (vty, "%-20s %-20d %-20d %s", zebra_route_string(i), 
+	  else
+	    vty_out (vty, "%-20s %-20d %-20d %s", zebra_route_string(i),
 		     rib_cnt[i], fib_cnt[i], VTY_NEWLINE);
 	}
     }
 
   vty_out (vty, "------%s", VTY_NEWLINE);
-  vty_out (vty, "%-20s %-20d %-20d %s", "Totals", rib_cnt[ZEBRA_ROUTE_TOTAL], 
-	   fib_cnt[ZEBRA_ROUTE_TOTAL], VTY_NEWLINE);  
+  vty_out (vty, "%-20s %-20d %-20d %s", "Totals", rib_cnt[ZEBRA_ROUTE_TOTAL],
+	   fib_cnt[ZEBRA_ROUTE_TOTAL], VTY_NEWLINE);
 }
 
 /* Show route summary.  */
@@ -1143,7 +1147,7 @@ static int
 static_config_ipv4 (struct vty *vty)
 {
   struct route_node *rn;
-  struct static_ipv4 *si;  
+  struct static_ipv4 *si;
   struct route_table *stable;
   int write;
 
@@ -1172,7 +1176,7 @@ static_config_ipv4 (struct vty *vty)
               vty_out (vty, " Null0");
               break;
           }
-        
+
         /* flags are incompatible with STATIC_IPV4_BLACKHOLE */
         if (si->type != STATIC_IPV4_BLACKHOLE)
           {
@@ -1200,7 +1204,7 @@ DEFUN (show_ip_protocol,
         IP_STR
        "IP protocol filtering status\n")
 {
-    int i; 
+    int i;
 
     vty_out(vty, "Protocol    : route-map %s", VTY_NEWLINE);
     vty_out(vty, "------------------------%s", VTY_NEWLINE);
@@ -1222,7 +1226,7 @@ DEFUN (show_ip_protocol,
     return CMD_SUCCESS;
 }
 
-
+
 #ifdef HAVE_IPV6
 /* General fucntion for IPv6 static route. */
 static int
@@ -1238,7 +1242,7 @@ static_ipv6_func (struct vty *vty, int add_cmd, const char *dest_str,
   u_char type = 0;
   int table = 0;
   u_char flag = 0;
-  
+
   ret = str2prefix (dest_str, &p);
   if (ret <= 0)
     {
@@ -1539,7 +1543,7 @@ vty_show_ipv6_route_detail (struct vty *vty, struct route_node *rn)
 
   for (rib = rn->info; rib; rib = rib->next)
     {
-      vty_out (vty, "Routing entry for %s/%d%s", 
+      vty_out (vty, "Routing entry for %s/%d%s",
 	       inet_ntop (AF_INET6, &rn->p.u.prefix6, buf, BUFSIZ),
 	       rn->p.prefixlen,
 	       VTY_NEWLINE);
@@ -1572,13 +1576,13 @@ vty_show_ipv6_route_detail (struct vty *vty, struct route_node *rn)
 	  vty_out (vty, "  Last update ");
 
 	  if (uptime < ONE_DAY_SECOND)
-	    vty_out (vty,  "%02d:%02d:%02d", 
+	    vty_out (vty,  "%02d:%02d:%02d",
 		     tm->tm_hour, tm->tm_min, tm->tm_sec);
 	  else if (uptime < ONE_WEEK_SECOND)
-	    vty_out (vty, "%dd%02dh%02dm", 
+	    vty_out (vty, "%dd%02dh%02dm",
 		     tm->tm_yday, tm->tm_hour, tm->tm_min);
 	  else
-	    vty_out (vty, "%02dw%dd%02dh", 
+	    vty_out (vty, "%02dw%dd%02dh",
 		     tm->tm_yday/7,
 		     tm->tm_yday - ((tm->tm_yday/7) * 7), tm->tm_hour);
 	  vty_out (vty, " ago%s", VTY_NEWLINE);
@@ -1618,7 +1622,7 @@ vty_show_ipv6_route_detail (struct vty *vty, struct route_node *rn)
 	  if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
 	    {
 	      vty_out (vty, " (recursive");
-		
+
 	      switch (nexthop->rtype)
 		{
 		case NEXTHOP_TYPE_IPV6:
@@ -1669,7 +1673,7 @@ vty_show_ipv6_route (struct vty *vty, struct route_node *rn,
 			 rn->p.prefixlen);
 
 	  /* Distance and metric display. */
-	  if (rib->type != ZEBRA_ROUTE_CONNECT 
+	  if (rib->type != ZEBRA_ROUTE_CONNECT
 	      && rib->type != ZEBRA_ROUTE_KERNEL)
 	    len += vty_out (vty, " [%d/%d]", rib->distance,
 			    rib->metric);
@@ -1709,7 +1713,7 @@ vty_show_ipv6_route (struct vty *vty, struct route_node *rn,
       if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE))
 	{
 	  vty_out (vty, " (recursive");
-		
+
 	  switch (nexthop->rtype)
 	    {
 	    case NEXTHOP_TYPE_IPV6:
@@ -1735,7 +1739,7 @@ vty_show_ipv6_route (struct vty *vty, struct route_node *rn,
        vty_out (vty, ", bh");
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_REJECT))
        vty_out (vty, ", rej");
-      
+
       if (rib->type == ZEBRA_ROUTE_RIPNG
 	  || rib->type == ZEBRA_ROUTE_OSPF6
 	  || rib->type == ZEBRA_ROUTE_ISIS
@@ -1752,13 +1756,13 @@ vty_show_ipv6_route (struct vty *vty, struct route_node *rn,
 #define ONE_WEEK_SECOND 60*60*24*7
 
 	  if (uptime < ONE_DAY_SECOND)
-	    vty_out (vty,  ", %02d:%02d:%02d", 
+	    vty_out (vty,  ", %02d:%02d:%02d",
 		     tm->tm_hour, tm->tm_min, tm->tm_sec);
 	  else if (uptime < ONE_WEEK_SECOND)
-	    vty_out (vty, ", %dd%02dh%02dm", 
+	    vty_out (vty, ", %dd%02dh%02dm",
 		     tm->tm_yday, tm->tm_hour, tm->tm_min);
 	  else
-	    vty_out (vty, ", %02dw%dd%02dh", 
+	    vty_out (vty, ", %02dw%dd%02dh",
 		     tm->tm_yday/7,
 		     tm->tm_yday - ((tm->tm_yday/7) * 7), tm->tm_hour);
 	}
@@ -1874,12 +1878,12 @@ DEFUN (show_ipv6_route_protocol,
     type = ZEBRA_ROUTE_RIPNG;
   else if (strncmp (argv[0], "s", 1) == 0)
     type = ZEBRA_ROUTE_STATIC;
-  else 
+  else
     {
       vty_out (vty, "Unknown route type%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  
+
   table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
   if (! table)
     return CMD_SUCCESS;
@@ -2000,7 +2004,7 @@ static int
 static_config_ipv6 (struct vty *vty)
 {
   struct route_node *rn;
-  struct static_ipv6 *si;  
+  struct static_ipv6 *si;
   int write;
   char buf[BUFSIZ];
   struct route_table *stable;
@@ -2065,106 +2069,125 @@ zebra_ip_config (struct vty *vty)
 
 /* ip protocol configuration write function */
 static int config_write_protocol(struct vty *vty)
-{  
-  int i;
+{
+  int   i ;
+  int   wrote ;
 
-  for (i=0;i<ZEBRA_ROUTE_MAX;i++)
+  wrote = 0 ;
+
+  for (i=0 ; i < ZEBRA_ROUTE_MAX ; i++)
     {
       if (proto_rm[AFI_IP][i])
-        vty_out (vty, "ip protocol %s route-map %s%s", zebra_route_string(i),
+        {
+          vty_out (vty, "ip protocol %s route-map %s%s", zebra_route_string(i),
                  proto_rm[AFI_IP][i], VTY_NEWLINE);
-    }
+          ++wrote ;
+        } ;
+    } ;
+
   if (proto_rm[AFI_IP][ZEBRA_ROUTE_MAX])
+    {
       vty_out (vty, "ip protocol %s route-map %s%s", "any",
                proto_rm[AFI_IP][ZEBRA_ROUTE_MAX], VTY_NEWLINE);
+      ++wrote ;
+    } ;
 
-  return 1;
-}   
+  return wrote ;
+}
 
-/* table node for protocol filtering */
-static struct cmd_node protocol_node = { PROTOCOL_NODE, "", 1 };
-
-/* IP node for static routes. */
-static struct cmd_node ip_node = { IP_NODE,  "",  1 };
-
-/* Route VTY.  */
-void
-zebra_vty_init (void)
+/*------------------------------------------------------------------------------
+ * zebra commands for the IP_NODE and PROTOCOL_NODE
+ */
+CMD_INSTALL_TABLE(static, zebra_vty_cmd_table, ZEBRA) =
 {
-  install_node (&ip_node, zebra_ip_config);
-  install_node (&protocol_node, config_write_protocol);
-
-  install_element (CONFIG_NODE, &ip_protocol_cmd);
-  install_element (CONFIG_NODE, &no_ip_protocol_cmd);
-  install_element (VIEW_NODE, &show_ip_protocol_cmd);
-  install_element (ENABLE_NODE, &show_ip_protocol_cmd);
-  install_element (CONFIG_NODE, &ip_route_cmd);
-  install_element (CONFIG_NODE, &ip_route_flags_cmd);
-  install_element (CONFIG_NODE, &ip_route_flags2_cmd);
-  install_element (CONFIG_NODE, &ip_route_mask_cmd);
-  install_element (CONFIG_NODE, &ip_route_mask_flags_cmd);
-  install_element (CONFIG_NODE, &ip_route_mask_flags2_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_flags_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_flags2_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_mask_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_mask_flags_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_mask_flags2_cmd);
-  install_element (CONFIG_NODE, &ip_route_distance_cmd);
-  install_element (CONFIG_NODE, &ip_route_flags_distance_cmd);
-  install_element (CONFIG_NODE, &ip_route_flags_distance2_cmd);
-  install_element (CONFIG_NODE, &ip_route_mask_distance_cmd);
-  install_element (CONFIG_NODE, &ip_route_mask_flags_distance_cmd);
-  install_element (CONFIG_NODE, &ip_route_mask_flags_distance2_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_distance_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_flags_distance_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_flags_distance2_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance2_cmd);
-
-  install_element (VIEW_NODE, &show_ip_route_cmd);
-  install_element (VIEW_NODE, &show_ip_route_addr_cmd);
-  install_element (VIEW_NODE, &show_ip_route_prefix_cmd);
-  install_element (VIEW_NODE, &show_ip_route_prefix_longer_cmd);
-  install_element (VIEW_NODE, &show_ip_route_protocol_cmd);
-  install_element (VIEW_NODE, &show_ip_route_supernets_cmd);
-  install_element (VIEW_NODE, &show_ip_route_summary_cmd);
-  install_element (ENABLE_NODE, &show_ip_route_cmd);
-  install_element (ENABLE_NODE, &show_ip_route_addr_cmd);
-  install_element (ENABLE_NODE, &show_ip_route_prefix_cmd);
-  install_element (ENABLE_NODE, &show_ip_route_prefix_longer_cmd);
-  install_element (ENABLE_NODE, &show_ip_route_protocol_cmd);
-  install_element (ENABLE_NODE, &show_ip_route_supernets_cmd);
-  install_element (ENABLE_NODE, &show_ip_route_summary_cmd);
+  { CONFIG_NODE,     &ip_protocol_cmd                                   },
+  { CONFIG_NODE,     &no_ip_protocol_cmd                                },
+  { VIEW_NODE,       &show_ip_protocol_cmd                              },
+  { ENABLE_NODE,     &show_ip_protocol_cmd                              },
+  { CONFIG_NODE,     &ip_route_cmd                                      },
+  { CONFIG_NODE,     &ip_route_flags_cmd                                },
+  { CONFIG_NODE,     &ip_route_flags2_cmd                               },
+  { CONFIG_NODE,     &ip_route_mask_cmd                                 },
+  { CONFIG_NODE,     &ip_route_mask_flags_cmd                           },
+  { CONFIG_NODE,     &ip_route_mask_flags2_cmd                          },
+  { CONFIG_NODE,     &no_ip_route_cmd                                   },
+  { CONFIG_NODE,     &no_ip_route_flags_cmd                             },
+  { CONFIG_NODE,     &no_ip_route_flags2_cmd                            },
+  { CONFIG_NODE,     &no_ip_route_mask_cmd                              },
+  { CONFIG_NODE,     &no_ip_route_mask_flags_cmd                        },
+  { CONFIG_NODE,     &no_ip_route_mask_flags2_cmd                       },
+  { CONFIG_NODE,     &ip_route_distance_cmd                             },
+  { CONFIG_NODE,     &ip_route_flags_distance_cmd                       },
+  { CONFIG_NODE,     &ip_route_flags_distance2_cmd                      },
+  { CONFIG_NODE,     &ip_route_mask_distance_cmd                        },
+  { CONFIG_NODE,     &ip_route_mask_flags_distance_cmd                  },
+  { CONFIG_NODE,     &ip_route_mask_flags_distance2_cmd                 },
+  { CONFIG_NODE,     &no_ip_route_distance_cmd                          },
+  { CONFIG_NODE,     &no_ip_route_flags_distance_cmd                    },
+  { CONFIG_NODE,     &no_ip_route_flags_distance2_cmd                   },
+  { CONFIG_NODE,     &no_ip_route_mask_flags_distance_cmd               },
+  { CONFIG_NODE,     &no_ip_route_mask_flags_distance2_cmd              },
+  { VIEW_NODE,       &show_ip_route_cmd                                 },
+  { VIEW_NODE,       &show_ip_route_addr_cmd                            },
+  { VIEW_NODE,       &show_ip_route_prefix_cmd                          },
+  { VIEW_NODE,       &show_ip_route_prefix_longer_cmd                   },
+  { VIEW_NODE,       &show_ip_route_protocol_cmd                        },
+  { VIEW_NODE,       &show_ip_route_supernets_cmd                       },
+  { VIEW_NODE,       &show_ip_route_summary_cmd                         },
+  { ENABLE_NODE,     &show_ip_route_cmd                                 },
+  { ENABLE_NODE,     &show_ip_route_addr_cmd                            },
+  { ENABLE_NODE,     &show_ip_route_prefix_cmd                          },
+  { ENABLE_NODE,     &show_ip_route_prefix_longer_cmd                   },
+  { ENABLE_NODE,     &show_ip_route_protocol_cmd                        },
+  { ENABLE_NODE,     &show_ip_route_supernets_cmd                       },
+  { ENABLE_NODE,     &show_ip_route_summary_cmd                         },
 
 #ifdef HAVE_IPV6
-  install_element (CONFIG_NODE, &ipv6_route_cmd);
-  install_element (CONFIG_NODE, &ipv6_route_flags_cmd);
-  install_element (CONFIG_NODE, &ipv6_route_ifname_cmd);
-  install_element (CONFIG_NODE, &ipv6_route_ifname_flags_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_route_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_route_flags_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_route_ifname_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_route_ifname_flags_cmd);
-  install_element (CONFIG_NODE, &ipv6_route_pref_cmd);
-  install_element (CONFIG_NODE, &ipv6_route_flags_pref_cmd);
-  install_element (CONFIG_NODE, &ipv6_route_ifname_pref_cmd);
-  install_element (CONFIG_NODE, &ipv6_route_ifname_flags_pref_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_route_pref_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_route_flags_pref_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_route_ifname_pref_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_route_ifname_flags_pref_cmd);
-  install_element (VIEW_NODE, &show_ipv6_route_cmd);
-  install_element (VIEW_NODE, &show_ipv6_route_summary_cmd);
-  install_element (VIEW_NODE, &show_ipv6_route_protocol_cmd);
-  install_element (VIEW_NODE, &show_ipv6_route_addr_cmd);
-  install_element (VIEW_NODE, &show_ipv6_route_prefix_cmd);
-  install_element (VIEW_NODE, &show_ipv6_route_prefix_longer_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_route_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_route_protocol_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_route_addr_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_route_prefix_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_route_prefix_longer_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_route_summary_cmd);
+  { CONFIG_NODE,     &ipv6_route_cmd                                    },
+  { CONFIG_NODE,     &ipv6_route_flags_cmd                              },
+  { CONFIG_NODE,     &ipv6_route_ifname_cmd                             },
+  { CONFIG_NODE,     &ipv6_route_ifname_flags_cmd                       },
+  { CONFIG_NODE,     &no_ipv6_route_cmd                                 },
+  { CONFIG_NODE,     &no_ipv6_route_flags_cmd                           },
+  { CONFIG_NODE,     &no_ipv6_route_ifname_cmd                          },
+  { CONFIG_NODE,     &no_ipv6_route_ifname_flags_cmd                    },
+  { CONFIG_NODE,     &ipv6_route_pref_cmd                               },
+  { CONFIG_NODE,     &ipv6_route_flags_pref_cmd                         },
+  { CONFIG_NODE,     &ipv6_route_ifname_pref_cmd                        },
+  { CONFIG_NODE,     &ipv6_route_ifname_flags_pref_cmd                  },
+  { CONFIG_NODE,     &no_ipv6_route_pref_cmd                            },
+  { CONFIG_NODE,     &no_ipv6_route_flags_pref_cmd                      },
+  { CONFIG_NODE,     &no_ipv6_route_ifname_pref_cmd                     },
+  { CONFIG_NODE,     &no_ipv6_route_ifname_flags_pref_cmd               },
+  { VIEW_NODE,       &show_ipv6_route_cmd                               },
+  { VIEW_NODE,       &show_ipv6_route_summary_cmd                       },
+  { VIEW_NODE,       &show_ipv6_route_protocol_cmd                      },
+  { VIEW_NODE,       &show_ipv6_route_addr_cmd                          },
+  { VIEW_NODE,       &show_ipv6_route_prefix_cmd                        },
+  { VIEW_NODE,       &show_ipv6_route_prefix_longer_cmd                 },
+  { ENABLE_NODE,     &show_ipv6_route_cmd                               },
+  { ENABLE_NODE,     &show_ipv6_route_protocol_cmd                      },
+  { ENABLE_NODE,     &show_ipv6_route_addr_cmd                          },
+  { ENABLE_NODE,     &show_ipv6_route_prefix_cmd                        },
+  { ENABLE_NODE,     &show_ipv6_route_prefix_longer_cmd                 },
+  { ENABLE_NODE,     &show_ipv6_route_summary_cmd                       },
 #endif /* HAVE_IPV6 */
-}
+
+  CMD_INSTALL_END
+} ;
+
+/* Route VTY.  */
+extern void
+zebra_vty_cmd_init (void)
+{
+  cmd_install_node_config_write (IP_NODE, zebra_ip_config);
+  cmd_install_node_config_write (PROTOCOL_NODE, config_write_protocol);
+
+  cmd_install_table(zebra_vty_cmd_table) ;
+} ;
+
+/* Route VTY.  */
+extern void
+zebra_vty_init (void)
+{
+} ;

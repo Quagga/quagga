@@ -33,6 +33,7 @@
 
 extern void router_id_add_address(struct connected *);
 extern void router_id_del_address(struct connected *);
+extern void router_id_cmd_init(void);
 extern void router_id_init(void);
 extern void router_id_write(struct vty *);
 extern void router_id_get(struct prefix *);

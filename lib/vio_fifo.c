@@ -42,9 +42,11 @@
  *------------------------------------------------------------------------------
  * Implementation notes:
  *
- * The FIFO is initialised with one lump in it (the "own_lump", which is
- * embedded in the FIFO structure).  There is always at least one lump in
- * the FIFO.
+ * The FIFO is initialised with one lump in it.  There is always at least one
+ * lump in the FIFO, and possibly one spare.
+ *
+ * All lumps are the same size, and that size is fixed when the fifo is
+ * initialised.
  *
  * The hold_ptr allows the get_ptr to move forward, but retaining the data in
  * the FIFO until the hold_ptr is cleared.  Can move the get_ptr back to the
@@ -202,10 +204,12 @@ vio_fifo_have_end_mark(vio_fifo vff)
 inline static void
 vio_fifo_reset_ptrs(vio_fifo vff)
 {
-  char* ptr = ddl_tail(vff->base)->data ;
+  char* ptr ;
 
   if (vio_fifo_debug)
     assert(ddl_head(vff->base) == ddl_tail(vff->base)) ;
+
+  ptr = ddl_tail(vff->base)->data ;
 
   vff->hold_ptr = ptr ;
   vff->get_ptr  = ptr ;
@@ -324,6 +328,7 @@ vio_fifo_release_back_to(vio_fifo vff, vio_fifo_lump to)
 /*==============================================================================
  * Initialisation, allocation and freeing of FIFO and lumps thereof.
  */
+static vio_fifo_lump vio_fifo_lump_new(vio_fifo vff) ;
 
 /*------------------------------------------------------------------------------
  * Allocate and initialise a new FIFO.
@@ -344,7 +349,7 @@ extern vio_fifo
 vio_fifo_new(ulen size)
 {
   vio_fifo vff ;
-  ulen     total_size ;
+  vio_fifo_lump lump ;
 
   if (size == 0)
     size = VIO_FIFO_DEFAULT_LUMP_SIZE ;
@@ -354,61 +359,107 @@ vio_fifo_new(ulen size)
   if (vio_fifo_debug)
     size = 29 ;
 
-  total_size = offsetof(struct vio_fifo, own_lump[0].data[size]) ;
-
-  vff = XCALLOC(MTYPE_VIO_FIFO, total_size) ;
+  vff = XCALLOC(MTYPE_VIO_FIFO, sizeof(vio_fifo_t)) ;
 
   /* Zeroising the the vio_fifo_t has set:
    *
    *    base      -- base pair, both pointers NULL => list is empty
    *
-   *    p_start   -- X      -- see vio_fifo_ptr_set()
+   *    p_start   -- X      -- set below
    *
    *    hold_ptr  -- NULL   -- not relevant until hold mark is set
    *
    *    get_lump  -- X )
-   *    get_ptr   -- X )    -- see vio_fifo_ptr_set()
+   *    get_ptr   -- X )    -- set below
    *    p_get_end -- X )
    *
-   *    end_lump  -- X      -- see vio_fifo_ptr_set()
+   *    end_lump  -- X      -- set below
    *
    *    end_ptr   -- NULL   -- not relevant until hold mark is set
    *
    *    put_ptr   -- X )
-   *    put_end   -- X )    -- see vio_fifo_ptr_set()
+   *    put_end   -- X )    -- set below
    *    p_end     -- X )
    *
    *    size      -- X      -- set below
    *
    *    spare     -- NULL   -- no spare lump
-   *
-   *    own_lump  -- all zeros:  list  -- pointers NULL, set below
-   *                             end   -- set below
    */
   vff->size          = size ;
-  vff->own_lump->end = vff->own_lump->data + vff->size ;
 
-  if (vio_fifo_debug)
-    assert(vff->own_lump->end == ((char*)vff + total_size)) ;
+  lump = vio_fifo_lump_new(vff) ;       /* start with one lump  */
 
-  ddl_append(vff->base, vff->own_lump, list) ;
+  vff->p_start    = &vff->get_ptr ;     /* no hold_ptr          */
 
-  vff->p_start    = &vff->get_ptr ;
+  vff->get_lump   = lump ;
+  vff->get_ptr    = lump->data ;
+  vff->p_get_end  = &vff->put_ptr  ;    /* no end_ptr           */
 
-  vff->get_lump   = vff->own_lump ;
-  vff->get_ptr    = vff->own_lump->data ;
-  vff->p_get_end  = &vff->put_ptr  ;
+  vff->end_lump   = lump ;
 
-  vff->end_lump   = vff->own_lump ;
-
-  vff->put_ptr    = vff->own_lump->data ;
-  vff->put_end    = vff->own_lump->end ;
+  vff->put_ptr    = lump->data ;
+  vff->put_end    = lump->end ;
 
   vff->p_end      = &vff->put_ptr ;
 
   VIO_FIFO_DEBUG_VERIFY(vff) ;
 
   return vff ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Append new lump to end of fifo.
+ *
+ * If we can use the spare, do so, otherwise make a new one.
+ */
+static vio_fifo_lump
+vio_fifo_lump_new(vio_fifo vff)
+{
+  vio_fifo_lump lump ;
+
+  lump = vff->spare ;
+
+  if (lump != NULL)
+    vff->spare = NULL ;
+  else
+    {
+      ulen lump_size = offsetof(vio_fifo_lump_t, data[vff->size]) ;
+
+      lump = XMALLOC(MTYPE_VIO_FIFO_LUMP, lump_size) ;
+      lump->end = (char*)lump + lump_size ;
+    } ;
+
+  if (vio_fifo_debug)
+    assert(lump->end == (lump->data + vff->size)) ;
+
+  ddl_append(vff->base, lump, list) ;
+
+  return lump ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free contents of given FIFO (if any), including any spare.
+ *
+ * NB: result is an *invalid* FIFO -- since it contains no lumps !!
+ */
+static void
+vio_fifo_free_lumps(vio_fifo vff)
+{
+  if (vff != NULL)
+    {
+      vio_fifo_lump lump ;
+
+      lump = vff->spare ;
+      vff->spare = NULL ;
+
+      do
+        {
+          XFREE(MTYPE_VIO_FIFO_LUMP, lump) ;    /* accepts lump == NULL */
+
+          ddl_pop(&lump, vff->base, list) ;
+        }
+      while (lump != NULL) ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -421,39 +472,23 @@ vio_fifo_new(ulen size)
 extern vio_fifo
 vio_fifo_free(vio_fifo vff)
 {
-  if (vff != NULL)
-    {
-      vio_fifo_lump lump ;
-
-      lump = vff->spare ;
-      vff->spare = NULL ;
-
-      do
-        {
-          if (lump != vff->own_lump)
-            XFREE(MTYPE_VIO_FIFO_LUMP, lump) ;  /* accepts lump == NULL */
-
-          ddl_pop(&lump, vff->base, list) ;
-        }
-      while (lump != NULL) ;
-
-      XFREE(MTYPE_VIO_FIFO, vff) ;
-    } ;
+  vio_fifo_free_lumps(vff) ;            /* does nothing if vff NULL     */
+  XFREE(MTYPE_VIO_FIFO, vff) ;          /* does nothing if vff NULL     */
 
   return NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Clear out contents of FIFO -- will continue to use the FIFO.
+ * Clear out contents of FIFO -- can continue to use the FIFO.
  *
- * If required, clears any hold mark and/or end mark.
+ * Note that any hold or end marks are reset, but preserved.
  *
  * Keeps one spare lump.
  *
  * Does nothing if there is no FIFO !
  */
 extern void
-vio_fifo_clear(vio_fifo vff, bool clear_marks)
+vio_fifo_clear(vio_fifo vff)
 {
   vio_fifo_lump lump ;
 
@@ -464,20 +499,39 @@ vio_fifo_clear(vio_fifo vff, bool clear_marks)
 
   lump = ddl_tail(vff->base) ;
 
-  vff->get_lump = lump ;                /* before releasing     */
+  vff->get_lump = lump ;                /* before releasing             */
   vff->end_lump = lump ;
 
   vio_fifo_release_up_to(vff, lump) ;
 
   vio_fifo_reset_ptrs(vff) ;
 
-  if (clear_marks)
-    {
-      vff->p_start = &vff->get_ptr ;
-      vff->p_end   = &vff->put_ptr ;
-    } ;
+  vff->p_get_end = vff->p_end ;         /* because get_lump == end_lump */
 
-  vff->p_get_end = vff->p_end ;
+  VIO_FIFO_DEBUG_VERIFY(vff) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Clear out contents of FIFO -- will continue to use the FIFO.
+ *
+ * Clears any hold or end marks.
+ *
+ * Keeps one spare lump.
+ *
+ * Does nothing if there is no FIFO !
+ */
+extern void
+vio_fifo_reset(vio_fifo vff)
+{
+  if (vff == NULL)
+    return ;
+
+  vio_fifo_clear(vff) ;
+
+  vff->p_start   = &vff->get_ptr ;      /* no hold mark                 */
+  vff->p_end     = &vff->put_ptr ;      /* no end mark                  */
+
+  vff->p_get_end = vff->p_end ;         /* because get_lump == end_lump */
 
   VIO_FIFO_DEBUG_VERIFY(vff) ;
 } ;
@@ -509,24 +563,9 @@ vio_fifo_add_lump(vio_fifo vff)
 
   VIO_FIFO_DEBUG_VERIFY(vff) ;
 
-  /* If we can use the spare, do so, otherwise make a new one and
-   * add to the end of the FIFO.
+  /* Append a new lump to the fifo (uses spare, if have one).
    */
-  lump       = vff->spare ;
-  vff->spare = NULL ;
-
-  if (lump == NULL)
-    {
-      ulen lump_size = offsetof(vio_fifo_lump_t, data[vff->size]) ;
-
-      lump = XMALLOC(MTYPE_VIO_FIFO_LUMP, lump_size) ;
-      lump->end = (char*)lump + lump_size ;
-
-      if (vio_fifo_debug)
-        assert(lump->end == (lump->data + vff->size)) ;
-    } ;
-
-  ddl_append(vff->base, lump, list) ;
+  lump = vio_fifo_lump_new(vff) ;
 
   /* Allocated new lump on the end of FIFO.
    *
@@ -568,8 +607,10 @@ vio_fifo_add_lump(vio_fifo vff)
 /*------------------------------------------------------------------------------
  * Release the given lump, provided it is neither get_lump nor end_lump.
  *
+ * There is always a get_lump and an end_lump -- so should never reduce fifo
+ * below one lump.
+ *
  * If don't have a spare lump, keep this one.
- * If do have a spare lump, discard this one, unless it is "own_lump".
  */
 static void
 vio_fifo_release_lump(vio_fifo vff, vio_fifo_lump lump)
@@ -581,20 +622,26 @@ vio_fifo_release_lump(vio_fifo vff, vio_fifo_lump lump)
   if (vff->spare == NULL)
     vff->spare = lump ;
   else
-    {
-      if (lump == vff->own_lump)
-        {
-          lump = vff->spare ;   /* free the spare instead       */
-          vff->spare = vff->own_lump ;
-        } ;
-
-      XFREE(MTYPE_VIO_FIFO_LUMP, lump) ;
-    } ;
+    XFREE(MTYPE_VIO_FIFO_LUMP, lump) ;
 } ;
 
 /*==============================================================================
  * Put data to the FIFO.
  */
+
+/*------------------------------------------------------------------------------
+ * Put string -- allocating as required.
+ */
+extern void
+vio_fifo_put_string(vio_fifo vff, const char* src)
+{
+  VIO_FIFO_DEBUG_VERIFY(vff) ;
+
+  if (src != NULL)
+    vio_fifo_put_bytes(vff, src, strlen(src)) ;
+
+  VIO_FIFO_DEBUG_VERIFY(vff) ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Put 'n' bytes -- allocating as required.
@@ -693,11 +740,12 @@ vio_fifo_vprintf(vio_fifo vff, const char *format, va_list va)
 /*------------------------------------------------------------------------------
  * Read part of file into FIFO -- assuming non-blocking file
  *
- * Will read up to the end of the current lump, then will read as may whole
- * lumps as are requested -- request of 0 reads up to the end of the current
- * lump (at least 1 byte).  Will stop if would block.
+ * If "require" is not zero, read at most that many bytes into the fifo.
  *
- * Except where blocking intervenes, this reads in units of the lump size.
+ * If "require" is zero, then will read to fill the last lump, and then
+ * the "requested" number of further lumps.  If the last lump is empty, will
+ * add at least one lump.  Except where blocking intervenes, this reads in
+ * units of the lump size.
  *
  * Returns: 0..n -- number of bytes read
  *         -1 => failed -- see errno
@@ -708,27 +756,37 @@ vio_fifo_vprintf(vio_fifo vff, const char *format, va_list va)
  *       something, error or EOF.
  */
 extern int
-vio_fifo_read_nb(vio_fifo vff, int fd, ulen request)
+vio_fifo_read_nb(vio_fifo vff, int fd, ulen require, ulen request)
 {
   ulen total ;
 
   VIO_FIFO_DEBUG_VERIFY(vff) ;
 
   total = 0 ;
+  if (require != 0)
+    request = 0 ;                       /* require overrides request    */
 
   do
     {
+      ulen take ;
       int  got ;
 
-      if (vff->put_ptr >= vff->put_end)
+      take = vff->put_end - vff->put_ptr ;
+
+      if (take == 0)
         {
           vio_fifo_add_lump(vff) ;       /* traps put_ptr > put_end      */
 
           if (request > 0)
             --request ;
+
+          take = vff->put_end - vff->put_ptr ;
         } ;
 
-      got = read_nb(fd, vff->put_ptr, vff->put_end - vff->put_ptr) ;
+      if ((require != 0) && (take > require))
+        take = require ;
+
+      got = read_nb(fd, vff->put_ptr, take) ;
 
       if (got <= 0)
         {
@@ -741,7 +799,10 @@ vio_fifo_read_nb(vio_fifo vff, int fd, ulen request)
       vff->put_ptr += got ;
       total        += got ;
 
-    } while (request > 0) ;
+      if (require != 0)
+        require -= got ;
+
+    } while ((request > 0) || (require > 0)) ;
 
   VIO_FIFO_DEBUG_VERIFY(vff) ;
 
@@ -752,11 +813,14 @@ vio_fifo_read_nb(vio_fifo vff, int fd, ulen request)
  * Strip trailing whitespace and, if required, insert '\n' if result is not
  * empty and does not now end in '\n'
  *
+ * Does nothing at all if the fifo is completely empty !
+ *
  * Strips anything 0x00..0x20 except for '\n'.
  *
- * Returns: 0..n -- number of bytes read
- *         -1 => failed -- see errno
- *         -2 => EOF met immediately
+ * If strips back to or behind the end marker, resets the end marker to the new
+ * end of the buffer, after any inserted '\n'.
+ *
+ * If tracks back past the get_ptr, strips back only as far as the get_ptr.
  */
 extern void
 vio_fifo_trim(vio_fifo vff, bool term)
@@ -765,122 +829,136 @@ vio_fifo_trim(vio_fifo vff, bool term)
   char* p ;
   char* s ;
   char* end_ptr ;
-  bool  end_ptr_passed ;
-  char  ch ;
+  bool  met_end_ptr ;
+  bool  met_get_ptr ;
+  unsigned char ch ;
+
+  /* Look out for nothing to do
+   */
+  if (vio_fifo_is_quite_empty(vff))
+    return ;
 
   /* Position at end of fifo, and establish how far back in current lump
    * can discard whitespace.
    */
   lump = ddl_tail(vff->base) ;
   p = vff->put_ptr ;
-  s = (lump == vff->get_lump) ? vff->get_ptr : lump->data ;
+  s = (lump == ddl_head(vff->base)) ? *vff->p_start : lump->data ;
 
   if (vio_fifo_have_end_mark(vff))
     end_ptr = vff->end_ptr ;
   else
     end_ptr = NULL ;
-  end_ptr_passed = false ;
+
+  met_end_ptr = false ;
 
   /* Track backwards, until reach get_ptr or hit '\n' or something which is
    * not 0x00..0x20.
+   *
+   * If meet the end_ptr, clear it and note that need to restore same.
+   *
+   * If meet the get_ptr, note that need to move to it.
    */
   ch = '\0' ;
   while (1)
     {
-      if (s == p)
+      if (p == end_ptr)
+        {
+          met_end_ptr = true ;
+          end_ptr     = NULL ;
+          vio_fifo_clear_end_mark(vff) ;
+        } ;
+
+      if (p == vff->get_ptr)
+        met_get_ptr = true ;
+
+      if (p == s)
         {
           /* At the start of the current lump and/or at the get_ptr.
            *
            * If at the get_ptr, then cannot track any further back, but if
            * there is a hold mark, there may be something before the get_ptr.
            */
-          if (lump == vff->get_lump)
+          if (lump == ddl_head(vff->base))
             {
-              qassert(p == vff->get_ptr) ;      /* hit get_ptr          */
+              qassert(s == *vff->p_start) ;     /* hit start of fifo    */
 
-              ch = '\0' ;
-              if (p == *vff->p_start)
-                break ;                         /* hit start of fifo    */
-
-              if (p != lump->data)
-                qassert(p > lump->data) ;
-              else
-                {
-                  qassert(lump != ddl_head(vff->base)) ;
-                  s = ddl_prev(lump, list)->end ;
-                } ;
-
-              ch = *(s - 1) ;
-
-              if (ch != '\n')
-                ch = '\xFF' ;                   /* anything but '\0'    */
-
+              ch = '\n' ;       /* pretend we have a '\n' before start  */
               break ;
             } ;
 
           lump = ddl_prev(lump, list) ;
 
           p = lump->end ;
-          s = (lump == vff->get_lump) ? vff->get_ptr : lump->data ;
+          s = (lump == vff->get_lump) ? *vff->p_start : lump->data ;
 
-          continue ;
+          continue ;    /* so spots end_ptr/get_ptr at end of lump      */
         } ;
 
       qassert(p > s) ;
 
       ch = *(p-1) ;
 
-      if ((ch > 0x20) || (ch == '\n'))
+      if ((ch > 0x20) || (ch == '\n') || met_get_ptr)
         break ;
-
-      if (p == end_ptr)
-        end_ptr_passed = true ;         /* stepped past the end mark    */
 
       --p ;
     } ;
 
-  /* Decide what to do now.
+  /* Have found one of:
    *
-   *   ch == '\0'  <=> p points at end of empty fifo !
-   *   ch == '\n'  <=> p points after a '\n'.
+   *   ch == '\n'  <=> p points after a '\n', or at the start of the fifo
    *   otherwise   <=> p points after non-whitespace, or is at get_ptr and
    *                            something other than '\n' precedes it.
    *
    * lump points at the lump that 'p' is in.
    *
-   * If stepped back past the end_ptr, now is the time to set the end_ptr
-   * to the current position.
-   */
-  if (end_ptr_passed)
-    {
-      qassert(end_ptr != NULL) ;
-
-      vff->end_lump = lump ;
-      vff->end_ptr  = p ;
-    } ;
-
-  /* If have stepped back across one or more lumps, trim now excess lumps off
+   * If have stepped back across one or more lumps, trim now excess lumps off
    * the end.
    *
-   * Note, it is (just) possible that in inserting a '\n', that this will
-   * trim off a lump that needs to be re-instated -- but it is more
+   * Note, it is (just) possible that if we need to insert a '\n', that this
+   * will trim off a lump that will need to be re-instated -- but it is more
    * straightforward to do this, and the odds are pretty slim.
    */
   if (lump != ddl_tail(vff->base))
-    vio_fifo_release_back_to(vff, lump) ;
+    {
+      /* vff->end_lump tracks either the end_ptr, or the tail.
+       *
+       * In order to discard lumps, must have the vff->end_lump at or before
+       * the new tail.  end_ptr is NULL if there is (now) no end_ptr.  If there
+       * is an end_ptr, then it must be at or before the new tail lump,
+       * otherwise would have cleared it above.
+       */
+      if (end_ptr == NULL)
+        {
+          vff->end_lump = lump ;
+          vio_fifo_set_get_end(vff) ;   /* keep p_get_end up to date    */
+        } ;
+
+      vio_fifo_release_back_to(vff, lump) ;
+    } ;
 
   /* set the (new) put_ptr.
    */
-  vff->put_ptr = p ;
+  if (p == *vff->p_start)
+    vio_fifo_reset_ptrs(vff) ;
+  else
+    vff->put_ptr = p ;
 
   /* If we need to add a terminator, do that now.
    */
-  if (term && (ch != '\n') && (ch != '\0'))
+  if (term && (ch != '\n'))
     vio_fifo_put_byte(vff, '\n') ;
+
+  /* If stepped back to or past the end_ptr, restore the end_ptr at the
+   * (new) current position.
+   */
+  if (met_end_ptr)
+    vio_fifo_set_end_mark(vff) ;
 } ;
 
 /*==============================================================================
- * Copy operations -- from one FIFO to another.
+ * Copy/Move operations -- from one FIFO to another.
  */
 
 /*------------------------------------------------------------------------------
@@ -982,6 +1060,67 @@ vio_fifo_copy_tail(vio_fifo dst, vio_fifo src)
   return dst ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Move contents of one fifo to another -- creating new fifo if required.
+ *
+ * If destination fifo exists, empties it first.
+ *
+ * If the source fifo has a spare lump, that will be retained.
+ */
+extern vio_fifo
+vio_fifo_move(vio_fifo dst, vio_fifo src)
+{
+  VIO_FIFO_DEBUG_VERIFY(src) ;
+
+  /* If we need a new fifo, make it.  Otherwise, discard all contents.
+   */
+  if (dst == NULL)
+    dst = XMALLOC(MTYPE_VIO_FIFO, sizeof(vio_fifo_t)) ;
+  else
+    vio_fifo_free_lumps(dst) ;
+
+  /* Copy entire src to destination, apart from any spare.
+   *
+   * Need to fixup: dst->p_start   = ->get_ptr or ->hold_ptr
+   *                dst->p_get_end = ->put_ptr or ->end_ptr or current lump end
+   *                dst->p_end     = ->put_ptr or ->end_ptr
+   */
+  *dst = *src ;
+  dst->spare = NULL ;
+
+  if (src->p_start == &src->hold_ptr)
+    dst->p_start = &dst->hold_ptr ;
+  else
+    dst->p_start = &dst->get_ptr ;
+
+  if      (src->p_get_end == &src->end_ptr)
+    dst->p_get_end = &dst->end_ptr ;
+  else if (src->p_get_end == &src->put_ptr)
+    dst->p_get_end = &dst->put_ptr ;
+
+  if      (src->p_end == &src->end_ptr)
+    dst->p_end = &dst->end_ptr ;
+  else if (src->p_end == &src->put_ptr)
+    dst->p_end = &dst->put_ptr ;
+
+  /* Empty out the src fifo, then make sure has one lump and reset all pointers.
+   *
+   * Need to fixup: src->p_get_end = src->p_end
+   */
+  ddl_init(src->base) ;         /* empty out the fifo           */
+  src->get_lump = src->end_lump = vio_fifo_lump_new(src) ;
+                                /* add new lump at end          */
+  vio_fifo_reset_ptrs(src) ;    /* reset to start of new lump   */
+
+  src->put_end   = src->end_lump->end ;
+  src->p_get_end = src->p_end ; /* because only one lump        */
+
+  VIO_FIFO_DEBUG_VERIFY(dst) ;
+  VIO_FIFO_DEBUG_VERIFY(src) ;
+
+  return dst ;
+} ;
+
 /*==============================================================================
  * End Mark Operations.
  *
@@ -1016,9 +1155,9 @@ vio_fifo_copy_tail(vio_fifo dst, vio_fifo src)
 extern void
 vio_fifo_set_end_mark(vio_fifo vff)
 {
-  vff->p_end   = &vff->end_ptr ;
+  vff->p_end    = &vff->end_ptr ;
 
-  vff->end_ptr = vff->put_ptr ;
+  vff->end_ptr  = vff->put_ptr ;
   vff->end_lump = ddl_tail(vff->base) ;
 
   vio_fifo_set_get_end(vff) ;   /* in case end_lump or p_end changed    */
@@ -1057,8 +1196,7 @@ vio_fifo_step_end_mark(vio_fifo vff)
 extern void
 vio_fifo_clear_end_mark(vio_fifo vff)
 {
-  vff->p_end   = &vff->put_ptr ;
-
+  vff->p_end    = &vff->put_ptr ;
   vff->end_lump = ddl_tail(vff->base) ;
 
   vio_fifo_set_get_end(vff) ;   /* in case end_lump or p_end changed    */
@@ -1069,19 +1207,14 @@ vio_fifo_clear_end_mark(vio_fifo vff)
 /*------------------------------------------------------------------------------
  * Move put_ptr back to the end mark, if any, and discard data.
  *
- * If there is an end_mark, keep it if required.
- *
- * If there is no end mark, do nothing.
- *
- * If there is an end mark but it is the same as the put_ptr, then need do
- * nothing at all.
+ * Does not clear the end mark.
  *
  * Note that: if there is an end mark, then p_end == &end_ptr, so if
  * *p_end == put_ptr, then end_ptr == put_ptr ; if there is no end mark,
  * then p_end == &put_ptr, so *p_end == put_ptr !!
  */
 extern void
-vio_fifo_back_to_end_mark(vio_fifo vff, bool keep)
+vio_fifo_back_to_end_mark(vio_fifo vff)
 {
   if (*vff->p_end != vff->put_ptr)      /* test for not-empty end mark  */
     {
@@ -1095,15 +1228,9 @@ vio_fifo_back_to_end_mark(vio_fifo vff, bool keep)
         vio_fifo_reset_ptrs(vff) ;
       else
         vff->put_ptr = vff->end_ptr ;
-    } ;
 
-  if (!keep)
-    {
-      vff->p_end = &vff->put_ptr ;
-      vio_fifo_set_get_end(vff) ;       /* in case get_lump == end_lump */
+      VIO_FIFO_DEBUG_VERIFY(vff) ;
     } ;
-
-  VIO_FIFO_DEBUG_VERIFY(vff) ;
 } ;
 
 /*==============================================================================
@@ -1338,7 +1465,6 @@ vio_fifo_verify(vio_fifo vff)
   vio_fifo_lump head ;
   vio_fifo_lump lump ;
   vio_fifo_lump tail ;
-  bool  own_seen ;
 
   head = ddl_head(vff->base) ;
   tail = ddl_tail(vff->base) ;
@@ -1353,14 +1479,9 @@ vio_fifo_verify(vio_fifo vff)
    *
    * When finished, know that head <= get_lump <= end_lump <= tail.
    */
-  own_seen = false ;
-
   lump = head ;
   while (1)
     {
-      if (lump == vff->own_lump)
-        own_seen = true ;
-
       if (lump == vff->get_lump)
         break ;
 
@@ -1375,9 +1496,6 @@ vio_fifo_verify(vio_fifo vff)
 
       if (lump == NULL)
         zabort("ran out of lumps looking for end_lump") ;
-
-      if (lump == vff->own_lump)
-        own_seen = true ;
     } ;
 
   while (lump != tail)
@@ -1386,20 +1504,6 @@ vio_fifo_verify(vio_fifo vff)
 
       if (lump == NULL)
         zabort("ran out of lumps looking for tail") ;
-
-      if (lump == vff->own_lump)
-        own_seen = true ;
-    } ;
-
-  if (vff->spare == vff->own_lump)
-    {
-      if (own_seen)
-        zabort("own seen in FIFO, but is also spare") ;
-    }
-  else
-    {
-      if (!own_seen)
-        zabort("not found own lump in the FIFO") ;
     } ;
 
   /* Check that the p_start, p_get_end and p_end are valid

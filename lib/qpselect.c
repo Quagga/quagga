@@ -218,14 +218,18 @@ qps_selection_re_init(qps_selection qps)
  *
  * This initialises most of the qps_file structure, but not the actions.
  *
+ * NB: while a file is a member of a selection, the fd MUST be a valid, open
+ *     fd -- otherwise, could end up here reusing an fd that was closed and is
+ *     now open again.
+ *
  * Adding a file using the same fd as an existing file is a FATAL error.
  *
- * Adding a file which is already a member a selection is a FATAL error.
+ * Adding a file which is already a member of a selection is a FATAL error.
  */
 extern void
 qps_add_file(qps_selection qps, qps_file qf, fd_t fd, void* file_info)
 {
-  passert(qf->selection == NULL) ;
+  passert((qf->selection == NULL) && (fd >= fd_first)) ;
 
   qf->selection    = qps ;
 
@@ -239,6 +243,10 @@ qps_add_file(qps_selection qps, qps_file qf, fd_t fd, void* file_info)
 
 /*------------------------------------------------------------------------------
  * Remove given file from its selection, if any.
+ *
+ * Note that to be a member of a selection MUST have a valid fd, so... BEFORE
+ * closing an fd,  must remove the file from any selection.  (If is not a
+ * member, may or may not have a valid fd.)
  *
  * It is the callers responsibility to ensure that the file is in a suitable
  * state to be removed from the selection.
@@ -257,15 +265,15 @@ qps_remove_file(qps_file qf)
  *
  * If selection is empty, release the qps_selection structure, if required.
  *
- * See: #define qps_selection_ream_free(qps)
- *      #define qps_selection_ream_keep(qps)
- *
  * Useful for emptying out and discarding a selection:
  *
- *     while ((qf = qps_selection_ream_free(qps)))
+ *     while ((qf = qps_selection_ream(qps, free_it)))
  *       ... do what's required to release the qps_file
  *
- * The file is removed from the selection before being returned.
+ * The file is removed from the selection before being returned.  If the caller
+ * is able to release the qf, then it should do so, otherwise it can be left
+ * for the owner to release (which they can do without reference to the
+ * selection, which may by then have been released).
  *
  * Returns NULL when selection is empty (and has been released, if required).
  *
@@ -275,11 +283,12 @@ qps_remove_file(qps_file qf)
  *     and the process MUST be run to completion.
  */
 extern qps_file
-qps_selection_ream(qps_selection qps, int free_structure)
+qps_selection_ream(qps_selection qps, free_keep_b free_structure)
 {
   qps_file qf ;
 
   qf = vector_get_last_item(&qps->files) ;
+
   if (qf != NULL)
     qps_file_remove(qps, qf) ;
   else
@@ -357,7 +366,7 @@ qps_pselect(qps_selection qps, qtime_t max_wait)
   for (mnum = 0 ; mnum < qps_mnum_count ; ++mnum)
     if ((qps->tried_count[mnum] = qps->enabled_count[mnum]) != 0)
       {
-        dassert(n != 0) ;       /* n == 0 => no fds !   */
+        qassert(n != 0) ;       /* n == 0 => no fds !   */
 
         memcpy(&(qps->results[mnum].bytes), &(qps->enabled[mnum].bytes), n) ;
         p_fds[mnum] = &(qps->results[mnum].fdset) ;
@@ -439,7 +448,7 @@ qps_dispatch_next(qps_selection qps)
   fd   = qps->pend_fd ;         /* look for fd >= this                  */
   mnum = qps->pend_mnum ;       /* starting with this mode              */
 
-  dassert( (mnum >= 0) && (mnum < qps_mnum_count)
+  qassert( (mnum >= 0) && (mnum < qps_mnum_count)
                        && (qps->tried_count[mnum] != 0)
                        && (qps->pend_count > 0)
                        && (qps->tried_fd_last >= 0)) ;
@@ -467,7 +476,7 @@ qps_dispatch_next(qps_selection qps)
 
   qf = qps_file_lookup_fd(qps, fd, NULL) ;
 
-  dassert( ((qf->enabled_bits && qps_mbit(mnum)) != 0) &&
+  qassert( ((qf->enabled_bits && qps_mbit(mnum)) != 0) &&
            (qf->actions[mnum] != NULL) ) ;
 
   qf->actions[mnum](qf, qf->file_info) ;  /* dispatch the required action */
@@ -520,7 +529,9 @@ qps_file_init_new(qps_file qf, qps_file template)
 /*------------------------------------------------------------------------------
  * Free dynamically allocated qps_file structure -- if any.
  *
- * Removes from any selection may be a member of.
+ * Removes from any selection may be a member of.  Note that to be a member of
+ * a selection MUST have a valid fd -- but if is not a member, may or may not
+ * have a valid fd.
  *
  * If there is a valid fd -- close it !
  *
@@ -532,7 +543,7 @@ qps_file_free(qps_file qf)
   if (qf != NULL)
     {
       if (qf->selection != NULL)
-        qps_remove_file(qf) ;
+        qps_file_remove(qf->selection, qf) ;
 
       if (qf->fd >= fd_first)
         {
@@ -562,19 +573,19 @@ qps_enable_mode(qps_file qf, qps_mnum_t mnum, qps_action* action)
   qps_mbit_t    mbit = qps_mbit(mnum) ;
   qps_selection qps  = qf->selection ;
 
-  dassert(qps != NULL) ;
-  dassert((mnum >= 0) && (mnum <= qps_mnum_count)) ;
+  qassert(qps != NULL) ;
+  qassert((mnum >= 0) && (mnum <= qps_mnum_count)) ;
 
   if (action != NULL)
     qf->actions[mnum] = action ;
   else
-    dassert(qf->actions[mnum] != NULL) ;
+    qassert(qf->actions[mnum] != NULL) ;
 
   if (qf->enabled_bits & mbit)
-    dassert(FD_ISSET(qf->fd, &(qps->enabled[mnum].fdset))) ;
+    qassert(FD_ISSET(qf->fd, &(qps->enabled[mnum].fdset))) ;
   else
     {
-      dassert( ! FD_ISSET(qf->fd, &(qps->enabled[mnum].fdset))) ;
+      qassert( ! FD_ISSET(qf->fd, &(qps->enabled[mnum].fdset))) ;
       FD_SET(qf->fd, &(qps->enabled[mnum].fdset)) ;
       ++qps->enabled_count[mnum] ;
       qf->enabled_bits |= mbit ;
@@ -593,7 +604,7 @@ qps_enable_mode(qps_file qf, qps_mnum_t mnum, qps_action* action)
 extern void
 qps_set_action(qps_file qf, qps_mnum_t mnum, qps_action* action)
 {
-  dassert((mnum >= 0) && (mnum <= qps_mnum_count)) ;
+  qassert((mnum >= 0) && (mnum <= qps_mnum_count)) ;
 
   if (action == NULL)
     passert((qf->enabled_bits & qps_mbit(mnum)) == 0) ;
@@ -635,7 +646,7 @@ qps_disable_modes(qps_file qf, qps_mbit_t mbits)
 
   qps_selection qps = qf->selection ;
 
-  dassert((mbits >= 0) && (mbits <= qps_all_mbits)) ;
+  qassert((mbits >= 0) && (mbits <= qps_all_mbits)) ;
 
   mbits &= qf->enabled_bits ;   /* don't bother with any not enabled  */
   qf->enabled_bits ^= mbits ;   /* unset what we're about to disable  */
@@ -644,8 +655,8 @@ qps_disable_modes(qps_file qf, qps_mbit_t mbits)
     {
       mnum = qps_first_mnum[mbits] ;
 
-      dassert(qps->enabled_count[mnum] > 0) ;
-      dassert(FD_ISSET(qf->fd, &(qps->enabled[mnum].fdset))) ;
+      qassert(qps->enabled_count[mnum] > 0) ;
+      qassert(FD_ISSET(qf->fd, &(qps->enabled[mnum].fdset))) ;
 
       FD_CLR(qf->fd, &(qps->enabled[mnum].fdset)) ;
       --qps->enabled_count[mnum] ;
@@ -701,7 +712,7 @@ qps_file_lookup_fd(qps_selection qps, fd_t fd, qps_file insert)
   vector_index_t i ;
   int   ret ;
 
-  dassert((fd >= 0) && (fd < (int)FD_SETSIZE)) ;
+  qassert((fd >= 0) && (fd < (int)FD_SETSIZE)) ;
 
   /* Look-up                                                            */
   /*                                                                    */
@@ -757,7 +768,7 @@ qps_file_lookup_fd(qps_selection qps, fd_t fd, qps_file insert)
     } ;
 
   /* Sanity checking.                                                   */
-  dassert( (qf == NULL) || ((qps == qf->selection) && (fd == qf->fd)) ) ;
+  qassert( (qf == NULL) || ((qps == qf->selection) && (fd == qf->fd)) ) ;
 
   /* Return the file we found or inserted.                              */
   return qf ;
@@ -805,10 +816,10 @@ qps_file_remove(qps_selection qps, qps_file qf)
   passert(qfd == qf) ;  /* must have been there and be the expected file  */
 
   /* Keep fd_count and fd_last up to date.                              */
-  dassert(qps->fd_count > 0) ;
+  qassert(qps->fd_count > 0) ;
   --qps->fd_count ;
 
-  dassert(fd_last >= (qps->fd_count - 1)) ;
+  qassert(fd_last >= (qps->fd_count - 1)) ;
 
   qps->fd_last = fd_last ;
 
@@ -959,7 +970,7 @@ qps_next_fd_pending(fd_super_set* pending, fd_t fd, fd_t fd_last)
 {
   uint8_t b ;
 
-  dassert((fd >= 0) && (fd <= fd_last)) ;
+  qassert((fd >= 0) && (fd <= fd_last)) ;
 
   while (pending->words[fd_word_map[fd]] == 0)  /* step past zero words */
     {
@@ -979,12 +990,12 @@ qps_next_fd_pending(fd_super_set* pending, fd_t fd, fd_t fd_last)
 
   fd += fd_first_map[b] ;
 
-  dassert(fd <= fd_last) ;
-  dassert((b & fd_bit_map[fd]) == fd_bit_map[fd]) ;
+  qassert(fd <= fd_last) ;
+  qassert((b & fd_bit_map[fd]) == fd_bit_map[fd]) ;
 
   FD_CLR(fd, &pending->fdset) ;
 
-  dassert((b ^ fd_bit_map[fd]) == pending->bytes[fd_byte_map[fd]]) ;
+  qassert((b ^ fd_bit_map[fd]) == pending->bytes[fd_byte_map[fd]]) ;
 
   return fd ;
 } ;
@@ -1433,23 +1444,16 @@ qps_selection_validate(qps_selection qps)
  * Miniature pselect -- for where want to wait for a small number of things.
  */
 
-uint qps_mini_timeout_debug = 0 ;
-
 /*------------------------------------------------------------------------------
  * Initialise a qps_mini and set one fd in the given mode.
  *
  * If the fd is < 0, sets nothing (returns empty qps_mini).
- *
- * Zero timeout is an indefinite wait !
  */
 extern qps_mini
-qps_mini_set(qps_mini qm, int fd, qps_mnum_t mode, uint timeout)
+qps_mini_set(qps_mini qm, int fd, qps_mnum_t mode)
 {
   qps_super_set_zero(qm->sets, qps_mnum_count) ;
   qm->fd_last = -1 ;
-
-  qm->interval = QTIME(timeout) ;   /* convert from time in seconds */
-  qm->end_time = qt_add_monotonic(qm->interval) ;
 
   qps_mini_add(qm, fd, mode) ;
 
@@ -1461,74 +1465,79 @@ qps_mini_set(qps_mini qm, int fd, qps_mnum_t mode, uint timeout)
  *
  * If the fd is < 0, adds nothing (returns qps_mini unchanged).
  */
-extern qps_mini
+extern void
 qps_mini_add(qps_mini qm, int fd, qps_mnum_t mode)
 {
-  if (qdebug && (qps_mini_timeout_debug > 0))
-    {
-      if (qps_mini_timeout_debug == 1)
-        fd = -1 ;
-
-      --qps_mini_timeout_debug ;
-    } ;
-
   if (fd >= 0)
     {
       FD_SET(fd, &(qm->sets[mode].fdset)) ;
       if (fd > qm->fd_last)
         qm->fd_last = fd ;
     } ;
-
-  return qm ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Wait for a qps_mini -- with given timeout, in seconds.
+ * Wait for a qps_mini -- with given time-out, in seconds.
  *
- * If !signal, loops on EINTR, so will not exit until gets ready state or a
- * timeout.
+ * Zero time-out means wait indefinitely.
  *
- * If signal, will exit on EINTR.  Can call this again after an EINTR return,
- * and will continue to wait the *remainder* of the timeout interval.
+ * If qm->timeout_set is false, sets the given time-out, otherwise uses the
+ * current qm->interval/qm->end_time.
  *
- * Returns what pselect returns:  > 0   number of bits set
- *                               == 0   no bits set <=> timed out
- *                                < 0   EINTR (iff signal)
+ * Will exit on EINTR and that sets qm->timeout_set !
+ *
+ * Returns what pselect returns:  >  0  number of bits set
+ *                               ==  0  no bits set <=> timed out
+ *                          and: == -1  => error -- see errno
+ *                               == -2  => EINTR
  */
 extern int
-qps_mini_wait(qps_mini qm, const sigset_t* sigmask, bool signal)
+qps_mini_wait(qps_mini qm, uint timeout, const sigset_t* sigmask)
 {
-  while (1)
+  struct  timespec ts[1] ;
+  qtime_t interval ;
+  int n ;
+
+  /* If first is set, then we set up the timeout
+   *
+   * Otherwise, we are returning here after an EINTR, or in any case want to
+   * continue the previously set
+   */
+  if (!qm->timeout_set)
     {
-      struct timespec ts[1] ;
-      int n ;
-
-      n = pselect(qm->fd_last + 1,
-                         &(qm->sets[qps_read_mnum].fdset),
-                         &(qm->sets[qps_write_mnum].fdset),
-                         &(qm->sets[qps_error_mnum].fdset),
-                         (qm->interval > 0) ? qtime2timespec(ts, qm->interval)
-                                            : NULL,
-                         sigmask) ;
-      if (n >= 0)
-        return n ;
-
-      if (errno != EINTR)
-        break ;
-
-      if (qm->interval > 0)
+      if (timeout == 0)
+        qm->indefinite = true ;
+      else
         {
-          /* set new interval, in case comes back               */
-          qm->interval = qm->end_time - qt_get_monotonic() ;
-          if (qm->interval < 0)
-            return 0 ;
+          qm->indefinite = false ;
+          interval       = QTIME(timeout) ;     /* convert from seconds */
+          qm->end_time   = qt_add_monotonic(interval) ;
+        }
+    }
+  else
+    {
+      if (!qm->indefinite)
+        {
+          interval = qm->end_time - qt_get_monotonic() ;
+          if (interval < 0)
+            interval = 0 ;
         } ;
-
-      if (signal)
-        return -1 ;             /* signal EINTR                 */
     } ;
 
-  zabort_errno("Failed in pselect") ;
+  /* Do the pselect() and worry about the result.
+   */
+  n = pselect(qm->fd_last + 1, &(qm->sets[qps_read_mnum].fdset),
+                               &(qm->sets[qps_write_mnum].fdset),
+                               &(qm->sets[qps_error_mnum].fdset),
+                               qm->indefinite ? NULL
+                                              : qtime2timespec(ts, interval),
+                                                                      sigmask) ;
+  if (n >= 0)
+    return n ;
+
+  if (errno != EINTR)
+    return -1 ;
+
+  qm->timeout_set = true ;
+  return -2 ;                   /* EINTR seen   */
 } ;
-
-

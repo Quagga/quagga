@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_ZSERV_H
@@ -87,14 +87,18 @@ struct zebra_t
 #define PSIZE(a) (((a) + 7) / (8))
 
 /* Prototypes. */
+extern void zebra_cmd_init (void);
 extern void zebra_init (void);
+extern void zebra_if_cmd_init (void);
 extern void zebra_if_init (void);
 extern void zebra_zserv_socket_init (void);
 extern void hostinfo_get (void);
 extern void rib_init (void);
 extern void kernel_init (void);
+extern void zebra_route_map_cmd_init (void) ;
 extern void zebra_route_map_init (void);
 extern void zebra_snmp_init (void);
+extern void zebra_vty_cmd_init (void);
 extern void zebra_vty_init (void);
 
 extern int zsend_interface_add (struct zserv *, struct interface *);
@@ -102,7 +106,7 @@ extern int zsend_interface_delete (struct zserv *, struct interface *);
 extern int zsend_interface_address (int, struct zserv *, struct interface *,
                                     struct connected *);
 extern int zsend_interface_update (int, struct zserv *, struct interface *);
-extern int zsend_route_multipath (int, struct zserv *, struct prefix *, 
+extern int zsend_route_multipath (int, struct zserv *, struct prefix *,
                                   struct rib *);
 extern int zsend_router_id_update(struct zserv *, struct prefix *);
 

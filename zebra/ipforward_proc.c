@@ -17,8 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 
@@ -55,15 +56,15 @@ ipforward (void)
 
   /* We don't care about the first line. */
   dropline (fp);
-  
-  /* Get ip_statistics.IpForwarding : 
-     1 => ip forwarding enabled 
+
+  /* Get ip_statistics.IpForwarding :
+     1 => ip forwarding enabled
      2 => ip forwarding off. */
   pnt = fgets (buf, 6, fp);
   sscanf (buf, "Ip: %d", &ipforwarding);
 
   fclose(fp);
-  
+
   if (ipforwarding == 1)
     return 1;
 
@@ -77,7 +78,7 @@ int
 ipforward_on (void)
 {
   FILE *fp;
-  
+
   if ( zserv_privs.change(ZPRIVS_RAISE) )
   	zlog_err ("Can't raise privileges, %s", safe_strerror (errno) );
 
@@ -199,3 +200,5 @@ ipforward_ipv6_off (void)
   return ipforward_ipv6 ();
 }
 #endif /* HAVE_IPV6 */
+
+#endif /* VTYSH_EXTRACT_PL */

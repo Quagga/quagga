@@ -53,10 +53,12 @@ qs_new_body(qstring qs, usize slen, bool keep_alias)
 /*------------------------------------------------------------------------------
  * Create a new, empty qs
  *
- * If non-zero slen is given, a body is allocated (size = slen + 1).
- * If zero slen is given, no body is allocated.
- *
  * Sets 'len' = 'cp' = 0.
+ *
+ * If non-zero slen is given, a body is allocated (size = slen + 1), and '\0'
+ * terminated at 'len'.
+ *
+ * If zero slen is given, no body is allocated.
  *
  * Returns: address of qstring
  */
@@ -72,7 +74,10 @@ qs_new(usize slen)
   confirm(QSTRING_INIT_ALL_ZEROS) ;
 
   if (slen != 0)
-    qs_new_body(qs, slen, false) ;
+    {
+      qs_new_body(qs, slen, false) ;
+      *((char*)(qs->b_body)) = '\0' ;
+    } ;
 
   return qs ;
 } ;
@@ -132,9 +137,11 @@ qs_init_new(qstring qs, usize slen)
 /*------------------------------------------------------------------------------
  * Reset qstring -- free body and, if required, free the structure.
  *
+ * Does nothing if qs == NULL.
+ *
  * If not freeing the structure, zeroise size, len and cp -- qs_free_body()
  *
- * Returns: NULL if freed the structure
+ * Returns: NULL if freed the structure (or was NULL to start with)
  *          address of structure (if any), otherwise
  *
  * NB: frees the body if the size != 0.  So, a "dummy" qstring will not retain
@@ -203,20 +210,22 @@ qs_make_to_size(qstring qs, usize slen, usize alen)
  */
 
 /*------------------------------------------------------------------------------
- * Return pointer to string value -- ensure not alias and '\0' terminated.
+ * Return pointer to '\0' terminated string value -- ensure not alias.
  *
- * If is alias, copies that before adding '\0' terminator.
+ * This may be used when the caller wishes to fiddle with the value of
+ * the qstring.
  *
  * Sets the '\0' terminator at the 'len' position, extending string if that
  * is required.
  *
- * If qs == NULL returns pointer to empty '\0' terminated string.
+ * NB: qstring may NOT be NULL -- but if it is, a pointer to a static one byte
+ *     empty string is returned !
  *
  * NB: The qstring should not be changed or reset until this pointer has been
  *     discarded !
  *
- * NB: The value returned is not "const" BUT caller is NOT entitled to change
- *     any part of the string -- CERTAINLY nothing from the '\0' onwards !
+ * NB: It is the caller's responsibility to update 'cp' and 'len' as required.
+ *     Caller must not set 'len' >= 'size'.
  */
 extern char*
 qs_make_string(qstring qs)
@@ -225,6 +234,8 @@ qs_make_string(qstring qs)
 
   usize len ;
   char* p ;
+
+  qassert(qs != NULL) ;
 
   if      (qs == NULL)
     {
@@ -414,7 +425,7 @@ qs_chop(qstring qs, usize clen)
  * See notes above.
  */
 extern qstring
-qs_set(qstring qs, const char* src)
+qs_set_str(qstring qs, const char* src)
 {
   return qs_set_n(qs, src, (src != NULL ? strlen(src) : 0)) ;
 } ;
@@ -450,7 +461,7 @@ qs_set_n(qstring qs, const char* src, usize len)
  * See notes above -- and note that 'cp' is set to 0.
  */
 extern qstring
-qs_set_qs(qstring qs, qstring src)
+qs_set(qstring qs, qstring src)
 {
   return qs_set_n(qs, qs_body(src), qs_len(src)) ;
 } ;
@@ -562,7 +573,7 @@ qs_set_fill_n(qstring qs, usize len, const char* src, usize flen)
 extern qstring
 qs_append(qstring qs, qstring src)
 {
-  return qs_append_str_n(qs, qs_body(src), qs_len(src)) ;
+  return qs_append_n(qs, qs_body(src), qs_len(src)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -575,27 +586,41 @@ qs_append(qstring qs, qstring src)
  *
  * See notes above.
  */
-extern qstring qs_append_str(qstring qs, const char* src)
+extern qstring
+qs_append_str(qstring qs, const char* src)
 {
-  return qs_append_str_n(qs, src, (src != NULL) ? strlen(src) : 0) ;
+  return qs_append_n(qs, src, (src != NULL) ? strlen(src) : 0) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Append leading 'n' bytes of given string to a qstring.
- *
- * If n == 0, src may be NULL
- * If n > 0, src string MUST be at least 'n' bytes long.
+ * Append 'n' copies of given char to a qstring.
  *
  * See notes above.
  */
 extern qstring
-qs_append_str_n(qstring qs, const char* src, usize n)
+qs_append_ch_x_n(qstring qs, char ch, uint n)
 {
   qs = qs_extend(qs, n) ; /* allocate, copy any alias, extend body,
                              set new length, etc                        */
 
   if (n != 0)
-    memmove(qs_ep_char_nn(qs) - n, src, n) ;
+    memset(qs_ep_char_nn(qs) - n, ch, n) ;
+
+  return qs ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Append given char to a qstring.
+ *
+ * See notes above.
+ */
+extern qstring
+qs_append_ch(qstring qs, char ch)
+{
+  qs = qs_extend(qs, 1) ; /* allocate, copy any alias, extend body,
+                             set new length, etc                        */
+
+  *(qs_ep_char_nn(qs) - 1) = ch ;
 
   return qs ;
 } ;
@@ -608,7 +633,27 @@ qs_append_str_n(qstring qs, const char* src, usize n)
 extern qstring
 qs_append_els(qstring qs, elstring src)
 {
-  return qs_append_str_n(qs, els_body(src), els_len(src)) ;
+  return qs_append_n(qs, els_body(src), els_len(src)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Append leading 'n' bytes of given string to a qstring.
+ *
+ * If n == 0, src may be NULL
+ * If n > 0, src string MUST be at least 'n' bytes long.
+ *
+ * See notes above.
+ */
+extern qstring
+qs_append_n(qstring qs, const void* src, usize n)
+{
+  qs = qs_extend(qs, n) ; /* allocate, copy any alias, extend body,
+                             set new length, etc                        */
+
+  if (n != 0)
+    memmove(qs_ep_char_nn(qs) - n, src, n) ;
+
+  return qs ;
 } ;
 
 /*==============================================================================
@@ -646,7 +691,7 @@ qs_append_els(qstring qs, elstring src)
  * See notes above.
  */
 extern qstring
-qs_set_alias(qstring qs, const char* src)
+qs_set_alias_str(qstring qs, const char* src)
 {
   return qs_set_alias_n(qs, src, (src != NULL) ? strlen(src) : 0) ;
 } ;
@@ -660,7 +705,7 @@ qs_set_alias(qstring qs, const char* src)
  * See notes above.
  */
 extern qstring
-qs_set_alias_n(qstring qs, const char* src, usize n)
+qs_set_alias_n(qstring qs, const void* src, usize n)
 {
   if (qs == NULL)
     qs = qs_new(0) ;
@@ -688,7 +733,7 @@ qs_set_alias_n(qstring qs, const char* src, usize n)
  * See notes above.
  */
 extern qstring
-qs_set_alias_qs(qstring qs, qstring src)
+qs_set_alias(qstring qs, qstring src)
 {
   return qs_set_alias_n(qs, qs_body(src), qs_len(src)) ;
 } ;
@@ -738,9 +783,9 @@ qs_copy(qstring dst, qstring src)
     } ;
 
   if (src->alias)
-    dst = qs_set_alias_qs(dst, src) ;
+    dst = qs_set_alias(dst, src) ;
   else
-    dst = qs_set_qs(dst, src) ;
+    dst = qs_set(dst, src) ;
 
   qs_set_cp_nn(dst, qs_cp_nn(src)) ;    /* copy in the src cp.          */
 
@@ -840,6 +885,15 @@ qs_vprintf(qstring qs, const char *format, va_list args)
  */
 
 /*------------------------------------------------------------------------------
+ * Replace 'r' bytes at 'cp' by given string -- see qs_replace_n()
+ */
+extern usize
+qs_replace_str(qstring qs, usize r, const char* src)
+{
+  return qs_replace_n(qs, r, src, (src != NULL) ? strlen(src) : 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Replace 'r' bytes at 'cp' by 'n' bytes -- extending if required.
  *
  * May increase or decrease 'len'. but does not affect 'cp'.
@@ -857,7 +911,7 @@ qs_vprintf(qstring qs, const char *format, va_list args)
  * If this is a aliased qstring, a copy is made, so is no longer an alias.
  */
 extern usize
-qs_replace(qstring qs, usize r, const void* src, usize n)
+qs_replace_n(qstring qs, usize r, const void* src, usize n)
 {
   usize cp, len, nlen, after ;
   const char* ap ;
@@ -903,4 +957,438 @@ qs_replace(qstring qs, usize r, const void* src, usize n)
   qs_set_len_nn(qs, nlen) ;
 
   return n + after ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Replace 'r' bytes at 'cp' by given qstring -- see qs_replace_n()
+ *
+ * NULL src qstring -> empty string.
+ */
+extern usize
+qs_replace(qstring qs, usize r, qstring src)
+{
+  return qs_replace_n(qs, r, qs_char(src), qs_len(src)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Find string in qstring -- see qs_find_n()
+ */
+extern usize
+qs_find_str(qstring qs, const char* src)
+{
+  return qs_find_n(qs, src, (src != NULL) ? strlen(src) : 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Find 'n' bytes in qstring, searching from 'cp' (inclusive) -- sets 'cp'.
+ *
+ * Searching for zero bytes immediately succeeds !
+ *
+ * Returns: number of bytes found (zero if zero sought !)
+ *
+ * qstring MUST NOT be NULL
+ *
+ * src may be NULL iff n == 0
+ *
+ * If 'cp' > 'len', then finds nothing -- sets cp == len.
+ *
+ * If this is a aliased qstring, that does not change.
+ */
+extern usize
+qs_find_n(qstring qs, const void* src, usize n)
+{
+  usize cp, len ;
+  const char* p ;
+
+  len  = qs_len_nn(qs) ;
+  cp   = qs_cp_nn(qs) ;
+
+  /* Deal with edge cases
+   */
+  if ((cp + n) > len)
+    {
+      qs_set_cp_nn(qs, len) ;
+      return 0 ;
+    } ;
+
+  if (n == 0)
+    return 0 ;
+
+  /* Search
+   */
+  p = qs_char_nn(qs) + cp ;
+  len -= cp - (n - 1) ;                         /* worth searching      */
+
+  while (len > 0)
+    {
+      const char* q ;
+
+      q = memchr(p, *(const char*)src, len) ;   /* seek first char      */
+
+      if (q == NULL)
+        break ;
+
+      ++q ;                                     /* step past first      */
+
+      if ((n == 1) || (memcmp(q, (const char*)src + 1, n - 1) == 0))
+        {
+          /* Found it !
+           */
+          qs_set_cp_nn(qs, q - 1 - qs_char_nn(qs)) ;
+          return n ;
+        } ;
+
+      len -= (q - p) ;
+      p = q ;
+    } ;
+
+  /* Reaches here if string is not found
+   */
+  qs_set_cp_nn(qs, qs_len_nn(qs)) ;
+
+  return 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Global exchange across qstring -- does nothing if qstring is NULL
+ *
+ * Resets 'cp' to zero, before and after.  May increase or decrease 'len' (!)
+ *
+ * Does nothing if the find string is NULL or empty.  The replace string may
+ * be NULL or empty.
+ *
+ * Returns:  (new) length of string.
+ *
+ * If makes any changes, the result will no longer be an alias.
+ */
+extern usize
+qs_globex_str(qstring qs, const char* find, const char* replace)
+{
+  ulen  find_len ;
+  ulen  replace_len ;
+
+  if (qs == NULL)
+    return 0 ;
+
+  find_len    = (find != NULL)    ? strlen(find)    : 0 ;
+  replace_len = (replace != NULL) ? strlen(replace) : 0 ;
+
+  if (find_len > 0)
+    {
+      qs_set_cp_nn(qs, 0) ;
+
+      while (qs_find_n(qs, find, find_len))
+        {
+          qs_replace_n(qs, find_len, replace, replace_len) ;
+          qs_move_cp_nn(qs, replace_len) ;
+        } ;
+    } ;
+
+  qs_set_cp_nn(qs, 0) ;
+  return qs_len_nn(qs) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Reduce given qstring to a number of "words".
+ *
+ * The result is the "words" found, each one terminated by '\0'.  The resulting
+ * qstring 'len' *includes* these terminators.  If the qstring 'len' is zero,
+ * then the input contained only whitespace.  The 'cp' is set to zero, see... XXX
+ *
+ * Words may be separated and/or terminated by the given characters.  Note that
+ * '\0' is implicitly a separator and terminator.  Also note that control
+ * characters and space may be separators.
+ *
+ * For our purposes we define whitespace to be any character <= ' ', which is
+ * not a separator -- noting that '\0' is implictly a separator.
+ *
+ * All whitespace is treated as ' '.
+ *
+ * Multiple spaces are treated as one (and returned as one, if required).
+ *
+ * Spaces before and after a "word" are discarded.
+ *
+ * The difference between a separator and a terminator is that a terminator
+ * at the end of the string is ignored.  Note that this is true even if the
+ * string contains just the terminator (and spaces/controls).
+ *
+ * Spaces around a separator/terminator are ignored.
+ *
+ * Adjacent separators/terminators create empty words.
+ *
+ * If seps == NULL, treat as "".  If terms == NULL, treat as "".
+ *
+ * If there are no separators, result is single "word", with leading/trailing
+ * spaces (and controls) removed, and multiple spaces (and controls) reduced
+ * to single space.
+ *
+ * NB: the terms MUST be a subset of seps -- anything in terms which is not in
+ *     seps will be ignored.
+ *
+ * NB: if space is a separator, it is implicitly a terminator -- no need to
+ *     include space in terms.
+ *
+ * NB: if space is a separator, best if is the first separator
+ *     (but not required).
+ */
+extern void
+qs_reduce(qstring qs, const char* seps, const char* terms)
+{
+  const char* sp ;
+  uchar ch ;
+  char* s ;
+  char* p ;
+  char* q ;
+  char* e ;
+  bool  post_sep, post_term ;
+  char  ctrl_map[' '] ;
+  char  space_sep ;
+
+  /* Preset the ctrl_map so that all < ' '.
+   *
+   * The ctrl_map maps ch < ' ' to: ' ' for all whitespace
+   *                         or to: itself if it is a separator
+   */
+  memset(ctrl_map, ' ', ' ') ;
+
+  /* Make sure we have seps and terms, so that '\0' is accounted for.
+   *
+   * Scan the seps, including the '\0', and adjust the ctrl_map as required.
+   */
+  space_sep = ' ' ;     /* Assume NOT a separator       */
+
+  if (seps == NULL)
+    seps = "" ;         /* '\0' is a separator !        */
+
+  sp = seps ;
+  do
+    {
+      ch = *sp++ ;
+      if      (ch <  ' ')
+        ctrl_map[ch] = '\0' ;
+      else if (ch == ' ')
+        space_sep    = '\0' ;
+    }
+  while (ch != '\0') ;
+
+  if (terms == NULL)
+    terms = "" ;       /* '\0' is a separator           */
+
+  /* Scan through the string:
+   *
+   *  * remove all unwanted whitespace (including around other separators)
+   *
+   *  * replacing separators by '\0'
+   *
+   *  * discarding trailing terminator.
+   */
+  q = p = s = qs_make_string(qs) ;
+  e = qs_ep_char_nn(qs) ;
+
+  post_sep = post_term = true ;
+
+  while (p < e)
+    {
+      bool  wsp ;
+
+      wsp = false ;
+
+      /* Get the first significant character, skipping whitespace.
+       *
+       * If hits end of string before have seen anything significant, break
+       * out of the loop.
+       *
+       * Otherwise, leaves ch  == first char > ' '
+       *                   wsp == !post_sep
+       */
+      ch = *p++ ;
+      if (ch < ' ')
+        ch = ctrl_map[ch] ;
+
+      if (ch == ' ')
+        {
+          /* Look for non-whitespace -- including separator control char
+           */
+          while (p < e)
+            {
+              ch = *p++ ;
+
+              if (ch < ' ')
+                ch = ctrl_map[ch] ;
+
+              if (ch != ' ')
+                break ;
+            } ;
+
+          /* Found non-whitespace, or end of string.
+           *
+           * If end of string, get out *now* if is whitespace immediately
+           * after a terminator or at start.
+           */
+          if (p >= e)
+            {
+              if (post_term)
+                break ;                 /* all empty !          */
+              else
+                ch = '\0' ;             /* implicit terminator  */
+            } ;
+
+          /* Have a non-whitespace -- possibly a separator -- preceded by at
+           * least one whitespace.
+           *
+           * Record presence of whitespace if not whitespace immediately
+           * after separator or at start.
+           */
+          wsp = !post_sep ;
+        } ;
+
+      /* ch is not whitespace -- see if we have a separator on our hands
+       *
+       * If ch is not a separator:
+       *
+       *   * leave wsp and ch alone -- ch is not separator and not whitespace.
+       *
+       *     If have wsp: if space is a separator, will terminate previous word
+       *                  and start the next with ch.
+       *
+       *                  otherwise, insert space followed by ch.
+       *
+       *     If no wsp:   insert the ch
+       *
+       *   * clear post_sep and post_term, so that whitespace processing knows
+       *     that just
+       *
+       * If ch is a separator:
+       *
+       *   * clear wsp -- discarding preceding whitespace
+       *
+       *   * set ch = '\0' -- word terminator.
+       *
+       *   * set post_sep -- so any following whitespace will be discarded.
+       *
+       *   * set post_term if this is also a terminator -- so not only will
+       *     any following whitespace be discarded, but will not create an
+       *     empty word if end of string is met.
+       */
+      if (strchr(seps, ch) == NULL)
+        {
+          /* ch is not a separator
+           */
+          post_sep = post_term = false ;
+        }
+      else
+        {
+          /* ch is a separator and may be a terminator
+           */
+          post_sep  = true ;
+          post_term = strchr(terms, ch) != NULL ;
+
+          wsp = false ;         /* discard space(s) before      */
+          ch  = '\0' ;          /* convert separator to '\0'    */
+        } ;
+
+      /* If we've seen significant whitespace, insert space_sep.
+       *
+       * Then insert the current ch -- which is not whitespace.
+       */
+      if (wsp)
+        *q++ = space_sep ;      /* ' ' or '\0', as required     */
+
+      *q++ = ch ;
+    } ;
+
+  /* Done -- set new len and clear cp
+   */
+  qs_set_len_nn(qs, q - s) ;
+  qs_set_cp_nn(qs, 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Return next "word" from suitably set up qstring -- or NULL if none.
+ *
+ * Expects the body of the qstring to be divided into "words" separated by
+ * '\0' -- and possibly terminated by '\0' (within 'len').  'cp' is expected to
+ * point at the next word to return.
+ *
+ * Note that the '\0' at the end of the last word may, or may not be inside
+ * the 'len'.  So, 'cp' may advance to 'len' + 1.
+ *
+ * Returns:  address of next word, or NULL if none.
+ *
+ * If qs == NULL or 'len' == 0 or 'len' <= 'cp' returns NULL.
+ *
+ * NB: if 'len' is beyond the current 'size' of the of the qstring, then
+ *     will extend the string -- introducing garbage !!
+ *
+ * NB: if string is an alias, and that is not '\0' terminated, will make a
+ *     copy, before writing '\0' at end.
+ *
+ * NB: In any event, the string should not be changed or reset until this
+ *     pointer has been discarded !
+ */
+extern const char*
+qs_next_word(qstring qs)
+{
+  const char* body ;
+  const char* word ;
+  const char* next ;
+  ulen len, cp ;
+
+  if ((len = qs_len(qs)) == 0)
+    return NULL ;               /* deal with emptiness & NULL qs        */
+
+  if ((cp = qs_cp_nn(qs)) >= len)
+    return NULL ;               /* deal with at or beyond end           */
+
+  body = qs_char_nn(qs) ;
+
+  if ((len >= qs->size) || (*(body + len - 1) != '\0'))
+    body = qs_make_string(qs) ;         /* make to len characters
+                                         * with a trailing '\0'         */
+  word = body + cp ;
+  next = strchr(word, '\0') ;
+
+  qs_move_cp_nn(qs, next + 1 - word) ;
+
+  return word ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Trim and, optionally, terminate given qstring -- allocate if required.
+ *
+ * Creates empty qstring if none provided.
+ *
+ * Removes trailing whitespace from the end of the qstring -- where whitespace
+ * is anything <= ' '.
+ *
+ * If the result is not an empty string, and a terminator is given, add
+ * terminator.
+ *
+ * Returns: the result qstring (allocated if required).
+ */
+extern qstring
+qs_trim(qstring qs, char term)
+{
+  ulen  len ;
+  char* s, * p ;
+
+  if (qs == NULL)
+    qs = qs_new(0) ;
+
+  if ((len = qs_len_nn(qs)) == 0)
+    return qs ;
+
+  s = qs_make_string(qs) ;
+  p = s + len ;
+
+  while ((p > s) && ((unsigned)*(p - 1) <= ' '))
+    --p ;
+
+  len = p - s ;
+  qs_set_len_nn(qs, len) ;
+
+  if ((len != 0) && (term != '\0'))
+    qs_append_ch(qs, term) ;
+
+  return qs ;
 } ;

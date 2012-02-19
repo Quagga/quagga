@@ -16,11 +16,13 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_IF_RMAP_H
 #define _ZEBRA_IF_RMAP_H
+
+#include "command.h"
 
 enum if_rmap_type
 {
@@ -37,7 +39,8 @@ struct if_rmap
   char *routemap[IF_RMAP_MAX];
 };
 
-extern void if_rmap_init (int);
+extern void if_rmap_cmd_init (void);
+extern void if_rmap_init (void);
 extern void if_rmap_reset (void);
 extern void if_rmap_hook_add (void (*) (struct if_rmap *));
 extern void if_rmap_hook_delete (void (*) (struct if_rmap *));

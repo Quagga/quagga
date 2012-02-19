@@ -16,52 +16,63 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef VTYSH_H
 #define VTYSH_H
 
-#define VTYSH_ZEBRA  0x01
-#define VTYSH_RIPD   0x02
-#define VTYSH_RIPNGD 0x04
-#define VTYSH_OSPFD  0x08
-#define VTYSH_OSPF6D 0x10
-#define VTYSH_BGPD   0x20
-#define VTYSH_ISISD  0x40
-#define VTYSH_ALL	  VTYSH_ZEBRA|VTYSH_RIPD|VTYSH_RIPNGD|VTYSH_OSPFD|VTYSH_OSPF6D|VTYSH_BGPD|VTYSH_ISISD
-#define VTYSH_RMAP	  VTYSH_ZEBRA|VTYSH_RIPD|VTYSH_RIPNGD|VTYSH_OSPFD|VTYSH_OSPF6D|VTYSH_BGPD
-#define VTYSH_INTERFACE	  VTYSH_ZEBRA|VTYSH_RIPD|VTYSH_RIPNGD|VTYSH_OSPFD|VTYSH_OSPF6D|VTYSH_ISISD
+#include "lib/misc.h"
+#include "lib/vty.h"
 
-/* vtysh local configuration file. */
+#include <signal.h>
+
+/* vtysh local configuration file.
+ */
 #define VTYSH_DEFAULT_CONFIG "vtysh.conf"
 
-struct vty* vtysh_init_vty (void);
-void vtysh_init_cmd (void);
-extern int vtysh_connect_all (const char *optional_daemon_name);
-void vtysh_readline_init (void);
-void vtysh_user_init (void);
+/* The interactive command handling uses some longjumps to cope with
+ * ^Z and ^C.
+ */
+enum
+{
+  vtysh_lj_init  = 0,   /* by definition        */
 
-int vtysh_execute (const char *);
-int vtysh_execute_no_pager (const char *);
+  vtysh_lj_ctrl_c,
+  vtysh_lj_ctrl_z,
+} ;
 
-char *vtysh_prompt (void);
+/*------------------------------------------------------------------------------
+ * See vtysh.c
+ */
+extern void vtysh_cmd_init(void) ;
+extern void vtysh_vty_init(bool no_prefix) ;
+extern bool vtysh_daemons_connect(vty vty, qstring daemons_list) ;
+extern void vtysh_show_connected(vty vty) ;
+extern void vtysh_readline_init(void) ;
+extern cmd_ret_t vtysh_set_integrated_config(on_off_b integrated) ;
 
-void vtysh_config_write (void);
+extern int vtysh_pager_set(int lines) ;
+extern cmd_ret_t vtysh_execute(vty vty, const char* line, ulen prompt_len) ;
 
-int vtysh_config_from_file (struct vty *, FILE *);
+extern vty vtysh_vty ;
 
-int vtysh_read_config (char *);
+/* Child process execution flag.
+ */
+extern volatile sig_atomic_t execute_flag;
 
-void vtysh_config_parse (char *);
+/* Using integrated config from Quagga.conf. Default is no.
+ */
+extern bool vtysh_integrated_vtysh_config;
 
-void vtysh_config_dump (FILE *);
-
-void vtysh_config_init (void);
-
-void vtysh_pager_init (void);
-
-/* Child process execution flag. */
-extern int execute_flag;
+/*------------------------------------------------------------------------------
+ * See vtysh_config.c
+ */
+extern bool vtysh_read_config (vty boot_vty, qpath config_file, bool required,
+                                             bool ignore_warnings, bool quiet) ;
+extern void vtysh_config_init_integrated (void) ;
+extern cmd_ret_t vtysh_config_collect_integrated(vty vty, bool show) ;
+extern int vtysh_config_write_config_node(vty vty, node_type_t node) ;
+extern void vtysh_config_reset_integrated(void) ;
 
 #endif /* VTYSH_H */

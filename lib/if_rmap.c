@@ -318,15 +318,32 @@ if_rmap_reset ()
   hash_clean (ifrmaphash, (void (*) (void *)) if_rmap_free);
 }
 
-void
-if_rmap_init (int node)
+CMD_INSTALL_TABLE(static, if_rmap_ripd_cmd_table, RIPD) =
+{
+  { RIP_NODE,         &if_rmap_cmd                                       },
+  { RIP_NODE,         &no_if_rmap_cmd                                    },
+
+  CMD_INSTALL_END
+} ;
+
+CMD_INSTALL_TABLE(static, if_rmap_ripngd_cmd_table, RIPNGD) =
+{
+  { RIPNG_NODE,       &if_ipv6_rmap_cmd                                  },
+  { RIPNG_NODE,       &no_if_ipv6_rmap_cmd                               },
+
+  CMD_INSTALL_END
+} ;
+
+
+extern void
+if_rmap_cmd_init (void)
+{
+  cmd_install_table(if_rmap_ripd_cmd_table) ;
+  cmd_install_table(if_rmap_ripngd_cmd_table) ;
+}
+
+extern void
+if_rmap_init (void)
 {
   ifrmaphash = hash_create (if_rmap_hash_make, if_rmap_hash_cmp);
-  if (node == RIPNG_NODE) {
-    install_element (RIPNG_NODE, &if_ipv6_rmap_cmd);
-    install_element (RIPNG_NODE, &no_if_ipv6_rmap_cmd);
-  } else if (node == RIP_NODE) {
-    install_element (RIP_NODE, &if_rmap_cmd);
-    install_element (RIP_NODE, &no_if_rmap_cmd);
-  }
 }

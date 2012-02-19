@@ -9,8 +9,7 @@
 
 #include "qfstring.h"
 #include "qlib_init.h"
-
-struct thread_master *master;   /* required so will link !      */
+#include "command.h"
 
 /*==============================================================================
  * prototypes
@@ -30,7 +29,8 @@ static void test_qfs_bin_value(bool show) ;
 int
 main(int argc, char **argv)
 {
-  qlib_init_first_stage() ;
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
 
   test_qfs_init(1) ;
 

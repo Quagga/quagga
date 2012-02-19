@@ -675,7 +675,7 @@ zprivs_state_null (void)
 void
 zprivs_init_r()
 {
-  qpt_mutex_init(privs_mutex, qpt_mutex_quagga);
+  qpt_mutex_init_new(privs_mutex, qpt_mutex_quagga);
 }
 
 void

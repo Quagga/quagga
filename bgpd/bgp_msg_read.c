@@ -33,6 +33,7 @@
 #include "bgpd/bgp_route_refresh.h"
 #include "bgpd/bgp_fsm.h"
 #include "bgpd/bgp_vty.h"
+#include "bgpd/bgp_names.h"
 
 /*------------------------------------------------------------------------------
  * Message handler functions.
@@ -402,7 +403,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t body_size)
     zlog_debug ("%s rcv OPEN w/ OPTION parameter len: %u",
                                                     connection->host, optlen) ;
 
-  if (optlen != stream_get_left(s))
+  if (optlen != stream_get_read_left(s))
     {
       zlog_err ("%s bad OPEN, message length %u but option length %u",
                 connection->host, (unsigned)stream_get_endp(s), optlen) ;
@@ -410,7 +411,7 @@ bgp_msg_open_receive (bgp_connection connection, bgp_size_t body_size)
       goto reject ;
     } ;
 
-  suck_init(&ssr, stream_pnt(s), optlen) ;
+  suck_init(&ssr, stream_get_pnt(s), optlen) ;
 
   ret = bgp_msg_open_option_parse (connection, notification, &ssr) ;
   if (ret < 0)
@@ -1377,7 +1378,8 @@ bgp_msg_update_receive (bgp_connection connection, bgp_size_t body_size)
     {
       plog_err(connection->log,
                 "%s [Error] Update message received while in %s State",
-                  connection->host, LOOKUP(bgp_status_msg, connection->state)) ;
+                  connection->host,
+                  map_direct(bgp_fsm_status_map, connection->state).str) ;
       return ;
     } ;
 
@@ -1424,7 +1426,7 @@ bgp_msg_notify_receive (bgp_connection connection, bgp_size_t body_size)
   ++connection->session->stats.notify_in ;
 
   notification = bgp_notify_new_with_data(code, subcode,
-                                  stream_pnt(connection->ibuf), body_size - 2) ;
+                                  stream_get_pnt(connection->ibuf), body_size - 2) ;
   bgp_notify_set_received(notification) ;
 
   bgp_notify_print(connection->session->peer, notification) ;   /* Logging */
@@ -1486,14 +1488,15 @@ bgp_msg_route_refresh_receive(bgp_connection connection, bgp_size_t body_size)
     {
       plog_err(connection->log,
                 "%s [Error] Route-Refresh message received while in %s State",
-                  connection->host, LOOKUP(bgp_status_msg, connection->state)) ;
+                  connection->host,
+                  map_direct(bgp_fsm_status_map, connection->state).str) ;
       return ;
     } ;
 
   /* Set about parsing the message                                      */
 
-  dassert(stream_get_left(connection->ibuf) == body_size) ;
-  suck_init(&ssr, stream_pnt(connection->ibuf), body_size) ;
+  dassert(stream_get_read_left(connection->ibuf) == body_size) ;
+  suck_init(&ssr, stream_get_pnt(connection->ibuf), body_size) ;
 
   /* Start with AFI, reserved, SAFI                                     */
   qb = bgp_msg_afi_safi(&ssr, &mp) ;

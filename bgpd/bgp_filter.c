@@ -84,7 +84,7 @@ struct as_list
   struct as_filter *head;
   struct as_filter *tail;
 };
-
+
 /* ip as-path access-list 10 permit AS1. */
 
 static struct as_list_master as_list_master =
@@ -233,7 +233,7 @@ as_list_insert (const char *name)
 
       /* Set access_list to string list. */
       list = &as_list_master.str;
-  
+
       /* Set point to insertion point. */
       for (point = list->head; point; point = point->next)
 	if (strcmp (point->name, name) >= 0)
@@ -370,7 +370,7 @@ as_list_filter_delete (struct as_list *aslist, struct as_filter *asfilter)
   if (as_list_master.delete_hook)
     (*as_list_master.delete_hook) ();
 }
-
+
 static int
 as_filter_match (struct as_filter *asfilter, struct aspath *aspath)
 {
@@ -412,7 +412,7 @@ as_list_delete_hook (void (*func) (void))
 {
   as_list_master.delete_hook = func;
 }
-
+
 static int
 as_list_dup_check (struct as_list *aslist, struct as_filter *new)
 {
@@ -467,7 +467,7 @@ DEFUN (ip_as_path, ip_as_path_cmd,
     }
 
   asfilter = as_filter_make (regex, regstr, type);
-  
+
   XFREE (MTYPE_TMP, regstr);
 
   /* Install new filter to the access_list. */
@@ -519,7 +519,7 @@ DEFUN (no_ip_as_path,
       vty_out (vty, "filter type must be [permit|deny]%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  
+
   /* Compile AS path. */
   regstr = argv_concat(argv, argc, 2);
 
@@ -659,7 +659,7 @@ config_write_as_list (struct vty *vty)
     for (asfilter = aslist->head; asfilter; asfilter = asfilter->next)
       {
 	vty_out (vty, "ip as-path access-list %s %s %s%s",
-		 aslist->name, filter_type_str (asfilter->type), 
+		 aslist->name, filter_type_str (asfilter->type),
 		 asfilter->reg_str,
 		 VTY_NEWLINE);
 	write++;
@@ -669,7 +669,7 @@ config_write_as_list (struct vty *vty)
     for (asfilter = aslist->head; asfilter; asfilter = asfilter->next)
       {
 	vty_out (vty, "ip as-path access-list %s %s %s%s",
-		 aslist->name, filter_type_str (asfilter->type), 
+		 aslist->name, filter_type_str (asfilter->type),
 		 asfilter->reg_str,
 		 VTY_NEWLINE);
 	write++;
@@ -677,27 +677,34 @@ config_write_as_list (struct vty *vty)
   return write;
 }
 
-static struct cmd_node as_list_node =
+/*------------------------------------------------------------------------------
+ * Table of commands to be installed for bgp_filter
+ */
+CMD_INSTALL_TABLE(static, bgp_filter_cmd_table, BGPD) =
 {
-  AS_LIST_NODE,
-  "",
-  1
-};
+  { CONFIG_NODE,    &ip_as_path_cmd                                    },
+  { CONFIG_NODE,    &no_ip_as_path_cmd                                 },
+  { CONFIG_NODE,    &no_ip_as_path_all_cmd                             },
+  { VIEW_NODE,      &show_ip_as_path_access_list_cmd                   },
+  { VIEW_NODE,      &show_ip_as_path_access_list_all_cmd               },
+  { ENABLE_NODE,    &show_ip_as_path_access_list_cmd                   },
+  { ENABLE_NODE,    &show_ip_as_path_access_list_all_cmd               },
+
+  CMD_INSTALL_END
+} ;
 
 /* Register functions. */
 void
+bgp_filter_cmd_init (void)
+{
+  cmd_install_node_config_write (AS_LIST_NODE, config_write_as_list);
+
+  cmd_install_table(bgp_filter_cmd_table) ;
+}
+
+void
 bgp_filter_init (void)
 {
-  install_node (&as_list_node, config_write_as_list);
-
-  install_element (CONFIG_NODE, &ip_as_path_cmd);
-  install_element (CONFIG_NODE, &no_ip_as_path_cmd);
-  install_element (CONFIG_NODE, &no_ip_as_path_all_cmd);
-
-  install_element (VIEW_NODE, &show_ip_as_path_access_list_cmd);
-  install_element (VIEW_NODE, &show_ip_as_path_access_list_all_cmd);
-  install_element (ENABLE_NODE, &show_ip_as_path_access_list_cmd);
-  install_element (ENABLE_NODE, &show_ip_as_path_access_list_all_cmd);
 }
 
 void

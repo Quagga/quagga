@@ -1,6 +1,8 @@
 #include <zebra.h>
 #include "miyagi.h"
 
+#include "qlib_init.h"
+#include "command.h"
 #include "vty.h"
 #include "stream.h"
 #include "privs.h"
@@ -11,7 +13,6 @@
 
 /* need these to link in libbgp */
 struct zebra_privs_t *bgpd_privs = NULL;
-struct thread_master *master = NULL;
 
 static int failed = 0;
 
@@ -128,9 +129,13 @@ parse_test (struct test_segment *t)
 
 
 int
-main (void)
+main (int argc, char **argv)
 {
   int i = 0;
+
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
+
   ecommunity_init();
   while (test_segments[i].name)
     parse_test (&test_segments[i++]);

@@ -1300,7 +1300,7 @@ bgp_attr_community (struct peer *peer, bgp_size_t length,
     }
 
   attr->community =
-    community_parse ((u_int32_t *)stream_pnt (peer->ibuf), length);
+    community_parse ((u_int32_t *)stream_get_pnt (peer->ibuf), length);
 
   /* XXX: fix community_parse to use stream API and remove this */
   stream_forward_getp (peer->ibuf, length);
@@ -1353,7 +1353,7 @@ bgp_attr_cluster_list (struct peer *peer, bgp_size_t length,
     }
 
   (bgp_attr_extra_get (attr))->cluster
-    = cluster_parse ((struct in_addr *)stream_pnt (peer->ibuf), length);
+    = cluster_parse ((struct in_addr *)stream_get_pnt (peer->ibuf), length);
 
   /* XXX: Fix cluster_parse to use stream API and then remove this */
   stream_forward_getp (peer->ibuf, length);
@@ -1370,38 +1370,42 @@ bgp_mp_reach_parse (struct peer *peer, bgp_size_t length, struct attr *attr,
 {
   afi_t afi;
   safi_t safi;
-  bgp_size_t nlri_len;
-  size_t start;
+  size_t nlri_len ;
+  byte*  nlri ;
+  size_t attr_endp, nexthop_endp ;
   int ret;
   struct stream *s;
   struct attr_extra *attre = bgp_attr_extra_get(attr);
 
-  /* Set end of packet. */
   s = BGP_INPUT(peer);
-  start = stream_get_getp(s);
 
-  /* safe to read statically sized header? */
-#define BGP_MP_REACH_MIN_SIZE 5
-#define LEN_LEFT	(length - (stream_get_getp(s) - start))
-  if ((length > STREAM_READABLE(s)) || (length < BGP_MP_REACH_MIN_SIZE))
+  /* Require the given length to be: within what is left to read in the stream
+   *                                 at least the minimum required
+   *
+   * If OK, set "limit", so that provided s->getp <= limit, we are within the
+   * attribute and within the stream.
+   */
+  if (!stream_push_endp(s, length, &attr_endp) || (length < BGP_ATT_MPR_MIN_L))
     {
       zlog_info ("%s: %s sent invalid length, %lu",
-		 __func__, peer->host, (unsigned long)length);
-      return BGP_ATTR_PARSE_ERROR;
-    }
+		                          __func__, peer->host, (ulong)length);
+      goto parse_error ;
+    } ;
 
-  /* Load AFI, SAFI. */
-  afi = stream_getw (s);
+  /* Load AFI, SAFI.
+   */
+  afi  = stream_getw (s);
   safi = stream_getc (s);
 
-  /* Get nexthop length. */
+  /* Get nexthop length and check
+   */
   attre->mp_nexthop_len = stream_getc (s);
 
-  if (LEN_LEFT < attre->mp_nexthop_len)
+  if (!stream_push_endp(s, attre->mp_nexthop_len, &nexthop_endp))
     {
       zlog_info ("%s: %s, MP nexthop length, %u, goes past end of attribute",
 		 __func__, peer->host, attre->mp_nexthop_len);
-      return BGP_ATTR_PARSE_ERROR;
+      goto parse_error ;
     }
 
   /* Nexthop length check. */
@@ -1413,6 +1417,7 @@ bgp_mp_reach_parse (struct peer *peer, bgp_size_t length, struct attr *attr,
       if (attr->nexthop.s_addr == 0)
         memcpy(&attr->nexthop.s_addr, &attre->mp_nexthop_global_in, 4);
       break;
+
     case 12:
       {
 	u_int32_t rd_high;
@@ -1423,10 +1428,12 @@ bgp_mp_reach_parse (struct peer *peer, bgp_size_t length, struct attr *attr,
 	stream_get (&attre->mp_nexthop_global_in, s, 4);
       }
       break;
+
 #ifdef HAVE_IPV6
     case 16:
       stream_get (&attre->mp_nexthop_global, s, 16);
       break;
+
     case 32:
       stream_get (&attre->mp_nexthop_global, s, 16);
       stream_get (&attre->mp_nexthop_local, s, 16);
@@ -1448,56 +1455,61 @@ bgp_mp_reach_parse (struct peer *peer, bgp_size_t length, struct attr *attr,
 	}
       break;
 #endif /* HAVE_IPV6 */
+
     default:
       zlog_info ("%s: (%s) Wrong multiprotocol next hop length: %d",
-		 __func__, peer->host, attre->mp_nexthop_len);
-      return BGP_ATTR_PARSE_ERROR;
+                                  __func__, peer->host, attre->mp_nexthop_len) ;
+      goto parse_error ;
     }
 
-  if (!LEN_LEFT)
+  if (!stream_pop_endp(s, nexthop_endp))
     {
-      zlog_info ("%s: (%s) Failed to read SNPA and NLRI(s)",
-                 __func__, peer->host);
-      return BGP_ATTR_PARSE_ERROR;
-    }
+      zlog_info ("%s: (%s) Failed to read next hop (length %d)",
+                                  __func__, peer->host, attre->mp_nexthop_len) ;
+      goto parse_error ;
+    } ;
 
   {
     u_char val;
     if ((val = stream_getc (s)))
-    zlog_warn ("%s sent non-zero value, %u, for defunct SNPA-length field",
-                peer->host, val);
+      zlog_warn ("%s sent non-zero value, %u, for defunct SNPA-length field",
+                                                            peer->host, val) ;
   }
 
-  /* must have nrli_len, what is left of the attribute */
-  nlri_len = LEN_LEFT;
-  if ((!nlri_len) || (nlri_len > STREAM_READABLE(s)))
+  /* must have nrli_len, what is left of the attribute
+   */
+  nlri = stream_get_bytes_left(s, &nlri_len) ;
+
+  if (nlri_len == 0)
     {
-      zlog_info ("%s: (%s) Failed to read NLRI",
-                 __func__, peer->host);
-      return BGP_ATTR_PARSE_ERROR;
+      zlog_info ("%s: (%s) zero length NLRI", __func__, peer->host);
+      goto parse_error ;
     }
 
   if (safi != BGP_SAFI_VPNV4)
     {
-      ret = bgp_nlri_sanity_check (peer, afi, stream_pnt (s), nlri_len);
+      ret = bgp_nlri_sanity_check (peer, afi, nlri, nlri_len);
       if (ret < 0)
         {
           zlog_info ("%s: (%s) NLRI doesn't pass sanity check",
                      __func__, peer->host);
-	  return BGP_ATTR_PARSE_ERROR;
+          goto parse_error ;
 	}
     }
 
-  mp_update->afi = afi;
-  mp_update->safi = safi;
-  mp_update->nlri = stream_pnt (s);
+  mp_update->afi    = afi;
+  mp_update->safi   = safi;
+  mp_update->nlri   = nlri ;
   mp_update->length = nlri_len;
 
-  stream_forward_getp (s, nlri_len);
+  stream_pop_endp(s, attr_endp) ;
 
   return BGP_ATTR_PARSE_PROCEED;
-#undef LEN_LEFT
-}
+
+parse_error:
+   stream_pop_endp(s, attr_endp) ;
+   return BGP_ATTR_PARSE_ERROR;
+} ;
 
 /* Multiprotocol unreachable parse */
 extern bgp_attr_parse_ret_t
@@ -1513,7 +1525,7 @@ bgp_mp_unreach_parse (struct peer *peer, bgp_size_t length,
   s = peer->ibuf;
 
 #define BGP_MP_UNREACH_MIN_SIZE 3
-  if ((length > STREAM_READABLE(s)) || (length <  BGP_MP_UNREACH_MIN_SIZE))
+  if ((length > stream_get_read_left(s)) || (length <  BGP_MP_UNREACH_MIN_SIZE))
     return BGP_ATTR_PARSE_ERROR;
 
   afi = stream_getw (s);
@@ -1523,14 +1535,14 @@ bgp_mp_unreach_parse (struct peer *peer, bgp_size_t length,
 
   if (safi != BGP_SAFI_VPNV4)
     {
-      ret = bgp_nlri_sanity_check (peer, afi, stream_pnt (s), withdraw_len);
+      ret = bgp_nlri_sanity_check (peer, afi, stream_get_pnt (s), withdraw_len);
       if (ret < 0)
 	return BGP_ATTR_PARSE_ERROR;
     }
 
   mp_withdraw->afi = afi;
   mp_withdraw->safi = safi;
-  mp_withdraw->nlri = stream_pnt (s);
+  mp_withdraw->nlri = stream_get_pnt (s);
   mp_withdraw->length = withdraw_len;
 
   stream_forward_getp (s, withdraw_len);
@@ -1556,7 +1568,7 @@ bgp_attr_ext_communities (struct peer *peer, bgp_size_t length,
     }
 
   (bgp_attr_extra_get (attr))->ecommunity =
-    ecommunity_parse ((u_int8_t *)stream_pnt (peer->ibuf), length);
+    ecommunity_parse ((u_int8_t *)stream_get_pnt (peer->ibuf), length);
   /* XXX: fix ecommunity_parse to use stream API */
   stream_forward_getp (peer->ibuf, length);
 
@@ -1968,7 +1980,7 @@ bgp_attr_check (struct peer *peer, struct attr *attr)
   return BGP_ATTR_PARSE_PROCEED;
 }
 
-int stream_put_prefix (struct stream *, struct prefix *);
+//int stream_put_prefix (struct stream *, struct prefix *);
 
 /* Make attribute packet. */
 bgp_size_t

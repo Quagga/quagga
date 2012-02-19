@@ -85,6 +85,7 @@ extern qpath qpath_copy(qpath dst, const qpath src) ;
 Inline qpath qpath_dup(const qpath qp) ;
 Inline qpath qpath_dup_str(const char* src) ;
 
+extern int qpath_mkstemp(qpath qp) ;
 extern qpath qpath_getcwd(qpath dst) ;
 extern qpath qpath_get_home(qpath qp, const char* name) ;
 extern int qpath_setcwd(qpath dst) ;
@@ -110,7 +111,7 @@ extern qpath qpath_prepend_qs(qpath dst, const qstring src) ;
 extern qpath qpath_prepend_str(qpath dst, const char* src) ;
 extern qpath qpath_prepend_str_n(qpath dst, const char* src, ulen n) ;
 
-extern qpath qpath_make(const char* src, const qpath dir) ;
+extern qpath qpath_make_path(qpath dst, const char* src, const qpath dir) ;
 
 extern qpath qpath_complete(qpath dst, const qpath src) ;
 extern qpath qpath_complete_qs(qpath dst, const qstring src) ;
@@ -131,7 +132,7 @@ qpath_new(void)
 } ;
 
 /*------------------------------------------------------------------------------
- * Free qpath.
+ * Free qpath, if any.  Returns NULL.
  */
 Inline qpath
 qpath_free(qpath qp)
@@ -163,10 +164,11 @@ qpath_dup_str(const char* src)
  * This is *temporary* to the extent that when the qpath is changed or freed,
  * this pointer will be INVALID -- you have been warned.
  *
+ * The string is '\0' terminated.
+ *
  * This is a *const* pointer.
  *
- * For a NULL qpath, or an empty qpath, returns pointer to an empty string
- * ('\0' terminated "").
+ * For a NULL qpath, or an empty qpath, returns pointer to an empty string.
  */
 Inline const char*
 qpath_string(qpath qp)
@@ -201,7 +203,7 @@ qpath_char_string(qpath qp)
 Inline char*
 qpath_char(qpath qp)
 {
-  return (qp != NULL) ? qs_char_nn(qp->path) : 0 ;
+  return (qp != NULL) ? qs_char_nn(qp->path) : NULL ;
 } ;
 
 /*------------------------------------------------------------------------------

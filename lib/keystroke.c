@@ -447,7 +447,7 @@ keystroke_stream_free(keystroke_stream stream)
 extern bool
 keystroke_stream_empty(keystroke_stream stream)
 {
-  return (stream == NULL) || vio_fifo_empty(stream->fifo) ;
+  return (stream == NULL) || vio_fifo_is_empty(stream->fifo) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -466,7 +466,8 @@ keystroke_stream_at_eof(keystroke_stream stream)
    * is converted to a broken keystroke and placed in the stream.
    * (So eof_met => no partial keystroke.)
    */
-  return (stream == NULL) || (vio_fifo_empty(stream->fifo) && stream->eof_met) ;
+  return (stream == NULL) || (vio_fifo_is_empty(stream->fifo)
+                                                           && stream->eof_met) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -494,7 +495,7 @@ keystroke_stream_met_eof(keystroke_stream stream)
 extern void
 keystroke_stream_set_eof(keystroke_stream stream, bool timed_out)
 {
-  vio_fifo_clear(stream->fifo, true) ;  /* and clear marks              */
+  vio_fifo_clear(stream->fifo) ;
 
   stream->eof_met         = true ;      /* essential information        */
   stream->timed_out       = timed_out ; /* variant of eof               */
@@ -502,6 +503,27 @@ keystroke_stream_set_eof(keystroke_stream stream, bool timed_out)
   stream->steal           = steal_none ;        /* keep tidy            */
   stream->in.state        = kst_between ;
   stream->pushed_in.state = kst_between ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Clear keystroke stream:
+ *
+ *   * discard contents of the stream, excluding any partial keystroke.
+ *
+ *   * if have stolen a keystroke, forget it and set back to steal_next.
+ *
+ *   * leaves eof and timed_out state as is
+ *
+ * May be used during the stream->callback() so that ^C cancels out anything
+ * pending.
+ */
+extern void
+keystroke_stream_clear(keystroke_stream stream)
+{
+  vio_fifo_clear(stream->fifo) ;
+
+  if (stream->steal == steal_done)
+    stream->steal = steal_next ;
 } ;
 
 /*==============================================================================
@@ -652,6 +674,15 @@ keystroke_steal(keystroke_stream stream, keystroke stroke)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Are we in the process of trying to steal a keystroke ?
+ */
+extern bool
+keystroke_steal_state(keystroke_stream stream)
+{
+  return (stream->steal != steal_none) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Clear any keystroke stealing state.
  *
  * If keystroke has been stolen, it will be lost.
@@ -676,72 +707,9 @@ keystroke_steal_clear(keystroke_stream stream)
  * Updates the stream and returns updated raw
  */
 extern void
-keystroke_input(keystroke_stream stream, uint8_t* ptr, int len)
+keystroke_input(keystroke_stream stream, uint8_t* ptr, uint len)
 {
   uint8_t*  end ;
-
-  /* Deal with EOF if required
-   *
-   * Any partial keystroke is converted into a broken keystroke and placed
-   * at the end of the stream.
-   *
-   * Note that neither steals no calls back broken keystrokes.
-   */
-  if (len < 0)
-    {
-      stream->eof_met    = true ;
-      stream->timed_out  = false ;
-
-      /* Loop to deal with any pending IAC and partial keystroke.
-       *
-       * An IAC in the middle of a real keystroke sequence appears before
-       * it.  Do the same here, even with broken sequences.
-       *
-       * A partial IAC sequence may have pushed a partial real keystroke
-       * sequence -- so loop until have dealt with that.
-       */
-      while (stream->in.state != kst_between)
-        {
-          switch (stream->in.state)
-          {
-            case kst_cr:            /* expecting something after CR     */
-              keystroke_add_raw(stream, '\r') ;
-              keystroke_put(stream, ks_char, kf_broken,
-                                               stream->in.raw, stream->in.len) ;
-              break ;
-
-            case kst_esc:           /* expecting rest of escape         */
-            case kst_csi:
-              keystroke_put_esc(stream, '\0', kf_broken) ;
-              break ;
-
-            /* For incomplete IAC sequences, insert a broken sequence.
-             *
-             * Note that where have just seen an IAC itself, we insert that
-             * now at the end of the sequence.
-             */
-            case kst_iac:           /* expecting something after IAC    */
-            case kst_iac_sub_iac:
-              keystroke_add_raw(stream, tn_IAC) ;
-              fall_through ;
-
-            case kst_iac_option:    /* expecting rest of IAC XX         */
-            case kst_iac_sub:
-              keystroke_put_iac(stream, kf_broken) ;
-
-              break ;
-
-            case kst_between:       /* Cannot be this                   */
-            case kst_char:          /* TBD                              */
-              zabort("impossible keystroke stream state") ;
-
-            default:
-              zabort("unknown keystroke stream state") ;
-          } ;
-
-          keystroke_in_pop(stream) ;    /* pops kst_between, when all done */
-        } ;
-    } ;
 
   /* Once EOF has been signalled, do not expect to receive any further input.
    *
@@ -749,7 +717,7 @@ keystroke_input(keystroke_stream stream, uint8_t* ptr, int len)
    * EOF, and that is honoured here.
    */
   if (stream->eof_met)
-    len = 0 ;
+    return ;
 
   /* Normal processing
    *
@@ -1035,6 +1003,74 @@ keystroke_input(keystroke_stream stream, uint8_t* ptr, int len)
     } ;
 
   assert(ptr == end) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Have reached eof on the input.
+ *
+ * Any partial keystroke is converted into a broken keystroke and placed
+ * at the end of the stream.
+ *
+ * Note that neither steals nor calls back broken keystrokes.
+ *
+ * Note that keystroke_stream_set_eof() is more brutal, and discards all
+ * buffered and/or stolen keystrokes.
+ */
+extern void
+keystroke_input_eof(keystroke_stream stream)
+{
+  stream->eof_met    = true ;
+  stream->timed_out  = false ;
+
+  /* Loop to deal with any pending IAC and partial keystroke.
+   *
+   * An IAC in the middle of a real keystroke sequence appears before
+   * it.  Do the same here, even with broken sequences.
+   *
+   * A partial IAC sequence may have pushed a partial real keystroke
+   * sequence -- so loop until have dealt with that.
+   */
+  while (stream->in.state != kst_between)
+    {
+      switch (stream->in.state)
+      {
+        case kst_cr:            /* expecting something after CR     */
+          keystroke_add_raw(stream, '\r') ;
+          keystroke_put(stream, ks_char, kf_broken,
+                                           stream->in.raw, stream->in.len) ;
+          break ;
+
+        case kst_esc:           /* expecting rest of escape         */
+        case kst_csi:
+          keystroke_put_esc(stream, '\0', kf_broken) ;
+          break ;
+
+        /* For incomplete IAC sequences, insert a broken sequence.
+         *
+         * Note that where have just seen an IAC itself, we insert that
+         * now at the end of the sequence.
+         */
+        case kst_iac:           /* expecting something after IAC    */
+        case kst_iac_sub_iac:
+          keystroke_add_raw(stream, tn_IAC) ;
+          fall_through ;
+
+        case kst_iac_option:    /* expecting rest of IAC XX         */
+        case kst_iac_sub:
+          keystroke_put_iac(stream, kf_broken) ;
+
+          break ;
+
+        case kst_between:       /* Cannot be this                   */
+        case kst_char:          /* TBD                              */
+          zabort("impossible keystroke stream state") ;
+
+        default:
+          zabort("unknown keystroke stream state") ;
+      } ;
+
+      keystroke_in_pop(stream) ;    /* pops kst_between, when all done */
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------

@@ -1,4 +1,3 @@
-
 /*
  * Interface functions.
  * Copyright (C) 1997, 98 Kunihiro Ishiguro
@@ -559,6 +558,16 @@ DEFUN_ATTR (interface,
   vty->index = ifp;
   vty->node  = INTERFACE_NODE ;
 
+  /* Extra bit for ZEBRA -- this flag is not used by any other daemon, so
+   * whether or not this is necessary, it can be done here -- which allows
+   * all daemons which use the if.c stuff to share the command.
+   */
+  if (ifp->ifindex == IFINDEX_INTERNAL)
+    /* Is this really necessary?  Shouldn't status be initialized to 0
+     * in that case?                 TODO
+     */
+    UNSET_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE);
+
   return CMD_SUCCESS;
 }
 
@@ -897,3 +906,47 @@ if_terminate (void)
   list_delete (iflist);
   iflist = NULL;
 }
+
+/*------------------------------------------------------------------------------
+ *
+ * RIPD
+ *
+ * RIPNGD
+ *
+ * ISISD
+ *
+ * OSPFD
+ *
+ * OSPF6D
+ *
+ * ZEBRA  OK.
+ *
+ * Note that "show address" is a common debug command
+ *
+ */
+CMD_INSTALL_TABLE(static, interface_cmd_table,
+                            RIPD | RIPNGD | ISISD | OSPFD | OSPF6D | ZEBRA) =
+{
+  { CONFIG_NODE,     &interface_cmd                                     },
+  { CONFIG_NODE,     &no_interface_cmd                                  },
+
+  { INTERFACE_NODE,  &interface_desc_cmd                                },
+  { INTERFACE_NODE,  &no_interface_desc_cmd                             },
+
+  { ENABLE_NODE,     &show_address_cmd                                  },
+
+  CMD_INSTALL_END
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set up the INTERFACE_NODE, complete with basic commands and the common
+ * commands, above.
+ *
+ * TODO: worry about each daemon having its own config writer ??
+ */
+extern void
+if_cmd_init(int (*config_write) (struct vty *))
+{
+  cmd_install_node_config_write (INTERFACE_NODE, config_write) ;
+  cmd_install_table(interface_cmd_table) ;
+} ;

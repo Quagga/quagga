@@ -46,6 +46,7 @@ struct bgp_nexthop_cache
   struct nexthop *nexthop;
 };
 
+extern void bgp_scan_cmd_init (void);
 extern void bgp_scan_init (void);
 extern void bgp_scan_finish (void);
 extern int bgp_nexthop_lookup (afi_t, struct peer *peer, struct bgp_info *,

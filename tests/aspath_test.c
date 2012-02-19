@@ -1,5 +1,7 @@
 #include <zebra.h>
 
+#include "qlib_init.h"
+#include "command.h"
 #include "vty.h"
 #include "stream.h"
 #include "privs.h"
@@ -17,7 +19,6 @@
 
 /* need these to link in libbgp */
 struct zebra_privs_t *bgpd_privs = NULL;
-struct thread_master *master = NULL;
 
 static int failed = 0;
 
@@ -1213,7 +1214,7 @@ handle_attr_test (struct aspath_tests *t)
 #endif
   peer.cap = t->cap;
 
-  stream_write (peer.ibuf, t->attrheader, t->len);
+  stream_put (peer.ibuf, t->attrheader, t->len);
   datalen = aspath_put (peer.ibuf, asp, t->as4 == AS4_DATA);
 
   ret = bgp_attr_parse (&peer, &attr, t->len + datalen, NULL, NULL);
@@ -1257,11 +1258,15 @@ attr_test (struct aspath_tests *t)
 }
 
 int
-main (void)
+main (int argc, char **argv)
 {
   int i = 0;
+
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
+
   bgp_master_init ();
-  master = bm->master;
+
   bgp_attr_init ();
 
   while (test_segments[i].name)

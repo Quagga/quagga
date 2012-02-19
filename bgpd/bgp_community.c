@@ -168,9 +168,9 @@ community_uniq_sort (struct community *com)
 
   if (! com)
     return NULL;
-  
+
   new = community_new ();;
-  
+
   for (i = 0; i < com->size; i++)
     {
       val = community_val_get (com, i);
@@ -188,7 +188,7 @@ community_uniq_sort (struct community *com)
 
    For Well-known communities value, below keyword is used.
 
-   0x0             "internet"    
+   0x0             "internet"
    0xFFFFFF01      "no-export"
    0xFFFFFF02      "no-advertise"
    0xFFFFFF03      "local-AS"
@@ -208,7 +208,7 @@ community_com2str  (struct community *com)
 
   if (!com)
     return NULL;
-  
+
   /* When communities attribute is empty.  */
   if (com->size == 0)
     {
@@ -226,7 +226,7 @@ community_com2str  (struct community *com)
       memcpy (&comval, com_nthval (com, i), sizeof (u_int32_t));
       comval = ntohl (comval);
 
-      switch (comval) 
+      switch (comval)
 	{
 	case COMMUNITY_INTERNET:
 	  len += strlen (" internet");
@@ -261,7 +261,7 @@ community_com2str  (struct community *com)
       else
 	*pnt++ = ' ';
 
-      switch (comval) 
+      switch (comval)
 	{
 	case COMMUNITY_INTERNET:
 	  strcpy (pnt, "internet");
@@ -360,7 +360,7 @@ community_parse (u_int32_t *pnt, u_short length)
 
   /* Make temporary community for hash look up. */
   tmp.size = length / 4;
-  tmp.val = pnt;
+  tmp.val  = pnt;
 
   new = community_uniq_sort (&tmp);
 
@@ -390,7 +390,7 @@ community_str (struct community *com)
 {
   if (!com)
     return NULL;
-  
+
   if (! com->str)
     com->str = community_com2str (com);
   return com->str;
@@ -407,10 +407,10 @@ community_hash_make (struct community *com)
 
   key = 0;
   pnt = (unsigned char *)com->val;
-  
+
   for(c = 0; c < com->size * 4; c++)
     key += pnt[c];
-      
+
   return key;
 }
 
@@ -464,7 +464,7 @@ struct community *
 community_merge (struct community *com1, struct community *com2)
 {
   if (com1->val)
-    com1->val = XREALLOC (MTYPE_COMMUNITY_VAL, com1->val, 
+    com1->val = XREALLOC (MTYPE_COMMUNITY_VAL, com1->val,
 			  (com1->size + com2->size) * 4);
   else
     com1->val = XMALLOC (MTYPE_COMMUNITY_VAL, (com1->size + com2->size) * 4);
@@ -487,7 +487,7 @@ enum community_token
 
 /* Get next community token from string. */
 static const char *
-community_gettoken (const char *buf, enum community_token *token, 
+community_gettoken (const char *buf, enum community_token *token,
                     u_int32_t *val)
 {
   const char *p = buf;
@@ -501,7 +501,7 @@ community_gettoken (const char *buf, enum community_token *token,
     return NULL;
 
   /* Well known community string check. */
-  if (isalpha ((int) *p)) 
+  if (isalpha ((int) *p))
     {
       if (strncmp (p, "internet", strlen ("internet")) == 0)
 	{
@@ -538,16 +538,16 @@ community_gettoken (const char *buf, enum community_token *token,
     }
 
   /* Community value. */
-  if (isdigit ((int) *p)) 
+  if (isdigit ((int) *p))
     {
       int separator = 0;
       int digit = 0;
       u_int32_t community_low = 0;
       u_int32_t community_high = 0;
 
-      while (isdigit ((int) *p) || *p == ':') 
+      while (isdigit ((int) *p) || *p == ':')
 	{
-	  if (*p == ':') 
+	  if (*p == ':')
 	    {
 	      if (separator)
 		{
@@ -562,7 +562,7 @@ community_gettoken (const char *buf, enum community_token *token,
 		  community_low = 0;
 		}
 	    }
-	  else 
+	  else
 	    {
 	      digit = 1;
 	      community_low *= 10;
@@ -592,10 +592,10 @@ community_str2com (const char *str)
   u_int32_t val = 0;
   enum community_token token = community_token_unknown;
 
-  do 
+  do
     {
       str = community_gettoken (str, &token, &val);
-      
+
       switch (token)
 	{
 	case community_token_val:
@@ -613,7 +613,7 @@ community_str2com (const char *str)
 	  return NULL;
 	}
     } while (str);
-  
+
   if (! com)
     return NULL;
 

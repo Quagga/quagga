@@ -31,7 +31,8 @@
 #include <stdio.h>
 #include "log_common.h"
 #include "vargs.h"
-#include "pthread_safe.h"
+
+#include "pthread_safe.h"       /* used by many logging actions */
 
 /* Here is some guidance on logging levels to use:
  *

@@ -26,6 +26,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 /*------------------------------------------------------------------------------
  */
+extern void bgp_dump_cmd_init (void);
 extern void bgp_dump_init (void);
 extern void bgp_dump_finish (void);
 

@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -123,7 +123,7 @@ zebra_route_set_delete (struct vty *vty, struct route_map_index *index,
   return CMD_SUCCESS;
 }
 
-
+
 /* `match interface IFNAME' */
 /* Match function return 1 if match is success else return zero. */
 static route_map_result_t
@@ -293,7 +293,7 @@ DEFUN (match_ip_address,
   return zebra_route_match_add (vty, vty->index, "ip address", argv[0]);
 }
 
-DEFUN (no_match_ip_address, 
+DEFUN (no_match_ip_address,
        no_match_ip_address_cmd,
        "no match ip address",
        NO_STR
@@ -318,7 +318,7 @@ ALIAS (no_match_ip_address,
        "IP access-list number (expanded range)\n"
        "IP Access-list name\n")
 
-DEFUN (match_ip_address_prefix_list, 
+DEFUN (match_ip_address_prefix_list,
        match_ip_address_prefix_list_cmd,
        "match ip address prefix-list WORD",
        MATCH_STR
@@ -471,7 +471,7 @@ static struct route_map_rule_cmd route_match_ip_next_hop_cmd =
   route_match_ip_next_hop_compile,
   route_match_ip_next_hop_free
 };
-
+
 /* `match ip next-hop prefix-list PREFIX_LIST' */
 
 static route_map_result_t
@@ -533,13 +533,13 @@ static struct route_map_rule_cmd route_match_ip_next_hop_prefix_list_cmd =
   route_match_ip_next_hop_prefix_list_compile,
   route_match_ip_next_hop_prefix_list_free
 };
-
+
 /* `match ip address IP_ACCESS_LIST' */
 
 /* Match function should return 1 if match is success else return
    zero. */
 static route_map_result_t
-route_match_ip_address (void *rule, struct prefix *prefix, 
+route_match_ip_address (void *rule, struct prefix *prefix,
 			route_map_object_t type, void *object)
 {
   struct access_list *alist;
@@ -549,7 +549,7 @@ route_match_ip_address (void *rule, struct prefix *prefix,
       alist = access_list_lookup (AFI_IP, (char *) rule);
       if (alist == NULL)
 	return RMAP_NOMATCH;
-    
+
       return (access_list_apply (alist, prefix) == FILTER_DENY ?
 	      RMAP_NOMATCH : RMAP_MATCH);
     }
@@ -579,11 +579,11 @@ static struct route_map_rule_cmd route_match_ip_address_cmd =
   route_match_ip_address_compile,
   route_match_ip_address_free
 };
-
+
 /* `match ip address prefix-list PREFIX_LIST' */
 
 static route_map_result_t
-route_match_ip_address_prefix_list (void *rule, struct prefix *prefix, 
+route_match_ip_address_prefix_list (void *rule, struct prefix *prefix,
 				    route_map_object_t type, void *object)
 {
   struct prefix_list *plist;
@@ -593,7 +593,7 @@ route_match_ip_address_prefix_list (void *rule, struct prefix *prefix,
       plist = prefix_list_lookup (AFI_IP, (char *) rule);
       if (plist == NULL)
 	return RMAP_NOMATCH;
-    
+
       return (prefix_list_apply (plist, prefix) == PREFIX_DENY ?
 	      RMAP_NOMATCH : RMAP_MATCH);
     }
@@ -620,12 +620,12 @@ static struct route_map_rule_cmd route_match_ip_address_prefix_list_cmd =
   route_match_ip_address_prefix_list_free
 };
 
-
+
 /* `set src A.B.C.D' */
 
 /* Set src. */
 static route_map_result_t
-route_set_src (void *rule, struct prefix *prefix, 
+route_set_src (void *rule, struct prefix *prefix,
 		  route_map_object_t type, void *object)
 {
   if (type == RMAP_ZEBRA)
@@ -665,7 +665,7 @@ route_set_src_free (void *rule)
 }
 
 /* Set src rule structure. */
-static struct route_map_rule_cmd route_set_src_cmd = 
+static struct route_map_rule_cmd route_set_src_cmd =
 {
   "src",
   route_set_src,
@@ -673,11 +673,37 @@ static struct route_map_rule_cmd route_set_src_cmd =
   route_set_src_free,
 };
 
-void
-zebra_route_map_init ()
+/* Note that this command is not to be installed for vtysh
+ */
+CMD_INSTALL_TABLE(static, zebra_routemap_cmd_table, ZEBRA) =
 {
-  route_map_init ();
-  route_map_init_vty ();
+  { RMAP_NODE,       &match_interface_cmd                               },
+  { RMAP_NODE,       &no_match_interface_cmd                            },
+  { RMAP_NODE,       &no_match_interface_val_cmd                        },
+  { RMAP_NODE,       &match_ip_next_hop_cmd                             },
+  { RMAP_NODE,       &no_match_ip_next_hop_cmd                          },
+  { RMAP_NODE,       &no_match_ip_next_hop_val_cmd                      },
+  { RMAP_NODE,       &match_ip_next_hop_prefix_list_cmd                 },
+  { RMAP_NODE,       &no_match_ip_next_hop_prefix_list_cmd              },
+  { RMAP_NODE,       &no_match_ip_next_hop_prefix_list_val_cmd          },
+  { RMAP_NODE,       &match_ip_address_cmd                              },
+  { RMAP_NODE,       &no_match_ip_address_cmd                           },
+  { RMAP_NODE,       &no_match_ip_address_val_cmd                       },
+  { RMAP_NODE,       &match_ip_address_prefix_list_cmd                  },
+  { RMAP_NODE,       &no_match_ip_address_prefix_list_cmd               },
+  { RMAP_NODE,       &no_match_ip_address_prefix_list_val_cmd           },
+/* */
+  { RMAP_NODE,       &set_src_cmd                                       },
+  { RMAP_NODE,       &no_set_src_cmd                                    },
+  { RMAP_NODE,       &no_set_src_val_cmd                                },
+
+  CMD_INSTALL_END
+} ;
+
+extern void
+zebra_route_map_cmd_init(void)
+{
+  route_map_cmd_init ();
 
   route_map_install_match (&route_match_interface_cmd);
   route_map_install_match (&route_match_ip_next_hop_cmd);
@@ -687,22 +713,11 @@ zebra_route_map_init ()
 /* */
   route_map_install_set (&route_set_src_cmd);
 /* */
-  install_element (RMAP_NODE, &match_interface_cmd);
-  install_element (RMAP_NODE, &no_match_interface_cmd); 
-  install_element (RMAP_NODE, &no_match_interface_val_cmd); 
-  install_element (RMAP_NODE, &match_ip_next_hop_cmd); 
-  install_element (RMAP_NODE, &no_match_ip_next_hop_cmd); 
-  install_element (RMAP_NODE, &no_match_ip_next_hop_val_cmd); 
-  install_element (RMAP_NODE, &match_ip_next_hop_prefix_list_cmd); 
-  install_element (RMAP_NODE, &no_match_ip_next_hop_prefix_list_cmd); 
-  install_element (RMAP_NODE, &no_match_ip_next_hop_prefix_list_val_cmd); 
-  install_element (RMAP_NODE, &match_ip_address_cmd); 
-  install_element (RMAP_NODE, &no_match_ip_address_cmd); 
-  install_element (RMAP_NODE, &no_match_ip_address_val_cmd); 
-  install_element (RMAP_NODE, &match_ip_address_prefix_list_cmd); 
-  install_element (RMAP_NODE, &no_match_ip_address_prefix_list_cmd); 
-  install_element (RMAP_NODE, &no_match_ip_address_prefix_list_val_cmd);
-/* */
-  install_element (RMAP_NODE, &set_src_cmd);
-  install_element (RMAP_NODE, &no_set_src_cmd);
+  cmd_install_table(zebra_routemap_cmd_table) ;
 }
+
+extern void
+zebra_route_map_init ()
+{
+  route_map_init ();
+} ;

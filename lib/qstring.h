@@ -24,7 +24,6 @@
 
 #include "misc.h"
 #include "vargs.h"
-#include "zassert.h"
 #include "memory.h"
 #include "elstring.h"
 
@@ -35,8 +34,8 @@
  * of useful string operations such that the caller does not need to worry
  * about the length of the string, and allocating space and so on.
  *
- * The caller does, however, have to explicitly release the contents of a
- * qstring when it is done with.
+ * The caller does, however, have to explicitly release the qstring when it is
+ * done with.
  *
  * The mechanics of a qstring work on a length/pointer basis.  The body of a
  * qstring is not guaranteed to be '\0' terminated, but when memory is
@@ -66,7 +65,7 @@ struct qstring
   usize       b_size ;
 
   bool        alias ;
-  char*       empty ;
+//char*       empty ;
 } ;
 
 typedef struct qstring  qstring_t[1] ;
@@ -143,21 +142,24 @@ Inline void qs_cpp_nn(cpp p, qstring qs) ;
  * Functions to fetch the elstring body of the qstring.
  */
 
-/* Pointer to elstring of qstring -- returns NULL if qstring is NULL    */
+/* Pointer to elstring of qstring -- returns NULL if qstring is NULL
+ */
 Inline elstring
 qs_els(qstring qs)
 {
   return (qs != NULL) ? qs->els : NULL ;
 } ;
 
-/* Pointer to elstring of qstring (not NULL)                            */
+/* Pointer to elstring of qstring (not NULL)
+ */
 Inline elstring
 qs_els_nn(qstring qs)
 {
   return qs->els ;
 } ;
 
-/* Copy elstring of qstring to another elstring (elstring not NULL)     */
+/* Copy elstring of qstring to another elstring (elstring not NULL)
+ */
 Inline void
 qs_els_copy(elstring els, qstring qs)
 {
@@ -167,7 +169,8 @@ qs_els_copy(elstring els, qstring qs)
     els_null(els) ;
 } ;
 
-/* Copy elstring of qstring to another elstring (neither NULL)          */
+/* Copy elstring of qstring to another elstring (neither NULL)
+ */
 Inline void
 qs_els_copy_nn(elstring els, qstring qs)
 {
@@ -182,73 +185,83 @@ qs_els_copy_nn(elstring els, qstring qs)
  *     returned is the alias -- which could disappear !
  */
 
-/* Start of qstring -- returns NULL if qstring is NULL, or body is.     */
+/* Start of qstring body -- returns NULL if qstring is NULL, or body is.
+ */
 Inline char*
 qs_char(qstring qs)
 {
   return qs_body(qs) ;
 } ;
 
-/* Start of qstring (not NULL)-- returns NULL if body is NULL.          */
+/* Start of qstring body (not NULL)-- returns NULL if body is NULL.
+*/
 Inline char*
 qs_char_nn(qstring qs)
 {
   return qs_body_nn(qs) ;
 } ;
 
-/* Offset in qstring -- returns NULL if qstring is NULL
- *                      returns *nonsense if body is NULL               */
+/* Offset in qstring body -- returns NULL if qstring is NULL
+ *                           returns *nonsense if body is NULL
+ */
 Inline char*
 qs_char_at(qstring qs, usize off)
 {
   return (qs != NULL) ? qs_char_at_nn(qs, off) : NULL ;
 } ;
 
-/* Offset in qstring (not NULL) -- returns *nonsense if body is NULL    */
+/* Offset in qstring body (not NULL) -- returns *nonsense if body is NULL
+ */
 Inline char*
 qs_char_at_nn(qstring qs, usize off)
 {
   return qs_char_nn(qs) + off ;
 } ;
 
-/* 'cp' in qstring -- returns NULL if qstring is NULL
- *                    returns *nonsense if body is NULL                 */
+/* 'cp' in qstring body -- returns NULL if qstring is NULL
+ *                         returns *nonsense if body is NULL
+ */
 Inline char*
 qs_cp_char(qstring qs)
 {
   return (qs != NULL) ? qs_cp_char_nn(qs) : NULL ;
 } ;
 
-/* 'cp' in qstring (not NULL) -- returns *nonsense if body is NULL      */
+/* 'cp' in qstring body (not NULL) -- returns *nonsense if body is NULL
+ */
 Inline char*
 qs_cp_char_nn(qstring qs)
 {
   return qs_char_at_nn(qs, qs_cp_nn(qs)) ;
 } ;
 
-/* 'len' in qstring -- returns NULL if qstring is NULL
- *                     returns *nonsense if body is NULL                */
+/* 'len' in qstring body -- returns NULL if qstring is NULL
+ *                          returns *nonsense if body is NULL
+ */
 Inline char*
 qs_ep_char(qstring qs)
 {
   return (qs != NULL) ? qs_ep_char_nn(qs) : NULL ;
 } ;
 
-/* 'len' in qstring (not NULL) -- returns *nonsense if body is NULL     */
+/* 'len' in qstring body (not NULL) -- returns *nonsense if body is NULL
+ */
 Inline char*
 qs_ep_char_nn(qstring qs)
 {
   return qs_char_at_nn(qs, qs_len_nn(qs)) ;
 } ;
 
-/* Start of qstring -- returns NULL if qstring is NULL, or body is.     */
+/* Start of qstring body -- returns NULL if qstring is NULL, or body is.
+ */
 Inline void*
 qs_body(qstring qs)
 {
   return (qs != NULL) ? qs_body_nn(qs) : NULL ;
 } ;
 
-/* Start of qstring (not NULL)-- returns NULL if body is NULL.          */
+/* Start of qstring body (not NULL)-- returns NULL if body is NULL.
+ */
 Inline void*
 qs_body_nn(qstring qs)
 {
@@ -257,21 +270,24 @@ qs_body_nn(qstring qs)
 
 /* Set new body of qstring (not NULL).
  *
- * Caller must ensure that 'size', 'len' & 'cp' are all valid !         */
+ * Caller must ensure that 'size', 'len' & 'cp' are all valid !
+ */
 Inline void
 qs_set_body_nn(qstring qs, const void* body)
 {
   els_set_body_nn(qs->els, body) ;
 } ;
 
-/* Size of qstring body -- zero if qstring is NULL, or is alias.        */
+/* Size of qstring body -- zero if qstring is NULL, or is alias.
+ */
 Inline usize
 qs_size(qstring qs)
 {
   return (qs != NULL) ? qs_size_nn(qs) : 0 ;
 } ;
 
-/* Size of qstring (not NULL).                                          */
+/* Size of qstring (not NULL).
+ */
 Inline usize
 qs_size_nn(qstring qs)
 {
@@ -280,28 +296,32 @@ qs_size_nn(qstring qs)
 
 /*----------------------------------------------------------------------------*/
 
-/* 'len' of qstring -- returns 0 if qstring is NULL                     */
+/* 'len' of qstring -- returns 0 if qstring is NULL
+ */
 Inline ulen
 qs_len(qstring qs)
 {
   return (qs != NULL) ? qs_len_nn(qs) : 0 ;
 } ;
 
-/* 'len' of qstring (not NULL)                                          */
+/* 'len' of qstring (not NULL)
+ */
 Inline ulen
 qs_len_nn(qstring qs)
 {
   return els_len_nn(qs->els) ;
 } ;
 
-/* set 'len' of qstring (not NULL) -- caller responsible for validity   */
+/* set 'len' of qstring (not NULL) -- caller responsible for validity
+ */
 Inline void
 qs_set_len_nn(qstring qs, ulen len)
 {
   els_set_len_nn(qs->els, len) ;
 } ;
 
-/* set 'len' of qstring according to strlen(body) -- nothing NULL !     */
+/* set 'len' of qstring according to strlen(body) -- nothing NULL !
+ */
 Inline void
 qs_set_strlen_nn(qstring qs)
 {
@@ -310,28 +330,32 @@ qs_set_strlen_nn(qstring qs)
 
 /*----------------------------------------------------------------------------*/
 
-/* 'cp' of qstring -- returns 0 if qstring is NULL                      */
+/* 'cp' of qstring -- returns 0 if qstring is NULL
+ */
 Inline ulen
 qs_cp(qstring qs)
 {
   return (qs != NULL) ? qs_cp_nn(qs) : 0 ;
 } ;
 
-/* 'cp' of qstring (not NULL)                                           */
+/* 'cp' of qstring (not NULL)
+ */
 Inline ulen
 qs_cp_nn(qstring qs)
 {
   return qs->cp ;
 } ;
 
-/* set 'cp' of qstring (not NULL) -- caller responsible for validity    */
+/* set 'cp' of qstring (not NULL) -- caller responsible for validity
+ */
 Inline void
 qs_set_cp_nn(qstring qs, usize cp)
 {
   qs->cp = cp ;
 } ;
 
-/* move 'cp' of qstring (not NULL) -- caller responsible for validity   */
+/* move 'cp' of qstring (not NULL) -- caller responsible for validity
+ */
 Inline void
 qs_move_cp_nn(qstring qs, int delta)
 {
@@ -340,14 +364,16 @@ qs_move_cp_nn(qstring qs, int delta)
 
 /*----------------------------------------------------------------------------*/
 
-/* 'len' - 'cp' of qstring (not NULL) -- zero if 'len' < 'cp'           */
+/* 'len' - 'cp' of qstring (not NULL) -- zero if 'len' < 'cp'
+ */
 Inline ulen
 qs_after_cp_nn(qstring qs)
 {
   return (qs_len_nn(qs) > qs_cp_nn(qs)) ? qs_len_nn(qs) - qs_cp_nn(qs) : 0 ;
 } ;
 
-/* 'len' - 'cp' of qstring -- zero if NULL or 'len' < 'cp'              */
+/* 'len' - 'cp' of qstring -- zero if NULL or 'len' < 'cp'
+ */
 Inline ulen
 qs_after_cp(qstring qs)
 {
@@ -419,22 +445,24 @@ extern void qs_chop(qstring qs, usize clen) ;
 
 Private void qs_make_to_size(qstring qs, usize len, usize alen) ;
 
-extern qstring qs_set(qstring qs, const char* src) ;
+extern qstring qs_set_str(qstring qs, const char* src) ;
 extern qstring qs_set_n(qstring qs, const char* src, usize n) ;
-extern qstring qs_set_qs(qstring qs, qstring src) ;
+extern qstring qs_set(qstring qs, qstring src) ;
 extern qstring qs_set_els(qstring qs, elstring src) ;
 extern qstring qs_set_fill(qstring qs, usize len, const char* src) ;
 extern qstring qs_set_fill_n(qstring qs, usize len, const char* src,
                                                                    usize flen) ;
 
 extern qstring qs_append_str(qstring qs, const char* src) ;
-extern qstring qs_append_str_n(qstring qs, const char* src, usize n) ;
+extern qstring qs_append_n(qstring qs, const void* src, usize n) ;
 extern qstring qs_append(qstring qs, qstring src) ;
 extern qstring qs_append_els(qstring qs, elstring src) ;
+extern qstring qs_append_ch_x_n(qstring qs, char ch, uint n) ;
+extern qstring qs_append_ch(qstring qs, char ch) ;
 
-extern qstring qs_set_alias(qstring qs, const char* src) ;
-extern qstring qs_set_alias_n(qstring qs, const char* src, usize len) ;
-extern qstring qs_set_alias_qs(qstring qs, qstring src) ;
+extern qstring qs_set_alias_str(qstring qs, const char* src) ;
+extern qstring qs_set_alias_n(qstring qs, const void* src, usize len) ;
+extern qstring qs_set_alias(qstring qs, qstring src) ;
 extern qstring qs_set_alias_els(qstring qs, elstring src) ;
 
 extern qstring qs_copy(qstring dst, qstring src) ;
@@ -443,15 +471,18 @@ extern qstring qs_printf(qstring qs, const char* format, ...)
                                                        PRINTF_ATTRIBUTE(2, 3) ;
 extern qstring qs_vprintf(qstring qs, const char *format, va_list args) ;
 
-extern usize qs_replace(qstring qs, usize r, const void* src, usize n) ;
-Inline usize qs_insert(qstring qs, const void* src, usize n)
-{
-  return qs_replace(qs, 0, src, n) ;
-} ;
-Inline usize qs_delete(qstring qs, usize n)
-{
-  return qs_replace(qs, n, NULL, 0) ;
-} ;
+extern usize qs_replace_str(qstring qs, usize r, const char* src) ;
+extern usize qs_replace_n(qstring qs, usize r, const void* src, usize n) ;
+extern usize qs_replace(qstring qs, usize r, qstring src) ;
+Inline usize qs_insert_n(qstring qs, const void* src, usize n) ;
+Inline usize qs_delete_n(qstring qs, usize n) ;
+extern usize qs_find_str(qstring qs, const char* src) ;
+extern usize qs_find_n(qstring qs, const void* src, usize n) ;
+extern usize qs_globex_str(qstring qs, const char* find, const char* replace) ;
+
+extern void qs_reduce(qstring qs, const char* seps, const char* terms) ;
+extern const char* qs_next_word(qstring qs) ;
+extern qstring qs_trim(qstring qs, char term) ;
 
 Inline int qs_cmp(qstring a, qstring b) ;
 Inline int qs_cmp_word(qstring a, qstring w) ;
@@ -464,7 +495,9 @@ Inline bool qs_substring(qstring a, qstring b) ;
  */
 
 /*------------------------------------------------------------------------------
- * Free given qstring
+ * Free given qstring -- does nothing if qs == NULL
+ *
+ * Returns:  NULL
  */
 Inline qstring
 qs_free(qstring qs)
@@ -525,6 +558,22 @@ Inline bool
 qs_substring(qstring a, qstring b)
 {
   return els_substring(qs_els(a), qs_els(b)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * qs_insert_n is mapped, trivially, to qs_replace_n
+ */
+Inline usize qs_insert_n(qstring qs, const void* src, usize n)
+{
+  return qs_replace_n(qs, 0, src, n) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * qs_delete_n is mapped, trivially, to qs_replace_n
+ */
+Inline usize qs_delete_n(qstring qs, usize n)
+{
+  return qs_replace_n(qs, n, NULL, 0) ;
 } ;
 
 #endif /* _ZEBRA_QSTRING_H */

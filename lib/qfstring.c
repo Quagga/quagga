@@ -110,7 +110,7 @@ qfs_init_as_is(qf_str qfs, char* str, uint size)
 } ;
 
 /*------------------------------------------------------------------------------
- * Terminate string with the given string if given length (which may include
+ * Terminate string with the given string of given length (which may include
  * a '\0').
  *
  * This is for when the qstring has overflowed, and wish to indicate that at
@@ -1500,7 +1500,7 @@ static void qfs_form_scaled(qf_str qfs, ulong v, int d,
 extern qfs_num_str_t
 qfs_dec_value(long val, pf_flags_t flags)
 {
-  QFB_QFS(qfs_num_str, qfs) ;
+  qfs_num_str_t QFB_QFS(str, qfs) ;
   int   d, t ;
   ulong v ;
 
@@ -1590,7 +1590,7 @@ qfs_dec_value(long val, pf_flags_t flags)
   qfs_form_scaled(qfs, v, d, scale_d_tags[t], flags) ;
   qfs_term(qfs) ;
 
-  return qfs_num_str ;
+  return str ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1628,7 +1628,7 @@ qfs_dec_value(long val, pf_flags_t flags)
 extern qfs_num_str_t
 qfs_bin_value(long val, pf_flags_t flags)
 {
-  QFB_QFS(qfs_num_str, qfs) ;
+  qfs_num_str_t QFB_QFS(str, qfs) ;
   ulong v ;
   int d, p ;
 
@@ -1727,7 +1727,7 @@ qfs_bin_value(long val, pf_flags_t flags)
   qfs_form_scaled(qfs, v, d, scale_b_tags[p], flags) ;
   qfs_term(qfs) ;
 
-  return qfs_num_str ;
+  return str ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1745,7 +1745,7 @@ qfs_bin_value(long val, pf_flags_t flags)
 extern qfs_num_str_t
 qfs_time_period(qtime_t val, pf_flags_t flags)
 {
-  QFB_QFS(qfs_num_str, qfs) ;
+  qfs_num_str_t QFB_QFS(str, qfs) ;
   ulong v ;
   int w ;
 
@@ -1800,7 +1800,7 @@ qfs_time_period(qtime_t val, pf_flags_t flags)
 
   qfs_term(qfs) ;
 
-  return qfs_num_str ;
+  return str ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1851,3 +1851,191 @@ qfs_form_sign(qf_str qfs, long val, pf_flags_t flags)
   return val ;
 } ;
 
+/*==============================================================================
+ * Simple keyword handling
+ */
+
+static qfs_keyword_t deny_permit_table[] =
+{
+  { .word = "deny",    .val = 0 },
+  { .word = "permit",  .val = 1 },
+  { .word = NULL }
+} ;
+
+extern void test_keyword(void) ;
+extern void
+test_keyword(void)
+{
+  qfs_keyword_lookup(deny_permit_table, "den", true) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Keyword lookup -- case sensitive, optional partial match.
+ *
+ * Given a keyword table, see if given string matches.
+ *
+ * Keyword table is an array of qfs_keyword_t items.  Each item is a keyword
+ * (const char*) and an unsigned value 0..INT_MAX.  Table is terminated by a
+ * NULL keyword.
+ *
+ * This is not very clever, but does not require the keyword table to be in any
+ * particular order.
+ *
+ * If "strict", requires string to completely match a keyword.  Otherwise,
+ * requires the string to be the leading substring of only one of the given
+ * keywords -- but stops immediately if gets a complete match.
+ *
+ * Returns: >=  0 => found -- this is value from table
+ *          == -1 => not found
+ *          == -2 => found 2 or more matches (and no exact match)
+ *
+ * NB: match is case sensitive.
+ */
+extern int
+qfs_keyword_lookup(qfs_keyword_t* table, const char* str, bool strict)
+{
+  qfs_keyword_t* e ;
+  const char* word ;
+  uint len, wlen ;
+  int  r ;
+
+  len = strlen(str) ;
+
+  e = table ;
+  r = -1 ;
+
+  while ((word = e->word) != NULL)
+    {
+      qassert(e->val <= INT_MAX) ;
+
+      wlen = strlen(word) ;
+
+      if      (wlen > len)
+        {
+          if (!strict && (strncmp(str, word, len) == 0))
+            {
+              if (r == -1)
+                r = e->val ;
+              else
+                r = -2 ;                /* ambiguous    */
+            } ;
+        }
+      else if (wlen == len)
+        {
+          if (strcmp(str, word) == 0)
+            return e->val ;             /* exact match  */
+        } ;
+
+      ++e ;
+    } ;
+
+  return r ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Keyword lookup -- case *insensitive*, optional partial match.
+ *
+ * Same as qfs_keyword_lookup() except case insensitive.
+ *
+ * strncasecmp() and strcasecmp() appear to have been POSIX Base since 2001.
+ */
+extern int
+qfs_keyword_lookup_nocase(qfs_keyword_t* table, const char* str, bool strict)
+{
+  qfs_keyword_t* e ;
+  const char* word ;
+  uint len, wlen ;
+  int  r ;
+
+  len = strlen(str) ;
+
+  e = table ;
+  r = -1 ;
+
+  while ((word = e->word) != NULL)
+    {
+      qassert(e->val <= INT_MAX) ;
+
+      wlen = strlen(word) ;
+
+      if      (wlen > len)
+        {
+          if (!strict && (strncasecmp(str, word, len) == 0))
+            {
+              if (r == -1)
+                r = e->val ;
+              else
+                r = -2 ;                /* ambiguous    */
+            } ;
+        }
+      else if (wlen == len)
+        {
+          if (strcasecmp(str, word) == 0)
+            return e->val ;             /* exact match  */
+        } ;
+
+      ++e ;
+    } ;
+
+  return r ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Keyword extract -- case sensitive, optional partial match.
+ *
+ * Extracts keyword from an abstract array, accessed using the given function,
+ * starting from 0 and increasing by 1 until function returns NULL.
+ *
+ * Note that the function can return an empty string, for index values which
+ * are to be ignored.
+ *
+ * Returns: >=  0 => found -- this is the index of the abstract array entry
+ *          == -1 => not found
+ *          == -2 => found 2 or more matches (and no exact match)
+ *
+ * NB: match is case sensitive.
+ */
+extern int
+qfs_keyword_lookup_abstract(void* a_array, const char* str, bool strict,
+                             const char* (*a_lookup)(void* a_array, uint index))
+{
+  uint i ;
+  const char* word ;
+  uint len, wlen ;
+  int  r ;
+
+  len = strlen(str) ;
+
+  i =  0 ;
+  r = -1 ;
+
+  while (1)
+    {
+      word = a_lookup(a_array, i) ;
+
+      if (word == NULL)
+        break ;
+
+      wlen = strlen(word) ;
+
+      if      (wlen > len)
+        {
+          if (!strict && (strncmp(str, word, len) == 0))
+            {
+              if (r == -1)
+                r = i ;
+              else
+                r = -2 ;                /* ambiguous    */
+            } ;
+        }
+      else if (wlen == len)
+        {
+          if (strcmp(str, word) == 0)
+            return i ;                  /* exact match  */
+        } ;
+
+      ++i ;
+    } ;
+
+  return r ;
+} ;

@@ -92,8 +92,8 @@ struct access_master
 };
 
 /* Static structure for IPv4 access_list's master. */
-static struct access_master access_master_ipv4 = 
-{ 
+static struct access_master access_master_ipv4 =
+{
   {NULL, NULL},
   {NULL, NULL},
   NULL,
@@ -102,15 +102,15 @@ static struct access_master access_master_ipv4 =
 
 #ifdef HAVE_IPV6
 /* Static structure for IPv6 access_list's master. */
-static struct access_master access_master_ipv6 = 
-{ 
+static struct access_master access_master_ipv6 =
+{
   {NULL, NULL},
   {NULL, NULL},
   NULL,
   NULL,
 };
 #endif /* HAVE_IPV6 */
-
+
 static struct access_master *
 access_master_get (afi_t afi)
 {
@@ -208,7 +208,7 @@ filter_match_zebra (struct filter *mfilter, struct prefix *p)
   else
     return 0;
 }
-
+
 /* Allocate new access list structure. */
 static struct access_list *
 access_list_new (void)
@@ -314,7 +314,7 @@ access_list_insert (afi_t afi, const char *name)
 
       /* Set access_list to string list. */
       alist = &master->str;
-  
+
       /* Set point to insertion point. */
       for (point = alist->head; point; point = point->next)
 	if (strcmp (point->name, name) >= 0)
@@ -501,7 +501,7 @@ access_list_filter_delete (struct access_list *access, struct filter *filter)
   if (master->delete_hook)
     (*master->delete_hook) (access);
 }
-
+
 /*
   deny    Specify packets to reject
   permit  Specify packets to forward
@@ -1343,7 +1343,7 @@ DEFUN (no_access_list_all,
   /* Run hook function. */
   if (master->delete_hook)
     (*master->delete_hook) (access);
- 
+
   return CMD_SUCCESS;
 }
 
@@ -1387,7 +1387,7 @@ DEFUN (no_access_list_remark,
 {
   return vty_access_list_remark_unset (vty, AFI_IP, argv[0]);
 }
-	
+
 ALIAS (no_access_list_remark,
        no_access_list_remark_arg_cmd,
        "no access-list (<1-99>|<100-199>|<1300-1999>|<2000-2699>|WORD) remark .LINE",
@@ -1552,7 +1552,7 @@ DEFUN (no_ipv6_access_list_remark,
 {
   return vty_access_list_remark_unset (vty, AFI_IP6, argv[0]);
 }
-	
+
 ALIAS (no_ipv6_access_list_remark,
        no_ipv6_access_list_remark_arg_cmd,
        "no ipv6 access-list WORD remark .LINE",
@@ -1600,7 +1600,7 @@ filter_show (struct vty *vty, const char *name, afi_t afi)
 	  if (write)
 	    {
 	      vty_out (vty, "%s IP%s access list %s%s",
-		       mfilter->cisco ? 
+		       mfilter->cisco ?
 		       (filter->extended ? "Extended" : "Standard") : "Zebra",
 		       afi == AFI_IP6 ? "v6" : "",
 		       access->name, VTY_NEWLINE);
@@ -1643,7 +1643,7 @@ filter_show (struct vty *vty, const char *name, afi_t afi)
 	  if (write)
 	    {
 	      vty_out (vty, "%s IP%s access list %s%s",
-		       mfilter->cisco ? 
+		       mfilter->cisco ?
 		       (filter->extended ? "Extended" : "Standard") : "Zebra",
 		       afi == AFI_IP6 ? "v6" : "",
 		       access->name, VTY_NEWLINE);
@@ -1856,14 +1856,6 @@ config_write_access (struct vty *vty, afi_t afi)
   return write;
 }
 
-/* Access-list node. */
-static struct cmd_node access_node =
-{
-  ACCESS_NODE,
-  "",				/* Access list has no interface. */
-  1
-};
-
 static int
 config_write_access_ipv4 (struct vty *vty)
 {
@@ -1899,66 +1891,59 @@ access_list_reset_ipv4 (void)
   assert (master->str.tail == NULL);
 }
 
-/* Install vty related command. */
-static void
-access_list_init_ipv4 (void)
+/* Install vty related command.
+ */
+CMD_INSTALL_TABLE(static, filter_cmd_table, ALL_RDS) =
 {
-  install_node (&access_node, config_write_access_ipv4);
-
-  install_element (ENABLE_NODE, &show_ip_access_list_cmd);
-  install_element (ENABLE_NODE, &show_ip_access_list_name_cmd);
+  { ENABLE_NODE,      &show_ip_access_list_cmd                           },
+  { ENABLE_NODE,      &show_ip_access_list_name_cmd                      },
 
   /* Zebra access-list */
-  install_element (CONFIG_NODE, &access_list_cmd);
-  install_element (CONFIG_NODE, &access_list_exact_cmd);
-  install_element (CONFIG_NODE, &access_list_any_cmd);
-  install_element (CONFIG_NODE, &no_access_list_cmd);
-  install_element (CONFIG_NODE, &no_access_list_exact_cmd);
-  install_element (CONFIG_NODE, &no_access_list_any_cmd);
+  { CONFIG_NODE,      &access_list_cmd                                   },
+  { CONFIG_NODE,      &access_list_exact_cmd                             },
+  { CONFIG_NODE,      &access_list_any_cmd                               },
+  { CONFIG_NODE,      &no_access_list_cmd                                },
+  { CONFIG_NODE,      &no_access_list_exact_cmd                          },
+  { CONFIG_NODE,      &no_access_list_any_cmd                            },
 
   /* Standard access-list */
-  install_element (CONFIG_NODE, &access_list_standard_cmd);
-  install_element (CONFIG_NODE, &access_list_standard_nomask_cmd);
-  install_element (CONFIG_NODE, &access_list_standard_host_cmd);
-  install_element (CONFIG_NODE, &access_list_standard_any_cmd);
-  install_element (CONFIG_NODE, &no_access_list_standard_cmd);
-  install_element (CONFIG_NODE, &no_access_list_standard_nomask_cmd);
-  install_element (CONFIG_NODE, &no_access_list_standard_host_cmd);
-  install_element (CONFIG_NODE, &no_access_list_standard_any_cmd);
+  { CONFIG_NODE,      &access_list_standard_cmd                          },
+  { CONFIG_NODE,      &access_list_standard_nomask_cmd                   },
+  { CONFIG_NODE,      &access_list_standard_host_cmd                     },
+  { CONFIG_NODE,      &access_list_standard_any_cmd                      },
+  { CONFIG_NODE,      &no_access_list_standard_cmd                       },
+  { CONFIG_NODE,      &no_access_list_standard_nomask_cmd                },
+  { CONFIG_NODE,      &no_access_list_standard_host_cmd                  },
+  { CONFIG_NODE,      &no_access_list_standard_any_cmd                   },
 
   /* Extended access-list */
-  install_element (CONFIG_NODE, &access_list_extended_cmd);
-  install_element (CONFIG_NODE, &access_list_extended_any_mask_cmd);
-  install_element (CONFIG_NODE, &access_list_extended_mask_any_cmd);
-  install_element (CONFIG_NODE, &access_list_extended_any_any_cmd);
-  install_element (CONFIG_NODE, &access_list_extended_host_mask_cmd);
-  install_element (CONFIG_NODE, &access_list_extended_mask_host_cmd);
-  install_element (CONFIG_NODE, &access_list_extended_host_host_cmd);
-  install_element (CONFIG_NODE, &access_list_extended_any_host_cmd);
-  install_element (CONFIG_NODE, &access_list_extended_host_any_cmd);
-  install_element (CONFIG_NODE, &no_access_list_extended_cmd);
-  install_element (CONFIG_NODE, &no_access_list_extended_any_mask_cmd);
-  install_element (CONFIG_NODE, &no_access_list_extended_mask_any_cmd);
-  install_element (CONFIG_NODE, &no_access_list_extended_any_any_cmd);
-  install_element (CONFIG_NODE, &no_access_list_extended_host_mask_cmd);
-  install_element (CONFIG_NODE, &no_access_list_extended_mask_host_cmd);
-  install_element (CONFIG_NODE, &no_access_list_extended_host_host_cmd);
-  install_element (CONFIG_NODE, &no_access_list_extended_any_host_cmd);
-  install_element (CONFIG_NODE, &no_access_list_extended_host_any_cmd);
+  { CONFIG_NODE,      &access_list_extended_cmd                          },
+  { CONFIG_NODE,      &access_list_extended_any_mask_cmd                 },
+  { CONFIG_NODE,      &access_list_extended_mask_any_cmd                 },
+  { CONFIG_NODE,      &access_list_extended_any_any_cmd                  },
+  { CONFIG_NODE,      &access_list_extended_host_mask_cmd                },
+  { CONFIG_NODE,      &access_list_extended_mask_host_cmd                },
+  { CONFIG_NODE,      &access_list_extended_host_host_cmd                },
+  { CONFIG_NODE,      &access_list_extended_any_host_cmd                 },
+  { CONFIG_NODE,      &access_list_extended_host_any_cmd                 },
+  { CONFIG_NODE,      &no_access_list_extended_cmd                       },
+  { CONFIG_NODE,      &no_access_list_extended_any_mask_cmd              },
+  { CONFIG_NODE,      &no_access_list_extended_mask_any_cmd              },
+  { CONFIG_NODE,      &no_access_list_extended_any_any_cmd               },
+  { CONFIG_NODE,      &no_access_list_extended_host_mask_cmd             },
+  { CONFIG_NODE,      &no_access_list_extended_mask_host_cmd             },
+  { CONFIG_NODE,      &no_access_list_extended_host_host_cmd             },
+  { CONFIG_NODE,      &no_access_list_extended_any_host_cmd              },
+  { CONFIG_NODE,      &no_access_list_extended_host_any_cmd              },
+  { CONFIG_NODE,      &access_list_remark_cmd                            },
+  { CONFIG_NODE,      &no_access_list_all_cmd                            },
+  { CONFIG_NODE,      &no_access_list_remark_cmd                         },
+  { CONFIG_NODE,      &no_access_list_remark_arg_cmd                     },
 
-  install_element (CONFIG_NODE, &access_list_remark_cmd);
-  install_element (CONFIG_NODE, &no_access_list_all_cmd);
-  install_element (CONFIG_NODE, &no_access_list_remark_cmd);
-  install_element (CONFIG_NODE, &no_access_list_remark_arg_cmd);
-}
+  CMD_INSTALL_END
+} ;
 
 #ifdef HAVE_IPV6
-static struct cmd_node access_ipv6_node =
-{
-  ACCESS_IPV6_NODE,
-  "",
-  1
-};
 
 static int
 config_write_access_ipv6 (struct vty *vty)
@@ -1995,35 +1980,41 @@ access_list_reset_ipv6 (void)
   assert (master->str.tail == NULL);
 }
 
-static void
-access_list_init_ipv6 (void)
+CMD_INSTALL_TABLE(static, filter_ipv6_cmd_table, ALL_RDS) =
 {
-  install_node (&access_ipv6_node, config_write_access_ipv6);
+  { ENABLE_NODE,      &show_ipv6_access_list_cmd                         },
+  { ENABLE_NODE,      &show_ipv6_access_list_name_cmd                    },
 
-  install_element (ENABLE_NODE, &show_ipv6_access_list_cmd);
-  install_element (ENABLE_NODE, &show_ipv6_access_list_name_cmd);
+  { CONFIG_NODE,      &ipv6_access_list_cmd                              },
+  { CONFIG_NODE,      &ipv6_access_list_exact_cmd                        },
+  { CONFIG_NODE,      &ipv6_access_list_any_cmd                          },
+  { CONFIG_NODE,      &no_ipv6_access_list_exact_cmd                     },
+  { CONFIG_NODE,      &no_ipv6_access_list_cmd                           },
+  { CONFIG_NODE,      &no_ipv6_access_list_any_cmd                       },
+  { CONFIG_NODE,      &no_ipv6_access_list_all_cmd                       },
+  { CONFIG_NODE,      &ipv6_access_list_remark_cmd                       },
+  { CONFIG_NODE,      &no_ipv6_access_list_remark_cmd                    },
+  { CONFIG_NODE,      &no_ipv6_access_list_remark_arg_cmd                },
 
-  install_element (CONFIG_NODE, &ipv6_access_list_cmd);
-  install_element (CONFIG_NODE, &ipv6_access_list_exact_cmd);
-  install_element (CONFIG_NODE, &ipv6_access_list_any_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_access_list_exact_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_access_list_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_access_list_any_cmd);
-
-  install_element (CONFIG_NODE, &no_ipv6_access_list_all_cmd);
-  install_element (CONFIG_NODE, &ipv6_access_list_remark_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_access_list_remark_cmd);
-  install_element (CONFIG_NODE, &no_ipv6_access_list_remark_arg_cmd);
-}
+  CMD_INSTALL_END
+} ;
 #endif /* HAVE_IPV6 */
 
-void
-access_list_init ()
+extern void
+access_list_cmd_init (void)
 {
-  access_list_init_ipv4 ();
+  cmd_install_node_config_write(ACCESS_NODE, config_write_access_ipv4) ;
+  cmd_install_table(filter_cmd_table) ;
+
 #ifdef HAVE_IPV6
-  access_list_init_ipv6();
+  cmd_install_node_config_write(ACCESS_IPV6_NODE, config_write_access_ipv6) ;
+  cmd_install_table(filter_ipv6_cmd_table) ;
 #endif /* HAVE_IPV6 */
+}
+
+extern void
+access_list_init (void)
+{
 }
 
 void

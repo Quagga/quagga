@@ -22,7 +22,11 @@
 #ifndef _ZEBRA_DISTRIBUTE_H
 #define _ZEBRA_DISTRIBUTE_H
 
-/* Disctirubte list types. */
+#include "command.h"
+#include "if.h"
+
+/* Distribute list types.
+ */
 enum distribute_type
 {
   DISTRIBUTE_IN,
@@ -43,7 +47,8 @@ struct distribute
 };
 
 /* Prototypes for distribute-list. */
-extern void distribute_list_init (int);
+extern void distribute_list_cmd_init (void) ;
+extern void distribute_list_init (void);
 extern void distribute_list_reset (void);
 extern void distribute_list_add_hook (void (*) (struct distribute *));
 extern void distribute_list_delete_hook (void (*) (struct distribute *));

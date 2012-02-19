@@ -484,7 +484,7 @@ vio_lc_trim(vio_line_control lc, qiov_item item, const char* e)
 
           ch = *(e - 1) ;
           if ( (ch != '\r') && (ch != ' ') && (ch != '\t') )
-            return e - p ;      /* <<< found non-whitespace  <<< exit   */
+            return e - p ;      /* <-<- found non-whitespace  <-<- exit */
 
           --e ;
         } ;
@@ -620,7 +620,7 @@ vio_lc_write_nb(int fd, vio_line_control lc)
        *
        *     In this obscure case, the line will already be buffered in
        *     lc->here.  Happily qs_clear() does not disturb the body of the
-       *     qstring, and qs_append_str_n will append from within its own
+       *     qstring, and qs_append_n will append from within its own
        *     body !
        */
       if (!qiovec_empty(lc->fragments))
@@ -632,7 +632,7 @@ vio_lc_write_nb(int fd, vio_line_control lc)
 
               qiovec_shift(lc->fragments, item) ;
 
-              qs_append_str_n(lc->here, item->base, item->len) ;
+              qs_append_n(lc->here, item->base, item->len) ;
             }
           while (!qiovec_empty(lc->fragments)) ;
 

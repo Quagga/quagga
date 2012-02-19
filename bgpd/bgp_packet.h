@@ -44,7 +44,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 /* Packet send and receive function prototypes. */
 extern int bgp_read (struct thread *);
-extern int bgp_write (bgp_peer peer, struct stream*);
+extern void bgp_write (bgp_peer peer, struct stream*);
 
 extern void bgp_route_refresh_send (struct peer *, afi_t, safi_t, u_char, u_char, int);
 extern void bgp_capability_send (struct peer *, afi_t, safi_t, int, int);
@@ -56,6 +56,6 @@ extern int bgp_capability_receive (struct peer *, bgp_size_t);
 
 extern int bgp_update_receive (struct peer *peer, bgp_size_t size);
 
-extern void bgp_route_refresh_recv(bgp_peer peer, bgp_route_refresh rr);
+extern void bgp_route_refresh_recv(bgp_peer peer, bgp_route_refresh rr) ;
 
 #endif /* _QUAGGA_BGP_PACKET_H */

@@ -1,10 +1,9 @@
 #include "misc.h"
-#include "qpath.h"
 #include "qlib_init.h"
+#include "command.h"
+#include "qpath.h"
 
 #include <stdio.h>
-
-struct thread_master *master ;          /* required by lib !    */
 
 /*==============================================================================
  * qpath torture tests
@@ -17,13 +16,12 @@ main(int argc, char **argv)
 {
   int errors = 0 ;
 
-  qlib_init_first_stage() ;
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
 
   fprintf(stdout, "qpath torture tests\n") ;
 
   errors += qpath_reduce_testing() ;
-
-
 
   if (errors == 0)
     fprintf(stdout, "No errors\n") ;

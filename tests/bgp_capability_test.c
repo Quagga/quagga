@@ -1,6 +1,9 @@
 #include <zebra.h>
 #include "miyagi.h"
 
+
+#include "qlib_init.h"
+#include "command.h"
 #include "vty.h"
 #include "stream.h"
 #include "privs.h"
@@ -22,7 +25,6 @@
 
 /* need these to link in libbgp */
 struct zebra_privs_t *bgpd_privs = NULL;
-struct thread_master *master = NULL;
 
 static int failed = 0;
 static int tty = 0;
@@ -536,7 +538,7 @@ parse_test (struct peer *peer, struct test_segment *t, int type)
       default:
         break ;
     }
-  stream_write (peer->ibuf, t->data, t->len);
+  stream_put (peer->ibuf, t->data, t->len);
 
   printf ("%s: %s\n", t->name, t->desc);
 
@@ -611,7 +613,7 @@ static struct bgp *bgp;
 static as_t asn = 100;
 
 int
-main (void)
+main (int argc, char **argv)
 {
   struct peer *peer;
   int i, j;
@@ -627,7 +629,9 @@ main (void)
   term_bgp_debug_normal = -1UL;
   term_bgp_debug_as4 = -1UL;
 
-  master = thread_master_create ();
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
+
   bgp_master_init ();
 
   if (fileno (stdout) >= 0)

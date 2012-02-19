@@ -88,20 +88,30 @@ enum { qpthreads_debug = QPTHREADS_DEBUG } ;
 /*==============================================================================
  * Global Switch -- this allows the library to be run WITHOUT pthreads !
  *
- * Nearly every qpthreads function is a NOP if !qpthreads_enabled.
+ * Nearly every qpthreads function is a NOP if either !qpthreads_enabled or
+ * !qpthreads_active.
  *
  * Early in the morning a decision may be made to enable qpthreads -- that must
  * be done before any threads are created (or will zabort) and before any
  * mutexes and condition variables are initialised (or it will be too late).
  *
+ * During shut down all pthreads other than the main pthread may be brought to
+ * a halt, at which point it is safe to do many things which during normal
+ * running require locks etc. to be obtained.  The qpthreads_active state is
+ * for those things which no longer apply once pthreads have been stopped.
+ *
  * Use: qpthreads_enabled        -- to test for the enabled-ness
+ *      qpthreads_active         -- pthread(s) created and not (yet) shut down
  *      qpthreads_enabled_freeze -- to test and freeze unset if not yet enabled
  */
 
 #define qpthreads_enabled         ((const bool)qpthreads_enabled_flag)
+#define qpthreads_active          ((const bool)qpthreads_active_flag)
 #define qpthreads_enabled_freeze  qpt_freeze_qpthreads_enabled()
 
 #define qpthreads_thread_created  ((const bool)qpthreads_thread_created_flag)
+
+extern bool qpthreads_decided(void) ;
 
 /*==============================================================================
  * Data types
@@ -156,16 +166,20 @@ extern void*                    /* do nothing if !qpthreads_enabled     */
 qpt_thread_join(qpt_thread_t thread_id) ;
 
 /*==============================================================================
- * qpthreads_enabled support -- NOT FOR PUBLIC CONSUMPTION !
+ * qpthreads_enabled etc -- NOT FOR PUBLIC CONSUMPTION !
  */
 Private bool qpthreads_enabled_flag ;        /* DO NOT TOUCH THIS PLEASE  */
+Private bool qpthreads_active_flag ;         /* DO NOT TOUCH THIS PLEASE  */
 Private bool qpthreads_thread_created_flag ; /* DO NOT TOUCH THIS PLEASE  */
 
 Private bool
-qpt_set_qpthreads_enabled(bool want_enabled) ; /* qpthreads_enabled := want  */
+qpt_set_qpthreads_enabled(bool want_enabled) ; /* when decided          */
 
-Private int
-qpt_freeze_qpthreads_enabled(void) ;    /* get and freeze qpthreads_enabled  */
+Private bool
+qpt_freeze_qpthreads_enabled(void) ;    /* when implied by operation    */
+
+Private void
+qpt_clear_qpthreads_active(void) ;      /* for shutdown                 */
 
 /*==============================================================================
  * Thread self knowledge -- even when !qpthreads_enabled there is one thread
@@ -214,9 +228,10 @@ Inline bool qpt_thread_is_self(qpt_thread_t id)
  *     If _DEFAULT is faster than _NORMAL, then QPT_MUTEX_TYPE_DEFAULT may be
  *     used to override this choice.
  *
- * NB: if NOT qpthreads_enabled, all mutex actions are EMPTY.  This allows
+ * NB: if NOT qpthreads_active, all mutex actions are EMPTY.  This allows
  *     code to be made thread-safe for when pthreads is running, but to work
- *     perfectly well without pthreads.
+ *     perfectly well without pthreads and once pthreads have been brought to
+ *     a close.
  *
  * NB: do not (currently) support pthread_mutex_timedlock().
  */
@@ -246,22 +261,17 @@ enum
 extern qpt_mutex                        /* freezes qpthreads_enabled    */
 qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts) ;
 
-#define qpt_mutex_init qpt_mutex_init_new
-
 extern qpt_mutex                  /* do nothing if !qpthreads_enabled   */
-qpt_mutex_destroy(qpt_mutex mx, int free_mutex) ;
-
-#define qpt_mutex_destroy_keep(mx) qpt_mutex_destroy(mx, 0)
-#define qpt_mutex_destroy_free(mx) qpt_mutex_destroy(mx, 1)
+qpt_mutex_destroy(qpt_mutex mx, free_keep_b free_mutex) ;
 
 Inline void
-qpt_mutex_lock(qpt_mutex mx) ;    /* do nothing if !qpthreads_enabled   */
+qpt_mutex_lock(qpt_mutex mx) ;    /* do nothing if !qpthreads_active    */
 
-Inline int
-qpt_mutex_trylock(qpt_mutex mx) ; /* always succeeds if !qpthreads_enabled */
+Inline bool
+qpt_mutex_trylock(qpt_mutex mx) ; /* always succeeds if !qpthreads_active */
 
 Inline void
-qpt_mutex_unlock(qpt_mutex mx) ;  /* do nothing if !qpthreads_enabled   */
+qpt_mutex_unlock(qpt_mutex mx) ;  /* do nothing if !qpthreads_active    */
 
 /*==============================================================================
  * Condition Variable handling
@@ -285,9 +295,10 @@ qpt_mutex_unlock(qpt_mutex mx) ;  /* do nothing if !qpthreads_enabled   */
  * NB: static initialisation of condition variables is not supported, to avoid
  *     confusion between the standard default and Quagga's default.
 
- * NB: if NOT qpthreads_enabled, all condition actions are EMPTY.  This allows
+ * NB: if NOT qpthreads_active, all condition actions are EMPTY.  This allows
  *     code to be made thread-safe for when pthreads is running, but to work
- *     perfectly well without pthreads.
+ *     perfectly well without pthreads and once pthreads have been brought to
+ *     a close.
  */
 
 #ifndef QPT_COND_CLOCK_ID
@@ -308,22 +319,19 @@ enum qpt_cond_options
 extern qpt_cond                   /* freezes qpthreads_enabled          */
 qpt_cond_init_new(qpt_cond cv, enum qpt_cond_options opts) ;
 
-extern qpt_cond                   /* do nothing if !qpthreads_enabled   */
-qpt_cond_destroy(qpt_cond cv, int free_cond) ;
+extern qpt_cond                   /* do nothing if !qpthreads_active    */
+qpt_cond_destroy(qpt_cond cv, free_keep_b free_cond) ;
 
-#define qpt_cond_destroy_keep(cv) qpt_cond_destroy(cv, 0)
-#define qpt_cond_destroy_free(cv) qpt_cond_destroy(cv, 1)
-
-Inline void                       /* do nothing if !qpthreads_enabled   */
+Inline void                       /* do nothing if !qpthreads_active    */
 qpt_cond_wait(qpt_cond cv, qpt_mutex mx) ;
 
-extern int                        /* returns  !qpthreads_enabled   */
+extern bool                       /* returns true if !qpthreads_active  */
 qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t timeout_time) ;
 
-Inline void                       /* do nothing if !qpthreads_enabled   */
+Inline void                       /* do nothing if !qpthreads_active    */
 qpt_cond_signal(qpt_cond cv) ;
 
-Inline void                       /* do nothing if !qpthreads_enabled   */
+Inline void                       /* do nothing if !qpthreads_active    */
 qpt_cond_broadcast(qpt_cond cv) ;
 
 /*==============================================================================
@@ -334,27 +342,28 @@ qpt_cond_broadcast(qpt_cond cv) ;
  *
  * NB: recursive spinlocks are not supported !
  *
- * NB: if NOT qpthreads_enabled, locking and unlocking always succeed.  This
+ * NB: if NOT qpthreads_active, locking and unlocking always succeed.  This
  *     allows code to be made thread-safe for when pthreads is running, but to
  *     work perfectly well without pthreads.
  */
 extern void                     /* freezes qpthreads_enabled          */
 qpt_spin_init(qpt_spin slk) ;
 
-extern void                     /* do nothing if !qpthreads_enabled   */
+extern void                     /* do nothing if !qpthreads_active    */
 qpt_spin_destroy(qpt_spin slk) ;
 
-Inline void                     /* do nothing if !qpthreads_enabled   */
+Inline void                     /* do nothing if !qpthreads_active    */
 qpt_spin_lock(qpt_spin slk) ;
 
-Inline void                     /* do nothing if !qpthreads_enabled   */
+Inline void                     /* do nothing if !qpthreads_active    */
 qpt_spin_unlock(qpt_spin slk) ;
 
 /*==============================================================================
  * Mutex inline functions
  */
 
-/* Lock given mutex  -- or do nothing if !qpthreads_enabled.
+/*------------------------------------------------------------------------------
+ * Lock given mutex  -- or do nothing if !qpthreads_active.
  *
  * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
  * return value is valid -- zabort_errno if it isn't.
@@ -363,7 +372,7 @@ qpt_spin_unlock(qpt_spin slk) ;
 Inline void
 qpt_mutex_lock(qpt_mutex mx)
 {
-  if (qpthreads_enabled)
+  if (qpthreads_active)
     {
 #if QPTHREADS_DEBUG
       pthread_mutex_lock(mx) ;
@@ -376,39 +385,38 @@ qpt_mutex_lock(qpt_mutex mx)
 } ;
 
 /*------------------------------------------------------------------------------
- * Try to lock given mutex  -- every time a winner if !qpthreads_enabled.
+ * Try to lock given mutex  -- every time a winner if !qpthreads_active.
  *
- * Returns: lock succeeded (1 => have locked, 0 => unable to lock).
+ * Returns: lock succeeded (false <=> unable to lock).
  *
  * Has to check the return value, so zabort_errno if not EBUSY.
  */
-
-Inline int
+Inline bool
 qpt_mutex_trylock(qpt_mutex mx)
 {
-  if (qpthreads_enabled)
+  if (qpthreads_active)
     {
       int err = pthread_mutex_trylock(mx) ;
       if (err == 0)
-        return 1 ;                      /* success: it's locked.        */
+        return true ;                   /* success: it's locked.        */
       if (err == EBUSY)
-        return 0 ;                      /* unable to lock               */
+        return false ;                  /* unable to lock               */
 
       zabort_err("pthread_mutex_trylock failed", err) ;
     }
   else
-    return 1 ;
+    return true ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Unlock given mutex  -- or do nothing if !qpthreads_enabled.
+ * Unlock given mutex  -- or do nothing if !qpthreads_active.
  *
  * Checks that the return value is valid -- zabort_err if it isn't.
  */
 Inline void
 qpt_mutex_unlock(qpt_mutex mx)
 {
-  if (qpthreads_enabled)
+  if (qpthreads_active)
     {
       int err = pthread_mutex_unlock(mx) ;
       if (err != 0)
@@ -421,14 +429,14 @@ qpt_mutex_unlock(qpt_mutex mx)
  */
 
 /*------------------------------------------------------------------------------
- * Wait for given condition variable  -- do nothing if !qpthreads_enabled
+ * Wait for given condition variable  -- do nothing if !qpthreads_active
  *
  * Checks that the return value is valid -- zabort_err if it isn't.
  */
 Inline void
 qpt_cond_wait(qpt_cond cv, qpt_mutex mx)
 {
-  if (qpthreads_enabled)
+  if (qpthreads_active)
     {
       int err = pthread_cond_wait(cv, mx) ;
       if (err != 0)
@@ -437,14 +445,14 @@ qpt_cond_wait(qpt_cond cv, qpt_mutex mx)
 } ;
 
 /*------------------------------------------------------------------------------
- * Signal given condition   -- do nothing if !qpthreads_enabled
+ * Signal given condition   -- do nothing if !qpthreads_active
  *
  * Checks that the return value is valid -- zabort_err if it isn't.
  */
 Inline void
 qpt_cond_signal(qpt_cond cv)
 {
-  if (qpthreads_enabled)
+  if (qpthreads_active)
     {
       int err = pthread_cond_signal(cv) ;
       if (err != 0)
@@ -453,14 +461,14 @@ qpt_cond_signal(qpt_cond cv)
 } ;
 
 /*------------------------------------------------------------------------------
- * Broadcast given condition   -- do nothing if !qpthreads_enabled
+ * Broadcast given condition   -- do nothing if !qpthreads_active
  *
  * Checks that the return value is valid -- zabort_err if it isn't.
  */
 Inline void
 qpt_cond_broadcast(qpt_cond cv)
 {
-  if (qpthreads_enabled)
+  if (qpthreads_active)
     {
       int err = pthread_cond_broadcast(cv) ;
       if (err != 0)
@@ -472,7 +480,7 @@ qpt_cond_broadcast(qpt_cond cv)
  * Spinlock inline functions
  */
 
-/* Lock spinlock  -- do nothing if !qpthreads_enabled
+/* Lock spinlock  -- do nothing if !qpthreads_active
  *
  * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
  * return value is valid -- zabort_errno if it isn't.
@@ -480,7 +488,7 @@ qpt_cond_broadcast(qpt_cond cv)
 Inline void
 qpt_spin_lock(qpt_spin slk)
 {
-  if (qpthreads_enabled)
+  if (qpthreads_active)
     {
 #if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
       pthread_spin_lock(slk) ;
@@ -492,7 +500,7 @@ qpt_spin_lock(qpt_spin slk)
     } ;
 } ;
 
-/* Unlock spinlock  -- do nothing if !qpthreads_enabled
+/* Unlock spinlock  -- do nothing if !qpthreads_active
  *
  * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
  * return value is valid -- zabort_errno if it isn't.
@@ -500,7 +508,7 @@ qpt_spin_lock(qpt_spin slk)
 Inline void
 qpt_spin_unlock(qpt_spin slk)
 {
-  if (qpthreads_enabled)
+  if (qpthreads_active)
     {
 #if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
       pthread_spin_unlock(slk) ;

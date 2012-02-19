@@ -17,8 +17,9 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 
@@ -52,7 +53,7 @@ if_ioctl (u_long request, caddr_t buffer)
 
   if (zserv_privs.change(ZPRIVS_RAISE))
     zlog (NULL, LOG_ERR, "Can't raise privileges");
-    
+
   sock = socket (AF_INET, SOCK_DGRAM, 0);
   if (sock < 0)
     {
@@ -65,7 +66,7 @@ if_ioctl (u_long request, caddr_t buffer)
 
   if ((ret = ioctl (sock, request, buffer)) < 0)
     err = errno;
-  
+
   if (zserv_privs.change(ZPRIVS_LOWER))
     zlog (NULL, LOG_ERR, "Can't lower privileges");
 
@@ -141,7 +142,7 @@ if_get_metric (struct interface *ifp)
 #endif /* SOLARIS_IPV6 */
   else
     ret = -1;
-    
+
   if (ret < 0)
     return;
 
@@ -158,7 +159,7 @@ if_get_mtu (struct interface *ifp)
   struct lifreq lifreq;
   int ret;
   u_char changed = 0;
-  
+
   if (ifp->flags & IFF_IPV4)
     {
       lifreq_set_name (&lifreq, ifp->name);
@@ -275,7 +276,7 @@ if_unset_prefix (struct interface *ifp, struct connected *ifc)
   memcpy (&ifreq.ifr_addr, &addr, sizeof (struct sockaddr_in));
 
   ret = if_ioctl (SIOCSIFADDR, (caddr_t) & ifreq);
-  
+
   if (ret < 0)
     return ret;
 
@@ -292,17 +293,17 @@ if_get_flags_direct (const char *ifname, uint64_t *flags, unsigned int af)
 {
   struct lifreq lifreq;
   int ret;
-    
+
   lifreq_set_name (&lifreq, ifname);
-  
+
   ret = AF_IOCTL (af, SIOCGLIFFLAGS, (caddr_t) &lifreq);
-  
+
   if (ret)
     zlog_debug ("%s: ifname %s, error %s (%d)",
                 __func__, ifname, safe_strerror (errno), errno);
-  
+
   *flags = lifreq.lifr_flags;
-  
+
   return ret;
 }
 
@@ -317,7 +318,7 @@ if_get_flags (struct interface *ifp)
   if (ifp->flags & IFF_IPV4)
     {
       ret4 = if_get_flags_direct (ifp->name, &tmpflags, AF_INET);
-      
+
       if (!ret4)
         newflags |= tmpflags;
       else if (errno == ENXIO)
@@ -331,7 +332,7 @@ if_get_flags (struct interface *ifp)
   if (ifp->flags & IFF_IPV6)
     {
       ret6 = if_get_flags_direct (ifp->name, &tmpflags, AF_INET6);
-      
+
       if (!ret6)
         newflags |= tmpflags;
       else if (errno == ENXIO)
@@ -341,7 +342,7 @@ if_get_flags (struct interface *ifp)
           if_flags_update (ifp, ifp->flags);
         }
     }
-  
+
   /* only update flags if one of above succeeded */
   if ( !(ret4 && ret6) )
     if_flags_update (ifp, newflags);
@@ -371,7 +372,7 @@ if_set_flags (struct interface *ifp, uint64_t flags)
                safe_strerror (errno));
   else
     ret = 0;
-    
+
   return ret;
 }
 
@@ -398,7 +399,7 @@ if_unset_flags (struct interface *ifp, uint64_t flags)
     zlog_info ("can't unset interface flags");
   else
     ret = 0;
-  
+
   return ret;
 }
 
@@ -432,3 +433,5 @@ if_prefix_delete_ipv6 (struct interface *ifp, struct connected *ifc)
 }
 
 #endif /* HAVE_IPV6 */
+
+#endif /* VTYSH_EXTRACT_PL */

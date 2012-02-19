@@ -29,6 +29,7 @@
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_notification.h"
 #include "bgpd/bgp_msg_read.h"
+#include "bgpd/bgp_msg_write.h"
 #include "bgpd/bgp_dump.h"
 
 #include "lib/memory.h"
@@ -180,8 +181,8 @@ bgp_connection_init_new(bgp_connection connection, bgp_session session,
   bgp_connection_init_host(connection, bgp_connection_tags[ordinal]) ;
 
   /* Need two empty "stream" buffers                                    */
-  connection->ibuf = stream_new(BGP_MSG_MAX_L) ;
-  connection->obuf = stream_new(BGP_MSG_MAX_L) ;
+  connection->ibuf = stream_new(BGP_STREAM_SIZE) ;
+  connection->obuf = stream_new(BGP_STREAM_SIZE) ;
 
   /* Ensure mqueue_local_queue is empty.                                */
   mqueue_local_init_new(&connection->pending_queue) ;
@@ -346,7 +347,8 @@ bgp_connection_free(bgp_connection connection)
    */
   bgp_connection_close(connection, false) ;     /* false => not keep timers  */
 
-  /* Free any components which still exist                              */
+  /* Free any components which still exist
+   */
   connection->qf              = qps_file_free(connection->qf) ;
   connection->hold_timer      = qtimer_free(connection->hold_timer) ;
   connection->keepalive_timer = qtimer_free(connection->keepalive_timer) ;
@@ -796,7 +798,7 @@ bgp_connection_close(bgp_connection connection, bool keep_timers)
   qps_remove_file(connection->qf) ;
 
   sock_fd = qps_file_unset_fd(connection->qf) ;
-  if (sock_fd != fd_undef)
+  if (sock_fd >= 0)
     close(sock_fd) ;
 
   /* If required, unset the timers.                                     */
@@ -909,7 +911,12 @@ static void bgp_connection_write_action(qps_file qf, void* file_info) ;
 /*------------------------------------------------------------------------------
  * Write the contents of the given stream
  *
- * Writes everything or FATAL error.
+ * Checks that is <= BGP_MSG_MAX_L.  If exceeds message length, throws a
+ * logging message and discards the message -- but behaves as if it was sent.
+ *
+ * Writes everything or FATAL error -- elsewhere care is taken not to
+ * attempt to deal with a stream unless there is space for a maximum size
+ * message in the wbuff.
  *
  * Returns: 1 => written to wbuff -- stream reset, empty
  *
@@ -919,19 +926,35 @@ static void bgp_connection_write_action(qps_file qf, void* file_info) ;
 extern int
 bgp_connection_write(bgp_connection connection, struct stream* s)
 {
+  uint length ;
+  bool enable_write ;
+
   bgp_wbuffer wb = &connection->wbuff ;
 
-  /* FATAL error if cannot write everything.                    */
-  if (bgp_write_buffer_cannot(wb, stream_pending(s)))
-    zabort("Write buffer does not have enough room") ;
+  enable_write = bgp_write_buffer_empty(wb) ;
 
-  /* If buffer is empty, enable write mode                      */
-  if (bgp_write_buffer_empty(wb))
+  /* If message is of valid length, should have room in the buffer, so copy
+   * there.
+   *
+   * Otherwise, complain bitterly and reset the stream.
+   */
+  length = bgp_packet_check_size(s, connection->su_remote) ;
+
+  if (length != 0)
+    {
+      if (bgp_write_buffer_cannot(wb, length))
+        zabort("Write buffer does not have enough room") ;
+
+      wb->p_in = stream_transfer(wb->p_in, s, wb->limit) ;
+    }
+  else
+    stream_reset(s) ;
+
+  /* If required, enable write mode
+   */
+  if (enable_write)
     qps_enable_mode(connection->qf, qps_write_mnum,
                                                 bgp_connection_write_action) ;
-
-  /* Transfer the obuf contents to the write buffer.            */
-  wb->p_in = stream_transfer(wb->p_in, s, wb->limit) ;
 
   return 1 ;    /* written as far as the write buffer           */
 } ;
@@ -1059,8 +1082,7 @@ bgp_connection_read_action(qps_file qf, void* file_info)
    */
   while (1)
     {
-      ret = stream_read_nonblock(connection->ibuf, qps_file_fd(connection->qf),
-                                                                         want) ;
+      ret = stream_readn(connection->ibuf, qps_file_fd(connection->qf), want) ;
       if (ret >= 0)
         {
           want -= ret ;
@@ -1098,14 +1120,14 @@ bgp_connection_read_action(qps_file qf, void* file_info)
    */
    if (connection->session != NULL)      /* don't bother if session gone ! */
      {
-       BGP_CONNECTION_SESSION_LOCK(connection) ;    /*<<<<<<<<<<<<<<<<<<<<<<<<*/
+       BGP_CONNECTION_SESSION_LOCK(connection) ;    /*<-<-<-<-<-<-<-<-<-*/
 
        if (bgp_dump_packet_flag)
          bgp_dump_packet(connection) ;
 
        connection->msg_func(connection, connection->msg_body_size) ;
 
-       BGP_CONNECTION_SESSION_UNLOCK(connection) ;  /*>>>>>>>>>>>>>>>>>>>>>>>>*/
+       BGP_CONNECTION_SESSION_UNLOCK(connection) ;  /*->->->->->->->->->*/
     } ;
 
   /* Ready to read another message                                      */

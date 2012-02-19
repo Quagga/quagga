@@ -178,11 +178,13 @@ VALUE(BGP_MSG_BODY_MAX_L    = BGP_MSG_MAX_L - BGP_MH_HEAD_L) ;
 
 enum            /* order of entries in Message Header     */
 {
-  BGP_MH_MARKER,
-  BGP_MH_LEN,
-  BGP_MH_TYPE,
-  BGP_MH_BODY
+  BGP_MH_MARKER  = 0,
+  BGP_MH_LEN     = BGP_MH_MARKER + sizeof(BGP_MH_MARKER_T),
+  BGP_MH_TYPE    = BGP_MH_LEN    + sizeof(BGP_MH_LEN_T),
+  BGP_MH_BODY    = BGP_MH_TYPE   + sizeof(BGP_MH_TYPE_T),
 } ;
+
+CONFIRM((uint)BGP_MH_BODY == (uint)BGP_MH_HEAD_L) ;
 
 /* Message Type Numbers ------------------------------------------------------*/
 

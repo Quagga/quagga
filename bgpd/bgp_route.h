@@ -172,6 +172,7 @@ enum bgp_clear_route_type
 };
 
 /* Prototypes. */
+extern void bgp_route_cmd_init (void);
 extern void bgp_route_init (void);
 extern void bgp_route_finish (void);
 

@@ -23,6 +23,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 #include "misc.h"
 
+#include "thread.h"
+
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_notification.h"
 #include "bgpd/bgp_peer.h"
@@ -407,8 +409,6 @@ typedef enum
  */
 extern struct bgp_master *bm;
 
-extern struct thread_master *master;
-
 extern qpn_nexus cli_nexus;
 extern qpn_nexus bgp_nexus;
 extern qpn_nexus routing_nexus;
@@ -451,6 +451,14 @@ bgp_wall_clock(time_t mono)
 } ;
 
 /*------------------------------------------------------------------------------
+ * When reading and writing packets using stream buffers, we set the stream
+ * to be a little larger than the maximum size of message.  Don't really expect
+ * messages to overflow, and if they do, not by much -- so most of the time
+ * we will know how badly the stream overflowed.
+ */
+enum { BGP_STREAM_SIZE = BGP_MSG_MAX_L * 5 / 4 } ;
+
+/*------------------------------------------------------------------------------
  * Prototypes.
  */
 extern void bgp_terminate (bool, bool);
@@ -479,6 +487,7 @@ extern void bgp_config_write_family_header (struct vty *, afi_t, safi_t, int *);
 extern void bgp_master_init (void);
 
 extern void bgp_init (void);
+extern void bgp_route_map_cmd_init (void);
 extern void bgp_route_map_init (void);
 
 extern int bgp_option_set (int);

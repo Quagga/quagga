@@ -1,3 +1,5 @@
+#ifndef VTYSH_EXTRACT_PL
+
 #include <zebra.h>
 
 #include "zebra/rib.h"
@@ -7,13 +9,13 @@
 void ifreq_set_name (struct ifreq *a, struct interface *b) { return; }
 
 int if_set_prefix (struct interface *a, struct connected *b)
-{ 
+{
   kernel_address_add_ipv4 (a, b);
   return 0;
 }
 
 int if_unset_prefix (struct interface *a, struct connected *b)
-{ 
+{
   kernel_address_delete_ipv4 (a, b);
   return 0;
 }
@@ -42,3 +44,5 @@ struct connected *if_lookup_linklocal(struct interface *a) { return 0; }
 #define AF_IOCTL(af, request, buffer)  if_ioctl(request, buffer)
 
 #endif /* SOLARIS_IPV6 */
+
+#endif /* VTYSH_EXTRACT_PL */

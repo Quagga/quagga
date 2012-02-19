@@ -22,6 +22,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define _ZEBRA_MEMORY_H
 
 #include "misc.h"
+#include "command_common.h"
 
 /*------------------------------------------------------------------------------
  * The file "lib/memtypes.h is created automatically (in the make) from
@@ -168,11 +169,9 @@ extern char *zstrdup (mtype_t mtype, const char *str   MEMORY_EXTRA_ARGS) ;
 extern void* mem_mmap(size_t size) ;
 extern void mem_munmap(void* p, size_t size) ;
 
-extern void memory_start(void) ;
-extern void memory_init (void);
+extern void memory_start_up(void) ;
 extern void memory_init_r (void);
-extern void memory_finish (void);
-extern void log_memstats_stderr (const char *);
+extern void memory_finish (bool mem_stats);
 
 /* Return number of allocations outstanding for all memory types        */
 extern void mem_get_stats(mem_stats_t* mst) ;
@@ -186,5 +185,8 @@ extern ulong mtype_stats_alloc(mtype_t mtype) ;
 /* Human friendly string for given byte count                           */
 #define MTYPE_MEMSTR_LEN 20
 extern const char *mtype_memstr (char *, size_t, ulong);
+
+/* Table of memory commands                                             */
+extern cmd_table memory_cmd_table ;
 
 #endif /* _ZEBRA_MEMORY_H */

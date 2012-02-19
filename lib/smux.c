@@ -73,16 +73,6 @@ int debug_smux = 0;
 /* SMUX failure count. */
 int fail = 0;
 
-/* SMUX node. */
-static struct cmd_node smux_node =
-{
-  SMUX_NODE,
-  ""                            /* SMUX has no interface. */
-};
-
-/* thread master */
-static struct thread_master *master;
-
 void *
 oid_copy (void *dest, const void *src, size_t size)
 {
@@ -1513,9 +1503,21 @@ smux_tree_cmp(struct subtree *tree1, struct subtree *tree2)
 		     tree2->name, tree2->name_len);
 }
 
+CMD_INSTALL_TABLE(static, smux_cmd_table,
+                                       RIPD | OSPFD | OSPF6D | BGPD | ZEBRA) =
+{
+  { CONFIG_NODE,     &smux_peer_cmd                                     },
+  { CONFIG_NODE,     &smux_peer_password_cmd                            },
+  { CONFIG_NODE,     &no_smux_peer_cmd                                  },
+  { CONFIG_NODE,     &no_smux_peer_oid_cmd                              },
+  { CONFIG_NODE,     &no_smux_peer_oid_password_cmd                     },
+
+  CMD_INSTALL_END
+} ;
+
 /* Initialize some values then schedule first SMUX connection. */
-void
-smux_init (struct thread_master *tm)
+extern void
+smux_init (daemon_set_t daemons, struct thread_master *tm)
 {
   /* copy callers thread master */
   master = tm;
@@ -1525,13 +1527,8 @@ smux_init (struct thread_master *tm)
   treelist->cmp = (int (*)(void *, void *))smux_tree_cmp;
 
   /* Install commands. */
-  install_node (&smux_node, config_write_smux);
-
-  install_element (CONFIG_NODE, &smux_peer_cmd);
-  install_element (CONFIG_NODE, &smux_peer_password_cmd);
-  install_element (CONFIG_NODE, &no_smux_peer_cmd);
-  install_element (CONFIG_NODE, &no_smux_peer_oid_cmd);
-  install_element (CONFIG_NODE, &no_smux_peer_oid_password_cmd);
+  cmd_install_node (SMUX_NODE, config_write_smux);
+  cmd_install_table(smux_cmd_table, daemons) ;
 }
 
 void

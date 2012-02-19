@@ -37,8 +37,6 @@
 #include "memory.h"
 #include "log.h"
 
-extern struct thread_master *master;
-
 enum
 {
   ITERS_FIRST = 0,
@@ -143,5 +141,5 @@ extern void test_init(void) ;
 void
 test_init(void)
 {
-  install_element (VIEW_NODE, &clear_foo_cmd);
+  cmd_install_command (ENABLE_NODE, &clear_foo_cmd, BASIC_VD);  // TODO
 }

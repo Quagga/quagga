@@ -38,7 +38,6 @@
 #include "workqueue.h"
 #include <math.h>
 
-extern struct thread_master *master;
 static struct work_queue *heavy_wq;
 
 struct heavy_wq_node
@@ -177,6 +176,6 @@ extern void test_init(void) ;
 extern void
 test_init(void)
 {
-  install_element (VIEW_NODE, &clear_foo_cmd);
+  cmd_install_command (ENABLE_NODE, &clear_foo_cmd, BASIC_VD); // TODO
   heavy_wq_init();
 }

@@ -236,13 +236,13 @@ struct bgp_session_enable_args          /* to BGP Engine                */
 {
                                         /* no further arguments         */
 } ;
-MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
+MQB_ARGS_SIZE_OK(struct bgp_session_enable_args) ;
 
 struct bgp_session_disable_args         /* to BGP Engine                */
 {
   bgp_notify    notification ;          /* NOTIFICATION to send         */
 } ;
-MQB_ARGS_SIZE_OK(bgp_session_enable_args) ;
+MQB_ARGS_SIZE_OK(struct bgp_session_enable_args) ;
 
 struct bgp_session_update_args          /* to and from BGP Engine       */
 {
@@ -253,7 +253,7 @@ struct bgp_session_update_args          /* to and from BGP Engine       */
   bgp_connection  is_pending ;          /* used inside the BGP Engine   */
                                         /* set NULL on message creation */
 } ;
-MQB_ARGS_SIZE_OK(bgp_session_update_args) ;
+MQB_ARGS_SIZE_OK(struct bgp_session_update_args) ;
 
 struct bgp_session_route_refresh_args   /* to and from BGP Engine       */
 {
@@ -262,7 +262,7 @@ struct bgp_session_route_refresh_args   /* to and from BGP Engine       */
   bgp_connection  is_pending ;          /* used inside the BGP Engine   */
                                         /* set NULL on message creation */
 } ;
-MQB_ARGS_SIZE_OK(bgp_session_route_refresh_args) ;
+MQB_ARGS_SIZE_OK(struct bgp_session_route_refresh_args) ;
 
 struct bgp_session_end_of_rib_args      /* to and from BGP Engine       */
 {
@@ -272,7 +272,7 @@ struct bgp_session_end_of_rib_args      /* to and from BGP Engine       */
   bgp_connection  is_pending ;          /* used inside the BGP Engine   */
                                         /* set NULL on message creation */
 } ;
-MQB_ARGS_SIZE_OK(bgp_session_end_of_rib_args) ;
+MQB_ARGS_SIZE_OK(struct bgp_session_end_of_rib_args) ;
 
 struct bgp_session_event_args           /* to Routeing Engine           */
 {
@@ -282,13 +282,14 @@ struct bgp_session_event_args           /* to Routeing Engine           */
   bgp_connection_ord_t ordinal ;        /* primary/secondary connection */
   int                  stopped ;        /* session has stopped          */
 } ;
-MQB_ARGS_SIZE_OK(bgp_session_event_args) ;
+MQB_ARGS_SIZE_OK(struct bgp_session_event_args) ;
 
 struct bgp_session_XON_args             /* to Routeing Engine           */
 {
                                         /* no further arguments         */
 } ;
-MQB_ARGS_SIZE_OK(bgp_session_XON_args) ;
+MQB_ARGS_SIZE_OK(struct bgp_session_XON_args) ;
+
 enum { BGP_XON_REFRESH     = 40,
        BGP_XON_KICK        = 20,
 } ;
@@ -298,7 +299,7 @@ struct bgp_session_ttl_args             /* to bgp Engine                */
   int                  ttl ;
   bool                 gtsm ;
 } ;
-MQB_ARGS_SIZE_OK(bgp_session_ttl_args) ;
+MQB_ARGS_SIZE_OK(struct bgp_session_ttl_args) ;
 
 /*==============================================================================
  * Session mutex lock/unlock
@@ -317,58 +318,34 @@ inline static void BGP_SESSION_UNLOCK(bgp_session session)
 /*==============================================================================
  * Functions
  */
-
-extern bgp_session
-bgp_session_init_new(bgp_peer peer) ;
-
-extern void
-bgp_session_enable(bgp_peer peer) ;
-
-extern void
-bgp_session_disable(bgp_peer peer, bgp_notify notification) ;
-
-extern void
-bgp_session_delete(bgp_peer peer);
-
-extern void
-bgp_session_event(bgp_session session, bgp_session_event_t  event,
+extern bgp_session bgp_session_init_new(bgp_peer peer) ;
+extern void bgp_session_enable(bgp_peer peer) ;
+extern void bgp_session_disable(bgp_peer peer, bgp_notify notification) ;
+extern void bgp_session_delete(bgp_peer peer);
+extern void bgp_session_event(bgp_session session, bgp_session_event_t  event,
                                        bgp_notify           notification,
                                        int                  err,
                                        bgp_connection_ord_t ordinal,
                                        bool                 stopped) ;
-
-extern void
-bgp_session_update_send(bgp_session session, struct stream_fifo* fifo) ;
-
-extern void
-bgp_session_route_refresh_send(bgp_session session, bgp_route_refresh rr) ;
-
-extern void
-bgp_session_end_of_rib_send(bgp_session session, qAFI_t afi, qSAFI_t) ;
-
-extern void
-bgp_session_update_recv(bgp_session session, struct stream* buf,
+extern void bgp_session_update_send(bgp_session session,
+                                                     struct stream_fifo* fifo) ;
+extern void bgp_session_route_refresh_send(bgp_session session,
+                                                         bgp_route_refresh rr) ;
+extern void bgp_session_end_of_rib_send(bgp_session session,
+                                                          qAFI_t afi, qSAFI_t) ;
+extern void bgp_session_update_recv(bgp_session session, struct stream* buf,
                                                               bgp_size_t size) ;
-
-extern void
-bgp_session_route_refresh_recv(bgp_session session, bgp_route_refresh rr);
-
-extern int
-bgp_session_is_XON(bgp_peer peer);
-extern int
-bgp_session_dec_flow_count(bgp_peer peer) ;
-
-extern void
-bgp_session_set_ttl(bgp_session session, int ttl, bool gtsm);
-
-extern void
-bgp_session_get_stats(bgp_session session, struct bgp_session_stats *stats);
+extern void bgp_session_route_refresh_recv(bgp_session session,
+                                                         bgp_route_refresh rr) ;
+extern bool bgp_session_is_XON(bgp_peer peer);
+extern bool bgp_session_dec_flow_count(bgp_peer peer) ;
+extern void bgp_session_set_ttl(bgp_session session, int ttl, bool gtsm) ;
+extern void bgp_session_get_stats(bgp_session session,
+                                              struct bgp_session_stats *stats) ;
 
 /*==============================================================================
  * Session data access functions.
  */
-
-extern bool
-bgp_session_is_active(bgp_session session) ;
+extern bool bgp_session_is_active(bgp_session session) ;
 
 #endif /* QUAGGA_BGP_SESSION_H */

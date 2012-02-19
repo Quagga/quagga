@@ -80,7 +80,7 @@ prefix_match (const struct prefix *n, const struct prefix *p)
   /* Set both prefix's head pointer. */
   np = (const u_char *)&n->u.prefix;
   pp = (const u_char *)&p->u.prefix;
-  
+
   offset = n->prefixlen / PNBBY;
   shift =  n->prefixlen % PNBBY;
 

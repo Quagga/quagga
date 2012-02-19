@@ -26,8 +26,8 @@
 #include "command_execute.h"
 #include "qpnexus.h"
 
-extern void cq_loop_enter(vty vty, cmd_return_code_t ret) ;
-extern void cq_continue(vty vty, cmd_return_code_t ret) ;
-extern bool cq_revoke(vty vty) ;
+extern void cq_loop_enter(vty vty, cmd_ret_t ret) ;
+extern void cq_loop_resume(vty vty, cmd_ret_t ret) ;
+extern bool cq_loop_stop(vty_io vio) ;
 
 #endif /* COMMAND_QUEUE_H_ */

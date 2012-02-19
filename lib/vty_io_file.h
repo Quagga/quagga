@@ -1,4 +1,4 @@
-/* VTY I/O for Files -- Header
+/* VTY I/O for Files and Pipes -- Header
  *
  * Copyright (C) 2010 Chris Hall (GMCH), Highwayman
  *
@@ -28,6 +28,8 @@
 #include "vty_io.h"
 #include "vty_command.h"
 #include "command_parse.h"
+#include "qpath.h"
+#include "qstring.h"
 
 /*==============================================================================
  * Here are structures and other definitions which are shared by:
@@ -40,32 +42,28 @@
 /*==============================================================================
  * Functions
  */
-extern vty vty_config_read_open(int fd, const char* name, bool full_lex) ;
-extern cmd_return_code_t uty_config_read_close(vio_vf vf, bool final) ;
+extern void uty_config_read_open(vty_io vio, int fd, qpath path) ;
 
-extern cmd_return_code_t uty_file_read_open(vty_io vio, qstring name,
-                                                          cmd_context context) ;
-extern cmd_return_code_t uty_file_write_open(vty_io vio, qstring name,
-                                 bool append, cmd_context context, bool after) ;
+extern void vty_config_write_open(vty vty, int fd) ;
+extern cmd_ret_t vty_config_write_close(struct vty* vty) ;
 
-extern cmd_return_code_t uty_file_fetch_command_line(vio_vf vf,
-                                                            cmd_action action) ;
-extern cmd_return_code_t uty_file_out_push(vio_vf vf, uty_cmd_push_types_t how);
+extern cmd_ret_t uty_file_read_open(vty_io vio, qpath path) ;
+extern cmd_ret_t uty_file_write_open(vty_io vio, qpath path,
+                                                      bool append, bool after) ;
 
-extern cmd_return_code_t uty_file_read_close(vio_vf vf, bool final) ;
-extern cmd_return_code_t uty_file_write_close(vio_vf vf, bool final) ;
+extern cmd_ret_t uty_file_cmd_line_fetch(vio_vf vf) ;
+extern cmd_ret_t uty_file_out_push(vio_vf vf) ;
 
+extern cmd_ret_t uty_file_read_close(vio_vf vf) ;
+extern cmd_ret_t uty_file_write_close(vio_vf vf) ;
 
-extern cmd_return_code_t uty_pipe_read_open(vty_io vio, qstring command,
-                                                          cmd_context context) ;
-extern cmd_return_code_t uty_pipe_write_open(vty_io vio, qstring command,
+extern cmd_ret_t uty_pipe_read_open(vty_io vio, qstring command) ;
+extern cmd_ret_t uty_pipe_write_open(vty_io vio, qstring command,
                                                   bool shell_cmd, bool after) ;
-extern cmd_return_code_t uty_pipe_fetch_command_line(vio_vf vf,
-                                                            cmd_action action) ;
-extern cmd_return_code_t uty_pipe_out_push(vio_vf vf, uty_cmd_push_types_t how);
-extern cmd_return_code_t uty_pipe_read_close(vio_vf vf, bool final) ;
-extern cmd_return_code_t uty_pipe_write_close(vio_vf vf, bool final) ;
-extern void uty_pipe_return_stop(vio_vf vf) ;
-extern void uty_pipe_return_cancel(vio_vf vf) ;
+//extern cmd_ret_t uty_pipe_cmd_line_fetch(vio_vf vf) ;
+//extern cmd_ret_t uty_pipe_out_push(vio_vf vf) ;
+extern cmd_ret_t uty_pipe_read_close(vio_vf vf) ;
+extern cmd_ret_t uty_pipe_write_close(vio_vf vf) ;
+extern void uty_pipe_all_return_stop(vio_vf vf) ;
 
-#endif
+#endif /* _ZEBRA_VTY_IO_FILE_H */

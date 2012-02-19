@@ -16,8 +16,9 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
+#ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
 #include "privs.h"
@@ -49,7 +50,7 @@ ipforward (void)
   int ipforwarding = 0;
 
   len = sizeof ipforwarding;
-  if (sysctl (mib, MIB_SIZ, &ipforwarding, &len, 0, 0) < 0) 
+  if (sysctl (mib, MIB_SIZ, &ipforwarding, &len, 0, 0) < 0)
     {
       zlog_warn ("Can't get ipforwarding value");
       return -1;
@@ -102,7 +103,7 @@ ipforward_off (void)
 #ifdef HAVE_IPV6
 
 /* IPv6 forwarding control MIB. */
-int mib_ipv6[MIB_SIZ] = 
+int mib_ipv6[MIB_SIZ] =
 {
   CTL_NET,
   PF_INET6,
@@ -113,7 +114,7 @@ int mib_ipv6[MIB_SIZ] =
   IPPROTO_IP,
   IP6CTL_FORWARDING
 #endif /* KAME */
-}; 
+};
 
 int
 ipforward_ipv6 (void)
@@ -178,3 +179,5 @@ ipforward_ipv6_off (void)
   return ip6forwarding;
 }
 #endif /* HAVE_IPV6 */
+
+#endif /* VTYSH_EXTRACT_PL */

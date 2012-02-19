@@ -1,6 +1,8 @@
 #include <zebra.h>
-#include <vector.h>
+#include "misc.h"
 #include "qlib_init.h"
+#include "command.h"
+#include "vector.h"
 
 /* Vector torture tests
  *
@@ -44,8 +46,6 @@ void test_vector_delete(void);
 void test_vector_discard(void);
 void test_vector_sak(void);
 
-struct thread_master *master;
-
 /* objects to put in the vectors */
 static char s0[5];
 static char s1000[5];
@@ -63,7 +63,8 @@ assert_true(int result, const char * message)
 int
 main(int argc, char **argv)
 {
-  qlib_init_first_stage() ;
+  qlib_init_first_stage(0);     /* Absolutely first     */
+  host_init(argv[0]) ;
 
   strcpy(s0, "0");
   strcpy(s1000, "1000");

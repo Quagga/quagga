@@ -54,6 +54,7 @@ extern int Debug_Radix;
 #define	DETAIL	 6
 
 /* Prototypes. */
+extern void bgp_debug_cmd_init (void);
 extern void bgp_debug_init (void);
 extern void bgp_packet_dump (struct stream *);
 
@@ -118,14 +119,7 @@ extern unsigned long term_bgp_debug_zebra;
 #define BGP_DEBUG(a, b)		(term_bgp_debug_ ## a & BGP_DEBUG_ ## b)
 #define CONF_BGP_DEBUG(a, b)    (conf_bgp_debug_ ## a & BGP_DEBUG_ ## b)
 
-extern const char *bgp_type_str[];
-
 extern int bgp_dump_attr (struct peer *, struct attr *, char *, size_t);
 extern void bgp_notify_print (struct peer* peer, bgp_notify notification);
 
-extern const struct message bgp_status_msg[];
-extern const int bgp_status_msg_max;
-
-extern const struct message bgp_peer_status_msg[];
-extern const int bgp_peer_status_msg_max;
 #endif /* _QUAGGA_BGP_DEBUG_H */

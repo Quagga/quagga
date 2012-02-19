@@ -37,6 +37,7 @@
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_open.h"
 #include "bgpd/bgp_advertise.h"
+#include "bgpd/bgp_names.h"
 
 #include "linklist.h"
 #include "prefix.h"
@@ -298,14 +299,14 @@ bgp_session_has_established(bgp_session session)
   bgp_peer_change_status (peer, bgp_peer_pEstablished);
 
   /* Extracting information from shared fields.                         */
-  BGP_SESSION_LOCK(session) ;   /*<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<<*/
+  BGP_SESSION_LOCK(session) ;   /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
   bgp_peer_open_state_receive(peer);
 
   sockunion_set_dup(&peer->su_local,  session->su_local) ;
   sockunion_set_dup(&peer->su_remote, session->su_remote) ;
 
-  BGP_SESSION_UNLOCK(session) ; /*>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>*/
+  BGP_SESSION_UNLOCK(session) ; /*->->->->->->->->->->->->->->->->->->->*/
 
   /* Install next hop, as required.                                     */
   bgp_nexthop_set(peer->su_local, peer->su_remote, &peer->nexthop, peer) ;
@@ -734,9 +735,9 @@ bgp_peer_new (struct bgp *bgp)
         peer->orf_plist[afi][safi] = NULL;
       }
   /* Create buffers.  */
-  peer->ibuf = stream_new (BGP_MAX_PACKET_SIZE);
+  peer->ibuf = stream_new (BGP_STREAM_SIZE);
   peer->obuf = stream_fifo_new ();
-  peer->work = stream_new (BGP_MAX_PACKET_SIZE);
+  peer->work = stream_new (BGP_STREAM_SIZE);
 
   bgp_sync_init (peer);
 
@@ -1612,8 +1613,8 @@ bgp_peer_change_status (bgp_peer peer, bgp_peer_state_t new_state)
 
       if (BGP_DEBUG (normal, NORMAL))
         zlog_debug ("%s went from %s to %s", peer->host,
-                    LOOKUP (bgp_peer_status_msg, peer->ostate),
-                    LOOKUP (bgp_peer_status_msg, peer->state)) ;
+                           map_direct(bgp_peer_status_map, peer->ostate).str,
+                           map_direct(bgp_peer_status_map, peer->state).str) ;
 
       if (new_state == bgp_peer_pIdle)
         bgp_peer_reset_idle(peer) ;       /* tidy up      */

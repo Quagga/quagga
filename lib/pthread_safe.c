@@ -44,6 +44,7 @@
 #include <errno.h>
 #include <netdb.h>
 
+#include "qstring.h"
 #include "qfstring.h"
 #include "errno_names.h"
 
@@ -62,6 +63,9 @@ static const char ellipsis[] = "..." ;
 
 static void destructor(void* data);
 static char * thread_buff(void);
+
+#define THREAD_SAFE_LOCK()   qpt_mutex_lock(thread_safe)
+#define THREAD_SAFE_UNLOCK() qpt_mutex_unlock(thread_safe)
 
 /*------------------------------------------------------------------------------
  * Module initialization, before any threads have been created
@@ -137,7 +141,7 @@ destructor(void* data)
  * to show this has happened.
  */
 
-static void errtox(strerror_t* st, int err, uint len, uint want) ;
+static strerror_t errtox(int err, ulen len, uint want) ;
 
 /*------------------------------------------------------------------------------
  * Construct string to describe the given error of the form:
@@ -147,13 +151,9 @@ static void errtox(strerror_t* st, int err, uint len, uint want) ;
  * Thread safe extension to strerror.  Never returns NULL.
  */
 extern strerror_t
-errtoa(int err, uint len)
+errtoa(int err, ulen len)
 {
-  strerror_t  st ;
-
-  errtox(&st, err, len, 3) ;  /* name and message     */
-
-  return st ;
+  return errtox(err, len, 3) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -162,13 +162,9 @@ errtoa(int err, uint len)
  * Thread-safe.  Never returns NULL.
  */
 extern strerror_t
-errtoname(int err, uint len)
+errtoname(int err, ulen len)
 {
-  strerror_t  st ;
-
-  errtox(&st, err, len, 1) ;  /* name                 */
-
-  return st ;
+  return errtox(err, len, 1) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -177,13 +173,9 @@ errtoname(int err, uint len)
  * Thread safe replacement for strerror.  Never returns NULL.
  */
 extern strerror_t
-errtostr(int err, uint len)
+errtostr(int err, ulen len)
 {
-  strerror_t  st ;
-
-  errtox(&st, err, len, 2) ;  /* message              */
-
-  return st ;
+  return errtox(err, len, 2) ;
 } ;
 
 /*-----------------------------------------------------------------------------
@@ -195,20 +187,19 @@ errtostr(int err, uint len)
  *
  * NB: this is not async-signal-safe !
  */
-static void
-errtox(strerror_t* st, int err, uint len, uint want)
+static strerror_t
+errtox(int err, ulen len, uint want)
 {
-  qf_str_t qfs ;
-
+  strerror_t QFB_QFS(st, qfs) ;
+  int   errno_saved ;
   const char* q ;
-  uint ql ;
+  ulen ql ;
 
   /* Prepare.                                                   */
-  int errno_saved = errno ;
+  errno_saved = errno ;
 
-  if ((len <= 0) || (len >= sizeof(st->str)))
-    len = sizeof(st->str) ;
-  qfs_init(qfs, st->str, len) ;
+  if ((len > 0) && (len < sizeof(st.str)))
+    qfs_init(qfs, st.str, len + 1) ;    /* limit the size       */
 
   q  = "" ;
   ql = 0 ;
@@ -314,8 +305,10 @@ errtox(strerror_t* st, int err, uint len, uint want)
   if (qfs_term(qfs) != 0)
     qfs_term_string(qfs, ellipsis, sizeof(ellipsis)) ;
 
-  /* Put back errno                                                     */
+  /* Put back errno and we are done
+   */
   errno = errno_saved ;
+  return st ;
 } ;
 
 /*==============================================================================
@@ -351,7 +344,7 @@ errtox(strerror_t* st, int err, uint len, uint want)
  *     error.
  */
 
-static void eaitox(strerror_t* st, int eai, int err, uint len, uint want) ;
+static strerror_t eaitox(int eai, int err, ulen len, uint want) ;
 
 /*------------------------------------------------------------------------------
  * Construct string to describe the given EAI_XXX error of the form:
@@ -362,13 +355,9 @@ static void eaitox(strerror_t* st, int eai, int err, uint len, uint want) ;
  * Thread safe.  Never returns NULL.
  */
 extern strerror_t
-eaitoa(int eai, int err, uint len)
+eaitoa(int eai, int err, ulen len)
 {
-  strerror_t  st ;
-
-  eaitox(&st, eai, err, len, 3) ;  /* name and message     */
-
-  return st ;
+  return eaitox(eai, err, len, 3) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -379,13 +368,9 @@ eaitoa(int eai, int err, uint len)
  * Thread-safe.  Never returns NULL.
  */
 extern strerror_t
-eaitoname(int eai, int err, uint len)
+eaitoname(int eai, int err, ulen len)
 {
-  strerror_t  st ;
-
-  eaitox(&st, eai, err, len, 1) ;  /* name                 */
-
-  return st ;
+  return eaitox(eai, err, len, 1) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -396,13 +381,9 @@ eaitoname(int eai, int err, uint len)
  * Thread-safe.  Never returns NULL.
  */
 extern strerror_t
-eaitostr(int eai, int err, uint len)
+eaitostr(int eai, int err, ulen len)
 {
-  strerror_t  st ;
-
-  eaitox(&st, eai, err, len, 2) ;  /* message              */
-
-  return st ;
+  return eaitox(eai, err, len, 2) ;
 } ;
 
 /*-----------------------------------------------------------------------------
@@ -414,29 +395,31 @@ eaitostr(int eai, int err, uint len)
  *
  *   err != 0 => if EAI_SYSTEM, return result for errno == err instead.
  */
-static void
-eaitox(strerror_t* st, int eai, int err, uint len, uint want)
+static strerror_t
+eaitox(int eai, int err, ulen len, uint want)
 {
-  qf_str_t qfs ;
-
+  strerror_t QFB_QFS(st, qfs) ;
+  int   errno_saved ;
   const char* q ;
-  uint ql ;
+  ulen ql ;
 
-  /* Look out for mapping EAI_SYSTEM                             */
+  /* Look out for mapping EAI_SYSTEM
+   */
   if ((eai == EAI_SYSTEM) && (err != 0))
-    return errtox(st, err, len, want) ;
+    return errtox(err, len, want) ;
 
-  /* Prepare.                                                   */
-  int errno_saved = errno ;
+  /* Prepare.
+   */
+  errno_saved = errno ;
 
-  if ((len <= 0) || (len >= (int)sizeof(st->str)))
-    len = sizeof(st->str) - 1 ;
-  qfs_init(qfs, st->str, len + 1) ;
+  if ((len > 0) && (len < sizeof(st.str)))
+    qfs_init(qfs, st.str, len + 1) ;    /* limit the size       */
 
   q  = "" ;
   ql = 0 ;
 
-  /* If want the error name, do that now.                       */
+  /* If want the error name, do that now.
+   */
   if (want & 1)
     {
       const char* name = eaino_name_lookup(eai) ;
@@ -447,7 +430,8 @@ eaitox(strerror_t* st, int eai, int err, uint len, uint want)
         qfs_printf(qfs, "EAI=%d", eai) ;
     } ;
 
-  /* name and string ?                                          */
+  /* name and string ?
+   */
   if (want == 3)
     {
       qfs_append(qfs, " ") ;
@@ -455,7 +439,8 @@ eaitox(strerror_t* st, int eai, int err, uint len, uint want)
       ql = 2 ;
     } ;
 
-  /* If want the error string, do that now                      */
+  /* If want the error string, do that now
+   */
   if (want & 2)
     {
       const char* eaim ;
@@ -481,8 +466,10 @@ eaitox(strerror_t* st, int eai, int err, uint len, uint want)
         qfs_term_string(qfs, ellipsis, sizeof(ellipsis)) ;
     } ;
 
-  /* Put back errno                                                     */
+  /* Put back errno and we are done
+   */
   errno = errno_saved ;
+  return st ;
 } ;
 
 /*==============================================================================
@@ -507,7 +494,7 @@ getenv_r(const char* name, char* buf, int buf_len)
   int   len ;
   int   cl ;
 
-  qpt_mutex_lock(thread_safe) ;
+  THREAD_SAFE_LOCK() ;
 
   val = getenv(name) ;
   if (val == NULL)
@@ -528,7 +515,7 @@ getenv_r(const char* name, char* buf, int buf_len)
       buf[cl] = '\0' ;
     } ;
 
-  qpt_mutex_unlock(thread_safe) ;
+  THREAD_SAFE_UNLOCK() ;
 
   return len ;
 } ;
@@ -600,9 +587,170 @@ thread_buff(void)
   return buff;
 }
 
+/*------------------------------------------------------------------------------
+ * Do a getpwnam_r() using the given buffer if at all possible.
+ *
+ * If given buffer is not big enough, malloc() a buffer until get one which
+ * is big enough.
+ *
+ * Returns: 0 => OK, setting p_pwd to the struct passwd
+ *                   if that is not the same as the incoming buf, then must
+ *                   XFREE(MTYPE_TMP, pwd) when finished.
+ *       != 0 => failed, and this is the errno
+ *                   no memory to tidy up if failed
+ *
+ * Note: can pass size == 0 (and buf == NULL) to force malloc()
+ */
+extern int
+safe_getpwnam(const char* name, struct passwd** p_pwd, void* buf, ulen size)
+{
+  void* tmp ;
+  int err ;
 
+  if (size < (sizeof(struct passwd) + 100))
+    {
+      size = sizeof(struct passwd) + 200 ;
+      tmp  = XMALLOC(MTYPE_TMP, size) ;
+    }
+  else
+    tmp = buf ;
 
+  while (1)
+    {
+      char*   b ;
+      size_t  bl ;
 
+      b   = (char*)tmp + sizeof(struct passwd) ;
+      bl  =       size - sizeof(struct passwd) ;
 
+      err = getpwnam_r(name, tmp, b, bl, p_pwd) ;
+      if (err == EINTR)
+        continue ;
 
+      if (err != ERANGE)
+        break ;
 
+      size *= 2 ;
+      if (tmp == buf)
+        tmp = XMALLOC(MTYPE_TMP, size) ;
+      else
+        tmp = XREALLOC(MTYPE_TMP, tmp, size) ;
+    } ;
+
+  if (err != 0)
+    {
+      if (tmp != buf)
+        XFREE(MTYPE_TMP, tmp) ;
+
+      *p_pwd = buf ;
+    } ;
+
+  return err ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Do a getpwuid_r() using the given buffer if at all possible.
+ *
+ * If given buffer is not big enough, malloc() a buffer until get one which
+ * is big enough.
+ *
+ * Returns: 0 => OK, setting p_pwd to the struct passwd
+ *                   if that is not the same as the incoming buf, then must
+ *                   XFREE(MTYPE_TMP, pwd) when finished.
+ *       != 0 => failed, and this is the errno
+ *                   no memory to tidy up if failed
+ *
+ * Note: can pass size == 0 (and buf == NULL) to force malloc()
+ */
+extern int
+safe_getpwuid(uid_t id, struct passwd** p_pwd, void* buf, ulen size)
+{
+  void* tmp ;
+  int err ;
+
+  if (size < (sizeof(struct passwd) + 100))
+    {
+      size = sizeof(struct passwd) + 200 ;
+      tmp  = XMALLOC(MTYPE_TMP, size) ;
+    }
+  else
+    tmp = buf ;
+
+  while (1)
+    {
+      char*   b ;
+      size_t  bl ;
+
+      b   = (char*)tmp + sizeof(struct passwd) ;
+      bl  =       size - sizeof(struct passwd) ;
+
+      err = getpwuid_r(id, tmp, b, bl, p_pwd) ;
+      if (err == EINTR)
+        continue ;
+
+      if (err != ERANGE)
+        break ;
+
+      size *= 2 ;
+      if (tmp == buf)
+        tmp = XMALLOC(MTYPE_TMP, size) ;
+      else
+        tmp = XREALLOC(MTYPE_TMP, tmp, size) ;
+    } ;
+
+  if (err != 0)
+    {
+      if (tmp != buf)
+        XFREE(MTYPE_TMP, tmp) ;
+
+      *p_pwd = buf ;
+    } ;
+
+  return err ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * crypt() wrapper -- create a qstring with results of crypt()
+ *
+ * If the given salt is NULL, creates new, random salt.
+ *
+ * Returns:  new qstring -- caller is responsible for freeing same.
+ */
+extern qstring
+qcrypt(const char* text, const char* salt)
+{
+  uint32_t r ;
+  char     new_salt[3];
+
+  qstring     cypher ;
+
+  static const unsigned char itoa64[] =
+      "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
+
+  extern char *crypt (const char *, const char *) ;
+
+  if (salt == NULL)
+    {
+      r = qt_random((uintptr_t)text) ;
+
+      new_salt[0] = itoa64[(r >> (32 -  5)) & 0x3F] ;   /* ms 5         */
+      new_salt[1] = itoa64[(r >> (32 - 10)) & 0x3F] ;   /* next ms 5    */
+      new_salt[2] = '\0';
+
+      salt = new_salt ;
+    } ;
+
+  /* Can only may this thread-safe by locking.
+   *
+   * Minimises the chance of having to allocate memory while holding the lock.
+   */
+  cypher = qs_new(strlen(text) * 2) ;
+
+  THREAD_SAFE_LOCK() ;
+
+  qs_set_str(cypher, crypt(text, salt)) ;
+
+  THREAD_SAFE_UNLOCK() ;
+
+  return cypher ;
+} ;

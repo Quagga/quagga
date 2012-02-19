@@ -40,6 +40,22 @@
  * which are not intended for "external" use.
  */
 
+/*----------------------------------------------------------------------------*/
+
+#define MSG_CMD_ERR_AMBIGUOUS      "Ambiguous command"
+#define MSG_CMD_ERR_NO_MATCH       "Unrecognised command"
+#define MSG_CMD_ERR_NO_MATCH_old   "There is no matched command"
+
+/*------------------------------------------------------------------------------
+ * Password and its encryption state
+ */
+typedef struct
+{
+  char* text ;
+  bool  encrypted ;
+
+} password_t ;
+
 /*------------------------------------------------------------------------------
  * Host configuration variable
  */
@@ -53,12 +69,10 @@ struct host
   name_gen_t name_gen ;         /* incremented each time name changes   */
 
   /* Password for vty interface.                        */
-  char*      password;
-  bool       password_encrypted ;
+  password_t password;
 
   /* Enable password                                    */
-  char*      enable;
-  bool       enable_encrypted ;
+  password_t enable;
 
   /* System wide terminal lines default                 */
   int        lines;
@@ -66,9 +80,19 @@ struct host
   /* Log filename.                                      */
   qpath      logfile;
 
-  /* config file name of this host                      */
+  /* config file names etc of this host                 */
+  qpath      own_config_file ;
+  qpath      int_config_file ;
   qpath      config_file ;
   qpath      config_dir ;
+
+  /* Initialisation and configuration                   */
+  bool       pthreads_allowed ;
+  bool       pthreaded_option ;
+  bool       pthreaded_config ;
+  bool       first_config_cmd ;
+  bool       newborn ;
+  init_second_stage init_second_stage ;
 
   /* Flags for services                                 */
   bool       advanced;
@@ -79,7 +103,7 @@ struct host
   qpath      motdfile;
 
   /* Someone has the config symbol of power             */
-  bool       config ;
+  ulong      config ;           /* zero <=> no owner    */
   ulong      config_brand ;
 
   /* Allow vty to start without password                */
@@ -88,17 +112,28 @@ struct host
   /* Restrict unauthenticated logins?                   */
   bool       restricted_mode ;
 
-  /* vty timeout value -- see "exec timeout" command    */
+  /* vty timeout value -- see "exec-timeout" command    */
   unsigned long vty_timeout_val ;
 
-  /* vty access-class command                           */
+  /* vty access-class for IPv4 and IPv6                 */
   char*      vty_accesslist_name ;
-
-  /* vty access-class for IPv6.                         */
   char*      vty_ipv6_accesslist_name ;
 
-  /* Current directory -- initialised cmd_cwd()         */
+  /* How to configure listeners                         */
+  char*      vty_listen_addr ;
+  ushort     vty_listen_port ;
+  char*      vtysh_listen_path  ;
+
+  /* Current directory -- set in host_init()            */
   qpath      cwd ;
+
+  /* Program name -- set in host_init(), never unset    */
+  const char* full_progname ;
+  const char* progname ;
+
+  /* __DATE__ & __TIME__ from last compilation          */
+  const char* date ;
+  const char* time ;
 } ;
 
 enum
@@ -109,10 +144,18 @@ enum
 /* Structure declared in command.c                                      */
 extern struct host host ;
 
-/*------------------------------------------------------------------------------
- * Command qualifiers
+/*==============================================================================
+ * This is the stuff that defines the context in which commands are parsed,
+ * and then executed.
+ *
+ * The context lives in the vin, so each time a new vin is pushed/popped, the
+ * context is (implicitly) pushed/popped, and any state that depends on same
+ * must be updated.
  */
-enum cmd_do
+
+/* Command qualifiers
+ */
+typedef enum cmd_do
 {
   cmd_do_nothing  = 0,  /* no action required                   */
 
@@ -132,72 +175,113 @@ enum cmd_do
   cmd_do_auth        = 0x10,
 
   cmd_do_keystroke   = 0xFF,    /* special for keystroke reader */
-} ;
+
+} cmd_do_t ;
 
 CONFIRM(cmd_do_count <= (cmd_do_mask + 1)) ;
 
-typedef enum cmd_do cmd_do_t ;
-
-/*------------------------------------------------------------------------------
- * Command action -- qualifier + line
- */
-struct cmd_action
+struct cmd_context
 {
+  /* The node between commands and the result of the last command executed
+   */
+  node_type_t   node ;                  /* updated on CMD_SUCCESS       */
+
+  node_type_t   cnode ;                 /* follows node, except for
+                                         * vtysh server.                */
+
+  /* The daemons that we are currently parsing and executing for
+   */
+  daemon_set_t  daemons ;
+
+  /* Command qualifier and line, dispatched for execution.
+   */
   cmd_do_t      to_do ;
   qstring       line ;
+
+  node_type_t   vxnode ;                /* xnode for VIN_VTYSH_SERVER   */
+  node_type_t   vcnode ;                /* cnode for VIN_VTYSH_SERVER   */
+
+  /* These properties affect the parsing of command lines.
+   */
+  bool          full_lex ;              /* as required                  */
+
+  bool          parse_execution ;       /* parsing to execute           */
+
+  bool          parse_only ;            /* do not execute               */
+
+  bool          parse_strict ;          /* no incomplete keywords       */
+  bool          parse_no_do ;           /* no 'do' commands             */
+  bool          parse_no_tree ;         /* no tree walking              */
+
+  bool          can_enable ;            /* no (further) password needed */
+
+  /* These properties affect the execution of parsed commands.
+   */
+  bool          reflect ;               /* per the pipe                 */
+  bool          out_ordinary ;          /* per the base vin or pipe     */
+  bool          out_warning ;           /* per the base vin or pipe     */
+  bool          warn_stop ;             /* per the base vin or pipe     */
+
+  /* Special for AUTH_ENABLE_NODE -- going from/to
+   */
+  node_type_t   onode ;                 /* VIEW_NODE or RESTRICTED_NODE */
+  node_type_t   tnode ;                 /* ENABLE_NODE or CONFIG_NODE   */
+
+  /* The current directories.
+   */
+  qpath         dir_cd ;                /* chdir directory              */
+  qpath         dir_here ;              /* "~./" directory              */
 } ;
-typedef struct cmd_action  cmd_action_t[1] ;
-typedef struct cmd_action* cmd_action ;
 
-enum { CMD_ACTION_ALL_ZEROS = (cmd_do_nothing == 0) } ;
-
-/*------------------------------------------------------------------------------
- * Vector of nodes -- defined in command.c, declared here so the parser can
- * reach it.
- */
-extern vector node_vector ;
-
-/*----------------------------------------------------------------------------*/
-
-#define MSG_CMD_ERR_AMBIGUOUS      "Ambiguous command"
-#define MSG_CMD_ERR_NO_MATCH       "Unrecognised command"
-#define MSG_CMD_ERR_NO_MATCH_old   "There is no matched command"
+typedef struct cmd_context  cmd_context_t ;
+typedef struct cmd_context* cmd_context ;
 
 /*==============================================================================
  * Functions in command.c
  */
+extern void cmd_init_second_stage(void) ;
 
 extern const char* cmd_host_name(bool fresh) ;
-extern void cmd_host_config_set(qpath config_file);
+
+extern bool cmd_password_check(password_t* password, const char* candidate) ;
 
 extern const char* cmd_prompt(node_type_t node) ;
+
+extern daemon_set_t cmd_daemons_from_list(qstring qs) ;
+extern qstring cmd_daemons_make_list(qstring qs, daemon_set_t daemons) ;
+
+extern daemon_set_t cmd_node_daemons(node_type_t node) ;
+extern bool cmd_node_is_installed(node_type_t node) ;
+extern bool cmd_node_is_executable(node_type_t node) ;
+extern cmd_node cmd_get_cmd_node(node_type_t node) ;
+extern const char* cmd_node_name(node_type_t node) ;
+extern node_type_t cmd_node_by_name(const char* name) ;
+
+extern bool cmd_node_is_special(node_type_t node) ;
+extern bool cmd_node_is_view(node_type_t node) ;
+extern bool cmd_node_is_enable(node_type_t node) ;
+extern bool cmd_node_is_config(node_type_t node) ;
+extern bool cmd_node_is_specific(node_type_t node) ;
+extern bool cmd_node_is_config_lock(node_type_t node) ;
+extern bool cmd_node_is_ecs(node_type_t node) ;
+extern bool cmd_node_is_cs(node_type_t node) ;
+extern bool cmd_node_is_ancestor(node_type_t node, node_type_t child) ;
+extern bool cmd_node_is_decendant(node_type_t child, node_type_t node) ;
 
 extern node_type_t cmd_node_parent(node_type_t node) ;
 extern node_type_t cmd_node_exit_to(node_type_t node) ;
 extern node_type_t cmd_node_end_to(node_type_t node) ;
+extern node_type_t cmd_node_config_parent(node_type_t node) ;
+extern node_type_t cmd_node_enable_parent(node_type_t node) ;
+
+extern node_type_t cmd_node_restore(node_type_t old, node_type_t new) ;
+
+extern daemon_set_t cmd_deamon_list_arg(vty vty, int argc, argv_t argv) ;
 
 /*==============================================================================
- *
+ * Globals for who we are
  */
-Inline void
-cmd_action_clear(cmd_action act)
-{
-  act->to_do = cmd_do_nothing ;
-  act->line  = NULL ;           /* not essential, but tidy      */
-} ;
-
-Inline void
-cmd_action_set(cmd_action act, cmd_do_t to_do, qstring line)
-{
-  act->to_do = to_do ;
-  act->line  = line ;
-} ;
-
-Inline void
-cmd_action_take(cmd_action dst, cmd_action src)
-{
-  *dst = *src ;
-  cmd_action_clear(src) ;
-} ;
+daemon_set_t daemons_set ;
+const char*  daemon_name ;
 
 #endif /* _ZEBRA_COMMAND_LOCAL_H */

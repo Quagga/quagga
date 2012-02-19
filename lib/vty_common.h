@@ -61,15 +61,12 @@
  */
 enum vty_type           /* Command output                               */
 {
+  VTY_STDOUT,           /* stdout -- eg: when reading configuration     */
+
   VTY_TERMINAL,         /* a telnet terminal server                     */
-  VTY_SHELL_SERVER,     /* a vty_shell server                           */
+  VTY_VTYSH_SERVER,     /* a vtysh server                               */
 
-  VTY_SHELL_CLIENT,     /* a vty_shell client                           */
-
-  VTY_CONFIG_READ,      /* configuration file reader                    */
-
-  VTY_STDOUT,           /* stdout                                       */
-  VTY_STDERR,           /* stderr                                       */
+  VTY_VTYSH,            /* the vtysh itself                             */
 } ;
 typedef enum vty_type vty_type_t ;
 
@@ -77,14 +74,18 @@ typedef enum vty_type vty_type_t ;
  * which are forward referenced here.
  */
 struct vty_io ;
-struct cmd_execution ;
+typedef struct vty_io* vty_io ;
+
+struct cmd_exec ;
+typedef struct cmd_exec* cmd_exec ;
 
 /* All command execution functions take a vty argument, and this is it.
  */
 typedef struct vty* vty ;
+typedef struct vty* svty ;
 struct vty
 {
-  vty_type_t    type ;
+  vty_type_t    type ;          /* see above    */
 
   /*----------------------------------------------------------------------
    * The following are the context in which commands are executed.
@@ -94,7 +95,11 @@ struct vty
    * completed.
    */
 
-  /* Node status of this vty.                                           */
+  /* Node status of this vty.
+   *
+   * This is valid while a command is executing, and carries the initial state
+   * before a command loop is entered.
+   */
   node_type_t   node ;
 
   /* For current referencing point of interface, route-map, access-list
@@ -112,9 +117,10 @@ struct vty
    */
   void* index_sub ;
 
-  /* In configure mode (owner of the symbol of power)                   */
-  bool  config ;                /* we own               */
-  ulong config_brand ;          /* and this is our mark */
+  /* When outputting configuration for vtysh to process, may wish to add
+   * extra information.
+   */
+  bool  config_to_vtysh ;
 
   /*----------------------------------------------------------------------------
    * The current cmd_exec environment -- used in command_execute.c et al
@@ -124,9 +130,11 @@ struct vty
    * VTY_TERMINAL) that may be in the vty_cli_thread or in the vty_cmd_thread
    * at different times.
    *
-   * Where information from the vio is required, the VTY_LOCK is acquired.
+   * While a command is being executed, any CLI is waiting for the command to
+   * complete, and the exec object may point at things which "belong" to the
+   * vio and the CLI.
    */
-  struct cmd_exec* exec ;               /* one per vty          */
+  cmd_exec   exec ;             /* one per vty          */
 
   /*----------------------------------------------------------------------
    * The following is used inside vty.c etc only -- under VTY_LOCK.

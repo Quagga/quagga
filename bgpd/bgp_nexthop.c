@@ -792,15 +792,13 @@ zlookup_query (struct in_addr addr)
   if (ret < 0)
     {
       zlog_err ("can't write to zlookup->sock");
-      close (zlookup->sock);
-      zlookup->sock = -1;
+      zclient_stop(zlookup);
       return NULL;
     }
   if (ret == 0)
     {
       zlog_err ("zlookup->sock connection closed");
-      close (zlookup->sock);
-      zlookup->sock = -1;
+      zclient_stop(zlookup);
       return NULL;
     }
 
@@ -905,15 +903,13 @@ zlookup_query_ipv6 (struct in6_addr *addr)
   if (ret < 0)
     {
       zlog_err ("can't write to zlookup->sock");
-      close (zlookup->sock);
-      zlookup->sock = -1;
+      zclient_stop(zlookup);
       return NULL;
     }
   if (ret == 0)
     {
       zlog_err ("zlookup->sock connection closed");
-      close (zlookup->sock);
-      zlookup->sock = -1;
+      zclient_stop(zlookup);
       return NULL;
     }
 
@@ -960,15 +956,13 @@ bgp_import_check (struct prefix *p, u_int32_t *igpmetric,
   if (ret < 0)
     {
       zlog_err ("can't write to zlookup->sock");
-      close (zlookup->sock);
-      zlookup->sock = -1;
+      zclient_stop(zlookup);
       return 1;
     }
   if (ret == 0)
     {
       zlog_err ("zlookup->sock connection closed");
-      close (zlookup->sock);
-      zlookup->sock = -1;
+      zclient_stop(zlookup);
       return 1;
     }
 
@@ -1262,11 +1256,29 @@ bgp_config_write_scan_time (struct vty *vty)
   return CMD_SUCCESS;
 }
 
+CMD_INSTALL_TABLE(static, bgp_nexthop_cmd_table, BGPD) =
+{
+  { BGP_NODE,        &bgp_scan_time_cmd                                 },
+  { BGP_NODE,        &no_bgp_scan_time_cmd                              },
+  { BGP_NODE,        &no_bgp_scan_time_val_cmd                          },
+  { VIEW_NODE,       &show_ip_bgp_scan_cmd                              },
+  { RESTRICTED_NODE, &show_ip_bgp_scan_cmd                              },
+  { ENABLE_NODE,     &show_ip_bgp_scan_cmd                              },
+
+  CMD_INSTALL_END
+} ;
+
+extern void
+bgp_scan_cmd_init (void)
+{
+  cmd_install_table(bgp_nexthop_cmd_table) ;
+} ;
+
+
 void
 bgp_scan_init (void)
 {
   zlookup = zclient_new ();
-  zlookup->sock = -1;
 
   /* enable zebra client and schedule connection */
   zlookup->enable = 1 ;
@@ -1293,13 +1305,6 @@ bgp_scan_init (void)
                                       NULL, bgp_scan_interval);
   /* Make BGP import there. */
   bgp_import_thread = thread_add_timer (master, bgp_import, NULL, 0);
-
-  install_element (BGP_NODE, &bgp_scan_time_cmd);
-  install_element (BGP_NODE, &no_bgp_scan_time_cmd);
-  install_element (BGP_NODE, &no_bgp_scan_time_val_cmd);
-  install_element (VIEW_NODE, &show_ip_bgp_scan_cmd);
-  install_element (RESTRICTED_NODE, &show_ip_bgp_scan_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_scan_cmd);
 }
 
 void

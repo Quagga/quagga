@@ -91,7 +91,7 @@ enum { log_debug = LOG_DEBUG } ;
 extern int log_lock_count ;
 
 Inline void
-LOG_LOCK(void)          /* if is qpthreads_enabled, lock log_mutex      */
+LOG_LOCK(void)          /* if is qpthreads_active, lock log_mutex       */
 {
   qpt_mutex_lock(log_mutex) ;
   if (log_debug)
@@ -99,7 +99,7 @@ LOG_LOCK(void)          /* if is qpthreads_enabled, lock log_mutex      */
 } ;
 
 Inline void
-LOG_UNLOCK(void)        /* if is qpthreads_enabled, unlock log_mutex    */
+LOG_UNLOCK(void)        /* if is qpthreads_active, unlock log_mutex     */
 {
   if (log_debug)
     --log_lock_count ;
@@ -109,9 +109,9 @@ LOG_UNLOCK(void)        /* if is qpthreads_enabled, unlock log_mutex    */
 /* For debug (and documentation) purposes, will LOG_ASSERT_LOCKED where that
  * is required.
  *
- * Note that both these checks will pass if !qpthreads_enabled.  So can have
+ * Note that both these checks will pass if !qpthreads_active.  So can have
  * code which is called before qpthreads are started up, or which will never
- * run qpthreaded !
+ * run qpthreaded, or which is active during shutdown !
  */
 
 extern int log_assert_fail ;
@@ -130,7 +130,7 @@ Inline void
 LOG_ASSERT_LOCKED(void)
 {
   if (log_debug)
-    if ((log_lock_count == 0) && (qpthreads_enabled))
+    if ((log_lock_count == 0) && (qpthreads_active))
       LOG_ASSERT_FAILED() ;
 } ;
 
@@ -139,10 +139,6 @@ LOG_ASSERT_LOCKED(void)
  */
 extern void log_init_r(void) ;
 extern void log_finish(void);
-
-
-extern size_t quagga_timestamp(int timestamp_precision /* # subsecond digits */,
-                               char *buf, size_t buflen);
 
 extern void uzlog_set_monitor(struct zlog *zl, int level) ;
 extern int uzlog_get_monitor_lvl(struct zlog *zl) ;
@@ -163,6 +159,5 @@ extern void zlog_set_timestamp_precision (struct zlog *zl, int timestamp_precisi
 extern const char * zlog_get_ident (struct zlog *zl);
 extern char * zlog_get_filename (struct zlog *zl);
 extern bool zlog_is_file (struct zlog *zl);
-
 
 #endif /* _ZEBRA_LOG_LOCAL_H */

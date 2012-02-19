@@ -27,6 +27,7 @@
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_msg_write.h"
 #include "bgpd/bgp_route_refresh.h"
+#include "bgpd/bgp_names.h"
 
 #include "thread.h"
 #include "stream.h"
@@ -84,8 +85,8 @@
 extern int
 bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
 {
+  uint length ;
   struct stream *s = connection->obuf ;
-  int      length;
 
   ++connection->session->stats.notify_out ;
 
@@ -93,27 +94,32 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
 
   bgp_notify_print(connection->session->peer, notification) ;
 
-  /* Make NOTIFY message header                         */
+  /* Make NOTIFY message header
+   */
   bgp_packet_set_marker (s, BGP_MSG_NOTIFY);
 
-  /* Set notify code and subcode                        */
+  /* Set notify code and subcode
+   */
   stream_putc(s, bgp_notify_get_code(notification)) ;
   stream_putc(s, bgp_notify_get_subcode(notification)) ;
 
-  /* Copy the data portion, if any.                     */
+  /* Copy the data portion, if any.
+   */
   length = bgp_notify_get_length(notification) ;
   if (length != 0)
-    stream_write(s, bgp_notify_get_data(notification), length) ;
+    stream_put(s, bgp_notify_get_data(notification), length) ;
 
-  /* Set and get BGP packet length.                     */
-  length = bgp_packet_set_size(s);
+  /* Set BGP packet length.
+   */
+  bgp_packet_set_size(s);
 
   /* Set flag so that write_action raises required event when buffer becomes
    * empty.
    */
   connection->notification_pending = 1 ;
 
-  /* Finally -- write the obuf away                                     */
+  /* Finally -- write the obuf away
+   */
   return bgp_connection_write(connection, s) ;
 } ;
 
@@ -138,7 +144,7 @@ extern int
 bgp_msg_send_keepalive(bgp_connection connection, bool must_send)
 {
   struct stream *s = connection->obuf ;
-  int length;
+  uint length;
 
   if (!must_send && !bgp_connection_write_empty(connection))
     return 0 ;
@@ -155,7 +161,7 @@ bgp_msg_send_keepalive(bgp_connection connection, bool must_send)
   if (BGP_DEBUG (keepalive, KEEPALIVE))
     zlog_debug ("%s sending KEEPALIVE", connection->host);
   if (BGP_DEBUG (normal, NORMAL))
-    zlog_debug ("%s send message type %d, length (incl. header) %d",
+    zlog_debug ("%s send message type %d, length (incl. header) %u",
                connection->host, BGP_MSG_KEEPALIVE, length);
 
   /* Finally -- write the obuf away                     */
@@ -191,24 +197,28 @@ extern int
 bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
 {
   struct stream *s = connection->obuf ;
-  int    length ;
+  uint   length ;
 
   ++connection->session->stats.open_out ;
 
-  /* Make OPEN message header                   */
+  /* Make OPEN message header
+   */
   bgp_packet_set_marker(s, BGP_MSG_OPEN) ;
 
-  /* Set OPEN message fixed part                */
+  /* Set OPEN message fixed part
+   */
   stream_putc(s, BGP_VERSION_4) ;
   stream_putw(s, (open_state->my_as <= BGP_AS_MAX)
                                ? (u_int16_t) open_state->my_as : BGP_AS_TRANS) ;
   stream_putw(s, open_state->holdtime) ;
   stream_put_ipv4(s, open_state->bgp_id) ;
 
-  /* Set OPEN message options                   */
+  /* Set OPEN message options
+   */
   bgp_open_options(s, open_state, connection->cap_suppress) ;
 
-  /* Set BGP message length.                    */
+  /* Set BGP message length.
+   */
   length = bgp_packet_set_size(s) ;
 
   if (BGP_DEBUG (normal, NORMAL))
@@ -231,14 +241,19 @@ bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
 
     } ;
 
-    if (BGP_DEBUG (normal, NORMAL))
-      zlog_debug ("%s send message type %d, length (incl. header) %d",
+  if (false)
+    {
+      if (BGP_DEBUG (normal, NORMAL))
+        zlog_debug ("%s send message type %d, length (incl. header) %u",
                     connection->host, BGP_MSG_OPEN, length);
 
-  /* Dump packet if debug option is set. */
-  /* bgp_packet_dump (s); */
+      /* Dump packet if debug option is set.
+       */
+      bgp_packet_dump (s) ;
+    } ;
 
-  /* Finally -- write the obuf away                     */
+  /* Finally -- write the obuf away
+   */
   return bgp_connection_write(connection, s) ;
 } ;
 
@@ -480,7 +495,7 @@ bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr)
   struct stream *s = connection->obuf ;
   uint8_t    msg_type ;
   bool       done ;
-  bgp_size_t msg_len ;
+  uint       length ;
 
   ++connection->session->stats.refresh_out ;
 
@@ -507,11 +522,11 @@ bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr)
         done = bgp_msg_orf_part(s, connection, rr) ;
 
       /* Set BGP message length & dispatch.                             */
-      msg_len = bgp_packet_set_size(s) ;
+      length = bgp_packet_set_size(s) ;
 
       if (BGP_DEBUG (normal, NORMAL))
-        zlog_debug ("%s sending REFRESH_REQ for afi/safi: %d/%d length %d",
-                     connection->host, rr->afi, rr->safi, msg_len) ;
+        zlog_debug ("%s sending REFRESH_REQ for afi/safi: %d/%d length %u",
+                     connection->host, rr->afi, rr->safi, length) ;
 
       bgp_connection_write(connection, s) ;
     } while (!done) ;
@@ -707,7 +722,7 @@ bgp_msg_orf_unknown(struct stream* s, bgp_orf_unknown_entry orf_unknown,
   if (left < orf_unknown->length)
     return 0 ;
 
-  stream_write(s, orf_unknown->data, orf_unknown->length) ;
+  stream_put(s, orf_unknown->data, orf_unknown->length) ;
   return 1 ;
 } ;
 
@@ -741,7 +756,7 @@ bgp_msg_orf_prefix(struct stream* s, uint8_t common,
   stream_putc(s, orfpe->ge) ;    /* aka min      */
   stream_putc(s, orfpe->le) ;    /* aka max      */
   stream_putc(s, orfpe->p.prefixlen) ;
-  stream_write(s, &orfpe->p.u.prefix, blen) ;
+  stream_put(s, &orfpe->p.u.prefix, blen) ;
 
   return 1 ;
 } ;
@@ -822,18 +837,22 @@ bgp_msg_send_end_of_rib(bgp_connection connection, iAFI_t afi, iSAFI_t safi)
     zlog_debug ("send End-of-RIB for %s to %s", afi_safi_print (afi, safi),
                                                             connection->host) ;
 
-  /* Finally -- write the buffer away                                   */
+  /* Finally -- write the buffer away
+   */
   return bgp_connection_write(connection, s) ;
 } ;
 
 /*==============================================================================
  * Utilities for creating BGP messages
+ *
+ * NB: these are used by the BGP Engine and by the Routing Engine.
  */
                                 /*   0   1   2   3   4   5   6   7 */
 static const char bgp_header[] = "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF" /*  8 */
                                  "\xFF\xFF\xFF\xFF\xFF\xFF\xFF\xFF" /* 16 */
                                  "\x00" ;
-CONFIRM(sizeof(bgp_header) == (BGP_MARKER_SIZE + 2)) ;
+CONFIRM(sizeof(bgp_header)   == (BGP_MH_MARKER_L + 2)) ;
+CONFIRM(sizeof(BGP_MH_LEN_T) ==                    2) ;
 
 /*------------------------------------------------------------------------------
  * Insert BGP message standard header
@@ -842,30 +861,83 @@ CONFIRM(sizeof(bgp_header) == (BGP_MARKER_SIZE + 2)) ;
  *    2 bytes -- total length of message -- filled in later
  *    1 byte  -- the type of message as given
  */
-extern int
+extern void
 bgp_packet_set_marker(struct stream *s, uint8_t type)
 {
-  /* Fill in marker & dummy total length (to be filled in later on)     */
-  stream_write(s, bgp_header, BGP_MARKER_SIZE + 2) ;
+  /* Fill in marker & dummy total length (to be filled in later on)
+   */
+  stream_put(s, bgp_header, BGP_MH_MARKER_L + 2) ;
 
-  /* BGP packet type.                           */
+  /* BGP packet type.
+   */
   stream_putc (s, type);
 
-  /* Return current stream size.                */
-  return stream_get_endp (s);
+  confirm(sizeof(BGP_MH_TYPE_T) == 1) ;
+
+  confirm(BGP_MH_HEAD_L == (BGP_MH_MARKER_L + sizeof(BGP_MH_LEN_T)
+                                            + sizeof(BGP_MH_TYPE_T))) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Set BGP packet header size entry and return same.
+ * Set BGP message header size entry and return same.
+ *
+ * NB: we assume it is *impossible* to construct a stream whose length exceeds
+ *     an unsigned integer.
+ *
+ *     But, just in case it exceeds a 16-bit unsigned, we truncate the message
+ *     length in the header to 0xFFFF !!
+ *
+ * NB: at the last moment will check whether message exceeds BGP_MSG_MAX_L, and
+ *     discards the message, rather than send it -- see bgp_connection_write()
  */
-extern int
+extern uint
 bgp_packet_set_size (struct stream *s)
 {
-  int cp;
+  uint cp;
 
-  /* Preserve current pointer. */
-  cp = stream_get_endp (s);
-  stream_putw_at (s, BGP_MARKER_SIZE, cp);
+  /* Insert message size -- includes all of header and the 16 bytes of "marker"
+   */
+  cp = stream_get_len(s) ;
+  stream_putw_at(s, BGP_MARKER_SIZE, (cp < 0xFFFF) ? cp : 0xFFFF) ;
 
   return cp;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get and check size of given BGP Message
+ *
+ * If it cannot be sent because it is too big, log that fact !
+ *
+ * Returns:  > 0 == length of BGP Message, <= max allowed length
+ *          == 0 => BGP Message was too long !
+ */
+extern uint
+bgp_packet_check_size(struct stream* s, sockunion remote)
+{
+  uint    length ;
+  uint8_t type ;
+
+  qassert(stream_get_size(s) > BGP_MSG_MAX_L) ;
+
+  length = stream_get_len(s) ;
+
+  if (length <= BGP_MSG_MAX_L)
+    return length ;
+
+  /* This BGP Message cannot be sent !
+   *
+   * Pick out message type and record that, the message size and the intended
+   * destination.
+   *
+   * TODO -- could do with a way of logging rather more useful information,
+   *         and, possibly, some other alert mechanism.
+   */
+  type = stream_getc_from(s, BGP_MH_TYPE) ;
+
+  zlog_err("Invalid size %s BGP message (%s%u bytes) for %s",
+                          map_direct(bgp_message_type_map, type).str,
+                            stream_has_overflowed(s) ? "more than " : "",
+                                                    length, sutoa(remote).str) ;
+
+  return 0 ;            /* suppress message     */
 } ;

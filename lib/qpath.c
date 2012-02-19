@@ -22,7 +22,6 @@
 
 #include <unistd.h>
 #include <errno.h>
-#include <pwd.h>
 
 #include "qpath.h"
 #include "qstring.h"
@@ -32,8 +31,6 @@
 /*==============================================================================
  * Some primitive path handling, based on qstrings.
  *
- *
- *==============================================================================
  * Path Reduction
  *
  * As per POSIX, multiple '/' count as single '/', except for the very special
@@ -47,6 +44,10 @@
  * trailing '/'.
  */
 static void qpath_reduce(qpath qp) ;
+
+/*==============================================================================
+ * Create and destroy qpath objects
+ */
 
 /*------------------------------------------------------------------------------
  * Initialise a brand new qpath -- allocate if required.
@@ -119,6 +120,10 @@ qpath_clear(qpath qp)
   return qp ;
 } ;
 
+/*==============================================================================
+ * Various ways to set a qpath object value (creating if required)
+ */
+
 /*------------------------------------------------------------------------------
  * Set given qpath to copy of the given string -- allocate if required.
  *
@@ -174,6 +179,30 @@ qpath_copy(qpath dst, const qpath src)
 /*==============================================================================
  * Interfaces to system.
  */
+
+/*------------------------------------------------------------------------------
+ * Make a unique (temporary) file -- using mkstemp().
+ *
+ * The given qp is modified to be the name of the new, unique, file.
+ * We add the required 'XXXXXX', the rest is up to mkstemp().
+ *
+ * Note that mkstemp() opens: O_RDWR|O_CREAT|O_EXCL, S_IRUSR | S_IWUSR
+ * (according to POSIX).
+ *
+ * Returns:  >= 0  -- fd of new file
+ *           <  0  -- failed, see errno
+ *
+ * NB: qp may not be NULL.
+ */
+extern int
+qpath_mkstemp(qpath qp)
+{
+  qassert((qp != NULL) && (qp->path != NULL)) ;
+
+  qpath_extend_str(qp, ".XXXXXX") ;     /* 6 'X', per mkstemp() */
+
+  return mkstemp(qs_make_string(qp->path)) ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Get the current working directory -- creates a qpath if required.
@@ -369,47 +398,23 @@ qpath_get_home(qpath qp, const char* name)
         } ;
     } ;
 
-  /* If name was empty, or not found "HOME", then proceed to getpwd_r
+  /* If name was empty, or not found "HOME", then proceed to getpwd
    */
   if (!done)
     {
-      struct passwd  pwd_s ;
       struct passwd* pwd ;
+      char  buf[256] ;                  /* should be plenty     */
 
-      char* scratch ;
-      uint  scratch_size ;
-      char  buffer[200] ;           /* should be plenty     */
+      err = safe_getpwnam(qpath_string(dst), &pwd, buf, sizeof(buf)) ;
 
-      scratch      = buffer ;
-      scratch_size = sizeof(buffer) ;
-
-      while (1)
-        {
-          err = getpwnam_r(qpath_string(dst),
-                                          &pwd_s, scratch, scratch_size, &pwd) ;
-          if (err == EINTR)
-            continue ;
-
-          if (err != ERANGE)
-            break ;
-
-          scratch_size *= 2 ;
-          if (scratch == buffer)
-            scratch = XMALLOC(MTYPE_TMP, scratch_size) ;
-          else
-            scratch = XREALLOC(MTYPE_TMP, scratch, scratch_size) ;
-        } ;
-
-      done = true ;
-
-      if (pwd != NULL)
+      if (err == 0)
         {
           qpath_set(dst, pwd->pw_dir) ;
           home = dst ;
         } ;
 
-      if (scratch != buffer)
-        XFREE(MTYPE_TMP, scratch) ;
+      if ((char*)pwd != buf)
+        XFREE(MTYPE_TMP, pwd) ;
     } ;
 
   /* Complete result
@@ -783,11 +788,11 @@ qpath_append_str_n(qpath dst, const char* src, ulen n)
   if (qs_len_nn(dst->path) != 0)
     {
       if (*(qs_ep_char_nn(dst->path) - 1) != '/')
-        qs_append_str_n(dst->path, "/", 1) ;
+        qs_append_n(dst->path, "/", 1) ;
     } ;
 
   /* Now append the src                                                 */
-  qs_append_str_n(dst->path, src, n) ;
+  qs_append_n(dst->path, src, n) ;
 
   /* Reduce the new part of the result, and return                      */
   qpath_reduce(dst) ;
@@ -835,7 +840,7 @@ qpath_extend_str_n(qpath dst, const char* src, ulen n)
 {
   dst = qpath_make_if_null(dst) ;
 
-  qs_append_str_n(dst->path, src, n) ;
+  qs_append_n(dst->path, src, n) ;
 
   qpath_reduce(dst) ;
 
@@ -905,7 +910,7 @@ qpath_prepend_str_n(qpath dst, const char* src, ulen n)
 
   /* Make room for src and possible slash in qstring                    */
   qs_set_cp_nn(dst->path, 0) ;
-  qs_replace(dst->path, r, NULL, n + (need_slash ? 1 : 0)) ;
+  qs_replace_n(dst->path, r, NULL, n + (need_slash ? 1 : 0)) ;
 
   /* Now copy in the src                                                */
   p = qs_char_nn(dst->path) ;
@@ -927,12 +932,12 @@ qpath_prepend_str_n(qpath dst, const char* src, ulen n)
  * prepending the given directory qpath.
  */
 extern qpath
-qpath_make(const char* src, const qpath dir)
+qpath_make_path(qpath dst, const char* src, const qpath dir)
 {
   if (*src == '/')
-    return qpath_set(NULL, src) ;
+    return qpath_set(dst, src) ;
 
-  return qpath_append_str(qpath_dup(dir), src) ;
+  return qpath_append_str(qpath_copy(dst, dir), src) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1286,6 +1291,8 @@ qpath_reduce(qpath qp)
   char* q ;
   char  ch ;
   bool  eat ;
+
+  qassert((qp != NULL) && (qp->path != NULL)) ;
 
   sp = qs_make_string(qp->path) ;
   p = sp ;
