@@ -1670,6 +1670,11 @@ if_leave_all_router (int sock, struct interface *ifp)
 }
 
 #else
+extern void
+rtadv_cmd_init (void)
+{
+  /* Empty.*/;
+}
 void
 rtadv_init (void)
 {

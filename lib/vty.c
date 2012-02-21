@@ -2537,6 +2537,7 @@ const char* wordlist[] =
       "est",
   };
 
+#if QDEBUG
 
 DEFUN (delay_secs,
        delay_secs_cmd,
@@ -2617,6 +2618,7 @@ DEFUN (delay_secs,
 
   return CMD_SUCCESS;
 }
+#endif   /* QDEBUG      */
 
 /*==============================================================================
  * The VTY commands

@@ -853,6 +853,8 @@ aspath_put (struct stream *s, struct aspath *as, int use32bit )
       int    asn_count ;
       size_t lenp;
 
+      lenp = 0 ;                /* suppress spurious compiler warning   */
+
       /* Skip empty segments
        *
        * Note that we leave "prev", so that is the previous *significant*
