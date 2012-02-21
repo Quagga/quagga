@@ -444,7 +444,11 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
           /* If is CMD_WARNING, drop out of the loop if context->warn_stop.
            *
            * Otherwise, drop out of the loop if have anything other than
-           * CMD_HIATUS.
+           * CMD_HIATUS or CMD_WAITING -- the later means that some output
+           * is pending, and we don't start a new command in that state.
+           *
+           * Everything else is deemed to be an error that stops the command
+           * loop.
            */
           if (ret == CMD_WARNING)
             {
@@ -453,7 +457,7 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
             }
           else
             {
-              if (ret != CMD_HIATUS)
+              if ((ret != CMD_HIATUS) && (ret != CMD_WAITING))
                 break ;
             } ;
 
@@ -1410,6 +1414,19 @@ uty_vtysh_out_push(vio_vf vf)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Block waiting to write to vtysh -- own output.
+ *
+ * For blocking vf *only*.
+ *
+ * Returns:  CMD_SUCCESS    -- can write or got something to read or something
+ */
+extern cmd_ret_t
+uty_vtysh_write_block(vio_vf vf)
+{
+  return uty_vtysh_out_push(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Close the output side of vtysh -- VOUT_VTYSH
  *
  * Pretty straightforward... push the output with ucmd_push_closing, which will
@@ -1419,7 +1436,7 @@ uty_vtysh_out_push(vio_vf vf)
  * Returns:  CMD_SUCCESS   -- done everything possible
  */
 extern cmd_ret_t
-uty_vtysh_out_close(vio_vf vf)
+uty_vtysh_write_close(vio_vf vf)
 {
   cmd_ret_t ret ;
 

@@ -53,6 +53,7 @@ extern cmd_ret_t uty_file_write_open(vty_io vio, qpath path,
 
 extern cmd_ret_t uty_file_cmd_line_fetch(vio_vf vf) ;
 extern cmd_ret_t uty_file_out_push(vio_vf vf) ;
+extern cmd_ret_t uty_file_write_block(vio_vf vf) ;
 
 extern cmd_ret_t uty_file_read_close(vio_vf vf) ;
 extern cmd_ret_t uty_file_write_close(vio_vf vf) ;

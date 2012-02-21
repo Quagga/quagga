@@ -328,7 +328,6 @@ uty_cli_callback(keystroke_callback_args /* void* context, keystroke stroke */)
             case vst_cmd_running:
             case vst_cmd_running_executing:
               uty_vio_exception(vio, vx_cancel) ;
-              uty_cmd_signal(vio, CMD_CANCEL) ;
               return true ;
 
             case vst_cmd_more:
@@ -1123,10 +1122,7 @@ uty_cli_more(vty_cli cli)
    * to continue output.
    */
   if (cancel)
-    {
-      uty_vio_exception(cli->vf->vio, vx_cancel) ;
-      uty_cmd_signal(cli->vf->vio, CMD_CANCEL) ;
-    }
+    uty_vio_exception(cli->vf->vio, vx_cancel) ;
   else
     {
       uty_cli_wipe(cli) ;               /* clears cli->drawn    */

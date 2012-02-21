@@ -76,10 +76,10 @@ typedef enum vfd_io_type vfd_io_type_t ;
  *
  * Timer action function returns a new value for the timer; 0 => off.
  */
-typedef unsigned long vty_timer_time ;  /* Time out time in seconds     */
+typedef unsigned long vio_timer_time ;  /* Time out time in seconds     */
 
 typedef struct vio_timer* vio_timer ;
-typedef vty_timer_time vio_timer_action(vio_timer timer, void* action_info) ;
+typedef vio_timer_time vio_timer_action(vio_timer timer, void* action_info) ;
 
 struct vio_timer
 {
@@ -114,7 +114,7 @@ typedef struct
 {
   bool            set ;
   on_off_b        how ;
-  vty_timer_time  timeout ;
+  vio_timer_time  timeout ;
 } vfd_request_t ;
 
 struct vio_vfd
@@ -222,9 +222,9 @@ extern void vio_vfd_set_action_info(vio_vfd vfd, void* action_info) ;
 extern vio_vfd vio_vfd_read_close(vio_vfd vfd) ;
 extern vio_vfd vio_vfd_close(vio_vfd vfd) ;
 extern on_off_b vio_vfd_set_read(vio_vfd vfd, on_off_b how,
-                                                       vty_timer_time timeout) ;
+                                                       vio_timer_time timeout) ;
 extern on_off_b vio_vfd_set_write(vio_vfd vfd, on_off_b how,
-                                                       vty_timer_time timeout) ;
+                                                       vio_timer_time timeout) ;
 Inline int vio_vfd_fd(vio_vfd vfd) ;
 Inline bool vio_vfd_blocking(vio_vfd vfd) ;
 
@@ -236,7 +236,7 @@ extern vio_timer vio_timer_init_new(vio_timer timer, vio_timer_action* action,
 extern vio_timer vio_timer_reset(vio_timer timer, free_keep_b free_structure) ;
 extern void vio_timer_set_action(vio_timer timer, vio_timer_action* action) ;
 extern void vio_timer_set_info(vio_timer timer, void* action_info) ;
-extern void vio_timer_set(vio_timer timer, vty_timer_time time) ;
+extern void vio_timer_set(vio_timer timer, vio_timer_time time) ;
 extern void vio_timer_unset(vio_timer timer) ;
 
 /*==============================================================================

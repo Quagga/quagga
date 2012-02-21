@@ -878,11 +878,8 @@ vty_sh_serv_read_ready(vio_vfd vfd, void* action_info, bool time_out)
 /*------------------------------------------------------------------------------
  * Command output push to vtysh -- VOUT_VTYSH_SERVER -- vf_open.
  *
- * The vio->final means that do not wish to wait for any I/O.
- *
  * Returns:  CMD_SUCCESS   -- done everything possible
- *           CMD_WAITING   -- not "final" => waiting for output to complete
- *                                "final" => would have waited but did not.
+ *           CMD_WAITING   -- waiting for output to complete
  *           CMD_IO_ERROR  -- error or time-out (may be "final")
  *
  * This can be called in any thread.

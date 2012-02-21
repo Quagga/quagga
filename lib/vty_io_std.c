@@ -159,6 +159,19 @@ uty_std_close_reason(vio_vf vf, qstring wrapped)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Block waiting to write to VOUT_STDOUT
+ *
+ * For blocking vf *only* !
+ *
+ * Returns:  CMD_SUCCESS    -- can write or got something to read or something
+ */
+extern cmd_ret_t
+uty_std_write_block(vio_vf vf)
+{
+  return uty_std_out_push(vf) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Write away any pending stuff -- VOUT_STDOUT.
  *
  * This is a blocking vf -- so any outstanding output will complete here.

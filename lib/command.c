@@ -3660,7 +3660,8 @@ DEFUN_CALL (config_no_hostname,
  * Password setting/clearing/encryption etc.
  */
 
-static void password_new(password_t* password, const char* text, bool encrypt) ;
+static void password_new(password_t* password, const char* text,
+                                                 bool encrypted, bool encrypt) ;
 static void password_free(password_t* password) ;
 
 /*------------------------------------------------------------------------------
@@ -3687,7 +3688,8 @@ do_set_password(vty vty, password_t* password, int argc, argv_t argv)
 
       if (*argv[0] == '8')
         {
-          password_new(password, argv[1], true) ;
+          password_new(password, argv[1], true /*encrypted */,
+                                         false /* encrypt */) ;
         }
       else
         {
@@ -3708,7 +3710,7 @@ do_set_password(vty vty, password_t* password, int argc, argv_t argv)
         {
           /* If host.encrypt, only keeps the encrypted password.
            */
-          password_new(password, argv[0], host.encrypt) ;
+          password_new(password, argv[0], false /* encrypted */, host.encrypt) ;
         } ;
     } ;
 
@@ -3719,24 +3721,31 @@ do_set_password(vty vty, password_t* password, int argc, argv_t argv)
 /*------------------------------------------------------------------------------
  * Make a new password string and store it -- freeing any existing.
  *
+ * If is not already encrypted may be encrypted.
+ *
  * NB: allows for encrypting the existing stored password, by freeing the
  *     current password after creating the new one.
  */
 static void
-password_new(password_t* password, const char* text, bool encrypt)
+password_new(password_t* password, const char* text, bool encrypted,
+                                                     bool encrypt)
 {
   qstring cypher = NULL ;
+  char*   new_text ;
 
-  if (encrypt)
+  if (!encrypted && encrypt)
     {
-      cypher = qcrypt(text, NULL) ;
-      text   = qs_string(cypher) ;
+      cypher    = qcrypt(text, NULL) ;
+      text      = qs_string(cypher) ;
+      encrypted = true ;
     } ;
+
+  new_text = XSTRDUP(MTYPE_HOST, text) ;
 
   password_free(password);      /* if any       */
 
-  password->encrypted = encrypt ;
-  password->text      = XSTRDUP(MTYPE_HOST, text) ;
+  password->encrypted = encrypted ;
+  password->text      = new_text ;
 
   qs_free(cypher) ;             /* if any       */
 } ;
@@ -3842,10 +3851,12 @@ DEFUN_CALL (service_password_encrypt,
    * If not, retain any already encrypted password.
    */
   if (!host.password.encrypted && (host.password.text != NULL))
-    password_new(&host.password, host.password.text, true) ;
+    password_new(&host.password, host.password.text, false /* encrypted */,
+                                                     true  /* encrypt */) ;
 
   if (!host.enable.encrypted   && (host.enable.text != NULL))
-    password_new(&host.enable, host.enable.text, true) ;
+    password_new(&host.enable, host.enable.text, false /* encrypted */,
+                                                 true  /* encrypt */) ;
 
   VTY_UNLOCK() ;
   return CMD_SUCCESS;
@@ -4123,7 +4134,7 @@ cmd_set_pthreaded(vty vty, bool pthreaded)
   if (pthreaded == host.pthreaded_config)
     return CMD_SUCCESS ;                /* easy if no change            */
 
-  if (host.pthreads_allowed)
+  if (!host.pthreads_allowed)
     {
       qassert(pthreaded) ;              /* must be trying to set !      */
 

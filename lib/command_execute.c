@@ -416,7 +416,8 @@ cmd_read_config(vty vty, uint* warnings)
           /* If is CMD_WARNING, drop out of the loop if context->warn_stop.
            *
            * Otherwise, drop out of the loop if have anything other than
-           * CMD_HIATUS.
+           * CMD_HIATUS or CMD_WAITING -- the later means that some output
+           * is pending, and we don't start a new command in that state.
            *
            * Everything else is deemed to be an error that stops the command
            * loop.
@@ -428,7 +429,7 @@ cmd_read_config(vty vty, uint* warnings)
             }
           else
             {
-              if (ret != CMD_HIATUS)
+              if ((ret != CMD_HIATUS) && (ret != CMD_WAITING))
                 break ;
             } ;
 

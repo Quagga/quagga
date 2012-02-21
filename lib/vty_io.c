@@ -94,7 +94,7 @@ uty_out(vty_io vio, const char *format, ...)
  */
 static vio_timer_t vty_watch_dog ;
 
-static vty_timer_time uty_watch_dog_bark(vio_timer timer, void* info) ;
+static vio_timer_time uty_watch_dog_bark(vio_timer timer, void* info) ;
 
 /*------------------------------------------------------------------------------
  * Start watch dog -- before a VTY is created.
@@ -120,7 +120,7 @@ uty_watch_dog_stop(void)
 /*------------------------------------------------------------------------------
  * Watch dog vio_timer action
  */
-static vty_timer_time
+static vio_timer_time
 uty_watch_dog_bark(vio_timer timer, void* info)
 {
   cmd_host_name(true) ;         /* check for host name change           */
@@ -296,7 +296,7 @@ uty_new(vty_type_t type, node_type_t node)
  * time out value -- which applies only to VIN_TERM.
  */
 extern void
-uty_set_timeout(vty_io vio, vty_timer_time timeout)
+uty_set_timeout(vty_io vio, vio_timer_time timeout)
 {
   vio_vf        vin_base ;
 
@@ -579,7 +579,6 @@ uty_vin_push(vty_io vio, vio_vf vf, vio_in_type_t type,
       else
         {
           qassert(!vio_vfd_blocking(vf->vfd)) ;
-
           vio_vfd_set_read_action(vf->vfd, read_action) ;
         } ;
     } ;
@@ -969,6 +968,8 @@ uty_vout_base_close(vty_io vio)
  *
  *    vx_quash      -- stop all vin apart from vin_base.
  *
+ *                     signals and returns CMD_HIATUS.
+ *
  *                     e.g. when there is a command or parser error.
  *
  *                     NB: if there is a pipe stderr return, there is some
@@ -977,6 +978,8 @@ uty_vout_base_close(vty_io vio)
  *
  *    vx_cancel     -- stop all vin apart from vin_base
  *                     stop all vout apart from vin base
+ *
+ *                     signals and returns CMD_CANCEL.
  *
  *                     set vst_cancel, if vst_notify is not set.
  *                     set cancel_prefix to "...^C\n"
@@ -996,9 +999,13 @@ uty_vout_base_close(vty_io vio)
  *
  *                     e.g. or an I/O error that is not in vin/vout_base
  *
+ *                     signals and returns CMD_IO_ERROR.
+ *
  *    vx_suspend    -- as vx_cancel, but sets vx_suspend as well.
  *
  *                     e.g. on SIGHUP.
+ *
+ *                     signals and returns CMD_CANCEL.
  *
  *                     NB: it is the caller's responsibility to set any
  *                         suspend_reason.
@@ -1012,16 +1019,22 @@ uty_vout_base_close(vty_io vio)
  *
  *                     e.g. on SIGTERM
  *
+ *                     signals and returns CMD_STOP
+ *
  *    vx_stop_io_error -- as vx_io_error, but stop the vin_base as well
  *                        and stop any log monitor.
  *
  *                     e.g. on I/O error in vin_base
+ *
+ *                     signals and returns CMD_IO_ERROR.
  *
  *    vx_stop_final -- as vx_stop, but stop the vout_base as well
  *
  *                     sets vst_final and clears cancel_prefix (to be tidy)
  *
  *                     e.g. on terminate or an I/O error in vout_base.
+ *
+ *                     signals and returns CMD_STOP
  *
  * NB: if is already vst_notify, then we do not set vst_cancel, and we do
  *     not set the cancel_prefix.
@@ -1031,14 +1044,13 @@ uty_vout_base_close(vty_io vio)
  *     the vst_notify.
  *
  *     If vst_cancel is already set, does not set the cancel_prefix, either.
- *
- * NB: if
  */
-extern void
+extern cmd_ret_t
 uty_vio_exception(vty_io vio, vio_exception_t vx)
 {
   vst_state_t add_state ;
   vfs_stop_t  vstp ;
+  cmd_ret_t   ret ;
   bool        stop_vin_base ;
   const char* prefix ;
   vio_vf      vf ;
@@ -1051,36 +1063,42 @@ uty_vio_exception(vty_io vio, vio_exception_t vx)
         add_state      = 0 ;
         stop_vin_base  = false ;
         prefix         = NULL ;
+        ret            = CMD_HIATUS ;
         break ;
 
       case vx_cancel:
         add_state      = vst_cancel ;
         stop_vin_base  = false ;
         prefix         = "...^C\n" ;
+        ret            = CMD_CANCEL ;
         break ;
 
       case vx_io_error:
         add_state      = vst_cancel ;
         stop_vin_base  = false ;
         prefix         = "***^C\n" ;
+        ret            = CMD_IO_ERROR ;
         break ;
 
       case vx_suspend:
         add_state      = vst_cancel | vst_suspend ;
         stop_vin_base  = false ;
         prefix         = "...^C\n" ;
+        ret            = CMD_CANCEL ;
         break ;
 
       case vx_stop:
         add_state      = vst_cancel ;
         stop_vin_base  = true ;
         prefix         = "...^C\n" ;
+        ret            = CMD_STOP ;
         break ;
 
       case vx_stop_io_error:
         add_state      = vst_cancel ;
         stop_vin_base  = true ;
         prefix         = "***^C\n" ;
+        ret            = CMD_IO_ERROR ;
         break ;
 
       case vx_stop_final:
@@ -1088,6 +1106,7 @@ uty_vio_exception(vty_io vio, vio_exception_t vx)
         add_state      = vst_cancel | vst_final ;
         stop_vin_base  = true ;
         prefix         = NULL ;
+        ret            = CMD_STOP ;
 
         vio->cancel_prefix = prefix ;
         break ;
@@ -1150,10 +1169,7 @@ uty_vio_exception(vty_io vio, vio_exception_t vx)
    *
    * Otherwise, vfs_stop_pause the vout_base.
    */
-  if ((vio->state & (vst_cancel | vst_final)) == 0)
-    return ;
-
-  if (vio->vout_depth > 0)
+  if ((vio->vout_depth > 0) && (vio->state & (vst_cancel | vst_final)))
     {
       vf = vio->vout ;
       while (vf != vio->vout_base)
@@ -1163,7 +1179,11 @@ uty_vio_exception(vty_io vio, vio_exception_t vx)
         } ;
 
       uty_vf_write_stop(vf, (vio->state & vst_final) ? vstp : vfs_stop_pause) ;
-    };
+    } ;
+
+  /* Signal and return the CMD_XXX
+   */
+  return uty_cmd_signal(vio, ret) ;
 } ;
 
 /*==============================================================================
@@ -1271,13 +1291,14 @@ uty_vf_new(vty_io vio, const char* name, int fd, vfd_type_t type,
    *
    *   pr_state         = vf_closed         ) -- see uty_pipe_read/write_open()
    *   pr_enabled       = false             )
+   *   pr_timeout       = false             )
    *   pr_vfd           = NULL  -- no vfd   )
-   *   pr_timeout       = 0     -- none     )
    *
    *   ps_state         = vf_closed         ) -- see uty_pipe_read/write_open()
    *   ps_enabled       = false             )
+   *   ps_timeout       = false             )
    *   ps_vfd           = NULL  -- no vfd   )
-   *   ps_timeout       = 0     -- none     )
+   *
    *   ps_buf           = NULL  -- none, yet
    *
    *   fp               = NULL  -- no VOUT_VTYSH output (yet)
@@ -1707,7 +1728,7 @@ uty_vf_write_close(vio_vf vf)
       break ;
 
     case VOUT_VTYSH:
-      ret = uty_vtysh_out_close(vf) ;
+      ret = uty_vtysh_write_close(vf) ;
       break ;
 
     case VOUT_DEV_NULL:
@@ -2125,7 +2146,8 @@ uty_vf_not_open_error(vio_vf vf, vio_err_type_t err_type)
 /*------------------------------------------------------------------------------
  * Dealing with an I/O error or time-out on the given vio_vf.
  *
- *
+ * Log the error, create suitable error message, raise suitable exception,
+ * signal the command loop and return CMD_IO_ERROR.
  *
  * If there is a stack of inputs and/or outputs, it is not at all clear what
  * it would mean if an error occurred somewhere in the stack, and the rest
@@ -2134,13 +2156,15 @@ uty_vf_not_open_error(vio_vf vf, vio_err_type_t err_type)
  * approach of cancelling everything -- keeping the vin_base/vout_base, unless
  * the error occurred in either (or both).
  *
- *   * if the error is not in the vin_base or the vout_base, then cancel
+ *   * if the error is not in the vin_base or the vout_base, then raise
+ *     vx_io_error exception, which will cancel down to vin_base/vout_base.
  *
- *   * if the error is in the vin_base or the vout_base, stop the vty and
- *     stop log monitor.
+ *   * if the error is in the vin_base or the vout_base, but the vout_base is
+ *     still working, then raise vx_stop_io_error, which will cancel down to
+ *      to vin_base/vout_base and then close vin_base and hence the vty.
  *
  *   * if the error is an I/O error, and the error is in the vout_base, then
- *     stop everything, final !
+ *     stop everything, final -- raise vx_sto_final exception !
  *
  *     There is no point going on if the vout_base has failed.  Note that this
  *     test picks up an I/O error in the vin_base, if the vin_base and
@@ -2177,13 +2201,16 @@ uty_vf_not_open_error(vio_vf vf, vio_err_type_t err_type)
  *     ignoring errors, just in case can get the information away.  If not,
  *     there's the logging.
  *
- * In any event signals CMD_IO_ERROR to the command loop.  CMD_IO_ERROR may be
- * signalled any number of times.  Returning CMD_IO_ERROR as well as signalling
- * is fine, too.
+ *   * raise suitable exception and signal the command loop.
  *
- * Returns:  CMD_IO_ERROR -- which may be returned to the command loop, as
- *                           well as the vio->signal.
- *       or  CMD_SUCCESS  => is vst_final, already
+ *     Note that there is no harm in signalling more than once.  Signalling the
+ *     command loop while in the loop is fine, too.  The real work is done by
+ *     raising the exception and creating the error message.  Signalling the
+ *     command loop is simply to ensure that it is running, and will proceed to
+ *     the hiatus to deal with the issue.  The return code is simply to
+ *     persuade callers to stop trying to do I/O, and proceed to the hiatus.
+ *
+ * Returns:  CMD_IO_ERROR
  */
 extern cmd_ret_t
 uty_vf_error(vio_vf vf, vio_err_type_t err_type, int err)
@@ -2196,7 +2223,7 @@ uty_vf_error(vio_vf vf, vio_err_type_t err_type, int err)
 
   vio = vf->vio ;
 
-  /* Decide how to handle the error and post the exception.
+  /* Decide how to handle the error, post the exception and signal.
    */
   if ((vf != vio->vin_base) && (vf != vio->vout_base))
     vx = vx_io_error ;
@@ -2242,7 +2269,7 @@ uty_vf_error(vio_vf vf, vio_err_type_t err_type, int err)
    * One or both will be collected in the command loop "hiatus" and dealt
    * with -- it does not matter if both arrive.
    */
-  return uty_cmd_signal(vio, CMD_IO_ERROR) ;
+  return CMD_IO_ERROR ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -2536,7 +2563,7 @@ uty_error_message(vio_vf vf, vio_err_type_t err_type, int err, bool log)
  *                 collected, or can wait no longer ("final" close).
  */
 static void uty_child_collected(vio_child child, int report) ;
-static vty_timer_time vty_child_overdue(vio_timer timer, void* action_info) ;
+static vio_timer_time vty_child_overdue(vio_timer timer, void* action_info) ;
 static void uty_child_signal_parent(vio_child child) ;
 static void uty_child_free(vio_child child) ;
 static pid_t uty_waitpid(pid_t for_pid, int* p_report) ;
@@ -2660,7 +2687,7 @@ uty_child_register(pid_t pid, vio_vf parent)
  * If is already waiting, leave existing timer running.
  */
 extern void
-uty_child_awaited(vio_child child, vty_timer_time timeout)
+uty_child_awaited(vio_child child, vio_timer_time timeout)
 {
   VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
@@ -2733,7 +2760,7 @@ uty_child_not_awaited(vio_child child)
  *          false  => timed out or final
  */
 extern bool
-uty_child_collect(vio_child child, vty_timer_time timeout, bool final)
+uty_child_collect(vio_child child, vio_timer_time timeout, bool final)
 {
   bool first ;
 
@@ -2951,7 +2978,7 @@ uty_child_collected(vio_child child, int report)
 /*------------------------------------------------------------------------------
  * Set child as overdue -- vio_timer action routine.
  */
-static vty_timer_time
+static vio_timer_time
 vty_child_overdue(vio_timer timer, void* action_info)
 {
   vio_child child ;
@@ -2971,7 +2998,7 @@ vty_child_overdue(vio_timer timer, void* action_info)
 
   VTY_UNLOCK() ;
 
-  return 0 ;            /* stop timer   */
+  return 0 ;                    /* stop timer                   */
 } ;
 
 /*------------------------------------------------------------------------------

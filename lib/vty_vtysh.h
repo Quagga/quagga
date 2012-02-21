@@ -68,7 +68,8 @@ extern cmd_ret_t vty_vtysh_fetch_config(vty vty,
 extern void uty_vtysh_out_prep(vty_io vio, const char* pager_name) ;
 extern void uty_vtysh_out_close_pager(vio_vf vf) ;
 extern cmd_ret_t uty_vtysh_out_push(vio_vf vf) ;
-extern cmd_ret_t uty_vtysh_out_close(vio_vf vf) ;
+extern cmd_ret_t uty_vtysh_write_block(vio_vf vf) ;
+extern cmd_ret_t uty_vtysh_write_close(vio_vf vf) ;
 
 /*==============================================================================
  * Globals for handling connected clients in vtysh

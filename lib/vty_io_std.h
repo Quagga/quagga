@@ -42,6 +42,7 @@ extern vty vty_std_write_open(const char* name) ;
 extern cmd_ret_t uty_std_out_push(vio_vf vf) ;
 extern void uty_std_err_vprintf(const char *format, va_list args) ;
 extern void uty_std_close_reason(vio_vf vf, qstring wrapped) ;
+extern cmd_ret_t uty_std_write_block(vio_vf vf) ;
 extern cmd_ret_t uty_std_write_close(vio_vf vf) ;
 
 #endif  /* _ZEBRA_VTY_IO_STD_H */

@@ -942,7 +942,13 @@ vtysh_interactive_mode(vtysh_options_t* options)
       uty_vtysh_out_prep(vtysh_vty->vio, NULL /* no pager */) ;
       vty_hello(vtysh_vty) ;
       vtysh_show_connected(vtysh_vty) ;
+
       ret = vty_cmd_complete(vtysh_vty, CMD_SUCCESS) ;
+      while ((ret != CMD_SUCCESS) && (ret != CMD_STOP))
+        ret = vty_cmd_hiatus(vtysh_vty, ret) ;
+
+      if (ret == CMD_STOP)
+        return 0 ;
     }
   else
     ret = CMD_SUCCESS ;

@@ -405,8 +405,8 @@ struct vio_vf
 
   vio_vfd   vfd ;               /* vty_io_basic "file descriptor"       */
 
-  vty_timer_time  read_timeout ;
-  vty_timer_time  write_timeout ;
+  vio_timer_time  read_timeout ;
+  vio_timer_time  write_timeout ;
 
   /* Pipe extras -- child and pipe returns
    *
@@ -422,13 +422,13 @@ struct vio_vf
 
   vf_state_t  pr_state ;
   bool        pr_enabled ;      /* if not, read it but discard it       */
+  bool        pr_timeout ;      /* timeout with read-ready              */
   vio_vfd     pr_vfd ;          /* if pr_state != vf_closed             */
-  vty_timer_time  pr_timeout ;  /* set once closing pipe return         */
 
   vf_state_t  ps_state ;
   bool        ps_enabled ;      /* if not, read it but discard it       */
+  bool        ps_timeout ;      /* timeout with read-ready              */
   vio_vfd     ps_vfd ;          /* set up when ps_open set true         */
-  vty_timer_time  ps_timeout ;  /* set once closing pipe return         */
 
   vio_fifo    ps_buf ;          /* stuff to be moved to vio->ps_buf     */
 
@@ -1074,7 +1074,8 @@ enum
 {
   file_timeout   = 10,          /* for file read/write          */
 
-  pipe_timeout   = 30,          /* for pipe read/write          */
+  pipe_timeout          = 30,   /* for pipe read/write          */
+  pipe_return_timeout   = 30,   /* for pipe return read         */
 
   child_timeout  = 10,          /* for collecting child process */
 
@@ -1135,7 +1136,7 @@ extern void uty_close_reason_set(vty_io vio, const char* why, bool replace) ;
 extern void uty_suspend_reason_set(vty_io vio, const char* why) ;
 extern void uty_suspend_reason_clear(vty_io vio) ;
 
-extern void uty_set_timeout(vty_io vio, vty_timer_time timeout) ;
+extern void uty_set_timeout(vty_io vio, vio_timer_time timeout) ;
 
 extern void uty_vin_push(vty_io vio, vio_vf vf, vio_in_type_t type,
                                           vio_vfd_action* read_action,
@@ -1154,7 +1155,7 @@ extern vio_vf uty_vf_new(vty_io vio, const char* name, int fd, vfd_type_t type,
 extern void uty_vf_read_stop(vio_vf vf, vfs_stop_t vstp) ;
 extern void uty_vf_write_stop(vio_vf vf, vfs_stop_t vstp) ;
 extern void uty_vf_return_stop(vf_state_t* p_state, vfs_stop_t vstp) ;
-extern void uty_vio_exception(vty_io vio, vio_exception_t vx) ;
+extern cmd_ret_t uty_vio_exception(vty_io vio, vio_exception_t vx) ;
 
 extern cmd_ret_t uty_fifo_cmd_line_fetch(vio_vf vf, bool cont_lines) ;
 
@@ -1169,8 +1170,8 @@ extern verr_mess_t uty_error_message(vio_vf vf, vio_err_type_t err_type,
                                                             int err, bool log) ;
 extern vio_child uty_child_register(pid_t pid, vio_vf parent) ;
 extern void vty_child_close_register(void) ;
-extern void uty_child_awaited(vio_child child, vty_timer_time timeout) ;
-extern bool uty_child_collect(vio_child child, vty_timer_time timeout,
+extern void uty_child_awaited(vio_child child, vio_timer_time timeout) ;
+extern bool uty_child_collect(vio_child child, vio_timer_time timeout,
                                                                    bool final) ;
 extern void uty_child_dismiss(vio_child child, bool final) ;
 extern void uty_sigchld(void) ;

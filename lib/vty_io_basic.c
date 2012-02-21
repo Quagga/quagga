@@ -379,9 +379,9 @@ static void vio_vfd_qps_read_action(qps_file qf, void* file_info) ;
 static void vio_vfd_qps_write_action(qps_file qf, void* file_info) ;
 static int vio_vfd_thread_read_action(struct thread *thread) ;
 static int vio_vfd_thread_write_action(struct thread *thread) ;
-static vty_timer_time vio_vfd_read_time_out_action(vio_timer timer,
+static vio_timer_time vio_vfd_read_time_out_action(vio_timer timer,
                                                               void* file_info) ;
-static vty_timer_time vio_vfd_write_time_out_action(vio_timer timer,
+static vio_timer_time vio_vfd_write_time_out_action(vio_timer timer,
                                                               void* file_info) ;
 static void vio_vfd_set_read_off(vio_vfd vfd) ;
 static void vio_vfd_set_write_off(vio_vfd vfd) ;
@@ -707,7 +707,7 @@ vio_vfd_close(vio_vfd vfd)
  *          Will be off if not in a suitable state to set on.
  */
 extern on_off_b
-vio_vfd_set_read(vio_vfd vfd, on_off_b how, vty_timer_time timeout)
+vio_vfd_set_read(vio_vfd vfd, on_off_b how, vio_timer_time timeout)
 {
   VTY_ASSERT_LOCKED() ;
 
@@ -806,7 +806,7 @@ vio_vfd_set_read_off(vio_vfd vfd)
  *          Will be off if not in a suitable state to set on.
  */
 extern on_off_b
-vio_vfd_set_write(vio_vfd vfd, on_off_b how, vty_timer_time timeout)
+vio_vfd_set_write(vio_vfd vfd, on_off_b how, vio_timer_time timeout)
 {
   VTY_ASSERT_LOCKED() ;
 
@@ -982,7 +982,7 @@ vio_vfd_thread_write_action(struct thread *thread)
  *
  * Clears read ready state and unsets any read timer.
  */
-static vty_timer_time
+static vio_timer_time
 vio_vfd_read_time_out_action(vio_timer timer, void* file_info)
 {
   vio_vfd vfd ;
@@ -1004,7 +1004,7 @@ vio_vfd_read_time_out_action(vio_timer timer, void* file_info)
  *
  * Clears write ready state and unsets any write timer.
  */
-static vty_timer_time
+static vio_timer_time
 vio_vfd_write_time_out_action(vio_timer timer, void* file_info)
 {
   vio_vfd vfd = file_info ;
@@ -1313,7 +1313,7 @@ vio_timer_reset(vio_timer timer, free_keep_b free_structure)
  * If the time == 0, stop any current timer, do not restart.
  */
 extern void
-vio_timer_set(vio_timer timer, vty_timer_time time)
+vio_timer_set(vio_timer timer, vio_timer_time time)
 {
   VTY_ASSERT_CLI_THREAD_LOCKED() ;
 
@@ -1379,7 +1379,7 @@ static void
 vio_timer_qtr_action(qtimer qtr, void* timer_info, qtime_t when)
 {
   vio_timer timer ;
-  vty_timer_time time ;
+  vio_timer_time time ;
 
   VTY_LOCK() ;
   VTY_ASSERT_CLI_THREAD() ;
@@ -1407,7 +1407,7 @@ static int
 vio_timer_thread_action(struct thread *thread)
 {
   vio_timer      timer ;
-  vty_timer_time time ;
+  vio_timer_time time ;
 
   VTY_LOCK() ;
   VTY_ASSERT_CLI_THREAD() ;
