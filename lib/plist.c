@@ -63,7 +63,21 @@ struct prefix_list_entry ;
  *
  * This means that a prefix_list name is local to an address family, but
  * global wrt router instances.
- * */
+ *
+ * The symbol_table allows prefix-list to be looked up by name.
+ *
+ * The symbol entry "value" is a struct prefix_list* -- and its "sym" entry
+ * points at the symbol.  Noting that the "value" includes the "name".
+ *
+ * A prefix-list, and the symbol pointing to it, come into existence when some
+ * property of the prefix list is set, or when it is referred to by some user
+ * of the prefix-list.  They are destroyed (together) when the list is
+ * "unconfigured" *and* there are no more references.  Note that when a list
+ * is "unconfigured" (eg "no ip prefix-list FRED") it will be emptied out, but
+ * there may still be users of the (now empty) prefix-list.  If the list is
+ * "reconfigured", then all users of the prefix-list will see the new
+ * prefix-list.  The name is key !
+ */
 struct prefix_master
 {
   symbol_table table ;	        /* table of prefix_list by name. 	      */
@@ -398,20 +412,27 @@ prefix_dup_cache_free(struct prefix_master* pm)
 
 /* Delete prefix_list from prefix_list_master and free it and its contents.
  *
- * The prefix_list is set undefined, if there are no references.
+ * The prefix_list is destroyed, if there are no references or will be
+ * destroyed when references drop to zero.
  */
 static void
 prefix_list_delete (struct prefix_list* plist)
 {
-  /* empty out the prefix list                          */
+  /* empty out the prefix list
+   */
   prefix_list_flush(plist) ;
 
-  /* Symbol no longer has a value                       */
-  symbol_unset(plist->sym, plist) ;
-
-  /* Tell the world.                                    */
+  /* Tell the world.
+   */
   if (plist->master->delete_hook)
     (*plist->master->delete_hook) (NULL);
+
+  /* Symbol no longer has a value
+   *
+   * If there are no references left, then the symbol value (the plist) will
+   * be destroyed.  Otherwise, waits for reference count to drop to
+   */
+  symbol_unset(plist->sym, plist) ;
 } ;
 
 /* Flush all contents of prefix_list, leaving it completely empty.

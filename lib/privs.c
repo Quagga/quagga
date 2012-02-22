@@ -29,7 +29,8 @@
 
 /* Needs to be qpthread safe */
 static qpt_mutex_t privs_mutex;
-#define LOCK qpt_mutex_lock(privs_mutex);
+
+#define LOCK   qpt_mutex_lock(privs_mutex);
 #define UNLOCK qpt_mutex_unlock(privs_mutex);
 
 #ifdef HAVE_CAPABILITIES
@@ -59,7 +60,7 @@ typedef priv_t pvalue_t;
 typedef priv_set_t pset_t;
 typedef priv_set_t *pstorage_t;
 #else /* neither LCAPS nor SOLARIS_CAPABILITIES */
-#error "HAVE_CAPABILITIES defined, but neither LCAPS nor Solaris Capabilties!"
+#error "HAVE_CAPABILITIES defined, but neither LCAPS nor Solaris Capabilities!"
 #endif /* HAVE_LCAPS */
 #endif /* HAVE_CAPABILITIES */
 
@@ -73,14 +74,14 @@ static int raise_count = 0; /* keep raised until all pthreads have lowered */
 static struct _zprivs_t
 {
 #ifdef HAVE_CAPABILITIES
-  pstorage_t caps;		/* working storage        */
+  pstorage_t caps;              /* working storage              */
   pset_t *syscaps_p;		/* system-type requested permitted caps    */
   pset_t *syscaps_i;     	/* system-type requested inheritable caps  */
 #endif /* HAVE_CAPABILITIES */
-  uid_t zuid,                 /* uid to run as            */
-        zsuid;                /* saved uid                */
-  gid_t zgid;                 /* gid to run as            */
-  gid_t vtygrp;               /* gid for vty sockets      */
+  uid_t zuid,                   /* uid to run as                */
+        zsuid;                  /* saved uid                    */
+  gid_t zgid;                   /* gid to run as                */
+  gid_t vtygrp;                 /* gid for vty sockets          */
 } zprivs_state;
 
 /* externally exported but not directly accessed functions */
@@ -93,20 +94,28 @@ zebra_privs_current_t zprivs_state_uid (void);
 int zprivs_change_null (zebra_privs_ops_t);
 zebra_privs_current_t zprivs_state_null (void);
 
+/*==============================================================================
+ * Real capabilities handling
+ */
 #ifdef HAVE_CAPABILITIES
-/* internal capability API */
+
+/* internal capability API
+ */
 static pset_t *zcaps2sys (zebra_capabilities_t *, int);
-static void zprivs_caps_init (struct zebra_privs_t *);
+static int zprivs_caps_init (struct zebra_privs_t *, bool dryrun);
 static void zprivs_caps_terminate (void);
 
-/* Map of Quagga abstract capabilities to system capabilities */
+/* Map of Quagga abstract capabilities to system capabilities
+ */
 static struct
 {
   int num;
   pvalue_t *system_caps;
 } cap_map [ZCAP_MAX] =
 {
-#ifdef HAVE_LCAPS /* Quagga -> Linux capabilities mappings */
+#ifdef HAVE_LCAPS
+  /* Quagga -> Linux capabilities mappings
+   */
   [ZCAP_SETID] = 	{ 2, (pvalue_t []) { CAP_SETGID,
                                              CAP_SETUID 		}, },
   [ZCAP_BIND] =		{ 2, (pvalue_t []) { CAP_NET_BIND_SERVICE,
@@ -121,7 +130,8 @@ static struct
   [ZCAP_SYS_ADMIN] =	{ 1, (pvalue_t []) { CAP_SYS_ADMIN 		}, },
   [ZCAP_FOWNER] = 	{ 1, (pvalue_t []) { CAP_FOWNER			}, },
 #elif defined(HAVE_SOLARIS_CAPABILITIES) /* HAVE_LCAPS */
-  /* Quagga -> Solaris privilege mappings */
+  /* Quagga -> Solaris privilege mappings
+   */
   [ZCAP_SETID] =	{ 1, (pvalue_t []) { PRIV_PROC_SETID		}, },
   [ZCAP_BIND] = 	{ 1, (pvalue_t []) { PRIV_NET_PRIVADDR		}, },
   /* IP_CONFIG is a subset of NET_CONFIG and is allowed in zones */
@@ -144,12 +154,21 @@ static struct
                                              PRIV_FILE_DAC_READ		}, },
   [ZCAP_SYS_ADMIN] =	{ 1, (pvalue_t []) { PRIV_SYS_ADMIN		}, },
   [ZCAP_FOWNER] =	{ 1, (pvalue_t []) { PRIV_FILE_OWNER		}, },
+
 #endif /* HAVE_SOLARIS_CAPABILITIES */
 };
 
 #ifdef HAVE_LCAPS
-/* Linux forms of capabilities methods */
-/* convert zebras privileges to system capabilities */
+
+/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * Linux forms of capabilities methods
+ *
+ * Convert zebra's privileges to system capabilities
+ */
+
+/*------------------------------------------------------------------------------
+ * Construct and return array of pset_t, and an enclosed array of pvalue_t
+ */
 static pset_t *
 zcaps2sys (zebra_capabilities_t *zcaps, int num)
 {
@@ -223,9 +242,9 @@ zprivs_change_caps (zebra_privs_ops_t op)
     }
 
   if ( change && !cap_set_flag (zprivs_state.caps, CAP_EFFECTIVE,
-                       zprivs_state.syscaps_p->num,
-                       zprivs_state.syscaps_p->caps,
-                       cflag))
+                                zprivs_state.syscaps_p->num,
+                                zprivs_state.syscaps_p->caps,
+                                cflag))
     result = cap_set_proc (zprivs_state.caps);
 
   UNLOCK
@@ -270,18 +289,25 @@ zprivs_state_caps (void)
   return result;
 }
 
-static void
-zprivs_caps_init (struct zebra_privs_t *zprivs)
+/*------------------------------------------------------------------------------
+ * Initialise Linux capabilities
+ *
+ * Returns:   0 => OK
+ *          > 0 => failed -- exit(n)
+ */
+static int
+zprivs_caps_init (struct zebra_privs_t *zprivs, bool dryrun)
 {
   zprivs_state.syscaps_p = zcaps2sys (zprivs->caps_p, zprivs->cap_num_p);
   zprivs_state.syscaps_i = zcaps2sys (zprivs->caps_i, zprivs->cap_num_i);
 
-  /* Tell kernel we want caps maintained across uid changes */
+  /* Tell kernel we want caps maintained across uid changes
+   */
   if ( prctl(PR_SET_KEEPCAPS, 1, 0, 0, 0) == -1 )
     {
       fprintf (stderr, "privs_init: could not set PR_SET_KEEPCAPS, %s\n",
                                                        errtostr(errno, 0).str) ;
-      exit(1);
+      return 1 ;
     }
 
   if ( !zprivs_state.syscaps_p )
@@ -290,14 +316,15 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
                        "but no capabilities supplied\n");
     }
 
-  /* we have caps, we have no need to ever change back the original user */
+  /* we have caps, we have no need to ever change back the original user
+   */
   if (zprivs_state.zuid)
     {
       if ( setreuid (zprivs_state.zuid, zprivs_state.zuid) )
         {
           fprintf (stderr, "zprivs_init (cap): could not setreuid, %s\n",
                                                        errtostr(errno, 0).str) ;
-         exit (1);
+          return 1 ;
         }
     }
 
@@ -305,14 +332,14 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
     {
       fprintf (stderr, "privs_init: failed to cap_init, %s\n",
                                                        errtostr(errno, 0).str) ;
-      exit (1);
+      return 1 ;
     }
 
   if ( cap_clear (zprivs_state.caps) )
     {
       fprintf (stderr, "privs_init: failed to cap_clear, %s\n",
                                                        errtostr(errno, 0).str) ;
-      exit (1);
+      return 1 ;
     }
 
   /* set permitted caps */
@@ -336,12 +363,15 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
   if ( cap_set_proc (zprivs_state.caps) )
     {
       fprintf (stderr, "privs_init: initial cap_set_proc failed\n");
-      exit (1);
+      return 1 ;
     }
 
-  /* set methods for the caller to use */
-  zprivs->change = zprivs_change_caps;
+  /* set methods for the caller to use
+   */
+  zprivs->change        = zprivs_change_caps;
   zprivs->current_state = zprivs_state_caps;
+
+  return 0 ;
 }
 
 static void
@@ -374,9 +404,11 @@ zprivs_caps_terminate (void)
 
   cap_free (zprivs_state.caps);
 }
+
 #elif defined (HAVE_SOLARIS_CAPABILITIES) /* !HAVE_LCAPS */
 
-/* Solaris specific capability/privilege methods
+/*~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+ * Solaris specific capability/privilege methods
  *
  * Resources:
  * - the 'privileges' man page
@@ -492,8 +524,14 @@ zprivs_state_caps (void)
   return result;
 }
 
-static void
-zprivs_caps_init (struct zebra_privs_t *zprivs)
+/*------------------------------------------------------------------------------
+ * Initialise Solaris capabilities
+ *
+ * Returns:   0 => OK
+ *          > 0 => failed -- exit(n)
+ */
+static int
+zprivs_caps_init (struct zebra_privs_t *zprivs, bool dryrun)
 {
   pset_t *basic;
   pset_t *empty;
@@ -517,7 +555,7 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
   if ((basic = priv_str_to_set("basic", ",", NULL)) == NULL)
     {
       fprintf (stderr, "%s: couldn't get basic set!\n", __func__);
-      exit (1);
+      return 1 ;
     }
 
   /* Add the basic set to the permitted set */
@@ -528,7 +566,7 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
   if ( (empty = priv_allocset()) == NULL)
     {
       fprintf (stderr, "%s: couldn't get empty set!\n", __func__);
-      exit (1);
+      return 1 ;
     }
   priv_emptyset (empty);
 
@@ -539,7 +577,7 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
     {
       fprintf (stderr, "%s: error setting PRIV_AWARE!, %s\n", __func__,
                errtoa(errno, 0).str );
-      exit (1);
+      return 1 ;
     }
 
   /* need either valid or empty sets for both p and i.. */
@@ -554,7 +592,7 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
         {
           fprintf (stderr, "%s: could not setreuid, %s\n",
                    __func__, errtoa(errno, 0).str);
-          exit (1);
+          return 1 ;
         }
     }
 
@@ -563,7 +601,7 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
     {
       fprintf (stderr, "%s: error setting permitted set!, %s\n", __func__,
                errtoa(errno, 0).str );
-      exit (1);
+      return 1 ;
     }
 
   /* set the inheritable set */
@@ -571,7 +609,7 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
     {
       fprintf (stderr, "%s: error setting inheritable set!, %s\n", __func__,
                errtoa(errno, 0).str );
-      exit (1);
+      return 1 ;
     }
 
   /* now clear the effective set and we're ready to go */
@@ -579,7 +617,7 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
     {
       fprintf (stderr, "%s: error setting effective set!, %s\n", __func__,
                errtoa(errno, 0).str );
-      exit (1);
+      return 1 ;
     }
 
   /* we'll use this as our working-storage privset */
@@ -588,6 +626,8 @@ zprivs_caps_init (struct zebra_privs_t *zprivs)
   /* set methods for the caller to use */
   zprivs->change = zprivs_change_caps;
   zprivs->current_state = zprivs_state_caps;
+
+  return 0 ;
 }
 
 static void
@@ -610,9 +650,16 @@ zprivs_caps_terminate (void)
   priv_freeset (zprivs_state.caps);
 }
 #else /* !HAVE_LCAPS && ! HAVE_SOLARIS_CAPABILITIES */
+
 #error "Neither Solaris nor Linux capabilities, dazed and confused..."
+
 #endif /* HAVE_LCAPS */
+
 #endif /* HAVE_CAPABILITIES */
+
+/*==============================================================================
+ * uid/gid privileges
+ */
 
 int
 zprivs_change_uid (zebra_privs_ops_t op)
@@ -672,6 +719,10 @@ zprivs_state_null (void)
   return result;
 }
 
+/*==============================================================================
+ * Privilege initialise and shut down.
+ */
+
 extern void
 zprivs_init_r()
 {
@@ -711,11 +762,14 @@ zprivs_init_dry(struct zebra_privs_t *zprivs, bool dryrun)
 {
   struct passwd *pwentry = NULL;
   struct group  *grentry = NULL;
+  int ret ;
+
+  ret = 1 ;
 
   if (!zprivs)
     {
       fprintf (stderr, "zprivs_init: called with NULL arg!\n");
-      exit (1);
+      exit (ret);
     }
 
   /* NULL privs                                                         */
@@ -787,7 +841,13 @@ zprivs_init_dry(struct zebra_privs_t *zprivs, bool dryrun)
     }
 
 #ifdef HAVE_CAPABILITIES
-  zprivs_caps_init (zprivs);
+  /* Use genuine capabilities if they are available
+   */
+  ret = zprivs_caps_init (zprivs, dryrun) ;
+
+  if (ret != 0)
+    goto failure ;
+
 #else /* !HAVE_CAPABILITIES */
 
   /* We don't have caps. we'll need to maintain rid and saved uid
@@ -816,27 +876,21 @@ zprivs_init_dry(struct zebra_privs_t *zprivs, bool dryrun)
 
   return ;
 
+#endif /* HAVE_CAPABILITIES */
+
   /* Failed to set something.  If not dryrun, give up now.  If dryrun, allow
    * to continue, but with null ->change and ->current_state
    */
 failure:
   if (!dryrun)
-    exit(1) ;
+    exit(ret) ;
 
-  fprintf (stderr, "Continuing for --dryrun -- daemon will not start current "
-                                                         "users privileges\n") ;
-  zprivs->change        = zprivs_change_uid ;
-  zprivs->current_state = zprivs_state_uid ;
-
+  fprintf (stderr, "Continuing for --dryrun -- daemon would not start with "
+                                                       "current privileges\n") ;
 null_zprivs:
   zprivs->change        = zprivs_change_null;
   zprivs->current_state = zprivs_state_null;
-
-  return;
-
-#endif /* HAVE_CAPABILITIES */
-
-}
+} ;
 
 extern void
 zprivs_terminate (struct zebra_privs_t *zprivs)

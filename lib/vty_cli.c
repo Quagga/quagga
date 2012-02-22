@@ -1118,8 +1118,8 @@ uty_cli_more(vty_cli cli)
    * the cancel, issue the ^C and revert to vst_cmd_running on the way to
    * vst_cmd_complete.
    *
-   * If not cancelling, wipe out the prompt and revert to vst_cmd_running,
-   * to continue output.
+   * If not cancelling, wipe out the prompt and revert to vst_cmd_running or
+   * vst_cmd_running_executing to continue output.
    */
   if (cancel)
     uty_vio_exception(cli->vf->vio, vx_cancel) ;
@@ -1128,7 +1128,8 @@ uty_cli_more(vty_cli cli)
       uty_cli_wipe(cli) ;               /* clears cli->drawn    */
       vio_lc_counter_reset(cli->olc) ;
 
-      cli->vf->vio->state = vst_cmd_running ;    /* revert to            */
+      cli->vf->vio->state = (cli->vf->vio->state & ~vst_cmd_inner_mask)
+                                                             | vst_cmd_running ;
     } ;
 
   return false ;                /* all done                     */
@@ -1408,6 +1409,7 @@ uty_cli_wipe(vty_cli cli)
         break ;
 
       case vst_cmd_running:
+      case vst_cmd_running_executing:
       case vst_cmd_complete:
       default:
         qassert(!cli->drawn) ;
@@ -1416,7 +1418,6 @@ uty_cli_wipe(vty_cli cli)
     } ;
 
   uty_cli_out_wipe_n(cli, -(int)b) ;
-  uty_cli_write_n(cli, telnet_backspaces, b) ;
 
   cli->drawn = false ;
 } ;
