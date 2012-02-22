@@ -406,9 +406,9 @@ main (int argc, char **argv)
   /* Initializations. */
   bgp_signal_init() ;
 
-  zprivs_init (&bgpd_privs);            /* lowers privileges            */
+  zprivs_init_dry (&bgpd_privs, dryrun);        /* lowers privileges    */
 
-  bgp_cmd_init() ;                      /* all commands                 */
+  bgp_cmd_init() ;                              /* all commands         */
 
   vty_init ();
 

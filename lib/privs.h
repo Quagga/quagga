@@ -1,4 +1,4 @@
-/* 
+/*
  * Zebra privileges header.
  *
  * Copyright (C) 2003 Paul Jakma.
@@ -18,14 +18,14 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #ifndef _ZEBRA_PRIVS_H
 #define _ZEBRA_PRIVS_H
 
 /* list of zebra capabilities */
-typedef enum 
+typedef enum
 {
   ZCAP_SETID,
   ZCAP_BIND,
@@ -59,14 +59,14 @@ struct zebra_privs_t
   zebra_capabilities_t *caps_p;       /* caps required for operation */
   zebra_capabilities_t *caps_i;       /* caps to allow inheritance of */
   int cap_num_p;                      /* number of caps in arrays */
-  int cap_num_i;                    
+  int cap_num_i;
   const char *user;                   /* user and group to run as */
   const char *group;
   const char *vty_group;              /* group to chown vty socket to */
   /* methods */
-  int 
+  int
     (*change) (zebra_privs_ops_t);    /* change privileges, 0 on success */
-  zebra_privs_current_t 
+  zebra_privs_current_t
     (*current_state) (void);          /* current privilege state */
 };
 
@@ -83,9 +83,10 @@ struct zprivs_ids_t
   /* initialise zebra privileges */
 extern void zprivs_init_r (void);
 extern void zprivs_init (struct zebra_privs_t *zprivs);
+extern void zprivs_init_dry(struct zebra_privs_t *zprivs, bool dryrun) ;
 extern void zprivs_finish (void);
 
-  /* drop all and terminate privileges */ 
+  /* drop all and terminate privileges */
 extern void zprivs_terminate (struct zebra_privs_t *);
 
   /* query for runtime uid's and gid's, eg vty needs this */

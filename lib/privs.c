@@ -632,12 +632,12 @@ zprivs_change_uid (zebra_privs_ops_t op)
     {
       if (--raise_count == 0)
         {
-        result = seteuid (zprivs_state.zuid);
+          result = seteuid (zprivs_state.zuid);
         }
     }
   else
     {
-    result = -1;
+      result = -1;
     }
 
   UNLOCK
@@ -672,13 +672,13 @@ zprivs_state_null (void)
   return result;
 }
 
-void
+extern void
 zprivs_init_r()
 {
   qpt_mutex_init_new(privs_mutex, qpt_mutex_quagga);
 }
 
-void
+extern void
 zprivs_finish(void)
 {
   qpt_mutex_destroy(privs_mutex, 0);
@@ -692,8 +692,22 @@ zprivs_finish(void)
  * Must be initialised before vty.  Will be initialised very early in the
  * morning, before daemonisation and therefore before any pthreads.
  */
-void
+extern void
 zprivs_init(struct zebra_privs_t *zprivs)
+{
+  zprivs_init_dry(zprivs, false /* not dryrun */) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialise privilege handling and set any running group -- allowing dryrun.
+ *
+ * Returns with lowered privileges.
+ *
+ * Must be initialised before vty.  Will be initialised very early in the
+ * morning, before daemonisation and therefore before any pthreads.
+ */
+extern void
+zprivs_init_dry(struct zebra_privs_t *zprivs, bool dryrun)
 {
   struct passwd *pwentry = NULL;
   struct group  *grentry = NULL;
@@ -708,12 +722,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
   if ( (zprivs->user == NULL) && (zprivs->group == NULL)
                               && (zprivs->cap_num_p == 0)
                               && (zprivs->cap_num_i == 0) )
-    {
-      zprivs->change        = zprivs_change_null;
-      zprivs->current_state = zprivs_state_null;
-
-      return;
-    }
+    goto null_zprivs ;
 
   /* Get uid for configured user (if any)                               */
   if (zprivs->user)
@@ -727,7 +736,7 @@ zprivs_init(struct zebra_privs_t *zprivs)
           /* cant use log.h here as it depends on vty */
           fprintf (stderr, "privs_init: could not lookup user %s\n",
                    zprivs->user);
-          exit (1);
+          goto failure ;
         }
     }
 
@@ -744,14 +753,14 @@ zprivs_init(struct zebra_privs_t *zprivs)
             {
               fprintf (stderr, "privs_init: could not setgroups, %s\n",
                                                        errtostr(errno, 0).str) ;
-              exit (1);
+              goto failure ;
             }
         }
       else
         {
           fprintf (stderr, "privs_init: could not lookup vty group %s\n",
                    zprivs->vty_group);
-          exit (1);
+          goto failure ;
         }
     }
 
@@ -766,14 +775,14 @@ zprivs_init(struct zebra_privs_t *zprivs)
         {
           fprintf (stderr, "privs_init: could not lookup group %s\n",
                    zprivs->group);
-          exit (1);
+          goto failure ;
         }
       /* change group now, forever. uid we do later                     */
       if ( setregid (zprivs_state.zgid, zprivs_state.zgid) )
         {
           fprintf (stderr, "zprivs_init: could not setregid, %s\n",
                                                        errtostr(errno, 0).str) ;
-          exit (1);
+          goto failure ;
         }
     }
 
@@ -798,18 +807,38 @@ zprivs_init(struct zebra_privs_t *zprivs)
         {
           fprintf (stderr, "privs_init (uid): could not setreuid, %s\n",
                    errtoa(errno, 0).str);
-          exit (1);
+          goto failure ;
         }
     }
 
   zprivs->change        = zprivs_change_uid ;
   zprivs->current_state = zprivs_state_uid ;
 
+  return ;
+
+  /* Failed to set something.  If not dryrun, give up now.  If dryrun, allow
+   * to continue, but with null ->change and ->current_state
+   */
+failure:
+  if (!dryrun)
+    exit(1) ;
+
+  fprintf (stderr, "Continuing for --dryrun -- daemon will not start current "
+                                                         "users privileges\n") ;
+  zprivs->change        = zprivs_change_uid ;
+  zprivs->current_state = zprivs_state_uid ;
+
+null_zprivs:
+  zprivs->change        = zprivs_change_null;
+  zprivs->current_state = zprivs_state_null;
+
+  return;
+
 #endif /* HAVE_CAPABILITIES */
 
 }
 
-void
+extern void
 zprivs_terminate (struct zebra_privs_t *zprivs)
 {
   if (!zprivs)
@@ -844,7 +873,7 @@ zprivs_terminate (struct zebra_privs_t *zprivs)
   return;
 }
 
-void
+extern void
 zprivs_get_ids(struct zprivs_ids_t *ids)
 {
   LOCK

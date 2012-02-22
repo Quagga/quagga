@@ -2348,10 +2348,11 @@ cmd_install_node(node_type_t node)
    * If node is executable and is not the META_NODE, install the basic
    * commands:
    *
-   *   exit, quit and end are installed to be executed in the given daemons.
+   *   exit, quit and end are installed to be executed in the given daemons and
+   *   in the vtysh.
    *
-   *     For the vtysh this means that it can leave a, even if the relevant
-   *     daemon(s) are not active (any more).
+   *     end is not installed in any node which ends to itself -- in particular,
+   *     not in VIEW_NODE or ENABLE_NODE, where it gets in the way of enable.
    *
    *   help and list commands.
    *
@@ -2375,7 +2376,9 @@ cmd_install_node(node_type_t node)
 
   cmd_install_command (node, &config_exit_cmd, daemons) ;
   cmd_install_command (node, &config_quit_cmd, daemons) ;
-  cmd_install_command (node, &config_end_cmd,  daemons) ;
+
+  if (node != cmd_node_end_to(node))
+    cmd_install_command (node, &config_end_cmd,  daemons) ;
 
   cmd_install_command (node, &config_help_cmd, daemons | TERM) ;
   cmd_install_command (node, &config_list_cmd, daemons | TERM) ;
