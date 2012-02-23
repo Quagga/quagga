@@ -874,9 +874,11 @@ zprivs_init_dry(struct zebra_privs_t *zprivs, bool dryrun)
   zprivs->change        = zprivs_change_uid ;
   zprivs->current_state = zprivs_state_uid ;
 
-  return ;
-
 #endif /* HAVE_CAPABILITIES */
+
+  /* Privileges set up OK
+   */
+  return ;
 
   /* Failed to set something.  If not dryrun, give up now.  If dryrun, allow
    * to continue, but with null ->change and ->current_state
