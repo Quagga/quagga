@@ -21,71 +21,13 @@
  */
 
 #include "zebra.h"
-#include <stddef.h>
+#include "misc.h"
 
 #include "stream.h"
 #include "memory.h"
 #include "network.h"
 #include "prefix.h"
 #include "log.h"
-
-#if 0
-/* Tests whether a position is valid */
-#define GETP_VALID(S,G) \
-  ((G) <= (S)->endp)
-#define PUT_AT_VALID(S,G) GETP_VALID(S,G)
-#define ENDP_VALID(S,E) \
-  ((E) <= (S)->size)
-
-/* asserting sanity checks. Following must be true before
- * stream functions are called:
- *
- * Following must always be true of stream elements
- * before and after calls to stream functions:
- *
- * getp <= endp <= size
- *
- * Note that after a stream function is called following may be true:
- * if (getp == endp) then stream is no longer readable
- * if (endp == size) then stream is no longer writeable
- *
- * It is valid to put to anywhere within the size of the stream, but only
- * using stream_put..._at() functions.
- */
-#define STREAM_WARN_OFFSETS(S) \
-  zlog_warn ("&(struct stream): %p, size: %lu, endp: %lu, getp: %lu\n", \
-             (S), \
-             (unsigned long) (S)->size, \
-             (unsigned long) (S)->getp, \
-             (unsigned long) (S)->endp)\
-
-#define STREAM_VERIFY_SANE(S) \
-  do { \
-    if ( !(GETP_VALID(S, (S)->getp)) && ENDP_VALID(S, (S)->endp) ) \
-      STREAM_WARN_OFFSETS(S); \
-    assert ( GETP_VALID(S, (S)->getp) ); \
-    assert ( ENDP_VALID(S, (S)->endp) ); \
-  } while (0)
-
-#define STREAM_BOUND_WARN(S, WHAT) \
-  do { \
-    zlog_warn ("%s: Attempt to %s out of bounds", __func__, (WHAT)); \
-    STREAM_WARN_OFFSETS(S); \
-    assert (0); \
-  } while (0)
-
-/* XXX: Deprecated macro: do not use */
-#define CHECK_SIZE(S, Z) \
-  do { \
-    if (((S)->endp + (Z)) > (S)->size) \
-      { \
-        zlog_warn ("CHECK_SIZE: truncating requested size %lu\n", \
-                   (unsigned long) (Z)); \
-        STREAM_WARN_OFFSETS(S); \
-        (Z) = (S)->size - (S)->endp; \
-      } \
-  } while (0);
-#endif
 
 /*------------------------------------------------------------------------------
  * Make stream object
@@ -229,15 +171,20 @@ stream_resize (struct stream *s, size_t newsize)
   return s->size;
 } ;
 
-/*------------------------------------------------------------------------------
- * Test to see if can get 'n' bytes without worrying about overrun
- *
- * If can, return pointer to first byte, and advance s->getp.
- *
- * If not, return NULL and do not change s->getp.
+/*==============================================================================
+ * Getting stuff from a stream
  */
-inline static byte*
-stream_get_this(struct stream* s, size_t n)
+static void stream_get_partial(byte* b, struct stream* s, size_t n,
+                                                       size_t from, bool step) ;
+
+/*------------------------------------------------------------------------------
+ * Get 'n' bytes to the given buffer and advance s->getp.
+ *
+ * If there aren't enough bytes between s->getp and s->endp, get as many as
+ * can and fill the rest with zeros.  Sets s->getp == s->endp and s->overrun !
+ */
+inline static void
+stream_get_this(byte* b, struct stream* s, size_t n)
 {
   size_t getp, getp_n ;
 
@@ -246,30 +193,30 @@ stream_get_this(struct stream* s, size_t n)
   getp   = s->getp ;
   getp_n = getp + n ;
 
-  if (getp_n > s->endp)
-    return NULL ;               /* no can do    */
-
-  s->getp = getp_n ;
-  return s->data + getp ;
+  if (getp_n <= s->endp)
+    {
+      s->getp = getp_n ;
+      memcpy(b, s->data + getp, n) ;
+    }
+  else
+    stream_get_partial(b, s, n, getp, true) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Test to see if can get 'n' bytes from given position without worrying about
- * overrun
+ * Get 'n' bytes to the given buffer from the given position in the stream.
  *
- * If can, return pointer to first byte
- *
- * If not, return NULL
+ * If there aren't enough bytes between "from" and s->endp, get as many as
+ * can and fill the rest with zeros.  Sets s->overrun !
  */
-inline static byte*
-stream_get_this_from(struct stream* s, size_t from, size_t n)
+inline static void
+stream_get_this_from(byte* b, struct stream* s, size_t n, size_t from)
 {
   qassert_stream(s) ;
 
-  if ((from + n) > s->endp)
-    return NULL ;               /* no can do    */
-
-  return s->data + from ;
+  if ((from + n) <= s->endp)
+    memcpy(b, s->data + from, n) ;
+  else
+    stream_get_partial(b, s, n, from, false) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -280,37 +227,32 @@ stream_get_this_from(struct stream* s, size_t from, size_t n)
  *
  * Step s->getp if required.
  *
- * Return address of buffer.
- *
  * NB: expect that has already tried, but failed to get everything that was
  *     wanted -- however, will cope if can get everything.
  */
-static byte*
-stream_get_partial(byte* buf, size_t want,
-                                       struct stream* s, size_t from, bool step)
+static void
+stream_get_partial(byte* b, struct stream* s, size_t n, size_t from, bool step)
 {
   size_t have ;
 
   have = stream_get_read_left_from(s, from) ;
 
-  if (have < want)
+  if (have < n)
     s->overrun = true ;         /* what we expect       */
   else
-    have = want ;               /* this is safe !       */
+    have = n ;                  /* this is safe !       */
 
   if (have > 0)
-    memcpy(buf, s->data + from, have) ;
+    memcpy(b, s->data + from, have) ;
 
-  if (want > have)
-    memset(buf + have, 0, want - have) ;
+  if (n > have)
+    memset(b + have, 0, n - have) ;
 
   if (step)
     {
       s->getp += have ;
       qassert(s->getp <= s->endp) ;
     } ;
-
-  return buf ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -321,14 +263,7 @@ stream_get_partial(byte* buf, size_t want,
 extern void
 stream_get (void *dst, struct stream *s, size_t n)
 {
-  byte* src ;
-
-  src = stream_get_this(s, n) ;
-
-  if (src != NULL)
-    memcpy (dst, src, n);
-  else
-    stream_get_partial(dst, n, s, s->endp, true) ;
+  stream_get_this(dst, s, n) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -394,17 +329,13 @@ stream_get_bytes_left(struct stream *s, size_t* have)
 extern u_char
 stream_getc (struct stream *s)
 {
-  byte* src ;
+  qassert_stream(s) ;
 
-  src = stream_get_this(s, 1) ;
+  if (s->getp < s->endp)
+    return *(s->data + (s->getp++)) ;
 
-  if (src != NULL)
-    return *src ;
-  else
-    {
-      s->overrun = true ;
-      return 0 ;
-    } ;
+  s->overrun = true ;
+  return 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -415,31 +346,13 @@ stream_getc (struct stream *s)
 extern u_char
 stream_getc_from (struct stream *s, size_t from)
 {
-  byte* src ;
+  qassert_stream(s) ;
 
-  src = stream_get_this_from(s, from, 1) ;
+  if (from < s->endp)
+    return *(s->data + from) ;
 
-  if (src != NULL)
-    return *src ;
-  else
-    {
-      s->overrun = true ;
-      return 0 ;
-    } ;
-} ;
-
-/*------------------------------------------------------------------------------
- * s_getw -- get 16bit word from network order buffer
- */
-inline static uint16_t
-s_getw(const byte* src)
-{
-  uint16_t w ;
-
-  w  = (uint16_t)src[0] << (8 * 1) ;    /* 1    */
-  w |= (uint16_t)src[1] ;               /* 0    */
-
-  return w ;
+  s->overrun = true ;
+  return 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -448,17 +361,13 @@ s_getw(const byte* src)
  * Gets 0 for any byte(s) beyond s->endp and sets s->overrun
  */
 extern uint16_t
-stream_getw (struct stream *s)
+stream_getw(struct stream *s)
 {
-  byte* src ;
-  byte  t[2] ;
+  uint16_t w ;
 
-  src = stream_get_this(s, 2) ;
+  stream_get_this((byte*)&w, s, 2) ;
 
-  if (src == NULL)
-    src = stream_get_partial(t, 2, s, s->getp, true) ;
-
-  return s_getw(src) ;
+  return ntohs(w) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -469,31 +378,11 @@ stream_getw (struct stream *s)
 extern uint16_t
 stream_getw_from (struct stream *s, size_t from)
 {
-  byte* src ;
-  byte  t[2] ;
+  uint16_t w ;
 
-  src = stream_get_this_from(s, from, 2) ;
+  stream_get_this_from((byte*)&w, s, 2, from) ;
 
-  if (src == NULL)
-    src = stream_get_partial(t, 2, s, from, false) ;
-
-  return s_getw(src) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * s_getl -- get 32bit long word from network order buffer
- */
-inline static uint32_t
-s_getl(const byte* src)
-{
-  uint32_t l ;
-
-  l  = (uint32_t)src[0] << (8 * 3) ;    /* 3    */
-  l |= (uint32_t)src[1] << (8 * 2) ;    /* 2    */
-  l |= (uint32_t)src[2] << (8 * 1) ;    /* 1    */
-  l |= (uint32_t)src[3] ;               /* 0    */
-
-  return l ;
+  return ntohs(w) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -504,15 +393,11 @@ s_getl(const byte* src)
 extern uint32_t
 stream_getl (struct stream *s)
 {
-  byte* src ;
-  byte  t[4] ;
+  uint32_t l ;
 
-  src = stream_get_this(s, 4) ;
+  stream_get_this((byte*)&l, s, 4) ;
 
-  if (src == NULL)
-    src = stream_get_partial(t, 4, s, s->getp, true) ;
-
-  return s_getl(src) ;
+  return ntohl(l) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -523,35 +408,11 @@ stream_getl (struct stream *s)
 extern u_int32_t
 stream_getl_from (struct stream *s, size_t from)
 {
-  byte* src ;
-  byte  t[4] ;
+  uint32_t l ;
 
-  src = stream_get_this_from(s, from, 4) ;
+  stream_get_this_from((byte*)&l, s, 4, from) ;
 
-  if (src == NULL)
-    src = stream_get_partial(t, 4, s, from, false) ;
-
-  return s_getl(src) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * s_getq -- get 64bit long word from network order buffer
- */
-inline static uint64_t
-s_getq(const byte* src)
-{
-  uint64_t q ;
-
-  q  = (uint64_t)src[0] << (8 * 7) ;    /* 7    */
-  q |= (uint64_t)src[1] << (8 * 6) ;    /* 6    */
-  q |= (uint64_t)src[2] << (8 * 5) ;    /* 5    */
-  q |= (uint64_t)src[3] << (8 * 4) ;    /* 4    */
-  q |= (uint64_t)src[4] << (8 * 3) ;    /* 3    */
-  q |= (uint64_t)src[5] << (8 * 2) ;    /* 2    */
-  q |= (uint64_t)src[6] << (8 * 1) ;    /* 1    */
-  q |= (uint64_t)src[7] ;               /* 0    */
-
-  return q ;
+  return ntohl(l) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -562,15 +423,11 @@ s_getq(const byte* src)
 extern uint64_t
 stream_getq(struct stream *s)
 {
-  byte* src ;
-  byte  t[8] ;
+  uint64_t q ;
 
-  src = stream_get_this(s, 8) ;
+  stream_get_this((byte*)&q, s, 8) ;
 
-  if (src == NULL)
-    src = stream_get_partial(t, 8, s, s->getp, true) ;
-
-  return s_getq(src) ;
+  return ntohq(q) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -581,15 +438,11 @@ stream_getq(struct stream *s)
 extern uint64_t
 stream_getq_from (struct stream *s, size_t from)
 {
-  byte* src ;
-  byte  t[8] ;
+  uint64_t q ;
 
-  src = stream_get_this_from(s, from, 8) ;
+  stream_get_this_from((byte*)&q, s, 8, from) ;
 
-  if (src == NULL)
-    src = stream_get_partial(t, 8, s, from, false) ;
-
-  return s_getq(src) ;
+  return ntohq(q) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -601,29 +454,45 @@ extern in_addr_t
 stream_get_ipv4 (struct stream *s)
 {
   in_addr_t ip ;
-  byte*     src ;
 
-  confirm(sizeof(in_addr_t) == 4) ;
-
-  src = stream_get_this(s, 4) ;
-
-  if (src != NULL)
-    memcpy(&ip, src, 4) ;
-  else
-    stream_get_partial((byte*)&ip, 4, s, s->getp, true) ;
+  stream_get_this((byte*)&ip, s, sizeof(in_addr_t)) ;
 
   return ip ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Test to see if can put 'n' bytes without worrying about overflow
+ * Get next ipv4 address -- returns in_addr_t (which is in NETWORK order).
  *
- * If can, return pointer to first byte, and advance s->endp.
- *
- * If not, return NULL and do not change s->endp.
+ * Gets 0 for any byte(s) beyond s->endp and sets s->overrun
  */
-inline static byte*
-stream_put_this(struct stream* s, size_t n)
+extern void
+stream_get_prefix(struct stream *s, struct prefix* p, sa_family_t family)
+{
+  prefix_raw_t raw ;
+  size_t       psize;
+
+  raw->prefix_len = stream_getc(s) ;
+  psize = (raw->prefix_len + 7) / 8 ;
+  if (psize != 0)
+    stream_get_this(raw->prefix, s, psize) ;
+
+  prefix_from_raw(p, raw, family) ;
+} ;
+
+/*==============================================================================
+ * Putting stuff to a stream
+ */
+static void stream_put_partial(struct stream* s, const byte* src, size_t n,
+                                                         size_t at, bool step) ;
+
+/*------------------------------------------------------------------------------
+ * Put 'n' bytes at the s->endp and advance s->endp
+ *
+ * If hit s->size, put as many bytes as possible (may be zero) and
+ * set s->overflow.
+ */
+inline static void
+stream_put_this(struct stream* s, const byte* src, size_t n)
 {
   size_t endp, endp_n ;
 
@@ -632,33 +501,38 @@ stream_put_this(struct stream* s, size_t n)
   endp   = s->endp ;
   endp_n = endp + n ;
 
-  if (endp_n > s->size)
-    return NULL ;               /* no can do    */
-
-  s->endp = endp_n ;
-  return s->data + endp ;
+  if (endp_n <= s->size)
+    {
+      s->endp = endp_n ;
+      memcpy(s->data + endp, src, n) ;
+    }
+  else
+    stream_put_partial(s, src, n, endp, true) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Test to see if can put 'n' bytes at given position without worrying about
- * overflow
+ * Put 'n' bytes at the given position.
  *
- * If can, return pointer to first byte -- does not advance s->endp.
+ * If hit s->size, put as many bytes as possible (may be zero) and
+ * set s->overflow.
  *
- * NB: if (to + n) > s->endp, the last byte(s) put to the buffer may be lost
+ * NB: if (at + n) > s->endp, the last byte(s) put to the buffer may be lost
  *     or overwritten !!
- *
- * If not, return NULL
  */
-inline static byte*
-stream_put_this_at(struct stream* s, size_t at, size_t n)
+inline static void
+stream_put_this_at(struct stream* s, const byte* src, size_t n, size_t at)
 {
+  size_t endp, endp_n ;
+
   qassert_stream(s) ;
 
-  if ((at + n) <= s->size)
-    return NULL ;               /* no can do    */
+  endp   = s->endp ;
+  endp_n = endp + n ;
 
-  return s->data + at ;
+  if ((at + n) <= s->size)
+    memcpy(s->data + at, src, n) ;
+  else
+    stream_put_partial(s, src, n, at, false) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -676,17 +550,17 @@ stream_put_this_at(struct stream* s, size_t at, size_t n)
  *     wanted -- however, will cope if can put everything.
  */
 static void
-stream_put_partial(const byte* src, size_t want,
-                                         struct stream* s, size_t at, bool step)
+stream_put_partial(struct stream* s, const byte* src, size_t n,
+                                                           size_t at, bool step)
 {
   size_t have ;
 
   have = stream_get_write_left_at(s, at) ;
 
-  if (have < want)
+  if (have < n)
     s->overflow = true ;        /* as expected          */
   else
-    have = want ;               /* this is safe !       */
+    have = n ;                  /* this is safe !       */
 
   if (have > 0)
     {
@@ -711,19 +585,7 @@ stream_put_partial(const byte* src, size_t want,
 extern void
 stream_put (struct stream *s, const void *src, size_t n)
 {
-  byte* dst ;
-
-  dst = stream_put_this(s, n) ;
-
-  if (dst != NULL)
-    {
-      if (src != NULL)
-        memcpy (dst, src, n);
-      else
-        memset (dst, 0, n);
-    }
-  else
-    stream_put_partial(src, n, s, s->endp, true) ;
+  stream_put_this(s, src, n) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -734,12 +596,8 @@ stream_put (struct stream *s, const void *src, size_t n)
 extern void
 stream_putc (struct stream *s, byte c)
 {
-  byte* dst ;
-
-  dst = stream_put_this(s, 1) ;
-
-  if (dst != NULL)
-    *dst = c ;
+  if (s->endp < s->size)
+    *(s->data + (s->endp++)) = c ;
   else
     s->overflow = true ;
 } ;
@@ -756,26 +614,10 @@ stream_putc (struct stream *s, byte c)
 extern void
 stream_putc_at (struct stream *s, size_t at, u_char c)
 {
-  byte* dst ;
-
-  dst = stream_put_this_at(s, at, 1) ;
-
-  if (dst != NULL)
-    *dst = c ;
+  if (at < s->size)
+    *(s->data + at) = c ;
   else
     s->overflow = true ;
-} ;
-
-/*------------------------------------------------------------------------------
- * s_putw -- put 16bit word to network order buffer
- */
-inline static byte*
-s_putw(byte* dst, uint16_t w)
-{
-  *(dst + 1) =  w             & 0xFF ;
-  *(dst + 0) = (w >> (8 * 1)) & 0xFF ;
-
-  return dst ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -786,15 +628,8 @@ s_putw(byte* dst, uint16_t w)
 extern void
 stream_putw (struct stream *s, uint16_t w)
 {
-  byte* dst ;
-  byte  t[2] ;
-
-  dst = stream_put_this(s, 2) ;
-
-  if (dst != NULL)
-    s_putw(dst, w) ;
-  else
-    stream_put_partial(s_putw(t, w), 2, s, s->endp, true) ;
+  w = htons(w) ;
+  stream_put_this(s, (byte*)&w, 2) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -809,29 +644,8 @@ stream_putw (struct stream *s, uint16_t w)
 extern void
 stream_putw_at(struct stream *s, size_t at, uint16_t w)
 {
-  byte* dst ;
-  byte  t[2] ;
-
-  dst = stream_put_this_at(s, at, 2) ;
-
-  if (dst != NULL)
-    s_putw(dst, w) ;
-  else
-    stream_put_partial(s_putw(t, w), 2, s, at, false) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * s_putl -- put 32bit long word to network order buffer
- */
-inline static byte*
-s_putl(byte* dst, uint32_t l)
-{
-  *(dst + 3) =  l             & 0xFF ;
-  *(dst + 2) = (l >> (8 * 1)) & 0xFF ;
-  *(dst + 1) = (l >> (8 * 2)) & 0xFF ;
-  *(dst + 0) = (l >> (8 * 3)) & 0xFF ;
-
-  return dst ;
+  w = htons(w) ;
+  stream_put_this_at(s, (byte*)&w, 2, at) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -842,15 +656,8 @@ s_putl(byte* dst, uint32_t l)
 extern void
 stream_putl (struct stream *s, uint32_t l)
 {
-  byte* dst ;
-  byte  t[4] ;
-
-  dst = stream_put_this(s, 4) ;
-
-  if (dst != NULL)
-    s_putl(dst, l) ;
-  else
-    stream_put_partial(s_putl(t, l), 4, s, s->endp, true) ;
+  l = htonl(l) ;
+  stream_put_this(s, (byte*)&l, 4) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -865,33 +672,8 @@ stream_putl (struct stream *s, uint32_t l)
 extern void
 stream_putl_at (struct stream *s, size_t at, uint32_t l)
 {
-  byte* dst ;
-  byte  t[4] ;
-
-  dst = stream_put_this_at(s, at, 4) ;
-
-  if (dst != NULL)
-    s_putl(dst, l) ;
-  else
-    stream_put_partial(s_putl(t, l), 4, s, at, false) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * s_putq -- put 64bit quad word to network order buffer
- */
-inline static byte*
-s_putq(byte* dst, uint64_t q)
-{
-  *(dst + 7) =  q             & 0xFF ;
-  *(dst + 6) = (q >> (8 * 1)) & 0xFF ;
-  *(dst + 5) = (q >> (8 * 2)) & 0xFF ;
-  *(dst + 4) = (q >> (8 * 3)) & 0xFF ;
-  *(dst + 3) = (q >> (8 * 4)) & 0xFF ;
-  *(dst + 2) = (q >> (8 * 5)) & 0xFF ;
-  *(dst + 1) = (q >> (8 * 6)) & 0xFF ;
-  *(dst + 0) = (q >> (8 * 7)) & 0xFF ;
-
-  return dst ;
+  l = htonl(l) ;
+  stream_put_this_at(s, (byte*)&l, 4, at) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -902,15 +684,8 @@ s_putq(byte* dst, uint64_t q)
 extern void
 stream_putq (struct stream *s, uint64_t q)
 {
-  byte* dst ;
-  byte  t[8] ;
-
-  dst = stream_put_this(s, 8) ;
-
-  if (dst != NULL)
-    s_putq(dst, q) ;
-  else
-    stream_put_partial(s_putq(t, q), 8, s, s->endp, true) ;
+  q = htonq(q) ;
+  stream_put_this(s, (byte*)&q, 8) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -925,15 +700,8 @@ stream_putq (struct stream *s, uint64_t q)
 extern void
 stream_putq_at (struct stream *s, size_t at, uint64_t q)
 {
-  byte* dst ;
-  byte  t[8] ;
-
-  dst = stream_put_this_at(s, at, 8) ;
-
-  if (dst != NULL)
-    s_putq(dst, q) ;
-  else
-    stream_put_partial(s_putq(t, q), 8, s, at, false) ;
+  q = htonq(q) ;
+  stream_put_this_at(s, (byte*)&q, 8, at) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -944,16 +712,7 @@ stream_putq_at (struct stream *s, size_t at, uint64_t q)
 extern void
 stream_put_ipv4 (struct stream *s, in_addr_t ip)
 {
-  byte* dst ;
-
-  confirm(sizeof(in_addr_t) == 4) ;
-
-  dst = stream_put_this(s, 4) ;
-
-  if (dst != NULL)
-    s_putl(dst, ip) ;
-  else
-    stream_put_partial((byte*)&ip, 4, s, s->endp, true) ;
+  stream_put_this(s, (byte*)&ip, sizeof(ip)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -964,16 +723,7 @@ stream_put_ipv4 (struct stream *s, in_addr_t ip)
 extern void
 stream_put_in_addr (struct stream *s, struct in_addr *addr)
 {
-  byte* dst ;
-
-  confirm(sizeof(in_addr_t) == 4) ;
-
-  dst = stream_put_this(s, 4) ;
-
-  if (dst != NULL)
-    s_putl(dst, addr->s_addr) ;
-  else
-    stream_put_partial((byte*)&(addr->s_addr), 4, s, s->endp, true) ;
+  stream_put_this(s, (byte*)&(addr->s_addr), sizeof(addr->s_addr)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -984,26 +734,17 @@ stream_put_in_addr (struct stream *s, struct in_addr *addr)
 extern void
 stream_put_prefix (struct stream *s, struct prefix *p)
 {
-  size_t psize;
-  byte* dst ;
+  prefix_raw_t raw ;
+  size_t       psize;
 
-  psize = PSIZE(p->prefixlen) ;         /* number of bytes for prefix   */
+  psize = prefix_to_raw(raw, p) ;
 
-  dst = stream_put_this(s, psize + 1) ;
-
-  if (dst != NULL)
-    {
-      *dst++ = p->prefixlen ;
-      if (psize != 0)
-        memcpy (dst, &p->u.prefix, psize) ;
-    }
-  else
-    {
-      stream_putc(s, psize) ;
-      if (psize != 0)
-        stream_put(s, &p->u.prefix, psize) ;
-    } ;
+  stream_put_this(s, (byte*)&raw, psize) ;
 } ;
+
+/*==============================================================================
+ * Reading to streams
+ */
 
 /*------------------------------------------------------------------------------
  * Read bytes from fd to current s->endp

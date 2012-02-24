@@ -51,20 +51,29 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <arpa/inet.h>          /* htons etc.           */
 
 #include "confirm.h"
 #include "zassert.h"
 
-/* Bit number to bit mask                                               */
+/*------------------------------------------------------------------------------
+ * Odds and sods
+ */
+
+/* Bit number to bit mask
+ */
 #define BIT(b)  (1 << b)
 
-/* The LS bit of a given value                                          */
+/* The LS bit of a given value
+ */
 #define LS_BIT(v) ((v) ^ ((v) & ((v) - 1)))
 
-/* The given value is a power of 2                                      */
+/* The given value is a power of 2
+ */
 #define IS_POW_OF_2(v) (((v) & ((v) - 1)) == 0)
 
-/* Just in case there are compiler issues                               */
+/* Just in case there are compiler issues
+ */
 #define Inline static inline
 
 /* For things which have to be made extern -- typically because they are
@@ -72,10 +81,17 @@
  */
 #define Private extern
 
-/* For use in switch/case                                               */
+/* For use in switch/case
+ */
 #define fall_through
 
-/* Other names of true/false                                            */
+/*------------------------------------------------------------------------------
+ * Various names for true/false pairs
+ *
+ * And noting that explicit cast to bool do what you would want.
+ */
+CONFIRM(((bool)99 == true) && ((bool)0 == false)) ;
+
 enum on_off
 {
   on   = true,
@@ -83,7 +99,6 @@ enum on_off
 } ;
 typedef enum on_off on_off_b ;
 
-/* Whether to add or not on lookup.                                     */
 enum add
 {
   add     = true,
@@ -91,7 +106,6 @@ enum add
 } ;
 typedef enum add add_b ;
 
-/* Used in object "reset" functions (destructors)                       */
 enum free_keep
 {
   free_it = true,
@@ -99,11 +113,10 @@ enum free_keep
 } ;
 typedef enum free_keep free_keep_b ;
 
-/* Make sure cast to (bool) does what is expected
- */
-CONFIRM(((bool)99 == true) && ((bool)0 == false)) ;
-
-/* We really want to be able to assume that an int is at least 32 bits
+/*------------------------------------------------------------------------------
+ * Various integer stuff
+ *
+ * We really want to be able to assume that an int is at least 32 bits
  * and that a long is at least 64 bits !  (And short is at least 16 bits.)
  */
 CONFIRM(USHRT_MAX >= 0xFFFF) ;
@@ -134,7 +147,44 @@ typedef unsigned long long ullong ;
  */
 typedef const void* cvp ;
 
-/* Macros for sexing value of compilation options.
+/*------------------------------------------------------------------------------
+ * htonq/ntohq -- sadly missing elsewhere
+ */
+union htonq_ntohq {
+  uint64_t q ;
+  struct {
+    uint32_t ms ;
+    uint32_t ls ;
+  } l ;
+} ;
+
+CONFIRM( (sizeof(union htonq_ntohq) == 8)
+                                 && (offsetof(union htonq_ntohq, l.ms) == 0)
+                                 && (offsetof(union htonq_ntohq, l.ls) == 4) ) ;
+
+Inline uint64_t
+htonq(uint64_t q)
+{
+  union htonq_ntohq t ;
+
+  t.l.ms = htonl(q >> 32) ;
+  t.l.ls = htonl(q      ) ;
+
+  return t.q ;
+} ;
+
+Inline uint64_t
+ntohq(uint64_t q)
+{
+  union htonq_ntohq t ;
+
+  t.q = q ;
+
+  return ((uint64_t)ntohl(t.l.ms) << 32) | (uint64_t)ntohl(t.l.ls) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Macros for sexing value of compilation options.
  *
  * In particular allow a blank option to be treated as true, and a zero option
  * to be treated as false.

@@ -44,11 +44,11 @@ struct prefix
   u_char        prefixlen;
   union
   {
-    u_char prefix;
-    struct in_addr prefix4;
-#ifdef HAVE_IPV6
+    u_char          prefix ;
+    struct in_addr  prefix4 ;
+  #ifdef HAVE_IPV6
     struct in6_addr prefix6;
-#endif /* HAVE_IPV6 */
+  #endif /* HAVE_IPV6 */
     struct
     {
       struct in_addr id;
@@ -57,6 +57,20 @@ struct prefix
     u_char val[8];
   } u __attribute__ ((aligned (8)));
 };
+
+/* Prefix as carried in protocols
+ */
+struct prefix_raw
+{
+  byte prefix_len ;
+  byte prefix[256 / 8] ;
+} ;
+
+CONFIRM(offsetof(struct prefix_raw, prefix_len) == 0) ;
+CONFIRM(offsetof(struct prefix_raw, prefix)     == 1) ;
+
+typedef struct prefix_raw* prefix_raw ;
+typedef struct prefix_raw  prefix_raw_t[1] ;
 
 /* IPv4 prefix structure. */
 struct prefix_ipv4
@@ -184,6 +198,10 @@ extern struct prefix *prefix_new (void);
 extern void prefix_free (struct prefix *);
 extern const char *prefix_family_str (const struct prefix *);
 extern int prefix_blen (const struct prefix *);
+
+extern ulen prefix_to_raw(prefix_raw, const struct prefix *) ;
+extern void prefix_from_raw(struct prefix *, prefix_raw, sa_family_t) ;
+
 extern int str2prefix (const char *, struct prefix *);
 extern int prefix2str (const struct prefix *, char *, int);
 extern int prefix_match (const struct prefix *, const struct prefix *);

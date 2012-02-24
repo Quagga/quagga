@@ -836,3 +836,99 @@ inet6_ntoa (struct in6_addr addr)
 }
 #endif /* HAVE_IPV6 */
 
+/*==============================================================================
+ * Raw prefix handling
+ */
+static const byte prefix_last_byte_mask[8] = { 0xFF, 0x80, 0xC0, 0xE0,
+                                               0xF0, 0xF8, 0xFC, 0xFE } ;
+
+/*------------------------------------------------------------------------------
+ * Make raw form of prefix_len + prefix, and return total length.
+ *
+ * Silently enforces maximum prefix for known families, and masks last byte
+ * of prefix to guarantee not sending any bits beyond the given length.
+ */
+extern ulen
+prefix_to_raw(prefix_raw raw, const struct prefix * p)
+{
+  ulen len ;
+  byte plen ;
+
+  plen = p->prefixlen & 0xFF ;
+
+  switch (p->family)
+    {
+      case AF_INET:
+        if (plen > IPV4_MAX_PREFIXLEN)
+          plen = IPV4_MAX_PREFIXLEN ;
+        break ;
+
+#if HAVE_IPV6
+      case AF_INET6:
+        if (plen > IPV6_MAX_PREFIXLEN)
+          plen = IPV6_MAX_PREFIXLEN ;
+        break ;
+#endif
+
+      default:
+        plen = 0 ;
+    } ;
+
+  len = ((plen + 7) / 8) & 0xFF ;
+
+  raw->prefix_len = plen ;
+  if (len != 0)
+    {
+      memcpy(raw->prefix, p->u.val, len) ;
+
+      raw->prefix[len - 1] &= prefix_last_byte_mask[plen & 0x7] ;
+    } ;
+
+  return (len + 1) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set prefix from raw value and known family.
+ *
+ * Silently enforces maximum prefix for known families, and masks last byte
+ * of prefix to guarantee not using any bits beyond the given length.
+ */
+extern void
+prefix_from_raw(struct prefix * p, prefix_raw raw, sa_family_t family)
+{
+  ulen len ;
+  byte plen ;
+
+  memset(p, 0, sizeof(struct prefix)) ;
+
+  plen = raw->prefix_len & 0xFF ;
+
+  switch (family)
+    {
+      case AF_INET:
+        if (plen > IPV4_MAX_PREFIXLEN)
+          plen = IPV4_MAX_PREFIXLEN ;
+        break ;
+
+#if HAVE_IPV6
+      case AF_INET6:
+        if (plen > IPV6_MAX_PREFIXLEN)
+          plen = IPV6_MAX_PREFIXLEN ;
+        break ;
+#endif
+
+      default:
+        plen = 0 ;
+    } ;
+
+  len = ((plen + 7) / 8) & 0xFF ;
+
+  p->family    = family ;
+  p->prefixlen = plen ;
+  if (len != 0)
+    {
+      memcpy(p->u.val, raw->prefix, len) ;
+
+      p->u.val[len - 1] &= prefix_last_byte_mask[plen & 0x7] ;
+    } ;
+} ;
