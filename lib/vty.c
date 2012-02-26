@@ -1209,8 +1209,6 @@ vty_read_config_new(bool ignore_warnings, bool show_warnings)
 
       vty = vty_std_write_open("config file") ;
 
-    //vty_cmd_wait_config_lock(vty) ;
-
       conf_fd = vty_open_config_file(vty, path, true /* required */) ;
 
       ok = (conf_fd >= 0) ;

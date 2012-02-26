@@ -510,7 +510,7 @@ keystroke_stream_set_eof(keystroke_stream stream, bool timed_out)
  *
  *   * discard contents of the stream, excluding any partial keystroke.
  *
- *   * if have stolen a keystroke, forget it and set back to steal_next.
+ *   * clear any keystroke stealing and discard any stolen keystroke.
  *
  *   * leaves eof and timed_out state as is
  *
@@ -521,9 +521,7 @@ extern void
 keystroke_stream_clear(keystroke_stream stream)
 {
   vio_fifo_clear(stream->fifo) ;
-
-  if (stream->steal == steal_done)
-    stream->steal = steal_next ;
+  keystroke_steal_clear(stream) ;
 } ;
 
 /*==============================================================================

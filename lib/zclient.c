@@ -161,8 +161,14 @@ zclient_stop (struct zclient *zclient)
 
   if (zclient->qf)
     {
-      qassert(  ((zclient->sock < 0) && (qps_file_fd(zclient->qf) < 0))
-             || ( zclient->sock      ==  qps_file_fd(zclient->qf)     ) ) ;
+      /* remove from selection, if any, and forget all about it.
+       *
+       * If have no zclient->sock, should not have a qpd_file_fd either.
+       *
+       * May have a zclient->sock, but not have set up the qps_file.
+       */
+      if (zclient->sock < 0)
+        qassert(qps_file_fd(zclient->qf) < 0) ;
 
       qps_remove_file(zclient->qf) ;
       qps_file_unset_fd(zclient->qf) ;
@@ -521,6 +527,8 @@ zlookup_connect_r (qtimer qtr, void* timer_info, qtime_t when)
 #else
   zlookup->sock = zclient_socket_un (ZEBRA_SERV_PATH);
 #endif /* HAVE_TCP_ZEBRA */
+
+  qps_add_file(zclient_nexus->selection, zlookup->qf, zlookup->sock, zlookup);
 }
 
 

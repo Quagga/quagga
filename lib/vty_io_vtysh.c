@@ -22,6 +22,7 @@
  */
 
 #include "misc.h"
+#include "version.h"
 
 #include <sys/un.h>
 #include <sys/socket.h>
@@ -124,7 +125,7 @@ uty_sh_serv_open(int sock_fd, const char* name)
    *
    * Zeroising sets:
    *
-   *   in_state        -- vshis_between -- initial state
+   *   in_state        -- X             -- see below
    *
    *   in->nonce       -- 0
    *   in->node        -- NULL_NODE
@@ -132,7 +133,7 @@ uty_sh_serv_open(int sock_fd, const char* name)
    *   in->ptr         -- NULL
    *   in->len         -- 0             -- no red-tape read, yet
    *
-   *   out_state       -- vshos_idle    -- initial state
+   *   out_state       -- vshos_idle    -- see below
    *
    *   out->nonce      -- 0             -- nothing set, yet
    *   out_len         -- 0
@@ -146,18 +147,19 @@ uty_sh_serv_open(int sock_fd, const char* name)
    */
   vf->vtysh = XCALLOC(MTYPE_VTY_CLI, sizeof(vtysh_server_t)) ;
 
-  confirm(vshis_between == 0) ;
-  confirm(vshos_idle    == 0) ;
   confirm(NULL_NODE     == 0) ;
   confirm(CMD_SUCCESS   == 0) ;
 
   /* Enter the command loop -- starts as if a previous command has
-   * completed.
+   * completed and output is pending.
    */
   qassert(vf->line_complete) ;
   qassert(vio_fifo_is_empty(vf->obuf)) ;
 
-  vf->vio->state = vst_cmd_complete ;
+  uty_out(vio, "%s v" QUAGGA_VERSION "\n", daemon_name) ;
+
+  vf->vtysh->in_state  = vshis_between ;
+  vf->vtysh->out_state = vshos_active ;
 
   uty_cmd_queue_loop_enter(vio) ;
 } ;
@@ -293,11 +295,8 @@ uty_sh_serv_write_close(vio_vf vf)
 static cmd_ret_t uty_sh_serv_cmd_set_nodes(vio_vf vf, node_type_t vxnode,
                                                       node_type_t vcnode) ;
 static cmd_ret_t uty_sh_serv_write(vio_vf vf) ;
-static cmd_ret_t uty_sh_serv_write_error(vio_vf vf,
-                                             vio_err_type_t err_type, int err) ;
-static cmd_ret_t uty_sh_serv_write_wait(vio_vf vf) ;
-static cmd_ret_t uty_sh_serv_write_squelch(vio_vf vf) ;
-
+static cmd_ret_t uty_sh_serv_do_write(vio_vf vf, const void* src, ulen len,
+                                                                  ulen* p_did) ;
 static void uty_sh_set_redtape(vtysh_redtape rt, vtysh_ptype_t type,
                                                   ulen rt_xlen, ulen data_len) ;
 static void uty_sh_set_redtape_ready(vtysh_redtape rt) ;
@@ -338,8 +337,6 @@ static uint8_t uty_sh_get_redtape_byte(vtysh_redtape rt) ;
  *
  *   * something in vst_hiatus_mask -- which the hiatus will take care of.
  *
- *     Note that should not have been called if this is the case -- tant pis.
- *
  *   * something in vst_mon_mask -- which the output side will take care of.
  *
  *     Actually, vst_mon_xxxx are impossible for VIN_VTYSH_SERVER !
@@ -367,7 +364,6 @@ uty_sh_serv_cmd_line_fetch(vio_vf vf)
   vs  = vf->vtysh ;
 
   qassert(vio->vin_depth == 1) ;        /* so vst_cmd_xxx is ours !     */
-  qassert((vio->state & (vst_hiatus_mask | vst_mon_mask)) == 0) ;
 
   switch (vio->state)
     {
@@ -897,8 +893,7 @@ uty_sh_serv_out_push(vio_vf vf)
   qassert(!vf->blocking && !vio_vfd_blocking(vf->vfd)) ;
   qassert(vf->vio->vout_depth == 1) ;
 
-  /* Before the first command line is received, we are vshos_idle, and also
-   * between command lines.
+  /* Between command lines we are vshos_idle.
    *
    * Can only output stuff in response to a command line, so if we are
    * vshos_idle, simply discard.
@@ -967,7 +962,7 @@ vty_sh_serv_write_ready(vio_vfd vfd, void* action_info, bool time_out)
 } ;
 
 /*------------------------------------------------------------------------------
- * Write to the VOUT_VTYSH_SERVER -- while vf_open -- non-blocking at all times.
+ * Write to the VOUT_VTYSH_SERVER -- non-blocking at all times.
  *
  * Finishes off any pending output (unlikely, but we cope), and then proceeds
  * to try to empty the obuf.
@@ -1003,11 +998,19 @@ uty_sh_serv_write(vio_vf vf)
 
   qassert(vf->vout_type == VOUT_VTYSH_SERVER) ;
 
-  /* Do nothing if is not vst_cmd_running/vst_cmd_running_executing, and
-   * nothing else !
+  /* Do nothing if not active.  Also traps vst_final and vst_cancel.
+   *
+   * Do nothing if is not vst_cmd_running/vst_cmd_running_executing, and
+   * nothing else.
+   *
+   * Should not be vshos_idle -- but do nothing if is !
    */
-  if ( (vf->vio->state != vst_cmd_running)
-    && (vf->vio->state != vst_cmd_running_executing) )
+  if (!vf_active(vf->vout_state))
+    return CMD_SUCCESS ;
+
+  qassert((vf->vio->state & (vst_final | vst_cancel)) == 0) ;
+
+  if ((vf->vio->state & vst_cmd_inner_mask) != vst_cmd_running)
     return CMD_SUCCESS ;
 
   qassert(vs->out_state != vshos_idle) ;
@@ -1022,7 +1025,6 @@ uty_sh_serv_write(vio_vf vf)
    */
   while (vf_active(vf->vout_state))     /* stop if vf_cancel | vf_end   */
     {
-      int did ;
       ulen more ;
 
       /* Empty out any pending red tape
@@ -1031,13 +1033,12 @@ uty_sh_serv_write(vio_vf vf)
         {
           do
             {
-              did = write_nb(uty_vf_write_fd(vf), vor->rt->ptr, vor->rt->len) ;
+              cmd_ret_t ret ;
+              ulen      did ;
 
-              if (did < 0)
-                return uty_sh_serv_write_error(vf, verr_io_vout, errno) ;
-
-              if (did == 0)
-                return uty_sh_serv_write_wait(vf) ;
+              ret = uty_sh_serv_do_write(vf, vor->rt->ptr, vor->rt->len, &did) ;
+              if (ret != CMD_SUCCESS)
+                return ret ;
 
               vor->rt->ptr += did ;
               vor->rt->len -= did ;
@@ -1048,16 +1049,16 @@ uty_sh_serv_write(vio_vf vf)
        */
       while (vs->have != 0)
         {
+          cmd_ret_t ret ;
+          ulen      did ;
+
           qassert(vs->have <= vio_fifo_get(vf->obuf)) ;
           qassert(vs->out_state == vshos_active) ;
 
-          did = write_nb(uty_vf_read_fd(vf), vio_fifo_get_ptr(vf->obuf),
-                                                                     vs->have) ;
-          if (did < 0)
-            return uty_sh_serv_write_error(vf, verr_io_vout, errno) ;
-
-          if (did == 0)
-            return uty_sh_serv_write_wait(vf) ;
+          ret = uty_sh_serv_do_write(vf, vio_fifo_get_ptr(vf->obuf), vs->have,
+                                                                         &did) ;
+          if (ret != CMD_SUCCESS)
+            return ret ;
 
           vio_fifo_step(vf->obuf, did) ;
           vs->have -= did ;
@@ -1110,7 +1111,6 @@ uty_sh_serv_write(vio_vf vf)
       /* Command and all output is complete, so send an output complete
        * message, with the return code and the node.
        */
-
       uty_sh_set_redtape(vor->rt, vtysh_pout_complete,
                                                vtysh_pout_complete_redtape, 0) ;
 
@@ -1129,51 +1129,31 @@ uty_sh_serv_write(vio_vf vf)
 } ;
 
 /*------------------------------------------------------------------------------
- * Set waiting for write-ready.
+ * Write and deal with result.
  *
- * If is vio->final, then turns *off* write-ready and returns CMD_SUCCESS.
- *
- * Returns: CMD_WAITING  -- is on, as requested
- *          CMD_SUCCESS  -- is off, as requested or because is not vf_open
- *                                               or because is vio->final
- *          CMD_IO_ERROR -- is off, but requested on and was vf_open
- *                          NB: will have posted "?NOT-OPEN?"
+ * Returns:  CMD_SUCCESS  -- OK  -- *p_did set to whet we wrote, is > 0
+ *           CMD_WAITING  -- something left to output -- has set write-ready
+ *           CMD_IO_ERROR -- hit some sort of error
  */
 static cmd_ret_t
-uty_sh_serv_write_wait(vio_vf vf)
+uty_sh_serv_do_write(vio_vf vf, const void* src, ulen len, ulen* p_did)
 {
-  return uty_vf_set_write_ready(vf, (vf->vio->state & vst_final) ? off : on) ;
-} ;
+  int did ;
 
-/*------------------------------------------------------------------------------
- * Signal error on writing to terminal
- *
- * Squelch all forms of output, and force state to vshos_closing.
- *
- * Returns:  CMD_IO_ERROR
- */
-static cmd_ret_t
-uty_sh_serv_write_error(vio_vf vf, vio_err_type_t err_type, int err)
-{
-  uty_sh_serv_write_squelch(vf) ;
+  did = write_nb(uty_vf_write_fd(vf), src, len) ;
 
-  return uty_vf_error(vf, verr_io_vout, errno) ;
-} ;
+  if (did > 0)
+    {
+      *p_did = did ;
+      return CMD_SUCCESS ;
+    }
 
-/*------------------------------------------------------------------------------
- * Squelch all forms of output to the given VTY_VTYSH_SERVER.
- *
- * Returns:   CMD_SUCCESS -- immediately succeeds if failed already
- */
-static cmd_ret_t
-uty_sh_serv_write_squelch(vio_vf vf)
-{
-  vio_fifo_clear(vf->obuf) ;
+  *p_did = 0 ;
 
-  vf->vtysh->out->rt->len = 0 ;
-  vf->vtysh->have         = 0 ;
+  if (did < 0)
+    return uty_vf_error(vf, verr_io_vout, errno) ;
 
-  return CMD_SUCCESS ;
+  return uty_vf_set_write_ready(vf, on) ;
 } ;
 
 /*==============================================================================
@@ -1636,7 +1616,7 @@ vtysh_client_t vtysh_self[1] =
  * Prototypes
  */
 static vtysh_client_ret_t vtysh_client_readn(int fd, byte* buf, ulen want) ;
-static vtysh_client_ret_t vtysh_client_writen(int fd, const byte* buf,
+static vtysh_client_ret_t vtysh_client_writen(int fd, const char* buf,
                                                                      ulen len) ;
 
 /*------------------------------------------------------------------------------
@@ -1648,18 +1628,22 @@ static vtysh_client_ret_t vtysh_client_writen(int fd, const byte* buf,
  *
  * Expects far end to start up in ENABLE_NODE.
  *
- * Returns: == 0 => open OK
- *          >  0 => could not open -- not an error
- *          <  0 => failed -- error message(s) output by vty_err()
+ * Returns:  CMD_SUCCESS    -- open, OK
+ *           CMD_WARNING    -- could not open, but not an error
+ *           CMD_ERROR      -- could not open, rejected by client daemon
+ *           CMD_IO_ERROR   -- some I/O failure...
+ *                             ...error message(s) output by vty_err()
  */
-extern int
+extern cmd_ret_t
 vtysh_client_open(vty vty, vtysh_client client)
 {
   struct sockaddr_un sa_un ;
-  int ret, path_len, sa_len ;
-  int sock_fd ;
+  cmd_ret_t ret ;
+  ulen path_len, sa_len ;
+  int sock_fd, rc ;
   char path_pid[sun_path_max_len + 1] ;
   struct stat s_stat;
+  vtysh_client prev ;
 
   /* Silently close any existing client.
    */
@@ -1674,63 +1658,65 @@ vtysh_client_open(vty vty, vtysh_client client)
       vty_err(vty, "vtysh_connect(%s): path too long for unix stream socket"
                                      "with or without pid %d\n", client->path,
                                                                      getpid()) ;
-      return -1 ;
+      return CMD_IO_ERROR ;
     } ;
 
-  /* Stat socket to see if is socket and we have permission to access it.
+  /* See if client->path is suitable and we have permission to access it.
    *
    * ENOENT is the expected error if the daemon is not running and the name has
    * been deleted.
    */
-  ret = stat(client->path, &s_stat);
-  if ((ret < 0) && (errno != ENOENT))
+  rc = stat(client->path, &s_stat);
+  if (rc < 0)
     {
+      int err = errno ;
+
+      if (err == ENOENT)
+        return CMD_WARNING ;
+
       vty_err(vty, "vtysh_connect(%s): stat -- %s\n",
-                                           client->path, errtoa(errno, 0).str) ;
-      return -1 ;
-    }
-  if (ret >= 0)
+                                             client->path, errtoa(err, 0).str) ;
+      return CMD_IO_ERROR ;
+    } ;
+
+  if (! S_ISSOCK(s_stat.st_mode))
     {
-      if (! S_ISSOCK(s_stat.st_mode))
-        {
-          vty_err(vty, "vtysh_connect(%s): not a socket\n", client->path) ;
-          return -1 ;
-        } ;
+      vty_err(vty, "vtysh_connect(%s): not a socket\n", client->path) ;
+      return CMD_IO_ERROR ;
     } ;
 
   /* Create socket and give it a suitable name
    */
-  sock_fd = socket (AF_UNIX, SOCK_STREAM, 0);
+  sock_fd = socket (AF_UNIX, SOCK_STREAM, 0) ;
   if (sock_fd < 0)
     {
       vty_err(vty, "vtysh_connect(%s): socket -- %s\n", client->path,
                                                          errtoa(errno, 0).str) ;
-      return -1 ;
+      return CMD_IO_ERROR ;
     } ;
 
-  ret  = sock_unix_bind(sock_fd, path_pid) ;
+  rc = sock_unix_bind(sock_fd, path_pid) ;
 
-  if (ret != 0)
+  ret = (rc == 0) ? CMD_SUCCESS : CMD_IO_ERROR ;
+
+  if (ret != CMD_SUCCESS)
     {
-      if (ret < 0)
-        vty_err(vty, "path too long for unix stream socket: '%s'\n",
-                                                                     path_pid) ;
+      if (rc < 0)
+        vty_err(vty, "path too long for unix stream socket: '%s'\n", path_pid) ;
       else
-        vty_err(vty, "Cannot bind path %s: %s\n",
-                                                 path_pid, errtoa(ret, 0).str) ;
-      ret = -1 ;
+        vty_err(vty, "Cannot bind path %s: %s\n", path_pid, errtoa(rc, 0).str) ;
     } ;
 
   /* If OK so far, connect
    */
-  if (ret == 0)
+  if (ret == CMD_SUCCESS)
     {
       sa_len = sock_unix_set_path(&sa_un, client->path) ;
       if (sa_len > 0)
         {
-          ret = connect(sock_fd, (struct sockaddr *)&sa_un, sa_len) ;
+          rc = connect(sock_fd, (struct sockaddr *)&sa_un, sa_len) ;
 
-          if (ret < 0)
+          if (rc < 0)
             {
               /* If the daemon is not running:
                *
@@ -1741,10 +1727,13 @@ vtysh_client_open(vty vty, vtysh_client client)
                * Report other (exotic) errors
                */
               if ((errno == ENOENT) || (errno == ECONNREFUSED))
-                ret = 1 ;               /* could not open       */
+                ret = CMD_WARNING ;             /* could not open       */
               else
-                vty_err(vty, "vtysh_connect(%s): connect -- %s\n",
+                {
+                  vty_err(vty, "vtysh_connect(%s): connect -- %s\n",
                                            client->path, errtoa(errno, 0).str) ;
+                  ret = CMD_IO_ERROR ;
+                } ;
             }
           else
             {
@@ -1758,7 +1747,7 @@ vtysh_client_open(vty vty, vtysh_client client)
                 {
                   vty_err(vty, "fcntl(%d, F_GETFL) failed: %s",
                                                 sock_fd, errtoa(errno, 0).str) ;
-                  ret = -1;
+                  ret = CMD_IO_ERROR ;
                 }
               else
                 {
@@ -1767,7 +1756,7 @@ vtysh_client_open(vty vty, vtysh_client client)
                     {
                       vty_err(vty, "fcntl(%d, FSETFL, 0x%x) failed: %s",
                                          sock_fd, flags, errtoa(errno, 0).str) ;
-                      ret = -1 ;
+                      ret = CMD_IO_ERROR ;
                     } ;
                 } ;
 
@@ -1779,7 +1768,7 @@ vtysh_client_open(vty vty, vtysh_client client)
                 {
                   vty_err(vty, "fcntl(%d, F_GETFD) failed: %s",
                                                 sock_fd, errtoa(errno, 0).str) ;
-                  ret = -1;
+                  ret = CMD_IO_ERROR ;
                 }
               else
                 {
@@ -1788,7 +1777,7 @@ vtysh_client_open(vty vty, vtysh_client client)
                     {
                       vty_err(vty, "fcntl(%d, FSETFD, 0x%x) failed: %s",
                                          sock_fd, flags, errtoa(errno, 0).str) ;
-                      ret = -1 ;
+                      ret = CMD_IO_ERROR ;
                     } ;
                 } ;
             } ;
@@ -1797,13 +1786,13 @@ vtysh_client_open(vty vty, vtysh_client client)
         {
           vty_err(vty, "path too long for unix stream socket: '%s'",
                                                                  client->path) ;
-          ret = -1 ;
+          ret = CMD_IO_ERROR ;
         } ;
     } ;
 
   /* If failed at any point, discard the fd and return error
    */
-  if (ret != 0)
+  if (ret != CMD_SUCCESS)
     {
       close(sock_fd) ;
       unlink(path_pid) ;
@@ -1823,15 +1812,67 @@ vtysh_client_open(vty vty, vtysh_client client)
   memset(client->read,  0, sizeof(client->read)) ;
   memset(client->write, 0, sizeof(client->write)) ;
 
-  /* Finally, add to vty_vtysh_open_clients and return OK
+  /* Finally, add to vty_vtysh_open_clients -- appending to list
    */
   vtysh_open_clients |= client->daemon ;
 
-  return 0 ;
+  prev = vtysh_self ;
+  while (prev->next != NULL)
+    prev = prev->next ;
+
+  prev->next   = client ;
+  client->next = NULL ;
+
+  /* The first thing the client does is to return a cheerful "hello" or
+   * possibly a complaint.
+   *
+   * So, here we read the return and deal with it.
+   */
+  ret = vtysh_client_read(vty, client) ;
+
+  client->version = qs_free(client->version) ;  /* make sure    */
+  client->version = vio_fifo_to_qstring(NULL, vty->vio->vout_base->r_obuf) ;
+
+  switch (ret)
+    {
+      case CMD_SUCCESS:
+        return CMD_SUCCESS ;
+
+      case CMD_WARNING:
+        ret = CMD_ERROR ;
+        fall_through ;
+
+      case CMD_ERROR:
+        vty_err(vty, "%% %s refused connection: %s\n", client->name,
+                                                     qs_char(client->version)) ;
+        break ;
+
+      case CMD_IO_ERROR:
+        if (vty->vio->ebuf != NULL)
+          {
+            client->version = vio_fifo_to_qstring(NULL, vty->vio->ebuf) ;
+            vio_fifo_clear(vty->vio->ebuf) ;
+
+            vty_err(vty, "%s", qs_char(client->version)) ;
+          } ;
+        break ;
+
+      default:
+        vty_err(vty, "%% unknown error (ret=%d)\n", ret) ;
+        break ;
+    } ;
+
+  vtysh_client_close(client) ;
+
+  return ret ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Close vtysh connection (if any) to a VTY_VTYSH_SERVER
+ *
+ * Sets client->fd == -1 and removes from client list and vtysh_open_clients.
+ *
+ * Otherwise, leaves contents of the client structure alone.
  */
 extern void
 vtysh_client_close(vtysh_client client)
@@ -1851,33 +1892,76 @@ vtysh_client_close(vtysh_client client)
 
       prev->next = client->next ;
     } ;
+
+  client->version = qs_free(client->version) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Read stuff back from the VTY_VTYSH_SERVER into the given obuf
+ * Issues message to the vio->ebuf and closes the client connection.
  *
- * This runs in the vtysh only.  The socket is blocking.
+ * Message of the form: "%% Closing <name>: <rest of message>"
  *
- * So that we can get a timeout, the socket is non-blocking -- use qps_mini
- * to wait and timeout.
+ * Returns:  CMD_IO_ERROR
  *
- * Returns: vtysh_client_complete  => OK
- *          vtysh_client_errno     => I/O error, see errno
- *          vtysh_client_eof       => unexpected EOF or already closed !
- *          vtysh_client_bad       => nonce or length bad.
+ * NB: all errors of the connection to the client daemon are treated as
+ *     CMD_IO_ERROR -- to distinguish them from errors which the daemon
+ *     itself may generate.  (All errors from the daemon are treated as
+ *     CMD_WARNING or CMD_ERROR.)
  */
-extern vtysh_client_ret_t
-vtysh_client_read(vtysh_client client, vio_fifo obuf)
+static cmd_ret_t vty_vtysh_client_error(vty vty, vtysh_client client,
+                               const char* format, ...) PRINTF_ATTRIBUTE(3, 4) ;
+
+static cmd_ret_t
+vty_vtysh_client_error(vty vty, vtysh_client client, const char* format, ...)
+{
+  va_list args;
+  vio_fifo ebuf ;
+
+  ebuf = uty_cmd_get_ebuf(vty->vio) ;
+
+  vio_fifo_printf(ebuf, "%% Closing %s: ", client->name) ;
+
+  va_start (args, format);
+  vio_fifo_vprintf(ebuf, format, args);
+  va_end (args);
+
+  vtysh_client_close(client) ;
+
+  return CMD_IO_ERROR ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Read stuff back from the VTY_VTYSH_SERVER into the *rbuf*
+ *
+ * This runs in the vtysh only -- blocking, but with timeout.
+ *
+ * The response from the daemon includes a return code.  That is flattened to
+ * CMD_SUCCESS/CMD_WARNING/CMD_ERROR -- with whatever the daemon said placed
+ * in the given buffer.
+ *
+ * If something goes wrong either with the I/O, or some error is detected in
+ * framing of the response, then CMD_IO_ERROR is returned, and ...
+ *
+ * Returns: CMD_SUCCESS   => OK                 )
+ *          CMD_ERROR     => error of some kind ) from the daemon
+ *          CMD_WARNING   => from command       )
+ *          CMD_IO_ERROR  => I/O or message framing error
+ */
+extern cmd_ret_t
+vtysh_client_read(vty vty, vtysh_client client)
 {
   vtysh_out_redtape cr ;
   qps_mini_t qm ;
+  cmd_ret_t  ret ;
+  vio_fifo   r_obuf ;
+
+  r_obuf = vty->vio->vout_base->r_obuf ;
+  vio_fifo_clear(r_obuf) ;              /* make sure    */
 
   cr = client->read ;
 
   if (client->fd < 0)
-    return vtysh_client_eof ;
-
-  qm->timeout_set = false ;
+    return vtysh_client_fail(vty, client, vtysh_client_eof) ;
 
   while (1)
     {
@@ -1888,10 +1972,10 @@ vtysh_client_read(vtysh_client client, vio_fifo obuf)
       cret = vtysh_client_readn(client->fd, cr->rt->raw, vtysh_min_redtape) ;
 
       if (cret != vtysh_client_complete)
-        return cret ;
+        return vtysh_client_fail(vty, client, cret) ;
 
       if (!uty_sh_got_redtape(cr->rt))
-        return vtysh_client_bad ;
+        return vtysh_client_fail(vty, client, vtysh_client_bad) ;
 
       type = cr->rt->type ;
 
@@ -1904,7 +1988,7 @@ vtysh_client_read(vtysh_client client, vio_fifo obuf)
           want = uty_sh_got_redtape_ready(cr->rt) ;
 
           if (want < 0)
-            return vtysh_client_bad ;
+            return vtysh_client_fail(vty, client, vtysh_client_bad) ;
         }
       else if (type == vtysh_pout_complete)
         {
@@ -1912,7 +1996,7 @@ vtysh_client_read(vtysh_client client, vio_fifo obuf)
 
           cret = vtysh_client_readn(client->fd, cr->rt->ptr, want) ;
           if (cret != vtysh_client_complete)
-            return cret ;
+            return vtysh_client_fail(vty, client, cret) ;
 
           cr->rt->len += want ;
 
@@ -1923,39 +2007,113 @@ vtysh_client_read(vtysh_client client, vio_fifo obuf)
           want = uty_sh_got_redtape_ready(cr->rt) ;
 
           if (want != 0)
-            return vtysh_client_bad ;
+            return vtysh_client_fail(vty, client, vtysh_client_bad) ;
 
-          return vtysh_client_complete ;
+          break ;                       /* Success !!           */
         }
       else
         return vtysh_client_bad ;
 
       /* Get another tranche of result
        */
+      qm->timeout_set = false ;
+
       while (want != 0)
         {
           int get ;
 
-          get = vio_fifo_read_nb(obuf, client->fd, want, 0) ;
-
-          if      (get < 0)
-            return (get == -1) ? vtysh_client_errno : vtysh_client_eof ;
-
-          else if (get > 0)
-            want -= get ;
-
-          else
+          get = vio_fifo_read_nb(r_obuf, client->fd, want, 0) ;
+          if (get > 0)
             {
-              qps_mini_set(qm, client->fd, qps_read_mnum) ;
-              get = qps_mini_wait(qm, 10, NULL) ;
-
-              if (get == 0)
-                return vtysh_client_timeout ;
-
-              if (get == -1)
-                return vtysh_client_errno ;
+              want -= get ;
+              continue ;
             } ;
+
+          if (get < 0)
+            return vtysh_client_fail(vty, client,
+                                              (get == -1) ? vtysh_client_errno
+                                                          : vtysh_client_eof) ;
+          qps_mini_set(qm, client->fd, qps_read_mnum) ;
+          get = qps_mini_wait(qm, 10, NULL) ;
+
+          if (get == 0)
+            return vtysh_client_fail(vty, client, vtysh_client_timeout) ;
+
+          if (get == -1)
+            return vtysh_client_fail(vty, client, vtysh_client_errno) ;
         } ;
+    } ;
+
+  /* Arrives here when has successfully read stuff and a vtysh_pout_complete
+   *
+   * Check that the return code is valid.
+   */
+  ret = client->read->ret ;
+
+  switch (ret)
+    {
+      case CMD_SUCCESS:
+       break ;
+
+      case CMD_ERR_PARSING:
+      case CMD_ERR_NO_MATCH:
+      case CMD_ERR_AMBIGUOUS:
+      case CMD_ERR_INCOMPLETE:
+      case CMD_IO_ERROR:
+      case CMD_CANCEL:
+        ret = CMD_ERROR ;           /* simplify */
+
+        fall_through ;
+
+      case CMD_WARNING:
+      case CMD_ERROR:
+        break ;
+
+      default:
+        ret = vty_vtysh_client_error(vty, client,
+                                  "received unexpected return code %d\n", ret) ;
+    } ;
+
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Some I/O or framing error in the sending of a command or the return the
+ * results.
+ *
+ * Issues message to the vio->ebuf and closes the client connection.
+ *
+ * Returns:  CMD_IO_ERROR
+ */
+extern cmd_ret_t
+vtysh_client_fail(vty vty, vtysh_client client, vtysh_client_ret_t cret)
+{
+  int err = errno ;
+
+  switch (cret)
+    {
+      case vtysh_client_errno:
+        if (err != EPIPE)
+          return vty_vtysh_client_error(vty, client,
+                                "I/O error: %s\n", errtoa(err, 0).str) ;
+        else
+          return vty_vtysh_client_error(vty, client, "connection broken") ;
+
+      case vtysh_client_eof:
+        return vty_vtysh_client_error(vty, client,
+                              "unexpected eof -- connection broken\n") ;
+
+      case vtysh_client_bad:
+        return vty_vtysh_client_error(vty, client,
+                                  "invalid message -- possible bug\n") ;
+
+      case vtysh_client_timeout:
+        return vty_vtysh_client_error(vty, client,
+                                     "timed out -- daemon broken ?\n") ;
+
+      default:
+        return vty_vtysh_client_error(vty, client,
+              "invalid vtysh_client_ret_t %d -- probable bug\n", cret) ;
     } ;
 } ;
 
@@ -1983,24 +2141,26 @@ vtysh_client_readn(int fd, byte* buf, ulen want)
 
       get = read_nb(fd, buf, want) ;
 
+      if (get > 0)
+        {
+          want -= get ;
+          buf  += get ;
+
+          continue ;
+        } ;
+
       if (get < 0)
         return (get == -1) ? vtysh_client_errno : vtysh_client_eof ;
 
-      want -= get ;
-      buf  += get ;
+      qps_mini_set(qm, fd, qps_read_mnum) ;
+
+      get = qps_mini_wait(qm, 15, NULL) ;
 
       if (get == 0)
-        {
-          qps_mini_set(qm, fd, qps_read_mnum) ;
+        return vtysh_client_timeout ;
 
-          get = qps_mini_wait(qm, 15, NULL) ;
-
-          if (get == 0)
-            return vtysh_client_timeout ;
-
-          if (get == -1)
-            return vtysh_client_errno ;
-        } ;
+      if (get == -1)
+        return vtysh_client_errno ;
     } ;
 
   return vtysh_client_complete ;
@@ -2015,45 +2175,42 @@ vtysh_client_readn(int fd, byte* buf, ulen want)
  *                          vtysh_client_bad   => line too long
  */
 extern vtysh_client_ret_t
-vtysh_client_write(vtysh_client client, cmd_do_t to_do,
-               const char* line, ulen len, node_type_t cnode, node_type_t xnode)
+vtysh_client_write(vtysh_client client, vtysh_client_dispatch dispatch)
 {
   vtysh_in_redtape cw ;
   vtysh_client_ret_t cret ;
-
-  assert(line != NULL) ;
 
   if (client->fd < 0)
     return vtysh_client_complete ;
 
   cw = client->write ;
 
-  if (len > vtysh_max_data_len)
+  if (dispatch->len > vtysh_max_data_len)
     return vtysh_client_bad ;
 
-  if (to_do == cmd_do_command)
+  if (dispatch->to_do == cmd_do_command)
     uty_sh_set_redtape(cw->rt, vtysh_pin_command,
-                               vtysh_pin_command_redtape, len) ;
+                               vtysh_pin_command_redtape, dispatch->len) ;
   else
     uty_sh_set_redtape(cw->rt, vtysh_pin_special,
-                               vtysh_pin_special_redtape, len) ;
+                               vtysh_pin_special_redtape, dispatch->len) ;
 
-  uty_sh_set_redtape_byte(cw->rt, xnode) ;
-  if (to_do == cmd_do_command)
-    uty_sh_set_redtape_byte(cw->rt, cnode) ;
+  uty_sh_set_redtape_byte(cw->rt, dispatch->xnode) ;
+
+  if (dispatch->to_do == cmd_do_command)
+    uty_sh_set_redtape_byte(cw->rt, dispatch->cnode) ;
   else
-    uty_sh_set_redtape_byte(cw->rt, to_do) ;
+    uty_sh_set_redtape_byte(cw->rt, dispatch->to_do) ;
 
   confirm(vtysh_pin_command_redtape == 2) ;
   confirm(vtysh_pin_special_redtape == 2) ;
 
   uty_sh_set_redtape_ready(cw->rt) ;
 
-  cret = vtysh_client_writen(client->fd, cw->rt->ptr, cw->rt->len) ;
+  cret = vtysh_client_writen(client->fd, (char*)cw->rt->ptr, cw->rt->len) ;
 
   if (cret == vtysh_client_complete)
-    cret = vtysh_client_writen(client->fd, (const byte*)line, len) ;
-
+    cret = vtysh_client_writen(client->fd, dispatch->line, dispatch->len) ;
   return cret ;
 } ;
 
@@ -2068,7 +2225,7 @@ vtysh_client_write(vtysh_client client, cmd_do_t to_do,
  *           vtysh_client_timeout   -- give up
  */
 static vtysh_client_ret_t
-vtysh_client_writen(int fd, const byte* buf, ulen len)
+vtysh_client_writen(int fd, const char* buf, ulen len)
 {
   qps_mini_t qm ;
 
@@ -2076,30 +2233,30 @@ vtysh_client_writen(int fd, const byte* buf, ulen len)
 
   while (len > 0)
     {
-      int did ;
+      int get ;
 
-      did = write_nb(fd, buf, len) ;
+      get = write_nb(fd, buf, len) ;
 
-      if (did < 0)
+      if (get > 0)
+        {
+          len -= get ;
+          buf += get ;
+
+          continue ;
+        }
+
+      if (get < 0)
         return vtysh_client_errno ;
 
-      len -= did ;
-      buf += did ;
+      qps_mini_set(qm, fd, qps_write_mnum) ;
 
-      if (did == 0)
-        {
-          int get ;
+      get = qps_mini_wait(qm, 15, NULL) ;
 
-          qps_mini_set(qm, fd, qps_write_mnum) ;
+      if (get == 0)
+        return vtysh_client_timeout ;
 
-          get = qps_mini_wait(qm, 15, NULL) ;
-
-          if (get == 0)
-            return vtysh_client_timeout ;
-
-          if (get == -1)
-            return vtysh_client_errno ;
-        } ;
+      if (get == -1)
+        return vtysh_client_errno ;
     } ;
 
   return vtysh_client_complete ;

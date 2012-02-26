@@ -438,8 +438,8 @@ struct vio_vf
 
   const char* pager ;           /* whether & how to do paging           */
 
-  vio_fifo    rbuf ;            /* results from client daemon           */
-  vio_fifo    ebuf ;            /* errors from client daemon(s)         */
+  vio_fifo    r_obuf ;          /* results from client daemon           */
+  vio_fifo    r_ebuf ;          /* errors from client daemon(s)         */
   bool        no_prefix ;       /* do not add [name]                    */
 } ;
 
@@ -796,131 +796,6 @@ typedef enum vst_state
 
 CONFIRM(vst_cmd_state_count <= (vst_cmd_inner_mask + 1)) ;
 
-/* Mechanics:
- *
- *  * parsing/command error
- *
- *    Moves error message to ebuf.  Sets: vst_quash.
- *
- *    All input will be closed, but all output and pipe return stuff will
- *    run to completion.
- *
- *    Once reaches the vin_base/vout_base, the contents of the ps_buf (pipe
- *    stderr return) are appended to the obuf, and output in the usual way
- *    (and may be cancelled).
- *
- *    Once the obuf is empty the ebuf will be appended to the obuf, and
- *    vty_notify is set.  This means that if is cancelled for any reason, the
- *    error message (in the ebuf) is preserved.
- *
- *    I/O errors while quashing will append error to the ebuf.
- *
- *  * I/O error and timeout.  Sets vst_cancel
- *
- *      if not in vout_base:  put error message in ebuf
- *                            set: error_flag
- *                            if is in vin_base: set vst_stop.
- *
- *      if in vout_base:      post error message to close_reason
- *                            set: vst_stop, vst_final.
- *
- *    Note if vin_base == vout_base, is in vout_base !
- *
- *  * Cancel -- other than ^C eaten by CLI.
- *
- *    Sets: vst_cancel and vst_cancel_flag.
- *
- *    All further input, other than on vin_base, must be discarded -- this
- *    includes all pipe return input.
- *
- *    All new output may be discarded, but in any case, must not write away
- *    anything more from the obuf.  Output may continue to be put into the obuf,
- *    but that will be discarded.
- *
- *    Once the hiatus has closed all input and output apart from the vout_base,
- *    it empties out all buffers, other than the ebuf, generates any
- *    notification -- including contents of ebuf -- and sets vst_notify
- *    (takes notice of the vst_cancel_flag, vst_error_flag and vst_suspend_flag,
- *    and may take notice of the command line state.)
- *
- *    Once vst_notify is set, vst_cancel is cleared, so output can now proceed.
- *    If vst_cancel is set again, output may be interrupted, but when the
- *    hiatus runs, will clear vst_cancel and add any suspend reason and
- *    contents of the ebuf to the obuf and continue.
- *
- *    Once all output is complete, if vst_notify, can clear all the cancel
- *    flags.
- *
- *    Note: while is vst_cancel or vst_notify:
- *
- *      * ignores keyboard input -- so no further cancel from there
- *
- *        Any further ^C is buffered for the CLI (to be discarded if never
- *        return to the CLI !).
- *
- *      * a SIGHUP or other suspend could arrive
- *
- *        This does nothing if vst_suspend is already set.
- *
- *        This sets the vst_suspend_flag, so the suspend_reason will be added
- *        to the ebuf next time runs in the hiatus.  Then current vst_cancel
- *        or vst_notify can run to completion.
- *
- *      * a SIGTERM or other stop could arrive
- *
- *        This sets vst_stop, and may close the vin_base, but that will have no
- *        effect while is vst_cancel or vst_notify.  Current vst_cancel or
- *        vst_notify can run to completion.
- *
- *    Once cancel process completes, can consider vst_stop and vst_suspend.
- *
- *  * Suspend -- eg SIGHUP
- *
- *    If vst_suspend already set, do nothing.
- *
- *    Sets: vst_cancel, vst_suspend and vst_suspend_flag.
- *
- *    The vst_suspend flag will cause the suspend_reason to be appended to the
- *    ebuf, before the cancel process completes.
- *
- *    When cancel process completes, if is vst_suspend sets vst_suspended.  If
- *    is vst_stop, does that in preference.  In any case, if there is something
- *    waiting for the vty to suspend or stop, it should be released.
- *
- *  * Shut down -- eg SIGTERM
- *
- *    Sets: vst_cancel and vst_stop.  Sets the close reason.  Once output
- *    finishes, will end up in uty_close(), which will output the close
- *    reason.  If the system is terminated, the close reason will still be
- *    output !
- *
- *  * monitor output
- *
- *    This proceeds in the pselect() process.  While these are set, the
- *    vout_base is going to be waiting.
- *
- *    This takes precedence over any other vin_base/vout_base activity.
- *
- *    vst_stop turns off monitor output.  vst_stop and vst_cancel will
- *    discard any buffered monitor output.
- *
- *  *
- *
- */
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /*------------------------------------------------------------------------------
  * The vty_io structure
  *
@@ -1148,7 +1023,6 @@ extern void uty_vout_push(vty_io vio, vio_vf vf, vio_out_type_t type,
                                           bool after) ;
 extern cmd_ret_t uty_vin_pop(vty_io vio) ;
 extern cmd_ret_t uty_vout_pop(vty_io vio) ;
-
 
 extern vio_vf uty_vf_new(vty_io vio, const char* name, int fd, vfd_type_t type,
                                                         vfd_io_type_t io_type) ;

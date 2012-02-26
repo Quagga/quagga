@@ -244,6 +244,16 @@ vty_cmd_vtysh_config_prepare(vty vty, int conf_fd, qpath path,
 
 /*------------------------------------------------------------------------------
  * Enter the command_queue command loop.
+ *
+ * The loop is entered as if a phantom "start" command has completed.  The
+ * result of that command must now be output, and then if all is OK, can start
+ * executing commands.
+ *
+ * For VTY_TERMINAL, the "start" command puts up the hello message and/or motd,
+ * and if required notes that the next thing is user authentication.
+ *
+ * For VTY_VTYSH_SERVER, the "start" command puts out the daemon name and
+ * version number.
  */
 extern void
 uty_cmd_queue_loop_enter(vty_io vio)
@@ -263,6 +273,7 @@ uty_cmd_queue_loop_enter(vty_io vio)
   qassert(vio->cl_state == vcl_stopped) ;   /* not yet started      */
 
   vio->cl_state = vcl_cq_running ;
+
   cq_loop_enter(vio->vty, ok ? CMD_SUCCESS : CMD_WARNING) ;
 } ;
 
@@ -288,6 +299,11 @@ uty_cmd_vtysh_prepare(vty_io vio)
  *
  * Create and initialise cmd_exec object.
  *
+ * From now on we vst_cmd_running_executing -- executing phantom "start"
+ * command -- noting that uty_xxx_out_push() will not actually output stuff
+ * if is not vst_cmd_running, and will drop to vst_cmd_complete if is not
+ * vst_cmd_executing !
+ *
  * The initial state depends on the vty->type and vty->node.
  *
  * The vty->node may be EXIT_NODE, if started up but found that it could not
@@ -312,6 +328,7 @@ uty_cmd_loop_prepare(vty_io vio)
   qassert(vio->vout_depth == 1) ;
 
   vty->exec = cmd_exec_new(vty, vio->vin->context) ;
+  vio->state = vst_cmd_running_executing ;
 
   ok = uty_cmd_config_lock(vio, vty->node) ;
   if (!ok)
@@ -666,14 +683,6 @@ vty_cmd_line_fetch(vty vty)
        ret = CMD_HIATUS ;
     }
 
-  else if (vio->state & vst_hiatus_mask)
-    {
-      /* If any of the hiatus bits are set, we really need to deal with those
-       * in the hiatus.
-       */
-      ret = CMD_HIATUS ;
-    }
-
   else if ( (vio->vin_depth < 1)
          || ((vf->vin_state | vio->vout->vout_state) & (vf_cease | vf_cancel)))
     {
@@ -687,19 +696,6 @@ vty_cmd_line_fetch(vty vty)
     {
       /* We know that we are: vin_active and vout_active
        *                      vin_depth >= vout_depth >= 1
-       *                      vio->state has no "hiatus" bits set
-       *
-       * The last means that no bits which are the responsibility of the hiatus
-       * are set.  There may be:
-       *
-       *   vst_mon_mask bits -- these are ignored at vin_depth > 1
-       *
-       *                        at vin_depth == 1, will most likely cause the
-       *                        cmd_line_fetch() to return CMD_WAITING !
-       *
-       *   vst_cmd_mask bits -- these are ignored at vin_depth > 1
-       *
-       *                        at vin_depth == 1, are deeply significant.
        *
        * NB: these functions will uty_vf_read_stop(vf, vfs_stop_cease) when
        *     eof is met and there is nothing more to do -- that is, they do
@@ -726,7 +722,7 @@ vty_cmd_line_fetch(vty vty)
             break ;
 
           case VIN_VTYSH:               /* vtysh *own* vty      */
-            ret = CMD_WAITING ;
+            ret = uty_vtysh_cmd_line_fetch(vf) ;
             break ;
 
           case VIN_DEV_NULL:
@@ -794,23 +790,10 @@ vty_cmd_special(vty vty)
       case cmd_do_nothing:
         break ;
 
-      /* For eof we send a friendly message, if is VTY_TERMINAL, and proceed
-       * to exit.
+      /* For eof and time-out, proceed to exit.
        */
       case cmd_do_eof:
-        if (vty->type == VTY_TERMINAL)
-          vty_out(vty, "%% Terminal closed\n") ;
-
-        node_next = EXIT_NODE ;
-        break ;
-
-      /* For time-out we send a friendly message, if is VTY_TERMINAL, and
-       * proceed to exit.
-       */
       case cmd_do_timed_out:
-        if (vty->type == VTY_TERMINAL)
-          vty_out(vty, "%% Terminal timed out\n") ;
-
         node_next = EXIT_NODE ;
         break ;
 

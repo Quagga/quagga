@@ -26,6 +26,7 @@
 #include "vargs.h"
 #include <stdio.h>
 
+#include "qstring.h"
 #include "list_util.h"
 
 /*==============================================================================
@@ -127,6 +128,8 @@ extern void vio_fifo_reset(vio_fifo vff) ;
 Inline bool vio_fifo_is_empty(vio_fifo vff) ;
 Inline bool vio_fifo_is_quite_empty(vio_fifo vff) ;
 Inline bool vio_fifo_is_tail_empty(vio_fifo vff) ;
+Inline bool vio_fifo_have_hold_mark(vio_fifo vff) ;
+Inline bool vio_fifo_have_end_mark(vio_fifo vff) ;
 
 extern void vio_fifo_put_string(vio_fifo vff, const char* src) ;
 extern void vio_fifo_put_bytes(vio_fifo vff, const char* src, ulen n) ;
@@ -148,6 +151,8 @@ Inline ulen vio_fifo_step_get(vio_fifo vff, ulen step) ;
 extern vio_fifo vio_fifo_copy(vio_fifo dst, vio_fifo src) ;
 extern vio_fifo vio_fifo_copy_tail(vio_fifo dst, vio_fifo src) ;
 extern vio_fifo vio_fifo_move(vio_fifo dst, vio_fifo src) ;
+
+extern qstring vio_fifo_to_qstring(qstring dst, vio_fifo src) ;
 
 extern int vio_fifo_write_nb(vio_fifo vff, int fd, bool all) ;
 extern int vio_fifo_fwrite(vio_fifo vff, FILE* file) ;
@@ -214,6 +219,24 @@ vio_fifo_is_tail_empty(vio_fifo vff)
    *                     else tail is empty iff end_ptr == put_ptr.
    */
   return (vff == NULL) || (vff->put_ptr == *vff->p_end) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Test whether there is a hold mark.
+ */
+Inline bool
+vio_fifo_have_hold_mark(vio_fifo vff)
+{
+  return vff->p_start == &vff->hold_ptr ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Test whether there is an end mark.
+ */
+Inline bool
+vio_fifo_have_end_mark(vio_fifo vff)
+{
+  return vff->p_end == &vff->end_ptr ;
 } ;
 
 /*------------------------------------------------------------------------------

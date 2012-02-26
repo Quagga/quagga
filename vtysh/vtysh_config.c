@@ -53,12 +53,20 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  * Returns: true <=> OK (includes file not found if !required)
  */
 extern bool
-vtysh_read_config(vty vty, qpath config_file, bool required,
-                                              bool ignore_warnings,
-                                              bool quiet)
+vtysh_read_config(vty vtysh, qpath config_file, bool required,
+                                                bool ignore_warnings,
+                                                bool quiet)
 {
   cmd_ret_t ret ;
   int conf_fd ;
+
+  /* We start the process at the base level vin/vout, and will in a moment
+   * push a VIN_CONFIG.  We treat the reading of config as a phantom top
+   * level command -- so we are now vst_cmd_running_executing.
+   */
+  qassert((vtysh->vio->vin_depth == 1) && (vtysh->vio->vout_depth == 1)) ;
+
+  vtysh->vio->state = vst_cmd_running_executing ;
 
   /* Do the standard configuration file open.
    *
@@ -66,7 +74,7 @@ vtysh_read_config(vty vty, qpath config_file, bool required,
    *
    * Returns: -1 => hard error, -2 => not found
    */
-  conf_fd = vty_open_config_file(vty, config_file, required) ;
+  conf_fd = vty_open_config_file(vtysh, config_file, required) ;
 
   if (conf_fd == -2)            /* not found    */
     return !required ;
@@ -84,15 +92,14 @@ vtysh_read_config(vty vty, qpath config_file, bool required,
    * file pipe.
    */
   if (!quiet)
-    vty_out(vty, "Reading configuration file %s\n", qpath_string(config_file)) ;
+    vty_out(vtysh, "Reading configuration file %s\n",
+                                                    qpath_string(config_file)) ;
 
-  vty_cmd_vtysh_config_prepare(vty, conf_fd, config_file, ignore_warnings,
+  vty_cmd_vtysh_config_prepare(vtysh, conf_fd, config_file, ignore_warnings,
                                                     false /* show_warnings */) ;
 
-  ret = vty_vtysh_command_loop(vty, NULL,
-                                    false /* not interactive */,
-                                        0 /* no prompt */) ;
-
+  ret = vty_vtysh_command_loop(vtysh, NULL, false /* not interactive */,
+                                                0 /* no prompt */) ;
   return (ret == CMD_SUCCESS) ;
 } ;
 
@@ -207,7 +214,7 @@ static config_node_t config_nodes[MAX_NODE] ;
 
 /* Prototypes
  */
-static void vtysh_config_own_config(vty vty) ;
+static void vtysh_config_own_config(vty vtysh) ;
 static void vtysh_config_lumps_init(void) ;
 static void vtysh_config_nodes_init(void) ;
 static void vtysh_config_collect(daemon_set_t daemon, vio_fifo buf) ;
@@ -307,7 +314,7 @@ vtysh_config_init_integrated (void)
  * Collect the integrated configuration
  */
 extern cmd_ret_t
-vtysh_config_collect_integrated(vty vty, bool show)
+vtysh_config_collect_integrated(vty vtysh, bool show)
 {
   cmd_ret_t   ret ;
   vio_fifo    rbuf ;
@@ -320,18 +327,18 @@ vtysh_config_collect_integrated(vty vty, bool show)
    * usual way.  But we here fix things so that the output actually goes to
    * the rbuf, which we collect for later.
    */
-  rbuf = vty->vio->vout_base->rbuf ;
+  rbuf = vtysh->vio->vout_base->r_obuf ;
   vio_fifo_clear(rbuf) ;
-  vty->vio->obuf = rbuf ;
+  vtysh->vio->obuf = rbuf ;
 
-  vtysh_config_own_config(vty) ;
+  vtysh_config_own_config(vtysh) ;
 
-  vty->vio->obuf = vty->vio->vout->obuf ;
+  vtysh->vio->obuf = vtysh->vio->vout->obuf ;
   vtysh_config_collect(VTYSH_VD, rbuf) ;
 
   /* Collect configuration from all client daemons
    */
-  ret = vty_vtysh_fetch_config(vty, vtysh_config_collect, show) ;
+  ret = vty_vtysh_fetch_config(vtysh, vtysh_config_collect, show) ;
 
   /* If all is well, process and integrate the collected configuration.
    */
@@ -344,7 +351,7 @@ vtysh_config_collect_integrated(vty vty, bool show)
           if (config_nodes[node].items == NULL)
               continue ;
 
-//        ret = vtysh_config_integrate(vty, config_nodes[node]) ;
+//        ret = vtysh_config_integrate(vtysh, config_nodes[node]) ;
           if (ret != CMD_SUCCESS)
             break ;
         } ;
@@ -354,7 +361,7 @@ vtysh_config_collect_integrated(vty vty, bool show)
 } ;
 
 /*------------------------------------------------------------------------------
- * Blow the given integrated node configuration (if any) to the vty
+ * Blow the given integrated node configuration (if any) to the vtysh
  *
  * This is the call-back from vty_write_config_file().
  *
@@ -363,7 +370,7 @@ vtysh_config_collect_integrated(vty vty, bool show)
  *          > 0 => do add "!" separator
  */
 extern int
-vtysh_config_write_config_node(vty vty, node_type_t node)
+vtysh_config_write_config_node(vty vtysh, node_type_t node)
 {
   qassert(node <= MAX_NODE) ;
   if ((node <= MAX_NODE) && (config_nodes[node].items != NULL))
@@ -654,15 +661,15 @@ vtysh_config_item_new(config_node cn, daemon_set_t daemons, uint section,
  * This is for collecting the integrated configuration.
  */
 static void
-vtysh_config_own_config(vty vty)
+vtysh_config_own_config(vty vtysh)
 {
-  vty_out(vty, "#daemon vtysh\n") ;
-  vty_out(vty, "#vtysh-config-node %s\n", cmd_node_name(CONFIG_NODE)) ;
+  vty_out(vtysh, "#daemon vtysh\n") ;
+  vty_out(vtysh, "#vtysh-config-node %s\n", cmd_node_name(CONFIG_NODE)) ;
 
   if (host.name_set)
-    vty_out(vty, "hostname %s\n", host.name) ;
+    vty_out(vtysh, "hostname %s\n", host.name) ;
 
   if (vtysh_integrated_vtysh_config)
-    vty_out(vty, "service integrated-vtysh-config\n") ;
+    vty_out(vtysh, "service integrated-vtysh-config\n") ;
 } ;
 

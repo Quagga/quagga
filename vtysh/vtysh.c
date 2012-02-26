@@ -622,96 +622,72 @@ static bool vtysh_daemons_check_ok(vty vty, daemon_set_t daemons) ;
 /*------------------------------------------------------------------------------
  * Connect to all given daemons or to all available daemons.
  *
- * If given daemons is NULL, connect to all available -- must be able to
- * connect to at least one.
+ * If given daemons is NULL, connect to all available -- which may be none
+ * at all.
  *
  * Otherwise, deamons string is expected to contain names separated by spaces,
  * or commas: all of which must be valid names, and all of which must be
  * available.
  *
- * If the "show" flag is true, show which daemon(s) managed to connect to on
- * given vty.  Also, in the event of errors, uses vty_err(vty).
+ * In the event of errors, uses vty_err(vty).
  *
- * Returns: true  => connected as required
- *          false => failed to connect as required, message sent to stderr
+ * Returns: true  => connected as required...
+ *                   ...noting that if no daemons were required, may not have
+ *                      any open.
+ *          false => failed to connect exactly as required...
+ *                   ...message sent to vty_err(vty)
+ *                      will have connected to as many of the required daemons
+ *                      as possible.
  */
 extern bool
-vtysh_daemons_connect(vty vty, qstring daemon_list)
+vtysh_daemons_connect(vty vtysh, daemon_set_t daemons, daemon_set_t required)
+{
+  daemon_set_t connected ;
+
+  connected = vty_vtysh_open_clients(vtysh, daemons, required) ;
+
+  return (required == 0) || (connected == required) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * See if given daemons list from the -d options contains one or more valid
+ * daemons, and if so which.
+ *
+ * List should not be empty because this is from the -d option(s)
+ *
+ * Returns:  0 => list empty, or contains unrecognised or invalid daemon
+ *                                   names -- error message output by vty_err().
+ *           Otherwise is set of daemons to be connected to.
+ */
+extern daemon_set_t
+vtysh_daemons_list_ok(vty vtysh, qstring daemon_list)
 {
   daemon_set_t daemons ;
-  daemon_set_t connected ;
-  bool  all ;
+  qstring  list ;
+  bool     ok ;
 
-  /* Decide what daemons should be activated.
-   */
-  if (daemon_list == NULL)
+  list = qs_set(NULL, daemon_list) ;
+
+  daemons = cmd_daemons_from_list(list) ;
+
+  ok = vtysh_daemons_check_ok(vtysh, daemons) ;
+
+  if (qs_len(list) != 0)
     {
-      all     = true ;
-      daemons = ALL_RDS ;
-    }
-  else
-    {
-      qstring  list ;
-      bool     ok ;
-
-      list = qs_set(NULL, daemon_list) ;
-
-      all     = false ;
-      daemons = cmd_daemons_from_list(list) ;
-
-      ok = ((daemons != 0) && (qs_len(list) == 0)) ;
-
-      if (ok)
-        ok = vtysh_daemons_check_ok(vty, daemons) ;
-      else
-        {
-          if (qs_len(list) == 0)
-            vty_err(vty, "%% Failed: empty -d !\n") ;
-          else
-            vty_err(vty, "%% Failed: did not recognise: -d %s\n",
-                                                              qs_string(list)) ;
-        } ;
-
-      qs_free(list) ;
-
-      if (!ok)
-        return false ;
+      vty_err(vtysh, "%% Failed: did not recognise: -d %s\n",
+                                                        qs_string(list)) ;
+      ok = false ;
     } ;
 
-  /* Now attempt to connect to all required daemons
-   */
-  connected = vty_vtysh_open_clients(vty, daemons) ;
-
-  /* Deal with result of successfully connecting to at least one daemon.
-   *
-   * If we are not connecting to all daemons, must connect to all the activated
-   * ones !
-   */
-  if (connected != 0)
+  if ((daemons == 0) && ok)
     {
-      if (all || (connected == daemons))
-        return true ;                   /* Success !    */
+      vty_err(vtysh, "%% Failed: empty -d !\n") ;
+      ok = false ;
     } ;
 
-  /* Has failed... indicate how, ready to give up.
-   */
-  if (all || (connected == 0))
-    vty_err(vty, "%% Failed to connect to any %s", all ? "daemon\n"
-                                                          : "of: ") ;
-  else
-    vty_err(vty, "%% Failed to connect to: ") ;
+  qs_free(list) ;
 
-  if (!all)
-    {
-      qstring  list ;
-
-      list = cmd_daemons_make_list(NULL, daemons ^ connected) ;
-      vty_err(vty, "%s\n", qs_string(list)) ;
-
-      qs_free(list) ;
-    } ;
-
-  return false ;
+  return ok ? daemons : 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -770,31 +746,51 @@ DEFUN (vtysh_show_daemons,
        SHOW_STR
        "Show list of running daemons\n")
 {
-  vtysh_show_connected(vty) ;
+  vtysh_connected_ok(vty, false /* not quiet */, false /* not fail */) ;
   return CMD_SUCCESS;
 } ;
 
 /*------------------------------------------------------------------------------
  * Show clients to which we are currently connected
+ *
+ * If connected to at least one daemon, show which -- unless "quiet".  Return
+ * true <=> OK.
+ *
+ * If not connected to any daemon: if "fail", issue error message to vty_err
+ * and return false, otherwise output and NB message and return true.  (Note
+ * that outputs the NB, even if is "quiet".
  */
-extern void
-vtysh_show_connected(vty vty)
+extern bool
+vtysh_connected_ok(vty vtysh, bool quiet, bool fail)
 {
   daemon_set_t daemons ;
 
-  daemons = vty_vtysh_check_clients(vty) ;
+  daemons = vty_vtysh_check_clients(vtysh) ;
 
   if (daemons != 0)
     {
-      qstring  list ;
+      if (!quiet)
+        {
+          qstring  list ;
 
-      list = cmd_daemons_make_list(NULL, daemons) ;
-      vty_out(vty, "Connected to: %s\n", qs_string(list)) ;
+          list = cmd_daemons_make_list(NULL, daemons) ;
+          vty_out(vtysh, "Connected to: %s\n", qs_string(list)) ;
 
-      qs_free(list) ;
+          qs_free(list) ;
+        } ;
+    }
+  else if (!fail)
+    {
+      vty_out(vtysh, "Not connected to any daemon\n") ;
     }
   else
-    vty_out(vty, "%% not connected to any daemon\n") ;
+    {
+      vty_err(vtysh, "%% not connected to any daemon\n") ;
+      return false ;
+    }
+
+  vty_cmd_out_push(vtysh) ;
+  return true ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -803,13 +799,13 @@ vtysh_show_connected(vty vty)
  * If there are any duff daemons, report error by vty_err().
  */
 static daemon_set_t
-vtysh_daemons_list(vty vty, int argc, argv_t argv)
+vtysh_daemons_list(vty vtysh, int argc, argv_t argv)
 {
   daemon_set_t daemons ;
 
-  daemons = cmd_deamon_list_arg(vty, argc, argv) ;
+  daemons = cmd_deamon_list_arg(vtysh, argc, argv) ;
 
-  if (!vtysh_daemons_check_ok(vty, daemons))
+  if (!vtysh_daemons_check_ok(vtysh, daemons))
     daemons = 0 ;
 
   return daemons ;
@@ -823,19 +819,19 @@ vtysh_daemons_list(vty vty, int argc, argv_t argv)
  * Returns:  true <=> OK
  */
 static bool
-vtysh_daemons_check_ok(vty vty, daemon_set_t daemons)
+vtysh_daemons_check_ok(vty vtysh, daemon_set_t daemons)
 {
   if ((daemons & ~ALL_RDS) == 0)
     return true ;
 
-  vty_err(vty, "%% vtysh cannot connect to ") ;
+  vty_err(vtysh, "%% vtysh cannot connect to ") ;
 
   daemons &= ~ALL_RDS ;
 
   if (daemons & VTYSH_VD)
     {
       daemons &= ~VTYSH_VD ;
-      vty_err(vty, "itself(!)%s", (daemons != 0) ? " or " : "\n") ;
+      vty_err(vtysh, "itself(!)%s", (daemons != 0) ? " or " : "\n") ;
     } ;
 
   if (daemons != 0)
@@ -843,7 +839,7 @@ vtysh_daemons_check_ok(vty vty, daemon_set_t daemons)
       qstring list ;
 
       list = cmd_daemons_make_list(NULL, daemons) ;
-      vty_err(vty, "%s\n", qs_string(list)) ;
+      vty_err(vtysh, "%s\n", qs_string(list)) ;
 
       qs_free(list) ;
     } ;

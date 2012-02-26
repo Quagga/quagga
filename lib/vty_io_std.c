@@ -96,6 +96,10 @@ vty_std_write_open(const char* name)
 
   uty_vout_push(vio, vf, VOUT_STDOUT, NULL, std_buffer_size, true /* after */) ;
 
+  /* From now on we are running a phantom "start command".
+   */
+  vio->state = vst_cmd_running_executing ;
+
   VTY_UNLOCK() ;
 
   return vty ;
@@ -120,11 +124,36 @@ uty_std_out_push(vio_vf vf)
 
   qassert(vf->vout_type == VOUT_STDOUT) ;
 
+  /* Do nothing if vf_end.  Also traps vst_final.
+   */
+  if (vf->vout_state & vf_end)
+    return CMD_SUCCESS ;
+
+  qassert((vf->vio->state & vst_final) == 0) ;
+
+  /* If not vst_cmd_running or vst_cmd_running_executing we are done.
+   */
+  if ((vf->vio->state & (vst_cmd_inner_mask | vst_cancel)) != vst_cmd_running)
+    return CMD_SUCCESS ;        /* nothing more to do ATM       */
+
+  /* Expect to empty out the buffer in one go !
+   */
   if (vio_fifo_fwrite(vf->obuf, stdout) < 0)
     vio_fifo_clear(vf->obuf) ;
 
   fflush(stdout) ;              /* make sure                    */
 
+  /* If is not vst_cmd_executing, then we are at the top command level, and
+   * now that the buffer is empty, we can go vst_cmd_complete.
+   */
+  if ((vf->vio->state & vst_cmd_executing) == 0)
+    {
+      qassert(vio_fifo_is_empty(vf->obuf)) ;
+      vf->vio->state = (vf->vio->state & ~vst_cmd_mask) | vst_cmd_complete ;
+    } ;
+
+  /* In any event, have done everything that can be done.
+   */
   return CMD_SUCCESS ;
 } ;
 

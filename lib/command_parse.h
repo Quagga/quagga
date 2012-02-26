@@ -645,7 +645,7 @@ struct cmd_parsed
   struct cmd_command *cmd ;     /* NULL if empty command
                                         or fails to parse               */
   node_type_t   cnode ;         /* node command is in                   */
-  node_type_t   xnode ;         /* node command executes in             */
+  node_type_t   xnode ;         /* node command is to execute in        */
   node_type_t   nnode ;         /* node to set if command succeeds      */
 
   arg_vector    args ;          /* vector of arguments                  */

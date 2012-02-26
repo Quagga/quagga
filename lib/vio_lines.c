@@ -242,15 +242,21 @@ static void vio_lc_append_line(vio_line_control lc, qiov_item item) ;
 /*------------------------------------------------------------------------------
  * Append a lump of output to the given line control's buffers.
  *
- * Breaks the output into lines which are no longer than the lc->width.  If
- * that is zero (unset) we use a very large width indeed.
+ * Breaks the output into screen lines which are no longer than the lc->width.
+ * If that is zero (unset) we use a very large width indeed.
  *
- * Breaks the output into a number of screen lines, limited by the line counter.
+ * Trims trailing whitespace from each line (but not from screen lines), before
+ * breaking up into screen lines.
+ *
+ * NB: this means that does not process an incoming line until gets a '\n', or
+ *     the line control is flushed -- see vio_lc_flush().
  *
  * Effect of line counter:
  *
- *   * if definite height, will output only as many screen lines as it can,
- *     including none at all.
+ *   * if definite height, will put only as many screen lines as it can into
+ *     the iovec, including none at all.
+ *
+ *     In this case, the counter will reach exactly 0 and then stop.
  *
  *   * if indefinite height, when the line counter is reset it is set to some
  *     limit on the number of screen lines to buffer in the line control.
@@ -259,46 +265,29 @@ static void vio_lc_append_line(vio_line_control lc, qiov_item item) ;
  *     middle of a complete line, just because the limit of screen lines has
  *     been exceeded.
  *
- *   * in any case, the counter may reach exactly 0 if the number of screen
- *     lines required is exactly the number of screen lines allowed.
- *
- * Trims trailing whitespace from each line (but not from screen lines), before
- * breaking up into screen lines.
- *
- * NB: this means that does not output anything until gets a '\n'.
- *
- *     See vio_lc_flush().
+ *     In this case, the counter may go negative before it stops.
  *
  * Maps '\n' to '\r''\n'.
  *
  * Discards '\r' amongst trailing whitespace, but not otherwise.
- *
- * If lc->width == 0, use a very large width indeed.
  *
  * Returns: number of bytes able to append to the line control.
  *
  * NB: the buffer presented MUST be retained until the contents of the line
  *     control's buffers have been written -- see vio_lc_write_nb().
  *
- * NB: the line control may buffer stuff "in hand", before it reaches the
- *     output iovec, either because:
+ * NB: the line control may buffer stuff "in hand", before it is put into the
+ *     iovec, either because:
  *
- *       a) the current line is incomplete -- nothing will be output until
- *          a '\n' is appended, or the line control is flushed.
+ *       a) the current line is incomplete.
  *
- *       b) the line counter was exhausted while outputting a line -- this will
- *          be output on the next call of vio_lc_append(), or when the line
- *          control is flushed.
+ *       b) the line counter was exhausted while processing a complete line.
  *
- *          So even when the buffers that feed the line control are empty,
- *          a call of vio_lc_append() may push out some lines buffered in
- *          the line control.
+ *     When there is nothing to append to the line control, then need to check
+ *     whether there is stuff still in hand.  A call of vio_lc_append() with
+ *     zero bytes will cause any complete line fragments to be processed.
  *
- * NB: all output from the line control ends with a newline.
- *
- *     Incomplete lines are held in the line control until they are completed,
- *     or until the line control is flushed.  When the line control is flushed,
- *     unless the incomplete line is all whitespace, a newline is appended.
+ * NB: all output *from* the line control ends with a newline.
  */
 extern size_t
 vio_lc_append(vio_line_control lc, const void* buf, size_t len)
@@ -307,19 +296,20 @@ vio_lc_append(vio_line_control lc, const void* buf, size_t len)
   const char* bp ;
   const char* be ;
 
-  /* If we have a line which was being output, but was interrupted part
-   * way through by line counter expiry... try to empty that out, first.
+  /* If we have a complete line which was being processed, but was interrupted
+   * part way through by line counter expiry... try to empty that out, first.
    *
    * This may be prevented by the line counter (partly or completely), or may
    * exhaust it, which will be noticed, shortly, below.
    */
   if (!qiovec_empty(lc->fragments) && !lc->incomplete)
     {
-      qiovec_shift(lc->fragments, item) ;  /* want first fragment  */
+      qiovec_shift(lc->fragments, item) ;       /* want first fragment  */
       vio_lc_append_line(lc, item) ;
     } ;
 
-  /* Append: stop when run out of data or run out of lines      */
+  /* Append: stop when run out of data or run out of lines
+   */
   be = (const char*)buf + len ;
   bp = buf ;
 
@@ -329,22 +319,24 @@ vio_lc_append(vio_line_control lc, const void* buf, size_t len)
    */
   while ((bp < be) && (lc->counter > 0))
     {
-      item->base = bp ;             /* start of current fragment        */
+      item->base = bp ;         /* start of current fragment            */
 
       /* scan for '\n' -- note that we look for a complete line,
-       * before worrying about the line     */
+       * before worrying about the line
+       */
       bp = memchr(bp, '\n', (be - bp)) ;
 
       if (bp == NULL)
         {
-          /* We do not have a '\n' -- rats                              */
+          /* We do not have a '\n' -- rats -- have incomplete line in-hand
+           */
           item->len = be - item->base ;
           qiovec_push(lc->fragments, item) ;
 
-          lc->incomplete = true ;   /* have incomplete line in hand     */
+          lc->incomplete = true ;
 
           bp = be ;
-          break ;               /* done                         */
+          break ;               /* done                 */
         } ;
 
       /* We have a '\n' -- hurrah !
@@ -354,7 +346,7 @@ vio_lc_append(vio_line_control lc, const void* buf, size_t len)
        *
        * Trim off any trailing whitespace and establish the length of the
        * last fragment of the current (complete) line.  If the current
-       * fragment is all whitespace, works its way up any in hand fragments.
+       * fragment is all whitespace, works its way up any in-hand fragments.
        */
       lc->incomplete = false ;  /* definitely not       */
 
@@ -373,7 +365,7 @@ vio_lc_append(vio_line_control lc, const void* buf, size_t len)
         } ;
 
       /* We are now ready to break the current line up into width
-       * sections, if required -- to the extend allowed by the counter.
+       * sections, if required -- to the extent allowed by the counter.
        *
        * Have trimmed off any trailing whitespace, including back across
        * any fragments.  So:
@@ -383,8 +375,8 @@ vio_lc_append(vio_line_control lc, const void* buf, size_t len)
       vio_lc_append_line(lc, item) ;
     } ;
 
-  /* Exhausted the available data or the line count                     */
-
+  /* Exhausted the available data or the line count
+   */
   return (bp - (const char*)buf) ;      /* what have taken      */
 } ;
 
@@ -402,7 +394,7 @@ vio_lc_append(vio_line_control lc, const void* buf, size_t len)
  *
  *      That will now be flushed as if a newline had been appended, except that
  *      if the result would be a newline *only*, then all the whitespace is
- *      discarded and nothing is output.
+ *      discarded and nothing is added to the qiovec.
  *
  * If there is nothing to flush, or an incomplete line turns out to be
  * entirely whitespace, return false.
@@ -411,14 +403,11 @@ vio_lc_append(vio_line_control lc, const void* buf, size_t len)
  *
  * Effect of line counter:
  *
- *   * if definite height, will output only as many screen lines as it can,
- *     including none at all.
+ *   * if definite height, will prepare only as many screen lines as it can,
+ *     including none at all -- counter may reach 0, exactly.
  *
- *   * if indefinite height, will output as many screen lines as it takes,
- *     whatever the state of the line counter.
- *
- *   * in any case, the counter may reach exactly 0 if the number of screen
- *     lines required is exactly the number of screen lines allowed.
+ *   * if indefinite height, will prepare as many screen lines as it takes,
+ *     whatever the state of the line counter -- which may go -ve.
  *
  * Returns: true  <=> have something to flush (but counter may be exhausted)
  *          false <=> nothing to be flushed
@@ -454,7 +443,8 @@ vio_lc_flush(vio_line_control lc)
       qiovec_push(lc->fragments, item) ;
     } ;
 
-  /* Have something in hand, so now attempt to output it.               */
+  /* Have something in hand, so now attempt to add it to the iovec.
+   */
   qiovec_shift(lc->fragments, item) ;
   vio_lc_append_line(lc, item) ;
 
@@ -499,17 +489,14 @@ vio_lc_trim(vio_line_control lc, qiov_item item, const char* e)
 } ;
 
 /*------------------------------------------------------------------------------
- * Append line to the output qiov -- breaking it up into width sections,
+ * Append incoming line to the qiov -- breaking it up into width screen lines,
  * inserting newlines and looking out for and updating the line counter.
  *
- * If definite height, may stop immediately, without outputting anything.
- * If indefinite height, will output the current line, whatever the state of
- * the line counter.
+ * If definite height, may stop immediately, without appending anything.
+ * If indefinite height, will append the entire current line, whatever the
+ * state of the line counter.
  *
  * Note that do not trim whitespace from screen lines.
- *
- * At this point all trailing whitespace will have been removed from the
- * original line.
  *
  * Requires that have previously trimmed off any trailing whitespace, including
  * back across any fragments.  So:
@@ -527,8 +514,8 @@ vio_lc_append_line(vio_line_control lc, qiov_item item)
     {
       uint take ;
 
-      /* Take fragments or parts thereof until we have run out of output
-       * (which sets done == true) or reach the width.
+      /* Take fragments or parts thereof until we run out (set done == true)
+       * or reach the width.
        */
       take = (lc->width > 0) ? lc->width : UINT_MAX ;
       while (1)
@@ -556,7 +543,8 @@ vio_lc_append_line(vio_line_control lc, qiov_item item)
             }
           else
             {
-              /* Use leading part of fragment, and reduce same  */
+              /* Use leading part of fragment, and reduce same
+               */
               qiovec_push_this(lc->qiov, item->base, take) ;
               item->base += take ;
               item->len  -= take ;
@@ -567,7 +555,8 @@ vio_lc_append_line(vio_line_control lc, qiov_item item)
 
       qiovec_push(lc->qiov, lc->newline) ;
 
-      /* Count down & exit if all done.                         */
+      /* Count down & exit if all done.
+       */
       --lc->counter ;
 
       if (done)
@@ -584,7 +573,7 @@ vio_lc_append_line(vio_line_control lc, qiov_item item)
 } ;
 
 /*------------------------------------------------------------------------------
- * Write away any collected output -- assuming NON-BLOCKING.
+ * Write away any collected screen lines -- assuming NON-BLOCKING.
  *
  * Does nothing if the line control is empty.
  *
@@ -619,8 +608,8 @@ vio_lc_write_nb(int fd, vio_line_control lc)
        *     more than once for the same original line.
        *
        *     In this obscure case, the line will already be buffered in
-       *     lc->here.  Happily qs_clear() does not disturb the body of the
-       *     qstring, and qs_append_n will append from within its own
+       *     lc->here.  Happily s_set_len_nn() does not disturb the body of
+       *     the qstring, and qs_append_n will append from within its own
        *     body !
        */
       if (!qiovec_empty(lc->fragments))

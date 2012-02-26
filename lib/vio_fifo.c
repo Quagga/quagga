@@ -169,24 +169,6 @@ inline static void vio_fifo_release_up_to(vio_fifo vff, vio_fifo_lump upto) ;
 static void vio_fifo_release_lump(vio_fifo vff, vio_fifo_lump lump) ;
 
 /*------------------------------------------------------------------------------
- * Test whether there is a hold mark.
- */
-inline static bool
-vio_fifo_have_hold_mark(vio_fifo vff)
-{
-  return vff->p_start == &vff->hold_ptr ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Test whether there is an end mark.
- */
-inline static bool
-vio_fifo_have_end_mark(vio_fifo vff)
-{
-  return vff->p_end == &vff->end_ptr ;
-} ;
-
-/*------------------------------------------------------------------------------
  * The FIFO is empty, with one lump -- reset all pointers.
  *
  * Preserves and hold mark or end mark -- so no need to change p_start or p_end.
@@ -958,7 +940,7 @@ vio_fifo_trim(vio_fifo vff, bool term)
 } ;
 
 /*==============================================================================
- * Copy/Move operations -- from one FIFO to another.
+ * Copy/Move operations -- from one FIFO to another or between FIFO and qstring.
  */
 
 /*------------------------------------------------------------------------------
@@ -1117,6 +1099,48 @@ vio_fifo_move(vio_fifo dst, vio_fifo src)
 
   VIO_FIFO_DEBUG_VERIFY(dst) ;
   VIO_FIFO_DEBUG_VERIFY(src) ;
+
+  return dst ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Copy src FIFO (everything from get_ptr to end mark or put_ptr) to
+ * dst qstring.
+ *
+ * Create a dst qstring if there isn't one.  There must be a src FIFO.
+ *
+ * Appends to the dst qstring.
+ *
+ * Does not change the src FIFO in any way.
+ */
+extern qstring
+vio_fifo_to_qstring(qstring dst, vio_fifo src)
+{
+  vio_fifo_lump src_lump ;
+  char*         src_ptr ;
+
+  VIO_FIFO_DEBUG_VERIFY(src) ;
+
+  src_lump = src->get_lump ;
+  src_ptr  = src->get_ptr ;
+
+  while (1)
+    {
+      char* src_end ;
+
+      if (src_lump != src->end_lump)
+        src_end = src_lump->end ;       /* end of not end_lump  */
+      else
+        src_end = *src->p_end ;         /* end of end_lump      */
+
+      dst = qs_append_n(dst, src_ptr, src_end - src_ptr) ;
+
+      if (src_lump == src->end_lump)
+        break ;
+
+      src_lump = ddl_next(src_lump, list) ;
+      src_ptr  = src_lump->data ;
+    } ;
 
   return dst ;
 } ;

@@ -47,13 +47,15 @@ enum
  */
 extern void vtysh_cmd_init(void) ;
 extern void vtysh_vty_init(bool no_prefix) ;
-extern bool vtysh_daemons_connect(vty vty, qstring daemons_list) ;
-extern void vtysh_show_connected(vty vty) ;
+extern bool vtysh_daemons_connect(vty vtysh, daemon_set_t daemons,
+                                             daemon_set_t required) ;
+extern daemon_set_t vtysh_daemons_list_ok(vty vtysh, qstring daemon_list) ;
+extern bool vtysh_connected_ok(vty vtysh, bool quiet, bool fail) ;
 extern void vtysh_readline_init(void) ;
 extern cmd_ret_t vtysh_set_integrated_config(on_off_b integrated) ;
 
 extern int vtysh_pager_set(int lines) ;
-extern cmd_ret_t vtysh_execute(vty vty, const char* line, ulen prompt_len) ;
+extern cmd_ret_t vtysh_execute(vty vtysh, const char* line, ulen prompt_len) ;
 
 extern vty vtysh_vty ;
 
@@ -71,8 +73,8 @@ extern bool vtysh_integrated_vtysh_config;
 extern bool vtysh_read_config (vty boot_vty, qpath config_file, bool required,
                                              bool ignore_warnings, bool quiet) ;
 extern void vtysh_config_init_integrated (void) ;
-extern cmd_ret_t vtysh_config_collect_integrated(vty vty, bool show) ;
-extern int vtysh_config_write_config_node(vty vty, node_type_t node) ;
+extern cmd_ret_t vtysh_config_collect_integrated(vty vtysh, bool show) ;
+extern int vtysh_config_write_config_node(vty vtysh, node_type_t node) ;
 extern void vtysh_config_reset_integrated(void) ;
 
 #endif /* VTYSH_H */

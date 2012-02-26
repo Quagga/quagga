@@ -468,9 +468,12 @@ Inline uint16_t
 suck_w(sucker sr)
 {
   uint16_t w ;
+
   dassert((sr->ptr + 1) < sr->end) ;
-  w = *sr->ptr++ ;
-  return (w << 8) + *sr->ptr++ ;
+
+  memcpy((void*)&w, sr->ptr, 2) ;
+  sr->ptr += 2 ;
+  return ntohs(w) ;
 } ;
 
 Inline uint32_t
@@ -478,12 +481,22 @@ suck_l(sucker sr)
 {
   uint32_t l ;
   dassert((sr->ptr + 3) < sr->end) ;
-     l =            *sr->ptr++ ;
-     l = (l << 8) + *sr->ptr++ ;
-     l = (l << 8) + *sr->ptr++ ;
-  return (l << 8) + *sr->ptr++ ;
+
+  memcpy((void*)&l, sr->ptr, 4) ;
+  sr->ptr += 4 ;
+  return ntohl(l) ;
 } ;
 
+Inline in_addr_t                /* Network Order        */
+suck_ipv4(sucker sr)
+{
+  in_addr_t ip ;
+  dassert((sr->ptr + 3) < sr->end) ;
+
+  memcpy((void*)&ip, sr->ptr, sizeof(in_addr_t)) ;
+  sr->ptr += 4 ;
+  return ip ;
+} ;
 
 #endif /* _QUAGGA_BGP_COMMON_H */
 

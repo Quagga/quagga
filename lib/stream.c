@@ -580,12 +580,30 @@ stream_put_partial(struct stream* s, const byte* src, size_t n,
 /*------------------------------------------------------------------------------
  * Copy as much of source as possible to stream.
  *
- * If src == NULL, then copy zeros.
+ * If src == NULL, then put zeros.
  */
 extern void
 stream_put (struct stream *s, const void *src, size_t n)
 {
-  stream_put_this(s, src, n) ;
+  if (src != NULL)
+    stream_put_this(s, src, n) ;
+  else
+    {
+      size_t have ;
+
+      have = stream_get_write_left(s) ;
+
+      if (have < n)
+        {
+          n = have ;
+          s->overflow = true ;
+        } ;
+
+      if (n > 0)
+        memset(s->data + s->endp, 0, n) ;
+
+      s->endp += n ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------

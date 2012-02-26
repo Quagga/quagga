@@ -251,11 +251,15 @@ typedef struct vtysh_options
   bool echo_command ;
   bool ignore_warnings ;
   uint lexical_level ;
+
+  daemon_set_t daemons, required ;
+
 } vtysh_options_t ;
 
-static int vtysh_cmd_mode(qstring commands, vtysh_options_t* options) ;
-static int vtysh_boot_mode(vtysh_options_t* options) ;
-static int vtysh_interactive_mode(vtysh_options_t* options) ;
+static int vtysh_cmd_mode(vty vtysh, qstring commands,
+                                                     vtysh_options_t* options) ;
+static int vtysh_boot_mode(vty vtysh, vtysh_options_t* options) ;
+static int vtysh_interactive_mode(vty vtysh, vtysh_options_t* options) ;
 
 /*------------------------------------------------------------------------------
  * Help information display.
@@ -403,6 +407,8 @@ main (int argc, char **argv, char **env)
   options.echo_command     = false ;
   options.ignore_warnings  = false ;
   options.lexical_level    = 0 ;
+  options.daemons          = ALL_RDS ;
+  options.required         = 0 ;
 
   if (qdebug)
     fprintf(stderr, "vtysh -- qdebug mode\n") ;
@@ -709,7 +715,7 @@ main (int argc, char **argv, char **env)
         fprintf(stderr, "-E/--echo ignored in interactive mode\n") ;
     } ;
 
-  /* Read vtysh configuration file (if any) before connecting to daemons.
+   /* Read vtysh configuration file (if any) before connecting to daemons.
    * (This is the "vtysh.conf" file.)
    *
    * This will ignore all commands except those which apply to the vtysh
@@ -723,17 +729,17 @@ main (int argc, char **argv, char **env)
   vtysh_read_config(vtysh_vty, host.config_file, own_config || dryrun,
                             options.ignore_warnings, options.quiet && !dryrun) ;
 
+  /* Process the -d options
+   */
+  if (daemon_list != NULL)
+    {
+      options.daemons  = vtysh_daemons_list_ok(vtysh_vty, daemon_list) ;
+      options.required = options.daemons ;
+    } ;
+
   /* Make sure we pass authentication before proceeding.
    */
   vtysh_auth ();
-
-  /* Connect to daemons as required.
-   *
-   * Reports what daemons connects to if dryrun or not quiet
-   */
-  if (!vtysh_daemons_connect(vtysh_vty, daemon_list))
-    if (!dryrun)
-      return 1 ;
 
   /* Now run one of: vtysh_cmd_mode()
    *                 vtysh_boot_mode()
@@ -743,20 +749,25 @@ main (int argc, char **argv, char **env)
   switch (mode)
     {
       case vtysh_mode_dryrun:
-        vtysh_show_connected(vtysh_vty) ;
         exit_code = 0 ;
         break ;
 
       case vtysh_mode_command:
-        exit_code = vtysh_cmd_mode(commands, &options) ;
+        if (vtysh_daemons_connect(vtysh_vty, options.daemons, options.required))
+          exit_code = vtysh_cmd_mode(vtysh_vty, commands, &options) ;
+        else
+          exit_code = 1 ;
         break ;
 
       case vtysh_mode_boot:
-        exit_code = vtysh_boot_mode(&options) ;
+        if (vtysh_daemons_connect(vtysh_vty, options.daemons, options.required))
+          exit_code = vtysh_boot_mode(vtysh_vty, &options) ;
+        else
+          exit_code = 1 ;
         break ;
 
       case vtysh_mode_interactive:
-        exit_code = vtysh_interactive_mode(&options) ;
+        exit_code = vtysh_interactive_mode(vtysh_vty, &options) ;
         break ;
 
       default:
@@ -766,6 +777,10 @@ main (int argc, char **argv, char **env)
   /* Make sure all output is complete by pushing vtysh_vty
    */
   vty_cmd_out_push(vtysh_vty) ;
+
+  /* Be tidy and close all the daemons -- and we're done.
+   */
+  vty_vtysh_close() ;
 
   return exit_code ;
 } ;
@@ -787,17 +802,17 @@ main (int argc, char **argv, char **env)
  *           1 -- failed in some way
  */
 static int
-vtysh_cmd_mode(qstring commands, vtysh_options_t* options)
+vtysh_cmd_mode(vty vtysh, qstring commands, vtysh_options_t* options)
 {
   cmd_context context ;
   const char* cmd ;
 
-  if (!options->quiet)
-    vtysh_show_connected(vtysh_vty) ;
+  if (!vtysh_connected_ok(vtysh, options->quiet, true /* fail */))
+    return 1 ;
 
-  vty_vtysh_promote(vtysh_vty) ;        /* -> VOUT_VTYSH        */
+  vty_vtysh_promote(vtysh) ;        /* -> VOUT_VTYSH        */
 
-  context = vtysh_vty->vio->vin->context ;
+  context = vtysh->vio->vin->context ;
 
   /* Set required lexical-level
    */
@@ -856,7 +871,7 @@ vtysh_cmd_mode(qstring commands, vtysh_options_t* options)
       if (logfile)
         log_it(cmd) ;
 
-      ret = vtysh_execute(vtysh_vty, cmd, 0 /* no prompt (yet) */) ;
+      ret = vtysh_execute(vtysh, cmd, 0 /* no prompt (yet) */) ;
 
       if (ret == CMD_SUCCESS)
         continue ;
@@ -885,12 +900,12 @@ vtysh_cmd_mode(qstring commands, vtysh_options_t* options)
  *           1 -- failed in some way
  */
 static int
-vtysh_boot_mode(vtysh_options_t* options)
+vtysh_boot_mode(vty vtysh, vtysh_options_t* options)
 {
-  if (!options->quiet)
-    vtysh_show_connected(vtysh_vty) ;
+  if (!vtysh_connected_ok(vtysh, options->quiet, true /* fail */))
+    return 1 ;
 
-  if (vtysh_read_config(vtysh_vty, host.int_config_file, true /* required */,
+  if (vtysh_read_config(vtysh, host.int_config_file, true /* required */,
                                       options->ignore_warnings, options->quiet))
     return 0 ;
   else
@@ -910,16 +925,17 @@ vtysh_boot_mode(vtysh_options_t* options)
  *           1 -- failed in some way
  */
 static int
-vtysh_interactive_mode(vtysh_options_t* options)
+vtysh_interactive_mode(vty vtysh, vtysh_options_t* options)
 {
   cmd_ret_t   ret ;
   cmd_context context ;
 
-  vty_vtysh_promote(vtysh_vty) ;        /* -> VOUT_VTYSH        */
+  /* Start as if executing phantom "start" command, whose results will be
+   * the output generated below -- vst_cmd_running_executing.
+   */
+  vty_vtysh_promote(vtysh) ;            /* -> VOUT_VTYSH        */
 
-  context = vtysh_vty->vio->vin->context ;
-
-  vtysh_readline_init() ;
+  context = vtysh->vio->vin->context ;
 
   /* Set required lexical-level
    */
@@ -934,26 +950,34 @@ vtysh_interactive_mode(vtysh_options_t* options)
 
   /* Complete preparation
    *
-   * Say hello, unless quiet -- which we treat as a command action which
-   * immediately succeeds
+   * Say hello, unless quiet.  Then connect to daemons as require, and show
+   * what we are connected to (unless quiet).
+   *
+   * Then proceed as if a command action has just succeeded.
    */
+  uty_vtysh_out_prep(vtysh->vio, NULL /* no pager */) ;
   if (!options->quiet)
     {
-      uty_vtysh_out_prep(vtysh_vty->vio, NULL /* no pager */) ;
-      vty_hello(vtysh_vty) ;
-      vtysh_show_connected(vtysh_vty) ;
+      vty_hello(vtysh) ;
+      vty_cmd_out_push(vtysh) ;
+    } ;
 
-      ret = vty_cmd_complete(vtysh_vty, CMD_SUCCESS) ;
-      while ((ret != CMD_SUCCESS) && (ret != CMD_STOP))
-        ret = vty_cmd_hiatus(vtysh_vty, ret) ;
+  if (!vtysh_daemons_connect(vtysh, options->daemons, options->required))
+    return 1 ;
 
-      if (ret == CMD_STOP)
-        return 0 ;
-    }
-  else
-    ret = CMD_SUCCESS ;
+  vtysh_connected_ok(vtysh, options->quiet, false /* not fail */) ;
 
+  ret = vty_cmd_complete(vtysh, CMD_SUCCESS) ;
+  while ((ret != CMD_SUCCESS) && (ret != CMD_STOP))
+    ret = vty_cmd_hiatus(vtysh, ret) ;
+
+  if (ret == CMD_STOP)
+    return 0 ;
+
+  /* Prepare to read lines and page out
+   */
   vtysh_pager_set(-1) ;         /* set pager to default         */
+  vtysh_readline_init() ;
 
   /* Preparation for longjmp() and fielding same.
    */
@@ -978,7 +1002,7 @@ vtysh_interactive_mode(vtysh_options_t* options)
         rl_free_line_state() ;
         rl_crlf() ;
 
-        ret = vtysh_execute(vtysh_vty, "end", 0) ;
+        ret = vtysh_execute(vtysh, "end", 0) ;
         break ;
 
       default:
@@ -994,8 +1018,8 @@ vtysh_interactive_mode(vtysh_options_t* options)
       /* Get a line from the user.
        */
       in_readline = true ;
-      line_read   = readline(uty_cmd_prompt(vtysh_vty->vio,
-                                          vtysh_vty->vio->vin->context->node)) ;
+      line_read   = readline(uty_cmd_prompt(vtysh->vio,
+                                            vtysh->vio->vin->context->node)) ;
       in_progress = true ;
       in_readline = false ;
 
@@ -1016,8 +1040,7 @@ vtysh_interactive_mode(vtysh_options_t* options)
             } ;
         } ;
 
-      ret = vtysh_execute(vtysh_vty, line_read,
-                                            qs_len_nn(vtysh_vty->vio->prompt)) ;
+      ret = vtysh_execute(vtysh, line_read, qs_len_nn(vtysh->vio->prompt)) ;
 
       free(line_read) ;
 

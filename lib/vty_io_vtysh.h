@@ -129,9 +129,10 @@ typedef struct vtysh_in_redtape
 {
   vtysh_redtape_t   rt[1] ;
 
-  node_type_t       xnode ;
-  node_type_t       cnode ;
-  cmd_do_t          to_do ;
+  node_type_t       xnode ;     /* vtysh_pin_command & vtysh_pin_special  */
+
+  node_type_t       cnode ;     /* vtysh_pin_command    */
+  cmd_do_t          to_do ;     /* vtysh_pin_special    */
 
 } vtysh_in_redtape_t ;
 
@@ -168,11 +169,11 @@ typedef vtysh_out_redtape_t* vtysh_out_redtape ;
  */
 typedef enum vtysh_in_state
 {
-  vshis_between     = 0,
-  vshis_start,
+  vshis_start       = 0,
   vshis_redtape_min,
   vshis_redtape_rest,
   vshis_line,
+  vshis_between,
 } vtysh_in_state_t ;
 
 typedef enum vtysh_out_state
@@ -217,7 +218,7 @@ struct vtysh_client
   const daemon_set_t daemon ;
   const char* const  path ;
 
-  /* Rest is irrelevant if the fd is < 0
+  /* When open this will be >= 0
    */
   int fd ;      /* set when connection to relevant daemon is open       */
 
@@ -231,15 +232,23 @@ struct vtysh_client
    *
    * This is set when all connections to daemons have been completed, so that
    * the width of the prefix reflects the set of daemons actually opened.
+   *
+   * Once set, this remains valid, even after the client daemon is closed.
+   * However, the length depends on the longest name of all the open daemons,
+   * which is arranged when daemons are opened -- so the valid life of this
+   * field is limited.
    */
   char  prefix[vtysh_max_prefix_len + 1] ;
 
-  /* Client reading.
+  /* The version number returned when the daemon was opened.
+   *
+   * This is discarded when the daemon is closed.
+   */
+  qstring  version ;
+
+  /* Client reading/writing.
    */
   vtysh_out_redtape_t read[1] ;
-
-  /* Client writing.
-   */
   vtysh_in_redtape_t write[1] ;
 } ;
 
@@ -256,6 +265,23 @@ typedef enum
 
 } vtysh_client_ret_t ;
 
+/*------------------------------------------------------------------------------
+ * Collection of things required to execute command in a vtysh client daemon.
+ */
+struct vtysh_client_dispatch
+{
+  cmd_do_t      to_do ;         /* cmd_do_command etc.                  */
+
+  const char*   line ;
+  ulen          len ;
+
+  node_type_t   xnode ;         /* node to execute command in           */
+  node_type_t   cnode ;         /* node for command if cmd_do_command   */
+} ;
+
+typedef struct vtysh_client_dispatch  vtysh_client_dispatch_t[1] ;
+typedef struct vtysh_client_dispatch* vtysh_client_dispatch ;
+
 /*==============================================================================
  * Functions
  */
@@ -266,14 +292,14 @@ extern cmd_ret_t uty_sh_serv_out_push(vio_vf vf) ;
 extern cmd_ret_t uty_sh_serv_read_close(vio_vf vf) ;
 extern cmd_ret_t uty_sh_serv_write_close(vio_vf vf) ;
 
-extern int vtysh_client_open(vty vty, vtysh_client client) ;
+extern cmd_ret_t vtysh_client_open(vty vty, vtysh_client client) ;
 extern void vtysh_client_close(vtysh_client client) ;
 
-extern vtysh_client_ret_t vtysh_client_read(vtysh_client client,
-                                                                vio_fifo rbuf) ;
+extern cmd_ret_t vtysh_client_read(vty vty, vtysh_client client) ;
 extern vtysh_client_ret_t vtysh_client_write(vtysh_client client,
-                                  cmd_do_t to_do, const char* line, ulen len,
-                                         node_type_t cnode, node_type_t xnode) ;
+                                               vtysh_client_dispatch dispatch) ;
+extern cmd_ret_t vtysh_client_fail(vty vty, vtysh_client client,
+                                                      vtysh_client_ret_t cret) ;
 
 /*==============================================================================
  * Globals for handling connected clients in vtysh

@@ -315,6 +315,8 @@ uty_file_cmd_line_fetch(vio_vf vf)
   qassert( (vf->vin_type == VIN_FILE) || (vf->vin_type == VIN_CONFIG)
                                       || (vf->vin_type == VIN_PIPE) ) ;
 
+  qassert(vf->vio->vin_depth > 1) ;     /* so vio->state is not for us  */
+
   while (1)
     {
       cmd_ret_t ret ;

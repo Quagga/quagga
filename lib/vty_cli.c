@@ -79,6 +79,10 @@ static void uty_cli_update_more(vty_cli cli) ;
  * Note that the vty_io_term stuff sends out a bunch of telnet commands, which
  * will be buffered in the CLI buffer.  That will be output, before the
  * start-up messages etc. on uty_cli_start().
+ *
+ * Expects the vf to be set up already -- in particular, the obuf must have
+ * been initialised.  The obuf and the cli->olc are closely linked.  The obuf
+ * runs a permanent hold_marker to hold on to data which the cli->olc needs.
  */
 extern vty_cli
 uty_cli_new(vio_vf vf)
@@ -108,7 +112,7 @@ uty_cli_new(vio_vf vf)
    *   key_stream     = X              -- set below
    *
    *   drawn          = false
-   *   drawn_to_do    = NULL
+   *   drawn_to_do    = cmd_do_nothing
    *
    *   state          = X              -- set below
    *   ready          = false          -- no need to force write ready
@@ -132,8 +136,8 @@ uty_cli_new(vio_vf vf)
    *   olc            = NULL           -- see below
    */
   confirm(NULL_NODE == 0) ;             /* node                 */
-  confirm(cmd_do_nothing == 0) ;        /* to_do & to_do_next   */
-
+  confirm(cmd_do_nothing == 0) ;        /* to_do, to_do_next
+                                         * and drawn_to_do      */
   cli->vf = vf ;
 
   /* create empty cli->hist.
@@ -154,6 +158,9 @@ uty_cli_new(vio_vf vf)
   cli->cbuf = vio_fifo_new(1000) ;
 
   cli->olc  = vio_lc_new(0 , 0, telnet_newline) ;
+
+  qassert(vf->obuf != NULL) ;
+  vio_fifo_set_hold_mark(vf->obuf) ;
 
   /* Make an empty parsed object and context object
    */
@@ -279,7 +286,8 @@ uty_cli_callback(keystroke_callback_args /* void* context, keystroke stroke */)
         /* We only intercept ^C.
          *
          * Whatever happens, a ^C discards everything that precedes it,
-         * including any ^C accepted into the keystroke stream or stolen.
+         * including any ^C accepted into the keystroke stream or stolen,
+         * and stop stealing.
          */
         keystroke_stream_clear(cli->key_stream) ;
 
@@ -300,43 +308,35 @@ uty_cli_callback(keystroke_callback_args /* void* context, keystroke stroke */)
         if (cli->vf->vin_state & vf_cease)
           return true ;
 
-        /* If is vst_cmd_running -- signal the cancel to the command loop and
-         * output, and eat the ^C.
+        /* If is vst_cmd_fetch, leave the ^C for cli to pick up.
          *
-         * Otherwise, will leave the ^C for cli to pick up.
-         *
-         * If is vst_cmd_dispatched, then we are part way between vst_cmd_fetch
-         * and vst_cmd_running.  Because we clear everything out of the
-         * keystroke stream, we can fall back to vst_cmd_fetch and the cli will
-         * immediately find the ^C.
-         *
-         * If is vst_cmd_complete, then we are part way between vst_cmd_running
-         * and vst_cmd_fetch.  Unless the input is closed, the ^C will be picked
+         * If is vst_cmd_complete, then we are between vst_cmd_running and
+         * vst_cmd_fetch.  Unless the input is closed, the ^C will be picked
          * up by the cli when it goes vst_cmd_fetch.  If the input is closed,
          * then the ^C is too late, and will get discarded -- in particular,
          * will not appear as if some output has been terminated early.
+         *
+         * Otherwise -- signal the cancel to the command loop and output, and
+         * eat the ^C.  (NB: if is vst_cmd_more, will not re-enter the cli_more
+         * because will be vst_cancel.)
          */
-        switch(vio->state & vst_cmd_mask)
+        switch(vio->state & vst_cmd_inner_mask)
           {
             case vst_cmd_fetch:
               break ;
 
             case vst_cmd_dispatched:
-              vio->state = (vio->state & ~vst_cmd_mask) | vst_cmd_fetch ;
-              break ;
-
             case vst_cmd_running:
-            case vst_cmd_running_executing:
+            case vst_cmd_more:
               uty_vio_exception(vio, vx_cancel) ;
               return true ;
 
-            case vst_cmd_more:
-            case vst_cmd_more_executing:
             case vst_cmd_complete:
               break ;
 
             default:
               qassert(false) ;
+              uty_vio_exception(vio, vx_stop_final) ;
               break ;
           } ;
 
@@ -464,10 +464,10 @@ uty_cli_update_more(vty_cli cli)
  * have to be invented.]
  *
  * The CLI input and output interact quite strongly.  The basic vst_cmd_fetch,
- * vst_cmd_dispatched, vst_cmd_running, vst_cmd_more and vst_cmd_complete states reflect
- * the progress of gathering a command, dispatching and executing it,
- * outputting the results (possibly pausing with "--more--") and finally
- * having completed the process.
+ * vst_cmd_dispatched, vst_cmd_running, vst_cmd_more and vst_cmd_complete
+ * states reflect the progress of gathering a command, dispatching and
+ * executing it, outputting the results (possibly pausing with "--more--") and
+ * finally having completed the process.
  *
  * On top of the basic vst_cmd_xxx states come the temporary state bits for log
  * monitor output -- vst_mon_active/vst_mon_blocked/vst_paused.  The key
@@ -511,7 +511,7 @@ uty_cli_update_more(vty_cli cli)
  *
  *                       Will end up vst_cmd_complete when the input is closed.
  *
- * Plus, the extra bit:
+ * Plus, the extra bit, when vst_cmd_running or vst_cmd_more *only*:
  *
  *   vst_cmd_execute  -- this is set when the command line is picked up, ie
  *                       when vst_cmd_running is set.
@@ -605,6 +605,11 @@ uty_cli_update_more(vty_cli cli)
  * current prompt and the user input to date.  The cursor is positioned where
  * the user last placed it -- or at the end when vst_cmd_dispatched.
  *
+ * With cli->drawn is cli->drawn_to_do.  This is set to cmd_do_nothing on
+ * entry to vst_cmd_fetch and vst_cmd_more.  It is set as required on entry
+ * to vst_cmd_dispatched, and set in vst_cmd_more if cancel/eof/time-out
+ * appear.
+ *
  * The command line can be "wiped" -- see uty_cli_wipe() -- which removes all
  * output and prompt, and leaves the console at the start of an empty line
  * where the command line used to be.  On entry to the CLI, it will draw the
@@ -675,6 +680,8 @@ uty_cli(vty_cli cli)
 extern cli_active_t
 uty_cli_is_active(vty_cli cli)
 {
+  vst_state_t state ;
+
   VTY_ASSERT_LOCKED() ;
 
   if ((cli->vf->vin_state | cli->vf->vout_state) & (vf_cease | vf_cancel))
@@ -683,10 +690,15 @@ uty_cli_is_active(vty_cli cli)
   /* Note that, inter alia, vst_mon_active/vst_mon_blocked and
    * vst_mon_paused preclude activity in the CLI.
    */
-  switch (cli->vf->vio->state)
+  state = cli->vf->vio->state ;
+  switch (state & vst_cmd_inner_mask)
     {
+      /* We do not run the standard CLI unless all other state is clear.
+       */
       case vst_cmd_fetch:
-        return cli_standard ;
+        if ((state & ~vst_cmd_inner_mask) == 0)
+          return cli_standard ;
+        break ;
 
       case vst_cmd_dispatched:
         break ;
@@ -694,9 +706,17 @@ uty_cli_is_active(vty_cli cli)
       case vst_cmd_running:
         break ;
 
+        /* We do not run "--more--" CLI if is final, or about to cancel, or
+         * busy with log monitor stuff.
+         *
+         * Conversely, will run "--more--" CLI if is in notify state or is
+         * about to suspend.
+         */
       case vst_cmd_more:
-      case vst_cmd_more_executing:
-        return cli_more ;
+        if ((state & (vst_final | vst_cancel | vst_suspended | vst_mon_mask))
+                                                                           == 0)
+          return cli_more ;
+        break ;
 
       case vst_cmd_complete:
       default:
@@ -714,6 +734,7 @@ static cmd_do_t uty_cli_process(vty_cli cli) ;
 static cmd_do_t uty_cli_auth(vty_cli cli) ;
 static void uty_cli_hist_add (vty_cli cli, qstring cl) ;
 static void uty_cli_write_s(vty_cli cli, const char *str) ;
+static const char* uty_cli_to_do_mark(cmd_do_t to_do) ;
 
 /*------------------------------------------------------------------------------
  * Standard CLI for VTY_TERM
@@ -740,6 +761,8 @@ static void uty_cli_write_s(vty_cli cli, const char *str) ;
 static bool
 uty_cli_standard(vty_cli cli)
 {
+  const char* to_do_mark ;
+
   VTY_ASSERT_LOCKED() ;
 
   qassert(cli->vf->vio->state == vst_cmd_fetch) ;
@@ -770,11 +793,9 @@ uty_cli_standard(vty_cli cli)
 
   /* Dispatch the "to_do".
    *
-   *   * set vst_cmd_dispatched
+   *   * set and draw any cli->drawn_to_do and set set vst_cmd_dispatched
    *
-   *   * set history to the present
-   *
-   *   * uty_cli_auth() and uty_cli_progress() will have left the cursor at the
+   *     uty_cli_auth() and uty_cli_progress() will have left the cursor at the
    *     end of the command line, with the screen up to date, and "drawn" is
    *     true.
    *
@@ -783,8 +804,10 @@ uty_cli_standard(vty_cli cli)
    *
    *     When the command line is picked up, then a newline is issued.
    *
-   *     If the command is cancelled before it is picked up (!), then will
-   *     return to the cli, vst_cmd_fetch, with the ^C in the keystroke stream.
+   *     If a cancel rolls up while in vst_cmd_dispatched, the line is redrawn
+   *     (if required) and ^C issued (of not already there) and a newline.
+   *
+   *   * set history to the present
    *
    *   * if is cli->auth_node, modify the to_do to cmd_do_auth version.
    *
@@ -797,22 +820,17 @@ uty_cli_standard(vty_cli cli)
    */
   qassert(cli->drawn && (qs_cp_nn(cli->cl) == qs_len_nn(cli->cl))) ;
 
+  to_do_mark = uty_cli_to_do_mark(cli->to_do) ;
+
+  if (to_do_mark != NULL)
+    {
+      uty_cli_write_s(cli, to_do_mark) ;
+      cli->drawn_to_do = cli->to_do ;
+    }
+  else
+    cli->drawn_to_do = cmd_do_nothing ;
+
   cli->vf->vio->state = vst_cmd_dispatched ;
-
-  static const char* cli_to_do_marker [cmd_do_count] =
-  {
-      [cmd_do_command]   = NULL,
-      [cmd_do_ctrl_c]    = "^C",
-      [cmd_do_ctrl_d]    = "^D",
-      [cmd_do_ctrl_z]    = "^Z",
-      [cmd_do_eof]       = "^*",
-      [cmd_do_timed_out] = "^!",
-  } ;
-
-  cli->drawn_to_do = (cli->to_do < cmd_do_count) ? cli_to_do_marker[cli->to_do]
-                                                 : NULL ;
-  if (cli->drawn_to_do != NULL)
-    uty_cli_write_s(cli, cli->drawn_to_do) ;
 
   if      (cli->auth_node)
     {
@@ -880,8 +898,6 @@ uty_cli_standard(vty_cli cli)
  *
  *   * something in vst_hiatus_mask -- which the hiatus will take care of.
  *
- *     Note that should not have been called if this is the case -- tant pis.
- *
  *   * something in vst_mon_mask -- which the output side will take care of.
  *
  * Returns:  CMD_SUCCESS  -- has a command line, ready to go
@@ -908,7 +924,6 @@ uty_cli_want_command(vio_vf vf)
   context = vf->context ;
 
   qassert(vio->vin_depth == 1) ;        /* so vst_cmd_xxx is ours !     */
-  qassert((vio->state & vst_hiatus_mask) == 0) ;
 
   switch (vio->state)
     {
@@ -946,6 +961,9 @@ uty_cli_want_command(vio_vf vf)
               vio->state = vst_cmd_fetch ;
               cli->ready = true ;       /* must re-enter uty_cli()      */
 
+              cli->drawn = false ;      /* entering vst_cmd_fetch       */
+              cli->drawn_to_do = cmd_do_nothing ;
+
               ret = uty_term_set_readiness(vf, CMD_SUCCESS) ;
 
               if (ret == CMD_SUCCESS)
@@ -966,7 +984,7 @@ uty_cli_want_command(vio_vf vf)
          */
         if (!cli->drawn)
           uty_cli_draw(cli, false /* cursor unchanged */) ;
-        uty_cli_out_newline(cli) ;      /* clears "drawn"               */
+        uty_cli_out_newline(cli) ;      /* clears "drawn"/"drawn_to_do" */
 
         vio_fifo_clear(vf->obuf) ;      /* make sure                    */
         vio_lc_clear(cli->olc) ;
@@ -1001,12 +1019,33 @@ uty_cli_want_command(vio_vf vf)
  * When the output side finds that "--more--" is required, it changes from
  * vst_cmd_running to vst_cmd_more, and the uty_cli_more() cli will be entered.
  */
+static cmd_do_t uty_cli_got_knull(vty_cli cli, keystroke stroke) ;
+
+/*------------------------------------------------------------------------------
+ * Enter the "--more--" state
+ */
+extern void
+uty_cli_more_enter(vty_cli cli)
+{
+  vst_state_t* p_state ;
+
+  VTY_ASSERT_LOCKED() ;
+
+  p_state = &(cli->vf->vio->state) ;
+
+  *p_state   = (*p_state & ~vst_cmd_inner_mask) | vst_cmd_more ;
+                                        /* run "--more--" cli   */
+  cli->ready = true ;                   /* force entry to cli   */
+  cli->drawn = false ;                  /* make sure            */
+  cli->drawn_to_do = cmd_do_nothing ;   /* no to_do_mark, yet   */
+} ;
 
 /*------------------------------------------------------------------------------
  * Handle the "--more--" state.
  *
- * Entered only if vst_cmd_more.  So does not get here if vst_mon_active/
- * vst_mon_blocked or vst_mon_paused are set.
+ * Entered only if vst_cmd_more.  Does not get here if is vst_mon_active/
+ * vst_mon_blocked or vst_mon_paused.  Does not get here if is vst_cancel.
+ * Will get here if is vst_notify.
  *
  * First, need to make sure the "--more--" prompt is written.  If not, suck up
  * any keystrokes, draw the prompt as required and then exit, cli->ready, to
@@ -1026,10 +1065,8 @@ uty_cli_want_command(vio_vf vf)
  *
  * If the "--more--" prompt is written, try to steal a keystroke.  When
  * collects a stolen keystroke, will either wipe the "--more--" prompt and
- * return to vst_cmd_running, or signal a CMD_CANCEL.
- *
- * EOF on input causes immediate exit from "--more--", without cancelling
- * output.
+ * return to vst_cmd_running, or show what happened and raise a vx_cancel
+ * exception.
  *
  * Returns:  true  => set cli->ready
  *           false => clear cli->ready
@@ -1038,12 +1075,16 @@ static bool
 uty_cli_more(vty_cli cli)
 {
   keystroke_t steal ;
-  bool  cancel, stolen ;
+  cmd_do_t    to_do ;
+  vst_state_t* p_state ;
 
   VTY_ASSERT_LOCKED() ;
 
-  qassert( (cli->vf->vio->state == vst_cmd_more)
-        || (cli->vf->vio->state == vst_cmd_more_executing) ) ;
+  p_state = &(cli->vf->vio->state) ;
+
+  qassert((*p_state & (vst_final | vst_cancel
+                                 | vst_mon_mask
+                                 | vst_cmd_inner_mask)) == vst_cmd_more) ;
 
   /* Deal with the first stage of "--more--"
    *
@@ -1074,19 +1115,20 @@ uty_cli_more(vty_cli cli)
    *
    * If nothing to be stolen exit.
    */
-  stolen = keystroke_steal(cli->key_stream, steal) ;
-
-  if (!stolen)
+  if (!keystroke_steal(cli->key_stream, steal))
     return false ;              /* waiting for keystroke        */
 
   /* Something has been stolen, so exit "--more--" state, and continue
    * or cancel.
+   *
+   * If gets eof or time-out, treat as cancel -- with own drawn_to_do.
    */
-  cancel = false ;
+  to_do = cmd_do_nothing ;
   switch(steal->type)
     {
       case ks_null:             /* at EOF for whatever reason   */
-        cancel = true ;
+
+        to_do = uty_cli_got_knull(cli, steal) ;
         break ;
 
       case ks_char:
@@ -1096,7 +1138,7 @@ uty_cli_more(vty_cli cli)
             case CONTROL('Z'):
             case 'q':
             case 'Q':
-              cancel = true ;
+              to_do = cmd_do_ctrl_c ;
               break;
 
             default:
@@ -1105,7 +1147,8 @@ uty_cli_more(vty_cli cli)
         break ;
 
       case ks_esc:
-        cancel = steal->value == '\x1B' ;
+        if (steal->value == '\x1B')
+          to_do = cmd_do_ctrl_c ;
         break ;
 
       default:
@@ -1114,22 +1157,29 @@ uty_cli_more(vty_cli cli)
 
   /* End of "--more--" process
    *
-   * If cancelling signal the command loop et al.  The hiatus will deal with
-   * the cancel, issue the ^C and revert to vst_cmd_running on the way to
-   * vst_cmd_complete.
+   * If cancelling signal the command loop et al -- the hiatus will deal with
+   * the cancel.  Set and issue the drawn_to_do so the screen is up to date.
+   * Note that raising the exception sets vst_cancel -- so although remains
+   * in vst_cmd_more, does not re-enter the --more-- cli, the hiatus is now
+   * "in charge".
    *
    * If not cancelling, wipe out the prompt and revert to vst_cmd_running or
    * vst_cmd_running_executing to continue output.
    */
-  if (cancel)
-    uty_vio_exception(cli->vf->vio, vx_cancel) ;
-  else
+  if (to_do == cmd_do_nothing)
     {
-      uty_cli_wipe(cli) ;               /* clears cli->drawn    */
+      uty_cli_wipe(cli) ;
       vio_lc_counter_reset(cli->olc) ;
 
-      cli->vf->vio->state = (cli->vf->vio->state & ~vst_cmd_inner_mask)
-                                                             | vst_cmd_running ;
+      *p_state = (*p_state & ~vst_cmd_inner_mask) | vst_cmd_running ;
+    }
+  else
+    {
+      cli->drawn_to_do = to_do ;
+      uty_cli_write_s(cli, uty_cli_to_do_mark(to_do)) ;
+
+      uty_vio_exception(cli->vf->vio, (to_do == cmd_do_ctrl_c) ? vx_cancel
+                                                               : vx_stop) ;
     } ;
 
   return false ;                /* all done                     */
@@ -1193,7 +1243,9 @@ uty_cli_out(vty_cli cli, const char *format, ...)
 /*------------------------------------------------------------------------------
  * CLI VTY output -- cf write()
  *
- * NB: caller is responsible for issuing "\n\r" when newline is required.
+ * Do nothing if len == 0 (!)
+ *
+ * NB: caller is responsible for issuing "\r\n" when newline is required.
  */
 extern void
 uty_cli_write(vty_cli cli, const char *this, ulen len)
@@ -1203,6 +1255,8 @@ uty_cli_write(vty_cli cli, const char *this, ulen len)
 
 /*------------------------------------------------------------------------------
  * CLI VTY output -- write 'n' characters using a cli_rep_char string
+ *
+ * Do nothing if n == 0 (!)
  */
 static void
 uty_cli_write_n(vty_cli cli, cli_rep_char chars, ulen n)
@@ -1222,131 +1276,23 @@ uty_cli_write_n(vty_cli cli, cli_rep_char chars, ulen n)
 /*------------------------------------------------------------------------------
  * CLI VTY output -- write given string
  *
+ * Do nothing if string is NULL.
+ *
  * NB: caller is responsible for issuing "\n\r" when newline is required.
  */
 static void
 uty_cli_write_s(vty_cli cli, const char *str)
 {
-  uty_cli_write(cli, str, strlen(str)) ;
-} ;
-
-/*==============================================================================
- * Prompts and responses
- */
-
-/*------------------------------------------------------------------------------
- * Send newline to the console -- clears the cli_drawn flag.
- */
-extern void
-uty_cli_out_newline(vty_cli cli)
-{
-  uty_cli_write(cli, telnet_newline, 2) ;
-
-  cli->drawn = false ;
-} ;
-
-/*------------------------------------------------------------------------------
- * If is vst_cmd_fetch, vst_cmd_dispatched or vst_cmd_more, then want to show that has
- * been cancelled.
- *
- * If "draw", make sure the command line or --more-- prompt is drawn and add
- * " ^C\n" to show cancelled.
- *
- * If is already drawn, make sure is at end of line and then add the " ^C\n".
- *
- * If was vst_cmd_complete, we know there is nothing to be cancelled -- all output
- * has completed and no new command line has been started -- so is already
- * "done".
- *
- * In any event:  if was vst_cmd_fetch or vst_cmd_dispatched, is now vst_cmd_complete.
- *
- *                if was vst_cmd_more, is now vst_cmd_running.
- *
- *                cli->drawn is false.
- *
- * So, when returns, is either vst_cmd_complete or vst_cmd_running.
- *
- * NB: ignores vst_mon_active/vst_mon_blocked and vst_mon_paused.
- *
- *     Those should not be set if we are here, however it is not a disaster if
- *     they are.  Setting vst_mon_active wipes the command line.  What this is
- *     about to do is redraw the command line, and promptly output terminating
- *     "\n", and clear cli->drawn.  The result will be output the first time
- *     uty_term_write() is called, after any vst_mon_blocked state is cleared.
- *     That may be earlier than vst_mon_paused would otherwise allow, but that is
- *     not a problem.
- *
- * Returns:  true <=> done, ie either: issued " ^C\n"
- *                                 or: was vst_cmd_complete, trivially done.
- */
-extern bool
-uty_cli_out_cancel(vty_cli cli)
-{
-  vst_state_t state ;
-  bool done ;
-
-  state = cli->vf->vio->state & vst_cmd_mask ;
-
-  done = (state == vst_cmd_complete) ;
-
-  if ( (state == vst_cmd_fetch) || (state == vst_cmd_dispatched)
-                                || (state == vst_cmd_more)
-                                || (state == vst_cmd_more_executing))
-    {
-      /* If not drawn -- draw it now, with cursor at end of line.
-       *
-       * If drawn     -- move cursor to end of line, if required.
-       */
-      uty_cli_draw(cli, true /* cursor to end of line */) ;
-
-      /* Issue the ^C and now the line is no longer drawn !
-       */
-      uty_cli_write_s(cli, "^C" TELNET_NEWLINE) ;
-
-      /* Finally:
-       *
-       *    if was vst_cmd_fetch or vst_cmd_dispatched, then current command line is
-       *    done with, so is vst_cmd_complete.  If the vin is still vf_open, the
-       *    next time that calls uty_cli_want_command(), will re-enter the
-       *    command loop, vst_cmd_fetch.
-       *
-       *    if was vst_cmd_more then is now vst_cmd_running, and is no longer
-       *    interested in any stealing of keystrokes.
-       */
-      switch (state)
-        {
-          case vst_cmd_fetch:
-          case vst_cmd_dispatched:
-            state = vst_cmd_complete ;
-            break ;
-
-          case vst_cmd_more:
-          case vst_cmd_more_executing:
-            keystroke_steal_clear(cli->key_stream) ;
-            state = vst_cmd_running | (state & vst_cmd_executing);
-            break ;
-
-          default:
-            assert(false) ;
-        } ;
-
-      cli->vf->vio->state = (cli->vf->vio->state & ~vst_cmd_mask) | state ;
-
-      done = true ;
-    } ;
-
-  qassert((state == vst_cmd_running) || (state == vst_cmd_running_executing)
-                                     || (state == vst_cmd_complete)) ;
-
-  cli->drawn = false ;
-  return done ;
+  if (str != NULL)
+    uty_cli_write(cli, str, strlen(str)) ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Wipe 'n' characters.
  *
- * If 'n' < 0, wipes characters backwards and moves cursor back.
- *    'n' > 0, wipes characters forwards, leaving cursor where it is
+ * If 'n' <  0, wipes characters backwards *and* moves cursor *back*.
+ *    'n' >  0, wipes characters forwards, leaving cursor where it is
+ *    'n' == 0, do nothing at all
  */
 static void
 uty_cli_out_wipe_n(vty_cli cli, int n)
@@ -1364,24 +1310,181 @@ uty_cli_out_wipe_n(vty_cli cli, int n)
     } ;
 } ;
 
+/*==============================================================================
+ * Prompts and responses
+ */
+
+/*------------------------------------------------------------------------------
+ * Send newline to the console -- clears cli->drawn and cli->drawn_to_do
+ */
+extern void
+uty_cli_out_newline(vty_cli cli)
+{
+  uty_cli_write(cli, telnet_newline, 2) ;
+
+  cli->drawn = false ;
+  cli->drawn_to_do = cmd_do_nothing ;   /* for completeness     */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Return address of "to_do marker" for the given to_do -- if any.
+ */
+static const char*
+uty_cli_to_do_mark(cmd_do_t to_do)
+{
+  static const char* cli_to_do_marker [cmd_do_count] =
+  {
+      [cmd_do_nothing]   = NULL,
+      [cmd_do_command]   = NULL,
+      [cmd_do_ctrl_c]    = "^C",
+      [cmd_do_ctrl_d]    = "^D",
+      [cmd_do_ctrl_z]    = "^Z",
+      [cmd_do_eof]       = "^*",
+      [cmd_do_timed_out] = "^!",
+  } ;
+
+  return (to_do < cmd_do_count) ? cli_to_do_marker[to_do] : NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If is vst_cmd_fetch, vst_cmd_dispatched or vst_cmd_more, then want to show
+ * that has been cancelled.
+ *
+ * If "draw", make sure the command line or --more-- prompt is drawn, complete
+ * with any drawn_to_do marker.
+ *
+ * If is already drawn, make sure is at end of line, after any drawn_to_do
+ * marker.
+ *
+ * If drawn_to_do is cmd_do_ctrl_c, cmd_do_eof or cmd_do_timed_out, then no
+ * need to add anything more.  Otherwise, append a " ^C".
+ *
+ * Issue newline.
+ *
+ * If was vst_cmd_complete, we know there is nothing to be cancelled -- all
+ * output has completed and no new command line has been started -- so is
+ * already "done".
+ *
+ * In any event:  if was vst_cmd_fetch or vst_cmd_dispatched, is now
+ *                vst_cmd_complete.
+ *
+ *                if was vst_cmd_more, is now vst_cmd_running.
+ *
+ *                cli->drawn is false and cl->drawn_to_do is cleared
+ *
+ * So, when returns, is either vst_cmd_complete or vst_cmd_running.
+ *
+ * NB: ignores vst_mon_active/vst_mon_blocked and vst_mon_paused.
+ *
+ *     Those should not be set if we are here, however it is not a disaster if
+ *     they are.  Setting vst_mon_active wipes the command line.  What this is
+ *     about to do is redraw the command line, and promptly output terminating
+ *     "\n", and clear cli->drawn.  The result will be output the first time
+ *     uty_term_write() is called, after any vst_mon_blocked state is cleared.
+ *     That may be earlier than vst_mon_paused would otherwise allow, but that is
+ *     not a problem.
+ *
+ * Returns:  true <=> done, ie either: issued marker and new_line.
+ *                                 or: was vst_cmd_complete, trivially done.
+ */
+extern bool
+uty_cli_out_cancel(vty_cli cli)
+{
+  vst_state_t  state ;
+  vst_state_t* p_state ;
+  bool done ;
+
+  p_state = &(cli->vf->vio->state) ;
+  state = *p_state & vst_cmd_inner_mask ;
+
+  done = (state == vst_cmd_complete) ;
+
+  if ( (state == vst_cmd_fetch) || (state == vst_cmd_dispatched)
+                                || (state == vst_cmd_more) )
+    {
+      /* If not drawn -- draw it now, with cursor at end of line.
+       *
+       * If drawn     -- move cursor to end of line, if required.
+       */
+      uty_cli_draw(cli, true /* cursor to end of line */) ;
+
+      /* Issue the ^C if required, and new_line
+       */
+      switch (cli->drawn_to_do)
+        {
+          case cmd_do_ctrl_c:
+          case cmd_do_eof:
+          case cmd_do_timed_out:
+            break ;
+
+          default:
+            uty_cli_write_s(cli, uty_cli_to_do_mark(cmd_do_ctrl_c)) ;
+        } ;
+
+      uty_cli_out_newline(cli) ;
+
+      /* Finally:
+       *
+       *    if was vst_cmd_fetch or vst_cmd_dispatched, then current command
+       *    line is done with, so is vst_cmd_complete.  If the vin is still
+       *    vf_open, the next time that calls uty_cli_want_command(), will
+       *    re-enter the command loop, vst_cmd_fetch.
+       *
+       *    if was vst_cmd_more then is now vst_cmd_running, and is no longer
+       *    interested in any stealing of keystrokes.
+       */
+      switch (state)
+        {
+          case vst_cmd_fetch:
+          case vst_cmd_dispatched:
+            state = vst_cmd_complete ;
+            break ;
+
+          case vst_cmd_more:
+            keystroke_steal_clear(cli->key_stream) ;
+            state = vst_cmd_running ;
+            break ;
+
+          default:
+            assert(false) ;
+        } ;
+
+      *p_state = (*p_state & ~vst_cmd_inner_mask) | state ;
+
+      done = true ;
+    } ;
+
+  qassert((state == vst_cmd_running) || (state == vst_cmd_complete)) ;
+
+  cli->drawn = false ;                  /* for completeness...  */
+  cli->drawn_to_do = cmd_do_nothing ;   /* ...ditto             */
+
+  return done ;
+} ;
+
 /*------------------------------------------------------------------------------
  * Wipe the current console line -- if any.
  *
  * Does nothing unless is cst_idle, vst_cmd_dispatched or vst_cmd_more.
  * Does nothing if not drawn.
  *
- * Note: ignores any vst_mon_active etc.  While any of that is set, should not
- *       be cli->drawn -- but if is, best wiped !
+ * Clears cli->drawn, but *not* cli->drawn_to_do -- which is needed if the line
+ * is to be redrawn.
+ *
+ * NB: ignores any vst_mon_active etc.  While any of that is set, should not
+ *     be cli->drawn -- but if is, best wiped !
  */
 extern void
 uty_cli_wipe(vty_cli cli)
 {
+  const char* to_do_mark ;
+  cmd_do_t    drawn_to_do ;
   ulen b ;              /* characters before the cursor */
 
   if (!cli->drawn)
     return ;
 
-  switch(cli->vf->vio->state & vst_cmd_mask)
+  switch(cli->vf->vio->state & vst_cmd_inner_mask)
     {
       case vst_cmd_fetch:
         /* Wipe anything ahead of the current cursor
@@ -1389,6 +1492,8 @@ uty_cli_wipe(vty_cli cli)
         uty_cli_out_wipe_n(cli, (int)(qs_len_nn(cli->cl) - qs_cp_nn(cli->cl))) ;
 
         b = cli->vf->vio->prompt_len + qs_cp_nn(cli->cl) ;
+
+        drawn_to_do = cmd_do_nothing ;
         break ;
 
       case vst_cmd_dispatched:
@@ -1396,26 +1501,31 @@ uty_cli_wipe(vty_cli cli)
          */
         b = cli->vf->vio->prompt_len + qs_len_nn(cli->cl) ;
 
-        if (cli->drawn_to_do != NULL)
-          b += strlen(cli->drawn_to_do) ;
-
+        drawn_to_do = cli->drawn_to_do ;
         break ;
 
       case vst_cmd_more:
-      case vst_cmd_more_executing:
         /* implicitly at end of line
          */
         b = strlen(more_prompt) ;
+
+        drawn_to_do = cli->drawn_to_do ;
         break ;
 
       case vst_cmd_running:
-      case vst_cmd_running_executing:
       case vst_cmd_complete:
       default:
         qassert(!cli->drawn) ;
         b = 0 ;
+
+        drawn_to_do = cmd_do_nothing ;
         break ;
     } ;
+
+  to_do_mark = uty_cli_to_do_mark(drawn_to_do) ;
+
+  if (to_do_mark != NULL)
+    b += strlen(to_do_mark) ;
 
   uty_cli_out_wipe_n(cli, -(int)b) ;
 
@@ -1426,7 +1536,8 @@ uty_cli_wipe(vty_cli cli)
  * Draw prompt and entire command line, leaving current position where it
  * should be.
  *
- * Must be: vst_cmd_fetch, vst_cmd_dispatched or vst_cmd_more, ignoring vst_mon_active etc.
+ * Must be: vst_cmd_fetch, vst_cmd_dispatched or vst_cmd_more, ignoring
+ * vst_mon_active etc.
  *
  * Should not be vst_mon_active etc unless is "to_end".  If is "to_end", then
  * that implies is about to output "\n" and clear cli->drawn -- which is fine.
@@ -1435,12 +1546,12 @@ uty_cli_wipe(vty_cli cli)
  * the screen will be messed up.
  *
  * If not already drawn, assumes is positioned at start of an empty line, and
- * draws as required -- leaving cursor at the end if "to_end" or vst_cmd_dispatched
- * or vst_cmd_more, otherwise (vst_cmd_fetch not "to_end") leave cursor at the cursor
- * position.
+ * draws as required -- leaving cursor at the end if "to_end" or
+ * vst_cmd_dispatched or vst_cmd_more, otherwise (vst_cmd_fetch not "to_end")
+ * leave cursor at the cursor position.
  *
- * If is already drawn, will be at the end if vst_cmd_dispatched or vst_cmd_more.  If
- * "to_end", moves cursor as required if vst_cmd_fetch.
+ * If is already drawn, will be at the end if vst_cmd_dispatched or
+ * vst_cmd_more.  If "to_end", moves cursor as required if vst_cmd_fetch.
  */
 static void
 uty_cli_draw(vty_cli cli, bool to_end)
@@ -1452,19 +1563,17 @@ uty_cli_draw(vty_cli cli, bool to_end)
 
   vio = cli->vf->vio ;
 
-  state = vio->state & vst_cmd_mask ;
+  state = vio->state & vst_cmd_inner_mask ;
 
   qassert( (state == vst_cmd_fetch) || (state == vst_cmd_dispatched)
-                                    || (state == vst_cmd_more)
-                                    || (state == vst_cmd_more_executing)) ;
+                                    || (state == vst_cmd_more) ) ;
 
   if (state == vst_cmd_dispatched)
     /* Will be at the end of the line, and after any to_do marker       */
     qassert(qs_cp_nn(cli->cl) == qs_len_nn(cli->cl)) ;
 
   if ( (state != vst_cmd_fetch) && (state != vst_cmd_dispatched)
-                                && (state != vst_cmd_more)
-                                && (state != vst_cmd_more_executing) )
+                                && (state != vst_cmd_more) )
     {
       cli->drawn = false ;      /* cannot be drawn      */
       return ;
@@ -1472,7 +1581,7 @@ uty_cli_draw(vty_cli cli, bool to_end)
 
   if (!to_end)
     /* Should not be trying to draw if vst_mon_active etc.              */
-    qassert(state == vio->state) ;
+    qassert((vio->state & vst_mon_mask) == 0) ;
 
   /* If is already drawn, then if "to_end" move to the end, if required.
    */
@@ -1482,7 +1591,8 @@ uty_cli_draw(vty_cli cli, bool to_end)
        */
       qassert((vio->state & vst_mon_mask) == 0) ;
 
-      /* If is vst_cmd_fetch, make sure we are at the end of the current line.
+      /* If is vst_cmd_fetch, make sure we are at the end of the current line,
+       * if required.
        *
        * If is vst_cmd_dispatched, will already be at the end of the line, and
        * after any "^Z" or other.
@@ -1501,7 +1611,7 @@ uty_cli_draw(vty_cli cli, bool to_end)
    *       command line -- is used when showing parsing and such like issues.
    *       So we clear this if writing a vst_cmd_more prompt.
    */
-  if ((state == vst_cmd_more) || (state == vst_cmd_more_executing))
+  if (state == vst_cmd_more)
     {
       prompt  = more_prompt ;
       p_len   = strlen(prompt) ;
@@ -1528,9 +1638,10 @@ uty_cli_draw(vty_cli cli, bool to_end)
    */
   if ((state == vst_cmd_fetch) || (state == vst_cmd_dispatched))
     {
-      ulen   l_len ;
+      ulen l_len, cp ;
 
       l_len = qs_len_nn(cli->cl) ;
+      cp    = qs_cp_nn(cli->cl) ;
 
       if (l_len != 0)
         {
@@ -1541,22 +1652,17 @@ uty_cli_draw(vty_cli cli, bool to_end)
         } ;
 
       if (state == vst_cmd_dispatched)
-        {
-          if (cli->drawn_to_do != NULL)
-            uty_cli_write_s(cli, cli->drawn_to_do) ;
-        }
+        qassert(cp == l_len) ;
       else if (to_end)
+        qs_set_cp_nn(cli->cl, l_len) ;
+      else if (cp < l_len)
         {
-          qs_set_cp_nn(cli->cl, l_len) ;
-        }
-      else
-        {
-          ulen cp = qs_cp_nn(cli->cl) ;
-
-          if (cp < l_len)
-            uty_cli_write_n(cli, telnet_backspaces, l_len - cp) ;
+          qassert(cli->drawn_to_do == cmd_do_nothing) ;
+          uty_cli_write_n(cli, telnet_backspaces, l_len - cp) ;
         } ;
     } ;
+
+  uty_cli_write_s(cli, uty_cli_to_do_mark(cli->drawn_to_do)) ;
 
   cli->drawn = true ;
 } ;
@@ -1565,6 +1671,7 @@ uty_cli_draw(vty_cli cli, bool to_end)
  * Command line processing loop
  */
 static cmd_do_t uty_cli_get_keystroke(vty_cli cli, keystroke stroke) ;
+static cmd_do_t uty_cli_got_knull(vty_cli cli, keystroke stroke) ;
 static void uty_cli_update_line(vty_cli cli, uint rc) ;
 
 static void uty_cli_insert (qstring cl, const char* chars, int n) ;
@@ -1999,6 +2106,8 @@ uty_cli_auth(vty_cli cli)
  *           cmd_do_timed_out: timed_ keystream  -- stroke == knull_timed_out
  *           cmd_do_nothing  : nothing available -- stroke == knull_not_eof
  *
+ * Sets the close reason if returns cmd_do_eof/cmd_do_timed_out.
+ *
  * Note that will return cmd_do_eof or cmd_do_timed_out any number of times.
  *
  * Actual reading occurs autonomously under pselect().
@@ -2023,27 +2132,43 @@ uty_cli_get_keystroke(vty_cli cli, keystroke stroke)
           uty_telnet_command(cli->vf, stroke, false) ;
         }
       else
-        {
-          qassert(stroke->type == ks_null) ;
+        return uty_cli_got_knull(cli, stroke) ;
+    } ;
+} ;
 
-          switch (stroke->value)
-            {
-              case knull_not_eof:
-                break ;
+/*------------------------------------------------------------------------------
+ * Deal with ks_null "keystroke"
+ *
+ * Returns:  cmd_do_nothing  : stroke == knull_not_eof
+ *           cmd_do_eof      : stroke == knull_eof (or not recognised !)
+ *           cmd_do_timed_out: stroke == knull_timed_out
+ *
+ * Sets the close reason if returns cmd_do_eof/cmd_do_timed_out.
+ */
+static cmd_do_t
+uty_cli_got_knull(vty_cli cli, keystroke stroke)
+{
+  qassert(stroke->type == ks_null) ;
 
-              case knull_eof:
-                return cmd_do_eof ;
+  switch (stroke->value)
+    {
+      case knull_not_eof:
+        return cmd_do_nothing ;
 
-              case knull_timed_out:
-                return cmd_do_timed_out ;
+      case knull_eof:
+        uty_close_reason_set(cli->vf->vio, "terminal closed",
+                                              false /* don't replace */) ;
+        return cmd_do_eof ;
 
-              default:
-                zabort("unknown knull_xxx") ;
-                break ;
-            } ;
+      case knull_timed_out:
+        uty_close_reason_set(cli->vf->vio, "terminal timed out",
+                                              false /* don't replace */) ;
+        return cmd_do_timed_out ;
 
-          return cmd_do_nothing ;
-        } ;
+      default:
+        uty_close_reason_set(cli->vf->vio, "unknown 'knull_xxx'",
+                                              false /* don't replace */) ;
+        return cmd_do_eof ;
     } ;
 } ;
 

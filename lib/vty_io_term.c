@@ -161,7 +161,9 @@ uty_term_open(int sock_fd, sockunion su)
   vf->read_timeout  = host.vty_timeout_val ; /* current EXEC timeout    */
   vf->write_timeout = 30 ;                   /* something reasonable    */
 
-  /* Set up the CLI object & initialise                                 */
+  /* Set up the CLI object & initialise
+   */
+  qassert(vf->obuf != NULL) ;
   vf->cli = uty_cli_new(vf) ;
 
   /* Issue Telnet commands/escapes to be a good telnet citizen -- not much
@@ -257,11 +259,10 @@ uty_term_out_push(vio_vf vf)
  * Clears the obuf and the line control.
  *
  * Cancel may be triggered by a "^C" keystroke -- see uty_cli_callback().
- * For vst_cmd_fetch, vst_cmd_dispatched and vst_cmd_complete, the "^C" keystroke does
- * *not* trigger a vio->cancel operation -- the ^C is dealt with by the CLI.
- * For vst_cmd_more, the ^C is dealt with by the --more-- CLI, but that does
- * trigger a vio->cancel operation -- as do other forms of cancel particular
- * to --more-- handling.
+ * For vst_cmd_fetch, vst_cmd_dispatched and vst_cmd_complete, the "^C"
+
+                             TODO
+
  *
  * Cancel may also be triggered externally, either stopping or suspending
  * the VTY_TERMINAL.
@@ -924,10 +925,12 @@ uty_term_write(vio_vf vf)
   cli = vf->cli ;
   vio = vf->vio ;
 
-  /* Do nothing if vf_end !
+  /* Do nothing if vf_end.  Also traps vst_final.
    */
   if (vf->vout_state & vf_end)
     return CMD_SUCCESS ;
+
+  qassert((vio->state & vst_final) == 0) ;
 
   /* Unless is in the cancel process, or blocked earlier writing log monitor
    * stuff: deal with any outstanding line control and/or cli stuff.
@@ -1024,7 +1027,7 @@ uty_term_write(vio_vf vf)
       return CMD_WAITING ;
     } ;
 
-  /* If not vst_cmd_running we are done.
+  /* If not vst_cmd_running or vst_cmd_running_executing we are done.
    */
   if ((vio->state & (vst_cmd_inner_mask | vst_cancel)) != vst_cmd_running)
     return CMD_SUCCESS ;        /* nothing more to do ATM       */
@@ -1039,8 +1042,11 @@ uty_term_write(vio_vf vf)
    *
    * If the fifo is or becomes empty, then if the command has completed, flush
    * out any incomplete line which may be held in the line control.
+   *
+   * We have a hold_marker in the obuf permanently, and which is moved forward
+   * in uty_term_write_lc().
    */
-  vio_fifo_set_hold_mark(vf->obuf) ;    /* released in uty_term_write_lc() */
+  qassert(vio_fifo_have_hold_mark(vf->obuf)) ;
 
   have = vio_fifo_get(vf->obuf) ;
   while (1)
@@ -1094,12 +1100,7 @@ uty_term_write(vio_vf vf)
       qassert(vio_lc_counter_is_exhausted(cli->olc)) ;
 
       if (cli->more_enabled)
-        {
-          vio->state = (vio->state & ~vst_cmd_inner_mask) | vst_cmd_more ;
-                                        /* run "--more--" cli   */
-          cli->ready = true ;           /* force entry to cli   */
-          cli->drawn = false ;          /* make sure            */
-        } ;
+        uty_cli_more_enter(cli) ;
 
       return CMD_WAITING ;
     } ;
@@ -1149,7 +1150,11 @@ uty_term_write_lc(vio_line_control lc, vio_vf vf, vio_fifo vff)
   if (did > 0)
     return CMD_WAITING ;
 
-  vio_fifo_clear_hold_mark(vff) ;       /* finished with FIFO contents  */
+  /* We have finished with everything between the hold_mark and the current
+   * get_ptr -- we eat that by setting a new hold_mark at the current get_ptr.
+   * So, we have a permanent hold_mark in the obuf.
+   */
+  vio_fifo_set_hold_mark(vff) ;
 
   return CMD_SUCCESS ;
 } ;

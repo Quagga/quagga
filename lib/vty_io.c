@@ -1788,8 +1788,8 @@ uty_vf_free(vio_vf vf)
 
   vf->ps_buf = vio_fifo_free(vf->ps_buf) ;
 
-  vf->rbuf   = vio_fifo_free(vf->rbuf) ;
-  vf->ebuf   = vio_fifo_free(vf->ebuf) ;
+  vf->r_obuf   = vio_fifo_free(vf->r_obuf) ;
+  vf->r_ebuf   = vio_fifo_free(vf->r_ebuf) ;
 
   XFREE(MTYPE_VTY, vf) ;
 

@@ -22,6 +22,7 @@
  */
 
 #include "misc.h"
+#include "version.h"
 
 #include "vty_vtysh.h"
 #include "vty_io_vtysh.h"
@@ -69,7 +70,7 @@ extern vty
 vty_vtysh_open(vtysh_cmd_call_backs_t* call_backs, bool no_prefix)
 {
   daemon_ord_t ord ;
-  vty     vty ;
+  vty     vtysh ;
   vty_io  vio ;
   vio_vf  vf ;
 
@@ -84,6 +85,8 @@ vty_vtysh_open(vtysh_cmd_call_backs_t* call_backs, bool no_prefix)
   vtysh_open_clients = 0 ;
   vtysh_self->next = NULL ;
 
+  vtysh_self->version = qs_set_str(NULL, QUAGGA_VERSION) ;
+
   for (ord = 0 ; ord < DAEMON_COUNT ; ++ord)
     {
       vtysh_clients[ord].fd = -1 ;      /* make sure    */
@@ -93,8 +96,8 @@ vty_vtysh_open(vtysh_cmd_call_backs_t* call_backs, bool no_prefix)
 
   /* Prepare the vty and vio.  NB: sets vio->blocking.
    */
-  vty = uty_new(VTY_VTYSH, ENABLE_NODE) ;
-  vio = vty->vio ;
+  vtysh = uty_new(VTY_VTYSH, ENABLE_NODE) ;
+  vio   = vtysh->vio ;
 
   /* Complete the initialisation of the vty_io object.
    *
@@ -114,12 +117,13 @@ vty_vtysh_open(vtysh_cmd_call_backs_t* call_backs, bool no_prefix)
                              file_buffer_size,  /* obuf is required     */
                                         true) ; /* after buddy vin      */
 
-  vf->no_prefix = no_prefix ;
+  vf->no_prefix     = no_prefix ;
+  vf->push_complete = true ;            /* to set vst_cmd_complete      */
 
-  vf->rbuf = vio_fifo_new(file_buffer_size) ;   /* results from client  */
-  vf->ebuf = vio_fifo_new(pipe_buffer_size) ;   /* errors from clients  */
+  vf->r_obuf = vio_fifo_new(file_buffer_size) ;   /* results from client  */
+  vf->r_ebuf = vio_fifo_new(pipe_buffer_size) ;   /* errors from clients  */
 
-  vio_fifo_set_end_mark(vf->rbuf) ;     /* has end_mark, same like obuf */
+  vio_fifo_set_end_mark(vf->r_obuf) ;     /* has end_mark, same like obuf */
 
   /* Prepare exec and context etc. for the vtysh command loop.
    */
@@ -129,7 +133,7 @@ vty_vtysh_open(vtysh_cmd_call_backs_t* call_backs, bool no_prefix)
 
   VTY_UNLOCK() ;
 
-  return vty ;
+  return vtysh ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -140,17 +144,23 @@ vty_vtysh_open(vtysh_cmd_call_backs_t* call_backs, bool no_prefix)
  * This is done once the vtysh starts to execute -c or in interactive mode.
  */
 extern void
-vty_vtysh_promote(vty vty)
+vty_vtysh_promote(vty vtysh)
 {
   vty_io  vio ;
 
   VTY_LOCK() ;
 
-  vio = vty->vio ;
+  vio = vtysh->vio ;
 
-  qassert(vty->type == VTY_VTYSH) ;
+  /* We start the process at the base level vin/vout.  We treat the initial
+   * state as executing a phantom "start" command -- so we are now
+   * vst_cmd_running_executing.
+   */
+  qassert(vtysh->type == VTY_VTYSH) ;
   qassert((vio->vin_depth  == 1) && (vio->vin->vin_type  == VIN_VTYSH)) ;
   qassert((vio->vout_depth == 1) && (vio->vin->vout_type == VOUT_STDOUT)) ;
+
+  vtysh->vio->state = vst_cmd_running_executing ;
 
   vio->vout->vout_type = VOUT_VTYSH ;   /* simple, really !             */
   vio->vout->push_complete = true ;     /* small, but important         */
@@ -163,13 +173,16 @@ vty_vtysh_promote(vty vty)
  * Open the given daemons.
  *
  * Issues error message(s) by vty_err().
+ *
+ * For the required set of daemons, issue error message if is unable to open
+ * because daemon is not running.
  */
 extern daemon_set_t
-vty_vtysh_open_clients(vty vty, daemon_set_t daemons)
+vty_vtysh_open_clients(vty vtysh, daemon_set_t daemons, daemon_set_t required)
 {
   daemon_set_t opened ;
   daemon_ord_t ord ;
-  vtysh_client client, prev ;
+  vtysh_client client ;
   uint         name_len ;
 
   name_len = strlen(vtysh_self->name) ;
@@ -177,7 +190,6 @@ vty_vtysh_open_clients(vty vty, daemon_set_t daemons)
   /* Try to open all the required daemons, and rebuild the open clients list.
    */
   opened = 0 ;
-  prev   = vtysh_self ;
 
   for (ord = 0 ; ord < DAEMON_COUNT ; ++ord)
     {
@@ -185,8 +197,15 @@ vty_vtysh_open_clients(vty vty, daemon_set_t daemons)
 
       if (daemons & client->daemon)
         {
-          if (vtysh_client_open(vty, client) == 0)
+          cmd_ret_t ret ;
+
+          ret = vtysh_client_open(vtysh, client) ;
+
+          if (ret == CMD_SUCCESS)
             opened |= client->daemon ;
+
+          if (ret != CMD_WARNING)
+            required &= ~client->daemon ;
         } ;
 
       if (client->fd >= 0)
@@ -194,9 +213,6 @@ vty_vtysh_open_clients(vty vty, daemon_set_t daemons)
           uint len ;
 
           qassert((vtysh_open_clients & client->daemon) != 0) ;
-
-          prev->next = client ;
-          prev = client ;
 
           len = strlen(client->name) ;
           if (len > name_len)
@@ -208,7 +224,21 @@ vty_vtysh_open_clients(vty vty, daemon_set_t daemons)
         } ;
     } ;
 
-  prev->next = NULL ;
+  /* Report and daemons that were required, but were not available (and did
+   * not fail during open).
+   */
+  required &= daemons ;
+
+  if (required != 0)
+    {
+      qstring list ;
+
+      list = cmd_daemons_make_list(NULL, required & daemons) ;
+
+      vty_err(vtysh, "%% did not connect to: %s -- apparently not running\n",
+                                                              qs_string(list)) ;
+      qs_free(list) ;
+    } ;
 
   /* Update the prefix strings for vtysh and all open daemons.
    *
@@ -262,10 +292,12 @@ vty_vtysh_open_clients(vty vty, daemon_set_t daemons)
  * Scan the clients to check that is still connected to all the daemons
  * thought to be connected.
  *
+ * Issue, by vty_err(), error messages for any lost connections.
+ *
  * Returns:  set of daemons seem to be connected to
  */
 extern daemon_set_t
-vty_vtysh_check_clients(vty vty)
+vty_vtysh_check_clients(vty vtysh)
 {
   daemon_ord_t ord ;
   daemon_set_t found_ok ;
@@ -291,9 +323,9 @@ vty_vtysh_check_clients(vty vty)
               int err = errno ;
 
               if (err == EPIPE)
-                vty_out(vty, "%% lost connection with %s\n", client->name) ;
+                vty_err(vtysh, "%% lost connection with %s\n", client->name) ;
               else
-                vty_out(vty, "%% %s failed: %s\n", client->name,
+                vty_err(vtysh, "%% %s failed: %s\n", client->name,
                                                            errtoa(err, 0).str) ;
               vtysh_client_close(client) ;
             } ;
@@ -305,17 +337,29 @@ vty_vtysh_check_clients(vty vty)
   return found_ok ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Close the open daemons -- just before exit from vtysh
+ */
+extern void
+vty_vtysh_close(void)
+{
+  while (vtysh_self->next != NULL)
+    vtysh_client_close(vtysh_self->next) ;
+
+  vtysh_self->version = qs_free(vtysh_self->version) ;
+} ;
+
 /*==============================================================================
  * Execution of commands by sending to the various daemons to which the vtysh
  * has made a connection -- where the vtysh is the client and the daemons are
  * the servers.
  */
-static cmd_ret_t vty_vtysh_execute(vty vty, bool interactive) ;
-static cmd_ret_t vty_vtysh_client_execute(vty vty, vtysh_client client,
-             const char* line, ulen len, node_type_t cnode, node_type_t xnode) ;
-static cmd_ret_t vty_vtysh_complete(vty vty, cmd_ret_t ret,
-                                             cmd_ret_t fret,
-                                             const char* prefix) ;
+static cmd_ret_t vty_vtysh_execute(vty vtysh, bool interactive) ;
+static cmd_ret_t vty_vtysh_client_execute(vty vtysh, vtysh_client client,
+                                               vtysh_client_dispatch dispatch) ;
+static cmd_ret_t vty_vtysh_complete(vty vtysh, cmd_ret_t ret,
+                                               cmd_ret_t fret,
+                                               const char* prefix) ;
 
 /*------------------------------------------------------------------------------
  * Set the vin->cl to the given line, length and position.
@@ -324,7 +368,7 @@ static cmd_ret_t vty_vtysh_complete(vty vty, cmd_ret_t ret,
  * them to ' '.
  */
 extern qstring
-vty_vtysh_prep_line(vty vty, const char* line, ulen len, ulen pos)
+vty_vtysh_prep_line(vty vtysh, const char* line, ulen len, ulen pos)
 {
   qstring      qs ;
   vio_vf       vf ;
@@ -333,7 +377,7 @@ vty_vtysh_prep_line(vty vty, const char* line, ulen len, ulen pos)
   const byte* e ;
   byte*       q ;
 
-  vf = vty->vio->vin ;
+  vf = vtysh->vio->vin ;
 
   qassert(vf->vin_type == VIN_VTYSH) ;
 
@@ -385,7 +429,7 @@ vty_vtysh_prep_line(vty vty, const char* line, ulen len, ulen pos)
  *           CMD_ERROR    => command failed with CMD_ERROR
  */
 extern cmd_ret_t
-vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
+vty_vtysh_command_loop(vty vtysh, const char* line, bool interactive,
                                                                 ulen prompt_len)
 {
   cmd_ret_t   ret, hret ;
@@ -393,15 +437,15 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
   cmd_parsed  parsed ;
   bool        in_hand ;
 
-  qassert(vty->type == VTY_VTYSH) ;
+  qassert(vtysh->type == VTY_VTYSH) ;
 
   /* Note that we have a single parser object for execution.
    *
    * Also, the context object is kept up to date as pipes are pushed and
    * popped -- so the pointer to it remains valid.
    */
-  context = vty->exec->context ;
-  parsed  = vty->exec->parsed ;
+  context = vtysh->exec->context ;
+  parsed  = vtysh->exec->parsed ;
 
   qassert(parsed  != NULL) ;
   qassert(context != NULL) ;
@@ -413,14 +457,14 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
   if (in_hand)
     {
       context->to_do = cmd_do_command ;
-      context->line  = vty_vtysh_prep_line(vty, line, strlen(line), 0) ;
+      context->line  = vty_vtysh_prep_line(vtysh, line, strlen(line), 0) ;
     }
   else
     prompt_len = 0 ;
 
   context->parse_execution = true ;
 
-  vty->vio->prompt_len = prompt_len ;
+  vtysh->vio->prompt_len = prompt_len ;
 
   /* The command loop -- this is similar to the config reader loop -- the
    * VTY_VTYSH is also a "blocking" vty.
@@ -428,12 +472,12 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
    * Note that in the command loop the exec->context will change as pipes are
    * opened and closed.
    */
-  vty->vio->cl_state = vcl_running ;
-  vty->vio->state    = vst_cmd_running_executing ;
+  vtysh->vio->cl_state = vcl_running ;
+  vtysh->vio->state    = vst_cmd_running_executing ;
 
   ret = CMD_SUCCESS ;
 
-  uty_cmd_prepare(vty->vio) ;
+  uty_cmd_prepare(vtysh->vio) ;
 
   while (1)
     {
@@ -461,7 +505,7 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
                 break ;
             } ;
 
-          ret = vty_cmd_hiatus(vty, ret) ;
+          ret = vty_cmd_hiatus(vtysh, ret) ;
 
           if (ret == CMD_STOP)
             break ;
@@ -473,28 +517,26 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
       /* All is well, need another command line -- unless have one in_hand,
        * which we now clear.
        *
-       * If we are back to the vtysh "base", then this will return CMD_WAITING.
-       * (The vtysh is "blocking", so this is the only case of CMD_WAITING.)
+       * If we are back to the vtysh "base", then this will return CMD_SUCCESS,
+       * and we need to check the state to see if it is now time to exit.
        */
       if (in_hand)
-        in_hand = false ;
+        {
+          in_hand = false ;
+          qassert(vtysh->vio->state == vst_cmd_running_executing) ;
+        }
       else
         {
-          vty->vio->prompt_len = 0 ;    /* no longer relevant           */
+          vtysh->vio->prompt_len = 0 ;  /* no longer relevant           */
 
-          if (vty->vio->vin_depth == 1)
-            vty->vio->state = vst_cmd_fetch ;
-
-          ret = vty_cmd_line_fetch(vty) ;
-
-          if (ret == CMD_WAITING)
-            {
-              qassert(vty->vio->vin_depth == 1) ;       /* at base      */
-              return CMD_SUCCESS ;
-            } ;
+          ret = vty_cmd_line_fetch(vtysh) ;
 
           if (ret != CMD_SUCCESS)
             continue ;                  /* let the hiatus cope          */
+
+          if ((vtysh->vio->vin_depth == 1)
+                                        && (vtysh->vio->state == vst_cmd_fetch))
+            return CMD_SUCCESS ;
         } ;
 
       /* Parse the command line we now have -- loop if failed or there is
@@ -512,7 +554,7 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
        */
       if (context->reflect)
         {
-          ret = vty_cmd_reflect_line(vty) ;
+          ret = vty_cmd_reflect_line(vtysh) ;
 
           qassert(ret != CMD_WAITING) ;
 
@@ -524,7 +566,7 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
        */
       if ((parsed->parts & cmd_parts_pipe) != 0)
         {
-          ret = cmd_open_pipes(vty) ;
+          ret = cmd_open_pipes(vtysh) ;
           if (ret != CMD_SUCCESS)
             continue ;
         } ;
@@ -532,11 +574,11 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
       /* Command execution
        */
       if (parsed->parts & cmd_part_command)
-        ret = vty_vtysh_execute(vty, interactive) ;
+        ret = vty_vtysh_execute(vtysh, interactive) ;
 
       /* Deal with result.
        */
-      ret = vty_cmd_complete(vty, ret) ;
+      ret = vty_cmd_complete(vtysh, ret) ;
     } ;
 
   /* Arrives here if:
@@ -559,9 +601,9 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
 
   hret = ret ;
   while ((hret != CMD_STOP) && (hret != CMD_SUCCESS))
-    hret = vty_cmd_hiatus(vty, hret) ;
+    hret = vty_cmd_hiatus(vtysh, hret) ;
 
-  qassert(vty->vio->vin_depth <= 1) ;           /* at base      */
+  qassert(vtysh->vio->vin_depth <= 1) ;         /* at base      */
 
   if (hret == CMD_STOP)
     return CMD_STOP ;
@@ -579,18 +621,25 @@ vty_vtysh_command_loop(vty vty, const char* line, bool interactive,
  * If "show", will output progress indicators and push same.
  */
 extern cmd_ret_t
-vty_vtysh_fetch_config(vty vty,
+vty_vtysh_fetch_config(vty vtysh,
                           void (*collect)(daemon_set_t daemon, vio_fifo buf),
                                                                       bool show)
 {
+  vtysh_client_dispatch_t dispatch ;
   cmd_ret_t    ret ;
-  const char*  line ;
   daemon_set_t daemons ;
   daemon_ord_t ord ;
+  vio_fifo     r_obuf ;
 
-  line = "#vtysh-config-write" ;
+  dispatch->to_do  = cmd_do_command ;
+  dispatch->line   = "#vtysh-config-write" ;
+  dispatch->len    = strlen(dispatch->line) ;
+  dispatch->cnode  = META_NODE ;
+  dispatch->xnode  = vtysh->exec->context->node ;
 
-  daemons = vty->exec->context->daemons & vtysh_open_clients ;
+  daemons = vtysh->exec->context->daemons & vtysh_open_clients ;
+
+  r_obuf = vtysh->vio->vout_base->r_obuf ;
 
   ret = CMD_SUCCESS ;
 
@@ -604,31 +653,33 @@ vty_vtysh_fetch_config(vty vty,
 
       if (show)
         {
-          vty_out(vty, "Collecting configuration from %s", client->name) ;
-          ret = vty_cmd_out_push(vty) ;
+          vty_out(vtysh, "Collecting configuration from %s", client->name) ;
+          ret = vty_cmd_out_push(vtysh) ;
 
           if (ret != CMD_SUCCESS)
             break ;
         } ;
 
-      ret = vty_vtysh_client_execute(vty, client, line, strlen(line),
-                                          META_NODE, vty->exec->context->node) ;
+      ret = vty_vtysh_client_execute(vtysh, client, dispatch) ;
       if (ret == CMD_SUCCESS)
-        collect(client->daemon, vty->vio->vout_base->rbuf) ;
+        {
+          vio_fifo_step_end_mark(r_obuf) ;
+          collect(client->daemon, r_obuf) ;
+        } ;
 
       if (show)
         {
           if (ret == CMD_SUCCESS)
             {
-              vty_out(vty, " -- OK\n") ;
-              ret = vty_cmd_out_push(vty) ;
+              vty_out(vtysh, " -- OK\n") ;
+              ret = vty_cmd_out_push(vtysh) ;
             }
           else
-            vty_out(vty, " -- failed...\n") ;
+            vty_out(vtysh, " -- failed...\n") ;
         } ;
     } ;
 
-  vio_fifo_clear(vty->vio->vout_base->rbuf) ;
+  vio_fifo_clear(r_obuf) ;      /* tidy */
 
   return ret ;
 } ;
@@ -711,19 +762,19 @@ vty_vtysh_fetch_config(vty vty,
  *     occurs here.
  */
 static cmd_ret_t
-vty_vtysh_execute(vty vty, bool interactive)
+vty_vtysh_execute(vty vtysh, bool interactive)
 {
   cmd_ret_t    ret, fret ;
   daemon_set_t daemons ;
-  bool         vtysh, vtysh_only, term_magic, all_failed ;
+  bool         vtysh_cmd, vtysh_only, term_magic, all_failed ;
 
   cmd_context  context ;
   cmd_parsed   parsed ;
 
-  qassert(vty->type == VTY_VTYSH) ;
+  qassert(vtysh->type == VTY_VTYSH) ;
 
-  context = vty->exec->context ;
-  parsed  = vty->exec->parsed ;
+  context = vtysh->exec->context ;
+  parsed  = vtysh->exec->parsed ;
 
   /* Do nothing if "parse_only"
    */
@@ -757,32 +808,30 @@ vty_vtysh_execute(vty vty, bool interactive)
     {
       if (term_magic)
         {
-          vty_out(vty, "%% no effect in vtysh\n") ;
+          vty_out(vtysh, "%% no effect in vtysh\n") ;
           return CMD_WARNING ;
         }
       else
         {
-          vty_out(vty, "%% not connected to any daemon for this command\n") ;
+          vty_out(vtysh, "%% not connected to any daemon for this command\n") ;
           return CMD_ERROR ;
         } ;
     } ;
 
-  vtysh      = (daemons & VTYSH_VD) != 0 ;
+  vtysh_cmd  = (daemons & VTYSH_VD) != 0 ;
   daemons   &= ALL_RDS ;
-  vtysh_only = vtysh && (daemons == 0) ;
+  vtysh_only = vtysh_cmd && (daemons == 0) ;
 
-  /* Command results are placed in the vout_base->rbuf, before being moved
-   * to the current obuf, or to the vout_base->ebuf.
+  /* Command results are placed in the vout_base->r_obuf, before being moved
+   * to the current obuf, or to the vout_base->r_ebuf.
    *
-   * vty_vtysh_complete() processes stuff out of the rbuf, adding the [...]
+   * vty_vtysh_complete() processes stuff out of the r_obuf, adding the [...]
    * daemon name as required.
    *
-   * Start with an empty rbuf, and depend on vty_vtysh_complete() emptying it.
-   *
-   * Start with an empty ebuf, which vty_vtysh_complete() may append to.
+   * Start with an empty r_ebuf, which vty_vtysh_complete() may append to, and
+   * we later transfer to the obuf, below.
    */
-  vio_fifo_clear(vty->vio->vout_base->rbuf) ;
-  vio_fifo_clear(vty->vio->vout_base->ebuf) ;
+  vio_fifo_clear(vtysh->vio->vout_base->r_ebuf) ;
 
   /* Now dispatch command to any and all daemons to which it applies.
    *
@@ -798,15 +847,15 @@ vty_vtysh_execute(vty vty, bool interactive)
 
   if (daemons != 0)
     {
-      vtysh_client client ;
-
-      cmd_token  t ;
-      uint       ti ;
+      vtysh_client_dispatch_t dispatch ;
+      vtysh_client next_client ;
+      uint ti ;
 
       /* Before sending command to daemon, make sure we send only the command
        * part -- including any # or do.
        *
-       * So, get t = first token after the command part.
+       * So, get ti = index of first token after the command part, and set
+       * length to the start of that.
        */
       qassert((parsed->parts & cmd_part_in_pipe) == 0) ;
       qassert((parsed->parts & cmd_part_command) != 0) ;
@@ -816,7 +865,11 @@ vty_vtysh_execute(vty vty, bool interactive)
       else
         ti = 0 ;
 
-      t = cmd_token_get(parsed->tokens, ti) ;
+      dispatch->to_do  = cmd_do_command ;
+      dispatch->line   = qs_char(context->line) ;
+      dispatch->len    = cmd_token_get(parsed->tokens, ti)->tp ;
+      dispatch->cnode  = parsed->cnode ;
+      dispatch->xnode  = parsed->xnode ;
 
       /* Run along open daemons and dispatch to each in turn.
        *
@@ -825,26 +878,25 @@ vty_vtysh_execute(vty vty, bool interactive)
        */
       all_failed = true ;               /* fear the worst       */
 
-      client = vtysh_self->next ;
-      while ((client != NULL)           /* to be safe           */
+      next_client = vtysh_self->next ;
+      while ((next_client != NULL)      /* to be safe           */
                    && (daemons != 0))   /* stop ASAP            */
         {
+          vtysh_client client ;
+
+          client      = next_client ;
+          next_client = client->next ;
+
           if ((daemons & client->daemon) != 0)
             {
-              cmd_ret_t ret ;
-
-              ret = vty_vtysh_client_execute(vty, client,
-                                             qs_char_nn(context->line), t->tp,
-                                                 parsed->cnode, parsed->xnode) ;
+              ret = vty_vtysh_client_execute(vtysh, client, dispatch) ;
               if (ret == CMD_SUCCESS)
                 all_failed = false ;
 
-              fret = vty_vtysh_complete(vty, ret, fret, client->prefix) ;
+              fret = vty_vtysh_complete(vtysh, ret, fret, client->prefix) ;
 
               daemons &= ~client->daemon ;
             } ;
-
-          client = client->next ;
         }
     } ;
 
@@ -886,23 +938,23 @@ vty_vtysh_execute(vty vty, bool interactive)
    * and that if or when a daemon gets out of step, it will do its best to
    * get back into step.
    */
-  if (vtysh)
+  if (vtysh_cmd)
     {
       vio_fifo obuf = NULL ;
 
       if (!vtysh_only)
         {
-          obuf = vty->vio->obuf ;
-          vty->vio->obuf = vty->vio->vout_base->obuf =
-                                                     vty->vio->vout_base->rbuf ;
+          obuf = vtysh->vio->obuf ;
+          vtysh->vio->obuf = vtysh->vio->vout_base->obuf
+                           = vtysh->vio->vout_base->r_obuf ;
         } ;
 
-      ret = cmd_execute(vty) ;  /* sets context->node if succeeds       */
+      ret = cmd_execute(vtysh) ;        /* sets context->node if succeeds */
 
       if (!vtysh_only)
-        vty->vio->obuf = vty->vio->vout_base->obuf = obuf ;
+        vtysh->vio->obuf = vtysh->vio->vout_base->obuf = obuf ;
 
-      fret = vty_vtysh_complete(vty, ret, fret,
+      fret = vty_vtysh_complete(vtysh, ret, fret,
                                        vtysh_only ? NULL : vtysh_self->prefix) ;
     }
   else
@@ -911,19 +963,26 @@ vty_vtysh_execute(vty vty, bool interactive)
         context->node = context->cnode = parsed->nnode ;
     } ;
 
-  /* If there is an ebuf, copy its contents to obuf leaving end marker pointing
-   * at the start of the error message(s).
+  /* Anything currently in the vio->obuf is successful output.
+   *
+   * If there is anything in the vout->r_ebuf, then it is the collected
+   * CMD_WARNING or CMD_ERROR messages from the various daemons.  We advance
+   * the end_mark past the presumed successful output, and then append the
+   * r_ebuf contents.
    *
    * We are here leaving the obuf in the same state as normal command
    * processing -- with accepted stuff (eg reflected command line) behind
    * the end marker, and error message ahead of it.
    */
-  if (!vio_fifo_is_empty(vty->vio->vout_base->ebuf))
+  if (!vio_fifo_is_empty(vtysh->vio->vout_base->r_ebuf))
     {
       qassert(fret != CMD_SUCCESS) ;
 
-      vio_fifo_step_end_mark(vty->vio->obuf) ;
-      vio_fifo_copy(vty->vio->obuf, vty->vio->vout_base->ebuf) ;
+      vio_fifo_step_end_mark(vtysh->vio->obuf) ;
+      vio_fifo_trim(vtysh->vio->obuf, true /* terminate*/) ;
+
+      vio_fifo_copy(vtysh->vio->obuf, vtysh->vio->vout_base->r_ebuf) ;
+      vio_fifo_clear(vtysh->vio->vout_base->r_ebuf) ;
     } ;
 
   /* Done: return composite result.
@@ -932,13 +991,52 @@ vty_vtysh_execute(vty vty, bool interactive)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Execute the given parsed command in the given daemon.
+ *
+ * The command is passed to the daemon complete with two node
+ * settings:
+ *
+ *   cnode   -- the node the command is in
+ *
+ *   xnode   -- the node the vtysh is in
+ *
+ * The daemon will adjust to match, and should be able to do so.  If the daemon
+ * is so out of step that it cannot execute the command, it will generate a
+ * suitable error message.
+ *
+ * Any output from the daemon is collected in the vout_base->r_obuf.
+ *
+ * Returns:  CMD_SUCCESS  -- OK
+ *           CMD_WARNING  -- daemon returned a CMD_WARNING
+ *           CMD_ERROR    -- daemon returned some sort of error
+ *           CMD_IO_ERROR -- I/O or an error in the vtysh mechanics
+ *                           see: vout_base->ebuf (NB: not vout_base->r_ebuf)
+ *
+ * Closes the client if there is an error in the vtysh mechanics, so cannot
+ * depend on the client still being on the vtysh_client_list -- but the rest
+ * of the client structure is preserved.
+ */
+static cmd_ret_t
+vty_vtysh_client_execute(vty vtysh, vtysh_client client,
+                                                 vtysh_client_dispatch dispatch)
+{
+  vtysh_client_ret_t cret ;
+
+  cret = vtysh_client_write(client, dispatch) ;
+
+  if (cret == vtysh_client_complete)
+    return vtysh_client_read(vtysh, client) ;
+  else
+    return vtysh_client_fail(vtysh, client, cret) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Deal with completion of command in a daemon.
  *
  * If there is a prefix, then all output from the daemon is sitting in the
- * vty->vio->vout_base->rbuf.  Copy that to the obuf, adding the prefix to
- * every output line.  Leaves the rbuf empty again.
+ * vout_base->r_obuf.
  *
- * If there is no prefix, the output is already in the obuf.
+ * If there is no prefix, the output is in the obuf.
  *
  * If the result is success, push the output.
  *
@@ -950,6 +1048,20 @@ vty_vtysh_execute(vty vty, bool interactive)
  * last moment we can distinguish CMD_WARNING from other errors.  If warning
  * output is suppressed, discard any output and treat as CMD_SUCCESS.
  *
+ * We expect to only see CMD_SUCCESS/CMD_WARNING/CMD_ERROR coming from the
+ * client daemon.  For CMD_SUCCESS (if the output is not suppressed), then we
+ * move it and add prefix (if required) to the obuf.  For CMD_WARNING (if the
+ * output is not suppressed) and for CMD_ERROR we move the output and add
+ * prefix (if required) to the vout_base->r_ebuf.  When all client commands
+ * have been executed, the vio->obuf will have its end_mark moved to the end
+ * and the vout->r_ebuf will be appended -- the obuf will then look as
+ * intended... with any successful output before the end mark, and any error
+ * or warning stuff after it.
+ *
+ * If is CMD_IO_ERROR it will either be an I/O error or framing error talking
+ * to one of the daemons or (just possibly) an I/O error in output.  In both
+ * cases, any error message will already be in the vio->ebuf !
+ *
  * For any warning or error, we pull error messages into a side buffer,
  * pro tem, so that can eventually deal with all such messages as a single
  * CMD_WARNING/CMD_ERROR/CMD_IO_ERROR.
@@ -958,7 +1070,7 @@ vty_vtysh_execute(vty vty, bool interactive)
  * CMD_WARNING/CMD_ERROR/CMD_IO_ERROR and we return the new maximum.
  */
 static cmd_ret_t
-vty_vtysh_complete(vty vty, cmd_ret_t ret, cmd_ret_t fret, const char* prefix)
+vty_vtysh_complete(vty vtysh, cmd_ret_t ret, cmd_ret_t fret, const char* prefix)
 {
   vio_fifo  src ;
   vio_fifo  dst ;
@@ -967,7 +1079,7 @@ vty_vtysh_complete(vty vty, cmd_ret_t ret, cmd_ret_t fret, const char* prefix)
 
   VTY_LOCK() ;
 
-  vio = vty->vio ;
+  vio  = vtysh->vio ;
 
   dst  = NULL ;         /* Will be set iff there is something to move   */
   push = false ;        /* Will be set iff something to push            */
@@ -978,9 +1090,9 @@ vty_vtysh_complete(vty vty, cmd_ret_t ret, cmd_ret_t fret, const char* prefix)
    * Otherwise, the output is in the tail part of the obuf.
    */
   if (prefix != NULL)
-    src = vty->vio->vout_base->rbuf ;
+    src = vio->vout_base->r_obuf ;
   else
-    src = vty->vio->obuf ;
+    src = vio->obuf ;
 
   /* Worry about out_ordinary and out_warning.
    *
@@ -998,13 +1110,11 @@ vty_vtysh_complete(vty vty, cmd_ret_t ret, cmd_ret_t fret, const char* prefix)
           {
             if (vio->vout->out_ordinary)
               {
-                if (prefix != NULL)
-                  dst = vio->obuf ;     /* have something to move       */
-
+                dst  = vio->obuf ;      /* have something to move       */
                 push = true ;           /* something to push            */
               }
             else
-              vio_fifo_back_to_end_mark(src) ;
+              vio_fifo_back_to_end_mark(src) ;        /* discard        */
           } ;
         break ;
 
@@ -1015,13 +1125,13 @@ vty_vtysh_complete(vty vty, cmd_ret_t ret, cmd_ret_t fret, const char* prefix)
               fret = CMD_WARNING ;
 
             if (vio_fifo_is_tail_empty(src))
-              uty_cmd_failed_message(src, ret) ;       /* Standard/Default */
+              uty_cmd_failed_message(src, ret) ;    /* Standard/Default */
 
-            dst = vty->vio->vout_base->ebuf ;
+            dst = vio->vout_base->r_ebuf ;
           }
         else
           {
-            vio_fifo_back_to_end_mark(src) ;
+            vio_fifo_back_to_end_mark(src) ;        /* discard          */
             ret = CMD_SUCCESS ;
           } ;
         break ;
@@ -1032,24 +1142,35 @@ vty_vtysh_complete(vty vty, cmd_ret_t ret, cmd_ret_t fret, const char* prefix)
 
       case CMD_ERROR:
         if (vio_fifo_is_tail_empty(src))
-          uty_cmd_failed_message(src, ret) ;       /* Standard/Default */
+          uty_cmd_failed_message(src, ret) ;        /* Standard/Default */
 
         if (fret != CMD_IO_ERROR)
           fret = CMD_ERROR ;
 
-        dst = vty->vio->vout_base->ebuf ;
+        dst = vio->vout_base->r_ebuf ;
         break ;
 
       case CMD_IO_ERROR:
         fret = CMD_IO_ERROR ;
 
-        dst = vty->vio->vout_base->ebuf ;
+        /* I/O error will already have been written to the vio->ebuf in the
+         * usual way.
+         *
+         * If there is anything in the src, then we treat that as stuff which
+         * arrived before the I/O error occurred,
+         */
+        if (!vio_fifo_is_tail_empty(src))
+          {
+            dst  = vio->obuf ;          /* have something to move       */
+            push = true ;               /* something to push            */
+          } ;
+
         break ;
     } ;
 
   /* If have a destination buffer, then have something to move.
    *
-   * If do not have a destination buffer, have emptied out the rbuf (if there
+   * If do not have a destination buffer, have emptied out the r_obuf (if there
    * was anything there) or we have success output already sitting in the obuf.
    */
   if (dst != NULL)
@@ -1067,7 +1188,7 @@ vty_vtysh_complete(vty vty, cmd_ret_t ret, cmd_ret_t fret, const char* prefix)
           uint used ;
           bool add ;
 
-          qassert(src == vty->vio->vout_base->rbuf) ;
+          qassert(src == vio->vout_base->r_obuf) ;
           vio_fifo_step_end_mark(src) ;
 
           plen = strlen(prefix) ;
@@ -1106,12 +1227,12 @@ vty_vtysh_complete(vty vty, cmd_ret_t ret, cmd_ret_t fret, const char* prefix)
 
           vio_fifo_clear(src) ;
         }
-      else
+      else if (dst != src)
         {
           /* Move tail from src, verbatim and discard from src.
            *
-           * May be moving tail of rbuf to obuf or to ebuf, or may be moving
-           * tail of obuf to ebuf.
+           * May be moving tail of r_obuf to obuf or to r_ebuf, or may be
+           * moving tail of r_obuf to r_ebuf.
            */
           vio_fifo_copy_tail(dst, src) ;
           vio_fifo_back_to_end_mark(src) ;
@@ -1126,163 +1247,9 @@ vty_vtysh_complete(vty vty, cmd_ret_t ret, cmd_ret_t fret, const char* prefix)
         fret = CMD_IO_ERROR ;
     } ;
 
-  qassert(vio_fifo_is_quite_empty(vty->vio->vout_base->rbuf)) ;
-
   VTY_UNLOCK() ;
 
   return fret ;
-} ;
-
-static void
-vty_vtysh_daemon_error(vio_fifo obuf, vtysh_client client,
-                               const char* format, ...) PRINTF_ATTRIBUTE(3, 4) ;
-
-/*------------------------------------------------------------------------------
- * Execute the given parsed command in the given daemon.
- *
- * The command is passed to the daemon complete with two node settings:
- *
- *   cnode   -- the node the command is in
- *
- *   xnode   -- the node the vtysh is in
- *
- * The daemon will adjust to match, and should be able to do so.  If the daemon
- * is so out of step that it cannot execute the command, it will generate a
- * suitable error message.
- *
- * Any output is collected in the vout_base->rbuf.
- *
- * Returns:  CMD_SUCCESS  -- all's well, may have output ready to push
- *           CMD_WARNING  -- daemon returned a CMD_WARNING
- *           CMD_ERROR    -- daemon returned a CMD_ERROR, or an error in the
- *                           vtysh mechanics occurred.
- *
- * Closes the client if there is an error in the vtysh mechanics, so cannot
- * depend on the client still being on the vtysh_client_list.
- */
-static cmd_ret_t
-vty_vtysh_client_execute(vty vty, vtysh_client client,
-               const char* line, ulen len, node_type_t cnode, node_type_t xnode)
-{
-  vio_fifo  rbuf ;
-  cmd_ret_t ret ;
-
-  rbuf = vty->vio->vout_base->rbuf ;
-
-  vio_fifo_clear(rbuf) ;                /* make sure    */
-
-  /* Send command and collect the result.
-   *
-   * Note that we mask signals, so that cannot be interrupted with a
-   * partially written command message, or a partly read output returned.
-   * The I/O will time-out -- which avoids indefinite lock-up.
-   */
-  vtysh_client_ret_t cret ;
-
-  VTY_LOCK() ;
-
-  cret = vtysh_client_write(client, cmd_do_command, line, len, cnode, xnode) ;
-  if (cret == vtysh_client_complete)
-    cret = vtysh_client_read(client, rbuf) ;
-
-  VTY_UNLOCK() ;
-
-  if (cret == vtysh_client_complete)
-    {
-      /* Sent command and received response -- mechanics OK, so far.
-       *
-       * Pick up the return code and set the new client daemon node.
-       *
-       * Check that the return code is valid.
-       */
-      ret = client->read->ret ;
-
-      switch (ret)
-        {
-          case CMD_SUCCESS:
-           break ;
-
-          case CMD_ERR_PARSING:
-          case CMD_ERR_NO_MATCH:
-          case CMD_ERR_AMBIGUOUS:
-          case CMD_ERR_INCOMPLETE:
-          case CMD_IO_ERROR:
-          case CMD_CANCEL:
-            ret = CMD_ERROR ;           /* simplify */
-
-            fall_through ;
-
-          case CMD_WARNING:
-          case CMD_ERROR:
-            break ;
-
-          default:
-            vty_vtysh_daemon_error(rbuf, client,
-                              "received unexpected return code %d\n", ret) ;
-            ret = CMD_ERROR ;
-        } ;
-    }
-  else
-    {
-      /* Some sort of error in the sending of the command or the return
-       * of the results.
-       */
-      int err = errno ;
-
-      switch (cret)
-        {
-          case vtysh_client_errno:
-            if (err != EPIPE)
-              vty_vtysh_daemon_error(rbuf,  client,
-                                    "I/O error: %s\n", errtoa(err, 0).str) ;
-            else
-              vty_vtysh_daemon_error(rbuf,  client, "connection broken") ;
-            break ;
-
-          case vtysh_client_eof:
-            vty_vtysh_daemon_error(rbuf, client,
-                                  "unexpected eof -- connection broken\n") ;
-            break ;
-
-          case vtysh_client_bad:
-            vty_vtysh_daemon_error(rbuf, client,
-                                      "invalid message -- possible bug\n") ;
-            break ;
-
-          case vtysh_client_timeout:
-            vty_vtysh_daemon_error(rbuf, client,
-                                         "timed out -- daemon broken ?\n") ;
-            break ;
-
-          default:
-            vty_vtysh_daemon_error(rbuf, client,
-                  "invalid vtysh_client_ret_t %d -- probable bug\n", cret) ;
-            break ;
-        } ;
-
-      ret = CMD_ERROR ;
-    } ;
-
-  return ret ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Issues message and closes the client connection (sets client->node to
- * NULL_NODE).
- */
-static void
-vty_vtysh_daemon_error(vio_fifo obuf, vtysh_client client,
-                                                        const char* format, ...)
-{
-  va_list args;
-
-  vio_fifo_printf(obuf, "%% Closing %s: ", client->name) ;
-
-  va_start (args, format);
-  vio_fifo_vprintf(obuf, format, args);
-  va_end (args);
-
-  vtysh_client_close(client) ;
 } ;
 
 /*==============================================================================
@@ -1329,6 +1296,89 @@ uty_vtysh_out_close_pager(vio_vf vf)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Want another command line for the vtysh itself
+ *
+ * Actually does very little, except return CMD_SUCCESS when everything is
+ * quiet, and it is time to obtain another command line -- which is done
+ * outside the loop for the vtysh: vst_cmd_fetch state causes exit from the
+ * vty_vtysh_command_loop(), above.
+ *
+ * Does something if is:
+ *
+ *   * vst_cmd_fetch    -- absolutely on its own, with no vst_hiatus_mask and
+ *                                                     no vst_mon_mask bits
+ *
+ *     Returns CMD_SUCCESS -- ready for next command line
+ *
+ *   * vst_cmd_complete -- also absolutely on its own
+ *
+ *     Moves to vst_cmd_fetch and returns CMD_SUCCESS.
+ *
+ * Otherwise, does nothing and returns CMD_HIATUS, because is:
+ *
+ *   * vst_cmd_running           )
+ *   * vst_cmd_running_executing ) -- previous command still running
+ *   * vst_cmd_more              )    output side responsible for this.
+ *   * vst_cmd_more_executing    )
+ *
+ *     Actually, vst_cmd_more/_executing are impossible for VIN_VTYSH !
+ *
+ *   * something in vst_hiatus_mask -- which the hiatus will take care of.
+ *
+ *   * something in vst_mon_mask -- which the output side will take care of.
+ *
+ *     Actually, vst_mon_xxxx are impossible for VIN_VTYSH !
+ *
+ * Returns:  CMD_SUCCESS  -- ready to fetch another command line
+ *           CMD_HIATUS   -- no command line, hiatus attention required
+ */
+extern cmd_ret_t
+uty_vtysh_cmd_line_fetch(vio_vf vf)
+{
+  cmd_ret_t ret ;
+  vty_io vio ;
+
+  VTY_ASSERT_LOCKED() ;         /* In any thread                        */
+
+  qassert(vf->vin_type == VIN_VTYSH) ;
+
+  vio = vf->vio ;
+
+  qassert(vio->vin_depth == 1) ;        /* so vst_cmd_xxx is ours !     */
+
+  switch (vio->state)
+    {
+      /* Ready to fetch another command line.
+       */
+      case vst_cmd_complete:
+        vio->state = vst_cmd_fetch ;
+
+        fall_through ;
+
+      /* In the process of fetching a command line
+       */
+      case vst_cmd_fetch:
+        ret = CMD_SUCCESS ;
+        break ;
+
+      case vst_cmd_dispatched:
+      case vst_cmd_more:
+      case vst_cmd_more_executing:
+        qassert(false) ;
+        uty_vf_read_stop(vf, vfs_stop_final) ;
+        fall_through ;
+
+      /* We are waiting either for input or output before can do anything here.
+       */
+      default:
+        ret = CMD_HIATUS ;
+        break ;
+    } ;
+
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Command output push to vtysh -- VOUT_VTYSH -- vf_open.
  *
  * All output is simple-minded blocking I/O -- assumes stdout or pager will
@@ -1350,9 +1400,25 @@ uty_vtysh_out_push(vio_vf vf)
 {
   qassert(vf->vout_type  == VOUT_VTYSH) ;
 
-  if (vf->obuf == vf->rbuf)
+  if (vf->obuf == vf->r_obuf)
     return CMD_SUCCESS ;
 
+  /* Do nothing if vf_end.  Also traps vst_final.
+   */
+  if (vf->vout_state & vf_end)
+    return CMD_SUCCESS ;
+
+  qassert((vf->vio->state & vst_final) == 0) ;
+
+  /* If not vst_cmd_running or vst_cmd_running_executing we are done.
+   */
+  if ((vf->vio->state & (vst_cmd_inner_mask | vst_cancel)) != vst_cmd_running)
+    return CMD_SUCCESS ;        /* nothing more to do ATM       */
+
+  /* Empty out the obuf.
+   *
+   * This is simple-minded blocking I/O -- so we expect to complete.
+   */
   if (!vio_fifo_is_empty(vf->obuf))     /* do nothing if empty !      */
     {
       int   have ;
@@ -1377,22 +1443,35 @@ uty_vtysh_out_push(vio_vf vf)
           if (have == 0)
             break ;
 
-          r = fwrite(vio_fifo_get_ptr(vf->obuf), have, 1, vf->fp) ;
-          if (r == 1)
-            r = fflush(vf->fp) ;
-          else
-            r = EOF ;
-
-          confirm(EOF != 1) ;
-
-          if (r == EOF)
+          while (1)
             {
-              bool pager = (vf->pager != NULL) ;
-              if (pager && (errno == EPIPE))
-                printf("--quit\n") ;
+              r = fwrite(vio_fifo_get_ptr(vf->obuf), have, 1, vf->fp) ;
+              if (r == 1)
+                r = fflush(vf->fp) ;
               else
-                perror(pager ? "pager output failed" : "stdout output failed") ;
-              vf->fp = NULL ;
+                r = EOF ;
+
+              confirm(EOF != 1) ;
+
+              if (r == EOF)
+                {
+                  bool pager ;
+
+                  if (errno == EINTR)
+                    continue ;
+
+                  pager = (vf->pager != NULL) ;
+
+                  if (pager && (errno == EPIPE))
+                    printf("--quit\n") ;
+                  else
+                    perror(pager ? "pager output failed"
+                                 : "stdout output failed") ;
+
+                  vf->fp = NULL ;
+                } ;
+
+              break ;
             } ;
         } ;
 
@@ -1402,11 +1481,18 @@ uty_vtysh_out_push(vio_vf vf)
         vio_fifo_clear(vf->obuf) ;
     } ;
 
-  /* If is not vst_cmd_executing, then we are at the top command level, and if
-   * have opened a pager, now is the time to close it again.
+  /* If is not vst_cmd_executing, then we are at the top command level, and
+   * now that the buffer is empty, we can go vst_cmd_complete.
+   *
+   * Also if have opened a pager, now is the time to close it again.
    */
   if ((vf->vio->state & vst_cmd_executing) == 0)
-    uty_vtysh_out_close_pager(vf) ;
+    {
+      qassert(vio_fifo_is_empty(vf->obuf)) ;
+      vf->vio->state = (vf->vio->state & ~vst_cmd_mask) | vst_cmd_complete ;
+
+      uty_vtysh_out_close_pager(vf) ;
+    } ;
 
   /* In any event, have done everything that can be done.
    */

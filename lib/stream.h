@@ -188,7 +188,7 @@ extern void stream_putl (struct stream *, uint32_t);
 extern void stream_putl_at (struct stream *, size_t, uint32_t);
 extern void stream_putq (struct stream *, uint64_t);
 extern void stream_putq_at (struct stream *, size_t, uint64_t);
-extern void stream_put_ipv4 (struct stream *, uint32_t);
+extern void stream_put_ipv4 (struct stream *, in_addr_t);
 extern void stream_put_in_addr (struct stream *, struct in_addr *);
 extern void stream_put_prefix (struct stream *, struct prefix *);
 
@@ -363,7 +363,7 @@ Inline size_t
 stream_get_read_left(struct stream* s)
 {
   qassert_stream(s) ;
-  return s->endp - s->getp ;
+  return (s->getp < s->endp) ? s->endp - s->getp : 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -394,7 +394,7 @@ Inline size_t
 stream_get_write_left(struct stream* s)
 {
   qassert_stream(s) ;
-  return s->size - s->endp ;
+  return (s->endp < s->size) ? s->size - s->endp : 0 ;
 }
 
 /*------------------------------------------------------------------------------

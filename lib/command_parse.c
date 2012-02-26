@@ -3456,8 +3456,8 @@ cmd_parse_command(cmd_parsed parsed, cmd_context context)
    * Here we deal with implicit node transfers and "do", implicit "do" and
    * meta commands.
    *
-   * Currently both parsed->xnode and parsed->nnode are set to the node we came
-   * in on (context->node).  If the node we have found the command in
+   * Currently both parsed->xnode and parsed->nnode are set to the node we
+   * came in on (context->node).  If the node we have found the command in
    * (parsed->cnode) is not the same, then we have two choices:
    *
    *   (a) parsed->cnode is an ENABLE node -- either because have 'do' or by

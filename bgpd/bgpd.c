@@ -609,7 +609,7 @@ peer_global_config_reset (struct peer *peer)
  *          BGP_PEER_IBGP      -- including within a confederation member-AS
  *          BGP_PEER_CONFED    -- between different confederation member-ASes
  *          BGP_PEER_INTERNAL  -- this is group, and remote ASN is not set
- *                                or is not group amd local ASN is not set
+ *                                or is not group and local ASN is not set
  */
 int
 peer_sort (struct peer *peer)

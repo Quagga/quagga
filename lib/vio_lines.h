@@ -35,6 +35,19 @@
  *
  * NB: need to explicitly initialise line control in order to set the required
  *     new line, the qiovec vectors and a qstring buffer !
+ *
+ * In the qiov will buffer *only* the number of screen lines allowed by the
+ * height.
+ *
+ * Does not start to break an incoming line up into screen lines until the
+ * terminating '\n' is seen -- or the line control is flushed, which appends
+ * a '\n' unless nothing but whitespace has been seen since the last line.
+ *
+ * When a complete incoming line generates more screen lines than are allowed,
+ * the fragments are stored here (in ls->fragments and lc->here).
+ *
+ * If the line control has an incomplete incoming line on its hands, and no
+ * more is appended, the incomplete line is also stored here.
  */
 struct vio_line_control
 {
@@ -48,7 +61,7 @@ struct vio_line_control
   qiovec    fragments ;
   qstring   here ;          /* any fragments after write                */
 
-  qiovec    qiov ;          /* output screen lines                      */
+  qiovec    qiov ;          /* buffered screen lines                    */
 
   qiov_item_t   newline ;   /* the required sequence                    */
 } ;
@@ -126,8 +139,8 @@ vio_lc_counter_reset(vio_line_control lc)
  * If no height is set, set counter to large number -- to do a tranche of
  * output.
  *
- * Otherwise, if the line control is paused (or would pause as soon as any
- * output is sent), reset the counter.
+ * Otherwise, if the line control is paused (or would pause immediately
+ * anything is appended), reset the counter.
  */
 Inline void
 vio_lc_clear_pause(vio_line_control lc)
@@ -139,7 +152,7 @@ vio_lc_clear_pause(vio_line_control lc)
 /*------------------------------------------------------------------------------
  * Is the given line control counter exhausted ?
  *
- * Any attempt to output more stuff will be prevented -- except for
+ * Any attempt to append more stuff will be prevented -- except for
  * vio_lc_flush() which will succeed if height is indefinite.
  */
 Inline bool
@@ -163,7 +176,7 @@ vio_lc_have_complete_line_in_hand(vio_line_control lc)
 /*------------------------------------------------------------------------------
  * Is given line control empty ?
  *
- * Is empty if the qiov is empty and there is nothing in hand.
+ * Is empty if the qiov is empty *and* there is nothing in hand.
  *
  * NB: if there is something in hand, it may be complete or incomplete.
  */

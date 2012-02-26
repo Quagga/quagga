@@ -54,19 +54,23 @@ typedef struct
  * Functions
  */
 extern vty vty_vtysh_open(vtysh_cmd_call_backs_t* call_backs, bool no_prefix) ;
-extern void vty_vtysh_promote(vty vty) ;
-extern daemon_set_t vty_vtysh_open_clients(vty vty, daemon_set_t daemons) ;
-extern daemon_set_t vty_vtysh_check_clients(vty vty) ;
-extern cmd_ret_t vty_vtysh_command_loop(vty vty, const char* line,
+extern void vty_vtysh_promote(vty vtysh) ;
+extern daemon_set_t vty_vtysh_open_clients(vty vtysh, daemon_set_t daemons,
+                                                      daemon_set_t required) ;
+extern daemon_set_t vty_vtysh_check_clients(vty vtysh) ;
+extern void vty_vtysh_close(void) ;
+
+extern cmd_ret_t vty_vtysh_command_loop(vty vtysh, const char* line,
                                             bool interactive, ulen prompt_len) ;
-extern qstring vty_vtysh_prep_line(vty vty, const char* line, ulen len,
+extern qstring vty_vtysh_prep_line(vty vtysh, const char* line, ulen len,
                                                                      ulen pos) ;
-extern cmd_ret_t vty_vtysh_fetch_config(vty vty,
+extern cmd_ret_t vty_vtysh_fetch_config(vty vtysh,
                          void (*collect)(daemon_set_t daemon, vio_fifo buf),
                                                                     bool show) ;
 
 extern void uty_vtysh_out_prep(vty_io vio, const char* pager_name) ;
 extern void uty_vtysh_out_close_pager(vio_vf vf) ;
+extern cmd_ret_t uty_vtysh_cmd_line_fetch(vio_vf vf) ;
 extern cmd_ret_t uty_vtysh_out_push(vio_vf vf) ;
 extern cmd_ret_t uty_vtysh_write_block(vio_vf vf) ;
 extern cmd_ret_t uty_vtysh_write_close(vio_vf vf) ;

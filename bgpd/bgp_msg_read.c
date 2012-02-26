@@ -788,17 +788,11 @@ static const unsigned cap_maxsizes[] =
 /* Forward references for parsing individual capabilities, return -1 if the
  * capability is malformed or contains invalid values.
  */
-static int
-bgp_msg_capability_mp(bgp_connection connection, sucker sr) ;
-
-static int
-bgp_msg_capability_orf (bgp_connection connection, uint8_t cap_code, sucker sr);
-
-static int
-bgp_msg_capability_restart (bgp_connection connection, sucker sr) ;
-
-static int
-bgp_msg_capability_as4 (bgp_connection connection, sucker sr) ;
+static int bgp_msg_capability_mp(bgp_connection connection, sucker sr) ;
+static int bgp_msg_capability_orf (bgp_connection connection, uint8_t cap_code,
+                                                                     sucker sr);
+static int bgp_msg_capability_restart (bgp_connection connection, sucker sr) ;
+static int bgp_msg_capability_as4 (bgp_connection connection, sucker sr) ;
 
 /*------------------------------------------------------------------------------
  * Set notification to malformed/invalid.

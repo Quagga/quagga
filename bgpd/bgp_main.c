@@ -834,9 +834,9 @@ sighup (void)
 void
 sigterm(void)
 {
-  zlog_notice ("Terminating on signal");
+  zlog_notice ("Terminating on signal (SIGTERM/SIGINT)");
 
-  vty_stop("Terminating on signal (SIGTERM/SIGINT)", sigterm_action);
+  vty_stop("signal (SIGTERM/SIGINT)", sigterm_action);
 }
 
 /*------------------------------------------------------------------------------

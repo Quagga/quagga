@@ -68,28 +68,19 @@ struct vty_cli
   /* drawn           <=> the current prompt and user input occupy the current
    *                     line on the screen.
    *
-   *                     Will be true only when is vst_cmd_fetch, vst_cmd_dispatched
-   *                     or vst_cmd_more.  Changes to the state must ensure that
-   *                     the ownership of the current line is kept up to date.
+   *                     Will be true only when is vst_cmd_fetch,
+   *                     vst_cmd_dispatched or vst_cmd_more.  Changes to the
+   *                     state must ensure that the ownership of the current
+   *                     line is kept up to date.
    *
    * drawn_to_do     <=> what ^Z if any should be drawn after the command.
    *
-   *                     Valid only if cli->state == vst_cmd_dispatched.
+   *                     Valid only if cli->state == vst_cmd_fetch
+   *                                              == vst_cmd_dispatched
+   *                                              == vst_more.
    */
   bool          drawn ;
-  const char*   drawn_to_do ;
-
-  /* State of the CLI and its output
-   *
-   * The state specifies whether a CLI or the output side has "ownership"
-   * if the screen.  When the cli has ownership, the "drawn" states, above
-   * specify whether the current prompt, command line etc. is drawn on the
-   * screen.
-   *
-   * Note that if either vst_mon_active/vst_mon_blocked or vst_mon_paused is set,
-   * then the screen belongs to the output side.
-   */
-//cli_state_t      state ;
+  cmd_do_t      drawn_to_do ;
 
   /* ready  <=> must call uty_cli() ASAP -- to redraw prompt, or fetch from
    *            keystroke buffer, etc.
@@ -160,6 +151,7 @@ extern void uty_cli_hist_show(vty_cli cli) ;
 
 extern void uty_cli(vty_cli cli) ;
 extern cli_active_t uty_cli_is_active(vty_cli cli) ;
+extern void uty_cli_more_enter(vty_cli cli) ;
 
 extern cmd_ret_t uty_cli_want_command(vio_vf vf);
 extern void uty_cli_out(vty_cli cli, const char *format, ...)
