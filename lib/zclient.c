@@ -527,8 +527,6 @@ zlookup_connect_r (qtimer qtr, void* timer_info, qtime_t when)
 #else
   zlookup->sock = zclient_socket_un (ZEBRA_SERV_PATH);
 #endif /* HAVE_TCP_ZEBRA */
-
-  qps_add_file(zclient_nexus->selection, zlookup->qf, zlookup->sock, zlookup);
 }
 
 
