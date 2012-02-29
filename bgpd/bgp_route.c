@@ -550,38 +550,50 @@ static enum filter_type
 bgp_input_filter (struct peer *peer, struct prefix *p, struct attr *attr,
 		  afi_t afi, safi_t safi)
 {
-  struct bgp_filter *filter;
+  struct bgp_filter *filter ;
+  struct prefix_list* plist ;
 
   filter = &peer->filter[afi][safi];
 
+#define FILTER_EXIST_WARNING(F,f,filter) \
+  plog_warn (peer->log, "%s: Could not find configured input %s-list %s!", \
+               peer->host, #f, F ## _IN_NAME(filter))
+
+
 #define FILTER_EXIST_WARN(F,f,filter) \
-  if (BGP_DEBUG (update, UPDATE_IN) \
-      && !(F ## _IN_LIST (filter))) \
-    plog_warn (peer->log, "%s: Could not find configured input %s-list %s!", \
-               peer->host, #f, F ## _IN_NAME(filter));
+  if (BGP_DEBUG (update, UPDATE_IN) && !(F ## _IN_LIST (filter))) \
+    FILTER_EXIST_WARNING(F,f,filter)
 
-  if (DISTRIBUTE_IN_NAME (filter)) {
-    FILTER_EXIST_WARN(DISTRIBUTE, distribute, filter);
+  if (DISTRIBUTE_IN_NAME (filter))
+    {
+      FILTER_EXIST_WARN(DISTRIBUTE, distribute, filter) ;
 
-    if (access_list_apply (DISTRIBUTE_IN_LIST (filter), p) == FILTER_DENY)
-      return FILTER_DENY;
-  }
+      if (access_list_apply (DISTRIBUTE_IN_LIST (filter), p) == FILTER_DENY)
+        return FILTER_DENY;
+    }
 
-  if (PREFIX_LIST_IN_NAME (filter)) {
-    FILTER_EXIST_WARN(PREFIX_LIST, prefix, filter);
+  plist = PREFIX_LIST_IN_LIST(filter) ;
+  if (plist != NULL)
+    {
+      if (!prefix_list_is_set(plist))
+        FILTER_EXIST_WARNING(PREFIX_LIST, prefix, filter) ;
 
-    if (prefix_list_apply (PREFIX_LIST_IN_LIST(filter), p) == PREFIX_DENY)
-      return FILTER_DENY;
-  }
+      if (prefix_list_apply (plist, p) == PREFIX_DENY)
+        return FILTER_DENY;
+    }
 
-  if (FILTER_LIST_IN_NAME (filter)) {
-    FILTER_EXIST_WARN(FILTER_LIST, as, filter);
+  if (FILTER_LIST_IN_NAME (filter))
+    {
+      FILTER_EXIST_WARN(FILTER_LIST, as, filter);
 
-    if (as_list_apply (FILTER_LIST_IN_LIST (filter), attr->aspath)== AS_FILTER_DENY)
-      return FILTER_DENY;
-  }
+      if (as_list_apply (FILTER_LIST_IN_LIST (filter), attr->aspath)
+                                                              == AS_FILTER_DENY)
+        return FILTER_DENY;
+    }
 
   return FILTER_PERMIT;
+
+#undef FILTER_EXIST_WARNING
 #undef FILTER_EXIST_WARN
 }
 
@@ -590,38 +602,48 @@ bgp_output_filter (struct peer *peer, struct prefix *p, struct attr *attr,
 		   afi_t afi, safi_t safi)
 {
   struct bgp_filter *filter;
+  struct prefix_list* plist ;
 
   filter = &peer->filter[afi][safi];
 
+#define FILTER_EXIST_WARNING(F,f,filter) \
+  plog_warn (peer->log, "%s: Could not find configured output %s-list %s!", \
+             peer->host, #f, F ## _OUT_NAME(filter))
+
 #define FILTER_EXIST_WARN(F,f,filter) \
-  if (BGP_DEBUG (update, UPDATE_OUT) \
-      && !(F ## _OUT_LIST (filter))) \
-    plog_warn (peer->log, "%s: Could not find configured output %s-list %s!", \
-               peer->host, #f, F ## _OUT_NAME(filter));
+  if (BGP_DEBUG (update, UPDATE_OUT) && !(F ## _OUT_LIST (filter))) \
+    FILTER_EXIST_WARNING(F,f,filter)
 
-  if (DISTRIBUTE_OUT_NAME (filter)) {
-    FILTER_EXIST_WARN(DISTRIBUTE, distribute, filter);
+  if (DISTRIBUTE_OUT_NAME (filter))
+    {
+      FILTER_EXIST_WARN(DISTRIBUTE, distribute, filter);
 
-    if (access_list_apply (DISTRIBUTE_OUT_LIST (filter), p) == FILTER_DENY)
-      return FILTER_DENY;
-  }
+      if (access_list_apply (DISTRIBUTE_OUT_LIST (filter), p) == FILTER_DENY)
+        return FILTER_DENY;
+    }
 
-  if (PREFIX_LIST_OUT_REF (filter)) {
-    FILTER_EXIST_WARN(PREFIX_LIST, prefix, filter);
+  plist = PREFIX_LIST_OUT_LIST (filter) ;
+  if (plist != NULL)
+    {
+      if (!prefix_list_is_set(plist))
+        FILTER_EXIST_WARNING(PREFIX_LIST, prefix, filter) ;
 
-    if (prefix_list_apply (PREFIX_LIST_OUT_LIST (filter), p) == PREFIX_DENY)
-      return FILTER_DENY;
-  }
+      if (prefix_list_apply (plist, p) == PREFIX_DENY)
+        return FILTER_DENY;
+    }
 
-  if (FILTER_LIST_OUT_NAME (filter)) {
-    FILTER_EXIST_WARN(FILTER_LIST, as, filter);
+  if (FILTER_LIST_OUT_NAME (filter))
+    {
+      FILTER_EXIST_WARN(FILTER_LIST, as, filter);
 
-    if (as_list_apply (FILTER_LIST_OUT_LIST (filter), attr->aspath)
+      if (as_list_apply (FILTER_LIST_OUT_LIST (filter), attr->aspath)
 							      == AS_FILTER_DENY)
       return FILTER_DENY;
-  }
+    }
 
   return FILTER_PERMIT;
+
+#undef FILTER_EXIST_WARNING
 #undef FILTER_EXIST_WARN
 }
 
@@ -3715,9 +3737,15 @@ bgp_cleanup_routes (void)
 }
 #endif
 
+/*------------------------------------------------------------------------------
+ * Reset state during SIGHUP, prior to rereading the configuration file.
+ */
 void
 bgp_reset (void)
 {
+  /* TODO: community-list and extcommunity-list ??
+   * TODO: route-maps ??
+   */
   bgp_zclient_reset ();
   access_list_reset ();
   prefix_list_reset (keep_it);

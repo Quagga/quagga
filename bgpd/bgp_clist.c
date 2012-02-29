@@ -31,22 +31,24 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_regex.h"
 #include "bgpd/bgp_clist.h"
 
-
-/* Community-list handler.
+/*==============================================================================
+ * Community-list handler.
  *
  * Contains a set of community and extcommunity filters.
  *
  * NB: have separate name-spaces for community-list and extcommunity-list.
+ *
+ * Currently, no references are kept for community lists... all use (which is
+ * in route-maps, only) looks up the comunity list by name, every time.
 */
 struct community_list_handler
 {
   symbol_table community_list ;
   symbol_table extcommunity_list ;
-};
+} ;
 
-
-/* Lookup master structure for community-list or
-   extcommunity-list.  */
+/* Lookup master structure for community-list or extcommunity-list.
+ */
 extern symbol_table
 community_list_master_lookup (struct community_list_handler *ch, int master)
 {
@@ -63,14 +65,16 @@ community_list_master_lookup (struct community_list_handler *ch, int master)
   return NULL;
 }
 
-/* Allocate a new community list entry.  */
+/* Allocate a new community list entry.
+ */
 static struct community_entry *
 community_entry_new (void)
 {
   return XCALLOC (MTYPE_COMMUNITY_LIST_ENTRY, sizeof (struct community_entry));
 }
 
-/* Free community list entry.  */
+/* Free community list entry.
+ */
 static void
 community_entry_free (struct community_entry *entry)
 {
@@ -100,7 +104,8 @@ community_entry_free (struct community_entry *entry)
   XFREE (MTYPE_COMMUNITY_LIST_ENTRY, entry);
 }
 
-/* Allocate a new community-list.  */
+/* Allocate a new community-list.
+ */
 static struct community_list *
 community_list_new(symbol sym, const char* name)
 {
@@ -121,10 +126,15 @@ community_list_new(symbol sym, const char* name)
   list->sym = sym ;
   strcpy(list->name, name) ;
 
+  symbol_set_body(sym, list, false /* not set */, free_it /* existing */) ;
+
   return list ;
 }
 
-struct community_list *
+/*------------------------------------------------------------------------------
+ * Lookup -- do not create.
+ */
+extern struct community_list *
 community_list_lookup (struct community_list_handler *ch,
 		       const char *name, int master)
 {
@@ -137,12 +147,18 @@ community_list_lookup (struct community_list_handler *ch,
   if (!table)
     return NULL;
 
-  return symbol_get_value(symbol_lookup(table, name, no_add)) ;
+  return symbol_get_body(symbol_lookup(table, name, no_add)) ;
 }
 
+/*------------------------------------------------------------------------------
+ * Lookup and create if not found.
+ *
+ * If is "set", then we are about to set some part of the community list value,
+ * so want to "symbol_set" the symbol.
+ */
 static struct community_list *
 community_list_get (struct community_list_handler *ch,
-		    const char *name, int master)
+		    const char *name, int master, bool set)
 {
   struct community_list *list;
   struct symbol_table* table;
@@ -156,14 +172,14 @@ community_list_get (struct community_list_handler *ch,
     return NULL;
 
   sym  = symbol_lookup(table, name, add) ;
-  list = symbol_get_value(sym) ;
-  if (list == NULL)
-    {
-      /* Allocate new community_list and tie symbol and list together.  */
-      list = community_list_new (sym, name);
 
-      symbol_set(sym, list) ;
-    }
+  list = symbol_get_body(sym) ;
+  if (list == NULL)
+    list = community_list_new (sym, name);
+        /* Allocate new community_list and tie symbol and list together.  */
+
+  if (set)
+    symbol_set(sym) ;           /* symbol body has value        */
 
   return list;
 }
@@ -176,17 +192,6 @@ community_list_cmp(const struct community_list* list, const char* name)
 {
   return strcmp(list->name, name) ;
 } ;
-
-/*------------------------------------------------------------------------------
- * Free community list -- symbol_free_func.
- */
-static void
-community_list_free (struct community_list *list)
-{
-  qassert(list->head == NULL) ;         /* must be empty by now */
-
-  XFREE(MTYPE_COMMUNITY_LIST, list) ;
-}
 
 /*------------------------------------------------------------------------------
  * Flush away entire contents of given community list.
@@ -213,22 +218,38 @@ community_list_flush(struct community_list *list)
 }
 
 /*------------------------------------------------------------------------------
+ * Free community list -- symbol_free_func.
+ *
+ * Make sure is completely empty, first.
+ */
+static void
+community_list_free (struct community_list *list)
+{
+  community_list_flush(list) ;
+
+  XFREE(MTYPE_COMMUNITY_LIST, list) ;
+}
+
+/*------------------------------------------------------------------------------
  * Flush contents of community list and unset the symbol.
+ *
+ * If there are no references, will free the symbol and the community list.
  */
 static void
 community_list_delete(struct community_list *list)
 {
   community_list_flush(list) ;
-  symbol_unset(list->sym, list) ;
+  symbol_unset(list->sym, free_it) ;
 }
 
-static int
-community_list_empty_p (struct community_list *list)
+static bool
+community_list_is_empty (struct community_list *list)
 {
-  return (list->head == NULL && list->tail == NULL) ? 1 : 0;
+  return (list->head == NULL && list->tail == NULL) ;
 }
 
-/* Add community-list entry to the list.  */
+/* Add community-list entry to the list.
+ */
 static void
 community_list_entry_add (struct community_list *list,
                           struct community_entry *entry)
@@ -243,7 +264,10 @@ community_list_entry_add (struct community_list *list,
   list->tail = entry;
 }
 
-/* Delete community-list entry from the list.                           */
+/* Delete community-list entry from the list.
+ *
+ * If the community-list becomes empty, delete the list and its symbol.
+ */
 static void
 community_list_entry_delete (struct community_list *list,
                              struct community_entry *entry, int style)
@@ -260,11 +284,12 @@ community_list_entry_delete (struct community_list *list,
 
   community_entry_free (entry);
 
-  if (community_list_empty_p (list))
+  if (community_list_is_empty (list))
     community_list_delete (list);
 }
 
-/* Lookup community-list entry from the list.  */
+/* Lookup community-list entry from the list.
+ */
 static struct community_entry *
 community_list_entry_lookup (struct community_list *list, const void *arg,
                              int direct)
@@ -296,7 +321,8 @@ community_list_entry_lookup (struct community_list *list, const void *arg,
 }
 
 /* Internal function to perform regular expression match for community
-   attribute.  */
+ * attribute.
+ */
 static int
 community_regexp_match (struct community *com, regex_t * reg)
 {
@@ -337,8 +363,10 @@ ecommunity_regexp_match (struct ecommunity *ecom, regex_t * reg)
   return 0;
 }
 
-/* Delete community attribute using regular expression match.  Return
-   modified communites attribute.  */
+/* Delete community attribute using regular expression match.
+ *
+ * Return modified communites attribute.
+ */
 static struct community *
 community_regexp_delete (struct community *com, regex_t * reg)
 {
@@ -386,7 +414,8 @@ community_regexp_delete (struct community *com, regex_t * reg)
 }
 
 /* When given community attribute matches to the community-list return
-   1 else return 0.  */
+ * 1 else return 0.
+ */
 int
 community_list_match (struct community *com, struct community_list *list)
 {
@@ -439,7 +468,8 @@ ecommunity_list_match (struct ecommunity *ecom, struct community_list *list)
 }
 
 /* Perform exact matching.  In case of expanded community-list, do
-   same thing as community_list_match().  */
+ * same thing as community_list_match().
+ */
 int
 community_list_exact_match (struct community *com,
                             struct community_list *list)
@@ -468,7 +498,8 @@ community_list_exact_match (struct community *com,
   return 0;
 }
 
-/* Delete all permitted communities in the list from com.  */
+/* Delete all permitted communities in the list from com.
+ */
 struct community *
 community_list_match_delete (struct community *com,
                              struct community_list *list)
@@ -513,7 +544,8 @@ community_list_match_delete (struct community *com,
 }
 
 /* To avoid duplicated entry in the community-list, this function
-   compares specified entry to existing entry.  */
+ * compares specified entry to existing entry.
+ */
 static int
 community_list_dup_check (struct community_list *list,
                           struct community_entry *new)
@@ -556,7 +588,8 @@ community_list_dup_check (struct community_list *list,
   return 0;
 }
 
-/* Set community-list.  */
+/* Set community-list.
+ */
 int
 community_list_set (struct community_list_handler *ch,
                     const char *name, const char *str, int direct, int style)
@@ -567,12 +600,12 @@ community_list_set (struct community_list_handler *ch,
   regex_t *regex = NULL;
 
   /* Get community list. */
-  list = community_list_get (ch, name, COMMUNITY_LIST_MASTER);
+  list = community_list_get (ch, name, COMMUNITY_LIST_MASTER, true /* set */);
 
   /* When community-list already has entry, new entry should have same
      style.  If you want to have mixed style community-list, you can
      comment out this check.  */
-  if (!community_list_empty_p (list))
+  if (!community_list_is_empty (list))
     {
       struct community_entry *first;
 
@@ -605,7 +638,8 @@ community_list_set (struct community_list_handler *ch,
   entry->reg = regex;
   entry->config = (regex ? XSTRDUP (MTYPE_COMMUNITY_LIST_CONFIG, str) : NULL);
 
-  /* Do not put duplicated community entry.  */
+  /* Do not put duplicated community entry.
+   */
   if (community_list_dup_check (list, entry))
     community_entry_free (entry);
   else
@@ -614,8 +648,13 @@ community_list_set (struct community_list_handler *ch,
   return 0;
 }
 
-/* Unset community-list.  When str is NULL, delete all of
-   community-list entry belongs to the specified name.  */
+/* Unset community-list.
+ *
+ * When str is NULL, delete all of community-list entry belongs to the
+ * specified name.
+ *
+ * If empties out the community-list, deletes it.
+ */
 int
 community_list_unset (struct community_list_handler *ch,
                       const char *name, const char *str,
@@ -626,12 +665,14 @@ community_list_unset (struct community_list_handler *ch,
   struct community *com = NULL;
   regex_t *regex = NULL;
 
-  /* Lookup community list.  */
+  /* Lookup community list.
+   */
   list = community_list_lookup (ch, name, COMMUNITY_LIST_MASTER);
   if (list == NULL)
     return COMMUNITY_LIST_ERR_CANT_FIND_LIST;
 
-  /* Delete all of entry belongs to this community-list.  */
+  /* Delete all of entry belongs to this community-list.
+   */
   if (!str)
     {
       community_list_delete (list);
@@ -664,7 +705,8 @@ community_list_unset (struct community_list_handler *ch,
   return 0;
 }
 
-/* Set extcommunity-list.  */
+/* Set extcommunity-list.
+ */
 int
 extcommunity_list_set (struct community_list_handler *ch,
                        const char *name, const char *str,
@@ -678,12 +720,13 @@ extcommunity_list_set (struct community_list_handler *ch,
   entry = NULL;
 
   /* Get community list. */
-  list = community_list_get (ch, name, EXTCOMMUNITY_LIST_MASTER);
+  list = community_list_get (ch, name, EXTCOMMUNITY_LIST_MASTER,
+                                                               true /* set */) ;
 
   /* When community-list already has entry, new entry should have same
      style.  If you want to have mixed style community-list, you can
      comment out this check.  */
-  if (!community_list_empty_p (list))
+  if (!community_list_is_empty (list))
     {
       struct community_entry *first;
 
@@ -733,8 +776,13 @@ extcommunity_list_set (struct community_list_handler *ch,
   return 0;
 }
 
-/* Unset extcommunity-list.  When str is NULL, delete all of
-   extcommunity-list entry belongs to the specified name.  */
+/* Unset extcommunity-list.
+ *
+ * When str is NULL, delete all of extcommunity-list entry belongs to the
+ * specified name.
+ *
+ * If empties out the extcommunity-list, deletes it.
+ */
 int
 extcommunity_list_unset (struct community_list_handler *ch,
                          const char *name, const char *str,
@@ -787,11 +835,11 @@ static const symbol_funcs_t community_list_symbol_funcs =
 {
   .hash   = symbol_hash_string,
   .cmp    = (symbol_cmp_func*)community_list_cmp,
-  .tell   = NULL,
   .free   = (symbol_free_func*)community_list_free,
 } ;
 
-/* Initialize community-list.  Return community-list handler.           */
+/* Initialize community-list.  Return community-list handler.
+ */
 struct community_list_handler*
 community_list_init (void)
 {
@@ -807,27 +855,17 @@ community_list_init (void)
   return ch;
 }
 
-/* Terminate community-list.
+/*------------------------------------------------------------------------------
+ * Terminate community-list -- for shut-down.
  *
- * Any references to community lists must be released by the owners of those
- * references.
+ * Currently there are no references -- so freeing the symbol tables and all
+ * symbol bodies should do the trick.
  */
-void
+extern void
 community_list_terminate (struct community_list_handler *ch)
 {
-  struct community_list *list ;
-  symbol sym ;
-
-  list = NULL ;         /* calm down compiler   */
-  sym = NULL ;
-  while ((sym = symbol_table_ream(ch->community_list, sym, list)) != NULL)
-    community_list_flush(list = symbol_get_value(sym)) ;
-  ch->community_list = symbol_table_free(ch->community_list) ;
-
-  sym = NULL ;
-  while ((sym = symbol_table_ream(ch->extcommunity_list, sym, list)) != NULL)
-    community_list_flush(list = symbol_get_value(sym)) ;
-  ch->extcommunity_list = symbol_table_free(ch->extcommunity_list) ;
+  ch->community_list    = symbol_table_free(ch->community_list, free_it) ;
+  ch->extcommunity_list = symbol_table_free(ch->extcommunity_list, free_it) ;
 
   XFREE (MTYPE_COMMUNITY_LIST_HANDLER, ch);
 }

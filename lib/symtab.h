@@ -51,30 +51,32 @@ enum
    */
   SYMBOL_TABLE_DEFAULT_DENSITY   = 200,         /* 2.00 entries/base    */
 
+#if 0
   /* LS bit of the reference count is used as symbol is set bit.
    */
   symbol_is_set_bit    = 1,
   symbol_ref_increment = 2,     /* so we count in 2's !                 */
+#endif
 } ;
 
-/* Structures defined below.
+/*------------------------------------------------------------------------------
+ * Structures defined below.
  */
 struct symbol_table ;
 struct symbol ;
-struct symbol_ref ;
-struct symbol_default_value ;
+struct symbol_nref ;
 
 typedef uint32_t symbol_hash_t ;
 typedef uint symbol_ref_count_t ;
 
-typedef struct symbol_table*     symbol_table ;
-typedef struct symbol_table      symbol_table_t ;
+typedef struct symbol_table*   symbol_table ;
+typedef struct symbol_table    symbol_table_t ;
 
-typedef struct symbol*           symbol ;
-typedef struct symbol            symbol_t ;
+typedef struct symbol*         symbol ;
+typedef struct symbol          symbol_t ;
 
-typedef struct symbol_ref*       symbol_ref ;
-typedef struct symbol_ref        symbol_ref_t ;
+typedef struct symbol_nref*    symbol_nref ;
+typedef struct symbol_nref     symbol_nref_t ;
 
 typedef struct symbol_funcs* symbol_funcs ;
 typedef struct symbol_funcs  symbol_funcs_t ;
@@ -83,31 +85,18 @@ typedef const struct symbol_funcs* symbol_funcs_c ;
 typedef struct symbol_walker*    symbol_walker ;
 typedef struct symbol_walker     symbol_walker_t ;
 
-/* For symbol_tell_func -- what change is being made.                   */
-typedef enum
-{
-  sym_unset,    /* symbol value is being unset          */
-  sym_set,      /* symbol value is being set or changed */
-  sym_delete    /* symbol is being deleted              */
-} symbol_change_t ;
-
-/* Function types used.		*/
+/*------------------------------------------------------------------------------
+ * Set of functions for a Symbol Table
+ */
 typedef symbol_hash_t symbol_hash_func(const void* name) ;
-typedef int           symbol_cmp_func(const void* value, const void* name) ;
-typedef void          symbol_tell_func(symbol sym, symbol_change_t ch,
-                                                              symbol_ref walk) ;
-typedef void          symbol_free_func(void* value) ;
+typedef int           symbol_cmp_func(const void* body, const void* name) ;
+typedef void          symbol_free_func(void* body) ;
 
-/* Set of functions for a Symbol Table                                  */
 struct symbol_funcs
 {
   symbol_hash_func* hash ;      /* function to hash given name          */
   symbol_cmp_func*  cmp ;       /* function to compare symbol and name  */
-  symbol_tell_func* tell ;
-                                /* called when symbol value is added,
-                                 * changed or deleted.  NULL => none    */
-  symbol_free_func* free ;
-                                /* called when symbol is destroyed      */
+  symbol_free_func* free ;      /* called when symbol is destroyed      */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -134,64 +123,49 @@ struct symbol_table
 /*------------------------------------------------------------------------------
  * Symbol Table Entry.
  *
- * Don't fiddle with this directly... see access macros/functions below.
+ * Don't fiddle with this directly... see access functions below.
  */
 struct symbol
 {
   symbol_table table ;    /* so can go from symbol to enclosing table
                            * NULL => orphan symbol                      */
 
-  union
-  {
-    symbol   next ;       /* assume chains are short and seldom remove
+  void*    body ;         /* see: symbol_get_body(sym) etc.             */
+
+  symbol   next ;         /* assume chains are short and seldom remove
                            * symbols -- so single pointer will do.      */
 
-    symbol_free_func* free ;
-                          /* when symbol has been orphaned, need to be
-                           * able (eventually) to destroy the value.    */
-  } u ;
-
-  void*      value ;      /* see: symbol_get_value(sym) etc.            */
-
-  symbol_ref ref_list ;   /* list of symbol_ref references              */
+  symbol_nref nref_list ; /* list of notify references (if any)         */
   symbol_ref_count_t ref_count ;
-                          /* count of simple references                 */
+                          /* count of references (incl. nref)           */
 
   symbol_hash_t  hash ;   /* used in lookup and when extending bases.   */
 } ;
 
-/* Default symbol value.
- *
- * Starts with pointer to '\0' terminated string
+/* The ref_count actually counts in 2's.  The LS bit is the "symbol_set" bit.
+ * While the "symbol_set" bit is set, the reference count is not zero !
  */
-struct symbol_default_value
+enum
 {
-  char* name ;
-  char  value[] ;
+  symbol_ref_count_increment   = 2,
+  symbol_ref_count_symbol_set  = 1
 } ;
 
 /*------------------------------------------------------------------------------
- * Symbol Reference (or "bookmark").
+ * Symbol Notify Reference (or "bookmark").
  *
- * Don't fiddle with this directly...  see access macros/functions below
+ * Don't fiddle with this directly...  see access functions below
  */
-typedef union
+struct symbol_nref
 {
-  void*          p ;
-  unsigned long  u ;
-    signed long  i ;
-} symbol_ref_tag_t ;
+  symbol      sym ;         /* Address of symbol referred to (if any).
+                             * (In "bookmark" this points to self.)     */
 
-struct symbol_ref
-{
-  symbol sym ;              /* Address of symbol referred to (if any).
-                             * (In "bookmark" this points to self.)      */
+  void*	      parent ;      /* In "bookmark" points to symbol           */
+  uintptr_t   tag ;
 
-  symbol_ref next ;         /* fellow references to the symbol ...       */
-  symbol_ref prev ;         /* ... ignore if sym is NULL.                */
-
-  void*	 parent ;	    /* see: sym_ref_parent(sym_ref) etc.         */
-  symbol_ref_tag_t  tag ;   /* see: sym_ref_tag(sym_ref) etc.            */
+  symbol_nref next ;         /* fellow references to the symbol ...     */
+  symbol_nref prev ;         /* ... ignore if sym is NULL.              */
 } ;
 
 /* Symbol Walk Iterator
@@ -211,53 +185,50 @@ extern symbol_table symbol_table_new(void* parent, uint base_count,
 
 extern void  symbol_table_set_parent(symbol_table table, void* parent) ;
 extern void* symbol_table_get_parent(symbol_table table) ;
-extern void symbol_table_set_tell(symbol_table table,
-                                           symbol_tell_func* tell) ;
 
-extern symbol symbol_table_ream(symbol_table table, symbol sym, void* value) ;
-extern symbol_table symbol_table_free(symbol_table table) ;
+extern symbol symbol_table_ream(symbol_table table, symbol sym,
+                                                        free_keep_b free_body) ;
+extern symbol_table symbol_table_free(symbol_table table,
+                                                        free_keep_b free_body) ;
 extern void symbol_table_reset(symbol_table table, uint base_count) ;
 
 extern symbol symbol_lookup(symbol_table table, const void* name, add_b add) ;
 
-extern void* symbol_set(symbol sym, void* value) ;
-extern void* symbol_unset(symbol sym, void* value) ;
-extern void* symbol_delete(symbol sym, void* value) ;
+extern void symbol_set_body(symbol sym, void* body, bool set,
+                                                         free_keep_b free_old) ;
+Inline void symbol_set(symbol sym) ;
+Inline symbol symbol_unset(symbol sym, free_keep_b free_body) ;
+extern symbol symbol_delete(symbol sym, free_keep_b free_body) ;
 
 Inline bool symbol_is_set(const symbol sym) ;
-Inline bool symbol_is_unset(const symbol sym) ;
-Inline bool symbol_is_deleted(const symbol sym) ;
+Inline bool symbol_has_references(const symbol sym) ;
 
 extern symbol_hash_t symbol_hash_string(const void* string) ;
 extern symbol_hash_t symbol_hash_bytes(const void* bytes, size_t len) ;
 Inline symbol_hash_t symbol_hash_word(symbol_hash_t h) ;
 
-Inline void* symbol_get_value(const symbol sym) ;
+Inline void* symbol_get_body(const symbol sym) ;
 Inline symbol_table symbol_get_table(const symbol sym) ;
 
 Inline symbol symbol_inc_ref(symbol sym) ;
 Inline symbol symbol_dec_ref(symbol sym) ;
 
-Private symbol symbol_zero_ref(symbol sym) ;
+Private symbol symbol_zero_ref(symbol sym, free_keep_b free_body) ;
 
-extern symbol_ref symbol_init_ref(symbol_ref ref) ;
-extern symbol_ref symbol_set_ref(symbol_ref ref, symbol sym) ;
-extern symbol_ref symbol_unset_ref(symbol_ref ref,
-                                               free_keep_b free_ref_structure) ;
-Inline void* sym_ref_symbol(symbol_ref ref) ;
-Inline void* sym_ref_value(symbol_ref ref) ;
-Inline void* sym_ref_parent(symbol_ref ref) ;
-Inline void* sym_ref_p_tag(symbol_ref ref) ;
-Inline ulong sym_ref_u_tag(symbol_ref ref) ;
-Inline long  sym_ref_i_tag(symbol_ref ref) ;
-Inline void sym_ref_set_parent(symbol_ref ref, void* pa) ;
-Inline void sym_ref_set_p_tag(symbol_ref ref, void* p_tag) ;
-Inline void sym_ref_set_u_tag(symbol_ref ref, ulong u_tag) ;
-Inline void sym_ref_set_i_tag(symbol_ref ref, long i_tag) ;
+extern symbol_nref symbol_nref_init(symbol_nref nref) ;
+extern symbol_nref symbol_nref_set(symbol_nref nref, symbol sym) ;
+extern symbol_nref symbol_nref_unset(symbol_nref nref, free_keep_b free_it) ;
 
-extern void symbol_ref_walk_start(symbol sym, symbol_ref walk) ;
-extern symbol_ref symbol_ref_walk_step(symbol_ref walk) ;
-extern void symbol_ref_walk_end(symbol_ref walk) ;
+Inline void* symbol_nref_get_symbol(symbol_nref nref) ;
+Inline void* symbol_nref_get_body(symbol_nref nref) ;
+Inline void* symbol_nref_get_parent(symbol_nref nref) ;
+Inline uintptr_t symbol_nref_get_tag(symbol_nref nref) ;
+Inline void symbol_nref_set_parent(symbol_nref nref, void* pa) ;
+Inline void symbol_nref_set_tag(symbol_nref nref, uintptr_t tag) ;
+
+extern void symbol_nref_walk_start(symbol sym, symbol_nref walk) ;
+extern symbol_nref symbol_nref_walk_step(symbol_nref walk) ;
+extern void symbol_nref_walk_end(symbol_nref walk) ;
 
 extern void symbol_walk_start(symbol_table table, symbol_walker walk);
 extern symbol symbol_walk_next(symbol_walker walk) ;
@@ -277,42 +248,12 @@ extern int symbol_mixed_name_cmp(const char* a, const char* b) ;
  */
 
 /*------------------------------------------------------------------------------
- * Symbol status checks -- these assume the address of the symbol is NOT NULL
- *
- * Note that a symbol which is not set may be a deleted symbol.
- */
-
-Inline bool
-symbol_has_references(const symbol sym)
-{
-  return (sym->ref_count > symbol_is_set_bit) || (sym->ref_list != NULL) ;
-} ;
-
-Inline bool
-symbol_is_set(const symbol sym)
-{
-  return ((sym->ref_count & symbol_is_set_bit) != 0) ;
-} ;
-
-Inline bool
-symbol_is_unset(const symbol sym)
-{
-  return ((sym->ref_count & symbol_is_set_bit) == 0) ;
-} ;
-
-Inline bool
-symbol_is_deleted(const symbol sym)
-{
-  return (sym->table == NULL) ;
-} ;
-
-/*------------------------------------------------------------------------------
  * Access functions -- argument is address of symbol (may be NULL).
  */
 Inline void*
-symbol_get_value(const symbol sym)
+symbol_get_body(const symbol sym)
 {
-  return (sym != NULL) ? sym->value : NULL ;
+  return (sym != NULL) ? sym->body : NULL ;
 } ;
 
 Inline symbol_table
@@ -327,88 +268,120 @@ symbol_get_table(const symbol sym)
 Inline symbol
 symbol_inc_ref(symbol sym)
 {
-  sym->ref_count += symbol_ref_increment ;
+  sym->ref_count += symbol_ref_count_increment ;
   return sym ;
 } ;
 
 Inline symbol
 symbol_dec_ref(symbol sym)
 {
-  if (sym->ref_count <= symbol_ref_increment)
-    return symbol_zero_ref(sym) ;
+  if (sym->ref_count > symbol_ref_count_increment)
+    {
+      sym->ref_count -= symbol_ref_count_increment ;
+      return NULL ;
+    } ;
 
-  sym->ref_count -= symbol_ref_increment ;
-  return NULL ;
+  qassert(sym->ref_count == symbol_ref_count_increment) ;
+
+  return symbol_zero_ref(sym, free_it) ;        /* returns NULL */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set the "symbol_set" state
+ */
+Inline void
+symbol_set(symbol sym)
+{
+  sym->ref_count |= symbol_ref_count_symbol_set ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Clear the "symbol_set" state (if is set)
+ *
+ * If result is a zero reference count, free the symbol and, if required, the
+ * symbol body.
+ */
+Inline symbol
+symbol_unset(symbol sym, free_keep_b free_body)
+{
+  sym->ref_count &= ~symbol_ref_count_symbol_set ;
+
+  if (sym->ref_count != 0)
+    return sym ;
+
+  return symbol_zero_ref(sym, free_body) ;      /* returns NULL */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Test whether there are any references -- NULL symbol has none (!)
+ *
+ * Note that for this purpose, the "value_set" state does not count
+ */
+Inline bool
+symbol_has_references(const symbol sym)
+{
+  return (sym != NULL) ? (sym->ref_count >= symbol_ref_count_increment)
+                       : false ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Test the "value_set" state -- NULL symbol is not set (!)
+ */
+Inline bool
+symbol_is_set(const symbol sym)
+{
+  return (sym != NULL) ? (sym->ref_count & symbol_ref_count_symbol_set)
+                       : false ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Symbol Reference access functions -- argument is address of symbol_ref.
  *
  * These cope if address of symbol_ref is null, or reference is undefined.
+ *
+ * Note that can cast a uintptr_t to a void* if required.
  */
 Inline void*
-sym_ref_symbol(symbol_ref ref)
+symbol_nref_get_symbol(symbol_nref nref)
 {
-  return (ref != NULL) ? ref->sym : NULL ;
+  return (nref != NULL) ? nref->sym : NULL ;
 } ;
 
 Inline void*
-sym_ref_value(symbol_ref ref)
+symbol_nref_get_body(symbol_nref nref)
 {
-  return symbol_get_value(sym_ref_symbol(ref)) ;
+  return symbol_get_body(symbol_nref_get_symbol(nref)) ;
 } ;
 
 Inline void*
-sym_ref_parent(symbol_ref ref)
+symbol_nref_get_parent(symbol_nref nref)
 {
-  return (ref != NULL) ? ref->parent : NULL ;
+  return (nref != NULL) ? nref->parent : NULL ;
 } ;
 
-Inline void*
-sym_ref_p_tag(symbol_ref ref)
+Inline uintptr_t
+symbol_nref_get_tag(symbol_nref nref)
 {
-  return (ref != NULL) ? ref->tag.p  : NULL ;
-} ;
-
-Inline unsigned long int
-sym_ref_u_tag(symbol_ref ref)
-{
-  return (ref != NULL) ? ref->tag.u : 0 ;
-} ;
-
-Inline signed long int
-sym_ref_i_tag(symbol_ref ref)
-{
-  return (ref != NULL) ? ref->tag.i : 0 ;
+  return (nref != NULL) ? nref->tag : 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Set properties of reference -- argument is address of symbol_ref, which is
  * assumed to NOT be NULL.
+ *
+ * Note that can cast a void* to a uintptr_t if required.
  */
 
 Inline void
-sym_ref_set_parent(symbol_ref ref, void* pa)
+symbol_nref_set_parent(symbol_nref nref, void* pa)
 {
-  ref->parent = pa ;
+  nref->parent = pa ;
 } ;
 
 Inline void
-sym_ref_set_p_tag(symbol_ref ref, void* p_tag)
+symbol_nref_set_tag(symbol_nref nref, uintptr_t tag)
 {
-  ref->tag.p  = p_tag ;
-} ;
-
-Inline void
-sym_ref_set_u_tag(symbol_ref ref, unsigned long int u_tag)
-{
-  ref->tag.u  = u_tag ;
-} ;
-
-Inline void
-sym_ref_set_i_tag(symbol_ref ref, signed long int i_tag)
-{
-  ref->tag.i  = i_tag ;
+  nref->tag = tag ;
 } ;
 
 /*------------------------------------------------------------------------------

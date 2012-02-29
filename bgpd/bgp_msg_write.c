@@ -917,8 +917,6 @@ bgp_packet_check_size(struct stream* s, sockunion remote)
   uint    length ;
   uint8_t type ;
 
-  qassert(stream_get_size(s) > BGP_MSG_MAX_L) ;
-
   length = stream_get_len(s) ;
 
   if (length <= BGP_MSG_MAX_L)

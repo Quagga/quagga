@@ -980,7 +980,7 @@ bgp_peer_delete (struct peer *peer)
             if (filter->aslist[i].name)
               free (filter->aslist[i].name);
             filter->dlist[i].name = NULL;
-            prefix_list_unset_ref(&filter->plist[i].ref) ;
+            filter->plist[i].ref = prefix_list_unset_ref(filter->plist[i].ref) ;
             filter->aslist[i].name = NULL;
           }
         for (i = RMAP_IN; i < RMAP_MAX; i++)

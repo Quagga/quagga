@@ -502,7 +502,7 @@ peer_af_flag_reset (struct peer *peer, afi_t afi, safi_t safi)
 	  free (filter->dlist[i].name);
 	  filter->dlist[i].name = NULL;
 	}
-      prefix_list_unset_ref(&filter->plist[i].ref) ;
+      filter->plist[i].ref = prefix_list_unset_ref(filter->plist[i].ref) ;
       if (filter->aslist[i].name)
 	{
 	  free (filter->aslist[i].name);
@@ -1204,8 +1204,9 @@ peer_group2peer_config_copy (struct peer_group *group, struct peer *peer,
       pfilter->dlist[in].alist = gfilter->dlist[in].alist;
     }
 
-  if (! pfilter->plist[in].ref)
-    prefix_list_copy_ref(&pfilter->plist[in].ref, gfilter->plist[in].ref) ;
+  if (prefix_list_ref_plist(pfilter->plist[in].ref) == NULL)
+    pfilter->plist[in].ref =
+          prefix_list_copy_ref(pfilter->plist[in].ref, gfilter->plist[in].ref) ;
 
   if (gfilter->aslist[in].name && ! pfilter->aslist[in].name)
     {
@@ -1245,7 +1246,8 @@ peer_group2peer_config_copy (struct peer_group *group, struct peer *peer,
       pfilter->dlist[out].alist = NULL;
     }
 
-  prefix_list_copy_ref(&pfilter->plist[out].ref, gfilter->plist[out].ref) ;
+  pfilter->plist[out].ref =
+    prefix_list_copy_ref(pfilter->plist[out].ref, gfilter->plist[out].ref) ;
 
   if (gfilter->aslist[out].name)
     {
@@ -3468,7 +3470,8 @@ peer_prefix_list_set (struct peer *peer, afi_t afi, safi_t safi, int direct,
   if (filter->dlist[direct].name)
     return BGP_ERR_PEER_FILTER_CONFLICT;
 
-  ref = prefix_list_set_ref(&filter->plist[direct].ref, afi, name) ;
+  filter->plist[direct].ref = ref
+                   = prefix_list_set_ref(filter->plist[direct].ref, afi, name) ;
 
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
     return 0;
@@ -3481,7 +3484,8 @@ peer_prefix_list_set (struct peer *peer, afi_t afi, safi_t safi, int direct,
       if (! peer->af_group[afi][safi])
 	continue;
 
-      prefix_list_copy_ref(&filter->plist[direct].ref, ref) ;
+      filter->plist[direct].ref =
+                          prefix_list_copy_ref(filter->plist[direct].ref, ref) ;
     }
   return 0;
 }
@@ -3510,15 +3514,16 @@ peer_prefix_list_unset (struct peer *peer, afi_t afi, safi_t safi, int direct)
     {
       gfilter = &peer->group->conf->filter[afi][safi];
 
-      if (gfilter->plist[direct].ref)
+      if (prefix_list_ref_plist(gfilter->plist[direct].ref) != NULL)
 	{
-	  prefix_list_copy_ref(&filter->plist[direct].ref,
+          filter->plist[direct].ref =
+                 prefix_list_copy_ref(filter->plist[direct].ref,
 						   gfilter->plist[direct].ref) ;
 	  return 0;
 	}
     }
 
-  prefix_list_unset_ref(&filter->plist[direct].ref) ;
+  filter->plist[direct].ref = prefix_list_unset_ref(filter->plist[direct].ref) ;
 
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
     return 0;
@@ -3531,7 +3536,8 @@ peer_prefix_list_unset (struct peer *peer, afi_t afi, safi_t safi, int direct)
       if (! peer->af_group[afi][safi])
 	continue;
 
-      prefix_list_unset_ref(&filter->plist[direct].ref) ;
+      filter->plist[direct].ref =
+                              prefix_list_unset_ref(filter->plist[direct].ref) ;
     }
 
   return 0;

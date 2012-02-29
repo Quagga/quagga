@@ -300,7 +300,7 @@ zlog (struct zlog *zl, int priority, const char *format, ...)
 
           write(fileno(stderr), ll->line, ll->len) ;
 
-          return ;
+          goto unlock ;
         } ;
     } ;
 
@@ -356,6 +356,7 @@ zlog (struct zlog *zl, int priority, const char *format, ...)
       vty_monitor_log(priority, ll->line, ll->len - 1) ; /* less the '\n' */
     } ;
 
+unlock:
   LOG_UNLOCK() ;
 } ;
 

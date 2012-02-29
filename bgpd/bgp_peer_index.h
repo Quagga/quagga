@@ -53,38 +53,18 @@ struct bgp_peer_index_entry
 enum { bgp_peer_id_null = 0 } ; /* no peer can have id == 0     */
 
 /*==============================================================================
- *
+ * Functions
  */
-
-extern void
-bgp_peer_index_init(void* parent) ;
-
-extern void
-bgp_peer_index_mutex_init(void) ;
-
-extern void
-bgp_peer_index_reset(void) ;
-
-extern void
-bgp_peer_index_mutex_free(void) ;
-
-extern void
-bgp_peer_index_register(bgp_peer peer, union sockunion* su) ;
-
-extern void
-bgp_peer_index_deregister(bgp_peer peer, union sockunion* su) ;
-
-extern bgp_peer
-bgp_peer_index_seek(sockunion su) ;
-
-extern bgp_peer_index_entry
-bgp_peer_index_seek_entry(sockunion su) ;
-
-extern void
-bgp_peer_index_set_session(bgp_peer peer, bgp_session session) ;
-
-extern bgp_connection
-bgp_peer_index_seek_accept(sockunion su, bool* p_found) ;
+extern void bgp_peer_index_init(void* parent) ;
+extern void bgp_peer_index_mutex_init(void) ;
+extern void bgp_peer_index_reset(void) ;
+extern void bgp_peer_index_mutex_free(void) ;
+extern void bgp_peer_index_register(bgp_peer peer, union sockunion* su) ;
+extern void bgp_peer_index_deregister(bgp_peer peer, union sockunion* su) ;
+extern bgp_peer bgp_peer_index_seek(sockunion su) ;
+extern bgp_peer_index_entry bgp_peer_index_seek_entry(sockunion su) ;
+extern void bgp_peer_index_set_session(bgp_peer peer, bgp_session session) ;
+extern bgp_connection bgp_peer_index_seek_accept(sockunion su, bool* p_found) ;
 
 #endif /* _QUAGGA_BGP_PEER_INDEX_H */
 

@@ -1503,6 +1503,8 @@ qps_mini_wait(qps_mini qm, uint timeout, const sigset_t* sigmask)
    * Otherwise, we are returning here after an EINTR, or in any case want to
    * continue the previously set
    */
+  interval = 0 ;        /* calm down compiler   */
+
   if (!qm->timeout_set)
     {
       if (timeout == 0)

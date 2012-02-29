@@ -7250,6 +7250,7 @@ bgp_show_peer_afi_orf_cap (struct vty *vty, struct peer *p,
 static void
 bgp_show_peer_afi (struct vty *vty, struct peer *p, afi_t afi, safi_t safi)
 {
+  struct prefix_list* plist ;
   struct bgp_filter *filter;
   char orf_pfx_name[BUFSIZ];
   int orf_pfx_count;
@@ -7355,34 +7356,41 @@ bgp_show_peer_afi (struct vty *vty, struct peer *p, afi_t afi, safi_t safi)
 	vty_out (vty, " default not sent%s", VTY_NEWLINE);
     }
 
-  if (filter->plist[FILTER_IN].ref
+  if (prefix_list_ref_plist(filter->plist[FILTER_IN].ref)
       || filter->dlist[FILTER_IN].name
       || filter->aslist[FILTER_IN].name
       || filter->map[RMAP_IN].name)
     vty_out (vty, "  Inbound path policy configured%s", VTY_NEWLINE);
+
   if (filter->map[RMAP_RS_IN].name)
     vty_out (vty, "  RS-Inbound path policy configured%s", VTY_NEWLINE);
-  if (filter->plist[FILTER_OUT].ref
+
+  if (prefix_list_ref_plist(filter->plist[FILTER_OUT].ref)
       || filter->dlist[FILTER_OUT].name
       || filter->aslist[FILTER_OUT].name
       || filter->map[RMAP_OUT].name
       || filter->usmap.name)
     vty_out (vty, "  Outbound path policy configured%s", VTY_NEWLINE);
+
   if (filter->map[RMAP_IMPORT].name)
     vty_out (vty, "  Import policy for this RS-client configured%s", VTY_NEWLINE);
+
   if (filter->map[RMAP_EXPORT].name)
     vty_out (vty, "  Export policy for this RS-client configured%s", VTY_NEWLINE);
 
   /* prefix-list */
-  if (filter->plist[FILTER_IN].ref)
+  plist = prefix_list_ref_plist(filter->plist[FILTER_IN].ref) ;
+  if (plist != NULL)
     vty_out (vty, "  Incoming update prefix filter list is %s%s%s",
-	     prefix_list_ref_plist(filter->plist[FILTER_IN].ref) ? "*" : "",
-	     prefix_list_ref_name(filter->plist[FILTER_IN].ref),
+	     prefix_list_is_set(plist) ? "*" : "",
+	     prefix_list_get_name(plist),
 	     VTY_NEWLINE);
-  if (filter->plist[FILTER_OUT].ref)
+
+  plist = prefix_list_ref_plist(filter->plist[FILTER_OUT].ref) ;
+  if (plist != NULL)
     vty_out (vty, "  Outgoing update prefix filter list is %s%s%s",
-	     prefix_list_ref_plist(filter->plist[FILTER_OUT].ref) ? "*" : "",
-	     prefix_list_ref_name(filter->plist[FILTER_OUT].ref),
+             prefix_list_is_set(plist) ? "*" : "",
+             prefix_list_get_name(plist),
 	     VTY_NEWLINE);
 
   /* distribute-list */
@@ -10254,7 +10262,8 @@ community_list_perror (struct vty *vty, int ret)
     }
 }
 
-/* VTY interface for community_set() function.  */
+/* VTY interface for community_set() function.
+ */
 static int
 community_list_set_vty (struct vty *vty, int argc, argv_t argv,
                         int style, int reject_all_digit_name)
@@ -10307,7 +10316,8 @@ community_list_set_vty (struct vty *vty, int argc, argv_t argv,
   return CMD_SUCCESS;
 }
 
-/* Communiyt-list entry delete.  */
+/* Community-list entry delete.
+ */
 static int
 community_list_unset_vty (struct vty *vty, int argc, argv_t argv,
 			  int style)
@@ -10568,8 +10578,8 @@ static int
 community_list_symbol_cmp(const symbol* a, const symbol* b)
 {
   return symbol_mixed_name_cmp(
-                        ((struct community_list*)symbol_get_value(*a))->name,
-                        ((struct community_list*)symbol_get_value(*b))->name ) ;
+                        ((struct community_list*)symbol_get_body(*a))->name,
+                        ((struct community_list*)symbol_get_body(*b))->name ) ;
 } ;
 
 DEFUN (show_ip_community_list,
@@ -10594,7 +10604,7 @@ DEFUN (show_ip_community_list,
 
   for (VECTOR_ITEMS(extract, sym, i))
     {
-      list = symbol_get_value(sym) ;
+      list = symbol_get_body(sym) ;
       if (list != NULL)
         community_list_show (vty, list);
     } ;
@@ -10952,7 +10962,7 @@ DEFUN (show_ip_extcommunity_list,
 
   for (VECTOR_ITEMS(extract, sym, i))
     {
-      list = symbol_get_value(sym) ;
+      list = symbol_get_body(sym) ;
       if (list != NULL)
         extcommunity_list_show (vty, list);
     } ;
@@ -11022,7 +11032,7 @@ community_list_config_write_list(struct vty* vty, int what)
                                                     community_list_symbol_cmp) ;
   for (VECTOR_ITEMS(extract, sym, i))
     {
-      list = symbol_get_value(sym) ;
+      list = symbol_get_body(sym) ;
 
       if (list == NULL)
         continue ;

@@ -96,7 +96,12 @@ struct prefix_master
 				/* executed when a prefix_list is deleted.    */
 };
 
-/* Each prefix_list is described by one of these.*/
+/* Each prefix_list is described by one of these.
+ *
+ * When these are created, they are created empty.  If is created as a result
+ * of a reference to a non-existent prefix-list, then the effect is of an
+ * empty -- PREFIX_DENY -- list.
+ */
 struct prefix_list
 {
   struct prefix_master *master ;  /* parent table: scope of this list.	      */
@@ -104,17 +109,17 @@ struct prefix_list
 
   char *desc ;			  /* ip prefix-list description		      */
 
-  afi_t  afi ;			  /* address family for all prefixes	      */
-				  /* this is the *real* address family, so    */
-				  /* not "AFI_ORF_PREFIX" or similar.         */
+  afi_t  afi ;			  /* address family for all prefixes
+				   * this is the *real* address family, so
+				   * not "AFI_ORF_PREFIX" or similar.         */
 
   struct vector list ;		  /* the actual list of prefix matches	      */
 
   int  (*cmp)(struct prefix_list_entry** p_a, struct prefix_list_entry** p_b) ;
 				  /* used when searching for duplicates	      */
 
-  int rangecount;		  /* XXX TODO: discover what this is for ??   */
-                                  /*           Is not changed anywhere !!     */
+  int rangecount;		  /* XXX TODO: discover what this is for ??
+                                   *           Is not changed anywhere !!     */
   char  name[] ;
 } ;
 
@@ -131,7 +136,7 @@ struct prefix_list_entry
 
   struct prefix prefix;
 
-  u_int32_t mask ;  /* for IPv4 -- host order.				    */
+  u_int32_t mask ;  /* for IPv4 -- network order.		            */
 		    /* for last significant word of IPv6 -- network order   */
   int	last ;	    /* for IPv4 -- not used.				    */
 		    /* for IPv6 -- word to apply mask to.		    */
@@ -263,16 +268,18 @@ static void prefix_dup_cache_free(struct prefix_master* pm) ;
 static int  prefix_list_cmp(const void* value, const void* name) ;
 static void prefix_list_free(void* value) ;
 static void prefix_list_flush(struct prefix_list* plist) ;
+static void prefix_list_unset(struct prefix_list* plist) ;
 
 static const symbol_funcs_t prefix_symbol_funcs =
 {
   .hash   = symbol_hash_string,
   .cmp    = prefix_list_cmp,
-  .tell   = NULL,
   .free   = prefix_list_free,
 } ;
 
-/* Initialise given prefix_master.   */
+/*------------------------------------------------------------------------------
+ * Initialise given prefix_master.
+ */
 static void
 prefix_master_init(struct prefix_master * pm)
 {
@@ -285,41 +292,74 @@ prefix_master_init(struct prefix_master * pm)
 /*------------------------------------------------------------------------------
  * Reset given prefix_master.
  *
- * Frees all prefix lists and empties the symbol table.  Any references to
- * prefix lists are the responsibility of the reference owners.
+ * Flushes out every prefix list, and resets each to the default sequence
+ * numbering state.
  *
- * Resets to the default sequence numbering state.
+ * If the prefix_master is not being freed, then any prefix lists which are
+ * referred to are kept until the references are all gone, or until the prefix
+ * list is set again.  Retains current add_hook and delete_hook functions.
+ * The prefix_master may continue to be used.
  *
- * Retains current add_hook and delete_hook functions.
- *
- * NB: if "keep_it", the prefix_master may continue to be used.  Has reset to
- *     the default sequence numbering state.  Retains current add_hook and
- *     delete_hook functions.
- *
- *     if "free_it", will discard the symbol table, so needs to be
- *     re-initialised before further use.
+ * If the prefix_master is being freed, then performs the brutal ream out of
+ * the symbol table.  All references to existing prefixes will be set to
+ * point to a NULL plist.  The symbol table is then destroyed.  The
+ * prefix_master must be initialised again if it is to be used.
  */
 static void
 prefix_master_reset(struct prefix_master * pm, free_keep_b free)
 {
-  struct prefix_list* plist ;
-  symbol sym ;
+  if (free == free_it)
+    {
+      /* Freeing the symbol table reams it out, which will free all the plist
+       * (the symbol bodies), and unset any nref -- but the symbols will
+       * persist until any reference count drops to zero.  The symbol table
+       * itself is then freed.
+       */
+      pm->table = symbol_table_free(pm->table, free_it) ;
+    }
+  else
+    {
+      symbol_walker_t walk[1] ;
+      symbol sym ;
 
-  plist = NULL ;                /* calm down compiler   */
-  sym = NULL ;
-  while ((sym = symbol_table_ream(pm->table, sym, plist)) != NULL)
-    prefix_list_flush(plist = symbol_get_value(sym)) ;
+      symbol_walk_start(pm->table, walk) ;
+      while ((sym = symbol_walk_next(walk)) != NULL)
+        {
+          struct prefix_list *plist ;
+
+          plist = symbol_get_body(sym) ;
+          prefix_list_flush(plist) ;
+          prefix_list_unset(plist) ;
+        } ;
+    } ;
 
   pm->seqnum_flag = true ;      /* Default is to generate sequence numbers  */
 
   pm->recent = NULL ;
   prefix_dup_cache_free(pm) ;
-
-  if (free == free_it)
-    pm->table = symbol_table_free(pm->table) ;
 } ;
 
-/* Add hook function. */
+/*------------------------------------------------------------------------------
+ * The add_hook and delete_hook functions.
+ *
+ * This is used:
+ *
+ *   a. to keep references to prefix lists up to date -- so when a prefix-list
+ *      comes in to being, a name reference can now refer to the actual list;
+ *      and when a prefix-list is destroyed, any pointer to it can be discarded.
+ *
+ *      This is entirely replaced by the Prefix List References.
+ *
+ *   b. to flag when a prefix-list has changed, so that any implications of
+ *      that change can be worked through.
+ *
+ *      This could be improved by the Prefix List References -- TBA TODO
+ */
+
+/* Set add hook function.
+ *
+ * This function is called every time a prefix entry is inserted.
+ */
 void
 prefix_list_add_hook (void (*func)(struct prefix_list *plist))
 {
@@ -329,7 +369,15 @@ prefix_list_add_hook (void (*func)(struct prefix_list *plist))
 #endif /* HAVE_IPV6 */
 }
 
-/* Delete hook function. */
+/* Set delete hook function.
+ *
+ * This function is called every time a prefix entry is deleted and if the
+ * entire prefix-list is deleted.
+ *
+ * NB: it is passed the plist which may may no longer have a value, and may
+ *     be about to be freed.  In this case the name in the plist is valid,
+ *     but prefix_list_lookup() will not find a plist of that name !
+ */
 void
 prefix_list_delete_hook (void (*func)(struct prefix_list *plist))
 {
@@ -343,7 +391,8 @@ prefix_list_delete_hook (void (*func)(struct prefix_list *plist))
  * Basic constructors and destructors.
  */
 
-/* Construct a new prefix_list and set the the associated symbol's value.
+/*------------------------------------------------------------------------------
+ * Construct a new prefix_list and set the the associated symbol's value.
  *
  * Implied assert_afi_real().
  */
@@ -376,33 +425,37 @@ prefix_list_new(struct prefix_master* pm, symbol sym, afi_t afi,
       zabort("invalid address family") ;
   } ;
 
-  symbol_set(sym, new) ;
+  symbol_set_body(sym, new, false /* do not set */, free_it /* existing ! */) ;
 
   return new ;
 } ;
 
-/* Initialise prefix_list entry -- cleared to zeros.	*/
+/* Initialise prefix_list entry -- cleared to zeros.
+ */
 static struct prefix_list_entry *
 prefix_list_entry_init(struct prefix_list_entry * pe)
 {
   return memset(pe, 0, sizeof(struct prefix_list_entry));
 }
 
-/* Allocate new prefix_list entry -- cleared to zeros.	*/
+/* Allocate new prefix_list entry -- cleared to zeros
+ */
 static struct prefix_list_entry *
 prefix_list_entry_new (void)
 {
   return XCALLOC (MTYPE_PREFIX_LIST_ENTRY, sizeof (struct prefix_list_entry));
 }
 
-/* Free given prefix list entry.			*/
+/* Free given prefix list entry
+ */
 static void
 prefix_list_entry_free (struct prefix_list_entry* pe)
 {
   XFREE (MTYPE_PREFIX_LIST_ENTRY, pe);
 }
 
-/* Set cache owned by nobody, and free the contents of the cache (if any).  */
+/* Set cache owned by nobody, and free the contents of the cache (if any).
+ */
 static void
 prefix_dup_cache_free(struct prefix_master* pm)
 {
@@ -418,21 +471,30 @@ prefix_dup_cache_free(struct prefix_master* pm)
 static void
 prefix_list_delete (struct prefix_list* plist)
 {
-  /* empty out the prefix list
-   */
   prefix_list_flush(plist) ;
-
-  /* Tell the world.
-   */
-  if (plist->master->delete_hook)
-    (*plist->master->delete_hook) (NULL);
 
   /* Symbol no longer has a value
    *
    * If there are no references left, then the symbol value (the plist) will
-   * be destroyed.  Otherwise, waits for reference count to drop to
+   * be destroyed.  Otherwise, waits for reference count to drop to zero.
+   *
+   * If we need to tell the world, we need first to symbol_unset() the
+   * symbol -- so that prefix_list_lookup() will not find the list... but we
+   * don't want that to free the symbol and the plist until *after* we tell
+   * the world !
    */
-  symbol_unset(plist->sym, plist) ;
+  if (plist->master->delete_hook == NULL)
+    prefix_list_unset(plist) ;
+  else
+    {
+      symbol_inc_ref(plist->sym) ;              /* pro tem              */
+
+      prefix_list_unset(plist) ;
+
+      plist->master->delete_hook(plist);
+
+      symbol_dec_ref(plist->sym) ;              /* now may disappear    */
+    } ;
 } ;
 
 /* Flush all contents of prefix_list, leaving it completely empty.
@@ -465,6 +527,18 @@ prefix_list_flush(struct prefix_list* plist)
   pm->recent = NULL ;
 } ;
 
+/* Unset the given prefix list.
+ *
+ * If there is no reason for the prefix-list to continue in existence, it will
+ * now suddenly disappear.
+ */
+static void
+prefix_list_unset(struct prefix_list* plist)
+{
+  symbol_unset(plist->sym, free_it) ;   /* frees symbol and plist if no
+                                         * references are left          */
+} ;
+
 /* Comparison -- symbol_cmp_func.
  */
 static int
@@ -473,12 +547,19 @@ prefix_list_cmp(const void* value, const void* name)
   return strcmp(((const struct prefix_list*)value)->name, name) ;
 } ;
 
-/* Final free of empty prefix -- symbol_free_func.
+/*------------------------------------------------------------------------------
+ * Free prefix-list -- symbol_free_func.
+ *
+ * Makes sure that the prefix-list is empty, first.
  */
 static void
-prefix_list_free(void* value)
+prefix_list_free(void* body)
 {
-  XFREE (MTYPE_PREFIX_LIST, value) ;
+  struct prefix_list* plist = body ;
+
+  prefix_list_flush(plist) ;
+
+  XFREE (MTYPE_PREFIX_LIST, plist) ;
 } ;
 
 /* Returns true <=> prefix list is empty, and no description even
@@ -493,22 +574,41 @@ prefix_list_is_empty(struct prefix_list* plist)
  * Operations on prefix_lists
  */
 
-/* Seek prefix_list by name in give prefix master.  Does NOT create.	*/
+/*------------------------------------------------------------------------------
+ * Seek prefix_list by name in give prefix master.  Does NOT create.
+ *
+ * Returns:  NULL <=> not found or is not set
+ *           otherwise is address of prefix_list
+ */
 static struct prefix_list *
 prefix_list_seek (struct prefix_master* pm, const char *name)
 {
-  return symbol_get_value(symbol_lookup(pm->table, name, no_add)) ;
+  symbol sym ;
+
+  sym = symbol_lookup(pm->table, name, no_add) ;
+
+  if (symbol_is_set(sym))
+    return symbol_get_body(sym) ;
+  else
+    return NULL ;
 } ;
 
-/* Lookup prefix_list by afi and name -- if afi is known, and name not NULL.
+/*------------------------------------------------------------------------------
+ * Lookup prefix_list by afi and name -- if afi is known, and name not NULL.
  *
- * Returns NULL if no prefix_list by that afi and name.  Tolerates unknown afi
- * and allows "fake" afi (eg. AFI_ORF_PREFIX).
+ * Does not create.
+ *
+ * Tolerates unknown afi and allows "fake" afi (eg. AFI_ORF_PREFIX).
+ *
+ * Returns:  NULL <=> not found or is not set
+ *           otherwise is address of prefix_list
  */
-struct prefix_list *
+extern struct prefix_list *
 prefix_list_lookup (afi_t afi, const char *name)
 {
-  struct prefix_master* pm  = prefix_master_get(afi) ;
+  struct prefix_master* pm ;
+
+  pm  = prefix_master_get(afi) ;
 
   if ((name == NULL) || (pm == NULL))
     return NULL;
@@ -516,9 +616,20 @@ prefix_list_lookup (afi_t afi, const char *name)
   return prefix_list_seek(pm, name) ;
 } ;
 
-/* Get prefix_list -- creating empty one if required.    */
+/* Get prefix_list -- creating empty one if required.
+ *
+ * If the prefix-list is "set", then the prefix-list handler is deemed to have
+ * a reference, and the plist (the symbol body) and the symbol will continue
+ * in existence until the symbol is unset and the reference count is reduced
+ * to zero.
+ *
+ * If the prefix-list is not "set", then the list exists only because one or
+ * more prefix-list users have a name reference for the list.  The prefix-list
+ * will disappear automatically if all those users release their references.
+ */
 static struct prefix_list *
-prefix_list_get (struct prefix_master* pm, afi_t afi, const char *name)
+prefix_list_get (struct prefix_master* pm, afi_t afi, const char *name,
+                                                                       bool set)
 {
   struct symbol*      sym ;
   struct prefix_list* plist ;
@@ -526,34 +637,79 @@ prefix_list_get (struct prefix_master* pm, afi_t afi, const char *name)
   assert((pm != NULL) && (name != NULL)) ;
 
   sym = symbol_lookup(pm->table, name, add) ;   /* creates if required */
-  plist = symbol_get_value(sym) ;
+  plist = symbol_get_body(sym) ;
 
-  return plist ? plist : prefix_list_new(pm, sym, afi, name) ;
+  if (plist == NULL)
+    plist = prefix_list_new(pm, sym, afi, name) ;
+
+  if (set)
+    symbol_set(sym) ;
+
+  return plist ;
 } ;
 
 /*==============================================================================
  * Prefix List References
  *
- * The prefix_list_ref type is a struct symbol_ref*, so we can operate on
- * prefix_list_ref* arguments, keeping the stored reference values up to date.
+ * The prefix_list_ref type is a symbol_nref.  Users of prefix-lists can look
+ * up by name and then set a symbol_nref to point at the result -- noting that
+ * this may call into being an empty prefix-list which exists only while there
+ * are references to it.
+ *
+ * When a reference is set we have:
+ *
+ *   prefix_list_ref -> symbol_nref_t
+ *                               .sym -> symbol_t
+ *                                          .body -> struct prefix_list
+ *
+ * prefix_list_ref_plist(ref) dereferences down to the struct prefix_list.
+ *
+ * When a reference is first set, the symbol_nref_t is created.  Before setting
+ * a reference, any previous reference is unset.  (Dealing carefully with
+ * setting a reference to the same thing !)
+ *
+ * When a reference is unset, the symbol_nref_t is freed and the
+ * prefix_list_ref is set to NULL.
+ *
+ * Now, if a symbol is deleted we end up with:
+ *
+ *   prefix_list_ref -> symbol_nref_t
+ *                               .sym -> NULL
+ *
+ * ...prefix_list_ref_plist(ref) will return NULL if any pointer along the way
+ *    is NULL, and *that* is the test for "is a prefix-list set ?".
+ *
+ * ...prefix_list_ref_name(ref) and prefix_list_ref_ident(ref) will also
+ *    return NULL if any pointer is NULL.
+ *
+ * When prefix_master_reset() is called "keep_it" (for SIGHUP) all prefix-lists
+ * are emptied out and unset, so all references are preserved.  When each
+ * reference is unset the symbol_nref_t is freed, and when all references
+ * to a given plist have been unset, the symbol and plist will be freed.
+ *
+ * When prefix_master_reset() is called "free_it" (for SIGHTERM) all
+ * prefix-lists are deleted, which unsets all references.  When each
+ * reference is unset the symbol_nref_t is freed.
+ *
+ * Note that unsetting a reference could preserve the symbol_nref object, and
+ * the above works in that case also.
  */
 
-const char*
-prefix_list_get_name(struct prefix_list* plist)
-{
-  return plist->name ;
-} ;
-
-/* Set reference to prefix_list, by name.
- * Replaces any existing reference.
+/*------------------------------------------------------------------------------
+ * Set reference to prefix_list, by name.
  *
- * Returns the new value of the prefix_list_ref.
+ * Replaces any existing reference -- preserving any existing parent and tag
+ * values.
  *
- * NB: if reference existed, the parent and tag fields are preserved.
- *     Otherwise they are set to 0.
+ * Creates a new reference if required, setting the parent and tag values to
+ * NULL and 0.
+ *
+ * If the prefix-list did not exist, an empty one is brought into being.
+ *
+ * Returns:  the existing or a new reference
  */
-prefix_list_ref
-prefix_list_set_ref(prefix_list_ref* p_ref, afi_t afi, const char* name)
+extern prefix_list_ref
+prefix_list_set_ref(prefix_list_ref ref, afi_t afi, const char* name)
 {
   struct prefix_master* pm  ;
   struct prefix_list *plist ;
@@ -563,12 +719,13 @@ prefix_list_set_ref(prefix_list_ref* p_ref, afi_t afi, const char* name)
   if (pm == NULL)
     return NULL ;
 
-  plist = prefix_list_get(pm, afi, name) ;
+  plist = prefix_list_get(pm, afi, name, false /* not setting value*/) ;
 
-  return *p_ref = symbol_set_ref(*p_ref, plist->sym) ;
+  return symbol_nref_set(ref, plist->sym) ;
 } ;
 
-/* Copy reference to prefix_list.
+/*------------------------------------------------------------------------------
+ * Copy reference to prefix_list.
  * Replaces any existing reference (by NULL if reference is NULL).
  *
  * Returns the new value of the prefix_list_ref.
@@ -576,49 +733,97 @@ prefix_list_set_ref(prefix_list_ref* p_ref, afi_t afi, const char* name)
  * NB: if reference existed, the parent and tag fields are preserved.
  *     Otherwise they are set to 0.
  */
-prefix_list_ref
-prefix_list_copy_ref(prefix_list_ref* p_dst, prefix_list_ref src)
+extern prefix_list_ref
+prefix_list_copy_ref(prefix_list_ref dst, prefix_list_ref src)
 {
-  return *p_dst = symbol_set_ref(*p_dst, sym_ref_symbol(src)) ;
+  return symbol_nref_set(dst, symbol_nref_get_symbol(src)) ;
 } ;
 
-/* Unset reference to prefix_list (does nothing if reference is NULL).
+/*------------------------------------------------------------------------------
+ * Unset reference to prefix_list (does nothing if reference is NULL).
  *
  * Returns the new value of the prefix_list_ref -- ie NULL.
  */
-prefix_list_ref
-prefix_list_unset_ref(prefix_list_ref* p_ref)
+extern prefix_list_ref
+prefix_list_unset_ref(prefix_list_ref ref)
 {
-  return *p_ref = symbol_unset_ref(*p_ref, 1) ;
+  return symbol_nref_unset(ref, free_it) ;
 } ;
 
-/* Get name of prefix_list to which given reference (if any) refers.
+/*------------------------------------------------------------------------------
+ * Return prefix_list referred to by the given reference.
  *
- * Returns NULL if the reference is NULL.
+ * Will be NULL if the reference is NULL or the reference is unset, or the
+ * symbol has no body.  (The last should not happen.)
  */
-const char*
+extern struct prefix_list*
+prefix_list_ref_plist(prefix_list_ref ref)
+{
+  return (struct prefix_list*)symbol_nref_get_body(ref) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Return whether prefix_list is "active".
+ *
+ * Will not be "active" if is NULL.
+ *
+ * Will be "active" iff there is at least one entry in the prefix-list.
+ */
+extern bool
+prefix_list_is_active(struct prefix_list* plist)
+{
+  return (plist != NULL) ? vector_end(&plist->list) != 0
+                         : false ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Return whether prefix_list is "set" -- that is, some value has been set.
+ *
+ * Will not be "set" if is NULL.
+ *
+ * Will be "set" iff is symbol_is_set().
+ */
+extern bool
+prefix_list_is_set(struct prefix_list* plist)
+{
+  return (plist != NULL) ? symbol_is_set(plist->sym)
+                         : false ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get name of prefix_list to which given reference (if any) refers.
+ *
+ * Will be NULL if the reference is NULL or the reference is unset, or the
+ * symbol has no body.  (The last should not happen.)
+ */
+extern const char*
 prefix_list_ref_name(prefix_list_ref ref)
 {
-  return ((struct prefix_list*)sym_ref_value(ref))->name ;
+  return prefix_list_get_name(symbol_nref_get_body(ref)) ;
 } ;
 
-/* Return "identity" of prefix_list referred to by the given reference.
+/*------------------------------------------------------------------------------
+ * Return "identity" of prefix_list referred to by the given reference.
  * Will be NULL if the reference is NULL.
  *
  * Two references to the same prefix_list will have the same "identity".
+ *
+ * Will be NULL if the reference is NULL or the reference is unset, or the
+ * symbol has no body.  (The last should not happen.)
  */
-void* prefix_list_ref_ident(prefix_list_ref ref)
+extern void*
+prefix_list_ref_ident(prefix_list_ref ref)
 {
-  return (void*)sym_ref_symbol(ref) ;
+  return symbol_nref_get_body(ref) ;
 } ;
 
-/* Return prefix_list referred to by the given reference.
- * Will be NULL If the reference is NULL *OR* if the prefix_list is undefined.
+/*------------------------------------------------------------------------------
+ * Return name of plist -- will be NULL if plist is NULL
  */
-struct prefix_list*
-prefix_list_ref_plist(prefix_list_ref ref)
+extern const char*
+prefix_list_get_name(struct prefix_list* plist)
 {
-  return (struct prefix_list*)sym_ref_value(ref) ;
+  return (plist != NULL) ? plist->name : NULL ;
 } ;
 
 /*==============================================================================
@@ -626,7 +831,7 @@ prefix_list_ref_plist(prefix_list_ref ref)
  */
 
 /* Apply a prefix_list to the given prefix.     */
-enum prefix_list_type
+extern enum prefix_list_type
 prefix_list_apply (struct prefix_list *plist, void *object)
 {
   struct prefix *p ;
@@ -642,14 +847,17 @@ prefix_list_apply (struct prefix_list *plist, void *object)
   unsigned char* pp ;
   unsigned char* pep ;
 #endif
-  /* Deny if prefix_list is undefined or empty */
+
+  /* Deny if prefix_list is undefined or empty
+   */
   if ((plist == NULL) || (vector_end(&plist->list) == 0))
     return PREFIX_DENY;
 
   p = object ;
   plen = p->prefixlen ;
 
-  /* For maximum performance we have separate loops for IPv4 and IPv6  */
+  /* For maximum performance we have separate loops for IPv4 and IPv6
+   */
   assert_afi_real(plist->afi) ;
 
   switch (plist->afi)
@@ -1078,16 +1286,18 @@ prefix_list_entry_insert(struct prefix_list *plist,
         zabort("invalid address family") ;
     } ;
 
-  /* Run hook function. */
-  if (plist->master->add_hook)
-    (*plist->master->add_hook) (plist);
+  /* Run hook function.
+   */
+  if (plist->master->add_hook != NULL)
+    plist->master->add_hook(plist) ;
 
   plist->master->recent = plist;
 
   return CMD_SUCCESS ;
 }
 
-/* Delete prefix_list_entry, if we can.
+/*------------------------------------------------------------------------------
+ * Delete prefix_list_entry, if we can.
  *
  * To delete an entry the caller must specify the exact value of an existing
  * entry.  If a sequence number is specified, that entry must exist, and its
@@ -1112,15 +1322,17 @@ prefix_list_entry_delete (struct prefix_list *plist,
   pe = vector_delete_item(&plist->list, i) ;
   assert(pe != NULL) ;
 
-  prefix_list_entry_free(pe) ;		/* now release memory */
+  prefix_list_entry_free(pe) ;		/* now release memory   */
 
-  if (plist->master->delete_hook)
-    (*plist->master->delete_hook) (plist);
-
-  if (prefix_list_is_empty(plist))
-    prefix_list_delete (plist);
+  if (prefix_list_is_empty(plist))      /* NB: empty => no description  */
+    prefix_list_delete (plist) ;        /* invokes delete hook          */
   else
-    plist->master->recent = plist;
+    {
+      if (plist->master->delete_hook != NULL)
+        plist->master->delete_hook(plist) ;
+
+      plist->master->recent = plist ;
+    } ;
 
   return CMD_SUCCESS ;
 } ;
@@ -1270,7 +1482,11 @@ prefix_list_print (struct prefix_list *plist)
  * vty prefix_list operations.
  */
 
-/* Look up given prefix_list -- complain if not found.			*/
+/*------------------------------------------------------------------------------
+ * Look up given prefix_list -- complain if not found.
+ *
+ * NB: is not found if is not "set".
+ */
 static struct prefix_list*
 vty_prefix_list_lookup(struct vty *vty, afi_t afi, const char* name)
 {
@@ -1396,8 +1612,12 @@ vty_prefix_list_install (struct vty *vty, afi_t afi, const char *name,
   assert_afi_real(afi) ;	/* UI stuff should ensure this */
   pm = prefix_master_get(afi) ;
 
-  /* Get prefix_list with name.   Make new list if required.  */
-  plist = prefix_list_get(pm, afi, name) ;
+  /* Get prefix_list with name.   Make new list if required.
+   *
+   * ...TODO the semantics are a bitch.  If the first entry fails, should
+   *         we delete the list ??
+   */
+  plist = prefix_list_get(pm, afi, name, true /* creating value */) ;
 
   /* Do the grunt work on the parameters.
    * Completely fill in the temp prefix_list_entry structure.
@@ -1485,8 +1705,9 @@ vty_prefix_list_desc_set (struct vty *vty, afi_t afi, const char *name,
   assert_afi_real(afi) ;	/* UI stuff should ensure this */
   pm = prefix_master_get(afi) ;
 
-  /* Get prefix_list with name.   Make new list if required.  */
-  plist = prefix_list_get(pm, afi, name) ;
+  /* Get prefix_list with name.   Make new list if required.
+   */
+  plist = prefix_list_get(pm, afi, name, true /* creating value */) ;
 
   if (plist->desc)
     XFREE (MTYPE_TMP, plist->desc) ;	/* Discard any existing value */
@@ -1579,8 +1800,8 @@ static int
 prefix_symbol_cmp(const symbol* a, const symbol* b)
 {
   return symbol_mixed_name_cmp(
-                          ((struct prefix_list *)symbol_get_value(*a))->name,
-                          ((struct prefix_list *)symbol_get_value(*b))->name ) ;
+                          ((struct prefix_list *)symbol_get_body(*a))->name,
+                          ((struct prefix_list *)symbol_get_body(*b))->name ) ;
 } ;
 
 /* Show given prefix list in given afi, or all prefix lists in given afi.  */
@@ -1628,7 +1849,7 @@ vty_show_prefix_list (struct vty *vty, afi_t afi, const char *name,
 
       for (VECTOR_ITEMS(extract, sym, i))
 	{
-	  plist = symbol_get_value(sym) ;
+	  plist = symbol_get_body(sym) ;
 	  if (!prefix_list_is_empty(plist))
 	    vty_show_prefix_entry(vty, plist, pm, dtype, seq);
 	  else
@@ -1713,7 +1934,7 @@ vty_clear_prefix_list (struct vty *vty, afi_t afi, const char *name,
     {
       struct symbol_walker walk[1] ;
       symbol_walk_start(pm->table, walk) ;
-      while ((plist = symbol_get_value(symbol_walk_next(walk))) != NULL)
+      while ((plist = symbol_get_body(symbol_walk_next(walk))) != NULL)
         {
           for (VECTOR_ITEMS(&plist->list, pe, i))
             pe->hitcnt = 0 ;
@@ -2942,7 +3163,7 @@ config_write_prefix_afi (afi_t afi, struct vty *vty)
 
   for (VECTOR_ITEMS(extract, sym, i))
     {
-      plist = symbol_get_value(sym) ;
+      plist = symbol_get_body(sym) ;
       if (!prefix_list_is_empty(plist))
 	{
 	  if (plist->desc)
@@ -3060,7 +3281,8 @@ prefix_bgp_orf_set (char *name, afi_t afi, struct orf_prefix *orfp,
   /* Now insert or delete	*/
   if (set)
     {
-      plist = prefix_list_get(&prefix_master_orf, afi, name);
+      plist = prefix_list_get(&prefix_master_orf, afi, name,
+                                                       true /* create value*/) ;
       return prefix_list_entry_insert(plist, &temp) ;
     }
   else

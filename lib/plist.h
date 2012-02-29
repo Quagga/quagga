@@ -38,7 +38,9 @@ enum prefix_list_type
 
 struct prefix_list ;
 
-typedef struct symbol_ref* prefix_list_ref ;
+/* References to prefix lists are dynamically allocated symbol nref objects.
+ */
+typedef symbol_nref prefix_list_ref ;
 
 struct orf_prefix
 {
@@ -58,6 +60,8 @@ extern void prefix_list_delete_hook (void (*func) (struct prefix_list *));
 extern struct prefix_list *prefix_list_lookup (afi_t, const char *);
 extern enum prefix_list_type prefix_list_apply (struct prefix_list *, void *);
 
+extern bool prefix_list_is_active(struct prefix_list* plist) ;
+extern bool prefix_list_is_set(struct prefix_list* plist) ;
 extern const char* prefix_list_get_name(struct prefix_list* plist) ;
 
 extern struct stream * prefix_bgp_orf_entry (struct stream *,
@@ -69,14 +73,13 @@ extern int prefix_bgp_orf_set (char *, afi_t, struct orf_prefix *, int, int);
 extern void prefix_bgp_orf_remove_all (char *);
 extern int prefix_bgp_show_prefix_list (struct vty *, afi_t, char *);
 
-extern prefix_list_ref prefix_list_set_ref(prefix_list_ref* p_ref, afi_t afi,
+extern prefix_list_ref prefix_list_set_ref(prefix_list_ref ref, afi_t afi,
 							     const char* name) ;
-extern prefix_list_ref prefix_list_copy_ref(prefix_list_ref* p_dst,
+extern prefix_list_ref prefix_list_copy_ref(prefix_list_ref dst,
 							  prefix_list_ref src) ;
-extern prefix_list_ref prefix_list_unset_ref(prefix_list_ref* p_ref) ;
-
+extern prefix_list_ref prefix_list_unset_ref(prefix_list_ref ref) ;
+extern struct prefix_list* prefix_list_ref_plist(prefix_list_ref ref) ;
 extern const char* prefix_list_ref_name(prefix_list_ref ref) ;
 extern void* prefix_list_ref_ident(prefix_list_ref ref) ;
-extern struct prefix_list* prefix_list_ref_plist(prefix_list_ref ref) ;
 
 #endif /* _QUAGGA_PLIST_H */

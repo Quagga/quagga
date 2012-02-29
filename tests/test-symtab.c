@@ -96,7 +96,6 @@ static const symbol_funcs_t test_symbol_funcs =
 {
   .hash   = symbol_hash_string,
   .cmp    = test_symbol_cmp,
-  .tell   = NULL,
   .free   = test_symbol_free,
 } ;
 
@@ -109,7 +108,6 @@ test_symbol_table_new(void)
   struct test_value* value ;
   symbol sym = NULL;
   symbol sym2 = NULL;
-  void * old_value = NULL;
 
   printf("test_symbol_table_init_new\n");
   table = symbol_table_new(NULL, 0, 0, &test_symbol_funcs);
@@ -122,26 +120,23 @@ test_symbol_table_new(void)
   /* add */
   sym = symbol_lookup(table, name, add);
   assert_true(sym != NULL, "sym == NULL");
-  assert_true(symbol_get_value(sym) == NULL, "sym->value != NULL") ;
+  assert_true(symbol_get_body(sym) == NULL, "sym->value != NULL") ;
 
   value = test_symbol_make(name, 777) ;
-  symbol_set(sym, value) ;
+  symbol_set_body(sym, value, true /* set */, free_it /* existing */) ;
 
   /* find */
   sym2 = symbol_lookup(table, name, no_add);
   assert_true(sym == sym2, "sym != sym2");
-  assert_true(symbol_get_value(sym) == value, "symbol_get_value(sym) != value");
+  assert_true(symbol_get_body(sym) == value, "symbol_get_body(sym) != value");
 
-  old_value = symbol_delete(sym, NULL);
-  assert_true(value == old_value, "value != old_value");
-
-  free(value) ;
-  --value_count ;
+  value->defined = false ;
+  symbol_delete(sym, free_it);
 
   assert_true(value_count == 0, "value_count != 0") ;
 
   sym = NULL ;
-  while ((sym = symbol_table_ream(table, sym, NULL)) != NULL)
+  while ((sym = symbol_table_ream(table, sym, free_it)) != NULL)
     assert_true(sym == NULL, "table not empty") ;
 } ;
 
@@ -149,8 +144,8 @@ static int
 test_symbol_sort(const symbol* a, const symbol* b)
 {
   return symbol_mixed_name_cmp(
-                 ((struct test_value*)symbol_get_value(*a))->name,
-                 ((struct test_value*)symbol_get_value(*b))->name ) ;
+                 ((struct test_value*)symbol_get_body(*a))->name,
+                 ((struct test_value*)symbol_get_body(*b))->name ) ;
 } ;
 
 void
@@ -175,12 +170,12 @@ test_symbol_table_lookup(void)
       sprintf(name, "%d-name", i);
       sym = symbol_lookup(table, name, add);
       assert_true(sym != NULL, "add: sym == NULL");
-      assert_true(symbol_get_value(sym) == NULL, "sym->value != NULL") ;
+      assert_true(symbol_get_body(sym) == NULL, "sym->body != NULL") ;
 
       value = test_symbol_make(name, i) ;
-      symbol_set(sym, value);
-      assert_true(symbol_get_value(sym) == value,
-                                            "symbol_get_value(sym) != value");
+      symbol_set_body(sym, value, true /* set */, free_it /* existing */);
+      assert_true(symbol_get_body(sym) == value,
+                                            "symbol_get_body(sym) != value");
     }
 
   scan_symbol_table(table) ;
@@ -191,8 +186,8 @@ test_symbol_table_lookup(void)
       sprintf(name, "%d-name", i);
       sym = symbol_lookup(table, name, no_add);
       assert_true(sym != NULL, "find: sym == NULL");
-      value = symbol_get_value(sym) ;
-      assert_true(value != NULL, "symbol_get_value(sym) == NULL");
+      value = symbol_get_body(sym) ;
+      assert_true(value != NULL, "symbol_get_body(sym) == NULL");
 
       assert_true(strcmp(value->name, name) == 0,
                                              "strcmp(value->name, name) != 0");
@@ -204,7 +199,7 @@ test_symbol_table_lookup(void)
   i = 0;
   while ((sym = symbol_walk_next(&itr)) != NULL)
     {
-      value = symbol_get_value(sym) ;
+      value = symbol_get_body(sym) ;
       assert_true(!value->seen, "value seen already") ;
       value->seen = true ;
       ++i;
@@ -218,7 +213,7 @@ test_symbol_table_lookup(void)
   i = 0 ;
   for (VECTOR_ITEMS(v, sym, j))
     {
-      value = symbol_get_value(sym) ;
+      value = symbol_get_body(sym) ;
       assert_true(value->val == i, "value->val != i") ;
       ++i ;
     }
@@ -229,9 +224,9 @@ test_symbol_table_lookup(void)
   /* Ream out                                                   */
   sym = NULL ;
   i = 0 ;
-  while ((sym = symbol_table_ream(table, sym, value)) != NULL)
+  while ((sym = symbol_table_ream(table, sym, free_it)) != NULL)
     {
-      value = symbol_get_value(sym) ;
+      value = symbol_get_body(sym) ;
       value->defined = false ;
       ++i ;
     } ;
@@ -275,21 +270,21 @@ test_call_back(void)
 
 void call_back_function_set(symbol sym, void* value)
 {
-  assert_true(symbol_get_value(sym) != NULL && value == NULL,
-      "symbol_get_value(sym) == NULL || value != NULL");
+  assert_true(symbol_get_body(sym) != NULL && value == NULL,
+      "symbol_get_body(sym) == NULL || value != NULL");
 }
 
 void call_back_function_change(symbol sym, void* value)
 {
-  assert_true(symbol_get_value(sym) != NULL && value != NULL,
-      "symbol_get_value(sym) == NULL || value == NULL");
+  assert_true(symbol_get_body(sym) != NULL && value != NULL,
+      "symbol_get_body(sym) == NULL || value == NULL");
 }
 
 
 void call_back_function_unset(symbol sym, void* value)
 {
-  assert_true(symbol_get_value(sym) == NULL && value != NULL,
-      "symbol_get_value(sym) != NULL || value == NULL");
+  assert_true(symbol_get_body(sym) == NULL && value != NULL,
+      "symbol_get_body(sym) != NULL || value == NULL");
 }
 
 void
@@ -299,10 +294,10 @@ test_ref(void)
   char name[] = "name";
   char value[] = "value";
   symbol sym = NULL;
-  symbol_ref ref = NULL;
-  symbol_ref ref1 = NULL;
-  symbol_ref ref2 = NULL;
-  struct symbol_ref walk;
+  symbol_nref ref = NULL;
+  symbol_nref ref1 = NULL;
+  symbol_nref ref2 = NULL;
+  struct symbol_nref walk;
   const int num_refs = 2;
   long int itag = 0;
 
@@ -326,20 +321,20 @@ test_ref(void)
 
   /* walk references */
   itag = 1;
-  symbol_ref_walk_start(sym, &walk) ;
+  symbol_nref_walk_start(sym, &walk) ;
   assert_true(sym->ref_list == &walk, "sym->ref_list != &walk");
   assert_true(walk.next == ref1, "walk.next != ref1");
   assert_true(ref1->next == ref2, "ref1->next != ref2");
   assert_true(ref2->next == NULL, "ref2->next != NULL");
 
-  while ((ref = symbol_ref_walk_step(&walk)) != NULL)
+  while ((ref = symbol_nref_walk_step(&walk)) != NULL)
     {
       assert_true(sym_ref_i_tag(ref) == itag, "sym_ref_i_tag(ref) != itag");
       ++itag;
     }
   assert_true(itag == num_refs + 1, "itag != num_refs + 1");
 
-  symbol_ref_walk_end(&walk);
+  symbol_nref_walk_end(&walk);
 
   /* clean up */
   symbol_unset_ref(ref1, 1);
@@ -357,8 +352,8 @@ test_ref_heavy(void)
   char name[] = "name";
   char value[] = "value";
   symbol sym = NULL;
-  symbol_ref ref = NULL;
-  struct symbol_ref walk;
+  symbol_nref ref = NULL;
+  struct symbol_nref walk;
   const long int num_refs = 100000;
   long int itag = 0;
 
@@ -380,10 +375,10 @@ test_ref_heavy(void)
 
   /* walk references */
   itag = 1;
-  symbol_ref_walk_start(sym, &walk) ;
+  symbol_nref_walk_start(sym, &walk) ;
   assert_true(sym->ref_list == &walk, "sym->ref_list != &walk");
 
-  while ((ref = symbol_ref_walk_step(&walk)) != NULL)
+  while ((ref = symbol_nref_walk_step(&walk)) != NULL)
     {
       assert_true(sym_ref_i_tag(ref) == itag, "sym_ref_i_tag(ref) != itag");
       ++itag;
@@ -391,7 +386,7 @@ test_ref_heavy(void)
     }
   assert_true(itag == num_refs + 1, "itag != num_refs + 1");
 
-  symbol_ref_walk_end(&walk);
+  symbol_nref_walk_end(&walk);
 
   while ((symbol_table_ream(table, 1)) != NULL)
     {
@@ -433,7 +428,7 @@ scan_symbol_table(symbol_table table)
       while (sym != NULL)
         {
           ++l ;
-          sym = sym->u.next ;
+          sym = sym->next ;
         } ;
 
       if (l <= n)
