@@ -1610,24 +1610,6 @@ rtadv_rdnss_lookup (struct list *list, struct in6_addr *v6addr)
   return NULL;
 }
 
-#if 0
-static int
-rtadv_rdnss_reset (struct zebra_if *zif, struct prefix *rp)
-{
-  struct prefix *prefix;
-
-  prefix = rtadv_rdnss_lookup(zif->rtadv.AdvRDNSSList, rp);
-  if (prefix != NULL)
-    {
-      listnode_delete (zif->rtadv.AdvRDNSSList, (void *) prefix);
-      prefix_free (prefix);
-      return 1;
-    }
-  else
-    return 0;
-}
-#endif
-
 /* Note how special values 0 and 4294967295 are not considered valid in CLI,
  * although they are used in the internal structures (two respective keywords
  * must be used instead in CLI). This is intended for a better perception of
@@ -1688,6 +1670,39 @@ ALIAS (ipv6_nd_rdnss,
        "RDNSS Option\n"
        "IPv6 address of recursive DNS server\n")
 
+DEFUN (no_ipv6_nd_rdnss_addr,
+       no_ipv6_nd_rdnss_addr_cmd,
+       "no ipv6 nd rdnss X:X::X:X",
+       NO_STR
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "Recursive DNS Server\n"
+       "IPv6 address of the server\n")
+{
+  struct interface *ifp = (struct interface *) vty->index;
+  struct zebra_if *zif = ifp->info;
+  struct rtadv_rdnss_entry *entry;
+  struct in6_addr v6addr;
+
+  if (1 != inet_pton (AF_INET6, argv[0], &v6addr))
+    return CMD_WARNING;
+  if (! (entry = rtadv_rdnss_lookup (zif->rtadv.AdvRDNSSList, &v6addr)))
+    return CMD_ERR_NO_MATCH;
+  listnode_delete (zif->rtadv.AdvRDNSSList, entry);
+  XFREE (MTYPE_RTADV_PREFIX, entry);
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_ipv6_nd_rdnss_addr,
+       no_ipv6_nd_rdnss_addr_lft_cmd,
+       "no ipv6 nd rdnss X:X::X:X (<1-4294967294>|infinite|obsolete)",
+       NO_STR
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "Recursive DNS Server\n"
+       "IPv6 address of the server\n"
+       "Lifetime in seconds (track ra-interval, if not set)")
+
 
 /* Write configuration about router advertisement. */
 void
@@ -1696,6 +1711,7 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
   struct zebra_if *zif;
   struct listnode *node;
   struct rtadv_prefix *rprefix;
+  struct rtadv_rdnss_entry *entry;
   char buf[INET6_ADDRSTRLEN];
   int interval;
 
@@ -1783,6 +1799,28 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
       if (rprefix->AdvRouterAddressFlag)
 	vty_out (vty, " router-address");
       vty_out (vty, "%s", VTY_NEWLINE);
+    }
+  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, entry))
+    {
+      inet_ntop (AF_INET6, entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
+      vty_out (vty, " ipv6 nd rdnss %s", buf);
+      if (entry->track_maxrai)
+        {
+          vty_out (vty, "%s", VTY_NEWLINE);
+          continue;
+        }
+      switch (entry->lifetime)
+        {
+        case RTADV_RDNSS_OBSOLETE_LIFETIME:
+          vty_out (vty, " obsolete%s", VTY_NEWLINE);
+          break;
+        case RTADV_RDNSS_INFINITY_LIFETIME:
+          vty_out (vty, " infinite%s", VTY_NEWLINE);
+          break;
+        default:
+          vty_out (vty, " %u%s", entry->lifetime, VTY_NEWLINE);
+          break;
+        }
     }
 }
 
@@ -1893,6 +1931,8 @@ rtadv_init (void)
   install_element (INTERFACE_NODE, &no_ipv6_nd_mtu_val_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_rdnss_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_rdnss_nolife_cmd);
+  install_element (INTERFACE_NODE, &no_ipv6_nd_rdnss_addr_cmd);
+  install_element (INTERFACE_NODE, &no_ipv6_nd_rdnss_addr_lft_cmd);
 }
 
 static int
