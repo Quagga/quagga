@@ -111,6 +111,14 @@ struct nd_opt_rdnss {
 } __attribute__((__packed__));
 #endif
 
+/* for internal tracking of configured RDNSS entries */
+struct rtadv_rdnss_entry
+{
+  struct in6_addr address;
+  u_char          track_maxrai;
+  u_int32_t       lifetime;
+};
+
 extern const char *rtadv_pref_strs[];
 
 #endif /* RTADV */

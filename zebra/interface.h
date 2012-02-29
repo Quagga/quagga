@@ -180,17 +180,9 @@ struct rtadvconf
 
   /* A list of Recursive DNS server addresses specified in
      RFC 5006 */
-  int AdvRDNSSFlag;
   struct list *AdvRDNSSList;
-
-  /* the maximum lifetime in seconds over which the RDNSS entry
-   * may be used. After this time a host may send a router solicitation
-   * message to refresh the RDNSS information.
-   *
-   * Default is infinity lifetime (0xffffffff) */
-  uint32_t AdvRDNSSLifetime;
 #define	RTADV_RDNSS_INFINITY_LIFETIME (0xffffffff)
-#define	RTADV_RDNSS_DEFAULT_LIFETIME RTADV_RDNSS_INFINITY_LIFETIME
+#define	RTADV_RDNSS_OBSOLETE_LIFETIME (0x00000000)
 };
 
 #endif /* RTADV */
