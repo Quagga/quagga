@@ -20,7 +20,7 @@ Send router advertisment messages.
 @end deffn
 
 @deffn {Interface Command} {ipv6 nd suppress-ra} {}
-Don't send router advertisment messages.
+Don't send router advertisment messages (default setting).
 @end deffn
 
 @deffn {Interface Command} {ipv6 nd prefix @var{ipv6prefix} [@var{valid-lifetime}] [@var{preferred-lifetime}] [off-link] [no-autoconfig] [router-address]} {}
