@@ -169,12 +169,23 @@ consistent with router interface MTU.
 Default: don't advertise any MTU option
 @end deffn
 
-@deffn {Interface Command} {ipv6 nd rdnss ipv6prefix [lifetime]} {} Include
-RDNSS options to advertise recursive DNS server addresses. Additionally a
-maximum lifetime (in seconds) can be specified to limit the lifetime of this
-option. The valid range is between @code{<0-4294967295>} where 0 means that the
-RDNSS address must no longer be used. The default lifetime - without explicitly
-specify a lifetime - is unlimited.
+@deffn {Interface Command} {ipv6 nd rdnss @var{ipv6address} [@var{lifetime}]} {}
+@deffnx {Interface Command} {no ipv6 nd rdnss @var{ipv6address} [@var{lifetime}]} {}
+Include RDNSS options to advertise recursive DNS server addresses. Additionally
+a maximum lifetime (in seconds) can be specified to limit the lifetime of each
+server. The default lifetime - without explicitly specified lifetime - is 2
+times current @var{ra-interval}. A valid range for a manually configured
+@var{lifetime} is between @code{<1-4294967294>}, given that it is no less than
+1 time current @var{ra-interval} and no greater than 2 times current
+@var{ra-interval}. Special keyword @code{obsolete} stands for value @code{0}
+and means, that the RDNSS address must no longer be used. Special keyword
+@code{infinite} stands for value @code{0xFFFFFFFF} and means, that the server
+is infinitely valid.
+
+Note, that server addresses in the RA packet follow the order visible in the
+"running-config" text. If you need the servers to go in a different order in
+the packet, make "running-config" list them as required. In a CLI session this
+takes necessary amount of "no ipv6 nd rdnss ..." and "ipv6 nd rdnss..." commands.
 @end deffn
 
 @example
@@ -189,5 +200,5 @@ interface eth0
 For more information see @cite{RFC2462 (IPv6 Stateless Address Autoconfiguration)}
 , @cite{RFC4861 (Neighbor Discovery for IP Version 6 (IPv6))}
 , @cite{RFC6275 (Mobility Support in IPv6)}
-, @cite{RFC5006 (IPv6 Router Advertisement Option for DNS Configuration)}
+, @cite{RFC6106 (IPv6 Router Advertisement Options for DNS Configuration)}
 and @cite{RFC4191 (Default Router Preferences and More-Specific Routes)}.

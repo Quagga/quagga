@@ -179,10 +179,10 @@ struct rtadvconf
 #define RTADV_PREF_MEDIUM 0x0 /* Per RFC4191. */
 
   /* A list of Recursive DNS server addresses specified in
-     RFC 5006 */
+     RFC 6106 */
   struct list *AdvRDNSSList;
-#define	RTADV_RDNSS_INFINITY_LIFETIME (0xffffffff)
-#define	RTADV_RDNSS_OBSOLETE_LIFETIME (0x00000000)
+#define	RTADV_DNS_INFINITY_LIFETIME (0xffffffff)
+#define	RTADV_DNS_OBSOLETE_LIFETIME (0x00000000)
 };
 
 #endif /* RTADV */

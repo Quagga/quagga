@@ -164,7 +164,7 @@ rtadv_send_packet (int sock, struct interface *ifp)
   u_char all_nodes_addr[] = {0xff,0x02,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
   struct listnode *node;
   u_int16_t pkt_RouterLifetime;
-  struct rtadv_rdnss_entry *entry;
+  struct rtadv_rdnss_entry *rdnss_entry;
 
   /*
    * Allocate control message bufffer.  This is dynamic because
@@ -265,24 +265,24 @@ rtadv_send_packet (int sock, struct interface *ifp)
     }
 
   /* Fill in all RDNS server entries. */
-  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, entry))
+  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, rdnss_entry))
     {
       struct nd_opt_rdnss *tlv = (struct nd_opt_rdnss *) (buf + len);
 
       tlv->nd_opt_rdnss_type = ND_OPT_RDNSS;
       tlv->nd_opt_rdnss_len = 3; /* 8 bytes header, 16 bytes address */
       tlv->nd_opt_rdnss_reserved = 0;
-      /* RFC5006 sets, that RDNSS Lifetime must be either 0 or "infinity" or
+      /* RFC6106 sets, that RDNSS Lifetime must be either 0 or "infinity" or
        * any value in the [MaxRAI..2*MaxRAI] range, but it doesn't set any
        * default value for Lifetime. rtadvd defaults to 2 times the current
        * MaxRAI, which seems to be the most reasonable choice. */
       tlv->nd_opt_rdnss_lifetime = htonl
       (
-        ! entry->track_maxrai ? entry->lifetime :
+        ! rdnss_entry->track_maxrai ? rdnss_entry->lifetime :
         MAX (1, (unsigned)zif->rtadv.MaxRtrAdvInterval / 500) /* 2*MaxRAI in seconds */
       );
       len += sizeof (struct nd_opt_rdnss);
-      IPV6_ADDR_COPY (buf + len, entry->address.s6_addr);
+      IPV6_ADDR_COPY (buf + len, rdnss_entry->address.s6_addr);
       len += sizeof (struct in6_addr);
     }
 
@@ -675,7 +675,7 @@ rtadv_prefix_reset (struct zebra_if *zif, struct rtadv_prefix *rp)
     return 0;
 }
 
-/* RFC5006 5.1: Lifetime SHOULD be bounded as follows:
+/* RFC6106 5.1: Lifetime SHOULD be bounded as follows:
    MaxRtrAdvInterval <= Lifetime <= 2*MaxRtrAdvInterval */
 static u_char
 rtadv_rdnss_lifetime_fits (u_int32_t lifetime_msec, int MaxRAI_msec)
@@ -768,7 +768,7 @@ DEFUN (ipv6_nd_ra_interval_msec,
   struct interface *ifp = (struct interface *) vty->index;
   struct zebra_if *zif = ifp->info;
   struct listnode *node;
-  struct rtadv_rdnss_entry *entry;
+  struct rtadv_rdnss_entry *rdnss_entry;
 
   VTY_GET_INTEGER_RANGE ("router advertisement interval", interval, argv[0], 70, 1800000);
   if ((zif->rtadv.AdvDefaultLifetime != -1 && interval > (unsigned)zif->rtadv.AdvDefaultLifetime * 1000))
@@ -776,19 +776,19 @@ DEFUN (ipv6_nd_ra_interval_msec,
     vty_out (vty, "This ra-interval would conflict with configured ra-lifetime!%s", VTY_NEWLINE);
     return CMD_WARNING;
   }
-  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, entry))
+  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, rdnss_entry))
     if
     (
-      ! entry->track_maxrai &&
-      entry->lifetime != RTADV_RDNSS_OBSOLETE_LIFETIME &&
-      entry->lifetime != RTADV_RDNSS_INFINITY_LIFETIME &&
-      ! rtadv_rdnss_lifetime_fits (entry->lifetime * 1000, interval)
+      ! rdnss_entry->track_maxrai &&
+      rdnss_entry->lifetime != RTADV_DNS_OBSOLETE_LIFETIME &&
+      rdnss_entry->lifetime != RTADV_DNS_INFINITY_LIFETIME &&
+      ! rtadv_rdnss_lifetime_fits (rdnss_entry->lifetime * 1000, interval)
     )
     {
       char buf[INET6_ADDRSTRLEN];
-      inet_ntop (AF_INET6, entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
+      inet_ntop (AF_INET6, rdnss_entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
       vty_out (vty, "This ra-interval would conflict with lifetime %u of RDNSS %s !%s",
-               entry->lifetime, buf, VTY_NEWLINE);
+               rdnss_entry->lifetime, buf, VTY_NEWLINE);
       return CMD_WARNING;
     }
 
@@ -817,7 +817,7 @@ DEFUN (ipv6_nd_ra_interval,
   struct interface *ifp = (struct interface *) vty->index;
   struct zebra_if *zif = ifp->info;
   struct listnode *node;
-  struct rtadv_rdnss_entry *entry;
+  struct rtadv_rdnss_entry *rdnss_entry;
 
   VTY_GET_INTEGER_RANGE ("router advertisement interval", interval, argv[0], 1, 1800);
   if ((zif->rtadv.AdvDefaultLifetime != -1 && interval > (unsigned)zif->rtadv.AdvDefaultLifetime))
@@ -825,19 +825,19 @@ DEFUN (ipv6_nd_ra_interval,
     vty_out (vty, "This ra-interval would conflict with configured ra-lifetime!%s", VTY_NEWLINE);
     return CMD_WARNING;
   }
-  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, entry))
+  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, rdnss_entry))
     if
     (
-      ! entry->track_maxrai &&
-      entry->lifetime != RTADV_RDNSS_OBSOLETE_LIFETIME &&
-      entry->lifetime != RTADV_RDNSS_INFINITY_LIFETIME &&
-      ! rtadv_rdnss_lifetime_fits (entry->lifetime * 1000, interval * 1000)
+      ! rdnss_entry->track_maxrai &&
+      rdnss_entry->lifetime != RTADV_DNS_OBSOLETE_LIFETIME &&
+      rdnss_entry->lifetime != RTADV_DNS_INFINITY_LIFETIME &&
+      ! rtadv_rdnss_lifetime_fits (rdnss_entry->lifetime * 1000, interval * 1000)
     )
     {
       char buf[INET6_ADDRSTRLEN];
-      inet_ntop (AF_INET6, entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
+      inet_ntop (AF_INET6, rdnss_entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
       vty_out (vty, "This ra-interval would conflict with lifetime %u of RDNSS %s !%s",
-               entry->lifetime, buf, VTY_NEWLINE);
+               rdnss_entry->lifetime, buf, VTY_NEWLINE);
       return CMD_WARNING;
     }
 
@@ -1614,14 +1614,13 @@ rtadv_rdnss_lookup (struct list *list, struct in6_addr *v6addr)
  * although they are used in the internal structures (two respective keywords
  * must be used instead in CLI). This is intended for a better perception of
  * the running-config text. */
-DEFUN (ipv6_nd_rdnss,
-       ipv6_nd_rdnss_cmd,
-       "ipv6 nd rdnss X:X::X:X (<1-4294967294>|infinite|obsolete)",
+DEFUN (ipv6_nd_rdnss_addr,
+       ipv6_nd_rdnss_addr_cmd,
+       "ipv6 nd rdnss X:X::X:X",
        "Interface IPv6 config commands\n"
        "Neighbor discovery\n"
-       "RDNSS Option\n"
-       "IPv6 address of recursive DNS server\n"
-       "Lifetime in seconds (track ra-interval, if not set)")
+       "Recursive DNS Server\n"
+       "IPv6 address of the server\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
   struct zebra_if *zif = ifp->info;
@@ -1637,9 +1636,9 @@ DEFUN (ipv6_nd_rdnss,
   {
     input.track_maxrai = 0;
     if (! strncmp (argv[1], "i", 1)) /* infinite */
-      input.lifetime = RTADV_RDNSS_INFINITY_LIFETIME;
+      input.lifetime = RTADV_DNS_INFINITY_LIFETIME;
     else if (! strncmp (argv[1], "o", 1)) /* obsolete */
-      input.lifetime = RTADV_RDNSS_OBSOLETE_LIFETIME;
+      input.lifetime = RTADV_DNS_OBSOLETE_LIFETIME;
     else
     {
       VTY_GET_INTEGER_RANGE ("lifetime", input.lifetime, argv[1], 1, 4294967294);
@@ -1662,13 +1661,14 @@ DEFUN (ipv6_nd_rdnss,
   return CMD_SUCCESS;
 }
 
-ALIAS (ipv6_nd_rdnss,
-       ipv6_nd_rdnss_nolife_cmd,
-       "ipv6 nd rdnss X:X::X:X",
+ALIAS (ipv6_nd_rdnss_addr,
+       ipv6_nd_rdnss_addr_lft_cmd,
+       "ipv6 nd rdnss X:X::X:X (<1-4294967294>|infinite|obsolete)",
        "Interface IPv6 config commands\n"
        "Neighbor discovery\n"
-       "RDNSS Option\n"
-       "IPv6 address of recursive DNS server\n")
+       "Recursive DNS Server\n"
+       "IPv6 address of the server\n"
+       "Lifetime in seconds (track ra-interval, if not set)")
 
 DEFUN (no_ipv6_nd_rdnss_addr,
        no_ipv6_nd_rdnss_addr_cmd,
@@ -1711,7 +1711,7 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
   struct zebra_if *zif;
   struct listnode *node;
   struct rtadv_prefix *rprefix;
-  struct rtadv_rdnss_entry *entry;
+  struct rtadv_rdnss_entry *rdnss_entry;
   char buf[INET6_ADDRSTRLEN];
   int interval;
 
@@ -1800,25 +1800,25 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
 	vty_out (vty, " router-address");
       vty_out (vty, "%s", VTY_NEWLINE);
     }
-  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, entry))
+  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, rdnss_entry))
     {
-      inet_ntop (AF_INET6, entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
+      inet_ntop (AF_INET6, rdnss_entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
       vty_out (vty, " ipv6 nd rdnss %s", buf);
-      if (entry->track_maxrai)
+      if (rdnss_entry->track_maxrai)
         {
           vty_out (vty, "%s", VTY_NEWLINE);
           continue;
         }
-      switch (entry->lifetime)
+      switch (rdnss_entry->lifetime)
         {
-        case RTADV_RDNSS_OBSOLETE_LIFETIME:
+        case RTADV_DNS_OBSOLETE_LIFETIME:
           vty_out (vty, " obsolete%s", VTY_NEWLINE);
           break;
-        case RTADV_RDNSS_INFINITY_LIFETIME:
+        case RTADV_DNS_INFINITY_LIFETIME:
           vty_out (vty, " infinite%s", VTY_NEWLINE);
           break;
         default:
-          vty_out (vty, " %u%s", entry->lifetime, VTY_NEWLINE);
+          vty_out (vty, " %u%s", rdnss_entry->lifetime, VTY_NEWLINE);
           break;
         }
     }
@@ -1929,8 +1929,8 @@ rtadv_init (void)
   install_element (INTERFACE_NODE, &ipv6_nd_mtu_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_mtu_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_mtu_val_cmd);
-  install_element (INTERFACE_NODE, &ipv6_nd_rdnss_cmd);
-  install_element (INTERFACE_NODE, &ipv6_nd_rdnss_nolife_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_rdnss_addr_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_rdnss_addr_lft_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_rdnss_addr_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_rdnss_addr_lft_cmd);
 }

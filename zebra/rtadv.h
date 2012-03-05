@@ -70,7 +70,7 @@ extern void rtadv_init (void);
 #define ND_OPT_HA_INFORMATION	8   /* HA Information Option */
 #endif
 #ifndef ND_OPT_RDNSS
-#define	ND_OPT_RDNSS 25 /* RDNSS option (RFC 5006) */
+#define ND_OPT_RDNSS 25 /* Recursive DNS Server Option (RFC 6106) */
 #endif
 
 #ifndef HAVE_STRUCT_ND_OPT_ADV_INTERVAL
@@ -101,7 +101,7 @@ struct nd_opt_homeagent_info {  /* Home Agent info */
 #endif
 
 #ifndef HAVE_STRUCT_ND_OPT_RDNSS
-/* see RFC 5006, section 5.1 */
+/* see RFC 6106, section 5.1 */
 struct nd_opt_rdnss {
 	uint8_t  nd_opt_rdnss_type;
 	uint8_t  nd_opt_rdnss_len;
