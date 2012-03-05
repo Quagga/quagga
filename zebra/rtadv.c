@@ -675,11 +675,17 @@ rtadv_prefix_reset (struct zebra_if *zif, struct rtadv_prefix *rp)
     return 0;
 }
 
-/* RFC6106 5.1: Lifetime SHOULD be bounded as follows:
+/* RFC6106 5.1, 5.2: Lifetime SHOULD be bounded as follows:
    MaxRtrAdvInterval <= Lifetime <= 2*MaxRtrAdvInterval */
 static u_char
-rtadv_rdnss_lifetime_fits (u_int32_t lifetime_msec, int MaxRAI_msec)
+rtadv_dns_lifetime_fits (unsigned long lifetime_msec, int MaxRAI_msec)
 {
+  if
+  (
+    lifetime_msec == RTADV_DNS_OBSOLETE_LIFETIME * 1000 ||
+    lifetime_msec == RTADV_DNS_INFINITY_LIFETIME * 1000
+  )
+    return 1;
   return
   (
     lifetime_msec >= MAX (1000, MaxRAI_msec) &&
@@ -780,9 +786,7 @@ DEFUN (ipv6_nd_ra_interval_msec,
     if
     (
       ! rdnss_entry->track_maxrai &&
-      rdnss_entry->lifetime != RTADV_DNS_OBSOLETE_LIFETIME &&
-      rdnss_entry->lifetime != RTADV_DNS_INFINITY_LIFETIME &&
-      ! rtadv_rdnss_lifetime_fits (rdnss_entry->lifetime * 1000, interval)
+      ! rtadv_dns_lifetime_fits (rdnss_entry->lifetime * 1000, interval)
     )
     {
       char buf[INET6_ADDRSTRLEN];
@@ -829,9 +833,7 @@ DEFUN (ipv6_nd_ra_interval,
     if
     (
       ! rdnss_entry->track_maxrai &&
-      rdnss_entry->lifetime != RTADV_DNS_OBSOLETE_LIFETIME &&
-      rdnss_entry->lifetime != RTADV_DNS_INFINITY_LIFETIME &&
-      ! rtadv_rdnss_lifetime_fits (rdnss_entry->lifetime * 1000, interval * 1000)
+      ! rtadv_dns_lifetime_fits (rdnss_entry->lifetime * 1000, interval * 1000)
     )
     {
       char buf[INET6_ADDRSTRLEN];
@@ -1642,7 +1644,7 @@ DEFUN (ipv6_nd_rdnss_addr,
     else
     {
       VTY_GET_INTEGER_RANGE ("lifetime", input.lifetime, argv[1], 1, 4294967294);
-      if (! rtadv_rdnss_lifetime_fits (input.lifetime * 1000, zif->rtadv.MaxRtrAdvInterval))
+      if (! rtadv_dns_lifetime_fits (input.lifetime * 1000, zif->rtadv.MaxRtrAdvInterval))
       {
         vty_out (vty, "This lifetime conflicts with ra-interval (%u ms)%s",
                  zif->rtadv.MaxRtrAdvInterval, VTY_NEWLINE);
