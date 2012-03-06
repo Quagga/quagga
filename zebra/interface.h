@@ -183,6 +183,8 @@ struct rtadvconf
   struct list *AdvRDNSSList;
 #define	RTADV_DNS_INFINITY_LIFETIME (0xffffffff)
 #define	RTADV_DNS_OBSOLETE_LIFETIME (0x00000000)
+  /* a list of configured DNS Search List domains (RFC6106) */
+  struct list *AdvDNSSLList;
 };
 
 #endif /* RTADV */

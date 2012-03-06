@@ -188,12 +188,36 @@ the packet, make "running-config" list them as required. In a CLI session this
 takes necessary amount of "no ipv6 nd rdnss ..." and "ipv6 nd rdnss..." commands.
 @end deffn
 
+@deffn {Interface Command} {ipv6 nd dnssl @var{domain} [@var{lifetime}]} {}
+@deffnx {Interface Command} {no ipv6 nd dnssl @var{domain} [@var{lifetime}]} {}
+
+Include DNSSL options to advertise DNS search list domains. Note, that ordering
+of DNSSL records is subject for the same rules, as for the RDNSS records
+described above.
+
+@itemize @bullet
+@item
+@var{domain} - a DNS search domain (e.g. domain.example.com) without the
+trailing "root" period. The domain name must meet the requirements of RFC1035.
+
+@item
+@var{lifetime} - lifetime in seconds with the same semantics as in
+"ipv6 nd rdnss ..." command.
+
+Range: @code{(obsolete|<1-4294967294>|infinite)}
+
+Default: 2 times current @var{ra-interval}
+@end itemize
+@end deffn
+
 @example
 @group
 interface eth0
  no ipv6 nd suppress-ra
  ipv6 nd prefix 2001:0DB8:5009::/64
  ipv6 nd rdnss 2001:0DB8:5009::1
+ ipv6 nd dnssl old.example.com obsolete
+ ipv6 nd dnssl new.example.com
 @end group
 @end example
 

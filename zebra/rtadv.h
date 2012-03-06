@@ -72,6 +72,9 @@ extern void rtadv_init (void);
 #ifndef ND_OPT_RDNSS
 #define ND_OPT_RDNSS 25 /* Recursive DNS Server Option (RFC 6106) */
 #endif
+#ifndef ND_OPT_DNSSL
+#define ND_OPT_DNSSL 31 /* DNS Search List Option (RFC6106) */
+#endif
 
 #ifndef HAVE_STRUCT_ND_OPT_ADV_INTERVAL
 struct nd_opt_adv_interval {   /* Advertisement interval option */
@@ -117,6 +120,34 @@ struct rtadv_rdnss_entry
   struct in6_addr address;
   u_char          track_maxrai;
   u_int32_t       lifetime;
+};
+
+#ifndef HAVE_STRUCT_ND_OPT_DNSSL
+struct nd_opt_dnssl
+{
+  u_int8_t  nd_opt_dnssl_type;
+  u_int8_t  nd_opt_dnssl_len;
+  u_int16_t nd_opt_dnssl_reserved;
+  u_int32_t nd_opt_dnssl_lifetime;
+  /* followed by list of DNS search domains */
+} __attribute__((__packed__));
+#endif
+
+/* RFC1035 sets the maximum length of a label-encoded domain name to 255 bytes,
+ * which stand for 253 non-0 chars of the NULL-terminated string representation,
+ * one trailing 0 byte and one extra "length" byte before the last label, which
+ * is not set off with a '.' byte of the respective input word (trailing "root"
+ * dot is considered a syntax error in this implementation). */
+#define SUBDOMAIN_MAX_STRLEN 253
+
+/* for internal tracking of configured DNSSL entries */
+struct rtadv_dnssl_entry
+{
+  char      subdomain_str[SUBDOMAIN_MAX_STRLEN + 1];
+  u_int8_t  subdomain_rfc1035[SUBDOMAIN_MAX_STRLEN + 2];
+  u_char    length_rfc1035;
+  u_char    track_maxrai;
+  u_int32_t lifetime;
 };
 
 extern const char *rtadv_pref_strs[];

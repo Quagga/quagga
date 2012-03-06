@@ -165,6 +165,7 @@ rtadv_send_packet (int sock, struct interface *ifp)
   struct listnode *node;
   u_int16_t pkt_RouterLifetime;
   struct rtadv_rdnss_entry *rdnss_entry;
+  struct rtadv_dnssl_entry *dnssl_entry;
 
   /*
    * Allocate control message bufffer.  This is dynamic because
@@ -284,6 +285,33 @@ rtadv_send_packet (int sock, struct interface *ifp)
       len += sizeof (struct nd_opt_rdnss);
       IPV6_ADDR_COPY (buf + len, rdnss_entry->address.s6_addr);
       len += sizeof (struct in6_addr);
+    }
+
+  /* DNSSL TLV(s) */
+  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvDNSSLList, node, dnssl_entry))
+    {
+      /* This implementation generates one TLV per subdomain, changing this
+         requires handling padding outside of the cycle and making sure
+         the size of each TLV doesn't exceed the maximum value. */
+      struct nd_opt_dnssl *tlv = (struct nd_opt_dnssl *) (buf + len);
+      size_t padding_bytes = 8 - (dnssl_entry->length_rfc1035 % 8);
+
+      tlv->nd_opt_dnssl_type = ND_OPT_DNSSL;
+      tlv->nd_opt_dnssl_len = (8 + dnssl_entry->length_rfc1035 + padding_bytes) / 8;
+      tlv->nd_opt_dnssl_reserved = 0;
+      /* see RDNSS Lifetime comment */
+      tlv->nd_opt_dnssl_lifetime = htonl
+      (
+        ! dnssl_entry->track_maxrai ? dnssl_entry->lifetime :
+        MAX (1, (unsigned)zif->rtadv.MaxRtrAdvInterval / 500) /* 2*MaxRAI in seconds */
+      );
+      len += sizeof (struct nd_opt_dnssl);
+      memcpy (buf + len, dnssl_entry->subdomain_rfc1035, dnssl_entry->length_rfc1035);
+      len += dnssl_entry->length_rfc1035;
+      if (! padding_bytes)
+        continue;
+      memset (buf + len, 0, padding_bytes);
+      len += padding_bytes;
     }
 
   if (zif->rtadv.AdvIntervalOption)
@@ -775,6 +803,7 @@ DEFUN (ipv6_nd_ra_interval_msec,
   struct zebra_if *zif = ifp->info;
   struct listnode *node;
   struct rtadv_rdnss_entry *rdnss_entry;
+  struct rtadv_dnssl_entry *dnssl_entry;
 
   VTY_GET_INTEGER_RANGE ("router advertisement interval", interval, argv[0], 70, 1800000);
   if ((zif->rtadv.AdvDefaultLifetime != -1 && interval > (unsigned)zif->rtadv.AdvDefaultLifetime * 1000))
@@ -793,6 +822,17 @@ DEFUN (ipv6_nd_ra_interval_msec,
       inet_ntop (AF_INET6, rdnss_entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
       vty_out (vty, "This ra-interval would conflict with lifetime %u of RDNSS %s !%s",
                rdnss_entry->lifetime, buf, VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvDNSSLList, node, dnssl_entry))
+    if
+    (
+      ! dnssl_entry->track_maxrai &&
+      ! rtadv_dns_lifetime_fits (dnssl_entry->lifetime * 1000, interval)
+    )
+    {
+      vty_out (vty, "This ra-interval would conflict with lifetime %u of DNSSL %s !%s",
+               dnssl_entry->lifetime, dnssl_entry->subdomain_str, VTY_NEWLINE);
       return CMD_WARNING;
     }
 
@@ -822,6 +862,7 @@ DEFUN (ipv6_nd_ra_interval,
   struct zebra_if *zif = ifp->info;
   struct listnode *node;
   struct rtadv_rdnss_entry *rdnss_entry;
+  struct rtadv_dnssl_entry *dnssl_entry;
 
   VTY_GET_INTEGER_RANGE ("router advertisement interval", interval, argv[0], 1, 1800);
   if ((zif->rtadv.AdvDefaultLifetime != -1 && interval > (unsigned)zif->rtadv.AdvDefaultLifetime))
@@ -840,6 +881,17 @@ DEFUN (ipv6_nd_ra_interval,
       inet_ntop (AF_INET6, rdnss_entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
       vty_out (vty, "This ra-interval would conflict with lifetime %u of RDNSS %s !%s",
                rdnss_entry->lifetime, buf, VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvDNSSLList, node, dnssl_entry))
+    if
+    (
+      ! dnssl_entry->track_maxrai &&
+      ! rtadv_dns_lifetime_fits (dnssl_entry->lifetime * 1000, interval * 1000)
+    )
+    {
+      vty_out (vty, "This ra-interval would conflict with lifetime %u of DNSSL %s !%s",
+               dnssl_entry->lifetime, dnssl_entry->subdomain_str, VTY_NEWLINE);
       return CMD_WARNING;
     }
 
@@ -1705,6 +1757,212 @@ ALIAS (no_ipv6_nd_rdnss_addr,
        "IPv6 address of the server\n"
        "Lifetime in seconds (track ra-interval, if not set)")
 
+/* start of RFC1035 BNF implementation */
+
+/* <digit> ::= any one of the ten digits 0 through 9 */
+static inline char
+is_rfc1035_digit (const char c)
+{
+  return '0' <= c && c <= '9';
+}
+
+/* <letter> ::= any one of the 52 alphabetic characters A through Z in
+   upper case and a through z in lower case */
+static inline char
+is_rfc1035_letter (const char c)
+{
+  return ('A' <= c && c <= 'Z') || ('a' <= c && c <= 'z');
+}
+
+/* <let-dig> ::= <letter> | <digit> */
+static inline char
+is_rfc1035_let_dig (const char c)
+{
+  return is_rfc1035_letter (c) || is_rfc1035_digit (c);
+}
+
+/* <let-dig-hyp> ::= <let-dig> | "-" */
+static inline char
+is_rfc1035_let_dig_hyp (const char c)
+{
+  return is_rfc1035_let_dig (c) || c == '-';
+}
+
+/* <ldh-str> ::= <let-dig-hyp> | <let-dig-hyp> <ldh-str> */
+static inline char
+is_rfc1035_ldh_str (const char * str, const size_t len)
+{
+  size_t i;
+  for (i = 0; i < len; i++)
+    if (! is_rfc1035_let_dig_hyp (str[i]))
+      return 0;
+  return 1;
+}
+
+/* <label> ::= <letter> [ [ <ldh-str> ] <let-dig> ] */
+static char
+is_rfc1035_label (const char * str, const size_t len)
+{
+  if (len < 1 || len > 63) /* 00111111 */
+    return 0;
+  if (! is_rfc1035_letter (str[0]))
+    return 0;
+  if (len > 1 && ! is_rfc1035_let_dig (str[len - 1]))
+    return 0;
+  if (len > 2 && ! is_rfc1035_ldh_str (str + 1, len - 2))
+    return 0;
+  return 1;
+}
+
+/* Transform the provided "clear-text" DNS domain name into a RFC1035
+   representation and return number of bytes the resulting encoding takes,
+   or -1 in case of error.
+   <subdomain> ::= <label> | <subdomain> "." <label> */
+static int
+parse_rfc1035_subdomain
+(
+  const char * inbuf, /* NULL-terminated sequence of period-separated words */
+  u_int8_t * outbuf /* NULL-terminated sequence of RFC1035-styled "labels" */
+)
+{
+  unsigned char do_next = 1, chars_done = 0;
+  size_t chars_total = strlen (inbuf);
+
+  if (chars_total < 1 || chars_total > SUBDOMAIN_MAX_STRLEN)
+    return -1;
+
+  do
+  {
+    size_t word_len;
+    char * period = strchr (inbuf + chars_done, '.');
+
+    /* Find the end of the current word and decide if it is the last one. */
+    if (period)
+      word_len = period - inbuf - chars_done;
+    else
+    {
+      do_next = 0;
+      word_len = chars_total - chars_done;
+    }
+    if (! is_rfc1035_label (inbuf + chars_done, word_len))
+      return -1;
+    /* count trailing '.'/0 input byte for leading "label length" output byte */
+    outbuf[chars_done] = word_len;
+    memcpy (outbuf + chars_done + 1, inbuf + chars_done, word_len);
+    chars_done += word_len + 1;
+  }
+  while (do_next);
+  outbuf[chars_done++] = 0; /* the extra byte */
+  return chars_done;
+}
+
+/* end of RFC1035 BNF implementation */
+
+static struct rtadv_dnssl_entry *
+rtadv_dnssl_lookup (struct list *list, const char * subdomain)
+{
+  struct listnode *node;
+  struct rtadv_dnssl_entry *entry;
+
+  for (ALL_LIST_ELEMENTS_RO (list, node, entry))
+    if (! strcasecmp (entry->subdomain_str, subdomain))
+      return entry;
+  return NULL;
+}
+
+DEFUN (ipv6_nd_dnssl_domain,
+       ipv6_nd_dnssl_domain_cmd,
+       "ipv6 nd dnssl DNS.DOMA.IN",
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "DNS search list\n"
+       "DNS domain\n")
+{
+  struct interface *ifp = (struct interface *) vty->index;
+  struct zebra_if *zif = ifp->info;
+  struct rtadv_dnssl_entry input, *stored;
+  int parsed_bytes;
+
+  /* validate input */
+  parsed_bytes = parse_rfc1035_subdomain (argv[0], input.subdomain_rfc1035);
+  if (parsed_bytes <= 0)
+  {
+    vty_out (vty, "Invalid DNS domain name '%s'%s", argv[0], VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+  input.length_rfc1035 = parsed_bytes;
+  strcpy (input.subdomain_str, argv[0]);
+
+  if (argc < 2) /* no explicit lifetime*/
+    input.track_maxrai = 1;
+  else
+  {
+    input.track_maxrai = 0;
+    if (! strncmp (argv[1], "i", 1)) /* infinite */
+      input.lifetime = RTADV_DNS_INFINITY_LIFETIME;
+    else if (! strncmp (argv[1], "o", 1)) /* obsolete */
+      input.lifetime = RTADV_DNS_OBSOLETE_LIFETIME;
+    else
+    {
+      VTY_GET_INTEGER_RANGE ("lifetime", input.lifetime, argv[1], 1, 4294967294);
+      if (! rtadv_dns_lifetime_fits (input.lifetime * 1000, zif->rtadv.MaxRtrAdvInterval))
+      {
+        vty_out (vty, "This lifetime conflicts with ra-interval (%u ms)%s",
+                 zif->rtadv.MaxRtrAdvInterval, VTY_NEWLINE);
+        return CMD_WARNING;
+      }
+    }
+  }
+
+  /* OK to commit the update */
+  if (! (stored = rtadv_dnssl_lookup (zif->rtadv.AdvDNSSLList, input.subdomain_str)))
+  {
+    stored = XCALLOC (MTYPE_RTADV_PREFIX, sizeof (struct rtadv_dnssl_entry));
+    listnode_add (zif->rtadv.AdvDNSSLList, stored);
+  }
+  memcpy (stored, &input, sizeof (struct rtadv_dnssl_entry));
+  return CMD_SUCCESS;
+}
+
+ALIAS (ipv6_nd_dnssl_domain,
+       ipv6_nd_dnssl_domain_lft_cmd,
+       "ipv6 nd dnssl DNS.DOMA.IN (<1-4294967294>|infinite|obsolete)",
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "DNS search list\n"
+       "DNS domain\n"
+       "Lifetime in seconds (track ra-interval, if not set)")
+
+DEFUN (no_ipv6_nd_dnssl_domain,
+       no_ipv6_nd_dnssl_domain_cmd,
+       "no ipv6 nd dnssl DNS.DOMA.IN",
+       NO_STR
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "DNS search list\n"
+       "DNS domain\n")
+{
+  struct interface *ifp = (struct interface *) vty->index;
+  struct zebra_if *zif = ifp->info;
+  struct rtadv_dnssl_entry *entry;
+
+  if (! (entry = rtadv_dnssl_lookup (zif->rtadv.AdvDNSSLList, argv[0])))
+    return CMD_ERR_NO_MATCH;
+  listnode_delete (zif->rtadv.AdvDNSSLList, entry);
+  XFREE (MTYPE_RTADV_PREFIX, entry);
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_ipv6_nd_dnssl_domain,
+       no_ipv6_nd_dnssl_domain_lft_cmd,
+       "no ipv6 nd dnssl DNS.DOMA.IN (<1-4294967294>|infinite|obsolete)",
+       NO_STR
+       "Interface IPv6 config commands\n"
+       "Neighbor discovery\n"
+       "DNS search list\n"
+       "DNS domain\n"
+       "Lifetime in seconds (track ra-interval, if not set)")
+
 
 /* Write configuration about router advertisement. */
 void
@@ -1714,6 +1972,7 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
   struct listnode *node;
   struct rtadv_prefix *rprefix;
   struct rtadv_rdnss_entry *rdnss_entry;
+  struct rtadv_dnssl_entry *dnssl_entry;
   char buf[INET6_ADDRSTRLEN];
   int interval;
 
@@ -1821,6 +2080,27 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
           break;
         default:
           vty_out (vty, " %u%s", rdnss_entry->lifetime, VTY_NEWLINE);
+          break;
+        }
+    }
+  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvDNSSLList, node, dnssl_entry))
+    {
+      vty_out (vty, " ipv6 nd dnssl %s", dnssl_entry->subdomain_str);
+      if (dnssl_entry->track_maxrai)
+        {
+          vty_out (vty, "%s", VTY_NEWLINE);
+          continue;
+        }
+      switch (dnssl_entry->lifetime)
+        {
+        case RTADV_DNS_OBSOLETE_LIFETIME:
+          vty_out (vty, " obsolete%s", VTY_NEWLINE);
+          break;
+        case RTADV_DNS_INFINITY_LIFETIME:
+          vty_out (vty, " infinite%s", VTY_NEWLINE);
+          break;
+        default:
+          vty_out (vty, " %u%s", dnssl_entry->lifetime, VTY_NEWLINE);
           break;
         }
     }
@@ -1935,6 +2215,10 @@ rtadv_init (void)
   install_element (INTERFACE_NODE, &ipv6_nd_rdnss_addr_lft_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_rdnss_addr_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_rdnss_addr_lft_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_dnssl_domain_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_dnssl_domain_lft_cmd);
+  install_element (INTERFACE_NODE, &no_ipv6_nd_dnssl_domain_cmd);
+  install_element (INTERFACE_NODE, &no_ipv6_nd_dnssl_domain_lft_cmd);
 }
 
 static int

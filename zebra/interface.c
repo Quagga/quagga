@@ -84,6 +84,7 @@ if_zebra_new_hook (struct interface *ifp)
 
     rtadv->AdvPrefixList = list_new ();
     rtadv->AdvRDNSSList = list_new ();
+    rtadv->AdvDNSSLList = list_new ();
   }    
 #endif /* RTADV */
 
@@ -663,6 +664,8 @@ nd_dump_vty (struct vty *vty, struct interface *ifp)
       if (listcount (rtadv->AdvRDNSSList))
 		  vty_out (vty, "  ND router advertisements with "
                 "RDNSS information.%s", VTY_NEWLINE);
+      if (listcount (rtadv->AdvDNSSLList))
+        vty_out (vty, "  ND router advertisements with DNSSL information%s", VTY_NEWLINE);
       if (rtadv->AdvIntervalOption)
       	vty_out (vty, "  ND router advertisements with Adv. Interval option.%s",
 		 VTY_NEWLINE);
