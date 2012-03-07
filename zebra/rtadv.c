@@ -977,6 +977,8 @@ DEFUN (ipv6_nd_ra_lifetime,
     }
 
   zif->rtadv.AdvDefaultLifetime = lifetime;
+  
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -996,6 +998,7 @@ DEFUN (no_ipv6_nd_ra_lifetime,
   zif = ifp->info;
 
   zif->rtadv.AdvDefaultLifetime = -1;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -1020,6 +1023,7 @@ DEFUN (ipv6_nd_reachable_time,
   struct interface *ifp = (struct interface *) vty->index;
   struct zebra_if *zif = ifp->info;
   VTY_GET_INTEGER_RANGE ("reachable time", zif->rtadv.AdvReachableTime, argv[0], 1, RTADV_MAX_REACHABLE_TIME);
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1038,6 +1042,7 @@ DEFUN (no_ipv6_nd_reachable_time,
   zif = ifp->info;
 
   zif->rtadv.AdvReachableTime = 0;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -1062,6 +1067,7 @@ DEFUN (ipv6_nd_homeagent_preference,
   struct interface *ifp = (struct interface *) vty->index;
   struct zebra_if *zif = ifp->info;
   VTY_GET_INTEGER_RANGE ("home agent preference", zif->rtadv.HomeAgentPreference, argv[0], 0, 65535);
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1080,6 +1086,7 @@ DEFUN (no_ipv6_nd_homeagent_preference,
   zif = ifp->info;
 
   zif->rtadv.HomeAgentPreference = 0;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -1104,6 +1111,7 @@ DEFUN (ipv6_nd_homeagent_lifetime,
   struct interface *ifp = (struct interface *) vty->index;
   struct zebra_if *zif = ifp->info;
   VTY_GET_INTEGER_RANGE ("home agent lifetime", zif->rtadv.HomeAgentLifetime, argv[0], 0, RTADV_MAX_HALIFETIME);
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1122,6 +1130,7 @@ DEFUN (no_ipv6_nd_homeagent_lifetime,
   zif = ifp->info;
 
   zif->rtadv.HomeAgentLifetime = -1;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -1149,6 +1158,7 @@ DEFUN (ipv6_nd_managed_config_flag,
   zif = ifp->info;
 
   zif->rtadv.AdvManagedFlag = 1;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -1168,6 +1178,7 @@ DEFUN (no_ipv6_nd_managed_config_flag,
   zif = ifp->info;
 
   zif->rtadv.AdvManagedFlag = 0;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -1186,6 +1197,7 @@ DEFUN (ipv6_nd_homeagent_config_flag,
   zif = ifp->info;
 
   zif->rtadv.AdvHomeAgentFlag = 1;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -1205,6 +1217,7 @@ DEFUN (no_ipv6_nd_homeagent_config_flag,
   zif = ifp->info;
 
   zif->rtadv.AdvHomeAgentFlag = 0;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -1260,6 +1273,7 @@ DEFUN (ipv6_nd_other_config_flag,
   zif = ifp->info;
 
   zif->rtadv.AdvOtherConfigFlag = 1;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -1279,6 +1293,7 @@ DEFUN (no_ipv6_nd_other_config_flag,
   zif = ifp->info;
 
   zif->rtadv.AdvOtherConfigFlag = 0;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 
   return CMD_SUCCESS;
 }
@@ -1361,6 +1376,7 @@ DEFUN (ipv6_nd_prefix,
 
   rtadv_prefix_set (zebra_if, &rp);
 
+  zebra_if->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1552,6 +1568,7 @@ DEFUN (no_ipv6_nd_prefix,
       return CMD_WARNING;
     }
 
+  zebra_if->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1577,6 +1594,7 @@ DEFUN (ipv6_nd_router_preference,
       if (strncmp (argv[0], rtadv_pref_strs[i], 1) == 0)
 	{
 	  zif->rtadv.DefaultPreference = i;
+	  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 	  return CMD_SUCCESS;
 	}
       i++;
@@ -1601,6 +1619,7 @@ DEFUN (no_ipv6_nd_router_preference,
 
   zif->rtadv.DefaultPreference = RTADV_PREF_MEDIUM; /* Default per RFC4191. */
 
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1626,6 +1645,7 @@ DEFUN (ipv6_nd_mtu,
   struct interface *ifp = (struct interface *) vty->index;
   struct zebra_if *zif = ifp->info;
   VTY_GET_INTEGER_RANGE ("MTU", zif->rtadv.AdvLinkMTU, argv[0], 1, 65535);
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1640,6 +1660,7 @@ DEFUN (no_ipv6_nd_mtu,
   struct interface *ifp = (struct interface *) vty->index;
   struct zebra_if *zif = ifp->info;
   zif->rtadv.AdvLinkMTU = 0;
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1712,6 +1733,7 @@ DEFUN (ipv6_nd_rdnss_addr,
     listnode_add (zif->rtadv.AdvRDNSSList, stored);
   }
   memcpy (stored, &input, sizeof (struct rtadv_rdnss_entry));
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1744,6 +1766,7 @@ DEFUN (no_ipv6_nd_rdnss_addr,
     return CMD_ERR_NO_MATCH;
   listnode_delete (zif->rtadv.AdvRDNSSList, entry);
   XFREE (MTYPE_RTADV_PREFIX, entry);
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1921,6 +1944,7 @@ DEFUN (ipv6_nd_dnssl_domain,
     listnode_add (zif->rtadv.AdvDNSSLList, stored);
   }
   memcpy (stored, &input, sizeof (struct rtadv_dnssl_entry));
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
@@ -1950,6 +1974,7 @@ DEFUN (no_ipv6_nd_dnssl_domain,
     return CMD_ERR_NO_MATCH;
   listnode_delete (zif->rtadv.AdvDNSSLList, entry);
   XFREE (MTYPE_RTADV_PREFIX, entry);
+  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
   return CMD_SUCCESS;
 }
 
