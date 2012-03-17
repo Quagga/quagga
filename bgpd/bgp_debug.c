@@ -21,7 +21,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include <zebra.h>
 #include <stdbool.h>
 
-#include <lib/version.h>
+#include "lib/version.h"
 #include "prefix.h"
 #include "linklist.h"
 #include "stream.h"
@@ -32,7 +32,6 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "memory.h"
 #include "qfstring.h"
 
-#include "bgpd/bgp_common.h"
 #include "bgpd/bgp_engine.h"
 #include "bgpd/bgp_session.h"
 #include "bgpd/bgp_connection.h"

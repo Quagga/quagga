@@ -60,7 +60,8 @@ enum
 
 #define VECTOR_INIT_EMPTY  { .p_items = NULL, .end = 0, .limit = 0 }
 
-/* Under very controlled circumstances, may access the vector body      */
+/* Under very controlled circumstances, may access the vector body
+ */
 typedef p_vector_item const* vector_body_t ;
 
 /*------------------------------------------------------------------------------

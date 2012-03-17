@@ -56,8 +56,7 @@ struct bgp_notify
 /*==============================================================================
  * "Legacy" definitions
  */
-
-/* BGP notify message codes.  */
+/* BGP notify message codes.                                    */
 #define BGP_NOTIFY_HEADER_ERR                    1
 #define BGP_NOTIFY_OPEN_ERR                      2
 #define BGP_NOTIFY_UPDATE_ERR                    3
@@ -67,13 +66,15 @@ struct bgp_notify
 #define BGP_NOTIFY_CAPABILITY_ERR                7
 #define BGP_NOTIFY_MAX                           8
 
-/* BGP_NOTIFY_HEADER_ERR sub codes.  */
+#define BGP_NOTIFY_SUBCODE_UNSPECIFIC            0
+
+/* BGP_NOTIFY_HEADER_ERR sub codes.                             */
 #define BGP_NOTIFY_HEADER_NOT_SYNC               1
 #define BGP_NOTIFY_HEADER_BAD_MESLEN             2
 #define BGP_NOTIFY_HEADER_BAD_MESTYPE            3
 #define BGP_NOTIFY_HEADER_MAX                    4
 
-/* BGP_NOTIFY_OPEN_ERR sub codes.  */
+/* BGP_NOTIFY_OPEN_ERR sub codes.                               */
 #define BGP_NOTIFY_OPEN_UNSUP_VERSION            1
 #define BGP_NOTIFY_OPEN_BAD_PEER_AS              2
 #define BGP_NOTIFY_OPEN_BAD_BGP_IDENT            3
@@ -83,7 +84,7 @@ struct bgp_notify
 #define BGP_NOTIFY_OPEN_UNSUP_CAPBL              7
 #define BGP_NOTIFY_OPEN_MAX                      8
 
-/* BGP_NOTIFY_UPDATE_ERR sub codes.  */
+/* BGP_NOTIFY_UPDATE_ERR sub codes.                             */
 #define BGP_NOTIFY_UPDATE_MAL_ATTR               1
 #define BGP_NOTIFY_UPDATE_UNREC_ATTR             2
 #define BGP_NOTIFY_UPDATE_MISS_ATTR              3
@@ -97,7 +98,7 @@ struct bgp_notify
 #define BGP_NOTIFY_UPDATE_MAL_AS_PATH           11
 #define BGP_NOTIFY_UPDATE_MAX                   12
 
-/* BGP_NOTIFY_CEASE sub codes (draft-ietf-idr-cease-subcode-05).  */
+/* BGP_NOTIFY_CEASE sub codes (RFC 4486).                       */
 #define BGP_NOTIFY_CEASE_MAX_PREFIX              1
 #define BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN          2
 #define BGP_NOTIFY_CEASE_PEER_UNCONFIG           3

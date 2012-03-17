@@ -24,8 +24,8 @@
 
 #include "bgpd/bgp_peer.h"
 
-#include "bgpd/bgp_common.h"
 #include "bgpd/bgp_session.h"
+#include "bgpd/bgp_connection.h"
 #include "bgpd/bgp_engine.h"
 #include "bgpd/bgp_peer_index.h"
 #include "bgpd/bgpd.h"
@@ -330,7 +330,7 @@ bgp_session_has_established(bgp_session session)
 
   nsf_af_count = 0 ;
   for (afi = AFI_IP ; afi < AFI_MAX ; afi++)
-    for (safi = SAFI_UNICAST ; safi < SAFI_UNICAST_MULTICAST ; safi++)
+    for (safi = SAFI_UNICAST ; safi < SAFI_RESERVED_3 ; safi++)
       {
         /* If the afi/safi has been negotiated, and have received Graceful
          * Restart capability, and is Restarting, and will Gracefully Restart
@@ -570,7 +570,7 @@ bgp_peer_clear_all_stale_routes (struct peer *peer)
   safi_t safi;
 
   for (afi = AFI_IP ; afi < AFI_MAX ; afi++)
-    for (safi = SAFI_UNICAST ; safi < SAFI_UNICAST_MULTICAST ; safi++)
+    for (safi = SAFI_UNICAST ; safi < SAFI_RESERVED_3 ; safi++)
       if (peer->nsf[afi][safi])
         bgp_clear_stale_route (peer, afi, safi);
 
@@ -1197,7 +1197,7 @@ bgp_peer_enable(bgp_peer peer)
  *
  *   - PEER_DOWN_NEIGHBOR_DELETE
  *
- *     prevents the peer from restarting.
+ *     causes PEER_DOWN_USER_SHUTDOWN prior to deleting the peer completely.
  *
  * If there is an active session, then it must be disabled, sending the given
  * notification, or one based on the reason for downing the peer.
@@ -1223,7 +1223,7 @@ bgp_peer_enable(bgp_peer peer)
  *      The peer will have automatically restarted, if possible.
  *
  *      Noting that PEER_DOWN_USER_SHUTDOWN and PEER_DOWN_NEIGHBOR_DELETE both
- *      prevent any restart.
+ *      prevent any restart -- by setting PEER_FLAG_SHUTDOWN.
  *
  *   2. bgp_peer_pEstablished
  *
@@ -1264,8 +1264,17 @@ bgp_peer_down(bgp_peer peer, peer_down_t why_down)
  *
  * See bgp_peer_down() above.
  *
- * If the notification is NULL and need to send a notification, make one up from
- * the given reason for downing the peer.
+ * If the session is active and has not been downed already, then we now down
+ * it and with suitable notification.
+ *
+ * If the notification is NULL and need to send a notification, make one up
+ * from the given reason for downing the peer.
+ *
+ * NB: once the session has been sent one notification, all further
+ *     notifications are ignored (and discarded, here).
+ *
+ *     If the session is not in a state to receive a notification, we ignore
+ *     this one (and discard it, here).
  *
  * NB: takes responsibility for the notification.
  */
@@ -1273,25 +1282,49 @@ static void
 bgp_peer_down_notify(bgp_peer peer, peer_down_t why_down,
                                                         bgp_notify notification)
 {
-  /* Deal with session (if any).                                        */
+  /* Deal with session (if any)
+   */
+  if (notification == NULL)
+    notification = bgp_peer_map_peer_down(why_down) ;
 
-  if (bgp_session_is_active(peer->session))
+  if (bgp_session_disable(peer, notification))
+    bgp_notify_set(&peer->session->notification, notification) ;
+  else
+    bgp_notify_free(notification) ;
+
+#if 0
+  /* This logging is (more or less) part of commit 1212dc1961...
+   *
+   * TODO worry how useful this is and whether is not already done elsewhere.
+   */
+
+  /* Log some                                                           */
+  switch (why_down)
     {
-      if (notification == NULL)
-        notification = bgp_peer_map_peer_down(why_down) ;
+      case PEER_DOWN_USER_RESET:
+        zlog_info ("Notification sent to neighbor %s: User reset", peer->host);
+        break ;
 
-      bgp_notify_set(&peer->session->notification, notification) ;
+      case PEER_DOWN_USER_SHUTDOWN:
+        zlog_info ("Notification sent to neighbor %s: shutdown", peer->host);
+        break ;
 
-      bgp_session_disable(peer, bgp_notify_dup(notification)) ;
-              /* The copy of the notification will be discarded either by
-               * the BGP_Engine, if the notification is not sent, or when
-               * it is returned in the eDisabled message.
-               */
+      case PEER_DOWN_NOTIFY_SEND:
+        zlog_info ("Notification sent to neighbor %s: type %u/%u",
+                   peer->host, code, sub_code);
+        break ;
+
+      default:
+        zlog_info ("Notification sent to neighbor %s: configuration change",
+                peer->host);
+        break ;
     } ;
+#endif
 
   /* Now worry about the state of the peer                              */
 
-  if (why_down == PEER_DOWN_USER_SHUTDOWN)
+  if ((why_down == PEER_DOWN_USER_SHUTDOWN)
+                                     || (why_down == PEER_DOWN_NEIGHBOR_DELETE))
     bgp_peer_shutdown(peer) ;
 
   if (why_down != PEER_DOWN_NULL)
@@ -1305,8 +1338,7 @@ bgp_peer_down_notify(bgp_peer peer, peer_down_t why_down,
 
       bgp_peer_nsf_stop (peer) ;        /* flush stale routes, if any   */
 
-      if (why_down != PEER_DOWN_NEIGHBOR_DELETE)
-        bgp_peer_enable(peer) ;         /* Restart if possible.         */
+      bgp_peer_enable(peer) ;           /* Restart if possible.         */
 
       break ;
 
@@ -1612,7 +1644,7 @@ bgp_peer_change_status (bgp_peer peer, bgp_peer_state_t new_state)
       peer->state  = new_state ;
 
       if (BGP_DEBUG (normal, NORMAL))
-        zlog_debug ("%s went from %s to %s", peer->host,
+        zlog_debug ("peer %s went from %s to %s", peer->host,
                            map_direct(bgp_peer_status_map, peer->ostate).str,
                            map_direct(bgp_peer_status_map, peer->state).str) ;
 

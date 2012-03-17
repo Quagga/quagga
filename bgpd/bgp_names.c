@@ -20,10 +20,10 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 #include <zebra.h>
 
-#include <bgpd/bgp_names.h>
+#include "bgpd/bgp_names.h"
 
-#include <bgpd/bgp_connection.h>
-#include <bgpd/bgp_notification.h>
+#include "bgpd/bgp_connection.h"
+#include "bgpd/bgp_notification.h"
 
 /*------------------------------------------------------------------------------
  * Names of FSM status values
@@ -218,4 +218,45 @@ const char* bgp_origin_long_map_body[] =
 
 const map_direct_t bgp_origin_long_map =
       map_direct_s(bgp_origin_long_map_body, "unknown(%d)") ;
+
+/*------------------------------------------------------------------------------
+ * Attribute type names
+ */
+const char* bgp_attr_name_map_body[] =
+{
+  [BGP_ATTR_ORIGIN]           = "ORIGIN",
+  [BGP_ATTR_AS_PATH]          = "AS_PATH",
+  [BGP_ATTR_NEXT_HOP]         = "NEXT_HOP",
+  [BGP_ATTR_MULTI_EXIT_DISC]  = "MULTI_EXIT_DISC",
+  [BGP_ATTR_LOCAL_PREF]       = "LOCAL_PREF",
+  [BGP_ATTR_ATOMIC_AGGREGATE] = "ATOMIC_AGGREGATE",
+  [BGP_ATTR_AGGREGATOR]       = "AGGREGATOR",
+  [BGP_ATTR_COMMUNITIES]      = "COMMUNITY",
+  [BGP_ATTR_ORIGINATOR_ID]    = "ORIGINATOR_ID",
+  [BGP_ATTR_CLUSTER_LIST]     = "CLUSTER_LIST",
+  [BGP_ATTR_DPA]              = "DPA",
+  [BGP_ATTR_ADVERTISER]       = "ADVERTISER" ,
+  [BGP_ATTR_RCID_PATH]        = "RCID_PATH",
+  [BGP_ATTR_MP_REACH_NLRI]    = "MP_REACH_NLRI",
+  [BGP_ATTR_MP_UNREACH_NLRI]  = "MP_UNREACH_NLRI",
+  [BGP_ATTR_EXT_COMMUNITIES]  = "EXT_COMMUNITIES",
+  [BGP_ATTR_AS4_PATH]         = "AS4_PATH",
+  [BGP_ATTR_AS4_AGGREGATOR]   = "AS4_AGGREGATOR",
+  [BGP_ATTR_AS_PATHLIMIT]     = "AS_PATHLIMIT",
+};
+
+const map_direct_t bgp_attr_name_map =
+      map_direct_s(bgp_attr_name_map_body, "unknown(%u)") ;
+
+/*------------------------------------------------------------------------------
+ * AFI names
+ */
+const char* bgp_afi_name_map_body[] =
+{
+  [AFI_IP]                    = "AFI_IP",
+  [AFI_IP6]                   = "AFI_IP6",
+};
+
+const map_direct_t bgp_afi_name_map =
+      map_direct_s(bgp_afi_name_map_body, "unknown AFI(%u)") ;
 

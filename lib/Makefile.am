@@ -30,7 +30,7 @@ libzebra_la_DEPENDENCIES = @LIB_REGEX@
 libzebra_la_LIBADD = @LIB_REGEX@
 
 pkginclude_HEADERS = \
-	avl.h  command.h  command_common.h  command_execute.h \
+	avl.h  buffer.h  command.h  command_common.h  command_execute.h \
 	command_local.h  command_parse.h  command_queue.h  confirm.h \
 	distribute.h  elstring.h  errno_names.h  filter.h  getopt.h \
 	hash.h  heap.h  if.h  if_rmap.h  jhash.h  keychain.h \
@@ -49,10 +49,10 @@ pkginclude_HEADERS = \
 	workqueue.h  zassert.h  zclient.h \
 	zconfig.h  zebra.h
 		
-EXTRA_DIST = regex.c regex-gnu.h memtypes.awk route_types.awk route_types.txt
+EXTRA_DIST = regex.c regex-gnu.h memtypes.awk route_types.pl route_types.txt
 
 memtypes.h: $(srcdir)/memtypes.c $(srcdir)/memtypes.awk
 	($(GAWK) -f $(srcdir)/memtypes.awk $(srcdir)/memtypes.c > $@)
 
-route_types.h: $(srcdir)/route_types.txt $(srcdir)/route_types.awk
-	($(GAWK) -f $(srcdir)/route_types.awk $(srcdir)/route_types.txt > $@)
+route_types.h: $(srcdir)/route_types.txt $(srcdir)/route_types.pl
+	@PERL@ $(srcdir)/route_types.pl < $(srcdir)/route_types.txt > $@

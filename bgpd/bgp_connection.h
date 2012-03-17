@@ -85,6 +85,55 @@ enum bgp_fsm_events
   bgp_fsm_last_event                      = 15,
 } ;
 
+enum bgp_fsm_events_4271
+{
+  bgp_fsm2_eNULL                          =  0,
+
+  /* 8.1.2 Administrative Events
+   */
+  bgp_fsm2_eManualStart                   =  1,
+  bgp_fsm2_eManualStop                    =  2,
+  bgp_fsm2_eAutomaticStart                =  3,
+  bgp_fsm2_eManualStart_with_Passive      =  4,
+  bgp_fsm2_eAutomaticStart_with_Passive   =  5,
+  bgp_fsm2_eAutomaticStart_with_Damp      =  6,
+  bgp_fsm2_eAutomaticStart_with_Damp_and_Passive   =  7,
+  bgp_fsm2_eAutomaticStop                 =  8,
+
+  /* 8.1.3 Timer Events
+   */
+  bgp_fsm2_eConnectRetryTimer_Expires     =  9,
+  bgp_fsm2_eHoldTimer_Expires             = 10,
+  bgp_fsm2_eKeepaliveTimer_Expires        = 11,
+  bgp_fsm2_eDelayOpenTimer_Expires        = 12,
+  bgp_fsm2_eIdleHoldTimer_Expires         = 13,
+
+  /* 8.1.4 TCP Connection-Based Events
+   */
+  bgp_fsm2_eTcpConnection_Valid           = 14,
+  bgp_fsm2_eTcp_CR_Invalid                = 15,
+  bgp_fsm2_eTcp_CR_Acked                  = 16,
+  bgp_fsm2_eTcpConnectionConfirmed        = 17,
+  bgp_fsm2_eTcpConnectionFails            = 18,
+
+  /* 8.1.5 BGP Message-Based Events
+   */
+  bgp_fsm2_eBGPOpen                       = 19,
+  bgp_fsm2_eBGPOpen_with_DelayOpenTimer   = 20,
+  bgp_fsm2_eBGPHeaderErr                  = 21,
+  bgp_fsm2_eBGPOpenMsgErr                 = 22,
+  bgp_fsm2_eOpenCollisionDump             = 23,
+  bgp_fsm2_eNotifyMsgVerErr               = 24,
+  bgp_fsm2_eMotifyMsg                     = 25,
+  bgp_fsm2_eKeepAliveMsg                  = 26,
+  bgp_fsm2_eUpdateMsg                     = 27,
+  bgp_fsm2_eUpdareMsgErr                  = 28,
+
+  /* Number of events -- including the eNULL
+   */
+  bgp_fsm2_event_count                    = 29,
+} ;
+
 /*==============================================================================
  * BGP Connection Structures
  *
@@ -106,6 +155,7 @@ enum bgp_fsm_events
  *      "empty but not writable" state.
  */
 typedef struct bgp_wbuffer* bgp_wbuffer ;
+typedef struct bgp_wbuffer  bgp_wbuffer_t ;
 struct bgp_wbuffer
 {
   uint8_t*    p_out ;
@@ -117,6 +167,45 @@ struct bgp_wbuffer
 
 /* Buffer is allocated for a number of maximum size BGP messages.       */
 enum { bgp_wbuff_size = BGP_MSG_MAX_L * 10 } ;
+
+/*==============================================================================
+ * BGP Connection Options Structure
+ *
+ * This is a discrete structure so that the accept() handling can handle these
+ * things without requiring the complete bgp_connection or bgp_session !
+ */
+struct bgp_connection_options
+{
+  /* Flags indicating whether to allow inbound and/or outbound connections.
+   */
+  bool  accept ;
+  bool  connect ;
+
+  /* Both connect() and accept() will attempt to set the required ttl/gtsm
+   *
+   * The gtsm_set flag reflects what has happened.
+   */
+  int   ttl_req ;               /* TTL to set, if not zero        */
+  bool  gtsm_req ;              /* ttl set by ttl-security        */
+
+  bool  gtsm_set ;              /* minttl has been set            */
+
+  /* Both connect() and accept() will apply MD5 password to connections.
+   *
+   * If the accept flag is true, then the password is set for the peer's
+   * address in all listeners.
+   *
+   * For connect() the password is set when the outbpund connection is
+   * set up.
+   */
+  char* password ;              /* copy of MD5 password           */
+
+  /* Only connect() worries about these.
+   */
+  char* ifname ;                /* interface to bind to, if any   */
+  uint  ifindex ;               /* and its index, if any          */
+  sockunion  ifaddress ;        /* address to bind to, if any     */
+} ;
 
 /*==============================================================================
  * BGP Connection Structure
@@ -197,7 +286,7 @@ struct bgp_connection
   mqueue_local_queue_t
                     pending_queue ;     /* pending write messages         */
 
-  struct bgp_wbuffer wbuff ;            /* write buffer                   */
+  bgp_wbuffer_t     wbuff[1] ;          /* write buffer                   */
 } ;
 
 /*==============================================================================
@@ -317,7 +406,7 @@ bgp_write_buffer_has(bgp_wbuffer wb)
 Inline bool
 bgp_connection_write_cannot_max(bgp_connection connection)
 {
-  return bgp_write_buffer_cannot_max(&connection->wbuff) ;
+  return bgp_write_buffer_cannot_max(connection->wbuff) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -326,7 +415,7 @@ bgp_connection_write_cannot_max(bgp_connection connection)
 Inline bool
 bgp_connection_write_empty(bgp_connection connection)
 {
-  return bgp_write_buffer_empty(&connection->wbuff) ;
+  return bgp_write_buffer_empty(connection->wbuff) ;
 } ;
 
 /*==============================================================================

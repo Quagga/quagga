@@ -46,7 +46,6 @@ ipforward (void)
 {
   FILE *fp;
   int ipforwarding = 0;
-  char *pnt;
   char buf[10];
 
   fp = fopen (proc_net_snmp, "r");
@@ -60,8 +59,8 @@ ipforward (void)
   /* Get ip_statistics.IpForwarding :
      1 => ip forwarding enabled
      2 => ip forwarding off. */
-  pnt = fgets (buf, 6, fp);
-  sscanf (buf, "Ip: %d", &ipforwarding);
+  if (fgets (buf, 6, fp))
+    sscanf (buf, "Ip: %d", &ipforwarding);
 
   fclose(fp);
 
@@ -141,8 +140,8 @@ ipforward_ipv6 (void)
   if (fp == NULL)
     return -1;
 
-  fgets (buf, 2, fp);
-  sscanf (buf, "%d", &ipforwarding);
+  if (fgets (buf, 2, fp))
+    sscanf (buf, "%d", &ipforwarding);
 
   fclose (fp);
   return ipforwarding;

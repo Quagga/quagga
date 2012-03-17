@@ -116,6 +116,8 @@ struct stream
   size_t endp;		/* last valid data position             */
   size_t size;		/* size of data segment                 */
 
+  size_t startp ;       /* not used by stream itself            */
+
   bool   overflow ;     /* set if attempts to put beyond size   */
   bool   overrun ;      /* set if attempts to get beyond endp   */
 
@@ -159,8 +161,10 @@ Inline size_t stream_get_getp(struct stream* s);
 Inline size_t stream_get_endp(struct stream* s);
 Inline size_t stream_get_len(struct stream* s) ;
 Inline size_t stream_get_size(struct stream* s) ;
+Inline size_t stream_get_startp(struct stream* s) ;
 Inline byte*  stream_get_data(struct stream* s) ;
 Inline byte*  stream_get_pnt(struct stream* s) ;
+Inline byte*  stream_get_pnt_to (struct stream *s, size_t pos) ;
 
 Inline size_t stream_get_read_left(struct stream* s) ;
 Inline size_t stream_get_read_left_from(struct stream* s, size_t from) ;
@@ -170,13 +174,17 @@ Inline size_t stream_get_write_left_at(struct stream* s, size_t at) ;
 Inline bool stream_has_write_left(struct stream* s, size_t len) ;
 Inline bool stream_has_overrun(struct stream* s) ;
 Inline bool stream_has_overflowed(struct stream* s) ;
+Inline void stream_clear_overrun(struct stream* s) ;
+Inline void stream_clear_overflow(struct stream* s) ;
 
 Inline void stream_set_getp(struct stream *, size_t);
 Inline void stream_set_endp(struct stream *, size_t);
+Inline void stream_set_startp(struct stream* s, size_t) ;
+Inline void stream_reset_getp(struct stream* s) ;
 Inline void stream_forward_getp(struct stream *, size_t);
 Inline void stream_forward_endp(struct stream *, size_t);
 
-Inline bool stream_push_endp(struct stream* s, size_t len, size_t* old_endp) ;
+Inline size_t stream_push_endp(struct stream* s, size_t len) ;
 Inline bool stream_pop_endp(struct stream* s, size_t old_endp) ;
 
 extern void stream_put (struct stream *, const void *, size_t);
@@ -265,7 +273,7 @@ stream_is_empty (struct stream *s)
 Inline void
 stream_reset (struct stream *s)
 {
-  s->getp     = s->endp    = 0 ;
+  s->getp     = s->endp    = s->startp  = 0 ;
   s->overflow = s->overrun = false ;
 }
 
@@ -323,6 +331,21 @@ stream_get_size(struct stream* s)
 } ;
 
 /*------------------------------------------------------------------------------
+ * The current s->startp
+ *
+ * s->startp is set to zero when a stream is created or reset.
+ *
+ * Otherwise the s->startp is of no interest to the stream code itself, but may
+ * be used for whatever purpose by users of the stream.
+ */
+Inline size_t
+stream_get_startp(struct stream* s)
+{
+  qassert_stream(s) ;
+  return s->startp ;
+} ;
+
+/*------------------------------------------------------------------------------
  * The current stream data body
  *
  * May be NULL -- if size is zero.
@@ -357,6 +380,27 @@ stream_get_pnt (struct stream *s)
 }
 
 /*------------------------------------------------------------------------------
+ * Return pointer to byte at given position
+ *
+ * If the given position is > s->endp, then returns position of s->endp.
+ *
+ * stream_get_read_left_from() will get the number of bytes available at the
+ * given position.
+ *
+ * NB: if the stream size is changed, the address returned here may become out
+ *     of date.
+ *
+ * NB: for ordinary processing of the contents of a stream, the various
+ *     get/put functions are *recommended* !
+ */
+Inline byte*
+stream_get_pnt_to (struct stream *s, size_t pos)
+{
+  qassert_stream(s) ;
+  return s->data + ((pos <= s->endp) ? pos : s->endp) ;
+}
+
+/*------------------------------------------------------------------------------
  * Count of bytes between s->getp and s->endp.
  */
 Inline size_t
@@ -379,7 +423,7 @@ stream_get_read_left_from(struct stream* s, size_t from)
 } ;
 
 /*------------------------------------------------------------------------------
- * See if has at least len bytes between s->getp and s->lenp
+ * See if has at least len bytes between s->getp and s->endp
  */
 Inline bool
 stream_has_read_left(struct stream* s, size_t len)
@@ -439,6 +483,24 @@ stream_has_overflowed(struct stream* s)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Clear the overrun flag
+ */
+Inline void
+stream_clear_overrun(struct stream* s)
+{
+  s->overrun = false ;
+}
+
+/*------------------------------------------------------------------------------
+ * Clear the overflow flag
+ */
+Inline void
+stream_clear_overflow(struct stream* s)
+{
+  s->overflow = false ;
+}
+
+/*------------------------------------------------------------------------------
  * Set s->getp to given value.
  *
  * If value > s->endp will force to s->endp and set s->overrun.
@@ -482,6 +544,40 @@ stream_set_endp (struct stream *s, size_t pos)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Set the s->startp to the given value.
+ *
+ * The s->startp is of no interest to the stream code itself, but may
+ * be used for whatever purpose by users of the stream.
+ */
+Inline void
+stream_set_startp(struct stream* s, size_t pos)
+{
+  qassert_stream(s) ;
+  s->startp = pos ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Reset s->getp to the current s->startp
+ *
+ * s->startp is set to zero when a stream is created or reset.
+ *
+ * Otherwise the s->startp is of no interest to the stream code itself, but may
+ * be used for whatever purpose by users of the stream.
+ *
+ * If s->getp is now > s->endp will force to s->endp and set s->overrun.
+ */
+Inline void
+stream_reset_getp (struct stream *s)
+{
+  qassert_stream(s) ;
+
+  s->getp = s->startp ;
+
+  if (s->getp > s->endp)
+    stream_set_overs(s) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Move s->getp forwards by given step.
  *
  * If result > s->endp will force to s->endp and set s->overrun.
@@ -516,57 +612,54 @@ stream_forward_endp (struct stream *s, size_t step)
 } ;
 
 /*------------------------------------------------------------------------------
- * Push current s->endp and set a new value -- for reading !
+ * Return current s->endp and set a new s->end *wrt* current s->getp (push)
  *
  * This may be used when reader knows that is about to read some unit of data
  * which is expected to be len bytes long.
  *
- * Fails if there are fewer than len bytes between s->getp and s->endp.
+ * If there are fewer than len bytes between s->getp and s->endp, leaves
+ * s->endp as it is and sets overrun.
  *
- * Returns:  true  <=> OK -- new s->endp set.
- *           false <=> failed -- s->endp unchanged and overrun set
+ * Caller can check overrun immediately or leave for later -- proceeding to
+ * read will hit the current s->endp and set overrun again.
  *
- * If during reading the s->getp would move beyond the current s->endp, will
- * return zeros and set overrun in the usual way.
- *
- * Caller can ignore the return code and continue, overrun is already set and
- * will, presumably, hit overrun again.  Popping the saved value will work
- * fine.
+ * In any case, restoring (pop) the saved value will work fine (even if failed).
  */
-Inline bool
-stream_push_endp(struct stream* s, size_t len, size_t* old_endp)
+Inline size_t
+stream_push_endp(struct stream* s, size_t len)
 {
-  size_t new_endp ;
+  size_t new_endp, old_endp ;
 
   qassert_stream(s) ;
 
-  *old_endp = s->endp ;
-  new_endp  = s->getp + len ;
+  old_endp = s->endp ;
+  new_endp = s->getp + len ;
 
-  if (new_endp <= *old_endp)
-    {
-      s->endp = new_endp ;
-      return true ;
-    }
+  if (new_endp <= old_endp)
+    s->endp = new_endp ;
   else
-    {
-      s->overrun = true ;
-      return false ;
-    } ;
+    s->overrun = true ;
+
+  return old_endp ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Pop saved value for s->endp -- restore to as before stream_push_endp()
  *
  * This deemed to be OK if s->getp == s->endp -- ie the s->getp has reached the
- * end of the unit of data was about to process when did stream_push_endp().
+ * end of the unit of data was about to process when did stream_push_endp(),
+ * AND has not overrun.
  *
- * If not OK will force s->getp and set s->overrun.
+ * If not OK will force s->getp to the current s->endp.
+ *
+ * NB: if have not read everything, returns false without setting s->overrun.
+ *     So, provided s->overrun was not set at the time of the push, can
+ *     distinguish underrun from overrun.
  *
  * Expects the value being restored to be valid -- but checks for overflow and
  * overrun just in case !
  *
- * Returns:  OK or not
+ * Returns:  (getp == old endp) && not overrun
  */
 Inline bool
 stream_pop_endp(struct stream* s, size_t old_endp)
@@ -574,22 +667,19 @@ stream_pop_endp(struct stream* s, size_t old_endp)
   bool ok ;
 
   qassert_stream(s) ;
-  qassert((old_endp <= s->size) && (s->endp <= old_endp)) ;
+  qassert((s->endp <= old_endp) && (old_endp <= s->size)) ;
 
-  ok = s->getp == s->endp ;
+  ok = (s->getp == s->endp) ;
 
   if (!ok)
-    {
-      s->getp = s->endp ;
-      s->overrun = true ;
-    } ;
+    s->getp = s->endp ;
 
   s->endp = old_endp ;
 
-  if ((s->endp > s->size) || (s->getp > s->endp))
+  if ((s->endp > s->size) || (s->getp > s->endp))       /* impossible ! */
     stream_set_overs(s) ;
 
-  return ok ;
+  return ok && !s->overrun ;
 } ;
 
 #endif /* _ZEBRA_STREAM_H */

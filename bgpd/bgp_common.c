@@ -187,9 +187,9 @@ qafx_num_from_iAFI_iSAFI(iAFI_t afi, iSAFI_t safi)
 /*------------------------------------------------------------------------------
  * qAFI/qSAFI => qafx_num_t
  *
- * NB: qAFI_undef   with any qSAFI_xxx => qafx_num_undef
- *     qSAFI_undef  with any qAFI_xxx  => qafx_num_undef
- *     qSAFI_Unused qith any qAFI_xxx  => qafx_num_undef
+ * NB: qAFI_undef       with any qSAFI_xxx => qafx_num_undef
+ *     qSAFI_undef      with any qAFI_xxx  => qafx_num_undef
+ *     qSAFI_Reserved_3 with any qAFI_xxx  => qafx_num_undef
  *
  * NB: any unrecognised qAFI/qSAFI combinations => FATAL error
  */
@@ -207,7 +207,7 @@ qafx_num_from_qAFI_qSAFI(qAFI_t afi, qSAFI_t safi)
       switch(safi)
       {
         case qSAFI_undef:
-        case qSAFI_Unused:
+        case qSAFI_Reserved_3:
           return qafx_num_undef ;
         case qSAFI_Unicast:
           return qafx_ipv4_unicast ;
@@ -224,7 +224,7 @@ qafx_num_from_qAFI_qSAFI(qAFI_t afi, qSAFI_t safi)
       switch(safi)
       {
         case qSAFI_undef:
-        case qSAFI_Unused:
+        case qSAFI_Reserved_3:
           return qafx_num_undef ;
         case qSAFI_Unicast:
           return qafx_ipv6_unicast ;

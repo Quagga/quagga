@@ -261,7 +261,6 @@ static void
 smux_getresp_send (oid objid[], size_t objid_len, long reqid, long errstat,
 		   long errindex, u_char val_type, void *arg, size_t arg_len)
 {
-  int ret;
   u_char buf[BUFSIZ];
   u_char *ptr, *h1, *h1e, *h2, *h2e;
   size_t len, length;
@@ -317,7 +316,7 @@ smux_getresp_send (oid objid[], size_t objid_len, long reqid, long errstat,
   if (debug_smux)
     zlog_debug ("SMUX getresp send: %td", (ptr - buf));
 
-  ret = send (smux_sock, buf, (ptr - buf), 0);
+  send (smux_sock, buf, (ptr - buf), 0);
 }
 
 static u_char *
@@ -937,7 +936,7 @@ smux_open (int sock)
   u_char *ptr;
   size_t len;
   long version;
-  u_char progname[] = QUAGGA_PROGNAME "-" QUAGGA_VERSION;
+  const char progname[] = QUAGGA_PROGNAME "-" QUAGGA_VERSION;
 
   if (debug_smux)
     {
@@ -969,6 +968,7 @@ smux_open (int sock)
 			  (u_char)
 			  (ASN_UNIVERSAL | ASN_PRIMITIVE | ASN_OCTET_STR),
 			  progname, strlen ((void*)progname));
+			  (const u_char *) progname, strlen (progname));
 
   /* SMUX connection password. */
   ptr = asn_build_string (ptr, &len,

@@ -26,7 +26,6 @@
 #define _QUAGGA_BGP_FSM_H
 
 #include "bgpd/bgp_common.h"
-#include "bgpd/bgp_connection.h"
 
 /* Prototypes. */
 

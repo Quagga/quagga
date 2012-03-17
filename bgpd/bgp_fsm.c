@@ -1490,7 +1490,7 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
                          map_direct(bgp_fsm_status_map, next_state).str) ;
 
           if (BGP_DEBUG(normal, NORMAL))
-            zlog_debug ("%s on %s went from %s to %s",
+            zlog_debug ("%s on %s FSM went from %s to %s",
                           connection->host,
                           bgp_event_str[event],
                           map_direct(bgp_fsm_status_map, prev_state).str,

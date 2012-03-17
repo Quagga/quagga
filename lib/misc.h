@@ -133,6 +133,12 @@ typedef unsigned int   uint ;
 typedef unsigned int   usize ;
 typedef unsigned int   ulen ;
 
+enum
+{
+  USIZE_MAX  = UINT_MAX,
+  ULEN_MAX   = UINT_MAX,
+} ;
+
 typedef          int   ssize ;
 typedef          int   slen ;
 

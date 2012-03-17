@@ -22,10 +22,12 @@
 #ifndef OSPF6_ASBR_H
 #define OSPF6_ASBR_H
 
+/* for struct ospf6_prefix */
 #include "ospf6_proto.h"
+/* for struct ospf6_lsa */
 #include "ospf6_lsa.h"
+/* for struct ospf6_route */
 #include "ospf6_route.h"
-#include "ospf6_top.h"
 
 /* Debug option */
 extern unsigned char conf_debug_ospf6_asbr;
@@ -46,9 +48,12 @@ struct ospf6_external_info
 
   struct in6_addr forwarding;
   /* u_int32_t tag; */
+
+  unsigned int ifindex;
 };
 
 /* AS-External-LSA */
+#define OSPF6_AS_EXTERNAL_LSA_MIN_SIZE         4U /* w/o IPv6 prefix */
 struct ospf6_as_external_lsa
 {
   u_int32_t bits_metric;

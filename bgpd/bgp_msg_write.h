@@ -26,7 +26,6 @@
 
 #include "misc.h"
 
-#include "bgpd/bgp_common.h"
 #include "bgpd/bgp_connection.h"
 #include "bgpd/bgp_notification.h"
 #include "bgpd/bgp_open_state.h"

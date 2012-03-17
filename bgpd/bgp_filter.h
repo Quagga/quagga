@@ -27,6 +27,8 @@ enum as_filter_type
   AS_FILTER_PERMIT
 };
 
+struct as_list ;
+
 extern void bgp_filter_cmd_init (void);
 extern void bgp_filter_init (void);
 extern void bgp_filter_reset (void);

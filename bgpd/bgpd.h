@@ -27,7 +27,6 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 #include "bgpd/bgp_common.h"
 #include "bgpd/bgp_notification.h"
-#include "bgpd/bgp_peer.h"
 
 #include "plist.h"
 #include "qtime.h"
@@ -323,9 +322,8 @@ struct bgp_nlri
 #define BGP_DEFAULT_RESTART_TIME               120
 #define BGP_DEFAULT_STALEPATH_TIME             360
 
-/* SAFI which used in open capability negotiation.  */
-#define BGP_SAFI_VPNV4                         128
-#define BGP_SAFI_VPNV6                         129
+/* RFC4364 */
+#define SAFI_MPLS_LABELED_VPN                  128
 
 /* Max TTL value.  */
 #define TTL_MAX                                255

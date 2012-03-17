@@ -16,7 +16,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 #include <zebra.h>
@@ -70,7 +70,7 @@ extern struct zebra_t zebrad;
        ROUNDUP(sizeof(struct sockaddr_in6)) :  \
        (((struct sockaddr *)(X))->sa_family == AF_LINK ? \
          ROUNDUP(sizeof(struct sockaddr_dl)) : sizeof(struct sockaddr))))
-#else /* HAVE_IPV6 */ 
+#else /* HAVE_IPV6 */
 #define SAROUNDUP(X) \
       (((struct sockaddr *)(X))->sa_family == AF_INET ?   \
         ROUNDUP(sizeof(struct sockaddr_in)):\
@@ -233,7 +233,7 @@ af_check (int family)
 #endif /* HAVE_IPV6 */
   return 0;
 }
-
+
 /* Dump routing table flag for debug purpose. */
 static void
 rtm_flag_dump (int flag)
@@ -259,21 +259,21 @@ static int
 ifan_read (struct if_announcemsghdr *ifan)
 {
   struct interface *ifp;
-  
+
   ifp = if_lookup_by_index (ifan->ifan_index);
-  
+
   if (ifp)
-    assert ( (ifp->ifindex == ifan->ifan_index) 
+    assert ( (ifp->ifindex == ifan->ifan_index)
              || (ifp->ifindex == IFINDEX_INTERNAL) );
 
-  if ( (ifp == NULL) 
+  if ( (ifp == NULL)
       || ((ifp->ifindex == IFINDEX_INTERNAL)
           && (ifan->ifan_what == IFAN_ARRIVAL)) )
     {
       if (IS_ZEBRA_DEBUG_KERNEL)
         zlog_debug ("%s: creating interface for ifindex %d, name %s",
                     __func__, ifan->ifan_index, ifan->ifan_name);
-      
+
       /* Create Interface */
       ifp = if_get_by_name_len(ifan->ifan_name,
 			       strnlen(ifan->ifan_name,
@@ -290,7 +290,7 @@ ifan_read (struct if_announcemsghdr *ifan)
   if_get_metric (ifp);
 
   if (IS_ZEBRA_DEBUG_KERNEL)
-    zlog_debug ("%s: interface %s index %d", 
+    zlog_debug ("%s: interface %s index %d",
                 __func__, ifan->ifan_name, ifan->ifan_index);
 
   return 0;
@@ -319,13 +319,14 @@ int
 ifm_read (struct if_msghdr *ifm)
 {
   struct interface *ifp = NULL;
+  struct sockaddr_dl *sdl;
   char ifname[IFNAMSIZ];
   short ifnlen = 0;
   caddr_t *cp;
-  
+
   /* terminate ifname at head (for strnlen) and tail (for safety) */
   ifname[IFNAMSIZ - 1] = '\0';
-  
+
   /* paranoia: sanity check structure */
   if (ifm->ifm_msglen < sizeof(struct if_msghdr))
     {
@@ -341,7 +342,7 @@ ifm_read (struct if_msghdr *ifm)
   cp = (void *)(ifm + 1);
 
 #ifdef SUNOS_5
-  /* 
+  /*
    * XXX This behavior should be narrowed to only the kernel versions
    * for which the structures returned do not match the headers.
    *
@@ -356,15 +357,16 @@ ifm_read (struct if_msghdr *ifm)
   RTA_ADDR_GET (NULL, RTA_GATEWAY, ifm->ifm_addrs, cp);
   RTA_ATTR_GET (NULL, RTA_NETMASK, ifm->ifm_addrs, cp);
   RTA_ADDR_GET (NULL, RTA_GENMASK, ifm->ifm_addrs, cp);
+  sdl = (struct sockaddr_dl *)cp;
   RTA_NAME_GET (ifname, RTA_IFP, ifm->ifm_addrs, cp, ifnlen);
   RTA_ADDR_GET (NULL, RTA_IFA, ifm->ifm_addrs, cp);
   RTA_ADDR_GET (NULL, RTA_AUTHOR, ifm->ifm_addrs, cp);
   RTA_ADDR_GET (NULL, RTA_BRD, ifm->ifm_addrs, cp);
-  
+
   if (IS_ZEBRA_DEBUG_KERNEL)
     zlog_debug ("%s: sdl ifname %s", __func__, (ifnlen ? ifname : "(nil)"));
-  
-  /* 
+
+  /*
    * Look up on ifindex first, because ifindices are the primary handle for
    * interfaces across the user/kernel boundary, for most systems.  (Some
    * messages, such as up/down status changes on NetBSD, do not include a
@@ -385,8 +387,8 @@ ifm_read (struct if_msghdr *ifm)
           ifp = NULL;
         }
     }
-  
-  /* 
+
+  /*
    * If we dont have an ifp, try looking up by name.  Particularly as some
    * systems (Solaris) have a 1:many mapping of ifindex:ifname - the ifname
    * is therefore our unique handle to that interface.
@@ -423,25 +425,25 @@ ifm_read (struct if_msghdr *ifm)
       if (!CHECK_FLAG (ifm->ifm_flags, IFF_UP))
         return 0;
 #endif /* !RTM_IFANNOUNCE */
-      
+
       if (ifp == NULL)
         {
-	  /* Interface that zebra was not previously aware of, so create. */ 
+	  /* Interface that zebra was not previously aware of, so create. */
 	  ifp = if_create (ifname, ifnlen);
 	  if (IS_ZEBRA_DEBUG_KERNEL)
-	    zlog_debug ("%s: creating ifp for ifindex %d", 
+	    zlog_debug ("%s: creating ifp for ifindex %d",
 	                __func__, ifm->ifm_index);
         }
 
       if (IS_ZEBRA_DEBUG_KERNEL)
         zlog_debug ("%s: updated/created ifp, ifname %s, ifindex %d",
                     __func__, ifp->name, ifp->ifindex);
-      /* 
+      /*
        * Fill in newly created interface structure, or larval
        * structure with ifindex IFINDEX_INTERNAL.
        */
       ifp->ifindex = ifm->ifm_index;
-      
+
 #ifdef HAVE_BSD_LINK_DETECT /* translate BSD kernel msg for link-state */
       bsd_linkdetect_translate(ifm);
 #endif /* HAVE_BSD_LINK_DETECT */
@@ -453,6 +455,16 @@ ifm_read (struct if_msghdr *ifm)
       if_get_mtu (ifp);
 #endif /* __bsdi__ */
       if_get_metric (ifp);
+
+      /*
+       * XXX sockaddr_dl contents can be larger than the structure
+       * definition, so the user of the stored structure must be
+       * careful not to read off the end.
+       *
+       * a nonzero ifnlen from RTA_NAME_GET() means sdl is valid
+       */
+      if (ifnlen)
+	memcpy (&ifp->sdl, sdl, sizeof (struct sockaddr_dl));
 
       if_add_update (ifp);
     }
@@ -468,18 +480,18 @@ ifm_read (struct if_msghdr *ifm)
       if (ifp->ifindex != ifm->ifm_index)
         {
           zlog_warn ("%s: index mismatch, ifname %s, ifp index %d, "
-                     "ifm index %d", 
+                     "ifm index %d",
                      __func__, ifp->name, ifp->ifindex, ifm->ifm_index);
           return -1;
         }
-      
+
 #ifdef HAVE_BSD_LINK_DETECT /* translate BSD kernel msg for link-state */
       bsd_linkdetect_translate(ifm);
 #endif /* HAVE_BSD_LINK_DETECT */
 
       /* update flags and handle operative->inoperative transition, if any */
       if_flags_update (ifp, ifm->ifm_flags);
-      
+
 #ifndef RTM_IFANNOUNCE
       if (!if_is_up (ifp))
           {
@@ -511,12 +523,12 @@ ifm_read (struct if_msghdr *ifm)
 #endif /* HAVE_NET_RT_IFLIST */
 
   if (IS_ZEBRA_DEBUG_KERNEL)
-    zlog_debug ("%s: interface %s index %d", 
+    zlog_debug ("%s: interface %s index %d",
                 __func__, ifp->name, ifp->ifindex);
 
   return 0;
 }
-
+
 /* Address read from struct ifa_msghdr. */
 static void
 ifam_read_mesg (struct ifa_msghdr *ifm,
@@ -579,9 +591,9 @@ ifam_read_mesg (struct ifa_msghdr *ifm,
 	  {
 	    char buf[4][INET6_ADDRSTRLEN];
 	    zlog_debug ("%s: ifindex %d, ifname %s, ifam_addrs 0x%x, "
-			"ifam_flags 0x%x, addr %s/%d broad %s dst %s "
+			"ifam_flags 0x%x, addr %s/%u broad %s dst %s "
 			"gateway %s",
-			__func__, ifm->ifam_index, 
+			__func__, ifm->ifam_index,
 			(ifnlen ? ifname : "(nil)"), ifm->ifam_addrs,
 			ifm->ifam_flags,
 			inet_ntop(AF_INET6,&addr->sin6.sin6_addr,
@@ -598,7 +610,7 @@ ifam_read_mesg (struct ifa_msghdr *ifm,
 #endif /* HAVE_IPV6 */
         default:
 	  zlog_debug ("%s: ifindex %d, ifname %s, ifam_addrs 0x%x",
-		      __func__, ifm->ifam_index, 
+		      __func__, ifm->ifam_index,
 		      (ifnlen ? ifname : "(nil)"), ifm->ifam_addrs);
 	  break;
         }
@@ -606,7 +618,7 @@ ifam_read_mesg (struct ifa_msghdr *ifm,
 
   /* Assert read up end point matches to end point */
   if (pnt != end)
-    zlog_warn ("ifam_read() does't read all socket data");
+    zlog_warn ("ifam_read() doesn't read all socket data");
 }
 
 /* Interface's address information get. */
@@ -619,22 +631,22 @@ ifam_read (struct ifa_msghdr *ifam)
   short ifnlen = 0;
   char isalias = 0;
   int flags = 0;
-  
+
   ifname[0] = ifname[INTERFACE_NAMSIZ - 1] = '\0';
-  
+
   /* Allocate and read address information. */
   ifam_read_mesg (ifam, &addr, &mask, &brd, ifname, &ifnlen);
-  
+
   if ((ifp = if_lookup_by_index(ifam->ifam_index)) == NULL)
     {
-      zlog_warn ("%s: no interface for ifname %s, index %d", 
+      zlog_warn ("%s: no interface for ifname %s, index %d",
                  __func__, ifname, ifam->ifam_index);
       return -1;
     }
-  
+
   if (ifnlen && strncmp (ifp->name, ifname, INTERFACE_NAMSIZ))
     isalias = 1;
-  
+
   /* N.B. The info in ifa_msghdr does not tell us whether the RTA_BRD
      field contains a broadcast address or a peer address, so we are forced to
      rely upon the interface type. */
@@ -655,12 +667,12 @@ ifam_read (struct ifa_msghdr *ifam)
     {
     case AF_INET:
       if (ifam->ifam_type == RTM_NEWADDR)
-	connected_add_ipv4 (ifp, flags, &addr.sin.sin_addr, 
+	connected_add_ipv4 (ifp, flags, &addr.sin.sin_addr,
 			    ip_masklen (mask.sin.sin_addr),
 			    &brd.sin.sin_addr,
 			    (isalias ? ifname : NULL));
       else
-	connected_delete_ipv4 (ifp, flags, &addr.sin.sin_addr, 
+	connected_delete_ipv4 (ifp, flags, &addr.sin.sin_addr,
 			       ip_masklen (mask.sin.sin_addr),
 			       &brd.sin.sin_addr);
       break;
@@ -672,13 +684,13 @@ ifam_read (struct ifa_msghdr *ifam)
 	SET_IN6_LINKLOCAL_IFINDEX (addr.sin6.sin6_addr, 0);
 
       if (ifam->ifam_type == RTM_NEWADDR)
-	connected_add_ipv6 (ifp, flags, &addr.sin6.sin6_addr, 
+	connected_add_ipv6 (ifp, flags, &addr.sin6.sin6_addr,
 			    ip6_masklen (mask.sin6.sin6_addr),
 			    &brd.sin6.sin6_addr,
 			    (isalias ? ifname : NULL));
       else
 	connected_delete_ipv6 (ifp,
-			       &addr.sin6.sin6_addr, 
+			       &addr.sin6.sin6_addr,
 			       ip6_masklen (mask.sin6.sin6_addr),
 			       &brd.sin6.sin6_addr);
       break;
@@ -687,14 +699,14 @@ ifam_read (struct ifa_msghdr *ifam)
       /* Unsupported family silently ignore... */
       break;
     }
-  
+
   /* Check interface flag for implicit up of the interface. */
   if_refresh (ifp);
 
 #ifdef SUNOS_5
-  /* In addition to lacking IFANNOUNCE, on SUNOS IFF_UP is strange. 
+  /* In addition to lacking IFANNOUNCE, on SUNOS IFF_UP is strange.
    * See comments for SUNOS_5 in interface.c::if_flags_mangle.
-   * 
+   *
    * Here we take care of case where the real IFF_UP was previously
    * unset (as kept in struct zebra_if.primary_state) and the mangled
    * IFF_UP (ie IFF_UP set || listcount(connected) has now transitioned
@@ -707,10 +719,10 @@ ifam_read (struct ifa_msghdr *ifam)
   if (!if_is_up (ifp))
     if_delete_update (ifp);
 #endif /* SUNOS_5 */
-  
+
   return 0;
 }
-
+
 /* Interface function for reading kernel routing table information. */
 static int
 rtm_read_mesg (struct rt_msghdr *rtm,
@@ -727,11 +739,11 @@ rtm_read_mesg (struct rt_msghdr *rtm,
   end = ((caddr_t)rtm) + rtm->rtm_msglen;
 
   /* rt_msghdr version check. */
-  if (rtm->rtm_version != RTM_VERSION) 
+  if (rtm->rtm_version != RTM_VERSION)
       zlog (NULL, LOG_WARNING,
 	      "Routing message version different %d should be %d."
 	      "This may cause problem\n", rtm->rtm_version, RTM_VERSION);
-  
+
   /* Be sure structure is cleared */
   memset (dest, 0, sizeof (union sockunion));
   memset (gate, 0, sizeof (union sockunion));
@@ -753,8 +765,8 @@ rtm_read_mesg (struct rt_msghdr *rtm,
     mask->sa.sa_family = dest->sa.sa_family;
 
   /* Assert read up to the end of pointer. */
-  if (pnt != end) 
-      zlog (NULL, LOG_WARNING, "rtm_read() does't read all socket data.");
+  if (pnt != end)
+      zlog (NULL, LOG_WARNING, "rtm_read() doesn't read all socket data.");
 
   return rtm->rtm_flags;
 }
@@ -818,7 +830,7 @@ rtm_read (struct rt_msghdr *rtm)
 	p.prefixlen = IPV4_MAX_PREFIXLEN;
       else
 	p.prefixlen = ip_masklen (mask.sin.sin_addr);
-      
+
       /* Catch self originated messages and match them against our current RIB.
        * At the same time, ignore unconfirmed messages, they should be tracked
        * by rtm_write() and kernel_rtm_ipv4().
@@ -829,7 +841,7 @@ rtm_read (struct rt_msghdr *rtm)
         int ret;
         if (! IS_ZEBRA_DEBUG_RIB)
           return;
-        ret = rib_lookup_ipv4_route (&p, &gate); 
+        ret = rib_lookup_ipv4_route (&p, &gate);
         inet_ntop (AF_INET, &p.prefix, buf, INET_ADDRSTRLEN);
         switch (rtm->rtm_type)
         {
@@ -894,16 +906,16 @@ rtm_read (struct rt_msghdr *rtm)
        */
       if (rtm->rtm_type == RTM_CHANGE)
         rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
-                         NULL, 0, 0);
-      
-      if (rtm->rtm_type == RTM_GET 
+                         NULL, 0, 0, SAFI_UNICAST);
+
+      if (rtm->rtm_type == RTM_GET
           || rtm->rtm_type == RTM_ADD
           || rtm->rtm_type == RTM_CHANGE)
-	rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, 
-		      &p, &gate.sin.sin_addr, NULL, 0, 0, 0, 0);
+	rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags,
+		      &p, &gate.sin.sin_addr, NULL, 0, 0, 0, 0, SAFI_UNICAST);
       else
-	rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, 
-		      &p, &gate.sin.sin_addr, 0, 0);
+	rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags,
+		      &p, &gate.sin.sin_addr, 0, 0, SAFI_UNICAST);
     }
 #ifdef HAVE_IPV6
   if (dest.sa.sa_family == AF_INET6)
@@ -936,16 +948,16 @@ rtm_read (struct rt_msghdr *rtm)
        */
       if (rtm->rtm_type == RTM_CHANGE)
         rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
-                         NULL, 0, 0);
-      
-      if (rtm->rtm_type == RTM_GET 
+                         NULL, 0, 0, SAFI_UNICAST);
+
+      if (rtm->rtm_type == RTM_GET
           || rtm->rtm_type == RTM_ADD
           || rtm->rtm_type == RTM_CHANGE)
 	rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags,
-		      &p, &gate.sin6.sin6_addr, ifindex, 0, 0, 0);
+		      &p, &gate.sin6.sin6_addr, ifindex, 0, 0, 0, SAFI_UNICAST);
       else
 	rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags,
-			 &p, &gate.sin6.sin6_addr, ifindex, 0);
+			 &p, &gate.sin6.sin6_addr, ifindex, 0, SAFI_UNICAST);
     }
 #endif /* HAVE_IPV6 */
 }
@@ -971,12 +983,12 @@ rtm_write (int message,
   static int msg_seq = 0;
 
   /* Struct of rt_msghdr and buffer for storing socket's data. */
-  struct 
+  struct
   {
     struct rt_msghdr rtm;
     char buf[512];
   } msg;
-  
+
   if (routing_sock < 0)
     return ZEBRA_ERR_EPERM;
 
@@ -1030,7 +1042,7 @@ rtm_write (int message,
 
   if (mask)
     msg.rtm.rtm_addrs |= RTA_NETMASK;
-  else if (message == RTM_ADD) 
+  else if (message == RTM_ADD)
     msg.rtm.rtm_flags |= RTF_HOST;
 
   /* Tagging route with flags */
@@ -1051,7 +1063,7 @@ rtm_write (int message,
       memcpy (pnt, (caddr_t)(X), len); \
       pnt += len; \
     }
-#else 
+#else
 #define SOCKADDRSET(X,R) \
   if (msg.rtm.rtm_addrs & (R)) \
     { \
@@ -1072,22 +1084,22 @@ rtm_write (int message,
 
   ret = write (routing_sock, &msg, msg.rtm.rtm_msglen);
 
-  if (ret != msg.rtm.rtm_msglen) 
+  if (ret != msg.rtm.rtm_msglen)
     {
-      if (errno == EEXIST) 
+      if (errno == EEXIST)
 	return ZEBRA_ERR_RTEXIST;
       if (errno == ENETUNREACH)
 	return ZEBRA_ERR_RTUNREACH;
       if (errno == ESRCH)
 	return ZEBRA_ERR_RTNOEXIST;
-      
+
       zlog_warn ("%s: write : %s (%d)", __func__, safe_strerror (errno), errno);
       return ZEBRA_ERR_KERNEL;
     }
   return ZEBRA_ERR_NOERROR;
 }
 
-
+
 #include "thread.h"
 #include "zebra/zserv.h"
 
@@ -1127,10 +1139,10 @@ kernel_read (struct thread *thread)
    * since the buffer needs to be big enough for a message and the
    * sockaddrs together.
    */
-  union 
+  union
   {
     /* Routing information. */
-    struct 
+    struct
     {
       struct rt_msghdr rtm;
       struct sockaddr_storage addr[RTAX_MAX];
@@ -1227,7 +1239,7 @@ routing_socket (void)
 
   routing_sock = socket (AF_ROUTE, SOCK_RAW, 0);
 
-  if (routing_sock < 0) 
+  if (routing_sock < 0)
     {
       if ( zserv_privs.change (ZPRIVS_LOWER) )
         zlog_err ("routing_socket: Can't lower privileges");
@@ -1235,13 +1247,13 @@ routing_socket (void)
       return;
     }
 
-  /* XXX: Socket should be NONBLOCK, however as we currently 
+  /* XXX: Socket should be NONBLOCK, however as we currently
    * discard failed writes, this will lead to inconsistencies.
    * For now, socket must be blocking.
    */
-  /*if (fcntl (routing_sock, F_SETFL, O_NONBLOCK) < 0) 
+  /*if (fcntl (routing_sock, F_SETFL, O_NONBLOCK) < 0)
     zlog_warn ("Can't set O_NONBLOCK to routing socket");*/
-    
+
   if ( zserv_privs.change (ZPRIVS_LOWER) )
     zlog_err ("routing_socket: Can't lower privileges");
 

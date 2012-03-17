@@ -91,7 +91,7 @@ extern void zebra_cmd_init (void);
 extern void zebra_init (void);
 extern void zebra_if_cmd_init (void);
 extern void zebra_if_init (void);
-extern void zebra_zserv_socket_init (void);
+extern void zebra_zserv_socket_init (char *path);
 extern void hostinfo_get (void);
 extern void rib_init (void);
 extern void kernel_init (void);

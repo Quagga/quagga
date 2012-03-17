@@ -100,11 +100,8 @@ bgp_capability_vty_out (struct vty *vty, struct peer *peer)
 	    case SAFI_MULTICAST:
 	      vty_out (vty, "SAFI Multicast");
 	      break;
-	    case SAFI_UNICAST_MULTICAST:
-	      vty_out (vty, "SAFI Unicast Multicast");
-	      break;
-	    case BGP_SAFI_VPNV4:
-	      vty_out (vty, "SAFI MPLS-VPN");
+	    case SAFI_MPLS_LABELED_VPN:
+	      vty_out (vty, "SAFI MPLS-labeled VPN");
 	      break;
 	    default:
 	      vty_out (vty, "SAFI Unknown %d ", mpc.safi);
@@ -131,9 +128,13 @@ bgp_capability_mp_data (struct stream *s, struct capability_mp_data *mpc)
   mpc->safi = stream_getc (s);
 }
 
+/* TODO there is a lot of recent activity eg commit 1212dc1961... to do with
+ * AFI/SAFI stuff...  Need to fully catch up !!
+ */
 int
 bgp_afi_safi_valid_indices (afi_t afi, safi_t *safi)
 {
+#if 0           /* TODO BGP_SAFI_VPNV4 and BGP_SAFI_VPNV6 ????  */
   /* VPNvX are AFI specific */
   if ((afi == AFI_IP6 && *safi == BGP_SAFI_VPNV4)
       || (afi == AFI_IP && *safi == BGP_SAFI_VPNV6))
@@ -141,6 +142,7 @@ bgp_afi_safi_valid_indices (afi_t afi, safi_t *safi)
       zlog_warn ("Invalid afi/safi combination (%u/%u)", afi, *safi);
       return 0;
     }
+#endif
 
   switch (afi)
     {
@@ -150,9 +152,8 @@ bgp_afi_safi_valid_indices (afi_t afi, safi_t *safi)
 #endif
         switch (*safi)
           {
-            /* BGP VPNvX SAFI isn't contigious with others, remap */
-            case BGP_SAFI_VPNV4:
-            case BGP_SAFI_VPNV6:
+            /* BGP MPLS-labeled VPN SAFI isn't contigious with others, remap */
+            case SAFI_MPLS_LABELED_VPN:
               *safi = SAFI_MPLS_VPN;
             case SAFI_UNICAST:
             case SAFI_MULTICAST:
@@ -412,7 +413,7 @@ bgp_capability_restart (struct peer *peer, struct capability_header *caphdr)
                   peer->v_gr_restart);
     }
 
-  while (stream_get_getp (s) + 4 < end)
+  while (stream_get_getp (s) + 4 <= end)
     {
       afi_t afi = stream_getw (s);
       safi_t safi = stream_getc (s);
@@ -880,7 +881,7 @@ bgp_open_capability_orf (struct stream *s, struct peer *peer,
   int number_of_orfs = 0;
 
   if (safi == SAFI_MPLS_VPN)
-    safi = BGP_SAFI_VPNV4;
+    safi = SAFI_MPLS_LABELED_VPN;
 
   stream_putc (s, BGP_OPEN_OPT_CAP);
   capp = stream_get_endp (s);           /* Set Capability Len Pointer */
@@ -988,7 +989,7 @@ bgp_open_capability (struct stream *s, struct peer *peer)
       stream_putc (s, CAPABILITY_CODE_MP_LEN);
       stream_putw (s, AFI_IP);
       stream_putc (s, 0);
-      stream_putc (s, BGP_SAFI_VPNV4);
+      stream_putc (s, SAFI_MPLS_LABELED_VPN);
     }
 #ifdef HAVE_IPV6
   /* IPv6 unicast. */

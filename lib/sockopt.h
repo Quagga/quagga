@@ -38,7 +38,6 @@ extern int getsockopt_so_sendbuf (int sock_fd);
 
 extern int setsockopt_tcp_signature(int sock_fd, union sockunion *su,
                                                         const char *password);
-
 /*
  * It is OK to reference in6_pktinfo here without a protecting #if
  * because this macro will only be used #if HAVE_IPV6, and in6_pktinfo
@@ -84,16 +83,15 @@ extern int setsockopt_tcp_signature(int sock_fd, union sockunion *su,
   (((af) == AF_INET) : SOPT_SIZE_CMSG_IFINDEX_IPV4() \
                     ? SOPT_SIZE_CMSG_PKTINFO_IPV6())
 
-extern int setsockopt_multicast_ipv4(int sock_fd, int optname,
-			             struct in_addr if_addr
-					 /* required: interface to join on */,
-                                     unsigned int mcast_addr,
-			             unsigned int ifindex
-					 /* optional: if non-zero, may be used
-					 	instead of if_addr */);
 extern int setsockopt_ipv4_tos(int sock_fd, int tos);
+extern int setsockopt_ipv4_multicast_if(int sock,
+			             unsigned int ifindex);
+extern int setsockopt_ipv4_multicast(int sock, int optname,
+                                     unsigned int mcast_addr,
+			             unsigned int ifindex);
 
-/* Ask for, and get, ifindex, by whatever method is supported. */
+/* Ask for, and get, ifindex, by whatever method is supported.
+ */
 extern int setsockopt_pktinfo (int, int, int);
 extern int getsockopt_ifindex (int, struct msghdr *);
 
@@ -112,6 +110,7 @@ extern int setsockopt_ipv6_multicast_hops (int, int);
 extern int setsockopt_ipv6_unicast_hops (int, int);
 extern int setsockopt_ipv6_hoplimit (int, int);
 extern int setsockopt_ipv6_multicast_loop (int, int);
+extern int setsockopt_ipv6_tclass (int, int);
 
 #endif /* HAVE_IPV6 */
 

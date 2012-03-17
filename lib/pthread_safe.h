@@ -29,6 +29,7 @@
 #include "qfstring.h"
 
 QFB_T(150) strerror_t ;
+QFB_T(50)  str_iptoa_t ;
 
 extern void safe_init_r(void);
 extern void safe_finish(void);
@@ -44,6 +45,8 @@ extern strerror_t eaitostr(int eai, int err, ulen len) ;
 extern int getenv_r(const char* name, char* buf, int buf_len) ;
 extern const char * safe_strerror(int errnum);
 extern const char * safe_inet_ntoa (struct in_addr in);
+
+extern str_iptoa_t siptoa(sa_family_t family, const void* address) ;
 
 extern int safe_getpwnam(const char* name, struct passwd** p_pwd, void* buf,
                                                                      ulen size);

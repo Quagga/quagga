@@ -5,10 +5,9 @@
 ##  Copyright (c) 1996, 97, 98, 99, 2000 Kunihiro Ishiguro <kunihiro@zebra.org>
 ##  Portions Copyright (c) 2003 Paul Jakma <paul@dishone.st>
 ##
-## $Id$
 AC_PREREQ(2.53)
 
-AC_INIT(Quagga, 0.99.18ex20b, [http://bugzilla.quagga.net])
+AC_INIT(Quagga, 0.99.20ex21b, [http://bugzilla.quagga.net])
 AC_CONFIG_SRCDIR(lib/zebra.h)
 AC_CONFIG_MACRO_DIR([m4])
 
@@ -437,7 +436,7 @@ dnl Check other header files.
 dnl -------------------------
 AC_CHECK_HEADERS([stropts.h sys/ksym.h sys/times.h sys/select.h \
 	sys/types.h linux/version.h netdb.h asm/types.h \
-	sys/param.h limits.h signal.h libutil.h \
+	sys/param.h limits.h signal.h \
 	sys/socket.h netinet/in.h time.h sys/time.h])
 
 dnl Utility macro to avoid retyping includes all the time
@@ -484,8 +483,35 @@ m4_define([QUAGGA_INCLUDES],
 #endif /* TIME_WITH_SYS_TIME */
 ])dnl
 
-AC_CHECK_HEADERS([sys/un.h net/if.h netinet/in_systm.h netinet/in_var.h \
-	net/if_dl.h net/if_var.h net/netopt.h net/route.h \
+dnl HAVE_NET_IF_H must be discovered by the time the longer AC_CHECK_HEADERS
+dnl round below execution begins, otherwise it doesn't properly detect
+dnl HAVE_NETINET6_IN6_VAR_H, HAVE_NET_IF_VAR_H and HAVE_STRUCT_IN6_ALIASREQ
+dnl on FreeBSD (BZ#408).
+
+AC_CHECK_HEADERS([net/if.h], [], [], QUAGGA_INCLUDES)
+
+m4_define([QUAGGA_INCLUDES],
+QUAGGA_INCLUDES
+[#if HAVE_NET_IF_H
+# include <net/if.h>
+#endif
+])dnl
+
+dnl Same applies for HAVE_NET_IF_VAR_H, which HAVE_NETINET6_ND6_H and
+dnl HAVE_NETINET_IN_VAR_H depend upon. But if_var.h depends on if.h, hence
+dnl an additional round for it.
+
+AC_CHECK_HEADERS([net/if_var.h], [], [], QUAGGA_INCLUDES)
+
+m4_define([QUAGGA_INCLUDES],
+QUAGGA_INCLUDES
+[#if HAVE_NET_IF_VAR_H
+# include <net/if_var.h>
+#endif
+])dnl
+
+AC_CHECK_HEADERS([sys/un.h netinet/in_systm.h netinet/in_var.h \
+	net/if_dl.h net/netopt.h net/route.h \
 	inet/nd.h arpa/inet.h netinet/ip_icmp.h \
 	fcntl.h stddef.h sys/ioctl.h syslog.h wchar.h wctype.h \
 	sys/sysctl.h sys/sockio.h kvm.h sys/conf.h],
@@ -500,10 +526,7 @@ QUAGGA_INCLUDES
 
 m4_define([QUAGGA_INCLUDES],
 QUAGGA_INCLUDES
-[#if HAVE_NET_IF_H
-# include <net/if.h>
-#endif
-#if HAVE_SYS_UN_H
+[#if HAVE_SYS_UN_H
 # include <sys/un.h>
 #endif
 #if HAVE_NETINET_IN_SYSTM_H
@@ -514,9 +537,6 @@ QUAGGA_INCLUDES
 #endif
 #if HAVE_NET_IF_DL_H
 # include <net/if_dl.h>
-#endif
-#if HAVE_NET_IF_VAR_H
-# include <net/if_var.h>
 #endif
 #if HAVE_NET_NETOPT_H
 # include <net/netopt.h>
@@ -637,6 +657,13 @@ AC_SUBST(LIBREADLINE)
 
 dnl ----------
 dnl PAM module
+dnl
+dnl Quagga detects the PAM library it is built against by checking for a
+dnl functional pam_misc.h (Linux-PAM) or openpam.h (OpenPAM) header. pam_misc.h
+dnl is known to #include pam_appl.h, the standard header of a PAM library, and
+dnl openpam.h doesn't do that, although depends on the header too. Hence a
+dnl little assistance to AC_CHECK_HEADER is necessary for the proper detection
+dnl of OpenPAM.
 dnl ----------
 if test "$with_libpam" = "yes"; then
   AC_CHECK_HEADER([security/pam_misc.h],
@@ -650,7 +677,7 @@ if test "$with_libpam" = "yes"; then
      AC_DEFINE(PAM_CONV_FUNC,openpam_ttyconv,Have openpam_ttyconv)
      pam_conv_func="openpam_ttyconv"
     ],
-    [], QUAGGA_INCLUDES)
+    [], QUAGGA_INCLUDES[#include <security/pam_appl.h>])
   if test -z "$ac_cv_header_security_pam_misc_h$ac_cv_header_security_openpam_h" ; then
     AC_MSG_WARN([*** pam support will not be built ***])
     with_libpam="no"
@@ -707,11 +734,9 @@ dnl ----------------------------
 AC_FUNC_CHOWN
 AC_FUNC_FNMATCH
 AC_FUNC_FORK
-AC_FUNC_MALLOC
 AC_FUNC_MEMCMP
 AC_FUNC_MKTIME
 AC_FUNC_STRFTIME
-AC_FUNC_REALLOC
 AC_FUNC_STAT
 AC_FUNC_SELECT_ARGTYPES
 AC_FUNC_STRFTIME
@@ -958,6 +983,15 @@ AC_TRY_COMPILE([#ifdef HAVE_SYS_PARAM_H
 AC_DEFINE(HAVE_BSD_STRUCT_IP_MREQ_HACK,,[Can pass ifindex in struct ip_mreq])],
 AC_MSG_RESULT(no))
 
+AC_MSG_CHECKING([for RFC3678 protocol-independed API])
+AC_TRY_COMPILE([
+#include <sys/types.h>
+#include <netinet/in.h>
+], [struct group_req gr; int sock; setsockopt(sock, IPPROTO_IP, MCAST_JOIN_GROUP, (void*)&gr, sizeof(gr));
+], [AC_MSG_RESULT(yes)
+AC_DEFINE(HAVE_RFC3678,1,[Have RFC3678 protocol-independed API])],
+AC_MSG_RESULT(no))
+
 dnl ---------------------------------------------------------------
 dnl figure out how to check link-state
 dnl ---------------------------------------------------------------
@@ -1014,10 +1048,18 @@ dnl -----------------------------
 dnl check ipforward detect method
 dnl -----------------------------
 AC_CACHE_CHECK([ipforward method], [quagga_cv_ipforward_method],
-[for quagga_cv_ipforward_method in /proc/net/snmp /dev/ip /dev/null;
-do
-  test x`ls $quagga_cv_ipforward_method 2>/dev/null` = x"$quagga_cv_ipforward_method" && break
-done
+[if test x$cross_compiling = xyes; then
+  if test x"$opsys" = x"gnu-linux"; then
+    quagga_cv_ipforward_method=/proc/net/snmp
+  else
+    quagga_cv_ipforward_method=/dev/ip
+  fi
+else
+  for quagga_cv_ipforward_method in /proc/net/snmp /dev/ip /dev/null;
+  do
+    test x`ls $quagga_cv_ipforward_method 2>/dev/null` = x"$quagga_cv_ipforward_method" && break
+  done
+fi
 case $quagga_cv_ipforward_method in
   "/proc/net/snmp")  quagga_cv_ipforward_method="proc";;
   "/dev/ip")         
@@ -1445,14 +1487,12 @@ AC_SUBST(LIBCAP)
 dnl ---------------------------
 dnl check for glibc 'backtrace'
 dnl --------------------------- 
-if test "${glibc}" = "yes"; then
-   AC_CHECK_HEADER([execinfo.h],
-    [AC_CHECK_FUNC([backtrace],
-    	[AC_DEFINE(HAVE_GLIBC_BACKTRACE,,[Glibc backtrace])
-    	 AC_DEFINE(HAVE_STACK_TRACE,,[Stack symbol decoding])
-    	])
-    ])
-fi
+AC_CHECK_HEADER([execinfo.h],
+  [AC_CHECK_FUNC([backtrace],
+    [AC_DEFINE(HAVE_GLIBC_BACKTRACE,,[Glibc backtrace])
+     AC_DEFINE(HAVE_STACK_TRACE,,[Stack symbol decoding])
+  ])
+])
 
 dnl -----------------------------------------
 dnl check for malloc mallinfo struct and call

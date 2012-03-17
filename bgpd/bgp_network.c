@@ -34,10 +34,10 @@
 
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_network.h"
+#include "bgpd/bgp_connection.h"
+#include "bgpd/bgp_session.h"
 #include "bgpd/bgp_peer_index.h"
 
-#include "bgpd/bgp_session.h"
-#include "bgpd/bgp_connection.h"
 #include "bgpd/bgp_fsm.h"
 #include "qpselect.h"
 
@@ -54,7 +54,7 @@ static void bgp_connect_action(qps_file qf, void* file_info) ;
 static void bgp_accept_action(qps_file qf, void* file_info) ;
 static int bgp_get_names(int sock_fd, union sockunion* su_local,
                                                    union sockunion* su_remote) ;
-static int bgp_socket_set_common_options(int sock_fd, union sockunion* su,
+static int bgp_socket_set_common_options(int sock_fd, sockunion su,
                                                     bgp_connection connection) ;
 static int bgp_set_ttl(int sock_fd, bgp_connection connnection,
                                                            int ttl, bool gtsm) ;
@@ -474,14 +474,10 @@ bgp_prepare_to_accept(bgp_connection connection)
 {
   int err ;
 
-  if (connection->session->password != NULL)
-    {
-      err = bgp_md5_set_listeners(connection->session->su_peer,
-                                  connection->session->password) ;
-
-/* TODO: failure to set password in bgp_prepare_to_accept ? */
-    } ;
-
+  /* This logs an error if setting the password fails.
+   */
+  err = bgp_md5_set_listeners(connection->session->su_peer,
+                              connection->session->password) ;
   return ;
 } ;
 
@@ -492,6 +488,8 @@ bgp_prepare_to_accept(bgp_connection connection)
  * listener(s) for the appropriate address family.
  *
  * NB: requires the session mutex LOCKED.
+ *
+ * TODO -- should do this when peer is stopped or about to be deleted !!
  */
 extern void
 bgp_not_prepared_to_accept(bgp_connection connection)
@@ -501,8 +499,6 @@ bgp_not_prepared_to_accept(bgp_connection connection)
   if (connection->session->password != NULL)
     {
       err = bgp_md5_set_listeners(connection->session->su_peer, NULL) ;
-
-/* TODO: failure to clear password in bgp_not_prepared_to_accept ? */
     } ;
 
   return ;
@@ -586,8 +582,10 @@ bgp_accept_action(qps_file qf, void* file_info)
   if (BGP_DEBUG(events, EVENTS))
     zlog_debug("[Event] BGP connection from host %s", sutoa(&su_remote).str) ;
 
-  /* See if we are ready to accept connections from the connecting party    */
+  /* See if we are ready to accept connections from the connecting party
+   */
   connection = bgp_peer_index_seek_accept(&su_remote, &exists) ;
+
   if (connection == NULL)
     {
       if (BGP_DEBUG(events, EVENTS))
@@ -610,7 +608,6 @@ bgp_accept_action(qps_file qf, void* file_info)
    * The session is active, so the Routing Engine will not make any changes
    * except under the mutex, and will not destroy the session.
    */
-
   BGP_CONNECTION_SESSION_LOCK(connection) ;   /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
   /* Set the common socket options.
@@ -701,17 +698,12 @@ bgp_open_connect(bgp_connection connection)
 
   /* Connect to the remote peer.        */
   if (err == 0)
-    {
-      int ret ;
-      ret = sockunion_connect(sock_fd, su, connection->session->port,
-                                                 connection->session->ifindex) ;
+    err = sockunion_connect(sock_fd, su, connection->session->port,
+                                         connection->session->ifindex) ;
                           /* does not report EINPROGRESS as an error.   */
-      if (ret < 0)
-        err = errno ;
-    } ;
 
-  /* If not OK now, close the sock_fd and signal the error              */
-
+  /* If not OK now, close the sock_fd and signal the error
+   */
   if (err != 0)
     {
       if (sock_fd >= 0)
@@ -997,7 +989,7 @@ bgp_bind_ifaddress(bgp_connection connection, int sock_fd)
  *   * reuseaddr
  *   * reuseport
  *   * set security ttl (GTSM) and/or ttl -- if connection given.
- *   * for IPv4, set TOS  if required
+ *   * set TOS or equivalent  if required
  *
  * These options are set on all sockets: listen/connect/accept
  * (except either form of ttl, which is not set on listen).
@@ -1009,9 +1001,11 @@ bgp_bind_ifaddress(bgp_connection connection, int sock_fd)
  *        != 0 == errno -- not that we really expect any errors here
  */
 static int
-bgp_socket_set_common_options(int sock_fd, union sockunion* su,
+bgp_socket_set_common_options(int sock_fd, sockunion su,
                                                       bgp_connection connection)
 {
+  int err ;
+
   /* Make socket non-blocking and close-on-exec
    */
   if (set_nonblocking(sock_fd) < 0)
@@ -1029,25 +1023,44 @@ bgp_socket_set_common_options(int sock_fd, union sockunion* su,
   /* Adjust ttl if required                                             */
   if (connection != NULL)
     {
-      int err ;
       err = bgp_set_ttl(sock_fd, connection, connection->session->ttl,
                                              connection->session->gtsm) ;
       if (err != 0)
         return errno = err ;
     } ;
 
-#ifdef IPTOS_PREC_INTERNETCONTROL
-  /* set IPPROTO_IP/IP_TOS -- if is AF_INET
-   *
-   * We assume that if the socket is an AF_INET6 with an IPv4 mapped address,
-   * then can still set IP_PROTOCOL/IP_TOS.
+  /* Worry about TOS etc, as required.
    */
-  if (sockunion_family(su) == AF_INET)
-    if (setsockopt_ipv4_tos(sock_fd, IPTOS_PREC_INTERNETCONTROL) < 0)
-      return errno ;
+  err = 0 ;                             /* so far, so good              */
+
+#ifdef IPTOS_PREC_INTERNETCONTROL
+  if (bgpd_privs.change (ZPRIVS_RAISE))
+    zlog_err ("%s: could not raise privs", __func__);
+
+  switch(sockunion_family(su))
+    {
+      case AF_INET:
+        if (setsockopt_ipv4_tos (sock_fd, IPTOS_PREC_INTERNETCONTROL) < 0)
+          err = errno ;
+        break ;
+
+# ifdef HAVE_IPV6
+      case AF_INET6:
+        if (setsockopt_ipv6_tclass (sock_fd, IPTOS_PREC_INTERNETCONTROL) < 0)
+          err = errno ;
+        break ;
+# endif
+
+      default:
+        err = 0 ;
+        break ;
+    }
+
+  if (bgpd_privs.change (ZPRIVS_LOWER))
+    zlog_err ("%s: could not lower privs", __func__);
 #endif
 
-  return 0 ;
+  return errno = err ;
 } ;
 
 /*------------------------------------------------------------------------------

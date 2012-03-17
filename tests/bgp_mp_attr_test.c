@@ -9,6 +9,7 @@
 #include "memory.h"
 
 #include "bgpd/bgpd.h"
+#include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_open.h"
 #include "bgpd/bgp_debug.h"
@@ -288,10 +289,10 @@ static struct test_segment {
     SHOULD_ERR,
     AFI_IP, SAFI_UNICAST, VALID_AFI,
   },
-  { "IPv4-vpnv4",
-    "IPv4/VPNv4 MP Reach, RD, Nexthop, 3 NLRIs",
+  { "IPv4-MLVPN",
+    "IPv4/MPLS-labeled VPN MP Reach, RD, Nexthop, 3 NLRIs",
     {
-      /* AFI / SAFI */		0x0, AFI_IP, BGP_SAFI_VPNV4,
+      /* AFI / SAFI */		0x0, AFI_IP, SAFI_MPLS_LABELED_VPN,
       /* nexthop bytes */	12,
       /* RD */			0, 0, 1, 2,
                                 0, 0xff, 3, 4,
@@ -411,10 +412,10 @@ static struct test_segment mp_unreach_segments [] =
     SHOULD_ERR,
     AFI_IP, SAFI_UNICAST, VALID_AFI,
   },
-  { "IPv4-unreach-vpnv4",
-    "IPv4/VPNv4 MP Unreach, RD, 3 NLRIs",
+  { "IPv4-unreach-MLVPN",
+    "IPv4/MPLS-labeled VPN MP Unreach, RD, 3 NLRIs",
     {
-      /* AFI / SAFI */		0x0, AFI_IP, BGP_SAFI_VPNV4,
+      /* AFI / SAFI */		0x0, AFI_IP, SAFI_MPLS_LABELED_VPN,
       /* nexthop bytes */	12,
       /* RD */			0, 0, 1, 2,
                                 0, 0xff, 3, 4,
@@ -436,24 +437,38 @@ static struct test_segment mp_unreach_segments [] =
 static void
 parse_test (struct peer *peer, struct test_segment *t, int type)
 {
+  byte flag ;
   int ret;
   int oldfailed = failed;
   struct attr attr;
   struct bgp_nlri nlri;
+  bool mp_eor ;
 #define RANDOM_FUZZ 35
 
   stream_reset (peer->ibuf);
   stream_put (peer->ibuf, NULL, RANDOM_FUZZ);
   stream_set_getp (peer->ibuf, RANDOM_FUZZ);
 
+  flag = BGP_ATTR_FLAG_OPTIONAL | ((t->len < 256) ? 0 : BGP_ATTR_FLAG_EXTLEN) ;
+
+  stream_putc(peer->ibuf, flag) ;
+  stream_putc(peer->ibuf, type) ;
+  if (flag & BGP_ATTR_FLAG_EXTLEN)
+    stream_putw(peer->ibuf, t->len) ;
+  else
+    stream_putc(peer->ibuf, t->len) ;
+
+  stream_set_startp(peer->ibuf, stream_get_getp(peer->ibuf)) ;
   stream_put (peer->ibuf, t->data, t->len);
 
   printf ("%s: %s\n", t->name, t->desc);
 
+  mp_eor = false ;
+
   if (type == BGP_ATTR_MP_REACH_NLRI)
-    ret = bgp_mp_reach_parse (peer, t->len, &attr, &nlri);
+    ret = bgp_mp_reach_parse (peer, t->len, &attr, flag, &nlri);
   else
-    ret = bgp_mp_unreach_parse (peer, t->len, &nlri);
+    ret = bgp_mp_unreach_parse (peer, t->len, flag, &nlri, &mp_eor);
 
   if (!ret)
     {

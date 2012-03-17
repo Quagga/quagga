@@ -49,6 +49,7 @@
 
 #define OSPF_LSA_HEADER_SIZE	     20U
 #define OSPF_ROUTER_LSA_LINK_SIZE    12U
+#define OSPF_ROUTER_LSA_TOS_SIZE      4U
 #define OSPF_MAX_LSA_SIZE	   1500U
 
 /* AS-external-LSA refresh method. */
@@ -274,6 +275,7 @@ extern struct in_addr ospf_get_ip_from_ifp (struct ospf_interface *);
 
 extern struct ospf_lsa *ospf_external_lsa_originate (struct ospf *, struct external_info *);
 extern int ospf_external_lsa_originate_timer (struct thread *);
+extern int ospf_default_originate_timer (struct thread *);
 extern struct ospf_lsa *ospf_lsa_lookup (struct ospf_area *, u_int32_t,
 				  struct in_addr, struct in_addr);
 extern struct ospf_lsa *ospf_lsa_lookup_by_id (struct ospf_area *,

@@ -806,10 +806,6 @@ vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
     }
 }
 
-#define SHOW_ROUTE_V4_HEADER "Codes: K - kernel route, C - connected, " \
-  "S - static, R - RIP, O - OSPF,%s       I - ISIS, B - BGP, " \
-  "> - selected route, * - FIB route%s%s"
-
 DEFUN (show_ip_route,
        show_ip_route_cmd,
        "show ip route",
@@ -832,8 +828,7 @@ DEFUN (show_ip_route,
       {
 	if (first)
 	  {
-	    vty_out (vty, SHOW_ROUTE_V4_HEADER, VTY_NEWLINE, VTY_NEWLINE,
-		     VTY_NEWLINE);
+	    vty_out (vty, SHOW_ROUTE_V4_HEADER);
 	    first = 0;
 	  }
 	vty_show_ip_route (vty, rn, rib);
@@ -875,8 +870,7 @@ DEFUN (show_ip_route_prefix_longer,
 	{
 	  if (first)
 	    {
-	      vty_out (vty, SHOW_ROUTE_V4_HEADER, VTY_NEWLINE,
-		       VTY_NEWLINE, VTY_NEWLINE);
+	      vty_out (vty, SHOW_ROUTE_V4_HEADER);
 	      first = 0;
 	    }
 	  vty_show_ip_route (vty, rn, rib);
@@ -914,8 +908,7 @@ DEFUN (show_ip_route_supernets,
 	  {
 	    if (first)
 	      {
-		vty_out (vty, SHOW_ROUTE_V4_HEADER, VTY_NEWLINE,
-			 VTY_NEWLINE, VTY_NEWLINE);
+		vty_out (vty, SHOW_ROUTE_V4_HEADER);
 		first = 0;
 	      }
 	    vty_show_ip_route (vty, rn, rib);
@@ -926,17 +919,11 @@ DEFUN (show_ip_route_supernets,
 
 DEFUN (show_ip_route_protocol,
        show_ip_route_protocol_cmd,
-       "show ip route (bgp|connected|isis|kernel|ospf|rip|static)",
+       "show ip route " QUAGGA_IP_REDIST_STR_ZEBRA,
        SHOW_STR
        IP_STR
        "IP routing table\n"
-       "Border Gateway Protocol (BGP)\n"
-       "Connected\n"
-       "ISO IS-IS (ISIS)\n"
-       "Kernel\n"
-       "Open Shortest Path First (OSPF)\n"
-       "Routing Information Protocol (RIP)\n"
-       "Static routes\n")
+       QUAGGA_IP_REDIST_HELP_STR_ZEBRA)
 {
   int type;
   struct route_table *table;
@@ -944,21 +931,8 @@ DEFUN (show_ip_route_protocol,
   struct rib *rib;
   int first = 1;
 
-  if (strncmp (argv[0], "b", 1) == 0)
-    type = ZEBRA_ROUTE_BGP;
-  else if (strncmp (argv[0], "c", 1) == 0)
-    type = ZEBRA_ROUTE_CONNECT;
-  else if (strncmp (argv[0], "k", 1) ==0)
-    type = ZEBRA_ROUTE_KERNEL;
-  else if (strncmp (argv[0], "o", 1) == 0)
-    type = ZEBRA_ROUTE_OSPF;
-  else if (strncmp (argv[0], "i", 1) == 0)
-    type = ZEBRA_ROUTE_ISIS;
-  else if (strncmp (argv[0], "r", 1) == 0)
-    type = ZEBRA_ROUTE_RIP;
-  else if (strncmp (argv[0], "s", 1) == 0)
-    type = ZEBRA_ROUTE_STATIC;
-  else
+  type = proto_redistnum (AFI_IP, argv[0]);
+  if (type < 0)
     {
       vty_out (vty, "Unknown route type%s", VTY_NEWLINE);
       return CMD_WARNING;
@@ -975,8 +949,7 @@ DEFUN (show_ip_route_protocol,
 	{
 	  if (first)
 	    {
-	      vty_out (vty, SHOW_ROUTE_V4_HEADER,
-		       VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
+	      vty_out (vty, SHOW_ROUTE_V4_HEADER);
 	      first = 0;
 	    }
 	  vty_show_ip_route (vty, rn, rib);
@@ -1770,8 +1743,6 @@ vty_show_ipv6_route (struct vty *vty, struct route_node *rn,
     }
 }
 
-#define SHOW_ROUTE_V6_HEADER "Codes: K - kernel route, C - connected, S - static, R - RIPng, O - OSPFv3,%s       I - ISIS, B - BGP, * - FIB route.%s%s"
-
 DEFUN (show_ipv6_route,
        show_ipv6_route_cmd,
        "show ipv6 route",
@@ -1794,7 +1765,7 @@ DEFUN (show_ipv6_route,
       {
 	if (first)
 	  {
-	    vty_out (vty, SHOW_ROUTE_V6_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
+	    vty_out (vty, SHOW_ROUTE_V6_HEADER);
 	    first = 0;
 	  }
 	vty_show_ipv6_route (vty, rn, rib);
@@ -1836,7 +1807,7 @@ DEFUN (show_ipv6_route_prefix_longer,
 	{
 	  if (first)
 	    {
-	      vty_out (vty, SHOW_ROUTE_V6_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
+	      vty_out (vty, SHOW_ROUTE_V6_HEADER);
 	      first = 0;
 	    }
 	  vty_show_ipv6_route (vty, rn, rib);
@@ -1846,17 +1817,11 @@ DEFUN (show_ipv6_route_prefix_longer,
 
 DEFUN (show_ipv6_route_protocol,
        show_ipv6_route_protocol_cmd,
-       "show ipv6 route (bgp|connected|isis|kernel|ospf6|ripng|static)",
+       "show ipv6 route " QUAGGA_IP6_REDIST_STR_ZEBRA,
        SHOW_STR
        IP_STR
        "IP routing table\n"
-       "Border Gateway Protocol (BGP)\n"
-       "Connected\n"
-       "ISO IS-IS (ISIS)\n"
-       "Kernel\n"
-       "Open Shortest Path First (OSPFv3)\n"
-       "Routing Information Protocol (RIPng)\n"
-       "Static routes\n")
+	QUAGGA_IP6_REDIST_HELP_STR_ZEBRA)
 {
   int type;
   struct route_table *table;
@@ -1864,21 +1829,8 @@ DEFUN (show_ipv6_route_protocol,
   struct rib *rib;
   int first = 1;
 
-  if (strncmp (argv[0], "b", 1) == 0)
-    type = ZEBRA_ROUTE_BGP;
-  else if (strncmp (argv[0], "c", 1) == 0)
-    type = ZEBRA_ROUTE_CONNECT;
-  else if (strncmp (argv[0], "k", 1) ==0)
-    type = ZEBRA_ROUTE_KERNEL;
-  else if (strncmp (argv[0], "o", 1) == 0)
-    type = ZEBRA_ROUTE_OSPF6;
-  else if (strncmp (argv[0], "i", 1) == 0)
-    type = ZEBRA_ROUTE_ISIS;
-  else if (strncmp (argv[0], "r", 1) == 0)
-    type = ZEBRA_ROUTE_RIPNG;
-  else if (strncmp (argv[0], "s", 1) == 0)
-    type = ZEBRA_ROUTE_STATIC;
-  else
+  type = proto_redistnum (AFI_IP6, argv[0]);
+  if (type < 0)
     {
       vty_out (vty, "Unknown route type%s", VTY_NEWLINE);
       return CMD_WARNING;
@@ -1895,7 +1847,7 @@ DEFUN (show_ipv6_route_protocol,
 	{
 	  if (first)
 	    {
-	      vty_out (vty, SHOW_ROUTE_V6_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
+	      vty_out (vty, SHOW_ROUTE_V6_HEADER);
 	      first = 0;
 	    }
 	  vty_show_ipv6_route (vty, rn, rib);
@@ -1998,6 +1950,80 @@ DEFUN (show_ipv6_route_summary,
 
   return CMD_SUCCESS;
 }
+
+/*
+ * Show IP mroute command to dump the BGP Multicast
+ * routing table
+ */
+DEFUN (show_ip_mroute,
+       show_ip_mroute_cmd,
+       "show ip mroute",
+       SHOW_STR
+       IP_STR
+       "IP Multicast routing table\n")
+{
+  struct route_table *table;
+  struct route_node *rn;
+  struct rib *rib;
+  int first = 1;
+
+  table = vrf_table (AFI_IP, SAFI_MULTICAST, 0);
+  if (! table)
+    return CMD_SUCCESS;
+
+  /* Show all IPv4 routes. */
+  for (rn = route_top (table); rn; rn = route_next (rn))
+    for (rib = rn->info; rib; rib = rib->next)
+      {
+       if (first)
+         {
+	   vty_out (vty, SHOW_ROUTE_V4_HEADER);
+           first = 0;
+         }
+       vty_show_ip_route (vty, rn, rib);
+      }
+  return CMD_SUCCESS;
+}
+
+/*
+ * Show IPv6 mroute command.Used to dump
+ * the Multicast routing table.
+ */
+
+DEFUN (show_ipv6_mroute,
+       show_ipv6_mroute_cmd,
+       "show ipv6 mroute",
+       SHOW_STR
+       IP_STR
+       "IPv6 Multicast routing table\n")
+{
+  struct route_table *table;
+  struct route_node *rn;
+  struct rib *rib;
+  int first = 1;
+
+  table = vrf_table (AFI_IP6, SAFI_MULTICAST, 0);
+  if (! table)
+    return CMD_SUCCESS;
+
+  /* Show all IPv6 route. */
+  for (rn = route_top (table); rn; rn = route_next (rn))
+    for (rib = rn->info; rib; rib = rib->next)
+      {
+       if (first)
+         {
+	   vty_out (vty, SHOW_ROUTE_V6_HEADER);
+           first = 0;
+         }
+       vty_show_ipv6_route (vty, rn, rib);
+      }
+  return CMD_SUCCESS;
+}
+
+
+
+
+
 
 /* Write IPv6 static route configuration. */
 static int
@@ -2141,6 +2167,8 @@ CMD_INSTALL_TABLE(static, zebra_vty_cmd_table, ZEBRA) =
   { ENABLE_NODE,     &show_ip_route_protocol_cmd                        },
   { ENABLE_NODE,     &show_ip_route_supernets_cmd                       },
   { ENABLE_NODE,     &show_ip_route_summary_cmd                         },
+  { VIEW_NODE,       &show_ip_mroute_cmd                                },
+  { ENABLE_NODE,     &show_ip_mroute_cmd                                },
 
 #ifdef HAVE_IPV6
   { CONFIG_NODE,     &ipv6_route_cmd                                    },
@@ -2171,6 +2199,8 @@ CMD_INSTALL_TABLE(static, zebra_vty_cmd_table, ZEBRA) =
   { ENABLE_NODE,     &show_ipv6_route_prefix_cmd                        },
   { ENABLE_NODE,     &show_ipv6_route_prefix_longer_cmd                 },
   { ENABLE_NODE,     &show_ipv6_route_summary_cmd                       },
+  { VIEW_NODE,       &show_ipv6_mroute_cmd                              },
+  { ENABLE_NODE,     &show_ipv6_mroute_cmd                              },
 #endif /* HAVE_IPV6 */
 
   CMD_INSTALL_END

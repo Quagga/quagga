@@ -22,6 +22,9 @@
 #ifndef VTYSH_EXTRACT_PL
 
 #include <zebra.h>
+#include "zebra/zserv.h"
+
+extern void netlink_route_read (void);
 
 #include "zebra/rtread.h"
 

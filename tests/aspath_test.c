@@ -7,6 +7,7 @@
 #include "privs.h"
 
 #include "bgpd/bgpd.h"
+#include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_aspath.h"
 #include "bgpd/bgp_attr.h"
 
@@ -1200,8 +1201,9 @@ handle_attr_test (struct aspath_tests *t)
   int ret;
   int initfail = failed;
   struct aspath *asp;
-  size_t datalen;
+  size_t datalen, endp;
   char host[] = { "none" } ;
+  bool mp_eor ;
 
   asp = make_aspath (t->segment->asdata, t->segment->len, 0);
 
@@ -1217,7 +1219,9 @@ handle_attr_test (struct aspath_tests *t)
   stream_put (peer.ibuf, t->attrheader, t->len);
   datalen = aspath_put (peer.ibuf, asp, t->as4 == AS4_DATA);
 
-  ret = bgp_attr_parse (&peer, &attr, t->len + datalen, NULL, NULL);
+  endp = stream_push_endp(peer.ibuf, t->len + datalen) ;
+
+  ret = bgp_attr_parse (&peer, &attr, NULL, NULL, &mp_eor);
 
   if (ret != t->result)
     {

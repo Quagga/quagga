@@ -568,6 +568,36 @@ safe_inet_ntoa (struct in_addr in)
 }
 
 /*------------------------------------------------------------------------------
+ * Construct string for given IP family/address.
+ *
+ * Requires buffer of at least SU_ADDRSTRLEN characters.
+ */
+extern str_iptoa_t
+siptoa(sa_family_t family, const void* address)
+{
+  str_iptoa_t QFB_QFS(ipa, qfs) ;
+
+  switch (family)
+    {
+      case AF_INET:
+        confirm(sizeof(ipa.str) >= INET_ADDRSTRLEN) ;
+#ifdef HAVE_IPV6
+      case AF_INET6:
+        confirm(sizeof(ipa.str) >= INET6_ADDRSTRLEN) ;
+#endif
+        inet_ntop(family, address, ipa.str, sizeof(ipa.str));
+        break;
+
+      default:
+        qfs_printf(qfs, "?unknown address family=%d?", family) ;
+        qfs_term(qfs) ;
+        break ;
+    } ;
+
+  return ipa;
+} ;
+
+/*------------------------------------------------------------------------------
  * Return the thread's buffer, create it if necessary.
  * (pthread Thread Specific Data)
  */

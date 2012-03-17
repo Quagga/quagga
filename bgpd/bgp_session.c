@@ -21,13 +21,10 @@
 #include "misc.h"
 
 #include "bgpd/bgp_session.h"
-#include "bgpd/bgp_common.h"
 #include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_engine.h"
-#include "bgpd/bgp_peer_index.h"
 #include "bgpd/bgp_fsm.h"
 #include "bgpd/bgp_open_state.h"
-#include "bgpd/bgp_route_refresh.h"
 #include "bgpd/bgp_msg_write.h"
 #include "bgpd/bgp_network.h"
 
@@ -82,7 +79,7 @@ static void bgp_session_do_route_refresh_recv(mqueue_block mqb, mqb_flag_t flag)
  *     change any shared item in the session, except under the mutex.  And
  *     even then it may make no sense !
  *
- * NB: a session reaches eDisabled when the Routing Engine has sent a disable
+ * NB: a session reaches sDisabled when the Routing Engine has sent a disable
  *     request to the BGP Engine, AND an eDisabled event has come back.
  *
  *     While the Routing Engine is waiting for the eDisabled event, the session
@@ -425,9 +422,10 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
 } ;
 
 /*==============================================================================
- * Routing Engine: disable session for given peer -- if enabled (!).
+ * Routing Engine: disable session for given peer -- if and and if enabled (!).
  *
- * Does nothing if the session is not sEnabled or sEstablished.
+ * If there is a session and it is sEnabled or sEstablished, send a copy of the
+ * given notification to the BGP Engine, and set the session sLimping.
  *
  * Passes any bgp_notify to the BGP Engine, which will dispose of it in due
  * course.
@@ -438,10 +436,12 @@ bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag)
  * some event in the BGP Engine.  In any case, the BGP Engine will respond with
  * an eDisabled.
  *
- * NB: is taking responsibility for the notification, which is either freed
- *     here or passed to the BGP Engine.
+ * Returns: true  <=> have sent (copy of) notification to BGP_ENGINE
+ *          false  => for whatever reason, the session cannot be disabled
+ *
+ * NB: caller is responsible for the original notification, if any
  */
-extern void
+extern bool
 bgp_session_disable(bgp_peer peer, bgp_notify notification)
 {
   bgp_session    session ;
@@ -449,16 +449,17 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
   struct bgp_session_disable_args* args ;
 
   session = peer->session ;
-  assert((session != NULL) && (session->peer == peer)) ;
 
   /* Do nothing if session is not active, or is already limping.        */
 
-  if ( (session->state != bgp_session_sEnabled) &&
-       (session->state != bgp_session_sEstablished) )
+  if (session == NULL ||
+       ( (session->state != bgp_session_sEnabled) &&
+         (session->state != bgp_session_sEstablished) ))
     {
-      bgp_notify_free(notification) ;  /* discard any bgp_notify        */
-      return ;
+      return false ;
     } ;
+
+  assert(session->peer == peer) ;
 
   /* Can revoke whatever may be queued already.  Will revoke again when the
    * disable is acknowledged to finally clear the session out of the queue.
@@ -498,11 +499,15 @@ bgp_session_disable(bgp_peer peer, bgp_notify notification)
   mqb = mqb_init_new(NULL, bgp_session_do_disable, session) ;
 
   args = mqb_get_args(mqb) ;
-  args->notification = notification ;
+  args->notification = bgp_notify_dup(notification) ;
 
   ++bgp_engine_queue_stats.event ;
 
   bgp_to_bgp_engine(mqb, mqb_priority) ;
+
+  /* We have just disabled the session, sending (a copy of) any notification.
+   */
+  return true ;
 } ;
 
 /*------------------------------------------------------------------------------

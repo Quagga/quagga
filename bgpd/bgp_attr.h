@@ -138,18 +138,21 @@ struct transit
 #define ATTR_FLAG_BIT(X)  (1 << ((X) - 1))
 
 typedef enum {
-  BGP_ATTR_PARSE_PROCEED  =  0,
+  BGP_ATTR_PARSE_IGNORE   =  1,
+  BGP_ATTR_PARSE_PROCEED  =  0, /* NB: value >= BGP_ATTR_PARSE_PROCEED is OK */
   BGP_ATTR_PARSE_ERROR    = -1,
   BGP_ATTR_PARSE_WITHDRAW = -2,
 } bgp_attr_parse_ret_t;
+
+#define BGP_ATTR_PARSE_OK(ret) ((ret) >= BGP_ATTR_PARSE_PROCEED)
 
 /* Prototypes. */
 extern void bgp_attr_init (void);
 extern void bgp_attr_finish (void);
 extern bgp_attr_parse_ret_t bgp_attr_parse (struct peer *, struct attr *,
-                                           bgp_size_t, struct bgp_nlri *,
-                                           struct bgp_nlri *);
-extern int bgp_attr_check (struct peer *, struct attr *);
+                                            struct bgp_nlri *,
+                                            struct bgp_nlri *, bool*);
+extern int bgp_attr_check (struct peer *, struct attr *, bool);
 extern struct attr_extra *bgp_attr_extra_get (struct attr *);
 extern void bgp_attr_extra_free (struct attr *);
 extern void bgp_attr_dup (struct attr *, struct attr *);
@@ -185,9 +188,9 @@ extern void cluster_unintern (struct cluster_list *);
 void transit_unintern (struct transit *);
 
 /* Exported for unit-test purposes only */
-extern bgp_attr_parse_ret_t bgp_mp_reach_parse (struct peer *,
-                                 bgp_size_t, struct attr *, struct bgp_nlri *);
-extern bgp_attr_parse_ret_t bgp_mp_unreach_parse (struct peer *, bgp_size_t,
-                                                            struct bgp_nlri *);
+extern bgp_attr_parse_ret_t bgp_mp_reach_parse (struct peer *, const bgp_size_t,
+                                struct attr *, const u_char, struct bgp_nlri *);
+extern bgp_attr_parse_ret_t bgp_mp_unreach_parse (struct peer *,
+                      const bgp_size_t, const u_char, struct bgp_nlri *, bool*);
 
 #endif /* _QUAGGA_BGP_ATTR_H */

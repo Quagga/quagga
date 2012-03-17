@@ -361,7 +361,7 @@ bgp_connection_free(bgp_connection connection)
     XFREE(MTYPE_BGP_PEER_HOST, connection->host) ;
   stream_free(connection->ibuf) ;
   stream_free(connection->obuf) ;
-  bgp_write_buffer_free(&connection->wbuff) ;
+  bgp_write_buffer_free(connection->wbuff) ;
 
   /* Free the body                                                      */
   sdl_del(bgp_connection_list, connection, exist) ;
@@ -376,10 +376,9 @@ bgp_connection_free(bgp_connection connection)
  *
  * Problem: can it be assumed that all sessions have been closed ?
  *
- *          if not... how are all the connections to be pursuaded to adopt
+ *          if not... how are all the connections to be persuaded to adopt
  *          an appropriate posture ?
  */
-
 
 /*------------------------------------------------------------------------------
  * If required, allocate new write buffer.
@@ -653,7 +652,7 @@ bgp_connection_start(bgp_connection connection, union sockunion* su_local,
   sockunion_set_dup(&connection->su_local,  su_local) ;
   sockunion_set_dup(&connection->su_remote, su_remote) ;
 
-  bgp_write_buffer_init(&connection->wbuff, bgp_wbuff_size) ;
+  bgp_write_buffer_init(connection->wbuff, bgp_wbuff_size) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -687,7 +686,7 @@ bgp_connection_stop(bgp_connection connection, bool stop_writer)
 
   /* If required: set write buffer *unwritable* (and empty).            */
   if (stop_writer)
-    bgp_write_buffer_unwritable(&connection->wbuff) ;
+    bgp_write_buffer_unwritable(connection->wbuff) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -849,7 +848,7 @@ bgp_connection_close(bgp_connection connection, bool keep_timers)
 extern bool
 bgp_connection_part_close(bgp_connection connection)
 {
-  bgp_wbuffer wb = &connection->wbuff ;
+  bgp_wbuffer wb = connection->wbuff ;
   int         sock_fd ;
   uint8_t*    p ;
   bgp_size_t  mlen ;
@@ -929,7 +928,7 @@ bgp_connection_write(bgp_connection connection, struct stream* s)
   uint length ;
   bool enable_write ;
 
-  bgp_wbuffer wb = &connection->wbuff ;
+  bgp_wbuffer wb = connection->wbuff ;
 
   enable_write = bgp_write_buffer_empty(wb) ;
 
@@ -978,7 +977,7 @@ static void
 bgp_connection_write_action(qps_file qf, void* file_info)
 {
   bgp_connection connection = file_info ;
-  bgp_wbuffer wb = &connection->wbuff ;
+  bgp_wbuffer wb = connection->wbuff ;
   int have ;
   int ret ;
 

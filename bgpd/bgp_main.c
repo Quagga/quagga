@@ -86,6 +86,7 @@ static zebra_capabilities_t _caps_p [] =
 {
     ZCAP_BIND,
     ZCAP_NET_RAW,
+    ZCAP_NET_ADMIN,
 };
 
 struct zebra_privs_t bgpd_privs =
@@ -146,6 +147,7 @@ static const struct option longopts[] =
   { "int_config",  required_argument, NULL, 'F'},
   { "integrated",  no_argument,       NULL, 'Q'},
   { "int_boot",    no_argument,       NULL, 'b'},
+  { "socket",      required_argument, NULL, 'z'},
   { 0 }
 };
 
@@ -171,6 +173,7 @@ usage (const char *progname, int status)
   "-Q, --integrated   Use integrated configuration file\n"
   "-b, --int_boot     Expect vtysh to provide configuration\n"
   "-i, --pid_file     Set process identifier file name\n"
+  "-z, --socket       Set path of zebra socket\n"
   "-p, --bgp_port     Set bgp protocol's port number\n"
   "-l, --listenon     Listen on specified address (implies -n)\n"
   "-A, --vty_addr     Set vty's bind address\n"
@@ -238,7 +241,7 @@ main (int argc, char **argv)
       int  val ;
       int  opt;
 
-      opt = getopt_long (argc, argv, "df:i:hp:l:A:P:rnu:g:vCtI2F:Qb",
+      opt = getopt_long (argc, argv, "df:i:z:hp:l:A:P:rnu:g:vCtI2F:Qb",
                                                                  longopts, 0);
       if (opt == EOF)
         break;
@@ -284,6 +287,12 @@ main (int argc, char **argv)
          */
         case 'i':
           pid_file = optarg;
+          break;
+
+        /* Set zebra server path.
+         */
+        case 'z':
+          zclient_serv_path_set (optarg);
           break;
 
         /* Set port to listen on for BGP -- 0 => default.
@@ -491,6 +500,8 @@ main (int argc, char **argv)
    */
   qpt_clear_qpthreads_active() ;
 
+  zprivs_terminate (&bgpd_privs);
+
   bgp_exit(0);
 }
 
@@ -615,7 +626,7 @@ static void
 bgp_in_thread_init(void)
 {
   bgp_open_listeners(bm->address, bm->port);
-}
+} ;
 
 /*------------------------------------------------------------------------------
  * routing_nexus in-thread initialisation/finish -- for gdb !

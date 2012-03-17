@@ -130,7 +130,7 @@ static const uint8_t md5_paddat[MD5_BUFLEN] = {
 	0,	0,	0,	0,	0,	0,	0,	0,
 	0,	0,	0,	0,	0,	0,	0,	0,
 	0,	0,	0,	0,	0,	0,	0,	0,
-	0,	0,	0,	0,	0,	0,	0,	0,	
+	0,	0,	0,	0,	0,	0,	0,	0,
 };
 
 static void md5_calc (const uint8_t *, md5_ctxt *);
@@ -161,7 +161,7 @@ void md5_loop(md5_ctxt *ctxt, const void *vinput, uint len)
 		for (i = gap; i + MD5_BUFLEN <= len; i += MD5_BUFLEN) {
 			md5_calc((input + i), ctxt);
 		}
-		
+
 		ctxt->md5_i = len - i;
 		memcpy (ctxt->md5_buf, (input + i), ctxt->md5_i);
 	} else {
@@ -174,10 +174,10 @@ void md5_pad(md5_ctxt *ctxt)
 {
 	uint gap;
 
-	/* Don't count up padding. Keep md5_n. */	
+	/* Don't count up padding. Keep md5_n. */
 	gap = MD5_BUFLEN - ctxt->md5_i;
 	if (gap > 8) {
-		memcpy (ctxt->md5_buf + ctxt->md5_i, md5_paddat, 
+		memcpy (ctxt->md5_buf + ctxt->md5_i, md5_paddat,
 			gap - sizeof(ctxt->md5_n));
 	} else {
 		/* including gap == 8 */
@@ -187,7 +187,7 @@ void md5_pad(md5_ctxt *ctxt)
 			MD5_BUFLEN - sizeof(ctxt->md5_n));
 	}
 
-	/* 8 byte word */	
+	/* 8 byte word */
 	if (BYTE_ORDER == LITTLE_ENDIAN)
 	  memcpy (&ctxt->md5_buf[56], &ctxt->md5_n8[0], 8);
 	else
@@ -265,7 +265,7 @@ static void md5_calc(const uint8_t *b64, md5_ctxt * ctxt)
 	ROUND1(C, D, A, B, 10, Sc, 11); ROUND1(B, C, D, A, 11, Sd, 12);
 	ROUND1(A, B, C, D, 12, Sa, 13); ROUND1(D, A, B, C, 13, Sb, 14);
 	ROUND1(C, D, A, B, 14, Sc, 15); ROUND1(B, C, D, A, 15, Sd, 16);
-	
+
 	ROUND2(A, B, C, D,  1, Se, 17); ROUND2(D, A, B, C,  6, Sf, 18);
 	ROUND2(C, D, A, B, 11, Sg, 19); ROUND2(B, C, D, A,  0, Sh, 20);
 	ROUND2(A, B, C, D,  5, Se, 21); ROUND2(D, A, B, C, 10, Sf, 22);
@@ -283,18 +283,91 @@ static void md5_calc(const uint8_t *b64, md5_ctxt * ctxt)
 	ROUND3(C, D, A, B,  3, Sk, 43); ROUND3(B, C, D, A,  6, Sl, 44);
 	ROUND3(A, B, C, D,  9, Si, 45); ROUND3(D, A, B, C, 12, Sj, 46);
 	ROUND3(C, D, A, B, 15, Sk, 47); ROUND3(B, C, D, A,  2, Sl, 48);
-	
-	ROUND4(A, B, C, D,  0, Sm, 49); ROUND4(D, A, B, C,  7, Sn, 50);	
-	ROUND4(C, D, A, B, 14, So, 51); ROUND4(B, C, D, A,  5, Sp, 52);	
-	ROUND4(A, B, C, D, 12, Sm, 53); ROUND4(D, A, B, C,  3, Sn, 54);	
-	ROUND4(C, D, A, B, 10, So, 55); ROUND4(B, C, D, A,  1, Sp, 56);	
-	ROUND4(A, B, C, D,  8, Sm, 57); ROUND4(D, A, B, C, 15, Sn, 58);	
-	ROUND4(C, D, A, B,  6, So, 59); ROUND4(B, C, D, A, 13, Sp, 60);	
-	ROUND4(A, B, C, D,  4, Sm, 61); ROUND4(D, A, B, C, 11, Sn, 62);	
+
+	ROUND4(A, B, C, D,  0, Sm, 49); ROUND4(D, A, B, C,  7, Sn, 50);
+	ROUND4(C, D, A, B, 14, So, 51); ROUND4(B, C, D, A,  5, Sp, 52);
+	ROUND4(A, B, C, D, 12, Sm, 53); ROUND4(D, A, B, C,  3, Sn, 54);
+	ROUND4(C, D, A, B, 10, So, 55); ROUND4(B, C, D, A,  1, Sp, 56);
+	ROUND4(A, B, C, D,  8, Sm, 57); ROUND4(D, A, B, C, 15, Sn, 58);
+	ROUND4(C, D, A, B,  6, So, 59); ROUND4(B, C, D, A, 13, Sp, 60);
+	ROUND4(A, B, C, D,  4, Sm, 61); ROUND4(D, A, B, C, 11, Sn, 62);
 	ROUND4(C, D, A, B,  2, So, 63); ROUND4(B, C, D, A,  9, Sp, 64);
 
 	ctxt->md5_sta += A;
 	ctxt->md5_stb += B;
 	ctxt->md5_stc += C;
 	ctxt->md5_std += D;
+}
+
+/* From RFC 2104 */
+void
+hmac_md5(text, text_len, key, key_len, digest)
+unsigned char*  text;			/* pointer to data stream */
+int             text_len;		/* length of data stream */
+unsigned char*  key;			/* pointer to authentication key */
+int             key_len;		/* length of authentication key */
+unsigned char*  digest;		        /* caller digest to be filled in */
+
+{
+    MD5_CTX context;
+    unsigned char k_ipad[65];    /* inner padding -
+				 * key XORd with ipad
+				 */
+    unsigned char k_opad[65];    /* outer padding -
+				 * key XORd with opad
+				 */
+    unsigned char tk[16];
+    int i;
+    /* if key is longer than 64 bytes reset it to key=MD5(key) */
+    if (key_len > 64) {
+
+       MD5_CTX      tctx;
+
+       MD5Init(&tctx);
+       MD5Update(&tctx, key, key_len);
+       MD5Final(tk, &tctx);
+
+       key = tk;
+       key_len = 16;
+    }
+
+    /*
+     * the HMAC_MD5 transform looks like:
+     *
+     * MD5(K XOR opad, MD5(K XOR ipad, text))
+     *
+     * where K is an n byte key
+     * ipad is the byte 0x36 repeated 64 times
+     * opad is the byte 0x5c repeated 64 times
+     * and text is the data being protected
+     */
+
+    /* start out by storing key in pads */
+    bzero( k_ipad, sizeof k_ipad);
+    bzero( k_opad, sizeof k_opad);
+    bcopy( key, k_ipad, key_len);
+    bcopy( key, k_opad, key_len);
+
+    /* XOR key with ipad and opad values */
+    for (i=0; i<64; i++) {
+       k_ipad[i] ^= 0x36;
+       k_opad[i] ^= 0x5c;
+    }
+    /*
+     * perform inner MD5
+     */
+    MD5Init(&context);			/* init context for 1st
+					 * pass */
+    MD5Update(&context, k_ipad, 64);	/* start with inner pad */
+    MD5Update(&context, text, text_len); /* then text of datagram */
+    MD5Final(digest, &context);	        /* finish up 1st pass */
+    /*
+     * perform outer MD5
+     */
+    MD5Init(&context);			/* init context for 2nd
+					 * pass */
+    MD5Update(&context, k_opad, 64);	/* start with outer pad */
+    MD5Update(&context, digest, 16);	/* then results of 1st
+					 * hash */
+    MD5Final(digest, &context);         /* finish up 2nd pass */
 }

@@ -34,7 +34,16 @@
 #include "confirm.h"
 
 /*##############################################################################
- * BGP RFC's we know about -- as of 16-Oct-2009
+ * BGP RFC's we know about -- as of 31-Dec-2011
+ *
+ *   RFC6472  Recommendation for Not Using AS_SET and AS_CONFED_SET in BGP
+ *   RFC6397  Multi-Threaded Routing Toolkit (MRT) Border Gateway Protocol
+ *            (BGP) Routing Information Export Format with Geo-Location
+ *            Extensions
+ *   RFC6286  Autonomous-System-Wide Unique BGP Identifier for BGP-4
+ *   RFC6198  Requirements for the Graceful Shutdown of BGP Sessions
+ *   RFC5701  IPv6 Address Specific BGP Extended Community Attribute
+ *   RFC5668  4-Octet AS Specific BGP Extended Community
  *
  *   RFC5566  BGP IPSec Tunnel Encapsulation Attribute
  *   RFC5543  BGP Traffic Engineering Attribute

@@ -22,10 +22,10 @@
 
 #include "lib/zassert.h"
 
-#include "bgpd/bgp_peer_index.h"
+#include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_session.h"
-#include "bgpd/bgp_connection.h"
+#include "bgpd/bgp_peer_index.h"
 
 #include "lib/symtab.h"
 #include "lib/vector.h"
@@ -339,6 +339,45 @@ bgp_peer_index_set_session(bgp_peer peer, bgp_session session)
   BGP_PEER_INDEX_UNLOCK() ; /*->->->->->->->->->->->->->->->->->->->->->->->->*/
 } ;
 
+#if 0
+/*------------------------------------------------------------------------------
+ * Set the index entry bgp_connection_options, for the next time an accept()
+ * is required for the entry.
+ *
+ * This is done under the Peer Index Mutex, so that the BGP Engine can pick
+ * this up safely.
+ */
+extern void
+bgp_peer_index_set_accept(bgp_peer peer)
+{
+  bgp_connection_options opts ;
+
+  BGP_PEER_INDEX_LOCK() ;   /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
+
+  opts = peer->index_entry->opts ;
+
+  /* For accept() we need:
+   *
+   *    accept     -- true <=> should accept connections.
+   *
+   *                  so is set false if the peer is TODO TODO TODO
+   *
+   *    ttl_req    -- TTL to set, if not zero
+   *    gtsm_req   -- ttl set by ttl-security
+   *
+   *    password   -- MD5 password to be set in the listener
+   */
+  opts->connect   = (peer->flags & PEER_FLAG_PASSIVE) == 0 ;
+  opts->listen    = true ;
+
+  opts->ttl_req   = peer->ttl ;
+  opts->gtsm_req  = peer->gtsm ;
+
+
+
+  BGP_PEER_INDEX_UNLOCK() ; /*->->->->->->->->->->->->->->->->->->->->->->->->*/
+} ;
+#endif
 /*------------------------------------------------------------------------------
  * Find whether given address is for a known peer, and if so whether it has
  * an active session which is prepared to accept() a connection.

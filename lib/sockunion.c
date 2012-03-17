@@ -576,7 +576,7 @@ sockunion_stream_socket (sockunion su)
     su->sa.sa_family = AF_INET_UNION;
 
   return sockunion_socket (su, SOCK_STREAM, 0);
-}
+} ;
 
 /*------------------------------------------------------------------------------
  * Initiate a connection
@@ -586,7 +586,7 @@ sockunion_stream_socket (sockunion su)
  * TODO: discover how the ifindex thing is supposed to work !!
  *
  * Returns:  0 : OK (so far so good)
- *         < 0 : failed -- see errno
+ *        != 0 : failed == errno
  *
  * Logs a LOG_INFO message if fails.
  */
@@ -595,7 +595,7 @@ sockunion_connect(int sock_fd, union sockunion* peer_su, unsigned short port,
                                                            unsigned int ifindex)
 {
   union sockunion su ;
-  int   ret, err ;
+  int   err, ret ;
   int   sa_len ;
 
   memcpy(&su, peer_su, sizeof(union sockunion)) ;
@@ -629,10 +629,9 @@ sockunion_connect(int sock_fd, union sockunion* peer_su, unsigned short port,
     return 0 ;      /* instant success or EINPROGRESS as expected       */
 
   zlog_info("cannot connect to %s port %d socket %d: %s",
-    sutoa(&su).str, port, sock_fd, errtoa(err, 0).str) ;
-  errno = err ;
+                            sutoa(&su).str, port, sock_fd, errtoa(err, 0).str) ;
 
-  return ret ;
+  return errno = err ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -658,7 +657,7 @@ sockunion_listen(int sock_fd, int backlog)
     } ;
 
   return ret ;
-} ;
+}
 
 /*------------------------------------------------------------------------------
  * Bind socket to address/port.

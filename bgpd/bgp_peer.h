@@ -23,8 +23,9 @@
 #define _QUAGGA_BGP_PEER_H
 
 #include "bgpd/bgp_common.h"
-#include "bgpd/bgp_notification.h"
+#include "bgpd/bgp_connection.h"
 #include "bgpd/bgp_peer_index.h"
+#include "bgpd/bgp_notification.h"
 
 #include "lib/plist.h"
 

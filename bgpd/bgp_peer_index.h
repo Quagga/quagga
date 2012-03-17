@@ -33,6 +33,14 @@
  *   * peer_id    (ordinal of peer)
  *
  * To the bgp_peer_index_entry.
+ *
+ * The bgp_peer_index entry contains enough to allow connections to be accepted
+ * (or not) completely asynchronously with both the Routeing and the BGP
+ * Engines... so there need never be a time when a connection is not accepted,
+ * unless the peer is administratively disabled.
+ *
+ * When a BGP session is enabled, it will check to see if an accepted
+ * connection is pending, and adopt it if it is.
  */
 typedef struct bgp_peer_index_entry* bgp_peer_index_entry ;
 
@@ -43,11 +51,18 @@ struct bgp_peer_index_entry
   bgp_peer_index_entry  next_free ; /* for list of free peer_id's       */
                                 /* points to self if entry is in use    */
 
+  bgp_peer_id_t id ;            /* maps IP address to peer_id           */
+
   bgp_peer      peer ;          /* NULL if entry is not in use          */
 
   sockunion_t   su ;            /* The "name".                          */
 
-  bgp_peer_id_t id ;            /* maps IP address to peer_id           */
+//bgp_connection_options_t opts[1] ;            /* for accept()         */
+//
+//int    sock ;                                 /* if accepted          */
+//bgp_connection_options_t opts_set[1] ;        /* if accepted          */
+
+//qtimer discard ;                      /* in case not used, promptly   */
 } ;
 
 enum { bgp_peer_id_null = 0 } ; /* no peer can have id == 0     */

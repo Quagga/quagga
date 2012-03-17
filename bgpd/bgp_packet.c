@@ -564,7 +564,7 @@ bgp_route_refresh_send (struct peer *peer, afi_t afi, safi_t safi,
 
   /* Adjust safi code. */
   if (safi == SAFI_MPLS_VPN)
-    safi = BGP_SAFI_VPNV4;
+    safi = SAFI_MPLS_LABELED_VPN;
 
   rr = bgp_route_refresh_new(afi, safi, 1);
   rr->defer = (when_to_refresh == REFRESH_DEFER);
@@ -631,7 +631,7 @@ bgp_capability_send (struct peer *peer, afi_t afi, safi_t safi,
 
   /* Adjust safi code. */
   if (safi == SAFI_MPLS_VPN)
-    safi = BGP_SAFI_VPNV4;
+    safi = SAFI_MPLS_LABELED_VPN;
 
   s = peer->work;
   stream_reset (s);
@@ -671,16 +671,14 @@ int
 bgp_update_receive (struct peer *peer, bgp_size_t size)
 {
   int ret;
-  u_char *end;
   struct stream *s;
   struct attr attr;
   bgp_size_t attribute_len;
-  bgp_size_t update_len;
-  bgp_size_t withdraw_len;
   struct bgp_nlri update;
   struct bgp_nlri withdraw;
   struct bgp_nlri mp_update;
   struct bgp_nlri mp_withdraw;
+  bool            mp_eor ;
   char attrstr[BUFSIZ] = "";
   bgp_attr_parse_ret_t ap_ret ;
 
@@ -701,75 +699,65 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   memset (&mp_withdraw, 0, sizeof (struct bgp_nlri));
 
   s = peer->ibuf;
-  end = stream_get_pnt (s) + size;
 
-  /* RFC1771 6.3 If the Unfeasible Routes Length or Total Attribute
-     Length is too large (i.e., if Unfeasible Routes Length + Total
-     Attribute Length + 23 exceeds the message Length), then the Error
-     Subcode is set to Malformed Attribute List.  */
-  if (stream_get_pnt (s) + 2 > end)
+  /* Unfeasible Route Length.
+   */
+  withdraw.length = stream_getw (s);
+  if (stream_has_overrun(s))
     {
       zlog_err ("%s [Error] Update packet error"
 		" (packet length is short for unfeasible length)",
 		peer->host);
       bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
-                                   BGP_NOTIFY_UPDATE_MAL_ATTR);
+                                 BGP_NOTIFY_UPDATE_MAL_ATTR);
       return -1;
     }
 
-  /* Unfeasible Route Length. */
-  withdraw_len = stream_getw (s);
-
-  /* Unfeasible Route Length check. */
-  if (stream_get_pnt (s) + withdraw_len > end)
+  /* Unfeasible Route packet format check.
+   */
+  if (withdraw.length > 0)
     {
-      zlog_err ("%s [Error] Update packet error"
-		" (packet unfeasible length overflow %d)",
-		peer->host, withdraw_len);
-      bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
-                                   BGP_NOTIFY_UPDATE_MAL_ATTR);
-      return -1;
-    }
+      ulen endp ;
 
-  /* Unfeasible Route packet format check. */
-  if (withdraw_len > 0)
-    {
-      ret = bgp_nlri_sanity_check (peer, AFI_IP, stream_get_pnt (s), withdraw_len);
+      endp = stream_push_endp(s, withdraw.length) ;
+      if (stream_has_overrun(s))
+        {
+          zlog_err ("%s [Error] Update packet error"
+                    " (packet unfeasible length overflow %d)",
+                    peer->host, withdraw.length);
+          bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
+                                     BGP_NOTIFY_UPDATE_MAL_ATTR);
+          return -1;
+        }
+
+      ret = bgp_nlri_sanity_check (peer, AFI_IP, stream_get_pnt (s),
+                                                               withdraw.length);
       if (ret < 0)
-	return -1;
+        {
+          zlog_info ("%s withdraw NLRI doesn't pass sanity check", peer->host) ;
+          return -1 ;
+        } ;
 
       if (BGP_DEBUG (packet, PACKET_RECV))
 	zlog_debug ("%s [Update:RECV] Unfeasible NLRI received", peer->host);
 
-      withdraw.afi = AFI_IP;
-      withdraw.safi = SAFI_UNICAST;
-      withdraw.nlri = stream_get_pnt (s);
-      withdraw.length = withdraw_len;
-      stream_forward_getp (s, withdraw_len);
+      withdraw.afi    = AFI_IP;
+      withdraw.safi   = SAFI_UNICAST;
+      withdraw.nlri   = stream_get_pnt (s);
+
+      stream_pop_endp(s, endp) ;        /* steps getp to given endp     */
     }
 
-  /* Attribute total length check. */
-  if (stream_get_pnt (s) + 2 > end)
-    {
-      zlog_warn ("%s [Error] Packet Error"
-		 " (update packet is short for attribute length)",
-		 peer->host);
-      bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
-                                   BGP_NOTIFY_UPDATE_MAL_ATTR);
-      return -1;
-    }
-
-  /* Fetch attribute total length. */
+  /* Fetch attribute total length.
+   */
   attribute_len = stream_getw (s);
-
-  /* Attribute length check. */
-  if (stream_get_pnt (s) + attribute_len > end)
+  if (stream_has_overrun(s))
     {
       zlog_warn ("%s [Error] Packet Error"
-		 " (update packet attribute length overflow %d)",
-		 peer->host, attribute_len);
+                 " (update packet is short for attribute length)",
+                 peer->host);
       bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
-                                   BGP_NOTIFY_UPDATE_MAL_ATTR);
+                                 BGP_NOTIFY_UPDATE_MAL_ATTR);
       return -1;
     }
 
@@ -790,48 +778,153 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   /* Parse attribute when it exists. */
   if (attribute_len)
     {
-      ap_ret = bgp_attr_parse (peer, &attr, attribute_len,
-			               &mp_update, &mp_withdraw);
-      if (ap_ret == BGP_ATTR_PARSE_ERROR)
-	return -1;
-    }
-
-  /* Logging the attribute. */
-  if ((ap_ret == BGP_ATTR_PARSE_WITHDRAW) || BGP_DEBUG (update, UPDATE_IN))
-    {
-      ret= bgp_dump_attr (peer, &attr, attrstr, BUFSIZ);
-      int lvl = (ap_ret == BGP_ATTR_PARSE_WITHDRAW) ? LOG_ERR : LOG_DEBUG ;
-
-      if (ap_ret == BGP_ATTR_PARSE_WITHDRAW)
-        zlog (peer->log, LOG_ERR,
-              "%s rcvd UPDATE with errors in attr(s)!! Withdrawing route.",
-              peer->host);
-
-      if (ret)
-	zlog (peer->log, lvl, "%s rcvd UPDATE w/ attr: %s",
-	      peer->host, attrstr);
-    }
-
-  /* Network Layer Reachability Information. */
-  update_len = end - stream_get_pnt (s);
-
-  if (update_len)
-    {
-      /* Check NLRI packet format and prefix length. */
-      ret = bgp_nlri_sanity_check (peer, AFI_IP, stream_get_pnt (s), update_len);
-      if (ret < 0)
+      ulen endp ;
+      /* We have s->getp at the start of the attributes.
+       *
+       * Set the s->endp to the end of the attributes, check that is within
+       * the current endp, and save the current endp.
+       */
+      endp = stream_push_endp(s, attribute_len) ;
+      if (stream_has_overrun(s))
         {
-          bgp_attr_unintern_sub (&attr, true) ; /* true => free extra   */
-	  return -1;
-	}
+          zlog_warn ("%s [Error] Packet Error"
+                       " (update packet attribute length overflow %d)",
+                       peer->host, attribute_len);
+          bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
+                                     BGP_NOTIFY_UPDATE_MAL_ATTR);
+          return -1;
+        } ;
 
+      /* Do the real work of parsing the attributes getp..endp.
+       */
+      ap_ret = bgp_attr_parse (peer, &attr, &mp_update, &mp_withdraw, &mp_eor);
+
+     /* Restore the endp, checking that either the getp is at the end of the
+      * attributes or we have a serious error and no longer care about the
+      * stream pointers.
+       */
+      if (!stream_pop_endp(s, endp) && (ap_ret != BGP_ATTR_PARSE_ERROR))
+        {
+          /* This is actually an internal error -- have somehow got out of
+           * step, without the check inside the loop spotting it !
+           */
+          zlog_err("%s: BGP attribute parser error"
+                   " (BUG: did not process to end of attributes)", peer->host) ;
+
+          bgp_peer_down_error (peer, BGP_NOTIFY_CEASE,
+                                     BGP_NOTIFY_SUBCODE_UNSPECIFIC);
+
+          ap_ret = BGP_ATTR_PARSE_ERROR;
+        } ;
+
+      /* Logging the attribute.
+       */
+      if ((ap_ret != BGP_ATTR_PARSE_PROCEED) || BGP_DEBUG (update, UPDATE_IN))
+        {
+          int lvl ;
+
+          switch (ap_ret)
+            {
+              case BGP_ATTR_PARSE_PROCEED:
+                lvl = LOG_DEBUG ;
+                break ;
+
+              case BGP_ATTR_PARSE_IGNORE:
+                lvl = LOG_ERR ;
+
+                zlog (peer->log, lvl,
+                  "%s rcvd UPDATE with errors in trivial attr(s)!!"
+                                                  " Ignoring those attributes.",
+                  peer->host);
+
+                ap_ret = BGP_ATTR_PARSE_PROCEED ;       /* ignore !!    */
+                break ;
+
+              case BGP_ATTR_PARSE_WITHDRAW:
+                lvl = LOG_ERR ;
+
+                zlog (peer->log, lvl,
+                  "%s rcvd UPDATE with errors in attr(s)!!"
+                                                        " Withdrawing route(s)",
+                  peer->host);
+                break ;
+
+              case BGP_ATTR_PARSE_ERROR:
+              default:
+                lvl = LOG_ERR ;
+
+                zlog (peer->log, lvl,
+                  "%s rcvd UPDATE with fatal errors in attr(s)!!"
+                                                            " Dropping session",
+                  peer->host);
+                break ;
+            } ;
+
+          if (bgp_dump_attr (peer, &attr, attrstr, BUFSIZ))
+            zlog (peer->log, lvl, "%s rcvd UPDATE w/ attr: %s",
+                                                           peer->host, attrstr);
+
+          if (ap_ret == BGP_ATTR_PARSE_ERROR)
+            {
+              ret = -1 ;
+              goto exit_bgp_update_receive ;
+            } ;
+        }
+    }
+
+  /* Network Layer Reachability Information.
+   */
+  update.length = stream_get_read_left(s);
+
+  if (update.length)
+    {
       /* Set NLRI portion to structure. */
-      update.afi = AFI_IP;
+      update.afi  = AFI_IP;
       update.safi = SAFI_UNICAST;
       update.nlri = stream_get_pnt (s);
-      update.length = update_len;
-      stream_forward_getp (s, update_len);
-    }
+
+      ret = bgp_nlri_sanity_check (peer, update.afi, update.nlri,
+                                                     update.length) ;
+      if (ret < 0)
+        {
+          zlog_info ("%s update NLRI doesn't pass sanity check", peer->host) ;
+          return -1 ;
+       } ;
+
+      stream_forward_getp (s, update.length);
+    } ;
+
+  /* Now we check for the "mandatory" attributes -- if we have one, other or
+   * both update.length and mp_update.length.
+   *
+   * Note that mp_update.length is a bit pointless, but we tolerate and ignore
+   * the attribute state.
+   */
+  if ((update.length != 0) || (mp_update.length != 0))
+    {
+      ret = bgp_attr_check (peer, &attr, update.length != 0 /* with NEXT_HOP */);
+      if (ret < 0)
+        {
+          ret = -1 ;
+          goto exit_bgp_update_receive ;
+        }
+    } ;
+
+  /* Worry about mp_eor
+   *
+   * If this is true, then the MP_UNREACH_NLRI was the one and only attribute.
+   *
+   * If there are any update.length NLRI, then the check for mandatory updates,
+   * above, will already have failed.
+   *
+   * Rule is that the MP_UNREACH_NLRI should be the *only* thing in the UPDATE
+   * message.
+   */
+  if (mp_eor)
+    {
+      if ((withdraw.length != 0) || (update.length != 0))
+        mp_eor = false ;
+    } ;
 
   /* NLRI is processed only when the peer is configured specific
      Address Family and Subsequent Address Family. */
@@ -841,30 +934,20 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	bgp_nlri_parse (peer, NULL, &withdraw);
 
       if (update.length)
-	{
-	  /* We check well-known attribute only for IPv4 unicast
-	     update. */
-	  ret = bgp_attr_check (peer, &attr);
-	  if (ret < 0)
-	    {
-	      bgp_attr_unintern_sub (&attr, true) ; /* true => free extra */
-	      return -1;
-            }
-
-	  bgp_nlri_parse (peer, NLRI_ATTR_ARG, &update);
-	}
+        bgp_nlri_parse (peer, NLRI_ATTR_ARG, &update);
 
       if (mp_update.length
-	  && mp_update.afi == AFI_IP
+	  && mp_update.afi  == AFI_IP
 	  && mp_update.safi == SAFI_UNICAST)
 	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &mp_update);
 
       if (mp_withdraw.length
-	  && mp_withdraw.afi == AFI_IP
+	  && mp_withdraw.afi  == AFI_IP
 	  && mp_withdraw.safi == SAFI_UNICAST)
 	bgp_nlri_parse (peer, NULL, &mp_withdraw);
 
-      if (! attribute_len && ! withdraw_len)
+      if ((attribute_len == 0) && (withdraw.length == 0)
+                               && (update.length == 0))
 	{
 	  /* End-of-RIB received */
 	  SET_FLAG (peer->af_sflags[AFI_IP][SAFI_UNICAST],
@@ -880,6 +963,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 		  peer->host);
 	}
     }
+
   if (peer->afc[AFI_IP][SAFI_MULTICAST])
     {
       if (mp_update.length
@@ -892,10 +976,9 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	  && mp_withdraw.safi == SAFI_MULTICAST)
 	bgp_nlri_parse (peer, NULL, &mp_withdraw);
 
-      if (! withdraw_len
+      if (mp_eor
 	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_MULTICAST
-	  && mp_withdraw.length == 0)
+	  && mp_withdraw.safi == SAFI_MULTICAST)
 	{
 	  /* End-of-RIB received */
 	  SET_FLAG (peer->af_sflags[AFI_IP][SAFI_MULTICAST],
@@ -914,19 +997,18 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   if (peer->afc[AFI_IP6][SAFI_UNICAST])
     {
       if (mp_update.length
-	  && mp_update.afi == AFI_IP6
+	  && mp_update.afi  == AFI_IP6
 	  && mp_update.safi == SAFI_UNICAST)
 	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &mp_update);
 
       if (mp_withdraw.length
-	  && mp_withdraw.afi == AFI_IP6
+	  && mp_withdraw.afi  == AFI_IP6
 	  && mp_withdraw.safi == SAFI_UNICAST)
 	bgp_nlri_parse (peer, NULL, &mp_withdraw);
 
-      if (! withdraw_len
-	  && mp_withdraw.afi == AFI_IP6
-	  && mp_withdraw.safi == SAFI_UNICAST
-	  && mp_withdraw.length == 0)
+      if (mp_eor
+	  && mp_withdraw.afi  == AFI_IP6
+	  && mp_withdraw.safi == SAFI_UNICAST)
 	{
 	  /* End-of-RIB received */
 	  SET_FLAG (peer->af_sflags[AFI_IP6][SAFI_UNICAST],
@@ -954,10 +1036,9 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	  && mp_withdraw.safi == SAFI_MULTICAST)
 	bgp_nlri_parse (peer, NULL, &mp_withdraw);
 
-      if (! withdraw_len
+      if (mp_eor
 	  && mp_withdraw.afi == AFI_IP6
-	  && mp_withdraw.safi == SAFI_MULTICAST
-	  && mp_withdraw.length == 0)
+	  && mp_withdraw.safi == SAFI_MULTICAST)
 	{
 	  /* End-of-RIB received */
 
@@ -975,18 +1056,17 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
     {
       if (mp_update.length
 	  && mp_update.afi == AFI_IP
-	  && mp_update.safi == BGP_SAFI_VPNV4)
+	  && mp_update.safi == SAFI_MPLS_LABELED_VPN)
 	bgp_nlri_parse_vpnv4 (peer, NLRI_ATTR_ARG, &mp_update);
 
       if (mp_withdraw.length
 	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == BGP_SAFI_VPNV4)
+	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN)
 	bgp_nlri_parse_vpnv4 (peer, NULL, &mp_withdraw);
 
-      if (! withdraw_len
+      if (mp_eor
 	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == BGP_SAFI_VPNV4
-	  && mp_withdraw.length == 0)
+	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN)
 	{
 	  /* End-of-RIB received */
 
@@ -998,10 +1078,14 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
     }
 
   /* Everything is done.  We unintern temporary structures which
-     interned in bgp_attr_parse(). */
+   * interned in bgp_attr_parse().
+   */
+  ret = 0 ;
+
+ exit_bgp_update_receive:
   bgp_attr_unintern_sub (&attr, true) ; /* true => free extra   */
 
-  return 0;
+  return ret ;
 }
 
 /* Process incoming route refresh */
@@ -1018,7 +1102,7 @@ bgp_route_refresh_recv(bgp_peer peer, bgp_route_refresh rr)
   safi = rr->safi;
 
   /* Adjust safi code. */
-  if (safi == BGP_SAFI_VPNV4)
+  if (safi == SAFI_MPLS_LABELED_VPN)
     safi = SAFI_MPLS_VPN;
 
   /* ORF prefix-list name */

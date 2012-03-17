@@ -17,7 +17,7 @@
  * You should have received a copy of the GNU General Public License
  * along with GNU Zebra; see the file COPYING.  If not, write to the Free
  * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
- * 02111-1307, USA.  
+ * 02111-1307, USA.
  */
 
 /* This is compiled and linked if found to be required at "configure" time.   */
@@ -51,7 +51,7 @@ interface_list_ioctl (void)
 
   /* Normally SIOCGIFCONF works with AF_INET socket. */
   sock = socket (AF_INET, SOCK_DGRAM, 0);
-  if (sock < 0) 
+  if (sock < 0)
     {
       zlog_warn ("Can't make AF_INET socket stream: %s", safe_strerror (errno));
       return -1;
@@ -73,14 +73,14 @@ interface_list_ioctl (void)
 
   lastlen = 0;
   /* Loop until SIOCGIFCONF success. */
-  for (;;) 
+  for (;;)
     {
       ifconf.ifc_len = sizeof (struct ifreq) * ifnum;
       ifconf.ifc_buf = XREALLOC(MTYPE_TMP, ifconf.ifc_buf, ifconf.ifc_len);
 
       ret = ioctl(sock, SIOCGIFCONF, &ifconf);
 
-      if (ret < 0) 
+      if (ret < 0)
 	{
 	  zlog_warn ("SIOCGIFCONF: %s", safe_strerror(errno));
 	  goto end;
@@ -164,7 +164,7 @@ if_get_index (struct interface *ifp)
 #endif
 
 #else
-/* Linux 2.2.X does not provide individual interface index 
+/* Linux 2.2.X does not provide individual interface index
    for aliases and we know it. For others issue a warning. */
 #if !defined(HAVE_BROKEN_ALIASES)
 #warning "Using if_fake_index. You may want to add appropriate"
@@ -220,9 +220,9 @@ if_getaddrs (void)
   struct ifaddrs *ifap;
   struct ifaddrs *ifapfree;
   struct interface *ifp;
-  int prefixlen;
+  u_char prefixlen;
 
-  ret = getifaddrs (&ifap); 
+  ret = getifaddrs (&ifap);
   if (ret != 0)
     {
       zlog_err ("getifaddrs(): %s", safe_strerror (errno));
@@ -237,7 +237,7 @@ if_getaddrs (void)
                     __func__, (ifap->ifa_name ? ifap->ifa_name : "(null)"));
           continue;
         }
-       
+
       ifp = if_lookup_by_name (ifap->ifa_name);
       if (ifp == NULL)
 	{
@@ -315,15 +315,15 @@ if_getaddrs (void)
 	    }
 
 #if defined(KAME)
-	  if (IN6_IS_ADDR_LINKLOCAL(&addr->sin6_addr)) 
+	  if (IN6_IS_ADDR_LINKLOCAL(&addr->sin6_addr))
 	    {
 	      addr->sin6_scope_id =
 			ntohs(*(u_int16_t *)&addr->sin6_addr.s6_addr[2]);
 	      addr->sin6_addr.s6_addr[2] = addr->sin6_addr.s6_addr[3] = 0;
-	    }	
-#endif          
+	    }
+#endif
 
-	  connected_add_ipv6 (ifp, flags, &addr->sin6_addr, prefixlen, 
+	  connected_add_ipv6 (ifp, flags, &addr->sin6_addr, prefixlen,
 	                      dest_pnt, NULL);
 	}
 #endif /* HAVE_IPV6 */
@@ -331,7 +331,7 @@ if_getaddrs (void)
 
   freeifaddrs (ifapfree);
 
-  return 0; 
+  return 0;
 }
 #else /* HAVE_GETIFADDRS */
 /* Interface address lookup by ioctl.  This function only looks up
@@ -354,7 +354,7 @@ if_get_addr (struct interface *ifp)
 
   /* Interface's address. */
   ret = if_ioctl (SIOCGIFADDR, (caddr_t) &ifreq);
-  if (ret < 0) 
+  if (ret < 0)
     {
       if (errno != EADDRNOTAVAIL)
 	{
@@ -367,9 +367,9 @@ if_get_addr (struct interface *ifp)
 
   /* Interface's network mask. */
   ret = if_ioctl (SIOCGIFNETMASK, (caddr_t) &ifreq);
-  if (ret < 0) 
+  if (ret < 0)
     {
-      if (errno != EADDRNOTAVAIL) 
+      if (errno != EADDRNOTAVAIL)
 	{
 	  zlog_warn ("SIOCGIFNETMASK fail: %s", safe_strerror (errno));
 	  return ret;
@@ -387,9 +387,9 @@ if_get_addr (struct interface *ifp)
   dest_pnt = NULL;
 
   ret = if_ioctl (SIOCGIFDSTADDR, (caddr_t) &ifreq);
-  if (ret < 0) 
+  if (ret < 0)
     {
-      if (errno != EADDRNOTAVAIL) 
+      if (errno != EADDRNOTAVAIL)
 	zlog_warn ("SIOCGIFDSTADDR fail: %s", safe_strerror (errno));
     }
   else if (!IPV4_ADDR_SAME(&addr.sin_addr, &ifreq.ifr_dstaddr.sin_addr))
@@ -401,9 +401,9 @@ if_get_addr (struct interface *ifp)
   if (!dest_pnt)
     {
       ret = if_ioctl (SIOCGIFBRDADDR, (caddr_t) &ifreq);
-      if (ret < 0) 
+      if (ret < 0)
 	{
-	  if (errno != EADDRNOTAVAIL) 
+	  if (errno != EADDRNOTAVAIL)
 	    zlog_warn ("SIOCGIFBRDADDR fail: %s", safe_strerror (errno));
 	}
       else if (!IPV4_ADDR_SAME(&addr.sin_addr, &ifreq.ifr_broadaddr.sin_addr))
@@ -427,7 +427,7 @@ interface_info_ioctl ()
 {
   struct listnode *node, *nnode;
   struct interface *ifp;
-  
+
   for (ALL_LIST_ELEMENTS (iflist, node, nnode, ifp))
     {
       if_get_index (ifp);

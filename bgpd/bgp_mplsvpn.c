@@ -27,6 +27,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "stream.h"
 
 #include "bgpd/bgpd.h"
+#include "bgpd/bgp_peer.h"
 #include "bgpd/bgp_table.h"
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_attr.h"
@@ -232,6 +233,9 @@ str2tag (const char *str, u_char *tag)
   unsigned long l;
   char *endptr;
   u_int32_t t;
+
+  if (*str == '-')
+    return 0;
 
   errno = 0 ;
   l = strtoul (str, &endptr, 10);

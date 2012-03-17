@@ -4218,7 +4218,6 @@ static void
 bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
 		       struct peer *peer, afi_t afi, safi_t safi)
 {
-  struct bgp_filter *filter;
   struct peer *g_conf ;
   bool pgm, agm ;
   char *addr;
@@ -4232,8 +4231,7 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
     g_conf = NULL ;
   pgm = (g_conf != NULL) ;  /* group member for >= 1 address families   */
 
-  filter = &peer->filter[afi][safi];
-  agm    = (peer->af_group[afi][safi] != 0) ;
+  agm = (peer->af_group[afi][safi] != 0) ;
 
   if ((afi == AFI_IP) && (safi == SAFI_UNICAST))
     {
@@ -4505,6 +4503,11 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
   /* Route server client. */
   if (!agm && CHECK_FLAG (peer->af_flags[afi][safi], PEER_FLAG_RSERVER_CLIENT))
     vty_out (vty, " neighbor %s route-server-client%s", addr, VTY_NEWLINE);
+
+  /* Nexthop-local unchanged. */
+  if (CHECK_FLAG (peer->af_flags[afi][safi], PEER_FLAG_NEXTHOP_LOCAL_UNCHANGED)
+      && ! peer->af_group[afi][safi])
+    vty_out (vty, " neighbor %s nexthop-local unchanged%s", addr, VTY_NEWLINE);
 
   /* Allow AS in.  */
   if (peer_af_flag_check (peer, afi, safi, PEER_FLAG_ALLOWAS_IN))

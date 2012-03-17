@@ -27,7 +27,6 @@
 
 #include "bgpd/bgp.h"
 #include "qafi_safi.h"
-#include "lib/zassert.h"
 
 /*==============================================================================
  * Here are a number of "incomplete" declarations, which allow a number of
@@ -38,13 +37,19 @@ struct bgp ;
 struct peer ;
 struct bgp_session ;
 struct bgp_connection ;
+struct bgp_connection_options ;
 struct bgp_open_state ;
+struct bgp_nexthop ;
 
 typedef struct bgp*            bgp_instance ;
 typedef struct peer*           bgp_peer ;
 typedef struct bgp_session*    bgp_session ;
 typedef struct bgp_connection* bgp_connection ;
+typedef struct bgp_connnection_options* bgp_connection_options ;
 typedef struct bgp_open_state* bgp_open_state ;
+typedef struct bgp_nexthop*    bgp_nexthop ;
+
+typedef struct bgp_connnection_options bgp_connection_options_t ;
 
 /*==============================================================================
  * Some BGP capabilities and messages have RFC and pre-RFC forms.

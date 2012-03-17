@@ -62,7 +62,7 @@ enum iSAFI
   iSAFI_Unicast    =   1,       /* unicast forwarding           */
   iSAFI_Multicast  =   2,       /* multicast forwarding         */
 
-  iSAFI_Unused     =   3,       /* also Reserved by IANA        */
+  iSAFI_Reserved_3 =   3,       /* Reserved by IANA             */
 
   iSAFI_MPLS_VPN   = 128        /* MPLS-labeled VPN address     */
 } ;
@@ -108,7 +108,7 @@ enum qSAFI
 
   qSAFI_Unicast    =   1,
   qSAFI_Multicast  =   2,
-  qSAFI_Unused     =   3,
+  qSAFI_Reserved_3 =   3,
   qSAFI_MPLS_VPN   =   4,
 
   qSAFI_last       =   4,       /* last real qSAFI              */
@@ -143,6 +143,7 @@ typedef struct qAFI_SAFI* qAFI_SAFI ;
  */
 
 /* Address family numbers from RFC1700. */
+#define AFI_RESERVED              0
 #define AFI_IP                    1
 #define AFI_IP6                   2
 #define AFI_MAX                   3
@@ -156,7 +157,7 @@ CONFIRM(AFI_MAX == qAFI_count) ;
 /* Subsequent Address Family Identifier. */
 #define SAFI_UNICAST              1
 #define SAFI_MULTICAST            2
-#define SAFI_UNICAST_MULTICAST    3
+#define SAFI_RESERVED_3           3
 #define SAFI_MPLS_VPN             4
 #define SAFI_MAX                  5
 
@@ -164,8 +165,8 @@ CONFIRM( (SAFI_UNICAST           == qSAFI_Unicast)
       && (SAFI_UNICAST           == iSAFI_Unicast) ) ;
 CONFIRM( (SAFI_MULTICAST         == qSAFI_Multicast)
       && (SAFI_MULTICAST         == iSAFI_Multicast) ) ;
-CONFIRM( (SAFI_UNICAST_MULTICAST == qSAFI_Unused)
-      && (SAFI_UNICAST_MULTICAST == iSAFI_Unused) ) ;
+CONFIRM( (SAFI_RESERVED_3        == qSAFI_Reserved_3)
+      && (SAFI_RESERVED_3        == iSAFI_Reserved_3) ) ;
 CONFIRM(SAFI_MPLS_VPN  == qSAFI_MPLS_VPN) ;
 CONFIRM(SAFI_MAX       == qSAFI_count) ;
 

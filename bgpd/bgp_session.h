@@ -109,7 +109,7 @@ struct bgp_session
    *
    * Only the Routing Engine creates and destroys sessions.  The BGP Engine
    * assumes that a session will not be destroyed while it is sEnabled,
-   * sEstablished or sStopping.
+   * sEstablished or sLimping.
    *
    * These are private to the Routing Engine.
    */
@@ -320,7 +320,7 @@ inline static void BGP_SESSION_UNLOCK(bgp_session session)
  */
 extern bgp_session bgp_session_init_new(bgp_peer peer) ;
 extern void bgp_session_enable(bgp_peer peer) ;
-extern void bgp_session_disable(bgp_peer peer, bgp_notify notification) ;
+extern bool bgp_session_disable(bgp_peer peer, bgp_notify notification) ;
 extern void bgp_session_delete(bgp_peer peer);
 extern void bgp_session_event(bgp_session session, bgp_session_event_t  event,
                                        bgp_notify           notification,

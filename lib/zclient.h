@@ -114,6 +114,8 @@ struct zapi_ipv4
 
   u_char message;
 
+  safi_t safi;
+
   u_char nexthop_num;
   struct in_addr **nexthop;
 
@@ -135,11 +137,7 @@ extern void zclient_reset (struct zclient *);
 extern void zclient_free (struct zclient *);
 extern void zlookup_schedule(struct zclient *);
 
-/* Get TCP socket connection to zebra daemon at loopback address. */
-extern int zclient_socket (void);
-
-/* Get unix stream socket connection to zebra daemon at given path. */
-extern int zclient_socket_un (const char *);
+extern void zclient_serv_path_set  (char *path);
 
 /* Send redistribute command to zebra daemon. Do not update zclient state. */
 extern int zebra_redistribute_send (int command, struct zclient *, int type);
@@ -175,6 +173,8 @@ struct zapi_ipv6
   u_char flags;
 
   u_char message;
+
+  safi_t safi;
 
   u_char nexthop_num;
   struct in6_addr **nexthop;

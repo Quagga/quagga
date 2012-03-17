@@ -54,6 +54,8 @@ stream_new (size_t size)
    *   endp       -- 0      -- empty
    *   size       -- X      -- see below
    *
+   *   startp     -- 0      -- tidy
+   *
    *   overrun    -- false  -- OK so far !
    *   overflow   -- false  -- ditto
    *

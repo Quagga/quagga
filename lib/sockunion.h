@@ -48,6 +48,7 @@ typedef struct prefix* prefix ;
 
 typedef union sockunion* sockunion ;
 typedef union sockunion  sockunion_t ;
+
 union sockunion
 {
   struct sockaddr sa;
@@ -64,8 +65,9 @@ union sockunion
 #define AF_INET_UNION AF_INET
 #endif
 
-/* Sockunion address string length. Accommodate either IPv4 or IPv6.    */
-#define SU_ADDRSTRLEN 46
+/* Sockunion address string length. Accommodate either IPv4 or IPv6.
+ */
+#define SU_ADDRSTRLEN 50
 
 CONFIRM(SU_ADDRSTRLEN >= INET_ADDRSTRLEN) ;
 #if HAVE_IPV6

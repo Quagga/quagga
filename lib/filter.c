@@ -226,7 +226,7 @@ access_list_free (struct access_list *access)
 
 /* Delete access_list from access_master and free it. */
 static void
-access_list_delete (struct access_list *access)
+access_list_delete (struct access_list *access, bool call_hook)
 {
   struct filter *filter;
   struct filter *next;
@@ -256,11 +256,21 @@ access_list_delete (struct access_list *access)
   else
     list->head = access->next;
 
-  if (access->name)
-    XFREE (MTYPE_ACCESS_LIST_STR, access->name);
-
   if (access->remark)
     XFREE (MTYPE_TMP, access->remark);
+
+  /* If we are to call the delete_hook, then now is the time to do it.
+   *
+   * The contents of the access-list have been emptied out, and just the
+   * name remains.
+   */
+  if (call_hook && (master->delete_hook != NULL))
+    master->delete_hook(access) ;
+
+  /* Finish off the job
+   */
+  if (access->name)
+    XFREE (MTYPE_ACCESS_LIST_STR, access->name);
 
   access_list_free (access);
 }
@@ -493,13 +503,17 @@ access_list_filter_delete (struct access_list *access, struct filter *filter)
 
   filter_free (filter);
 
-  /* If access_list becomes empty delete it from access_master. */
+  /* If access_list becomes empty delete it from access_master and run the
+   * delete_hook at the right moment.
+   *
+   * TODO -- note that this deletes the access list even if a "remark" remains
+   *
+   * Otherwise, run the delete hook.
+   */
   if (access_list_empty (access))
-    access_list_delete (access);
-
-  /* Run hook function. */
-  if (master->delete_hook)
-    (*master->delete_hook) (access);
+    access_list_delete (access, true /* run delete_hook */);
+  else if (master->delete_hook)
+    master->delete_hook(access);
 }
 
 /*
@@ -588,8 +602,8 @@ vty_access_list_remark_unset (struct vty *vty, afi_t afi, const char *name)
       access->remark = NULL;
     }
 
-  if (access->head == NULL && access->tail == NULL && access->remark == NULL)
-    access_list_delete (access);
+  if (access_list_empty (access))
+    access_list_delete (access, true /* run delete_hook */);
 
   return CMD_SUCCESS;
 }
@@ -1337,15 +1351,10 @@ DEFUN (no_access_list_all,
 
   master = access->master;
 
-  /* Delete all filter from access-list. */
-  access_list_delete (access);
-
-  /* Run hook function. */
-  if (master->delete_hook)
-    (*master->delete_hook) (access);
+  access_list_delete (access, true /* run delete_hook */);
 
   return CMD_SUCCESS;
-}
+} ;
 
 DEFUN (access_list_remark,
        access_list_remark_cmd,
@@ -1508,12 +1517,7 @@ DEFUN (no_ipv6_access_list_all,
 
   master = access->master;
 
-  /* Delete all filter from access-list. */
-  access_list_delete (access);
-
-  /* Run hook function. */
-  if (master->delete_hook)
-    (*master->delete_hook) (access);
+  access_list_delete (access, true /* run delete_hook */);
 
   return CMD_SUCCESS;
 }
@@ -1876,12 +1880,12 @@ access_list_reset_ipv4 (void)
   for (access = master->num.head; access; access = next)
     {
       next = access->next;
-      access_list_delete (access);
+      access_list_delete (access, false /* do not delete_hook() TODO ??? */);
     }
   for (access = master->str.head; access; access = next)
     {
       next = access->next;
-      access_list_delete (access);
+      access_list_delete (access, false /* do not delete_hook() TODO ??? */);
     }
 
   assert (master->num.head == NULL);
@@ -1965,12 +1969,12 @@ access_list_reset_ipv6 (void)
   for (access = master->num.head; access; access = next)
     {
       next = access->next;
-      access_list_delete (access);
+      access_list_delete (access, false /* do not delete_hook() TODO ??? */);
     }
   for (access = master->str.head; access; access = next)
     {
       next = access->next;
-      access_list_delete (access);
+      access_list_delete (access, false /* do not delete_hook() TODO ??? */);
     }
 
   assert (master->num.head == NULL);
