@@ -636,19 +636,34 @@ qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts)
  *     anything, so there can be nothing to release -- so does nothing, but
  *     returns the original mutex address (if any).
  */
+#include <stdio.h>
 extern qpt_mutex
 qpt_mutex_destroy(qpt_mutex mx, free_keep_b free_mutex)
 {
-  int err ;
-
   if (qpthreads_enabled && (mx != NULL))
     {
-      err = pthread_mutex_destroy(mx) ;
-      if (err != 0)
-        zabort_err("pthread_mutex_destroy failed", err) ;
+      int err ;
 
-      if (free_mutex)
-        XFREE(MTYPE_QPT_MUTEX, mx) ;    /* sets mx == NULL      */
+      err = pthread_mutex_destroy(mx) ;
+
+      if (err == 0)
+        {
+          if (free_mutex)
+            XFREE(MTYPE_QPT_MUTEX, mx) ;        /* sets mx == NULL      */
+        }
+      else
+        {
+          /* If we are closing down, then not much point aborting, and may as
+           * well make it look as if succeeded if wanted to free it.
+           */
+          if (qpthreads_active)
+            zabort_err("pthread_mutex_destroy failed", err) ;
+          else
+            fprintf(stderr, "pthread_mutex_destroy failed %d\n", err) ;
+
+          if (free_mutex)
+            mx = NULL ;
+        } ;
     } ;
 
   return mx ;
@@ -734,16 +749,28 @@ qpt_cond_init_new(qpt_cond cv, enum qpt_cond_options opts)
 extern qpt_cond
 qpt_cond_destroy(qpt_cond cv, free_keep_b free_cond)
 {
-  int err ;
-
   if (qpthreads_enabled && (cv != NULL))
     {
-      err = pthread_cond_destroy(cv) ;
-      if (err != 0)
-        zabort_err("pthread_cond_destroy failed", err) ;
+      int err ;
 
-      if (free_cond)
-        XFREE(MTYPE_QPT_COND, cv) ;     /* sets cv == NULL      */
+      err = pthread_cond_destroy(cv) ;
+
+      if (err == 0)
+        {
+          if (free_cond)
+            XFREE(MTYPE_QPT_COND, cv) ; /* sets cv == NULL      */
+        }
+      else
+        {
+          /* If we are closing down, then not much point aborting, and may as
+           * well make it look as if succeeded if wanted to free it.
+           */
+          if (qpthreads_active)
+            zabort_err("pthread_cond_destroy failed", err) ;
+
+          if (free_cond)
+            cv = NULL ;
+        } ;
     } ;
 
   return cv ;
@@ -823,8 +850,14 @@ qpt_spin_destroy(qpt_spin slk)
   if (qpthreads_enabled && (slk != NULL))
     {
       int err = pthread_spin_destroy(slk) ;
+
       if (err != 0)
-        zabort_err("pthread_spin_destroy failed", err) ;
+        {
+          /* If we are closing down, then not much point aborting.
+           */
+          if (qpthreads_active)
+            zabort_err("pthread_spin_destroy failed", err) ;
+        } ;
     } ;
 } ;
 
