@@ -140,36 +140,42 @@ bgp_peer_index_init(void* parent)
 } ;
 
 /*------------------------------------------------------------------------------
- * Initialise the bgp_peer_index_mutex.
+ * Second stage initialisation.
  *
- * This must be done as soon as any qpthreads are enabled.
+ * Initialise the bgp_peer_index_mutex.
  */
 extern void
-bgp_peer_index_mutex_init(void)
+bgp_peer_index_init_r(void)
 {
   bgp_peer_index_mutex = qpt_mutex_init_new(NULL, qpt_mutex_recursive) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Reset the peer index -- freeing all memory.
+ * Shut down the peer index -- freeing all memory and mutex.
  *
- * The index can be used again without initialisation, and without further
- * initialisation of the mutex.
+ * For shutdown, *only*.
  *
- * NB: all peers MUST have been deregistered already.
+ * NB: assumes is running in the one remaining thread at shutdown
+ *
+ * NB: it would be a serious mistake to do anything at all with the peer index
+ *     after this -- so all listeners should be shut *first*.
  */
 extern void
-bgp_peer_index_reset(void)
+bgp_peer_index_finish(void)
 {
   bgp_peer_index_entry    entry ;
   bgp_peer_id_table_chunk chunk ;
+
+  qassert(!qpthreads_active) ;
 
   /* Ream out the peer id vector -- checking that all entries are empty
    */
   while ((entry = vector_ream(bgp_peer_id_index, keep_it)) != NULL)
     passert((entry->peer == NULL) && (entry->next_free != entry)) ;
 
-  /* Ream out and discard symbol table -- does not free any entries
+  /* Ream out and discard symbol table -- does not free any entries because
+   * they are held in the chucks of entries which are about to be freed en
+   * masse.
    */
   bgp_peer_index = symbol_table_free(bgp_peer_index, keep_it) ;
 
@@ -182,21 +188,14 @@ bgp_peer_index_reset(void)
       XFREE(MTYPE_BGP_PEER_ID_TABLE, chunk) ;
     } ;
 
-  /* Set utterly empty
+  /* Set utterly empty and discard mutex.
    */
   bgp_peer_id_table     = NULL ;
   bgp_peer_id_free_head = NULL ;
   bgp_peer_id_free_tail = NULL ;
 
   bgp_peer_id_count = 0 ;
-} ;
 
-/*------------------------------------------------------------------------------
- * Free the bgp_peer_index_mutex -- for shut down.
- */
-extern void
-bgp_peer_index_mutex_free(void)
-{
   qpt_mutex_destroy(bgp_peer_index_mutex, free_it) ;
 } ;
 

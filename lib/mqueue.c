@@ -127,7 +127,7 @@
  * now passed.)
  */
 
-static pthread_mutex_t  mqb_mutex ;     /* for allocation of mqueue blocks  */
+static qpt_mutex_t  mqb_mutex ;         /* for allocation of mqueue blocks  */
 
 static mqueue_block mqb_free_list  = NULL ;
 static unsigned     mqb_free_count = 0 ;
@@ -147,7 +147,7 @@ extern void
 mqueue_initialise(void)
 {
   if (qpthreads_enabled_freeze)
-    qpt_mutex_init_new(&mqb_mutex, qpt_mutex_quagga) ;
+    qpt_mutex_init_new(mqb_mutex, qpt_mutex_quagga) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -173,7 +173,7 @@ mqueue_finish(void)
 
   assert(mqb_free_count == 0) ;
 
-  qpt_mutex_destroy(&mqb_mutex, keep_it) ;
+  qpt_mutex_destroy(mqb_mutex, keep_it) ;
 } ;
 
 /*==============================================================================
@@ -406,7 +406,7 @@ mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0)
 {
   if (mqb == NULL)
     {
-      qpt_mutex_lock(&mqb_mutex) ;    /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
+      qpt_mutex_lock(mqb_mutex) ;     /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
       mqb = mqb_free_list ;
       if (mqb == NULL)
@@ -421,7 +421,7 @@ mqb_init_new(mqueue_block mqb, mqueue_action action, void* arg0)
           --mqb_free_count ;
         } ;
 
-      qpt_mutex_unlock(&mqb_mutex) ;  /*->->->->->->->->->->->->->->->->->->->*/
+      qpt_mutex_unlock(mqb_mutex) ;   /*->->->->->->->->->->->->->->->->->->->*/
     } ;
 
   memset(mqb, 0, sizeof(mqueue_block_t)) ;
@@ -458,13 +458,13 @@ mqb_free(mqueue_block mqb)
   if (mqb == NULL)
     return NULL ;
 
-  qpt_mutex_lock(&mqb_mutex) ;    /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
+  qpt_mutex_lock(mqb_mutex) ;     /*<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-<-*/
 
   mqb->next = mqb_free_list ;
   mqb_free_list = mqb ;
   ++mqb_free_count ;
 
-  qpt_mutex_unlock(&mqb_mutex) ;  /*->->->->->->->->->->->->->->->->->->->->->*/
+  qpt_mutex_unlock(mqb_mutex) ;   /*->->->->->->->->->->->->->->->->->->->->->*/
 
   return NULL ;
 } ;

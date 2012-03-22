@@ -725,6 +725,7 @@ extern bool cmd_part_complete(cmd_parsed parsed, elstring els) ;
 extern void cmd_get_parse_error(vio_fifo ebuf, cmd_parsed parsed, uint indent) ;
 
 extern void cmd_parser_init(void) ;
+extern void cmd_parser_finish(void) ;
 
 extern vector cmd_describe_command (const char* line, node_type_t node,
                                                             cmd_ret_t* status) ;

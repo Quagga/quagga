@@ -732,7 +732,7 @@ zprivs_init_r()
 extern void
 zprivs_finish(void)
 {
-  qpt_mutex_destroy(privs_mutex, 0);
+  qpt_mutex_destroy(privs_mutex, keep_it);
 }
 
 /*------------------------------------------------------------------------------

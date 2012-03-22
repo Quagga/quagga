@@ -295,6 +295,8 @@ qps_selection_ream(qps_selection qps, free_keep_b free_structure)
     {
       passert(qps->fd_count == 0) ;
 
+      vector_reset(&qps->files, keep_it) ;      /* empty vector, free body
+                                                 * but keep embedded vector */
       if (free_structure)
         XFREE(MTYPE_QPS_SELECTION, qps) ;
       else

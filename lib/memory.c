@@ -2314,6 +2314,37 @@ mem_mt_realloc(mtype_t mtype, void* old_address, void* new_address,
   zabort("Failed to find memory being realloced") ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Put contents of memory tracker index to stderr
+ */
+static void
+mem_mt_show_stderr(void)
+{
+  uint  i ;
+
+  for (i = 0 ; i < mem_base_count ; ++i)
+    {
+      md_index_t mdi ;
+
+      mdi = mem_bases[i] ;
+
+      while (mdi != 0)
+        {
+          mem_descriptor md ;
+
+          md   = mem_mt_ptr(mdi) ;
+
+          fprintf (stderr,
+                  "%-30s:%6u %s\n",
+                  mem_mtype_name(mem_mt_type(md)),
+                  (uint)mem_mt_size(md),
+                  md->name) ;
+
+          mdi = mem_mt_next(md) ;
+        } ;
+    } ;
+} ;
+
 /*==============================================================================
  * Memory Tracker Display
  */
@@ -2555,6 +2586,9 @@ log_memstats_stderr (const char *prefix)
             } ;
         } ;
     } ;
+
+  if (0)
+    mem_mt_show_stderr() ;
 
   if (seen_something)
     fprintf (stderr,

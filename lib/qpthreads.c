@@ -25,6 +25,7 @@
 
 #include "qpthreads.h"
 #include "memory.h"
+#include "log.h"
 
 /*==============================================================================
  * Quagga Pthread Interface -- qpt_xxxx
@@ -659,7 +660,7 @@ qpt_mutex_destroy(qpt_mutex mx, free_keep_b free_mutex)
           if (qpthreads_active)
             zabort_err("pthread_mutex_destroy failed", err) ;
           else
-            fprintf(stderr, "pthread_mutex_destroy failed %d\n", err) ;
+            zlog_err("pthread_mutex_destroy failed (%s)", errtoa(err, 0).str) ;
 
           if (free_mutex)
             mx = NULL ;
@@ -767,6 +768,8 @@ qpt_cond_destroy(qpt_cond cv, free_keep_b free_cond)
            */
           if (qpthreads_active)
             zabort_err("pthread_cond_destroy failed", err) ;
+          else
+            zlog_err("pthread_cond_destroy failed (%s)", errtoa(err, 0).str) ;
 
           if (free_cond)
             cv = NULL ;
@@ -857,6 +860,8 @@ qpt_spin_destroy(qpt_spin slk)
            */
           if (qpthreads_active)
             zabort_err("pthread_spin_destroy failed", err) ;
+          else
+            zlog_err("pthread_spin_destroy failed (%s)", errtoa(err, 0).str) ;
         } ;
     } ;
 } ;

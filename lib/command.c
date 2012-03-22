@@ -4570,6 +4570,8 @@ cmd_table_terminate (void)
 
       cmd_node->cmd_vector = NULL ;
     } ;
+
+  cmd_parser_finish() ;
 } ;
 
 /*==============================================================================

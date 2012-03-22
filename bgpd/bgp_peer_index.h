@@ -71,9 +71,8 @@ enum { bgp_peer_id_null = 0 } ; /* no peer can have id == 0     */
  * Functions
  */
 extern void bgp_peer_index_init(void* parent) ;
-extern void bgp_peer_index_mutex_init(void) ;
-extern void bgp_peer_index_reset(void) ;
-extern void bgp_peer_index_mutex_free(void) ;
+extern void bgp_peer_index_init_r(void) ;
+extern void bgp_peer_index_finish(void) ;
 extern void bgp_peer_index_register(bgp_peer peer, union sockunion* su) ;
 extern void bgp_peer_index_deregister(bgp_peer peer, union sockunion* su) ;
 extern bgp_peer bgp_peer_index_seek(sockunion su) ;

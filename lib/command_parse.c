@@ -5197,6 +5197,10 @@ cmd_complete_command (vector tokens, int node, int *status)
 } ;
 
 /*==============================================================================
+ * Initialise and shutdown the pool of words
+ */
+
+/*------------------------------------------------------------------------------
  * Initialise command parsing -- done before first command is installed.
  *
  * Complete the (much used) eol_item.
@@ -5206,4 +5210,16 @@ cmd_parser_init(void)
 {
   dsl_init(word_lumps) ;
   cmd_set_str(&eol_item, "<cr>") ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Shutdown command parsing -- done after last command is dismantled.
+ */
+extern void
+cmd_parser_finish(void)
+{
+  word_lump lump ;
+
+  while (dsl_pop(&lump, word_lumps, next) != NULL)
+    XFREE(MTYPE_CMD_STRING, lump) ;
 } ;

@@ -566,7 +566,7 @@ bgp_init_second_stage(bool pthreads)
 {
   qlib_init_second_stage(pthreads);
 
-  bgp_peer_index_mutex_init();
+  bgp_peer_index_init_r();
 
   /* Make nexus for main thread, always needed */
   cli_nexus = qpn_init_new(cli_nexus, 1,                /* main thread  */
@@ -693,6 +693,9 @@ bgp_exit (int status)
   for (ALL_LIST_ELEMENTS (bm->bgp, node, nnode, bgp))
     bgp_delete (bgp);
   list_free (bm->bgp);
+
+  /* dismantle the peer index   */
+  bgp_peer_index_finish() ;
 
   /* reverse bgp_zebra_init/if_init */
   if (retain_mode)
