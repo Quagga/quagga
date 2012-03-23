@@ -671,16 +671,10 @@ int
 bgp_update_receive (struct peer *peer, bgp_size_t size)
 {
   int ret;
-  struct stream *s;
-  struct attr attr;
   bgp_size_t attribute_len;
-  struct bgp_nlri update;
-  struct bgp_nlri withdraw;
-  struct bgp_nlri mp_update;
-  struct bgp_nlri mp_withdraw;
-  bool            mp_eor ;
   char attrstr[BUFSIZ] = "";
   bgp_attr_parse_ret_t ap_ret ;
+  bgp_attr_parser_args_t args[1] ;
 
   /* Status must be Established. */
   if (peer->state != bgp_peer_pEstablished)
@@ -692,18 +686,15 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
     }
 
   /* Set initial values. */
-  memset (&attr, 0, sizeof (struct attr));
-  memset (&update, 0, sizeof (struct bgp_nlri));
-  memset (&withdraw, 0, sizeof (struct bgp_nlri));
-  memset (&mp_update, 0, sizeof (struct bgp_nlri));
-  memset (&mp_withdraw, 0, sizeof (struct bgp_nlri));
+  memset (args, 0, sizeof (args));
 
-  s = peer->ibuf;
+  args->peer = peer ;
+  args->s    = peer->ibuf ;
 
   /* Unfeasible Route Length.
    */
-  withdraw.length = stream_getw (s);
-  if (stream_has_overrun(s))
+  args->withdraw.length = stream_getw (args->s);
+  if (stream_has_overrun(args->s))
     {
       zlog_err ("%s [Error] Update packet error"
 		" (packet length is short for unfeasible length)",
@@ -715,43 +706,43 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 
   /* Unfeasible Route packet format check.
    */
-  if (withdraw.length > 0)
+  if (args->withdraw.length > 0)
     {
       ulen endp ;
 
-      endp = stream_push_endp(s, withdraw.length) ;
-      if (stream_has_overrun(s))
+      endp = stream_push_endp(args->s, args->withdraw.length) ;
+      if (stream_has_overrun(args->s))
         {
           zlog_err ("%s [Error] Update packet error"
                     " (packet unfeasible length overflow %d)",
-                    peer->host, withdraw.length);
+                    peer->host, args->withdraw.length);
           bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
                                      BGP_NOTIFY_UPDATE_MAL_ATTR);
           return -1;
         }
 
-      ret = bgp_nlri_sanity_check (peer, AFI_IP, stream_get_pnt (s),
-                                                               withdraw.length);
+      ret = bgp_nlri_sanity_check (peer, AFI_IP, stream_get_pnt (args->s),
+                                                         args->withdraw.length);
       if (ret < 0)
         {
-          zlog_info ("%s withdraw NLRI doesn't pass sanity check", peer->host) ;
+          zlog_info ("%s withdraw NLRI fails sanity check", peer->host) ;
           return -1 ;
         } ;
 
       if (BGP_DEBUG (packet, PACKET_RECV))
 	zlog_debug ("%s [Update:RECV] Unfeasible NLRI received", peer->host);
 
-      withdraw.afi    = AFI_IP;
-      withdraw.safi   = SAFI_UNICAST;
-      withdraw.nlri   = stream_get_pnt (s);
+      args->withdraw.afi    = AFI_IP;
+      args->withdraw.safi   = SAFI_UNICAST;
+      args->withdraw.nlri   = stream_get_pnt (args->s);
 
-      stream_pop_endp(s, endp) ;        /* steps getp to given endp     */
+      stream_pop_endp(args->s, endp) ;  /* steps getp to given endp     */
     }
 
   /* Fetch attribute total length.
    */
-  attribute_len = stream_getw (s);
-  if (stream_has_overrun(s))
+  attribute_len = stream_getw (args->s);
+  if (stream_has_overrun(args->s))
     {
       zlog_warn ("%s [Error] Packet Error"
                  " (update packet is short for attribute length)",
@@ -773,7 +764,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   /* This define morphs the update case into a withdraw when lower levels
    * have signalled an error condition where this is best.
    */
-#define NLRI_ATTR_ARG (ap_ret != BGP_ATTR_PARSE_WITHDRAW ? &attr : NULL)
+#define NLRI_ATTR_ARG (ap_ret != BGP_ATTR_PARSE_WITHDRAW ? &args->attr : NULL)
 
   /* Parse attribute when it exists. */
   if (attribute_len)
@@ -784,11 +775,11 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
        * Set the s->endp to the end of the attributes, check that is within
        * the current endp, and save the current endp.
        */
-      endp = stream_push_endp(s, attribute_len) ;
-      if (stream_has_overrun(s))
+      endp = stream_push_endp(args->s, attribute_len) ;
+      if (stream_has_overrun(args->s))
         {
           zlog_warn ("%s [Error] Packet Error"
-                       " (update packet attribute length overflow %d)",
+                       " (update packet attribute length overflow %u)",
                        peer->host, attribute_len);
           bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
                                      BGP_NOTIFY_UPDATE_MAL_ATTR);
@@ -797,13 +788,13 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 
       /* Do the real work of parsing the attributes getp..endp.
        */
-      ap_ret = bgp_attr_parse (peer, &attr, &mp_update, &mp_withdraw, &mp_eor);
+      ap_ret = bgp_attr_parse (args);
 
      /* Restore the endp, checking that either the getp is at the end of the
       * attributes or we have a serious error and no longer care about the
       * stream pointers.
        */
-      if (!stream_pop_endp(s, endp) && (ap_ret != BGP_ATTR_PARSE_ERROR))
+      if (!stream_pop_endp(args->s, endp) && (ap_ret != BGP_ATTR_PARSE_ERROR))
         {
           /* This is actually an internal error -- have somehow got out of
            * step, without the check inside the loop spotting it !
@@ -860,7 +851,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
                 break ;
             } ;
 
-          if (bgp_dump_attr (peer, &attr, attrstr, BUFSIZ))
+          if (bgp_dump_attr (peer, &args->attr, attrstr, BUFSIZ))
             zlog (peer->log, lvl, "%s rcvd UPDATE w/ attr: %s",
                                                            peer->host, attrstr);
 
@@ -874,24 +865,24 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 
   /* Network Layer Reachability Information.
    */
-  update.length = stream_get_read_left(s);
+  args->update.length = stream_get_read_left(args->s);
 
-  if (update.length)
+  if (args->update.length != 0)
     {
       /* Set NLRI portion to structure. */
-      update.afi  = AFI_IP;
-      update.safi = SAFI_UNICAST;
-      update.nlri = stream_get_pnt (s);
+      args->update.afi  = AFI_IP;
+      args->update.safi = SAFI_UNICAST;
+      args->update.nlri = stream_get_pnt (args->s);
 
-      ret = bgp_nlri_sanity_check (peer, update.afi, update.nlri,
-                                                     update.length) ;
+      ret = bgp_nlri_sanity_check (peer, args->update.afi, args->update.nlri,
+                                                          args->update.length) ;
       if (ret < 0)
         {
-          zlog_info ("%s update NLRI doesn't pass sanity check", peer->host) ;
+          zlog_info ("%s update NLRI fails sanity check", peer->host) ;
           return -1 ;
        } ;
 
-      stream_forward_getp (s, update.length);
+      stream_forward_getp (args->s, args->update.length);
     } ;
 
   /* Now we check for the "mandatory" attributes -- if we have one, other or
@@ -900,9 +891,10 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
    * Note that mp_update.length is a bit pointless, but we tolerate and ignore
    * the attribute state.
    */
-  if ((update.length != 0) || (mp_update.length != 0))
+  if ((args->update.length != 0) || (args->mp_update.length != 0))
     {
-      ret = bgp_attr_check (peer, &attr, update.length != 0 /* with NEXT_HOP */);
+      ret = bgp_attr_check (peer, &args->attr,
+                                  args->update.length != 0 /* with NEXT_HOP */);
       if (ret < 0)
         {
           ret = -1 ;
@@ -920,34 +912,34 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
    * Rule is that the MP_UNREACH_NLRI should be the *only* thing in the UPDATE
    * message.
    */
-  if (mp_eor)
+  if (args->mp_eor)
     {
-      if ((withdraw.length != 0) || (update.length != 0))
-        mp_eor = false ;
+      if ((args->withdraw.length != 0) || (args->update.length != 0))
+        args->mp_eor = false ;
     } ;
 
   /* NLRI is processed only when the peer is configured specific
      Address Family and Subsequent Address Family. */
   if (peer->afc[AFI_IP][SAFI_UNICAST])
     {
-      if (withdraw.length)
-	bgp_nlri_parse (peer, NULL, &withdraw);
+      if (args->withdraw.length)
+	bgp_nlri_parse (peer, NULL, &args->withdraw);
 
-      if (update.length)
-        bgp_nlri_parse (peer, NLRI_ATTR_ARG, &update);
+      if (args->update.length)
+        bgp_nlri_parse (peer, NLRI_ATTR_ARG, &args->update);
 
-      if (mp_update.length
-	  && mp_update.afi  == AFI_IP
-	  && mp_update.safi == SAFI_UNICAST)
-	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &mp_update);
+      if (args->mp_update.length
+	  && args->mp_update.afi  == AFI_IP
+	  && args->mp_update.safi == SAFI_UNICAST)
+	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &args->mp_update);
 
-      if (mp_withdraw.length
-	  && mp_withdraw.afi  == AFI_IP
-	  && mp_withdraw.safi == SAFI_UNICAST)
-	bgp_nlri_parse (peer, NULL, &mp_withdraw);
+      if (args->mp_withdraw.length
+	  && args->mp_withdraw.afi  == AFI_IP
+	  && args->mp_withdraw.safi == SAFI_UNICAST)
+	bgp_nlri_parse (peer, NULL, &args->mp_withdraw);
 
-      if ((attribute_len == 0) && (withdraw.length == 0)
-                               && (update.length == 0))
+      if ((attribute_len == 0) && (args->withdraw.length == 0)
+                               && (args->update.length == 0))
 	{
 	  /* End-of-RIB received */
 	  SET_FLAG (peer->af_sflags[AFI_IP][SAFI_UNICAST],
@@ -966,19 +958,19 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 
   if (peer->afc[AFI_IP][SAFI_MULTICAST])
     {
-      if (mp_update.length
-	  && mp_update.afi == AFI_IP
-	  && mp_update.safi == SAFI_MULTICAST)
-	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &mp_update);
+      if (args->mp_update.length
+	  && args->mp_update.afi == AFI_IP
+	  && args->mp_update.safi == SAFI_MULTICAST)
+	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &args->mp_update);
 
-      if (mp_withdraw.length
-	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_MULTICAST)
-	bgp_nlri_parse (peer, NULL, &mp_withdraw);
+      if (args->mp_withdraw.length
+	  && args->mp_withdraw.afi == AFI_IP
+	  && args->mp_withdraw.safi == SAFI_MULTICAST)
+	bgp_nlri_parse (peer, NULL, &args->mp_withdraw);
 
-      if (mp_eor
-	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_MULTICAST)
+      if (args->mp_eor
+	  && args->mp_withdraw.afi == AFI_IP
+	  && args->mp_withdraw.safi == SAFI_MULTICAST)
 	{
 	  /* End-of-RIB received */
 	  SET_FLAG (peer->af_sflags[AFI_IP][SAFI_MULTICAST],
@@ -996,19 +988,19 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
     }
   if (peer->afc[AFI_IP6][SAFI_UNICAST])
     {
-      if (mp_update.length
-	  && mp_update.afi  == AFI_IP6
-	  && mp_update.safi == SAFI_UNICAST)
-	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &mp_update);
+      if (args->mp_update.length
+	  && args->mp_update.afi  == AFI_IP6
+	  && args->mp_update.safi == SAFI_UNICAST)
+	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &args->mp_update);
 
-      if (mp_withdraw.length
-	  && mp_withdraw.afi  == AFI_IP6
-	  && mp_withdraw.safi == SAFI_UNICAST)
-	bgp_nlri_parse (peer, NULL, &mp_withdraw);
+      if (args->mp_withdraw.length
+	  && args->mp_withdraw.afi  == AFI_IP6
+	  && args->mp_withdraw.safi == SAFI_UNICAST)
+	bgp_nlri_parse (peer, NULL, &args->mp_withdraw);
 
-      if (mp_eor
-	  && mp_withdraw.afi  == AFI_IP6
-	  && mp_withdraw.safi == SAFI_UNICAST)
+      if (args->mp_eor
+	  && args->mp_withdraw.afi  == AFI_IP6
+	  && args->mp_withdraw.safi == SAFI_UNICAST)
 	{
 	  /* End-of-RIB received */
 	  SET_FLAG (peer->af_sflags[AFI_IP6][SAFI_UNICAST],
@@ -1026,19 +1018,19 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
     }
   if (peer->afc[AFI_IP6][SAFI_MULTICAST])
     {
-      if (mp_update.length
-	  && mp_update.afi == AFI_IP6
-	  && mp_update.safi == SAFI_MULTICAST)
-	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &mp_update);
+      if (args->mp_update.length
+	  && args->mp_update.afi == AFI_IP6
+	  && args->mp_update.safi == SAFI_MULTICAST)
+	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &args->mp_update);
 
-      if (mp_withdraw.length
-	  && mp_withdraw.afi == AFI_IP6
-	  && mp_withdraw.safi == SAFI_MULTICAST)
-	bgp_nlri_parse (peer, NULL, &mp_withdraw);
+      if (args->mp_withdraw.length
+	  && args->mp_withdraw.afi == AFI_IP6
+	  && args->mp_withdraw.safi == SAFI_MULTICAST)
+	bgp_nlri_parse (peer, NULL, &args->mp_withdraw);
 
-      if (mp_eor
-	  && mp_withdraw.afi == AFI_IP6
-	  && mp_withdraw.safi == SAFI_MULTICAST)
+      if (args->mp_eor
+	  && args->mp_withdraw.afi == AFI_IP6
+	  && args->mp_withdraw.safi == SAFI_MULTICAST)
 	{
 	  /* End-of-RIB received */
 
@@ -1054,19 +1046,19 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
     }
   if (peer->afc[AFI_IP][SAFI_MPLS_VPN])
     {
-      if (mp_update.length
-	  && mp_update.afi == AFI_IP
-	  && mp_update.safi == SAFI_MPLS_LABELED_VPN)
-	bgp_nlri_parse_vpnv4 (peer, NLRI_ATTR_ARG, &mp_update);
+      if (args->mp_update.length
+	  && args->mp_update.afi == AFI_IP
+	  && args->mp_update.safi == SAFI_MPLS_LABELED_VPN)
+	bgp_nlri_parse_vpnv4 (peer, NLRI_ATTR_ARG, &args->mp_update);
 
-      if (mp_withdraw.length
-	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN)
-	bgp_nlri_parse_vpnv4 (peer, NULL, &mp_withdraw);
+      if (args->mp_withdraw.length
+	  && args->mp_withdraw.afi == AFI_IP
+	  && args->mp_withdraw.safi == SAFI_MPLS_LABELED_VPN)
+	bgp_nlri_parse_vpnv4 (peer, NULL, &args->mp_withdraw);
 
-      if (mp_eor
-	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN)
+      if (args->mp_eor
+	  && args->mp_withdraw.afi == AFI_IP
+	  && args->mp_withdraw.safi == SAFI_MPLS_LABELED_VPN)
 	{
 	  /* End-of-RIB received */
 
@@ -1083,7 +1075,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   ret = 0 ;
 
  exit_bgp_update_receive:
-  bgp_attr_unintern_sub (&attr, true) ; /* true => free extra   */
+  bgp_attr_unintern_sub (&args->attr, true) ; /* true => free extra   */
 
   return ret ;
 }

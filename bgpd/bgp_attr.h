@@ -146,12 +146,36 @@ typedef enum {
 
 #define BGP_ATTR_PARSE_OK(ret) ((ret) >= BGP_ATTR_PARSE_PROCEED)
 
+typedef struct bgp_attr_parser_args {
+  struct peer*   peer;
+  struct stream* s ;
+
+  uint8_t    type;
+  uint8_t    flags;
+  bgp_size_t length; /* attribute data length; */
+
+  struct attr attr;
+
+  struct aspath *as4_path ;
+
+  as_t as4_aggregator_as ;
+  struct in_addr as4_aggregator_addr ;
+
+  struct bgp_nlri update ;
+  struct bgp_nlri withdraw ;
+
+  struct bgp_nlri mp_update ;
+  struct bgp_nlri mp_withdraw ;
+
+  bool mp_eor ;
+} bgp_attr_parser_args_t ;
+
+typedef bgp_attr_parser_args_t* bgp_attr_parser_args ;
+
 /* Prototypes. */
 extern void bgp_attr_init (void);
 extern void bgp_attr_finish (void);
-extern bgp_attr_parse_ret_t bgp_attr_parse (struct peer *, struct attr *,
-                                            struct bgp_nlri *,
-                                            struct bgp_nlri *, bool*);
+extern bgp_attr_parse_ret_t bgp_attr_parse (restrict bgp_attr_parser_args args);
 extern int bgp_attr_check (struct peer *, struct attr *, bool);
 extern struct attr_extra *bgp_attr_extra_get (struct attr *);
 extern void bgp_attr_extra_free (struct attr *);
@@ -187,10 +211,9 @@ extern void cluster_unintern (struct cluster_list *);
 /* Transit attribute prototypes. */
 void transit_unintern (struct transit *);
 
-/* Exported for unit-test purposes only */
-extern bgp_attr_parse_ret_t bgp_mp_reach_parse (struct peer *, const bgp_size_t,
-                                struct attr *, const u_char, struct bgp_nlri *);
-extern bgp_attr_parse_ret_t bgp_mp_unreach_parse (struct peer *,
-                      const bgp_size_t, const u_char, struct bgp_nlri *, bool*);
+/* Below exported for unit-test purposes only
+ * */
+extern int bgp_mp_reach_parse (bgp_attr_parser_args args);
+extern int bgp_mp_unreach_parse (bgp_attr_parser_args args);
 
 #endif /* _QUAGGA_BGP_ATTR_H */

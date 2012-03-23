@@ -570,7 +570,7 @@ safe_inet_ntoa (struct in_addr in)
 /*------------------------------------------------------------------------------
  * Construct string for given IP family/address.
  *
- * Requires buffer of at least SU_ADDRSTRLEN characters.
+ * Returns struct with embedded string.
  */
 extern str_iptoa_t
 siptoa(sa_family_t family, const void* address)

@@ -129,16 +129,6 @@ static attr_flags_check_t attr_flags_check_array[attr_flags_check_limit] =
   [BGP_ATTR_AS_PATHLIMIT      ] = { BGP_ATTR_FLAGS_OPTIONAL_TRANS     },
 } ;
 
-/* For all known attribute types this should collapse to almost nothing each
- * time it is compiled.
- */
-inline static attr_flags_check_t*
-bgp_attr_flags_check_get(uint8_t attr_type)
-{
-  return &attr_flags_check_array[(attr_type < attr_flags_check_limit)
-                                                              ? attr_type : 0] ;
-} ;
-
 static struct hash *cluster_hash;
 
 static void *
@@ -882,16 +872,15 @@ bgp_attr_raw(struct peer *peer, ulen* total)
  *     been rejected well before we get to this point.
  */
 static bgp_attr_parse_ret_t
-bgp_attr_malformed (struct peer *peer, u_char attr_type, u_char flag,
-                                                                 u_char subcode)
+bgp_attr_malformed (restrict bgp_attr_parser_args args, u_char subcode)
 {
   byte* data ;
   uint  data_len ;
 
   /* Only relax error handling for eBGP peers */
-  if (peer_sort (peer) == BGP_PEER_EBGP)
+  if (peer_sort (args->peer) == BGP_PEER_EBGP)
     {
-      switch (attr_type)
+      switch (args->type)
         {
           /* where an optional attribute is inconsequential, e.g. it does not
            * affect route selection, and can be safely ignored then any such
@@ -924,9 +913,9 @@ bgp_attr_malformed (struct peer *peer, u_char attr_type, u_char flag,
            * of the routes, if possible.
            */
           default:
-            if (CHECK_FLAG (flag, BGP_ATTR_FLAG_TRANS)    &&
-                CHECK_FLAG (flag, BGP_ATTR_FLAG_OPTIONAL) &&
-                CHECK_FLAG (flag, BGP_ATTR_FLAG_PARTIAL))
+            if (CHECK_FLAG (args->flags, BGP_ATTR_FLAG_TRANS)    &&
+                CHECK_FLAG (args->flags, BGP_ATTR_FLAG_OPTIONAL) &&
+                CHECK_FLAG (args->flags, BGP_ATTR_FLAG_PARTIAL))
               return BGP_ATTR_PARSE_WITHDRAW;
             break ;
         } ;
@@ -949,7 +938,7 @@ bgp_attr_malformed (struct peer *peer, u_char attr_type, u_char flag,
         break ;
 
       case BGP_NOTIFY_UPDATE_MISS_ATTR:
-        data     = &attr_type ;
+        data     = &args->type ;
         data_len = 1 ;          /* send just the missing type   */
         break ;
 
@@ -959,15 +948,15 @@ bgp_attr_malformed (struct peer *peer, u_char attr_type, u_char flag,
       case BGP_NOTIFY_UPDATE_INVAL_ORIGIN:
       case BGP_NOTIFY_UPDATE_INVAL_NEXT_HOP:
       case BGP_NOTIFY_UPDATE_OPT_ATTR_ERR:
-        data = bgp_attr_raw(peer, &data_len) ;
+        data = bgp_attr_raw(args->peer, &data_len) ;
 
-        qassert(flag      == (data[0] & 0xF0)) ;
-        qassert(attr_type ==  data[1]) ;
+        qassert(args->flags == (data[0] & 0xF0)) ;
+        qassert(args->type  ==  data[1]) ;
 
         break ;                 /* send complete attribute      */
     } ;
 
-  bgp_peer_down_error_with_data(peer, BGP_NOTIFY_UPDATE_ERR, subcode,
+  bgp_peer_down_error_with_data(args->peer, BGP_NOTIFY_UPDATE_ERR, subcode,
                                                                data, data_len) ;
   return BGP_ATTR_PARSE_ERROR;
 } ;
@@ -977,156 +966,101 @@ bgp_attr_malformed (struct peer *peer, u_char attr_type, u_char flag,
  * Issues a logging message and treats as BGP_NOTIFY_UPDATE_ATTR_LENG_ERR
  */
 static bgp_attr_parse_ret_t
-bgp_attr_length_malformed (struct peer *peer, u_char type, u_char flag,
-                                                ulen len_has, ulen len_required)
+bgp_attr_length_malformed (restrict bgp_attr_parser_args args,
+                                                              ulen len_required)
 {
-  zlog (peer->log, LOG_ERR, "%s attribute length is %u -- should be %u",
-               map_direct(bgp_attr_name_map, type).str, len_has, len_required) ;
+  zlog (args->peer->log, LOG_ERR, "%s attribute length is %u -- should be %u",
+                                map_direct(bgp_attr_name_map, args->type).str,
+                                                   args->length, len_required) ;
 
-  return bgp_attr_malformed (peer, type, flag, BGP_NOTIFY_UPDATE_ATTR_LENG_ERR);
+  return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_ATTR_LENG_ERR);
 } ;
 
-/* Find out what is wrong with the path attribute flag bits and log the error.
-   "Flag bits" here stand for Optional, Transitive and Partial, but not for
-   Extended Length. Checking O/T/P bits at once implies, that the attribute
-   being diagnosed is defined by RFC as either a "well-known" or an "optional,
-   non-transitive" attribute.
-
-   NB: by the time we get to here, the LS 4 bits of the flags have been
-       zeroised.
-
-   Returns:  true <=> the flag bits are known to be OK
-            false  => one or more flag bits known to be bad...
-                      ...or unknown attr_code (!)
- */
-static bool
-bgp_attr_flags_diagnose
-(
-  struct peer * peer,
-  const uint8_t attr_code,      /* BGP_ATTR_XXXX received       */
-  uint8_t       flag            /* flags received               */
-)
-{
-  attr_flags_check_t* check ;
-  uint8_t diff ;
-
-  qassert((flag & 0x0F) == 0) ;
-
-  check = bgp_attr_flags_check_get(attr_code) ;
-
-  if (check->mask == 0)
-    {
-      zlog(peer->log, LOG_ERR, "***BUG: %s() given unknown attribute type 0x%x",
-                                                          __func__, attr_code) ;
-      return false ;
-    } ;
-
-  diff = (flag ^ check->req) & check->mask ;
-
-  if (diff != 0)
-    {
-      bool seen ;
-      uint i ;
-
-      seen = false ;
-      for (i = 0; i < attr_flag_str_max ; i++)
-        {
-          uint8_t bit ;
-
-          bit = attr_flag_str[i].key ;
-
-          if (diff & bit)
-            {
-              zlog (peer->log, LOG_ERR,
-                       "%s attribute must%s be flagged as \"%s\"",
-                       map_direct(bgp_attr_name_map, attr_code).str,
-                       (check->req & bit) ? "" : " not", attr_flag_str[i].str) ;
-              seen = true ;
-            } ;
-        } ;
-
-      qassert (seen);
-    } ;
-
-  return diff == 0 ;
-} ;
-
-/* Check that the flags for the given attribute are OK, and if not, issue
- * suitable diagnostic.
+/* Reject attribute on basis of the flags being invalid
  *
- * Should collapse to next to nothing -- certainly for constant attr_code !
+ * Issues a logging message and treats as BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR
  */
-inline static bool
-bgp_attr_flags_check(struct peer * peer, const uint8_t attr_code, uint8_t flag)
+static bgp_attr_parse_ret_t
+bgp_attr_flags_malformed(restrict bgp_attr_parser_args args,
+                                                      attr_flags_check_t* check)
 {
-  attr_flags_check_t* check ;
+  uint8_t diff ;
+  bool seen ;
+  uint i ;
 
-  check = bgp_attr_flags_check_get(attr_code) ;
+  qassert((args->flags & 0x0F) == 0) ;
+  qassert(check->mask != 0) ;
 
-  if (((flag & check->mask) == check->req) && (check->mask != 0))
-    return true ;
+  diff = (args->flags ^ check->req) & check->mask ;
 
-  return bgp_attr_flags_diagnose(peer, attr_code, flag) ;
+  seen = false ;
+  for (i = 0; i < attr_flag_str_max ; i++)
+    {
+      uint8_t bit ;
+
+      bit = attr_flag_str[i].key ;
+
+      if (diff & bit)
+        {
+          zlog (args->peer->log, LOG_ERR,
+                   "%s attribute must%s be flagged as \"%s\"",
+                   map_direct(bgp_attr_name_map, args->type).str,
+                   (check->req & bit) ? "" : " not", attr_flag_str[i].str) ;
+          seen = true ;
+        } ;
+    } ;
+
+  qassert (seen) ;
+
+  return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR) ;
 } ;
-
 
 /* This is actually an internal error -- at some point has failed to read
  * everything that was expected (underrun) or have tried to read more than
  * is available (overrun) !
  */
 static bgp_attr_parse_ret_t
-bgp_attr_over_or_underrun(struct peer *peer, uint8_t type, bgp_size_t length)
+bgp_attr_over_or_underrun(restrict bgp_attr_parser_args args)
 {
-  zlog (peer->log, LOG_ERR,
+  zlog (args->peer->log, LOG_ERR,
             "%s: BGP attribute %s, parser error: %srun %u bytes (BUG)",
-                      peer->host, map_direct(bgp_attr_name_map, type).str,
-                        stream_has_overrun(peer->ibuf) ? "over" : "under",
-                          length) ;
+               args->peer->host, map_direct(bgp_attr_name_map, args->type).str,
+                       stream_has_overrun(args->peer->ibuf) ? "over" : "under",
+                          args->length) ;
 
-  bgp_peer_down_error (peer, BGP_NOTIFY_CEASE,
-                             BGP_NOTIFY_SUBCODE_UNSPECIFIC);
+  bgp_peer_down_error (args->peer, BGP_NOTIFY_CEASE,
+                                   BGP_NOTIFY_SUBCODE_UNSPECIFIC);
   return BGP_ATTR_PARSE_ERROR;
 } ;
 
 /* Get origin attribute of the update message. */
 static bgp_attr_parse_ret_t
-bgp_attr_origin (struct peer *peer, bgp_size_t length,
-                                                 struct attr *attr, u_char flag)
+bgp_attr_origin (restrict bgp_attr_parser_args args)
 {
-  /* If any recognized attribute has Attribute Flags that conflict
-     with the Attribute Type Code, then the Error Subcode is set to
-     Attribute Flags Error.  The Data field contains the erroneous
-     attribute (type, length and value). */
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_ORIGIN, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_ORIGIN, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
+  uint origin ;
 
-  /* If any recognized attribute has Attribute Length that conflicts
-     with the expected length (based on the attribute type code), then
-     the Error Subcode is set to Attribute Length Error.  The Data
-     field contains the erroneous attribute (type, length and
-     value). */
-  if (length != 1)
-    return bgp_attr_length_malformed (peer, BGP_ATTR_ORIGIN, flag, length, 1) ;
+  if (args->length != 1)
+    return bgp_attr_length_malformed (args, 1) ;
 
   /* Fetch origin attribute. */
-  attr->origin = stream_getc (BGP_INPUT (peer));
+  origin = stream_getc (args->s);
 
   /* If the ORIGIN attribute has an undefined value, then the Error
      Subcode is set to Invalid Origin Attribute.  The Data field
      contains the unrecognized attribute (type, length and value). */
-  if ((attr->origin != BGP_ORIGIN_IGP)
-      && (attr->origin != BGP_ORIGIN_EGP)
-      && (attr->origin != BGP_ORIGIN_INCOMPLETE))
+  if (   (origin != BGP_ORIGIN_IGP)
+      && (origin != BGP_ORIGIN_EGP)
+      && (origin != BGP_ORIGIN_INCOMPLETE) )
     {
-      zlog (peer->log, LOG_ERR, "Origin attribute value %u is invalid",
-	                                                          attr->origin);
-      return bgp_attr_malformed (peer, BGP_ATTR_ORIGIN, flag,
-                                       BGP_NOTIFY_UPDATE_INVAL_ORIGIN);
+      zlog (args->peer->log, LOG_ERR, "Origin attribute value %u is invalid",
+                                                                        origin);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_INVAL_ORIGIN);
     }
 
-  /* Set oring attribute flag. */
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_ORIGIN);
+  /* Set origin attribute.
+   */
+  args->attr.origin = origin ;
+  args->attr.flag  |= ATTR_FLAG_BIT (BGP_ATTR_ORIGIN);
 
   return BGP_ATTR_PARSE_PROCEED ;
 }
@@ -1151,54 +1085,47 @@ bgp_attr_origin (struct peer *peer, bgp_size_t length,
  *     any logging/debug stuff.
  */
 static bgp_attr_parse_ret_t
-bgp_attr_aspath (struct peer *peer, struct aspath** p_asp, bgp_size_t length,
-                                    struct attr *attr, u_char flag, u_char type)
+bgp_attr_aspath (restrict bgp_attr_parser_args args, struct aspath** p_asp)
 {
-  bool as4_path ;
+  bool as4_path, as4_peer ;
 
-  qassert((type == BGP_ATTR_AS_PATH) || (type == BGP_ATTR_AS4_PATH)) ;
-
-  if (!bgp_attr_flags_check(peer,type, flag))
-    {
-      *p_asp = NULL ;
-      return bgp_attr_malformed (peer, type, flag,
-                                       BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR) ;
-    } ;
+  qassert( (args->type == BGP_ATTR_AS_PATH)
+        || (args->type == BGP_ATTR_AS4_PATH) ) ;
 
   /* Parse the AS_PATH/AS4_PATH body.
    *
    * For AS_PATH  peer with AS4 => 4Byte ASN otherwise 2Byte ASN
    *     AS4_PATH 4Byte ASN
    */
-  as4_path = (type == BGP_ATTR_AS4_PATH) ;
+  as4_path = (args->type == BGP_ATTR_AS4_PATH) ;
+  as4_peer = PEER_CAP_AS4_USE(args->peer) ;
 
-  *p_asp = aspath_parse (peer->ibuf, length,
-                                 PEER_CAP_AS4_USE(peer) || as4_path, as4_path) ;
+  *p_asp = aspath_parse (args->s, args->length, as4_peer|| as4_path, as4_path) ;
   if (*p_asp == NULL)
     {
-      zlog (peer->log, LOG_ERR, "Malformed %s from %s, length is %d",
-                   map_direct(bgp_attr_name_map, type).str, peer->host, length);
+      zlog (args->peer->log, LOG_ERR, "Malformed %s from %s, length is %u",
+                                 map_direct(bgp_attr_name_map, args->type).str,
+                                               args->peer->host, args->length);
 
-      return bgp_attr_malformed (peer, type, flag,
-                                       BGP_NOTIFY_UPDATE_MAL_AS_PATH);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_MAL_AS_PATH);
     } ;
 
   /* Success !
    */
-  attr->flag |= ATTR_FLAG_BIT (type) ;
+  args->attr.flag |= ATTR_FLAG_BIT (args->type) ;
 
-  if (as4_path && PEER_CAP_AS4_USE(peer))
+  if (as4_path && as4_peer)
     {
       if (BGP_DEBUG(as4, AS4))
         zlog_debug ("[AS4] %s sent AS4_PATH despite being an AS4 speaker",
-                                                                    peer->host);
+                                                             args->peer->host) ;
     }
 
   return BGP_ATTR_PARSE_PROCEED;
 } ;
 
 static bgp_attr_parse_ret_t
-bgp_attr_aspath_check (struct peer *peer, struct attr *attr)
+bgp_attr_aspath_check (restrict bgp_attr_parser_args args)
 {
   /* These checks were part of bgp_attr_aspath, but with
    * as4 we should to check aspath things when
@@ -1217,44 +1144,45 @@ bgp_attr_aspath_check (struct peer *peer, struct attr *attr)
    * Returns: BGP_ATTR_PARSE_PROCEED  -- all well
    *          BGP_ATTR_PARSE_xxx      -- as decided by bgp_attr_malformed()
    */
-  struct bgp *bgp = peer->bgp;
-  struct aspath *aspath;
-  bgp_peer_sort_t sort = peer_sort(peer) ;
+  struct bgp* bgp ;
+  struct aspath* aspath;
+  bgp_peer_sort_t sort ;
 
-  bgp = peer->bgp;
+  bgp  = args->peer->bgp;
+  sort = peer_sort(args->peer) ;
+  aspath = args->attr.aspath ;
 
   /* Confederation sanity check. */
-  if (  ((sort == BGP_PEER_CONFED) && ! aspath_left_confed_check (attr->aspath))
-     || ((sort == BGP_PEER_EBGP)   &&   aspath_confed_check (attr->aspath)) )
+  if (  ((sort == BGP_PEER_CONFED) && ! aspath_left_confed_check (aspath))
+     || ((sort == BGP_PEER_EBGP)   &&   aspath_confed_check (aspath)) )
     {
-      zlog (peer->log, LOG_ERR, "Malformed AS path from %s", peer->host);
+      zlog (args->peer->log, LOG_ERR, "Malformed AS path from %s",
+                                                              args->peer->host);
 
-      return bgp_attr_malformed (peer, BGP_ATTR_AS_PATH, BGP_ATTR_FLAG_TRANS,
-                                       BGP_NOTIFY_UPDATE_MAL_AS_PATH);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_MAL_AS_PATH);
     }
 
   /* First AS check for EBGP. */
   if (bgp != NULL && bgp_flag_check (bgp, BGP_FLAG_ENFORCE_FIRST_AS))
     {
       if (sort == BGP_PEER_EBGP
-	  && ! aspath_firstas_check (attr->aspath, peer->as))
+	  && ! aspath_firstas_check (aspath, args->peer->as))
  	{
- 	  zlog (peer->log, LOG_ERR,
- 		"%s incorrect first AS (must be %u)", peer->host, peer->as);
+ 	  zlog (args->peer->log, LOG_ERR, "%s incorrect first AS (must be %u)",
+ 	                                     args->peer->host, args->peer->as);
 
-          return bgp_attr_malformed(peer, BGP_ATTR_AS_PATH, BGP_ATTR_FLAG_TRANS,
-                                          BGP_NOTIFY_UPDATE_MAL_AS_PATH);
+          return bgp_attr_malformed(args, BGP_NOTIFY_UPDATE_MAL_AS_PATH);
  	}
     }
 
   /* local-as prepend */
-  if (peer->change_local_as &&
-      ! CHECK_FLAG (peer->flags, PEER_FLAG_LOCAL_AS_NO_PREPEND))
+  if (args->peer->change_local_as &&
+      ! CHECK_FLAG (args->peer->flags, PEER_FLAG_LOCAL_AS_NO_PREPEND))
     {
-      aspath = aspath_dup (attr->aspath);
-      aspath = aspath_add_seq (aspath, peer->change_local_as);
-      aspath_unintern (&attr->aspath);
-      attr->aspath = aspath_intern (aspath);
+      aspath = aspath_dup (aspath);
+      aspath = aspath_add_seq (aspath, args->peer->change_local_as);
+      aspath_unintern (&args->attr.aspath);
+      args->attr.aspath = aspath_intern (aspath);
     }
 
   return BGP_ATTR_PARSE_PROCEED;
@@ -1262,17 +1190,12 @@ bgp_attr_aspath_check (struct peer *peer, struct attr *attr)
 
 /* Nexthop attribute. */
 static bgp_attr_parse_ret_t
-bgp_attr_nexthop (struct peer *peer, bgp_size_t length,
-		                                 struct attr *attr, u_char flag)
+bgp_attr_nexthop (restrict bgp_attr_parser_args args)
 {
   in_addr_t nexthop_h, nexthop_n;
 
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_NEXT_HOP, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_NEXT_HOP, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
-
-  if (length != 4)
-    return bgp_attr_length_malformed (peer, BGP_ATTR_NEXT_HOP, flag, length, 4) ;
+  if (args->length != 4)
+    return bgp_attr_length_malformed (args, 4) ;
 
   /* According to section 6.3 of RFC4271, syntactically incorrect NEXT_HOP
      attribute must result in a NOTIFICATION message (this is implemented below).
@@ -1280,125 +1203,98 @@ bgp_attr_nexthop (struct peer *peer, bgp_size_t length,
      logged locally (this is implemented somewhere else). The UPDATE message
      gets ignored in any of these cases.
    */
-  nexthop_n = stream_get_ipv4 (peer->ibuf);
+  nexthop_n = stream_get_ipv4 (args->s);
+
   nexthop_h = ntohl (nexthop_n);
   if (IPV4_NET0 (nexthop_h) || IPV4_NET127 (nexthop_h)
                             || IPV4_CLASS_DE (nexthop_h))
     {
-      char buf[INET_ADDRSTRLEN];
-      inet_ntop (AF_INET, &nexthop_h, buf, INET_ADDRSTRLEN);
-      zlog (peer->log, LOG_ERR, "Martian nexthop %s", buf);
-      return bgp_attr_malformed (peer, BGP_ATTR_NEXT_HOP, flag,
-                                 BGP_NOTIFY_UPDATE_INVAL_NEXT_HOP);
+      zlog (args->peer->log, LOG_ERR, "Martian nexthop %s",
+                                               siptoa(AF_INET, &nexthop_n).str);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_INVAL_NEXT_HOP) ;
     }
 
-  attr->nexthop.s_addr = nexthop_n;
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_NEXT_HOP);
+  args->attr.nexthop.s_addr = nexthop_n;
+  args->attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_NEXT_HOP);
 
   return BGP_ATTR_PARSE_PROCEED;
 }
 
 /* MED atrribute. */
 static bgp_attr_parse_ret_t
-bgp_attr_med (struct peer *peer, bgp_size_t length,
-	                                         struct attr *attr, u_char flag)
+bgp_attr_med (restrict bgp_attr_parser_args args)
 {
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_MULTI_EXIT_DISC, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_MULTI_EXIT_DISC, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
+  if (args->length != 4)
+    return bgp_attr_length_malformed (args, 4) ;
 
-  if (length != 4)
-    return bgp_attr_length_malformed (peer, BGP_ATTR_MULTI_EXIT_DISC, flag,
-                                                                    length, 4) ;
-
-  attr->med = stream_getl (peer->ibuf);
-
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_MULTI_EXIT_DISC);
+  args->attr.med   = stream_getl (args->s);
+  args->attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_MULTI_EXIT_DISC);
 
   return BGP_ATTR_PARSE_PROCEED;
 }
 
 /* Local preference attribute. */
 static bgp_attr_parse_ret_t
-bgp_attr_local_pref (struct peer *peer, bgp_size_t length,
-	                                         struct attr *attr, u_char flag)
+bgp_attr_local_pref (restrict bgp_attr_parser_args args)
 {
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_LOCAL_PREF, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_LOCAL_PREF, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
+  uint32_t local_pref ;
 
-  if (length != 4)
-    return bgp_attr_length_malformed (peer, BGP_ATTR_LOCAL_PREF, flag,
-                                                                    length, 4) ;
+  if (args->length != 4)
+    return bgp_attr_length_malformed (args, 4) ;
+
+  local_pref = stream_getl (args->s);
 
   /* If it is contained in an UPDATE message that is received from an
      external peer, then this attribute MUST be ignored by the
      receiving speaker. */
-  if (peer_sort (peer) == BGP_PEER_EBGP)
+  if (peer_sort (args->peer) != BGP_PEER_EBGP)
     {
-      stream_forward_getp (peer->ibuf, length);
-      return BGP_ATTR_PARSE_PROCEED;
-    }
-
-  attr->local_pref = stream_getl (peer->ibuf);
-
-  /* Set atomic aggregate flag. */
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_LOCAL_PREF);
+      args->attr.local_pref = local_pref ;
+      args->attr.flag      |= ATTR_FLAG_BIT (BGP_ATTR_LOCAL_PREF);
+    } ;
 
   return BGP_ATTR_PARSE_PROCEED;
 }
 
 /* Atomic aggregate. */
-static int
-bgp_attr_atomic (struct peer *peer, bgp_size_t length,
-                                                 struct attr *attr, u_char flag)
+static bgp_attr_parse_ret_t
+bgp_attr_atomic (restrict bgp_attr_parser_args args)
 {
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_ATOMIC_AGGREGATE, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_ATOMIC_AGGREGATE, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
-
-  if (length != 0)
-    return bgp_attr_length_malformed (peer, BGP_ATTR_ATOMIC_AGGREGATE, flag,
-                                                                    length, 0) ;
+  if (args->length != 0)
+    return bgp_attr_length_malformed (args, 0) ;
 
   /* Set atomic aggregate flag. */
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_ATOMIC_AGGREGATE);
+  args->attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_ATOMIC_AGGREGATE);
 
   return BGP_ATTR_PARSE_PROCEED;
 }
 
 /* Aggregator attribute
  */
-static int
-bgp_attr_aggregator (struct peer *peer, bgp_size_t length,
-                                                 struct attr *attr, u_char flag)
+static bgp_attr_parse_ret_t
+bgp_attr_aggregator (restrict bgp_attr_parser_args args)
 {
   bgp_size_t wantedlen ;
   struct attr_extra *attre ;
 
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_AGGREGATOR, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_AGGREGATOR, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
-
   /* peer with AS4 will send 4 Byte AS, peer without will send 2 Byte
    */
-  wantedlen = PEER_CAP_AS4_USE(peer) ? 4 + 4 : 2 + 4 ;
+  wantedlen = PEER_CAP_AS4_USE(args->peer) ? 4 + 4 : 2 + 4 ;
 
-  if (length != wantedlen)
-    return bgp_attr_length_malformed (peer, BGP_ATTR_AGGREGATOR, flag,
-                                                            length, wantedlen) ;
+  if (args->length != wantedlen)
+    return bgp_attr_length_malformed (args, wantedlen) ;
 
-  attre = bgp_attr_extra_get (attr);
+  attre = bgp_attr_extra_get (&args->attr);
 
-  if ( PEER_CAP_AS4_USE(peer) )
-    attre->aggregator_as = stream_getl (peer->ibuf);
+  if ( PEER_CAP_AS4_USE(args->peer) )
+    attre->aggregator_as = stream_getl (args->s);
   else
-    attre->aggregator_as = stream_getw (peer->ibuf);
+    attre->aggregator_as = stream_getw (args->s);
 
-  attre->aggregator_addr.s_addr = stream_get_ipv4 (peer->ibuf);
+  attre->aggregator_addr.s_addr = stream_get_ipv4 (args->s);
 
   /* Set atomic aggregate flag. */
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_AGGREGATOR);
+  args->attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_AGGREGATOR);
 
   return BGP_ATTR_PARSE_PROCEED;
 }
@@ -1410,29 +1306,21 @@ bgp_attr_aggregator (struct peer *peer, bgp_size_t length,
  *     in any logging/debug stuff.
  */
 static bgp_attr_parse_ret_t
-bgp_attr_as4_aggregator (struct peer *peer, bgp_size_t length,
-		                            struct attr *attr, u_char flag,
-		                            as_t *as4_aggregator_as,
-		                            struct in_addr *as4_aggregator_addr)
+bgp_attr_as4_aggregator (restrict bgp_attr_parser_args args)
 {
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_AS4_AGGREGATOR, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_AS4_AGGREGATOR, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
+  if (args->length != 8)
+    return bgp_attr_length_malformed (args, 8) ;
 
-  if (length != 8)
-    return bgp_attr_length_malformed (peer, BGP_ATTR_AS4_AGGREGATOR, flag,
-                                                                    length, 8) ;
+  args->as4_aggregator_as          = stream_getl (args->s);
+  args->as4_aggregator_addr.s_addr = stream_get_ipv4 (args->s);
 
-  *as4_aggregator_as = stream_getl (peer->ibuf);
-  as4_aggregator_addr->s_addr = stream_get_ipv4 (peer->ibuf);
+  args->attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_AS4_AGGREGATOR);
 
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_AS4_AGGREGATOR);
-
-  if (PEER_CAP_AS4_USE(peer))
+  if (PEER_CAP_AS4_USE(args->peer))
     {
       if (BGP_DEBUG(as4, AS4))
         zlog_debug ("[AS4] %s sent AS4_AGGREGATOR despite being an"
-                                                    " AS4 speaker", peer->host);
+                                              " AS4 speaker", args->peer->host);
     }
 
   return BGP_ATTR_PARSE_PROCEED;
@@ -1450,15 +1338,14 @@ bgp_attr_as4_aggregator (struct peer *peer, bgp_size_t length,
  * NB: we quietly ignore AS4_PATH if no AS_PATH -- same like AS4_AGGREGATOR.
  */
 static bgp_attr_parse_ret_t
-bgp_attr_munge_as4_path (struct peer *peer, struct attr *attr,
-                                                        struct aspath *as4_path)
+bgp_attr_munge_as4_path (restrict bgp_attr_parser_args args)
 {
   struct aspath *newpath;
 
-  if (! (attr->flag & ATTR_FLAG_BIT (BGP_ATTR_AS4_PATH)))
+  if (! (args->attr.flag & ATTR_FLAG_BIT (BGP_ATTR_AS4_PATH)))
     return BGP_ATTR_PARSE_PROCEED ;     /* Do nothing if no AS4_PATH !  */
 
-  if (!(attr->flag & ATTR_FLAG_BIT (BGP_ATTR_AS_PATH)))
+  if (!(args->attr.flag & ATTR_FLAG_BIT (BGP_ATTR_AS_PATH)))
     /* The lack of an AS_PATH is likely to become a serious issue in the
      * near future.
      *
@@ -1472,16 +1359,16 @@ bgp_attr_munge_as4_path (struct peer *peer, struct attr *attr,
       if ( BGP_DEBUG(as4, AS4))
         zlog_debug ("[AS4] %s BGP not AS4 capable peer"
                     " sent AS4_PATH but no AS_PATH,"
-                    " so ignore the AS4_PATH", peer->host);
+                    " so ignore the AS4_PATH", args->peer->host);
 
       return BGP_ATTR_PARSE_PROCEED ;   /* Easy(-ish) if no AS_PATH     */
     } ;
 
   /* need to reconcile NEW_AS_PATH and AS_PATH
    */
-  newpath = aspath_reconcile_as4 (attr->aspath, as4_path);
-  aspath_unintern (&attr->aspath);
-  attr->aspath = aspath_intern (newpath);
+  newpath = aspath_reconcile_as4 (args->attr.aspath, args->as4_path);
+  aspath_unintern (&args->attr.aspath);
+  args->attr.aspath = aspath_intern (newpath);
 
   return BGP_ATTR_PARSE_PROCEED;
 }
@@ -1537,15 +1424,13 @@ bgp_attr_munge_as4_path (struct peer *peer, struct attr *attr,
  *                                     NB: this is not, strictly, and error
  */
 static bgp_attr_parse_ret_t
-bgp_attr_munge_as4_aggr (struct peer *peer, struct attr *attr,
-                          as_t as4_aggregator,
-                          struct in_addr *as4_aggregator_addr)
+bgp_attr_munge_as4_aggr (restrict bgp_attr_parser_args args)
 {
   struct attr_extra *attre ;
 
   /* We have a AS2 peer.  Worry about AGGREGATOR and AS4_AGGREGATOR.
    */
-  if (!(attr->flag & ATTR_FLAG_BIT (BGP_ATTR_AS4_AGGREGATOR)))
+  if (!(args->attr.flag & ATTR_FLAG_BIT (BGP_ATTR_AS4_AGGREGATOR)))
     return BGP_ATTR_PARSE_PROCEED ;     /* Easy if no AS4_AGGREGATOR    */
 
   /* AGGREGATOR is Optional Transitive.
@@ -1594,20 +1479,20 @@ bgp_attr_munge_as4_aggr (struct peer *peer, struct attr *attr,
    * an AGGREGATOR from a lone AS4_AGGREGATOR, then some poor AS2 speaker
    * will find that BGP is no longer working as it did before !!!
    */
-  if (!(attr->flag & ATTR_FLAG_BIT (BGP_ATTR_AGGREGATOR)))
+  if (!(args->attr.flag & ATTR_FLAG_BIT (BGP_ATTR_AGGREGATOR)))
     {
       if ( BGP_DEBUG(as4, AS4))
         zlog_debug ("[AS4] %s BGP not AS4 capable peer"
                     " sent AS4_AGGREGATOR but no AGGREGATOR,"
-                    " so ignore the AS4_AGGREGATOR", peer->host);
+                    " so ignore the AS4_AGGREGATOR", args->peer->host);
 
       return BGP_ATTR_PARSE_PROCEED ;   /* Easy(-ish) if no AGGREGATOR  */
     } ;
 
   /* received both AGGREGATOR and AS4_AGGREGATOR.
    */
-  attre = attr->extra ;
-  assert (attre);
+  attre = args->attr.extra ;
+  assert (attre != NULL);
 
   if (attre->aggregator_as != BGP_AS_TRANS)
     {
@@ -1616,7 +1501,7 @@ bgp_attr_munge_as4_aggr (struct peer *peer, struct attr *attr,
         zlog_debug ("[AS4] %s BGP not AS4 capable peer"
                     " sent AGGREGATOR %u != AS_TRANS and"
                     " AS4_AGGREGATOR, so ignore"
-                    " AS4_AGGREGATOR and AS4_PATH", peer->host,
+                    " AS4_AGGREGATOR and AS4_PATH", args->peer->host,
                                                     attre->aggregator_as);
 
       return BGP_ATTR_PARSE_IGNORE ;
@@ -1624,193 +1509,160 @@ bgp_attr_munge_as4_aggr (struct peer *peer, struct attr *attr,
 
   /* Finally -- set the aggregator information from the AS4_AGGREGATOR !
    */
-  attre->aggregator_as          = as4_aggregator;
-  attre->aggregator_addr.s_addr = as4_aggregator_addr->s_addr;
+  attre->aggregator_as          = args->as4_aggregator_as;
+  attre->aggregator_addr.s_addr = args->as4_aggregator_addr.s_addr;
 
   return BGP_ATTR_PARSE_PROCEED ;
 }
 
 /* Community attribute. */
 static bgp_attr_parse_ret_t
-bgp_attr_community (struct peer *peer, bgp_size_t length,
-	                                         struct attr *attr, u_char flag)
+bgp_attr_community (restrict bgp_attr_parser_args args)
 {
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_COMMUNITIES, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_COMMUNITIES, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
-  if (length == 0)
+  if (args->length == 0)
     {
-      attr->community = NULL;
+      args->attr.community = NULL;
       return BGP_ATTR_PARSE_PROCEED;
     }
 
-  attr->community =
-    community_parse ((u_int32_t *)stream_get_pnt (peer->ibuf), length);
+  args->attr.community =
+              community_parse ((uint32_t *)stream_get_pnt (args->s),
+                                                                  args->length);
 
   /* XXX: fix community_parse to use stream API and remove this */
-  stream_forward_getp (peer->ibuf, length);
+  stream_forward_getp (args->s, args->length);
 
-  if (!attr->community)
+  if (!args->attr.community)
     {
-      zlog (peer->log, LOG_ERR, "Malformed COMMUNITIES (length is %u)",
-                                                                       length) ;
+      zlog (args->peer->log, LOG_ERR, "Malformed COMMUNITIES (length is %u)",
+                                                                 args->length) ;
 
-      return bgp_attr_malformed (peer, BGP_ATTR_COMMUNITIES, flag,
-                                       BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
     } ;
 
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_COMMUNITIES);
+  args->attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_COMMUNITIES);
 
   return BGP_ATTR_PARSE_PROCEED;
 }
 
 /* Originator ID attribute. */
 static bgp_attr_parse_ret_t
-bgp_attr_originator_id (struct peer *peer, bgp_size_t length,
-	                                         struct attr *attr, u_char flag)
+bgp_attr_originator_id (bgp_attr_parser_args args)
 {
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_ORIGINATOR_ID, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_ORIGINATOR_ID, flag,
-                               BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
+  if (args->length != 4)
+    return bgp_attr_length_malformed (args, 4) ;
 
-  if (length != 4)
-    return bgp_attr_length_malformed (peer, BGP_ATTR_ORIGINATOR_ID, flag,
-                                                                    length, 4) ;
+  (bgp_attr_extra_get (&args->attr))->originator_id.s_addr
+    = stream_get_ipv4 (args->s);
 
-  (bgp_attr_extra_get (attr))->originator_id.s_addr
-    = stream_get_ipv4 (peer->ibuf);
-
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_ORIGINATOR_ID);
+  args->attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_ORIGINATOR_ID);
 
   return BGP_ATTR_PARSE_PROCEED;
 }
 
 /* Cluster list attribute. */
 static bgp_attr_parse_ret_t
-bgp_attr_cluster_list (struct peer *peer, bgp_size_t length,
-                                                 struct attr *attr, u_char flag)
+bgp_attr_cluster_list (restrict bgp_attr_parser_args args)
 {
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_CLUSTER_LIST, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_CLUSTER_LIST, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
-
-  if (length % 4)
+  if (args->length % 4)
     {
-      zlog (peer->log, LOG_ERR, "Bad cluster list length %d", length);
+      zlog (args->peer->log, LOG_ERR, "Bad cluster list length %u",
+                                                                  args->length);
 
-      return bgp_attr_malformed (peer, BGP_ATTR_CLUSTER_LIST, flag,
-                                       BGP_NOTIFY_UPDATE_ATTR_LENG_ERR);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_ATTR_LENG_ERR);
     }
 
-  (bgp_attr_extra_get (attr))->cluster
-    = cluster_parse ((struct in_addr *)stream_get_pnt (peer->ibuf), length);
+  (bgp_attr_extra_get (&args->attr))->cluster
+    = cluster_parse ((struct in_addr *)stream_get_pnt (args->peer->ibuf),
+                                                                  args->length);
 
   /* XXX: Fix cluster_parse to use stream API and then remove this */
-  stream_forward_getp (peer->ibuf, length);
+  stream_forward_getp (args->s, args->length);
 
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_CLUSTER_LIST);
+  args->attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_CLUSTER_LIST);
 
   return BGP_ATTR_PARSE_PROCEED;
 }
 
 /* Multiprotocol reachability information parse. */
 extern bgp_attr_parse_ret_t
-bgp_mp_reach_parse (struct peer *peer, const bgp_size_t length,
-                    struct attr *attr, const u_char flag,
-                    struct bgp_nlri *mp_update)
+bgp_mp_reach_parse (bgp_attr_parser_args args)
 {
   afi_t  afi;
   safi_t safi;
   size_t nlri_len ;
   byte*  nlri ;
   ulen   nexthop_endp ;
+  ulen   nexthop_len ;
   u_char reserved ;
 
   int ret;
-  struct stream *s;
-  struct attr_extra *attre = bgp_attr_extra_get(attr);
-
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_MP_REACH_NLRI, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_MP_REACH_NLRI, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
-
-  /* Require the given length to be: within what is left to read in the stream
-   *                                 at least the minimum required
-   *
-   * If OK, sets s->endp to the end of the attribute.
-   */
-  s = BGP_INPUT(peer);
+  struct attr_extra *attre = bgp_attr_extra_get(&args->attr);
 
   /* Load AFI, SAFI and Next Hop Length
    */
-  afi  = stream_getw (s);
-  safi = stream_getc (s);
-  attre->mp_nexthop_len = stream_getc (s);
+  afi  = stream_getw (args->s);
+  safi = stream_getc (args->s);
+  nexthop_len = stream_getc (args->s);
 
-  if (stream_has_overrun(s))
+  if (stream_has_overrun(args->s))
     {
-      zlog (peer->log, LOG_ERR,
+      zlog (args->peer->log, LOG_ERR,
                         "%s attribute length is %u -- should be at least 5",
-            map_direct(bgp_attr_name_map, BGP_ATTR_MP_REACH_NLRI).str, length) ;
+                    map_direct(bgp_attr_name_map, BGP_ATTR_MP_REACH_NLRI).str,
+                                                                 args->length) ;
 
-      return bgp_attr_malformed (peer, BGP_ATTR_MP_REACH_NLRI, flag,
-                                               BGP_NOTIFY_UPDATE_ATTR_LENG_ERR);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_ATTR_LENG_ERR);
     } ;
 
   /* Get nexthop length and check
    */
-  nexthop_endp = stream_push_endp(s, attre->mp_nexthop_len + 1) ;
+  nexthop_endp = stream_push_endp(args->s, nexthop_len + 1) ;
 
-  if (stream_has_overrun(s))
+  if (stream_has_overrun(args->s))
     {
-      stream_pop_endp(s, nexthop_endp) ;        /* as you was   */
+      stream_pop_endp(args->s, nexthop_endp) ;          /* as you was   */
 
       zlog_info ("%s: %s, MP nexthop length %u + reserved byte"
                                                    " overruns end of attribute",
-		 __func__, peer->host, attre->mp_nexthop_len);
+		 __func__, args->peer->host, nexthop_len);
 
-      return bgp_attr_malformed (peer, BGP_ATTR_MP_REACH_NLRI, flag,
-                                                BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
     } ;
 
   /* Nexthop length check.
    */
-  switch (attre->mp_nexthop_len)
+  switch (nexthop_len)
     {
     case 4:
-      stream_get (&attre->mp_nexthop_global_in, s, 4);
+      stream_get (&attre->mp_nexthop_global_in, args->s, 4);
       /* Probably needed for RFC 2283 */
-      if (attr->nexthop.s_addr == 0)
-        memcpy(&attr->nexthop.s_addr, &attre->mp_nexthop_global_in, 4);
+      if (args->attr.nexthop.s_addr == 0)
+        memcpy(&args->attr.nexthop.s_addr, &attre->mp_nexthop_global_in, 4);
       break;
 
     case 12:
-      stream_getl (s); /* RD high */
-      stream_getl (s); /* RD low */
-      stream_get (&attre->mp_nexthop_global_in, s, 4);
+      stream_getl (args->s); /* RD high */
+      stream_getl (args->s); /* RD low */
+      stream_get (&attre->mp_nexthop_global_in, args->s, 4);
       break;
 
 #ifdef HAVE_IPV6
     case 16:
-      stream_get (&attre->mp_nexthop_global, s, 16);
+      stream_get (&attre->mp_nexthop_global, args->s, 16);
       break;
 
     case 32:
-      stream_get (&attre->mp_nexthop_global, s, 16);
-      stream_get (&attre->mp_nexthop_local, s, 16);
+      stream_get (&attre->mp_nexthop_global, args->s, 16);
+      stream_get (&attre->mp_nexthop_local, args->s, 16);
       if (! IN6_IS_ADDR_LINKLOCAL (&attre->mp_nexthop_local))
 	{
-	  char buf1[INET6_ADDRSTRLEN];
-	  char buf2[INET6_ADDRSTRLEN];
-
 	  if (BGP_DEBUG (update, UPDATE_IN))
 	    zlog_debug ("%s got two nexthop %s %s "
 	                           "but second one is not a link-local nexthop",
-	               peer->host,
-		       inet_ntop (AF_INET6, &attre->mp_nexthop_global,
-				  buf1, INET6_ADDRSTRLEN),
-		       inet_ntop (AF_INET6, &attre->mp_nexthop_local,
-				  buf2, INET6_ADDRSTRLEN));
+	               args->peer->host,
+                       siptoa(AF_INET6, &attre->mp_nexthop_global).str,
+                       siptoa(AF_INET6, &attre->mp_nexthop_local).str) ;
 
 	  attre->mp_nexthop_len = 16;
 	}
@@ -1818,32 +1670,33 @@ bgp_mp_reach_parse (struct peer *peer, const bgp_size_t length,
 #endif /* HAVE_IPV6 */
 
     default:
-      stream_pop_endp(s, nexthop_endp) ;        /* as you was   */
+      stream_pop_endp(args->s, nexthop_endp) ;          /* as you was   */
 
-      zlog_info ("%s: (%s) unknown multiprotocol next hop length: %d",
-                                  __func__, peer->host, attre->mp_nexthop_len) ;
+      zlog_info ("%s: (%s) unknown multiprotocol next hop length: %u",
+                                      __func__, args->peer->host, nexthop_len) ;
 
-      return bgp_attr_malformed (peer, BGP_ATTR_MP_REACH_NLRI, flag,
-                                       BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
     }
+
+  attre->mp_nexthop_len = nexthop_len ;         /* passed muster        */
 
   /* Eat the reserved byte
    */
-  reserved = stream_getc (s) ;
+  reserved = stream_getc (args->s) ;
 
   /* We should now have read up to the recorded endp, and not beyond
    *
    * This is an internal error, really.
    */
-  if (!stream_pop_endp(s, nexthop_endp))
-    return bgp_attr_over_or_underrun(peer, BGP_ATTR_MP_REACH_NLRI, length) ;
+  if (!stream_pop_endp(args->s, nexthop_endp))
+    return bgp_attr_over_or_underrun(args) ;
 
   /* Check the reserved byte value
    */
   if (reserved != 0)
      zlog_warn("%s sent non-zero value, %u, for defunct SNPA-length field"
                                          " in MP_REACH_NLRI for AFI/SAFI %u/%u",
-                                              peer->host, reserved, afi, safi) ;
+                                        args->peer->host, reserved, afi, safi) ;
 
   /* must have nrli_len, what is left of the attribute
    *
@@ -1854,30 +1707,30 @@ bgp_mp_reach_parse (struct peer *peer, const bgp_size_t length,
    * Accepting zero bytes of NLRI does not appear to do harm.  But we whine
    * about it in the logging.
    */
-  nlri = stream_get_bytes_left(s, &nlri_len) ;  /* steps past   */
+  nlri = stream_get_bytes_left(args->s, &nlri_len) ;    /* steps past   */
 
   if (nlri_len == 0)
     zlog_warn("%s sent zero length NLRI in MP_REACH_NLRI for AFI/SAFI %u/%u",
-                                                        peer->host, afi, safi) ;
+                                                  args->peer->host, afi, safi) ;
   else if (safi != SAFI_MPLS_LABELED_VPN)
     {
       /* If the nlri are not valid, bgp_nlri_sanity_check() drops the session
        */
-      ret = bgp_nlri_sanity_check (peer, afi, nlri, nlri_len);
+      ret = bgp_nlri_sanity_check (args->peer, afi, nlri, nlri_len);
       if (ret < 0)
         {
-          zlog_info ("%s %s NLRI in MP_REACH_NLRI doesn't pass sanity check",
-                            peer->host, map_direct(bgp_afi_name_map, afi).str) ;
+          zlog_info ("%s %s NLRI in MP_REACH_NLRI fails sanity check",
+                      args->peer->host, map_direct(bgp_afi_name_map, afi).str) ;
           return BGP_ATTR_PARSE_ERROR ;
 	}
     }
 
   /* Record the MP_REACH_NLRI
    */
-  mp_update->afi    = afi;
-  mp_update->safi   = safi;
-  mp_update->nlri   = nlri ;
-  mp_update->length = nlri_len;
+  args->mp_update.afi    = afi;
+  args->mp_update.safi   = safi;
+  args->mp_update.nlri   = nlri ;
+  args->mp_update.length = nlri_len;
 
   return BGP_ATTR_PARSE_PROCEED;
 } ;
@@ -1887,143 +1740,132 @@ bgp_mp_reach_parse (struct peer *peer, const bgp_size_t length,
  * Sets mp_eor iff all is well, and attribute is empty.
  */
 extern bgp_attr_parse_ret_t
-bgp_mp_unreach_parse (struct peer *peer, const bgp_size_t length,
-                      const u_char flag, struct bgp_nlri *mp_withdraw,
-                                                                   bool* mp_eor)
+bgp_mp_unreach_parse (restrict bgp_attr_parser_args args)
 {
-  struct stream *s;
   afi_t  afi;
   safi_t safi;
   size_t nlri_len ;
   byte*  nlri ;
-  int ret;
-
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_MP_UNREACH_NLRI, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_MP_UNREACH_NLRI, flag,
-                                     BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
-
-  s = BGP_INPUT(peer);
 
   /* Load AFI, SAFI.
    */
-  afi  = stream_getw (s);
-  safi = stream_getc (s);
+  afi  = stream_getw (args->s);
+  safi = stream_getc (args->s);
 
-  if (stream_has_overrun(s))
+  if (stream_has_overrun(args->s))
     {
-      zlog (peer->log, LOG_ERR,
+      zlog (args->peer->log, LOG_ERR,
                             "%s attribute length is %u -- should be at least 3",
                     map_direct(bgp_attr_name_map, BGP_ATTR_MP_UNREACH_NLRI).str,
-                                                                       length) ;
+                                                                 args->length) ;
 
-      return bgp_attr_malformed (peer, BGP_ATTR_MP_UNREACH_NLRI, flag,
-                                               BGP_NOTIFY_UPDATE_ATTR_LENG_ERR);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_ATTR_LENG_ERR);
     } ;
 
   /* must have nrli_len, what is left of the attribute
    */
-  nlri = stream_get_bytes_left(s, &nlri_len) ;  /* steps past   */
+  nlri = stream_get_bytes_left(args->s, &nlri_len) ;    /* steps past   */
 
   if (nlri_len == 0)
-    *mp_eor = true ;
+    args->mp_eor = true ;
   else if (safi != SAFI_MPLS_LABELED_VPN)
     {
-      /* If the nlri are not valid, bgp_nlri_sanity_check() drops the session
+      /* If the nlri are not valid, bgp_nlri_sanity_check() drops the
+       * session
        */
-      ret = bgp_nlri_sanity_check (peer, afi, nlri, nlri_len);
+      int ret ;
+
+      ret = bgp_nlri_sanity_check (args->peer, afi, nlri, nlri_len);
       if (ret < 0)
         {
-          zlog_info ("%s %s NLRI in MP_UNREACH_NLRI doesn't pass sanity check",
-                            peer->host, map_direct(bgp_afi_name_map, afi).str) ;
+          zlog_info ("%s %s NLRI in MP_UNREACH_NLRI fails sanity check",
+                  args->peer->host, map_direct(bgp_afi_name_map, afi).str) ;
           return BGP_ATTR_PARSE_ERROR ;
-       }
-    }
+        }
+    } ;
 
   /* Record the MP_UNREACH_NLRI
    */
-  mp_withdraw->afi    = afi;
-  mp_withdraw->safi   = safi;
-  mp_withdraw->nlri   = nlri ;
-  mp_withdraw->length = nlri_len ;
+  args->mp_withdraw.afi    = afi;
+  args->mp_withdraw.safi   = safi;
+  args->mp_withdraw.nlri   = nlri ;
+  args->mp_withdraw.length = nlri_len ;
 
   return BGP_ATTR_PARSE_PROCEED ;
 }
 
 /* Extended Community attribute. */
 static bgp_attr_parse_ret_t
-bgp_attr_ext_communities (struct peer *peer, bgp_size_t length,
-			                         struct attr *attr, u_char flag)
+bgp_attr_ext_communities (restrict bgp_attr_parser_args args)
 {
-  if (!bgp_attr_flags_check(peer, BGP_ATTR_EXT_COMMUNITIES, flag))
-    return bgp_attr_malformed (peer, BGP_ATTR_EXT_COMMUNITIES, flag,
-                               BGP_NOTIFY_UPDATE_ATTR_FLAG_ERR);
-
-  /* Basic length check. */
-  if (length == 0)
+  if (args->length == 0)
     {
-      if (attr->extra)
-        attr->extra->ecommunity = NULL;
+      if (args->attr.extra != NULL)
+        args->attr.extra->ecommunity = NULL;
 
       /* Empty extcomm doesn't seem to be invalid per se */
       return BGP_ATTR_PARSE_PROCEED;
     }
 
-  (bgp_attr_extra_get (attr))->ecommunity =
-    ecommunity_parse ((u_int8_t *)stream_get_pnt (peer->ibuf), length);
+  (bgp_attr_extra_get (&args->attr))->ecommunity =
+            ecommunity_parse ((u_int8_t *)stream_get_pnt (args->s),
+                                                                  args->length);
   /* XXX: fix ecommunity_parse to use stream API */
-  stream_forward_getp (peer->ibuf, length);
+  stream_forward_getp (args->s, args->length);
 
-  if (!attr->extra->ecommunity)
-    return bgp_attr_malformed (peer, BGP_ATTR_EXT_COMMUNITIES, flag,
-                                     BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
+  if (args->attr.extra->ecommunity == NULL)
+    return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
 
-  attr->flag |= ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES);
+  args->attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_EXT_COMMUNITIES);
 
   return BGP_ATTR_PARSE_PROCEED;
 }
 
 /* BGP unknown attribute treatment. */
 static bgp_attr_parse_ret_t
-bgp_attr_unknown (struct peer *peer, struct attr *attr, u_char flag,
-                                                 u_char type, bgp_size_t length)
+bgp_attr_unknown (restrict bgp_attr_parser_args args)
 {
   struct transit *transit;
   struct attr_extra *attre;
+
   byte* raw_attr ;
   ulen  raw_len ;
 
   if (BGP_DEBUG (normal, NORMAL))
-    zlog_debug ("%s Unknown attribute is received (type %d, length %d)",
-	                                              peer->host, type, length);
+    zlog_debug ("%s Unknown attribute is received "
+                                            "(%stransitive type %u, length %u)",
+                   args->peer->host,
+                    CHECK_FLAG (args->flags, BGP_ATTR_FLAG_TRANS) ? "" : "non-",
+                                                      args->type, args->length);
 
   if (BGP_DEBUG (events, EVENTS))
-    zlog (peer->log, LOG_DEBUG,
-	  "Unknown attribute type %d length %d is received", type, length);
+    zlog (args->peer->log, LOG_DEBUG,
+                          "Unknown attribute type %u length %u is received",
+                                                      args->type, args->length);
 
   /* Forward read pointer of input stream. */
-  stream_forward_getp (peer->ibuf, length);
+  stream_forward_getp (args->s, args->length);
 
   /* If any of the mandatory well-known attributes are not recognized,
      then the Error Subcode is set to Unrecognized Well-known
      Attribute.  The Data field contains the unrecognized attribute
      (type, length and value). */
-  if (! CHECK_FLAG (flag, BGP_ATTR_FLAG_OPTIONAL))
+  if (! CHECK_FLAG (args->flags, BGP_ATTR_FLAG_OPTIONAL))
     {
-      zlog (peer->log, LOG_ERR,
-            "Unknown attribute type %d has flags 0x%x -- ie NOT Optional",
-                                                                    type, flag);
-      return bgp_attr_malformed (peer, type, flag,
-                                       BGP_NOTIFY_UPDATE_UNREC_ATTR);
+      zlog (args->peer->log, LOG_ERR,
+            "Unknown attribute type %u has flags 0x%x -- ie NOT Optional",
+                                                       args->type, args->flags);
+      return bgp_attr_malformed (args, BGP_NOTIFY_UPDATE_UNREC_ATTR);
     }
 
   /* Unrecognized non-transitive optional attributes must be quietly
      ignored and not passed along to other BGP peers. */
-  if (! CHECK_FLAG (flag, BGP_ATTR_FLAG_TRANS))
+  if (! CHECK_FLAG (args->flags, BGP_ATTR_FLAG_TRANS))
     return BGP_ATTR_PARSE_PROCEED;
 
   /* Get the address and total length of the attribute
    */
-  raw_attr = bgp_attr_raw(peer, &raw_len) ;
+  raw_attr = bgp_attr_raw(args->peer, &raw_len) ;
 
   /* If a path with recognized transitive optional attribute is
      accepted and passed along to other BGP peers and the Partial bit
@@ -2034,7 +1876,7 @@ bgp_attr_unknown (struct peer *peer, struct attr *attr, u_char flag,
 
   /* Store transitive attribute to the end of attr->transit.
    */
-  if (! ((attre = bgp_attr_extra_get(attr))->transit) )
+  if (! ((attre = bgp_attr_extra_get(&args->attr))->transit) )
       attre->transit = XCALLOC (MTYPE_TRANSIT, sizeof (struct transit));
 
   transit = attre->transit;
@@ -2085,45 +1927,34 @@ bgp_attr_unknown (struct peer *peer, struct attr *attr, u_char flag,
  *          BGP_ATTR_PARSE_ERROR     -- not good at all: session dropped
  */
 bgp_attr_parse_ret_t
-bgp_attr_parse (struct peer *peer, struct attr *attr,
-		struct bgp_nlri *mp_update, struct bgp_nlri *mp_withdraw,
-		                                                   bool* mp_eor)
+bgp_attr_parse (restrict bgp_attr_parser_args args)
 {
   bgp_attr_parse_ret_t aret;
-  struct stream *s;
-  ulen attr_count ;
+  uint   attr_count ;
   u_char seen[BGP_ATTR_BITMAP_SIZE];
-  /* we need the as4_path only until we have synthesized the as_path with it */
-  /* same goes for as4_aggregator */
-  struct aspath *as4_path = NULL;
-  as_t as4_aggregator = 0;
-  struct in_addr as4_aggregator_addr = { 0 };
+  attr_flags_check_t* check ;
 
-  /* Initialize bitmap. */
+  /* Initialize bitmap.
+   */
   memset (seen, 0, BGP_ATTR_BITMAP_SIZE);
 
   /* We are going to read size bytes of attributes from the current stream
    * position.
    */
-  *mp_eor    = false ;
-  attr_count = 0 ;
+  attr_count = 0 ;                      /* nothing yet          */
+  aret       = BGP_ATTR_PARSE_PROCEED ; /* So far, so good !    */
 
-  aret    = BGP_ATTR_PARSE_PROCEED ;    /* So far, so good !    */
-
-  s = BGP_INPUT(peer) ;
-  while (stream_get_read_left(s) > 0)
+  while (stream_get_read_left(args->s) > 0)
     {
       bgp_attr_parse_ret_t ret ;
-      ulen   header_length, length, attr_endp ;
-      u_char flag ;
-      u_char type ;
+      ulen   header_length, attr_endp ;
 
       ++attr_count ;
 
       /* Remember the start of the attribute -- used in bgp_attr_malformed()
        * and other error handling.
        */
-      stream_set_startp(s, stream_get_getp(s)) ;
+      stream_set_startp(args->s, stream_get_getp(args->s)) ;
 
       /* Fetch attribute flag, type and length.
        *
@@ -2133,18 +1964,18 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
        * unused.  They MUST be zero when sent and MUST be ignored when
        * received."
        */
-      flag = stream_getc (s) & 0xF0 ;
-      type = stream_getc (s);
+      args->flags = stream_getc (args->s) & 0xF0 ;
+      args->type  = stream_getc (args->s);
 
-      if (CHECK_FLAG (flag, BGP_ATTR_FLAG_EXTLEN))
+      if (CHECK_FLAG (args->flags, BGP_ATTR_FLAG_EXTLEN))
         {
           header_length = 4 ;
-          length = stream_getw (s);
+          args->length = stream_getw (args->s);
         }
       else
         {
           header_length = 3 ;
-          length = stream_getc (s);
+          args->length = stream_getc (args->s);
         } ;
 
       /* Check whether attribute prefix and the length of the attribute body
@@ -2153,24 +1984,25 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
        * Sets the s->endp to the end of the current attribute and saves the
        * end of all attributes in
        */
-      attr_endp = stream_push_endp(s, length) ;
-      if (stream_has_overrun(s))
+      attr_endp = stream_push_endp(args->s, args->length) ;
+      if (stream_has_overrun(args->s))
 	{
-          ulen have = attr_endp - (ulen)stream_get_startp(s) ;
+          ulen have = attr_endp - (ulen)stream_get_startp(args->s) ;
 
           if (have < header_length)
-            zlog (peer->log, LOG_WARNING,
+            zlog (args->peer->log, LOG_WARNING,
 		"%s: broken BGP attribute [0x%x %u %u] have just %u octets for"
                                                             " attribute header",
-                                         peer->host, flag, type, length, have) ;
+                args->peer->host, args->flags, args->type, args->length, have) ;
           else
-            zlog (peer->log, LOG_WARNING,
+            zlog (args->peer->log, LOG_WARNING,
                 "%s: broken BGP attribute [0x%x %u %u] have just %u octets for"
                                                               " attribute body",
-                   peer->host, flag, type, length, (have - header_length)) ;
+                      args->peer->host, args->flags, args->type, args->length,
+                                                       (have - header_length)) ;
 
-	  bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
-                                     BGP_NOTIFY_UPDATE_ATTR_LENG_ERR);
+	  bgp_peer_down_error (args->peer, BGP_NOTIFY_UPDATE_ERR,
+                                           BGP_NOTIFY_UPDATE_ATTR_LENG_ERR);
 
 	  aret = BGP_ATTR_PARSE_ERROR;
           goto attr_parse_exit ;
@@ -2180,14 +2012,14 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
        * message, then the Error Subcode is set to Malformed Attribute
        * List.
        */
-      if (CHECK_BITMAP (seen, type))
+      if (CHECK_BITMAP (seen, args->type))
 	{
-	  zlog (peer->log, LOG_WARNING,
+	  zlog (args->peer->log, LOG_WARNING,
 		"%s: error BGP attribute type %s appears twice in a message",
-	                  peer->host, map_direct(bgp_attr_name_map, type).str);
+	       args->peer->host, map_direct(bgp_attr_name_map, args->type).str);
 
-	  bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
-                                     BGP_NOTIFY_UPDATE_MAL_ATTR);
+	  bgp_peer_down_error (args->peer, BGP_NOTIFY_UPDATE_ERR,
+                                           BGP_NOTIFY_UPDATE_MAL_ATTR);
 
           aret = BGP_ATTR_PARSE_ERROR;
           goto attr_parse_exit ;
@@ -2196,7 +2028,7 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
       /* Set type to bitmap to check duplicate attribute.  `type' is
        * unsigned char so it never overflow bitmap range.
        */
-      SET_BITMAP (seen, type);
+      SET_BITMAP (seen, args->type);
 
       /* OK check attribute and store it's value.
        *
@@ -2208,64 +2040,78 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
        *     then it is assumed that: (a) it will have read the entire
        *     attribute -- so getp == endp, and (b) no more -- so not overrun !
        */
-      qassert((flag & 0x0F) == 0) ;
-      qassert(stream_has_read_left(s, length)) ;
+      qassert((args->flags & 0x0F) == 0) ;
+      qassert(stream_has_read_left(args->s, args->length)) ;
 
-      switch (type)
-	{
-	case BGP_ATTR_ORIGIN:
-	  ret = bgp_attr_origin (peer, length, attr, flag);
-	  break;
-	case BGP_ATTR_AS_PATH:
-          ret = bgp_attr_aspath (peer, &attr->aspath, length, attr, flag,
-                                                              BGP_ATTR_AS_PATH);
-          break;
-	case BGP_ATTR_AS4_PATH:
-	  ret = bgp_attr_aspath (peer, &as4_path,     length, attr, flag,
-                                                             BGP_ATTR_AS4_PATH);
-	  break;
-	case BGP_ATTR_NEXT_HOP:
-	  ret = bgp_attr_nexthop (peer, length, attr, flag);
-	  break;
-	case BGP_ATTR_MULTI_EXIT_DISC:
-	  ret = bgp_attr_med (peer, length, attr, flag);
-	  break;
-	case BGP_ATTR_LOCAL_PREF:
-	  ret = bgp_attr_local_pref (peer, length, attr, flag);
-	  break;
-	case BGP_ATTR_ATOMIC_AGGREGATE:
-	  ret = bgp_attr_atomic (peer, length, attr, flag);
-	  break;
-	case BGP_ATTR_AGGREGATOR:
-	  ret = bgp_attr_aggregator (peer, length, attr, flag);
-	  break;
-	case BGP_ATTR_AS4_AGGREGATOR:
-	  ret = bgp_attr_as4_aggregator (peer, length, attr, flag,
-	                                                  &as4_aggregator,
-	                                                  &as4_aggregator_addr);
-	  break;
-	case BGP_ATTR_COMMUNITIES:
-	  ret = bgp_attr_community (peer, length, attr, flag);
-	  break;
-	case BGP_ATTR_ORIGINATOR_ID:
-	  ret = bgp_attr_originator_id (peer, length, attr, flag);
-	  break;
-	case BGP_ATTR_CLUSTER_LIST:
-	  ret = bgp_attr_cluster_list (peer, length, attr, flag);
-	  break;
-	case BGP_ATTR_MP_REACH_NLRI:
-	  ret = bgp_mp_reach_parse (peer, length, attr, flag, mp_update);
-	  break;
-	case BGP_ATTR_MP_UNREACH_NLRI:
-	  ret = bgp_mp_unreach_parse (peer, length, flag, mp_withdraw, mp_eor);
-	  break;
-	case BGP_ATTR_EXT_COMMUNITIES:
-	  ret = bgp_attr_ext_communities (peer, length, attr, flag);
-	  break;
-	default:
-	  ret = bgp_attr_unknown (peer, attr, flag, type, length);
-	  break;
-	}
+      /* Check that the flags for the given attribute are OK, and if not, issue
+       * suitable diagnostic.
+       *
+       * Should collapse to next to nothing -- certainly for constant attr_code !
+       */
+      check = &attr_flags_check_array[(args->type < attr_flags_check_limit)
+                                                             ? args->type : 0] ;
+
+      if (((args->flags & check->mask) == check->req) || (check->mask == 0))
+        ret = BGP_ATTR_PARSE_PROCEED ;
+      else
+        ret = bgp_attr_flags_malformed (args, check) ;
+
+      /* If Flags were OK -- parse the value part
+       */
+      if (ret == BGP_ATTR_PARSE_PROCEED)
+        {
+          switch (args->type)
+            {
+              case BGP_ATTR_ORIGIN:
+                ret = bgp_attr_origin (args);
+                break;
+              case BGP_ATTR_AS_PATH:
+                ret = bgp_attr_aspath (args, &args->attr.aspath);
+                break;
+              case BGP_ATTR_AS4_PATH:
+                ret = bgp_attr_aspath (args, &args->as4_path);
+                break;
+              case BGP_ATTR_NEXT_HOP:
+                ret = bgp_attr_nexthop (args);
+                break;
+              case BGP_ATTR_MULTI_EXIT_DISC:
+                ret = bgp_attr_med (args);
+                break;
+              case BGP_ATTR_LOCAL_PREF:
+                ret = bgp_attr_local_pref (args);
+                break;
+              case BGP_ATTR_ATOMIC_AGGREGATE:
+                ret = bgp_attr_atomic (args);
+                break;
+              case BGP_ATTR_AGGREGATOR:
+                ret = bgp_attr_aggregator (args);
+                break;
+              case BGP_ATTR_AS4_AGGREGATOR:
+                ret = bgp_attr_as4_aggregator (args);
+                break;
+              case BGP_ATTR_COMMUNITIES:
+                ret = bgp_attr_community (args);
+                break;
+              case BGP_ATTR_ORIGINATOR_ID:
+                ret = bgp_attr_originator_id (args);
+                break;
+              case BGP_ATTR_CLUSTER_LIST:
+                ret = bgp_attr_cluster_list (args);
+                break;
+              case BGP_ATTR_MP_REACH_NLRI:
+                ret = bgp_mp_reach_parse (args);
+                break;
+              case BGP_ATTR_MP_UNREACH_NLRI:
+                ret = bgp_mp_unreach_parse (args);
+                break;
+              case BGP_ATTR_EXT_COMMUNITIES:
+                ret = bgp_attr_ext_communities (args);
+                break;
+              default:
+                ret = bgp_attr_unknown (args);
+                break;
+            } ;
+        } ;
 
       /* Restore the end of all attributes, and check that has read all of
        * the attribute.
@@ -2277,12 +2123,12 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
        * NB: in any case, the getp is now set to the end of the attribute we
        *     just dealt with, and the endp is the end of all attributes.
        */
-      if (!stream_pop_endp(s, attr_endp))
+      if (!stream_pop_endp(args->s, attr_endp))
         {
           if (ret == BGP_ATTR_PARSE_PROCEED)
-            ret = bgp_attr_over_or_underrun(peer, type, length) ;
+            ret = bgp_attr_over_or_underrun(args) ;
 
-          stream_clear_overrun(s) ;     /* in case continuing   */
+          stream_clear_overrun(args->s) ;       /* in case continuing   */
         } ;
 
       /* Now decide what to do with the return code
@@ -2295,10 +2141,10 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
           /* If we have chosen to ignore an error in a trivial attribute
            */
           case BGP_ATTR_PARSE_IGNORE:
-            zlog (peer->log, LOG_WARNING,
+            zlog (args->peer->log, LOG_WARNING,
                   "%s: Attribute %s invalid, but trivial -- ignoring it",
-                  peer->host,
-                  map_direct(bgp_attr_name_map, type).str);
+                  args->peer->host,
+                  map_direct(bgp_attr_name_map, args->type).str);
 
             if (aret == BGP_ATTR_PARSE_PROCEED)
               aret = BGP_ATTR_PARSE_IGNORE ;    /* promote      */
@@ -2307,10 +2153,10 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
           /* If soft-ish error, turn into withdraw
            */
           case BGP_ATTR_PARSE_WITHDRAW:
-            zlog (peer->log, LOG_WARNING,
+            zlog (args->peer->log, LOG_WARNING,
                   "%s: Attribute %s invalid -- treating update as withdrawal",
-                  peer->host,
-                  map_direct(bgp_attr_name_map, type).str);
+                  args->peer->host,
+                  map_direct(bgp_attr_name_map, args->type).str);
 
             aret = ret ;                        /* promote      */
             break ;
@@ -2322,13 +2168,13 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
            */
           case BGP_ATTR_PARSE_ERROR:
           default:
-            zlog (peer->log, LOG_WARNING,
+            zlog (args->peer->log, LOG_WARNING,
                   "%s: Attribute %s invalid -- session drop",
-                  peer->host,
-                  map_direct(bgp_attr_name_map, type).str);
+                  args->peer->host,
+                  map_direct(bgp_attr_name_map, args->type).str);
 
-            bgp_peer_down_error (peer, BGP_NOTIFY_UPDATE_ERR,
-                                       BGP_NOTIFY_UPDATE_MAL_ATTR);
+            bgp_peer_down_error (args->peer, BGP_NOTIFY_UPDATE_ERR,
+                                             BGP_NOTIFY_UPDATE_MAL_ATTR);
 
             aret = BGP_ATTR_PARSE_ERROR ;
             goto attr_parse_exit ;
@@ -2343,7 +2189,7 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
    *                   or BGP_ATTR_PARSE_IGNORE if last attribute parsed
    *                                               just happened to be so.
    */
-  stream_set_startp(s, stream_get_endp(s)) ;
+  stream_set_startp(args->s, stream_get_endp(args->s)) ;
 
   /* At this place we can see whether we got AS4_PATH and/or
    * AS4_AGGREGATOR from a 16Bit peer and act accordingly.
@@ -2356,7 +2202,7 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
    * all attributes first, including these 32bit ones, and now,
    * afterwards, we look what and if something is to be done for as4.
    */
-  if (!PEER_CAP_AS4_USE(peer))
+  if (!PEER_CAP_AS4_USE(args->peer))
     {
       bgp_attr_parse_ret_t ret ;
 
@@ -2366,11 +2212,10 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
        *     In this case BGP_ATTR_PARSE_IGNORE does not signal an *error*,
        *     so we do not set "ignored" on the strength of it.
        */
-      ret = bgp_attr_munge_as4_aggr (peer, attr, as4_aggregator,
-                                                 &as4_aggregator_addr) ;
+      ret = bgp_attr_munge_as4_aggr (args) ;
 
       if (ret == BGP_ATTR_PARSE_PROCEED)
-        ret = bgp_attr_munge_as4_path (peer, attr, as4_path) ;
+        ret = bgp_attr_munge_as4_path (args) ;
 
       switch (ret)
         {
@@ -2392,11 +2237,11 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
   /* Finally do the checks on the aspath we did not do yet
    * because we waited for a potentially synthesized aspath.
    */
-  if (attr->flag & (ATTR_FLAG_BIT(BGP_ATTR_AS_PATH)))
+  if (args->attr.flag & (ATTR_FLAG_BIT(BGP_ATTR_AS_PATH)))
     {
       bgp_attr_parse_ret_t ret ;
 
-      ret = bgp_attr_aspath_check (peer, attr);
+      ret = bgp_attr_aspath_check (args);
 
       switch (ret)
         {
@@ -2420,8 +2265,8 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
     } ;
 
   /* Finally intern unknown attribute. */
-  if (attr->extra && attr->extra->transit)
-    attr->extra->transit = transit_intern (attr->extra->transit);
+  if (args->attr.extra && args->attr.extra->transit)
+    args->attr.extra->transit = transit_intern (args->attr.extra->transit);
 
   /* Done everything we are going to do -- return the result.
    *
@@ -2447,11 +2292,11 @@ bgp_attr_parse (struct peer *peer, struct attr *attr,
    */
  attr_parse_exit:
 
-  if (as4_path != NULL)
-    aspath_unintern (&as4_path);
+  if (args->as4_path != NULL)
+    aspath_unintern (&args->as4_path);
 
   if ((attr_count != 1) || (aret != BGP_ATTR_PARSE_PROCEED))
-    *mp_eor = false ;
+    args->mp_eor = false ;
 
   return aret ;
 } ;

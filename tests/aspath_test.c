@@ -1197,13 +1197,12 @@ handle_attr_test (struct aspath_tests *t)
 {
   struct bgp bgp = { 0 };
   struct peer peer = { 0 };
-  struct attr attr = { 0 };
   int ret;
   int initfail = failed;
   struct aspath *asp;
   size_t datalen, endp;
   char host[] = { "none" } ;
-  bool mp_eor ;
+  bgp_attr_parser_args_t args[1] ;
 
   asp = make_aspath (t->segment->asdata, t->segment->len, 0);
 
@@ -1216,12 +1215,17 @@ handle_attr_test (struct aspath_tests *t)
 #endif
   peer.cap = t->cap;
 
+  memset (args, 0, sizeof (args));
+
+  args->peer = &peer ;
+  args->s    = peer.ibuf ;
+
   stream_put (peer.ibuf, t->attrheader, t->len);
   datalen = aspath_put (peer.ibuf, asp, t->as4 == AS4_DATA);
 
   endp = stream_push_endp(peer.ibuf, t->len + datalen) ;
 
-  ret = bgp_attr_parse (&peer, &attr, NULL, NULL, &mp_eor);
+  ret = bgp_attr_parse (args);
 
   if (ret != t->result)
     {
@@ -1232,23 +1236,24 @@ handle_attr_test (struct aspath_tests *t)
   if (ret != 0)
     goto out;
 
-  if (attr.aspath == NULL)
+  if (args->attr.aspath == NULL)
     {
       printf ("aspath is NULL!\n");
       failed++;
     }
-  if (attr.aspath && strcmp (attr.aspath->str, t->shouldbe))
+
+  if (args->attr.aspath && strcmp (args->attr.aspath->str, t->shouldbe))
     {
       printf ("attr str and 'shouldbe' mismatched!\n"
               "attr str:  %s\n"
               "shouldbe:  %s\n",
-              attr.aspath->str, t->shouldbe);
+              args->attr.aspath->str, t->shouldbe);
       failed++;
     }
 
 out:
-  if (attr.aspath)
-    aspath_unintern (&attr.aspath);
+  if (args->attr.aspath)
+    aspath_unintern (&args->attr.aspath);
   if (asp)
     aspath_unintern (&asp);
   return failed - initfail;

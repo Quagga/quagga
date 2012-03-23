@@ -437,23 +437,21 @@ static struct test_segment mp_unreach_segments [] =
 static void
 parse_test (struct peer *peer, struct test_segment *t, int type)
 {
-  byte flag ;
+  byte flags ;
   int ret;
   int oldfailed = failed;
-  struct attr attr;
-  struct bgp_nlri nlri;
-  bool mp_eor ;
+  bgp_attr_parser_args_t args[1] ;
 #define RANDOM_FUZZ 35
 
   stream_reset (peer->ibuf);
   stream_put (peer->ibuf, NULL, RANDOM_FUZZ);
   stream_set_getp (peer->ibuf, RANDOM_FUZZ);
 
-  flag = BGP_ATTR_FLAG_OPTIONAL | ((t->len < 256) ? 0 : BGP_ATTR_FLAG_EXTLEN) ;
+  flags = BGP_ATTR_FLAG_OPTIONAL | ((t->len < 256) ? 0 : BGP_ATTR_FLAG_EXTLEN) ;
 
-  stream_putc(peer->ibuf, flag) ;
+  stream_putc(peer->ibuf, flags) ;
   stream_putc(peer->ibuf, type) ;
-  if (flag & BGP_ATTR_FLAG_EXTLEN)
+  if (flags & BGP_ATTR_FLAG_EXTLEN)
     stream_putw(peer->ibuf, t->len) ;
   else
     stream_putc(peer->ibuf, t->len) ;
@@ -463,12 +461,19 @@ parse_test (struct peer *peer, struct test_segment *t, int type)
 
   printf ("%s: %s\n", t->name, t->desc);
 
-  mp_eor = false ;
+  memset (args, 0, sizeof (args));
+
+  args->peer   = peer ;
+  args->s      = peer->ibuf ;
+
+  args->type   = type ;
+  args->flags  = flags ;
+  args->length = t->len ;
 
   if (type == BGP_ATTR_MP_REACH_NLRI)
-    ret = bgp_mp_reach_parse (peer, t->len, &attr, flag, &nlri);
+    ret = bgp_mp_reach_parse (args);
   else
-    ret = bgp_mp_unreach_parse (peer, t->len, flag, &nlri, &mp_eor);
+    ret = bgp_mp_unreach_parse (args);
 
   if (!ret)
     {
@@ -490,7 +495,7 @@ parse_test (struct peer *peer, struct test_segment *t, int type)
 
   if (tty)
     printf ("%s", (failed > oldfailed) ? VT100_RED "failed!" VT100_RESET
-                                         : VT100_GREEN "OK" VT100_RESET);
+                                       : VT100_GREEN "OK" VT100_RESET);
   else
     printf ("%s", (failed > oldfailed) ? "failed!" : "OK" );
 
