@@ -84,8 +84,8 @@ static const struct message rip_msg[] =
   {RIP_TRACEOFF,   "TRACEOFF"},
   {RIP_POLL,       "POLL"},
   {RIP_POLL_ENTRY, "POLL ENTRY"},
-  {0, NULL},
 };
+static const size_t rip_msg_max = sizeof (rip_msg) / sizeof (rip_msg[0]);
 
 /* Utility function to set boradcast option to the socket. */
 static int
@@ -705,7 +705,7 @@ rip_packet_dump (struct rip_packet *packet, int size, const char *sndrcv)
 
   /* Set command string. */
   if (packet->command > 0 && packet->command < RIP_COMMAND_MAX)
-    command_str = lookup (rip_msg, packet->command);
+    command_str = LOOKUP (rip_msg, packet->command);
   else
     command_str = "unknown";
 
@@ -2109,12 +2109,12 @@ rip_read (struct thread *t)
     case RIP_TRACEON:
     case RIP_TRACEOFF:
       zlog_info ("Obsolete command %s received, please sent it to routed", 
-		 lookup (rip_msg, packet->command));
+		 LOOKUP (rip_msg, packet->command));
       rip_peer_bad_packet (&from);
       break;
     case RIP_POLL_ENTRY:
       zlog_info ("Obsolete command %s received", 
-		 lookup (rip_msg, packet->command));
+		 LOOKUP (rip_msg, packet->command));
       rip_peer_bad_packet (&from);
       break;
     default:
