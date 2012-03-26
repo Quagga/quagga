@@ -174,8 +174,13 @@ CONFIRM( (sizeof(union htonq_ntohq) == 8)
                                  && (offsetof(union htonq_ntohq, l.ms) == 0)
                                  && (offsetof(union htonq_ntohq, l.ls) == 4) ) ;
 
+#ifdef __GNUC__
+Inline uint64_t htonq(uint64_t q) __attribute__((always_inline)) ;
+Inline uint64_t ntohq(uint64_t q) __attribute__((always_inline)) ;
+#endif
+
 Inline uint64_t
-htonq(uint64_t q)
+htonq(uint64_t hq)
 {
 #ifdef __GNUC__
   #if   BYTE_ORDER == BIG_ENDIAN
@@ -184,7 +189,7 @@ htonq(uint64_t q)
 
   #elif BYTE_ORDER == LITTLE_ENDIAN
 
-  return __builtin_bswap64(q) ;
+  return __builtin_bswap64(hq) ;
 
   #else
     #error BYTE_ORDER is neither BIG_ENDIAN nor LITTLE_ENDIAN !
@@ -192,15 +197,15 @@ htonq(uint64_t q)
 #else
   union htonq_ntohq t ;
 
-  t.l.ms = htonl(q >> 32) ;
-  t.l.ls = htonl(q      ) ;
+  t.l.ms = htonl(hq >> 32) ;
+  t.l.ls = htonl(hq      ) ;
 
   return t.q ;
 #endif
 } ;
 
 Inline uint64_t
-ntohq(uint64_t q)
+ntohq(uint64_t nq)
 {
 #ifdef __GNUC__
   #if   BYTE_ORDER == BIG_ENDIAN
@@ -209,7 +214,7 @@ ntohq(uint64_t q)
 
   #elif BYTE_ORDER == LITTLE_ENDIAN
 
-  return __builtin_bswap64(q) ;
+  return __builtin_bswap64(nq) ;
 
   #else
     #error BYTE_ORDER is neither BIG_ENDIAN nor LITTLE_ENDIAN !
@@ -217,7 +222,7 @@ ntohq(uint64_t q)
 #else
   union htonq_ntohq t ;
 
-  t.q = q ;
+  t.q = nq ;
 
   return ((uint64_t)ntohl(t.l.ms) << 32) | (uint64_t)ntohl(t.l.ls) ;
 #endif

@@ -34,7 +34,7 @@
  *
  * Can set __GNUC_LOCAL to 0 for testing
  */
-#if defined(__GNUC__)
+#ifdef __GNUC__
 #define __GNUC__LOCAL 1
 #else
 #define __GNUC__LOCAL 0
@@ -46,50 +46,21 @@ static const uint8_t maskbit[] = { 0x00, 0x80, 0xc0, 0xe0, 0xf0,
 			                 0xf8, 0xfc, 0xfe, 0xff };
 
 /*==============================================================================
- * "Macros" for banging 32 bits of masks
+ * "Macros" for banging 32 and 64 bits of masks
  */
+              /* 0123456701234567 */
+#define U32_1s (uint32_t)0xFFFFFFFF
+#define U64_1s (uint64_t)0xFFFFFFFFFFFFFFFF
 
-inline static u_char n32_masklen(uint32_t mask_n)      Always_Inline ;
 inline static uint32_t n32_mask(uint len)              Always_Inline ;
-inline static uint32_t n32_p_mask(uint len)            Always_Inline ;
 inline static u_char n32_mask_check (uint32_t mask_n)  Always_Inline ;
+inline static u_char n64_mask_check (uint64_t mask_n)  Always_Inline ;
 
-/*------------------------------------------------------------------------------
- * Convert 32 bits of netmask to prefix length.
- *
- * If the netmask is invalid, all '1's after the first '0' are ignored.
- *
- * Argument netmask should be network byte order.
- */
-inline static u_char
-n32_masklen (uint32_t mask_n)
-{
-  uint32_t mask_h ;
+inline static uint8_t local_clz_n32(uint32_t n32)      Always_Inline ;
+inline static uint8_t local_clz_u32(uint32_t u32)      Always_Inline ;
+static uint8_t local_clz_u32_long(uint32_t u32) ;
 
-  mask_h = ntohl(mask_n) ;
-
-#if __GNUC__LOCAL
-
-  return (mask_h != 0xFFFFFFFF) ? __builtin_clz(~mask_h) : 32 ;
-
-#else
-
-  while (1)
-    {
-      uint32_t t ;
-
-      if (mask_h == 0)
-        return 0 ;
-
-      t = (mask_h | (mask_h - 1)) - 0xFFFFFFFF ;
-
-      if (t == 0)
-        return 33 - ffs(mask_h) ;
-
-      mask_h &= t ;
-    }
-#endif
-} ;
+inline static uint8_t local_clz_n64(uint64_t n64)      Always_Inline ;
 
 /*------------------------------------------------------------------------------
  * Return 32 bit mask
@@ -97,17 +68,8 @@ n32_masklen (uint32_t mask_n)
 inline static uint32_t
 n32_mask(uint len)
 {
-  return (len < 32) ? htonl(~((uint32_t)0xFFFFFFFF >> len))
-                    :         (uint32_t)0xFFFFFFFF ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Return 32 bit part of mask -- take len % 32
- */
-inline static uint32_t
-n32_p_mask(uint len)
-{
-  return htonl(~((uint32_t)0xFFFFFFFF >> (len % 32))) ;
+  return (len < 32) ? ~htonl((U32_1s >> len))
+                    :         U32_1s ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -124,7 +86,7 @@ n32_mask_check (uint32_t mask_n)
 
   mask_h = ntohl(mask_n) ;
 
-  return (mask_h | (mask_h - 1)) == 0xFFFFFFFF ;
+  return (mask_h | (mask_h - 1)) == U32_1s ;
 
   /* So: where ip_h has at some unknown MS bits, and then '1' followed by
    *     '0's we have:
@@ -139,6 +101,192 @@ n32_mask_check (uint32_t mask_n)
    *
    *     so that's fine too.
    */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Check whether given uint32_t is valid as a netmask.
+ *
+ * Netmask is valid if there are no '1' bits after the LS '0' (if any)
+ *
+ * Argument should be network byte order.
+ */
+inline static u_char
+n64_mask_check (uint64_t mask_n)
+{
+  uint64_t mask_h ;
+
+  mask_h = ntohq(mask_n) ;
+
+  return (mask_h | (mask_h - 1)) == U64_1s ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Wrapper for __builtin_clz() for 32-bit Network Order value
+ *
+ * NB: *undefined* result for n32 == 0
+ */
+inline static uint8_t
+local_clz_n32(uint32_t n32)
+{
+  return local_clz_u32(ntohl(n32)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Wrapper for __builtin_clz() for 32-bit Host Order value
+ *
+ * NB: *undefined* result for u32 == 0
+ */
+inline static uint8_t
+local_clz_u32(uint32_t u32)
+{
+  /* Expect the compiler to reap the unused code here.
+   *
+   * Done this way to ensure that the obscure code is kept up to date !
+   */
+  if (__GNUC__LOCAL)
+    {
+      confirm(UINT_MAX == U32_1s) ;
+
+#if __GNUC__LOCAL
+      return __builtin_clz(u32) ;
+#else
+      assert(false) ;                   /* CANNOT reach here !! */
+#endif
+    }
+  else
+    {
+      /* NB: we try to use ffs() if we can.  We want to count the leading
+       *     zeros, so we can only do this if have '0's followed by '1's,
+       *     which is the case for valid prefix masks, and is the case we
+       *     want to handle most quickly.
+       *
+       *     If we give ffs() zero we get 0, which is completely wrong, so
+       *     need to look out for u32 = 0xFFFFFFFF.  Since we have to do that,
+       *     we deal with all the cases where the result is zero, and for
+       *     good measure we deal with the one case where we would present
+       *     ffs() with a value > 0x7FFFFFFF -- because ffs() technically
+       *     takes an int !
+       */
+      if (u32 >= 0x7FFFFFFF)
+        return (u32 > 0x7FFFFFFF) ? 0 : 1 ;
+
+      if ((u32 & (u32 + 1)) == 0)
+        return 33 - ffs(u32 + 1) ;
+
+      return local_clz_u32_long(u32) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Long alternative to __builtin_clz() for 32-bit (Host Order) value
+ *
+ * For use where u32 is *not* '1's followed by '0's, only -- so cannot use
+ * ffs() because
+ *
+ * NB: *undefined* result for u32 == 0
+ */
+static uint8_t
+local_clz_u32_long(uint32_t u32)
+{
+  uint8_t n ;
+
+  if (u32 > 0x0000FFFF)
+    {
+      if (u32 > 0x00FFFFFF)
+        {
+          if (u32 > 0x0FFFFFFF)
+            {
+              n   = (28    - 28) ;
+              u32 = (u32 >> (28 - 1)) ;
+            }
+          else
+            {
+              n   = (28    - 24) ;
+              u32 = (u32 >> (24 - 1)) ;
+            } ;
+        }
+      else
+        {
+          if (u32 > 0x000FFFFF)
+            {
+              n   = (28    - 20) ;
+              u32 = (u32 >> (20 - 1)) ;
+            }
+          else
+            {
+              n   = (28    - 16) ;
+              u32 = (u32 >> (16 - 1)) ;
+            } ;
+        }
+    }
+  else
+    {
+      if (u32 > 0x000000FF)
+        {
+          if (u32 > 0x00000FFF)
+            {
+              n   = (28    - 12) ;
+              u32 = (u32 >> (12 - 1)) ;
+            }
+          else
+            {
+              n   = (28    -  8) ;
+              u32 = (u32 >> ( 8 - 1)) ;
+            } ;
+        }
+      else
+        {
+          if (u32 > 0x0000000F)
+            {
+              n   = (28    -  4) ;
+              u32 = (u32 >> ( 4 - 1)) ;
+            }
+          else
+            {
+              n   = (28    -  0) ;
+              u32 = (u32 << 1) ;
+            } ;
+        }
+    } ;
+
+  return n + ((0x000055AC >> (u32 & 0x1E)) & 0x3) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Wrapper for __builtin_clz() for 64-bit Network Order value
+ *
+ * NB: *undefined* result for n64 == 0
+ */
+inline static uint8_t
+local_clz_n64(uint64_t n64)
+{
+  uint64_t u64 ;
+
+  u64 = ntohq(n64) ;
+
+  /* Expect the compiler to reap the unused code here.
+   *
+   * Done this way to ensure that the obscure code is kept up to date !
+   */
+  if (__GNUC__LOCAL)
+    {
+      confirm(ULONG_MAX == U64_1s) ;
+
+#if __GNUC__LOCAL
+      return __builtin_clzl(u64) ;
+#else
+      assert(false) ;                   /* CANNOT reach here !! */
+#endif
+    }
+  else
+    {
+      /* Break this down so that can operate of 32 bit parts.
+       */
+      if (u64 > U32_1s)
+        return local_clz_u32(u64 >> 32) ;
+      else
+        return 32 + local_clz_u32(u64) ;
+    } ;
 } ;
 
 /*==============================================================================
@@ -320,6 +468,8 @@ prefix_same (const struct prefix *p1, const struct prefix *p2)
  * Does not care what the Family is and does not check that Prefix Length is
  * feasible (either for the Family or for the size of the struct prefix !)
  *
+ * Whatever the prefix length is, requires the body of the prefix to be some
+ * multiple of uint32_t (in future uint64_t and uint128_t !)
  */
 int
 prefix_cmp (const struct prefix *p1, const struct prefix *p2)
@@ -333,7 +483,7 @@ prefix_cmp (const struct prefix *p1, const struct prefix *p2)
   m = p1->prefixlen % 32 ;
 
   if (m != 0)
-    if (ntohl(p1->u.n32[i] ^ p2->u.n32[i]) > (0xFFFFFFFF >> m))
+    if (ntohl(p1->u.n32[i] ^ p2->u.n32[i]) > (U32_1s >> m))
       return 1;
 
   while (i--)
@@ -352,8 +502,10 @@ prefix_cmp (const struct prefix *p1, const struct prefix *p2)
 int
 prefix_common_bits (const struct prefix *p1, const struct prefix *p2)
 {
-  uint i, len ;
-  uint32_t d ;
+  uint32_t dn32 ;
+#ifdef HAVE_IPV6
+  uint64_t dn64 ;
+#endif
 
   if (p1->family != p2->family)
     return -1;
@@ -361,76 +513,26 @@ prefix_common_bits (const struct prefix *p1, const struct prefix *p2)
   switch (p1->family)
     {
       case AF_INET:
-        len = IPV4_MAX_BYTELEN / 4 ;
-        confirm((IPV4_MAX_BYTELEN % 4) == 0) ;
-        break ;
+
+        dn32 = p1->u.n32[0] ^ p2->u.n32[0] ;
+
+        return (dn32 != 0) ? local_clz_n32(dn32) : 32 ;
 
 #ifdef HAVE_IPV6
       case AF_INET6:
-        len = IPV6_MAX_BYTELEN / 4 ;
-        confirm((IPV6_MAX_BYTELEN % 4) == 0) ;
-        break ;
+        dn64 = p1->u.n64[0] ^ p2->u.n64[0] ;
+
+        if (dn64 != 0)
+          return local_clz_n64(dn64) ;
+
+        dn64 = p1->u.n64[1] ^ p2->u.n64[1] ;
+
+        return (dn64 != 0) ? 64 + local_clz_n64(dn64) : 128 ;
 #endif
 
       default:
         return -1 ;
     } ;
-
-  i = 0 ;
-
-  while ((d = p1->u.n32[i] ^ p2->u.n32[i]) == 0)
-    {
-      ++i ;
-      if (i == len)
-        return len * 32 ;
-    } ;
-
-  d = ntohl(d) ;        /* NB d != 0            */
-
-#if __GNUC__LOCAL
-  return (i * 32) + __builtin_clz(d) ;
-
-#else
-  if (d > 0x0000FFFF)
-    {
-      if (d > 0x00FFFFFF)
-        {
-          i = (i * 32) + (24 - 24);
-          d >>= 24 ;
-        }
-      else
-        {
-          i = (i * 32) + (24 - 16) ;
-          d >>= 16 ;
-        }
-    }
-  else
-    {
-      if (d > 0x000000FF)
-        {
-          i = (i * 32) + (24 -  8) ;
-          d >>= 8 ;
-        }
-      else
-        {
-          i = (i * 32) + (24 -  0) ;
-        }
-    } ;
-
-  if (d > 0x0F)
-    d >>= 4 ;
-  else
-    i += 4 ;
-
-  while ((d & 0x8) == 0)
-    {
-      ++i ;
-      d <<= 1 ;
-    } ;
-
-  return i ;
-
-#endif
 } ;
 
 /* Return prefix family type string. */
@@ -553,7 +655,7 @@ masklen2ip (const uint masklen, struct in_addr *netmask)
 u_char
 ip_masklen (struct in_addr netmask)
 {
-  return n32_masklen (netmask.s_addr) ;
+  return (netmask.s_addr != U32_1s) ? local_clz_n32(~netmask.s_addr) : 32 ;
 } ;
 
 /* Check whether given IPv4 netmask is valid.
@@ -673,104 +775,76 @@ str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
 u_char
 ip6_masklen (union in6_addr_u netmask)
 {
-  uint     i ;
-  uint32_t nm ;
+  if (netmask.n64[0] != U64_1s)
+    return local_clz_n64(~netmask.n64[0]) ;
 
-  i = 0;
-  while ((nm = netmask.n32[i]) == 0xFFFFFFFF)
-    {
-      ++i ;
+  if (netmask.n64[1] != U64_1s)
+    return local_clz_n64(~netmask.n64[1]) + 64 ;
 
-      if (i == (IPV6_MAX_BYTELEN / 4))
-        return IPV6_MAX_BITLEN ;
-
-      confirm((IPV6_MAX_BYTELEN % 4) == 0) ;
-      confirm(IPV6_MAX_BITLEN == (IPV6_MAX_BYTELEN * 8)) ;
-    } ;
-
-  return (i * 32) + n32_masklen (nm) ;
+  return 128 ;
 }
 
 /* Check whether given IPv6 netmask is valid.
  *
  * Netmask is valid if there are no '1' bits after the LS '0' (if any)
  *
- * The check does all of the work required to establish the prefix length (plus
- * a little.  So, unlike ip4_mask_check() -- which returns a bool -- this
- * returns the prefix length if is a valid mask.
- *
- * Returns:  -1 <=> *not* valid
- *         >= 0 == the prefix length
- *
  * Argument netmask should be network byte order.
  */
 bool
 ip6_mask_check (union in6_addr_u netmask)
 {
-  uint     i ;
-  uint32_t nm ;
+  if (netmask.n64[1] == 0)
+    return n64_mask_check(netmask.n64[0]) ;
 
-  i = 0;
-  while ((nm = netmask.n32[i++]) == 0xFFFFFFFF)
-    {
-      if (i == (IPV6_MAX_BYTELEN / 4))
-        return true ;
+  if (netmask.n64[0] == U64_1s)
+    return n64_mask_check(netmask.n64[1]) ;
 
-      confirm((IPV6_MAX_BYTELEN % 4) == 0) ;
-      confirm(IPV6_MAX_BITLEN == (IPV6_MAX_BYTELEN * 8)) ;
-    } ;
-
-  while (i < 4)
-    if (netmask.n32[i++] != 0)
-      return false ;
-
-  return n32_mask_check(nm) ;
+  return false ;
 } ;
 
 void
 masklen2ip6 (uint masklen, struct in6_addr *netmask)
 {
-  uint32_t m ;
-  uint i ;
+  uint64_t m0, m1 ;
 
-  static const uint32_t in6_masks[7] =
-    { 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
-      0x00000000, 0x00000000, 0x00000000, 0x000000000
-    };
-
-  if (masklen < 128)
+  if      (masklen < 64)
     {
-      i = masklen / 32 ;
-      m = n32_p_mask(masklen) ;
+      m0 = ~htonq(U64_1s >> masklen) ;
+      m1 = 0 ;
+    }
+  else if (masklen < 128)
+    {
+      m0 = U64_1s;
+      m1 = ~htonq(U64_1s >> (masklen - 64)) ;
     }
   else
     {
-      i = 3 ;
-      m = 0xFFFFFFFF ;
+      m0 = U64_1s ;
+      m1 = U64_1s ;
     } ;
 
-  memcpy(netmask, &in6_masks[3 - i], 16) ;
-  memcpy(netmask->s6_addr + (i * 4), &m, 4) ;
+  memcpy((char*)netmask + 0, &m0, 8) ;
+  memcpy((char*)netmask + 8, &m1, 8) ;
 }
 
 void
 apply_mask_ipv6 (struct prefix_ipv6 *p)
 {
   struct prefix* px ;
-  uint     i ;
 
   px = (struct prefix*)p ;
-  confirm(offsetof(struct prefix, u.n32) ==
+  confirm(offsetof(struct prefix, u.n64) ==
                                          offsetof(struct prefix_ipv6, prefix)) ;
-  i = p->prefixlen / 32 ;
 
-  if (i < 4)
+  if (p->prefixlen < 64)
     {
-      px->u.n32[i++] &= n32_p_mask(p->prefixlen) ;
-
-      while (i < 4)
-        px->u.n32[i++] = 0;
+      px->u.n64[0] &= ~htonq(U64_1s >> p->prefixlen) ;
+      px->u.n64[1] = 0 ;
     }
+  else if (p->prefixlen < 128)
+    {
+      px->u.n64[1] &= ~htonq(U64_1s >> (p->prefixlen - 64)) ;
+    } ;
 }
 
 void
