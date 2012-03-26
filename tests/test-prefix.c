@@ -42,6 +42,8 @@ static void test_masklen2ip(counts ct) ;
 static void test_masklen2ip6(counts ct) ;
 static void test_ip_masklen(counts ct) ;
 static void test_ip6_masklen(counts ct) ;
+static void test_apply_mask_ipv4(counts ct) ;
+static void test_apply_mask_ipv6(counts ct) ;
 static void test_prefix_raw_ipv4(counts ct) ;
 static void test_prefix_raw_ipv6(counts ct) ;
 static void test_prefix_match(counts ct) ;
@@ -56,6 +58,8 @@ static const test_t tests[] =
   { .func = test_masklen2ip6,        .good =    129, .total =     256 },
   { .func = test_ip_masklen,         .good =     33, .total =     256 },
   { .func = test_ip6_masklen,        .good =    129, .total =     512 },
+  { .func = test_apply_mask_ipv4,    .good =   1800, .total =    1800 },
+  { .func = test_apply_mask_ipv6,    .good =   6800, .total =    6800 },
   { .func = test_prefix_raw_ipv4,    .good =     33, .total =     256 },
   { .func = test_prefix_raw_ipv6,    .good =    129, .total =     256 },
   { .func = test_prefix_match,       .good = 723905, .total = 1098177 },
@@ -322,7 +326,7 @@ test_ip6_masklen(counts ct)
   for (plen = 0 ; plen <= 511 ; ++plen)
     {
       uint get, expect ;
-      int  get_ok, expect_ok ;
+      bool get_ok, expect_ok ;
       struct in6_addr mask ;
 
       /* ip_masklen() will give a result for any mask.
@@ -336,27 +340,27 @@ test_ip6_masklen(counts ct)
         {
           masklen2ip6 (plen, &mask) ;
           expect    = plen ;
-          expect_ok = plen ;
+          expect_ok = true ;
         }
       else
         {
           uint px ;
 
           expect    = plen % 127 ;              /* 0..126               */
-          expect_ok = -1 ;
+          expect_ok = false ;
 
           masklen2ip6 (expect, &mask) ;
           px = expect + 1 ;                     /* bit after first '0'  */
           set_pbit(mask.s6_addr, px + (rand() % (128 - px))) ;
         } ;
 
-      get    = ip6_masklen(mask) ;
-      get_ok = ip6_mask_check(mask) ;
+      get    = ip6_masklen((union in6_addr_u)mask) ;
+      get_ok = ip6_mask_check((union in6_addr_u)mask) ;
 
       ++ct->total ;
       if ((expect == get) && (expect_ok == get_ok))
         {
-          if (expect_ok >= 0)
+          if (expect_ok)
             ++ct->good ;
         }
       else
@@ -368,6 +372,152 @@ test_ip6_masklen(counts ct)
             fprintf(stderr, " %02x", mask.s6_addr[i]) ;
           fprintf(stderr, " expect %u got %u, expect_ok %d got_ok %d",
                                                expect, get, expect_ok, get_ok) ;
+        } ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * apply_mask_ipv4() -- takes body of prefix and applies mask to it
+ */
+static void
+test_apply_mask_ipv4(counts ct)
+{
+  uint plen ;
+
+  fprintf(stderr, "Test apply_mask_ipv4()") ;
+  for (plen = 0 ; plen < 36 ; ++plen)
+    {
+      uint it ;
+
+      /* We use plen > 32 to construct masks of lengths 33..255
+       *
+       * For each plen generate 50 random prefix values.
+       *
+       * Expect final score of 1800/1800.
+       */
+      for (it = 0 ; it < 50 ; ++it)
+        {
+          uint i ;
+          uint8_t* p ;
+          struct prefix_ipv4 px ;
+          struct prefix_ipv4 p1 ;
+          struct prefix_ipv4 p2 ;
+
+          /* Fill p1 with garbage and set prefix length
+           */
+          p = (uint8_t*)&px ;
+          for (i = 0 ; i < sizeof(struct prefix_ipv4) ; ++i)
+             *p++ = rand() & 0xFF ;
+
+          if (plen <= 32)
+            px.prefixlen = plen ;
+          else
+            px.prefixlen = 33 + (rand() % (256 - 33)) ;
+
+          memcpy(&p1, &px, sizeof(struct prefix_ipv4)) ;
+          memcpy(&p2, &px, sizeof(struct prefix_ipv4)) ;
+
+          apply_mask_ipv4(&p1) ;
+
+          if (plen < 32)
+            p2.prefix.s_addr &= htonl(~(uint64_t)0 << (32 - plen)) ;
+
+          ++ct->total ;
+
+          if (memcmp(&p2, &p1, sizeof(struct prefix_ipv4)) == 0)
+            {
+              ++ct->good ;
+            }
+          else
+            {
+              ++ct->errs ;
+              fprintf(stderr, "\n *** for 0x%08x/%d expect 0x%08x got 0x%08x",
+                             ntohl(px.prefix.s_addr), px.prefixlen,
+                             ntohl(p1.prefix.s_addr), ntohl(p2.prefix.s_addr)) ;
+            } ;
+        } ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * apply_mask_ipv6() -- takes body of prefix and applies mask to it
+ */
+static void
+test_apply_mask_ipv6(counts ct)
+{
+  uint plen ;
+
+  fprintf(stderr, "Test apply_mask_ipv6()") ;
+  for (plen = 0 ; plen < 136 ; ++plen)
+    {
+      uint it ;
+
+      /* We use plen > 128 to construct masks of lengths 129..255
+       *
+       * For each plen generate 50 random prefix values.
+       *
+       * Expect final score of 6800/6800.
+       */
+      for (it = 0 ; it < 50 ; ++it)
+        {
+          uint i ;
+          uint8_t* p ;
+          struct prefix_ipv6 px ;
+          struct prefix_ipv6 p1 ;
+          struct prefix_ipv6 p2 ;
+
+          /* Fill p1 with garbage and set prefix length
+           */
+          p = (uint8_t*)&px ;
+          for (i = 0 ; i < sizeof(struct prefix_ipv4) ; ++i)
+             *p++ = rand() & 0xFF ;
+
+          if (plen <= 128)
+            px.prefixlen = plen ;
+          else
+            px.prefixlen = 129 + (rand() % (256 - 129)) ;
+
+          memcpy(&p1, &px, sizeof(struct prefix_ipv6)) ;
+          memcpy(&p2, &px, sizeof(struct prefix_ipv6)) ;
+
+          apply_mask_ipv6(&p1) ;
+
+          if (plen < 128)
+            {
+              uint    i ;
+              uint8_t m ;
+
+              m = ~(uint16_t)0 << (8 - (plen % 8)) ;
+
+              for (i = plen / 8 ; i < 16 ; ++i)
+                {
+                  p2.prefix.s6_addr[i] &= m ;
+                  m = 0 ;
+                } ;
+            } ;
+
+          ++ct->total ;
+
+          if (memcmp(&p2, &p1, sizeof(struct prefix_ipv6)) == 0)
+            {
+              ++ct->good ;
+            }
+          else
+            {
+              ++ct->errs ;
+
+              fprintf(stderr, "\n *** for %3u:", px.prefixlen) ;
+              for (i = 0 ; i < 16 ; ++i)
+                fprintf(stderr, " %02x", px.prefix.s6_addr[i]) ;
+
+              fprintf(stderr, "\n      expect:") ;
+              for (i = 0 ; i < 16 ; ++i)
+                fprintf(stderr, " %02x", p2.prefix.s6_addr[i]) ;
+
+              fprintf(stderr, "\n         got:") ;
+              for (i = 0 ; i < 16 ; ++i)
+                fprintf(stderr, " %02x", p1.prefix.s6_addr[i]) ;
+            } ;
         } ;
     } ;
 } ;
@@ -1078,7 +1228,8 @@ test_prefix_common_bits(counts ct)
        *                    value.
        *
        *                    Then no bits different, and then 1 bit different
-       *                    for all possible family length bits
+       *                    for all possible family length bits, and randomly
+       *                    different thereafter.
        *
        * Score should be:  83592/650160
        */
@@ -1197,11 +1348,19 @@ test_prefix_common_bits(counts ct)
 
                   for (pt = 0 ; pt <= fam_len ; ++pt)
                     {
+                      struct prefix px[1] ;
                       int expect, get ;
+                      uint pr ;
+
+                      memcpy(px->u.b, p2->u.b, 16) ;
 
                       if (pt < 128)
                         flip_pbit(p2->u.b, pt) ;    /* perturb bit just beyond
-                                                     * prefix of length px. */
+                                                     * prefix of length pt. */
+                      for (pr = pt + 1 ; pr < 128 ; ++pr)
+                        if (rand() & 1)
+                          flip_pbit(p2->u.b, pr) ;  /* perturb bit beyond
+                                                     * prefix of length pt. */
 
                       expect = fam_known && (ft == 0) ? (int)pt : -1 ;
                       get = prefix_common_bits(p1, p2) ;
@@ -1230,8 +1389,7 @@ test_prefix_common_bits(counts ct)
                             fprintf(stderr, " %02x", p2->u.b[i]) ;
                         } ;
 
-                      if (pt < 128)
-                        flip_pbit(p1->u.b, pt) ;   /* keep p1 & p2 equal   */
+                      memcpy(p2->u.b, px->u.b, 16) ;    /* recover       */
                     } ;
                 } ;
             } ;

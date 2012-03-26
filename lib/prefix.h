@@ -64,6 +64,18 @@ struct prefix
   } u __attribute__ ((aligned (8)));
 };
 
+/* For when struct in6_addr does not have these elements
+ */
+union in6_addr_u
+{
+  struct in6_addr addr ;
+  uint64_t        n64[2] ;
+  uint32_t        n32[4] ;
+  uint8_t         b[16] ;
+};
+
+CONFIRM(sizeof(union in6_addr_u) == sizeof(struct in6_addr)) ;
+
 /* So we know that the AF_INET, IPv4 prefix address maps to *network order*
  * uint32_t.
  *
@@ -277,9 +289,9 @@ prefix_copy_ipv6(struct prefix* dst, struct prefix* src)
   *dst = *src ;
 } ;
 
-extern u_char ip6_masklen (struct in6_addr);
-extern int ip6_mask_check (struct in6_addr netmask) ;
-extern void masklen2ip6 (const uint, struct in6_addr *);
+extern u_char ip6_masklen (union in6_addr_u);
+extern bool ip6_mask_check (union in6_addr_u) ;
+extern void masklen2ip6 (uint, struct in6_addr *);
 
 extern void str2in6_addr (const char *, struct in6_addr *);
 extern const char *inet6_ntoa (struct in6_addr);

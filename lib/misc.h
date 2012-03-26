@@ -85,6 +85,12 @@
  */
 #define fall_through
 
+/* always_inline -- where avaliable !
+ */
+#ifdef __GNUC__
+#define Always_Inline __attribute__((always_inline))
+#endif
+
 /*------------------------------------------------------------------------------
  * Various names for true/false pairs
  *
@@ -171,22 +177,50 @@ CONFIRM( (sizeof(union htonq_ntohq) == 8)
 Inline uint64_t
 htonq(uint64_t q)
 {
+#ifdef __GNUC__
+  #if   BYTE_ORDER == BIG_ENDIAN
+
+  return q ;
+
+  #elif BYTE_ORDER == LITTLE_ENDIAN
+
+  return __builtin_bswap64(q) ;
+
+  #else
+    #error BYTE_ORDER is neither BIG_ENDIAN nor LITTLE_ENDIAN !
+  #endif
+#else
   union htonq_ntohq t ;
 
   t.l.ms = htonl(q >> 32) ;
   t.l.ls = htonl(q      ) ;
 
   return t.q ;
+#endif
 } ;
 
 Inline uint64_t
 ntohq(uint64_t q)
 {
+#ifdef __GNUC__
+  #if   BYTE_ORDER == BIG_ENDIAN
+
+  return q ;
+
+  #elif BYTE_ORDER == LITTLE_ENDIAN
+
+  return __builtin_bswap64(q) ;
+
+  #else
+    #error BYTE_ORDER is neither BIG_ENDIAN nor LITTLE_ENDIAN !
+  #endif
+#else
   union htonq_ntohq t ;
 
   t.q = q ;
 
   return ((uint64_t)ntohl(t.l.ms) << 32) | (uint64_t)ntohl(t.l.ls) ;
+#endif
 } ;
 
 /*------------------------------------------------------------------------------
