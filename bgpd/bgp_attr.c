@@ -897,7 +897,7 @@ bgp_attr_flush (struct attr *attr)
     }
 }
 
-/* Implement draft-scudder-idr-optional-transitive behaviour and
+/* Implement some draft-ietf-idr-error-handling behaviour and
  * avoid resetting sessions for malformed attributes which are
  * are partial/optional and hence where the error likely was not
  * introduced by the sending neighbour.
@@ -913,6 +913,11 @@ bgp_attr_malformed (struct bgp_attr_parser_args *args, u_char subcode,
    * the caller therefore signals this with the seperate length argument
    */
   u_char *notify_datap = (length > 0 ? args->startp : NULL);
+  
+  /* The malformed attribute shouldn't be passed on, should
+   * we decide to proceed with parsing the UPDATE
+   */
+  UNSET_FLAG (args->attr->flag,  ATTR_FLAG_BIT (args->type));
   
   /* Only relax error handling for eBGP peers */
   if (peer->sort != BGP_PEER_EBGP)
@@ -970,7 +975,9 @@ bgp_attr_malformed (struct bgp_attr_parser_args *args, u_char subcode,
     return BGP_ATTR_PARSE_WITHDRAW;
   
   /* default to reset */
-  return BGP_ATTR_PARSE_ERROR_NOTIFYPLS;
+  bgp_notify_send_with_data (peer, BGP_NOTIFY_UPDATE_ERR, subcode,
+                             notify_datap, length);
+  return BGP_ATTR_PARSE_ERROR;
 }
 
 /* Find out what is wrong with the path attribute flag bits and log the error.
