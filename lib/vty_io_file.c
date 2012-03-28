@@ -1697,27 +1697,27 @@ uty_pipe_exec_prepare(vty_io vio, std_set set)
   std[stdout_fd] = set[stdout_fd][out_half] ;
   std[stderr_fd] = set[stderr_fd][out_half] ;
 
-  /* Mark everything to be closed on exec                               */
-  for (fd = 0 ; fd < qlib_open_max ; ++fd)
-    {
-      int fd_flags ;
-      fd_flags = fcntl(fd, F_GETFD, 0) ;
-      if (fd_flags >= 0)
-        fcntl(fd, F_SETFD, fd_flags | FD_CLOEXEC) ;
-    } ;
-
-  /* Now dup anything of what we keep to ensure is above 2, making sure that
-   * the dup remains FD_CLOEXEC.
+  /* Now dup anything of what we keep to ensure is above 2.
    *
-   * This is highly unlikely, so no real extra work.  It simplifies the next
+   * This is highly unlikely, so no real extra work.  It simplifies the last
    * step which moves fds to the required position, and clears the FD_CLOEXEC
    * flag on the duplicate.
    */
   for (fd = 0 ; fd < stds ; ++fd)
     {
       if ((std[fd] >= 0) && (std[fd] < stds))
-        if ((std[fd] = fcntl(std[fd], F_DUPFD_CLOEXEC, stds)) < 0)
+        if ((std[fd] = fcntl(std[fd], F_DUPFD, stds)) < 0)
           return false ;
+    } ;
+
+  /* Mark everything to be closed on exec
+   */
+  for (fd = 0 ; fd < qlib_open_max ; ++fd)
+    {
+      int fd_flags ;
+      fd_flags = fcntl(fd, F_GETFD, 0) ;
+      if (fd_flags >= 0)
+        fcntl(fd, F_SETFD, fd_flags | FD_CLOEXEC) ;
     } ;
 
   /* Now dup2 to the required location -- destination is NOT FD_CLOEXEC.

@@ -50,7 +50,7 @@
 #include <arpa/telnet.h>
 #include <sys/un.h>             /* for VTYSH    */
 #include <sys/socket.h>
-#include <wait.h>
+#include <sys/wait.h>
 
 #define VTYSH_DEBUG 0
 

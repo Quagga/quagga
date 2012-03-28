@@ -2340,7 +2340,7 @@ sock_unix_set_path(struct sockaddr_un* sa_un, const char* path)
   sa_len = SUN_LEN(sa_un) ;     /* excludes '\0' !                      */
 
 #ifdef HAVE_STRUCT_SOCKADDR_UN_SUN_LEN
-  addr.sun_len = sa_len ;
+  sa_un->sun_len = sa_len ;
 #endif /* HAVE_STRUCT_SOCKADDR_UN_SUN_LEN */
 
   return sa_len ;

@@ -63,7 +63,6 @@
   enum { memory_regions = 0 } ;
 #endif
 
-
 /*==============================================================================
  * Here we wrap the usual malloc()/calloc()/realloc()/free()/strdup() functions
  * with various amounts of statics gathering.
@@ -2729,7 +2728,7 @@ show_memory_summary_info(vty vty, mem_tracker_data mtd)
       show_memory_mallinfo(vty, mtd) ;
       needsep = true ;
 #else
-      mem_mt_get_stats(mtd) ;       /* Get a snapshot of all data   */
+      mem_mt_get_stats(mtd, false) ;    /* Get a snapshot of all data   */
 #endif /* HAVE_MALLINFO */
     } ;
 
