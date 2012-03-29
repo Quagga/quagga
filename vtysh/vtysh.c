@@ -1031,7 +1031,7 @@ execute_command (const char *command, int argc, const char *arg1,
   if (pid < 0)
     {
       /* Failure of fork(). */
-      fprintf (stderr, "Can't fork: %s\n", safe_strerror (errno));
+      fprintf (stderr, "Can't fork: %s\n", errtoa(errno, 0).str);
       exit (1);
     }
   else if (pid == 0)
@@ -1052,7 +1052,7 @@ execute_command (const char *command, int argc, const char *arg1,
 
       /* When execlp succeeds, this part is not executed.
        */
-      fprintf (stderr, "Can't execute %s: %s\n", command, safe_strerror (errno));
+      fprintf (stderr, "Can't execute %s: %s\n", command, errtoa(errno, 0).str);
       exit (1);
     }
   else

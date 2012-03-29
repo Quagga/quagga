@@ -26,23 +26,10 @@
  * of "zebra.h".  This ensures that we get <features.h> defined early, so
  * that all other #includes get the same set of features.
  */
-
 #include "zconfig.h"
 
-/* This is horrible... but for some purposes wish to turn *off* __USE_GNU.
- *
- * e.g: to persuade <string.h> to give POSIX version of strerror_r !!!
- */
-#ifdef NO_USE_GNU
-# undef  NO_USE_GNU
-# ifdef  __USE_GNU
-#  define NO_USE_GNU 1
-#  undef __USE_GNU
-# endif
-#endif
-
-/* Stuff which we generally expect to have                              */
-
+/* Stuff which we generally expect to have
+*/
 #include <string.h>
 #include <limits.h>
 #include <unistd.h>

@@ -19,16 +19,11 @@
  * Boston, MA 02111-1307, USA.
  */
 
-/* We use thread specific storeage to provide buufers for the _r versions
+/* We use thread specific storage to provide buufers for the _r versions
  * of standard functions, so that the callers don't need to provide
  * their own.  The contents of a buffer will remain intact until another
  * safe_ function is called on the same thread
  */
-
-/* Need "NO_USE_GNU" to turn off __USE_GNU in "misc.h" in order to get the
- * POSIX version of strerror_r() :-(
- */
-#define NO_USE_GNU
 
 #include "misc.h"
 #include "pthread_safe.h"
@@ -142,6 +137,8 @@ destructor(void* data)
  */
 
 static strerror_t errtox(int err, ulen len, uint want) ;
+static const char* qstrerror_r(int err, char *buf, size_t n) ;
+static const char* qstrerror(int err) ;
 
 /*------------------------------------------------------------------------------
  * Construct string to describe the given error of the form:
@@ -180,6 +177,9 @@ errtostr(int err, ulen len)
 
 /*-----------------------------------------------------------------------------
  * Common code for errto<x> above.
+ *
+ *   len  >  0 -- limit length (unless longer than maximum for strerror_t)
+ *   len  <= 0 -- allow up to the maximum  for strerror_t
  *
  *   want == 1 -- return just name
  *   want == 2 -- return just the strerror()
@@ -227,7 +227,6 @@ errtox(int err, ulen len, uint want)
   if (want & 2)
     {
       char  buf[400] ;      /* impossibly vast      */
-      int   ret ;
       const char* errm ;
 
       if (err == 0)
@@ -235,57 +234,33 @@ errtox(int err, ulen len, uint want)
       else
         {
           if (qpthreads_enabled)
-            {
-              /* POSIX is not explicit about what happens if the buffer is not
-               * big enough to accommodate the message, except that an ERANGE
-               * error may be raised.
-               *
-               * By experiment: glibc-2.10.2-1.x86_64 returns -1, with errno
-               * set to ERANGE and no string at all if the buffer is too small.
-               *
-               * A huge buffer is used to get the message, and that is later
-               * truncated, if necessary, to fit in the strerror_t structure.
-               */
-
-              buf[0] = '\0' ;           /* make sure starts empty       */
-              ret  = strerror_r(err, buf, sizeof(buf)) ;
-              errm = buf ;
-              if (ret != 0)
-                ret = errno ;
-            }
+            errm = qstrerror_r(err, buf, sizeof(buf)) ;
           else
-            {
-              /* POSIX says that strerror *will* return something, but it is
-               * known that it may return NULL if the error number is not
-               * recognised.
-               */
-              errno = 0 ;
-              errm = strerror(err) ;
-              ret  = errno ;
-              if ((ret == 0) && ((errm == NULL) || (*errm == '\0')))
-                ret = EINVAL ;
-            } ;
+            errm = qstrerror(err) ;
 
           /* Deal with errors, however exotic.                          */
-          if (ret != 0)
+          if (errm == NULL)
             {
-              q  = "*" ;
-              ql = 2 ;          /* force "*" "quotes"   */
+              int ret = errno ;
+              qf_str_t qfs_b ;
+
+              qfs_init(qfs_b, buf, sizeof(buf)) ;
+
               if      (ret == EINVAL)
-                errm = "unknown error" ;
+                qfs_printf(qfs_b, "unknown error number %d", err) ;
               else if (ret == ERANGE)
-                {
-                  if (*errm == '\0')
-                    errm = "vast error message" ;
-                }
+                qfs_printf(qfs_b, "strerror%s(%d) returned impossibly large "
+                                                 " error message (> %d bytes)",
+                         qpthreads_enabled ? "_r" : "", err, (int)sizeof(buf)) ;
               else
-                {
-                  qf_str_t qfs_b ;
-                  qfs_init(qfs_b, buf, sizeof(buf)) ;
-                  qfs_printf(qfs_b, "strerror%s(%d) returned error %d",
+                qfs_printf(qfs_b, "strerror%s(%d) returned error %d",
                                       qpthreads_enabled ? "_r" : "", err, ret) ;
-                  errm = buf ;
-                } ;
+
+              qfs_term(qfs_b) ;
+
+              q    = "*" ;
+              ql   = 2 ;        /* force "*" "quotes"   */
+              errm = buf ;
             } ;
         } ;
 
@@ -528,23 +503,19 @@ getenv_r(const char* name, char* buf, int buf_len)
 const char *
 safe_strerror(int errnum)
 {
-  static const char * unknown = "Unknown error";
-  if (qpthreads_enabled)
-    {
-      char * buff = thread_buff();
-      int ret = strerror_r(errnum, buff, buff_size);
+  int   errno_saved ;
+  const char* errm ;
 
-      return (ret >= 0)
-          ? buff
-          : unknown;
-    }
+  errno_saved = errno ;
+
+  if (qpthreads_enabled)
+    errm = qstrerror_r(errnum, thread_buff(), buff_size) ;
   else
-    {
-      const char *s = strerror(errnum);
-      return (s != NULL)
-          ? s
-          : unknown;
-    }
+    errm = qstrerror(errnum);
+
+  errno = errno_saved ;
+
+  return (errm != NULL) ? errm : "Unknown error" ;
 }
 
 /*------------------------------------------------------------------------------
@@ -783,4 +754,109 @@ qcrypt(const char* text, const char* salt)
   THREAD_SAFE_UNLOCK() ;
 
   return cypher ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Local wrapper for strerror_r().
+ *
+ * Two variants of strerror_r are known:
+ *
+ *   (a) "GNU", which returns a char*
+ *
+ *   (b) POSIX, which returns an int.
+ *
+ * GNU does not say whether it returns an error if the errno is not known or if
+ * the buffer is too small (though for buffer too small, suggests that silent
+ * truncation is the order of the day).  We treat it like strerror().
+ *
+ * POSIX is not explicit about what happens if the buffer is not big enough to
+ * accommodate the message, except that an ERANGE error may be raised.
+ *
+ * By experiment: glibc-2.10.2-1.x86_64 returns -1, with errno set to ERANGE
+ * and no string at all if the buffer is too small.
+ *
+ * This function encapsulates the variants.
+ *
+ * Returns:  string if one was returned, and was not empty.
+ *           NULL otherwise
+ *
+ *           In all cases: errno == 0 <=> OK
+ *                         errno != 0 <=> some sort of error
+ *
+ *              EINVAL => unknown error, or NULL or empty string returned
+ *              ERANGE => buffer too small !
+ *
+ * NB: sets errno to EINVAL if no other error is set, and the result is either
+ *     NULL or '\0'.
+ *
+ * NB: POSIX recommends if the errno is not known, that errno be set to EINVAL
+ *     *and* a message is returned saying "unknown", or something more helpful.
+ *
+ *     Caller can accept what was provided (if anything) or act on EINVAL and
+ *     make up their own error message.
+ */
+static const char*
+qstrerror_r(int err, char *buf, size_t n)
+{
+  const char* errm ;
+
+  buf[0] = '\0' ;               /* in case nothing returned     */
+  errno = 0 ;                   /* make sure                    */
+
+#if STRERROR_R_CHAR_P
+  errm = strerror_r(err, buf, n) ;
+#else
+  if (strerror_r(err, buf, n) >= 0)
+    errno = 0 ;                 /* Should be, in any case !     */
+  errm = buf ;
+#endif
+
+  if ((errno == 0) && ((errm == NULL) || (*errm == '\0')))
+    {
+      errno = EINVAL ;
+      errm  = NULL ;
+    } ;
+
+  return errm ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Local wrapper for strerror().
+ *
+ * The difficulty is that strerror() is underspecified, and may or may not
+ * return something or may return an error if the errno is not known.
+ *
+ * Returns:  string if one was returned, and was not empty.
+ *           NULL otherwise
+ *
+ *           In all cases: errno == 0 <=> OK
+ *                         errno != 0 <=> some sort of error
+ *
+ *              EINVAL => unknown error, or NULL or empty string returned
+ *              ERANGE => buffer too small !
+ *
+ * NB: sets errno to EINVAL if no other error is set, and the result is either
+ *     NULL or '\0'.
+ *
+ * NB: POSIX recommends if the errno is not known, that errno be set to EINVAL
+ *     *and* a message is returned saying "unknown", or something more helpful.
+ *
+ *     Caller can accept what was provided (if anything) or act on EINVAL and
+ *     make up their own error message.
+ */
+static const char*
+qstrerror(int err)
+{
+  const char* errm ;
+
+  errno = 0 ;
+  errm  = strerror(err) ;
+
+  if ((errno == 0) && ((errm == NULL) || (*errm == '\0')))
+    {
+      errno = EINVAL ;
+      errm  = NULL ;
+    } ;
+
+  return errm ;
 } ;

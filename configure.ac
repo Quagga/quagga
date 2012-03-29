@@ -75,6 +75,7 @@ dnl Check CC and friends
 dnl --------------------
 AC_LANG([C])
 AC_PROG_CC
+AC_PROG_CC_C99
 AC_PROG_CPP
 AM_PROG_CC_C_O
 AC_PROG_EGREP
@@ -441,13 +442,31 @@ AC_TYPE_SIZE_T
 AC_TYPE_SIGNAL
 AC_STRUCT_TM
 
+dnl GMCH -- as suggested by autoscan 29-Mar-2012
+
+dnl AC_TYPE_PID_T  -- see above
+AC_TYPE_SSIZE_T
+AC_TYPE_OFF_T
+
+dnl GMCH -- expect C99 to provide these !
+AC_TYPE_INT8_T
+AC_TYPE_INT16_T
+AC_TYPE_INT32_T
+AC_TYPE_INT64_T
+AC_TYPE_UINT8_T
+AC_TYPE_UINT16_T
+AC_TYPE_UINT32_T
+AC_TYPE_UINT64_T
+AC_TYPE_INTPTR_T
+
 dnl -------------------------
 dnl Check other header files.
 dnl -------------------------
 AC_CHECK_HEADERS([stropts.h sys/ksym.h sys/times.h sys/select.h \
 	sys/types.h linux/version.h netdb.h asm/types.h \
 	sys/param.h limits.h signal.h \
-	sys/socket.h netinet/in.h time.h sys/time.h])
+	sys/socket.h netinet/in.h time.h sys/time.h \
+	features.h])
 
 dnl Utility macro to avoid retyping includes all the time
 m4_define([QUAGGA_INCLUDES],
@@ -738,6 +757,31 @@ dnl AC_CHECK_SIZEOF(int)
 dnl AC_CHECK_SIZEOF(short)
 dnl AC_CHECK_SIZEOF(long)
 
+dnl GMCH the AC_CHECK_SIZEOF and _ALIGNOF look handy :-)
+AC_CHECK_SIZEOF([char])
+AC_CHECK_SIZEOF([short])
+AC_CHECK_SIZEOF([int])
+AC_CHECK_SIZEOF([long])
+AC_CHECK_SIZEOF([long long])
+AC_CHECK_SIZEOF([unsigned char])
+AC_CHECK_SIZEOF([unsigned short])
+AC_CHECK_SIZEOF([unsigned int])
+AC_CHECK_SIZEOF([unsigned long])
+AC_CHECK_SIZEOF([unsigned long long])
+AC_CHECK_SIZEOF([void*])
+
+AC_CHECK_ALIGNOF([char])
+AC_CHECK_ALIGNOF([short])
+AC_CHECK_ALIGNOF([int])
+AC_CHECK_ALIGNOF([long])
+AC_CHECK_ALIGNOF([long long])
+AC_CHECK_ALIGNOF([unsigned char])
+AC_CHECK_ALIGNOF([unsigned short])
+AC_CHECK_ALIGNOF([unsigned int])
+AC_CHECK_ALIGNOF([unsigned long])
+AC_CHECK_ALIGNOF([unsigned long long])
+AC_CHECK_ALIGNOF([void *])
+
 dnl ----------------------------
 dnl check existance of functions
 dnl ----------------------------
@@ -753,8 +797,16 @@ AC_FUNC_STRFTIME
 dnl Avoid AC_FUNC_STRNLEN because it pulls in AC_SYSTEM_EXTENSIONS which
 dnl can lead to strange side effects.  So we just check for strnlen
 dnl directly, see below.
-dnl AC_FUNC_STRNLENdnl
-AC_FUNC_VPRINTF
+dnl AC_FUNC_STRNLEN dnl
+
+dnl GMCH suggested by autoscan 29-Mar-2012
+dnl AC_FUNC_VPRINTF
+dnl AC_FUNC_MALLOC
+dnl AC_FUNC_MMAP
+dnl AC_FUNC_REALLOC
+dnl AC_FUNC_STRNLEN -- see above !!
+
+AC_FUNC_STRERROR_R
 
 dnl -------------------------------
 dnl bgpd needs pow() and hence libm
