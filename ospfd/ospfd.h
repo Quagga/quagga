@@ -35,11 +35,6 @@
 #define IPPROTO_OSPFIGP         89
 #endif /* IPPROTO_OSPFIGP */
 
-/* IP precedence. */
-#ifndef IPTOS_PREC_INTERNETCONTROL
-#define IPTOS_PREC_INTERNETCONTROL	0xC0
-#endif /* IPTOS_PREC_INTERNETCONTROL */
-
 /* VTY port number. */
 #define OSPF_VTY_PORT          2604
 

@@ -568,4 +568,9 @@ struct fifo
 #define FIFO_TOP(F)                                   \
   (FIFO_EMPTY(F) ? NULL : ((struct fifo *)(F))->next)
 
+/* IP precedence. */
+#ifndef IPTOS_PREC_INTERNETCONTROL
+#define IPTOS_PREC_INTERNETCONTROL	0xC0
+#endif /* IPTOS_PREC_INTERNETCONTROL */
+
 #endif /* _ZEBRA_H */

@@ -193,7 +193,7 @@ ospf_sock_init (void)
       zlog_warn ("Can't set IP_HDRINCL option for fd %d: %s",
       		 ospf_sock, safe_strerror(save_errno));
     }
-#elif defined (IPTOS_PREC_INTERNETCONTROL)
+#else
 #warning "IP_HDRINCL not available on this system"
 #warning "using IPTOS_PREC_INTERNETCONTROL"
   ret = setsockopt_ipv4_tos(ospf_sock, IPTOS_PREC_INTERNETCONTROL);
@@ -208,9 +208,6 @@ ospf_sock_init (void)
       close (ospf_sock);	/* Prevent sd leak. */
       return ret;
     }
-#else /* !IPTOS_PREC_INTERNETCONTROL */
-#warning "IP_HDRINCL not available, nor is IPTOS_PREC_INTERNETCONTROL"
-  zlog_warn ("IP_HDRINCL option not available");
 #endif /* IP_HDRINCL */
 
   ret = setsockopt_ifindex (AF_INET, ospf_sock, 1);

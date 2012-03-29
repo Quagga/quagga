@@ -66,9 +66,7 @@ ospf6_set_pktinfo (void)
 void
 ospf6_set_transport_class (void)
 {
-#ifdef IPTOS_PREC_INTERNETCONTROL
   setsockopt_ipv6_tclass (ospf6_sock, IPTOS_PREC_INTERNETCONTROL);
-#endif
 }
 
 void
