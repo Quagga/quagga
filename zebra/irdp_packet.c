@@ -295,7 +295,7 @@ send_packet(struct interface *ifp,
   ip = (struct ip *) buf;
   ip->ip_hl = sizeof(struct ip) >> 2;
   ip->ip_v = IPVERSION;
-  ip->ip_tos = 0xC0;
+  ip->ip_tos = IPTOS_PREC_INTERNETCONTROL;
   ip->ip_off = 0L;
   ip->ip_p = 1;       /* IP_ICMP */
   ip->ip_ttl = ttl;
