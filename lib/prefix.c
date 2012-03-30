@@ -773,8 +773,12 @@ str2prefix_ipv6 (const char *str, struct prefix_ipv6 *p)
  * Argument netmask should be network byte order.
  */
 u_char
-ip6_masklen (union in6_addr_u netmask)
+ip6_masklen (const struct in6_addr* p_s6_addr)
 {
+  union in6_addr_u netmask ;
+
+  netmask.addr = *p_s6_addr ;
+
   if (netmask.n64[0] != U64_1s)
     return local_clz_n64(~netmask.n64[0]) ;
 
@@ -791,8 +795,12 @@ ip6_masklen (union in6_addr_u netmask)
  * Argument netmask should be network byte order.
  */
 bool
-ip6_mask_check (union in6_addr_u netmask)
+ip6_mask_check (const struct in6_addr* p_s6_addr)
 {
+  union in6_addr_u netmask ;
+
+  netmask.addr = *p_s6_addr ;
+
   if (netmask.n64[1] == 0)
     return n64_mask_check(netmask.n64[0]) ;
 
@@ -907,7 +915,7 @@ sockunion2prefix (const_sockunion dest,
 
       p = prefix_ipv6_new ();
       p->family    = AF_INET6;
-      p->prefixlen = ip6_masklen ((union in6_addr_u)mask->sin6.sin6_addr);
+      p->prefixlen = ip6_masklen (&mask->sin6.sin6_addr);
       memcpy (&p->prefix, &dest->sin6.sin6_addr, sizeof (struct in6_addr));
       return (struct prefix *) p;
     }

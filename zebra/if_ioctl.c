@@ -292,7 +292,7 @@ if_getaddrs (void)
 
 	  addr = (struct sockaddr_in6 *) ifap->ifa_addr;
 	  mask = (struct sockaddr_in6 *) ifap->ifa_netmask;
-	  prefixlen = ip6_masklen (mask->sin6_addr);
+	  prefixlen = ip6_masklen (&mask->sin6_addr);
 
 	  dest_pnt = NULL;
 

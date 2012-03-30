@@ -27,7 +27,6 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  *   (c) for glibc, get the <features.h> included early, but after the magic
  *       in (b) above.
  */
-
 #ifndef _ZEBRA_CONFIG_H
 #define _ZEBRA_CONFIG_H
 
@@ -65,6 +64,5 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include <features.h>
 
 #endif /* HAVE_FEATURES_H */
-
 
 #endif /* _ZEBRA_CONFIG_H */

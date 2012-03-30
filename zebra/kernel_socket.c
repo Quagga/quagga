@@ -598,7 +598,7 @@ ifam_read_mesg (struct ifa_msghdr *ifm,
 			ifm->ifam_flags,
 			inet_ntop(AF_INET6,&addr->sin6.sin6_addr,
 			          buf[0],sizeof(buf[0])),
-			ip6_masklen(mask->sin6.sin6_addr),
+			ip6_masklen(&mask->sin6.sin6_addr),
 			inet_ntop(AF_INET6,&brd->sin6.sin6_addr,
 			          buf[1],sizeof(buf[1])),
 			inet_ntop(AF_INET6,&dst.sin6.sin6_addr,
@@ -685,13 +685,13 @@ ifam_read (struct ifa_msghdr *ifam)
 
       if (ifam->ifam_type == RTM_NEWADDR)
 	connected_add_ipv6 (ifp, flags, &addr.sin6.sin6_addr,
-			    ip6_masklen (mask.sin6.sin6_addr),
+			    ip6_masklen (&mask.sin6.sin6_addr),
 			    &brd.sin6.sin6_addr,
 			    (isalias ? ifname : NULL));
       else
 	connected_delete_ipv6 (ifp,
 			       &addr.sin6.sin6_addr,
-			       ip6_masklen (mask.sin6.sin6_addr),
+			       ip6_masklen (&mask.sin6.sin6_addr),
 			       &brd.sin6.sin6_addr);
       break;
 #endif /* HAVE_IPV6 */
@@ -933,7 +933,7 @@ rtm_read (struct rt_msghdr *rtm)
       if (flags & RTF_HOST)
 	p.prefixlen = IPV6_MAX_PREFIXLEN;
       else
-	p.prefixlen = ip6_masklen (mask.sin6.sin6_addr);
+	p.prefixlen = ip6_masklen (&mask.sin6.sin6_addr);
 
 #ifdef KAME
       if (IN6_IS_ADDR_LINKLOCAL (&gate.sin6.sin6_addr))

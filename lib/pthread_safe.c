@@ -19,7 +19,7 @@
  * Boston, MA 02111-1307, USA.
  */
 
-/* We use thread specific storage to provide buufers for the _r versions
+/* We use thread specific storage to provide buffers for the _r versions
  * of standard functions, so that the callers don't need to provide
  * their own.  The contents of a buffer will remain intact until another
  * safe_ function is called on the same thread

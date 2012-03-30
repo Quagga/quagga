@@ -289,8 +289,8 @@ prefix_copy_ipv6(struct prefix* dst, struct prefix* src)
   *dst = *src ;
 } ;
 
-extern u_char ip6_masklen (union in6_addr_u);
-extern bool ip6_mask_check (union in6_addr_u) ;
+extern u_char ip6_masklen (const struct in6_addr* p_s6_addr);
+extern bool ip6_mask_check (const struct in6_addr* p_s6_addr) ;
 extern void masklen2ip6 (uint, struct in6_addr *);
 
 extern void str2in6_addr (const char *, struct in6_addr *);

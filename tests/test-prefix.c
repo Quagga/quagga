@@ -354,8 +354,8 @@ test_ip6_masklen(counts ct)
           set_pbit(mask.s6_addr, px + (rand() % (128 - px))) ;
         } ;
 
-      get    = ip6_masklen((union in6_addr_u)mask) ;
-      get_ok = ip6_mask_check((union in6_addr_u)mask) ;
+      get    = ip6_masklen(&mask) ;
+      get_ok = ip6_mask_check(&mask) ;
 
       ++ct->total ;
       if ((expect == get) && (expect_ok == get_ok))
