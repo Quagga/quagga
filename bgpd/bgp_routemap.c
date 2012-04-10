@@ -1944,11 +1944,11 @@ route_match_ipv6_next_hop (void *rule, struct prefix *prefix,
       if (!bgp_info->attr->extra)
         return RMAP_NOMATCH;
 
-      if (IPV6_ADDR_SAME (&bgp_info->attr->extra->mp_nexthop_global, rule))
+      if (IPV6_ADDR_SAME (&bgp_info->attr->extra->mp_nexthop_global, addr))
 	return RMAP_MATCH;
 
       if (bgp_info->attr->extra->mp_nexthop_len == 32 &&
-	  IPV6_ADDR_SAME (&bgp_info->attr->extra->mp_nexthop_local, rule))
+	  IPV6_ADDR_SAME (&bgp_info->attr->extra->mp_nexthop_local, addr))
 	return RMAP_MATCH;
 
       return RMAP_NOMATCH;
@@ -3639,7 +3639,7 @@ DEFUN (set_aggregator_as,
   argstr = XMALLOC (MTYPE_ROUTE_MAP_COMPILED,
 		    strlen (argv[0]) + strlen (argv[1]) + 2);
 
-  sprintf (argstr, "%s %s", argv[0], argv[1]);
+  sprintf (argstr, "%u %s", as, argv[1]);
 
   ret = bgp_route_set_add (vty, vty->index, "aggregator as", argstr);
 
@@ -3676,7 +3676,7 @@ DEFUN (no_set_aggregator_as,
   argstr = XMALLOC (MTYPE_ROUTE_MAP_COMPILED,
 		    strlen (argv[0]) + strlen (argv[1]) + 2);
 
-  sprintf (argstr, "%s %s", argv[0], argv[1]);
+  sprintf (argstr, "%u %s", as, argv[1]);
 
   ret = bgp_route_set_delete (vty, vty->index, "aggregator as", argstr);
 

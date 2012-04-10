@@ -812,6 +812,8 @@ qs_copy(qstring dst, qstring src)
  *          NULL if failed (unlikely though that is)
  */
 
+static qstring qs_vprintf_x(qstring qs, bool append, const char *format,
+                                                                 va_list args) ;
 /*------------------------------------------------------------------------------
  * Formatted print to qstring -- cf printf()
  *
@@ -837,20 +839,65 @@ qs_printf(qstring qs, const char* format, ...)
 extern qstring
 qs_vprintf(qstring qs, const char *format, va_list args)
 {
+  return qs_vprintf_x(qs, false /* not append */, format, args);
+} ;
+
+/*------------------------------------------------------------------------------
+ * Formatted print to qstring -- cf printf()
+ *
+ * See notes above.
+ */
+extern qstring
+qs_printf_a(qstring qs, const char* format, ...)
+{
+  va_list args;
+
+  va_start (args, format);
+  qs = qs_vprintf_a(qs, format, args);
+  va_end (args);
+
+  return qs;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Formatted print to qstring -- cf vprintf()
+ *
+ * See notes above.
+ */
+extern qstring
+qs_vprintf_a(qstring qs, const char *format, va_list args)
+{
+  return qs_vprintf_x(qs, true /* append */, format, args);
+} ;
+
+/*------------------------------------------------------------------------------
+ * Formatted print to qstring -- cf vprintf()
+ *
+ * See notes above.
+ */
+static qstring
+qs_vprintf_x(qstring qs, bool append, const char *format, va_list args)
+{
   va_list  ac ;
   int      slen ;
   qstring  qqs ;
 
   qqs = qs ;            /* NULL => need to make qs                      */
-  if (qs == NULL)
+  if      (qs == NULL)
     qqs = qs_new(0) ;   /* Sets size, cp & len = 0                      */
-  else
+  else if (!append)
     qs_clear(qqs) ;     /* Sets cp & len = 0, discard any alias, but
                            keep existing body                           */
 
   while (1)
     {
-     /* Note that vsnprintf() returns the length of what it would like to have
+      ulen  left ;
+      ulen  len ;
+
+      left = qs_left_nn(qqs) ;
+      len  = qs_len_nn(qqs) ;
+
+      /* Note that vsnprintf() returns the length of what it would like to have
       * produced, if it had the space.  That length does not include the
       * trailing '\0'.
       *
@@ -858,19 +905,19 @@ qs_vprintf(qstring qs, const char *format, va_list args)
       * the result is still the length required.
       */
       va_copy(ac, args);
-      slen = vsnprintf(qs_body_nn(qqs), qqs->size, format, ac) ;
+      slen = vsnprintf(qs_char_nn(qqs) + len, left, format, ac) ;
       va_end(ac);
 
       if (slen < 0)
         break ;                         /* failed                       */
 
-      if ((usize)slen < qqs->size)
+      if ((ulen)slen < left)
         {
-          qs_set_len_nn(qqs, slen) ;
+          qs_set_len_nn(qqs, len + slen) ;
           return qqs ;                  /* succeeded                    */
         } ;
 
-      qs_make_to_size(qqs, slen, 0) ;   /* need space for slen          */
+      qs_make_to_size(qqs, len + slen, 0) ;  /* need space for slen     */
     } ;
 
   /* Failed... discard anything that has been allocated.                */

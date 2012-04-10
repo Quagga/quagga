@@ -695,12 +695,9 @@ zlookup_read (void)
 {
   struct stream *s;
   uint16_t length;
+  uint32_t metric ;
   u_char marker;
   u_char version;
-  uint16_t command;
-  int nbytes;
-  struct in_addr raddr;
-  uint32_t metric;
   int i;
   u_char nexthop_num;
   struct nexthop *nexthop;
@@ -709,10 +706,10 @@ zlookup_read (void)
   s = zlookup->ibuf;
   stream_reset (s);
 
-  nbytes = stream_read (s, zlookup->sock, 2);
+  stream_read (s, zlookup->sock, 2);
   length = stream_getw (s);
 
-  nbytes = stream_read (s, zlookup->sock, length - 2);
+  stream_read (s, zlookup->sock, length - 2);
   marker = stream_getc (s);
   version = stream_getc (s);
 
@@ -723,9 +720,9 @@ zlookup_read (void)
       return NULL;
     }
 
-  command = stream_getw (s);
+  stream_getw (s);              /* Skip "command"       */
 
-  raddr.s_addr = stream_get_ipv4 (s);
+  stream_get_ipv4 (s);          /* Skip address         */
   metric = stream_getl (s);
   nexthop_num = stream_getc (s);
 
@@ -803,8 +800,6 @@ zlookup_read_ipv6 (void)
   struct stream *s;
   uint16_t length;
   u_char version, marker;
-  uint16_t  command;
-  int nbytes;
   struct in6_addr raddr;
   uint32_t metric;
   int i;
@@ -815,10 +810,10 @@ zlookup_read_ipv6 (void)
   s = zlookup->ibuf;
   stream_reset (s);
 
-  nbytes = stream_read (s, zlookup->sock, 2);
+  stream_read (s, zlookup->sock, 2);
   length = stream_getw (s);
 
-  nbytes = stream_read (s, zlookup->sock, length - 2);
+  stream_read (s, zlookup->sock, length - 2);
   marker = stream_getc (s);
   version = stream_getc (s);
 
@@ -829,7 +824,7 @@ zlookup_read_ipv6 (void)
       return NULL;
     }
 
-  command = stream_getw (s);
+  stream_getw (s);              /* Skip "command"       */
 
   stream_get (&raddr, s, 16);
 
@@ -914,10 +909,8 @@ bgp_import_check (struct prefix *p, u_int32_t *igpmetric,
 {
   struct stream *s;
   int ret;
-  u_int16_t length, command;
+  u_int16_t length ;
   u_char version, marker;
-  int nbytes;
-  struct in_addr addr;
   struct in_addr nexthop;
   u_int32_t metric = 0;
   u_char nexthop_num;
@@ -961,11 +954,11 @@ bgp_import_check (struct prefix *p, u_int32_t *igpmetric,
   stream_reset (s);
 
   /* Fetch length. */
-  nbytes = stream_read (s, zlookup->sock, 2);
+  stream_read (s, zlookup->sock, 2);
   length = stream_getw (s);
 
   /* Fetch whole data. */
-  nbytes = stream_read (s, zlookup->sock, length - 2);
+  stream_read (s, zlookup->sock, length - 2);
   marker = stream_getc (s);
   version = stream_getc (s);
 
@@ -976,9 +969,9 @@ bgp_import_check (struct prefix *p, u_int32_t *igpmetric,
       return 0;
     }
 
-  command = stream_getw (s);
+  stream_getw (s);      /* Skip the "command"   */
+  stream_get_ipv4 (s);  /* Skip the address     */
 
-  addr.s_addr = stream_get_ipv4 (s);
   metric = stream_getl (s);
   nexthop_num = stream_getc (s);
 

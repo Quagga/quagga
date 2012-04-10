@@ -4557,6 +4557,8 @@ bgp_config_write_family_header (struct vty *vty, afi_t afi, safi_t safi,
   if (afi == AFI_IP && safi == SAFI_UNICAST)
     return;
 
+  vty_out_vtysh_config_group(vty, "address-family %u/%u", afi, safi) ;
+
   vty_out (vty, "!%s address-family ", VTY_NEWLINE);
 
   if (afi == AFI_IP)
@@ -4610,7 +4612,10 @@ bgp_config_write_family (struct vty *vty, struct bgp *bgp, afi_t afi,
 	}
     }
   if (write)
-    vty_out (vty, " exit-address-family%s", VTY_NEWLINE);
+    {
+      vty_out (vty, " exit-address-family%s", VTY_NEWLINE);
+      vty_out_vtysh_config_group_end(vty) ;
+    } ;
 
   return write;
 }
@@ -4752,6 +4757,11 @@ bgp_config_write (struct vty *vty)
       /* BGP scan interval. */
       bgp_config_write_scan_time (vty);
 
+      /* AFI_IP/SAFI_UNICAST stuff
+       */
+      vty_out_vtysh_config_group(vty, "address-family %u/%u", AFI_IP,
+                                                                 SAFI_UNICAST) ;
+
       /* BGP flag dampening. */
       if (CHECK_FLAG (bgp->af_flags[AFI_IP][SAFI_UNICAST],
 	  BGP_CONFIG_DAMPENING))
@@ -4769,13 +4779,13 @@ bgp_config_write (struct vty *vty)
 	vty_out (vty, " timers bgp %d %d%s", bgp->default_keepalive,
 		 bgp->default_holdtime, VTY_NEWLINE);
 
-      /* peer-group */
+      /* peer-group
+       */
       for (ALL_LIST_ELEMENTS (bgp->group, node, nnode, group))
-	{
-	  bgp_config_write_peer (vty, bgp, group->conf, AFI_IP, SAFI_UNICAST);
-	}
+        bgp_config_write_peer (vty, bgp, group->conf, AFI_IP, SAFI_UNICAST);
 
-      /* Normal neighbor configuration. */
+      /* Normal neighbor configuration.
+       */
       for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
 	bgp_config_write_peer (vty, bgp, peer, AFI_IP, SAFI_UNICAST);
 
@@ -4785,6 +4795,8 @@ bgp_config_write (struct vty *vty)
       /* No auto-summary */
       if (bgp_option_check (BGP_OPT_CONFIG_CISCO))
 	vty_out (vty, " no auto-summary%s", VTY_NEWLINE);
+
+      vty_out_vtysh_config_group_end(vty) ;
 
       /* IPv4 multicast configuration.  */
       write += bgp_config_write_family (vty, bgp, AFI_IP, SAFI_MULTICAST);

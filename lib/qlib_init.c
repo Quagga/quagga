@@ -164,6 +164,7 @@ qlib_init_first_stage(mode_t cmask)
   qps_start_up() ;
   qiovec_start_up() ;
   thread_start_up();
+  qpn_wd_start_up() ;
 } ;
 
 /*------------------------------------------------------------------------------

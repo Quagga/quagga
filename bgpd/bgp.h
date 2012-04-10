@@ -66,7 +66,7 @@
  *   RFC4724  Graceful Restart
  *   RFC4684  Constrained Route Distribution for BGP/MPLS IP VPNs
  *                                              -- updates RFC4364
- *   RFC4659  BGP-MPLS IP VPN of IPv6 VPN
+ *   RFC4659  BGP-MPLS IP VPN for IPv6 VPN
  *   RFC4577  OSPF as Provider/Customer Edge Protocol for BGP?MPLS IP VPNs
  *                                              -- updates RFC4364
  *   RFC4576  Using an LSA Options Bit to Prevent Looping in BGP/MPLS IP VPNs

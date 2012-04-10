@@ -25,11 +25,13 @@
 #include "misc.h"
 #include <time.h>
 #include <pthread.h>
+#include <sched.h>
 #include <unistd.h>
 #include <errno.h>
 
 #include "zassert.h"
 #include "qtime.h"
+#include "qstring.h"
 
 /*==============================================================================
  * Quagga Pthread Interface -- qpt_xxxx
@@ -116,6 +118,11 @@ extern bool qpthreads_decided(void) ;
 /*==============================================================================
  * Data types
  */
+
+/*------------------------------------------------------------------------------
+ * The qpt_
+ */
+
 typedef pthread_t           qpt_thread_t ;
 
 typedef pthread_mutex_t     qpt_mutex_t[1] ;
@@ -126,8 +133,8 @@ typedef pthread_cond_t*     qpt_cond ;
 
 typedef pthread_attr_t      qpt_thread_attr_t ;
 
-typedef pthread_spinlock_t  qpt_spin_t ;
-typedef qpt_spin_t*         qpt_spin ;
+typedef pthread_spinlock_t  qpt_spin_t[1] ;
+typedef pthread_spinlock_t* qpt_spin ;
 
 /*==============================================================================
  * Thread Creation -- see qpthreads.c for further discussion.
@@ -147,6 +154,8 @@ enum qpt_attr_options
   qpt_attr_sched_priority  = BIT(4),    /* otherwise inherit/default    */
 } ;
 
+typedef enum qpt_attr_options qpt_attr_options_t ;
+
 #define qpt_attr_sched_explicit  ( qpt_attr_sched_scope   \
                                  | qpt_attr_sched_policy  \
                                  | qpt_attr_sched_priority )
@@ -157,13 +166,25 @@ enum qpt_attr_options
 #define qpt_attr_known ( qpt_attr_detached | qpt_attr_sched_setting )
 
 extern qpt_thread_attr_t*       /* FATAL error if !qpthreads_enabled    */
-qpt_thread_attr_init(qpt_thread_attr_t* attr, enum qpt_attr_options opts,
+qpt_thread_attr_init(qpt_thread_attr_t* attr, qpt_attr_options_t opts,
                                           int scope, int policy, int priority) ;
 extern qpt_thread_t             /* FATAL error if !qpthreads_enabled    */
 qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr) ;
 
 extern void*                    /* do nothing if !qpthreads_enabled     */
 qpt_thread_join(qpt_thread_t thread_id) ;
+
+extern qstring qpt_thread_attr_form(qpt_thread_attr_t* attr,
+                                                           const char *prefix) ;
+
+/*==============================================================================
+ * Signal Handling.
+ */
+extern void                     /* sigprocmask() if !qpthreads_enabled  */
+qpt_thread_sigmask(int how, const sigset_t* set, sigset_t* oset) ;
+
+extern void                     /* FATAL error if !qpthreads_enabled    */
+qpt_thread_signal(qpt_thread_t thread, int signum) ;
 
 /*==============================================================================
  * qpthreads_enabled etc -- NOT FOR PUBLIC CONSUMPTION !
@@ -519,15 +540,6 @@ qpt_spin_unlock(qpt_spin slk)
 #endif
     } ;
 } ;
-
-/*==============================================================================
- * Signal Handling.
- */
-extern void                     /* sigprocmask() if !qpthreads_enabled  */
-qpt_thread_sigmask(int how, const sigset_t* set, sigset_t* oset) ;
-
-extern void                     /* FATAL error if !qpthreads_enabled    */
-qpt_thread_signal(qpt_thread_t thread, int signum) ;
 
 /*==============================================================================
  * Thread Specific Data Handling.

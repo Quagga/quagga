@@ -59,7 +59,7 @@ typedef qtime_t qtime_tod_t ;   /* qtime_t value, timeofday time-base...  */
 
 /* Macro to convert time in seconds to a qtime_t                */
 /* Note that the time to convert may be a float.                */
-#define QTIME(s) ((qtime_t)((s) * (qtime_t)QTIME_SECOND))
+#define QTIME(s) ((qtime_t)(s) * QTIME_SECOND)
 
 /*==============================================================================
  * Conversion functions

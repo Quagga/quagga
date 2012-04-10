@@ -109,6 +109,19 @@ els_cmp(elstring a, elstring b)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Compare elstring and ordinary string
+ *                                  -- returns the usual -ve, 0, +ve cmp result.
+ *
+ * NULL elstring is treated as empty.
+ */
+extern int
+els_cmp_str(elstring a, const char* s)
+{
+  return str_nn_cmp(els_body(a), els_len(a), (const uchar*)s,
+                                                  (s != NULL) ? strlen(s) : 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Compare two string/length values -- returns the usual -ve, 0, +ve cmp result
  *
  * (Not really an elstring function, but the infrastructure is here.)

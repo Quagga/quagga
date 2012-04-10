@@ -1150,31 +1150,37 @@ cmd_token_set(token_vector tv, vector_index_t i,
   t->seen     = 0 ;             /* no matches attempted, yet    */
 } ;
 
-
 /*------------------------------------------------------------------------------
  * Get one or more original token values, concatenated with space between each.
  *
- * Returns a brand new qstring that must be discarded after use.
+ * Returns a pointer to qstring (part of the parsed object)
+ *
+ * NB: that qstring will be overwritten by the next call of cmd_tokens_concat()
  */
 extern qstring
 cmd_tokens_concat(cmd_parsed parsed, uint ti, uint nt)
 {
-  cmd_token t ;
-  qstring   qs ;
+  if (parsed->concat == NULL)
+    parsed->concat = qs_new(100) ;
+  else
+    qs_clear(parsed->concat) ;
 
-  assert(nt >= 2) ;
+  if (nt != 0)
+    while (1)
+      {
+        cmd_token t ;
 
-  t  = cmd_token_get(parsed->tokens, ++ti) ;
-  qs = qs_set_els(NULL, t->ot) ;
+        t = cmd_token_get(parsed->tokens, ti++) ;
+        qs_append_els(parsed->concat, t->ot) ;
 
-  while (--nt >= 2)
-    {
-      t  = cmd_token_get(parsed->tokens, ++ti) ;
-      qs_append_str(qs, " ") ;
-      qs_append_els(qs, t->ot) ;
-    } ;
+        --nt ;
+        if (nt == 0)
+          break ;
 
-  return qs ;
+        qs_append_str(parsed->concat, " ") ;
+      } ;
+
+  return parsed->concat ;
 } ;
 
 /*==============================================================================
@@ -1248,6 +1254,8 @@ cmd_parsed_new(void)
    *   tok_total   = 0          -- set by cmd_tokenize()
    *   num_tokens  = 0          -- set by cmd_tokenize()
    *   tokens      = NULL       -- filled in by cmd_tokenize() -- see below
+   *
+   *   concat      = NULL       -- no concatenated tokens, yet
    *
    *   parts       = 0          -- set by cmd_parse_command()
    *
@@ -1528,7 +1536,7 @@ extern void
 cmd_tokenize(cmd_parsed parsed, qstring line, bool full_lex)
 {
   cpp_t lp ;
-  const char *cp, *tp ;
+  const char *cp ;
   cmd_token_type_t total ;
   uint nt ;
 
@@ -1538,7 +1546,6 @@ cmd_tokenize(cmd_parsed parsed, qstring line, bool full_lex)
   qs_cpp(lp, line) ;                    /* NULL -> NULL                 */
 
   cp = lp->p ;
-  tp = cp ;
   while (cp < lp->e)                     /* process to end               */
     {
       const char* sp ;
@@ -1692,8 +1699,6 @@ cmd_tokenize(cmd_parsed parsed, qstring line, bool full_lex)
       cmd_token_set(parsed->tokens, nt, type, sp, cp - sp, sp - lp->p) ;
       ++nt ;
       total |= type ;
-
-      tp = cp ;
     } ;
 
   /* When we get here, tp points just after last character of last token,
@@ -1704,7 +1709,7 @@ cmd_tokenize(cmd_parsed parsed, qstring line, bool full_lex)
    * the end of line.
    */
   parsed->tok_total  = total ;
-  parsed->num_tokens = nt ;
+  parsed->num_tokens = nt ;             /* excludes cmd_tok_eol at end  */
 
   /* Append an empty end of line token.                                 */
   cmd_token_set(parsed->tokens, parsed->num_tokens, cmd_tok_eol,

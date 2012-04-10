@@ -5271,8 +5271,18 @@ bgp_aggregate_route (struct bgp *bgp, struct prefix *p, struct bgp_info *rinew,
 		med = ri->attr->med;
 		first = 0;
 	      }
-
+enum
+  {
+    aggregate_next_hop_check
 #ifdef AGGREGATE_NEXTHOP_CHECK
+      = true
+#else
+      = false
+#endif
+  } ;
+
+  if (aggregate_next_hop_check)
+    {
 	    if (! IPV4_ADDR_SAME (&ri->attr->nexthop, &nexthop)
 		|| ri->attr->med != med)
 	      {
@@ -5284,7 +5294,7 @@ bgp_aggregate_route (struct bgp *bgp, struct prefix *p, struct bgp_info *rinew,
 		bgp_unlock_node (top);
 		return;
 	      }
-#endif /* AGGREGATE_NEXTHOP_CHECK */
+    } ;
 
 	    if (ri->sub_type != BGP_ROUTE_AGGREGATE)
 	      {
@@ -12518,7 +12528,6 @@ bgp_distance_unset (struct vty *vty, const char *distance_str,
 {
   int ret;
   struct prefix_ipv4 p;
-  u_char distance;
   struct bgp_node *rn;
   struct bgp_distance *bdistance;
 
@@ -12528,8 +12537,6 @@ bgp_distance_unset (struct vty *vty, const char *distance_str,
       vty_out (vty, "Malformed prefix%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-
-  distance = atoi (distance_str);
 
   rn = bgp_node_lookup (bgp_distance_table, (struct prefix *)&p);
   if (! rn)

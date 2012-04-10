@@ -176,6 +176,7 @@ extern elstring els_new(void) ;
 extern elstring els_free(elstring els) ;
 
 extern int els_cmp(elstring a, elstring b) ;
+extern int els_cmp_str(elstring a, const char* s) ;
 extern int els_nn_cmp(const void* ap, ulen al, const void* bp, ulen bl) ;
 extern int els_cmp_word(elstring a, elstring w) ;
 extern int els_cmp_sig(elstring a, elstring b) ;

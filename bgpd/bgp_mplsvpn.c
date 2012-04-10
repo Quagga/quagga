@@ -144,14 +144,15 @@ bgp_nlri_parse_vpnv4 (struct peer *peer, struct attr *attr,
       p.prefixlen = prefixlen - 88;
       memcpy (&p.u.prefix, pnt + 11, psize - 11);
 
-#if 0
+if(0)
+  {
       if (type == RD_TYPE_AS)
-	zlog_info ("prefix %ld:%ld:%ld:%s/%d", label, rd_as.as, rd_as.val,
+	zlog_info ("prefix %u:%u:%u:%s/%u", label, rd_as.as, rd_as.val,
 		   safe_inet_ntoa (p.u.prefix4), p.prefixlen);
       else if (type == RD_TYPE_IP)
-	zlog_info ("prefix %ld:%s:%ld:%s/%d", label, safe_inet_ntoa (rd_ip.ip),
+	zlog_info ("prefix %u:%s:%u:%s/%u", label, safe_inet_ntoa (rd_ip.ip),
 		   rd_ip.val, safe_inet_ntoa (p.u.prefix4), p.prefixlen);
-#endif /* 0 */
+  } ;
 
       if (pnt + psize > lim)
 	return -1;

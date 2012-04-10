@@ -128,25 +128,27 @@ static void bgp_show_nexus_cmd_init(void) ;
  */
 static const struct option longopts[] =
 {
+  { "as2",         no_argument,       NULL, '2'},
+  { "vty_addr",    required_argument, NULL, 'A'},
+  { "int_boot",    no_argument,       NULL, 'b'},
+  { "dryrun",      no_argument,       NULL, 'C'},
   { "daemon",      no_argument,       NULL, 'd'},
   { "config_file", required_argument, NULL, 'f'},
-  { "pid_file",    required_argument, NULL, 'i'},
-  { "bgp_port",    required_argument, NULL, 'p'},
-  { "listenon",    required_argument, NULL, 'l'},
-  { "vty_addr",    required_argument, NULL, 'A'},
-  { "vty_port",    required_argument, NULL, 'P'},
-  { "retain",      no_argument,       NULL, 'r'},
-  { "no_kernel",   no_argument,       NULL, 'n'},
-  { "user",        required_argument, NULL, 'u'},
-  { "group",       required_argument, NULL, 'g'},
-  { "version",     no_argument,       NULL, 'v'},
-  { "dryrun",      no_argument,       NULL, 'C'},
-  { "help",        no_argument,       NULL, 'h'},
-  { "threaded",    no_argument,       NULL, 't'},
-  { "ignore_warnings", no_argument,   NULL, 'I'},
   { "int_config",  required_argument, NULL, 'F'},
+  { "group",       required_argument, NULL, 'g'},
+  { "help",        no_argument,       NULL, 'h'},
+  { "pid_file",    required_argument, NULL, 'i'},
+  { "ignore_warnings", no_argument,   NULL, 'I'},
+  { "listenon",    required_argument, NULL, 'l'},
+  { "no_kernel",   no_argument,       NULL, 'n'},
+  { "bgp_port",    required_argument, NULL, 'p'},
+  { "vty_port",    required_argument, NULL, 'P'},
   { "integrated",  no_argument,       NULL, 'Q'},
-  { "int_boot",    no_argument,       NULL, 'b'},
+  { "retain",      no_argument,       NULL, 'r'},
+  { "threaded",    no_argument,       NULL, 't'},
+  { "user",        required_argument, NULL, 'u'},
+  { "version",     no_argument,       NULL, 'v'},
+  { "watch-dog",   required_argument, NULL, 'W'},
   { "socket",      required_argument, NULL, 'z'},
   { 0 }
 };
@@ -188,6 +190,7 @@ usage (const char *progname, int status)
   "-t, --threaded     Use pthreads\n"
   "-I, --ignore_warnings  Ignore warnings while reading configuration file\n"
   "-2, --as2          Do not advertise AS4 capability\n"
+  "-W, --watch-dog    Enable watch-dog pthread\n"
   "\n"
   "Report bugs to %s\n", progname, ZEBRA_BUG_ADDRESS);
     }
@@ -241,7 +244,7 @@ main (int argc, char **argv)
       int  val ;
       int  opt;
 
-      opt = getopt_long (argc, argv, "df:i:z:hp:l:A:P:rnu:g:vCtI2F:Qb",
+      opt = getopt_long (argc, argv, "2A:bCdf:Fg:hi:Il:np:P:Qrtu:vW:z:",
                                                                  longopts, 0);
       if (opt == EOF)
         break;
@@ -401,6 +404,13 @@ main (int argc, char **argv)
           config_as2_speaker = true ;
           break ;
 
+        /* Enable Watch-Dog
+         */
+        case 'W':
+          if (!qpn_wd_prepare(optarg))
+            invalid_option = true ;
+          break;
+
         /* Show usage "help" and exit
          */
         default:
@@ -480,19 +490,25 @@ main (int argc, char **argv)
   /* Launch finite state machine(s) */
   if (qpthreads_enabled)
     {
-      void * thread_result = NULL;
+      qpn_wd_start() ;          /* if set up                            */
 
       qpn_exec(routing_nexus);
       qpn_exec(bgp_nexus);
       qpn_exec(cli_nexus);      /* must be last to start - on main thread */
 
       /* terminating, wait for all threads to finish */
-      thread_result = qpt_thread_join(routing_nexus->thread_id);
-      thread_result = qpt_thread_join(bgp_nexus->thread_id);
+      qpt_thread_join(routing_nexus->thread_id);
+      qpt_thread_join(bgp_nexus->thread_id);
+
+//    qpn_wd_stop() ;           /* if started                           */
     }
   else
     {
+      qpn_wd_start() ;          /* if set up                            */
+
       qpn_exec(cli_nexus);      /* only nexus - on main thread          */
+
+//    qpn_wd_stop() ;           /* if started                           */
     }
 
   /* Note that from this point forward is running in the main (CLI) thread

@@ -145,6 +145,10 @@ extern int vty_write(struct vty *vty, const void* buf, int n) ;
 extern int vty_out_indent(struct vty *vty, int indent) ;
 extern void vty_out_clear(struct vty *vty) ;
 
+extern void vty_out_vtysh_config_group (struct vty *vty,
+                           const char *format, ...)     PRINTF_ATTRIBUTE(2, 3) ;
+extern void vty_out_vtysh_config_group_end (struct vty *vty) ;
+
 extern ulong vty_get_long(vty vty, const char* name, const char* str) ;
 extern ulong vty_get_integer_range(vty vty, const char* name, const char* str,
                                                          ulong min, ulong max) ;

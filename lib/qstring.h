@@ -121,6 +121,8 @@ Inline usize qs_size_nn(qstring qs) ;
 
 Inline ulen qs_len(qstring qs) ;
 Inline ulen qs_len_nn(qstring qs) ;
+Inline ulen qs_left(qstring qs) ;
+Inline ulen qs_left_nn(qstring qs) ;
 Inline void qs_set_len_nn(qstring qs, ulen len) ;
 Inline void qs_set_strlen_nn(qstring qs) ;
 
@@ -312,6 +314,24 @@ qs_len_nn(qstring qs)
   return els_len_nn(qs->els) ;
 } ;
 
+/* 'size' - 'len' of qstring -- returns 0 if qstring is NULL, or len > size
+ */
+Inline ulen
+qs_left(qstring qs)
+{
+  return (qs != NULL) ? qs_left_nn(qs) : 0 ;
+} ;
+
+/* 'size' - 'len' of qstring (not NULL) -- returns 0 if len > size
+ */
+Inline ulen
+qs_left_nn(qstring qs)
+{
+  uint len  = els_len_nn(qs->els) ;
+  uint size = qs->size ;
+  return size > len ? size - len : 0 ;
+} ;
+
 /* set 'len' of qstring (not NULL) -- caller responsible for validity
  */
 Inline void
@@ -470,6 +490,9 @@ extern qstring qs_copy(qstring dst, qstring src) ;
 extern qstring qs_printf(qstring qs, const char* format, ...)
                                                        PRINTF_ATTRIBUTE(2, 3) ;
 extern qstring qs_vprintf(qstring qs, const char *format, va_list args) ;
+extern qstring qs_printf_a(qstring qs, const char* format, ...)
+                                                       PRINTF_ATTRIBUTE(2, 3) ;
+extern qstring qs_vprintf_a(qstring qs, const char *format, va_list args) ;
 
 extern usize qs_replace_str(qstring qs, usize r, const char* src) ;
 extern usize qs_replace_n(qstring qs, usize r, const void* src, usize n) ;

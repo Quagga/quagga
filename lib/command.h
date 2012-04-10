@@ -293,7 +293,6 @@ extern void cmd_table_complete (void);
 extern void cmd_table_terminate (void);
 
 extern void cmd_set_integrated_vtysh_config(on_off_b integrated) ;
-extern void cmd_show_config_section(vty vty, uint section) ;
 
 extern const char* cmd_host_name(bool fresh) ;
 extern const char* cmd_host_program_name(void) ;

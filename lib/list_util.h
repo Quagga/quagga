@@ -119,7 +119,9 @@ struct dl_void_base_pair dl_base_pair(void*) ;
 /*==============================================================================
  * Single Base, Single Link
  *
- * To delete entry must chase down list to find it.  Cannot insert at tail.
+ * To insert item must chase down list to find the tail.
+ *
+ * To delete item must chase down list to find it.
  *
  * Supports:
  *
@@ -128,6 +130,12 @@ struct dl_void_base_pair dl_base_pair(void*) ;
  *     An empty list has a NULL base.
  *
  *   ssl_push(base, item, next)     -- add at head of list
+ *
+ *     Treat as void function.  The item may *not* be NULL.
+ *
+ *     Undefined if item is already on any list (including this one).
+ *
+ *   ssl_append(base, item, next)   -- add at tail of list
  *
  *     Treat as void function.  The item may *not* be NULL.
  *
@@ -245,8 +253,11 @@ struct dl_void_base_pair dl_base_pair(void*) ;
        (base) = item ;                                          \
   } while (0)
 
-Private bool ssl_del_func(void** p_this, void* obj, size_t link_offset)
+Private void ssl_append_func(void** p_this, void* item, size_t link_offset)
                                                     __attribute__((noinline)) ;
+
+#define ssl_append(base, item, next)                            \
+  ssl_append_func((void**)(&(base)), item, _lu_off(item, next))
 
 #define ssl_insert(base, after, item, next)                     \
   do { if ((after) == NULL)                                     \
@@ -256,8 +267,11 @@ Private bool ssl_del_func(void** p_this, void* obj, size_t link_offset)
            (after->next) = item ;  } ;                          \
   } while (0)
 
+Private bool ssl_del_func(void** p_prev, void* item, size_t link_offset)
+                                                    __attribute__((noinline)) ;
+
 #define ssl_del(base, item, next)                               \
-  ssl_del_func((void**)(&base), item, _lu_off(item, next))
+  ssl_del_func((void**)(&(base)), item, _lu_off(item, next))
 
 #define ssl_del_head(base, next)                                \
   do { if ((base) != NULL)                                      \

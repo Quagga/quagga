@@ -50,6 +50,13 @@ typedef struct
 
 } vtysh_cmd_call_backs_t ;
 
+/*------------------------------------------------------------------------------
+ * Structure used in the collection of integrated configuration.
+ *
+ * Passes through vty_vtysh_fetch_config(), so we need to have a name for it !
+ */
+typedef struct config_collection* config_collection ;
+
 /*==============================================================================
  * Functions
  */
@@ -65,8 +72,8 @@ extern cmd_ret_t vty_vtysh_command_loop(vty vtysh, const char* line,
 extern qstring vty_vtysh_prep_line(vty vtysh, const char* line, ulen len,
                                                                      ulen pos) ;
 extern cmd_ret_t vty_vtysh_fetch_config(vty vtysh,
-                         void (*collect)(daemon_set_t daemon, vio_fifo buf),
-                                                                    bool show) ;
+                   void (*collect)(config_collection collection, vio_fifo buf),
+                                      config_collection collection, bool show) ;
 
 extern void uty_vtysh_out_prep(vty_io vio, const char* pager_name) ;
 extern void uty_vtysh_out_close_pager(vio_vf vf) ;

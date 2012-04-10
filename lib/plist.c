@@ -3159,7 +3159,7 @@ config_write_prefix_afi (afi_t afi, struct vty *vty)
   /* Extract a vector of all prefix_list symbols, in name order.	*/
   extract = symbol_table_extract(pm->table, NULL, NULL, 0, prefix_symbol_cmp) ;
 
-  cmd_show_config_section(vty, 1) ;
+//cmd_show_config_section(vty, 1) ;
 
   for (VECTOR_ITEMS(extract, sym, i))
     {

@@ -638,7 +638,6 @@ main (int argc, char **argv, char **env)
 
   /* Other initialisation.
    */
-  vtysh_config_init_integrated ();
   vtysh_user_init ();
 
   prefix_list_init() ;

@@ -636,6 +636,10 @@ struct cmd_parsed
 
   token_vector  tokens ;        /* vector of token objects              */
 
+  /* The following is used (and reused) by cmd_tokens_concat()
+   */
+  qstring       concat ;
+
   /* The following are filled in when a tokenised command line is parsed.
    */
   cmd_parts_t   parts ;         /* What parts are present               */

@@ -25,24 +25,37 @@
 #include "memory.h"
 #include "thread.h"
 #include "sigevent.h"
+#include "qtime.h"
+#include "vargs.h"
+#include "pthread_safe.h"
+#include "qpath.h"
+#include "command.h"
+#include <stdio.h>
+#include <sys/select.h>
 
-/* prototypes */
+/*------------------------------------------------------------------------------
+ * Prototypes
+ */
 static void* qpn_start(void* arg);
 static void qpn_in_thread_init(qpn_nexus qpn);
 
 /*==============================================================================
  * Quagga Nexus Interface -- qpn_xxxx
  *
-
  */
+
+static qtime_t qpn_max_pselect_wait = QTIME(MAX_PSELECT_WAIT) ;
+
 
 /*------------------------------------------------------------------------------
  * Initialise the qpnexus handling -- to be done as soon as state of
- * qpthreads_enabled is established.
+ * qpthreads_enabled is established and *before* any watch-dog is started.
  */
 extern void
 qpn_init(void)
 {
+  qpn_max_pselect_wait = QTIME(MAX_PSELECT_WAIT) ;
+
   qpt_data_create(qpn_self) ;   /* thread specific data */
 } ;
 
@@ -312,8 +325,7 @@ qpn_start(void* arg)
 
       idle = (!this && !prev) ;
       if (idle)
-        max_wait = qtimer_pile_top_wait(qpn->pile, QTIME(MAX_PSELECT_WAIT),
-                                                                          now) ;
+        max_wait = qtimer_pile_top_wait(qpn->pile, qpn_max_pselect_wait, now) ;
       else
         max_wait = 0 ;
 
@@ -454,4 +466,416 @@ qpn_get_stats(qpn_nexus qpn, qpn_stats curr, qpn_stats prev)
   qpn->prev_stats = qpn->stats ;
 
   qpt_spin_unlock(qpn->stats_slk) ;
+} ;
+
+/*==============================================================================
+ * Watch-dog pthread to keep track of all other pthreads, and to look out
+ * for:
+ *
+ *   1) pthread not running -- when the watch-dog is enabled, the longest
+ *      each will wait for I/O or Timers is half the watch-dog interval,
+ *      so we can tell if the pthread is not running.
+ *
+ *   2) mutexes locked for long periods.
+ *
+ *   3) cpu consumption by each pthread
+ *
+ *   4) large scale wobbles of the monotonic clock
+ *
+ */
+static volatile bool qpn_wd_running  = false ;
+static volatile bool qpn_wd_stop     = false ;
+static qtime_t  qpn_wd_interval = 0 ;
+
+static qpt_thread_t qpn_wd_thread_id ;
+static qpt_spin_t   qpn_wd_spin_lock ;
+
+static FILE*    qpn_wd_log_file ;
+static qpath    qpn_wd_log_path ;
+
+static void* qpn_wd_activity(void* args) ;
+static void qpn_wd_log(const char* format, ...)         PRINTF_ATTRIBUTE(1, 2) ;
+static void qpn_wd_check_intervals(qtime_t mono_interval, qtime_t real_interval,
+                                                             uint eintr_count) ;
+
+/*------------------------------------------------------------------------------
+ * Initialise the watch-dog -- completely dormant !
+ */
+extern void
+qpn_wd_start_up(void)
+{
+  qpn_wd_interval = 0 ;         /* => do not start !    */
+
+  qpn_wd_running  = false ;
+  qpn_wd_stop     = false ;
+
+  qpn_wd_log_file = NULL ;
+  qpn_wd_log_path = NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Prepare the watch-dog from command line
+ *
+ * Take command line argument and set the watch-dog interval and file
+ *
+ * Returns:  true  <=> OK
+ *           false <=> invalid argument or not able to open the file
+ *                     messages output to stderr
+ */
+extern bool
+qpn_wd_prepare(const char* arg)
+{
+  uint  interval ;
+  char* rest ;
+
+  if (qpn_wd_interval != 0)
+    {
+      fprintf(stderr, "*** watch-dog already set, cannot -W%s\n", arg) ;
+      return false ;
+    } ;
+
+  while ((*(const unsigned char*)arg <= ' ') && (*arg != '\0'))
+    ++arg ;
+
+  if (*arg == '=')
+    {
+      do
+        ++arg ;
+      while ((*(const unsigned char*)arg <= ' ') && (*arg != '\0')) ;
+    } ;
+
+  errno = 0 ;
+  interval = strtoul(arg, &rest, 10) ;
+
+  if ((errno != 0) || (interval == 0) || (interval > 60) ||
+                                            ((*rest != '\0') && (*rest != ',')))
+    {
+      fprintf(stderr, "*** invalid watch-dog interval in '%s'\n", arg) ;
+      return false ;
+    } ;
+
+  while ((*(unsigned char*)rest <= ' ') && (*rest != '\0'))
+    ++rest ;
+
+  if (*rest == '\0')
+    {
+      int fd = dup(fileno(stderr)) ;
+
+      if (fd < 0)
+        {
+          fprintf(stderr, "*** failed to dup(stderr): '%s'\n",
+                                                         errtoa(errno, 0).str) ;
+          return false ;
+        } ;
+
+      qpn_wd_log_file = fdopen(fd, "a") ;
+
+      if (qpn_wd_log_file == NULL)
+        {
+          fprintf(stderr, "*** failed to fdopen(stderr): '%s'\n",
+                                                         errtoa(errno, 0).str) ;
+          return false ;
+        } ;
+
+      qpn_wd_log_path = qpath_set(NULL, "stderr") ;
+    }
+  else
+    {
+      const char* mode ;
+
+      do
+        ++rest ;                /* step past ','        */
+      while ((*(unsigned char*)rest <= ' ') && (*rest != '\0')) ;
+
+      mode = "w" ;
+      if (*rest == '+')
+        {
+          mode = "a" ;
+
+          do
+            ++rest ;            /* step past '+'        */
+          while ((*(unsigned char*)rest <= ' ') && (*rest != '\0')) ;
+        } ;
+
+      qpn_wd_log_path = qpath_complete(qpath_set(NULL, rest),
+                                                             vty_getcwd(NULL)) ;
+
+      qpn_wd_log_file = fopen(qpath_string(qpn_wd_log_path), mode) ;
+
+      if (qpn_wd_log_file == NULL)
+        {
+          fprintf(stderr, "*** failed to open(%s, %s): '%s'\n",
+                    qpath_string(qpn_wd_log_path), mode, errtoa(errno, 0).str) ;
+          qpath_free(qpn_wd_log_path) ;
+          return false ;
+        } ;
+    } ;
+
+  qpn_wd_interval = QTIME(interval) ;   /* start when the time comes    */
+
+  return true ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Start the watch-dog if it has been set to run
+ *
+ * Must be called *before* any qpn_exec().
+ */
+extern void
+qpn_wd_start(void)
+{
+  assert(!qpn_wd_running) ;
+
+  if (qpn_wd_interval != 0)
+    {
+      qpt_spin_init(qpn_wd_spin_lock) ;
+      qpn_wd_thread_id = qpt_thread_create(qpn_wd_activity, NULL, NULL) ;
+    } ;
+}
+
+/*------------------------------------------------------------------------------
+ * Stop the watch-dog
+ */
+extern void
+qpn_wd_finish(uint interval)
+{
+  if (qpn_wd_interval != 0)
+    {
+      qpt_spin_lock(qpn_wd_spin_lock) ;
+
+      qpn_wd_stop = true ;
+
+      qpt_thread_signal(qpn_wd_thread_id, SIG_INTERRUPT) ;
+
+      qpt_spin_unlock(qpn_wd_spin_lock) ;
+
+      qpt_thread_join(qpn_wd_thread_id) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Check the qpn_wd_stop flag
+ */
+static bool
+qpn_wd_stop_now(void)
+{
+  bool stop ;
+
+  qpt_spin_lock(qpn_wd_spin_lock) ;
+  stop = qpn_wd_stop ;
+  qpt_spin_unlock(qpn_wd_spin_lock) ;
+
+  return stop ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Watch-Dog Activity
+ *
+ */
+#define USE_NANOSLEEP 1
+
+enum { use_nanosleep = USE_NANOSLEEP } ;
+
+#if USE_NANOSLEEP
+CONFIRM(_XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L) ;
+#endif
+
+static void*
+qpn_wd_activity(void* args)
+{
+  sigset_t sigmask[1], sigwait[1] ;
+  const char* using ;
+
+  using = use_nanosleep ? "clock_nanosleep" : "pselect" ;
+
+  /* Start
+   */
+  qpn_wd_log("Watch-Dog started (%s)", using) ;
+
+  /* Preparation.
+   *
+   * Block all signals except the hard cases and prepare a sig mask for when
+   * waiting in pselect() or for when running with nanosleep.
+   */
+  siginvset(sigmask, signal_get_hard_set()) ;
+  sigcopyset(sigwait, sigmask) ;
+  sigdelset(sigwait, SIG_INTERRUPT) ;
+
+  if (use_nanosleep)
+    qpt_thread_sigmask(SIG_BLOCK, sigwait, NULL);
+  else
+    qpt_thread_sigmask(SIG_BLOCK, sigmask, NULL) ;
+
+  qpn_wd_running = true ;
+
+  /* The watch-dog loop
+   */
+  while (!qpn_wd_stop_now())
+    {
+      struct timespec ns[1] ;
+      uint eintr_count ;
+      qtime_t mono_start, mono_interval ;
+      qtime_t real_start, real_now, real_interval ;
+
+      /* Wait for the watch-dog interval, as measured by CLOCK_REALTIME,
+       * recording the CLOCK_MONOTONIC time when we start.
+       *
+       * Loop here if get a Signal, counting (in case this leads to an
+       * apparent clock inconsistency).
+       */
+      if (use_nanosleep)
+        qtime2timespec(ns, qpn_wd_interval) ;
+
+      real_now   = qt_get_realtime() ;
+      real_start = real_now ;
+
+      mono_start = qt_get_monotonic() ;
+      eintr_count = 0 ;
+      while (1)
+        {
+          struct timespec ts[1] ;
+          int     ret ;
+
+          if (use_nanosleep)
+            {
+              *ts = *ns ;
+              ret = clock_nanosleep(CLOCK_REALTIME, 0, ts, ns) ;
+            }
+          else
+            {
+              qtime_t wait ;
+
+              wait = real_start + qpn_wd_interval - real_now ;
+              qtime2timespec(ts, wait > 0 ? wait : 0) ;
+
+              ret = pselect(0, NULL, NULL, NULL, ts, sigwait) ;
+
+              if (ret != 0)
+                ret = (ret < 0) ? errno : 0 ;
+            } ;
+
+          real_now = qt_get_realtime() ;
+
+          if (ret == 0)
+            break ;
+
+          if (ret == EINTR)
+            {
+              if (qpn_wd_stop_now())
+                break ;
+
+              ++eintr_count ;
+              continue ;
+            } ;
+
+          /* Something broken -- log error and exit the pthread
+           */
+          qpn_wd_log("%s() returned error: %s", using, errtoa(ret, 0).str) ;
+          qpn_wd_stop = true ;
+
+          break ;
+        } ;
+
+      mono_interval = qt_get_monotonic() - mono_start ;
+      real_interval = real_now           - real_start ;
+
+      if (qpn_wd_stop_now())
+        break ;
+
+      /* Check the mono_interval and real_interval -- reporting the eintr_count
+       * if those are not satisfactory
+       */
+      qpn_wd_check_intervals(mono_interval, real_interval, eintr_count) ;
+
+
+      qpn_wd_log("watch-dog %ld/%ld (%u)", mono_interval, real_interval,
+                                                                  eintr_count) ;
+    } ;
+
+  /* Termination
+   */
+  qpn_wd_log("Watch-Dog terminated (%s)", using) ;
+
+  qpt_spin_destroy(qpn_wd_spin_lock) ;
+
+  fclose(qpn_wd_log_file) ;
+  qpath_free(qpn_wd_log_path) ;
+
+  return NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Convert given qtime_t to a double in seconds
+ */
+static double
+qpn_wd_float(qtime_t t)
+{
+  return (double)(t) / (double)QTIME(1) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Worry about the interval since the last time -- as measure by both the
+ * CLOCK_REALTIME and the CLOCK_MONOTONIC
+ *
+ */
+static void
+qpn_wd_check_intervals(qtime_t mono_interval, qtime_t real_interval,
+                                                               uint eintr_count)
+{
+  qtime_t delta ;
+
+  /* The CLOCK_REALTIME interval should be close to the requested
+   * qpn_wd_interval.
+   *
+   * If differ by more than +/- 1sec -- report issue.
+   */
+  delta = real_interval - qpn_wd_interval ;
+  if ((delta <= -QTIME(1)) || (delta >= +QTIME(1)))
+    qpn_wd_log("*** REALTIME interval delta=%+6.3f (%5.3f - %5.3f)",
+                           qpn_wd_float(delta), qpn_wd_float(real_interval),
+                                                qpn_wd_float(qpn_wd_interval)) ;
+
+  /* The CLOCK_REALTIME and CLOCK_MONOTONIC intervals should be close to each
+   * other
+   *
+   * If differ by more than +/- 0.01sec -- report issue.
+   */
+  delta = real_interval - mono_interval ;
+  if ((delta <= -(QTIME(1) / 100)) || (delta >= +(QTIME(1) / 100)))
+    qpn_wd_log("*** REALTIME - MONOTONIC delta = %+6.3f (%5.3f - %5.3f)",
+                             qpn_wd_float(delta), qpn_wd_float(real_interval),
+                                                  qpn_wd_float(mono_interval)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Write a watch-dog log message -- preceded by the current time,
+ *                                  followed by "\n"
+ *
+ * Note that we use a separate file to write the watch-do log to, partly to
+ * avoid cluttering up the real logging, and partly to ensure the minimum
+ * interaction with the rest of the system.
+ */
+static void
+qpn_wd_log(const char* format, ...)
+{
+  struct timeval clock[1] ;
+  struct tm      tm[1] ;
+  char           time_buf[30] ; /* "9999-99-99 99:99:99"       */
+
+  va_list va;
+
+  /* Construct and output timestamp
+   */
+  gettimeofday(clock, NULL);
+
+  localtime_r(&clock->tv_sec, tm);
+  strftime(time_buf, sizeof(time_buf), "%F %T" , tm) ;
+
+  fprintf(qpn_wd_log_file, "%s ", time_buf) ;
+
+  va_start(va, format);
+  vfprintf(qpn_wd_log_file, format, va) ;
+  va_end (va);
+
+  fprintf(qpn_wd_log_file, "\n") ;
 } ;

@@ -862,7 +862,7 @@ vtysh_show_integrated_config(vty vty)
 {
   cmd_ret_t ret ;
 
-  if (true)
+  if (false)
     {
       vty_out(vty, "%% %s TBA\n", __func__) ;
       return CMD_WARNING ;
@@ -898,7 +898,7 @@ vtysh_show_integrated_config(vty vty)
 
   /* Discard the collected configuration & return
    */
-  vtysh_config_reset_integrated() ;
+//vtysh_config_reset_integrated() ;
 
   return ret ;
 } ;
@@ -912,7 +912,7 @@ vtysh_write_integrated_config(vty vty)
 {
   cmd_ret_t ret ;
 
-  if (true)
+  if (false)
     {
       vty_out(vty, "%% %s TBA\n", __func__) ;
       return CMD_WARNING ;
@@ -931,7 +931,7 @@ vtysh_write_integrated_config(vty vty)
 
   /* Discard the collected configuration & return
    */
-  vtysh_config_reset_integrated() ;
+//vtysh_config_reset_integrated() ;
 
   return ret ;
 } ;

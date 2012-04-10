@@ -524,12 +524,7 @@ stream_put_this(struct stream* s, const byte* src, size_t n)
 inline static void
 stream_put_this_at(struct stream* s, const byte* src, size_t n, size_t at)
 {
-  size_t endp, endp_n ;
-
   qassert_stream(s) ;
-
-  endp   = s->endp ;
-  endp_n = endp + n ;
 
   if ((at + n) <= s->size)
     memcpy(s->data + at, src, n) ;

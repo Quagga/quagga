@@ -779,6 +779,18 @@ cmd_deamon_list_arg(vty vty, int argc, argv_t argv)
 /*------------------------------------------------------------------------------
  * Other meta commands for vtysh config
  */
+DEFUN_ATTR (set_vtysh_config_daemon,
+            set_vtysh_config_daemon_cmd,
+            "vtysh-config-daemon DAEMON-NAME",
+            "Set vtysh configuration daemon for configuration which follows\n"
+            "The configuration daemon name\n",
+            CMD_ATTR_DIRECT | CMD_ATTR_FIRST)
+{
+  vty_out(vty, "%% #vtysh-config-daemon %s only valid in vtysh-config-write\n",
+                                                                      argv[0]) ;
+  return CMD_WARNING ;
+} ;
+
 DEFUN_ATTR (set_vtysh_config_node,
             set_vtysh_config_node_cmd,
             "vtysh-config-node NODE-NAME",
@@ -791,15 +803,25 @@ DEFUN_ATTR (set_vtysh_config_node,
   return CMD_WARNING ;
 } ;
 
-DEFUN_ATTR (set_vtysh_config_section,
-            set_vtysh_config_section_cmd,
-            "vtysh-config-section <0-999999>",
-            "Set vtysh configuration section for configuration which follows\n"
-            "The configuration section number\n",
+DEFUN_ATTR (set_vtysh_config_group,
+            set_vtysh_config_group_cmd,
+            "vtysh-config-group .NAME",
+            "Set vtysh configuration group for configuration which follows\n"
+            "The configuration group name\n",
             CMD_ATTR_DIRECT | CMD_ATTR_FIRST)
 {
-  vty_out(vty, "%% #vtysh-config-section %s only valid in vtysh-config-write\n",
+  vty_out(vty, "%% #vtysh-config-group %s only valid in vtysh-config-write\n",
                                                                       argv[0]) ;
+  return CMD_WARNING ;
+} ;
+
+DEFUN_ATTR (set_vtysh_config_group_end,
+            set_vtysh_config_group_end_cmd,
+            "vtysh-config-group_end",
+            "End vtysh configuration group",
+            CMD_ATTR_DIRECT | CMD_ATTR_FIRST)
+{
+  vty_out(vty, "%% #vtysh-config-group-end only valid in vtysh-config-write\n");
   return CMD_WARNING ;
 } ;
 
@@ -3536,18 +3558,6 @@ show_configuration(vty vty, bool config_to_vtysh)
   return CMD_SUCCESS;
 } ;
 
-/*------------------------------------------------------------------------------
- * For the vtysh we can break configuration stuff into sections.
- *
- * See vtysh_config() for discussion of configuration sections.
- */
-extern void
-cmd_show_config_section(vty vty, uint section)
-{
-  if (vty->config_to_vtysh)
-    vty_out (vty, "#vtysh-config-section %u\n", section) ;
-} ;
-
 DEFUN (config_write_terminal,
        config_write_terminal_cmd,
        "write terminal",
@@ -4287,8 +4297,10 @@ CMD_INSTALL_TABLE(static, command_all_cmd_table, ALL_RDS | VTYSH_VD) =
   { META_NODE,       &set_daemons_cmd                  , TERM           },
   { META_NODE,       &set_daemon_cmd                   , TERM           },
 
+  { META_NODE,       &set_vtysh_config_daemon_cmd      , TERM           },
   { META_NODE,       &set_vtysh_config_node_cmd        , TERM           },
-  { META_NODE,       &set_vtysh_config_section_cmd     , TERM           },
+  { META_NODE,       &set_vtysh_config_group_cmd       , TERM           },
+  { META_NODE,       &set_vtysh_config_group_end_cmd   , TERM           },
 
   CMD_INSTALL_END
 } ;

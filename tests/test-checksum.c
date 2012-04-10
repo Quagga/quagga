@@ -35,7 +35,7 @@ accumulate (u_char *buffer, testsz_t len, testoff_t off)
 {
   u_int8_t *p;
   u_int16_t *csum;
-  int i, init_len, partial_len;
+  int i, partial_len;
   struct acc_vals ret;
 
   csum = (u_int16_t *) (buffer + off);
@@ -44,7 +44,6 @@ accumulate (u_char *buffer, testsz_t len, testoff_t off)
   p = buffer;
   ret.c0 = 0;
   ret.c1 = 0;
-  init_len = len;
 
   while (len != 0)
     {
@@ -400,11 +399,9 @@ verify (u_char * buffer, testsz_t len)
   u_int8_t *p;
   u_int32_t c0;
   u_int32_t c1;
-  u_int16_t checksum;
   int i, partial_len;
 
   p = buffer;
-  checksum = 0;
 
   c0 = 0;
   c1 = 0;

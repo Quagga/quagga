@@ -1200,7 +1200,7 @@ handle_attr_test (struct aspath_tests *t)
   int ret;
   int initfail = failed;
   struct aspath *asp;
-  size_t datalen, endp;
+  size_t datalen ;
   char host[] = { "none" } ;
   bgp_attr_parser_args_t args[1] ;
 
@@ -1208,7 +1208,7 @@ handle_attr_test (struct aspath_tests *t)
 
   peer.ibuf = stream_new (BGP_MAX_PACKET_SIZE);
   peer.obuf = stream_fifo_new ();
-  peer.bgp = &bgp;
+  peer.bgp  = &bgp;
   peer.host = host ;
 #if 0
   peer.fd = -1;
@@ -1223,7 +1223,7 @@ handle_attr_test (struct aspath_tests *t)
   stream_put (peer.ibuf, t->attrheader, t->len);
   datalen = aspath_put (peer.ibuf, asp, t->as4 == AS4_DATA);
 
-  endp = stream_push_endp(peer.ibuf, t->len + datalen) ;
+  stream_push_endp(peer.ibuf, t->len + datalen) ;
 
   ret = bgp_attr_parse (args);
 

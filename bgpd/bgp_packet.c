@@ -1161,11 +1161,9 @@ bgp_capability_msg_parse (struct peer *peer, u_char *pnt, bgp_size_t length)
   struct capability_mp_data mpc;
   struct capability_header *hdr;
   u_char action;
-  struct bgp *bgp;
   afi_t afi;
   safi_t safi;
 
-  bgp = peer->bgp;
   end = pnt + length;
 
   while (pnt < end)

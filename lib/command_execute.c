@@ -596,8 +596,8 @@ cmd_open_pipes(vty vty)
 
       together = ((parsed->parts & cmd_part_out_pipe) != 0) ;
 
-      args = cmd_tokens_concat(parsed, parsed->first_action,
-                                       parsed->num_action) ;
+      args = cmd_tokens_concat(parsed, parsed->first_action + 1,
+                                       parsed->num_action   - 1) ;
 
       if      ((parsed->in_pipe & cmd_pipe_file) != 0)
         ret = uty_cmd_open_in_pipe_file(vio, exec->context, args,
@@ -607,8 +607,6 @@ cmd_open_pipes(vty vty)
                                                     parsed->in_pipe, together) ;
       else
         zabort("invalid in pipe state") ;
-
-      qs_free(args) ;
     } ;
 
   /* Deal with any out pipe stuff
@@ -617,8 +615,8 @@ cmd_open_pipes(vty vty)
     {
       qstring args ;
 
-      args = cmd_tokens_concat(parsed, parsed->first_out_pipe,
-                                       parsed->num_out_pipe) ;
+      args = cmd_tokens_concat(parsed, parsed->first_out_pipe + 1,
+                                       parsed->num_out_pipe   - 1) ;
 
       if      ((parsed->out_pipe & cmd_pipe_file) != 0)
         ret = uty_cmd_open_out_pipe_file(vio, exec->context, args,
@@ -630,8 +628,6 @@ cmd_open_pipes(vty vty)
         ret = uty_cmd_open_out_dev_null(vio, together) ;
       else
         zabort("invalid out pipe state") ;
-
-      qs_free(args) ;
     } ;
 
   VTY_UNLOCK() ;

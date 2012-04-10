@@ -192,37 +192,31 @@ vtysh_read_config(vty vtysh, qpath config_file, bool required,
 struct config_item_list_base ;
 typedef struct config_item_list_base* config_item_list_base ;
 
-typedef enum
-{
-  nt_verbatim  = 0,
-  nt_group,
-  nt_singular,
-
-} config_node_type_t ;
-
-typedef struct
-{
-  config_item_list_base items ;
-
-  node_type_t        node ;
-  config_node_type_t type ;
-
-}  config_node_t ;
-typedef config_node_t* config_node ;
-
-static config_node_t config_nodes[MAX_NODE] ;
-
-/* Prototypes
+/*------------------------------------------------------------------------------
+ *
  */
-static void vtysh_config_own_config(vty vtysh) ;
-static void vtysh_config_lumps_init(void) ;
-static void vtysh_config_nodes_init(void) ;
-static void vtysh_config_collect(daemon_set_t daemon, vio_fifo buf) ;
-static void vtysh_config_nodes_free(void) ;
-static void vtysh_config_lumps_free(void) ;
 
 /*------------------------------------------------------------------------------
- * There is a double linked list of configuration nodes, in node number order.
+ * Prototypes
+ */
+typedef struct config_item* config_item ;
+
+static config_collection vtysh_config_collection_new(void) ;
+static config_collection vtysh_config_collection_free(
+                                                 config_collection collection) ;
+static void vtysh_config_own_config(vty vtysh) ;
+static void vtysh_config_collect(config_collection collection, vio_fifo buf) ;
+
+static void vtysh_config_items_parse(config_collection collection) ;
+static void vtysh_config_node_walk_start(config_collection collection) ;
+static bool vtysh_config_node_item(config_collection collection) ;
+
+
+extern void show_collected_node(config_collection collection) ;
+
+
+/*------------------------------------------------------------------------------
+ * There is a vector of configuration nodes, by node number order.
  *
  * Each configuration node has a double linked list of configuration items
  * hanging from it -- in arrival order.
@@ -301,25 +295,21 @@ static void vtysh_config_lumps_free(void) ;
  */
 
 /*------------------------------------------------------------------------------
- * Start up initialisation of all integrated configuration handling.
- */
-extern void
-vtysh_config_init_integrated (void)
-{
-  vtysh_config_lumps_init() ;
-  vtysh_config_nodes_init() ;
-} ;
-
-/*------------------------------------------------------------------------------
  * Collect the integrated configuration
  */
 extern cmd_ret_t
 vtysh_config_collect_integrated(vty vtysh, bool show)
 {
-  cmd_ret_t   ret ;
-  vio_fifo    rbuf ;
+  config_collection collection ;
 
-  vtysh_config_reset_integrated() ;     /* make sure all is tidy        */
+  cmd_ret_t   ret ;
+  vio_fifo    obuf ;
+
+  collection = vtysh_config_collection_new() ;
+
+  /* Collect configuration from all client daemons
+   */
+  ret = vty_vtysh_fetch_config(vtysh, vtysh_config_collect, collection, show) ;
 
   /* Make up the vtysh's own configuration, and collect same.
    *
@@ -327,35 +317,34 @@ vtysh_config_collect_integrated(vty vtysh, bool show)
    * usual way.  But we here fix things so that the output actually goes to
    * the rbuf, which we collect for later.
    */
-  rbuf = vtysh->vio->vout_base->r_obuf ;
-  vio_fifo_clear(rbuf) ;
-  vtysh->vio->obuf = rbuf ;
+  obuf = vtysh->vio->obuf ;
+
+  vtysh->vio->vout->obuf = vtysh->vio->obuf = vio_fifo_new(2048) ;
 
   vtysh_config_own_config(vtysh) ;
+  vtysh_config_collect(collection, vtysh->vio->obuf) ;
 
-  vtysh->vio->obuf = vtysh->vio->vout->obuf ;
-  vtysh_config_collect(VTYSH_VD, rbuf) ;
+  vio_fifo_free(vtysh->vio->obuf) ;
+  vtysh->vio->vout->obuf = vtysh->vio->obuf = obuf ;
 
-  /* Collect configuration from all client daemons
+  /* Process collected configuration into items
    */
-  ret = vty_vtysh_fetch_config(vtysh, vtysh_config_collect, show) ;
+  vtysh_config_items_parse(collection) ;
 
   /* If all is well, process and integrate the collected configuration.
    */
   if (ret == CMD_SUCCESS)
     {
-      node_type_t node ;
+      vtysh_config_node_walk_start(collection) ;
 
-      for (node = MIN_NODE ; node <= MAX_NODE ; ++node)
-        {
-          if (config_nodes[node].items == NULL)
-              continue ;
-
-//        ret = vtysh_config_integrate(vtysh, config_nodes[node]) ;
-          if (ret != CMD_SUCCESS)
-            break ;
-        } ;
+      while (vtysh_config_node_item(collection))
+        show_collected_node(collection) ;
     } ;
+
+  /* Release the collection
+   */
+
+  collection = vtysh_config_collection_free(collection) ;
 
   return ret ;
 } ;
@@ -372,104 +361,18 @@ vtysh_config_collect_integrated(vty vtysh, bool show)
 extern int
 vtysh_config_write_config_node(vty vtysh, node_type_t node)
 {
-  qassert(node <= MAX_NODE) ;
-  if ((node <= MAX_NODE) && (config_nodes[node].items != NULL))
-    {
+#if 0
+  config_item node_item ;
 
-//
+  node_item = vector_get_item(collection->config, node) ;
 
-    } ;
+  if (node_item == NULL)
+    return -1 ;
+
+
+#endif
 
   return -1 ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Collect the integrated configuration
- */
-extern void
-vtysh_config_reset_integrated(void)
-{
-  vtysh_config_nodes_free() ;
-  vtysh_config_lumps_free() ;
-} ;
-
-/*==============================================================================
- * Raw configuration line handling
- *
- * When the configuration is fetched from each daemon, it arrives in a fifo.
- *
- * The contents of that fifo are co-opted into a config_lump, which is appended
- * to the config_lump list.
- *
- * Thereafter the raw lines are collected up into configuration items.
- */
-typedef struct config_lump  config_lump_t ;
-typedef struct config_lump* config_lump ;
-
-struct config_lump
-{
-  config_lump  next ;
-
-  daemon_set_t daemon ;
-  uint         line_no ;
-
-  vio_fifo     fifo ;
-  qstring      fragments ;
-} ;
-
-static struct dl_base_pair(config_lump) config_lump_list ;
-
-/*------------------------------------------------------------------------------
- * Initialise the config raw line storage.
- */
-static void
-vtysh_config_lumps_init(void)
-{
-  dsl_init(config_lump_list) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Collect another lump of configuration.
- *
- * Empties out the given fifo.
- */
-static void
-vtysh_config_collect(daemon_set_t daemon, vio_fifo buf)
-{
-  config_lump  lump ;
-
-  lump = XCALLOC(MTYPE_TMP, sizeof(config_lump_t)) ;
-
-  dsl_append(config_lump_list, lump, next) ;
-
-  lump->daemon    = daemon ;
-  lump->line_no   = 0 ;
-
-  lump->fifo      = vio_fifo_move(NULL, buf) ;
-  lump->fragments = qs_new(100) ;
-
-  vio_fifo_clear_end_mark(lump->fifo) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Free off all config raw line storage.
- */
-static void
-vtysh_config_lumps_free(void)
-{
-  while (dsl_head(config_lump_list) != NULL)
-    {
-      config_lump  lump ;
-
-      lump = dsl_pop(&lump, config_lump_list, next) ;
-
-      lump->fifo      = vio_fifo_free(lump->fifo) ;
-      lump->fragments = qs_free(lump->fragments) ;
-
-      XFREE(MTYPE_TMP, lump) ;
-    } ;
-
-  vtysh_config_lumps_init() ;
 } ;
 
 /*==============================================================================
@@ -477,26 +380,25 @@ vtysh_config_lumps_free(void)
  *
  *
  */
+
 /*------------------------------------------------------------------------------
- * The configuration, group and singular items
+ * The configuration, group and line items
  */
 typedef struct config_item    config_item_t ;
-typedef struct config_item*   config_item ;
 
-typedef struct group_item     group_item_t ;
-typedef struct group_item*    group_item ;
+typedef struct dl_list_pair(config_item) config_item_ptrs_t ;
 
-typedef struct singular_item  singular_item_t ;
-typedef struct singular_item* singular_item ;
+typedef struct dl_base_pair(config_item) config_item_list_t ;
+typedef config_item_list_t* config_item_list ;
 
-typedef struct dl_list_pair(config_item) config_item_list_ptr_t ;
-typedef struct dl_base_pair(config_item) config_item_list_base_t ;
-
-typedef enum                    /* types of config_item */
+typedef enum                    /* types of config_item                 */
 {
   it_dummy   = 0,
+  it_node,                      /* Node is a list of line/group         */
+  it_line,
   it_group,
-  it_singular,
+
+  it_comment,                   /* for pre_comment list only            */
 
 } config_item_type_t ;
 
@@ -509,113 +411,233 @@ typedef enum                    /* types of separator   */
 
 } config_sep_type_t ;
 
-/* Configuration item list base
+/* The name of an item, or items.
  */
-struct config_item_list
-{
-  config_item_list_base_t items ;
+typedef struct config_name* config_name ;
+typedef struct config_name  config_name_t ;
 
-  symbol_table  match ;
+struct config_name
+{
+  config_item   list ;          /* list of items with this name */
+  char          string[] ;      /* '\0' terminated string       */
 } ;
-typedef struct config_item_list config_item_list_t[1] ;
 
 /* Configuration item
  */
 struct config_item
 {
-  config_item_list_ptr_t list ;
+  config_item        parent ;
 
-  daemon_set_t  daemons ;
-  uint          section ;
+  config_item_ptrs_t siblings ;
+
+  uint               ordinal ;
+
+  config_name        name ;
+  config_item        also ;     /* next item with same name     */
+
+  node_type_t        node ;
+  daemon_set_t       daemons ;
 
   config_item_type_t type ;
-  union
-  {
-    group_item    group ;
-    singular_item singular ;
-  } ip ;
+  bool               open ;     /* for it_group                 */
+
+  elstring_t         line ;     /* for it_line & it_comment     */
+  config_item_list_t list ;     /* for it_group & it_node       */
 
   config_item_list_t  pre_comments ;
   config_sep_type_t   post_sep ;
 } ;
 
-/* Group item
+/* Context while parsing in vtysh_config_items_parse()
  */
-struct group_item
+typedef struct config_lump*    config_lump ;
+typedef struct config_fagment* config_fragment ;
+
+typedef struct config_collection  config_collection_t ;
+
+struct config_collection
 {
-  config_item   parent ;
+  /* The config_collection is a vector by node_type_t of it_node items, each
+   * of which is a list of items for the respective node.
+   */
+  config_item_list_t config ;
 
-  symbol        name ;
+  daemon_set_t  all_daemons ;   /* all the daemons in the collection    */
 
-  config_item_list_t group ;
-} ;
+  /* The following is used to find matching line, group and comment items.
+   */
+  symbol_table  match ;
 
-/* Singular item
- */
-struct singular_item
-{
-  config_item   parent ;
+  /* The following are used while constructing the collection and .... XXX
+   */
+  config_item   node_item ;
+  config_item   last_item ;
 
-  symbol        name ;
+  daemon_set_t  daemons ;
+  node_type_t   node ;
 
-  elstring      line ;
+  /* The following are used while reading and parsing the configuration
+   */
+  cmd_parsed    parsed ;
+
+  elstring_t    line ;
+  uint          ordinal ;
+
+  /* The following are used to store the raw configuration either as read from
+   * the daemons, or as read from a configuration file.
+   *
+   * The lump list is a list of fifos containing the lines of configuration
+   * read from wherever.
+   *
+   * As the raw stuff is parsed into nodes, the nodes have elstrings which
+   * point into the relevant fifo lump, or into a fragment -- for lines which
+   * span two (or more !) fifo lumps.
+   */
+  config_lump  lump ;           /* used to step through lumps   */
+
+  struct dl_base_pair(config_lump) lump_list ;
+
+  config_fragment fragment_list ;
+
+  qstring_t    temp ;           /* used when creating fragments and names  */
 } ;
 
 /*------------------------------------------------------------------------------
- * The nodes that we know can generate configuration of type nt_group or
- * nt_singular.
+ * Prototypes
+ */
+static void vtysh_config_item_list_free(config_item_list list,
+                                                           config_item parent) ;
+static config_item vtysh_config_item_free(config_item item) ;
+
+static bool vtysh_config_collect_next_line(config_collection collection) ;
+static void vtysh_config_raw_free(config_collection collection) ;
+
+static void vtysh_config_parse_comment(config_collection collection) ;
+static void vtysh_config_parse_sep(config_collection collection,
+                                                        config_sep_type_t sep) ;
+static void vtysh_config_parse_daemon(config_collection collection,
+                                                              bool reset_node) ;
+static void vtysh_config_parse_node(config_collection collection) ;
+static void vtysh_config_parse_group(config_collection collection) ;
+static void vtysh_config_parse_group_end(config_collection collection) ;
+
+static void vtysh_config_node_find(config_collection collection) ;
+static bool vtysh_config_item_insert(config_collection collection,
+                                                        config_item_type_t it) ;
+static bool vtysh_config_try_merge(config_collection collection,
+                                         config_item parent, config_name name) ;
+static config_name vtysh_config_get_name(config_collection collection,
+                                  config_item parent, config_item_type_t type) ;
+
+static symbol_cmp_func  vtysh_config_match_cmp ;
+static symbol_free_func vtysh_config_match_free ;
+
+static symbol_funcs_t vtysh_config_match_funcs =
+  {
+    .hash = symbol_hash_string,
+    .cmp  = vtysh_config_match_cmp,
+    .free = vtysh_config_match_free,
+  } ;
+
+/*------------------------------------------------------------------------------
+ * Create a new config_collection
+ */
+static config_collection
+vtysh_config_collection_new(void)
+{
+  config_collection collection ;
+
+  collection = XCALLOC(MTYPE_TMP, sizeof(config_collection_t)) ;
+
+  /* Zeroising sets:
+   *
+   *   config          -- NULLs    -- empty list of it_node
+   *
+   *   all_daemons     -- 0        -- none, yet
+   *
+   *   match           -- X        -- set below
+   *
+   *   node_item       -- NULL     -- none, yet
+   *   last_item       -- NULL     -- none, yet
+   *
+   *   daemons         -- 0        -- none, yet
+   *   node            -- NULL_NODE  -- none, yet
+   *
+   *   parsed          -- NULL     -- none, yet
+   *
+   *   line            -- empty elstring (embedded)
+   *   ordinal         -- 0
+   *
+   *   lump            -- NULL      -- nothing yet
+   *
+   *   lump_list       -- NULLs     -- empty
+   *   fragment_list   -- NULL      -- empty
+   *   temp            -- empty qstring (embedded)
+   */
+  confirm(NULL_NODE == 0) ;
+  confirm(ELSTRING_INIT_ALL_ZEROS) ;
+  confirm(QSTRING_INIT_ALL_ZEROS) ;
+
+  collection->match = symbol_table_new(NULL, 2000, 200,
+                                                    &vtysh_config_match_funcs) ;
+  return collection ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free given config_collection (if any) and all its contents
  *
- * This is used to initialise the config_nodes[] array.  When fetching
- * configuration, will treat any node not known to be nt_group or nt_singular
- * as nt_verbatim.
+ * Returns:  NULL
  */
-static const config_node_type_t config_node_types[MAX_NODE] =
+static config_collection
+vtysh_config_collection_free(config_collection collection)
 {
+  if (collection == NULL)
+    return NULL ;
 
+  /* Ream out the symbol table.  All names are discarded later.
+   */
+  collection->match = symbol_table_free(collection->match, keep_it) ;
+
+  /* Ream out the list of it_node items, and recursively empty all lists of
+   * items hung off there.
+   */
+  vtysh_config_item_list_free(&collection->config, NULL) ;
+
+  /* Finished with the parser too -- if any still there
+   */
+  collection->parsed = cmd_parsed_free(collection->parsed) ;
+
+  /* Discard all the raw lines -- includes all the fragments, where all item
+   * names are held.
+   */
+  vtysh_config_raw_free(collection) ;
+
+  collection = XCALLOC(MTYPE_TMP, sizeof(config_collection_t)) ;
+
+  /* All done
+   */
+  XFREE(MTYPE_TMP, collection) ;        /* sets collection = NULL       */
+
+  return collection ;
 } ;
 
-CONFIRM(nt_verbatim == 0) ;
-
 /*------------------------------------------------------------------------------
- * Initialise the config_nodes[] array.
+ * Create new config_item of the given type, in the given node, for the
+ * given daemon(s).
  *
- * Set every config_node empty, and set type/node for all the config nodes
- * we know about.
- */
-static void
-vtysh_config_nodes_init(void)
-{
-  node_type_t node ;
-
-  for (node = MIN_NODE ; node <= MAX_NODE ; ++node)
-    {
-      config_nodes[node].items = NULL ;
-
-      config_nodes[node].type  = config_node_types[node] ;
-      config_nodes[node].node  = node ;
-    } ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Free contents of the config_nodes[] array.
- */
-static void
-vtysh_config_nodes_free(void)
-{
-  node_type_t node ;
-
-  for (node = MIN_NODE ; node <= MAX_NODE ; ++node)
-    {
-    } ;
-} ;
-
-#if 0
-/*------------------------------------------------------------------------------
- * Create new config_item of the given type, in the given section, for the
- * given daemon(s), and append to the given config node.
+ * NB: Leaves the following empty:
+ *
+ *        name
+ *        list
+ *        line
+ *
+ *        pre_comments
+ *        post_sep
+ *
+ *     Does *not* append the item to any list
  */
 static config_item
-vtysh_config_item_new(config_node cn, daemon_set_t daemons, uint section,
+vtysh_config_item_new(config_collection collection, config_item parent,
                                                           config_item_type_t it)
 {
   config_item item ;
@@ -624,27 +646,1215 @@ vtysh_config_item_new(config_node cn, daemon_set_t daemons, uint section,
 
   /* Zeroising sets:
    *
-   *  list            -- all NULL -- list empty
+   *  parent          -- X        -- set below
    *
-   *  daemons         -- X        -- set below
-   *  section         -- X        -- set below
-   *  type            -- X        -- set below
+   *  ptrs            -- all NULL -- not on any list, yet
    *
-   *  ip.group        -- NULL     -- set below, if type == it_group
-   *  ip.singular     -- NULL     -- set below, if type == it_singular
+   *  ordinal         -- X        -- set below
    *
-   *  match           -- NULL
+   *  name            -- all zeros == empty elstring
+   *
+   *  node            -- X        -- set below
+   *  daemons         -- X        -- set below per collection
+   *  type            -- X        -- set below as given
+   *
+   *  list            -- all zeros == empty config_item_list_t
+   *  line            -- all zeros == empty elstring
    *
    *  pre_comments    -- all NULL -- list empty
    *  post_sep        -- sep_none
    */
-  confirm(sep_none == 0) ;
+  confirm(ELSTRING_INIT_ALL_ZEROS) ;
+  confirm(sep_none  == 0) ;
 
+  item->parent  = parent ;
+  item->ordinal = ++collection->ordinal ;
 
+  item->node    = collection->node ;
+  item->daemons = collection->daemons ;
+  item->type    = it ;
 
-
+  return item ;
 } ;
-#endif
+
+/*------------------------------------------------------------------------------
+ * Free the given item (if any) freeing any items hung off any lists of same
+ */
+static void
+vtysh_config_item_list_free(config_item_list list, config_item parent)
+{
+  config_item item ;
+
+  while ((item = ddl_pop(&item, *list, siblings)) != NULL)
+    {
+      qassert(parent == item->parent) ;
+      vtysh_config_item_free(item) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free the given item (if any) freeing any items hung off any lists of same
+ */
+static config_item
+vtysh_config_item_free(config_item item)
+{
+  if (item == NULL)
+    return item ;
+
+  vtysh_config_item_list_free(&item->list, item) ;
+  vtysh_config_item_list_free(&item->pre_comments, item) ;
+
+  XFREE(MTYPE_TMP, item) ;      /* sets item = NULL     */
+
+  return item ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Read configuration into items...
+ *
+ * The fist line in any daemon's configuration *must* be the #daemon line.
+ *
+ */
+static void
+vtysh_config_items_parse(config_collection collection)
+{
+  qstring_t             qs ;
+
+  qs_init_new(qs, 0) ;
+
+  assert(collection->parsed == NULL) ;
+  collection->parsed = cmd_parsed_new() ;
+
+  /* As we are reading into items we have:
+   *
+   *   last_item  = address of last item created
+   *
+   *                If this is NULL, then we have not yet created any items,
+   *                or have just processed a meta-command which terminated
+   *                a node -- and may have started a new one.  The creation/
+   *                finding of a new node is delayed until it is required.
+   *
+   *                If this is not NULL, then it will be one of:
+   *
+   *                  it_dummy: we are collecting "pre_comment", and we do not
+   *                            yet know what the comment will be applied to,
+   *                            if anything.
+   *
+   *                  it_line:  the most common case, last item is a line in
+   *                            the current node/group.
+   *
+   *                  it_group: the last item created was the parent of a
+   *                            group.
+   *
+   *    node_item = address of the current (if last_item != NULL) node,
+   *                or the last node used, or NULL.
+   *
+   *                This is set when it is necessary to add an it_dummy,
+   *                it_line or it_group item.
+   */
+  collection->all_daemons  = 0 ;
+
+  collection->node_item    = NULL ;
+  collection->last_item    = NULL ;
+
+  collection->daemons      = 0 ;
+  collection->node         = NULL_NODE ;
+
+  while (vtysh_config_collect_next_line(collection))
+    {
+      cmd_token  t ;
+
+      /* We tokenise each line so that we know exactly what we are dealing with
+       */
+      qs_set_els(qs, collection->line) ;
+      cmd_tokenize(collection->parsed, qs, false /* not full_lex */) ;
+
+      /* Need to identify:
+       *
+       *   meta commands:
+       *
+       *   comments and blank lines
+       *
+       *   other stuff
+       */
+      t = cmd_token_get(collection->parsed->tokens, 0) ;
+
+      switch (t->type)
+        {
+          /* Blank separator line.
+           */
+          case cmd_tok_eol:
+            vtysh_config_parse_sep(collection, sep_blank) ;
+
+            break ;
+
+          /* Comment line.
+           *
+           * If not empty:
+           *
+           *   If we are collecting comment, then we add the comment line
+           *   to the pre_comments.
+           *
+           *   If we are not collecting comment, then we finish the current
+           *   item and start collecting comment ready for the next item.
+           *
+           * If empty -- treat as separator line
+           */
+          case cmd_tok_comment:
+            if (els_len_nn(t->ot) > 1)
+              vtysh_config_parse_comment(collection) ;
+            else
+              {
+                /* This is an empty comment line
+                 *
+                 * Note that '!' takes priority over blank, and that '#' takes
+                 * priority over '!'.
+                 */
+                if      (*((char*)els_body_nn(t->ot)) == '!')
+                  vtysh_config_parse_sep(collection, sep_shriek) ;
+                else if (*((char*)els_body_nn(t->ot)) == '#')
+                  vtysh_config_parse_sep(collection, sep_hash) ;
+                else
+                  assert(false) ;
+              } ;
+
+            break ;
+
+          /* Start next daemon/node/group
+           */
+          case cmd_tok_meta_prefix:
+            t = cmd_token_get(collection->parsed->tokens, 1) ;
+
+            if      ( (els_cmp_str(t->ot, "daemon")  == 0)
+                   || (els_cmp_str(t->ot, "daemons") == 0) )
+              vtysh_config_parse_daemon(collection, false /* not reset node */) ;
+            else if (els_cmp_str(t->ot, "vtysh-config-daemon") == 0)
+              vtysh_config_parse_daemon(collection, true  /* reset node */) ;
+            else if (els_cmp_str(t->ot, "vtysh-config-node") == 0)
+              vtysh_config_parse_node(collection) ;
+            else if (els_cmp_str(t->ot, "vtysh-config-group") == 0)
+              vtysh_config_parse_group(collection) ;
+            else if (els_cmp_str(t->ot, "vtysh-config-group-end") == 0)
+              vtysh_config_parse_group_end(collection) ;
+            else
+              assert(false) ;
+
+            break ;
+
+          case cmd_tok_simple:
+            assert(collection->node != NULL_NODE) ;
+
+            vtysh_config_item_insert(collection, it_line) ;
+            *collection->last_item->line = *collection->line ;
+
+            break ;
+
+          default:
+            assert(false) ;             /* unexpected ! */
+        } ;
+    } ;
+
+  collection->parsed = cmd_parsed_free(collection->parsed) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Start a walk of all known nodes
+ */
+static void
+vtysh_config_node_walk_start(config_collection collection)
+{
+  collection->node       = NULL_NODE ;
+  collection->daemons    = 0 ;          /* reset at start       */
+
+  collection->node_item  = NULL ;
+  collection->last_item  = NULL ;       /* reset to start       */
+}
+
+/*------------------------------------------------------------------------------
+ * Step to next node_item in config -- if any
+ */
+static bool
+vtysh_config_node_item(config_collection collection)
+{
+  config_item next_node ;
+
+  if (collection->node_item == NULL)
+    next_node = ddl_head(collection->config) ;
+  else
+    next_node = ddl_next(collection->node_item, siblings) ;
+
+  if (next_node == NULL)
+    return false ;
+
+  collection->node      = next_node->node ;
+  collection->last_item = NULL ;
+
+  collection->node_item = next_node ;
+
+  return true ;
+}
+
+/*------------------------------------------------------------------------------
+ * We have need of a new it_line, it_group item or it_dummy, to be inserted at
+ * the current position.
+ *
+ * There are a number of cases:
+ *
+ *   1) a collection->last_item exists
+ *
+ *       a) it_comment
+ *
+ *          This means that some "pre-comment" has been collected, and the
+ *          parent of the it_comment *must* be it_dummy, which we now co-opt.
+ *
+ *          NB: if we are inserting an it_dummy to carry comment or leading
+ *              blank line(s), then this is an empty operation !
+ *
+ *       b) it_line
+ *
+ *          A new item is inserted after the current last_item with the same
+ *          parent as the current last_item, and becomes the new last_item.
+ *
+ *       c) it_group
+ *
+ *          The new item is the first in the group.
+ *
+ *          A new item is inserted at the head of the group's list (which
+ *          *must* be empty) with the current item as its parent.
+ *
+ *   2) a collection->last_item does not exist
+ *
+ *      This means that the node has changed, so we need to find or create the
+ *      it_node for the current node.
+ *
+ *      Once we have set the collection->node_item according to the
+ *      collection->node, can append the new item to it, with the node_item
+ *      as its parent.
+ */
+static bool
+vtysh_config_item_insert(config_collection collection, config_item_type_t it)
+{
+  config_item parent ;
+  config_name name ;
+  bool   merged ;
+  bool   co_opted ;
+
+  assert((it == it_line) || (it == it_group) || (it == it_dummy)) ;
+
+  /* If we need to construct a new item, establish the parent for the item.
+   */
+  co_opted = false ;
+
+  if (collection->last_item != NULL)
+    {
+      switch (collection->last_item->type)
+        {
+          case it_comment:
+            collection->last_item = collection->last_item->parent ;
+
+            assert((collection->last_item) &&
+                                    (collection->last_item->type == it_dummy)) ;
+
+            collection->last_item->type = it ;  /* co-opt       */
+
+            co_opted = true ;
+            fall_through ;
+
+          case it_line:
+            parent = collection->last_item->parent ;
+            break ;
+
+          case it_group:
+            if (collection->last_item->open)
+              parent = collection->last_item ;
+            else
+              parent = collection->last_item->parent ;
+
+            break ;
+
+          default:
+            assert(false) ;
+        } ;
+    }
+  else
+    {
+      /* No last_item -- so find the current node and set that as the
+       * parent for the new item
+       */
+      vtysh_config_node_find(collection) ;
+
+      parent = collection->node_item ;
+    }
+
+  /* We need (or have, if co-opted) a new item, whose parent we have just
+   * established above.
+   *
+   * If not co-opted, make a new item and append to the parent's list.
+   */
+  if (!co_opted)
+    {
+      collection->last_item = vtysh_config_item_new(collection, parent, it) ;
+      ddl_append(parent->list, collection->last_item, siblings) ;
+    } ;
+
+  /* We now have a new item, attached to the parent.  For that item we have
+   * the following set:
+   *
+   *   parent
+   *   ordinal
+   *
+   *   node     = collection->node ;
+   *   daemons  = collection->daemons ;
+   *   type     = it ;
+   *
+   * And everything else is clear.
+   *
+   * Now need to establish, and register, the name of the item.
+   */
+  collection->last_item->name =
+                          name = vtysh_config_get_name(collection, parent, it) ;
+
+  /* If the name is unique, then cannot merge.
+   *
+   * If the name is not unique, then we can attempt to merge.  If manages to
+   * merge, will set the last item to the merged item.
+   *
+   * If does not merge, we add the new item to the owners of the name.
+   */
+  if (name->list == NULL)
+    merged = false ;
+  else
+    merged = vtysh_config_try_merge(collection, parent, name) ;
+
+  if (!merged)
+    ssl_append(name->list, collection->last_item, also) ;
+
+  return merged ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Compare collection and node_item node values
+ */
+inline static int
+vtysh_config_node_cmp(config_collection c, config_item n)
+{
+  if (c->node < n->node)
+    return -1 ;
+  if (c->node > n->node)
+    return +1 ;
+
+  return 0 ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * We want the node_item which corresponds to the given collection's node.
+ *
+ * Note that we expect to need nodes in node number order, so, while the search
+ * is linear, it should be starting near the destination.
+ */
+static void
+vtysh_config_node_find(config_collection collection)
+{
+  config_item item ;
+  int ret ;
+
+  /* If there is no current node_item, then we get the head of the list.
+   *
+   * If there are no nodes, then we get item = NULL.
+   */
+  item = (collection->node_item != NULL) ? collection->node_item
+                                         : ddl_head(collection->config) ;
+  ret = +1 ;
+
+  if (item != NULL)
+    {
+      /* We have a item -- compare the item's node with it.
+       *
+       * If the item has a smaller node, then we step to the left.
+       * If the item has a larger  node, then we step to the right.
+       *
+       * Do nothing further if have found the required item !
+       */
+      ret = vtysh_config_node_cmp(collection, item) ;
+
+      if      (ret < 0)
+        {
+          /* We step to the left (previous) until we find a item with
+           *
+           *   * equal node   -- ret == 0
+           *
+           *   * smaller node -- ret > 0
+           *
+           * or run out of sections
+           *
+           *   * item == NULL      -- ret < 0 ;
+           */
+          do
+            {
+              item = ddl_prev(item, siblings) ;
+
+              if (item == NULL)
+                break ;
+
+              ret = vtysh_config_node_cmp(collection, item) ;
+            }
+          while (ret < 0) ;
+        }
+      else if (ret > 0)
+        {
+          /* We step to the left (previous) until we find a item with
+           *
+           *   * equal node   -- ret == 0
+           *
+           *   * larger node  -- ret < 0
+           *
+           * or run out of sections
+           *
+           *   * item == NULL      -- ret > 0 ;
+           */
+          do
+            {
+              item = ddl_next(item, siblings) ;
+
+              if (item == NULL)
+                break ;
+
+              ret = vtysh_config_node_cmp(collection, item) ;
+            }
+          while (ret > 0) ;
+        }
+    } ;
+
+  /* Finished walking.
+   *
+   *   ret == 0 <=> found the required item.
+   *
+   *   ret <  0, item == NULL
+   *
+   *               => have stepped to the head (the item node is
+   *                  less than the previous item examined (if any).
+   *
+   *                  Need to add new item at the head.
+   *
+   *             item != NULL
+   *
+   *               => have stepped forward to the first item which the item's
+   *                  node is less than.
+   *
+   *                  Need to add new item before the current one.
+   *   ret >  0, item == NULL
+   *
+   *               => have stepped to the tail (the item node is
+   *                  greater than the previous item examined (if any).
+   *
+   *                  Need to add new item at the tail.
+   *
+   *             item != NULL
+   *
+   *               => have stepped back to the first item which the item's
+   *                  node is greater than.
+   *
+   *                  Need to add new item after the current one.
+   *
+   */
+  if (ret == 0)
+    {
+      /* Found !
+       */
+      collection->node_item = item ;
+    }
+  else
+    {
+      /* Create new item item, and insert as required (see above).
+       */
+      collection->node_item = vtysh_config_item_new(collection, NULL, it_node) ;
+      if (ret < 0)
+        {
+          if (item == NULL)
+            ddl_push(collection->config, collection->node_item, siblings) ;
+          else
+            ddl_in_after(item, collection->config,
+                                              collection->node_item, siblings) ;
+        }
+      else
+        {
+          if (item == NULL)
+            ddl_append(collection->config, collection->node_item, siblings) ;
+          else
+            ddl_in_before(item, collection->config,
+                                              collection->node_item, siblings) ;
+        }
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * We have a comment line.
+ *
+ * If we have a last_item, then we add a comment line to it, or to its parent
+ * if is a comment line.
+ *
+ * If we do not have a last_item then we must be after one of the meta-commands
+ * that starts a new "unit" -- eg after #daemon or #vtysh-config-node.  In
+ * these cases we construct a new dummy node, and treat the blank line as the
+ * first (empty) line of"pre comments".
+ *
+ * If there is no node_item, then we are before the first #vtysh-config-node
+ * for the current daemon.  There must be a current daemon !
+ *
+ * Note that the item inserted has a NULL line, with the given type of
+ * separator "following" it.  This means that multiple blank lines at the start
+ * of a block of comments will be squashed together, and squashed with blank
+ * '!' and/or '#' comment lines.
+ */
+static void
+vtysh_config_parse_comment(config_collection collection)
+{
+  config_item new_item, parent ;
+
+  /* If the last item was it_comment, then need to create new item
+   * and attach it to the comment part of the parent
+   *
+   * If the last item was not comment, then need to start a (pro tem) it_dummy
+   * item, to which the comment can be attached.
+   */
+  parent = collection->last_item ;
+
+  if (parent != NULL)
+    {
+      if (parent->type == it_comment)
+        parent = parent->parent ;
+    }
+  else
+    {
+      vtysh_config_item_insert(collection, it_dummy) ;
+
+      parent = collection->last_item ;
+    } ;
+
+  new_item = vtysh_config_item_new(collection, parent, it_comment) ;
+  *new_item->line = *collection->line ;
+
+  ddl_append(parent->pre_comments, new_item, siblings) ;
+
+  collection->last_item = new_item ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * We have a separator line.
+ *
+ * If we have a last_item, then we add a separator to it.
+ *
+ * If we do not have a last_item then we must be after one of the meta-commands
+ * that starts a new "unit" -- eg after #daemon or #vtysh-config-node.  In
+ * these cases we construct a new dummy node, and treat the blank line as the
+ * first (empty) line of"pre comments".
+ *
+ * Note that the item inserted has a NULL line, with the given type of
+ * separator "following" it.  This means that multiple blank lines at the start
+ * of a block of comments will be squashed together, and squashed with blank
+ * '!' and/or '#' comment lines.
+ */
+static void
+vtysh_config_parse_sep(config_collection collection, config_sep_type_t sep)
+{
+  if (collection->last_item == NULL)
+    {
+      /* Treat separator as if it were a comment line, but once constructed,
+       * force empty and then handle the separator as "post", in the usual way.
+       */
+      vtysh_config_parse_comment(collection) ;
+
+      els_set(collection->last_item->line, NULL) ;
+    } ;
+
+  if (collection->last_item->post_sep < sep)
+    collection->last_item->post_sep = sep ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * We have a daemon line.
+ *
+ * Clear collection->last_item.  This means that any comment before a #daemon is
+ * detached -- belonging neither to the previous real item, nor to any
+ * following items.
+ *
+ * Identify the daemon(s) and set collection->daemon, which defines what daemons
+ * any following items apply to.
+ *
+ * If is "vtysh-config-node", then this signals the start of fresh
+ * configuration for the given daemon -- so we need to reset the node -- just
+ * in case get leading comment and such.
+ */
+static void
+vtysh_config_parse_daemon(config_collection collection, bool reset_node)
+{
+  qstring list ;
+
+  collection->last_item = NULL ;
+
+  list = cmd_tokens_concat(collection->parsed, 2,
+                                           collection->parsed->num_tokens - 2) ;
+
+  collection->daemons = cmd_daemons_from_list(list) ;
+  collection->all_daemons |= collection->daemons ;
+
+  if (reset_node)
+    collection->node = NULL_NODE ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * We have a node line.
+ *
+ * Clear collection->last_item.
+ *
+ * Identify the node and set collection->node, which defines what node any
+ * following items belong in.
+ *
+ * If the node has changed, clear collection->node_item.
+ */
+static void
+vtysh_config_parse_node(config_collection collection)
+{
+  qstring node_name ;
+
+  collection->last_item = NULL ;
+
+  node_name = qs_set_els(NULL,
+                             cmd_token_get(collection->parsed->tokens, 2)->ot) ;
+
+  collection->node = cmd_node_by_name(qs_string(node_name)) ;
+
+  assert(collection->node != NULL_NODE) ;
+
+  qs_free(node_name) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * We have a group line.
+ */
+static void
+vtysh_config_parse_group(config_collection collection)
+{
+  vtysh_config_item_insert(collection, it_group) ;
+  collection->last_item->open = true ;
+
+  *collection->last_item->line = *collection->line ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * We have a group end line.
+ *
+ */
+static void
+vtysh_config_parse_group_end(config_collection collection)
+{
+  assert(collection->last_item != NULL) ;
+
+  switch (collection->last_item->type)
+    {
+      case it_comment:          /* must be attached to it_dummy !       */
+        collection->last_item = collection->last_item->parent ;
+        assert(collection->last_item->type == it_dummy) ;
+        fall_through ;
+
+      case it_dummy:            /* must be attached to group            */
+      case it_line:             /* ditto                                */
+        collection->last_item = collection->last_item->parent ;
+        assert(collection->last_item->type == it_group) ;
+        break ;
+
+      case it_group:            /* empty group                          */
+        break ;
+
+      default:
+        assert(false) ;
+    } ;
+
+  assert(collection->last_item->open) ;
+
+  collection->last_item->open = false ;
+} ;
+
+
+/*------------------------------------------------------------------------------
+ * Try to merge new item with an earlier one of the same name.
+ *
+ * The current last_item has been appended to the given parent, and has the
+ * given name.  At least one other item has the same name.
+ *
+ * No value has yet been set for the current last_item, but it may have
+ * pre_comments.
+ *
+ * If we can move a "bubble" of items up the parent's list, such that the
+ * current last_item overlaps (one of) the items with the same name, then
+ * we do that and discard the duplicate node -- this is a "merge".  Must also
+ * merge any pre-comment(s).
+ *
+ * Each item with the same name is known as a "target".
+ *
+ * We can collect a "bubble" of items to move up, by scanning up from the
+ * current last_item, while none of the items in the bubble has a daemon in
+ * common with the target.
+ *
+ * The bubble can move up to the target, provided that no item between the
+ * bubble and the target has any items in common with the bubble.
+ *
+ * Note that since we do this as we add items to the collection, the bubble is
+ * always below the target.
+ *
+ */
+static bool
+vtysh_config_try_merge(config_collection collection, config_item parent,
+                                                               config_name name)
+{
+
+
+  return false ;
+} ;
+
+/*==============================================================================
+ * Raw configuration line handling
+ *
+ * When the configuration is fetched from each daemon, it arrives in a fifo.
+ *
+ * The contents of that fifo are co-opted into a config_lump, which is appended
+ * to the config_lump list.
+ *
+ * Thereafter the raw lines are collected up into configuration items.  Each
+ * config_lump contains the configuration from a single daemon.  In
+ * vtysh_config_collect_next_line() the contents of the lump's fifo is broken
+ * up into lines, returning an elstring containing each one.  Note that the
+ * body of each line is in the original fifo, or in a fragment (if the line
+ * straddles more than one fifo lump).
+ *
+ * The item names also live in the fragment store.
+ */
+typedef struct config_lump
+{
+  config_lump  next ;
+
+  vio_fifo     fifo ;
+
+} config_lump_t ;
+
+typedef struct config_fagment
+{
+  config_fragment  next ;
+
+  char* ptr ;
+  char* end ;
+
+  char  body[] ;
+
+} config_fragment_t ;
+
+static void* vtysh_config_fragment_new(config_collection collection, ulen len,
+                                                                   bool align) ;
+
+/*------------------------------------------------------------------------------
+ * Collect another lump of configuration.
+ *
+ * Empties out the given fifo.
+ */
+static void
+vtysh_config_collect(config_collection collection, vio_fifo buf)
+{
+  config_lump  lump ;
+
+  lump = XCALLOC(MTYPE_TMP, sizeof(config_lump_t)) ;
+
+  dsl_append(collection->lump_list, lump, next) ;
+
+  lump->fifo = vio_fifo_move(NULL, buf) ;
+
+  vio_fifo_clear_end_mark(lump->fifo) ;
+  vio_fifo_set_hold_mark(lump->fifo) ;
+
+  if (collection->lump == NULL)
+    collection->lump = lump ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Read next line of collected configuration.
+ *
+ * The line returned is a pointer into the fifo, or where a line straddles the
+ * end of a fifo lump, a piece of the lump->fragments.
+ */
+static bool
+vtysh_config_collect_next_line(config_collection collection)
+{
+  uint     have ;
+  const char* p, * e ;
+
+  /* Nothing so far -- worry about needing to step to next lump of
+   * configuration (another daemon).
+   */
+  els_clear(collection->line) ;
+
+  while (1)
+    {
+      if (collection->lump == NULL)
+        return false ;
+
+      have = vio_fifo_get(collection->lump->fifo) ;
+
+      if (have > 0)
+        break ;
+
+      collection->lump = dsl_next(collection->lump, next) ;
+    } ;
+
+  /* We are going to collect a line for the current daemon
+   *
+   * Hopefully we can do this in one go.
+   */
+  p = vio_fifo_get_ptr(collection->lump->fifo) ;
+  e = memchr(p, '\n', have) ;
+
+  if (e != NULL)
+    {
+      els_set_n_nn(collection->line, p, e - p) ;
+      ++e ;                     /* past the '\n'        */
+    }
+  else
+    {
+      /* Rats -- need to collect line fragments.
+       */
+      char* fragment ;
+      bool  done ;
+      ulen  len ;
+
+      /* Collect into the collection->temp qstring.
+       */
+      qs_clear(collection->temp) ;
+      done = false ;
+
+      while (1)
+        {
+          qs_append_n(collection->temp, p, have) ;
+
+          if (done)
+            break ;
+
+          have = vio_fifo_step_get(collection->lump->fifo, have) ;
+
+          if (have == 0)
+            break ;
+
+          p = vio_fifo_get_ptr(collection->lump->fifo) ;
+          e = memchr(p, '\n', have) ;
+
+          if (e != NULL)
+            {
+              done = true ;
+              have = e - p ;
+              ++e ;             /* past the '\n'        */
+            } ;
+        } ;
+
+      /* Move contents of qstring to fragments
+       */
+      len = qs_len_nn(collection->temp) ;
+      assert(len != 0) ;
+
+      fragment = vtysh_config_fragment_new(collection, len,
+                                                          false /* no align*/) ;
+
+      els_set_n_nn(collection->line, fragment, len) ;
+
+      memcpy(fragment, qs_char_nn(collection->temp), len) ;
+    } ;
+
+  vio_fifo_step(collection->lump->fifo, e - p) ;
+
+  return true ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get address of new fragment
+ */
+static void*
+vtysh_config_fragment_new(config_collection collection, ulen len, bool align)
+{
+  config_fragment  fragment ;
+  char* ptr ;
+
+  fragment = ssl_head(collection->fragment_list) ;
+
+  if (fragment != NULL)
+    {
+      ptr = fragment->ptr ;
+
+      if (align)
+        ptr = (char*)((((uintptr_t)ptr + sizeof(void*) - 1) / sizeof(void*))
+                                                            * sizeof(void*)) ;
+      if ((ptr + len) > fragment->end)
+        fragment = NULL ;
+    } ;
+
+  if (fragment == NULL)
+    {
+      uint size ;
+
+      size = 4000 ;
+
+      if (size < len)
+        size = len ;
+
+      size = (size + sizeof(config_fragment_t) + 0x0FFF) & ~0x0FFF ;
+
+      fragment = XCALLOC(MTYPE_TMP, size) ;
+      ssl_push(collection->fragment_list, fragment, next) ;
+
+      fragment->ptr = fragment->body ;
+      fragment->end = (char*)fragment + size ;
+
+      ptr = fragment->ptr ;
+
+      if (align)
+        assert(((uintptr_t)ptr % sizeof(void*)) == 0) ;
+    } ;
+
+  fragment->ptr = ptr + len ;
+
+  return ptr ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free off all config raw line storage.
+ */
+static void
+vtysh_config_raw_free(config_collection collection)
+{
+  while (dsl_head(collection->lump_list) != NULL)
+    {
+      config_lump  lump ;
+
+      lump = dsl_pop(&lump, collection->lump_list, next) ;
+
+      lump->fifo = vio_fifo_free(lump->fifo) ;
+
+      XFREE(MTYPE_TMP, lump) ;
+    } ;
+
+  while (ssl_head(collection->fragment_list) != NULL)
+    {
+      config_fragment  fragment ;
+
+      fragment = ssl_pop(&fragment, collection->fragment_list, next) ;
+
+      XFREE(MTYPE_TMP, fragment) ;
+    } ;
+
+  qs_reset(collection->temp, keep_it) ;         /* embedded     */
+} ;
+
+extern void show_collected(config_collection collection) ;
+
+extern void
+show_collected(config_collection collection)
+{
+  config_lump  lump ;
+  uint         i ;
+
+  lump = dsl_head(collection->lump_list) ;
+
+  fprintf(stderr, "The collected configuration lumps\n") ;
+
+  i = 0 ;
+  while (lump != NULL)
+    {
+      ++i ;
+
+      fprintf(stderr, "---Lump %3d:\n", i) ;
+      vio_fifo_fwrite(lump->fifo, stderr) ;
+
+      lump = dsl_next(lump, next) ;
+    } ;
+
+  fprintf(stderr, "%d lumps\n", i) ;
+} ;
+
+static void show_collected_item(config_item item, qstring line) ;
+
+extern void
+show_collected_node(config_collection collection)
+{
+  config_item item ;
+  qstring  line ;
+
+  line = qs_new(200) ;
+
+  /* Show where we are, and deal with any unexpected commentary !
+   */
+  fprintf(stderr, "# The collected %s node", cmd_node_name(collection->node));
+
+  item = ddl_head(collection->node_item->pre_comments) ;
+
+  if (item != NULL)
+    fprintf(stderr, " *** HAS PRE_COMMENTS ???") ;
+
+  if (collection->node_item->post_sep != sep_none)
+    {
+      if (item != NULL)
+        fprintf(stderr, " AND") ;
+
+      fprintf(stderr, " *** HAS POST_SEP ???") ;
+    } ;
+
+  if (els_body(collection->node_item->line) != NULL)
+    {
+      if ((item != NULL) || (collection->node_item->post_sep != sep_none))
+        fprintf(stderr, " AND") ;
+
+      fprintf(stderr, " *** HAS LINE VALUE ???") ;
+    } ;
+
+  fprintf(stderr, "\n") ;
+
+  show_collected_item(collection->node_item, line) ;
+
+  qs_free(line) ;
+} ;
+
+static void
+show_collected_item(config_item item, qstring line)
+{
+  config_item sub_item ;
+
+  sub_item = ddl_head(item->pre_comments) ;
+
+  while (sub_item != NULL)
+    {
+      show_collected_item(sub_item, line) ;
+
+      sub_item = ddl_next(sub_item, siblings) ;
+   } ;
+
+  if (els_body(item->line) != NULL)
+    {
+      qs_set_els(line, item->line) ;
+      fprintf(stderr, "%s\n", qs_string(line)) ;
+    } ;
+
+  switch (item->post_sep)
+  {
+    case sep_none:
+      break ;
+
+    case sep_blank:
+      fprintf(stderr, "\n") ;
+      break ;
+
+    case sep_shriek:
+      fprintf(stderr, "!\n") ;
+      break ;
+
+    case sep_hash:
+      fprintf(stderr, "#\n") ;
+      break ;
+
+    default:
+      fprintf(stderr, "#*** unknown post_sep %d ***\n", item->post_sep) ;
+      break ;
+  } ;
+
+  sub_item = ddl_head(item->list) ;
+
+  while (sub_item != NULL)
+    {
+      show_collected_item(sub_item, line) ;
+
+      sub_item = ddl_next(sub_item, siblings) ;
+   } ;
+} ;
+
+/*==============================================================================
+ * Name handling.
+ *
+ * When a new item is about to be inserted in the tree, need to get its name,
+ * so we can check if we have the same item already or later.
+ *
+ * If the config_name object has a NULL items entry, then this is the first
+ * occurrence of this name.
+ */
+static config_name
+vtysh_config_get_name(config_collection collection, config_item parent,
+                                                        config_item_type_t type)
+{
+  qstring tokens ;
+  config_name name ;
+  const char* tag ;
+  uint  ti, tn ;
+  symbol sym ;
+
+  ti = 0 ;
+  tn = collection->parsed->num_tokens ;
+
+  switch (type)
+    {
+      case it_line:
+        tag = "" ;
+        break ;
+
+      case it_group:
+        tag = "$" ;
+        ti  = 2 ;
+        break ;
+
+      case it_comment:
+        tag = "!" ;
+        break ;
+
+      default:
+        qassert(false) ;
+    } ;
+
+  tokens = cmd_tokens_concat(collection->parsed, ti, tn - ti) ;
+
+  qs_clear(collection->temp) ;
+
+  qs_printf(collection->temp, "%u%s:%s", parent->ordinal, tag, qs_string(tokens)) ;
+
+  sym = symbol_lookup(collection->match, qs_string(collection->temp), add) ;
+
+  name = symbol_get_body(sym) ;
+
+  if (name == NULL)
+    {
+      ulen len ;
+
+      len = qs_len(collection->temp) + 1 ;      /* including terminator */
+
+      name = vtysh_config_fragment_new(collection,
+                       offsetof(config_name_t, string[len]), true /* align */) ;
+
+      name->list = NULL ;
+      memcpy(name->string, qs_char(collection->temp), len) ;
+
+      symbol_set_body(sym, name, true /* set */, free_it /* previous ! */) ;
+    } ;
+
+  return name ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Compare name in the given config_name with the given name_string.
+ */
+static int
+vtysh_config_match_cmp(const void* body, const void* name_string)
+{
+  const config_name_t* name = body ;
+  return strcmp(name->string, name_string) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * The symbol bodies are in fragments and are freed automatically.
+ */
+static void
+vtysh_config_match_free(void* body)
+{
+} ;
 
 /*==============================================================================
  * The vtysh own configuration.
@@ -663,7 +1873,7 @@ vtysh_config_item_new(config_node cn, daemon_set_t daemons, uint section,
 static void
 vtysh_config_own_config(vty vtysh)
 {
-  vty_out(vtysh, "#daemon vtysh\n") ;
+  vty_out(vtysh, "#vtysh-config-daemon vtysh\n") ;
   vty_out(vtysh, "#vtysh-config-node %s\n", cmd_node_name(CONFIG_NODE)) ;
 
   if (host.name_set)

@@ -1338,7 +1338,6 @@ DEFUN (no_access_list_all,
        "IP zebra access-list name\n")
 {
   struct access_list *access;
-  struct access_master *master;
 
   /* Looking up access_list. */
   access = access_list_lookup (AFI_IP, argv[0]);
@@ -1348,8 +1347,6 @@ DEFUN (no_access_list_all,
 	       VTY_NEWLINE);
       return CMD_WARNING;
     }
-
-  master = access->master;
 
   access_list_delete (access, true /* run delete_hook */);
 
@@ -1504,7 +1501,6 @@ DEFUN (no_ipv6_access_list_all,
        "IPv6 zebra access-list\n")
 {
   struct access_list *access;
-  struct access_master *master;
 
   /* Looking up access_list. */
   access = access_list_lookup (AFI_IP6, argv[0]);
@@ -1514,8 +1510,6 @@ DEFUN (no_ipv6_access_list_all,
 	       VTY_NEWLINE);
       return CMD_WARNING;
     }
-
-  master = access->master;
 
   access_list_delete (access, true /* run delete_hook */);
 

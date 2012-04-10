@@ -1004,7 +1004,6 @@ bgp_msg_capability_mp(bgp_connection connection, sucker sr)
 {
   struct iAFI_SAFI mp ;
   qafx_bit_t qb ;
-  bgp_cap_afi_safi cap ;
 
   qb = bgp_msg_afi_safi(sr, &mp) ;
 
@@ -1012,7 +1011,7 @@ bgp_msg_capability_mp(bgp_connection connection, sucker sr)
     zlog_debug ("%s OPEN has MP_EXT CAP for afi/safi: %u/%u",
                                           connection->host, mp.afi, mp.safi) ;
 
-  cap = bgp_open_state_afi_safi_add(connection->open_recv, mp.afi, mp.safi,
+  bgp_open_state_afi_safi_add(connection->open_recv, mp.afi, mp.safi,
                                                     (qb != 0), BGP_CAN_MP_EXT) ;
   if (qb == 0)
     {

@@ -1029,6 +1029,58 @@ vty_out_clear(vty vty)
 } ;
 
 /*==============================================================================
+ * Support for vtysh integrated configuration.
+ *
+ * Each node that generates configuration can break that up into groups of
+ * configuration lines, and those groups may themselves be broken into
+ * groups.
+ *
+ * Each group has a name, whose scope is the current node or current group
+ * (if nested).
+ *
+ * Where more than one daemon generates configuration for the same group (by
+ * name) the groups will be merged.
+ */
+
+/*------------------------------------------------------------------------------
+ * If is vty->config_to_vtysh put a #vtysh-config-group xxxxx to the vty.
+ *
+ * The string constructed from the format and arguments is the name of the
+ * group.  Case is significant in the name, but leading and trailing spaces
+ * are not, and multiple spaces are compressed to one space.
+ */
+extern void
+vty_out_vtysh_config_group (struct vty *vty, const char *format, ...)
+{
+  if (vty->config_to_vtysh)
+    {
+      va_list args ;
+
+      VTY_LOCK() ;
+
+      vio_fifo_put_string(vty->vio->obuf, "#vtysh-config-group ") ;
+
+      va_start (args, format) ;
+      vio_fifo_vprintf(vty->vio->obuf, format, args) ;
+      va_end (args) ;
+
+      vio_fifo_put_string(vty->vio->obuf, "\n") ;
+
+      VTY_UNLOCK() ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If is vty->config_to_vtysh put a #vtysh-config-group-end to the vty.
+*/
+extern void
+vty_out_vtysh_config_group_end (struct vty *vty)
+{
+  if (vty->config_to_vtysh)
+    vty_out(vty, "#vtysh-config-group-end\n") ;
+} ;
+
+/*==============================================================================
  * Functions for VTY_GET_LONG
  *               VTY_GET_INTEGER_RANGE
  */
@@ -1862,6 +1914,9 @@ extern cmd_ret_t
 vty_write_config(vty vty, int (*write_config_node)(svty vty, node_type_t node))
 {
   node_type_t node ;
+
+  if (vty->config_to_vtysh)
+    vty_out (vty, "#vtysh-config-daemon %s\n", daemon_name) ;
 
   for (node = MIN_NODE ; node <= MAX_NODE ; ++node)
     {

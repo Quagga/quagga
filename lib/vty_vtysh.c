@@ -622,8 +622,8 @@ vty_vtysh_command_loop(vty vtysh, const char* line, bool interactive,
  */
 extern cmd_ret_t
 vty_vtysh_fetch_config(vty vtysh,
-                          void (*collect)(daemon_set_t daemon, vio_fifo buf),
-                                                                      bool show)
+                    void (*collect)(config_collection collection, vio_fifo buf),
+                                        config_collection collection, bool show)
 {
   vtysh_client_dispatch_t dispatch ;
   cmd_ret_t    ret ;
@@ -664,7 +664,7 @@ vty_vtysh_fetch_config(vty vtysh,
       if (ret == CMD_SUCCESS)
         {
           vio_fifo_step_end_mark(r_obuf) ;
-          collect(client->daemon, r_obuf) ;
+          collect(collection, r_obuf) ;
         } ;
 
       if (show)

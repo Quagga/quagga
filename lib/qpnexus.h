@@ -164,7 +164,7 @@ struct qpn_nexus
 
   /* statistics gathering
    */
-  qpt_spin_t    stats_slk[1] ;
+  qpt_spin_t    stats_slk ;
 
   qpn_stats_t   raw ;           /* belongs to thread                    */
   qpn_stats_t   stats ;         /* set, under spin lock, once per cycle */
@@ -196,5 +196,12 @@ extern void qpn_terminate(qpn_nexus qpn);
 extern qpn_nexus qpn_reset(qpn_nexus qpn, free_keep_b free_structure);
 
 extern void qpn_get_stats(qpn_nexus qpn, qpn_stats curr, qpn_stats prev) ;
+
+extern void qpn_wd_start_up(void) ;
+extern bool qpn_wd_prepare(const char* arg) ;
+extern void qpn_wd_start(void) ;
+extern void qpn_wd_finish(uint interval) ;
+
+
 
 #endif /* _ZEBRA_QPNEXUS_H */

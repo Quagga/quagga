@@ -30,47 +30,66 @@
  *
  * Have to chase down list to find item.
  *
- * Note that p_this:
+ * Note that p_prev:
  *
- *   * starts as pointer to the base pointer, so should really be void**,
- *     but that causes all sorts of problems with strict-aliasing.
+ *   * starts as pointer to the base pointer and thereafter is a pointer to
+ *     the "next" pointer in the current item.
  *
- *     So: have to cast to (void**) before dereferencing to get the address
- *         of the first item on the list.
+ *     In the macro we cast &base to (void**) before passing it as p_prev.
  *
- *   * as steps along the list p_this points to the "next pointer" in the
+ *     The compiler has a tendency to throw a wobbly complaining about aliasing,
+ *     which is a complete mystery.  But this all works OK, provided the
+ *     ssl_del_func() is not inlined -- go figure.
+ *
+ *   * as steps along the list p_prev points to the "next" pointer in the
  *     previous item.
  *
- *     The _sl_p_next() macro adds the offset of the "next pointer" to the
- *     address of the this item.
+ *     The _sl_p_next() macro adds the offset of the "next" pointer to the
+ *     address of the given item, and returns a (void**).
  *
- *   * at the end, assigns the item's "next pointer" to the "next pointer"
- *     field pointed at by p_this.
- *
- *     Note again the cast to (void**).
+ *   * at the end, assigns the item's "next" pointer to the "next" pointer
+ *     field pointed at by p_prev.
  *
  * Returns: true  => removed item from list
  *          false => item not found on list (or item == NULL)
  */
 extern bool
-ssl_del_func(void** p_this, void* item, size_t link_offset)
+ssl_del_func(void** p_prev, void* item, size_t link_offset)
 {
-  void* this ;
+  void* prev ;
 
   if (item == NULL)
     return false ;
 
-  while ((this = *p_this) != item)
+  while ((prev = *p_prev) != item)
     {
-      if (this == NULL)
+      if (prev == NULL)
         return false ;
 
-      p_this = _sl_p_next(this, link_offset) ;
+      p_prev = _sl_p_next(prev, link_offset) ;
     } ;
 
-  *p_this = _sl_next(item, link_offset) ;
+  *p_prev = _sl_next(item, link_offset) ;
 
   return true ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Appending item
+ *
+ * Have to chase down list to find item to insert after.
+ *
+ * See notes on p_prev above.
+ */
+extern void
+ssl_append_func(void** p_prev, void* item, size_t link_offset)
+{
+  void* prev ;
+
+  while ((prev = *p_prev) != NULL)
+    p_prev = _sl_p_next(prev, link_offset) ;
+
+  *p_prev = item ;
 } ;
 
 /*==============================================================================

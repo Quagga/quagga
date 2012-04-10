@@ -26,6 +26,7 @@
 #include "qpthreads.h"
 #include "memory.h"
 #include "log.h"
+#include "qstring.h"
 
 /*==============================================================================
  * Quagga Pthread Interface -- qpt_xxxx
@@ -250,6 +251,12 @@
  * To direct a signal at a given thread need pthread_kill. *
  */
 
+CONFIRM(_POSIX_THREADS > 0) ;
+CONFIRM(_POSIX_THREAD_SAFE_FUNCTIONS > 0) ;
+CONFIRM(_POSIX_REENTRANT_FUNCTIONS > 0) ;
+
+CONFIRM(_POSIX_SPIN_LOCKS > 0) ;
+
 /*==============================================================================
  * The Global Switch
  *
@@ -406,7 +413,7 @@ qpthreads_decided(void)
  * Returns the address of the qpt_thread_attr_t structure.
  */
 extern qpt_thread_attr_t*
-qpt_thread_attr_init(qpt_thread_attr_t* attr, enum qpt_attr_options opts,
+qpt_thread_attr_init(qpt_thread_attr_t* attr, qpt_attr_options_t opts,
                                             int scope, int policy, int priority)
 {
   int err ;
@@ -450,12 +457,14 @@ qpt_thread_attr_init(qpt_thread_attr_t* attr, enum qpt_attr_options opts,
               if (err != 0)
                 zabort_err("pthread_attr_setscope failed", err) ;
             } ;
+
           if (opts & qpt_attr_sched_policy)
             {
               err = pthread_attr_setschedpolicy(attr, scope) ;
               if (err != 0)
                 zabort_err("pthread_attr_setschedpolicy failed", err) ;
             } ;
+
           if (opts & qpt_attr_sched_priority)
             {
               struct sched_param sparm ;
@@ -503,6 +512,16 @@ qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr)
   err = pthread_create(&thread_id, attr, start, arg) ;
   if (err != 0)
     zabort_err("pthread_create failed", err) ;
+
+  {
+    qstring qs ;
+
+    qs = qpt_thread_attr_form(&thread_attr, "  ") ;
+
+    fputs(qs_string(qs), stderr) ;
+
+    qs_free(qs) ;
+  }
 
   if (default_attr)
     {
@@ -971,4 +990,155 @@ qpt_data_delete(qpt_data data)
     } ;
 
   memset(data, 0, sizeof(union qpt_data)) ;
+} ;
+
+/*==============================================================================
+ * Examining the state of ...
+ */
+
+/*------------------------------------------------------------------------------
+ * Extract and format the attributes for the given pthread
+ *
+ * Returns:  brand new qstring containing the formatted attributes.
+ *
+ * NB: it is the caller's responsibility to dispose of the qstring
+ */
+extern qstring
+qpt_thread_attr_form(qpt_thread_attr_t* attr, const char *prefix)
+{
+  int err, i ;
+  qstring qs ;
+  struct sched_param sp[1] ;
+  size_t v;
+  void *stkaddr;
+
+  qs = qs_new(500) ;
+
+                  /* 12345678901234567890 */
+  qs_printf_a(qs, "%sDetach state        ", prefix) ;
+  err = pthread_attr_getdetachstate(attr, &i);
+  if (err != 0)
+    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+  else
+    {
+      switch(i)
+        {
+          case PTHREAD_CREATE_DETACHED:
+            qs_printf_a(qs, "= %s\n", "PTHREAD_CREATE_DETACHED") ;
+            break ;
+
+          case PTHREAD_CREATE_JOINABLE:
+            qs_printf_a(qs, "= %s\n", "PTHREAD_CREATE_JOINABLE") ;
+            break ;
+
+          default:
+            qs_printf_a(qs, "= *UNKNOWN* %d\n", i) ;
+            break ;
+        } ;
+    } ;
+
+                  /* 12345678901234567890 */
+  qs_printf_a(qs, "%sScope               ", prefix) ;
+  err = pthread_attr_getscope(attr, &i);
+  if (err != 0)
+    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+  else
+    {
+      switch(i)
+        {
+          case PTHREAD_SCOPE_SYSTEM:
+            qs_printf_a(qs, "= %s\n", "PTHREAD_SCOPE_SYSTEM") ;
+            break ;
+
+          case PTHREAD_SCOPE_PROCESS:
+            qs_printf_a(qs, "= %s\n", "PTHREAD_SCOPE_PROCESS") ;
+            break ;
+
+          default:
+            qs_printf_a(qs, "= *UNKNOWN* %d\n", i) ;
+            break ;
+        } ;
+    } ;
+
+                  /* 12345678901234567890 */
+  qs_printf_a(qs, "%sInherit scheduler   ", prefix) ;
+  err = pthread_attr_getinheritsched(attr, &i);
+  if (err != 0)
+    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+  else
+    {
+      switch(i)
+        {
+          case PTHREAD_INHERIT_SCHED:
+            qs_printf_a(qs, "= %s\n", "PTHREAD_INHERIT_SCHED") ;
+            break ;
+
+          case PTHREAD_EXPLICIT_SCHED:
+            qs_printf_a(qs, "= %s\n", "PTHREAD_EXPLICIT_SCHED") ;
+            break ;
+
+          default:
+            qs_printf_a(qs, "= *UNKNOWN* %d\n", i) ;
+            break ;
+        } ;
+    } ;
+
+                  /* 12345678901234567890 */
+  qs_printf_a(qs, "%sScheduling policy   ", prefix) ;
+  err = pthread_attr_getschedpolicy(attr, &i);
+  if (err != 0)
+    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+  else
+    {
+      switch(i)
+        {
+          case SCHED_OTHER:
+            qs_printf_a(qs, "= %s\n", "SCHED_OTHER") ;
+            break ;
+
+          case SCHED_FIFO:
+            qs_printf_a(qs, "= %s\n", "SCHED_FIFO") ;
+            break ;
+
+          case SCHED_RR:
+            qs_printf_a(qs, "= %s\n", "SCHED_RR") ;
+            break ;
+
+#ifdef SCHED_SPORADIC
+          case SCHED_SPORADIC:
+            qs_printf_a(qs, "= %s\n", "SCHED_SPORADIC") ;
+            break ;
+#endif
+
+          default:
+            qs_printf_a(qs, "= *UNKNOWN* %d\n", i) ;
+            break ;
+        } ;
+    } ;
+
+                  /* 12345678901234567890 */
+  qs_printf_a(qs, "%sScheduling priority ", prefix) ;
+  err = pthread_attr_getschedparam(attr, sp);
+  if (err != 0)
+    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+  else
+    qs_printf_a(qs, "= %d\n", sp->sched_priority) ;
+
+                  /* 12345678901234567890 */
+  qs_printf_a(qs, "%sGuard size          ", prefix) ;
+  err = pthread_attr_getguardsize(attr, &v);
+  if (err != 0)
+    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+  else
+    qs_printf_a(qs, "= %u\n", (uint)v) ;
+
+                  /* 12345678901234567890 */
+  qs_printf_a(qs, "%sStack address/size  ", prefix) ;
+  err = pthread_attr_getstack(attr, &stkaddr, &v) ;
+  if (err != 0)
+    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+  else
+    qs_printf_a(qs, "= %p/%u\n", stkaddr, (uint)v) ;
+
+  return qs ;
 } ;
