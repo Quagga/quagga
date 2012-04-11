@@ -481,6 +481,28 @@ stream_get_prefix(struct stream *s, struct prefix* p, sa_family_t family)
   prefix_from_raw(p, raw, family) ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Get next ipv4 address -- returns in_addr_t (which is in NETWORK order).
+ *
+ * Gets 0 for any byte(s) beyond s->endp and sets s->overrun
+ */
+extern uint
+stream_get_prefix_from(struct stream *s, size_t from,
+                                           struct prefix* p, sa_family_t family)
+{
+  prefix_raw_t raw ;
+  size_t       psize;
+
+  raw->prefix_len = stream_getc_from(s, from) ;
+  psize = (raw->prefix_len + 7) / 8 ;
+  if (psize != 0)
+    stream_get_this_from(raw->prefix, s, psize, from + 1) ;
+
+  prefix_from_raw(p, raw, family) ;
+
+  return psize + 1 ;
+} ;
+
 /*==============================================================================
  * Putting stuff to a stream
  */

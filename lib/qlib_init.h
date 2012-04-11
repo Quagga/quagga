@@ -44,10 +44,9 @@ extern void qexit(int exit_code, bool mem_stats) ;
  * System parameters, set at qlib_init_first_stage() time.
  */
 
-int qlib_iov_max ;      /* Maximum length of iovec vector       */
-
-int qlib_open_max ;     /* Maximum number of file descriptors   */
-
-int qlib_pagesize ;     /* Size of system page                  */
+extern int qlib_pagesize ;              /* _SC_PAGE_SIZE        */
+extern int qlib_iov_max ;               /* _SC_IOV_MAX          */
+extern int qlib_open_max ;              /* _SC_OPEN_MAX         */
+extern int qlib_thread_cputime ;        /* _SC_THREAD_CPUTIME   */
 
 #endif /* _ZEBRA_QLIB_INIT_H */

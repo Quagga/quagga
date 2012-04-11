@@ -23,6 +23,7 @@
 #include <signal.h>
 #include <string.h>
 
+#include "qlib_init.h"
 #include "qpthreads.h"
 #include "memory.h"
 #include "log.h"
@@ -285,6 +286,23 @@ static qpthreads_enabled_state_t qpthreads_enabled_state = qpt_state_unset ;
 bool qpthreads_enabled_flag          = false ;
 bool qpthreads_active_flag           = false ;
 bool qpthreads_thread_created_flag   = false ;
+
+static bool qpt_have_cpu_clock = false ;
+
+/*------------------------------------------------------------------------------
+ * First stage initialisation -- before any pthreads are started
+ *
+ * Set all flags.
+ */
+extern void
+qpt_start_up(int thread_cputime)
+{
+  qpthreads_enabled_flag        = false ;
+  qpthreads_active_flag         = false ;
+  qpthreads_thread_created_flag = false ;
+
+  qpt_have_cpu_clock = thread_cputime > 0 ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Function to set qpthreads_enabled, one way or the other.
@@ -560,6 +578,45 @@ qpt_thread_join(qpt_thread_t thread_id)
     return NULL ;
 
   zabort_err("pthread_join failed", err) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If pthread_getcpuclockid() is supported, get the clock ID.
+ *
+ * Establishes early in the morning whether is supported or not.
+ */
+extern clockid_t
+qpt_get_cpu_clock(qpt_thread_t thread_id)
+{
+  clockid_t clock_id ;
+
+  memset(&clock_id, 0, sizeof(clockid_t)) ;
+
+#if _POSIX_THREAD_CPUTIME >= 0
+  if (qpt_have_cpu_clock)
+    {
+      int err = pthread_getcpuclockid(thread_id, &clock_id) ;
+
+      if (err != 0)
+        zabort_err("pthread_getcpuclockid failed", err) ;
+    } ;
+#endif
+
+  return clock_id ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If pthread_getcpuclockid() is supported, get the clock ID.
+ *
+ * Establishes early in the morning whether is supported or not.
+ */
+extern qtime_t
+qpt_cpu_time(clockid_t clock_id)
+{
+  if (qpt_have_cpu_clock)
+    return qt_clock_gettime(clock_id) ;
+  else
+    return 0 ;
 } ;
 
 /*==============================================================================

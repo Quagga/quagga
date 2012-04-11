@@ -31,6 +31,7 @@
 #include "bgpd/bgp_msg_read.h"
 #include "bgpd/bgp_msg_write.h"
 #include "bgpd/bgp_dump.h"
+#include "bgpd/bgp_debug.h"
 
 #include "lib/memory.h"
 #include "lib/mqueue.h"
@@ -932,6 +933,48 @@ bgp_connection_write(bgp_connection connection, struct stream* s)
 
   enable_write = bgp_write_buffer_empty(wb) ;
 
+  /* For UPDATE messages, if required log the dispatch of the message.
+   */
+  if (BGP_DEBUG (update, UPDATE_OUT))
+    {
+      if (stream_getc_from(s, BGP_MH_TYPE) == BGP_MT_UPDATE)
+        {
+          uint wl, al, nl, p, e ;
+          qstring qs ;
+
+          p = BGP_MH_BODY ;
+          wl = stream_getw_from(s, p) ;
+          p += 2 + wl ;
+          al = stream_getw_from(s, p) ;
+          p += 2 + al ;
+          e  = stream_get_len(s) ;
+          nl = e - p ;
+
+          if (nl == 0)
+            qs = NULL ;
+          else
+            {
+              struct prefix pfx[1] ;
+
+              qs = qs_new(nl * 5) ;
+
+              while (p < e)
+                {
+                  p += stream_get_prefix_from(s, p, pfx, AF_INET) ;
+                  qs_append_str(qs, " ") ;
+                  qs_append_str(qs, spfxtoa(pfx).str) ;
+                } ;
+            } ;
+
+          zlog (connection->log, LOG_DEBUG,
+                 "%s dispatch UPDATE: %u bytes withdraw, %u bytes attributes,"
+                                                           " %u bytes NLRI%s",
+                                 connection->host, wl, al, nl, qs_string(qs)) ;
+          if (qs != NULL)
+            qs_free(qs) ;
+        } ;
+    } ;
+
   /* If message is of valid length, should have room in the buffer, so copy
    * there.
    *
@@ -1000,10 +1043,19 @@ bgp_connection_write_action(qps_file qf, void* file_info)
           if ((ret != EAGAIN) && (ret != EWOULDBLOCK))
             {
               bgp_write_buffer_unwritable(wb) ;
+              qps_disable_modes(connection->qf, qps_write_mbit) ;
+
               bgp_fsm_io_error(connection, errno) ;
             } ;
+
           return ;
-        } ;
+        }
+      else
+        /* Really do not expect write to return 0 !
+         *
+         * If it does we here treat it as if it were EAGAIN or EWOULDBLOCK
+         */
+        return ;
     } ;
 
   /* Buffer is empty -- reset it and disable write mode                 */

@@ -169,7 +169,7 @@ extern char *zstrdup (mtype_t mtype, const char *str   MEMORY_EXTRA_ARGS) ;
 extern void* mem_mmap(size_t size) ;
 extern void mem_munmap(void* p, size_t size) ;
 
-extern void memory_start_up(void) ;
+extern void memory_start_up(int pagessize) ;
 extern void memory_init_r (void);
 extern void memory_finish (bool mem_stats);
 

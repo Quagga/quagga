@@ -31,6 +31,7 @@
 #include "qtimers.h"
 #include "mqueue.h"
 #include "qpselect.h"
+#include "list_util.h"
 
 /*==============================================================================
  * Quagga Nexus Interface -- qpn_xxxx
@@ -87,33 +88,46 @@ typedef struct qpn_nexus* qpn_nexus ;
 
 struct qpn_nexus
 {
-  /* name of thread                                             */
+  /* name of thread
+   */
   const char* name ;
 
-  /* set true to terminate the thread (eventually) */
+  /* list of known nexuses in creation order.
+   */
+  struct dl_list_pair(qpn_nexus) list ;
+
+  /* set true to terminate the thread (eventually)
+   */
   bool terminate;
 
-  /* true if this is the main thread                    */
+  /* true if this is the main thread
+   */
   bool main_thread;
 
-  /* thread ID                                          */
+  /* thread ID
+   */
   qpt_thread_t  thread_id;
 
-  /* Signal mask for pselect                            */
+  /* Signal mask for pselect
+   */
   sigset_t      pselect_mask[1] ;
   int           pselect_signal ;
 
-  /* pselect handler                                    */
+  /* pselect handler
+   */
   qps_selection selection;
 
-  /* timer pile                                         */
+  /* timer pile
+   */
   qtimer_pile pile;
 
-  /* message queue                                      */
+  /* message queue
+   */
   mqueue_queue queue;
   mqueue_thread_signal mts;
 
-  /* qpthread routine, can override                     */
+  /* qpthread routine, can override
+   */
   void* (*start)(void*);
 
   /* in-thread initialise, can override.  Called within the thread after all
@@ -161,7 +175,6 @@ struct qpn_nexus
    */
   struct qpn_hook_list background ;
 
-
   /* statistics gathering
    */
   qpt_spin_t    stats_slk ;
@@ -170,6 +183,19 @@ struct qpn_nexus
   qpn_stats_t   stats ;         /* set, under spin lock, once per cycle */
   qpn_stats_t   prev_stats ;    /* set, under spin lock, each time stats
                                  * are fetched.                         */
+
+  /* For watch-dog -- also read/written under stats_slk
+   */
+  uint          idleness ;      /* 0 => active,
+                                 * 1 => idle, waiting for timer
+                                 * 2 => idle, and seen by watch-dog
+                                 * 3 => idle, and seen a second time !
+                                 */
+  qtime_t       cpu_time ;
+
+  /* If per-thread cpu clock is available, this is what it is.
+   */
+  clockid_t     cpu_clock_id ;
 };
 
 /*------------------------------------------------------------------------------

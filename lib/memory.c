@@ -2997,7 +2997,7 @@ DEFUN_CALL (show_memory_isis,
  * First stage initialisation
  */
 extern void
-memory_start_up(void)
+memory_start_up(int pagesize)
 {
 #ifdef MCHECK
   #include <mcheck.h>
@@ -3008,7 +3008,7 @@ memory_start_up(void)
   memset(&mem_mt_data, 0, sizeof(mem_tracker_data_t)) ;
   memset(mlog_stat,    0, sizeof(mlog_stat)) ;
 
-  mem_pagesize = qlib_pagesize ;
+  mem_pagesize = pagesize ;
 
   mem_alloc_discover() ;
 } ;

@@ -77,14 +77,12 @@
  *==============================================================================
  * System parameters:
  *
- *   iov_max   -- _SC_IOV_MAX
- *
- *   open_max  -- _SC_OPEN_MAX
  */
 
-int qlib_iov_max ;
-int qlib_open_max ;
-int qlib_pagesize ;
+int qlib_iov_max ;              /* _SC_IOV_MAX          */
+int qlib_open_max ;             /* _SC_OPEN_MAX         */
+int qlib_pagesize ;             /* _SC_PAGE_SIZE        */
+int qlib_thread_cputime ;       /* _SC_THREAD_CPUTIME   */
 
 struct
 {
@@ -95,12 +93,19 @@ struct
   long        max ;
 } qlib_vars[] =
 {
-    { .p_var = &qlib_iov_max,   .sc = _SC_IOV_MAX,   .name = "_SC_IOV_MAX",
+    { .p_var = &qlib_iov_max,        .sc =  _SC_IOV_MAX,
+                                   .name = "_SC_IOV_MAX",
                                         .min =  16, .max = INT_MAX            },
-    { .p_var = &qlib_open_max,  .sc = _SC_OPEN_MAX,  .name = "_SC_OPEN_MAX",
+    { .p_var = &qlib_open_max,       .sc =  _SC_OPEN_MAX,
+                                   .name = "_SC_OPEN_MAX",
                                         .min = 256, .max = INT_MAX            },
-    { .p_var = &qlib_pagesize,  .sc = _SC_PAGESIZE,  .name = "_SC_PAGESIZE",
+    { .p_var = &qlib_pagesize,       .sc =  _SC_PAGESIZE,
+                                   .name = "_SC_PAGESIZE",
                                         .min = 256, .max = (INT_MAX >> 1) + 1 },
+    { .p_var = &qlib_thread_cputime, .sc =  _SC_THREAD_CPUTIME,
+                                   .name = "_SC_THREAD_CPUTIME",
+                                        .min =  -1, .max = INT_MAX            },
+
     { .p_var = NULL }
 } ;
 
@@ -160,10 +165,11 @@ qlib_init_first_stage(mode_t cmask)
    *
    * NB: memory is the first to be initialised, and the last to be shut down.
    */
-  memory_start_up() ;
+  memory_start_up(qlib_pagesize) ;
   qps_start_up() ;
-  qiovec_start_up() ;
+  qiovec_start_up(qlib_iov_max) ;
   thread_start_up();
+  qpt_start_up(qlib_thread_cputime) ;
   qpn_wd_start_up() ;
 } ;
 

@@ -586,14 +586,14 @@ bgp_init_second_stage(bool pthreads)
 
   /* Make nexus for main thread, always needed */
   cli_nexus = qpn_init_new(cli_nexus, 1,                /* main thread  */
-                         qpthreads_enabled ? "CLI thread"
-                                           : "bgpd (no threads)");
+                         qpthreads_enabled ? "CLI"
+                                           : "soliton");
 
   /* if using pthreads create additional nexus */
   if (qpthreads_enabled)
     {
-      bgp_nexus     = qpn_init_new(bgp_nexus, 0, "BGP Engine thread");
-      routing_nexus = qpn_init_new(routing_nexus, 0, "Routing Engine thread");
+      bgp_nexus     = qpn_init_new(bgp_nexus, 0, "BGP Engine");
+      routing_nexus = qpn_init_new(routing_nexus, 0, "Routing Engine");
     }
   else
     {
@@ -1040,7 +1040,7 @@ bgp_do_show_nexus(struct vty* vty, qpn_nexus qpn)
   delta = curr.last_time - prev.last_time ;
   idle_delta = curr.idle - prev.idle ;
 
-  vty_out(vty, "%s updated %s ago: %s(%s/%s) cycles\n",
+  vty_out(vty, "%16s updated %s ago: %s(%s/%s) cycles\n",
           qpn->name,
           qfs_time_period(curr.last_time - now, 0).str,
           qfs_dec_value(curr.cycles, pf_scale).str,

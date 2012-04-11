@@ -43,9 +43,39 @@ static void qpn_in_thread_init(qpn_nexus qpn);
  * Quagga Nexus Interface -- qpn_xxxx
  *
  */
-
 static qtime_t qpn_max_pselect_wait = QTIME(MAX_PSELECT_WAIT) ;
 
+static qtime_t qpn_wd_interval      = 0 ;
+
+/* Walker object for walking nexuses
+ */
+typedef struct qpn_nexus_walk* qpn_nexus_walk ;
+
+struct qpn_nexus_walk
+{
+  struct dl_list_pair(qpn_nexus_walk) list ;
+
+  qpn_nexus walk_next ;
+};
+
+typedef struct qpn_nexus_walk  qpn_nexus_walk_t[1] ;
+
+/* List of all known nexuses.
+ *
+ * Must own the spin_lock to add /remove entries on this list, and when doing
+ * so must update the "walk" if that is set.
+ *
+ * Must own the spin lock to perform walk.  We know that
+ */
+static struct
+{
+  qpt_spin_t    slk ;
+
+  struct dl_base_pair(qpn_nexus) nexuses ;
+
+  struct dl_base_pair(qpn_nexus_walk) walkers ;
+
+} qpn_nexus_list[1] ;
 
 /*------------------------------------------------------------------------------
  * Initialise the qpnexus handling -- to be done as soon as state of
@@ -54,24 +84,23 @@ static qtime_t qpn_max_pselect_wait = QTIME(MAX_PSELECT_WAIT) ;
 extern void
 qpn_init(void)
 {
-  qpn_max_pselect_wait = QTIME(MAX_PSELECT_WAIT) ;
+  qpn_max_pselect_wait = (qpn_wd_interval == 0) ? QTIME(MAX_PSELECT_WAIT)
+                                                : qpn_wd_interval * 7 / 16 ;
+
+  memset(qpn_nexus_list, 0, sizeof(qpn_nexus_list)) ;
+
+  qpt_spin_init(qpn_nexus_list->slk) ;
 
   qpt_data_create(qpn_self) ;   /* thread specific data */
-} ;
-
-/*------------------------------------------------------------------------------
- * Set the thread's qpn_self to point at its qpnexus.
- */
-static void
-qpn_self_knowledge(qpn_nexus qpn)
-{
-  qpt_data_set_value(qpn_self, qpn) ;
 } ;
 
 /*==============================================================================
  * Initialisation, add hook, free etc.
  *
  */
+static void qpn_self_knowledge(qpn_nexus qpn) ;
+static void qpn_nexus_add(qpn_nexus qpn) ;
+static void qpn_nexus_del(qpn_nexus qpn) ;
 
 /*------------------------------------------------------------------------------
  * Initialise a nexus -- allocating it if required.
@@ -104,12 +133,29 @@ qpn_init_new(qpn_nexus qpn, bool main_thread, const char* name)
   qpt_spin_init(qpn->stats_slk) ;
 
   if (main_thread)
-    {
-      qpn->thread_id = qpt_thread_self();
-      qpn_self_knowledge(qpn) ;
-    } ;
+    qpn_self_knowledge(qpn) ;
 
   return qpn;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Complete the initialisation of nexus, once thread is running.
+ *
+ * Collect thread's id and cputime clock id
+ *
+ * Set the thread's qpn_self to point at its qpnexus.
+ *
+ * Add nexus to list of live ones.
+ */
+static void
+qpn_self_knowledge(qpn_nexus qpn)
+{
+  qpn->thread_id    = qpt_thread_self();
+  qpn->cpu_clock_id = qpt_get_cpu_clock(qpn->thread_id) ;
+
+  qpt_data_set_value(qpn_self, qpn) ;
+
+  qpn_nexus_add(qpn) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -138,6 +184,10 @@ qpn_reset(qpn_nexus qpn, free_keep_b free_structure)
 
   if (qpn == NULL)
     return NULL;
+
+  /* Immediately remove from list of known nexuses !
+   */
+  qpn_nexus_del(qpn) ;
 
   /* The qtimer pile.  If there are any timers still in the pile, they are
    * removed and marked "inactive".  The owners of these timers are responsible
@@ -168,6 +218,133 @@ qpn_reset(qpn_nexus qpn, free_keep_b free_structure)
     XFREE(MTYPE_QPN_NEXUS, qpn) ;       /* sets qpn = NULL      */
 
   return qpn ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Add qpn to the list of nexuses
+ *
+ * If there is a walker about to hit the end of the list, update.
+ */
+static void
+qpn_nexus_add(qpn_nexus qpn)
+{
+  qpn_nexus_walk walk ;
+
+  qpt_spin_lock(qpn_nexus_list->slk) ;
+
+  ddl_append(qpn_nexus_list->nexuses, qpn, list) ;
+
+  walk = ddl_head(qpn_nexus_list->walkers) ;
+  while (walk != NULL)
+    {
+      if (walk->walk_next == NULL)
+        walk->walk_next = qpn ;
+
+      walk = ddl_next(walk, list) ;
+    } ;
+
+  qpt_spin_unlock(qpn_nexus_list->slk) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Delete qpn from the list of nexuses
+ *
+ * If there is a walker about to fetch the deleted item, update.
+ *
+ * Note that while any walker is busy extracting information from the nexus,
+ * it will hold the list spin-lock.
+ */
+static void
+qpn_nexus_del(qpn_nexus qpn)
+{
+  qpn_nexus_walk walk ;
+
+  qpt_spin_lock(qpn_nexus_list->slk) ;
+
+  ddl_append(qpn_nexus_list->nexuses, qpn, list) ;
+
+  walk = ddl_head(qpn_nexus_list->walkers) ;
+  while (walk != NULL)
+    {
+      if (walk->walk_next == qpn)
+        walk->walk_next = ddl_next(qpn, list) ;
+
+      walk = ddl_next(walk, list) ;
+    } ;
+
+  qpt_spin_unlock(qpn_nexus_list->slk) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Start walk of list of nexuses
+ *
+ * Adds given walker to the list of walkers and initialises to point at first
+ * on the list.
+ */
+static void
+qpn_nexus_walk_start(qpn_nexus_walk walk)
+{
+  qpt_spin_lock(qpn_nexus_list->slk) ;
+
+  memset(walk, 0, sizeof(qpn_nexus_walk_t)) ;
+
+  ddl_append(qpn_nexus_list->walkers, walk, list) ;
+  walk->walk_next = ddl_head(qpn_nexus_list->nexuses) ;
+
+  qpt_spin_unlock(qpn_nexus_list->slk) ;
+}
+
+/*------------------------------------------------------------------------------
+ * Lock list and get the next nexus on our walk.
+ *
+ * If walk finished, release the lock.
+ *
+ * Returns: NULL <=> nothing more to -- does not hold spin-lock
+ *          address of next nexus    -- *DOES* hold the spin-lock
+ *
+ * NB: should NOT hold on to the nexus for long !  Should extract the required
+ *     information and then qpn_nexus_walk_step().
+ */
+static qpn_nexus
+qpn_nexus_walk_next(qpn_nexus_walk walk)
+{
+  qpn_nexus next ;
+
+  qpt_spin_lock(qpn_nexus_list->slk) ;
+
+  next = walk->walk_next ;
+
+  if (next == NULL)
+    qpt_spin_unlock(qpn_nexus_list->slk) ;
+
+  return next ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Step the walker to the next nexus and release the spin lock.
+ *
+ * The walker must at this point have extracted all that was needed from the
+ * current nexus.
+ */
+static void
+qpn_nexus_walk_step(qpn_nexus_walk walk)
+{
+  walk->walk_next = ddl_next(walk->walk_next, list) ;
+
+  qpt_spin_unlock(qpn_nexus_list->slk) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * End walk of list of nexuses
+ */
+static void
+qpn_nexus_walk_end(qpn_nexus_walk walk)
+{
+  qpt_spin_lock(qpn_nexus_list->slk) ;
+
+  ddl_del(qpn_nexus_list->walkers, walk, list) ;
+
+  qpt_spin_unlock(qpn_nexus_list->slk) ;
 } ;
 
 /*==============================================================================
@@ -223,7 +400,7 @@ qpn_start(void* arg)
   unsigned i;
   bool this ;
   bool prev ;
-  bool wait ;
+  bool wait_mq ;
   bool idle ;
 
   /* now in our thread, complete initialisation                         */
@@ -273,15 +450,15 @@ qpn_start(void* arg)
        *
        * If there is something in the queue, then we are not "idle".
        */
-      wait = !this && !prev ;
-      mqb = mqueue_dequeue(qpn->queue, wait, qpn->mts) ;
+      wait_mq = !this && !prev ;
+      mqb = mqueue_dequeue(qpn->queue, wait_mq, qpn->mts) ;
 
       if (mqb != NULL)
         {
           uint done ;
 
-          this = true ;
-          wait = false ;
+          this    = true ;
+          wait_mq = false ;
 
           done = 0 ;
           do
@@ -292,7 +469,7 @@ qpn_start(void* arg)
               if (done == 200)
                 break ;
 
-              mqb = mqueue_dequeue(qpn->queue, false, NULL) ;
+              mqb = mqueue_dequeue(qpn->queue, wait_mq, NULL) ;
             } while (mqb != NULL) ;
 
           qpn->raw.dispatch += done ;
@@ -335,7 +512,11 @@ qpn_start(void* arg)
       qpn->raw.last_time = now ;
 
       qpt_spin_lock(qpn->stats_slk) ;
-      qpn->stats = qpn->raw ;
+
+      qpn->stats    = qpn->raw ;
+      if (idle)
+        qpn->idleness = 1 ;
+
       qpt_spin_unlock(qpn->stats_slk) ;
 
       /* Do pselect, which may now wait
@@ -352,9 +533,15 @@ qpn_start(void* arg)
       now = qt_get_monotonic() ;
 
       if (idle)
-        qpn->raw.idle += now - qpn->raw.last_time ;
+        {
+          qpn->raw.idle += now - qpn->raw.last_time ;
 
-      if (wait)
+          qpt_spin_lock(qpn->stats_slk) ;
+          qpn->idleness = 0 ;
+          qpt_spin_unlock(qpn->stats_slk) ;
+        } ;
+
+      if (wait_mq)
         mqueue_done_waiting(qpn->queue, qpn->mts) ;
 
       prev = this ;
@@ -401,8 +588,8 @@ qpn_in_thread_init(qpn_nexus qpn)
   qpn->prev_stats = qpn->stats = qpn->raw ;     /* share start time etc.  */
   qpt_spin_unlock(qpn->stats_slk) ;
 
-  qpn->thread_id = qpt_thread_self();
-  qpn_self_knowledge(qpn) ;
+  if (!qpn->main_thread)
+    qpn_self_knowledge(qpn) ;
 
   /* Signal mask.
    *
@@ -485,7 +672,6 @@ qpn_get_stats(qpn_nexus qpn, qpn_stats curr, qpn_stats prev)
  */
 static volatile bool qpn_wd_running  = false ;
 static volatile bool qpn_wd_stop     = false ;
-static qtime_t  qpn_wd_interval = 0 ;
 
 static qpt_thread_t qpn_wd_thread_id ;
 static qpt_spin_t   qpn_wd_spin_lock ;
@@ -497,6 +683,7 @@ static void* qpn_wd_activity(void* args) ;
 static void qpn_wd_log(const char* format, ...)         PRINTF_ATTRIBUTE(1, 2) ;
 static void qpn_wd_check_intervals(qtime_t mono_interval, qtime_t real_interval,
                                                              uint eintr_count) ;
+static void qpn_wd_check_nexuses(qtime_t mono_interval, qstring report) ;
 
 /*------------------------------------------------------------------------------
  * Initialise the watch-dog -- completely dormant !
@@ -685,8 +872,10 @@ qpn_wd_activity(void* args)
 {
   sigset_t sigmask[1], sigwait[1] ;
   const char* using ;
+  qstring report ;
 
-  using = use_nanosleep ? "clock_nanosleep" : "pselect" ;
+  using  = use_nanosleep ? "clock_nanosleep" : "pselect" ;
+  report = qs_new(100) ;
 
   /* Start
    */
@@ -788,8 +977,12 @@ qpn_wd_activity(void* args)
       qpn_wd_check_intervals(mono_interval, real_interval, eintr_count) ;
 
 
-      qpn_wd_log("watch-dog %ld/%ld (%u)", mono_interval, real_interval,
-                                                                  eintr_count) ;
+
+      /* Look for CPU utilisation and whether any nexus is stalled
+       */
+      qpn_wd_check_nexuses(mono_interval, report) ;
+
+      qpn_wd_log("%s", qs_string(report)) ;
     } ;
 
   /* Termination
@@ -799,7 +992,9 @@ qpn_wd_activity(void* args)
   qpt_spin_destroy(qpn_wd_spin_lock) ;
 
   fclose(qpn_wd_log_file) ;
+
   qpath_free(qpn_wd_log_path) ;
+  qs_free(report) ;
 
   return NULL ;
 } ;
@@ -845,6 +1040,70 @@ qpn_wd_check_intervals(qtime_t mono_interval, qtime_t real_interval,
     qpn_wd_log("*** REALTIME - MONOTONIC delta = %+6.3f (%5.3f - %5.3f)",
                              qpn_wd_float(delta), qpn_wd_float(real_interval),
                                                   qpn_wd_float(mono_interval)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Worry about what each nexus has been up to in the last mono_interval
+ * nano seconds.
+ */
+static void
+qpn_wd_check_nexuses(qtime_t mono_interval, qstring report)
+{
+  qpn_nexus_walk_t walk ;
+  qpn_nexus        qpn ;
+
+  qs_clear(report) ;
+
+  qpn_nexus_walk_start(walk) ;
+
+  while ((qpn = qpn_nexus_walk_next(walk)) != NULL)
+    {
+      uint    idleness ;
+      qtime_t this_cpu ;
+      qtime_t last_cpu ;
+      char    name[16 + 1] ;
+      ulen    len ;
+      double  pc_cpu ;
+
+      /* Extract the data
+       */
+      qpt_spin_lock(qpn->stats_slk) ;   /*<-<-<-<-<-<-<-<-<-<-<-*/
+
+      if (qpn->idleness == 0)
+        idleness = 0 ;
+      else
+        idleness = ++qpn->idleness ;
+
+      this_cpu = qpt_cpu_time(qpn->cpu_clock_id)  ;
+
+      last_cpu = qpn->cpu_time ;
+      qpn->cpu_time = this_cpu ;
+
+      len = strlen(qpn->name) ;
+      if (len > 16)
+        len = 16 ;
+      memcpy(name, qpn->name, len) ;
+      name[len] = '\0' ;
+
+      qpt_spin_unlock(qpn->stats_slk) ; /*<-<-<-<-<-<-<-<-<-<-<-*/
+
+      /* Step to next nexus and release lock on the nexus list
+       */
+      qpn_nexus_walk_step(walk) ;
+
+      /* Check for stalled and collect output for this nexus
+       */
+      if (idleness > 2)
+        qpn_wd_log("*** %s pthread stalled -- %u", name, idleness - 2) ;
+
+      pc_cpu = (double)((this_cpu - last_cpu) * 100) / (double)mono_interval ;
+
+      qs_printf_a(report, " %16s%s%5.2f%%", name,
+                         (idleness == 0) ? "+" : (idleness == 2) ? " " : "*",
+                                                                       pc_cpu) ;
+    } ;
+
+  qpn_nexus_walk_end(walk) ;
 } ;
 
 /*------------------------------------------------------------------------------

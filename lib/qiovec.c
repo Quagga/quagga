@@ -37,9 +37,9 @@
 static int qiov_max ;
 
 extern void
-qiovec_start_up(void)
+qiovec_start_up(int iov_max)
 {
-  qiov_max = (qlib_iov_max < 100) ? qlib_iov_max : 100 ;
+  qiov_max = (iov_max < 100) ? iov_max : 100 ;
 }
 
 /*==============================================================================

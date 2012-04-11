@@ -212,8 +212,10 @@ extern uint32_t stream_getl_from (struct stream *, size_t);
 extern uint64_t stream_getq (struct stream *);
 extern uint64_t stream_getq_from (struct stream *, size_t);
 extern in_addr_t stream_get_ipv4 (struct stream *);
-extern void stream_get_prefix(struct stream *s, struct prefix* p,
-                                                           sa_family_t family) ;
+extern void stream_get_prefix(struct stream *s,
+                                         struct prefix* p, sa_family_t family) ;
+extern uint stream_get_prefix_from(struct stream *s, size_t from,
+                                         struct prefix* p, sa_family_t family) ;
 
 /* Deprecated: assumes blocking I/O.  Will be removed.
    Use stream_read_try instead.  */

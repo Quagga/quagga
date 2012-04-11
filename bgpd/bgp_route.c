@@ -1486,7 +1486,16 @@ bgp_announce_check_rsclient (struct bgp_info *ri, struct peer *rsclient,
     if (rsclient->orf_plist[afi][safi])
       {
        if (prefix_list_apply (rsclient->orf_plist[afi][safi], p) == PREFIX_DENY)
+         {
+           if (BGP_DEBUG (filter, FILTER))
+            zlog (rsclient->log, LOG_DEBUG,
+                  "%s [Update:SEND] %s/%d is filtered by ORF",
+                  rsclient->host,
+                  inet_ntop(p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
+                  p->prefixlen);
+
           return 0;
+         }
       }
 
   /* Output filter check. */
@@ -1619,6 +1628,15 @@ bgp_announce_check_rsclient (struct bgp_info *ri, struct peer *rsclient,
       if (ret == RMAP_DENYMATCH)
        {
          bgp_attr_flush (attr);
+
+         if (BGP_DEBUG (filter, FILTER))
+          zlog (rsclient->log, LOG_DEBUG,
+                "%s [Update:SEND] %s/%d is filtered by %s route-map",
+                rsclient->host,
+                inet_ntop(p->family, &p->u.prefix, buf, SU_ADDRSTRLEN),
+                p->prefixlen,
+                (ri->extra && ri->extra->suppress) ? "Unsuppress" : "Out");
+
          return 0;
        }
     }

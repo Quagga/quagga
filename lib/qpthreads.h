@@ -174,6 +174,9 @@ qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr) ;
 extern void*                    /* do nothing if !qpthreads_enabled     */
 qpt_thread_join(qpt_thread_t thread_id) ;
 
+extern clockid_t qpt_get_cpu_clock(qpt_thread_t thread_id) ;
+extern qtime_t qpt_cpu_time(clockid_t clock_id) ;
+
 extern qstring qpt_thread_attr_form(qpt_thread_attr_t* attr,
                                                            const char *prefix) ;
 
@@ -192,6 +195,9 @@ qpt_thread_signal(qpt_thread_t thread, int signum) ;
 Private bool qpthreads_enabled_flag ;        /* DO NOT TOUCH THIS PLEASE  */
 Private bool qpthreads_active_flag ;         /* DO NOT TOUCH THIS PLEASE  */
 Private bool qpthreads_thread_created_flag ; /* DO NOT TOUCH THIS PLEASE  */
+
+extern void
+qpt_start_up(int thread_cputime) ;
 
 Private bool
 qpt_set_qpthreads_enabled(bool want_enabled) ; /* when decided          */

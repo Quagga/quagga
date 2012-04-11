@@ -79,7 +79,7 @@ enum
 /*==============================================================================
  * Functions
  */
-extern void qiovec_start_up(void) ;
+extern void qiovec_start_up(int iov_max) ;
 
 extern qiovec qiovec_init_new(qiovec qiov) ;
 extern qiovec qiovec_reset(qiovec qiov, bool free_structure) ;
