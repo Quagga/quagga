@@ -942,6 +942,6 @@ zprivs_get_ids(struct zprivs_ids_t *ids)
   (zprivs_state.vtygrp) ? (ids->gid_vty = zprivs_state.vtygrp)
                         : (ids->gid_vty = -1);
 
-   UNLOCK
-   return;
+  UNLOCK
+  return;
 }

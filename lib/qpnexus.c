@@ -681,9 +681,9 @@ static qpath    qpn_wd_log_path ;
 
 static void* qpn_wd_activity(void* args) ;
 static void qpn_wd_log(const char* format, ...)         PRINTF_ATTRIBUTE(1, 2) ;
-static void qpn_wd_check_intervals(qtime_t mono_interval, qtime_t real_interval,
-                                                             uint eintr_count) ;
-static void qpn_wd_check_nexuses(qtime_t mono_interval, qstring report) ;
+static void qpn_wd_check_intervals(qtime_t sleep, qtime_t mono_interval,
+                                      qtime_t real_interval, uint eintr_count) ;
+static void qpn_wd_check_nexuses(qtime_t interval, qstring report) ;
 
 /*------------------------------------------------------------------------------
  * Initialise the watch-dog -- completely dormant !
@@ -859,13 +859,7 @@ qpn_wd_stop_now(void)
  * Watch-Dog Activity
  *
  */
-#define USE_NANOSLEEP 1
-
-enum { use_nanosleep = USE_NANOSLEEP } ;
-
-#if USE_NANOSLEEP
-CONFIRM(_XOPEN_SOURCE >= 600 || _POSIX_C_SOURCE >= 200112L) ;
-#endif
+enum { use_nanosleep = true } ;
 
 static void*
 qpn_wd_activity(void* args)
@@ -873,8 +867,9 @@ qpn_wd_activity(void* args)
   sigset_t sigmask[1], sigwait[1] ;
   const char* using ;
   qstring report ;
+  qtime_t sleep, mono_end ;
 
-  using  = use_nanosleep ? "clock_nanosleep" : "pselect" ;
+  using  = use_nanosleep ? "nanosleep" : "pselect" ;
   report = qs_new(100) ;
 
   /* Start
@@ -899,12 +894,27 @@ qpn_wd_activity(void* args)
 
   /* The watch-dog loop
    */
+  sleep    = qpn_wd_interval ;
+  mono_end = qt_get_realtime() ;
   while (!qpn_wd_stop_now())
     {
       struct timespec ns[1] ;
       uint eintr_count ;
-      qtime_t mono_start, mono_interval ;
-      qtime_t real_start, real_now, real_interval ;
+      qtime_t mono_start, mono_interval, mono_prev_end ;
+      qtime_t real_start, real_interval, real_end ;
+
+      /* Set the sleep to account for the time we have spent doing the
+       * checks and generating the logging.
+       *
+       * We want to run the watch-dog pretty much every qpn_wd_interval, but
+       * if it tales a long tome to run the checks, or something goes
+       */
+      mono_prev_end = mono_end ;
+      mono_start    = qt_get_monotonic() ;
+
+      sleep = qpn_wd_interval - (mono_start - mono_prev_end) ;
+      if ((sleep <= 0) || (sleep > qpn_wd_interval))
+        sleep = qpn_wd_interval ;
 
       /* Wait for the watch-dog interval, as measured by CLOCK_REALTIME,
        * recording the CLOCK_MONOTONIC time when we start.
@@ -913,12 +923,11 @@ qpn_wd_activity(void* args)
        * apparent clock inconsistency).
        */
       if (use_nanosleep)
-        qtime2timespec(ns, qpn_wd_interval) ;
+        qtime2timespec(ns, sleep) ;
 
-      real_now   = qt_get_realtime() ;
-      real_start = real_now ;
+      real_end   = qt_get_realtime() ;
+      real_start = real_end ;
 
-      mono_start = qt_get_monotonic() ;
       eintr_count = 0 ;
       while (1)
         {
@@ -928,25 +937,24 @@ qpn_wd_activity(void* args)
           if (use_nanosleep)
             {
               *ts = *ns ;
-              ret = clock_nanosleep(CLOCK_REALTIME, 0, ts, ns) ;
+              ret = nanosleep(ts, ns) ;         /* CLOCK_REALTIME       */
             }
           else
             {
               qtime_t wait ;
 
-              wait = real_start + qpn_wd_interval - real_now ;
+              wait = sleep + (real_start - real_end) ;
               qtime2timespec(ts, wait > 0 ? wait : 0) ;
 
               ret = pselect(0, NULL, NULL, NULL, ts, sigwait) ;
-
-              if (ret != 0)
-                ret = (ret < 0) ? errno : 0 ;
             } ;
 
-          real_now = qt_get_realtime() ;
+          real_end = qt_get_realtime() ;
 
           if (ret == 0)
             break ;
+
+          ret = errno ;
 
           if (ret == EINTR)
             {
@@ -965,8 +973,10 @@ qpn_wd_activity(void* args)
           break ;
         } ;
 
-      mono_interval = qt_get_monotonic() - mono_start ;
-      real_interval = real_now           - real_start ;
+      mono_end = qt_get_monotonic() ;
+
+      mono_interval = mono_end - mono_start ;
+      real_interval = real_end - real_start ;
 
       if (qpn_wd_stop_now())
         break ;
@@ -974,15 +984,14 @@ qpn_wd_activity(void* args)
       /* Check the mono_interval and real_interval -- reporting the eintr_count
        * if those are not satisfactory
        */
-      qpn_wd_check_intervals(mono_interval, real_interval, eintr_count) ;
-
-
+      qpn_wd_check_intervals(sleep, mono_interval, real_interval, eintr_count) ;
 
       /* Look for CPU utilisation and whether any nexus is stalled
        */
-      qpn_wd_check_nexuses(mono_interval, report) ;
+      qpn_wd_check_nexuses(mono_end - mono_prev_end, report) ;
 
       qpn_wd_log("%s", qs_string(report)) ;
+
     } ;
 
   /* Termination
@@ -1014,8 +1023,8 @@ qpn_wd_float(qtime_t t)
  *
  */
 static void
-qpn_wd_check_intervals(qtime_t mono_interval, qtime_t real_interval,
-                                                               uint eintr_count)
+qpn_wd_check_intervals(qtime_t sleep, qtime_t mono_interval,
+                                      qtime_t real_interval, uint eintr_count)
 {
   qtime_t delta ;
 
@@ -1024,11 +1033,11 @@ qpn_wd_check_intervals(qtime_t mono_interval, qtime_t real_interval,
    *
    * If differ by more than +/- 1sec -- report issue.
    */
-  delta = real_interval - qpn_wd_interval ;
+  delta = real_interval - sleep ;
   if ((delta <= -QTIME(1)) || (delta >= +QTIME(1)))
     qpn_wd_log("*** REALTIME interval delta=%+6.3f (%5.3f - %5.3f)",
                            qpn_wd_float(delta), qpn_wd_float(real_interval),
-                                                qpn_wd_float(qpn_wd_interval)) ;
+                                                qpn_wd_float(sleep)) ;
 
   /* The CLOCK_REALTIME and CLOCK_MONOTONIC intervals should be close to each
    * other
@@ -1047,7 +1056,7 @@ qpn_wd_check_intervals(qtime_t mono_interval, qtime_t real_interval,
  * nano seconds.
  */
 static void
-qpn_wd_check_nexuses(qtime_t mono_interval, qstring report)
+qpn_wd_check_nexuses(qtime_t interval, qstring report)
 {
   qpn_nexus_walk_t walk ;
   qpn_nexus        qpn ;
@@ -1096,7 +1105,7 @@ qpn_wd_check_nexuses(qtime_t mono_interval, qstring report)
       if (idleness > 2)
         qpn_wd_log("*** %s pthread stalled -- %u", name, idleness - 2) ;
 
-      pc_cpu = (double)((this_cpu - last_cpu) * 100) / (double)mono_interval ;
+      pc_cpu = (double)((this_cpu - last_cpu) * 100) / (double)interval ;
 
       qs_printf_a(report, " %16s%s%5.2f%%", name,
                          (idleness == 0) ? "+" : (idleness == 2) ? " " : "*",
