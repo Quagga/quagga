@@ -32,6 +32,7 @@
 #include "zassert.h"
 #include "qtime.h"
 #include "qstring.h"
+#include "list_util.h"
 
 /*==============================================================================
  * Quagga Pthread Interface -- qpt_xxxx
@@ -120,13 +121,11 @@ extern bool qpthreads_decided(void) ;
  */
 
 /*------------------------------------------------------------------------------
- * The qpt_
+ * The qpt_xxx versions of the basic pthread_xxx structures
  */
-
 typedef pthread_t           qpt_thread_t ;
 
-typedef pthread_mutex_t     qpt_mutex_t[1] ;
-typedef pthread_mutex_t*    qpt_mutex ;
+typedef struct qpt_mutex*   qpt_mutex ;
 
 typedef pthread_cond_t      qpt_cond_t[1] ;
 typedef pthread_cond_t*     qpt_cond ;
@@ -135,6 +134,24 @@ typedef pthread_attr_t      qpt_thread_attr_t ;
 
 typedef pthread_spinlock_t  qpt_spin_t[1] ;
 typedef pthread_spinlock_t* qpt_spin ;
+
+/*------------------------------------------------------------------------------
+ * The struct qpt_mutex allows "watch-dog" and other debug stuff to keep track
+ * of all mutexes in the system.
+ */
+struct qpt_mutex
+{
+  pthread_mutex_t pm[1] ;
+
+  struct dl_list_pair(qpt_mutex) list ;
+
+  char  name[20] ;
+
+  uint  held ;
+  bool  destroy ;
+} ;
+
+typedef struct qpt_mutex qpt_mutex_t ;
 
 /*==============================================================================
  * Thread Creation -- see qpthreads.c for further discussion.
@@ -272,6 +289,8 @@ enum qpt_mutex_options
   qpt_mutex_default,                    /* system default       */
 } ;
 
+typedef enum qpt_mutex_options qpt_mutex_options_t ;
+
 #ifndef QPT_MUTEX_TYPE_DEFAULT
 # define QPT_MUTEX_TYPE_DEFAULT  PTHREAD_MUTEX_NORMAL
 #endif
@@ -286,10 +305,13 @@ enum
 } ;
 
 extern qpt_mutex                        /* freezes qpthreads_enabled    */
-qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts) ;
+qpt_mutex_new(qpt_mutex_options_t opts, const char* name) ;
 
 extern qpt_mutex                  /* do nothing if !qpthreads_enabled   */
-qpt_mutex_destroy(qpt_mutex mx, free_keep_b free_mutex) ;
+qpt_mutex_destroy(qpt_mutex mx) ;
+
+extern qpt_mutex qpt_mutex_step_next(qpt_mutex mx) ;
+extern void qpt_mutex_step_last(qpt_mutex mx) ;
 
 Inline void
 qpt_mutex_lock(qpt_mutex mx) ;    /* do nothing if !qpthreads_active    */
@@ -401,13 +423,9 @@ qpt_mutex_lock(qpt_mutex mx)
 {
   if (qpthreads_active)
     {
-#if QPTHREADS_DEBUG
-      pthread_mutex_lock(mx) ;
-#else
-      int err = pthread_mutex_lock(mx) ;
+      int err = pthread_mutex_lock(mx->pm) ;
       if (err != 0)
         zabort_err("pthread_mutex_lock failed", err) ;
-#endif
     } ;
 } ;
 
@@ -423,7 +441,7 @@ qpt_mutex_trylock(qpt_mutex mx)
 {
   if (qpthreads_active)
     {
-      int err = pthread_mutex_trylock(mx) ;
+      int err = pthread_mutex_trylock(mx->pm) ;
       if (err == 0)
         return true ;                   /* success: it's locked.        */
       if (err == EBUSY)
@@ -445,7 +463,7 @@ qpt_mutex_unlock(qpt_mutex mx)
 {
   if (qpthreads_active)
     {
-      int err = pthread_mutex_unlock(mx) ;
+      int err = pthread_mutex_unlock(mx->pm) ;
       if (err != 0)
         zabort_err("pthread_mutex_unlock failed", err) ;
     } ;
@@ -465,7 +483,7 @@ qpt_cond_wait(qpt_cond cv, qpt_mutex mx)
 {
   if (qpthreads_active)
     {
-      int err = pthread_cond_wait(cv, mx) ;
+      int err = pthread_cond_wait(cv, mx->pm) ;
       if (err != 0)
         zabort_err("pthread_cond_wait failed", err) ;
     } ;
@@ -517,13 +535,9 @@ qpt_spin_lock(qpt_spin slk)
 {
   if (qpthreads_active)
     {
-#if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
-      pthread_spin_lock(slk) ;
-#else
       int err = pthread_spin_lock(slk) ;
       if (err != 0)
         zabort_err("pthread_spin_lock failed", err) ;
-#endif
     } ;
 } ;
 
@@ -537,13 +551,9 @@ qpt_spin_unlock(qpt_spin slk)
 {
   if (qpthreads_active)
     {
-#if defined(NDEBUG) && defined(NDEBUG_QPTHREADS)
-      pthread_spin_unlock(slk) ;
-#else
       int err = pthread_spin_unlock(slk) ;
       if (err != 0)
         zabort_err("pthread_spin_unlock failed", err) ;
-#endif
     } ;
 } ;
 

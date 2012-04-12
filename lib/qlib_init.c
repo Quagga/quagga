@@ -190,8 +190,8 @@ extern void
 qlib_init_second_stage(bool pthreaded)
 {
   qpt_set_qpthreads_enabled(pthreaded);
-  qpn_init() ;
   memory_init_r();
+  qpn_init() ;
   thread_init_r();
   log_init_r() ;
   zprivs_init_r();

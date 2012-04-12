@@ -252,11 +252,23 @@
  * To direct a signal at a given thread need pthread_kill. *
  */
 
-CONFIRM(_POSIX_THREADS > 0) ;
+CONFIRM(_POSIX_THREADS               > 0) ;
 CONFIRM(_POSIX_THREAD_SAFE_FUNCTIONS > 0) ;
-CONFIRM(_POSIX_REENTRANT_FUNCTIONS > 0) ;
+CONFIRM(_POSIX_SPIN_LOCKS            > 0) ;
 
-CONFIRM(_POSIX_SPIN_LOCKS > 0) ;
+/*------------------------------------------------------------------------------
+ * Base of list of known mutexes, complete with spinlock to control update
+ * of same.
+ *
+ * Zeroised at qpt_start_up().  Spin-Lock initialised when pthread_enabled.
+ */
+static struct
+{
+  struct dl_base_pair(qpt_mutex) base ;
+
+  qpt_spin_t  slk ;
+
+} qpt_mutexes ;
 
 /*==============================================================================
  * The Global Switch
@@ -302,6 +314,8 @@ qpt_start_up(int thread_cputime)
   qpthreads_thread_created_flag = false ;
 
   qpt_have_cpu_clock = thread_cputime > 0 ;
+
+  memset(&qpt_mutexes, 0, sizeof(qpt_mutexes)) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -342,6 +356,12 @@ qpt_set_qpthreads_enabled(bool want_enabled)
   qpthreads_enabled_flag  = want_enabled ;
   qpthreads_enabled_state = want_enabled ? qpt_state_set_enabled
                                          : qpt_state_set_disabled ;
+
+  if (qpthreads_enabled)
+    {
+      qpt_spin_init(qpt_mutexes.slk) ;
+    } ;
+
   return true ;
 } ;
 
@@ -621,10 +641,16 @@ qpt_cpu_time(clockid_t clock_id)
 
 /*==============================================================================
  * Mutex initialise and destroy.
+ *
+ * For use by a "watch-dog", every qpt_mutex is held on a list of mutexes,
+ * and is given a name.  The list is protected by a spinlock.  To allow a
+ * qpt_mutex to be "held" by "watch-dog(s)" they must all be allocated
+ * dynamically.
  */
+static void qpt_mutex_do_destroy(qpt_mutex mx) ;
 
 /*------------------------------------------------------------------------------
- * Initialise Mutex (allocating if required)
+ * Allocate and Initialise Mutex
  *
  * Does nothing if !qpthreads_enabled -- but freezes the state (attempting to
  * later enable qpthreads will be a FATAL error).
@@ -640,26 +666,35 @@ qpt_cpu_time(clockid_t clock_id)
  * Of these _recursive is the most likely alternative to _quagga...  BUT do
  * remember that such mutexes DO NOT play well with condition variables.
  *
- * Returns the mutex -- or original mx if !qpthreads_enabled.
+ * Returns the mutex -- or NULL if !qpthreads_enabled.
  */
 extern qpt_mutex
-qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts)
+qpt_mutex_new(qpt_mutex_options_t opts, const char* name)
 {
+  qpt_mutex mx ;
   pthread_mutexattr_t mutex_attr ;
-  int type ;
-  int err ;
+
+  int  type ;
+  int  err ;
+  uint len ;
 
   if (!qpthreads_enabled_freeze)
-    {
-      if (mx != NULL)
-        memset(mx, 0x0F, sizeof(qpt_mutex_t)) ;
-      return mx ;
-    } ;
+    return NULL ;
 
-  if (mx == NULL)
-    mx = XMALLOC(MTYPE_QPT_MUTEX, sizeof(qpt_mutex_t)) ;
+  mx = XCALLOC(MTYPE_QPT_MUTEX, sizeof(qpt_mutex_t)) ;
 
-  /* Set up attributes so we can set the mutex type     */
+  /* Zeroising sets:
+   *
+   *   pm             -- X         -- set below
+   *   list           -- NULLs     -- set below
+   *   name           -- all '\0'  -- set below
+   *
+   *   held           -- 0         -- not held
+   *   destroy        -- false     -- not scheduled for destruction
+   */
+
+  /* Set up attributes so we can set the mutex type
+   */
   err = pthread_mutexattr_init(&mutex_attr);
   if (err != 0)
     zabort_err("pthread_mutexattr_init failed", err) ;
@@ -689,17 +724,34 @@ qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts)
   if (err != 0)
     zabort_err("pthread_mutexattr_settype failed", err) ;
 
-  /* Now we're ready to initialize the mutex itself     */
-  err = pthread_mutex_init(mx, &mutex_attr) ;
+  /* Now we're ready to initialize the mutex itself
+   */
+  err = pthread_mutex_init(mx->pm, &mutex_attr) ;
   if (err != 0)
     zabort_err("pthread_mutex_init failed", err) ;
 
-  /* Be tidy with the attributes                        */
+  /* Be tidy with the attributes
+   */
   err = pthread_mutexattr_destroy(&mutex_attr) ;
   if (err != 0)
     zabort_err("pthread_mutexattr_destroy failed", err) ;
 
-  /* Done: return the mutex                             */
+  /* Now set the name and add to the list of known mutexes
+   *
+   * Note that "held" and "destroy" are already set as required, and that
+   * the name field has been zeroised.
+   */
+  len = strlen(name) ;
+  if (len >= sizeof(mx->name))
+    len = sizeof(mx->name) - 1 ;
+  memcpy(mx->name, name, len) ;
+
+  qpt_spin_lock(qpt_mutexes.slk) ;
+  ddl_append(qpt_mutexes.base, mx, list) ;
+  qpt_spin_unlock(qpt_mutexes.slk) ;
+
+  /* Done: return the mutex
+   */
   return mx ;
 } ;
 
@@ -713,37 +765,177 @@ qpt_mutex_init_new(qpt_mutex mx, enum qpt_mutex_options opts)
  *     anything, so there can be nothing to release -- so does nothing, but
  *     returns the original mutex address (if any).
  */
-#include <stdio.h>
 extern qpt_mutex
-qpt_mutex_destroy(qpt_mutex mx, free_keep_b free_mutex)
+qpt_mutex_destroy(qpt_mutex mx)
 {
   if (qpthreads_enabled && (mx != NULL))
     {
-      int err ;
+      bool  destroy ;
 
-      err = pthread_mutex_destroy(mx) ;
+      /* Deal with the interaction with the list of mutexes, under spin-lock.
+       */
+      qpt_spin_lock(qpt_mutexes.slk) ;
 
-      if (err == 0)
+      destroy = (mx->held == 0) ;
+
+      if (destroy)
         {
-          if (free_mutex)
-            XFREE(MTYPE_QPT_MUTEX, mx) ;        /* sets mx == NULL      */
+          /* The mx is not held, so can remove from the list and proceed
+           * to destroy.
+           */
+          ddl_del(qpt_mutexes.base, mx, list) ;
         }
       else
         {
-          /* If we are closing down, then not much point aborting, and may as
-           * well make it look as if succeeded if wanted to free it.
+          /* The mx is held, so cannot destroy now.
+           *
+           * Mark for destruction when the held count hits zero.
            */
-          if (qpthreads_active)
-            zabort_err("pthread_mutex_destroy failed", err) ;
-          else
-            zlog_err("pthread_mutex_destroy failed (%s)", errtoa(err, 0).str) ;
-
-          if (free_mutex)
-            mx = NULL ;
+          mx->destroy = true ;
         } ;
+
+      qpt_spin_unlock(qpt_mutexes.slk) ;
+
+      /* If not held, proceed to destroy.
+       */
+      if (destroy)
+        qpt_mutex_do_destroy(mx) ;
     } ;
 
-  return mx ;
+  return NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Step to next mutex in list of mutexes.
+ *
+ * Releases the current mutex object (if any) and takes hold of the next mutex
+ * object (if any).
+ *
+ * NB: release/hold does *not* mean lock/unlock the mutex, but releasing/gaining
+ *     a hold on the mutex object.
+ *
+ *     This is for watch-dog and other debug stuff to be able to walk the
+ *     list of mutexes.
+ *
+ * To start a walk along the mutexes, start with mx = NULL.  If walk until
+ * this function returns NULL, then all holds will have been released.  See
+ * qpt_mutex_step_last() if wish to stop part way through a walk.
+ */
+extern qpt_mutex
+qpt_mutex_step_next(qpt_mutex mx)
+{
+  qpt_mutex mx_next ;
+  bool destroy ;
+
+  /* Under the spin-lock:
+   *
+   *   1) unlock and decide whether need to destroy the current mutex (if any)
+   *
+   *   2) step to next mutex on list, or start with the head
+   *
+   *   3) lock the new mutex (if any)
+   *
+   *   4) remove current mutex from list if about to destroy it.
+   */
+  qpt_spin_lock(qpt_mutexes.slk) ;
+
+  if (mx != NULL)
+    {
+      assert(mx->held > 0) ;
+
+      --mx->held ;
+
+      destroy = mx->destroy && (mx->held == 0) ;
+
+      mx_next = ddl_next(mx, list) ;
+    }
+  else
+    {
+      destroy = false ;
+      mx_next = ddl_head(qpt_mutexes.base) ;
+    } ;
+
+  if (mx_next != NULL)
+    ++mx_next->held ;
+
+  if (destroy)
+    ddl_del(qpt_mutexes.base, mx, list) ;
+
+  qpt_spin_unlock(qpt_mutexes.slk) ;
+
+  /* Now, if required to destroy the mutex, we have removed it from the
+   * list, so is in our hands entirely.
+   */
+  if (destroy)
+    qpt_mutex_do_destroy(mx) ;
+
+  /* Return the next mutex (if any)
+   */
+  return mx_next ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Release hold on the given mutex, and destroy it if required.
+ */
+extern void
+qpt_mutex_step_last(qpt_mutex mx)
+{
+  bool destroy ;
+
+  if (mx == NULL)
+    return ;                    /* do nothing if no mutex !     */
+
+  /* Under the spin-lock unlock and decide whether need to destroy the
+   * current mutex, and if so remove from the list.
+   */
+  qpt_spin_lock(qpt_mutexes.slk) ;
+
+  assert(mx->held > 0) ;
+
+  --mx->held ;
+
+  destroy = mx->destroy && (mx->held == 0) ;
+
+  if (destroy)
+    ddl_del(qpt_mutexes.base, mx, list) ;
+
+  qpt_spin_unlock(qpt_mutexes.slk) ;
+
+  /* Now, if required to destroy the mutex, we have removed it from the
+   * list, so is in our hands entirely.
+   */
+  if (destroy)
+    qpt_mutex_do_destroy(mx) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Actual destruction of qpt_mutex.
+ *
+ * Must no longer be on the list of mutexes.
+ *
+ * Note that if the destruction of the actual mutex fails, we do not release
+ * the enclosing memory.
+ */
+static void
+qpt_mutex_do_destroy(qpt_mutex mx)
+{
+  int   err ;
+
+  err = pthread_mutex_destroy(mx->pm) ;
+
+  if (err == 0)
+    XFREE(MTYPE_QPT_MUTEX, mx) ;
+  else
+    {
+      /* If we are closing down, then not much point aborting, and may
+       * as well make it look as if succeeded if wanted to free it.
+       */
+      if (qpthreads_active)
+        zabort_err("pthread_mutex_destroy failed", err) ;
+      else
+        zlog_err("pthread_mutex_destroy failed (%s)",
+                                                   errtoa(err, 0).str) ;
+    } ;
 } ;
 
 /*==============================================================================
@@ -879,7 +1071,8 @@ qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t timeout_time)
                                          + (timeout_time - qt_get_monotonic()) ;
         } ;
 
-      err = pthread_cond_timedwait(cv, mx, qtime2timespec(&ts, timeout_time)) ;
+      err = pthread_cond_timedwait(cv, mx->pm,
+                                            qtime2timespec(&ts, timeout_time)) ;
       if (err == 0)
         return true ;               /* got condition        */
       if (err == ETIMEDOUT)

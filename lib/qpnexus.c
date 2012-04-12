@@ -126,7 +126,7 @@ qpn_init_new(qpn_nexus qpn, bool main_thread, const char* name)
 
   qpn->selection   = qps_selection_init_new(qpn->selection);
   qpn->pile        = qtimer_pile_init_new(qpn->pile);
-  qpn->queue       = mqueue_init_new(qpn->queue, mqt_signal_unicast);
+  qpn->queue       = mqueue_init_new(qpn->queue, mqt_signal_unicast, name);
   qpn->main_thread = main_thread;
   qpn->start       = qpn_start;
 
@@ -258,16 +258,18 @@ static void
 qpn_nexus_del(qpn_nexus qpn)
 {
   qpn_nexus_walk walk ;
+  qpn_nexus  next_qpn ;
 
   qpt_spin_lock(qpn_nexus_list->slk) ;
 
-  ddl_append(qpn_nexus_list->nexuses, qpn, list) ;
+  next_qpn = ddl_next(qpn, list) ;
+  ddl_del(qpn_nexus_list->nexuses, qpn, list) ;
 
   walk = ddl_head(qpn_nexus_list->walkers) ;
   while (walk != NULL)
     {
       if (walk->walk_next == qpn)
-        walk->walk_next = ddl_next(qpn, list) ;
+        walk->walk_next = next_qpn ;
 
       walk = ddl_next(walk, list) ;
     } ;

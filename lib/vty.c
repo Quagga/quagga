@@ -285,8 +285,8 @@ vty_init_r (qpn_nexus cli, qpn_nexus cmd)
   vty_cli_nexus   = cli ;
   vty_cmd_nexus   = cmd ;
 
-  vty_mutex              = qpt_mutex_init_new(NULL, qpt_mutex_recursive);
-  vty_child_signal_mutex = qpt_mutex_init_new(NULL, qpt_mutex_quagga);
+  vty_mutex              = qpt_mutex_new(qpt_mutex_recursive, "vty");
+  vty_child_signal_mutex = qpt_mutex_new(qpt_mutex_quagga, "vty child");
 
   vty_init_state = vty_init_2nd_stage ;
 } ;
@@ -677,9 +677,8 @@ vty_terminate (void)
       uty_watch_dog_stop() ;
       vty_child_close_register() ;
 
-      vty_mutex              = qpt_mutex_destroy(vty_mutex, free_it);
-      vty_child_signal_mutex = qpt_mutex_destroy(vty_child_signal_mutex,
-                                                                      free_it);
+      vty_mutex              = qpt_mutex_destroy(vty_mutex);
+      vty_child_signal_mutex = qpt_mutex_destroy(vty_child_signal_mutex);
     } ;
 
   vty_init_state = vty_init_terminated ;

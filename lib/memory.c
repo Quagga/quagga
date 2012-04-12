@@ -164,8 +164,10 @@
 /*------------------------------------------------------------------------------
  * Need to be qpthread safe.  The system malloc etc are already thread safe,
  * but we need to protect the statistics.
+ *
+ * The mutex is set up in memory_init_r().
  */
-static qpt_mutex_t memory_mutex;
+static qpt_mutex memory_mutex;
 
 #define LOCK   qpt_mutex_lock(memory_mutex);
 #define UNLOCK qpt_mutex_unlock(memory_mutex);
@@ -3015,11 +3017,14 @@ memory_start_up(int pagesize)
 
 /*------------------------------------------------------------------------------
  * Second stage initialisation if qpthreaded
+ *
+ * NB: if is qpthreads_enabled, then this *must* be called before is
+ *     qpthreads_active, because the mutex is dynamically allocated !
  */
 extern void
 memory_init_r (void)
 {
-  qpt_mutex_init_new(memory_mutex, qpt_mutex_quagga);
+  memory_mutex = qpt_mutex_new(qpt_mutex_quagga, "XMALLOC et al");
 }
 
 /*------------------------------------------------------------------------------
@@ -3028,7 +3033,7 @@ memory_init_r (void)
 extern void
 memory_finish (bool mem_stats)
 {
-  qpt_mutex_destroy(memory_mutex, keep_it);
+  qpt_mutex_destroy(memory_mutex);
 
   if (mem_stats)
     log_memstats_stderr (cmd_host_program_name()) ;

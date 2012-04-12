@@ -50,7 +50,7 @@
  * will be acquired -- in particular, NOT the VTY_LOCK() !!
  */
 
-extern qpt_mutex_t log_mutex ;
+extern qpt_mutex log_mutex ;
 
 /*------------------------------------------------------------------------------
  * Sort out LOG_DEBUG.

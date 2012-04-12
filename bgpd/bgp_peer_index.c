@@ -147,7 +147,7 @@ bgp_peer_index_init(void* parent)
 extern void
 bgp_peer_index_init_r(void)
 {
-  bgp_peer_index_mutex = qpt_mutex_init_new(NULL, qpt_mutex_recursive) ;
+  bgp_peer_index_mutex = qpt_mutex_new(qpt_mutex_recursive, "peer index") ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -196,7 +196,7 @@ bgp_peer_index_finish(void)
 
   bgp_peer_id_count = 0 ;
 
-  qpt_mutex_destroy(bgp_peer_index_mutex, free_it) ;
+  bgp_peer_index_mutex = qpt_mutex_destroy(bgp_peer_index_mutex) ;
 } ;
 
 /*------------------------------------------------------------------------------

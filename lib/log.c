@@ -115,7 +115,7 @@ struct zlog* zlog_list    = NULL ;
 
 static volatile sig_atomic_t max_maxlvl = ZLOG_DISABLED ;
 
-qpt_mutex_t log_mutex ;
+qpt_mutex log_mutex ;
 
 int log_lock_count    = 0 ;
 int log_assert_fail   = 0 ;
@@ -179,7 +179,7 @@ static void uzlog_backtrace(int priority);
 extern void
 log_init_r(void)
 {
-  qpt_mutex_init_new(log_mutex, qpt_mutex_recursive);
+  log_mutex = qpt_mutex_new(qpt_mutex_recursive, "logging");
 } ;
 
 /*------------------------------------------------------------------------------
@@ -188,7 +188,7 @@ log_init_r(void)
 extern void
 log_finish(void)
 {
-  qpt_mutex_destroy(log_mutex, 0);
+  log_mutex = qpt_mutex_destroy(log_mutex);
 } ;
 
 /*==============================================================================

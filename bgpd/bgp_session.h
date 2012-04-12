@@ -90,8 +90,9 @@ struct bgp_session
    */
   bgp_peer          peer ;              /* peer whose session this is     */
 
-  /* This is a *recursive* mutex                                          */
-  qpt_mutex_t       mutex ;             /* for access to the rest         */
+  /* This is a *recursive* mutex
+   */
+  qpt_mutex         mutex ;             /* for access to the rest         */
 
   /* While sIdle and sDisabled -- aka not "active" states:
    *

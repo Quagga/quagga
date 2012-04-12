@@ -77,7 +77,7 @@ safe_init_r(void)
 
       qassert(thread_safe == NULL) ;
 
-      thread_safe = qpt_mutex_init_new(NULL, qpt_mutex_recursive) ;
+      thread_safe = qpt_mutex_new(qpt_mutex_recursive, "thread safe") ;
     } ;
 }
 
@@ -91,7 +91,7 @@ safe_finish(void)
     {
       pthread_key_delete(tsd_key) ;
 
-      thread_safe = qpt_mutex_destroy(thread_safe, free_it) ;
+      thread_safe = qpt_mutex_destroy(thread_safe) ;
     } ;
 } ;
 

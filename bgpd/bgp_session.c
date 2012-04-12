@@ -122,7 +122,7 @@ bgp_session_init_new(bgp_peer peer)
 
   session = XCALLOC(MTYPE_BGP_SESSION, sizeof(struct bgp_session)) ;
 
-  qpt_mutex_init_new(session->mutex, qpt_mutex_recursive) ;
+  session->mutex = qpt_mutex_new(qpt_mutex_recursive, "") ;
 
   session->peer  = peer ;
   bgp_peer_lock(peer) ;             /* Account for the session->peer pointer  */
@@ -238,7 +238,7 @@ bgp_session_delete(bgp_peer peer)
 
   BGP_SESSION_UNLOCK(session) ; /*->->->->->->->->->->->->->->->->->->->->*/
 
-  qpt_mutex_destroy(session->mutex, 0) ;
+  session->mutex = qpt_mutex_destroy(session->mutex) ;
 
   /* Proceed to dismantle the session.                                  */
 

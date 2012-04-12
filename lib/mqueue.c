@@ -127,7 +127,7 @@
  * now passed.)
  */
 
-static qpt_mutex_t  mqb_mutex ;         /* for allocation of mqueue blocks  */
+static qpt_mutex    mqb_mutex ;         /* for allocation of mqueue blocks  */
 
 static mqueue_block mqb_free_list  = NULL ;
 static unsigned     mqb_free_count = 0 ;
@@ -146,8 +146,7 @@ static unsigned     mqb_free_count = 0 ;
 extern void
 mqueue_initialise(void)
 {
-  if (qpthreads_enabled_freeze)
-    qpt_mutex_init_new(mqb_mutex, qpt_mutex_quagga) ;
+  mqb_mutex = qpt_mutex_new(qpt_mutex_quagga, "mqb alloc") ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -173,7 +172,7 @@ mqueue_finish(void)
 
   assert(mqb_free_count == 0) ;
 
-  qpt_mutex_destroy(mqb_mutex, keep_it) ;
+  mqb_mutex = qpt_mutex_destroy(mqb_mutex) ;
 } ;
 
 /*==============================================================================
@@ -191,7 +190,7 @@ mqueue_finish(void)
  *     qpthreads.
  */
 extern mqueue_queue
-mqueue_init_new(mqueue_queue mq, mqueue_queue_type_t type)
+mqueue_init_new(mqueue_queue mq, mqueue_queue_type_t type, const char* name)
 {
   if (mq == NULL)
     mq = XCALLOC(MTYPE_MQUEUE_QUEUE, sizeof(mqueue_queue_t)) ;
@@ -218,7 +217,7 @@ mqueue_init_new(mqueue_queue mq, mqueue_queue_type_t type)
    */
 
   if (qpt_freeze_qpthreads_enabled())
-    qpt_mutex_init_new(mq->mutex, qpt_mutex_quagga) ;
+    mq->mutex = qpt_mutex_new(qpt_mutex_quagga, name) ;
 
   mq->type = type ;
   switch (type)
@@ -284,7 +283,7 @@ mqueue_reset(mqueue_queue mq, free_keep_b free_structure)
 
   passert(mq->waiters == 0) ;
 
-  qpt_mutex_destroy(mq->mutex, keep_it) ;
+  mq->mutex = qpt_mutex_destroy(mq->mutex) ;
 
   switch (mq->type)
     {

@@ -123,7 +123,7 @@ typedef struct mqueue_queue* mqueue_queue ;
 
 struct mqueue_queue
 {
-  qpt_mutex_t   mutex ;
+  qpt_mutex     mutex ;
 
   mqueue_block  head ;          /* NULL => list is empty                      */
   mqueue_block  tail_priority ; /* last priority message (if any & not empty) */
@@ -174,7 +174,8 @@ MQUEUE_UNLOCK(mqueue_queue mq)
 extern void mqueue_initialise(void) ;
 extern void mqueue_finish(void) ;
 
-extern mqueue_queue mqueue_init_new(mqueue_queue mq, mqueue_queue_type_t type) ;
+extern mqueue_queue mqueue_init_new(mqueue_queue mq, mqueue_queue_type_t type,
+                                                             const char* name) ;
 extern void mqueue_empty(mqueue_queue mq) ;
 extern mqueue_queue mqueue_reset(mqueue_queue mq, free_keep_b free_structure) ;
 

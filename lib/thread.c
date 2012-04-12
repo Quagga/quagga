@@ -1537,7 +1537,7 @@ thread_start_up(void)
 void
 thread_init_r (void)
 {
-  thread_mutex = qpt_mutex_init_new(NULL, qpt_mutex_quagga);
+  thread_mutex = qpt_mutex_new(qpt_mutex_quagga, "thread");
 }
 
 /* Finished with module
@@ -1564,7 +1564,7 @@ thread_finish (void)
       qtimer_free(qtr) ;
     } ;
 
-  thread_mutex = qpt_mutex_destroy(thread_mutex, free_it);
+  thread_mutex = qpt_mutex_destroy(thread_mutex);
 }
 
 /*------------------------------------------------------------------------------

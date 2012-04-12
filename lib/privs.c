@@ -28,7 +28,7 @@
 #include "qpthreads.h"
 
 /* Needs to be qpthread safe */
-static qpt_mutex_t privs_mutex;
+static qpt_mutex privs_mutex;
 
 #define LOCK   qpt_mutex_lock(privs_mutex);
 #define UNLOCK qpt_mutex_unlock(privs_mutex);
@@ -726,13 +726,13 @@ zprivs_state_null (void)
 extern void
 zprivs_init_r()
 {
-  qpt_mutex_init_new(privs_mutex, qpt_mutex_quagga);
+  privs_mutex = qpt_mutex_new(qpt_mutex_quagga, "privs");
 }
 
 extern void
 zprivs_finish(void)
 {
-  qpt_mutex_destroy(privs_mutex, keep_it);
+  privs_mutex = qpt_mutex_destroy(privs_mutex);
 }
 
 /*------------------------------------------------------------------------------
