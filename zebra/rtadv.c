@@ -680,16 +680,38 @@ rtadv_read (struct thread *thread)
 }
 
 static int
+rtadv_setsockopt (int sock)
+{
+  return (setsockopt_ipv6_pktinfo (sock, 1)
+       || setsockopt_ipv6_multicast_loop (sock, 0)
+       || setsockopt_ipv6_unicast_hops (sock, 255)
+       || setsockopt_ipv6_multicast_hops (sock, 255)
+       || setsockopt_ipv6_hoplimit (sock, 1)
+         );
+}
+
+static int
+rtadv_setsockopt_filter (int sock)
+{
+  struct icmp6_filter filter;
+
+  ICMP6_FILTER_SETBLOCKALL(&filter);
+  ICMP6_FILTER_SETPASS (ND_ROUTER_SOLICIT, &filter);
+  ICMP6_FILTER_SETPASS (ND_ROUTER_ADVERT, &filter);
+
+  return setsockopt (sock, IPPROTO_ICMPV6, ICMP6_FILTER, &filter,
+		    sizeof (struct icmp6_filter));
+}
+
+static int
 rtadv_make_socket (void)
 {
   int sock;
-  int ret;
-  struct icmp6_filter filter;
 
   if ( zserv_privs.change (ZPRIVS_RAISE) )
        zlog_err ("rtadv_make_socket: could not raise privs, %s",
                   safe_strerror (errno) );
-                  
+
   sock = socket (AF_INET6, SOCK_RAW, IPPROTO_ICMPV6);
 
   if ( zserv_privs.change (ZPRIVS_LOWER) )
@@ -701,32 +723,13 @@ rtadv_make_socket (void)
   if (sock < 0)
     return -1;
 
-  ret = setsockopt_ipv6_pktinfo (sock, 1);
-  if (ret < 0)
-    return ret;
-  ret = setsockopt_ipv6_multicast_loop (sock, 0);
-  if (ret < 0)
-    return ret;
-  ret = setsockopt_ipv6_unicast_hops (sock, 255);
-  if (ret < 0)
-    return ret;
-  ret = setsockopt_ipv6_multicast_hops (sock, 255);
-  if (ret < 0)
-    return ret;
-  ret = setsockopt_ipv6_hoplimit (sock, 1);
-  if (ret < 0)
-    return ret;
+  if (rtadv_setsockopt (sock) < 0)
+    return -1;
 
-  ICMP6_FILTER_SETBLOCKALL(&filter);
-  ICMP6_FILTER_SETPASS (ND_ROUTER_SOLICIT, &filter);
-  ICMP6_FILTER_SETPASS (ND_ROUTER_ADVERT, &filter);
-
-  ret = setsockopt (sock, IPPROTO_ICMPV6, ICMP6_FILTER, &filter,
-		    sizeof (struct icmp6_filter));
-  if (ret < 0)
+  if (rtadv_setsockopt_filter (sock) < 0)
     {
       zlog_info ("ICMP6_FILTER set fail: %s", safe_strerror (errno));
-      return ret;
+      return -1;
     }
 
   return sock;
