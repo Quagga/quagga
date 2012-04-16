@@ -250,6 +250,8 @@ extern void qfs_pointer(qf_str qfs, void* p_val, pf_flags_t flags,
 
 extern uint qfs_printf(qf_str qfs, const char* format, ...)
                                                        PRINTF_ATTRIBUTE(2, 3) ;
+extern qfb_gen_t qfs_gen(const char* format, ...)      PRINTF_ATTRIBUTE(1, 2) ;
+
 extern uint qfs_vprintf(qf_str qfs, const char *format, va_list args) ;
 
 Inline uint qfs_strlen(const char* str) ;

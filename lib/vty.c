@@ -285,8 +285,8 @@ vty_init_r (qpn_nexus cli, qpn_nexus cmd)
   vty_cli_nexus   = cli ;
   vty_cmd_nexus   = cmd ;
 
-  vty_mutex              = qpt_mutex_new(qpt_mutex_recursive, "vty");
-  vty_child_signal_mutex = qpt_mutex_new(qpt_mutex_quagga, "vty child");
+  vty_mutex              = qpt_mutex_new(qpt_mutex_recursive, "VTY");
+  vty_child_signal_mutex = qpt_mutex_new(qpt_mutex_quagga, "VTY Child Signal");
 
   vty_init_state = vty_init_2nd_stage ;
 } ;

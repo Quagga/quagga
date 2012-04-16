@@ -800,7 +800,7 @@ static enum pf_phase qfs_arg_float(qf_str qfs, va_list* p_va,
  * This operation is async-signal-safe -- EXCEPT for floating point values.
  * Takes into account the offset, and adds up any overflow.
  *
- * Returns:  the resulting length of the qf_str.
+ * Returns:  the resulting length of the qf_str -- unterminated
  */
 extern uint
 qfs_printf(qf_str qfs, const char* format, ...)
@@ -816,6 +816,37 @@ qfs_printf(qf_str qfs, const char* format, ...)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Formatted print to qfb_gen_t -- cf printf() -- fills and returns qfb_get_t.
+ *
+ * This operation is async-signal-safe -- EXCEPT for floating point values.
+ * Takes into account the offset, and adds up any overflow.
+ *
+ * This is for use when wish to construct modest size strings out of a mix
+ * of other strings numbers etc.  If constructed string does not fit, it is
+ * quietly truncated.
+ *
+ * Returns:  the resulting qfb_gen_t -- '\0' terminated
+ *
+ * NB: this returns a qfb_gen_t so it is the caller's responsibility to ensure
+ *     that has the required lifetime -- which may only be the life of a called
+ *     function, but if that function wishes to keep the value, then it had
+ *     better copy it !
+ */
+extern qfb_gen_t
+qfs_gen(const char* format, ...)
+{
+  qfb_gen_t QFB_QFS(buf, qfs) ;
+  va_list va ;
+
+  va_start (va, format);
+  qfs_vprintf(qfs, format, va);
+  va_end (va);
+
+  qfs_term(qfs) ;
+  return buf ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Formatted print to qf_str -- cf vprintf() -- appends to the qf_str.
  *
  * This operation is async-signal-safe -- EXCEPT for floating point values.
@@ -823,7 +854,7 @@ qfs_printf(qf_str qfs, const char* format, ...)
  *
  * Operates on a copy of the va_list -- so the original is *unchanged*.
  *
- * Returns:  the resulting length of the qf_str.
+ * Returns:  the resulting length of the qf_str -- unterminated
  */
 extern uint
 qfs_vprintf(qf_str qfs, const char *format, va_list va)

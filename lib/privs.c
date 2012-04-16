@@ -726,7 +726,7 @@ zprivs_state_null (void)
 extern void
 zprivs_init_r()
 {
-  privs_mutex = qpt_mutex_new(qpt_mutex_quagga, "privs");
+  privs_mutex = qpt_mutex_new(qpt_mutex_quagga, "Privs");
 }
 
 extern void

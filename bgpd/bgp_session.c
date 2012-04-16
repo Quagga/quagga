@@ -36,6 +36,7 @@
 #include "lib/log.h"
 #include "lib/mqueue.h"
 #include "lib/zassert.h"
+#include "lib/qfstring.h"
 
 /* prototypes */
 static void bgp_session_do_enable(mqueue_block mqb, mqb_flag_t flag) ;
@@ -122,7 +123,8 @@ bgp_session_init_new(bgp_peer peer)
 
   session = XCALLOC(MTYPE_BGP_SESSION, sizeof(struct bgp_session)) ;
 
-  session->mutex = qpt_mutex_new(qpt_mutex_recursive, "") ;
+  session->mutex = qpt_mutex_new(qpt_mutex_recursive,
+                                        qfs_gen("%s Session", peer->host).str) ;
 
   session->peer  = peer ;
   bgp_peer_lock(peer) ;             /* Account for the session->peer pointer  */

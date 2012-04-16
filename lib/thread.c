@@ -1537,7 +1537,7 @@ thread_start_up(void)
 void
 thread_init_r (void)
 {
-  thread_mutex = qpt_mutex_new(qpt_mutex_quagga, "thread");
+  thread_mutex = qpt_mutex_new(qpt_mutex_quagga, "Legacy Threads");
 }
 
 /* Finished with module

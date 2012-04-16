@@ -22,6 +22,7 @@
 
 #include "memory.h"
 #include "mqueue.h"
+#include "qfstring.h"
 
 /*==============================================================================
  * These message queues are designed for inter-qpthread communication.
@@ -146,7 +147,7 @@ static unsigned     mqb_free_count = 0 ;
 extern void
 mqueue_initialise(void)
 {
-  mqb_mutex = qpt_mutex_new(qpt_mutex_quagga, "mqb alloc") ;
+  mqb_mutex = qpt_mutex_new(qpt_mutex_quagga, "MQB Alloc") ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -217,7 +218,7 @@ mqueue_init_new(mqueue_queue mq, mqueue_queue_type_t type, const char* name)
    */
 
   if (qpt_freeze_qpthreads_enabled())
-    mq->mutex = qpt_mutex_new(qpt_mutex_quagga, name) ;
+    mq->mutex = qpt_mutex_new(qpt_mutex_quagga, qfs_gen("%s MQ", name).str) ;
 
   mq->type = type ;
   switch (type)

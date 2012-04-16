@@ -909,6 +909,39 @@ qpt_mutex_step_last(qpt_mutex mx)
 } ;
 
 /*------------------------------------------------------------------------------
+ * Lock given mutex or time-out
+ *                         -- or return immediate success if !qpthreads_active.
+ *
+ * Returns: wait succeeded (false <=> timed-out).
+ *
+ * NB: timeout time is an relative CLOCK_REALTIME time.
+ *
+ * Has to check the return value, so zabort_errno if not EBUSY.
+ */
+extern bool
+qpt_mutex_timedlock(qpt_mutex mx, qtime_t timeout)
+{
+  if (qpthreads_active)
+    {
+      struct timespec ts ;
+      int err ;
+
+      confirm(_POSIX_TIMERS > 0) ;
+
+      err = pthread_mutex_timedlock(mx->pm, qtime2timespec(&ts,
+                                                    qt_add_realtime(timeout))) ;
+      if (err == 0)
+        return true ;               /* got lock                 */
+      if (err == ETIMEDOUT)
+        return false ;              /* got time-out             */
+
+      zabort_err("pthread_mutex_timedlock failed", err) ;
+    }
+  else
+    return true ;
+} ;
+
+/*------------------------------------------------------------------------------
  * Actual destruction of qpt_mutex.
  *
  * Must no longer be on the list of mutexes.
@@ -1053,12 +1086,12 @@ qpt_cond_destroy(qpt_cond cv, free_keep_b free_cond)
  *
  * Returns: wait succeeded (false <=> timed-out).
  *
- * NB: timeout time is a qtime_mono_t (monotonic time).
+ * NB: timeout time is an absolute qtime_mono_t (monotonic time).
  *
  * Has to check the return value, so zabort_errno if not EBUSY.
  */
 extern bool
-qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t timeout_time)
+qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t abs_timeout)
 {
   struct timespec ts ;
   int err ;
@@ -1067,12 +1100,12 @@ qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t timeout_time)
     {
       if (QPT_COND_CLOCK_ID != CLOCK_MONOTONIC)
         {
-          timeout_time = qt_clock_gettime(QPT_COND_CLOCK_ID)
-                                         + (timeout_time - qt_get_monotonic()) ;
+          abs_timeout = qt_clock_gettime(QPT_COND_CLOCK_ID)
+                                         + (abs_timeout - qt_get_monotonic()) ;
         } ;
 
       err = pthread_cond_timedwait(cv, mx->pm,
-                                            qtime2timespec(&ts, timeout_time)) ;
+                                            qtime2timespec(&ts, abs_timeout)) ;
       if (err == 0)
         return true ;               /* got condition        */
       if (err == ETIMEDOUT)

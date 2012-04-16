@@ -77,6 +77,12 @@ static struct
 
 } qpn_nexus_list[1] ;
 
+/* Watchdog enabled and debug flags
+ */
+static bool qpn_wd_enabled  = false ;
+
+enum { qpn_wd_debug  = false } ;
+
 /*------------------------------------------------------------------------------
  * Initialise the qpnexus handling -- to be done as soon as state of
  * qpthreads_enabled is established and *before* any watch-dog is started.
@@ -530,6 +536,9 @@ qpn_start(void* arg)
        * Remember current "done" as "prev", and set done depending on I/O
        * action count.
        */
+      if (qpn_wd_debug && qpn_wd_enabled && ((rand() % 100) == 0))
+        max_wait += QTIME(1) * ((rand() % 111) + 10) ;
+
       actions = qps_pselect(qpn->selection, max_wait) ;
 
       now = qt_get_monotonic() ;
@@ -538,9 +547,12 @@ qpn_start(void* arg)
         {
           qpn->raw.idle += now - qpn->raw.last_time ;
 
-          qpt_spin_lock(qpn->stats_slk) ;
-          qpn->idleness = 0 ;
-          qpt_spin_unlock(qpn->stats_slk) ;
+          if (qpn_wd_enabled)
+            {
+              qpt_spin_lock(qpn->stats_slk) ;
+              qpn->idleness = 0 ;
+              qpt_spin_unlock(qpn->stats_slk) ;
+            } ;
         } ;
 
       if (wait_mq)
@@ -686,6 +698,7 @@ static void qpn_wd_log(const char* format, ...)         PRINTF_ATTRIBUTE(1, 2) ;
 static void qpn_wd_check_intervals(qtime_t sleep, qtime_t mono_interval,
                                       qtime_t real_interval, uint eintr_count) ;
 static void qpn_wd_check_nexuses(qtime_t interval, qstring report) ;
+static void qpn_wd_check_mutexes(void) ;
 
 /*------------------------------------------------------------------------------
  * Initialise the watch-dog -- completely dormant !
@@ -693,7 +706,9 @@ static void qpn_wd_check_nexuses(qtime_t interval, qstring report) ;
 extern void
 qpn_wd_start_up(void)
 {
-  qpn_wd_interval = 0 ;         /* => do not start !    */
+  qpn_wd_enabled  = false ;
+
+  qpn_wd_interval = 0 ;
 
   qpn_wd_running  = false ;
   qpn_wd_stop     = false ;
@@ -717,7 +732,7 @@ qpn_wd_prepare(const char* arg)
   uint  interval ;
   char* rest ;
 
-  if (qpn_wd_interval != 0)
+  if (qpn_wd_enabled)
     {
       fprintf(stderr, "*** watch-dog already set, cannot -W%s\n", arg) ;
       return false ;
@@ -742,6 +757,8 @@ qpn_wd_prepare(const char* arg)
       fprintf(stderr, "*** invalid watch-dog interval in '%s'\n", arg) ;
       return false ;
     } ;
+
+  qpn_wd_interval = QTIME(interval) ;
 
   while ((*(unsigned char*)rest <= ' ') && (*rest != '\0'))
     ++rest ;
@@ -800,7 +817,7 @@ qpn_wd_prepare(const char* arg)
         } ;
     } ;
 
-  qpn_wd_interval = QTIME(interval) ;   /* start when the time comes    */
+  qpn_wd_enabled  = true ;
 
   return true ;
 } ;
@@ -815,7 +832,7 @@ qpn_wd_start(void)
 {
   assert(!qpn_wd_running) ;
 
-  if (qpn_wd_interval != 0)
+  if (qpn_wd_enabled)
     {
       qpt_spin_init(qpn_wd_spin_lock) ;
       qpn_wd_thread_id = qpt_thread_create(qpn_wd_activity, NULL, NULL) ;
@@ -828,7 +845,7 @@ qpn_wd_start(void)
 extern void
 qpn_wd_finish(uint interval)
 {
-  if (qpn_wd_interval != 0)
+  if (qpn_wd_enabled)
     {
       qpt_spin_lock(qpn_wd_spin_lock) ;
 
@@ -870,6 +887,7 @@ qpn_wd_activity(void* args)
   const char* using ;
   qstring report ;
   qtime_t sleep, mono_end ;
+  uint debug = 0 ;
 
   using  = use_nanosleep ? "nanosleep" : "pselect" ;
   report = qs_new(100) ;
@@ -977,11 +995,37 @@ qpn_wd_activity(void* args)
 
       mono_end = qt_get_monotonic() ;
 
-      mono_interval = mono_end - mono_start ;
-      real_interval = real_end - real_start ;
-
       if (qpn_wd_stop_now())
         break ;
+
+      if (qpn_wd_debug && ((rand() % 50) == 0))
+        {
+          /* For testing purposes... fiddle with the clock and the nexus
+           * idleness.
+           */
+          qtime_t delta = (QTIME(1) / 4) * ((rand() % 21) - 5) ;
+
+          switch (debug % 3)
+            {
+              case 0:           /* fiddle with real_end         */
+                real_end += delta ;
+                break ;
+
+              case 1:           /* fiddle with mono_end         */
+                mono_end += delta ;
+                break ;
+
+              case 2:           /* fiddle with both ends        */
+                real_end += delta ;
+                mono_end += delta ;
+                break ;
+            } ;
+
+          ++debug ;
+        }
+
+      mono_interval = mono_end - mono_start ;
+      real_interval = real_end - real_start ;
 
       /* Check the mono_interval and real_interval -- reporting the eintr_count
        * if those are not satisfactory
@@ -994,6 +1038,9 @@ qpn_wd_activity(void* args)
 
       qpn_wd_log("%s", qs_string(report)) ;
 
+      /* Check that we can lock all the known mutexes
+       */
+      qpn_wd_check_mutexes() ;
     } ;
 
   /* Termination
@@ -1056,6 +1103,9 @@ qpn_wd_check_intervals(qtime_t sleep, qtime_t mono_interval,
 /*------------------------------------------------------------------------------
  * Worry about what each nexus has been up to in the last mono_interval
  * nano seconds.
+ *
+ * We walk the nexuses and fetch the cpu-time for each one, so the interval
+ * given needs to be the interval since the last time we did this.
  */
 static void
 qpn_wd_check_nexuses(qtime_t interval, qstring report)
@@ -1107,14 +1157,38 @@ qpn_wd_check_nexuses(qtime_t interval, qstring report)
       if (idleness > 2)
         qpn_wd_log("*** %s pthread stalled -- %u", name, idleness - 2) ;
 
-      pc_cpu = (double)((this_cpu - last_cpu) * 100) / (double)interval ;
+      if (interval > 0)
+        pc_cpu = (double)((this_cpu - last_cpu) * 100) / (double)interval ;
+      else
+        pc_cpu = (double)0 ;
 
-      qs_printf_a(report, " %16s%s%5.2f%%", name,
+      if (pc_cpu > (double)999)
+        pc_cpu = (double)999.99 ;
+
+      qs_printf_a(report, " %16s%s%6.2f%%", name,
                          (idleness == 0) ? "+" : (idleness == 2) ? " " : "*",
                                                                        pc_cpu) ;
     } ;
 
   qpn_nexus_walk_end(walk) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Worry whether we can pick up all known mutexes in under 1 sec each.
+ */
+static void
+qpn_wd_check_mutexes(void)
+{
+  qpt_mutex     mx ;
+
+  mx = NULL ;
+  while ((mx = qpt_mutex_step_next(mx)) != NULL)
+    {
+      if (qpt_mutex_timedlock(mx, QTIME(1)))
+        qpt_mutex_unlock(mx) ;
+      else
+        qpn_wd_log("*** failed to lock %s mutex", mx->name) ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1148,4 +1222,6 @@ qpn_wd_log(const char* format, ...)
   va_end (va);
 
   fprintf(qpn_wd_log_file, "\n") ;
+
+  fflush(qpn_wd_log_file) ;
 } ;

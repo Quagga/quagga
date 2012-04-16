@@ -179,7 +179,7 @@ static void uzlog_backtrace(int priority);
 extern void
 log_init_r(void)
 {
-  log_mutex = qpt_mutex_new(qpt_mutex_recursive, "logging");
+  log_mutex = qpt_mutex_new(qpt_mutex_recursive, "Logging");
 } ;
 
 /*------------------------------------------------------------------------------

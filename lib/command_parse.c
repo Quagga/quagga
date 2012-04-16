@@ -3920,8 +3920,9 @@ cmd_parse_phase_one_b(cmd_parsed parsed)
   if ((parsed->parts & cmd_parts_pipe) != 0)
     {
       const char*  msg  = NULL ;
-      uint i ;
-      bool e ;
+      uint i = 0 ;      /* error token index     ) set if msg set, but  */
+      bool e = false ;  /* error at end of token ) initialised to calm
+                         *                       ) down compilers       */
 
       /* If there is an action part, ie in pipe, check number of arguments
        */

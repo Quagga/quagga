@@ -77,7 +77,7 @@ safe_init_r(void)
 
       qassert(thread_safe == NULL) ;
 
-      thread_safe = qpt_mutex_new(qpt_mutex_recursive, "thread safe") ;
+      thread_safe = qpt_mutex_new(qpt_mutex_recursive, "pthread safe") ;
     } ;
 }
 

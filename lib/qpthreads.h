@@ -145,7 +145,7 @@ struct qpt_mutex
 
   struct dl_list_pair(qpt_mutex) list ;
 
-  char  name[20] ;
+  char  name[30] ;
 
   uint  held ;
   bool  destroy ;
@@ -304,23 +304,26 @@ enum
 #endif
 } ;
 
-extern qpt_mutex                        /* freezes qpthreads_enabled    */
+extern qpt_mutex                /* freezes qpthreads_enabled            */
 qpt_mutex_new(qpt_mutex_options_t opts, const char* name) ;
 
-extern qpt_mutex                  /* do nothing if !qpthreads_enabled   */
+extern qpt_mutex                /* do nothing if !qpthreads_enabled     */
 qpt_mutex_destroy(qpt_mutex mx) ;
 
 extern qpt_mutex qpt_mutex_step_next(qpt_mutex mx) ;
 extern void qpt_mutex_step_last(qpt_mutex mx) ;
 
-Inline void
-qpt_mutex_lock(qpt_mutex mx) ;    /* do nothing if !qpthreads_active    */
+Inline void                     /* do nothing if !qpthreads_active      */
+qpt_mutex_lock(qpt_mutex mx) ;
 
-Inline bool
-qpt_mutex_trylock(qpt_mutex mx) ; /* always succeeds if !qpthreads_active */
+Inline bool                     /* always succeeds if !qpthreads_active */
+qpt_mutex_trylock(qpt_mutex mx) ;
 
-Inline void
-qpt_mutex_unlock(qpt_mutex mx) ;  /* do nothing if !qpthreads_active    */
+extern bool                     /* always succeeds if !qpthreads_active */
+qpt_mutex_timedlock(qpt_mutex mx, qtime_t timeout) ;
+
+Inline void                     /* do nothing if !qpthreads_active      */
+qpt_mutex_unlock(qpt_mutex mx) ;
 
 /*==============================================================================
  * Condition Variable handling
@@ -414,8 +417,7 @@ qpt_spin_unlock(qpt_spin slk) ;
 /*------------------------------------------------------------------------------
  * Lock given mutex  -- or do nothing if !qpthreads_active.
  *
- * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
- * return value is valid -- zabort_errno if it isn't.
+ * Checks that the return value is valid -- zabort_errno if it isn't.
  */
 
 Inline void
@@ -434,7 +436,7 @@ qpt_mutex_lock(qpt_mutex mx)
  *
  * Returns: lock succeeded (false <=> unable to lock).
  *
- * Has to check the return value, so zabort_errno if not EBUSY.
+ * Checks that the return value is valid -- zabort_errno if it isn't.
  */
 Inline bool
 qpt_mutex_trylock(qpt_mutex mx)
@@ -525,10 +527,10 @@ qpt_cond_broadcast(qpt_cond cv)
  * Spinlock inline functions
  */
 
-/* Lock spinlock  -- do nothing if !qpthreads_active
+/*------------------------------------------------------------------------------
+ * Lock spinlock  -- do nothing if !qpthreads_active
  *
- * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
- * return value is valid -- zabort_errno if it isn't.
+ * Checks that the return value is valid -- zabort_errno if it isn't.
  */
 Inline void
 qpt_spin_lock(qpt_spin slk)
@@ -541,10 +543,10 @@ qpt_spin_lock(qpt_spin slk)
     } ;
 } ;
 
-/* Unlock spinlock  -- do nothing if !qpthreads_active
+/*------------------------------------------------------------------------------
+ * Unlock spinlock  -- do nothing if !qpthreads_active
  *
- * Unless both NCHECK_QPTHREADS and NDEBUG are defined, checks that the
- * return value is valid -- zabort_errno if it isn't.
+ * Checks that the return value is valid -- zabort_errno if it isn't.
  */
 Inline void
 qpt_spin_unlock(qpt_spin slk)
