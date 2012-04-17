@@ -695,7 +695,8 @@ assegments_parse (struct stream *s, size_t length, bool use32bit, bool as4_path)
       uint i ;
       size_t seg_size;
 
-      /* softly softly, get the header first on its own */
+      /* softly softly, get the header first on its own
+       */
       if (length >= AS_HEADER_SIZE)
         {
           seg_type   = stream_getc (s);
@@ -729,7 +730,14 @@ assegments_parse (struct stream *s, size_t length, bool use32bit, bool as4_path)
           } ;
         }
       else
-        seg_size = 0 ;
+        {
+          /* This is a structural error -- we have at least 1 byte, but not
+           * enough for an AS_PATH segment header.
+           */
+          seg_size   = 0 ;
+          seg_type   = 0 ;      /* Calm down compiler   */
+          seg_length = 0 ;      /* ditto                */
+        } ;
 
       /* Stop now if segment is not valid (discarding anything collected to date)
        *

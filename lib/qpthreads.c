@@ -252,9 +252,20 @@
  * To direct a signal at a given thread need pthread_kill. *
  */
 
-CONFIRM(_POSIX_THREADS               > 0) ;
-CONFIRM(_POSIX_THREAD_SAFE_FUNCTIONS > 0) ;
-CONFIRM(_POSIX_SPIN_LOCKS            > 0) ;
+/* We quite definitely need these
+ */
+CONFIRM(_POSIX_THREADS     > 0) ;
+CONFIRM(_POSIX_SPIN_LOCKS  > 0) ;
+
+/* We expect to find _POSIX_THREAD_SAFE_FUNCTIONS -- but FreeBSD 9.0, not.
+ *
+ * POSIX-2004 says that _POSIX_SPIN_LOCKS => _POSIX_THREAD_SAFE_FUNCTIONS
+ * (though in the context of support for "Advanced Realtime Threads", which
+ * includes _POSIX_SPIN_LOCKS)
+ */
+#if (_POSIX_THREAD_SAFE_FUNCTIONS <= 0)
+#warning Expect _POSIX_THREAD_SAFE_FUNCTIONS -- goes with _POSIX_SPIN_LOCKS (?)
+#endif
 
 /*------------------------------------------------------------------------------
  * Base of list of known mutexes, complete with spinlock to control update

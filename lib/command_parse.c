@@ -3804,7 +3804,8 @@ cmd_parse_phase_one_b(cmd_parsed parsed)
    *
    * Update parsed->parts as each part is recognised.
    */
-  cur_part = cmd_parts_none ;   /* current part -- nothing, yet */
+  cur_part   = cmd_parts_none ; /* current part -- nothing, yet */
+  p_part_num = NULL ;           /* Calm down compiler           */
   while (i < nt)
     {
       /* Simple tokens may appear anywhere.

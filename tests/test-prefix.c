@@ -854,7 +854,8 @@ test_prefix_same(counts ct)
       struct prefix p2[1] ;
       uint i ;
       uint fi ;
-      sa_family_t fam[] = { AF_UNSPEC, AF_INET, AF_INET6, 31415 } ;
+      sa_family_t fam[] = { AF_UNSPEC, AF_INET, AF_INET6, 99 } ;
+                                        /* NB: sa_family_t may be uint8_t ! */
 
       for (i = 0 ; i < sizeof(struct prefix) ; ++i)
         {
@@ -1202,7 +1203,8 @@ test_prefix_common_bits(counts ct)
       struct prefix p2[1] ;
       uint i ;
       uint fi ;
-      sa_family_t fam[] = { AF_UNSPEC, AF_INET, AF_INET6, 31415 } ;
+      sa_family_t fam[] = { AF_UNSPEC, AF_INET, AF_INET6, 77 } ;
+                                        /* NB: sa_family_t may be uint8_t ! */
 
       for (i = 0 ; i < sizeof(struct prefix) ; ++i)
         {
