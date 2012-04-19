@@ -96,6 +96,17 @@ struct qpn_nexus
    */
   struct dl_list_pair(qpn_nexus) list ;
 
+  /* set true when the pthread has started, which means that it:
+   *
+   *   * is on the list of known nexuses (the flag is set once everything
+   *     else is set, and under the same mutex as adding to the list).
+   *
+   *   * has a valid thread_id
+   *
+   *   * has a valid cpu_clock_id
+   */
+  bool started ;
+
   /* set true to terminate the thread (eventually)
    */
   bool terminate;
@@ -104,7 +115,7 @@ struct qpn_nexus
    */
   bool main_thread;
 
-  /* thread ID
+  /* thread ID -- not valid until is "started"
    */
   qpt_thread_t  thread_id;
 
@@ -176,6 +187,8 @@ struct qpn_nexus
   struct qpn_hook_list background ;
 
   /* statistics gathering
+   *
+   * NB: not valid until "started"
    */
   qpt_spin_t    stats_slk ;
 
@@ -185,6 +198,8 @@ struct qpn_nexus
                                  * are fetched.                         */
 
   /* For watch-dog -- also read/written under stats_slk
+   *
+   * NB: not valid until "started"
    */
   uint          idleness ;      /* 0 => active,
                                  * 1 => idle, waiting for timer

@@ -104,7 +104,6 @@ qpn_init(void)
  * Initialisation, add hook, free etc.
  *
  */
-static void qpn_self_knowledge(qpn_nexus qpn) ;
 static void qpn_nexus_add(qpn_nexus qpn) ;
 static void qpn_nexus_del(qpn_nexus qpn) ;
 
@@ -119,6 +118,25 @@ static void qpn_nexus_del(qpn_nexus qpn) ;
  * Non-main threads will block most signals.
  *
  * Returns the qpn_nexus.
+ *
+ * NB: this is done in "second stage" initialisation, as soon as we know
+ *     whether is going to run qpthreads_enabled or not.
+ *
+ *     That occurs *before* any daemonisation.
+ *
+ *     Which means that the following are not set until after that:
+ *
+ *       * qpn->thread_id     -- in case changes during daemonisation !
+ *
+ *       * qpn->cpu_clock_id  -- which experience shows does change during
+ *                               daemonisation.
+ *
+ *       * qpn_self           -- thread specific data, pointing to the
+ *                               qpn.
+ *
+ *     So... MUST NOT use these prior to qpn_exec()
+ *
+ * NB: the qpn is not placed on the qpn_nexus_list until qpn_exec(), either.
  */
 extern qpn_nexus
 qpn_init_new(qpn_nexus qpn, bool main_thread, const char* name)
@@ -128,6 +146,46 @@ qpn_init_new(qpn_nexus qpn, bool main_thread, const char* name)
   else
     memset(qpn, 0,  sizeof(struct qpn_nexus)) ;
 
+  /* Zeroising has set:
+   *
+   *    name              -- X       -- set below
+   *
+   *    list              -- NULLs   -- put on list when exec'ed
+   *
+   *    started           -- false   -- set when exec'd
+   *    terminate         -- false   -- not even started, yet !
+   *    main_thread       -- false   -- set below, if required
+   *
+   *    thread_id         -- X       -- set when exec'd
+   *
+   *    pselect_mask      -- all zeros
+   *    pselect_signal    -- none
+   *
+   *    selection         -- X       -- set below
+   *
+   *    pile              -- X       -- set below
+   *
+   *    queue             -- X       -- set below
+   *    mts               -- none
+   *
+   *    start             -- X       -- set below
+   *
+   *    in_thread_init    -- NULLs   -- none, yet
+   *    in_thread_final   -- NULLs   -- none, yet
+   *    foreground        -- NULLs   -- none, yet
+   *    background        -- NULLs   -- none, yet
+   *
+   *    stats_slk         -- X       -- set below
+   *
+   *    raw               -- all zero
+   *    stats             -- all zero
+   *    prev_stats        -- all zero
+   *
+   *    idleness          -- 0       -- not seen idle, yet
+   *    cpu_time          -- 0
+   *
+   *    cpu_clock_id      -- X       -- set when exec'ed
+   */
   qpn->name        = name ;
 
   qpn->selection   = qps_selection_init_new(qpn->selection);
@@ -138,30 +196,7 @@ qpn_init_new(qpn_nexus qpn, bool main_thread, const char* name)
 
   qpt_spin_init(qpn->stats_slk) ;
 
-  if (main_thread)
-    qpn_self_knowledge(qpn) ;
-
   return qpn;
-} ;
-
-/*------------------------------------------------------------------------------
- * Complete the initialisation of nexus, once thread is running.
- *
- * Collect thread's id and cputime clock id
- *
- * Set the thread's qpn_self to point at its qpnexus.
- *
- * Add nexus to list of live ones.
- */
-static void
-qpn_self_knowledge(qpn_nexus qpn)
-{
-  qpn->thread_id    = qpt_thread_self();
-  qpn->cpu_clock_id = qpt_get_cpu_clock(qpn->thread_id) ;
-
-  qpt_data_set_value(qpn_self, qpn) ;
-
-  qpn_nexus_add(qpn) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -227,7 +262,11 @@ qpn_reset(qpn_nexus qpn, free_keep_b free_structure)
 } ;
 
 /*------------------------------------------------------------------------------
- * Add qpn to the list of nexuses
+ * Add qpn to the list of nexuses and set "started".
+ *
+ * This must be done once, and only when the nexus is completely initialised.
+ *
+ * This is the moment that the nexus become visible to the "watch-dog".
  *
  * If there is a walker about to hit the end of the list, update.
  */
@@ -238,7 +277,10 @@ qpn_nexus_add(qpn_nexus qpn)
 
   qpt_spin_lock(qpn_nexus_list->slk) ;
 
+  assert(!qpn->started) ;
+
   ddl_append(qpn_nexus_list->nexuses, qpn, list) ;
+  qpn->started = true ;
 
   walk = ddl_head(qpn_nexus_list->walkers) ;
   while (walk != NULL)
@@ -268,16 +310,20 @@ qpn_nexus_del(qpn_nexus qpn)
 
   qpt_spin_lock(qpn_nexus_list->slk) ;
 
-  next_qpn = ddl_next(qpn, list) ;
-  ddl_del(qpn_nexus_list->nexuses, qpn, list) ;
-
-  walk = ddl_head(qpn_nexus_list->walkers) ;
-  while (walk != NULL)
+  if (qpn->started)             /* not on the list if not "started"     */
     {
-      if (walk->walk_next == qpn)
-        walk->walk_next = next_qpn ;
+      next_qpn = ddl_next(qpn, list) ;
+      ddl_del(qpn_nexus_list->nexuses, qpn, list) ;
+      qpn->started = false ;
 
-      walk = ddl_next(walk, list) ;
+      walk = ddl_head(qpn_nexus_list->walkers) ;
+      while (walk != NULL)
+        {
+          if (walk->walk_next == qpn)
+            walk->walk_next = next_qpn ;
+
+          walk = ddl_next(walk, list) ;
+        } ;
     } ;
 
   qpt_spin_unlock(qpn_nexus_list->slk) ;
@@ -411,14 +457,17 @@ qpn_start(void* arg)
   bool wait_mq ;
   bool idle ;
 
-  /* now in our thread, complete initialisation                         */
+  /* now in our thread, complete initialisation
+   */
   qpn_in_thread_init(qpn);
 
-  /* custom in-thread initialization                                    */
+  /* custom in-thread initialization
+   */
   for (i = 0; i < qpn->in_thread_init.count ;)
     ((qpn_init_function*)(qpn->in_thread_init.hooks[i++]))() ;
 
-  /* Until required to terminate, loop                                  */
+  /* Until required to terminate, loop
+   */
   prev = true ;
   this = true ;
   idle = false ;
@@ -426,7 +475,8 @@ qpn_start(void* arg)
     {
       ++qpn->raw.cycles ;
 
-      /* Signals are highest priority -- only execute for main thread   */
+      /* Signals are highest priority -- only execute for main thread
+       */
       if (qpn->main_thread)
         {
           int ret = quagga_sigevent_process() ;
@@ -437,7 +487,8 @@ qpn_start(void* arg)
             } ;
         } ;
 
-      /* Foreground hooks, if any.                                      */
+      /* Foreground hooks, if any.
+       */
       for (i = 0; i < qpn->foreground.count ; ++i)
         {
           int ret = ((qpn_hook_function*)(qpn->foreground.hooks[i]))() ;
@@ -579,7 +630,8 @@ qpn_start(void* arg)
         } ;
     } ;
 
-  /* custom in-thread finalization                                      */
+  /* custom in-thread finalization
+   */
   for (i = qpn->in_thread_final.count; i > 0 ;)
     ((qpn_init_function*)(qpn->in_thread_final.hooks[--i]))() ;
 
@@ -594,7 +646,10 @@ qpn_in_thread_init(qpn_nexus qpn)
 {
   sigset_t sigmask[1];
 
+  /* Reset the raw statistics and the spin-lock which protects same.
+   */
   memset(&qpn->raw, 0, sizeof(qpn_stats_t)) ;
+
   qpn->raw.start_time = qt_get_monotonic() ;
   qpn->raw.last_time  = qpn->raw.start_time ;
 
@@ -602,8 +657,20 @@ qpn_in_thread_init(qpn_nexus qpn)
   qpn->prev_stats = qpn->stats = qpn->raw ;     /* share start time etc.  */
   qpt_spin_unlock(qpn->stats_slk) ;
 
-  if (!qpn->main_thread)
-    qpn_self_knowledge(qpn) ;
+  /* Complete the initialisation of nexus, once thread is running.
+   *
+   * Collect thread's id and cputime clock id
+   *
+   * Set the thread's qpn_self to point at its qpnexus.
+   *
+   * Add nexus to list of live ones and set "started".
+   */
+  qpn->thread_id    = qpt_thread_self();
+  qpn->cpu_clock_id = qpt_get_cpu_clock(qpn->thread_id) ;
+
+  qpt_data_set_value(qpn_self, qpn) ;
+
+  qpn_nexus_add(qpn) ;          /* may now be visible to watch-dog      */
 
   /* Signal mask.
    *
@@ -620,12 +687,14 @@ qpn_in_thread_init(qpn_nexus qpn)
 
   qpt_thread_sigmask(SIG_BLOCK, sigmask, NULL);
 
-  /* The signal mask to be used during pselect()                        */
+  /* The signal mask to be used during pselect()
+   */
   sigcopyset(qpn->pselect_mask, sigmask) ;
   sigdelset(qpn->pselect_mask, SIG_INTERRUPT) ;
   qpn->pselect_signal = SIG_INTERRUPT ;
 
-  /* Now we have thread_id and mask, prep for using message queue.      */
+  /* Now we have thread_id and mask, prep for using message queue.
+   */
   if (qpn->queue != NULL)
     qpn->mts = mqueue_thread_signal_init(qpn->mts, qpn->thread_id,
                                                                 SIG_INTERRUPT) ;
