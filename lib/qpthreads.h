@@ -414,6 +414,10 @@ qpt_spin_unlock(qpt_spin slk) ;
  * Mutex inline functions
  */
 
+Private void qpt_mutex_lock_failed(qpt_mutex mx, int err) ;
+Private void qpt_mutex_trylock_failed(qpt_mutex mx, int err) ;
+Private void qpt_mutex_unlock_failed(qpt_mutex mx, int err) ;
+
 /*------------------------------------------------------------------------------
  * Lock given mutex  -- or do nothing if !qpthreads_active.
  *
@@ -427,7 +431,7 @@ qpt_mutex_lock(qpt_mutex mx)
     {
       int err = pthread_mutex_lock(mx->pm) ;
       if (err != 0)
-        zabort_err("pthread_mutex_lock failed", err) ;
+        qpt_mutex_lock_failed(mx, err) ;
     } ;
 } ;
 
@@ -444,15 +448,16 @@ qpt_mutex_trylock(qpt_mutex mx)
   if (qpthreads_active)
     {
       int err = pthread_mutex_trylock(mx->pm) ;
-      if (err == 0)
-        return true ;                   /* success: it's locked.        */
-      if (err == EBUSY)
-        return false ;                  /* unable to lock               */
+      if (err != 0)
+        {
+          if (err != EBUSY)
+            qpt_mutex_trylock_failed(mx, err) ;
 
-      zabort_err("pthread_mutex_trylock failed", err) ;
-    }
-  else
-    return true ;
+          return false ;        /* unable to lock               */
+        } ;
+    } ;
+
+  return true ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -467,7 +472,7 @@ qpt_mutex_unlock(qpt_mutex mx)
     {
       int err = pthread_mutex_unlock(mx->pm) ;
       if (err != 0)
-        zabort_err("pthread_mutex_unlock failed", err) ;
+        qpt_mutex_unlock_failed(mx, err) ;
     } ;
 } ;
 

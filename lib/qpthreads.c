@@ -28,6 +28,7 @@
 #include "memory.h"
 #include "log.h"
 #include "qstring.h"
+#include "qtime.h"
 
 /*==============================================================================
  * Quagga Pthread Interface -- qpt_xxxx
@@ -311,6 +312,7 @@ bool qpthreads_active_flag           = false ;
 bool qpthreads_thread_created_flag   = false ;
 
 static bool qpt_have_cpu_clock = false ;
+static bool qpt_seen_cpu_clock = false ;
 
 /*------------------------------------------------------------------------------
  * First stage initialisation -- before any pthreads are started
@@ -325,6 +327,7 @@ qpt_start_up(int thread_cputime)
   qpthreads_thread_created_flag = false ;
 
   qpt_have_cpu_clock = thread_cputime > 0 ;
+  qpt_seen_cpu_clock = false ;
 
   memset(&qpt_mutexes, 0, sizeof(qpt_mutexes)) ;
 } ;
@@ -621,17 +624,68 @@ qpt_get_cpu_clock(qpt_thread_t thread_id)
 {
   clockid_t clock_id ;
 
-  memset(&clock_id, 0, sizeof(clockid_t)) ;
+  clock_id = CLOCK_REALTIME ;
 
-#if _POSIX_THREAD_CPUTIME >= 0
+#ifdef _POSIX_THREAD_CPUTIME
+# if _POSIX_THREAD_CPUTIME >= 0
   if (qpt_have_cpu_clock)
     {
       int err = pthread_getcpuclockid(thread_id, &clock_id) ;
 
-      if (err != 0)
-        zabort_err("pthread_getcpuclockid failed", err) ;
-    } ;
+      if (err == 0)
+        {
+          switch (clock_id)
+            {
+              case CLOCK_REALTIME:
+                zlog_err("pthread_getcpuclockid() returned: "
+                                                 "CLOCK_REALTIME !") ;
+                break ;
+
+#ifdef HAVE_CLOCK_MONOTONIC
+              case CLOCK_MONOTONIC:
+                zlog_err("pthread_getcpuclockid() returned: "
+                                                 "CLOCK_MONOTONIC !") ;
+                break ;
 #endif
+
+#ifdef CLOCK_PROCESS_CPUTIME_ID
+              case CLOCK_PROCESS_CPUTIME_ID:
+                zlog_err("pthread_getcpuclockid() returned: "
+                                                 "CLOCK_PROCESS_CPUTIME_ID !") ;
+                break ;
+#endif
+              case CLOCK_THREAD_CPUTIME_ID:
+                zlog_err("pthread_getcpuclockid() returned: "
+                                                 "CLOCK_THREAD_CPUTIME_ID !") ;
+                break ;
+
+              default:
+                zlog_info("pthread_getcpuclockid() returned: %d", clock_id) ;
+                break ;
+            } ;
+        }
+      else
+        {
+          zlog_err("pthread_getcpuclockid failed: %s", errtoa(err,0).str) ;
+          clock_id = CLOCK_THREAD_CPUTIME_ID ;
+        } ;
+    }
+  else
+    {
+      if (!qpt_seen_cpu_clock)
+        zlog_info("sysconf() says pthread_getcpuclockid() is not supported") ;
+    } ;
+# else
+  if (!qpt_seen_cpu_clock)
+    zlog_info("_POSIX_THREAD_CPUTIME says pthread_getcpuclockid() "
+                                                         "is not supported") ;
+# endif
+#else
+  if (!qpt_seen_cpu_clock)
+    zlog_info("_POSIX_THREAD_CPUTIME is not defined !!") ;
+#endif
+
+  qpt_seen_cpu_clock = true ;
 
   return clock_id ;
 } ;
@@ -659,6 +713,7 @@ qpt_cpu_time(clockid_t clock_id)
  * dynamically.
  */
 static void qpt_mutex_do_destroy(qpt_mutex mx) ;
+static void qpt_mutex_abort(qpt_mutex mx, int err, const char* op) ;
 
 /*------------------------------------------------------------------------------
  * Allocate and Initialise Mutex
@@ -704,6 +759,13 @@ qpt_mutex_new(qpt_mutex_options_t opts, const char* name)
    *   destroy        -- false     -- not scheduled for destruction
    */
 
+  /* Set the name
+   */
+  len = strlen(name) ;
+  if (len >= sizeof(mx->name))
+    len = sizeof(mx->name) - 1 ;
+  memcpy(mx->name, name, len) ;
+
   /* Set up attributes so we can set the mutex type
    */
   err = pthread_mutexattr_init(&mutex_attr);
@@ -739,7 +801,7 @@ qpt_mutex_new(qpt_mutex_options_t opts, const char* name)
    */
   err = pthread_mutex_init(mx->pm, &mutex_attr) ;
   if (err != 0)
-    zabort_err("pthread_mutex_init failed", err) ;
+    qpt_mutex_abort(mx, err, "pthread_mutex_init") ;
 
   /* Be tidy with the attributes
    */
@@ -747,16 +809,11 @@ qpt_mutex_new(qpt_mutex_options_t opts, const char* name)
   if (err != 0)
     zabort_err("pthread_mutexattr_destroy failed", err) ;
 
-  /* Now set the name and add to the list of known mutexes
+  /* Add to the list of known mutexes
    *
    * Note that "held" and "destroy" are already set as required, and that
    * the name field has been zeroised.
    */
-  len = strlen(name) ;
-  if (len >= sizeof(mx->name))
-    len = sizeof(mx->name) - 1 ;
-  memcpy(mx->name, name, len) ;
-
   qpt_spin_lock(qpt_mutexes.slk) ;
   ddl_append(qpt_mutexes.base, mx, list) ;
   qpt_spin_unlock(qpt_mutexes.slk) ;
@@ -941,15 +998,16 @@ qpt_mutex_timedlock(qpt_mutex mx, qtime_t timeout)
 
       err = pthread_mutex_timedlock(mx->pm, qtime2timespec(&ts,
                                                     qt_add_realtime(timeout))) ;
-      if (err == 0)
-        return true ;               /* got lock                 */
-      if (err == ETIMEDOUT)
-        return false ;              /* got time-out             */
+      if (err != 0)
+        {
+          if (err != ETIMEDOUT)
+            qpt_mutex_abort(mx, err, "pthread_mutex_timedlock") ;
 
-      zabort_err("pthread_mutex_timedlock failed", err) ;
-    }
-  else
-    return true ;
+          return false ;
+        } ;
+    } ;
+
+  return true ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -975,11 +1033,47 @@ qpt_mutex_do_destroy(qpt_mutex mx)
        * as well make it look as if succeeded if wanted to free it.
        */
       if (qpthreads_active)
-        zabort_err("pthread_mutex_destroy failed", err) ;
+        qpt_mutex_abort(mx, err, "pthread_mutex_destroy") ;
       else
-        zlog_err("pthread_mutex_destroy failed (%s)",
-                                                   errtoa(err, 0).str) ;
+        zlog_err("pthread_mutex_destroy(%s) failed: %s", mx->name,
+                                                           errtoa(err, 0).str) ;
     } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Failed to pthread_mutex_lock().
+ */
+Private void
+qpt_mutex_lock_failed(qpt_mutex mx, int err)
+{
+  qpt_mutex_abort(mx, err, "pthread_mutex_lock") ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Failed to pthread_mutex_trylock() -- not EBUSY !
+ */
+Private void
+qpt_mutex_trylock_failed(qpt_mutex mx, int err)
+{
+  qpt_mutex_abort(mx, err, "pthread_mutex_trylock") ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Failed to pthread_mutex_unlock().
+ */
+Private void
+qpt_mutex_unlock_failed(qpt_mutex mx, int err)
+{
+  qpt_mutex_abort(mx, err, "pthread_mutex_unlock") ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Failed in some mutex operation -- fatal !
+ */
+static void
+qpt_mutex_abort(qpt_mutex mx, int err, const char* op)
+{
+  zabort(qfs_gen("%s(%s) failed: %s", op, mx->name, errtoa(err, 0).str).str) ;
 } ;
 
 /*==============================================================================

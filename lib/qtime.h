@@ -185,23 +185,27 @@ qtime2timeval(struct timeval* p_tv, qtime_t qt)
 /* Function to manufacture a monotonic clock.   */
 Private qtime_mono_t qt_craft_monotonic(void) ;
 Private time_t qt_craft_mono_secs(void) ;
+Private qtime_t qt_clock_gettime_failed(clockid_t clock_id) ;
 
 /*------------------------------------------------------------------------------
  * Read given clock & return a qtime_t value.
  *
- * While possibility of error is essentially theoretical, must treat it as a
- * FATAL error -- cannot continue with broken time value !
+ * For CLOCK_REALTIME and CLOCK_MONOTONIC any failure is (a) exotic, to say
+ * the least, and (b) impossible to recover from.
+ *
+ * For other clocks, it may be possible to continue, so we return zero and
+ * leave it up to the caller to worry (should they care) that the clock either
+ * occasionally or consistently returns 0 !
  */
-
 Inline qtime_t
 qt_clock_gettime(clockid_t clock_id)
 {
   struct timespec ts ;
 
-  if (clock_gettime(clock_id, &ts) != 0)
-    zabort_errno("clock_gettime failed") ;
+  if (clock_gettime(clock_id, &ts) == 0)
+    return timespec2qtime(&ts) ;
 
-  return timespec2qtime(&ts) ;
+  return qt_clock_gettime_failed(clock_id) ;
 } ;
 
 /*------------------------------------------------------------------------------

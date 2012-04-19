@@ -120,8 +120,8 @@ foreach (@ARGV)
                   (\w+)
                   \s*\,\s*
                   (.+?)
-                  \s*\=\s*
-                  ((?:\{.+?\}\s*\,\s*)+)
+                  \s*\=\s*\{\s*
+                  (.*?)
                   \s*$/sx ;
         
         if (!defined($table_name) || !defined($table_daemon)
@@ -140,10 +140,10 @@ foreach (@ARGV)
         push @vtysh_table,
                  comment("CMD_INSTALL_TABLE($table_name, $table_daemon)", -2) ;
         
-        $table =~ s/\s*\{\s*//g ;
-        $table =~ s/\s*\}\s*\,\s*/;/g ;
-        
-        my (@table) = split(/;/, $table) ;
+        $table =~ s/^[^{]*{\s*// ;
+        $table =~ s/\s*}[^}]*$// ;
+
+        my (@table) = split(/\s*}[^{}]*{\s*/, $table) ;
         
         foreach my $entry (@table)
           {

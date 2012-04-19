@@ -3997,7 +3997,8 @@ cmd_parse_phase_one_b(cmd_parsed parsed)
       if (msg != NULL)
         {
           t = cmd_token_get(parsed->tokens, i) ;
-          return cmd_set_parse_error(parsed, t, e ? els_len_nn(t->ot) : 0, msg) ;
+          return cmd_set_parse_error(parsed, t, e ? els_len_nn(t->ot) : 0,
+                                                                    "%s", msg) ;
         } ;
     } ;
 

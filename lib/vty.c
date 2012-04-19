@@ -815,7 +815,7 @@ vty_out_indent(struct vty *vty, int indent)
   ret = 0 ;
   while ((indent > 0) && (ret >= 0))
     {
-      ret = vty_out(vty, VTY_SPACES(indent)) ;
+      ret = vty_out(vty, "%s", VTY_SPACES(indent)) ;
       indent -= VTY_MAX_SPACES ;
     }
 
