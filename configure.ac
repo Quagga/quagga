@@ -1675,7 +1675,8 @@ compiler                : ${CC}
 compiler flags          : ${CFLAGS}
 make                    : ${MAKE-make}
 includes                : ${INCLUDES}
-linker flags            : ${LDFLAGS} ${LIBS} ${LIBCAP} ${LIBREADLINE} ${LIBM}
+linker flags            : ${LDFLAGS} ${LIBS}
+linker conditional libs : ${LIBCAP} ${LIBREADLINE} ${LIBM}
 state file directory    : ${quagga_statedir}
 config file directory   : `eval echo \`echo ${sysconfdir}\``
 example directory       : `eval echo \`echo ${exampledir}\``
