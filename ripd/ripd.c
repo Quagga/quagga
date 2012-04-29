@@ -3208,7 +3208,6 @@ rip_distance_unset (struct vty *vty, const char *distance_str,
 {
   int ret;
   struct prefix_ipv4 p;
-  u_char distance;
   struct route_node *rn;
   struct rip_distance *rdistance;
 
@@ -3218,8 +3217,6 @@ rip_distance_unset (struct vty *vty, const char *distance_str,
       vty_out (vty, "Malformed prefix%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-
-  distance = atoi (distance_str);
 
   rn = route_node_lookup (rip_distance_table, (struct prefix *)&p);
   if (! rn)
