@@ -67,6 +67,8 @@ static void rip_event (enum rip_event, int);
 static void rip_output_process (struct connected *, struct sockaddr_in *, int, u_char);
 static int rip_triggered_update (struct thread *);
 static int rip_update_jitter (unsigned long);
+static u_char rip_distance_apply (struct rip_info *);
+static void rip_info_free (struct rip_info *);
 
 /* RIP output routes type. */
 enum
@@ -115,7 +117,7 @@ rip_info_new (void)
   return XCALLOC (MTYPE_RIP_INFO, sizeof (struct rip_info));
 }
 
-void
+static void
 rip_info_free (struct rip_info *rinfo)
 {
   XFREE (MTYPE_RIP_INFO, rinfo);
@@ -3177,7 +3179,7 @@ rip_distance_reset (void)
 }
 
 /* Apply RIP information to distance method. */
-u_char
+static u_char
 rip_distance_apply (struct rip_info *rinfo)
 {
   struct route_node *rn;

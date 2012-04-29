@@ -387,7 +387,6 @@ extern void rip_route_map_init (void);
 extern void rip_route_map_reset (void);
 extern void rip_snmp_init (void);
 extern void rip_zclient_init (void);
-extern void rip_zclient_start (void);
 extern void rip_zclient_reset (void);
 extern void rip_offset_init (void);
 extern int if_check_address (struct in_addr addr);
@@ -423,8 +422,6 @@ extern int rip_offset_list_apply_in (struct prefix_ipv4 *, struct interface *, u
 extern int rip_offset_list_apply_out (struct prefix_ipv4 *, struct interface *, u_int32_t *);
 extern void rip_offset_clean (void);
 
-extern void rip_info_free (struct rip_info *);
-extern u_char rip_distance_apply (struct rip_info *);
 extern void rip_redistribute_clean (void);
 extern void rip_ifaddr_add (struct interface *, struct connected *);
 extern void rip_ifaddr_delete (struct interface *, struct connected *);
