@@ -1384,9 +1384,6 @@ rip_create_socket (struct sockaddr_in *from)
   sockopt_broadcast (sock);
   sockopt_reuseaddr (sock);
   sockopt_reuseport (sock);
-#ifdef RIP_RECVMSG
-  setsockopt_pktinfo (sock);
-#endif /* RIP_RECVMSG */
   setsockopt_ipv4_tos (sock, IPTOS_PREC_INTERNETCONTROL);
 
   if (ripd_privs.change (ZPRIVS_RAISE))
@@ -1758,82 +1755,6 @@ rip_request_process (struct rip_packet *packet, int size,
   if (masklen_issues)
     rip_peer_bad_packet (from);
 }
-
-#if RIP_RECVMSG
-/* Set IPv6 packet info to the socket. */
-static int
-setsockopt_pktinfo (int sock)
-{
-  int ret;
-  int val = 1;
-    
-  ret = setsockopt(sock, IPPROTO_IP, IP_PKTINFO, &val, sizeof(val));
-  if (ret < 0)
-    zlog_warn ("Can't setsockopt IP_PKTINFO : %s", safe_strerror (errno));
-  return ret;
-}
-
-/* Read RIP packet by recvmsg function. */
-int
-rip_recvmsg (int sock, u_char *buf, int size, struct sockaddr_in *from,
-	     int *ifindex)
-{
-  int ret;
-  struct msghdr msg;
-  struct iovec iov;
-  struct cmsghdr *ptr;
-  char adata[1024];
-
-  msg.msg_name = (void *) from;
-  msg.msg_namelen = sizeof (struct sockaddr_in);
-  msg.msg_iov = &iov;
-  msg.msg_iovlen = 1;
-  msg.msg_control = (void *) adata;
-  msg.msg_controllen = sizeof adata;
-  iov.iov_base = buf;
-  iov.iov_len = size;
-
-  ret = recvmsg (sock, &msg, 0);
-  if (ret < 0)
-    return ret;
-
-  for (ptr = ZCMSG_FIRSTHDR(&msg); ptr != NULL; ptr = CMSG_NXTHDR(&msg, ptr))
-    if (ptr->cmsg_level == IPPROTO_IP && ptr->cmsg_type == IP_PKTINFO) 
-      {
-	struct in_pktinfo *pktinfo;
-	int i;
-
-	pktinfo = (struct in_pktinfo *) CMSG_DATA (ptr);
-	i = pktinfo->ipi_ifindex;
-      }
-  return ret;
-}
-
-/* RIP packet read function. */
-int
-rip_read_new (struct thread *t)
-{
-  int ret;
-  int sock;
-  char buf[RIP_PACKET_MAXSIZ];
-  struct sockaddr_in from;
-  unsigned int ifindex;
-  
-  /* Fetch socket then register myself. */
-  sock = THREAD_FD (t);
-  rip_event (RIP_READ, sock);
-
-  /* Read RIP packet. */
-  ret = rip_recvmsg (sock, buf, RIP_PACKET_MAXSIZ, &from, (int *)&ifindex);
-  if (ret < 0)
-    {
-      zlog_warn ("Can't read RIP packet: %s", safe_strerror (errno));
-      return ret;
-    }
-
-  return ret;
-}
-#endif /* RIP_RECVMSG */
 
 /* First entry point of RIP packet. */
 static int
