@@ -100,6 +100,10 @@ installed.  They can be excluded from build with this option, which will
 minimally decrease compile time and overhead.  They can always be built and
 executed at a later time by running @command{make check} in the @file{tests/}
 subdirectory, even if they're excluded from build.
+@item --with-libgcrypt
+Assume gcrypt library to be available, locate it and use to build protocol
+processes having gcrypt-dependent features. With this option, if the library
+is missing, the build will fail.
 @end table
 
 You may specify any combination of the above options to the configure

@@ -230,6 +230,8 @@ AC_ARG_ENABLE(snmp,
 [  --enable-snmp=ARG       enable SNMP support (smux or agentx)])
 AC_ARG_WITH(libpam,
 [  --with-libpam           use libpam for PAM support in vtysh])
+AC_ARG_WITH(libgcrypt,
+[  --with-libgcrypt        use gcrypt library for crypto functions])
 AC_ARG_ENABLE(tcp-zebra,
 [  --enable-tcp-zebra      enable TCP/IP socket connection between zebra and protocol daemon])
 AC_ARG_ENABLE(opaque-lsa,
@@ -1431,6 +1433,21 @@ int main(void);
    AC_DEFINE_UNQUOTED(AS_TR_CPP(SNMP_${SNMP_METHOD}),,SNMP method to interface with snmpd)
 fi
 
+dnl -----------------------------------------------------------------------
+dnl A "HAVE_LIBGCRYPT" macro will be defined, if --with-libgcrypt configure
+dnl option is given and the library is available.
+dnl
+dnl Each protocol process using libgcrypt needs a change to its Makefile.am
+dnl (@LIBGCRYPT_LIBS@ should be appended to xxxxx_LDADD, @LIBGCRYPT_CFLAGS@
+dnl should be appended to AM_CFLAGS). It is also required to make a call to
+dnl gcry_check_version() before any other gcrypt functions.
+dnl -----------------------------------------------------------------------
+if test "$with_libgcrypt" = "yes"; then
+	AM_PATH_LIBGCRYPT([1.2.0], [], AC_MSG_ERROR('NOT FOUND: libgcrypt'))
+	AC_DEFINE(HAVE_LIBGCRYPT,,[libgcrypt])
+	AC_SUBST(HAVE_LIBGCRYPT)
+fi
+
 dnl ---------------------------
 dnl sockaddr and netinet checks
 dnl ---------------------------
@@ -1673,10 +1690,12 @@ host operating system   : ${host_os}
 source code location    : ${srcdir}
 compiler                : ${CC}
 compiler flags          : ${CFLAGS}
+compiler libgcrypt flags: ${LIBGCRYPT_CFLAGS}
 make                    : ${MAKE-make}
 includes                : ${INCLUDES}
 linker flags            : ${LDFLAGS} ${LIBS}
 linker conditional libs : ${LIBCAP} ${LIBREADLINE} ${LIBM}
+linker libgcrypt libs   : ${LIBGCRYPT_LIBS}
 state file directory    : ${quagga_statedir}
 config file directory   : `eval echo \`echo ${sysconfdir}\``
 example directory       : `eval echo \`echo ${exampledir}\``
