@@ -22,6 +22,14 @@
 #ifndef _ZEBRA_RIP_H
 #define _ZEBRA_RIP_H
 
+#include "if.h"           /* for struct interface           */
+#include "command.h"      /* for struct vty                 */
+#include "prefix.h"       /* for struct prefix_ipv4         */
+#include "table.h"        /* for struct route_table         */
+#include "thread.h"       /* for struct thread              */
+#include "filter.h"       /* for struct access_list         */
+#include "plist.h"        /* for struct prefix_list         */
+
 /* RIP version number. */
 #define RIPv1                            1
 #define RIPv2                            2

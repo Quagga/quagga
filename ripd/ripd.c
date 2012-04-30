@@ -22,20 +22,13 @@
 
 #include <zebra.h>
 
-#include "if.h"
-#include "command.h"
-#include "prefix.h"
-#include "table.h"
-#include "thread.h"
 #include "memory.h"
 #include "log.h"
 #include "stream.h"
-#include "filter.h"
 #include "sockunion.h"
 #include "sockopt.h"
 #include "routemap.h"
 #include "if_rmap.h"
-#include "plist.h"
 #include "distribute.h"
 #include "md5.h"
 #include "keychain.h"
