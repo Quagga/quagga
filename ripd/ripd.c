@@ -944,17 +944,15 @@ rip_auth_md5 (struct rip_packet *packet, struct sockaddr_in *from,
  */
 static void
 rip_auth_prepare_str_send (struct rip_interface *ri, struct key *key, 
-                           char *auth_str, int len)
+                           char *auth_str)
 {
   assert (ri || key);
 
-  memset (auth_str, 0, len);
+  memset (auth_str, 0, RIP_AUTH_SIMPLE_SIZE);
   if (key && key->string)
-    strncpy (auth_str, key->string, len);
+    strncpy (auth_str, key->string, RIP_AUTH_SIMPLE_SIZE);
   else if (ri->auth_str)
-    strncpy (auth_str, ri->auth_str, len);
-
-  return;
+    strncpy (auth_str, ri->auth_str, RIP_AUTH_SIMPLE_SIZE);
 }
 
 /* Write RIPv2 simple password authentication information
@@ -963,15 +961,13 @@ rip_auth_prepare_str_send (struct rip_interface *ri, struct key *key,
  * (left justified and zero padded).
  */
 static void
-rip_auth_simple_write (struct stream *s, char *auth_str, int len)
+rip_auth_simple_write (struct stream *s, char *auth_str)
 {
-  assert (s && len == RIP_AUTH_SIMPLE_SIZE);
+  assert (s);
   
   stream_putw (s, RIP_FAMILY_AUTH);
   stream_putw (s, RIP_AUTH_SIMPLE_PASSWORD);
   stream_put (s, auth_str, RIP_AUTH_SIMPLE_SIZE);
-  
-  return;
 }
 
 /* write RIPv2 MD5 "authentication header" 
@@ -1033,15 +1029,15 @@ rip_auth_md5_ah_write (struct stream *s, struct rip_interface *ri,
  */
 static size_t
 rip_auth_header_write (struct stream *s, struct rip_interface *ri, 
-                       struct key *key, char *auth_str, int len)
+                       struct key *key, char *auth_str)
 {
   assert (ri->auth_type != RIP_NO_AUTH);
   
   switch (ri->auth_type)
     {
       case RIP_AUTH_SIMPLE_PASSWORD:
-        rip_auth_prepare_str_send (ri, key, auth_str, len);
-        rip_auth_simple_write (s, auth_str, len);
+        rip_auth_prepare_str_send (ri, key, auth_str);
+        rip_auth_simple_write (s, auth_str);
         return 0;
       case RIP_AUTH_MD5:
         return rip_auth_md5_ah_write (s, ri, key);
@@ -1053,7 +1049,7 @@ rip_auth_header_write (struct stream *s, struct rip_interface *ri,
 /* Write RIPv2 MD5 authentication data trailer */
 static void
 rip_auth_md5_set (struct stream *s, struct rip_interface *ri, size_t doff,
-                  char *auth_str, int authlen)
+                  char *auth_str)
 {
   unsigned long len;
   MD5_CTX ctx;
@@ -1061,7 +1057,7 @@ rip_auth_md5_set (struct stream *s, struct rip_interface *ri, size_t doff,
 
   /* Make it sure this interface is configured as MD5
      authentication. */
-  assert ((ri->auth_type == RIP_AUTH_MD5) && (authlen == RIP_AUTH_MD5_SIZE));
+  assert (ri->auth_type == RIP_AUTH_MD5);
   assert (doff > 0);
   
   /* Get packet length. */
@@ -2140,7 +2136,7 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
            key = key_lookup_for_send (keychain);
        }
       /* to be passed to auth functions later */
-      rip_auth_prepare_str_send (ri, key, auth_str, RIP_AUTH_SIMPLE_SIZE);
+      rip_auth_prepare_str_send (ri, key, auth_str);
     }
 
   if (version == RIPv1)
@@ -2328,8 +2324,7 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
 	    
 	    /* auth header for !v1 && !no_auth */
             if ( (ri->auth_type != RIP_NO_AUTH) && (version != RIPv1) )
-              doff = rip_auth_header_write (s, ri, key, auth_str, 
-                                              RIP_AUTH_SIMPLE_SIZE);
+              doff = rip_auth_header_write (s, ri, key, auth_str);
           }
         
 	/* Write RTE to the stream. */
@@ -2337,7 +2332,7 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
 	if (num == rtemax)
 	  {
 	    if (version == RIPv2 && ri->auth_type == RIP_AUTH_MD5)
-              rip_auth_md5_set (s, ri, doff, auth_str, RIP_AUTH_SIMPLE_SIZE);
+              rip_auth_md5_set (s, ri, doff, auth_str);
 
 	    ret = rip_send_packet (STREAM_DATA (s), stream_get_endp (s),
 				   to, ifc);
@@ -2354,7 +2349,7 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
   if (num != 0)
     {
       if (version == RIPv2 && ri->auth_type == RIP_AUTH_MD5)
-        rip_auth_md5_set (s, ri, doff, auth_str, RIP_AUTH_SIMPLE_SIZE);
+        rip_auth_md5_set (s, ri, doff, auth_str);
 
       ret = rip_send_packet (STREAM_DATA (s), stream_get_endp (s), to, ifc);
 
