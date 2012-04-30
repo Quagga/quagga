@@ -23,6 +23,9 @@
 #ifndef _ZEBRA_TABLE_H
 #define _ZEBRA_TABLE_H
 
+/* for struct prefix */
+#include "prefix.h"
+
 /*
  * Forward declarations.
  */

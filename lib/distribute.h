@@ -23,7 +23,12 @@
 #define _ZEBRA_DISTRIBUTE_H
 
 #include <zebra.h>
+/* for struct interface */
 #include "if.h"
+/* for struct vty */
+#include "command.h"
+/* for struct prefix */
+#include "prefix.h"
 
 /* Disctirubte list types. */
 enum distribute_type

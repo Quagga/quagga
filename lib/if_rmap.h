@@ -22,6 +22,9 @@
 #ifndef _ZEBRA_IF_RMAP_H
 #define _ZEBRA_IF_RMAP_H
 
+/* for struct vty */
+#include "command.h"
+
 enum if_rmap_type
 {
   IF_RMAP_IN,
