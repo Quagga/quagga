@@ -934,27 +934,6 @@ rip_auth_md5 (struct rip_packet *packet, struct sockaddr_in *from,
     return 0;
 }
 
-/* Pick correct auth string for sends, prepare auth_str buffer for use.
- * (left justified and padded).
- *
- * presumes one of ri or key is valid, and that the auth strings they point
- * to are nul terminated. If neither are present, auth_str will be fully
- * zero padded.
- *
- */
-static void
-rip_auth_prepare_str_send (struct rip_interface *ri, struct key *key, 
-                           char *auth_str)
-{
-  assert (ri || key);
-
-  memset (auth_str, 0, RIP_AUTH_SIMPLE_SIZE);
-  if (key && key->string)
-    strncpy (auth_str, key->string, RIP_AUTH_SIMPLE_SIZE);
-  else if (ri->auth_str)
-    strncpy (auth_str, ri->auth_str, RIP_AUTH_SIMPLE_SIZE);
-}
-
 /* Write RIPv2 simple password authentication information
  *
  * auth_str is presumed to be 2 bytes and correctly prepared 
@@ -1036,7 +1015,6 @@ rip_auth_header_write (struct stream *s, struct rip_interface *ri,
   switch (ri->auth_type)
     {
       case RIP_AUTH_SIMPLE_PASSWORD:
-        rip_auth_prepare_str_send (ri, key, auth_str);
         rip_auth_simple_write (s, auth_str);
         return 0;
       case RIP_AUTH_MD5:
@@ -2136,7 +2114,19 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
            key = key_lookup_for_send (keychain);
        }
       /* to be passed to auth functions later */
-      rip_auth_prepare_str_send (ri, key, auth_str);
+      /* Pick correct auth string for sends, prepare auth_str buffer for use.
+       * (left justified and padded).
+       *
+       * presumes one of ri or key is valid, and that the auth strings they point
+       * to are nul terminated. If neither are present, auth_str will be fully
+       * zero padded.
+       *
+       */
+      memset (auth_str, 0, RIP_AUTH_SIMPLE_SIZE);
+      if (key && key->string)
+        strncpy (auth_str, key->string, RIP_AUTH_SIMPLE_SIZE);
+      else if (ri->auth_str)
+        strncpy (auth_str, ri->auth_str, RIP_AUTH_SIMPLE_SIZE);
     }
 
   if (version == RIPv1)
