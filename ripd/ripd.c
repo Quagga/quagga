@@ -695,7 +695,6 @@ rip_packet_dump (struct rip_packet *packet, int size, const char *sndrcv)
   struct rte *rte;
   const char *command_str;
   char pbuf[BUFSIZ], nbuf[BUFSIZ];
-  u_char netmask = 0;
   u_char *p;
 
   /* Set command string. */
@@ -715,8 +714,6 @@ rip_packet_dump (struct rip_packet *packet, int size, const char *sndrcv)
     {
       if (packet->version == RIPv2)
 	{
-	  netmask = ip_masklen (rte->mask);
-
           if (rte->family == htons (RIP_FAMILY_AUTH))
             {
               if (rte->tag == htons (RIP_AUTH_SIMPLE_PASSWORD))
@@ -762,8 +759,9 @@ rip_packet_dump (struct rip_packet *packet, int size, const char *sndrcv)
 	  else
 	    zlog_debug ("  %s/%d -> %s family %d tag %d metric %ld",
                        inet_ntop (AF_INET, &rte->prefix, pbuf, BUFSIZ),
-                       netmask, inet_ntop (AF_INET, &rte->nexthop, nbuf,
-                                           BUFSIZ), ntohs (rte->family),
+                       ip_masklen (rte->mask),
+                       inet_ntop (AF_INET, &rte->nexthop, nbuf, BUFSIZ),
+                       ntohs (rte->family),
                        ntohs (rte->tag), (u_long) ntohl (rte->metric));
 	}
       else
