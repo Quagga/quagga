@@ -75,10 +75,6 @@ static const struct message rip_msg[] =
 {
   {RIP_REQUEST,    "REQUEST"},
   {RIP_RESPONSE,   "RESPONSE"},
-  {RIP_TRACEON,    "TRACEON"},
-  {RIP_TRACEOFF,   "TRACEOFF"},
-  {RIP_POLL,       "POLL"},
-  {RIP_POLL_ENTRY, "POLL ENTRY"},
 };
 static const size_t rip_msg_max = sizeof (rip_msg) / sizeof (rip_msg[0]);
 
@@ -1991,19 +1987,7 @@ rip_read (struct thread *t)
       rip_response_process (packet, len, &from, ifc);
       break;
     case RIP_REQUEST:
-    case RIP_POLL:
       rip_request_process (packet, len, &from, ifc);
-      break;
-    case RIP_TRACEON:
-    case RIP_TRACEOFF:
-      zlog_info ("Obsolete command %s received, please sent it to routed", 
-		 LOOKUP (rip_msg, packet->command));
-      rip_peer_bad_packet (&from);
-      break;
-    case RIP_POLL_ENTRY:
-      zlog_info ("Obsolete command %s received", 
-		 LOOKUP (rip_msg, packet->command));
-      rip_peer_bad_packet (&from);
       break;
     default:
       zlog_info ("Unknown RIP command %d received", packet->command);
