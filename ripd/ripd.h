@@ -230,11 +230,6 @@ struct rip_info
   struct route_node *rp;
 
   u_char distance;
-
-#ifdef NEW_RIP_TABLE
-  struct rip_info *next;
-  struct rip_info *prev;
-#endif /* NEW_RIP_TABLE */
 };
 
 typedef enum {
