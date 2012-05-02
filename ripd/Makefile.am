@@ -12,11 +12,11 @@ sbin_PROGRAMS = ripd
 
 librip_a_SOURCES = \
 	ripd.c rip_zebra.c rip_interface.c rip_debug.c rip_snmp.c \
-	rip_routemap.c rip_peer.c rip_offset.c
+	rip_routemap.c rip_peer.c rip_offset.c rip_auth.c
 
 noinst_HEADERS = \
 	ripd.h rip_debug.h rip_interface.h rip_main.h rip_peer.h \
-	rip_zebra.h rip_routemap.h rip_offset.h rip_snmp.h
+	rip_zebra.h rip_routemap.h rip_offset.h rip_snmp.h rip_auth.h
 
 ripd_SOURCES = \
 	rip_main.c $(librip_a_SOURCES)

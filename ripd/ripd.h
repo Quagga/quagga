@@ -79,22 +79,6 @@
 #define RIP_ROUTE_REDISTRIBUTE           3
 #define RIP_ROUTE_INTERFACE              4
 
-/* RIPv2 special RTE family types */
-#define RIP_FAMILY_AUTH                  0xffff
-
-/* RIPv2 authentication types, for RIP_FAMILY_AUTH RTE's */
-#define RIP_NO_AUTH                0
-#define RIP_AUTH_DATA              1
-#define RIP_AUTH_SIMPLE_PASSWORD   2
-#define RIP_AUTH_MD5               3
-
-/* RIPv2 Simple authentication */
-#define RIP_AUTH_SIMPLE_SIZE		16
-
-/* RIPv2 MD5 authentication. */
-#define RIP_AUTH_MD5_SIZE               16
-#define RIP_AUTH_MD5_COMPAT_SIZE        RIP_RTE_SIZE
-
 /* RIP structure. */
 struct rip 
 {
@@ -234,25 +218,6 @@ typedef enum {
   RIP_SPLIT_HORIZON,
   RIP_SPLIT_HORIZON_POISONED_REVERSE
 } split_horizon_policy_t;
-
-struct rip_md5_info
-{
-  u_int16_t family;
-  u_int16_t type;
-  u_int16_t packet_len;
-  u_char keyid;
-  u_char auth_len;
-  u_int32_t sequence;
-  u_int32_t reserv1;
-  u_int32_t reserv2;
-};
-
-struct rip_md5_data
-{
-  u_int16_t family;
-  u_int16_t type;
-  u_char digest[16];
-};
 
 /* RIP accepet/announce methods. */
 #define RI_RIP_UNSPEC                      0

@@ -44,6 +44,7 @@
 #include "ripd/rip_main.h"
 #include "ripd/rip_zebra.h"
 #include "ripd/rip_snmp.h"
+#include "ripd/rip_auth.h"
 
 /* static prototypes */
 static void rip_enable_apply (struct interface *);

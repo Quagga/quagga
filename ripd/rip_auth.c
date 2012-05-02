@@ -1,0 +1,286 @@
+/*
+ * This file, a part of Quagga, implements RIP packet authentication.
+ *
+ *
+ * Quagga is free software; you can redistribute it and/or modify it
+ * under the terms of the GNU General Public License as published by the
+ * Free Software Foundation; either version 2, or (at your option) any
+ * later version.
+ *
+ * Quagga is distributed in the hope that it will be useful, but
+ * WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the GNU
+ * General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with Quagga; see the file COPYING.  If not, write to the Free
+ * Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
+ * 02111-1307, USA.
+ */
+
+#include <zebra.h>
+#include "md5.h"
+#include "ripd/rip_auth.h"
+#include "ripd/rip_debug.h"
+
+/* RIP version 2 authentication. */
+int
+rip_auth_simple_password (struct rte *rte, struct sockaddr_in *from,
+			  struct interface *ifp)
+{
+  struct rip_interface *ri;
+  char *auth_str;
+
+  if (IS_RIP_DEBUG_EVENT)
+    zlog_debug ("RIPv2 simple password authentication from %s",
+	       inet_ntoa (from->sin_addr));
+
+  ri = ifp->info;
+
+  if (ri->auth_type != RIP_AUTH_SIMPLE_PASSWORD
+      || rte->tag != htons(RIP_AUTH_SIMPLE_PASSWORD))
+    return 0;
+
+  /* Simple password authentication. */
+  if (ri->auth_str)
+    {
+      auth_str = (char *) &rte->prefix;
+
+      if (strncmp (auth_str, ri->auth_str, 16) == 0)
+	return 1;
+    }
+  if (ri->key_chain)
+    {
+      struct keychain *keychain;
+      struct key *key;
+
+      keychain = keychain_lookup (ri->key_chain);
+      if (keychain == NULL)
+	return 0;
+
+      key = key_match_for_accept (keychain, (char *) &rte->prefix);
+      if (key)
+	return 1;
+    }
+  return 0;
+}
+
+/* RIP version 2 authentication with MD5. */
+int
+rip_auth_md5 (struct rip_packet *packet, struct sockaddr_in *from,
+              int length, struct interface *ifp)
+{
+  struct rip_interface *ri;
+  struct rip_md5_info *md5;
+  struct rip_md5_data *md5data;
+  struct keychain *keychain;
+  struct key *key;
+  MD5_CTX ctx;
+  u_char digest[RIP_AUTH_MD5_SIZE];
+  u_int16_t packet_len;
+  char auth_str[RIP_AUTH_MD5_SIZE];
+
+  if (IS_RIP_DEBUG_EVENT)
+    zlog_debug ("RIPv2 MD5 authentication from %s",
+               inet_ntoa (from->sin_addr));
+
+  ri = ifp->info;
+  md5 = (struct rip_md5_info *) &packet->rte;
+
+  /* Check auth type. */
+  if (ri->auth_type != RIP_AUTH_MD5 || md5->type != htons(RIP_AUTH_MD5))
+    return 0;
+
+  /* If the authentication length is less than 16, then it must be wrong for
+   * any interpretation of rfc2082. Some implementations also interpret
+   * this as RIP_HEADER_SIZE+ RIP_AUTH_MD5_SIZE, aka RIP_AUTH_MD5_COMPAT_SIZE.
+   */
+  if ( !((md5->auth_len == RIP_AUTH_MD5_SIZE)
+         || (md5->auth_len == RIP_AUTH_MD5_COMPAT_SIZE)))
+    {
+      if (IS_RIP_DEBUG_EVENT)
+        zlog_debug ("RIPv2 MD5 authentication, strange authentication "
+                   "length field %d", md5->auth_len);
+    return 0;
+    }
+
+  /* grab and verify check packet length */
+  packet_len = ntohs (md5->packet_len);
+
+  if (packet_len > (length - RIP_HEADER_SIZE - RIP_AUTH_MD5_SIZE))
+    {
+      if (IS_RIP_DEBUG_EVENT)
+        zlog_debug ("RIPv2 MD5 authentication, packet length field %d "
+                   "greater than received length %d!",
+                   md5->packet_len, length);
+      return 0;
+    }
+
+  /* retrieve authentication data */
+  md5data = (struct rip_md5_data *) (((u_char *) packet) + packet_len);
+
+  memset (auth_str, 0, RIP_AUTH_MD5_SIZE);
+
+  if (ri->key_chain)
+    {
+      keychain = keychain_lookup (ri->key_chain);
+      if (keychain == NULL)
+	return 0;
+
+      key = key_lookup_for_accept (keychain, md5->keyid);
+      if (key == NULL)
+	return 0;
+
+      strncpy (auth_str, key->string, RIP_AUTH_MD5_SIZE);
+    }
+  else if (ri->auth_str)
+    strncpy (auth_str, ri->auth_str, RIP_AUTH_MD5_SIZE);
+
+  if (auth_str[0] == 0)
+    return 0;
+
+  /* MD5 digest authentication. */
+  memset (&ctx, 0, sizeof(ctx));
+  MD5Init(&ctx);
+  MD5Update(&ctx, packet, packet_len + RIP_HEADER_SIZE);
+  MD5Update(&ctx, auth_str, RIP_AUTH_MD5_SIZE);
+  MD5Final(digest, &ctx);
+
+  if (memcmp (md5data->digest, digest, RIP_AUTH_MD5_SIZE) == 0)
+    return packet_len;
+  else
+    return 0;
+}
+
+/* Write RIPv2 MD5 authentication data trailer */
+void
+rip_auth_md5_set (struct stream *s, struct rip_interface *ri, size_t doff,
+                  char *auth_str)
+{
+  unsigned long len;
+  MD5_CTX ctx;
+  unsigned char digest[RIP_AUTH_MD5_SIZE];
+
+  /* Make it sure this interface is configured as MD5
+     authentication. */
+  assert (ri->auth_type == RIP_AUTH_MD5);
+  assert (doff > 0);
+
+  /* Get packet length. */
+  len = stream_get_endp(s);
+
+  /* Check packet length. */
+  if (len < (RIP_HEADER_SIZE + RIP_RTE_SIZE))
+    {
+      zlog_err ("rip_auth_md5_set(): packet length %ld is less than minimum length.", len);
+      return;
+    }
+
+  /* Set the digest offset length in the header */
+  stream_putw_at (s, doff, len);
+
+  /* Set authentication data. */
+  stream_putw (s, RIP_FAMILY_AUTH);
+  stream_putw (s, RIP_AUTH_DATA);
+
+  /* Generate a digest for the RIP packet. */
+  memset(&ctx, 0, sizeof(ctx));
+  MD5Init(&ctx);
+  MD5Update(&ctx, STREAM_DATA (s), stream_get_endp (s));
+  MD5Update(&ctx, auth_str, RIP_AUTH_MD5_SIZE);
+  MD5Final(digest, &ctx);
+
+  /* Copy the digest to the packet. */
+  stream_write (s, digest, RIP_AUTH_MD5_SIZE);
+}
+
+/* Write RIPv2 simple password authentication information
+ *
+ * auth_str is presumed to be 2 bytes and correctly prepared
+ * (left justified and zero padded).
+ */
+static void
+rip_auth_simple_write (struct stream *s, char *auth_str)
+{
+  assert (s);
+
+  stream_putw (s, RIP_FAMILY_AUTH);
+  stream_putw (s, RIP_AUTH_SIMPLE_PASSWORD);
+  stream_put (s, auth_str, RIP_AUTH_SIMPLE_SIZE);
+}
+
+/* write RIPv2 MD5 "authentication header"
+ * (uses the auth key data field)
+ *
+ * Digest offset field is set to 0.
+ *
+ * returns: offset of the digest offset field, which must be set when
+ * length to the auth-data MD5 digest is known.
+ */
+static size_t
+rip_auth_md5_ah_write (struct stream *s, struct rip_interface *ri,
+                       struct key *key)
+{
+  size_t doff = 0;
+
+  assert (s && ri && ri->auth_type == RIP_AUTH_MD5);
+
+  /* MD5 authentication. */
+  stream_putw (s, RIP_FAMILY_AUTH);
+  stream_putw (s, RIP_AUTH_MD5);
+
+  /* MD5 AH digest offset field.
+   *
+   * Set to placeholder value here, to true value when RIP-2 Packet length
+   * is known.  Actual value is set in .....().
+   */
+  doff = stream_get_endp(s);
+  stream_putw (s, 0);
+
+  /* Key ID. */
+  if (key)
+    stream_putc (s, key->index % 256);
+  else
+    stream_putc (s, 1);
+
+  /* Auth Data Len.  Set 16 for MD5 authentication data. Older ripds
+   * however expect RIP_HEADER_SIZE + RIP_AUTH_MD5_SIZE so we allow for this
+   * to be configurable.
+   */
+  stream_putc (s, ri->md5_auth_len);
+
+  /* Sequence Number (non-decreasing). */
+  /* RFC2080: The value used in the sequence number is
+     arbitrary, but two suggestions are the time of the
+     message's creation or a simple message counter. */
+  stream_putl (s, time (NULL));
+
+  /* Reserved field must be zero. */
+  stream_putl (s, 0);
+  stream_putl (s, 0);
+
+  return doff;
+}
+
+/* If authentication is in used, write the appropriate header
+ * returns stream offset to which length must later be written
+ * or 0 if this is not required
+ */
+size_t
+rip_auth_header_write (struct stream *s, struct rip_interface *ri,
+                       struct key *key, char *auth_str)
+{
+  assert (ri->auth_type != RIP_NO_AUTH);
+
+  switch (ri->auth_type)
+    {
+      case RIP_AUTH_SIMPLE_PASSWORD:
+        rip_auth_simple_write (s, auth_str);
+        return 0;
+      case RIP_AUTH_MD5:
+        return rip_auth_md5_ah_write (s, ri, key);
+    }
+  assert (1);
+  return 0;
+}
+
