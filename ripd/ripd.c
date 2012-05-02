@@ -1747,7 +1747,7 @@ rip_read (struct thread *t)
   memset (&from, 0, sizeof (struct sockaddr_in));
   fromlen = sizeof (struct sockaddr_in);
 
-  len = recvfrom (sock, (char *)&rip_buf.buf, sizeof (rip_buf.buf), 0, 
+  len = recvfrom (sock, rip_buf.buf, sizeof (rip_buf.buf), 0,
 		  (struct sockaddr *) &from, &fromlen);
   if (len < 0) 
     {
@@ -2328,8 +2328,6 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
       if (ret >= 0 && IS_RIP_DEBUG_SEND)
 	rip_packet_dump ((struct rip_packet *)STREAM_DATA (s),
 			 stream_get_endp (s), "SEND");
-      num = 0;
-      stream_reset (s);
     }
 
   /* Statistics updates. */
