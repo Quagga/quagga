@@ -199,6 +199,13 @@ stream_get_size (struct stream *s)
   return s->size;
 }
 
+u_char *
+stream_get_data (struct stream * s)
+{
+  STREAM_VERIFY_SANE(s);
+  return s->data;
+}
+
 /* Stream structre' stream pointer related functions.  */
 void
 stream_set_getp (struct stream *s, size_t pos)
