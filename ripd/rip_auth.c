@@ -267,7 +267,7 @@ int rip_auth_check_packet
 
 /* Write RIPv2 MD5 authentication data trailer */
 static void
-rip_auth_md5_set (struct stream *s, struct rip_interface *ri, size_t doff,
+rip_auth_md5_set (struct stream *s, struct rip_interface *ri,
                   char *auth_str)
 {
   unsigned long len;
@@ -277,7 +277,6 @@ rip_auth_md5_set (struct stream *s, struct rip_interface *ri, size_t doff,
   /* Make it sure this interface is configured as MD5
      authentication. */
   assert (ri->auth_type == RIP_AUTH_MD5);
-  assert (doff > 0);
 
   /* Get packet length. */
   len = stream_get_endp(s);
@@ -288,9 +287,6 @@ rip_auth_md5_set (struct stream *s, struct rip_interface *ri, size_t doff,
       zlog_err ("rip_auth_md5_set(): packet length %ld is less than minimum length.", len);
       return;
     }
-
-  /* Set the digest offset length in the header */
-  stream_putw_at (s, doff, len);
 
   /* Set authentication data. */
   stream_putw (s, RIP_FAMILY_AUTH);
@@ -324,31 +320,17 @@ rip_auth_simple_write (struct stream *s, char *auth_str)
 
 /* write RIPv2 MD5 "authentication header"
  * (uses the auth key data field)
- *
- * Digest offset field is set to 0.
- *
- * returns: offset of the digest offset field, which must be set when
- * length to the auth-data MD5 digest is known.
  */
-static size_t
+static void
 rip_auth_md5_ah_write (struct stream *s, struct rip_interface *ri,
-                       struct key *key)
+                       struct key *key, u_int16_t packet_len)
 {
-  size_t doff = 0;
-
   assert (s && ri && ri->auth_type == RIP_AUTH_MD5);
 
   /* MD5 authentication. */
   stream_putw (s, RIP_FAMILY_AUTH);
   stream_putw (s, RIP_AUTH_MD5);
-
-  /* MD5 AH digest offset field.
-   *
-   * Set to placeholder value here, to true value when RIP-2 Packet length
-   * is known.  Actual value is set in .....().
-   */
-  doff = stream_get_endp(s);
-  stream_putw (s, 0);
+  stream_putw (s, packet_len);
 
   /* Key ID. */
   if (key)
@@ -371,8 +353,6 @@ rip_auth_md5_ah_write (struct stream *s, struct rip_interface *ri,
   /* Reserved field must be zero. */
   stream_putl (s, 0);
   stream_putl (s, 0);
-
-  return doff;
 }
 
 /* Take a sequence of payload (routing) RTE structures, decide on particular
@@ -392,7 +372,6 @@ rip_auth_make_packet
 {
   struct key *key = NULL;
   char auth_str[RIP_AUTH_SIMPLE_SIZE] = { 0 };
-  size_t doff = 0; /* offset of digest offset field */
 
   /* packet header, unconditional */
   stream_reset (packet);
@@ -430,7 +409,8 @@ rip_auth_make_packet
       rip_auth_simple_write (packet, auth_str);
       break;
     case RIP_AUTH_MD5:
-      doff = rip_auth_md5_ah_write (packet, ri, key);
+      rip_auth_md5_ah_write (packet, ri, key,
+        RIP_HEADER_SIZE + RIP_RTE_SIZE + stream_get_endp (rtes));
       break;
     }
   }
@@ -446,7 +426,7 @@ rip_auth_make_packet
 
   /* authentication trailing data, even more conditional */
   if (version == RIPv2 && ri->auth_type == RIP_AUTH_MD5)
-    rip_auth_md5_set (packet, ri, doff, auth_str);
+    rip_auth_md5_set (packet, ri, auth_str);
 
   return 0;
 }
