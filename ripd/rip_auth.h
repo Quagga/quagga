@@ -32,7 +32,7 @@
 #define RIP_NO_AUTH                0
 #define RIP_AUTH_DATA              1
 #define RIP_AUTH_SIMPLE_PASSWORD   2
-#define RIP_AUTH_MD5               3
+#define RIP_AUTH_HASH              3
 
 /* RIPv2 Simple authentication */
 #define RIP_AUTH_SIMPLE_SIZE		16

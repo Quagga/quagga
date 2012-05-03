@@ -75,7 +75,7 @@ rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet, const unsigne
   md5 = (struct rip_md5_info *) &packet->rte;
 
   /* Check auth type. */
-  if (ri->auth_type != RIP_AUTH_MD5 || md5->type != htons(RIP_AUTH_MD5))
+  if (ri->auth_type != RIP_AUTH_HASH || md5->type != htons (RIP_AUTH_HASH))
     return 0;
 
   /* If the authentication length is less than 16, then it must be wrong for
@@ -156,7 +156,7 @@ int rip_auth_check_packet
   int rtenum;
 
   assert (ri->auth_type == RIP_NO_AUTH || ri->auth_type == RIP_AUTH_SIMPLE_PASSWORD
-          || ri->auth_type == RIP_AUTH_MD5);
+          || ri->auth_type == RIP_AUTH_HASH);
   assert ((bytesonwire - RIP_HEADER_SIZE) % RIP_RTE_SIZE == 0);
   rtenum = (bytesonwire - RIP_HEADER_SIZE) / RIP_RTE_SIZE;
   /* RFC2453 5.2 If the router is not configured to authenticate RIP-2
@@ -238,8 +238,8 @@ int rip_auth_check_packet
       auth_desc = "simple";
       ret = rip_auth_simple_password (ri, packet->rte) ? bytesonwire : 0;
       break;
-    case RIP_AUTH_MD5:
-      auth_desc = "MD5";
+    case RIP_AUTH_HASH:
+      auth_desc = "hash";
       /* Reset RIP packet length to trim MD5 data. */
       ret = rip_auth_md5 (ri, packet, bytesonwire);
       break;
@@ -276,7 +276,7 @@ rip_auth_md5_set (struct stream *s, struct rip_interface *ri,
 
   /* Make it sure this interface is configured as MD5
      authentication. */
-  assert (ri->auth_type == RIP_AUTH_MD5);
+  assert (ri->auth_type == RIP_AUTH_HASH);
 
   /* Get packet length. */
   len = stream_get_endp(s);
@@ -325,11 +325,11 @@ static void
 rip_auth_md5_ah_write (struct stream *s, struct rip_interface *ri,
                        struct key *key, u_int16_t packet_len)
 {
-  assert (s && ri && ri->auth_type == RIP_AUTH_MD5);
+  assert (s && ri && ri->auth_type == RIP_AUTH_HASH);
 
   /* MD5 authentication. */
   stream_putw (s, RIP_FAMILY_AUTH);
-  stream_putw (s, RIP_AUTH_MD5);
+  stream_putw (s, RIP_AUTH_HASH);
   stream_putw (s, packet_len);
 
   /* Key ID. */
@@ -408,7 +408,7 @@ rip_auth_make_packet
     case RIP_AUTH_SIMPLE_PASSWORD:
       rip_auth_simple_write (packet, auth_str);
       break;
-    case RIP_AUTH_MD5:
+    case RIP_AUTH_HASH:
       rip_auth_md5_ah_write (packet, ri, key,
         RIP_HEADER_SIZE + RIP_RTE_SIZE + stream_get_endp (rtes));
       break;
@@ -425,7 +425,7 @@ rip_auth_make_packet
   stream_reset (rtes);
 
   /* authentication trailing data, even more conditional */
-  if (version == RIPv2 && ri->auth_type == RIP_AUTH_MD5)
+  if (version == RIPv2 && ri->auth_type == RIP_AUTH_HASH)
     rip_auth_md5_set (packet, ri, auth_str);
 
   return 0;
@@ -443,17 +443,17 @@ rip_auth_dump_ffff_rte (struct rte *rte)
   case RIP_AUTH_SIMPLE_PASSWORD:
     zlog_debug ("  family 0xFFFF type 2 (Simple) auth string: %s", (char *) &rte->prefix);
     break;
-  case RIP_AUTH_MD5:
+  case RIP_AUTH_HASH:
     auth = (struct rip_md5_info *) rte;
-    zlog_debug ("  family 0xFFFF type 3 (MD5 authentication)");
+    zlog_debug ("  family 0xFFFF type 3 (hash authentication)");
     zlog_debug ("    RIP-2 packet len %u Key ID %u Auth Data len %u",
                 ntohs (auth->packet_len), auth->keyid, auth->auth_len);
     zlog_debug ("    Sequence Number %u", ntohl (auth->sequence));
     break;
   case RIP_AUTH_DATA:
     p = (u_char *) &rte->prefix;
-    zlog_debug ("  family 0xFFFF type 1 (MD5 data)");
-    zlog_debug ("    MD5: %02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
+    zlog_debug ("  family 0xFFFF type 1 (authentication data)");
+    zlog_debug ("    digest: %02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
                 p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11],
                 p[12], p[13], p[14], p[15]);
     break;
@@ -477,9 +477,9 @@ rip_auth_allowed_inet_rtes (struct rip_interface *ri, const u_char version)
    * need space for authentication data.  */
   if (ri->auth_type == RIP_AUTH_SIMPLE_PASSWORD)
     return RIP_MAX_RTE - 1;   /* 4 + (1 + 24) * 20 + (0) = 504      */
-  /* If output interface is in MD5 authentication mode, we need space
+  /* If output interface is in hash authentication mode, we need space
    * for authentication header and data. */
-  if (ri->auth_type == RIP_AUTH_MD5)
+  if (ri->auth_type == RIP_AUTH_HASH)
     return RIP_MAX_RTE - 2;   /* 4 + (1 + 23) * 20 + (4 + 16) = 504 */
   return RIP_MAX_RTE;         /* 4 + (25) * 20 + (0) = 504          */
 }

@@ -1500,7 +1500,7 @@ DEFUN (ip_rip_authentication_mode,
   struct rip_interface *ri = ifp->info;
 
   if (strncmp ("md5", argv[0], strlen (argv[0])) == 0)
-    ri->auth_type = RIP_AUTH_MD5;
+    ri->auth_type = RIP_AUTH_HASH;
   else if (strncmp ("text", argv[0], strlen (argv[0])) == 0)
     ri->auth_type = RIP_AUTH_SIMPLE_PASSWORD;
   else
@@ -1526,7 +1526,7 @@ DEFUN (ip_rip_authentication_mode_md5_authlen,
   struct interface *ifp = (struct interface *)vty->index;
   struct rip_interface *ri = ifp->info;
 
-  ri->auth_type = RIP_AUTH_MD5;
+  ri->auth_type = RIP_AUTH_HASH;
   ri->md5_auth_len = strncmp ("r", argv[0], 1) ? RIP_AUTH_MD5_COMPAT_SIZE : RIP_AUTH_MD5_SIZE;
   return CMD_SUCCESS;
 }
@@ -1856,7 +1856,7 @@ rip_interface_config_write (struct vty *vty)
           (ri->split_horizon == ri->split_horizon_default) &&
           (ri->ri_send == RI_RIP_UNSPEC)                   &&
           (ri->ri_receive == RI_RIP_UNSPEC)                &&
-          (ri->auth_type != RIP_AUTH_MD5)                  &&
+          (ri->auth_type != RIP_AUTH_HASH)                 &&
           (ri->md5_auth_len != RIP_AUTH_MD5_SIZE)          &&
           (!ri->auth_str)                                  &&
           (!ri->key_chain)                                 )
@@ -1902,7 +1902,7 @@ rip_interface_config_write (struct vty *vty)
       if (ri->auth_type == RIP_AUTH_SIMPLE_PASSWORD)
 	vty_out (vty, " ip rip authentication mode text%s", VTY_NEWLINE);
 
-      if (ri->auth_type == RIP_AUTH_MD5)
+      if (ri->auth_type == RIP_AUTH_HASH)
         {
           vty_out (vty, " ip rip authentication mode md5");
           if (ri->md5_auth_len == RIP_AUTH_MD5_COMPAT_SIZE)
