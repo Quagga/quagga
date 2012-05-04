@@ -27,6 +27,7 @@
 extern int setsockopt_so_recvbuf (int sock, int size);
 extern int setsockopt_so_sendbuf (const int sock, int size);
 extern int getsockopt_so_sendbuf (const int sock);
+extern int setsockopt_so_broadcast (const int, int);
 
 #ifdef HAVE_IPV6
 extern int setsockopt_ipv6_pktinfo (int, int);

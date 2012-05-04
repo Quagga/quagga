@@ -66,6 +66,16 @@ getsockopt_so_sendbuf (const int sock)
   return optval;
 }
 
+int
+setsockopt_so_broadcast (const int sock, int on)
+{
+  int ret = setsockopt (sock, SOL_SOCKET, SO_BROADCAST, (char *) &on, sizeof (on));
+  if (ret < 0)
+    zlog_err ("fd %d: can't setsockopt SO_BROADCAST: %d (%s)",
+      sock, errno, safe_strerror (errno));
+  return ret;
+}
+
 static void *
 getsockopt_cmsg_data (struct msghdr *msgh, int level, int type)
 {

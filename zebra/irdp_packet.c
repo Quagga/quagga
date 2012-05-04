@@ -315,13 +315,8 @@ send_packet(struct interface *ifp,
 		 (char *) &on, sizeof(on)) < 0)
     zlog_warn("sendto %s", safe_strerror (errno));
 
-
-  if(dst == INADDR_BROADCAST ) {
-    on = 1;
-    if (setsockopt(irdp_sock, SOL_SOCKET, SO_BROADCAST,
-		   (char *) &on, sizeof(on)) < 0)
-      zlog_warn("sendto %s", safe_strerror (errno));
-  }
+  if (dst == INADDR_BROADCAST)
+    setsockopt_so_broadcast (irdp_sock, 1);
 
   if(dst !=  INADDR_BROADCAST) {
       on = 0; 

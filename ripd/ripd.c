@@ -78,22 +78,6 @@ static const struct message rip_msg[] =
 };
 static const size_t rip_msg_max = sizeof (rip_msg) / sizeof (rip_msg[0]);
 
-/* Utility function to set boradcast option to the socket. */
-static int
-sockopt_broadcast (int sock)
-{
-  int ret;
-  int on = 1;
-
-  ret = setsockopt (sock, SOL_SOCKET, SO_BROADCAST, (char *) &on, sizeof on);
-  if (ret < 0)
-    {
-      zlog_warn ("can't set sockopt SO_BROADCAST to socket %d", sock);
-      return -1;
-    }
-  return 0;
-}
-
 static int
 rip_route_rte (struct rip_info *rinfo)
 {
@@ -1344,7 +1328,7 @@ rip_create_socket (struct sockaddr_in *from)
       exit (1);
     }
 
-  sockopt_broadcast (sock);
+  setsockopt_so_broadcast (sock, 1);
   sockopt_reuseaddr (sock);
   sockopt_reuseport (sock);
   setsockopt_ipv4_tos (sock, IPTOS_PREC_INTERNETCONTROL);
