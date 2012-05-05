@@ -40,14 +40,8 @@
 /* UDP receive buffer size */
 #define RIP_UDP_RCV_BUF 41600
 
-/* privileges global */
-extern struct zebra_privs_t ripd_privs;
-
 /* RIP Structure. */
 struct rip *rip = NULL;
-
-/* RIP neighbor address table. */
-struct route_table *rip_neighbor_table;
 
 /* RIP route changes. */
 long rip_global_route_changes = 0;
@@ -59,9 +53,7 @@ long rip_global_queries = 0;
 static void rip_event (enum rip_event, int);
 static void rip_output_process (struct connected *, struct sockaddr_in *, int, u_char);
 static int rip_triggered_update (struct thread *);
-static int rip_update_jitter (unsigned long);
 static u_char rip_distance_apply (struct rip_info *);
-static void rip_info_free (struct rip_info *);
 
 /* RIP output routes type. */
 enum

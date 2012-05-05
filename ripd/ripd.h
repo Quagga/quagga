@@ -431,6 +431,9 @@ extern struct rip *rip;
 /* Master thread strucutre. */
 extern struct thread_master *master;
 
+/* privileges global */
+extern struct zebra_privs_t ripd_privs;
+
 /* RIP statistics for SNMP. */
 extern long rip_global_route_changes;
 extern long rip_global_queries;

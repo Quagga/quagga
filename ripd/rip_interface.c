@@ -57,17 +57,15 @@ struct message ri_version_msg[] =
   {RI_RIP_VERSION_1_AND_2, "1 2"},
 };
 
-extern struct zebra_privs_t ripd_privs;
-
 /* RIP enabled network vector. */
-vector rip_enable_interface;
+static vector rip_enable_interface;
 
 /* RIP enabled interface table. */
-struct route_table *rip_enable_network;
+static struct route_table *rip_enable_network;
 
 /* Vector to store passive-interface name. */
 static int passive_default;	/* are we in passive-interface default mode? */
-vector Vrip_passive_nondefault;
+static vector Vrip_passive_nondefault;
 
 /* Join to the RIP version 2 multicast group. */
 static int
