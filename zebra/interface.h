@@ -249,4 +249,8 @@ extern int ifaddr_proc_ipv6 (void);
 extern int if_kvm_get_mtu (struct interface *);
 #endif /* BSDI */
 
+#ifdef HAVE_NETLINK
+extern int interface_lookup_netlink (void);
+#endif
+
 #endif /* _ZEBRA_INTERFACE_H */

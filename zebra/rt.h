@@ -41,4 +41,8 @@ extern int kernel_delete_ipv6_old (struct prefix_ipv6 *dest, struct in6_addr *ga
 
 #endif /* HAVE_IPV6 */
 
+#ifdef HAVE_NETLINK
+extern int netlink_route_read (void);
+#endif
+
 #endif /* _ZEBRA_RT_H */
