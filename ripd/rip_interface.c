@@ -67,47 +67,6 @@ static struct route_table *rip_enable_network;
 static int passive_default;	/* are we in passive-interface default mode? */
 static vector Vrip_passive_nondefault;
 
-/* Join to the RIP version 2 multicast group. */
-static int
-ipv4_multicast_join (int sock, 
-		     struct in_addr group, 
-		     struct in_addr ifa,
-		     unsigned int ifindex)
-{
-  int ret;
-
-  ret = setsockopt_ipv4_multicast (sock,
-				   IP_ADD_MEMBERSHIP, 
-				   group.s_addr, 
-				   ifindex); 
-
-  if (ret < 0) 
-    zlog (NULL, LOG_INFO, "can't setsockopt IP_ADD_MEMBERSHIP %s",
-	  safe_strerror (errno));
-
-  return ret;
-}
-
-/* Leave from the RIP version 2 multicast group. */
-static int
-ipv4_multicast_leave (int sock, 
-		      struct in_addr group, 
-		      struct in_addr ifa,
-		      unsigned int ifindex)
-{
-  int ret;
-
-  ret = setsockopt_ipv4_multicast (sock,
-				   IP_DROP_MEMBERSHIP, 
-				   group.s_addr, 
-				   ifindex);
-
-  if (ret < 0) 
-    zlog (NULL, LOG_INFO, "can't setsockopt IP_DROP_MEMBERSHIP");
-
-  return ret;
-}
-
 /* Allocate new RIP's interface configuration. */
 static struct rip_interface *
 rip_interface_new (void)
@@ -277,19 +236,11 @@ rip_multicast_join (struct interface *ifp, int sock)
 
       for (ALL_LIST_ELEMENTS_RO (ifp->connected, cnode, ifc))
 	{
-	  struct prefix_ipv4 *p;
-	  struct in_addr group;
-	      
-	  p = (struct prefix_ipv4 *) ifc->address;
-      
+	  struct prefix_ipv4 *p = (struct prefix_ipv4 *) ifc->address;
 	  if (p->family != AF_INET)
 	    continue;
-      
-	  group.s_addr = htonl (INADDR_RIP_GROUP);
-	  if (ipv4_multicast_join (sock, group, p->prefix, ifp->ifindex) < 0)
-	    return -1;
-	  else
-	    return 0;
+	  return (setsockopt_ipv4_multicast (sock, IP_ADD_MEMBERSHIP,
+	      htonl (INADDR_RIP_GROUP), ifp->ifindex) < 0) ? -1 : 0;
 	}
     }
   return 0;
@@ -309,16 +260,11 @@ rip_multicast_leave (struct interface *ifp, int sock)
 
       for (ALL_LIST_ELEMENTS_RO (ifp->connected, cnode, connected))
 	{
-	  struct prefix_ipv4 *p;
-	  struct in_addr group;
-          
-	  p = (struct prefix_ipv4 *) connected->address;
-	  
+	  struct prefix_ipv4 *p = (struct prefix_ipv4 *) connected->address;
 	  if (p->family != AF_INET)
 	    continue;
-      
-	  group.s_addr = htonl (INADDR_RIP_GROUP);
-          if (ipv4_multicast_leave (sock, group, p->prefix, ifp->ifindex) == 0)
+	  if (setsockopt_ipv4_multicast (sock, IP_DROP_MEMBERSHIP,
+	      htonl (INADDR_RIP_GROUP), ifp->ifindex) == 0)
 	    return;
         }
     }
