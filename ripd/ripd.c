@@ -43,9 +43,6 @@
 #include "ripd/rip_snmp.h"
 #include "ripd/rip_auth.h"
 
-/* UDP receive buffer size */
-#define RIP_UDP_RCV_BUF 41600
-
 /* RIP Structure. */
 struct rip *rip = NULL;
 
@@ -1399,6 +1396,190 @@ rip_request_process (struct rip_packet *packet, int size,
     rip_peer_bad_packet (from);
 }
 
+static int
+rip_packet_examin
+(
+  struct rip_interface *ri,
+  struct rip_packet *packet,
+  size_t bytesonwire,            /* from start of RIP header to end of frame */
+  const size_t bending_bytes,    /* for IOS proprietary MD5 authentication   */
+  const u_char relaxed_rx
+)
+{
+  u_int8_t declared_auth_len = 0;
+  u_int16_t declared_packet_len = 0;
+  unsigned header_rte = 0, af0_rte = 0, inet_rtes = 0;
+  u_char auth_trailer_missing = 0;
+  struct rte *rte = packet->rte;
+  struct rip_auth_rte *auth;
+
+  /* header checks */
+  if (bytesonwire < RIP_HEADER_SIZE)
+  {
+    if (IS_RIP_DEBUG_RECV)
+      zlog_warn ("%s: undersized (%zuB) packet", __func__, bytesonwire);
+    return MSG_NG;
+  }
+  if (packet->version != RIPv1 && packet->version != RIPv2)
+  {
+    if (IS_RIP_DEBUG_RECV)
+      zlog_warn ("%s: unsupported version %u", __func__, packet->version);
+    return MSG_NG;
+  }
+  if (packet->command != RIP_REQUEST && packet->version != RIP_RESPONSE)
+  {
+    if (IS_RIP_DEBUG_RECV)
+      zlog_warn ("%s: unsupported command %u", __func__, packet->command);
+    return MSG_NG;
+  }
+  if (! relaxed_rx && bytesonwire > RIP_PACKET_MAXSIZ)
+  {
+    if (IS_RIP_DEBUG_RECV)
+      zlog_warn ("%s: oversized (%zuB) packet failed strict size check", __func__, bytesonwire);
+    return MSG_NG;
+  }
+  bytesonwire -= RIP_HEADER_SIZE;
+
+  /* RTEs/trailer checks */
+  while (bytesonwire >= RIP_RTE_SIZE)
+  {
+    switch (ntohs (rte->family))
+    {
+    case 0: /* full table request */
+      if (packet->command != RIP_REQUEST)
+      {
+        if (IS_RIP_DEBUG_RECV)
+          zlog_warn ("%s: AF 0 RTE #%u in a response packet", __func__, header_rte + inet_rtes);
+        return MSG_NG;
+      }
+      if (af0_rte)
+      {
+        if (IS_RIP_DEBUG_RECV)
+          zlog_warn ("%s: duplicate AF 0 RTE #%u", __func__, 1 + header_rte + inet_rtes);
+        return MSG_NG;
+      }
+      af0_rte = 1;
+      break;
+    case AF_INET:
+      inet_rtes++;
+      break;
+    case RIP_FAMILY_AUTH:
+      if (packet->version == RIPv1)
+      {
+        if (IS_RIP_DEBUG_RECV)
+          zlog_warn ("%s: authentication family RTE in a RIP-1 packet", __func__);
+        return MSG_NG;
+      }
+      auth = (struct rip_auth_rte *) rte;
+      switch (ntohs (auth->type))
+      {
+      case RIP_AUTH_SIMPLE_PASSWORD:
+        if (header_rte + af0_rte + inet_rtes)
+        {
+          if (IS_RIP_DEBUG_RECV)
+            zlog_warn ("%s: simple authentication header does not come first (%u)",
+              __func__, header_rte + af0_rte + inet_rtes);
+          return MSG_NG;
+        }
+        header_rte = 1;
+        break;
+      case RIP_AUTH_HASH:
+        if (header_rte + af0_rte + inet_rtes)
+        {
+          if (IS_RIP_DEBUG_RECV)
+            zlog_warn ("%s: hash authentication header does not come first (%u)",
+              __func__, header_rte + af0_rte + inet_rtes);
+          return MSG_NG;
+        }
+        auth_trailer_missing = 1;
+        declared_packet_len = ntohs (auth->u.hash_info.packet_len);
+        declared_auth_len = auth->u.hash_info.auth_len;
+        header_rte = 1;
+        break;
+      case RIP_AUTH_DATA:
+        if (! auth_trailer_missing)
+        {
+          if (IS_RIP_DEBUG_RECV)
+            zlog_warn ("%s: unexpected authentication trailer after %u fixed RTEs",
+              __func__, header_rte + af0_rte + inet_rtes);
+          return MSG_NG;
+        }
+        /* header_rte == 1 */
+        if (declared_packet_len != RIP_HEADER_SIZE + (1 + af0_rte + inet_rtes) * RIP_RTE_SIZE)
+        {
+          if (IS_RIP_DEBUG_RECV)
+            zlog_warn ("%s: packet length declared %u in auth header despite %u fixed RTEs",
+                       __func__, declared_packet_len, 1 + af0_rte + inet_rtes);
+          return MSG_NG;
+        }
+        /* The trailer must be within the remaining buffer, unused bytes don't matter. */
+        if (declared_auth_len + 4U > bytesonwire + bending_bytes)
+        {
+          if (IS_RIP_DEBUG_RECV)
+            zlog_warn ("%s: authentication trailer does not fit the packet", __func__);
+          return MSG_NG;
+        }
+        /* been there, no next pass */
+        auth_trailer_missing = 0;
+        bytesonwire = RIP_RTE_SIZE;
+        break;
+      default:
+        if (IS_RIP_DEBUG_RECV)
+          zlog_warn ("%s: unknown authentication type %u", __func__, ntohs (auth->type));
+        return MSG_NG;
+      } /* switch (type) */
+      break;
+    default:
+      if (IS_RIP_DEBUG_RECV)
+        zlog_warn ("%s: unknown RTE family %u", __func__, ntohs (rte->family));
+      return MSG_NG;
+    } /* switch (family) */
+    rte = (struct rte *) (((caddr_t) rte) + RIP_RTE_SIZE);
+    bytesonwire -= RIP_RTE_SIZE;
+  } /* while() */
+  if (bytesonwire)
+  {
+    if (IS_RIP_DEBUG_RECV)
+      zlog_warn ("%s: unknown trailing data (%zuB)", __func__, bytesonwire);
+    return MSG_NG;
+  }
+  /* "There may be between 1 and 25 (inclusive) RIP entries." -- RFC2453 3.6
+   * In the scope of packet size measurement the following is true:
+   * 1. Authentication header and trailer count for the upper limit only.
+   * 2. The ultimate upper limit for number of non-trailer RTEs is 25.
+   * 3. Different treatments may count an authentication trailer for 0, 1 or
+   *    more RTEs. This means, that number of inet AF RTEs should be lowered
+   *    accordingly, "relaxed size check" runtime mode addresses this concern.
+   */
+  if (! (af0_rte + inet_rtes) || (header_rte + af0_rte + inet_rtes) > RIP_MAX_RTE)
+  {
+    if (IS_RIP_DEBUG_RECV)
+      zlog_warn ("%s: malformed packet: %u auth header RTE(s), %u AF 0 RTE(s), %u inet RTE(s)",
+        __func__, header_rte, af0_rte, inet_rtes);
+    return MSG_NG;
+  }
+  if (! relaxed_rx && inet_rtes > rip_auth_allowed_inet_rtes (ri, packet->version))
+  {
+    if (IS_RIP_DEBUG_RECV)
+      zlog_warn ("%s: too many (%u) inet RTEs for strict size check", __func__, inet_rtes);
+    return MSG_NG;
+  }
+  /* There may be at most 1 AFI 0 RTE, in which case it must be the only RTE. */
+  if (af0_rte && inet_rtes)
+  {
+    if (IS_RIP_DEBUG_RECV)
+      zlog_warn ("%s: both AF 0 and %u inet RTE(s) in the packet", __func__, inet_rtes);
+    return MSG_NG;
+  }
+  if (auth_trailer_missing)
+  {
+    if (IS_RIP_DEBUG_RECV)
+      zlog_warn ("%s: hash authentication header is present, but trailer is not", __func__);
+    return MSG_NG;
+  }
+  return MSG_OK;
+}
+
 /* First entry point of RIP packet. */
 static int
 rip_read (struct thread *t)
@@ -1413,6 +1594,7 @@ rip_read (struct thread *t)
   struct interface *ifp;
   struct connected *ifc;
   struct rip_interface *ri;
+  size_t bending_bytes = 0;
 
   /* Fetch socket then register myself. */
   sock = THREAD_FD (t);
@@ -1468,37 +1650,16 @@ rip_read (struct thread *t)
       return -1;
     }
 
-  /* Packet length check. */
-  if (len < RIP_PACKET_MINSIZ)
-    {
-      zlog_warn ("packet size %d is smaller than minimum size %d",
-		 len, RIP_PACKET_MINSIZ);
-      rip_peer_bad_packet (&from);
-      return len;
-    }
-  if (len > RIP_PACKET_MAXSIZ)
-    {
-      zlog_warn ("packet size %d is larger than max size %d",
-		 len, RIP_PACKET_MAXSIZ);
-      rip_peer_bad_packet (&from);
-      return len;
-    }
-
-  /* Packet alignment check. */
-  if ((len - RIP_PACKET_MINSIZ) % 20)
-    {
-      zlog_warn ("packet size %d is wrong for RIP packet alignment", len);
-      rip_peer_bad_packet (&from);
-      return len;
-    }
-
   /* For easy to handle. */
   packet = &rip_buf.rip_packet;
+  ri = ifp->info;
 
-  /* RIP version check. */
-  if (packet->version == 0)
+  /* In MD5 authentication mode declared length may require a non-RFC offset. */
+  if (ri->auth_type == RIP_AUTH_HASH)
+    bending_bytes = ri->md5_auth_len - RIP_AUTH_MD5_SIZE;
+
+  if (rip_packet_examin (ri, packet, len, bending_bytes, 0) != MSG_OK)
     {
-      zlog_info ("version 0 with command %d received.", packet->command);
       rip_peer_bad_packet (&from);
       return -1;
     }
@@ -1507,15 +1668,7 @@ rip_read (struct thread *t)
   if (IS_RIP_DEBUG_RECV)
     rip_packet_dump (packet, len, "RECV");
 
-  /* RIP version adjust.  This code should rethink now.  RFC1058 says
-     that "Version 1 implementations are to ignore this extra data and
-     process only the fields specified in this document.". So RIPv3
-     packet should be treated as RIPv1 ignoring must be zero field. */
-  if (packet->version > RIPv2)
-    packet->version = RIPv2;
-
   /* Is RIP running or is this RIP neighbor ?*/
-  ri = ifp->info;
   if (! ri->running && ! rip_neighbor_lookup (&from))
     {
       if (IS_RIP_DEBUG_EVENT)
@@ -1558,9 +1711,7 @@ rip_read (struct thread *t)
       rip_request_process (packet, len, &from, ifc);
       break;
     default:
-      zlog_info ("Unknown RIP command %d received", packet->command);
-      rip_peer_bad_packet (&from);
-      break;
+      assert (0);
     }
 
   return len;

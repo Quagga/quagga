@@ -45,8 +45,7 @@
 /* RIP metric infinity value.*/
 #define RIP_METRIC_INFINITY             16
 
-/* Normal RIP packet min and max size. */
-#define RIP_PACKET_MINSIZ                4
+/* Normal (RFC1058) RIP packet max size. */
 #define RIP_PACKET_MAXSIZ              512
 
 #define RIP_HEADER_SIZE                  4
@@ -159,11 +158,14 @@ struct rip_packet
   struct rte rte[1];		/* Address structure. */
 };
 
+/* UDP receive buffer size */
+#define RIP_UDP_RCV_BUF 41600
+
 /* Buffer to read RIP packet. */
 union rip_buf
 {
   struct rip_packet rip_packet;
-  char buf[RIP_PACKET_MAXSIZ];
+  char buf[RIP_UDP_RCV_BUF];
 };
 
 /* RIP route information. */
