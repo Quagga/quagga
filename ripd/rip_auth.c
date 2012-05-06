@@ -396,3 +396,34 @@ rip_auth_header_write (struct stream *s, struct rip_interface *ri,
   return 0;
 }
 
+/* Dump the contents of a 0xFFFF (authentication) family RTE. */
+void
+rip_auth_dump_ffff_rte (struct rte *rte)
+{
+  struct rip_md5_info *auth;
+  u_char *p;
+
+  switch (ntohs (rte->tag))
+  {
+  case RIP_AUTH_SIMPLE_PASSWORD:
+    zlog_debug ("  family 0xFFFF type 2 (Simple) auth string: %s", (char *) &rte->prefix);
+    break;
+  case RIP_AUTH_MD5:
+    auth = (struct rip_md5_info *) rte;
+    zlog_debug ("  family 0xFFFF type 3 (MD5 authentication)");
+    zlog_debug ("    RIP-2 packet len %u Key ID %u Auth Data len %u",
+                ntohs (auth->packet_len), auth->keyid, auth->auth_len);
+    zlog_debug ("    Sequence Number %u", ntohl (auth->sequence));
+    break;
+  case RIP_AUTH_DATA:
+    p = (u_char *) &rte->prefix;
+    zlog_debug ("  family 0xFFFF type 1 (MD5 data)");
+    zlog_debug ("    MD5: %02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
+                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11],
+                p[12], p[13], p[14], p[15]);
+    break;
+  default:
+    zlog_debug ("  family 0xFFFF type %u (Unknown auth type)", ntohs (rte->tag));
+  }
+}
+

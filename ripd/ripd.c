@@ -674,7 +674,6 @@ rip_packet_dump (struct rip_packet *packet, int size, const char *sndrcv)
   struct rte *rte;
   const char *command_str;
   char pbuf[BUFSIZ], nbuf[BUFSIZ];
-  u_char *p;
 
   /* Set command string. */
   if (packet->command > 0 && packet->command < RIP_COMMAND_MAX)
@@ -694,47 +693,7 @@ rip_packet_dump (struct rip_packet *packet, int size, const char *sndrcv)
       if (packet->version == RIPv2)
 	{
           if (rte->family == htons (RIP_FAMILY_AUTH))
-            {
-              if (rte->tag == htons (RIP_AUTH_SIMPLE_PASSWORD))
-		{
-		  p = (u_char *)&rte->prefix;
-
-		  zlog_debug ("  family 0x%X type %d auth string: %s",
-			     ntohs (rte->family), ntohs (rte->tag), p);
-		}
-              else if (rte->tag == htons (RIP_AUTH_MD5))
-		{
-		  struct rip_md5_info *md5;
-
-		  md5 = (struct rip_md5_info *) &packet->rte;
-
-		  zlog_debug ("  family 0x%X type %d (MD5 authentication)",
-			     ntohs (md5->family), ntohs (md5->type));
-		  zlog_debug ("    RIP-2 packet len %d Key ID %d"
-                             " Auth Data len %d",
-                             ntohs (md5->packet_len), md5->keyid,
-                             md5->auth_len);
-                  zlog_debug ("    Sequence Number %ld",
-                             (u_long) ntohl (md5->sequence));
-		}
-              else if (rte->tag == htons (RIP_AUTH_DATA))
-		{
-		  p = (u_char *)&rte->prefix;
-
-		  zlog_debug ("  family 0x%X type %d (MD5 data)",
-			     ntohs (rte->family), ntohs (rte->tag));
-		  zlog_debug ("    MD5: %02X%02X%02X%02X%02X%02X%02X%02X"
-			     "%02X%02X%02X%02X%02X%02X%02X",
-                             p[0], p[1], p[2], p[3], p[4], p[5], p[6],
-                             p[7], p[9], p[10], p[11], p[12], p[13],
-                             p[14], p[15]);
-		}
-	      else
-		{
-		  zlog_debug ("  family 0x%X type %d (Unknown auth type)",
-			     ntohs (rte->family), ntohs (rte->tag));
-		}
-            }
+            rip_auth_dump_ffff_rte (rte);
 	  else
 	    zlog_debug ("  %s/%d -> %s family %d tag %d metric %ld",
                        inet_ntop (AF_INET, &rte->prefix, pbuf, BUFSIZ),
