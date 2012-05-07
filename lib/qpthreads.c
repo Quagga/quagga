@@ -568,9 +568,8 @@ qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr)
   {
     qstring qs ;
 
-    qs = qpt_thread_attr_form(&thread_attr, "  ") ;
-
-    fputs(qs_string(qs), stderr) ;
+    qs = qpt_thread_attr_form(&thread_attr) ;
+    zlog_info("Thread created: %s", qs_string(qs)) ;
 
     qs_free(qs) ;
   }
@@ -1392,7 +1391,7 @@ qpt_data_delete(qpt_data data)
  * NB: it is the caller's responsibility to dispose of the qstring
  */
 extern qstring
-qpt_thread_attr_form(qpt_thread_attr_t* attr, const char *prefix)
+qpt_thread_attr_form(qpt_thread_attr_t* attr)
 {
   int err, i ;
   qstring qs ;
@@ -1402,131 +1401,117 @@ qpt_thread_attr_form(qpt_thread_attr_t* attr, const char *prefix)
 
   qs = qs_new(500) ;
 
-                  /* 12345678901234567890 */
-  qs_printf_a(qs, "%sDetach state        ", prefix) ;
   err = pthread_attr_getdetachstate(attr, &i);
   if (err != 0)
-    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+    qs_printf_a(qs, "[getdetachstate *error* %s]", errtoa(err, 0).str) ;
   else
     {
       switch(i)
         {
           case PTHREAD_CREATE_DETACHED:
-            qs_printf_a(qs, "= %s\n", "PTHREAD_CREATE_DETACHED") ;
+            qs_printf_a(qs, "Detached") ;
             break ;
 
           case PTHREAD_CREATE_JOINABLE:
-            qs_printf_a(qs, "= %s\n", "PTHREAD_CREATE_JOINABLE") ;
+            qs_printf_a(qs, "Joinable") ;
             break ;
 
           default:
-            qs_printf_a(qs, "= *UNKNOWN* %d\n", i) ;
+            qs_printf_a(qs, "[getdetachstate *unknown* %d]", i) ;
             break ;
         } ;
     } ;
 
-                  /* 12345678901234567890 */
-  qs_printf_a(qs, "%sScope               ", prefix) ;
-  err = pthread_attr_getscope(attr, &i);
-  if (err != 0)
-    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
-  else
-    {
-      switch(i)
-        {
-          case PTHREAD_SCOPE_SYSTEM:
-            qs_printf_a(qs, "= %s\n", "PTHREAD_SCOPE_SYSTEM") ;
-            break ;
-
-          case PTHREAD_SCOPE_PROCESS:
-            qs_printf_a(qs, "= %s\n", "PTHREAD_SCOPE_PROCESS") ;
-            break ;
-
-          default:
-            qs_printf_a(qs, "= *UNKNOWN* %d\n", i) ;
-            break ;
-        } ;
-    } ;
-
-                  /* 12345678901234567890 */
-  qs_printf_a(qs, "%sInherit scheduler   ", prefix) ;
   err = pthread_attr_getinheritsched(attr, &i);
   if (err != 0)
-    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+    qs_printf_a(qs, " [getinheritsched *error* %s]", errtoa(err, 0).str) ;
   else
     {
       switch(i)
         {
           case PTHREAD_INHERIT_SCHED:
-            qs_printf_a(qs, "= %s\n", "PTHREAD_INHERIT_SCHED") ;
+            qs_printf_a(qs, " Inherit-Sched") ;
             break ;
 
           case PTHREAD_EXPLICIT_SCHED:
-            qs_printf_a(qs, "= %s\n", "PTHREAD_EXPLICIT_SCHED") ;
+            qs_printf_a(qs, " Explicit-Sched") ;
             break ;
 
           default:
-            qs_printf_a(qs, "= *UNKNOWN* %d\n", i) ;
+            qs_printf_a(qs, " [getinheritsched *unknown* %d]", i) ;
             break ;
         } ;
     } ;
 
-                  /* 12345678901234567890 */
-  qs_printf_a(qs, "%sScheduling policy   ", prefix) ;
+  err = pthread_attr_getscope(attr, &i);
+  if (err != 0)
+    qs_printf_a(qs, " [getscope *error* %s]", errtoa(err, 0).str) ;
+  else
+    {
+      switch(i)
+        {
+          case PTHREAD_SCOPE_SYSTEM:
+            qs_printf_a(qs, " System-Scope") ;
+            break ;
+
+          case PTHREAD_SCOPE_PROCESS:
+            qs_printf_a(qs, " Process-Scope") ;
+            break ;
+
+          default:
+            qs_printf_a(qs, " [getscope *unknown* %d]", i) ;
+            break ;
+        } ;
+    } ;
+
   err = pthread_attr_getschedpolicy(attr, &i);
   if (err != 0)
-    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+    qs_printf_a(qs, " [getschedpolicy *error* %s]", errtoa(err, 0).str) ;
   else
     {
       switch(i)
         {
           case SCHED_OTHER:
-            qs_printf_a(qs, "= %s\n", "SCHED_OTHER") ;
+            qs_printf_a(qs, " SCHED_OTHER") ;
             break ;
 
           case SCHED_FIFO:
-            qs_printf_a(qs, "= %s\n", "SCHED_FIFO") ;
+            qs_printf_a(qs, " SCHED_FIFO") ;
             break ;
 
           case SCHED_RR:
-            qs_printf_a(qs, "= %s\n", "SCHED_RR") ;
+            qs_printf_a(qs, " SCHED_RR") ;
             break ;
 
 #ifdef SCHED_SPORADIC
           case SCHED_SPORADIC:
-            qs_printf_a(qs, "= %s\n", "SCHED_SPORADIC") ;
+            qs_printf_a(qs, " SCHED_SPORADIC") ;
             break ;
 #endif
 
           default:
-            qs_printf_a(qs, "= *UNKNOWN* %d\n", i) ;
+            qs_printf_a(qs, " SCHED_UNKNOWN=%d", i) ;
             break ;
         } ;
     } ;
 
-                  /* 12345678901234567890 */
-  qs_printf_a(qs, "%sScheduling priority ", prefix) ;
   err = pthread_attr_getschedparam(attr, sp);
   if (err != 0)
-    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+    qs_printf_a(qs, " [getschedparam *error* %s]", errtoa(err, 0).str) ;
   else
-    qs_printf_a(qs, "= %d\n", sp->sched_priority) ;
+    qs_printf_a(qs, " Priority=%d", sp->sched_priority) ;
 
-                  /* 12345678901234567890 */
-  qs_printf_a(qs, "%sGuard size          ", prefix) ;
   err = pthread_attr_getguardsize(attr, &v);
   if (err != 0)
-    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+    qs_printf_a(qs, " [getguardsize *error* %s]", errtoa(err, 0).str) ;
   else
-    qs_printf_a(qs, "= %u\n", (uint)v) ;
+    qs_printf_a(qs, " Guard-Size=%u", (uint)v) ;
 
-                  /* 12345678901234567890 */
-  qs_printf_a(qs, "%sStack address/size  ", prefix) ;
   err = pthread_attr_getstack(attr, &stkaddr, &v) ;
   if (err != 0)
-    qs_printf_a(qs, " *error* %s\n", errtoa(err, 0).str) ;
+    qs_printf_a(qs, " [getstack *error* %s]", errtoa(err, 0).str) ;
   else
-    qs_printf_a(qs, "= %p/%u\n", stkaddr, (uint)v) ;
+    qs_printf_a(qs, " Stack=%p/%u", stkaddr, (uint)v) ;
 
   return qs ;
 } ;

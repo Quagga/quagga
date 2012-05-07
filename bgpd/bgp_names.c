@@ -260,3 +260,16 @@ const char* bgp_afi_name_map_body[] =
 const map_direct_t bgp_afi_name_map =
       map_direct_s(bgp_afi_name_map_body, "unknown AFI(%u)") ;
 
+/*------------------------------------------------------------------------------
+ * SAFI names
+ */
+const char* bgp_safi_name_map_body[] =
+{
+  [SAFI_UNICAST]              = "SAFI_UNICAST",
+  [SAFI_MULTICAST]            = "SAFI_MULTICAST",
+  [SAFI_MPLS_VPN]             = "SAFI_MPLS_VPN",
+};
+
+const map_direct_t bgp_safi_name_map =
+      map_direct_s(bgp_safi_name_map_body, "unknown SAFI(%u)") ;
+

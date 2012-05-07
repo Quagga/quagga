@@ -1756,6 +1756,34 @@ bgp_routeadv_timer (struct thread *thread)
   return 0;
 }
 
+static int
+bgp_withdraw_event (struct thread *thread)
+{
+  bgp_peer  peer ;
+
+  peer = THREAD_ARG (thread);
+  peer->t_withdraw = NULL;
+
+  if (BGP_DEBUG (fsm, FSM))
+    zlog (peer->log, LOG_DEBUG,
+          "%s [FSM] bgp_withdraw_event",
+          peer->host);
+
+  bgp_write(peer, NULL);
+  return 0;
+}
+
+extern void
+bgp_withdraw_schedule(bgp_peer peer)
+{
+  if (peer->t_withdraw == NULL)
+    {
+      /* TODO: replace legacy event use
+       */
+      peer->t_withdraw = thread_add_event(master, bgp_withdraw_event, peer, 0) ;
+    } ;
+} ;
+
 /*------------------------------------------------------------------------------
  * BGP Peer Down Causes mapped to strings
  */

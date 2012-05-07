@@ -177,6 +177,8 @@ Inline bool stream_has_overflowed(struct stream* s) ;
 Inline void stream_clear_overrun(struct stream* s) ;
 Inline void stream_clear_overflow(struct stream* s) ;
 
+Inline bool stream_has_written_beyond(struct stream* s, size_t limit) ;
+
 Inline void stream_set_getp(struct stream *, size_t);
 Inline void stream_set_endp(struct stream *, size_t);
 Inline void stream_set_startp(struct stream* s, size_t) ;
@@ -501,6 +503,27 @@ stream_clear_overflow(struct stream* s)
 {
   s->overflow = false ;
 }
+
+/*------------------------------------------------------------------------------
+ * Test if the endp is beyond the given limit
+ *
+ * A stream may be set up to be longer than some actual limit, so that the
+ * extent of overflowing beyond that limit can be measured.  This test can
+ * then be used to see if the endp is *currently* within the given limit.
+ *
+ * Returns:  true <=> endp is *beyond* the given limit.
+ *
+ * NB: the limit MUST be less than the size -- for if not, this is *always*
+ *     going to return false, because the s->endp is *always* <= s->size !
+ */
+Inline bool
+stream_has_written_beyond(struct stream* s, size_t limit)
+{
+  qassert_stream(s) ;
+  qassert(limit < s->size) ;
+
+  return (s->endp > limit) ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Set s->getp to given value.

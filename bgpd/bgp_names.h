@@ -43,5 +43,6 @@ extern const map_direct_t bgp_origin_short_map ;
 extern const map_direct_t bgp_origin_long_map ;
 extern const map_direct_t bgp_attr_name_map ;
 extern const map_direct_t bgp_afi_name_map ;
+extern const map_direct_t bgp_safi_name_map ;
 
 #endif /* _QUAGGA_BGP_NAMES_H */

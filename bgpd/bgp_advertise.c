@@ -101,24 +101,40 @@ bgp_advertise_free (struct bgp_advertise *adv)
 
 static void
 bgp_advertise_add (struct bgp_advertise_attr *baa,
-		   struct bgp_advertise *adv)
+		   bgp_advertise adv)
 {
-  adv->adv_next = baa->adv;
-  if (baa->adv)
-    baa->adv->adv_prev = adv;
-  baa->adv = adv;
+  bgp_advertise last ;
+
+  if (baa->base.head == NULL)
+    {
+      last = NULL ;
+      baa->base.head = adv ;
+    }
+  else
+    {
+      last = baa->base.tail ;
+      last->adv_next = adv ;
+    } ;
+
+  adv->adv_next  = NULL ;
+  adv->adv_prev  = last ;
+
+  baa->base.tail = adv ;
 }
 
 static void
 bgp_advertise_delete (struct bgp_advertise_attr *baa,
 		      struct bgp_advertise *adv)
 {
-  if (adv->adv_next)
+  if (adv->adv_next != NULL)
     adv->adv_next->adv_prev = adv->adv_prev;
-  if (adv->adv_prev)
+  else
+    baa->base.tail = adv->adv_prev ;
+
+  if (adv->adv_prev != NULL)
     adv->adv_prev->adv_next = adv->adv_next;
   else
-    baa->adv = adv->adv_next;
+    baa->base.head = adv->adv_next;
 }
 
 static struct bgp_advertise_attr *
@@ -191,7 +207,7 @@ bgp_advertise_clean (struct peer *peer, struct bgp_adj_out *adj,
       bgp_advertise_delete (baa, adv);
 
       /* Fetch next advertise candidate. */
-      next = baa->adv;
+      next = baa->base.head ;
 
       /* Unintern BGP advertise attribute.  */
       bgp_advertise_unintern (peer->hash[afi][safi], baa);
@@ -296,10 +312,10 @@ bgp_adj_out_unset (struct bgp_node *rn, struct peer *peer, struct prefix *p,
   assert(rn == adj->rn) ;
 
   /* Clear up previous advertisement.                           */
-  if (adj->adv)
+  if (adj->adv != NULL)
     bgp_advertise_clean (peer, adj, afi, safi);
 
-  if (adj->attr)
+  if (adj->attr != NULL)
     {
       /* We need advertisement structure.                       */
       adj->adv = bgp_advertise_new ();
@@ -310,8 +326,9 @@ bgp_adj_out_unset (struct bgp_node *rn, struct peer *peer, struct prefix *p,
       /* Add to synchronization entry for withdraw announcement */
       bgp_advertise_fifo_add(&peer->sync[afi][safi]->withdraw, adv);
 
-      /* Schedule packet write. */
-      bgp_write(peer, NULL) ;
+      /* Schedule flush of withdraws
+       */
+      bgp_withdraw_schedule(peer) ;
     }
   else
     bgp_adj_out_remove(rn, adj, peer, afi, safi) ;

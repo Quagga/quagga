@@ -755,6 +755,8 @@ bgp_attr_unintern_sub (struct attr *attr, bool free_extra)
  *
  * Can do this to an attribute object which has not been interned, because its
  * reference count SHOULD be zero.
+ *
+ * Sets *attr = NULL iff the attributes are discarded.
  */
 void
 bgp_attr_unintern (struct attr **attr)
@@ -1664,7 +1666,7 @@ bgp_mp_reach_parse (bgp_attr_parser_args args)
                        siptoa(AF_INET6, &attre->mp_nexthop_global).str,
                        siptoa(AF_INET6, &attre->mp_nexthop_local).str) ;
 
-	  attre->mp_nexthop_len = 16;
+	  nexthop_len = 16;     /* discard mp_nexthop_local     */
 	}
       break;
 #endif /* HAVE_IPV6 */
@@ -2418,7 +2420,6 @@ bgp_packet_attribute (struct bgp *bgp, struct peer *peer,
    * - send an AS_PATH out, but put 16Bit ASnums in it, not 32bit, and change
    *   all ASnums > 65535 to BGP_AS_TRANS
    */
-
   stream_putc (s, BGP_ATTR_FLAG_TRANS|BGP_ATTR_FLAG_EXTLEN);
   stream_putc (s, BGP_ATTR_AS_PATH);
   aspath_sizep = stream_get_endp (s);
@@ -2635,6 +2636,7 @@ bgp_packet_attribute (struct bgp *bgp, struct peer *peer,
   if (p->family == AF_INET && safi == SAFI_MPLS_VPN)
     {
       unsigned long sizep;
+      uint tp ;
 
       stream_putc (s, BGP_ATTR_FLAG_OPTIONAL);
       stream_putc (s, BGP_ATTR_MP_REACH_NLRI);
@@ -2653,7 +2655,11 @@ bgp_packet_attribute (struct bgp *bgp, struct peer *peer,
 
       /* Tag, RD, Prefix write. */
       stream_putc (s, p->prefixlen + 88);
-      stream_put (s, tag, 3);
+      stream_put (s, tag, 3);           /* zeros if tag == NULL */
+
+      tp = stream_get_endp (s) - 1 ;
+      stream_putc_at(s, tp, stream_getc_from(s, tp) | 1) ;
+
       stream_put (s, prd->val, 8);
       stream_put (s, &p->u.prefix, PSIZE (p->prefixlen));
 
@@ -2785,9 +2791,8 @@ bgp_packet_attribute (struct bgp *bgp, struct peer *peer,
 }
 
 bgp_size_t
-bgp_packet_withdraw (struct peer *peer, struct stream *s, struct prefix *p,
-		     afi_t afi, safi_t safi, struct prefix_rd *prd,
-		     u_char *tag)
+bgp_packet_withdraw (struct stream *s, struct prefix *p,
+		     afi_t afi, safi_t safi, struct prefix_rd *prd)
 {
   unsigned long cp;
   unsigned long attrlen_pnt;
@@ -2801,25 +2806,16 @@ bgp_packet_withdraw (struct peer *peer, struct stream *s, struct prefix *p,
   attrlen_pnt = stream_get_endp (s);
   stream_putc (s, 0);		/* Length of this attribute. */
 
-  stream_putw (s, family2afi (p->family));
+  stream_putw (s, afi);
 
   if (safi == SAFI_MPLS_VPN)
     {
-      /* SAFI */
       stream_putc (s, SAFI_MPLS_LABELED_VPN);
-
-      /* prefix. */
-      stream_putc (s, p->prefixlen + 88);
-      stream_put (s, tag, 3);
-      stream_put (s, prd->val, 8);
-      stream_put (s, &p->u.prefix, PSIZE (p->prefixlen));
+      bgp_packet_withdraw_vpn_prefix (s, p, prd) ;
     }
   else
     {
-      /* SAFI */
       stream_putc (s, safi);
-
-      /* prefix */
       stream_put_prefix (s, p);
     }
 
@@ -2828,6 +2824,16 @@ bgp_packet_withdraw (struct peer *peer, struct stream *s, struct prefix *p,
   stream_putc_at (s, attrlen_pnt, size);
 
   return stream_get_endp (s) - cp;
+}
+
+void
+bgp_packet_withdraw_vpn_prefix (struct stream *s, struct prefix *p,
+                                                          struct prefix_rd *prd)
+{
+  stream_putc (s, p->prefixlen + (( 3 + 8) * 8));
+  stream_put (s, "\x00\x00\x01", 3);
+  stream_put (s, prd->val, 8);
+  stream_put (s, &p->u.prefix, PSIZE (p->prefixlen));
 }
 
 /* Initialization of attribute. */

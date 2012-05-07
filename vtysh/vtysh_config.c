@@ -1807,7 +1807,7 @@ vtysh_config_get_name(config_collection collection, config_item parent,
         break ;
 
       default:
-        qassert(false) ;
+        assert(false) ;
     } ;
 
   tokens = cmd_tokens_concat(collection->parsed, ti, tn - ti) ;

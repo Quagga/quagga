@@ -1630,7 +1630,8 @@ DEFUN (neighbor_set_peer_group,
 
   if (ret == BGP_ERR_PEER_GROUP_PEER_TYPE_DIFFERENT)
     {
-      vty_out (vty, "%% Peer with AS %u cannot be in this peer-group, members must be all internal or all external%s", as, VTY_NEWLINE);
+      vty_out (vty, "%% Peer with AS %u cannot be in this peer-group, "
+             "members must be all internal or all external%s", as, VTY_NEWLINE);
       return CMD_WARNING;
     }
 

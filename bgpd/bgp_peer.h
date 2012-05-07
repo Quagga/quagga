@@ -379,7 +379,7 @@ struct peer
   u_int32_t v_gr_restart;
 
   /* Threads.                                           */
-  struct thread *t_asorig;
+  struct thread *t_withdraw ;
   struct thread *t_routeadv;
   struct thread *t_pmax_restart;
   struct thread *t_gr_restart;
@@ -392,6 +392,8 @@ struct peer
   /* Synchronization list and time.                     */
   struct bgp_synchronize *sync[AFI_MAX][SAFI_MAX];
   time_t synctime;
+
+  bool   do_updates ;
 
   /* Send prefix count.                                 */
   unsigned long scount[AFI_MAX][SAFI_MAX];
@@ -448,6 +450,7 @@ struct peer
       THREAD_TIMER_OFF(T);			\
   } while (0)
 
+#if 0
 #define BGP_EVENT_ADD(P,E)			\
   do {						\
     if ((P)->state != bgp_peer_pDeleting)			\
@@ -467,8 +470,10 @@ extern int bgp_stop (struct peer *peer);
 extern void bgp_timer_set (struct peer *);
 #endif
 extern void bgp_fsm_change_status (struct peer *peer, int status);
-extern const char *peer_down_str[];
 
+#endif
+
+extern const char *peer_down_str[];
 
 /*==============================================================================
  *
@@ -491,6 +496,7 @@ extern bgp_peer bgp_peer_unlock (bgp_peer peer) ;
 extern int bgp_peer_delete (bgp_peer peer);
 extern sockunion bgp_peer_get_ifaddress(bgp_peer peer, const char* ifname,
                                                                sa_family_t af) ;
+extern void bgp_withdraw_schedule(bgp_peer peer) ;
 
 #endif /* _QUAGGA_BGP_PEER_H */
 

@@ -194,8 +194,7 @@ qpt_thread_join(qpt_thread_t thread_id) ;
 extern clockid_t qpt_get_cpu_clock(qpt_thread_t thread_id) ;
 extern qtime_t qpt_cpu_time(clockid_t clock_id) ;
 
-extern qstring qpt_thread_attr_form(qpt_thread_attr_t* attr,
-                                                           const char *prefix) ;
+extern qstring qpt_thread_attr_form(qpt_thread_attr_t* attr) ;
 
 /*==============================================================================
  * Signal Handling.

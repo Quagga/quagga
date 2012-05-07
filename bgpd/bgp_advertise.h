@@ -45,7 +45,7 @@ struct bgp_advertise_fifo_base
 struct bgp_advertise_attr
 {
   /* Head of advertisement pointer. */
-  struct bgp_advertise *adv;
+  struct bgp_advertise_fifo_base base ;
 
   /* Reference counter.  */
   unsigned long refcnt;

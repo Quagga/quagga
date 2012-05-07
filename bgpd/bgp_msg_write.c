@@ -81,6 +81,8 @@
  *     fail !
  *
  * NB: requires the session LOCKED -- connection-wise
+ *
+ * NB: clamps the length of the data to fit in the maximum size BGP message.
  */
 extern int
 bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
@@ -109,8 +111,14 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
   if (length != 0)
     stream_put(s, bgp_notify_get_data(notification), length) ;
 
-  /* Set BGP packet length.
+  /* Set BGP packet length -- clamping to maximum (if required)
    */
+  if (bgp_packet_check_size(s, connection->su_remote) == 0)
+    {
+      stream_set_endp(s, BGP_MSG_MAX_L) ;
+      stream_clear_overflow(s) ;
+    } ;
+
   bgp_packet_set_size(s);
 
   /* Set flag so that write_action raises required event when buffer becomes
@@ -151,7 +159,8 @@ bgp_msg_send_keepalive(bgp_connection connection, bool must_send)
 
   ++connection->session->stats.keepalive_out ;
 
-  /* Make KEEPALIVE message -- comprises header only    */
+  /* Make KEEPALIVE message -- comprises header only, so guaranteed to fit !
+   */
   bgp_packet_set_marker(s, BGP_MSG_KEEPALIVE);
   length = bgp_packet_set_size(s);
 
@@ -218,6 +227,9 @@ bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
   bgp_open_options(s, open_state, connection->cap_suppress) ;
 
   /* Set BGP message length.
+   *
+   * Cannot overflow the BGP Message size, and if it did, there is damn all
+   * we could do about it !
    */
   length = bgp_packet_set_size(s) ;
 
@@ -517,11 +529,14 @@ bgp_msg_send_route_refresh(bgp_connection connection, bgp_route_refresh rr)
       stream_putc(s, 0);
       stream_putc(s, rr->safi);
 
-      /* Process as many (remaining) ORF entries as can into message    */
+      /* Process as many (remaining) ORF entries as can into message
+       */
       if (!done)
         done = bgp_msg_orf_part(s, connection, rr) ;
 
-      /* Set BGP message length & dispatch.                             */
+      /* Set BGP message length & dispatch -- noting that orf entry
+       * construction ensures that the length does not exceed the maximum.
+       */
       length = bgp_packet_set_size(s) ;
 
       if (BGP_DEBUG (normal, NORMAL))
@@ -831,6 +846,8 @@ bgp_msg_send_end_of_rib(bgp_connection connection, iAFI_t afi, iSAFI_t safi)
        stream_putw_at(s, attrp-2, stream_get_endp(s) - attrp) ;
     }
 
+  /* Cannot overflow BGP Message
+   */
   bgp_packet_set_size(s);
 
   if (BGP_DEBUG (normal, NORMAL))
