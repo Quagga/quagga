@@ -30,7 +30,6 @@
 #include "routemap.h"
 #include "if_rmap.h"
 #include "distribute.h"
-#include "keychain.h"
 #include "privs.h"
 
 #include "ripd/ripd.h"
@@ -1607,17 +1606,15 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
 {
   int ret;
   struct stream *s;
+  struct stream *rtebuf;
   struct route_node *rp;
   struct rip_info *rinfo;
   struct rip_interface *ri;
   struct prefix_ipv4 *p;
   struct prefix_ipv4 classfull;
   struct prefix_ipv4 ifaddrclass;
-  struct key *key = NULL;
   /* this might need to made dynamic if RIP ever supported auth methods
      with larger key string sizes */
-  char auth_str[RIP_AUTH_SIMPLE_SIZE];
-  size_t doff = 0; /* offset of digest offset field */
   int num = 0;
   int rtemax;
   int subnetted = 0;
@@ -1635,41 +1632,13 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
   /* Set output stream. */
   s = rip->obuf;
 
-  /* Reset stream and RTE counter. */
-  stream_reset (s);
+  /* Detect packet layout and setup RTE buffer appropriately. */
   rtemax = rip_auth_allowed_inet_rtes (ifc->ifp->info, version);
+  rtebuf = stream_new (rtemax * RIP_RTE_SIZE);
 
   /* Get RIP interface. */
   ri = ifc->ifp->info;
     
-  /* If output interface is in simple password authentication mode
-     and string or keychain is specified we need space for auth. data */
-  if (ri->auth_type != RIP_NO_AUTH)
-    {
-      if (ri->key_chain)
-       {
-         struct keychain *keychain;
-
-         keychain = keychain_lookup (ri->key_chain);
-         if (keychain)
-           key = key_lookup_for_send (keychain);
-       }
-      /* to be passed to auth functions later */
-      /* Pick correct auth string for sends, prepare auth_str buffer for use.
-       * (left justified and padded).
-       *
-       * presumes one of ri or key is valid, and that the auth strings they point
-       * to are nul terminated. If neither are present, auth_str will be fully
-       * zero padded.
-       *
-       */
-      memset (auth_str, 0, RIP_AUTH_SIMPLE_SIZE);
-      if (key && key->string)
-        strncpy (auth_str, key->string, RIP_AUTH_SIMPLE_SIZE);
-      else if (ri->auth_str)
-        strncpy (auth_str, ri->auth_str, RIP_AUTH_SIMPLE_SIZE);
-    }
-
   if (version == RIPv1)
     {
       memcpy (&ifaddrclass, ifc->address, sizeof (struct prefix_ipv4));
@@ -1846,25 +1815,15 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
 	       rinfo->metric_out = RIP_METRIC_INFINITY;
 	}
 	
-	/* Prepare preamble, auth headers, if needs be */
-	if (num == 0)
-	  {
-	    stream_putc (s, RIP_RESPONSE);
-	    stream_putc (s, version);
-	    stream_putw (s, 0);
-	    
-	    /* auth header for !v1 && !no_auth */
-            if ( (ri->auth_type != RIP_NO_AUTH) && (version != RIPv1) )
-              doff = rip_auth_header_write (s, ri, key, auth_str);
-          }
-        
 	/* Write RTE to the stream. */
-	num = rip_write_rte (num, s, p, version, rinfo);
+	num = rip_write_rte (num, rtebuf, p, version, rinfo);
 	if (num == rtemax)
 	  {
-	    if (version == RIPv2 && ri->auth_type == RIP_AUTH_MD5)
-              rip_auth_md5_set (s, ri, doff, auth_str);
-
+	    if (rip_auth_make_packet (ifc->ifp->info, s, rtebuf, version, RIP_RESPONSE) < 0)
+	      {
+	        stream_free (rtebuf);
+	        return;
+	      }
 	    ret = rip_send_packet (STREAM_DATA (s), stream_get_endp (s),
 				   to, ifc);
 
@@ -1872,15 +1831,17 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
 	      rip_packet_dump ((struct rip_packet *)STREAM_DATA (s),
 			       stream_get_endp(s), "SEND");
 	    num = 0;
-	    stream_reset (s);
 	  }
       }
 
   /* Flush unwritten RTE. */
   if (num != 0)
     {
-      if (version == RIPv2 && ri->auth_type == RIP_AUTH_MD5)
-        rip_auth_md5_set (s, ri, doff, auth_str);
+      if (rip_auth_make_packet (ifc->ifp->info, s, rtebuf, version, RIP_RESPONSE) < 0)
+        {
+          stream_free (rtebuf);
+          return;
+        }
 
       ret = rip_send_packet (STREAM_DATA (s), stream_get_endp (s), to, ifc);
 
@@ -1889,6 +1850,7 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
 			 stream_get_endp (s), "SEND");
     }
 
+  stream_free (rtebuf);
   /* Statistics updates. */
   ri->sent_updates++;
 }

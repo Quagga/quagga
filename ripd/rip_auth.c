@@ -19,6 +19,7 @@
  */
 
 #include <zebra.h>
+#include "keychain.h"
 #include "md5.h"
 #include "ripd/rip_auth.h"
 #include "ripd/rip_debug.h"
@@ -265,7 +266,7 @@ int rip_auth_check_packet
 }
 
 /* Write RIPv2 MD5 authentication data trailer */
-void
+static void
 rip_auth_md5_set (struct stream *s, struct rip_interface *ri, size_t doff,
                   char *auth_str)
 {
@@ -374,25 +375,79 @@ rip_auth_md5_ah_write (struct stream *s, struct rip_interface *ri,
   return doff;
 }
 
-/* If authentication is in used, write the appropriate header
- * returns stream offset to which length must later be written
- * or 0 if this is not required
+/* Take a sequence of payload (routing) RTE structures, decide on particular
+ * authentication required for the given interface and build a complete RIP
+ * packet in a stream structure. The packet will consist of header, optional
+ * heading RTE, the payload RTEs and optional trailing data. Return the stream.
  */
-size_t
-rip_auth_header_write (struct stream *s, struct rip_interface *ri,
-                       struct key *key, char *auth_str)
+int
+rip_auth_make_packet
+(
+  struct rip_interface * ri,
+  struct stream * packet,
+  struct stream * rtes,
+  const u_int8_t version,
+  const u_int8_t command
+)
 {
-  assert (ri->auth_type != RIP_NO_AUTH);
+  struct key *key = NULL;
+  char auth_str[RIP_AUTH_SIMPLE_SIZE] = { 0 };
+  size_t doff = 0; /* offset of digest offset field */
 
-  switch (ri->auth_type)
+  /* packet header, unconditional */
+  stream_reset (packet);
+  stream_putc (packet, command);
+  stream_putc (packet, version);
+  stream_putw (packet, 0);
+
+  /* authentication leading RTE, conditional */
+  if (version == RIPv2 && ri->auth_type != RIP_NO_AUTH)
+  {
+    if (ri->key_chain)
     {
-      case RIP_AUTH_SIMPLE_PASSWORD:
-        rip_auth_simple_write (s, auth_str);
-        return 0;
-      case RIP_AUTH_MD5:
-        return rip_auth_md5_ah_write (s, ri, key);
+      struct keychain *keychain;
+
+      keychain = keychain_lookup (ri->key_chain);
+      if (keychain)
+        key = key_lookup_for_send (keychain);
     }
-  assert (1);
+    /* Pick correct auth string for sends, prepare auth_str buffer for use.
+     * (left justified and padded).
+     *
+     * presumes one of ri or key is valid, and that the auth strings they point
+     * to are nul terminated. If neither are present, auth_str will be fully
+     * zero padded.
+     *
+     */
+    if (key && key->string)
+      strncpy (auth_str, key->string, RIP_AUTH_SIMPLE_SIZE);
+    else if (ri->auth_str)
+      strncpy (auth_str, ri->auth_str, RIP_AUTH_SIMPLE_SIZE);
+
+    switch (ri->auth_type)
+    {
+    case RIP_AUTH_SIMPLE_PASSWORD:
+      rip_auth_simple_write (packet, auth_str);
+      break;
+    case RIP_AUTH_MD5:
+      doff = rip_auth_md5_ah_write (packet, ri, key);
+      break;
+    }
+  }
+
+  /* RTEs payload, unconditional */
+  if (stream_get_endp (rtes) % RIP_RTE_SIZE)
+  {
+    zlog_err ("%s: malformed input RTE buffer", __func__);
+    return -1;
+  }
+  stream_write (packet, STREAM_DATA (rtes), stream_get_endp (rtes));
+  stream_reset (rtes);
+
+  /* authentication trailing data, even more conditional */
+  if (version == RIPv2 && ri->auth_type == RIP_AUTH_MD5)
+    rip_auth_md5_set (packet, ri, doff, auth_str);
+
   return 0;
 }
 

@@ -22,7 +22,6 @@
 #define QUAGGA_RIP_AUTH_H_
 
 #include "stream.h"       /* for struct stream              */
-#include "keychain.h"     /* for struct key                 */
 #include "ripd/ripd.h"    /* for struct rip_packet          */
 #include "ripd/rip_interface.h"
 
@@ -61,9 +60,8 @@ struct rip_md5_data
   u_char digest[16];
 };
 
-extern void rip_auth_md5_set (struct stream *, struct rip_interface *, size_t, char *);
-extern size_t rip_auth_header_write (struct stream *, struct rip_interface *, struct key *, char *);
 extern int rip_auth_check_packet (struct rip_interface *, struct sockaddr_in *, struct rip_packet *, const size_t);
+extern int rip_auth_make_packet (struct rip_interface *, struct stream *, struct stream *, const u_int8_t, const u_int8_t);
 extern void rip_auth_dump_ffff_rte (struct rte *);
 extern unsigned rip_auth_allowed_inet_rtes (struct rip_interface *, const u_char);
 
