@@ -27,20 +27,16 @@
 
 /* RIP version 2 authentication. */
 static int
-rip_auth_simple_password (struct rip_interface *ri, struct rte *rte)
+rip_auth_simple_password (struct rip_interface *ri, struct rip_auth_rte *auth)
 {
-  char *auth_str;
-
   if (ri->auth_type != RIP_AUTH_SIMPLE_PASSWORD
-      || rte->tag != htons(RIP_AUTH_SIMPLE_PASSWORD))
+      || auth->type != htons (RIP_AUTH_SIMPLE_PASSWORD))
     return 0;
 
   /* Simple password authentication. */
   if (ri->auth_str)
     {
-      auth_str = (char *) &rte->prefix;
-
-      if (strncmp (auth_str, ri->auth_str, RIP_AUTH_SIMPLE_SIZE) == 0)
+      if (strncmp (auth->u.password, ri->auth_str, RIP_AUTH_SIMPLE_SIZE) == 0)
 	return 1;
     }
   if (ri->key_chain)
@@ -52,7 +48,7 @@ rip_auth_simple_password (struct rip_interface *ri, struct rte *rte)
       if (keychain == NULL)
 	return 0;
 
-      key = key_match_for_accept (keychain, (char *) &rte->prefix);
+      key = key_match_for_accept (keychain, auth->u.password);
       if (key)
 	return 1;
     }
@@ -63,8 +59,7 @@ rip_auth_simple_password (struct rip_interface *ri, struct rte *rte)
 static int
 rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet, const unsigned length)
 {
-  struct rip_md5_info *md5;
-  struct rip_md5_data *md5data;
+  struct rip_auth_rte *hi, *hd;
   struct keychain *keychain;
   struct key *key;
   MD5_CTX ctx;
@@ -72,39 +67,39 @@ rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet, const unsigne
   u_int16_t packet_len;
   char auth_str[RIP_AUTH_MD5_SIZE];
 
-  md5 = (struct rip_md5_info *) &packet->rte;
+  hi = (struct rip_auth_rte *) &packet->rte;
 
   /* Check auth type. */
-  if (ri->auth_type != RIP_AUTH_HASH || md5->type != htons (RIP_AUTH_HASH))
+  if (ri->auth_type != RIP_AUTH_HASH || hi->type != htons (RIP_AUTH_HASH))
     return 0;
 
   /* If the authentication length is less than 16, then it must be wrong for
    * any interpretation of rfc2082. Some implementations also interpret
    * this as RIP_HEADER_SIZE+ RIP_AUTH_MD5_SIZE, aka RIP_AUTH_MD5_COMPAT_SIZE.
    */
-  if ( !((md5->auth_len == RIP_AUTH_MD5_SIZE)
-         || (md5->auth_len == RIP_AUTH_MD5_COMPAT_SIZE)))
+  if ( !((hi->u.hash_info.auth_len == RIP_AUTH_MD5_SIZE)
+         || (hi->u.hash_info.auth_len == RIP_AUTH_MD5_COMPAT_SIZE)))
     {
       if (IS_RIP_DEBUG_EVENT)
         zlog_debug ("RIPv2 MD5 authentication, strange authentication "
-                   "length field %d", md5->auth_len);
+                   "length field %d", hi->u.hash_info.auth_len);
     return 0;
     }
 
   /* grab and verify check packet length */
-  packet_len = ntohs (md5->packet_len);
+  packet_len = ntohs (hi->u.hash_info.packet_len);
 
   if (packet_len > (length - RIP_HEADER_SIZE - RIP_AUTH_MD5_SIZE))
     {
       if (IS_RIP_DEBUG_EVENT)
         zlog_debug ("RIPv2 MD5 authentication, packet length field %d "
                    "greater than received length %d!",
-                   md5->packet_len, length);
+                   packet_len, length);
       return 0;
     }
 
   /* retrieve authentication data */
-  md5data = (struct rip_md5_data *) (((u_char *) packet) + packet_len);
+  hd = (struct rip_auth_rte *) (((caddr_t) packet) + packet_len);
 
   memset (auth_str, 0, RIP_AUTH_MD5_SIZE);
 
@@ -114,7 +109,7 @@ rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet, const unsigne
       if (keychain == NULL)
 	return 0;
 
-      key = key_lookup_for_accept (keychain, md5->keyid);
+      key = key_lookup_for_accept (keychain, hi->u.hash_info.key_id);
       if (key == NULL)
 	return 0;
 
@@ -133,7 +128,7 @@ rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet, const unsigne
   MD5Update(&ctx, auth_str, RIP_AUTH_MD5_SIZE);
   MD5Final(digest, &ctx);
 
-  if (memcmp (md5data->digest, digest, RIP_AUTH_MD5_SIZE) == 0)
+  if (memcmp (hd->u.hash_digest, digest, RIP_AUTH_MD5_SIZE) == 0)
     return packet_len;
   else
     return 0;
@@ -212,6 +207,7 @@ int rip_auth_check_packet
   else if (ri->auth_type != RIP_NO_AUTH)
   {
     const char *auth_desc;
+    struct rip_auth_rte *auth = (struct rip_auth_rte *) packet->rte;
 
     if (rtenum == 0)
     {
@@ -223,7 +219,7 @@ int rip_auth_check_packet
     }
 
     /* First RTE must be an Authentication Family RTE */
-    if (packet->rte->family != htons(RIP_FAMILY_AUTH))
+    if (auth->type != htons (RIP_FAMILY_AUTH))
     {
       if (IS_RIP_DEBUG_PACKET)
         zlog_debug ("RIPv2" " dropped because authentication enabled");
@@ -232,11 +228,11 @@ int rip_auth_check_packet
     }
 
     /* Check RIPv2 authentication. */
-    switch (ntohs(packet->rte->tag))
+    switch (ntohs (auth->type))
     {
     case RIP_AUTH_SIMPLE_PASSWORD:
       auth_desc = "simple";
-      ret = rip_auth_simple_password (ri, packet->rte) ? bytesonwire : 0;
+      ret = rip_auth_simple_password (ri, auth) ? bytesonwire : 0;
       break;
     case RIP_AUTH_HASH:
       auth_desc = "hash";
@@ -246,7 +242,7 @@ int rip_auth_check_packet
     default:
       auth_desc = "unknown type";
       if (IS_RIP_DEBUG_PACKET)
-        zlog_debug ("RIPv2 Unknown authentication type %d", ntohs (packet->rte->tag));
+        zlog_debug ("RIPv2 Unknown authentication type %d", ntohs (auth->type));
     }
 
     if (ret)
@@ -433,32 +429,32 @@ rip_auth_make_packet
 
 /* Dump the contents of a 0xFFFF (authentication) family RTE. */
 void
-rip_auth_dump_ffff_rte (struct rte *rte)
+rip_auth_dump_ffff_rte (struct rip_auth_rte *auth)
 {
-  struct rip_md5_info *auth;
-  u_char *p;
-
-  switch (ntohs (rte->tag))
+  switch (ntohs (auth->type))
   {
   case RIP_AUTH_SIMPLE_PASSWORD:
-    zlog_debug ("  family 0xFFFF type 2 (Simple) auth string: %s", (char *) &rte->prefix);
+    zlog_debug ("  family 0xFFFF type 2 (Simple) auth string: %s", auth->u.password);
     break;
   case RIP_AUTH_HASH:
-    auth = (struct rip_md5_info *) rte;
     zlog_debug ("  family 0xFFFF type 3 (hash authentication)");
     zlog_debug ("    RIP-2 packet len %u Key ID %u Auth Data len %u",
-                ntohs (auth->packet_len), auth->keyid, auth->auth_len);
-    zlog_debug ("    Sequence Number %u", ntohl (auth->sequence));
+                ntohs (auth->u.hash_info.packet_len), auth->u.hash_info.key_id,
+                auth->u.hash_info.auth_len);
+    zlog_debug ("    Sequence Number %u", ntohl (auth->u.hash_info.sequence));
     break;
   case RIP_AUTH_DATA:
-    p = (u_char *) &rte->prefix;
     zlog_debug ("  family 0xFFFF type 1 (authentication data)");
     zlog_debug ("    digest: %02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
-                p[0], p[1], p[2], p[3], p[4], p[5], p[6], p[7], p[8], p[9], p[10], p[11],
-                p[12], p[13], p[14], p[15]);
+                auth->u.hash_digest[0],  auth->u.hash_digest[1],  auth->u.hash_digest[2],
+                auth->u.hash_digest[3],  auth->u.hash_digest[4],  auth->u.hash_digest[5],
+                auth->u.hash_digest[6],  auth->u.hash_digest[7],  auth->u.hash_digest[8],
+                auth->u.hash_digest[9],  auth->u.hash_digest[10], auth->u.hash_digest[11],
+                auth->u.hash_digest[12], auth->u.hash_digest[13], auth->u.hash_digest[14],
+                auth->u.hash_digest[15]);
     break;
   default:
-    zlog_debug ("  family 0xFFFF type %u (Unknown auth type)", ntohs (rte->tag));
+    zlog_debug ("  family 0xFFFF type %u (Unknown auth type)", ntohs (auth->type));
   }
 }
 

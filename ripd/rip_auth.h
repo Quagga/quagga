@@ -40,29 +40,31 @@
 /* RIPv2 MD5 authentication. */
 #define RIP_AUTH_MD5_SIZE               16
 #define RIP_AUTH_MD5_COMPAT_SIZE        RIP_RTE_SIZE
+#define RIP_AUTH_MAX_SIZE               16
 
-struct rip_md5_info
+struct rip_auth_rte
 {
-  u_int16_t family;
-  u_int16_t type;
-  u_int16_t packet_len;
-  u_char keyid;
-  u_char auth_len;
-  u_int32_t sequence;
-  u_int32_t reserv1;
-  u_int32_t reserv2;
-};
-
-struct rip_md5_data
-{
-  u_int16_t family;
-  u_int16_t type;
-  u_char digest[16];
+  u_int16_t family; /* 0xFFFF */
+  u_int16_t type;   /* 0x0001/0x0002/0x0003 */
+  union
+  {
+    char password[RIP_AUTH_SIMPLE_SIZE];   /* type == 0x0002 */
+    struct
+    {
+      u_int16_t packet_len;
+      u_int8_t  key_id;
+      u_int8_t  auth_len;
+      u_int32_t sequence;
+      u_int32_t reserved1; /* MBZ */
+      u_int32_t reserved2; /* MBZ */
+    } hash_info;                           /* type == 0x0003 */
+    u_char hash_digest[RIP_AUTH_MAX_SIZE]; /* type == 0x0001 */
+  } u;
 };
 
 extern int rip_auth_check_packet (struct rip_interface *, struct sockaddr_in *, struct rip_packet *, const size_t);
 extern int rip_auth_make_packet (struct rip_interface *, struct stream *, struct stream *, const u_int8_t, const u_int8_t);
-extern void rip_auth_dump_ffff_rte (struct rte *);
+extern void rip_auth_dump_ffff_rte (struct rip_auth_rte *);
 extern unsigned rip_auth_allowed_inet_rtes (struct rip_interface *, const u_char);
 
 #endif /* QUAGGA_RIP_AUTH_H_ */
