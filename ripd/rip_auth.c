@@ -427,3 +427,25 @@ rip_auth_dump_ffff_rte (struct rte *rte)
   }
 }
 
+/*
+Return the maximum number of inet family RTEs a valid RIP packet can contain
+for the given interface config and protocol version. "Valid" would mean
+meeting the constraints enforced in rip_packet_examin() and not exceeding
+the 512 bytes size limit inherited from RFC1058 3.1.
+*/
+unsigned
+rip_auth_allowed_inet_rtes (struct rip_interface *ri, const u_char version)
+{
+  if (version != RIPv2)
+    return RIP_MAX_RTE;       /* 4 + (25) * 20 + (0) = 504          */
+  /* If output interface is in simple password authentication mode, we
+   * need space for authentication data.  */
+  if (ri->auth_type == RIP_AUTH_SIMPLE_PASSWORD)
+    return RIP_MAX_RTE - 1;   /* 4 + (1 + 24) * 20 + (0) = 504      */
+  /* If output interface is in MD5 authentication mode, we need space
+   * for authentication header and data. */
+  if (ri->auth_type == RIP_AUTH_MD5)
+    return RIP_MAX_RTE - 2;   /* 4 + (1 + 23) * 20 + (4 + 16) = 504 */
+  return RIP_MAX_RTE;         /* 4 + (25) * 20 + (0) = 504          */
+}
+

@@ -1637,21 +1637,11 @@ rip_output_process (struct connected *ifc, struct sockaddr_in *to,
 
   /* Reset stream and RTE counter. */
   stream_reset (s);
-  rtemax = (RIP_PACKET_MAXSIZ - 4) / 20;
+  rtemax = rip_auth_allowed_inet_rtes (ifc->ifp->info, version);
 
   /* Get RIP interface. */
   ri = ifc->ifp->info;
     
-  /* If output interface is in simple password authentication mode, we
-     need space for authentication data.  */
-  if (ri->auth_type == RIP_AUTH_SIMPLE_PASSWORD)
-    rtemax -= 1;
-
-  /* If output interface is in MD5 authentication mode, we need space
-     for authentication header and data. */
-  if (ri->auth_type == RIP_AUTH_MD5)
-    rtemax -= 2;
-
   /* If output interface is in simple password authentication mode
      and string or keychain is specified we need space for auth. data */
   if (ri->auth_type != RIP_NO_AUTH)

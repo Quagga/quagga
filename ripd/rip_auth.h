@@ -65,5 +65,6 @@ extern void rip_auth_md5_set (struct stream *, struct rip_interface *, size_t, c
 extern size_t rip_auth_header_write (struct stream *, struct rip_interface *, struct key *, char *);
 extern int rip_auth_check_packet (struct rip_interface *, struct sockaddr_in *, struct rip_packet *, const size_t);
 extern void rip_auth_dump_ffff_rte (struct rte *);
+extern unsigned rip_auth_allowed_inet_rtes (struct rip_interface *, const u_char);
 
 #endif /* QUAGGA_RIP_AUTH_H_ */
