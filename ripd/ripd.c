@@ -1446,8 +1446,6 @@ static int
 rip_read (struct thread *t)
 {
   int sock;
-  int ret;
-  int rtenum;
   union rip_buf rip_buf;
   struct rip_packet *packet;
   struct sockaddr_in from;
@@ -1536,9 +1534,6 @@ rip_read (struct thread *t)
       return len;
     }
 
-  /* Set RTE number. */
-  rtenum = ((len - RIP_PACKET_MINSIZ) / 20);
-
   /* For easy to handle. */
   packet = &rip_buf.rip_packet;
 
@@ -1590,117 +1585,10 @@ rip_read (struct thread *t)
       rip_peer_bad_packet (&from);
       return -1;
     }
-  
-  /* RFC2453 5.2 If the router is not configured to authenticate RIP-2
-     messages, then RIP-1 and unauthenticated RIP-2 messages will be
-     accepted; authenticated RIP-2 messages shall be discarded.  */
-  if ((ri->auth_type == RIP_NO_AUTH) 
-      && rtenum 
-      && (packet->version == RIPv2) 
-      && (packet->rte->family == htons(RIP_FAMILY_AUTH)))
-    {
-      if (IS_RIP_DEBUG_EVENT)
-	zlog_debug ("packet RIPv%d is dropped because authentication disabled", 
-		   packet->version);
-      rip_peer_bad_packet (&from);
-      return -1;
-    }
-  
-  /* RFC:
-     If the router is configured to authenticate RIP-2 messages, then
-     RIP-1 messages and RIP-2 messages which pass authentication
-     testing shall be accepted; unauthenticated and failed
-     authentication RIP-2 messages shall be discarded.  For maximum
-     security, RIP-1 messages should be ignored when authentication is
-     in use (see section 4.1); otherwise, the routing information from
-     authenticated messages will be propagated by RIP-1 routers in an
-     unauthenticated manner. 
-  */
-  /* We make an exception for RIPv1 REQUEST packets, to which we'll
-   * always reply regardless of authentication settings, because:
-   *
-   * - if there other authorised routers on-link, the REQUESTor can
-   *   passively obtain the routing updates anyway
-   * - if there are no other authorised routers on-link, RIP can
-   *   easily be disabled for the link to prevent giving out information
-   *   on state of this routers RIP routing table..
-   *
-   * I.e. if RIPv1 has any place anymore these days, it's as a very
-   * simple way to distribute routing information (e.g. to embedded
-   * hosts / appliances) and the ability to give out RIPv1
-   * routing-information freely, while still requiring RIPv2
-   * authentication for any RESPONSEs might be vaguely useful.
-   */
-  if (ri->auth_type != RIP_NO_AUTH 
-      && packet->version == RIPv1)
-    {
-      /* Discard RIPv1 messages other than REQUESTs */
-      if (packet->command != RIP_REQUEST)
-        {
-          if (IS_RIP_DEBUG_PACKET)
-            zlog_debug ("RIPv1" " dropped because authentication enabled");
-          rip_peer_bad_packet (&from);
-          return -1;
-        }
-    }
-  else if (ri->auth_type != RIP_NO_AUTH)
-    {
-      const char *auth_desc;
-      
-      if (rtenum == 0)
-        {
-          /* There definitely is no authentication in the packet. */
-          if (IS_RIP_DEBUG_PACKET)
-            zlog_debug ("RIPv2 authentication failed: no auth RTE in packet");
-          rip_peer_bad_packet (&from);
-          return -1;
-        }
-      
-      /* First RTE must be an Authentication Family RTE */
-      if (packet->rte->family != htons(RIP_FAMILY_AUTH))
-        {
-          if (IS_RIP_DEBUG_PACKET)
-            zlog_debug ("RIPv2" " dropped because authentication enabled");
-	  rip_peer_bad_packet (&from);
-	  return -1;
-        }
-      
-      /* Check RIPv2 authentication. */
-      switch (ntohs(packet->rte->tag))
-        {
-          case RIP_AUTH_SIMPLE_PASSWORD:
-            auth_desc = "simple";
-            ret = rip_auth_simple_password (packet->rte, &from, ifp);
-            break;
-          
-          case RIP_AUTH_MD5:
-            auth_desc = "MD5";
-            ret = rip_auth_md5 (packet, &from, len, ifp);
-            /* Reset RIP packet length to trim MD5 data. */
-            len = ret;
-            break;
-          
-          default:
-            ret = 0;
-            auth_desc = "unknown type";
-            if (IS_RIP_DEBUG_PACKET)
-              zlog_debug ("RIPv2 Unknown authentication type %d",
-                          ntohs (packet->rte->tag));
-        }
-      
-      if (ret)
-        {
-          if (IS_RIP_DEBUG_PACKET)
-            zlog_debug ("RIPv2 %s authentication success", auth_desc);
-        }
-      else
-        {
-          if (IS_RIP_DEBUG_PACKET)
-            zlog_debug ("RIPv2 %s authentication failure", auth_desc);
-          rip_peer_bad_packet (&from);
-          return -1;
-        }
-    }
+
+  /* rip_auth_check_packet() will handle logging */
+  if (! (len = rip_auth_check_packet (ri, &from, packet, len)))
+    return -1;
   
   /* Process each command. */
   switch (packet->command)
