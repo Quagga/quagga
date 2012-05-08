@@ -258,38 +258,20 @@ int rip_auth_check_packet
 
 /* Write RIPv2 MD5 authentication data trailer */
 static void
-rip_auth_md5_set (struct stream *s, struct rip_interface *ri,
-                  char *auth_str)
+rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_str)
 {
-  unsigned long len;
-  MD5_CTX ctx;
   unsigned char digest[RIP_AUTH_MD5_SIZE];
 
   /* Make it sure this interface is configured as MD5
      authentication. */
   assert (ri->auth_type == RIP_AUTH_HASH);
 
-  /* Get packet length. */
-  len = stream_get_endp(s);
-
-  /* Check packet length. */
-  if (len < (RIP_HEADER_SIZE + RIP_RTE_SIZE))
-    {
-      zlog_err ("rip_auth_md5_set(): packet length %ld is less than minimum length.", len);
-      return;
-    }
-
   /* Set authentication data. */
   stream_putw (s, RIP_FAMILY_AUTH);
   stream_putw (s, RIP_AUTH_DATA);
 
   /* Generate a digest for the RIP packet. */
-  memset(&ctx, 0, sizeof(ctx));
-  MD5Init(&ctx);
-  MD5Update(&ctx, STREAM_DATA (s), stream_get_endp (s));
-  MD5Update(&ctx, auth_str, RIP_AUTH_MD5_SIZE);
-  MD5Final(digest, &ctx);
-
+  rip_auth_make_hash_md5 ((caddr_t) STREAM_DATA (s), stream_get_endp (s), auth_str, digest);
   /* Copy the digest to the packet. */
   stream_write (s, digest, RIP_AUTH_MD5_SIZE);
 }
@@ -391,7 +373,7 @@ rip_auth_make_packet
 
   /* authentication trailing data, even more conditional */
   if (version == RIPv2 && ri->auth_type == RIP_AUTH_HASH)
-    rip_auth_md5_set (packet, ri, auth_str);
+    rip_auth_write_trailer (packet, ri, auth_str);
 
   return 0;
 }
