@@ -21,11 +21,79 @@
 #ifndef _QUAGGA_RIP_INTERFACE_H
 #define _QUAGGA_RIP_INTERFACE_H
 
+#include "zclient.h"
+
+/* RIP specific interface configuration. */
+struct rip_interface
+{
+  /* RIP is enabled on this interface. */
+  int enable_network;
+  int enable_interface;
+
+  /* RIP is running on this interface. */
+  int running;
+
+  /* RIP version control. */
+  int ri_send;
+  int ri_receive;
+
+  /* RIPv2 authentication type. */
+  int auth_type;
+
+  /* RIPv2 authentication string. */
+  char *auth_str;
+
+  /* RIPv2 authentication key chain. */
+  char *key_chain;
+
+  /* value to use for md5->auth_len */
+  u_int8_t md5_auth_len;
+
+  /* Split horizon flag. */
+  split_horizon_policy_t split_horizon;
+  split_horizon_policy_t split_horizon_default;
+
+  /* For filter type slot. */
+#define RIP_FILTER_IN  0
+#define RIP_FILTER_OUT 1
+#define RIP_FILTER_MAX 2
+
+  /* Access-list. */
+  struct access_list *list[RIP_FILTER_MAX];
+
+  /* Prefix-list. */
+  struct prefix_list *prefix[RIP_FILTER_MAX];
+
+  /* Route-map. */
+  struct route_map *routemap[RIP_FILTER_MAX];
+
+  /* Wake up thread. */
+  struct thread *t_wakeup;
+
+  /* Interface statistics. */
+  int recv_badpackets;
+  int recv_badroutes;
+  int sent_updates;
+
+  /* Passive interface. */
+  int passive;
+};
+
 extern int rip_interface_down (int , struct zclient *, zebra_size_t);
 extern int rip_interface_up (int , struct zclient *, zebra_size_t);
 extern int rip_interface_add (int , struct zclient *, zebra_size_t);
 extern int rip_interface_delete (int , struct zclient *, zebra_size_t);
 extern int rip_interface_address_add (int , struct zclient *, zebra_size_t);
 extern int rip_interface_address_delete (int , struct zclient *, zebra_size_t);
+extern void rip_interface_multicast_set (int, struct connected *);
+extern void rip_interface_clean (void);
+extern void rip_interface_reset (void);
+extern int if_check_address (struct in_addr);
+extern void rip_if_init (void);
+extern void rip_if_down_all (void);
+extern int rip_neighbor_lookup (struct sockaddr_in *);
+extern void rip_clean_network (void);
+extern void rip_passive_nondefault_clean (void);
+extern int config_write_rip_network (struct vty *, int);
 
 #endif /* _QUAGGA_RIP_INTERFACE_H */

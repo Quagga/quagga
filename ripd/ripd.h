@@ -238,62 +238,6 @@ typedef enum {
   RIP_SPLIT_HORIZON_POISONED_REVERSE
 } split_horizon_policy_t;
 
-/* RIP specific interface configuration. */
-struct rip_interface
-{
-  /* RIP is enabled on this interface. */
-  int enable_network;
-  int enable_interface;
-
-  /* RIP is running on this interface. */
-  int running;
-
-  /* RIP version control. */
-  int ri_send;
-  int ri_receive;
-
-  /* RIPv2 authentication type. */
-  int auth_type;
-
-  /* RIPv2 authentication string. */
-  char *auth_str;
-
-  /* RIPv2 authentication key chain. */
-  char *key_chain;
-
-  /* value to use for md5->auth_len */
-  u_int8_t md5_auth_len;
-
-  /* Split horizon flag. */
-  split_horizon_policy_t split_horizon;
-  split_horizon_policy_t split_horizon_default;
-
-  /* For filter type slot. */
-#define RIP_FILTER_IN  0
-#define RIP_FILTER_OUT 1
-#define RIP_FILTER_MAX 2
-
-  /* Access-list. */
-  struct access_list *list[RIP_FILTER_MAX];
-
-  /* Prefix-list. */
-  struct prefix_list *prefix[RIP_FILTER_MAX];
-
-  /* Route-map. */
-  struct route_map *routemap[RIP_FILTER_MAX];
-
-  /* Wake up thread. */
-  struct thread *t_wakeup;
-
-  /* Interface statistics. */
-  int recv_badpackets;
-  int recv_badroutes;
-  int sent_updates;
-
-  /* Passive interface. */
-  int passive;
-};
-
 /* RIP peer information. */
 struct rip_peer
 {
@@ -376,23 +320,15 @@ enum rip_event
 extern void rip_init (void);
 extern void rip_reset (void);
 extern void rip_clean (void);
-extern void rip_clean_network (void);
-extern void rip_interface_clean (void);
-extern void rip_interface_reset (void);
-extern void rip_passive_nondefault_clean (void);
-extern void rip_if_init (void);
-extern void rip_if_down_all (void);
 extern void rip_route_map_init (void);
 extern void rip_route_map_reset (void);
 extern void rip_snmp_init (void);
 extern void rip_zclient_init (void);
 extern void rip_zclient_reset (void);
 extern void rip_offset_init (void);
-extern int if_check_address (struct in_addr addr);
 
 extern int rip_request_send (struct sockaddr_in *, struct interface *, u_char,
                       struct connected *);
-extern int rip_neighbor_lookup (struct sockaddr_in *);
 
 extern int rip_redistribute_check (int);
 extern void rip_redistribute_add (int, int, struct prefix_ipv4 *, unsigned int, 
@@ -401,11 +337,9 @@ extern void rip_redistribute_delete (int, int, struct prefix_ipv4 *, unsigned in
 extern void rip_redistribute_withdraw (int);
 extern void rip_zebra_ipv4_add (struct prefix_ipv4 *, struct in_addr *, u_int32_t, u_char);
 extern void rip_zebra_ipv4_delete (struct prefix_ipv4 *, struct in_addr *, u_int32_t);
-extern void rip_interface_multicast_set (int, struct connected *);
 extern void rip_distribute_update_interface (struct interface *);
 extern void rip_if_rmap_update_interface (struct interface *);
 
-extern int config_write_rip_network (struct vty *, int);
 extern int config_write_rip_offset_list (struct vty *);
 extern int config_write_rip_redistribute (struct vty *, int);
 

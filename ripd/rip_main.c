@@ -35,6 +35,7 @@
 #include "zclient.h"
 
 #include "ripd/ripd.h"
+#include "ripd/rip_interface.h"
 
 /* ripd options. */
 static struct option longopts[] = 

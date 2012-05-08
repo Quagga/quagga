@@ -515,7 +515,7 @@ rip_interface_reset (void)
     }
 }
 
-int
+static int
 rip_if_down(struct interface *ifp)
 {
   struct route_node *rp;
@@ -735,7 +735,7 @@ rip_enable_network_lookup_if (struct interface *ifp)
 }
 
 /* Check wether connected is within the ripng_enable_network table. */
-int
+static int
 rip_enable_network_lookup2 (struct connected *connected)
 {
   struct prefix_ipv4 address;
@@ -929,7 +929,7 @@ rip_connect_set (struct interface *ifp, int set)
 }
 
 /* Update interface status. */
-void
+static void
 rip_enable_apply (struct interface *ifp)
 {
   int ret;
@@ -993,7 +993,7 @@ rip_enable_apply (struct interface *ifp)
 }
 
 /* Apply network configuration to all interface. */
-void
+static void
 rip_enable_apply_all ()
 {
   struct interface *ifp;
@@ -1101,7 +1101,7 @@ rip_passive_nondefault_lookup (const char *ifname)
   return -1;
 }
 
-void
+static void
 rip_passive_interface_apply (struct interface *ifp)
 {
   struct rip_interface *ri;
