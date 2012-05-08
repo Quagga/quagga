@@ -64,22 +64,58 @@ rip_auth_simple_password (struct rip_interface *ri, struct rip_auth_rte *auth)
   return 0;
 }
 
-/* RIP version 2 authentication with MD5. */
+/* Process input data with Keyed-MD5 algorithm and store digest as output. */
+static void
+rip_auth_make_hash_md5
+(
+  caddr_t input,
+  size_t inputlen,
+  caddr_t auth_str,
+  u_int8_t *output
+)
+{
+  MD5_CTX ctx;
+
+  memset (&ctx, 0, sizeof (ctx));
+  MD5Init (&ctx);
+  MD5Update (&ctx, input, inputlen);
+  MD5Update (&ctx, auth_str, RIP_AUTH_MD5_SIZE);
+  MD5Final (output, &ctx);
+}
+
+/*
+Check hash authentication. Assume the packet has passed rip_packet_examin()
+and rip_auth_check_packet(), which implies:
+1. Authentication header is the first RTE and filled in correctly.
+2. Authentication trailer is present and within the buffer.
+*/
 static int
-rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet)
+rip_auth_check_hash (struct rip_interface *ri, struct rip_packet *packet)
 {
   struct rip_auth_rte *hi, *hd;
   struct keychain *keychain;
   struct key *key;
-  MD5_CTX ctx;
-  u_char digest[RIP_AUTH_MD5_SIZE];
+  u_char digest[RIP_AUTH_MAX_SIZE];
   u_int16_t packet_len;
-  char auth_str[RIP_AUTH_MD5_SIZE];
+  char auth_str[RIP_AUTH_MAX_SIZE] = { 0 };
 
+  /* setup header and trailer */
   hi = (struct rip_auth_rte *) &packet->rte;
+  packet_len = ntohs (hi->u.hash_info.packet_len);
+  hd = (struct rip_auth_rte *) (((caddr_t) packet) + packet_len);
 
-  /* Check auth type. */
-  if (ri->auth_type != RIP_AUTH_HASH || hi->type != htons (RIP_AUTH_HASH))
+  /* pick local key */
+  if (ri->key_chain)
+  {
+    if ((keychain = keychain_lookup (ri->key_chain)) == NULL)
+      return 0;
+    if ((key = key_lookup_for_accept (keychain, hi->u.hash_info.key_id)) == NULL)
+      return 0;
+    strncpy (auth_str, key->string, RIP_AUTH_MAX_SIZE);
+  }
+  else if (ri->auth_str)
+    strncpy (auth_str, ri->auth_str, RIP_AUTH_MAX_SIZE);
+  if (auth_str[0] == 0)
     return 0;
 
   /* If the authentication length is less than 16, then it must be wrong for
@@ -95,43 +131,8 @@ rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet)
     return 0;
     }
 
-  /* grab and verify check packet length */
-  packet_len = ntohs (hi->u.hash_info.packet_len);
-
-  /* retrieve authentication data */
-  hd = (struct rip_auth_rte *) (((caddr_t) packet) + packet_len);
-
-  memset (auth_str, 0, RIP_AUTH_MD5_SIZE);
-
-  if (ri->key_chain)
-    {
-      keychain = keychain_lookup (ri->key_chain);
-      if (keychain == NULL)
-	return 0;
-
-      key = key_lookup_for_accept (keychain, hi->u.hash_info.key_id);
-      if (key == NULL)
-	return 0;
-
-      strncpy (auth_str, key->string, RIP_AUTH_MD5_SIZE);
-    }
-  else if (ri->auth_str)
-    strncpy (auth_str, ri->auth_str, RIP_AUTH_MD5_SIZE);
-
-  if (auth_str[0] == 0)
-    return 0;
-
-  /* MD5 digest authentication. */
-  memset (&ctx, 0, sizeof(ctx));
-  MD5Init(&ctx);
-  MD5Update(&ctx, packet, packet_len + RIP_HEADER_SIZE);
-  MD5Update(&ctx, auth_str, RIP_AUTH_MD5_SIZE);
-  MD5Final(digest, &ctx);
-
-  if (memcmp (hd->u.hash_digest, digest, RIP_AUTH_MD5_SIZE) == 0)
-    return packet_len;
-  else
-    return 0;
+  rip_auth_make_hash_md5 ((caddr_t) packet, packet_len + RIP_HEADER_SIZE, auth_str, digest);
+  return memcmp (hd->u.hash_digest, digest, RIP_AUTH_MD5_SIZE) ? 0 : packet_len;
 }
 
 /*
@@ -242,7 +243,7 @@ int rip_auth_check_packet
     break;
   case RIP_AUTH_HASH:
     /* Reset RIP packet length to trim MD5 data. */
-    ret = rip_auth_md5 (ri, packet);
+    ret = rip_auth_check_hash (ri, packet);
     break;
   default:
     assert (0);
