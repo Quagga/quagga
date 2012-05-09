@@ -212,7 +212,7 @@ route_match_metric_free (void *rule)
 }
 
 /* Route map commands for metric matching. */
-struct route_map_rule_cmd route_match_metric_cmd =
+static struct route_map_rule_cmd route_match_metric_cmd =
 {
   "metric",
   route_match_metric,
@@ -264,7 +264,7 @@ route_match_interface_free (void *rule)
 }
 
 /* Route map commands for interface matching. */
-struct route_map_rule_cmd route_match_interface_cmd =
+static struct route_map_rule_cmd route_match_interface_cmd =
 {
   "interface",
   route_match_interface,
@@ -500,7 +500,7 @@ route_match_tag_free (void *rule)
 }
 
 /* Route map commands for tag matching. */
-struct route_map_rule_cmd route_match_tag_cmd =
+static struct route_map_rule_cmd route_match_tag_cmd =
 {
   "tag",
   route_match_tag,

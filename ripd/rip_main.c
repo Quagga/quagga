@@ -79,25 +79,25 @@ struct zebra_privs_t ripd_privs =
 };
 
 /* Configuration file and directory. */
-char config_default[] = SYSCONFDIR RIPD_DEFAULT_CONFIG;
-char *config_file = NULL;
+static char config_default[] = SYSCONFDIR RIPD_DEFAULT_CONFIG;
+static char *config_file = NULL;
 
 /* ripd program name */
 
 /* Route retain mode flag. */
-int retain_mode = 0;
+static int retain_mode = 0;
 
 /* RIP VTY bind address. */
-char *vty_addr = NULL;
+static char *vty_addr = NULL;
 
 /* RIP VTY connection port. */
-int vty_port = RIP_VTY_PORT;
+static int vty_port = RIP_VTY_PORT;
 
 /* Master of threads. */
 struct thread_master *master;
 
 /* Process ID saved for use by init system */
-const char *pid_file = PATH_RIPD_PID;
+static const char *pid_file = PATH_RIPD_PID;
 
 /* Help information display. */
 static void
