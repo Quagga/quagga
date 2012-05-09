@@ -4,7 +4,7 @@ INCLUDES = @INCLUDES@ -I.. -I$(top_srcdir) -I$(top_srcdir)/lib -I$(top_builddir)
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\"
 INSTALL_SDATA=@INSTALL@ -m 600
 
-AM_CFLAGS = $(PICFLAGS)
+AM_CFLAGS = $(PICFLAGS) @LIBGCRYPT_CFLAGS@
 AM_LDFLAGS = $(PILDFLAGS)
 
 noinst_LIBRARIES = librip.a
@@ -21,7 +21,7 @@ noinst_HEADERS = \
 ripd_SOURCES = \
 	rip_main.c $(librip_a_SOURCES)
 
-ripd_LDADD = ../lib/libzebra.la @LIBCAP@
+ripd_LDADD = ../lib/libzebra.la @LIBCAP@ @LIBGCRYPT_LIBS@
 
 examplesdir = $(exampledir)
 dist_examples_DATA = ripd.conf.sample

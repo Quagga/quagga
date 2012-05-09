@@ -38,6 +38,12 @@
 #include "ripd/rip_peer.h"
 #include "ripd/rip_zebra.h"
 
+/* for gcry_check_version() */
+#ifdef HAVE_LIBGCRYPT
+#define GCRYPT_NO_DEPRECATED
+#include <gcrypt.h>
+#endif /* HAVE_LIBGCRYPT */
+
 /* ripd options. */
 static struct option longopts[] = 
 {
@@ -282,6 +288,9 @@ main (int argc, char **argv)
   vty_init (master);
   memory_init ();
   keychain_init ();
+#ifdef HAVE_LIBGCRYPT
+  gcry_check_version ("1.2.0");
+#endif /* HAVE_LIBGCRYPT */
 
   /* RIP related initialization. */
   rip_init ();

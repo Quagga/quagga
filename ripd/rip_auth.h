@@ -35,6 +35,10 @@
 #define RIP_AUTH_HASH              3
 
 #define RIP_AUTH_ALGO_MD5          1
+#define RIP_AUTH_ALGO_SHA1         2
+#define RIP_AUTH_ALGO_SHA256       3
+#define RIP_AUTH_ALGO_SHA384       4
+#define RIP_AUTH_ALGO_SHA512       5
 
 /* RIPv2 Simple authentication */
 #define RIP_AUTH_SIMPLE_SIZE		16
@@ -42,7 +46,16 @@
 /* RIPv2 MD5 authentication. */
 #define RIP_AUTH_MD5_SIZE               16
 #define RIP_AUTH_MD5_COMPAT_SIZE        RIP_RTE_SIZE
+#define RIP_AUTH_SHA1_SIZE              20
+#define RIP_AUTH_SHA256_SIZE            32
+#define RIP_AUTH_SHA384_SIZE            48
+#define RIP_AUTH_SHA512_SIZE            64
+
+#ifdef HAVE_LIBGCRYPT
+#define RIP_AUTH_MAX_SIZE               64
+#else
 #define RIP_AUTH_MAX_SIZE               16
+#endif /* HAVE_LIBGCRYPT */
 
 struct rip_auth_rte
 {

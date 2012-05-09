@@ -520,6 +520,26 @@ mode (default) the "Auth Data Len" field of a RIP packet is set to value
 0x14, while in RFC-compatible mode it is set to 0x10. With regard to IOS
 interoperability, see also "relaxed-recv-size-checks" command description.
 @ref{RIP Configuration}
+@item
+@code{sha1}:
+HMAC-SHA-1 authentication (RFC4822), which uses a secret key, a sequence
+number and SHA-1 hash algorithm to produce a 160-bit long digest for each
+protocol packet. Although SHA-1 is stronger than MD5, and may be considered
+a security measure, it is currently considered relatively weak too.
+
+This mode requires Quagga to be built with gcrypt library.
+@ref{The Configure script and its options}
+@item
+@code{sha256/sha384/sha512}:
+HMAC-SHA-256, HMAC-SHA-384 and HMAC-SHA-512 authentication modes respectively
+(RFC4822), which belong to SHA-2 family of hash algorithms. These also use
+a secret key and a sequence number to produce a 256-bit, 384-bit and 512-bit
+long digest respectively for each protocol packet. These algorithms are
+currently considered relatively strong and may be considered a security
+measure.
+
+These modes require Quagga to be built with gcrypt library.
+@ref{The Configure script and its options}
 @end itemize
 
 Default: no authentication is configured for an interface

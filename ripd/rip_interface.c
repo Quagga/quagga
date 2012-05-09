@@ -45,6 +45,12 @@
 #include "ripd/rip_zebra.h"
 #include "ripd/rip_snmp.h"
 #include "ripd/rip_auth.h"
+
+/* for gcry_md_test_algo() */
+#ifdef HAVE_LIBGCRYPT
+#define GCRYPT_NO_DEPRECATED
+#include <gcrypt.h>
+#endif /* HAVE_LIBGCRYPT */
 
 /* static prototypes */
 static void rip_enable_apply (struct interface *);
@@ -1488,12 +1494,22 @@ ALIAS (no_ip_rip_send_version,
 
 DEFUN (ip_rip_authentication_mode,
        ip_rip_authentication_mode_cmd,
+#ifdef HAVE_LIBGCRYPT
+       "ip rip authentication mode (md5|sha1|sha256|sha384|sha512|text)",
+#else
        "ip rip authentication mode (md5|text)",
+#endif /* HAVE_LIBGCRYPT */
        IP_STR
        "Routing Information Protocol\n"
        "Authentication control\n"
        "Authentication mode\n"
        "Keyed-MD5 authentication\n"
+#ifdef HAVE_LIBGCRYPT
+       "HMAC-SHA-1 authentication\n"
+       "HMAC-SHA-256 authentication\n"
+       "HMAC-SHA-384 authentication\n"
+       "HMAC-SHA-512 authentication\n"
+#endif /* HAVE_LIBGCRYPT */
        "Clear text authentication\n")
 {
   struct interface *ifp = (struct interface *)vty->index;
@@ -1507,6 +1523,48 @@ DEFUN (ip_rip_authentication_mode,
     ri->auth_type = RIP_AUTH_HASH;
     ri->hash_algo = RIP_AUTH_ALGO_MD5;
   }
+#ifdef HAVE_LIBGCRYPT
+  else if (strncmp ("sha1", argv[0], strlen ("sha1")) == 0)
+  {
+    if (gcry_md_test_algo (GCRY_MD_SHA1))
+    {
+      vty_out (vty, "Algorithm '%s' is not enabled in libgcrypt%s", argv[0], VTY_NEWLINE);
+      return CMD_ERR_NO_MATCH;
+    }
+    ri->auth_type = RIP_AUTH_HASH;
+    ri->hash_algo = RIP_AUTH_ALGO_SHA1;
+  }
+  else if (strncmp ("sha256", argv[0], strlen ("sha256")) == 0)
+  {
+    if (gcry_md_test_algo (GCRY_MD_SHA256))
+    {
+      vty_out (vty, "Algorithm '%s' is not enabled in libgcrypt%s", argv[0], VTY_NEWLINE);
+      return CMD_ERR_NO_MATCH;
+    }
+    ri->auth_type = RIP_AUTH_HASH;
+    ri->hash_algo = RIP_AUTH_ALGO_SHA256;
+  }
+  else if (strncmp ("sha384", argv[0], strlen ("sha384")) == 0)
+  {
+    if (gcry_md_test_algo (GCRY_MD_SHA384))
+    {
+      vty_out (vty, "Algorithm '%s' is not enabled in libgcrypt%s", argv[0], VTY_NEWLINE);
+      return CMD_ERR_NO_MATCH;
+    }
+    ri->auth_type = RIP_AUTH_HASH;
+    ri->hash_algo = RIP_AUTH_ALGO_SHA384;
+  }
+  else if (strncmp ("sha512", argv[0], strlen ("sha512")) == 0)
+  {
+    if (gcry_md_test_algo (GCRY_MD_SHA512))
+    {
+      vty_out (vty, "Algorithm '%s' is not enabled in libgcrypt%s", argv[0], VTY_NEWLINE);
+      return CMD_ERR_NO_MATCH;
+    }
+    ri->auth_type = RIP_AUTH_HASH;
+    ri->hash_algo = RIP_AUTH_ALGO_SHA512;
+  }
+#endif /* HAVE_LIBGCRYPT */
   else if (strncmp ("text", argv[0], strlen (argv[0])) == 0)
   {
     ri->auth_type = RIP_AUTH_SIMPLE_PASSWORD;
@@ -1559,13 +1617,23 @@ DEFUN (no_ip_rip_authentication_mode,
 
 ALIAS (no_ip_rip_authentication_mode,
        no_ip_rip_authentication_mode_type_cmd,
+#ifdef HAVE_LIBGCRYPT
+       "no ip rip authentication mode (md5|sha1|sha256|sha384|sha512|text)",
+#else
        "no ip rip authentication mode (md5|text)",
+#endif /* HAVE_LIBGCRYPT */
        NO_STR
        IP_STR
        "Routing Information Protocol\n"
        "Authentication control\n"
        "Authentication mode\n"
        "Keyed-MD5 authentication\n"
+#ifdef HAVE_LIBGCRYPT
+       "HMAC-SHA-1 authentication\n"
+       "HMAC-SHA-256 authentication\n"
+       "HMAC-SHA-384 authentication\n"
+       "HMAC-SHA-512 authentication\n"
+#endif /* HAVE_LIBGCRYPT */
        "Clear text authentication\n")
 
 ALIAS (no_ip_rip_authentication_mode,
@@ -1918,6 +1986,20 @@ rip_interface_config_write (struct vty *vty)
             vty_out (vty, " auth-length rfc");
           vty_out (vty, "%s", VTY_NEWLINE);
           break;
+#ifdef HAVE_LIBGCRYPT
+        case RIP_AUTH_ALGO_SHA1:
+          vty_out (vty, " ip rip authentication mode sha1%s", VTY_NEWLINE);
+          break;
+        case RIP_AUTH_ALGO_SHA256:
+          vty_out (vty, " ip rip authentication mode sha256%s", VTY_NEWLINE);
+          break;
+        case RIP_AUTH_ALGO_SHA384:
+          vty_out (vty, " ip rip authentication mode sha384%s", VTY_NEWLINE);
+          break;
+        case RIP_AUTH_ALGO_SHA512:
+          vty_out (vty, " ip rip authentication mode sha512%s", VTY_NEWLINE);
+          break;
+#endif /* HAVE_LIBGCRYPT */
         default:
           assert (0);
         }
