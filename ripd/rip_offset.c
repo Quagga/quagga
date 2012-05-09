@@ -22,13 +22,11 @@
 #include <zebra.h>
 
 #include "if.h"
-#include "prefix.h"
 #include "filter.h"
-#include "command.h"
 #include "linklist.h"
 #include "memory.h"
 
-#include "ripd/ripd.h"
+#include "ripd/rip_offset.h"
 
 #define RIP_OFFSET_LIST_IN  0
 #define RIP_OFFSET_LIST_OUT 1

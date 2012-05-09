@@ -23,12 +23,13 @@
 
 #include "if.h"
 #include "prefix.h"
-#include "command.h"
 #include "linklist.h"
 #include "thread.h"
 #include "memory.h"
 
 #include "ripd/ripd.h"
+#include "ripd/rip_main.h"
+#include "ripd/rip_peer.h"
 
 /* Linked list of RIP peer. */
 static struct list *peer_list;

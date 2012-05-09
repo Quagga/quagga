@@ -37,6 +37,12 @@
 #include "ripd/ripd.h"
 #include "ripd/rip_debug.h"
 #include "ripd/rip_interface.h"
+#include "ripd/rip_main.h"
+#include "ripd/rip_peer.h"
+#include "ripd/rip_zebra.h"
+#include "ripd/rip_routemap.h"
+#include "ripd/rip_offset.h"
+#include "ripd/rip_snmp.h"
 
 /* UDP receive buffer size */
 #define RIP_UDP_RCV_BUF 41600

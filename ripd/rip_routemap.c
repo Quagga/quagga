@@ -32,6 +32,7 @@
 #include "plist.h"
 
 #include "ripd/ripd.h"
+#include "ripd/rip_routemap.h"
 
 struct rip_metric_modifier
 {

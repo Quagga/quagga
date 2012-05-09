@@ -15,7 +15,8 @@ librip_a_SOURCES = \
 	rip_routemap.c rip_peer.c rip_offset.c
 
 noinst_HEADERS = \
-	ripd.h rip_debug.h rip_interface.h
+	ripd.h rip_debug.h rip_interface.h rip_main.h rip_peer.h \
+	rip_zebra.h rip_routemap.h rip_offset.h rip_snmp.h
 
 ripd_SOURCES = \
 	rip_main.c $(librip_a_SOURCES)

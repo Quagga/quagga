@@ -23,19 +23,20 @@
 
 #include <lib/version.h>
 #include "getopt.h"
-#include "thread.h"
 #include "command.h"
 #include "memory.h"
 #include "prefix.h"
 #include "filter.h"
 #include "keychain.h"
 #include "log.h"
-#include "privs.h"
 #include "sigevent.h"
 #include "zclient.h"
 
 #include "ripd/ripd.h"
 #include "ripd/rip_interface.h"
+#include "ripd/rip_main.h"
+#include "ripd/rip_peer.h"
+#include "ripd/rip_zebra.h"
 
 /* ripd options. */
 static struct option longopts[] = 

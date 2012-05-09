@@ -21,8 +21,6 @@
 
 #include <zebra.h>
 
-#include "command.h"
-#include "prefix.h"
 #include "stream.h"
 #include "routemap.h"
 #include "zclient.h"
@@ -30,6 +28,7 @@
 #include "ripd/ripd.h"
 #include "ripd/rip_debug.h"
 #include "ripd/rip_interface.h"
+#include "ripd/rip_zebra.h"
 
 /* All information about zebra. */
 struct zclient *zclient = NULL;
