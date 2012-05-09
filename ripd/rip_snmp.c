@@ -33,6 +33,7 @@
 #include "smux.h"
 
 #include "ripd/ripd.h"
+#include "ripd/rip_interface.h"
 
 /* RIPv2-MIB. */
 #define RIPV2MIB 1,3,6,1,2,1,23
