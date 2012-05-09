@@ -45,12 +45,17 @@ struct rip_peer
 
   /* Timeout thread. */
   struct thread *t_timeout;
+
+  /* crypto sequence number */
+  u_int32_t seqno;
 };
 
 extern void rip_peer_init (void);
 extern void rip_peer_update (struct sockaddr_in *, u_char);
 extern void rip_peer_bad_route (struct sockaddr_in *);
 extern void rip_peer_bad_packet (struct sockaddr_in *);
+extern u_int32_t rip_peer_getseqno (struct in_addr *);
+extern void rip_peer_setseqno (struct in_addr *, const u_int32_t);
 extern void rip_peer_display (struct vty *);
 extern struct rip_peer *rip_peer_lookup (struct in_addr *);
 extern struct rip_peer *rip_peer_lookup_next (struct in_addr *);

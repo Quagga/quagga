@@ -141,6 +141,20 @@ rip_peer_bad_packet (struct sockaddr_in *from)
   peer->recv_badpackets++;
 }
 
+u_int32_t
+rip_peer_getseqno (struct in_addr *from)
+{
+  struct rip_peer *peer = rip_peer_lookup (from);
+  return peer ? peer->seqno : 0;
+}
+
+void
+rip_peer_setseqno (struct in_addr *from, const u_int32_t seqno)
+{
+  struct rip_peer *peer = rip_peer_get (from);
+  peer->seqno = seqno;
+}
+
 /* Display peer uptime. */
 static char *
 rip_peer_uptime (struct rip_peer *peer, char *buf, size_t len)

@@ -118,7 +118,7 @@ and rip_auth_check_packet(), which implies:
 2. Authentication trailer is present and within the buffer.
 */
 static int
-rip_auth_check_hash (struct rip_interface *ri, struct rip_packet *packet)
+rip_auth_check_hash (struct rip_interface *ri, struct in_addr *from, struct rip_packet *packet)
 {
   struct rip_auth_rte *hi, *hd;
   struct keychain *keychain;
@@ -128,6 +128,7 @@ rip_auth_check_hash (struct rip_interface *ri, struct rip_packet *packet)
   char auth_str[RIP_AUTH_MAX_SIZE] = { 0 };
   u_int8_t local_dlen, remote_dlen;
   unsigned hash_error;
+  u_int32_t peer_prev_seqno, peer_cur_seqno;
 
   /* setup header and trailer */
   hi = (struct rip_auth_rte *) &packet->rte;
@@ -150,6 +151,19 @@ rip_auth_check_hash (struct rip_interface *ri, struct rip_packet *packet)
   {
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("authentication data length mismatch: local %u, remote %u", local_dlen, remote_dlen);
+    return 0;
+  }
+
+  /* check sequence number */
+  peer_prev_seqno = rip_peer_getseqno (from);
+  peer_cur_seqno = ntohl (hi->u.hash_info.sequence);
+  if (IS_RIP_DEBUG_AUTH)
+    zlog_debug ("crypto sequence number for %s was %u, now %u",
+      inet_ntoa (*from), peer_prev_seqno, peer_cur_seqno);
+  if (peer_cur_seqno < peer_prev_seqno)
+  {
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("crypto sequence number check failed");
     return 0;
   }
 
@@ -205,7 +219,17 @@ rip_auth_check_hash (struct rip_interface *ri, struct rip_packet *packet)
       zlog_debug ("hash function returned error %u", hash_error);
     return 0;
   }
-  return memcmp (local_digest, received_digest, local_dlen) ? 0 : packet_len;
+
+  if (memcmp (local_digest, received_digest, local_dlen))
+    return 0;
+  if (peer_cur_seqno > peer_prev_seqno)
+  {
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("updating crypto sequence number for %s from %u to %u",
+        inet_ntoa (*from), peer_prev_seqno, peer_cur_seqno);
+    rip_peer_setseqno (from, peer_cur_seqno);
+  }
+  return packet_len;
 }
 
 /*
@@ -316,7 +340,7 @@ int rip_auth_check_packet
     break;
   case RIP_AUTH_HASH:
     /* Reset RIP packet length to trim authentication trailer. */
-    ret = rip_auth_check_hash (ri, packet);
+    ret = rip_auth_check_hash (ri, &from->sin_addr, packet);
     break;
   default:
     assert (0);
