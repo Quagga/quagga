@@ -49,6 +49,9 @@ struct rip_interface
   /* value to use for md5->auth_len */
   u_int8_t md5_auth_len;
 
+  /* crypto hash algorithm */
+  int hash_algo;
+
   /* Split horizon flag. */
   split_horizon_policy_t split_horizon;
   split_horizon_policy_t split_horizon_default;

@@ -34,6 +34,8 @@
 #define RIP_AUTH_SIMPLE_PASSWORD   2
 #define RIP_AUTH_HASH              3
 
+#define RIP_AUTH_ALGO_MD5          1
+
 /* RIPv2 Simple authentication */
 #define RIP_AUTH_SIMPLE_SIZE		16
 

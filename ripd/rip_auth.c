@@ -34,6 +34,18 @@ static const struct message rip_ffff_type_str[] =
 };
 static const size_t rip_ffff_type_str_max = sizeof (rip_ffff_type_str) / sizeof (rip_ffff_type_str[0]);
 
+static const struct message rip_hash_algo_str[] =
+{
+  { RIP_AUTH_ALGO_MD5,    "Keyed-MD5"    },
+};
+static const size_t rip_hash_algo_str_max = sizeof (rip_hash_algo_str) / sizeof (rip_hash_algo_str[0]);
+
+/* hash digest size map */
+static const u_int8_t digest_length[] =
+{
+  [RIP_AUTH_ALGO_MD5]    = RIP_AUTH_MD5_SIZE,
+};
+
 /* RIP-2 simple password authentication. */
 static int
 rip_auth_check_password (struct rip_interface *ri, struct rip_auth_rte *auth)
@@ -78,7 +90,7 @@ rip_auth_check_password (struct rip_interface *ri, struct rip_auth_rte *auth)
 }
 
 /* Process input data with Keyed-MD5 algorithm and store digest as output. */
-static void
+static unsigned
 rip_auth_make_hash_md5
 (
   caddr_t input,
@@ -96,6 +108,7 @@ rip_auth_make_hash_md5
   MD5Update (&ctx, input, inputlen);
   MD5Update (&ctx, auth_str, RIP_AUTH_MD5_SIZE);
   MD5Final (output, &ctx);
+  return 0;
 }
 
 /*
@@ -110,9 +123,11 @@ rip_auth_check_hash (struct rip_interface *ri, struct rip_packet *packet)
   struct rip_auth_rte *hi, *hd;
   struct keychain *keychain;
   struct key *key;
-  u_char digest[RIP_AUTH_MAX_SIZE];
+  u_char received_digest[RIP_AUTH_MAX_SIZE], local_digest[RIP_AUTH_MAX_SIZE];
   u_int16_t packet_len;
   char auth_str[RIP_AUTH_MAX_SIZE] = { 0 };
+  u_int8_t local_dlen, remote_dlen;
+  unsigned hash_error;
 
   /* setup header and trailer */
   hi = (struct rip_auth_rte *) &packet->rte;
@@ -120,6 +135,23 @@ rip_auth_check_hash (struct rip_interface *ri, struct rip_packet *packet)
   hd = (struct rip_auth_rte *) (((caddr_t) packet) + packet_len);
   if (IS_RIP_DEBUG_AUTH)
     zlog_debug ("declared main body length is %u", packet_len);
+
+  /* check authentication data size */
+  if (IS_RIP_DEBUG_AUTH)
+    zlog_debug ("interface configured for %s", LOOKUP (rip_hash_algo_str, ri->hash_algo));
+  remote_dlen = hi->u.hash_info.auth_len;
+  local_dlen = digest_length[ri->hash_algo];
+  if
+  (
+    local_dlen != remote_dlen && /* basic RFC constraint */
+    /* non-RFC MD5 special exception */
+    (ri->hash_algo != RIP_AUTH_ALGO_MD5 || remote_dlen != RIP_AUTH_MD5_COMPAT_SIZE)
+  )
+  {
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("authentication data length mismatch: local %u, remote %u", local_dlen, remote_dlen);
+    return 0;
+  }
 
   /* pick local key */
   if (ri->key_chain)
@@ -155,21 +187,25 @@ rip_auth_check_hash (struct rip_interface *ri, struct rip_packet *packet)
     return 0;
   }
 
-  /* If the authentication length is less than 16, then it must be wrong for
-   * any interpretation of rfc2082. Some implementations also interpret
-   * this as RIP_HEADER_SIZE+ RIP_AUTH_MD5_SIZE, aka RIP_AUTH_MD5_COMPAT_SIZE.
-   */
-  if ( !((hi->u.hash_info.auth_len == RIP_AUTH_MD5_SIZE)
-         || (hi->u.hash_info.auth_len == RIP_AUTH_MD5_COMPAT_SIZE)))
-    {
-      if (IS_RIP_DEBUG_EVENT)
-        zlog_debug ("RIPv2 MD5 authentication, strange authentication "
-                   "length field %d", hi->u.hash_info.auth_len);
+  if (IS_RIP_DEBUG_AUTH)
+    zlog_debug ("key is ready, calculating hash digest value %uB long", local_dlen);
+  /* set aside, calculate and compare */
+  memcpy (received_digest, hd->u.hash_digest, local_dlen);
+  switch (ri->hash_algo)
+  {
+  case RIP_AUTH_ALGO_MD5:
+    hash_error = rip_auth_make_hash_md5 ((caddr_t) packet, packet_len + RIP_HEADER_SIZE, auth_str, local_digest);
+    break;
+  default:
+    assert (0);
+  }
+  if (hash_error)
+  {
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("hash function returned error %u", hash_error);
     return 0;
-    }
-
-  rip_auth_make_hash_md5 ((caddr_t) packet, packet_len + RIP_HEADER_SIZE, auth_str, digest);
-  return memcmp (hd->u.hash_digest, digest, RIP_AUTH_MD5_SIZE) ? 0 : packet_len;
+  }
+  return memcmp (local_digest, received_digest, local_dlen) ? 0 : packet_len;
 }
 
 /*
@@ -279,7 +315,7 @@ int rip_auth_check_packet
     ret = rip_auth_check_password (ri, auth) ? bytesonwire : 0;
     break;
   case RIP_AUTH_HASH:
-    /* Reset RIP packet length to trim MD5 data. */
+    /* Reset RIP packet length to trim authentication trailer. */
     ret = rip_auth_check_hash (ri, packet);
     break;
   default:
@@ -293,26 +329,34 @@ int rip_auth_check_packet
   return ret;
 }
 
-/* Write RIPv2 MD5 authentication data trailer */
+/* write RIP-2 hash authentication data trailer */
 static void
 rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_str)
 {
-  unsigned char digest[RIP_AUTH_MD5_SIZE];
+  unsigned char digest[RIP_AUTH_MAX_SIZE];
+  unsigned hash_error;
 
   if (IS_RIP_DEBUG_AUTH)
     zlog_debug ("writing authentication trailer after %zuB of main body", stream_get_endp (s));
-  /* Make it sure this interface is configured as MD5
-     authentication. */
   assert (ri->auth_type == RIP_AUTH_HASH);
 
   /* Set authentication data. */
   stream_putw (s, RIP_FAMILY_AUTH);
   stream_putw (s, RIP_AUTH_DATA);
 
-  /* Generate a digest for the RIP packet. */
-  rip_auth_make_hash_md5 ((caddr_t) STREAM_DATA (s), stream_get_endp (s), auth_str, digest);
-  /* Copy the digest to the packet. */
-  stream_write (s, digest, RIP_AUTH_MD5_SIZE);
+  /* Generate a digest for the RIP packet and write it to the packet. */
+  switch (ri->hash_algo)
+  {
+  case RIP_AUTH_ALGO_MD5:
+    hash_error = rip_auth_make_hash_md5 ((caddr_t) STREAM_DATA (s), stream_get_endp (s), auth_str, digest);
+    stream_write (s, digest, RIP_AUTH_MD5_SIZE);
+    break;
+  default:
+    assert (0);
+  }
+  if (hash_error)
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("hash function returned error %u", hash_error);
 }
 
 static void
@@ -325,6 +369,8 @@ rip_auth_write_leading_rte
   u_int16_t main_body_len
 )
 {
+  u_int8_t dlen;
+
   if (IS_RIP_DEBUG_AUTH)
     zlog_debug ("writing authentication header for %uB of main body", main_body_len);
   stream_putw (s, RIP_FAMILY_AUTH);
@@ -335,15 +381,25 @@ rip_auth_write_leading_rte
     stream_put (s, auth_str, RIP_AUTH_SIMPLE_SIZE);
     break;
   case RIP_AUTH_HASH:
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("hash algorithm is '%s'", LOOKUP (rip_hash_algo_str, ri->hash_algo));
     stream_putw (s, RIP_AUTH_HASH);
     stream_putw (s, main_body_len);
     stream_putc (s, key_id);
-    /* Auth Data Len.  Set 16 for MD5 authentication data. Older ripds
-     * however expect RIP_HEADER_SIZE + RIP_AUTH_MD5_SIZE so we allow for this
-     * to be configurable. */
+    switch (ri->hash_algo)
+    {
+    case RIP_AUTH_ALGO_MD5:
+      /* Auth Data Len.  Set 16 for MD5 authentication data. Older ripds
+       * however expect RIP_HEADER_SIZE + RIP_AUTH_MD5_SIZE so we allow for this
+       * to be configurable. */
+      dlen = ri->md5_auth_len;
+      break;
+    default:
+      assert (0);
+    }
     if (IS_RIP_DEBUG_AUTH)
-      zlog_debug ("declared auth data length is %uB", ri->md5_auth_len);
-    stream_putc (s, ri->md5_auth_len);
+      zlog_debug ("declared auth data length is %uB", dlen);
+    stream_putc (s, dlen);
     stream_putl (s, time (NULL)); /* Sequence Number (non-decreasing). */
     stream_putl (s, 0); /* reserved, MBZ */
     stream_putl (s, 0); /* reserved, MBZ */
@@ -369,7 +425,7 @@ rip_auth_make_packet
 )
 {
   struct key *key = NULL;
-  char auth_str[RIP_AUTH_SIMPLE_SIZE] = { 0 };
+  char auth_str[RIP_AUTH_MAX_SIZE] = { 0 };
 
   if (IS_RIP_DEBUG_AUTH)
     zlog_debug ("interface auth type is '%s', inet RTEs payload size is %zuB",
@@ -413,13 +469,13 @@ rip_auth_make_packet
     {
       if (IS_RIP_DEBUG_AUTH)
         zlog_debug ("using keychain '%s', key %u for sending", ri->key_chain, key->index);
-      strncpy (auth_str, key->string, RIP_AUTH_SIMPLE_SIZE);
+      strncpy (auth_str, key->string, RIP_AUTH_MAX_SIZE);
     }
     else if (ri->auth_str)
     {
       if (IS_RIP_DEBUG_AUTH)
         zlog_debug ("using interface authentication string");
-      strncpy (auth_str, ri->auth_str, RIP_AUTH_SIMPLE_SIZE);
+      strncpy (auth_str, ri->auth_str, RIP_AUTH_MAX_SIZE);
     }
 
     rip_auth_write_leading_rte (packet, ri, key ? key->index % 256 : 1, auth_str,
@@ -489,7 +545,13 @@ rip_auth_allowed_inet_rtes (struct rip_interface *ri, const u_char version)
   /* If output interface is in hash authentication mode, we need space
    * for authentication header and data. */
   if (ri->auth_type == RIP_AUTH_HASH)
-    return RIP_MAX_RTE - 2;   /* 4 + (1 + 23) * 20 + (4 + 16) = 504 */
+    switch (ri->hash_algo)
+    {
+    case RIP_AUTH_ALGO_MD5:
+      return RIP_MAX_RTE - 2; /* 4 + (1 + 23) * 20 + (4 + 16) = 504 */
+    default:
+      assert (0);
+    }
   return RIP_MAX_RTE;         /* 4 + (25) * 20 + (0) = 504          */
 }
 

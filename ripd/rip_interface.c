@@ -1499,15 +1499,19 @@ DEFUN (ip_rip_authentication_mode,
   struct interface *ifp = (struct interface *)vty->index;
   struct rip_interface *ri = ifp->info;
 
+  ifp = (struct interface *)vty->index;
+  ri = ifp->info;
+
   if (strncmp ("md5", argv[0], strlen (argv[0])) == 0)
+  {
     ri->auth_type = RIP_AUTH_HASH;
+    ri->hash_algo = RIP_AUTH_ALGO_MD5;
+  }
   else if (strncmp ("text", argv[0], strlen (argv[0])) == 0)
+  {
     ri->auth_type = RIP_AUTH_SIMPLE_PASSWORD;
-  else
-    {
-      vty_out (vty, "Parser error%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
+    ri->hash_algo = 0;
+  }
   return CMD_SUCCESS;
 }
 
@@ -1527,6 +1531,7 @@ DEFUN (ip_rip_authentication_mode_md5_authlen,
   struct rip_interface *ri = ifp->info;
 
   ri->auth_type = RIP_AUTH_HASH;
+  ri->hash_algo = RIP_AUTH_ALGO_MD5;
   ri->md5_auth_len = strncmp ("r", argv[0], 1) ? RIP_AUTH_MD5_COMPAT_SIZE : RIP_AUTH_MD5_SIZE;
   return CMD_SUCCESS;
 }
@@ -1591,9 +1596,9 @@ DEFUN (ip_rip_authentication_string,
   ifp = (struct interface *)vty->index;
   ri = ifp->info;
 
-  if (strlen (argv[0]) > 16)
+  if (strlen (argv[0]) > RIP_AUTH_MAX_SIZE)
     {
-      vty_out (vty, "%% RIPv2 authentication string must be shorter than 16%s",
+      vty_out (vty, "%% Maximum key size is %u bytes/chars%s", RIP_AUTH_MAX_SIZE,
 	       VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -1903,13 +1908,18 @@ rip_interface_config_write (struct vty *vty)
 	vty_out (vty, " ip rip authentication mode text%s", VTY_NEWLINE);
 
       if (ri->auth_type == RIP_AUTH_HASH)
+        switch (ri->hash_algo)
         {
+        case RIP_AUTH_ALGO_MD5:
           vty_out (vty, " ip rip authentication mode md5");
           if (ri->md5_auth_len == RIP_AUTH_MD5_COMPAT_SIZE)
             vty_out (vty, " auth-length old-ripd");
           else 
             vty_out (vty, " auth-length rfc");
           vty_out (vty, "%s", VTY_NEWLINE);
+          break;
+        default:
+          assert (0);
         }
 
       if (ri->auth_str)
