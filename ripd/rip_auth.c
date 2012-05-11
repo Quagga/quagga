@@ -299,56 +299,38 @@ rip_auth_md5_set (struct stream *s, struct rip_interface *ri,
   stream_write (s, digest, RIP_AUTH_MD5_SIZE);
 }
 
-/* Write RIPv2 simple password authentication information
- *
- * auth_str is presumed to be 2 bytes and correctly prepared
- * (left justified and zero padded).
- */
 static void
-rip_auth_simple_write (struct stream *s, char *auth_str)
+rip_auth_write_leading_rte
+(
+  struct stream *s,
+  struct rip_interface *ri,
+  const u_int8_t key_id,
+  char *auth_str,
+  u_int16_t main_body_len
+)
 {
-  assert (s);
-
   stream_putw (s, RIP_FAMILY_AUTH);
-  stream_putw (s, RIP_AUTH_SIMPLE_PASSWORD);
-  stream_put (s, auth_str, RIP_AUTH_SIMPLE_SIZE);
-}
-
-/* write RIPv2 MD5 "authentication header"
- * (uses the auth key data field)
- */
-static void
-rip_auth_md5_ah_write (struct stream *s, struct rip_interface *ri,
-                       struct key *key, u_int16_t packet_len)
-{
-  assert (s && ri && ri->auth_type == RIP_AUTH_HASH);
-
-  /* MD5 authentication. */
-  stream_putw (s, RIP_FAMILY_AUTH);
-  stream_putw (s, RIP_AUTH_HASH);
-  stream_putw (s, packet_len);
-
-  /* Key ID. */
-  if (key)
-    stream_putc (s, key->index % 256);
-  else
-    stream_putc (s, 1);
-
-  /* Auth Data Len.  Set 16 for MD5 authentication data. Older ripds
-   * however expect RIP_HEADER_SIZE + RIP_AUTH_MD5_SIZE so we allow for this
-   * to be configurable.
-   */
-  stream_putc (s, ri->md5_auth_len);
-
-  /* Sequence Number (non-decreasing). */
-  /* RFC2080: The value used in the sequence number is
-     arbitrary, but two suggestions are the time of the
-     message's creation or a simple message counter. */
-  stream_putl (s, time (NULL));
-
-  /* Reserved field must be zero. */
-  stream_putl (s, 0);
-  stream_putl (s, 0);
+  switch (ri->auth_type)
+  {
+  case RIP_AUTH_SIMPLE_PASSWORD:
+    stream_putw (s, RIP_AUTH_SIMPLE_PASSWORD);
+    stream_put (s, auth_str, RIP_AUTH_SIMPLE_SIZE);
+    break;
+  case RIP_AUTH_HASH:
+    stream_putw (s, RIP_AUTH_HASH);
+    stream_putw (s, main_body_len);
+    stream_putc (s, key_id);
+    /* Auth Data Len.  Set 16 for MD5 authentication data. Older ripds
+     * however expect RIP_HEADER_SIZE + RIP_AUTH_MD5_SIZE so we allow for this
+     * to be configurable. */
+    stream_putc (s, ri->md5_auth_len);
+    stream_putl (s, time (NULL)); /* Sequence Number (non-decreasing). */
+    stream_putl (s, 0); /* reserved, MBZ */
+    stream_putl (s, 0); /* reserved, MBZ */
+    break;
+  default:
+    assert (0);
+  }
 }
 
 /* Take a sequence of payload (routing) RTE structures, decide on particular
@@ -399,16 +381,8 @@ rip_auth_make_packet
     else if (ri->auth_str)
       strncpy (auth_str, ri->auth_str, RIP_AUTH_SIMPLE_SIZE);
 
-    switch (ri->auth_type)
-    {
-    case RIP_AUTH_SIMPLE_PASSWORD:
-      rip_auth_simple_write (packet, auth_str);
-      break;
-    case RIP_AUTH_HASH:
-      rip_auth_md5_ah_write (packet, ri, key,
-        RIP_HEADER_SIZE + RIP_RTE_SIZE + stream_get_endp (rtes));
-      break;
-    }
+    rip_auth_write_leading_rte (packet, ri, key ? key->index % 256 : 1, auth_str,
+      RIP_HEADER_SIZE + RIP_RTE_SIZE + stream_get_endp (rtes));
   }
 
   /* RTEs payload, unconditional */
