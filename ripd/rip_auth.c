@@ -66,7 +66,7 @@ rip_auth_simple_password (struct rip_interface *ri, struct rip_auth_rte *auth)
 
 /* RIP version 2 authentication with MD5. */
 static int
-rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet, const unsigned length)
+rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet)
 {
   struct rip_auth_rte *hi, *hd;
   struct keychain *keychain;
@@ -97,15 +97,6 @@ rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet, const unsigne
 
   /* grab and verify check packet length */
   packet_len = ntohs (hi->u.hash_info.packet_len);
-
-  if (packet_len > (length - RIP_HEADER_SIZE - RIP_AUTH_MD5_SIZE))
-    {
-      if (IS_RIP_DEBUG_EVENT)
-        zlog_debug ("RIPv2 MD5 authentication, packet length field %d "
-                   "greater than received length %d!",
-                   packet_len, length);
-      return 0;
-    }
 
   /* retrieve authentication data */
   hd = (struct rip_auth_rte *) (((caddr_t) packet) + packet_len);
@@ -147,6 +138,14 @@ rip_auth_md5 (struct rip_interface *ri, struct rip_packet *packet, const unsigne
 Check authentication of a given RIP packet to match configuration of a local
 interface. If it is OK to do further processing, return main body length
 (RIP header + RTEs), return 0 otherwise.
+
+The function assumes, that the provided packet was accepted by
+rip_packet_examin(). This would mean, that:
+1. At least one RTE is present in the packet.
+2. At most one authentication header is present in the packet.
+3. The authentication header, if it is present, is the first on the RTE list.
+4. With hash authentication, authentication trailer is present and right-sized.
+5. Without hash authentication, authentication trailer is missing.
 */
 int rip_auth_check_packet
 (
@@ -157,24 +156,24 @@ int rip_auth_check_packet
 )
 {
   int ret = 0;
-  int rtenum;
+  struct rip_auth_rte *auth = (struct rip_auth_rte *) packet->rte;
 
   assert (ri->auth_type == RIP_NO_AUTH || ri->auth_type == RIP_AUTH_SIMPLE_PASSWORD
           || ri->auth_type == RIP_AUTH_HASH);
-  assert ((bytesonwire - RIP_HEADER_SIZE) % RIP_RTE_SIZE == 0);
-  rtenum = (bytesonwire - RIP_HEADER_SIZE) / RIP_RTE_SIZE;
   /* RFC2453 5.2 If the router is not configured to authenticate RIP-2
      messages, then RIP-1 and unauthenticated RIP-2 messages will be
      accepted; authenticated RIP-2 messages shall be discarded.  */
-  if ((ri->auth_type == RIP_NO_AUTH)
-      && rtenum
-      && (packet->version == RIPv2)
-      && (packet->rte->family == htons(RIP_FAMILY_AUTH)))
+  if (ri->auth_type == RIP_NO_AUTH)
   {
-    if (IS_RIP_DEBUG_EVENT)
-      zlog_debug ("packet RIPv%d is dropped because authentication disabled", packet->version);
-    rip_peer_bad_packet (from);
-    return 0;
+    if (packet->version == RIPv2 && auth->family == htons (RIP_FAMILY_AUTH))
+    {
+      if (IS_RIP_DEBUG_EVENT)
+        zlog_debug ("RIP-2 packet discarded, local auth none, remote %s",
+          LOOKUP (rip_ffff_type_str, ntohs (auth->type)));
+      rip_peer_bad_packet (from);
+      return 0;
+    }
+    return bytesonwire;
   }
 
   /* RFC:
@@ -202,56 +201,57 @@ int rip_auth_check_packet
    * routing-information freely, while still requiring RIPv2
    * authentication for any RESPONSEs might be vaguely useful.
    */
-  if (ri->auth_type != RIP_NO_AUTH && packet->version == RIPv1)
+
+  /* ri->auth_type != RIP_NO_AUTH */
+  if (packet->version == RIPv1)
   {
-    /* Discard RIPv1 messages other than REQUESTs */
-    if (packet->command != RIP_REQUEST)
-    {
-      if (IS_RIP_DEBUG_PACKET)
-        zlog_debug ("RIPv1" " dropped because authentication enabled");
-      rip_peer_bad_packet (from);
-      return 0;
-    }
-  }
-  else if (ri->auth_type != RIP_NO_AUTH)
-  {
-    struct rip_auth_rte *auth = (struct rip_auth_rte *) packet->rte;
-
-    if (rtenum == 0)
-    {
-      /* There definitely is no authentication in the packet. */
-      if (IS_RIP_DEBUG_PACKET)
-        zlog_debug ("RIPv2 authentication failed: no auth RTE in packet");
-      rip_peer_bad_packet (from);
-      return 0;
-    }
-
-    /* First RTE must be an Authentication Family RTE */
-    if (auth->type != htons (RIP_FAMILY_AUTH))
-    {
-      if (IS_RIP_DEBUG_PACKET)
-        zlog_debug ("RIPv2" " dropped because authentication enabled");
-      rip_peer_bad_packet (from);
-      return 0;
-    }
-
-    /* Check RIPv2 authentication. */
-    switch (ntohs (auth->type))
-    {
-    case RIP_AUTH_SIMPLE_PASSWORD:
-      ret = rip_auth_simple_password (ri, auth) ? bytesonwire : 0;
-      break;
-    case RIP_AUTH_HASH:
-      /* Reset RIP packet length to trim MD5 data. */
-      ret = rip_auth_md5 (ri, packet, bytesonwire);
-      break;
-    }
-    if (!ret)
-      rip_peer_bad_packet (from);
+    if (packet->command == RIP_REQUEST)
+      return bytesonwire;
     if (IS_RIP_DEBUG_PACKET)
-      zlog_debug ("RIPv2 %s authentication %s", LOOKUP (rip_ffff_type_str, ntohs (auth->type)),
-                  ret ? "success" : "failed");
+      zlog_debug ("RIP-1 packet discarded, local auth %s",
+                  LOOKUP (rip_ffff_type_str, ri->auth_type));
+    rip_peer_bad_packet (from);
+    return 0;
   }
+
+  /* packet->version == RIPv2 */
+  if (auth->family != htons (RIP_FAMILY_AUTH))
+  {
+    if (IS_RIP_DEBUG_PACKET)
+      zlog_debug ("RIP-2 packet discarded, local auth %s, remote none",
+                  LOOKUP (rip_ffff_type_str, ri->auth_type));
+    rip_peer_bad_packet (from);
+    return 0;
+  }
+
+  /* same auth type? */
+  if (ri->auth_type != ntohs (auth->type))
+  {
+    if (IS_RIP_DEBUG_PACKET)
+      zlog_debug ("RIP-2 packet discarded, local auth %s, remote %s",
+                  LOOKUP (rip_ffff_type_str, ri->auth_type),
+                  LOOKUP (rip_ffff_type_str, ntohs (auth->type)));
+    rip_peer_bad_packet (from);
+    return 0;
+  }
+
+  switch (ntohs (auth->type))
+  {
+  case RIP_AUTH_SIMPLE_PASSWORD:
+    ret = rip_auth_simple_password (ri, auth) ? bytesonwire : 0;
+    break;
+  case RIP_AUTH_HASH:
+    /* Reset RIP packet length to trim MD5 data. */
+    ret = rip_auth_md5 (ri, packet);
+    break;
+  default:
+    assert (0);
+  }
+  if (! ret)
+    rip_peer_bad_packet (from);
+  if (IS_RIP_DEBUG_PACKET)
+    zlog_debug ("RIPv2 %s authentication %s", LOOKUP (rip_ffff_type_str, ntohs (auth->type)),
+                ret ? "success" : "failed");
   return ret;
 }
 

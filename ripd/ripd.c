@@ -787,24 +787,10 @@ rip_response_process (struct rip_packet *packet, int size,
 
   for (lim = (caddr_t) packet + size; (caddr_t) rte < lim; rte++)
     {
-      /* RIPv2 authentication check. */
-      /* If the Address Family Identifier of the first (and only the
-	 first) entry in the message is 0xFFFF, then the remainder of
-	 the entry contains the authentication. */
-      /* If the packet gets here it means authentication enabled */
-      /* Check is done in rip_read(). So, just skipping it */
-      if (packet->version == RIPv2 &&
-	  rte == packet->rte &&
-	  rte->family == htons(RIP_FAMILY_AUTH))
+      /* Assume rip_packet_examin() to do the job properly. */
+      if (rte->family == htons (RIP_FAMILY_AUTH))
 	continue;
-
-      if (rte->family != htons(AF_INET))
-	{
-	  /* Address family check.  RIP only supports AF_INET. */
-	  zlog_info ("Unsupported family %d from %s.",
-		     ntohs (rte->family), inet_ntoa (from->sin_addr));
-	  continue;
-	}
+      assert (rte->family == htons (AF_INET));
 
       /* - is the destination address valid (e.g., unicast; not net 0
          or 127) */
