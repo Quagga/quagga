@@ -1492,68 +1492,43 @@ DEFUN (ip_rip_authentication_mode,
        "Routing Information Protocol\n"
        "Authentication control\n"
        "Authentication mode\n"
-       "Keyed message digest\n"
+       "Keyed-MD5 authentication\n"
        "Clear text authentication\n")
 {
-  struct interface *ifp;
-  struct rip_interface *ri;
-  int auth_type;
+  struct interface *ifp = (struct interface *)vty->index;
+  struct rip_interface *ri = ifp->info;
 
-  ifp = (struct interface *)vty->index;
-  ri = ifp->info;
-
-  if ( (argc < 1) || (argc > 2) )
-    {
-      vty_out (vty, "incorrect argument count%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
-    
   if (strncmp ("md5", argv[0], strlen (argv[0])) == 0)
-    auth_type = RIP_AUTH_MD5;
+    ri->auth_type = RIP_AUTH_MD5;
   else if (strncmp ("text", argv[0], strlen (argv[0])) == 0)
-    auth_type = RIP_AUTH_SIMPLE_PASSWORD;
+    ri->auth_type = RIP_AUTH_SIMPLE_PASSWORD;
   else
     {
-      vty_out (vty, "mode should be md5 or text%s", VTY_NEWLINE);
+      vty_out (vty, "Parser error%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-
-  if (argc == 1)
-    {
-      ri->auth_type = auth_type;
-      return CMD_SUCCESS;
-    }
-
-  if ( (argc == 2) && (auth_type != RIP_AUTH_MD5) )
-    {
-      vty_out (vty, "auth length argument only valid for md5%s", VTY_NEWLINE);
-      return CMD_WARNING;
-    }
-
-  if (strncmp ("r", argv[1], 1) == 0)
-    ri->md5_auth_len = RIP_AUTH_MD5_SIZE;
-  else if (strncmp ("o", argv[1], 1) == 0)
-    ri->md5_auth_len = RIP_AUTH_MD5_COMPAT_SIZE;
-  else 
-    return CMD_WARNING;
-    
-  ri->auth_type = auth_type;
-  
   return CMD_SUCCESS;
 }
 
-ALIAS (ip_rip_authentication_mode,
-       ip_rip_authentication_mode_authlen_cmd,
-       "ip rip authentication mode (md5|text) auth-length (rfc|old-ripd)",
+DEFUN (ip_rip_authentication_mode_md5_authlen,
+       ip_rip_authentication_mode_md5_authlen_cmd,
+       "ip rip authentication mode md5 auth-length (rfc|old-ripd)",
        IP_STR
        "Routing Information Protocol\n"
        "Authentication control\n"
        "Authentication mode\n"
-       "Keyed message digest\n"
-       "Clear text authentication\n"
+       "Keyed-MD5 authentication\n"
        "MD5 authentication data length\n"
        "RFC compatible\n"
        "Old ripd compatible\n")
+{
+  struct interface *ifp = (struct interface *)vty->index;
+  struct rip_interface *ri = ifp->info;
+
+  ri->auth_type = RIP_AUTH_MD5;
+  ri->md5_auth_len = strncmp ("r", argv[0], 1) ? RIP_AUTH_MD5_COMPAT_SIZE : RIP_AUTH_MD5_SIZE;
+  return CMD_SUCCESS;
+}
 
 DEFUN (no_ip_rip_authentication_mode,
        no_ip_rip_authentication_mode_cmd,
@@ -1584,19 +1559,18 @@ ALIAS (no_ip_rip_authentication_mode,
        "Routing Information Protocol\n"
        "Authentication control\n"
        "Authentication mode\n"
-       "Keyed message digest\n"
+       "Keyed-MD5 authentication\n"
        "Clear text authentication\n")
 
 ALIAS (no_ip_rip_authentication_mode,
-       no_ip_rip_authentication_mode_type_authlen_cmd,
-       "no ip rip authentication mode (md5|text) auth-length (rfc|old-ripd)",
+       no_ip_rip_authentication_mode_md5_authlen_cmd,
+       "no ip rip authentication mode md5 auth-length (rfc|old-ripd)",
        NO_STR
        IP_STR
        "Routing Information Protocol\n"
        "Authentication control\n"
        "Authentication mode\n"
-       "Keyed message digest\n"
-       "Clear text authentication\n"
+       "Keyed-MD5 authentication\n"
        "MD5 authentication data length\n"
        "RFC compatible\n"
        "Old ripd compatible\n")
@@ -2065,10 +2039,10 @@ rip_if_init (void)
   install_element (INTERFACE_NODE, &no_ip_rip_receive_version_num_cmd);
 
   install_element (INTERFACE_NODE, &ip_rip_authentication_mode_cmd);
-  install_element (INTERFACE_NODE, &ip_rip_authentication_mode_authlen_cmd);
+  install_element (INTERFACE_NODE, &ip_rip_authentication_mode_md5_authlen_cmd);
   install_element (INTERFACE_NODE, &no_ip_rip_authentication_mode_cmd);
   install_element (INTERFACE_NODE, &no_ip_rip_authentication_mode_type_cmd);
-  install_element (INTERFACE_NODE, &no_ip_rip_authentication_mode_type_authlen_cmd);
+  install_element (INTERFACE_NODE, &no_ip_rip_authentication_mode_md5_authlen_cmd);
 
   install_element (INTERFACE_NODE, &ip_rip_authentication_key_chain_cmd);
   install_element (INTERFACE_NODE, &no_ip_rip_authentication_key_chain_cmd);
