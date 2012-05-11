@@ -29,7 +29,6 @@
 #define RIP_DEBUG_PACKET  0x01
 #define RIP_DEBUG_SEND    0x20
 #define RIP_DEBUG_RECV    0x40
-#define RIP_DEBUG_DETAIL  0x80
 
 /* RIP debug zebra flags. */
 #define RIP_DEBUG_ZEBRA   0x01
