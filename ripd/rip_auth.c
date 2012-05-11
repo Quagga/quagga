@@ -25,6 +25,15 @@
 #include "ripd/rip_debug.h"
 #include "ripd/rip_peer.h"
 
+static const struct message rip_ffff_type_str[] =
+{
+  { RIP_NO_AUTH,              "none"         },
+  { RIP_AUTH_DATA,            "hash trailer" },
+  { RIP_AUTH_SIMPLE_PASSWORD, "simple"       },
+  { RIP_AUTH_HASH,            "hash"         },
+};
+static const size_t rip_ffff_type_str_max = sizeof (rip_ffff_type_str) / sizeof (rip_ffff_type_str[0]);
+
 /* RIP version 2 authentication. */
 static int
 rip_auth_simple_password (struct rip_interface *ri, struct rip_auth_rte *auth)
@@ -206,7 +215,6 @@ int rip_auth_check_packet
   }
   else if (ri->auth_type != RIP_NO_AUTH)
   {
-    const char *auth_desc;
     struct rip_auth_rte *auth = (struct rip_auth_rte *) packet->rte;
 
     if (rtenum == 0)
@@ -231,32 +239,18 @@ int rip_auth_check_packet
     switch (ntohs (auth->type))
     {
     case RIP_AUTH_SIMPLE_PASSWORD:
-      auth_desc = "simple";
       ret = rip_auth_simple_password (ri, auth) ? bytesonwire : 0;
       break;
     case RIP_AUTH_HASH:
-      auth_desc = "hash";
       /* Reset RIP packet length to trim MD5 data. */
       ret = rip_auth_md5 (ri, packet, bytesonwire);
       break;
-    default:
-      auth_desc = "unknown type";
-      if (IS_RIP_DEBUG_PACKET)
-        zlog_debug ("RIPv2 Unknown authentication type %d", ntohs (auth->type));
     }
-
-    if (ret)
-    {
-      if (IS_RIP_DEBUG_PACKET)
-        zlog_debug ("RIPv2 %s authentication success", auth_desc);
-    }
-    else
-    {
-      if (IS_RIP_DEBUG_PACKET)
-        zlog_debug ("RIPv2 %s authentication failure", auth_desc);
+    if (!ret)
       rip_peer_bad_packet (from);
-      return 0;
-    }
+    if (IS_RIP_DEBUG_PACKET)
+      zlog_debug ("RIPv2 %s authentication %s", LOOKUP (rip_ffff_type_str, ntohs (auth->type)),
+                  ret ? "success" : "failed");
   }
   return ret;
 }
@@ -405,20 +399,20 @@ rip_auth_make_packet
 void
 rip_auth_dump_ffff_rte (struct rip_auth_rte *auth)
 {
-  switch (ntohs (auth->type))
+  u_int16_t auth_type = ntohs (auth->type);
+  zlog_debug ("  family 0xFFFF type %u (%s)", auth_type, LOOKUP (rip_ffff_type_str, auth_type));
+  switch (auth_type)
   {
   case RIP_AUTH_SIMPLE_PASSWORD:
-    zlog_debug ("  family 0xFFFF type 2 (Simple) auth string: %s", auth->u.password);
+    zlog_debug ("    Auth string: %s", auth->u.password);
     break;
   case RIP_AUTH_HASH:
-    zlog_debug ("  family 0xFFFF type 3 (hash authentication)");
     zlog_debug ("    RIP-2 packet len %u Key ID %u Auth Data len %u",
                 ntohs (auth->u.hash_info.packet_len), auth->u.hash_info.key_id,
                 auth->u.hash_info.auth_len);
     zlog_debug ("    Sequence Number %u", ntohl (auth->u.hash_info.sequence));
     break;
   case RIP_AUTH_DATA:
-    zlog_debug ("  family 0xFFFF type 1 (authentication data)");
     zlog_debug ("    digest: %02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
                 auth->u.hash_digest[0],  auth->u.hash_digest[1],  auth->u.hash_digest[2],
                 auth->u.hash_digest[3],  auth->u.hash_digest[4],  auth->u.hash_digest[5],
@@ -427,8 +421,6 @@ rip_auth_dump_ffff_rte (struct rip_auth_rte *auth)
                 auth->u.hash_digest[12], auth->u.hash_digest[13], auth->u.hash_digest[14],
                 auth->u.hash_digest[15]);
     break;
-  default:
-    zlog_debug ("  family 0xFFFF type %u (Unknown auth type)", ntohs (auth->type));
   }
 }
 
