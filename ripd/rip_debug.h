@@ -33,6 +33,9 @@
 /* RIP debug zebra flags. */
 #define RIP_DEBUG_ZEBRA   0x01
 
+/* authenticaton debug */
+#define RIP_DEBUG_AUTH    0x01
+
 /* Debug related macro. */
 #define IS_RIP_DEBUG_EVENT  (rip_debug_event & RIP_DEBUG_EVENT)
 
@@ -42,9 +45,12 @@
 
 #define IS_RIP_DEBUG_ZEBRA  (rip_debug_zebra & RIP_DEBUG_ZEBRA)
 
+#define IS_RIP_DEBUG_AUTH   (rip_debug_auth & RIP_DEBUG_AUTH)
+
 extern unsigned long rip_debug_event;
 extern unsigned long rip_debug_packet;
 extern unsigned long rip_debug_zebra;
+extern unsigned long rip_debug_auth;
 
 extern void rip_debug_init (void);
 extern void rip_debug_reset (void);

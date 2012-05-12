@@ -27,6 +27,7 @@
 unsigned long rip_debug_event = 0;
 unsigned long rip_debug_packet = 0;
 unsigned long rip_debug_zebra = 0;
+unsigned long rip_debug_auth = 0;
 
 DEFUN (show_debugging_rip,
        show_debugging_rip_cmd,
@@ -60,6 +61,9 @@ DEFUN (show_debugging_rip,
 
   if (IS_RIP_DEBUG_ZEBRA)
     vty_out (vty, "  RIP zebra debugging is on%s", VTY_NEWLINE);
+
+  if (IS_RIP_DEBUG_AUTH)
+    vty_out (vty, "  RIP authentication debugging is on%s", VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }
@@ -199,6 +203,29 @@ DEFUN (no_debug_rip_zebra,
   return CMD_WARNING;
 }
 
+DEFUN (debug_rip_authentication,
+       debug_rip_authentication_cmd,
+       "debug rip authentication",
+       DEBUG_STR
+       RIP_STR
+       "RIP authentication\n")
+{
+  rip_debug_auth = RIP_DEBUG_AUTH;
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_rip_authentication,
+       no_debug_rip_authentication_cmd,
+       "no debug rip authentication",
+       NO_STR
+       DEBUG_STR
+       RIP_STR
+       "RIP authentication\n")
+{
+  rip_debug_auth = 0;
+  return CMD_SUCCESS;
+}
+
 /* Debug node. */
 static struct cmd_node debug_node =
 {
@@ -241,6 +268,11 @@ config_write_debug (struct vty *vty)
       vty_out (vty, "debug rip zebra%s", VTY_NEWLINE);
       write++;
     }
+  if (IS_RIP_DEBUG_AUTH)
+    {
+      vty_out (vty, "debug rip authentication%s", VTY_NEWLINE);
+      write++;
+    }
   return write;
 }
 
@@ -250,6 +282,7 @@ rip_debug_reset (void)
   rip_debug_event = 0;
   rip_debug_packet = 0;
   rip_debug_zebra = 0;
+  rip_debug_auth = 0;
 }
 
 void
@@ -258,6 +291,7 @@ rip_debug_init (void)
   rip_debug_event = 0;
   rip_debug_packet = 0;
   rip_debug_zebra = 0;
+  rip_debug_auth = 0;
 
   install_node (&debug_node, config_write_debug);
 
@@ -271,6 +305,8 @@ rip_debug_init (void)
   install_element (ENABLE_NODE, &no_debug_rip_packet_cmd);
   install_element (ENABLE_NODE, &no_debug_rip_packet_direct_cmd);
   install_element (ENABLE_NODE, &no_debug_rip_zebra_cmd);
+  install_element (ENABLE_NODE, &debug_rip_authentication_cmd);
+  install_element (ENABLE_NODE, &no_debug_rip_authentication_cmd);
 
   install_element (CONFIG_NODE, &debug_rip_events_cmd);
   install_element (CONFIG_NODE, &debug_rip_packet_cmd);
@@ -281,4 +317,6 @@ rip_debug_init (void)
   install_element (CONFIG_NODE, &no_debug_rip_packet_cmd);
   install_element (CONFIG_NODE, &no_debug_rip_packet_direct_cmd);
   install_element (CONFIG_NODE, &no_debug_rip_zebra_cmd);
+  install_element (CONFIG_NODE, &debug_rip_authentication_cmd);
+  install_element (CONFIG_NODE, &no_debug_rip_authentication_cmd);
 }

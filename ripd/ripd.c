@@ -1685,7 +1685,11 @@ rip_read (struct thread *t)
 
   /* rip_auth_check_packet() will handle logging */
   if (! (len = rip_auth_check_packet (ri, &from, packet, len)))
+  {
+    if (IS_RIP_DEBUG_RECV)
+      zlog_debug ("authentication check failed, packet discarded");
     return -1;
+  }
   
   /* Process each command. */
   switch (packet->command)

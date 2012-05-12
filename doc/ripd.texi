@@ -657,6 +657,12 @@ This command will show the communication between @command{ripd} and
 @command{zebra}.  The main information will include addition and deletion of
 paths to the kernel and the sending and receiving of interface information.
 
+@deffn Command {debug rip authentication} {}
+This command enables a trace of packet authentication procedures logged for
+each protocol packet received and transmitted. Particular details include
+Simple and Cryptographic Hash authentication cases.
+@end deffn
+
 @deffn Command {show debugging rip} {}
 Display @command{ripd}'s debugging option.
 @end deffn

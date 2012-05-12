@@ -41,7 +41,13 @@ rip_auth_check_password (struct rip_interface *ri, struct rip_auth_rte *auth)
   if (ri->auth_str)
   {
     if (strncmp (auth->u.password, ri->auth_str, RIP_AUTH_SIMPLE_SIZE) == 0)
+    {
+      if (IS_RIP_DEBUG_AUTH)
+        zlog_debug ("interface authentication string is configured and matches");
       return 1;
+    }
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("interface authentication string is configured, but does not match");
   }
   if (ri->key_chain)
   {
@@ -50,11 +56,23 @@ rip_auth_check_password (struct rip_interface *ri, struct rip_auth_rte *auth)
 
     keychain = keychain_lookup (ri->key_chain);
     if (keychain == NULL)
+    {
+      if (IS_RIP_DEBUG_AUTH)
+        zlog_debug ("key chain '%s' is configured, but does not exist", ri->key_chain);
       return 0;
+    }
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("trying configured key chain '%s'", ri->key_chain);
 
     key = key_match_for_accept (keychain, auth->u.password);
     if (key)
+    {
+      if (IS_RIP_DEBUG_AUTH)
+        zlog_debug ("key %u matched the packet", key->index);
       return 1;
+    }
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("no key matched the packet");
   }
   return 0;
 }
@@ -71,6 +89,8 @@ rip_auth_make_hash_md5
 {
   MD5_CTX ctx;
 
+  if (IS_RIP_DEBUG_AUTH)
+    zlog_debug ("%s: %zuB of input buffer, %uB of key", __func__, inputlen, RIP_AUTH_MD5_SIZE);
   memset (&ctx, 0, sizeof (ctx));
   MD5Init (&ctx);
   MD5Update (&ctx, input, inputlen);
@@ -98,20 +118,42 @@ rip_auth_check_hash (struct rip_interface *ri, struct rip_packet *packet)
   hi = (struct rip_auth_rte *) &packet->rte;
   packet_len = ntohs (hi->u.hash_info.packet_len);
   hd = (struct rip_auth_rte *) (((caddr_t) packet) + packet_len);
+  if (IS_RIP_DEBUG_AUTH)
+    zlog_debug ("declared main body length is %u", packet_len);
 
   /* pick local key */
   if (ri->key_chain)
   {
     if ((keychain = keychain_lookup (ri->key_chain)) == NULL)
+    {
+      if (IS_RIP_DEBUG_AUTH)
+        zlog_debug ("key chain '%s' is configured, but does not exist", ri->key_chain);
       return 0;
+    }
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("trying configured key chain '%s'", ri->key_chain);
     if ((key = key_lookup_for_accept (keychain, hi->u.hash_info.key_id)) == NULL)
+    {
+      if (IS_RIP_DEBUG_AUTH)
+        zlog_debug ("key %u lookup failed", hi->u.hash_info.key_id);
       return 0;
+    }
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("using keychain '%s', key %u for receiving", ri->key_chain, key->index);
     strncpy (auth_str, key->string, RIP_AUTH_MAX_SIZE);
   }
   else if (ri->auth_str)
+  {
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("using interface authentication string");
     strncpy (auth_str, ri->auth_str, RIP_AUTH_MAX_SIZE);
+  }
   if (auth_str[0] == 0)
+  {
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("authentication string lookup failed");
     return 0;
+  }
 
   /* If the authentication length is less than 16, then it must be wrong for
    * any interpretation of rfc2082. Some implementations also interpret
@@ -163,7 +205,7 @@ int rip_auth_check_packet
   {
     if (packet->version == RIPv2 && auth->family == htons (RIP_FAMILY_AUTH))
     {
-      if (IS_RIP_DEBUG_EVENT)
+      if (IS_RIP_DEBUG_AUTH)
         zlog_debug ("RIP-2 packet discarded, local auth none, remote %s",
           LOOKUP (rip_ffff_type_str, ntohs (auth->type)));
       rip_peer_bad_packet (from);
@@ -203,7 +245,7 @@ int rip_auth_check_packet
   {
     if (packet->command == RIP_REQUEST)
       return bytesonwire;
-    if (IS_RIP_DEBUG_PACKET)
+    if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("RIP-1 packet discarded, local auth %s",
                   LOOKUP (rip_ffff_type_str, ri->auth_type));
     rip_peer_bad_packet (from);
@@ -213,7 +255,7 @@ int rip_auth_check_packet
   /* packet->version == RIPv2 */
   if (auth->family != htons (RIP_FAMILY_AUTH))
   {
-    if (IS_RIP_DEBUG_PACKET)
+    if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("RIP-2 packet discarded, local auth %s, remote none",
                   LOOKUP (rip_ffff_type_str, ri->auth_type));
     rip_peer_bad_packet (from);
@@ -223,7 +265,7 @@ int rip_auth_check_packet
   /* same auth type? */
   if (ri->auth_type != ntohs (auth->type))
   {
-    if (IS_RIP_DEBUG_PACKET)
+    if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("RIP-2 packet discarded, local auth %s, remote %s",
                   LOOKUP (rip_ffff_type_str, ri->auth_type),
                   LOOKUP (rip_ffff_type_str, ntohs (auth->type)));
@@ -245,7 +287,7 @@ int rip_auth_check_packet
   }
   if (! ret)
     rip_peer_bad_packet (from);
-  if (IS_RIP_DEBUG_PACKET)
+  if (IS_RIP_DEBUG_AUTH)
     zlog_debug ("RIPv2 %s authentication %s", LOOKUP (rip_ffff_type_str, ntohs (auth->type)),
                 ret ? "success" : "failed");
   return ret;
@@ -257,6 +299,8 @@ rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_s
 {
   unsigned char digest[RIP_AUTH_MD5_SIZE];
 
+  if (IS_RIP_DEBUG_AUTH)
+    zlog_debug ("writing authentication trailer after %zuB of main body", stream_get_endp (s));
   /* Make it sure this interface is configured as MD5
      authentication. */
   assert (ri->auth_type == RIP_AUTH_HASH);
@@ -281,6 +325,8 @@ rip_auth_write_leading_rte
   u_int16_t main_body_len
 )
 {
+  if (IS_RIP_DEBUG_AUTH)
+    zlog_debug ("writing authentication header for %uB of main body", main_body_len);
   stream_putw (s, RIP_FAMILY_AUTH);
   switch (ri->auth_type)
   {
@@ -295,6 +341,8 @@ rip_auth_write_leading_rte
     /* Auth Data Len.  Set 16 for MD5 authentication data. Older ripds
      * however expect RIP_HEADER_SIZE + RIP_AUTH_MD5_SIZE so we allow for this
      * to be configurable. */
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("declared auth data length is %uB", ri->md5_auth_len);
     stream_putc (s, ri->md5_auth_len);
     stream_putl (s, time (NULL)); /* Sequence Number (non-decreasing). */
     stream_putl (s, 0); /* reserved, MBZ */
@@ -323,6 +371,10 @@ rip_auth_make_packet
   struct key *key = NULL;
   char auth_str[RIP_AUTH_SIMPLE_SIZE] = { 0 };
 
+  if (IS_RIP_DEBUG_AUTH)
+    zlog_debug ("interface auth type is '%s', inet RTEs payload size is %zuB",
+      LOOKUP (rip_ffff_type_str, ri->auth_type), stream_get_endp (rtes));
+
   /* packet header, unconditional */
   stream_reset (packet);
   stream_putc (packet, command);
@@ -338,7 +390,16 @@ rip_auth_make_packet
 
       keychain = keychain_lookup (ri->key_chain);
       if (keychain)
+      {
+        if (IS_RIP_DEBUG_AUTH)
+          zlog_debug ("trying configured key chain '%s'", ri->key_chain);
         key = key_lookup_for_send (keychain);
+      }
+      else
+      {
+        if (IS_RIP_DEBUG_AUTH)
+          zlog_debug ("key chain '%s' is configured, but does not exist", ri->key_chain);
+      }
     }
     /* Pick correct auth string for sends, prepare auth_str buffer for use.
      * (left justified and padded).
@@ -349,9 +410,17 @@ rip_auth_make_packet
      *
      */
     if (key && key->string)
+    {
+      if (IS_RIP_DEBUG_AUTH)
+        zlog_debug ("using keychain '%s', key %u for sending", ri->key_chain, key->index);
       strncpy (auth_str, key->string, RIP_AUTH_SIMPLE_SIZE);
+    }
     else if (ri->auth_str)
+    {
+      if (IS_RIP_DEBUG_AUTH)
+        zlog_debug ("using interface authentication string");
       strncpy (auth_str, ri->auth_str, RIP_AUTH_SIMPLE_SIZE);
+    }
 
     rip_auth_write_leading_rte (packet, ri, key ? key->index % 256 : 1, auth_str,
       RIP_HEADER_SIZE + RIP_RTE_SIZE + stream_get_endp (rtes));
