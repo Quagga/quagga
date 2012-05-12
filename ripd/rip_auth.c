@@ -34,33 +34,28 @@ static const struct message rip_ffff_type_str[] =
 };
 static const size_t rip_ffff_type_str_max = sizeof (rip_ffff_type_str) / sizeof (rip_ffff_type_str[0]);
 
-/* RIP version 2 authentication. */
+/* RIP-2 simple password authentication. */
 static int
-rip_auth_simple_password (struct rip_interface *ri, struct rip_auth_rte *auth)
+rip_auth_check_password (struct rip_interface *ri, struct rip_auth_rte *auth)
 {
-  if (ri->auth_type != RIP_AUTH_SIMPLE_PASSWORD
-      || auth->type != htons (RIP_AUTH_SIMPLE_PASSWORD))
-    return 0;
-
-  /* Simple password authentication. */
   if (ri->auth_str)
-    {
-      if (strncmp (auth->u.password, ri->auth_str, RIP_AUTH_SIMPLE_SIZE) == 0)
-	return 1;
-    }
+  {
+    if (strncmp (auth->u.password, ri->auth_str, RIP_AUTH_SIMPLE_SIZE) == 0)
+      return 1;
+  }
   if (ri->key_chain)
-    {
-      struct keychain *keychain;
-      struct key *key;
+  {
+    struct keychain *keychain;
+    struct key *key;
 
-      keychain = keychain_lookup (ri->key_chain);
-      if (keychain == NULL)
-	return 0;
+    keychain = keychain_lookup (ri->key_chain);
+    if (keychain == NULL)
+      return 0;
 
-      key = key_match_for_accept (keychain, auth->u.password);
-      if (key)
-	return 1;
-    }
+    key = key_match_for_accept (keychain, auth->u.password);
+    if (key)
+      return 1;
+  }
   return 0;
 }
 
@@ -239,7 +234,7 @@ int rip_auth_check_packet
   switch (ntohs (auth->type))
   {
   case RIP_AUTH_SIMPLE_PASSWORD:
-    ret = rip_auth_simple_password (ri, auth) ? bytesonwire : 0;
+    ret = rip_auth_check_password (ri, auth) ? bytesonwire : 0;
     break;
   case RIP_AUTH_HASH:
     /* Reset RIP packet length to trim MD5 data. */
