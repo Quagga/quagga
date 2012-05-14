@@ -473,14 +473,33 @@ on the internet, via RIPv1.
 To prevent such unauthenticated querying of routes disable RIPv1,
 @xref{RIP Version Control}.
 
-@deffn {Interface command} {ip rip authentication mode md5} {}
-@deffnx {Interface command} {no ip rip authentication mode md5} {}
-Set the interface with RIPv2 MD5 authentication.
-@end deffn
+@deffn {Interface command} {ip rip authentication mode @var{authmode}} {}
+@deffnx {Interface command} {no ip rip authentication mode [@var{authmode}]} {}
+Set the current interface's authentication mode to @var{authmode}, which
+can be one of the following:
+@itemize @bullet
+@item
+@code{text}:
+Simple Password authentication (RFC2453), which uses a clear-text password
+stored in each protocol packet. This mode may not be considered a security
+measure, it is only useful for keeping misconfigured routers away.
+@item
+@code{md5 [auth-length <rfc|old-ripd>]}:
+Keyed-MD5 authentication (RFC2082), which uses a secret key and a sequence
+number to generate a 128-bit long digest for each protocol packet. This mode
+may be considered a security measure, but not any stronger, than the MD5
+algorithm itself is. MD5 is currently considered a relatively weak hash
+algorithm.
 
-@deffn {Interface command} {ip rip authentication mode text} {}
-@deffnx {Interface command} {no ip rip authentication mode text} {}
-Set the interface with RIPv2 simple password authentication.
+There are two MD5 modes implemented in Quagga: RFC-compatible and
+IOS-compatible (also known as "old ripd mode"). These two modes are not
+compatible with each other, unless all RIP routers in the network are Quagga
+ripd. That said, the only difference between two is that in IOS-compatible
+mode (default) the "Auth Data Len" field of a RIP packet is set to value
+0x14, while in RFC-compatible mode it is set to 0x10.
+@end itemize
+
+Default: no authentication is configured for an interface
 @end deffn
 
 @deffn {Interface command} {ip rip authentication string @var{string}} {}
