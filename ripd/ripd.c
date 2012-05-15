@@ -1658,7 +1658,7 @@ rip_read (struct thread *t)
   if (ri->auth_type == RIP_AUTH_HASH)
     bending_bytes = ri->md5_auth_len - RIP_AUTH_MD5_SIZE;
 
-  if (rip_packet_examin (ri, packet, len, bending_bytes, 0) != MSG_OK)
+  if (rip_packet_examin (ri, packet, len, bending_bytes, rip->relaxed_recv_size_checks) != MSG_OK)
     {
       rip_peer_bad_packet (&from);
       return -1;
@@ -3109,6 +3109,9 @@ DEFUN (show_ip_rip_status,
   vty_out (vty, "  Default redistribution metric is %d%s",
 	   rip->default_metric, VTY_NEWLINE);
 
+  vty_out (vty, "  Relaxed receiving size checks are %s%s",
+	   rip->relaxed_recv_size_checks ? "on" : "off", VTY_NEWLINE);
+
   /* Redistribute information. */
   vty_out (vty, "  Redistributing:");
   config_write_rip_redistribute (vty, 0);
@@ -3181,6 +3184,27 @@ DEFUN (show_ip_rip_status,
   return CMD_SUCCESS;
 }
 
+DEFUN (rip_relaxed_recv_size_checks,
+       rip_relaxed_recv_size_checks_cmd,
+       "relaxed-recv-size-checks",
+       "Abide other treatments of RFC for received packets\n")
+{
+  if (rip)
+    rip->relaxed_recv_size_checks = 1;
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_rip_relaxed_recv_size_checks,
+       no_rip_relaxed_recv_size_checks_cmd,
+       "no relaxed-recv-size-checks",
+       NO_STR
+       "Abide other treatments of RFC for received packets\n")
+{
+  if (rip)
+    rip->relaxed_recv_size_checks = 0;
+  return CMD_SUCCESS;
+}
+
 /* RIP configuration write function. */
 static int
 config_write_rip (struct vty *vty)
@@ -3235,6 +3259,10 @@ config_write_rip (struct vty *vty)
       if (rip->default_metric != RIP_DEFAULT_METRIC_DEFAULT)
         vty_out (vty, " default-metric %d%s",
 		 rip->default_metric, VTY_NEWLINE);
+
+      /* Relaxed Rx, default is off. */
+      if (rip->relaxed_recv_size_checks)
+        vty_out (vty, " relaxed-recv-size-checks%s", VTY_NEWLINE);
 
       /* Distribute configuration. */
       write += config_write_distribute (vty);
@@ -3577,6 +3605,8 @@ rip_init (void)
   install_element (RIP_NODE, &rip_default_metric_cmd);
   install_element (RIP_NODE, &no_rip_default_metric_cmd);
   install_element (RIP_NODE, &no_rip_default_metric_val_cmd);
+  install_element (RIP_NODE, &rip_relaxed_recv_size_checks_cmd);
+  install_element (RIP_NODE, &no_rip_relaxed_recv_size_checks_cmd);
   install_element (RIP_NODE, &rip_timers_cmd);
   install_element (RIP_NODE, &no_rip_timers_cmd);
   install_element (RIP_NODE, &no_rip_timers_val_cmd);

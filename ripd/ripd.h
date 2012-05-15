@@ -127,6 +127,8 @@ struct rip
   u_char distance;
   struct route_table *distance_table;
 
+  u_char relaxed_recv_size_checks;
+
   /* For redistribute route map. */
   struct
   {
