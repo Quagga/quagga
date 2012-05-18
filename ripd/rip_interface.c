@@ -60,12 +60,13 @@ static int rip_enable_if_lookup (const char *ifname);
 static int rip_enable_network_lookup2 (struct connected *connected);
 static void rip_enable_apply_all (void);
 
-struct message ri_version_msg[] = 
+const struct message ri_version_msg[] =
 {
   {RI_RIP_VERSION_1,       "1"},
   {RI_RIP_VERSION_2,       "2"},
   {RI_RIP_VERSION_1_AND_2, "1 2"},
 };
+const size_t ri_version_msg_max = sizeof (ri_version_msg) / sizeof (ri_version_msg[0]);
 
 /* RIP enabled network vector. */
 static vector rip_enable_interface;
@@ -1963,12 +1964,12 @@ rip_interface_config_write (struct vty *vty)
       /* RIP version setting. */
       if (ri->ri_send != RI_RIP_UNSPEC)
 	vty_out (vty, " ip rip send version %s%s",
-		 lookup (ri_version_msg, ri->ri_send),
+		 LOOKUP (ri_version_msg, ri->ri_send),
 		 VTY_NEWLINE);
 
       if (ri->ri_receive != RI_RIP_UNSPEC)
 	vty_out (vty, " ip rip receive version %s%s",
-		 lookup (ri_version_msg, ri->ri_receive),
+		 LOOKUP (ri_version_msg, ri->ri_receive),
 		 VTY_NEWLINE);
 
       /* RIP authentication. */

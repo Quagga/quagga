@@ -3075,7 +3075,6 @@ DEFUN (show_ip_rip_status,
   struct listnode *node;
   struct interface *ifp;
   struct rip_interface *ri;
-  extern const struct message ri_version_msg[];
   const char *send_version;
   const char *receive_version;
 
@@ -3108,12 +3107,12 @@ DEFUN (show_ip_rip_status,
   vty_out (vty, "%s", VTY_NEWLINE);
 
   vty_out (vty, "  Default version control: send version %s,",
-	   lookup(ri_version_msg,rip->version_send));
+	   LOOKUP (ri_version_msg,rip->version_send));
   if (rip->version_recv == RI_RIP_VERSION_1_AND_2)
     vty_out (vty, " receive any version %s", VTY_NEWLINE);
   else
     vty_out (vty, " receive version %s %s",
-	     lookup(ri_version_msg,rip->version_recv), VTY_NEWLINE);
+	     LOOKUP (ri_version_msg,rip->version_recv), VTY_NEWLINE);
 
   vty_out (vty, "    Interface        Send  Recv   Key-chain%s", VTY_NEWLINE);
 
@@ -3127,14 +3126,14 @@ DEFUN (show_ip_rip_status,
       if (ri->enable_network || ri->enable_interface)
 	{
 	  if (ri->ri_send == RI_RIP_UNSPEC)
-	    send_version = lookup (ri_version_msg, rip->version_send);
+	    send_version = LOOKUP (ri_version_msg, rip->version_send);
 	  else
-	    send_version = lookup (ri_version_msg, ri->ri_send);
+	    send_version = LOOKUP (ri_version_msg, ri->ri_send);
 
 	  if (ri->ri_receive == RI_RIP_UNSPEC)
-	    receive_version = lookup (ri_version_msg, rip->version_recv);
+	    receive_version = LOOKUP (ri_version_msg, rip->version_recv);
 	  else
-	    receive_version = lookup (ri_version_msg, ri->ri_receive);
+	    receive_version = LOOKUP (ri_version_msg, ri->ri_receive);
 	
 	  vty_out (vty, "    %-17s%-3s   %-3s    %s%s", ifp->name,
 		   send_version,

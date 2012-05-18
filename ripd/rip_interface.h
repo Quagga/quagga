@@ -99,4 +99,7 @@ extern void rip_clean_network (void);
 extern void rip_passive_nondefault_clean (void);
 extern int config_write_rip_network (struct vty *, int);
 
+extern const struct message ri_version_msg[];
+extern const size_t ri_version_msg_max;
+
 #endif /* _QUAGGA_RIP_INTERFACE_H */
