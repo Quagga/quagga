@@ -682,7 +682,10 @@ rip_packet_dump (struct rip_packet *packet, int size, const char *sndrcv)
       if (packet->version == RIPv2)
 	{
           if (rte->family == htons (RIP_FAMILY_AUTH))
-            rip_auth_dump_ffff_rte ((struct rip_auth_rte *) rte);
+          {
+            if (rip_auth_dump_ffff_rte ((struct rip_auth_rte *) rte, lim - (caddr_t)rte) < 1)
+              break;
+          }
 	  else
 	    zlog_debug ("  %s/%d -> %s family %d tag %d metric %ld",
                        inet_ntop (AF_INET, &rte->prefix, pbuf, BUFSIZ),

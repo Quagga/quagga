@@ -633,33 +633,37 @@ rip_auth_make_packet
   return 0;
 }
 
-/* Dump the contents of a 0xFFFF (authentication) family RTE. */
-void
-rip_auth_dump_ffff_rte (struct rip_auth_rte *auth)
+/* Dump the contents of a 0xFFFF (authentication) family RTE. Return 1,
+ * if another RTE may be possible after this one and 0 otherwise (when the
+ * current "RTE" is actually an authentication trailer). Return -1 for
+ * malformed input.
+ */
+int
+rip_auth_dump_ffff_rte (struct rip_auth_rte *auth, const size_t len)
 {
   u_int16_t auth_type = ntohs (auth->type);
+  char digest_buf[BUFSIZ];
+  size_t bufpos, i;
+
   zlog_debug ("  family 0xFFFF type %u (%s)", auth_type, LOOKUP (rip_ffff_type_str, auth_type));
   switch (auth_type)
   {
   case RIP_AUTH_SIMPLE_PASSWORD:
     zlog_debug ("    Auth string: %s", auth->u.password);
-    break;
+    return 1;
   case RIP_AUTH_HASH:
     zlog_debug ("    RIP-2 packet len %u Key ID %u Auth Data len %u",
                 ntohs (auth->u.hash_info.packet_len), auth->u.hash_info.key_id,
                 auth->u.hash_info.auth_len);
     zlog_debug ("    Sequence Number %u", ntohl (auth->u.hash_info.sequence));
-    break;
+    return 1;
   case RIP_AUTH_DATA:
-    zlog_debug ("    digest: %02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X%02X",
-                auth->u.hash_digest[0],  auth->u.hash_digest[1],  auth->u.hash_digest[2],
-                auth->u.hash_digest[3],  auth->u.hash_digest[4],  auth->u.hash_digest[5],
-                auth->u.hash_digest[6],  auth->u.hash_digest[7],  auth->u.hash_digest[8],
-                auth->u.hash_digest[9],  auth->u.hash_digest[10], auth->u.hash_digest[11],
-                auth->u.hash_digest[12], auth->u.hash_digest[13], auth->u.hash_digest[14],
-                auth->u.hash_digest[15]);
-    break;
+    for (i = bufpos = 0; i < len - 4 && bufpos < BUFSIZ; i++)
+      bufpos += snprintf (digest_buf + bufpos, BUFSIZ - bufpos, "%02X", auth->u.hash_digest[i]);
+    zlog_debug ("    digest: %s", digest_buf);
+    return 0;
   }
+  return -1;
 }
 
 /*
