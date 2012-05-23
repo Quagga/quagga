@@ -744,7 +744,9 @@ rip_response_process (struct rip_packet *packet, int size,
   struct prefix_ipv4 ifaddrclass;
   int subnetted;
   struct in_addr mask = { 0 };
+  struct rip_interface *ri;
       
+  ri = ifc->ifp->info;
   /* We don't know yet. */
   subnetted = -1;
 
@@ -755,6 +757,7 @@ rip_response_process (struct rip_packet *packet, int size,
       zlog_info ("response doesn't come from RIP port: %d",
 		 from->sin_port);
       rip_peer_bad_packet (from);
+      ri->recv_badpackets++;
       return;
     }
 
@@ -766,6 +769,7 @@ rip_response_process (struct rip_packet *packet, int size,
       zlog_info ("This datagram doesn't came from a valid neighbor: %s",
 		 inet_ntoa (from->sin_addr));
       rip_peer_bad_packet (from);
+      ri->recv_badpackets++;
       return;
     }
 
@@ -793,6 +797,7 @@ rip_response_process (struct rip_packet *packet, int size,
         {
 	  zlog_info ("Network is net 0 or net 127 or it is not unicast network");
 	  rip_peer_bad_route (from);
+	  ri->recv_badroutes++;
 	  continue;
 	} 
 
@@ -804,6 +809,7 @@ rip_response_process (struct rip_packet *packet, int size,
 	{
 	  zlog_info ("Route's metric is not in the 1-16 range.");
 	  rip_peer_bad_route (from);
+	  ri->recv_badroutes++;
 	  continue;
 	}
 
@@ -813,6 +819,7 @@ rip_response_process (struct rip_packet *packet, int size,
 	  zlog_info ("RIPv1 packet with nexthop value %s",
 		     inet_ntoa (rte->nexthop));
 	  rip_peer_bad_route (from);
+	  ri->recv_badroutes++;
 	  continue;
 	}
 
@@ -938,6 +945,7 @@ rip_response_process (struct rip_packet *packet, int size,
 	  if (IS_RIP_DEBUG_RECV)
 	    zlog_warn ("%s: malformed RIPv2 RTE netmask", __func__);
 	  rip_peer_bad_route (from);
+	  ri->recv_badroutes++;
 	  continue;
 	}
 
@@ -950,6 +958,7 @@ rip_response_process (struct rip_packet *packet, int size,
 	  zlog_warn ("RIPv2 address %s is not mask /%d applied one",
 		     inet_ntoa (rte->prefix), ip_masklen (rte->mask));
 	  rip_peer_bad_route (from);
+	  ri->recv_badroutes++;
 	  continue;
 	}
 
@@ -1349,6 +1358,7 @@ rip_request_process (struct rip_packet *packet, int size,
 	        zlog_warn ("%s: malformed RIPv2 RTE netmask", __func__);
 	      rte->metric = htonl (RIP_METRIC_INFINITY);
 	      rip_peer_bad_route (from);
+	      ri->recv_badroutes++;
 	      continue;
 	    }
 	  p.prefix = rte->prefix;
@@ -1637,6 +1647,7 @@ rip_read (struct thread *t)
   if (rip_packet_examin (ri, packet, len, bending_bytes, rip->relaxed_recv_size_checks) != MSG_OK)
     {
       rip_peer_bad_packet (&from);
+      ri->recv_badpackets++;
       return -1;
     }
 
@@ -1650,6 +1661,7 @@ rip_read (struct thread *t)
       if (IS_RIP_DEBUG_EVENT)
 	zlog_debug ("RIP is not enabled on interface %s.", ifp->name);
       rip_peer_bad_packet (&from);
+      ri->recv_badpackets++;
       return -1;
     }
 
@@ -1662,6 +1674,7 @@ rip_read (struct thread *t)
         zlog_debug ("  packet's v%d doesn't fit to if version spec", 
                    packet->version);
       rip_peer_bad_packet (&from);
+      ri->recv_badpackets++;
       return -1;
     }
   if ((packet->version == RIPv2) && !(vrecv & RIPv2))
@@ -1670,6 +1683,7 @@ rip_read (struct thread *t)
         zlog_debug ("  packet's v%d doesn't fit to if version spec", 
                    packet->version);
       rip_peer_bad_packet (&from);
+      ri->recv_badpackets++;
       return -1;
     }
 

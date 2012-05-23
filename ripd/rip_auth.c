@@ -357,6 +357,7 @@ int rip_auth_check_packet
         zlog_debug ("RIP-2 packet discarded, local auth none, remote %s",
           LOOKUP (rip_ffff_type_str, ntohs (auth->type)));
       rip_peer_bad_packet (from);
+      ri->recv_badpackets++;
       return 0;
     }
     return bytesonwire;
@@ -397,6 +398,7 @@ int rip_auth_check_packet
       zlog_debug ("RIP-1 packet discarded, local auth %s",
                   LOOKUP (rip_ffff_type_str, ri->auth_type));
     rip_peer_bad_packet (from);
+    ri->recv_badpackets++;
     return 0;
   }
 
@@ -407,6 +409,7 @@ int rip_auth_check_packet
       zlog_debug ("RIP-2 packet discarded, local auth %s, remote none",
                   LOOKUP (rip_ffff_type_str, ri->auth_type));
     rip_peer_bad_packet (from);
+    ri->recv_badpackets++;
     return 0;
   }
 
@@ -418,6 +421,7 @@ int rip_auth_check_packet
                   LOOKUP (rip_ffff_type_str, ri->auth_type),
                   LOOKUP (rip_ffff_type_str, ntohs (auth->type)));
     rip_peer_bad_packet (from);
+    ri->recv_badpackets++;
     return 0;
   }
 
@@ -434,7 +438,10 @@ int rip_auth_check_packet
     assert (0);
   }
   if (! ret)
+  {
     rip_peer_bad_packet (from);
+    ri->recv_badpackets++;
+  }
   if (IS_RIP_DEBUG_AUTH)
     zlog_debug ("RIPv2 %s authentication %s", LOOKUP (rip_ffff_type_str, ntohs (auth->type)),
                 ret ? "success" : "failed");
