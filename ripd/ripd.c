@@ -668,18 +668,11 @@ rip_packet_dump (struct rip_packet *packet, int size, const char *sndrcv)
 {
   caddr_t lim;
   struct rte *rte;
-  const char *command_str;
   char pbuf[BUFSIZ], nbuf[BUFSIZ];
-
-  /* Set command string. */
-  if (packet->command > 0 && packet->command < RIP_COMMAND_MAX)
-    command_str = LOOKUP (rip_msg, packet->command);
-  else
-    command_str = "unknown";
 
   /* Dump packet header. */
   zlog_debug ("%s %s version %d packet size %d",
-	     sndrcv, command_str, packet->version, size);
+	     sndrcv, LOOKUP (rip_msg, packet->command), packet->version, size);
 
   /* Dump each routing table entry. */
   rte = packet->rte;
