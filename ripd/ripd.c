@@ -744,7 +744,6 @@ rip_response_process (struct rip_packet *packet, int size,
   struct prefix_ipv4 ifaddrclass;
   int subnetted;
   struct in_addr mask = { 0 };
-  u_char masklen_issues = 0;
       
   /* We don't know yet. */
   subnetted = -1;
@@ -938,7 +937,7 @@ rip_response_process (struct rip_packet *packet, int size,
 	{
 	  if (IS_RIP_DEBUG_RECV)
 	    zlog_warn ("%s: malformed RIPv2 RTE netmask", __func__);
-	  masklen_issues = 1;
+	  rip_peer_bad_route (from);
 	  continue;
 	}
 
@@ -967,8 +966,6 @@ rip_response_process (struct rip_packet *packet, int size,
       /* Routing table updates. */
       rip_rte_process (rte, from, ifc->ifp);
     }
-  if (masklen_issues)
-    rip_peer_bad_packet (from);
 }
 
 /* Make socket for RIP protocol. */
@@ -1282,7 +1279,6 @@ rip_request_process (struct rip_packet *packet, int size,
   struct route_node *rp;
   struct rip_info *rinfo;
   struct rip_interface *ri;
-  u_char masklen_issues = 0;
 
   /* Does not reponse to the requests on the loopback interfaces */
   if (if_is_loopback (ifc->ifp))
@@ -1352,7 +1348,7 @@ rip_request_process (struct rip_packet *packet, int size,
 	      if (IS_RIP_DEBUG_RECV)
 	        zlog_warn ("%s: malformed RIPv2 RTE netmask", __func__);
 	      rte->metric = htonl (RIP_METRIC_INFINITY);
-	      masklen_issues = 1;
+	      rip_peer_bad_route (from);
 	      continue;
 	    }
 	  p.prefix = rte->prefix;
@@ -1374,8 +1370,6 @@ rip_request_process (struct rip_packet *packet, int size,
       rip_send_packet ((u_char *)packet, size, from, ifc);
     }
   rip_global_queries++;
-  if (masklen_issues)
-    rip_peer_bad_packet (from);
 }
 
 static int
