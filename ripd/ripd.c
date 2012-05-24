@@ -2302,22 +2302,31 @@ rip_create (void)
   return 0;
 }
 
-/* Sned RIP request to the destination. */
+/* Send RIP Request to the destination. */
 int
 rip_request_send (struct sockaddr_in *to, struct interface *ifp,
 		  u_char version, struct connected *connected)
 {
-  struct rte *rte;
-  struct rip_packet rip_packet;
   struct listnode *node, *nnode;
+  struct stream *packet = stream_new (RIP_PACKET_MAXSIZ);
+  struct stream *rtebuf = stream_new (RIP_RTE_SIZE);
+  struct rip_interface *ri = ifp->info;
+  int tosend, sent = -1;
 
-  memset (&rip_packet, 0, sizeof (rip_packet));
+  /* build packet */
+  stream_put (rtebuf, NULL, 16); /* zero-fill up to metric */
+  stream_putl (rtebuf, RIP_METRIC_INFINITY);
+  if (rip_auth_make_packet (ri, packet, rtebuf, version, RIP_REQUEST) < 0)
+    {
+      stream_free (packet);
+      stream_free (rtebuf);
+      zlog_err ("%s: rip_auth_make_packet() failed", __func__);
+      return -1;
+    }
+  stream_free (rtebuf);
 
-  rip_packet.command = RIP_REQUEST;
-  rip_packet.version = version;
-  rte = rip_packet.rte;
-  rte->metric = htonl (RIP_METRIC_INFINITY);
-
+  /* send packet */
+  tosend = stream_get_endp (packet);
   if (connected) 
     {
       /* 
@@ -2325,28 +2334,28 @@ rip_request_send (struct sockaddr_in *to, struct interface *ifp,
        * interface does not support multicast.  Caller loops
        * over each connected address for this case.
        */
-      if (rip_send_packet ((u_char *) &rip_packet, sizeof (rip_packet), 
-                            to, connected) != sizeof (rip_packet))
-        return -1;
-      else
-        return sizeof (rip_packet);
+      sent = rip_send_packet (stream_get_data (packet), tosend, to, connected);
+      if (sent >= 0 && IS_RIP_DEBUG_SEND)
+        rip_packet_dump ((struct rip_packet *) stream_get_data (packet), sent, "SEND");
+      stream_free (packet);
+      return sent == tosend ? sent : -1;
     }
 	
   /* send request on each connected network */
   for (ALL_LIST_ELEMENTS (ifp->connected, node, nnode, connected))
     {
-      struct prefix_ipv4 *p;
-
-      p = (struct prefix_ipv4 *) connected->address;
+      struct prefix_ipv4 *p = (struct prefix_ipv4 *) connected->address;
 
       if (p->family != AF_INET)
         continue;
-
-      if (rip_send_packet ((u_char *) &rip_packet, sizeof (rip_packet), 
-                            to, connected) != sizeof (rip_packet))
-        return -1;
+      sent = rip_send_packet (stream_get_data (packet), tosend, to, connected);
+      if (sent >= 0 && IS_RIP_DEBUG_SEND)
+        rip_packet_dump ((struct rip_packet *) stream_get_data (packet), sent, "SEND");
+      if (sent != tosend)
+        break;
     }
-  return sizeof (rip_packet);
+  stream_free (packet);
+  return sent == tosend ? sent : -1;
 }
 
 static int
