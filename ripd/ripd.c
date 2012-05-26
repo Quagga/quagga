@@ -1288,6 +1288,8 @@ rip_request_process (struct rip_packet *packet, int size,
   struct route_node *rp;
   struct rip_info *rinfo;
   struct rip_interface *ri;
+  struct stream *rtebuf, *response;
+  unsigned allowed, buffered = 0;
 
   /* Does not reponse to the requests on the loopback interfaces */
   if (if_is_loopback (ifc->ifp))
@@ -1307,35 +1309,18 @@ rip_request_process (struct rip_packet *packet, int size,
 
   lim = ((caddr_t) packet) + size;
   rte = packet->rte;
+  allowed = rip_auth_allowed_inet_rtes (ri, packet->version);
+  rtebuf = stream_new (allowed * RIP_RTE_SIZE);
+  response = stream_new (RIP_PACKET_MAXSIZ);
 
   /* The Request is processed entry by entry.  If there are no
      entries, no response is given. */
-  if (lim == (caddr_t) rte)
-    return;
 
   /* There is one special case.  If there is exactly one entry in the
      request, and it has an address family identifier of zero and a
      metric of infinity (i.e., 16), then this is a request to send the
      entire routing table. */
-  if (lim == ((caddr_t) (rte + 1)) &&
-      ntohs (rte->family) == 0 &&
-      ntohl (rte->metric) == RIP_METRIC_INFINITY)
-    {	
-      struct prefix_ipv4 saddr;
 
-      /* saddr will be used for determining which routes to split-horizon.
-         Since the source address we'll pick will be on the same subnet as the
-         destination, for the purpose of split-horizoning, we'll
-         pretend that "from" is our source address.  */
-      saddr.family = AF_INET;
-      saddr.prefixlen = IPV4_MAX_BITLEN;
-      saddr.prefix = from->sin_addr;
-
-      /* All route with split horizon */
-      rip_output_process (ifc, from, rip_all_route, packet->version);
-    }
-  else
-    {
       /* Examine the list of RTEs in the Request one by one.  For each
 	 entry, look up the destination in the router's routing
 	 database and, if there is a route, put that route's metric in
@@ -1352,6 +1337,13 @@ rip_request_process (struct rip_packet *packet, int size,
 	  struct in_addr mask = { 0 };
 	  masklen2ip (masklen, &mask);
 
+	  if (ntohs (rte->family) == RIP_FAMILY_AUTH)
+	    continue;
+	  if (ntohs (rte->family) == 0 && ntohl (rte->metric) == RIP_METRIC_INFINITY)
+	    {
+	      rip_output_process (ifc, from, rip_all_route, packet->version);
+	      break;
+	    }
 	  if (mask.s_addr != rte->mask.s_addr)
 	    {
 	      if (IS_RIP_DEBUG_RECV)
@@ -1359,8 +1351,9 @@ rip_request_process (struct rip_packet *packet, int size,
 	      rte->metric = htonl (RIP_METRIC_INFINITY);
 	      rip_peer_bad_route (from);
 	      ri->recv_badroutes++;
-	      continue;
 	    }
+	  else
+	  {
 	  p.prefix = rte->prefix;
 	  p.prefixlen = masklen;
 	  apply_mask_ipv4 (&p);
@@ -1374,11 +1367,25 @@ rip_request_process (struct rip_packet *packet, int size,
 	    }
 	  else
 	    rte->metric = htonl (RIP_METRIC_INFINITY);
+	  }
+	  stream_put (rtebuf, rte, RIP_RTE_SIZE);
+	  /* send on buffer full or last RTE */
+	  if (++buffered == allowed || rte + 1 == (struct rte *)lim)
+	    {
+	      if (rip_auth_make_packet (ri, response, rtebuf, packet->version, RIP_RESPONSE) < 0)
+	        zlog_err ("%s: rip_auth_make_packet() failed", __func__);
+	      else
+	        {
+	          int sent = rip_send_packet (stream_get_data (response), stream_get_endp (response), from, ifc);
+	          if (sent > 0 && IS_RIP_DEBUG_SEND)
+	            rip_packet_dump ((struct rip_packet *) stream_get_data (response), sent, "SEND");
+	        }
+	      buffered = 0;
+	      stream_reset (rtebuf);
+	    }
 	}
-      packet->command = RIP_RESPONSE;
-
-      rip_send_packet ((u_char *)packet, size, from, ifc);
-    }
+  stream_free (rtebuf);
+  stream_free (response);
   rip_global_queries++;
 }
 
