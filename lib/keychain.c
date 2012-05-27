@@ -135,6 +135,8 @@ key_lookup (const struct keychain *keychain, u_int32_t index)
   return NULL;
 }
 
+/* Scan the key chain for a valid Rx key having its index modulo 2^8 equal to
+ * the given index modulo 2^8. Return the first result or NULL for no result. */
 struct key *
 key_lookup_for_accept (const struct keychain *keychain, u_int32_t index)
 {
@@ -160,6 +162,9 @@ key_lookup_for_accept (const struct keychain *keychain, u_int32_t index)
   return NULL;
 }
 
+/* Scan the key chain for a valid Rx key having (first 16 chars of) its string
+ * equal to (first 16 chars of) the provided string. Return the first result
+ * or NULL for no result. */
 struct key *
 key_match_for_accept (const struct keychain *keychain, const char *auth_str)
 {
@@ -181,6 +186,8 @@ key_match_for_accept (const struct keychain *keychain, const char *auth_str)
   return NULL;
 }
 
+/* Scan the key chain for a valid Tx key. Return the first result or NULL for
+ * no result. */
 struct key *
 key_lookup_for_send (const struct keychain *keychain)
 {
@@ -201,6 +208,39 @@ key_lookup_for_send (const struct keychain *keychain)
 	  return key;
     }
   return NULL;
+}
+
+/* Scan the given keychain and return only valid Tx/Rx keys. The subset is
+ * returned as a list structure with nodes referencing the same memory objects
+ * as the original keychain, hence modifying the original keychain may
+ * invalidate pointers of the subset. It is left for the caller function to
+ * deallocate the result with list_delete(). */
+struct list *
+keys_valid_for_send (const struct keychain *keychain, const time_t now)
+{
+  struct list *ret = list_new();
+  struct listnode *node;
+  struct key *key;
+
+  for (ALL_LIST_ELEMENTS_RO (keychain->key, node, key))
+    if (key->string)
+      if (key->send.start == 0 || (key->send.start <= now && (key->send.end >= now || key->send.end == -1)))
+        listnode_add (ret, key);
+  return ret;
+}
+
+struct list *
+keys_valid_for_accept (const struct keychain *keychain, const time_t now)
+{
+  struct list *ret = list_new();
+  struct listnode *node;
+  struct key *key;
+
+  for (ALL_LIST_ELEMENTS_RO (keychain->key, node, key))
+    if (key->string)
+      if (key->accept.start == 0 || (key->accept.start <= now && (key->accept.end >= now || key->accept.end == -1)))
+        listnode_add (ret, key);
+  return ret;
 }
 
 static struct key *
