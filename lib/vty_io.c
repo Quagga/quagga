@@ -2610,7 +2610,7 @@ vty_child_signal_nexus_signal(void)
   qpt_mutex_lock(vty_child_signal_mutex) ;
 
   if (vty_child_signal_nexus != NULL)
-    qpt_thread_signal(vty_child_signal_nexus->thread_id,
+    qpt_thread_raise(vty_child_signal_nexus->qpth,
                                        vty_child_signal_nexus->pselect_signal) ;
 
   qpt_mutex_unlock(vty_child_signal_mutex) ;

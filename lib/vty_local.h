@@ -159,13 +159,13 @@ VTY_UNLOCK(void)        /* if is qpthreads_active, unlock vty_mutex     */
 Inline bool             /* true => is (effectively) cli thread          */
 vty_is_cli_thread(void)
 {
-  return !qpthreads_active || qpt_thread_is_self(vty_cli_nexus->thread_id) ;
+  return !qpthreads_active || (qpt_thread_self_data() == vty_cli_nexus) ;
 } ;
 
 Inline bool             /* true => is (effectively) cmd thread          */
 vty_is_cmd_thread(void)
 {
-  return !qpthreads_active || qpt_thread_is_self(vty_cmd_nexus->thread_id) ;
+  return !qpthreads_active || (qpt_thread_self_data() == vty_cmd_nexus) ;
 } ;
 
 Inline bool             /* true => running with more than one pthread   */

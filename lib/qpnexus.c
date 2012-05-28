@@ -36,7 +36,7 @@
 /*------------------------------------------------------------------------------
  * Prototypes
  */
-static void* qpn_start(void* arg);
+static void* qpn_loop(qpt_thread qpth);
 static void qpn_in_thread_init(qpn_nexus qpn);
 
 /*==============================================================================
@@ -47,41 +47,21 @@ static qtime_t qpn_max_pselect_wait = QTIME(MAX_PSELECT_WAIT) ;
 
 static qtime_t qpn_wd_interval      = 0 ;
 
-/* Walker object for walking nexuses
- */
-typedef struct qpn_nexus_walk* qpn_nexus_walk ;
-
-struct qpn_nexus_walk
-{
-  struct dl_list_pair(qpn_nexus_walk) list ;
-
-  qpn_nexus walk_next ;
-};
-
-typedef struct qpn_nexus_walk  qpn_nexus_walk_t[1] ;
-
-/* List of all known nexuses.
- *
- * Must own the spin_lock to add /remove entries on this list, and when doing
- * so must update the "walk" if that is set.
- *
- * Must own the spin lock to perform walk.  We know that
- */
-static struct
-{
-  qpt_spin_t    slk ;
-
-  struct dl_base_pair(qpn_nexus) nexuses ;
-
-  struct dl_base_pair(qpn_nexus_walk) walkers ;
-
-} qpn_nexus_list[1] ;
-
 /* Watchdog enabled and debug flags
  */
 static bool qpn_wd_enabled  = false ;
 
 enum { qpn_wd_debug  = false } ;
+
+/* The qpnexus qpt_thread_type
+ */
+static qpt_thread_type_ct qpn_nexus_thread_type =
+  {
+      .name         = "qpnexus",
+
+      .data_destroy = NULL,     /* dealt with by qpn_reset()    */
+      .ret_destroy  = NULL,     /* no return value from qpnexus */
+  } ;
 
 /*------------------------------------------------------------------------------
  * Initialise the qpnexus handling -- to be done as soon as state of
@@ -92,26 +72,20 @@ qpn_init(void)
 {
   qpn_max_pselect_wait = (qpn_wd_interval == 0) ? QTIME(MAX_PSELECT_WAIT)
                                                 : qpn_wd_interval * 7 / 16 ;
-
-  memset(qpn_nexus_list, 0, sizeof(qpn_nexus_list)) ;
-
-  qpt_spin_init(qpn_nexus_list->slk) ;
-
-  qpt_data_create(qpn_self) ;   /* thread specific data */
 } ;
 
 /*==============================================================================
  * Initialisation, add hook, free etc.
  *
  */
-static void qpn_nexus_add(qpn_nexus qpn) ;
-static void qpn_nexus_del(qpn_nexus qpn) ;
 
 /*------------------------------------------------------------------------------
  * Initialise a nexus -- allocating it if required.
  *
  * If main_thread is set then no new thread will be created when qpn_exec() is
  * called, instead the finite state machine will be run in the calling thread.
+ *
+ * NB: *must* initialise the main_thread qpnexus *first*.
  *
  * The main thread will only block the message queue's signal.
  *
@@ -123,20 +97,6 @@ static void qpn_nexus_del(qpn_nexus qpn) ;
  *     whether is going to run qpthreads_enabled or not.
  *
  *     That occurs *before* any daemonisation.
- *
- *     Which means that the following are not set until after that:
- *
- *       * qpn->thread_id     -- in case changes during daemonisation !
- *
- *       * qpn->cpu_clock_id  -- which experience shows does change during
- *                               daemonisation.
- *
- *       * qpn_self           -- thread specific data, pointing to the
- *                               qpn.
- *
- *     So... MUST NOT use these prior to qpn_exec()
- *
- * NB: the qpn is not placed on the qpn_nexus_list until qpn_exec(), either.
  */
 extern qpn_nexus
 qpn_init_new(qpn_nexus qpn, bool main_thread, const char* name)
@@ -156,7 +116,7 @@ qpn_init_new(qpn_nexus qpn, bool main_thread, const char* name)
    *    terminate         -- false   -- not even started, yet !
    *    main_thread       -- false   -- set below, if required
    *
-   *    thread_id         -- X       -- set when exec'd
+   *    qpth              -- X       -- set below
    *
    *    pselect_mask      -- all zeros
    *    pselect_signal    -- none
@@ -168,7 +128,7 @@ qpn_init_new(qpn_nexus qpn, bool main_thread, const char* name)
    *    queue             -- X       -- set below
    *    mts               -- none
    *
-   *    start             -- X       -- set below
+   *    loop              -- X       -- set below
    *
    *    in_thread_init    -- NULLs   -- none, yet
    *    in_thread_final   -- NULLs   -- none, yet
@@ -192,10 +152,17 @@ qpn_init_new(qpn_nexus qpn, bool main_thread, const char* name)
   qpn->pile        = qtimer_pile_init_new(qpn->pile);
   qpn->queue       = mqueue_init_new(qpn->queue, mqt_signal_unicast, name);
   qpn->main_thread = main_thread;
-  qpn->start       = qpn_start;
+  qpn->loop        = qpn_loop;
 
   qpt_spin_init(qpn->stats_slk) ;
 
+ /* We set up the qpt_thread object now, and arrange for it to point at the
+  * qpn_nexus.  The thread can find its qpt_thread, and the "data" pointer
+  * there points at the qpn_nexus.
+  */
+  qpn->qpth        = qpt_thread_init(main_thread ? qpt_init_main
+                                                 : qpt_init_system_scope,
+                                                                         name) ;
   return qpn;
 } ;
 
@@ -226,9 +193,11 @@ qpn_reset(qpn_nexus qpn, free_keep_b free_structure)
   if (qpn == NULL)
     return NULL;
 
-  /* Immediately remove from list of known nexuses !
+  /* Immediately destroy related qpt_thread
    */
-  qpn_nexus_del(qpn) ;
+  qassert(qpn->qpth->type == &qpn_nexus_thread_type) ;
+
+  qpn->qpth = qpt_thread_destroy(qpn->qpth) ;
 
   /* The qtimer pile.  If there are any timers still in the pile, they are
    * removed and marked "inactive".  The owners of these timers are responsible
@@ -261,166 +230,46 @@ qpn_reset(qpn_nexus qpn, free_keep_b free_structure)
   return qpn ;
 } ;
 
-/*------------------------------------------------------------------------------
- * Add qpn to the list of nexuses and set "started".
- *
- * This must be done once, and only when the nexus is completely initialised.
- *
- * This is the moment that the nexus become visible to the "watch-dog".
- *
- * If there is a walker about to hit the end of the list, update.
- */
-static void
-qpn_nexus_add(qpn_nexus qpn)
-{
-  qpn_nexus_walk walk ;
-
-  qpt_spin_lock(qpn_nexus_list->slk) ;
-
-  assert(!qpn->started) ;
-
-  ddl_append(qpn_nexus_list->nexuses, qpn, list) ;
-  qpn->started = true ;
-
-  walk = ddl_head(qpn_nexus_list->walkers) ;
-  while (walk != NULL)
-    {
-      if (walk->walk_next == NULL)
-        walk->walk_next = qpn ;
-
-      walk = ddl_next(walk, list) ;
-    } ;
-
-  qpt_spin_unlock(qpn_nexus_list->slk) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Delete qpn from the list of nexuses
- *
- * If there is a walker about to fetch the deleted item, update.
- *
- * Note that while any walker is busy extracting information from the nexus,
- * it will hold the list spin-lock.
- */
-static void
-qpn_nexus_del(qpn_nexus qpn)
-{
-  qpn_nexus_walk walk ;
-  qpn_nexus  next_qpn ;
-
-  qpt_spin_lock(qpn_nexus_list->slk) ;
-
-  if (qpn->started)             /* not on the list if not "started"     */
-    {
-      next_qpn = ddl_next(qpn, list) ;
-      ddl_del(qpn_nexus_list->nexuses, qpn, list) ;
-      qpn->started = false ;
-
-      walk = ddl_head(qpn_nexus_list->walkers) ;
-      while (walk != NULL)
-        {
-          if (walk->walk_next == qpn)
-            walk->walk_next = next_qpn ;
-
-          walk = ddl_next(walk, list) ;
-        } ;
-    } ;
-
-  qpt_spin_unlock(qpn_nexus_list->slk) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Start walk of list of nexuses
- *
- * Adds given walker to the list of walkers and initialises to point at first
- * on the list.
- */
-static void
-qpn_nexus_walk_start(qpn_nexus_walk walk)
-{
-  qpt_spin_lock(qpn_nexus_list->slk) ;
-
-  memset(walk, 0, sizeof(qpn_nexus_walk_t)) ;
-
-  ddl_append(qpn_nexus_list->walkers, walk, list) ;
-  walk->walk_next = ddl_head(qpn_nexus_list->nexuses) ;
-
-  qpt_spin_unlock(qpn_nexus_list->slk) ;
-}
-
-/*------------------------------------------------------------------------------
- * Lock list and get the next nexus on our walk.
- *
- * If walk finished, release the lock.
- *
- * Returns: NULL <=> nothing more to -- does not hold spin-lock
- *          address of next nexus    -- *DOES* hold the spin-lock
- *
- * NB: should NOT hold on to the nexus for long !  Should extract the required
- *     information and then qpn_nexus_walk_step().
- */
-static qpn_nexus
-qpn_nexus_walk_next(qpn_nexus_walk walk)
-{
-  qpn_nexus next ;
-
-  qpt_spin_lock(qpn_nexus_list->slk) ;
-
-  next = walk->walk_next ;
-
-  if (next == NULL)
-    qpt_spin_unlock(qpn_nexus_list->slk) ;
-
-  return next ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Step the walker to the next nexus and release the spin lock.
- *
- * The walker must at this point have extracted all that was needed from the
- * current nexus.
- */
-static void
-qpn_nexus_walk_step(qpn_nexus_walk walk)
-{
-  walk->walk_next = ddl_next(walk->walk_next, list) ;
-
-  qpt_spin_unlock(qpn_nexus_list->slk) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * End walk of list of nexuses
- */
-static void
-qpn_nexus_walk_end(qpn_nexus_walk walk)
-{
-  qpt_spin_lock(qpn_nexus_list->slk) ;
-
-  ddl_del(qpn_nexus_list->walkers, walk, list) ;
-
-  qpt_spin_unlock(qpn_nexus_list->slk) ;
-} ;
-
 /*==============================================================================
  * Execution of a nexus
  */
 
 /*------------------------------------------------------------------------------
- * If not main qpthread create new qpthread.
+ * Start the main qpnexus qpt_thread.
  *
- * For all qpthreads: start the thread !
+ * Must be done before any other qpt_threads are created.
+ */
+extern void
+qpn_main_start(qpn_nexus qpn)
+{
+  assert(qpn->main_thread) ;
+
+  qpt_main_thread_start(qpn->qpth, &qpn_nexus_thread_type, qpn) ;
+
+  qpt_thread_detach(qpn->qpth) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * If not main qpnexus create new pthread for the qpnexus and set it going.
+ *
+ * For the main qpnexus, enters the qpnexus->loop, and does not return until
+ * that exits.
+ *
+ * For other qpnexus, create the pthread and set it going in its qpnexus->loop.
  */
 extern void
 qpn_exec(qpn_nexus qpn)
 {
   if (qpn->main_thread)
-    qpn->start(qpn);
+    qpn->loop(qpn->qpth);
   else
-    qpt_thread_create(qpn->start, qpn, NULL) ;
+    qpt_thread_create(qpn->qpth, &qpn_nexus_thread_type, qpn, qpn->loop) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Pthread routine
+ * The qpnexus loop.
+ *
+ * The all qpnexus run in this loop.
  *
  * Processes:
  *
@@ -444,9 +293,9 @@ qpn_exec(qpn_nexus qpn)
  *   7) Low priority pending work
  */
 static void*
-qpn_start(void* arg)
+qpn_loop(qpt_thread qpth)
 {
-  qpn_nexus qpn = arg;
+  qpn_nexus qpn ;
   mqueue_block mqb;
   int actions;
   qtime_mono_t now ;
@@ -456,6 +305,10 @@ qpn_start(void* arg)
   bool prev ;
   bool wait_mq ;
   bool idle ;
+
+  /* First things absolutely first
+   */
+  qpn = qpt_thread_start(qpth) ;
 
   /* now in our thread, complete initialisation
    */
@@ -572,7 +425,7 @@ qpn_start(void* arg)
 
       qpt_spin_lock(qpn->stats_slk) ;
 
-      qpn->stats    = qpn->raw ;
+      qpn->stats = qpn->raw ;
       if (idle)
         qpn->idleness = 1 ;
 
@@ -635,7 +488,9 @@ qpn_start(void* arg)
   for (i = qpn->in_thread_final.count; i > 0 ;)
     ((qpn_init_function*)(qpn->in_thread_final.hooks[--i]))() ;
 
-  return NULL;
+  /* Last things last
+   */
+  return qpt_thread_end(NULL) ;
 }
 
 /*------------------------------------------------------------------------------
@@ -654,8 +509,10 @@ qpn_in_thread_init(qpn_nexus qpn)
   qpn->raw.last_time  = qpn->raw.start_time ;
 
   qpt_spin_lock(qpn->stats_slk) ;
-  qpn->prev_stats = qpn->stats = qpn->raw ;     /* share start time etc.  */
+  qpn->prev_stats = qpn->stats = qpn->raw ;     /* share loop time etc.  */
   qpt_spin_unlock(qpn->stats_slk) ;
+
+#if 0
 
   /* Complete the initialisation of nexus, once thread is running.
    *
@@ -665,12 +522,10 @@ qpn_in_thread_init(qpn_nexus qpn)
    *
    * Add nexus to list of live ones and set "started".
    */
-  qpn->thread_id    = qpt_thread_self();
-  qpn->cpu_clock_id = qpt_get_cpu_clock(qpn->thread_id) ;
-
-  qpt_data_set_value(qpn_self, qpn) ;
+  qpn->cpu_clock_id = qpt_get_cpu_clock_id(qpn->thread_id) ;
 
   qpn_nexus_add(qpn) ;          /* may now be visible to watch-dog      */
+#endif
 
   /* Signal mask.
    *
@@ -696,8 +551,7 @@ qpn_in_thread_init(qpn_nexus qpn)
   /* Now we have thread_id and mask, prep for using message queue.
    */
   if (qpn->queue != NULL)
-    qpn->mts = mqueue_thread_signal_init(qpn->mts, qpn->thread_id,
-                                                                SIG_INTERRUPT) ;
+    qpn->mts = mqueue_thread_signal_init(qpn->mts, qpn->qpth, SIG_INTERRUPT) ;
   if (qpn->selection != NULL)
     qps_set_signal(qpn->selection, qpn->pselect_mask);
 } ;
@@ -716,7 +570,7 @@ qpn_terminate(qpn_nexus qpn)
 
       /* wake up any pselect */
       if (qpthreads_enabled)
-        qpt_thread_signal(qpn->thread_id, SIG_INTERRUPT);
+        qpt_thread_raise(qpn->qpth, SIG_INTERRUPT);
     } ;
 } ;
 
@@ -753,20 +607,32 @@ qpn_get_stats(qpn_nexus qpn, qpn_stats curr, qpn_stats prev)
  *   4) large scale wobbles of the monotonic clock
  *
  */
-static volatile bool qpn_wd_running  = false ;
-static volatile bool qpn_wd_stop     = false ;
+static qpt_spin_t qpn_wd_spin_lock ;    /* protects qpn_wd_stop flag    */
 
-static qpt_thread_t qpn_wd_thread_id ;
-static qpt_spin_t   qpn_wd_spin_lock ;
+static volatile bool qpn_wd_stop = false ;
 
-static FILE*    qpn_wd_log_file ;
-static qpath    qpn_wd_log_path ;
+static qpt_thread qpn_wd_qpth    = NULL ;
 
-static void* qpn_wd_activity(void* args) ;
+static FILE*    qpn_wd_log_file  = NULL ;
+static qpath    qpn_wd_log_path  = NULL ;
+
+/* The qpnexus watchdog qpt_thread_type
+ */
+static qpt_thread_type_ct qpn_nexus_watch_dog_type =
+  {
+      .name         = "qpnexus watchdog",
+
+      .data_destroy = NULL,     /* no data              */
+      .ret_destroy  = NULL,     /* no return value      */
+  } ;
+
+/* Prototypes
+ */
+static void* qpn_wd_activity(qpt_thread qpth) ;
 static void qpn_wd_log(const char* format, ...)         PRINTF_ATTRIBUTE(1, 2) ;
 static void qpn_wd_check_intervals(qtime_t sleep, qtime_t mono_interval,
                                       qtime_t real_interval, uint eintr_count) ;
-static void qpn_wd_check_nexuses(qtime_t interval, qstring report) ;
+static void qpn_wd_check_nexuses(qstring report) ;
 static void qpn_wd_check_mutexes(void) ;
 
 /*------------------------------------------------------------------------------
@@ -776,11 +642,11 @@ extern void
 qpn_wd_start_up(void)
 {
   qpn_wd_enabled  = false ;
-
   qpn_wd_interval = 0 ;
 
-  qpn_wd_running  = false ;
   qpn_wd_stop     = false ;
+
+  qpn_wd_qpth     = NULL ;      /* not started !        */
 
   qpn_wd_log_file = NULL ;
   qpn_wd_log_path = NULL ;
@@ -789,7 +655,17 @@ qpn_wd_start_up(void)
 /*------------------------------------------------------------------------------
  * Prepare the watch-dog from command line
  *
- * Take command line argument and set the watch-dog interval and file
+ * Take command line argument and set the watch-dog interval and file.
+ *
+ * Option is: -W\=?\d+(\,\+?filename)?
+ *
+ *            Where can have whitespace (actually, anything <= ' ') before
+ *            any of the elements:  \=  \d  \, \+ and the filename.
+ *
+ *            The \d+ must be a decimal number > 0 (leading zeros ignored).
+ *
+ * If no filename is given, output is to stderr.  If +filename, the file
+ * is appended to.
  *
  * Returns:  true  <=> OK
  *           false <=> invalid argument or not able to open the file
@@ -820,6 +696,9 @@ qpn_wd_prepare(const char* arg)
   errno = 0 ;
   interval = strtoul(arg, &rest, 10) ;
 
+  while ((*(unsigned char*)rest <= ' ') && (*rest != '\0'))
+    ++rest ;
+
   if ((errno != 0) || (interval == 0) || (interval > 60) ||
                                             ((*rest != '\0') && (*rest != ',')))
     {
@@ -828,9 +707,6 @@ qpn_wd_prepare(const char* arg)
     } ;
 
   qpn_wd_interval = QTIME(interval) ;
-
-  while ((*(unsigned char*)rest <= ' ') && (*rest != '\0'))
-    ++rest ;
 
   if (*rest == '\0')
     {
@@ -857,6 +733,8 @@ qpn_wd_prepare(const char* arg)
   else
     {
       const char* mode ;
+
+      qassert(*rest == ',') ;
 
       do
         ++rest ;                /* step past ','        */
@@ -895,36 +773,45 @@ qpn_wd_prepare(const char* arg)
  * Start the watch-dog if it has been set to run
  *
  * Must be called *before* any qpn_exec().
+ *
+ *
  */
 extern void
 qpn_wd_start(void)
 {
-  assert(!qpn_wd_running) ;
+  assert(qpn_wd_qpth == NULL) ;
 
   if (qpn_wd_enabled)
     {
+      qpt_thread qpth ;
+
       qpt_spin_init(qpn_wd_spin_lock) ;
-      qpn_wd_thread_id = qpt_thread_create(qpn_wd_activity, NULL, NULL) ;
+
+      qpth = qpt_thread_init(qpt_init_system_scope, "Watch-Dog") ;
+
+      qpt_thread_detach(qpth) ;
+      qpn_wd_qpth = qpt_thread_set_ref(qpth) ;
+
+      qpt_thread_create(qpth, &qpn_nexus_watch_dog_type,
+                                          NULL /* no data */, qpn_wd_activity) ;
     } ;
-}
+} ;
 
 /*------------------------------------------------------------------------------
  * Stop the watch-dog
  */
 extern void
-qpn_wd_finish(uint interval)
+qpn_wd_finish(void)
 {
   if (qpn_wd_enabled)
     {
       qpt_spin_lock(qpn_wd_spin_lock) ;
-
       qpn_wd_stop = true ;
-
-      qpt_thread_signal(qpn_wd_thread_id, SIG_INTERRUPT) ;
-
       qpt_spin_unlock(qpn_wd_spin_lock) ;
 
-      qpt_thread_join(qpn_wd_thread_id) ;
+      qpt_thread_raise(qpn_wd_qpth, SIG_INTERRUPT) ;
+
+      qpn_wd_qpth = qpt_thread_clear_ref(qpn_wd_qpth) ;
     } ;
 } ;
 
@@ -950,7 +837,7 @@ qpn_wd_stop_now(void)
 enum { use_nanosleep = true } ;
 
 static void*
-qpn_wd_activity(void* args)
+qpn_wd_activity(qpt_thread qpth)
 {
   sigset_t sigmask[1], sigwait[1] ;
   const char* using ;
@@ -958,12 +845,16 @@ qpn_wd_activity(void* args)
   qtime_t sleep, mono_end ;
   uint debug = 0 ;
 
-  using  = use_nanosleep ? "nanosleep" : "pselect" ;
-  report = qs_new(100) ;
-
-  /* Start
+  /* First things absolutely first
    */
+  qpt_thread_start(qpth) ;
+
+  /* Log loop
+   */
+  using  = use_nanosleep ? "nanosleep" : "pselect" ;
   qpn_wd_log("Watch-Dog started (%s)", using) ;
+
+  report = qs_new(100) ;
 
   /* Preparation.
    *
@@ -978,8 +869,6 @@ qpn_wd_activity(void* args)
     qpt_thread_sigmask(SIG_BLOCK, sigwait, NULL);
   else
     qpt_thread_sigmask(SIG_BLOCK, sigmask, NULL) ;
-
-  qpn_wd_running = true ;
 
   /* The watch-dog loop
    */
@@ -1006,7 +895,7 @@ qpn_wd_activity(void* args)
         sleep = qpn_wd_interval ;
 
       /* Wait for the watch-dog interval, as measured by CLOCK_REALTIME,
-       * recording the CLOCK_MONOTONIC time when we start.
+       * recording the CLOCK_MONOTONIC time when we loop.
        *
        * Loop here if get a Signal, counting (in case this leads to an
        * apparent clock inconsistency).
@@ -1103,7 +992,7 @@ qpn_wd_activity(void* args)
 
       /* Look for CPU utilisation and whether any nexus is stalled
        */
-      qpn_wd_check_nexuses(mono_end - mono_prev_end, report) ;
+      qpn_wd_check_nexuses(report) ;
 
       qpn_wd_log("%s", qs_string(report)) ;
 
@@ -1123,7 +1012,9 @@ qpn_wd_activity(void* args)
   qpath_free(qpn_wd_log_path) ;
   qs_free(report) ;
 
-  return NULL ;
+  /* Last things last
+   */
+  return qpt_thread_end(NULL) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1177,69 +1068,91 @@ qpn_wd_check_intervals(qtime_t sleep, qtime_t mono_interval,
  * given needs to be the interval since the last time we did this.
  */
 static void
-qpn_wd_check_nexuses(qtime_t interval, qstring report)
+qpn_wd_check_nexuses(qstring report)
 {
-  qpn_nexus_walk_t walk ;
-  qpn_nexus        qpn ;
+  qpt_thread qpth ;
 
   qs_clear(report) ;
 
-  qpn_nexus_walk_start(walk) ;
-
-  while ((qpn = qpn_nexus_walk_next(walk)) != NULL)
+  qpth = NULL ;
+  while ((qpth = qpt_thread_walk(qpth)) != NULL)
     {
-      uint    idleness ;
-      qtime_t this_cpu ;
-      qtime_t last_cpu ;
-      char    name[16 + 1] ;
-      ulen    len ;
-      double  pc_cpu ;
+      qpn_nexus   qpn ;
+      uint        idleness ;
+      qpt_thread_state_t state ;
+      qpt_thread_stats_t prev ;
+      qtime_t     interval ;
+      double      pc_cpu ;
+      const char* tag ;
 
-      /* Extract the data
+      /* Only report on the types of qpt_thread we know about
        */
-      qpt_spin_lock(qpn->stats_slk) ;   /*<-<-<-<-<-<-<-<-<-<-<-*/
+      if (qpth->type != &qpn_nexus_thread_type)
+        continue ;
 
-      if (qpn->idleness == 0)
-        idleness = 0 ;
-      else
-        idleness = ++qpn->idleness ;
+      qpn = qpth->data ;
 
-      this_cpu = qpt_cpu_time(qpn->cpu_clock_id)  ;
-
-      last_cpu = qpn->cpu_time ;
-      qpn->cpu_time = this_cpu ;
-
-      len = strlen(qpn->name) ;
-      if (len > 16)
-        len = 16 ;
-      memcpy(name, qpn->name, len) ;
-      name[len] = '\0' ;
-
-      qpt_spin_unlock(qpn->stats_slk) ; /*<-<-<-<-<-<-<-<-<-<-<-*/
-
-      /* Step to next nexus and release lock on the nexus list
+      /* Take copy of previous stats and get the latest
        */
-      qpn_nexus_walk_step(walk) ;
+      *prev = *qpn->qpth_stats ;
+      state = qpt_thread_get_stats(qpth, qpn->qpth_stats) ;
+
+      /* See if the qpnexus has been idle
+       */
+      idleness = 0 ;
+
+      if (state == qpts_running)
+        {
+          qpt_spin_lock(qpn->stats_slk) ;       /*<-<-<-<-<-<-<-<-<-<-<-*/
+
+          if (qpn->idleness != 0)
+            idleness = ++qpn->idleness ;
+
+          qpt_spin_unlock(qpn->stats_slk) ;     /*<-<-<-<-<-<-<-<-<-<-<-*/
+        } ;
 
       /* Check for stalled and collect output for this nexus
        */
       if (idleness > 2)
-        qpn_wd_log("*** %s pthread stalled -- %u", name, idleness - 2) ;
+        qpn_wd_log("*** %s nexus stalled -- %u", qpth->name, idleness - 2) ;
+
+      interval = qpn->qpth_stats->cpu_when - prev->cpu_when ;
 
       if (interval > 0)
-        pc_cpu = (double)((this_cpu - last_cpu) * 100) / (double)interval ;
+        pc_cpu = (double)((qpn->qpth_stats->cpu_used - prev->cpu_used) * 100)
+                                                            / (double)interval ;
       else
-        pc_cpu = (double)0 ;
+        pc_cpu = (double)0.0 ;
 
-      if (pc_cpu > (double)999)
+      if (pc_cpu > (double)999.00)
         pc_cpu = (double)999.99 ;
 
-      qs_printf_a(report, " %16s%s%6.2f%%", name,
-                         (idleness == 0) ? "+" : (idleness == 2) ? " " : "*",
-                                                                       pc_cpu) ;
-    } ;
+      switch (idleness)
+        {
+          /* Tags: "!" => not running
+           *       "+" => active when watch-dog ran
+           *       " " => idle when watch-dog ran
+           *       "*" => idle since last time watch-dog ran
+           */
+          case 0:
+            tag = (state == qpts_running) ? "+" : "!" ;
+            break ;
 
-  qpn_nexus_walk_end(walk) ;
+          case 1:
+            tag = "?" ;         /* not possible !       */
+            break ;
+
+          case 2:
+            tag = " " ;
+            break ;
+
+          default:
+            tag = "*" ;
+            break ;
+        } ;
+
+      qs_printf_a(report, " %16s%s%6.2f%%", qpth->name, tag, pc_cpu) ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------

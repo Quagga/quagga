@@ -49,7 +49,7 @@
  * Note that the "thread_safe" mutex is recursive, so one thread safe function
  * can call another, if required.
  */
-static pthread_key_t tsd_key;
+static qpt_own_data_t tsd ;
 static const int buff_size = 1024;
 
 static qpt_mutex thread_safe = NULL ;
@@ -68,18 +68,10 @@ static char * thread_buff(void);
 void
 safe_init_r(void)
 {
-  if (qpthreads_enabled)
-    {
-      int status;
-      status = pthread_key_create(&tsd_key, destructor);
-      if (status != 0)
-        zabort("Can't create thread specific data key");
+  qpt_own_data_create(tsd, destructor) ;
 
-      qassert(thread_safe == NULL) ;
-
-      thread_safe = qpt_mutex_new(qpt_mutex_recursive, "pthread safe") ;
-    } ;
-}
+  thread_safe = qpt_mutex_new(qpt_mutex_recursive, "pthread safe") ;
+} ;
 
 /*------------------------------------------------------------------------------
  * Clean up
@@ -87,12 +79,9 @@ safe_init_r(void)
 void
 safe_finish(void)
 {
-  if (qpthreads_enabled)
-    {
-      pthread_key_delete(tsd_key) ;
+  qpt_own_data_delete(tsd) ;
 
-      thread_safe = qpt_mutex_destroy(thread_safe) ;
-    } ;
+  thread_safe = qpt_mutex_destroy(thread_safe) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -575,14 +564,12 @@ siptoa(sa_family_t family, const void* address)
 static char *
 thread_buff(void)
 {
-  int ret;
-  char * buff = pthread_getspecific(tsd_key);
+  char * buff = qpt_own_data_get_value(tsd);
+
   if (buff == NULL)
     {
       buff = XMALLOC(MTYPE_TSD, buff_size);
-      ret = pthread_setspecific(tsd_key, buff);
-      if (ret != 0)
-        zabort("Can't set thread specific data");
+      qpt_own_data_set_value(tsd, buff);
     }
 
   return buff;

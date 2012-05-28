@@ -148,14 +148,20 @@ bgp_msg_write_notification(bgp_connection connection, bgp_notify notification)
  *
  * NB: requires the session LOCKED -- connection-wise
  */
-extern int
+extern bool
 bgp_msg_send_keepalive(bgp_connection connection, bool must_send)
 {
   struct stream *s = connection->obuf ;
   uint length;
 
   if (!must_send && !bgp_connection_write_empty(connection))
-    return 0 ;
+    {
+      if (BGP_DEBUG (keepalive, KEEPALIVE))
+        zlog_debug ("%s not sending KEEPALIVE -- buffer not empty",
+                                                             connection->host) ;
+
+      return false ;
+    } ;
 
   ++connection->session->stats.keepalive_out ;
 
@@ -164,17 +170,18 @@ bgp_msg_send_keepalive(bgp_connection connection, bool must_send)
   bgp_packet_set_marker(s, BGP_MSG_KEEPALIVE);
   length = bgp_packet_set_size(s);
 
-  /* Dump packet if debug option is set.                */
-  /* bgp_packet_dump (s);                               */
-
-  if (BGP_DEBUG (keepalive, KEEPALIVE))
+  if (BGP_DEBUG (keepalive, KEEPALIVE) && !BGP_DEBUG (io, IO_OUT))
     zlog_debug ("%s sending KEEPALIVE", connection->host);
+
   if (BGP_DEBUG (normal, NORMAL))
     zlog_debug ("%s send message type %d, length (incl. header) %u",
                connection->host, BGP_MSG_KEEPALIVE, length);
 
-  /* Finally -- write the obuf away                     */
-  return bgp_connection_write(connection, s) ;
+  /* Finally -- write the obuf away
+   */
+  bgp_connection_write(connection, s) ;
+
+  return true ;
 } ;
 
 /*==============================================================================
@@ -251,17 +258,6 @@ bgp_msg_send_open(bgp_connection connection, bgp_open_state open_state)
                   connection->host, BGP_VERSION_4, open_state->my_as,
 	           open_state->holdtime, buf, no_cap) ;
 
-    } ;
-
-  if (false)
-    {
-      if (BGP_DEBUG (normal, NORMAL))
-        zlog_debug ("%s send message type %d, length (incl. header) %u",
-                    connection->host, BGP_MSG_OPEN, length);
-
-      /* Dump packet if debug option is set.
-       */
-      bgp_packet_dump (s) ;
     } ;
 
   /* Finally -- write the obuf away

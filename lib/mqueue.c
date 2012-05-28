@@ -217,7 +217,7 @@ mqueue_init_new(mqueue_queue mq, mqueue_queue_type_t type, const char* name)
    *    kick.signal     -- all zero -- see below
    */
 
-  if (qpt_freeze_qpthreads_enabled())
+  if (qpthreads_freeze())
     mq->mutex = qpt_mutex_new(qpt_mutex_quagga, qfs_gen("%s MQ", name).str) ;
 
   mq->type = type ;
@@ -1033,8 +1033,7 @@ mqueue_local_dequeue(mqueue_local_queue lmq)
  * Returns address of the structure.
  */
 extern mqueue_thread_signal
-mqueue_thread_signal_init(mqueue_thread_signal mqt, qpt_thread_t thread,
-                                                                     int signum)
+mqueue_thread_signal_init(mqueue_thread_signal mqt, qpt_thread qpth, int signum)
 {
   if (mqt == NULL)
     mqt = XCALLOC(MTYPE_MQUEUE_THREAD_SIGNAL,
@@ -1044,8 +1043,8 @@ mqueue_thread_signal_init(mqueue_thread_signal mqt, qpt_thread_t thread,
 
   /* next and prev fields set to NULL already.  */
 
-  mqt->qpthread = thread ;
-  mqt->signum   = signum ;
+  mqt->qpth   = qpth ;
+  mqt->signum = signum ;
 
   return mqt ;
 } ;
@@ -1095,7 +1094,7 @@ mqueue_kick_signal(mqueue_queue mq, unsigned n)
   while (n--)
     {
       mqueue_dequeue_signal(mq, mtsig = mq->kick.signal.head) ;
-      qpt_thread_signal(mtsig->qpthread, mtsig->signum) ;
+      qpt_thread_raise(mtsig->qpth, mtsig->signum) ;
     } ;
 } ;
 

@@ -413,6 +413,11 @@ bgp_open_listener(sockunion su, unsigned short port,
   listener->next = *bgp_listeners(sockunion_family(su)) ;
   *bgp_listeners(sockunion_family(su)) = listener ;
 
+  /* Log set up of listener
+   */
+  if (BGP_DEBUG(io, IO_IN))
+    zlog_debug ("Listening on %s port %u", sutoa(su).str, port) ;
+
   return 0 ;
 } ;
 
@@ -579,8 +584,8 @@ bgp_accept_action(qps_file qf, void* file_info)
       return ;          /* have no connection to report this to         */
     } ;
 
-  if (BGP_DEBUG(events, EVENTS))
-    zlog_debug("[Event] BGP connection from host %s", sutoa(&su_remote).str) ;
+  if (BGP_DEBUG(fsm, FSM))
+    zlog_debug("[FSM] BGP accept from host %s", sutoa(&su_remote).str) ;
 
   /* See if we are ready to accept connections from the connecting party
    */
@@ -588,10 +593,10 @@ bgp_accept_action(qps_file qf, void* file_info)
 
   if (connection == NULL)
     {
-      if (BGP_DEBUG(events, EVENTS))
+      if (BGP_DEBUG(fsm, FSM))
 	zlog_debug(exists
-	             ? "[Event] BGP accept IP address %s is not accepting"
-	             : "[Event] BGP accept IP address %s is not configured",
+	             ? "[FSM] BGP accept IP address %s is not accepting"
+	             : "[FSM] BGP accept IP address %s is not configured",
 	                                                sutoa(&su_remote).str) ;
       close(sock_fd) ;
       return ;          /* quietly reject connection                    */
@@ -674,8 +679,8 @@ bgp_open_connect(bgp_connection connection)
   if (sock_fd < 0)
     err = errno ;
 
-  if (BGP_DEBUG(events, EVENTS))
-    plog_debug(connection->log, "%s [Event] Connect start to %s socket %d%s",
+  if (BGP_DEBUG(fsm, FSM))
+    plog_debug(connection->log, "%s [FSM] Connect start to %s socket %d%s",
                connection->host, connection->host, sock_fd,
                                           (sock_fd < 0) ? " -- failed" : "" ) ;
 

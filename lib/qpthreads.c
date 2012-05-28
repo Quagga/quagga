@@ -55,7 +55,7 @@
  *
  * The initial state is qpthreads_enabled == false (0).
  *
- * The function qpt_set_qpthreads_enabled() should be called when the
+ * The function qpt_second_stage() should be called when the
  * application has decided whether to use qpthreads or not.  (But does not have
  * to call this if it is happy to proceed in the default -- disabled -- state.)
  *
@@ -66,42 +66,50 @@
  *
  * There are two related flags:
  *
- *   * qpthreads_thread_created
+ *   * qpthreads_thread_started
  *
- *     This is set when the first pthread (other than the main pthread) is
- *     created and dispatched.
+ *     This is set when the main thread (other than the main pthread) is
+ *     "started".
  *
- *     A pthread cannot be created unless qpthreads_enabled == true.
+ *     The main thread must not be "started" until after any daemonisation,
+ *     mostly because the thread cpu clock does not (in at least one case)
+ *     survive the fork().
  *
- *     This is used to check that no pthreads have been created before
- *     daemonisation.
+ *     Other pthreads must not be created until after daemonisation, because
+ *     they definitely do not survive the fork().  We police that as a side
+ *     effect of requiring the main pthread to be "started" before any other
+ *     pthreads are created.
+ *
+ *     A pthread cannot be created unless qpthreads_enabled.
  *
  *   * qpthreads_active
  *
- *     This is set when qpthreads_thread_created is set.
+ *     This is set when the main thread (other than the main pthread) is
+ *     "started", if is qpthreads_enabled.
  *
  *     This controls the action of mutexes and condition variables etc.  So,
- *     until the first thread is created all mutex etc operations are NOPs.
+ *     until the main pthread is "started" all mutex etc operations are NOPs.
  *     Which is intended to allow for initialisation in the main thread to
  *     proceed while not all mutexes etc have been set up.
  *
  *     This does mean that all mutexes etc MUST be expected to be UNLOCKED
- *     at the moment that the first pthread is created.
+ *     at the moment that the main pthread is "started".
  *
- *     The qpthreads_active flag may be cleared once all pthreads, other than
- *     the main, have stopped.  This is to allow shut down operations to
- *     proceed without requiring mutex locks etc.
+ *     The qpthreads_active flag may be cleared once all but one pthreads have
+ *     stopped.  This is to allow shut down operations to proceed without
+ *     requiring mutex locks etc, so that those can be shit down too.
  *
- * There are a very few operations which require qpthreads_enabled:
+ * There are a very few operations which require qpthreads_enabled, in
+ * particular:
  *
- *   * qpt_thread_attr_init
  *   * qpt_thread_create
  *
  * A few operations "freeze" the state of qpthreads_enabled.  Any call of these
  * before qpthreads are enabled, causes the state to be frozen, disabled.  This
  * means that any later attempt to enable qpthreads will be refused.  These
- * operations are:
+ * operations include:
  *
+ *   * qpt_main_thread_start
  *   * qpt_mutex_init_new
  *   * qpt_cond_init_new
  *   * qpt_splin_init_new
@@ -177,28 +185,10 @@
  * no way of telling what priority values are reasonable, even in the standard
  * scheduling policies.
  *
- * The approach taken here is that by default a thread will be created with
- * the system default attributes -- which may mean inheriting the creating
- * thread's scheduling attributes.
+ * In general this code provides for use of the default scheduling, but does
+ * attempt to use system contention scope, if there is a choice.
  *
- * It is also possible to construct a set of attributes, using the most
- * obviously useful properties.  It is envisaged that this may be used when a
- * configuration file is used to set locally sensible values.   The attributes
- * supported are:
- *
- *    * attr_detached       -- whether to start detached or not
- *    * attr_inherit_sched  -- whether to inherit scheduling attributes
- *    * attr_sched_scope    -- scheduling scope
- *    * attr_sched_policy   -- scheduling policy
- *    * attr_sched_priority -- scheduling priority
- *
- * See qpt_thread_attr_init, below.
- *
- * Not supported here are:
- *
- *    * attr_guardsize
- *    * attr_stack
- *    * attr_stacksize
+ * See qpt_new_thread_options(), qpt_thread_init() and qpt_thread_set_sched().
  *
  * Pthread Mutex Attributes -- Error Checking
  * ==========================================
@@ -268,7 +258,185 @@ CONFIRM(_POSIX_SPIN_LOCKS  > 0) ;
 #warning Expect _POSIX_THREAD_SAFE_FUNCTIONS -- goes with _POSIX_SPIN_LOCKS (?)
 #endif
 
+/*==============================================================================
+ * Options for setting new pthread attributes.
+ *
+ * POSIX is sufficiently vague that it is possible that some default scheduling
+ * attributes cannot be established at run-time, and must be set by run time
+ * option or configuration.
+ *
+ * If pthread_attr_get_np() or pthread_getattr_np() are available, then we have
+ * access to the "actual" values of these attributes.  Otherwise, we have
+ * access to the "default" values, which is what pthread_attr_init() is
+ * supposed to give.
+ *
+ * Note that if we cannot get the "actual" settings, then the contention scope
+ * of the main thread is a complete mystery -- but, luckily, we don't really
+ * care.
+ *
+ * As discussed elsewhere, there are difficulties with the "defaults",
+ * including: (a) it is not clear whether those are the actual values -- or
+ * some conventional, "use default" values; (b) it is not known whether they
+ * remain up to date when attributes are set -- so if SCHED_RR has a different
+ * default priority to SCHED_OTHER, does changing from a default of SCHED_OTHER
+ * change the priority ?
+ *
+ * Nevertheless, this code's default action is to accept the defaults provided
+ * by the implementation, assuming that the implementation does something
+ * sensible, that is:
+ *
+ *   * after setting PTHREAD_EXPLICIT_SCHED, the scope, policy and params
+ *     are, indeed, the defaults.
+ *
+ *   * then after setting the required (or only available) scope, the policy
+ *     and params are, indeed, the defaults for that scope.
+ *
+ *   * then after setting the required (or default) policy, the params are,
+ *     indeed, the defaults for the policy.
+ *
+ * If any of the above is not true, then can override this code's default
+ * action by options, as follows:
+ *
+ *   * scheduling policy and params:
+ *
+ *       'D' -- use "default" from pthread_attr_init() after setting
+ *              PTHREAD_EXPLICIT_SCHED and the required scope.
+ *
+ *              This is the default (!).
+ *
+ *       'M' -- use same as main thread when the system started.
+ *
+ *              This is the first option if the default action does not work.
+ *
+ *              This assumes that whatever the main thread contention scope
+ *              is, its policy and param are valid.  Mostly we expect the main
+ *              thread to be bog-standard SCHED_OTHER, so this seems like a
+ *              safe assumption.
+ *
+ *              If this is not the case, then will need to set a specific
+ *              policy and params.
+ *
+ *       'O' -- use SCHED_OTHER  )
+ *       'F' -- use SCHED_FIFO   ) must then specify params as below.
+ *       'R' -- use SCHED_RR     )
+ *
+ *       'N' -- if none of the above work satisfactorily, then this option
+ *              turns off all fiddling with the attributes, and creates all
+ *              threads with whatever the system provides.
+ *
+ *              Note that goes through all the motions as if using the defaults,
+ *              but at creation time, uses a NULL set of attributes.
+ *
+ *   * scheduling params, if policy is 'O', 'F' or 'R':
+ *
+ *       'D' -- use "default" from pthread_attr_init() after setting
+ *              PTHREAD_EXPLICIT_SCHED, the required scope and the required
+ *              policy.
+ *
+ *              This depends on the system doing something sensible !
+ *
+ *       'A' -- zeroise the params and use the average of the min/max priority.
+ *
+ *       '+/-999' -- zeroise the params and set the priority as given.
+ *
+ *              Clamp to within the min/max range and log an error if that is
+ *              necessary.
+ */
+enum qpt_use_policy
+{
+  qpt_use_default_policy,       /* 'D'                  */
+  qpt_use_main_policy,          /* 'M'                  */
+  qpt_use_given_policy,         /* 'O', 'F' and 'R'     */
+} ;
+
+enum qpt_use_params
+{
+  qpt_use_default_params,       /* 'D'                          */
+  qpt_use_main_params,          /* set with qpt_use_main_policy */
+  qpt_use_given_params,         /* 'A' or '+/-999'              */
+} ;
+
+typedef enum qpt_use_policy qpt_use_policy_t ;
+typedef enum qpt_use_params qpt_use_params_t ;
+
+static bool qpt_use_null_attributes    = false ;
+
+static qpt_use_policy_t qpt_use_policy = qpt_use_default_policy ;
+static qpt_use_params_t qpt_use_params = qpt_use_default_params ;
+
+static qpt_sched_t qpt_given_sched ;
+
+/* The initial main thread policy and params are captured here when the
+ * main qpt_thread is initialised.
+ *
+ * To ensure this is done only once, and before any other qpt_thread is
+ * initialised, we have a flag.
+ */
+static qpt_sched_t qpt_initial_sched ;
+
+static bool qpt_main_thread_initialised = false ;
+
+/*==============================================================================
+ * Keeping track of pthreads.
+ *
+ * We keep track of all pthreads by allocating a qpt_thread structure for each
+ * one, including the main (and possibly only) thread.
+ *
+ * All known qpt_thread are kept on a list of same.  The entire list and all
+ * its contents are protected by a mutex.
+ *
+ * A big reason for keeping track in this way is for diagnostics.  Access to
+ * those require the mutex.  The thread operations above are *rare*, but any
+ * diagnostic code should take care not to hang on to the mutex for any longer
+ * than is necessary.
+ *
+ * A pthread can find its *own* qpt_thread by qpt_thread_self(), and the data
+ * set in the qpt_thread by qpt_thread_self_data().  Since the thread is
+ * running, it is assumed that no locking is required for this !
+ */
+
+/* List of known qpt_thread objects.
+ */
+static struct dl_base_pair(qpt_thread) qpt_thread_list ;
+
+/* The mutex used to control access to the qpt_thread objects and the list of
+ * same.
+ */
+static qpt_mutex qpt_thread_list_mutex  = NULL ;
+
+static volatile bool   qpt_thread_list_locked = false ;
+
 /*------------------------------------------------------------------------------
+ * Lock and unlock the qpt_mutex.
+ */
+static void
+LOCK_QPT(void)
+{
+  qpt_mutex_lock(qpt_thread_list_mutex) ;
+  qpt_thread_list_locked = true ;
+} ;
+
+static void
+UNLOCK_QPT(void)
+{
+  qpt_thread_list_locked = false ;
+  qpt_mutex_unlock(qpt_thread_list_mutex) ;
+} ;
+
+inline static void
+ASSERT_QPT_LOCKED(void)
+{
+  qassert(qpt_thread_list_locked) ;
+} ;
+
+inline static void
+ASSERT_QPT_LOCKED_IF_ACTIVE(qpt_thread qpth)
+{
+  if ((qpth->state != qpts_initial) && (qpth->state != qpts_final))
+    ASSERT_QPT_LOCKED() ;
+} ;
+
+/* Base of list of known mutexes, complete with spinlock to control update
  * Base of list of known mutexes, complete with spinlock to control update
  * of same.
  *
@@ -283,25 +451,21 @@ static struct
 } qpt_mutexes ;
 
 /*==============================================================================
- * The Global Switch
+ * The Global Switch and other pthread properties
  *
- * The state of the switch is:  unset        -- implicitly not enabled
- *                              set_frozen   -- implicitly not enabled & frozen
- *                              set_disabled -- explicitly not enabled
- *                              set_enabled  -- explicitly set enabled
+ * The state of the switch is:  unset    -- implicitly not enabled
+ *                              frozen   -- implicitly frozen disabled
+ *                              set      -- explicitly enabled/disabled
  *
- * "set_frozen" means that "qpthreads_freeze_enabled_state()" has been called,
- * and the state was unset at the time.  This means that some initialisation
- * has been done on the basis of !qpthreads_enabled, and it is TOO LATE to
- * enable qpthreads afterwards.
+ * "frozen" means that "qpthreads_freeze()" has been called, and the state was
+ * unset at the time -- so some initialisation has frozen qpthreads_enabled
+ * as disabled.
  */
-
 enum qpthreads_enabled_state
 {
-  qpt_state_unset         = 0,
-  qpt_state_set_frozen    = 1,
-  qpt_state_set_disabled  = 2,
-  qpt_state_set_enabled   = 3,
+  qpt_state_unset   = 0,
+  qpt_state_frozen  = 1,
+  qpt_state_set     = 2,
 } ;
 typedef enum qpthreads_enabled_state qpthreads_enabled_state_t ;
 
@@ -309,10 +473,35 @@ static qpthreads_enabled_state_t qpthreads_enabled_state = qpt_state_unset ;
 
 bool qpthreads_enabled_flag          = false ;
 bool qpthreads_active_flag           = false ;
-bool qpthreads_thread_created_flag   = false ;
+bool qpthreads_main_started_flag   = false ;
 
-static bool qpt_have_cpu_clock = false ;
-static bool qpt_seen_cpu_clock = false ;
+/* At run-time we check whether thread and/or process cpu clocks are supported.
+ *
+ * This is done very early in the morning after consulting sysconf()
+ */
+static bool qpt_have_thread_cpu_clock    = false ;
+static bool qpt_have_process_cpu_clock   = false ;
+
+/* When the main thread is initialised, checks which of PTHREAD_SCOPE_PROCESS
+ * and/or PTHREAD_SCOPE_SYSTEM are available -- POSIX does not require both.
+ *
+ * If only one scope is available, then qpt_scope_fixed is set true, and
+ * qpt_scope is set to the one available scope.
+ *
+ * If both are available, sets qpt_scope to the preferred scope, to whit
+ * PTHREAD_SCOPE_SYSTEM.
+ *
+ * If !qpthreads_enabled, sets as if fixed to PTHREAD_SCOPE_SYSTEM.
+ */
+static bool qpt_scope_fixed ;
+static int  qpt_scope ;
+
+/*==============================================================================
+ * Start-up, option setting, setting of qpthreads_enabled, shut down etc.
+ */
+
+static bool qpt_sched_get_minmax_priority(qpt_sched sched) ;
+static void qpt_thread_finish(void) ;
 
 /*------------------------------------------------------------------------------
  * First stage initialisation -- before any pthreads are started
@@ -320,91 +509,265 @@ static bool qpt_seen_cpu_clock = false ;
  * Set all flags.
  */
 extern void
-qpt_start_up(int thread_cputime)
+qpt_start_up(int cputime, int thread_cputime)
 {
+  ddl_init(qpt_thread_list) ;
+
   qpthreads_enabled_flag        = false ;
   qpthreads_active_flag         = false ;
-  qpthreads_thread_created_flag = false ;
+  qpthreads_main_started_flag = false ;
 
-  qpt_have_cpu_clock = thread_cputime > 0 ;
-  qpt_seen_cpu_clock = false ;
+  qpt_have_process_cpu_clock    = cputime        > 0 ;
+  qpt_have_thread_cpu_clock     = thread_cputime > 0 ;
+
+  qpt_scope_fixed               = true ;
+  qpt_scope                     = PTHREAD_SCOPE_SYSTEM ;
+
+  qpt_use_null_attributes       = false ;
+
+  qpt_use_policy                = qpt_use_default_policy ;
+  qpt_use_params                = qpt_use_default_params ;
+  memset(qpt_given_sched,  0, sizeof(qpt_sched_t)) ;
 
   memset(&qpt_mutexes, 0, sizeof(qpt_mutexes)) ;
+
+  qpt_main_thread_initialised   = false ;
+
+  memset(qpt_initial_sched, 0, sizeof(qpt_sched_t)) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Function to set qpthreads_enabled, one way or the other.
+ * Set the options which control the setting of new pthread attributes.
  *
- * Returns:  true <=> successful set the required state.
- *          false <=> it is too late to enable qpthreads :-(
+ * This is designed to be used as command line options, just in case the
+ * default handling of attributes does not work.
  *
- * NB: can repeatedly set to the same state, but not change state once set.
+ * Takes string.  NULL or empty => use all "unforced" options.
+ *
+ * Otherwise: a short, cryptic string of options
+ *
+ *            <policy>[<priority>]
+ *
+ *            where:  <policy>   is one of 'D', 'M', 'O', 'F', 'R' or 'N'
+ *
+ *                    <priority> is one of 'D', 'A' or '+/-999'
+ *
+ *            noting that the priority may be present only if the <policy> is
+ *            'O', 'F' or 'R'.
+ *
+ * The meaning of these options is given above.
  */
-extern bool
-qpt_set_qpthreads_enabled(bool want_enabled)
+extern const char*
+qpt_set_new_thread_options(const char* opts)
+{
+  qassert(qpt_use_null_attributes == false) ;
+  qassert(qpt_use_policy          == qpt_use_default_policy) ;
+  qassert(qpt_use_params          == qpt_use_default_params) ;
+
+  memset(qpt_given_sched, 0, sizeof(qpt_sched_t)) ;     /* make sure    */
+
+  if ((opts == NULL) || (*opts == '\0'))
+    return NULL ;
+
+  /* step past a leading '='
+   */
+  if (*opts == '=')
+    ++opts ;
+
+  /* Deal with <policy>
+   */
+  switch (*opts)
+    {
+      case 'D':
+      case 'd':
+        break ;                 /* explicit default     */
+
+      case 'M':
+      case 'm':
+        qpt_use_policy = qpt_use_main_policy ;
+        qpt_use_params = qpt_use_main_params ;
+        break ;
+
+      case 'O':
+      case 'o':
+        qpt_use_policy = qpt_use_given_policy ;
+        qpt_given_sched->policy = SCHED_OTHER ;
+        break ;
+
+      case 'F':
+      case 'f':
+        qpt_use_policy = qpt_use_given_policy ;
+        qpt_given_sched->policy = SCHED_FIFO ;
+        break ;
+
+      case 'R':
+      case 'r':
+        qpt_use_policy = qpt_use_given_policy ;
+        qpt_given_sched->policy = SCHED_FIFO ;
+        break ;
+
+      case 'N':
+      case 'n':
+        qpt_use_null_attributes = true ;
+        break ;
+
+      default:
+        return "unknown policy option" ;
+    } ;
+
+  ++opts ;
+
+  /* Deal with <priority>
+   */
+  if (qpt_use_policy == qpt_use_given_policy)
+    {
+      char* end ;
+      int   ret ;
+      bool  known ;
+
+      known = qpt_sched_get_minmax_priority(qpt_given_sched) ;
+
+      if (!known)
+        return "given policy is unknown (!)" ;
+
+      switch (*opts)
+        {
+          case '\0':
+            break ;             /* use default  */
+
+          case 'D':
+          case 'd':
+            ++opts ;
+            break ;             /* use default  */
+
+          case 'A':
+          case 'a':
+            qpt_use_params = qpt_use_given_params ;
+
+            /* NB: rest of qpt_given_sched zeroised, above.
+             */
+            qpt_given_sched->param->sched_priority =
+              (qpt_given_sched->max_priority + qpt_given_sched->min_priority)
+                                                                           / 2 ;
+            ++opts ;
+            break ;
+
+            case '+':
+            case '-':
+            case '0':
+            case '1':
+            case '2':
+            case '3':
+            case '4':
+            case '5':
+            case '6':
+            case '7':
+            case '8':
+            case '9':
+              qpt_use_params  = qpt_use_given_params ;
+
+              /* NB: rest of qpt_given_sched zeroised, above.
+               */
+              qpt_given_sched->param->sched_priority =
+                   strtol_xr(opts, &ret, &end, qpt_given_sched->min_priority,
+                                               qpt_given_sched->max_priority) ;
+
+              if (ret == strtox_range)
+                return "priority value is out of range" ;
+
+              if (ret == strtox_invalid)
+                return "invalid priority value" ;
+
+              opts = end ;
+              break ;
+
+            default:
+              return "unknown params option" ;
+        } ;
+    } ;
+
+  /* Must now be at the end
+   */
+  if (*opts == '\0')
+    return NULL ;
+  else
+    return "malformed options" ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Second Stage Start Up.
+ *
+ * At this point qpthreads_enabled is decided.
+ */
+extern void
+qpt_second_stage(bool want_enabled)
 {
   switch (qpthreads_enabled_state)
     {
       case qpt_state_unset:
-        break ;
+        qassert(!qpthreads_enabled_flag) ;
 
-      case qpt_state_set_frozen:
+        /* If we are enabling qpthreads, then now is the time to complete
+         * some initialisation.
+         */
+        qpthreads_enabled_state = qpt_state_set ;
+
         if (want_enabled)
-          return false ;        /* too late to set the state    */
+          {
+            qpthreads_enabled_flag = true ;
+
+            qpt_spin_init(qpt_mutexes.slk) ;
+
+            qpt_thread_list_mutex = qpt_mutex_new(qpt_mutex_errorcheck,
+                                                            "qpt_thread_list") ;
+          } ;
+
         break ;
 
-      case qpt_state_set_disabled:
+      case qpt_state_frozen:
+        qassert(!qpthreads_enabled_flag) ;
+
+        qpthreads_enabled_state = qpt_state_set ;
+
         if (want_enabled)
-          zabort("qpthreads_enabled is already set: cannot set enabled") ;
+          zabort("qpthreads_enabled has been frozen: cannot now enable") ;
+
         break ;
 
-      case qpt_state_set_enabled:
-        if (!want_enabled)
-          zabort("qpthreads_enabled is already set: cannot set disabled") ;
+      case qpt_state_set:
+        if (qpthreads_enabled_flag && !want_enabled)
+          zabort("qpthreads_enabled is already enabled: cannot now disable") ;
+
+        if (!qpthreads_enabled_flag && want_enabled)
+          zabort("qpthreads_enabled is already disabled: cannot now enable") ;
+
         break ;
 
       default:
+        zabort("invalid state of qpthreads_enabled_state") ;
         break ;
     } ;
 
-  qpthreads_enabled_flag  = want_enabled ;
-  qpthreads_enabled_state = want_enabled ? qpt_state_set_enabled
-                                         : qpt_state_set_disabled ;
-
-  if (qpthreads_enabled)
-    {
-      qpt_spin_init(qpt_mutexes.slk) ;
-    } ;
-
-  return true ;
+  qpt_own_data_create(qpt_self, NULL) ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Get state of qpthreads_enabled, and freeze if not yet explictly set.
+ * Get state of qpthreads_enabled, and freeze to disabled if not yet set.
  *
  * Where some initialisation depends on the state of qpthreads_enabled(), this
- * returns the state and freezes it if it is implicitly not enabled.
+ * forces disabled if that initialisation precedes the explicit setting of that
+ * flag.
  */
 extern bool
-qpt_freeze_qpthreads_enabled(void)
+qpthreads_freeze(void)
 {
   if (qpthreads_enabled_state == qpt_state_unset)
-    qpthreads_enabled_state = qpt_state_set_frozen ;
+    {
+      assert(!qpthreads_enabled_flag) ;
+      qpthreads_enabled_state = qpt_state_frozen ;
+    } ;
 
   return qpthreads_enabled_flag ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Clear qpthreads_active -- for shut down.
- *
- * Once all but one (probably the main) pthread have been brought to a halt,
- * can turn off qpthreads_active, so that mutex locks and other operations are
- * short circuited, which is useful during final shut down.
- */
-extern void
-qpt_clear_qpthreads_active(void)
-{
-  qpthreads_active_flag = false ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -419,288 +782,2714 @@ qpthreads_decided(void)
   return qpthreads_enabled_state != qpt_state_unset ;
 } ;
 
-/*==============================================================================
- * Thread creation and attributes.
+/*------------------------------------------------------------------------------
+ * Shut down the qpt_xxx stuff.
  *
- * Threads may be created with a given set of attributes if required.
+ * If not already collected all pthreads, do so now.
  *
- * qpt_thread_attr_init() will initialise a set of attributes including the
- * current standard scheduling attributes.  It is envisaged that configuration
- * options may be used to specify these.
+ * With only one pthread remaining, can clear qpthreads_active flag.
  *
- * qpt_thread_create() creates a thread using the given attributes.  If those
- * are NULL, then the system defaults are used.
+ * Destroy all remaining qpt_thread objects.
+ *
+ * Destroy now redundant mutex, spinlock etc.
  */
+extern void
+qpt_finish(void)
+{
+  /* Finish off all qpt_thread -- clears qpthreads_enabled.
+   */
+  qpt_thread_finish() ;
+
+  /* Now destroy local mutex and spin locks
+   */
+  qpt_thread_list_mutex = qpt_mutex_destroy(qpt_thread_list_mutex) ;
+
+  qpt_spin_destroy(qpt_mutexes.slk) ;
+
+  qpt_own_data_delete(qpt_self) ;
+} ;
 
 /*------------------------------------------------------------------------------
- * Initialise a set of attributes -- setting the scheduling options.
+ * Clear qpthreads_active -- for shut down.
  *
- * Options:
- *
- *   qpt_attr_joinable       -- the default if nothing specified.
- *   qpt_attr_detached       -- overrides qpt_attr_joinable.
- *
- *   qpt_attr_sched_inherit  -- all scheduling attributes are to be inherited.
- *                              No explicit scheduling attributes may be set.
- *
- *   qpt_attr_sched_scope    -- set explicit, given, scope.
- *   qpt_attr_sched_policy   -- set explicit, given, policy
- *   qpt_attr_sched_priority -- set explicit, given, priority
- *
- * If none of the _sched_ options are given, then the scheduling attributes are
- * left to whatever default values the system chooses.
- *
- * If the _sched_inherit option is specified, none of the other _sched_ options
- * may be specified.
- *
- * If any of the explicit scheduling options are given, they are set in this
- * order.  If only some of these options are given, then the caller is
- * assuming that the system will choose sensible defaults.
- *
- * The scope, policy and priority arguments are use only if the corresponding
- * option is specified.
- *
- * NB: FATAL error to attempt this is !qptthreads_enabled.
- *
- * Returns the address of the qpt_thread_attr_t structure.
+ * Once all but one (probably the main) pthread have been brought to a halt,
+ * can turn off qpthreads_active, so that mutex locks and other operations are
+ * short circuited, which is useful during final shut down.
  */
-extern qpt_thread_attr_t*
-qpt_thread_attr_init(qpt_thread_attr_t* attr, qpt_attr_options_t opts,
-                                            int scope, int policy, int priority)
+static void
+qpt_clear_qpthreads_active(void)
 {
+  qpthreads_active_flag = false ;
+} ;
+
+/*==============================================================================
+ * Thread initialisation, creation, starting, ending, joining etc.
+ *
+ */
+static void qpt_thread_do_end(qpt_thread qpth) ;
+static bool qpt_thread_do_collect(qpt_thread qpth, bool join) ;
+
+static void qpt_thread_list_del(qpt_thread qpth) ;
+static void qpt_thread_free(qpt_thread qpth) ;
+
+static void qpt_pthread_attr_init(qpt_thread qpth) ;
+static void qpt_pthread_attr_clear_inheritsched(qpt_thread qpth) ;
+static bool qpt_pthread_attr_actual(qpt_thread qpth) ;
+static void qpt_pthread_attr_copy(qpt_thread qpth) ;
+static void qpt_pthread_attr_destroy(qpt_thread qpth) ;
+
+static bool qpt_pthread_attr_getdetachstate(qpt_thread qpth) ;
+static bool qpt_pthread_attr_getinheritsched(qpt_thread qpth) ;
+static int qpt_pthread_attr_getscope(qpt_thread qpth) ;
+static int qpt_pthread_attr_getschedpolicy(qpt_thread qpth) ;
+static struct sched_param qpt_pthread_attr_getschedparam(qpt_thread qpth) ;
+static size_t qpt_pthread_attr_getguardsize(qpt_thread qpth) ;
+static size_t qpt_pthread_attr_getstacksize(qpt_thread qpth) ;
+static void* qpt_pthread_attr_getstackaddr(qpt_thread qpth) ;
+
+static void qpt_pthread_attr_setdetachstate(pthread_attr_t* pth_attr) ;
+static void qpt_pthread_attr_setscope(pthread_attr_t* pth_attr, int scope) ;
+static void qpt_pthread_attr_setschedpolicy(pthread_attr_t* pth_attr,
+                                                                   int policy) ;
+static void qpt_pthread_attr_set_sched(pthread_attr_t* pth_attr,
+                                                            qpt_sched_t sched) ;
+static void qpt_sched_set(qpt_thread qpth) ;
+static void qpt_pthread_detach(qpt_thread qpth) ;
+
+static void qpt_sched_get_current(qpt_thread qpth) ;
+static void qpt_sched_get_process(qpt_sched sched) ;
+static void qpt_sched_get_pthread(qpt_sched sched, pthread_t pth_id) ;
+
+static void qpt_thread_done_create(qpt_thread qpth, pthread_t pth_id,
+                                             qpt_thread_type type, void* data) ;
+static void qpt_thread_log_options(void) ;
+static qstring qpt_thread_log_start(qpt_thread qpth) ;
+
+static void qpt_get_cpu_clock_id(qpt_thread qpth) ;
+static void qpt_get_cpu_time(qpt_thread qpth) ;
+
+/*------------------------------------------------------------------------------
+ * Allocate and initialise a new qpt_thread object.
+ *
+ * All qpt_threads -- including the main thread -- have a qpt_thread object.
+ * (Even if !qpthreads_enabled.)
+ *
+ * For the main thread this may be done at a convenient moment after the state
+ * of qpthreads_enabled has been decided.
+ *
+ * For other threads this may be done at a convenient moment before the thread
+ * is created, but *after* qpthreads_enabled has been set.
+ *
+ * Note that initialising a qpth_thread object does not place it on the list of
+ * known threads -- that happens when the thread is created (or when the
+ * main thread is "started") !
+ *
+ * The init is separate from create so that:
+ *
+ *    (a) the main thread handled as much as possible in the same way as other
+ *        threads
+ *
+ *    (b) attributes can be set in the qpt_thread before the thread is created.
+ *
+ *        This is imperative for scope (and stack size), and may be convenient
+ *        for other attributes (scheduling policy and params and detached
+ *        state -- though those can be set once the thread has started).
+ *
+ * Once a qpt_thread is initialised, it contains the default attributes, and
+ * a set of pthtread_attr_t.  For the main thread this is limited:
+ *
+ *   * the contention scope is not known
+ *
+ *   * the guard size is not known, but is presumably the default
+ *
+ *   * the stack size is not known, but is presumably the default
+ *
+ *   * the stack address is not known
+ *
+ * but the scheduling policy and param are set from the *process* policy and
+ * param.  When the main thread is started will fetch the actual values if
+ * possible.  (If !qpthreads_enabled, the the only things we will ever know
+ * are the scheduling policy and param, as set here).
+ *
+ * POSIX and the inheritance of scheduling scope, policy and params is ill-
+ * defined, so the qpt_thread primitives do not support PTHREAD_INHERIT_SCHED,
+ * and during the initialisation here PTHREAD_EXPLICIT_SCHED is set.
+ *
+ * For any thread other than the main thread, between qpt_thread_init() and
+ * qpt_thread_create(), it is possible to:
+ *
+ *   qpt_thread_get_attr()    -- fetch copy of current attributes
+ *
+ *   qpt_thread_detach()      -- once detached cannot be set joinable.
+ *
+ *   qpt_thread_set_sched()   -- to set scope, policy and param.
+ *
+ *                               where those are derived from is outside
+ *                               the scope of these functions.  But can
+ *                               qpt_thread_get_sched() as a seed.
+ *
+ * For the main thread, can do the above after main thread start.
+ *
+ * NB: can initialise at most one main thread, and must initialise that before
+ *     initialising any other thread and it MUST actually be the main, or only,
+ *     pthread !
+ *
+ * NB: the scope setting for a thread is a preference.  If the scope is not
+ *     available, will silently use whatever is available.
+ *
+ * NB: the reference count is initialised to "1".  The caller is deemed to "own"
+ *     the qpt_thread object, and may destroy it before the pthread is created
+ *     (or before main thread start).
+ *
+ *     Any other holders of references to the qpt_thread should call
+ *     qpt_thread_set_ref() and qpt_thread_clear_ref() -- unless they have some
+ *     other means to guarantee that they will not use the reference after the
+ *     qpt_thread has been destroyed.
+ */
+extern qpt_thread
+qpt_thread_init(qpt_init_t init, const char* name)
+{
+  qpt_thread qpth ;
+  bool main_thread ;
   int err ;
 
-  assert((opts & ~qpt_attr_known) == 0) ;
-  passert(qpthreads_enabled) ;
+  main_thread = (init == qpt_init_main) ;
 
-  /* Initialise thread attributes structure (allocating if required.)   */
-  if (attr == NULL)
-    attr = XMALLOC(MTYPE_QPT_THREAD_ATTR, sizeof(qpt_thread_attr_t)) ;
+  if (main_thread)
+    assert(!qpt_main_thread_initialised) ;
+  else
+    assert(qpt_main_thread_initialised && qpthreads_enabled) ;
 
-  err = pthread_attr_init(attr) ;
-  if (err != 0)
-    zabort_err("pthread_attr_init failed", err) ;
+  /* Create and initialise qpt_thread object.
+   *
+   * Zeroising sets:
+   *
+   *   * state            -- qpts_initial
+   *
+   *   * main             -- X      -- set below
+   *
+   *   * destroy          -- false
+   *   * refcount         -- 0
+   *
+   *   * name             -- all '\0'   -- see below
+   *
+   *   * list             -- NULLs  -- put on list below
+   *
+   *   * attr             -- all 0  -- defaults, see below
+   *
+   *   * pth_attr         -- NULL   -- default attributes are fetched, below
+   *                                   if is qpthreads_enabled.
+   *
+   *   * pth_id           -- X      -- set when thread created or at main start
+   *   * cpu_clock_id     -- X      -- set when thread created or at main start
+   *
+   *   * end_cond         -- X      -- initialised when created/started
+   *   * enjoined         -- false  -- nobody waiting to join, yet
+   *
+   *   * type             -- NULL   -- set when thread created or at main start
+   *   * data             -- NULL   -- set when thread created or at main start
+   *
+   *   * returned         -- NULL   -- not valid until qpts_exited
+   *
+   *   * stats            -- all 0  -- not valid in qpts_initial
+   *
+   * Zeroising the attr sets:
+   *
+   *   * actual           -- false  -- not the actual values
+   *
+   *   * detached         -- false  -- the POSIX default
+   *
+   *   * cancel_disabled  -- false  -- the POSIX initial state for pthread
+   *   * cancel_async     -- false  -- ditto
+   *
+   *   * sched            -- scheduling options
+   *
+   *     - policy         -- X      -- set below
+   *     - param          -- 0's    -- set below or just priority set below
+   *     - min priority   -- X      -- set below
+   *     - max_priority   -- X      -- set below
+   *
+   *   * sched_scope      -- X      -- set below
+   *   * sched_main_start -- false  -- nothing to do at main start
+   *   * sched_inherited  -- false  -- we don't use this
+   *
+   *   * guard_size       -- 0      -- unknown -- set below to default if !main
+   *   * stack_size       -- 0      -- unknown -- set below to default if !main
+   *   * stack_addr       -- 0      -- unknown
+   */
+  qpth = XCALLOC(MTYPE_QPT_THREAD, sizeof(*qpth)) ;
 
-  /* If not qpt_attr_detached, then set joinable.       */
-  err = pthread_attr_setdetachstate(attr,
-                         (opts & qpt_attr_detached) ? PTHREAD_CREATE_DETACHED
-                                                    : PTHREAD_CREATE_JOINABLE) ;
-  if (err != 0)
-    zabort_err("pthread_attr_setdetachstate failed", err) ;
+  confirm(qpts_initial == 0) ;
 
-  /* If setting anything to do with scheduling...       */
-  if (opts & qpt_attr_sched_setting)
+  strncpy(qpth->name, name, sizeof(qpth->name) - 1) ;
+
+  qpth->main = main_thread ;
+
+  /* At this point, if is main we freeze qpthread_enabled, and if we are
+   * qpthreads_enabled, pick up the default pthread attributes -- forcing
+   * PTHREAD_EXPLICIT_SCHED straight away.
+   *
+   * Copy the default attributes to the attr.
+   */
+  if (qpthreads_freeze())
     {
-      /* Either we inherit or we set explicit parameters.       */
+      qpt_pthread_attr_init(qpth) ;
+      qpt_pthread_attr_clear_inheritsched(qpth) ;
+      qpt_pthread_attr_copy(qpth) ;
+    }
 
-      err = pthread_attr_setinheritsched(attr,
-                    (opts & qpt_attr_sched_inherit) ? PTHREAD_INHERIT_SCHED
-                                                    : PTHREAD_EXPLICIT_SCHED) ;
-      if (err != 0)
-        zabort_err("pthread_attr_setinheritsched", err) ;
+  /* Now, for the main_thread we need to sort out (a) what scope(s) we have,
+   * (b) pull the policy/params for the process and (c) set up
+   * qpt_initial_sched.
+   *
+   * For other threads we need to sort out the default attributes.
+   */
+  if (main_thread)
+    {
+      /* Probe to see which scope or scopes are supported.
+       *
+       * If !qptreads_enabled, assume scope is fixed to PTHREAD_SCOPE_SYSTEM
+       */
+      qpt_scope_fixed = true ;
+      qpt_scope       = PTHREAD_SCOPE_SYSTEM ;
 
-      if (opts & qpt_attr_sched_inherit)
-        assert((opts & qpt_attr_sched_explicit) == 0) ;
+      if (qpthreads_enabled)
+        {
+          int scope_count ;
+
+          scope_count = 0 ;
+
+          err = pthread_attr_setscope(qpth->pth_attr, PTHREAD_SCOPE_SYSTEM) ;
+          if (err == 0)
+            {
+              qpt_scope = PTHREAD_SCOPE_SYSTEM ;
+              scope_count  += 1 ;
+            } ;
+
+          err = pthread_attr_setscope(qpth->pth_attr, PTHREAD_SCOPE_PROCESS) ;
+          if (err == 0)
+            {
+              qpt_scope = PTHREAD_SCOPE_SYSTEM ;    /* NB: preferred  */
+              scope_count  += 1 ;
+            } ;
+
+          if (scope_count == 0)
+            zabort_err("pthreads_attr_setscope() failed for both "
+                          "PTHREAD_SCOPE_SYSTEM & PTHREAD_SCOPE_PROCESS", err) ;
+
+          if (scope_count == 2)
+            qpt_scope_fixed = false ;
+        } ;
+
+      /* No longer interested in the default pthread attributes (if any)
+       */
+      qpt_pthread_attr_destroy(qpth) ;
+
+      /* Fill in qpth->sched from the *process* policy/param -- this works
+       * for !qpthreads_anabled an qpthread_enabled alike.
+       *
+       * Unless we have access to the "actual" thread we will never know the
+       * scope for the main (and possibly only) thread.  Here we assume that
+       * the scope is either the one and only scope, or the preferred scope
+       * (PTHREAD_SCOPE_SYSTEM).
+       */
+      qpth->attr->sched_scope = qpt_scope ;
+      qpt_sched_get_process(qpth->attr->sched) ;
+
+      /* Can now set qpt_initial_sched, which may later be used as the basis
+       * for other thread attributes.
+       */
+      *qpt_initial_sched = *(qpth->attr->sched) ;
+
+      qpt_main_thread_initialised = true ;
+    }
+  else
+    {
+      /* Attributes for creating a new pthread.
+       *
+       * Has copied the pthread defaults to qpth->pth_attr and qpth->attr,
+       * after overriding inheritance.
+       *
+       * Here we set the scheduling scope, policy and params as required.
+       */
+      qpt_sched sched ;
+
+      sched = qpth->attr->sched ;
+
+      /* Set either the preferred scope, or the only scope available.
+       *
+       * Note that we set the qpth->pth_attr scope also: (a) for use when the
+       * thread is created, and (b) to collect any side effects (on policy and
+       * params).
+       */
+      qpth->attr->sched_scope = qpt_scope ;     /* set preferred scope  */
+
+      switch (init)
+        {
+          case qpt_init_process_scope:
+            if (!qpt_scope_fixed)
+              qpth->attr->sched_scope = PTHREAD_SCOPE_PROCESS ;
+            break ;
+
+          case qpt_init_system_scope:
+            if (!qpt_scope_fixed)
+              qpth->attr->sched_scope = PTHREAD_SCOPE_SYSTEM ;
+            break ;
+
+          default:
+            zabort("invalid qpt_init_t") ;
+        } ;
+
+      qpt_pthread_attr_setscope(qpth->pth_attr, qpth->attr->sched_scope) ;
+
+      /* Choose default policy or that set by option.
+       *
+       * We assume that the default and the initial policies are known (since
+       * the system gave them to us).  If we are using a given policy, that
+       * was checked when it was set.
+       *
+       * Note that we set the qpth->pth_attr policy also: (a) for use when
+       * thread is created, and (b) to collect any side effects (on policy and
+       * params).
+       *
+       * Note that glibc defaults to PTHREAD_INHERIT_SCHED (mistake !), and
+       * sets policy SCHED_OTHER and priority 0.  However, there is a bug (Bug
+       * 7007 dating to 2008) such that setting PTHREAD_EXPLICIT_SCHED is not
+       * enough -- it is necessary to set the policy and (or?) param explicitly.
+       * It so happens that the following sets both policy and params, so we
+       * are fine.
+       */
+      switch (qpt_use_policy)
+        {
+          case qpt_use_default_policy:
+            sched->policy = qpt_pthread_attr_getschedpolicy(qpth) ;
+            break ;
+
+          case qpt_use_main_policy:
+            sched->policy = qpt_initial_sched->policy ;
+
+            qassert(qpt_use_params == qpt_use_main_params) ;
+            break ;
+
+          case qpt_use_given_policy:
+            sched->policy = qpt_given_sched->policy ;
+            break ;
+
+          default:
+            zabort("invalid qpt_use_policy_t") ;
+        } ;
+
+      qpt_sched_get_minmax_priority(sched) ;
+
+      /* Choose default params or those set by option.
+       *
+       * Note that we set the qpth->pth_attr policy also, for use when thread
+       * is created.
+       */
+      switch (qpt_use_params)
+        {
+          case qpt_use_default_params:
+            /* Set the required policy before fetching the param, just in
+             * case that has the side effect of changing the default param.
+             */
+            qpt_pthread_attr_setschedpolicy(qpth->pth_attr, sched->policy) ;
+            *(sched->param) = qpt_pthread_attr_getschedparam(qpth) ;
+            break ;
+
+          case qpt_use_main_params:
+            *(sched->param) = *(qpt_initial_sched->param) ;
+            break ;
+
+          case qpt_use_given_params:
+            *(sched->param) = *(qpt_given_sched->param) ;
+            break ;
+
+          default:
+            zabort("invalid qpt_use_params_t") ;
+        } ;
+
+      qpt_pthread_attr_set_sched(qpth->pth_attr, sched) ;
+    } ;
+
+  /* Return the new object
+   */
+  return qpth ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Start the main qpt_thread.
+ *
+ * This should be done after any daemonisation, and before any other pthreads
+ * are created.
+ *
+ * NB: sets qpthreads_active if qpthreads_enabled
+ *
+ *     So... from this moment on mutex and other operations will be real
+ *     operations if is qpthreads_enabled.
+ *
+ * Note that this is done even if no other threads are going to be started.
+ * When is !qpthreads_enabled, this arranges for single thread thread running
+ * to look like a minimal multi-thread environment.
+ *
+ * Does what qpt_thread_create() and qpt_thread_start() do for all other
+ * threads -- with suitable variation when !qpthreads_enabled.
+ */
+extern void
+qpt_main_thread_start(qpt_thread qpth, qpt_thread_type type, void* data)
+{
+  pthread_t pth_id ;
+  qstring   log_mess ;
+
+  assert(qpth->main && qpt_main_thread_initialised
+                    && !qpthreads_main_started_flag) ;
+
+  qpthreads_main_started_flag = true ;
+  qpthreads_active_flag       = qpthreads_enabled ;
+
+  /* Complete the set up of the qpt_thread object, set pthread specific data
+   * (or dummy equivalent if !qpthreads_enabled) so that qpt_thread_self()
+   * works, apply any pending scheduling parameters and detach the pthread if
+   * required.
+   */
+  if (qpthreads_enabled)
+    pth_id = pthread_self() ;
+  else
+    memset(&pth_id, 0, sizeof(pthread_t)) ;
+
+  LOCK_QPT() ;
+
+  qpt_thread_done_create(qpth, pth_id, type, data) ;
+
+  if (qpth->attr->sched_main_start)
+    qpt_sched_set(qpth) ;
+
+  if (qpth->attr->detached && qpthreads_enabled)
+    qpt_pthread_detach(qpth) ;
+
+  log_mess = qpt_thread_log_start(qpth) ;
+
+  qpt_own_data_set_value(qpt_self, qpth) ;
+
+  UNLOCK_QPT() ;
+
+  /* Log the start of the main pthread.
+   */
+  zlog_info("%s", qs_string(log_mess)) ;
+  qs_free(log_mess) ;
+
+  /* Log any command line options for further pthreads
+   */
+  if (qpthreads_enabled)
+    qpt_thread_log_options() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Create a new pthread for the prepared qpt_thread -- adding it to the list of
+ * known qpt_thread.
+ *
+ * The given "data" is set in the qpt_thread, and the given pthread function
+ * is called and passed a pointer to the qpt_thread.
+ *
+ * The first thing the created thread does should be qpt_thread_start().
+ *
+ * NB: FATAL error to attempt this is !qptthreads_active.
+ */
+extern void
+qpt_thread_create(qpt_thread qpth, qpt_thread_type type, void* data,
+                                                     void* (*start)(qpt_thread))
+{
+  typedef void* (*pthread_func)(void*) ;
+
+  int        err ;
+  pthread_t  pth_id ;
+  qstring    log_mess ;
+  pthread_attr_t* pth_attr ;
+
+  if (!qpthreads_active)
+    zabort("cannot create threads when is !qpthreads_active") ;
+
+  assert(!qpth->main && (qpth->state == qpts_initial)) ;
+
+  LOCK_QPT() ;
+
+  pth_attr = qpth->pth_attr ;
+
+  if (qpt_use_null_attributes)
+    {
+      /* Get a fresh set of default pthread attributes (discarding any existing)
+       * and copy those to the qpth->attr.
+       *
+       * This is for the logging -- we really use a NULL set of attributes for
+       * creation.
+       */
+      qpt_pthread_attr_init(qpth) ;
+      qpt_pthread_attr_copy(qpth) ;
+
+      pth_attr = NULL ;
+    } ;
+
+  err = pthread_create(&pth_id, pth_attr, (pthread_func)start, qpth) ;
+  if (err != 0)
+    zabort_err(qfs_gen("pthread_create failed for '%s'", qpth->name).str, err) ;
+
+  qpt_thread_done_create(qpth, pth_id, type, data) ;
+  log_mess = qpt_thread_log_start(qpth) ;
+
+  UNLOCK_QPT() ;
+
+  zlog_info("%s", qs_string(log_mess)) ;
+  qs_free(log_mess) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Have just created the given qpt_thread, with the given pthread_t.
+ *
+ * NB: this is done by the creating pthread -- NOT the created pthread (except
+ *     when "creating" the main thread)
+ *
+ * For the main pthread this may be !qpthreads_enabled.
+ *
+ * Requires: for pthreads other than the main: the pthread_t for the newly
+ *           created pthread.  Also, the qpt lock must have been acquired
+ *           before creating the pthread, and must not be released until after
+ *           this returns.
+ *
+ *           for the main thread: the pthread_t for the main thread (if is
+ *           qpthreads_enabled).  For consistency with other threads, requires
+ *           the qpt lock.
+ *
+ *           For all threads requires the value for the "data" entry in the
+ *           qpt_thread.
+ *
+ * Sets:
+ *
+ *   qpth->pth_id         -- as given
+ *
+ *   qpth->data           -- as given
+ *
+ *   qpth->cpu_clock_id   -- pthread_getcpuclockid(), if qpthreads_enabled
+ *                                                               and available.
+ *                           CLOCK_PROCESS_CPUTIME_ID, if !qpthreads_enabled
+ *                                                               and available.
+ *
+ *   qpth->stats.start    -- now
+ *   qpth->stats.cpu_when -- now
+ *   qpth->stats.cpu_used -- cpu used to date
+ *
+ *   qpth->state to qpts_running, under mutex.
+ *
+ * Adds qpt_thread to the list of known threads.
+ *
+ * NB: does not set qpt_self -- that has to be done in the pthread itself.
+ */
+static void
+qpt_thread_done_create(qpt_thread qpth, pthread_t pth_id, qpt_thread_type type,
+                                                                     void* data)
+{
+  ASSERT_QPT_LOCKED() ;
+
+  assert(qpth->state == qpts_initial) ;
+
+  /* No longer interested in the attributes (if any)
+   */
+  qpt_pthread_attr_destroy(qpth) ;
+
+  /* Complete the set up of the qpt_thread
+   */
+  qpth->pth_id = pth_id ;
+  qpth->type   = type ;
+  qpth->data   = data ;
+
+  if (qpthreads_enabled)
+    qpt_cond_init_new(qpth->end_cond, qpt_cond_quagga) ;
+
+  qpt_get_cpu_clock_id(qpth) ;
+
+  /* Set running and append to list.
+   */
+  qpth->state = qpts_running ;
+  ddl_append(qpt_thread_list, qpth, list) ;
+
+  /* Now take first cpu usage and set the start time -- must be qpts_running
+   * for this.
+   */
+  qpt_get_cpu_time(qpth) ;
+  qpth->stats->start = qpth->stats->cpu_when ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * The current thread has just started.
+ *
+ * This should be the first thing that a pthread does when it is created.
+ *
+ * For the main thread, the work is done in qpt_main_thread_start, so does
+ * nothing here.
+ *
+ * NB: for all but the main thread, gains QPT LOCK -- which means that the
+ *     child pthread will be held here until the parent has completed the
+ *     qpt_thread_create() action.
+ *
+ * Sets the qpt_self thread specific data, so that the thread can find its own
+ * qpt_thread.
+ *
+ * Returns:  qpth->data -- as set when the qpt_thread was initialised.
+ */
+extern void*
+qpt_thread_start(qpt_thread qpth)
+{
+  if (!qpth->main)
+    {
+      assert(qpthreads_enabled) ;
+
+      LOCK_QPT() ;
+
+      qpt_own_data_set_value(qpt_self, qpth) ;
+
+      UNLOCK_QPT() ;
+    } ;
+
+  return qpth->data ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Detach the given qpt_thread.
+ *
+ * The default state for a qpt_thread is joinable.  The difference between a
+ * joinable qpt_thread and a detached qpt_thread is that:
+ *
+ *   (a) a detached qpt_thread is not expected to return a "ret" value...
+ *
+ *       ...any "ret" value is ignored, but will be given to the qpt_thread's
+ *       destroy_ret destructor when the qpt_thread is destroyed.
+ *
+ *   (b) a joinable qpt_thread *must* be joined before it is destroyed...
+ *
+ *       ...so that any "ret" value is returned first.
+ *
+ * All qpt_thread (including the main thread) must, eventually, call
+ * qpt_thread_end().  When qpt_finish() or qpt_thread_collect() are called,
+ * they wait for all known threads to come to a tidy end, before destroying
+ * the qpt_thread.  It is expected that all joinable qpt_threads will be
+ * joined before qpt_finish() or qpt_thread_collect() -- but if not, they
+ * will be treated as if they were detached, and any "ret" is lost.
+ *
+ * The effect depends on the state of the qpt_thread, if the qpt_thread is
+ * not already detached:
+ *
+ *   * qpts_initial   -- qpt_thread is set detached, and (if qpthreads_enabled)
+ *                       the underlying pthread is set detached when it is
+ *                       created or (for the main pthread) at
+ *                       qpt_main_thread_start().
+ *
+ *   * qpts_running   -- qpt_thread is set detached, and (if qpthreads_enabled)
+ *                       the underlying pthread is set detached.
+ *
+ *                       qpt_thread_join() has no effect once the qpt_thread is
+ *                       detached.
+ *
+ *                       qpt_thread_destroy() can be used, once the qpt_thread
+ *                       has ended -- by qpt_thread_end().
+ *
+ *   * qpts_ended     -- qpt_thread is set detached.
+ *
+ *                       qpt_thread_join() has no effect once the qpt_thread is
+ *                       detached.
+ *
+ *                       qpt_thread_destroy() can be used.
+ *
+ *   * qpts_joined    -- too late to set detached -- has no effect.
+ *
+ *   * qpts_final     -- too late to set detached -- has no effect.
+ *
+ * Returns: resulting detached state
+ */
+extern bool
+qpt_thread_detach(qpt_thread qpth)
+{
+  bool detached ;
+
+  LOCK_QPT() ;
+
+  if (!qpth->attr->detached)
+    {
+      switch (qpth->state)
+        {
+          case qpts_initial:
+            if (!qpth->main && qpthreads_enabled)
+              qpt_pthread_attr_setdetachstate(qpth->pth_attr) ;
+
+            qpth->attr->detached = true ;
+            break ;
+
+          case qpts_running:
+            if (qpthreads_enabled)
+              qpt_pthread_detach(qpth) ;
+
+            qpth->attr->detached = true ;
+            break ;
+
+          case qpts_ended:
+            qpth->attr->detached = true ;
+            break ;
+
+          default:
+            break ;
+        } ;
+    } ;
+
+  detached = qpth->attr->detached ;
+
+  UNLOCK_QPT() ;
+
+  return detached ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * End the current qpt_thread with the given "ret" pointer
+ *
+ * The qpt_thread *MUST* be qpts_running.
+ *
+ * Sets the qpt_thread ret field, fetches the final cpu usage, sets the
+ * end time and sets the qpt_thread to be qpts_ended.
+ *
+ * This applies to the main thread, whether is qpthreads_enabled or not.
+ *
+ * NB: this does NOT pthread_exit() or any other form of exit.
+ *
+ *     The purpose of this function is to update the state of the qpt_thread
+ *     prior to some form of exit.
+ *
+ *     For the main (or the last) thread, this may be done as part of the final
+ *     shut-down.
+ *
+ *     For other pthreads this should be done (very) shortly before exiting the
+ *     pthread -- anything else will cause *serious* disruption.
+ *
+ * If the pthread is detached, the pthread may wish to qpt_thread_destroy()
+ * itself, or leave that to another.
+ *
+ * Returns:  the "ret" given, so that:
+ *
+ *             * last line of pthread function may be:
+ *
+ *                  return qpt_thread_end(....) ;
+ *
+ *             * or can:
+ *
+ *                  pthread_exit(qpt_thread_end(....)) ;
+ *
+ * NB: the "ret" pointer may be returned by the thread when (if) it then exits,
+ *     but the value returned by qpt_thread_join() is the value returned here.
+ */
+extern void*
+qpt_thread_end(void* ret)
+{
+  qpt_thread qpth ;
+
+  qpth = qpt_thread_self() ;
+
+  LOCK_QPT() ;
+
+  assert(qpth->state == qpts_running) ;
+
+  qpth->ret = ret ;
+
+  qpt_thread_do_end(qpth) ;
+
+  UNLOCK_QPT() ;
+
+  return ret ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Join given qpt_thread.
+ *
+ * Does nothing if is detached.  Attempting to join a detached qpt_thread is a
+ * mistake, unless caller has a reference, not least because the qpt_thread may
+ * have been destroyed !
+ *
+ * Does nothing if is qpts_initial.
+ *
+ * Can join self, even if !qpthreads_enabled.  If the qpt_thread has ended,
+ * then will be joined in the usual way.  If the qpt_thread is still apparently
+ * running, then is treated as if it had just ended and then joined.
+ *
+ * It is possible for multiple qpt_threads to attempt to join a given
+ * qpt_thread.  In this case all joiners will wait for the given qpt_thread
+ * to end (if it is running).  Only the first joiner will succeed, and it
+ * is deemed to the "own" the qpt_thread.  The "owner" of the qpt_thread may
+ * read the qpth->ret and qpth->data AND is responsible for freeing those,
+ * if required.  When joining self, the pthread will not own itself if there
+ * is another joiner waiting !
+ *
+ * Returns: state of qpt_thread before joined:
+ *
+ *    qpts_initial   -- has not got going -- remains qpts_initial
+ *
+ *                      the qpt_thread may or may not be set to be detached
+ *                      when (or if) it is created or starts.
+ *
+ *                      the caller is already the "owner" of the qpth_thread.
+ *
+ *    qpts_ended     -- the caller is the "owner" of the qpth_thread and the
+ *                      pthread is no more.
+ *
+ *                      if caller is joining self, then was either:
+ *
+ *                        - qpts_running -- in which case qpth->ret will be
+ *                                          NULL.                                         set outside this code.
+ *
+ *                        - qpts_ended   -- in which case qpth->ret will be
+ *                                          whatever ws set at end time.
+ *
+ *                      cannot tell the difference.  [It is possible that some
+ *                      other code may change qpth->ret... in which case you
+ *                      are on your own.]
+ *
+ *    qpts_joined    -- the qpt_thread has already been joined (possibly by
+ *                      another qpt_thread !).
+ *
+ *    qpts_running   -- is detached !
+ *
+ * NB: on return, if caller is not the owner, then the qpt_thread may no longer
+ *     exist (unless the caller has a reference).
+ */
+extern qpt_thread_state_t
+qpt_thread_join(qpt_thread qpth)
+{
+  qpt_thread_state_t state ;
+
+  LOCK_QPT() ;
+
+  state = qpth->state ;
+
+  switch (state)
+    {
+      case qpts_initial:
+        break ;
+
+      case qpts_running:
+        if (!qpth->attr->detached)
+          {
+            /* If we own the qpt_thread after collecting it, then we get to
+             * set it qpts_joined.
+             *
+             * If we do not "own" the qpt_thread, it may no longer exist
+             */
+            if (qpt_thread_do_collect(qpth, true /* join */))
+              {
+                state = qpts_ended ;    /* Caller "owns" qpt_thread     */
+                qpth->state = qpts_joined ;
+              }
+            else
+              state = qpts_joined ;     /* Some other pthread owns      */
+          } ;
+
+        break ;
+
+      case qpts_ended:
+        qpth->state = qpts_joined ;
+        break ;
+
+      case qpts_joined:
+        break ;
+
+      default:
+        zabort(qfs_gen("unknown qpts_thread_state_t %d", state).str) ;
+        break ;
+    } ;
+
+  UNLOCK_QPT() ;
+
+  return state ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Destroy given qpt_thread (if can and if any).
+ *
+ * The caller is expected to "own" the qpt_thread, but if the refcount is
+ * not zero, the actual destruction is deferred.
+ *
+ * The process of destruction removes the qpt_thread from the list of known
+ * qpt_threads, after which the structure can be destroyed without need to
+ * hold the lock.
+ *
+ * If the type is not NULL, and the relevant destroy functions are not NULL,
+ * then will use them to destroy any "data" and/or "ret" values.  Otherwise,
+ * it is the caller's responsibility to deal with those.
+ *
+ * The qpt_thread must be: qpts_initial
+ *                     or: qpts_ended  and detached
+ *                     or: qpts_joined and !detached
+ *
+ * If the qpt_thread is not in a suitable state, then does nothing at all,
+ * other than log an error.
+ *
+ * Returns:  NULL
+ *
+ * NB: a joinable pthread *must* be joined before it is destroyed.  This
+ *     includes the main (and possibly only) pthread -- so the main thread
+ *     must qpt_thread_end() same like any other, and then either be joined
+ *     or have been detached same like any other.
+ */
+extern qpt_thread
+qpt_thread_destroy(qpt_thread qpth)
+{
+  if (qpth != NULL)
+    {
+      bool valid, destroy ;
+
+      LOCK_QPT() ;
+
+      valid = ( (qpth->state == qpts_initial) ||
+              ( (qpth->state == qpts_ended)  &&  qpth->attr->detached ) ||
+              ( (qpth->state == qpts_joined) && !qpth->attr->detached ) ) ;
+
+      if (valid)
+        {
+          qpth->destroy = true ;
+
+          destroy = (qpth->refcount == 0) ;
+
+          if (destroy)
+            qpt_thread_list_del(qpth) ;
+        }
       else
         {
-          if (opts & qpt_attr_sched_scope)
+          qassert(false) ;      /* throw a wobbly if qdebug     */
+          destroy = false ;
+        } ;
+
+      UNLOCK_QPT() ;
+
+      if (destroy)
+        qpt_thread_free(qpth) ;
+      else if (!valid)
+        zlog_err("%s(): qpt_thread '%s' state=%u detached=%u", __func__,
+                                qpth->name, qpth->state, qpth->attr->detached) ;
+    } ;
+
+  return NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Collect all outstanding qpt_thread.
+ *
+ * Once all qpt_thread have ended, clear qpthreads_active.
+ *
+ * At this point it is assumed that any running pthreads are in the process
+ * of coming to an end, and either no new pthreads will be created or they
+ * too will come (promptly) to an end.
+ *
+ * By the time this completes, all qpt_thread will have ended and/or been
+ * joined.
+ *
+ * Some may still exist, but will be destroyed when qpt_finish() is
+ * called.
+ *
+ * NB: this is *not* a substitute for qpt_thread_join().
+ *
+ *     For joinable pthreads the parent of the pthread should take steps to
+ *     join and tidy up after it.  That should be done *before* this is called.
+ *
+ *     For detached pthreads the pthread itself should take steps to
+ *     destroy the qpt_thread and deal with any "data" value, but the
+ *     "data_destroy" function in the type can deal with this.
+ *
+ *     This function is intended to enable the orderly close down when there
+ *     are one or more detached pthreads, by waiting until all but the current
+ *     pthread have come to an end.
+ */
+extern void
+qpt_thread_collect(void)
+{
+  qpt_thread qpth ;
+
+  /* Walk the list and collect anything which is still running.
+   *
+   * This will cope if pthreads are still being created, because any new
+   * pthreads are appended to the list.
+   *
+   * During the walk qpt_thread objects may be destroyed by other joiners, or
+   * detached qpt_threads destroying themselves.
+   */
+  qpth    = NULL ;
+
+  while ((qpth = qpt_thread_walk(qpth)) != NULL)
+    {
+      LOCK_QPT() ;
+
+      if (qpth->state == qpts_running)
+        qpt_thread_do_collect(qpth, false /* not join */) ;
+
+      UNLOCK_QPT() ;
+    } ;
+
+  /* By the time we reach here, all qpt_threads must be at least qpts_ended,
+   * and may be qpts_joined.
+   *
+   * We can now clear the qpthreads_active flag, which effectively turns off
+   * mutex etc. operations and *outlaws* creation of new threads.
+   */
+  qpt_clear_qpthreads_active() ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Collect and destroy all outstanding qpt_thread, clearing qpthreads_active.
+ *
+ * For completeness, does: qpt_thread_collect() -- see above.
+ *
+ * Then, set about destroying any remaining qpt_thread.
+ *
+ * The purpose of this function is to tidy up any qpt_thread which have not
+ * already been destroyed by the responsible party.  It is expected that the
+ * refcount will be zero, so the qpt_thread will be destroyed, but it doesn't
+ * really matter if it isn't.
+ */
+static void
+qpt_thread_finish(void)
+{
+  qpt_thread qpth, next ;
+
+  qpt_thread_collect() ;
+
+  /* Note we expect the qpt_thread_destroy to succeed, and remove the
+   * qpt_thread, but the loop will cope if not -- so will cope if the refcount
+   * is not zero or the qpt_thread is not in the right state, for whatever
+   * reason.
+   */
+  next = ddl_head(qpt_thread_list) ;
+  while (next != NULL)
+    {
+      qpth = next ;
+      next = ddl_next(qpth, list) ;
+
+      qassert(qpth->refcount == 0) ;
+
+      if (qpth->refcount == 0)
+        qpt_thread_destroy(qpth) ;
+      else
+        zlog_err("%s(): qpt_thread '%s' has refcount %u", __func__,
+                                                   qpth->name, qpth->refcount) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Walk the current qpt_thread_list.
+ *
+ * Use:
+ *
+ *   qpt_thread qpth ;
+ *   ....
+ *   qpth = NULL ;
+ *   while ((qpth = qpt_thread_walk(qpth)) != NULL)
+ *     {
+ *     } ;
+ *
+ * During the walk may do...
+ *
+ * NB: MUST complete the walk, or MUST qpt_thread_clear_ref() the last qpth
+ *     processed.
+ */
+extern qpt_thread
+qpt_thread_walk(qpt_thread qpth)
+{
+  qpt_thread prev ;
+
+  prev = qpth ;
+
+  LOCK_QPT() ;
+
+  if (prev != NULL)
+    qpth = ddl_next(prev, list) ;
+  else
+    qpth = ddl_head(qpt_thread_list) ;
+
+  if (qpth != NULL)
+    ++qpth->refcount ;
+
+  UNLOCK_QPT() ;
+
+  if (prev != NULL)
+    {
+      qassert(prev->refcount > 0) ;
+      qpt_thread_clear_ref(prev) ;
+    } ;
+
+  return qpth ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Collect the given qpt_thread.
+ *
+ * MUST be locked, and the qpt_thread MUST be qpts_running -- can collect self.
+ *
+ * Returns:  true <=> was "join" and calling pthread now "owns" the qpt_thread.
+ *
+ *          false  => if was "join", another pthread now "owns" the qpt_thread.
+ *                    otherwise, ownership is unknown.
+ *
+ * NB: the the caller is not now the owner, then the qpt_thread may now no
+ *     longer exist.
+ *
+ * NB: does nothing with the "ret" value.
+ */
+static bool
+qpt_thread_do_collect(qpt_thread qpth, bool join)
+{
+  bool owner ;
+
+  ASSERT_QPT_LOCKED() ;
+
+  qassert(qpth->state == qpts_running) ;
+
+  /* If we are joining, then if we are the first joiner, we will "own" the
+   * qpt_thread, and we here set the qpt_thread "enjoined".
+   *
+   * If not joining, then allow a joiner to turn up and gain ownership.  But
+   * in any case make no assumption as to ownership.
+   */
+  owner = false ;
+
+  if (join && !qpth->enjoined)
+    owner = qpth->enjoined = true ;
+
+  /* We are not collecting self, so need to wait for the pthread to end.
+   *
+   * Waiting for the condition releases and then recovers the mutex...
+   * ...so it must not recursive !
+   * We are collecting ourself, so do an implied "end".
+   */
+  if (qpth != qpt_thread_self())
+    {
+      qpt_thread_list_locked = false ;
+      qpt_cond_wait(qpth->end_cond, qpt_thread_list_mutex) ;
+      qpt_thread_list_locked = true ;
+    }
+  else
+    qpt_thread_do_end(qpth) ;
+
+  return owner ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * End the given qpt_thread
+ *
+ * MUST be locked, and the qpt_thread MUST be qpts_running and MUST be self !
+ *
+ * NB: does nothing with the "ret" value.
+ */
+static void
+qpt_thread_do_end(qpt_thread qpth)
+{
+  ASSERT_QPT_LOCKED() ;
+
+  assert((qpth->state == qpts_running) && (qpth == qpt_thread_self())) ;
+
+  qpt_get_cpu_time(qpth) ;
+  qpth->stats->end = qpth->stats->cpu_when ;
+
+  qpth->state = qpts_ended ;
+  qpt_cond_broadcast(qpth->end_cond) ;  /* does nothing if !qpthreads_enabled */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Register a reference to the given qpt_thread.
+ *
+ * Caller has a currently valid qpt_thread, and wishes to keep a reference
+ * which will remain valid until it is cleared.
+ *
+ * Returns:  the qpt_thread
+ */
+extern qpt_thread
+qpt_thread_set_ref(qpt_thread qpth)
+{
+  LOCK_QPT() ;
+
+  ++qpth->refcount ;
+
+  UNLOCK_QPT() ;
+
+  return qpth ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Clear a reference to the given qpt_thread (if any).
+ *
+ * Caller must assume that this destroys the qpt_thread -- which it will if
+ * there are no other references.
+ *
+ * Returns:  NULL
+ */
+extern qpt_thread
+qpt_thread_clear_ref(qpt_thread qpth)
+{
+  bool destroy ;
+
+  LOCK_QPT() ;
+
+  assert(qpth->refcount > 0) ;
+
+  --qpth->refcount ;
+  destroy = qpth->destroy && (qpth->refcount == 0) ;
+
+  UNLOCK_QPT() ;
+
+  if (destroy)
+    qpt_thread_destroy(qpth) ;
+
+  return NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Remove given qpt_thread from the list of qpt_thread (if is on it) -- because
+ * is about to destroy it.
+ *
+ * If is qpts_initial, then is not on the known list, and need do nothing.
+ *
+ * Otherwise, remove from the known list and set qpts_final.
+ */
+static void
+qpt_thread_list_del(qpt_thread qpth)
+{
+  ASSERT_QPT_LOCKED() ;
+
+  qassert( (qpth->state == qpts_initial) ||
+          ((qpth->state == qpts_ended) && qpth->attr->detached) ||
+           (qpth->state == qpts_joined) ) ;
+
+  qassert(qpth->destroy && (qpth->refcount == 0)) ;
+
+  if (qpth->state != qpts_initial)
+    {
+      ddl_del(qpt_thread_list, qpth, list) ;
+      qpth->state = qpts_final ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Free the given qpt_thread and any pth_attr it may have.
+ *
+ * If the type is not NULL, and the relevant destroy functions are not NULL,
+ * then will use them to destroy any "data" and/or "ret" values.  Otherwise,
+ * is the caller's responsibility to deal with any such values.
+ *
+ * Requires refcount to be 0 -- ie: after qpt_thread_list_del().
+ *
+ * NB: assumes that the caller is now the sole owner of a reference to the
+ *     qpt_thread -- so no lock is required.
+ */
+static void
+qpt_thread_free(qpt_thread qpth)
+{
+  qassert(qpth->destroy && (qpth->refcount == 0)) ;
+
+  qpt_pthread_attr_destroy(qpth) ;
+
+  if (qpth->state != qpts_initial)
+    {
+      qpt_cond_destroy(qpth->end_cond, keep_it /* embedded */) ;
+
+      if (qpth->type != NULL)
+        {
+          if (qpth->type->ret_destroy != NULL)
             {
-              err = pthread_attr_setscope(attr, scope) ;
-              if (err != 0)
-                zabort_err("pthread_attr_setscope failed", err) ;
+              qpth->type->ret_destroy(qpth->ret) ;
+              qpth->ret = NULL ;
             } ;
 
-          if (opts & qpt_attr_sched_policy)
+          if (qpth->type->data_destroy != NULL)
             {
-              err = pthread_attr_setschedpolicy(attr, scope) ;
-              if (err != 0)
-                zabort_err("pthread_attr_setschedpolicy failed", err) ;
-            } ;
-
-          if (opts & qpt_attr_sched_priority)
-            {
-              struct sched_param sparm ;
-              err = pthread_attr_getschedparam(attr, &sparm) ;
-              if (err != 0)
-                zabort_err("pthread_attr_getschedparam failed", err) ;
-              sparm.sched_priority = priority ;
-              err = pthread_attr_setschedparam(attr, &sparm) ;
-              if (err != 0)
-                zabort_err("pthread_attr_setschedparam failed", err) ;
+              qpth->type->data_destroy(qpth->data) ;
+              qpth->data = NULL ;
             } ;
         } ;
     } ;
 
-  /* Done -- return qpt_thread_attr_t*     */
-  return attr ;
+  XFREE(MTYPE_QPT_THREAD, qpth) ;
+} ;
+
+/*==============================================================================
+ * Thread/Process Stats and CPU clock handling
+ */
+
+/*------------------------------------------------------------------------------
+ * Get the current state of the given qpt_thread, and the latest stats
+ */
+extern qpt_thread_state_t
+qpt_thread_get_stats(qpt_thread qpth, qpt_thread_stats stats)
+{
+  qpt_thread_state_t state ;
+
+  LOCK_QPT() ;
+
+  qpt_get_cpu_time(qpth) ;
+
+  state = qpth->state ;
+  *stats = *(qpth->stats) ;
+
+  UNLOCK_QPT() ;
+
+  return state ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Create Thread with given attributes (if any).
+ * Set the cpu_clock_id for the given qpth.
  *
- * If no attributes are given (attr == NULL) the thread is created with system
- * default attributes -- *except* that it is created joinable.
+ * Early in the morning it is established what clocks are supported.
  *
- * NB: FATAL error to attempt this is !qptthreads_enabled.
+ * If is qpthreads_enabled will use what pthread_getcpuclockid() provides, if
+ * that is supported -- otherwise returns CLOCK_REALTIME.
  *
- * Returns the qpt_thread_t "thread id".
+ * If is !qpthreads_enabled, this must be the main (and only) pthread, and will
+ * use the CLOCK_PROCESS_CPUTIME_ID, if that is supported -- otherwise returns
+ * CLOCK_REALTIME
+ *
+ * Establishes early in the morning whether is supported or not.  When this is
+ * called for the main thread, will log "info" if the required clock is not
+ * available.
  */
-extern qpt_thread_t
-qpt_thread_create(void* (*start)(void*), void* arg, qpt_thread_attr_t* attr)
+static void
+qpt_get_cpu_clock_id(qpt_thread qpth)
 {
-  qpt_thread_attr_t thread_attr ;
-  qpt_thread_t      thread_id ;
-  int default_attr ;
-  int err ;
+  qpth->cpu_clock_id = CLOCK_REALTIME ; /* => no CPU time available     */
 
-  passert(qpthreads_enabled) ;
-  qpthreads_thread_created_flag = true ;  /* at least one thread created */
-  qpthreads_active_flag         = true ;  /* is now active               */
-
-  default_attr = (attr == NULL) ;
-  if (default_attr)
-    attr = qpt_thread_attr_init(&thread_attr, qpt_attr_joinable, 0, 0, 0) ;
-
-  err = pthread_create(&thread_id, attr, start, arg) ;
-  if (err != 0)
-    zabort_err("pthread_create failed", err) ;
-
-  {
-    qstring qs ;
-
-    qs = qpt_thread_attr_form(&thread_attr) ;
-    zlog_info("Thread created: %s", qs_string(qs)) ;
-
-    qs_free(qs) ;
-  }
-
-  if (default_attr)
+  if (qpthreads_enabled)
     {
-      err = pthread_attr_destroy(attr) ;        /* being tidy */
-      if (err != 0)
-        zabort_err("pthread_attr_destroy failed", err) ;
-    } ;
-
-  return thread_id ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Join given thread -- do nothing if !qpthreads_enabled
- *
- * Tolerates ESRCH (no thread known by given id).
- *
- * Returns whatever the thread returns, NULL otherwise.
- *
- * NB: all other errors are FATAL.
- */
-extern void*
-qpt_thread_join(qpt_thread_t thread_id)
-{
-  int   err ;
-  void* ret ;
-
-  if (!qpthreads_enabled)
-    return NULL ;
-
-  err = pthread_join(thread_id, &ret) ;
-
-  if (err == 0)
-    return ret ;
-
-  if (err == ESRCH)
-    return NULL ;
-
-  zabort_err("pthread_join failed", err) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * If pthread_getcpuclockid() is supported, get the clock ID.
- *
- * Establishes early in the morning whether is supported or not.
- */
-extern clockid_t
-qpt_get_cpu_clock(qpt_thread_t thread_id)
-{
-  clockid_t clock_id ;
-
-  clock_id = CLOCK_REALTIME ;
-
+      /* We want the thread specific cpu clock
+       */
 #ifdef _POSIX_THREAD_CPUTIME
 # if _POSIX_THREAD_CPUTIME >= 0
-  if (qpt_have_cpu_clock)
-    {
-      int err = pthread_getcpuclockid(thread_id, &clock_id) ;
-
-      if (err == 0)
+      if (qpt_have_thread_cpu_clock)
         {
-          switch (clock_id)
+          clockid_t got_id ;
+          int err ;
+
+          err = pthread_getcpuclockid(qpth->pth_id, &got_id) ;
+
+          if (err == 0)
             {
-              case CLOCK_REALTIME:
-                zlog_err("pthread_getcpuclockid() returned: "
-                                                 "CLOCK_REALTIME !") ;
-                break ;
+              switch (got_id)
+                {
+                  case CLOCK_REALTIME:
+                    zlog_err("pthread_getcpuclockid() returned: "
+                                                           "CLOCK_REALTIME !") ;
+                    break ;
 
-#ifdef HAVE_CLOCK_MONOTONIC
-              case CLOCK_MONOTONIC:
-                zlog_err("pthread_getcpuclockid() returned: "
-                                                 "CLOCK_MONOTONIC !") ;
-                break ;
-#endif
+#  ifdef HAVE_CLOCK_MONOTONIC
+                  case CLOCK_MONOTONIC:
+                    zlog_err("pthread_getcpuclockid() returned: "
+                                                          "CLOCK_MONOTONIC !") ;
+                    break ;
+#  endif
 
-#ifdef CLOCK_PROCESS_CPUTIME_ID
-              case CLOCK_PROCESS_CPUTIME_ID:
-                zlog_err("pthread_getcpuclockid() returned: "
+#  ifdef _POSIX_CPUTIME
+#   if _POSIX_CPUTIME >= 0
+                  case CLOCK_PROCESS_CPUTIME_ID:
+                    zlog_err("pthread_getcpuclockid() returned: "
                                                  "CLOCK_PROCESS_CPUTIME_ID !") ;
-                break ;
-#endif
-              case CLOCK_THREAD_CPUTIME_ID:
-                zlog_err("pthread_getcpuclockid() returned: "
-                                                 "CLOCK_THREAD_CPUTIME_ID !") ;
-                break ;
+                    break ;
+#   endif
+#  endif
+                  case CLOCK_THREAD_CPUTIME_ID:
+                    zlog_err("pthread_getcpuclockid() returned: "
+                                                  "CLOCK_THREAD_CPUTIME_ID !") ;
+                    break ;
 
-              default:
-                zlog_info("pthread_getcpuclockid() returned: %d", clock_id) ;
-                break ;
+                  default:
+                    /* The clock_id we have been given is plausible enough,
+                     * so we use it.
+                     */
+                    qpth->cpu_clock_id = got_id ;
+                    zlog_info("pthread_getcpuclockid() returned: %d", got_id) ;
+                    break ;
+                } ;
+            }
+          else
+            {
+              zlog_err("pthread_getcpuclockid failed: %s", errtoa(err,0).str) ;
             } ;
         }
       else
         {
-          zlog_err("pthread_getcpuclockid failed: %s", errtoa(err,0).str) ;
-          clock_id = CLOCK_THREAD_CPUTIME_ID ;
+          if (qpth->main)
+            zlog_info("sysconf() says pthread_getcpuclockid() "
+                                                          " is not supported") ;
         } ;
+# else
+      if (qpth->main)
+        zlog_info("_POSIX_THREAD_CPUTIME says pthread_getcpuclockid() "
+                                                           "is not supported") ;
+# endif
+#else
+      if (qpth->main)
+        zlog_info("_POSIX_THREAD_CPUTIME is not defined !!") ;
+#endif
     }
   else
     {
-      if (!qpt_seen_cpu_clock)
-        zlog_info("sysconf() says pthread_getcpuclockid() is not supported") ;
-    } ;
+      /* We want CLOCK_PROCESS_CPUTIME_ID -- for the main pthread.
+       */
+      assert(qpth->main) ;
+
+#ifdef _POSIX_CPUTIME
+# if _POSIX_CPUTIME >= 0
+      if (qpt_have_process_cpu_clock)
+        qpth->cpu_clock_id = CLOCK_PROCESS_CPUTIME_ID ;
+      else
+        {
+          if (qpth->main)
+            zlog_info("sysconf() says CLOCK_PROCESS_CPUTIME_ID "
+                                                           "is not supported") ;
+        } ;
 # else
-  if (!qpt_seen_cpu_clock)
-    zlog_info("_POSIX_THREAD_CPUTIME says pthread_getcpuclockid() "
-                                                         "is not supported") ;
+      if (qpth->main)
+        zlog_info("_POSIX_CPUTIME says CLOCK_PROCESS_CPUTIME_ID "
+                                                             "is not supported") ;
 # endif
 #else
-  if (!qpt_seen_cpu_clock)
-    zlog_info("_POSIX_THREAD_CPUTIME is not defined !!") ;
+      if (qpth->main)
+        zlog_info("_POSIX_CPUTIME is not defined !!") ;
 #endif
-
-  qpt_seen_cpu_clock = true ;
-
-  return clock_id ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
- * If pthread_getcpuclockid() is supported, get the clock ID.
+ * Refresh the qpt_thread cpu time -- if is qpts_running
  *
- * Establishes early in the morning whether is supported or not.
+ * Sets last.read and last.cpu times.
+ *
+ * NB: MUST have the LOCK_QPT.
  */
-extern qtime_t
-qpt_cpu_time(clockid_t clock_id)
+static void
+qpt_get_cpu_time(qpt_thread qpth)
 {
-  if (qpt_have_cpu_clock)
-    return qt_clock_gettime(clock_id) ;
+  ASSERT_QPT_LOCKED() ;
+
+  if (qpth->state == qpts_running)
+    {
+      enum { target_delta = QTIME(1) / 10000 } ;        /* 0.1 milli-sec */
+
+      confirm(target_delta > 0) ;
+
+      qtime_t before, after ;
+      qtime_t delta  = target_delta ;
+
+      while (1)
+        {
+          before = qt_get_monotonic() ;
+
+          if (qpth->cpu_clock_id != CLOCK_REALTIME)
+            qpth->stats->cpu_used = qt_clock_gettime(qpth->cpu_clock_id) ;
+
+          after = qt_get_monotonic() ;
+
+          if ((after - before) <= delta)
+            break ;
+
+          delta *= 2 ;          /* avoid getting trapped        */
+        } ;
+
+      qpth->stats->cpu_when = (before + after) / 2 ;
+    };
+} ;
+
+/*==============================================================================
+ * qpt_thread attributes and getting/setting scheduling properties.
+ */
+
+/*------------------------------------------------------------------------------
+ * Get copy of current attributes for the given qpt_thread.
+ *
+ * Note that unless some external means is used to avoid it, the copy may be
+ * out of date by the time this function returns, or may go out of date !
+ *
+ * Returns the state of the qpt_thread at the time the attributes were copied.
+ */
+extern qpt_thread_state_t
+qpt_thread_get_attr(qpt_thread qpth, qpt_attr attr)
+{
+  qpt_thread_state_t state ;
+
+  LOCK_QPT() ;
+
+  state = qpth->state ;
+  *attr = *(qpth->attr) ;
+
+  UNLOCK_QPT() ;
+
+  return state ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get copy of the scheduling attributes for the given qpt_thread.
+ *
+ * May be used to set the scheduling attributes of a new thread to the
+ * attributes of the current -- ie: in place of PTHREAD_INHERIT_SCHED:
+ *
+ *   qpt_sched_t bar ;
+ *   .....
+ *   qpt_thread_set_sched(foo, qpt_thread_get_sched(qpt_thread_self(), bar)) ;
+ *
+ * Note that unless some external means is used to avoid it, the copy may be
+ * out of date by the time this function returns, or may go out of date !
+ */
+extern qpt_sched
+qpt_thread_get_sched(qpt_thread qpth, qpt_sched sched)
+{
+  LOCK_QPT() ;
+
+  *sched = *(qpth->attr->sched) ;
+
+  UNLOCK_QPT() ;
+
+  return sched ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set scheduling policy in the given scheduling attributes, and set the min/max
+ * allowed priorities.
+ *
+ * This may be used to fill in a policy/param to set via qpt_thread_set_sched().
+ * The caller cab use this to discover (a) whether the given policy is
+ * supported, and if so, what the min/max priorities are.
+ *
+ * NB: it is possible that the scheduling param for a given policy may have
+ *     attributes other than priority -- this is system dependent.  If so, it
+ *     is the caller's responsibility to set those as required.
+ *
+ * NB: has no effect on the scheduling param.  It is the callers responsibility
+ *     to set something sensible before calling qpt_thread_set_sched().
+ *
+ * This has no effect on any thread.
+ */
+extern bool
+qpt_sched_set_policy(qpt_sched sched, int policy)
+{
+  sched->policy = policy ;
+  return qpt_sched_get_minmax_priority(sched) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set policy and params scheduling properties for the given qpt_thread.
+ *
+ * If is qpts_initial the policy and params are stored until the thread is
+ * created, or for the main thread, main thread start.
+ *
+ * If is qpts_running, this has immediate effect.  If is qpthreads_enabled,
+ * then uses pthread_setschedparam(), otherwise uses sched_setscheduler() (for
+ * the main and only thread).
+ *
+ * NB: it is not known whether special privileges are required to set some or
+ *     all policy/params.   TODO !!
+ *
+ * Does nothing if the given policy is not known, but logs an error.
+ *
+ * Clamps the priority to between the min/max allowed for the policy, and logs
+ * a warning if has to do this.
+ *
+ * Ignored if qpt_thread is not qpts_initial or qpts_running.
+ *
+ * Returns:  true <=> known policy and was qpts_initial or qpts_running
+ */
+extern bool
+qpt_thread_set_sched(qpt_thread qpth, qpt_sched sched)
+{
+  bool done ;
+
+  /* Make sure we have the limits for requested policy and reject any attempt
+   * to set an unknown policy -- log as error.
+   *
+   * Clamp the priority within the limits, and warn if has to do so.
+   */
+  done = qpt_sched_get_minmax_priority(sched) ;
+
+  if (!done)
+    {
+      zlog_err("Attempt to set unknown scheduling policy %d for '%s' thread",
+                                                    sched->policy, qpth->name) ;
+      return false ;
+    } ;
+
+  if (sched->param->sched_priority < sched->min_priority)
+    {
+      zlog_warn("Attempt to set priority %d < minumum %d for '%s' thread",
+                sched->param->sched_priority, sched->min_priority, qpth->name) ;
+
+      sched->param->sched_priority = sched->min_priority ;
+    } ;
+
+  if (sched->param->sched_priority > sched->max_priority)
+    {
+      zlog_warn("Attempt to set priority %d > maximum %d for '%s' thread",
+                sched->param->sched_priority, sched->max_priority, qpth->name) ;
+
+      sched->param->sched_priority = sched->max_priority ;
+    } ;
+
+  /* Now apply if is qpts_initial or qpts_running
+   *
+   */
+  LOCK_QPT() ;
+
+  switch (qpth->state)
+    {
+      case qpts_initial:
+        *(qpth->attr->sched) = *sched ;
+
+        if (qpth->main)
+          qpth->attr->sched_main_start = true ;
+        else
+          qpt_pthread_attr_set_sched(qpth->pth_attr, sched) ;
+
+        done = true ;
+        break ;
+
+      case qpts_running:
+        *(qpth->attr->sched) = *sched ;
+
+        qpt_sched_set(qpth) ;
+
+        done = true ;
+        break ;
+
+      default:
+        done = false ;
+        break ;
+    } ;
+
+  UNLOCK_QPT() ;
+
+  return done ;
+} ;
+
+/*==============================================================================
+ * Logging functions
+ */
+
+static qfb_nam_t qpt_scope_name(int scope) ;
+static qfb_nam_t qpt_policy_name(int policy) ;
+
+/*------------------------------------------------------------------------------
+ * Log any command line options for further pthreads
+ */
+static void
+qpt_thread_log_options(void)
+{
+  const char* dp ;
+
+  if (qpt_use_params == qpt_use_default_params)
+    dp = " with default params" ;
   else
-    return 0 ;
+    dp = "" ;
+
+  switch (qpt_use_policy)
+    {
+      case qpt_use_default_policy:
+        break ;
+
+      case qpt_use_main_policy:
+        zlog_info("When creating pthreads will use same scheduling policy"
+                                            " as main pthread, %s%s",
+                      qpt_policy_name(qpt_initial_sched->policy ).str, dp) ;
+        break ;
+
+      case qpt_use_given_policy:
+        zlog_info("When creating pthreads will use scheduling policy %s%s",
+                        qpt_policy_name(qpt_given_sched->policy ).str, dp) ;
+        break ;
+
+      default:
+        zabort("invalid qpt_use_policy_t") ;
+    } ;
+
+  switch (qpt_use_params)
+    {
+      case qpt_use_default_params:
+          break ;
+
+      case qpt_use_main_params:
+        zlog_info("When creating pthreads will use same scheduling params"
+                            " as main pthread, priority=%d (%d..%d)",
+                                 qpt_initial_sched->param->sched_priority,
+                                 qpt_initial_sched->max_priority,
+                                 qpt_initial_sched->min_priority) ;
+        break ;
+
+      case qpt_use_given_params:
+        zlog_info("When creating pthreads will use given scheduling params,"
+                                             " priority=%d (%d..%d)",
+                                 qpt_given_sched->param->sched_priority,
+                                 qpt_given_sched->max_priority,
+                                 qpt_given_sched->min_priority) ;
+        break ;
+
+      default:
+        zabort("invalid qpt_use_params_t") ;
+    } ;
+
+  if (qpt_use_null_attributes)
+    zlog_info("When creating pthreads will use NULL (all default)"
+                                                 " scheduling attributes") ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Construct a string describing the state of the given qpt_thread when it has
+ * just started -- ready for logging.
+ *
+ * Returns:  brand new qstring -- which the call must free.
+ */
+static qstring
+qpt_thread_log_start(qpt_thread qpth)
+{
+  qpt_attr_t  attr_init ;
+  qpt_attr    attr ;
+  qstring     qs ;
+
+  ASSERT_QPT_LOCKED() ;
+
+  qs = qs_new(500) ;
+
+  /* Make a copy of the attributes the thread was created with.
+   */
+  attr = qpth->attr ;
+  *attr_init = *attr ;
+
+  /* If we can, get the actual pthread attributes -- does nothing if !qpthreads
+   * enabled -- and transfer same to the qpth->attr as "actual".
+   *
+   * Otherwise, at least get the scheduling policy and param.
+   */
+  if (qpt_pthread_attr_actual(qpth))
+    {
+      qpt_pthread_attr_copy(qpth) ;
+      attr->actual = true ;
+    }
+  else
+    qpt_sched_get_current(qpth) ;
+
+  /* No longer interested in the attributes (if any)
+   */
+  qpt_pthread_attr_destroy(qpth) ;
+
+  /* If is qpthreads_enabled, show the start of a pthread, along with its
+   * detached, scheduling inheritance and scheduling scope.
+   *
+   * If is not qpthreads_enabled, show the "start" of the main and only thread.
+   */
+  if (qpthreads_enabled)
+    {
+      qs_printf_a(qs, "pthread '%s'%s started:", qpth->name,
+                                                   qpth->main ? "(main)" : "") ;
+
+      if (qpt_use_null_attributes && !qpth->main)
+        qs_append_str(qs, " *NULL Attributes*") ;
+
+      /* Show Detached/Joinable and if Inherit-Sched (which do not expect) show
+       * that also.
+       */
+      qs_printf_a(qs, " %s%s", attr->detached ? "Detached"
+                                              : "Joinable",
+                               attr->sched_inherited ? " Inherit-Sched (!!)"
+                                                     : "") ;
+      /* Show the scope.
+       *
+       * If we have the actual scope then:
+       *
+       *   * we are surprised if that is not the requested scope (except for
+       *     main, where we did not request anything).
+       *
+       *   * if the scope is known to be fixed, we are (very) surprised if the
+       *     actual scope is not the only available one.
+       */
+      qs_printf_a(qs, " %s", qpt_scope_name(attr->sched_scope).str) ;
+
+      if (attr->actual)
+        {
+          qs_append_str(qs, "(actual)") ;
+
+          if ((attr->sched_scope != attr_init->sched_scope) && !qpth->main)
+            qs_printf_a(qs, " *but requested=%s*",
+                                       qpt_scope_name(attr_init->sched_scope).str) ;
+
+          if (qpt_scope_fixed && (attr->sched_scope != qpt_scope))
+            qs_printf_a(qs, " *but only scope=%s*", qpt_scope_name(qpt_scope).str) ;
+        }
+      else if (qpth->main)
+        qs_append_str(qs, "(assumed)") ;
+      else
+        qs_append_str(qs, "(requested)") ;
+    }
+  else
+    {
+      qassert(qpth->main) ;
+
+      qs_printf_a(qs, "'%s' started (!qpthreads_enabled):", qpth->name) ;
+    } ;
+
+  /* Show the scheduling policy.
+   *
+   * We are surprised if that is not the requested scope (except for main,
+   * where we did not request anything).
+   */
+  qs_printf_a(qs, " %s", qpt_policy_name(attr->sched->policy).str) ;
+
+  if ((attr->sched->policy != attr_init->sched->policy) && !qpth->main)
+    qs_printf_a(qs, " *but requested=%s*]",
+                                qpt_policy_name(attr_init->sched->policy).str) ;
+
+  /* Show the scheduling param/priority.
+   *
+   * We are surprised if that is not the requested priority (except for main,
+   * where we did not request anything).
+   */
+  qs_printf_a(qs, " Priority=%d (%d..%d)", attr->sched->param->sched_priority,
+                         attr->sched->min_priority, attr->sched->max_priority) ;
+
+  if (sizeof(attr->sched->param) != sizeof(int))
+    qs_printf_a(qs, " (plus %d bytes of other params)",
+                              (int)(sizeof(attr->sched->param) - sizeof(int))) ;
+
+  if (attr->sched->param->sched_priority !=
+                                        attr_init->sched->param->sched_priority)
+    qs_printf_a(qs, " [*requested priority was %d*]",
+                                      attr_init->sched->param->sched_priority) ;
+
+  /* If qpthreads_enabled, show what we know about the stack.
+   */
+  if (qpthreads_enabled)
+    {
+      if (attr->actual)
+        qs_printf_a(qs, " Guard-Size=%u Stack=%u/%p(actual)",
+                                                    (uint)attr->guard_size,
+                                                    (uint)attr->stack_size,
+                                                          attr->stack_addr) ;
+      else
+        qs_printf_a(qs, " Guard-Size=%u Stack=%u/unknown(default)",
+                                                    (uint)attr->guard_size,
+                                                    (uint)attr->stack_size) ;
+    } ;
+
+  /* Done.
+   */
+  return qs ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Construct qfb_name_t for PTHREAD_SCOPE_XXX
+ */
+static qfb_nam_t
+qpt_scope_name(int scope)
+{
+  qfb_nam_t QFB_QFS(qfb, qfs) ;
+
+  switch(scope)
+    {
+      case PTHREAD_SCOPE_SYSTEM:
+        qfs_append(qfs, " System-Scope") ;
+        break ;
+
+      case PTHREAD_SCOPE_PROCESS:
+        qfs_append(qfs, " Process-Scope") ;
+        break ;
+
+      default:
+        qfs_printf(qfs, " *unknown-scope=%d*", scope) ;
+        break ;
+    } ;
+
+  qfs_term(qfs) ;
+
+  return qfb ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Construct qfb_name_t for SCHED_XXX
+ */
+static qfb_nam_t
+qpt_policy_name(int policy)
+{
+  qfb_nam_t QFB_QFS(qfb, qfs) ;
+
+  switch(policy)
+    {
+      case SCHED_OTHER:
+        qfs_append(qfs, " SCHED_OTHER") ;
+        break ;
+
+      case SCHED_FIFO:
+        qfs_append(qfs, " SCHED_FIFO") ;
+        break ;
+
+      case SCHED_RR:
+        qfs_append(qfs, " SCHED_RR") ;
+        break ;
+
+#ifdef SCHED_SPORADIC
+      case SCHED_SPORADIC:
+        qfs_append(qfs, " SCHED_SPORADIC") ;
+        break ;
+#endif
+
+      default:
+        qfs_printf(qfs, " SCHED_UNKNOWN=%d", policy) ;
+        break ;
+    } ;
+
+  qfs_term(qfs) ;
+
+  return qfb ;
+} ;
+
+/*==============================================================================
+ * Collection of functions to call a pthread_xxx function, and deal with any
+ * error (by aborting, in general).
+ *
+ * In some cases these functions hide some implementation detail, including:
+ *
+ *   * the use of different functions if is not qpthreads_enabled.
+ *
+ *   * the possible lack of some non-POSIX function.
+ *
+ *   * limitations on the available facilities.
+ */
+
+/*------------------------------------------------------------------------------
+ * Detach the given pthread -- assuming is currently joinable.
+ *
+ * This is a simple wrapper, to deal with any error return.
+ */
+static void
+qpt_pthread_detach(qpt_thread qpth)
+{
+  int err ;
+
+  err = pthread_detach(qpth->pth_id) ;
+  if (err != 0)
+    zabort_err(qfs_gen("qpt_pthread_detach('%s') failed", qpth->name).str,
+                                                                          err) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get empty pthread attributes and set in given qpt_thread.
+ *
+ * NB: discards any existing attributes !
+ */
+static void
+qpt_pthread_attr_new(qpt_thread qpth)
+{
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  if (qpth->pth_attr)
+    qpt_pthread_attr_destroy(qpth) ;
+
+  qpth->pth_attr = XCALLOC(MTYPE_TMP, sizeof(pthread_attr_t)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get default set of pthread attributes.
+ *
+ * NB: discards any existing attributes !
+ */
+static void
+qpt_pthread_attr_init(qpt_thread qpth)
+{
+  int err ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  qpt_pthread_attr_new(qpth) ;
+
+  err = pthread_attr_init(qpth->pth_attr) ;
+  if (err != 0)
+    zabort_err("pthread_attr_init() failed", err) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Getting of actual pthread attributes -- try to hide as far as possible
+ * the configuration issues.
+ */
+enum
+{
+  qpt_have_attr_actual =
+#if defined(HAVE_PTHREAD_GETATTR_NP) || defined(HAVE_PTHREAD_ATTR_GET_NP)
+    true
+#else
+    false
+#endif
+} ;
+
+#if defined(HAVE_PTHREAD_GETATTR_NP)
+/* We prefer pthread_getattr_np() if it is available.
+ *
+ * To use it, we need only an empty attribute structure.
+ */
+# define pp_qpt_pthread_attr_actual_prep qpt_pthread_attr_new
+# define pp_qpt_pthread_attr_actual_get  pthread_getattr_np
+
+#elif defined(HAVE_PTHREAD_ATTR_GET_NP)
+/* To use pthread_attr_get_np() we need a freshly initialised attribute
+ * structure.
+ */
+# define pp_qpt_pthread_attr_actual_prep qpt_pthread_attr_init
+# define pp_qpt_pthread_attr_actual_get  pthread_attr_get_np
+
+#else
+/* Dummies
+ */
+# define pp_qpt_pthread_attr_actual_prep qpt_pthread_attr_new
+# define pp_qpt_pthread_attr_actual_get  qpt_pthread_getattr_dummy
+
+static int
+qpt_pthread_getattr_dummy(pthread_t pth_id, pthread_attr_t* pth_attr)
+{
+  return 0 ;
+} ;
+
+#endif
+
+/*------------------------------------------------------------------------------
+ * Get actual pthread attributes for the given pthread_t -- if the system
+ * supports it and is qpthreads_enabled.
+ *
+ * NB: if can get the actual attributes, replaces any existing qpth->pth_attr
+ *     set.
+ *
+ *     if cannot get the actual attributes, retains any existing qpth->pth_attr
+ *     set.
+ */
+static bool
+qpt_pthread_attr_actual(qpt_thread qpth)
+{
+  if (qpthreads_enabled && qpt_have_attr_actual)
+    {
+      int err ;
+
+      ASSERT_QPT_LOCKED() ;
+
+      pp_qpt_pthread_attr_actual_prep(qpth) ;
+      err  = pp_qpt_pthread_attr_actual_get(qpth->pth_id, qpth->pth_attr) ;
+
+      if (err != 0)
+        zabort_err(STRING_VALUE(pp_qpt_pthread_attr_actual_get)
+                                                             "() failed", err) ;
+
+      return true ;
+   }
+  else
+    return false ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Copy attributes from qpth->pth_attr to qpth->attr.
+ */
+static void
+qpt_pthread_attr_copy(qpt_thread qpth)
+{
+  qpt_attr attr ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  attr = qpth->attr ;
+
+  attr->detached        = qpt_pthread_attr_getdetachstate(qpth) ;
+
+  attr->sched_inherited = qpt_pthread_attr_getinheritsched(qpth) ;
+
+  attr->sched_scope     = qpt_pthread_attr_getscope(qpth) ;
+  attr->sched->policy   = qpt_pthread_attr_getschedpolicy(qpth) ;
+  *(attr->sched->param) = qpt_pthread_attr_getschedparam(qpth) ;
+
+  attr->guard_size      = qpt_pthread_attr_getguardsize(qpth) ;
+  attr->stack_size      = qpt_pthread_attr_getstacksize(qpth) ;
+  attr->stack_addr      = qpt_pthread_attr_getstackaddr(qpth) ;
+
+  qpt_sched_get_minmax_priority(attr->sched) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get PTHREAD_CREATE_DETACHED state from the given pthread_attr_t.
+ *
+ * This is a simple wrapper, to deal with any error return.
+ */
+static bool
+qpt_pthread_attr_getdetachstate(qpt_thread qpth)
+{
+  bool detached ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  detached = false ;            /* Unless definitely PTHREAD_INHERIT_SCHED */
+
+  if (qpth->pth_attr != NULL)
+    {
+      int err, detach ;
+
+      err = pthread_attr_getdetachstate(qpth->pth_attr, &detach) ;
+      if (err != 0)
+        zabort_err("pthread_attr_getdetachstate() failed", err) ;
+
+      switch (detach)
+        {
+          case PTHREAD_CREATE_DETACHED:
+            detached = true ;
+            break ;
+
+          case PTHREAD_CREATE_JOINABLE:
+            break ;
+
+          default:
+            zabort(qfs_gen("pthread_attr_getdetachstate()"
+                                  " returned unknown value: %d", detach).str) ;
+        } ;
+    } ;
+
+  return detached ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Clear scheduling attribute inheritance: ie set PTHREAD_EXPLICIT_SCHED
+ *
+ * Changes the given qpt_thread's pth_attr (if any).
+ *
+ * NB: the effect of this on the scope, policy and param in the attributes
+ *     is not defined by POSIX -- at all.
+ *
+ *     The assumption is that a sensible implementation will arrange for the
+ *     attributes to take their default values.  Or they may already be set
+ *     to those, so that setting PTHREAD_EXPLICIT_SCHED works "naturally".
+ */
+static void
+qpt_pthread_attr_clear_inheritsched(qpt_thread qpth)
+{
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  if (qpth->pth_attr != NULL)
+    {
+      int err ;
+
+      err = pthread_attr_setinheritsched(qpth->pth_attr,
+                                                       PTHREAD_EXPLICIT_SCHED) ;
+      if (err != 0)
+        zabort_err("pthreads_attr_setinheritsched(PTHREAD_EXPLICIT_SCHED) "
+                                                                "failed", err) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get scheduling inheritance from the given qpt_thread's pth_attr (if any).
+ */
+static bool
+qpt_pthread_attr_getinheritsched(qpt_thread qpth)
+{
+  bool inherited ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  inherited = false ;           /* Unless definitely PTHREAD_INHERIT_SCHED */
+
+  if (qpth->pth_attr != NULL)
+    {
+      int err, inherit ;
+
+      err = pthread_attr_getinheritsched(qpth->pth_attr, &inherit) ;
+      if (err != 0)
+        zabort_err("pthread_attr_getinheritsched() failed", err) ;
+
+      switch (inherit)
+        {
+          case PTHREAD_INHERIT_SCHED:
+            inherited = true ;
+            break ;
+
+          case PTHREAD_EXPLICIT_SCHED:
+            break ;
+
+          default:
+            zabort(qfs_gen("pthread_attr_getinheritsched()"
+                                  " returned unknown value: %d", inherit).str) ;
+        } ;
+    } ;
+
+  return inherited ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get scheduling scope from the given qpt_thread's pth_attr (if any).
+ *
+ * If no pth_attr, returns the (preferred) qpt_scope.
+ *
+ * NB: in the (unlikely) event that the system returns a scope which was
+ *     previously found to be unavailable, logs an error, but returns the
+ *     scope as received.
+ */
+static int
+qpt_pthread_attr_getscope(qpt_thread qpth)
+{
+  int scope ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  if (qpth->pth_attr != NULL)
+    {
+      int err ;
+
+      err = pthread_attr_getscope(qpth->pth_attr, &scope) ;
+      if (err != 0)
+        zabort_err("pthread_attr_getscope() failed", err) ;
+
+      switch (scope)
+        {
+          case PTHREAD_SCOPE_PROCESS:
+            if (qpt_scope_fixed && (qpt_scope != scope))
+              zlog_err("pthread_attr_getscope() returned PTHREAD_SCOPE_PROCESS"
+                                        " which was previously *unavailable*") ;
+            break ;
+
+          case PTHREAD_SCOPE_SYSTEM:
+            if (qpt_scope_fixed && (qpt_scope != scope))
+              zlog_err("pthread_attr_getscope() returned PTHREAD_SCOPE_SYSTEM"
+                                        " which was previously *unavailable*") ;
+            break ;
+
+          default:
+            zabort(qfs_gen("pthread_attr_getscope() returned unknown value: %d",
+                                                                   scope).str) ;
+        } ;
+    }
+  else
+    scope = qpt_scope ;
+
+  return scope ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get scheduling policy from the given qpt_thread's pth_attr (if any).
+ *
+ * If no pth_attr, returns the SCHED_OTHER.
+ */
+static int
+qpt_pthread_attr_getschedpolicy(qpt_thread qpth)
+{
+  int policy ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  if (qpth->pth_attr != NULL)
+    {
+      int err ;
+
+      err = pthread_attr_getschedpolicy(qpth->pth_attr, &policy) ;
+      if (err != 0)
+        zabort_err("pthread_attr_getschedpolicy() failed", err) ;
+    }
+  else
+    policy = SCHED_OTHER ;
+
+  return policy ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get scheduling param from the given qpt_thread's pth_attr (if any).
+ *
+ * If no pth_attr, returns a zeroed set of sched_param.
+ */
+static struct sched_param
+qpt_pthread_attr_getschedparam(qpt_thread qpth)
+{
+  struct sched_param param ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  memset(&param, 0, sizeof(struct sched_param)) ;
+
+  if (qpth->pth_attr != NULL)
+    {
+      int err ;
+
+      err = pthread_attr_getschedparam(qpth->pth_attr, &param) ;
+      if (err != 0)
+        zabort_err("pthread_attr_getschedparam() failed", err) ;
+    } ;
+
+  return param ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get guard size  from the given qpt_thread's pth_attr (if any).
+ *
+ * If no pth_attr, returns zero.
+ */
+static size_t
+qpt_pthread_attr_getguardsize(qpt_thread qpth)
+{
+  size_t size ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  if (qpth->pth_attr != NULL)
+    {
+      int err ;
+
+      err = pthread_attr_getguardsize(qpth->pth_attr, &size) ;
+      if (err != 0)
+        zabort_err("pthread_attr_getguardsize() failed", err) ;
+    }
+  else
+    size = 0 ;
+
+  return size ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get stack address from the given qpt_thread's pth_attr (if any).
+ *
+ * If no pth_attr, returns zero.
+ */
+static size_t
+qpt_pthread_attr_getstacksize(qpt_thread qpth)
+{
+  size_t size ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  if (qpth->pth_attr != NULL)
+    {
+      int err ;
+
+#ifdef HAVE_PTHREAD_ATTR_GETSTACK
+      void* addr ;
+
+      err = pthread_attr_getstack(qpth->pth_attr, &addr, &size) ;
+      if (err != 0)
+        zabort_err("pthread_attr_getstack() failed", err) ;
+#else
+      err = pthread_attr_getstacksize(qpth->pth_attr, &size) ;
+      if (err != 0)
+        zabort_err("pthread_attr_getstacksize() failed", err) ;
+#endif
+    }
+  else
+    size = 0 ;
+
+  return size ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get stack address from the given qpt_thread's pth_attr (if any).
+ *
+ * If no pth_attr, returns NULL.
+ */
+static void*
+qpt_pthread_attr_getstackaddr(qpt_thread qpth)
+{
+  void* addr ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  if (qpth->pth_attr != NULL)
+    {
+      int err ;
+#ifdef HAVE_PTHREAD_ATTR_GETSTACK
+      size_t size ;
+      err = pthread_attr_getstack(qpth->pth_attr, &addr, &size) ;
+      if (err != 0)
+        zabort_err("pthread_attr_getstack() failed", err) ;
+#else
+      err = pthread_attr_getstackaddr(qpth->pth_attr, &addr) ;
+      if (err != 0)
+        zabort_err("pthread_attr_getstackaddr() failed", err) ;
+#endif
+    }
+  else
+    addr = NULL ;
+
+  return addr ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set PTHREAD_CREATE_DETACHED in the given pthread_attr_t.
+ *
+ * This is a simple wrapper, to deal with any error return.
+ */
+static void
+qpt_pthread_attr_setdetachstate(pthread_attr_t* pth_attr)
+{
+  int err ;
+
+  err = pthread_attr_setdetachstate(pth_attr, PTHREAD_CREATE_DETACHED) ;
+  if (err != 0)
+    zabort_err("pthread_attr_setdetachstate(PTHREAD_CREATE_DETACHED) failed",
+                                                                          err) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set scheduling scope in the given pthread_attr_t.
+ *
+ * This is a simple wrapper, to deal with any error return.
+ */
+static void
+qpt_pthread_attr_setscope(pthread_attr_t* pth_attr, int scope)
+{
+  int err ;
+
+  err = pthread_attr_setscope(pth_attr, scope) ;
+  if (err != 0)
+    zabort_err(qfs_gen("pthread_attr_setscope(%d) failed", scope).str, err) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set scheduling policy and params in the given pthread_attr_t.
+ *
+ * This is a simple wrapper, to deal with any error return.
+ */
+static void
+qpt_pthread_attr_setschedpolicy(pthread_attr_t* pth_attr, int policy)
+{
+  int err ;
+
+  err = pthread_attr_setschedpolicy(pth_attr, policy) ;
+  if (err != 0)
+    zabort_err(qfs_gen("pthread_attr_setschedpolicy(%d) failed", policy).str,
+                                                                          err) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set scheduling policy and params in the given pthread_attr_t.
+ *
+ * This is a simple wrapper, to deal with any error return.
+ */
+static void
+qpt_pthread_attr_set_sched(pthread_attr_t* pth_attr, qpt_sched_t sched)
+{
+  int err ;
+
+  qpt_pthread_attr_setschedpolicy(pth_attr, sched->policy) ;
+
+  err = pthread_attr_setschedparam(pth_attr, sched->param) ;
+  if (err != 0)
+    zabort_err(qfs_gen("pthread_attr_setschedparam(priority=%d) failed",
+                                       sched->param->sched_priority).str, err) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Destroy the qpt_thread's set of pthread attributes, if any.
+ *
+ * Frees the memory allocated in qpt_thread_attr_new()
+ */
+static void
+qpt_pthread_attr_destroy(qpt_thread qpth)
+{
+  int err ;
+
+  ASSERT_QPT_LOCKED_IF_ACTIVE(qpth) ;
+
+  if (qpth->pth_attr != NULL)
+    {
+      err = pthread_attr_destroy(qpth->pth_attr) ;
+      if (err != 0)
+        zabort_err("pthread_attr_destroy() failed", err) ;
+
+      XFREE(MTYPE_TMP, qpth->pth_attr) ;  /* sets qpth->pth_attr NULL   */
+    } ;
+} ;
+
+/*==============================================================================
+ * Getting and setting the scheduling attributes.
+ *
+ * The contention scope can be set only when a new pthread is created, and is
+ * otherwise pretty much ignored.
+ *
+ * The policy and params (and as subset of params, the priority) can be set at
+ * any time while a pthread is running, and at any time, if !qpthreads_enabled.
+ * However, it is possible that some elevated privilege is required to set
+ * some or all policy or params -- currently a TODO !
+ */
+
+/*------------------------------------------------------------------------------
+ * Get the current scheduling policy and param for the given qpt_thread
+ *
+ * If qpthreads_enabled, get the pthread stuff, otherwise get the process stuff.
+ *
+ * Fills in: sched->policy
+ *           sched->param
+ *           sched->min_priority ) according to the policy
+ *           sched->max_priority )
+ *
+ * NB: must be locked (or !qpthread_enabled) and qpts_running
+ */
+static void
+qpt_sched_get_current(qpt_thread qpth)
+{
+  if (qpthreads_enabled)
+    {
+      qassert(qpth->state == qpts_running) ;
+      qpt_sched_get_pthread(qpth->attr->sched, qpth->pth_id) ;
+    }
+  else
+    qpt_sched_get_process(qpth->attr->sched) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the current *process* scheduling policy and param
+ *
+ * Fills in: sched->policy
+ *           sched->param
+ *           sched->min_priority ) according to the policy
+ *           sched->max_priority )
+ */
+static void
+qpt_sched_get_process(qpt_sched sched)
+{
+  int  ret ;
+  bool known ;
+
+  memset(sched, 0, sizeof(*sched)) ;
+
+  ret = sched_getscheduler(0) ;
+  if (ret == -1)
+    zabort_err("sched_getscheduler(0) failed", errno) ;
+
+  sched->policy = ret ;
+
+  ret = sched_getparam(0, sched->param) ;
+  if (ret == -1)
+    zabort_err("sched_getparam(0) failed", errno) ;
+
+  known = qpt_sched_get_minmax_priority(sched) ;
+  if (!known)
+    zlog_err("sched_getscheduler(0) returned policy %d, "
+                                         "which is unknown ??", sched->policy) ;
+
+  if (sched->param->sched_priority < sched->min_priority)
+    zlog_err("sched_getparam(0) returned priority %d, "
+                      "which is < minimum %d ??", sched->param->sched_priority,
+                                                  sched->min_priority) ;
+  if (sched->param->sched_priority > sched->max_priority)
+    zlog_err("sched_getparam(0) returned priority %d, "
+                      "which is > maximum %d ??", sched->param->sched_priority,
+                                                  sched->max_priority) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the current *pthread* scheduling policy and param
+ *
+ * Fills in: sched->policy
+ *           sched->param
+ *           sched->min_priority ) according to the policy
+ *           sched->max_priority )
+ *
+ * NB: must be locked, qpthread_enabled and qpts_running
+ */
+static void
+qpt_sched_get_pthread(qpt_sched sched, pthread_t pth_id)
+{
+  int  err ;
+  bool known ;
+
+  ASSERT_QPT_LOCKED() ;
+  qassert(qpthreads_enabled) ;
+
+  memset(sched, 0, sizeof(*sched)) ;
+
+  err = pthread_getschedparam(pth_id, &sched->policy, sched->param) ;
+  if (err != 0)
+    zabort_err("sched_getscheduler(0) failed", err) ;
+
+  known = qpt_sched_get_minmax_priority(sched) ;
+  if (!known)
+    zlog_err("pthread_getschedparam() returned policy %d, "
+                                         "which is unknown ??", sched->policy) ;
+
+  if (sched->param->sched_priority < sched->min_priority)
+    zlog_err("pthread_getschedparam() returned priority %d, "
+                      "which is < minimum %d ??", sched->param->sched_priority,
+                                                  sched->min_priority) ;
+  if (sched->param->sched_priority > sched->max_priority)
+    zlog_err("pthread_getschedparam() returned priority %d, "
+                      "which is > maximum %d ??", sched->param->sched_priority,
+                                                  sched->max_priority) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get the min/max available priorities for the (now) current sched->policy.
+ *
+ * If the policy is not recognised, sets both min/max to zero.
+ *
+ * Returns: true <=> policy is recognised.
+ */
+static bool
+qpt_sched_get_minmax_priority(qpt_sched sched)
+{
+  sched->min_priority = sched_get_priority_min(sched->policy) ;
+  sched->max_priority = sched_get_priority_min(sched->policy) ;
+
+  if ((sched->min_priority != -1) && (sched->max_priority != -1))
+    return true ;               /* OK !         */
+
+  if (errno != EINVAL)
+    zabort_err(qfs_gen("sched_get_priority_min/max(%d) failed",
+                                                    sched->policy).str, errno) ;
+
+  sched->min_priority = 0 ;
+  sched->max_priority = 0 ;
+
+  return false ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Set the scheduling policy and params for a *running* thread (including main
+ * and possibly only thread).
+ *
+ * If is qpthreads_enabled use pthread_setschedparam().  Otherwise, must be
+ * main thread and we use sched_setscheduler().
+ *
+ * Must have LOCK_QPT and be qpts_running.
+ *
+ * Assumes that the policy and priority etc. are all valid -- so will crash
+ * if either is refused.
+ *
+ * NB: it is not know what policy/params, if any, require some elevated
+ *     privilege.  TODO !
+ */
+static void
+qpt_sched_set(qpt_thread qpth)
+{
+  int err ;
+  const char* what ;
+
+  ASSERT_QPT_LOCKED() ;
+
+  assert(qpth->state == qpts_running) ;
+
+  if (qpthreads_enabled)
+    {
+      err = pthread_setschedparam(qpth->pth_id, qpth->attr->sched->policy,
+                                                qpth->attr->sched->param) ;
+      if (err == 0)
+        return ;
+
+      what = "pthread_setschedparam" ;
+    }
+  else
+    {
+      int ret ;
+
+      qassert(qpth->main) ;
+
+      ret = sched_setscheduler(0, qpth->attr->sched->policy,
+                                                qpth->attr->sched->param) ;
+      if (ret == 0)
+        return ;
+
+      what = "sched_setscheduler" ;
+      err  = errno ;
+    } ;
+
+  zabort_err(qfs_gen("%s() policy=%d, priority=%d failed for '%s'", what,
+                       qpth->attr->sched->policy,
+                       qpth->attr->sched->param->sched_priority,
+                                                         qpth->name).str, err) ;
 } ;
 
 /*==============================================================================
@@ -738,15 +3527,13 @@ qpt_mutex_new(qpt_mutex_options_t opts, const char* name)
 {
   qpt_mutex mx ;
   pthread_mutexattr_t mutex_attr ;
-
   int  type ;
   int  err ;
-  uint len ;
 
-  if (!qpthreads_enabled_freeze)
+  if (!qpthreads_freeze())
     return NULL ;
 
-  mx = XCALLOC(MTYPE_QPT_MUTEX, sizeof(qpt_mutex_t)) ;
+  mx = XCALLOC(MTYPE_QPT_MUTEX, sizeof(*mx)) ;
 
   /* Zeroising sets:
    *
@@ -760,10 +3547,7 @@ qpt_mutex_new(qpt_mutex_options_t opts, const char* name)
 
   /* Set the name
    */
-  len = strlen(name) ;
-  if (len >= sizeof(mx->name))
-    len = sizeof(mx->name) - 1 ;
-  memcpy(mx->name, name, len) ;
+  strncpy(mx->name, name, sizeof(mx->name) - 1) ;
 
   /* Set up attributes so we can set the mutex type
    */
@@ -823,14 +3607,10 @@ qpt_mutex_new(qpt_mutex_options_t opts, const char* name)
 } ;
 
 /*------------------------------------------------------------------------------
- * Destroy given mutex, and (if required) free it.
+ * Destroy given mutex (if any), and free it
  *                                       -- or do nothing if !qpthreads_enabled.
  *
- * Returns NULL if freed the mutex, otherwise the address of same.
- *
- * NB: if !qpthreads_enabled qpt_mutex_init_new() will not have allocated
- *     anything, so there can be nothing to release -- so does nothing, but
- *     returns the original mutex address (if any).
+ * Returns NULL.
  */
 extern qpt_mutex
 qpt_mutex_destroy(qpt_mutex mx)
@@ -1101,7 +3881,7 @@ qpt_cond_init_new(qpt_cond cv, enum qpt_cond_options opts)
   pthread_condattr_t cond_attr ;
   int err ;
 
-  if (!qpthreads_enabled_freeze)
+  if (!qpthreads_freeze())
     {
       if (cv != NULL)
         memset(cv, 0x0F, sizeof(qpt_cond_t)) ;
@@ -1225,7 +4005,8 @@ qpt_cond_timedwait(qpt_cond cv, qpt_mutex mx, qtime_mono_t abs_timeout)
  * Spinlock initialise and destroy.
  */
 
-/* Initialise Spinlock -- NB: no allocation option
+/*------------------------------------------------------------------------------
+ * Initialise Spinlock -- NB: no allocation option
  *
  * Does nothing if !qpthreads_enabled -- but freezes the state.
  */
@@ -1234,7 +4015,7 @@ qpt_spin_init(qpt_spin slk)
 {
   int err ;
 
-  if (!qpthreads_enabled_freeze)
+  if (!qpthreads_freeze())
     return ;
 
   enum {
@@ -1250,7 +4031,8 @@ qpt_spin_init(qpt_spin slk)
     zabort_err("pthread_spin_init failed", err) ;
 } ;
 
-/* Destroy given spin lock -- NB: no free option
+/*------------------------------------------------------------------------------
+ * Destroy given spin lock -- NB: no free option
  *                                       -- or do nothing if !qpthreads_enabled.
  */
 extern void
@@ -1306,22 +4088,42 @@ qpt_thread_sigmask(int how, const sigset_t* set, sigset_t* oset)
 } ;
 
 /*------------------------------------------------------------------------------
- * Send given thread the given signal -- requires qpthreads_enabled (!)
+ * Send given thread the given signal -- if not qpthreads_enabled, send signal
+ * to the process.
  *
- * Thin wrapper around pthread_kill.
+ * Does nothing if is not qpts_running.
+ *
+ * NB: caller is responsible for ensuring that the qpt_thread is valid, for
+ *     example by holding a reference to it !
+ *
+ * Thin wrapper around pthread_kill or raise().
  *
  * zaborts if gets any error.
  */
 extern void
-qpt_thread_signal(qpt_thread_t thread, int signum)
+qpt_thread_raise(qpt_thread qpth, int signum)
 {
-  int err ;
+  LOCK_QPT() ;
 
-  passert(qpthreads_enabled) ;
+  if (qpth->state == qpts_running)
+    {
+      if (qpthreads_enabled)
+        {
+          int err ;
+          err = pthread_kill(qpth->pth_id, signum) ;
+          if (err != 0)
+            zabort_err("pthread_kill() failed", err) ;
+        }
+      else
+        {
+          int ret ;
+          ret = raise(signum) ;
+          if (ret < 0)
+            zabort_err("raise() failed", errno) ;
+        } ;
+    } ;
 
-  err = pthread_kill(thread, signum) ;
-  if (err != 0)
-    zabort_err("pthread_kill failed", err) ;
+  UNLOCK_QPT() ;
 } ;
 
 /*==============================================================================
@@ -1348,16 +4150,18 @@ qpt_thread_signal(qpt_thread_t thread, int signum)
  *     (whether qpthreads_enabled, or not).
  */
 extern void
-qpt_data_create(qpt_data data)
+qpt_own_data_create(qpt_own_data data, void (*destructor)(void*))
 {
-  memset(data, 0, sizeof(union qpt_data)) ;
+  memset(data, 0, sizeof(union qpt_own_data)) ;
 
-  if (qpthreads_enabled_freeze)
+  if (qpthreads_freeze())
     {
-      int err = pthread_key_create(&data->key, NULL) ;
+      int err = pthread_key_create(&data->key, destructor) ;
       if (err != 0)
         zabort_err("pthread_key_create failed", err) ;
-    } ;
+    }
+  else
+    data->proxy.destructor = destructor ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1367,151 +4171,19 @@ qpt_data_create(qpt_data data)
  *     the thread specific data may refer to.
  */
 extern void
-qpt_data_delete(qpt_data data)
+qpt_own_data_delete(qpt_own_data data)
 {
   if (qpthreads_enabled)
     {
       int err = pthread_key_delete(data->key) ;
       if (err != 0)
         zabort_err("pthread_key_delete failed", err) ;
-    } ;
-
-  memset(data, 0, sizeof(union qpt_data)) ;
-} ;
-
-/*==============================================================================
- * Examining the state of ...
- */
-
-/*------------------------------------------------------------------------------
- * Extract and format the attributes for the given pthread
- *
- * Returns:  brand new qstring containing the formatted attributes.
- *
- * NB: it is the caller's responsibility to dispose of the qstring
- */
-extern qstring
-qpt_thread_attr_form(qpt_thread_attr_t* attr)
-{
-  int err, i ;
-  qstring qs ;
-  struct sched_param sp[1] ;
-  size_t v;
-  void *stkaddr;
-
-  qs = qs_new(500) ;
-
-  err = pthread_attr_getdetachstate(attr, &i);
-  if (err != 0)
-    qs_printf_a(qs, "[getdetachstate *error* %s]", errtoa(err, 0).str) ;
+    }
   else
     {
-      switch(i)
-        {
-          case PTHREAD_CREATE_DETACHED:
-            qs_printf_a(qs, "Detached") ;
-            break ;
-
-          case PTHREAD_CREATE_JOINABLE:
-            qs_printf_a(qs, "Joinable") ;
-            break ;
-
-          default:
-            qs_printf_a(qs, "[getdetachstate *unknown* %d]", i) ;
-            break ;
-        } ;
+      if ((data->proxy.value != NULL) && (data->proxy.destructor != NULL))
+        data->proxy.destructor(data->proxy.value) ;
     } ;
 
-  err = pthread_attr_getinheritsched(attr, &i);
-  if (err != 0)
-    qs_printf_a(qs, " [getinheritsched *error* %s]", errtoa(err, 0).str) ;
-  else
-    {
-      switch(i)
-        {
-          case PTHREAD_INHERIT_SCHED:
-            qs_printf_a(qs, " Inherit-Sched") ;
-            break ;
-
-          case PTHREAD_EXPLICIT_SCHED:
-            qs_printf_a(qs, " Explicit-Sched") ;
-            break ;
-
-          default:
-            qs_printf_a(qs, " [getinheritsched *unknown* %d]", i) ;
-            break ;
-        } ;
-    } ;
-
-  err = pthread_attr_getscope(attr, &i);
-  if (err != 0)
-    qs_printf_a(qs, " [getscope *error* %s]", errtoa(err, 0).str) ;
-  else
-    {
-      switch(i)
-        {
-          case PTHREAD_SCOPE_SYSTEM:
-            qs_printf_a(qs, " System-Scope") ;
-            break ;
-
-          case PTHREAD_SCOPE_PROCESS:
-            qs_printf_a(qs, " Process-Scope") ;
-            break ;
-
-          default:
-            qs_printf_a(qs, " [getscope *unknown* %d]", i) ;
-            break ;
-        } ;
-    } ;
-
-  err = pthread_attr_getschedpolicy(attr, &i);
-  if (err != 0)
-    qs_printf_a(qs, " [getschedpolicy *error* %s]", errtoa(err, 0).str) ;
-  else
-    {
-      switch(i)
-        {
-          case SCHED_OTHER:
-            qs_printf_a(qs, " SCHED_OTHER") ;
-            break ;
-
-          case SCHED_FIFO:
-            qs_printf_a(qs, " SCHED_FIFO") ;
-            break ;
-
-          case SCHED_RR:
-            qs_printf_a(qs, " SCHED_RR") ;
-            break ;
-
-#ifdef SCHED_SPORADIC
-          case SCHED_SPORADIC:
-            qs_printf_a(qs, " SCHED_SPORADIC") ;
-            break ;
-#endif
-
-          default:
-            qs_printf_a(qs, " SCHED_UNKNOWN=%d", i) ;
-            break ;
-        } ;
-    } ;
-
-  err = pthread_attr_getschedparam(attr, sp);
-  if (err != 0)
-    qs_printf_a(qs, " [getschedparam *error* %s]", errtoa(err, 0).str) ;
-  else
-    qs_printf_a(qs, " Priority=%d", sp->sched_priority) ;
-
-  err = pthread_attr_getguardsize(attr, &v);
-  if (err != 0)
-    qs_printf_a(qs, " [getguardsize *error* %s]", errtoa(err, 0).str) ;
-  else
-    qs_printf_a(qs, " Guard-Size=%u", (uint)v) ;
-
-  err = pthread_attr_getstack(attr, &stkaddr, &v) ;
-  if (err != 0)
-    qs_printf_a(qs, " [getstack *error* %s]", errtoa(err, 0).str) ;
-  else
-    qs_printf_a(qs, " Stack=%p/%u", stkaddr, (uint)v) ;
-
-  return qs ;
+  memset(data, 0, sizeof(union qpt_own_data)) ;
 } ;

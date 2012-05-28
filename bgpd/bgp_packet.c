@@ -717,11 +717,6 @@ bgp_default_update_send (struct peer *peer, struct attr *attr,
    */
   bgp_packet_set_size (s);
 
-  /* Dump packet if debug option is set. */
-#ifdef DEBUG
-  /* bgp_packet_dump (s); */
-#endif /* DEBUG */
-
   /* Add packet to the peer. */
   bgp_write(peer, s);
 }

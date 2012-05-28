@@ -83,6 +83,7 @@ int qlib_iov_max ;              /* _SC_IOV_MAX          */
 int qlib_open_max ;             /* _SC_OPEN_MAX         */
 int qlib_pagesize ;             /* _SC_PAGE_SIZE        */
 int qlib_thread_cputime ;       /* _SC_THREAD_CPUTIME   */
+int qlib_cputime ;              /* _SC_CPUTIME          */
 
 struct
 {
@@ -95,17 +96,29 @@ struct
 {
     { .p_var = &qlib_iov_max,        .sc =  _SC_IOV_MAX,
                                    .name = "_SC_IOV_MAX",
-                                        .min =  16, .max = INT_MAX            },
+                                    .min =  16,
+                                    .max = INT_MAX
+    },
     { .p_var = &qlib_open_max,       .sc =  _SC_OPEN_MAX,
                                    .name = "_SC_OPEN_MAX",
-                                        .min = 256, .max = INT_MAX            },
+                                    .min = 256,
+                                    .max = INT_MAX
+    },
     { .p_var = &qlib_pagesize,       .sc =  _SC_PAGESIZE,
                                    .name = "_SC_PAGESIZE",
-                                        .min = 256, .max = (INT_MAX >> 1) + 1 },
+                                    .min = 256,
+                                    .max = (INT_MAX >> 1) + 1
+    },
     { .p_var = &qlib_thread_cputime, .sc =  _SC_THREAD_CPUTIME,
                                    .name = "_SC_THREAD_CPUTIME",
-                                        .min =  -1, .max = INT_MAX            },
-
+                                    .min =  -1,
+                                    .max = INT_MAX
+    },
+    { .p_var = &qlib_cputime,        .sc =  _SC_CPUTIME,
+                                   .name = "_SC_CPUTIME",
+                                    .min =  -1,
+                                    .max = INT_MAX
+    },
     { .p_var = NULL }
 } ;
 
@@ -118,7 +131,8 @@ struct
  * Should be absolutely the first action -- other than, perhaps, saying hello
  * on stderr or the like.
  *
- *
+ * Must precede any command line option handling, so can set defaults for
+ * things which may be affected by such options.
  */
 extern void
 qlib_init_first_stage(mode_t cmask)
@@ -169,7 +183,7 @@ qlib_init_first_stage(mode_t cmask)
   qps_start_up() ;
   qiovec_start_up(qlib_iov_max) ;
   thread_start_up();
-  qpt_start_up(qlib_thread_cputime) ;
+  qpt_start_up(qlib_cputime, qlib_thread_cputime) ;
   qpn_wd_start_up() ;
 } ;
 
@@ -189,7 +203,7 @@ qlib_init_first_stage(mode_t cmask)
 extern void
 qlib_init_second_stage(bool pthreaded)
 {
-  qpt_set_qpthreads_enabled(pthreaded);
+  qpt_second_stage(pthreaded);
   memory_init_r();
   qpn_init() ;
   thread_init_r();
@@ -202,8 +216,14 @@ qlib_init_second_stage(bool pthreaded)
 /*------------------------------------------------------------------------------
  * Shut down
  *
- * NB: at this point it is assumed that all pthreads other than the main pthread
- *     have stopped.
+ * NB: at this point it is assumed that all pthreads but one (probably the
+ *     main pthread) have stopped or are stopping -- and that either no
+ *     new pthreads will be started, or any that are started will quickly
+ *     stop.
+ *
+ *     Will collect all pthreads, joinable and detached, and destroy all
+ *     qpt_thread objects -- then clear qpt_threads_active for remainder of
+ *     shut down.
  *
  * NB: memory is the last thing to be shut down, and if the given
  *     "mem_stats_name" is not NULL, will spew out information about any
@@ -212,7 +232,7 @@ qlib_init_second_stage(bool pthreaded)
 extern void
 qexit(int exit_code, bool mem_stats)
 {
-  qpt_clear_qpthreads_active() ;
+  qpt_finish() ;
 
   safe_finish();
   mqueue_finish();

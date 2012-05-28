@@ -57,7 +57,7 @@ enum
  * Data Structures.
  */
 typedef int qpn_hook_function(void) ;   /* dispatch of tasks    */
-typedef int qpn_init_function(void) ;   /* start/stop work      */
+typedef int qpn_init_function(void) ;   /* loop/stop work      */
 
 typedef struct qpn_hook_list* qpn_hook_list ;
 struct qpn_hook_list
@@ -92,9 +92,11 @@ struct qpn_nexus
    */
   const char* name ;
 
+#if 0
   /* list of known nexuses in creation order.
    */
   struct dl_list_pair(qpn_nexus) list ;
+
 
   /* set true when the pthread has started, which means that it:
    *
@@ -106,18 +108,19 @@ struct qpn_nexus
    *   * has a valid cpu_clock_id
    */
   bool started ;
+#endif
 
   /* set true to terminate the thread (eventually)
    */
-  bool terminate;
+  volatile bool terminate;
 
   /* true if this is the main thread
    */
   bool main_thread;
 
-  /* thread ID -- not valid until is "started"
+  /* Underlying qpt_thread
    */
-  qpt_thread_t  thread_id;
+  qpt_thread    qpth ;
 
   /* Signal mask for pselect
    */
@@ -139,7 +142,7 @@ struct qpn_nexus
 
   /* qpthread routine, can override
    */
-  void* (*start)(void*);
+  void* (*loop)(qpt_thread);
 
   /* in-thread initialise, can override.  Called within the thread after all
    * other initialisation just before thread loop
@@ -206,23 +209,17 @@ struct qpn_nexus
                                  * 2 => idle, and seen by watch-dog
                                  * 3 => idle, and seen a second time !
                                  */
-  qtime_t       cpu_time ;
-
-  /* If per-thread cpu clock is available, this is what it is.
-   */
-  clockid_t     cpu_clock_id ;
+  qpt_thread_stats_t qpth_stats ;
 };
 
 /*------------------------------------------------------------------------------
- * Each thread that has a qpnexus uses this piece of thread specific data in
- * order to be able to find its own nexus.
+ * Each qpnexus has a qpt_thread, and its "data" is set to refer to the
+ * parent qpnexus -- so this is how a running pthread can find its nexus.
  */
-qpt_data_t qpn_self ;           /* thread specific data */
-
 Inline qpn_nexus
 qpn_find_self(void)
 {
-  return qpt_data_get_value(qpn_self) ;
+  return qpt_thread_self_data() ;
 } ;
 
 /*==============================================================================
@@ -232,6 +229,7 @@ extern void qpn_init(void) ;
 extern qpn_nexus qpn_init_new(qpn_nexus qpn, bool main_thread,
                                                              const char* name) ;
 extern void qpn_add_hook_function(qpn_hook_list list, void* hook) ;
+extern void qpn_main_start(qpn_nexus qpn) ;
 extern void qpn_exec(qpn_nexus qpn);
 extern void qpn_terminate(qpn_nexus qpn);
 extern qpn_nexus qpn_reset(qpn_nexus qpn, free_keep_b free_structure);
@@ -241,8 +239,6 @@ extern void qpn_get_stats(qpn_nexus qpn, qpn_stats curr, qpn_stats prev) ;
 extern void qpn_wd_start_up(void) ;
 extern bool qpn_wd_prepare(const char* arg) ;
 extern void qpn_wd_start(void) ;
-extern void qpn_wd_finish(uint interval) ;
-
-
+extern void qpn_wd_finish(void) ;
 
 #endif /* _ZEBRA_QPNEXUS_H */

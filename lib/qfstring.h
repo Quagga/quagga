@@ -194,10 +194,15 @@ typedef enum pf_flags pf_flags_t ;
                      .offset   = 0,                         \
                      .overflow = 0  } }
 
-/* And, finally, a "standard" qfb for general use: qfb_gen_t !          */
-
+/* A "standard" qfb for general use: qfb_gen_t
+ */
 enum { qfb_gen_len = 200 } ;    /* More than enough for most purposes ! */
 QFB_T(qfb_gen_len) qfb_gen_t ;
+
+/* A "standard" qfb for names: qfb_nam_t
+ */
+enum { qfb_nam_len = 60 } ;     /* More than enough for most purposes ! */
+QFB_T(qfb_nam_len) qfb_nam_t ;
 
 /*==============================================================================
  * Simple keyword support

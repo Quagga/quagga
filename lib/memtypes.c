@@ -31,6 +31,7 @@ struct memory_list memory_list_lib[] =
   { MTYPE_THREAD_MASTER,	"Thread master"			},
   { MTYPE_THREAD_STATS,		"Thread stats"			},
   { MTYPE_THREAD_FUNCNAME,      "Thread function name"          },
+  { MTYPE_QPT_THREAD,           "qpt thread"                    },
   { MTYPE_QPT_THREAD_ATTR,      "qpt thread attributes"         },
   { MTYPE_QPT_MUTEX,            "qpt mutex"                     },
   { MTYPE_QPT_COND,             "qpt condition variable"        },

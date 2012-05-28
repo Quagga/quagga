@@ -47,6 +47,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 
 unsigned long conf_bgp_debug_as4;
 unsigned long conf_bgp_debug_fsm;
+unsigned long conf_bgp_debug_io;
 unsigned long conf_bgp_debug_events;
 unsigned long conf_bgp_debug_packet;
 unsigned long conf_bgp_debug_filter;
@@ -57,6 +58,7 @@ unsigned long conf_bgp_debug_zebra;
 
 unsigned long term_bgp_debug_as4;
 unsigned long term_bgp_debug_fsm;
+unsigned long term_bgp_debug_io;
 unsigned long term_bgp_debug_events;
 unsigned long term_bgp_debug_packet;
 unsigned long term_bgp_debug_filter;
@@ -389,6 +391,96 @@ ALIAS (no_debug_bgp_fsm,
        BGP_STR
        "Finite State Machine\n")
 
+DEFUN (debug_bgp_io,
+       debug_bgp_io_cmd,
+       "debug bgp io",
+       DEBUG_STR
+       BGP_STR
+       "BGP io activity\n")
+{
+  if (vty->node == CONFIG_NODE)
+    {
+      DEBUG_ON (io, IO_IN);
+      DEBUG_ON (io, IO_OUT);
+    }
+  else
+    {
+      TERM_DEBUG_ON (io, IO_IN);
+      TERM_DEBUG_ON (io, IO_OUT);
+      vty_out (vty, "BGP io debugging is on%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+DEFUN (debug_bgp_io_direct,
+       debug_bgp_io_direct_cmd,
+       "debug bgp io (in|out)",
+       DEBUG_STR
+       BGP_STR
+       "BGP io\n"
+       "Inbound io\n"
+       "Outbound io\n")
+{
+  if (vty->node == CONFIG_NODE)
+    {
+      if (strncmp ("i", argv[0], 1) == 0)
+        {
+          DEBUG_OFF (io, IO_OUT);
+          DEBUG_ON (io, IO_IN);
+        }
+      else
+        {
+          DEBUG_OFF (io, IO_IN);
+          DEBUG_ON (io, IO_OUT);
+        }
+    }
+  else
+    {
+      if (strncmp ("i", argv[0], 1) == 0)
+        {
+          TERM_DEBUG_OFF (io, IO_OUT);
+          TERM_DEBUG_ON (io, IO_IN);
+          vty_out (vty, "BGP io debugging is on (inbound)%s", VTY_NEWLINE);
+        }
+      else
+        {
+          TERM_DEBUG_OFF (update, IO_IN);
+          TERM_DEBUG_ON (update, IO_OUT);
+          vty_out (vty, "BGP io debugging is on (outbound)%s", VTY_NEWLINE);
+        }
+    }
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_bgp_io,
+       no_debug_bgp_io_cmd,
+       "no debug bgp io",
+       NO_STR
+       DEBUG_STR
+       BGP_STR
+       "BGP io\n")
+{
+  if (vty->node == CONFIG_NODE)
+    {
+      DEBUG_OFF (io, IO_IN);
+      DEBUG_OFF (io, IO_OUT);
+    }
+  else
+    {
+      TERM_DEBUG_OFF (io, IO_IN);
+      TERM_DEBUG_OFF (io, IO_OUT);
+      vty_out (vty, "BGP io debugging is off%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_debug_bgp_io,
+       undebug_bgp_io_cmd,
+       "undebug bgp io",
+       UNDEBUG_STR
+       BGP_STR
+       "BGP io\n")
+
 DEFUN (debug_bgp_events,
        debug_bgp_events_cmd,
        "debug bgp events",
@@ -701,6 +793,8 @@ DEFUN (no_debug_bgp_all,
   TERM_DEBUG_OFF (update, UPDATE_OUT);
   TERM_DEBUG_OFF (as4, AS4);
   TERM_DEBUG_OFF (as4, AS4_SEGMENT);
+  TERM_DEBUG_OFF (io, IO_IN);
+  TERM_DEBUG_OFF (io, IO_OUT);
   TERM_DEBUG_OFF (fsm, FSM);
   TERM_DEBUG_OFF (filter, FILTER);
   TERM_DEBUG_OFF (zebra, ZEBRA);
@@ -739,6 +833,12 @@ DEFUN (show_debugging_bgp,
     vty_out (vty, "  BGP updates debugging is on (outbound)%s", VTY_NEWLINE);
   if (BGP_DEBUG (fsm, FSM))
     vty_out (vty, "  BGP fsm debugging is on%s", VTY_NEWLINE);
+  if (BGP_DEBUG (io, IO_IN) && BGP_DEBUG (io, IO_OUT))
+    vty_out (vty, "  BGP io debugging is on%s", VTY_NEWLINE);
+  else if (BGP_DEBUG (io, IO_IN))
+    vty_out (vty, "  BGP io debugging is on (inbound)%s", VTY_NEWLINE);
+  else if (BGP_DEBUG (io, IO_OUT))
+    vty_out (vty, "  BGP io debugging is on (outbound)%s", VTY_NEWLINE);
   if (BGP_DEBUG (filter, FILTER))
     vty_out (vty, "  BGP filter debugging is on%s", VTY_NEWLINE);
   if (BGP_DEBUG (zebra, ZEBRA))
@@ -808,6 +908,22 @@ bgp_config_write_debug (struct vty *vty)
       write++;
     }
 
+  if (CONF_BGP_DEBUG (io, IO_IN) && CONF_BGP_DEBUG (io, IO_OUT))
+    {
+      vty_out (vty, "debug bgp io%s", VTY_NEWLINE);
+      write++;
+    }
+  else if (CONF_BGP_DEBUG (io, IO_IN))
+    {
+      vty_out (vty, "debug bgp io in%s", VTY_NEWLINE);
+      write++;
+    }
+  else if (CONF_BGP_DEBUG (io, IO_OUT))
+    {
+      vty_out (vty, "debug bgp io out%s", VTY_NEWLINE);
+      write++;
+    }
+
   if (CONF_BGP_DEBUG (filter, FILTER))
     {
       vty_out (vty, "debug bgp filters%s", VTY_NEWLINE);
@@ -835,6 +951,10 @@ CMD_INSTALL_TABLE(static, bgp_debug_cmd_table, BGPD) =
   { CONFIG_NODE,     &debug_bgp_as4_segment_cmd                         },
   { ENABLE_NODE,     &debug_bgp_fsm_cmd                                 },
   { CONFIG_NODE,     &debug_bgp_fsm_cmd                                 },
+  { ENABLE_NODE,     &debug_bgp_io_cmd                                  },
+  { CONFIG_NODE,     &debug_bgp_io_cmd                                  },
+  { ENABLE_NODE,     &debug_bgp_io_direct_cmd                           },
+  { CONFIG_NODE,     &debug_bgp_io_direct_cmd                           },
   { ENABLE_NODE,     &debug_bgp_events_cmd                              },
   { CONFIG_NODE,     &debug_bgp_events_cmd                              },
   { ENABLE_NODE,     &debug_bgp_filter_cmd                              },
@@ -858,6 +978,9 @@ CMD_INSTALL_TABLE(static, bgp_debug_cmd_table, BGPD) =
   { ENABLE_NODE,     &no_debug_bgp_fsm_cmd                              },
   { ENABLE_NODE,     &undebug_bgp_fsm_cmd                               },
   { CONFIG_NODE,     &no_debug_bgp_fsm_cmd                              },
+  { ENABLE_NODE,     &no_debug_bgp_io_cmd                               },
+  { ENABLE_NODE,     &undebug_bgp_io_cmd                                },
+  { CONFIG_NODE,     &no_debug_bgp_io_cmd                               },
   { ENABLE_NODE,     &no_debug_bgp_events_cmd                           },
   { ENABLE_NODE,     &undebug_bgp_events_cmd                            },
   { CONFIG_NODE,     &no_debug_bgp_events_cmd                           },

@@ -19,7 +19,6 @@
  * 02111-1307, USA.
  */
 
-#include "zebra.h"
 #include "misc.h"
 #include "sigevent.h"
 #include "log.h"
@@ -27,18 +26,16 @@
 #include "qpnexus.h"
 #include "qpthreads.h"
 
-#include <stdarg.h>
-
 /*------------------------------------------------------------------------------
  * Want to get some context for core and exit handlers.
  */
 #ifdef HAVE_UCONTEXT_H
-#ifdef GNU_LINUX
-/* get REG_EIP from ucontext.h */
-#ifndef __USE_GNU
-#define __USE_GNU
-#endif /* __USE_GNU */
-#endif /* GNU_LINUX */
+# ifdef GNU_LINUX
+    /* want REG_EIP from ucontext.h     */
+#  ifndef __USE_GNU
+#   define __USE_GNU
+#  endif /* __USE_GNU */
+# endif /* GNU_LINUX */
 #include <ucontext.h>
 #endif /* HAVE_UCONTEXT_H */
 

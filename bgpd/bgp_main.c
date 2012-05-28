@@ -422,7 +422,8 @@ main (int argc, char **argv)
   if (invalid_option)
     exit(1) ;
 
-  /* Initializations. */
+  /* Initializations.
+   */
   bgp_signal_init() ;
 
   zprivs_init_dry (&bgpd_privs, dryrun);        /* lowers privileges    */
@@ -458,10 +459,11 @@ main (int argc, char **argv)
   if (dryrun)
     return(0);
 
-  /* only the calling thread survives in the child after a fork
-   * so ensure we haven't created any threads yet
+  /* Only the calling thread survives in the child after a fork, and we must
+   * not "start" the main (and possibly only) qpt_thread until after
+   * daemonisation.
    */
-  assert(!qpthreads_thread_created);
+  assert(!qpthreads_main_started);
 
   /* Turn into daemon if daemon_mode is set.    */
   if (daemon_mode && daemon (0, 0) < 0)
@@ -487,7 +489,10 @@ main (int argc, char **argv)
                (bm->address ? bm->address : "<all>"),
                (int)bm->port);
 
-  /* Launch finite state machine(s) */
+  /* Launch finite state machine(s)
+   */
+  qpn_main_start(cli_nexus) ;   /* start the main nexus and pthread     */
+
   if (qpthreads_enabled)
     {
       qpn_wd_start() ;          /* if set up                            */
@@ -496,25 +501,25 @@ main (int argc, char **argv)
       qpn_exec(bgp_nexus);
       qpn_exec(cli_nexus);      /* must be last to start - on main thread */
 
-      /* terminating, wait for all threads to finish */
-      qpt_thread_join(routing_nexus->thread_id);
-      qpt_thread_join(bgp_nexus->thread_id);
+      /* terminating, wait for all pthreads to finish
+       */
+      qpt_thread_join(routing_nexus->qpth);
+      qpt_thread_join(bgp_nexus->qpth);
 
-//    qpn_wd_stop() ;           /* if started                           */
+      qpn_wd_finish() ;         /* if started                           */
     }
   else
     {
-      qpn_wd_start() ;          /* if set up                            */
-
       qpn_exec(cli_nexus);      /* only nexus - on main thread          */
-
-//    qpn_wd_stop() ;           /* if started                           */
-    }
+    } ;
 
   /* Note that from this point forward is running in the main (CLI) thread
-   * and any other threads have been joined
+   * and any other threads have been joined -- so qpt_thread_collect() will
+   * not have much to do (except collect any watch-dog), but does clear the
+   * qpthreads_active flag, so that shut down can proceed without further
+   * locking, even if some pthread has left something locked (by mistake).
    */
-  qpt_clear_qpthreads_active() ;
+  qpt_thread_collect() ;
 
   zprivs_terminate (&bgpd_privs);
 

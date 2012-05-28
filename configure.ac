@@ -543,7 +543,8 @@ AC_CHECK_HEADERS([sys/un.h netinet/in_systm.h netinet/in_var.h \
 	net/if_dl.h net/netopt.h net/route.h \
 	inet/nd.h arpa/inet.h netinet/ip_icmp.h \
 	fcntl.h stddef.h sys/ioctl.h syslog.h wchar.h wctype.h \
-	sys/sysctl.h sys/sockio.h kvm.h sys/conf.h],
+	sys/sysctl.h sys/sockio.h kvm.h sys/conf.h \
+	pthread.h pthread_np.h],
 	[], [], QUAGGA_INCLUDES)
 
 AC_CHECK_HEADERS([ucontext.h], [], [],
@@ -837,7 +838,9 @@ AC_CHECK_FUNCS([dup2 ftruncate getcwd gethostbyname getpagesize gettimeofday \
 	strtol strtoul strlcat strlcpy \
 	daemon snprintf vsnprintf \
 	if_nametoindex if_indextoname getifaddrs \
-	uname fcntl])
+  uname fcntl \
+  pthread_attr_getstack pthread_attr_setstack \
+  pthread_attr_get_np pthread_getattr_np])
 
 AC_CHECK_FUNCS(setproctitle, ,
   [AC_CHECK_LIB(util, setproctitle, 

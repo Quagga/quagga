@@ -86,8 +86,8 @@ struct mqueue_thread_signal {
   mqueue_thread_signal  next ;  /* NULL => last on list                 */
   mqueue_thread_signal  prev ;  /* NULL => NOT on list -- vital !       */
 
-  qpt_thread_t  qpthread ;      /* qpthread to kick             */
-  int           signum ;        /* signal to kick with          */
+  qpt_thread    qpth ;          /* qpt_thread to kick                   */
+  int           signum ;        /* signal to kick with                  */
 } ;
 
 typedef enum {
@@ -185,8 +185,8 @@ extern mqueue_local_queue mqueue_local_reset(mqueue_local_queue lmq,
 
 extern void mqueue_set_timeout_interval(mqueue_queue mq, qtime_t interval) ;
 extern mqueue_thread_signal mqueue_thread_signal_init(mqueue_thread_signal mqt,
-                                              qpt_thread_t thread, int signum) ;
-mqueue_thread_signal mqueue_thread_signal_reset(mqueue_thread_signal mqt,
+                                                  qpt_thread qpth, int signum) ;
+extern mqueue_thread_signal mqueue_thread_signal_reset(mqueue_thread_signal mqt,
                                                    free_keep_b free_structure) ;
 
 extern mqueue_block mqb_init_new(mqueue_block mqb, mqueue_action action,

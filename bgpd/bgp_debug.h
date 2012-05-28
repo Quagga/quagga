@@ -56,12 +56,12 @@ extern int Debug_Radix;
 /* Prototypes. */
 extern void bgp_debug_cmd_init (void);
 extern void bgp_debug_init (void);
-extern void bgp_packet_dump (struct stream *);
 
 extern int debug (unsigned int option);
 
 extern unsigned long conf_bgp_debug_as4;
 extern unsigned long conf_bgp_debug_fsm;
+extern unsigned long conf_bgp_debug_io;
 extern unsigned long conf_bgp_debug_events;
 extern unsigned long conf_bgp_debug_packet;
 extern unsigned long conf_bgp_debug_filter;
@@ -72,6 +72,7 @@ extern unsigned long conf_bgp_debug_zebra;
 
 extern unsigned long term_bgp_debug_as4;
 extern unsigned long term_bgp_debug_fsm;
+extern unsigned long term_bgp_debug_io;
 extern unsigned long term_bgp_debug_events;
 extern unsigned long term_bgp_debug_packet;
 extern unsigned long term_bgp_debug_filter;
@@ -84,6 +85,8 @@ extern unsigned long term_bgp_debug_zebra;
 #define BGP_DEBUG_AS4_SEGMENT         0x02
 
 #define BGP_DEBUG_FSM                 0x01
+#define BGP_DEBUG_IO_IN               0x01
+#define BGP_DEBUG_IO_OUT              0x02
 #define BGP_DEBUG_EVENTS              0x01
 #define BGP_DEBUG_PACKET              0x01
 #define BGP_DEBUG_FILTER              0x01

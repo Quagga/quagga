@@ -42,9 +42,6 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
  *
  */
 
-
-
-
 /*------------------------------------------------------------------------------
  * Read given configuration file & set host config directory and file name.
  *
@@ -412,6 +409,9 @@ typedef enum                    /* types of separator   */
 } config_sep_type_t ;
 
 /* The name of an item, or items.
+ *
+ * The name includes the parent ordinal and the type of the item.  So all names
+ * have their scope built into them.
  */
 typedef struct config_name* config_name ;
 typedef struct config_name  config_name_t ;
@@ -1393,8 +1393,8 @@ vtysh_config_parse_group_end(config_collection collection)
  * Each item with the same name is known as a "target".
  *
  * We can collect a "bubble" of items to move up, by scanning up from the
- * current last_item, while none of the items in the bubble has a daemon in
- * common with the target.
+ * current last_item, while each item has at least the daemons in the bubble
+ * so far (and adding an item adds all its daemons to the bubble).
  *
  * The bubble can move up to the target, provided that no item between the
  * bubble and the target has any items in common with the bubble.
@@ -1407,7 +1407,58 @@ static bool
 vtysh_config_try_merge(config_collection collection, config_item parent,
                                                                config_name name)
 {
+  daemon_set_t bubble_daemons ;
+  config_item  item, bubble, seek, target ;
 
+  /* Set bubble to contain the current last_item
+   */
+  bubble = item = collection->last_item ;
+  bubble_daemons = bubble->daemons ;
+
+  target = NULL ;
+
+  /* Scan upwards adding to "bubble", looking out for a name match.
+   *
+   * We can add an item to the bubble iff it has all the bubble's daemons, at
+   * least.
+   */
+  while (1)
+    {
+      bool addable ;
+
+      seek = ddl_prev(bubble, siblings) ;
+
+      if (seek == NULL)
+        return false ;          /* failed to find target        */
+
+      /* If we cannot add the current seek item to the bubble, we are
+       * done with this phase.
+       */
+      if ((seek->daemons & bubble_daemons) != bubble_daemons)
+        break ;
+
+      /* If we have a name match, then we are done.
+       *
+       * If the bubble contains more than just the current last item,
+       * then we cannot merge, because we cannot slide the rest of the
+       * bubble past the target.
+       *
+       * If there is more than one target, then this one could not be merged
+       * with the nearest one above, which implies that something above this
+       * target prevented it and/or its bubble from sliding up.
+       */
+      if (seek->name == name)
+        {
+          if (bubble != item)
+            return false ;
+
+        } ;
+
+      /* Add item to bubble.
+       */
+      bubble_daemons |= seek->daemons ;
+      bubble = seek ;
+    } ;
 
   return false ;
 } ;
@@ -1777,6 +1828,22 @@ show_collected_item(config_item item, qstring line)
  *
  * If the config_name object has a NULL items entry, then this is the first
  * occurrence of this name.
+ *
+ * The name covers:
+ *
+ *   * the ordinal of the parent item
+ *
+ *   * the type of item
+ *
+ *   * the tokens which form the item, separated by spaces
+ *
+ * While there is a single, global symbol table, the form of the name means
+ * that each name has local scope within the parent.
+ *
+ * Returns:  address of name object.
+ *
+ *           All items with the same name share the same name object.  So, can
+ *           test for name equality by comparing name object addresses.
  */
 static config_name
 vtysh_config_get_name(config_collection collection, config_item parent,
@@ -1807,7 +1874,9 @@ vtysh_config_get_name(config_collection collection, config_item parent,
         break ;
 
       default:
-        assert(false) ;
+        qassert(false) ;
+        tag = "?" ;
+        break ;
     } ;
 
   tokens = cmd_tokens_concat(collection->parsed, ti, tn - ti) ;

@@ -1394,7 +1394,7 @@ bgp_msg_keepalive_receive (bgp_connection connection, bgp_size_t body_size)
 {
   ++connection->session->stats.keepalive_in ;
 
-  if (BGP_DEBUG (keepalive, KEEPALIVE))
+  if (BGP_DEBUG (keepalive, KEEPALIVE) && !BGP_DEBUG(io, IO_IN))
     zlog_debug ("%s KEEPALIVE rcvd", connection->host);
 
   if (body_size == 0)

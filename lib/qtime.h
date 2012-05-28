@@ -186,6 +186,7 @@ qtime2timeval(struct timeval* p_tv, qtime_t qt)
 Private qtime_mono_t qt_craft_monotonic(void) ;
 Private time_t qt_craft_mono_secs(void) ;
 Private qtime_t qt_clock_gettime_failed(clockid_t clock_id) ;
+Private qtime_t qt_clock_getres_failed(clockid_t clock_id) ;
 
 /*------------------------------------------------------------------------------
  * Read given clock & return a qtime_t value.
@@ -206,6 +207,27 @@ qt_clock_gettime(clockid_t clock_id)
     return timespec2qtime(&ts) ;
 
   return qt_clock_gettime_failed(clock_id) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get resolution of the given clock.
+ *
+ * For CLOCK_REALTIME and CLOCK_MONOTONIC any failure is (a) exotic, to say
+ * the least, and (b) impossible to recover from.
+ *
+ * For other clocks, it may be possible to continue, so we return zero and
+ * leave it up to the caller to worry (should they care) that the clock either
+ * occasionally or consistently returns 0 !
+ */
+Inline qtime_t
+qt_clock_getres(clockid_t clock_id)
+{
+  struct timespec ts ;
+
+  if (clock_getres(clock_id, &ts) == 0)
+    return timespec2qtime(&ts) ;
+
+  return qt_clock_getres_failed(clock_id) ;
 } ;
 
 /*------------------------------------------------------------------------------

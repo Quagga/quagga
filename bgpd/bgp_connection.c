@@ -32,6 +32,7 @@
 #include "bgpd/bgp_msg_write.h"
 #include "bgpd/bgp_dump.h"
 #include "bgpd/bgp_debug.h"
+#include "bgpd/bgp_names.h"
 
 #include "lib/memory.h"
 #include "lib/mqueue.h"
@@ -933,13 +934,24 @@ bgp_connection_write(bgp_connection connection, struct stream* s)
 
   enable_write = bgp_write_buffer_empty(wb) ;
 
-  /* For UPDATE messages, if required log the dispatch of the message.
+  /* If required log the dispatch of the message.
    */
-  if (BGP_DEBUG (update, UPDATE_OUT))
+  if (BGP_DEBUG (io, IO_OUT))
     {
-      if (stream_getc_from(s, BGP_MH_TYPE) == BGP_MT_UPDATE)
+      const char* ew ;
+      uint type ;
+      uint length ;
+
+      ew = enable_write ? "*" : "+" ;
+
+      type   = stream_getc_from(s, BGP_MH_TYPE) ;
+      length = stream_getw_from(s, BGP_MH_LEN) ;
+
+      qassert(length == stream_get_len(s)) ;
+
+      if (type == BGP_MT_UPDATE)
         {
-          uint wl, al, nl, p, e ;
+          uint wl, al, nl, p ;
           qstring qs ;
 
           p = BGP_MH_BODY ;
@@ -947,8 +959,7 @@ bgp_connection_write(bgp_connection connection, struct stream* s)
           p += 2 + wl ;
           al = stream_getw_from(s, p) ;
           p += 2 + al ;
-          e  = stream_get_len(s) ;
-          nl = e - p ;
+          nl = length - p ;
 
           if (nl == 0)
             qs = NULL ;
@@ -958,7 +969,7 @@ bgp_connection_write(bgp_connection connection, struct stream* s)
 
               qs = qs_new(nl * 5) ;
 
-              while (p < e)
+              while (p < length)
                 {
                   p += stream_get_prefix_from(s, p, pfx, AF_INET) ;
                   qs_append_str(qs, " ") ;
@@ -967,11 +978,18 @@ bgp_connection_write(bgp_connection connection, struct stream* s)
             } ;
 
           zlog (connection->log, LOG_DEBUG,
-                 "%s dispatch UPDATE: %u bytes withdraw, %u bytes attributes,"
-                                                           " %u bytes NLRI%s",
-                                 connection->host, wl, al, nl, qs_string(qs)) ;
+                 "%s [IO] dispatch UPDATE %s%u bytes: %u bytes withdraw, "
+                                         "%u bytes attributes, %u bytes NLRI%s",
+                      connection->host, ew, length, wl, al, nl, qs_string(qs)) ;
+
           if (qs != NULL)
             qs_free(qs) ;
+        }
+      else
+        {
+          zlog (connection->log, LOG_DEBUG, "%s [IO] dispatch %s %s%u bytes",
+                   connection->host, map_direct(bgp_message_type_map, type).str,
+                                                                   ew, length) ;
         } ;
     } ;
 
@@ -1031,6 +1049,10 @@ bgp_connection_write_action(qps_file qf, void* file_info)
       ret = write(qps_file_fd(qf), wb->p_out, have) ;
       if      (ret > 0)
         {
+          if (BGP_DEBUG (io, IO_OUT))
+            zlog (connection->log, LOG_DEBUG,
+                   "%s [IO] written %u/%u bytes", connection->host, ret, have) ;
+
           wb->p_out += ret ;
           have      -= ret ;
         }
@@ -1055,6 +1077,10 @@ bgp_connection_write_action(qps_file qf, void* file_info)
          *
          * If it does we here treat it as if it were EAGAIN or EWOULDBLOCK
          */
+        if (BGP_DEBUG (io, IO_OUT))
+          zlog (connection->log, LOG_DEBUG,
+                 "%s [IO] written %u/%u bytes", connection->host, ret, have) ;
+
         return ;
     } ;
 
@@ -1157,6 +1183,46 @@ bgp_connection_read_action(qps_file qf, void* file_info)
         {
           bgp_fsm_io_error(connection, (ret == -1) ? errno : 0) ;
           return ;
+        } ;
+    } ;
+
+  /* Log the receipt of the message, if required.
+    */
+  if (BGP_DEBUG (io, IO_IN))
+    {
+      struct stream* s ;
+
+      uint type ;
+      uint length ;
+
+      s = connection->ibuf ;
+
+      type   = stream_getc_from(s, BGP_MH_TYPE) ;
+      length = stream_getw_from(s, BGP_MH_LEN) ;
+
+      qassert(length == stream_get_len(s)) ;
+
+      if (type == BGP_MT_UPDATE)
+        {
+          uint wl, al, nl, p ;
+
+          p = BGP_MH_BODY ;
+          wl = stream_getw_from(s, p) ;
+          p += 2 + wl ;
+          al = stream_getw_from(s, p) ;
+          p += 2 + al ;
+          nl = length - p ;
+
+          zlog (connection->log, LOG_DEBUG,
+                 "%s [IO] received UPDATE %u bytes: %u bytes withdraw, "
+                                         "%u bytes attributes, %u bytes NLRI",
+                                         connection->host, length, wl, al, nl) ;
+        }
+      else
+        {
+          zlog (connection->log, LOG_DEBUG, "%s [IO] received %s %u bytes",
+                   connection->host, map_direct(bgp_message_type_map, type).str,
+                                                                       length) ;
         } ;
     } ;
 

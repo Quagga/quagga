@@ -286,29 +286,52 @@ qt_random(uint32_t seed)
  * Error handling
  */
 
+static qtime_t qt_clock_failed(clockid_t clock_id, const char* op, qtime_t ret);
+
 /*------------------------------------------------------------------------------
  * clock_gettime() for the given clock_id has failed
  *
  * See: qt_clock_gettime()
+ *
+ * Returns:  0 -- if returns
  */
 Private qtime_t
 qt_clock_gettime_failed(clockid_t clock_id)
 {
+  return qt_clock_failed(clock_id, "clock_gettime", 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * clock_getres() for the given clock_id has failed
+ *
+ * See: qt_clock_getres()
+ */
+Private qtime_t qt_clock_getres_failed(clockid_t clock_id)
+{
+  return qt_clock_failed(clock_id, "clock_getres", 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Report clock operation failure.
+ */
+Private qtime_t
+qt_clock_failed(clockid_t clock_id, const char* op, qtime_t ret)
+{
   int err = errno ;
 
   if (clock_id == CLOCK_REALTIME)
-    zabort(qfs_gen("failed to get CLOCK_REALTIME: %s",
+    zabort(qfs_gen("failed to %s(CLOCK_REALTIME): %s", op,
                                                       errtoa(err, 0).str).str) ;
 
 #ifdef HAVE_CLOCK_MONOTONIC
   if (clock_id == CLOCK_MONOTONIC)
-    zabort(qfs_gen("failed to get CLOCK_MONOTONIC: %s",
+    zabort(qfs_gen("failed to %s(CLOCK_MONOTONIC): %s", op,
                                                       errtoa(err, 0).str).str) ;
 #endif
 
-  zlog_err("failed to clock_gettime(%d): %s", clock_id, errtoa(err, 0).str) ;
+  zlog_err("failed to %s(%d): %s", op, clock_id, errtoa(err, 0).str) ;
 
-  return 0 ;
+  return ret ;
 } ;
 
 /*==============================================================================

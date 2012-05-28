@@ -645,15 +645,15 @@ bgp_fsm_io_error(bgp_connection connection, int err)
       || (err == EPIPE)
       || (err == ETIMEDOUT) )
     {
-      if (BGP_DEBUG(events, EVENTS))
+      if (BGP_DEBUG(fsm, FSM))
         {
           if (err == 0)
             plog_debug(connection->log,
-                       "%s [Event] BGP connection closed fd %d",
+                       "%s [FSM] BGP connection closed fd %d",
                                connection->host, qps_file_fd(connection->qf)) ;
           else
             plog_debug(connection->log,
-                       "%s [Event] BGP connection closed fd %d (%s)",
+                       "%s [FSM] BGP connection closed fd %d (%s)",
                                connection->host, qps_file_fd(connection->qf),
                                                            errtoa(err, 0).str) ;
         } ;
@@ -1898,13 +1898,20 @@ static bgp_fsm_action(bgp_fsm_recv_open)
                    bgp_msg_noms_o_bad_id(NULL, connection->open_recv->bgp_id)) ;
         } ;
 
-      /* NB: bgp_id in open_state is in *network* order                 */
+      /* NB: bgp_id in open_state is in *network* order
+       */
       loser = (ntohl(session->open_send->bgp_id) <
                                               ntohl(sibling->open_recv->bgp_id))
                 ? connection
                 : sibling ;
 
-      /* Throw exception                                                */
+      if (BGP_DEBUG(fsm, FSM))
+        plog_debug(connection->log,
+                   "%s [FSM] BGP is loser in collision, fd %d",
+                                          loser->host, qps_file_fd(loser->qf)) ;
+
+      /* Throw exception
+       */
       bgp_fsm_exception(loser, bgp_session_eCollision,
                       bgp_notify_new(BGP_NOMC_CEASE, BGP_NOMS_C_COLLISION)) ;
 
@@ -1914,7 +1921,7 @@ static bgp_fsm_action(bgp_fsm_recv_open)
     } ;
 
   /* All is well: send a KEEPALIVE message to acknowledge the OPEN      */
-  bgp_msg_send_keepalive(connection, 1) ;
+  bgp_msg_send_keepalive(connection, true /* must send */) ;
 
   /* Transition to OpenConfirm state                                    */
   return next_state ;
@@ -1994,7 +2001,8 @@ static bgp_fsm_action(bgp_fsm_sent_nom)
  */
 static bgp_fsm_action(bgp_fsm_send_kal)
 {
-  bgp_msg_send_keepalive(connection, 0) ;
+  bgp_msg_send_keepalive(connection, false /* not "must" */) ;
+
   return next_state ;
 } ;
 

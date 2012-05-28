@@ -40,7 +40,7 @@
  */
 extern int bgp_msg_write_notification(bgp_connection connection,
                                                       bgp_notify notification) ;
-extern int bgp_msg_send_keepalive(bgp_connection connection, bool must_send) ;
+extern bool bgp_msg_send_keepalive(bgp_connection connection, bool must_send) ;
 extern int bgp_msg_send_open(bgp_connection connection,
                                                     bgp_open_state open_state) ;
 extern int bgp_msg_send_route_refresh(bgp_connection connection,

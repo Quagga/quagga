@@ -72,11 +72,15 @@
  */
 #define fall_through
 
-/* always_inline -- where avaliable !
+/* always_inline -- where available !
  */
 #ifdef __GNUC__
 #define Always_Inline __attribute__((always_inline))
 #endif
+
+/* No Return -- where available
+ */
+#define NO_RETURN __attribute__ ((noreturn))
 
 /*------------------------------------------------------------------------------
  * Various names for true/false pairs

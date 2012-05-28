@@ -2660,11 +2660,9 @@ DEFUN (delay_secs,
               a = (rand() % 4) + 1 ;
             } ;
 
-          if (n != 0)
-            *q++ = '\n' ;
           *q++ = '\0' ;
 
-          vty_out(vty, buf) ;
+          vty_out(vty, "%s%s", buf, (n != 0) ? "\n" : "") ;
         } ;
     } ;
 

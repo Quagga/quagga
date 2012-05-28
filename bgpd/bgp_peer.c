@@ -1730,10 +1730,8 @@ bgp_routeadv_timer (struct thread *thread)
   peer = THREAD_ARG (thread);
   peer->t_routeadv = NULL;
 
-  if (BGP_DEBUG (fsm, FSM))
-    zlog (peer->log, LOG_DEBUG,
-          "%s [FSM] Timer (routeadv timer expire)",
-          peer->host);
+  if (BGP_DEBUG (events, EVENTS))
+    zlog (peer->log, LOG_DEBUG, "%s routeadv timer expire", peer->host);
 
   peer->synctime = bgp_clock ();
 
@@ -1764,10 +1762,8 @@ bgp_withdraw_event (struct thread *thread)
   peer = THREAD_ARG (thread);
   peer->t_withdraw = NULL;
 
-  if (BGP_DEBUG (fsm, FSM))
-    zlog (peer->log, LOG_DEBUG,
-          "%s [FSM] bgp_withdraw_event",
-          peer->host);
+  if (BGP_DEBUG (events, EVENTS))
+    zlog (peer->log, LOG_DEBUG, "%s bgp_withdraw_event", peer->host);
 
   bgp_write(peer, NULL);
   return 0;
