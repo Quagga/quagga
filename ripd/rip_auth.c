@@ -164,6 +164,7 @@ rip_auth_make_hash_sha
   caddr_t input,
   size_t inputlen,
   caddr_t auth_str,
+  size_t authlen,
   u_int8_t *output
 )
 {
@@ -174,7 +175,7 @@ rip_auth_make_hash_sha
   if (gcry_md_open (&ctx, gcry_md_algo_map[hash_algo], GCRY_MD_FLAG_HMAC))
     return 1;
   /* gcrypt handles preparing the key, Ipad and Opad */
-  if (gcry_md_setkey (ctx, auth_str, digest_length[hash_algo]))
+  if (gcry_md_setkey (ctx, auth_str, authlen))
   {
     gcry_md_close (ctx);
     return 2;
@@ -294,7 +295,7 @@ rip_auth_check_hash (struct rip_interface *ri, struct in_addr *from, struct rip_
     /* RFC4822 2.5: Fill Apad, process whole packet with HMAC rounds. */
     memcpy (hd->u.hash_digest, apad_sha512, local_dlen);
     hash_error = rip_auth_make_hash_sha (ri->hash_algo, (caddr_t) packet,
-      packet_len + 4 + local_dlen, auth_str, local_digest);
+      packet_len + 4 + local_dlen, auth_str, strlen (auth_str), local_digest);
     memcpy (hd->u.hash_digest, received_digest, local_dlen);
     break;
 #endif /* HAVE_LIBGCRYPT */
@@ -482,7 +483,7 @@ rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_s
     saved_endp = stream_get_endp (s);
     stream_write (s, apad_sha512, digest_length[ri->hash_algo]);
     hash_error = rip_auth_make_hash_sha (ri->hash_algo, (caddr_t) STREAM_DATA (s),
-      stream_get_endp (s), auth_str, STREAM_DATA (s) + saved_endp);
+      stream_get_endp (s), auth_str, strlen (auth_str), STREAM_DATA (s) + saved_endp);
     break;
 #endif /* HAVE_LIBGCRYPT */
   default:
