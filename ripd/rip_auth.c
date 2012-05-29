@@ -142,8 +142,6 @@ rip_auth_make_hash_md5
 {
   MD5_CTX ctx;
 
-  if (IS_RIP_DEBUG_AUTH)
-    zlog_debug ("%s: %zuB of input buffer, %uB of key", __func__, inputlen, RIP_AUTH_MD5_SIZE);
   memset (&ctx, 0, sizeof (ctx));
   MD5Init (&ctx);
   MD5Update (&ctx, input, inputlen);
@@ -170,8 +168,6 @@ rip_auth_make_hash_sha
 {
   gcry_md_hd_t ctx;
 
-  if (IS_RIP_DEBUG_AUTH)
-    zlog_debug ("%s: %zuB of input buffer, %uB of key", __func__, inputlen, digest_length[hash_algo]);
   if (gcry_md_open (&ctx, gcry_md_algo_map[hash_algo], GCRY_MD_FLAG_HMAC))
     return 1;
   /* gcrypt handles preparing the key, Ipad and Opad */
@@ -285,6 +281,8 @@ rip_auth_check_hash (struct rip_interface *ri, struct in_addr *from, struct rip_
   switch (ri->hash_algo)
   {
   case RIP_AUTH_ALGO_MD5:
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("%s: %uB of input buffer, %zuB of key", __func__, packet_len + RIP_HEADER_SIZE, strlen (auth_str));
     hash_error = rip_auth_make_hash_md5 ((caddr_t) packet, packet_len + RIP_HEADER_SIZE, auth_str, local_digest);
     break;
 #ifdef HAVE_LIBGCRYPT
@@ -294,6 +292,8 @@ rip_auth_check_hash (struct rip_interface *ri, struct in_addr *from, struct rip_
   case RIP_AUTH_ALGO_SHA512:
     /* RFC4822 2.5: Fill Apad, process whole packet with HMAC rounds. */
     memcpy (hd->u.hash_digest, apad_sha512, local_dlen);
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("%s: %uB of input buffer, %zuB of key", __func__, packet_len + 4 + local_dlen, strlen (auth_str));
     hash_error = rip_auth_make_hash_sha (ri->hash_algo, (caddr_t) packet,
       packet_len + 4 + local_dlen, auth_str, strlen (auth_str), local_digest);
     memcpy (hd->u.hash_digest, received_digest, local_dlen);
@@ -471,6 +471,8 @@ rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_s
   switch (ri->hash_algo)
   {
   case RIP_AUTH_ALGO_MD5:
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("%s: %zuB of input buffer, %zuB of key", __func__, stream_get_endp (s), strlen (auth_str));
     hash_error = rip_auth_make_hash_md5 ((caddr_t) STREAM_DATA (s), stream_get_endp (s), auth_str, digest);
     stream_write (s, digest, RIP_AUTH_MD5_SIZE);
     break;
@@ -482,6 +484,8 @@ rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_s
     /* RFC4822 2.5: Fill Apad, process whole packet with HMAC rounds. */
     saved_endp = stream_get_endp (s);
     stream_write (s, apad_sha512, digest_length[ri->hash_algo]);
+    if (IS_RIP_DEBUG_AUTH)
+      zlog_debug ("%s: %zuB of input buffer, %zuB of key", __func__, stream_get_endp (s), strlen (auth_str));
     hash_error = rip_auth_make_hash_sha (ri->hash_algo, (caddr_t) STREAM_DATA (s),
       stream_get_endp (s), auth_str, strlen (auth_str), STREAM_DATA (s) + saved_endp);
     break;
