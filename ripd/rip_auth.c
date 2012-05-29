@@ -20,15 +20,10 @@
 
 #include <zebra.h>
 #include "keychain.h"
-#include "md5.h"
+#include "cryptohash.h"
 #include "ripd/rip_auth.h"
 #include "ripd/rip_debug.h"
 #include "ripd/rip_peer.h"
-
-#ifdef HAVE_LIBGCRYPT
-#define GCRYPT_NO_DEPRECATED
-#include <gcrypt.h>
-#endif /* HAVE_LIBGCRYPT */
 
 static const struct message rip_ffff_type_str[] =
 {
@@ -38,54 +33,6 @@ static const struct message rip_ffff_type_str[] =
   { RIP_AUTH_HASH,            "hash"         },
 };
 static const size_t rip_ffff_type_str_max = sizeof (rip_ffff_type_str) / sizeof (rip_ffff_type_str[0]);
-
-static const struct message rip_hash_algo_str[] =
-{
-  { RIP_AUTH_ALGO_MD5,    "Keyed-MD5"    },
-#ifdef HAVE_LIBGCRYPT
-  { RIP_AUTH_ALGO_SHA1,   "HMAC-SHA-1"   },
-  { RIP_AUTH_ALGO_SHA256, "HMAC-SHA-256" },
-  { RIP_AUTH_ALGO_SHA384, "HMAC-SHA-384" },
-  { RIP_AUTH_ALGO_SHA512, "HMAC-SHA-512" },
-#endif /* HAVE_LIBGCRYPT */
-};
-static const size_t rip_hash_algo_str_max = sizeof (rip_hash_algo_str) / sizeof (rip_hash_algo_str[0]);
-
-/* hash digest size map */
-static const u_int8_t digest_length[] =
-{
-  [RIP_AUTH_ALGO_MD5]    = RIP_AUTH_MD5_SIZE,
-#ifdef HAVE_LIBGCRYPT
-  [RIP_AUTH_ALGO_SHA1]   = RIP_AUTH_SHA1_SIZE,
-  [RIP_AUTH_ALGO_SHA256] = RIP_AUTH_SHA256_SIZE,
-  [RIP_AUTH_ALGO_SHA384] = RIP_AUTH_SHA384_SIZE,
-  [RIP_AUTH_ALGO_SHA512] = RIP_AUTH_SHA512_SIZE,
-#endif /* HAVE_LIBGCRYPT */
-};
-
-#ifdef HAVE_LIBGCRYPT
-/* RFC4822 2.5: Apad is the hexadecimal value 0x878FE1F3 repeated (L/4) times. */
-static const u_int8_t apad_sha512[RIP_AUTH_SHA512_SIZE] =
-{
-  0x87, 0x8f, 0xe1, 0xf3,   0x87, 0x8f, 0xe1, 0xf3,
-  0x87, 0x8f, 0xe1, 0xf3,   0x87, 0x8f, 0xe1, 0xf3,
-  0x87, 0x8f, 0xe1, 0xf3,   0x87, 0x8f, 0xe1, 0xf3,
-  0x87, 0x8f, 0xe1, 0xf3,   0x87, 0x8f, 0xe1, 0xf3,
-  0x87, 0x8f, 0xe1, 0xf3,   0x87, 0x8f, 0xe1, 0xf3,
-  0x87, 0x8f, 0xe1, 0xf3,   0x87, 0x8f, 0xe1, 0xf3,
-  0x87, 0x8f, 0xe1, 0xf3,   0x87, 0x8f, 0xe1, 0xf3,
-  0x87, 0x8f, 0xe1, 0xf3,   0x87, 0x8f, 0xe1, 0xf3,
-};
-
-/* ripd to gcrypto hash algorithm code map */
-static const int gcry_md_algo_map[] =
-{
-  [RIP_AUTH_ALGO_SHA1]   = GCRY_MD_SHA1,
-  [RIP_AUTH_ALGO_SHA256] = GCRY_MD_SHA256,
-  [RIP_AUTH_ALGO_SHA384] = GCRY_MD_SHA384,
-  [RIP_AUTH_ALGO_SHA512] = GCRY_MD_SHA512,
-};
-#endif /* HAVE_LIBGCRYPT */
 
 /* RIP-2 simple password authentication. */
 static int
@@ -130,60 +77,6 @@ rip_auth_check_password (struct rip_interface *ri, struct rip_auth_rte *auth)
   return 0;
 }
 
-/* Process input data with Keyed-MD5 algorithm and store digest as output. */
-static unsigned
-rip_auth_make_hash_md5
-(
-  caddr_t input,
-  size_t inputlen,
-  caddr_t auth_str,
-  u_int8_t *output
-)
-{
-  MD5_CTX ctx;
-
-  memset (&ctx, 0, sizeof (ctx));
-  MD5Init (&ctx);
-  MD5Update (&ctx, input, inputlen);
-  MD5Update (&ctx, auth_str, RIP_AUTH_MD5_SIZE);
-  MD5Final (output, &ctx);
-  return 0;
-}
-
-#ifdef HAVE_LIBGCRYPT
-/*
-Process input data with a HMAC-SHA family algorithm and store digest as
-output. It is safe for output digest buffer to be within input buffer.
-*/
-static unsigned
-rip_auth_make_hash_sha
-(
-  unsigned hash_algo,
-  caddr_t input,
-  size_t inputlen,
-  caddr_t auth_str,
-  size_t authlen,
-  u_int8_t *output
-)
-{
-  gcry_md_hd_t ctx;
-
-  if (gcry_md_open (&ctx, gcry_md_algo_map[hash_algo], GCRY_MD_FLAG_HMAC))
-    return 1;
-  /* gcrypt handles preparing the key, Ipad and Opad */
-  if (gcry_md_setkey (ctx, auth_str, authlen))
-  {
-    gcry_md_close (ctx);
-    return 2;
-  }
-  gcry_md_write (ctx, input, inputlen);
-  gcry_md_final (ctx);
-  memcpy (output, gcry_md_read (ctx, 0), digest_length[hash_algo]);
-  gcry_md_close (ctx);
-  return 0;
-}
-#endif /* HAVE_LIBGCRYPT */
-
 /*
 Check hash authentication. Assume the packet has passed rip_packet_examin()
 and rip_auth_check_packet(), which implies:
@@ -212,14 +105,14 @@ rip_auth_check_hash (struct rip_interface *ri, struct in_addr *from, struct rip_
 
   /* check authentication data size */
   if (IS_RIP_DEBUG_AUTH)
-    zlog_debug ("interface configured for %s", LOOKUP (rip_hash_algo_str, ri->hash_algo));
+    zlog_debug ("interface configured for %s", LOOKUP (hash_algo_str, ri->hash_algo));
   remote_dlen = hi->u.hash_info.auth_len;
-  local_dlen = digest_length[ri->hash_algo];
+  local_dlen = hash_digest_length[ri->hash_algo];
   if
   (
     local_dlen != remote_dlen && /* basic RFC constraint */
     /* non-RFC MD5 special exception */
-    (ri->hash_algo != RIP_AUTH_ALGO_MD5 || remote_dlen != RIP_AUTH_MD5_COMPAT_SIZE)
+    (ri->hash_algo != HASH_KEYED_MD5 || remote_dlen != RIP_AUTH_MD5_COMPAT_SIZE)
   )
   {
     if (IS_RIP_DEBUG_AUTH)
@@ -280,21 +173,21 @@ rip_auth_check_hash (struct rip_interface *ri, struct in_addr *from, struct rip_
   memcpy (received_digest, hd->u.hash_digest, local_dlen);
   switch (ri->hash_algo)
   {
-  case RIP_AUTH_ALGO_MD5:
+  case HASH_KEYED_MD5:
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("%s: %uB of input buffer, %zuB of key", __func__, packet_len + RIP_HEADER_SIZE, strlen (auth_str));
-    hash_error = rip_auth_make_hash_md5 ((caddr_t) packet, packet_len + RIP_HEADER_SIZE, auth_str, local_digest);
+    hash_error = hash_make_keyed_md5 ((caddr_t) packet, packet_len + RIP_HEADER_SIZE, auth_str, local_digest);
     break;
 #ifdef HAVE_LIBGCRYPT
-  case RIP_AUTH_ALGO_SHA1:
-  case RIP_AUTH_ALGO_SHA256:
-  case RIP_AUTH_ALGO_SHA384:
-  case RIP_AUTH_ALGO_SHA512:
+  case HASH_HMAC_SHA1:
+  case HASH_HMAC_SHA256:
+  case HASH_HMAC_SHA384:
+  case HASH_HMAC_SHA512:
     /* RFC4822 2.5: Fill Apad, process whole packet with HMAC rounds. */
-    memcpy (hd->u.hash_digest, apad_sha512, local_dlen);
+    memcpy (hd->u.hash_digest, hash_apad_sha512, local_dlen);
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("%s: %uB of input buffer, %zuB of key", __func__, packet_len + 4 + local_dlen, strlen (auth_str));
-    hash_error = rip_auth_make_hash_sha (ri->hash_algo, (caddr_t) packet,
+    hash_error = hash_make_hmac (ri->hash_algo, packet,
       packet_len + 4 + local_dlen, auth_str, strlen (auth_str), local_digest);
     memcpy (hd->u.hash_digest, received_digest, local_dlen);
     break;
@@ -470,23 +363,23 @@ rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_s
   /* Generate a digest for the RIP packet and write it to the packet. */
   switch (ri->hash_algo)
   {
-  case RIP_AUTH_ALGO_MD5:
+  case HASH_KEYED_MD5:
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("%s: %zuB of input buffer, %zuB of key", __func__, stream_get_endp (s), strlen (auth_str));
-    hash_error = rip_auth_make_hash_md5 ((caddr_t) STREAM_DATA (s), stream_get_endp (s), auth_str, digest);
-    stream_write (s, digest, RIP_AUTH_MD5_SIZE);
+    hash_error = hash_make_keyed_md5 ((caddr_t) STREAM_DATA (s), stream_get_endp (s), auth_str, digest);
+    stream_write (s, digest, HASH_SIZE_MD5);
     break;
 #ifdef HAVE_LIBGCRYPT
-  case RIP_AUTH_ALGO_SHA1:
-  case RIP_AUTH_ALGO_SHA256:
-  case RIP_AUTH_ALGO_SHA384:
-  case RIP_AUTH_ALGO_SHA512:
+  case HASH_HMAC_SHA1:
+  case HASH_HMAC_SHA256:
+  case HASH_HMAC_SHA384:
+  case HASH_HMAC_SHA512:
     /* RFC4822 2.5: Fill Apad, process whole packet with HMAC rounds. */
     saved_endp = stream_get_endp (s);
-    stream_write (s, apad_sha512, digest_length[ri->hash_algo]);
+    stream_write (s, hash_apad_sha512, hash_digest_length[ri->hash_algo]);
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("%s: %zuB of input buffer, %zuB of key", __func__, stream_get_endp (s), strlen (auth_str));
-    hash_error = rip_auth_make_hash_sha (ri->hash_algo, (caddr_t) STREAM_DATA (s),
+    hash_error = hash_make_hmac (ri->hash_algo, STREAM_DATA (s),
       stream_get_endp (s), auth_str, strlen (auth_str), STREAM_DATA (s) + saved_endp);
     break;
 #endif /* HAVE_LIBGCRYPT */
@@ -521,26 +414,24 @@ rip_auth_write_leading_rte
     break;
   case RIP_AUTH_HASH:
     if (IS_RIP_DEBUG_AUTH)
-      zlog_debug ("hash algorithm is '%s'", LOOKUP (rip_hash_algo_str, ri->hash_algo));
+      zlog_debug ("hash algorithm is '%s'", LOOKUP (hash_algo_str, ri->hash_algo));
     stream_putw (s, RIP_AUTH_HASH);
     stream_putw (s, main_body_len);
     stream_putc (s, key_id);
     switch (ri->hash_algo)
     {
-    case RIP_AUTH_ALGO_MD5:
+    case HASH_KEYED_MD5:
       /* Auth Data Len.  Set 16 for MD5 authentication data. Older ripds
-       * however expect RIP_HEADER_SIZE + RIP_AUTH_MD5_SIZE so we allow for this
+       * however expect RIP_HEADER_SIZE + HASH_SIZE_MD5 so we allow for this
        * to be configurable. */
       dlen = ri->md5_auth_len;
       break;
-#ifdef HAVE_LIBGCRYPT
-    case RIP_AUTH_ALGO_SHA1:
-    case RIP_AUTH_ALGO_SHA256:
-    case RIP_AUTH_ALGO_SHA384:
-    case RIP_AUTH_ALGO_SHA512:
-      dlen = digest_length[ri->hash_algo];
+    case HASH_HMAC_SHA1:
+    case HASH_HMAC_SHA256:
+    case HASH_HMAC_SHA384:
+    case HASH_HMAC_SHA512:
+      dlen = hash_digest_length[ri->hash_algo];
       break;
-#endif /* HAVE_LIBGCRYPT */
     default:
       assert (0);
     }
@@ -698,18 +589,16 @@ rip_auth_allowed_inet_rtes (struct rip_interface *ri, const u_char version)
   if (ri->auth_type == RIP_AUTH_HASH)
     switch (ri->hash_algo)
     {
-    case RIP_AUTH_ALGO_MD5:
+    case HASH_KEYED_MD5:
       return RIP_MAX_RTE - 2; /* 4 + (1 + 23) * 20 + (4 + 16) = 504 */
-#ifdef HAVE_LIBGCRYPT
-    case RIP_AUTH_ALGO_SHA1:
+    case HASH_HMAC_SHA1:
       return RIP_MAX_RTE - 2; /* 4 + (1 + 23) * 20 + (4 + 20) = 508 */
-    case RIP_AUTH_ALGO_SHA256:
+    case HASH_HMAC_SHA256:
       return RIP_MAX_RTE - 3; /* 4 + (1 + 22) * 20 + (4 + 32) = 500 */
-    case RIP_AUTH_ALGO_SHA384:
+    case HASH_HMAC_SHA384:
       return RIP_MAX_RTE - 4; /* 4 + (1 + 21) * 20 + (4 + 48) = 496 */
-    case RIP_AUTH_ALGO_SHA512:
+    case HASH_HMAC_SHA512:
       return RIP_MAX_RTE - 4; /* 4 + (1 + 21) * 20 + (4 + 64) = 512 */
-#endif /* HAVE_LIBGCRYPT */
     default:
       assert (0);
     }

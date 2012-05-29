@@ -35,6 +35,7 @@
 #include "filter.h"
 #include "sockopt.h"
 #include "privs.h"
+#include "cryptohash.h"
 
 #include "zebra/connected.h"
 
@@ -46,7 +47,6 @@
 #include "ripd/rip_snmp.h"
 #include "ripd/rip_auth.h"
 
-/* for gcry_md_test_algo() */
 #ifdef HAVE_LIBGCRYPT
 #define GCRYPT_NO_DEPRECATED
 #include <gcrypt.h>
@@ -1522,7 +1522,7 @@ DEFUN (ip_rip_authentication_mode,
   if (strncmp ("md5", argv[0], strlen (argv[0])) == 0)
   {
     ri->auth_type = RIP_AUTH_HASH;
-    ri->hash_algo = RIP_AUTH_ALGO_MD5;
+    ri->hash_algo = HASH_KEYED_MD5;
   }
 #ifdef HAVE_LIBGCRYPT
   else if (strncmp ("sha1", argv[0], strlen ("sha1")) == 0)
@@ -1533,7 +1533,7 @@ DEFUN (ip_rip_authentication_mode,
       return CMD_ERR_NO_MATCH;
     }
     ri->auth_type = RIP_AUTH_HASH;
-    ri->hash_algo = RIP_AUTH_ALGO_SHA1;
+    ri->hash_algo = HASH_HMAC_SHA1;
   }
   else if (strncmp ("sha256", argv[0], strlen ("sha256")) == 0)
   {
@@ -1543,7 +1543,7 @@ DEFUN (ip_rip_authentication_mode,
       return CMD_ERR_NO_MATCH;
     }
     ri->auth_type = RIP_AUTH_HASH;
-    ri->hash_algo = RIP_AUTH_ALGO_SHA256;
+    ri->hash_algo = HASH_HMAC_SHA256;
   }
   else if (strncmp ("sha384", argv[0], strlen ("sha384")) == 0)
   {
@@ -1553,7 +1553,7 @@ DEFUN (ip_rip_authentication_mode,
       return CMD_ERR_NO_MATCH;
     }
     ri->auth_type = RIP_AUTH_HASH;
-    ri->hash_algo = RIP_AUTH_ALGO_SHA384;
+    ri->hash_algo = HASH_HMAC_SHA384;
   }
   else if (strncmp ("sha512", argv[0], strlen ("sha512")) == 0)
   {
@@ -1563,7 +1563,7 @@ DEFUN (ip_rip_authentication_mode,
       return CMD_ERR_NO_MATCH;
     }
     ri->auth_type = RIP_AUTH_HASH;
-    ri->hash_algo = RIP_AUTH_ALGO_SHA512;
+    ri->hash_algo = HASH_HMAC_SHA512;
   }
 #endif /* HAVE_LIBGCRYPT */
   else if (strncmp ("text", argv[0], strlen (argv[0])) == 0)
@@ -1590,8 +1590,8 @@ DEFUN (ip_rip_authentication_mode_md5_authlen,
   struct rip_interface *ri = ifp->info;
 
   ri->auth_type = RIP_AUTH_HASH;
-  ri->hash_algo = RIP_AUTH_ALGO_MD5;
-  ri->md5_auth_len = strncmp ("r", argv[0], 1) ? RIP_AUTH_MD5_COMPAT_SIZE : RIP_AUTH_MD5_SIZE;
+  ri->hash_algo = HASH_KEYED_MD5;
+  ri->md5_auth_len = strncmp ("r", argv[0], 1) ? RIP_AUTH_MD5_COMPAT_SIZE : HASH_SIZE_MD5;
   return CMD_SUCCESS;
 }
 
@@ -1931,7 +1931,7 @@ rip_interface_config_write (struct vty *vty)
           (ri->ri_send == RI_RIP_UNSPEC)                   &&
           (ri->ri_receive == RI_RIP_UNSPEC)                &&
           (ri->auth_type != RIP_AUTH_HASH)                 &&
-          (ri->md5_auth_len != RIP_AUTH_MD5_SIZE)          &&
+          (ri->md5_auth_len != HASH_SIZE_MD5)              &&
           (!ri->auth_str)                                  &&
           (!ri->key_chain)                                 )
         continue;
@@ -1979,7 +1979,7 @@ rip_interface_config_write (struct vty *vty)
       if (ri->auth_type == RIP_AUTH_HASH)
         switch (ri->hash_algo)
         {
-        case RIP_AUTH_ALGO_MD5:
+        case HASH_KEYED_MD5:
           vty_out (vty, " ip rip authentication mode md5");
           if (ri->md5_auth_len == RIP_AUTH_MD5_COMPAT_SIZE)
             vty_out (vty, " auth-length old-ripd");
@@ -1988,16 +1988,16 @@ rip_interface_config_write (struct vty *vty)
           vty_out (vty, "%s", VTY_NEWLINE);
           break;
 #ifdef HAVE_LIBGCRYPT
-        case RIP_AUTH_ALGO_SHA1:
+        case HASH_HMAC_SHA1:
           vty_out (vty, " ip rip authentication mode sha1%s", VTY_NEWLINE);
           break;
-        case RIP_AUTH_ALGO_SHA256:
+        case HASH_HMAC_SHA256:
           vty_out (vty, " ip rip authentication mode sha256%s", VTY_NEWLINE);
           break;
-        case RIP_AUTH_ALGO_SHA384:
+        case HASH_HMAC_SHA384:
           vty_out (vty, " ip rip authentication mode sha384%s", VTY_NEWLINE);
           break;
-        case RIP_AUTH_ALGO_SHA512:
+        case HASH_HMAC_SHA512:
           vty_out (vty, " ip rip authentication mode sha512%s", VTY_NEWLINE);
           break;
 #endif /* HAVE_LIBGCRYPT */

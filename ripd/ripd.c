@@ -31,6 +31,7 @@
 #include "if_rmap.h"
 #include "distribute.h"
 #include "privs.h"
+#include "cryptohash.h"
 
 #include "ripd/ripd.h"
 #include "ripd/rip_debug.h"
@@ -1649,7 +1650,7 @@ rip_read (struct thread *t)
 
   /* In MD5 authentication mode declared length may require a non-RFC offset. */
   if (ri->auth_type == RIP_AUTH_HASH)
-    bending_bytes = ri->md5_auth_len - RIP_AUTH_MD5_SIZE;
+    bending_bytes = ri->md5_auth_len - HASH_SIZE_MD5;
 
   if (rip_packet_examin (ri, packet, len, bending_bytes, rip->relaxed_recv_size_checks) != MSG_OK)
     {
