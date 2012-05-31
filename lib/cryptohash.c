@@ -114,6 +114,28 @@ hash_algo_byname (const char *algo)
     return 0;
 }
 
+/* Test whether a hash algorithm with the given Quagga code is available in the
+ * current runtime. Using this function requires neither libgcrypt presence nor
+ * knowing libgcrypt internal code for the hash algorithm. */
+unsigned char
+hash_algo_enabled (const unsigned hash_algo)
+{
+  switch (hash_algo)
+  {
+  case HASH_KEYED_MD5:
+    return 1;
+#ifdef HAVE_LIBGCRYPT
+  case HASH_HMAC_SHA1:
+  case HASH_HMAC_SHA256:
+  case HASH_HMAC_SHA384:
+  case HASH_HMAC_SHA512:
+    return 0 == gcry_md_test_algo (hash_gcrypt_algo_map[hash_algo]);
+#endif /* HAVE_LIBGCRYPT */
+  default:
+    return 0;
+  }
+}
+
 /* Process input data with Keyed-MD5 algorithm and store digest as output. */
 unsigned
 hash_make_keyed_md5
