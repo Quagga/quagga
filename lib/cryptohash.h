@@ -38,6 +38,8 @@
 
 extern const struct message hash_algo_str[];
 extern const size_t hash_algo_str_max;
+extern const struct message hash_algo_cli_str[];
+extern const size_t hash_algo_cli_str_max;
 extern const u_int8_t hash_digest_length[];
 extern const u_int8_t hash_apad_sha512[];
 

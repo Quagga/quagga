@@ -37,6 +37,16 @@ const struct message hash_algo_str[] =
 };
 const size_t hash_algo_str_max = sizeof (hash_algo_str) / sizeof (struct message);
 
+const struct message hash_algo_cli_str[] =
+{
+  { HASH_KEYED_MD5,       "md5"              },
+  { HASH_HMAC_SHA1,       "sha1"             },
+  { HASH_HMAC_SHA256,     "sha256"           },
+  { HASH_HMAC_SHA384,     "sha384"           },
+  { HASH_HMAC_SHA512,     "sha512"           },
+};
+const size_t hash_algo_cli_str_max = sizeof (hash_algo_cli_str) / sizeof (struct message);
+
 /* hash digest size map */
 const u_int8_t hash_digest_length[] =
 {

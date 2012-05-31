@@ -1989,16 +1989,11 @@ rip_interface_config_write (struct vty *vty)
           break;
 #ifdef HAVE_LIBGCRYPT
         case HASH_HMAC_SHA1:
-          vty_out (vty, " ip rip authentication mode sha1%s", VTY_NEWLINE);
-          break;
         case HASH_HMAC_SHA256:
-          vty_out (vty, " ip rip authentication mode sha256%s", VTY_NEWLINE);
-          break;
         case HASH_HMAC_SHA384:
-          vty_out (vty, " ip rip authentication mode sha384%s", VTY_NEWLINE);
-          break;
         case HASH_HMAC_SHA512:
-          vty_out (vty, " ip rip authentication mode sha512%s", VTY_NEWLINE);
+          vty_out (vty, " ip rip authentication mode %s%s",
+                   LOOKUP (hash_algo_cli_str, ri->hash_algo), VTY_NEWLINE);
           break;
 #endif /* HAVE_LIBGCRYPT */
         default:
