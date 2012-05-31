@@ -41,6 +41,7 @@ extern const size_t hash_algo_str_max;
 extern const u_int8_t hash_digest_length[];
 extern const u_int8_t hash_apad_sha512[];
 
+extern unsigned hash_algo_byname (const char *);
 extern unsigned hash_make_keyed_md5 (const void *, const size_t, void *, void *);
 #ifdef HAVE_LIBGCRYPT
 extern unsigned hash_make_hmac (const unsigned, const void *, const size_t, const void *, const size_t, void *);

@@ -71,6 +71,24 @@ static const int hash_gcrypt_algo_map[] =
 };
 #endif /* HAVE_LIBGCRYPT */
 
+/* Map a string name of a listed hash algorithm into Quagga internal code. */
+unsigned
+hash_algo_byname (const char *algo)
+{
+  if (! strcmp (algo, "md5"))
+    return HASH_KEYED_MD5;
+  if (! strcmp (algo, "sha1"))
+    return HASH_HMAC_SHA1;
+  if (! strcmp (algo, "sha256"))
+    return HASH_HMAC_SHA256;
+  if (! strcmp (algo, "sha384"))
+    return HASH_HMAC_SHA384;
+  if (! strcmp (algo, "sha512"))
+    return HASH_HMAC_SHA512;
+  else
+    return 0;
+}
+
 /* Process input data with Keyed-MD5 algorithm and store digest as output. */
 unsigned
 hash_make_keyed_md5
