@@ -81,6 +81,21 @@ static const int hash_gcrypt_algo_map[] =
 };
 #endif /* HAVE_LIBGCRYPT */
 
+extern unsigned
+hash_library_init (void)
+{
+#ifdef HAVE_LIBGCRYPT
+  if (! gcry_check_version (GCRYPT_VERSION))
+  {
+    zlog_err ("libgcrypt initialization failed");
+    return 1;
+  }
+  gcry_control (GCRYCTL_DISABLE_SECMEM, 0);
+  gcry_control (GCRYCTL_INITIALIZATION_FINISHED, 0);
+#endif /* HAVE_LIBGCRYPT */
+  return 0;
+}
+
 /* Map a string name of a listed hash algorithm into Quagga internal code. */
 unsigned
 hash_algo_byname (const char *algo)

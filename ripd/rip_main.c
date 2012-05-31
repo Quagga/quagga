@@ -31,18 +31,13 @@
 #include "log.h"
 #include "sigevent.h"
 #include "zclient.h"
+#include "cryptohash.h"
 
 #include "ripd/ripd.h"
 #include "ripd/rip_interface.h"
 #include "ripd/rip_main.h"
 #include "ripd/rip_peer.h"
 #include "ripd/rip_zebra.h"
-
-/* for gcry_check_version() */
-#ifdef HAVE_LIBGCRYPT
-#define GCRYPT_NO_DEPRECATED
-#include <gcrypt.h>
-#endif /* HAVE_LIBGCRYPT */
 
 /* ripd options. */
 static struct option longopts[] = 
@@ -288,9 +283,8 @@ main (int argc, char **argv)
   vty_init (master);
   memory_init ();
   keychain_init ();
-#ifdef HAVE_LIBGCRYPT
-  gcry_check_version ("1.2.0");
-#endif /* HAVE_LIBGCRYPT */
+  if (hash_library_init())
+    exit (1);
 
   /* RIP related initialization. */
   rip_init ();

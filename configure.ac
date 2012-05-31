@@ -1435,10 +1435,10 @@ fi
 
 dnl -----------------------------------------------------------------------
 dnl A "HAVE_LIBGCRYPT" macro will be defined, if --with-libgcrypt configure
-dnl option is given and the library is available.
-dnl
-dnl Each protocol process using libgcrypt must call gcry_check_version() once
-dnl before calling any other gcrypt functions.
+dnl option is given and the library is available (along with Quagga functions
+dnl directly dependent on libgcrypt). Each protocol process using libgcrypt
+dnl must call hash_library_init() once before calling any other libgcrypt
+dnl functions.
 dnl -----------------------------------------------------------------------
 if test "$with_libgcrypt" = "yes"; then
 	AM_PATH_LIBGCRYPT([1.2.0], [], AC_MSG_ERROR('NOT FOUND: libgcrypt'))
