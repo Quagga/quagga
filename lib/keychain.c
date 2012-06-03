@@ -147,7 +147,7 @@ key_lookup_for_accept (const struct keychain *keychain, u_int32_t index)
   for (ALL_LIST_ELEMENTS_RO (keychain->key, node, key))
     if (key->string != NULL)
     {
-      if (key->index >= index)
+      if (key->index % (UINT8_MAX + 1) == index)
 	{
 	  if (key->accept.start == 0)
 	    return key;
