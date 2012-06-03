@@ -145,6 +145,7 @@ key_lookup_for_accept (const struct keychain *keychain, u_int32_t index)
   now = time (NULL);
 
   for (ALL_LIST_ELEMENTS_RO (keychain->key, node, key))
+    if (key->string != NULL)
     {
       if (key->index >= index)
 	{
@@ -169,6 +170,7 @@ key_match_for_accept (const struct keychain *keychain, const char *auth_str)
   now = time (NULL);
 
   for (ALL_LIST_ELEMENTS_RO (keychain->key, node, key))
+    if (key->string != NULL)
     {
       if (key->accept.start == 0 ||
 	  (key->accept.start <= now &&
@@ -189,6 +191,7 @@ key_lookup_for_send (const struct keychain *keychain)
   now = time (NULL);
 
   for (ALL_LIST_ELEMENTS_RO (keychain->key, node, key))
+    if (key->string != NULL)
     {
       if (key->send.start == 0)
 	return key;
