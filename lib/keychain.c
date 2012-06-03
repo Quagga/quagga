@@ -86,7 +86,7 @@ static void
 key_delete_func (struct key *key)
 {
   if (key->string)
-    free (key->string);
+    XFREE (MTYPE_KEY, key->string);
   key_free (key);
 }
 
@@ -101,7 +101,7 @@ keychain_get (const char *name)
     return keychain;
 
   keychain = keychain_new ();
-  keychain->name = strdup (name);
+  keychain->name = XSTRDUP (MTYPE_KEYCHAIN, name);
   keychain->key = list_new ();
   keychain->key->cmp = (int (*)(void *, void *)) key_cmp_func;
   keychain->key->del = (void (*)(void *)) key_delete_func;
@@ -114,7 +114,7 @@ static void
 keychain_delete (struct keychain *keychain)
 {
   if (keychain->name)
-    free (keychain->name);
+    XFREE (MTYPE_KEYCHAIN, keychain->name);
 
   list_delete (keychain->key);
   listnode_delete (keychain_list, keychain);
@@ -226,7 +226,7 @@ key_delete (struct keychain *keychain, struct key *key)
   listnode_delete (keychain->key, key);
 
   if (key->string)
-    free (key->string);
+    XFREE (MTYPE_KEY, key->string);
   key_free (key);
 }
 
@@ -328,8 +328,8 @@ DEFUN (key_string,
   key = vty->index_sub;
 
   if (key->string)
-    free (key->string);
-  key->string = strdup (argv[0]);
+    XFREE (MTYPE_KEY, key->string);
+  key->string = XSTRDUP (MTYPE_KEY, argv[0]);
 
   return CMD_SUCCESS;
 }
@@ -346,10 +346,7 @@ DEFUN (no_key_string,
   key = vty->index_sub;
 
   if (key->string)
-    {
-      free (key->string);
-      key->string = NULL;
-    }
+    XFREE (MTYPE_KEY, key->string);
 
   return CMD_SUCCESS;
 }
