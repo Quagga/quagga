@@ -34,6 +34,8 @@ const struct message hash_algo_str[] =
   { HASH_HMAC_SHA256,     "HMAC-SHA-256"     },
   { HASH_HMAC_SHA384,     "HMAC-SHA-384"     },
   { HASH_HMAC_SHA512,     "HMAC-SHA-512"     },
+  { HASH_HMAC_RMD160,     "HMAC-RIPEMD-160"  },
+  { HASH_HMAC_WHIRLPOOL,  "HMAC-Whirlpool"   },
 };
 const size_t hash_algo_str_max = sizeof (hash_algo_str) / sizeof (struct message);
 
@@ -44,6 +46,8 @@ const struct message hash_algo_cli_str[] =
   { HASH_HMAC_SHA256,     "sha256"           },
   { HASH_HMAC_SHA384,     "sha384"           },
   { HASH_HMAC_SHA512,     "sha512"           },
+  { HASH_HMAC_RMD160,     "rmd160"           },
+  { HASH_HMAC_WHIRLPOOL,  "whirlpool"        },
 };
 const size_t hash_algo_cli_str_max = sizeof (hash_algo_cli_str) / sizeof (struct message);
 
@@ -55,6 +59,8 @@ const u_int8_t hash_digest_length[] =
   [HASH_HMAC_SHA256]     = HASH_SIZE_SHA256,
   [HASH_HMAC_SHA384]     = HASH_SIZE_SHA384,
   [HASH_HMAC_SHA512]     = HASH_SIZE_SHA512,
+  [HASH_HMAC_RMD160]     = HASH_SIZE_RMD160,
+  [HASH_HMAC_WHIRLPOOL]  = HASH_SIZE_WHIRLPOOL,
 };
 
 /* RFC4822 2.5: Apad is the hexadecimal value 0x878FE1F3 repeated (L/4) times. */
@@ -78,6 +84,8 @@ static const int hash_gcrypt_algo_map[] =
   [HASH_HMAC_SHA256]     = GCRY_MD_SHA256,
   [HASH_HMAC_SHA384]     = GCRY_MD_SHA384,
   [HASH_HMAC_SHA512]     = GCRY_MD_SHA512,
+  [HASH_HMAC_RMD160]     = GCRY_MD_RMD160,
+  [HASH_HMAC_WHIRLPOOL]  = GCRY_MD_WHIRLPOOL,
 };
 #endif /* HAVE_LIBGCRYPT */
 
@@ -110,6 +118,10 @@ hash_algo_byname (const char *algo)
     return HASH_HMAC_SHA384;
   if (! strcmp (algo, "sha512"))
     return HASH_HMAC_SHA512;
+  if (! strcmp (algo, "rmd160"))
+    return HASH_HMAC_RMD160;
+  if (! strcmp (algo, "whirlpool"))
+    return HASH_HMAC_WHIRLPOOL;
   else
     return 0;
 }
@@ -129,6 +141,8 @@ hash_algo_enabled (const unsigned hash_algo)
   case HASH_HMAC_SHA256:
   case HASH_HMAC_SHA384:
   case HASH_HMAC_SHA512:
+  case HASH_HMAC_RMD160:
+  case HASH_HMAC_WHIRLPOOL:
     return 0 == gcry_md_test_algo (hash_gcrypt_algo_map[hash_algo]);
 #endif /* HAVE_LIBGCRYPT */
   default:

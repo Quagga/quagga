@@ -28,12 +28,16 @@
 #define HASH_HMAC_SHA256             3
 #define HASH_HMAC_SHA384             4
 #define HASH_HMAC_SHA512             5
+#define HASH_HMAC_RMD160             6
+#define HASH_HMAC_WHIRLPOOL          7
 
 #define HASH_SIZE_MD5               16
 #define HASH_SIZE_SHA1              20
 #define HASH_SIZE_SHA256            32
 #define HASH_SIZE_SHA384            48
 #define HASH_SIZE_SHA512            64
+#define HASH_SIZE_RMD160            20
+#define HASH_SIZE_WHIRLPOOL         64
 #define HASH_SIZE_MAX               64
 
 extern const struct message hash_algo_str[];
