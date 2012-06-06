@@ -171,10 +171,9 @@ hash_make_keyed_md5
 }
 
 #ifdef HAVE_LIBGCRYPT
-/*
-Process input data with a HMAC-SHA family algorithm and store digest as
-output. It is safe for output digest buffer to be within input buffer.
-*/
+/* Process input data with a HMAC algorithm using the given hash function and
+ * store digest as output. It is safe for output digest buffer to be within
+ * input buffer. */
 unsigned
 hash_make_hmac
 (
