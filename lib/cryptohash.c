@@ -156,7 +156,7 @@ hash_make_keyed_md5
 (
   const void *input,
   const size_t inputlen,
-  void *auth_str,
+  const void *auth_str,
   void *output
 )
 {

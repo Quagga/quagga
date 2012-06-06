@@ -50,7 +50,7 @@ extern const u_int8_t hash_apad_sha512[];
 extern unsigned hash_library_init (void);
 extern unsigned hash_algo_byname (const char *);
 extern unsigned char hash_algo_enabled (const unsigned);
-extern unsigned hash_make_keyed_md5 (const void *, const size_t, void *, void *);
+extern unsigned hash_make_keyed_md5 (const void *, const size_t, const void *, void *);
 #ifdef HAVE_LIBGCRYPT
 extern unsigned hash_make_hmac (const unsigned, const void *, const size_t, const void *, const size_t, void *);
 #endif /* HAVE_LIBGCRYPT */
