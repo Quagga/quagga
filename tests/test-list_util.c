@@ -4,6 +4,7 @@
 #include "command.h"
 #include "list_util.h"
 #include <string.h>
+#include "vector.h"
 
 /* List util torture tests
  *
@@ -16,6 +17,9 @@ static void test_ssl(void);
 static void test_sdl(void);
 static void test_ddl(void);
 
+static uint assert_limit ;
+
+
 #define test_assert(true, message) \
   do { if (!(true)) test_assert_fail(#true, message, __func__, __LINE__) ; \
   } while (0)
@@ -26,6 +30,11 @@ test_assert_fail(const char* truth, const char* message, const char* func,
 {
   printf("*** %s %d: (%s) not true: %s\n", func, line, truth, message) ;
 
+  if (assert_limit > 0)
+    {
+      --assert_limit ;
+      assert(assert_limit > 0) ;
+    } ;
 } ;
 
 /*==============================================================================
@@ -47,6 +56,8 @@ main(int argc, char **argv)
 
   srand(22) ;                   /* Consistent testing required          */
 
+  assert_limit = 25 ;
+
   test_ssl() ;
   test_sdl() ;
   test_ddl() ;
@@ -62,6 +73,22 @@ static unsigned majic(void* a, void* b)
   uintptr_t z = (uintptr_t)a ^ (uintptr_t)b ^ (uintptr_t)&majic ;
   return z ;
 } ;
+
+/* aux list (vector) functions
+ */
+static vector aux_init(void) ;
+static void aux_reset(vector aux) ;
+static int aux_length(vector aux) ;
+static void* aux_item(vector aux, int index) ;
+static void* aux_next_item(vector aux, int index) ;
+static void* aux_prev_item(vector aux, int index) ;
+static void aux_insert(vector aux, int index, void* item) ;
+static void aux_delete(vector aux, void* item) ;
+static void aux_push_head(vector aux, void* item) ;
+static void* aux_pop_head(vector aux) ;
+static void aux_push_tail(vector aux, void* item) ;
+static void* aux_pop_tail(vector aux) ;
+static int aux_find(vector aux, void* item) ;
 
 /*==============================================================================
  * Single Base, Single Link
@@ -1162,67 +1189,168 @@ test_sdl(void)
  *   ddl_next(item, next)           -- step to next item, if any
  *   ddl_prev(item, next)           -- step to prev item, if any
  *
+ *   ddl_slice(base, sub, list)     -- remove sublist from given list
+ *   ddl_splice_after(after, base, sub, list)
+ *                                  -- insert sublist after given item
+ *   ddl_splice_before(before, base, sub, list)
+ *                                  -- insert sublist before given item
+ *
  * Cases to cover:
  */
 
 /* Testing runs two lists through struct ddt_item objects.                    */
 
-enum list { a_list, b_list, list_count } ;
+enum list
+  {
+    a_list,
+    b_list,             /* a_list..b_list is all main lists             */
+
+    a_sub_list,
+    b_sub_list,         /* a_sub_list..b_sub_list is all sub lists      */
+
+    list_count          /* 0..list_count -1 is all lists                */
+  } ;
+typedef enum list list_t ;
+
+enum list_bit
+  {
+    a_list_bit     = 1 << a_list,
+    b_list_bit     = 1 << b_list,
+
+    a_sub_list_bit = 1 << a_sub_list,
+    b_sub_list_bit = 1 << b_sub_list,
+
+    list_bits      = 1 << list_count,
+  } ;
+typedef enum list_bit list_bit_t ;
 
 typedef struct ddt_item* ddt_item ;
 
 struct ddt_list_pair dl_list_pair(ddt_item) ;  /* Example struct constructor */
 struct ddt_base_pair dl_base_pair(ddt_item) ;
 
-typedef struct dl_base_pair(ddt_item) ddt_base_pair_t ;
-                                            /* Example typedef constructor  */
-typedef struct dl_base_pair(ddt_item)* p_ddt_base_pair ;
+typedef struct dl_base_pair(ddt_item) ddt_base_pair_xt ;
                                             /* Example typedef constructor  */
 
+typedef struct ddt_list_pair  ddt_list_pair_t ;
 typedef struct ddt_list_pair* ddt_list_pair ;
+
+typedef struct ddt_base_pair  ddt_base_pair_t ;
 typedef struct ddt_base_pair* ddt_base_pair ;
-
-typedef struct ddt_rank* ddt_rank ;
-
-struct ddt_rank                 /* information for each list    */
-{
-  struct ddt_list_pair  list ;  /* the thing we are testing     */
-
-  int         lister ;
-  int         list_found ;
-  unsigned    majic ;
-
-  int         ordinal ;
-};
 
 struct ddt_item                 /* the test items               */
 {
-  struct ddt_rank  a ;
+  ddt_list_pair_t a ;
 
   char  a_rubbish[21] ;
 
-  struct ddt_rank b ;
+  uint  seen ;
+
+  ddt_list_pair_t b ;
 
   char  b_rubbish[19] ;
 } ;
 
-/* The test list base pairs, and pointers to the actual bases, for use in
+/* Pointers to the actual bases, for use in
  * the verification code.
  */
-static ddt_base_pair ddt_bases[list_count] ;
-
-/* For some tests want to construct lists and know the first, last and
- * somewhere between items.
- */
-
-enum where { first, middle, last, where_count } ;
-
-struct ddt_test_list_items
+struct ddt_test_list
 {
-  struct
-  {
-    ddt_item  where[where_count] ;
-  } list[list_count] ;
+  const char*   name ;
+
+  ddt_base_pair base ;
+
+  vector        aux ;
+} ;
+
+typedef struct ddt_test_list* ddt_test_list ;
+typedef struct ddt_test_list  ddt_test_list_t ;
+
+static ddt_test_list_t ddt_lists[list_count] ;
+
+
+static inline ddt_list_pair
+ddt_list(ddt_item item, list_t lt)
+{
+  switch (lt)
+    {
+      case a_list:
+      case a_sub_list:
+        return &(item->a) ;
+
+      case b_list:
+      case b_sub_list:
+        return &(item->b) ;
+
+      default:
+        assert(false) ;
+    } ;
+} ;
+
+static inline ddt_base_pair
+ddt_base(list_t lt)
+{
+  switch (lt)
+    {
+      case a_list:
+      case a_sub_list:
+      case b_list:
+      case b_sub_list:
+        return ddt_lists[lt].base ;
+
+      default:
+        assert(false) ;
+    } ;
+} ;
+
+static inline vector
+ddt_aux(list_t lt)
+{
+  switch (lt)
+    {
+      case a_list:
+      case a_sub_list:
+      case b_list:
+      case b_sub_list:
+        return ddt_lists[lt].aux ;
+
+      default:
+        assert(false) ;
+    } ;
+} ;
+
+static inline uint
+ddt_list_bit(list_t lt)
+{
+  switch (lt)
+    {
+      case a_list:
+      case a_sub_list:
+        return 1 ;
+
+      case b_list:
+      case b_sub_list:
+        return 2 ;
+
+      default:
+        assert(false) ;
+    } ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Initialise a test list.
+ */
+static void
+ddt_test_list_init(ddt_test_list tl, ddt_base_pair base, const char* name)
+{
+  tl->name   = name ;
+
+  tl->base   = base ;
+
+  base->head = NULL ;
+  base->tail = NULL ;
+
+  tl->aux    = aux_init() ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1232,12 +1360,14 @@ enum { ddt_max_items = 1000 } ;
 
 static unsigned ddt_item_count = 0 ;
 static unsigned ddt_item_alloc = 0 ;
+static unsigned ddt_item_byte  = 0 ;
 static ddt_item ddt_items[ddt_max_items] ;
 
-static inline ddt_item
+static ddt_item
 ddt_new_item(void)
 {
   ddt_item item ;
+  uint i, b ;
 
   assert(ddt_item_count <= ddt_item_alloc) ;
 
@@ -1249,70 +1379,11 @@ ddt_new_item(void)
 
   item = ddt_items[ddt_item_count++] ;
 
-  memset(item, ddt_item_count & 0xFF, sizeof(struct ddt_item)) ;
-
-  item->a.lister = 0 ;
-  item->b.lister = 0 ;
-
-  item->a.ordinal = 0 ;
-  item->b.ordinal = 0 ;
+  b = ddt_item_byte + 0xA5 ;
+  for (i = 0 ; i < sizeof(struct ddt_item) ; ++i)
+    ((uchar*)item)[i] = (b += 0x55) ;
 
   return item ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Given an item and a list ordinal, return pointer to "rank" for item.
- */
-static inline ddt_rank
-ddt_get_rank(ddt_item item, enum list l)
-{
-  if (item == NULL)
-    return NULL ;
-
-  if (l == a_list)
-    return &item->a ;
-  if (l == b_list)
-    return &item->b ;
-
-  assert(0) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Keep track of what should be found on the lists, and majic marker to check
- * that don't get lost and point into space.
- */
-static inline unsigned
-ddt_get_majic(ddt_item item, enum list l)
-{
-  return majic(item, ddt_bases[l]) ;
-} ;
-
-static void
-ddt_test_list_add(ddt_item item, enum list l)
-{
-  ddt_rank rank = ddt_get_rank(item, l) ;
-
-  test_assert(rank->lister == 0, "already on list") ;
-
-  rank->lister  = 1 ;
-  rank->majic   = ddt_get_majic(item, l) ;
-  rank->ordinal = 0 ;   /* unknown ordinal      */
-} ;
-
-static void
-ddt_test_list_del(ddt_item item, enum list l)
-{
-  ddt_rank rank ;
-
-  if (item == NULL)
-    return ;
-
-  rank = ddt_get_rank(item, l) ;
-
-  test_assert(rank->lister == 1, "not on list") ;
-
-  rank->lister  = 0 ;
-  rank->majic   = 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1339,24 +1410,20 @@ ddt_test_list_del(ddt_item item, enum list l)
 static void
 ddt_verify_lists(void)
 {
-  ddt_base_pair base ;
-  ddt_rank r ;
-  ddt_item this ;
-  ddt_item prev ;
-  int l ;
-  int i ;
+  uint i, l ;
 
-  /* Wash the found flags                                       */
-  for (l = 0 ; l < list_count ; ++l)
-    for (i = 0 ; i < (int)ddt_item_count ; ++i)
-      ddt_get_rank(ddt_items[i], l)->list_found = 0 ;
+  /* Wash the seen flags
+   */
+  for (i = 0 ; i < ddt_item_count ; ++i)
+    ddt_items[i]->seen = 0 ;
 
-  /* Walk the lists                                             */
+  /* Walk the lists
+   */
   for (l = 0 ; l < list_count ; ++l)
     {
-      int ordinal = 0 ;
+      ddt_base_pair base ;
 
-      base = ddt_bases[l] ;
+      base = ddt_lists[l].base ;
       if (base == NULL)
         continue ;
 
@@ -1364,56 +1431,52 @@ ddt_verify_lists(void)
         test_assert(base->head == base->tail, "broken list bases") ;
       else
         {
-          r = ddt_get_rank(base->head, l) ;
-          test_assert(r->list.prev == NULL, "broken list first item->prev") ;
-          r = ddt_get_rank(base->tail, l) ;
-          test_assert(r->list.next == NULL, "broken list last item->next") ;
+          vector        aux ;
+          ddt_list_pair list ;
+          ddt_item this ;
+          ddt_item prev ;
+          uint s ;
+
+          list = ddt_list(base->head, l) ;
+          test_assert(list->prev == NULL, "broken list first item->prev") ;
+          list = ddt_list(base->tail, l) ;
+          test_assert(list->next == NULL, "broken list last item->next") ;
 
           this = base->head ;
           prev = NULL ;
 
+          s = ddt_list_bit(l) ;         /* seen flag    */
+
+          aux = ddt_lists[l].aux ;
+          i = 0 ;
           while (this != NULL)
             {
-              r = ddt_get_rank(this, l) ;
+              test_assert(i < vector_length(aux), "list longer than aux list") ;
+              test_assert(aux_item(aux, i) == this,
+                                              "list and aux list out of step") ;
 
-              test_assert(r->list.prev == prev, "broken item->prev") ;
+              test_assert((this->seen & s) == 0, "list item seen already") ;
+              this->seen |= s ;
 
-              test_assert(r->lister, "should not be on this list") ;
+              list = ddt_list(this, l) ;
 
-              test_assert(!r->list_found, "circular list") ;
-              r->list_found = 1 ;
+              test_assert(list->prev == prev, "broken item->prev") ;
 
-              if (r->ordinal != 0)
-                {
-                  test_assert(r->ordinal > ordinal, "list out of order") ;
-                  ordinal = r->ordinal ;
-                }
-
-              test_assert(r->majic == ddt_get_majic(this, l),
-                                                        "wrong sort of majic") ;
               prev = this ;
-              this = r->list.next ;
+              this = list->next ;
+              ++i ;
             } ;
 
+          test_assert(i == vector_length(aux), "list shorter than aux list") ;
           test_assert(base->tail == prev, "broken tail pointer") ;
         } ;
     } ;
-
-  /* Verify that did not miss anything should have found                */
-  /* Wash the found flags                                       */
-  for (l = 0 ; l < list_count ; ++l)
-    for (i = 0 ; i < (int)ddt_item_count ; ++i)
-      {
-        r = ddt_get_rank(ddt_items[i], l) ;
-
-        if (r->lister)
-          test_assert(r->list_found, "should have found this on list") ;
-      } ;
 } ;
 
 /*------------------------------------------------------------------------------
  * Reset the test list handling
  *
+ * Sets all ddt_lists empty.
  */
 static void
 ddt_reset_lists(void)
@@ -1421,126 +1484,130 @@ ddt_reset_lists(void)
   int l ;
 
   for (l = 0 ; l < list_count ; ++l)
-    ddl_init(*(ddt_bases[l])) ;
+    {
+      ddl_init(*(ddt_lists[l].base)) ;
+      aux_reset(ddt_lists[l].aux) ;
+    } ;
 
   ddt_item_count = 0 ;
 } ;
 
 /*------------------------------------------------------------------------------
- * Make lists with 'n' items each.
+ * Set all lists empty, make main lists with 'n' and sub lists with 'm' items
+ * each.
  *
- * If 'n' 0..3, makes lists with exactly that many items.
- *
- * Otherwise, list length has +/- 25% jitter.
+ * Lists will have a random number of items in common.
  */
 static void
-ddt_test_make_lists(struct ddt_test_list_items* test, int n)
+ddt_test_make_lists(int n, int m)
 {
-  ddt_base_pair base ;
   ddt_item      item ;
-  ddt_rank      rank ;
-  enum list l ;
-  int t ;
-  int m ;
+  vector        aux ;
 
-  int req[list_count] ;
-  int mid[list_count] ;
-
-  /* Capture the requirements                                   */
-  t = 0 ;
-  m = 1 ;
-  for (l = 0 ; l < list_count ; ++l)
-    {
-      m += m ;
-      int j = (n + 1) / 4 ;
-
-      if (n <= 3)
-        req[l] = n ;
-      else
-        req[l] = n - j + (rand() % (j + j + 1)) ;
-
-      mid[l] = req[l] / 2 ;
-
-      t += req[l] ;
-
-      test->list[l].where[first]  = NULL ;
-      test->list[l].where[middle] = NULL ;
-      test->list[l].where[last]   = NULL ;
-    } ;
+  uint l, t ;
 
   ddt_reset_lists() ;
 
+  uint req[list_count] ;
+
+  /* Capture the requirements
+   */
+  t = 0 ;
+  for (l = 0 ; l < list_count ; ++l)
+    {
+      uint ln ;
+
+      switch (l)
+        {
+          case a_list:
+          case b_list:
+            ln = n ;
+            break ;
+
+          case a_sub_list:
+          case b_sub_list:
+            ln = m ;
+            break ;
+
+          default:
+            assert(false) ;
+        } ;
+
+      t     += ln ;
+      req[l] = ln ;
+    } ;
+
   /* Have t = total number of items still required
-   *      m = 2^n -- where there are 'n' lists
+   *
+   * We ensure that the a_list and the a_sub_list are distinct, and that
+   * the b_list and the b_sub_list are also distinct.
    */
   while (t != 0)
     {
-      int b ;
-      int r ;
-      r = (rand() % (m - 1)) + 1 ;  /* bit pattern, at least one set   */
+      uint r ;
 
-      item = ddt_new_item() ;
+      r = rand() % list_bits ;
 
-      b = 1 ;
-      for (l = 0 ; l < list_count ; ++l)
+      if ((r & a_list_bit) || (m == 0))
+        r &= ~a_sub_list_bit ;
+      if ((r & b_list_bit) || (m == 0))
+        r &= ~b_sub_list_bit ;
+
+      item = NULL ;
+
+      l = 0 ;
+      while (r != 0)
         {
-          if ((req[l] != 0) && ((r & b) != 0))
+          if ((r & 1) && (req[l] != 0))
             {
               --req[l] ;
               --t ;
 
-              ddt_test_list_add(item, l) ;
+              if (item == NULL)
+                item = ddt_new_item() ;
 
-              if (test->list[l].where[first] == NULL)
-                test->list[l].where[first] = item ;
-
-              if (mid[l]-- == 0)
-                test->list[l].where[middle] = item ;
-
-              test->list[l].where[last]     = item ;
-
-              base = ddt_bases[l] ;
-              rank = ddt_get_rank(item, l) ;
-
-              if (base->head == NULL)
-                {
-                  base->head = item ;
-                  base->tail = item ;
-                  rank->list.next = NULL ;
-                  rank->list.prev = NULL ;
-                }
-              else if (rand() & 1)
-                {
-                  rank->list.next = base->head ;
-                  rank->list.prev = NULL ;
-                  ddt_get_rank(base->head, l)->list.prev = item ;
-                  base->head = item ;
-                }
-              else
-                {
-                  rank->list.next = NULL ;
-                  rank->list.prev = base->tail ;
-                  ddt_get_rank(base->tail, l)->list.next = item ;
-                  base->tail = item ;
-                }
+              aux = ddt_lists[l].aux ;
+              aux_insert(aux, rand() % (vector_length(aux) + 1), item) ;
             } ;
-          b <<= 1 ;
+
+          r >>= 1 ;
+          l  += 1 ;
         }
     } ;
 
-  /* Number the items                                                   */
+  /* Construct the lists
+   */
   for (l = 0 ; l < list_count ; ++l)
     {
-      int o = 0 ;
+      ddt_base_pair base ;
+      ddt_list_pair list ;
+      uint i ;
 
-      base = ddt_bases[l] ;
+      base = ddt_lists[l].base ;
+      aux  = ddt_lists[l].aux ;
 
-      item = base->head ;
-      while (item != NULL)
+      base->head = NULL ;       /* Both NULL if list empty      */
+      base->tail = NULL ;
+
+      list = NULL ;
+      for (i = 0 ; i < vector_length(aux) ; ++i)
         {
-          rank = ddt_get_rank(item, l) ;
-          rank->ordinal = ++o ;                 /* first is 1   */
-          item = rank->list.next ;
+          ddt_list_pair prev ;
+
+          prev = list ;
+
+          item = aux_item(aux, i) ;
+          list = ddt_list(item, l) ;
+
+          if (prev == NULL)
+            base->head = item ;
+          else
+            prev->next = item ;
+
+          list->next = NULL ;
+          list->prev = base->tail ;
+
+          base->tail = item ;
         } ;
     } ;
 
@@ -1562,6 +1629,12 @@ ddt_test_make_lists(struct ddt_test_list_items* test, int n)
  *   ddl_tail(base)                 -- return tail of list
  *   ddl_next(item, next)           -- step to next item, if any
  *   ddl_prev(item, next)           -- step to prev item, if any
+ *
+ *   ddl_slice(base, sub, list)     -- remove sublist from given list
+ *   ddl_splice_after(after, base, sub, list)
+ *                                  -- insert sublist after given item
+ *   ddl_splice_before(before, base, sub, list)
+ *                                  -- insert sublist before given item
  */
 
 static struct ddt_parent
@@ -1578,19 +1651,23 @@ test_ddl(void)
 {
   struct ddt_base_pair  a_base ;
   struct ddt_parent*    b ;
+  ddt_base_pair_t       a_sub ;
+  ddt_base_pair_t       b_sub ;
 
-  struct ddt_test_list_items test ;
   int n ;
-  int o ;
 
   int base_n = 23 ;
   int rand_n = 17 ;
 
   printf("=== Testing ddl -- Double Base, Double Link -- stuff\n") ;
 
-  /* Initialise the test support                                        */
-  ddt_bases[a_list] = &a_base ;
-  ddt_bases[b_list] = &ddt_parent.base ;
+  /* Initialise the test support
+   */
+  ddt_test_list_init(&ddt_lists[a_list], &a_base, "a-list") ;
+  ddt_test_list_init(&ddt_lists[b_list], &ddt_parent.base, "b-list") ;
+
+  ddt_test_list_init(&ddt_lists[a_sub_list], &a_sub, "a-sub-list") ;
+  ddt_test_list_init(&ddt_lists[b_sub_list], &b_sub, "b-sub-list") ;
 
   ddt_item_count = 0 ;
   ddt_item_alloc = 0 ;
@@ -1604,7 +1681,6 @@ test_ddl(void)
 
   ddt_verify_lists() ;          /* start as mean to go on               */
 
-
   /* ddl_push(base, item, list)     -- insert at head of list
    *
    * Cases: (a) empty list
@@ -1615,7 +1691,7 @@ test_ddl(void)
   ddt_reset_lists() ;
 
   n = base_n + (rand() % rand_n) ;
-  while (n)
+  while (n > 0)
     {
       ddt_item item ;
       int r ;
@@ -1627,19 +1703,17 @@ test_ddl(void)
 
       if (r & 1)
         {
-          ddl_push(a_base, item, a.list) ;
+          ddl_push(a_base, item, a) ;
           test_assert(a_base.head == item, "ddl_push broken") ;
-          ddt_test_list_add(item, a_list) ;
-          item->a.ordinal = n ;
+          aux_push_head(ddt_lists[a_list].aux, item) ;
         } ;
       ddt_verify_lists() ;
 
       if (r & 2)
         {
-          ddl_push(b->base, item, b.list) ;
+          ddl_push(b->base, item, b) ;
           test_assert(b->base.head == item, "ddl_push broken") ;
-          ddt_test_list_add(item, b_list) ;
-          item->b.ordinal = n ;
+          aux_push_head(ddt_lists[b_list].aux, item) ;
         } ;
       ddt_verify_lists() ;
 
@@ -1657,33 +1731,29 @@ test_ddl(void)
   ddt_reset_lists() ;
 
   n = base_n + (rand() % rand_n) ;
-  o = 0 ;
-  while (n)
+  while (n > 0)
     {
       ddt_item item ;
       int r ;
 
       printf(".") ;
-      ++o ;
 
       item = ddt_new_item() ;
       r = (rand() % 3) + 1 ;
 
       if (r & 1)
         {
-          ddl_append(a_base, item, a.list) ;
+          ddl_append(a_base, item, a) ;
           test_assert(a_base.tail == item, "ddl_append broken") ;
-          ddt_test_list_add(item, a_list) ;
-          item->a.ordinal = o ;
+          aux_push_tail(ddt_lists[a_list].aux, item) ;
         } ;
       ddt_verify_lists() ;
 
       if (r & 2)
         {
-          ddl_append(b->base, item, b.list) ;
+          ddl_append(b->base, item, b) ;
           test_assert(b->base.tail == item, "ddl_append broken") ;
-          ddt_test_list_add(item, b_list) ;
-          item->b.ordinal = o ;
+          aux_push_tail(ddt_lists[b_list].aux, item) ;
         } ;
       ddt_verify_lists() ;
 
@@ -1693,37 +1763,60 @@ test_ddl(void)
 
   /* ddl_in_after(after, base, item, list)   -- insert after
    *
-   * Cases: (a) after first and only (so is also last)
-   *        (b) after first when more than one
-   *        (c) after last when more than one
-   *        (d) after something between
+   * NB: after may NOT be NULL.
+   *
+   * Cases: (a) after NULL when list is empty
+   *        (b) after NULL when list has 1 or more entries
+   *        (c) after first and only (so is also last)
+   *        (d) after first when more than one
+   *        (e) after last when more than one
+   *        (f) after something between
    */
   printf("  ddl_in_after test") ;
 
   n = base_n + (rand() % rand_n) ;
-  while (n)
+  while (n >= 0)
     {
-      ddt_item item ;
-      ddt_item after ;
+      int w ;
 
       printf(".") ;
-      ddt_test_make_lists(&test, n) ;
 
-      item = ddt_new_item() ;
-      after = test.list[a_list].where[n % where_count] ;
-      ddl_in_after(after, a_base, item, a.list) ;
-      test_assert(after->a.list.next == item, "ddl_in_after broken") ;
-      test_assert(item->a.list.prev == after, "ddl_in_after broken") ;
-      ddt_test_list_add(item, a_list) ;
-      ddt_verify_lists() ;
+      for (w = 0 ; w <= n ; ++w)
+        {
+          ddt_item item ;
+          ddt_item after ;
+          vector aux ;
 
-      item = ddt_new_item() ;
-      after = test.list[b_list].where[n % where_count] ;
-      ddl_in_after(after, b->base, item, b.list) ;
-      test_assert(after->b.list.next == item, "ddl_in_after broken") ;
-      test_assert(item->b.list.prev == after, "ddl_in_after broken") ;
-      ddt_test_list_add(item, b_list) ;
-      ddt_verify_lists() ;
+          ddt_test_make_lists(n, n) ;
+
+          item  = ddt_new_item() ;
+
+          aux = ddt_aux(a_list) ;
+          after = aux_item(aux, w) ;
+
+          ddl_in_after(after, a_base, item, a) ;
+
+          if (after != NULL)
+            aux_insert(aux, w+1, item) ;
+          else
+            aux_push_tail(aux, item) ;
+
+          ddt_verify_lists() ;
+
+          item  = ddt_new_item() ;
+
+          aux = ddt_aux(b_list) ;
+          after = aux_item(aux, w) ;
+
+          ddl_in_after(after, b->base, item, b) ;
+
+          if (after != NULL)
+            aux_insert(aux, w+1, item) ;
+          else
+            aux_push_tail(aux, item) ;
+
+          ddt_verify_lists() ;
+        } ;
 
       --n ;
     } ;
@@ -1731,38 +1824,58 @@ test_ddl(void)
 
   /* ddl_in_before(before, base, item, list) -- insert before
    *
-   * Cases: (a) before first and only (so is also last)
-   *        (b) before first when more than one
-   *        (c) before last when more than one
-   *        (d) before something between
+   * Cases: (a) before NULL when list empty
+   *        (b) before NULL when list has 1 or more entries
+   *        (c) before first and only (so is also last)
+   *        (d) before first when more than one
+   *        (e) before last when more than one
+   *        (f) before something between
    */
   printf("  ddl_in_before test") ;
 
   n = base_n + (rand() % rand_n) ;
-  while (n)
+  while (n >= 0)
     {
-      ddt_item item ;
-      ddt_item before ;
+      int     w ;
 
       printf(".") ;
 
-      ddt_test_make_lists(&test, n) ;
+      for (w = 0 ; w <= n ; ++w)
+        {
+          ddt_item item ;
+          ddt_item before ;
+          vector aux ;
 
-      item = ddt_new_item() ;
-      before = test.list[a_list].where[n % where_count] ;
-      ddl_in_before(before, a_base, item, a.list) ;
-      test_assert(before->a.list.prev == item, "ddl_in_before broken") ;
-      test_assert(item->a.list.next == before, "ddl_in_before broken") ;
-      ddt_test_list_add(item, a_list) ;
-      ddt_verify_lists() ;
+          ddt_test_make_lists(n, n) ;
 
-      item = ddt_new_item() ;
-      before = test.list[b_list].where[n % where_count] ;
-      ddl_in_before(before, b->base, item, b.list) ;
-      test_assert(before->b.list.prev == item, "ddl_in_before broken") ;
-      test_assert(item->b.list.next == before, "ddl_in_before broken") ;
-      ddt_test_list_add(item, b_list) ;
-      ddt_verify_lists() ;
+          item = ddt_new_item() ;
+
+          aux  = ddt_aux(a_list) ;
+          before = aux_item(aux, w) ;
+
+          ddl_in_before(before, a_base, item, a) ;
+
+          if (before != NULL)
+            aux_insert(aux, w, item) ;
+          else
+            aux_push_head(aux, item) ;
+
+          ddt_verify_lists() ;
+
+          item = ddt_new_item() ;
+
+          aux  = ddt_aux(b_list) ;
+          before = aux_item(aux, w) ;
+
+          ddl_in_before(before, b->base, item, b) ;
+
+          if (before != NULL)
+            aux_insert(aux, w, item) ;
+          else
+            aux_push_head(aux, item) ;
+
+          ddt_verify_lists() ;
+        } ;
 
       --n ;
     } ;
@@ -1782,46 +1895,37 @@ test_ddl(void)
       ddt_item item ;
       ddt_item temp ;
       ddt_item peek ;
-      int      ordinal ;
 
       printf(".") ;
 
-      ddt_test_make_lists(&test, n) ;
+      ddt_test_make_lists(n, n) ;
 
-      ordinal = 0 ;
       while (1)
         {
           peek = a_base.head ;
-          temp = ddl_pop(&item, a_base, a.list) ;
+          temp = ddl_pop(&item, a_base, a) ;
           test_assert(temp == item, "ddl_pop broken") ;
           test_assert(peek == item, "ddl_pop broken") ;
 
-          ddt_test_list_del(item, a_list) ;
+          aux_pop_head(ddt_aux(a_list)) ;
           ddt_verify_lists() ;
 
           if (item == NULL)
             break ;
-
-          ++ordinal ;
-          test_assert(item->a.ordinal == ordinal, "ddl_pop not in order") ;
         } ;
 
-      ordinal = 0 ;
       while (1)
         {
           peek = b->base.head ;
-          temp = ddl_pop(&item, b->base, b.list) ;
+          temp = ddl_pop(&item, b->base, b) ;
           test_assert(temp == item, "ddl_pop broken") ;
           test_assert(peek == item, "ddl_pop broken") ;
 
-          ddt_test_list_del(item, b_list) ;
+          aux_pop_head(ddt_aux(b_list)) ;
           ddt_verify_lists() ;
 
           if (item == NULL)
             break ;
-
-          ++ordinal ;
-          test_assert(item->b.ordinal == ordinal, "ddl_pop not in order") ;
         } ;
 
       --n ;
@@ -1834,7 +1938,6 @@ test_ddl(void)
    *        (b) list with one item
    *        (c) empty list
    */
-
   printf("  ddl_crop test") ;
 
   n = base_n + (rand() % rand_n) ;
@@ -1843,58 +1946,37 @@ test_ddl(void)
       ddt_item item ;
       ddt_item temp ;
       ddt_item peek ;
-      int      ordinal ;
 
       printf(".") ;
 
-      ddt_test_make_lists(&test, n) ;
+      ddt_test_make_lists(n, n) ;
 
-      ordinal = 0 ;
       while (1)
         {
           peek = a_base.tail ;
-          temp = ddl_crop(&item, a_base, a.list) ;
+          temp = ddl_crop(&item, a_base, a) ;
           test_assert(temp == item, "ddl_crop broken") ;
           test_assert(peek == item, "ddl_crop broken") ;
 
-          ddt_test_list_del(item, a_list) ;
+          aux_pop_tail(ddt_aux(a_list)) ;
           ddt_verify_lists() ;
 
           if (item == NULL)
             break ;
-
-          if (ordinal == 0)
-            ordinal = item->a.ordinal ;
-          else
-            {
-              test_assert(ordinal > 0, "ordinal out of whack") ;
-              --ordinal ;
-              test_assert(item->a.ordinal == ordinal, "ddl_crop not in order") ;
-            } ;
         } ;
 
-      ordinal = 0 ;
       while (1)
         {
           peek = b->base.tail ;
-          temp = ddl_crop(&item, b->base, b.list) ;
+          temp = ddl_crop(&item, b->base, b) ;
           test_assert(temp == item, "ddl_crop broken") ;
           test_assert(peek == item, "ddl_crop broken") ;
 
-          ddt_test_list_del(item, b_list) ;
+          aux_pop_tail(ddt_aux(b_list)) ;
           ddt_verify_lists() ;
 
           if (item == NULL)
             break ;
-
-          if (ordinal == 0)
-            ordinal = item->b.ordinal ;
-          else
-            {
-              test_assert(ordinal > 0, "ordinal out of whack") ;
-              --ordinal ;
-              test_assert(item->b.ordinal == ordinal, "ddl_crop not in order") ;
-            } ;
         } ;
 
       --n ;
@@ -1906,28 +1988,38 @@ test_ddl(void)
    * Cases: (a) first and only (so is also last)
    *        (b) first when more than one
    *        (c) last when more than one
-   *        (d) something between
+   *        (d) everything between
    */
   printf("  ddl_del test") ;
 
   n = base_n + (rand() % rand_n) ;
-  while (n)
+  while (n > 0)
     {
-      ddt_item item ;
+      int  w ;
 
       printf(".") ;
 
-      ddt_test_make_lists(&test, n) ;
+      for (w = 0 ; w < n ; ++w)
+        {
+          ddt_item item ;
+          vector   aux ;
 
-      item = test.list[a_list].where[n % where_count] ;
-      ddl_del(a_base, item, a.list) ;
-      ddt_test_list_del(item, a_list) ;
-      ddt_verify_lists() ;
+          ddt_test_make_lists(n, n) ;
 
-      item = test.list[b_list].where[n % where_count] ;
-      ddl_del(b->base, item, b.list) ;
-      ddt_test_list_del(item, b_list) ;
-      ddt_verify_lists() ;
+          aux  = ddt_aux(a_list) ;
+          item = aux_item(aux, w) ;
+
+          ddl_del(a_base, item, a) ;
+          aux_delete(aux, item) ;
+          ddt_verify_lists() ;
+
+          aux  = ddt_aux(b_list) ;
+          item = aux_item(aux, w) ;
+
+          ddl_del(b->base, item, b) ;
+          aux_delete(aux, item) ;
+          ddt_verify_lists() ;
+        } ;
 
       --n ;
     } ;
@@ -1949,18 +2041,20 @@ test_ddl(void)
 
       printf(".") ;
 
-      ddt_test_make_lists(&test, n) ;
+      ddt_test_make_lists(n, n) ;
 
       while (1)
         {
           item = a_base.head ;
-          peek = (item != NULL) ? item->a.list.next : NULL ;
+          peek = (item != NULL) ? item->a.next : NULL ;
 
-          ddl_del_head(a_base, a.list) ;
+          ddl_del_head(a_base, a) ;
 
           test_assert(a_base.head == peek, "ddl_del_head broken") ;
 
-          ddt_test_list_del(item, a_list) ;
+          if (item != NULL)
+            aux_delete(ddt_aux(a_list), item) ;
+
           ddt_verify_lists() ;
 
           if (item == NULL)
@@ -1970,13 +2064,15 @@ test_ddl(void)
       while (1)
         {
           item = b->base.head ;
-          peek = (item != NULL) ? item->b.list.next : NULL ;
+          peek = (item != NULL) ? item->b.next : NULL ;
 
-          ddl_del_head(b->base, b.list) ;
+          ddl_del_head(b->base, b) ;
 
           test_assert(b->base.head == peek, "ddl_del_head broken") ;
 
-          ddt_test_list_del(item, b_list) ;
+          if (item != NULL)
+            aux_delete(ddt_aux(b_list), item) ;
+
           ddt_verify_lists() ;
 
           if (item == NULL)
@@ -2003,18 +2099,20 @@ test_ddl(void)
 
       printf(".") ;
 
-      ddt_test_make_lists(&test, n) ;
+      ddt_test_make_lists(n, n) ;
 
       while (1)
         {
           item = a_base.tail ;
-          peek = (item != NULL) ? item->a.list.prev : NULL ;
+          peek = (item != NULL) ? item->a.prev : NULL ;
 
-          ddl_del_tail(a_base, a.list) ;
+          ddl_del_tail(a_base, a) ;
 
           test_assert(a_base.tail == peek, "ddl_del_tail broken") ;
 
-          ddt_test_list_del(item, a_list) ;
+          if (item != NULL)
+            aux_delete(ddt_aux(a_list), item) ;
+
           ddt_verify_lists() ;
 
           if (item == NULL)
@@ -2024,13 +2122,15 @@ test_ddl(void)
       while (1)
         {
           item = b->base.tail ;
-          peek = (item != NULL) ? item->b.list.prev : NULL ;
+          peek = (item != NULL) ? item->b.prev : NULL ;
 
-          ddl_del_tail(b->base, b.list) ;
+          ddl_del_tail(b->base, b) ;
 
           test_assert(b->base.tail == peek, "ddl_del_tail broken") ;
 
-          ddt_test_list_del(item, b_list) ;
+          if (item != NULL)
+            aux_delete(ddt_aux(b_list), item) ;
+
           ddt_verify_lists() ;
 
           if (item == NULL)
@@ -2055,7 +2155,7 @@ test_ddl(void)
     {
       printf(".") ;
 
-      ddt_test_make_lists(&test, n) ;
+      ddt_test_make_lists(n, n) ;
 
       test_assert(ddl_head(a_base)  == a_base.head,  "ddl_head broken") ;
       test_assert(ddl_tail(a_base)  == a_base.tail,  "ddl_head broken") ;
@@ -2065,7 +2165,6 @@ test_ddl(void)
       --n ;
     } ;
   printf("\n") ;
-
 
   /* ddl_next(item, next)           -- step to next item, if any
    * ddl_prev(item, next)           -- step to prev item, if any
@@ -2078,39 +2177,444 @@ test_ddl(void)
   printf("  ddl_next and ddl_prev test") ;
 
   n = base_n + (rand() % rand_n) ;
-  while (n)
+  while (n > 0)
     {
-      ddt_item item ;
-      ddt_item where ;
+      int  w ;
 
       printf(".") ;
 
-      ddt_test_make_lists(&test, n) ;
+      for (w = 0 ; w < n ; ++w)
+        {
+          ddt_item item ;
+          vector aux ;
+          int i ;
 
-      where = test.list[a_list].where[n % where_count] ;
-      item = ddl_next(where, a.list) ;
-      test_assert(item == where->a.list.next, "ddl_next broken") ;
+          ddt_test_make_lists(n, n) ;
 
-      where = test.list[b_list].where[n % where_count] ;
-      item = ddl_next(where, b.list) ;
-      test_assert(item == where->b.list.next, "ddl_next broken") ;
+          aux  = ddt_aux(a_list) ;
+          item = aux_item(aux, w) ;
 
-      where = test.list[a_list].where[n % where_count] ;
-      item = ddl_prev(where, a.list) ;
-      test_assert(item == where->a.list.prev, "ddl_prev broken") ;
+          i = aux_find(aux, item) ;
+          test_assert(i == w, "ddl_next/_prev list and aux list out of step") ;
 
-      where = test.list[b_list].where[n % where_count] ;
-      item = ddl_prev(where, b.list) ;
-      test_assert(item == where->b.list.prev, "ddl_prev broken") ;
+          test_assert(ddl_next(item, a) == aux_next_item(aux, i),
+                                                            "ddl_next broken") ;
+          test_assert(ddl_prev(item, a) == aux_prev_item(aux, i),
+                                                            "ddl_prev broken") ;
+
+          aux  = ddt_aux(b_list) ;
+          item = aux_item(aux, w) ;
+
+          i = aux_find(aux, item) ;
+          test_assert(i == w, "ddl_next/_prev list and aux list out of step") ;
+
+          test_assert(ddl_next(item, b) == aux_next_item(aux, i),
+                                                            "ddl_next broken") ;
+          test_assert(ddl_prev(item, b) == aux_prev_item(aux, i),
+                                                            "ddl_prev broken") ;
+        } ;
 
       --n ;
     } ;
   printf("\n") ;
 
+  /* ddl_slice(base, sub, list)     -- remove sublist from given list
+   *
+   * Cases: (a) sub is empty
+   *        (b) sub is the entire list -- list with 1 or more entries.
+   *        (c) sub includes head of list, but 1 or more entries remain
+   *        (d) sub includes tail of list, but 1 or more entries remain
+   *        (e) sub is part of list, and 1 or more entries remain at either
+   *            end.
+   */
+  printf("  ddl_slice") ;
 
-}
+  n = base_n + (rand() % rand_n) ;
+  while (n >= 0)
+    {
+      int s, e ;
+
+      printf(".") ;
+
+      for (s = 0 ; s <= n ; ++s)
+        {
+          for (e = s ; e <= n ; ++e)
+            {
+              vector aux ;
+
+              ddt_test_make_lists(n, 0) ;
+
+              if (s < e)
+                {
+                  vector aux_sub ;
+
+                  aux = ddt_aux(a_list) ;
+
+                  a_sub.head = aux_item(aux, s) ;
+                  a_sub.tail = aux_item(aux, e - 1) ;
+
+                  aux_sub = ddt_aux(a_sub_list) ;
+                  assert(vector_length(aux_sub) == 0) ;
+
+                  vector_move_extract(aux_sub, aux, s, e - s) ;
+                } ;
+
+              ddl_slice(a_base, a_sub, a) ;
+              ddt_verify_lists() ;
+
+              if (s < e)
+                {
+                  vector aux_sub ;
+
+                  aux = ddt_aux(b_list) ;
+
+                  b_sub.head = aux_item(aux, s) ;
+                  b_sub.tail = aux_item(aux, e - 1) ;
+
+                  aux_sub = ddt_aux(b_sub_list) ;
+                  assert(vector_length(aux_sub) == 0) ;
+
+                  vector_move_extract(aux_sub, aux, s, e - s) ;
+                } ;
+
+              ddl_slice(b->base, b_sub, b) ;
+              ddt_verify_lists() ;
+            } ;
+        } ;
+
+      --n ;
+    } ;
+  printf("\n") ;
+
+  /* ddl_splice_after(after, base, sub, list)
+   *                                  -- insert sublist after given item
+   * Cases: (a) sub is empty and list is empty
+   *        (b) sub has 1 or more entries and list is empty (after = NULL).
+   *        (c) sub includes head of list, but 1 or more entries remain
+   *        (d) sub includes tail of list, but 1 or more entries remain
+   *        (e) sub is part of list, and 1 or more entries remain at either
+   *            end.
+   */
+  printf("  ddl_splice_after") ;
+
+  n = base_n + (rand() % rand_n) ;
+  while (n >= 0)
+    {
+      printf(".") ;
+
+      int m ;
+
+      for (m = 0 ; m <= 5 ; ++m)
+        {
+          int w ;
+
+          for (w = 0 ; w <= n ; ++w)
+            {
+              ddt_item after ;
+              vector aux, s_aux ;
+
+              ddt_test_make_lists(n, m) ;
+
+              aux   = ddt_aux(a_list) ;
+              after = aux_item(aux, w) ;
+
+              ddl_splice_after(after, a_base, a_sub, a) ;
+
+              s_aux = ddt_aux(a_sub_list) ;
+
+              if (after != NULL)
+                vector_move_replace(aux, w+1, 0, s_aux, 0, m) ;
+              else
+                vector_move_replace(aux, w,   0, s_aux, 0, m) ;
+
+              ddl_init(a_sub) ;
+
+              ddt_verify_lists() ;
+
+              aux   = ddt_aux(b_list) ;
+              after = aux_item(aux, w) ;
+
+              ddl_splice_after(after, b->base, b_sub, b) ;
+
+              s_aux = ddt_aux(b_sub_list) ;
+
+              if (after != NULL)
+                vector_move_replace(aux, w+1, 0, s_aux, 0, m) ;
+              else
+                vector_move_replace(aux, w,   0, s_aux, 0, m) ;
+
+              ddl_init(b_sub) ;
+
+              ddt_verify_lists() ;
+            } ;
+        } ;
+
+      --n ;
+    } ;
+  printf("\n") ;
+
+  /* ddl_splice_before(before, base, sub, list)
+   *                                  -- insert sublist before given item
+   *
+   * Cases: (a) sub is empty and list is empty
+   *        (b) sub has 1 or more entries and list is empty (before = NULL).
+   *        (c) sub includes head of list, but 1 or more entries remain
+   *        (d) sub includes tail of list, but 1 or more entries remain
+   *        (e) sub is part of list, and 1 or more entries remain at either
+   *            end.
+   */
+  printf("  ddl_splice_before") ;
+
+  n = base_n + (rand() % rand_n) ;
+  while (n >= 0)
+    {
+      printf(".") ;
+
+      int m ;
+
+      for (m = 0 ; m <= 5 ; ++m)
+        {
+          int w ;
+
+          for (w = 0 ; w <= n ; ++w)
+            {
+              ddt_item before ;
+              vector aux, s_aux ;
+
+              ddt_test_make_lists(n, m) ;
+
+              aux    = ddt_aux(a_list) ;
+              before = aux_item(aux, w) ;
+
+              ddl_splice_before(before, a_base, a_sub, a) ;
+
+              s_aux = ddt_aux(a_sub_list) ;
+
+              if (before != NULL)
+                vector_move_replace(aux, w, 0, s_aux, 0, m) ;
+              else
+                vector_move_replace(aux, 0, 0, s_aux, 0, m) ;
+
+              ddl_init(a_sub) ;
+
+              ddt_verify_lists() ;
+
+              aux    = ddt_aux(b_list) ;
+              before = aux_item(aux, w) ;
+
+              ddl_splice_before(before, b->base, b_sub, b) ;
+
+              s_aux = ddt_aux(b_sub_list) ;
+
+              if (before != NULL)
+                vector_move_replace(aux, w, 0, s_aux, 0, m) ;
+              else
+                vector_move_replace(aux, 0, 0, s_aux, 0, m) ;
+
+              ddl_init(b_sub) ;
+
+              ddt_verify_lists() ;
+            } ;
+        } ;
+
+      --n ;
+    } ;
+  printf("\n") ;
+
+} ;
 
 /*
  *  TODO
  *
  */
+
+/*==============================================================================
+ * Auxilliary list handling -- so that can test one list structure against
+ * another.
+ *
+ * Implements list as vector of pointers.
+ */
+
+/*------------------------------------------------------------------------------
+ * Create new, empty aux list (vector)
+ */
+static vector
+aux_init(void)
+{
+  return vector_init_new(NULL, 50) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Empty the aux vector
+ */
+static void
+aux_reset(vector aux)
+{
+  vector_set_length(aux, 0) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get number of items in the given aux list
+ */
+static int
+aux_length(vector aux)
+{
+  return vector_length(aux) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get item at the given index -- -ve counts from length
+ *
+ * Index must be -length..length
+ */
+static void*
+aux_item(vector aux, int index)
+{
+  int length ;
+
+  length = vector_length(aux) ;
+
+  if (index < 0)
+    index += length ;
+
+  if ((index >= 0) && (index < length))
+    return vector_get_item(aux, index) ;
+  else
+    return NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get item after item at the given index -- -ve counts from length
+ *
+ * Index must be -length..length
+ */
+static void*
+aux_next_item(vector aux, int index)
+{
+  int length ;
+
+  length = vector_length(aux) ;
+
+  if (index < 0)
+    index += length ;
+
+  if ((index >= 0) && (index < length))
+    return vector_get_item(aux, index + 1) ;
+  else
+    return NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get item before the item at the given index -- -ve counts from length
+ *
+ * Offset must be -length..length
+ */
+static void*
+aux_prev_item(vector aux, int index)
+{
+  int length ;
+
+  length = vector_length(aux) ;
+
+  if (index < 0)
+    index += length ;
+
+  if ((index > 0) && (index <= length))
+    return vector_get_item(aux, index - 1) ;
+  else
+    return NULL ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Insert item at given offset in the aux list.
+ *
+ * Item(s) at and beyond the given offset (if any) move along the list.
+ *
+ *   0 => at start
+ *  -1 => at end
+ *
+ * Offset must be -1..length
+ */
+static void
+aux_insert(vector aux, int index, void* item)
+{
+  if (index >= 0)
+    assert((uint)index <= vector_length(aux)) ;
+  else
+    index = vector_length(aux) ;
+
+  vector_insert_item(aux, index, item) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Find given item in the aux list and remove it.
+ *
+ * Shortens the list by 1 !
+ */
+static void
+aux_delete(vector aux, void* item)
+{
+  int index ;
+
+  index = aux_find(aux, item) ;
+
+  if (index < 0)
+    test_assert(index >= 0, "aux_delete: item not found !") ;
+  else
+    vector_delete_item(aux, index) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Push item onto front of list.
+ */
+static void
+aux_push_head(vector aux, void* item)
+{
+  vector_unshift_item(aux, item) ;      /* opposite sense to vector !   */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Pop item from front of list -- returns NULL if list is empty.
+ */
+static void*
+aux_pop_head(vector aux)
+{
+  return vector_shift_item(aux) ;       /* opposite sense to vector !   */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Append item to end of list.
+ */
+static void
+aux_push_tail(vector aux, void* item)
+{
+  vector_push_item(aux, item) ;         /* opposite sense to vector !   */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Remove item from end of list -- returns NULL if list is empty.
+ */
+static void*
+aux_pop_tail(vector aux)
+{
+  return vector_pop_item(aux) ;         /* opposite sense to vector !   */
+} ;
+
+/*------------------------------------------------------------------------------
+ * Find index of item -- returns -1 if not found.
+ */
+static int
+aux_find(vector aux, void* item)
+{
+  int i, l ;
+
+  l = aux_length(aux) ;
+
+  for (i = 0 ; i < l ; ++i)
+    if (aux_item(aux, i) == item)
+      return i ;
+
+  return -1 ;
+} ;
+
+

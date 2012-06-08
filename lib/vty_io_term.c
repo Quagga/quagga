@@ -431,17 +431,15 @@ uty_term_write_close(vio_vf vf)
    */
   if (vio->state & vst_final)
     {
-      const char* reason, * sep ;
+      const char* reason ;
 
       vf->cli = uty_cli_free(vf->cli) ;
 
       reason = qs_string(vf->vio->close_reason) ;
-      sep    = ": " ;
       if ((reason == NULL) || (*reason == '\0'))
-        reason = sep = "" ;
+        reason = "closed" ;
 
-      zlog_info("VTY connection (fd %d) closed%s%s",
-                                             vio_vfd_fd(vf->vfd), sep, reason) ;
+      zlog_info("VTY connection (fd %d) %s", vio_vfd_fd(vf->vfd), reason) ;
     }
   else if (vf_active(vf->vout_state))
     {

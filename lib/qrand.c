@@ -32,17 +32,16 @@
  *
  * If range == 1, returns 0 every time !
  */
-extern int
-qrand(qrand_seq seq, int range)
+extern uint
+qrand(qrand_seq seq, uint range)
 {
   uint64_t  r ;
 
-  r = seq->last ^ 3141592653 ;
-  r = ((r * 2650845021) + 5) & 0xFFFFFFFF ;     /* see Knuth    */
+  r = ((seq->last * 2650845021) + 5) & 0xFFFFFFFF ;     /* see Knuth    */
   seq->last = r ;
 
   if (range == 0)
     return r >> 1 ;
   else
-    return (r % range) ;
+    return (r * range) >> 32 ;
 } ;

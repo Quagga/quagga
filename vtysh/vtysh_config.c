@@ -391,6 +391,7 @@ typedef config_item_list_t* config_item_list ;
 typedef enum                    /* types of config_item                 */
 {
   it_dummy   = 0,
+
   it_node,                      /* Node is a list of line/group         */
   it_line,
   it_group,
@@ -500,6 +501,7 @@ struct config_collection
   config_fragment fragment_list ;
 
   qstring_t    temp ;           /* used when creating fragments and names  */
+  qstring_t    comment ;        /* used when creating comment names        */
 } ;
 
 /*------------------------------------------------------------------------------
@@ -524,10 +526,11 @@ static void vtysh_config_parse_group_end(config_collection collection) ;
 static void vtysh_config_node_find(config_collection collection) ;
 static bool vtysh_config_item_insert(config_collection collection,
                                                         config_item_type_t it) ;
-static bool vtysh_config_try_merge(config_collection collection,
-                                         config_item parent, config_name name) ;
-static config_name vtysh_config_get_name(config_collection collection,
-                                  config_item parent, config_item_type_t type) ;
+static config_item vtysh_config_try_merge(config_collection collection,
+                                                        config_item_list list) ;
+static config_name vtysh_config_get_name(config_collection collection) ;
+static config_name vtysh_config_get_comment_name(config_collection collection,
+                                                          config_item comment) ;
 
 static symbol_cmp_func  vtysh_config_match_cmp ;
 static symbol_free_func vtysh_config_match_free ;
@@ -573,6 +576,7 @@ vtysh_config_collection_new(void)
    *   lump_list       -- NULLs     -- empty
    *   fragment_list   -- NULL      -- empty
    *   temp            -- empty qstring (embedded)
+   *   comment         -- empty qstring (embedded)
    */
   confirm(NULL_NODE == 0) ;
   confirm(ELSTRING_INIT_ALL_ZEROS) ;
@@ -936,7 +940,7 @@ vtysh_config_item_insert(config_collection collection, config_item_type_t it)
 {
   config_item parent ;
   config_name name ;
-  bool   merged ;
+  config_item merged ;
   bool   co_opted ;
 
   assert((it == it_line) || (it == it_group) || (it == it_dummy)) ;
@@ -997,8 +1001,8 @@ vtysh_config_item_insert(config_collection collection, config_item_type_t it)
       ddl_append(parent->list, collection->last_item, siblings) ;
     } ;
 
-  /* We now have a new item, attached to the parent.  For that item we have
-   * the following set:
+  /* We now have a new collection->last_item, attached to its parent.  For that
+   * item we have the following set:
    *
    *   parent
    *   ordinal
@@ -1009,10 +1013,10 @@ vtysh_config_item_insert(config_collection collection, config_item_type_t it)
    *
    * And everything else is clear.
    *
-   * Now need to establish, and register, the name of the item.
+   * Now need to establish, and register, the name of the item -- based on the
+   * parsed stuff still sitting in the collection.
    */
-  collection->last_item->name =
-                          name = vtysh_config_get_name(collection, parent, it) ;
+  name = vtysh_config_get_name(collection) ;
 
   /* If the name is unique, then cannot merge.
    *
@@ -1022,14 +1026,16 @@ vtysh_config_item_insert(config_collection collection, config_item_type_t it)
    * If does not merge, we add the new item to the owners of the name.
    */
   if (name->list == NULL)
-    merged = false ;
+    merged = NULL ;
   else
-    merged = vtysh_config_try_merge(collection, parent, name) ;
+    merged = vtysh_config_try_merge(collection, &parent->list) ;
 
-  if (!merged)
-    ssl_append(name->list, collection->last_item, also) ;
+  if (merged == NULL)
+    ssl_push(name->list, collection->last_item, also) ;
+  else
+    collection->last_item = merged ;
 
-  return merged ;
+  return merged != NULL ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1205,11 +1211,14 @@ vtysh_config_node_find(config_collection collection)
  * separator "following" it.  This means that multiple blank lines at the start
  * of a block of comments will be squashed together, and squashed with blank
  * '!' and/or '#' comment lines.
+ *
+ * NB: does not name the comment item.  That is done when the it_dummy item
+ *     is merged with a real item.
  */
 static void
 vtysh_config_parse_comment(config_collection collection)
 {
-  config_item new_item, parent ;
+  config_item new_item, comment_parent ;
 
   /* If the last item was it_comment, then need to create new item
    * and attach it to the comment part of the parent
@@ -1217,26 +1226,109 @@ vtysh_config_parse_comment(config_collection collection)
    * If the last item was not comment, then need to start a (pro tem) it_dummy
    * item, to which the comment can be attached.
    */
-  parent = collection->last_item ;
+  comment_parent = collection->last_item ;
 
-  if (parent != NULL)
+  if ((comment_parent != NULL) && (comment_parent->type == it_comment))
     {
-      if (parent->type == it_comment)
-        parent = parent->parent ;
+      comment_parent = comment_parent->parent ;
     }
   else
     {
-      vtysh_config_item_insert(collection, it_dummy) ;
+      if (comment_parent != NULL)
+        qassert(comment_parent->type != it_dummy) ;
 
-      parent = collection->last_item ;
+      vtysh_config_item_insert(collection, it_dummy) ;
+      comment_parent = collection->last_item ;
     } ;
 
-  new_item = vtysh_config_item_new(collection, parent, it_comment) ;
+  new_item = vtysh_config_item_new(collection, comment_parent, it_comment) ;
   *new_item->line = *collection->line ;
 
-  ddl_append(parent->pre_comments, new_item, siblings) ;
+  ddl_append(comment_parent->pre_comments, new_item, siblings) ;
 
   collection->last_item = new_item ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Merge one set of pre-comment lines with an existing one.
+ *
+ * This is used where items are being merged.
+ *
+ * If the target pre-comment lines are unnamed, names them.  Then, name each
+ * source pre-comment line and merge it in.
+ */
+static void
+vtysh_config_merge_comment(config_collection collection,
+                                         config_item target, config_item source)
+{
+  config_item comment ;
+
+  /* Get the trivial cases out of the way.
+   */
+  comment = ddl_head(source->pre_comments) ;
+  if (comment == NULL)
+    return ;
+
+  qassert(comment->type == it_comment) ;
+
+  comment = ddl_head(target->pre_comments) ;
+  if (comment == NULL)
+    {
+      /* Move source pre-comments to target, and update parent of all of
+       * those.
+       */
+      target->pre_comments = source->pre_comments ;
+      ddl_init( source->pre_comments) ;
+
+      comment = ddl_head(target->pre_comments) ;
+      while (comment != NULL)
+        {
+          qassert(comment->parent == source) ;
+          qassert(comment->type   == it_comment) ;
+
+          comment->parent = target ;
+
+          comment = ddl_next(comment, siblings) ;
+        } ;
+
+      return ;
+    } ;
+
+  qassert(comment->type == it_comment) ;
+
+  /* Name the target pre-comments, if required.
+   */
+  if (comment->name == NULL)
+    {
+      qassert(comment->parent == target) ;
+
+      comment->name = vtysh_config_get_comment_name(collection, comment) ;
+      comment = ddl_next(comment, siblings) ;
+    } ;
+
+  /* Now merge the source comments in
+   */
+  while (ddl_pop(&comment, source->pre_comments, siblings) != NULL)
+    {
+      config_name name ;
+      config_item merged ;
+
+      qassert(comment->parent == source) ;
+      qassert(comment->type   == it_comment) ;
+      qassert(ddl_head(comment->pre_comments) == NULL) ;
+
+      comment->parent = target ;
+      name = vtysh_config_get_comment_name(collection, comment) ;
+      ddl_append(target->pre_comments, comment, siblings) ;
+
+      if (name->list != NULL)
+        merged = vtysh_config_try_merge(collection, &target->pre_comments) ;
+      else
+        merged = NULL ;
+
+      if (merged == NULL)
+        ssl_push(comment->name->list, comment, also) ;
+    } ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -1380,87 +1472,182 @@ vtysh_config_parse_group_end(config_collection collection)
  * Try to merge new item with an earlier one of the same name.
  *
  * The current last_item has been appended to the given parent, and has the
- * given name.  At least one other item has the same name.
+ * given name.  At least one other item has the same name, so we have one or
+ * more "targets" to attempt to merge with.
  *
  * No value has yet been set for the current last_item, but it may have
  * pre_comments.
  *
- * If we can move a "bubble" of items up the parent's list, such that the
- * current last_item overlaps (one of) the items with the same name, then
- * we do that and discard the duplicate node -- this is a "merge".  Must also
- * merge any pre-comment(s).
+ * We can move items up the parent's list, provided we are moving past items
+ * which have no daemons in common with the items we are moving.
  *
- * Each item with the same name is known as a "target".
+ * We have two cases:
  *
- * We can collect a "bubble" of items to move up, by scanning up from the
- * current last_item, while each item has at least the daemons in the bubble
- * so far (and adding an item adds all its daemons to the bubble).
+ *   1) where the current last_item and one or more items above it have
+ *      at least one daemon in common.
  *
- * The bubble can move up to the target, provided that no item between the
- * bubble and the target has any items in common with the bubble.
+ *      In this case we have a "bubble" above the current last_item which we
+ *      will need to move past the "target", if the current last_item is to
+ *      be merged with the "target".  This means that:
+ *
+ *        a) all items between the current last_item and the target must
+ *           have nothing in common with the bubble and nothing in
+ *           common with the current last_item.
+ *
+ *           For otherwise neither the bubble nor the current last_item can
+ *           slide up past these items.
+ *
+ *        b) the target must have nothing in common with the bubble.
+ *
+ *           For otherwise the "bubble" cannot slide up past the target.
+ *
+ *   2) where the current last_item has no daemons in common with its
+ *      immediate predecessor.
+ *
+ *      In this case we have an empty bubble.
+ *
+ * If we can move the (possibly empty) bubble and the current last_item up the
+ * list such that the current last_item overlaps (one of) the items with the
+ * same name, then we do that and discard the duplicate node -- this is a
+ * "merge".  Must also merge any pre-comment(s).
+ *
+ * If there is a choice, will attempt to merge as far up the parent's list as
+ * possible.
+
+
+
  *
  * Note that since we do this as we add items to the collection, the bubble is
  * always below the target.
  *
  */
-static bool
-vtysh_config_try_merge(config_collection collection, config_item parent,
-                                                               config_name name)
+static config_item
+vtysh_config_try_merge(config_collection collection, config_item_list list)
 {
-  daemon_set_t bubble_daemons ;
-  config_item  item, bubble, seek, target ;
+  daemon_set_t bubble_daemons, total_daemons ;
+  config_item  item, bubble, this, target ;
 
   /* Set bubble to contain the current last_item
    */
-  bubble = item = collection->last_item ;
-  bubble_daemons = bubble->daemons ;
+  item           = ddl_tail(*list) ;
+  total_daemons  = item->daemons ;
 
-  target = NULL ;
+  bubble         = item ;       /* bubble == item <=> empty bubble      */
+  bubble_daemons = 0 ;
+
+  target         = NULL ;
+
+  qassert(item->name->list != NULL) ;
 
   /* Scan upwards adding to "bubble", looking out for a name match.
    *
-   * We can add an item to the bubble iff it has all the bubble's daemons, at
-   * least.
+   * We can add an item to the bubble iff it has one or more daemons in common
+   * with the bubble or the item, and is NOT a target.
    */
   while (1)
     {
-      bool addable ;
+      this = ddl_prev(bubble, siblings) ;
 
-      seek = ddl_prev(bubble, siblings) ;
+      if (this == NULL)
+        return NULL ;           /* failed to find target        */
 
-      if (seek == NULL)
-        return false ;          /* failed to find target        */
-
-      /* If we cannot add the current seek item to the bubble, we are
-       * done with this phase.
+      /* Do not add completely disjoint item to the bubble.
        */
-      if ((seek->daemons & bubble_daemons) != bubble_daemons)
+      if ((this->daemons & total_daemons) == 0)
         break ;
 
-      /* If we have a name match, then we are done.
+      /* Do not add a target item to the bubble.
        *
-       * If the bubble contains more than just the current last item,
-       * then we cannot merge, because we cannot slide the rest of the
-       * bubble past the target.
+       * If we find a target item, then we are either going to merge with it,
+       * or move past it.
        *
-       * If there is more than one target, then this one could not be merged
-       * with the nearest one above, which implies that something above this
-       * target prevented it and/or its bubble from sliding up.
+       * If there is more than one target item, then this one could not be
+       * merged with its predecessor, so something above prevented it from
+       * being moved.  Adding this to the bubble would, therefore, be a waste
+       * of time.
        */
-      if (seek->name == name)
-        {
-          if (bubble != item)
-            return false ;
-
-        } ;
+      if (this->name == item->name)
+        break ;
 
       /* Add item to bubble.
        */
-      bubble_daemons |= seek->daemons ;
-      bubble = seek ;
+      bubble = this ;
+      bubble_daemons |= bubble->daemons ;
+
+      total_daemons  |= bubble_daemons ;
     } ;
 
-  return false ;
+  /* Have constructed a (possibly empty) bubble, and we have "this" item above
+   * it.
+   *
+   * If we cannot move the bubble past this item, then we are done.  If we have
+   * a target then note that.  If we cannot move the bubble + the current
+   * last_item past this item, we are done.
+   */
+  while ((this->daemons & bubble_daemons) == 0)
+    {
+      /* If we have found a target, then make a note, and stop immediately
+       * if there are no further targets.
+       */
+      if (this->name == item->name)
+        {
+          /* Good news -- found target !
+           */
+          if (target != NULL)
+            qassert(this == target->also) ;
+
+          target = this ;
+
+          qassert(target->ordinal < item->ordinal) ;
+
+          /* If there is only one possible target, then we stop.
+           */
+          if (target->also == NULL)
+            break ;
+        } ;
+
+      /* If we cannot slide the bubble + current item past here, then we
+       * stop immediately.
+       */
+      if ((this->daemons & total_daemons) != 0)
+        break ;
+
+      /* Step up the list, stopping if run out.
+       */
+      this = ddl_prev(this, siblings) ;
+
+      if (this == NULL)
+        break ;
+    } ;
+
+  /* If we have found a target to merge with:
+   *
+   *   - merging any pre-comments with the target pre-comments.
+   *
+   *   - merge the daemons.
+   *
+   *   - merge the post-xxxx
+   *
+   *   - discard the item being merged.
+   *
+   *   - move the bubble above the target.
+   */
+  if (target != NULL)
+    {
+      vtysh_config_merge_comment(collection, target, item) ;
+
+      target->daemons |= item->daemons ;
+
+      if (target->post_sep < item->post_sep)
+        target->post_sep = item->post_sep ;
+
+      ddl_del(*list, item, siblings) ;
+      vtysh_config_item_free(item) ;
+
+
+    } ;
+
+  return target ;
 } ;
 
 /*==============================================================================
@@ -1698,10 +1885,199 @@ vtysh_config_raw_free(config_collection collection)
     } ;
 
   qs_reset(collection->temp, keep_it) ;         /* embedded     */
+  qs_reset(collection->comment, keep_it) ;      /* embedded     */
 } ;
+
+/*==============================================================================
+ * Name handling.
+ *
+ * The name of an item covers:
+ *
+ *   * the ordinal of the parent item
+ *
+ *   * the type of item
+ *
+ *   * the item's "raw_name", which may be:
+ *
+ *       - the tokens which form the item, separated by spaces
+ *
+ *       - the entire line (for comments) less trailing whitespace
+ *
+ * While there is a single, global symbol table, the form of the name means
+ * that each name has local scope within the parent.
+ */
+
+static config_name vtysh_config_make_name(config_collection collection,
+                                           config_item item, qstring raw_name) ;
+
+/*------------------------------------------------------------------------------
+ * Get and set name for the new collection->last_item (just parsed and created)
+ *
+ * Returns:  address of name object.
+ */
+static config_name
+vtysh_config_get_name(config_collection collection)
+{
+  uint  ti, tn ;
+
+  ti = (collection->last_item->type == it_group) ? 2 : 0 ;
+  tn = collection->parsed->num_tokens ;
+
+  return vtysh_config_make_name(collection, collection->last_item,
+                           cmd_tokens_concat(collection->parsed, ti, tn - ti)) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Get name for a comment item.
+ *
+ * Comment items only need names when two items carrying pre-comments are
+ * merged.
+ *
+ * For comments the original line is used, verbatim, for the name -- less any
+ * trailing whitespace.
+ *
+ * Returns:  address of name object.
+ */
+static config_name
+vtysh_config_get_comment_name(config_collection collection, config_item comment)
+{
+  qassert(comment->type == it_comment) ;
+
+  qs_set_els(collection->comment, comment->line) ;
+  qs_trim(collection->comment, '\0') ;
+
+  return vtysh_config_make_name(collection, comment, collection->comment) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Make a name and either look it up in the collection's global name table,
+ * or add new entry to that.
+ *
+ * Requires: item->parent
+ *           item->type
+ *           the given "raw name"
+ *
+ * Returns:  address of name object -- set into item->name
+ *
+ *           All items with the same name share the same name object.  So, can
+ *           test for name equality by comparing name object addresses.
+ *
+ * The items to which a name applies are hung off the name->list entry, in
+ * LIFO order.  A NULL name->list entry implies this is a new name.
+ */
+static config_name
+vtysh_config_make_name(config_collection collection, config_item item,
+                                                     qstring raw_name)
+{
+  config_name name ;
+  const char* tag ;
+  symbol sym ;
+
+  qassert(item->name == NULL) ;         /* can only have one    */
+
+  switch (item->type)
+    {
+      case it_line:
+        tag = "" ;
+        break ;
+
+      case it_group:
+        tag = "$" ;
+        break ;
+
+      case it_comment:
+        tag = "!" ;
+        break ;
+
+      default:
+        qassert(false) ;
+        tag = "?" ;
+        break ;
+    } ;
+
+  qs_clear(collection->temp) ;
+
+  qs_printf(collection->temp, "%u%s:%s", item->parent->ordinal, tag,
+                                                          qs_string(raw_name)) ;
+
+  sym = symbol_lookup(collection->match, qs_string(collection->temp), add) ;
+
+  name = symbol_get_body(sym) ;
+
+  if (name == NULL)
+    {
+      ulen len ;
+
+      len = qs_len(collection->temp) + 1 ;      /* including terminator */
+
+      name = vtysh_config_fragment_new(collection,
+                       offsetof(config_name_t, string[len]), true /* align */) ;
+
+      name->list = NULL ;
+      memcpy(name->string, qs_char(collection->temp), len) ;
+
+      symbol_set_body(sym, name, true /* set */, free_it /* previous ! */) ;
+    } ;
+
+  return item->name = name ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * Compare name in the given config_name with the given name_string.
+ */
+static int
+vtysh_config_match_cmp(const void* body, const void* name_string)
+{
+  const config_name_t* name = body ;
+  return strcmp(name->string, name_string) ;
+} ;
+
+/*------------------------------------------------------------------------------
+ * The symbol bodies are in fragments and are freed automatically.
+ */
+static void
+vtysh_config_match_free(void* body)
+{
+} ;
+
+/*==============================================================================
+ * The vtysh own configuration.
+ *
+ * There is not much of this.
+ *
+ * We don't write vtysh specific into file from vtysh. vtysh.conf should
+ * be edited by hand.
+ */
+
+/*------------------------------------------------------------------------------
+ * Show vtysh own configuration -- same like client daemon #vtysh-config-write
+ *
+ * This is for collecting the integrated configuration.
+ */
+static void
+vtysh_config_own_config(vty vtysh)
+{
+  vty_out(vtysh, "#vtysh-config-daemon vtysh\n") ;
+  vty_out(vtysh, "#vtysh-config-node %s\n", cmd_node_name(CONFIG_NODE)) ;
+
+  if (host.name_set)
+    vty_out(vtysh, "hostname %s\n", host.name) ;
+
+  if (vtysh_integrated_vtysh_config)
+    vty_out(vtysh, "service integrated-vtysh-config\n") ;
+} ;
+
+/*==============================================================================
+ * For diagnostic purposes -- "show" functions for data structures.
+ */
 
 extern void show_collected(config_collection collection) ;
 
+static void show_collected_item(config_item item, qstring line) ;
+
+/*------------------------------------------------------------------------------
+ * Output given collection to stderr
+ */
 extern void
 show_collected(config_collection collection)
 {
@@ -1726,8 +2102,9 @@ show_collected(config_collection collection)
   fprintf(stderr, "%d lumps\n", i) ;
 } ;
 
-static void show_collected_item(config_item item, qstring line) ;
-
+/*------------------------------------------------------------------------------
+ * Output given node to stderr
+ */
 extern void
 show_collected_node(config_collection collection)
 {
@@ -1768,6 +2145,9 @@ show_collected_node(config_collection collection)
   qs_free(line) ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * Output given item to stderr
+ */
 static void
 show_collected_item(config_item item, qstring line)
 {
@@ -1818,137 +2198,5 @@ show_collected_item(config_item item, qstring line)
 
       sub_item = ddl_next(sub_item, siblings) ;
    } ;
-} ;
-
-/*==============================================================================
- * Name handling.
- *
- * When a new item is about to be inserted in the tree, need to get its name,
- * so we can check if we have the same item already or later.
- *
- * If the config_name object has a NULL items entry, then this is the first
- * occurrence of this name.
- *
- * The name covers:
- *
- *   * the ordinal of the parent item
- *
- *   * the type of item
- *
- *   * the tokens which form the item, separated by spaces
- *
- * While there is a single, global symbol table, the form of the name means
- * that each name has local scope within the parent.
- *
- * Returns:  address of name object.
- *
- *           All items with the same name share the same name object.  So, can
- *           test for name equality by comparing name object addresses.
- */
-static config_name
-vtysh_config_get_name(config_collection collection, config_item parent,
-                                                        config_item_type_t type)
-{
-  qstring tokens ;
-  config_name name ;
-  const char* tag ;
-  uint  ti, tn ;
-  symbol sym ;
-
-  ti = 0 ;
-  tn = collection->parsed->num_tokens ;
-
-  switch (type)
-    {
-      case it_line:
-        tag = "" ;
-        break ;
-
-      case it_group:
-        tag = "$" ;
-        ti  = 2 ;
-        break ;
-
-      case it_comment:
-        tag = "!" ;
-        break ;
-
-      default:
-        qassert(false) ;
-        tag = "?" ;
-        break ;
-    } ;
-
-  tokens = cmd_tokens_concat(collection->parsed, ti, tn - ti) ;
-
-  qs_clear(collection->temp) ;
-
-  qs_printf(collection->temp, "%u%s:%s", parent->ordinal, tag, qs_string(tokens)) ;
-
-  sym = symbol_lookup(collection->match, qs_string(collection->temp), add) ;
-
-  name = symbol_get_body(sym) ;
-
-  if (name == NULL)
-    {
-      ulen len ;
-
-      len = qs_len(collection->temp) + 1 ;      /* including terminator */
-
-      name = vtysh_config_fragment_new(collection,
-                       offsetof(config_name_t, string[len]), true /* align */) ;
-
-      name->list = NULL ;
-      memcpy(name->string, qs_char(collection->temp), len) ;
-
-      symbol_set_body(sym, name, true /* set */, free_it /* previous ! */) ;
-    } ;
-
-  return name ;
-} ;
-
-/*------------------------------------------------------------------------------
- * Compare name in the given config_name with the given name_string.
- */
-static int
-vtysh_config_match_cmp(const void* body, const void* name_string)
-{
-  const config_name_t* name = body ;
-  return strcmp(name->string, name_string) ;
-} ;
-
-/*------------------------------------------------------------------------------
- * The symbol bodies are in fragments and are freed automatically.
- */
-static void
-vtysh_config_match_free(void* body)
-{
-} ;
-
-/*==============================================================================
- * The vtysh own configuration.
- *
- * There is not much of this.
- *
- * We don't write vtysh specific into file from vtysh. vtysh.conf should
- * be edited by hand.
- */
-
-/*------------------------------------------------------------------------------
- * Show vtysh own configuration -- same like client daemon #vtysh-config-write
- *
- * This is for collecting the integrated configuration.
- */
-static void
-vtysh_config_own_config(vty vtysh)
-{
-  vty_out(vtysh, "#vtysh-config-daemon vtysh\n") ;
-  vty_out(vtysh, "#vtysh-config-node %s\n", cmd_node_name(CONFIG_NODE)) ;
-
-  if (host.name_set)
-    vty_out(vtysh, "hostname %s\n", host.name) ;
-
-  if (vtysh_integrated_vtysh_config)
-    vty_out(vtysh, "service integrated-vtysh-config\n") ;
 } ;
 

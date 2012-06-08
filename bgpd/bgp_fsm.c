@@ -36,6 +36,7 @@
 
 #include "lib/qtimers.h"
 #include "lib/sockunion.h"
+#include "lib/qrand.h"
 
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_network.h"
@@ -1539,7 +1540,7 @@ bgp_fsm_event(bgp_connection connection, bgp_fsm_event_t event)
  */
 
 static void
-bgp_hold_timer_set(bgp_connection connection, unsigned secs) ;
+bgp_hold_timer_set(bgp_connection connection, uint secs) ;
 
 /*------------------------------------------------------------------------------
  * Null action -- do nothing at all.
@@ -2282,9 +2283,11 @@ static qtimer_action bgp_keepalive_timer_action ;
  */
 enum
 {
-  no_jitter   = 0,
-  with_jitter = 1,
+  no_jitter   = false,
+  with_jitter = true,
 } ;
+
+static qrand_seq_t jseq = QRAND_SEQ_INIT(314159265) ;
 
 /*------------------------------------------------------------------------------
  * Start or reset given qtimer with given interval, in seconds.
@@ -2292,17 +2295,31 @@ enum
  * If the interval is zero, unset the timer.
  */
 static void
-bgp_timer_set(bgp_connection connection, qtimer timer, unsigned secs,
-                                              int jitter, qtimer_action* action)
+bgp_timer_set(bgp_connection connection, qtimer timer, uint secs,
+                                             bool jitter, qtimer_action* action)
 {
   if (secs == 0)
     qtimer_unset(timer) ;
   else
     {
-      secs *= 40 ;      /* a bit of resolution for jitter       */
-      if (jitter != no_jitter)
-        secs -= ((rand() % ((int)secs + 1)) / 4) ;
-      qtimer_set_interval(timer, QTIME(secs) / 40, action) ;
+      qtime_t interval ;
+
+      if (jitter)
+        {
+          /* Jitter as recommended in RFC 4271, Section 10
+           *
+           * We expect secs to be relatively small, so we can multiply it by
+           * some number 750..1000 without overflow !
+           */
+          qassert(secs <= (UINT_MAX / 1000)) ;
+
+          secs *= 750 + qrand(jseq, 250 + 1) ;
+          interval = QTIME(secs) / 1000 ;
+        }
+      else
+        interval = QTIME(secs) ;
+
+      qtimer_set_interval(timer, interval, action) ;
     } ;
 } ;
 
@@ -2313,7 +2330,7 @@ bgp_timer_set(bgp_connection connection, qtimer timer, unsigned secs,
  * Setting 0 will unset the HoldTimer.
  */
 static void
-bgp_hold_timer_set(bgp_connection connection, unsigned secs)
+bgp_hold_timer_set(bgp_connection connection, uint secs)
 {
   bgp_timer_set(connection, connection->hold_timer, secs, no_jitter,
                                                         bgp_hold_timer_action) ;

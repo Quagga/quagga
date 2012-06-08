@@ -124,6 +124,8 @@ struct vio_vfd
   vfd_type_t      type ;        /* used for half-close                  */
   vfd_io_type_t   io_type ;     /* read, write, read/write              */
 
+  bool            failed ;      /* avoid repeated error messages        */
+
   /* The rest of the vfd is to do with managing read/write ready and
    * read/write timeouts for *non* blocking vfd.
    *
@@ -219,6 +221,7 @@ extern vio_vfd vio_vfd_new(int fd, vfd_type_t type,
 extern void vio_vfd_set_read_action(vio_vfd vfd, vio_vfd_action* action) ;
 extern void vio_vfd_set_write_action(vio_vfd vfd, vio_vfd_action* action) ;
 extern void vio_vfd_set_action_info(vio_vfd vfd, void* action_info) ;
+extern void vio_vfd_set_failed(vio_vfd vfd) ;
 extern vio_vfd vio_vfd_read_close(vio_vfd vfd) ;
 extern vio_vfd vio_vfd_close(vio_vfd vfd) ;
 extern on_off_b vio_vfd_set_read(vio_vfd vfd, on_off_b how,

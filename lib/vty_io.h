@@ -375,7 +375,7 @@ struct vio_vf
   /* General I/O
    *
    * Once an error has been posted -- see uty_vf_error() -- it is curtains
-   * for the vio_vf.  The io_error flag is to prevent multiple errors being
+   * for the vio_vf.  The had_error flag is to prevent multiple errors being
    * posted for the same vio_vf, because after the first error any subsequent
    * errors are most likely a consequence of the first.
    *
@@ -397,7 +397,7 @@ struct vio_vf
    * line, or to return CMD_WAITING, which will then wait for some I/O to
    * complete and signal the command loop to proceed.
    */
-  bool      io_error ;          /* an I/O or timeout posted             */
+  bool      had_error ;         /* an error has been posted             */
 
   bool      blocking ;          /* all I/O is blocking, pseudo or real  */
 

@@ -35,7 +35,7 @@
 
 struct qrand_seq
 {
-  uint  last ;
+  uint32_t  last ;
 } ;
 
 typedef struct qrand_seq* qrand_seq ;
@@ -47,6 +47,6 @@ typedef struct qrand_seq  qrand_seq_t[1] ;
  * Functions
  */
 
-extern int qrand(qrand_seq seq, int range) ;
+extern uint qrand(qrand_seq seq, uint range) ;
 
 #endif /* _ZEBRA_QRAND_H */

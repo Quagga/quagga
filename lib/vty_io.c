@@ -353,7 +353,7 @@ uty_close_reason_set(vty_io vio, const char* why, bool replace)
   if ((why == NULL) || (*why == '\0'))
     vio->close_reason = qs_free(vio->close_reason) ;
   else
-    vio->close_reason = qs_printf(vio->close_reason, "Terminated: %s", why) ;
+    vio->close_reason = qs_printf(vio->close_reason, "terminated: %s", why) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -370,7 +370,7 @@ uty_suspend_reason_set(vty_io vio, const char* why)
   if ((why == NULL) || (*why == '\0'))
     why = "*reason unknown (BUG)*" ;
 
-  vio->suspend_reason = qs_printf(vio->suspend_reason, "Suspended: %s", why) ;
+  vio->suspend_reason = qs_printf(vio->suspend_reason, "suspended: %s", why) ;
 } ;
 
 /*------------------------------------------------------------------------------
@@ -912,7 +912,7 @@ uty_vout_base_close(vty_io vio)
     {
       qstring wrapped ;
 
-      wrapped = qs_printf(NULL, "---\n%s\n", qs_string(vio->close_reason)) ;
+      wrapped = qs_printf(NULL, "%%---\n%% %s\n", qs_string(vio->close_reason));
 
       switch(vf->vout_type)
         {
@@ -1276,7 +1276,7 @@ uty_vf_new(vty_io vio, const char* name, int fd, vfd_type_t type,
    *                                             and uty_cmd_loop_prepare()
    *   push_complete    = false               -- see uty_vout_push()
    *
-   *   io_error         = false               -- so far, so good
+   *   had_error        = false               -- so far, so good
    *
    *   blocking         = vio->blocking || io_type is blocking
    *
@@ -2161,7 +2161,7 @@ uty_vf_not_open_error(vio_vf vf, vio_err_type_t err_type)
  *
  *   * if the error is in the vin_base or the vout_base, but the vout_base is
  *     still working, then raise vx_stop_io_error, which will cancel down to
- *      to vin_base/vout_base and then close vin_base and hence the vty.
+ *     vin_base/vout_base and then close vin_base and hence the vty.
  *
  *   * if the error is an I/O error, and the error is in the vout_base, then
  *     stop everything, final -- raise vx_sto_final exception !
@@ -2218,6 +2218,7 @@ uty_vf_error(vio_vf vf, vio_err_type_t err_type, int err)
   vio_exception_t vx ;
   vty_io          vio ;
   bool            was_final ;
+  bool            epipe ;
 
   VTY_ASSERT_LOCKED() ;
 
@@ -2225,6 +2226,8 @@ uty_vf_error(vio_vf vf, vio_err_type_t err_type, int err)
 
   /* Decide how to handle the error, post the exception and signal.
    */
+  epipe = false ;
+
   if ((vf != vio->vin_base) && (vf != vio->vout_base))
     vx = vx_io_error ;
   else
@@ -2234,35 +2237,48 @@ uty_vf_error(vio_vf vf, vio_err_type_t err_type, int err)
       if (vf == vio->vout_base)
         {
           if ((err_type & verr_io) || ((err_type & verr_mask) == verr_vout))
-            vx = vx_stop_final ;
+            {
+              vx = vx_stop_final ;
+              epipe = (err_type & verr_io) && (err == EPIPE) ;
+            } ;
         } ;
     } ;
 
-  was_final = (vio->state & vst_final) != 0 ;
+  was_final = (vio->state & vst_final) != 0 ;   /* before this exception */
 
   uty_vio_exception(vio, vx) ;
 
   /* Log error and create error message as required.
    *
-   * Note that we log the first error on the vf and all I/O errors.
+   * Note that we log the first error on the vf and all I/O errors (except
+   * for EPIPE on the vout_base -- which we leave for the close reason
+   * logging).
    *
    * We only output an error message for the first error on the vf, and then
    * only if was not vst_final before the error.
    */
-  if (!vf->io_error || (err_type & verr_io))
+  if ((!vf->had_error || (err_type & verr_io)) && !epipe)
     zlog_warn("%s", uty_error_message(vf, err_type, err, true /* log */).str) ;
 
-  if (!vf->io_error && !was_final)
+  if (!vf->had_error && !was_final)
     {
       verr_mess_t err_mess ;
 
       err_mess = uty_error_message(vf, err_type, err, false /* not log */) ;
 
       if (vx == vx_stop_final)
-        uty_close_reason_set(vio, err_mess.str, true /* replace */) ;
+        uty_close_reason_set(vio, err_mess.str, !epipe) ;
       else
         vio_fifo_printf(uty_cmd_get_ebuf(vio), "%% %s\n", err_mess.str) ;
     } ;
+
+  vf->had_error = true ;
+
+  /* If this is an I/O error, tell the vfd not to generate any further I/O
+   * error messages on close etc.
+   */
+  if (err_type & verr_io)
+    vio_vfd_set_failed(vf->vfd) ;
 
   /* Signal to the command loop and return CMD_IO_ERROR.
    *
@@ -2291,8 +2307,11 @@ uty_error_message(vio_vf vf, vio_err_type_t err_type, int err, bool log)
   const char* sort ;
   bool   vout ;
   int    fd ;
+  bool   epipe ;
 
   VTY_ASSERT_LOCKED() ;
+
+  epipe = (err_type & verr_io) && (err == EPIPE) ;
 
   vout = false ;
   fd   = -1 ;
@@ -2330,6 +2349,7 @@ uty_error_message(vio_vf vf, vio_err_type_t err_type, int err, bool log)
 
       default:
         qassert(false) ;
+        epipe = false ;
     } ;
 
   name  = vf->name ;
@@ -2387,6 +2407,7 @@ uty_error_message(vio_vf vf, vio_err_type_t err_type, int err, bool log)
             qassert(false) ;
 
             where = "*unknown VOUT_XXX (bug)*" ;
+            epipe = false ;
             break ;
         } ;
     }
@@ -2434,6 +2455,7 @@ uty_error_message(vio_vf vf, vio_err_type_t err_type, int err, bool log)
             qassert(false) ;
 
             where = "*unknown VIN_XXX (bug)*" ;
+            epipe = false ;
             break ;
         } ;
     } ;
@@ -2447,7 +2469,10 @@ uty_error_message(vio_vf vf, vio_err_type_t err_type, int err, bool log)
   else
     sort = "time-out" ;
 
-  qfs_printf(qfs, "%s %s %s", where, what, sort) ;
+  if (!epipe)
+    qfs_printf(qfs, "%s %s %s", where, what, sort) ;
+  else
+    qfs_printf(qfs, "%s", where) ;
 
   if (name != NULL)
     qfs_printf(qfs, " '%s'", name) ;
@@ -2455,9 +2480,14 @@ uty_error_message(vio_vf vf, vio_err_type_t err_type, int err, bool log)
   if (fd >= 0)
     qfs_printf(qfs, " (fd=%d)", fd) ;
 
-  if      (((err_type & verr_io) != 0) && (err != 0))
-    qfs_printf(qfs, ": %s", errtoa(err, 0).str) ;
-  else if ((err_type & verr_vtysh) != 0)
+  if      (err_type & verr_io)
+    {
+      if (!epipe)
+        qfs_printf(qfs, ": %s", errtoa(err, 0).str) ;
+      else
+        qfs_printf(qfs, " connection closed") ;
+    }
+  else if (err_type & verr_vtysh)
     {
       switch (err)
         {

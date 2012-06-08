@@ -258,17 +258,16 @@ uty_sh_serv_write_close(vio_vf vf)
 
   if (vio->state & vst_final)
     {
-      const char* reason, * sep ;
+      const char* reason ;
 
       XFREE(MTYPE_VTY_CLI, vf->vtysh) ;
 
       reason = qs_string(vf->vio->close_reason) ;
-      sep    = ": " ;
       if ((reason == NULL) || (*reason == '\0'))
-        reason = sep = "" ;
+        reason = "closed" ;
 
-      zlog_info("vtysh connection '%s' (fd %d) closed%s%s", vf->name,
-                                             vio_vfd_fd(vf->vfd), sep, reason) ;
+      zlog_info("vtysh connection '%s' (fd %d) %s", vf->name,
+                                                  vio_vfd_fd(vf->vfd), reason) ;
     }
   else if (vf_active(vf->vout_state))
     {

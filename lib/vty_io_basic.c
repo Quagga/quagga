@@ -434,6 +434,7 @@ vio_vfd_new(int fd, vfd_type_t type, vfd_io_type_t io_type, void* action_info)
    *
    *   type           -- X           -- see below
    *   io_type        -- X           -- see below
+   *   failed         -- false
    *
    *   action_info    -- NULL        -- set below if ! "blocking" vio_vfd
    *
@@ -520,6 +521,17 @@ vio_vfd_set_action_info(vio_vfd vfd, void* action_info)
   vfd->action_info = action_info ;
 } ;
 
+/*------------------------------------------------------------------------------
+ * If there is a vfd, set the "failed" flag, which suppresses any further
+ * error logging - to avoid clutter.
+ */
+extern void
+vio_vfd_set_failed(vio_vfd vfd)
+{
+  if (vfd != NULL)
+    vfd->failed = true ;
+} ;
+
 #if 0
 /*------------------------------------------------------------------------------
  * If there is a read action set for the give vio_vfd (if any), then kick it.
@@ -577,10 +589,25 @@ vio_vfd_read_close(vio_vfd vfd)
             {
               if (vfd->type == vfd_socket)
                 {
-                  int rc = shutdown(vfd->fd, SHUT_RD) ;
-                  if (rc < 0)
-                    zlog_err("%s: shutdown() failed, fd=%d: %s", __func__,
+                  int rc, try ;
+
+                  /* POSIX doesn't list EINTR as a failure for shutdown()
+                   * but we handle it the same way as for close() in any case.
+                   *
+                   * We are completely paranoid and arrange not to get trapped
+                   * here indefinitely.
+                   */
+                  try = 5 ;
+                  do
+                    rc = shutdown(vfd->fd, SHUT_RD) ;
+                  while ((rc < 0) && (errno == EINTR) && (try-- > 0)) ;
+
+                  if ((rc < 0) && !vfd->failed)
+                    {
+                      zlog_err("%s: shutdown() failed, fd=%d: %s", __func__,
                                                 vfd->fd, errtoa(errno, 0).str) ;
+                      vfd->failed = true ;
+                    } ;
                 } ;
               vio_vfd_set_read(vfd, off, 0) ;
               vfd->io_type ^= vfd_io_read ;     /* now write only !     */
@@ -668,18 +695,23 @@ vio_vfd_close(vio_vfd vfd)
    */
   if ((vfd->fd >= 0) && ((vfd->io_type & vfd_io_no_close) == 0))
     {
-      while (1)
+      int rc, try ;
+
+      /* POSIX lists EINTR as a failure for close().
+       *
+       * We are completely paranoid and arrange not to get trapped
+       * here indefinitely.
+       */
+      try = 5 ;
+      do
+        rc = close(vfd->fd) ;
+      while ((rc < 0) && (errno == EINTR) && (try-- > 0)) ;
+
+      if ((rc < 0) && !vfd->failed)
         {
-          int rc = close(vfd->fd) ;
-
-          if (rc == 0)
-            break ;
-
-          if (errno == EINTR)
-            continue ;
-
           zlog_err("%s: close() failed, fd=%d: %s", __func__, vfd->fd,
                                                         errtoa(errno, 0).str) ;
+          vfd->failed = true ;
         } ;
     } ;
 

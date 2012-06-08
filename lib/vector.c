@@ -903,7 +903,7 @@ vector_sak(int to_copy, vector to,
       if (n_dst_nulls > 0)
         memset(&dst->p_items[dst->end], 0, P_ITEMS_SIZE(n_dst_nulls)) ;
       if (n_dst_move > 0)
-        memmove(&dst->p_items[i_dst + n_dst], &dst->p_items[i_dst + n_src],
+        memmove(&dst->p_items[i_dst + n_src], &dst->p_items[i_dst + n_dst],
                                                      P_ITEMS_SIZE(n_dst_move)) ;
       if (n_src_real > 0)
         memcpy(&dst->p_items[i_dst], &src->p_items[i_src],

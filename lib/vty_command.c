@@ -131,7 +131,7 @@
  * Prototypes
  */
 static bool uty_cmd_loop_prepare(vty_io vio) ;
-static cmd_ret_t uty_cmd_hiatus(vty_io vio, cmd_ret_t ret) ;
+static cmd_ret_t uty_cmd_hiatus(vty_io vio) ;
 static cmd_ret_t vty_cmd_auth(vty vty, node_type_t* p_next_node) ;
 static void uty_cmd_out_cancel(vty_io vio) ;
 static uint uty_show_error_context(vio_fifo ebuf, vio_vf vf) ;
@@ -1295,9 +1295,6 @@ vty_cmd_hiatus(vty vty, cmd_ret_t ret)
 
   qassert((vio->cl_state == vcl_cq_running) || (vio->cl_state == vcl_running)) ;
 
-  if (vio->state & vst_final)
-    return CMD_STOP ;                   /* it is all over       */
-
   /* Handle the return code, either:
    *
    *   * nothing further required -- any exception will have updated the
@@ -1306,26 +1303,31 @@ vty_cmd_hiatus(vty vty, cmd_ret_t ret)
    *   * this is a command or parsing error, for which a vx_quash exception
    *     must be raised, and suitable error message generated.
    */
-  switch (ret)
+  if (vio->state & vst_final)
+    ret = CMD_STOP ;                    /* it is all over       */
+  else
     {
-      case CMD_SUCCESS:
-      case CMD_HIATUS:
-      case CMD_WAITING:
-      case CMD_STOP:
-      case CMD_CANCEL:
-      case CMD_IO_ERROR:
-        break ;
+      switch (ret)
+        {
+          case CMD_SUCCESS:
+          case CMD_HIATUS:
+          case CMD_WAITING:
+          case CMD_STOP:
+          case CMD_CANCEL:
+          case CMD_IO_ERROR:
+            break ;
 
-      case CMD_WARNING:
-      case CMD_ERROR:
-      case CMD_ERR_PARSING:
-      case CMD_ERR_NO_MATCH:
-      case CMD_ERR_AMBIGUOUS:
-      case CMD_ERR_INCOMPLETE:
-      default:                  /* assume some sort of error            */
-        uty_vio_exception(vio, vx_quash) ;
-        uty_cmd_failed(vio, ret) ;
-        break ;
+          case CMD_WARNING:
+          case CMD_ERROR:
+          case CMD_ERR_PARSING:
+          case CMD_ERR_NO_MATCH:
+          case CMD_ERR_AMBIGUOUS:
+          case CMD_ERR_INCOMPLETE:
+          default:                  /* assume some sort of error            */
+            uty_vio_exception(vio, vx_quash) ;
+            uty_cmd_failed(vio, ret) ;
+            break ;
+        } ;
     } ;
 
   /* The meat of the hiatus -- loop back as required.
@@ -1342,11 +1344,12 @@ vty_cmd_hiatus(vty vty, cmd_ret_t ret)
    * position is a little complicated.  In particular, changes on the output
    * side may affect whether is waiting in the CLI.
    */
-  while (1)
+  do
     {
       vio->signal = CMD_SUCCESS ;       /* we are here !        */
 
-      ret = uty_cmd_hiatus(vio, ret) ;
+      if (ret != CMD_STOP)
+        ret = uty_cmd_hiatus(vio) ;
 
       switch (ret)
         {
@@ -1384,10 +1387,8 @@ vty_cmd_hiatus(vty vty, cmd_ret_t ret)
           default:
             zabort("invalid return code from uty_cmd_hiatus") ;
         } ;
-
-      if (vio->signal == CMD_SUCCESS)
-        break ;
-  } ;
+    }
+  while (vio->signal != CMD_SUCCESS);
 
   if (ret == CMD_WAITING)
     {
@@ -1418,8 +1419,10 @@ vty_cmd_hiatus(vty vty, cmd_ret_t ret)
  * pselect() system has moved things forward to).
  */
 static cmd_ret_t
-uty_cmd_hiatus(vty_io vio, cmd_ret_t ret)
+uty_cmd_hiatus(vty_io vio)
 {
+  cmd_ret_t ret ;
+
   /* (1) Do we need to close one or more vin and/or vout, or are we waiting for
    *     one to close ?
    *
