@@ -30,6 +30,7 @@
 #define HASH_HMAC_SHA512             5
 #define HASH_HMAC_RMD160             6
 #define HASH_HMAC_WHIRLPOOL          7
+#define HASH_ALGO_MAX                7
 
 #define HASH_SIZE_MD5               16
 #define HASH_SIZE_SHA1              20

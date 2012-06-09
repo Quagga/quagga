@@ -39,6 +39,7 @@ const struct message hash_algo_str[] =
 };
 const size_t hash_algo_str_max = sizeof (hash_algo_str) / sizeof (struct message);
 
+/* hash_algo_byname() assumes this array to be exactly HASH_ALGO_MAX items big */
 const struct message hash_algo_cli_str[] =
 {
   { HASH_KEYED_MD5,       "md5"              },
@@ -108,22 +109,12 @@ hash_library_init (void)
 unsigned
 hash_algo_byname (const char *algo)
 {
-  if (! strcmp (algo, "md5"))
-    return HASH_KEYED_MD5;
-  if (! strcmp (algo, "sha1"))
-    return HASH_HMAC_SHA1;
-  if (! strcmp (algo, "sha256"))
-    return HASH_HMAC_SHA256;
-  if (! strcmp (algo, "sha384"))
-    return HASH_HMAC_SHA384;
-  if (! strcmp (algo, "sha512"))
-    return HASH_HMAC_SHA512;
-  if (! strcmp (algo, "rmd160"))
-    return HASH_HMAC_RMD160;
-  if (! strcmp (algo, "whirlpool"))
-    return HASH_HMAC_WHIRLPOOL;
-  else
-    return 0;
+  unsigned i;
+
+  for (i = 0; i < HASH_ALGO_MAX; i++)
+    if (! strcmp (algo, hash_algo_cli_str[i].str))
+      return hash_algo_cli_str[i].key;
+  return 0;
 }
 
 /* Test whether a hash algorithm with the given Quagga code is available in the
