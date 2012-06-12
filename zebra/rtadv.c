@@ -1584,16 +1584,16 @@ DEFUN (ipv6_nd_router_preference,
 {
   struct interface *ifp;
   struct zebra_if *zif;
-  int i = 0;
+  size_t i = 0;
 
   ifp = (struct interface *) vty->index;
   zif = ifp->info;
 
-  while (0 != rtadv_pref_strs[i])
+  while (i < rtadv_pref_strs_max)
     {
-      if (strncmp (argv[0], rtadv_pref_strs[i], 1) == 0)
+      if (strncmp (argv[0], rtadv_pref_strs[i].str, 1) == 0)
 	{
-	  zif->rtadv.DefaultPreference = i;
+	  zif->rtadv.DefaultPreference = rtadv_pref_strs[i].key;
 	  zif->rtadv.AdvIntervalTimer = 0; /* resend immediately */
 	  return CMD_SUCCESS;
 	}
@@ -2054,7 +2054,7 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
 
   if (zif->rtadv.DefaultPreference != RTADV_PREF_MEDIUM)
     vty_out (vty, " ipv6 nd router-preference %s%s",
-	     rtadv_pref_strs[zif->rtadv.DefaultPreference],
+	     LOOKUP (rtadv_pref_strs, zif->rtadv.DefaultPreference),
 	     VTY_NEWLINE);
 
   if (zif->rtadv.AdvLinkMTU)

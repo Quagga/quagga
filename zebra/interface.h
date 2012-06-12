@@ -23,6 +23,7 @@
 #define _ZEBRA_INTERFACE_H
 
 #include "redistribute.h"
+#include "log.h"
 
 #ifdef HAVE_IRDP
 #include "zebra/irdp.h"
@@ -176,7 +177,12 @@ struct rtadvconf
 
      Default: 0 (medium) */
   int DefaultPreference;
-#define RTADV_PREF_MEDIUM 0x0 /* Per RFC4191. */
+  /* RFC4191 2.1. Preference Values: "Preference values are encoded as
+     a two-bit signed integer, as follows:" */
+#define RTADV_PREF_HIGH     0x1 /* 01      High                        */
+#define RTADV_PREF_MEDIUM   0x0 /* 00      Medium (default)            */
+#define RTADV_PREF_RESERVED 0x2 /* 10      Reserved - MUST NOT be sent */
+#define RTADV_PREF_LOW      0x3 /* 11      Low                         */
 
   /* A list of Recursive DNS server addresses specified in
      RFC 6106 */
@@ -187,6 +193,8 @@ struct rtadvconf
   struct list *AdvDNSSLList;
 };
 
+extern const struct message rtadv_pref_strs[];
+extern const size_t rtadv_pref_strs_max;
 #endif /* RTADV */
 
 /* `zebra' daemon local interface structure. */

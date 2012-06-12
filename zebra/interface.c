@@ -44,7 +44,14 @@
 #ifdef RTADV
 /* Order is intentional.  Matches RFC4191.  This array is also used for
    command matching, so only modify with care. */
-const char *rtadv_pref_strs[] = { "medium", "high", "INVALID", "low", 0 };
+const struct message rtadv_pref_strs[] =
+{
+  { RTADV_PREF_MEDIUM,   "medium"  },
+  { RTADV_PREF_HIGH,     "high"    },
+  { RTADV_PREF_RESERVED, "INVALID" },
+  { RTADV_PREF_LOW,      "low"     },
+};
+const size_t rtadv_pref_strs_max = sizeof (rtadv_pref_strs) / sizeof (struct message);
 #endif /* RTADV */
 
 /* Called when new interface is added. */
@@ -639,7 +646,7 @@ nd_dump_vty (struct vty *vty, struct interface *ifp)
 	vty_out (vty, "  ND router advertisements lifetime tracks ra-interval%s",
 		 VTY_NEWLINE);
       vty_out (vty, "  ND router advertisement default router preference is "
-			"%s%s", rtadv_pref_strs[rtadv->DefaultPreference],
+			"%s%s", LOOKUP (rtadv_pref_strs, rtadv->DefaultPreference),
 		 VTY_NEWLINE);
       if (rtadv->AdvManagedFlag)
 	vty_out (vty, "  Hosts use DHCP to obtain routable addresses.%s",
