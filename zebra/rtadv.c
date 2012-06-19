@@ -231,7 +231,7 @@ rtadv_send_packet (int sock, struct interface *ifp)
 #endif /* HAVE_STRUCT_SOCKADDR_DL */
   static void *adata = NULL;
   unsigned char buf[RTADV_MSG_SIZE];
-  struct nd_router_advert *rtadv;
+  struct nd_router_advert *ndra;
   int ret;
   int len = 0;
   struct zebra_if *zif;
@@ -272,25 +272,25 @@ rtadv_send_packet (int sock, struct interface *ifp)
   zif = ifp->info;
 
   /* Make router advertisement message. */
-  rtadv = (struct nd_router_advert *) buf;
+  ndra = (struct nd_router_advert *) buf;
 
-  rtadv->nd_ra_type = ND_ROUTER_ADVERT;
-  rtadv->nd_ra_code = 0;
-  rtadv->nd_ra_cksum = 0;
+  ndra->nd_ra_type = ND_ROUTER_ADVERT;
+  ndra->nd_ra_code = 0;
+  ndra->nd_ra_cksum = 0;
 
-  rtadv->nd_ra_curhoplimit = 64;
+  ndra->nd_ra_curhoplimit = 64;
 
   /* RFC4191: Default Router Preference is 0 if Router Lifetime is 0. */
-  rtadv->nd_ra_flags_reserved =
+  ndra->nd_ra_flags_reserved =
     zif->rtadv.AdvDefaultLifetime == 0 ? 0 : zif->rtadv.DefaultPreference;
-  rtadv->nd_ra_flags_reserved <<= 3;
+  ndra->nd_ra_flags_reserved <<= 3;
 
   if (zif->rtadv.AdvManagedFlag)
-    rtadv->nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
+    ndra->nd_ra_flags_reserved |= ND_RA_FLAG_MANAGED;
   if (zif->rtadv.AdvOtherConfigFlag)
-    rtadv->nd_ra_flags_reserved |= ND_RA_FLAG_OTHER;
+    ndra->nd_ra_flags_reserved |= ND_RA_FLAG_OTHER;
   if (zif->rtadv.AdvHomeAgentFlag)
-    rtadv->nd_ra_flags_reserved |= ND_RA_FLAG_HOME_AGENT;
+    ndra->nd_ra_flags_reserved |= ND_RA_FLAG_HOME_AGENT;
   /* Note that according to Neighbor Discovery (RFC 4861 [18]),
    * AdvDefaultLifetime is by default based on the value of
    * MaxRtrAdvInterval.  AdvDefaultLifetime is used in the Router Lifetime
@@ -302,9 +302,9 @@ rtadv_send_packet (int sock, struct interface *ifp)
   pkt_RouterLifetime = zif->rtadv.AdvDefaultLifetime != -1 ?
     zif->rtadv.AdvDefaultLifetime :
     MAX (1, 0.003 * zif->rtadv.MaxRtrAdvInterval);
-  rtadv->nd_ra_router_lifetime = htons (pkt_RouterLifetime);
-  rtadv->nd_ra_reachable = htonl (zif->rtadv.AdvReachableTime);
-  rtadv->nd_ra_retransmit = htonl (0);
+  ndra->nd_ra_router_lifetime = htons (pkt_RouterLifetime);
+  ndra->nd_ra_reachable = htonl (zif->rtadv.AdvReachableTime);
+  ndra->nd_ra_retransmit = htonl (0);
 
   len = sizeof (struct nd_router_advert);
 
