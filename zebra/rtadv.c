@@ -152,6 +152,71 @@ rtadv_recv_packet (int sock, u_char *buf, int buflen,
 
 #define RTADV_MSG_SIZE 4096
 
+static unsigned
+rtadv_append_rdnss_tlvs (unsigned char *buf, const struct list *list, const unsigned MaxRAI)
+{
+  struct listnode *node;
+  struct rtadv_rdnss_entry *rdnss_entry;
+  unsigned len = 0;
+
+  for (ALL_LIST_ELEMENTS_RO (list, node, rdnss_entry))
+  {
+    struct nd_opt_rdnss *tlv = (struct nd_opt_rdnss *) (buf + len);
+
+    tlv->nd_opt_rdnss_type = ND_OPT_RDNSS;
+    tlv->nd_opt_rdnss_len = 3; /* 8 bytes header, 16 bytes address */
+    tlv->nd_opt_rdnss_reserved = 0;
+    /* RFC6106 sets, that RDNSS Lifetime must be either 0 or "infinity" or
+     * any value in the [MaxRAI..2*MaxRAI] range, but it doesn't set any
+     * default value for Lifetime. rtadvd defaults to 2 times the current
+     * MaxRAI, which seems to be the most reasonable choice. */
+    tlv->nd_opt_rdnss_lifetime = htonl
+    (
+      ! rdnss_entry->track_maxrai ? rdnss_entry->lifetime :
+      MAX (1, MaxRAI / 500) /* 2*MaxRAI in seconds */
+    );
+    len += sizeof (struct nd_opt_rdnss);
+    IPV6_ADDR_COPY (buf + len, rdnss_entry->address.s6_addr);
+    len += sizeof (struct in6_addr);
+  }
+  return len;
+}
+
+static unsigned
+rtadv_append_dnssl_tlvs (unsigned char *buf, const struct list *list, const unsigned MaxRAI)
+{
+  struct listnode *node;
+  struct rtadv_dnssl_entry *dnssl_entry;
+  unsigned len = 0;
+
+  for (ALL_LIST_ELEMENTS_RO (list, node, dnssl_entry))
+  {
+    /* This implementation generates one TLV per subdomain, changing this
+       requires handling padding outside of the cycle and making sure
+       the size of each TLV doesn't exceed the maximum value. */
+    struct nd_opt_dnssl *tlv = (struct nd_opt_dnssl *) (buf + len);
+    size_t padding_bytes = 8 - (dnssl_entry->length_rfc1035 % 8);
+
+    tlv->nd_opt_dnssl_type = ND_OPT_DNSSL;
+    tlv->nd_opt_dnssl_len = (8 + dnssl_entry->length_rfc1035 + padding_bytes) / 8;
+    tlv->nd_opt_dnssl_reserved = 0;
+    /* see RDNSS Lifetime comment */
+    tlv->nd_opt_dnssl_lifetime = htonl
+    (
+      ! dnssl_entry->track_maxrai ? dnssl_entry->lifetime :
+      MAX (1, MaxRAI / 500) /* 2*MaxRAI in seconds */
+    );
+    len += sizeof (struct nd_opt_dnssl);
+    memcpy (buf + len, dnssl_entry->subdomain_rfc1035, dnssl_entry->length_rfc1035);
+    len += dnssl_entry->length_rfc1035;
+    if (! padding_bytes)
+      continue;
+    memset (buf + len, 0, padding_bytes);
+    len += padding_bytes;
+  }
+  return len;
+}
+
 /* Send router advertisement packet. */
 static void
 rtadv_send_packet (int sock, struct interface *ifp)
@@ -174,8 +239,6 @@ rtadv_send_packet (int sock, struct interface *ifp)
   u_char all_nodes_addr[] = {0xff,0x02,0,0,0,0,0,0,0,0,0,0,0,0,0,1};
   struct listnode *node;
   u_int16_t pkt_RouterLifetime;
-  struct rtadv_rdnss_entry *rdnss_entry;
-  struct rtadv_dnssl_entry *dnssl_entry;
 
   /*
    * Allocate control message bufffer.  This is dynamic because
@@ -276,53 +339,10 @@ rtadv_send_packet (int sock, struct interface *ifp)
     }
 
   /* Fill in all RDNS server entries. */
-  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, rdnss_entry))
-    {
-      struct nd_opt_rdnss *tlv = (struct nd_opt_rdnss *) (buf + len);
-
-      tlv->nd_opt_rdnss_type = ND_OPT_RDNSS;
-      tlv->nd_opt_rdnss_len = 3; /* 8 bytes header, 16 bytes address */
-      tlv->nd_opt_rdnss_reserved = 0;
-      /* RFC6106 sets, that RDNSS Lifetime must be either 0 or "infinity" or
-       * any value in the [MaxRAI..2*MaxRAI] range, but it doesn't set any
-       * default value for Lifetime. rtadvd defaults to 2 times the current
-       * MaxRAI, which seems to be the most reasonable choice. */
-      tlv->nd_opt_rdnss_lifetime = htonl
-      (
-        ! rdnss_entry->track_maxrai ? rdnss_entry->lifetime :
-        MAX (1, (unsigned)zif->rtadv.MaxRtrAdvInterval / 500) /* 2*MaxRAI in seconds */
-      );
-      len += sizeof (struct nd_opt_rdnss);
-      IPV6_ADDR_COPY (buf + len, rdnss_entry->address.s6_addr);
-      len += sizeof (struct in6_addr);
-    }
+  len += rtadv_append_rdnss_tlvs (buf + len, zif->rtadv.AdvRDNSSList, zif->rtadv.MaxRtrAdvInterval);
 
   /* DNSSL TLV(s) */
-  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvDNSSLList, node, dnssl_entry))
-    {
-      /* This implementation generates one TLV per subdomain, changing this
-         requires handling padding outside of the cycle and making sure
-         the size of each TLV doesn't exceed the maximum value. */
-      struct nd_opt_dnssl *tlv = (struct nd_opt_dnssl *) (buf + len);
-      size_t padding_bytes = 8 - (dnssl_entry->length_rfc1035 % 8);
-
-      tlv->nd_opt_dnssl_type = ND_OPT_DNSSL;
-      tlv->nd_opt_dnssl_len = (8 + dnssl_entry->length_rfc1035 + padding_bytes) / 8;
-      tlv->nd_opt_dnssl_reserved = 0;
-      /* see RDNSS Lifetime comment */
-      tlv->nd_opt_dnssl_lifetime = htonl
-      (
-        ! dnssl_entry->track_maxrai ? dnssl_entry->lifetime :
-        MAX (1, (unsigned)zif->rtadv.MaxRtrAdvInterval / 500) /* 2*MaxRAI in seconds */
-      );
-      len += sizeof (struct nd_opt_dnssl);
-      memcpy (buf + len, dnssl_entry->subdomain_rfc1035, dnssl_entry->length_rfc1035);
-      len += dnssl_entry->length_rfc1035;
-      if (! padding_bytes)
-        continue;
-      memset (buf + len, 0, padding_bytes);
-      len += padding_bytes;
-    }
+  len += rtadv_append_dnssl_tlvs (buf + len, zif->rtadv.AdvDNSSLList, zif->rtadv.MaxRtrAdvInterval);
 
   if (zif->rtadv.AdvIntervalOption)
     {
@@ -1699,6 +1719,42 @@ rtadv_rdnss_lookup (struct list *list, struct in6_addr *v6addr)
  * although they are used in the internal structures (two respective keywords
  * must be used instead in CLI). This is intended for a better perception of
  * the running-config text. */
+
+static int
+rtadv_validate_rdnss_args
+(
+  struct vty *vty,
+  struct rtadv_rdnss_entry *rdnss,
+  const unsigned MaxRtrAdvInterval,
+  const int argc,
+  const char *argv[]
+)
+{
+  if (1 != inet_pton (AF_INET6, argv[0], &rdnss->address))
+    return CMD_WARNING;
+  if (argc < 2) /* no explicit lifetime*/
+    rdnss->track_maxrai = 1;
+  else
+  {
+    rdnss->track_maxrai = 0;
+    if (! strncmp (argv[1], "i", 1)) /* infinite */
+      rdnss->lifetime = RTADV_DNS_INFINITY_LIFETIME;
+    else if (! strncmp (argv[1], "o", 1)) /* obsolete */
+      rdnss->lifetime = RTADV_DNS_OBSOLETE_LIFETIME;
+    else
+    {
+      VTY_GET_INTEGER_RANGE ("lifetime", rdnss->lifetime, argv[1], 1, 4294967294);
+      if (! rtadv_dns_lifetime_fits (rdnss->lifetime * 1000, MaxRtrAdvInterval))
+      {
+        vty_out (vty, "This lifetime conflicts with ra-interval (%u ms)%s",
+                 MaxRtrAdvInterval, VTY_NEWLINE);
+        return CMD_WARNING;
+      }
+    }
+  }
+  return CMD_SUCCESS;
+}
+
 DEFUN (ipv6_nd_rdnss_addr,
        ipv6_nd_rdnss_addr_cmd,
        "ipv6 nd rdnss X:X::X:X",
@@ -1711,30 +1767,8 @@ DEFUN (ipv6_nd_rdnss_addr,
   struct zebra_if *zif = ifp->info;
   struct rtadv_rdnss_entry input, *stored;
 
-  /* validate input */
-  if (1 != inet_pton (AF_INET6, argv[0], &input.address))
+  if (CMD_SUCCESS != rtadv_validate_rdnss_args (vty, &input, zif->rtadv.MaxRtrAdvInterval, argc, argv))
     return CMD_WARNING;
-
-  if (argc < 2) /* no explicit lifetime*/
-    input.track_maxrai = 1;
-  else
-  {
-    input.track_maxrai = 0;
-    if (! strncmp (argv[1], "i", 1)) /* infinite */
-      input.lifetime = RTADV_DNS_INFINITY_LIFETIME;
-    else if (! strncmp (argv[1], "o", 1)) /* obsolete */
-      input.lifetime = RTADV_DNS_OBSOLETE_LIFETIME;
-    else
-    {
-      VTY_GET_INTEGER_RANGE ("lifetime", input.lifetime, argv[1], 1, 4294967294);
-      if (! rtadv_dns_lifetime_fits (input.lifetime * 1000, zif->rtadv.MaxRtrAdvInterval))
-      {
-        vty_out (vty, "This lifetime conflicts with ra-interval (%u ms)%s",
-                 zif->rtadv.MaxRtrAdvInterval, VTY_NEWLINE);
-        return CMD_WARNING;
-      }
-    }
-  }
 
   /* OK to commit the update */
   if (! (stored = rtadv_rdnss_lookup (zif->rtadv.AdvRDNSSList, &input.address)))
@@ -1903,6 +1937,50 @@ rtadv_dnssl_lookup (struct list *list, const char * subdomain)
   return NULL;
 }
 
+static int
+rtadv_validate_dnssl_args
+(
+  struct vty *vty,
+  struct rtadv_dnssl_entry *dnssl,
+  const unsigned MaxRtrAdvInterval,
+  const int argc,
+  const char *argv[]
+)
+{
+  int parsed_bytes;
+
+  parsed_bytes = parse_rfc1035_subdomain (argv[0], dnssl->subdomain_rfc1035);
+  if (parsed_bytes <= 0)
+  {
+    vty_out (vty, "Invalid DNS domain name '%s'%s", argv[0], VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+  dnssl->length_rfc1035 = parsed_bytes;
+  strcpy (dnssl->subdomain_str, argv[0]);
+
+  if (argc < 2) /* no explicit lifetime*/
+    dnssl->track_maxrai = 1;
+  else
+  {
+    dnssl->track_maxrai = 0;
+    if (! strncmp (argv[1], "i", 1)) /* infinite */
+      dnssl->lifetime = RTADV_DNS_INFINITY_LIFETIME;
+    else if (! strncmp (argv[1], "o", 1)) /* obsolete */
+      dnssl->lifetime = RTADV_DNS_OBSOLETE_LIFETIME;
+    else
+    {
+      VTY_GET_INTEGER_RANGE ("lifetime", dnssl->lifetime, argv[1], 1, 4294967294);
+      if (! rtadv_dns_lifetime_fits (dnssl->lifetime * 1000, MaxRtrAdvInterval))
+      {
+        vty_out (vty, "This lifetime conflicts with ra-interval (%u ms)%s",
+                 MaxRtrAdvInterval, VTY_NEWLINE);
+        return CMD_WARNING;
+      }
+    }
+  }
+  return CMD_SUCCESS;
+}
+
 DEFUN (ipv6_nd_dnssl_domain,
        ipv6_nd_dnssl_domain_cmd,
        "ipv6 nd dnssl DNS.DOMA.IN",
@@ -1914,38 +1992,9 @@ DEFUN (ipv6_nd_dnssl_domain,
   struct interface *ifp = (struct interface *) vty->index;
   struct zebra_if *zif = ifp->info;
   struct rtadv_dnssl_entry input, *stored;
-  int parsed_bytes;
 
-  /* validate input */
-  parsed_bytes = parse_rfc1035_subdomain (argv[0], input.subdomain_rfc1035);
-  if (parsed_bytes <= 0)
-  {
-    vty_out (vty, "Invalid DNS domain name '%s'%s", argv[0], VTY_NEWLINE);
+  if (CMD_SUCCESS != rtadv_validate_dnssl_args (vty, &input, zif->rtadv.MaxRtrAdvInterval, argc, argv))
     return CMD_WARNING;
-  }
-  input.length_rfc1035 = parsed_bytes;
-  strcpy (input.subdomain_str, argv[0]);
-
-  if (argc < 2) /* no explicit lifetime*/
-    input.track_maxrai = 1;
-  else
-  {
-    input.track_maxrai = 0;
-    if (! strncmp (argv[1], "i", 1)) /* infinite */
-      input.lifetime = RTADV_DNS_INFINITY_LIFETIME;
-    else if (! strncmp (argv[1], "o", 1)) /* obsolete */
-      input.lifetime = RTADV_DNS_OBSOLETE_LIFETIME;
-    else
-    {
-      VTY_GET_INTEGER_RANGE ("lifetime", input.lifetime, argv[1], 1, 4294967294);
-      if (! rtadv_dns_lifetime_fits (input.lifetime * 1000, zif->rtadv.MaxRtrAdvInterval))
-      {
-        vty_out (vty, "This lifetime conflicts with ra-interval (%u ms)%s",
-                 zif->rtadv.MaxRtrAdvInterval, VTY_NEWLINE);
-        return CMD_WARNING;
-      }
-    }
-  }
 
   /* OK to commit the update */
   if (! (stored = rtadv_dnssl_lookup (zif->rtadv.AdvDNSSLList, input.subdomain_str)))
@@ -1998,6 +2047,71 @@ ALIAS (no_ipv6_nd_dnssl_domain,
        "DNS domain\n"
        "Lifetime in seconds (track ra-interval, if not set)")
 
+static int
+rtadv_print_rdnss_list (struct vty *vty, const struct list *list, const char *prefix)
+{
+  struct listnode *node;
+  struct rtadv_rdnss_entry *rdnss_entry;
+  char buf[INET6_ADDRSTRLEN];
+  int lines = 0;
+
+  for (ALL_LIST_ELEMENTS_RO (list, node, rdnss_entry))
+  {
+    lines++;
+    inet_ntop (AF_INET6, rdnss_entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
+    vty_out (vty, "%s %s", prefix, buf);
+    if (rdnss_entry->track_maxrai)
+    {
+      vty_out (vty, "%s", VTY_NEWLINE);
+      continue;
+    }
+    switch (rdnss_entry->lifetime)
+    {
+    case RTADV_DNS_OBSOLETE_LIFETIME:
+      vty_out (vty, " obsolete%s", VTY_NEWLINE);
+      break;
+    case RTADV_DNS_INFINITY_LIFETIME:
+      vty_out (vty, " infinite%s", VTY_NEWLINE);
+      break;
+    default:
+      vty_out (vty, " %u%s", rdnss_entry->lifetime, VTY_NEWLINE);
+      break;
+    }
+  }
+  return lines;
+}
+
+static int
+rtadv_print_dnssl_list (struct vty *vty, const struct list *list, const char *prefix)
+{
+  struct listnode *node;
+  struct rtadv_dnssl_entry *dnssl_entry;
+  int lines = 0;
+
+  for (ALL_LIST_ELEMENTS_RO (list, node, dnssl_entry))
+  {
+    lines++;
+    vty_out (vty, "%s %s", prefix, dnssl_entry->subdomain_str);
+    if (dnssl_entry->track_maxrai)
+    {
+      vty_out (vty, "%s", VTY_NEWLINE);
+      continue;
+    }
+    switch (dnssl_entry->lifetime)
+    {
+    case RTADV_DNS_OBSOLETE_LIFETIME:
+      vty_out (vty, " obsolete%s", VTY_NEWLINE);
+      break;
+    case RTADV_DNS_INFINITY_LIFETIME:
+      vty_out (vty, " infinite%s", VTY_NEWLINE);
+      break;
+    default:
+      vty_out (vty, " %u%s", dnssl_entry->lifetime, VTY_NEWLINE);
+      break;
+    }
+  }
+  return lines;
+}
 
 /* Write configuration about router advertisement. */
 void
@@ -2006,8 +2120,6 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
   struct zebra_if *zif;
   struct listnode *node;
   struct rtadv_prefix *rprefix;
-  struct rtadv_rdnss_entry *rdnss_entry;
-  struct rtadv_dnssl_entry *dnssl_entry;
   char buf[INET6_ADDRSTRLEN];
   int interval;
 
@@ -2096,49 +2208,8 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
 	vty_out (vty, " router-address");
       vty_out (vty, "%s", VTY_NEWLINE);
     }
-  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvRDNSSList, node, rdnss_entry))
-    {
-      inet_ntop (AF_INET6, rdnss_entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
-      vty_out (vty, " ipv6 nd rdnss %s", buf);
-      if (rdnss_entry->track_maxrai)
-        {
-          vty_out (vty, "%s", VTY_NEWLINE);
-          continue;
-        }
-      switch (rdnss_entry->lifetime)
-        {
-        case RTADV_DNS_OBSOLETE_LIFETIME:
-          vty_out (vty, " obsolete%s", VTY_NEWLINE);
-          break;
-        case RTADV_DNS_INFINITY_LIFETIME:
-          vty_out (vty, " infinite%s", VTY_NEWLINE);
-          break;
-        default:
-          vty_out (vty, " %u%s", rdnss_entry->lifetime, VTY_NEWLINE);
-          break;
-        }
-    }
-  for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvDNSSLList, node, dnssl_entry))
-    {
-      vty_out (vty, " ipv6 nd dnssl %s", dnssl_entry->subdomain_str);
-      if (dnssl_entry->track_maxrai)
-        {
-          vty_out (vty, "%s", VTY_NEWLINE);
-          continue;
-        }
-      switch (dnssl_entry->lifetime)
-        {
-        case RTADV_DNS_OBSOLETE_LIFETIME:
-          vty_out (vty, " obsolete%s", VTY_NEWLINE);
-          break;
-        case RTADV_DNS_INFINITY_LIFETIME:
-          vty_out (vty, " infinite%s", VTY_NEWLINE);
-          break;
-        default:
-          vty_out (vty, " %u%s", dnssl_entry->lifetime, VTY_NEWLINE);
-          break;
-        }
-    }
+  rtadv_print_rdnss_list (vty, zif->rtadv.AdvRDNSSList, " ipv6 nd rdnss");
+  rtadv_print_dnssl_list (vty, zif->rtadv.AdvDNSSLList, " ipv6 nd dnssl");
 }
 
 
