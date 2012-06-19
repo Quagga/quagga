@@ -76,6 +76,12 @@ struct rtadv
 
   struct thread *ra_read;
   struct thread *ra_timer;
+  /* router-scope setting */
+  u_char AdvSendAdvertisements;
+  /* router-scope RDNSS options */
+  struct list *AdvRDNSSList;
+  /* router-scope DNSSL options */
+  struct list *AdvDNSSLList;
 };
 
 static struct rtadv *rtadv = NULL;
@@ -94,7 +100,10 @@ static const size_t rtadv_pref_strs_max = sizeof (rtadv_pref_strs) / sizeof (str
 static struct rtadv *
 rtadv_new (void)
 {
-  return XCALLOC (MTYPE_TMP, sizeof (struct rtadv));
+  struct rtadv *ret = XCALLOC (MTYPE_TMP, sizeof (struct rtadv));
+  ret->AdvRDNSSList = list_new();
+  ret->AdvDNSSLList = list_new();
+  return ret;
 }
 
 static int
@@ -339,9 +348,11 @@ rtadv_send_packet (int sock, struct interface *ifp)
     }
 
   /* Fill in all RDNS server entries. */
+  len += rtadv_append_rdnss_tlvs (buf + len, rtadv->AdvRDNSSList, zif->rtadv.MaxRtrAdvInterval);
   len += rtadv_append_rdnss_tlvs (buf + len, zif->rtadv.AdvRDNSSList, zif->rtadv.MaxRtrAdvInterval);
 
   /* DNSSL TLV(s) */
+  len += rtadv_append_dnssl_tlvs (buf + len, rtadv->AdvDNSSLList, zif->rtadv.MaxRtrAdvInterval);
   len += rtadv_append_dnssl_tlvs (buf + len, zif->rtadv.AdvDNSSLList, zif->rtadv.MaxRtrAdvInterval);
 
   if (zif->rtadv.AdvIntervalOption)
@@ -2053,11 +2064,11 @@ rtadv_print_rdnss_list (struct vty *vty, const struct list *list, const char *pr
   struct listnode *node;
   struct rtadv_rdnss_entry *rdnss_entry;
   char buf[INET6_ADDRSTRLEN];
-  int lines = 0;
+  int write = 0;
 
   for (ALL_LIST_ELEMENTS_RO (list, node, rdnss_entry))
   {
-    lines++;
+    write++;
     inet_ntop (AF_INET6, rdnss_entry->address.s6_addr, buf, INET6_ADDRSTRLEN);
     vty_out (vty, "%s %s", prefix, buf);
     if (rdnss_entry->track_maxrai)
@@ -2078,7 +2089,7 @@ rtadv_print_rdnss_list (struct vty *vty, const struct list *list, const char *pr
       break;
     }
   }
-  return lines;
+  return write;
 }
 
 static int
@@ -2086,11 +2097,11 @@ rtadv_print_dnssl_list (struct vty *vty, const struct list *list, const char *pr
 {
   struct listnode *node;
   struct rtadv_dnssl_entry *dnssl_entry;
-  int lines = 0;
+  int write = 0;
 
   for (ALL_LIST_ELEMENTS_RO (list, node, dnssl_entry))
   {
-    lines++;
+    write++;
     vty_out (vty, "%s %s", prefix, dnssl_entry->subdomain_str);
     if (dnssl_entry->track_maxrai)
     {
@@ -2110,7 +2121,7 @@ rtadv_print_dnssl_list (struct vty *vty, const struct list *list, const char *pr
       break;
     }
   }
-  return lines;
+  return write;
 }
 
 /* Write configuration about router advertisement. */
@@ -2130,8 +2141,9 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
 
   if (! if_is_loopback (ifp))
     {
-      if (zif->rtadv.AdvSendAdvertisements)
-	vty_out (vty, " no ipv6 nd suppress-ra%s", VTY_NEWLINE);
+      if (zif->rtadv.AdvSendAdvertisements != rtadv->AdvSendAdvertisements)
+       vty_out (vty, " %sipv6 nd suppress-ra%s",
+                zif->rtadv.AdvSendAdvertisements ? "no " : "", VTY_NEWLINE);
     }
 
   
@@ -2210,6 +2222,138 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
   rtadv_print_dnssl_list (vty, zif->rtadv.AdvDNSSLList, " ipv6 nd dnssl");
 }
 
+static struct cmd_node ipv6_nd_node = { IPV6_ND_NODE, "", 1 };
+
+DEFUN (top_ipv6_nd_suppress_ra,
+       top_ipv6_nd_suppress_ra_cmd,
+       "ipv6 nd suppress-ra",
+       IPV6_STR
+       ND_STR
+       "Suppress Router Advertisement by default\n")
+{
+  rtadv->AdvSendAdvertisements = 0;
+  return CMD_SUCCESS;
+}
+
+DEFUN (top_no_ipv6_nd_suppress_ra,
+       top_no_ipv6_nd_suppress_ra_cmd,
+       "no ipv6 nd suppress-ra",
+       NO_STR
+       IPV6_STR
+       ND_STR
+       "Suppress Router Advertisement by default\n")
+{
+  rtadv->AdvSendAdvertisements = 1;
+  return CMD_SUCCESS;
+}
+
+/* The following commands don't allow for explicit lifetime because of
+ * MaxRtrAdvInterval being specific to each interface. */
+DEFUN (top_ipv6_nd_rdnss_addr,
+       top_ipv6_nd_rdnss_addr_cmd,
+       "ipv6 nd rdnss X:X::X:X",
+       IP6_STR
+       ND_STR
+       "Recursive DNS Server\n"
+       "IPv6 address of the server\n")
+{
+  struct rtadv_rdnss_entry input, *stored;
+
+  if (CMD_SUCCESS != rtadv_validate_rdnss_args (vty, &input, 0, argc, argv))
+    return CMD_WARNING;
+
+  /* OK to commit the update */
+  if (! (stored = rtadv_rdnss_lookup (rtadv->AdvRDNSSList, &input.address)))
+  {
+    stored = XCALLOC (MTYPE_RTADV_PREFIX, sizeof (struct rtadv_rdnss_entry));
+    listnode_add (rtadv->AdvRDNSSList, stored);
+  }
+  memcpy (stored, &input, sizeof (struct rtadv_rdnss_entry));
+  return CMD_SUCCESS;
+}
+
+DEFUN (top_no_ipv6_nd_rdnss_addr,
+       top_no_ipv6_nd_rdnss_addr_cmd,
+       "no ipv6 nd rdnss X:X::X:X",
+       NO_STR
+       IPV6_STR
+       ND_STR
+       "Recursive DNS Server\n"
+       "IPv6 address of the server\n")
+{
+  struct rtadv_rdnss_entry *entry;
+  struct in6_addr v6addr;
+
+  if (1 != inet_pton (AF_INET6, argv[0], &v6addr))
+    return CMD_WARNING;
+  if (! (entry = rtadv_rdnss_lookup (rtadv->AdvRDNSSList, &v6addr)))
+  {
+    vty_out (vty, "There is no such RDNSS address configured!%s", VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+  listnode_delete (rtadv->AdvRDNSSList, entry);
+  XFREE (MTYPE_RTADV_PREFIX, entry);
+  return CMD_SUCCESS;
+}
+
+DEFUN (top_ipv6_nd_dnssl_domain,
+       top_ipv6_nd_dnssl_domain_cmd,
+       "ipv6 nd dnssl DNS.DOMA.IN",
+       IPV6_STR
+       ND_STR
+       "DNS search list\n"
+       "DNS domain\n")
+{
+  struct rtadv_dnssl_entry input, *stored;
+
+  if (CMD_SUCCESS != rtadv_validate_dnssl_args (vty, &input, 0, argc, argv))
+    return CMD_WARNING;
+
+  /* OK to commit the update */
+  if (! (stored = rtadv_dnssl_lookup (rtadv->AdvDNSSLList, input.subdomain_str)))
+  {
+    stored = XCALLOC (MTYPE_RTADV_PREFIX, sizeof (struct rtadv_dnssl_entry));
+    listnode_add (rtadv->AdvDNSSLList, stored);
+  }
+  memcpy (stored, &input, sizeof (struct rtadv_dnssl_entry));
+  return CMD_SUCCESS;
+}
+
+DEFUN (top_no_ipv6_nd_dnssl_domain,
+       top_no_ipv6_nd_dnssl_domain_cmd,
+       "no ipv6 nd dnssl DNS.DOMA.IN",
+       NO_STR
+       IPV6_STR
+       ND_STR
+       "DNS search list\n"
+       "DNS domain\n")
+{
+  struct rtadv_dnssl_entry *entry;
+
+  if (! (entry = rtadv_dnssl_lookup (rtadv->AdvDNSSLList, argv[0])))
+  {
+    vty_out (vty, "There is no such DNSSL domain configured!%s", VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+  listnode_delete (rtadv->AdvDNSSLList, entry);
+  XFREE (MTYPE_RTADV_PREFIX, entry);
+  return CMD_SUCCESS;
+}
+
+static int
+top_rtadv_config_write (struct vty *vty)
+{
+  int write = 0;
+
+  if (rtadv->AdvSendAdvertisements)
+  {
+    vty_out (vty, "no ipv6 nd suppress-ra%s", VTY_NEWLINE);
+    write++;
+  }
+  write += rtadv_print_rdnss_list (vty, rtadv->AdvRDNSSList, "ipv6 nd rdnss");
+  write += rtadv_print_dnssl_list (vty, rtadv->AdvDNSSLList, "ipv6 nd dnssl");
+  return write;
+}
 
 static void
 rtadv_event (enum rtadv_event event, int val)
@@ -2267,6 +2411,13 @@ rtadv_init (void)
   rtadv = rtadv_new ();
   rtadv->sock = sock;
 
+  install_node (&ipv6_nd_node, top_rtadv_config_write);
+  install_element (CONFIG_NODE, &top_ipv6_nd_suppress_ra_cmd);
+  install_element (CONFIG_NODE, &top_no_ipv6_nd_suppress_ra_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_rdnss_addr_cmd);
+  install_element (CONFIG_NODE, &top_no_ipv6_nd_rdnss_addr_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_dnssl_domain_cmd);
+  install_element (CONFIG_NODE, &top_no_ipv6_nd_dnssl_domain_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_suppress_ra_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_suppress_ra_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_ra_interval_cmd);
@@ -2415,7 +2566,8 @@ rtadv_if_dump_vty (struct vty *vty, const struct rtadvconf *conf)
 void
 rtadv_if_new_hook (struct rtadvconf *conf)
 {
-  conf->AdvSendAdvertisements = 0;
+  /* Derive once from global parameter, then manage independently. */
+  conf->AdvSendAdvertisements = rtadv->AdvSendAdvertisements;
   conf->MaxRtrAdvInterval = RTADV_MAX_RTR_ADV_INTERVAL;
   conf->MinRtrAdvInterval = RTADV_MIN_RTR_ADV_INTERVAL;
   conf->AdvIntervalTimer = 0;

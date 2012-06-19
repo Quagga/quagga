@@ -15,12 +15,22 @@ messages to the all nodes that exist on the network.
 @node Router Advertisement
 @section Router Advertisement
 
+@deffn Command {no ipv6 nd suppress-ra} {}
+Send router advertisement messages (router-scope optional setting, when set,
+current value is inherited by all new interfaces).
+@end deffn
+
+@deffn Command {ipv6 nd suppress-ra} {}
+Don't send router advertisment messages (router-scope default setting, when set,
+current value is inherited by all new interfaces).
+@end deffn
+
 @deffn {Interface Command} {no ipv6 nd suppress-ra} {}
-Send router advertisment messages.
+Send router advertisment messages (interface-scope setting).
 @end deffn
 
 @deffn {Interface Command} {ipv6 nd suppress-ra} {}
-Don't send router advertisment messages (default setting).
+Don't send router advertisment messages (interface-scope setting).
 @end deffn
 
 @deffn {Interface Command} {ipv6 nd prefix @var{ipv6prefix} [@var{valid-lifetime}] [@var{preferred-lifetime}] [off-link] [no-autoconfig] [router-address]} {}
@@ -186,6 +196,8 @@ Note, that server addresses in the RA packet follow the order visible in the
 "running-config" text. If you need the servers to go in a different order in
 the packet, make "running-config" list them as required. In a CLI session this
 takes necessary amount of "no ipv6 nd rdnss ..." and "ipv6 nd rdnss..." commands.
+
+See below for router-scope variant of this command.
 @end deffn
 
 @deffn {Interface Command} {ipv6 nd dnssl @var{domain} [@var{lifetime}]} {}
@@ -208,6 +220,18 @@ Range: @code{(obsolete|<1-4294967294>|infinite)}
 
 Default: 2 times current @var{ra-interval}
 @end itemize
+
+See below for router-scope variant of this command.
+@end deffn
+
+@deffn Command {ipv6 nd rdnss @var{ipv6address}} {}
+@deffnx Command {no ipv6 nd rdnss @var{ipv6address}} {}
+@deffnx Command {ipv6 nd dnssl @var{domain}} {}
+@deffnx Command {no ipv6 nd dnssl @var{domain}} {}
+Manage router-scope lists of RDNSS/DNSSL entries. These entries will be
+prepended to each interface's own lists of RDNSS/DNSSL entries. Custom lifetime
+is not supported in these commands, the entries configured this way will always
+have lifetime 2 times the current @var{ra-interval} of each interface.
 @end deffn
 
 @example
