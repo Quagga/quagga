@@ -30,29 +30,14 @@
 #include "memory.h"
 #include "ioctl.h"
 #include "connected.h"
-#include "log.h"
 #include "zclient.h"
 
 #include "zebra/interface.h"
-#include "zebra/rtadv.h"
 #include "zebra/rib.h"
 #include "zebra/zserv.h"
 #include "zebra/redistribute.h"
 #include "zebra/debug.h"
 #include "zebra/irdp.h"
-
-#ifdef RTADV
-/* Order is intentional.  Matches RFC4191.  This array is also used for
-   command matching, so only modify with care. */
-const struct message rtadv_pref_strs[] =
-{
-  { RTADV_PREF_MEDIUM,   "medium"  },
-  { RTADV_PREF_HIGH,     "high"    },
-  { RTADV_PREF_RESERVED, "INVALID" },
-  { RTADV_PREF_LOW,      "low"     },
-};
-const size_t rtadv_pref_strs_max = sizeof (rtadv_pref_strs) / sizeof (struct message);
-#endif /* RTADV */
 
 /* Called when new interface is added. */
 static int
@@ -66,33 +51,7 @@ if_zebra_new_hook (struct interface *ifp)
   zebra_if->shutdown = IF_ZEBRA_SHUTDOWN_UNSPEC;
 
 #ifdef RTADV
-  {
-    /* Set default router advertise values. */
-    struct rtadvconf *rtadv;
-
-    rtadv = &zebra_if->rtadv;
-
-    rtadv->AdvSendAdvertisements = 0;
-    rtadv->MaxRtrAdvInterval = RTADV_MAX_RTR_ADV_INTERVAL;
-    rtadv->MinRtrAdvInterval = RTADV_MIN_RTR_ADV_INTERVAL;
-    rtadv->AdvIntervalTimer = 0;
-    rtadv->AdvManagedFlag = 0;
-    rtadv->AdvOtherConfigFlag = 0;
-    rtadv->AdvHomeAgentFlag = 0;
-    rtadv->AdvLinkMTU = 0;
-    rtadv->AdvReachableTime = 0;
-    rtadv->AdvRetransTimer = 0;
-    rtadv->AdvCurHopLimit = 0;
-    rtadv->AdvDefaultLifetime = -1; /* derive from MaxRtrAdvInterval */
-    rtadv->HomeAgentPreference = 0;
-    rtadv->HomeAgentLifetime = -1; /* derive from AdvDefaultLifetime */
-    rtadv->AdvIntervalOption = 0;
-    rtadv->DefaultPreference = RTADV_PREF_MEDIUM;
-
-    rtadv->AdvPrefixList = list_new ();
-    rtadv->AdvRDNSSList = list_new ();
-    rtadv->AdvDNSSLList = list_new ();
-  }    
+  rtadv_if_new_hook (&zebra_if->rtadv);
 #endif /* RTADV */
 
   /* Initialize installed address chains tree. */
@@ -612,74 +571,6 @@ connected_dump_vty (struct vty *vty, struct connected *connected)
   vty_out (vty, "%s", VTY_NEWLINE);
 }
 
-#ifdef RTADV
-/* Dump interface ND information to vty. */
-static void
-nd_dump_vty (struct vty *vty, struct interface *ifp)
-{
-  struct zebra_if *zif;
-  struct rtadvconf *rtadv;
-  int interval;
-
-  zif = (struct zebra_if *) ifp->info;
-  rtadv = &zif->rtadv;
-
-  if (rtadv->AdvSendAdvertisements)
-    {
-      vty_out (vty, "  ND advertised reachable time is %d milliseconds%s",
-	       rtadv->AdvReachableTime, VTY_NEWLINE);
-      vty_out (vty, "  ND advertised retransmit interval is %d milliseconds%s",
-	       rtadv->AdvRetransTimer, VTY_NEWLINE);
-      interval = rtadv->MaxRtrAdvInterval;
-      if (interval % 1000)
-        vty_out (vty, "  ND router advertisements are sent every "
-			"%d milliseconds%s", interval,
-		 VTY_NEWLINE);
-      else
-        vty_out (vty, "  ND router advertisements are sent every "
-			"%d seconds%s", interval / 1000,
-		 VTY_NEWLINE);
-      if (rtadv->AdvDefaultLifetime != -1)
-	vty_out (vty, "  ND router advertisements live for %d seconds%s",
-		 rtadv->AdvDefaultLifetime, VTY_NEWLINE);
-      else
-	vty_out (vty, "  ND router advertisements lifetime tracks ra-interval%s",
-		 VTY_NEWLINE);
-      vty_out (vty, "  ND router advertisement default router preference is "
-			"%s%s", LOOKUP (rtadv_pref_strs, rtadv->DefaultPreference),
-		 VTY_NEWLINE);
-      if (rtadv->AdvManagedFlag)
-	vty_out (vty, "  Hosts use DHCP to obtain routable addresses.%s",
-		 VTY_NEWLINE);
-      else
-	vty_out (vty, "  Hosts use stateless autoconfig for addresses.%s",
-		 VTY_NEWLINE);
-      if (rtadv->AdvHomeAgentFlag)
-      {
-      	vty_out (vty, "  ND router advertisements with "
-				"Home Agent flag bit set.%s",
-		 VTY_NEWLINE);
-	if (rtadv->HomeAgentLifetime != -1)
-	  vty_out (vty, "  Home Agent lifetime is %u seconds%s",
-	           rtadv->HomeAgentLifetime, VTY_NEWLINE);
-	else
-	  vty_out (vty, "  Home Agent lifetime tracks ra-lifetime%s",
-	           VTY_NEWLINE);
-	vty_out (vty, "  Home Agent preference is %u%s",
-	         rtadv->HomeAgentPreference, VTY_NEWLINE);
-      }
-      if (listcount (rtadv->AdvRDNSSList))
-		  vty_out (vty, "  ND router advertisements with "
-                "RDNSS information.%s", VTY_NEWLINE);
-      if (listcount (rtadv->AdvDNSSLList))
-        vty_out (vty, "  ND router advertisements with DNSSL information%s", VTY_NEWLINE);
-      if (rtadv->AdvIntervalOption)
-      	vty_out (vty, "  ND router advertisements with Adv. Interval option.%s",
-		 VTY_NEWLINE);
-    }
-}
-#endif /* RTADV */
-
 /* Interface's information print out to vty interface. */
 static void
 if_dump_vty (struct vty *vty, struct interface *ifp)
@@ -784,7 +675,7 @@ if_dump_vty (struct vty *vty, struct interface *ifp)
     }
 
 #ifdef RTADV
-  nd_dump_vty (vty, ifp);
+  rtadv_if_dump_vty (vty, &((struct zebra_if *) ifp->info)->rtadv);
 #endif /* RTADV */
 
 #ifdef HAVE_PROC_NET_DEV

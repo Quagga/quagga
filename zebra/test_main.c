@@ -72,6 +72,21 @@ zebra_capabilities_t _caps_p [] =
   ZCAP_NET_RAW,
 };
 
+/* zebra privileges to run with */
+struct zebra_privs_t zserv_privs =
+{
+#if defined(QUAGGA_USER) && defined(QUAGGA_GROUP)
+  .user = QUAGGA_USER,
+  .group = QUAGGA_GROUP,
+#endif
+#ifdef VTY_GROUP
+  .vty_group = VTY_GROUP,
+#endif
+  .caps_p = _caps_p,
+  .cap_num_p = sizeof(_caps_p)/sizeof(_caps_p[0]),
+  .cap_num_i = 0
+};
+
 /* Default configuration file path. */
 char config_default[] = SYSCONFDIR DEFAULT_CONFIG_FILE;
 
@@ -279,6 +294,7 @@ main (int argc, char **argv)
   /* Make master thread emulator. */
   zebrad.master = thread_master_create ();
 
+  zprivs_init (&zserv_privs);
   /* Vty related initialize. */
   signal_init (zebrad.master, Q_SIGC(zebra_signals), zebra_signals);
   cmd_init (1);

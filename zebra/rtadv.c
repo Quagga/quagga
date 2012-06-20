@@ -28,7 +28,6 @@
 #include "if.h"
 #include "log.h"
 #include "prefix.h"
-#include "linklist.h"
 #include "command.h"
 #include "privs.h"
 
@@ -79,7 +78,18 @@ struct rtadv
   struct thread *ra_timer;
 };
 
-struct rtadv *rtadv = NULL;
+static struct rtadv *rtadv = NULL;
+
+/* Order is intentional.  Matches RFC4191.  This array is also used for
+   command matching, so only modify with care. */
+static const struct message rtadv_pref_strs[] =
+{
+  { RTADV_PREF_MEDIUM,   "medium"  },
+  { RTADV_PREF_HIGH,     "high"    },
+  { RTADV_PREF_RESERVED, "INVALID" },
+  { RTADV_PREF_LOW,      "low"     },
+};
+static const size_t rtadv_pref_strs_max = sizeof (rtadv_pref_strs) / sizeof (struct message);
 
 static struct rtadv *
 rtadv_new (void)
@@ -2286,6 +2296,76 @@ if_leave_all_router (int sock, struct interface *ifp)
   zlog_info ("rtadv: %s leave from all-routers multicast group", ifp->name);
 
   return 0;
+}
+
+/* Dump interface ND information to vty. */
+void
+rtadv_if_dump_vty (struct vty *vty, const struct rtadvconf *conf)
+{
+  if (! conf->AdvSendAdvertisements)
+    return;
+  vty_out (vty, "  ND advertised reachable time is %d milliseconds%s",
+           conf->AdvReachableTime, VTY_NEWLINE);
+  vty_out (vty, "  ND advertised retransmit interval is %d milliseconds%s",
+           conf->AdvRetransTimer, VTY_NEWLINE);
+  if (conf->MaxRtrAdvInterval % 1000)
+    vty_out (vty, "  ND router advertisements are sent every %d milliseconds%s",
+             conf->MaxRtrAdvInterval, VTY_NEWLINE);
+  else
+    vty_out (vty, "  ND router advertisements are sent every %d seconds%s",
+             conf->MaxRtrAdvInterval / 1000, VTY_NEWLINE);
+  if (conf->AdvDefaultLifetime != -1)
+    vty_out (vty, "  ND router advertisements live for %d seconds%s",
+             conf->AdvDefaultLifetime, VTY_NEWLINE);
+  else
+    vty_out (vty, "  ND router advertisements lifetime tracks ra-interval%s", VTY_NEWLINE);
+  vty_out (vty, "  ND router advertisement default router preference is %s%s",
+           LOOKUP (rtadv_pref_strs, conf->DefaultPreference), VTY_NEWLINE);
+  if (conf->AdvManagedFlag)
+    vty_out (vty, "  Hosts use DHCP to obtain routable addresses.%s", VTY_NEWLINE);
+  else
+    vty_out (vty, "  Hosts use stateless autoconfig for addresses.%s", VTY_NEWLINE);
+  if (conf->AdvHomeAgentFlag)
+  {
+    vty_out (vty, "  ND router advertisements with Home Agent flag bit set.%s", VTY_NEWLINE);
+    if (conf->HomeAgentLifetime != -1)
+      vty_out (vty, "  Home Agent lifetime is %u seconds%s", conf->HomeAgentLifetime, VTY_NEWLINE);
+    else
+      vty_out (vty, "  Home Agent lifetime tracks ra-lifetime%s", VTY_NEWLINE);
+    vty_out (vty, "  Home Agent preference is %u%s", conf->HomeAgentPreference, VTY_NEWLINE);
+  }
+  if (listcount (conf->AdvRDNSSList))
+    vty_out (vty, "  ND router advertisements with RDNSS information.%s", VTY_NEWLINE);
+  if (listcount (conf->AdvDNSSLList))
+    vty_out (vty, "  ND router advertisements with DNSSL information%s", VTY_NEWLINE);
+  if (conf->AdvIntervalOption)
+    vty_out (vty, "  ND router advertisements with Adv. Interval option.%s", VTY_NEWLINE);
+}
+
+/* Set default router advertise values. */
+void
+rtadv_if_new_hook (struct rtadvconf *conf)
+{
+  conf->AdvSendAdvertisements = 0;
+  conf->MaxRtrAdvInterval = RTADV_MAX_RTR_ADV_INTERVAL;
+  conf->MinRtrAdvInterval = RTADV_MIN_RTR_ADV_INTERVAL;
+  conf->AdvIntervalTimer = 0;
+  conf->AdvManagedFlag = 0;
+  conf->AdvOtherConfigFlag = 0;
+  conf->AdvHomeAgentFlag = 0;
+  conf->AdvLinkMTU = 0;
+  conf->AdvReachableTime = 0;
+  conf->AdvRetransTimer = 0;
+  conf->AdvCurHopLimit = 0;
+  conf->AdvDefaultLifetime = -1; /* derive from MaxRtrAdvInterval */
+  conf->HomeAgentPreference = 0;
+  conf->HomeAgentLifetime = -1; /* derive from AdvDefaultLifetime */
+  conf->AdvIntervalOption = 0;
+  conf->DefaultPreference = RTADV_PREF_MEDIUM;
+
+  conf->AdvPrefixList = list_new ();
+  conf->AdvRDNSSList = list_new ();
+  conf->AdvDNSSLList = list_new ();
 }
 
 #else
