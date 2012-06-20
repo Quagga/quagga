@@ -274,6 +274,8 @@ struct desc
 #define SHOW_STR "Show running system information\n"
 #define IP_STR "IP information\n"
 #define IPV6_STR "IPv6 information\n"
+#define IF_IPV6_STR "Interface IPv6 config commands\n"
+#define ND_STR "Neighbor discovery\n"
 #define NO_STR "Negate a command or set its defaults\n"
 #define REDIST_STR "Redistribute information from another routing protocol\n"
 #define CLEAR_STR "Reset functions\n"
