@@ -32,7 +32,8 @@ struct rtadvconf
 {
   /* A flag indicating whether or not the router sends periodic Router
      Advertisements and responds to Router Solicitations.
-     Default: FALSE */
+     0: disabled, 1: enabled, -1: use current router-scope parameter
+     Default: -1 */
   int AdvSendAdvertisements;
 
   /* The maximum time allowed between sending unsolicited multicast
@@ -211,7 +212,7 @@ extern void rtadv_init (void);
 #if (defined(LINUX_IPV6) && (defined(__GLIBC__) && __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 1)) || defined(KAME)
   #ifdef HAVE_RTADV
     #define RTADV
-extern void rtadv_if_dump_vty (struct vty *, const struct rtadvconf *);
+extern void rtadv_if_dump_vty (struct vty *, struct interface *);
 extern void rtadv_if_new_hook (struct rtadvconf *);
   #endif
 #endif

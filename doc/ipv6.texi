@@ -13,24 +13,45 @@ messages to the all nodes that exist on the network.
 @end menu
 
 @node Router Advertisement
-@section Router Advertisement
-
-@deffn Command {no ipv6 nd suppress-ra} {}
-Send router advertisement messages (router-scope optional setting, when set,
-current value is inherited by all new interfaces).
-@end deffn
+@section Router-scope RA commands
 
 @deffn Command {ipv6 nd suppress-ra} {}
-Don't send router advertisment messages (router-scope default setting, when set,
-current value is inherited by all new interfaces).
+Configure the router-scope setting NOT to send router advertisement messages
+(each interface configuration may override this). This setting is the default.
+@end deffn
+
+@deffn Command {no ipv6 nd suppress-ra} {}
+Configure the router-scope setting to send router advertisement messages (each
+interface configuration may override this).
+@end deffn
+
+@deffn Command {ipv6 nd rdnss @var{ipv6address}} {}
+@deffnx Command {no ipv6 nd rdnss @var{ipv6address}} {}
+@deffnx Command {ipv6 nd dnssl @var{domain}} {}
+@deffnx Command {no ipv6 nd dnssl @var{domain}} {}
+Manage router-scope lists of RDNSS/DNSSL entries. These entries will be
+prepended to each interface's own lists of RDNSS/DNSSL entries. Custom lifetime
+is not supported in these commands, the entries configured this way will always
+have lifetime 2 times the current @var{ra-interval} of each interface.
+@end deffn
+
+@section Interface-scope RA commands
+@deffn {Interface Command} {ipv6 nd suppress-ra auto} {}
+Configure the interface to track router-scope @code{suppress-ra} setting. The
+command is not visible in interface configuration section of running-config
+text. This setting is default for all new interfaces.
 @end deffn
 
 @deffn {Interface Command} {no ipv6 nd suppress-ra} {}
-Send router advertisment messages (interface-scope setting).
+Configure the interface to send router advertisment messages regardless of
+router-scope @code{suppress-ra} setting. This command is visible in interface
+configuration section of running-config text.
 @end deffn
 
 @deffn {Interface Command} {ipv6 nd suppress-ra} {}
-Don't send router advertisment messages (interface-scope setting).
+Configure the interface NOT to send router advertisment messages regardless of
+router-scope @code{suppress-ra} setting. This command is visible in interface
+configuration section of running-config text.
 @end deffn
 
 @deffn {Interface Command} {ipv6 nd prefix @var{ipv6prefix} [@var{valid-lifetime}] [@var{preferred-lifetime}] [off-link] [no-autoconfig] [router-address]} {}
@@ -221,17 +242,7 @@ Range: @code{(obsolete|<1-4294967294>|infinite)}
 Default: 2 times current @var{ra-interval}
 @end itemize
 
-See below for router-scope variant of this command.
-@end deffn
-
-@deffn Command {ipv6 nd rdnss @var{ipv6address}} {}
-@deffnx Command {no ipv6 nd rdnss @var{ipv6address}} {}
-@deffnx Command {ipv6 nd dnssl @var{domain}} {}
-@deffnx Command {no ipv6 nd dnssl @var{domain}} {}
-Manage router-scope lists of RDNSS/DNSSL entries. These entries will be
-prepended to each interface's own lists of RDNSS/DNSSL entries. Custom lifetime
-is not supported in these commands, the entries configured this way will always
-have lifetime 2 times the current @var{ra-interval} of each interface.
+See also the router-scope variant of this command.
 @end deffn
 
 @example

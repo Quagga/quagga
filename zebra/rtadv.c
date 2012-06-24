@@ -76,7 +76,7 @@ struct rtadv
 
   struct thread *ra_read;
   struct thread *ra_timer;
-  /* router-scope setting */
+  /* router-scope setting; 0: disabled, 1: enabled */
   u_char AdvSendAdvertisements;
   /* router-scope RDNSS options */
   struct list *AdvRDNSSList;
@@ -104,6 +104,13 @@ rtadv_new (void)
   ret->AdvRDNSSList = list_new();
   ret->AdvDNSSLList = list_new();
   return ret;
+}
+
+static inline u_char
+rtadv_ra_enabled (const struct rtadvconf *conf)
+{
+  return conf->AdvSendAdvertisements == -1 ? rtadv->AdvSendAdvertisements :
+         conf->AdvSendAdvertisements;
 }
 
 static int
@@ -505,7 +512,7 @@ rtadv_timer (struct thread *thread)
 
       zif = ifp->info;
 
-      if (zif->rtadv.AdvSendAdvertisements)
+      if (rtadv_ra_enabled (&zif->rtadv))
 	{ 
 	  zif->rtadv.AdvIntervalTimer -= period;
 	  if (zif->rtadv.AdvIntervalTimer <= 0)
@@ -554,7 +561,7 @@ rtadv_process_packet (u_char *buf, unsigned int len, unsigned int ifindex, int h
 
   /* Check interface configuration. */
   zif = ifp->info;
-  if (! zif->rtadv.AdvSendAdvertisements)
+  if (! rtadv_ra_enabled (&zif->rtadv))
     return;
 
   /* ICMP message length check. */
@@ -762,6 +769,88 @@ rtadv_dns_lifetime_fits (unsigned long lifetime_msec, int MaxRAI_msec)
   );
 }
 
+static void
+rtadv_update_counters()
+{
+  struct listnode *node;
+  struct interface *ifp;
+
+  rtadv->adv_if_count = 0;
+  rtadv->adv_msec_if_count = 0;
+  for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
+  {
+    struct zebra_if *zif = ifp->info;
+    if (rtadv_ra_enabled (&zif->rtadv))
+    {
+      rtadv->adv_if_count++;
+      if (zif->rtadv.MaxRtrAdvInterval % 1000)
+        rtadv->adv_msec_if_count++;
+    }
+  }
+}
+
+/* Manage interface-scope "suppress-ra" parameter and its multicast membership.
+ * Start and stop timer thread. */
+static void
+rtadv_set_if_enable_ra (struct interface *ifp, const int val)
+{
+  unsigned old_adv_if_count = rtadv->adv_if_count;
+  struct zebra_if *zif = ifp->info;
+  u_char old_if_enabled = rtadv_ra_enabled (&zif->rtadv);
+  u_char new_if_enabled = val == -1 ? rtadv->AdvSendAdvertisements :
+                          val;
+
+  if (zif->rtadv.AdvSendAdvertisements == val)
+    return;
+  if (old_if_enabled && ! new_if_enabled)
+    if_leave_all_router (rtadv->sock, ifp);
+  else if (! old_if_enabled && new_if_enabled)
+  {
+    if_join_all_router (rtadv->sock, ifp);
+    zif->rtadv.AdvIntervalTimer = 0;
+  }
+  zif->rtadv.AdvSendAdvertisements = val;
+  rtadv_update_counters();
+  if (! old_adv_if_count && rtadv->adv_if_count)
+    rtadv_event (RTADV_START, rtadv->sock);
+  else if (old_adv_if_count && ! rtadv->adv_if_count)
+    rtadv_event (RTADV_STOP, 0);
+}
+
+/* Manage router-scope "suppress-ra" parameter and multicast membership of all
+ * interfaces in "suppress-ra auto" state. Start and stop timer thread. */
+static void
+rtadv_set_top_enable_ra (const int val)
+{
+  struct listnode *node;
+  struct interface *ifp;
+  unsigned old_adv_if_count = rtadv->adv_if_count;
+
+  if (rtadv->AdvSendAdvertisements == val)
+    return;
+  for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
+  {
+    struct zebra_if *zif = ifp->info;
+    u_char old_if_enabled = rtadv_ra_enabled (&zif->rtadv);
+    u_char new_if_enabled = zif->rtadv.AdvSendAdvertisements == -1 ? val :
+                            zif->rtadv.AdvSendAdvertisements;
+
+    if (old_if_enabled && ! new_if_enabled)
+      if_leave_all_router (rtadv->sock, ifp);
+    else if (! old_if_enabled && new_if_enabled)
+    {
+      if_join_all_router (rtadv->sock, ifp);
+      zif->rtadv.AdvIntervalTimer = 0;
+    }
+  }
+  rtadv->AdvSendAdvertisements = val;
+  rtadv_update_counters();
+  if (! old_adv_if_count && rtadv->adv_if_count)
+    rtadv_event (RTADV_START, rtadv->sock);
+  else if (old_adv_if_count && ! rtadv->adv_if_count)
+    rtadv_event (RTADV_STOP, 0);
+}
+
 DEFUN (ipv6_nd_suppress_ra,
        ipv6_nd_suppress_ra_cmd,
        "ipv6 nd suppress-ra",
@@ -769,30 +858,33 @@ DEFUN (ipv6_nd_suppress_ra,
        ND_STR
        "Suppress Router Advertisement\n")
 {
-  struct interface *ifp;
-  struct zebra_if *zif;
-
-  ifp = vty->index;
-  zif = ifp->info;
+  struct interface *ifp = vty->index;
 
   if (if_is_loopback (ifp))
     {
       vty_out (vty, "Invalid interface%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
+  rtadv_set_if_enable_ra (ifp, 0);
+  return CMD_SUCCESS;
+}
 
-  if (zif->rtadv.AdvSendAdvertisements)
-    {
-      zif->rtadv.AdvSendAdvertisements = 0;
-      zif->rtadv.AdvIntervalTimer = 0;
-      rtadv->adv_if_count--;
+DEFUN (ipv6_nd_suppress_ra_auto,
+       ipv6_nd_suppress_ra_auto_cmd,
+       "ipv6 nd suppress-ra auto",
+       IF_IPV6_STR
+       ND_STR
+       "Suppress Router Advertisement\n"
+       "Follow router-scope setting\n")
+{
+  struct interface *ifp = vty->index;
 
-      if_leave_all_router (rtadv->sock, ifp);
-
-      if (rtadv->adv_if_count == 0)
-	rtadv_event (RTADV_STOP, 0);
-    }
-
+  if (if_is_loopback (ifp))
+  {
+    vty_out (vty, "Invalid interface%s", VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+  rtadv_set_if_enable_ra (ifp, -1);
   return CMD_SUCCESS;
 }
 
@@ -804,30 +896,14 @@ DEFUN (no_ipv6_nd_suppress_ra,
        ND_STR
        "Suppress Router Advertisement\n")
 {
-  struct interface *ifp;
-  struct zebra_if *zif;
-
-  ifp = vty->index;
-  zif = ifp->info;
+  struct interface *ifp = vty->index;
 
   if (if_is_loopback (ifp))
     {
       vty_out (vty, "Invalid interface%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-
-  if (! zif->rtadv.AdvSendAdvertisements)
-    {
-      zif->rtadv.AdvSendAdvertisements = 1;
-      zif->rtadv.AdvIntervalTimer = 0;
-      rtadv->adv_if_count++;
-
-      if_join_all_router (rtadv->sock, ifp);
-
-      if (rtadv->adv_if_count == 1)
-	rtadv_event (RTADV_START, rtadv->sock);
-    }
-
+  rtadv_set_if_enable_ra (ifp, 1);
   return CMD_SUCCESS;
 }
 
@@ -876,17 +952,10 @@ DEFUN (ipv6_nd_ra_interval_msec,
                dnssl_entry->lifetime, dnssl_entry->subdomain_str, VTY_NEWLINE);
       return CMD_WARNING;
     }
-
-  if (zif->rtadv.MaxRtrAdvInterval % 1000)
-    rtadv->adv_msec_if_count--;
-
-  if (interval % 1000)
-    rtadv->adv_msec_if_count++;
-  
   zif->rtadv.MaxRtrAdvInterval = interval;
   zif->rtadv.MinRtrAdvInterval = 0.33 * interval;
   zif->rtadv.AdvIntervalTimer = 0;
-
+  rtadv_update_counters();
   return CMD_SUCCESS;
 }
 
@@ -935,17 +1004,12 @@ DEFUN (ipv6_nd_ra_interval,
                dnssl_entry->lifetime, dnssl_entry->subdomain_str, VTY_NEWLINE);
       return CMD_WARNING;
     }
-
-  if (zif->rtadv.MaxRtrAdvInterval % 1000)
-    rtadv->adv_msec_if_count--;
-	
   /* convert to milliseconds */
   interval = interval * 1000; 
-	
   zif->rtadv.MaxRtrAdvInterval = interval;
   zif->rtadv.MinRtrAdvInterval = 0.33 * interval;
   zif->rtadv.AdvIntervalTimer = 0;
-
+  rtadv_update_counters();
   return CMD_SUCCESS;
 }
 
@@ -962,14 +1026,10 @@ DEFUN (no_ipv6_nd_ra_interval,
 
   ifp = (struct interface *) vty->index;
   zif = ifp->info;
-
-  if (zif->rtadv.MaxRtrAdvInterval % 1000)
-    rtadv->adv_msec_if_count--;
-  
   zif->rtadv.MaxRtrAdvInterval = RTADV_MAX_RTR_ADV_INTERVAL;
   zif->rtadv.MinRtrAdvInterval = RTADV_MIN_RTR_ADV_INTERVAL;
   zif->rtadv.AdvIntervalTimer = zif->rtadv.MaxRtrAdvInterval;
-
+  rtadv_update_counters();
   return CMD_SUCCESS;
 }
 
@@ -2138,14 +2198,11 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
     return;
 
   zif = ifp->info;
-
-  if (! if_is_loopback (ifp))
-    {
-      if (zif->rtadv.AdvSendAdvertisements != rtadv->AdvSendAdvertisements)
-       vty_out (vty, " %sipv6 nd suppress-ra%s",
-                zif->rtadv.AdvSendAdvertisements ? "no " : "", VTY_NEWLINE);
-    }
-
+  if (if_is_loopback (ifp))
+    vty_out (vty, " ipv6 nd suppress-ra%s", VTY_NEWLINE);
+  else if (zif->rtadv.AdvSendAdvertisements != -1)
+    vty_out (vty, " %sipv6 nd suppress-ra%s",
+             zif->rtadv.AdvSendAdvertisements ? "no " : "", VTY_NEWLINE);
   
   interval = zif->rtadv.MaxRtrAdvInterval;
   if (interval % 1000)
@@ -2231,7 +2288,7 @@ DEFUN (top_ipv6_nd_suppress_ra,
        ND_STR
        "Suppress Router Advertisement by default\n")
 {
-  rtadv->AdvSendAdvertisements = 0;
+  rtadv_set_top_enable_ra (0);
   return CMD_SUCCESS;
 }
 
@@ -2243,7 +2300,7 @@ DEFUN (top_no_ipv6_nd_suppress_ra,
        ND_STR
        "Suppress Router Advertisement by default\n")
 {
-  rtadv->AdvSendAdvertisements = 1;
+  rtadv_set_top_enable_ra (1);
   return CMD_SUCCESS;
 }
 
@@ -2345,11 +2402,8 @@ top_rtadv_config_write (struct vty *vty)
 {
   int write = 0;
 
-  if (rtadv->AdvSendAdvertisements)
-  {
-    vty_out (vty, "no ipv6 nd suppress-ra%s", VTY_NEWLINE);
-    write++;
-  }
+  vty_out (vty, "%sipv6 nd suppress-ra%s", rtadv->AdvSendAdvertisements ? "no " : "", VTY_NEWLINE);
+  write++;
   write += rtadv_print_rdnss_list (vty, rtadv->AdvRDNSSList, "ipv6 nd rdnss");
   write += rtadv_print_dnssl_list (vty, rtadv->AdvDNSSLList, "ipv6 nd dnssl");
   return write;
@@ -2420,6 +2474,7 @@ rtadv_init (void)
   install_element (CONFIG_NODE, &top_no_ipv6_nd_dnssl_domain_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_suppress_ra_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_suppress_ra_cmd);
+  install_element (INTERFACE_NODE, &ipv6_nd_suppress_ra_auto_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_ra_interval_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_ra_interval_msec_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_ra_interval_cmd);
@@ -2520,9 +2575,12 @@ if_leave_all_router (int sock, struct interface *ifp)
 
 /* Dump interface ND information to vty. */
 void
-rtadv_if_dump_vty (struct vty *vty, const struct rtadvconf *conf)
+rtadv_if_dump_vty (struct vty *vty, struct interface *ifp)
 {
-  if (! conf->AdvSendAdvertisements)
+  const struct zebra_if *zif = ifp->info;
+  const struct rtadvconf *conf = &zif->rtadv;
+
+  if (if_is_loopback (ifp) || ! rtadv_ra_enabled (conf))
     return;
   vty_out (vty, "  ND advertised reachable time is %d milliseconds%s",
            conf->AdvReachableTime, VTY_NEWLINE);
@@ -2566,8 +2624,10 @@ rtadv_if_dump_vty (struct vty *vty, const struct rtadvconf *conf)
 void
 rtadv_if_new_hook (struct rtadvconf *conf)
 {
-  /* Derive once from global parameter, then manage independently. */
-  conf->AdvSendAdvertisements = rtadv->AdvSendAdvertisements;
+  /* Interface flags are not yet set at this time, hence all interfaces are
+   * configured to follow router-scope parameter. Processing functions are left
+   * to work around loopback interfaces by their own means. */
+  conf->AdvSendAdvertisements = -1;
   conf->MaxRtrAdvInterval = RTADV_MAX_RTR_ADV_INTERVAL;
   conf->MinRtrAdvInterval = RTADV_MIN_RTR_ADV_INTERVAL;
   conf->AdvIntervalTimer = 0;
@@ -2587,6 +2647,7 @@ rtadv_if_new_hook (struct rtadvconf *conf)
   conf->AdvPrefixList = list_new ();
   conf->AdvRDNSSList = list_new ();
   conf->AdvDNSSLList = list_new ();
+  rtadv_update_counters();
 }
 
 #else

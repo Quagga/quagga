@@ -45,19 +45,18 @@ if_zebra_new_hook (struct interface *ifp)
 {
   struct zebra_if *zebra_if;
 
-  zebra_if = XCALLOC (MTYPE_TMP, sizeof (struct zebra_if));
+  ifp->info = zebra_if = XCALLOC (MTYPE_TMP, sizeof (struct zebra_if));
 
   zebra_if->multicast = IF_ZEBRA_MULTICAST_UNSPEC;
   zebra_if->shutdown = IF_ZEBRA_SHUTDOWN_UNSPEC;
+
+  /* Initialize installed address chains tree. */
+  zebra_if->ipv4_subnets = route_table_init ();
 
 #ifdef RTADV
   rtadv_if_new_hook (&zebra_if->rtadv);
 #endif /* RTADV */
 
-  /* Initialize installed address chains tree. */
-  zebra_if->ipv4_subnets = route_table_init ();
-
-  ifp->info = zebra_if;
   return 0;
 }
 
@@ -675,7 +674,7 @@ if_dump_vty (struct vty *vty, struct interface *ifp)
     }
 
 #ifdef RTADV
-  rtadv_if_dump_vty (vty, &((struct zebra_if *) ifp->info)->rtadv);
+  rtadv_if_dump_vty (vty, ifp);
 #endif /* RTADV */
 
 #ifdef HAVE_PROC_NET_DEV
