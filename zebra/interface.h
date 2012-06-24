@@ -50,9 +50,6 @@ struct zebra_if
   /* Multicast configuration. */
   u_char multicast;
 
-  /* Router advertise configuration. */
-  u_char rtadv_enable;
-
   /* Installed addresses chains tree. */
   struct route_table *ipv4_subnets;
 
