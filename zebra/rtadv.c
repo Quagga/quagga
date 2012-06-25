@@ -1345,15 +1345,15 @@ DEFUN (ipv6_nd_prefix,
        "(<0-4294967295>|infinite) (off-link|) (no-autoconfig|) (router-address|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Valid lifetime in seconds\n"
-       "Infinite valid lifetime\n"
-       "Preferred lifetime in seconds\n"
-       "Infinite preferred lifetime\n"
-       "Do not use prefix for onlink determination\n"
-       "Do not use prefix for autoconfiguration\n"
-       "Set Router Address flag\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_OFFLINK_STR
+       IPV6_PFX_NOAUTO_STR
+       IPV6_PFX_RADDR_STR)
 {
   int i;
   int ret;
@@ -1427,14 +1427,14 @@ ALIAS (ipv6_nd_prefix,
        "(<0-4294967295>|infinite) (off-link|) (no-autoconfig|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Valid lifetime in seconds\n"
-       "Infinite valid lifetime\n"
-       "Preferred lifetime in seconds\n"
-       "Infinite preferred lifetime\n"
-       "Do not use prefix for onlink determination\n"
-       "Do not use prefix for autoconfiguration\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_OFFLINK_STR
+       IPV6_PFX_NOAUTO_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_val_rev_cmd,
@@ -1442,14 +1442,14 @@ ALIAS (ipv6_nd_prefix,
        "(<0-4294967295>|infinite) (no-autoconfig|) (off-link|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Valid lifetime in seconds\n"
-       "Infinite valid lifetime\n"
-       "Preferred lifetime in seconds\n"
-       "Infinite preferred lifetime\n"
-       "Do not use prefix for autoconfiguration\n"
-       "Do not use prefix for onlink determination\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_NOAUTO_STR
+       IPV6_PFX_OFFLINK_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_val_rev_rtaddr_cmd,
@@ -1457,15 +1457,15 @@ ALIAS (ipv6_nd_prefix,
        "(<0-4294967295>|infinite) (no-autoconfig|) (off-link|) (router-address|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Valid lifetime in seconds\n"
-       "Infinite valid lifetime\n"
-       "Preferred lifetime in seconds\n"
-       "Infinite preferred lifetime\n"
-       "Do not use prefix for autoconfiguration\n"
-       "Do not use prefix for onlink determination\n"
-       "Set Router Address flag\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_NOAUTO_STR
+       IPV6_PFX_OFFLINK_STR
+       IPV6_PFX_RADDR_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_val_noauto_cmd,
@@ -1473,12 +1473,12 @@ ALIAS (ipv6_nd_prefix,
        "(<0-4294967295>|infinite) (no-autoconfig|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Valid lifetime in seconds\n"
-       "Infinite valid lifetime\n"
-       "Preferred lifetime in seconds\n"
-       "Infinite preferred lifetime\n"
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
        "Do not use prefix for autoconfiguration")
 
 ALIAS (ipv6_nd_prefix,
@@ -1487,13 +1487,13 @@ ALIAS (ipv6_nd_prefix,
        "(<0-4294967295>|infinite) (off-link|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Valid lifetime in seconds\n"
-       "Infinite valid lifetime\n"
-       "Preferred lifetime in seconds\n"
-       "Infinite preferred lifetime\n"
-       "Do not use prefix for onlink determination\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_OFFLINK_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_val_rtaddr_cmd,
@@ -1501,13 +1501,13 @@ ALIAS (ipv6_nd_prefix,
        "(<0-4294967295>|infinite) (router-address|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Valid lifetime in seconds\n"
-       "Infinite valid lifetime\n"
-       "Preferred lifetime in seconds\n"
-       "Infinite preferred lifetime\n"
-       "Set Router Address flag\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_RADDR_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_val_cmd,
@@ -1515,67 +1515,67 @@ ALIAS (ipv6_nd_prefix,
        "(<0-4294967295>|infinite)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Valid lifetime in seconds\n"
-       "Infinite valid lifetime\n"
-       "Preferred lifetime in seconds\n"
-       "Infinite preferred lifetime\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_noval_cmd,
        "ipv6 nd prefix X:X::X:X/M (no-autoconfig|) (off-link|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Do not use prefix for autoconfiguration\n"
-       "Do not use prefix for onlink determination\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_NOAUTO_STR
+       IPV6_PFX_OFFLINK_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_noval_rev_cmd,
        "ipv6 nd prefix X:X::X:X/M (off-link|) (no-autoconfig|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Do not use prefix for onlink determination\n"
-       "Do not use prefix for autoconfiguration\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_OFFLINK_STR
+       IPV6_PFX_NOAUTO_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_noval_noauto_cmd,
        "ipv6 nd prefix X:X::X:X/M (no-autoconfig|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Do not use prefix for autoconfiguration\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_NOAUTO_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_noval_offlink_cmd,
        "ipv6 nd prefix X:X::X:X/M (off-link|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Do not use prefix for onlink determination\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_OFFLINK_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_noval_rtaddr_cmd,
        "ipv6 nd prefix X:X::X:X/M (router-address|)",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n"
-       "Set Router Address flag\n")
+       PFX_STR
+       IPV6_PFX_STR
+       IPV6_PFX_RADDR_STR)
 
 ALIAS (ipv6_nd_prefix,
        ipv6_nd_prefix_prefix_cmd,
        "ipv6 nd prefix X:X::X:X/M",
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n")
+       PFX_STR
+       IPV6_PFX_STR)
 
 DEFUN (no_ipv6_nd_prefix,
        no_ipv6_nd_prefix_cmd,
@@ -1583,8 +1583,8 @@ DEFUN (no_ipv6_nd_prefix,
        NO_STR
        IF_IPV6_STR
        ND_STR
-       "Prefix information\n"
-       "IPv6 prefix\n")
+       PFX_STR
+       IPV6_PFX_STR)
 {
   int ret;
   struct interface *ifp;
