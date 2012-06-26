@@ -64,6 +64,9 @@ connected_withdraw (struct connected *ifc)
   if (!CHECK_FLAG (ifc->conf, ZEBRA_IFC_CONFIGURED))
     {
       listnode_delete (ifc->ifp->connected, ifc);
+#ifdef RTADV
+      rtadv_refresh_connected (ifc->ifp);
+#endif /* RTADV */
       connected_free (ifc);
     }
 }
@@ -75,6 +78,9 @@ connected_announce (struct interface *ifp, struct connected *ifc)
     return;
   
   listnode_add (ifp->connected, ifc);
+#ifdef RTADV
+  rtadv_refresh_connected (ifp);
+#endif /* RTADV */
 
   /* Update interface address information to protocol daemon. */
   if (! CHECK_FLAG (ifc->conf, ZEBRA_IFC_REAL))

@@ -82,6 +82,9 @@ struct rtadv
   struct list *AdvRDNSSList;
   /* router-scope DNSSL options */
   struct list *AdvDNSSLList;
+  /* router-scope setting */
+  u_char ConnpfxEnabled;
+  struct rtadv_connprefix ConnpfxConfig;
 };
 
 static struct rtadv *rtadv = NULL;
@@ -103,6 +106,10 @@ rtadv_new (void)
   struct rtadv *ret = XCALLOC (MTYPE_TMP, sizeof (struct rtadv));
   ret->AdvRDNSSList = list_new();
   ret->AdvDNSSLList = list_new();
+  ret->ConnpfxConfig.AdvValidLifetime = RTADV_VALID_LIFETIME;
+  ret->ConnpfxConfig.AdvPreferredLifetime = RTADV_PREFERRED_LIFETIME;
+  ret->ConnpfxConfig.AdvAutonomousFlag = 1;
+  ret->ConnpfxConfig.AdvOnLinkFlag = 1;
   return ret;
 }
 
@@ -111,6 +118,13 @@ rtadv_ra_enabled (const struct rtadvconf *conf)
 {
   return conf->AdvSendAdvertisements == -1 ? rtadv->AdvSendAdvertisements :
          conf->AdvSendAdvertisements;
+}
+
+static inline u_char
+rtadv_cp_enabled (const struct rtadvconf *conf)
+{
+  return conf->ConnpfxEnabled == -1 ? rtadv->ConnpfxEnabled :
+         conf->ConnpfxEnabled;
 }
 
 static int
@@ -230,6 +244,41 @@ rtadv_append_dnssl_tlvs (unsigned char *buf, const struct list *list, const unsi
     memset (buf + len, 0, padding_bytes);
     len += padding_bytes;
   }
+  return len;
+}
+
+static unsigned
+rtadv_append_connprefix_tlvs (unsigned char *buf, const struct list *list,
+                              const struct rtadv_connprefix *rcp)
+{
+  struct listnode *node;
+  struct connected *conn;
+  unsigned len = 0;
+  struct prefix_ipv6 pfx;
+  struct nd_opt_prefix_info *pinfo;
+
+  pfx.family = AF_INET6;
+  for (ALL_LIST_ELEMENTS_RO (list, node, conn))
+    if (conn->address->family == AF_INET6 && ! IN6_IS_ADDR_LINKLOCAL (&conn->address->u.prefix6))
+    {
+      pinfo = (struct nd_opt_prefix_info *) (buf + len);
+      pinfo->nd_opt_pi_type = ND_OPT_PREFIX_INFORMATION;
+      pinfo->nd_opt_pi_len = 4;
+      pinfo->nd_opt_pi_prefix_len = conn->address->prefixlen;
+      pinfo->nd_opt_pi_flags_reserved = 0;
+      if (rcp->AdvOnLinkFlag)
+        pinfo->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_ONLINK;
+      if (rcp->AdvAutonomousFlag)
+        pinfo->nd_opt_pi_flags_reserved |= ND_OPT_PI_FLAG_AUTO;
+      pinfo->nd_opt_pi_valid_time = htonl (rcp->AdvValidLifetime);
+      pinfo->nd_opt_pi_preferred_time = htonl (rcp->AdvPreferredLifetime);
+      pinfo->nd_opt_pi_reserved2 = 0;
+      pfx.prefixlen = conn->address->prefixlen;
+      IPV6_ADDR_COPY (&pfx.prefix, &conn->address->u.prefix6);
+      apply_mask_ipv6 (&pfx); /* RFC4861 4.6.2 */
+      IPV6_ADDR_COPY (&pinfo->nd_opt_pi_prefix, &pfx.prefix);
+      len += sizeof (struct nd_opt_prefix_info);
+    }
   return len;
 }
 
@@ -374,6 +423,9 @@ rtadv_send_packet (int sock, struct interface *ifp)
     }
 
   /* Fill in prefix. */
+  if (rtadv_cp_enabled (&zif->rtadv))
+    len += rtadv_append_connprefix_tlvs (buf + len, ifp->connected,
+           zif->rtadv.ConnpfxEnabled == -1 ? &rtadv->ConnpfxConfig : &zif->rtadv.ConnpfxConfig);
   for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvPrefixList, node, rprefix))
     {
       struct nd_opt_prefix_info *pinfo;
@@ -849,6 +901,121 @@ rtadv_set_top_enable_ra (const int val)
     rtadv_event (RTADV_START, rtadv->sock);
   else if (old_adv_if_count && ! rtadv->adv_if_count)
     rtadv_event (RTADV_STOP, 0);
+}
+
+/* Process a request to change interface-scope ConnpfxEnabled parameter and
+ * leave interface timer reset, when the change is visible in the RA. */
+static void
+rtadv_set_if_cp_none (struct interface *ifp)
+{
+  struct zebra_if *zif = ifp->info;
+
+  switch (zif->rtadv.ConnpfxEnabled)
+  {
+  case 0: /* RA won't change */
+    return;
+  case 1: /* RA will change */
+    zif->rtadv.ConnpfxEnabled = 0;
+    zif->rtadv.AdvIntervalTimer = 0;
+    return;
+  case -1: /* RA may change */
+    if (rtadv_cp_enabled (&zif->rtadv))
+      zif->rtadv.AdvIntervalTimer = 0;
+    zif->rtadv.ConnpfxEnabled = 0;
+    return;
+  default:
+    assert (0);
+  }
+}
+
+static void
+rtadv_set_if_cp_auto (struct interface *ifp)
+{
+  struct zebra_if *zif = ifp->info;
+
+  switch (zif->rtadv.ConnpfxEnabled)
+  {
+  case -1: /* RA won't change */
+    return;
+  case 0: /* RA may change */
+    zif->rtadv.ConnpfxEnabled = -1;
+    if (rtadv_cp_enabled (&zif->rtadv))
+      zif->rtadv.AdvIntervalTimer = 0;
+    return;
+  case 1: /* RA may change */
+    zif->rtadv.ConnpfxEnabled = -1;
+    if
+    (
+      ! rtadv_cp_enabled (&zif->rtadv) ||
+      memcmp (&rtadv->ConnpfxConfig, &zif->rtadv.ConnpfxConfig, sizeof (struct rtadv_connprefix))
+    )
+      zif->rtadv.AdvIntervalTimer = 0;
+    return;
+  default:
+    assert (0);
+  }
+}
+
+static void
+rtadv_set_if_cp_all (struct interface *ifp, struct rtadv_connprefix *rcp)
+{
+  struct zebra_if *zif = ifp->info;
+
+  switch (zif->rtadv.ConnpfxEnabled)
+  {
+  case 1: /* RA may change */
+    if (memcmp (rcp, &zif->rtadv.ConnpfxConfig, sizeof (struct rtadv_connprefix)))
+    {
+      zif->rtadv.ConnpfxConfig = *rcp;
+      zif->rtadv.AdvIntervalTimer = 0;
+    }
+    return;
+  case 0: /* RA will change */
+    zif->rtadv.ConnpfxConfig = *rcp;
+    zif->rtadv.AdvIntervalTimer = 0;
+    zif->rtadv.ConnpfxEnabled = 1;
+    return;
+  case -1: /* RA may change */
+    zif->rtadv.ConnpfxConfig = *rcp;
+    if
+    (
+      ! rtadv_cp_enabled (&zif->rtadv) ||
+      memcmp (&rtadv->ConnpfxConfig, &zif->rtadv.ConnpfxConfig, sizeof (struct rtadv_connprefix))
+    )
+      zif->rtadv.AdvIntervalTimer = 0;
+    zif->rtadv.ConnpfxEnabled = 1;
+    return;
+  default:
+    assert (0);
+  }
+}
+
+/* Process a request to change router-scope ConnpfxEnabled parameter and leave
+ * interface timer reset for each interface going to have changes in RA. */
+static void
+rtadv_set_top_enable_cp (const int val, const struct rtadv_connprefix *rcp)
+{
+  struct listnode *node;
+  struct interface *ifp;
+  u_char sameconf = 1;
+
+  if (val == 1)
+  {
+    assert (rcp);
+    sameconf = ! memcmp (rcp, &rtadv->ConnpfxConfig, sizeof (*rcp));
+  }
+  if (rtadv->ConnpfxEnabled == val && sameconf)
+    return;
+  for (ALL_LIST_ELEMENTS_RO (iflist, node, ifp))
+  {
+    struct zebra_if *zif = ifp->info;
+    u_char new_if_enabled = zif->rtadv.ConnpfxEnabled == -1 ? val : zif->rtadv.ConnpfxEnabled;
+    if (rtadv_cp_enabled (&zif->rtadv) != new_if_enabled || (zif->rtadv.ConnpfxEnabled == -1 && ! sameconf))
+      zif->rtadv.AdvIntervalTimer = 0;
+  }
+  rtadv->ConnpfxEnabled = val;
+  if (! sameconf)
+    rtadv->ConnpfxConfig = *rcp;
 }
 
 DEFUN (ipv6_nd_suppress_ra,
@@ -1673,6 +1840,344 @@ DEFUN (no_ipv6_nd_prefix,
   return CMD_SUCCESS;
 }
 
+static int
+rtadv_parse_connprefix (struct vty *vty, const int argc, const char *argv[], struct rtadv_connprefix *rcp)
+{
+  int cursor = 0;
+
+  rcp->AdvOnLinkFlag = 1;
+  rcp->AdvAutonomousFlag = 1;
+  rcp->AdvValidLifetime = RTADV_VALID_LIFETIME;
+  rcp->AdvPreferredLifetime = RTADV_PREFERRED_LIFETIME;
+
+  if (argc > 0 && (isdigit (argv[0][0]) || argv[0][0] == 'i'))
+  {
+    rcp->AdvValidLifetime = strncmp (argv[0], "i", 1) == 0 ? UINT32_MAX :
+                            (u_int32_t) strtoll (argv[0], (char **)NULL, 10);
+    cursor++;
+  }
+  if (argc > 1 && (isdigit (argv[1][0]) || argv[1][0] == 'i'))
+  {
+    rcp->AdvPreferredLifetime = strncmp (argv[1], "i", 1) == 0 ? UINT32_MAX :
+                                (u_int32_t) strtoll (argv[1], (char **)NULL, 10);
+    cursor++;
+  }
+  if (rcp->AdvPreferredLifetime > rcp->AdvValidLifetime)
+  {
+    vty_out (vty, "Invalid preferred lifetime%s", VTY_NEWLINE);
+    return CMD_WARNING;
+  }
+  if (argc > cursor)
+  {
+    int i;
+    for (i = cursor; i < argc; i++)
+    {
+      if (strncmp (argv[i], "of", 2) == 0)
+        rcp->AdvOnLinkFlag = 0;
+      if (strncmp (argv[i], "no", 2) == 0)
+        rcp->AdvAutonomousFlag = 0;
+    }
+  }
+  return CMD_SUCCESS;
+}
+
+DEFUN (if_ipv6_nd_prefix_connectedall,
+       if_ipv6_nd_prefix_connectedall_val1_cmd,
+       "ipv6 nd prefix connected-all (<0-4294967295>|infinite) "
+       "(<0-4294967295>|infinite) (off-link|) (no-autoconfig|)",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_OFFLINK_STR
+       IPV6_PFX_NOAUTO_STR)
+{
+  struct interface *ifp = (struct interface *) vty->index;
+  struct rtadv_connprefix rcp;
+
+  if (CMD_SUCCESS != rtadv_parse_connprefix (vty, argc, argv, &rcp))
+    return CMD_WARNING;
+  rtadv_set_if_cp_all (ifp, &rcp);
+  return CMD_SUCCESS;
+}
+
+ALIAS (if_ipv6_nd_prefix_connectedall,
+       if_ipv6_nd_prefix_connectedall_val2_cmd,
+       "ipv6 nd prefix connected-all (<0-4294967295>|infinite) "
+       "(<0-4294967295>|infinite) (no-autoconfig|) (off-link|)",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_NOAUTO_STR
+       IPV6_PFX_OFFLINK_STR)
+
+ALIAS (if_ipv6_nd_prefix_connectedall,
+       if_ipv6_nd_prefix_connectedall_val3_cmd,
+       "ipv6 nd prefix connected-all (<0-4294967295>|infinite) "
+       "(<0-4294967295>|infinite) (no-autoconfig|)",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_NOAUTO_STR)
+
+ALIAS (if_ipv6_nd_prefix_connectedall,
+       if_ipv6_nd_prefix_connectedall_val4_cmd,
+       "ipv6 nd prefix connected-all (<0-4294967295>|infinite) "
+       "(<0-4294967295>|infinite) (off-link|)",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_OFFLINK_STR)
+
+ALIAS (if_ipv6_nd_prefix_connectedall,
+       if_ipv6_nd_prefix_connectedall_val5_cmd,
+       "ipv6 nd prefix connected-all (<0-4294967295>|infinite) (<0-4294967295>|infinite)",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR)
+
+ALIAS (if_ipv6_nd_prefix_connectedall,
+       if_ipv6_nd_prefix_connectedall_val6_cmd,
+       "ipv6 nd prefix connected-all (no-autoconfig|) (off-link|)",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_NOAUTO_STR
+       IPV6_PFX_OFFLINK_STR)
+
+ALIAS (if_ipv6_nd_prefix_connectedall,
+       if_ipv6_nd_prefix_connectedall_val7_cmd,
+       "ipv6 nd prefix connected-all (off-link|) (no-autoconfig|)",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_OFFLINK_STR
+       IPV6_PFX_NOAUTO_STR)
+
+ALIAS (if_ipv6_nd_prefix_connectedall,
+       if_ipv6_nd_prefix_connectedall_val8_cmd,
+       "ipv6 nd prefix connected-all (no-autoconfig|)",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_NOAUTO_STR)
+
+ALIAS (if_ipv6_nd_prefix_connectedall,
+       if_ipv6_nd_prefix_connectedall_val9_cmd,
+       "ipv6 nd prefix connected-all (off-link|)",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_OFFLINK_STR)
+
+ALIAS (if_ipv6_nd_prefix_connectedall,
+       if_ipv6_nd_prefix_connectedall_noval_cmd,
+       "ipv6 nd prefix connected-all",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n")
+
+DEFUN (if_ipv6_nd_prefix_connectednone,
+       if_ipv6_nd_prefix_connectednone_cmd,
+       "ipv6 nd prefix connected-none",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "No current prefixes\n")
+{
+  struct interface *ifp = (struct interface *) vty->index;
+  rtadv_set_if_cp_none (ifp);
+  return CMD_SUCCESS;
+}
+
+DEFUN (if_no_ipv6_nd_prefix_connectedval,
+       if_no_ipv6_nd_prefix_connectedval_cmd,
+       "no ipv6 nd prefix (connected-all|connected-none)",
+       NO_STR
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       "No current prefixes\n")
+{
+  struct interface *ifp = (struct interface *) vty->index;
+  rtadv_set_if_cp_auto (ifp);
+  return CMD_SUCCESS;
+}
+
+ALIAS (if_no_ipv6_nd_prefix_connectedval,
+       if_ipv6_nd_prefix_connectedauto_cmd,
+       "ipv6 nd prefix connected-auto",
+       IF_IPV6_STR
+       ND_STR
+       PFX_STR
+       "Follow router-scope setting (default)\n")
+
+DEFUN (top_ipv6_nd_prefix_connectedall,
+       top_ipv6_nd_prefix_connectedall_val1_cmd,
+       "ipv6 nd prefix connected-all (<0-4294967295>|infinite) "
+       "(<0-4294967295>|infinite) (off-link|) (no-autoconfig|)",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_OFFLINK_STR
+       IPV6_PFX_NOAUTO_STR)
+{
+  struct rtadv_connprefix rcp;
+
+  if (CMD_SUCCESS != rtadv_parse_connprefix (vty, argc, argv, &rcp))
+    return CMD_WARNING;
+  rtadv_set_top_enable_cp (1, &rcp);
+  return CMD_SUCCESS;
+}
+
+ALIAS (top_ipv6_nd_prefix_connectedall,
+       top_ipv6_nd_prefix_connectedall_val2_cmd,
+       "ipv6 nd prefix connected-all (<0-4294967295>|infinite) "
+       "(<0-4294967295>|infinite) (no-autoconfig|) (off-link|)",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_NOAUTO_STR
+       IPV6_PFX_OFFLINK_STR)
+
+ALIAS (top_ipv6_nd_prefix_connectedall,
+       top_ipv6_nd_prefix_connectedall_val3_cmd,
+       "ipv6 nd prefix connected-all (<0-4294967295>|infinite) "
+       "(<0-4294967295>|infinite) (no-autoconfig|)",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_NOAUTO_STR)
+
+ALIAS (top_ipv6_nd_prefix_connectedall,
+       top_ipv6_nd_prefix_connectedall_val4_cmd,
+       "ipv6 nd prefix connected-all (<0-4294967295>|infinite) "
+       "(<0-4294967295>|infinite) (off-link|)",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR
+       IPV6_PFX_OFFLINK_STR)
+
+ALIAS (top_ipv6_nd_prefix_connectedall,
+       top_ipv6_nd_prefix_connectedall_val5_cmd,
+       "ipv6 nd prefix connected-all (<0-4294967295>|infinite) (<0-4294967295>|infinite)",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_VALID1_STR
+       IPV6_PFX_VALID2_STR
+       IPV6_PFX_PREF1_STR
+       IPV6_PFX_PREF2_STR)
+
+ALIAS (top_ipv6_nd_prefix_connectedall,
+       top_ipv6_nd_prefix_connectedall_val6_cmd,
+       "ipv6 nd prefix connected-all (no-autoconfig|) (off-link|)",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_NOAUTO_STR
+       IPV6_PFX_OFFLINK_STR)
+
+ALIAS (top_ipv6_nd_prefix_connectedall,
+       top_ipv6_nd_prefix_connectedall_val7_cmd,
+       "ipv6 nd prefix connected-all (off-link|) (no-autoconfig|)",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_OFFLINK_STR
+       IPV6_PFX_NOAUTO_STR)
+
+ALIAS (top_ipv6_nd_prefix_connectedall,
+       top_ipv6_nd_prefix_connectedall_val8_cmd,
+       "ipv6 nd prefix connected-all (no-autoconfig|)",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_NOAUTO_STR)
+
+ALIAS (top_ipv6_nd_prefix_connectedall,
+       top_ipv6_nd_prefix_connectedall_val9_cmd,
+       "ipv6 nd prefix connected-all (off-link|)",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n"
+       IPV6_PFX_OFFLINK_STR)
+
+ALIAS (top_ipv6_nd_prefix_connectedall,
+       top_ipv6_nd_prefix_connectedall_noval_cmd,
+       "ipv6 nd prefix connected-all",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "All current prefixes except link-local\n")
+
+DEFUN (top_ipv6_nd_prefix_connectednone,
+       top_ipv6_nd_prefix_connectednone_cmd,
+       "ipv6 nd prefix connected-none",
+       IPV6_STR
+       ND_STR
+       PFX_STR
+       "No connected prefixes\n")
+{
+  rtadv_set_top_enable_cp (0, NULL);
+  return CMD_SUCCESS;
+}
+
 DEFUN (ipv6_nd_router_preference,
        ipv6_nd_router_preference_cmd,
        "ipv6 nd router-preference (high|medium|low)",
@@ -2184,6 +2689,33 @@ rtadv_print_dnssl_list (struct vty *vty, const struct list *list, const char *pr
   return write;
 }
 
+static int
+rtadv_print_connprefix (struct vty *vty, const char *prefix, const u_char enabled, const struct rtadv_connprefix rcp)
+{
+  if (enabled == 0)
+  {
+    vty_out (vty, "%sipv6 nd prefix connected-none%s", prefix, VTY_NEWLINE);
+    return 1;
+  }
+  if (enabled != 1)
+    return 0;
+  vty_out (vty, "%sipv6 nd prefix connected-all", prefix);
+  if (rcp.AdvValidLifetime == UINT32_MAX)
+    vty_out (vty, " infinite");
+  else if (rcp.AdvValidLifetime != RTADV_VALID_LIFETIME)
+    vty_out (vty, " %u", rcp.AdvValidLifetime);
+  if (rcp.AdvPreferredLifetime == UINT32_MAX)
+    vty_out (vty, " infinite");
+  else if (rcp.AdvPreferredLifetime != RTADV_PREFERRED_LIFETIME)
+    vty_out (vty, " %u", rcp.AdvPreferredLifetime);
+  if (! rcp.AdvAutonomousFlag)
+    vty_out (vty, " no-autoconfig");
+  if (! rcp.AdvOnLinkFlag)
+    vty_out (vty, " off-link");
+  vty_out (vty, "%s", VTY_NEWLINE);
+  return 1;
+}
+
 /* Write configuration about router advertisement. */
 void
 rtadv_config_write (struct vty *vty, struct interface *ifp)
@@ -2248,6 +2780,8 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
 
   if (zif->rtadv.AdvLinkMTU)
     vty_out (vty, " ipv6 nd mtu %d%s", zif->rtadv.AdvLinkMTU, VTY_NEWLINE);
+
+  rtadv_print_connprefix (vty, " ", zif->rtadv.ConnpfxEnabled, zif->rtadv.ConnpfxConfig);
 
   for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvPrefixList, node, rprefix))
     {
@@ -2404,6 +2938,7 @@ top_rtadv_config_write (struct vty *vty)
 
   vty_out (vty, "%sipv6 nd suppress-ra%s", rtadv->AdvSendAdvertisements ? "no " : "", VTY_NEWLINE);
   write++;
+  write += rtadv_print_connprefix (vty, "", rtadv->ConnpfxEnabled, rtadv->ConnpfxConfig);
   write += rtadv_print_rdnss_list (vty, rtadv->AdvRDNSSList, "ipv6 nd rdnss");
   write += rtadv_print_dnssl_list (vty, rtadv->AdvDNSSLList, "ipv6 nd dnssl");
   return write;
@@ -2472,6 +3007,17 @@ rtadv_init (void)
   install_element (CONFIG_NODE, &top_no_ipv6_nd_rdnss_addr_cmd);
   install_element (CONFIG_NODE, &top_ipv6_nd_dnssl_domain_cmd);
   install_element (CONFIG_NODE, &top_no_ipv6_nd_dnssl_domain_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectedall_val1_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectedall_val2_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectedall_val3_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectedall_val4_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectedall_val5_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectedall_val6_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectedall_val7_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectedall_val8_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectedall_val9_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectedall_noval_cmd);
+  install_element (CONFIG_NODE, &top_ipv6_nd_prefix_connectednone_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_suppress_ra_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_suppress_ra_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_suppress_ra_auto_cmd);
@@ -2515,6 +3061,19 @@ rtadv_init (void)
   install_element (INTERFACE_NODE, &ipv6_nd_prefix_noval_rtaddr_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_prefix_prefix_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_prefix_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedall_val1_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedall_val2_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedall_val3_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedall_val4_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedall_val5_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedall_val6_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedall_val7_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedall_val8_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedall_val9_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedall_noval_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectednone_cmd);
+  install_element (INTERFACE_NODE, &if_ipv6_nd_prefix_connectedauto_cmd);
+  install_element (INTERFACE_NODE, &if_no_ipv6_nd_prefix_connectedval_cmd);
   install_element (INTERFACE_NODE, &ipv6_nd_router_preference_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_router_preference_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_router_preference_val_cmd);
@@ -2529,6 +3088,16 @@ rtadv_init (void)
   install_element (INTERFACE_NODE, &ipv6_nd_dnssl_domain_lft_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_dnssl_domain_cmd);
   install_element (INTERFACE_NODE, &no_ipv6_nd_dnssl_domain_lft_cmd);
+}
+
+/* This function is called after ifp->connected is changed. */
+void
+rtadv_refresh_connected (struct interface *ifp)
+{
+  struct zebra_if *zif = ifp->info;
+
+  if (rtadv_ra_enabled (&zif->rtadv) && rtadv_cp_enabled (&zif->rtadv))
+    zif->rtadv.AdvIntervalTimer = 0;
 }
 
 static int
@@ -2628,6 +3197,9 @@ rtadv_if_new_hook (struct rtadvconf *conf)
    * configured to follow router-scope parameter. Processing functions are left
    * to work around loopback interfaces by their own means. */
   conf->AdvSendAdvertisements = -1;
+  /* ConnpfxConfig is left uninitialized, "connected-all" DEFUN will take care. */
+  conf->ConnpfxEnabled = -1;
+
   conf->MaxRtrAdvInterval = RTADV_MAX_RTR_ADV_INTERVAL;
   conf->MinRtrAdvInterval = RTADV_MIN_RTR_ADV_INTERVAL;
   conf->AdvIntervalTimer = 0;

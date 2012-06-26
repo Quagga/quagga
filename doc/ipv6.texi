@@ -35,6 +35,18 @@ is not supported in these commands, the entries configured this way will always
 have lifetime 2 times the current @var{ra-interval} of each interface.
 @end deffn
 
+@deffn Command {ipv6 nd prefix connected-none} {}
+Configure the router-scope setting NOT to generate Prefix Information TLVs for
+connected prefixes (each interface configuration may override this). This
+setting is the default.
+@end deffn
+
+@deffn Command {ipv6 nd prefix connected-all [@var{valid-lifetime}] [@var{preferred-lifetime}] [off-link] [no-autoconfig]} {}
+Configure the router-scope setting to generate Prefix Information TLVs for all
+connected prefixes except link-local ones (each interface configuration may
+override this).
+@end deffn
+
 @section Interface-scope RA commands
 @deffn {Interface Command} {ipv6 nd suppress-ra auto} {}
 Configure the interface to track router-scope @code{suppress-ra} setting. The
@@ -91,6 +103,25 @@ contains a complete IP address by setting R flag.
 
 Default: not set, i.e. hosts do not assume a complete IP address is placed.
 @end itemize
+@end deffn
+
+@deffn {Interface Command} {ipv6 nd prefix connected-auto} {}
+@deffnx {Interface Command} {no ipv6 nd prefix (connected-all|connected-none)} {}
+Configure the interface to track router-scope setting of connected prefixes
+advertisement. The commands are not visible in interface configuration section
+of running-config text. This setting is the default.
+@end deffn
+
+@deffn {Interface Command} {ipv6 nd prefix connected-all [@var{valid-lifetime}] [@var{preferred-lifetime}] [off-link] [no-autoconfig]} {}
+Configure the interface to enable connected prefixes advertisement regardless
+of router-scope setting. This command is visible in interface configuration
+section of running-config text.
+@end deffn
+
+@deffn {Interface Command} {ipv6 nd prefix connected-none} {}
+Configure the interface to disable connected prefixes advertisement regardless
+of router-scope setting. This command is visible in interface configuration
+section of running-config text.
 @end deffn
 
 @deffn {Interface Command} {ipv6 nd ra-interval <1-1800>} {}

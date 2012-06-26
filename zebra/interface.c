@@ -441,6 +441,9 @@ if_delete_update (struct interface *ifp)
 		{
 		  listnode_delete (ifp->connected, ifc);
 		  connected_free (ifc);
+#ifdef RTADV
+		  rtadv_refresh_connected (ifp);
+#endif /* RTADV */
 		}
 	    }
 #endif /* HAVE_IPV6 */
@@ -1319,6 +1322,9 @@ ipv6_address_install (struct vty *vty, struct interface *ifp,
 
       /* Add to linked list. */
       listnode_add (ifp->connected, ifc);
+#ifdef RTADV
+      rtadv_refresh_connected (ifp);
+#endif /* RTADV */
     }
 
   /* This address is configured from zebra. */
@@ -1394,6 +1400,9 @@ ipv6_address_uninstall (struct vty *vty, struct interface *ifp,
     {
       listnode_delete (ifp->connected, ifc);
       connected_free (ifc);
+#ifdef RTADV
+      rtadv_refresh_connected (ifp);
+#endif /* RTADV */
       return CMD_WARNING;
     }
 
@@ -1415,6 +1424,9 @@ ipv6_address_uninstall (struct vty *vty, struct interface *ifp,
   /* Free address information. */
   listnode_delete (ifp->connected, ifc);
   connected_free (ifc);
+#ifdef RTADV
+  rtadv_refresh_connected (ifp);
+#endif /* RTADV */
 
   return CMD_SUCCESS;
 }

@@ -27,6 +27,15 @@
 #include "linklist.h"
 #include "if.h"
 
+/* "ipv6 nd connected-prefix ..." feature parameters */
+struct rtadv_connprefix
+{
+  u_int32_t AdvValidLifetime;
+  u_int32_t AdvPreferredLifetime;
+  u_char AdvAutonomousFlag;
+  u_char AdvOnLinkFlag;
+};
+
 /* Router advertisement parameter.  From RFC4861, RFC6275 and RFC4191. */
 struct rtadvconf
 {
@@ -172,6 +181,11 @@ struct rtadvconf
 #define	RTADV_DNS_OBSOLETE_LIFETIME (0x00000000)
   /* a list of configured DNS Search List domains (RFC6106) */
   struct list *AdvDNSSLList;
+
+  /* interface-scope setting: 0: disabled, 1: enabled, -1: use current
+   * router-scope parameter. Default: -1 */
+  char ConnpfxEnabled;
+  struct rtadv_connprefix ConnpfxConfig;
 };
 
 /* NB: RTADV is defined in zebra/interface.h above */
@@ -214,6 +228,7 @@ extern void rtadv_init (void);
     #define RTADV
 extern void rtadv_if_dump_vty (struct vty *, struct interface *);
 extern void rtadv_if_new_hook (struct rtadvconf *);
+extern void rtadv_refresh_connected (struct interface *);
   #endif
 #endif
 
