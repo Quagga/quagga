@@ -103,7 +103,7 @@ static const size_t rtadv_pref_strs_max = sizeof (rtadv_pref_strs) / sizeof (str
 static struct rtadv *
 rtadv_new (void)
 {
-  struct rtadv *ret = XCALLOC (MTYPE_TMP, sizeof (struct rtadv));
+  struct rtadv *ret = XCALLOC (MTYPE_RTADV, sizeof (struct rtadv));
   ret->AdvRDNSSList = list_new();
   ret->AdvDNSSLList = list_new();
   ret->ConnpfxConfig.AdvValidLifetime = RTADV_VALID_LIFETIME;
