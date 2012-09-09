@@ -128,7 +128,7 @@ rtadv_cp_enabled (const struct rtadvconf *conf)
 }
 
 static int
-rtadv_recv_packet (int sock, u_char *buf, int buflen,
+rtadv_recv_packet (const int sock, u_char *buf, const int buflen,
 		   struct sockaddr_in6 *from, unsigned int *ifindex,
 		   int *hoplimit)
 {
@@ -284,7 +284,7 @@ rtadv_append_connprefix_tlvs (unsigned char *buf, const struct list *list,
 
 /* Send router advertisement packet. */
 static void
-rtadv_send_packet (int sock, struct interface *ifp)
+rtadv_send_packet (const int sock, const struct interface *ifp)
 {
   struct msghdr msg;
   struct iovec iov;
@@ -580,7 +580,7 @@ rtadv_timer (struct thread *thread)
 }
 
 static void
-rtadv_process_solicit (struct interface *ifp)
+rtadv_process_solicit (const struct interface *ifp)
 {
   zlog_info ("Router solicitation received on %s", ifp->name);
 
@@ -594,7 +594,7 @@ rtadv_process_advert (void)
 }
 
 static void
-rtadv_process_packet (u_char *buf, unsigned int len, unsigned int ifindex, int hoplimit)
+rtadv_process_packet (u_char *buf, const unsigned len, const unsigned ifindex, const int hoplimit)
 {
   struct icmp6_hdr *icmph;
   struct interface *ifp;
@@ -680,7 +680,7 @@ rtadv_read (struct thread *thread)
 }
 
 static int
-rtadv_setsockopt (int sock)
+rtadv_setsockopt (const int sock)
 {
   return (setsockopt_ipv6_pktinfo (sock, 1)
        || setsockopt_ipv6_multicast_loop (sock, 0)
@@ -691,7 +691,7 @@ rtadv_setsockopt (int sock)
 }
 
 static int
-rtadv_setsockopt_filter (int sock)
+rtadv_setsockopt_filter (const int sock)
 {
   struct icmp6_filter filter;
 
@@ -748,19 +748,19 @@ rtadv_prefix_free (struct rtadv_prefix *rtadv_prefix)
 }
 
 static struct rtadv_prefix *
-rtadv_prefix_lookup (struct list *rplist, struct prefix_ipv6 *p)
+rtadv_prefix_lookup (const struct list *rplist, const struct prefix_ipv6 *p)
 {
   struct listnode *node;
   struct rtadv_prefix *rprefix;
 
   for (ALL_LIST_ELEMENTS_RO (rplist, node, rprefix))
-    if (prefix_same ((struct prefix *) &rprefix->prefix, (struct prefix *) p))
+    if (IPV6_ADDR_SAME (&rprefix->prefix.prefix, &p->prefix))
       return rprefix;
   return NULL;
 }
 
 static struct rtadv_prefix *
-rtadv_prefix_get (struct list *rplist, struct prefix_ipv6 *p)
+rtadv_prefix_get (struct list *rplist, const struct prefix_ipv6 *p)
 {
   struct rtadv_prefix *rprefix;
   
@@ -809,7 +809,7 @@ rtadv_prefix_reset (struct zebra_if *zif, struct rtadv_prefix *rp)
 /* RFC6106 5.1, 5.2: Lifetime SHOULD be bounded as follows:
    MaxRtrAdvInterval <= Lifetime <= 2*MaxRtrAdvInterval */
 static u_char
-rtadv_dns_lifetime_fits (unsigned long lifetime_msec, int MaxRAI_msec)
+rtadv_dns_lifetime_fits (const unsigned long lifetime_msec, const unsigned MaxRAI_msec)
 {
   if
   (
@@ -2948,7 +2948,7 @@ top_rtadv_config_write (struct vty *vty)
 }
 
 static void
-rtadv_event (enum rtadv_event event, int val)
+rtadv_event (const enum rtadv_event event, const int val)
 {
   switch (event)
     {
