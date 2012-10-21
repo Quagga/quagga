@@ -348,9 +348,6 @@ rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_s
 {
   unsigned char digest[RIP_AUTH_MAX_SIZE];
   unsigned hash_error;
-#ifdef HAVE_LIBGCRYPT
-  size_t saved_endp;
-#endif /* HAVE_LIBGCRYPT */
 
   if (IS_RIP_DEBUG_AUTH)
     zlog_debug ("writing authentication trailer after %zuB of main body", stream_get_endp (s));
@@ -374,14 +371,16 @@ rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_s
   case HASH_HMAC_SHA256:
   case HASH_HMAC_SHA384:
   case HASH_HMAC_SHA512:
+  {
     /* RFC4822 2.5: Fill Apad, process whole packet with HMAC rounds. */
-    saved_endp = stream_get_endp (s);
+    size_t saved_endp = stream_get_endp (s);
     stream_write (s, hash_apad_sha512, hash_digest_length[ri->hash_algo]);
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("%s: %zuB of input buffer, %zuB of key", __func__, stream_get_endp (s), strlen (auth_str));
     hash_error = hash_make_hmac (ri->hash_algo, STREAM_DATA (s),
       stream_get_endp (s), auth_str, strlen (auth_str), STREAM_DATA (s) + saved_endp);
     break;
+  }
 #endif /* HAVE_LIBGCRYPT */
   default:
     assert (0);
