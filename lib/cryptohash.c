@@ -148,15 +148,18 @@ hash_make_keyed_md5
   const void *input,
   const size_t inputlen,
   const void *auth_str,
+  const size_t auth_str_len,
   void *output
 )
 {
+  char auth_str_padded[HASH_SIZE_MD5] = { 0 };
   MD5_CTX ctx;
 
+  memcpy (auth_str_padded, auth_str, MIN (HASH_SIZE_MD5, auth_str_len));
   memset (&ctx, 0, sizeof (ctx));
   MD5Init (&ctx);
   MD5Update (&ctx, input, inputlen);
-  MD5Update (&ctx, auth_str, HASH_SIZE_MD5);
+  MD5Update (&ctx, auth_str_padded, HASH_SIZE_MD5);
   MD5Final (output, &ctx);
   return 0;
 }

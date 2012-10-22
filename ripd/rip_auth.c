@@ -176,7 +176,7 @@ rip_auth_check_hash (struct rip_interface *ri, struct in_addr *from, struct rip_
   case HASH_KEYED_MD5:
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("%s: %uB of input buffer, %zuB of key", __func__, packet_len + RIP_HEADER_SIZE, strlen (auth_str));
-    hash_error = hash_make_keyed_md5 ((caddr_t) packet, packet_len + RIP_HEADER_SIZE, auth_str, local_digest);
+    hash_error = hash_make_keyed_md5 ((caddr_t) packet, packet_len + RIP_HEADER_SIZE, auth_str, strlen (auth_str), local_digest);
     break;
 #ifdef HAVE_LIBGCRYPT
   case HASH_HMAC_SHA1:
@@ -363,7 +363,7 @@ rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_s
   case HASH_KEYED_MD5:
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("%s: %zuB of input buffer, %zuB of key", __func__, stream_get_endp (s), strlen (auth_str));
-    hash_error = hash_make_keyed_md5 ((caddr_t) STREAM_DATA (s), stream_get_endp (s), auth_str, digest);
+    hash_error = hash_make_keyed_md5 ((caddr_t) STREAM_DATA (s), stream_get_endp (s), auth_str, strlen (auth_str), digest);
     stream_write (s, digest, HASH_SIZE_MD5);
     break;
 #ifdef HAVE_LIBGCRYPT
