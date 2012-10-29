@@ -40,7 +40,10 @@ rip_auth_check_password (struct rip_interface *ri, struct rip_auth_rte *auth)
 {
   if (ri->auth_str)
   {
-    if (strncmp (auth->u.password, ri->auth_str, RIP_AUTH_SIMPLE_SIZE) == 0)
+    u_int8_t padded_simple_password[RIP_AUTH_SIMPLE_SIZE] = { 0 };
+
+    memcpy (padded_simple_password, ri->auth_str, MIN (RIP_AUTH_SIMPLE_SIZE, strlen (ri->auth_str)));
+    if (! memcmp (auth->u.password, padded_simple_password, RIP_AUTH_SIMPLE_SIZE))
     {
       if (IS_RIP_DEBUG_AUTH)
         zlog_debug ("interface authentication string is configured and matches");
@@ -408,9 +411,13 @@ rip_auth_write_leading_rte
   switch (ri->auth_type)
   {
   case RIP_AUTH_SIMPLE_PASSWORD:
-    stream_putw (s, RIP_AUTH_SIMPLE_PASSWORD);
-    stream_put (s, auth_str, RIP_AUTH_SIMPLE_SIZE);
-    break;
+    {
+      u_int8_t padded_simple_password[RIP_AUTH_SIMPLE_SIZE] = { 0 };
+      memcpy (padded_simple_password, auth_str, MIN (RIP_AUTH_SIMPLE_SIZE, strlen (auth_str)));
+      stream_putw (s, RIP_AUTH_SIMPLE_PASSWORD);
+      stream_put (s, padded_simple_password, RIP_AUTH_SIMPLE_SIZE);
+      break;
+    }
   case RIP_AUTH_HASH:
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("hash algorithm is '%s'", LOOKUP (hash_algo_str, ri->hash_algo));
