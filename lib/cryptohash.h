@@ -54,6 +54,7 @@ extern unsigned char hash_algo_enabled (const unsigned);
 extern unsigned hash_make_keyed_md5 (const void *, const size_t, const void *, const size_t, void *);
 #ifdef HAVE_LIBGCRYPT
 extern unsigned hash_make_hmac (const unsigned, const void *, const size_t, const void *, const size_t, void *);
+extern void hash_key_compress_rfc4822 (const unsigned, const void *, const size_t, void *, size_t *);
 #endif /* HAVE_LIBGCRYPT */
 
 #endif /* QUAGGA_CRYPTOHASH_H */

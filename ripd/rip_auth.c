@@ -186,14 +186,21 @@ rip_auth_check_hash (struct rip_interface *ri, struct in_addr *from, struct rip_
   case HASH_HMAC_SHA256:
   case HASH_HMAC_SHA384:
   case HASH_HMAC_SHA512:
-    /* RFC4822 2.5: Fill Apad, process whole packet with HMAC rounds. */
-    memcpy (hd->u.hash_digest, hash_apad_sha512, local_dlen);
-    if (IS_RIP_DEBUG_AUTH)
-      zlog_debug ("%s: %uB of input buffer, %zuB of key", __func__, packet_len + 4 + local_dlen, strlen (auth_str));
-    hash_error = hash_make_hmac (ri->hash_algo, packet,
-      packet_len + 4 + local_dlen, auth_str, strlen (auth_str), local_digest);
-    memcpy (hd->u.hash_digest, received_digest, local_dlen);
-    break;
+    {
+      u_int8_t compr_auth_str[RIP_AUTH_MAX_SIZE];
+      size_t compr_authlen;
+
+      hash_key_compress_rfc4822 (ri->hash_algo, auth_str, strlen (auth_str), compr_auth_str, &compr_authlen);
+      /* RFC4822 2.5: Fill Apad, process whole packet with HMAC rounds. */
+      memcpy (hd->u.hash_digest, hash_apad_sha512, local_dlen);
+      if (IS_RIP_DEBUG_AUTH)
+        zlog_debug ("%s: %uB of input buffer, %zuB of key (%zuB compressed)", __func__,
+          packet_len + 4 + local_dlen, strlen (auth_str), compr_authlen);
+      hash_error = hash_make_hmac (ri->hash_algo, packet,
+        packet_len + 4 + local_dlen, compr_auth_str, compr_authlen, local_digest);
+      memcpy (hd->u.hash_digest, received_digest, local_dlen);
+      break;
+    }
 #endif /* HAVE_LIBGCRYPT */
   default:
     assert (0);
@@ -375,13 +382,18 @@ rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_s
   case HASH_HMAC_SHA384:
   case HASH_HMAC_SHA512:
     {
+      u_int8_t compr_auth_str[RIP_AUTH_MAX_SIZE];
+      size_t compr_authlen;
       /* RFC4822 2.5: Fill Apad, process whole packet with HMAC rounds. */
       size_t saved_endp = stream_get_endp (s);
+
+      hash_key_compress_rfc4822 (ri->hash_algo, auth_str, strlen (auth_str), compr_auth_str, &compr_authlen);
       stream_write (s, hash_apad_sha512, hash_digest_length[ri->hash_algo]);
       if (IS_RIP_DEBUG_AUTH)
-        zlog_debug ("%s: %zuB of input buffer, %zuB of key", __func__, stream_get_endp (s), strlen (auth_str));
+        zlog_debug ("%s: %zuB of input buffer, %zuB of key (%zuB compressed)",
+          __func__, stream_get_endp (s), strlen (auth_str), compr_authlen);
       hash_error = hash_make_hmac (ri->hash_algo, STREAM_DATA (s),
-        stream_get_endp (s), auth_str, strlen (auth_str), STREAM_DATA (s) + saved_endp);
+        stream_get_endp (s), compr_auth_str, compr_authlen, STREAM_DATA (s) + saved_endp);
       break;
     }
 #endif /* HAVE_LIBGCRYPT */

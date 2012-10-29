@@ -195,4 +195,54 @@ hash_make_hmac
   gcry_md_close (ctx);
   return 0;
 }
+
+/* The construct defined in RFC4822 and reused in RFC5709, RFC6506 and probably
+ * other works is similar to HMAC (RFC2104) but is not HMAC, to be precise. The
+ * principal difference is in the key preparation step. The original RFC2104
+ * construct defines Ko to be B octets long and derives Ko from K respectively,
+ * whereas RFC4822 construct defines Ko to be L octets long (L <= B). Since
+ * L < B for most modern hash functions, these two constructs produce different
+ * digests for the same Text and K, when length of K is greater than L but not
+ * greater than B.
+ *
+ * In practice this means, that an implementation of RFC4822 construct (e. g.
+ * ripd) can reuse an existing implementation of HMAC (e. g. libgcrypt) as long
+ * as the authentication key is pre-processed with the function below. At the
+ * same time, this processing must not be performed by an implementation of the
+ * original HMAC construct (e. g. babeld).
+ */
+void
+hash_key_compress_rfc4822
+(
+  const unsigned hash_algo,
+  const void *orig_key_bytes,
+  const size_t orig_key_len,
+  void *compr_key_bytes, /* size must be >= hash_algo digest length */
+  size_t *compr_key_len
+)
+{
+  switch (hash_algo)
+  {
+  case HASH_HMAC_SHA1:
+  case HASH_HMAC_SHA256:
+  case HASH_HMAC_SHA384:
+  case HASH_HMAC_SHA512:
+  case HASH_HMAC_RMD160:
+  case HASH_HMAC_WHIRLPOOL:
+    if (orig_key_len > hash_digest_length[hash_algo] ) /* > L, Ko := H(K) */
+    {
+      gcry_md_hash_buffer (hash_gcrypt_algo_map[hash_algo], compr_key_bytes, orig_key_bytes, orig_key_len);
+      *compr_key_len = hash_digest_length[hash_algo];
+    }
+    else /* <= L */
+    {
+      memset (compr_key_bytes, 0, hash_digest_length[hash_algo]);
+      memcpy (compr_key_bytes, orig_key_bytes, orig_key_len);
+      *compr_key_len = orig_key_len;
+    }
+    break;
+  default:
+    assert (0);
+  }
+}
 #endif /* HAVE_LIBGCRYPT */
