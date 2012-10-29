@@ -1611,13 +1611,6 @@ DEFUN (ip_rip_authentication_string,
   ifp = (struct interface *)vty->index;
   ri = ifp->info;
 
-  if (strlen (argv[0]) > RIP_AUTH_MAX_SIZE)
-    {
-      vty_out (vty, "%% Maximum key size is %u bytes/chars%s", RIP_AUTH_MAX_SIZE,
-	       VTY_NEWLINE);
-      return CMD_WARNING;
-    }
-
   if (ri->key_chain)
     {
       vty_out (vty, "%% key-chain configuration exists%s", VTY_NEWLINE);

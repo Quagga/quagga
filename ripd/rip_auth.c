@@ -94,7 +94,7 @@ rip_auth_check_hash (struct rip_interface *ri, struct in_addr *from, struct rip_
   struct key *key;
   u_char received_digest[RIP_AUTH_MAX_SIZE], local_digest[RIP_AUTH_MAX_SIZE];
   u_int16_t packet_len;
-  char auth_str[RIP_AUTH_MAX_SIZE] = { 0 };
+  char *auth_str = NULL;
   u_int8_t local_dlen, remote_dlen;
   unsigned hash_error;
   u_int32_t peer_prev_seqno, peer_cur_seqno;
@@ -155,15 +155,15 @@ rip_auth_check_hash (struct rip_interface *ri, struct in_addr *from, struct rip_
     }
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("using keychain '%s', key %u for receiving", ri->key_chain, key->index);
-    strncpy (auth_str, key->string, RIP_AUTH_MAX_SIZE);
+    auth_str = key->string;
   }
   else if (ri->auth_str)
   {
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("using interface authentication string");
-    strncpy (auth_str, ri->auth_str, RIP_AUTH_MAX_SIZE);
+    auth_str = ri->auth_str;
   }
-  if (auth_str[0] == 0)
+  if (auth_str == NULL)
   {
     if (IS_RIP_DEBUG_AUTH)
       zlog_debug ("authentication string lookup failed");
@@ -469,7 +469,7 @@ rip_auth_make_packet
 )
 {
   struct key *key = NULL;
-  char auth_str[RIP_AUTH_MAX_SIZE] = { 0 };
+  char *auth_str = NULL;
 
   if (IS_RIP_DEBUG_AUTH)
     zlog_debug ("interface auth type is '%s', inet RTEs payload size is %zuB",
@@ -513,15 +513,15 @@ rip_auth_make_packet
     {
       if (IS_RIP_DEBUG_AUTH)
         zlog_debug ("using keychain '%s', key %u for sending", ri->key_chain, key->index);
-      strncpy (auth_str, key->string, RIP_AUTH_MAX_SIZE);
+      auth_str = key->string;
     }
     else if (ri->auth_str)
     {
       if (IS_RIP_DEBUG_AUTH)
         zlog_debug ("using interface authentication string");
-      strncpy (auth_str, ri->auth_str, RIP_AUTH_MAX_SIZE);
+      auth_str = ri->auth_str;
     }
-    if (auth_str[0] == 0)
+    if (auth_str == NULL)
     {
       if (IS_RIP_DEBUG_AUTH)
         zlog_debug ("authentication string lookup failed");
