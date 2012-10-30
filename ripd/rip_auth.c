@@ -521,6 +521,12 @@ rip_auth_make_packet
         zlog_debug ("using interface authentication string");
       strncpy (auth_str, ri->auth_str, RIP_AUTH_MAX_SIZE);
     }
+    if (auth_str[0] == 0)
+    {
+      if (IS_RIP_DEBUG_AUTH)
+        zlog_debug ("authentication string lookup failed");
+      return -1;
+    }
 
     rip_auth_write_leading_rte (packet, ri, key ? key->index % 256 : 1, auth_str,
       RIP_HEADER_SIZE + RIP_RTE_SIZE + stream_get_endp (rtes));
