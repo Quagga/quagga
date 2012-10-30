@@ -381,7 +381,7 @@ rip_auth_write_trailer (struct stream *s, struct rip_interface *ri, char *auth_s
       if (IS_RIP_DEBUG_AUTH)
         zlog_debug ("%s: %zuB of input buffer, %zuB of key", __func__, stream_get_endp (s), strlen (auth_str));
       hash_error = hash_make_hmac (ri->hash_algo, STREAM_DATA (s),
-        stream_get_endp (s), auth_str, authlen, STREAM_DATA (s) + saved_endp);
+        stream_get_endp (s), auth_str, strlen (auth_str), STREAM_DATA (s) + saved_endp);
       break;
     }
 #endif /* HAVE_LIBGCRYPT */
