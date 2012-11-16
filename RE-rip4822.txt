@@ -1,0 +1,108 @@
+# RE-stable-0.99 RE-testing-0.99 summary
+# ************** *************** *******
+6acd458        c0923a2         configure: list non-default libraries separately
+610c05f        24af978         ripd: cleanup ripd.h declarations
+3a5a5f7        291a2a5         ripd: include 7 headers from ripd.h, not ripd.c
+18cebe0        bf04003         ripd: auth sizes are constant, need no arg
+3b274ca        49ea37c         ripd: dismiss rip_auth_prepare_str_send()
+3428c25        f6448ff         ripd: netmask was single-use in rip_packet_dump()
+008f01d        6ac04c9         ripd: dismiss remnants of obsolete RIP commands
+ba18c4b        5488cc2         ripd: NEW_RIP_TABLE was never defined
+f6f7e4f        e704493         ripd: remove a bit of unneeded code
+ebf36c9        cdeddda         lib: implement stream_get_data()
+1a214b8        50f7713         justify SO_BROADCAST setup
+fcbf171        b0b1feb         ripd: clean more declarations up
+c3a0b23        3e006c9         ripd: use setsockopt_ipv4_multicast() directly
+287a9d9        566e093         move MSG_OK and MSG_NG to zebra.h
+#- 29d061e        908cdf9         move 5 setsockopt functions out of sockunion files
+#- 6a3a665        65b1e39         justify more sockopt cases
+8a090df        0c83090         ripd: freshen rip_interface declarations
+3911f94        bbc80b6         ripd: fix SNMP compile after last change
+a2cea12        e8c72ab         ripd: make more variables static
+ccf4c3d        66fe0fd         ripd: split ripd.h declarations into more files
+825f571        2a6c25d         ripd: justify RIP authentication mode CLI commands
+f4bfdfc        0e11094         ripd: RIP_DEBUG_DETAIL did not mean anything
+7ae918e        e992d59         doc: update "ip rip authentication mode" block
+
+# === round 2: ripd refactoring (in RE-0.99.17.11) ===
+#
+# RE-stable-0.99 RE-testing-0.99 summary
+# ************** *************** *******
+b75b2fb        49d26f2         ripd: move 6 auth functions to rip_auth
+c4af6bf        c396919         ripd: move some code to rip_auth_check_packet()
+67fc806        91c35c5         ripd: move some code to rip_auth_dump_ffff_rte()
+ca2adeb        d0835e3         ripd: move some code to rip_auth_allowed_inet_rtes()
+36e83d4        03c10fd         ripd: move some code to rip_auth_make_packet()
+218fcf4        23c7075         ripd: "doff" variable is no more required
+c36b5d7        ab6134f         ripd: auth type 0x0003 stands for hash, not MD5
+4dc42a0        829106a         ripd: introduce struct rip_auth_rte
+8c276b2        bb35d6a         ripd: move some code to rip_auth_write_leading_rte()
+c1b4b33        243d089         ripd: use LOOKUP() for auth RTE type code
+6da97d1        457c46b         ripd: fortify packet reception
+6e0690e        fa07f4f         ripd: implement "relaxed-recv-size-checks" mode
+c5aca27        18a0bee         ripd: remove duplicate packet checks
+9a0bdfa        539bc6f         ripd: split rip_auth_md5()
+7d88d7b        0972be5         ripd: clean rip_auth_md5_set() up
+7eade63        9b2271e         ripd: clean rip_auth_simple_password() up
+969d76f        5db98b5         ripd: add authentication debug mode
+063cac0        a0ff995         ripd: treat Keyed-MD5 as a particular case of hash
+f7c7f7f        68b83c8         ripd: add Rx crypto sequence number handling
+
+# === round 3: ripd HMAC-SHA (RFC4822) implementation and post-implementation fixes (in RE-0.99.17.11) ===
+# 
+# RE-stable-0.99 RE-testing-0.99 summary
+# ************** *************** *******
+dbd86f1        0931278         configure: detect libgcrypt presence on request
+6f051c7        4a23865         ripd: add RFC4822 (HMAC-SHA) support
+2ae552f        49bafe6         ripd: clean ri_version_msg[] declaration up
+e7f9934        8c0251c         ripd: command_str was a single-use variable
+b1b1441        eb0a4d0         ripd: fix authentication trailer debug output
+6ccf3e8        159e0da         ripd: count invalid netmasks as "bad route" cases
+ba070ce        551a30a         ripd: update bad packets/routes SNMP counters
+df6a907        725a665         ripd: fix authentication of Tx Request messages
+b583de5        63af127         ripd: fix processing of Rx Request messages
+7ff0ff9        1148fca         ripd: fix handling of long HMAC-SHA keys
+a522843        8798d81         ripd: call zlog_debug() outside of hash functions
+5668dcf        fb46031         lib: fix segfault related to keychain functions
+df02b44        c46247c         lib: fix Rx key lookup procedure
+fdf176c        94ff243         lib: unify keychain memory management
+913f60e        eb80fd1         lib: add multi-key lookup functions
+
+# === round 4: ripd-independent crypto hash module (in RE-0.99.17.11) ===
+#
+# RE-stable-0.99 RE-testing-0.99 summary
+# ************** *************** *******
+57f0634        a68e77f         generalize crypto hash code as a part of libzebra
+f8eb444        8ab606f         lib: add hash_algo_byname()
+ac7f021        9dfde85         lib: add hash_algo_cli_str[]
+8fad6df        2a0c99b         lib: add hash_library_init()
+cd9fd47        b3d449b         lib: add hash_algo_enabled()
+c349779        edd5179         lib: list RIPEMD-160 and Whirlpool hash algorithms
+454b8f8        38ffb65         lib: update hash_make_hmac() comment block
+e670e87        8859282         lib: make auth_str const in hash_make_keyed_md5()
+36f0f26        54ff8b6         ospfd: use crypto hash interface for Keyed-MD5
+3bd4bd6        c8b7061         lib: base hash_algo_byname() on hash_algo_cli_str[]
+
+# === round 7: assorted ripd fixes, including those to RFC4822 implementation ===
+#
+# RE-stable-0.99 RE-testing-0.99 summary
+# ************** *************** *******
+               9e8d92a         make a variable local to a case block
+               e6e0bb1         perform bounds check in hash_make_keyed_md5()
+               2ff4393         ripd: fix indentation in rip_auth_write_trailer()
+#-               cedb7a5         lib: fix printf format warning in show_crypto()
+               4de297d         ripd: pad simple password properly
+               76e4b4e         ripd: fix "authlen" compile error
+               389d0b5         ripd: fail packet sending on missing auth key
+               3737e09         ripd: remove authentication key length limit
+               ef24336         ripd: implement RFC4822 authentication key compression
+
+# Added:
+
+4d0b3e6				IPTOS_PREC_INTERNETCONTROL is defined. Period.
+d9f1908				zebra: use IPTOS_PREC_INTERNETCONTROL
+8373489				ripd: use LOOKUP() on rip_msg[]
+ca75d19				lib: add missing includes
+a0ffaa4				ripd: fix warning in rip_distance_unset()
+58d6b15				ripd: RIP_RECVMSG was never defined
+
