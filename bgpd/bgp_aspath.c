@@ -98,6 +98,12 @@ assegment_data_new (int num)
   return (XMALLOC (MTYPE_AS_SEG_DATA, ASSEGMENT_DATA_SIZE (num, 1)));
 }
 
+static void
+assegment_data_free (as_t *asdata)
+{
+  XFREE (MTYPE_AS_SEG_DATA, asdata);
+}
+
 /* Get a new segment. Note that 0 is an allowed length,
  * and will result in a segment with no allocated data segment.
  * the caller should immediately assign data to the segment, as the segment
@@ -126,7 +132,7 @@ assegment_free (struct assegment *seg)
     return;
   
   if (seg->as)
-    XFREE (MTYPE_AS_SEG_DATA, seg->as);
+    assegment_data_free (seg->as);
   memset (seg, 0xfe, sizeof(struct assegment));
   XFREE (MTYPE_AS_SEG, seg);
   
@@ -194,13 +200,14 @@ assegment_prepend_asns (struct assegment *seg, as_t asnum, int num)
   if (num >= AS_SEGMENT_MAX)
     return seg; /* we don't do huge prepends */
   
-  newas = assegment_data_new (seg->length + num);
-
+  if ((newas = assegment_data_new (seg->length + num)) == NULL)
+    return seg;
+  
   for (i = 0; i < num; i++)
     newas[i] = asnum;
 
   memcpy (newas + num, seg->as, ASSEGMENT_DATA_SIZE (seg->length, 1));
-  XFREE (MTYPE_AS_SEG_DATA, seg->as);
+  assegment_data_free (seg->as);
   seg->as = newas;
   seg->length += num;
 
@@ -1879,6 +1886,7 @@ aspath_init (void)
 void
 aspath_finish (void)
 {
+  hash_clean (ashash, (void (*)(void *))aspath_free);
   hash_free (ashash);
   ashash = NULL;
   

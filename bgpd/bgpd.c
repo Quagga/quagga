@@ -737,6 +737,9 @@ peer_free (struct peer *peer)
   if (peer->clear_node_queue)
     work_queue_free (peer->clear_node_queue);
   
+  if (peer->notify.data)
+    XFREE(MTYPE_TMP, peer->notify.data);
+  
   bgp_sync_delete (peer);
   memset (peer, 0, sizeof (struct peer));
   
@@ -1988,7 +1991,7 @@ bgp_create (as_t *as, const char *name)
 struct bgp *
 bgp_get_default (void)
 {
-  if (bm->bgp->head)
+  if (bm && bm->bgp && bm->bgp->head)
     return (listgetdata (listhead (bm->bgp)));
   return NULL;
 }

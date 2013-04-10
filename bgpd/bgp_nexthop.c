@@ -1439,29 +1439,29 @@ bgp_scan_init (void)
 void
 bgp_scan_finish (void)
 {
-  /* Only the current one needs to be reset. */
-  bgp_nexthop_cache_reset (bgp_nexthop_cache_table[AFI_IP]);
-
-  bgp_table_unlock (cache1_table[AFI_IP]);
+  if (cache1_table[AFI_IP])
+    bgp_table_unlock (cache1_table[AFI_IP]);
   cache1_table[AFI_IP] = NULL;
 
-  bgp_table_unlock (cache2_table[AFI_IP]);
+  if (cache2_table[AFI_IP])
+    bgp_table_unlock (cache2_table[AFI_IP]);
   cache2_table[AFI_IP] = NULL;
-
-  bgp_table_unlock (bgp_connected_table[AFI_IP]);
+  
+  if (bgp_connected_table[AFI_IP])
+    bgp_table_unlock (bgp_connected_table[AFI_IP]);
   bgp_connected_table[AFI_IP] = NULL;
 
 #ifdef HAVE_IPV6
-  /* Only the current one needs to be reset. */
-  bgp_nexthop_cache_reset (bgp_nexthop_cache_table[AFI_IP6]);
-
-  bgp_table_unlock (cache1_table[AFI_IP6]);
+  if (cache1_table[AFI_IP6])
+    bgp_table_unlock (cache1_table[AFI_IP6]);
   cache1_table[AFI_IP6] = NULL;
 
-  bgp_table_unlock (cache2_table[AFI_IP6]);
+  if (cache2_table[AFI_IP6])
+    bgp_table_unlock (cache2_table[AFI_IP6]);
   cache2_table[AFI_IP6] = NULL;
 
-  bgp_table_unlock (bgp_connected_table[AFI_IP6]);
+  if (bgp_connected_table[AFI_IP6])
+    bgp_table_unlock (bgp_connected_table[AFI_IP6]);
   bgp_connected_table[AFI_IP6] = NULL;
 #endif /* HAVE_IPV6 */
 }
