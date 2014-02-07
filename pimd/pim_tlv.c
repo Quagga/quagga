@@ -148,7 +148,7 @@ uint8_t *pim_tlv_append_addrlist_ucast(uint8_t *buf,
     ++curr;
     *(uint8_t *) curr = 0; /* ucast IPv4 native encoding type (RFC 4601: 4.9.1) */
     ++curr;
-    *(struct in_addr *) curr = p->u.prefix4;
+    memcpy(curr, &p->u.prefix4, sizeof(struct in_addr));
     curr += sizeof(struct in_addr);
 
     option_len += ucast_ipv4_encoding_len; 
@@ -404,7 +404,8 @@ int pim_parse_addr_ucast(const char *ifname, struct in_addr src_addr,
     }
 
     p->family = AF_INET; /* notice: AF_INET != PIM_MSG_ADDRESS_FAMILY_IPV4 */
-    p->u.prefix4 = *(const struct in_addr *) addr;
+    memcpy(&p->u.prefix4, addr, sizeof(struct in_addr));
+
     addr += sizeof(struct in_addr);
 
     break;
@@ -475,7 +476,7 @@ int pim_parse_addr_group(const char *ifname, struct in_addr src_addr,
     }
 
     p->family = AF_INET; /* notice: AF_INET != PIM_MSG_ADDRESS_FAMILY_IPV4 */
-    p->u.prefix4 = *(const struct in_addr *) addr;
+    memcpy(&p->u.prefix4, addr, sizeof(struct in_addr));
     p->prefixlen = mask_len;
 
     addr += sizeof(struct in_addr);
@@ -549,7 +550,7 @@ int pim_parse_addr_source(const char *ifname,
     }
 
     p->family = AF_INET; /* notice: AF_INET != PIM_MSG_ADDRESS_FAMILY_IPV4 */
-    p->u.prefix4 = *(const struct in_addr *) addr;
+    memcpy(&p->u.prefix4, addr, sizeof(struct in_addr));
     p->prefixlen = mask_len;
 
     /* 

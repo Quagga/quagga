@@ -3515,7 +3515,7 @@ DEFUN (test_igmp_receive_report,
   *(uint16_t *)      (igmp_msg + IGMP_V3_CHECKSUM_OFFSET) = 0; /* for computing checksum */
   *(uint16_t *)      (igmp_msg + IGMP_V3_REPORT_NUMGROUPS_OFFSET) = htons(1); /* one group record */
   *(uint8_t  *)      (group_record + IGMP_V3_GROUP_RECORD_TYPE_OFFSET) = record_type;
-  *(struct in_addr *)(group_record + IGMP_V3_GROUP_RECORD_GROUP_OFFSET) = grp_addr;
+  memcpy(group_record + IGMP_V3_GROUP_RECORD_GROUP_OFFSET, &grp_addr, sizeof(struct in_addr));
 
   /* Scan LINE sources */
   sources = (struct in_addr *) (group_record + IGMP_V3_GROUP_RECORD_SOURCE_OFFSET);

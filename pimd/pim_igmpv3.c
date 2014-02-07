@@ -1649,7 +1649,8 @@ void pim_igmp_send_membership_query(struct igmp_group *group,
   query_buf[0]                                         = PIM_IGMP_MEMBERSHIP_QUERY;
   query_buf[1]                                         = max_resp_code;
   *(uint16_t *)(query_buf + IGMP_V3_CHECKSUM_OFFSET)   = 0; /* for computing checksum */
-  *(struct in_addr *)(query_buf + 4)                   = group_addr;
+  memcpy(query_buf+4, &group_addr, sizeof(struct in_addr));
+
   query_buf[8]                                         = (s_flag << 3) | querier_robustness_variable;
   query_buf[9]                                         = qqic;
   *(uint16_t *)(query_buf + IGMP_V3_NUMSOURCES_OFFSET) = htons(num_sources);
