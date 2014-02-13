@@ -51,6 +51,8 @@ static int zclient_lookup_connect(struct thread *t)
     return 0;
   }
 
+#ifdef PIM_ZCLIENT_DEBUG
+
 #ifdef HAVE_TCP_ZEBRA
   zlog_debug("%s: FIXME blocking connect: zclient_socket()",
 	     __PRETTY_FUNCTION__);
@@ -76,6 +78,17 @@ static int zclient_lookup_connect(struct thread *t)
 		__PRETTY_FUNCTION__, ZEBRA_SERV_PATH);
   }
 #endif /* HAVE_TCP_ZEBRA */
+
+#else
+
+  zlog_debug("%s: FIXME blocking connect: zclient_socket_connect()",
+	     __PRETTY_FUNCTION__);
+  if (zclient_socket_connect(zlookup) < 0) {
+    zlog_warn("%s: failure connecting zclient socket",
+	      __PRETTY_FUNCTION__);
+  }
+
+#endif /* PIM_ZCLIENT_DEBUG */
 
   zassert(!zlookup->t_connect);
   if (zlookup->sock < 0) {
