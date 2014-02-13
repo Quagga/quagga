@@ -30,7 +30,7 @@
 
 #include "pim_time.h"
 
-#if 0
+#ifndef PIM_GETTIME_USE_GETTIMEOFDAY
 static int pim_gettime(int clk_id, struct timeval *tv)
 {
   struct timespec ts;
