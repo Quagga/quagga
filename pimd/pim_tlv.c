@@ -450,7 +450,7 @@ int pim_parse_addr_group(const char *ifname, struct in_addr src_addr,
 
   family = *addr++;
   type = *addr++;
-  ++addr;
+  //++addr;
   ++addr; /* skip b_reserved_z fields */
   mask_len = *addr++;
 
@@ -533,9 +533,10 @@ int pim_parse_addr_source(const char *ifname,
     if (type) {
       char src_str[100];
       pim_inet4_dump("<src?>", src_addr, src_str, sizeof(src_str));
-      zlog_warn("%s: unknown source address encoding type=%d from %s on %s",
+      zlog_warn("%s: unknown source address encoding type=%d from %s on %s: %02x%02x%02x%02x%02x%02x%02x%02x",
 		__PRETTY_FUNCTION__,
-		type, src_str, ifname);
+		type, src_str, ifname,
+		buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
       return -2;
     }
 
@@ -578,9 +579,10 @@ int pim_parse_addr_source(const char *ifname,
     {
       char src_str[100];
       pim_inet4_dump("<src?>", src_addr, src_str, sizeof(src_str));
-      zlog_warn("%s: unknown source address encoding family=%d from %s on %s",
+      zlog_warn("%s: unknown source address encoding family=%d from %s on %s: %02x%02x%02x%02x%02x%02x%02x%02x",
 		__PRETTY_FUNCTION__,
-		family, src_str, ifname);
+		family, src_str, ifname,
+		buf[0], buf[1], buf[2], buf[3], buf[4], buf[5], buf[6], buf[7]);
       return -5;
     }
   }

@@ -288,7 +288,8 @@ static int recv_igmp_query(struct igmp_sock *igmp, int query_version,
   uint16_t              checksum;
   int                   i;
 
-  group_addr = *(struct in_addr *)(igmp_msg + 4);
+  //group_addr = *(struct in_addr *)(igmp_msg + 4);
+  memcpy(&group_addr, igmp_msg + 4, sizeof(struct in_addr));
 
   ifp = igmp->interface;
   pim_ifp = ifp->info;
@@ -421,8 +422,12 @@ static int recv_igmp_query(struct igmp_sock *igmp, int query_version,
 	  /* Scan sources in query and lower their timers to LMQT */
 	  struct in_addr *sources = (struct in_addr *)(igmp_msg + IGMP_V3_SOURCES_OFFSET);
 	  for (i = 0; i < recv_num_sources; ++i) {
-	    struct in_addr src_addr = sources[i];
-	    struct igmp_source *src = igmp_find_source_by_addr(group, src_addr);
+	    //struct in_addr src_addr = sources[i];
+	    //struct igmp_source *src = igmp_find_source_by_addr(group, src_addr);
+	    struct in_addr src_addr;
+	    struct igmp_source *src;
+            memcpy(&src_addr, sources + i, sizeof(struct in_addr));
+	    src = igmp_find_source_by_addr(group, src_addr);
 	    if (src) {
 	      igmp_source_timer_lower_to_lmqt(src);
 	    }
@@ -506,7 +511,8 @@ static int igmp_v3_report(struct igmp_sock *igmp,
     rec_auxdatalen  = group_record[IGMP_V3_GROUP_RECORD_AUXDATALEN_OFFSET];
     rec_num_sources = ntohs(* (uint16_t *) (group_record + IGMP_V3_GROUP_RECORD_NUMSOURCES_OFFSET));
 
-    rec_group = *(struct in_addr *)(group_record + IGMP_V3_GROUP_RECORD_GROUP_OFFSET);
+    //rec_group = *(struct in_addr *)(group_record + IGMP_V3_GROUP_RECORD_GROUP_OFFSET);
+    memcpy(&rec_group, group_record + IGMP_V3_GROUP_RECORD_GROUP_OFFSET, sizeof(struct in_addr));
 
     if (PIM_DEBUG_IGMP_PACKETS) {
       zlog_debug("Recv IGMP report v3 from %s on %s: record=%d type=%d auxdatalen=%d sources=%d group=%s",
@@ -599,7 +605,8 @@ static int igmp_v2_report(struct igmp_sock *igmp,
 	      __FILE__, __PRETTY_FUNCTION__);
   }
 
-  group_addr = *(struct in_addr *)(igmp_msg + 4);
+  //group_addr = *(struct in_addr *)(igmp_msg + 4);
+  memcpy(&group_addr, igmp_msg + 4, sizeof(struct in_addr));
 
   /* non-existant group is created as INCLUDE {empty} */
   group = igmp_add_group_by_addr(igmp, group_addr, ifp->name);
@@ -655,7 +662,8 @@ static int igmp_v1_report(struct igmp_sock *igmp,
 	      __FILE__, __PRETTY_FUNCTION__);
   }
 
-  group_addr = *(struct in_addr *)(igmp_msg + 4);
+  //group_addr = *(struct in_addr *)(igmp_msg + 4);
+  memcpy(&group_addr, igmp_msg + 4, sizeof(struct in_addr));
 
   /* non-existant group is created as INCLUDE {empty} */
   group = igmp_add_group_by_addr(igmp, group_addr, ifp->name);
