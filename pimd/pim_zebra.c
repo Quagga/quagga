@@ -353,11 +353,14 @@ static void scan_upstream_rpf_cache()
   
 }
 
-static void scan_oil()
+void pim_scan_oil()
 {
   struct listnode    *node;
   struct listnode    *nextnode;
   struct channel_oil *c_oil;
+
+  qpim_scan_oil_last = pim_time_monotonic_sec();
+  ++qpim_scan_oil_events;
 
   for (ALL_LIST_ELEMENTS(qpim_channel_oil_list, node, nextnode, c_oil)) {
     int old_vif_index;
@@ -445,7 +448,7 @@ static int on_rpf_cache_refresh(struct thread *t)
   scan_upstream_rpf_cache();
 
   /* update kernel multicast forwarding cache (MFC) */
-  scan_oil();
+  pim_scan_oil();
 
   qpim_rpf_cache_refresh_last = pim_time_monotonic_sec();
   ++qpim_rpf_cache_refresh_events;

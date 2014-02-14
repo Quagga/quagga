@@ -28,6 +28,8 @@
 
 void pim_zebra_init(void);
 
+void pim_scan_oil(void);
+
 void igmp_anysource_forward_start(struct igmp_group *group);
 void igmp_anysource_forward_stop(struct igmp_group *group);
 

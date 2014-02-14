@@ -49,6 +49,7 @@
 #include "pim_rpf.h"
 #include "pim_macro.h"
 #include "pim_ssmpingd.h"
+#include "pim_zebra.h"
 
 static struct cmd_node pim_global_node = {
   PIM_NODE,
@@ -1097,6 +1098,25 @@ static void show_rpf_refresh_stats(struct vty *vty, time_t now)
 	  refresh_uptime, VTY_NEWLINE);
 }
 
+static void show_scan_oil_stats(struct vty *vty, time_t now)
+{
+  char uptime_scan_oil[10];
+  char uptime_mroute_add[10];
+  char uptime_mroute_del[10];
+
+  pim_time_uptime_begin(uptime_scan_oil, sizeof(uptime_scan_oil), now, qpim_scan_oil_last);
+  pim_time_uptime_begin(uptime_mroute_add, sizeof(uptime_mroute_add), now, qpim_mroute_add_last);
+  pim_time_uptime_begin(uptime_mroute_del, sizeof(uptime_mroute_del), now, qpim_mroute_del_last);
+
+  vty_out(vty,
+          "Scan OIL - Last: %s  Events: %lld%s"
+          "MFC Add  - Last: %s  Events: %lld%s"
+          "MFC Del  - Last: %s  Events: %lld%s",
+          uptime_scan_oil,   (long long) qpim_scan_oil_events,   VTY_NEWLINE,
+          uptime_mroute_add, (long long) qpim_mroute_add_events, VTY_NEWLINE,
+          uptime_mroute_del, (long long) qpim_mroute_del_events, VTY_NEWLINE);
+}
+
 static void pim_show_rpf(struct vty *vty)
 {
   struct listnode     *up_node;
@@ -1576,6 +1596,57 @@ DEFUN (clear_ip_igmp_interfaces,
   return CMD_SUCCESS;
 }
 
+static void mroute_add_all()
+{
+  struct listnode    *node;
+  struct channel_oil *c_oil;
+
+  for (ALL_LIST_ELEMENTS_RO(qpim_channel_oil_list, node, c_oil)) {
+    if (pim_mroute_add(&c_oil->oil)) {
+      /* just log warning */
+      char source_str[100];
+      char group_str[100];
+      pim_inet4_dump("<source?>", c_oil->oil.mfcc_origin, source_str, sizeof(source_str));
+      pim_inet4_dump("<group?>", c_oil->oil.mfcc_mcastgrp, group_str, sizeof(group_str));
+      zlog_warn("%s %s: (S,G)=(%s,%s) failure writing MFC",
+                __FILE__, __PRETTY_FUNCTION__,
+                source_str, group_str);
+    }
+  }
+}
+
+static void mroute_del_all()
+{
+  struct listnode    *node;
+  struct channel_oil *c_oil;
+
+  for (ALL_LIST_ELEMENTS_RO(qpim_channel_oil_list, node, c_oil)) {
+    if (pim_mroute_del(&c_oil->oil)) {
+      /* just log warning */
+      char source_str[100];
+      char group_str[100];
+      pim_inet4_dump("<source?>", c_oil->oil.mfcc_origin, source_str, sizeof(source_str));
+      pim_inet4_dump("<group?>", c_oil->oil.mfcc_mcastgrp, group_str, sizeof(group_str));
+      zlog_warn("%s %s: (S,G)=(%s,%s) failure clearing MFC",
+                __FILE__, __PRETTY_FUNCTION__,
+                source_str, group_str);
+    }
+  }
+}
+
+DEFUN (clear_ip_mroute,
+       clear_ip_mroute_cmd,
+       "clear ip mroute",
+       CLEAR_STR
+       IP_STR
+       "Reset multicast routes\n")
+{
+  mroute_del_all();
+  mroute_add_all();
+
+  return CMD_SUCCESS;
+}
+
 DEFUN (clear_ip_pim_interfaces,
        clear_ip_pim_interfaces_cmd,
        "clear ip pim interfaces",
@@ -1585,6 +1656,19 @@ DEFUN (clear_ip_pim_interfaces,
        "Reset PIM interfaces\n")
 {
   clear_pim_interfaces();
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (clear_ip_pim_oil,
+       clear_ip_pim_oil_cmd,
+       "clear ip pim oil",
+       CLEAR_STR
+       IP_STR
+       CLEAR_IP_PIM_STR
+       "Rescan PIM OIL (output interface list)\n")
+{
+  pim_scan_oil();
 
   return CMD_SUCCESS;
 }
@@ -2026,6 +2110,10 @@ DEFUN (show_ip_multicast,
 
   show_rpf_refresh_stats(vty, now);
 
+  vty_out(vty, "%s", VTY_NEWLINE);
+
+  show_scan_oil_stats(vty, now);
+
   show_multicast_interfaces(vty);
   
   return CMD_SUCCESS;
@@ -2256,44 +2344,6 @@ DEFUN (show_ip_ssmpingd,
 {
   show_ssmpingd(vty);
   return CMD_SUCCESS;
-}
-
-static void mroute_add_all()
-{
-  struct listnode    *node;
-  struct channel_oil *c_oil;
-
-  for (ALL_LIST_ELEMENTS_RO(qpim_channel_oil_list, node, c_oil)) {
-    if (pim_mroute_add(&c_oil->oil)) {
-      /* just log warning */
-      char source_str[100];
-      char group_str[100]; 
-      pim_inet4_dump("<source?>", c_oil->oil.mfcc_origin, source_str, sizeof(source_str));
-      pim_inet4_dump("<group?>", c_oil->oil.mfcc_mcastgrp, group_str, sizeof(group_str));
-      zlog_warn("%s %s: (S,G)=(%s,%s) failure writing MFC",
-		__FILE__, __PRETTY_FUNCTION__,
-		source_str, group_str);
-    }
-  }
-}
-
-static void mroute_del_all()
-{
-  struct listnode    *node;
-  struct channel_oil *c_oil;
-
-  for (ALL_LIST_ELEMENTS_RO(qpim_channel_oil_list, node, c_oil)) {
-    if (pim_mroute_del(&c_oil->oil)) {
-      /* just log warning */
-      char source_str[100];
-      char group_str[100]; 
-      pim_inet4_dump("<source?>", c_oil->oil.mfcc_origin, source_str, sizeof(source_str));
-      pim_inet4_dump("<group?>", c_oil->oil.mfcc_mcastgrp, group_str, sizeof(group_str));
-      zlog_warn("%s %s: (S,G)=(%s,%s) failure clearing MFC",
-		__FILE__, __PRETTY_FUNCTION__,
-		source_str, group_str);
-    }
-  }
 }
 
 DEFUN (ip_multicast_routing,
@@ -4268,7 +4318,9 @@ void pim_cmd_init()
 
   install_element (ENABLE_NODE, &clear_ip_interfaces_cmd);
   install_element (ENABLE_NODE, &clear_ip_igmp_interfaces_cmd);
+  install_element (ENABLE_NODE, &clear_ip_mroute_cmd);
   install_element (ENABLE_NODE, &clear_ip_pim_interfaces_cmd);
+  install_element (ENABLE_NODE, &clear_ip_pim_oil_cmd);
 
   install_element (ENABLE_NODE, &show_ip_igmp_interface_cmd);
   install_element (ENABLE_NODE, &show_ip_igmp_join_cmd);

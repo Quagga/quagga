@@ -134,4 +134,28 @@ C16 AMT Draft (mboned-auto-multicast) is not supported.
 
 C17 SNMP / RFC 5060 (PIM MIB) is not supported.
 
+C18 MFC never recovers from removal of static route to source
+
+    # route add -host 1.2.3.4 gw 192.168.56.10
+    Before removal:
+    quagga-pimd-router# sh ip mroute
+    Source          Group           Proto Input iVifI Output oVifI TTL Uptime
+    1.2.3.4         232.1.2.3       I     eth1      3 eth0       2   1 00:00:36
+
+    # route del -host 1.2.3.4 gw 192.168.56.10
+    After removal: sh ip mroute --> empty output
+
+    # route add -host 1.2.3.4 gw 192.168.56.10
+    After the route is restored: sh ip mroute --> never recovers (empty output)
+
+    At this point, "no ip pim ssm" on the upstream interface (eth0) crashes pimd:
+
+    2014/02/14 16:30:14 PIM: ifmembership_set: (S,G)=(1.2.3.4,232.1.2.3) membership now is NOINFO on interface eth0
+    2014/02/14 16:30:14 PIM: pim_ifchannel_update_assert_tracking_desired: AssertTrackingDesired(1.2.3.4,232.1.2.3,eth0) changed from 1 to 0
+    2014/02/14 16:30:14 PIM: pim_zebra.c del_oif: nonexistent protocol mask 2 removed OIF eth0 (vif_index=2, min_ttl=0) from channel (S,G)=(1.2.3.4,232.1.2.3)
+    2014/02/14 16:30:14 PIM: pim_ifchannel_update_could_assert: CouldAssert(1.2.3.4,232.1.2.3,eth0) changed from 1 to 0
+    2014/02/14 16:30:14 PIM: pim_ifchannel_update_my_assert_metric: my_assert_metric(1.2.3.4,232.1.2.3,eth0) changed from 0,0,0,10.0.2.15 to 1,4294967295,4294967295,0.0.0.0
+    2014/02/14 16:30:14 PIM: pim_zebra.c del_oif: nonexistent protocol mask 1 removed OIF eth0 (vif_index=2, min_ttl=0) from channel (S,G)=(1.2.3.4,232.1.2.3)
+    2014/02/14 16:30:14 PIM: Assertion `!IGMP_SOURCE_TEST_FORWARDING(source->source_flags)' failed in file pim_igmpv3.c, line 412, function igmp_source_delete
+
 -x-

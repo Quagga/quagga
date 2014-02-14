@@ -47,7 +47,9 @@ verification commands:
 debug commands:
        clear ip interfaces		Reset interfaces
        clear ip igmp interfaces		Reset IGMP interfaces
+       clear ip mroute                  Reset multicast routes
        clear ip pim interfaces		Reset PIM interfaces
+       clear ip pim oil			Rescan PIM OIL (output interface list)
        debug igmp			IGMP protocol activity
        debug mroute			PIM interaction with kernel MFC cache
        debug pim			PIM protocol activity

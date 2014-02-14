@@ -61,6 +61,12 @@ int64_t                   qpim_rpf_cache_refresh_last =  0;
 struct in_addr            qpim_inaddr_any;
 struct list              *qpim_ssmpingd_list = 0;
 struct in_addr            qpim_ssmpingd_group_addr;
+int64_t                   qpim_scan_oil_events = 0;
+int64_t                   qpim_scan_oil_last = 0;
+int64_t                   qpim_mroute_add_events = 0;
+int64_t                   qpim_mroute_add_last = 0;
+int64_t                   qpim_mroute_del_events = 0;
+int64_t                   qpim_mroute_del_last = 0;
 
 static void pim_free()
 {

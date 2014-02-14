@@ -399,6 +399,9 @@ int pim_mroute_add(struct mfcctl *mc)
 {
   int err;
 
+  qpim_mroute_add_last = pim_time_monotonic_sec();
+  ++qpim_mroute_add_events;
+
   if (PIM_MROUTE_IS_DISABLED) {
     zlog_warn("%s: global multicast is disabled",
 	      __PRETTY_FUNCTION__);
@@ -423,6 +426,9 @@ int pim_mroute_add(struct mfcctl *mc)
 int pim_mroute_del(struct mfcctl *mc)
 {
   int err;
+
+  qpim_mroute_del_last = pim_time_monotonic_sec();
+  ++qpim_mroute_del_events;
 
   if (PIM_MROUTE_IS_DISABLED) {
     zlog_warn("%s: global multicast is disabled",
