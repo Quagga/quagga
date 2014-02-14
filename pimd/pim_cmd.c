@@ -728,7 +728,7 @@ static void pim_show_join(struct vty *vty)
       pim_inet4_dump("<ch_grp?>", ch->group_addr,
 		     ch_grp_str, sizeof(ch_grp_str));
 
-      pim_time_uptime(uptime, sizeof(uptime), now - ch->ifjoin_creation);
+      pim_time_uptime_begin(uptime, sizeof(uptime), now, ch->ifjoin_creation);
       pim_time_timer_to_mmss(expire, sizeof(expire),
 			     ch->t_ifjoin_expiry_timer);
       pim_time_timer_to_mmss(prune, sizeof(prune),
