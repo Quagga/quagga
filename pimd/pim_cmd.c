@@ -563,7 +563,7 @@ static void pim_show_dr(struct vty *vty)
 	  "NonPri: Number of neighbors missing DR Priority hello option%s%s",
 	  VTY_NEWLINE, VTY_NEWLINE);
   
-  vty_out(vty, "Interface Address         DR              Uptime   Elections NonPri%s", VTY_NEWLINE);
+  vty_out(vty, "Interface Address         DR              Uptime   Elections Changes NonPri%s", VTY_NEWLINE);
 
   for (ALL_LIST_ELEMENTS_RO(iflist, node, ifp)) {
     struct pim_interface *pim_ifp;
@@ -587,12 +587,13 @@ static void pim_show_dr(struct vty *vty)
     pim_inet4_dump("<dr?>", pim_ifp->pim_dr_addr,
 		   dr_str, sizeof(dr_str));
 
-    vty_out(vty, "%-9s %-15s %-15s %8s %9d %6d%s",
+    vty_out(vty, "%-9s %-15s %-15s %8s %9d %7d %6d%s",
 	    ifp->name,
 	    inet_ntoa(ifaddr),
 	    dr_str,
 	    dr_uptime,
 	    pim_ifp->pim_dr_election_count,
+	    pim_ifp->pim_dr_election_changes,
 	    pim_ifp->pim_dr_num_nondrpri_neighbors,
 	    VTY_NEWLINE);
   }

@@ -132,7 +132,8 @@ void pim_if_dr_election(struct interface *ifp)
     zlog_info("%s: DR was %s now is %s on interface %s",
 	      __PRETTY_FUNCTION__,
 	      dr_old_str, dr_new_str, ifp->name);
-    
+
+    ++pim_ifp->pim_dr_election_changes; 
     pim_if_update_join_desired(pim_ifp);
     pim_if_update_could_assert(ifp);
     pim_if_update_assert_tracking_desired(ifp);
@@ -191,7 +192,7 @@ static void update_dr_priority(struct pim_neighbor *neigh,
       PIM Hello message is received, when a neighbor times out, or when a
       router's own DR Priority changes.
     */
-    pim_if_dr_election(neigh->interface);
+    pim_if_dr_election(neigh->interface); // router's own DR Priority changes
   }
 }
 
@@ -226,7 +227,7 @@ static int on_neighbor_timer(struct thread *t)
     PIM Hello message is received, when a neighbor times out, or when a
     router's own DR Priority changes.
   */
-  pim_if_dr_election(ifp);
+  pim_if_dr_election(ifp); // neighbor times out
 
   return 0;
 }
@@ -347,7 +348,7 @@ static struct pim_neighbor *pim_neighbor_new(struct interface *ifp,
     PIM Hello message is received, when a neighbor times out, or when a
     router's own DR Priority changes.
   */
-  pim_if_dr_election(neigh->interface);
+  pim_if_dr_election(neigh->interface); // new neighbor -- should not trigger dr election...
 
   /*
     RFC 4601: 4.3.1.  Sending Hello Messages

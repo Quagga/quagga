@@ -87,6 +87,7 @@ struct pim_interface {
   /* DR Election */
   int64_t        pim_dr_election_last; /* timestamp */
   int            pim_dr_election_count;
+  int            pim_dr_election_changes;
   struct in_addr pim_dr_addr;
   uint32_t       pim_dr_priority;            /* config */
   int            pim_dr_num_nondrpri_neighbors; /* neighbors without dr_pri */
