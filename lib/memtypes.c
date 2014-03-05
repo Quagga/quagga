@@ -234,6 +234,7 @@ struct memory_list memory_list_ospf6[] =
   { MTYPE_OSPF6_NEXTHOP,      "OSPF6 nexthop"			},
   { MTYPE_OSPF6_EXTERNAL_INFO,"OSPF6 ext. info"			},
   { MTYPE_OSPF6_OTHER,        "OSPF6 other"			},
+  { MTYPE_OSPF6_DISTANCE,     "OSPF6 distance"			},
   { -1, NULL },
 };
 

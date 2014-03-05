@@ -150,6 +150,8 @@ ospf6_create (void)
 
   o->ref_bandwidth = OSPF6_REFERENCE_BANDWIDTH;
 
+  o->distance_table = route_table_init ();
+
   return o;
 }
 
@@ -175,6 +177,9 @@ ospf6_delete (struct ospf6 *o)
 
   ospf6_route_table_delete (o->external_table);
   route_table_finish (o->external_id_table);
+
+  ospf6_distance_reset (o);
+  route_table_finish (o->distance_table);
 
   XFREE (MTYPE_OSPF6_TOP, o);
 }
@@ -398,6 +403,435 @@ DEFUN (no_ospf6_log_adjacency_changes_detail,
   struct ospf6 *ospf6 = vty->index;
 
   UNSET_FLAG(ospf6->config_flags, OSPF6_LOG_ADJACENCY_DETAIL);
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance,
+       ospf6_distance_cmd,
+       "distance <1-255>",
+       NO_STR
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_all = atoi (argv[0]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ospf6_distance,
+       no_ospf6_distance_cmd,
+       "no distance <1-255>",
+       NO_STR
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_all = 0;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ospf6_distance_ospf6,
+       no_ospf6_distance_ospf6_cmd,
+       "no distance ospf6",
+       NO_STR
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "OSPF6 Distance\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_intra = 0;
+  o->distance_inter = 0;
+  o->distance_external = 0;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_intra,
+       ospf6_distance_ospf6_intra_cmd,
+       "distance ospf6 intra-area <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_intra = atoi (argv[0]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_intra_inter,
+       ospf6_distance_ospf6_intra_inter_cmd,
+       "distance ospf6 intra-area <1-255> inter-area <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_intra = atoi (argv[0]);
+  o->distance_inter = atoi (argv[1]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_intra_external,
+       ospf6_distance_ospf6_intra_external_cmd,
+       "distance ospf6 intra-area <1-255> external <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n"
+       "External routes\n"
+       "Distance for external routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_intra = atoi (argv[0]);
+  o->distance_external = atoi (argv[1]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_intra_inter_external,
+       ospf6_distance_ospf6_intra_inter_external_cmd,
+       "distance ospf6 intra-area <1-255> inter-area <1-255> external <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n"
+       "External routes\n"
+       "Distance for external routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_intra = atoi (argv[0]);
+  o->distance_inter = atoi (argv[1]);
+  o->distance_external = atoi (argv[2]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_intra_external_inter,
+       ospf6_distance_ospf6_intra_external_inter_cmd,
+       "distance ospf6 intra-area <1-255> external <1-255> inter-area <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n"
+       "External routes\n"
+       "Distance for external routes\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_intra = atoi (argv[0]);
+  o->distance_external = atoi (argv[1]);
+  o->distance_inter = atoi (argv[2]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_inter,
+       ospf6_distance_ospf6_inter_cmd,
+       "distance ospf6 inter-area <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_inter = atoi (argv[0]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_inter_intra,
+       ospf6_distance_ospf6_inter_intra_cmd,
+       "distance ospf6 inter-area <1-255> intra-area <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_inter = atoi (argv[0]);
+  o->distance_intra = atoi (argv[1]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_inter_external,
+       ospf6_distance_ospf6_inter_external_cmd,
+       "distance ospf6 inter-area <1-255> external <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n"
+       "External routes\n"
+       "Distance for external routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_inter = atoi (argv[0]);
+  o->distance_external = atoi (argv[1]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_inter_intra_external,
+       ospf6_distance_ospf6_inter_intra_external_cmd,
+       "distance ospf6 inter-area <1-255> intra-area <1-255> external <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n"
+       "External routes\n"
+       "Distance for external routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_inter = atoi (argv[0]);
+  o->distance_intra = atoi (argv[1]);
+  o->distance_external = atoi (argv[2]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_inter_external_intra,
+       ospf6_distance_ospf6_inter_external_intra_cmd,
+       "distance ospf6 inter-area <1-255> external <1-255> intra-area <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n"
+       "External routes\n"
+       "Distance for external routes\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_inter = atoi (argv[0]);
+  o->distance_external = atoi (argv[1]);
+  o->distance_intra = atoi (argv[2]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_external,
+       ospf6_distance_ospf6_external_cmd,
+       "distance ospf6 external <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "External routes\n"
+       "Distance for external routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_external = atoi (argv[0]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_external_intra,
+       ospf6_distance_ospf6_external_intra_cmd,
+       "distance ospf6 external <1-255> intra-area <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "External routes\n"
+       "Distance for external routes\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_external = atoi (argv[0]);
+  o->distance_intra = atoi (argv[1]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_external_inter,
+       ospf6_distance_ospf6_external_inter_cmd,
+       "distance ospf6 external <1-255> inter-area <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "External routes\n"
+       "Distance for external routes\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_external = atoi (argv[0]);
+  o->distance_inter = atoi (argv[1]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_external_intra_inter,
+       ospf6_distance_ospf6_external_intra_inter_cmd,
+       "distance ospf6 external <1-255> intra-area <1-255> inter-area <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "External routes\n"
+       "Distance for external routes\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_external = atoi (argv[0]);
+  o->distance_intra = atoi (argv[1]);
+  o->distance_inter = atoi (argv[2]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_ospf6_external_inter_intra,
+       ospf6_distance_ospf6_external_inter_intra_cmd,
+       "distance ospf6 external <1-255> inter-area <1-255> intra-area <1-255>",
+       "Define an administrative distance\n"
+       "OSPF6 Administrative distance\n"
+       "External routes\n"
+       "Distance for external routes\n"
+       "Inter-area routes\n"
+       "Distance for inter-area routes\n"
+       "Intra-area routes\n"
+       "Distance for intra-area routes\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  o->distance_external = atoi (argv[0]);
+  o->distance_inter = atoi (argv[1]);
+  o->distance_intra = atoi (argv[2]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_source,
+       ospf6_distance_source_cmd,
+       "distance <1-255> X:X::X:X/M",
+       "Administrative distance\n"
+       "Distance value\n"
+       "IP source prefix\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  ospf6_distance_set (vty, o, argv[0], argv[1], NULL);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ospf6_distance_source,
+       no_ospf6_distance_source_cmd,
+       "no distance <1-255> X:X::X:X/M",
+       NO_STR
+       "Administrative distance\n"
+       "Distance value\n"
+       "IP source prefix\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+  
+  /* XXX: distance arg seems to be irrelevant */
+  ospf6_distance_unset (vty, o, argv[1], NULL);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf6_distance_source_access_list,
+       ospf6_distance_source_access_list_cmd,
+       "distance <1-255> X:X::X:X/M WORD",
+       "Administrative distance\n"
+       "Distance value\n"
+       "IP source prefix\n"
+       "Access list name\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  ospf6_distance_set (vty, o, argv[0], argv[1], argv[2]);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ospf6_distance_source_access_list,
+       no_ospf6_distance_source_access_list_cmd,
+       "no distance <1-255> X:X::X:X/M WORD",
+       NO_STR
+       "Administrative distance\n"
+       "Distance value\n"
+       "IP source prefix\n"
+       "Access list name\n")
+{
+  struct ospf6 *o;
+
+  o = (struct ospf6 *) vty->index;
+
+  ospf6_distance_unset (vty, o, argv[1], argv[2]);
+
   return CMD_SUCCESS;
 }
 
@@ -864,6 +1298,43 @@ ospf6_stub_router_config_write (struct vty *vty)
     return;
 }
 
+static int
+ospf6_distance_config_write (struct vty *vty)
+{
+  struct route_node *rn;
+  struct ospf6_distance *odistance;
+
+  if (ospf6->distance_all)
+    vty_out (vty, " distance %d%s", ospf6->distance_all, VTY_NEWLINE);
+
+  if (ospf6->distance_intra
+      || ospf6->distance_inter
+      || ospf6->distance_external)
+    {
+      vty_out (vty, " distance ospf6");
+
+      if (ospf6->distance_intra)
+        vty_out (vty, " intra-area %d", ospf6->distance_intra);
+      if (ospf6->distance_inter)
+        vty_out (vty, " inter-area %d", ospf6->distance_inter);
+      if (ospf6->distance_external)
+        vty_out (vty, " external %d", ospf6->distance_external);
+
+      vty_out (vty, "%s", VTY_NEWLINE);
+    }
+
+  for (rn = route_top (ospf6->distance_table); rn; rn = route_next (rn))
+    if ((odistance = rn->info) != NULL)
+      {
+        char pstr[128];
+        vty_out (vty, " distance %d %s %s%s", odistance->distance,
+                 prefix2str (&rn->p, pstr, sizeof(pstr)),
+                 odistance->access_list ? odistance->access_list : "",
+                 VTY_NEWLINE);
+      }
+  return 0;
+}
+
 /* OSPF configuration write function. */
 static int
 config_write_ospf6 (struct vty *vty)
@@ -899,6 +1370,7 @@ config_write_ospf6 (struct vty *vty)
   ospf6_redistribute_config_write (vty);
   ospf6_area_config_write (vty);
   ospf6_spf_config_write (vty);
+  ospf6_distance_config_write (vty);
 
   for (ALL_LIST_ELEMENTS_RO (ospf6->area_list, j, oa))
     {
@@ -963,6 +1435,30 @@ ospf6_top_init (void)
   install_element (OSPF6_NODE, &ospf6_stub_router_shutdown_cmd);
   install_element (OSPF6_NODE, &no_ospf6_stub_router_shutdown_cmd);
   */
+
+  install_element (OSPF6_NODE, &ospf6_distance_cmd);
+  install_element (OSPF6_NODE, &no_ospf6_distance_cmd);
+  install_element (OSPF6_NODE, &no_ospf6_distance_ospf6_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_intra_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_intra_inter_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_intra_external_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_intra_inter_external_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_intra_external_inter_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_inter_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_inter_intra_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_inter_external_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_inter_intra_external_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_inter_external_intra_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_external_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_external_intra_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_external_inter_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_external_intra_inter_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_ospf6_external_inter_intra_cmd);
+
+  install_element (OSPF6_NODE, &ospf6_distance_source_cmd);
+  install_element (OSPF6_NODE, &no_ospf6_distance_source_cmd);
+  install_element (OSPF6_NODE, &ospf6_distance_source_access_list_cmd);
+  install_element (OSPF6_NODE, &no_ospf6_distance_source_access_list_cmd);
 }
 
 
