@@ -227,7 +227,7 @@ extern int bgp_withdraw (struct peer *, struct prefix *, struct attr *,
 /* for bgp_nexthop and bgp_damp */
 extern void bgp_process (struct bgp *, struct bgp_node *, afi_t, safi_t);
 extern int bgp_config_write_network (struct vty *, struct bgp *, afi_t, safi_t, int *);
-extern int bgp_config_write_distance (struct vty *, struct bgp *);
+extern int bgp_config_write_distance (struct vty *, struct bgp *, afi_t, safi_t, int *);
 
 extern void bgp_aggregate_increment (struct bgp *, struct prefix *, struct bgp_info *,
 			      afi_t, safi_t);
@@ -235,6 +235,7 @@ extern void bgp_aggregate_decrement (struct bgp *, struct prefix *, struct bgp_i
 			      afi_t, safi_t);
 
 extern u_char bgp_distance_apply (struct prefix *, struct bgp_info *, struct bgp *);
+extern u_char ipv6_bgp_distance_apply (struct prefix *, struct bgp_info *, struct bgp *);
 
 extern afi_t bgp_node_afi (struct vty *);
 extern safi_t bgp_node_safi (struct vty *);

@@ -14844,12 +14844,12 @@ bgp_distance_set (struct vty *vty, const char *distance_str,
                   const char *ip_str, const char *access_list_str)
 {
   int ret;
-  struct prefix_ipv4 p;
+  struct prefix p;
   u_char distance;
   struct bgp_node *rn;
   struct bgp_distance *bdistance;
 
-  ret = str2prefix_ipv4 (ip_str, &p);
+  ret = str2prefix (ip_str, &p);
   if (ret == 0)
     {
       vty_out (vty, "Malformed prefix%s", VTY_NEWLINE);
@@ -14891,12 +14891,12 @@ bgp_distance_unset (struct vty *vty, const char *distance_str,
                     const char *ip_str, const char *access_list_str)
 {
   int ret;
-  struct prefix_ipv4 p;
+  struct prefix p;
   u_char distance;
   struct bgp_node *rn;
   struct bgp_distance *bdistance;
 
-  ret = str2prefix_ipv4 (ip_str, &p);
+  ret = str2prefix (ip_str, &p);
   if (ret == 0)
     {
       vty_out (vty, "Malformed prefix%s", VTY_NEWLINE);
@@ -15005,6 +15005,81 @@ bgp_distance_apply (struct prefix *p, struct bgp_info *rinfo, struct bgp *bgp)
     }
 }
 
+#ifdef HAVE_IPV6
+/* Apply BGP information to ipv6 distance method. */
+u_char
+ipv6_bgp_distance_apply (struct prefix *p, struct bgp_info *rinfo, struct bgp *bgp)
+{
+  struct bgp_node *rn;
+  struct prefix_ipv6 q;
+  struct peer *peer;
+  struct bgp_distance *bdistance;
+  struct access_list *alist;
+  struct bgp_static *bgp_static;
+
+  if (! bgp)
+    return 0;
+
+  if (p->family != AF_INET6)
+    return 0;
+
+  peer = rinfo->peer;
+
+  if (peer->su.sa.sa_family != AF_INET6)
+    return 0;
+
+  memset (&q, 0, sizeof (struct prefix_ipv6));
+  q.family = AF_INET;
+  q.prefix = peer->su.sin6.sin6_addr;
+  q.prefixlen = IPV6_MAX_BITLEN;
+
+  /* Check source address. */
+  rn = bgp_node_match (bgp_distance_table, (struct prefix *) &q);
+  if (rn)
+    {
+      bdistance = rn->info;
+      bgp_unlock_node (rn);
+
+      if (bdistance->access_list)
+        {
+          alist = access_list_lookup (AFI_IP6, bdistance->access_list);
+          if (alist && access_list_apply (alist, p) == FILTER_PERMIT)
+            return bdistance->distance;
+        }
+      else
+        return bdistance->distance;
+    }
+  /* Backdoor check. */
+  rn = bgp_node_lookup (bgp->route[AFI_IP6][SAFI_UNICAST], p);
+  if (rn)
+    {
+      bgp_static = rn->info;
+      bgp_unlock_node (rn);
+
+      if (bgp_static->backdoor)
+        {
+          if (bgp->ipv6_distance_local)
+            return bgp->ipv6_distance_local;
+          else
+            return ZEBRA_IBGP_DISTANCE_DEFAULT;
+        }
+    }
+
+  if (peer_sort (peer) == BGP_PEER_EBGP)
+    {
+      if (bgp->ipv6_distance_ebgp)
+        return bgp->ipv6_distance_ebgp;
+      return ZEBRA_EBGP_DISTANCE_DEFAULT;
+    }
+  else
+    {
+      if (bgp->ipv6_distance_ibgp)
+        return bgp->ipv6_distance_ibgp;
+      return ZEBRA_IBGP_DISTANCE_DEFAULT;
+    }
+}
+#endif /* HAVE_IPV6 */
+
 DEFUN (bgp_distance,
        bgp_distance_cmd,
        "distance bgp <1-255> <1-255> <1-255>",
@@ -15098,6 +15173,102 @@ DEFUN (no_bgp_distance_source_access_list,
   bgp_distance_unset (vty, argv[0], argv[1], argv[2]);
   return CMD_SUCCESS;
 }
+
+#ifdef HAVE_IPV6
+DEFUN (ipv6_bgp_distance,
+       ipv6_bgp_distance_cmd,
+       "distance bgp <1-255> <1-255> <1-255>",
+       "Define an administrative distance\n"
+       "BGP distance\n"
+       "Distance for routes external to the AS\n"
+       "Distance for routes internal to the AS\n"
+       "Distance for local routes\n")
+{
+  struct bgp *bgp;
+
+  bgp = vty->index;
+
+  bgp->ipv6_distance_ebgp = atoi (argv[0]);
+  bgp->ipv6_distance_ibgp = atoi (argv[1]);
+  bgp->ipv6_distance_local = atoi (argv[2]);
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ipv6_bgp_distance,
+       no_ipv6_bgp_distance_cmd,
+       "no distance bgp <1-255> <1-255> <1-255>",
+       NO_STR
+       "Define an administrative distance\n"
+       "BGP distance\n"
+       "Distance for routes external to the AS\n"
+       "Distance for routes internal to the AS\n"
+       "Distance for local routes\n")
+{
+  struct bgp *bgp;
+
+  bgp = vty->index;
+
+  bgp->ipv6_distance_ebgp= 0;
+  bgp->ipv6_distance_ibgp = 0;
+  bgp->ipv6_distance_local = 0;
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_ipv6_bgp_distance,
+       no_ipv6_bgp_distance2_cmd,
+       "no distance bgp",
+       NO_STR
+       "Define an administrative distance\n"
+       "BGP distance\n")
+
+DEFUN (ipv6_bgp_distance_source,
+       ipv6_bgp_distance_source_cmd,
+       "distance <1-255> X:X::X:X/M",
+       "Define an administrative distance\n"
+       "Administrative distance\n"
+       "IP source prefix\n")
+{
+  bgp_distance_set (vty, argv[0], argv[1], NULL);
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ipv6_bgp_distance_source,
+       no_ipv6_bgp_distance_source_cmd,
+       "no distance <1-255> X:X::X:X/M",
+       NO_STR
+       "Define an administrative distance\n"
+       "Administrative distance\n"
+       "IP source prefix\n")
+{
+  bgp_distance_unset (vty, argv[0], argv[1], NULL);
+  return CMD_SUCCESS;
+}
+
+DEFUN (ipv6_bgp_distance_source_access_list,
+       ipv6_bgp_distance_source_access_list_cmd,
+       "distance <1-255> X:X::X:X/M WORD",
+       "Define an administrative distance\n"
+       "Administrative distance\n"
+       "IP source prefix\n"
+       "Access list name\n")
+{
+  bgp_distance_set (vty, argv[0], argv[1], argv[2]);
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ipv6_bgp_distance_source_access_list,
+       no_ipv6_bgp_distance_source_access_list_cmd,
+       "no distance <1-255> X:X::X:X/M WORD",
+       NO_STR
+       "Define an administrative distance\n"
+       "Administrative distance\n"
+       "IP source prefix\n"
+       "Access list name\n")
+{
+  bgp_distance_unset (vty, argv[0], argv[1], argv[2]);
+  return CMD_SUCCESS;
+}
+#endif
 
 DEFUN (bgp_damp_set,
        bgp_damp_set_cmd,
@@ -15661,30 +15832,59 @@ bgp_config_write_network (struct vty *vty, struct bgp *bgp,
 }
 
 int
-bgp_config_write_distance (struct vty *vty, struct bgp *bgp)
+bgp_config_write_distance (struct vty *vty, struct bgp *bgp,
+                           afi_t afi, safi_t safi, int *write)
 {
   struct bgp_node *rn;
   struct bgp_distance *bdistance;
 
-  /* Distance configuration. */
-  if (bgp->distance_ebgp
-      && bgp->distance_ibgp
-      && bgp->distance_local
-      && (bgp->distance_ebgp != ZEBRA_EBGP_DISTANCE_DEFAULT
-	  || bgp->distance_ibgp != ZEBRA_IBGP_DISTANCE_DEFAULT
-	  || bgp->distance_local != ZEBRA_IBGP_DISTANCE_DEFAULT))
-    vty_out (vty, " distance bgp %d %d %d%s",
-	     bgp->distance_ebgp, bgp->distance_ibgp, bgp->distance_local,
-	     VTY_NEWLINE);
-  
-  for (rn = bgp_table_top (bgp_distance_table); rn; rn = bgp_route_next (rn))
-    if ((bdistance = rn->info) != NULL)
-      {
-	vty_out (vty, " distance %d %s/%d %s%s", bdistance->distance,
-		 inet_ntoa (rn->p.u.prefix4), rn->p.prefixlen,
-		 bdistance->access_list ? bdistance->access_list : "",
-		 VTY_NEWLINE);
-      }
+  if (afi == AFI_IP && safi == SAFI_UNICAST)
+    {
+      /* Distance configuration. */
+      if (bgp->distance_ebgp
+          && bgp->distance_ibgp
+          && bgp->distance_local
+          && (bgp->distance_ebgp != ZEBRA_EBGP_DISTANCE_DEFAULT
+              || bgp->distance_ibgp != ZEBRA_IBGP_DISTANCE_DEFAULT
+              || bgp->distance_local != ZEBRA_IBGP_DISTANCE_DEFAULT))
+        vty_out (vty, " distance bgp %d %d %d%s",
+                 bgp->distance_ebgp, bgp->distance_ibgp, bgp->distance_local,
+                 VTY_NEWLINE);
+
+      for (rn = bgp_table_top (bgp_distance_table); rn; rn = bgp_route_next (rn))
+        if ((bdistance = rn->info) != NULL)
+          {
+            vty_out (vty, " distance %d %s/%d %s%s", bdistance->distance,
+                     inet_ntoa (rn->p.u.prefix4), rn->p.prefixlen,
+                     bdistance->access_list ? bdistance->access_list : "",
+                     VTY_NEWLINE);
+          }
+    }
+
+#ifdef HAVE_IPV6
+  else if (afi == AFI_IP6 && safi == SAFI_UNICAST)
+    {
+      bgp_config_write_family_header (vty, afi, safi, write);
+      if (bgp->ipv6_distance_ebgp
+          && bgp->ipv6_distance_ibgp
+          && bgp->ipv6_distance_local
+          && (bgp->ipv6_distance_ebgp != ZEBRA_EBGP_DISTANCE_DEFAULT
+              || bgp->ipv6_distance_ibgp != ZEBRA_IBGP_DISTANCE_DEFAULT
+              || bgp->ipv6_distance_local != ZEBRA_IBGP_DISTANCE_DEFAULT))
+        vty_out (vty, " distance bgp %d %d %d%s",
+                 bgp->ipv6_distance_ebgp, bgp->ipv6_distance_ibgp, bgp->ipv6_distance_local,
+                 VTY_NEWLINE);
+
+        for (rn = bgp_table_top (bgp_distance_table); rn; rn = bgp_route_next (rn))
+          if ((bdistance = rn->info) != NULL)
+            {
+              vty_out (vty, " distance %d %s/%d %s%s", bdistance->distance,
+                       inet6_ntoa (rn->p.u.prefix6), rn->p.prefixlen,
+                       bdistance->access_list ? bdistance->access_list : "",
+                       VTY_NEWLINE);
+            }
+    }
+#endif /* HAVE_IPV6 */
 
   return 0;
 }
@@ -16253,6 +16453,15 @@ bgp_route_init (void)
   install_element (BGP_NODE, &no_bgp_distance_source_cmd);
   install_element (BGP_NODE, &bgp_distance_source_access_list_cmd);
   install_element (BGP_NODE, &no_bgp_distance_source_access_list_cmd);
+#ifdef HAVE_IPV6
+  install_element (BGP_IPV6_NODE, &ipv6_bgp_distance_cmd);
+  install_element (BGP_IPV6_NODE, &no_ipv6_bgp_distance_cmd);
+  install_element (BGP_IPV6_NODE, &no_ipv6_bgp_distance2_cmd);
+  install_element (BGP_IPV6_NODE, &ipv6_bgp_distance_source_cmd);
+  install_element (BGP_IPV6_NODE, &no_ipv6_bgp_distance_source_cmd);
+  install_element (BGP_IPV6_NODE, &ipv6_bgp_distance_source_access_list_cmd);
+  install_element (BGP_IPV6_NODE, &no_ipv6_bgp_distance_source_access_list_cmd);
+#endif /* HAVE_IPV6 */
 
   install_element (BGP_NODE, &bgp_damp_set_cmd);
   install_element (BGP_NODE, &bgp_damp_set2_cmd);
