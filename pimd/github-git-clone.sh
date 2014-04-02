@@ -12,10 +12,10 @@
 # Send changes:                  git push --all
 #
 # Recipe to re-sync with Quagga repository:
-#  git clone https://github.com/udhos/qpimd
-#  cd qpimd
+#  git clone https://github.com/udhos/qpimd quagga
+#  cd quagga
 #  git checkout master
-#  git pull git clone http://git.sv.gnu.org/r/quagga.git master
+#  git pull http://git.sv.gnu.org/r/quagga.git master
 #  git checkout -b pim origin/pim
 #  git rebase master pim
 #  # Test, then push back into Github repository:
