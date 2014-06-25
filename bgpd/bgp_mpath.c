@@ -695,7 +695,7 @@ bgp_info_mpath_aggregate_update (struct bgp_info *new_best,
   for (mpinfo = bgp_info_mpath_first (new_best); mpinfo;
        mpinfo = bgp_info_mpath_next (mpinfo))
     {
-      asmerge = aspath_aggregate (aspath, mpinfo->attr->aspath);
+      asmerge = aspath_aggregate_mpath (aspath, mpinfo->attr->aspath);
       aspath_free (aspath);
       aspath = asmerge;
 

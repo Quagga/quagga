@@ -69,6 +69,7 @@ extern void aspath_finish (void);
 extern struct aspath *aspath_parse (struct stream *, size_t, int);
 extern struct aspath *aspath_dup (struct aspath *);
 extern struct aspath *aspath_aggregate (struct aspath *, struct aspath *);
+extern struct aspath *aspath_aggregate_mpath (struct aspath *, struct aspath *);
 extern struct aspath *aspath_prepend (struct aspath *, struct aspath *);
 extern struct aspath *aspath_filter_exclude (struct aspath *, struct aspath *);
 extern struct aspath *aspath_add_seq_n (struct aspath *, as_t, unsigned);
