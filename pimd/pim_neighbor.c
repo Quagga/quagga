@@ -111,7 +111,6 @@ void pim_if_dr_election(struct interface *ifp)
   struct pim_interface *pim_ifp = ifp->info;
   struct in_addr old_dr_addr;
 
-  pim_ifp->pim_dr_election_last = pim_time_monotonic_sec(); /* timestamp */
   ++pim_ifp->pim_dr_election_count;
 
   old_dr_addr = pim_ifp->pim_dr_addr;
@@ -133,6 +132,7 @@ void pim_if_dr_election(struct interface *ifp)
 	      __PRETTY_FUNCTION__,
 	      dr_old_str, dr_new_str, ifp->name);
 
+    pim_ifp->pim_dr_election_last = pim_time_monotonic_sec(); /* timestamp */
     ++pim_ifp->pim_dr_election_changes; 
     pim_if_update_join_desired(pim_ifp);
     pim_if_update_could_assert(ifp);
