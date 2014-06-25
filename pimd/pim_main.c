@@ -201,7 +201,6 @@ int main(int argc, char** argv, char** envp) {
   memory_init();
   access_list_init();
   pim_init();
-  sort_node();
 
   /*
    * reset zlog default, then will obey configuration file

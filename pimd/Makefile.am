@@ -45,7 +45,11 @@ PIM_DEFS += -DPIM_GETTIME_USE_GETTIMEOFDAY
 INCLUDES = @INCLUDES@ -I.. -I$(top_srcdir) -I$(top_srcdir)/lib
 DEFS = @DEFS@ -DSYSCONFDIR=\"$(sysconfdir)/\" $(PIM_DEFS)
 INSTALL_SDATA=@INSTALL@ -m 600
-LIBS = @LIBS@ 
+LIBS = @LIBS@
+
+AM_CFLAGS = $(PICFLAGS)
+AM_LDFLAGS = $(PILDFLAGS)
+
 noinst_LIBRARIES = libpim.a
 sbin_PROGRAMS = pimd 
 bin_PROGRAMS = test_igmpv3_join

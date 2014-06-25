@@ -24,6 +24,7 @@
 
 #include <zebra.h>
 #include "sigevent.h"
+#include "memory.h"
 #include "log.h"
 
 #include "pim_signals.h"
@@ -58,7 +59,7 @@ static void pim_sigusr1()
   zlog_rotate (NULL);
 }
 
-struct quagga_signal_t pimd_signals[] =
+static struct quagga_signal_t pimd_signals[] =
 {
   {
    .signal = SIGHUP,
@@ -80,6 +81,6 @@ struct quagga_signal_t pimd_signals[] =
 
 void pim_signals_init()
 {
-  signal_init(master, Q_SIGC(pimd_signals), pimd_signals);
+  signal_init(master, array_size(pimd_signals), pimd_signals);
 }
 

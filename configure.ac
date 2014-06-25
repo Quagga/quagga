@@ -1369,6 +1369,7 @@ case "${enable_pimd}" in
   "no" ) PIMD="";;
   *    ) ;;
 esac
+AM_CONDITIONAL(PIMD, test "x$PIMD" = "xpimd")
 
 # XXX Perhaps auto-enable on Solaris, but that's messy for cross builds.
 case "${enable_solaris}" in
