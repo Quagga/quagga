@@ -2687,27 +2687,6 @@ static_delete_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
 }
 
 #ifdef HAVE_IPV6
-static int
-rib_bogus_ipv6 (int type, struct prefix_ipv6 *p,
-		struct in6_addr *gate, unsigned int ifindex, int table)
-{
-  if (type == ZEBRA_ROUTE_CONNECT && IN6_IS_ADDR_UNSPECIFIED (&p->prefix)) {
-#ifdef LINUX
-    /* IN6_IS_ADDR_V4COMPAT(&p->prefix) */
-    if (p->prefixlen == 96)
-      return 0;
-#endif /* LINUX */
-    return 1;
-  }
-  if (type == ZEBRA_ROUTE_KERNEL && IN6_IS_ADDR_UNSPECIFIED (&p->prefix)
-      && p->prefixlen == 96 && gate && IN6_IS_ADDR_UNSPECIFIED (gate))
-    {
-      kernel_delete_ipv6_old (p, gate, ifindex, 0, table);
-      return 1;
-    }
-  return 0;
-}
-
 int
 rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 	      struct in6_addr *gate, unsigned int ifindex, u_int32_t vrf_id,
@@ -2733,10 +2712,6 @@ rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   
   if (type == ZEBRA_ROUTE_BGP && CHECK_FLAG (flags, ZEBRA_FLAG_IBGP))
     distance = 200;
-
-  /* Filter bogus route. */
-  if (rib_bogus_ipv6 (type, p, gate, ifindex, 0))
-    return 0;
 
   /* Lookup route node.*/
   rn = route_node_get (table, (struct prefix *) p);
