@@ -582,8 +582,8 @@ static void pim_show_dr(struct vty *vty)
 
     ifaddr = pim_ifp->primary_address;
 
-    pim_time_uptime(dr_uptime, sizeof(dr_uptime),
-		    now - pim_ifp->pim_dr_election_last);
+    pim_time_uptime_begin(dr_uptime, sizeof(dr_uptime),
+			  now, pim_ifp->pim_dr_election_last);
 
     pim_inet4_dump("<dr?>", pim_ifp->pim_dr_addr,
 		   dr_str, sizeof(dr_str));
