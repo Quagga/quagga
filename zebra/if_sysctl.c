@@ -30,9 +30,11 @@
 #include "ioctl.h"
 #include "log.h"
 #include "interface.h"
+#include "vrf.h"
 
 #include "zebra/rt.h"
 #include "zebra/kernel_socket.h"
+#include "zebra/rib.h"
 
 void
 ifstat_update_sysctl (void)
@@ -90,7 +92,7 @@ ifstat_update_sysctl (void)
 
 /* Interface listing up function using sysctl(). */
 void
-interface_list ()
+interface_list (struct zebra_vrf *zvrf)
 {
   caddr_t ref, buf, end;
   size_t bufsiz;
@@ -106,6 +108,12 @@ interface_list ()
     NET_RT_IFLIST,
     0 
   };
+
+  if (zvrf->vrf_id != VRF_DEFAULT)
+    {
+      zlog_warn ("interface_list: ignore VRF %u", zvrf->vrf_id);
+      return;
+    }
 
   /* Query buffer size. */
   if (sysctl (mib, MIBSIZ, NULL, &bufsiz, NULL, 0) < 0) 
