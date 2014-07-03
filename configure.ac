@@ -801,6 +801,14 @@ AC_CHECK_FUNCS(setproctitle, ,
   ]
 )
 
+AC_CHECK_HEADER([asm-generic/unistd.h],
+                [AC_CHECK_DECL(__NR_setns,
+                               AC_DEFINE(HAVE_NETNS,, Have netns),,
+                               QUAGGA_INCLUDES [#include <asm-generic/unistd.h>
+                               ])
+                 AC_CHECK_FUNCS(setns, AC_DEFINE(HAVE_SETNS,, Have setns))]
+               )
+
 dnl ------------------------------------
 dnl Determine routing get and set method
 dnl ------------------------------------
