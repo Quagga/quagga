@@ -1561,7 +1561,7 @@ _netlink_route_build_multipath(
     {
       rta_addattr_l (rta, NL_PKT_BUF_SIZE, RTA_GATEWAY,
                      &nexthop->gate.ipv4, bytelen);
-      rtnh->rtnh_len += sizeof (struct rtattr) + 4;
+      rtnh->rtnh_len += sizeof (struct rtattr) + bytelen;
 
       if (nexthop->src.ipv4.s_addr)
         *src = &nexthop->src;
@@ -1580,6 +1580,7 @@ _netlink_route_build_multipath(
     {
       rta_addattr_l (rta, NL_PKT_BUF_SIZE, RTA_GATEWAY,
                      &nexthop->gate.ipv6, bytelen);
+      rtnh->rtnh_len += sizeof (struct rtattr) + bytelen;
 
       if (IS_ZEBRA_DEBUG_KERNEL)
         zlog_debug("netlink_route_multipath() (%s): "
