@@ -1006,7 +1006,6 @@ static void pim_show_join_desired(struct vty *vty)
   struct interface     *ifp;
   struct pim_interface *pim_ifp;
   struct pim_ifchannel *ch;
-  struct in_addr        me_ifaddr;
   char src_str[100];
   char grp_str[100];
 
@@ -1019,8 +1018,6 @@ static void pim_show_join_desired(struct vty *vty)
     pim_ifp = ifp->info;
     if (!pim_ifp)
       continue;
-
-    me_ifaddr = pim_ifp->primary_address;
 
     /* scan per-interface (S,G) state */
     for (ALL_LIST_ELEMENTS_RO(pim_ifp->pim_ifchannel_list, chnode, ch)) {
@@ -1249,9 +1246,6 @@ static void igmp_show_group_retransmission(struct vty *vty)
 {
   struct listnode  *ifnode;
   struct interface *ifp;
-  time_t            now;
-
-  now = pim_time_monotonic_sec();
 
   vty_out(vty, "Interface Address         Group           RetTimer Counter RetSrcs%s", VTY_NEWLINE);
 
@@ -1446,9 +1440,6 @@ static void igmp_show_source_retransmission(struct vty *vty)
 {
   struct listnode  *ifnode;
   struct interface *ifp;
-  time_t            now;
-
-  now = pim_time_monotonic_sec();
 
   vty_out(vty, "Interface Address         Group           Source          Counter%s", VTY_NEWLINE);
 
