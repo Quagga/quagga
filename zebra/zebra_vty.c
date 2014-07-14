@@ -30,11 +30,14 @@
 
 #include "zebra/zserv.h"
 
-/* General fucntion for static route. */
+static int do_show_ip_route(struct vty *vty, safi_t safi);
+
+/* General function for static route. */
 static int
-zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
-		   const char *mask_str, const char *gate_str,
-		   const char *flag_str, const char *distance_str)
+zebra_static_ipv4_safi (struct vty *vty, safi_t safi, int add_cmd,
+			const char *dest_str, const char *mask_str,
+			const char *gate_str, const char *flag_str,
+			const char *distance_str)
 {
   int ret;
   u_char distance;
@@ -81,9 +84,9 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
           return CMD_WARNING;
         }
       if (add_cmd)
-        static_add_ipv4 (&p, NULL, NULL, ZEBRA_FLAG_BLACKHOLE, distance, 0);
+        static_add_ipv4_safi (safi, &p, NULL, NULL, ZEBRA_FLAG_BLACKHOLE, distance, 0);
       else
-        static_delete_ipv4 (&p, NULL, NULL, distance, 0);
+        static_delete_ipv4_safi (safi, &p, NULL, NULL, distance, 0);
       return CMD_SUCCESS;
     }
 
@@ -107,9 +110,9 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
   if (gate_str == NULL)
   {
     if (add_cmd)
-      static_add_ipv4 (&p, NULL, NULL, flag, distance, 0);
+      static_add_ipv4_safi (safi, &p, NULL, NULL, flag, distance, 0);
     else
-      static_delete_ipv4 (&p, NULL, NULL, distance, 0);
+      static_delete_ipv4_safi (safi, &p, NULL, NULL, distance, 0);
 
     return CMD_SUCCESS;
   }
@@ -123,11 +126,56 @@ zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
     ifname = gate_str;
 
   if (add_cmd)
-    static_add_ipv4 (&p, ifname ? NULL : &gate, ifname, flag, distance, 0);
+    static_add_ipv4_safi (safi, &p, ifname ? NULL : &gate, ifname, flag, distance, 0);
   else
-    static_delete_ipv4 (&p, ifname ? NULL : &gate, ifname, distance, 0);
+    static_delete_ipv4_safi (safi, &p, ifname ? NULL : &gate, ifname, distance, 0);
 
   return CMD_SUCCESS;
+}
+
+static int
+zebra_static_ipv4 (struct vty *vty, int add_cmd, const char *dest_str,
+		   const char *mask_str, const char *gate_str,
+		   const char *flag_str, const char *distance_str)
+{
+  return zebra_static_ipv4_safi(vty, SAFI_UNICAST, add_cmd, dest_str, mask_str, gate_str, flag_str, distance_str);
+}
+
+/* Static unicast routes for multicast RPF lookup. */
+DEFUN (ip_mroute,
+       ip_mroute_cmd,
+       "ip mroute A.B.C.D/M (A.B.C.D|INTERFACE) [<1-255>]",
+       IP_STR
+       "Configure static unicast route into MRIB for multicast RPF lookup\n"
+       "IP destination prefix (e.g. 10.0.0.0/8)\n"
+       "Nexthop address\n"
+       "Nexthop interface name\n"
+       "Distance\n")
+{
+  return zebra_static_ipv4_safi(vty, SAFI_MULTICAST, 1, argv[0], NULL, argv[1], NULL, argv[2]);
+}
+
+DEFUN (no_ip_mroute,
+       no_ip_mroute_cmd,
+       "no ip mroute A.B.C.D/M (A.B.C.D|INTERFACE) [<1-255>]",
+       IP_STR
+       "Configure static unicast route into MRIB for multicast RPF lookup\n"
+       "IP destination prefix (e.g. 10.0.0.0/8)\n"
+       "Nexthop address\n"
+       "Nexthop interface name\n"
+       "Distance\n")
+{
+  return zebra_static_ipv4_safi(vty, SAFI_MULTICAST, 0, argv[0], NULL, argv[1], NULL, argv[2]);
+}
+
+DEFUN (show_ip_rpf,
+       show_ip_rpf_cmd,
+       "show ip rpf",
+       SHOW_STR
+       IP_STR
+       "Display RPF information for multicast source\n")
+{
+  return do_show_ip_route(vty, SAFI_MULTICAST);
 }
 
 /* Static route configuration.  */
@@ -788,12 +836,16 @@ DEFUN (show_ip_route,
        IP_STR
        "IP routing table\n")
 {
+  return do_show_ip_route(vty, SAFI_UNICAST);
+}
+
+static int do_show_ip_route(struct vty *vty, safi_t safi) {
   struct route_table *table;
   struct route_node *rn;
   struct rib *rib;
   int first = 1;
 
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, safi, 0);
   if (! table)
     return CMD_SUCCESS;
 
@@ -1195,7 +1247,7 @@ DEFUN (show_ip_route_summary_prefix,
 
 /* Write IPv4 static route configuration. */
 static int
-static_config_ipv4 (struct vty *vty)
+static_config_ipv4 (struct vty *vty, safi_t safi, const char *cmd)
 {
   struct route_node *rn;
   struct static_ipv4 *si;  
@@ -1205,14 +1257,14 @@ static_config_ipv4 (struct vty *vty)
   write = 0;
 
   /* Lookup table.  */
-  stable = vrf_static_table (AFI_IP, SAFI_UNICAST, 0);
+  stable = vrf_static_table (AFI_IP, safi, 0);
   if (! stable)
     return -1;
 
   for (rn = route_top (stable); rn; rn = route_next (rn))
     for (si = rn->info; si; si = si->next)
       {
-        vty_out (vty, "ip route %s/%d", inet_ntoa (rn->p.u.prefix4),
+        vty_out (vty, "%s %s/%d", cmd, inet_ntoa (rn->p.u.prefix4),
                  rn->p.prefixlen);
 
         switch (si->type)
@@ -2146,7 +2198,8 @@ zebra_ip_config (struct vty *vty)
 {
   int write = 0;
 
-  write += static_config_ipv4 (vty);
+  write += static_config_ipv4 (vty, SAFI_UNICAST, "ip route");
+  write += static_config_ipv4 (vty, SAFI_MULTICAST, "ip mroute");
 #ifdef HAVE_IPV6
   write += static_config_ipv6 (vty);
 #endif /* HAVE_IPV6 */
@@ -2185,6 +2238,8 @@ zebra_vty_init (void)
   install_node (&ip_node, zebra_ip_config);
   install_node (&protocol_node, config_write_protocol);
 
+  install_element (CONFIG_NODE, &ip_mroute_cmd);
+  install_element (CONFIG_NODE, &no_ip_mroute_cmd);
   install_element (CONFIG_NODE, &ip_protocol_cmd);
   install_element (CONFIG_NODE, &no_ip_protocol_cmd);
   install_element (VIEW_NODE, &show_ip_protocol_cmd);
@@ -2233,6 +2288,8 @@ zebra_vty_init (void)
   install_element (VIEW_NODE, &show_ip_mroute_cmd);
   install_element (ENABLE_NODE, &show_ip_mroute_cmd);
 
+  install_element (VIEW_NODE, &show_ip_rpf_cmd);
+  install_element (ENABLE_NODE, &show_ip_rpf_cmd);
 
 #ifdef HAVE_IPV6
   install_element (CONFIG_NODE, &ipv6_route_cmd);
