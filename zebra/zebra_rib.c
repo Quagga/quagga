@@ -2276,14 +2276,14 @@ rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
 
 /* Install static route into rib. */
 static void
-static_install_ipv4 (struct prefix *p, struct static_ipv4 *si)
+static_install_ipv4 (safi_t safi, struct prefix *p, struct static_ipv4 *si)
 {
   struct rib *rib;
   struct route_node *rn;
   struct route_table *table;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, safi, 0);
   if (! table)
     return;
 
@@ -2368,7 +2368,7 @@ static_ipv4_nexthop_same (struct nexthop *nexthop, struct static_ipv4 *si)
 
 /* Uninstall static route from RIB. */
 static void
-static_uninstall_ipv4 (struct prefix *p, struct static_ipv4 *si)
+static_uninstall_ipv4 (safi_t safi, struct prefix *p, struct static_ipv4 *si)
 {
   struct route_node *rn;
   struct rib *rib;
@@ -2376,7 +2376,7 @@ static_uninstall_ipv4 (struct prefix *p, struct static_ipv4 *si)
   struct route_table *table;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = vrf_table (AFI_IP, safi, 0);
   if (! table)
     return;
   
@@ -2427,10 +2427,10 @@ static_uninstall_ipv4 (struct prefix *p, struct static_ipv4 *si)
   route_unlock_node (rn);
 }
 
-/* Add static route into static route configuration. */
 int
-static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
-		 u_char flags, u_char distance, u_int32_t vrf_id)
+static_add_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
+		      const char *ifname, u_char flags, u_char distance,
+		      u_int32_t vrf_id)
 {
   u_char type = 0;
   struct route_node *rn;
@@ -2441,7 +2441,7 @@ static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
   struct route_table *stable;
 
   /* Lookup table.  */
-  stable = vrf_static_table (AFI_IP, SAFI_UNICAST, vrf_id);
+  stable = vrf_static_table (AFI_IP, safi, vrf_id);
   if (! stable)
     return -1;
   
@@ -2475,7 +2475,7 @@ static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
 
   /* Distance changed.  */
   if (update)
-    static_delete_ipv4 (p, gate, ifname, update->distance, vrf_id);
+    static_delete_ipv4_safi (safi, p, gate, ifname, update->distance, vrf_id);
 
   /* Make new static route structure. */
   si = XCALLOC (MTYPE_STATIC_IPV4, sizeof (struct static_ipv4));
@@ -2517,15 +2517,14 @@ static_add_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
   si->next = cp;
 
   /* Install into rib. */
-  static_install_ipv4 (p, si);
+  static_install_ipv4 (safi, p, si);
 
   return 1;
 }
 
-/* Delete static route from static route configuration. */
 int
-static_delete_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
-		    u_char distance, u_int32_t vrf_id)
+static_delete_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
+			 const char *ifname, u_char distance, u_int32_t vrf_id)
 {
   u_char type = 0;
   struct route_node *rn;
@@ -2533,7 +2532,7 @@ static_delete_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
   struct route_table *stable;
 
   /* Lookup table.  */
-  stable = vrf_static_table (AFI_IP, SAFI_UNICAST, vrf_id);
+  stable = vrf_static_table (AFI_IP, safi, vrf_id);
   if (! stable)
     return -1;
 
@@ -2565,7 +2564,7 @@ static_delete_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
     }
 
   /* Install into rib. */
-  static_uninstall_ipv4 (p, si);
+  static_uninstall_ipv4 (safi, p, si);
 
   /* Unlink static route from linked list. */
   if (si->prev)
@@ -2585,7 +2584,6 @@ static_delete_ipv4 (struct prefix *p, struct in_addr *gate, const char *ifname,
 
   return 1;
 }
-
 
 #ifdef HAVE_IPV6
 static int
