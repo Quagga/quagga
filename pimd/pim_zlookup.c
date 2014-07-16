@@ -402,6 +402,8 @@ int zclient_lookup_nexthop(struct zclient *zlookup,
 			   int max_lookup)
 {
   int lookup;
+  uint32_t route_metric = 0xFFFFFFFF;
+  uint8_t  protocol_distance = 0xFF;
 
   for (lookup = 0; lookup < max_lookup; ++lookup) {
     int num_ifindex;
@@ -418,6 +420,12 @@ int zclient_lookup_nexthop(struct zclient *zlookup,
 		lookup, max_lookup, addr_str);
       return -1;
     }
+
+    if (lookup < 1) {
+      /* this is the non-recursive lookup - save original metric/distance */
+      route_metric = nexthop_tab[0].route_metric;
+      protocol_distance = nexthop_tab[0].protocol_distance;
+    }
     
     /*
       FIXME: Non-recursive nexthop ensured only for first ifindex.
@@ -433,12 +441,18 @@ int zclient_lookup_nexthop(struct zclient *zlookup,
 	/* Report non-recursive success after first lookup */
 	char addr_str[100];
 	pim_inet4_dump("<addr?>", addr, addr_str, sizeof(addr_str));
-	zlog_info("%s %s: lookup=%d/%d: found non-recursive ifindex=%d for address %s",
+	zlog_info("%s %s: lookup=%d/%d: found non-recursive ifindex=%d for address %s dist=%d met=%d",
 		  __FILE__, __PRETTY_FUNCTION__,
-		  lookup, max_lookup, first_ifindex, addr_str);
+		  lookup, max_lookup, first_ifindex, addr_str,
+		  nexthop_tab[0].protocol_distance,
+		  nexthop_tab[0].route_metric);
 
 	/* use last address as nexthop address */
 	nexthop_tab[0].nexthop_addr = addr;
+
+	/* report original route metric/distance */
+	nexthop_tab[0].route_metric = route_metric;
+	nexthop_tab[0].protocol_distance = protocol_distance;
       }
 
       return num_ifindex;
@@ -449,9 +463,11 @@ int zclient_lookup_nexthop(struct zclient *zlookup,
       char nexthop_str[100];
       pim_inet4_dump("<addr?>", addr, addr_str, sizeof(addr_str));
       pim_inet4_dump("<nexthop?>", nexthop_addr, nexthop_str, sizeof(nexthop_str));
-      zlog_warn("%s %s: lookup=%d/%d: zebra returned recursive nexthop %s for address %s",
+      zlog_warn("%s %s: lookup=%d/%d: zebra returned recursive nexthop %s for address %s dist=%d met=%d",
 		__FILE__, __PRETTY_FUNCTION__,
-		lookup, max_lookup, nexthop_str, addr_str);
+		lookup, max_lookup, nexthop_str, addr_str,
+		nexthop_tab[0].protocol_distance,
+		nexthop_tab[0].route_metric);
     }
 
     addr = nexthop_addr; /* use nexthop addr for recursive lookup */
