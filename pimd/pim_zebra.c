@@ -203,10 +203,12 @@ static void dump_if_address(struct interface *ifp)
     if (p->family != AF_INET)
       continue;
     
-    zlog_debug("%s %s: interface %s address %s",
+    zlog_debug("%s %s: interface %s address %s %s",
 	       __FILE__, __PRETTY_FUNCTION__,
 	       ifp->name,
-	       inet_ntoa(p->u.prefix4));
+	       inet_ntoa(p->u.prefix4),
+	       CHECK_FLAG(ifc->flags, ZEBRA_IFA_SECONDARY) ? 
+	       "secondary" : "primary");
   }
 }
 #endif
@@ -238,13 +240,34 @@ static int pim_zebra_if_address_add(int command, struct zclient *zclient,
   if (PIM_DEBUG_ZEBRA) {
     char buf[BUFSIZ];
     prefix2str(p, buf, BUFSIZ);
-    zlog_debug("%s: %s connected IP address %s flags %u",
+    zlog_debug("%s: %s connected IP address %s flags %u %s",
 	       __PRETTY_FUNCTION__,
-	       c->ifp->name, buf, c->flags);
+	       c->ifp->name, buf, c->flags,
+	       CHECK_FLAG(c->flags, ZEBRA_IFA_SECONDARY) ? "secondary" : "primary");
     
 #ifdef PIM_DEBUG_IFADDR_DUMP
     dump_if_address(c->ifp);
 #endif
+  }
+
+  if (!CHECK_FLAG(c->flags, ZEBRA_IFA_SECONDARY)) {
+    /* trying to add primary address */
+
+    struct in_addr primary_addr = pim_find_primary_addr(c->ifp);
+    if (primary_addr.s_addr != p->u.prefix4.s_addr) {
+      /* but we had a primary address already */
+
+      char buf[BUFSIZ];
+      char old[100];
+
+      prefix2str(p, buf, BUFSIZ);
+      pim_inet4_dump("<old?>", primary_addr, old, sizeof(old));
+
+      zlog_warn("%s: %s primary addr old=%s: forcing secondary flag on new=%s",
+		__PRETTY_FUNCTION__,
+		c->ifp->name, old, buf);
+      SET_FLAG(c->flags, ZEBRA_IFA_SECONDARY);
+    }
   }
 
   pim_if_addr_add(c);
@@ -279,15 +302,16 @@ static int pim_zebra_if_address_del(int command, struct zclient *client,
   if (PIM_DEBUG_ZEBRA) {
     char buf[BUFSIZ];
     prefix2str(p, buf, BUFSIZ);
-    zlog_debug("%s: %s disconnected IP address %s flags %u",
+    zlog_debug("%s: %s disconnected IP address %s flags %u %s",
 	       __PRETTY_FUNCTION__,
-	       c->ifp->name, buf, c->flags);
+	       c->ifp->name, buf, c->flags,
+	       CHECK_FLAG(c->flags, ZEBRA_IFA_SECONDARY) ? "secondary" : "primary");
     
 #ifdef PIM_DEBUG_IFADDR_DUMP
     dump_if_address(c->ifp);
 #endif
   }
-  
+
   pim_if_addr_del(c);
   
   return 0;

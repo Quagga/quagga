@@ -109,8 +109,8 @@ C13 Can't detect change of primary address before the actual change.
 
     See also pim_sock_delete().
 
-C14 Detection of interface primary address changes may fail when there
-    are multiple addresses.
+C14 FIXED Detection of interface primary address changes may fail when
+    there are multiple addresses.
     See also TODO T32.
 
 C15 Changes in interface secondary address list are not immediately

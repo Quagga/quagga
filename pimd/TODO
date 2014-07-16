@@ -267,8 +267,8 @@ T31 If an interface changes one of its secondary IP addresses, a Hello
     See also CAVEAT C15.
     See also RFC 4601: 4.3.1.  Sending Hello Messages
 
-T32 Detection of interface primary address changes may fail when there
-    are multiple addresses.
+T32 FIXED Detection of interface primary address changes may fail when
+    there are multiple addresses.
     See also CAVEAT C14.
 
     pim_find_primary_addr() should return interface primary address

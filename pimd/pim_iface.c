@@ -286,6 +286,7 @@ static void detect_primary_address_change(struct interface *ifp,
 {
   struct pim_interface *pim_ifp;
   struct in_addr new_prim_addr;
+  int changed;
 
   pim_ifp = ifp->info;
   if (!pim_ifp)
@@ -293,17 +294,20 @@ static void detect_primary_address_change(struct interface *ifp,
 
   new_prim_addr = pim_find_primary_addr(ifp);
 
+  changed = new_prim_addr.s_addr != pim_ifp->primary_address.s_addr;
+
   if (PIM_DEBUG_ZEBRA) {
     char new_prim_str[100];
     char old_prim_str[100];
     pim_inet4_dump("<new?>", new_prim_addr, new_prim_str, sizeof(new_prim_str));
     pim_inet4_dump("<old?>", pim_ifp->primary_address, old_prim_str, sizeof(old_prim_str));
-    zlog_debug("%s: old primary addr %s, new primary addr %s on interface %s",
+    zlog_debug("%s: old=%s new=%s on interface %s: %s",
 	       __PRETTY_FUNCTION__, 
-	       old_prim_str, new_prim_str, ifp->name);
+	       old_prim_str, new_prim_str, ifp->name,
+	       changed ? "changed" : "unchanged");
   }
 
-  if (new_prim_addr.s_addr != pim_ifp->primary_address.s_addr) {
+  if (changed) {
     struct in_addr old_addr = pim_ifp->primary_address;
     pim_ifp->primary_address = new_prim_addr;
 
@@ -327,6 +331,16 @@ void pim_if_addr_add(struct connected *ifc)
 
   if (!if_is_operative(ifp))
     return;
+
+  if (PIM_DEBUG_ZEBRA) {
+    char buf[BUFSIZ];
+    prefix2str(ifc->address, buf, BUFSIZ);
+    zlog_debug("%s: %s connected IP address %s %s",
+	       __PRETTY_FUNCTION__,
+	       ifp->name, buf,
+	       CHECK_FLAG(ifc->flags, ZEBRA_IFA_SECONDARY) ?
+	       "secondary" : "primary");
+  }
 
   ifaddr = ifc->address->u.prefix4;
 
@@ -437,6 +451,16 @@ void pim_if_addr_del(struct connected *ifc)
   ifp = ifc->ifp;
   zassert(ifp);
 
+  if (PIM_DEBUG_ZEBRA) {
+    char buf[BUFSIZ];
+    prefix2str(ifc->address, buf, BUFSIZ);
+    zlog_debug("%s: %s disconnected IP address %s %s",
+	       __PRETTY_FUNCTION__,
+	       ifp->name, buf,
+	       CHECK_FLAG(ifc->flags, ZEBRA_IFA_SECONDARY) ?
+	       "secondary" : "primary");
+  }
+
   detect_primary_address_change(ifp, __PRETTY_FUNCTION__);
 
   pim_if_addr_del_igmp(ifc);
@@ -523,7 +547,7 @@ void pim_if_addr_del_all_pim(struct interface *ifp)
   }
 }
 
-static struct in_addr find_first_addr(struct interface *ifp)
+static struct in_addr find_first_nonsec_addr(struct interface *ifp)
 {
   struct connected *ifc;
   struct listnode *node;
@@ -541,6 +565,9 @@ static struct in_addr find_first_addr(struct interface *ifp)
       continue;
     }
 
+    if (CHECK_FLAG (ifc->flags, ZEBRA_IFA_SECONDARY))
+      continue;
+
     return p->u.prefix4;
   }
 
@@ -551,7 +578,7 @@ static struct in_addr find_first_addr(struct interface *ifp)
 
 struct in_addr pim_find_primary_addr(struct interface *ifp)
 {
-  return find_first_addr(ifp);
+  return find_first_nonsec_addr(ifp);
 }
 
 /*
