@@ -82,9 +82,9 @@ C11 SSM Mapping is not supported
     is changed, or when the DNS mapping changes, the router will leave
     the current sources associated with the joined groups.
 
-C12 MRIB for incongruent unicast/multicast topologies is not supported.
-    RPF mechanism currently just looks up the information in the
-    unicast routing table.
+C12 FIXED MRIB for incongruent unicast/multicast topologies is not
+    supported.  RPF mechanism currently just looks up the information
+    in the unicast routing table.
 
     See also:
     RFC5110: 2.2.3.  Issue: Overlapping Unicast/Multicast Topology
