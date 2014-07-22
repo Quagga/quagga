@@ -644,7 +644,6 @@ static int redist_read_ipv4_route(int command, struct zclient *zclient,
 
 void pim_zebra_init()
 {
-  struct zclient *zclient;
   int i;
 
 #ifdef HAVE_TCP_ZEBRA
@@ -654,35 +653,35 @@ void pim_zebra_init()
 #endif
 
   /* Socket for receiving updates from Zebra daemon */
-  zclient = zclient_new();
+  qpim_zclient_update = zclient_new();
 
-  zclient->router_id_update         = pim_router_id_update;
-  zclient->router_id_update         = pim_router_id_update_zebra;
-  zclient->interface_add            = pim_zebra_if_add;
-  zclient->interface_delete         = pim_zebra_if_del;
-  zclient->interface_up             = pim_zebra_if_state_up;
-  zclient->interface_down           = pim_zebra_if_state_down;
-  zclient->interface_address_add    = pim_zebra_if_address_add;
-  zclient->interface_address_delete = pim_zebra_if_address_del;
-  zclient->ipv4_route_add           = redist_read_ipv4_route;
-  zclient->ipv4_route_delete        = redist_read_ipv4_route;
+  qpim_zclient_update->zclient_broken           = zclient_broken;
+  qpim_zclient_update->router_id_update         = pim_router_id_update_zebra;
+  qpim_zclient_update->interface_add            = pim_zebra_if_add;
+  qpim_zclient_update->interface_delete         = pim_zebra_if_del;
+  qpim_zclient_update->interface_up             = pim_zebra_if_state_up;
+  qpim_zclient_update->interface_down           = pim_zebra_if_state_down;
+  qpim_zclient_update->interface_address_add    = pim_zebra_if_address_add;
+  qpim_zclient_update->interface_address_delete = pim_zebra_if_address_del;
+  qpim_zclient_update->ipv4_route_add           = redist_read_ipv4_route;
+  qpim_zclient_update->ipv4_route_delete        = redist_read_ipv4_route;
 
-  zclient_init(zclient, ZEBRA_ROUTE_PIM);
+  zclient_init(qpim_zclient_update, ZEBRA_ROUTE_PIM);
   zlog_info("zclient_init cleared redistribution request");
 
-  zassert(zclient->redist_default == ZEBRA_ROUTE_PIM);
+  zassert(qpim_zclient_update->redist_default == ZEBRA_ROUTE_PIM);
 
   /* Request all redistribution */
   for (i = 0; i < ZEBRA_ROUTE_MAX; i++) {
-    if (i == zclient->redist_default)
+    if (i == qpim_zclient_update->redist_default)
       continue;
-    zclient->redist[i] = 1;
+    qpim_zclient_update->redist[i] = 1;
     zlog_info("%s: requesting redistribution for %s (%i)", 
 	      __PRETTY_FUNCTION__, zebra_route_string(i), i);
   }
 
   /* Request default information */
-  zclient->default_information = 1;
+  qpim_zclient_update->default_information = 1;
   zlog_info("%s: requesting default information redistribution",
 	    __PRETTY_FUNCTION__);
 

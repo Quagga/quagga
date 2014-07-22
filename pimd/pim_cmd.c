@@ -27,6 +27,7 @@
 #include "command.h"
 #include "if.h"
 #include "prefix.h"
+#include "zclient.h"
 
 #include "pimd.h"
 #include "pim_cmd.h"
@@ -1558,6 +1559,17 @@ DEFUN (pim_interface,
 
   vty->index = ifp;
   vty->node = INTERFACE_NODE;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (clear_zclient_update,
+       clear_zclient_update_cmd,
+       "clear zclient-update",
+       CLEAR_STR
+       "Reset zclient update connection to zebra daemon\n")
+{
+  zclient_reset(qpim_zclient_update);
 
   return CMD_SUCCESS;
 }
@@ -4312,6 +4324,7 @@ void pim_cmd_init()
   install_element (ENABLE_NODE, &clear_ip_mroute_cmd);
   install_element (ENABLE_NODE, &clear_ip_pim_interfaces_cmd);
   install_element (ENABLE_NODE, &clear_ip_pim_oil_cmd);
+  install_element (ENABLE_NODE, &clear_zclient_update_cmd);
 
   install_element (ENABLE_NODE, &show_ip_igmp_interface_cmd);
   install_element (ENABLE_NODE, &show_ip_igmp_join_cmd);

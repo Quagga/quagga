@@ -51,6 +51,7 @@ int                       qpim_mroute_oif_highest_vif_index = -1;
 struct list              *qpim_channel_oil_list = 0;
 int                       qpim_t_periodic = PIM_DEFAULT_T_PERIODIC; /* Period between Join/Prune Messages */
 struct list              *qpim_upstream_list = 0;
+struct zclient           *qpim_zclient_update = 0;
 struct zclient           *qpim_zclient_lookup = 0;
 struct pim_assert_metric  qpim_infinite_assert_metric;
 long                      qpim_rpf_cache_refresh_delay_msec = 10000;
