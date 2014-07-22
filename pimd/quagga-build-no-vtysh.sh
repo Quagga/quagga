@@ -3,7 +3,7 @@
 # Build minimum Quagga needed for pimd.
 #
 # Run from quagga's top dir as:
-# ./pimd/quagga-build.sh
+# ./pimd/quagga-build-no-vtysh.sh
 #
 # $QuaggaId: $Format:%an, %ai, %h$ $
 
