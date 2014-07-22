@@ -7,4 +7,4 @@
 #
 # $QuaggaId: $Format:%an, %ai, %h$ $
 
-./configure --disable-babeld --disable-bgpd --disable-ripd --disable-ripngd --disable-ospfd --disable-ospf6d --disable-watchquagga --disable-bgp-announce --disable-ospfapi --disable-ospfclient --disable-rtadv --disable-irdp --enable-pimd --enable-tcp-zebra --enable-ipv6 --enable-vtysh
+tail -1 ./pimd/quagga-configure-no-vtysh.sh --enable-vtysh
