@@ -66,17 +66,19 @@ void pim_ifassert_winner_set(struct pim_ifchannel     *ch,
 	      ch->interface->name);
   }
 
-  {
+  if (winner_changed) {
     char src_str[100];
     char grp_str[100];
+    char was_str[100];
     char winner_str[100];
     pim_inet4_dump("<src?>", ch->source_addr, src_str, sizeof(src_str));
     pim_inet4_dump("<grp?>", ch->group_addr, grp_str, sizeof(grp_str));
+    pim_inet4_dump("<was?>", ch->ifassert_winner, was_str, sizeof(was_str));
     pim_inet4_dump("<winner?>", winner, winner_str, sizeof(winner_str));
-    zlog_info("%s: (S,G)=(%s,%s) assert winner now is %s on interface %s",
+    zlog_info("%s: (S,G)=(%s,%s) assert winner changed from %s to %s on interface %s",
 	      __PRETTY_FUNCTION__,
 	      src_str, grp_str,
-	      winner_str, ch->interface->name);
+	      was_str, winner_str, ch->interface->name);
   }
 
   ch->ifassert_state         = new_state;
