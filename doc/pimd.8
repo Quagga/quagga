@@ -12,6 +12,9 @@ pimd \- a PIM routing for use with Quagga Routing Suite.
 .B \-i
 .I pid-file
 ] [
+.B \-z
+.I path
+] [
 .B \-P
 .I port-number
 ] [
@@ -52,6 +55,10 @@ When pimd starts its process identifier is written to
 \fB\fIpid-file\fR.  The init system uses the recorded PID to stop or
 restart pimd.  The likely default is \fB\fI/var/run/pimd.pid\fR.
 .TP
+\fB\-z\fR, \fB\-\-socket \fR\fIpath\fR
+Specify the socket path for contacting the zebra daemon.
+The likely default is \fB\fI/var/run/zserv.api\fR.
+.TP
 \fB\-P\fR, \fB\-\-vty_port \fR\fIport-number\fR 
 Specify the port that the pimd VTY will listen on. This defaults to
 2611, as specified in \fB\fI/etc/services\fR.
@@ -79,6 +86,16 @@ binary.
 The default location of the 
 .B pimd
 config file.
+.TP
+.BI /var/run/pimd.pid
+The default location of the 
+.B pimd
+pid file.
+.TP
+.BI /var/run/zserv.api
+The default location of the 
+.B zebra
+unix socket file.
 .TP
 .BI $(PWD)/pimd.log 
 If the 

@@ -98,6 +98,7 @@ Daemon which manages PIM.\n\n\
 -d, --daemon         Run in daemon mode\n\
 -f, --config_file    Set configuration file name\n\
 -i, --pid_file       Set process identifier file name\n\
+-z, --socket         Set path of zebra socket\n\
 -A, --vty_addr       Set vty's bind address\n\
 -P, --vty_port       Set vty's port number\n\
 -v, --version        Print program version\n\
@@ -125,6 +126,7 @@ int main(int argc, char** argv, char** envp) {
   int vty_port = -1;
   int daemon_mode = 0;
   char *config_file = NULL;
+  char *zebra_sock_path = NULL;
   struct thread thread;
           
   umask(0027);
@@ -138,7 +140,7 @@ int main(int argc, char** argv, char** envp) {
   while (1) {
     int opt;
             
-    opt = getopt_long (argc, argv, "df:i:A:P:vZh", longopts, 0);
+    opt = getopt_long (argc, argv, "df:i:z:A:P:vZh", longopts, 0);
                       
     if (opt == EOF)
       break;
@@ -154,6 +156,9 @@ int main(int argc, char** argv, char** envp) {
       break;
     case 'i':
       pid_file = optarg;
+      break;
+    case 'z':
+      zebra_sock_path = optarg;
       break;
     case 'A':
       vty_addr = optarg;
@@ -298,10 +303,11 @@ Hello, this is " QUAGGA_PROGNAME " " QUAGGA_VERSION " " PIMD_PROGNAME " " PIMD_V
   zlog_notice("!HAVE_CLOCK_MONOTONIC");
 #endif
 
+
   /*
     Initialize zclient "update" and "lookup" sockets
    */
-  pim_zebra_init();
+  pim_zebra_init(zebra_sock_path);
     
   while (thread_fetch(master, &thread))
     thread_call(&thread);

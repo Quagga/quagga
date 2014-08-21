@@ -642,14 +642,17 @@ static int redist_read_ipv4_route(int command, struct zclient *zclient,
   return 0;
 }
 
-void pim_zebra_init()
+void pim_zebra_init(char *zebra_sock_path)
 {
   int i;
+
+  if (zebra_sock_path)
+    zclient_serv_path_set(zebra_sock_path);
 
 #ifdef HAVE_TCP_ZEBRA
   zlog_notice("zclient update contacting ZEBRA daemon at socket TCP %s,%d", "127.0.0.1", ZEBRA_PORT);
 #else
-  zlog_notice("zclient update contacting ZEBRA daemon at socket UNIX %s", ZEBRA_SERV_PATH);
+  zlog_notice("zclient update contacting ZEBRA daemon at socket UNIX %s", zclient_serv_path_get());
 #endif
 
   /* Socket for receiving updates from Zebra daemon */

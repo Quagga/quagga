@@ -66,16 +66,19 @@ static int zclient_lookup_connect(struct thread *t)
 		__PRETTY_FUNCTION__, "127.0.0.1", ZEBRA_PORT);
   }
 #else
-  zlog_debug("%s: FIXME blocking connect: zclient_socket_un()",
-	     __PRETTY_FUNCTION__);
-  zlookup->sock = zclient_socket_un(ZEBRA_SERV_PATH);
-  if (zlookup->sock < 0) {
-    zlog_warn("%s: failure connecting UNIX socket %s",
-	      __PRETTY_FUNCTION__, ZEBRA_SERV_PATH);
-  }
-  else if (zclient_debug) { 
-    zlog_notice("%s: connected UNIX socket %s",
-		__PRETTY_FUNCTION__, ZEBRA_SERV_PATH);
+  {
+    const char *const path = zclient_serv_path_get();
+    zlog_debug("%s: FIXME blocking connect: zclient_socket_un()",
+	       __PRETTY_FUNCTION__);
+    zlookup->sock = zclient_socket_un(path);
+    if (zlookup->sock < 0) {
+      zlog_warn("%s: failure connecting UNIX socket %s",
+		__PRETTY_FUNCTION__, path);
+    }
+    else if (zclient_debug) { 
+      zlog_notice("%s: connected UNIX socket %s",
+		  __PRETTY_FUNCTION__, path);
+    }
   }
 #endif /* HAVE_TCP_ZEBRA */
 
