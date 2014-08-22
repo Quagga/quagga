@@ -32,16 +32,29 @@ DEBUG HINTS
           conf t
             ip ssmpingd 1.1.1.1
 
-  - The following command generates a 100-kbps multicast stream for
+  - Using nepim to generate multicast stream from 1.1.1.1 to 239.1.1.1:
+
+    Notices:
+
+    a) The host unicast address 1.1.1.1 must be reachable from the
+    receiver.
+
+    b) nepim tool requires the receiver must be started *before* the
+    sender.
+
+    First: Start a receiver for that stream by running:
+
+    nepim -q -6 -j 1.1.1.1+239.1.1.1@eth0
+    (Remember of enabling both "ip pim ssm" and "ip igmp" under eth0.)
+
+    Second: Start the sender at host 1.1.1.1.
+
+    The following command generates a 100-kbps multicast stream for
     channel 1.1.1.1,239.1.1.1 with TTL 10 and 1000-byte payload per UDP
     packet (to avoid fragmentation):
 
-    nepim -M -b 1.1.1.1 -c 239.1.1.1 -T 10 -W 1000 -r 100k -a 1d
+    nepim -6 -M -b 1.1.1.1 -c 239.1.1.1 -T 10 -W 1000 -r 100k -a 1d
 
-  - Remotely you can receive that stream by running:
-
-    nepim -j 1.1.1.1+239.1.1.1@eth0
-    (Remember of enabling both "ip pim ssm" and "ip igmp" under eth0.)
 
 
 SAMPLE DEBUG COMMANDS
