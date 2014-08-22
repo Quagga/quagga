@@ -408,8 +408,19 @@ void igmp_source_delete(struct igmp_source *source)
   source_timer_off(group, source);
   igmp_source_forward_stop(source);
 
-  /* make sure forwarding is disabled */
-  zassert(!IGMP_SOURCE_TEST_FORWARDING(source->source_flags));
+  /* sanity check that forwarding has been disabled */
+  if (IGMP_SOURCE_TEST_FORWARDING(source->source_flags)) {
+    char group_str[100];
+    char source_str[100];
+    pim_inet4_dump("<group?>", group->group_addr, group_str, sizeof(group_str));
+    pim_inet4_dump("<source?>", source->source_addr, source_str, sizeof(source_str));
+    zlog_warn("%s: forwarding=ON(!) IGMP source %s for group %s from socket %d interface %s",
+	      __PRETTY_FUNCTION__,
+	      source_str, group_str,
+	      group->group_igmp_sock->fd,
+	      group->group_igmp_sock->interface->name);
+    /* warning only */
+  }
 
   source_channel_oil_detach(source);
 
