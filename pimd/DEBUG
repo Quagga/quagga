@@ -8,7 +8,7 @@ DEBUG HINTS
   - Check the multicast packets are not being dropped due to
     fragmentation problems.
 
-  - Two easy options to test IGMPv3 joins from the receiver host:
+  - Three easy options to test IGMPv3 joins from the receiver host:
 
     1) Configure pimd on the receiver host with "ip igmp join":
 
@@ -16,15 +16,27 @@ DEBUG HINTS
         ip pim ssm
         ip igmp join 239.1.1.1 1.1.1.1 
 
-    2) Use the test_igmpv3_join command-line utility:
+    2) Use test_igmpv3_join command-line utility (provided with qpimd):
 
        test_igmpv3_join eth0 239.1.1.1 1.1.1.1
+
+    3) User the Stig Venaas' ssmping utility:
+
+       ssmping -I eth0 1.1.1.1
+
+       To see multicast responses with ssmping, you will need run on
+       the host 1.1.1.1 either:
+       a) Stig Venaas' ssmpingd command-line daemon
+          OR
+       b) qpimd built-in ssmpingd service:
+          conf t
+            ip ssmpingd 1.1.1.1
 
   - The following command generates a 100-kbps multicast stream for
     channel 1.1.1.1,239.1.1.1 with TTL 10 and 1000-byte payload per UDP
     packet (to avoid fragmentation):
 
-    nepim -b 1.1.1.1 -c 239.1.1.1 -T 10 -W 1000 -r 100k -a 1d
+    nepim -M -b 1.1.1.1 -c 239.1.1.1 -T 10 -W 1000 -r 100k -a 1d
 
   - Remotely you can receive that stream by running:
 

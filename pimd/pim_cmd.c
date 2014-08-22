@@ -2481,7 +2481,7 @@ DEFUN (interface_no_ip_igmp,
 
   pim_if_membership_clear(ifp);
 
-  pim_if_addr_del_all(ifp);
+  pim_if_addr_del_all_igmp(ifp);
 
   if (!PIM_IF_TEST_PIM(pim_ifp->options)) {
     pim_if_delete(ifp);
