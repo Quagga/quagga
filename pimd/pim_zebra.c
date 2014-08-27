@@ -670,7 +670,9 @@ void pim_zebra_init(char *zebra_sock_path)
   qpim_zclient_update->ipv4_route_delete        = redist_read_ipv4_route;
 
   zclient_init(qpim_zclient_update, ZEBRA_ROUTE_PIM);
-  zlog_info("zclient_init cleared redistribution request");
+  if (PIM_DEBUG_PIM_TRACE) {
+    zlog_info("zclient_init cleared redistribution request");
+  }
 
   zassert(qpim_zclient_update->redist_default == ZEBRA_ROUTE_PIM);
 
@@ -679,17 +681,21 @@ void pim_zebra_init(char *zebra_sock_path)
     if (i == qpim_zclient_update->redist_default)
       continue;
     qpim_zclient_update->redist[i] = 1;
-    zlog_info("%s: requesting redistribution for %s (%i)", 
-	      __PRETTY_FUNCTION__, zebra_route_string(i), i);
+    if (PIM_DEBUG_PIM_TRACE) {
+      zlog_debug("%s: requesting redistribution for %s (%i)", 
+		 __PRETTY_FUNCTION__, zebra_route_string(i), i);
+    }
   }
 
   /* Request default information */
   qpim_zclient_update->default_information = 1;
-  zlog_info("%s: requesting default information redistribution",
-	    __PRETTY_FUNCTION__);
-
-  zlog_notice("%s: zclient update socket initialized",
+  if (PIM_DEBUG_PIM_TRACE) {
+    zlog_info("%s: requesting default information redistribution",
 	      __PRETTY_FUNCTION__);
+
+    zlog_notice("%s: zclient update socket initialized",
+		__PRETTY_FUNCTION__);
+  }
 
   zassert(!qpim_zclient_lookup);
   qpim_zclient_lookup = zclient_lookup_new();

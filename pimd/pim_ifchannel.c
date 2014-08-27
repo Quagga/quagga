@@ -286,16 +286,16 @@ static void ifmembership_set(struct pim_ifchannel *ch,
   if (ch->local_ifmembership == membership)
     return;
 
-  {
+  /* if (PIM_DEBUG_PIM_EVENTS) */ {
     char src_str[100];
     char grp_str[100];
     pim_inet4_dump("<src?>", ch->source_addr, src_str, sizeof(src_str));
     pim_inet4_dump("<grp?>", ch->group_addr, grp_str, sizeof(grp_str));
-    zlog_info("%s: (S,G)=(%s,%s) membership now is %s on interface %s",
-	      __PRETTY_FUNCTION__,
-	      src_str, grp_str,
-	      membership == PIM_IFMEMBERSHIP_INCLUDE ? "INCLUDE" : "NOINFO",
-	      ch->interface->name);
+    zlog_debug("%s: (S,G)=(%s,%s) membership now is %s on interface %s",
+	       __PRETTY_FUNCTION__,
+	       src_str, grp_str,
+	       membership == PIM_IFMEMBERSHIP_INCLUDE ? "INCLUDE" : "NOINFO",
+	       ch->interface->name);
   }
   
   ch->local_ifmembership = membership;
@@ -787,15 +787,15 @@ void pim_ifchannel_update_could_assert(struct pim_ifchannel *ch)
   if (new_couldassert == old_couldassert)
     return;
 
-  {
+  if (PIM_DEBUG_PIM_EVENTS) {
     char src_str[100];
     char grp_str[100];
     pim_inet4_dump("<src?>", ch->source_addr, src_str, sizeof(src_str));
     pim_inet4_dump("<grp?>", ch->group_addr, grp_str, sizeof(grp_str));
-    zlog_info("%s: CouldAssert(%s,%s,%s) changed from %d to %d",
-	      __PRETTY_FUNCTION__,
-	      src_str, grp_str, ch->interface->name,
-	      old_couldassert, new_couldassert);
+    zlog_debug("%s: CouldAssert(%s,%s,%s) changed from %d to %d",
+	       __PRETTY_FUNCTION__,
+	       src_str, grp_str, ch->interface->name,
+	       old_couldassert, new_couldassert);
   }
 
   if (new_couldassert) {
@@ -829,7 +829,7 @@ void pim_ifchannel_update_my_assert_metric(struct pim_ifchannel *ch)
   if (pim_assert_metric_match(&my_metric_new, &ch->ifassert_my_metric))
       return;
 
-  {
+  if (PIM_DEBUG_PIM_EVENTS) {
     char src_str[100];
     char grp_str[100];
     char old_addr_str[100];
@@ -838,17 +838,17 @@ void pim_ifchannel_update_my_assert_metric(struct pim_ifchannel *ch)
     pim_inet4_dump("<grp?>", ch->group_addr, grp_str, sizeof(grp_str));
     pim_inet4_dump("<old_addr?>", ch->ifassert_my_metric.ip_address, old_addr_str, sizeof(old_addr_str));
     pim_inet4_dump("<new_addr?>", my_metric_new.ip_address, new_addr_str, sizeof(new_addr_str));
-    zlog_info("%s: my_assert_metric(%s,%s,%s) changed from %u,%u,%u,%s to %u,%u,%u,%s",
-	      __PRETTY_FUNCTION__,
-	      src_str, grp_str, ch->interface->name,
-	      ch->ifassert_my_metric.rpt_bit_flag,
-	      ch->ifassert_my_metric.metric_preference,
-	      ch->ifassert_my_metric.route_metric,
-	      old_addr_str,
-	      my_metric_new.rpt_bit_flag,
-	      my_metric_new.metric_preference,
-	      my_metric_new.route_metric,
-	      new_addr_str);
+    zlog_debug("%s: my_assert_metric(%s,%s,%s) changed from %u,%u,%u,%s to %u,%u,%u,%s",
+	       __PRETTY_FUNCTION__,
+	       src_str, grp_str, ch->interface->name,
+	       ch->ifassert_my_metric.rpt_bit_flag,
+	       ch->ifassert_my_metric.metric_preference,
+	       ch->ifassert_my_metric.route_metric,
+	       old_addr_str,
+	       my_metric_new.rpt_bit_flag,
+	       my_metric_new.metric_preference,
+	       my_metric_new.route_metric,
+	       new_addr_str);
   }
 
   ch->ifassert_my_metric = my_metric_new;
@@ -867,15 +867,15 @@ void pim_ifchannel_update_assert_tracking_desired(struct pim_ifchannel *ch)
   if (new_atd == old_atd)
     return;
 
-  {
+  if (PIM_DEBUG_PIM_EVENTS) {
     char src_str[100];
     char grp_str[100];
     pim_inet4_dump("<src?>", ch->source_addr, src_str, sizeof(src_str));
     pim_inet4_dump("<grp?>", ch->group_addr, grp_str, sizeof(grp_str));
-    zlog_info("%s: AssertTrackingDesired(%s,%s,%s) changed from %d to %d",
-	      __PRETTY_FUNCTION__,
-	      src_str, grp_str, ch->interface->name,
-	      old_atd, new_atd);
+    zlog_debug("%s: AssertTrackingDesired(%s,%s,%s) changed from %d to %d",
+	       __PRETTY_FUNCTION__,
+	       src_str, grp_str, ch->interface->name,
+	       old_atd, new_atd);
   }
 
   if (new_atd) {

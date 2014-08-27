@@ -150,20 +150,23 @@ enum pim_rpf_result pim_rpf_update(struct pim_upstream *up,
 
   /* detect change in pim_nexthop */
   if (nexthop_mismatch(&rpf->source_nexthop, &save_nexthop)) {
-    char src_str[100];
-    char grp_str[100];
-    char nhaddr_str[100];
-    pim_inet4_dump("<src?>", up->source_addr, src_str, sizeof(src_str));
-    pim_inet4_dump("<grp?>", up->group_addr, grp_str, sizeof(grp_str));
-    pim_inet4_dump("<addr?>", rpf->source_nexthop.mrib_nexthop_addr, nhaddr_str, sizeof(nhaddr_str));
-    zlog_warn("%s %s: (S,G)=(%s,%s) source nexthop now is: interface=%s address=%s pref=%d metric=%d",
-              __FILE__, __PRETTY_FUNCTION__,
-              src_str, grp_str,
-	      rpf->source_nexthop.interface ? rpf->source_nexthop.interface->name : "<ifname?>",
-	      nhaddr_str,
-	      rpf->source_nexthop.mrib_metric_preference,
-	      rpf->source_nexthop.mrib_route_metric);
-    /* warning only */
+
+    /* if (PIM_DEBUG_PIM_EVENTS) */ {
+      char src_str[100];
+      char grp_str[100];
+      char nhaddr_str[100];
+      pim_inet4_dump("<src?>", up->source_addr, src_str, sizeof(src_str));
+      pim_inet4_dump("<grp?>", up->group_addr, grp_str, sizeof(grp_str));
+      pim_inet4_dump("<addr?>", rpf->source_nexthop.mrib_nexthop_addr, nhaddr_str, sizeof(nhaddr_str));
+      zlog_debug("%s %s: (S,G)=(%s,%s) source nexthop now is: interface=%s address=%s pref=%d metric=%d",
+		 __FILE__, __PRETTY_FUNCTION__,
+		 src_str, grp_str,
+		 rpf->source_nexthop.interface ? rpf->source_nexthop.interface->name : "<ifname?>",
+		 nhaddr_str,
+		 rpf->source_nexthop.mrib_metric_preference,
+		 rpf->source_nexthop.mrib_route_metric);
+      /* warning only */
+    }
 
     pim_upstream_update_join_desired(up);
     pim_upstream_update_could_assert(up);
@@ -172,16 +175,19 @@ enum pim_rpf_result pim_rpf_update(struct pim_upstream *up,
 
   /* detect change in RPF_interface(S) */
   if (save_nexthop.interface != rpf->source_nexthop.interface) {
-    char src_str[100];
-    char grp_str[100];
-    pim_inet4_dump("<src?>", up->source_addr, src_str, sizeof(src_str));
-    pim_inet4_dump("<grp?>", up->group_addr, grp_str, sizeof(grp_str));
-    zlog_warn("%s %s: (S,G)=(%s,%s) RPF_interface(S) changed from %s to %s",
-              __FILE__, __PRETTY_FUNCTION__,
-              src_str, grp_str,
-	      save_nexthop.interface ? save_nexthop.interface->name : "<oldif?>",
-	      rpf->source_nexthop.interface ? rpf->source_nexthop.interface->name : "<newif?>");
-    /* warning only */
+
+    /* if (PIM_DEBUG_PIM_EVENTS) */ {
+      char src_str[100];
+      char grp_str[100];
+      pim_inet4_dump("<src?>", up->source_addr, src_str, sizeof(src_str));
+      pim_inet4_dump("<grp?>", up->group_addr, grp_str, sizeof(grp_str));
+      zlog_debug("%s %s: (S,G)=(%s,%s) RPF_interface(S) changed from %s to %s",
+		 __FILE__, __PRETTY_FUNCTION__,
+		 src_str, grp_str,
+		 save_nexthop.interface ? save_nexthop.interface->name : "<oldif?>",
+		 rpf->source_nexthop.interface ? rpf->source_nexthop.interface->name : "<newif?>");
+      /* warning only */
+    }
 
     pim_upstream_rpf_interface_changed(up, save_nexthop.interface);
   }
