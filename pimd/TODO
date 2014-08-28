@@ -264,6 +264,7 @@ T30 DONE Run interface DR election when primary address changes
 T31 If an interface changes one of its secondary IP addresses, a Hello
     message with an updated Address_List option and a non-zero
     HoldTime should be sent immediately.
+    See also detect_secondary_address_change
     See also CAVEAT C15.
     See also RFC 4601: 4.3.1.  Sending Hello Messages
 

@@ -115,6 +115,7 @@ C14 FIXED Detection of interface primary address changes may fail when
 
 C15 Changes in interface secondary address list are not immediately
     detected.
+    See also detect_secondary_address_change
     See also TODO T31.
 
 C16 AMT Draft (mboned-auto-multicast) is not supported.

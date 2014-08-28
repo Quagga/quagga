@@ -273,17 +273,20 @@ static void on_primary_address_change(struct interface *ifp,
   }
 
   pim_ifp = ifp->info;
-
-  if (pim_ifp) {
-    if (PIM_IF_TEST_PIM(pim_ifp->options)) {
-      pim_addr_change(ifp);
-    }
+  if (!pim_ifp) {
+    return;
   }
+
+  if (!PIM_IF_TEST_PIM(pim_ifp->options)) {
+    return;
+  }
+
+  pim_addr_change(ifp);
 }
 
-static void detect_primary_address_change(struct interface *ifp,
-					  int force_prim_as_any,
-					  const char *caller)
+static int detect_primary_address_change(struct interface *ifp,
+					 int force_prim_as_any,
+					 const char *caller)
 {
   struct pim_interface *pim_ifp;
   struct in_addr new_prim_addr;
@@ -291,7 +294,7 @@ static void detect_primary_address_change(struct interface *ifp,
 
   pim_ifp = ifp->info;
   if (!pim_ifp)
-    return;
+    return 0;
 
   if (force_prim_as_any)
     new_prim_addr = qpim_inaddr_any;
@@ -317,6 +320,55 @@ static void detect_primary_address_change(struct interface *ifp,
 
     on_primary_address_change(ifp, caller, old_addr, new_prim_addr);
   }
+
+  return changed;
+}
+
+static void detect_secondary_address_change(struct interface *ifp,
+					    const char *caller)
+{
+  struct pim_interface *pim_ifp;
+  int changed;
+
+  pim_ifp = ifp->info;
+  if (!pim_ifp)
+    return;
+
+  changed = 1; /* true */
+  zlog_debug("FIXME T31 C15 %s: on interface %s: acting on any addr change",
+	     __PRETTY_FUNCTION__, ifp->name);
+
+  if (PIM_DEBUG_ZEBRA) {
+    zlog_debug("%s: on interface %s: %s",
+	       __PRETTY_FUNCTION__, 
+	       ifp->name, changed ? "changed" : "unchanged");
+  }
+
+  if (!changed) {
+    return;
+  }
+
+  if (!PIM_IF_TEST_PIM(pim_ifp->options)) {
+    return;
+  }
+
+  pim_addr_change(ifp);
+}
+
+static void detect_address_change(struct interface *ifp,
+				 int force_prim_as_any,
+				 const char *caller)
+{
+  int prim_changed;
+
+  prim_changed = detect_primary_address_change(ifp, force_prim_as_any, caller);
+  if (prim_changed) {
+    /* no need to detect secondary change because
+       the reaction would be the same */
+    return;
+  }
+
+  detect_secondary_address_change(ifp, caller);
 }
 
 void pim_if_addr_add(struct connected *ifc)
@@ -348,7 +400,7 @@ void pim_if_addr_add(struct connected *ifc)
 
   ifaddr = ifc->address->u.prefix4;
 
-  detect_primary_address_change(ifp, 0, __PRETTY_FUNCTION__);
+  detect_address_change(ifp, 0, __PRETTY_FUNCTION__);
 
   if (PIM_IF_TEST_IGMP(pim_ifp->options)) {
     struct igmp_sock *igmp;
@@ -465,7 +517,7 @@ void pim_if_addr_del(struct connected *ifc, int force_prim_as_any)
 	       "secondary" : "primary");
   }
 
-  detect_primary_address_change(ifp, force_prim_as_any, __PRETTY_FUNCTION__);
+  detect_address_change(ifp, force_prim_as_any, __PRETTY_FUNCTION__);
 
   pim_if_addr_del_igmp(ifc);
   pim_if_addr_del_pim(ifc);
