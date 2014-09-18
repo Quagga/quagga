@@ -272,7 +272,7 @@ int main(int argc, char** argv, char** envp) {
   zlog_notice("PIM_UNEXPECTED_KERNEL_UPCALL: report unexpected kernel upcall");
 #endif
 
-#ifdef PIM_FORCE_QUAGGA_REALTIME_STABILISED
+#ifdef PIM_USE_QUAGGA_GETTIME
   zlog_notice("PIM_USE_QUAGGA_GETTIME: using Quagga's quagga_gettime"());
 #endif
 
