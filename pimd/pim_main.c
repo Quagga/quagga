@@ -46,7 +46,6 @@ extern int zclient_debug;
 #endif
 
 extern struct host host;
-extern const char *default_motd;
 
 char config_default[] = SYSCONFDIR PIMD_DEFAULT_CONFIG;
 
@@ -245,18 +244,6 @@ int main(int argc, char** argv, char** envp) {
 
   zlog_notice("Quagga %s " PIMD_PROGNAME " %s starting, VTY interface at port TCP %d",
 	      QUAGGA_VERSION, PIMD_VERSION, vty_port);
-
-#ifdef PIM_MOTD_VERSION
-  /* Tweak default MOTD to include pimd version */
-  zlog_notice("PIM_MOTD_VERSION: adding pimd version to default MOTD");
-  if (host.motd == default_motd) {
-    host.motd =
-      "\r\n\
-Hello, this is " QUAGGA_PROGNAME " " QUAGGA_VERSION " " PIMD_PROGNAME " " PIMD_VERSION_STR "\r\n\
-" QUAGGA_COPYRIGHT "\r\n\
-\r\n";
-  }
-#endif
 
 #ifdef PIM_DEBUG_BYDEFAULT
   zlog_notice("PIM_DEBUG_BYDEFAULT: Enabling all debug commands");
