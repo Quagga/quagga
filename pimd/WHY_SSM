@@ -29,9 +29,4 @@ PIM-SSM drawbacks
 - SSM will keep (S,G) state as long as there are subscriptions from
   receivers, even if the source is not actually sending traffic
 
-Cisco Documentation for SSM Benefits
-------------------------------------
-
-http://www.cisco.com/c/en/us/td/docs/ios/12_2/ip/configuration/guide/fipr_c/1cfssm.html#wp1000969
-
 --EOF--
