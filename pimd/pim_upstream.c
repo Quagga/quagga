@@ -256,15 +256,12 @@ static void forward_on(struct pim_upstream *up)
   struct interface     *ifp;
   struct pim_interface *pim_ifp;
   struct pim_ifchannel *ch;
-  struct in_addr        ifaddr;
 
   /* scan all interfaces */
   for (ALL_LIST_ELEMENTS(iflist, ifnode, ifnextnode, ifp)) {
     pim_ifp = ifp->info;
     if (!pim_ifp)
       continue;
-
-    ifaddr = pim_ifp->primary_address;
 
     /* scan per-interface (S,G) state */
     for (ALL_LIST_ELEMENTS(pim_ifp->pim_ifchannel_list, chnode, chnextnode, ch)) {

@@ -529,11 +529,8 @@ static void allow(struct igmp_sock *igmp, struct in_addr from,
 		  int num_sources, struct in_addr *sources)
 {
   struct interface *ifp = igmp->interface;
-  struct pim_interface *pim_ifp;
   struct igmp_group *group;
   int    i;
-
-  pim_ifp = ifp->info;
 
   /* non-existant group is created as INCLUDE {empty} */
   group = igmp_add_group_by_addr(igmp, group_addr, ifp->name);
@@ -673,13 +670,10 @@ void igmpv3_report_isex(struct igmp_sock *igmp, struct in_addr from,
 			int num_sources, struct in_addr *sources)
 {
   struct interface *ifp = igmp->interface;
-  struct pim_interface *pim_ifp;
   struct igmp_group *group;
 
   on_trace(__PRETTY_FUNCTION__,
 	   ifp, from, group_addr, num_sources, sources);
-
-  pim_ifp = ifp->info;
 
   /* non-existant group is created as INCLUDE {empty} */
   group = igmp_add_group_by_addr(igmp, group_addr, ifp->name);
@@ -800,13 +794,10 @@ void igmpv3_report_toin(struct igmp_sock *igmp, struct in_addr from,
 			int num_sources, struct in_addr *sources)
 {
   struct interface *ifp = igmp->interface;
-  struct pim_interface *pim_ifp;
   struct igmp_group *group;
 
   on_trace(__PRETTY_FUNCTION__,
 	   ifp, from, group_addr, num_sources, sources);
-
-  pim_ifp = ifp->info;
 
   /* non-existant group is created as INCLUDE {empty} */
   group = igmp_add_group_by_addr(igmp, group_addr, ifp->name);
@@ -955,13 +946,10 @@ void igmpv3_report_toex(struct igmp_sock *igmp, struct in_addr from,
 			int num_sources, struct in_addr *sources)
 {
   struct interface *ifp = igmp->interface;
-  struct pim_interface *pim_ifp;
   struct igmp_group *group;
 
   on_trace(__PRETTY_FUNCTION__,
 	   ifp, from, group_addr, num_sources, sources);
-
-  pim_ifp = ifp->info;
 
   /* non-existant group is created as INCLUDE {empty} */
   group = igmp_add_group_by_addr(igmp, group_addr, ifp->name);
@@ -1480,13 +1468,10 @@ void igmpv3_report_block(struct igmp_sock *igmp, struct in_addr from,
 			 int num_sources, struct in_addr *sources)
 {
   struct interface *ifp = igmp->interface;
-  struct pim_interface *pim_ifp;
   struct igmp_group *group;
 
   on_trace(__PRETTY_FUNCTION__,
 	   ifp, from, group_addr, num_sources, sources);
-
-  pim_ifp = ifp->info;
 
   /* non-existant group is created as INCLUDE {empty} */
   group = igmp_add_group_by_addr(igmp, group_addr, ifp->name);

@@ -1,10 +1,15 @@
 # $QuaggaId: $Format:%an, %ai, %h$ $
 
 global configuration commands:
+       pimd:
        ip multicast-routing	Enable IP multicast forwarding
        ip ssmpingd		Enable ssmpingd operation
 
+       zebra:
+       ip mroute		Configure static unicast route into MRIB for multicast RPF lookup
+
 interface configuration commands:
+       pimd:
        ip igmp						Enable IGMP operation
        ip igmp join					IGMP join multicast group
        ip igmp query-interval <1-1800>			IGMP host query interval
@@ -13,6 +18,7 @@ interface configuration commands:
        ip pim ssm					Enable PIM SSM operation
 
 verification commands:
+       pimd:
        show ip igmp interface			IGMP interface information
        show ip igmp join			IGMP static join information
        show ip igmp parameters			IGMP parameters information
@@ -44,7 +50,11 @@ verification commands:
        show ip rib				IP unicast routing table
        show ip ssmpingd				ssmpingd operation
 
+       zebra:
+       show ip rpf				Display RPF information for multicast source
+
 debug commands:
+       pimd:
        clear ip interfaces		Reset interfaces
        clear ip igmp interfaces		Reset IGMP interfaces
        clear ip mroute                  Reset multicast routes
@@ -65,6 +75,7 @@ debug commands:
        test pim receive upcall   	Test reception of kernel upcall
 
 statistics commands:
+       pimd:
        show memory pim		PIM memory statistics
 
 -x-
