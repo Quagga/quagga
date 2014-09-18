@@ -272,14 +272,6 @@ int main(int argc, char** argv, char** envp) {
   zlog_notice("PIM_UNEXPECTED_KERNEL_UPCALL: report unexpected kernel upcall");
 #endif
 
-#ifdef PIM_USE_QUAGGA_GETTIME
-  zlog_notice("PIM_USE_QUAGGA_GETTIME: using Quagga's quagga_gettime"());
-#endif
-
-#ifdef PIM_GETTIME_USE_GETTIMEOFDAY
-  zlog_notice("PIM_GETTIME_USE_GETTIMEOFDAY: work-around improper monotonic clock");
-#endif
-
 #ifdef HAVE_CLOCK_MONOTONIC
   zlog_notice("HAVE_CLOCK_MONOTONIC");
 #else
