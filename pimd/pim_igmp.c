@@ -299,7 +299,7 @@ static int recv_igmp_query(struct igmp_sock *igmp, int query_version,
   /* for computing checksum */
   *(uint16_t *) (igmp_msg + IGMP_V3_CHECKSUM_OFFSET) = 0;
 
-  checksum = pim_inet_checksum(igmp_msg, igmp_msg_len);
+  checksum = in_cksum(igmp_msg, igmp_msg_len);
   if (checksum != recv_checksum) {
     zlog_warn("Recv IGMP query v%d from %s on %s: checksum mismatch: received=%x computed=%x",
 	      query_version, from_str, ifp->name, recv_checksum, checksum);
@@ -470,7 +470,7 @@ static int igmp_v3_report(struct igmp_sock *igmp,
   /* for computing checksum */
   *(uint16_t *) (igmp_msg + IGMP_V3_CHECKSUM_OFFSET) = 0;
 
-  checksum = pim_inet_checksum(igmp_msg, igmp_msg_len);
+  checksum = in_cksum(igmp_msg, igmp_msg_len);
   if (checksum != recv_checksum) {
     zlog_warn("Recv IGMP report v3 from %s on %s: checksum mismatch: received=%x computed=%x",
 	      from_str, ifp->name, recv_checksum, checksum);

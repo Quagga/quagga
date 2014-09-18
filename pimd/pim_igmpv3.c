@@ -1651,7 +1651,7 @@ void pim_igmp_send_membership_query(struct igmp_group *group,
   query_buf[9]                                         = qqic;
   *(uint16_t *)(query_buf + IGMP_V3_NUMSOURCES_OFFSET) = htons(num_sources);
 
-  checksum = pim_inet_checksum(query_buf, msg_size);
+  checksum = in_cksum(query_buf, msg_size);
   *(uint16_t *)(query_buf + IGMP_V3_CHECKSUM_OFFSET) = checksum;
 
   if (PIM_DEBUG_IGMP_PACKETS) {

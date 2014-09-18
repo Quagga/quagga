@@ -98,43 +98,6 @@ uint16_t igmp_msg_decode8to16(uint8_t code)
   return value;
 }
 
-#ifndef PIM_USE_QUAGGA_INET_CHECKSUM
-/*
-  RFC 3376: 4.1.2. Checksum
-
-  The Checksum is the 16-bit one's complement of the one's complement
-  sum of the whole IGMP message (the entire IP payload).  For
-  computing the checksum, the Checksum field is set to zero.  When
-  receiving packets, the checksum MUST be verified before processing a
-  packet.  [RFC-1071]
-*/
-uint16_t pim_inet_checksum(const char *buf, int size)
-{
-  const uint16_t *ptr;
-  uint32_t        sum;
-  uint16_t        checksum;
-
-  ptr = (const uint16_t *) buf;
-  sum = 0;
-  while (size > 1) {
-    sum += *ptr;
-    ++ptr;
-    size -= 2;
-  }
-
-  /* Add left-over byte, if any */
-  if (size > 0)
-    sum += (uint16_t) *(const uint8_t *) ptr;
-
-  /* Fold 32-bit sum to 16 bits */
-  sum = (sum & 0xffff) + (sum >> 16);
-
-  checksum = ~sum;
-
-  return checksum;
-}
-#endif /* PIM_USE_QUAGGA_INET_CHECKSUM */
-
 void pim_pkt_dump(const char *label, const uint8_t *buf, int size)
 {
   char dump_buf[1000];

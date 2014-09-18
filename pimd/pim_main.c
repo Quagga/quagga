@@ -281,10 +281,6 @@ Hello, this is " QUAGGA_PROGNAME " " QUAGGA_VERSION " " PIMD_PROGNAME " " PIMD_V
 #endif
 #endif
 
-#ifdef PIM_USE_QUAGGA_INET_CHECKSUM
-  zlog_notice("PIM_USE_QUAGGA_INET_CHECKSUM: using Quagga's builtin checksum");
-#endif
-
 #ifdef PIM_UNEXPECTED_KERNEL_UPCALL
   zlog_notice("PIM_UNEXPECTED_KERNEL_UPCALL: report unexpected kernel upcall");
 #endif

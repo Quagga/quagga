@@ -3590,7 +3590,7 @@ DEFUN (test_igmp_receive_report,
   igmp_msg_len = IGMP_V3_MSG_MIN_SIZE + (num_sources << 4);   /* v3 report for one single group record */
 
   /* compute checksum */
-  *(uint16_t *)(igmp_msg + IGMP_V3_CHECKSUM_OFFSET) = pim_inet_checksum(igmp_msg, igmp_msg_len);
+  *(uint16_t *)(igmp_msg + IGMP_V3_CHECKSUM_OFFSET) = in_cksum(igmp_msg, igmp_msg_len);
 
   /* "receive" message */
 

@@ -46,7 +46,7 @@ void pim_msg_build_header(uint8_t *pim_msg, int pim_msg_size,
    */
 
   *(uint16_t *) PIM_MSG_HDR_OFFSET_CHECKSUM(pim_msg) = 0;
-  checksum = pim_inet_checksum(pim_msg, pim_msg_size);
+  checksum = in_cksum(pim_msg, pim_msg_size);
   *(uint16_t *) PIM_MSG_HDR_OFFSET_CHECKSUM(pim_msg) = checksum;
 }
 

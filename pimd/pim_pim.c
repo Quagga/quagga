@@ -194,7 +194,7 @@ int pim_pim_packet(struct interface *ifp, uint8_t *buf, size_t len)
   /* for computing checksum */
   *(uint16_t *) PIM_MSG_HDR_OFFSET_CHECKSUM(pim_msg) = 0;
 
-  checksum = pim_inet_checksum(pim_msg, pim_msg_len);
+  checksum = in_cksum(pim_msg, pim_msg_len);
   if (checksum != pim_checksum) {
     zlog_warn("Ignoring PIM pkt from %s with invalid checksum: received=%x calculated=%x",
 	      ifp->name, pim_checksum, checksum);
