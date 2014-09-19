@@ -4034,7 +4034,6 @@ static void
 show_ip_ospf_database_maxage (struct vty *vty, struct ospf *ospf)
 {
   struct route_node *rn;
-  struct ospf_lsa *lsa;
 
   vty_out (vty, "%s                MaxAge Link States:%s%s",
            VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);

@@ -576,7 +576,7 @@ DEFUN (no_bgp_confederation_identifier,
        "AS number\n")
 {
   struct bgp *bgp;
-  as_t as;
+  as_t as __attribute__((unused)); /* Dummy for VTY_GET_INTEGER_RANGE */
 
   bgp = vty->index;
 
@@ -3205,7 +3205,6 @@ static int
 peer_weight_set_vty (struct vty *vty, const char *ip_str, 
                      const char *weight_str)
 {
-  int ret;
   struct peer *peer;
   unsigned long weight;
 
@@ -3215,9 +3214,7 @@ peer_weight_set_vty (struct vty *vty, const char *ip_str,
 
   VTY_GET_INTEGER_RANGE("weight", weight, weight_str, 0, 65535);
 
-  ret = peer_weight_set (peer, weight);
-
-  return CMD_SUCCESS;
+  return bgp_vty_return (vty, peer_weight_set (peer, weight));
 }
 
 static int
@@ -3229,9 +3226,7 @@ peer_weight_unset_vty (struct vty *vty, const char *ip_str)
   if (! peer)
     return CMD_WARNING;
 
-  peer_weight_unset (peer);
-
-  return CMD_SUCCESS;
+  return bgp_vty_return (vty, peer_weight_unset (peer));
 }
 
 DEFUN (neighbor_weight,
@@ -3371,7 +3366,6 @@ static int
 peer_timers_connect_set_vty (struct vty *vty, const char *ip_str, 
                              const char *time_str)
 {
-  int ret;
   struct peer *peer;
   u_int32_t connect;
 
@@ -3381,24 +3375,19 @@ peer_timers_connect_set_vty (struct vty *vty, const char *ip_str,
 
   VTY_GET_INTEGER_RANGE ("Connect time", connect, time_str, 0, 65535);
 
-  ret = peer_timers_connect_set (peer, connect);
-
-  return CMD_SUCCESS;
+  return bgp_vty_return (vty, peer_timers_connect_set (peer, connect));
 }
 
 static int
 peer_timers_connect_unset_vty (struct vty *vty, const char *ip_str)
 {
-  int ret;
   struct peer *peer;
 
   peer = peer_and_group_lookup_vty (vty, ip_str);
   if (! peer)
     return CMD_WARNING;
 
-  ret = peer_timers_connect_unset (peer);
-
-  return CMD_SUCCESS;
+  return bgp_vty_return (vty, peer_timers_connect_unset (peer));
 }
 
 DEFUN (neighbor_timers_connect,
@@ -3455,7 +3444,7 @@ peer_advertise_interval_vty (struct vty *vty, const char *ip_str,
   else
     ret = peer_advertise_interval_unset (peer);
 
-  return CMD_SUCCESS;
+  return bgp_vty_return (vty, ret);
 }
 
 DEFUN (neighbor_advertise_interval,
@@ -3505,7 +3494,7 @@ peer_interface_vty (struct vty *vty, const char *ip_str, const char *str)
   else
     ret = peer_interface_unset (peer);
 
-  return CMD_SUCCESS;
+  return bgp_vty_return (vty, ret);
 }
 
 DEFUN (neighbor_interface,

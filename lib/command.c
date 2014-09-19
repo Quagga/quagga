@@ -1411,7 +1411,7 @@ cmd_matcher_read_keywords(struct cmd_matcher *matcher,
   const char *word;
   int keyword_argc;
   const char **keyword_argv;
-  enum matcher_rv rv;
+  enum matcher_rv rv = MATCHER_NO_MATCH;
 
   keyword_mask = 0;
   while (1)
@@ -1642,7 +1642,7 @@ cmd_element_match(struct cmd_element *cmd_element,
 {
   struct cmd_matcher matcher;
   unsigned int token_index;
-  enum matcher_rv rv;
+  enum matcher_rv rv = MATCHER_NO_MATCH;
 
   cmd_matcher_init(&matcher, cmd_element, filter,
                    vline, index, match_type, match);

@@ -158,7 +158,7 @@ bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
   snlri = peer->scratch;
   stream_reset (snlri);
 
-  adv = FIFO_HEAD (&peer->sync[afi][safi]->update);
+  adv = BGP_ADV_FIFO_HEAD (&peer->sync[afi][safi]->update);
 
   while (adv)
     {
@@ -331,7 +331,6 @@ bgp_withdraw_packet (struct peer *peer, afi_t afi, safi_t safi)
   struct bgp_adj_out *adj;
   struct bgp_advertise *adv;
   struct bgp_node *rn;
-  unsigned long pos;
   bgp_size_t unfeasible_len;
   bgp_size_t total_attr_len;
   size_t mp_start = 0;
@@ -342,7 +341,7 @@ bgp_withdraw_packet (struct peer *peer, afi_t afi, safi_t safi)
   s = peer->work;
   stream_reset (s);
 
-  while ((adv = FIFO_HEAD (&peer->sync[afi][safi]->withdraw)) != NULL)
+  while ((adv = BGP_ADV_FIFO_HEAD (&peer->sync[afi][safi]->withdraw)) != NULL)
     {
       assert (adv->rn);
       adj = adv->adj;
@@ -595,7 +594,7 @@ bgp_write_packet (struct peer *peer)
   for (afi = AFI_IP; afi < AFI_MAX; afi++)
     for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
       {
-	adv = FIFO_HEAD (&peer->sync[afi][safi]->withdraw);
+	adv = BGP_ADV_FIFO_HEAD (&peer->sync[afi][safi]->withdraw);
 	if (adv)
 	  {
 	    s = bgp_withdraw_packet (peer, afi, safi);
@@ -607,7 +606,7 @@ bgp_write_packet (struct peer *peer)
   for (afi = AFI_IP; afi < AFI_MAX; afi++)
     for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
       {
-	adv = FIFO_HEAD (&peer->sync[afi][safi]->update);
+	adv = BGP_ADV_FIFO_HEAD (&peer->sync[afi][safi]->update);
 	if (adv)
 	  {
             if (adv->binfo && adv->binfo->uptime < peer->synctime)
@@ -663,7 +662,7 @@ bgp_write_proceed (struct peer *peer)
 
   for (afi = AFI_IP; afi < AFI_MAX; afi++)
     for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
-      if ((adv = FIFO_HEAD (&peer->sync[afi][safi]->update)) != NULL)
+      if ((adv = BGP_ADV_FIFO_HEAD (&peer->sync[afi][safi]->update)) != NULL)
 	if (adv->binfo->uptime < peer->synctime)
 	  return 1;
 
@@ -2036,7 +2035,6 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
 {
   afi_t afi;
   safi_t safi;
-  u_char reserved;
   struct stream *s;
 
   /* If peer does not have the capability, send notification. */
@@ -2064,7 +2062,8 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
   
   /* Parse packet. */
   afi = stream_getw (s);
-  reserved = stream_getc (s);
+  /* reserved byte */
+  stream_getc (s);
   safi = stream_getc (s);
 
   if (BGP_DEBUG (normal, NORMAL))
@@ -2116,8 +2115,8 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
 	  if (orf_type == ORF_TYPE_PREFIX
 	      || orf_type == ORF_TYPE_PREFIX_OLD)
 	    {
-	      u_char *p_pnt = stream_pnt (s);
-	      u_char *p_end = stream_pnt (s) + orf_len;
+	      uint8_t *p_pnt = stream_pnt (s);
+	      uint8_t *p_end = stream_pnt (s) + orf_len;
 	      struct orf_prefix orfp;
 	      u_char common = 0;
 	      u_int32_t seq;
@@ -2157,7 +2156,7 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
 		      prefix_bgp_orf_remove_all (name);
 		      break;
 		    }
-		  ok = ((p_end - p_pnt) >= sizeof(u_int32_t)) ;
+		  ok = ((size_t)(p_end - p_pnt) >= sizeof(u_int32_t)) ;
 		  if (ok)
 		    {
 		      memcpy (&seq, p_pnt, sizeof (u_int32_t));
@@ -2209,8 +2208,8 @@ bgp_route_refresh_receive (struct peer *peer, bgp_size_t size)
 		    ret = prefix_bgp_orf_set (name, afi, &orfp,
 				   (common & ORF_COMMON_PART_DENY ? 0 : 1 ),
 				   (common & ORF_COMMON_PART_REMOVE ? 0 : 1));
-
-		  if (!ok || (ret != CMD_SUCCESS))
+                  
+		  if (!ok || (ok && ret != CMD_SUCCESS))
 		    {
 		      if (BGP_DEBUG (normal, NORMAL))
 			zlog_debug ("%s Received misformatted prefixlist ORF."
@@ -2246,11 +2245,9 @@ bgp_capability_msg_parse (struct peer *peer, u_char *pnt, bgp_size_t length)
   struct capability_mp_data mpc;
   struct capability_header *hdr;
   u_char action;
-  struct bgp *bgp;
   afi_t afi;
   safi_t safi;
 
-  bgp = peer->bgp;
   end = pnt + length;
 
   while (pnt < end)

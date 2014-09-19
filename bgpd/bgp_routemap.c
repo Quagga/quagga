@@ -1174,7 +1174,6 @@ route_set_metric (void *rule, struct prefix *prefix,
 static void *
 route_set_metric_compile (const char *arg)
 {
-  u_int32_t metric;
   unsigned long larg;
   char *endptr = NULL;
 
@@ -1185,7 +1184,6 @@ route_set_metric_compile (const char *arg)
       larg = strtoul (arg, &endptr, 10);
       if (*endptr != '\0' || errno || larg > UINT32_MAX)
         return NULL;
-      metric = larg;
     }
   else
     {
@@ -1199,7 +1197,6 @@ route_set_metric_compile (const char *arg)
       larg = strtoul (arg+1, &endptr, 10);
       if (*endptr != '\0' || errno || larg > UINT32_MAX)
 	return NULL;
-      metric = larg;
     }
 
   return XSTRDUP (MTYPE_ROUTE_MAP_COMPILED, arg);
@@ -1802,22 +1799,21 @@ static route_map_result_t
 route_match_ipv6_next_hop (void *rule, struct prefix *prefix, 
 			   route_map_object_t type, void *object)
 {
-  struct in6_addr *addr;
+  struct in6_addr *addr = rule;
   struct bgp_info *bgp_info;
 
   if (type == RMAP_BGP)
     {
-      addr = rule;
       bgp_info = object;
       
       if (!bgp_info->attr->extra)
         return RMAP_NOMATCH;
       
-      if (IPV6_ADDR_SAME (&bgp_info->attr->extra->mp_nexthop_global, rule))
+      if (IPV6_ADDR_SAME (&bgp_info->attr->extra->mp_nexthop_global, addr))
 	return RMAP_MATCH;
 
       if (bgp_info->attr->extra->mp_nexthop_len == 32 &&
-	  IPV6_ADDR_SAME (&bgp_info->attr->extra->mp_nexthop_local, rule))
+	  IPV6_ADDR_SAME (&bgp_info->attr->extra->mp_nexthop_local, addr))
 	return RMAP_MATCH;
 
       return RMAP_NOMATCH;
@@ -3430,7 +3426,7 @@ DEFUN (set_aggregator_as,
        "IP address of aggregator\n")
 {
   int ret;
-  as_t as;
+  as_t as __attribute__((unused)); /* dummy for VTY_GET_INTEGER_RANGE */
   struct in_addr address;
   char *argstr;
 
@@ -3464,7 +3460,7 @@ DEFUN (no_set_aggregator_as,
        "AS number of aggregator\n")
 {
   int ret;
-  as_t as;
+  as_t as __attribute__((unused)); /* dummy for VTY_GET_INTEGER_RANGE */
   struct in_addr address;
   char *argstr;
 

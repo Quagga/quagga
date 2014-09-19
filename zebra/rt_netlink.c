@@ -1246,9 +1246,9 @@ netlink_route_read (void)
 /* Utility function  comes from iproute2. 
    Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru> */
 int
-addattr_l (struct nlmsghdr *n, int maxlen, int type, void *data, int alen)
+addattr_l (struct nlmsghdr *n, size_t maxlen, int type, void *data, int alen)
 {
-  int len;
+  size_t len;
   struct rtattr *rta;
 
   len = RTA_LENGTH (alen);
@@ -1288,9 +1288,9 @@ rta_addattr_l (struct rtattr *rta, int maxlen, int type, void *data, int alen)
 /* Utility function comes from iproute2. 
    Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru> */
 int
-addattr32 (struct nlmsghdr *n, int maxlen, int type, int data)
+addattr32 (struct nlmsghdr *n, size_t maxlen, int type, int data)
 {
-  int len;
+  size_t len;
   struct rtattr *rta;
 
   len = RTA_LENGTH (4);

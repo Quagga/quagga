@@ -2110,7 +2110,6 @@ bgp_packet_mpattr_start (struct stream *s, afi_t afi, safi_t safi,
       case SAFI_UNICAST:
       case SAFI_MULTICAST:
 	{
-	  unsigned long sizep;
 	  struct attr_extra *attre = attr->extra;
 
 	  assert (attr->extra);
