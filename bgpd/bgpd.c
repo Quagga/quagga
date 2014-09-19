@@ -1028,9 +1028,9 @@ peer_remote_as (struct bgp *bgp, union sockunion *su, as_t *as,
 
       if (bgp_flag_check (bgp, BGP_FLAG_NO_DEFAULT_IPV4)
 	  && afi == AFI_IP && safi == SAFI_UNICAST)
-	peer = peer_create (su, bgp, local_as, *as, 0, 0); 
+	peer_create (su, bgp, local_as, *as, 0, 0); 
       else
-	peer = peer_create (su, bgp, local_as, *as, afi, safi); 
+	peer_create (su, bgp, local_as, *as, afi, safi); 
     }
 
   return 0;
