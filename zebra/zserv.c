@@ -612,16 +612,17 @@ zsend_ipv4_nexthop_lookup_mrib (struct zserv *client, struct in_addr addr)
   unsigned long nump;
   u_char num;
   struct nexthop *nexthop;
+  int skip_bgp = 0; /* bool */
 
   /* Lookup nexthop. */
-  rib = rib_match_ipv4_safi (addr, SAFI_MULTICAST);
+  rib = rib_match_ipv4_safi (addr, SAFI_MULTICAST, skip_bgp);
 
   if (IS_ZEBRA_DEBUG_PACKET && IS_ZEBRA_DEBUG_RECV)
     zlog_debug("%s: %s mrib entry found.", __func__, rib ? "Matching" : "No matching");
 
   if (!rib) {
     /* Retry lookup with unicast rib */
-    rib = rib_match_ipv4_safi (addr, SAFI_UNICAST);
+    rib = rib_match_ipv4_safi (addr, SAFI_UNICAST, skip_bgp);
     if (IS_ZEBRA_DEBUG_PACKET && IS_ZEBRA_DEBUG_RECV)
       zlog_debug("%s: %s rib entry found.", __func__, rib ? "Matching" : "No matching");
   }
