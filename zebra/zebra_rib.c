@@ -496,17 +496,6 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
 	    break;
 	}
 
-      if (IS_ZEBRA_DEBUG_RIB) {
-	char buf[INET6_ADDRSTRLEN];
-	inet_ntop(rn->p.family, &rn->p.u.prefix, buf, INET6_ADDRSTRLEN);
-        zlog_debug("%s: %s/%d: nexthop match %p: %s type=%d sel=%d int=%d",
-		   __func__, buf, rn->p.prefixlen, match,
-		   match ? zebra_route_string(match->type) : "<?>",
-		   match ? match->type : -1,
-		   match ? CHECK_FLAG(match->flags, ZEBRA_FLAG_SELECTED) : -1,
-		   match ? CHECK_FLAG(match->flags, ZEBRA_FLAG_INTERNAL) : -1);
-      }
-
       /* If there is no selected route or matched route is EGP, go up
          tree. */
       if (! match 
@@ -537,6 +526,11 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
 	    }
 	  else if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_INTERNAL) ||
 		   match->type == ZEBRA_ROUTE_KERNEL)
+	    /* 
+	       || match->type == ZEBRA_ROUTE_KERNEL
+	       This prevents zebra from marking recursive static route as inactive.
+	       See pimd/TODO T26.
+	    */
 	    {
 	      resolved = 0;
 	      for (newhop = match->nexthop; newhop; newhop = newhop->next)
@@ -1054,43 +1048,6 @@ rib_match_ipv6 (struct in6_addr *addr)
 }
 #endif /* HAVE_IPV6 */
 
-static void nexthop_dump(struct nexthop *nexthop,
-			 char *type_str_buf,
-			 int type_str_buf_size,
-			 char *addr_str_buf,
-			 int addr_str_buf_size,
-			 char *via_str_buf,
-			 int via_str_buf_size)
-{
-  switch (nexthop->type) {
-  case NEXTHOP_TYPE_IPV4:
-  case NEXTHOP_TYPE_IPV4_IFINDEX:
-    snprintf(type_str_buf, type_str_buf_size, "ipv4");
-    snprintf(addr_str_buf, addr_str_buf_size, "%s", inet_ntoa(nexthop->gate.ipv4));
-    snprintf(via_str_buf, via_str_buf_size, "%s", nexthop->ifindex ? ifindex2ifname(nexthop->ifindex) : "<?>");
-    break;
-  case NEXTHOP_TYPE_IFINDEX:
-    snprintf(type_str_buf, type_str_buf_size, "connected");
-    snprintf(addr_str_buf, addr_str_buf_size, "<connected>");
-    snprintf(via_str_buf, via_str_buf_size, "%s", ifindex2ifname(nexthop->ifindex));
-    break;
-  case NEXTHOP_TYPE_IFNAME:
-    snprintf(type_str_buf, type_str_buf_size, "connected");
-    snprintf(addr_str_buf, addr_str_buf_size, "<connected>");
-    snprintf(via_str_buf, via_str_buf_size, "%s", nexthop->ifname);
-    break;
-  case NEXTHOP_TYPE_BLACKHOLE:
-    snprintf(type_str_buf, type_str_buf_size, "blackhole");
-    snprintf(addr_str_buf, addr_str_buf_size, "<blackhole>");
-    snprintf(via_str_buf, via_str_buf_size, "Null0");
-    break;
-  default:
-    snprintf(type_str_buf, type_str_buf_size, "unknown");
-    snprintf(addr_str_buf, addr_str_buf_size, "<unknown>");
-    snprintf(via_str_buf, via_str_buf_size, "<?>");
-  }
-}
-
 #define RIB_SYSTEM_ROUTE(R) \
         ((R)->type == ZEBRA_ROUTE_KERNEL || (R)->type == ZEBRA_ROUTE_CONNECT)
 
@@ -1145,27 +1102,10 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
     case NEXTHOP_TYPE_IPV4:
     case NEXTHOP_TYPE_IPV4_IFINDEX:
       family = AFI_IP;
-      {
-	int nh_active = nexthop_active_ipv4 (rib, nexthop, set, rn);
-	if (IS_ZEBRA_DEBUG_RIB) {
-	  char type_str_buf[100];
-	  char addr_str_buf[100];
-	  char via_str_buf[100];
-	  nexthop_dump(nexthop,
-		       type_str_buf, sizeof(type_str_buf),
-		       addr_str_buf, sizeof(addr_str_buf),
-		       via_str_buf, sizeof(via_str_buf));
-	  zlog_debug("%s: rib %p nexthop %p type=%d %s %s via %s ifindex=%d nexthop_active_ipv4=%d",
-		     __func__, rib, nexthop,
-		     nexthop->type, type_str_buf,
-		     addr_str_buf, via_str_buf, nexthop->ifindex,
-		     nh_active);
-	}
-	if (nh_active)
-	  SET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
-	else
-	  UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
-      }
+      if (nexthop_active_ipv4 (rib, nexthop, set, rn))
+	SET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
+      else
+	UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
       break;
 #ifdef HAVE_IPV6
     case NEXTHOP_TYPE_IPV6:
@@ -1256,23 +1196,8 @@ nexthop_active_update (struct route_node *rn, struct rib *rib, int set)
   {
     prev_active = CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
     prev_index = nexthop->ifindex;
-    new_active = nexthop_active_check (rn, rib, nexthop, set);
-    if (new_active)
+    if ((new_active = nexthop_active_check (rn, rib, nexthop, set)))
       rib->nexthop_active_num++;
-    if (IS_ZEBRA_DEBUG_RIB) {
-      char type_str_buf[100];
-      char addr_str_buf[100];
-      char via_str_buf[100];
-      nexthop_dump(nexthop,
-		   type_str_buf, sizeof(type_str_buf),
-		   addr_str_buf, sizeof(addr_str_buf),
-		   via_str_buf, sizeof(via_str_buf));
-      zlog_debug("%s: rib %p nexthop %p type=%d %s %s via %s ifindex=%d act=%d total_act=%d",
-		 __func__, rib, nexthop,
-		 nexthop->type, type_str_buf,
-		 addr_str_buf, via_str_buf, nexthop->ifindex,
-		 new_active, rib->nexthop_active_num);
-    }
     if (prev_active != new_active ||
 	prev_index != nexthop->ifindex)
       SET_FLAG (rib->flags, ZEBRA_FLAG_CHANGED);
