@@ -51,16 +51,19 @@ static int del_oif(struct channel_oil *channel_oil,
 		   struct interface *oif,
 		   uint32_t proto_mask);
 
-static void reset_iface_addresses() {
+static void zclient_broken(struct zclient *zclient)
+{
   struct listnode  *ifnode;
   struct interface *ifp;
 
-  zlog_warn("%s %s: resetting all interface addresses",
+  zlog_warn("%s %s: broken zclient connection",
 	    __FILE__, __PRETTY_FUNCTION__);
 
   for (ALL_LIST_ELEMENTS_RO(iflist, ifnode, ifp)) {
-    if_connected_reset(ifp);
+    pim_if_addr_del_all(ifp);
   }
+
+  /* upon return, zclient will discard connected addresses */
 }
 
 /* Router-id update message from zebra. */
@@ -70,12 +73,6 @@ static int pim_router_id_update_zebra(int command, struct zclient *zclient,
   struct prefix router_id;
 
   zebra_router_id_update_read(zclient->ibuf, &router_id);
-
-  zlog_info("zebra router id update");
-
-  /* Prevent interfaces' addresses duplication when zebra connection
-     is restored */
-  reset_iface_addresses();
 
   return 0;
 }
@@ -330,7 +327,7 @@ static int pim_zebra_if_address_del(int command, struct zclient *client,
 #endif
   }
 
-  pim_if_addr_del(c);
+  pim_if_addr_del(c, 0);
   
   return 0;
 }
@@ -659,6 +656,7 @@ void pim_zebra_init()
   /* Socket for receiving updates from Zebra daemon */
   zclient = zclient_new();
 
+  zclient->router_id_update         = pim_router_id_update;
   zclient->router_id_update         = pim_router_id_update_zebra;
   zclient->interface_add            = pim_zebra_if_add;
   zclient->interface_delete         = pim_zebra_if_del;
