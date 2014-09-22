@@ -230,7 +230,7 @@ static int zclient_read_nexthop(struct zclient *zlookup,
   }
     
   command = stream_getw(s);
-  if (command != ZEBRA_IPV4_NEXTHOP_LOOKUP_V2) {
+  if (command != ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB) {
     zlog_err("%s: socket %d command mismatch: %d",
             __func__, zlookup->sock, command);
     return -5;
@@ -369,7 +369,7 @@ static int zclient_lookup_nexthop_once(struct zclient *zlookup,
   
   s = zlookup->obuf;
   stream_reset(s);
-  zclient_create_header(s, ZEBRA_IPV4_NEXTHOP_LOOKUP_V2);
+  zclient_create_header(s, ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB);
   stream_put_in_addr(s, &addr);
   stream_putw_at(s, 0, stream_get_endp(s));
   
