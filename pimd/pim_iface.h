@@ -113,7 +113,7 @@ void pim_if_init(void);
 struct pim_interface *pim_if_new(struct interface *ifp, int igmp, int pim);
 void                  pim_if_delete(struct interface *ifp);
 void pim_if_addr_add(struct connected *ifc);
-void pim_if_addr_del(struct connected *ifc);
+void pim_if_addr_del(struct connected *ifc, int force_prim_as_any);
 void pim_if_addr_add_all(struct interface *ifp);
 void pim_if_addr_del_all(struct interface *ifp);
 void pim_if_addr_del_all_igmp(struct interface *ifp);

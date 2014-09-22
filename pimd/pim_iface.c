@@ -282,6 +282,7 @@ static void on_primary_address_change(struct interface *ifp,
 }
 
 static void detect_primary_address_change(struct interface *ifp,
+					  int force_prim_as_any,
 					  const char *caller)
 {
   struct pim_interface *pim_ifp;
@@ -292,7 +293,10 @@ static void detect_primary_address_change(struct interface *ifp,
   if (!pim_ifp)
     return;
 
-  new_prim_addr = pim_find_primary_addr(ifp);
+  if (force_prim_as_any)
+    new_prim_addr = qpim_inaddr_any;
+  else
+    new_prim_addr = pim_find_primary_addr(ifp);
 
   changed = new_prim_addr.s_addr != pim_ifp->primary_address.s_addr;
 
@@ -344,7 +348,7 @@ void pim_if_addr_add(struct connected *ifc)
 
   ifaddr = ifc->address->u.prefix4;
 
-  detect_primary_address_change(ifp, __PRETTY_FUNCTION__);
+  detect_primary_address_change(ifp, 0, __PRETTY_FUNCTION__);
 
   if (PIM_IF_TEST_IGMP(pim_ifp->options)) {
     struct igmp_sock *igmp;
@@ -443,7 +447,7 @@ static void pim_if_addr_del_pim(struct connected *ifc)
   pim_sock_delete(ifc->ifp, "last address has been removed from interface");
 }
 
-void pim_if_addr_del(struct connected *ifc)
+void pim_if_addr_del(struct connected *ifc, int force_prim_as_any)
 {
   struct interface *ifp;
 
@@ -461,7 +465,7 @@ void pim_if_addr_del(struct connected *ifc)
 	       "secondary" : "primary");
   }
 
-  detect_primary_address_change(ifp, __PRETTY_FUNCTION__);
+  detect_primary_address_change(ifp, force_prim_as_any, __PRETTY_FUNCTION__);
 
   pim_if_addr_del_igmp(ifc);
   pim_if_addr_del_pim(ifc);
@@ -503,7 +507,7 @@ void pim_if_addr_del_all(struct interface *ifp)
     if (p->family != AF_INET)
       continue;
 
-    pim_if_addr_del(ifc);
+    pim_if_addr_del(ifc, 1 /* force_prim_as_any=true */);
   }
 }
 
