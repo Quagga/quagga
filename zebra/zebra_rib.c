@@ -782,6 +782,63 @@ rib_match_ipv4 (struct in_addr addr)
 }
 
 struct rib *
+rib_match_ipv4_safi (struct in_addr addr, safi_t safi)
+{
+  struct route_table *table;
+  struct route_node *rn;
+  struct rib *match;
+  struct nexthop *newhop, *tnewhop;
+  int recursing;
+
+  /* Lookup table.  */
+  table = vrf_table (AFI_IP, safi, 0);
+  if (! table)
+    return 0;
+
+  rn = route_node_match_ipv4 (table, &addr);
+
+  while (rn)
+    {
+      route_unlock_node (rn);
+
+      /* Pick up selected route. */
+      RNODE_FOREACH_RIB (rn, match)
+	{
+	  if (CHECK_FLAG (match->status, RIB_ENTRY_REMOVED))
+	    continue;
+	  if (CHECK_FLAG (match->flags, ZEBRA_FLAG_SELECTED))
+	    break;
+	}
+
+      /* If there is no selected route or matched route is EGP, go up
+         tree. */
+      if (! match
+	  || match->type == ZEBRA_ROUTE_BGP)
+	{
+	  do {
+	    rn = rn->parent;
+	  } while (rn && rn->info == NULL);
+	  if (rn)
+	    route_lock_node (rn);
+	}
+      else
+	{
+	  if (match->type == ZEBRA_ROUTE_CONNECT)
+	    /* Directly point connected route. */
+	    return match;
+	  else
+	    {
+	      for (ALL_NEXTHOPS_RO(match->nexthop, newhop, tnewhop, recursing))
+		if (CHECK_FLAG (newhop->flags, NEXTHOP_FLAG_FIB))
+		  return match;
+	      return NULL;
+	    }
+	}
+    }
+  return NULL;
+}
+
+struct rib *
 rib_lookup_ipv4 (struct prefix_ipv4 *p)
 {
   struct route_table *table;
