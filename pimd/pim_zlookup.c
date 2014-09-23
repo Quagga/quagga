@@ -51,47 +51,10 @@ static int zclient_lookup_connect(struct thread *t)
     return 0;
   }
 
-#ifdef PIM_ZCLIENT_DEBUG
-
-#ifdef HAVE_TCP_ZEBRA
-  zlog_debug("%s: FIXME blocking connect: zclient_socket()",
-	     __PRETTY_FUNCTION__);
-  zlookup->sock = zclient_socket();
-  if (zlookup->sock < 0) {
-    zlog_warn("%s: failure connecting TCP socket %s,%d",
-	      __PRETTY_FUNCTION__, "127.0.0.1", ZEBRA_PORT);
-  }
-  else if (zclient_debug) {
-    zlog_notice("%s: connected TCP socket %s,%d",
-		__PRETTY_FUNCTION__, "127.0.0.1", ZEBRA_PORT);
-  }
-#else
-  {
-    const char *const path = zclient_serv_path_get();
-    zlog_debug("%s: FIXME blocking connect: zclient_socket_un()",
-	       __PRETTY_FUNCTION__);
-    zlookup->sock = zclient_socket_un(path);
-    if (zlookup->sock < 0) {
-      zlog_warn("%s: failure connecting UNIX socket %s",
-		__PRETTY_FUNCTION__, path);
-    }
-    else if (zclient_debug) { 
-      zlog_notice("%s: connected UNIX socket %s",
-		  __PRETTY_FUNCTION__, path);
-    }
-  }
-#endif /* HAVE_TCP_ZEBRA */
-
-#else
-
-  zlog_debug("%s: FIXME blocking connect: zclient_socket_connect()",
-	     __PRETTY_FUNCTION__);
   if (zclient_socket_connect(zlookup) < 0) {
     zlog_warn("%s: failure connecting zclient socket",
 	      __PRETTY_FUNCTION__);
   }
-
-#endif /* PIM_ZCLIENT_DEBUG */
 
   zassert(!zlookup->t_connect);
   if (zlookup->sock < 0) {
