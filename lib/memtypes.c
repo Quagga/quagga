@@ -1,6 +1,4 @@
 /*
- * Portions Copyright (c) 2008 Everton da Silva Marques <everton.marques@gmail.com>
- *
  * Memory type definitions. This file is parsed by memtypes.awk to extract
  * MTYPE_ and memory_list_.. information in order to autogenerate 
  * memtypes.h.
