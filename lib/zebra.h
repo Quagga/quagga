@@ -1,6 +1,5 @@
 /* Zebra common header.
    Copyright (C) 1997, 1998, 1999, 2000, 2001, 2002 Kunihiro Ishiguro
-   Portions Copyright (c) 2008 Everton da Silva Marques <everton.marques@gmail.com>
 
 This file is part of GNU Zebra.
 
