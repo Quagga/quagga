@@ -148,7 +148,7 @@ zclient_reset (struct zclient *zclient)
 #ifdef HAVE_TCP_ZEBRA
 
 /* Make socket to zebra daemon. Return zebra socket. */
-int
+static int
 zclient_socket(void)
 {
   int sock;
@@ -184,7 +184,7 @@ zclient_socket(void)
 /* For sockaddr_un. */
 #include <sys/un.h>
 
-int
+static int
 zclient_socket_un (const char *path)
 {
   int ret;
