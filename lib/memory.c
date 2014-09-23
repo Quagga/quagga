@@ -569,6 +569,7 @@ memory_init (void)
   install_element (ENABLE_NODE, &show_memory_bgp_cmd);
   install_element (ENABLE_NODE, &show_memory_ospf_cmd);
   install_element (ENABLE_NODE, &show_memory_ospf6_cmd);
+  install_element (ENABLE_NODE, &show_memory_isis_cmd);
   install_element (ENABLE_NODE, &show_memory_pim_cmd);
 }
 
