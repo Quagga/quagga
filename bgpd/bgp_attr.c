@@ -1282,7 +1282,17 @@ bgp_attr_munge_as4_attrs (struct peer *const peer,
   int ignore_as4_path = 0;
   struct aspath *newpath;
   struct attr_extra *attre = attr->extra;
-    
+  
+  if (!attr->aspath)
+    {
+      /* NULL aspath shouldn't be possible as bgp_attr_parse should have
+       * checked that all well-known, mandatory attributes were present.
+       * 
+       * Can only be a problem with peer itself - hard error
+       */
+      return BGP_ATTR_PARSE_ERROR;
+    }
+  
   if (CHECK_FLAG (peer->cap, PEER_CAP_AS4_RCV))
     {
       /* peer can do AS4, so we ignore AS4_PATH and AS4_AGGREGATOR
@@ -1362,12 +1372,9 @@ bgp_attr_munge_as4_attrs (struct peer *const peer,
   /* need to reconcile NEW_AS_PATH and AS_PATH */
   if (!ignore_as4_path && (attr->flag & (ATTR_FLAG_BIT( BGP_ATTR_AS4_PATH))))
     {
-       if (!attr->aspath)
-         return BGP_ATTR_PARSE_PROCEED;
-
-       newpath = aspath_reconcile_as4 (attr->aspath, as4_path);
-       aspath_unintern (&attr->aspath);
-       attr->aspath = aspath_intern (newpath);
+      newpath = aspath_reconcile_as4 (attr->aspath, as4_path);
+      aspath_unintern (&attr->aspath);
+      attr->aspath = aspath_intern (newpath);
     }
   return BGP_ATTR_PARSE_PROCEED;
 }
@@ -1726,6 +1733,39 @@ bgp_attr_unknown (struct bgp_attr_parser_args *args)
   return BGP_ATTR_PARSE_PROCEED;
 }
 
+/* Well-known attribute check. */
+static int
+bgp_attr_check (struct peer *peer, struct attr *attr)
+{
+  u_char type = 0;
+  
+  if (! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_ORIGIN)))
+    type = BGP_ATTR_ORIGIN;
+
+  if (! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_AS_PATH)))
+    type = BGP_ATTR_AS_PATH;
+
+  if (! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_NEXT_HOP)))
+    type = BGP_ATTR_NEXT_HOP;
+
+  if (peer->sort == BGP_PEER_IBGP
+      && ! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_LOCAL_PREF)))
+    type = BGP_ATTR_LOCAL_PREF;
+
+  if (type)
+    {
+      zlog (peer->log, LOG_WARNING, 
+	    "%s Missing well-known attribute %d.",
+	    peer->host, type);
+      bgp_notify_send_with_data (peer, 
+				 BGP_NOTIFY_UPDATE_ERR, 
+				 BGP_NOTIFY_UPDATE_MISS_ATTR,
+				 &type, 1);
+      return BGP_ATTR_PARSE_ERROR;
+    }
+  return BGP_ATTR_PARSE_PROCEED;
+}
+
 /* Read attribute of update packet.  This function is called from
    bgp_update_receive() in bgp_packet.c.  */
 bgp_attr_parse_ret_t
@@ -1958,7 +1998,6 @@ bgp_attr_parse (struct peer *peer, struct attr *attr, bgp_size_t size,
 	  return BGP_ATTR_PARSE_ERROR;
 	}
     }
-
   /* Check final read pointer is same as end pointer. */
   if (BGP_INPUT_PNT (peer) != endp)
     {
@@ -1972,7 +2011,18 @@ bgp_attr_parse (struct peer *peer, struct attr *attr, bgp_size_t size,
         aspath_unintern (&as4_path);
       return BGP_ATTR_PARSE_ERROR;
     }
-
+  
+  /* Check all mandatory well-known attributes are present */
+  {
+    bgp_attr_parse_ret_t ret;
+    if ((ret = bgp_attr_check (peer, attr)) < 0)
+      {
+        if (as4_path)
+          aspath_unintern (&as4_path);
+        return ret;
+      }
+  }
+  
   /* 
    * At this place we can see whether we got AS4_PATH and/or
    * AS4_AGGREGATOR from a 16Bit peer and act accordingly.
@@ -2030,39 +2080,6 @@ bgp_attr_parse (struct peer *peer, struct attr *attr, bgp_size_t size,
   if (attr->extra && attr->extra->transit)
     attr->extra->transit = transit_intern (attr->extra->transit);
 
-  return BGP_ATTR_PARSE_PROCEED;
-}
-
-/* Well-known attribute check. */
-int
-bgp_attr_check (struct peer *peer, struct attr *attr)
-{
-  u_char type = 0;
-  
-  if (! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_ORIGIN)))
-    type = BGP_ATTR_ORIGIN;
-
-  if (! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_AS_PATH)))
-    type = BGP_ATTR_AS_PATH;
-
-  if (! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_NEXT_HOP)))
-    type = BGP_ATTR_NEXT_HOP;
-
-  if (peer->sort == BGP_PEER_IBGP
-      && ! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_LOCAL_PREF)))
-    type = BGP_ATTR_LOCAL_PREF;
-
-  if (type)
-    {
-      zlog (peer->log, LOG_WARNING, 
-	    "%s Missing well-known attribute %d.",
-	    peer->host, type);
-      bgp_notify_send_with_data (peer, 
-				 BGP_NOTIFY_UPDATE_ERR, 
-				 BGP_NOTIFY_UPDATE_MISS_ATTR,
-				 &type, 1);
-      return BGP_ATTR_PARSE_ERROR;
-    }
   return BGP_ATTR_PARSE_PROCEED;
 }
 

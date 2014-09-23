@@ -1775,18 +1775,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	bgp_nlri_parse (peer, NULL, &withdraw);
 
       if (update.length)
-	{
-	  /* We check well-known attribute only for IPv4 unicast
-	     update. */
-	  ret = bgp_attr_check (peer, &attr);
-	  if (ret < 0)
-	    {
-	      bgp_attr_unintern_sub (&attr);
-	      return -1;
-            }
-
 	  bgp_nlri_parse (peer, NLRI_ATTR_ARG, &update);
-	}
 
       if (mp_update.length
 	  && mp_update.afi == AFI_IP 
