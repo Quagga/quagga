@@ -24,6 +24,7 @@
 
 #include "zebra/rib.h"
 
+#include "if.h"
 #include "log.h"
 #include "prefix.h"
 #include "zclient.h"
@@ -50,14 +51,31 @@ static int del_oif(struct channel_oil *channel_oil,
 		   struct interface *oif,
 		   uint32_t proto_mask);
 
+static void reset_iface_addresses() {
+  struct listnode  *ifnode;
+  struct interface *ifp;
+
+  zlog_warn("%s %s: resetting all interface addresses",
+	    __FILE__, __PRETTY_FUNCTION__);
+
+  for (ALL_LIST_ELEMENTS_RO(iflist, ifnode, ifp)) {
+    if_connected_reset(ifp);
+  }
+}
+
 /* Router-id update message from zebra. */
 static int pim_router_id_update_zebra(int command, struct zclient *zclient,
 				      zebra_size_t length)
 {
   struct prefix router_id;
 
-  /* FIXME: actually use router_id for anything ? */
   zebra_router_id_update_read(zclient->ibuf, &router_id);
+
+  zlog_info("zebra router id update");
+
+  /* Prevent interfaces' addresses duplication when zebra connection
+     is restored */
+  reset_iface_addresses();
 
   return 0;
 }

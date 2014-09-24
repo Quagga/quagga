@@ -565,7 +565,7 @@ static struct in_addr find_first_nonsec_addr(struct interface *ifp)
       continue;
     }
 
-    if (CHECK_FLAG (ifc->flags, ZEBRA_IFA_SECONDARY))
+    if (CHECK_FLAG(ifc->flags, ZEBRA_IFA_SECONDARY))
       continue;
 
     return p->u.prefix4;
