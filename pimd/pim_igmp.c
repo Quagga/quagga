@@ -280,9 +280,9 @@ static int recv_igmp_query(struct igmp_sock *igmp, int query_version,
 {
   struct interface     *ifp;
   struct pim_interface *pim_ifp;
-  uint8_t               resv_s_qrv;
-  uint8_t               s_flag;
-  uint8_t               qrv;
+  uint8_t               resv_s_qrv = 0;
+  uint8_t               s_flag = 0;
+  uint8_t               qrv = 0;
   struct in_addr        group_addr;
   uint16_t              recv_checksum;
   uint16_t              checksum;
@@ -336,18 +336,20 @@ static int recv_igmp_query(struct igmp_sock *igmp, int query_version,
     pim_igmp_other_querier_timer_on(igmp);
   }
 
-  /*
-    RFC 3376: 4.1.6. QRV (Querier's Robustness Variable)
+  if (query_version == 3) {
+    /*
+      RFC 3376: 4.1.6. QRV (Querier's Robustness Variable)
 
-    Routers adopt the QRV value from the most recently received Query
-    as their own [Robustness Variable] value, unless that most
-    recently received QRV was zero, in which case the receivers use
-    the default [Robustness Variable] value specified in section 8.1
-    or a statically configured value.
-  */
-  resv_s_qrv = igmp_msg[8];
-  qrv = 7 & resv_s_qrv;
-  igmp->querier_robustness_variable = qrv ? qrv : pim_ifp->igmp_default_robustness_variable;
+      Routers adopt the QRV value from the most recently received Query
+      as their own [Robustness Variable] value, unless that most
+      recently received QRV was zero, in which case the receivers use
+      the default [Robustness Variable] value specified in section 8.1
+      or a statically configured value.
+    */
+    resv_s_qrv = igmp_msg[8];
+    qrv = 7 & resv_s_qrv;
+    igmp->querier_robustness_variable = qrv ? qrv : pim_ifp->igmp_default_robustness_variable;
+  }
 
   /*
     RFC 3376: 4.1.7. QQIC (Querier's Query Interval Code)
@@ -357,7 +359,7 @@ static int recv_igmp_query(struct igmp_sock *igmp, int query_version,
     Interval] value, unless that most recently received QQI was zero,
     in which case the receiving routers use the default.
   */
-  if (igmp->t_other_querier_timer) {
+  if (igmp->t_other_querier_timer && query_version == 3) {
     /* other querier present */
     uint8_t  qqic;
     uint16_t qqi;
@@ -386,7 +388,17 @@ static int recv_igmp_query(struct igmp_sock *igmp, int query_version,
 
     General queries don't trigger timer update.
   */
-  s_flag = (1 << 3) & resv_s_qrv;
+  if (query_version == 3) {
+    s_flag = (1 << 3) & resv_s_qrv;
+  }
+  else {
+    /* Neither V1 nor V2 have this field. Pimd should really go into
+     * a compatibility mode here and run as V2 (or V1) but it doesn't
+     * so for now, lets just set the flag to suppress these timer updates.
+     */
+    s_flag = 1;
+  }
+  
   if (!s_flag) {
     /* s_flag is clear */
 
