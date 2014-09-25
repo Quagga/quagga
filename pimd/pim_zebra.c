@@ -113,8 +113,14 @@ static int pim_zebra_if_del(int command, struct zclient *zclient,
   /*
     zebra api adds/dels interfaces using the same call
     interface_add_read below, see comments in lib/zclient.c
+    
+    comments in lib/zclient.c seem to indicate that calling
+    zebra_interface_add_read is the correct call, but that
+    results in an attemted out of bounds read which causes
+    pimd to assert. Other clients use zebra_interface_state_read
+    and it appears to work just fine.
   */
-  ifp = zebra_interface_add_read(zclient->ibuf);
+  ifp = zebra_interface_state_read(zclient->ibuf);
   if (!ifp)
     return 0;
 
@@ -138,7 +144,7 @@ static int pim_zebra_if_state_up(int command, struct zclient *zclient,
 
   /*
     zebra api notifies interface up/down events by using the same call
-    interface_add_read below, see comments in lib/zclient.c
+    zebra_interface_state_read below, see comments in lib/zclient.c
   */
   ifp = zebra_interface_state_read(zclient->ibuf);
   if (!ifp)
@@ -170,7 +176,7 @@ static int pim_zebra_if_state_down(int command, struct zclient *zclient,
 
   /*
     zebra api notifies interface up/down events by using the same call
-    interface_add_read below, see comments in lib/zclient.c
+    zebra_interface_state_read below, see comments in lib/zclient.c
   */
   ifp = zebra_interface_state_read(zclient->ibuf);
   if (!ifp)
