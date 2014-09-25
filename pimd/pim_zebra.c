@@ -1192,11 +1192,25 @@ void igmp_source_forward_stop(struct igmp_source *source)
 
   group = source->source_group;
 
-  if (del_oif(source->source_channel_oil,
+  /*
+   It appears that in certain circumstances that 
+   igmp_source_forward_stop is called when IGMP forwarding
+   was not enabled in oif_flags for this outgoing interface.
+   Possibly because of multiple calls. When that happens, we
+   enter the below if statement and this function returns early
+   which in turn triggers the calling function to assert.
+   Making the call to del_oif and ignoring the return code 
+   fixes the issue without ill effect, similar to 
+   pim_forward_stop below.   
+  */
+  /*if (del_oif(source->source_channel_oil,
 	      group->group_igmp_sock->interface,
 	      PIM_OIF_FLAG_PROTO_IGMP)) {
     return;
-  }
+  }*/
+  del_oif(source->source_channel_oil,
+	      group->group_igmp_sock->interface,
+	      PIM_OIF_FLAG_PROTO_IGMP);
 
   /*
     Feed IGMPv3-gathered local membership information into PIM
