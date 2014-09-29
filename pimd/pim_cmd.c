@@ -2094,6 +2094,22 @@ DEFUN (show_ip_multicast,
   }
 
   vty_out(vty, "%s", VTY_NEWLINE);
+  vty_out(vty, "Zclient update socket: ");
+  if (qpim_zclient_update) {
+    vty_out(vty, "%d%s", qpim_zclient_update->sock, VTY_NEWLINE);
+  }
+  else {
+    vty_out(vty, "<null zclient>%s", VTY_NEWLINE);
+  }
+  vty_out(vty, "Zclient lookup socket: ");
+  if (qpim_zclient_lookup) {
+    vty_out(vty, "%d%s", qpim_zclient_lookup->sock, VTY_NEWLINE);
+  }
+  else {
+    vty_out(vty, "<null zclient>%s", VTY_NEWLINE);
+  }
+
+  vty_out(vty, "%s", VTY_NEWLINE);
   vty_out(vty, "Current highest VifIndex: %d%s",
 	  qpim_mroute_oif_highest_vif_index,
 	  VTY_NEWLINE);
