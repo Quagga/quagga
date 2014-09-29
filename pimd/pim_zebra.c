@@ -66,6 +66,8 @@ static void zclient_broken(struct zclient *zclient)
   /* discard connected addresses because zclient lib will reassign
      them upon reconnection */
   if_connected_reset_all();
+
+  zclient_init(qpim_zclient_update, ZEBRA_ROUTE_PIM); /* reconnect */
 }
 
 /* Router-id update message from zebra. */
@@ -677,10 +679,11 @@ void pim_zebra_init(char *zebra_sock_path)
   qpim_zclient_update->ipv4_route_add           = redist_read_ipv4_route;
   qpim_zclient_update->ipv4_route_delete        = redist_read_ipv4_route;
 
-  zclient_init(qpim_zclient_update, ZEBRA_ROUTE_PIM);
   if (PIM_DEBUG_PIM_TRACE) {
     zlog_info("zclient_init cleared redistribution request");
   }
+
+  zclient_init(qpim_zclient_update, ZEBRA_ROUTE_PIM);
 
   zassert(qpim_zclient_update->redist_default == ZEBRA_ROUTE_PIM);
 
