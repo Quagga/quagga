@@ -908,6 +908,7 @@ static void
 peer_as_change (struct peer *peer, as_t as)
 {
   bgp_peer_sort_t type;
+  struct peer *conf;
 
   /* Stop peer. */
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
@@ -932,10 +933,17 @@ peer_as_change (struct peer *peer, as_t as)
     peer->local_as = peer->bgp->as;
 
   /* Advertisement-interval reset */
-  if (peer_sort (peer) == BGP_PEER_IBGP)
-    peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
+  conf = NULL;
+  if (peer->group)
+    conf = peer->group->conf;
+
+  if (conf && CHECK_FLAG (conf->config, PEER_CONFIG_ROUTEADV))
+      peer->v_routeadv = conf->routeadv;
   else
-    peer->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+    if (peer_sort (peer) == BGP_PEER_IBGP)
+      peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
+    else
+      peer->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
 
   /* TTL reset */
   if (peer_sort (peer) == BGP_PEER_IBGP)
@@ -1454,10 +1462,13 @@ peer_group2peer_config_copy (struct peer_group *group, struct peer *peer,
     peer->v_connect = BGP_DEFAULT_CONNECT_RETRY;
 
   /* advertisement-interval reset */
-  if (peer_sort (peer) == BGP_PEER_IBGP)
-    peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
+  if (CHECK_FLAG (conf->config, PEER_CONFIG_ROUTEADV))
+      peer->v_routeadv = conf->routeadv;
   else
-    peer->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+      if (peer_sort (peer) == BGP_PEER_IBGP)
+        peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
+      else
+        peer->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
 
   /* password apply */
   if (conf->password && !peer->password)
@@ -1815,10 +1826,13 @@ peer_group_bind (struct bgp *bgp, union sockunion *su,
   if (first_member)
     {
       /* Advertisement-interval reset */
-      if (peer_sort (group->conf) == BGP_PEER_IBGP)
-	group->conf->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
-      else
-	group->conf->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+      if (! CHECK_FLAG (group->conf->config, PEER_CONFIG_ROUTEADV))
+	{
+	  if (peer_sort (group->conf) == BGP_PEER_IBGP)
+	    group->conf->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
+	  else
+	    group->conf->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+	}
 
       /* ebgp-multihop reset */
       if (peer_sort (group->conf) == BGP_PEER_IBGP)
@@ -3296,6 +3310,9 @@ peer_timers_unset (struct peer *peer)
 int
 peer_timers_connect_set (struct peer *peer, u_int32_t connect)
 {
+  struct peer_group *group;
+  struct listnode *node, *nnode;
+
   if (peer_group_active (peer))
     return BGP_ERR_INVALID_FOR_PEER_GROUP_MEMBER;
 
@@ -3309,12 +3326,26 @@ peer_timers_connect_set (struct peer *peer, u_int32_t connect)
   /* Set value to timer setting. */
   peer->v_connect = connect;
 
+  if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
+    return 0;
+
+  /* peer-group member updates. */
+  group = peer->group;
+  for (ALL_LIST_ELEMENTS (group->peer, node, nnode, peer))
+    {
+      SET_FLAG (peer->config, PEER_CONFIG_CONNECT);
+      peer->connect = connect;
+      peer->v_connect = connect;
+    }
   return 0;
 }
 
 int
 peer_timers_connect_unset (struct peer *peer)
 {
+  struct peer_group *group;
+  struct listnode *node, *nnode;
+
   if (peer_group_active (peer))
     return BGP_ERR_INVALID_FOR_PEER_GROUP_MEMBER;
 
@@ -3325,12 +3356,26 @@ peer_timers_connect_unset (struct peer *peer)
   /* Set timer setting to default value. */
   peer->v_connect = BGP_DEFAULT_CONNECT_RETRY;
 
-  return 0;
+  if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
+    return 0;
+
+  /* peer-group member updates. */
+  group = peer->group;
+  for (ALL_LIST_ELEMENTS (group->peer, node, nnode, peer))
+    {
+      UNSET_FLAG (peer->config, PEER_CONFIG_CONNECT);
+      peer->connect = 0;
+      peer->v_connect = BGP_DEFAULT_CONNECT_RETRY;
+    }
+   return 0;
 }
 
 int
 peer_advertise_interval_set (struct peer *peer, u_int32_t routeadv)
 {
+  struct peer_group *group;
+  struct listnode *node, *nnode;
+
   if (peer_group_active (peer))
     return BGP_ERR_INVALID_FOR_PEER_GROUP_MEMBER;
 
@@ -3341,12 +3386,27 @@ peer_advertise_interval_set (struct peer *peer, u_int32_t routeadv)
   peer->routeadv = routeadv;
   peer->v_routeadv = routeadv;
 
+  if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
+    return 0;
+
+  /* peer-group member updates. */
+  group = peer->group;
+  for (ALL_LIST_ELEMENTS (group->peer, node, nnode, peer))
+    {
+      SET_FLAG (peer->config, PEER_CONFIG_ROUTEADV);
+      peer->routeadv = routeadv;
+      peer->v_routeadv = routeadv;
+    }
+
   return 0;
 }
 
 int
 peer_advertise_interval_unset (struct peer *peer)
 {
+  struct peer_group *group;
+  struct listnode *node, *nnode;
+
   if (peer_group_active (peer))
     return BGP_ERR_INVALID_FOR_PEER_GROUP_MEMBER;
 
@@ -3357,6 +3417,22 @@ peer_advertise_interval_unset (struct peer *peer)
     peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
   else
     peer->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+
+  if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
+    return 0;
+
+  /* peer-group member updates. */
+  group = peer->group;
+  for (ALL_LIST_ELEMENTS (group->peer, node, nnode, peer))
+    {
+      UNSET_FLAG (peer->config, PEER_CONFIG_ROUTEADV);
+      peer->routeadv = 0;
+
+      if (peer->sort == BGP_PEER_IBGP)
+        peer->v_routeadv = BGP_DEFAULT_IBGP_ROUTEADV;
+      else
+        peer->v_routeadv = BGP_DEFAULT_EBGP_ROUTEADV;
+    }
   
   return 0;
 }
@@ -4904,7 +4980,8 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
 		   VTY_NEWLINE);
 
       /* advertisement-interval */
-      if (CHECK_FLAG (peer->config, PEER_CONFIG_ROUTEADV))
+      if (CHECK_FLAG (peer->config, PEER_CONFIG_ROUTEADV) &&
+          ! peer_group_active (peer))
 	vty_out (vty, " neighbor %s advertisement-interval %d%s",
 		 addr, peer->v_routeadv, VTY_NEWLINE); 
 
@@ -4914,7 +4991,8 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
 	  vty_out (vty, " neighbor %s timers %d %d%s", addr, 
 	  peer->keepalive, peer->holdtime, VTY_NEWLINE);
 
-      if (CHECK_FLAG (peer->config, PEER_CONFIG_CONNECT))
+      if (CHECK_FLAG (peer->config, PEER_CONFIG_CONNECT) &&
+          ! peer_group_active (peer))
 	  vty_out (vty, " neighbor %s timers connect %d%s", addr, 
 	  peer->connect, VTY_NEWLINE);
 
