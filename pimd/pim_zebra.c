@@ -66,8 +66,6 @@ static void zclient_broken(struct zclient *zclient)
   /* discard connected addresses because zclient lib will reassign
      them upon reconnection */
   if_connected_reset_all();
-
-  zclient_init(qpim_zclient_update, ZEBRA_ROUTE_PIM); /* reconnect */
 }
 
 /* Router-id update message from zebra. */
