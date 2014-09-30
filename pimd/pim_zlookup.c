@@ -52,8 +52,12 @@ static int zclient_lookup_connect(struct thread *t)
   }
 
   if (zclient_socket_connect(zlookup) < 0) {
-    zlog_warn("%s: failure connecting zclient socket",
-	      __PRETTY_FUNCTION__);
+    ++zlookup->fail;
+    zlog_warn("%s: failure connecting zclient socket: failures=%d",
+	      __PRETTY_FUNCTION__, zlookup->fail);
+  }
+  else {
+    zlookup->fail = 0; /* reset counter on connection */
   }
 
   zassert(!zlookup->t_connect);
@@ -99,6 +103,19 @@ static void zclient_lookup_reconnect(struct zclient *zlookup)
   }
 
   zclient_lookup_sched_now(zlookup);
+}
+
+static void zclient_lookup_failed(struct zclient *zlookup)
+{
+  if (zlookup->sock >= 0) {
+    if (close(zlookup->sock)) {
+      zlog_warn("%s: closing fd=%d: errno=%d %s", __func__, zlookup->sock,
+		errno, safe_strerror(errno));
+    }
+    zlookup->sock = -1;
+  }
+
+  zclient_lookup_reconnect(zlookup);
 }
 
 struct zclient *zclient_lookup_new()
@@ -159,9 +176,7 @@ static int zclient_read_nexthop(struct zclient *zlookup,
   if (nbytes < 2) {
     zlog_err("%s %s: failure reading zclient lookup socket: nbytes=%d",
 	     __FILE__, __PRETTY_FUNCTION__, nbytes);
-    close(zlookup->sock);
-    zlookup->sock = -1;
-    zclient_lookup_reconnect(zlookup);
+    zclient_lookup_failed(zlookup);
     return -1;
   }
   length = stream_getw(s);
@@ -171,9 +186,7 @@ static int zclient_read_nexthop(struct zclient *zlookup,
   if (len < MIN_LEN) {
     zlog_err("%s %s: failure reading zclient lookup socket: len=%d < MIN_LEN=%d",
 	     __FILE__, __PRETTY_FUNCTION__, len, MIN_LEN);
-    close(zlookup->sock);
-    zlookup->sock = -1;
-    zclient_lookup_reconnect(zlookup);
+    zclient_lookup_failed(zlookup);
     return -2;
   }
 
@@ -181,9 +194,7 @@ static int zclient_read_nexthop(struct zclient *zlookup,
   if (nbytes < (length - 2)) {
     zlog_err("%s %s: failure reading zclient lookup socket: nbytes=%d < len=%d",
 	     __FILE__, __PRETTY_FUNCTION__, nbytes, len);
-    close(zlookup->sock);
-    zlookup->sock = -1;
-    zclient_lookup_reconnect(zlookup);
+    zclient_lookup_failed(zlookup);
     return -3;
   }
   marker = stream_getc(s);
@@ -329,7 +340,7 @@ static int zclient_lookup_nexthop_once(struct zclient *zlookup,
   if (zlookup->sock < 0) {
     zlog_err("%s %s: zclient lookup socket is not connected",
 	     __FILE__, __PRETTY_FUNCTION__);
-    zclient_lookup_reconnect(zlookup);
+    zclient_lookup_failed(zlookup);
     return -1;
   }
   
@@ -343,17 +354,13 @@ static int zclient_lookup_nexthop_once(struct zclient *zlookup,
   if (ret < 0) {
     zlog_err("%s %s: writen() failure writing to zclient lookup socket",
 	     __FILE__, __PRETTY_FUNCTION__);
-    close(zlookup->sock);
-    zlookup->sock = -1;
-    zclient_lookup_reconnect(zlookup);
+    zclient_lookup_failed(zlookup);
     return -2;
   }
   if (ret == 0) {
     zlog_err("%s %s: connection closed on zclient lookup socket",
 	     __FILE__, __PRETTY_FUNCTION__);
-    close(zlookup->sock);
-    zlookup->sock = -1;
-    zclient_lookup_reconnect(zlookup);
+    zclient_lookup_failed(zlookup);
     return -3;
   }
   
