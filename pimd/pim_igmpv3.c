@@ -388,6 +388,10 @@ static void source_channel_oil_detach(struct igmp_source *source)
   }
 }
 
+/*
+  igmp_source_delete:       stop fowarding, and delete the source
+  igmp_source_forward_stop: stop fowarding, but keep the source
+*/
 void igmp_source_delete(struct igmp_source *source)
 {
   struct igmp_group *group;

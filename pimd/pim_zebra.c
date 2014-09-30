@@ -1073,6 +1073,7 @@ static int del_oif(struct channel_oil *channel_oil,
 void igmp_source_forward_start(struct igmp_source *source)
 {
   struct igmp_group *group;
+  int result;
 
   if (PIM_DEBUG_IGMP_TRACE) {
     char source_str[100];
@@ -1158,9 +1159,12 @@ void igmp_source_forward_start(struct igmp_source *source)
     }
   }
 
-  if (add_oif(source->source_channel_oil,
-	      group->group_igmp_sock->interface,
-	      PIM_OIF_FLAG_PROTO_IGMP)) {
+  result = add_oif(source->source_channel_oil,
+		   group->group_igmp_sock->interface,
+		   PIM_OIF_FLAG_PROTO_IGMP);
+  if (result) {
+    zlog_warn("%s: add_oif() failed with return=%d",
+	      __func__, result);
     return;
   }
 
@@ -1174,9 +1178,14 @@ void igmp_source_forward_start(struct igmp_source *source)
   IGMP_SOURCE_DO_FORWARDING(source->source_flags);
 }
 
+/*
+  igmp_source_forward_stop: stop fowarding, but keep the source
+  igmp_source_delete:       stop fowarding, and delete the source
+ */
 void igmp_source_forward_stop(struct igmp_source *source)
 {
   struct igmp_group *group;
+  int result;
 
   if (PIM_DEBUG_IGMP_TRACE) {
     char source_str[100];
@@ -1210,14 +1219,14 @@ void igmp_source_forward_stop(struct igmp_source *source)
    fixes the issue without ill effect, similar to 
    pim_forward_stop below.   
   */
-  /*if (del_oif(source->source_channel_oil,
-	      group->group_igmp_sock->interface,
-	      PIM_OIF_FLAG_PROTO_IGMP)) {
+  result = del_oif(source->source_channel_oil,
+		   group->group_igmp_sock->interface,
+		   PIM_OIF_FLAG_PROTO_IGMP);
+  if (result) {
+    zlog_warn("%s: del_oif() failed with return=%d",
+	      __func__, result);
     return;
-  }*/
-  del_oif(source->source_channel_oil,
-	      group->group_igmp_sock->interface,
-	      PIM_OIF_FLAG_PROTO_IGMP);
+  }
 
   /*
     Feed IGMPv3-gathered local membership information into PIM
