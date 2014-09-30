@@ -496,6 +496,7 @@ This command defines a new AS path access list.
 @end deffn
 
 @deffn {Route Map} {set as-path prepend @var{as-path}} {}
+@deffnx {Route Map} {set as-path prepend last-as @var{num}} {}
 @end deffn
 
 @node Private AS Numbers
