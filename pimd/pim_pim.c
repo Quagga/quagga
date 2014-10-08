@@ -509,7 +509,7 @@ static int hello_send(struct interface *ifp,
 
   pim_ifp = ifp->info;
 
-  if (PIM_DEBUG_PIM_PACKETS) {
+  if (PIM_DEBUG_PIM_PACKETS || PIM_DEBUG_PIM_HELLO) {
     char dst_str[100];
     pim_inet4_dump("<dst?>", qpim_all_pim_routers_addr, dst_str, sizeof(dst_str));
     zlog_debug("%s: to %s on %s: holdt=%u prop_d=%u overr_i=%u dis_join_supp=%d dr_prio=%u gen_id=%08x addrs=%d",

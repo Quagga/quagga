@@ -42,6 +42,8 @@
 #define DEBUG_PIM_STR                               "PIM protocol activity\n"
 #define DEBUG_PIM_EVENTS_STR                        "PIM protocol events\n"
 #define DEBUG_PIM_PACKETS_STR                       "PIM protocol packets\n"
+#define DEBUG_PIM_HELLO_PACKETS_STR                 "PIM Hello protocol packets\n"
+#define DEBUG_PIM_J_P_PACKETS_STR                   "PIM Join/Prune protocol packets\n"
 #define DEBUG_PIM_PACKETDUMP_STR                    "PIM packet dump\n"
 #define DEBUG_PIM_PACKETDUMP_SEND_STR               "Dump sent packets\n"
 #define DEBUG_PIM_PACKETDUMP_RECV_STR               "Dump received packets\n"

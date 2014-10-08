@@ -204,7 +204,7 @@ int pim_hello_recv(struct interface *ifp,
       FREE_ADDR_LIST_THEN_RETURN(-2);
     }
 
-    if (PIM_DEBUG_PIM_TRACE) {
+    if (PIM_DEBUG_PIM_TRACE || PIM_DEBUG_PIM_HELLO) {
       char src_str[100];
       pim_inet4_dump("<src?>", src_addr, src_str, sizeof(src_str));
       zlog_debug("%s: parse left_size=%d: PIM hello TLV type=%d length=%d from %s on %s",
@@ -262,7 +262,7 @@ int pim_hello_recv(struct interface *ifp,
       }
       break;
     case PIM_MSG_OPTION_TYPE_DM_STATE_REFRESH:
-      if (PIM_DEBUG_PIM_TRACE) {
+      if (PIM_DEBUG_PIM_TRACE || PIM_DEBUG_PIM_HELLO) {
 	char src_str[100];
 	pim_inet4_dump("<src?>", src_addr, src_str, sizeof(src_str));
 	zlog_debug("%s: ignoring PIM hello dense-mode state refresh TLV option type=%d length=%d from %s on interface %s",
