@@ -760,11 +760,6 @@ ospf_write (struct thread *thread)
   sockopt_iphdrincl_swab_htosys (&iph);
   ret = sendmsg (ospf->fd, &msg, flags);
   sockopt_iphdrincl_swab_systoh (&iph);
-  if (IS_DEBUG_OSPF_EVENT)
-    zlog_debug ("ospf_write to %s, "
-	       "id %d, off %d, len %d, interface %s, mtu %u:",
-	       inet_ntoa (iph.ip_dst), iph.ip_id, iph.ip_off, iph.ip_len,
-	       oi->ifp->name, oi->ifp->mtu);
   
   if (ret < 0)
     zlog_warn ("*** sendmsg in ospf_write failed to %s, "
@@ -796,14 +791,11 @@ ospf_write (struct thread *thread)
 
   /* Move this interface to the tail of write_q to
 	 serve everyone in a round robin fashion */
-  list_delete_node (ospf->oi_write_q, node);
+  listnode_move_to_tail (ospf->oi_write_q, node);
   if (ospf_fifo_head (oi->obuf) == NULL)
     {
       oi->on_write_q = 0;
-    }
-  else
-    {
-      listnode_add (ospf->oi_write_q, oi);
+      list_delete_node (ospf->oi_write_q, node);
     }
   
   /* If packets still remain in queue, call write thread. */
