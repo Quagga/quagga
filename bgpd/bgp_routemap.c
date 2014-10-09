@@ -2029,7 +2029,6 @@ static route_map_result_t
 route_set_ipv6_nexthop_peer (void *rule, struct prefix *prefix,
 			     route_map_object_t type, void *object)
 {
-  int *use_peer_address;
   struct in6_addr peer_address;
   struct bgp_info *bgp_info;
   struct peer *peer;
@@ -2038,7 +2037,6 @@ route_set_ipv6_nexthop_peer (void *rule, struct prefix *prefix,
   if (type == RMAP_BGP)
     {
       /* Fetch routemap's rule information. */
-      use_peer_address = rule;
       bgp_info = object;
       peer = bgp_info->peer;
 
@@ -2090,7 +2088,6 @@ route_set_ipv6_nexthop_peer (void *rule, struct prefix *prefix,
 static void *
 route_set_ipv6_nexthop_peer_compile (const char *arg)
 {
-  int ret;
   int *rins = NULL;
 
   rins = XCALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (int));
