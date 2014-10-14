@@ -827,7 +827,8 @@ peer_new (struct bgp *bgp)
 	peer->orf_plist[afi][safi] = NULL;
       }
   SET_FLAG (peer->sflags, PEER_STATUS_CAPABILITY_OPEN);
-
+  SET_FLAG (peer->sflags, PEER_STATUS_GR_SEND_R_BIT);
+   
   /* Create buffers.  */
   peer->ibuf = stream_new (BGP_MAX_PACKET_SIZE);
   peer->obuf = stream_fifo_new ();
@@ -1927,18 +1928,6 @@ peer_group_unbind (struct bgp *bgp, struct peer *peer,
   return 0;
 }
 
-
-static int
-bgp_startup_timer_expire (struct thread *thread)
-{
-  struct bgp *bgp;
-
-  bgp = THREAD_ARG (thread);
-  bgp->t_startup = NULL;
-
-  return 0;
-}
-
 /* BGP instance creation by `router bgp' commands. */
 static struct bgp *
 bgp_create (as_t *as, const char *name)
@@ -1983,10 +1972,7 @@ bgp_create (as_t *as, const char *name)
 
   if (name)
     bgp->name = strdup (name);
-
-  THREAD_TIMER_ON (master, bgp->t_startup, bgp_startup_timer_expire,
-                   bgp, bgp->restart_time);
-
+    
   return bgp;
 }
 

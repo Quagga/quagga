@@ -1596,6 +1596,22 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
   return 0;
 }
 
+static bool
+bgp_update_all_eor_recvd (struct peer *peer)
+{
+  int conf = 0, recvd = 0;
+  for (afi_t afi = AFI_IP; afi < AFI_MAX; afi++)
+    for (safi_t safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
+      if (peer->afc[afi][safi])
+        {
+          conf++;
+          if (CHECK_FLAG (peer->af_sflags[afi][safi],
+                          PEER_STATUS_EOR_RECEIVED))
+            recvd++;
+        }
+  return (conf == recvd);
+}
+
 /* Parse BGP Update packet and make attribute object. */
 static int
 bgp_update_receive (struct peer *peer, bgp_size_t size)
@@ -1612,7 +1628,8 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   struct bgp_nlri withdraw;
   struct bgp_nlri mp_update;
   struct bgp_nlri mp_withdraw;
-
+  bool any_eor_recvd = false;
+  
   /* Status must be Established. */
   if (peer->status != Established) 
     {
@@ -1796,7 +1813,9 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	  /* End-of-RIB received */
 	  SET_FLAG (peer->af_sflags[AFI_IP][SAFI_UNICAST],
 		    PEER_STATUS_EOR_RECEIVED);
-
+          
+          any_eor_recvd = true;
+          
 	  /* NSF delete stale route */
 	  if (peer->nsf[AFI_IP][SAFI_UNICAST])
 	    bgp_clear_stale_route (peer, AFI_IP, SAFI_UNICAST);
@@ -1826,7 +1845,9 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	  /* End-of-RIB received */
 	  SET_FLAG (peer->af_sflags[AFI_IP][SAFI_MULTICAST],
 		    PEER_STATUS_EOR_RECEIVED);
-
+          
+          any_eor_recvd = true;
+          
 	  /* NSF delete stale route */
 	  if (peer->nsf[AFI_IP][SAFI_MULTICAST])
 	    bgp_clear_stale_route (peer, AFI_IP, SAFI_MULTICAST);
@@ -1854,8 +1875,11 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	  && mp_withdraw.length == 0)
 	{
 	  /* End-of-RIB received */
-	  SET_FLAG (peer->af_sflags[AFI_IP6][SAFI_UNICAST], PEER_STATUS_EOR_RECEIVED);
-
+	  SET_FLAG (peer->af_sflags[AFI_IP6][SAFI_UNICAST],
+	            PEER_STATUS_EOR_RECEIVED);
+          
+          any_eor_recvd = true;
+          
 	  /* NSF delete stale route */
 	  if (peer->nsf[AFI_IP6][SAFI_UNICAST])
 	    bgp_clear_stale_route (peer, AFI_IP6, SAFI_UNICAST);
@@ -1883,7 +1907,11 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	  && mp_withdraw.length == 0)
 	{
 	  /* End-of-RIB received */
-
+	  SET_FLAG (peer->af_sflags[AFI_IP6][SAFI_MULTICAST],
+	            PEER_STATUS_EOR_RECEIVED);
+          
+          any_eor_recvd = true;
+          
 	  /* NSF delete stale route */
 	  if (peer->nsf[AFI_IP6][SAFI_MULTICAST])
 	    bgp_clear_stale_route (peer, AFI_IP6, SAFI_MULTICAST);
@@ -1917,7 +1945,13 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 		  peer->host);
 	}
     }
-
+    
+  /* The Restart bit is global, but EoR is per-AFI/SAFI. Unsetting the
+   * R-bit when all EoRs are in is best we can do given the protocol.
+   */
+  if (any_eor_recvd && bgp_update_all_eor_recvd (peer))
+    UNSET_FLAG (peer->sflags, PEER_STATUS_GR_SEND_R_BIT);
+  
   /* Everything is done.  We unintern temporary structures which
      interned in bgp_attr_parse(). */
   bgp_attr_unintern_sub (&attr);

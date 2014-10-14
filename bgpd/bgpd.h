@@ -104,8 +104,6 @@ struct bgp
   as_t *confed_peers;
   int confed_peers_cnt;
 
-  struct thread *t_startup;
-
   /* BGP flags. */
   u_int16_t flags;
 #define BGP_FLAG_ALWAYS_COMPARE_MED       (1 << 0)
@@ -437,6 +435,7 @@ struct peer
 #define PEER_STATUS_GROUP             (1 << 4) /* peer-group conf */
 #define PEER_STATUS_NSF_MODE          (1 << 5) /* NSF aware peer */
 #define PEER_STATUS_NSF_WAIT          (1 << 6) /* wait comeback peer */
+#define PEER_STATUS_GR_SEND_R_BIT     (1 << 7) /* 1st connection, send R-bit */
 
   /* Peer status af flags (reset in bgp_stop) */
   u_int16_t af_sflags[AFI_MAX][SAFI_MAX];

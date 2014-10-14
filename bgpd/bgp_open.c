@@ -1032,7 +1032,7 @@ bgp_open_capability (struct stream *s, struct peer *peer)
   rcapp = stream_get_endp (s);          /* Set Restart Capability Len Pointer */
   stream_putc (s, 0);
   restart_time = peer->bgp->restart_time;
-  if (peer->bgp->t_startup)
+  if (CHECK_FLAG (peer->sflags, PEER_STATUS_GR_SEND_R_BIT))
     {
       SET_FLAG (restart_time, RESTART_R_BIT);
       SET_FLAG (peer->cap, PEER_CAP_RESTART_BIT_ADV);
