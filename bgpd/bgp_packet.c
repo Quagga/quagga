@@ -613,19 +613,20 @@ bgp_write_packet (struct peer *peer)
 	      {
 		if (CHECK_FLAG (adv->binfo->peer->cap, PEER_CAP_RESTART_RCV)
 		    && CHECK_FLAG (adv->binfo->peer->cap, PEER_CAP_RESTART_ADV)
-		    && ! (CHECK_FLAG (adv->binfo->peer->cap,
-                                      PEER_CAP_RESTART_BIT_RCV) &&
-		          CHECK_FLAG (adv->binfo->peer->cap,
-                                      PEER_CAP_RESTART_BIT_ADV))
-		    && ! CHECK_FLAG (adv->binfo->flags, BGP_INFO_STALE)
 		    && safi != SAFI_MPLS_VPN)
-		  {
-		    if (CHECK_FLAG (adv->binfo->peer->af_sflags[afi][safi],
-			PEER_STATUS_EOR_RECEIVED))
-		      s = bgp_update_packet (peer, afi, safi);
-		  }
-		else
-		  s = bgp_update_packet (peer, afi, safi);
+                  {
+                    /* For graceful restart, we defer sending updates if we've
+                     * restarted and other side hasn't, until EoR comes in.
+                     */   
+                    if (CHECK_FLAG (adv->binfo->peer->cap,
+                                    PEER_CAP_RESTART_BIT_ADV
+                        && !CHECK_FLAG (adv->binfo->peer->cap,
+                                        PEER_CAP_RESTART_BIT_RCV)
+                        && !CHECK_FLAG (adv->binfo->peer->af_sflags[afi][safi],
+                                        PEER_STATUS_EOR_RECEIVED)))
+                      continue;
+                  }
+                s = bgp_update_packet (peer, afi, safi);
 	      }
 
 	    if (s)
