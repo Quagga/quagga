@@ -873,7 +873,7 @@ zlookup_query (struct in_addr addr)
 
   s = zlookup->obuf;
   stream_reset (s);
-  zclient_create_header (s, ZEBRA_IPV4_NEXTHOP_LOOKUP);
+  zclient_create_header (s, ZEBRA_IPV4_NEXTHOP_LOOKUP, VRF_DEFAULT);
   stream_put_in_addr (s, &addr);
   
   stream_putw_at (s, 0, stream_get_endp (s));
@@ -988,7 +988,7 @@ zlookup_query_ipv6 (struct in6_addr *addr)
 
   s = zlookup->obuf;
   stream_reset (s);
-  zclient_create_header (s, ZEBRA_IPV6_NEXTHOP_LOOKUP);
+  zclient_create_header (s, ZEBRA_IPV6_NEXTHOP_LOOKUP, VRF_DEFAULT);
   stream_put (s, addr, 16);
   stream_putw_at (s, 0, stream_get_endp (s));
   
@@ -1038,7 +1038,7 @@ bgp_import_check (struct prefix *p, u_int32_t *igpmetric,
   /* Send query to the lookup connection */
   s = zlookup->obuf;
   stream_reset (s);
-  zclient_create_header (s, ZEBRA_IPV4_IMPORT_LOOKUP);
+  zclient_create_header (s, ZEBRA_IPV4_IMPORT_LOOKUP, VRF_DEFAULT);
   
   stream_putc (s, p->prefixlen);
   stream_put_in_addr (s, &p->u.prefix4);

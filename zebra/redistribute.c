@@ -68,7 +68,7 @@ zebra_check_addr (struct prefix *p)
   return 1;
 }
 
-static int
+int
 is_default (struct prefix *p)
 {
   if (p->family == AF_INET)
@@ -86,7 +86,7 @@ is_default (struct prefix *p)
 }
 
 static void
-zebra_redistribute_default (struct zserv *client)
+zebra_redistribute_default (struct zserv *client, vrf_id_t vrf_id)
 {
   struct prefix_ipv4 p;
   struct route_table *table;
@@ -102,7 +102,7 @@ zebra_redistribute_default (struct zserv *client)
   p.family = AF_INET;
 
   /* Lookup table.  */
-  table = zebra_vrf_table (AFI_IP, SAFI_UNICAST, VRF_DEFAULT);
+  table = zebra_vrf_table (AFI_IP, SAFI_UNICAST, vrf_id);
   if (table)
     {
       rn = route_node_lookup (table, (struct prefix *)&p);
@@ -122,7 +122,7 @@ zebra_redistribute_default (struct zserv *client)
   p6.family = AF_INET6;
 
   /* Lookup table.  */
-  table = zebra_vrf_table (AFI_IP6, SAFI_UNICAST, VRF_DEFAULT);
+  table = zebra_vrf_table (AFI_IP6, SAFI_UNICAST, vrf_id);
   if (table)
     {
       rn = route_node_lookup (table, (struct prefix *)&p6);
@@ -140,13 +140,13 @@ zebra_redistribute_default (struct zserv *client)
 
 /* Redistribute routes. */
 static void
-zebra_redistribute (struct zserv *client, int type)
+zebra_redistribute (struct zserv *client, int type, vrf_id_t vrf_id)
 {
   struct rib *newrib;
   struct route_table *table;
   struct route_node *rn;
 
-  table = zebra_vrf_table (AFI_IP, SAFI_UNICAST, VRF_DEFAULT);
+  table = zebra_vrf_table (AFI_IP, SAFI_UNICAST, vrf_id);
   if (table)
     for (rn = route_top (table); rn; rn = route_next (rn))
       RNODE_FOREACH_RIB (rn, newrib)
@@ -157,7 +157,7 @@ zebra_redistribute (struct zserv *client, int type)
 	  zsend_route_multipath (ZEBRA_IPV4_ROUTE_ADD, client, &rn->p, newrib);
   
 #ifdef HAVE_IPV6
-  table = zebra_vrf_table (AFI_IP6, SAFI_UNICAST, VRF_DEFAULT);
+  table = zebra_vrf_table (AFI_IP6, SAFI_UNICAST, vrf_id);
   if (table)
     for (rn = route_top (table); rn; rn = route_next (rn))
       RNODE_FOREACH_RIB (rn, newrib)
@@ -177,8 +177,9 @@ redistribute_add (struct prefix *p, struct rib *rib)
 
   for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
     {
-      if ((is_default (p) && client->redist_default)
-          || client->redist[rib->type])
+      if ((is_default (p) &&
+           vrf_bitmap_check (client->redist_default, rib->vrf_id))
+          || vrf_bitmap_check (client->redist[rib->type], rib->vrf_id))
         {
           if (p->family == AF_INET)
             zsend_route_multipath (ZEBRA_IPV4_ROUTE_ADD, client, p, rib);
@@ -202,8 +203,9 @@ redistribute_delete (struct prefix *p, struct rib *rib)
 
   for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
     {
-      if ((is_default (p) && client->redist_default)
-          || client->redist[rib->type])
+      if ((is_default (p) &&
+           vrf_bitmap_check (client->redist_default, rib->vrf_id))
+          || vrf_bitmap_check (client->redist[rib->type], rib->vrf_id))
 	{
 	  if (p->family == AF_INET)
 	    zsend_route_multipath (ZEBRA_IPV4_ROUTE_DELETE, client, p, rib);
@@ -216,7 +218,8 @@ redistribute_delete (struct prefix *p, struct rib *rib)
 }
 
 void
-zebra_redistribute_add (int command, struct zserv *client, int length)
+zebra_redistribute_add (int command, struct zserv *client, int length,
+    vrf_id_t vrf_id)
 {
   int type;
 
@@ -225,15 +228,16 @@ zebra_redistribute_add (int command, struct zserv *client, int length)
   if (type == 0 || type >= ZEBRA_ROUTE_MAX)
     return;
 
-  if (! client->redist[type])
+  if (! vrf_bitmap_check (client->redist[type], vrf_id))
     {
-      client->redist[type] = 1;
-      zebra_redistribute (client, type);
+      vrf_bitmap_set (client->redist[type], vrf_id);
+      zebra_redistribute (client, type, vrf_id);
     }
 }
 
 void
-zebra_redistribute_delete (int command, struct zserv *client, int length)
+zebra_redistribute_delete (int command, struct zserv *client, int length,
+    vrf_id_t vrf_id)
 {
   int type;
 
@@ -242,21 +246,22 @@ zebra_redistribute_delete (int command, struct zserv *client, int length)
   if (type == 0 || type >= ZEBRA_ROUTE_MAX)
     return;
 
-  client->redist[type] = 0;
+  vrf_bitmap_unset (client->redist[type], vrf_id);
 }
 
 void
-zebra_redistribute_default_add (int command, struct zserv *client, int length)
+zebra_redistribute_default_add (int command, struct zserv *client, int length,
+    vrf_id_t vrf_id)
 {
-  client->redist_default = 1;
-  zebra_redistribute_default (client);
+  vrf_bitmap_set (client->redist_default, vrf_id);
+  zebra_redistribute_default (client, vrf_id);
 }     
 
 void
 zebra_redistribute_default_delete (int command, struct zserv *client,
-				   int length)
+    int length, vrf_id_t vrf_id)
 {
-  client->redist_default = 0;;
+  vrf_bitmap_unset (client->redist_default, vrf_id);
 }     
 
 /* Interface up information. */

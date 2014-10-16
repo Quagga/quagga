@@ -7133,7 +7133,8 @@ config_write_ospf_redistribute (struct vty *vty, struct ospf *ospf)
 
   /* redistribute print. */
   for (type = 0; type < ZEBRA_ROUTE_MAX; type++)
-    if (type != zclient->redist_default && zclient->redist[type])
+    if (type != zclient->redist_default &&
+        vrf_bitmap_check (zclient->redist[type], VRF_DEFAULT))
       {
         vty_out (vty, " redistribute %s", zebra_route_string(type));
 	if (ospf->dmetric[type].value >= 0)

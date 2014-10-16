@@ -71,6 +71,7 @@ struct memory_list memory_list_lib[] =
   { MTYPE_HOST,			"Host config"			},
   { MTYPE_VRF,			"VRF"				},
   { MTYPE_VRF_NAME,		"VRF name"			},
+  { MTYPE_VRF_BITMAP,		"VRF bit-map"			},
   { -1, NULL },
 };
 
