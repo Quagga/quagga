@@ -1739,15 +1739,32 @@ bgp_attr_check (struct peer *peer, struct attr *attr)
 {
   u_char type = 0;
   
+  /* BGP Graceful-Restart End-of-RIB for IPv4 unicast is signaled as an
+   * empty UPDATE.  */
+  if (CHECK_FLAG (peer->cap, PEER_CAP_RESTART_RCV) && !attr->flag)
+    return BGP_ATTR_PARSE_PROCEED;
+  
+  /* "An UPDATE message that contains the MP_UNREACH_NLRI is not required
+     to carry any other path attributes.", though if MP_REACH_NLRI or NLRI
+     are present, it should.  Check for any other attribute being present
+     instead.
+   */
+  if (attr->flag == ATTR_FLAG_BIT (BGP_ATTR_MP_UNREACH_NLRI))
+    return BGP_ATTR_PARSE_PROCEED;
+  
   if (! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_ORIGIN)))
     type = BGP_ATTR_ORIGIN;
 
   if (! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_AS_PATH)))
     type = BGP_ATTR_AS_PATH;
-
-  if (! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_NEXT_HOP)))
+  
+  /* RFC 2858 makes Next-Hop optional/ignored, if MP_REACH_NLRI is present and
+   * NLRI is empty. We can't easily check NLRI empty here though.
+   */
+  if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_MP_REACH_NLRI))
+      && !CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_NEXT_HOP)))
     type = BGP_ATTR_NEXT_HOP;
-
+  
   if (peer->sort == BGP_PEER_IBGP
       && ! CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_LOCAL_PREF)))
     type = BGP_ATTR_LOCAL_PREF;
@@ -1755,8 +1772,8 @@ bgp_attr_check (struct peer *peer, struct attr *attr)
   if (type)
     {
       zlog (peer->log, LOG_WARNING, 
-	    "%s Missing well-known attribute %d.",
-	    peer->host, type);
+	    "%s Missing well-known attribute %d / %s",
+	    peer->host, type, LOOKUP (attr_str, type));
       bgp_notify_send_with_data (peer, 
 				 BGP_NOTIFY_UPDATE_ERR, 
 				 BGP_NOTIFY_UPDATE_MISS_ATTR,
@@ -2033,10 +2050,14 @@ bgp_attr_parse (struct peer *peer, struct attr *attr, bgp_size_t size,
    * So, to be defensive, we are not relying on any order and read
    * all attributes first, including these 32bit ones, and now,
    * afterwards, we look what and if something is to be done for as4.
+   *
+   * It is possible to not have AS_PATH, e.g. GR EoR and sole
+   * MP_UNREACH_NLRI.
    */
   /* actually... this doesn't ever return failure currently, but
    * better safe than sorry */
-  if (bgp_attr_munge_as4_attrs (peer, attr, as4_path,
+  if (CHECK_FLAG(attr->flag, ATTR_FLAG_BIT (BGP_ATTR_AS_PATH))
+      && bgp_attr_munge_as4_attrs (peer, attr, as4_path,
                                 as4_aggregator, &as4_aggregator_addr))
     {
       bgp_notify_send (peer, 
