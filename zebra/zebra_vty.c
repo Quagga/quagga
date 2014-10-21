@@ -998,6 +998,8 @@ DEFUN (show_ip_route_prefix,
   if (! rn || rn->p.prefixlen != p.prefixlen)
     {
       vty_out (vty, "%% Network not in table%s", VTY_NEWLINE);
+      if (rn)
+        route_unlock_node (rn);
       return CMD_WARNING;
     }
 
@@ -1897,6 +1899,8 @@ DEFUN (show_ipv6_route_prefix,
   if (! rn || rn->p.prefixlen != p.prefixlen)
     {
       vty_out (vty, "%% Network not in table%s", VTY_NEWLINE);
+      if (rn)
+        route_unlock_node (rn);
       return CMD_WARNING;
     }
 
