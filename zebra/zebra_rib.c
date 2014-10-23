@@ -1249,9 +1249,12 @@ rib_process (struct route_node *rn)
   struct nexthop *nexthop = NULL, *tnexthop;
   int recursing;
   char buf[INET6_ADDRSTRLEN];
-  
+  rib_table_info_t *info;
+
   assert (rn);
-  
+
+  info = rn->table->info;
+
   if (IS_ZEBRA_DEBUG_RIB || IS_ZEBRA_DEBUG_RIB_Q)
     inet_ntop (rn->p.family, &rn->p.u.prefix, buf, INET6_ADDRSTRLEN);
 
@@ -1285,6 +1288,9 @@ rib_process (struct route_node *rn)
       /* Skip unreachable nexthop. */
       if (! nexthop_active_update (rn, rib, 0))
         continue;
+
+      if (info->safi == SAFI_MULTICAST)
+	continue;
 
       /* Infinit distance. */
       if (rib->distance == DISTANCE_INFINITY)
