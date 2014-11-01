@@ -1761,8 +1761,8 @@ bgp_attr_check (struct peer *peer, struct attr *attr)
   /* RFC 2858 makes Next-Hop optional/ignored, if MP_REACH_NLRI is present and
    * NLRI is empty. We can't easily check NLRI empty here though.
    */
-  if (CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_MP_REACH_NLRI))
-      && !CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_NEXT_HOP)))
+  if (!CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_NEXT_HOP))
+      && !CHECK_FLAG (attr->flag, ATTR_FLAG_BIT (BGP_ATTR_MP_REACH_NLRI)))
     type = BGP_ATTR_NEXT_HOP;
   
   if (peer->sort == BGP_PEER_IBGP
