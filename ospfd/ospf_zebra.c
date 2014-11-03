@@ -48,6 +48,9 @@
 #ifdef HAVE_SNMP
 #include "ospfd/ospf_snmp.h"
 #endif /* HAVE_SNMP */
+#ifdef HAVE_OSPF_TE
+#include "ospfd/ospf_te.h"
+#endif /* HAVE_OSPF_TE */
 
 /* Zebra structure to hold current status. */
 struct zclient *zclient = NULL;
@@ -324,6 +327,26 @@ ospf_interface_address_delete (int command, struct zclient *zclient,
 
   return 0;
 }
+
+#ifdef HAVE_OSPF_TE
+static int
+ospf_interface_update (int command, struct zclient *zclient,
+                        zebra_size_t length)
+{
+  struct interface *ifp;
+
+  ifp = zebra_interface_state_read (zclient->ibuf);
+
+  if (ifp == NULL)
+    return 0;
+
+  /* Update TE TLV */
+  ospf_mpls_te_update_if (ifp);
+
+  return 0;
+}
+#endif /* HAVE_OSPF_TE*/
+
 
 void
 ospf_zebra_add (struct prefix_ipv4 *p, struct ospf_route *or)
@@ -1318,6 +1341,10 @@ ospf_zebra_init ()
   zclient->interface_down = ospf_interface_state_down;
   zclient->interface_address_add = ospf_interface_address_add;
   zclient->interface_address_delete = ospf_interface_address_delete;
+#ifdef HAVE_OSPF_TE
+  zclient->interface_update = ospf_interface_update;
+#endif /* HAVE_OSPF_TE */
+
   zclient->ipv4_route_add = ospf_zebra_read_ipv4;
   zclient->ipv4_route_delete = ospf_zebra_read_ipv4;
 

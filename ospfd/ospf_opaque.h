@@ -60,6 +60,10 @@
 #define OPAQUE_TYPE_TRAFFIC_ENGINEERING_LSA		1
 #define OPAQUE_TYPE_SYCAMORE_OPTICAL_TOPOLOGY_DESC	2
 #define OPAQUE_TYPE_GRACE_LSA				3
+#define OPAQUE_TYPE_L1VPN_LSA                          5
+#define OPAQUE_TYPE_ROUTER_INFORMATION_LSA             4
+#define OPAQUE_TYPE_INTER_AS_LSA                       6
+#define OPAQUE_TYPE_MAX                                6
 
 /* Followings types are proposed in internet-draft documents. */
 #define OPAQUE_TYPE_8021_QOSPF				129
@@ -70,7 +74,7 @@
 #define OPAQUE_TYPE_WILDCARD				0
 
 #define OPAQUE_TYPE_RANGE_UNASSIGNED(type) \
-	(  4 <= (type) && (type) <= 127)
+	( OPAQUE_TYPE_MAX  <= (type) && (type) <= 127)
 
 #define OPAQUE_TYPE_RANGE_RESERVED(type) \
 	(127 <  (type) && (type) <= 255)
