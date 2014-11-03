@@ -54,6 +54,10 @@
 #include "isisd/isis_csm.h"
 #include "isisd/isis_events.h"
 
+#ifdef HAVE_ISIS_TE
+#include "isisd/isis_te.h"
+#endif /* HAVE_ISIS_TE */
+
 #define ISIS_MINIMUM_FIXED_HDR_LEN 15
 #define ISIS_MIN_PDU_LEN           13	/* partial seqnum pdu with id_len=2 */
 
@@ -622,6 +626,17 @@ process_p2p_hello (struct isis_circuit *circuit)
   /* we need to copy addresses to the adj */
   if (found & TLVFLAG_IPV4_ADDR)
     tlvs_to_adj_ipv4_addrs (&tlvs, adj);
+
+#ifdef HAVE_ISIS_TE
+  /* Update MPLS TE Remote IP address parameter if possible */
+  if (IS_MPLS_TE(isisMplsTE) && circuit->mtc && IS_CIRCUIT_TE(circuit->mtc))
+    if (adj->ipv4_addrs != NULL && listcount(adj->ipv4_addrs) != 0)
+      {
+        struct in_addr *ip_addr;
+        ip_addr = (struct in_addr *)listgetdata ((struct listnode *)listhead (adj->ipv4_addrs));
+        set_circuitparams_rmt_ipaddr (circuit->mtc, *ip_addr);
+      }
+#endif /* HAVE_ISIS_TE */
 
 #ifdef HAVE_IPV6
   if (found & TLVFLAG_IPV6_ADDR)

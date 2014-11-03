@@ -283,6 +283,8 @@ AC_ARG_ENABLE(irdp,
   AS_HELP_STRING([--enable-irdp], [enable IRDP server support in zebra]))
 AC_ARG_ENABLE(isis_topology,
   AS_HELP_STRING([--enable-isis-topology], [enable IS-IS topology generator]))
+AC_ARG_ENABLE(isis-te,
+  AS_HELP_STRING([--enable-isis-te],[enable Traffic Engineering Extension (i.e. MPLS-TE) to IS-IS]))
 AC_ARG_ENABLE(capabilities,
   AS_HELP_STRING([--disable-capabilities], [disable using POSIX capabilities]))
 AC_ARG_ENABLE(rusage,
@@ -361,6 +363,10 @@ if test "${enable_isisd}" != "no" && test "${enable_isis_topology}" = yes; then
   ISIS_TOPOLOGY_INCLUDES="-I\$(srcdir)/topology"
   ISIS_TOPOLOGY_DIR="topology"
   ISIS_TOPOLOGY_LIB="./topology/libtopology.a"
+fi
+
+if test "${enable_isis_te}" != "no"; then
+  AC_DEFINE(HAVE_ISIS_TE,,ISIS TE)
 fi
 
 AC_SUBST(ISIS_TOPOLOGY_INCLUDES)

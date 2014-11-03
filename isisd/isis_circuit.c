@@ -36,6 +36,7 @@
 #include "linklist.h"
 #include "command.h"
 #include "thread.h"
+#include "vty.h"
 #include "hash.h"
 #include "prefix.h"
 #include "stream.h"
@@ -57,6 +58,9 @@
 #include "isisd/isisd.h"
 #include "isisd/isis_csm.h"
 #include "isisd/isis_events.h"
+#ifdef HAVE_ISIS_TE
+#include "isisd/isis_te.h"
+#endif /* HAVE_ISIS_TE */
 
 /*
  * Prototypes.
@@ -97,6 +101,10 @@ isis_circuit_new ()
       circuit->metrics[i].metric_delay = METRICS_UNSUPPORTED;
       circuit->te_metric[i] = DEFAULT_CIRCUIT_METRIC;
     }
+
+#ifdef HAVE_ISIS_TE
+  circuit->mtc = mpls_te_circuit_new();
+#endif /* HAVE_ISIS_TE */
 
   return circuit;
 }
@@ -195,8 +203,7 @@ circuit_scan_by_ifp (struct interface *ifp)
   return circuit_lookup_by_ifp (ifp, isis->init_circ_list);
 }
 
-static struct isis_circuit *
-isis_circuit_lookup (struct vty *vty)
+struct isis_circuit * isis_circuit_lookup (struct vty *vty)
 {
   struct interface *ifp;
   struct isis_circuit *circuit;
@@ -249,6 +256,12 @@ isis_circuit_add_addr (struct isis_circuit *circuit,
       ipv4->prefixlen = connected->address->prefixlen;
       ipv4->prefix = connected->address->u.prefix4;
       listnode_add (circuit->ip_addrs, ipv4);
+
+#ifdef HAVE_ISIS_TE
+      /* Update MPLS TE Local IP address parameter */
+      set_circuitparams_local_ipaddr (circuit->mtc, ipv4->prefix);
+#endif /* HAVE_ISIS_TE */
+
       if (circuit->area)
         lsp_regenerate_schedule (circuit->area, circuit->is_type, 0);
 

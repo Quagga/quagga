@@ -164,4 +164,10 @@ extern struct thread_master *master;
 #define DEBUG_ZEBRA                      (1<<11)
 #define DEBUG_PACKET_DUMP                (1<<12)
 
+#ifdef HAVE_ISIS_TE
+#define DEBUG_TE                         (1<<13)
+#endif /* HAVE_ISIS_TE */
+
+#define IS_DEBUG_ISIS(x)                 (isis->debugs & x)
+
 #endif /* ISISD_H */

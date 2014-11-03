@@ -48,6 +48,10 @@
 #include "isisd/isis_spf.h"
 #include "isisd/isis_route.h"
 #include "isisd/isis_zebra.h"
+#ifdef HAVE_ISIS_TE
+#include "isisd/isis_tlv.h"
+#include "isisd/isis_te.h"
+#endif /* HAVE_ISIS_TE */
 
 /* Default configuration file name */
 #define ISISD_DEFAULT_CONFIG "isisd.conf"
@@ -335,6 +339,10 @@ main (int argc, char **argv, char **envp)
   isis_init ();
   isis_circuit_init ();
   isis_spf_cmds_init ();
+
+#ifdef HAVE_ISIS_TE
+  isis_mpls_te_init();
+#endif /* HAVE_ISIS_TE */
 
   /* create the global 'isis' instance */
   isis_new (1);
