@@ -154,6 +154,7 @@ zserv_encode_interface (struct stream *s, struct interface *ifp)
   stream_putl (s, ifp->mtu);
   stream_putl (s, ifp->mtu6);
   stream_putl (s, ifp->bandwidth);
+
 #ifdef HAVE_STRUCT_SOCKADDR_DL
   stream_put (s, &ifp->sdl, sizeof (ifp->sdl_storage));
 #else
@@ -161,6 +162,14 @@ zserv_encode_interface (struct stream *s, struct interface *ifp)
   if (ifp->hw_addr_len)
     stream_put (s, ifp->hw_addr, ifp->hw_addr_len);
 #endif /* HAVE_STRUCT_SOCKADDR_DL */
+
+#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+  /* Put Traffic Engineering status */
+  stream_putc (s, ifp->mpls_te);
+  /* Then, TE parameters if MPLS-TE is activate on this interface */
+  if (IS_LINK_TE(ifp))
+    stream_write (s, &ifp->link_te, INTERFACE_LINK_TE_SIZE);
+#endif /* Traffic Engineering */
 
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));

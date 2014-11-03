@@ -491,6 +491,14 @@ struct cmd_token
 "(neighbor|interface|area|lsa|zebra|config|dbex|spf|route|lsdb|redistribute|hook|asbr|prefix|abr)"
 #define ISIS_STR "IS-IS information\n"
 #define AREA_TAG_STR "[area tag]\n"
+#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+#define MPLS_TE_STR "MPLS-TE specific commands\n"
+#define MPLS_TE_LINK_STR "Configure MPLS-TE link parameters\n"
+#endif /* HAVE_OSPF_TE or HAVE_ISIS_TE */
+#ifdef HAVE_OSPF_RI
+#define OSPF_RI_STR "OSPF Router Information specific commands\n"
+#define PCE_STR "PCE Router Information specific commands\n"
+#endif /* HAVE_OSPF_RI */
 
 #define CONF_BACKUP_EXT ".sav"
 

@@ -68,6 +68,42 @@ struct if_stats
 };
 #endif /* HAVE_PROC_NET_DEV */
 
+#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+
+/* Here are "non-official" architectural constants. */
+#define TE_EXT_MASK             0x0FFFFFFF
+#define TE_EXT_ANORMAL          0x80000000
+#define LOSS_PRECISION          0.000003
+#define TE_KILO_BIT             1000
+#define TE_BYTE                 8
+#define DEFAULT_BANDWIDTH       10000
+#define MAX_CLASS_TYPE          8
+#define MAX_PKT_LOSS            50.331642
+
+/* Traffic Engineering Link Parameters */
+struct if_link_te {
+  u_int32_t te_metric;   /* Traffic Engineering metric */
+  float max_bw;          /* Maximum Bandwidth */
+  float max_rsv_bw;      /* Maximum Reservable Bandwidth */
+  float unrsv_bw[MAX_CLASS_TYPE];     /* Unreserved Bandwidth per Class Type (8) */
+  u_int32_t admin_grp;   /* Administrative group */
+  u_int32_t rmt_as;      /* Remote AS number */
+  struct in_addr rmt_ip; /* Remote IP address */
+  u_int32_t av_delay;    /* Link Average Delay */
+  u_int32_t min_delay;   /* Link Min Delay */
+  u_int32_t max_delay;   /* Link Max Delay */
+  u_int32_t delay_var;   /* Link Delay Variation */
+  float pkt_loss;        /* Link Packet Loss */
+  float res_bw;          /* Residual Bandwidth */
+  float ava_bw;          /* Available Bandwidth */
+  float use_bw;          /* Utilized Bandwidth */
+};
+
+#define INTERFACE_LINK_TE_SIZE   sizeof(struct if_link_te)
+#define IS_LINK_TE(ifp)  (ifp->mpls_te == MPLS_TE_ON)
+
+#endif /* Traffic Engineering */
+
 /* Interface structure */
 struct interface 
 {
@@ -119,6 +155,15 @@ struct interface
   /* interface bandwidth, kbits */
   unsigned int bandwidth;
   
+#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+  /* Traffic Engineering Link status */
+  u_char mpls_te;        /* MPLS TE status */
+#define MPLS_TE_OFF  0
+#define MPLS_TE_ON   1
+  /* Traffic Engineering Link parameters */
+  struct if_link_te link_te;
+#endif /* Traffic Engineering */
+
   /* description of the interface. */
   char *desc;			
 

@@ -82,6 +82,9 @@ struct zclient
   int (*interface_down) (int, struct zclient *, uint16_t, vrf_id_t);
   int (*interface_address_add) (int, struct zclient *, uint16_t, vrf_id_t);
   int (*interface_address_delete) (int, struct zclient *, uint16_t, vrf_id_t);
+#if defined(HAVE_OSPF_TE) || defined (HAVE_ISIS_TE)
+  int (*interface_update) (int, struct zclient *, uint16_t);
+#endif /* Traffic Engineering */
   int (*ipv4_route_add) (int, struct zclient *, uint16_t, vrf_id_t);
   int (*ipv4_route_delete) (int, struct zclient *, uint16_t, vrf_id_t);
   int (*ipv6_route_add) (int, struct zclient *, uint16_t, vrf_id_t);

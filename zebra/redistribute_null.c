@@ -78,3 +78,9 @@ void zebra_interface_address_delete_update (struct interface *a,
                                                 struct connected *b)
 { return; }
 #endif
+
+#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+/* Interface parameters update */
+void zebra_interface_parameters_update (struct interface *ifp)
+{ return; };
+#endif /* Traffic Engineering */

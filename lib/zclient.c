@@ -769,6 +769,15 @@ zebra_interface_if_set_value (struct stream *s, struct interface *ifp)
   if (ifp->hw_addr_len)
     stream_get (ifp->hw_addr, s, ifp->hw_addr_len);
 #endif /* HAVE_STRUCT_SOCKADDR_DL */
+
+#if defined(HAVE_OSPF_TE) || defined (HAVE_ISIS_TE)
+  /* Read Traffic Engineering status */
+  ifp->mpls_te = stream_getc (s);
+  /* Then, Traffic Engineering parameters if any */
+  if (IS_LINK_TE(ifp))
+    stream_get (&ifp->link_te, s, INTERFACE_LINK_TE_SIZE);
+#endif /* Traffic Engineering */
+
 }
 
 static int
@@ -982,6 +991,12 @@ zclient_read (struct thread *thread)
       if (zclient->interface_down)
 	(*zclient->interface_down) (command, zclient, length, vrf_id);
       break;
+#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+    case ZEBRA_INTERFACE_UPDATE:
+      if (zclient->interface_update)
+        (*zclient->interface_update) (command, zclient, length);
+      break;
+#endif /* Traffic Engineering */
     case ZEBRA_IPV4_ROUTE_ADD:
       if (zclient->ipv4_route_add)
 	(*zclient->ipv4_route_add) (command, zclient, length, vrf_id);

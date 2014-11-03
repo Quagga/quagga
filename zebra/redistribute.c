@@ -375,3 +375,20 @@ zebra_interface_address_delete_update (struct interface *ifp,
     if (client->ifinfo && CHECK_FLAG (ifc->conf, ZEBRA_IFC_REAL))
       zsend_interface_address (ZEBRA_INTERFACE_ADDRESS_DELETE, client, ifp, ifc);
 }
+
+#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+/* Interface parameters update */
+void
+zebra_interface_parameters_update (struct interface *ifp)
+{
+  struct listnode *node, *nnode;
+  struct zserv *client;
+
+  if (IS_ZEBRA_DEBUG_EVENT)
+    zlog_debug ("MESSAGE: ZEBRA_INTERFACE_UPDATE %s", ifp->name);
+
+  for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
+    zsend_interface_update (ZEBRA_INTERFACE_UPDATE, client, ifp);
+
+}
+#endif /* Traffic Engineering */

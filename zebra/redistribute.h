@@ -48,6 +48,10 @@ extern void zebra_interface_address_add_update (struct interface *,
 extern void zebra_interface_address_delete_update (struct interface *,
 						   struct connected *c);
 
+#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+extern void zebra_interface_parameters_update (struct interface *);
+#endif /* Traffic Engineering */
+
 extern int zebra_check_addr (struct prefix *);
 
 extern int is_default (struct prefix *);
