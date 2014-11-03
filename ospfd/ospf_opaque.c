@@ -66,6 +66,10 @@
 #include "ospfd/ospf_te.h"
 #endif /* HAVE_OSPF_TE */
 
+#ifdef HAVE_OSPF_RI
+#include "ospfd/ospf_ri.h"
+#endif /* HAVE_OSPF_RI */
+
 #ifdef SUPPORT_OSPF_API
 int ospf_apiserver_init (void);
 void ospf_apiserver_term (void); 
@@ -92,6 +96,11 @@ ospf_opaque_init (void)
     exit (1);
 #endif /* HAVE_OSPF_TE */
 
+#ifdef HAVE_OSPF_RI
+  if (ospf_router_info_init () != 0)
+    exit (1);
+#endif /* HAVE_OSPF_RI */
+
 #ifdef SUPPORT_OSPF_API
   if ((ospf_apiserver_enable) && (ospf_apiserver_init () != 0))
     exit (1);
@@ -106,6 +115,10 @@ ospf_opaque_term (void)
 #ifdef HAVE_OSPF_TE
   ospf_mpls_te_term ();
 #endif /* HAVE_OSPF_TE */
+
+#ifdef HAVE_OSPF_RI
+  ospf_router_info_term ();
+#endif /* HAVE_OSPF_RI */
 
 #ifdef SUPPORT_OSPF_API
   ospf_apiserver_term ();
@@ -223,6 +236,11 @@ ospf_opaque_type_name (u_char opaque_type)
     case OPAQUE_TYPE_INTER_AS_LSA:
       name = "Inter-AS TE-v2 LSA";
       break;
+#ifdef HAVE_OSPF_RI
+    case OPAQUE_TYPE_ROUTER_INFORMATION_LSA:
+      name = "Router Information LSA";
+      break;
+#endif /* HAVE_OSPF_RI */
     default:
       if (OPAQUE_TYPE_RANGE_UNASSIGNED (opaque_type))
         name = "Unassigned";
