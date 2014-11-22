@@ -181,6 +181,7 @@ print_version (const char *progname)
 {
   printf ("%s version %s\n", progname, QUAGGA_VERSION);
   printf ("%s\n", QUAGGA_COPYRIGHT);
+  printf ("configured with:\n\t%s\n", QUAGGA_CONFIG_ARGS);
 }
 
 
@@ -2951,6 +2952,8 @@ DEFUN (show_version,
   vty_out (vty, "Quagga %s (%s).%s", QUAGGA_VERSION, host.name?host.name:"",
 	   VTY_NEWLINE);
   vty_out (vty, "%s%s%s", QUAGGA_COPYRIGHT, GIT_INFO, VTY_NEWLINE);
+  vty_out (vty, "configured with:%s    %s%s", VTY_NEWLINE,
+           QUAGGA_CONFIG_ARGS, VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }
