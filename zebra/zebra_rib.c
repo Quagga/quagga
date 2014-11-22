@@ -719,12 +719,6 @@ nexthop_active_ipv6 (struct rib *rib, struct nexthop *nexthop, int set,
 #endif /* HAVE_IPV6 */
 
 struct rib *
-rib_match_ipv4 (struct in_addr addr)
-{
-  return rib_match_ipv4_safi (addr, SAFI_UNICAST, 1);
-}
-
-struct rib *
 rib_match_ipv4_safi (struct in_addr addr, safi_t safi, int skip_bgp)
 {
   struct route_table *table;

@@ -539,8 +539,8 @@ zsend_ipv4_nexthop_lookup (struct zserv *client, struct in_addr addr)
   u_char num;
   struct nexthop *nexthop;
 
-  /* Lookup nexthop. */
-  rib = rib_match_ipv4 (addr);
+  /* Lookup nexthop - eBGP excluded */
+  rib = rib_match_ipv4_safi (addr, SAFI_UNICAST, 1);
 
   /* Get output stream. */
   s = client->obuf;
