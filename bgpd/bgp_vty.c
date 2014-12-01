@@ -6937,7 +6937,7 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
   int len;
 
   /* Header string for each address family. */
-  static char header[] = "Neighbor        V    AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd";
+  static char header[] = "Neighbor        V         AS MsgRcvd MsgSent   TblVer  InQ OutQ Up/Down  State/PfxRcd";
   
   for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
     {
@@ -8302,7 +8302,7 @@ bgp_write_rsclient_summary (struct vty *vty, struct peer *rsclient,
 
   vty_out (vty, "4 ");
 
-  vty_out (vty, "%11d ", rsclient->as);
+  vty_out (vty, "%10u ", rsclient->as);
 
   rmname = ROUTE_MAP_EXPORT_NAME(&rsclient->filter[afi][safi]);
   if ( rmname && strlen (rmname) > 13 )
@@ -8347,7 +8347,7 @@ bgp_show_rsclient_summary (struct vty *vty, struct bgp *bgp,
   int count = 0;
 
   /* Header string for each address family. */
-  static char header[] = "Neighbor        V    AS  Export-Policy  Import-Policy  Up/Down  State";
+  static char header[] = "Neighbor        V         AS  Export-Policy  Import-Policy  Up/Down  State";
 
   for (ALL_LIST_ELEMENTS (bgp->rsclient, node, nnode, peer))
     {
