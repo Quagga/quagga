@@ -2103,6 +2103,8 @@ bgp_delete (struct bgp *bgp)
   afi_t afi;
   int i;
 
+  THREAD_OFF (bgp->t_startup);
+
   /* Delete static route. */
   bgp_static_delete (bgp);
 
