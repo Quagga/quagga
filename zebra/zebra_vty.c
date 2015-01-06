@@ -189,6 +189,62 @@ ALIAS (no_ip_mroute_dist,
        "Nexthop address\n"
        "Nexthop interface name\n")
 
+DEFUN (ip_multicast_mode,
+       ip_multicast_mode_cmd,
+       "ip multicast rpf-lookup-mode (urib-only|mrib-only|mrib-then-urib|lower-distance|longer-prefix)",
+       IP_STR
+       "Multicast options\n"
+       "RPF lookup behavior\n"
+       "Lookup in unicast RIB only\n"
+       "Lookup in multicast RIB only\n"
+       "Try multicast RIB first, fall back to unicast RIB\n"
+       "Lookup both, use entry with lower distance\n"
+       "Lookup both, use entry with longer prefix\n")
+{
+  if (!strncmp (argv[0], "u", 1))
+    multicast_mode_ipv4_set (MCAST_URIB_ONLY);
+  else if (!strncmp (argv[0], "mrib-o", 6))
+    multicast_mode_ipv4_set (MCAST_MRIB_ONLY);
+  else if (!strncmp (argv[0], "mrib-t", 6))
+    multicast_mode_ipv4_set (MCAST_MIX_MRIB_FIRST);
+  else if (!strncmp (argv[0], "low", 3))
+    multicast_mode_ipv4_set (MCAST_MIX_DISTANCE);
+  else if (!strncmp (argv[0], "lon", 3))
+    multicast_mode_ipv4_set (MCAST_MIX_PFXLEN);
+  else
+    {
+      vty_out (vty, "Invalid mode specified%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ip_multicast_mode,
+       no_ip_multicast_mode_cmd,
+       "no ip multicast rpf-lookup-mode (urib-only|mrib-only|mrib-then-urib|lower-distance|longer-prefix)",
+       NO_STR
+       IP_STR
+       "Multicast options\n"
+       "RPF lookup behavior\n"
+       "Lookup in unicast RIB only\n"
+       "Lookup in multicast RIB only\n"
+       "Try multicast RIB first, fall back to unicast RIB\n"
+       "Lookup both, use entry with lower distance\n"
+       "Lookup both, use entry with longer prefix\n")
+{
+  multicast_mode_ipv4_set (MCAST_NO_CONFIG);
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_ip_multicast_mode,
+       no_ip_multicast_mode_noarg_cmd,
+       "no ip multicast rpf-lookup-mode",
+       NO_STR
+       IP_STR
+       "Multicast options\n"
+       "RPF lookup behavior\n")
+
 DEFUN (show_ip_rpf,
        show_ip_rpf_cmd,
        "show ip rpf",
@@ -2228,10 +2284,19 @@ zebra_ip_config (struct vty *vty)
   return write;
 }
 
-/* ip protocol configuration write function */
-static int config_write_protocol(struct vty *vty)
-{  
+static int config_write_vty(struct vty *vty)
+{
   int i;
+  enum multicast_mode ipv4_multicast_mode = multicast_mode_ipv4_get ();
+
+  if (ipv4_multicast_mode != MCAST_NO_CONFIG)
+    vty_out (vty, "ip multicast rpf-lookup-mode %s%s",
+             ipv4_multicast_mode == MCAST_URIB_ONLY ? "urib-only" :
+             ipv4_multicast_mode == MCAST_MRIB_ONLY ? "mrib-only" :
+             ipv4_multicast_mode == MCAST_MIX_MRIB_FIRST ? "mrib-then-urib" :
+             ipv4_multicast_mode == MCAST_MIX_DISTANCE ? "lower-distance" :
+             "longer-prefix",
+             VTY_NEWLINE);
 
   for (i=0;i<ZEBRA_ROUTE_MAX;i++)
     {
@@ -2257,12 +2322,15 @@ void
 zebra_vty_init (void)
 {
   install_node (&ip_node, zebra_ip_config);
-  install_node (&protocol_node, config_write_protocol);
+  install_node (&protocol_node, config_write_vty);
 
   install_element (CONFIG_NODE, &ip_mroute_cmd);
   install_element (CONFIG_NODE, &ip_mroute_dist_cmd);
   install_element (CONFIG_NODE, &no_ip_mroute_cmd);
   install_element (CONFIG_NODE, &no_ip_mroute_dist_cmd);
+  install_element (CONFIG_NODE, &ip_multicast_mode_cmd);
+  install_element (CONFIG_NODE, &no_ip_multicast_mode_cmd);
+  install_element (CONFIG_NODE, &no_ip_multicast_mode_noarg_cmd);
   install_element (CONFIG_NODE, &ip_protocol_cmd);
   install_element (CONFIG_NODE, &no_ip_protocol_cmd);
   install_element (VIEW_NODE, &show_ip_protocol_cmd);

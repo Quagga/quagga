@@ -373,6 +373,21 @@ typedef struct rib_tables_iter_t_
   rib_tables_iter_state_t state;
 } rib_tables_iter_t;
 
+/* RPF lookup behaviour */
+enum multicast_mode
+{
+  MCAST_NO_CONFIG = 0,	/* MIX_MRIB_FIRST, but no show in config write */
+  MCAST_MRIB_ONLY,	/* MRIB only */
+  MCAST_URIB_ONLY,	/* URIB only */
+  MCAST_MIX_MRIB_FIRST,	/* MRIB, if nothing at all then URIB */
+  MCAST_MIX_DISTANCE,	/* MRIB & URIB, lower distance wins */
+  MCAST_MIX_PFXLEN,	/* MRIB & URIB, longer prefix wins */
+			/* on equal value, MRIB wins for last 2 */
+};
+
+extern void multicast_mode_ipv4_set (enum multicast_mode mode);
+extern enum multicast_mode multicast_mode_ipv4_get (void);
+
 extern const char *nexthop_type_to_str (enum nexthop_types_t nh_type);
 extern struct nexthop *nexthop_ifindex_add (struct rib *, unsigned int);
 extern struct nexthop *nexthop_ifname_add (struct rib *, char *);
@@ -420,6 +435,8 @@ extern int rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
 
 extern struct rib *rib_match_ipv4_safi (struct in_addr addr, safi_t safi,
 					int skip_bgp, struct route_node **rn_out);
+extern struct rib *rib_match_ipv4_multicast (struct in_addr addr,
+					     struct route_node **rn_out);
 
 extern struct rib *rib_lookup_ipv4 (struct prefix_ipv4 *);
 
