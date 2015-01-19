@@ -216,6 +216,11 @@ int main(int argc, char** argv, char** envp) {
   zlog_default->maxlvl[ZLOG_DEST_STDOUT] = ZLOG_DISABLED;
 #endif
 
+  /*
+    Initialize zclient "update" and "lookup" sockets
+   */
+  pim_zebra_init(zebra_sock_path);
+
   zlog_notice("Loading configuration - begin");
 
   /* Get configuration file. */
@@ -278,12 +283,6 @@ int main(int argc, char** argv, char** envp) {
   zlog_notice("!HAVE_CLOCK_MONOTONIC");
 #endif
 
-
-  /*
-    Initialize zclient "update" and "lookup" sockets
-   */
-  pim_zebra_init(zebra_sock_path);
-    
   while (thread_fetch(master, &thread))
     thread_call(&thread);
 
