@@ -725,8 +725,8 @@ int pim_sock_add(struct interface *ifp)
 
   pim_ifp->pim_generation_id = pim_rand() & (int64_t) 0xFFFFFFFF;
 
-  zlog_info("PIM INTERFACE UP: on interface %s",
-	    ifp->name);
+  zlog_info("PIM INTERFACE UP: on interface %s ifindex=%d",
+	    ifp->name, ifp->ifindex);
 
   /*
    * Start receiving PIM messages

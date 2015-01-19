@@ -150,7 +150,7 @@ static int pim_zebra_if_state_up(int command, struct zclient *zclient,
   if (!ifp)
     return 0;
 
-  zlog_info("INTERFACE UP: %s", ifp->name);
+  zlog_info("INTERFACE UP: %s ifindex=%d", ifp->name, ifp->ifindex);
 
   if (PIM_DEBUG_ZEBRA) {
     zlog_debug("%s: %s index %d flags %ld metric %d mtu %d operative %d",
@@ -182,7 +182,7 @@ static int pim_zebra_if_state_down(int command, struct zclient *zclient,
   if (!ifp)
     return 0;
 
-  zlog_info("INTERFACE DOWN: %s", ifp->name);
+  zlog_info("INTERFACE DOWN: %s ifindex=%d", ifp->name, ifp->ifindex);
 
   if (PIM_DEBUG_ZEBRA) {
     zlog_debug("%s: %s index %d flags %ld metric %d mtu %d operative %d",
