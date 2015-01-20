@@ -2723,11 +2723,9 @@ DEFUN (show_ip_ospf,
 	   CHECK_FLAG (ospf->config, OSPF_RFC1583_COMPATIBLE) ?
 	   "enabled" : "disabled", VTY_NEWLINE);
 #ifdef HAVE_OPAQUE_LSA
-  vty_out (vty, " OpaqueCapability flag is %s%s%s",
+  vty_out (vty, " OpaqueCapability flag is %s%s",
 	   CHECK_FLAG (ospf->config, OSPF_OPAQUE_CAPABLE) ?
            "enabled" : "disabled",
-           IS_OPAQUE_LSA_ORIGINATION_BLOCKED (ospf->opaque) ?
-           " (origination blocked)" : "",
            VTY_NEWLINE);
 #endif /* HAVE_OPAQUE_LSA */
   
