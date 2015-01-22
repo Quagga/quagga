@@ -540,7 +540,7 @@ zsend_ipv4_nexthop_lookup (struct zserv *client, struct in_addr addr)
   struct nexthop *nexthop;
 
   /* Lookup nexthop - eBGP excluded */
-  rib = rib_match_ipv4_safi (addr, SAFI_UNICAST, 1);
+  rib = rib_match_ipv4_safi (addr, SAFI_UNICAST, 1, NULL);
 
   /* Get output stream. */
   s = client->obuf;
@@ -615,7 +615,7 @@ zsend_ipv4_nexthop_lookup_mrib (struct zserv *client, struct in_addr addr)
   int skip_bgp = 0; /* bool */
 
   /* Lookup nexthop. */
-  rib = rib_match_ipv4_safi (addr, SAFI_MULTICAST, skip_bgp);
+  rib = rib_match_ipv4_safi (addr, SAFI_MULTICAST, skip_bgp, NULL);
 
   if (IS_ZEBRA_DEBUG_PACKET && IS_ZEBRA_DEBUG_RECV)
     zlog_debug("%s: %s mrib entry found.", __func__, rib ? "Matching" : "No matching");
