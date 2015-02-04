@@ -1563,17 +1563,6 @@ DEFUN (pim_interface,
   return CMD_SUCCESS;
 }
 
-DEFUN (clear_zclient_update,
-       clear_zclient_update_cmd,
-       "clear zclient-update",
-       CLEAR_STR
-       "Reset zclient update connection to zebra daemon\n")
-{
-  zclient_reset(qpim_zclient_update);
-
-  return CMD_SUCCESS;
-}
-
 DEFUN (clear_ip_interfaces,
        clear_ip_interfaces_cmd,
        "clear ip interfaces",
@@ -4391,7 +4380,6 @@ void pim_cmd_init()
   install_element (ENABLE_NODE, &clear_ip_mroute_cmd);
   install_element (ENABLE_NODE, &clear_ip_pim_interfaces_cmd);
   install_element (ENABLE_NODE, &clear_ip_pim_oil_cmd);
-  install_element (ENABLE_NODE, &clear_zclient_update_cmd);
 
   install_element (ENABLE_NODE, &show_ip_igmp_interface_cmd);
   install_element (ENABLE_NODE, &show_ip_igmp_join_cmd);
