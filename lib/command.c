@@ -2872,6 +2872,7 @@ DEFUN (config_exit,
     case KEYCHAIN_NODE:
     case MASC_NODE:
     case RMAP_NODE:
+    case PIM_NODE:
     case VTY_NODE:
       vty->node = CONFIG_NODE;
       break;
@@ -2929,6 +2930,7 @@ DEFUN (config_end,
     case KEYCHAIN_NODE:
     case KEYCHAIN_KEY_NODE:
     case MASC_NODE:
+    case PIM_NODE:
     case VTY_NODE:
       vty_config_unlock (vty);
       vty->node = ENABLE_NODE;
