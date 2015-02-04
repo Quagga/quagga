@@ -63,9 +63,7 @@ static void zclient_broken(struct zclient *zclient)
     pim_if_addr_del_all(ifp);
   }
 
-  /* discard connected addresses because zclient lib will reassign
-     them upon reconnection */
-  if_connected_reset_all();
+  /* upon return, zclient will discard connected addresses */
 }
 
 /* Router-id update message from zebra. */
