@@ -219,7 +219,7 @@ AC_ARG_ENABLE(babeld,
 AC_ARG_ENABLE(watchquagga,
   AS_HELP_STRING([--disable-watchquagga], [do not build watchquagga]))
 AC_ARG_ENABLE(isisd,
-  AS_HELP_STRING([--enable-isisd], [build isisd]))
+  AS_HELP_STRING([--disable-isisd], [do not build isisd]))
 AC_ARG_ENABLE(pimd,
   AS_HELP_STRING([--enable-pimd], [build pimd]))
 AC_ARG_ENABLE(bgp-announce,
@@ -331,7 +331,7 @@ if test "${enable_irdp}" = "yes"; then
   AC_DEFINE(HAVE_IRDP,, IRDP )
 fi
 
-if test "${enable_isisd}" = "yes" && test "${enable_isis_topology}" = yes; then
+if test "${enable_isisd}" != "no" && test "${enable_isis_topology}" = yes; then
   AC_DEFINE(TOPOLOGY_GENERATE,,Enable IS-IS topology generator code)
   ISIS_TOPOLOGY_INCLUDES="-I\$(srcdir)/topology"
   ISIS_TOPOLOGY_DIR="topology"
@@ -1155,9 +1155,8 @@ esac
 AM_CONDITIONAL(OSPF6D, test "x$OSPF6D" = "xospf6d")
 
 case "${enable_isisd}" in
-  "yes") ISISD="isisd";;
   "no" ) ISISD="";;
-  *    ) ;;
+  *    ) ISISD="isisd";;
 esac
 AM_CONDITIONAL(ISISD, test "x$ISISD" = "xisisd")
 
