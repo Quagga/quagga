@@ -183,9 +183,9 @@ struct te_subtlv_rip
 } __attribute__((__packed__));
 
 
-/* draft-ietf-isis-te-metric-extensions-03.txt */
+/* draft-ietf-isis-te-metric-extensions-04.txt */
 /* Link Sub-TLV: Average Link Delay */
-#define TE_SUBTLV_AV_DELAY	26
+#define TE_SUBTLV_AV_DELAY	31
 struct te_subtlv_av_delay
 {
   struct subtlv_header header;  /* Value length is 4 bytes. */
@@ -194,7 +194,7 @@ struct te_subtlv_av_delay
 } __attribute__((__packed__));
 
 /* Link Sub-TLV: Low/High Link Delay */
-#define TE_SUBTLV_MM_DELAY     27
+#define TE_SUBTLV_MM_DELAY      32
 #define TE_SUBTLV_MM_DELAY_SIZE    8
 struct te_subtlv_mm_delay
 {
@@ -205,7 +205,7 @@ struct te_subtlv_mm_delay
 } __attribute__((__packed__));
 
 /* Link Sub-TLV: Link Delay Variation i.e. Jitter */
-#define TE_SUBTLV_DELAY_VAR    28
+#define TE_SUBTLV_DELAY_VAR     33
 struct te_subtlv_delay_var
 {
   struct subtlv_header header;  /* Value length is 4 bytes. */
@@ -213,7 +213,7 @@ struct te_subtlv_delay_var
 } __attribute__((__packed__));
 
 /* Link Sub-TLV: Routine Unidirectional Link Packet Loss */
-#define TE_SUBTLV_PKT_LOSS	29
+#define TE_SUBTLV_PKT_LOSS	34
 struct te_subtlv_pkt_loss
 {
   struct subtlv_header header;  /* Value length is 4 bytes. */
@@ -222,7 +222,7 @@ struct te_subtlv_pkt_loss
 } __attribute__((__packed__));
 
 /* Link Sub-TLV: Unidirectional Residual Bandwidth */ /* Optional */
-#define TE_SUBTLV_RES_BW	30
+#define TE_SUBTLV_RES_BW	35
 struct te_subtlv_res_bw
 {
   struct subtlv_header header;  /* Value length is 4 bytes. */
@@ -230,7 +230,7 @@ struct te_subtlv_res_bw
 } __attribute__((__packed__));
 
 /* Link Sub-TLV: Unidirectional Available Bandwidth */ /* Optional */
-#define TE_SUBTLV_AVA_BW	31
+#define TE_SUBTLV_AVA_BW	36
 struct te_subtlv_ava_bw
 {
   struct subtlv_header header;  /* Value length is 4 octets. */
@@ -238,14 +238,14 @@ struct te_subtlv_ava_bw
 } __attribute__((__packed__));
 
 /* Link Sub-TLV: Unidirectional Utilized Bandwidth */ /* Optional */
-#define TE_SUBTLV_USE_BW        32
+#define TE_SUBTLV_USE_BW        37
 struct te_subtlv_use_bw
 {
   struct subtlv_header header;  /* Value length is 4 octets. */
   float                value;   /* bandwidth in IEEE floating point format with units in bytes per second */
 } __attribute__((__packed__));
 
-#define TE_SUBTLV_MAX		33      /* Last SUBTLV + 1 */
+#define TE_SUBTLV_MAX		38      /* Last SUBTLV + 1 */
 
 /* Following declaration concerns the MPLS-TE and LINk-TE management */
 typedef enum _status_t { disable, enable, learn } status_t;
