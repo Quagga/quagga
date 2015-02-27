@@ -276,9 +276,11 @@ struct te_link_subtlv_rip
 
 /* SUBTLV 23 (RFC5330) and 25 (RFC6001) are not yet supported */
 
-/* draft-ietf-ospf-te-metric-extensions-05.txt */
+/* SUBTLV 26 (RFC7308) is not yet supported */
+
+/* draft-ietf-ospf-te-metric-extensions-11.txt */
 /* Link Sub-TLV: Average Link Delay */ /* Optional */
-#define TE_LINK_SUBTLV_AV_DELAY		26
+#define TE_LINK_SUBTLV_AV_DELAY		27
 struct te_link_subtlv_av_delay
 {
   struct te_tlv_header header;  /* Value length is 4 bytes. */
@@ -287,7 +289,7 @@ struct te_link_subtlv_av_delay
 };
 
 /* Link Sub-TLV: Low/High Link Delay */
-#define TE_LINK_SUBTLV_MM_DELAY         27
+#define TE_LINK_SUBTLV_MM_DELAY         28
 #define TE_LINK_SUBTLV_MM_DELAY_SIZE    8
 struct te_link_subtlv_mm_delay
 {
@@ -298,7 +300,7 @@ struct te_link_subtlv_mm_delay
 };
 
 /* Link Sub-TLV: Link Delay Variation i.e. Jitter */
-#define TE_LINK_SUBTLV_DELAY_VAR	28
+#define TE_LINK_SUBTLV_DELAY_VAR	29
 struct te_link_subtlv_delay_var
 {
   struct te_tlv_header header;  /* Value length is 4 bytes. */
@@ -306,7 +308,7 @@ struct te_link_subtlv_delay_var
 };
 
 /* Link Sub-TLV: Routine Unidirectional Link Packet Loss */
-#define TE_LINK_SUBTLV_PKT_LOSS		29
+#define TE_LINK_SUBTLV_PKT_LOSS		30
 struct te_link_subtlv_pkt_loss
 {
   struct te_tlv_header header;  /* Value length is 4 bytes. */
@@ -315,7 +317,7 @@ struct te_link_subtlv_pkt_loss
 };
 
 /* Link Sub-TLV: Unidirectional Residual Bandwidth */ /* Optional */
-#define TE_LINK_SUBTLV_RES_BW		30
+#define TE_LINK_SUBTLV_RES_BW		31
 struct te_link_subtlv_res_bw
 {
   struct te_tlv_header header;  /* Value length is 4 bytes. */
@@ -323,7 +325,7 @@ struct te_link_subtlv_res_bw
 };
 
 /* Link Sub-TLV: Unidirectional Available Bandwidth */ /* Optional */
-#define TE_LINK_SUBTLV_AVA_BW		31
+#define TE_LINK_SUBTLV_AVA_BW		32
 struct te_link_subtlv_ava_bw
 {
   struct te_tlv_header header;  /* Value length is 4 octets. */
@@ -331,14 +333,14 @@ struct te_link_subtlv_ava_bw
 };
 
 /* Link Sub-TLV: Unidirectional Utilized Bandwidth */ /* Optional */
-#define TE_LINK_SUBTLV_USE_BW           32
+#define TE_LINK_SUBTLV_USE_BW           33
 struct te_link_subtlv_use_bw
 {
   struct te_tlv_header header;  /* Value length is 4 octets. */
   float                value;   /* bandwidth in IEEE floating point format with units in bytes per second */
 };
 
-#define TE_LINK_SUBTLV_MAX			33      /* Last SUBTLV + 1 */
+#define TE_LINK_SUBTLV_MAX		34      /* Last SUBTLV + 1 */
 
 /* Here are "non-official" architectural constants. */
 #define MPLS_TE_MINIMUM_BANDWIDTH	1.0	/* Reasonable? *//* XXX */
