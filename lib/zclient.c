@@ -41,7 +41,7 @@ static void zclient_event (enum event, struct zclient *);
 
 extern struct thread_master *master;
 
-char *zclient_serv_path = NULL;
+const char *zclient_serv_path = NULL;
 
 /* This file local debug flag. */
 int zclient_debug = 0;
@@ -1053,7 +1053,7 @@ zclient_event (enum event event, struct zclient *zclient)
     }
 }
 
-const char *const zclient_serv_path_get()
+const char *zclient_serv_path_get()
 {
   return zclient_serv_path ? zclient_serv_path : ZEBRA_SERV_PATH;
 }
