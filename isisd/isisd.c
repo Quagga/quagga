@@ -1601,7 +1601,7 @@ ALIAS (area_passwd_md5,
        "Authentication\n"
        "SNP PDUs\n"
        "Send but do not check PDUs on receiving\n"
-       "Send and check PDUs on receiving\n");
+       "Send and check PDUs on receiving\n")
 
 DEFUN (area_passwd_clear,
        area_passwd_clear_cmd,
@@ -1659,7 +1659,7 @@ ALIAS (area_passwd_clear,
        "Authentication\n"
        "SNP PDUs\n"
        "Send but do not check PDUs on receiving\n"
-       "Send and check PDUs on receiving\n");
+       "Send and check PDUs on receiving\n")
 
 DEFUN (no_area_passwd,
        no_area_passwd_cmd,
@@ -1739,7 +1739,7 @@ ALIAS (domain_passwd_md5,
        "Authentication\n"
        "SNP PDUs\n"
        "Send but do not check PDUs on receiving\n"
-       "Send and check PDUs on receiving\n");
+       "Send and check PDUs on receiving\n")
 
 DEFUN (domain_passwd_clear,
        domain_passwd_clear_cmd,
@@ -1797,7 +1797,7 @@ ALIAS (domain_passwd_clear,
        "Authentication\n"
        "SNP PDUs\n"
        "Send but do not check PDUs on receiving\n"
-       "Send and check PDUs on receiving\n");
+       "Send and check PDUs on receiving\n")
 
 DEFUN (no_domain_passwd,
        no_domain_passwd_cmd,
