@@ -702,7 +702,7 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
 
   RNODE_FOREACH_RIB (rn, rib)
     {
-      const char *mcast_info;
+      const char *mcast_info = "";
       if (mcast)
         {
           rib_table_info_t *info = rn->table->info;
