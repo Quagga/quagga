@@ -919,7 +919,7 @@ zclient_read (struct thread *thread)
   length -= ZEBRA_HEADER_SIZE;
 
   if (zclient_debug)
-    zlog_debug("zclient 0x%p command 0x%x \n", zclient, command);
+    zlog_debug("zclient 0x%p command 0x%x \n", (void *)zclient, command);
 
   switch (command)
     {

@@ -1495,7 +1495,8 @@ ospf6_brouter_debug_print (struct ospf6_route *brouter)
 
   zlog_info ("Brouter: %s via area %s", brouter_name, area_name);
   zlog_info ("  memory: prev: %p this: %p next: %p parent rnode: %p",
-             brouter->prev, brouter, brouter->next, brouter->rnode);
+             (void *)brouter->prev, (void *)brouter, (void *)brouter->next,
+             (void *)brouter->rnode);
   zlog_info ("  type: %d prefix: %s installed: %s changed: %s",
              brouter->type, destination, installed, changed);
   zlog_info ("  lock: %d flags: %s%s%s%s", brouter->lock,
@@ -1543,7 +1544,7 @@ ospf6_intra_brouter_calculation (struct ospf6_area *oa)
           IS_OSPF6_DEBUG_ROUTE (MEMORY))
         {
           zlog_info ("%p: mark as removing: area %s brouter %s",
-                     brouter, oa->name, brouter_name);
+                     (void *)brouter, oa->name, brouter_name);
           ospf6_brouter_debug_print (brouter);
         }
     }
@@ -1575,7 +1576,7 @@ ospf6_intra_brouter_calculation (struct ospf6_area *oa)
           IS_OSPF6_DEBUG_ROUTE (MEMORY))
         {
           zlog_info ("%p: transfer: area %s brouter %s",
-                     brouter, oa->name, brouter_name);
+                     (void *)brouter, oa->name, brouter_name);
           ospf6_brouter_debug_print (brouter);
         }
     }

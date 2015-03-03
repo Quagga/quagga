@@ -494,7 +494,7 @@ ospf6_lsa_show_internal (struct vty *vty, struct ospf6_lsa *lsa)
   vty_out (vty, "Lock: %d %s", lsa->lock, VNL);
   vty_out (vty, "ReTx Count: %d%s", lsa->retrans_count, VNL);
   vty_out (vty, "Threads: Expire: 0x%p, Refresh: 0x%p %s",
-	   lsa->expire, lsa->refresh, VNL);
+           (void *)lsa->expire, (void *)lsa->refresh, VNL);
   vty_out (vty, "%s", VNL);
   return;
 }
