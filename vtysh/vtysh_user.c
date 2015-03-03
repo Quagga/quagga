@@ -37,6 +37,7 @@
 #include "memory.h"
 #include "linklist.h"
 #include "command.h"
+#include "vtysh_user.h"
 
 #ifdef USE_PAM
 static struct pam_conv conv = 
