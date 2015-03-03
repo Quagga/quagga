@@ -175,6 +175,11 @@ else
   AC_MSG_RESULT([CFLAGS supplied by user])
 fi
 
+if test x"${enable_werror}" = x"yes" ; then
+  WERROR="-Werror"
+fi
+AC_SUBST(WERROR)
+
 dnl --------------
 dnl Check programs
 dnl --------------
@@ -296,6 +301,8 @@ AC_ARG_ENABLE(pcreposix,
   AS_HELP_STRING([--enable-pcreposix], [enable using PCRE Posix libs for regex functions]))
 AC_ARG_ENABLE(fpm,
   AS_HELP_STRING([--enable-fpm], [enable Forwarding Plane Manager support]))
+AC_ARG_ENABLE(werror,
+  AS_HELP_STRING([--enable-werror], [enable -Werror (recommended for developers only)]))
 
 if test x"${enable_gcc_rdynamic}" != x"no" ; then
   if test x"${enable_gcc_rdynamic}" = x"yes" -o x"$COMPILER" = x"GCC"; then
