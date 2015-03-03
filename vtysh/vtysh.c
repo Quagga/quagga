@@ -563,11 +563,11 @@ vtysh_rl_describe (void)
   if (vline == NULL)
     {
       vline = vector_init (1);
-      vector_set (vline, '\0');
+      vector_set (vline, NULL);
     }
   else 
     if (rl_end && isspace ((int) rl_line_buffer[rl_end - 1]))
-      vector_set (vline, '\0');
+      vector_set (vline, NULL);
 
   describe = cmd_describe_command (vline, vty, &ret);
 
@@ -657,7 +657,7 @@ command_generator (const char *text, int state)
 	return NULL;
 
       if (rl_end && isspace ((int) rl_line_buffer[rl_end - 1]))
-	vector_set (vline, '\0');
+        vector_set (vline, NULL);
 
       matched = cmd_complete_command (vline, vty, &complete_status);
     }
