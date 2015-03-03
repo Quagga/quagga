@@ -1378,7 +1378,7 @@ static struct aspath *
 aspath_add_asns (struct aspath *aspath, as_t asno, u_char type, unsigned num)
 {
   struct assegment *assegment = aspath->segments;
-  int i;
+  unsigned i;
 
   if (assegment && assegment->type == type)
     {
