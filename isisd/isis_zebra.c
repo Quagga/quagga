@@ -318,7 +318,7 @@ isis_zebra_route_del_ipv4 (struct prefix *prefix,
 }
 
 #ifdef HAVE_IPV6
-void
+static void
 isis_zebra_route_add_ipv6 (struct prefix *prefix,
 			   struct isis_route_info *route_info)
 {
@@ -519,8 +519,8 @@ isis_zebra_read_ipv4 (int command, struct zclient *zclient,
   struct stream *stream;
   struct zapi_ipv4 api;
   struct prefix_ipv4 p;
-  unsigned long ifindex;
-  struct in_addr nexthop;
+  unsigned long ifindex __attribute__ ((unused));
+  struct in_addr nexthop __attribute__ ((unused));
 
   stream = zclient->ibuf;
   memset (&p, 0, sizeof (struct prefix_ipv4));
