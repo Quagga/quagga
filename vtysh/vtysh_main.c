@@ -63,7 +63,7 @@ struct thread_master *master;
 FILE *logfile;
 
 /* SIGTSTP handler.  This function care user's ^Z input. */
-void
+static void
 sigtstp (int sig)
 {
   /* Execute "end" command. */
@@ -84,7 +84,7 @@ sigtstp (int sig)
 }
 
 /* SIGINT handler.  This function care user's ^Z input.  */
-void
+static void
 sigint (int sig)
 {
   /* Check this process is not child process. */
@@ -121,7 +121,7 @@ vtysh_signal_set (int signo, void (*func)(int))
 }
 
 /* Initialization of signal handles. */
-void
+static void
 vtysh_signal_init ()
 {
   vtysh_signal_set (SIGINT, sigint);
@@ -168,7 +168,7 @@ struct option longopts[] =
 };
 
 /* Read a string, and return a pointer to it.  Returns NULL on EOF. */
-char *
+static char *
 vtysh_rl_gets ()
 {
   HIST_ENTRY *last;

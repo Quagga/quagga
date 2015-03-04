@@ -251,7 +251,7 @@ vtysh_client_execute (struct vtysh_client *vclient, const char *line, FILE *fp)
     }
 }
 
-void
+static void
 vtysh_exit_ripd_only (void)
 {
   if (ripd_client)
@@ -547,7 +547,7 @@ vtysh_config_from_file (struct vty *vty, FILE *fp)
 }
 
 /* We don't care about the point of the cursor when '?' is typed. */
-int
+static int
 vtysh_rl_describe (void)
 {
   int ret;
@@ -821,7 +821,7 @@ static struct cmd_node keychain_key_node =
 extern struct cmd_node vty_node;
 
 /* When '^Z' is received from vty, move down to the enable mode. */
-int
+static int
 vtysh_end (void)
 {
   switch (vty->node)
