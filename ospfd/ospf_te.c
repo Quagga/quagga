@@ -24,7 +24,7 @@
  * 02111-1307, USA.
  */
 
-/* Add support to draft-ietf-ospf-te-metric-extensions */
+/* Add support of RFC7471 */
 /* Add support of RFC5392, RFC6827 */
 
 #include <zebra.h>

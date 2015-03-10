@@ -24,7 +24,7 @@
  * 02111-1307, USA.
  */
 
-/* Add support to draft-ietf-ospf-te-metric-extensions-05 */
+/* Add support of RFC7471 */
 /* Add support of RFC5392 */
 /* Add support of RFC6827 (partial) */
 
@@ -278,7 +278,7 @@ struct te_link_subtlv_rip
 
 /* SUBTLV 26 (RFC7308) is not yet supported */
 
-/* draft-ietf-ospf-te-metric-extensions-11.txt */
+/* RFC7471 */
 /* Link Sub-TLV: Average Link Delay */ /* Optional */
 #define TE_LINK_SUBTLV_AV_DELAY		27
 struct te_link_subtlv_av_delay
@@ -440,7 +440,7 @@ struct mpls_te_link
   struct te_link_subtlv_rip rip;
   /* RFC6827 */
   struct te_link_subtlv_lrrid lrrid;
-  /* draft-ietf-ospf-te-metric-extension */
+  /* RFC7471 */
   struct te_link_subtlv_av_delay av_delay;
   struct te_link_subtlv_mm_delay mm_delay;
   struct te_link_subtlv_delay_var delay_var;
