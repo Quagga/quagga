@@ -78,9 +78,9 @@ extern struct zebra_t zebrad;
 
 /* OS X (Xcode as of 2014-12) is known not to define RT_ROUNDUP */
 #ifdef __APPLE__
-#define ROUNDUP_TYPE	long
-#else
 #define ROUNDUP_TYPE	int
+#else
+#define ROUNDUP_TYPE	long
 #endif
 
 #define ROUNDUP(a) \
