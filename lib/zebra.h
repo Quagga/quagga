@@ -412,7 +412,10 @@ struct in_pktinfo
 #define ZEBRA_ROUTER_ID_UPDATE            22
 #define ZEBRA_HELLO                       23
 #define ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB    24
-#define ZEBRA_MESSAGE_MAX                 25
+#define ZEBRA_NEXTHOP_REGISTER            25
+#define ZEBRA_NEXTHOP_UNREGISTER          26
+#define ZEBRA_NEXTHOP_UPDATE              27
+#define ZEBRA_MESSAGE_MAX                 28
 
 /* Marker value used in new Zserv, in the byte location corresponding
  * the command value in the old zserv header. To allow old and new
@@ -513,6 +516,7 @@ extern const char *zserv_command_string (unsigned int command);
 #define CHECK_FLAG(V,F)      ((V) & (F))
 #define SET_FLAG(V,F)        (V) |= (F)
 #define UNSET_FLAG(V,F)      (V) &= ~(F)
+#define RESET_FLAG(V)        (V) = 0
 
 /* AFI and SAFI type. */
 typedef u_int16_t afi_t;
