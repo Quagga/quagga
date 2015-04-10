@@ -1264,7 +1264,7 @@ out:
   if (isis->debugs & DEBUG_ADJ_PACKETS)
     {
       zlog_debug ("ISIS-Adj (%s): Rcvd L%d LAN IIH from %s on %s, cirType %s, "
-		  "cirID %u, length %ld",
+		  "cirID %u, length %zd",
 		  circuit->area->area_tag,
 		  level, snpa_print (ssnpa), circuit->interface->name,
 		  circuit_t2string (circuit->is_type),
@@ -2321,7 +2321,7 @@ send_hello (struct isis_circuit *circuit, int level)
   struct isis_lan_hello_hdr hello_hdr;
   struct isis_p2p_hello_hdr p2p_hello_hdr;
   unsigned char hmac_md5_hash[ISIS_AUTH_MD5_SIZE];
-  unsigned long len_pointer, length, auth_tlv_offset = 0;
+  size_t len_pointer, length, auth_tlv_offset = 0;
   u_int32_t interval;
   int retval;
 
@@ -2479,16 +2479,14 @@ send_hello (struct isis_circuit *circuit, int level)
     {
       if (circuit->circ_type == CIRCUIT_T_BROADCAST)
 	{
-	  zlog_debug ("ISIS-Adj (%s): Sent L%d LAN IIH on %s, length %ld",
+	  zlog_debug ("ISIS-Adj (%s): Sent L%d LAN IIH on %s, length %zd",
 		      circuit->area->area_tag, level, circuit->interface->name,
-		      /* FIXME: use %z when we stop supporting old compilers. */
 		      length);
 	}
       else
 	{
-	  zlog_debug ("ISIS-Adj (%s): Sent P2P IIH on %s, length %ld",
+	  zlog_debug ("ISIS-Adj (%s): Sent P2P IIH on %s, length %zd",
 		      circuit->area->area_tag, circuit->interface->name,
-		      /* FIXME: use %z when we stop supporting old compilers. */
 		      length);
 	}
       if (isis->debugs & DEBUG_PACKET_DUMP)
@@ -2801,7 +2799,7 @@ send_csnp (struct isis_circuit *circuit, int level)
 
       if (isis->debugs & DEBUG_SNP_PACKETS)
         {
-          zlog_debug ("ISIS-Snp (%s): Sent L%d CSNP on %s, length %ld",
+          zlog_debug ("ISIS-Snp (%s): Sent L%d CSNP on %s, length %zd",
                       circuit->area->area_tag, level, circuit->interface->name,
                       stream_get_endp (circuit->snd_stream));
           for (ALL_LIST_ELEMENTS_RO (list, node, lsp))
@@ -3050,7 +3048,7 @@ send_psnp (int level, struct isis_circuit *circuit)
 
       if (isis->debugs & DEBUG_SNP_PACKETS)
         {
-          zlog_debug ("ISIS-Snp (%s): Sent L%d PSNP on %s, length %ld",
+          zlog_debug ("ISIS-Snp (%s): Sent L%d PSNP on %s, length %zd",
                       circuit->area->area_tag, level,
                       circuit->interface->name,
                       stream_get_endp (circuit->snd_stream));
