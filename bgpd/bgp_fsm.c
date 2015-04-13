@@ -545,7 +545,7 @@ bgp_stop (struct peer *peer)
 
         /* ORF received prefix-filter pnt */
         sprintf (orf_name, "%s.%d.%d", peer->host, afi, safi);
-        prefix_bgp_orf_remove_all (orf_name);
+        prefix_bgp_orf_remove_all (afi, orf_name);
       }
 
   /* Reset keepalive and holdtime */

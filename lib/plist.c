@@ -84,8 +84,18 @@ static struct prefix_master prefix_master_ipv6 =
 #endif /* HAVE_IPV6*/
 
 /* Static structure of BGP ORF prefix_list's master. */
-static struct prefix_master prefix_master_orf = 
-{ 
+static struct prefix_master prefix_master_orf_v4 =
+{
+  {NULL, NULL},
+  {NULL, NULL},
+  1,
+  NULL,
+  NULL,
+};
+
+/* Static structure of BGP ORF prefix_list's master. */
+static struct prefix_master prefix_master_orf_v6 =
+{
   {NULL, NULL},
   {NULL, NULL},
   1,
@@ -94,16 +104,12 @@ static struct prefix_master prefix_master_orf =
 };
 
 static struct prefix_master *
-prefix_master_get (afi_t afi)
+prefix_master_get (afi_t afi, int orf)
 {
   if (afi == AFI_IP)
-    return &prefix_master_ipv4;
-#ifdef HAVE_IPV6
-  else if (afi == AFI_IP6)
-    return &prefix_master_ipv6;
-#endif /* HAVE_IPV6 */
-  else if (afi == AFI_ORF_PREFIX)
-    return &prefix_master_orf;
+    return orf ? &prefix_master_orf_v4 : &prefix_master_ipv4;
+  if (afi == AFI_IP6)
+    return orf ? &prefix_master_orf_v6 : &prefix_master_ipv6;
   return NULL;
 }
 
@@ -113,8 +119,8 @@ const char *prefix_list_name (struct prefix_list *plist)
 }
 
 /* Lookup prefix_list from list of prefix_list by name. */
-struct prefix_list *
-prefix_list_lookup (afi_t afi, const char *name)
+static struct prefix_list *
+prefix_list_lookup_do (afi_t afi, int orf, const char *name)
 {
   struct prefix_list *plist;
   struct prefix_master *master;
@@ -122,7 +128,7 @@ prefix_list_lookup (afi_t afi, const char *name)
   if (name == NULL)
     return NULL;
 
-  master = prefix_master_get (afi);
+  master = prefix_master_get (afi, orf);
   if (master == NULL)
     return NULL;
 
@@ -135,6 +141,18 @@ prefix_list_lookup (afi_t afi, const char *name)
       return plist;
 
   return NULL;
+}
+
+struct prefix_list *
+prefix_list_lookup (afi_t afi, const char *name)
+{
+  return prefix_list_lookup_do (afi, 0, name);
+}
+
+struct prefix_list *
+prefix_bgp_orf_lookup (afi_t afi, const char *name)
+{
+  return prefix_list_lookup_do (afi, 1, name);
 }
 
 static struct prefix_list *
@@ -170,7 +188,7 @@ prefix_list_entry_free (struct prefix_list_entry *pentry)
 /* Insert new prefix list to list of prefix_list.  Each prefix_list
    is sorted by the name. */
 static struct prefix_list *
-prefix_list_insert (afi_t afi, const char *name)
+prefix_list_insert (afi_t afi, int orf, const char *name)
 {
   unsigned int i;
   long number;
@@ -179,7 +197,7 @@ prefix_list_insert (afi_t afi, const char *name)
   struct prefix_list_list *list;
   struct prefix_master *master;
 
-  master = prefix_master_get (afi);
+  master = prefix_master_get (afi, orf);
   if (master == NULL)
     return NULL;
 
@@ -260,14 +278,14 @@ prefix_list_insert (afi_t afi, const char *name)
 }
 
 static struct prefix_list *
-prefix_list_get (afi_t afi, const char *name)
+prefix_list_get (afi_t afi, int orf, const char *name)
 {
   struct prefix_list *plist;
 
-  plist = prefix_list_lookup (afi, name);
+  plist = prefix_list_lookup_do (afi, orf, name);
 
   if (plist == NULL)
-    plist = prefix_list_insert (afi, name);
+    plist = prefix_list_insert (afi, orf, name);
   return plist;
 }
 
@@ -733,7 +751,7 @@ vty_prefix_list_install (struct vty *vty, afi_t afi, const char *name,
     lenum = 0;
 
   /* Get prefix_list with name. */
-  plist = prefix_list_get (afi, name);
+  plist = prefix_list_get (afi, 0, name);
 
   /* Make prefix entry. */
   pentry = prefix_list_entry_make (&p, type, seqnum, lenum, genum, any);
@@ -988,7 +1006,7 @@ vty_show_prefix_list (struct vty *vty, afi_t afi, const char *name,
   struct prefix_master *master;
   int seqnum = 0;
 
-  master = prefix_master_get (afi);
+  master = prefix_master_get (afi, 0);
   if (master == NULL)
     return CMD_WARNING;
 
@@ -1106,7 +1124,7 @@ vty_clear_prefix_list (struct vty *vty, afi_t afi, const char *name,
   int ret;
   struct prefix p;
 
-  master = prefix_master_get (afi);
+  master = prefix_master_get (afi, 0);
   if (master == NULL)
     return CMD_WARNING;
 
@@ -1561,7 +1579,7 @@ DEFUN (ip_prefix_list_description,
 {
   struct prefix_list *plist;
 
-  plist = prefix_list_get (AFI_IP, argv[0]);
+  plist = prefix_list_get (AFI_IP, 0, argv[0]);
   
   if (plist->desc)
     {
@@ -2157,7 +2175,7 @@ DEFUN (ipv6_prefix_list_description,
 {
   struct prefix_list *plist;
 
-  plist = prefix_list_get (AFI_IP6, argv[0]);
+  plist = prefix_list_get (AFI_IP6, 0, argv[0]);
   
   if (plist->desc)
     {
@@ -2352,7 +2370,7 @@ config_write_prefix_afi (afi_t afi, struct vty *vty)
   struct prefix_master *master;
   int write = 0;
 
-  master = prefix_master_get (afi);
+  master = prefix_master_get (afi, 0);
   if (master == NULL)
     return 0;
 
@@ -2495,7 +2513,7 @@ prefix_bgp_orf_set (char *name, afi_t afi, struct orf_prefix *orfp,
   if (orfp->ge && orfp->le == (afi == AFI_IP ? 32 : 128))
     orfp->le = 0;
 
-  plist = prefix_list_get (AFI_ORF_PREFIX, name);
+  plist = prefix_list_get (afi, 1, name);
   if (! plist)
     return CMD_WARNING;
 
@@ -2529,11 +2547,11 @@ prefix_bgp_orf_set (char *name, afi_t afi, struct orf_prefix *orfp,
 }
 
 void
-prefix_bgp_orf_remove_all (char *name)
+prefix_bgp_orf_remove_all (afi_t afi, char *name)
 {
   struct prefix_list *plist;
 
-  plist = prefix_list_lookup (AFI_ORF_PREFIX, name);
+  plist = prefix_bgp_orf_lookup (afi, name);
   if (plist)
     prefix_list_delete (plist);
 }
@@ -2545,7 +2563,7 @@ prefix_bgp_show_prefix_list (struct vty *vty, afi_t afi, char *name)
   struct prefix_list *plist;
   struct prefix_list_entry *pentry;
 
-  plist = prefix_list_lookup (AFI_ORF_PREFIX, name);
+  plist = prefix_bgp_orf_lookup (afi, name);
   if (! plist)
     return 0;
 
@@ -2577,13 +2595,13 @@ prefix_bgp_show_prefix_list (struct vty *vty, afi_t afi, char *name)
 }
 
 static void
-prefix_list_reset_orf (void)
+prefix_list_reset_afi (afi_t afi, int orf)
 {
   struct prefix_list *plist;
   struct prefix_list *next;
   struct prefix_master *master;
 
-  master = prefix_master_get (AFI_ORF_PREFIX);
+  master = prefix_master_get (afi, orf);
   if (master == NULL)
     return;
 
@@ -2621,38 +2639,6 @@ static int
 config_write_prefix_ipv4 (struct vty *vty)
 {
   return config_write_prefix_afi (AFI_IP, vty);
-}
-
-static void
-prefix_list_reset_ipv4 (void)
-{
-  struct prefix_list *plist;
-  struct prefix_list *next;
-  struct prefix_master *master;
-
-  master = prefix_master_get (AFI_IP);
-  if (master == NULL)
-    return;
-
-  for (plist = master->num.head; plist; plist = next)
-    {
-      next = plist->next;
-      prefix_list_delete (plist);
-    }
-  for (plist = master->str.head; plist; plist = next)
-    {
-      next = plist->next;
-      prefix_list_delete (plist);
-    }
-
-  assert (master->num.head == NULL);
-  assert (master->num.tail == NULL);
-
-  assert (master->str.head == NULL);
-  assert (master->str.tail == NULL);
-
-  master->seqnum = 1;
-  master->recent = NULL;
 }
 
 static void
@@ -2733,38 +2719,6 @@ config_write_prefix_ipv6 (struct vty *vty)
 }
 
 static void
-prefix_list_reset_ipv6 (void)
-{
-  struct prefix_list *plist;
-  struct prefix_list *next;
-  struct prefix_master *master;
-
-  master = prefix_master_get (AFI_IP6);
-  if (master == NULL)
-    return;
-
-  for (plist = master->num.head; plist; plist = next)
-    {
-      next = plist->next;
-      prefix_list_delete (plist);
-    }
-  for (plist = master->str.head; plist; plist = next)
-    {
-      next = plist->next;
-      prefix_list_delete (plist);
-    }
-
-  assert (master->num.head == NULL);
-  assert (master->num.tail == NULL);
-
-  assert (master->str.head == NULL);
-  assert (master->str.tail == NULL);
-
-  master->seqnum = 1;
-  master->recent = NULL;
-}
-
-static void
 prefix_list_init_ipv6 (void)
 {
   install_node (&prefix_ipv6_node, config_write_prefix_ipv6);
@@ -2839,9 +2793,8 @@ prefix_list_init ()
 void
 prefix_list_reset ()
 {
-  prefix_list_reset_ipv4 ();
-#ifdef HAVE_IPV6
-  prefix_list_reset_ipv6 ();
-#endif /* HAVE_IPV6 */
-  prefix_list_reset_orf ();
+  prefix_list_reset_afi (AFI_IP,  0);
+  prefix_list_reset_afi (AFI_IP6, 0);
+  prefix_list_reset_afi (AFI_IP,  1);
+  prefix_list_reset_afi (AFI_IP6, 1);
 }
