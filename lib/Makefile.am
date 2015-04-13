@@ -30,6 +30,9 @@ pkginclude_HEADERS = \
 	privs.h sigevent.h pqueue.h jhash.h zassert.h memtypes.h \
 	workqueue.h route_types.h libospf.h
 
+noinst_HEADERS = \
+	plist_int.h
+
 EXTRA_DIST = \
 	regex.c regex-gnu.h \
 	queue.h \
