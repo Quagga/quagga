@@ -72,6 +72,7 @@ struct memory_list memory_list_lib[] =
   { MTYPE_VRF,			"VRF"				},
   { MTYPE_VRF_NAME,		"VRF name"			},
   { MTYPE_VRF_BITMAP,		"VRF bit-map"			},
+  { MTYPE_IF_LINK_PARAMS,	"Informational Link Parameters" },
   { -1, NULL },
 };
 

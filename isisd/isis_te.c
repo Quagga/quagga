@@ -171,8 +171,8 @@ build_te_subtlvs(u_char *buf, struct isis_circuit *circuit)
 
   /* Start building SubTLVs following IANA order */
   /* TE_SUBTLV_ADMIN_GRP */
-  if (ifp->link_te.admin_grp != 0)
-      size += build_link_te_subtlv(tlvs, TE_SUBTLV_ADMIN_GRP, SUBTLV_DEF_SIZE, &ifp->link_te.admin_grp);
+  if (ifp->link_params->admin_grp != 0)
+      size += build_link_te_subtlv(tlvs, TE_SUBTLV_ADMIN_GRP, SUBTLV_DEF_SIZE, &ifp->link_params->admin_grp);
 
   /* TE_SUBTLV_LOCAL_IPADDR */
   if (listcount(circuit->ip_addrs) != 0)
@@ -195,72 +195,72 @@ build_te_subtlvs(u_char *buf, struct isis_circuit *circuit)
     }
 
   /* TE_SUBTLV_MAX_BW */
-  if (ifp->link_te.max_bw != 0)
-    size += build_link_te_subtlv(tlvs, TE_SUBTLV_MAX_BW, SUBTLV_DEF_SIZE, &ifp->link_te.max_bw);
+  if (ifp->link_params->max_bw != 0)
+    size += build_link_te_subtlv(tlvs, TE_SUBTLV_MAX_BW, SUBTLV_DEF_SIZE, &ifp->link_params->max_bw);
 
   /* TE_SUBTLV_MAX_RSV_BW */
-  if (ifp->link_te.max_rsv_bw != 0)
-    size += build_link_te_subtlv(tlvs, TE_SUBTLV_MAX_RSV_BW, SUBTLV_DEF_SIZE, &ifp->link_te.max_rsv_bw);
+  if (ifp->link_params->max_rsv_bw != 0)
+    size += build_link_te_subtlv(tlvs, TE_SUBTLV_MAX_RSV_BW, SUBTLV_DEF_SIZE, &ifp->link_params->max_rsv_bw);
 
   /* TE_SUBTLV_UNRSV_BW */
   count = 0;
   for (i = 0; i < MAX_CLASS_TYPE; i++)
-    if (ifp->link_te.unrsv_bw[i] != 0)
+    if (ifp->link_params->unrsv_bw[i] != 0)
       count++;
 
   if (count != 0)
-    size += build_link_te_subtlv(tlvs, TE_SUBTLV_UNRSV_BW, TE_SUBTLV_UNRSV_SIZE, &ifp->link_te.unrsv_bw);
+    size += build_link_te_subtlv(tlvs, TE_SUBTLV_UNRSV_BW, TE_SUBTLV_UNRSV_SIZE, &ifp->link_params->unrsv_bw);
 
   /* TE_SUBTLV_TE_METRIC */
-  if (ifp->link_te.te_metric != 0)
+  if (ifp->link_params->te_metric != 0)
     {
       tlvs[0] = TE_SUBTLV_TE_METRIC;
       tlvs[1] = TE_SUBTLV_TE_METRIC_SIZE;
       tlvs += SUBTLV_HDR_SIZE;
       /* Be careful, TE Metric is stored in Network Byte Order */
-      tlvs[0] = (ifp->link_te.te_metric >> 16) & 0xFF;
-      tlvs[1] = (ifp->link_te.te_metric  >> 8) & 0xFF;
-      tlvs[2] = ifp->link_te.te_metric & 0xFF;
+      tlvs[0] = (ifp->link_params->te_metric >> 16) & 0xFF;
+      tlvs[1] = (ifp->link_params->te_metric  >> 8) & 0xFF;
+      tlvs[2] = ifp->link_params->te_metric & 0xFF;
       tlvs += TE_SUBTLV_TE_METRIC_SIZE;
       size += SUBTLV_HDR_SIZE + TE_SUBTLV_TE_METRIC_SIZE;
     }
 
   /* TE_SUBTLV_AV_DELAY */
-  if (ifp->link_te.av_delay != 0)
-    size += build_link_te_subtlv(tlvs, TE_SUBTLV_AV_DELAY, SUBTLV_DEF_SIZE, &ifp->link_te.av_delay);
+  if (ifp->link_params->av_delay != 0)
+    size += build_link_te_subtlv(tlvs, TE_SUBTLV_AV_DELAY, SUBTLV_DEF_SIZE, &ifp->link_params->av_delay);
 
   /* TE_SUBTLV_MM_DELAY */
-  if ((ifp->link_te.min_delay != 0) || (ifp->link_te.max_delay != 0))
+  if ((ifp->link_params->min_delay != 0) || (ifp->link_params->max_delay != 0))
     {
       tlvs[0] = TE_SUBTLV_AV_DELAY;
       tlvs[1] = TE_SUBTLV_MM_DELAY_SIZE;
       tlvs += SUBTLV_HDR_SIZE;
-      memcpy(tlvs,&ifp->link_te.min_delay, SUBTLV_DEF_SIZE);
+      memcpy(tlvs,&ifp->link_params->min_delay, SUBTLV_DEF_SIZE);
       tlvs += SUBTLV_DEF_SIZE;
-      memcpy(tlvs,&ifp->link_te.max_delay, SUBTLV_DEF_SIZE);
+      memcpy(tlvs,&ifp->link_params->max_delay, SUBTLV_DEF_SIZE);
       tlvs += SUBTLV_DEF_SIZE;
       size += SUBTLV_HDR_SIZE + TE_SUBTLV_MM_DELAY_SIZE;
     }
 
   /* TE_SUBTLV_DELAY_VAR */
-  if (ifp->link_te.delay_var != 0)
-    size += build_link_te_subtlv(tlvs, TE_SUBTLV_DELAY_VAR, SUBTLV_DEF_SIZE, &ifp->link_te.delay_var);
+  if (ifp->link_params->delay_var != 0)
+    size += build_link_te_subtlv(tlvs, TE_SUBTLV_DELAY_VAR, SUBTLV_DEF_SIZE, &ifp->link_params->delay_var);
 
   /* TE_SUBTLV_PKT_LOSS */
-  if (ifp->link_te.pkt_loss != 0)
-    size += build_link_te_subtlv(tlvs, TE_SUBTLV_PKT_LOSS, SUBTLV_DEF_SIZE, &ifp->link_te.pkt_loss);
+  if (ifp->link_params->pkt_loss != 0)
+    size += build_link_te_subtlv(tlvs, TE_SUBTLV_PKT_LOSS, SUBTLV_DEF_SIZE, &ifp->link_params->pkt_loss);
 
   /* TE_SUBTLV_RES_BW */
-  if (ifp->link_te.res_bw != 0)
-    size += build_link_te_subtlv(tlvs, TE_SUBTLV_RES_BW, SUBTLV_DEF_SIZE, &ifp->link_te.res_bw);
+  if (ifp->link_params->res_bw != 0)
+    size += build_link_te_subtlv(tlvs, TE_SUBTLV_RES_BW, SUBTLV_DEF_SIZE, &ifp->link_params->res_bw);
 
   /* TE_SUBTLV_AVA_BW */
-  if (ifp->link_te.ava_bw != 0)
-    size += build_link_te_subtlv(tlvs, TE_SUBTLV_AVA_BW, SUBTLV_DEF_SIZE, &ifp->link_te.ava_bw);
+  if (ifp->link_params->ava_bw != 0)
+    size += build_link_te_subtlv(tlvs, TE_SUBTLV_AVA_BW, SUBTLV_DEF_SIZE, &ifp->link_params->ava_bw);
 
   /* TE_SUBTLV_USE_BW */
-  if (ifp->link_te.use_bw != 0)
-    size += build_link_te_subtlv(tlvs, TE_SUBTLV_USE_BW, SUBTLV_DEF_SIZE, &ifp->link_te.use_bw);
+  if (ifp->link_params->use_bw != 0)
+    size += build_link_te_subtlv(tlvs, TE_SUBTLV_USE_BW, SUBTLV_DEF_SIZE, &ifp->link_params->use_bw);
 
   zlog_debug("ISIS MPLS-TE: Add %d bytes length SubTLVs", size);
 
@@ -696,7 +696,7 @@ isis_mpls_te_update (struct interface *ifp)
   /* Get circuit context from interface */
   if ((circuit = circuit_scan_by_ifp(ifp)) == NULL)
     return;
-
+    
   /* Check if MPLS TE Circuit context has not been already created */
   if (circuit->mtc == NULL)
     {
@@ -725,30 +725,30 @@ isis_mpls_te_update (struct interface *ifp)
   mtc = circuit->mtc;
 
   /* Fulfil MTC TLV from ifp TE Link parameters */
-  if (IS_LINK_TE(ifp))
+  if (HAS_LINK_PARAMS(ifp))
     {
       mtc->status = enable;
       /* STD_TE metrics */
-      if (ifp->link_te.admin_grp != 0)
-        set_circuitparams_admin_grp (mtc, ifp->link_te.admin_grp);
+      if (ifp->link_params->admin_grp != 0)
+        set_circuitparams_admin_grp (mtc, ifp->link_params->admin_grp);
       else
         SUBTLV_TYPE(mtc->admin_grp) = 0;
 
-      if (ifp->link_te.max_bw != 0)
-        set_circuitparams_max_bw (mtc, ifp->link_te.max_bw);
+      if (ifp->link_params->max_bw != 0)
+        set_circuitparams_max_bw (mtc, ifp->link_params->max_bw);
       else
         SUBTLV_TYPE(mtc->max_bw) = 0;
 
-      if (ifp->link_te.max_rsv_bw != 0)
-        set_circuitparams_max_rsv_bw (mtc, ifp->link_te.max_rsv_bw);
+      if (ifp->link_params->max_rsv_bw != 0)
+        set_circuitparams_max_rsv_bw (mtc, ifp->link_params->max_rsv_bw);
       else
         SUBTLV_TYPE(mtc->max_rsv_bw) = 0;
 
       unset = 0;
       for (i = 0; i < MAX_CLASS_TYPE; i++)
         {
-          if (ifp->link_te.unrsv_bw[i] != 0)
-            set_circuitparams_unrsv_bw (mtc, i, ifp->link_te.unrsv_bw[i]);
+          if (ifp->link_params->unrsv_bw[i] != 0)
+            set_circuitparams_unrsv_bw (mtc, i, ifp->link_params->unrsv_bw[i]);
           else
             unset++;
         }
@@ -756,50 +756,50 @@ isis_mpls_te_update (struct interface *ifp)
       if (unset == MAX_CLASS_TYPE)
         SUBTLV_TYPE(mtc->unrsv_bw) = 0;
 
-      if (ifp->link_te.te_metric != 0)
-        set_circuitparams_te_metric(mtc, ifp->link_te.te_metric);
+      if (ifp->link_params->te_metric != 0)
+        set_circuitparams_te_metric(mtc, ifp->link_params->te_metric);
       else
         SUBTLV_TYPE(mtc->te_metric) = 0;
 
       /* TE metric Extensions */
-      if (ifp->link_te.av_delay != 0)
-        set_circuitparams_av_delay(mtc, ifp->link_te.av_delay, 0);
+      if (ifp->link_params->av_delay != 0)
+        set_circuitparams_av_delay(mtc, ifp->link_params->av_delay, 0);
       else
         SUBTLV_TYPE(mtc->av_delay) = 0;
 
-      if ((ifp->link_te.min_delay != 0) || (ifp->link_te.max_delay != 0))
-        set_circuitparams_mm_delay(mtc, ifp->link_te.min_delay, ifp->link_te.max_delay, 0);
+      if ((ifp->link_params->min_delay != 0) || (ifp->link_params->max_delay != 0))
+        set_circuitparams_mm_delay(mtc, ifp->link_params->min_delay, ifp->link_params->max_delay, 0);
       else
         SUBTLV_TYPE(mtc->mm_delay) = 0;
 
-      if (ifp->link_te.delay_var != 0)
-        set_circuitparams_delay_var(mtc, ifp->link_te.delay_var);
+      if (ifp->link_params->delay_var != 0)
+        set_circuitparams_delay_var(mtc, ifp->link_params->delay_var);
       else
         SUBTLV_TYPE(mtc->delay_var) = 0;
 
-      if (ifp->link_te.pkt_loss != 0)
-        set_circuitparams_pkt_loss(mtc, ifp->link_te.pkt_loss, 0);
+      if (ifp->link_params->pkt_loss != 0)
+        set_circuitparams_pkt_loss(mtc, ifp->link_params->pkt_loss, 0);
       else
         SUBTLV_TYPE(mtc->pkt_loss) = 0;
 
-      if (ifp->link_te.res_bw != 0)
-        set_circuitparams_res_bw(mtc, ifp->link_te.res_bw);
+      if (ifp->link_params->res_bw != 0)
+        set_circuitparams_res_bw(mtc, ifp->link_params->res_bw);
       else
         SUBTLV_TYPE(mtc->res_bw) = 0;
 
-      if (ifp->link_te.ava_bw != 0)
-        set_circuitparams_ava_bw(mtc, ifp->link_te.ava_bw);
+      if (ifp->link_params->ava_bw != 0)
+        set_circuitparams_ava_bw(mtc, ifp->link_params->ava_bw);
       else
         SUBTLV_TYPE(mtc->ava_bw) = 0;
 
-      if (ifp->link_te.use_bw != 0)
-        set_circuitparams_use_bw(mtc, ifp->link_te.use_bw);
+      if (ifp->link_params->use_bw != 0)
+        set_circuitparams_use_bw(mtc, ifp->link_params->use_bw);
       else
         SUBTLV_TYPE(mtc->use_bw) = 0;
 
       /* INTER_AS */
-      if ((ifp->link_te.rmt_as != 0) && (ifp->link_te.rmt_ip.s_addr != 0))
-        set_circuitparams_inter_as(mtc, ifp->link_te.rmt_ip, ifp->link_te.rmt_as);
+      if ((ifp->link_params->rmt_as != 0) && (ifp->link_params->rmt_ip.s_addr != 0))
+        set_circuitparams_inter_as(mtc, ifp->link_params->rmt_ip, ifp->link_params->rmt_as);
       else
         /* reset inter-as TE params */
         unset_circuitparams_inter_as (mtc);
@@ -1252,7 +1252,8 @@ DEFUN (isis_mpls_te_on,
       if (circuit->mtc == NULL || IS_FLOOD_AS (circuit->mtc->type))
         continue;
 
-      if ((circuit->mtc->status == disable) && IS_LINK_TE(circuit->interface))
+      if ((circuit->mtc->status == disable)
+          && HAS_LINK_PARAMS(circuit->interface))
         circuit->mtc->status = enable;
       else
         continue;

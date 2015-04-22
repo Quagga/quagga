@@ -746,12 +746,18 @@ zebra_interface_state_read (struct stream *s, vrf_id_t vrf_id)
  * :               :
  * |               |
  * +-+-+-+-+-+-+-+-+
- *
+ * | Link_params?  |  Whether a link-params follows: 1 or 0.
+ * +-+-+-+-+-+-+-+-+
+ * |  Link_params  | 0 or 1 INTERFACE_LINK_PARAMS_SIZE sized
+ * |   ....        | (struct if_link_params).
+ * +-+-+-+-+-+-+-+-+ 
  */
 
 void
 zebra_interface_if_set_value (struct stream *s, struct interface *ifp)
 {
+  u_char link_params_status = 0;
+  
   /* Read interface's index. */
   ifp->ifindex = stream_getl (s);
   ifp->status = stream_getc (s);
@@ -772,10 +778,13 @@ zebra_interface_if_set_value (struct stream *s, struct interface *ifp)
 
 #if defined(HAVE_OSPF_TE) || defined (HAVE_ISIS_TE)
   /* Read Traffic Engineering status */
-  ifp->mpls_te = stream_getc (s);
+  link_params_status = stream_getc (s);
   /* Then, Traffic Engineering parameters if any */
-  if (IS_LINK_TE(ifp))
-    stream_get (&ifp->link_te, s, INTERFACE_LINK_TE_SIZE);
+  if (link_params_status)
+    {
+      if_link_params_init (ifp);
+      stream_get (ifp->link_params, s, INTERFACE_LINK_PARAMS_SIZE);
+    }
 #endif /* Traffic Engineering */
 
 }

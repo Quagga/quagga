@@ -68,6 +68,7 @@ struct if_stats
 };
 #endif /* HAVE_PROC_NET_DEV */
 
+/* Link Parameters for Traffic Engineering */
 #if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
 
 /* Here are "non-official" architectural constants. */
@@ -81,7 +82,7 @@ struct if_stats
 #define MAX_PKT_LOSS            50.331642
 
 /* Traffic Engineering Link Parameters */
-struct if_link_te {
+struct if_link_params {
   u_int32_t te_metric;   /* Traffic Engineering metric */
   float max_bw;          /* Maximum Bandwidth */
   float max_rsv_bw;      /* Maximum Reservable Bandwidth */
@@ -99,10 +100,14 @@ struct if_link_te {
   float use_bw;          /* Utilized Bandwidth */
 };
 
-#define INTERFACE_LINK_TE_SIZE   sizeof(struct if_link_te)
-#define IS_LINK_TE(ifp)  (ifp->mpls_te == MPLS_TE_ON)
+/* XXX: Get rid of this INTERFACE_LINK_PARAMS_SIZE macro, just there
+ * to avoid using streams properly and blit structs directly in/out of
+ * streams
+ */
+#define INTERFACE_LINK_PARAMS_SIZE   sizeof(struct if_link_params)
+#define HAS_LINK_PARAMS(ifp)  ((ifp)->link_params != NULL)
 
-#endif /* Traffic Engineering */
+#endif /* Link Parameters for Traffic Engineering */
 
 /* Interface structure */
 struct interface 
@@ -156,12 +161,8 @@ struct interface
   unsigned int bandwidth;
   
 #if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
-  /* Traffic Engineering Link status */
-  u_char mpls_te;        /* MPLS TE status */
-#define MPLS_TE_OFF  0
-#define MPLS_TE_ON   1
   /* Traffic Engineering Link parameters */
-  struct if_link_te link_te;
+  struct if_link_params *link_params;
 #endif /* Traffic Engineering */
 
   /* description of the interface. */
@@ -380,6 +381,10 @@ extern unsigned int if_nametoindex (const char *);
 #ifndef HAVE_IF_INDEXTONAME
 extern char *if_indextoname (unsigned int, char *);
 #endif
+
+/* link parameters */
+struct if_link_params *if_link_params_init (struct interface *);
+void if_link_params_free (struct interface *);
 
 /* Exported variables. */
 extern struct list *iflist;

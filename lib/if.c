@@ -167,7 +167,9 @@ if_delete (struct interface *ifp)
   if_delete_retain(ifp);
 
   list_free (ifp->connected);
-
+  
+  if_link_params_free (ifp);
+  
   XFREE (MTYPE_IF, ifp);
 }
 
@@ -1064,4 +1066,36 @@ if_terminate (vrf_id_t vrf_id, struct list **intf_list)
 
   if (vrf_id == VRF_DEFAULT)
     iflist = NULL;
+}
+
+struct if_link_params *
+if_link_params_init (struct interface *ifp)
+{
+  struct if_link_params *lp = XCALLOC(MTYPE_IF_LINK_PARAMS,
+                                      sizeof (struct if_link_params));
+  if (lp == NULL) return NULL;
+  
+  int bw = (float)((ifp->bandwidth ? ifp->bandwidth : DEFAULT_BANDWIDTH) 
+                   * TE_KILO_BIT / TE_BYTE);
+
+  ifp->link_params = lp;
+  
+  ifp->link_params->max_bw = bw;
+  ifp->link_params->max_rsv_bw = bw;
+  for (int i = 0; i < MAX_CLASS_TYPE; i++)
+    ifp->link_params->unrsv_bw[i] = bw;
+  ifp->link_params->ava_bw = bw;
+  
+  /* Set TE metric == standard metric */
+  ifp->link_params->te_metric = ifp->metric;
+  
+  return lp;
+}
+
+void
+if_link_params_free (struct interface *ifp)
+{
+  if (ifp->link_params == NULL) return;
+  XFREE(MTYPE_IF_LINK_PARAMS, ifp->link_params);
+  ifp->link_params = NULL;
 }

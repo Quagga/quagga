@@ -1504,7 +1504,7 @@ lsp_build (struct isis_lsp *lsp, struct isis_area *area)
 #ifdef HAVE_ISIS_TE
                     {
                       /* Check if MPLS_TE is activate */
-                      if (IS_MPLS_TE(isisMplsTE) && IS_LINK_TE(circuit->interface))
+                      if (IS_MPLS_TE(isisMplsTE) && HAS_LINK_PARAMS(circuit->interface))
                         /* Add SubTLVs & Adjust real size of SubTLVs */
                         te_is_neigh->sub_tlvs_length = add_te_subtlvs(te_is_neigh->sub_tlvs, circuit->mtc);
                       else
@@ -1549,7 +1549,7 @@ lsp_build (struct isis_lsp *lsp, struct isis_area *area)
 		  SET_TE_METRIC(te_is_neigh, metric);
 #ifdef HAVE_ISIS_TE
 		  /* Check if MPLS_TE is activate */
-                  if (IS_MPLS_TE(isisMplsTE) && IS_LINK_TE(circuit->interface))
+                  if (IS_MPLS_TE(isisMplsTE) && HAS_LINK_PARAMS(circuit->interface))
                     /* Update Local and Remote IP address for MPLS TE circuit parameters */
                     /* NOTE sure that it is the pertinent place for that updates */
                     /* Local IP address could be updated in isis_circuit.c - isis_circuit_add_addr() */

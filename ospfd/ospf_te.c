@@ -721,26 +721,26 @@ update_linkparams(struct mpls_te_link *lp)
     }
 
   /* RFC3630 metrics */
-  if (ifp->link_te.admin_grp != 0)
-    set_linkparams_rsc_clsclr (lp, ifp->link_te.admin_grp);
+  if (ifp->link_params->admin_grp != 0)
+    set_linkparams_rsc_clsclr (lp, ifp->link_params->admin_grp);
   else
     TLV_TYPE(lp->rsc_clsclr) = 0;
 
-  if (ifp->link_te.max_bw != 0)
-    set_linkparams_max_bw (lp, &ifp->link_te.max_bw);
+  if (ifp->link_params->max_bw != 0)
+    set_linkparams_max_bw (lp, &ifp->link_params->max_bw);
   else
     TLV_TYPE(lp->max_bw) = 0;
 
-  if (ifp->link_te.max_rsv_bw != 0)
-    set_linkparams_max_rsv_bw (lp, &ifp->link_te.max_rsv_bw);
+  if (ifp->link_params->max_rsv_bw != 0)
+    set_linkparams_max_rsv_bw (lp, &ifp->link_params->max_rsv_bw);
   else
     TLV_TYPE(lp->max_rsv_bw) = 0;
 
   unset = 0;
   for (i = 0; i < MAX_CLASS_TYPE; i++)
     {
-      if (ifp->link_te.unrsv_bw[i] != 0)
-        set_linkparams_unrsv_bw (lp, i, &ifp->link_te.unrsv_bw[i]);
+      if (ifp->link_params->unrsv_bw[i] != 0)
+        set_linkparams_unrsv_bw (lp, i, &ifp->link_params->unrsv_bw[i]);
       else
         unset++;
     }
@@ -748,49 +748,49 @@ update_linkparams(struct mpls_te_link *lp)
   if (unset == MAX_CLASS_TYPE)
     TLV_TYPE(lp->unrsv_bw) = 0;
 
-  if (ifp->link_te.te_metric != 0)
-    set_linkparams_te_metric(lp, ifp->link_te.te_metric);
+  if (ifp->link_params->te_metric != 0)
+    set_linkparams_te_metric(lp, ifp->link_params->te_metric);
   else
     TLV_TYPE(lp->te_metric) = 0;
 
   /* TE metric Extensions */
-  if (ifp->link_te.av_delay != 0)
-    set_linkparams_av_delay(lp, ifp->link_te.av_delay, 0);
+  if (ifp->link_params->av_delay != 0)
+    set_linkparams_av_delay(lp, ifp->link_params->av_delay, 0);
   else
     TLV_TYPE(lp->av_delay) = 0;
 
-  if ((ifp->link_te.min_delay != 0) || (ifp->link_te.max_delay != 0))
-    set_linkparams_mm_delay(lp, ifp->link_te.min_delay, ifp->link_te.max_delay, 0);
+  if ((ifp->link_params->min_delay != 0) || (ifp->link_params->max_delay != 0))
+    set_linkparams_mm_delay(lp, ifp->link_params->min_delay, ifp->link_params->max_delay, 0);
   else
     TLV_TYPE(lp->mm_delay) = 0;
 
-  if (ifp->link_te.delay_var != 0)
-    set_linkparams_delay_var(lp, ifp->link_te.delay_var);
+  if (ifp->link_params->delay_var != 0)
+    set_linkparams_delay_var(lp, ifp->link_params->delay_var);
   else
     TLV_TYPE(lp->delay_var) = 0;
 
-  if (ifp->link_te.pkt_loss >= 0.0)
-    set_linkparams_pkt_loss(lp, ifp->link_te.pkt_loss, 0);
+  if (ifp->link_params->pkt_loss >= 0.0)
+    set_linkparams_pkt_loss(lp, ifp->link_params->pkt_loss, 0);
   else
     TLV_TYPE(lp->pkt_loss) = 0;
 
-  if (ifp->link_te.res_bw != 0)
-    set_linkparams_res_bw(lp, &ifp->link_te.res_bw);
+  if (ifp->link_params->res_bw != 0)
+    set_linkparams_res_bw(lp, &ifp->link_params->res_bw);
   else
     TLV_TYPE(lp->res_bw) = 0;
 
-  if (ifp->link_te.ava_bw != 0)
-    set_linkparams_ava_bw(lp, &ifp->link_te.ava_bw);
+  if (ifp->link_params->ava_bw != 0)
+    set_linkparams_ava_bw(lp, &ifp->link_params->ava_bw);
   else
     TLV_TYPE(lp->ava_bw) = 0;
 
-  if (ifp->link_te.use_bw != 0)
-    set_linkparams_use_bw(lp, &ifp->link_te.use_bw);
+  if (ifp->link_params->use_bw != 0)
+    set_linkparams_use_bw(lp, &ifp->link_params->use_bw);
   else
     TLV_TYPE(lp->use_bw) = 0;
 
   /* RFC5392 */
-  if ((ifp->link_te.rmt_as != 0) && (ifp->link_te.rmt_ip.s_addr != 0))
+  if ((ifp->link_params->rmt_as != 0) && (ifp->link_params->rmt_ip.s_addr != 0))
     {
       /* Flush LSA if it engaged and was previously a STD_TE one */
       if (IS_STD_TE(lp->type) && CHECK_FLAG (lp->flags, LPFLG_LSA_ENGAGED))
@@ -809,7 +809,7 @@ update_linkparams(struct mpls_te_link *lp)
               lp->area = ospf_area_lookup_by_area_id (ospf_lookup(), OspfMplsTE.interas_areaid);
             }
         }
-      set_linkparams_inter_as(lp, ifp->link_te.rmt_ip, ifp->link_te.rmt_as);
+      set_linkparams_inter_as(lp, ifp->link_params->rmt_ip, ifp->link_params->rmt_as);
     }
   else
     {
@@ -909,7 +909,7 @@ ospf_mpls_te_new_if (struct interface *ifp)
 
   if (IS_DEBUG_OSPF_TE)
     zlog_debug ("MPLS-TE(ospf_mpls_te_new_if) Add new %s interface %s to MPLS-TE list",
-                 ifp->mpls_te ? "Active" : "Inactive", ifp->name);
+                 ifp->link_params ? "Active" : "Inactive", ifp->name);
 
   if (lookup_linkparams_by_ifp (ifp) != NULL)
     {
@@ -989,7 +989,7 @@ ospf_mpls_te_update_if (struct interface *ifp)
 
   if (IS_DEBUG_OSPF_TE)
     zlog_debug ("OSPF MPLS-TE: Update LSA parameters for interface %s [%s]",
-        ifp->name, ifp->mpls_te ? "ON" : "OFF");
+        ifp->name, ifp->link_params ? "ON" : "OFF");
 
   /* Get Link context from interface */
   if ((lp = lookup_linkparams_by_ifp(ifp)) == NULL)
@@ -999,7 +999,7 @@ ospf_mpls_te_update_if (struct interface *ifp)
     }
 
   /* Fulfill MPLS-TE Link TLV from Interface TE Link parameters */
-  if (IS_LINK_TE(ifp))
+  if (HAS_LINK_PARAMS(ifp))
     {
       SET_FLAG (lp->flags, LPFLG_LSA_ACTIVE);
 
@@ -1062,7 +1062,7 @@ ospf_mpls_te_ism_change (struct ospf_interface *oi, int old_state)
   lp->area = oi->area;
 
   /* Keep interface MPLS-TE status */
-  lp->flags = oi->ifp->mpls_te;
+  lp->flags = HAS_LINK_PARAMS(oi->ifp);
 
   switch (oi->state)
     {
@@ -2521,7 +2521,10 @@ show_mpls_te_link_sub (struct vty *vty, struct interface *ifp)
 {
   struct mpls_te_link *lp;
 
-  if ((OspfMplsTE.status == enabled) && IS_LINK_TE(ifp) && (!if_is_loopback (ifp) && if_is_up (ifp))
+  if ((OspfMplsTE.status == enabled) 
+      && HAS_LINK_PARAMS(ifp) 
+      && !if_is_loopback (ifp) 
+      && if_is_up (ifp)
       && ((lp = lookup_linkparams_by_ifp (ifp)) != NULL))
     {
       /* Continue only if interface is not passive or support Inter-AS TEv2 */

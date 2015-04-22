@@ -165,10 +165,10 @@ zserv_encode_interface (struct stream *s, struct interface *ifp)
 
 #if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
   /* Put Traffic Engineering status */
-  stream_putc (s, ifp->mpls_te);
+  stream_putc (s, (HAS_LINK_PARAMS(ifp) ? 1 : 0));
   /* Then, TE parameters if MPLS-TE is activate on this interface */
-  if (IS_LINK_TE(ifp))
-    stream_write (s, &ifp->link_te, INTERFACE_LINK_TE_SIZE);
+  if (HAS_LINK_PARAMS(ifp))
+      stream_write (s, &ifp->link_params, sizeof (struct if_link_params));
 #endif /* Traffic Engineering */
 
   /* Write packet size. */
