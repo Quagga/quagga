@@ -1378,7 +1378,7 @@ static struct aspath *
 aspath_add_asns (struct aspath *aspath, as_t asno, u_char type, unsigned num)
 {
   struct assegment *assegment = aspath->segments;
-  int i;
+  unsigned i;
 
   if (assegment && assegment->type == type)
     {
@@ -1913,7 +1913,7 @@ aspath_show_all_iterator (struct hash_backet *backet, struct vty *vty)
 
   as = (struct aspath *) backet->data;
 
-  vty_out (vty, "[%p:%u] (%ld) ", backet, backet->key, as->refcnt);
+  vty_out (vty, "[%p:%u] (%ld) ", (void *)backet, backet->key, as->refcnt);
   vty_out (vty, "%s%s", as->str, VTY_NEWLINE);
 }
 

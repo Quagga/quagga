@@ -236,7 +236,7 @@ ripng_recv_packet (int sock, u_char *buf, int bufsize,
   struct msghdr msg;
   struct iovec iov;
   struct cmsghdr  *cmsgptr;
-  struct in6_addr dst;
+  struct in6_addr dst = { .s6_addr = { 0 } };
 
   /* Ancillary data.  This store cmsghdr and in6_pktinfo.  But at this
      point I can't determine size of cmsghdr */
@@ -1317,7 +1317,7 @@ ripng_read (struct thread *thread)
   int sock;
   struct sockaddr_in6 from;
   struct ripng_packet *packet;
-  unsigned int ifindex;
+  unsigned int ifindex = 0;
   struct interface *ifp;
   int hoplimit = -1;
 

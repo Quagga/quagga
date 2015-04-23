@@ -41,7 +41,7 @@ static void zclient_event (enum event, struct zclient *);
 
 extern struct thread_master *master;
 
-char *zclient_serv_path = NULL;
+const char *zclient_serv_path = NULL;
 
 /* This file local debug flag. */
 int zclient_debug = 0;
@@ -919,7 +919,7 @@ zclient_read (struct thread *thread)
   length -= ZEBRA_HEADER_SIZE;
 
   if (zclient_debug)
-    zlog_debug("zclient 0x%p command 0x%x \n", zclient, command);
+    zlog_debug("zclient 0x%p command 0x%x \n", (void *)zclient, command);
 
   switch (command)
     {
@@ -1053,7 +1053,7 @@ zclient_event (enum event event, struct zclient *zclient)
     }
 }
 
-const char *const zclient_serv_path_get()
+const char *zclient_serv_path_get()
 {
   return zclient_serv_path ? zclient_serv_path : ZEBRA_SERV_PATH;
 }

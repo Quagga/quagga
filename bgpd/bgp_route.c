@@ -1666,9 +1666,10 @@ bgp_process_queue_init (void)
   bm->process_main_queue->spec.max_retries = 0;
   bm->process_main_queue->spec.hold = 50;
   
-  memcpy (bm->process_rsclient_queue, bm->process_main_queue,
-          sizeof (struct work_queue *));
   bm->process_rsclient_queue->spec.workfunc = &bgp_process_rsclient;
+  bm->process_rsclient_queue->spec.del_item_data = &bgp_processq_del;
+  bm->process_rsclient_queue->spec.max_retries = 0;
+  bm->process_rsclient_queue->spec.hold = 50;
 }
 
 void
@@ -7905,19 +7906,13 @@ ALIAS (show_ip_bgp_ipv4_community,
 
 DEFUN (show_bgp_view_afi_safi_community_all,
        show_bgp_view_afi_safi_community_all_cmd,
-#ifdef HAVE_IPV6
        "show bgp view WORD (ipv4|ipv6) (unicast|multicast) community",
-#else
-       "show bgp view WORD ipv4 (unicast|multicast) community",
-#endif
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
-#ifdef HAVE_IPV6
        "Address family\n"
-#endif
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Display routes matching the communities\n")
@@ -7934,31 +7929,20 @@ DEFUN (show_bgp_view_afi_safi_community_all,
       return CMD_WARNING;
     }
 
-#ifdef HAVE_IPV6
   afi = (strncmp (argv[1], "ipv6", 4) == 0) ? AFI_IP6 : AFI_IP;
   safi = (strncmp (argv[2], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
-#else
-  afi = AFI_IP;
-  safi = (strncmp (argv[1], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
-#endif
   return bgp_show (vty, bgp, afi, safi, bgp_show_type_community_all, NULL);
 }
 
 DEFUN (show_bgp_view_afi_safi_community,
        show_bgp_view_afi_safi_community_cmd,
-#ifdef HAVE_IPV6
        "show bgp view WORD (ipv4|ipv6) (unicast|multicast) community (AA:NN|local-AS|no-advertise|no-export)",
-#else
-       "show bgp view WORD ipv4 (unicast|multicast) community (AA:NN|local-AS|no-advertise|no-export)",
-#endif
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
-#ifdef HAVE_IPV6
        "Address family\n"
-#endif
        "Address family modifier\n"
        "Address family modifier\n"
        "Display routes matching the communities\n"
@@ -7970,32 +7954,20 @@ DEFUN (show_bgp_view_afi_safi_community,
   int afi;
   int safi;
 
-#ifdef HAVE_IPV6
   afi = (strncmp (argv[1], "ipv6", 4) == 0) ? AFI_IP6 : AFI_IP;
   safi = (strncmp (argv[2], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
   return bgp_show_community (vty, argv[0], argc-3, &argv[3], 0, afi, safi);
-#else
-  afi = AFI_IP;
-  safi = (strncmp (argv[1], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
-  return bgp_show_community (vty, argv[0], argc-2, &argv[2], 0, afi, safi);
-#endif
 }
 
 ALIAS (show_bgp_view_afi_safi_community,
        show_bgp_view_afi_safi_community2_cmd,
-#ifdef HAVE_IPV6
        "show bgp view WORD (ipv4|ipv6) (unicast|multicast) community (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export)",
-#else
-       "show bgp view WORD ipv4 (unicast|multicast) community (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export)",
-#endif
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
-#ifdef HAVE_IPV6
        "Address family\n"
-#endif
        "Address family modifier\n"
        "Address family modifier\n"
        "Display routes matching the communities\n"
@@ -8010,19 +7982,13 @@ ALIAS (show_bgp_view_afi_safi_community,
 
 ALIAS (show_bgp_view_afi_safi_community,
        show_bgp_view_afi_safi_community3_cmd,
-#ifdef HAVE_IPV6
        "show bgp view WORD (ipv4|ipv6) (unicast|multicast) community (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export)",
-#else
-       "show bgp view WORD ipv4 (unicast|multicast) community (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export)",
-#endif
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
-#ifdef HAVE_IPV6
        "Address family\n"
-#endif
        "Address family modifier\n"
        "Address family modifier\n"
        "Display routes matching the communities\n"
@@ -8041,19 +8007,13 @@ ALIAS (show_bgp_view_afi_safi_community,
 
 ALIAS (show_bgp_view_afi_safi_community,
        show_bgp_view_afi_safi_community4_cmd,
-#ifdef HAVE_IPV6
        "show bgp view WORD (ipv4|ipv6) (unicast|multicast) community (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export)",
-#else
-       "show bgp view WORD ipv4 (unicast|multicast) community (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export) (AA:NN|local-AS|no-advertise|no-export)",
-#endif
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
-#ifdef HAVE_IPV6
        "Address family\n"
-#endif
        "Address family modifier\n"
        "Address family modifier\n"
        "Display routes matching the communities\n"
@@ -10199,19 +10159,13 @@ DEFUN (show_ip_bgp_ipv4_neighbor_received_routes,
 
 DEFUN (show_bgp_view_afi_safi_neighbor_adv_recd_routes,
        show_bgp_view_afi_safi_neighbor_adv_recd_routes_cmd,
-#ifdef HAVE_IPV6
        "show bgp view WORD (ipv4|ipv6) (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) (advertised-routes|received-routes)",
-#else
-       "show bgp view WORD ipv4 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) (advertised-routes|received-routes)",
-#endif
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
-#ifdef HAVE_IPV6
        "Address family\n"
-#endif
        "Address family modifier\n"
        "Address family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
@@ -10225,24 +10179,14 @@ DEFUN (show_bgp_view_afi_safi_neighbor_adv_recd_routes,
   int in;
   struct peer *peer;
 
-#ifdef HAVE_IPV6
-    peer = peer_lookup_in_view (vty, argv[0], argv[3]);
-#else
-    peer = peer_lookup_in_view (vty, argv[0], argv[2]);
-#endif
+  peer = peer_lookup_in_view (vty, argv[0], argv[3]);
 
   if (! peer)
     return CMD_WARNING;
 
-#ifdef HAVE_IPV6
   afi = (strncmp (argv[1], "ipv6", 4) == 0) ? AFI_IP6 : AFI_IP;
   safi = (strncmp (argv[2], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
   in = (strncmp (argv[4], "r", 1) == 0) ? 1 : 0;
-#else
-  afi = AFI_IP;
-  safi = (strncmp (argv[1], "m", 1) == 0) ? SAFI_MULTICAST : SAFI_UNICAST;
-  in = (strncmp (argv[3], "r", 1) == 0) ? 1 : 0;
-#endif
 
   return peer_adj_routes (vty, peer, afi, safi, in);
 }

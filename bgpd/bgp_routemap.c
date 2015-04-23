@@ -131,8 +131,8 @@ route_match_peer (void *rule, struct prefix *prefix, route_map_object_t type,
       void *object)
 {
   union sockunion *su;
-  union sockunion su_def = { .sa.sa_family = AF_INET,
-			     .sin.sin_addr.s_addr = INADDR_ANY };
+  union sockunion su_def = { .sin = { .sin_family = AF_INET,
+                                      .sin_addr.s_addr = INADDR_ANY } };
   struct peer_group *group;
   struct peer *peer;
   struct listnode *node, *nnode;
@@ -826,12 +826,12 @@ route_match_probability (void *rule, struct prefix *prefix,
   r = (long) rand();
 #endif
 
-  switch (*(unsigned *) rule)
+  switch (*(long *) rule)
   {
     case 0: break;
     case RAND_MAX: return RMAP_MATCH;
     default:
-      if (r < *(unsigned *) rule)
+      if (r < *(long *) rule)
         {
           return RMAP_MATCH;
         }
@@ -843,7 +843,7 @@ route_match_probability (void *rule, struct prefix *prefix,
 static void *
 route_match_probability_compile (const char *arg)
 {
-  unsigned *lobule;
+  long *lobule;
   unsigned  perc;
 
 #if _SVID_SOURCE || _BSD_SOURCE || _XOPEN_SOURCE >= 500
@@ -853,7 +853,7 @@ route_match_probability_compile (const char *arg)
 #endif
 
   perc    = atoi (arg);
-  lobule  = XMALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (unsigned));
+  lobule  = XMALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (long));
 
   switch (perc)
     {
@@ -3163,7 +3163,7 @@ ALIAS (set_aspath_prepend,
        "Transform BGP AS_PATH attribute\n"
        "Prepend to the as-path\n"
        "Use the peer's AS-number\n"
-       "Number of times to insert");
+       "Number of times to insert")
 
 DEFUN (no_set_aspath_prepend,
        no_set_aspath_prepend_cmd,

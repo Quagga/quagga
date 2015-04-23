@@ -29,6 +29,7 @@
 #include "memory.h"
 #include "ioctl.h"
 #include "log.h"
+#include "interface.h"
 
 #include "zebra/rt.h"
 #include "zebra/kernel_socket.h"

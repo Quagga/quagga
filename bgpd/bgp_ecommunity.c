@@ -281,10 +281,10 @@ ecommunity_finish (void)
 /* Extended Communities token enum. */
 enum ecommunity_token
 {
+  ecommunity_token_unknown = 0,
   ecommunity_token_rt,
   ecommunity_token_soo,
   ecommunity_token_val,
-  ecommunity_token_unknown
 };
 
 /* Get next Extended Communities token from the string. */
@@ -511,7 +511,7 @@ struct ecommunity *
 ecommunity_str2com (const char *str, int type, int keyword_included)
 {
   struct ecommunity *ecom = NULL;
-  enum ecommunity_token token;
+  enum ecommunity_token token = ecommunity_token_unknown;
   struct ecommunity_val eval;
   int keyword = 0;
 

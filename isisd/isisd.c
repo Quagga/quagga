@@ -1297,8 +1297,8 @@ DEFUN (show_isis_summary,
       vty_out_timestr(vty, spftree->last_run_timestamp);
       vty_out (vty, "%s", VTY_NEWLINE);
 
-      vty_out (vty, "      last run duration : %u msec%s",
-               spftree->last_run_duration, VTY_NEWLINE);
+      vty_out (vty, "      last run duration : %llu msec%s",
+               (unsigned long long)spftree->last_run_duration, VTY_NEWLINE);
 
       vty_out (vty, "      run count         : %d%s",
           spftree->runcount, VTY_NEWLINE);
@@ -1601,7 +1601,7 @@ ALIAS (area_passwd_md5,
        "Authentication\n"
        "SNP PDUs\n"
        "Send but do not check PDUs on receiving\n"
-       "Send and check PDUs on receiving\n");
+       "Send and check PDUs on receiving\n")
 
 DEFUN (area_passwd_clear,
        area_passwd_clear_cmd,
@@ -1659,7 +1659,7 @@ ALIAS (area_passwd_clear,
        "Authentication\n"
        "SNP PDUs\n"
        "Send but do not check PDUs on receiving\n"
-       "Send and check PDUs on receiving\n");
+       "Send and check PDUs on receiving\n")
 
 DEFUN (no_area_passwd,
        no_area_passwd_cmd,
@@ -1739,7 +1739,7 @@ ALIAS (domain_passwd_md5,
        "Authentication\n"
        "SNP PDUs\n"
        "Send but do not check PDUs on receiving\n"
-       "Send and check PDUs on receiving\n");
+       "Send and check PDUs on receiving\n")
 
 DEFUN (domain_passwd_clear,
        domain_passwd_clear_cmd,
@@ -1797,7 +1797,7 @@ ALIAS (domain_passwd_clear,
        "Authentication\n"
        "SNP PDUs\n"
        "Send but do not check PDUs on receiving\n"
-       "Send and check PDUs on receiving\n");
+       "Send and check PDUs on receiving\n")
 
 DEFUN (no_domain_passwd,
        no_domain_passwd_cmd,

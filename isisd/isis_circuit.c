@@ -397,7 +397,7 @@ isis_circuit_id_gen (struct interface *ifp)
    */
   for (i = 0; i < strlen (ifp->name); i++)
     {
-      if (isdigit(ifp->name[i]))
+      if (isdigit((unsigned char)ifp->name[i]))
         {
           if (start < 0)
             {
@@ -1342,7 +1342,6 @@ DEFUN (no_ipv6_router_isis,
 {
   struct interface *ifp;
   struct isis_area *area;
-  struct listnode *node;
   struct isis_circuit *circuit;
 
   ifp = (struct interface *) vty->index;

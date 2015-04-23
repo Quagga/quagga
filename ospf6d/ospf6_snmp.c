@@ -40,6 +40,8 @@
 #include "ospf6_interface.h"
 #include "ospf6_message.h"
 #include "ospf6_neighbor.h"
+#include "ospf6_abr.h"
+#include "ospf6_asbr.h"
 #include "ospf6d.h"
 #include "ospf6_snmp.h"
 
@@ -626,7 +628,6 @@ ospfv3WwLsdbEntry (struct variable *v, oid *name, size_t *length,
   int len;
   oid *offset;
   int offsetlen;
-  char a[16], b[16], c[16];
   struct ospf6_area *oa;
   struct listnode *node;
   struct interface *iif;

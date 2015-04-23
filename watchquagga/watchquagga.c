@@ -215,7 +215,8 @@ usage(const char *progname, int status)
   if (status != 0)
     fprintf(stderr, "Try `%s --help' for more information.\n", progname);
   else
-    printf("Usage : %s [OPTION...] <daemon name> ...\n\n\
+    {
+      printf("Usage : %s [OPTION...] <daemon name> ...\n\n\
 Watchdog program to monitor status of quagga daemons and try to restart\n\
 them if they are down or unresponsive.  It determines whether a daemon is\n\
 up based on whether it can connect to the daemon's vty unix stream socket.\n\
@@ -259,8 +260,12 @@ the -m and -M options allow you to control the minimum delay between\n\
 restart commands.  The minimum restart delay is recalculated each time\n\
 a restart is attempted: if the time since the last restart attempt exceeds\n\
 twice the -M value, then the restart delay is set to the -m value.\n\
-Otherwise, the interval is doubled (but capped at the -M value).\n\n\
-Options:\n\
+Otherwise, the interval is doubled (but capped at the -M value).\n\n",
+        progname,mode_str[0],progname,mode_str[1],progname,mode_str[2],
+        progname,mode_str[3],progname,mode_str[4],progname,mode_str[2],
+        mode_str[3]);
+
+      printf("Options:\n\
 -d, --daemon	Run in daemon mode.  In this mode, error messages are sent\n\
 		to syslog instead of stdout.\n\
 -S, --statedir	Set the vty socket directory (default is %s)\n\
@@ -318,12 +323,12 @@ Options:\n\
 		it with a space.  This is an ugly hack to circumvent problems\n\
 		passing command-line arguments with embedded spaces.\n\
 -v, --version	Print program version\n\
--h, --help	Display this help and exit\n\
-", progname,mode_str[0],progname,mode_str[1],progname,mode_str[2],
-progname,mode_str[3],progname,mode_str[4],progname,mode_str[2],mode_str[3],
-VTYDIR,DEFAULT_LOGLEVEL,LOG_EMERG,LOG_DEBUG,LOG_DEBUG,
-DEFAULT_MIN_RESTART,DEFAULT_MAX_RESTART,
-DEFAULT_PERIOD,DEFAULT_TIMEOUT,DEFAULT_RESTART_TIMEOUT,DEFAULT_PIDFILE);
+-h, --help	Display this help and exit\n",
+        VTYDIR,DEFAULT_LOGLEVEL,LOG_EMERG,LOG_DEBUG,LOG_DEBUG,
+        DEFAULT_MIN_RESTART,DEFAULT_MAX_RESTART,
+        DEFAULT_PERIOD,DEFAULT_TIMEOUT,DEFAULT_RESTART_TIMEOUT,
+        DEFAULT_PIDFILE);
+    }
 
   return status;
 }
@@ -381,7 +386,7 @@ restart_kill(struct thread *t_kill)
   time_elapsed(&delay,&restart->time);
   zlog_warn("Warning: %s %s child process %d still running after "
 	    "%ld seconds, sending signal %d",
-	    restart->what,restart->name,(int)restart->pid,delay.tv_sec,
+	    restart->what,restart->name,(int)restart->pid, (long)delay.tv_sec,
 	    (restart->kills ? SIGKILL : SIGTERM));
   kill(-restart->pid,(restart->kills ? SIGKILL : SIGTERM));
   restart->kills++;
@@ -654,15 +659,17 @@ handle_read(struct thread *t_read)
 	{
 	  dmn->state = DAEMON_UP;
 	  zlog_warn("%s state -> up : echo response received after %ld.%06ld "
-		    "seconds", dmn->name,delay.tv_sec,delay.tv_usec);
+		    "seconds", dmn->name,
+		    (long)delay.tv_sec, (long)delay.tv_usec);
 	}
       else
 	zlog_warn("%s: slow echo response finally received after %ld.%06ld "
-		  "seconds", dmn->name,delay.tv_sec,delay.tv_usec);
+		  "seconds", dmn->name,
+		  (long)delay.tv_sec, (long)delay.tv_usec);
     }
   else if (gs.loglevel > LOG_DEBUG+1)
     zlog_debug("%s: echo response received after %ld.%06ld seconds",
-	       dmn->name,delay.tv_sec,delay.tv_usec);
+	       dmn->name, (long)delay.tv_sec, (long)delay.tv_usec);
 
   SET_READ_HANDLER(dmn);
   if (dmn->t_wakeup)

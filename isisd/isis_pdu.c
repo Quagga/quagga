@@ -204,7 +204,7 @@ authentication_check (struct isis_passwd *remote, struct isis_passwd *local,
       /* Compute the digest */
       hmac_md5 (STREAM_DATA (stream), stream_get_endp (stream),
                 (unsigned char *) &(local->passwd), local->len,
-                (caddr_t) &digest);
+                (unsigned char *) &digest);
       /* Copy back the authentication value after the check */
       memcpy (STREAM_DATA (stream) + auth_tlv_offset + 3,
               remote->passwd, ISIS_AUTH_MD5_SIZE);
@@ -1264,7 +1264,7 @@ out:
   if (isis->debugs & DEBUG_ADJ_PACKETS)
     {
       zlog_debug ("ISIS-Adj (%s): Rcvd L%d LAN IIH from %s on %s, cirType %s, "
-		  "cirID %u, length %ld",
+		  "cirID %u, length %zd",
 		  circuit->area->area_tag,
 		  level, snpa_print (ssnpa), circuit->interface->name,
 		  circuit_t2string (circuit->is_type),
@@ -1975,89 +1975,6 @@ process_psnp (int level, struct isis_circuit *circuit, u_char * ssnpa)
 }
 
 /*
- * Process ISH
- * ISO - 10589
- * Section 8.2.2 - Receiving ISH PDUs by an intermediate system
- * FIXME: sample packet dump, need to figure 0x81 - looks like NLPid
- *           0x82	0x15	0x01	0x00	0x04	0x01	0x2c	0x59
- *           0x38	0x08	0x47	0x00	0x01	0x00	0x02	0x00
- *           0x03	0x00	0x81	0x01	0xcc
- */
-static int
-process_is_hello (struct isis_circuit *circuit)
-{
-  struct isis_adjacency *adj;
-  int retval = ISIS_OK;
-  u_char neigh_len;
-  u_char *sysid;
-
-  if (isis->debugs & DEBUG_ADJ_PACKETS)
-    {
-      zlog_debug ("ISIS-Adj (%s): Rcvd ISH on %s, cirType %s, cirID %u",
-                  circuit->area->area_tag, circuit->interface->name,
-                  circuit_t2string (circuit->is_type), circuit->circuit_id);
-      if (isis->debugs & DEBUG_PACKET_DUMP)
-        zlog_dump_data (STREAM_DATA (circuit->rcv_stream),
-                        stream_get_endp (circuit->rcv_stream));
-    }
-
-  /* In this point in time we are not yet able to handle is_hellos
-   * on lan - Sorry juniper...
-   */
-  if (circuit->circ_type == CIRCUIT_T_BROADCAST)
-    return retval;
-
-  neigh_len = stream_getc (circuit->rcv_stream);
-  sysid = STREAM_PNT (circuit->rcv_stream) + neigh_len - 1 - ISIS_SYS_ID_LEN;
-  adj = circuit->u.p2p.neighbor;
-  if (!adj)
-    {
-      /* 8.2.2 */
-      adj = isis_new_adj (sysid, NULL, 0, circuit);
-      if (adj == NULL)
-	return ISIS_ERROR;
-
-      isis_adj_state_change (adj, ISIS_ADJ_INITIALIZING, NULL);
-      adj->sys_type = ISIS_SYSTYPE_UNKNOWN;
-      circuit->u.p2p.neighbor = adj;
-    }
-  /* 8.2.2 a) */
-  if ((adj->adj_state == ISIS_ADJ_UP) && memcmp (adj->sysid, sysid,
-						 ISIS_SYS_ID_LEN))
-    {
-      /* 8.2.2 a) 1) FIXME: adjStateChange(down) event */
-      /* 8.2.2 a) 2) delete the adj */
-      XFREE (MTYPE_ISIS_ADJACENCY, adj);
-      /* 8.2.2 a) 3) create a new adj */
-      adj = isis_new_adj (sysid, NULL, 0, circuit);
-      if (adj == NULL)
-	return ISIS_ERROR;
-
-      /* 8.2.2 a) 3) i */
-      isis_adj_state_change (adj, ISIS_ADJ_INITIALIZING, NULL);
-      /* 8.2.2 a) 3) ii */
-      adj->sys_type = ISIS_SYSTYPE_UNKNOWN;
-      /* 8.2.2 a) 4) quite meaningless */
-    }
-  /* 8.2.2 b) ignore on condition */
-  if ((adj->adj_state == ISIS_ADJ_INITIALIZING) &&
-      (adj->sys_type == ISIS_SYSTYPE_IS))
-    {
-      /* do nothing */
-    }
-  else
-    {
-      /* 8.2.2 c) respond with a p2p IIH */
-      send_hello (circuit, 1);
-    }
-  /* 8.2.2 d) type is IS */
-  adj->sys_type = ISIS_SYSTYPE_IS;
-  /* 8.2.2 e) FIXME: Circuit type of? */
-
-  return retval;
-}
-
-/*
  * PDU Dispatcher
  */
 
@@ -2321,7 +2238,7 @@ send_hello (struct isis_circuit *circuit, int level)
   struct isis_lan_hello_hdr hello_hdr;
   struct isis_p2p_hello_hdr p2p_hello_hdr;
   unsigned char hmac_md5_hash[ISIS_AUTH_MD5_SIZE];
-  unsigned long len_pointer, length, auth_tlv_offset = 0;
+  size_t len_pointer, length, auth_tlv_offset = 0;
   u_int32_t interval;
   int retval;
 
@@ -2469,7 +2386,7 @@ send_hello (struct isis_circuit *circuit, int level)
       hmac_md5 (STREAM_DATA (circuit->snd_stream),
                 stream_get_endp (circuit->snd_stream),
                 (unsigned char *) &circuit->passwd.passwd, circuit->passwd.len,
-                (caddr_t) &hmac_md5_hash);
+                (unsigned char *) &hmac_md5_hash);
       /* Copy the hash into the stream */
       memcpy (STREAM_DATA (circuit->snd_stream) + auth_tlv_offset + 3,
               hmac_md5_hash, ISIS_AUTH_MD5_SIZE);
@@ -2479,16 +2396,14 @@ send_hello (struct isis_circuit *circuit, int level)
     {
       if (circuit->circ_type == CIRCUIT_T_BROADCAST)
 	{
-	  zlog_debug ("ISIS-Adj (%s): Sent L%d LAN IIH on %s, length %ld",
+	  zlog_debug ("ISIS-Adj (%s): Sent L%d LAN IIH on %s, length %zd",
 		      circuit->area->area_tag, level, circuit->interface->name,
-		      /* FIXME: use %z when we stop supporting old compilers. */
 		      length);
 	}
       else
 	{
-	  zlog_debug ("ISIS-Adj (%s): Sent P2P IIH on %s, length %ld",
+	  zlog_debug ("ISIS-Adj (%s): Sent P2P IIH on %s, length %zd",
 		      circuit->area->area_tag, circuit->interface->name,
-		      /* FIXME: use %z when we stop supporting old compilers. */
 		      length);
 	}
       if (isis->debugs & DEBUG_PACKET_DUMP)
@@ -2656,7 +2571,7 @@ build_csnp (int level, u_char * start, u_char * stop, struct list *lsps,
       hmac_md5 (STREAM_DATA (circuit->snd_stream),
                 stream_get_endp(circuit->snd_stream),
                 (unsigned char *) &passwd->passwd, passwd->len,
-                (caddr_t) &hmac_md5_hash);
+                (unsigned char *) &hmac_md5_hash);
       /* Copy the hash into the stream */
       memcpy (STREAM_DATA (circuit->snd_stream) + auth_tlv_offset + 3,
               hmac_md5_hash, ISIS_AUTH_MD5_SIZE);
@@ -2801,7 +2716,7 @@ send_csnp (struct isis_circuit *circuit, int level)
 
       if (isis->debugs & DEBUG_SNP_PACKETS)
         {
-          zlog_debug ("ISIS-Snp (%s): Sent L%d CSNP on %s, length %ld",
+          zlog_debug ("ISIS-Snp (%s): Sent L%d CSNP on %s, length %zd",
                       circuit->area->area_tag, level, circuit->interface->name,
                       stream_get_endp (circuit->snd_stream));
           for (ALL_LIST_ELEMENTS_RO (list, node, lsp))
@@ -2992,7 +2907,7 @@ build_psnp (int level, struct isis_circuit *circuit, struct list *lsps)
       hmac_md5 (STREAM_DATA (circuit->snd_stream),
                 stream_get_endp(circuit->snd_stream),
                 (unsigned char *) &passwd->passwd, passwd->len,
-                (caddr_t) &hmac_md5_hash);
+                (unsigned char *) &hmac_md5_hash);
       /* Copy the hash into the stream */
       memcpy (STREAM_DATA (circuit->snd_stream) + auth_tlv_offset + 3,
               hmac_md5_hash, ISIS_AUTH_MD5_SIZE);
@@ -3050,7 +2965,7 @@ send_psnp (int level, struct isis_circuit *circuit)
 
       if (isis->debugs & DEBUG_SNP_PACKETS)
         {
-          zlog_debug ("ISIS-Snp (%s): Sent L%d PSNP on %s, length %ld",
+          zlog_debug ("ISIS-Snp (%s): Sent L%d PSNP on %s, length %zd",
                       circuit->area->area_tag, level,
                       circuit->interface->name,
                       stream_get_endp (circuit->snd_stream));

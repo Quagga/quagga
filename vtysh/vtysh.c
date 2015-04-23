@@ -251,7 +251,7 @@ vtysh_client_execute (struct vtysh_client *vclient, const char *line, FILE *fp)
     }
 }
 
-void
+static void
 vtysh_exit_ripd_only (void)
 {
   if (ripd_client)
@@ -547,7 +547,7 @@ vtysh_config_from_file (struct vty *vty, FILE *fp)
 }
 
 /* We don't care about the point of the cursor when '?' is typed. */
-int
+static int
 vtysh_rl_describe (void)
 {
   int ret;
@@ -563,11 +563,11 @@ vtysh_rl_describe (void)
   if (vline == NULL)
     {
       vline = vector_init (1);
-      vector_set (vline, '\0');
+      vector_set (vline, NULL);
     }
   else 
     if (rl_end && isspace ((int) rl_line_buffer[rl_end - 1]))
-      vector_set (vline, '\0');
+      vector_set (vline, NULL);
 
   describe = cmd_describe_command (vline, vty, &ret);
 
@@ -657,7 +657,7 @@ command_generator (const char *text, int state)
 	return NULL;
 
       if (rl_end && isspace ((int) rl_line_buffer[rl_end - 1]))
-	vector_set (vline, '\0');
+        vector_set (vline, NULL);
 
       matched = cmd_complete_command (vline, vty, &complete_status);
     }
@@ -821,7 +821,7 @@ static struct cmd_node keychain_key_node =
 extern struct cmd_node vty_node;
 
 /* When '^Z' is received from vty, move down to the enable mode. */
-int
+static int
 vtysh_end (void)
 {
   switch (vty->node)
@@ -1713,7 +1713,6 @@ DEFUN (vtysh_write_terminal,
        "Write to terminal\n")
 {
   u_int i;
-  int ret;
   char line[] = "write terminal\n";
   FILE *fp = NULL;
 
@@ -1735,7 +1734,7 @@ DEFUN (vtysh_write_terminal,
   vty_out (vty, "!%s", VTY_NEWLINE);
 
   for (i = 0; i < array_size(vtysh_client); i++)
-    ret = vtysh_client_config (&vtysh_client[i], line);
+    vtysh_client_config (&vtysh_client[i], line);
 
   /* Integrate vtysh specific configuration. */
   vtysh_config_write ();
@@ -1783,7 +1782,6 @@ static int
 write_config_integrated(void)
 {
   u_int i;
-  int ret;
   char line[] = "write terminal\n";
   FILE *fp;
   char *integrate_sav = NULL;
@@ -1809,7 +1807,7 @@ write_config_integrated(void)
     }
 
   for (i = 0; i < array_size(vtysh_client); i++)
-    ret = vtysh_client_config (&vtysh_client[i], line);
+    vtysh_client_config (&vtysh_client[i], line);
 
   vtysh_config_dump (fp);
 
@@ -1948,7 +1946,6 @@ static int
 execute_command (const char *command, int argc, const char *arg1,
 		 const char *arg2)
 {
-  int ret;
   pid_t pid;
   int status;
 
@@ -1967,13 +1964,13 @@ execute_command (const char *command, int argc, const char *arg1,
       switch (argc)
 	{
 	case 0:
-	  ret = execlp (command, command, (const char *)NULL);
+	  execlp (command, command, (const char *)NULL);
 	  break;
 	case 1:
-	  ret = execlp (command, command, arg1, (const char *)NULL);
+	  execlp (command, command, arg1, (const char *)NULL);
 	  break;
 	case 2:
-	  ret = execlp (command, command, arg1, arg2, (const char *)NULL);
+	  execlp (command, command, arg1, arg2, (const char *)NULL);
 	  break;
 	}
 
@@ -1985,7 +1982,7 @@ execute_command (const char *command, int argc, const char *arg1,
     {
       /* This is parent. */
       execute_flag = 1;
-      ret = wait4 (pid, &status, 0, NULL);
+      wait4 (pid, &status, 0, NULL);
       execute_flag = 0;
     }
   return 0;

@@ -37,6 +37,7 @@
 #include "memory.h"
 #include "linklist.h"
 #include "command.h"
+#include "vtysh_user.h"
 
 #ifdef USE_PAM
 static struct pam_conv conv = 
@@ -98,19 +99,21 @@ struct vtysh_user
 
 struct list *userlist;
 
-struct vtysh_user *
+static struct vtysh_user *
 user_new ()
 {
   return XCALLOC (0, sizeof (struct vtysh_user));
 }
 
-void
+#if 0
+static void
 user_free (struct vtysh_user *user)
 {
   XFREE (0, user);
 }
+#endif
 
-struct vtysh_user *
+static struct vtysh_user *
 user_lookup (const char *name)
 {
   struct listnode *node, *nnode;
@@ -124,7 +127,8 @@ user_lookup (const char *name)
   return NULL;
 }
 
-void
+#if 0
+static void
 user_config_write ()
 {
   struct listnode *node, *nnode;
@@ -136,8 +140,9 @@ user_config_write ()
 	printf (" username %s nopassword\n", user->name);
     }
 }
+#endif
 
-struct vtysh_user *
+static struct vtysh_user *
 user_get (const char *name)
 {
   struct vtysh_user *user;
@@ -166,7 +171,7 @@ DEFUN (username_nopassword,
 }
 
 int
-vtysh_auth ()
+vtysh_auth (void)
 {
   struct vtysh_user *user;
   struct passwd *passwd;
@@ -187,7 +192,7 @@ vtysh_auth ()
 }
 
 void
-vtysh_user_init ()
+vtysh_user_init (void)
 {
   userlist = list_new ();
   install_element (CONFIG_NODE, &username_nopassword_cmd);
