@@ -502,7 +502,7 @@ set_circuitparams_admin_grp (struct mpls_te_circuit *mtc, u_int32_t admingrp)
   return;
 }
 
-static void
+static void  __attribute__ ((unused))
 set_circuitparams_llri (struct mpls_te_circuit *mtc, u_int32_t local, u_int32_t remote)
 {
   SUBTLV_TYPE(mtc->llri) = TE_SUBTLV_LLRI;
@@ -696,11 +696,11 @@ isis_mpls_te_update (struct interface *ifp)
   /* Get circuit context from interface */
   if ((circuit = circuit_scan_by_ifp(ifp)) == NULL)
     return;
-    
+  
   /* Check if MPLS TE Circuit context has not been already created */
   if (circuit->mtc == NULL)
     {
-      circuit->mtc = mpls_te_circuit_new();
+      circuit->mtc = mtc = mpls_te_circuit_new();
 
       /* Set local IP addr from ip_addr list if it exists */
       if (circuit->ip_addrs != NULL && listcount(circuit->ip_addrs) != 0)
