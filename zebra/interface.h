@@ -38,7 +38,7 @@
 #define IF_ZEBRA_SHUTDOWN_ON     1
 
 /* Router advertisement feature. */
-#if (defined(LINUX_IPV6) && (defined(__GLIBC__) && __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 1)) || defined(KAME)
+#if (defined(LINUX_IPV6) && (!defined(__GLIBC__) || defined(__GLIBC__) && __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 1)) || defined(KAME)
   #ifdef HAVE_RTADV
     #define RTADV
   #endif
