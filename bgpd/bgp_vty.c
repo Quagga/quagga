@@ -7906,6 +7906,11 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 #endif /* HAVE_IPV6 */
     }
 
+  /* TCP metrics. */
+  if (p->status == Established && p->rtt)
+    vty_out (vty, "Estimated round trip time: %d ms%s",
+	     p->rtt, VTY_NEWLINE);
+
   /* Timer information. */
   if (p->t_start)
     vty_out (vty, "Next start timer due in %ld seconds%s",
