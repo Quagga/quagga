@@ -27,6 +27,7 @@ quagga-[0-9.][0-9.][0-9.]*.tar.gz
 quagga-[0-9.][0-9.][0-9.]*.tar.gz.asc
 .nfs*
 libtool
+.libs
 .arch-inventory
 .arch-ids
 {arch}
@@ -37,4 +38,5 @@ build
 *.loT
 m4/*.m4
 !m4/ax_sys_weak_alias.m4
+*.o
 
