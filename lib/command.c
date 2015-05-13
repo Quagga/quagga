@@ -2018,6 +2018,7 @@ cmd_entry_function_desc (const char *src, struct cmd_token *token)
 
       default:
         assert(0);
+        return NULL;
     }
 }
 
