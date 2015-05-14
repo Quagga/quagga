@@ -29,19 +29,7 @@
 #include "zebra/redistribute.h"
 #include "zebra/connected.h"
 
-int kernel_add_ipv4 (struct prefix *a, struct rib *b) { return 0; }
-#ifdef HAVE_SYS_WEAK_ALIAS_PRAGMA
-#pragma weak kernel_delete_ipv4 = kernel_add_ipv4
-#else
-int kernel_delete_ipv4 (struct prefix *a, struct rib *b) { return 0; }
-#endif
-
-int kernel_add_ipv6 (struct prefix *a, struct rib *b) { return 0; }
-#ifdef HAVE_SYS_WEAK_ALIAS_PRAGMA
-#pragma weak kernel_delete_ipv6 = kernel_add_ipv6
-#else
-int kernel_delete_ipv6 (struct prefix *a, struct rib *b) { return 0; }
-#endif
+int kernel_route_rib (struct prefix *a, struct rib *old, struct rib *new) { return 0; }
 
 int kernel_add_route (struct prefix_ipv4 *a, struct in_addr *b, int c, int d)
 { return 0; }
