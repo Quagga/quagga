@@ -1072,7 +1072,7 @@ dnl ------------------
 dnl IPv6 header checks
 dnl ------------------
 AC_CHECK_HEADERS([netinet6/in6.h netinet/in6_var.h netinet/icmp6.h \
-	netinet6/in6_var.h netinet6/nd6.h], [], [],
+	netinet6/in6_var.h netinet6/nd6.h linux/in6.h], [], [],
 	QUAGGA_INCLUDES)
 
 m4_define([QUAGGA_INCLUDES],dnl
@@ -1091,6 +1091,9 @@ QUAGGA_INCLUDES
 #endif
 #if HAVE_NETINET6_ND6_H
 # include <netinet6/nd6.h>
+#endif
+#if HAVE_LINUX_IN6_H
+# include <linux/in6.h>
 #endif
 ])dnl
 
