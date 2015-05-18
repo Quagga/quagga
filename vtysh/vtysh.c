@@ -58,7 +58,6 @@ struct vtysh_client
   { .fd = -1, .name = "ospf6d", .flag = VTYSH_OSPF6D, .path = OSPF6_VTYSH_PATH},
   { .fd = -1, .name = "bgpd", .flag = VTYSH_BGPD, .path = BGP_VTYSH_PATH},
   { .fd = -1, .name = "isisd", .flag = VTYSH_ISISD, .path = ISIS_VTYSH_PATH},
-  { .fd = -1, .name = "babeld", .flag = VTYSH_BABELD, .path = BABEL_VTYSH_PATH},
   { .fd = -1, .name = "pimd", .flag = VTYSH_PIMD, .path = PIM_VTYSH_PATH},
 };
 
@@ -799,12 +798,6 @@ static struct cmd_node ospf6_node =
   "%s(config-ospf6)# "
 };
 
-static struct cmd_node babel_node =
-{
-  BABEL_NODE,
-  "%s(config-babel)# "
-};
-
 static struct cmd_node keychain_node =
 {
   KEYCHAIN_NODE,
@@ -1014,17 +1007,6 @@ DEFUNSH (VTYSH_OSPF6D,
 	 OSPF6_STR)
 {
   vty->node = OSPF6_NODE;
-  return CMD_SUCCESS;
-}
-
-DEFUNSH (VTYSH_BABELD,
-	 router_babel,
-	 router_babel_cmd,
-	 "router babel",
-	 ROUTER_STR
-	 "Babel")
-{
-  vty->node = BABEL_NODE;
   return CMD_SUCCESS;
 }
 
@@ -2266,7 +2248,6 @@ vtysh_init_vty (void)
   install_node (&ripng_node, NULL);
   install_node (&ospf6_node, NULL);
 /* #endif */
-  install_node (&babel_node, NULL);
   install_node (&keychain_node, NULL);
   install_node (&keychain_key_node, NULL);
   install_node (&isis_node, NULL);
@@ -2369,7 +2350,6 @@ vtysh_init_vty (void)
 #ifdef HAVE_IPV6
   install_element (CONFIG_NODE, &router_ospf6_cmd);
 #endif
-  install_element (CONFIG_NODE, &router_babel_cmd);
   install_element (CONFIG_NODE, &router_isis_cmd);
   install_element (CONFIG_NODE, &router_bgp_cmd);
   install_element (CONFIG_NODE, &router_bgp_view_cmd);
