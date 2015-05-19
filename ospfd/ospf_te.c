@@ -47,6 +47,7 @@
 #include "thread.h"
 #include "hash.h"
 #include "sockunion.h"		/* for inet_aton() */
+#include "network.h"
 
 #include "ospfd/ospfd.h"
 #include "ospfd/ospf_interface.h"
@@ -536,30 +537,30 @@ set_linkparams_te_metric (struct mpls_te_link *lp, u_int32_t te_metric)
 }
 
 static void
-set_linkparams_max_bw (struct mpls_te_link *lp, float *fp)
+set_linkparams_max_bw (struct mpls_te_link *lp, float fp)
 {
   lp->max_bw.header.type   = htons (TE_LINK_SUBTLV_MAX_BW);
   lp->max_bw.header.length = htons (TE_LINK_SUBTLV_DEF_SIZE);
-  htonf (fp, &lp->max_bw.value);
+  lp->max_bw.value = htonf (fp);
   return;
 }
 
 static void
-set_linkparams_max_rsv_bw (struct mpls_te_link *lp, float *fp)
+set_linkparams_max_rsv_bw (struct mpls_te_link *lp, float fp)
 {
   lp->max_rsv_bw.header.type   = htons (TE_LINK_SUBTLV_MAX_RSV_BW);
   lp->max_rsv_bw.header.length = htons (TE_LINK_SUBTLV_DEF_SIZE);
-  htonf (fp, &lp->max_rsv_bw.value);
+  lp->max_rsv_bw.value = htonf (fp);
   return;
 }
 
 static void
-set_linkparams_unrsv_bw (struct mpls_te_link *lp, int priority, float *fp)
+set_linkparams_unrsv_bw (struct mpls_te_link *lp, int priority, float fp)
 {
   /* Note that TLV-length field is the size of array. */
   lp->unrsv_bw.header.type   = htons (TE_LINK_SUBTLV_UNRSV_BW);
   lp->unrsv_bw.header.length = htons (TE_LINK_SUBTLV_UNRSV_SIZE);
-  htonf (fp, &lp->unrsv_bw.value [priority]);
+  lp->unrsv_bw.value [priority] = htonf (fp);
   return;
 }
 
@@ -677,32 +678,32 @@ set_linkparams_pkt_loss (struct mpls_te_link *lp, u_int32_t loss, u_char anormal
 }
 
 static void
-set_linkparams_res_bw (struct mpls_te_link *lp, float *fp)
+set_linkparams_res_bw (struct mpls_te_link *lp, float fp)
 {
   /* Note that TLV-length field is the size of array. */
   lp->res_bw.header.type = htons (TE_LINK_SUBTLV_RES_BW);
   lp->res_bw.header.length = htons (TE_LINK_SUBTLV_DEF_SIZE);
-  htonf (fp, &lp->res_bw.value);
+  lp->res_bw.value = htonf (fp);
   return;
 }
 
 static void
-set_linkparams_ava_bw (struct mpls_te_link *lp, float *fp)
+set_linkparams_ava_bw (struct mpls_te_link *lp, float fp)
 {
   /* Note that TLV-length field is the size of array. */
   lp->ava_bw.header.type = htons (TE_LINK_SUBTLV_AVA_BW);
   lp->ava_bw.header.length = htons (TE_LINK_SUBTLV_DEF_SIZE);
-  htonf (fp, &lp->ava_bw.value);
+  lp->ava_bw.value = htonf (fp);
   return;
 }
 
 static void
-set_linkparams_use_bw (struct mpls_te_link *lp, float *fp)
+set_linkparams_use_bw (struct mpls_te_link *lp, float fp)
 {
   /* Note that TLV-length field is the size of array. */
   lp->use_bw.header.type = htons (TE_LINK_SUBTLV_USE_BW);
   lp->use_bw.header.length = htons (TE_LINK_SUBTLV_DEF_SIZE);
-  htonf (fp, &lp->use_bw.value);
+  lp->use_bw.value = htonf (fp);
   return;
 }
 
@@ -727,12 +728,12 @@ update_linkparams(struct mpls_te_link *lp)
     TLV_TYPE(lp->rsc_clsclr) = 0;
 
   if (ifp->link_params->max_bw != 0)
-    set_linkparams_max_bw (lp, &ifp->link_params->max_bw);
+    set_linkparams_max_bw (lp, ifp->link_params->max_bw);
   else
     TLV_TYPE(lp->max_bw) = 0;
 
   if (ifp->link_params->max_rsv_bw != 0)
-    set_linkparams_max_rsv_bw (lp, &ifp->link_params->max_rsv_bw);
+    set_linkparams_max_rsv_bw (lp, ifp->link_params->max_rsv_bw);
   else
     TLV_TYPE(lp->max_rsv_bw) = 0;
 
@@ -740,7 +741,7 @@ update_linkparams(struct mpls_te_link *lp)
   for (i = 0; i < MAX_CLASS_TYPE; i++)
     {
       if (ifp->link_params->unrsv_bw[i] != 0)
-        set_linkparams_unrsv_bw (lp, i, &ifp->link_params->unrsv_bw[i]);
+        set_linkparams_unrsv_bw (lp, i, ifp->link_params->unrsv_bw[i]);
       else
         unset++;
     }
@@ -775,17 +776,17 @@ update_linkparams(struct mpls_te_link *lp)
     TLV_TYPE(lp->pkt_loss) = 0;
 
   if (ifp->link_params->res_bw != 0)
-    set_linkparams_res_bw(lp, &ifp->link_params->res_bw);
+    set_linkparams_res_bw(lp, ifp->link_params->res_bw);
   else
     TLV_TYPE(lp->res_bw) = 0;
 
   if (ifp->link_params->ava_bw != 0)
-    set_linkparams_ava_bw(lp, &ifp->link_params->ava_bw);
+    set_linkparams_ava_bw(lp, ifp->link_params->ava_bw);
   else
     TLV_TYPE(lp->ava_bw) = 0;
 
   if (ifp->link_params->use_bw != 0)
-    set_linkparams_use_bw(lp, &ifp->link_params->use_bw);
+    set_linkparams_use_bw(lp, ifp->link_params->use_bw);
   else
     TLV_TYPE(lp->use_bw) = 0;
 
@@ -1810,7 +1811,7 @@ show_vty_link_subtlv_max_bw (struct vty *vty, struct te_tlv_header *tlvh)
   float fval;
 
   top = (struct te_link_subtlv_max_bw *) tlvh;
-  ntohf (&top->value, &fval);
+  fval = ntohf (top->value);
 
   if (vty != NULL)
     vty_out (vty, "  Maximum Bandwidth: %g (Bytes/sec)%s", fval, VTY_NEWLINE);
@@ -1827,7 +1828,7 @@ show_vty_link_subtlv_max_rsv_bw (struct vty *vty, struct te_tlv_header *tlvh)
   float fval;
 
   top = (struct te_link_subtlv_max_rsv_bw *) tlvh;
-  ntohf (&top->value, &fval);
+  fval = ntohf (top->value);
 
   if (vty != NULL)
     vty_out (vty, "  Maximum Reservable Bandwidth: %g (Bytes/sec)%s", fval,
@@ -1852,8 +1853,8 @@ show_vty_link_subtlv_unrsv_bw (struct vty *vty, struct te_tlv_header *tlvh)
     zlog_debug ("    Unreserved Bandwidth per Class Type in Byte/s:");
   for (i = 0; i < MAX_CLASS_TYPE; i+=2)
     {
-      ntohf (&top->value[i], &fval1);
-      ntohf (&top->value[i+1], &fval2);
+      fval1 = ntohf (top->value[i]);
+      fval2 = ntohf (top->value[i+1]);
 
       if (vty != NULL)
         vty_out(vty, "    [%d]: %g (Bytes/sec),\t[%d]: %g (Bytes/sec)%s",
@@ -2051,7 +2052,7 @@ show_vty_link_subtlv_res_bw (struct vty *vty, struct te_tlv_header *tlvh)
   float fval;
 
   top = (struct te_link_subtlv_res_bw *) tlvh;
-  ntohf (&top->value, &fval);
+  fval = ntohf (top->value);
 
   if (vty != NULL)
     vty_out (vty, "  Unidirectional Residual Bandwidth: %g (Bytes/sec)%s",
@@ -2070,7 +2071,7 @@ show_vty_link_subtlv_ava_bw (struct vty *vty, struct te_tlv_header *tlvh)
   float fval;
 
   top = (struct te_link_subtlv_ava_bw *) tlvh;
-  ntohf (&top->value, &fval);
+  fval = ntohf (top->value);
 
   if (vty != NULL)
     vty_out (vty, "  Unidirectional Available Bandwidth: %g (Bytes/sec)%s",
@@ -2089,7 +2090,7 @@ show_vty_link_subtlv_use_bw (struct vty *vty, struct te_tlv_header *tlvh)
   float fval;
 
   top = (struct te_link_subtlv_use_bw *) tlvh;
-  ntohf (&top->value, &fval);
+  fval = ntohf (top->value);
 
   if (vty != NULL)
     vty_out (vty, "  Unidirectional Utilized Bandwidth: %g (Bytes/sec)%s",

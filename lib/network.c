@@ -93,3 +93,25 @@ set_nonblocking(int fd)
     }
   return 0;
 }
+
+float
+htonf (float host)
+{
+#ifdef __STDC_IEC_559__
+  u_int32_t lu1, lu2;
+  float convert;
+  
+  memcpy (&lu1, &host, sizeof (u_int32_t));
+  lu2 = htonl (lu1);
+  memcpy (&convert, &lu2, sizeof (u_int32_t));
+  return convert;
+#else
+#error "Please supply htonf implementation for this platform"
+#endif 
+}
+
+float
+ntohf (float net)
+{
+  return htonf (net);
+}

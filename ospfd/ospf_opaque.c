@@ -2175,28 +2175,6 @@ ospf_opaque_self_originated_lsa_received (struct ospf_neighbor *nbr,
  * Followings are util functions; probably be used by Opaque-LSAs only...
  *------------------------------------------------------------------------*/
 
-void
-htonf (float *src, float *dst)
-{
-  u_int32_t lu1, lu2;
-
-  memcpy (&lu1, src, sizeof (u_int32_t));
-  lu2 = htonl (lu1);
-  memcpy (dst, &lu2, sizeof (u_int32_t));
-  return;
-}
-
-void
-ntohf (float *src, float *dst)
-{
-  u_int32_t lu1, lu2;
-
-  memcpy (&lu1, src, sizeof (u_int32_t));
-  lu2 = ntohl (lu1);
-  memcpy (dst, &lu2, sizeof (u_int32_t));
-  return;
-}
-
 struct ospf *
 oi_to_top (struct ospf_interface *oi)
 {

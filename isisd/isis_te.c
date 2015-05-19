@@ -40,6 +40,7 @@
 #include "checksum.h"
 #include "md5.h"
 #include "sockunion.h"
+#include "network.h"
 
 #include "isisd/dict.h"
 #include "isisd/isis_constants.h"
@@ -61,31 +62,6 @@
 struct isis_mpls_te isisMplsTE;
 
 const char *mode2text[] = { "Disable", "Area", "AS", "Emulate" };
-
-/* Utilities function to convert float to / from network */
-static float
-htonf (float val)
-{
-  u_int32_t lu1, lu2;
-  float convert;
-
-  memcpy (&lu1, &val, sizeof (u_int32_t));
-  lu2 = htonl (lu1);
-  memcpy (&convert, &lu2, sizeof (u_int32_t));
-  return convert;
-}
-
-static float
-ntohf (float val)
-{
-  u_int32_t lu1, lu2;
-  float convert;
-
-  memcpy (&lu1, &val, sizeof (u_int32_t));
-  lu2 = ntohl (lu1);
-  memcpy (&convert, &lu2, sizeof (u_int32_t));
-  return convert;
-}
 
 /*------------------------------------------------------------------------*
  * Followings are control functions for MPLS-TE parameters management.
