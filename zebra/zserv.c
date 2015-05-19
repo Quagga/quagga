@@ -163,14 +163,6 @@ zserv_encode_interface (struct stream *s, struct interface *ifp)
     stream_put (s, ifp->hw_addr, ifp->hw_addr_len);
 #endif /* HAVE_STRUCT_SOCKADDR_DL */
 
-#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
-  /* Put Traffic Engineering status */
-  stream_putc (s, (HAS_LINK_PARAMS(ifp) ? 1 : 0));
-  /* Then, TE parameters if MPLS-TE is activate on this interface */
-  if (HAS_LINK_PARAMS(ifp))
-      stream_write (s, &ifp->link_params, sizeof (struct if_link_params));
-#endif /* Traffic Engineering */
-
   /* Write packet size. */
   stream_putw_at (s, 0, stream_get_endp (s));
 }
@@ -220,6 +212,24 @@ zsend_interface_delete (struct zserv *client, struct interface *ifp)
   zserv_create_header (s, ZEBRA_INTERFACE_DELETE, ifp->vrf_id);
   zserv_encode_interface (s, ifp);
 
+  return zebra_server_send_message (client);
+}
+
+int
+zsend_interface_link_params (struct zserv *client, struct interface *ifp)
+{
+  struct stream *s;
+  
+  /* Check this client need interface information. */
+  if (! client->ifinfo)
+    return 0;
+  
+  s = client->obuf;
+  stream_reset (s);
+  
+  zserv_create_header (s, ZEBRA_INTERFACE_LINK_PARAMS, ifp->vrf_id);
+  zebra_interface_link_params_write (s, ifp);
+  
   return zebra_server_send_message (client);
 }
 

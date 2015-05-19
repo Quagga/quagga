@@ -789,6 +789,94 @@ zebra_interface_if_set_value (struct stream *s, struct interface *ifp)
 
 }
 
+struct interface *
+zebra_interface_link_params_read (struct stream *s)
+{
+  struct if_link_params *iflp;
+  uint32_t ifindex = stream_getl (s);
+  
+  struct interface *ifp = if_lookup_by_index (ifindex);
+  
+  if (ifp == NULL)
+    {
+      zlog_err ("%s: unknown ifindex %u, shouldn't happen",
+                __func__, ifindex);
+      return NULL;
+    }
+  
+  if_link_params_init (ifp);
+  
+  iflp = ifp->link_params;
+  
+  iflp->te_metric = stream_getl (s);
+  iflp->max_bw = stream_getf (s);
+  iflp->max_rsv_bw = stream_getf (s);
+  uint32_t bwclassnum = stream_getl (s);
+  {
+    unsigned int i;
+    for (i = 0; i < bwclassnum && i < MAX_CLASS_TYPE; i++)
+      iflp->unrsv_bw[i] = stream_getf (s);
+    if (i < bwclassnum)
+      zlog_err ("%s: received %d > %d (MAX_CLASS_TYPE) bw entries"
+                " - outdated library?",
+                __func__, bwclassnum, MAX_CLASS_TYPE);
+  }
+  iflp->admin_grp = stream_getl (s);
+  iflp->rmt_as = stream_getl (s);
+  iflp->rmt_ip.s_addr = stream_get_ipv4 (s);
+  
+  iflp->av_delay = stream_getl (s);
+  iflp->min_delay = stream_getl (s);
+  iflp->max_delay = stream_getl (s);
+  iflp->delay_var = stream_getl (s);
+  
+  iflp->pkt_loss = stream_getf (s);
+  iflp->res_bw = stream_getf (s);
+  iflp->ava_bw = stream_getf (s);
+  iflp->use_bw = stream_getf (s);
+  
+  return ifp;
+}
+
+size_t
+zebra_interface_link_params_write (struct stream *s, struct interface *ifp)
+{
+  size_t w;
+  struct if_link_params *iflp;
+  
+  if (ifp->link_params == NULL)
+    return 0;
+  
+  iflp = ifp->link_params;
+  w = 0;
+    
+  w += stream_putl (s, ifp->ifindex);
+  
+  w += stream_putl (s, iflp->te_metric);
+  w += stream_putf (s, iflp->max_bw);
+  w += stream_putf (s, iflp->max_rsv_bw);
+  
+  w += stream_putl (s, MAX_CLASS_TYPE);
+  for (int i = 0; i < MAX_CLASS_TYPE; i++)
+    w += stream_putf (s, iflp->unrsv_bw[i]);
+  
+  w += stream_putl (s, iflp->admin_grp);
+  w += stream_putl (s, iflp->rmt_as);
+  w += stream_put_in_addr (s, &iflp->rmt_ip);
+  
+  w += stream_putl (s, iflp->av_delay);
+  w += stream_putl (s, iflp->min_delay);
+  w += stream_putl (s, iflp->max_delay);
+  w += stream_putl (s, iflp->delay_var);
+  
+  w += stream_putf (s, iflp->pkt_loss);
+  w += stream_putf (s, iflp->res_bw);
+  w += stream_putf (s, iflp->ava_bw);
+  w += stream_putf (s, iflp->use_bw);
+  
+  return w;
+}
+
 static int
 memconstant(const void *s, int c, size_t n)
 {
@@ -1000,12 +1088,6 @@ zclient_read (struct thread *thread)
       if (zclient->interface_down)
 	(*zclient->interface_down) (command, zclient, length, vrf_id);
       break;
-#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
-    case ZEBRA_INTERFACE_UPDATE:
-      if (zclient->interface_update)
-        (*zclient->interface_update) (command, zclient, length);
-      break;
-#endif /* Traffic Engineering */
     case ZEBRA_IPV4_ROUTE_ADD:
       if (zclient->ipv4_route_add)
 	(*zclient->ipv4_route_add) (command, zclient, length, vrf_id);
@@ -1022,6 +1104,9 @@ zclient_read (struct thread *thread)
       if (zclient->ipv6_route_delete)
 	(*zclient->ipv6_route_delete) (command, zclient, length, vrf_id);
       break;
+    case ZEBRA_INTERFACE_LINK_PARAMS:
+      if (zclient->interface_link_params)
+        (*zclient->interface_link_params) (command, zclient, length);
     default:
       break;
     }

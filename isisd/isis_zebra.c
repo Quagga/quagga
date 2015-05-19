@@ -240,7 +240,7 @@ isis_zebra_if_address_del (int command, struct zclient *client,
 
 #ifdef HAVE_ISIS_TE
 static int
-isis_zebra_if_update (int command, struct zclient *zclient,
+isis_zebra_link_params (int command, struct zclient *zclient,
                         zebra_size_t length)
 {
   struct interface *ifp;
@@ -646,7 +646,7 @@ isis_zebra_init ()
   zclient->interface_address_add = isis_zebra_if_address_add;
   zclient->interface_address_delete = isis_zebra_if_address_del;
 #ifdef HAVE_ISIS_TE
-  zclient->interface_update = isis_zebra_if_update;
+  zclient->interface_link_params = isis_zebra_link_params;
 #endif /* HAVE_ISIS_TE */
   zclient->ipv4_route_add = isis_zebra_read_ipv4;
   zclient->ipv4_route_delete = isis_zebra_read_ipv4;

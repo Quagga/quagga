@@ -330,12 +330,12 @@ ospf_interface_address_delete (int command, struct zclient *zclient,
 
 #ifdef HAVE_OSPF_TE
 static int
-ospf_interface_update (int command, struct zclient *zclient,
+ospf_interface_link_params (int command, struct zclient *zclient,
                         zebra_size_t length)
 {
   struct interface *ifp;
 
-  ifp = zebra_interface_state_read (zclient->ibuf, VRF_DEFAULT);
+  ifp = zebra_interface_link_params_read (zclient->ibuf);
 
   if (ifp == NULL)
     return 0;
@@ -1342,7 +1342,7 @@ ospf_zebra_init ()
   zclient->interface_address_add = ospf_interface_address_add;
   zclient->interface_address_delete = ospf_interface_address_delete;
 #ifdef HAVE_OSPF_TE
-  zclient->interface_update = ospf_interface_update;
+  zclient->interface_link_params = ospf_interface_link_params;
 #endif /* HAVE_OSPF_TE */
 
   zclient->ipv4_route_add = ospf_zebra_read_ipv4;
