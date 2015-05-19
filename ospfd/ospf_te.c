@@ -38,6 +38,7 @@
 #include "thread.h"
 #include "hash.h"
 #include "sockunion.h"		/* for inet_aton() */
+#include "network.h"
 
 #include "ospfd/ospfd.h"
 #include "ospfd/ospf_interface.h"
@@ -451,30 +452,30 @@ set_linkparams_te_metric (struct mpls_te_link *lp, u_int32_t te_metric)
 }
 
 static void
-set_linkparams_max_bw (struct mpls_te_link *lp, float *fp)
+set_linkparams_max_bw (struct mpls_te_link *lp, float fp)
 {
   lp->max_bw.header.type   = htons (TE_LINK_SUBTLV_MAX_BW);
   lp->max_bw.header.length = htons (sizeof (lp->max_bw.value));
-  htonf (fp, &lp->max_bw.value);
+  lp->max_bw.value = htonf (fp);
   return;
 }
 
 static void
-set_linkparams_max_rsv_bw (struct mpls_te_link *lp, float *fp)
+set_linkparams_max_rsv_bw (struct mpls_te_link *lp, float fp)
 {
   lp->max_rsv_bw.header.type   = htons (TE_LINK_SUBTLV_MAX_RSV_BW);
   lp->max_rsv_bw.header.length = htons (sizeof (lp->max_rsv_bw.value));
-  htonf (fp, &lp->max_rsv_bw.value);
+  lp->max_rsv_bw.value = htonf (fp);
   return;
 }
 
 static void
-set_linkparams_unrsv_bw (struct mpls_te_link *lp, int priority, float *fp)
+set_linkparams_unrsv_bw (struct mpls_te_link *lp, int priority, float fp)
 {
   /* Note that TLV-length field is the size of array. */
   lp->unrsv_bw.header.type   = htons (TE_LINK_SUBTLV_UNRSV_BW);
   lp->unrsv_bw.header.length = htons (sizeof (lp->unrsv_bw.value));
-  htonf (fp, &lp->unrsv_bw.value [priority]);
+  lp->unrsv_bw.value [priority] = htonf (fp);
   return;
 }
 
@@ -511,11 +512,11 @@ initialize_linkparams (struct mpls_te_link *lp)
   fval = (float)((ifp->bandwidth ? ifp->bandwidth
                                  : OSPF_DEFAULT_BANDWIDTH) * 1000 / 8);
 
-  set_linkparams_max_bw (lp, &fval);
-  set_linkparams_max_rsv_bw (lp, &fval);
+  set_linkparams_max_bw (lp, fval);
+  set_linkparams_max_rsv_bw (lp, fval);
 
   for (i = 0; i < 8; i++)
-    set_linkparams_unrsv_bw (lp, i, &fval);
+    set_linkparams_unrsv_bw (lp, i, fval);
 
   return;
 }
@@ -1246,7 +1247,7 @@ show_vty_link_subtlv_max_bw (struct vty *vty, struct te_tlv_header *tlvh)
   float fval;
 
   top = (struct te_link_subtlv_max_bw *) tlvh;
-  ntohf (&top->value, &fval);
+  fval = ntohf (top->value);
 
   if (vty != NULL)
     vty_out (vty, "  Maximum Bandwidth: %g (Bytes/sec)%s", fval, VTY_NEWLINE);
@@ -1263,7 +1264,7 @@ show_vty_link_subtlv_max_rsv_bw (struct vty *vty, struct te_tlv_header *tlvh)
   float fval;
 
   top = (struct te_link_subtlv_max_rsv_bw *) tlvh;
-  ntohf (&top->value, &fval);
+  fval = ntohf (top->value);
 
   if (vty != NULL)
     vty_out (vty, "  Maximum Reservable Bandwidth: %g (Bytes/sec)%s", fval, VTY_NEWLINE);
@@ -1283,7 +1284,7 @@ show_vty_link_subtlv_unrsv_bw (struct vty *vty, struct te_tlv_header *tlvh)
   top = (struct te_link_subtlv_unrsv_bw *) tlvh;
   for (i = 0; i < 8; i++)
     {
-      ntohf (&top->value[i], &fval);
+      fval = ntohf (top->value[i]);
       if (vty != NULL)
         vty_out (vty, "  Unreserved Bandwidth (pri %d): %g (Bytes/sec)%s", i, fval, VTY_NEWLINE);
       else
@@ -1434,17 +1435,17 @@ ospf_mpls_te_config_write_if (struct vty *vty, struct interface *ifp)
       vty_out (vty, " mpls-te link metric %u%s",
                (u_int32_t) ntohl (lp->te_metric.value), VTY_NEWLINE);
 
-      ntohf (&lp->max_bw.value, &fval);
+      fval = ntohf (lp->max_bw.value);
       if (fval >= MPLS_TE_MINIMUM_BANDWIDTH)
         vty_out (vty, " mpls-te link max-bw %g%s", fval, VTY_NEWLINE);
 
-      ntohf (&lp->max_rsv_bw.value, &fval);
+      fval = ntohf (lp->max_rsv_bw.value);
       if (fval >= MPLS_TE_MINIMUM_BANDWIDTH)
         vty_out (vty, " mpls-te link max-rsv-bw %g%s", fval, VTY_NEWLINE);
 
       for (i = 0; i < 8; i++)
         {
-          ntohf (&lp->unrsv_bw.value[i], &fval);
+          fval = ntohf (lp->unrsv_bw.value[i]);
           if (fval >= MPLS_TE_MINIMUM_BANDWIDTH)
             vty_out (vty, " mpls-te link unrsv-bw %d %g%s",
                      i, fval, VTY_NEWLINE);
@@ -1637,7 +1638,7 @@ DEFUN (mpls_te_link_maxbw,
       return CMD_WARNING;
     }
 
-  ntohf (&lp->max_bw.value, &f1);
+  f1 = ntohf (lp->max_bw.value);
   if (sscanf (argv[0], "%g", &f2) != 1)
     {
       vty_out (vty, "mpls_te_link_maxbw: fscanf: %s%s", safe_strerror (errno), VTY_NEWLINE);
@@ -1647,7 +1648,7 @@ DEFUN (mpls_te_link_maxbw,
   if (ntohs (lp->max_bw.header.type) == 0
   ||  f1 != f2)
     {
-      set_linkparams_max_bw (lp, &f2);
+      set_linkparams_max_bw (lp, f2);
 
       if (OspfMplsTE.status == enabled)
         if (lp->area != NULL)
@@ -1679,7 +1680,7 @@ DEFUN (mpls_te_link_max_rsv_bw,
       return CMD_WARNING;
     }
 
-  ntohf (&lp->max_rsv_bw.value, &f1);
+  f1 = ntohf (lp->max_rsv_bw.value);
   if (sscanf (argv[0], "%g", &f2) != 1)
     {
       vty_out (vty, "mpls_te_link_max_rsv_bw: fscanf: %s%s", safe_strerror (errno), VTY_NEWLINE);
@@ -1689,7 +1690,7 @@ DEFUN (mpls_te_link_max_rsv_bw,
   if (ntohs (lp->max_rsv_bw.header.type) == 0
   ||  f1 != f2)
     {
-      set_linkparams_max_rsv_bw (lp, &f2);
+      set_linkparams_max_rsv_bw (lp, f2);
 
       if (OspfMplsTE.status == enabled)
         if (lp->area != NULL)
@@ -1730,7 +1731,7 @@ DEFUN (mpls_te_link_unrsv_bw,
       return CMD_WARNING;
     }
 
-  ntohf (&lp->unrsv_bw.value [priority], &f1);
+  f1 = ntohf (lp->unrsv_bw.value [priority]);
   if (sscanf (argv[1], "%g", &f2) != 1)
     {
       vty_out (vty, "mpls_te_link_unrsv_bw: fscanf: %s%s", safe_strerror (errno), VTY_NEWLINE);
@@ -1740,7 +1741,7 @@ DEFUN (mpls_te_link_unrsv_bw,
   if (ntohs (lp->unrsv_bw.header.type) == 0
   ||  f1 != f2)
     {
-      set_linkparams_unrsv_bw (lp, priority, &f2);
+      set_linkparams_unrsv_bw (lp, priority, f2);
 
       if (OspfMplsTE.status == enabled)
         if (lp->area != NULL)
