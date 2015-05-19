@@ -493,6 +493,36 @@ stream_get_ipv4 (struct stream *s)
   return l;
 }
 
+float
+stream_getf (struct stream *s)
+{
+#ifdef __STDC_IEC_559__
+  union {
+    float r;
+    uint32_t d;
+  } u;
+  u.d = stream_getl (s);
+  return u.r;
+#else
+#error "Please supply stream_getf implementation for this platform"
+#endif
+}
+
+double
+stream_getd (struct stream *s)
+{
+#ifdef __STDC_IEC_559__
+  union {
+    double r;
+    uint64_t d;
+  } u;
+  u.d = stream_getq (s);
+  return u.r;
+#else
+#error "Please supply stream_getd implementation for this platform"
+#endif
+}
+
 /* Copy to source to stream.
  *
  * XXX: This uses CHECK_SIZE and hence has funny semantics -> Size will wrap
@@ -599,6 +629,36 @@ stream_putq (struct stream *s, uint64_t q)
   s->data[s->endp++] = (u_char)q;
 
   return 8;
+}
+
+int
+stream_putf (struct stream *s, float f)
+{
+#ifdef __STDC_IEC_559__
+  union {
+    float i;
+    uint32_t o;
+  } u;
+  u.i = f;
+  return stream_putl (s, u.o);
+#else
+#error "Please supply stream_putf implementation for this platform"
+#endif
+}
+
+int
+stream_putd (struct stream *s, double d)
+{
+#ifdef __STDC_IEC_559__
+  union {
+    double i;
+    uint64_t o;
+  } u;
+  u.i = d;
+  return stream_putq (s, u.o);
+#else
+#error "Please supply stream_putd implementation for this platform"
+#endif
 }
 
 int
