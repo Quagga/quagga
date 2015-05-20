@@ -427,7 +427,7 @@ aspath_count_confeds (struct aspath *aspath)
 }
 
 unsigned int
-aspath_count_hops (struct aspath *aspath)
+aspath_count_hops (const struct aspath *aspath)
 {
   int count = 0;
   struct assegment *seg = aspath->segments;
@@ -1573,6 +1573,10 @@ aspath_cmp_left (const struct aspath *aspath1, const struct aspath *aspath2)
 
   seg1 = aspath1->segments;
   seg2 = aspath2->segments;
+
+  /* If both paths are originated in this AS then we do want to compare MED */
+  if (!seg1 && !seg2)
+    return 1;
 
   /* find first non-confed segments for each */
   while (seg1 && ((seg1->type == AS_CONFED_SEQUENCE)
