@@ -1729,6 +1729,10 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib)
             req.r.rtm_type = RTN_UNREACHABLE;
           else
             assert (RTN_BLACKHOLE != RTN_UNREACHABLE);  /* false */
+
+	  if (IS_ZEBRA_DEBUG_KERNEL)
+	    zlog_debug ("%s: Adding discard route for family %s\n",
+			__FUNCTION__, family == AF_INET ? "IPv4" : "IPv6");
         }
       else
         req.r.rtm_type = RTN_UNICAST;
