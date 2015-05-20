@@ -65,6 +65,8 @@ extern int ospf6_distance_unset (struct vty *, struct ospf6 *, const char *,
                                  const char *);
 
 extern void ospf6_zebra_init(struct thread_master *);
+extern void ospf6_zebra_add_discard (struct ospf6_route *request);
+extern void ospf6_zebra_delete_discard (struct ospf6_route *request);
 
 extern int config_write_ospf6_debug_zebra (struct vty *vty);
 extern void install_element_ospf6_debug_zebra (void);

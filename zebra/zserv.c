@@ -1445,6 +1445,9 @@ zread_ipv6_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
 	        ifindices[if_count++] = ifindex;
               }
 	      break;
+            case ZEBRA_NEXTHOP_BLACKHOLE:
+              rib_nexthop_blackhole_add (rib);
+              break;
 	    }
 	}
 
