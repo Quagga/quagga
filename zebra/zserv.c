@@ -748,6 +748,7 @@ zserv_nexthop_register (struct zserv *client, int sock, u_short length, vrf_id_t
   struct stream *s;
   struct prefix p;
   u_short l = 0;
+  u_char connected;
 
   if (IS_ZEBRA_DEBUG_NHT)
     zlog_debug("nexthop_register msg from client %s: length=%d\n",
@@ -757,14 +758,19 @@ zserv_nexthop_register (struct zserv *client, int sock, u_short length, vrf_id_t
 
   while (l < length)
     {
+      connected = stream_getc(s);
       p.family = stream_getw(s);
       p.prefixlen = stream_getc(s);
-      l += 3;
+      l += 4;
       stream_get(&p.u.prefix, s, PSIZE(p.prefixlen));
       l += PSIZE(p.prefixlen);
       rnh = zebra_add_rnh(&p, 0);
 
       client->nh_reg_time = quagga_time(NULL);
+      
+      if (connected)
+	SET_FLAG(rnh->flags, ZEBRA_NHT_CONNECTED);
+
       zebra_add_rnh_client(rnh, client, vrf_id);
     }
   zebra_evaluate_rnh_table(0, AF_INET);
@@ -789,9 +795,10 @@ zserv_nexthop_unregister (struct zserv *client, int sock, u_short length)
 
   while (l < length)
     {
+      (void)stream_getc(s);
       p.family = stream_getw(s);
       p.prefixlen = stream_getc(s);
-      l += 3;
+      l += 4;
       stream_get(&p.u.prefix, s, PSIZE(p.prefixlen));
       l += PSIZE(p.prefixlen);
       rnh = zebra_lookup_rnh(&p, 0);

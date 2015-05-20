@@ -55,7 +55,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_zebra.h"
 #include "bgpd/bgp_vty.h"
 #include "bgpd/bgp_mpath.h"
-#include "bgpd/bgp_nht.c"
+#include "bgpd/bgp_nht.h"
 
 /* Extern from bgp_dump.c */
 extern const char *bgp_origin_str[];
@@ -998,7 +998,7 @@ bgp_announce_check (struct bgp_info *ri, struct peer *peer, struct prefix *p,
 	   || (NEXTHOP_IS_V6 &&
                IN6_IS_ADDR_UNSPECIFIED(&attr->extra->mp_nexthop_global))
 	   || (peer->sort == BGP_PEER_EBGP
-	       && bgp_multiaccess_check_v4 (attr->nexthop, peer->host) == 0))
+               && (bgp_multiaccess_check_v4 (attr->nexthop, peer) == 0)))
     {
       /* Set IPv4 nexthop. */
       if (NEXTHOP_IS_V4)
@@ -2129,6 +2129,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
   struct bgp_info *new;
   const char *reason;
   char buf[SU_ADDRSTRLEN];
+  int connected = 0;
 
   memset (&new_attr, 0, sizeof(struct attr));
   memset (&new_extra, 0, sizeof(struct attr_extra));
@@ -2209,17 +2210,6 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
   /* IPv4 unicast next hop check.  */
   if (afi == AFI_IP && safi == SAFI_UNICAST)
     {
-      /* If the peer is EBGP and nexthop is not on connected route,
-	 discard it.  */
-      if (peer->sort == BGP_PEER_EBGP && peer->ttl == 1
-	  && ! bgp_nexthop_onlink (afi, &new_attr)
-	  && ! CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
-	{
-	  reason = "non-connected next-hop;";
-	  bgp_attr_flush (&new_attr);
-	  goto filtered;
-	}
-
       /* Next hop must not be 0.0.0.0 nor Class D/E address. Next hop
 	 must not be my own address.  */
       if (new_attr.nexthop.s_addr == 0
@@ -2347,20 +2337,29 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 	}
 
       /* Nexthop reachability check. */
-      if ((afi == AFI_IP || afi == AFI_IP6)
-	  && safi == SAFI_UNICAST 
-	  && (peer->sort == BGP_PEER_IBGP
-              || peer->sort == BGP_PEER_CONFED
-	      || (peer->sort == BGP_PEER_EBGP && peer->ttl != 1)
-	      || CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK)))
+      if ((afi == AFI_IP || afi == AFI_IP6) && safi == SAFI_UNICAST)
 	{
-	  if (bgp_find_or_add_nexthop (afi, ri, NULL, NULL))
+	  if (peer->sort == BGP_PEER_EBGP && peer->ttl == 1 &&
+	      ! CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
+	    connected = 1;
+	  else
+	    connected = 0;
+
+	  if (bgp_find_or_add_nexthop (afi, ri, NULL, connected))
 	    bgp_info_set_flag (rn, ri, BGP_INFO_VALID);
 	  else
-	    bgp_info_unset_flag (rn, ri, BGP_INFO_VALID);
+	    {
+	      if (BGP_DEBUG(nht, NHT))
+		{
+		  char buf1[INET6_ADDRSTRLEN];
+		  inet_ntop(AF_INET, (const void *)&attr_new->nexthop, buf1, INET6_ADDRSTRLEN);
+		  zlog_debug("%s(%s): NH unresolved", __FUNCTION__, buf1);
+		}
+	      bgp_info_unset_flag (rn, ri, BGP_INFO_VALID);
+	    }
 	}
       else
-        bgp_info_set_flag (rn, ri, BGP_INFO_VALID);
+	bgp_info_set_flag (rn, ri, BGP_INFO_VALID);
 
       bgp_attr_flush (&new_attr);
 
@@ -2390,17 +2389,26 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
     memcpy ((bgp_info_extra_get (new))->tag, tag, 3);
 
   /* Nexthop reachability check. */
-  if ((afi == AFI_IP || afi == AFI_IP6)
-      && safi == SAFI_UNICAST
-      && (peer->sort == BGP_PEER_IBGP
-          || peer->sort == BGP_PEER_CONFED
-	  || (peer->sort == BGP_PEER_EBGP && peer->ttl != 1)
-	  || CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK)))
+  if ((afi == AFI_IP || afi == AFI_IP6) && safi == SAFI_UNICAST)
     {
-      if (bgp_find_or_add_nexthop (afi, new, NULL, NULL))
+      if (peer->sort == BGP_PEER_EBGP && peer->ttl == 1 &&
+	  ! CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
+	connected = 1;
+      else
+	connected = 0;
+
+      if (bgp_find_or_add_nexthop (afi, new, NULL, connected))
 	bgp_info_set_flag (rn, new, BGP_INFO_VALID);
       else
-        bgp_info_unset_flag (rn, new, BGP_INFO_VALID);
+	{
+	  if (BGP_DEBUG(nht, NHT))
+	    {
+	      char buf1[INET6_ADDRSTRLEN];
+	      inet_ntop(AF_INET, (const void *)&attr_new->nexthop, buf1, INET6_ADDRSTRLEN);
+	      zlog_debug("%s(%s): NH unresolved", __FUNCTION__, buf1);
+	    }
+	  bgp_info_unset_flag (rn, new, BGP_INFO_VALID);
+	}
     }
   else
     bgp_info_set_flag (rn, new, BGP_INFO_VALID);
@@ -3532,6 +3540,23 @@ bgp_static_update_rsclient (struct peer *rsclient, struct prefix *p,
           ri->attr = attr_new;
           ri->uptime = bgp_clock ();
 
+	  /* Nexthop reachability check. */
+	  if (bgp_flag_check (bgp, BGP_FLAG_IMPORT_CHECK))
+	    {
+	      if (bgp_find_or_add_nexthop (afi, ri, NULL, 0))
+		bgp_info_set_flag (rn, ri, BGP_INFO_VALID);
+	      else
+		{
+		  if (BGP_DEBUG(nht, NHT))
+		    {
+		      char buf1[INET6_ADDRSTRLEN];
+		      inet_ntop(AF_INET, (const void *)&attr_new->nexthop,
+				buf1, INET6_ADDRSTRLEN);
+		      zlog_debug("%s(%s): NH unresolved", __FUNCTION__, buf1);
+		    }
+		  bgp_info_unset_flag (rn, ri, BGP_INFO_VALID);
+		}
+	    }
           /* Process change. */
           bgp_process (bgp, rn, afi, safi);
           bgp_unlock_node (rn);
@@ -3544,7 +3569,25 @@ bgp_static_update_rsclient (struct peer *rsclient, struct prefix *p,
   /* Make new BGP info. */
   new = info_make(ZEBRA_ROUTE_BGP, BGP_ROUTE_STATIC, bgp->peer_self,
 		  attr_new, rn);
-  SET_FLAG (new->flags, BGP_INFO_VALID);
+  /* Nexthop reachability check. */
+  if (bgp_flag_check (bgp, BGP_FLAG_IMPORT_CHECK))
+    {
+      if (bgp_find_or_add_nexthop (afi, new, NULL, 0))
+	bgp_info_set_flag (rn, new, BGP_INFO_VALID);
+      else
+	{
+	  if (BGP_DEBUG(nht, NHT))
+	    {
+	      char buf1[INET6_ADDRSTRLEN];
+	      inet_ntop(AF_INET, (const void *)&attr_new->nexthop,
+			buf1, INET6_ADDRSTRLEN);
+	      zlog_debug("%s(%s): NH unresolved", __FUNCTION__, buf1);
+	    }
+	  bgp_info_unset_flag (rn, new, BGP_INFO_VALID);
+	}
+    }
+  else
+    bgp_info_set_flag (rn, new, BGP_INFO_VALID);
 
   /* Register new BGP information. */
   bgp_info_add (rn, new);
@@ -3562,7 +3605,7 @@ bgp_static_update_rsclient (struct peer *rsclient, struct prefix *p,
 
 static void
 bgp_static_update_main (struct bgp *bgp, struct prefix *p,
-		   struct bgp_static *bgp_static, afi_t afi, safi_t safi)
+			struct bgp_static *bgp_static, afi_t afi, safi_t safi)
 {
   struct bgp_node *rn;
   struct bgp_info *ri;
@@ -3646,6 +3689,23 @@ bgp_static_update_main (struct bgp *bgp, struct prefix *p,
 	  ri->attr = attr_new;
 	  ri->uptime = bgp_clock ();
 
+	  /* Nexthop reachability check. */
+	  if (bgp_flag_check (bgp, BGP_FLAG_IMPORT_CHECK))
+	    {
+	      if (bgp_find_or_add_nexthop (afi, ri, NULL, 0))
+		bgp_info_set_flag (rn, ri, BGP_INFO_VALID);
+	      else
+		{
+		  if (BGP_DEBUG(nht, NHT))
+		    {
+		      char buf1[INET6_ADDRSTRLEN];
+		      inet_ntop(AF_INET, (const void *)&attr_new->nexthop,
+				buf1, INET6_ADDRSTRLEN);
+		      zlog_debug("%s(%s): NH unresolved", __FUNCTION__, buf1);
+		    }
+		  bgp_info_unset_flag (rn, ri, BGP_INFO_VALID);
+		}
+	    }
 	  /* Process change. */
 	  bgp_aggregate_increment (bgp, p, ri, afi, safi);
 	  bgp_process (bgp, rn, afi, safi);
@@ -3659,7 +3719,25 @@ bgp_static_update_main (struct bgp *bgp, struct prefix *p,
   /* Make new BGP info. */
   new = info_make(ZEBRA_ROUTE_BGP, BGP_ROUTE_STATIC, bgp->peer_self, attr_new,
 		  rn);
-  SET_FLAG (new->flags, BGP_INFO_VALID);
+  /* Nexthop reachability check. */
+  if (bgp_flag_check (bgp, BGP_FLAG_IMPORT_CHECK))
+    {
+      if (bgp_find_or_add_nexthop (afi, new, NULL, 0))
+	bgp_info_set_flag (rn, new, BGP_INFO_VALID);
+      else
+	{
+	  if (BGP_DEBUG(nht, NHT))
+	    {
+	      char buf1[INET6_ADDRSTRLEN];
+	      inet_ntop(AF_INET, (const void *)&attr_new->nexthop, buf1,
+			INET6_ADDRSTRLEN);
+	      zlog_debug("%s(%s): NH unresolved", __FUNCTION__, buf1);
+	    }
+	  bgp_info_unset_flag (rn, new, BGP_INFO_VALID);
+	}
+    }
+  else
+    bgp_info_set_flag (rn, new, BGP_INFO_VALID);
 
   /* Aggregate address increment. */
   bgp_aggregate_increment (bgp, p, new, afi, safi);
@@ -3720,6 +3798,7 @@ bgp_static_withdraw (struct bgp *bgp, struct prefix *p, afi_t afi,
   if (ri)
     {
       bgp_aggregate_decrement (bgp, p, ri, afi, safi);
+      bgp_unlink_nexthop(ri);
       bgp_info_delete (rn, ri);
       bgp_process (bgp, rn, afi, safi);
     }
@@ -3978,17 +4057,12 @@ bgp_static_set (struct vty *vty, struct bgp *bgp, const char *ip_str,
       rn->info = bgp_static;
     }
 
-  /* If BGP scan is not enabled, we should install this route here.  */
-  if (! bgp_flag_check (bgp, BGP_FLAG_IMPORT_CHECK))
-    {
-      bgp_static->valid = 1;
+  bgp_static->valid = 1;
+  if (need_update)
+    bgp_static_withdraw (bgp, &p, afi, safi);
 
-      if (need_update)
-	bgp_static_withdraw (bgp, &p, afi, safi);
-
-      if (! bgp_static->backdoor)
-	bgp_static_update (bgp, &p, bgp_static, afi, safi);
-    }
+  if (! bgp_static->backdoor)
+    bgp_static_update (bgp, &p, bgp_static, afi, safi);
 
   return CMD_SUCCESS;
 }

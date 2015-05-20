@@ -25,9 +25,6 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "queue.h"
 #include "prefix.h"
 
-#define BGP_SCAN_INTERVAL_DEFAULT   60
-#define BGP_IMPORT_INTERVAL_DEFAULT 15
-
 #define NEXTHOP_FAMILY(nexthop_len) ( \
   ((nexthop_len) ==  4 ||             \
    (nexthop_len) == 12 ? AF_INET :    \
@@ -40,15 +37,6 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* BGP nexthop cache value structure. */
 struct bgp_nexthop_cache
 {
-  /* This nexthop exists in IGP. */
-  u_char valid;
-
-  /* Nexthop is changed. */
-  u_char changed;
-
-  /* Nexthop is changed. */
-  u_char metricchanged;
-
   /* IGP route's metric. */
   u_int32_t metric;
 
@@ -58,26 +46,28 @@ struct bgp_nexthop_cache
   time_t last_update;
   u_int16_t flags;
 
-#define BGP_NEXTHOP_VALID (1 << 0)
-#define BGP_NEXTHOP_REGISTERED (1 << 1)
+#define BGP_NEXTHOP_VALID             (1 << 0)
+#define BGP_NEXTHOP_REGISTERED        (1 << 1)
+#define BGP_NEXTHOP_CONNECTED         (1 << 2)
+#define BGP_NEXTHOP_PEER_NOTIFIED     (1 << 3)
 
   u_int16_t change_flags;
 
-#define BGP_NEXTHOP_CHANGED (1 << 0)
-#define BGP_NEXTHOP_METRIC_CHANGED (1 << 1)
+#define BGP_NEXTHOP_CHANGED           (1 << 0)
+#define BGP_NEXTHOP_METRIC_CHANGED    (1 << 1)
+#define BGP_NEXTHOP_CONNECTED_CHANGED (1 << 2)
 
   struct bgp_node *node;
+  void *nht_info;		/* In BGP, peer session */
   LIST_HEAD(path_list, bgp_info) paths;
   unsigned int path_count;
 };
 
-extern void bgp_scan_init (void);
-extern void bgp_scan_finish (void);
 extern int bgp_nexthop_lookup (afi_t, struct peer *peer, struct bgp_info *,
 			int *, int *);
 extern void bgp_connected_add (struct connected *c);
 extern void bgp_connected_delete (struct connected *c);
-extern int bgp_multiaccess_check_v4 (struct in_addr, char *);
+extern int bgp_multiaccess_check_v4 (struct in_addr, struct peer *);
 extern int bgp_config_write_scan_time (struct vty *);
 extern int bgp_nexthop_onlink (afi_t, struct attr *);
 extern int bgp_nexthop_self (struct attr *);
@@ -89,4 +79,6 @@ extern void bnc_free(struct bgp_nexthop_cache *bnc);
 extern void bnc_nexthop_free(struct bgp_nexthop_cache *bnc);
 extern char *bnc_str(struct bgp_nexthop_cache *bnc, char *buf, int size);
 
+extern void bgp_scan_init (void);
+extern void bgp_scan_vty_init (void);
 #endif /* _QUAGGA_BGP_NEXTHOP_H */
