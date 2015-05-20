@@ -217,6 +217,9 @@ connected_add_ipv4 (struct interface *ifp, int flags, struct in_addr *addr,
   struct prefix_ipv4 *p;
   struct connected *ifc;
 
+  if (ipv4_martian(addr))
+    return;
+
   /* Make connected structure. */
   ifc = connected_new ();
   ifc->ifp = ifp;
@@ -377,6 +380,9 @@ connected_add_ipv6 (struct interface *ifp, int flags, struct in6_addr *addr,
 {
   struct prefix_ipv6 *p;
   struct connected *ifc;
+
+  if (ipv6_martian(addr))
+    return;
 
   /* Make connected structure. */
   ifc = connected_new ();
