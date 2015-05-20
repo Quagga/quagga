@@ -2313,6 +2313,8 @@ bgp_create (as_t *as, const char *name)
     bgp->name = strdup (name);
 
   bgp->wpkt_quanta = BGP_WRITE_PACKET_MAX;
+  bgp->adv_quanta = BGP_ADV_FIFO_QUANTA;
+  bgp->wd_quanta = BGP_WD_FIFO_QUANTA;
 
   THREAD_TIMER_ON (bm->master, bgp->t_startup, bgp_startup_timer_expire,
                    bgp, bgp->restart_time);
