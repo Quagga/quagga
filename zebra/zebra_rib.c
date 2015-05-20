@@ -1102,6 +1102,9 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
   if (!family)
     family = info->afi;
 
+  memset(&nexthop->rmap_src.ipv6, 0, sizeof(union g_addr));
+  /* It'll get set if required inside */
+
   ret = zebra_route_map_check(family, rib->type, &rn->p, nexthop, rib->vrf_id);
   if (ret == RMAP_DENYMATCH)
     {
@@ -1113,6 +1116,7 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
 	}
       UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
     }
+
   return CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
 }
 
@@ -1129,6 +1133,7 @@ static int
 nexthop_active_update (struct route_node *rn, struct rib *rib, int set)
 {
   struct nexthop *nexthop;
+  union g_addr prev_src;
   unsigned int prev_active, new_active, old_num_nh;
   ifindex_t prev_index;
 
@@ -1139,12 +1144,18 @@ nexthop_active_update (struct route_node *rn, struct rib *rib, int set)
 
   for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
   {
+    /* No protocol daemon provides src and so we're skipping tracking it */
+    prev_src = nexthop->rmap_src;
     prev_active = CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
     prev_index = nexthop->ifindex;
     if ((new_active = nexthop_active_check (rn, rib, nexthop, set)))
       rib->nexthop_active_num++;
+    /* Don't allow src setting on IPv6 addr for now */
     if (prev_active != new_active ||
-	prev_index != nexthop->ifindex)
+	prev_index != nexthop->ifindex ||
+	((nexthop->type >= NEXTHOP_TYPE_IFINDEX &&
+	  nexthop->type < NEXTHOP_TYPE_IPV6) &&
+	 prev_src.ipv4.s_addr != nexthop->rmap_src.ipv4.s_addr))
       SET_FLAG (rib->status, RIB_ENTRY_NEXTHOPS_CHANGED);
   }
 
