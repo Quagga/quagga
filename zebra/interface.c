@@ -1401,6 +1401,12 @@ ip_address_install (struct vty *vty, struct interface *ifp,
       return CMD_WARNING;
     }
 
+  if (ipv4_martian(&cp.prefix))
+    {
+      vty_out (vty, "%% Invalid address%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
   ifc = connected_check (ifp, (struct prefix *) &cp);
   if (! ifc)
     {
@@ -1582,6 +1588,12 @@ ipv6_address_install (struct vty *vty, struct interface *ifp,
   if (ret <= 0)
     {
       vty_out (vty, "%% Malformed address %s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  if (ipv6_martian(&cp.prefix))
+    {
+      vty_out (vty, "%% Invalid address%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
 
