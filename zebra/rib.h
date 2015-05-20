@@ -251,15 +251,6 @@ struct static_route
                                       : ((tnexthop) = (nexthop)->next)) \
                        : (((recursing) = 0),((tnexthop) = (tnexthop)->next)))
 
-/* Structure holding nexthop & VRF identifier,
- * used for applying the route-map. */
-struct nexthop_vrfid
-{
-  struct nexthop *nexthop;
-  vrf_id_t vrf_id;
-};
-
-
 #if defined (HAVE_RTADV)
 /* Structure which hold status of router advertisement. */
 struct rtadv
