@@ -5048,6 +5048,7 @@ bgp_aggregate_route (struct bgp *bgp, struct prefix *p, struct bgp_info *rinew,
   struct bgp_info *new;
   int first = 1;
   unsigned long match = 0;
+  u_char atomic_aggregate = 0;
 
   /* ORIGIN attribute: If at least one route among routes that are
      aggregated has ORIGIN with the value INCOMPLETE, then the
@@ -5091,6 +5092,9 @@ bgp_aggregate_route (struct bgp *bgp, struct prefix *p, struct bgp_info *rinew,
 		return;
 	      }
 #endif /* AGGREGATE_NEXTHOP_CHECK */
+
+            if (ri->attr->flag & ATTR_FLAG_BIT(BGP_ATTR_ATOMIC_AGGREGATE))
+              atomic_aggregate = 1;
 
 	    if (ri->sub_type != BGP_ROUTE_AGGREGATE)
 	      {
@@ -5178,7 +5182,8 @@ bgp_aggregate_route (struct bgp *bgp, struct prefix *p, struct bgp_info *rinew,
       rn = bgp_node_get (table, p);
       new = info_make(ZEBRA_ROUTE_BGP, BGP_ROUTE_AGGREGATE, bgp->peer_self,
 		      bgp_attr_aggregate_intern(bgp, origin, aspath, community,
-						aggregate->as_set), rn);
+						aggregate->as_set,
+                                                atomic_aggregate), rn);
       SET_FLAG (new->flags, BGP_INFO_VALID);
 
       bgp_info_add (rn, new);
@@ -5284,6 +5289,7 @@ bgp_aggregate_add (struct bgp *bgp, struct prefix *p, afi_t afi, safi_t safi,
   struct aspath *asmerge = NULL;
   struct community *community = NULL;
   struct community *commerge = NULL;
+  u_char atomic_aggregate = 0;
 
   table = bgp->rib[afi][safi];
 
@@ -5304,6 +5310,9 @@ bgp_aggregate_add (struct bgp *bgp, struct prefix *p, afi_t afi, safi_t safi,
 	  {
 	    if (BGP_INFO_HOLDDOWN (ri))
 	      continue;
+
+            if (ri->attr->flag & ATTR_FLAG_BIT(BGP_ATTR_ATOMIC_AGGREGATE))
+              atomic_aggregate = 1;
 
 	    if (ri->sub_type != BGP_ROUTE_AGGREGATE)
 	      {
@@ -5368,7 +5377,8 @@ bgp_aggregate_add (struct bgp *bgp, struct prefix *p, afi_t afi, safi_t safi,
       rn = bgp_node_get (table, p);
       new = info_make(ZEBRA_ROUTE_BGP, BGP_ROUTE_AGGREGATE, bgp->peer_self,
 		      bgp_attr_aggregate_intern(bgp, origin, aspath, community,
-						aggregate->as_set), rn);
+						aggregate->as_set,
+                                                atomic_aggregate), rn);
       SET_FLAG (new->flags, BGP_INFO_VALID);
 
       bgp_info_add (rn, new);
