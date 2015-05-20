@@ -212,7 +212,8 @@ zebra_evaluate_rnh_table (vrf_id_t vrfid, int family)
     {
       if (!nrn->info)
 	  continue;
-
+      
+      rnh = nrn->info;
       prn = route_node_match(ptable, &nrn->p);
       if (!prn)
 	rib = NULL;
@@ -223,11 +224,18 @@ zebra_evaluate_rnh_table (vrf_id_t vrfid, int family)
 	      if (CHECK_FLAG (rib->status, RIB_ENTRY_REMOVED))
 		continue;
 	      if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
-		break;
+		{
+		  if (CHECK_FLAG(rnh->flags, ZEBRA_NHT_CONNECTED))
+		    {
+		      if (rib->type == ZEBRA_ROUTE_CONNECT)
+			break;
+		    }
+		  else
+		    break;
+		}
 	    }
 	}
 
-      rnh = nrn->info;
       if (compare_state(rib, rnh->state))
 	{
 	  if (IS_ZEBRA_DEBUG_NHT)
@@ -598,7 +606,9 @@ print_rnh (struct route_node *rn, struct vty *vty)
 	print_nh(nexthop, vty);
     }
   else
-    vty_out(vty, " unresolved%s", VTY_NEWLINE);
+    vty_out(vty, " unresolved%s%s",
+	    CHECK_FLAG(rnh->flags, ZEBRA_NHT_CONNECTED) ? "(Connected)" : "",
+	    VTY_NEWLINE);
 
   vty_out(vty, " Client list:");
   for (ALL_LIST_ELEMENTS_RO(rnh->client_list, node, client))
