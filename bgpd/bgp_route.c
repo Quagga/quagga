@@ -6916,7 +6916,7 @@ static int
 bgp_show_route_in_table (struct vty *vty, struct bgp *bgp, 
                          struct bgp_table *rib, const char *ip_str,
                          afi_t afi, safi_t safi, struct prefix_rd *prd,
-                         int prefix_check)
+                         int prefix_check, enum bgp_path_type pathtype)
 {
   int ret;
   int header;
@@ -6967,7 +6967,12 @@ bgp_show_route_in_table (struct vty *vty, struct bgp *bgp,
                           header = 0;
                         }
                       display++;
-                      route_vty_out_detail (vty, bgp, &rm->p, ri, AFI_IP, safi);
+
+                      if (pathtype == BGP_PATH_ALL ||
+                          (pathtype == BGP_PATH_BESTPATH && CHECK_FLAG (ri->flags, BGP_INFO_SELECTED)) ||
+                          (pathtype == BGP_PATH_MULTIPATH &&
+                           (CHECK_FLAG (ri->flags, BGP_INFO_MULTIPATH) || CHECK_FLAG (ri->flags, BGP_INFO_SELECTED))))
+                        route_vty_out_detail (vty, bgp, &rm->p, ri, AFI_IP, safi);
                     }
 
                   bgp_unlock_node (rm);
@@ -6991,7 +6996,12 @@ bgp_show_route_in_table (struct vty *vty, struct bgp *bgp,
                       header = 0;
                     }
                   display++;
-                  route_vty_out_detail (vty, bgp, &rn->p, ri, afi, safi);
+
+                  if (pathtype == BGP_PATH_ALL ||
+                      (pathtype == BGP_PATH_BESTPATH && CHECK_FLAG (ri->flags, BGP_INFO_SELECTED)) ||
+                      (pathtype == BGP_PATH_MULTIPATH &&
+                       (CHECK_FLAG (ri->flags, BGP_INFO_MULTIPATH) || CHECK_FLAG (ri->flags, BGP_INFO_SELECTED))))
+                    route_vty_out_detail (vty, bgp, &rn->p, ri, afi, safi);
                 }
             }
 
@@ -7012,7 +7022,7 @@ bgp_show_route_in_table (struct vty *vty, struct bgp *bgp,
 static int
 bgp_show_route (struct vty *vty, const char *view_name, const char *ip_str,
 		afi_t afi, safi_t safi, struct prefix_rd *prd,
-		int prefix_check)
+		int prefix_check, enum bgp_path_type pathtype)
 {
   struct bgp *bgp;
 
@@ -7037,7 +7047,7 @@ bgp_show_route (struct vty *vty, const char *view_name, const char *ip_str,
     }
  
   return bgp_show_route_in_table (vty, bgp, bgp->rib[afi][safi], ip_str, 
-                                   afi, safi, prd, prefix_check);
+                                  afi, safi, prd, prefix_check, pathtype);
 }
 
 /* BGP route print out function. */
@@ -7076,7 +7086,47 @@ DEFUN (show_ip_bgp_route,
        BGP_STR
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
+}
+
+DEFUN (show_ip_bgp_route_pathtype,
+       show_ip_bgp_route_pathtype_cmd,
+       "show ip bgp A.B.C.D (bestpath|multipath)",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
+{
+  if (strncmp (argv[1], "b", 1) == 0)
+    return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 0, BGP_PATH_BESTPATH);
+  else
+    return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 0, BGP_PATH_MULTIPATH);
+}
+
+DEFUN (show_bgp_ipv4_safi_route_pathtype,
+       show_bgp_ipv4_safi_route_pathtype_cmd,
+       "show bgp ipv4 (unicast|multicast) A.B.C.D (bestpath|multipath)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
+{
+  if (strncmp (argv[0], "m", 1) == 0)
+    if (strncmp (argv[2], "b", 1) == 0)
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 0, BGP_PATH_BESTPATH);
+    else
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 0, BGP_PATH_MULTIPATH);
+  else
+    if (strncmp (argv[2], "b", 1) == 0)
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 0, BGP_PATH_BESTPATH);
+    else
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 0, BGP_PATH_MULTIPATH);
 }
 
 DEFUN (show_ip_bgp_ipv4_route,
@@ -7091,9 +7141,9 @@ DEFUN (show_ip_bgp_ipv4_route,
        "Network in the BGP routing table to display\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 0);
+    return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 0, BGP_PATH_ALL);
 
-  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_ip_bgp_vpnv4_all_route,
@@ -7106,8 +7156,9 @@ DEFUN (show_ip_bgp_vpnv4_all_route,
        "Display information about all VPNv4 NLRIs\n"
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_MPLS_VPN, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_MPLS_VPN, NULL, 0, BGP_PATH_ALL);
 }
+
 
 DEFUN (show_ip_bgp_vpnv4_rd_route,
        show_ip_bgp_vpnv4_rd_route_cmd,
@@ -7129,7 +7180,7 @@ DEFUN (show_ip_bgp_vpnv4_rd_route,
       vty_out (vty, "%% Malformed Route Distinguisher%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MPLS_VPN, &prd, 0);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MPLS_VPN, &prd, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_ip_bgp_prefix,
@@ -7140,7 +7191,23 @@ DEFUN (show_ip_bgp_prefix,
        BGP_STR
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
+}
+
+DEFUN (show_ip_bgp_prefix_pathtype,
+       show_ip_bgp_prefix_pathtype_cmd,
+       "show ip bgp A.B.C.D/M (bestpath|multipath)",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
+{
+  if (strncmp (argv[1], "b", 1) == 0)
+    return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 1, BGP_PATH_BESTPATH);
+  else
+    return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 1, BGP_PATH_MULTIPATH);
 }
 
 DEFUN (show_ip_bgp_ipv4_prefix,
@@ -7155,10 +7222,47 @@ DEFUN (show_ip_bgp_ipv4_prefix,
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 1);
+    return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 1, BGP_PATH_ALL);
 
-  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
+
+DEFUN (show_ip_bgp_ipv4_prefix_pathtype,
+       show_ip_bgp_ipv4_prefix_pathtype_cmd,
+       "show ip bgp ipv4 (unicast|multicast) A.B.C.D/M (bestpath|multipath)",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
+{
+  if (strncmp (argv[0], "m", 1) == 0)
+    if (strncmp (argv[2], "b", 1) == 0)
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 1, BGP_PATH_BESTPATH);
+    else
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 1, BGP_PATH_MULTIPATH);
+  else
+    if (strncmp (argv[2], "b", 1) == 0)
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 1, BGP_PATH_BESTPATH);
+    else
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 1, BGP_PATH_MULTIPATH);
+}
+
+ALIAS (show_ip_bgp_ipv4_prefix_pathtype,
+       show_bgp_ipv4_safi_prefix_pathtype_cmd,
+       "show bgp ipv4 (unicast|multicast) A.B.C.D/M (bestpath|multipath)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
 
 DEFUN (show_ip_bgp_vpnv4_all_prefix,
        show_ip_bgp_vpnv4_all_prefix_cmd,
@@ -7170,7 +7274,7 @@ DEFUN (show_ip_bgp_vpnv4_all_prefix,
        "Display information about all VPNv4 NLRIs\n"
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_MPLS_VPN, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_MPLS_VPN, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_ip_bgp_vpnv4_rd_prefix,
@@ -7193,7 +7297,7 @@ DEFUN (show_ip_bgp_vpnv4_rd_prefix,
       vty_out (vty, "%% Malformed Route Distinguisher%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MPLS_VPN, &prd, 1);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MPLS_VPN, &prd, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_ip_bgp_view,
@@ -7228,7 +7332,7 @@ DEFUN (show_ip_bgp_view_route,
        "View name\n"
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, argv[0], argv[1], AFI_IP, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, argv[0], argv[1], AFI_IP, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_ip_bgp_view_prefix,
@@ -7241,7 +7345,7 @@ DEFUN (show_ip_bgp_view_prefix,
        "View name\n"
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
-  return bgp_show_route (vty, argv[0], argv[1], AFI_IP, SAFI_UNICAST, NULL, 1);
+  return bgp_show_route (vty, argv[0], argv[1], AFI_IP, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp,
@@ -7280,7 +7384,7 @@ DEFUN (show_bgp_route,
        BGP_STR
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv4_safi,
@@ -7310,9 +7414,58 @@ DEFUN (show_bgp_ipv4_safi_route,
        "Network in the BGP routing table to display\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 0);
+    return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 0, BGP_PATH_ALL);
 
-  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
+}
+
+DEFUN (show_bgp_route_pathtype,
+       show_bgp_route_pathtype_cmd,
+       "show bgp X:X::X:X (bestpath|multipath)",
+       SHOW_STR
+       BGP_STR
+       "Network in the BGP routing table to display\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
+{
+  if (strncmp (argv[1], "b", 1) == 0)
+    return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_BESTPATH);
+  else
+    return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_MULTIPATH);
+}
+
+ALIAS (show_bgp_route_pathtype,
+       show_bgp_ipv6_route_pathtype_cmd,
+       "show bgp ipv6 X:X::X:X (bestpath|multipath)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Network in the BGP routing table to display\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
+
+DEFUN (show_bgp_ipv6_safi_route_pathtype,
+       show_bgp_ipv6_safi_route_pathtype_cmd,
+       "show bgp ipv6 (unicast|multicast) X:X::X:X (bestpath|multipath)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Network in the BGP routing table to display\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
+{
+  if (strncmp (argv[0], "m", 1) == 0)
+    if (strncmp (argv[2], "b", 1) == 0)
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 0, BGP_PATH_BESTPATH);
+    else
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 0, BGP_PATH_MULTIPATH);
+  else
+    if (strncmp (argv[2], "b", 1) == 0)
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_BESTPATH);
+    else
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_MULTIPATH);
 }
 
 DEFUN (show_bgp_ipv4_vpn_route,
@@ -7324,7 +7477,7 @@ DEFUN (show_bgp_ipv4_vpn_route,
        "Display VPN NLRI specific information\n"
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_MPLS_VPN, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_MPLS_VPN, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv6_vpn_route,
@@ -7336,7 +7489,7 @@ DEFUN (show_bgp_ipv6_vpn_route,
        "Display VPN NLRI specific information\n"
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MPLS_VPN, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MPLS_VPN, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv4_vpn_rd_route,
@@ -7359,7 +7512,7 @@ DEFUN (show_bgp_ipv4_vpn_rd_route,
       vty_out (vty, "%% Malformed Route Distinguisher%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MPLS_VPN, &prd, 0);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MPLS_VPN, &prd, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv6_vpn_rd_route,
@@ -7382,7 +7535,56 @@ DEFUN (show_bgp_ipv6_vpn_rd_route,
       vty_out (vty, "%% Malformed Route Distinguisher%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MPLS_VPN, &prd, 0);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MPLS_VPN, &prd, 0, BGP_PATH_ALL);
+}
+
+DEFUN (show_bgp_prefix_pathtype,
+       show_bgp_prefix_pathtype_cmd,
+       "show bgp X:X::X:X/M (bestpath|multipath)",
+       SHOW_STR
+       BGP_STR
+       "IPv6 prefix <network>/<length>\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
+{
+  if (strncmp (argv[1], "b", 1) == 0)
+    return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_BESTPATH);
+  else
+    return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_MULTIPATH);
+}
+
+ALIAS (show_bgp_prefix_pathtype,
+       show_bgp_ipv6_prefix_pathtype_cmd,
+       "show bgp ipv6 X:X::X:X/M (bestpath|multipath)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "IPv6 prefix <network>/<length>\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
+
+DEFUN (show_bgp_ipv6_safi_prefix_pathtype,
+       show_bgp_ipv6_safi_prefix_pathtype_cmd,
+       "show bgp ipv6 (unicast|multicast) X:X::X:X/M (bestpath|multipath)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n"
+       "Display only the bestpath\n"
+       "Display only multipaths\n")
+{
+  if (strncmp (argv[0], "m", 1) == 0)
+    if (strncmp (argv[2], "b", 1) == 0)
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 1, BGP_PATH_BESTPATH);
+    else
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 1, BGP_PATH_MULTIPATH);
+  else
+    if (strncmp (argv[2], "b", 1) == 0)
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_BESTPATH);
+    else
+      return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_MULTIPATH);
 }
 
 DEFUN (show_bgp_ipv4_encap_route,
@@ -7394,7 +7596,7 @@ DEFUN (show_bgp_ipv4_encap_route,
        "Display ENCAP NLRI specific information\n"
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_ENCAP, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_ENCAP, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv6_encap_route,
@@ -7406,7 +7608,7 @@ DEFUN (show_bgp_ipv6_encap_route,
        "Display ENCAP NLRI specific information\n"
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_ENCAP, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_ENCAP, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv4_safi_rd_route,
@@ -7435,7 +7637,7 @@ DEFUN (show_bgp_ipv4_safi_rd_route,
       vty_out (vty, "%% Malformed Route Distinguisher%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  return bgp_show_route (vty, NULL, argv[2], AFI_IP, safi, &prd, 0);
+  return bgp_show_route (vty, NULL, argv[2], AFI_IP, safi, &prd, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv6_safi_rd_route,
@@ -7464,7 +7666,7 @@ DEFUN (show_bgp_ipv6_safi_rd_route,
       vty_out (vty, "%% Malformed Route Distinguisher%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  return bgp_show_route (vty, NULL, argv[2], AFI_IP6, SAFI_ENCAP, &prd, 0);
+  return bgp_show_route (vty, NULL, argv[2], AFI_IP6, SAFI_ENCAP, &prd, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv4_prefix,
@@ -7475,7 +7677,7 @@ DEFUN (show_bgp_ipv4_prefix,
        IP_STR
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv4_safi_prefix,
@@ -7489,9 +7691,9 @@ DEFUN (show_bgp_ipv4_safi_prefix,
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 1);
+    return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 1, BGP_PATH_ALL);
 
-  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv4_vpn_prefix,
@@ -7503,7 +7705,7 @@ DEFUN (show_bgp_ipv4_vpn_prefix,
        "Display VPN NLRI specific information\n"
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_MPLS_VPN, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_MPLS_VPN, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv6_vpn_prefix,
@@ -7515,7 +7717,7 @@ DEFUN (show_bgp_ipv6_vpn_prefix,
        "Display VPN NLRI specific information\n"
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MPLS_VPN, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MPLS_VPN, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv4_encap_prefix,
@@ -7528,7 +7730,7 @@ DEFUN (show_bgp_ipv4_encap_prefix,
        "Display information about ENCAP NLRIs\n"
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_ENCAP, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_ENCAP, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv6_encap_prefix,
@@ -7541,7 +7743,7 @@ DEFUN (show_bgp_ipv6_encap_prefix,
        "Display information about ENCAP NLRIs\n"
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_ENCAP, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_ENCAP, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv4_safi_rd_prefix,
@@ -7571,7 +7773,7 @@ DEFUN (show_bgp_ipv4_safi_rd_prefix,
       vty_out (vty, "%% Malformed Route Distinguisher%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  return bgp_show_route (vty, NULL, argv[2], AFI_IP, safi, &prd, 1);
+  return bgp_show_route (vty, NULL, argv[2], AFI_IP, safi, &prd, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv6_safi_rd_prefix,
@@ -7601,7 +7803,7 @@ DEFUN (show_bgp_ipv6_safi_rd_prefix,
       vty_out (vty, "%% Malformed Route Distinguisher%s", VTY_NEWLINE);
       return CMD_WARNING;
     }
-  return bgp_show_route (vty, NULL, argv[2], AFI_IP6, safi, &prd, 1);
+  return bgp_show_route (vty, NULL, argv[2], AFI_IP6, safi, &prd, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_afi_safi_view,
@@ -7669,7 +7871,7 @@ DEFUN (show_bgp_view_afi_safi_route,
     vty_out (vty, "Error: Bad SAFI: %s%s", argv[1], VTY_NEWLINE);
     return CMD_WARNING;
   }
-  return bgp_show_route (vty, argv[0], argv[3], afi, safi, NULL, 0);
+  return bgp_show_route (vty, argv[0], argv[3], afi, safi, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_view_afi_safi_prefix,
@@ -7698,7 +7900,7 @@ DEFUN (show_bgp_view_afi_safi_prefix,
     vty_out (vty, "Error: Bad SAFI: %s%s", argv[1], VTY_NEWLINE);
     return CMD_WARNING;
   }
-  return bgp_show_route (vty, argv[0], argv[3], afi, safi, NULL, 1);
+  return bgp_show_route (vty, argv[0], argv[3], afi, safi, NULL, 1, BGP_PATH_ALL);
 }
 
 /* new001 */
@@ -7744,7 +7946,7 @@ DEFUN (show_bgp_ipv6_route,
        "Address family\n"
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_ipv6_safi_route,
@@ -7758,9 +7960,9 @@ DEFUN (show_bgp_ipv6_safi_route,
        "Network in the BGP routing table to display\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 0);
+    return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 0, BGP_PATH_ALL);
 
-  return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 /* old command */
@@ -7772,7 +7974,7 @@ DEFUN (show_ipv6_bgp_route,
        BGP_STR
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_prefix,
@@ -7782,7 +7984,7 @@ DEFUN (show_bgp_prefix,
        BGP_STR
        "IPv6 prefix <network>/<length>\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 
@@ -7795,7 +7997,7 @@ DEFUN (show_bgp_ipv6_prefix,
        "Address family\n"
        "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 DEFUN (show_bgp_ipv6_safi_prefix,
        show_bgp_ipv6_safi_prefix_cmd,
@@ -7808,9 +8010,9 @@ DEFUN (show_bgp_ipv6_safi_prefix,
        "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 1);
+    return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 1, BGP_PATH_ALL);
 
-  return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 /* old command */
@@ -7822,7 +8024,7 @@ DEFUN (show_ipv6_bgp_prefix,
        BGP_STR
        "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_view,
@@ -7877,7 +8079,7 @@ DEFUN (show_bgp_view_route,
        "View name\n"
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_view_ipv6_route,
@@ -7890,7 +8092,7 @@ DEFUN (show_bgp_view_ipv6_route,
        "Address family\n"
        "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 /* old command */
@@ -7914,7 +8116,7 @@ DEFUN (show_ipv6_mbgp_route,
        MBGP_STR
        "Network in the MBGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MULTICAST, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MULTICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 /* old command */
@@ -7926,7 +8128,7 @@ DEFUN (show_ipv6_mbgp_prefix,
        MBGP_STR
        "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MULTICAST, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MULTICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_view_prefix,
@@ -7938,7 +8140,7 @@ DEFUN (show_bgp_view_prefix,
        "View name\n"       
        "IPv6 prefix <network>/<length>\n")
 {
-  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1); 
+  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_view_ipv6_prefix,
@@ -7951,7 +8153,7 @@ DEFUN (show_bgp_view_ipv6_prefix,
        "Address family\n"
        "IPv6 prefix <network>/<length>\n")  
 {
-  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1); 
+  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 static int
@@ -13703,7 +13905,7 @@ DEFUN (show_ip_bgp_view_rsclient_route,
  
   return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP][SAFI_UNICAST], 
                                   (argc == 3) ? argv[2] : argv[1],
-                                  AFI_IP, SAFI_UNICAST, NULL, 0);
+                                  AFI_IP, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 ALIAS (show_ip_bgp_view_rsclient_route,
@@ -13960,7 +14162,7 @@ DEFUN (show_bgp_view_ipv4_safi_rsclient_route,
 
   return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP][safi],
                                   (argc == 4) ? argv[3] : argv[2],
-                                  AFI_IP, safi, NULL, 0);
+                                  AFI_IP, safi, NULL, 0, BGP_PATH_ALL);
 }
 
 ALIAS (show_bgp_view_ipv4_safi_rsclient_route,
@@ -14042,7 +14244,7 @@ DEFUN (show_bgp_view_ipv4_safi_rsclient_prefix,
 
   return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP][safi],
                                   (argc == 4) ? argv[3] : argv[2],
-                                  AFI_IP, safi, NULL, 1);
+                                  AFI_IP, safi, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_ip_bgp_view_rsclient_prefix,
@@ -14105,7 +14307,7 @@ DEFUN (show_ip_bgp_view_rsclient_prefix,
     
   return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP][SAFI_UNICAST], 
                                   (argc == 3) ? argv[2] : argv[1],
-                                  AFI_IP, SAFI_UNICAST, NULL, 1);
+                                  AFI_IP, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 ALIAS (show_ip_bgp_view_rsclient_prefix,
@@ -14665,7 +14867,7 @@ DEFUN (show_bgp_view_rsclient_route,
 
   return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP6][SAFI_UNICAST],
                                   (argc == 3) ? argv[2] : argv[1],
-                                  AFI_IP6, SAFI_UNICAST, NULL, 0);
+                                  AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_view_ipv6_rsclient_route,
@@ -14728,7 +14930,7 @@ DEFUN (show_bgp_view_ipv6_rsclient_route,
 
   return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP6][SAFI_UNICAST],
                                   (argc == 3) ? argv[2] : argv[1],
-                                  AFI_IP6, SAFI_UNICAST, NULL, 0);
+                                  AFI_IP6, SAFI_UNICAST, NULL, 0, BGP_PATH_ALL);
 }
 
 ALIAS (show_bgp_view_ipv6_rsclient_route,
@@ -14816,7 +15018,7 @@ DEFUN (show_bgp_view_ipv6_safi_rsclient_route,
 
   return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP6][safi],
                                   (argc == 4) ? argv[3] : argv[2],
-                                  AFI_IP6, safi, NULL, 0);
+                                  AFI_IP6, safi, NULL, 0, BGP_PATH_ALL);
 }
 
 ALIAS (show_bgp_view_ipv6_safi_rsclient_route,
@@ -14891,7 +15093,7 @@ DEFUN (show_bgp_view_rsclient_prefix,
 
   return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP6][SAFI_UNICAST],
                                   (argc == 3) ? argv[2] : argv[1],
-                                  AFI_IP6, SAFI_UNICAST, NULL, 1);
+                                  AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 DEFUN (show_bgp_view_ipv6_rsclient_prefix,
@@ -14954,7 +15156,7 @@ DEFUN (show_bgp_view_ipv6_rsclient_prefix,
 
   return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP6][SAFI_UNICAST],
                                   (argc == 3) ? argv[2] : argv[1],
-                                  AFI_IP6, SAFI_UNICAST, NULL, 1);
+                                  AFI_IP6, SAFI_UNICAST, NULL, 1, BGP_PATH_ALL);
 }
 
 ALIAS (show_bgp_view_ipv6_rsclient_prefix,
@@ -15041,7 +15243,7 @@ DEFUN (show_bgp_view_ipv6_safi_rsclient_prefix,
 
   return bgp_show_route_in_table (vty, bgp, peer->rib[AFI_IP6][safi],
                                   (argc == 4) ? argv[3] : argv[2],
-                                  AFI_IP6, safi, NULL, 1);
+                                  AFI_IP6, safi, NULL, 1, BGP_PATH_ALL);
 }
 
 ALIAS (show_bgp_view_ipv6_safi_rsclient_prefix,
@@ -16563,11 +16765,16 @@ bgp_route_init (void)
   install_element (VIEW_NODE, &show_ip_bgp_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_ipv4_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_route_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_route_pathtype_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv4_safi_route_pathtype_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_ipv4_route_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_route_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_route_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_prefix_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_ipv4_prefix_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_ipv4_prefix_pathtype_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv4_safi_prefix_pathtype_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_prefix_pathtype_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_prefix_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_prefix_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_view_cmd);
@@ -16645,10 +16852,15 @@ bgp_route_init (void)
   install_element (VIEW_NODE, &show_ip_bgp_view_rsclient_route_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_view_rsclient_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_route_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_route_pathtype_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv4_safi_route_pathtype_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_ipv4_route_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_vpnv4_rd_route_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_ipv4_prefix_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_ipv4_prefix_pathtype_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv4_safi_prefix_pathtype_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_prefix_pathtype_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_vpnv4_all_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_vpnv4_rd_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_view_route_cmd);
@@ -16676,11 +16888,16 @@ bgp_route_init (void)
   install_element (ENABLE_NODE, &show_ip_bgp_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_ipv4_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_route_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_route_pathtype_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv4_safi_route_pathtype_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_ipv4_route_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_route_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_route_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_prefix_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_ipv4_prefix_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_ipv4_prefix_pathtype_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv4_safi_prefix_pathtype_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_prefix_pathtype_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_prefix_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_prefix_cmd);
   install_element (ENABLE_NODE, &show_ip_bgp_view_cmd);
@@ -16766,6 +16983,12 @@ bgp_route_init (void)
   install_element (VIEW_NODE, &show_bgp_ipv6_cmd);
   install_element (VIEW_NODE, &show_bgp_route_cmd);
   install_element (VIEW_NODE, &show_bgp_prefix_cmd);
+  install_element (VIEW_NODE, &show_bgp_route_pathtype_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_route_pathtype_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_safi_route_pathtype_cmd);
+  install_element (VIEW_NODE, &show_bgp_prefix_pathtype_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_prefix_pathtype_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_safi_prefix_pathtype_cmd);
   install_element (VIEW_NODE, &show_bgp_regexp_cmd);
   install_element (VIEW_NODE, &show_bgp_prefix_list_cmd);
   install_element (VIEW_NODE, &show_bgp_filter_list_cmd);
@@ -16803,6 +17026,12 @@ bgp_route_init (void)
   install_element (VIEW_NODE, &show_bgp_view_rsclient_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_prefix_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_route_pathtype_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_route_pathtype_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_route_pathtype_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_prefix_pathtype_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_prefix_pathtype_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_prefix_pathtype_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_community_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_community2_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_community3_cmd);
@@ -16818,6 +17047,12 @@ bgp_route_init (void)
   install_element (ENABLE_NODE, &show_bgp_ipv6_cmd);
   install_element (ENABLE_NODE, &show_bgp_route_cmd);
   install_element (ENABLE_NODE, &show_bgp_prefix_cmd);
+  install_element (ENABLE_NODE, &show_bgp_route_pathtype_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_route_pathtype_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_safi_route_pathtype_cmd);
+  install_element (ENABLE_NODE, &show_bgp_prefix_pathtype_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_prefix_pathtype_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_safi_prefix_pathtype_cmd);
   install_element (ENABLE_NODE, &show_bgp_regexp_cmd);
   install_element (ENABLE_NODE, &show_bgp_prefix_list_cmd);
   install_element (ENABLE_NODE, &show_bgp_filter_list_cmd);
