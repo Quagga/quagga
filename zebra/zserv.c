@@ -773,8 +773,8 @@ zserv_nexthop_register (struct zserv *client, int sock, u_short length, vrf_id_t
 
       zebra_add_rnh_client(rnh, client, vrf_id);
     }
-  zebra_evaluate_rnh_table(0, AF_INET);
-  zebra_evaluate_rnh_table(0, AF_INET6);
+  zebra_evaluate_rnh_table(0, AF_INET, 0);
+  zebra_evaluate_rnh_table(0, AF_INET6, 0);
   return 0;
 }
 
