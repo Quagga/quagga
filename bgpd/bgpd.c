@@ -1308,13 +1308,13 @@ peer_nsf_stop (struct peer *peer)
   if (peer->t_gr_restart)
     {
       BGP_TIMER_OFF (peer->t_gr_restart);
-      if (BGP_DEBUG (events, EVENTS))
+      if (bgp_debug_neighbor_events(peer))
 	zlog_debug ("%s graceful restart timer stopped", peer->host);
     }
   if (peer->t_gr_stale)
     {
       BGP_TIMER_OFF (peer->t_gr_stale);
-      if (BGP_DEBUG (events, EVENTS))
+      if (bgp_debug_neighbor_events(peer))
 	zlog_debug ("%s graceful restart stalepath timer stopped", peer->host);
     }
   bgp_clear_route_all (peer);
@@ -2697,7 +2697,7 @@ peer_flag_modify_action (struct peer *peer, u_int32_t flag)
 	  if (peer->t_pmax_restart)
 	    {
 	      BGP_TIMER_OFF (peer->t_pmax_restart);
-              if (BGP_DEBUG (events, EVENTS))
+              if (bgp_debug_neighbor_events(peer))
 		zlog_debug ("%s Maximum-prefix restart timer canceled",
 			    peer->host);
 	    }
@@ -4903,7 +4903,7 @@ peer_ttl_security_hops_set (struct peer *peer, int gtsm_hops)
 	    }
 	  else if (peer->status < Established)
 	    {
-	      if (BGP_DEBUG (events, EVENTS))
+              if (bgp_debug_neighbor_events(peer))
 		zlog_debug ("%s Min-ttl changed", peer->host);
 	      BGP_EVENT_ADD (peer, BGP_Stop);
 	    }
@@ -4960,7 +4960,7 @@ peer_clear (struct peer *peer)
 	  if (peer->t_pmax_restart)
 	    {
 	      BGP_TIMER_OFF (peer->t_pmax_restart);
-	      if (BGP_DEBUG (events, EVENTS))
+              if (bgp_debug_neighbor_events(peer))
 		zlog_debug ("%s Maximum-prefix restart timer canceled",
 			    peer->host);
 	    }

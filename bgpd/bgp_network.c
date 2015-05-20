@@ -67,8 +67,7 @@ bgp_md5_set_socket (int socket, union sockunion *su, const char *password)
 #endif /* HAVE_TCP_MD5SIG */
   
   if (ret < 0)
-    zlog (NULL, LOG_WARNING, "can't set TCP_MD5SIG option on socket %d: %s",
-          socket, safe_strerror (en));
+    zlog_warn ("can't set TCP_MD5SIG option on socket %d: %s", socket, safe_strerror (en));
 
   return ret;
 }
@@ -222,14 +221,14 @@ bgp_accept (struct thread *thread)
   /* Set socket send buffer size */
   bgp_update_sock_send_buffer_size(bgp_sock);
 
-  if (BGP_DEBUG (events, EVENTS))
+  if (bgp_debug_neighbor_events (NULL))
     zlog_debug ("[Event] BGP connection from host %s", inet_sutop (&su, buf));
   
   /* Check remote IP address */
   peer1 = peer_lookup (NULL, &su);
   if (! peer1 || peer1->status == Idle)
     {
-      if (BGP_DEBUG (events, EVENTS))
+      if (bgp_debug_neighbor_events(NULL))
 	{
 	  if (! peer1)
 	    zlog_debug ("[Event] BGP connection IP address %s is not configured",
@@ -241,11 +240,11 @@ bgp_accept (struct thread *thread)
       close (bgp_sock);
       return -1;
     }
-
+  
   bgp_set_socket_ttl (peer1, bgp_sock);
 
   /* Make dummy peer until read Open packet. */
-  if (BGP_DEBUG (events, EVENTS))
+  if (bgp_debug_neighbor_events(NULL))
     zlog_debug ("[Event] Make dummy peer structure until read Open packet");
   
   {
@@ -299,9 +298,8 @@ bgp_bind (struct peer *peer)
 
   if (ret < 0)
     {
-      zlog (peer->log, LOG_INFO, "bind to interface %s failed, errno=%d",
-            name, myerrno);
-
+      zlog_info ("bind to interface %s failed, errno=%d",
+		 name, myerrno);
       return ret;
     }
 #endif /* SO_BINDTODEVICE */
@@ -414,9 +412,9 @@ bgp_connect (struct peer *peer)
   if (peer->conf_if || peer->ifname)
     ifindex = ifname2ifindex (peer->conf_if ? peer->conf_if : peer->ifname);
 
-  if (BGP_DEBUG (events, EVENTS))
-    plog_debug (peer->log, "%s [Event] Connect start to %s fd %d",
-	       peer->host, peer->host, peer->fd);
+  if (bgp_debug_neighbor_events(peer))
+    zlog_debug ("%s [Event] Connect start to %s fd %d",
+	        peer->host, peer->host, peer->fd);
 
   /* Connect to the remote peer. */
   return sockunion_connect (peer->fd, &peer->su, htons (peer->port), ifindex);

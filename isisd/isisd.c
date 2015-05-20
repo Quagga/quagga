@@ -786,7 +786,8 @@ DEFUN (show_debugging,
        show_debugging_isis_cmd,
        "show debugging isis",
        SHOW_STR
-       "State of each debugging option\n")
+       "State of each debugging option\n"
+       ISIS_STR)
 {
   if (isis->debugs) {
       vty_out (vty, "IS-IS:%s", VTY_NEWLINE);
