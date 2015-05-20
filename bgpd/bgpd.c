@@ -2210,6 +2210,17 @@ bgp_delete (struct bgp *bgp)
 
   THREAD_OFF (bgp->t_startup);
 
+  for (ALL_LIST_ELEMENTS (bgp->peer, node, next, peer))
+    {
+      if (peer->status == Established ||
+          peer->status == OpenSent ||
+          peer->status == OpenConfirm)
+        {
+            bgp_notify_send (peer, BGP_NOTIFY_CEASE,
+                             BGP_NOTIFY_CEASE_PEER_UNCONFIG);
+        }
+    }
+
   /* Delete static route. */
   bgp_static_delete (bgp);
 
