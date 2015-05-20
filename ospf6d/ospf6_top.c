@@ -721,6 +721,8 @@ DEFUN (show_ipv6_ospf6_route,
        ROUTE_STR
        )
 {
+  OSPF6_CMD_CHECK_RUNNING ();
+
   ospf6_route_table_show (vty, argc, argv, ospf6->route_table);
   return CMD_SUCCESS;
 }
@@ -751,6 +753,8 @@ DEFUN (show_ipv6_ospf6_route_match,
 {
   const char *sargv[CMD_ARGC_MAX];
   int i, sargc;
+
+  OSPF6_CMD_CHECK_RUNNING ();
 
   /* copy argv to sargv and then append "match" */
   for (i = 0; i < argc; i++)
@@ -785,6 +789,8 @@ DEFUN (show_ipv6_ospf6_route_match_detail,
   sargv[sargc++] = "match";
   sargv[sargc++] = "detail";
   sargv[sargc] = NULL;
+
+  OSPF6_CMD_CHECK_RUNNING ();
 
   ospf6_route_table_show (vty, sargc, sargv, ospf6->route_table);
   return CMD_SUCCESS;
@@ -849,6 +855,8 @@ DEFUN (show_ipv6_ospf6_route_type_detail,
   sargc = argc;
   sargv[sargc++] = "detail";
   sargv[sargc] = NULL;
+
+  OSPF6_CMD_CHECK_RUNNING ();
 
   ospf6_route_table_show (vty, sargc, sargv, ospf6->route_table);
   return CMD_SUCCESS;
