@@ -84,6 +84,7 @@ struct thread
   const char *funcname;
   const char *schedfrom;
   int schedfrom_line;
+  unsigned long yield;          /* yield time in us */
 };
 
 struct cpu_thread_history 
@@ -212,6 +213,8 @@ extern unsigned long thread_timer_remain_second (struct thread *);
 extern struct timeval thread_timer_remain(struct thread*);
 extern int thread_should_yield (struct thread *);
 extern unsigned long timeval_elapsed (struct timeval a, struct timeval b);
+/* set yield time for thread */
+extern void thread_set_yield_time (struct thread *, unsigned long);
 
 /* Internal libzebra exports */
 extern void thread_getrusage (RUSAGE_T *);
