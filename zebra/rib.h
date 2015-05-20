@@ -76,9 +76,10 @@ struct rib
 
   /* RIB internal status */
   u_char status;
-#define RIB_ENTRY_REMOVED	(1 << 0)
-#define RIB_ENTRY_CHANGED	(1 << 1)
-#define RIB_ENTRY_SELECTED_FIB	(1 << 2)
+#define RIB_ENTRY_REMOVED	        (1 << 0)
+  /* to simplify NHT logic when NHs change, instead of doing a NH by NH cmp */
+#define RIB_ENTRY_NEXTHOPS_CHANGED	(1 << 1)
+#define RIB_ENTRY_SELECTED_FIB		(1 << 2)
 
   /* Nexthop information. */
   u_char nexthop_num;
@@ -384,6 +385,7 @@ extern struct nexthop *rib_nexthop_ipv4_ifindex_add (struct rib *,
 						     ifindex_t);
 
 extern void rib_nexthop_add (struct rib *rib, struct nexthop *nexthop);
+extern void rib_copy_nexthops (struct rib *rib, struct nexthop *nexthop);
 
 extern int nexthop_has_fib_child(struct nexthop *);
 extern void rib_lookup_and_dump (struct prefix_ipv4 *);
@@ -423,7 +425,7 @@ extern int rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
 		            vrf_id_t, safi_t safi);
 
 extern struct rib *rib_match_ipv4_safi (struct in_addr addr, safi_t safi,
-					int skip_bgp, struct route_node **rn_out,
+					struct route_node **rn_out,
 					vrf_id_t);
 extern struct rib *rib_match_ipv4_multicast (struct in_addr addr,
 					     struct route_node **rn_out,
@@ -438,6 +440,9 @@ extern void rib_close_table (struct route_table *);
 extern void rib_close (void);
 extern void rib_init (void);
 extern unsigned long rib_score_proto (u_char proto);
+struct zebra_t;
+extern void rib_queue_add (struct zebra_t *zebra, struct route_node *rn);
+
 
 extern int
 static_add_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,

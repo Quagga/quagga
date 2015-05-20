@@ -693,7 +693,7 @@ zsend_ipv4_nexthop_lookup (struct zserv *client, struct in_addr addr,
   struct nexthop *nexthop;
 
   /* Lookup nexthop - eBGP excluded */
-  rib = rib_match_ipv4_safi (addr, SAFI_UNICAST, 1, NULL, vrf_id);
+  rib = rib_match_ipv4_safi (addr, SAFI_UNICAST, NULL, vrf_id);
 
   /* Get output stream. */
   s = client->obuf;
