@@ -2397,10 +2397,10 @@ bgp_route_match_add (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -2420,10 +2420,10 @@ bgp_route_match_delete (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -2443,10 +2443,10 @@ bgp_route_set_add (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -2466,10 +2466,10 @@ bgp_route_set_delete (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% BGP Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -3575,7 +3575,7 @@ DEFUN (set_community_delete,
        SET_STR
        "set BGP community list (for deletion)\n"
        "Community-list number (standard)\n"
-       "Communitly-list number (expanded)\n"
+       "Community-list number (expanded)\n"
        "Community-list name\n"
        "Delete matching communities\n")
 {
@@ -3608,7 +3608,7 @@ ALIAS (no_set_community_delete,
        SET_STR
        "set BGP community list (for deletion)\n"
        "Community-list number (standard)\n"
-       "Communitly-list number (expanded)\n"
+       "Community-list number (expanded)\n"
        "Community-list name\n"
        "Delete matching communities\n")
 
