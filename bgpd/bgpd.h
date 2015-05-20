@@ -278,6 +278,8 @@ typedef enum
   BGP_PEER_CONFED,
 } bgp_peer_sort_t;
 
+#define BGP_MAX_PACKET_SIZE_OVERFLOW          1024
+
 /* BGP neighbor structure. */
 struct peer
 {
