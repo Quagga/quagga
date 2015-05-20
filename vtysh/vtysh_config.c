@@ -397,7 +397,7 @@ vtysh_read_file (FILE *confp)
 
 /* Read up configuration file from config_default_dir. */
 int
-vtysh_read_config (char *config_default_dir)
+vtysh_read_config (const char *config_default_dir)
 {
   FILE *confp = NULL;
 
