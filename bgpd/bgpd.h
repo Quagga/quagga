@@ -1069,4 +1069,6 @@ extern int peer_ttl_security_hops_unset (struct peer *);
 
 extern int bgp_route_map_update_timer (struct thread *thread);
 extern void bgp_route_map_terminate(void);
+
+extern void bgp_scan_finish (void);
 #endif /* _QUAGGA_BGPD_H */
