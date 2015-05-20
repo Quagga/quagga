@@ -134,16 +134,14 @@ bgp_nlri_parse_vpn (struct peer *peer, struct attr *attr,
       /* sanity check against packet data */
       if (prefixlen < VPN_PREFIXLEN_MIN_BYTES*8)
         {
-          plog_err (peer->log, 
-                    "%s [Error] Update packet error / VPNv4"
-                     " (prefix length %d less than VPNv4 min length)",
+          zlog_err ("%s [Error] Update packet error / VPNv4"
+                    " (prefix length %d less than VPNv4 min length)",
                     peer->host, prefixlen);
           return -1;
         }
       if ((pnt + psize) > lim)
         {
-          plog_err (peer->log,
-                    "%s [Error] Update packet error / VPNv4"
+          zlog_err ("%s [Error] Update packet error / VPNv4"
                     " (psize %u exceeds packet size (%u)",
                     peer->host, 
                     prefixlen, (uint)(lim-pnt));
@@ -153,8 +151,7 @@ bgp_nlri_parse_vpn (struct peer *peer, struct attr *attr,
       /* sanity check against storage for the IP address portion */
       if ((psize - VPN_PREFIXLEN_MIN_BYTES) > (ssize_t) sizeof(p.u))
         {
-          plog_err (peer->log,
-                    "%s [Error] Update packet error / VPNv4"
+          zlog_err ("%s [Error] Update packet error / VPNv4"
                     " (psize %u exceeds storage size (%zu)",
                     peer->host,
                     prefixlen - VPN_PREFIXLEN_MIN_BYTES*8, sizeof(p.u));
@@ -164,8 +161,7 @@ bgp_nlri_parse_vpn (struct peer *peer, struct attr *attr,
       /* Sanity check against max bitlen of the address family */
       if ((psize - VPN_PREFIXLEN_MIN_BYTES) > prefix_blen (&p))
         {
-          plog_err (peer->log,
-                    "%s [Error] Update packet error / VPNv4"
+          zlog_err ("%s [Error] Update packet error / VPNv4"
                     " (psize %u exceeds family (%u) max byte len %u)",
                     peer->host,
                     prefixlen - VPN_PREFIXLEN_MIN_BYTES*8, 
@@ -215,8 +211,7 @@ bgp_nlri_parse_vpn (struct peer *peer, struct attr *attr,
   /* Packet length consistency check. */
   if (pnt != lim)
     {
-      plog_err (peer->log,
-                "%s [Error] Update packet error / VPNv4"
+      zlog_err ("%s [Error] Update packet error / VPNv4"
                 " (%zu data remaining after parsing)",
                 peer->host, lim - pnt);
       return -1;

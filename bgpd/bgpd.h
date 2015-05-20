@@ -412,7 +412,6 @@ struct peer
   char *ifname;			/* bind interface name. */
   char *update_if;
   union sockunion *update_source;
-  struct zlog *log;
 
   union sockunion *su_local;	/* Sockunion of local address.  */
   union sockunion *su_remote;	/* Sockunion of remote address.  */
@@ -602,6 +601,12 @@ struct peer
 
   /* ORF Prefix-list */
   struct prefix_list *orf_plist[AFI_MAX][SAFI_MAX];
+
+  /* Text description of last attribute rcvd */
+  char rcvd_attr_str[BUFSIZ];
+
+  /* Track if we printed the attribute in debugs */
+  int rcvd_attr_printed;
 
   /* Prefix count. */
   unsigned long pcount[AFI_MAX][SAFI_MAX];
@@ -1080,4 +1085,6 @@ extern int bgp_route_map_update_timer (struct thread *thread);
 extern void bgp_route_map_terminate(void);
 
 extern void bgp_scan_finish (void);
+
+extern int peer_cmp (struct peer *p1, struct peer *p2);
 #endif /* _QUAGGA_BGPD_H */

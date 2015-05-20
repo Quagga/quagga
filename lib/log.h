@@ -121,18 +121,6 @@ extern void zlog_info (const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
 extern void zlog_notice (const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
 extern void zlog_debug (const char *format, ...) PRINTF_ATTRIBUTE(1, 2);
 
-/* For bgpd's peer oriented log. */
-extern void plog_err (struct zlog *, const char *format, ...)
-  PRINTF_ATTRIBUTE(2, 3);
-extern void plog_warn (struct zlog *, const char *format, ...)
-  PRINTF_ATTRIBUTE(2, 3);
-extern void plog_info (struct zlog *, const char *format, ...)
-  PRINTF_ATTRIBUTE(2, 3);
-extern void plog_notice (struct zlog *, const char *format, ...)
-  PRINTF_ATTRIBUTE(2, 3);
-extern void plog_debug (struct zlog *, const char *format, ...)
-  PRINTF_ATTRIBUTE(2, 3);
-
 extern void zlog_thread_info (int log_level);
 
 /* Set logging level for the given destination.  If the log_level
