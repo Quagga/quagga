@@ -4136,7 +4136,7 @@ DEFUN (show_commandtree,
 
 /* Set config filename.  Called from vty.c */
 void
-host_config_set (char *filename)
+host_config_set (const char *filename)
 {
   if (host.config)
     XFREE (MTYPE_HOST, host.config);

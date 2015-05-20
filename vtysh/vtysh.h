@@ -53,7 +53,9 @@ void vtysh_config_write (void);
 
 int vtysh_config_from_file (struct vty *, FILE *);
 
-int vtysh_read_config (char *);
+int vtysh_mark_file(const char *filename);
+
+int vtysh_read_config (const char *);
 
 void vtysh_config_parse (char *);
 

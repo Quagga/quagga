@@ -135,8 +135,10 @@ usage (int status)
 	    "-b, --boot               Execute boot startup configuration\n" \
 	    "-c, --command            Execute argument as command\n" \
 	    "-d, --daemon             Connect only to the specified daemon\n" \
+	    "-f, --inputfile          Execute commands from specific file and exit\n" \
 	    "-E, --echo               Echo prompt and command in -c mode\n" \
 	    "-C, --dryrun             Check configuration for validity and exit\n" \
+	    "-m, --markfile           Mark input file with context end\n"
 	    "-h, --help               Display this help and exit\n\n" \
 	    "Note that multiple commands may be executed from the command\n" \
 	    "line by passing multiple -c args, or by embedding linefeed\n" \
@@ -154,10 +156,12 @@ struct option longopts[] =
   { "eval",                 required_argument,       NULL, 'e'},
   { "command",              required_argument,       NULL, 'c'},
   { "daemon",               required_argument,       NULL, 'd'},
+  { "inputfile",            required_argument,       NULL, 'f'},
   { "echo",                 no_argument,             NULL, 'E'},
   { "dryrun",		    no_argument,	     NULL, 'C'},
   { "help",                 no_argument,             NULL, 'h'},
   { "noerror",		    no_argument,	     NULL, 'n'},
+  { "mark",                 no_argument,             NULL, 'm'},
   { 0 }
 };
 
@@ -216,6 +220,7 @@ main (int argc, char **argv, char **env)
   int dryrun = 0;
   int boot_flag = 0;
   const char *daemon_name = NULL;
+  const char *inputfile = NULL;
   struct cmd_rec {
     const char *line;
     struct cmd_rec *next;
@@ -224,6 +229,7 @@ main (int argc, char **argv, char **env)
   int echo_command = 0;
   int no_error = 0;
   char *homedir = NULL;
+  int markfile = 0;
 
   /* Preserve name of myself. */
   progname = ((p = strrchr (argv[0], '/')) ? ++p : argv[0]);
@@ -235,7 +241,7 @@ main (int argc, char **argv, char **env)
   /* Option handling. */
   while (1) 
     {
-      opt = getopt_long (argc, argv, "be:c:d:nEhC", longopts, 0);
+      opt = getopt_long (argc, argv, "be:c:d:nf:mEhC", longopts, 0);
     
       if (opt == EOF)
 	break;
@@ -263,6 +269,12 @@ main (int argc, char **argv, char **env)
 	  break;
 	case 'd':
 	  daemon_name = optarg;
+	  break;
+	case 'f':
+	  inputfile = optarg;
+	  break;
+	case 'm':
+	  markfile = 1;
 	  break;
 	case 'n':
 	  no_error = 1;
@@ -298,12 +310,28 @@ main (int argc, char **argv, char **env)
   vty_init_vtysh ();
 
   /* Read vtysh configuration file before connecting to daemons. */
-  vtysh_read_config (config_default);
+  vtysh_read_config(config_default);
+
+  if (markfile)
+    {
+      if (!inputfile)
+	{
+	  fprintf(stderr, "-f option MUST be specified with -m option\n");
+	  return(1);
+	}
+      return(vtysh_mark_file(inputfile));
+    }
 
   /* Start execution only if not in dry-run mode */
   if(dryrun)
-    return(0);
-  
+    {
+      if (inputfile)
+	{
+	  vtysh_read_config(inputfile);
+	}
+      return(0);
+    }
+
   /* Ignore error messages */
   if (no_error)
     freopen("/dev/null", "w", stdout);
@@ -337,6 +365,12 @@ main (int argc, char **argv, char **env)
 
 	  read_history (history_file);
 	}
+    }
+
+  if (inputfile)
+    {
+      vtysh_read_config(inputfile);
+      exit(0);
     }
 
   /* If eval mode. */
