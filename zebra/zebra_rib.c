@@ -2092,6 +2092,7 @@ rib_add_ipv4_multipath (struct prefix_ipv4 *p, struct rib *rib, safi_t safi)
   struct route_node *rn;
   struct rib *same;
   struct nexthop *nexthop;
+  int ret = 0;
   
   /* Lookup table.  */
   table = zebra_vrf_table (AFI_IP, safi, rib->vrf_id);
@@ -2134,6 +2135,7 @@ rib_add_ipv4_multipath (struct prefix_ipv4 *p, struct rib *rib, safi_t safi)
 
   /* Link new rib to node.*/
   rib_addnode (rn, rib);
+  ret = 1;
   if (IS_ZEBRA_DEBUG_RIB)
   {
     zlog_debug ("%s: called rib_addnode (%p, %p) on new RIB entry",
@@ -2151,10 +2153,11 @@ rib_add_ipv4_multipath (struct prefix_ipv4 *p, struct rib *rib, safi_t safi)
       rib_dump (p, same);
     }
     rib_delnode (rn, same);
+    ret = -1;
   }
   
   route_unlock_node (rn);
-  return 0;
+  return ret;
 }
 
 /* XXX factor with rib_delete_ipv6 */
