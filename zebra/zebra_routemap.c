@@ -46,10 +46,10 @@ zebra_route_match_add(struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -69,10 +69,10 @@ zebra_route_match_delete (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -92,10 +92,10 @@ zebra_route_set_add (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
@@ -115,10 +115,10 @@ zebra_route_set_delete (struct vty *vty, struct route_map_index *index,
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
-	  vty_out (vty, "%% Can't find rule.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Can't find rule.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	case RMAP_COMPILE_ERROR:
-	  vty_out (vty, "%% Argument is malformed.%s", VTY_NEWLINE);
+	  vty_out (vty, "%% Zebra Argument is malformed.%s", VTY_NEWLINE);
 	  return CMD_WARNING;
 	}
     }
