@@ -1797,7 +1797,7 @@ bgp_mp_reach_parse (struct bgp_attr_parser_args *args,
                  __func__, peer->host);
       return BGP_ATTR_PARSE_ERROR_NOTIFYPLS;
     }
-  
+
   mp_update->afi = afi;
   mp_update->safi = safi;
   mp_update->nlri = stream_pnt (s);

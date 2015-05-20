@@ -1811,6 +1811,27 @@ bgp_processq_del (struct work_queue *wq, void *data)
   XFREE (MTYPE_BGP_PROCESS_QUEUE, pq);
 }
 
+static void
+bgp_process_queue_complete (struct work_queue *wq)
+{
+  struct bgp *bgp;
+  struct peer *peer;
+  struct listnode *node, *nnode;
+
+  /* Schedule write thread either directly or through the MRAI timer
+   * if needed.
+   */
+  bgp = bgp_get_default ();
+  if (!bgp)
+    return;
+
+  if (BGP_ROUTE_ADV_HOLD(bgp))
+    return;
+
+  for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
+    bgp_peer_schedule_updates(peer);
+}
+
 void
 bgp_process_queue_init (void)
 {
@@ -1827,8 +1848,11 @@ bgp_process_queue_init (void)
   
   bm->process_main_queue->spec.workfunc = &bgp_process_main;
   bm->process_main_queue->spec.del_item_data = &bgp_processq_del;
+  bm->process_main_queue->spec.completion_func = &bgp_process_queue_complete;
   bm->process_main_queue->spec.max_retries = 0;
   bm->process_main_queue->spec.hold = 50;
+  /* Use a higher yield value of 50ms for main queue processing */
+  bm->process_main_queue->spec.yield = 50 * 1000L;
   
   bm->process_rsclient_queue->spec.workfunc = &bgp_process_rsclient;
   bm->process_rsclient_queue->spec.del_item_data = &bgp_processq_del;
@@ -2878,6 +2902,12 @@ bgp_announce_route (struct peer *peer, afi_t afi, safi_t safi)
 
   if (CHECK_FLAG(peer->af_flags[afi][safi], PEER_FLAG_RSERVER_CLIENT))
     bgp_announce_table (peer, afi, safi, NULL, 1);
+
+  /*
+   * The write thread needs to be scheduled since it may not be done as
+   * part of building adj_out.
+   */
+  bgp_peer_schedule_updates(peer);
 }
 
 void
