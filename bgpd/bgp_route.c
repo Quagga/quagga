@@ -5845,7 +5845,8 @@ route_vty_short_status_out (struct vty *vty, struct bgp_info *binfo)
     vty_out (vty, "S");
   else if (binfo->extra && binfo->extra->suppress)
     vty_out (vty, "s");
-  else if (! CHECK_FLAG (binfo->flags, BGP_INFO_HISTORY))
+  else if (CHECK_FLAG (binfo->flags, BGP_INFO_VALID) &&
+           ! CHECK_FLAG (binfo->flags, BGP_INFO_HISTORY))
     vty_out (vty, "*");
   else
     vty_out (vty, " ");
@@ -6305,7 +6306,9 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
       if (attr->extra && attr->extra->weight != 0)
 	vty_out (vty, ", weight %u", attr->extra->weight);
 	
-      if (! CHECK_FLAG (binfo->flags, BGP_INFO_HISTORY))
+      if (! CHECK_FLAG (binfo->flags, BGP_INFO_VALID))
+	vty_out (vty, ", invalid");
+      else if (! CHECK_FLAG (binfo->flags, BGP_INFO_HISTORY))
 	vty_out (vty, ", valid");
 
       if (binfo->peer != bgp->peer_self)
