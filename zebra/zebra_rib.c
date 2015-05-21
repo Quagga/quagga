@@ -1358,13 +1358,17 @@ rib_process (struct route_node *rn)
         continue;
       
       /* Skip unreachable nexthop. */
-      /* With static routes that may have recursive nexthops, calling
-       * nexthop_active_update will clear the ZEBRA_FLAG_CHANGED flag
-       * as the top level NH may not have changed. Those flags are set
-       * by the NHT evaluation. So, we skip an active_update_check here
-       * for static routes as its job has already been done.
+      /* This first call to nexthop_active_update is merely to determine if
+       * there's any change to nexthops associated with this RIB entry. Now,
+       * rib_process() can be invoked due to an external event such as link
+       * down or due to next-hop-tracking evaluation. In the latter case,
+       * a decision has already been made that the NHs have changed. So, no
+       * need to invoke a potentially expensive call again. Further, since
+       * the change might be in a recursive NH which is not caught in
+       * the nexthop_active_update() code. Thus, we might miss changes to
+       * recursive NHs.
        */
-      if (rib->type != ZEBRA_ROUTE_STATIC &&
+      if (!CHECK_FLAG(rib->status, RIB_ENTRY_NEXTHOPS_CHANGED) &&
 	  ! nexthop_active_update (rn, rib, 0))
         continue;
 
