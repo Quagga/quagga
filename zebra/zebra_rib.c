@@ -3270,7 +3270,7 @@ rib_score_proto (u_char proto)
 }
 
 /* Close RIB and clean up kernel routes. */
-static void
+void
 rib_close_table (struct route_table *table)
 {
   struct route_node *rn;

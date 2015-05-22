@@ -473,6 +473,7 @@ extern struct rib *rib_lookup_ipv4 (struct prefix_ipv4 *, vrf_id_t);
 extern void rib_update (vrf_id_t);
 extern void rib_weed_tables (void);
 extern void rib_sweep_route (void);
+extern void rib_close_table (struct route_table *);
 extern void rib_close (void);
 extern void rib_init (void);
 extern unsigned long rib_score_proto (u_char proto);
