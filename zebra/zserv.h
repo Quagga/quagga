@@ -106,7 +106,8 @@ extern int zsend_interface_address (int, struct zserv *, struct interface *,
 extern int zsend_interface_update (int, struct zserv *, struct interface *);
 extern int zsend_route_multipath (int, struct zserv *, struct prefix *, 
                                   struct rib *);
-extern int zsend_router_id_update(struct zserv *, struct prefix *);
+extern int zsend_router_id_update (struct zserv *, struct prefix *,
+                                   vrf_id_t);
 
 extern pid_t pid;
 

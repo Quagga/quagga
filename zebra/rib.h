@@ -23,6 +23,7 @@
 #ifndef _ZEBRA_RIB_H
 #define _ZEBRA_RIB_H
 
+#include "linklist.h"
 #include "prefix.h"
 #include "table.h"
 #include "queue.h"
@@ -351,6 +352,15 @@ struct zebra_vrf
 
   /* Static route configuration.  */
   struct route_table *stable[AFI_MAX][SAFI_MAX];
+
+  /* 2nd pointer type used primarily to quell a warning on
+   * ALL_LIST_ELEMENTS_RO
+   */
+  struct list _rid_all_sorted_list;
+  struct list _rid_lo_sorted_list;
+  struct list *rid_all_sorted_list;
+  struct list *rid_lo_sorted_list;
+  struct prefix rid_user_assigned;
 };
 
 /*
