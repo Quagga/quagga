@@ -32,6 +32,7 @@
 #include "table.h"
 #include "rib.h"
 #include "privs.h"
+#include "vrf.h"
 
 #include "zebra/interface.h"
 #include "zebra/zserv.h"
@@ -890,7 +891,7 @@ rtm_read (struct rt_msghdr *rtm)
         int ret;
         if (! IS_ZEBRA_DEBUG_RIB)
           return;
-        ret = rib_lookup_ipv4_route (&p, &gate); 
+        ret = rib_lookup_ipv4_route (&p, &gate, VRF_DEFAULT);
         prefix2str (&p, buf, sizeof(buf));
         switch (rtm->rtm_type)
         {
@@ -955,16 +956,16 @@ rtm_read (struct rt_msghdr *rtm)
        */
       if (rtm->rtm_type == RTM_CHANGE)
         rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
-                         NULL, 0, 0, SAFI_UNICAST);
+                         NULL, 0, VRF_DEFAULT, SAFI_UNICAST);
       
       if (rtm->rtm_type == RTM_GET 
           || rtm->rtm_type == RTM_ADD
           || rtm->rtm_type == RTM_CHANGE)
-	rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, 
-		      &p, &gate.sin.sin_addr, NULL, 0, 0, 0, 0, SAFI_UNICAST);
+        rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, &gate.sin.sin_addr,
+                      NULL, 0, VRF_DEFAULT, rtm->rtm_table, 0, 0, SAFI_UNICAST);
       else
-	rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, 
-		      &p, &gate.sin.sin_addr, 0, 0, SAFI_UNICAST);
+        rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
+                         &gate.sin.sin_addr, 0, VRF_DEFAULT, SAFI_UNICAST);
     }
 #ifdef HAVE_IPV6
   if (dest.sa.sa_family == AF_INET6)
@@ -997,16 +998,17 @@ rtm_read (struct rt_msghdr *rtm)
        */
       if (rtm->rtm_type == RTM_CHANGE)
         rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
-                         NULL, 0, 0, SAFI_UNICAST);
+                         NULL, 0, VRF_DEFAULT, SAFI_UNICAST);
       
       if (rtm->rtm_type == RTM_GET 
           || rtm->rtm_type == RTM_ADD
           || rtm->rtm_type == RTM_CHANGE)
-	rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags,
-		      &p, &gate.sin6.sin6_addr, ifindex, 0, 0, 0, SAFI_UNICAST);
+        rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, &gate.sin6.sin6_addr,
+                      ifindex, VRF_DEFAULT, RT_TABLE_MAIN, 0, 0, SAFI_UNICAST);
       else
-	rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags,
-			 &p, &gate.sin6.sin6_addr, ifindex, 0, SAFI_UNICAST);
+        rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
+                         &gate.sin6.sin6_addr, ifindex,
+                         VRF_DEFAULT, SAFI_UNICAST);
     }
 #endif /* HAVE_IPV6 */
 }

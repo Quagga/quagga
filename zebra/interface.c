@@ -555,7 +555,7 @@ if_up (struct interface *ifp)
     }
 
   /* Examine all static routes. */
-  rib_update ();
+  rib_update (ifp->vrf_id);
 }
 
 /* Interface goes down.  We have to manage different behavior of based
@@ -588,7 +588,7 @@ if_down (struct interface *ifp)
     }
 
   /* Examine all static routes which direct to the interface. */
-  rib_update ();
+  rib_update (ifp->vrf_id);
 }
 
 void
