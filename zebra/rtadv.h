@@ -100,6 +100,8 @@ extern const char *rtadv_pref_strs[];
 
 #endif /* RTADV */
 
-extern void rtadv_init (void);
+extern void rtadv_init (struct zebra_vrf *);
+extern void rtadv_terminate (struct zebra_vrf *);
+extern void rtadv_cmd_init (void);
 
 #endif /* _ZEBRA_RTADV_H */

@@ -332,6 +332,29 @@ struct nexthop_vrfid
   vrf_id_t vrf_id;
 };
 
+/* Router advertisement feature. */
+#ifndef RTADV
+#if (defined(LINUX_IPV6) && (defined(__GLIBC__) && __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 1)) || defined(KAME)
+  #ifdef HAVE_RTADV
+    #define RTADV
+  #endif
+#endif
+#endif
+
+#if defined (HAVE_IPV6) && defined (RTADV)
+/* Structure which hold status of router advertisement. */
+struct rtadv
+{
+  int sock;
+
+  int adv_if_count;
+  int adv_msec_if_count;
+
+  struct thread *ra_read;
+  struct thread *ra_timer;
+};
+#endif /* RTADV && HAVE_IPV6 */
+
 /* Routing table instance.  */
 struct zebra_vrf
 {
@@ -361,6 +384,10 @@ struct zebra_vrf
   struct list *rid_all_sorted_list;
   struct list *rid_lo_sorted_list;
   struct prefix rid_user_assigned;
+
+#if defined (HAVE_IPV6) && defined (RTADV)
+  struct rtadv rtadv;
+#endif /* RTADV && HAVE_IPV6 */
 };
 
 /*
