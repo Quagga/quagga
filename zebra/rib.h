@@ -173,6 +173,9 @@ struct static_ipv4
   struct static_ipv4 *prev;
   struct static_ipv4 *next;
 
+  /* VRF identifier. */
+  vrf_id_t vrf_id;
+
   /* Administrative distance. */
   u_char distance;
 
@@ -204,6 +207,9 @@ struct static_ipv6
   /* For linked list. */
   struct static_ipv6 *prev;
   struct static_ipv6 *next;
+
+  /* VRF identifier. */
+  vrf_id_t vrf_id;
 
   /* Administrative distance. */
   u_char distance;
