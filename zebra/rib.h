@@ -67,6 +67,7 @@ struct rib
   u_char status;
 #define RIB_ENTRY_REMOVED	(1 << 0)
 #define RIB_ENTRY_CHANGED	(1 << 1)
+#define RIB_ENTRY_SELECTED_FIB	(1 << 2)
 
   /* Nexthop information. */
   u_char nexthop_num;

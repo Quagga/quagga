@@ -256,7 +256,7 @@ zebra_evaluate_rnh_table (int vrfid, int family, int force)
 	    {
 	      if (CHECK_FLAG (rib->status, RIB_ENTRY_REMOVED))
 		continue;
-	      if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
+	      if (CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB))
 		break;
 	    }
 	}
