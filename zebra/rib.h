@@ -317,6 +317,14 @@ struct nexthop
                                       : ((tnexthop) = (nexthop)->next)) \
                        : (((recursing) = 0),((tnexthop) = (tnexthop)->next)))
 
+/* Structure holding nexthop & VRF identifier,
+ * used for applying the route-map. */
+struct nexthop_vrfid
+{
+  struct nexthop *nexthop;
+  vrf_id_t vrf_id;
+};
+
 /* Routing table instance.  */
 struct zebra_vrf
 {

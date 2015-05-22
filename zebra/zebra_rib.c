@@ -1066,7 +1066,8 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
   if (!rmap && proto_rm[family][ZEBRA_ROUTE_MAX])
     rmap = route_map_lookup_by_name (proto_rm[family][ZEBRA_ROUTE_MAX]);
   if (rmap) {
-      ret = route_map_apply(rmap, &rn->p, RMAP_ZEBRA, nexthop);
+      struct nexthop_vrfid nh_vrf = {nexthop, rib->vrf_id};
+      ret = route_map_apply(rmap, &rn->p, RMAP_ZEBRA, &nh_vrf);
   }
 
   if (ret == RMAP_DENYMATCH)

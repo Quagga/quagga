@@ -130,6 +130,7 @@ static route_map_result_t
 route_match_interface (void *rule, struct prefix *prefix,
 		       route_map_object_t type, void *object)
 {
+  struct nexthop_vrfid *nh_vrf;
   struct nexthop *nexthop;
   char *ifname = rule;
   unsigned int ifindex;
@@ -138,10 +139,13 @@ route_match_interface (void *rule, struct prefix *prefix,
     {
       if (strcasecmp(ifname, "any") == 0)
 	return RMAP_MATCH;
-      ifindex = ifname2ifindex(ifname);
+      nh_vrf = object;
+      if (!nh_vrf)
+	return RMAP_NOMATCH;
+      ifindex = ifname2ifindex_vrf (ifname, nh_vrf->vrf_id);
       if (ifindex == 0)
 	return RMAP_NOMATCH;
-      nexthop = object;
+      nexthop = nh_vrf->nexthop;
       if (!nexthop)
 	return RMAP_NOMATCH;
       if (nexthop->ifindex == ifindex)
