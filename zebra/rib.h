@@ -315,10 +315,10 @@ struct nexthop
                        : (((recursing) = 0),((tnexthop) = (tnexthop)->next)))
 
 /* Routing table instance.  */
-struct vrf
+struct zebra_vrf
 {
-  /* Identifier.  This is same as routing table vector index.  */
-  u_int32_t id;
+  /* Identifier. */
+  vrf_id_t vrf_id;
 
   /* Routing table name.  */
   char *name;
@@ -346,9 +346,9 @@ typedef struct rib_table_info_t_
 {
 
   /*
-   * Back pointer to vrf.
+   * Back pointer to zebra_vrf.
    */
-  struct vrf *vrf;
+  struct zebra_vrf *zvrf;
   afi_t afi;
   safi_t safi;
 
@@ -367,7 +367,7 @@ typedef enum
  */
 typedef struct rib_tables_iter_t_
 {
-  uint32_t vrf_id;
+  vrf_id_t vrf_id;
   int afi_safi_ix;
 
   rib_tables_iter_state_t state;
@@ -415,9 +415,9 @@ extern int rib_lookup_ipv4_route (struct prefix_ipv4 *, union sockunion *);
 extern struct nexthop *nexthop_ipv6_add (struct rib *, struct in6_addr *);
 #endif /* HAVE_IPV6 */
 
-extern struct vrf *vrf_lookup (u_int32_t);
-extern struct route_table *vrf_table (afi_t afi, safi_t safi, u_int32_t id);
-extern struct route_table *vrf_static_table (afi_t afi, safi_t safi, u_int32_t id);
+extern struct zebra_vrf *zebra_vrf_alloc (vrf_id_t);
+extern struct route_table *zebra_vrf_table (afi_t, safi_t, vrf_id_t);
+extern struct route_table *zebra_vrf_static_table (afi_t, safi_t, vrf_id_t);
 
 /* NOTE:
  * All rib_add_ipv[46]* functions will not just add prefix into RIB, but
@@ -557,10 +557,10 @@ rib_dest_table (rib_dest_t *dest)
 /*
  * rib_dest_vrf
  */
-static inline struct vrf *
+static inline struct zebra_vrf *
 rib_dest_vrf (rib_dest_t *dest)
 {
-  return rib_table_info (rib_dest_table (dest))->vrf;
+  return rib_table_info (rib_dest_table (dest))->zvrf;
 }
 
 /*

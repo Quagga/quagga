@@ -30,6 +30,7 @@
 #include "zclient.h"
 #include "linklist.h"
 #include "log.h"
+#include "vrf.h"
 
 #include "zebra/rib.h"
 #include "zebra/zserv.h"
@@ -101,7 +102,7 @@ zebra_redistribute_default (struct zserv *client)
   p.family = AF_INET;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = zebra_vrf_table (AFI_IP, SAFI_UNICAST, VRF_DEFAULT);
   if (table)
     {
       rn = route_node_lookup (table, (struct prefix *)&p);
@@ -121,7 +122,7 @@ zebra_redistribute_default (struct zserv *client)
   p6.family = AF_INET6;
 
   /* Lookup table.  */
-  table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
+  table = zebra_vrf_table (AFI_IP6, SAFI_UNICAST, VRF_DEFAULT);
   if (table)
     {
       rn = route_node_lookup (table, (struct prefix *)&p6);
@@ -145,7 +146,7 @@ zebra_redistribute (struct zserv *client, int type)
   struct route_table *table;
   struct route_node *rn;
 
-  table = vrf_table (AFI_IP, SAFI_UNICAST, 0);
+  table = zebra_vrf_table (AFI_IP, SAFI_UNICAST, VRF_DEFAULT);
   if (table)
     for (rn = route_top (table); rn; rn = route_next (rn))
       RNODE_FOREACH_RIB (rn, newrib)
@@ -156,7 +157,7 @@ zebra_redistribute (struct zserv *client, int type)
 	  zsend_route_multipath (ZEBRA_IPV4_ROUTE_ADD, client, &rn->p, newrib);
   
 #ifdef HAVE_IPV6
-  table = vrf_table (AFI_IP6, SAFI_UNICAST, 0);
+  table = zebra_vrf_table (AFI_IP6, SAFI_UNICAST, VRF_DEFAULT);
   if (table)
     for (rn = route_top (table); rn; rn = route_next (rn))
       RNODE_FOREACH_RIB (rn, newrib)
