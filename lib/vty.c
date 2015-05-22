@@ -1769,7 +1769,7 @@ vty_accept (struct thread *thread)
   int ret;
   unsigned int on;
   int accept_sock;
-  struct prefix *p = NULL;
+  struct prefix p;
   struct access_list *acl = NULL;
   char buf[SU_ADDRSTRLEN];
 
@@ -1789,13 +1789,13 @@ vty_accept (struct thread *thread)
     }
   set_nonblocking(vty_sock);
 
-  p = sockunion2hostprefix (&su);
+  sockunion2hostprefix (&su, &p);
 
   /* VTY's accesslist apply. */
-  if (p->family == AF_INET && vty_accesslist_name)
+  if (p.family == AF_INET && vty_accesslist_name)
     {
       if ((acl = access_list_lookup (AFI_IP, vty_accesslist_name)) &&
-	  (access_list_apply (acl, p) == FILTER_DENY))
+	  (access_list_apply (acl, &p) == FILTER_DENY))
 	{
 	  zlog (NULL, LOG_INFO, "Vty connection refused from %s",
 		sockunion2str (&su, buf, SU_ADDRSTRLEN));
@@ -1804,18 +1804,16 @@ vty_accept (struct thread *thread)
 	  /* continue accepting connections */
 	  vty_event (VTY_SERV, accept_sock, NULL);
 	  
-	  prefix_free (p);
-
 	  return 0;
 	}
     }
 
 #ifdef HAVE_IPV6
   /* VTY's ipv6 accesslist apply. */
-  if (p->family == AF_INET6 && vty_ipv6_accesslist_name)
+  if (p.family == AF_INET6 && vty_ipv6_accesslist_name)
     {
       if ((acl = access_list_lookup (AFI_IP6, vty_ipv6_accesslist_name)) &&
-	  (access_list_apply (acl, p) == FILTER_DENY))
+	  (access_list_apply (acl, &p) == FILTER_DENY))
 	{
 	  zlog (NULL, LOG_INFO, "Vty connection refused from %s",
 		sockunion2str (&su, buf, SU_ADDRSTRLEN));
@@ -1824,15 +1822,11 @@ vty_accept (struct thread *thread)
 	  /* continue accepting connections */
 	  vty_event (VTY_SERV, accept_sock, NULL);
 	  
-	  prefix_free (p);
-
 	  return 0;
 	}
     }
 #endif /* HAVE_IPV6 */
   
-  prefix_free (p);
-
   on = 1;
   ret = setsockopt (vty_sock, IPPROTO_TCP, TCP_NODELAY, 
 		    (char *) &on, sizeof (on));
