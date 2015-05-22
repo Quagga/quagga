@@ -346,7 +346,7 @@ static int zclient_lookup_nexthop_once(struct zclient *zlookup,
   
   s = zlookup->obuf;
   stream_reset(s);
-  zclient_create_header(s, ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB);
+  zclient_create_header(s, ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB, VRF_DEFAULT);
   stream_put_in_addr(s, &addr);
   stream_putw_at(s, 0, stream_get_endp(s));
   

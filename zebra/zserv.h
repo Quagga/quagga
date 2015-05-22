@@ -25,6 +25,7 @@
 #include "rib.h"
 #include "if.h"
 #include "workqueue.h"
+#include "vrf.h"
 
 /* Default port information. */
 #define ZEBRA_VTY_PORT                2601
@@ -56,16 +57,16 @@ struct zserv
   int rtm_table;
 
   /* This client's redistribute flag. */
-  u_char redist[ZEBRA_ROUTE_MAX];
+  vrf_bitmap_t redist[ZEBRA_ROUTE_MAX];
 
   /* Redistribute default route flag. */
-  u_char redist_default;
+  vrf_bitmap_t redist_default;
 
   /* Interface information. */
-  u_char ifinfo;
+  vrf_bitmap_t ifinfo;
 
   /* Router-id information. */
-  u_char ridinfo;
+  vrf_bitmap_t ridinfo;
 };
 
 /* Zebra instance */

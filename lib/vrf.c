@@ -22,14 +22,48 @@
 
 #include <zebra.h>
 
+#undef  _GNU_SOURCE
+#define _GNU_SOURCE
+
+#include <sched.h>
+
 #include "if.h"
 #include "vrf.h"
 #include "prefix.h"
 #include "table.h"
 #include "log.h"
 #include "memory.h"
+#include "command.h"
+#include "vty.h"
 
+#ifdef GNU_LINUX
+
+#define VRF_USE_NETNS 1
+
+#ifndef CLONE_NEWNET
+#define CLONE_NEWNET 0x40000000 /* New network namespace (lo, device, names sockets, etc) */
+#endif
+
+#ifndef HAVE_SETNS
+static inline int setns(int fd, int nstype)
+{
+#ifdef __NR_setns
+  return syscall(__NR_setns, fd, nstype);
+#else
+  errno = ENOSYS;
+  return -1;
+#endif
+}
+#endif /* HAVE_SETNS */
+
+#endif /* CLONE_NEWNET */
+
+#ifdef VRF_USE_NETNS
+#define VRF_RUN_DIR         "/var/run/netns"
+#define VRF_DEFAULT_NAME    "/proc/self/ns/net"
+#else
 #define VRF_DEFAULT_NAME    "Default-IP-Routing-Table"
+#endif
 
 struct vrf
 {
@@ -37,6 +71,8 @@ struct vrf
   vrf_id_t vrf_id;
   /* Name */
   char *name;
+  /* File descriptor */
+  int fd;
 
   /* Master list of interfaces belonging to this VRF */
   struct list *iflist;
@@ -90,6 +126,7 @@ vrf_get (vrf_id_t vrf_id)
 
   vrf = XCALLOC (MTYPE_VRF, sizeof (struct vrf));
   vrf->vrf_id = vrf_id;
+  vrf->fd = -1;
   rn->info = vrf;
 
   /* Initialize interfaces. */
@@ -149,7 +186,11 @@ vrf_lookup (vrf_id_t vrf_id)
 static int
 vrf_is_enabled (struct vrf *vrf)
 {
+#ifdef VRF_USE_NETNS
+  return vrf && vrf->fd >= 0;
+#else
   return vrf && vrf->vrf_id == VRF_DEFAULT;
+#endif
 }
 
 /*
@@ -162,7 +203,30 @@ vrf_is_enabled (struct vrf *vrf)
 static int
 vrf_enable (struct vrf *vrf)
 {
-  /* Till now, only the default VRF can be enabled. */
+#ifdef VRF_USE_NETNS
+
+  if (!vrf_is_enabled (vrf))
+    {
+      vrf->fd = open (vrf->name, O_RDONLY);
+
+      if (!vrf_is_enabled (vrf))
+        {
+          zlog_err ("Can not enable VRF %u: %s!",
+                    vrf->vrf_id, safe_strerror (errno));
+          return 0;
+        }
+
+      zlog_info ("VRF %u is associated with NETNS %s.",
+                 vrf->vrf_id, vrf->name);
+
+      if (vrf_master.vrf_enable_hook)
+        (*vrf_master.vrf_enable_hook) (vrf->vrf_id, &vrf->info);
+    }
+
+  return 1;
+
+#else
+
   if (vrf->vrf_id == VRF_DEFAULT)
     {
       zlog_info ("VRF %u is enabled.", vrf->vrf_id);
@@ -174,6 +238,8 @@ vrf_enable (struct vrf *vrf)
     }
 
   return 0;
+
+#endif
 }
 
 /*
@@ -188,10 +254,13 @@ vrf_disable (struct vrf *vrf)
     {
       zlog_info ("VRF %u is to be disabled.", vrf->vrf_id);
 
-      /* Till now, nothing to be done for the default VRF. */
-
       if (vrf_master.vrf_disable_hook)
         (*vrf_master.vrf_disable_hook) (vrf->vrf_id, &vrf->info);
+
+#ifdef VRF_USE_NETNS
+      close (vrf->fd);
+      vrf->fd = -1;
+#endif
     }
 }
 
@@ -336,6 +405,238 @@ vrf_iflist_get (vrf_id_t vrf_id)
    return vrf->iflist;
 }
 
+/*
+ * VRF bit-map
+ */
+
+#define VRF_BITMAP_NUM_OF_GROUPS            8
+#define VRF_BITMAP_NUM_OF_BITS_IN_GROUP \
+    (UINT16_MAX / VRF_BITMAP_NUM_OF_GROUPS)
+#define VRF_BITMAP_NUM_OF_BYTES_IN_GROUP \
+    (VRF_BITMAP_NUM_OF_BITS_IN_GROUP / CHAR_BIT + 1) /* +1 for ensure */
+
+#define VRF_BITMAP_GROUP(_id) \
+    ((_id) / VRF_BITMAP_NUM_OF_BITS_IN_GROUP)
+#define VRF_BITMAP_BIT_OFFSET(_id) \
+    ((_id) % VRF_BITMAP_NUM_OF_BITS_IN_GROUP)
+
+#define VRF_BITMAP_INDEX_IN_GROUP(_bit_offset) \
+    ((_bit_offset) / CHAR_BIT)
+#define VRF_BITMAP_FLAG(_bit_offset) \
+    (((u_char)1) << ((_bit_offset) % CHAR_BIT))
+
+struct vrf_bitmap
+{
+  u_char *groups[VRF_BITMAP_NUM_OF_GROUPS];
+};
+
+vrf_bitmap_t
+vrf_bitmap_init (void)
+{
+  return (vrf_bitmap_t) XCALLOC (MTYPE_VRF_BITMAP, sizeof (struct vrf_bitmap));
+}
+
+void
+vrf_bitmap_free (vrf_bitmap_t bmap)
+{
+  struct vrf_bitmap *bm = (struct vrf_bitmap *) bmap;
+  int i;
+
+  if (bmap == VRF_BITMAP_NULL)
+    return;
+
+  for (i = 0; i < VRF_BITMAP_NUM_OF_GROUPS; i++)
+    if (bm->groups[i])
+      XFREE (MTYPE_VRF_BITMAP, bm->groups[i]);
+
+  XFREE (MTYPE_VRF_BITMAP, bm);
+}
+
+void
+vrf_bitmap_set (vrf_bitmap_t bmap, vrf_id_t vrf_id)
+{
+  struct vrf_bitmap *bm = (struct vrf_bitmap *) bmap;
+  u_char group = VRF_BITMAP_GROUP (vrf_id);
+  u_char offset = VRF_BITMAP_BIT_OFFSET (vrf_id);
+
+  if (bmap == VRF_BITMAP_NULL)
+    return;
+
+  if (bm->groups[group] == NULL)
+    bm->groups[group] = XCALLOC (MTYPE_VRF_BITMAP,
+                                 VRF_BITMAP_NUM_OF_BYTES_IN_GROUP);
+
+  SET_FLAG (bm->groups[group][VRF_BITMAP_INDEX_IN_GROUP (offset)],
+            VRF_BITMAP_FLAG (offset));
+}
+
+void
+vrf_bitmap_unset (vrf_bitmap_t bmap, vrf_id_t vrf_id)
+{
+  struct vrf_bitmap *bm = (struct vrf_bitmap *) bmap;
+  u_char group = VRF_BITMAP_GROUP (vrf_id);
+  u_char offset = VRF_BITMAP_BIT_OFFSET (vrf_id);
+
+  if (bmap == VRF_BITMAP_NULL || bm->groups[group] == NULL)
+    return;
+
+  UNSET_FLAG (bm->groups[group][VRF_BITMAP_INDEX_IN_GROUP (offset)],
+              VRF_BITMAP_FLAG (offset));
+}
+
+int
+vrf_bitmap_check (vrf_bitmap_t bmap, vrf_id_t vrf_id)
+{
+  struct vrf_bitmap *bm = (struct vrf_bitmap *) bmap;
+  u_char group = VRF_BITMAP_GROUP (vrf_id);
+  u_char offset = VRF_BITMAP_BIT_OFFSET (vrf_id);
+
+  if (bmap == VRF_BITMAP_NULL || bm->groups[group] == NULL)
+    return 0;
+
+  return CHECK_FLAG (bm->groups[group][VRF_BITMAP_INDEX_IN_GROUP (offset)],
+                     VRF_BITMAP_FLAG (offset)) ? 1 : 0;
+}
+
+/*
+ * VRF realization with NETNS
+ */
+#ifdef VRF_USE_NETNS
+
+static char *
+vrf_netns_pathname (struct vty *vty, const char *name)
+{
+  static char pathname[PATH_MAX];
+  char *result;
+
+  if (name[0] == '/') /* absolute pathname */
+    result = realpath (name, pathname);
+  else /* relevant pathname */
+    {
+      char tmp_name[PATH_MAX];
+      snprintf (tmp_name, PATH_MAX, "%s/%s", VRF_RUN_DIR, name);
+      result = realpath (tmp_name, pathname);
+    }
+
+  if (! result)
+    {
+      vty_out (vty, "Invalid pathname: %s%s", safe_strerror (errno),
+               VTY_NEWLINE);
+      return NULL;
+    }
+  return pathname;
+}
+
+DEFUN (vrf_netns,
+       vrf_netns_cmd,
+       "vrf <1-65535> netns NAME",
+       "Enable a VRF\n"
+       "Specify the VRF identifier\n"
+       "Associate with a NETNS\n"
+       "The file name in " VRF_RUN_DIR ", or a full pathname\n")
+{
+  vrf_id_t vrf_id = VRF_DEFAULT;
+  struct vrf *vrf = NULL;
+  char *pathname = vrf_netns_pathname (vty, argv[1]);
+
+  if (!pathname)
+    return CMD_WARNING;
+
+  VTY_GET_INTEGER ("VRF ID", vrf_id, argv[0]);
+  vrf = vrf_get (vrf_id);
+
+  if (vrf->name && strcmp (vrf->name, pathname) != 0)
+    {
+      vty_out (vty, "VRF %u is already configured with NETNS %s%s",
+               vrf->vrf_id, vrf->name, VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  if (!vrf->name)
+    vrf->name = XSTRDUP (MTYPE_VRF_NAME, pathname);
+
+  if (!vrf_enable (vrf))
+    {
+      vty_out (vty, "Can not associate VRF %u with NETNS %s%s",
+               vrf->vrf_id, vrf->name, VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_vrf_netns,
+       no_vrf_netns_cmd,
+       "no vrf <1-65535> netns NAME",
+       NO_STR
+       "Enable a VRF\n"
+       "Specify the VRF identifier\n"
+       "Associate with a NETNS\n"
+       "The file name in " VRF_RUN_DIR ", or a full pathname\n")
+{
+  vrf_id_t vrf_id = VRF_DEFAULT;
+  struct vrf *vrf = NULL;
+  char *pathname = vrf_netns_pathname (vty, argv[1]);
+
+  if (!pathname)
+    return CMD_WARNING;
+
+  VTY_GET_INTEGER ("VRF ID", vrf_id, argv[0]);
+  vrf = vrf_lookup (vrf_id);
+
+  if (!vrf)
+    {
+      vty_out (vty, "VRF %u is not found%s", vrf_id, VTY_NEWLINE);
+      return CMD_SUCCESS;
+    }
+
+  if (vrf->name && strcmp (vrf->name, pathname) != 0)
+    {
+      vty_out (vty, "Incorrect NETNS file name%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  if (vrf_is_enabled (vrf))
+    vrf_disable (vrf);
+
+  if (vrf->name)
+    {
+      XFREE (MTYPE_VRF_NAME, vrf->name);
+      vrf->name = NULL;
+    }
+
+  return CMD_SUCCESS;
+}
+
+/* VRF node. */
+static struct cmd_node vrf_node =
+{
+  VRF_NODE,
+  "",       /* VRF node has no interface. */
+  1
+};
+
+/* VRF configuration write function. */
+static int
+vrf_config_write (struct vty *vty)
+{
+  struct route_node *rn;
+  struct vrf *vrf;
+  int write = 0;
+
+  for (rn = route_top (vrf_table); rn; rn = route_next (rn))
+    if ((vrf = rn->info) != NULL &&
+        vrf->vrf_id != VRF_DEFAULT && vrf->name)
+      {
+        vty_out (vty, "vrf %u netns %s%s", vrf->vrf_id, vrf->name, VTY_NEWLINE);
+        write++;
+      }
+
+  return write;
+}
+
+#endif
+
 /* Initialize VRF module. */
 void
 vrf_init (void)
@@ -362,6 +663,13 @@ vrf_init (void)
       zlog_err ("vrf_init: failed to enable the default VRF!");
       exit (1);
     }
+
+#ifdef VRF_USE_NETNS
+  /* Install VRF commands. */
+  install_node (&vrf_node, vrf_config_write);
+  install_element (CONFIG_NODE, &vrf_netns_cmd);
+  install_element (CONFIG_NODE, &no_vrf_netns_cmd);
+#endif
 }
 
 /* Terminate VRF module. */
@@ -383,18 +691,33 @@ vrf_terminate (void)
 int
 vrf_socket (int domain, int type, int protocol, vrf_id_t vrf_id)
 {
+  struct vrf *vrf = vrf_lookup (vrf_id);
   int ret = -1;
 
-  if (!vrf_is_enabled (vrf_lookup (vrf_id)))
+  if (!vrf || !vrf_is_enabled (vrf))
     {
       errno = ENOSYS;
       return -1;
     }
 
+#ifdef VRF_USE_NETNS
+
+  ret = (vrf_id != VRF_DEFAULT) ? setns (vrf->fd, CLONE_NEWNET) : 0;
+  if (ret >= 0)
+    {
+      ret = socket (domain, type, protocol);
+      if (vrf_id != VRF_DEFAULT)
+        setns (vrf_lookup (VRF_DEFAULT)->fd, CLONE_NEWNET);
+    }
+
+#else
+
   if (vrf_id == VRF_DEFAULT)
     ret = socket (domain, type, protocol);
   else
     errno = ENOSYS;
+
+#endif
 
   return ret;
 }

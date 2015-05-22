@@ -801,6 +801,8 @@ AC_CHECK_FUNCS(setproctitle, ,
   ]
 )
 
+AC_CHECK_FUNCS(setns, AC_DEFINE(HAVE_SETNS,, Have setns))
+
 dnl ------------------------------------
 dnl Determine routing get and set method
 dnl ------------------------------------

@@ -192,14 +192,15 @@ ripng_if_down (struct interface *ifp)
 
 /* Inteface link up message processing. */
 int
-ripng_interface_up (int command, struct zclient *zclient, zebra_size_t length)
+ripng_interface_up (int command, struct zclient *zclient, zebra_size_t length,
+    vrf_id_t vrf_id)
 {
   struct stream *s;
   struct interface *ifp;
 
   /* zebra_interface_state_read() updates interface structure in iflist. */
   s = zclient->ibuf;
-  ifp = zebra_interface_state_read (s);
+  ifp = zebra_interface_state_read (s, vrf_id);
 
   if (ifp == NULL)
     return 0;
@@ -224,14 +225,14 @@ ripng_interface_up (int command, struct zclient *zclient, zebra_size_t length)
 /* Inteface link down message processing. */
 int
 ripng_interface_down (int command, struct zclient *zclient,
-		      zebra_size_t length)
+		      zebra_size_t length, vrf_id_t vrf_id)
 {
   struct stream *s;
   struct interface *ifp;
 
   /* zebra_interface_state_read() updates interface structure in iflist. */
   s = zclient->ibuf;
-  ifp = zebra_interface_state_read (s);
+  ifp = zebra_interface_state_read (s, vrf_id);
 
   if (ifp == NULL)
     return 0;
@@ -248,11 +249,12 @@ ripng_interface_down (int command, struct zclient *zclient,
 
 /* Inteface addition message from zebra. */
 int
-ripng_interface_add (int command, struct zclient *zclient, zebra_size_t length)
+ripng_interface_add (int command, struct zclient *zclient, zebra_size_t length,
+    vrf_id_t vrf_id)
 {
   struct interface *ifp;
 
-  ifp = zebra_interface_add_read (zclient->ibuf);
+  ifp = zebra_interface_add_read (zclient->ibuf, vrf_id);
 
   if (IS_RIPNG_DEBUG_ZEBRA)
     zlog_debug ("RIPng interface add %s index %d flags %#llx metric %d mtu %d",
@@ -273,14 +275,14 @@ ripng_interface_add (int command, struct zclient *zclient, zebra_size_t length)
 
 int
 ripng_interface_delete (int command, struct zclient *zclient,
-			zebra_size_t length)
+			zebra_size_t length, vrf_id_t vrf_id)
 {
   struct interface *ifp;
   struct stream *s;
 
   s = zclient->ibuf;
   /*  zebra_interface_state_read() updates interface structure in iflist */
-  ifp = zebra_interface_state_read(s);
+  ifp = zebra_interface_state_read (s, vrf_id);
 
   if (ifp == NULL)
     return 0;
@@ -387,13 +389,13 @@ ripng_apply_address_add (struct connected *ifc) {
 
 int
 ripng_interface_address_add (int command, struct zclient *zclient,
-			     zebra_size_t length)
+			     zebra_size_t length, vrf_id_t vrf_id)
 {
   struct connected *c;
   struct prefix *p;
 
   c = zebra_interface_address_read (ZEBRA_INTERFACE_ADDRESS_ADD, 
-                                    zclient->ibuf);
+                                    zclient->ibuf, vrf_id);
 
   if (c == NULL)
     return 0;
@@ -454,14 +456,14 @@ ripng_apply_address_del (struct connected *ifc) {
 
 int
 ripng_interface_address_delete (int command, struct zclient *zclient,
-				zebra_size_t length)
+				zebra_size_t length, vrf_id_t vrf_id)
 {
   struct connected *ifc;
   struct prefix *p;
   char buf[INET6_ADDRSTRLEN];
 
   ifc = zebra_interface_address_read (ZEBRA_INTERFACE_ADDRESS_DELETE, 
-                                      zclient->ibuf);
+                                      zclient->ibuf, vrf_id);
   
   if (ifc)
     {

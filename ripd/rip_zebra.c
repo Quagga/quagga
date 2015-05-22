@@ -29,6 +29,7 @@
 #include "routemap.h"
 #include "zclient.h"
 #include "log.h"
+#include "vrf.h"
 #include "ripd/ripd.h"
 #include "ripd/rip_debug.h"
 #include "ripd/rip_interface.h"
@@ -49,8 +50,9 @@ rip_zebra_ipv4_send (struct route_node *rp, u_char cmd)
   struct rip_info *rinfo = NULL;
   int count = 0;
 
-  if (zclient->redist[ZEBRA_ROUTE_RIP])
+  if (vrf_bitmap_check (zclient->redist[ZEBRA_ROUTE_RIP], VRF_DEFAULT))
     {
+      api.vrf_id = VRF_DEFAULT;
       api.type = ZEBRA_ROUTE_RIP;
       api.flags = 0;
       api.message = 0;
@@ -125,7 +127,8 @@ rip_zebra_ipv4_delete (struct route_node *rp)
 
 /* Zebra route add and delete treatment. */
 static int
-rip_zebra_read_ipv4 (int command, struct zclient *zclient, zebra_size_t length)
+rip_zebra_read_ipv4 (int command, struct zclient *zclient, zebra_size_t length,
+    vrf_id_t vrf_id)
 {
   struct stream *s;
   struct zapi_ipv4 api;
@@ -272,10 +275,10 @@ DEFUN (no_router_zebra,
 static int
 rip_redistribute_set (int type)
 {
-  if (zclient->redist[type])
+  if (vrf_bitmap_check (zclient->redist[type], VRF_DEFAULT))
     return CMD_SUCCESS;
 
-  zclient->redist[type] = 1;
+  vrf_bitmap_set (zclient->redist[type], VRF_DEFAULT);
 
   if (zclient->sock > 0)
     zebra_redistribute_send (ZEBRA_REDISTRIBUTE_ADD, zclient, type);
@@ -287,13 +290,14 @@ rip_redistribute_set (int type)
 static int
 rip_redistribute_unset (int type)
 {
-  if (! zclient->redist[type])
+  if (! vrf_bitmap_check (zclient->redist[type], VRF_DEFAULT))
     return CMD_SUCCESS;
 
-  zclient->redist[type] = 0;
+  vrf_bitmap_unset (zclient->redist[type], VRF_DEFAULT);
 
   if (zclient->sock > 0)
-    zebra_redistribute_send (ZEBRA_REDISTRIBUTE_DELETE, zclient, type);
+    zebra_redistribute_send (ZEBRA_REDISTRIBUTE_DELETE, zclient, type,
+                             VRF_DEFAULT);
 
   /* Remove the routes from RIP table. */
   rip_redistribute_withdraw (type);
@@ -304,7 +308,7 @@ rip_redistribute_unset (int type)
 int
 rip_redistribute_check (int type)
 {
-  return (zclient->redist[type]);
+  return vrf_bitmap_check (zclient->redist[type], VRF_DEFAULT);
 }
 
 void
@@ -314,13 +318,14 @@ rip_redistribute_clean (void)
 
   for (i = 0; redist_type[i].str; i++)
     {
-      if (zclient->redist[redist_type[i].type])
+      if (vrf_bitmap_check (zclient->redist[redist_type[i].type], VRF_DEFAULT))
 	{
 	  if (zclient->sock > 0)
 	    zebra_redistribute_send (ZEBRA_REDISTRIBUTE_DELETE,
-				     zclient, redist_type[i].type);
+				     zclient, redist_type[i].type,
+				     VRF_DEFAULT);
 
-	  zclient->redist[redist_type[i].type] = 0;
+	  vrf_bitmap_unset (zclient->redist[redist_type[i].type], VRF_DEFAULT);
 
 	  /* Remove the routes from RIP table. */
 	  rip_redistribute_withdraw (redist_type[i].type);
@@ -334,7 +339,7 @@ DEFUN (rip_redistribute_rip,
        "Redistribute information from another routing protocol\n"
        "Routing Information Protocol (RIP)\n")
 {
-  zclient->redist[ZEBRA_ROUTE_RIP] = 1;
+  vrf_bitmap_set (zclient->redist[ZEBRA_ROUTE_RIP], VRF_DEFAULT);
   return CMD_SUCCESS;
 }
 
@@ -345,7 +350,7 @@ DEFUN (no_rip_redistribute_rip,
        "Redistribute information from another routing protocol\n"
        "Routing Information Protocol (RIP)\n")
 {
-  zclient->redist[ZEBRA_ROUTE_RIP] = 0;
+  vrf_bitmap_unset (zclient->redist[ZEBRA_ROUTE_RIP], VRF_DEFAULT);
   return CMD_SUCCESS;
 }
 
@@ -363,7 +368,7 @@ DEFUN (rip_redistribute_type,
 		   redist_type[i].str_min_len) == 0) 
 	{
 	  zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, 
-	                        redist_type[i].type);
+	                        redist_type[i].type, VRF_DEFAULT);
 	  return CMD_SUCCESS;
 	}
     }
@@ -416,7 +421,8 @@ DEFUN (rip_redistribute_type_routemap,
 		redist_type[i].str_min_len) == 0) 
       {
 	rip_routemap_set (redist_type[i].type, argv[1]);
-	zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, redist_type[i].type);
+	zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, redist_type[i].type,
+	                      VRF_DEFAULT);
 	return CMD_SUCCESS;
       }
   }
@@ -474,7 +480,8 @@ DEFUN (rip_redistribute_type_metric,
 		redist_type[i].str_min_len) == 0) 
       {
 	rip_redistribute_metric_set (redist_type[i].type, metric);
-	zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, redist_type[i].type);
+	zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, redist_type[i].type,
+	                      VRF_DEFAULT);
 	return CMD_SUCCESS;
       }
   }
@@ -535,7 +542,8 @@ DEFUN (rip_redistribute_type_metric_routemap,
       {
 	rip_redistribute_metric_set (redist_type[i].type, metric);
 	rip_routemap_set (redist_type[i].type, argv[2]);
-	zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, redist_type[i].type);
+	zclient_redistribute (ZEBRA_REDISTRIBUTE_ADD, zclient, redist_type[i].type,
+	                      VRF_DEFAULT);
 	return CMD_SUCCESS;
       }
   }
@@ -639,7 +647,7 @@ config_write_zebra (struct vty *vty)
       vty_out (vty, "no router zebra%s", VTY_NEWLINE);
       return 1;
     }
-  else if (! zclient->redist[ZEBRA_ROUTE_RIP])
+  else if (! vrf_bitmap_check (zclient->redist[ZEBRA_ROUTE_RIP], VRF_DEFAULT))
     {
       vty_out (vty, "router zebra%s", VTY_NEWLINE);
       vty_out (vty, " no redistribute rip%s", VTY_NEWLINE);
@@ -654,7 +662,8 @@ config_write_rip_redistribute (struct vty *vty, int config_mode)
   int i;
 
   for (i = 0; i < ZEBRA_ROUTE_MAX; i++)
-    if (i != zclient->redist_default && zclient->redist[i])
+    if (i != zclient->redist_default &&
+        vrf_bitmap_check (zclient->redist[i], VRF_DEFAULT))
       {
 	if (config_mode)
 	  {
@@ -694,12 +703,19 @@ static struct cmd_node zebra_node =
   "%s(config-router)# ",
 };
 
+static void
+rip_zebra_connected (struct zclient *zclient)
+{
+  zclient_send_requests (zclient, VRF_DEFAULT);
+}
+
 void
 rip_zclient_init ()
 {
   /* Set default value to the zebra client structure. */
   zclient = zclient_new ();
   zclient_init (zclient, ZEBRA_ROUTE_RIP);
+  zclient->zebra_connected = rip_zebra_connected;
   zclient->interface_add = rip_interface_add;
   zclient->interface_delete = rip_interface_delete;
   zclient->interface_address_add = rip_interface_address_add;
