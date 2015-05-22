@@ -402,7 +402,7 @@ bgp_connect (struct peer *peer)
 
 #ifdef HAVE_IPV6
   if (peer->ifname)
-    ifindex = if_nametoindex (peer->ifname);
+    ifindex = ifname2ifindex (peer->ifname);
 #endif /* HAVE_IPV6 */
 
   if (BGP_DEBUG (events, EVENTS))

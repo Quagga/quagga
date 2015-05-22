@@ -792,7 +792,8 @@ ospf6_route_show (struct vty *vty, struct ospf6_route *route)
 {
   int i;
   char destination[64], nexthop[64];
-  char duration[16], ifname[IFNAMSIZ];
+  char duration[16];
+  const char *ifname;
   struct timeval now, res;
 
   quagga_gettime (QUAGGA_CLK_MONOTONIC, &now);
@@ -812,8 +813,7 @@ ospf6_route_show (struct vty *vty, struct ospf6_route *route)
   /* nexthop */
   inet_ntop (AF_INET6, &route->nexthop[0].address, nexthop,
              sizeof (nexthop));
-  if (! if_indextoname (route->nexthop[0].ifindex, ifname))
-    snprintf (ifname, sizeof (ifname), "%d", route->nexthop[0].ifindex);
+  ifname = ifindex2ifname (route->nexthop[0].ifindex);
 
   vty_out (vty, "%c%1s %2s %-30s %-25s %6.*s %s%s",
            (ospf6_route_is_best (route) ? '*' : ' '),
@@ -827,8 +827,7 @@ ospf6_route_show (struct vty *vty, struct ospf6_route *route)
       /* nexthop */
       inet_ntop (AF_INET6, &route->nexthop[i].address, nexthop,
                  sizeof (nexthop));
-      if (! if_indextoname (route->nexthop[i].ifindex, ifname))
-        snprintf (ifname, sizeof (ifname), "%d", route->nexthop[i].ifindex);
+      ifname = ifindex2ifname (route->nexthop[i].ifindex);
 
       vty_out (vty, "%c%1s %2s %-30s %-25s %6.*s %s%s",
                ' ', "", "", "", nexthop, IFNAMSIZ, ifname, "", VNL);
@@ -838,7 +837,8 @@ ospf6_route_show (struct vty *vty, struct ospf6_route *route)
 void
 ospf6_route_show_detail (struct vty *vty, struct ospf6_route *route)
 {
-  char destination[64], nexthop[64], ifname[IFNAMSIZ];
+  const char *ifname;
+  char destination[64], nexthop[64];
   char area_id[16], id[16], adv_router[16], capa[16], options[16];
   struct timeval now, res;
   char duration[16];
@@ -924,8 +924,7 @@ ospf6_route_show_detail (struct vty *vty, struct ospf6_route *route)
       /* nexthop */
       inet_ntop (AF_INET6, &route->nexthop[i].address, nexthop,
                  sizeof (nexthop));
-      if (! if_indextoname (route->nexthop[i].ifindex, ifname))
-        snprintf (ifname, sizeof (ifname), "%d", route->nexthop[i].ifindex);
+      ifname = ifindex2ifname (route->nexthop[i].ifindex);
       vty_out (vty, "  %s %.*s%s", nexthop, IFNAMSIZ, ifname, VNL);
     }
   vty_out (vty, "%s", VNL);

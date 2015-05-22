@@ -443,11 +443,10 @@ ospf6_zebra_route_update (int type, struct ospf6_route *request)
     {
       if (IS_OSPF6_DEBUG_ZEBRA (SEND))
 	{
-	  char ifname[IFNAMSIZ];
+	  const char *ifname;
 	  inet_ntop (AF_INET6, &request->nexthop[i].address,
 		     buf, sizeof (buf));
-	  if (!if_indextoname(request->nexthop[i].ifindex, ifname))
-	    strlcpy(ifname, "unknown", sizeof(ifname));
+	  ifname = ifindex2ifname (request->nexthop[i].ifindex);
 	  zlog_debug ("  nexthop: %s%%%.*s(%d)", buf, IFNAMSIZ, ifname,
 		      request->nexthop[i].ifindex);
 	}
