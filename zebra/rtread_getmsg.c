@@ -96,7 +96,7 @@ handle_route_entry (mib2_ipRouteEntry_t *routeEntry)
 }
 
 void
-route_read (void)
+route_read (struct zebra_vrf *zvrf)
 {
 	char 			storage[RT_BUFSIZ];
 
@@ -110,6 +110,10 @@ route_read (void)
 
 	struct strbuf		msgdata;
 	int			flags, dev, retval, process;
+
+	if (zvrf->vrf_id != VRF_DEFAULT) {
+		return;
+	}
 
 	if ((dev = open (_PATH_GETMSG_ROUTE, O_RDWR)) == -1) {
 		zlog_warn ("can't open %s: %s", _PATH_GETMSG_ROUTE,
