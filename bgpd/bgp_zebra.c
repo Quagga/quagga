@@ -1096,8 +1096,5 @@ bgp_zebra_init (void)
   zclient->ipv6_route_delete = zebra_read_ipv6;
 #endif /* HAVE_IPV6 */
 
-  /* Interface related init. */
-  if_init ();
-
   bgp_nexthop_buf = stream_new(BGP_NEXTHOP_BUF_SIZE);
 }

@@ -43,11 +43,6 @@
 
 static void pim_if_igmp_join_del_all(struct interface *ifp);
 
-void pim_if_init()
-{
-  if_init();
-}
-
 static void *if_list_clean(struct pim_interface *pim_ifp)
 {
   if (pim_ifp->igmp_join_list) {

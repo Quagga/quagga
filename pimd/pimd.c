@@ -24,6 +24,7 @@
 
 #include "log.h"
 #include "memory.h"
+#include "vrf.h"
 
 #include "pimd.h"
 #include "pim_cmd.h"
@@ -130,12 +131,12 @@ void pim_init()
   qpim_infinite_assert_metric.route_metric      = PIM_ASSERT_ROUTE_METRIC_MAX;
   qpim_infinite_assert_metric.ip_address        = qpim_inaddr_any;
 
-  pim_if_init();
   pim_cmd_init();
   pim_ssmpingd_init();
 }
 
 void pim_terminate()
 {
+  vrf_terminate();
   pim_free();
 }

@@ -108,8 +108,6 @@ struct pim_interface {
   ((pim_ifp)->pim_hello_period * 7 / 2) : \
   ((pim_ifp)->pim_default_holdtime))
 
-void pim_if_init(void);
-
 struct pim_interface *pim_if_new(struct interface *ifp, int igmp, int pim);
 void                  pim_if_delete(struct interface *ifp);
 void pim_if_addr_add(struct connected *ifc);
