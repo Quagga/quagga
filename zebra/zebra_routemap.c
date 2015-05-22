@@ -28,6 +28,7 @@
 #include "command.h"
 #include "filter.h"
 #include "plist.h"
+#include "vrf.h"
 
 #include "zebra/zserv.h"
 
@@ -369,7 +370,8 @@ DEFUN (set_src,
        "src address\n")
 {
   struct in_addr src;
-  struct interface *pif;
+  struct interface *pif = NULL;
+  vrf_iter_t iter;
 
   if (inet_pton(AF_INET, argv[0], &src) <= 0)
     {
@@ -377,12 +379,16 @@ DEFUN (set_src,
       return CMD_WARNING;
     }
 
-    pif = if_lookup_exact_address (src);
-    if (!pif)
-      {
-        vty_out (vty, "%% not a local address%s", VTY_NEWLINE);
-        return CMD_WARNING;
-      }
+  for (iter = vrf_first (); iter != VRF_ITER_INVALID; iter = vrf_next (iter))
+    if ((pif = if_lookup_exact_address_vrf (src, vrf_iter2id (iter))) != NULL)
+      break;
+
+  if (!pif)
+    {
+      vty_out (vty, "%% not a local address%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
   return zebra_route_set_add (vty, vty->index, "src", argv[0]);
 }
 
