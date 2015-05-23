@@ -933,12 +933,10 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
 
       if (IS_ZEBRA_DEBUG_KERNEL)
         {
-          if (h->nlmsg_type == RTM_NEWROUTE)
-            zlog_debug ("RTM_NEWROUTE %s/%d",
-                       inet_ntoa (p.prefix), p.prefixlen);
-          else
-            zlog_debug ("RTM_DELROUTE %s/%d",
-                       inet_ntoa (p.prefix), p.prefixlen);
+          char buf[PREFIX_STRLEN];
+          zlog_debug ("%s %s",
+                      h->nlmsg_type == RTM_NEWROUTE ? "RTM_NEWROUTE" : "RTM_DELROUTE",
+                      prefix2str (&p, buf, sizeof(buf)));
         }
 
       if (h->nlmsg_type == RTM_NEWROUTE)
@@ -1010,7 +1008,6 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
   if (rtm->rtm_family == AF_INET6)
     {
       struct prefix_ipv6 p;
-      char buf[BUFSIZ];
 
       p.family = AF_INET6;
       memcpy (&p.prefix, dest, 16);
@@ -1018,14 +1015,10 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
 
       if (IS_ZEBRA_DEBUG_KERNEL)
         {
-          if (h->nlmsg_type == RTM_NEWROUTE)
-            zlog_debug ("RTM_NEWROUTE %s/%d",
-                       inet_ntop (AF_INET6, &p.prefix, buf, BUFSIZ),
-                       p.prefixlen);
-          else
-            zlog_debug ("RTM_DELROUTE %s/%d",
-                       inet_ntop (AF_INET6, &p.prefix, buf, BUFSIZ),
-                       p.prefixlen);
+          char buf[PREFIX_STRLEN];
+          zlog_debug ("%s %s",
+                      h->nlmsg_type == RTM_NEWROUTE ? "RTM_NEWROUTE" : "RTM_DELROUTE",
+                      prefix2str (&p, buf, sizeof(buf)));
         }
 
       if (h->nlmsg_type == RTM_NEWROUTE)
@@ -1563,16 +1556,12 @@ _netlink_route_debug(
 {
   if (IS_ZEBRA_DEBUG_KERNEL)
     {
-      zlog_debug ("netlink_route_multipath() (%s): %s %s/%d type %s",
+      char buf[PREFIX_STRLEN];
+      zlog_debug ("netlink_route_multipath() (%s): %s %s type %s",
          routedesc,
          lookup (nlmsg_str, cmd),
-#ifdef HAVE_IPV6
-         (family == AF_INET) ? inet_ntoa (p->u.prefix4) :
-         inet6_ntoa (p->u.prefix6),
-#else
-         inet_ntoa (p->u.prefix4),
-#endif /* HAVE_IPV6 */
-         p->prefixlen, nexthop_type_to_str (nexthop->type));
+         prefix2str (p, buf, sizeof(buf)),
+         nexthop_type_to_str (nexthop->type));
     }
 }
 

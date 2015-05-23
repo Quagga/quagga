@@ -1301,7 +1301,7 @@ void
 zfpm_trigger_update (struct route_node *rn, const char *reason)
 {
   rib_dest_t *dest;
-  char buf[INET6_ADDRSTRLEN];
+  char buf[PREFIX_STRLEN];
 
   /*
    * Ignore if the connection is down. We will update the FPM about
@@ -1329,9 +1329,8 @@ zfpm_trigger_update (struct route_node *rn, const char *reason)
 
   if (reason)
     {
-      zfpm_debug ("%s/%d triggering update to FPM - Reason: %s",
-		  inet_ntop (rn->p.family, &rn->p.u.prefix, buf, sizeof (buf)),
-		  rn->p.prefixlen, reason);
+      zfpm_debug ("%s triggering update to FPM - Reason: %s",
+		  prefix2str (&rn->p, buf, sizeof(buf)), reason);
     }
 
   SET_FLAG (dest->flags, RIB_DEST_UPDATE_FPM);

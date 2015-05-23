@@ -1537,7 +1537,7 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
   struct zebra_if *zif;
   struct listnode *node;
   struct rtadv_prefix *rprefix;
-  u_char buf[INET6_ADDRSTRLEN];
+  char buf[PREFIX_STRLEN];
   int interval;
 
   if (! rtadv)
@@ -1601,10 +1601,8 @@ rtadv_config_write (struct vty *vty, struct interface *ifp)
 
   for (ALL_LIST_ELEMENTS_RO (zif->rtadv.AdvPrefixList, node, rprefix))
     {
-      vty_out (vty, " ipv6 nd prefix %s/%d",
-	       inet_ntop (AF_INET6, &rprefix->prefix.prefix,
-			  (char *) buf, INET6_ADDRSTRLEN),
-	       rprefix->prefix.prefixlen);
+      vty_out (vty, " ipv6 nd prefix %s",
+               prefix2str (&rprefix->prefix, buf, sizeof(buf)));
       if ((rprefix->AdvValidLifetime != RTADV_VALID_LIFETIME) || 
 	  (rprefix->AdvPreferredLifetime != RTADV_PREFERRED_LIFETIME))
 	{
