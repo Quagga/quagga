@@ -129,6 +129,9 @@ union prefix46constptr
 #define INET6_BUFSIZ 51
 #endif /* INET6_BUFSIZ */
 
+/* Maximum prefix string length (IPv6) */
+#define PREFIX_STRLEN 51
+
 /* Max bit/byte length of IPv4 address. */
 #define IPV4_MAX_BYTELEN    4
 #define IPV4_MAX_BITLEN    32
@@ -179,7 +182,7 @@ extern void prefix_free (struct prefix *);
 extern const char *prefix_family_str (const struct prefix *);
 extern int prefix_blen (const struct prefix *);
 extern int str2prefix (const char *, struct prefix *);
-extern int prefix2str (const struct prefix *, char *, int);
+extern const char *prefix2str (union prefix46constptr, char *, int);
 extern int prefix_match (const struct prefix *, const struct prefix *);
 extern int prefix_same (const struct prefix *, const struct prefix *);
 extern int prefix_cmp (const struct prefix *, const struct prefix *);

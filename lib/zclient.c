@@ -808,11 +808,11 @@ zebra_interface_address_read (int type, struct stream *s)
 	   else if (CHECK_FLAG(ifc->flags, ZEBRA_IFA_PEER))
 	     {
 	       /* carp interfaces on OpenBSD with 0.0.0.0/0 as "peer" */
-	       char buf[BUFSIZ];
-	       prefix2str (ifc->address, buf, sizeof(buf));
+	       char buf[PREFIX_STRLEN];
 	       zlog_warn("warning: interface %s address %s "
 		    "with peer flag set, but no peer address!",
-		    ifp->name, buf);
+		    ifp->name,
+		    prefix2str (ifc->address, buf, sizeof buf));
 	       UNSET_FLAG(ifc->flags, ZEBRA_IFA_PEER);
 	     }
 	 }
