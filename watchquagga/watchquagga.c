@@ -334,7 +334,7 @@ Otherwise, the interval is doubled (but capped at the -M value).\n\n",
 }
 
 static pid_t
-run_background(const char *shell_cmd)
+run_background(char *shell_cmd)
 {
   pid_t child;
 
@@ -350,8 +350,10 @@ run_background(const char *shell_cmd)
       if (setpgid(0,0) < 0)
         zlog_warn("warning: setpgid(0,0) failed: %s",safe_strerror(errno));
       {
-        const char *argv[4] = { "sh", "-c", shell_cmd, NULL};
-	execv("/bin/sh",(char *const *)argv);
+	char shell[] = "sh";
+	char dashc[] = "-c";
+        char *const argv[4] = { shell, dashc, shell_cmd, NULL};
+	execv("/bin/sh", argv);
 	zlog_err("execv(/bin/sh -c '%s') failed: %s",
 		 shell_cmd,safe_strerror(errno));
 	_exit(127);
