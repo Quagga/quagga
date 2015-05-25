@@ -797,7 +797,7 @@ zebra_interface_link_params_read (struct stream *s)
   
   struct interface *ifp = if_lookup_by_index (ifindex);
   
-  if (ifp == NULL)
+  if (ifp == NULL || s == NULL)
     {
       zlog_err ("%s: unknown ifindex %u, shouldn't happen",
                 __func__, ifindex);
@@ -806,7 +806,8 @@ zebra_interface_link_params_read (struct stream *s)
   
   if_link_params_init (ifp);
   
-  iflp = ifp->link_params;
+  if ((iflp = ifp->link_params) == NULL)
+    return NULL;
   
   iflp->te_metric = stream_getl (s);
   iflp->max_bw = stream_getf (s);
@@ -844,7 +845,7 @@ zebra_interface_link_params_write (struct stream *s, struct interface *ifp)
   size_t w;
   struct if_link_params *iflp;
   
-  if (ifp->link_params == NULL)
+  if (s == NULL || ifp == NULL || ifp->link_params == NULL)
     return 0;
   
   iflp = ifp->link_params;

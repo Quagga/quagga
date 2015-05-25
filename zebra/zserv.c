@@ -224,11 +224,15 @@ zsend_interface_link_params (struct zserv *client, struct interface *ifp)
   if (! client->ifinfo)
     return 0;
   
+  if (!ifp->link_params)
+    return 0;
   s = client->obuf;
   stream_reset (s);
   
   zserv_create_header (s, ZEBRA_INTERFACE_LINK_PARAMS, ifp->vrf_id);
-  zebra_interface_link_params_write (s, ifp);
+  
+  if (zebra_interface_link_params_write (s, ifp) == 0)
+    return 0;
   
   return zebra_server_send_message (client);
 }
