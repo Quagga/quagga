@@ -4699,10 +4699,11 @@ peer_uptime (time_t uptime2, char *buf, size_t len)
   uptime1 = bgp_clock ();
   uptime1 -= uptime2;
   tm = gmtime (&uptime1);
-
+  
   /* Making formatted timer strings. */
 #define ONE_DAY_SECOND 60*60*24
-#define ONE_WEEK_SECOND 60*60*24*7
+#define ONE_WEEK_SECOND ONE_DAY_SECOND*7
+#define ONE_YEAR_SECOND ONE_DAY_SECOND*365
 
   if (uptime1 < ONE_DAY_SECOND)
     snprintf (buf, len, "%02d:%02d:%02d", 
@@ -4710,9 +4711,13 @@ peer_uptime (time_t uptime2, char *buf, size_t len)
   else if (uptime1 < ONE_WEEK_SECOND)
     snprintf (buf, len, "%dd%02dh%02dm", 
 	      tm->tm_yday, tm->tm_hour, tm->tm_min);
-  else
+  else if (uptime1 < ONE_YEAR_SECOND)
     snprintf (buf, len, "%02dw%dd%02dh", 
 	      tm->tm_yday/7, tm->tm_yday - ((tm->tm_yday/7) * 7), tm->tm_hour);
+  else
+    snprintf (buf, len, "%02dy%02dw%dd", 
+	      tm->tm_year - 70, tm->tm_yday/7, 
+	      tm->tm_yday - ((tm->tm_yday/7) * 7));
   return buf;
 }
 
