@@ -29,10 +29,6 @@
 #include "log.h"
 #include "jhash.h"
 
-#if defined(HAVE_LINUX_IN6_H)
-#include <linux/in6.h>
-#endif
-
 #ifndef HAVE_INET_ATON
 int
 inet_aton (const char *cp, struct in_addr *inaddr)
@@ -510,13 +506,13 @@ sockopt_minttl (int family, int sock, int minttl)
       return ret;
     }
 #endif /* IP_MINTTL */
-#ifdef IPV6_MINHOPCOUNT
+#ifdef IPV6_MINHOPCNT
   if (family == AF_INET6)
     {
-      int ret = setsockopt (sock, IPPROTO_IPV6, IPV6_MINHOPCOUNT, &minttl, sizeof(minttl));
+      int ret = setsockopt (sock, IPPROTO_IPV6, IPV6_MINHOPCNT, &minttl, sizeof(minttl));
       if (ret < 0)
 	  zlog (NULL, LOG_WARNING,
-		"can't set sockopt IPV6_MINHOPCOUNT to %d on socket %d: %s",
+		"can't set sockopt IPV6_MINHOPCNT to %d on socket %d: %s",
 		minttl, sock, safe_strerror (errno));
       return ret;
     }
