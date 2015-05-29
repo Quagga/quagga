@@ -24,6 +24,7 @@
 #define _ZEBRA_RNH_H
 
 #include "prefix.h"
+#include "zserv.h"
 #include "vty.h"
 
 /* Nexthop structure. */
@@ -44,7 +45,7 @@ extern struct rnh *zebra_lookup_rnh(struct prefix *p, u_int32_t vrfid);
 extern void zebra_delete_rnh(struct rnh *rnh);
 extern void zebra_add_rnh_client(struct rnh *rnh, struct zserv *client);
 extern void zebra_remove_rnh_client(struct rnh *rnh, struct zserv *client);
-extern int zebra_evaluate_rnh_table(int vrfid, int family);
+extern int zebra_evaluate_rnh_table(int vrfid, int family, int force);
 extern int zebra_dispatch_rnh_table(int vrfid, int family, struct zserv *cl);
 extern void zebra_print_rnh_table(int vrfid, int family, struct vty *vty);
 extern char *rnh_str(struct rnh *rnh, char *buf, int size);

@@ -29,6 +29,7 @@
 #include "filter.h"
 #include "plist.h"
 #include "nexthop.h"
+#include "zebra_rnh.h"
 
 #include "zebra/zserv.h"
 
@@ -669,12 +670,13 @@ static struct route_map_rule_cmd route_set_src_cmd =
 /* ip protocol configuration write function */
 static int config_write_protocol(struct vty *vty)
 {
-
   if (zebra_rnh_ip_default_route)
     vty_out (vty, "ip nht resolve-via-default%s", VTY_NEWLINE);
 
   if (zebra_rnh_ipv6_default_route)
     vty_out (vty, "ipv6 nht resolve-via-default%s", VTY_NEWLINE);
+
+  return zebra_rnh_ip_default_route || zebra_rnh_ipv6_default_route;
 }
 
 /* table node for protocol filtering */

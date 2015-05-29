@@ -210,16 +210,18 @@ zebra_rnh_resolve_via_default(int family)
 }
 
 int
-zebra_evaluate_rnh_table (int vrfid, int family)
+zebra_evaluate_rnh_table (int vrfid, int family, int force)
 {
   struct route_table *ptable;
   struct route_table *ntable;
-  struct route_node *prn;
+  struct route_node *prn = NULL;
   struct route_node *nrn;
   struct rnh *rnh;
   struct zserv *client;
   struct listnode *node;
   struct rib *rib;
+  int state_changed = 0;
+  char buf[2][PREFIX_STRLEN];
 
   ntable = lookup_rnh_table(vrfid, family);
   if (!ntable)
@@ -260,37 +262,34 @@ zebra_evaluate_rnh_table (int vrfid, int family)
 	}
 
       rnh = nrn->info;
+      state_changed = 0;
 
       /* Ensure prefixes we're resolving over have stayed the same */
       if (!prefix_same(&rnh->resolved_route, &prn->p))
        {
-         if (rib)
-           UNSET_FLAG(rib->status, RIB_ENTRY_NEXTHOPS_CHANGED);
-
          if (prn)
            prefix_copy(&rnh->resolved_route, &prn->p);
          else
            memset(&rnh->resolved_route, 0, sizeof(struct prefix));
 
-         copy_state(rnh, rib, nrn);
+         copy_state(rnh, rib);
          state_changed = 1;
        }
       else if (compare_state(rib, rnh->state))
 	{
-	  if (IS_ZEBRA_DEBUG_NHT)
-	    {
-	      char bufn[INET6_ADDRSTRLEN];
-	      char bufp[INET6_ADDRSTRLEN];
-	      prefix2str(&nrn->p, bufn, INET6_ADDRSTRLEN);
-	      if (prn)
-		prefix2str(&prn->p, bufp, INET6_ADDRSTRLEN);
-	      else
-		strcpy(bufp, "null");
-	      zlog_debug("rnh %s resolved through route %s - sending "
-			 "nexthop %s event to clients", bufn, bufp,
-			 rib ? "reachable" : "unreachable");
-	    }
 	  copy_state(rnh, rib);
+	  state_changed = 1;
+        }
+
+      if (state_changed || force)
+	{
+	  if (IS_ZEBRA_DEBUG_NHT )
+	    zlog_debug("rnh %s resolved through route %s - sending "
+		       "nexthop %s event to clients",
+		       prefix2str(&nrn->p, buf[0], sizeof buf[0]),
+		       prn ? prefix2str(&prn->p, buf[1], sizeof buf[1]) : "(null)",
+		       rib ? "reachable" : "unreachable");
+
 	  for (ALL_LIST_ELEMENTS_RO(rnh->client_list, node, client))
 	    send_client(rnh, client);
 	}
@@ -541,7 +540,8 @@ send_client (struct rnh *rnh, struct zserv *client)
       nump = stream_get_endp(s);
       stream_putc (s, 0);
       for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
-	if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB))
+	if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB) &&
+	    CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE))
 	  {
 	    stream_putc (s, nexthop->type);
 	    switch (nexthop->type)
