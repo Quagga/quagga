@@ -1582,6 +1582,7 @@ bgp_process_main (struct work_queue *wq, void *data)
 	      CHECK_FLAG (old_select->flags, BGP_INFO_MULTIPATH_CHG))
             bgp_zebra_announce (p, old_select, bgp, safi);
           
+	  UNSET_FLAG (old_select->flags, BGP_INFO_IGP_CHANGED);
 	  UNSET_FLAG (old_select->flags, BGP_INFO_MULTIPATH_CHG);
           UNSET_FLAG (rn->flags, BGP_NODE_PROCESS_SCHEDULED);
           return WQ_SUCCESS;

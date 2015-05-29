@@ -39,6 +39,7 @@ Boston, MA 02111-1307, USA.  */
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_mpath.h"
 #include "bgpd/bgp_nexthop.h"
+#include "bgpd/bgp_nht.h"
 
 /* All information about zebra. */
 struct zclient *zclient = NULL;

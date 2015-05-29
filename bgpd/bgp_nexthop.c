@@ -109,7 +109,7 @@ bnc_nexthop_free (struct bgp_nexthop_cache *bnc)
 }
 
 struct bgp_nexthop_cache *
-bnc_new ()
+bnc_new (void)
 {
   struct bgp_nexthop_cache *bnc;
 

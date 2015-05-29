@@ -73,7 +73,7 @@ extern int bgp_config_write_scan_time (struct vty *);
 extern int bgp_nexthop_onlink (afi_t, struct attr *);
 extern int bgp_nexthop_self (struct attr *);
 extern void bgp_address_init (void);
-extern struct bgp_nexthop_cache *bnc_new();
+extern struct bgp_nexthop_cache *bnc_new(void);
 extern void bnc_free(struct bgp_nexthop_cache *bnc);
 extern void bnc_nexthop_free(struct bgp_nexthop_cache *bnc);
 extern char *bnc_str(struct bgp_nexthop_cache *bnc, char *buf, int size);
