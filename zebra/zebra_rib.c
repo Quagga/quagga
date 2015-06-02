@@ -3464,6 +3464,7 @@ zebra_vrf_alloc (vrf_id_t vrf_id)
   /* Set VRF ID */
   zvrf->vrf_id = vrf_id;
 
+#ifdef GNU_LINUX
   /* Initialize netlink sockets */
   snprintf (nl_name, 64, "netlink-listen (vrf %u)", vrf_id);
   zvrf->netlink.sock = -1;
@@ -3472,7 +3473,7 @@ zebra_vrf_alloc (vrf_id_t vrf_id)
   snprintf (nl_name, 64, "netlink-cmd (vrf %u)", vrf_id);
   zvrf->netlink_cmd.sock = -1;
   zvrf->netlink_cmd.name = XSTRDUP (MTYPE_NETLINK_NAME, nl_name);
-
+#endif /* GNU_LINUX */
   return zvrf;
 }
 
