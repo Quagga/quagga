@@ -109,6 +109,7 @@ extern int zsend_router_id_update (struct zserv *, struct prefix *,
                                    vrf_id_t);
 
 extern int zsend_interface_link_params (struct zserv *, struct interface *);
+extern void zsend_vrf_update (struct zebra_vrf *, int);
 
 extern pid_t pid;
 

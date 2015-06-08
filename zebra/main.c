@@ -237,6 +237,7 @@ zebra_vrf_enable (vrf_id_t vrf_id, void **info)
   kernel_init (zvrf);
   interface_list (zvrf);
   route_read (zvrf);
+  zsend_vrf_update (zvrf, ZEBRA_VRF_ID_UPDATE_ADD);
 
   return 0;
 }
@@ -250,7 +251,9 @@ zebra_vrf_disable (vrf_id_t vrf_id, void **info)
   struct interface *ifp;
 
   assert (zvrf);
-
+  
+  zsend_vrf_update (zvrf, ZEBRA_VRF_ID_UPDATE_DEL);
+  
   rib_close_table (zvrf->table[AFI_IP][SAFI_UNICAST]);
   rib_close_table (zvrf->table[AFI_IP6][SAFI_UNICAST]);
 

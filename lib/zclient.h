@@ -79,6 +79,7 @@ struct zclient
   /* Pointer to the callback functions. */
   void (*zebra_connected) (struct zclient *);
   int (*router_id_update) (int, struct zclient *, uint16_t, vrf_id_t);
+  int (*vrf_id_update) (int, struct zclient *, uint16_t, vrf_id_t);
   int (*interface_add) (int, struct zclient *, uint16_t, vrf_id_t);
   int (*interface_delete) (int, struct zclient *, uint16_t, vrf_id_t);
   int (*interface_up) (int, struct zclient *, uint16_t, vrf_id_t);
@@ -138,6 +139,13 @@ struct zapi_ipv4
   vrf_id_t vrf_id;
 };
 
+struct zserv_vrf_id_update
+{
+  char cmd; /* ZEBRA_VRF_ID_UPDATE_ADD or ZEBRA_VRF_ID_UPDATE_DEL */
+  int num;
+  vrf_id_t vrf_ids[];
+};
+
 /* Prototypes of zebra client service functions. */
 extern struct zclient *zclient_new (struct thread_master *);
 extern void zclient_init (struct zclient *, int);
@@ -182,6 +190,10 @@ extern struct connected *zebra_interface_address_read (int, struct stream *,
     vrf_id_t);
 extern void zebra_interface_if_set_value (struct stream *, struct interface *);
 extern void zebra_router_id_update_read (struct stream *s, struct prefix *rid);
+
+extern struct zserv_vrf_id_update *zebra_vrf_id_update_read (struct stream *s);
+extern void zserv_vrf_id_update_free (struct zserv_vrf_id_update *);
+
 extern int zapi_ipv4_route (u_char, struct zclient *, struct prefix_ipv4 *, 
                             struct zapi_ipv4 *);
 

@@ -810,6 +810,54 @@ zsend_router_id_update (struct zserv *client, struct prefix *p,
   return zebra_server_send_message(client);
 }
 
+/* Inform all clients of additions and deletes to valid VRF IDs */
+void
+zsend_vrf_update (struct zebra_vrf *zvrf, int cmd)
+{
+  struct listnode *node, *nnode;
+  struct zserv *client;
+  
+  for (ALL_LIST_ELEMENTS (zebrad.client_list, node, nnode, client))
+    {
+      struct stream *s = client->obuf;
+      stream_reset (s);
+      
+      zserv_create_header (s, ZEBRA_VRF_ID_UPDATE, 0);
+      stream_putw (s, cmd);
+      stream_putw (s, 1);
+      stream_putw (s, zvrf->vrf_id);
+      stream_putw_at (s, 0, stream_get_endp (s));
+      
+      zebra_server_send_message (client);
+    }
+}
+
+static int
+zsend_vrf_init (struct zserv *client)
+{
+  vrf_iter_t iter;
+  struct stream *s = client->obuf;
+  int n;
+  
+  stream_reset (s);
+  
+  zserv_create_header (s, ZEBRA_VRF_ID_UPDATE, 0);
+  stream_putw (s, ZEBRA_VRF_ID_UPDATE_ADD);
+  size_t npos = stream_get_endp (s);
+  stream_putw (s, 0);
+  
+  for (n = 0, iter = vrf_first ();
+       iter != VRF_ITER_INVALID;
+       iter = vrf_next (iter), n++)
+    {
+      struct zebra_vrf *zvrf = vrf_iter2info (iter);
+      stream_putw (s, zvrf->vrf_id);
+    }
+  stream_putw_at (s, 0, stream_get_endp (s));
+  stream_putw_at (s, npos, n);
+  return zebra_server_send_message(client);
+}
+
 /* Register zebra server interface information.  Send current all
    interface and address information. */
 static int
@@ -1360,7 +1408,7 @@ zebra_client_create (int sock)
   client->obuf = stream_new (ZEBRA_MAX_PACKET_SIZ);
   client->wb = buffer_new(0);
 
-  /* Set table number. */
+  /* Set table number. XXX? Make sense with VRFs? */
   client->rtm_table = zebrad.rtm_table_default;
 
   /* Initialize flags */
@@ -1372,6 +1420,8 @@ zebra_client_create (int sock)
 
   /* Add this client to linked list. */
   listnode_add (zebrad.client_list, client);
+  
+  zsend_vrf_init (client);
   
   /* Make new read thread. */
   zebra_event (ZEBRA_READ, sock, client);

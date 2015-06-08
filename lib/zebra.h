@@ -422,7 +422,8 @@ struct in_pktinfo
 #define ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB    24
 #define ZEBRA_VRF_UNREGISTER              25
 #define ZEBRA_INTERFACE_LINK_PARAMS       26
-#define ZEBRA_MESSAGE_MAX                 27
+#define ZEBRA_VRF_ID_UPDATE               27
+#define ZEBRA_MESSAGE_MAX                 28
 
 /* Marker value used in new Zserv, in the byte location corresponding
  * the command value in the old zserv header. To allow old and new
@@ -480,6 +481,10 @@ extern const char *zserv_command_string (unsigned int command);
 #define ZEBRA_NEXTHOP_IPV6_IFINDEX       7
 #define ZEBRA_NEXTHOP_IPV6_IFNAME        8
 #define ZEBRA_NEXTHOP_BLACKHOLE          9
+
+/* ZEBRA_VRF_ID_UPDATE sub-commands */
+#define ZEBRA_VRF_ID_UPDATE_ADD          1
+#define ZEBRA_VRF_ID_UPDATE_DEL          2
 
 #ifndef INADDR_LOOPBACK
 #define	INADDR_LOOPBACK	0x7f000001	/* Internet address 127.0.0.1.  */

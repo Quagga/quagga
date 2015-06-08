@@ -701,6 +701,52 @@ zebra_router_id_update_read (struct stream *s, struct prefix *rid)
   zclient_stream_get_prefix (s, rid);
 }
 
+void
+zserv_vrf_id_update_free (struct zserv_vrf_id_update *vu)
+{
+  XFREE (MTYPE_ZCLIENT_VRF_ID_UPDATE, vu);
+}
+
+struct zserv_vrf_id_update *
+zebra_vrf_id_update_read (struct stream *s)
+{
+  struct zserv_vrf_id_update *vu 
+    = XMALLOC(MTYPE_ZCLIENT_VRF_ID_UPDATE, sizeof (struct zserv_vrf_id_update));
+  
+  if (vu == NULL)
+    return NULL;
+  
+  vu->cmd = stream_getw (s);
+  
+  assert (vu->cmd == ZEBRA_VRF_ID_UPDATE_ADD 
+          || vu->cmd == ZEBRA_VRF_ID_UPDATE_DEL);
+  if (vu->cmd != ZEBRA_VRF_ID_UPDATE_ADD 
+      && vu->cmd != ZEBRA_VRF_ID_UPDATE_DEL)
+    {
+      zlog_warn ("%s: unknown ZEBRA_VRF_ID_UPDATE sub-cmd %d", 
+                 __func__, vu->cmd);
+      zserv_vrf_id_update_free (vu);
+      return NULL;
+    }
+  
+  vu->num = stream_getw (s);
+  
+  assert (vu->num >= 1);
+  if (vu->num <= 0)
+    {
+      zlog_warn ("%s: bad ZEBRA_VRF_ID_UPDATE number %d", __func__, vu->num);
+      zserv_vrf_id_update_free (vu);
+      return NULL;
+    }
+  
+  vu = XREALLOC(MTYPE_ZCLIENT_VRF_ID_UPDATE, vu,
+                sizeof (struct zserv_vrf_id_update) 
+                + (sizeof(vrf_id_t) * vu->num));
+  for (int i = 0; i < vu->num; i++)
+    vu->vrf_ids[i] = stream_getw (s);
+  return vu;
+}
+
 /* Interface addition from zebra daemon. */
 /*  
  * The format of the message sent with type ZEBRA_INTERFACE_ADD or
@@ -1181,6 +1227,9 @@ zclient_read (struct thread *thread)
       if (zclient->interface_link_params)
         (*zclient->interface_link_params) (command, zclient, length);
       break;
+    case ZEBRA_VRF_ID_UPDATE:
+      if (zclient->vrf_id_update)
+        (*zclient->vrf_id_update) (command, zclient, length, vrf_id);
     default:
       break;
     }
