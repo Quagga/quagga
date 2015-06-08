@@ -335,7 +335,7 @@ ospf_interface_update (int command, struct zclient *zclient,
 {
   struct interface *ifp;
 
-  ifp = zebra_interface_state_read (zclient->ibuf);
+  ifp = zebra_interface_state_read (zclient->ibuf, VRF_DEFAULT);
 
   if (ifp == NULL)
     return 0;
