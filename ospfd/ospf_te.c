@@ -720,6 +720,11 @@ update_linkparams(struct mpls_te_link *lp)
       zlog_warn("OSPF MPLS-TE: Abort update TE parameters: no interface associated to Link Parameters");
       return;
     }
+  if (!HAS_LINK_PARAMS(ifp))
+    {
+      zlog_warn("OSPF MPLS-TE: Abort update TE parameters: no Link Parameters for interface");
+      return;
+    }
 
   /* RFC3630 metrics */
   if (ifp->link_params->admin_grp != 0)
@@ -990,7 +995,7 @@ ospf_mpls_te_update_if (struct interface *ifp)
 
   if (IS_DEBUG_OSPF_TE)
     zlog_debug ("OSPF MPLS-TE: Update LSA parameters for interface %s [%s]",
-        ifp->name, ifp->link_params ? "ON" : "OFF");
+        ifp->name, HAS_LINK_PARAMS(ifp) ? "ON" : "OFF");
 
   /* Get Link context from interface */
   if ((lp = lookup_linkparams_by_ifp(ifp)) == NULL)

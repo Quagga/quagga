@@ -138,7 +138,13 @@ build_te_subtlvs(u_char *buf, struct isis_circuit *circuit)
       zlog_debug("ISIS MPLS-TE: Abort! No MPLS TE Interface has been specified");
       return 0;
     }
-
+  
+  if (!HAS_LINK_PARAMS(ifp))
+    {
+      zlog_debug("ISIS MPLS-TE: %s: no link-params", __func__);
+      return 0;
+    }
+  
   if (buf == NULL)
     {
       zlog_debug("ISIS MPLS-TE: Abort! No Buffer has been specified");
