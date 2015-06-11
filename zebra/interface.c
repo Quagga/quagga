@@ -1419,6 +1419,35 @@ ALIAS (no_bandwidth_if,
        "Bandwidth in kilobits\n")
 
 #if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+
+static void
+link_param_cmd_set_uint32 (struct interface *ifp, uint32_t *field, 
+                           uint32_t value)
+{
+  /* Update field as needed */
+  if (*field == 0 || *field != value)
+    {
+      *field = value;
+
+      /* force protocols to recalculate routes due to cost change */
+      if (if_is_operative (ifp))
+        zebra_interface_parameters_update (ifp);
+    }
+}
+static void
+link_param_cmd_set_float (struct interface *ifp, float *field, float value)
+{
+  /* Update field as needed */
+  if (*field == 0.0 || *field != value)
+    {
+      *field = value;
+
+      /* force protocols to recalculate routes due to cost change */
+      if (if_is_operative (ifp))
+        zebra_interface_parameters_update (ifp);
+    }
+}
+
 /* Specific Traffic Engineering parameters commands */
 DEFUN (mpls_te_enable,
        mpls_te_enable_cmd,
@@ -1478,19 +1507,14 @@ DEFUN (mpls_te_link_metric,
        "Metric value in decimal\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
   u_int32_t value;
 
   value = strtoul (argv[0], NULL, 10);
 
   /* Update TE metric if needed */
-  if (ifp->link_params->te_metric == 0 || ifp->link_params->te_metric != value)
-    {
-      ifp->link_params->te_metric = value;
-
-      /* force protocols to recalculate routes due to cost change */
-      if (if_is_operative (ifp))
-        zebra_interface_parameters_update (ifp);
-    }
+  link_param_cmd_set_uint32 (ifp, &iflp->te_metric, value);
+  
   return CMD_SUCCESS;
 }
 
@@ -1503,6 +1527,8 @@ DEFUN (mpls_te_link_maxbw,
        "Bytes/second (IEEE floating point format)\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
+  
   float bw;
 
   if (sscanf (argv[0], "%g", &bw) != 1)
@@ -1513,14 +1539,8 @@ DEFUN (mpls_te_link_maxbw,
     }
 
   /* Update Maximum Bandwidth if needed */
-  if (ifp->link_params->max_bw == 0.0 || ifp->link_params->max_bw != bw)
-    {
-      ifp->link_params->max_bw = bw;
-
-      /* force protocols to recalculate routes due to cost change */
-      if (if_is_operative (ifp))
-        zebra_interface_parameters_update (ifp);
-    }
+  link_param_cmd_set_float (ifp, &iflp->max_bw, bw);
+    
   return CMD_SUCCESS;
 }
 
@@ -1533,6 +1553,7 @@ DEFUN (mpls_te_link_max_rsv_bw,
        "Bytes/second (IEEE floating point format)\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
   float bw;
 
   if (sscanf (argv[0], "%g", &bw) != 1)
@@ -1543,14 +1564,8 @@ DEFUN (mpls_te_link_max_rsv_bw,
     }
 
   /* Update Maximum Reservable Bandwidth if needed */
-  if (ifp->link_params->max_rsv_bw == 0.0 || ifp->link_params->max_rsv_bw != bw)
-    {
-      ifp->link_params->max_rsv_bw = bw;
-
-      /* force protocols to recalculate routes due to cost change */
-      if (if_is_operative (ifp))
-        zebra_interface_parameters_update (ifp);
-    }
+  link_param_cmd_set_float (ifp, &iflp->max_rsv_bw, bw);
+  
   return CMD_SUCCESS;
 }
 
@@ -1564,6 +1579,7 @@ DEFUN (mpls_te_link_unrsv_bw,
        "Bytes/second (IEEE floating point format)\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
   int priority;
   float bw;
 
@@ -1583,14 +1599,8 @@ DEFUN (mpls_te_link_unrsv_bw,
     }
 
   /* Update Unreserved Bandwidth if needed */
-  if (ifp->link_params->unrsv_bw[priority] == 0.0 || ifp->link_params->unrsv_bw[priority] != bw)
-    {
-      ifp->link_params->unrsv_bw[priority] = bw;
-
-      /* force protocols to recalculate routes due to cost change */
-      if (if_is_operative (ifp))
-        zebra_interface_parameters_update (ifp);
-    }
+  link_param_cmd_set_float (ifp, &iflp->unrsv_bw[priority], bw);
+  
   return CMD_SUCCESS;
 }
 
@@ -1603,6 +1613,7 @@ DEFUN (mpls_te_link_admin_grp,
        "32-bit Hexadecimal value (e.g. 0xa1)\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
   unsigned long value;
 
   if (sscanf (argv[0], "0x%lx", &value) != 1)
@@ -1613,14 +1624,8 @@ DEFUN (mpls_te_link_admin_grp,
     }
 
   /* Update Administrative Group if needed */
-  if (ifp->link_params->admin_grp == 0 ||  ifp->link_params->admin_grp != value)
-    {
-      ifp->link_params->admin_grp = value;
-
-      /* force protocols to recalculate routes due to cost change */
-      if (if_is_operative (ifp))
-        zebra_interface_parameters_update (ifp);
-    }
+  link_param_cmd_set_uint32 (ifp, &iflp->admin_grp, value);
+  
   return CMD_SUCCESS;
 }
 
@@ -1636,6 +1641,7 @@ DEFUN (mpls_te_link_inter_as,
 {
 
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
   struct in_addr addr;
   u_int32_t as;
 
@@ -1648,12 +1654,12 @@ DEFUN (mpls_te_link_inter_as,
   VTY_GET_ULONG("AS number", as, argv[1]);
   
   /* Update Remote IP and Remote AS fields if needed */
-  if (ifp->link_params->rmt_as != as
-      || ifp->link_params->rmt_ip.s_addr != addr.s_addr)
+  if (iflp->rmt_as != as
+      || iflp->rmt_ip.s_addr != addr.s_addr)
     {
 
-      ifp->link_params->rmt_as = as;
-      ifp->link_params->rmt_ip.s_addr = addr.s_addr;
+      iflp->rmt_as = as;
+      iflp->rmt_ip.s_addr = addr.s_addr;
 
       /* force protocols to recalculate routes due to cost change */
       if (if_is_operative (ifp))
@@ -1671,10 +1677,11 @@ DEFUN (no_mpls_te_link_inter_as,
 {
 
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
 
   /* Reset Remote IP and AS neighbor */
-  ifp->link_params->rmt_as = 0;
-  ifp->link_params->rmt_ip.s_addr = 0;
+  iflp->rmt_as = 0;
+  iflp->rmt_ip.s_addr = 0;
 
   /* force protocols to recalculate routes due to cost change */
   if (if_is_operative (ifp))
@@ -1698,6 +1705,8 @@ DEFUN (mpls_te_link_delay,
 {
 
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
+  
   u_int32_t delay = 0, low = 0, high = 0;
   
   VTY_GET_ULONG("delay", delay, argv[0]);
@@ -1707,13 +1716,14 @@ DEFUN (mpls_te_link_delay,
     VTY_GET_ULONG("maximum delay", high, argv[2]);
   
   /* Update Delays if needed */
-  if (ifp->link_params->av_delay != delay
-      || ifp->link_params->min_delay != low
-      || ifp->link_params->max_delay != high)
+  
+  if (iflp->av_delay != delay
+      || iflp->min_delay != low
+      || iflp->max_delay != high)
     {
-      ifp->link_params->av_delay = delay;
-      ifp->link_params->min_delay = low;
-      ifp->link_params->max_delay = high;
+      iflp->av_delay = delay;
+      iflp->min_delay = low;
+      iflp->max_delay = high;
 
       /* force protocols to recalculate routes due to cost change */
       if (if_is_operative (ifp))
@@ -1731,19 +1741,14 @@ DEFUN (mpls_te_link_delay_var,
        "delay variation in micro-second as decimal (0...16777215)\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
   u_int32_t value;
   
   VTY_GET_ULONG("delay variation", value, argv[0]);
   
   /* Update Delay Variation if needed */
-  if (ifp->link_params->delay_var != value)
-    {
-      ifp->link_params->delay_var = value;
-
-      /* force protocols to recalculate routes due to cost change */
-      if (if_is_operative (ifp))
-        zebra_interface_parameters_update (ifp);
-    }
+  link_param_cmd_set_uint32 (ifp, &iflp->delay_var, value);
+  
   return CMD_SUCCESS;
 }
 
@@ -1756,6 +1761,7 @@ DEFUN (mpls_te_link_pkt_loss,
        "percentage of total traffic by 0.000003% step and less than 50.331642%\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
   float fval;
 
   if (sscanf (argv[0], "%g", &fval) != 1)
@@ -1769,14 +1775,8 @@ DEFUN (mpls_te_link_pkt_loss,
     fval = MAX_PKT_LOSS;
 
   /* Update Packet Loss if needed */
-  if (ifp->link_params->pkt_loss >= 0.0 ||  ifp->link_params->pkt_loss != fval)
-    {
-      ifp->link_params->pkt_loss = fval;
-
-      /* force protocols to recalculate routes due to cost change */
-      if (if_is_operative (ifp))
-        zebra_interface_parameters_update (ifp);
-    }
+  link_param_cmd_set_float (ifp, &iflp->pkt_loss, fval);
+  
   return CMD_SUCCESS;
 }
 
@@ -1789,6 +1789,7 @@ DEFUN (mpls_te_link_res_bw,
        "Bytes/second (IEEE floating point format)\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
   float bw;
 
   if (sscanf (argv[0], "%g", &bw) != 1)
@@ -1799,14 +1800,8 @@ DEFUN (mpls_te_link_res_bw,
     }
 
   /* Update Residual Bandwidth if needed */
-  if (ifp->link_params->res_bw == 0.0 || ifp->link_params->res_bw != bw)
-    {
-      ifp->link_params->res_bw = bw;
-
-      /* force protocols to recalculate routes due to cost change */
-      if (if_is_operative (ifp))
-        zebra_interface_parameters_update (ifp);
-    }
+  link_param_cmd_set_float (ifp, &iflp->res_bw, bw);
+  
   return CMD_SUCCESS;
 }
 
@@ -1819,6 +1814,7 @@ DEFUN (mpls_te_link_ava_bw,
        "Bytes/second (IEEE floating point format)\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
   float bw;
 
   if (sscanf (argv[0], "%g", &bw) != 1)
@@ -1829,14 +1825,8 @@ DEFUN (mpls_te_link_ava_bw,
     }
 
   /* Update Residual Bandwidth if needed */
-  if (ifp->link_params->ava_bw == 0.0 || ifp->link_params->ava_bw != bw)
-    {
-      ifp->link_params->ava_bw = bw;
-
-      /* force protocols to recalculate routes due to cost change */
-      if (if_is_operative (ifp))
-        zebra_interface_parameters_update (ifp);
-    }
+  link_param_cmd_set_float (ifp, &iflp->ava_bw, bw);
+  
   return CMD_SUCCESS;
 }
 
@@ -1849,6 +1839,7 @@ DEFUN (mpls_te_link_use_bw,
        "Bytes/second (IEEE floating point format)\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
+  struct if_link_params *iflp = if_link_params_get (ifp);
   float bw;
 
   if (sscanf (argv[0], "%g", &bw) != 1)
@@ -1859,14 +1850,8 @@ DEFUN (mpls_te_link_use_bw,
     }
 
   /* Update Utilized Bandwidth if needed */
-  if (ifp->link_params->use_bw == 0.0 || ifp->link_params->use_bw != bw)
-    {
-      ifp->link_params->use_bw = bw;
-
-      /* force protocols to recalculate routes due to cost change */
-      if (if_is_operative (ifp))
-        zebra_interface_parameters_update (ifp);
-    }
+  link_param_cmd_set_float (ifp, &iflp->use_bw, bw);
+  
   return CMD_SUCCESS;
 }
 
