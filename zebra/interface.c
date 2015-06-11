@@ -1434,7 +1434,7 @@ DEFUN (mpls_te_enable,
   if (IS_ZEBRA_DEBUG_EVENT)
     zlog_debug ("MPLS-TE: enable MPLS TE on interface %s", ifp->name);
   
-  if (!if_link_params_init (ifp)) 
+  if (!if_link_params_get (ifp)) 
     {
       if (IS_ZEBRA_DEBUG_EVENT)
         zlog_debug ("MPLS-TE: failed to init TE link params  %s", ifp->name);

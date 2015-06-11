@@ -383,7 +383,7 @@ extern char *if_indextoname (unsigned int, char *);
 #endif
 
 /* link parameters */
-struct if_link_params *if_link_params_init (struct interface *);
+struct if_link_params *if_link_params_get (struct interface *);
 void if_link_params_free (struct interface *);
 
 /* Exported variables. */

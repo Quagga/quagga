@@ -782,8 +782,8 @@ zebra_interface_if_set_value (struct stream *s, struct interface *ifp)
   /* Then, Traffic Engineering parameters if any */
   if (link_params_status)
     {
-      if_link_params_init (ifp);
-      stream_get (ifp->link_params, s, INTERFACE_LINK_PARAMS_SIZE);
+      struct if_link_params *iflp = if_link_params_get (ifp);
+      stream_get (iflp, s, INTERFACE_LINK_PARAMS_SIZE);
     }
 #endif /* Traffic Engineering */
 
@@ -804,9 +804,7 @@ zebra_interface_link_params_read (struct stream *s)
       return NULL;
     }
   
-  if_link_params_init (ifp);
-  
-  if ((iflp = ifp->link_params) == NULL)
+  if ((iflp = if_link_params_get (ifp)) == NULL)
     return NULL;
   
   iflp->te_metric = stream_getl (s);

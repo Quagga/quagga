@@ -1069,8 +1069,11 @@ if_terminate (vrf_id_t vrf_id, struct list **intf_list)
 }
 
 struct if_link_params *
-if_link_params_init (struct interface *ifp)
+if_link_params_get (struct interface *ifp)
 {
+  if (ifp->link_params != NULL)
+    return ifp->link_params;
+  
   struct if_link_params *lp = XCALLOC(MTYPE_IF_LINK_PARAMS,
                                       sizeof (struct if_link_params));
   if (lp == NULL) return NULL;
