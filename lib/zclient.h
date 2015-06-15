@@ -93,6 +93,9 @@ struct zclient
 #define ZAPI_MESSAGE_IFINDEX  0x02
 #define ZAPI_MESSAGE_DISTANCE 0x04
 #define ZAPI_MESSAGE_METRIC   0x08
+#ifdef SUPPORT_REALMS
+#define ZAPI_MESSAGE_REALM   0x10
+#endif
 
 /* Zserv protocol message header */
 struct zserv_header
@@ -129,6 +132,9 @@ struct zapi_ipv4
   u_int32_t metric;
 
   vrf_id_t vrf_id;
+#ifdef SUPPORT_REALMS
+  u_int16_t realm;
+#endif
 };
 
 /* Prototypes of zebra client service functions. */
