@@ -1571,6 +1571,7 @@ _netlink_route_debug(
          routedesc,
          lookup (nlmsg_str, cmd),
          prefix2str (p, buf, sizeof(buf)),
+         zvrf->vrf_id,
          nexthop_type_to_str (nexthop->type));
     }
 }
