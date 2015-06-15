@@ -240,6 +240,10 @@ typedef int socklen_t;
 #define UINT32_MAX	(4294967295U)
 #endif
 
+#ifdef SUPPORT_REALMS
+#include "rt_names.h"
+#endif
+
 #ifdef HAVE_GLIBC_BACKTRACE
 #include <execinfo.h>
 #endif /* HAVE_GLIBC_BACKTRACE */
