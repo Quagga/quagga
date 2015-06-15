@@ -905,6 +905,14 @@ zread_ipv4_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
     
   /* Table */
   rib->table=zebrad.rtm_table_default;
+
+#ifdef SUPPORT_REALMS
+  if (CHECK_FLAG (message, ZAPI_MESSAGE_REALM))
+    rib->realm = stream_getw (s);
+  else
+    rib->realm = 0;
+#endif
+
   rib_add_ipv4_multipath (&p, rib, safi);
   return 0;
 }

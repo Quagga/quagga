@@ -743,6 +743,14 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp, sa
 	  api.distance = distance;
 	}
 
+#ifdef SUPPORT_REALMS
+      if (info->attr->extra->realm && info->attr->extra->realm)
+	{
+	  SET_FLAG (api.message, ZAPI_MESSAGE_REALM);
+	  api.realm = info->attr->extra->realm;
+	}
+#endif
+
       if (BGP_DEBUG(zebra, ZEBRA))
 	{
 	  int i;
