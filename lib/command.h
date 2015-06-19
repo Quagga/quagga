@@ -105,6 +105,7 @@ enum node_type
   FORWARDING_NODE,		/* IP forwarding node. */
   PROTOCOL_NODE,                /* protocol filtering node */
   VTY_NODE,			/* Vty node. */
+  LINK_PARAMS_NODE,		/* Link-parameters node */
 };
 
 /* Node which has some commands and prompt string and configuration
@@ -493,7 +494,7 @@ struct cmd_token
 #define AREA_TAG_STR "[area tag]\n"
 #if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
 #define MPLS_TE_STR "MPLS-TE specific commands\n"
-#define MPLS_TE_LINK_STR "Configure MPLS-TE link parameters\n"
+#define LINK_PARAMS_STR "Configure interface link parameters\n"
 #endif /* HAVE_OSPF_TE or HAVE_ISIS_TE */
 #ifdef HAVE_OSPF_RI
 #define OSPF_RI_STR "OSPF Router Information specific commands\n"

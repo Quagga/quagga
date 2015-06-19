@@ -942,13 +942,13 @@ DEFUN_NOSH (zebra_interface,
 	    "Interface's name\n")
 {
   int ret;
-  struct interface * ifp;
+  struct interface *ifp;
   
   /* Call lib interface() */
   if ((ret = interface_cmd.func (self, vty, argc, argv)) != CMD_SUCCESS)
     return ret;
 
-  ifp = vty->index;  
+  ifp = vty->index;
 
   if (ifp->ifindex == IFINDEX_INTERNAL)
     /* Is this really necessary?  Shouldn't status be initialized to 0
@@ -1419,6 +1419,11 @@ ALIAS (no_bandwidth_if,
        "Bandwidth in kilobits\n")
 
 #if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+struct cmd_node link_params_node =
+{
+  LINK_PARAMS_NODE,
+  "%s(config-link-params)# ",
+};
 
 static void
 link_param_cmd_set_uint32 (struct interface *ifp, uint32_t *field, 
@@ -1448,12 +1453,21 @@ link_param_cmd_set_float (struct interface *ifp, float *field, float value)
     }
 }
 
+DEFUN (link_params,
+       link_params_cmd,
+       "link-params",
+       LINK_PARAMS_STR)
+{
+  vty->node = LINK_PARAMS_NODE;
+  
+  return CMD_SUCCESS;
+}
+
 /* Specific Traffic Engineering parameters commands */
-DEFUN (mpls_te_enable,
-       mpls_te_enable_cmd,
-       "mpls-te on",
-       MPLS_TE_STR
-       "Activate MPLS-TE link parameters on this interface\n")
+DEFUN (link_params_enable,
+       link_params_enable_cmd,
+       "enable",
+       "Activate link-params on this interface\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
     
@@ -1461,12 +1475,12 @@ DEFUN (mpls_te_enable,
   /* on a new interface or after a ON / OFF / ON toggle */
   /* In all case, TE parameters are reset to their default factory */
   if (IS_ZEBRA_DEBUG_EVENT)
-    zlog_debug ("MPLS-TE: enable MPLS TE on interface %s", ifp->name);
+    zlog_debug ("Link-params: enable TE link params on interface %s", ifp->name);
   
   if (!if_link_params_get (ifp)) 
     {
       if (IS_ZEBRA_DEBUG_EVENT)
-        zlog_debug ("MPLS-TE: failed to init TE link params  %s", ifp->name);
+        zlog_debug ("Link-params: failed to init TE link params  %s", ifp->name);
       
       return CMD_WARNING;
     }
@@ -1478,11 +1492,11 @@ DEFUN (mpls_te_enable,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_mpls_te_enable,
-       no_mpls_te_enable_cmd,
-       "no mpls-te",
+DEFUN (no_link_params_enable,
+       no_link_params_enable_cmd,
+       "no enable",
        NO_STR
-       "Disable MPLS-TE link parameters on this interface\n")
+       "Disable link parameters on this interface\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
 
@@ -1498,11 +1512,9 @@ DEFUN (no_mpls_te_enable,
 }
 
 /* STANDARD TE metrics */
-DEFUN (mpls_te_link_metric,
-       mpls_te_link_metric_cmd,
-       "mpls-te link metric <0-4294967295>",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
+DEFUN (link_params_metric,
+       link_params_metric_cmd,
+       "metric <0-4294967295>",
        "Link metric for MPLS-TE purpose\n"
        "Metric value in decimal\n")
 {
@@ -1518,11 +1530,9 @@ DEFUN (mpls_te_link_metric,
   return CMD_SUCCESS;
 }
 
-DEFUN (mpls_te_link_maxbw,
-       mpls_te_link_maxbw_cmd,
-       "mpls-te link max-bw BANDWIDTH",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
+DEFUN (link_params_maxbw,
+       link_params_maxbw_cmd,
+       "max-bw BANDWIDTH",
        "Maximum bandwidth that can be used\n"
        "Bytes/second (IEEE floating point format)\n")
 {
@@ -1533,7 +1543,7 @@ DEFUN (mpls_te_link_maxbw,
 
   if (sscanf (argv[0], "%g", &bw) != 1)
     {
-      vty_out (vty, "mpls_te_link_maxbw: fscanf: %s%s", safe_strerror (errno),
+      vty_out (vty, "link_params_maxbw: fscanf: %s%s", safe_strerror (errno),
                VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -1544,11 +1554,9 @@ DEFUN (mpls_te_link_maxbw,
   return CMD_SUCCESS;
 }
 
-DEFUN (mpls_te_link_max_rsv_bw,
-       mpls_te_link_max_rsv_bw_cmd,
-       "mpls-te link max-rsv-bw BANDWIDTH",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
+DEFUN (link_params_max_rsv_bw,
+       link_params_max_rsv_bw_cmd,
+       "max-rsv-bw BANDWIDTH",
        "Maximum bandwidth that may be reserved\n"
        "Bytes/second (IEEE floating point format)\n")
 {
@@ -1558,7 +1566,7 @@ DEFUN (mpls_te_link_max_rsv_bw,
 
   if (sscanf (argv[0], "%g", &bw) != 1)
     {
-      vty_out (vty, "mpls_te_link_max_rsv_bw: fscanf: %s%s", safe_strerror (errno),
+      vty_out (vty, "link_params_max_rsv_bw: fscanf: %s%s", safe_strerror (errno),
                VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -1569,11 +1577,9 @@ DEFUN (mpls_te_link_max_rsv_bw,
   return CMD_SUCCESS;
 }
 
-DEFUN (mpls_te_link_unrsv_bw,
-       mpls_te_link_unrsv_bw_cmd,
-       "mpls-te link unrsv-bw <0-7> BANDWIDTH",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
+DEFUN (link_params_unrsv_bw,
+       link_params_unrsv_bw_cmd,
+       "unrsv-bw <0-7> BANDWIDTH",
        "Unreserved bandwidth at each priority level\n"
        "Priority\n"
        "Bytes/second (IEEE floating point format)\n")
@@ -1586,14 +1592,14 @@ DEFUN (mpls_te_link_unrsv_bw,
   /* We don't have to consider about range check here. */
   if (sscanf (argv[0], "%d", &priority) != 1)
     {
-      vty_out (vty, "mpls_te_link_unrsv_bw: fscanf: %s%s", safe_strerror (errno),
+      vty_out (vty, "link_params_unrsv_bw: fscanf: %s%s", safe_strerror (errno),
                VTY_NEWLINE);
       return CMD_WARNING;
     }
 
   if (sscanf (argv[1], "%g", &bw) != 1)
     {
-      vty_out (vty, "mpls_te_link_unrsv_bw: fscanf: %s%s", safe_strerror (errno),
+      vty_out (vty, "link_params_unrsv_bw: fscanf: %s%s", safe_strerror (errno),
                VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -1604,11 +1610,9 @@ DEFUN (mpls_te_link_unrsv_bw,
   return CMD_SUCCESS;
 }
 
-DEFUN (mpls_te_link_admin_grp,
-       mpls_te_link_admin_grp_cmd,
-       "mpls-te link admin-grp BITPATTERN",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
+DEFUN (link_params_admin_grp,
+       link_params_admin_grp_cmd,
+       "admin-grp BITPATTERN",
        "Administrative group membership\n"
        "32-bit Hexadecimal value (e.g. 0xa1)\n")
 {
@@ -1618,7 +1622,7 @@ DEFUN (mpls_te_link_admin_grp,
 
   if (sscanf (argv[0], "0x%lx", &value) != 1)
     {
-      vty_out (vty, "mpls_te_link_admin_grp: fscanf: %s%s",
+      vty_out (vty, "link_params_admin_grp: fscanf: %s%s",
                safe_strerror (errno), VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -1630,10 +1634,9 @@ DEFUN (mpls_te_link_admin_grp,
 }
 
 /* INTER-AS */
-DEFUN (mpls_te_link_inter_as,
-       mpls_te_link_inter_as_cmd,
-       "mpls-te neighbor A.B.C.D as <1-4294967295>",
-       MPLS_TE_STR
+DEFUN (link_params_inter_as,
+       link_params_inter_as_cmd,
+       "neighbor A.B.C.D as <1-4294967295>",
        "Configure remote ASBR information (Neighbor IP address and AS number)\n"
        "Remote IP address in dot decimal A.B.C.D\n"
        "Remote AS number\n"
@@ -1668,11 +1671,10 @@ DEFUN (mpls_te_link_inter_as,
   return CMD_SUCCESS;
 }
 
-DEFUN (no_mpls_te_link_inter_as,
-       no_mpls_te_link_inter_as_cmd,
-       "no mpls-te neighbor",
+DEFUN (no_link_params_inter_as,
+       no_link_params_inter_as_cmd,
+       "no neighbor",
        NO_STR
-       MPLS_TE_STR
        "Remove Neighbor IP address and AS number for Inter-AS TE\n")
 {
 
@@ -1691,11 +1693,9 @@ DEFUN (no_mpls_te_link_inter_as,
 }
 
 /* draft-ietf-ospf-metric-extensions-05.txt & draft-ietf-isis-metric-extensions-03.txt */
-DEFUN (mpls_te_link_delay,
-       mpls_te_link_delay_cmd,
-       "mpls-te link delay <0-16777215> {min <0-16777215>|max <0-16777215>}",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
+DEFUN (link_params_delay,
+       link_params_delay_cmd,
+       "delay <0-16777215> {min <0-16777215>|max <0-16777215>}",
        "Unidirectional Average Link Delay (optionally Minimum and Maximum delays)\n"
        "Average delay in micro-second as decimal (0...16777215)\n"
        "Minimum delay\n"
@@ -1732,11 +1732,9 @@ DEFUN (mpls_te_link_delay,
   return CMD_SUCCESS;
 }
 
-DEFUN (mpls_te_link_delay_var,
-       mpls_te_link_delay_var_cmd,
-       "mpls-te link delay-variation <0-16777215>",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
+DEFUN (link_params_delay_var,
+       link_params_delay_var_cmd,
+       "delay-variation <0-16777215>",
        "Unidirectional Link Delay Variation\n"
        "delay variation in micro-second as decimal (0...16777215)\n")
 {
@@ -1752,11 +1750,9 @@ DEFUN (mpls_te_link_delay_var,
   return CMD_SUCCESS;
 }
 
-DEFUN (mpls_te_link_pkt_loss,
-       mpls_te_link_pkt_loss_cmd,
-       "mpls-te link packet-loss PERCENTAGE",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
+DEFUN (link_params_pkt_loss,
+       link_params_pkt_loss_cmd,
+       "packet-loss PERCENTAGE",
        "Unidirectional Link Packet Loss\n"
        "percentage of total traffic by 0.000003% step and less than 50.331642%\n")
 {
@@ -1766,7 +1762,7 @@ DEFUN (mpls_te_link_pkt_loss,
 
   if (sscanf (argv[0], "%g", &fval) != 1)
     {
-      vty_out (vty, "mpls_te_link_pkt_loss: fscanf: %s%s", safe_strerror (errno),
+      vty_out (vty, "link_params_pkt_loss: fscanf: %s%s", safe_strerror (errno),
                VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -1780,11 +1776,9 @@ DEFUN (mpls_te_link_pkt_loss,
   return CMD_SUCCESS;
 }
 
-DEFUN (mpls_te_link_res_bw,
-       mpls_te_link_res_bw_cmd,
-       "mpls-te link res-bw BANDWIDTH",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
+DEFUN (link_params_res_bw,
+       link_params_res_bw_cmd,
+       "res-bw BANDWIDTH",
        "Unidirectional Residual Bandwidth\n"
        "Bytes/second (IEEE floating point format)\n")
 {
@@ -1794,7 +1788,7 @@ DEFUN (mpls_te_link_res_bw,
 
   if (sscanf (argv[0], "%g", &bw) != 1)
     {
-      vty_out (vty, "mpls_te_link_res_bw: fscanf: %s%s", safe_strerror (errno),
+      vty_out (vty, "link_params_res_bw: fscanf: %s%s", safe_strerror (errno),
                VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -1805,11 +1799,9 @@ DEFUN (mpls_te_link_res_bw,
   return CMD_SUCCESS;
 }
 
-DEFUN (mpls_te_link_ava_bw,
-       mpls_te_link_ava_bw_cmd,
-       "mpls-te link ava-bw BANDWIDTH",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
+DEFUN (link_params_ava_bw,
+       link_params_ava_bw_cmd,
+       "ava-bw BANDWIDTH",
        "Unidirectional Available Bandwidth\n"
        "Bytes/second (IEEE floating point format)\n")
 {
@@ -1819,7 +1811,7 @@ DEFUN (mpls_te_link_ava_bw,
 
   if (sscanf (argv[0], "%g", &bw) != 1)
     {
-      vty_out (vty, "mpls_te_link_ava_bw: fscanf: %s%s", safe_strerror (errno),
+      vty_out (vty, "link_params_ava_bw: fscanf: %s%s", safe_strerror (errno),
                VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -1830,12 +1822,10 @@ DEFUN (mpls_te_link_ava_bw,
   return CMD_SUCCESS;
 }
 
-DEFUN (mpls_te_link_use_bw,
-       mpls_te_link_use_bw_cmd,
-       "mpls-te link use-bw BANDWIDTH",
-       MPLS_TE_STR
-       MPLS_TE_LINK_STR
-       "Unidirectional Available Bandwidth\n"
+DEFUN (link_params_use_bw,
+       link_params_use_bw_cmd,
+       "use-bw BANDWIDTH",
+       "Unidirectional Utilised Bandwidth\n"
        "Bytes/second (IEEE floating point format)\n")
 {
   struct interface *ifp = (struct interface *) vty->index;
@@ -1844,7 +1834,7 @@ DEFUN (mpls_te_link_use_bw,
 
   if (sscanf (argv[0], "%g", &bw) != 1)
     {
-      vty_out (vty, "mpls_te_link_use_bw: fscanf: %s%s", safe_strerror (errno),
+      vty_out (vty, "link_params_use_bw: fscanf: %s%s", safe_strerror (errno),
                VTY_NEWLINE);
       return CMD_WARNING;
     }
@@ -2194,13 +2184,61 @@ DEFUN (no_ipv6_address,
 }
 #endif /* HAVE_IPV6 */
 
+#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+static int
+link_params_config_write (struct vty *vty, struct interface *ifp)
+{
+  if ((ifp == NULL) || !HAS_LINK_PARAMS(ifp))
+    return -1;
+  
+  vty_out (vty, " link-params%s", VTY_NEWLINE);
+  vty_out(vty, "  enable%s", VTY_NEWLINE);
+  if (ifp->link_params->te_metric != 0)
+    vty_out(vty, "  metric %u%s",ifp->link_params->te_metric, VTY_NEWLINE);
+  if (ifp->link_params->max_bw > 0.0)
+    vty_out(vty, "  max-bw %g%s", ifp->link_params->max_bw, VTY_NEWLINE);
+  if (ifp->link_params->max_rsv_bw > 0.0)
+    vty_out(vty, "  max-rsv-bw %g%s", ifp->link_params->max_rsv_bw, VTY_NEWLINE);
+  for (int i = 0; i < 8; i++)
+    {
+      if (ifp->link_params->unrsv_bw[i] > 0.0)
+        vty_out(vty, "  unrsv-bw %d %g%s",
+            i, ifp->link_params->unrsv_bw[i], VTY_NEWLINE);
+    }
+  if (ifp->link_params->admin_grp != 0)
+    vty_out(vty, "  admin-grp %u%s", ifp->link_params->admin_grp, VTY_NEWLINE);
+  if (ifp->link_params->av_delay != 0)
+    {
+      vty_out(vty, "  delay %u", ifp->link_params->av_delay);
+      if (ifp->link_params->min_delay != 0)
+        vty_out(vty, " min %u", ifp->link_params->min_delay);
+      if (ifp->link_params->max_delay != 0)
+        vty_out(vty, " max %u", ifp->link_params->max_delay);
+      vty_out(vty, "%s", VTY_NEWLINE);
+    }
+  if (ifp->link_params->delay_var != 0)
+    vty_out(vty, "  delay-variation %u%s", ifp->link_params->delay_var, VTY_NEWLINE);
+  if (ifp->link_params->pkt_loss >= 0.0)
+    vty_out(vty, "  packet-loss %g%s", ifp->link_params->pkt_loss, VTY_NEWLINE);
+  if (ifp->link_params->ava_bw > 0.0)
+    vty_out(vty, "  ava-bw %g%s", ifp->link_params->ava_bw, VTY_NEWLINE);
+  if (ifp->link_params->res_bw > 0.0)
+    vty_out(vty, "  res-bw %g%s", ifp->link_params->res_bw, VTY_NEWLINE);
+  if (ifp->link_params->use_bw > 0.0)
+    vty_out(vty, "  use-bw %g%s", ifp->link_params->use_bw, VTY_NEWLINE);
+  if ((ifp->link_params->rmt_as != 0) && (ifp->link_params->rmt_ip.s_addr != 0))
+    vty_out(vty, "  neighbor %s as %u%s", inet_ntoa(ifp->link_params->rmt_ip),
+        ifp->link_params->rmt_as, VTY_NEWLINE);
+  return 0;
+}
+#endif /* Traffic Engineering */
+
 static int
 if_config_write (struct vty *vty)
 {
   struct listnode *node;
   struct interface *ifp;
   vrf_iter_t iter;
-  int i;
 
   for (iter = vrf_first (); iter != VRF_ITER_INVALID; iter = vrf_next (iter))
   for (ALL_LIST_ELEMENTS_RO (vrf_iter2iflist (iter), node, ifp))
@@ -2232,51 +2270,7 @@ if_config_write (struct vty *vty)
 	 while processing config script */
       if (ifp->bandwidth != 0)
 	vty_out(vty, " bandwidth %u%s", ifp->bandwidth, VTY_NEWLINE); 
-
-#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
-      if (HAS_LINK_PARAMS(ifp))
-        {
-          vty_out(vty, " mpls-te on%s", VTY_NEWLINE);
-          if (ifp->link_params->te_metric != 0)
-            vty_out(vty, " mpls-te link metric %u%s",ifp->link_params->te_metric, VTY_NEWLINE);
-          if (ifp->link_params->max_bw > 0.0)
-            vty_out(vty, " mpls-te link max-bw %g (Byte/s)%s", ifp->link_params->max_bw, VTY_NEWLINE);
-          if (ifp->link_params->max_rsv_bw > 0.0)
-            vty_out(vty, " mpls-te link max-rsv-bw %g (Byte/s)%s", ifp->link_params->max_rsv_bw, VTY_NEWLINE);
-          for (i = 0; i < 8; i++)
-            {
-              if (ifp->link_params->unrsv_bw[i] > 0.0)
-                vty_out(vty, " mpls-te link unrsv-bw %d %g%s",
-                    i, ifp->link_params->unrsv_bw[i], VTY_NEWLINE);
-            }
-          if (ifp->link_params->admin_grp != 0)
-            vty_out(vty, " mpls-te link admin-grp %u%s", ifp->link_params->admin_grp, VTY_NEWLINE);
-          if (ifp->link_params->av_delay != 0)
-            {
-              vty_out(vty, " mpls-te link delay %u", ifp->link_params->av_delay);
-              if (ifp->link_params->min_delay != 0)
-                vty_out(vty, " min %u", ifp->link_params->min_delay);
-              if (ifp->link_params->max_delay != 0)
-                vty_out(vty, " max %u", ifp->link_params->max_delay);
-              vty_out(vty, "%s", VTY_NEWLINE);
-            }
-          if (ifp->link_params->delay_var != 0)
-            vty_out(vty, " mpls-te link delay-variation %u%s", ifp->link_params->delay_var, VTY_NEWLINE);
-          if (ifp->link_params->pkt_loss >= 0.0)
-            vty_out(vty, " mpls-te link packet-loss %g%s", ifp->link_params->pkt_loss, VTY_NEWLINE);
-          if (ifp->link_params->ava_bw > 0.0)
-            vty_out(vty, " mpls-te link ava-bw %g%s", ifp->link_params->ava_bw, VTY_NEWLINE);
-          if (ifp->link_params->res_bw > 0.0)
-            vty_out(vty, " mpls-te link res-bw %g%s", ifp->link_params->res_bw, VTY_NEWLINE);
-          if (ifp->link_params->use_bw > 0.0)
-            vty_out(vty, " mpls-te link use-bw %g%s", ifp->link_params->use_bw, VTY_NEWLINE);
-          if ((ifp->link_params->rmt_as != 0) && (ifp->link_params->rmt_ip.s_addr != 0))
-            vty_out(vty, " mpls-te neighbor %s as %u%s", inet_ntoa(ifp->link_params->rmt_ip),
-                ifp->link_params->rmt_as, VTY_NEWLINE);
-    }
-
-#endif /* Traffic Engineering */
-
+      
       if (CHECK_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION))
 	vty_out(vty, " link-detect%s", VTY_NEWLINE);
       else
@@ -2315,10 +2309,15 @@ if_config_write (struct vty *vty)
       irdp_config_write (vty, ifp);
 #endif /* IRDP */
 
+#if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
+      link_params_config_write (vty, ifp);
+#endif /* HAVE_OSPF_TE || HAVE_ISIS_TE */
+
       vty_out (vty, "!%s", VTY_NEWLINE);
     }
   return 0;
 }
+
 
 /* Allocate and initialize interface vector. */
 void
@@ -2331,6 +2330,8 @@ zebra_if_init (void)
   /* Install configuration write function. */
   install_node (&interface_node, if_config_write);
 
+  install_node (&link_params_node, NULL);
+  
   install_element (VIEW_NODE, &show_interface_cmd);
   install_element (VIEW_NODE, &show_interface_vrf_cmd);
   install_element (VIEW_NODE, &show_interface_vrf_all_cmd);
@@ -2373,20 +2374,22 @@ zebra_if_init (void)
   install_element (INTERFACE_NODE, &no_ip_address_label_cmd);
 #endif /* HAVE_NETLINK */
 #if defined(HAVE_OSPF_TE) || defined(HAVE_ISIS_TE)
-  install_element(INTERFACE_NODE, &mpls_te_enable_cmd);
-  install_element(INTERFACE_NODE, &no_mpls_te_enable_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_metric_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_maxbw_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_max_rsv_bw_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_unrsv_bw_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_admin_grp_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_inter_as_cmd);
-  install_element(INTERFACE_NODE, &no_mpls_te_link_inter_as_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_delay_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_delay_var_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_pkt_loss_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_ava_bw_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_res_bw_cmd);
-  install_element(INTERFACE_NODE, &mpls_te_link_use_bw_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_enable_cmd);
+  install_element(LINK_PARAMS_NODE, &no_link_params_enable_cmd);
+  install_element(INTERFACE_NODE, &link_params_cmd);
+  install_default(LINK_PARAMS_NODE);
+  install_element(LINK_PARAMS_NODE, &link_params_metric_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_maxbw_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_max_rsv_bw_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_unrsv_bw_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_admin_grp_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_inter_as_cmd);
+  install_element(LINK_PARAMS_NODE, &no_link_params_inter_as_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_delay_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_delay_var_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_pkt_loss_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_ava_bw_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_res_bw_cmd);
+  install_element(LINK_PARAMS_NODE, &link_params_use_bw_cmd);
 #endif /* Traffic Engineering */
 }
