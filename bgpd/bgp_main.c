@@ -420,7 +420,7 @@ main (int argc, char **argv)
   master = bm->master;
 
   /* Initializations. */
-  srand (time (NULL));
+  srandom (time (NULL));
   signal_init (master, array_size(bgp_signals), bgp_signals);
   zprivs_init (&bgpd_privs);
   cmd_init (1);

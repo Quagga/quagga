@@ -4144,7 +4144,7 @@ cmd_init (int terminal)
       install_element (VIEW_NODE, &show_work_queues_cmd);
       install_element (ENABLE_NODE, &show_work_queues_cmd);
     }
-  srand(time(NULL));
+  srandom(time(NULL));
 }
 
 static void

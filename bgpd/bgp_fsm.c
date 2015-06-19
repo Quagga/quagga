@@ -65,7 +65,7 @@ static int bgp_start (struct peer *);
 static int
 bgp_start_jitter (int time)
 {
-  return ((rand () % (time + 1)) - (time / 2));
+  return ((random () % (time + 1)) - (time / 2));
 }
 
 /* Check if suppress start/restart of sessions to peer. */
