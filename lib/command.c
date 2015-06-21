@@ -614,8 +614,8 @@ install_element (enum node_type ntype, struct cmd_element *cmd)
 
   if (cnode == NULL) 
     {
-      fprintf (stderr, "Command node %d doesn't exist, please check it\n",
-	       ntype);
+      fprintf (stderr, "Command node %d (%s) doesn't exist, please check it\n",
+	       ntype, cmd->string);
       exit (1);
     }
 

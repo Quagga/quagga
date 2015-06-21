@@ -460,6 +460,10 @@ struct peer
   u_int32_t keepalive;
   u_int32_t connect;
   u_int32_t routeadv;
+#ifdef SUPPORT_REALMS
+#define PEER_CONFIG_REALM             (1 << 4) /* Default realm. */
+  u_int32_t realm;
+#endif
 
   /* Timer values. */
   u_int32_t v_start;
@@ -894,6 +898,11 @@ extern int bgp_confederation_peers_remove (struct bgp *, as_t);
 
 extern int bgp_timers_set (struct bgp *, u_int32_t, u_int32_t);
 extern int bgp_timers_unset (struct bgp *);
+
+#ifdef SUPPORT_REALMS
+extern int peer_realm_set (struct peer *, u_int32_t);
+extern int peer_realm_unset (struct peer *);
+#endif
 
 extern int bgp_default_local_preference_set (struct bgp *, u_int32_t);
 extern int bgp_default_local_preference_unset (struct bgp *);

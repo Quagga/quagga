@@ -46,6 +46,11 @@ memtypes.h: $(srcdir)/memtypes.c $(srcdir)/memtypes.awk
 route_types.h: $(srcdir)/route_types.txt $(srcdir)/route_types.pl
 	@PERL@ $(srcdir)/route_types.pl < $(srcdir)/route_types.txt > $@
 
+if SUPPORT_REALMS
+libzebra_la_SOURCES += rt_names.c
+# pkginclude_HEADERS += rt_names.h
+endif
+
 if GIT_VERSION
 
 # bit of a trick here to always have up-to-date git stamps without triggering

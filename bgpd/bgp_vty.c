@@ -3303,6 +3303,78 @@ DEFUN (no_neighbor_strict_capability,
   return peer_flag_unset_vty (vty, argv[0], PEER_FLAG_STRICT_CAP_MATCH);
 }
 
+#ifdef SUPPORT_REALMS
+/* neighbor realm.*/
+static int
+peer_realm_set_vty (struct vty *vty, const char *ip_str,
+                     const char *realm_str)
+{
+  struct peer *peer;
+  u_int32_t realmid;
+
+  if (rtnl_rtrealm_a2n (&realmid, realm_str) < 0)
+    {
+       vty_out (vty, "%% Invalid realm value%s", VTY_NEWLINE);
+       return CMD_WARNING;
+    }
+
+  peer = peer_and_group_lookup_vty (vty, ip_str);
+  if (! peer)
+    return CMD_WARNING;
+
+  peer_realm_set (peer, realmid);
+
+  return CMD_SUCCESS;
+}
+
+static int
+peer_realm_unset_vty (struct vty *vty, const char *ip_str)
+{
+  struct peer *peer;
+
+  peer = peer_and_group_lookup_vty (vty, ip_str);
+  if (! peer)
+    return CMD_WARNING;
+
+  peer_realm_unset (peer);
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (neighbor_realm,
+       neighbor_realm_cmd,
+       NEIGHBOR_CMD2 "realm (<0-255>|WORD)",
+       NEIGHBOR_STR
+       NEIGHBOR_ADDR_STR2
+       "Set default realm for routes from this neighbor\n"
+       "default realm id\n"
+       "default realm name\n")
+{
+  return peer_realm_set_vty (vty, argv[0], argv[1]);
+}
+
+DEFUN (no_neighbor_realm,
+       no_neighbor_realm_cmd,
+       NO_NEIGHBOR_CMD2 "realm",
+       NO_STR
+       NEIGHBOR_STR
+       NEIGHBOR_ADDR_STR2
+       "Set default realm for routes from this neighbor\n")
+{
+  return peer_realm_unset_vty (vty, argv[0]);
+}
+
+ALIAS (no_neighbor_realm,
+       no_neighbor_realm_val_cmd,
+       NO_NEIGHBOR_CMD2 "realm (<0-255>|WORD)",
+       NO_STR
+       NEIGHBOR_STR
+       NEIGHBOR_ADDR_STR2
+       "Set default realm for routes from this neighbor\n"
+       "default realm id\n"
+       "default realm name\n")
+#endif
+
 static int
 peer_timers_set_vty (struct vty *vty, const char *ip_str, 
                      const char *keep_str, const char *hold_str)
@@ -7822,6 +7894,19 @@ bgp_show_peer (struct vty *vty, struct peer *p)
 
   vty_out (vty, "%s", VTY_NEWLINE);
 
+#ifdef SUPPORT_REALMS
+  /* Default realm */
+  if (CHECK_FLAG (p->config, PEER_CONFIG_REALM))
+  {
+    char realmbuf[64];
+
+    vty_out (vty, "  Default realm is %s%s",
+    rtnl_rtrealm_n2a (p->realm, realmbuf, sizeof (realmbuf)), VTY_NEWLINE);
+  }
+
+  vty_out (vty, "%s", VTY_NEWLINE);
+#endif
+
   /* Address Family Information */
   for (afi = AFI_IP ; afi < AFI_MAX ; afi++)
     for (safi = SAFI_UNICAST ; safi < SAFI_MAX ; safi++)
@@ -9627,6 +9712,13 @@ bgp_vty_init (void)
   install_element (BGP_NODE, &neighbor_weight_cmd);
   install_element (BGP_NODE, &no_neighbor_weight_cmd);
   install_element (BGP_NODE, &no_neighbor_weight_val_cmd);
+
+#ifdef SUPPORT_REALMS
+  /* "neighbor realm" commands. */
+  install_element (BGP_NODE, &neighbor_realm_cmd);
+  install_element (BGP_NODE, &no_neighbor_realm_cmd);
+  install_element (BGP_NODE, &no_neighbor_realm_val_cmd);
+#endif
 
   /* "neighbor override-capability" commands. */
   install_element (BGP_NODE, &neighbor_override_capability_cmd);

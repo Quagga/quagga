@@ -53,6 +53,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_ecommunity.h"
 #include "bgpd/bgp_vty.h"
 
+
 /* Memo of route-map commands.
 
 o Cisco route-map
@@ -1147,6 +1148,61 @@ struct route_map_rule_cmd route_set_metric_cmd =
   route_value_compile,
   route_value_free,
 };
+
+#ifdef SUPPORT_REALMS
+/* `set realm REALM' */
+static route_map_result_t
+route_set_realm (void *rule, struct prefix *prefix,
+                 route_map_object_t type, void *object)
+{
+  u_int32_t *realm;
+  u_int16_t realm_value = 0;
+  struct bgp_info *bgp_info;
+
+  if(type != RMAP_BGP)
+    return RMAP_OKAY;
+
+  bgp_info = object;
+  realm = (u_int32_t*) rule;
+
+  realm_value = (u_int16_t)(*realm & 0xFFFF);
+  (bgp_attr_extra_get (bgp_info->attr))->realm = realm_value;
+
+  return RMAP_OKAY;
+}
+
+static void *
+route_set_realm_compile (const char *arg)
+{
+  u_int32_t *realm;
+  u_int32_t realmid;
+
+  if (rtnl_rtrealm_a2n (&realmid, arg) < 0)
+  {
+    return NULL;
+  }
+
+  realm = XMALLOC (MTYPE_ROUTE_MAP_COMPILED, sizeof (u_int32_t));
+  *realm = (u_int32_t)realmid;
+
+  return realm;
+}
+
+static void
+route_set_realm_free (void *rule)
+{
+  XFREE (MTYPE_ROUTE_MAP_COMPILED, rule);
+}
+
+/* Set realms rule structure. */
+struct route_map_rule_cmd route_set_realm_cmd =
+{
+  "realm",
+  route_set_realm,
+  route_set_realm_compile,
+  route_set_realm_free,
+};
+#endif
 
 /* `set as-path prepend ASPATH' */
 
@@ -2994,6 +3050,41 @@ ALIAS (set_metric,
        "Add round trip time\n"
        "Subtract round trip time\n")
 
+#ifdef SUPPORT_REALMS
+DEFUN (set_realm,
+       set_realm_cmd,
+       "set realm (<1-255>|WORD)",
+       SET_STR
+       "Set realm id or name for Linux FIB routes\n"
+       "Realm id for Linux FIB routes\n"
+       "Realm name for Linux FIB routes\n")
+{
+  return bgp_route_set_add (vty, vty->index, "realm", argv[0]);
+}
+
+DEFUN (no_set_realm,
+       no_set_realm_cmd,
+       "no set realm",
+       NO_STR
+       SET_STR
+       "Realm value(s) for Linux FIB routes\n")
+{
+  if (argc == 0)
+    return bgp_route_set_delete (vty, vty->index, "realm", NULL);
+
+  return bgp_route_set_delete (vty, vty->index, "realm", argv[0]);
+}
+
+ALIAS (no_set_realm,
+       no_set_realm_val_cmd,
+       "no set realm (<0-255>|WORD)",
+       NO_STR
+       SET_STR
+       "Realm value(s) for Linux FIB routes\n"
+       "Realm value\n"
+       "Realm name\n")
+#endif
+
 DEFUN (no_set_metric,
        no_set_metric_cmd,
        "no set metric",
@@ -3888,6 +3979,9 @@ bgp_route_map_init (void)
   route_map_install_set (&route_set_local_pref_cmd);
   route_map_install_set (&route_set_weight_cmd);
   route_map_install_set (&route_set_metric_cmd);
+#ifdef SUPPORT_REALMS
+  route_map_install_set (&route_set_realm_cmd);
+#endif
   route_map_install_set (&route_set_aspath_prepend_cmd);
   route_map_install_set (&route_set_aspath_exclude_cmd);
   route_map_install_set (&route_set_origin_cmd);
@@ -3958,6 +4052,11 @@ bgp_route_map_init (void)
   install_element (RMAP_NODE, &set_metric_cmd);
   install_element (RMAP_NODE, &set_metric_addsub_cmd);
   install_element (RMAP_NODE, &set_metric_rtt_cmd);
+#ifdef SUPPORT_REALMS
+  install_element (RMAP_NODE, &set_realm_cmd);
+  install_element (RMAP_NODE, &no_set_realm_cmd);
+  install_element (RMAP_NODE, &no_set_realm_val_cmd);
+#endif
   install_element (RMAP_NODE, &no_set_metric_cmd);
   install_element (RMAP_NODE, &no_set_metric_val_cmd);
   install_element (RMAP_NODE, &set_aspath_prepend_cmd);

@@ -56,6 +56,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_vty.h"
 #include "bgpd/bgp_mpath.h"
 
+
 /* Extern from bgp_dump.c */
 extern const char *bgp_origin_str[];
 extern const char *bgp_origin_long_str[];
@@ -691,6 +692,15 @@ bgp_input_modifier (struct peer *peer, struct prefix *p, struct attr *attr,
   struct bgp_filter *filter;
   struct bgp_info info;
   route_map_result_t ret;
+#ifdef SUPPORT_REALMS
+  u_int16_t realm_value = 0;
+
+
+  /* Apply default realm value. */
+  realm_value = (u_int16_t)(peer->realm & 0xFFFF);
+  (bgp_attr_extra_get (attr))->realm = realm_value;
+
+#endif
 
   filter = &peer->filter[afi][safi];
 
@@ -726,6 +736,15 @@ bgp_export_modifier (struct peer *rsclient, struct peer *peer,
   struct bgp_filter *filter;
   struct bgp_info info;
   route_map_result_t ret;
+#ifdef SUPPORT_REALMS
+  u_int16_t realm_value = 0;
+
+
+  /* Apply default realm value. */
+  realm_value = (u_int16_t)(peer->realm & 0xFFFF);
+  (bgp_attr_extra_get (attr))->realm = realm_value;
+
+#endif
 
   filter = &peer->filter[afi][safi];
 
@@ -5713,6 +5732,10 @@ route_vty_out (struct vty *vty, struct prefix *p,
 	vty_out (vty, "       ");
 
       vty_out (vty, "%7u ", (attr->extra ? attr->extra->weight : 0));
+
+#ifdef SUPPORT_REALMS
+      vty_out (vty, "%7u ", (attr->extra ? attr->extra->realm : 0));
+#endif    
     
       /* Print aspath */
       if (attr->aspath)
@@ -5778,6 +5801,9 @@ route_vty_out_tmp (struct vty *vty, struct prefix *p,
 	vty_out (vty, "       ");
       
       vty_out (vty, "%7u ", (attr->extra ? attr->extra->weight : 0));
+#ifdef SUPPORT_REALMS
+      vty_out (vty, "%7u ", (attr->extra ? attr->extra->realm : 0));
+#endif    
       
       /* Print aspath */
       if (attr->aspath)
@@ -6056,7 +6082,14 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 
       if (attr->extra && attr->extra->weight != 0)
 	vty_out (vty, ", weight %u", attr->extra->weight);
-	
+
+#ifdef SUPPORT_REALMS
+      if (attr->extra && attr->extra->realm != 0) {
+        char realmbuf[64];
+        vty_out (vty, ", realm %s", rtnl_rtrealm_n2a (attr->extra->realm, realmbuf, sizeof (realmbuf)));
+      }
+#endif
+
       if (! CHECK_FLAG (binfo->flags, BGP_INFO_HISTORY))
 	vty_out (vty, ", valid");
 
@@ -6136,7 +6169,12 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 			      "h history, * valid, > best, = multipath,%s"\
 		"              i internal, r RIB-failure, S Stale, R Removed%s"
 #define BGP_SHOW_OCODE_HEADER "Origin codes: i - IGP, e - EGP, ? - incomplete%s%s"
+#ifdef SUPPORT_REALMS
+#define BGP_SHOW_HEADER "   Network          Next Hop            Metric LocPrf Weight    Realm    Path%s"
+#else
 #define BGP_SHOW_HEADER "   Network          Next Hop            Metric LocPrf Weight Path%s"
+#endif
+
 #define BGP_SHOW_DAMP_HEADER "   Network          From             Reuse    Path%s"
 #define BGP_SHOW_FLAP_HEADER "   Network          From            Flaps Duration Reuse    Path%s"
 
