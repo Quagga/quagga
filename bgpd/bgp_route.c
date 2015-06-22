@@ -1304,6 +1304,8 @@ struct bgp_info_pair
 {
   struct bgp_info *old;
   struct bgp_info *new;
+  struct bgp_info *new_best_external;
+  struct bgp_info *old_best_external;
 };
 
 static void
@@ -1319,6 +1321,9 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
   struct bgp_info *nextri = NULL;
   int paths_eq, do_mpath;
   struct list mp_list;
+
+  struct bgp_info *new_best_external;
+  struct bgp_info *old_best_external;
 
   bgp_mp_list_init (&mp_list);
   do_mpath = (mpath_cfg->maxpaths_ebgp != BGP_DEFAULT_MAXPATHS ||
@@ -1379,6 +1384,8 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
   /* Check old selected route and new selected route. */
   old_select = NULL;
   new_select = NULL;
+  new_best_external = NULL;
+  old_best_external = NULL;
   for (ri = rn->info; (ri != NULL) && (nextri = ri->next, 1); ri = nextri)
     {
       if (CHECK_FLAG (ri->flags, BGP_INFO_SELECTED))
@@ -1423,6 +1430,25 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
 
       if (do_mpath && paths_eq)
 	bgp_mp_list_add (&mp_list, ri);
+
+      /*BGP BEST EXTERNAL Feature*/
+
+
+    	  if (CHECK_FLAG (ri->flags, BGP_INFO_BEST_EXTERNAL))
+    		  old_best_external = ri;
+
+    	  	  	  if ((ri) && ((ri->peer->as) && (ri->peer->as != ri->peer->local_as)))
+    	  	  	  {
+    	  	  		  if (bgp_info_cmp (bgp, ri, new_best_external, &paths_eq))
+    	  	  		  {
+    	  	  			  new_best_external = ri;
+
+    	  	  		  }
+
+    	  	  	  }
+
+      /*BGP BEST EXTERNAL Feature*/
+
     }
     
 
@@ -1434,6 +1460,8 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
 
   result->old = old_select;
   result->new = new_select;
+  result->new_best_external = new_best_external;
+  result->old_best_external = old_best_external;
 
   return;
 }
@@ -1571,12 +1599,66 @@ bgp_process_main (struct work_queue *wq, void *data)
   struct bgp_info *old_select;
   struct bgp_info_pair old_and_new;
   struct listnode *node, *nnode;
+  struct bgp_info *new_best_external;
+  struct bgp_info *old_best_external;
   struct peer *peer;
   
   /* Best path selection. */
   bgp_best_selection (bgp, rn, &bgp->maxpaths[afi][safi], &old_and_new);
   old_select = old_and_new.old;
   new_select = old_and_new.new;
+  new_best_external = old_and_new.new_best_external;
+  old_best_external = old_and_new.old_best_external;
+
+  /*BEST EXTERNAL */
+  if((bgp_flag_check (bgp, BGP_FLAG_ADVERTISE_BEST_EXTERNAL )) && (new_best_external))
+        {
+	  	  if( old_best_external != new_best_external)
+	  	  {
+
+	  	  		   for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
+	  	  	  	   {
+	  	  			   	  if(bgp->as == peer->as)
+	  	  			   	  {
+	  	  			   		  bgp_process_announce_selected (peer, new_best_external, rn, afi, safi);
+	  	  			   		  bgp_info_set_flag (rn, new_best_external, BGP_INFO_BEST_EXTERNAL);
+	  	  			   	  }
+	  	  	  	    }
+
+	  	  }
+	  	  else { /*zlog_info("Bgp MAIN BEST EXTERNAL NOTHING TO DO .");*/ }
+
+         }
+  else
+  {
+	if(!(bgp_flag_check (bgp, BGP_FLAG_ADVERTISE_BEST_EXTERNAL )))
+	{
+		 if ( (new_best_external) && (CHECK_FLAG (new_best_external->flags, BGP_INFO_BEST_EXTERNAL)))
+
+		 {
+			 if (CHECK_FLAG (new_best_external->flags, BGP_INFO_SELECTED))
+			 {
+				 bgp_info_unset_flag (rn, new_best_external, BGP_INFO_BEST_EXTERNAL);
+			 }
+			 else
+			 {
+			 for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
+			 	  	    {
+			 	  	  	 if(bgp->as == peer->as)
+			 	  	  	   {
+			 	  	  		bgp_adj_out_unset(rn, peer, &rn->p, afi, safi);
+			 	  	  	    }
+			 	  	  	 }
+			 bgp_info_unset_flag (rn, new_best_external, BGP_INFO_BEST_EXTERNAL);
+			 }
+
+		 }
+	}
+
+  }
+
+
+  /*BEST EXTERNAL END*/
 
   /* Nothing to do. */
   if (old_select && old_select == new_select)
@@ -2610,7 +2692,7 @@ bgp_announce_table (struct peer *peer, afi_t afi, safi_t safi,
 
   for (rn = bgp_table_top (table); rn; rn = bgp_route_next(rn))
     for (ri = rn->info; ri; ri = ri->next)
-      if (CHECK_FLAG (ri->flags, BGP_INFO_SELECTED) && ri->peer != peer)
+      if (((CHECK_FLAG (ri->flags, BGP_INFO_SELECTED)) || (CHECK_FLAG (ri->flags, BGP_INFO_BEST_EXTERNAL))) && (ri->peer != peer))
 	{
          if ( (rsclient) ?
               (bgp_announce_check_rsclient (ri, peer, &rn->p, &attr, afi, safi))
@@ -5650,6 +5732,10 @@ route_vty_short_status_out (struct vty *vty, struct bgp_info *binfo)
   else
     vty_out (vty, " ");
 
+  /* Best External route. */
+  if (CHECK_FLAG (binfo->flags, BGP_INFO_BEST_EXTERNAL))
+        vty_out (vty, "x");
+
   /* Internal route. */
     if ((binfo->peer->as) && (binfo->peer->as == binfo->peer->local_as))
       vty_out (vty, "i");
@@ -6134,7 +6220,8 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 
 #define BGP_SHOW_SCODE_HEADER "Status codes: s suppressed, d damped, "\
 			      "h history, * valid, > best, = multipath,%s"\
-		"              i internal, r RIB-failure, S Stale, R Removed%s"
+		"              i internal, r RIB-failure, S Stale, R Removed%s" \
+		"				b backup path, x best-external%s"
 #define BGP_SHOW_OCODE_HEADER "Origin codes: i - IGP, e - EGP, ? - incomplete%s%s"
 #define BGP_SHOW_HEADER "   Network          Next Hop            Metric LocPrf Weight Path%s"
 #define BGP_SHOW_DAMP_HEADER "   Network          From             Reuse    Path%s"
@@ -6337,7 +6424,7 @@ bgp_show_table (struct vty *vty, struct bgp_table *table, struct in_addr *router
 	    if (header)
 	      {
 		vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (*router_id), VTY_NEWLINE);
-		vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
+		vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 		vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		if (type == bgp_show_type_dampend_paths
 		    || type == bgp_show_type_damp_neighbor)
@@ -9827,7 +9914,7 @@ show_adj_route (struct vty *vty, struct peer *peer, afi_t afi, safi_t safi,
 			  PEER_STATUS_DEFAULT_ORIGINATE))
     {
       vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (bgp->router_id), VTY_NEWLINE);
-      vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
+      vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
       vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 
       vty_out (vty, "Originating default network 0.0.0.0%s%s",
@@ -9844,7 +9931,7 @@ show_adj_route (struct vty *vty, struct peer *peer, afi_t afi, safi_t safi,
 	      if (header1)
 		{
 		  vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (bgp->router_id), VTY_NEWLINE);
-		  vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
+		  vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 		  vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		  header1 = 0;
 		}
@@ -9868,7 +9955,7 @@ show_adj_route (struct vty *vty, struct peer *peer, afi_t afi, safi_t safi,
 	      if (header1)
 		{
 		  vty_out (vty, "BGP table version is 0, local router ID is %s%s", inet_ntoa (bgp->router_id), VTY_NEWLINE);
-		  vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
+		  vty_out (vty, BGP_SHOW_SCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE, VTY_NEWLINE);
 		  vty_out (vty, BGP_SHOW_OCODE_HEADER, VTY_NEWLINE, VTY_NEWLINE);
 		  header1 = 0;
 		}

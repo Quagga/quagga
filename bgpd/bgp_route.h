@@ -82,6 +82,7 @@ struct bgp_info
 #define BGP_INFO_COUNTED	(1 << 10)
 #define BGP_INFO_MULTIPATH      (1 << 11)
 #define BGP_INFO_MULTIPATH_CHG  (1 << 12)
+#define BGP_INFO_BEST_EXTERNAL  (1 << 13)
 
   /* BGP route type.  This can be static, RIP, OSPF, BGP etc.  */
   u_char type;

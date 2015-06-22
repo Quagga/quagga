@@ -5270,6 +5270,9 @@ bgp_config_write (struct vty *vty)
       if (bgp_flag_check (bgp, BGP_FLAG_ALWAYS_COMPARE_MED))
 	vty_out (vty, " bgp always-compare-med%s", VTY_NEWLINE);
 
+      if (bgp_flag_check (bgp, BGP_FLAG_ADVERTISE_BEST_EXTERNAL))
+	vty_out (vty, " bgp advertise-best-external%s", VTY_NEWLINE);
+
       /* BGP default ipv4-unicast. */
       if (bgp_flag_check (bgp, BGP_FLAG_NO_DEFAULT_IPV4))
 	vty_out (vty, " no bgp default ipv4-unicast%s", VTY_NEWLINE);
