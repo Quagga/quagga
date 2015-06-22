@@ -9035,6 +9035,37 @@ ALIAS (no_bgp_redistribute_ipv6_rmap_metric,
        "Pointer to route-map entries\n")
 #endif /* HAVE_IPV6 */
 
+DEFUN (bgp_advertise_best_external,
+	bgp_advertise_best_external_cmd,
+	"bgp advertise-best-external",
+	"BGP specific commands\n"
+	"Advertise best external path to internal peers\n")
+{
+  struct bgp *bgp;
+
+  bgp = vty->index;
+  bgp_flag_set (bgp, BGP_FLAG_ADVERTISE_BEST_EXTERNAL);
+
+
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_bgp_advertise_best_external,
+	no_bgp_advertise_best_external_cmd,
+	"no bgp advertise-best-external",
+	NO_STR
+	"BGP specific commands\n"
+	"Advertise best external path to internal peers\n")
+{
+	struct bgp *bgp;
+
+	bgp = vty->index;
+	bgp_flag_unset (bgp, BGP_FLAG_ADVERTISE_BEST_EXTERNAL);
+	return CMD_SUCCESS;
+}
+
+
 int
 bgp_config_write_redistribute (struct vty *vty, struct bgp *bgp, afi_t afi,
 			       safi_t safi, int *write)
@@ -10250,6 +10281,16 @@ bgp_vty_init (void)
   
   /* Community-list. */
   community_list_vty ();
+
+  /* "bgp advertise-best-external" commands*/
+  install_element (BGP_NODE, &bgp_advertise_best_external_cmd);
+  install_element (BGP_NODE, &no_bgp_advertise_best_external_cmd);
+  install_element (BGP_IPV4_NODE, &bgp_advertise_best_external_cmd);
+  install_element (BGP_IPV4_NODE, &no_bgp_advertise_best_external_cmd);
+  install_element (BGP_IPV6_NODE, &bgp_advertise_best_external_cmd);
+  install_element (BGP_IPV6_NODE, &no_bgp_advertise_best_external_cmd);
+  install_element (BGP_VPNV4_NODE, &bgp_advertise_best_external_cmd);
+  install_element (BGP_VPNV4_NODE, &no_bgp_advertise_best_external_cmd);
 }
 
 #include "memory.h"
