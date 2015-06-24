@@ -564,7 +564,12 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
     return 1;
   if (CHECK_FLAG (new->flags, BGP_INFO_STALE))
     return 0;
-
+  /* locally configured routes to advertise do not have su_remote */
+  if (new->peer->su_remote == NULL)
+    return 0;
+  if (exist->peer->su_remote == NULL)
+    return 1;
+  
   ret = sockunion_cmp (new->peer->su_remote, exist->peer->su_remote);
 
   if (ret == 1)
