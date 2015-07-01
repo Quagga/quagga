@@ -672,10 +672,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
   void *dest;
   void *gate;
   void *src;
-#ifdef SUPPORT_REALMS
-  u_int32_t rta_flow;
   u_int16_t realm = 0;
-#endif
 
   rtm = NLMSG_DATA (h);
 
@@ -737,6 +734,8 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
 #ifdef SUPPORT_REALMS
   if (tb[RTA_FLOW])
   {
+    u_int32_t rta_flow;
+
     rta_flow = *(u_int32_t *) RTA_DATA (tb[RTA_FLOW]);
     realm = rta_flow & 0xFFFF;
   }
@@ -751,11 +750,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
 
       if (!tb[RTA_MULTIPATH])
           rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, flags, &p, gate, src, index,
-                        vrf_id, table, metric, 0, SAFI_UNICAST
-#ifdef SUPPORT_REALMS
-                        , realm
-#endif
-		       );
+                        vrf_id, table, metric, 0, SAFI_UNICAST, realm);
       else
         {
           /* This is a multipath route */
@@ -824,7 +819,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
       p.prefixlen = rtm->rtm_dst_len;
 
       rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, flags, &p, gate, index, vrf_id,
-                    table, metric, 0, SAFI_UNICAST);
+                    table, metric, 0, SAFI_UNICAST, 0);
     }
 #endif /* HAVE_IPV6 */
 
@@ -864,10 +859,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
   void *dest;
   void *gate;
   void *src;
-#ifdef SUPPORT_REALMS
-  u_int32_t rta_flow;
   u_int16_t realm = 0;
-#endif
 
   rtm = NLMSG_DATA (h);
 
@@ -945,6 +937,8 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
 #ifdef SUPPORT_REALMS
   if (tb[RTA_FLOW])
   {
+	u_int32_t rta_flow;
+
     rta_flow = *(u_int32_t *) RTA_DATA (tb[RTA_FLOW]);
     realm = rta_flow & 0xFFFF;
   }
@@ -972,11 +966,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
         {
           if (!tb[RTA_MULTIPATH])
             rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, src, index, vrf_id,
-                          table, metric, 0, SAFI_UNICAST
-#ifdef SUPPORT_REALMS
-                        , realm
-#endif
-			 );
+                          table, metric, 0, SAFI_UNICAST, realm);
           else
             {
               /* This is a multipath route */
@@ -1060,7 +1050,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
 
       if (h->nlmsg_type == RTM_NEWROUTE)
         rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id, table,
-                      metric, 0, SAFI_UNICAST);
+                      metric, 0, SAFI_UNICAST, 0);
       else
         rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id,
                          SAFI_UNICAST);
