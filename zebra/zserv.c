@@ -1101,14 +1101,21 @@ zread_ipv6_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
   else
     api.metric = 0;
     
+#ifdef SUPPORT_REALMS
+  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_REALM))
+    api.realm = stream_getw (s);
+  else
+#endif
+    api.realm = 0;
+
   if (IN6_IS_ADDR_UNSPECIFIED (&nexthop))
     rib_add_ipv6 (api.type, api.flags, &p, NULL, ifindex,
                   vrf_id, zebrad.rtm_table_default, api.metric,
-                  api.distance, api.safi);
+                  api.distance, api.safi, api.realm);
   else
     rib_add_ipv6 (api.type, api.flags, &p, &nexthop, ifindex,
                   vrf_id, zebrad.rtm_table_default, api.metric,
-                  api.distance, api.safi);
+                  api.distance, api.safi, api.realm);
   return 0;
 }
 
