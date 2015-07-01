@@ -83,12 +83,13 @@ static int rtnl_rtrealm_init = 0;
 static void rtnl_rtrealm_initialize(void)
 {
 	int i;
-	static struct timeval now, last_init = {0,0};
+	struct timeval now;
+	static struct timeval last_init = {0,0};
 
-    gettimeofday(&now, NULL);
+	gettimeofday(&now, NULL);
 	if ( last_init.tv_sec && last_init.tv_sec > now.tv_sec + 60 )
 		return;
-    gettimeofday(&last_init, NULL);
+	gettimeofday(&last_init, NULL);
 
 	if(!rtnl_rtrealm_init)
 	    for(i = 0; i < 255; i++)
