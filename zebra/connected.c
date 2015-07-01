@@ -192,18 +192,10 @@ connected_up_ipv4 (struct interface *ifp, struct connected *ifc)
     return;
 
   rib_add_ipv4 (ZEBRA_ROUTE_CONNECT, 0, &p, NULL, NULL, ifp->ifindex,
-       ifp->vrf_id, RT_TABLE_MAIN, ifp->metric, 0, SAFI_UNICAST
-#ifdef SUPPORT_REALMS
-	, 0
-#endif
-	       );
+       ifp->vrf_id, RT_TABLE_MAIN, ifp->metric, 0, SAFI_UNICAST, 0);
 
   rib_add_ipv4 (ZEBRA_ROUTE_CONNECT, 0, &p, NULL, NULL, ifp->ifindex,
-       ifp->vrf_id, RT_TABLE_MAIN, ifp->metric, 0, SAFI_MULTICAST
-#ifdef SUPPORT_REALMS
-	, 0
-#endif
-	       );
+       ifp->vrf_id, RT_TABLE_MAIN, ifp->metric, 0, SAFI_MULTICAST, 0);
 
   rib_update (ifp->vrf_id);
 }
@@ -364,7 +356,7 @@ connected_up_ipv6 (struct interface *ifp, struct connected *ifc)
 #endif
 
   rib_add_ipv6 (ZEBRA_ROUTE_CONNECT, 0, &p, NULL, ifp->ifindex, ifp->vrf_id,
-                RT_TABLE_MAIN, ifp->metric, 0, SAFI_UNICAST);
+                RT_TABLE_MAIN, ifp->metric, 0, SAFI_UNICAST, 0);
 
   rib_update (ifp->vrf_id);
 }

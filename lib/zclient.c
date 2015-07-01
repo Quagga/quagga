@@ -597,6 +597,11 @@ zapi_ipv6_route (u_char cmd, struct zclient *zclient, struct prefix_ipv6 *p,
   if (CHECK_FLAG (api->message, ZAPI_MESSAGE_METRIC))
     stream_putl (s, api->metric);
 
+#ifdef SUPPORT_REALMS
+  if (CHECK_FLAG (api->message, ZAPI_MESSAGE_REALM))
+    stream_putw (s, api->realm);
+#endif
+
   /* Put length at the first point of the stream. */
   stream_putw_at (s, 0, stream_get_endp (s));
 

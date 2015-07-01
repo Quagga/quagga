@@ -1005,7 +1005,7 @@ rtm_read (struct rt_msghdr *rtm)
           || rtm->rtm_type == RTM_ADD
           || rtm->rtm_type == RTM_CHANGE)
         rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, &gate.sin6.sin6_addr,
-                      ifindex, VRF_DEFAULT, RT_TABLE_MAIN, 0, 0, SAFI_UNICAST);
+                      ifindex, VRF_DEFAULT, RT_TABLE_MAIN, 0, 0, SAFI_UNICAST, 0);
       else
         rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
                          &gate.sin6.sin6_addr, ifindex,
