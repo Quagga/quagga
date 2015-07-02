@@ -246,21 +246,25 @@ void evmgr_notify(const char *name, struct nhrp_cache *c, void (*cb)(struct nhrp
 		"event=%s\n"
 		"type=%s\n"
 		"old_type=%s\n"
+		"num_nhs=%u\n"
 		"interface=%s\n"
 		"local_addr=%U\n",
 		name,
 		nhrp_cache_type_str[c->new.type],
 		nhrp_cache_type_str[c->cur.type],
+		(unsigned int) nhrp_cache_counts[NHRP_CACHE_NHS],
 		c->ifp->name,
 		&nifp->afi[afi].addr);
 
 	if (vc) {
 		evmgr_put(zb,
+			"vc_initiated=%s\n"
 			"local_nbma=%U\n"
 			"local_cert=%H\n"
 			"remote_addr=%U\n"
 			"remote_nbma=%U\n"
 			"remote_cert=%H\n",
+			c->new.peer->requested ? "yes" : "no",
 			&vc->local.nbma,
 			vc->local.cert, vc->local.certlen,
 			&c->remote_addr, &vc->remote.nbma,

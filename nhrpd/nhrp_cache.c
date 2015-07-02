@@ -15,6 +15,8 @@
 
 #include "netlink.h"
 
+unsigned long nhrp_cache_counts[NHRP_CACHE_NUM_TYPES];
+
 const char * const nhrp_cache_type_str[] = {
 	[NHRP_CACHE_INVALID]	= "invalid",
 	[NHRP_CACHE_INCOMPLETE]	= "incomplete",
@@ -52,6 +54,7 @@ static void *nhrp_cache_alloc(void *data)
 			.ifp = key->ifp,
 			.notifier_list = NOTIFIER_LIST_INITIALIZER(&p->notifier_list),
 		};
+		nhrp_cache_counts[p->cur.type]++;
 	}
 
 	return p;
@@ -62,6 +65,7 @@ static void nhrp_cache_free(struct nhrp_cache *c)
 	struct nhrp_interface *nifp = c->ifp->info;
 
 	zassert(c->cur.type == NHRP_CACHE_INVALID && c->cur.peer == NULL && c->new.peer == NULL);
+	nhrp_cache_counts[c->cur.type]--;
 	notifier_call(&c->notifier_list, NOTIFY_CACHE_DELETE);
 	zassert(!notifier_active(&c->notifier_list));
 	hash_release(nifp->cache_hash, c);
@@ -182,6 +186,8 @@ static void nhrp_cache_authorize_binding(struct nhrp_reqid *r, void *arg)
 			nhrp_peer_notify_del(c->cur.peer, &c->peer_notifier);
 			nhrp_peer_unref(c->cur.peer);
 		}
+		nhrp_cache_counts[c->cur.type]--;
+		nhrp_cache_counts[c->new.type]++;
 		c->cur = c->new;
 		c->cur.peer = nhrp_peer_ref(c->cur.peer);
 		nhrp_cache_reset_new(c);

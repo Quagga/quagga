@@ -223,9 +223,11 @@ enum nhrp_cache_type {
 	NHRP_CACHE_NHS,
 	NHRP_CACHE_STATIC,
 	NHRP_CACHE_LOCAL,
+	NHRP_CACHE_NUM_TYPES
 };
 
 extern const char * const nhrp_cache_type_str[];
+extern unsigned long nhrp_cache_counts[NHRP_CACHE_NUM_TYPES];
 
 struct nhrp_cache {
 	struct interface *ifp;
