@@ -271,6 +271,7 @@ struct nhrp_nhs {
 	struct interface *ifp;
 	struct list_head nhslist_entry;
 
+	unsigned hub : 1;
 	afi_t afi;
 	union sockunion proto_addr;
 	const char *nbma_fqdn;			/* IP-address or FQDN */

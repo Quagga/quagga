@@ -72,6 +72,7 @@ static void __nhrp_peer_check(struct nhrp_peer *p)
 	online = nifp->enabled && (!nifp->ipsec_profile || vc->ipsec);
 	if (p->online != online) {
 		THREAD_OFF(p->t_fallback);
+		p->online = online;
 		if (online) {
 			/* Up notification is sent delayed 20ms to allow
 			 * things settle down a bit first. E.g. after IPsec
@@ -81,7 +82,6 @@ static void __nhrp_peer_check(struct nhrp_peer *p)
 				master, p->t_fallback,
 				nhrp_peer_notify_up, p, 20);
 		} else {
-			p->online = 0;
 			nhrp_peer_ref(p);
 			notifier_call(&p->notifier_list, NOTIFY_PEER_DOWN);
 			nhrp_peer_unref(p);
@@ -356,7 +356,8 @@ static void nhrp_handle_registration_request(struct nhrp_packet_parser *p)
 
 	/* Create reply */
 	zb = zbuf_alloc(1500);
-	hdr = nhrp_packet_push(zb, NHRP_PACKET_REGISTRATION_REPLY, &p->src_nbma, &p->src_proto, &p->dst_proto);
+	hdr = nhrp_packet_push(zb, NHRP_PACKET_REGISTRATION_REPLY,
+		&p->src_nbma, &p->src_proto, &p->if_ad->addr);
 
 	/* Copied information from request */
 	hdr->flags = p->hdr->flags & htons(NHRP_FLAG_REGISTRATION_UNIQUE | NHRP_FLAG_REGISTRATION_NAT);
@@ -646,7 +647,7 @@ static void nhrp_peer_forward(struct nhrp_peer *p, struct nhrp_packet_parser *pp
 			}
 			break;
 		default:
-			if (type & NHRP_EXTENSION_FLAG_COMPULSORY)
+			if (htons(ext->type) & NHRP_EXTENSION_FLAG_COMPULSORY)
 				/* FIXME: RFC says to just copy, but not
 				 * append our selves to the transit NHS list */
 				goto err;
@@ -709,6 +710,7 @@ void nhrp_peer_recv(struct nhrp_peer *p, struct zbuf *zb)
 	struct nhrp_packet_parser pp;
 	struct nhrp_peer *peer = NULL;
 	struct nhrp_reqid *reqid;
+	const char *info = NULL;
 	union sockunion *target_addr;
 	unsigned paylen, extoff, extlen, realsize;
 	afi_t afi;
@@ -717,19 +719,22 @@ void nhrp_peer_recv(struct nhrp_peer *p, struct zbuf *zb)
 		sockunion2str(&vc->remote.nbma, buf[0], sizeof buf[0]),
 		sockunion2str(&vc->local.nbma, buf[1], sizeof buf[1]));
 
-	if (!p->online)
-		return;
+	if (!p->online) {
+		info = "peer not online";
+		goto drop;
+	}
 
 	if (nhrp_packet_calculate_checksum(zb->head, zbuf_used(zb)) != 0) {
-		zlog_info("From %s: error: bad checksum",
-			  sockunion2str(&vc->remote.nbma, buf[0], sizeof buf[0]));
+		info = "bad checksum";
 		goto drop;
 	}
 
 	realsize = zbuf_used(zb);
 	hdr = nhrp_packet_pull(zb, &pp.src_nbma, &pp.src_proto, &pp.dst_proto);
-	if (!hdr)
+	if (!hdr) {
+		info = "corrupt header";
 		goto drop;
+	}
 
 	pp.ifp = ifp;
 	pp.pkt = zb;
@@ -753,8 +758,10 @@ void nhrp_peer_recv(struct nhrp_peer *p, struct zbuf *zb)
 
 	extoff = htons(hdr->extension_offset);
 	if (extoff) {
-		if (extoff >= realsize)
+		if (extoff >= realsize) {
+			info = "extoff larger than packet";
 			goto drop;
+		}
 		paylen = extoff - (zb->head - zb->buf);
 	} else {
 		paylen = zbuf_used(zb);
@@ -763,8 +770,10 @@ void nhrp_peer_recv(struct nhrp_peer *p, struct zbuf *zb)
 	extlen = zbuf_used(zb);
 	zbuf_init(&pp.extensions, zbuf_pulln(zb, extlen), extlen, extlen);
 
-	if (!nifp->afi[afi].network_id)
+	if (!nifp->afi[afi].network_id) {
+		info = "nhrp not enabled";
 		goto drop;
+	}
 
 	nhrp_packet_debug(zb, "Recv");
 
@@ -806,6 +815,11 @@ void nhrp_peer_recv(struct nhrp_peer *p, struct zbuf *zb)
 	}
 
 drop:
+	if (info) {
+		zlog_info("From %s: error: %s",
+			  sockunion2str(&vc->remote.nbma, buf[0], sizeof buf[0]),
+			  info);
+	}
 	if (peer) nhrp_peer_unref(peer);
 	zbuf_free(zb);
 }

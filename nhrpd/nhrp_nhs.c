@@ -60,7 +60,8 @@ static void nhrp_reg_reply(struct nhrp_reqid *reqid, void *arg)
 		debugf(NHRP_DEBUG_COMMON, "NHS: CIE registration: %s: %d",
 			sockunion2str(proto, buf, sizeof(buf)),
 			cie->code);
-		if (cie->code != NHRP_CODE_SUCCESS)
+		if (!((cie->code == NHRP_CODE_SUCCESS) ||
+                      (cie->code == NHRP_CODE_ADMINISTRATIVELY_PROHIBITED && nhs->hub)))
 			ok = 0;
 	}
 
@@ -232,9 +233,12 @@ static void nhrp_nhs_resolve_cb(struct resolver_query *q, int n, union sockunion
 	list_for_each_entry(reg, &nhs->reglist_head, reglist_entry)
 		reg->mark = 1;
 
+	nhs->hub = 0;
 	for (i = 0; i < n; i++) {
-		if (sockunion_same(&addrs[i], &nifp->nbma))
+		if (sockunion_same(&addrs[i], &nifp->nbma)) {
+			nhs->hub = 1;
 			continue;
+		}
 
 		reg = nhrp_reg_by_nbma(nhs, &addrs[i]);
 		if (reg) {
