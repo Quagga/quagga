@@ -249,6 +249,7 @@ struct nhrp_cache {
 		union sockunion remote_nbma_natoa;
 		struct nhrp_peer *peer;
 		time_t expires;
+		uint32_t mtu;
 	} cur, new;
 };
 
@@ -330,7 +331,7 @@ int nhrp_nhs_add(struct interface *ifp, afi_t afi, union sockunion *proto_addr, 
 int nhrp_nhs_del(struct interface *ifp, afi_t afi, union sockunion *proto_addr, const char *nbma_fqdn);
 int nhrp_nhs_free(struct nhrp_nhs *nhs);
 
-void nhrp_route_announce(int add, enum nhrp_cache_type type, const struct prefix *p, struct interface *ifp, const union sockunion *nexthop);
+void nhrp_route_announce(int add, enum nhrp_cache_type type, const struct prefix *p, struct interface *ifp, const union sockunion *nexthop, uint32_t mtu);
 int nhrp_route_read(int command, struct zclient *zclient, zebra_size_t length);
 int nhrp_route_get_nexthop(const union sockunion *addr, struct prefix *p, union sockunion *via, struct interface **ifp);
 enum nhrp_route_type nhrp_route_address(struct interface *in_ifp, union sockunion *addr, struct prefix *p, struct nhrp_peer **peer);
@@ -346,7 +347,7 @@ void nhrp_shortcut_prefix_change(const struct prefix *p, int deleted);
 struct nhrp_cache *nhrp_cache_get(struct interface *ifp, union sockunion *remote_addr, int create);
 void nhrp_cache_foreach(struct interface *ifp, void (*cb)(struct nhrp_cache *, void *), void *ctx);
 void nhrp_cache_set_used(struct nhrp_cache *, int);
-int nhrp_cache_update_binding(struct nhrp_cache *, enum nhrp_cache_type type, int holding_time, struct nhrp_peer *p, union sockunion *nbma_natoa);
+int nhrp_cache_update_binding(struct nhrp_cache *, enum nhrp_cache_type type, int holding_time, struct nhrp_peer *p, uint32_t mtu, union sockunion *nbma_natoa);
 void nhrp_cache_notify_add(struct nhrp_cache *c, struct notifier_block *, notifier_fn_t);
 void nhrp_cache_notify_del(struct nhrp_cache *c, struct notifier_block *);
 

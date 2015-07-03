@@ -169,7 +169,7 @@ static void nhrp_interface_update_address(struct interface *ifp, afi_t afi)
 
 	if (sockunion_family(&if_ad->addr) != AF_UNSPEC) {
 		nc = nhrp_cache_get(ifp, &if_ad->addr, 0);
-		if (nc) nhrp_cache_update_binding(nc, NHRP_CACHE_LOCAL, -1, NULL, NULL);
+		if (nc) nhrp_cache_update_binding(nc, NHRP_CACHE_LOCAL, -1, NULL, 0, NULL);
 	}
 
 	debugf(NHRP_DEBUG_KERNEL, "%s: IPv%d address changed to %s",
@@ -180,7 +180,7 @@ static void nhrp_interface_update_address(struct interface *ifp, afi_t afi)
 
 	if (nifp->enabled && sockunion_family(&if_ad->addr) != AF_UNSPEC) {
 		nc = nhrp_cache_get(ifp, &addr, 1);
-		if (nc) nhrp_cache_update_binding(nc, NHRP_CACHE_LOCAL, 0, NULL, NULL);
+		if (nc) nhrp_cache_update_binding(nc, NHRP_CACHE_LOCAL, 0, NULL, 0, NULL);
 	}
 
 	notifier_call(&nifp->notifier_list, NOTIFY_INTERFACE_ADDRESS_CHANGED);

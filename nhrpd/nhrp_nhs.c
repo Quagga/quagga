@@ -94,7 +94,7 @@ static void nhrp_reg_reply(struct nhrp_reqid *reqid, void *arg)
 
 	r->proto_addr = p->dst_proto;
 	c = nhrp_cache_get(ifp, &p->dst_proto, 1);
-	if (c) nhrp_cache_update_binding(c, NHRP_CACHE_NHS, holdtime, nhrp_peer_ref(r->peer), NULL);
+	if (c) nhrp_cache_update_binding(c, NHRP_CACHE_NHS, holdtime, nhrp_peer_ref(r->peer), 0, NULL);
 }
 
 static int nhrp_reg_timeout(struct thread *t)
@@ -107,7 +107,7 @@ static int nhrp_reg_timeout(struct thread *t)
 	if (r->timeout >= 16 && sockunion_family(&r->proto_addr) != AF_UNSPEC) {
 		nhrp_reqid_free(&nhrp_packet_reqid, &r->reqid);
 		c = nhrp_cache_get(r->nhs->ifp, &r->proto_addr, 0);
-		if (c) nhrp_cache_update_binding(c, NHRP_CACHE_NHS, -1, NULL, NULL);
+		if (c) nhrp_cache_update_binding(c, NHRP_CACHE_NHS, -1, NULL, 0, NULL);
 		sockunion_family(&r->proto_addr) = AF_UNSPEC;
 	}
 

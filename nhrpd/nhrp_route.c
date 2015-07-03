@@ -82,7 +82,7 @@ static void nhrp_route_update_nhrp(const struct prefix *p, struct interface *ifp
 	}
 }
 
-void nhrp_route_announce(int add, enum nhrp_cache_type type, const struct prefix *p, struct interface *ifp, const union sockunion *nexthop)
+void nhrp_route_announce(int add, enum nhrp_cache_type type, const struct prefix *p, struct interface *ifp, const union sockunion *nexthop, uint32_t mtu)
 {
 	struct in_addr *nexthop_ipv4;
 	int flags = 0;
@@ -124,6 +124,10 @@ void nhrp_route_announce(int add, enum nhrp_cache_type type, const struct prefix
 			SET_FLAG(api.message, ZAPI_MESSAGE_IFINDEX);
 			api.ifindex_num = 1;
 			api.ifindex = &ifp->ifindex;
+		}
+		if (mtu) {
+			SET_FLAG(api.message, ZAPI_MESSAGE_MTU);
+			api.mtu = mtu;
 		}
 
 		if (unlikely(debug_flags & NHRP_DEBUG_ROUTE)) {

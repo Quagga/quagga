@@ -52,7 +52,7 @@ static void nhrp_shortcut_cache_notify(struct notifier_block *n, unsigned long c
 	switch (cmd) {
 	case NOTIFY_CACHE_UP:
 		if (!s->route_installed) {
-			nhrp_route_announce(1, s->type, s->p, NULL, &s->cache->remote_addr);
+			nhrp_route_announce(1, s->type, s->p, NULL, &s->cache->remote_addr, 0);
 			s->route_installed = 1;
 		}
 		break;
@@ -62,7 +62,7 @@ static void nhrp_shortcut_cache_notify(struct notifier_block *n, unsigned long c
 	case NOTIFY_CACHE_DOWN:
 	case NOTIFY_CACHE_DELETE:
 		if (s->route_installed) {
-			nhrp_route_announce(0, NHRP_CACHE_INVALID, s->p, NULL, NULL);
+			nhrp_route_announce(0, NHRP_CACHE_INVALID, s->p, NULL, NULL, 0);
 			s->route_installed = 0;
 		}
 		if (cmd == NOTIFY_CACHE_DELETE)
@@ -89,10 +89,10 @@ static void nhrp_shortcut_update_binding(struct nhrp_shortcut *s, enum nhrp_cach
 			nhrp_shortcut_cache_notify(&s->cache_notifier, NOTIFY_CACHE_DOWN);
 	}
 	if (s->type == NHRP_CACHE_NEGATIVE && !s->route_installed) {
-		nhrp_route_announce(1, s->type, s->p, NULL, NULL);
+		nhrp_route_announce(1, s->type, s->p, NULL, NULL, 0);
 		s->route_installed = 1;
 	} else if (s->type == NHRP_CACHE_INVALID && s->route_installed) {
-		nhrp_route_announce(0, NHRP_CACHE_INVALID, s->p, NULL, NULL);
+		nhrp_route_announce(0, NHRP_CACHE_INVALID, s->p, NULL, NULL, 0);
 		s->route_installed = 0;
 	}
 
@@ -249,7 +249,8 @@ static void nhrp_shortcut_recv_resolution_rep(struct nhrp_reqid *reqid, void *ar
 		if (c) {
 			nhrp_cache_update_binding(
 					c, NHRP_CACHE_CACHED, holding_time,
-					nhrp_peer_get(pp->ifp, nbma), nbma_natoa);
+					nhrp_peer_get(pp->ifp, nbma),
+					htons(cie->mtu), nbma_natoa);
 		}
 	}
 

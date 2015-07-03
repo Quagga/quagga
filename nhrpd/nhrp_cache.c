@@ -102,7 +102,7 @@ static int nhrp_cache_do_timeout(struct thread *t)
 	struct nhrp_cache *c = THREAD_ARG(t);
 	c->t_timeout = NULL;
 	if (c->cur.type != NHRP_CACHE_INVALID)
-		nhrp_cache_update_binding(c, c->cur.type, -1, NULL, NULL);
+		nhrp_cache_update_binding(c, c->cur.type, -1, NULL, 0, NULL);
 	return 0;
 }
 
@@ -115,14 +115,14 @@ static void nhrp_cache_update_route(struct nhrp_cache *c)
 		sockunion2hostprefix(&c->remote_addr, &pfx);
 		netlink_update_binding(p->ifp, &c->remote_addr, &p->vc->remote.nbma);
 		if (!c->route_installed) {
-			nhrp_route_announce(1, c->cur.type, &pfx, c->ifp, NULL);
+			nhrp_route_announce(1, c->cur.type, &pfx, c->ifp, NULL, c->cur.mtu);
 			notifier_call(&c->notifier_list, NOTIFY_CACHE_UP);
 			c->route_installed = 1;
 		}
 	} else if (c->route_installed) {
 		sockunion2hostprefix(&c->remote_addr, &pfx);
 		notifier_call(&c->notifier_list, NOTIFY_CACHE_DOWN);
-		nhrp_route_announce(0, c->cur.type, &pfx, NULL, NULL);
+		nhrp_route_announce(0, c->cur.type, &pfx, NULL, NULL, 0);
 		c->route_installed = 0;
 	}
 }
@@ -138,7 +138,7 @@ static void nhrp_cache_peer_notifier(struct notifier_block *n, unsigned long cmd
 	case NOTIFY_PEER_DOWN:
 	case NOTIFY_PEER_IFCONFIG_CHANGED:
 		notifier_call(&c->notifier_list, NOTIFY_CACHE_DOWN);
-		nhrp_cache_update_binding(c, c->cur.type, -1, NULL, NULL);
+		nhrp_cache_update_binding(c, c->cur.type, -1, NULL, 0, NULL);
 		break;
 	}
 }
@@ -228,16 +228,30 @@ static void nhrp_cache_newpeer_notifier(struct notifier_block *n, unsigned long 
 	}
 }
 
-int nhrp_cache_update_binding(struct nhrp_cache *c, enum nhrp_cache_type type, int holding_time, struct nhrp_peer *p, union sockunion *nbma_oa)
+int nhrp_cache_update_binding(struct nhrp_cache *c, enum nhrp_cache_type type, int holding_time, struct nhrp_peer *p, uint32_t mtu, union sockunion *nbma_oa)
 {
 	if (c->cur.type > type || c->new.type > type) {
 		nhrp_peer_unref(p);
 		return 0;
 	}
 
+	/* Sanitize MTU */
+	switch (sockunion_family(&c->remote_addr)) {
+	case AF_INET:
+		if (mtu < 576 || mtu >= 1500)
+			mtu = 0;
+		/* Opennhrp announces nbma mtu, but we use protocol mtu.
+		 * This heuristic tries to fix up it. */
+		if (mtu > 1420) mtu -= 80;
+		break;
+	default:
+		mtu = 0;
+		break;
+	}
+
 	nhrp_cache_reset_new(c);
 
-	if (c->cur.type == type && c->cur.peer == p) {
+	if (c->cur.type == type && c->cur.peer == p && c->cur.mtu == mtu) {
 		if (holding_time > 0) c->cur.expires = recent_relative_time().tv_sec + holding_time;
 		if (nbma_oa) c->cur.remote_nbma_natoa = *nbma_oa;
 		else memset(&c->cur.remote_nbma_natoa, 0, sizeof c->cur.remote_nbma_natoa);
@@ -246,6 +260,7 @@ int nhrp_cache_update_binding(struct nhrp_cache *c, enum nhrp_cache_type type, i
 	} else {
 		c->new.type = type;
 		c->new.peer = p;
+		c->new.mtu = mtu;
 		if (nbma_oa) c->new.remote_nbma_natoa = *nbma_oa;
 
 		if (holding_time > 0)

@@ -429,12 +429,12 @@ DEFUN(if_nhrp_map, if_nhrp_map_cmd,
 
 	c->map = 1;
 	if (strcmp(argv[2], "local") == 0) {
-		nhrp_cache_update_binding(c, NHRP_CACHE_LOCAL, 0, NULL, NULL);
+		nhrp_cache_update_binding(c, NHRP_CACHE_LOCAL, 0, NULL, 0, NULL);
 	} else{
 		if (str2sockunion(argv[2], &nbma_addr) < 0)
 			return nhrp_vty_return(vty, NHRP_ERR_FAIL);
 		nhrp_cache_update_binding(c, NHRP_CACHE_STATIC, 0,
-			nhrp_peer_get(ifp, &nbma_addr), NULL);
+			nhrp_peer_get(ifp, &nbma_addr), 0, NULL);
 	}
 
 	return CMD_SUCCESS;

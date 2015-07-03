@@ -398,7 +398,7 @@ static void nhrp_handle_registration_request(struct nhrp_packet_parser *p)
 			continue;
 		}
 
-		if (!nhrp_cache_update_binding(c, NHRP_CACHE_DYNAMIC, holdtime, nhrp_peer_ref(p->peer), nbma_natoa)) {
+		if (!nhrp_cache_update_binding(c, NHRP_CACHE_DYNAMIC, holdtime, nhrp_peer_ref(p->peer), htons(cie->mtu), nbma_natoa)) {
 			cie->code = NHRP_CODE_ADMINISTRATIVELY_PROHIBITED;
 			continue;
 		}
