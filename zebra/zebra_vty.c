@@ -718,6 +718,8 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
               VTY_NEWLINE);
       vty_out (vty, "  Known via \"%s\"", zebra_route_string (rib->type));
       vty_out (vty, ", distance %u, metric %u", rib->distance, rib->metric);
+      if (rib->mtu)
+        vty_out (vty, ", mtu %u", rib->mtu);
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
         vty_out (vty, ", best");
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_FIB_OVERRIDE))

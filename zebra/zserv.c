@@ -450,6 +450,8 @@ zsend_route_multipath (int cmd, struct zserv *client, struct prefix *p,
       stream_putc (s, rib->distance);
       SET_FLAG (zapi_flags, ZAPI_MESSAGE_METRIC);
       stream_putl (s, rib->metric);
+      SET_FLAG (zapi_flags, ZAPI_MESSAGE_MTU);
+      stream_putl (s, rib->mtu);
     }
   
   /* write real message flags value */
@@ -950,6 +952,9 @@ zread_ipv4_add (struct zserv *client, u_short length)
   if (CHECK_FLAG (message, ZAPI_MESSAGE_METRIC))
     rib->metric = stream_getl (s);
     
+  if (CHECK_FLAG (message, ZAPI_MESSAGE_MTU))
+    rib->mtu = stream_getl (s);
+
   /* Table */
   rib->table=zebrad.rtm_table_default;
   rib_add_ipv4_multipath (&p, rib, safi);
@@ -1136,13 +1141,18 @@ zread_ipv6_add (struct zserv *client, u_short length)
     api.metric = stream_getl (s);
   else
     api.metric = 0;
+
+  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_MTU))
+    api.mtu = stream_getl (s);
+  else
+    api.mtu = 0;
     
   if (IN6_IS_ADDR_UNSPECIFIED (&nexthop))
-    rib_add_ipv6 (api.type, api.flags, &p, NULL, ifindex, zebrad.rtm_table_default, api.metric,
-		  api.distance, api.safi);
+    rib_add_ipv6 (api.type, api.flags, &p, NULL, ifindex, zebrad.rtm_table_default,
+                  api.metric, api.mtu, api.distance, api.safi);
   else
-    rib_add_ipv6 (api.type, api.flags, &p, &nexthop, ifindex, zebrad.rtm_table_default, api.metric,
-		  api.distance, api.safi);
+    rib_add_ipv6 (api.type, api.flags, &p, &nexthop, ifindex, zebrad.rtm_table_default,
+                  api.metric, api.mtu, api.distance, api.safi);
   return 0;
 }
 
