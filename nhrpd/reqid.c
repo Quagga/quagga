@@ -41,6 +41,7 @@ void nhrp_reqid_free(struct nhrp_reqid_pool *p, struct nhrp_reqid *r)
 struct nhrp_reqid *nhrp_reqid_lookup(struct nhrp_reqid_pool *p, uint32_t reqid)
 {
 	struct nhrp_reqid key;
+	if (!p->reqid_hash) return 0;
 	key.request_id = reqid;
 	return hash_lookup(p->reqid_hash, &key);
 }
