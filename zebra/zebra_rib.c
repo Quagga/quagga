@@ -473,10 +473,8 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
 	    break;
 	}
 
-      /* If there is no selected route or matched route is EGP, go up
-         tree. */
-      if (! match 
-	  || match->type == ZEBRA_ROUTE_BGP)
+      /* If there is no selected route go up tree. */
+      if (! match)
 	{
 	  do {
 	    rn = rn->parent;
@@ -615,10 +613,8 @@ nexthop_active_ipv6 (struct rib *rib, struct nexthop *nexthop, int set,
 	    break;
 	}
 
-      /* If there is no selected route or matched route is EGP, go up
-         tree. */
-      if (! match
-	  || match->type == ZEBRA_ROUTE_BGP)
+      /* If there is no selected route go up tree. */
+      if (! match)
 	{
 	  do {
 	    rn = rn->parent;
@@ -990,10 +986,8 @@ rib_match_ipv6 (struct in6_addr *addr)
 	    break;
 	}
 
-      /* If there is no selected route or matched route is EGP, go up
-         tree. */
-      if (! match 
-	  || match->type == ZEBRA_ROUTE_BGP)
+      /* If there is no selected route go up tree. */
+      if (! match)
 	{
 	  do {
 	    rn = rn->parent;
