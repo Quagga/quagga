@@ -1587,6 +1587,7 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
 
   /* Get sockname. */
   bgp_getsockname (peer);
+  peer->rtt = sockopt_tcp_rtt (peer->fd);
 
   BGP_EVENT_ADD (peer, Receive_OPEN_message);
 
@@ -2593,7 +2594,6 @@ bgp_read (struct thread *thread)
     {
     case BGP_MSG_OPEN:
       peer->open_in++;
-      peer->rtt = sockopt_tcp_rtt(peer->fd);
       bgp_open_receive (peer, size); /* XXX return value ignored! */
       break;
     case BGP_MSG_UPDATE:
