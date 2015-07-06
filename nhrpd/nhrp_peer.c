@@ -72,18 +72,19 @@ static void __nhrp_peer_check(struct nhrp_peer *p)
 	online = nifp->enabled && (!nifp->ipsec_profile || vc->ipsec);
 	if (p->online != online) {
 		THREAD_OFF(p->t_fallback);
-		p->online = online;
-		if (online) {
-			/* Up notification is sent delayed 20ms to allow
-			 * things settle down a bit first. E.g. after IPsec
-			 * is negotiated, the in IKEv2 the remote might need
-			 * some time to install SAs. */
+		if (online && p->requested &&
+		    notifier_active(&p->notifier_list)) {
+			/* If we requested the IPsec connection, delay
+			 * the up notification by 20ms to allow things
+			 * settle down a bit first. This allows IKE to
+			 * install SPDs and SAs. */
 			THREAD_TIMER_MSEC_ON(
 				master, p->t_fallback,
 				nhrp_peer_notify_up, p, 20);
 		} else {
+			p->online = online;
 			nhrp_peer_ref(p);
-			notifier_call(&p->notifier_list, NOTIFY_PEER_DOWN);
+			notifier_call(&p->notifier_list, online ? NOTIFY_PEER_UP : NOTIFY_PEER_DOWN);
 			nhrp_peer_unref(p);
 		}
 	}
