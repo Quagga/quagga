@@ -34,6 +34,7 @@ static const struct message debug_flags_desc[] = {
 	{ NHRP_DEBUG_KERNEL, "kernel" },
 	{ NHRP_DEBUG_ROUTE, "route" },
 	{ NHRP_DEBUG_VICI, "vici" },
+	{ NHRP_DEBUG_EVENT, "event" },
 	{ 0, NULL },
 };
 

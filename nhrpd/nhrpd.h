@@ -24,6 +24,7 @@
 #define NHRP_DEBUG_IF		(1 << 2)
 #define NHRP_DEBUG_ROUTE	(1 << 3)
 #define NHRP_DEBUG_VICI		(1 << 4)
+#define NHRP_DEBUG_EVENT	(1 << 5)
 #define NHRP_DEBUG_ALL		(0xFFFF)
 
 #define NHRP_VTY_PORT		2612

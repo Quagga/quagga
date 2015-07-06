@@ -57,11 +57,11 @@ static void evmgr_recv_message(struct event_manager *evmgr, struct zbuf *zb)
 		memcpy(buf, zbuf_pulln(&zl, len), len);
 		buf[len] = 0;
 
-		debugf(NHRP_DEBUG_COMMON, "evmgr: msg: %s", buf);
+		debugf(NHRP_DEBUG_EVENT, "evmgr: msg: %s", buf);
 		sscanf(buf, "eventid=%d", &eventid);
 		sscanf(buf, "result=%63s", result);
 	}
-	debugf(NHRP_DEBUG_COMMON, "evmgr: received: eventid=%d result=%s", eventid, result);
+	debugf(NHRP_DEBUG_EVENT, "evmgr: received: eventid=%d result=%s", eventid, result);
 	if (eventid && result[0]) {
 		struct nhrp_reqid *r = nhrp_reqid_lookup(&nhrp_event_reqid, eventid);
 		if (r) r->cb(r, result);
@@ -186,7 +186,7 @@ static int evmgr_reconnect(struct thread *t)
 		return 0;
 	}
 
-	debugf(NHRP_DEBUG_COMMON, "evmgr: Connected");
+	zlog_info("Connected to Event Manager");
 	evmgr->fd = fd;
 	THREAD_READ_ON(master, evmgr->t_read, evmgr_read, evmgr, evmgr->fd);
 
@@ -230,7 +230,7 @@ void evmgr_notify(const char *name, struct nhrp_cache *c, void (*cb)(struct nhrp
 		return;
 	}
 
-	debugf(NHRP_DEBUG_COMMON, "evmgr: sending event %s", name);
+	debugf(NHRP_DEBUG_EVENT, "evmgr: sending event %s", name);
 
 	vc = c->new.peer ? c->new.peer->vc : NULL;
 	zb = zbuf_alloc(1024 + (vc ? (vc->local.certlen + vc->remote.certlen) * 2 : 0));
