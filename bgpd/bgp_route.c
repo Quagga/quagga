@@ -2290,7 +2290,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
     {
       /* If the peer is EBGP and nexthop is not on connected route,
 	 discard it.  */
-      if (peer->sort == BGP_PEER_EBGP && peer->ttl == 1
+      if (peer->sort == BGP_PEER_EBGP && peer_ttl (peer) == 1
 	  && ! bgp_nexthop_onlink (afi, &new_attr)
 	  && ! CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
 	{
@@ -2429,7 +2429,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 	  && safi == SAFI_UNICAST 
 	  && (peer->sort == BGP_PEER_IBGP
               || peer->sort == BGP_PEER_CONFED
-	      || (peer->sort == BGP_PEER_EBGP && peer->ttl != 1)
+	      || (peer->sort == BGP_PEER_EBGP && peer_ttl (peer) != 1)
 	      || CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK)))
 	{
 	  if (bgp_nexthop_lookup (afi, peer, ri, NULL, NULL))
@@ -2475,7 +2475,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
       && safi == SAFI_UNICAST
       && (peer->sort == BGP_PEER_IBGP
           || peer->sort == BGP_PEER_CONFED
-	  || (peer->sort == BGP_PEER_EBGP && peer->ttl != 1)
+	  || (peer->sort == BGP_PEER_EBGP && peer_ttl (peer) != 1)
 	  || CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK)))
     {
       if (bgp_nexthop_lookup (afi, peer, new, NULL, NULL))
