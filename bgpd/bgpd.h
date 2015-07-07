@@ -832,9 +832,8 @@ enum bgp_clear_type
 #define BGP_ERR_CANNOT_HAVE_LOCAL_AS_SAME_AS    -28
 #define BGP_ERR_TCPSIG_FAILED			-29
 #define BGP_ERR_NO_EBGP_MULTIHOP_WITH_TTLHACK	-30
-#define BGP_ERR_NO_IBGP_WITH_TTLHACK		-31
+#define BGP_ERR_CANNOT_HAVE_LOCAL_AS_SAME_AS_REMOTE_AS    -31
 #define BGP_ERR_MAX				-32
-#define BGP_ERR_CANNOT_HAVE_LOCAL_AS_SAME_AS_REMOTE_AS    -33
 
 extern struct bgp_master *bm;
 
@@ -920,6 +919,7 @@ extern int peer_rsclient_active (struct peer *);
 
 extern int peer_remote_as (struct bgp *, union sockunion *, as_t *, afi_t, safi_t);
 extern int peer_group_remote_as (struct bgp *, const char *, as_t *);
+extern int peer_ttl (struct peer *peer);
 extern int peer_delete (struct peer *peer);
 extern int peer_group_delete (struct peer_group *);
 extern int peer_group_remote_as_delete (struct peer_group *);
@@ -940,7 +940,6 @@ extern int peer_af_flag_unset (struct peer *, afi_t, safi_t, u_int32_t);
 extern int peer_af_flag_check (struct peer *, afi_t, safi_t, u_int32_t);
 
 extern int peer_ebgp_multihop_set (struct peer *, int);
-extern int peer_ebgp_multihop_unset (struct peer *);
 
 extern int peer_description_set (struct peer *, char *);
 extern int peer_description_unset (struct peer *);
@@ -1002,6 +1001,5 @@ extern int peer_clear (struct peer *);
 extern int peer_clear_soft (struct peer *, afi_t, safi_t, enum bgp_clear_type);
 
 extern int peer_ttl_security_hops_set (struct peer *, int);
-extern int peer_ttl_security_hops_unset (struct peer *);
 
 #endif /* _QUAGGA_BGPD_H */
