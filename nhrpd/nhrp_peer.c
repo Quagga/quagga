@@ -72,8 +72,7 @@ static void __nhrp_peer_check(struct nhrp_peer *p)
 	online = nifp->enabled && (!nifp->ipsec_profile || vc->ipsec);
 	if (p->online != online) {
 		THREAD_OFF(p->t_fallback);
-		if (online && p->requested &&
-		    notifier_active(&p->notifier_list)) {
+		if (online && notifier_active(&p->notifier_list)) {
 			/* If we requested the IPsec connection, delay
 			 * the up notification by 20ms to allow things
 			 * settle down a bit first. This allows IKE to
