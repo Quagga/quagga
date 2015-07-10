@@ -44,8 +44,8 @@ void netlink_update_binding(struct interface *ifp, union sockunion *proto, union
 	if (nbma)
 		znl_rta_push(zb, NDA_LLADDR, sockunion_get_addr(nbma), family2addrsize(sockunion_family(nbma)));
 	znl_nlmsg_complete(zb, n);
-
 	zbuf_send(zb, netlink_req_fd);
+	zbuf_free(zb);
 }
 
 static void netlink_neigh_msg(struct nlmsghdr *msg, struct zbuf *zb)
@@ -152,6 +152,7 @@ static void netlink_log_register(int fd, int group)
 	znl_nlmsg_complete(zb, n);
 
 	zbuf_send(zb, fd);
+	zbuf_free(zb);
 }
 
 static void netlink_log_indication(struct nlmsghdr *msg, struct zbuf *zb)
@@ -252,6 +253,7 @@ int netlink_configure_arp(unsigned int ifindex, int pf)
 	struct ndtmsg *ndtm;
 	struct rtattr *rta;
 	struct zbuf *zb = zbuf_alloc(512);
+	int r;
 
 	n = znl_nlmsg_push(zb, RTM_SETNEIGHTBL, NLM_F_REQUEST | NLM_F_REPLACE);
 	ndtm = znl_push(zb, sizeof(*ndtm));
@@ -269,6 +271,8 @@ int netlink_configure_arp(unsigned int ifindex, int pf)
 	znl_rta_nested_complete(zb, rta);
 
 	znl_nlmsg_complete(zb, n);
+	r = zbuf_send(zb, netlink_req_fd);
+	zbuf_free(zb);
 
-	return zbuf_send(zb, netlink_req_fd);
+	return r;
 }
