@@ -142,7 +142,7 @@ static int nhrp_reg_send_req(struct thread *t)
 	struct nhrp_interface *nifp = ifp->info;
 	struct nhrp_afi_data *if_ad = &nifp->afi[nhs->afi];
 	union sockunion *dst_proto;
-	struct zbuf *zb = zbuf_alloc(1400);
+	struct zbuf *zb;
 	struct nhrp_packet_header *hdr;
 	struct nhrp_extension_header *ext;
 	struct nhrp_cie_header *cie;
@@ -168,6 +168,7 @@ static int nhrp_reg_send_req(struct thread *t)
 	if (sockunion_family(&if_ad->addr) == AF_UNSPEC)
 		return 0;
 
+	zb = zbuf_alloc(1400);
 	hdr = nhrp_packet_push(zb, NHRP_PACKET_REGISTRATION_REQUEST, &nifp->nbma, &if_ad->addr, dst_proto);
 	hdr->hop_count = 0;
 	if (!(if_ad->flags & NHRP_IFF_REG_NO_UNIQUE))
@@ -191,6 +192,7 @@ static int nhrp_reg_send_req(struct thread *t)
 
 	nhrp_packet_complete(zb, hdr);
 	nhrp_peer_send(r->peer, zb);
+	zbuf_free(zb);
 
 	return 0;
 }

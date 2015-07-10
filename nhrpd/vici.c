@@ -347,7 +347,10 @@ static int vici_write(struct thread *t)
 
 static void vici_submit(struct vici_conn *vici, struct zbuf *obuf)
 {
-	if (vici->fd < 0) return;
+	if (vici->fd < 0) {
+		zbuf_free(obuf);
+		return;
+	}
 
 	zbufq_queue(&vici->obuf, obuf);
 	THREAD_WRITE_ON(master, vici->t_write, vici_write, vici, vici->fd);

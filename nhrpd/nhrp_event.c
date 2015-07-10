@@ -162,8 +162,10 @@ static void evmgr_put(struct zbuf *zb, const char *fmt, ...)
 
 static void evmgr_submit(struct event_manager *evmgr, struct zbuf *obuf)
 {
-	if (evmgr->fd < 0) return;
-	if (obuf->error) return;
+	if (evmgr->fd < 0 || obuf->error) {
+		zbuf_free(obuf);
+		return;
+	}
 
 	zbuf_put(obuf, "\n", 1);
 	zbufq_queue(&evmgr->obuf, obuf);

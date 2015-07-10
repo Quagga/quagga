@@ -335,6 +335,7 @@ static void nhrp_handle_resolution_req(struct nhrp_packet_parser *p)
 	nhrp_peer_send(peer, zb);
 err:
 	nhrp_peer_unref(peer);
+	zbuf_free(zb);
 }
 
 static void nhrp_handle_registration_request(struct nhrp_packet_parser *p)
@@ -432,7 +433,7 @@ static void nhrp_handle_registration_request(struct nhrp_packet_parser *p)
 	nhrp_packet_complete(zb, hdr);
 	nhrp_peer_send(p->peer, zb);
 err:
-	return;
+	zbuf_free(zb);
 }
 
 static int parse_ether_packet(struct zbuf *zb, uint16_t protocol_type, union sockunion *src, union sockunion *dst)
@@ -502,6 +503,7 @@ void nhrp_peer_send_indication(struct interface *ifp, uint16_t protocol_type, st
 	nhrp_packet_complete(zb, hdr);
 	nhrp_peer_send(p, zb);
 	nhrp_peer_unref(p);
+	zbuf_free(zb);
 }
 
 static void nhrp_handle_error_ind(struct nhrp_packet_parser *pp)
@@ -664,9 +666,11 @@ static void nhrp_peer_forward(struct nhrp_peer *p, struct nhrp_packet_parser *pp
 
 	nhrp_packet_complete(zb, hdr);
 	nhrp_peer_send(p, zb);
+	zbuf_free(zb);
 	return;
 err:
 	nhrp_packet_debug(pp->pkt, "FWD-FAIL");
+	zbuf_free(zb);
 }
 
 static void nhrp_packet_debug(struct zbuf *zb, const char *dir)

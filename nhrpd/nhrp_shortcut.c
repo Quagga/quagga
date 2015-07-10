@@ -310,6 +310,7 @@ static void nhrp_shortcut_send_resolution_req(struct nhrp_shortcut *s)
 
 	nhrp_peer_send(peer, zb);
 	nhrp_peer_unref(peer);
+	zbuf_free(zb);
 }
 
 void nhrp_shortcut_initiate(union sockunion *addr)
