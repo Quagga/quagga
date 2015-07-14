@@ -56,6 +56,7 @@ struct rib
 
   /* MTU */
   u_int32_t mtu;
+  u_int32_t nexthop_mtu;
 
   /* Distance. */
   u_char distance;

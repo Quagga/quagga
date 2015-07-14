@@ -1655,13 +1655,16 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
   /* Metric. */
   addattr32 (&req.n, sizeof req, RTA_PRIORITY, rib->metric);
 
-  if (rib->mtu)
+  if (rib->mtu || rib->nexthop_mtu)
     {
       char buf[NL_PKT_BUF_SIZE];
       struct rtattr *rta = (void *) buf;
+      u_int32_t mtu = rib->mtu;
+      if (!mtu || (rib->nexthop_mtu && rib->nexthop_mtu < mtu))
+        mtu = rib->nexthop_mtu;
       rta->rta_type = RTA_METRICS;
       rta->rta_len = RTA_LENGTH(0);
-      rta_addattr_l (rta, NL_PKT_BUF_SIZE, RTAX_MTU, &rib->mtu, sizeof rib->mtu);
+      rta_addattr_l (rta, NL_PKT_BUF_SIZE, RTAX_MTU, &mtu, sizeof mtu);
       addattr_l (&req.n, NL_PKT_BUF_SIZE, RTA_METRICS, RTA_DATA (rta),
                  RTA_PAYLOAD (rta));
     }

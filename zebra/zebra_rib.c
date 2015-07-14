@@ -442,6 +442,7 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
       UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE);
       nexthops_free(nexthop->resolved);
       nexthop->resolved = NULL;
+      rib->nexthop_mtu = 0;
     }
 
   /* Make lookup prefix. */
@@ -548,6 +549,8 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
 		      }
 		    resolved = 1;
 		  }
+              if (resolved && set)
+                rib->nexthop_mtu = match->mtu;
 	      return resolved;
 	    }
 	  else
