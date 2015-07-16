@@ -392,8 +392,7 @@ zsend_route_multipath (int cmd, struct zserv *client, struct prefix *p,
   
   for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
     {
-      if (CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_FIB)
-          || nexthop_has_fib_child(nexthop))
+      if (CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_ACTIVE))
         {
           SET_FLAG (zapi_flags, ZAPI_MESSAGE_NEXTHOP);
           SET_FLAG (zapi_flags, ZAPI_MESSAGE_IFINDEX);
@@ -498,7 +497,7 @@ zsend_ipv6_nexthop_lookup (struct zserv *client, struct in6_addr *addr)
        * are looking up. Therefore, we will just iterate over the top
        * chain of nexthops. */
       for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
-	if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB))
+	if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE))
 	  {
 	    stream_putc (s, nexthop->type);
 	    switch (nexthop->type)
@@ -567,7 +566,7 @@ zsend_ipv4_nexthop_lookup (struct zserv *client, struct in_addr addr)
        * are looking up. Therefore, we will just iterate over the top
        * chain of nexthops. */
       for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
-	if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB))
+	if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE))
 	  {
 	    stream_putc (s, nexthop->type);
 	    switch (nexthop->type)
@@ -637,7 +636,7 @@ zsend_ipv4_nexthop_lookup_mrib (struct zserv *client, struct in_addr addr,
        * are looking up. Therefore, we will just iterate over the top
        * chain of nexthops. */
       for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
-	if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB))
+	if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE))
 	  {
 	    stream_putc (s, nexthop->type);
 	    switch (nexthop->type)
@@ -760,8 +759,7 @@ zsend_ipv4_import_lookup (struct zserv *client, struct prefix_ipv4 *p)
       nump = stream_get_endp(s);
       stream_putc (s, 0);
       for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
-	if (CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_FIB)
-            || nexthop_has_fib_child(nexthop))
+	if (CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_ACTIVE))
 	  {
 	    stream_putc (s, nexthop->type);
 	    switch (nexthop->type)
