@@ -176,7 +176,7 @@ else
   AC_MSG_RESULT([CFLAGS supplied by user])
 fi
 
-if test x"${enable_werror}" = x"yes" ; then
+if test x"${enable_werror}" != x"no" ; then
   WERROR="-Werror"
 fi
 AC_SUBST(WERROR)
@@ -301,7 +301,7 @@ AC_ARG_ENABLE(pcreposix,
 AC_ARG_ENABLE(fpm,
   AS_HELP_STRING([--enable-fpm], [enable Forwarding Plane Manager support]))
 AC_ARG_ENABLE(werror,
-  AS_HELP_STRING([--enable-werror], [enable -Werror (recommended for developers only)]))
+  AS_HELP_STRING([--disable-werror], [disable -Werror (recommended for breaking other peoples builds only)]))
 
 if test x"${enable_gcc_rdynamic}" != x"no" ; then
   if test x"${enable_gcc_rdynamic}" = x"yes" -o x"$COMPILER" = x"GCC"; then
