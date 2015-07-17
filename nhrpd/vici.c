@@ -458,7 +458,7 @@ void vici_terminate(void)
 {
 }
 
-void vici_request_vc(const char *profile, union sockunion *src, union sockunion *dst)
+void vici_request_vc(const char *profile, union sockunion *src, union sockunion *dst, int prio)
 {
 	struct vici_conn *vici = &vici_connection;
 	char buf[2][SU_ADDRSTRLEN];
@@ -469,7 +469,8 @@ void vici_request_vc(const char *profile, union sockunion *src, union sockunion 
 	vici_submit_request(
 		vici, "initiate",
 		VICI_KEY_VALUE, "child", strlen(profile), profile,
-		VICI_KEY_VALUE, "async", strlen("1"), "1",
+		VICI_KEY_VALUE, "async", 1, "1",
+		VICI_KEY_VALUE, "init-limits", 1, prio ? "0" : "1",
 		VICI_KEY_VALUE, "my-host", strlen(buf[0]), buf[0],
 		VICI_KEY_VALUE, "other-host", strlen(buf[1]), buf[1],
 		VICI_END);

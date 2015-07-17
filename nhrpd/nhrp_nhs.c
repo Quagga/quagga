@@ -148,7 +148,7 @@ static int nhrp_reg_send_req(struct thread *t)
 	struct nhrp_cie_header *cie;
 
 	r->t_register = NULL;
-	if (!nhrp_peer_check(r->peer, 1)) {
+	if (!nhrp_peer_check(r->peer, 2)) {
 		THREAD_TIMER_ON(master, r->t_register, nhrp_reg_send_req, r, 120);
 		return 0;
 	}

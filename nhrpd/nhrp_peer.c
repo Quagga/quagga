@@ -209,7 +209,7 @@ static int nhrp_peer_fallback_timer(struct thread *t)
 	p->t_fallback = NULL;
 	if (!p->online)
 		vici_request_vc(nifp->ipsec_fallback_profile,
-				&vc->local.nbma, &vc->remote.nbma);
+				&vc->local.nbma, &vc->remote.nbma, p->prio);
 
 	return 0;
 }
@@ -225,7 +225,8 @@ int nhrp_peer_check(struct nhrp_peer *p, int establish)
 	if (!establish)
 		return 0;
 
-	vici_request_vc(nifp->ipsec_profile, &vc->local.nbma, &vc->remote.nbma);
+	p->prio = establish > 1;
+	vici_request_vc(nifp->ipsec_profile, &vc->local.nbma, &vc->remote.nbma, p->prio);
 	p->requested = 1;
 	if (nifp->ipsec_fallback_profile)
 		THREAD_TIMER_ON(master, p->t_fallback, nhrp_peer_fallback_timer, p, 15);

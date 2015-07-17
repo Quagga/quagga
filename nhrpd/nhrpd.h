@@ -182,6 +182,7 @@ struct nhrp_peer {
 	unsigned int ref;
 	unsigned online : 1;
 	unsigned requested : 1;
+	unsigned prio : 1;
 	struct notifier_list notifier_list;
 	struct interface *ifp;
 	struct nhrp_vc *vc;
@@ -363,7 +364,7 @@ void nhrp_vc_foreach(void (*cb)(struct nhrp_vc *, void *), void *ctx);
 
 void vici_init(void);
 void vici_terminate(void);
-void vici_request_vc(const char *profile, union sockunion *src, union sockunion *dst);
+void vici_request_vc(const char *profile, union sockunion *src, union sockunion *dst, int prio);
 
 extern const char *nhrp_event_socket_path;
 
