@@ -531,7 +531,7 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
 			if (newhop->type == NEXTHOP_TYPE_IFINDEX
 			    || newhop->type == NEXTHOP_TYPE_IFNAME)
 			  {
-			    resolved_hop->type = NEXTHOP_TYPE_IPV4;
+			    resolved_hop->type = NEXTHOP_TYPE_IPV4_IFINDEX;
 			    resolved_hop->gate.ipv4 = nexthop->gate.ipv4;
 			    resolved_hop->ifindex = newhop->ifindex;
 			  }
