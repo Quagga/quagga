@@ -2119,6 +2119,8 @@ cmd_describe_command_real (vector vline, struct vty *vty, int *status)
   char *command;
   vector matches = NULL;
   vector match_vector;
+  uint32_t command_found = 0;
+  const char *last_word;
 
   /* Set index. */
   if (vector_active (vline) == 0)
@@ -2205,40 +2207,54 @@ cmd_describe_command_real (vector vline, struct vty *vty, int *status)
 
   /* Make description vector. */
   for (i = 0; i < vector_active (matches); i++)
-    if ((cmd_element = vector_slot (cmd_vector, i)) != NULL)
-      {
-        unsigned int j;
-        const char *last_word;
-        vector vline_trimmed;
+    {
+      if ((cmd_element = vector_slot (cmd_vector, i)) != NULL)
+	{
+	  unsigned int j;
+	  vector vline_trimmed;
 
-        last_word = vector_slot(vline, vector_active(vline) - 1);
-        if (last_word == NULL || !strlen(last_word))
-          {
-            vline_trimmed = vector_copy(vline);
-            vector_unset(vline_trimmed, vector_active(vline_trimmed) - 1);
+	  command_found++;
+	  last_word = vector_slot(vline, vector_active(vline) - 1);
+	  if (last_word == NULL || !strlen(last_word))
+	    {
+	      vline_trimmed = vector_copy(vline);
+	      vector_unset(vline_trimmed, vector_active(vline_trimmed) - 1);
 
-            if (cmd_is_complete(cmd_element, vline_trimmed)
-                && desc_unique_string(matchvec, command_cr))
-              {
-                if (match != vararg_match)
-                  vector_set(matchvec, &token_cr);
-              }
+	      if (cmd_is_complete(cmd_element, vline_trimmed)
+		  && desc_unique_string(matchvec, command_cr))
+		{
+		  if (match != vararg_match)
+		    vector_set(matchvec, &token_cr);
+		}
 
-            vector_free(vline_trimmed);
-          }
+	      vector_free(vline_trimmed);
+	    }
 
-        match_vector = vector_slot (matches, i);
-        if (match_vector)
-          for (j = 0; j < vector_active(match_vector); j++)
-            {
-              struct cmd_token *token = vector_slot(match_vector, j);
-              const char *string;
+	  match_vector = vector_slot (matches, i);
+	  if (match_vector)
+	    {
+	      for (j = 0; j < vector_active(match_vector); j++)
+		{
+		  struct cmd_token *token = vector_slot(match_vector, j);
+		  const char *string;
 
-              string = cmd_entry_function_desc(command, token);
-              if (string && desc_unique_string(matchvec, string))
-                vector_set(matchvec, token);
-            }
-      }
+		  string = cmd_entry_function_desc(command, token);
+		  if (string && desc_unique_string(matchvec, string))
+		    vector_set(matchvec, token);
+		}
+	    }
+	}
+    }
+
+  /*
+   * We can get into this situation when the command is complete
+   * but the last part of the command is an optional piece of
+   * the cli.
+   */
+  last_word = vector_slot(vline, vector_active(vline) - 1);
+  if (command_found == 0 && (last_word == NULL || !strlen(last_word)))
+    vector_set(matchvec, &token_cr);
+
   vector_free (cmd_vector);
   cmd_matches_free(&matches);
 
