@@ -1222,6 +1222,7 @@ AC_CHECK_LIB(c, inet_ntop, [AC_DEFINE(HAVE_INET_NTOP,,inet_ntop)])
 AC_CHECK_LIB(c, inet_pton, [AC_DEFINE(HAVE_INET_PTON,,inet_pton)])
 AC_CHECK_LIB(crypt, crypt)
 AC_CHECK_LIB(resolv, res_init)
+AC_CHECK_LIB(c, setfib, [AC_DEFINE(HAVE_FIB,,FIB routing table)])
 
 dnl ---------------------------
 dnl check system has PCRE regexp

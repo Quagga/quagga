@@ -97,6 +97,12 @@ interface_list (struct zebra_vrf *zvrf)
   caddr_t ref, buf, end;
   size_t bufsiz;
   struct if_msghdr *ifm;
+#ifdef HAVE_FIB
+  struct ifreq ifr;
+  char iface[IFNAMSIZ + 1];
+  u_int fib = get_active_fib();
+  int s;
+#endif
 
 #define MIBSIZ 6
   int mib[MIBSIZ] =
@@ -114,6 +120,10 @@ interface_list (struct zebra_vrf *zvrf)
       zlog_warn ("interface_list: ignore VRF %u", zvrf->vrf_id);
       return;
     }
+
+#ifdef HAVE_FIB
+  s = socket(AF_LOCAL, SOCK_DGRAM, 0);
+#endif
 
   /* Query buffer size. */
   if (sysctl (mib, MIBSIZ, NULL, &bufsiz, NULL, 0) < 0) 
@@ -143,11 +153,25 @@ interface_list (struct zebra_vrf *zvrf)
 	  ifm_read (ifm);
 	  break;
 	case RTM_NEWADDR:
+#ifdef HAVE_FIB
+	  if (s != -1 && if_indextoname(ifm->ifm_index, iface) != NULL)
+	    {
+	      ifr.ifr_addr.sa_family = AF_LOCAL;
+	      strlcpy(ifr.ifr_name, iface, sizeof(ifr.ifr_name));
+	      if (ioctl(s, SIOCGIFFIB, (caddr_t)&ifr) == 0 &&
+		  ifr.ifr_fib != fib)
+		  continue;
+	    }
+#endif
 	  ifam_read ((struct ifa_msghdr *) ifm);
 	  break;
 	default:
 	  zlog_info ("interfaces_list(): unexpected message type");
 	  XFREE (MTYPE_TMP, ref);
+#ifdef HAVE_FIB
+	  if (s != -1)
+	    close(s);
+#endif
 	  return;
 	  break;
 	}
@@ -155,4 +179,8 @@ interface_list (struct zebra_vrf *zvrf)
 
   /* Free sysctl buffer. */
   XFREE (MTYPE_TMP, ref);
+#ifdef HAVE_FIB
+  if (s != -1)
+    close(s);
+#endif
 }
