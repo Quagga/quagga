@@ -38,7 +38,12 @@ route_read (struct zebra_vrf *zvrf)
   size_t bufsiz;
   struct rt_msghdr *rtm;
   
+#ifdef HAVE_FIB
+#define MIBSIZ 7
+  u_int fib = get_active_fib();
+#else
 #define MIBSIZ 6
+#endif
   int mib[MIBSIZ] = 
   {
     CTL_NET,
@@ -47,6 +52,9 @@ route_read (struct zebra_vrf *zvrf)
     0,
     NET_RT_DUMP,
     0
+#ifdef HAVE_FIB
+    , fib
+#endif
   };
 
   if (zvrf->vrf_id != VRF_DEFAULT)

@@ -670,4 +670,18 @@ rib_tables_iter_cleanup (rib_tables_iter_t *iter)
   iter->state = RIB_TABLES_ITER_S_DONE;
 }
 
+
+#ifdef HAVE_FIB
+static inline u_int
+get_active_fib (void)
+{
+  int fib;
+  size_t fib_len = sizeof(fib);
+
+  if (sysctlbyname("net.my_fibnum", &fib, &fib_len, NULL, 0) < 0)
+    return 0;
+
+  return fib;
+}
+#endif
 #endif /*_ZEBRA_RIB_H */
