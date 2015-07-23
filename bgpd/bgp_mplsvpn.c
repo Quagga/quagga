@@ -116,9 +116,6 @@ bgp_nlri_parse_vpnv4 (struct peer *peer, struct attr *attr,
 	  zlog_err ("prefix length is less than 88: %d", prefixlen);
 	  return -1;
 	}
-	
-      /* XXX: Not doing anything with the label */
-      decode_label (pnt);
 
       /* Copyr label to prefix. */
       tagpnt = pnt;;
