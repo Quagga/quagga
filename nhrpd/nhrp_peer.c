@@ -531,20 +531,16 @@ static void nhrp_handle_traffic_ind(struct nhrp_packet_parser *p)
 	union sockunion dst;
 	char buf[2][SU_ADDRSTRLEN];
 
-	if (!(p->if_ad->flags & NHRP_IFF_SHORTCUT)) {
-		debugf(NHRP_DEBUG_COMMON, "Traffic Indication from %s about packet to %s ignored",
-			sockunion2str(&p->src_proto, buf[0], sizeof buf[0]),
-			sockunion2str(&dst, buf[1], sizeof buf[1]));
-		return;
-	}
-
 	if (!parse_ether_packet(&p->payload, htons(p->hdr->protocol_type), NULL, &dst))
 		return;
 
-	debugf(NHRP_DEBUG_COMMON, "Traffic Indication from %s about packet to %s",
+	debugf(NHRP_DEBUG_COMMON, "Traffic Indication from %s about packet to %s: %s",
 		sockunion2str(&p->src_proto, buf[0], sizeof buf[0]),
-		sockunion2str(&dst, buf[1], sizeof buf[1]));
-	nhrp_shortcut_initiate(&dst);
+		sockunion2str(&dst, buf[1], sizeof buf[1]),
+		(p->if_ad->flags & NHRP_IFF_SHORTCUT) ? "trying shortcut" : "ignored");
+
+	if (p->if_ad->flags & NHRP_IFF_SHORTCUT)
+		nhrp_shortcut_initiate(&dst);
 }
 
 enum packet_type_t {
