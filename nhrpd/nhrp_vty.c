@@ -122,11 +122,12 @@ DEFUN(show_debugging_nhrp, show_debugging_nhrp_cmd,
 }
 
 DEFUN(debug_nhrp, debug_nhrp_cmd,
-	"debug nhrp (all|common|interface|kernel|route|vici)",
+	"debug nhrp (all|common|event|interface|kernel|route|vici)",
 	"Enable debug messages for specific or all parts.\n"
 	"NHRP information\n"
 	"All messages\n"
 	"Common messages (default)\n"
+	"Event manager messages\n"
 	"Interface messages\n"
 	"Kernel messages\n"
 	"Route messages\n"
