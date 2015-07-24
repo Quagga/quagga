@@ -1313,7 +1313,7 @@ rib_choose_best (struct rib *current, struct rib *alternate)
     return current;
 
   /* higher distance loses */
-  if (alternate->distance > current->distance)
+  if (alternate->distance < current->distance)
     return alternate;
   if (current->distance < alternate->distance)
     return current;
