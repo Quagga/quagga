@@ -114,8 +114,8 @@ static void nhrp_cache_update_route(struct nhrp_cache *c)
 	if (p && nhrp_peer_check(p, 1)) {
 		sockunion2hostprefix(&c->remote_addr, &pfx);
 		netlink_update_binding(p->ifp, &c->remote_addr, &p->vc->remote.nbma);
+		nhrp_route_announce(1, c->cur.type, &pfx, c->ifp, NULL, c->cur.mtu);
 		if (!c->route_installed) {
-			nhrp_route_announce(1, c->cur.type, &pfx, c->ifp, NULL, c->cur.mtu);
 			notifier_call(&c->notifier_list, NOTIFY_CACHE_UP);
 			c->route_installed = 1;
 		}
