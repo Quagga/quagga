@@ -228,7 +228,7 @@ int nhrp_peer_check(struct nhrp_peer *p, int establish)
 	p->prio = establish > 1;
 	vici_request_vc(nifp->ipsec_profile, &vc->local.nbma, &vc->remote.nbma, p->prio);
 	p->requested = 1;
-	if (nifp->ipsec_fallback_profile)
+	if (nifp->ipsec_fallback_profile && !p->prio)
 		THREAD_TIMER_ON(master, p->t_fallback, nhrp_peer_fallback_timer, p, 15);
 
 	return 0;
