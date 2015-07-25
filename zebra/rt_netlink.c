@@ -1799,6 +1799,8 @@ skip:
 int
 kernel_route_rib (struct prefix *p, struct rib *old, struct rib *new)
 {
+  int ret;
+
   if (!old && new)
     return netlink_route_multipath (RTM_NEWROUTE, p, new, PREFIX_FAMILY(p));
   if (old && !new)
@@ -1810,9 +1812,10 @@ kernel_route_rib (struct prefix *p, struct rib *old, struct rib *new)
     return netlink_route_multipath (RTM_NEWROUTE, p, new, PREFIX_FAMILY(p));
 
   /* Add + delete so the prefix does not disappear temporarily */
-  if (netlink_route_multipath (RTM_NEWROUTE, p, new, PREFIX_FAMILY(p)) < 0)
-    return -1;
-  return netlink_route_multipath (RTM_DELROUTE, p, old, PREFIX_FAMILY(p));
+  ret = netlink_route_multipath (RTM_NEWROUTE, p, new, PREFIX_FAMILY(p));
+  if (netlink_route_multipath (RTM_DELROUTE, p, old, PREFIX_FAMILY(p)) < 0)
+    ret = -1;
+  return ret;
 }
 
 /* Interface address modification. */
