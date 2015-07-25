@@ -280,6 +280,13 @@ static void nhrp_handle_resolution_req(struct nhrp_packet_parser *p)
 		return;
 	}
 
+	if (p->if_ad->network_id &&
+	    p->route_type == NHRP_ROUTE_OFF_NBMA &&
+	    p->route_prefix.prefixlen < 8) {
+		debugf(NHRP_DEBUG_COMMON, "Shortcut to more generic than /8 dropped");
+		return;
+	}
+
 	debugf(NHRP_DEBUG_COMMON, "Parsing and replying to Resolution Req");
 
 	if (nhrp_route_address(p->ifp, &p->src_proto, NULL, &peer) != NHRP_ROUTE_NBMA_NEXTHOP)
