@@ -310,7 +310,7 @@ static void nhrp_handle_resolution_req(struct nhrp_packet_parser *p)
 	if (p->if_ad->network_id && p->route_type == NHRP_ROUTE_OFF_NBMA)
 		cie->prefix_length = p->route_prefix.prefixlen;
 	else
-		cie->prefix_length = 0xff;
+		cie->prefix_length = 8 * sockunion_get_addrlen(&p->if_ad->addr);
 
 	/* Handle extensions */
 	while ((ext = nhrp_ext_pull(&p->extensions, &payload)) != NULL) {
