@@ -672,7 +672,6 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h)
 
   int index;
   int table;
-  int metric;
   u_int32_t mtu = 0;
 
   void *dest;
@@ -714,7 +713,6 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h)
     flags |= ZEBRA_FLAG_SELFROUTE;
 
   index = 0;
-  metric = 0;
   dest = NULL;
   gate = NULL;
   src = NULL;
@@ -732,9 +730,6 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h)
 
   if (tb[RTA_GATEWAY])
     gate = RTA_DATA (tb[RTA_GATEWAY]);
-
-  if (tb[RTA_PRIORITY])
-    metric = *(int *) RTA_DATA(tb[RTA_PRIORITY]);
 
   if (tb[RTA_METRICS])
     {
@@ -757,7 +752,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h)
 
       if (!tb[RTA_MULTIPATH])
           rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, flags, &p, gate, src, index,
-                        table, metric, mtu, 0, SAFI_UNICAST);
+                        table, 0, mtu, 0, SAFI_UNICAST);
       else
         {
           /* This is a multipath route */
@@ -772,7 +767,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h)
           rib->type = ZEBRA_ROUTE_KERNEL;
           rib->distance = 0;
           rib->flags = flags;
-          rib->metric = metric;
+          rib->metric = 0;
           rib->mtu = mtu;
           rib->table = table;
           rib->nexthop_num = 0;
@@ -824,7 +819,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h)
       p.prefixlen = rtm->rtm_dst_len;
 
       rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, flags, &p, gate, index, table,
-		    metric, mtu, 0, SAFI_UNICAST);
+		    0, mtu, 0, SAFI_UNICAST);
     }
 #endif /* HAVE_IPV6 */
 
@@ -858,7 +853,6 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
 
   int index;
   int table;
-  int metric;
   u_int32_t mtu = 0;
 
   void *dest;
@@ -918,7 +912,6 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
     }
 
   index = 0;
-  metric = 0;
   dest = NULL;
   gate = NULL;
   src = NULL;
@@ -939,9 +932,6 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
 
   if (h->nlmsg_type == RTM_NEWROUTE)
     {
-      if (tb[RTA_PRIORITY])
-        metric = *(int *) RTA_DATA(tb[RTA_PRIORITY]);
-
       if (tb[RTA_METRICS])
         {
           struct rtattr *mxrta[RTAX_MAX+1];
@@ -974,7 +964,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
         {
           if (!tb[RTA_MULTIPATH])
             rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, src, index, table,
-                          metric, mtu, 0, SAFI_UNICAST);
+                          0, mtu, 0, SAFI_UNICAST);
           else
             {
               /* This is a multipath route */
@@ -989,7 +979,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
               rib->type = ZEBRA_ROUTE_KERNEL;
               rib->distance = 0;
               rib->flags = 0;
-              rib->metric = metric;
+              rib->metric = 0;
               rib->mtu = mtu;
               rib->table = table;
               rib->nexthop_num = 0;
@@ -1054,7 +1044,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h)
         }
 
       if (h->nlmsg_type == RTM_NEWROUTE)
-        rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, table, metric, mtu, 0, SAFI_UNICAST);
+        rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, table, 0, mtu, 0, SAFI_UNICAST);
       else
         rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, table, SAFI_UNICAST);
     }
@@ -1652,9 +1642,6 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
 
   addattr_l (&req.n, sizeof req, RTA_DST, &p->u.prefix, bytelen);
 
-  /* Metric. */
-  addattr32 (&req.n, sizeof req, RTA_PRIORITY, rib->metric);
-
   if (rib->mtu || rib->nexthop_mtu)
     {
       char buf[NL_PKT_BUF_SIZE];
@@ -1799,23 +1786,15 @@ skip:
 int
 kernel_route_rib (struct prefix *p, struct rib *old, struct rib *new)
 {
-  int ret;
-
   if (!old && new)
     return netlink_route_multipath (RTM_NEWROUTE, p, new, PREFIX_FAMILY(p));
   if (old && !new)
     return netlink_route_multipath (RTM_DELROUTE, p, old, PREFIX_FAMILY(p));
 
   /* Replace, can be done atomically if metric does not change;
-   * netlink uses [prefix, tos, priority] to identify prefix */
-  if (old->metric == new->metric)
-    return netlink_route_multipath (RTM_NEWROUTE, p, new, PREFIX_FAMILY(p));
-
-  /* Add + delete so the prefix does not disappear temporarily */
-  ret = netlink_route_multipath (RTM_NEWROUTE, p, new, PREFIX_FAMILY(p));
-  if (netlink_route_multipath (RTM_DELROUTE, p, old, PREFIX_FAMILY(p)) < 0)
-    ret = -1;
-  return ret;
+   * netlink uses [prefix, tos, priority] to identify prefix.
+   * Now metric is not sent to kernel, so we can just do atomic replace. */
+ return netlink_route_multipath (RTM_NEWROUTE, p, new, PREFIX_FAMILY(p));
 }
 
 /* Interface address modification. */
