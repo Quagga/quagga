@@ -98,6 +98,10 @@ void nhrp_route_announce(int add, enum nhrp_cache_type type, const struct prefix
 		SET_FLAG(flags, ZEBRA_FLAG_REJECT);
 		break;
 	case NHRP_CACHE_DYNAMIC:
+	case NHRP_CACHE_NHS:
+	case NHRP_CACHE_STATIC:
+		/* Regular route, so these are announced
+		 * to other routing daemons */
 		break;
 	default:
 		SET_FLAG(flags, ZEBRA_FLAG_FIB_OVERRIDE);
