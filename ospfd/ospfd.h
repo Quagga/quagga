@@ -147,6 +147,10 @@ struct ospf
 
 #define OSPF_STUB_MAX_METRIC_SUMMARY_COST	0x00ff0000
 
+  /* LSA timers */
+  unsigned int min_ls_interval; /* minimum delay between LSAs (in msec) */
+  unsigned int min_ls_arrival; /* minimum interarrival time between LSAs (in msec) */
+
   /* SPF parameters */
   unsigned int spf_delay;		/* SPF delay time. */
   unsigned int spf_holdtime;		/* SPF hold time. */

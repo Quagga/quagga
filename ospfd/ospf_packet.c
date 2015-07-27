@@ -1703,7 +1703,7 @@ ospf_upd_list_clean (struct list *lsas)
 
 /* OSPF Link State Update message read -- RFC2328 Section 13. */
 static void
-ospf_ls_upd (struct ip *iph, struct ospf_header *ospfh,
+ospf_ls_upd (struct ospf *ospf, struct ip *iph, struct ospf_header *ospfh,
 	     struct stream *s, struct ospf_interface *oi, u_int16_t size)
 {
   struct ospf_neighbor *nbr;
@@ -2046,7 +2046,7 @@ ospf_ls_upd (struct ip *iph, struct ospf_header *ospfh,
 	      quagga_gettime (QUAGGA_CLK_MONOTONIC, &now);
 	      
 	      if (tv_cmp (tv_sub (now, current->tv_orig), 
-			  int2tv (OSPF_MIN_LS_ARRIVAL)) >= 0)
+			  msec2tv (ospf->min_ls_arrival)) >= 0)
 		/* Trap NSSA type later.*/
 		ospf_ls_upd_send_lsa (nbr, current, OSPF_SEND_PACKET_DIRECT);
 	      DISCARD_LSA (lsa, 8);
@@ -2932,7 +2932,7 @@ ospf_read (struct thread *thread)
       ospf_ls_req (iph, ospfh, ibuf, oi, length);
       break;
     case OSPF_MSG_LS_UPD:
-      ospf_ls_upd (iph, ospfh, ibuf, oi, length);
+      ospf_ls_upd (ospf, iph, ospfh, ibuf, oi, length);
       break;
     case OSPF_MSG_LS_ACK:
       ospf_ls_ack (iph, ospfh, ibuf, oi, length);

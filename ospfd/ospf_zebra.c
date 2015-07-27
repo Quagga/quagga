@@ -1007,8 +1007,6 @@ ospf_distribute_list_update_timer (struct thread *thread)
   return 0;
 }
 
-#define OSPF_DISTRIBUTE_UPDATE_DELAY 5
-
 /* Update distribute-list and set timer to apply access-list. */
 void
 ospf_distribute_list_update (struct ospf *ospf, uintptr_t type)
@@ -1025,8 +1023,8 @@ ospf_distribute_list_update (struct ospf *ospf, uintptr_t type)
 
   /* Set timer. */
   ospf->t_distribute_update =
-    thread_add_timer (master, ospf_distribute_list_update_timer,
-                      (void *) type, OSPF_DISTRIBUTE_UPDATE_DELAY);
+    thread_add_timer_msec (master, ospf_distribute_list_update_timer,
+                      (void *) type, ospf->min_ls_interval);
 }
 
 /* If access-list is updated, apply some check. */

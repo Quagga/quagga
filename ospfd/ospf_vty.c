@@ -2233,6 +2233,83 @@ ospf_timers_spf_set (struct vty *vty, unsigned int delay,
   return CMD_SUCCESS;
 }
 
+DEFUN (ospf_timers_min_ls_interval,
+       ospf_timers_min_ls_interval_cmd,
+       "timers throttle lsa all <0-5000>",
+       "Adjust routing timers\n"
+       "Throttling adaptive timer\n"
+       "LSA delay between transmissions\n"
+       NO_STR
+       "Delay (msec) between sending LSAs\n")
+{
+  struct ospf *ospf = vty->index;
+  unsigned int interval;
+
+  if (argc != 1)
+    {
+      vty_out (vty, "Insufficient arguments%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  VTY_GET_INTEGER ("LSA interval", interval, argv[0]);
+
+  ospf->min_ls_interval = interval;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ospf_timers_min_ls_interval,
+       no_ospf_timers_min_ls_interval_cmd,
+       "no timers throttle lsa all",
+       NO_STR
+       "Adjust routing timers\n"
+       "Throttling adaptive timer\n"
+       "LSA delay between transmissions\n")
+{
+  struct ospf *ospf = vty->index;
+  ospf->min_ls_interval = OSPF_MIN_LS_INTERVAL;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (ospf_timers_min_ls_arrival,
+       ospf_timers_min_ls_arrival_cmd,
+       "timers lsa arrival <0-1000>",
+       "Adjust routing timers\n"
+       "Throttling link state advertisement delays\n"
+       "OSPF minimum arrival interval delay\n"
+       "Delay (msec) between accepted LSAs\n")
+{
+  struct ospf *ospf = vty->index;
+  unsigned int arrival;
+
+  if (argc != 1)
+    {
+      vty_out (vty, "Insufficient arguments%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  VTY_GET_INTEGER_RANGE ("minimum LSA inter-arrival time", arrival, argv[0], 0, 1000);
+
+  ospf->min_ls_arrival = arrival;
+
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_ospf_timers_min_ls_arrival,
+       no_ospf_timers_min_ls_arrival_cmd,
+       "no timers lsa arrival",
+       NO_STR
+       "Adjust routing timers\n"
+       "Throttling link state advertisement delays\n"
+       "OSPF minimum arrival interval delay\n")
+{
+  struct ospf *ospf = vty->index;
+  ospf->min_ls_arrival = OSPF_MIN_LS_ARRIVAL;
+
+  return CMD_SUCCESS;
+}
+
 DEFUN (ospf_timers_throttle_spf,
        ospf_timers_throttle_spf_cmd,
        "timers throttle spf <0-600000> <0-600000> <0-600000>",
@@ -7289,6 +7366,14 @@ ospf_config_write (struct vty *vty)
 		   ospf->ref_bandwidth / 1000, VTY_NEWLINE);
         }
 
+      /* LSA timers */
+      if (ospf->min_ls_interval != OSPF_MIN_LS_INTERVAL)
+  vty_out (vty, " timers throttle lsa all %d%s",
+     ospf->min_ls_interval, VTY_NEWLINE);
+      if (ospf->min_ls_arrival != OSPF_MIN_LS_ARRIVAL)
+  vty_out (vty, " timers lsa arrival %d%s",
+     ospf->min_ls_arrival, VTY_NEWLINE);
+
       /* SPF timers print. */
       if (ospf->spf_delay != OSPF_SPF_DELAY_DEFAULT ||
 	  ospf->spf_holdtime != OSPF_SPF_HOLDTIME_DEFAULT ||
@@ -7700,6 +7785,12 @@ ospf_vty_init (void)
   install_element (OSPF_NODE, &ospf_area_import_list_cmd);
   install_element (OSPF_NODE, &no_ospf_area_import_list_cmd);
   
+  /* LSA timer commands */
+  install_element (OSPF_NODE, &ospf_timers_min_ls_interval_cmd);
+  install_element (OSPF_NODE, &no_ospf_timers_min_ls_interval_cmd);
+  install_element (OSPF_NODE, &ospf_timers_min_ls_arrival_cmd);
+  install_element (OSPF_NODE, &no_ospf_timers_min_ls_arrival_cmd);
+
   /* SPF timer commands */
   install_element (OSPF_NODE, &ospf_timers_spf_cmd);
   install_element (OSPF_NODE, &no_ospf_timers_spf_cmd);

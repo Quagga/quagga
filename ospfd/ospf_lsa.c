@@ -108,6 +108,17 @@ int2tv (int a)
 }
 
 struct timeval
+msec2tv (int a)
+{
+  struct timeval ret;
+
+  ret.tv_sec = 0;
+  ret.tv_usec = a * 1000;
+
+  return tv_adjust (ret);
+}
+
+struct timeval
 tv_add (struct timeval a, struct timeval b)
 {
   struct timeval ret;
@@ -145,9 +156,9 @@ ospf_lsa_refresh_delay (struct ospf_lsa *lsa)
   quagga_gettime (QUAGGA_CLK_MONOTONIC, &now);
   delta = tv_sub (now, lsa->tv_orig);
 
-  if (tv_cmp (delta, int2tv (OSPF_MIN_LS_INTERVAL)) < 0)
+  if (tv_cmp (delta, msec2tv (OSPF_MIN_LS_INTERVAL)) < 0)
     {
-      delay = tv_ceil (tv_sub (int2tv (OSPF_MIN_LS_INTERVAL), delta));
+      delay = tv_ceil (tv_sub (msec2tv (OSPF_MIN_LS_INTERVAL), delta));
 
       if (IS_DEBUG_OSPF (lsa, LSA_GENERATE))
         zlog_debug ("LSA[Type%d:%s]: Refresh timer delay %d seconds",

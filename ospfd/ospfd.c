@@ -199,6 +199,10 @@ ospf_new (void)
   new->default_metric = -1;
   new->ref_bandwidth = OSPF_DEFAULT_REF_BANDWIDTH;
 
+  /* LSA timers */
+  new->min_ls_interval = OSPF_MIN_LS_INTERVAL;
+  new->min_ls_arrival = OSPF_MIN_LS_ARRIVAL;
+
   /* SPF timer value init. */
   new->spf_delay = OSPF_SPF_DELAY_DEFAULT;
   new->spf_holdtime = OSPF_SPF_HOLDTIME_DEFAULT;

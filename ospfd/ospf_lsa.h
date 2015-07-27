@@ -237,6 +237,7 @@ extern struct timeval tv_adjust (struct timeval);
 extern int tv_ceil (struct timeval);
 extern int tv_floor (struct timeval);
 extern struct timeval int2tv (int);
+extern struct timeval msec2tv (int);
 extern struct timeval tv_add (struct timeval, struct timeval);
 extern struct timeval tv_sub (struct timeval, struct timeval);
 extern int tv_cmp (struct timeval, struct timeval);
