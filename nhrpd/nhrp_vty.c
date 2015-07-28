@@ -516,12 +516,14 @@ static void show_ip_nhrp_cache(struct nhrp_cache *c, void *pctx)
 		ctx->first = 0;
 	}
 
-	vty_out(ctx->vty, "%-8s %-8s %-24s %-24s %c      %s%s",
+	vty_out(ctx->vty, "%-8s %-8s %-24s %-24s %c%c%c    %s%s",
 		c->ifp->name,
 		nhrp_cache_type_str[c->cur.type],
 		sockunion2str(&c->remote_addr, buf[0], sizeof buf[0]),
 		c->cur.peer ? sockunion2str(&c->cur.peer->vc->remote.nbma, buf[1], sizeof buf[1]) : "-",
 		c->used ? 'U' : ' ',
+		c->t_timeout ? 'T' : ' ',
+		c->t_auth ? 'A' : ' ',
 		c->cur.peer ? c->cur.peer->vc->remote.id : "-",
 		VTY_NEWLINE);
 }

@@ -64,7 +64,8 @@ static void nhrp_cache_free(struct nhrp_cache *c)
 {
 	struct nhrp_interface *nifp = c->ifp->info;
 
-	zassert(c->cur.type == NHRP_CACHE_INVALID && c->cur.peer == NULL && c->new.peer == NULL);
+	zassert(c->cur.type == NHRP_CACHE_INVALID && c->cur.peer == NULL);
+	zassert(c->new.type == NHRP_CACHE_INVALID && c->new.peer == NULL);
 	nhrp_cache_counts[c->cur.type]--;
 	notifier_call(&c->notifier_list, NOTIFY_CACHE_DELETE);
 	zassert(!notifier_active(&c->notifier_list));
@@ -155,12 +156,12 @@ static void nhrp_cache_reset_new(struct nhrp_cache *c)
 
 static void nhrp_cache_update_timers(struct nhrp_cache *c)
 {
-	THREAD_OFF(c->t_auth);
 	THREAD_OFF(c->t_timeout);
 
 	switch (c->cur.type) {
 	case NHRP_CACHE_INVALID:
-		THREAD_TIMER_MSEC_ON(master, c->t_timeout, nhrp_cache_do_free, c, 10);
+		if (!c->t_auth)
+			THREAD_TIMER_MSEC_ON(master, c->t_timeout, nhrp_cache_do_free, c, 10);
 		break;
 	default:
 		if (c->cur.expires)
@@ -250,12 +251,10 @@ int nhrp_cache_update_binding(struct nhrp_cache *c, enum nhrp_cache_type type, i
 	}
 
 	nhrp_cache_reset_new(c);
-
 	if (c->cur.type == type && c->cur.peer == p && c->cur.mtu == mtu) {
 		if (holding_time > 0) c->cur.expires = recent_relative_time().tv_sec + holding_time;
 		if (nbma_oa) c->cur.remote_nbma_natoa = *nbma_oa;
 		else memset(&c->cur.remote_nbma_natoa, 0, sizeof c->cur.remote_nbma_natoa);
-		nhrp_cache_update_timers(c);
 		nhrp_peer_unref(p);
 	} else {
 		c->new.type = type;
@@ -268,7 +267,9 @@ int nhrp_cache_update_binding(struct nhrp_cache *c, enum nhrp_cache_type type, i
 		else if (holding_time < 0)
 			c->new.type = NHRP_CACHE_INVALID;
 
-		if (c->new.type == NHRP_CACHE_INVALID || type >= NHRP_CACHE_STATIC || c->map) {
+		if (c->new.type == NHRP_CACHE_INVALID ||
+		    c->new.type >= NHRP_CACHE_STATIC ||
+		    c->map) {
 			nhrp_cache_authorize_binding(&c->eventid, (void *) "accept");
 		} else {
 			nhrp_peer_notify_add(c->new.peer, &c->newpeer_notifier, nhrp_cache_newpeer_notifier);
@@ -276,6 +277,7 @@ int nhrp_cache_update_binding(struct nhrp_cache *c, enum nhrp_cache_type type, i
 			THREAD_TIMER_ON(master, c->t_auth, nhrp_cache_do_auth_timeout, c, 60);
 		}
 	}
+	nhrp_cache_update_timers(c);
 
 	return 1;
 }
