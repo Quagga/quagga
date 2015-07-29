@@ -137,12 +137,13 @@ DEFUN(debug_nhrp, debug_nhrp_cmd,
 }
 
 DEFUN(no_debug_nhrp, no_debug_nhrp_cmd,
-	"no debug nhrp (all|common|interface|kernel|route|vici)",
+	"no debug nhrp (all|common|event|interface|kernel|route|vici)",
 	NO_STR
 	"Disable debug messages for specific or all parts.\n"
 	"NHRP information\n"
 	"All messages\n"
 	"Common messages (default)\n"
+	"Event manager messages\n"
 	"Interface messages\n"
 	"Kernel messages\n"
 	"Route messages\n"
