@@ -40,7 +40,8 @@ static void evmgr_connection_error(struct event_manager *evmgr)
 		close(evmgr->fd);
 	evmgr->fd = -1;
 	if (nhrp_event_socket_path)
-		THREAD_TIMER_ON(master, evmgr->t_reconnect, evmgr_reconnect, evmgr, 2);
+		THREAD_TIMER_MSEC_ON(master, evmgr->t_reconnect, evmgr_reconnect,
+				     evmgr, 10);
 }
 
 static void evmgr_recv_message(struct event_manager *evmgr, struct zbuf *zb)
@@ -162,14 +163,14 @@ static void evmgr_put(struct zbuf *zb, const char *fmt, ...)
 
 static void evmgr_submit(struct event_manager *evmgr, struct zbuf *obuf)
 {
-	if (evmgr->fd < 0 || obuf->error) {
+	if (obuf->error) {
 		zbuf_free(obuf);
 		return;
 	}
-
 	zbuf_put(obuf, "\n", 1);
 	zbufq_queue(&evmgr->obuf, obuf);
-	THREAD_WRITE_ON(master, evmgr->t_write, evmgr_write, evmgr, evmgr->fd);
+	if (evmgr->fd >= 0)
+		THREAD_WRITE_ON(master, evmgr->t_write, evmgr_write, evmgr, evmgr->fd);
 }
 
 static int evmgr_reconnect(struct thread *t)
@@ -184,6 +185,7 @@ static int evmgr_reconnect(struct thread *t)
 	if (fd < 0) {
 		zlog_warn("%s: failure connecting nhrp-event socket: %s",
 			__PRETTY_FUNCTION__, strerror(errno));
+		zbufq_reset(&evmgr->obuf);
 		THREAD_TIMER_ON(master, evmgr->t_reconnect, evmgr_reconnect, evmgr, 10);
 		return 0;
 	}
