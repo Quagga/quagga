@@ -182,6 +182,7 @@ struct nhrp_peer {
 	unsigned int ref;
 	unsigned online : 1;
 	unsigned requested : 1;
+	unsigned fallback_requested : 1;
 	unsigned prio : 1;
 	struct notifier_list notifier_list;
 	struct interface *ifp;

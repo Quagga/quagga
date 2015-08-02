@@ -199,7 +199,7 @@ void nhrp_peer_unref(struct nhrp_peer *p)
 	}
 }
 
-static int nhrp_peer_fallback_timer(struct thread *t)
+static int nhrp_peer_request_timeout(struct thread *t)
 {
 	struct nhrp_peer *p = THREAD_ARG(t);
 	struct nhrp_vc *vc = p->vc;
@@ -207,9 +207,19 @@ static int nhrp_peer_fallback_timer(struct thread *t)
 	struct nhrp_interface *nifp = ifp->info;
 
 	p->t_fallback = NULL;
-	if (!p->online)
+
+	if (p->online)
+		return 0;
+
+	if (nifp->ipsec_fallback_profile && !p->prio && !p->fallback_requested) {
+		p->fallback_requested = 1;
 		vici_request_vc(nifp->ipsec_fallback_profile,
 				&vc->local.nbma, &vc->remote.nbma, p->prio);
+		THREAD_TIMER_ON(master, p->t_fallback, nhrp_peer_request_timeout, p, 30);
+	} else {
+		p->requested = 0;
+		p->fallback_requested = 0;
+	}
 
 	return 0;
 }
@@ -224,12 +234,14 @@ int nhrp_peer_check(struct nhrp_peer *p, int establish)
 		return 1;
 	if (!establish)
 		return 0;
+	if (p->requested)
+		return 0;
 
 	p->prio = establish > 1;
-	vici_request_vc(nifp->ipsec_profile, &vc->local.nbma, &vc->remote.nbma, p->prio);
 	p->requested = 1;
-	if (nifp->ipsec_fallback_profile && !p->prio)
-		THREAD_TIMER_ON(master, p->t_fallback, nhrp_peer_fallback_timer, p, 15);
+	vici_request_vc(nifp->ipsec_profile, &vc->local.nbma, &vc->remote.nbma, p->prio);
+	THREAD_TIMER_ON(master, p->t_fallback, nhrp_peer_request_timeout, p,
+			(nifp->ipsec_fallback_profile && !p->prio) ? 15 : 30);
 
 	return 0;
 }
