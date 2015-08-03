@@ -117,7 +117,7 @@ static void nhrp_interface_update_nbma(struct interface *ifp)
 	nhrp_interface_update(ifp);
 }
 
-static void nhrp_interface_update_address(struct interface *ifp, afi_t afi)
+static void nhrp_interface_update_address(struct interface *ifp, afi_t afi, int force)
 {
 	const int family = afi2family(afi);
 	struct nhrp_interface *nifp = ifp->info;
@@ -152,7 +152,7 @@ static void nhrp_interface_update_address(struct interface *ifp, afi_t afi)
 	}
 
 	/* On NHRP interfaces a host prefix is required */
-	if (best && nifp->enabled && best->address->prefixlen != 8 * prefix_blen(best->address)) {
+	if (best && if_ad->configured && best->address->prefixlen != 8 * prefix_blen(best->address)) {
 		zlog_notice("%s: %s is not a host prefix", ifp->name,
 			prefix2str(best->address, buf, sizeof buf));
 		best = NULL;
@@ -164,7 +164,7 @@ static void nhrp_interface_update_address(struct interface *ifp, afi_t afi)
 	else
 		memset(&addr, 0, sizeof(addr));
 
-	if (sockunion_same(&if_ad->addr, &addr))
+	if (!force && sockunion_same(&if_ad->addr, &addr))
 		return;
 
 	if (sockunion_family(&if_ad->addr) != AF_UNSPEC) {
@@ -175,10 +175,9 @@ static void nhrp_interface_update_address(struct interface *ifp, afi_t afi)
 	debugf(NHRP_DEBUG_KERNEL, "%s: IPv%d address changed to %s",
 		ifp->name, afi == AFI_IP ? 4 : 6,
 		best ? prefix2str(best->address, buf, sizeof buf) : "(none)");
-
 	if_ad->addr = addr;
 
-	if (nifp->enabled && sockunion_family(&if_ad->addr) != AF_UNSPEC) {
+	if (if_ad->configured && sockunion_family(&if_ad->addr) != AF_UNSPEC) {
 		nc = nhrp_cache_get(ifp, &addr, 1);
 		if (nc) nhrp_cache_update_binding(nc, NHRP_CACHE_LOCAL, 0, NULL, 0, NULL);
 	}
@@ -202,15 +201,19 @@ void nhrp_interface_update(struct interface *ifp)
 		if_ad = &nifp->afi[afi];
 
 		if (!if_ad->network_id) {
-			if_ad->configured = 0;
+			if (if_ad->configured) {
+				if_ad->configured = 0;
+				nhrp_interface_update_address(ifp, afi, 1);
+			}
 			continue;
 		}
 
 		if (!if_ad->configured) {
 			os_configure_dmvpn(ifp->ifindex, ifp->name, afi2family(afi));
 			if_ad->configured = 1;
+			nhrp_interface_update_address(ifp, afi, 1);
 		}
-		nhrp_interface_update_address(ifp, afi);
+
 		enabled = 1;
 	}
 
@@ -292,7 +295,7 @@ int nhrp_interface_address_add(int cmd, struct zclient *client, zebra_size_t len
 		ifc->ifp->name,
 		prefix2str(ifc->address, buf, sizeof buf));
 
-	nhrp_interface_update_address(ifc->ifp, family2afi(PREFIX_FAMILY(ifc->address)));
+	nhrp_interface_update_address(ifc->ifp, family2afi(PREFIX_FAMILY(ifc->address)), 0);
 
 	return 0;
 }
@@ -310,7 +313,7 @@ int nhrp_interface_address_delete(int cmd, struct zclient *client, zebra_size_t 
 		ifc->ifp->name,
 		prefix2str(ifc->address, buf, sizeof buf));
 
-	nhrp_interface_update_address(ifc->ifp, family2afi(PREFIX_FAMILY(ifc->address)));
+	nhrp_interface_update_address(ifc->ifp, family2afi(PREFIX_FAMILY(ifc->address)), 0);
 
 	return 0;
 }
