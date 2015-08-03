@@ -69,7 +69,7 @@ static void nhrp_route_update_zebra(const struct prefix *p, union sockunion *nex
 	}
 }
 
-static void nhrp_route_update_nhrp(const struct prefix *p, struct interface *ifp)
+void nhrp_route_update_nhrp(const struct prefix *p, struct interface *ifp)
 {
 	struct route_node *rn;
 	struct route_info *ri;
@@ -89,9 +89,6 @@ void nhrp_route_announce(int add, enum nhrp_cache_type type, const struct prefix
 
 	if (zclient->sock < 0)
 		return;
-
-	if (nexthop == NULL && type >= NHRP_CACHE_DYNAMIC)
-		nhrp_route_update_nhrp(p, add ? ifp : NULL);
 
 	switch (type) {
 	case NHRP_CACHE_NEGATIVE:

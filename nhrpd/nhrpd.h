@@ -239,6 +239,7 @@ struct nhrp_cache {
 	unsigned map : 1;
 	unsigned used : 1;
 	unsigned route_installed : 1;
+	unsigned nhrp_route_installed : 1;
 
 	struct notifier_block peer_notifier;
 	struct notifier_block newpeer_notifier;
@@ -335,6 +336,7 @@ int nhrp_nhs_add(struct interface *ifp, afi_t afi, union sockunion *proto_addr, 
 int nhrp_nhs_del(struct interface *ifp, afi_t afi, union sockunion *proto_addr, const char *nbma_fqdn);
 int nhrp_nhs_free(struct nhrp_nhs *nhs);
 
+void nhrp_route_update_nhrp(const struct prefix *p, struct interface *ifp);
 void nhrp_route_announce(int add, enum nhrp_cache_type type, const struct prefix *p, struct interface *ifp, const union sockunion *nexthop, uint32_t mtu);
 int nhrp_route_read(int command, struct zclient *zclient, zebra_size_t length);
 int nhrp_route_get_nexthop(const union sockunion *addr, struct prefix *p, union sockunion *via, struct interface **ifp);

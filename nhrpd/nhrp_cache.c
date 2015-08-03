@@ -116,15 +116,28 @@ static void nhrp_cache_update_route(struct nhrp_cache *c)
 		sockunion2hostprefix(&c->remote_addr, &pfx);
 		netlink_update_binding(p->ifp, &c->remote_addr, &p->vc->remote.nbma);
 		nhrp_route_announce(1, c->cur.type, &pfx, c->ifp, NULL, c->cur.mtu);
+		if (c->cur.type >= NHRP_CACHE_DYNAMIC) {
+			nhrp_route_update_nhrp(&pfx, c->ifp);
+			c->nhrp_route_installed = 1;
+		} else if (c->nhrp_route_installed) {
+			nhrp_route_update_nhrp(&pfx, NULL);
+			c->nhrp_route_installed = 0;
+		}
 		if (!c->route_installed) {
 			notifier_call(&c->notifier_list, NOTIFY_CACHE_UP);
 			c->route_installed = 1;
 		}
-	} else if (c->route_installed) {
-		sockunion2hostprefix(&c->remote_addr, &pfx);
-		notifier_call(&c->notifier_list, NOTIFY_CACHE_DOWN);
-		nhrp_route_announce(0, c->cur.type, &pfx, NULL, NULL, 0);
-		c->route_installed = 0;
+	} else {
+		if (c->nhrp_route_installed) {
+			nhrp_route_update_nhrp(&pfx, NULL);
+			c->nhrp_route_installed = 0;
+		}
+		if (c->route_installed) {
+			sockunion2hostprefix(&c->remote_addr, &pfx);
+			notifier_call(&c->notifier_list, NOTIFY_CACHE_DOWN);
+			nhrp_route_announce(0, c->cur.type, &pfx, NULL, NULL, 0);
+			c->route_installed = 0;
+		}
 	}
 }
 
