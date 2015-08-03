@@ -74,16 +74,21 @@ static void __nhrp_peer_check(struct nhrp_peer *p)
 		THREAD_OFF(p->t_fallback);
 		if (online && notifier_active(&p->notifier_list)) {
 			/* If we requested the IPsec connection, delay
-			 * the up notification by 20ms to allow things
-			 * settle down a bit first. This allows IKE to
-			 * install SPDs and SAs. */
+			 * the up notification a bit to allow things
+			 * settle down. This allows IKE to install
+			 * SPDs and SAs. */
 			THREAD_TIMER_MSEC_ON(
 				master, p->t_fallback,
-				nhrp_peer_notify_up, p, 20);
+				nhrp_peer_notify_up, p, 50);
 		} else {
-			p->online = online;
 			nhrp_peer_ref(p);
-			notifier_call(&p->notifier_list, online ? NOTIFY_PEER_UP : NOTIFY_PEER_DOWN);
+			p->online = online;
+			if (online) {
+				notifier_call(&p->notifier_list, NOTIFY_PEER_UP);
+			} else {
+				p->requested = p->fallback_requested = 0;
+				notifier_call(&p->notifier_list, NOTIFY_PEER_DOWN);
+			}
 			nhrp_peer_unref(p);
 		}
 	}
@@ -217,8 +222,7 @@ static int nhrp_peer_request_timeout(struct thread *t)
 				&vc->local.nbma, &vc->remote.nbma, p->prio);
 		THREAD_TIMER_ON(master, p->t_fallback, nhrp_peer_request_timeout, p, 30);
 	} else {
-		p->requested = 0;
-		p->fallback_requested = 0;
+		p->requested = p->fallback_requested = 0;
 	}
 
 	return 0;
