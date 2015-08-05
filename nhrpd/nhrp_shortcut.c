@@ -354,18 +354,41 @@ void nhrp_shortcut_foreach(afi_t afi, void (*cb)(struct nhrp_shortcut *, void *)
 	route_table_iter_cleanup(&iter);
 }
 
+struct purge_ctx {
+	const struct prefix *p;
+	int deleted;
+};
+
 static void nhrp_shortcut_purge_prefix(struct nhrp_shortcut *s, void *ctx)
 {
-	const struct prefix *p = ctx;
+	struct purge_ctx *pctx = ctx;
 
-	if (prefix_match(p, s->p)) {
+	if (prefix_match(pctx->p, s->p)) {
 		THREAD_OFF(s->t_timer);
-		THREAD_TIMER_MSEC_ON(master, s->t_timer, nhrp_shortcut_do_purge, s, 100);
+		if (pctx->deleted) {
+			/* Immediate purge on route with draw */
+			THREAD_TIMER_MSEC_ON(master, s->t_timer, nhrp_shortcut_do_purge, s, 5);
+		} else {
+			/* Soft expire - force immediate renewal, but purge
+			 * in few seconds to make sure stale route is not
+			 * used too long. In practice most purges are caused
+			 * by hub bgp change, but target usually stays same.
+			 * This allows to keep nhrp route up, and to not
+			 * cause temporary rerouting via hubs causing latency
+			 * jitter. */
+			THREAD_TIMER_MSEC_ON(master, s->t_timer, nhrp_shortcut_do_purge, s, 3000);
+			s->expiring = 1;
+			nhrp_shortcut_check_use(s);
+		}
 	}
 }
 
 void nhrp_shortcut_prefix_change(const struct prefix *p, int deleted)
 {
-	nhrp_shortcut_foreach(family2afi(PREFIX_FAMILY(p)), nhrp_shortcut_purge_prefix, (void *) p);
+	struct purge_ctx pctx = {
+		.p = p,
+		.deleted = deleted,
+	};
+	nhrp_shortcut_foreach(family2afi(PREFIX_FAMILY(p)), nhrp_shortcut_purge_prefix, &pctx);
 }
 
