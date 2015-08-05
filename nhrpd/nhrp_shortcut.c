@@ -165,6 +165,7 @@ static void nhrp_shortcut_recv_resolution_rep(struct nhrp_reqid *reqid, void *ar
 {
 	struct nhrp_packet_parser *pp = arg;
 	struct nhrp_shortcut *s = container_of(reqid, struct nhrp_shortcut, reqid);
+	struct nhrp_shortcut *ps;
 	struct nhrp_extension_header *ext;
 	struct nhrp_cie_header *cie;
 	struct nhrp_cache *c = NULL;
@@ -256,9 +257,11 @@ static void nhrp_shortcut_recv_resolution_rep(struct nhrp_reqid *reqid, void *ar
 
 	/* Update shortcut entry for subnet to protocol gw binding */
 	if (c && !sockunion_same(proto, &pp->dst_proto)) {
-		s = nhrp_shortcut_get(&prefix);
-		if (s)
-			nhrp_shortcut_update_binding(s, NHRP_CACHE_CACHED, c, holding_time);
+		ps = nhrp_shortcut_get(&prefix);
+		if (ps) {
+			ps->addr = s->addr;
+			nhrp_shortcut_update_binding(ps, NHRP_CACHE_CACHED, c, holding_time);
+		}
 	}
 
 	debugf(NHRP_DEBUG_COMMON, "Shortcut: Resolution reply handled");
@@ -267,15 +270,12 @@ static void nhrp_shortcut_recv_resolution_rep(struct nhrp_reqid *reqid, void *ar
 static void nhrp_shortcut_send_resolution_req(struct nhrp_shortcut *s)
 {
 	struct zbuf *zb;
-	union sockunion addr;
 	struct nhrp_packet_header *hdr;
 	struct interface *ifp;
 	struct nhrp_interface *nifp;
 	struct nhrp_peer *peer;
 
-	prefix2sockunion(s->p, &addr);
-
-	if (nhrp_route_address(NULL, &addr, NULL, &peer) != NHRP_ROUTE_NBMA_NEXTHOP)
+	if (nhrp_route_address(NULL, &s->addr, NULL, &peer) != NHRP_ROUTE_NBMA_NEXTHOP)
 		return;
 
 	if (s->type == NHRP_CACHE_INVALID || s->type == NHRP_CACHE_NEGATIVE)
@@ -287,7 +287,7 @@ static void nhrp_shortcut_send_resolution_req(struct nhrp_shortcut *s)
 	/* Create request */
 	zb = zbuf_alloc(1500);
 	hdr = nhrp_packet_push(zb, NHRP_PACKET_RESOLUTION_REQUEST,
-		&nifp->nbma, &nifp->afi[family2afi(sockunion_family(&addr))].addr, &addr);
+		&nifp->nbma, &nifp->afi[family2afi(sockunion_family(&s->addr))].addr, &s->addr);
 	hdr->u.request_id = htonl(nhrp_reqid_alloc(&nhrp_packet_reqid, &s->reqid, nhrp_shortcut_recv_resolution_rep));
 	hdr->flags = htons(NHRP_FLAG_RESOLUTION_SOURCE_IS_ROUTER |
 			   NHRP_FLAG_RESOLUTION_AUTHORATIVE |
@@ -321,6 +321,7 @@ void nhrp_shortcut_initiate(union sockunion *addr)
 	sockunion2hostprefix(addr, &p);
 	s = nhrp_shortcut_get(&p);
 	if (s && s->type != NHRP_CACHE_INCOMPLETE) {
+		s->addr = *addr;
 		THREAD_OFF(s->t_timer);
 		THREAD_TIMER_ON(master, s->t_timer, nhrp_shortcut_do_purge, s, 30);
 		nhrp_shortcut_send_resolution_req(s);

@@ -259,6 +259,8 @@ struct nhrp_cache {
 
 struct nhrp_shortcut {
 	struct prefix *p;
+	union sockunion addr;
+
 	struct nhrp_reqid reqid;
 	struct thread *t_timer;
 
