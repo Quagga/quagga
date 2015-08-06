@@ -256,7 +256,7 @@ int nhrp_cache_update_binding(struct nhrp_cache *c, enum nhrp_cache_type type, i
 			mtu = 0;
 		/* Opennhrp announces nbma mtu, but we use protocol mtu.
 		 * This heuristic tries to fix up it. */
-		if (mtu > 1420) mtu -= 80;
+		if (mtu > 1420) mtu = (mtu & -16) - 80;
 		break;
 	default:
 		mtu = 0;
