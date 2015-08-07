@@ -68,11 +68,6 @@ static void __nhrp_peer_check(struct nhrp_peer *p)
 	struct interface *ifp = p->ifp;
 	struct nhrp_interface *nifp = ifp->info;
 	unsigned online;
-	char buf[SU_ADDRSTRLEN];
-
-	debugf(NHRP_DEBUG_COMMON, "Peer: %s: enabled=%d, profile=%d, ipsec=%d",
-		sockunion2str(&vc->remote.nbma, buf, sizeof buf),
-		nifp->enabled, nifp->ipsec_profile != 0, vc->ipsec);
 
 	online = nifp->enabled && (!nifp->ipsec_profile || vc->ipsec);
 	if (p->online != online) {
@@ -248,12 +243,6 @@ int nhrp_peer_check(struct nhrp_peer *p, int establish)
 	struct nhrp_vc *vc = p->vc;
 	struct interface *ifp = p->ifp;
 	struct nhrp_interface *nifp = ifp->info;
-	char buf[2][SU_ADDRSTRLEN];
-
-	debugf(NHRP_DEBUG_COMMON, "Peer: %s-%s: online=%d, establish=%d, requested=%d",
-		sockunion2str(&vc->local.nbma, buf[0], sizeof buf[0]),
-		sockunion2str(&vc->remote.nbma, buf[1], sizeof buf[1]),
-		p->online, establish, p->requested);
 
 	if (p->online)
 		return 1;
