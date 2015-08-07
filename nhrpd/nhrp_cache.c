@@ -155,6 +155,10 @@ static void nhrp_cache_peer_notifier(struct notifier_block *n, unsigned long cmd
 		notifier_call(&c->notifier_list, NOTIFY_CACHE_DOWN);
 		nhrp_cache_update_binding(c, c->cur.type, -1, NULL, 0, NULL);
 		break;
+	case NOTIFY_PEER_NBMA_CHANGING:
+		if (c->cur.type == NHRP_CACHE_DYNAMIC)
+			c->cur.peer->vc->abort_migration = 1;
+		break;
 	}
 }
 

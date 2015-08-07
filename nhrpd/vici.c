@@ -53,6 +53,7 @@ struct vici_message_ctx {
 };
 
 static int vici_reconnect(struct thread *t);
+static void vici_submit_request(struct vici_conn *vici, const char *name, ...);
 
 static void vici_zbuf_puts(struct zbuf *obuf, const char *str)
 {
@@ -61,48 +62,9 @@ static void vici_zbuf_puts(struct zbuf *obuf, const char *str)
 	zbuf_put(obuf, str, len);
 }
 
-static void vici_resetipsec(struct nhrp_vc *vc)
-{
-	vc->local.id[0] = 0;
-	vc->local.certlen = 0;
-	vc->remote.id[0] = 0;
-	vc->remote.certlen = 0;
-}
-
-static void vici_vcupdown(struct nhrp_vc *vc, int up, uint32_t child_id)
-{
-	uint8_t i, old_ipsec = vc->ipsec;
-
-	for (i = 0; i < vc->ipsec; i++) {
-		if (vc->ipsec_ids[i] != child_id)
-			continue;
-		if (up)
-			return;
-		if (--vc->ipsec)
-			vc->ipsec_ids[i] = vc->ipsec_ids[vc->ipsec];
-		break;
-	}
-	if (up) {
-		if (vc->ipsec >= ZEBRA_NUM_OF(vc->ipsec_ids))
-			return;
-		vc->ipsec_ids[vc->ipsec++] = child_id;
-	}
-	if (old_ipsec != vc->ipsec) {
-		if (!vc->ipsec) vici_resetipsec(vc);
-		nhrp_vc_update(vc);
-	}
-}
-
-static void vici_vcdown(struct nhrp_vc *vc, void *ctx)
-{
-	vc->ipsec = 0;
-	vici_resetipsec(vc);
-	nhrp_vc_update(vc);
-}
-
 static void vici_connection_error(struct vici_conn *vici)
 {
-	nhrp_vc_foreach(vici_vcdown, NULL);
+	nhrp_vc_reset();
 
 	THREAD_OFF(vici->t_read);
 	THREAD_OFF(vici->t_write);
@@ -170,7 +132,8 @@ struct handle_sa_ctx {
 	struct vici_message_ctx msgctx;
 	int event;
 	int child_ok;
-	uint32_t child_uniqueid;
+	int kill_ikesa;
+	uint32_t child_uniqueid, ike_uniqueid;
 	struct {
 		union sockunion host;
 		struct blob id, cert;
@@ -198,17 +161,19 @@ static void parse_sa_message(
 		if (ctx->nsections == 3) {
 			/* End of child-sa section, update nhrp_vc */
 			int up = sactx->child_ok || sactx->event == 1;
-			vc = nhrp_vc_get(&sactx->local.host, &sactx->remote.host, up);
-			if (vc) {
-				if (up) {
+			if (up) {
+				vc = nhrp_vc_get(&sactx->local.host, &sactx->remote.host, up);
+				if (vc) {
 					blob2buf(&sactx->local.id, vc->local.id, sizeof(vc->local.id));
 					if (blob2buf(&sactx->local.cert, (char*)vc->local.cert, sizeof(vc->local.cert)))
 						vc->local.certlen = sactx->local.cert.len;
 					blob2buf(&sactx->remote.id, vc->remote.id, sizeof(vc->remote.id));
 					if (blob2buf(&sactx->remote.cert, (char*)vc->remote.cert, sizeof(vc->remote.cert)))
 						vc->remote.certlen = sactx->remote.cert.len;
+					sactx->kill_ikesa |= nhrp_vc_ipsec_updown(sactx->child_uniqueid, vc);
 				}
-				vici_vcupdown(vc, up, sactx->child_uniqueid);
+			} else {
+				nhrp_vc_ipsec_updown(sactx->child_uniqueid, 0);
 			}
 		}
 		break;
@@ -235,9 +200,11 @@ static void parse_sa_message(
 			}
 			break;
 		case 'u':
-			if (blob_equal(key, "uniqueid") && ctx->nsections == 3) {
-				if (blob2buf(val, buf, sizeof(buf)))
+			if (blob_equal(key, "uniqueid") && blob2buf(val, buf, sizeof(buf))) {
+				if (ctx->nsections == 3)
 					sactx->child_uniqueid = strtoul(buf, NULL, 0);
+				else if (ctx->nsections == 1)
+					sactx->ike_uniqueid = strtoul(buf, NULL, 0);
 			}
 			break;
 		case 's':
@@ -255,10 +222,21 @@ static void parse_sa_message(
 
 static void vici_recv_sa(struct vici_conn *vici, struct zbuf *msg, int event)
 {
+	char buf[32];
 	struct handle_sa_ctx ctx = {
 		.event = event,
 	};
+
 	vici_parse_message(vici, msg, parse_sa_message, &ctx.msgctx);
+
+	if (ctx.kill_ikesa && ctx.ike_uniqueid) {
+		debugf(NHRP_DEBUG_COMMON, "VICI: Deleting IKE_SA %u", ctx.ike_uniqueid);
+		snprintf(buf, sizeof buf, "%u", ctx.ike_uniqueid);
+		vici_submit_request(
+			vici, "terminate",
+			VICI_KEY_VALUE, "ike-id", strlen(buf), buf,
+			VICI_END);
+	}
 }
 
 static void vici_recv_message(struct vici_conn *vici, struct zbuf *msg)
@@ -281,7 +259,8 @@ static void vici_recv_message(struct vici_conn *vici, struct zbuf *msg)
 		    blob_equal(&name, "child-updown") ||
 		    blob_equal(&name, "child-rekey"))
 			vici_recv_sa(vici, msg, 0);
-		else if (blob_equal(&name, "child-state-installed"))
+		else if (blob_equal(&name, "child-state-installed") ||
+			 blob_equal(&name, "child-state-rekeyed"))
 			vici_recv_sa(vici, msg, 1);
 		else if (blob_equal(&name, "child-state-destroying"))
 			vici_recv_sa(vici, msg, 2);
@@ -435,6 +414,7 @@ static int vici_reconnect(struct thread *t)
 	//vici_register_event(vici, "child-updown");
 	//vici_register_event(vici, "child-rekey");
 	vici_register_event(vici, "child-state-installed");
+	vici_register_event(vici, "child-state-rekeyed");
 	vici_register_event(vici, "child-state-destroying");
 	vici_register_event(vici, "list-sa");
 	vici_submit_request(vici, "list-sas", VICI_END);

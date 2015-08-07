@@ -17,7 +17,14 @@
 #include "nhrpd.h"
 #include "os.h"
 
+struct child_sa {
+	uint32_t id;
+	struct nhrp_vc *vc;
+	struct list_head childlist_entry;
+};
+
 static struct hash *nhrp_vc_hash;
+static struct list_head childlist_head[512];
 
 static unsigned int nhrp_vc_key(void *peer_data)
 {
@@ -73,12 +80,82 @@ static void nhrp_vc_check_delete(struct nhrp_vc *vc)
 	nhrp_vc_free(vc);
 }
 
-void nhrp_vc_update(struct nhrp_vc *vc)
+static void nhrp_vc_update(struct nhrp_vc *vc, long cmd)
 {
 	vc->updating = 1;
-	notifier_call(&vc->notifier_list, NOTIFY_VC_IPSEC_CHANGED);
+	notifier_call(&vc->notifier_list, cmd);
 	vc->updating = 0;
 	nhrp_vc_check_delete(vc);
+}
+
+static void nhrp_vc_ipsec_reset(struct nhrp_vc *vc)
+{
+	vc->local.id[0] = 0;
+	vc->local.certlen = 0;
+	vc->remote.id[0] = 0;
+	vc->remote.certlen = 0;
+}
+
+int nhrp_vc_ipsec_updown(uint32_t child_id, struct nhrp_vc *vc)
+{
+	char buf[2][SU_ADDRSTRLEN];
+	struct child_sa *sa = NULL, *lsa;
+	uint32_t child_hash = child_id % ZEBRA_NUM_OF(childlist_head);
+	int abort_migration = 0;
+
+	list_for_each_entry(lsa, &childlist_head[child_hash], childlist_entry) {
+		if (lsa->id == child_id) {
+			sa = lsa;
+			break;
+		}
+	}
+
+	if (!sa) {
+		if (!vc) return 0;
+
+		sa = XMALLOC(MTYPE_NHRP_VC, sizeof(struct child_sa));
+		if (!sa) return 0;
+
+		*sa = (struct child_sa) {
+			.id = child_id,
+			.childlist_entry = LIST_INITIALIZER(sa->childlist_entry),
+			.vc = NULL,
+		};
+		list_add_tail(&sa->childlist_entry, &childlist_head[child_hash]);
+	}
+
+	if (sa->vc == vc)
+		return 0;
+
+	if (vc) {
+		/* Attach first to new VC */
+		vc->ipsec++;
+		nhrp_vc_update(vc, NOTIFY_VC_IPSEC_CHANGED);
+	}
+	if (sa->vc && vc) {
+		/* Notify old VC of migration */
+		sa->vc->abort_migration = 0;
+		debugf(NHRP_DEBUG_COMMON, "IPsec NBMA change of %s to %s",
+			sockunion2str(&sa->vc->remote.nbma, buf[0], sizeof buf[0]),
+			sockunion2str(&vc->remote.nbma, buf[1], sizeof buf[1]));
+		nhrp_vc_update(sa->vc, NOTIFY_VC_IPSEC_UPDATE_NBMA);
+		abort_migration = sa->vc->abort_migration;
+	}
+	if (sa->vc) {
+		/* Deattach old VC */
+		sa->vc->ipsec--;
+		if (!sa->vc->ipsec) nhrp_vc_ipsec_reset(sa->vc);
+		nhrp_vc_update(sa->vc, NOTIFY_VC_IPSEC_CHANGED);
+	}
+
+	/* Update */
+	sa->vc = vc;
+	if (!vc) {
+		list_del(&sa->childlist_entry);
+		XFREE(MTYPE_NHRP_VC, sa);
+	}
+
+	return abort_migration;
 }
 
 void nhrp_vc_notify_add(struct nhrp_vc *vc, struct notifier_block *n, notifier_fn_t action)
@@ -115,10 +192,26 @@ void nhrp_vc_foreach(void (*cb)(struct nhrp_vc *, void *), void *ctx)
 
 void nhrp_vc_init(void)
 {
+	size_t i;
+
 	nhrp_vc_hash = hash_create(nhrp_vc_key, nhrp_vc_cmp);
+	for (i = 0; i < ZEBRA_NUM_OF(childlist_head); i++)
+		list_init(&childlist_head[i]);
+}
+
+void nhrp_vc_reset(void)
+{
+	struct child_sa *sa, *n;
+	size_t i;
+
+	for (i = 0; i < ZEBRA_NUM_OF(childlist_head); i++) {
+		list_for_each_entry_safe(sa, n, &childlist_head[i], childlist_entry)
+			nhrp_vc_ipsec_updown(sa->id, 0);
+	}
 }
 
 void nhrp_vc_terminate(void)
 {
+	nhrp_vc_reset();
 	hash_clean(nhrp_vc_hash, nhrp_vc_free);
 }

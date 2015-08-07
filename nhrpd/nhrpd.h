@@ -146,11 +146,13 @@ enum nhrp_notify_type {
 	NOTIFY_INTERFACE_MTU_CHANGED,
 
 	NOTIFY_VC_IPSEC_CHANGED,
+	NOTIFY_VC_IPSEC_UPDATE_NBMA,
 
 	NOTIFY_PEER_UP,
 	NOTIFY_PEER_DOWN,
 	NOTIFY_PEER_IFCONFIG_CHANGED,
 	NOTIFY_PEER_MTU_CHANGED,
+	NOTIFY_PEER_NBMA_CHANGING,
 
 	NOTIFY_CACHE_UP,
 	NOTIFY_CACHE_DOWN,
@@ -161,10 +163,9 @@ enum nhrp_notify_type {
 
 struct nhrp_vc {
 	struct notifier_list notifier_list;
-
 	uint8_t ipsec;
 	uint8_t updating;
-	uint32_t ipsec_ids[32];
+	uint8_t abort_migration;
 
 	struct nhrp_vc_peer {
 		union sockunion nbma;
@@ -371,10 +372,11 @@ void nhrp_cache_notify_del(struct nhrp_cache *c, struct notifier_block *);
 void nhrp_vc_init(void);
 void nhrp_vc_terminate(void);
 struct nhrp_vc *nhrp_vc_get(const union sockunion *src, const union sockunion *dst, int create);
-void nhrp_vc_update(struct nhrp_vc *);
+int nhrp_vc_ipsec_updown(uint32_t child_id, struct nhrp_vc *vc);
 void nhrp_vc_notify_add(struct nhrp_vc *, struct notifier_block *, notifier_fn_t);
 void nhrp_vc_notify_del(struct nhrp_vc *, struct notifier_block *);
 void nhrp_vc_foreach(void (*cb)(struct nhrp_vc *, void *), void *ctx);
+void nhrp_vc_reset(void);
 
 void vici_init(void);
 void vici_terminate(void);

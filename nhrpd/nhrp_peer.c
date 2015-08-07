@@ -107,6 +107,11 @@ static void nhrp_peer_vc_notify(struct notifier_block *n, unsigned long cmd)
 	case NOTIFY_VC_IPSEC_CHANGED:
 		__nhrp_peer_check(p);
 		break;
+	case NOTIFY_VC_IPSEC_UPDATE_NBMA:
+		nhrp_peer_ref(p);
+		notifier_call(&p->notifier_list, NOTIFY_PEER_NBMA_CHANGING);
+		nhrp_peer_unref(p);
+		break;
 	}
 }
 
