@@ -112,8 +112,9 @@ static void nhrp_cache_update_route(struct nhrp_cache *c)
 	struct prefix pfx;
 	struct nhrp_peer *p = c->cur.peer;
 
+	sockunion2hostprefix(&c->remote_addr, &pfx);
+
 	if (p && nhrp_peer_check(p, 1)) {
-		sockunion2hostprefix(&c->remote_addr, &pfx);
 		netlink_update_binding(p->ifp, &c->remote_addr, &p->vc->remote.nbma);
 		nhrp_route_announce(1, c->cur.type, &pfx, c->ifp, NULL, c->cur.mtu);
 		if (c->cur.type >= NHRP_CACHE_DYNAMIC) {
