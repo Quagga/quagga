@@ -299,10 +299,10 @@ struct nhrp_interface {
 
 	unsigned enabled : 1;
 
-	char *ipsec_profile, *ipsec_fallback_profile;
+	char *ipsec_profile, *ipsec_fallback_profile, *source;
 	union sockunion nbma;
 	union sockunion nat_nbma;
-	int linkidx;
+	unsigned int linkidx;
 	uint32_t grekey;
 
 	struct hash *peer_hash;
@@ -341,6 +341,7 @@ int nhrp_interface_address_delete(int cmd, struct zclient *client, zebra_size_t 
 void nhrp_interface_notify_add(struct interface *ifp, struct notifier_block *n, notifier_fn_t fn);
 void nhrp_interface_notify_del(struct interface *ifp, struct notifier_block *n);
 void nhrp_interface_set_protection(struct interface *ifp, const char *profile, const char *fallback_profile);
+void nhrp_interface_set_source(struct interface *ifp, const char *ifname);
 
 int nhrp_nhs_add(struct interface *ifp, afi_t afi, union sockunion *proto_addr, const char *nbma_fqdn);
 int nhrp_nhs_del(struct interface *ifp, afi_t afi, union sockunion *proto_addr, const char *nbma_fqdn);

@@ -15,6 +15,7 @@
 
 #include "nhrpd.h"
 #include "os.h"
+#include "netlink.h"
 
 static int nhrp_if_new_hook(struct interface *ifp)
 {
@@ -63,6 +64,39 @@ void nhrp_interface_terminate(void)
 	if_terminate();
 }
 
+void nhrp_interface_update_mtu(struct interface *ifp, afi_t afi)
+{
+	struct nhrp_interface *nifp = ifp->info;
+	struct nhrp_afi_data *if_ad = &nifp->afi[afi];
+	unsigned short new_mtu;
+
+	if (if_ad->configured_mtu < 0)
+		new_mtu = nifp->nbmaifp ? nifp->nbmaifp->mtu : 0;
+	else
+		new_mtu = if_ad->configured_mtu;
+	if (new_mtu >= 1500)
+		new_mtu = 0;
+
+	if (new_mtu != if_ad->mtu) {
+		debugf(NHRP_DEBUG_IF, "%s: MTU changed to %d", ifp->name, new_mtu);
+		if_ad->mtu = new_mtu;
+		notifier_call(&nifp->notifier_list, NOTIFY_INTERFACE_MTU_CHANGED);
+	}
+}
+
+static void nhrp_interface_update_source(struct interface *ifp)
+{
+	struct nhrp_interface *nifp = ifp->info;
+
+	if (!nifp->source || !nifp->nbmaifp ||
+	    nifp->linkidx == nifp->nbmaifp->ifindex)
+		return;
+
+	nifp->linkidx = nifp->nbmaifp->ifindex;
+	debugf(NHRP_DEBUG_IF, "%s: bound device index changed to %d", ifp->name, nifp->linkidx);
+	netlink_gre_set_link(ifp->ifindex, nifp->linkidx);
+}
+
 static void nhrp_interface_interface_notifier(struct notifier_block *n, unsigned long cmd)
 {
 	struct nhrp_interface *nifp = container_of(n, struct nhrp_interface, nbmanifp_notifier);
@@ -73,9 +107,11 @@ static void nhrp_interface_interface_notifier(struct notifier_block *n, unsigned
 	switch (cmd) {
 	case NOTIFY_INTERFACE_CHANGED:
 		nhrp_interface_update_mtu(nifp->ifp, AFI_IP);
+		nhrp_interface_update_source(nifp->ifp);
 		break;
 	case NOTIFY_INTERFACE_ADDRESS_CHANGED:
 		nifp->nbma = nbmanifp->afi[AFI_IP].addr;
+		nhrp_interface_update(nifp->ifp);
 		notifier_call(&nifp->notifier_list, NOTIFY_INTERFACE_NBMA_CHANGED);
 		debugf(NHRP_DEBUG_IF, "%s: NBMA change: address %s",
 			nifp->ifp->name,
@@ -91,14 +127,18 @@ static void nhrp_interface_update_nbma(struct interface *ifp)
 	union sockunion nbma;
 
 	sockunion_family(&nbma) = AF_UNSPEC;
+
+	if (nifp->source)
+		nbmaifp = if_lookup_by_name(nifp->source);
+
 	switch (ifp->hw_type) {
 	case ARPHRD_IPGRE: {
 			struct in_addr saddr = {0};
-			os_get_mgre_config(ifp->name, &nifp->grekey, &nifp->linkidx, &saddr);
-			debugf(NHRP_DEBUG_IF, "os_mgre: %x %x %x", nifp->grekey, nifp->linkidx, saddr.s_addr);
+			netlink_gre_get_info(ifp->ifindex, &nifp->grekey, &nifp->linkidx, &saddr);
+			debugf(NHRP_DEBUG_IF, "%s: GRE: %x %x %x", ifp->name, nifp->grekey, nifp->linkidx, saddr.s_addr);
 			if (saddr.s_addr)
 				sockunion_set(&nbma, AF_INET, (u_char *) &saddr.s_addr, sizeof(saddr.s_addr));
-			else if (nifp->linkidx != IFINDEX_INTERNAL)
+			else if (!nbmaifp && nifp->linkidx != IFINDEX_INTERNAL)
 				nbmaifp = if_lookup_by_index(nifp->linkidx);
 		}
 		break;
@@ -115,10 +155,12 @@ static void nhrp_interface_update_nbma(struct interface *ifp)
 			debugf(NHRP_DEBUG_IF, "%s: bound to %s", ifp->name, nbmaifp->name);
 		}
 		nhrp_interface_update_mtu(ifp, AFI_IP);
+		nhrp_interface_update_source(ifp);
 	}
 
 	if (!sockunion_same(&nbma, &nifp->nbma)) {
 		nifp->nbma = nbma;
+		nhrp_interface_update(nifp->ifp);
 		debugf(NHRP_DEBUG_IF, "%s: NBMA address changed", ifp->name);
 		notifier_call(&nifp->notifier_list, NOTIFY_INTERFACE_NBMA_CHANGED);
 	}
@@ -234,26 +276,6 @@ not_ok:
 	}
 }
 
-void nhrp_interface_update_mtu(struct interface *ifp, afi_t afi)
-{
-	struct nhrp_interface *nifp = ifp->info;
-	struct nhrp_afi_data *if_ad = &nifp->afi[afi];
-	unsigned short new_mtu;
-
-	if (if_ad->configured_mtu < 0)
-		new_mtu = nifp->nbmaifp ? nifp->nbmaifp->mtu : 0;
-	else
-		new_mtu = if_ad->configured_mtu;
-	if (new_mtu >= 1500)
-		new_mtu = 0;
-
-	if (new_mtu != if_ad->mtu) {
-		debugf(NHRP_DEBUG_IF, "%s: MTU change to %d", ifp->name, new_mtu);
-		if_ad->mtu = new_mtu;
-		notifier_call(&nifp->notifier_list, NOTIFY_INTERFACE_MTU_CHANGED);
-	}
-}
-
 int nhrp_interface_add(int cmd, struct zclient *client, zebra_size_t length)
 {
 	struct interface *ifp;
@@ -263,7 +285,8 @@ int nhrp_interface_add(int cmd, struct zclient *client, zebra_size_t length)
 	if (ifp == NULL)
 		return 0;
 
-	debugf(NHRP_DEBUG_IF, "if-add: %s, hw_type: %d", ifp->name, ifp->hw_type);
+	debugf(NHRP_DEBUG_IF, "if-add: %s, ifindex: %u, hw_type: %d",
+		ifp->name, ifp->ifindex, ifp->hw_type);
 	nhrp_interface_update_nbma(ifp);
 
 	return 0;
@@ -345,6 +368,7 @@ int nhrp_interface_address_delete(int cmd, struct zclient *client, zebra_size_t 
 		prefix2str(ifc->address, buf, sizeof buf));
 
 	nhrp_interface_update_address(ifc->ifp, family2afi(PREFIX_FAMILY(ifc->address)), 0);
+	connected_free(ifc);
 
 	return 0;
 }
@@ -369,4 +393,12 @@ void nhrp_interface_set_protection(struct interface *ifp, const char *profile, c
 
 	if (nifp->ipsec_fallback_profile) free(nifp->ipsec_fallback_profile);
 	nifp->ipsec_fallback_profile = fallback_profile ? strdup(fallback_profile) : NULL;
+}
+
+void nhrp_interface_set_source(struct interface *ifp, const char *ifname)
+{
+	struct nhrp_interface *nifp = ifp->info;
+
+	if (nifp->source) free(nifp->source);
+	nifp->source = ifname ? strdup(ifname) : NULL;
 }

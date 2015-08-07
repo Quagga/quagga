@@ -122,12 +122,15 @@ static int nhrp_reg_timeout(struct thread *t)
 static void nhrp_reg_peer_notify(struct notifier_block *n, unsigned long cmd)
 {
 	struct nhrp_registration *r = container_of(n, struct nhrp_registration, peer_notifier);
+	char buf[SU_ADDRSTRLEN];
 
 	switch (cmd) {
 	case NOTIFY_PEER_UP:
 	case NOTIFY_PEER_DOWN:
 	case NOTIFY_PEER_IFCONFIG_CHANGED:
 	case NOTIFY_PEER_MTU_CHANGED:
+		debugf(NHRP_DEBUG_COMMON, "NHS: Flush timer for %s",
+			sockunion2str(&r->peer->vc->remote.nbma, buf, sizeof buf));
 		THREAD_TIMER_OFF(r->t_register);
 		THREAD_TIMER_MSEC_ON(master, r->t_register, nhrp_reg_send_req, r, 10);
 		break;
@@ -138,7 +141,7 @@ static int nhrp_reg_send_req(struct thread *t)
 {
 	struct nhrp_registration *r = THREAD_ARG(t);
 	struct nhrp_nhs *nhs = r->nhs;
-	char buf1[256] = "", buf2[256] = "";
+	char buf1[SU_ADDRSTRLEN], buf2[SU_ADDRSTRLEN];
 	struct interface *ifp = nhs->ifp;
 	struct nhrp_interface *nifp = ifp->info;
 	struct nhrp_afi_data *if_ad = &nifp->afi[nhs->afi];
@@ -150,6 +153,8 @@ static int nhrp_reg_send_req(struct thread *t)
 
 	r->t_register = NULL;
 	if (!nhrp_peer_check(r->peer, 2)) {
+		debugf(NHRP_DEBUG_COMMON, "NHS: Waiting link for %s",
+			sockunion2str(&r->peer->vc->remote.nbma, buf1, sizeof buf1));
 		THREAD_TIMER_ON(master, r->t_register, nhrp_reg_send_req, r, 120);
 		return 0;
 	}

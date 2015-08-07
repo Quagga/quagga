@@ -68,6 +68,11 @@ static void __nhrp_peer_check(struct nhrp_peer *p)
 	struct interface *ifp = p->ifp;
 	struct nhrp_interface *nifp = ifp->info;
 	unsigned online;
+	char buf[SU_ADDRSTRLEN];
+
+	debugf(NHRP_DEBUG_COMMON, "Peer: %s: enabled=%d, profile=%d, ipsec=%d",
+		sockunion2str(&vc->remote.nbma, buf, sizeof buf),
+		nifp->enabled, nifp->ipsec_profile != 0, vc->ipsec);
 
 	online = nifp->enabled && (!nifp->ipsec_profile || vc->ipsec);
 	if (p->online != online) {
@@ -116,11 +121,6 @@ static void nhrp_peer_ifp_notify(struct notifier_block *n, unsigned long cmd)
 	case NOTIFY_INTERFACE_DOWN:
 		__nhrp_peer_check(p);
 		break;
-	case NOTIFY_INTERFACE_ADDRESS_CHANGED:
-		nhrp_peer_ref(p);
-		notifier_call(&p->notifier_list, NOTIFY_PEER_IFCONFIG_CHANGED);
-		nhrp_peer_unref(p);
-		break;
 	case NOTIFY_INTERFACE_NBMA_CHANGED:
 		/* Source NBMA changed, rebind to new VC */
 		nifp = p->ifp->info;
@@ -131,6 +131,11 @@ static void nhrp_peer_ifp_notify(struct notifier_block *n, unsigned long cmd)
 			nhrp_vc_notify_add(p->vc, &p->vc_notifier, nhrp_peer_vc_notify);
 			__nhrp_peer_check(p);
 		}
+		/* Fall-through to post config update */
+	case NOTIFY_INTERFACE_ADDRESS_CHANGED:
+		nhrp_peer_ref(p);
+		notifier_call(&p->notifier_list, NOTIFY_PEER_IFCONFIG_CHANGED);
+		nhrp_peer_unref(p);
 		break;
 	case NOTIFY_INTERFACE_MTU_CHANGED:
 		nhrp_peer_ref(p);
@@ -238,12 +243,20 @@ int nhrp_peer_check(struct nhrp_peer *p, int establish)
 	struct nhrp_vc *vc = p->vc;
 	struct interface *ifp = p->ifp;
 	struct nhrp_interface *nifp = ifp->info;
+	char buf[2][SU_ADDRSTRLEN];
+
+	debugf(NHRP_DEBUG_COMMON, "Peer: %s-%s: online=%d, establish=%d, requested=%d",
+		sockunion2str(&vc->local.nbma, buf[0], sizeof buf[0]),
+		sockunion2str(&vc->remote.nbma, buf[1], sizeof buf[1]),
+		p->online, establish, p->requested);
 
 	if (p->online)
 		return 1;
 	if (!establish)
 		return 0;
 	if (p->requested)
+		return 0;
+	if (sockunion_family(&vc->local.nbma) == AF_UNSPEC)
 		return 0;
 
 	p->prio = establish > 1;

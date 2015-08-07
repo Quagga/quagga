@@ -104,6 +104,17 @@ static inline uint8_t zbuf_get8(struct zbuf *zb)
 	return 0;
 }
 
+static inline uint32_t zbuf_get32(struct zbuf *zb)
+{
+	struct unaligned32 {
+		uint32_t value;
+	} __attribute__((packed));
+
+	struct unaligned32 *v = zbuf_pull(zb, struct unaligned32);
+	if (v) return v->value;
+	return 0;
+}
+
 static inline uint16_t zbuf_get_be16(struct zbuf *zb)
 {
 	struct unaligned16 {
@@ -117,13 +128,7 @@ static inline uint16_t zbuf_get_be16(struct zbuf *zb)
 
 static inline uint32_t zbuf_get_be32(struct zbuf *zb)
 {
-	struct unaligned32 {
-		uint32_t value;
-	} __attribute__((packed));
-
-	struct unaligned32 *v = zbuf_pull(zb, struct unaligned32);
-	if (v) return be32toh(v->value);
-	return 0;
+	return be32toh(zbuf_get32(zb));
 }
 
 static inline void *__zbuf_push(struct zbuf *zb, size_t size, int error)

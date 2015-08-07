@@ -35,34 +35,6 @@ int os_socket(void)
 	return nhrp_socket_fd;
 }
 
-void os_get_mgre_config(const char *ifname, uint32_t *gre_key, int *link_index, struct in_addr *saddr)
-{
-	struct ip_tunnel_parm cfg;
-	struct ifreq ifr;
-
-	if (nhrp_socket_fd < 0) goto err;
-
-#if 1 || defined(VALGRIND)
-	/* Valgrind does not have SIOCGETTUNNEL description, so clear
-	 * the memory structs to avoid spurious warnings */
-	memset(&ifr, 0, sizeof(ifr));
-	memset(&cfg, 0, sizeof(cfg));
-#endif
-
-	strncpy(ifr.ifr_name, ifname, IFNAMSIZ);
-	ifr.ifr_ifru.ifru_data = (void *) &cfg;
-	if (ioctl(nhrp_socket_fd, SIOCGETTUNNEL, &ifr)) goto err;
-
-	*gre_key = ntohl(cfg.i_key);
-	*link_index = cfg.link;
-	saddr->s_addr = cfg.iph.saddr;
-	return;
-err:
-	*gre_key = 0;
-	*link_index = 0;
-	saddr->s_addr = 0;
-}
-
 int os_sendmsg(const uint8_t *buf, size_t len, int ifindex, const uint8_t *addr, size_t addrlen)
 {
 	struct sockaddr_ll lladdr;

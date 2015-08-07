@@ -267,13 +267,36 @@ DEFUN(tunnel_protection, tunnel_protection_cmd,
 }
 
 DEFUN(no_tunnel_protection, no_tunnel_protection_cmd,
-	"tunnel protection",
+	"no tunnel protection",
+	NO_STR
 	"NHRP/GRE integration\n"
 	"IPsec protection\n")
 {
 	struct interface *ifp = vty->index;
 
 	nhrp_interface_set_protection(ifp, NULL, NULL);
+	return CMD_SUCCESS;
+}
+
+DEFUN(tunnel_source, tunnel_source_cmd,
+	"tunnel source INTERFACE",
+	"NHRP/GRE integration\n"
+	"Tunnel device binding tracking\n"
+	"Interface name\n")
+{
+	struct interface *ifp = vty->index;
+	nhrp_interface_set_source(ifp, argv[0]);
+	return CMD_SUCCESS;
+}
+
+DEFUN(no_tunnel_source, no_tunnel_source_cmd,
+	"no tunnel source",
+	"NHRP/GRE integration\n"
+	"Tunnel device binding tracking\n"
+	"Interface name\n")
+{
+	struct interface *ifp = vty->index;
+	nhrp_interface_set_source(ifp, NULL);
 	return CMD_SUCCESS;
 }
 
@@ -750,6 +773,9 @@ static int interface_config_write(struct vty *vty)
 					nifp->ipsec_fallback_profile);
 			vty_out(vty, "%s", VTY_NEWLINE);
 		}
+		if (nifp->source)
+			vty_out(vty, " tunnel source %s%s",
+				nifp->source, VTY_NEWLINE);
 
 		for (afi = 0; afi < AFI_MAX; afi++) {
 			struct nhrp_afi_data *ad = &nifp->afi[afi];
@@ -837,6 +863,8 @@ void nhrp_config_init(void)
 	install_element(INTERFACE_NODE, &no_interface_cmd);
 	install_element(INTERFACE_NODE, &tunnel_protection_cmd);
 	install_element(INTERFACE_NODE, &no_tunnel_protection_cmd);
+	install_element(INTERFACE_NODE, &tunnel_source_cmd);
+	install_element(INTERFACE_NODE, &no_tunnel_source_cmd);
 	install_element(INTERFACE_NODE, &if_nhrp_network_id_cmd);
 	install_element(INTERFACE_NODE, &if_no_nhrp_network_id_cmd);
 	install_element(INTERFACE_NODE, &if_nhrp_holdtime_cmd);
