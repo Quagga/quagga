@@ -127,6 +127,7 @@ static void nhrp_reg_peer_notify(struct notifier_block *n, unsigned long cmd)
 	case NOTIFY_PEER_UP:
 	case NOTIFY_PEER_DOWN:
 	case NOTIFY_PEER_IFCONFIG_CHANGED:
+	case NOTIFY_PEER_MTU_CHANGED:
 		THREAD_TIMER_OFF(r->t_register);
 		THREAD_TIMER_MSEC_ON(master, r->t_register, nhrp_reg_send_req, r, 10);
 		break;
@@ -180,6 +181,7 @@ static int nhrp_reg_send_req(struct thread *t)
 	cie = nhrp_cie_push(zb, NHRP_CODE_SUCCESS, NULL, NULL);
 	cie->prefix_length = 0xff;
 	cie->holding_time = htons(if_ad->holdtime);
+	cie->mtu = htons(if_ad->mtu);
 
 	nhrp_ext_request(zb, hdr, ifp);
 

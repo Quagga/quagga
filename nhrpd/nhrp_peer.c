@@ -129,8 +129,13 @@ static void nhrp_peer_ifp_notify(struct notifier_block *n, unsigned long cmd)
 			nhrp_vc_notify_del(p->vc, &p->vc_notifier);
 			p->vc = vc;
 			nhrp_vc_notify_add(p->vc, &p->vc_notifier, nhrp_peer_vc_notify);
+			__nhrp_peer_check(p);
 		}
-		__nhrp_peer_check(p);
+		break;
+	case NOTIFY_INTERFACE_MTU_CHANGED:
+		nhrp_peer_ref(p);
+		notifier_call(&p->notifier_list, NOTIFY_PEER_MTU_CHANGED);
+		nhrp_peer_unref(p);
 		break;
 	}
 }
@@ -330,6 +335,7 @@ static void nhrp_handle_resolution_req(struct nhrp_packet_parser *p)
 	/* CIE payload */
 	cie = nhrp_cie_push(zb, NHRP_CODE_SUCCESS, &nifp->nbma, &p->if_ad->addr);
 	cie->holding_time = htons(p->if_ad->holdtime);
+	cie->mtu = htons(p->if_ad->mtu);
 	if (p->if_ad->network_id && p->route_type == NHRP_ROUTE_OFF_NBMA)
 		cie->prefix_length = p->route_prefix.prefixlen;
 	else

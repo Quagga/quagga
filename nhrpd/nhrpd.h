@@ -140,14 +140,17 @@ struct nhrp_interface;
 enum nhrp_notify_type {
 	NOTIFY_INTERFACE_UP,
 	NOTIFY_INTERFACE_DOWN,
+	NOTIFY_INTERFACE_CHANGED,
 	NOTIFY_INTERFACE_ADDRESS_CHANGED,
 	NOTIFY_INTERFACE_NBMA_CHANGED,
+	NOTIFY_INTERFACE_MTU_CHANGED,
 
 	NOTIFY_VC_IPSEC_CHANGED,
 
 	NOTIFY_PEER_UP,
 	NOTIFY_PEER_DOWN,
 	NOTIFY_PEER_IFCONFIG_CHANGED,
+	NOTIFY_PEER_MTU_CHANGED,
 
 	NOTIFY_CACHE_UP,
 	NOTIFY_CACHE_DOWN,
@@ -292,6 +295,8 @@ struct nhrp_nhs {
 #define NHRP_IFF_REG_NO_UNIQUE		0x0100
 
 struct nhrp_interface {
+	struct interface *ifp;
+
 	unsigned enabled : 1;
 
 	char *ipsec_profile, *ipsec_fallback_profile;
@@ -305,7 +310,7 @@ struct nhrp_interface {
 
 	struct notifier_list notifier_list;
 
-	struct nhrp_interface *nbmanifp;
+	struct interface *nbmaifp;
 	struct notifier_block nbmanifp_notifier;
 
 	struct nhrp_afi_data {
@@ -313,6 +318,8 @@ struct nhrp_interface {
 		unsigned short configured : 1;
 		union sockunion addr;
 		uint32_t network_id;
+		short configured_mtu;
+		unsigned short mtu;
 		unsigned int holdtime;
 		struct list_head nhslist_head;
 	} afi[AFI_MAX];
@@ -323,6 +330,7 @@ int sock_open_unix(const char *path);
 void nhrp_interface_init(void);
 void nhrp_interface_terminate(void);
 void nhrp_interface_update(struct interface *ifp);
+void nhrp_interface_update_mtu(struct interface *ifp, afi_t afi);
 
 int nhrp_interface_add(int cmd, struct zclient *client, zebra_size_t length);
 int nhrp_interface_delete(int cmd, struct zclient *client, zebra_size_t length);

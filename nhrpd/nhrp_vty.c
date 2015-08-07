@@ -407,6 +407,44 @@ DEFUN(if_no_nhrp_holdtime, if_no_nhrp_holdtime_cmd,
 	return CMD_SUCCESS;
 }
 
+DEFUN(if_nhrp_mtu, if_nhrp_mtu_cmd,
+	"ip nhrp mtu (<576-1500>|opennhrp)",
+	IP_STR
+	NHRP_STR
+	"Configure NHRP advertised MTU\n"
+	"MTU value\n"
+	"Advertise bound interface MTU similar to OpenNHRP")
+{
+	struct interface *ifp = vty->index;
+	struct nhrp_interface *nifp = ifp->info;
+
+	if (argv[0][0] == 'o') {
+		nifp->afi[AFI_IP].configured_mtu = -1;
+	} else {
+		VTY_GET_INTEGER_RANGE("mtu", nifp->afi[AFI_IP].configured_mtu, argv[0], 576, 1500);
+	}
+	nhrp_interface_update_mtu(ifp, AFI_IP);
+
+	return CMD_SUCCESS;
+}
+
+DEFUN(if_no_nhrp_mtu, if_no_nhrp_mtu_cmd,
+	"no ip nhrp mtu [(<576-1500>|opennhrp)]",
+	NO_STR
+	IP_STR
+	NHRP_STR
+	"Configure NHRP advertised MTU\n"
+	"MTU value\n"
+	"Advertise bound interface MTU similar to OpenNHRP")
+{
+	struct interface *ifp = vty->index;
+	struct nhrp_interface *nifp = ifp->info;
+
+	nifp->afi[AFI_IP].configured_mtu = 0;
+	nhrp_interface_update_mtu(ifp, AFI_IP);
+	return CMD_SUCCESS;
+}
+
 DEFUN(if_nhrp_map, if_nhrp_map_cmd,
 	AFI_CMD " nhrp map (A.B.C.D|X:X::X:X) (A.B.C.D|local)",
 	AFI_STR
@@ -728,6 +766,14 @@ static int interface_config_write(struct vty *vty)
 					aficmd, ad->holdtime,
 					VTY_NEWLINE);
 
+			if (ad->configured_mtu < 0)
+				vty_out(vty, " %s nhrp mtu opennhrp%s",
+					aficmd, VTY_NEWLINE);
+			else if (ad->configured_mtu)
+				vty_out(vty, " %s nhrp mtu %u%s",
+					aficmd, ad->configured_mtu,
+					VTY_NEWLINE);
+
 			for (i = 0; interface_flags_desc[i].str != NULL; i++) {
 				if (!(ad->flags & interface_flags_desc[i].key))
 					continue;
@@ -795,6 +841,8 @@ void nhrp_config_init(void)
 	install_element(INTERFACE_NODE, &if_no_nhrp_network_id_cmd);
 	install_element(INTERFACE_NODE, &if_nhrp_holdtime_cmd);
 	install_element(INTERFACE_NODE, &if_no_nhrp_holdtime_cmd);
+	install_element(INTERFACE_NODE, &if_nhrp_mtu_cmd);
+	install_element(INTERFACE_NODE, &if_no_nhrp_mtu_cmd);
 	install_element(INTERFACE_NODE, &if_nhrp_flags_cmd);
 	install_element(INTERFACE_NODE, &if_no_nhrp_flags_cmd);
 	install_element(INTERFACE_NODE, &if_nhrp_reg_flags_cmd);
