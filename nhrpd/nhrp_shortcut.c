@@ -24,13 +24,11 @@ static void nhrp_shortcut_check_use(struct nhrp_shortcut *s)
 {
 	char buf[PREFIX_STRLEN];
 
-	if (!(s->expiring && s->cache->used))
-		return;
-
-	debugf(NHRP_DEBUG_ROUTE, "Shortcut %s used and expiring",
-		prefix2str(s->p, buf, sizeof buf));
-
-	nhrp_shortcut_send_resolution_req(s);
+	if (s->expiring && s->cache && s->cache->used) {
+		debugf(NHRP_DEBUG_ROUTE, "Shortcut %s used and expiring",
+			prefix2str(s->p, buf, sizeof buf));
+		nhrp_shortcut_send_resolution_req(s);
+	}
 }
 
 static int nhrp_shortcut_do_expire(struct thread *t)
@@ -366,8 +364,10 @@ static void nhrp_shortcut_purge_prefix(struct nhrp_shortcut *s, void *ctx)
 
 	if (prefix_match(pctx->p, s->p)) {
 		THREAD_OFF(s->t_timer);
-		if (pctx->deleted) {
-			/* Immediate purge on route with draw */
+		nhrp_reqid_free(&nhrp_packet_reqid, &s->reqid);
+
+		if (pctx->deleted || !s->cache) {
+			/* Immediate purge on route with draw or pending shortcut */
 			THREAD_TIMER_MSEC_ON(master, s->t_timer, nhrp_shortcut_do_purge, s, 5);
 		} else {
 			/* Soft expire - force immediate renewal, but purge
