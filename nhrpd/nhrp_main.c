@@ -156,9 +156,9 @@ static void nhrp_request_stop(void)
 	nhrp_shortcut_terminate();
 	nhrp_zebra_terminate();
 	vici_terminate();
-	nhrp_interface_terminate();
 	evmgr_terminate();
 	nhrp_vc_terminate();
+	nhrp_interface_terminate();
 	/* memory_terminate(); */
 	/* vty_terminate(); */
 	cmd_terminate();
