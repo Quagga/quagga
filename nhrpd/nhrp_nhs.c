@@ -350,3 +350,20 @@ int nhrp_nhs_free(struct nhrp_nhs *nhs)
 	XFREE(MTYPE_NHRP_NHS, nhs);
 	return 0;
 }
+
+void nhrp_nhs_terminate(void)
+{
+	struct interface *ifp;
+	struct nhrp_interface *nifp;
+	struct nhrp_nhs *nhs, *tmp;
+	struct listnode *node;
+	afi_t afi;
+
+	for (ALL_LIST_ELEMENTS_RO(iflist, node, ifp)) {
+		nifp = ifp->info;
+		for (afi = 0; afi < AFI_MAX; afi++) {
+			list_for_each_entry_safe(nhs, tmp, &nifp->afi[afi].nhslist_head, nhslist_entry)
+				nhrp_nhs_free(nhs);
+		}
+	}
+}

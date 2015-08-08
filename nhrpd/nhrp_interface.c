@@ -40,14 +40,6 @@ static int nhrp_if_new_hook(struct interface *ifp)
 
 static int nhrp_if_delete_hook(struct interface *ifp)
 {
-	struct nhrp_interface *nifp = ifp->info;
-	struct nhrp_nhs *nhs, *tmp;
-	afi_t afi;
-
-	for (afi = 0; afi < AFI_MAX; afi++) {
-		list_for_each_entry_safe(nhs, tmp, &nifp->afi[afi].nhslist_head, nhslist_entry)
-			nhrp_nhs_free(nhs);
-	}
 	XFREE(MTYPE_NHRP_IF, ifp->info);
 	return 0;
 }

@@ -154,6 +154,7 @@ static void nhrp_request_stop(void)
 	debugf(NHRP_DEBUG_COMMON, "Exiting...");
 
 	nhrp_shortcut_terminate();
+	nhrp_nhs_terminate();
 	nhrp_zebra_terminate();
 	vici_terminate();
 	evmgr_terminate();

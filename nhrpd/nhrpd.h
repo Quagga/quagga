@@ -347,6 +347,7 @@ void nhrp_interface_set_source(struct interface *ifp, const char *ifname);
 int nhrp_nhs_add(struct interface *ifp, afi_t afi, union sockunion *proto_addr, const char *nbma_fqdn);
 int nhrp_nhs_del(struct interface *ifp, afi_t afi, union sockunion *proto_addr, const char *nbma_fqdn);
 int nhrp_nhs_free(struct nhrp_nhs *nhs);
+void nhrp_nhs_terminate(void);
 
 void nhrp_route_update_nhrp(const struct prefix *p, struct interface *ifp);
 void nhrp_route_announce(int add, enum nhrp_cache_type type, const struct prefix *p, struct interface *ifp, const union sockunion *nexthop, uint32_t mtu);
