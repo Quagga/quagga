@@ -393,4 +393,6 @@ void nhrp_interface_set_source(struct interface *ifp, const char *ifname)
 
 	if (nifp->source) free(nifp->source);
 	nifp->source = ifname ? strdup(ifname) : NULL;
+
+	nhrp_interface_update_nbma(ifp);
 }
