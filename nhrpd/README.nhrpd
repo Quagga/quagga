@@ -9,14 +9,13 @@ Cisco DMVPN (and potentially with FlexVPN in the future).
 Current Status
 --------------
 
-The code is still under development, and not intended for production.
-
 - IPsec integration with strongSwan (requires patched strongSwan)
 - IPv4 over IPv4 NBMA GRE
 - IPv6 over IPv4 NBMA GRE -- majority of code exist; but is not tested
 - Spoke (NHC) functionality complete
-- Hub (NHS) functionality (mostly complete)
-- Multicast support is not done yet (OSPF will not work, use BGP for now)
+- Hub (NHS) functionality complete
+- Multicast support is not done yet
+  (so OSPF will not work, use BGP for now)
 
 The code is not (yet) compatible with Cisco FlexVPN style DMVPN. It
 would require relaying IKEv2 routing messages from strongSwan to nhrpd
@@ -39,6 +38,9 @@ This has two important differences compared to opennhrp setup:
     wants to know stable protocol address to NBMA address mapping. Thus,
     add 'dev <physdev>' binding, or specify 'local <nbma-address>'. If
     neither of this is specified, NHRP will not be enabled on the interface.
+    Alternatively you can skip 'dev' binding on tunnel if you allow
+    nhrpd to manage it using 'tunnel source' command (see below).
+
  2. The 'addr add' now has host prefix. In opennhrp you would have used
     the GRE subnet prefix length here instead, e.g. /24.
 
@@ -61,6 +63,7 @@ do in Cisco. As minimal configuration example one can do:
  configure terminal
  interface gre1
    tunnel protection vici profile dmvpn
+   tunnel source eth0
    ip nhrp network-id 1
    ip nhrp shortcut
    ip nhrp registration no-unique
