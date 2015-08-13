@@ -136,18 +136,22 @@ static void nhrp_interface_update_nbma(struct interface *ifp)
 		break;
 	}
 
+	if (nbmaifp) {
+		nbmanifp = nbmaifp->info;
+		if (sockunion_family(&nbma) == AF_UNSPEC)
+			nbma = nbmanifp->afi[AFI_IP].addr;
+		nhrp_interface_update_mtu(ifp, AFI_IP);
+		nhrp_interface_update_source(ifp);
+	}
+
 	if (nbmaifp != nifp->nbmaifp) {
 		if (nifp->nbmaifp)
 			notifier_del(&nifp->nbmanifp_notifier);
 		nifp->nbmaifp = nbmaifp;
 		if (nbmaifp) {
-			nbmanifp = nbmaifp->info;
 			notifier_add(&nifp->nbmanifp_notifier, &nbmanifp->notifier_list, nhrp_interface_interface_notifier);
-			nbma = nbmanifp->afi[AFI_IP].addr;
 			debugf(NHRP_DEBUG_IF, "%s: bound to %s", ifp->name, nbmaifp->name);
 		}
-		nhrp_interface_update_mtu(ifp, AFI_IP);
-		nhrp_interface_update_source(ifp);
 	}
 
 	if (!sockunion_same(&nbma, &nifp->nbma)) {
@@ -156,6 +160,7 @@ static void nhrp_interface_update_nbma(struct interface *ifp)
 		debugf(NHRP_DEBUG_IF, "%s: NBMA address changed", ifp->name);
 		notifier_call(&nifp->notifier_list, NOTIFY_INTERFACE_NBMA_CHANGED);
 	}
+
 	nhrp_interface_update(ifp);
 }
 
