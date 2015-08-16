@@ -902,7 +902,7 @@ DEFUN (no_debug_ospf_packet,
       else if (strncmp (argv[1], "r", 1) == 0)
 	flag = OSPF_DEBUG_RECV | OSPF_DEBUG_DETAIL;
       else if (strncmp (argv[1], "d", 1) == 0)
-	flag = OSPF_DEBUG_DETAIL;
+	flag = OSPF_DEBUG_SEND | OSPF_DEBUG_RECV | OSPF_DEBUG_DETAIL;
     }
 
   /* detail. */
