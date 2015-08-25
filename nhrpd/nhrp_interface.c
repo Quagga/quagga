@@ -241,15 +241,12 @@ void nhrp_interface_update(struct interface *ifp)
 
 	notifier_call(&nifp->notifier_list, NOTIFY_INTERFACE_CHANGED);
 
-	if (sockunion_family(&nifp->nbma) == AF_UNSPEC)
-		goto not_ok;
-	if (ifp->ifindex == IFINDEX_INTERNAL)
-		goto not_ok;
-
 	for (afi = 0; afi < AFI_MAX; afi++) {
 		if_ad = &nifp->afi[afi];
 
-		if (!if_ad->network_id) {
+		if (sockunion_family(&nifp->nbma) == AF_UNSPEC ||
+		    ifp->ifindex == IFINDEX_INTERNAL || !if_is_up(ifp) ||
+		    !if_ad->network_id) {
 			if (if_ad->configured) {
 				if_ad->configured = 0;
 				nhrp_interface_update_address(ifp, afi, 1);
@@ -266,7 +263,6 @@ void nhrp_interface_update(struct interface *ifp)
 		enabled = 1;
 	}
 
-not_ok:
 	if (enabled != nifp->enabled) {
 		nifp->enabled = enabled;
 		notifier_call(&nifp->notifier_list, enabled ? NOTIFY_INTERFACE_UP : NOTIFY_INTERFACE_DOWN);
