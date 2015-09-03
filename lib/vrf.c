@@ -38,7 +38,6 @@
 #include "command.h"
 #include "vty.h"
 
-#ifdef HAVE_NETNS
 
 #ifndef CLONE_NEWNET
 #define CLONE_NEWNET 0x40000000 /* New network namespace (lo, device, names sockets, etc) */
@@ -57,13 +56,38 @@ static inline int setns(int fd, int nstype)
 #endif /* HAVE_SETNS */
 
 #define VRF_RUN_DIR         "/var/run/netns"
+
+#ifdef HAVE_NETNS
+
 #define VRF_DEFAULT_NAME    "/proc/self/ns/net"
+static int have_netns_enabled = -1;
 
 #else /* !HAVE_NETNS */
 
 #define VRF_DEFAULT_NAME    "Default-IP-Routing-Table"
 
 #endif /* HAVE_NETNS */
+
+static int have_netns(void)
+{
+#ifdef HAVE_NETNS
+  if (have_netns_enabled < 0)
+    {
+        int fd = open (VRF_DEFAULT_NAME, O_RDONLY);
+
+        if (fd < 0)
+          have_netns_enabled = 0;
+        else
+          {
+            have_netns_enabled = 1;
+            close(fd);
+          }
+    }
+  return have_netns_enabled;
+#else
+  return 0;
+#endif
+}
 
 struct vrf
 {
@@ -185,11 +209,10 @@ vrf_lookup (vrf_id_t vrf_id)
 static int
 vrf_is_enabled (struct vrf *vrf)
 {
-#ifdef HAVE_NETNS
-  return vrf && vrf->fd >= 0;
-#else
-  return vrf && vrf->fd == -2 && vrf->vrf_id == VRF_DEFAULT;
-#endif
+  if (have_netns())
+      return vrf && vrf->fd >= 0;
+  else
+      return vrf && vrf->fd == -2 && vrf->vrf_id == VRF_DEFAULT;
 }
 
 /*
@@ -205,12 +228,12 @@ vrf_enable (struct vrf *vrf)
 
   if (!vrf_is_enabled (vrf))
     {
-#ifdef HAVE_NETNS
-      vrf->fd = open (vrf->name, O_RDONLY);
-#else
-      vrf->fd = -2; /* Remember that vrf_enable_hook has been called */
-      errno = -ENOTSUP;
-#endif
+      if (have_netns()) {
+        vrf->fd = open (vrf->name, O_RDONLY);
+      } else {
+        vrf->fd = -2; /* Remember that vrf_enable_hook has been called */
+        errno = -ENOTSUP;
+      }
 
       if (!vrf_is_enabled (vrf))
         {
@@ -219,10 +242,9 @@ vrf_enable (struct vrf *vrf)
           return 0;
         }
 
-#ifdef HAVE_NETNS
-      zlog_info ("VRF %u is associated with NETNS %s.",
-                 vrf->vrf_id, vrf->name);
-#endif
+      if (have_netns())
+        zlog_info ("VRF %u is associated with NETNS %s.",
+                   vrf->vrf_id, vrf->name);
 
       zlog_info ("VRF %u is enabled.", vrf->vrf_id);
       if (vrf_master.vrf_enable_hook)
@@ -247,9 +269,9 @@ vrf_disable (struct vrf *vrf)
       if (vrf_master.vrf_disable_hook)
         (*vrf_master.vrf_disable_hook) (vrf->vrf_id, &vrf->info);
 
-#ifdef HAVE_NETNS
-      close (vrf->fd);
-#endif
+      if (have_netns())
+        close (vrf->fd);
+
       vrf->fd = -1;
     }
 }
@@ -488,7 +510,6 @@ vrf_bitmap_check (vrf_bitmap_t bmap, vrf_id_t vrf_id)
                      VRF_BITMAP_FLAG (offset)) ? 1 : 0;
 }
 
-#ifdef HAVE_NETNS
 /*
  * VRF realization with NETNS
  */
@@ -624,8 +645,6 @@ vrf_config_write (struct vty *vty)
   return write;
 }
 
-#endif /* HAVE_NETNS */
-
 /* Initialize VRF module. */
 void
 vrf_init (void)
@@ -653,12 +672,13 @@ vrf_init (void)
       exit (1);
     }
 
-#ifdef HAVE_NETNS
-  /* Install VRF commands. */
-  install_node (&vrf_node, vrf_config_write);
-  install_element (CONFIG_NODE, &vrf_netns_cmd);
-  install_element (CONFIG_NODE, &no_vrf_netns_cmd);
-#endif
+  if (have_netns())
+    {
+      /* Install VRF commands. */
+      install_node (&vrf_node, vrf_config_write);
+      install_element (CONFIG_NODE, &vrf_netns_cmd);
+      install_element (CONFIG_NODE, &no_vrf_netns_cmd);
+    }
 }
 
 /* Terminate VRF module. */
@@ -689,17 +709,18 @@ vrf_socket (int domain, int type, int protocol, vrf_id_t vrf_id)
       return -1;
     }
 
-#ifdef HAVE_NETNS
-  ret = (vrf_id != VRF_DEFAULT) ? setns (vrf->fd, CLONE_NEWNET) : 0;
-  if (ret >= 0)
+  if (have_netns())
     {
-      ret = socket (domain, type, protocol);
-      if (vrf_id != VRF_DEFAULT)
-        setns (vrf_lookup (VRF_DEFAULT)->fd, CLONE_NEWNET);
+      ret = (vrf_id != VRF_DEFAULT) ? setns (vrf->fd, CLONE_NEWNET) : 0;
+      if (ret >= 0)
+        {
+          ret = socket (domain, type, protocol);
+          if (vrf_id != VRF_DEFAULT)
+            setns (vrf_lookup (VRF_DEFAULT)->fd, CLONE_NEWNET);
+        }
     }
-#else
-  ret = socket (domain, type, protocol);
-#endif
+  else
+    ret = socket (domain, type, protocol);
 
   return ret;
 }
