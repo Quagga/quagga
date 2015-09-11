@@ -676,6 +676,11 @@ DEFUN (bgp_maxpaths,
       return CMD_WARNING;
     }
 
+  if ((MULTIPATH_NUM != 0) && (maxpaths > MULTIPATH_NUM))
+    vty_out (vty,
+	     "%% Warning: maximum-paths set to %d is greater than %d that zebra is compiled to support%s",
+	     maxpaths, MULTIPATH_NUM, VTY_NEWLINE);
+
   return CMD_SUCCESS;
 }
 
@@ -703,6 +708,11 @@ DEFUN (bgp_maxpaths_ibgp,
 	       maxpaths, bgp_node_afi (vty), bgp_node_safi(vty), VTY_NEWLINE);
       return CMD_WARNING;
     }
+
+  if ((MULTIPATH_NUM != 0) && (maxpaths > MULTIPATH_NUM))
+    vty_out (vty,
+	     "%% Warning: maximum-paths set to %d is greater than %d that zebra is compiled to support%s",
+	     maxpaths, MULTIPATH_NUM, VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }
