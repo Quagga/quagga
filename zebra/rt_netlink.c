@@ -765,7 +765,6 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
               if (len < (int) sizeof (*rtnh) || rtnh->rtnh_len > len)
                 break;
 
-              rib->nexthop_num++;
               index = rtnh->rtnh_ifindex;
               gate = 0;
               if (rtnh->rtnh_len > sizeof (*rtnh))
@@ -968,7 +967,6 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
                   if (len < (int) sizeof (*rtnh) || rtnh->rtnh_len > len)
                     break;
 
-                  rib->nexthop_num++;
                   index = rtnh->rtnh_ifindex;
                   gate = 0;
                   if (rtnh->rtnh_len > sizeof (*rtnh))
