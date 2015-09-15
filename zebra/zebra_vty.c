@@ -28,6 +28,7 @@
 #include "table.h"
 #include "rib.h"
 #include "vrf.h"
+#include "rt_names.h"
 
 #include "zebra/zserv.h"
 
