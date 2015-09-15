@@ -30,6 +30,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "stream.h"
 #include "memory.h"
 #include "plist.h"
+#include "workqueue.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_attr.h"
@@ -420,7 +421,7 @@ bgp_fsm_change_status (struct peer *peer, int status)
        * the state change that happens below, so peer will be in Clearing
        * (or Deleted).
        */
-      if (!peer->clear_node_queue->thread)
+      if (!work_queue_is_scheduled (peer->clear_node_queue))
         BGP_EVENT_ADD (peer, Clearing_Completed);
     }
   
