@@ -20,6 +20,8 @@
   $QuaggaId: $Format:%an, %ai, %h$ $
 */
 
+#include <zebra.h>
+
 #include "pim_static.h"
 #include "pim_time.h"
 #include "pim_str.h"
