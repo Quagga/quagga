@@ -851,8 +851,17 @@ extern struct peer_group *peer_group_lookup (struct bgp *, const char *);
 extern struct peer_group *peer_group_get (struct bgp *, const char *);
 extern struct peer *peer_lookup_with_open (union sockunion *, as_t, struct in_addr *,
 				    int *);
-extern struct peer *peer_lock (struct peer *);
-extern struct peer *peer_unlock (struct peer *);
+
+/*
+ * Peers are incredibly easy to memory leak
+ * due to the various ways that they are actually used
+ * Provide some functionality to debug locks and unlocks
+ */
+extern struct peer *peer_lock_with_caller(const char *, struct peer *);
+extern struct peer *peer_unlock_with_caller(const char *, struct peer *);
+#define peer_unlock(A) peer_unlock_with_caller(__FUNCTION__, (A))
+#define peer_lock(B) peer_lock_with_caller(__FUNCTION__, (B))
+
 extern bgp_peer_sort_t peer_sort (struct peer *peer);
 extern int peer_active (struct peer *);
 extern int peer_active_nego (struct peer *);
