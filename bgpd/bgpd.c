@@ -1696,7 +1696,6 @@ peer_group_delete (struct peer_group *group)
 
   for (ALL_LIST_ELEMENTS (group->peer, node, nnode, peer))
     {
-      peer->group = NULL;
       peer_delete (peer);
     }
   list_delete (group->peer);
@@ -1726,7 +1725,6 @@ peer_group_remote_as_delete (struct peer_group *group)
 
   for (ALL_LIST_ELEMENTS (group->peer, node, nnode, peer))
     {
-      peer->group = NULL;
       peer_delete (peer);
     }
   list_delete_all_node (group->peer);
