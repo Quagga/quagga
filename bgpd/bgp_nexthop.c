@@ -789,8 +789,9 @@ zlookup_read (void)
   uint16_t length;
   u_char marker;
   u_char version;
-  uint16_t command __attribute__((unused));
-  int nbytes __attribute__((unused));
+  uint16_t vrf_id;
+  uint16_t command;
+  int err;
   struct in_addr raddr __attribute__((unused));
   uint32_t metric;
   int i;
@@ -801,23 +802,19 @@ zlookup_read (void)
   s = zlookup->ibuf;
   stream_reset (s);
 
-  /* nbytes not being checked */
-  nbytes = stream_read (s, zlookup->sock, 2);
-  length = stream_getw (s);
-
-  nbytes = stream_read (s, zlookup->sock, length - 2);
-  marker = stream_getc (s);
-  version = stream_getc (s);
-  
+  err = zclient_read_header (s, zlookup->sock, &length, &marker, &version,
+                             &vrf_id, &command);
+  if (err < 0)
+    {
+      zlog_err("%s: zserv_read_header() failed", __func__);
+      return NULL;
+    }
   if (version != ZSERV_VERSION || marker != ZEBRA_HEADER_MARKER)
     {
       zlog_err("%s: socket %d version mismatch, marker %d, version %d",
                __func__, zlookup->sock, marker, version);
       return NULL;
     }
-  
-  /* XXX: not checking command */
-  command = stream_getw (s);
   
   /* XXX: not doing anything with raddr */
   raddr.s_addr = stream_get_ipv4 (s);
@@ -902,11 +899,11 @@ static struct bgp_nexthop_cache *
 zlookup_read_ipv6 (void)
 {
   struct stream *s;
-  uint16_t length;
+  uint16_t length, vrf_id, cmd;
   u_char version, marker;
   struct in6_addr raddr;
   uint32_t metric;
-  int i;
+  int i, err;
   u_char nexthop_num;
   struct nexthop *nexthop;
   struct bgp_nexthop_cache *bnc;
@@ -914,23 +911,19 @@ zlookup_read_ipv6 (void)
   s = zlookup->ibuf;
   stream_reset (s);
 
-  /* XXX: ignoring nbytes, see also zread_lookup */
-  stream_read (s, zlookup->sock, 2);
-  length = stream_getw (s);
-
-  stream_read (s, zlookup->sock, length - 2);
-  marker = stream_getc (s);
-  version = stream_getc (s);
-  
+  err = zclient_read_header (s, zlookup->sock, &length, &marker, &version,
+                             &vrf_id, &cmd);
+  if (err < 0)
+    {
+      zlog_err("%s: zserv_read_header() failed", __func__);
+      return NULL;
+    }
   if (version != ZSERV_VERSION || marker != ZEBRA_HEADER_MARKER)
     {
       zlog_err("%s: socket %d version mismatch, marker %d, version %d",
                __func__, zlookup->sock, marker, version);
       return NULL;
     }
-  
-  /* XXX: ignoring command */  
-  stream_getw (s);
   
   /* XXX: not actually doing anything with raddr */
   stream_get (&raddr, s, 16);
@@ -1018,9 +1011,8 @@ bgp_import_check (struct prefix *p, u_int32_t *igpmetric,
 {
   struct stream *s;
   int ret;
-  u_int16_t length, command __attribute__((unused));
+  u_int16_t length, vrf_id, command;
   u_char version, marker;
-  int nbytes __attribute__((unused));
   struct in_addr addr __attribute__((unused));
   struct in_addr nexthop;
   u_int32_t metric = 0;
@@ -1066,25 +1058,19 @@ bgp_import_check (struct prefix *p, u_int32_t *igpmetric,
   /* Get result. */
   stream_reset (s);
 
-  /* Fetch length. */
-  /* XXX: not using nbytes */
-  nbytes = stream_read (s, zlookup->sock, 2);
-  length = stream_getw (s);
-
-  /* Fetch whole data. */
-  nbytes = stream_read (s, zlookup->sock, length - 2);
-  marker = stream_getc (s);
-  version = stream_getc (s);
-
+  ret = zclient_read_header (s, zlookup->sock, &length, &marker, &version,
+                             &vrf_id, &command);
+  if (ret < 0)
+    {
+      zlog_err("%s: zserv_read_header() failed", __func__);
+      return 0;
+    }
   if (version != ZSERV_VERSION || marker != ZEBRA_HEADER_MARKER)
     {
       zlog_err("%s: socket %d version mismatch, marker %d, version %d",
                __func__, zlookup->sock, marker, version);
       return 0;
     }
-  
-  /* XXX: not using command */
-  command = stream_getw (s);
   
   /* XXX: not using addr */
   addr.s_addr = stream_get_ipv4 (s);
