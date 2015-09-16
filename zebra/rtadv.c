@@ -534,23 +534,41 @@ rtadv_make_socket (vrf_id_t vrf_id)
   /* When we can't make ICMPV6 socket simply back.  Router
      advertisement feature will not be supported. */
   if (sock < 0)
-    return -1;
+    {
+      close (sock);
+      return -1;
+    }
 
   ret = setsockopt_ipv6_pktinfo (sock, 1);
   if (ret < 0)
-    return ret;
+    {
+      close (sock);
+      return ret;
+    }
   ret = setsockopt_ipv6_multicast_loop (sock, 0);
   if (ret < 0)
-    return ret;
+    {
+      close (sock);
+      return ret;
+    }
   ret = setsockopt_ipv6_unicast_hops (sock, 255);
   if (ret < 0)
-    return ret;
+    {
+      close (sock);
+      return ret;
+    }
   ret = setsockopt_ipv6_multicast_hops (sock, 255);
   if (ret < 0)
-    return ret;
+    {
+      close (sock);
+      return ret;
+    }
   ret = setsockopt_ipv6_hoplimit (sock, 1);
   if (ret < 0)
-    return ret;
+    {
+      close (sock);
+      return ret;
+    }
 
   ICMP6_FILTER_SETBLOCKALL(&filter);
   ICMP6_FILTER_SETPASS (ND_ROUTER_SOLICIT, &filter);
