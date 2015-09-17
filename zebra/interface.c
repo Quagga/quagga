@@ -368,6 +368,8 @@ if_add_update (struct interface *ifp)
   struct zebra_if *if_data;
 
   if_data = ifp->info;
+  assert(if_data);
+
   if (if_data->multicast == IF_ZEBRA_MULTICAST_ON)
     if_set_flags (ifp, IFF_MULTICAST);
   else if (if_data->multicast == IF_ZEBRA_MULTICAST_OFF)
