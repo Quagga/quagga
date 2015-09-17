@@ -809,13 +809,7 @@ zlookup_read (void)
       zlog_err("%s: zserv_read_header() failed", __func__);
       return NULL;
     }
-  if (version != ZSERV_VERSION || marker != ZEBRA_HEADER_MARKER)
-    {
-      zlog_err("%s: socket %d version mismatch, marker %d, version %d",
-               __func__, zlookup->sock, marker, version);
-      return NULL;
-    }
-  
+
   /* XXX: not doing anything with raddr */
   raddr.s_addr = stream_get_ipv4 (s);
   metric = stream_getl (s);
@@ -918,13 +912,7 @@ zlookup_read_ipv6 (void)
       zlog_err("%s: zserv_read_header() failed", __func__);
       return NULL;
     }
-  if (version != ZSERV_VERSION || marker != ZEBRA_HEADER_MARKER)
-    {
-      zlog_err("%s: socket %d version mismatch, marker %d, version %d",
-               __func__, zlookup->sock, marker, version);
-      return NULL;
-    }
-  
+
   /* XXX: not actually doing anything with raddr */
   stream_get (&raddr, s, 16);
 
@@ -1065,13 +1053,7 @@ bgp_import_check (struct prefix *p, u_int32_t *igpmetric,
       zlog_err("%s: zserv_read_header() failed", __func__);
       return 0;
     }
-  if (version != ZSERV_VERSION || marker != ZEBRA_HEADER_MARKER)
-    {
-      zlog_err("%s: socket %d version mismatch, marker %d, version %d",
-               __func__, zlookup->sock, marker, version);
-      return 0;
-    }
-  
+
   /* XXX: not using addr */
   addr.s_addr = stream_get_ipv4 (s);
   metric = stream_getl (s);

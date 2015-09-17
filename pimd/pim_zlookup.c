@@ -196,14 +196,7 @@ static int zclient_read_nexthop(struct zclient *zlookup,
     zclient_lookup_failed(zlookup);
     return -3;
   }
-  
-  if (version != ZSERV_VERSION || marker != ZEBRA_HEADER_MARKER) {
-    zlog_err("%s: socket %d version mismatch, marker %d, version %d",
-	     __func__, zlookup->sock, marker, version);
-    zclient_lookup_failed(zlookup);
-    return -4;
-  }
-    
+
   if (command != ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB) {
     zlog_err("%s: socket %d command mismatch: %d",
             __func__, zlookup->sock, command);
