@@ -135,9 +135,6 @@ if_create_vrf (const char *name, int namelen, vrf_id_t vrf_id)
   ifp->connected = list_new ();
   ifp->connected->del = (void (*) (void *)) connected_free;
 
-  /* Enable Link-detection by default */
-  SET_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION);
-
   if (if_master.if_new_hook)
     (*if_master.if_new_hook) (ifp);
 
