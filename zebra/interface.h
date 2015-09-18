@@ -37,6 +37,19 @@
 #define IF_ZEBRA_SHUTDOWN_OFF    0
 #define IF_ZEBRA_SHUTDOWN_ON     1
 
+/* Global user-configured default for interface link-detect */
+typedef enum {
+  IF_LINKDETECT_UNSPEC = 0,
+  IF_LINKDETECT_ON,
+  IF_LINKDETECT_OFF,
+} zebra_if_linkdetect;
+
+/* Global defaults for interfaces */
+struct zebra_if_defaults {
+  /* Link-detect default configuration */
+  zebra_if_linkdetect linkdetect;
+};
+
 /* Router advertisement feature. */
 #ifndef RTADV
 #if (defined(LINUX_IPV6) && (!defined(__GLIBC__) || defined(__GLIBC__) && __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 1)) || defined(KAME)
@@ -193,7 +206,10 @@ struct zebra_if
 
   /* Router advertise configuration. */
   u_char rtadv_enable;
-
+  
+  /* Interface specific link-detect configuration state */
+  zebra_if_linkdetect linkdetect;
+  
   /* Installed addresses chains tree. */
   struct route_table *ipv4_subnets;
 
