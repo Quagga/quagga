@@ -49,6 +49,50 @@
 const char *rtadv_pref_strs[] = { "medium", "high", "INVALID", "low", 0 };
 #endif /* HAVE_RTADV */
 
+/* We don't have a tidy top-level instance object for zebra, or interfaces */
+static struct zebra_if_defaults zif_defaults = {
+  .linkdetect = IF_LINKDETECT_UNSPEC,
+};
+
+/* helper only for if_zebra_linkdetect */
+static void
+if_zebra_linkdetect_set_val (struct interface *ifp, zebra_if_linkdetect val)
+{
+  switch (val)
+    {
+      case IF_LINKDETECT_ON:
+        SET_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION);
+        break;
+      case IF_LINKDETECT_OFF:
+        UNSET_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION);
+        break;
+      default: break;
+    }
+}
+
+static void
+if_zebra_linkdetect_set (struct interface *ifp)
+{
+  struct zebra_if *zif = ifp->info;
+  assert (zif != NULL);
+  int if_was_operative = if_is_operative(ifp);
+  
+  /* If user has explicitly configured for the interface, let that set */
+  if (zif->linkdetect != IF_LINKDETECT_UNSPEC)
+    if_zebra_linkdetect_set_val (ifp, zif->linkdetect);
+  else 
+    {
+      /* general compiled in default is to set */
+      SET_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION);
+      /* but user can specify a default too */
+      if_zebra_linkdetect_set_val (ifp, zif_defaults.linkdetect);
+    }
+  /* When linkdetection is enabled, interface might come down */
+  if (!if_is_operative(ifp) && if_was_operative) if_down(ifp);
+  /* Alternatively, it may come up after disabling link detection */
+  if (if_is_operative(ifp) && !if_was_operative) if_up(ifp);
+}
+
 /* Called when new interface is added. */
 static int
 if_zebra_new_hook (struct interface *ifp)
@@ -60,6 +104,18 @@ if_zebra_new_hook (struct interface *ifp)
   zebra_if->multicast = IF_ZEBRA_MULTICAST_UNSPEC;
   zebra_if->shutdown = IF_ZEBRA_SHUTDOWN_OFF;
 
+  switch (zif_defaults.linkdetect)
+    {
+      case IF_LINKDETECT_OFF:
+        UNSET_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION);
+        break;
+      case IF_LINKDETECT_UNSPEC:
+      case IF_LINKDETECT_ON:
+      default:
+        SET_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION);
+        break;
+    }
+  
 #if defined (HAVE_RTADV)
   {
     /* Set default router advertise values. */
@@ -1304,21 +1360,65 @@ DEFUN (no_multicast,
   return CMD_SUCCESS;
 }
 
+/* Hacky: create a dummy node just to hang a config-writer callback off it */
+static struct cmd_node zebra_if_defaults_node = {
+  ZEBRA_IF_DEFAULTS_NODE,
+  "",
+  1,
+};
+
+static int
+config_write_zebra_if_defaults (struct vty *vty)
+{
+  if (zif_defaults.linkdetect != IF_LINKDETECT_UNSPEC)
+    vty_out (vty, "default link-detect %s%s",
+             zif_defaults.linkdetect == IF_LINKDETECT_ON ? "on" : "off",
+             VTY_NEWLINE);
+  return 0;
+}
+
+DEFUN(default_linkdetect,
+      default_linkdetect_cmd,
+      "default link-detect (on|off)",
+      "Configure defaults of settings\n"
+      "Interface link detection\n"
+      "Interface link-detect defaults to enabled\n"
+      "Interface link-detect defaults to disabled\n")
+{
+  zebra_if_linkdetect prev = zif_defaults.linkdetect;
+  struct listnode *node;
+  struct interface *ifp;
+  vrf_iter_t iter;
+  
+  if (strcmp (argv[1], "on") == 0)
+    zif_defaults.linkdetect = IF_LINKDETECT_ON;
+  else
+    zif_defaults.linkdetect = IF_LINKDETECT_OFF;
+    
+  if (zif_defaults.linkdetect != prev)
+    for (iter = vrf_first (); iter != VRF_ITER_INVALID; iter = vrf_next (iter))
+      for (ALL_LIST_ELEMENTS_RO (vrf_iter2iflist (iter), node, ifp))
+        if_zebra_linkdetect_set (ifp);
+  
+  return CMD_SUCCESS;
+}
+
 DEFUN (linkdetect,
        linkdetect_cmd,
-       "link-detect",
-       "Enable link detection on interface\n")
+       "link-detect [default]",
+       "Enable link detection on interface\n"
+       "Leave link-detect to the default\n")
 {
   struct interface *ifp;
-  int if_was_operative;
+  struct zebra_if *zif;
   
   ifp = (struct interface *) vty->index;
-  if_was_operative = if_is_operative(ifp);
-  SET_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION);
-
-  /* When linkdetection is enabled, if might come down */
-  if (!if_is_operative(ifp) && if_was_operative) if_down(ifp);
-
+  zif = ifp->info;
+  assert (zif != NULL);
+  
+  zif->linkdetect = IF_LINKDETECT_ON;
+  if_zebra_linkdetect_set (ifp);
+  
   /* FIXME: Will defer status change forwarding if interface
      does not come down! */
 
@@ -1333,15 +1433,15 @@ DEFUN (no_linkdetect,
        "Disable link detection on interface\n")
 {
   struct interface *ifp;
-  int if_was_operative;
-
-  ifp = (struct interface *) vty->index;
-  if_was_operative = if_is_operative(ifp);
-  UNSET_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION);
+  struct zebra_if *zif;
   
-  /* Interface may come up after disabling link detection */
-  if (if_is_operative(ifp) && !if_was_operative) if_up(ifp);
-
+  ifp = (struct interface *) vty->index;
+  zif = ifp->info;
+  assert (zif != NULL);
+  
+  zif->linkdetect = IF_LINKDETECT_OFF;
+  if_zebra_linkdetect_set (ifp);
+  
   /* FIXME: see linkdetect_cmd */
 
   return CMD_SUCCESS;
@@ -2573,11 +2673,18 @@ if_config_write (struct vty *vty)
 	 while processing config script */
       if (ifp->bandwidth != 0)
 	vty_out(vty, " bandwidth %u%s", ifp->bandwidth, VTY_NEWLINE); 
-      if (CHECK_FLAG(ifp->status, ZEBRA_INTERFACE_LINKDETECTION))
-	vty_out(vty, " link-detect%s", VTY_NEWLINE);
-      else
-	vty_out(vty, " no link-detect%s", VTY_NEWLINE);
-
+      
+      switch (if_data->linkdetect)
+        {
+          case IF_LINKDETECT_ON:
+            vty_out(vty, " link-detect%s", VTY_NEWLINE);
+            break;
+          case IF_LINKDETECT_OFF:
+            vty_out(vty, " no link-detect%s", VTY_NEWLINE);
+            break;
+          default: break;
+        }
+      
       for (ALL_LIST_ELEMENTS_RO (ifp->connected, addrnode, ifc))
 	  {
 	    if (CHECK_FLAG (ifc->conf, ZEBRA_IFC_CONFIGURED))
@@ -2629,6 +2736,8 @@ zebra_if_init (void)
   
   /* Install configuration write function. */
   install_node (&interface_node, if_config_write);
+  
+  install_node (&zebra_if_defaults_node, config_write_zebra_if_defaults);
 
   install_node (&link_params_node, NULL);
   
@@ -2642,6 +2751,7 @@ zebra_if_init (void)
   install_element (CONFIG_NODE, &zebra_interface_vrf_cmd);
   install_element (CONFIG_NODE, &no_interface_cmd);
   install_element (CONFIG_NODE, &no_interface_vrf_cmd);
+  install_element (CONFIG_NODE, &default_linkdetect_cmd);
   install_default (INTERFACE_NODE);
   install_element (INTERFACE_NODE, &interface_desc_cmd);
   install_element (INTERFACE_NODE, &no_interface_desc_cmd);

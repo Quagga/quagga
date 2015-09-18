@@ -110,6 +110,7 @@ enum node_type
   PROTOCOL_NODE,                /* protocol filtering node */
   VTY_NODE,			/* Vty node. */
   LINK_PARAMS_NODE,		/* Link-parameters node */
+  ZEBRA_IF_DEFAULTS_NODE,	/* If defaults dummy node */
 };
 
 /* Node which has some commands and prompt string and configuration
