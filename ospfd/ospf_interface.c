@@ -866,6 +866,9 @@ ospf_vl_new (struct ospf *ospf, struct ospf_vl_data *vl_data)
 
   snprintf (ifname, sizeof(ifname), "VLINK%d", vlink_count);
   vi = if_create (ifname, strnlen(ifname, sizeof(ifname)));
+  /* Ensure that linkdetection is not enabled on the stub interfaces
+   * created for OSPF virtual links. */
+  UNSET_FLAG(vi->status, ZEBRA_INTERFACE_LINKDETECTION);
   co = connected_new ();
   co->ifp = vi;
   listnode_add (vi->connected, co);
