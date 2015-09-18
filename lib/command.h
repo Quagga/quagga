@@ -105,6 +105,7 @@ enum node_type
   FORWARDING_NODE,		/* IP forwarding node. */
   PROTOCOL_NODE,                /* protocol filtering node */
   VTY_NODE,			/* Vty node. */
+  ZEBRA_IF_DEFAULTS_NODE,	/* If defaults dummy node */
 };
 
 /* Node which has some commands and prompt string and configuration
