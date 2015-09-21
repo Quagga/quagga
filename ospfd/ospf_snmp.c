@@ -1994,9 +1994,7 @@ ospf_snmp_vl_lookup_next (struct in_addr *area_id, struct in_addr *neighbor,
     rn = route_top (ospf_snmp_vl_table);
   else
     {
-      rn = route_node_lookup (ospf_snmp_vl_table, (struct prefix *) &lp);
-      if (!rn)
-	return NULL;
+      rn = route_node_get (ospf_snmp_vl_table, (struct prefix *) &lp);
       rn = route_next (rn);
     }
 

@@ -133,9 +133,7 @@ ospf_area_range_lookup_next (struct ospf_area *area,
     rn = route_top (area->ranges);
   else
     {
-      rn = route_node_lookup (area->ranges, (struct prefix *) &p);
-      if (!rn)
-	return NULL;
+      rn = route_node_get (area->ranges, (struct prefix *) &p);
       rn = route_next (rn);
     }
 
