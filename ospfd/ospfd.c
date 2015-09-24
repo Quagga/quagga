@@ -170,6 +170,8 @@ ospf_new (void)
   new->router_id.s_addr = htonl (0);
   new->router_id_static.s_addr = htonl (0);
 
+	new->is_routed = 0;
+
   new->abr_type = OSPF_ABR_DEFAULT;
   new->oiflist = list_new ();
   new->vlinks = list_new ();
@@ -300,6 +302,15 @@ ospf_get ()
     }
 
   return ospf;
+}
+
+struct ospf *
+ospf_route ()
+{
+	struct ospf * ospf;
+	ospf = ospf_get ();
+	ospf->is_routed = 1;
+	return ospf;
 }
 
 /* Handle the second half of deferred shutdown. This is called either
