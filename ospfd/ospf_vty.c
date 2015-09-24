@@ -150,7 +150,7 @@ DEFUN (router_ospf,
        "Start OSPF configuration\n")
 {
   vty->node = OSPF_NODE;
-  vty->index = ospf_get ();
+  vty->index = ospf_route ();
  
   return CMD_SUCCESS;
 }
@@ -2812,7 +2812,7 @@ DEFUN (show_ip_ospf,
 
   /* Check OSPF is enable. */
   ospf = ospf_lookup ();
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -3098,7 +3098,7 @@ DEFUN (show_ip_ospf_interface,
   struct listnode *node;
 
   ospf = ospf_lookup ();
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, "OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -3181,7 +3181,7 @@ DEFUN (show_ip_ospf_neighbor,
   struct listnode *node;
 
   ospf = ospf_lookup ();
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -3208,7 +3208,7 @@ DEFUN (show_ip_ospf_neighbor_all,
   struct listnode *node;
   struct ospf_interface *oi;
 
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -3262,7 +3262,7 @@ DEFUN (show_ip_ospf_neighbor_int,
     }
 
   ospf = ospf_lookup ();
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -3417,7 +3417,7 @@ DEFUN (show_ip_ospf_neighbor_id,
     }
 
   ospf = ospf_lookup ();
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -3444,7 +3444,7 @@ DEFUN (show_ip_ospf_neighbor_detail,
   struct listnode *node;
 
   ospf = ospf_lookup ();
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -3480,7 +3480,7 @@ DEFUN (show_ip_ospf_neighbor_detail_all,
   struct ospf_interface *oi;
 
   ospf = ospf_lookup ();
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -3536,7 +3536,7 @@ DEFUN (show_ip_ospf_neighbor_int_detail,
     }
 
   ospf = ospf_lookup ();
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -4225,7 +4225,7 @@ DEFUN (show_ip_ospf_database,
   struct in_addr id, adv_router;
 
   ospf = ospf_lookup ();
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -4366,7 +4366,7 @@ DEFUN (show_ip_ospf_database_type_adv_router,
   struct in_addr adv_router;
 
   ospf = ospf_lookup ();
-  if (ospf == NULL)
+  if (ospf == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -6784,7 +6784,7 @@ DEFUN (show_ip_ospf_border_routers,
 {
   struct ospf *ospf;
 
-  if ((ospf = ospf_lookup ()) == NULL)
+  if ((ospf = ospf_lookup ()) == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -6815,7 +6815,7 @@ DEFUN (show_ip_ospf_route,
 {
   struct ospf *ospf;
 
-  if ((ospf = ospf_lookup ()) == NULL)
+  if ((ospf = ospf_lookup ()) == NULL || !ospf->is_routed)
     {
       vty_out (vty, " OSPF Routing Process not enabled%s", VTY_NEWLINE);
       return CMD_SUCCESS;
@@ -7433,7 +7433,7 @@ ospf_config_write (struct vty *vty)
   int write = 0;
 
   ospf = ospf_lookup ();
-  if (ospf != NULL)
+  if (ospf != NULL && ospf->is_routed)
     {
       /* `router ospf' print. */
       vty_out (vty, "router ospf%s", VTY_NEWLINE);

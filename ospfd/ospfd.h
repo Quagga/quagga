@@ -107,6 +107,7 @@ struct ospf
   struct in_addr router_id;		/* Configured automatically. */
   struct in_addr router_id_static;	/* Configured manually. */
 
+	u_char is_routed;  /* True if there was route ospf command */
   /* ABR/ASBR internal flags. */
   u_char flags;
 #define OSPF_FLAG_ABR           0x0001
@@ -512,6 +513,7 @@ extern int ospf_zlog;
 extern const char *ospf_redist_string(u_int route_type);
 extern struct ospf *ospf_lookup (void);
 extern struct ospf *ospf_get (void);
+extern struct ospf *ospf_route (void);
 extern void ospf_finish (struct ospf *);
 extern void ospf_router_id_update (struct ospf *ospf);
 extern int ospf_network_set (struct ospf *, struct prefix_ipv4 *,
