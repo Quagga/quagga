@@ -1094,10 +1094,10 @@ bgp_zebra_connected (struct zclient *zclient)
 }
 
 void
-bgp_zebra_init (void)
+bgp_zebra_init (struct thread_master *master)
 {
   /* Set default values. */
-  zclient = zclient_new ();
+  zclient = zclient_new (master);
   zclient_init (zclient, ZEBRA_ROUTE_BGP);
   zclient->zebra_connected = bgp_zebra_connected;
   zclient->router_id_update = bgp_router_id_update;

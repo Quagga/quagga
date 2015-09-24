@@ -205,7 +205,7 @@ int main(int argc, char** argv, char** envp) {
   /*
    * Initialize zclient "update" and "lookup" sockets
    */
-  pim_zebra_init(zebra_sock_path);
+  pim_zebra_init (master, zebra_sock_path);
 
   zlog_notice("Loading configuration - begin");
 

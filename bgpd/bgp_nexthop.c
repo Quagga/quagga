@@ -1402,7 +1402,7 @@ bgp_config_write_scan_time (struct vty *vty)
 void
 bgp_scan_init (void)
 {
-  zlookup = zclient_new ();
+  zlookup = zclient_new (master);
   zlookup->sock = -1;
   zlookup->t_connect = thread_add_event (master, zlookup_connect, zlookup, 0);
 

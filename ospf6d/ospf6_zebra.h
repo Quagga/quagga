@@ -44,7 +44,7 @@ extern void ospf6_zebra_redistribute (int);
 extern void ospf6_zebra_no_redistribute (int);
 #define ospf6_zebra_is_redistribute(type) \
     vrf_bitmap_check (zclient->redist[type], VRF_DEFAULT)
-extern void ospf6_zebra_init (void);
+extern void ospf6_zebra_init(struct thread_master *);
 
 extern int config_write_ospf6_debug_zebra (struct vty *vty);
 extern void install_element_ospf6_debug_zebra (void);

@@ -122,7 +122,7 @@ struct zclient *zclient_lookup_new()
 {
   struct zclient *zlookup;
 
-  zlookup = zclient_new();
+  zlookup = zclient_new (master);
   if (!zlookup) {
     zlog_err("%s: zclient_new() failure",
 	     __PRETTY_FUNCTION__);

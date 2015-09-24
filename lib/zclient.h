@@ -40,6 +40,9 @@
 /* Structure for the zebra client. */
 struct zclient
 {
+  /* The thread master we schedule ourselves on */
+  struct thread_master *master;
+
   /* Socket to zebra daemon. */
   int sock;
 
@@ -132,7 +135,7 @@ struct zapi_ipv4
 };
 
 /* Prototypes of zebra client service functions. */
-extern struct zclient *zclient_new (void);
+extern struct zclient *zclient_new (struct thread_master *);
 extern void zclient_init (struct zclient *, int);
 extern int zclient_start (struct zclient *);
 extern void zclient_stop (struct zclient *);

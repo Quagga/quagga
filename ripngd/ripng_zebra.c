@@ -541,10 +541,10 @@ ripng_zebra_connected (struct zclient *zclient)
 
 /* Initialize zebra structure and it's commands. */
 void
-zebra_init ()
+zebra_init (struct thread_master *master)
 {
   /* Allocate zebra structure. */
-  zclient = zclient_new ();
+  zclient = zclient_new (master);
   zclient_init (zclient, ZEBRA_ROUTE_RIPNG);
 
   zclient->zebra_connected = ripng_zebra_connected;

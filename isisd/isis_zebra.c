@@ -602,9 +602,9 @@ isis_zebra_connected (struct zclient *zclient)
 }
 
 void
-isis_zebra_init ()
+isis_zebra_init (struct thread_master *master)
 {
-  zclient = zclient_new ();
+  zclient = zclient_new (master);
   zclient_init (zclient, ZEBRA_ROUTE_ISIS);
   zclient->zebra_connected = isis_zebra_connected;
   zclient->router_id_update = isis_router_id_update_zebra;

@@ -298,7 +298,7 @@ main (int argc, char **argv)
 
   /* OSPFd inits. */
   ospf_if_init ();
-  ospf_zebra_init ();
+  ospf_zebra_init (master);
 
   /* OSPF vty inits. */
   ospf_vty_init ();

@@ -5421,7 +5421,7 @@ bgp_init (void)
   bgp_vty_init ();
 
   /* Init zebra. */
-  bgp_zebra_init ();
+  bgp_zebra_init (master);
 
   /* BGP inits. */
   bgp_attr_init ();

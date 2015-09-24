@@ -1304,10 +1304,10 @@ ospf_zebra_connected (struct zclient *zclient)
 }
 
 void
-ospf_zebra_init ()
+ospf_zebra_init (struct thread_master *master)
 {
   /* Allocate zebra structure. */
-  zclient = zclient_new ();
+  zclient = zclient_new (master);
   zclient_init (zclient, ZEBRA_ROUTE_OSPF);
   zclient->zebra_connected = ospf_zebra_connected;
   zclient->router_id_update = ospf_router_id_update_zebra;

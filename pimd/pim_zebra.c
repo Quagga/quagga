@@ -655,7 +655,7 @@ static void pim_zebra_connected(struct zclient *zclient)
   zclient_send_requests(zclient, VRF_DEFAULT);
 }
 
-void pim_zebra_init(char *zebra_sock_path)
+void pim_zebra_init (struct thread_master *master, char *zebra_sock_path)
 {
   int i;
 
@@ -669,7 +669,7 @@ void pim_zebra_init(char *zebra_sock_path)
 #endif
 
   /* Socket for receiving updates from Zebra daemon */
-  qpim_zclient_update = zclient_new();
+  qpim_zclient_update = zclient_new (master);
 
   qpim_zclient_update->zebra_connected          = pim_zebra_connected;
   qpim_zclient_update->router_id_update         = pim_router_id_update_zebra;

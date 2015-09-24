@@ -578,10 +578,10 @@ ospf6_zebra_connected (struct zclient *zclient)
 }
 
 void
-ospf6_zebra_init (void)
+ospf6_zebra_init (struct thread_master *master)
 {
   /* Allocate zebra structure. */
-  zclient = zclient_new ();
+  zclient = zclient_new (master);
   zclient_init (zclient, ZEBRA_ROUTE_OSPF6);
   zclient->zebra_connected = ospf6_zebra_connected;
   zclient->router_id_update = ospf6_router_id_update_zebra;
