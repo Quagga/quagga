@@ -116,6 +116,7 @@ static void nhrp_peer_ifp_notify(struct notifier_block *n, unsigned long cmd)
 	struct nhrp_interface *nifp;
 	struct nhrp_vc *vc;
 
+	nhrp_peer_ref(p);
 	switch (cmd) {
 	case NOTIFY_INTERFACE_UP:
 	case NOTIFY_INTERFACE_DOWN:
@@ -133,16 +134,13 @@ static void nhrp_peer_ifp_notify(struct notifier_block *n, unsigned long cmd)
 		}
 		/* Fall-through to post config update */
 	case NOTIFY_INTERFACE_ADDRESS_CHANGED:
-		nhrp_peer_ref(p);
 		notifier_call(&p->notifier_list, NOTIFY_PEER_IFCONFIG_CHANGED);
-		nhrp_peer_unref(p);
 		break;
 	case NOTIFY_INTERFACE_MTU_CHANGED:
-		nhrp_peer_ref(p);
 		notifier_call(&p->notifier_list, NOTIFY_PEER_MTU_CHANGED);
-		nhrp_peer_unref(p);
 		break;
 	}
+	nhrp_peer_unref(p);
 }
 
 static unsigned int nhrp_peer_key(void *peer_data)
