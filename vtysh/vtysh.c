@@ -251,14 +251,6 @@ vtysh_client_execute (struct vtysh_client *vclient, const char *line, FILE *fp)
     }
 }
 
-static void
-vtysh_exit_ripd_only (void)
-{
-  if (ripd_client)
-    vtysh_client_execute (ripd_client, "exit", stdout);
-}
-
-
 void
 vtysh_pager_init (void)
 {
@@ -457,53 +449,11 @@ int
 vtysh_config_from_file (struct vty *vty, FILE *fp)
 {
   int ret;
-  vector vline;
   struct cmd_element *cmd;
 
   while (fgets (vty->buf, VTY_BUFSIZ, fp))
     {
-      if (vty->buf[0] == '!' || vty->buf[1] == '#')
-	continue;
-
-      vline = cmd_make_strvec (vty->buf);
-
-      /* In case of comment line. */
-      if (vline == NULL)
-	continue;
-
-      /* Execute configuration command : this is strict match. */
-      ret = cmd_execute_command_strict (vline, vty, &cmd);
-
-      /* Try again with setting node to CONFIG_NODE. */
-      if (ret != CMD_SUCCESS 
-	  && ret != CMD_SUCCESS_DAEMON
-	  && ret != CMD_WARNING)
-	{
-	  if (vty->node == KEYCHAIN_KEY_NODE)
-	    {
-	      vty->node = KEYCHAIN_NODE;
-	      vtysh_exit_ripd_only ();
-	      ret = cmd_execute_command_strict (vline, vty, &cmd);
-
-	      if (ret != CMD_SUCCESS 
-		  && ret != CMD_SUCCESS_DAEMON 
-		  && ret != CMD_WARNING)
-		{
-		  vtysh_exit_ripd_only ();
-		  vty->node = CONFIG_NODE;
-		  ret = cmd_execute_command_strict (vline, vty, &cmd);
-		}
-	    }
-	  else
-	    {
-	      vtysh_execute ("end");
-	      vtysh_execute ("configure terminal");
-	      vty->node = CONFIG_NODE;
-	      ret = cmd_execute_command_strict (vline, vty, &cmd);
-	    }
-	}	  
-
-      cmd_free_strvec (vline);
+      ret = command_config_read_one_line (vty, &cmd, 1);
 
       switch (ret)
 	{
