@@ -136,13 +136,8 @@ static void nhrp_interface_update_nbma(struct interface *ifp)
 		break;
 	}
 
-	if (nbmaifp) {
+	if (nbmaifp)
 		nbmanifp = nbmaifp->info;
-		if (sockunion_family(&nbma) == AF_UNSPEC)
-			nbma = nbmanifp->afi[AFI_IP].addr;
-		nhrp_interface_update_mtu(ifp, AFI_IP);
-		nhrp_interface_update_source(ifp);
-	}
 
 	if (nbmaifp != nifp->nbmaifp) {
 		if (nifp->nbmaifp)
@@ -152,6 +147,13 @@ static void nhrp_interface_update_nbma(struct interface *ifp)
 			notifier_add(&nifp->nbmanifp_notifier, &nbmanifp->notifier_list, nhrp_interface_interface_notifier);
 			debugf(NHRP_DEBUG_IF, "%s: bound to %s", ifp->name, nbmaifp->name);
 		}
+	}
+
+	if (nbmaifp) {
+		if (sockunion_family(&nbma) == AF_UNSPEC)
+			nbma = nbmanifp->afi[AFI_IP].addr;
+		nhrp_interface_update_mtu(ifp, AFI_IP);
+		nhrp_interface_update_source(ifp);
 	}
 
 	if (!sockunion_same(&nbma, &nifp->nbma)) {
@@ -311,7 +313,7 @@ int nhrp_interface_up(int cmd, struct zclient *client, zebra_size_t length)
 		return 0;
 
 	debugf(NHRP_DEBUG_IF, "if-up: %s", ifp->name);
-	nhrp_interface_update(ifp);
+	nhrp_interface_update_nbma(ifp);
 
 	return 0;
 }
