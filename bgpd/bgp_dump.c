@@ -173,17 +173,23 @@ bgp_dump_interval_add (struct bgp_dump *bgp_dump, int interval)
 static void
 bgp_dump_header (struct stream *obuf, int type, int subtype)
 {
-  time_t now;
+  struct timeval clock;
+  time_t secs;
 
-  /* Set header. */
-  time (&now);
+  gettimeofday(&clock, NULL);
+
+  secs = clock.tv_sec;
 
   /* Put dump packet header. */
-  stream_putl (obuf, now);	
+  stream_putl (obuf, secs);
   stream_putw (obuf, type);
   stream_putw (obuf, subtype);
-
   stream_putl (obuf, 0);	/* len */
+
+#ifdef HAVE_MRT_ET
+  /* Adding microseconds for the MRT Extended Header */
+  stream_putl (obuf, msecs);
+#endif
 }
 
 static void
@@ -474,7 +480,11 @@ bgp_dump_state (struct peer *peer, int status_old, int status_new)
   obuf = bgp_dump_obuf;
   stream_reset (obuf);
 
+#ifdef HAVE_MRT_ET
+  bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP_ET, BGP4MP_STATE_CHANGE_AS4);
+#else
   bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP, BGP4MP_STATE_CHANGE_AS4);
+#endif
   bgp_dump_common (obuf, peer, 1);/* force this in as4speak*/
 
   stream_putw (obuf, status_old);
@@ -505,11 +515,19 @@ bgp_dump_packet_func (struct bgp_dump *bgp_dump, struct peer *peer,
   /* Dump header and common part. */
   if (CHECK_FLAG (peer->cap, PEER_CAP_AS4_RCV) )
     { 
+#ifdef HAVE_MRT_ET
+      bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP_ET, BGP4MP_MESSAGE_AS4);
+#else
       bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP, BGP4MP_MESSAGE_AS4);
+#endif
     }
   else
     {
+#ifdef HAVE_MRT_ET
+      bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP_ET, BGP4MP_MESSAGE);
+#else
       bgp_dump_header (obuf, MSG_PROTOCOL_BGP4MP, BGP4MP_MESSAGE);
+#endif
     }
   bgp_dump_common (obuf, peer, 0);
 
