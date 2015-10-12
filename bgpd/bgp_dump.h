@@ -24,6 +24,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* MRT compatible packet dump values.  */
 /* type value */
 #define MSG_PROTOCOL_BGP4MP  16
+#define MSG_PROTOCOL_BGP4MP_ET  17
+
 /* subtype value */
 #define BGP4MP_STATE_CHANGE          0
 #define BGP4MP_MESSAGE               1
@@ -32,7 +34,11 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #define BGP4MP_MESSAGE_AS4           4
 #define BGP4MP_STATE_CHANGE_AS4      5
 
+#ifdef HAVE_MRT_ET // Extended Timestamp MRT Header enabled
+#define BGP_DUMP_HEADER_SIZE 16
+#else
 #define BGP_DUMP_HEADER_SIZE 12
+#endif
 #define BGP_DUMP_MSG_HEADER  40
 
 #define TABLE_DUMP_V2_PEER_INDEX_TABLE   1

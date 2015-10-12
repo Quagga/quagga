@@ -248,6 +248,8 @@ AC_ARG_ENABLE(pimd,
   AS_HELP_STRING([--disable-pimd], [do not build pimd]))
 AC_ARG_ENABLE(bgp-announce,
   AS_HELP_STRING([--disable-bgp-announce,], [turn off BGP route announcement]))
+AC_ARG_ENABLE(mrt-et-header,
+  AS_HELP_STRING([--enable-et-header], [turn on MRT Extended Header]))
 AC_ARG_ENABLE(snmp,
   AS_HELP_STRING([--enable-snmp=ARG], [enable SNMP support (smux or agentx)]))
 AC_ARG_WITH(libpam,
@@ -315,6 +317,10 @@ if test x"${enable_time_check}" != x"no" ; then
   else
     AC_DEFINE_UNQUOTED(CONSUMED_TIME_CHECK,$enable_time_check,Consumed Time Check)
   fi
+fi
+
+if test "${enable_et_header}" = "yes"; then
+   AC_DEFINE(HAVE_MRT_ET,,MRT Extended Header support)
 fi
 
 if test "${enable_fpm}" = "yes"; then
