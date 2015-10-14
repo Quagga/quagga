@@ -2573,7 +2573,7 @@ vty_config_unlock (struct vty *vty)
 }
 
 /* Master of the threads. */
-static struct thread_master *master;
+static struct thread_master *vty_master;
 
 static void
 vty_event (enum event event, int sock, struct vty *vty)
@@ -2583,23 +2583,23 @@ vty_event (enum event event, int sock, struct vty *vty)
   switch (event)
     {
     case VTY_SERV:
-      vty_serv_thread = thread_add_read (master, vty_accept, vty, sock);
+      vty_serv_thread = thread_add_read (vty_master, vty_accept, vty, sock);
       vector_set_index (Vvty_serv_thread, sock, vty_serv_thread);
       break;
 #ifdef VTYSH
     case VTYSH_SERV:
-      vty_serv_thread = thread_add_read (master, vtysh_accept, vty, sock);
+      vty_serv_thread = thread_add_read (vty_master, vtysh_accept, vty, sock);
       vector_set_index (Vvty_serv_thread, sock, vty_serv_thread);
       break;
     case VTYSH_READ:
-      vty->t_read = thread_add_read (master, vtysh_read, vty, sock);
+      vty->t_read = thread_add_read (vty_master, vtysh_read, vty, sock);
       break;
     case VTYSH_WRITE:
-      vty->t_write = thread_add_write (master, vtysh_write, vty, sock);
+      vty->t_write = thread_add_write (vty_master, vtysh_write, vty, sock);
       break;
 #endif /* VTYSH */
     case VTY_READ:
-      vty->t_read = thread_add_read (master, vty_read, vty, sock);
+      vty->t_read = thread_add_read (vty_master, vty_read, vty, sock);
 
       /* Time out treatment. */
       if (vty->v_timeout)
@@ -2607,12 +2607,12 @@ vty_event (enum event event, int sock, struct vty *vty)
 	  if (vty->t_timeout)
 	    thread_cancel (vty->t_timeout);
 	  vty->t_timeout = 
-	    thread_add_timer (master, vty_timeout, vty, vty->v_timeout);
+	    thread_add_timer (vty_master, vty_timeout, vty, vty->v_timeout);
 	}
       break;
     case VTY_WRITE:
       if (! vty->t_write)
-	vty->t_write = thread_add_write (master, vty_flush, vty, sock);
+	vty->t_write = thread_add_write (vty_master, vty_flush, vty, sock);
       break;
     case VTY_TIMEOUT_RESET:
       if (vty->t_timeout)
@@ -2623,7 +2623,7 @@ vty_event (enum event event, int sock, struct vty *vty)
       if (vty->v_timeout)
 	{
 	  vty->t_timeout = 
-	    thread_add_timer (master, vty_timeout, vty, vty->v_timeout);
+	    thread_add_timer (vty_master, vty_timeout, vty, vty->v_timeout);
 	}
       break;
     }
@@ -3035,7 +3035,7 @@ vty_init (struct thread_master *master_thread)
 
   vtyvec = vector_init (VECTOR_MIN_SIZE);
 
-  master = master_thread;
+  vty_master = master_thread;
 
   atexit (vty_stdio_reset);
 
