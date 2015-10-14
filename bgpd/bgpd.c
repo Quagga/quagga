@@ -1978,7 +1978,7 @@ bgp_create (as_t *as, const char *name)
   if (name)
     bgp->name = strdup (name);
 
-  THREAD_TIMER_ON (master, bgp->t_startup, bgp_startup_timer_expire,
+  THREAD_TIMER_ON (bm->master, bgp->t_startup, bgp_startup_timer_expire,
                    bgp, bgp->restart_time);
 
   return bgp;
@@ -5421,7 +5421,7 @@ bgp_init (void)
   bgp_vty_init ();
 
   /* Init zebra. */
-  bgp_zebra_init (master);
+  bgp_zebra_init (bm->master);
 
   /* BGP inits. */
   bgp_attr_init ();

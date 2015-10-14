@@ -834,8 +834,6 @@ enum bgp_clear_type
 
 extern struct bgp_master *bm;
 
-extern struct thread_master *master;
-
 /* Prototypes. */
 extern void bgp_terminate (void);
 extern void bgp_reset (void);
