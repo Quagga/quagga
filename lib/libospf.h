@@ -82,9 +82,9 @@
 #define OSPF_AREA_BACKBONE              0x00000000      /* 0.0.0.0 */
 
 /* SPF Throttling timer values. */
-#define OSPF_SPF_DELAY_DEFAULT              200
-#define OSPF_SPF_HOLDTIME_DEFAULT           1000
-#define OSPF_SPF_MAX_HOLDTIME_DEFAULT	    10000
+#define OSPF_SPF_DELAY_DEFAULT              0
+#define OSPF_SPF_HOLDTIME_DEFAULT           50
+#define OSPF_SPF_MAX_HOLDTIME_DEFAULT	    5000
 
 #define OSPF_LSA_MAXAGE_CHECK_INTERVAL		30
 #define OSPF_LSA_MAXAGE_REMOVE_DELAY_DEFAULT	60
