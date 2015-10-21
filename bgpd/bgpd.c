@@ -805,7 +805,6 @@ peer_new (struct bgp *bgp)
   peer->fd = -1;
   peer->v_start = BGP_INIT_START_TIMER;
   peer->v_connect = BGP_DEFAULT_CONNECT_RETRY;
-  peer->v_asorig = BGP_DEFAULT_ASORIGINATE;
   peer->status = Idle;
   peer->ostatus = Idle;
   peer->weight = 0;
