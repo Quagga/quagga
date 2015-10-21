@@ -721,21 +721,36 @@ peer_free (struct peer *peer)
   BGP_EVENT_FLUSH (peer);
   
   if (peer->desc)
-    XFREE (MTYPE_PEER_DESC, peer->desc);
+    {
+      XFREE (MTYPE_PEER_DESC, peer->desc);
+      peer->desc = NULL;
+    }
   
   /* Free allocated host character. */
   if (peer->host)
-    XFREE (MTYPE_BGP_PEER_HOST, peer->host);
-  
+    {
+      XFREE (MTYPE_BGP_PEER_HOST, peer->host);
+      peer->host = NULL;
+    }
+
   /* Update source configuration.  */
   if (peer->update_source)
-    sockunion_free (peer->update_source);
+    {
+      sockunion_free (peer->update_source);
+      peer->update_source = NULL;
+    }
   
   if (peer->update_if)
-    XFREE (MTYPE_PEER_UPDATE_SOURCE, peer->update_if);
+    {
+      XFREE (MTYPE_PEER_UPDATE_SOURCE, peer->update_if);
+      peer->update_if = NULL;
+    }
     
   if (peer->clear_node_queue)
-    work_queue_free (peer->clear_node_queue);
+    {
+      work_queue_free(peer->clear_node_queue);
+      peer->clear_node_queue = NULL;
+    }
   
   if (peer->notify.data)
     XFREE(MTYPE_TMP, peer->notify.data);
@@ -1266,22 +1281,41 @@ peer_delete (struct peer *peer)
 
   /* Buffers.  */
   if (peer->ibuf)
-    stream_free (peer->ibuf);
+    {
+      stream_free (peer->ibuf);
+      peer->ibuf = NULL;
+    }
+
   if (peer->obuf)
-    stream_fifo_free (peer->obuf);
+    {
+      stream_fifo_free (peer->obuf);
+      peer->obuf = NULL;
+    }
+
   if (peer->work)
-    stream_free (peer->work);
+    {
+      stream_free (peer->work);
+      peer->work = NULL;
+    }
+
   if (peer->scratch)
-    stream_free(peer->scratch);
-  peer->obuf = NULL;
-  peer->work = peer->scratch = peer->ibuf = NULL;
+    {
+      stream_free(peer->scratch);
+      peer->scratch = NULL;
+    }
 
   /* Local and remote addresses. */
   if (peer->su_local)
-    sockunion_free (peer->su_local);
+    {
+      sockunion_free (peer->su_local);
+      peer->su_local = NULL;
+    }
+
   if (peer->su_remote)
-    sockunion_free (peer->su_remote);
-  peer->su_local = peer->su_remote = NULL;
+    {
+      sockunion_free (peer->su_remote);
+      peer->su_remote = NULL;
+    }
   
   /* Free filter related memory.  */
   for (afi = AFI_IP; afi < AFI_MAX; afi++)
@@ -1292,31 +1326,44 @@ peer_delete (struct peer *peer)
 	for (i = FILTER_IN; i < FILTER_MAX; i++)
 	  {
 	    if (filter->dlist[i].name)
-	      free (filter->dlist[i].name);
+              {
+                free(filter->dlist[i].name);
+                filter->dlist[i].name = NULL;
+              }
+
 	    if (filter->plist[i].name)
-	      free (filter->plist[i].name);
+              {
+                free(filter->plist[i].name);
+                filter->plist[i].name = NULL;
+              }
+
 	    if (filter->aslist[i].name)
-	      free (filter->aslist[i].name);
-            
-            filter->dlist[i].name = NULL;
-            filter->plist[i].name = NULL;
-            filter->aslist[i].name = NULL;
+              {
+                free(filter->aslist[i].name);
+                filter->aslist[i].name = NULL;
+              }
           }
+
         for (i = RMAP_IN; i < RMAP_MAX; i++)
           {
 	    if (filter->map[i].name)
-	      free (filter->map[i].name);
-            filter->map[i].name = NULL;
+              {
+	        free (filter->map[i].name);
+                filter->map[i].name = NULL;
+              }
 	  }
 
 	if (filter->usmap.name)
-	  free (filter->usmap.name);
+          {
+	    free (filter->usmap.name);
+            filter->usmap.name = NULL;
+          }
 
 	if (peer->default_rmap[afi][safi].name)
-	  free (peer->default_rmap[afi][safi].name);
-        
-        filter->usmap.name = NULL;
-        peer->default_rmap[afi][safi].name = NULL;
+          {
+	    free (peer->default_rmap[afi][safi].name);
+            peer->default_rmap[afi][safi].name = NULL;
+          }
       }
   
   peer_unlock (peer); /* initial reference */
