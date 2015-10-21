@@ -967,8 +967,13 @@ bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
 	    }
       }
     bgp_notify_print (peer, &bgp_notify, "sending");
+
     if (bgp_notify.data)
-      XFREE (MTYPE_TMP, bgp_notify.data);
+      {
+        XFREE (MTYPE_TMP, bgp_notify.data);
+        bgp_notify.data = NULL;
+        bgp_notify.length = 0;
+      }
   }
 
   if (BGP_DEBUG (normal, NORMAL))
@@ -1973,7 +1978,11 @@ bgp_notify_receive (struct peer *peer, bgp_size_t size)
 
     bgp_notify_print(peer, &bgp_notify, "received");
     if (bgp_notify.data)
-      XFREE (MTYPE_TMP, bgp_notify.data);
+      {
+        XFREE (MTYPE_TMP, bgp_notify.data);
+        bgp_notify.data = NULL;
+        bgp_notify.length = 0;
+      }
   }
 
   /* peer count update */
