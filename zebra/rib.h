@@ -333,12 +333,8 @@ struct nexthop_vrfid
 };
 
 /* Router advertisement feature. */
-#ifndef RTADV
-#if (defined(LINUX_IPV6) && (defined(__GLIBC__) && __GLIBC__ >= 2 && __GLIBC_MINOR__ >= 1)) || defined(KAME)
-  #ifdef HAVE_RTADV
-    #define RTADV
-  #endif
-#endif
+#if !defined(RTADV) && defined(LINUX_IPV6) && defined(HAVE_RTADV)
+#  define RTADV
 #endif
 
 #if defined (HAVE_IPV6) && defined (RTADV)
