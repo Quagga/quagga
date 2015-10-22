@@ -1080,7 +1080,8 @@ netlink_link_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
     {
       ifp = if_lookup_by_name_vrf (name, vrf_id);
 
-      if (ifp == NULL || !CHECK_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE))
+      if (ifp == NULL || !CHECK_FLAG (ifp->status, ZEBRA_INTERFACE_ACTIVE) ||
+          ifp->ifindex != (unsigned int) ifi->ifi_index)
         {
           if (ifp == NULL)
             ifp = if_get_by_name_vrf (name, vrf_id);
