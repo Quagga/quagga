@@ -87,9 +87,9 @@ vclient_close (struct vtysh_client *vclient)
 
 /* Following filled with debug code to trace a problematic condition
  * under load - it SHOULD handle it. */
-#define ERR_WHERE_STRING "vtysh(): vtysh_client_config(): "
+#define ERR_WHERE_STRING "vtysh(): vtysh_client_execute(): "
 static int
-vtysh_client_config (struct vtysh_client *vclient, char *line)
+vtysh_client_execute (struct vtysh_client *vclient, const char *line, FILE *fp)
 {
   int ret;
   char *buf;
@@ -100,6 +100,7 @@ vtysh_client_config (struct vtysh_client *vclient, char *line)
   int nbytes;
   int i;
   int readln;
+  int numnulls = 0;
 
   if (vclient->fd < 0)
     return CMD_SUCCESS;
@@ -145,111 +146,87 @@ vtysh_client_config (struct vtysh_client *vclient, char *line)
 	  XFREE(MTYPE_TMP, buf);
 	  return CMD_SUCCESS;
 	}
+      /* If we have already seen 3 nulls, then current byte is ret code */
+      if ((numnulls == 3) && (nbytes == 1))
+        {
+           ret = pbuf[0];
+           break;
+        }
 
       pbuf[nbytes] = '\0';
 
-      if (nbytes >= 4)
-	{
-	  i = nbytes - 4;
-	  if (pbuf[i] == '\0' && pbuf[i + 1] == '\0' && pbuf[i + 2] == '\0')
-	    {
-	      ret = pbuf[i + 3];
-	      break;
-	    }
-	}
-      pbuf += nbytes;
+       /* If the config needs to be written in file or stdout */
+       if (fp)
+       {
+         fputs(pbuf, fp);
+         fflush (fp);
+       }
 
-      /* See if a line exists in buffer, if so parse and consume it, and
-       * reset read position. */
-      if ((eoln = strrchr(buf, '\n')) == NULL)
-	continue;
+       /* At max look last four bytes */
+       if (nbytes >= 4)
+       {
+         i = nbytes - 4;
+         numnulls = 0;
+       }
+       else
+         i = 0;
 
-      if (eoln >= ((buf + bufsz) - 1))
-	{
-	  fprintf (stderr, ERR_WHERE_STRING \
-		   "warning - eoln beyond buffer end.\n");
-	}
-      vtysh_config_parse(buf);
+       /* Count the numnulls */ 
+       while (i < nbytes && numnulls <3)
+       {
+         if (pbuf[i++] == '\0')
+            numnulls++;
+         else
+            numnulls = 0;
+       }
+       /* We might have seen 3 consecutive nulls so store the ret code before updating pbuf*/
+       ret = pbuf[nbytes-1];
+       pbuf += nbytes;
 
-      eoln++;
-      left = (size_t)(buf + bufsz - eoln);
-      memmove(buf, eoln, left);
-      buf[bufsz-1] = '\0';
-      pbuf = buf + strlen(buf);
+       /* See if a line exists in buffer, if so parse and consume it, and
+        * reset read position. If 3 nulls has been encountered consume the buffer before 
+        * next read.
+        */
+       if (((eoln = strrchr(buf, '\n')) == NULL) && (numnulls<3))
+         continue;
+
+       if (eoln >= ((buf + bufsz) - 1))
+       {
+          fprintf (stderr, ERR_WHERE_STRING \
+               "warning - eoln beyond buffer end.\n");
+       }
+
+       /* If the config needs parsing, consume it */
+       if(!fp)
+         vtysh_config_parse(buf);
+
+       eoln++;
+       left = (size_t)(buf + bufsz - eoln);
+       /*
+        * This check is required since when a config line split between two consecutive reads, 
+        * then buf will have first half of config line and current read will bring rest of the 
+        * line. So in this case eoln will be 1 here, hence calculation of left will be wrong. 
+        * In this case we don't need to do memmove, because we have already seen 3 nulls.  
+        */
+       if(left < bufsz)
+         memmove(buf, eoln, left);
+
+       buf[bufsz-1] = '\0';
+       pbuf = buf + strlen(buf);
+       /* got 3 or more trailing NULs? */
+       if ((numnulls >=3) && (i < nbytes))
+       {
+          break;
+       }
     }
 
-  /* Parse anything left in the buffer. */
-
-  vtysh_config_parse (buf);
+  if(!fp)
+    vtysh_config_parse (buf);
 
   XFREE(MTYPE_TMP, buf);
   return ret;
 }
-
-static int
-vtysh_client_execute (struct vtysh_client *vclient, const char *line, FILE *fp)
-{
-  int ret;
-  char buf[1001];
-  int nbytes;
-  int i; 
-  int numnulls = 0;
-
-  if (vclient->fd < 0)
-    return CMD_SUCCESS;
-
-  ret = write (vclient->fd, line, strlen (line) + 1);
-  if (ret <= 0)
-    {
-      vclient_close (vclient);
-      return CMD_SUCCESS;
-    }
-	
-  while (1)
-    {
-      nbytes = read (vclient->fd, buf, sizeof(buf)-1);
-
-      if (nbytes <= 0 && errno != EINTR)
-	{
-	  vclient_close (vclient);
-	  return CMD_SUCCESS;
-	}
-
-      if (nbytes > 0)
-	{
-	  if ((numnulls == 3) && (nbytes == 1))
-	    return buf[0];
-
-	  buf[nbytes] = '\0';
-	  fputs (buf, fp);
-	  fflush (fp);
-	  
-	  /* check for trailling \0\0\0<ret code>, 
-	   * even if split across reads 
-	   * (see lib/vty.c::vtysh_read)
-	   */
-          if (nbytes >= 4) 
-            {
-              i = nbytes-4;
-              numnulls = 0;
-            }
-          else
-            i = 0;
-          
-          while (i < nbytes && numnulls < 3)
-            {
-              if (buf[i++] == '\0')
-                numnulls++;
-              else
-                numnulls = 0;
-            }
-
-          /* got 3 or more trailing NULs? */
-          if ((numnulls >= 3) && (i < nbytes))
-            return (buf[nbytes-1]);
-	}
-    }
-}
+ 
 
 void
 vtysh_pager_init (void)
@@ -1735,7 +1712,7 @@ DEFUN (vtysh_write_terminal,
   vty_out (vty, "!%s", VTY_NEWLINE);
 
   for (i = 0; i < array_size(vtysh_client); i++)
-    vtysh_client_config (&vtysh_client[i], line);
+    vtysh_client_execute (&vtysh_client[i], line, NULL);
 
   /* Integrate vtysh specific configuration. */
   vtysh_config_write ();
@@ -1836,7 +1813,7 @@ write_config_integrated(void)
     }
 
   for (i = 0; i < array_size(vtysh_client); i++)
-    vtysh_client_config (&vtysh_client[i], line);
+    vtysh_client_execute (&vtysh_client[i], line, NULL);
 
   vtysh_config_dump (fp);
 
