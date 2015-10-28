@@ -32,6 +32,7 @@
 #include "zebra/rib.h"
 #include "zebra/rt.h"
 #include "zebra/interface.h"
+#include "zebra/ioctl_solaris.h"
 
 extern struct zebra_privs_t zserv_privs;
 
@@ -309,7 +310,7 @@ if_get_flags_direct (const char *ifname, uint64_t *flags, unsigned int af)
 void
 if_get_flags (struct interface *ifp)
 {
-  int ret4, ret6;
+  int ret4 = 0, ret6 = 0;
   uint64_t newflags = 0;
   uint64_t tmpflags;
 
@@ -410,7 +411,7 @@ if_prefix_add_ipv6 (struct interface *ifp, struct connected *ifc)
   char addrbuf[PREFIX_STRLEN];
 
   zlog_warn ("Can't set %s on interface %s",
-             prefix2str(ifc->address->prefix, addrbuf, sizeof(addrbuf)),
+             prefix2str(ifc->address, addrbuf, sizeof(addrbuf)),
              ifp->name);
 
   return 0;
@@ -423,7 +424,7 @@ if_prefix_delete_ipv6 (struct interface *ifp, struct connected *ifc)
   char addrbuf[PREFIX_STRLEN];
 
   zlog_warn ("Can't delete %s on interface %s",
-             prefix2str(ifc->address->prefix, addrbuf, sizeof(addrbuf)),
+             prefix2str(ifc->address, addrbuf, sizeof(addrbuf)),
              ifp->name);
 
   return 0;
