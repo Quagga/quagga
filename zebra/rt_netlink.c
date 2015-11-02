@@ -668,6 +668,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
   int index;
   int table;
   int metric;
+  u_int32_t mtu = 0;
 
   void *dest;
   void *gate;
@@ -730,6 +731,18 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
   if (tb[RTA_PRIORITY])
     metric = *(int *) RTA_DATA(tb[RTA_PRIORITY]);
 
+  if (tb[RTA_METRICS])
+    {
+      struct rtattr *mxrta[RTAX_MAX+1];
+
+      memset (mxrta, 0, sizeof mxrta);
+      netlink_parse_rtattr (mxrta, RTAX_MAX, RTA_DATA(tb[RTA_METRICS]),
+                            RTA_PAYLOAD(tb[RTA_METRICS]));
+
+      if (mxrta[RTAX_MTU])
+        mtu = *(u_int32_t *) RTA_DATA(mxrta[RTAX_MTU]);
+    }
+
   if (rtm->rtm_family == AF_INET)
     {
       struct prefix_ipv4 p;
@@ -739,7 +752,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
 
       if (!tb[RTA_MULTIPATH])
           rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, flags, &p, gate, src, index,
-                        vrf_id, table, metric, 0, SAFI_UNICAST);
+                        vrf_id, table, metric, mtu, 0, SAFI_UNICAST);
       else
         {
           /* This is a multipath route */
@@ -755,6 +768,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
           rib->distance = 0;
           rib->flags = flags;
           rib->metric = metric;
+          rib->mtu = mtu;
           rib->vrf_id = vrf_id;
           rib->table = table;
           rib->nexthop_num = 0;
@@ -805,7 +819,7 @@ netlink_routing_table (struct sockaddr_nl *snl, struct nlmsghdr *h,
       p.prefixlen = rtm->rtm_dst_len;
 
       rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, flags, &p, gate, index, vrf_id,
-                    table, metric, 0, SAFI_UNICAST);
+                    table, metric, mtu, 0, SAFI_UNICAST);
     }
 #endif /* HAVE_IPV6 */
 
@@ -841,6 +855,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
   int index;
   int table;
   int metric;
+  u_int32_t mtu = 0;
 
   void *dest;
   void *gate;
@@ -919,8 +934,23 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
   if (tb[RTA_PREFSRC])
     src = RTA_DATA (tb[RTA_PREFSRC]);
 
-  if (h->nlmsg_type == RTM_NEWROUTE && tb[RTA_PRIORITY])
-    metric = *(int *) RTA_DATA(tb[RTA_PRIORITY]);
+  if (h->nlmsg_type == RTM_NEWROUTE)
+    {
+      if (tb[RTA_PRIORITY])
+        metric = *(int *) RTA_DATA(tb[RTA_PRIORITY]);
+
+      if (tb[RTA_METRICS])
+        {
+          struct rtattr *mxrta[RTAX_MAX+1];
+
+          memset (mxrta, 0, sizeof mxrta);
+          netlink_parse_rtattr (mxrta, RTAX_MAX, RTA_DATA(tb[RTA_METRICS]),
+                                RTA_PAYLOAD(tb[RTA_METRICS]));
+
+          if (mxrta[RTAX_MTU])
+            mtu = *(u_int32_t *) RTA_DATA(mxrta[RTAX_MTU]);
+        }
+    }
 
   if (rtm->rtm_family == AF_INET)
     {
@@ -941,7 +971,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
         {
           if (!tb[RTA_MULTIPATH])
             rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, src, index, vrf_id,
-                          table, metric, 0, SAFI_UNICAST);
+                          table, metric, mtu, 0, SAFI_UNICAST);
           else
             {
               /* This is a multipath route */
@@ -957,6 +987,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
               rib->distance = 0;
               rib->flags = 0;
               rib->metric = metric;
+              rib->mtu = mtu;
               rib->vrf_id = vrf_id;
               rib->table = table;
               rib->nexthop_num = 0;
@@ -1022,7 +1053,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
 
       if (h->nlmsg_type == RTM_NEWROUTE)
         rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id, table,
-                      metric, 0, SAFI_UNICAST);
+                      metric, mtu, 0, SAFI_UNICAST);
       else
         rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id,
                          SAFI_UNICAST);
@@ -1633,6 +1664,20 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
 
   /* Metric. */
   addattr32 (&req.n, sizeof req, RTA_PRIORITY, rib->metric);
+
+  if (rib->mtu || rib->nexthop_mtu)
+    {
+      char buf[NL_PKT_BUF_SIZE];
+      struct rtattr *rta = (void *) buf;
+      u_int32_t mtu = rib->mtu;
+      if (!mtu || (rib->nexthop_mtu && rib->nexthop_mtu < mtu))
+        mtu = rib->nexthop_mtu;
+      rta->rta_type = RTA_METRICS;
+      rta->rta_len = RTA_LENGTH(0);
+      rta_addattr_l (rta, NL_PKT_BUF_SIZE, RTAX_MTU, &mtu, sizeof mtu);
+      addattr_l (&req.n, NL_PKT_BUF_SIZE, RTA_METRICS, RTA_DATA (rta),
+                 RTA_PAYLOAD (rta));
+    }
 
   if (discard)
     {
