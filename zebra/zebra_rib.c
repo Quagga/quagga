@@ -361,6 +361,7 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
       UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_RECURSIVE);
       nexthops_free(nexthop->resolved);
       nexthop->resolved = NULL;
+      rib->nexthop_mtu = 0;
     }
 
   /* Make lookup prefix. */
@@ -469,6 +470,8 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
 		      }
 		    resolved = 1;
 		  }
+              if (resolved && set)
+                rib->nexthop_mtu = match->mtu;
 	      return resolved;
 	    }
 	  else
@@ -1806,7 +1809,7 @@ int
 rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p, 
 	      struct in_addr *gate, struct in_addr *src,
 	      unsigned int ifindex, vrf_id_t vrf_id, int table_id,
-	      u_int32_t metric, u_char distance, safi_t safi)
+	      u_int32_t metric, u_int32_t mtu, u_char distance, safi_t safi)
 {
   struct rib *rib;
   struct rib *same = NULL;
@@ -1869,6 +1872,7 @@ rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p,
   rib->distance = distance;
   rib->flags = flags;
   rib->metric = metric;
+  rib->mtu = mtu;
   rib->vrf_id = vrf_id;
   rib->table = table_id;
   rib->nexthop_num = 0;
@@ -2598,7 +2602,7 @@ int
 rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 	      struct in6_addr *gate, unsigned int ifindex,
 	      vrf_id_t vrf_id, int table_id,
-	      u_int32_t metric, u_char distance, safi_t safi)
+	      u_int32_t metric, u_int32_t mtu, u_char distance, safi_t safi)
 {
   struct rib *rib;
   struct rib *same = NULL;
@@ -2654,6 +2658,7 @@ rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   rib->distance = distance;
   rib->flags = flags;
   rib->metric = metric;
+  rib->mtu = mtu;
   rib->vrf_id = vrf_id;
   rib->table = table_id;
   rib->nexthop_num = 0;
