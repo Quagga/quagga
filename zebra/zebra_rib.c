@@ -1078,7 +1078,7 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
 /* Iterate over all nexthops of the given RIB entry and refresh their
  * ACTIVE flag. rib->nexthop_active_num is updated accordingly. If any
  * nexthop is found to toggle the ACTIVE flag, the whole rib structure
- * is flagged with ZEBRA_FLAG_CHANGED. The 4th 'set' argument is
+ * is flagged with RIB_ENTRY_CHANGED. The 4th 'set' argument is
  * transparently passed to nexthop_active_check().
  *
  * Return value is the new number of active nexthops.
@@ -1091,7 +1091,7 @@ nexthop_active_update (struct route_node *rn, struct rib *rib, int set)
   unsigned int prev_active, prev_index, new_active;
 
   rib->nexthop_active_num = 0;
-  UNSET_FLAG (rib->flags, ZEBRA_FLAG_CHANGED);
+  UNSET_FLAG (rib->status, RIB_ENTRY_CHANGED);
 
   for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
   {
@@ -1101,7 +1101,7 @@ nexthop_active_update (struct route_node *rn, struct rib *rib, int set)
       rib->nexthop_active_num++;
     if (prev_active != new_active ||
 	prev_index != nexthop->ifindex)
-      SET_FLAG (rib->flags, ZEBRA_FLAG_CHANGED);
+      SET_FLAG (rib->status, RIB_ENTRY_CHANGED);
   }
   return rib->nexthop_active_num;
 }
@@ -1375,7 +1375,7 @@ rib_process (struct route_node *rn)
       if (IS_ZEBRA_DEBUG_RIB)
 	rnode_debug (rn, "Updating existing route, select %p, fib %p",
                      (void *)select, (void *)fib);
-      if (CHECK_FLAG (select->flags, ZEBRA_FLAG_CHANGED))
+      if (CHECK_FLAG (select->status, RIB_ENTRY_CHANGED))
         {
           if (info->safi == SAFI_UNICAST)
 	    zfpm_trigger_update (rn, "updating existing route");
