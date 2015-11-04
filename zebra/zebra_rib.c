@@ -259,7 +259,6 @@ nexthop_ipv4_ifindex_add (struct rib *rib, struct in_addr *ipv4,
   return nexthop;
 }
 
-#ifdef HAVE_IPV6
 struct nexthop *
 nexthop_ipv6_add (struct rib *rib, struct in6_addr *ipv6)
 {
@@ -305,7 +304,6 @@ nexthop_ipv6_ifindex_add (struct rib *rib, struct in6_addr *ipv6,
 
   return nexthop;
 }
-#endif /* HAVE_IPV6 */
 
 struct nexthop *
 nexthop_blackhole_add (struct rib *rib)
@@ -483,7 +481,6 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
   return 0;
 }
 
-#ifdef HAVE_IPV6
 /* If force flag is not set, do not modify falgs at all for uninstall
    the route from FIB. */
 static int
@@ -618,7 +615,6 @@ nexthop_active_ipv6 (struct rib *rib, struct nexthop *nexthop, int set,
     }
   return 0;
 }
-#endif /* HAVE_IPV6 */
 
 struct rib *
 rib_match_ipv4_safi (struct in_addr addr, safi_t safi, int skip_bgp,
@@ -886,7 +882,6 @@ rib_lookup_ipv4_route (struct prefix_ipv4 *p, union sockunion * qgate,
   return ZEBRA_RIB_NOTFOUND;
 }
 
-#ifdef HAVE_IPV6
 struct rib *
 rib_match_ipv6 (struct in6_addr *addr, vrf_id_t vrf_id)
 {
@@ -949,7 +944,6 @@ rib_match_ipv6 (struct in6_addr *addr, vrf_id_t vrf_id)
     }
   return NULL;
 }
-#endif /* HAVE_IPV6 */
 
 #define RIB_SYSTEM_ROUTE(R) \
         ((R)->type == ZEBRA_ROUTE_KERNEL || (R)->type == ZEBRA_ROUTE_CONNECT)
@@ -1010,7 +1004,6 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
       else
 	UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
       break;
-#ifdef HAVE_IPV6
     case NEXTHOP_TYPE_IPV6:
       family = AFI_IP6;
       if (nexthop_active_ipv6 (rib, nexthop, set, rn))
@@ -1036,7 +1029,6 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
 	    UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
 	}
       break;
-#endif /* HAVE_IPV6 */
     case NEXTHOP_TYPE_BLACKHOLE:
       SET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
       break;
@@ -2597,7 +2589,6 @@ static_delete_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
   return 1;
 }
 
-#ifdef HAVE_IPV6
 int
 rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 	      struct in6_addr *gate, unsigned int ifindex,
@@ -3131,7 +3122,6 @@ static_delete_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
 
   return 1;
 }
-#endif /* HAVE_IPV6 */
 
 /* RIB update function. */
 void

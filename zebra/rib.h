@@ -309,7 +309,7 @@ struct nexthop_vrfid
 #  define RTADV
 #endif
 
-#if defined (HAVE_IPV6) && defined (RTADV)
+#if defined (RTADV)
 /* Structure which hold status of router advertisement. */
 struct rtadv
 {
@@ -321,7 +321,7 @@ struct rtadv
   struct thread *ra_read;
   struct thread *ra_timer;
 };
-#endif /* RTADV && HAVE_IPV6 */
+#endif /* RTADV */
 
 #ifdef HAVE_NETLINK
 /* Socket interface to kernel */
@@ -370,9 +370,9 @@ struct zebra_vrf
   struct list *rid_lo_sorted_list;
   struct prefix rid_user_assigned;
 
-#if defined (HAVE_IPV6) && defined (RTADV)
+#if defined (RTADV)
   struct rtadv rtadv;
-#endif /* RTADV && HAVE_IPV6 */
+#endif /* RTADV */
 };
 
 /*
@@ -451,9 +451,7 @@ extern int rib_lookup_ipv4_route (struct prefix_ipv4 *, union sockunion *,
 #define ZEBRA_RIB_FOUND_CONNECTED 2
 #define ZEBRA_RIB_NOTFOUND 3
 
-#ifdef HAVE_IPV6
 extern struct nexthop *nexthop_ipv6_add (struct rib *, struct in6_addr *);
-#endif /* HAVE_IPV6 */
 
 extern struct zebra_vrf *zebra_vrf_alloc (vrf_id_t);
 extern struct route_table *zebra_vrf_table (afi_t, safi_t, vrf_id_t);
@@ -498,7 +496,6 @@ extern int
 static_delete_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
 			 const char *ifname, u_char distance, vrf_id_t vrf_id);
 
-#ifdef HAVE_IPV6
 extern int
 rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 	      struct in6_addr *gate, unsigned int ifindex, vrf_id_t vrf_id,
@@ -523,8 +520,6 @@ static_add_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
 extern int
 static_delete_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
 		    const char *ifname, u_char distance, vrf_id_t vrf_id);
-
-#endif /* HAVE_IPV6 */
 
 extern int rib_gc_dest (struct route_node *rn);
 extern struct route_table *rib_tables_iter_next (rib_tables_iter_t *iter);
