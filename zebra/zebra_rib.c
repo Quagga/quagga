@@ -2403,7 +2403,7 @@ static_nexthop_same (struct nexthop *nexthop, struct static_route *si)
 
 /* Uninstall static route from RIB. */
 static void
-static_uninstall_ipv4 (safi_t safi, struct prefix *p, struct static_route *si)
+static_uninstall_route (afi_t afi, safi_t safi, struct prefix *p, struct static_route *si)
 {
   struct route_node *rn;
   struct rib *rib;
@@ -2411,7 +2411,7 @@ static_uninstall_ipv4 (safi_t safi, struct prefix *p, struct static_route *si)
   struct route_table *table;
 
   /* Lookup table.  */
-  table = zebra_vrf_table (AFI_IP, safi, si->vrf_id);
+  table = zebra_vrf_table (afi, safi, si->vrf_id);
   if (! table)
     return;
   
@@ -2599,7 +2599,7 @@ static_delete_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
     }
 
   /* Install into rib. */
-  static_uninstall_ipv4 (safi, p, si);
+  static_uninstall_route (AFI_IP, safi, p, si);
 
   /* Unlink static route from linked list. */
   if (si->prev)
@@ -2855,67 +2855,6 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   return 0;
 }
 
-static void
-static_uninstall_ipv6 (struct prefix *p, struct static_route *si)
-{
-  struct route_table *table;
-  struct route_node *rn;
-  struct rib *rib;
-  struct nexthop *nexthop;
-
-  /* Lookup table.  */
-  table = zebra_vrf_table (AFI_IP6, SAFI_UNICAST, si->vrf_id);
-  if (! table)
-    return;
-
-  /* Lookup existing route with type and distance. */
-  rn = route_node_lookup (table, (struct prefix *) p);
-  if (! rn)
-    return;
-
-  RNODE_FOREACH_RIB (rn, rib)
-    {
-      if (CHECK_FLAG (rib->status, RIB_ENTRY_REMOVED))
-        continue;
-    
-      if (rib->type == ZEBRA_ROUTE_STATIC && rib->distance == si->distance)
-        break;
-    }
-
-  if (! rib)
-    {
-      route_unlock_node (rn);
-      return;
-    }
-
-  /* Lookup nexthop. */
-  for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
-    if (static_nexthop_same (nexthop, si))
-      break;
-
-  /* Can't find nexthop. */
-  if (! nexthop)
-    {
-      route_unlock_node (rn);
-      return;
-    }
-  
-  /* Check nexthop. */
-  if (rib->nexthop_num == 1)
-    {
-      rib_delnode (rn, rib);
-    }
-  else
-    {
-      if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB))
-        rib_uninstall (rn, rib);
-      nexthop_delete (rib, nexthop);
-      nexthop_free (nexthop);
-      rib_queue_add (&zebrad, rn);
-    }
-  /* Unlock node. */
-  route_unlock_node (rn);
-}
 
 /* Add static route into static route configuration. */
 int
@@ -3040,7 +2979,7 @@ static_delete_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
     }
 
   /* Install into rib. */
-  static_uninstall_ipv6 (p, si);
+  static_uninstall_route (AFI_IP6, SAFI_UNICAST, p, si);
 
   /* Unlink static route from linked list. */
   if (si->prev)
