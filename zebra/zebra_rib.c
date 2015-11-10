@@ -2079,14 +2079,19 @@ rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
      kernel. */
   if (! same)
     {
-      if (fib && type == ZEBRA_ROUTE_KERNEL)
-	{
-	  /* Unset flags. */
-	  for (nexthop = fib->nexthop; nexthop; nexthop = nexthop->next)
-	    UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
-
-	  UNSET_FLAG (fib->status, RIB_ENTRY_SELECTED_FIB);
-	}
+      if (fib && type == ZEBRA_ROUTE_KERNEL &&
+          CHECK_FLAG(flags, ZEBRA_FLAG_SELFROUTE))
+        {
+          if (IS_ZEBRA_DEBUG_KERNEL)
+            {
+              zlog_debug ("Zebra route %s/%d was deleted by others from kernel",
+                         inet_ntop (AF_INET, &p->prefix, buf1, INET_ADDRSTRLEN),
+                         p->prefixlen);
+            }
+          /* This means someone else, other than Zebra, has deleted
+           * a Zebra router from the kernel. We will add it back */
+           rib_update_kernel(rn, NULL, fib);
+        }
       else
 	{
 	  if (IS_ZEBRA_DEBUG_KERNEL)
@@ -2738,14 +2743,19 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
      kernel. */
   if (! same)
     {
-      if (fib && type == ZEBRA_ROUTE_KERNEL)
-	{
-	  /* Unset flags. */
-	  for (nexthop = fib->nexthop; nexthop; nexthop = nexthop->next)
-	    UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
-
-	  UNSET_FLAG (fib->status, RIB_ENTRY_SELECTED_FIB);
-	}
+      if (fib && type == ZEBRA_ROUTE_KERNEL &&
+          CHECK_FLAG(flags, ZEBRA_FLAG_SELFROUTE))
+        {
+          if (IS_ZEBRA_DEBUG_KERNEL)
+            {
+              zlog_debug ("Zebra route %s/%d was deleted by others from kernel",
+                         inet_ntop (AF_INET, &p->prefix, buf1, INET_ADDRSTRLEN),
+                         p->prefixlen);
+            }
+          /* This means someone else, other than Zebra, has deleted a Zebra
+           * route from the kernel. We will add it back */
+          rib_update_kernel(rn, NULL, fib);
+        }
       else
 	{
 	  if (IS_ZEBRA_DEBUG_KERNEL)
