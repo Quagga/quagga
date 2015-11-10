@@ -477,6 +477,9 @@ bgp_default_update_send (struct peer *peer, struct attr *attr,
   if (DISABLE_BGP_ANNOUNCE)
     return;
 
+  if (bgp_update_delay_active(peer->bgp))
+    return;
+
   if (afi == AFI_IP)
     str2prefix ("0.0.0.0/0", &p);
   else 
@@ -542,6 +545,9 @@ bgp_default_withdraw_send (struct peer *peer, afi_t afi, safi_t safi)
   size_t mplen_pos = 0;
 
   if (DISABLE_BGP_ANNOUNCE)
+    return;
+
+  if (bgp_update_delay_active(peer->bgp))
     return;
 
   if (afi == AFI_IP)
@@ -1642,6 +1648,116 @@ bgp_nlri_parse (struct peer *peer, struct attr *attr, struct bgp_nlri *packet)
   return -1;
 }
 
+/* Called when there is a change in the EOR(implicit or explicit) status of a peer.
+   Ends the update-delay if all expected peers are done with EORs. */
+void
+bgp_check_update_delay(struct bgp *bgp)
+{
+  struct listnode *node, *nnode;
+  struct peer *peer;
+
+  if (BGP_DEBUG (normal, NORMAL))
+    zlog_debug ("Checking update delay, T: %d R: %d I:%d E: %d", bgp->established,
+                bgp->restarted_peers, bgp->implicit_eors, bgp->explicit_eors);
+
+  if (bgp->established <=
+      bgp->restarted_peers + bgp->implicit_eors + bgp->explicit_eors)
+    {
+      /* This is an extra sanity check to make sure we wait for all the
+         eligible configured peers. This check is performed if establish wait
+         timer is on, or establish wait option is not given with the
+         update-delay command */
+      if (bgp->t_establish_wait ||
+          (bgp->v_establish_wait == bgp->v_update_delay))
+        for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
+          {
+            if (!CHECK_FLAG (peer->flags, PEER_FLAG_SHUTDOWN)
+                && !peer->update_delay_over)
+              {
+                if (BGP_DEBUG (normal, NORMAL))
+                  zlog_debug (" Peer %s pending, continuing read-only mode",
+                              peer->host);
+                return;
+              }
+          }
+
+      zlog_info ("Update delay ended, restarted: %d, EORs implicit: %d, explicit: %d",
+                 bgp->restarted_peers, bgp->implicit_eors, bgp->explicit_eors);
+      bgp_update_delay_end(bgp);
+    }
+}
+
+/* Called if peer is known to have restarted. The restart-state bit in
+   Graceful-Restart capability is used for that */
+void
+bgp_update_restarted_peers (struct peer *peer)
+{
+  if (!bgp_update_delay_active(peer->bgp)) return; /* BGP update delay has ended */
+  if (peer->update_delay_over) return; /* This peer has already been considered */
+
+  if (BGP_DEBUG (normal, NORMAL))
+    zlog_debug ("Peer %s: Checking restarted", peer->host);
+
+  if (peer->status == Established)
+    {
+      peer->update_delay_over = 1;
+      peer->bgp->restarted_peers++;
+      bgp_check_update_delay(peer->bgp);
+    }
+}
+
+/* Called as peer receives a keep-alive. Determines if this occurence can be
+   taken as an implicit EOR for this peer.
+   NOTE: The very first keep-alive after the Established state of a peer is
+         considered implicit EOR for the update-delay purposes */
+void
+bgp_update_implicit_eors (struct peer *peer)
+{
+  if (!bgp_update_delay_active(peer->bgp)) return; /* BGP update delay has ended */
+  if (peer->update_delay_over) return; /* This peer has already been considered */
+
+  if (BGP_DEBUG (normal, NORMAL))
+    zlog_debug ("Peer %s: Checking implicit EORs", peer->host);
+
+  if (peer->status == Established)
+    {
+      peer->update_delay_over = 1;
+      peer->bgp->implicit_eors++;
+      bgp_check_update_delay(peer->bgp);
+    }
+}
+
+/* Should be called only when there is a change in the EOR_RECEIVED status
+   for any afi/safi on a peer */
+static void
+bgp_update_explicit_eors (struct peer *peer)
+{
+  afi_t afi;
+  safi_t safi;
+
+  if (!bgp_update_delay_active(peer->bgp)) return; /* BGP update delay has ended */
+  if (peer->update_delay_over) return; /* This peer has already been considered */
+
+  if (BGP_DEBUG (normal, NORMAL))
+    zlog_debug ("Peer %s: Checking explicit EORs", peer->host);
+
+  for (afi = AFI_IP; afi < AFI_MAX; afi++)
+    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
+      {
+        if (peer->afc_nego[afi][safi] &&
+            !CHECK_FLAG(peer->af_sflags[afi][safi], PEER_STATUS_EOR_RECEIVED))
+          {
+            if (BGP_DEBUG (normal, NORMAL))
+              zlog_debug ("   afi %d safi %d didnt receive EOR", afi, safi);
+            return;
+          }
+      }
+
+  peer->update_delay_over = 1;
+  peer->bgp->explicit_eors++;
+  bgp_check_update_delay(peer->bgp);
+}
+
 /* Parse BGP Update packet and make attribute object. */
 static int
 bgp_update_receive (struct peer *peer, bgp_size_t size)
@@ -1913,6 +2029,13 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 	  /* End-of-RIB received */
 	  SET_FLAG (peer->af_sflags[afi][safi],
 		    PEER_STATUS_EOR_RECEIVED);
+	  if (!CHECK_FLAG (peer->af_sflags[afi][safi],
+                           PEER_STATUS_EOR_RECEIVED))
+	    {
+	      SET_FLAG (peer->af_sflags[AFI_IP][SAFI_MULTICAST],
+			PEER_STATUS_EOR_RECEIVED);
+	      bgp_update_explicit_eors(peer);
+	    }
 
 	  /* NSF delete stale route */
 	  if (peer->nsf[afi][safi])

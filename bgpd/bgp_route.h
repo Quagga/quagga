@@ -196,6 +196,7 @@ enum bgp_path_type
 };
 
 /* Prototypes. */
+extern void bgp_process_queue_init (void);
 extern void bgp_route_init (void);
 extern void bgp_route_finish (void);
 extern void bgp_cleanup_routes (void);
