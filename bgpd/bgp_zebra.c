@@ -908,6 +908,9 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp,
   if (! vrf_bitmap_check (zclient->redist[ZEBRA_ROUTE_BGP], VRF_DEFAULT))
     return;
 
+  if (bgp->main_zebra_update_hold)
+    return;
+
   flags = 0;
   peer = info->peer;
 
@@ -1234,6 +1237,7 @@ bgp_zebra_announce_table (struct bgp *bgp, afi_t afi, safi_t safi)
   struct bgp_info *ri;
 
   table = bgp->rib[afi][safi];
+  if (!table) return;
 
   for (rn = bgp_table_top (table); rn; rn = bgp_route_next (rn))
     for (ri = rn->info; ri; ri = ri->next)
@@ -1256,6 +1260,10 @@ bgp_zebra_withdraw (struct prefix *p, struct bgp_info *info, safi_t safi)
     return;
 
   peer = info->peer;
+
+  if (peer->bgp && peer->bgp->main_zebra_update_hold)
+    return;
+
   flags = 0;
 
   if (peer->sort == BGP_PEER_IBGP)
