@@ -35,6 +35,7 @@
 #include "prefix.h"
 #include "routemap.h"
 #include "vrf.h"
+#include "nexthop.h"
 
 #include "zebra/rib.h"
 #include "zebra/rt.h"
@@ -42,6 +43,7 @@
 #include "zebra/redistribute.h"
 #include "zebra/debug.h"
 #include "zebra/zebra_fpm.h"
+#include "zebra/zebra_rnh.h"
 
 /* Default rtm_table for all clients */
 extern struct zebra_t zebrad;
@@ -110,57 +112,17 @@ _rnode_zlog(const char *_func, struct route_node *rn, int priority,
 #define rnode_info(node, ...) \
 	_rnode_zlog(__func__, node, LOG_INFO, __VA_ARGS__)
 
-/*
- * nexthop_type_to_str
- */
-const char *
-nexthop_type_to_str (enum nexthop_types_t nh_type)
-{
-  static const char *desc[] = {
-    "none",
-    "Directly connected",
-    "Interface route",
-    "IPv4 nexthop",
-    "IPv4 nexthop with ifindex",
-    "IPv4 nexthop with ifname",
-    "IPv6 nexthop",
-    "IPv6 nexthop with ifindex",
-    "IPv6 nexthop with ifname",
-    "Null0 nexthop",
-  };
-
-  if (nh_type >= ZEBRA_NUM_OF (desc))
-    return "<Invalid nh type>";
-
-  return desc[nh_type];
-}
-
-/* Add nexthop to the end of a nexthop list.  */
-static void
-_nexthop_add (struct nexthop **target, struct nexthop *nexthop)
-{
-  struct nexthop *last;
-
-  for (last = *target; last && last->next; last = last->next)
-    ;
-  if (last)
-    last->next = nexthop;
-  else
-    *target = nexthop;
-  nexthop->prev = last;
-}
-
 /* Add nexthop to the end of a rib node's nexthop list */
-static void
-nexthop_add (struct rib *rib, struct nexthop *nexthop)
+void
+rib_nexthop_add (struct rib *rib, struct nexthop *nexthop)
 {
-  _nexthop_add(&rib->nexthop, nexthop);
+  nexthop_add(&rib->nexthop, nexthop);
   rib->nexthop_num++;
 }
 
 /* Delete specified nexthop from the list. */
 static void
-nexthop_delete (struct rib *rib, struct nexthop *nexthop)
+rib_nexthop_delete (struct rib *rib, struct nexthop *nexthop)
 {
   if (nexthop->next)
     nexthop->next->prev = nexthop->prev;
@@ -171,150 +133,124 @@ nexthop_delete (struct rib *rib, struct nexthop *nexthop)
   rib->nexthop_num--;
 }
 
-static void nexthops_free(struct nexthop *nexthop);
-
-/* Free nexthop. */
-static void
-nexthop_free (struct nexthop *nexthop)
-{
-  if (nexthop->ifname)
-    XFREE (0, nexthop->ifname);
-  if (nexthop->resolved)
-    nexthops_free(nexthop->resolved);
-  XFREE (MTYPE_NEXTHOP, nexthop);
-}
-
-/* Frees a list of nexthops */
-static void
-nexthops_free (struct nexthop *nexthop)
-{
-  struct nexthop *nh, *next;
-
-  for (nh = nexthop; nh; nh = next)
-    {
-      next = nh->next;
-      nexthop_free (nh);
-    }
-}
-
 struct nexthop *
-nexthop_ifindex_add (struct rib *rib, ifindex_t ifindex)
+rib_nexthop_ifindex_add (struct rib *rib, ifindex_t ifindex)
 {
   struct nexthop *nexthop;
 
-  nexthop = XCALLOC (MTYPE_NEXTHOP, sizeof (struct nexthop));
+  nexthop = nexthop_new ();
   nexthop->type = NEXTHOP_TYPE_IFINDEX;
   nexthop->ifindex = ifindex;
 
-  nexthop_add (rib, nexthop);
+  rib_nexthop_add (rib, nexthop);
 
   return nexthop;
 }
 
 struct nexthop *
-nexthop_ifname_add (struct rib *rib, char *ifname)
+rib_nexthop_ifname_add (struct rib *rib, char *ifname)
 {
   struct nexthop *nexthop;
 
-  nexthop = XCALLOC (MTYPE_NEXTHOP, sizeof (struct nexthop));
+  nexthop = nexthop_new ();
   nexthop->type = NEXTHOP_TYPE_IFNAME;
   nexthop->ifname = XSTRDUP (MTYPE_TMP, ifname);
 
-  nexthop_add (rib, nexthop);
+  rib_nexthop_add (rib, nexthop);
 
   return nexthop;
 }
 
 struct nexthop *
-nexthop_ipv4_add (struct rib *rib, struct in_addr *ipv4, struct in_addr *src)
+rib_nexthop_ipv4_add (struct rib *rib, struct in_addr *ipv4, struct in_addr *src)
 {
   struct nexthop *nexthop;
 
-  nexthop = XCALLOC (MTYPE_NEXTHOP, sizeof (struct nexthop));
+  nexthop = nexthop_new ();
   nexthop->type = NEXTHOP_TYPE_IPV4;
   nexthop->gate.ipv4 = *ipv4;
   if (src)
     nexthop->src.ipv4 = *src;
 
-  nexthop_add (rib, nexthop);
+  rib_nexthop_add (rib, nexthop);
 
   return nexthop;
 }
 
 struct nexthop *
-nexthop_ipv4_ifindex_add (struct rib *rib, struct in_addr *ipv4, 
-                          struct in_addr *src, ifindex_t ifindex)
+rib_nexthop_ipv4_ifindex_add (struct rib *rib, struct in_addr *ipv4, 
+			      struct in_addr *src, ifindex_t ifindex)
 {
   struct nexthop *nexthop;
 
-  nexthop = XCALLOC (MTYPE_NEXTHOP, sizeof (struct nexthop));
+  nexthop = nexthop_new ();
   nexthop->type = NEXTHOP_TYPE_IPV4_IFINDEX;
   nexthop->gate.ipv4 = *ipv4;
   if (src)
     nexthop->src.ipv4 = *src;
   nexthop->ifindex = ifindex;
 
-  nexthop_add (rib, nexthop);
+  rib_nexthop_add (rib, nexthop);
 
   return nexthop;
 }
 
 struct nexthop *
-nexthop_ipv6_add (struct rib *rib, struct in6_addr *ipv6)
+rib_nexthop_ipv6_add (struct rib *rib, struct in6_addr *ipv6)
 {
   struct nexthop *nexthop;
 
-  nexthop = XCALLOC (MTYPE_NEXTHOP, sizeof (struct nexthop));
+  nexthop = nexthop_new ();
   nexthop->type = NEXTHOP_TYPE_IPV6;
   nexthop->gate.ipv6 = *ipv6;
 
-  nexthop_add (rib, nexthop);
+  rib_nexthop_add (rib, nexthop);
 
   return nexthop;
 }
 
 static struct nexthop *
-nexthop_ipv6_ifname_add (struct rib *rib, struct in6_addr *ipv6,
-			 char *ifname)
+rib_nexthop_ipv6_ifname_add (struct rib *rib, struct in6_addr *ipv6,
+			     char *ifname)
 {
   struct nexthop *nexthop;
 
-  nexthop = XCALLOC (MTYPE_NEXTHOP, sizeof (struct nexthop));
+  nexthop = nexthop_new ();
   nexthop->type = NEXTHOP_TYPE_IPV6_IFNAME;
   nexthop->gate.ipv6 = *ipv6;
   nexthop->ifname = XSTRDUP (MTYPE_TMP, ifname);
 
-  nexthop_add (rib, nexthop);
+  rib_nexthop_add (rib, nexthop);
 
   return nexthop;
 }
 
 struct nexthop *
-nexthop_ipv6_ifindex_add (struct rib *rib, struct in6_addr *ipv6,
-			  ifindex_t ifindex)
+rib_nexthop_ipv6_ifindex_add (struct rib *rib, struct in6_addr *ipv6,
+			      ifindex_t ifindex)
 {
   struct nexthop *nexthop;
 
-  nexthop = XCALLOC (MTYPE_NEXTHOP, sizeof (struct nexthop));
+  nexthop = nexthop_new ();
   nexthop->type = NEXTHOP_TYPE_IPV6_IFINDEX;
   nexthop->gate.ipv6 = *ipv6;
   nexthop->ifindex = ifindex;
 
-  nexthop_add (rib, nexthop);
+  rib_nexthop_add (rib, nexthop);
 
   return nexthop;
 }
 
 struct nexthop *
-nexthop_blackhole_add (struct rib *rib)
+rib_nexthop_blackhole_add (struct rib *rib)
 {
   struct nexthop *nexthop;
 
-  nexthop = XCALLOC (MTYPE_NEXTHOP, sizeof (struct nexthop));
+  nexthop = nexthop_new ();
   nexthop->type = NEXTHOP_TYPE_BLACKHOLE;
   SET_FLAG (rib->flags, ZEBRA_FLAG_BLACKHOLE);
 
-  nexthop_add (rib, nexthop);
+  rib_nexthop_add (rib, nexthop);
 
   return nexthop;
 }
@@ -455,7 +391,7 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
 			    resolved_hop->ifindex = newhop->ifindex;
 			  }
 
-			_nexthop_add(&nexthop->resolved, resolved_hop);
+			nexthop_add(&nexthop->resolved, resolved_hop);
 		      }
 		    resolved = 1;
 		  }
@@ -592,7 +528,7 @@ nexthop_active_ipv6 (struct rib *rib, struct nexthop *nexthop, int set,
 				resolved_hop->ifindex = newhop->ifindex;
 			  }
 
-			_nexthop_add(&nexthop->resolved, resolved_hop);
+			nexthop_add(&nexthop->resolved, resolved_hop);
 		      }
 		    resolved = 1;
 		  }
@@ -1440,6 +1376,18 @@ process_subq (struct list * subq, u_char qindex)
   return 1;
 }
 
+/*
+ * All meta queues have been processed. Trigger next-hop evaluation.
+ */
+static void
+meta_queue_process_complete (struct work_queue *dummy)
+{
+  zebra_evaluate_rnh_table(0, AF_INET);
+#ifdef HAVE_IPV6
+  zebra_evaluate_rnh_table(0, AF_INET6);
+#endif /* HAVE_IPV6 */
+}
+
 /* Dispatch the meta queue by picking, processing and unlocking the next RN from
  * a non-empty sub-queue with lowest priority. wq is equal to zebra->ribq and data
  * is pointed to the meta queue structure.
@@ -1592,6 +1540,7 @@ rib_queue_init (struct zebra_t *zebra)
   /* fill in the work queue spec */
   zebra->ribq->spec.workfunc = &meta_queue_process;
   zebra->ribq->spec.errorfunc = NULL;
+  zebra->ribq->spec.completion_func = &meta_queue_process_complete;
   /* XXX: TODO: These should be runtime configurable via vty */
   zebra->ribq->spec.max_retries = 3;
   zebra->ribq->spec.hold = rib_process_hold_time;
@@ -1815,12 +1764,12 @@ rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p,
   if (gate)
     {
       if (ifindex)
-	nexthop_ipv4_ifindex_add (rib, gate, src, ifindex);
+	rib_nexthop_ipv4_ifindex_add (rib, gate, src, ifindex);
       else
-	nexthop_ipv4_add (rib, gate, src);
+	rib_nexthop_ipv4_add (rib, gate, src);
     }
   else
-    nexthop_ifindex_add (rib, ifindex);
+    rib_nexthop_ifindex_add (rib, ifindex);
 
   /* If this route is kernel route, set FIB flag to the route. */
   if (type == ZEBRA_ROUTE_KERNEL || type == ZEBRA_ROUTE_CONNECT)
@@ -1952,58 +1901,6 @@ void rib_lookup_and_dump (struct prefix_ipv4 * p)
     );
     rib_dump (p, rib);
   }
-}
-
-/* Check if requested address assignment will fail due to another
- * route being installed by zebra in FIB already. Take necessary
- * actions, if needed: remove such a route from FIB and deSELECT
- * corresponding RIB entry. Then put affected RN into RIBQ head.
- */
-void rib_lookup_and_pushup (struct prefix_ipv4 * p)
-{
-  struct route_table *table;
-  struct route_node *rn;
-  struct rib *rib;
-  unsigned changed = 0;
-
-  if (NULL == (table = zebra_vrf_table (AFI_IP, SAFI_UNICAST, VRF_DEFAULT)))
-  {
-    zlog_err ("%s: zebra_vrf_table() returned NULL", __func__);
-    return;
-  }
-
-  /* No matches would be the simplest case. */
-  if (NULL == (rn = route_node_lookup (table, (struct prefix *) p)))
-    return;
-
-  /* Unlock node. */
-  route_unlock_node (rn);
-
-  /* Check all RIB entries. In case any changes have to be done, requeue
-   * the RN into RIBQ head. If the routing message about the new connected
-   * route (generated by the IP address we are going to assign very soon)
-   * comes before the RIBQ is processed, the new RIB entry will join
-   * RIBQ record already on head. This is necessary for proper revalidation
-   * of the rest of the RIB.
-   */
-  RNODE_FOREACH_RIB (rn, rib)
-  {
-    if (CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB) &&
-      ! RIB_SYSTEM_ROUTE (rib))
-    {
-      changed = 1;
-      if (IS_ZEBRA_DEBUG_RIB)
-      {
-        char buf[PREFIX_STRLEN];
-        zlog_debug ("%s: freeing way for connected prefix %s", __func__,
-                    prefix2str(&rn->p, buf, sizeof(buf)));
-        rib_dump (&rn->p, rib);
-      }
-      rib_uninstall (rn, rib);
-    }
-  }
-  if (changed)
-    rib_queue_add (&zebrad, rn);
 }
 
 int
@@ -2251,22 +2148,22 @@ static_install_route (afi_t afi, safi_t safi, struct prefix *p, struct static_ro
       switch (si->type)
         {
 	case STATIC_IPV4_GATEWAY:
-	  nexthop_ipv4_add (rib, &si->addr.ipv4, NULL);
+	  rib_nexthop_ipv4_add (rib, &si->addr.ipv4, NULL);
 	  break;
 	case STATIC_IPV4_IFNAME:
-	  nexthop_ifname_add (rib, si->ifname);
+	  rib_nexthop_ifname_add (rib, si->ifname);
 	  break;
 	case STATIC_IPV4_BLACKHOLE:
-	  nexthop_blackhole_add (rib);
+	  rib_nexthop_blackhole_add (rib);
 	  break;
 	case STATIC_IPV6_GATEWAY:
-	  nexthop_ipv6_add (rib, &si->addr.ipv6);
+	  rib_nexthop_ipv6_add (rib, &si->addr.ipv6);
 	  break;
 	case STATIC_IPV6_IFNAME:
-	  nexthop_ifname_add (rib, si->ifname);
+	  rib_nexthop_ifname_add (rib, si->ifname);
 	  break;
 	case STATIC_IPV6_GATEWAY_IFNAME:
-	  nexthop_ipv6_ifname_add (rib, &si->addr.ipv6, si->ifname);
+	  rib_nexthop_ipv6_ifname_add (rib, &si->addr.ipv6, si->ifname);
 	  break;
         }
       rib_queue_add (&zebrad, rn);
@@ -2286,22 +2183,22 @@ static_install_route (afi_t afi, safi_t safi, struct prefix *p, struct static_ro
       switch (si->type)
         {
 	case STATIC_IPV4_GATEWAY:
-	  nexthop_ipv4_add (rib, &si->addr.ipv4, NULL);
+	  rib_nexthop_ipv4_add (rib, &si->addr.ipv4, NULL);
 	  break;
 	case STATIC_IPV4_IFNAME:
-	  nexthop_ifname_add (rib, si->ifname);
+	  rib_nexthop_ifname_add (rib, si->ifname);
 	  break;
 	case STATIC_IPV4_BLACKHOLE:
-	  nexthop_blackhole_add (rib);
+	  rib_nexthop_blackhole_add (rib);
 	  break;
 	case STATIC_IPV6_GATEWAY:
-	  nexthop_ipv6_add (rib, &si->addr.ipv6);
+	  rib_nexthop_ipv6_add (rib, &si->addr.ipv6);
 	  break;
 	case STATIC_IPV6_IFNAME:
-	  nexthop_ifname_add (rib, si->ifname);
+	  rib_nexthop_ifname_add (rib, si->ifname);
 	  break;
 	case STATIC_IPV6_GATEWAY_IFNAME:
-	  nexthop_ipv6_ifname_add (rib, &si->addr.ipv6, si->ifname);
+	  rib_nexthop_ipv6_ifname_add (rib, &si->addr.ipv6, si->ifname);
 	  break;
         }
 
@@ -2396,7 +2293,7 @@ static_uninstall_route (afi_t afi, safi_t safi, struct prefix *p, struct static_
     {
       if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB))
         rib_uninstall (rn, rib);
-      nexthop_delete (rib, nexthop);
+      rib_nexthop_delete (rib, nexthop);
       nexthop_free (nexthop);
       rib_queue_add (&zebrad, rn);
     }
@@ -2632,12 +2529,12 @@ rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   if (gate)
     {
       if (ifindex)
-	nexthop_ipv6_ifindex_add (rib, gate, ifindex);
+	rib_nexthop_ipv6_ifindex_add (rib, gate, ifindex);
       else
-	nexthop_ipv6_add (rib, gate);
+	rib_nexthop_ipv6_add (rib, gate);
     }
   else
-    nexthop_ifindex_add (rib, ifindex);
+    rib_nexthop_ifindex_add (rib, ifindex);
 
   /* If this route is kernel route, set FIB flag to the route. */
   if (type == ZEBRA_ROUTE_KERNEL || type == ZEBRA_ROUTE_CONNECT)
@@ -2877,7 +2774,6 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
   route_unlock_node (rn);
   return 0;
 }
-
 
 /* Add static route into static route configuration. */
 int
@@ -3321,6 +3217,13 @@ rib_tables_iter_next (rib_tables_iter_t *iter)
   return table;
 }
 
+/* Lookup VRF by identifier.  */
+struct zebra_vrf *
+zebra_vrf_lookup (vrf_id_t vrf_id)
+{
+  return vrf_info_lookup (vrf_id);
+}
+
 /*
  * Create a routing table for the specific AFI/SAFI in the given VRF.
  */
@@ -3362,6 +3265,9 @@ zebra_vrf_alloc (vrf_id_t vrf_id)
   zebra_vrf_table_create (zvrf, AFI_IP6, SAFI_MULTICAST);
   zvrf->stable[AFI_IP][SAFI_MULTICAST] = route_table_init ();
   zvrf->stable[AFI_IP6][SAFI_MULTICAST] = route_table_init ();
+
+  zvrf->rnh_table[AFI_IP] = route_table_init();
+  zvrf->rnh_table[AFI_IP6] = route_table_init();
 
   /* Set VRF ID */
   zvrf->vrf_id = vrf_id;

@@ -29,6 +29,7 @@
 #include "filter.h"
 #include "plist.h"
 #include "vrf.h"
+#include "nexthop.h"
 
 #include "zebra/zserv.h"
 

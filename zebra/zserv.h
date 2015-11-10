@@ -67,6 +67,9 @@ struct zserv
 
   /* Router-id information. */
   vrf_bitmap_t ridinfo;
+
+  /* client's protocol */
+  u_char proto;
 };
 
 /* Zebra instance */
@@ -111,5 +114,8 @@ extern int zsend_router_id_update (struct zserv *, struct prefix *,
 extern int zsend_interface_link_params (struct zserv *, struct interface *);
 
 extern pid_t pid;
+
+extern void zserv_create_header(struct stream *s, uint16_t cmd, vrf_id_t);
+extern int zebra_server_send_message(struct zserv *client);
 
 #endif /* _ZEBRA_ZEBRA_H */

@@ -90,6 +90,7 @@ struct zclient
   int (*ipv4_route_delete) (int, struct zclient *, uint16_t, vrf_id_t);
   int (*ipv6_route_add) (int, struct zclient *, uint16_t, vrf_id_t);
   int (*ipv6_route_delete) (int, struct zclient *, uint16_t, vrf_id_t);
+  int (*nexthop_update) (int, struct zclient *, uint16_t, vrf_id_t);
 };
 
 /* Zebra API message flag. */

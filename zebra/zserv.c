@@ -37,12 +37,14 @@
 #include "network.h"
 #include "buffer.h"
 #include "vrf.h"
+#include "nexthop.h"
 
 #include "zebra/zserv.h"
 #include "zebra/router-id.h"
 #include "zebra/redistribute.h"
 #include "zebra/debug.h"
 #include "zebra/ipforward.h"
+#include "zebra/zebra_rnh.h"
 
 /* Event list of zebra. */
 enum event { ZEBRA_SERV, ZEBRA_READ, ZEBRA_WRITE };
@@ -102,7 +104,7 @@ zserv_flush_data(struct thread *thread)
   return 0;
 }
 
-static int
+int
 zebra_server_send_message(struct zserv *client)
 {
   if (client->t_suicide)
@@ -131,7 +133,7 @@ zebra_server_send_message(struct zserv *client)
   return 0;
 }
 
-static void
+void
 zserv_create_header (struct stream *s, uint16_t cmd, vrf_id_t vrf_id)
 {
   /* length placeholder, caller can update */
@@ -717,6 +719,65 @@ zsend_ipv4_nexthop_lookup_mrib (struct zserv *client, struct in_addr addr,
   return zebra_server_send_message(client);
 }
 
+/* Nexthop register */
+static int
+zserv_nexthop_register (struct zserv *client, int sock, u_short length, vrf_id_t vrf_id)
+{
+  struct rnh *rnh;
+  struct stream *s;
+  struct prefix p;
+  u_short l = 0;
+
+  if (IS_ZEBRA_DEBUG_NHT)
+    zlog_debug("nexthop_register msg from client %s: length=%d\n",
+	       zebra_route_string(client->proto), length);
+
+  s = client->ibuf;
+
+  while (l < length)
+    {
+      p.family = stream_getw(s);
+      p.prefixlen = stream_getc(s);
+      l += 3;
+      stream_get(&p.u.prefix, s, PSIZE(p.prefixlen));
+      l += PSIZE(p.prefixlen);
+      rnh = zebra_add_rnh(&p, 0);
+      zebra_add_rnh_client(rnh, client, vrf_id);
+    }
+  zebra_evaluate_rnh_table(0, AF_INET);
+  zebra_evaluate_rnh_table(0, AF_INET6);
+  return 0;
+}
+
+/* Nexthop register */
+static int
+zserv_nexthop_unregister (struct zserv *client, int sock, u_short length)
+{
+  struct rnh *rnh;
+  struct stream *s;
+  struct prefix p;
+  u_short l = 0;
+
+  if (IS_ZEBRA_DEBUG_NHT)
+    zlog_debug("nexthop_unregister msg from client %s: length=%d\n",
+	       zebra_route_string(client->proto), length);
+
+  s = client->ibuf;
+
+  while (l < length)
+    {
+      p.family = stream_getw(s);
+      p.prefixlen = stream_getc(s);
+      l += 3;
+      stream_get(&p.u.prefix, s, PSIZE(p.prefixlen));
+      l += PSIZE(p.prefixlen);
+      rnh = zebra_lookup_rnh(&p, 0);
+      if (rnh)
+	zebra_remove_rnh_client(rnh, client);
+    }
+  return 0;
+}
+
 static int
 zsend_ipv4_import_lookup (struct zserv *client, struct prefix_ipv4 *p,
     vrf_id_t vrf_id)
@@ -907,7 +968,7 @@ zread_ipv4_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
 	    {
 	    case ZEBRA_NEXTHOP_IFINDEX:
 	      ifindex = stream_getl (s);
-	      nexthop_ifindex_add (rib, ifindex);
+	      rib_nexthop_ifindex_add (rib, ifindex);
 	      break;
 	    case ZEBRA_NEXTHOP_IFNAME:
 	      ifname_len = stream_getc (s);
@@ -915,18 +976,18 @@ zread_ipv4_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
 	      break;
 	    case ZEBRA_NEXTHOP_IPV4:
 	      nexthop.s_addr = stream_get_ipv4 (s);
-	      nexthop_ipv4_add (rib, &nexthop, NULL);
+	      rib_nexthop_ipv4_add (rib, &nexthop, NULL);
 	      break;
 	    case ZEBRA_NEXTHOP_IPV4_IFINDEX:
 	      nexthop.s_addr = stream_get_ipv4 (s);
 	      ifindex = stream_getl (s);
-	      nexthop_ipv4_ifindex_add (rib, &nexthop, NULL, ifindex);
+	      rib_nexthop_ipv4_ifindex_add (rib, &nexthop, NULL, ifindex);
 	      break;
 	    case ZEBRA_NEXTHOP_IPV6:
 	      stream_forward_getp (s, IPV6_MAX_BYTELEN);
 	      break;
             case ZEBRA_NEXTHOP_BLACKHOLE:
-              nexthop_blackhole_add (rib);
+              rib_nexthop_blackhole_add (rib);
               break;
             }
 	}
@@ -1150,14 +1211,14 @@ zread_ipv6_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
 	  if ((i < nh_count) && !IN6_IS_ADDR_UNSPECIFIED (&nexthops[i]))
 	    {
 	      if ((i < if_count) && ifindices[i])
-		nexthop_ipv6_ifindex_add (rib, &nexthops[i], ifindices[i]);
+		rib_nexthop_ipv6_ifindex_add (rib, &nexthops[i], ifindices[i]);
 	      else
-		nexthop_ipv6_add (rib, &nexthops[i]);
+		rib_nexthop_ipv6_add (rib, &nexthops[i]);
 	    }
           else
 	    {
 	      if ((i < if_count) && ifindices[i])
-		nexthop_ifindex_add (rib, ifindices[i]);
+		rib_nexthop_ifindex_add (rib, ifindices[i]);
 	    }
 	}
     }
@@ -1306,6 +1367,7 @@ zread_hello (struct zserv *client)
                     client->sock);
 
       route_type_oaths[proto] = client->sock;
+      client->proto = proto;
     }
 }
 
@@ -1346,6 +1408,9 @@ zebra_score_rib (int client_sock)
 static void
 zebra_client_close (struct zserv *client)
 {
+  zebra_cleanup_rnh_client(0, AF_INET, client);
+  zebra_cleanup_rnh_client(0, AF_INET6, client);
+
   /* Close file descriptor. */
   if (client->sock)
     {
@@ -1573,6 +1638,11 @@ zebra_client_read (struct thread *thread)
       break;
     case ZEBRA_VRF_UNREGISTER:
       zread_vrf_unregister (client, length, vrf_id);
+    case ZEBRA_NEXTHOP_REGISTER:
+      zserv_nexthop_register(client, sock, length, vrf_id);
+      break;
+    case ZEBRA_NEXTHOP_UNREGISTER:
+      zserv_nexthop_unregister(client, sock, length);
       break;
     default:
       zlog_info ("Zebra received unknown command %d", command);
@@ -1848,8 +1918,10 @@ DEFUN (show_zebra_client,
   struct zserv *client;
 
   for (ALL_LIST_ELEMENTS_RO (zebrad.client_list, node, client))
-    vty_out (vty, "Client fd %d%s", client->sock, VTY_NEWLINE);
-  
+    vty_out (vty, "Client %s fd %d%s",
+	     zebra_route_string(client->proto), client->sock,
+	     VTY_NEWLINE);
+
   return CMD_SUCCESS;
 }
 

@@ -47,6 +47,7 @@ unsigned long conf_bgp_debug_update;
 unsigned long conf_bgp_debug_normal;
 unsigned long conf_bgp_debug_zebra;
 unsigned long conf_bgp_debug_allow_martians;
+unsigned long conf_bgp_debug_nht;
 
 unsigned long term_bgp_debug_as4;
 unsigned long term_bgp_debug_fsm;
@@ -58,6 +59,7 @@ unsigned long term_bgp_debug_update;
 unsigned long term_bgp_debug_normal;
 unsigned long term_bgp_debug_zebra;
 unsigned long term_bgp_debug_allow_martians;
+unsigned long term_bgp_debug_nht;
 
 /* messages for BGP-4 status */
 const struct message bgp_status_msg[] = 
@@ -472,6 +474,48 @@ ALIAS (no_debug_bgp_events,
        BGP_STR
        "BGP events\n")
 
+DEFUN (debug_bgp_nht,
+       debug_bgp_nht_cmd,
+       "debug bgp nht",
+       DEBUG_STR
+       BGP_STR
+       "BGP nexthop tracking events\n")
+{
+  if (vty->node == CONFIG_NODE)
+    DEBUG_ON (nht, NHT);
+  else
+    {
+      TERM_DEBUG_ON (nht, NHT);
+      vty_out (vty, "BGP nexthop tracking debugging is on%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+DEFUN (no_debug_bgp_nht,
+       no_debug_bgp_nht_cmd,
+       "no debug bgp nht",
+       NO_STR
+       DEBUG_STR
+       BGP_STR
+       "BGP nexthop tracking events\n")
+{
+  if (vty->node == CONFIG_NODE)
+    DEBUG_OFF (nht, NHT);
+  else
+    {
+      TERM_DEBUG_OFF (nht, NHT);
+      vty_out (vty, "BGP nexthop tracking debugging is off%s", VTY_NEWLINE);
+    }
+  return CMD_SUCCESS;
+}
+
+ALIAS (no_debug_bgp_nht,
+       undebug_bgp_nht_cmd,
+       "undebug bgp nht",
+       UNDEBUG_STR
+       BGP_STR
+       "BGP next-hop tracking updates\n")
+
 DEFUN (debug_bgp_filter,
        debug_bgp_filter_cmd,
        "debug bgp filters",
@@ -833,6 +877,8 @@ DEFUN (show_debugging_bgp,
     vty_out (vty, "  BGP as4 aspath segment debugging is on%s", VTY_NEWLINE);
   if (BGP_DEBUG (allow_martians, ALLOW_MARTIANS))
     vty_out (vty, "  BGP allow martian next hop debugging is on%s", VTY_NEWLINE);
+  if (BGP_DEBUG (nht, NHT))
+    vty_out (vty, "  BGP next-hop tracking debugging is on%s", VTY_NEWLINE);
   vty_out (vty, "%s", VTY_NEWLINE);
   return CMD_SUCCESS;
 }
@@ -911,6 +957,12 @@ bgp_config_write_debug (struct vty *vty)
       vty_out (vty, "debug bgp allow-martians%s", VTY_NEWLINE);
       write++;
     }
+  
+  if (CONF_BGP_DEBUG (nht, NHT))
+    {
+      vty_out (vty, "debug bgp nht%s", VTY_NEWLINE);
+      write++;
+    }
 
   return write;
 }
@@ -938,6 +990,8 @@ bgp_debug_init (void)
   install_element (CONFIG_NODE, &debug_bgp_fsm_cmd);
   install_element (ENABLE_NODE, &debug_bgp_events_cmd);
   install_element (CONFIG_NODE, &debug_bgp_events_cmd);
+  install_element (ENABLE_NODE, &debug_bgp_nht_cmd);
+  install_element (CONFIG_NODE, &debug_bgp_nht_cmd);
   install_element (ENABLE_NODE, &debug_bgp_filter_cmd);
   install_element (CONFIG_NODE, &debug_bgp_filter_cmd);
   install_element (ENABLE_NODE, &debug_bgp_keepalive_cmd);
@@ -966,6 +1020,9 @@ bgp_debug_init (void)
   install_element (ENABLE_NODE, &no_debug_bgp_events_cmd);
   install_element (ENABLE_NODE, &undebug_bgp_events_cmd);
   install_element (CONFIG_NODE, &no_debug_bgp_events_cmd);
+  install_element (ENABLE_NODE, &no_debug_bgp_nht_cmd);
+  install_element (ENABLE_NODE, &undebug_bgp_nht_cmd);
+  install_element (CONFIG_NODE, &no_debug_bgp_nht_cmd);
   install_element (ENABLE_NODE, &no_debug_bgp_filter_cmd);
   install_element (ENABLE_NODE, &undebug_bgp_filter_cmd);
   install_element (CONFIG_NODE, &no_debug_bgp_filter_cmd);
