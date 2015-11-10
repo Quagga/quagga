@@ -2780,6 +2780,23 @@ bgp_route_map_process_update (void *arg, const char *rmap_name, int route_update
 
   bgp_route_map_update_peer_group(rmap_name, bgp);
 
+  /* For table route-map updates. */
+  for (afi = AFI_IP; afi < AFI_MAX; afi++)
+    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
+      {
+	if (bgp->table_map[afi][safi].name &&
+	    (strcmp (rmap_name, bgp->table_map[afi][safi].name) == 0))
+	  {
+	    bgp->table_map[afi][safi].map =
+	      route_map_lookup_by_name (bgp->table_map[afi][safi].name);
+	    if (BGP_DEBUG(events, EVENTS))
+	      zlog_debug("Processing route_map %s update on "
+			 "table map", rmap_name);
+	    if (route_update)
+	      bgp_zebra_announce_table (bgp, afi, safi);
+	  }
+      }
+
   /* For network route-map updates. */
   for (afi = AFI_IP; afi < AFI_MAX; afi++)
     for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)

@@ -725,7 +725,8 @@ DEFUN (bgp_maxpaths,
 
   bgp = vty->index;
 
-  VTY_GET_INTEGER_RANGE ("maximum-paths", maxpaths, argv[0], 1, 255);
+  VTY_GET_INTEGER_RANGE ("maximum-paths", maxpaths, argv[0], 1,
+                         BGP_MAXIMUM_MAXPATHS);
 
   ret = bgp_maximum_paths_set (bgp, bgp_node_afi (vty), bgp_node_safi(vty),
 			       BGP_PEER_EBGP, maxpaths);
