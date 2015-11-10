@@ -1080,34 +1080,50 @@ zread_ipv6_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
 {
   int i;
   struct stream *s;
-  struct zapi_ipv6 api;
   struct in6_addr nexthop;
-  unsigned long ifindex;
+  struct rib *rib;
+  u_char message;
+  u_char gateway_num;
+  u_char nexthop_type;
   struct prefix_ipv6 p;
-  
+  safi_t safi;
+  static struct in6_addr nexthops[MULTIPATH_NUM];
+  static unsigned int ifindices[MULTIPATH_NUM];
+
+  /* Get input stream.  */
   s = client->ibuf;
-  ifindex = 0;
+
   memset (&nexthop, 0, sizeof (struct in6_addr));
 
-  /* Type, flags, message. */
-  api.type = stream_getc (s);
-  api.flags = stream_getc (s);
-  api.message = stream_getc (s);
-  api.safi = stream_getw (s);
+  /* Allocate new rib. */
+  rib = XCALLOC (MTYPE_RIB, sizeof (struct rib));
 
-  /* IPv4 prefix. */
+  /* Type, flags, message. */
+  rib->type = stream_getc (s);
+  rib->flags = stream_getc (s);
+  message = stream_getc (s);
+  safi = stream_getw (s);
+  rib->uptime = time (NULL);
+
+  /* IPv6 prefix. */
   memset (&p, 0, sizeof (struct prefix_ipv6));
   p.family = AF_INET6;
   p.prefixlen = stream_getc (s);
   stream_get (&p.prefix, s, PSIZE (p.prefixlen));
 
-  /* Nexthop, ifindex, distance, metric. */
-  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_NEXTHOP))
+  /* We need to give nh-addr, nh-ifindex with the same next-hop object
+   * to the rib to ensure that IPv6 multipathing works; need to coalesce
+   * these. Clients should send the same number of paired set of
+   * next-hop-addr/next-hop-ifindices. */
+  if (CHECK_FLAG (message, ZAPI_MESSAGE_NEXTHOP))
     {
-      u_char nexthop_type;
+      int nh_count = 0;
+      int if_count = 0;
+      int max_nh_if = 0;
+      unsigned int ifindex;
 
-      api.nexthop_num = stream_getc (s);
-      for (i = 0; i < api.nexthop_num; i++)
+      gateway_num = stream_getc (s);
+      for (i = 0; i < gateway_num; i++)
 	{
 	  nexthop_type = stream_getc (s);
 
@@ -1115,37 +1131,51 @@ zread_ipv6_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
 	    {
 	    case ZEBRA_NEXTHOP_IPV6:
 	      stream_get (&nexthop, s, 16);
+              if (nh_count < MULTIPATH_NUM) {
+	        nexthops[nh_count++] = nexthop;
+              }
 	      break;
 	    case ZEBRA_NEXTHOP_IFINDEX:
 	      ifindex = stream_getl (s);
+              if (if_count < MULTIPATH_NUM) {
+	        ifindices[if_count++] = ifindex;
+              }
 	      break;
+	    }
+	}
+
+      max_nh_if = (nh_count > if_count) ? nh_count : if_count;
+      for (i = 0; i < max_nh_if; i++)
+        {
+	  if ((i < nh_count) && !IN6_IS_ADDR_UNSPECIFIED (&nexthops[i]))
+	    {
+	      if ((i < if_count) && ifindices[i])
+		nexthop_ipv6_ifindex_add (rib, &nexthops[i], ifindices[i]);
+	      else
+		nexthop_ipv6_add (rib, &nexthops[i]);
+	    }
+          else
+	    {
+	      if ((i < if_count) && ifindices[i])
+		nexthop_ifindex_add (rib, ifindices[i]);
 	    }
 	}
     }
 
-  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_DISTANCE))
-    api.distance = stream_getc (s);
-  else
-    api.distance = 0;
+  /* Distance. */
+  if (CHECK_FLAG (message, ZAPI_MESSAGE_DISTANCE))
+    rib->distance = stream_getc (s);
 
-  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_METRIC))
-    api.metric = stream_getl (s);
-  else
-    api.metric = 0;
+  /* Metric. */
+  if (CHECK_FLAG (message, ZAPI_MESSAGE_METRIC))
+    rib->metric = stream_getl (s);
 
-  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_MTU))
-    api.mtu = stream_getl (s);
-  else
-    api.mtu = 0;
-    
-  if (IN6_IS_ADDR_UNSPECIFIED (&nexthop))
-    rib_add_ipv6 (api.type, api.flags, &p, NULL, ifindex,
-                  vrf_id, zebrad.rtm_table_default, api.metric,
-                  api.mtu, api.distance, api.safi);
-  else
-    rib_add_ipv6 (api.type, api.flags, &p, &nexthop, ifindex,
-                  vrf_id, zebrad.rtm_table_default, api.metric,
-                  api.mtu, api.distance, api.safi);
+  if (CHECK_FLAG (message, ZAPI_MESSAGE_MTU))
+    rib->mtu = stream_getl (s);
+
+  /* Table */
+  rib->table=zebrad.rtm_table_default;
+  rib_add_ipv6_multipath (&p, rib, safi);
   return 0;
 }
 
