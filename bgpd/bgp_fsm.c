@@ -106,7 +106,7 @@ bgp_timer_set (struct peer *peer)
       break;
 
     case Connect:
-      /* After start timer is expired, the peer moves to Connnect
+      /* After start timer is expired, the peer moves to Connect
          status.  Make sure start timer is off and connect timer is
          on. */
       BGP_TIMER_OFF (peer->t_start);
