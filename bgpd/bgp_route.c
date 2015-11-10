@@ -5704,7 +5704,7 @@ ALIAS (no_ipv6_aggregate_address_summary_only,
 /* Redistribute route treatment. */
 void
 bgp_redistribute_add (struct prefix *p, const struct in_addr *nexthop,
-		      const struct in6_addr *nexthop6,
+		      const struct in6_addr *nexthop6, ifindex_t ifindex,
 		      u_int32_t metric, u_char type, route_tag_t tag)
 {
   struct bgp *bgp;
@@ -5722,6 +5722,7 @@ bgp_redistribute_add (struct prefix *p, const struct in_addr *nexthop,
   bgp_attr_default_set (&attr, BGP_ORIGIN_INCOMPLETE);
   if (nexthop)
     attr.nexthop = *nexthop;
+  attr.nh_ifindex = ifindex;
 
   if (nexthop6)
     {

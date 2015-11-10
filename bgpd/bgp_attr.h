@@ -119,6 +119,7 @@ struct attr
   struct in_addr nexthop;
   u_int32_t med;
   u_int32_t local_pref;
+  ifindex_t nh_ifindex;
   
   /* Path origin attribute */
   u_char origin;
