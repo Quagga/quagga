@@ -26,6 +26,8 @@
 #include "prefix.h"
 #include "vty.h"
 
+#include "zebra/zserv.h"
+
 /* Nexthop structure. */
 struct rnh
 {

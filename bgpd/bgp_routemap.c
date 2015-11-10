@@ -44,6 +44,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_table.h"
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_aspath.h"
+#include "bgpd/bgp_packet.h"
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_regex.h"
 #include "bgpd/bgp_community.h"
@@ -52,6 +53,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_mplsvpn.h"
 #include "bgpd/bgp_ecommunity.h"
 #include "bgpd/bgp_vty.h"
+#include "bgpd/bgp_debug.h"
+#include "bgpd/bgp_zebra.h"
 
 /* Memo of route-map commands.
 
@@ -724,9 +727,9 @@ route_match_aspath (void *rule, struct prefix *prefix,
       as_list = as_list_lookup ((char *) rule);
       if (as_list == NULL)
 	return RMAP_NOMATCH;
-    
+
       bgp_info = object;
-    
+
       /* Perform match. */
       return ((as_list_apply (as_list, bgp_info->attr->aspath) == AS_FILTER_DENY) ? RMAP_NOMATCH : RMAP_MATCH);
     }
@@ -2387,7 +2390,8 @@ struct route_map_rule_cmd route_set_originator_id_cmd =
 /* Add bgp route map rule. */
 static int
 bgp_route_match_add (struct vty *vty, struct route_map_index *index,
-		     const char *command, const char *arg)
+		     const char *command, const char *arg,
+		     route_map_event_t type)
 {
   int ret;
 
@@ -2404,29 +2408,64 @@ bgp_route_match_add (struct vty *vty, struct route_map_index *index,
 	  return CMD_WARNING;
 	}
     }
+
+  if (type != RMAP_EVENT_MATCH_ADDED)
+    {
+      route_map_upd8_dependency (type, arg, index->map->name);
+    }
+
   return CMD_SUCCESS;
 }
 
 /* Delete bgp route map rule. */
 static int
 bgp_route_match_delete (struct vty *vty, struct route_map_index *index,
-			const char *command, const char *arg)
+			const char *command, const char *arg,
+			route_map_event_t type)
 {
   int ret;
+  char *dep_name = (char *)arg;
+  const char *tmpstr;
+  char *rmap_name = NULL;
 
-  ret = route_map_delete_match (index, command, arg);
+  if (type != RMAP_EVENT_MATCH_DELETED)
+    {
+      /* ignore the mundane, the types without any dependency */
+      if (arg == NULL)
+	{
+	  if ((tmpstr = route_map_get_match_arg(index, command)) != NULL)
+	    dep_name = XSTRDUP(MTYPE_ROUTE_MAP_RULE, tmpstr);
+	}
+      rmap_name = XSTRDUP(MTYPE_ROUTE_MAP_NAME, index->map->name);
+    }
+
+  ret = route_map_delete_match (index, command, dep_name);
   if (ret)
     {
       switch (ret)
 	{
 	case RMAP_RULE_MISSING:
 	  vty_out (vty, "%% BGP Can't find rule.%s", VTY_NEWLINE);
-	  return CMD_WARNING;
+	  break;
 	case RMAP_COMPILE_ERROR:
 	  vty_out (vty, "%% BGP Argument is malformed.%s", VTY_NEWLINE);
-	  return CMD_WARNING;
+	  break;
 	}
+      if (arg == NULL && dep_name)
+	XFREE(MTYPE_ROUTE_MAP_RULE, dep_name);
+      if (rmap_name)
+	XFREE(MTYPE_ROUTE_MAP_NAME, rmap_name);
+      return CMD_WARNING;
     }
+
+  if (type != RMAP_EVENT_MATCH_DELETED && dep_name)
+    route_map_upd8_dependency(type, dep_name, rmap_name);
+
+  if (arg == NULL && dep_name)
+    XFREE(MTYPE_ROUTE_MAP_RULE, dep_name);
+  if (rmap_name)
+    XFREE(MTYPE_ROUTE_MAP_NAME, rmap_name);
+
   return CMD_SUCCESS;
 }
 
@@ -2476,123 +2515,353 @@ bgp_route_set_delete (struct vty *vty, struct route_map_index *index,
   return CMD_SUCCESS;
 }
 
-/* Hook function for updating route_map assignment. */
+/*
+ * This is the workhorse routine for processing in/out/import/export routemap
+ * modifications.
+ */
 static void
-bgp_route_map_update (const char *unused)
+bgp_route_map_process_peer (const char *rmap_name, struct peer *peer,
+			    int afi, int safi, int route_update)
 {
-  int i;
-  afi_t afi;
-  safi_t safi;
-  int direct;
-  struct listnode *node, *nnode;
-  struct listnode *mnode, *mnnode;
-  struct bgp *bgp;
-  struct peer *peer;
-  struct peer_group *group;
+
+  int update;
   struct bgp_filter *filter;
-  struct bgp_node *bn;
-  struct bgp_static *bgp_static;
 
   if (bm->bgp == NULL)          /* may be called during cleanup */
     return;
 
-  /* For neighbor route-map updates. */
-  for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
+  if (!peer || !rmap_name)
+    return;
+
+  filter = &peer->filter[afi][safi];
+  /*
+   * in is for non-route-server clients,
+   * import/export is for route-server clients,
+   * out is for all peers
+   */
+  if (!CHECK_FLAG(peer->flags, PEER_FLAG_RSERVER_CLIENT))
     {
-      for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
+      if (filter->map[RMAP_IN].name &&
+	  (strcmp(rmap_name, filter->map[RMAP_IN].name) == 0))
 	{
-	  for (afi = AFI_IP; afi < AFI_MAX; afi++)
-	    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
-	      {
-		filter = &peer->filter[afi][safi];
-	  
-               for (direct = RMAP_IN; direct < RMAP_MAX; direct++)
-		  {
-		    if (filter->map[direct].name)
-		      filter->map[direct].map = 
-			route_map_lookup_by_name (filter->map[direct].name);
-		    else
-		      filter->map[direct].map = NULL;
-		  }
+	  filter->map[RMAP_IN].map =
+	    route_map_lookup_by_name (filter->map[RMAP_IN].name);
 
-		if (filter->usmap.name)
-		  filter->usmap.map = route_map_lookup_by_name (filter->usmap.name);
-		else
-		  filter->usmap.map = NULL;
-	      }
-	}
-      for (ALL_LIST_ELEMENTS (bgp->group, node, nnode, group))
-	{
-	  for (afi = AFI_IP; afi < AFI_MAX; afi++)
-	    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
-	      {
-		filter = &group->conf->filter[afi][safi];
-	  
-               for (direct = RMAP_IN; direct < RMAP_MAX; direct++)
-		  {
-		    if (filter->map[direct].name)
-		      filter->map[direct].map = 
-			route_map_lookup_by_name (filter->map[direct].name);
-		    else
-		      filter->map[direct].map = NULL;
-		  }
+	  if (route_update)
+	    {
+	      if (CHECK_FLAG (peer->af_flags[afi][safi],
+			      PEER_FLAG_SOFT_RECONFIG))
+		{
+		  if (BGP_DEBUG(events, EVENTS))
+		    zlog_debug("Processing route_map %s update on "
+			       "peer %s (inbound, soft-reconfig)",
+			       rmap_name, peer->host);
 
-		if (filter->usmap.name)
-		  filter->usmap.map = route_map_lookup_by_name (filter->usmap.name);
-		else
-		  filter->usmap.map = NULL;
-	      }
+		  bgp_soft_reconfig_in (peer, afi, safi);
+		}
+	      else if (CHECK_FLAG (peer->cap, PEER_CAP_REFRESH_OLD_RCV)
+		       || CHECK_FLAG (peer->cap, PEER_CAP_REFRESH_NEW_RCV))
+		{
+
+		  if (BGP_DEBUG(events, EVENTS))
+		    zlog_debug("Processing route_map %s update on "
+			       "peer %s (inbound, route-refresh)",
+			       rmap_name, peer->host);
+		  bgp_route_refresh_send (peer, afi, safi, 0, 0, 0);
+		}
+	    }
 	}
     }
 
-  /* For default-originate route-map updates. */
-  for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
+  if (CHECK_FLAG(peer->flags, PEER_FLAG_RSERVER_CLIENT))
     {
-      for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
+      update = 0;
+
+      if (filter->map[RMAP_IMPORT].name &&
+	  (strcmp(rmap_name, filter->map[RMAP_IMPORT].name) == 0))
 	{
-	  for (afi = AFI_IP; afi < AFI_MAX; afi++)
-	    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
-	      {
-		if (peer->default_rmap[afi][safi].name)
-		  peer->default_rmap[afi][safi].map =
-		    route_map_lookup_by_name (peer->default_rmap[afi][safi].name);
-		else
-		  peer->default_rmap[afi][safi].map = NULL;
-	      }
+	  filter->map[RMAP_IMPORT].map =
+	    route_map_lookup_by_name (filter->map[RMAP_IMPORT].name);
+	  update = 1;
+	}
+
+      if (filter->map[RMAP_EXPORT].name &&
+	  (strcmp(rmap_name, filter->map[RMAP_EXPORT].name) == 0))
+	{
+	  filter->map[RMAP_EXPORT].map =
+	    route_map_lookup_by_name (filter->map[RMAP_EXPORT].name);
+
+	  update = 1;
+	}
+
+      if (update && route_update)
+	{
+	  if (CHECK_FLAG (peer->af_flags[afi][safi],
+			  PEER_FLAG_SOFT_RECONFIG))
+	    {
+	      if (BGP_DEBUG(events, EVENTS))
+		zlog_debug("Processing route_map %s update on "
+			   "peer %s (import, soft-reconfig)",
+			   rmap_name, peer->host);
+
+	      bgp_soft_reconfig_in (peer, afi, safi);
+	    }
+	  else if (CHECK_FLAG (peer->cap, PEER_CAP_REFRESH_OLD_RCV)
+		   || CHECK_FLAG (peer->cap, PEER_CAP_REFRESH_NEW_RCV))
+	    {
+	      if (BGP_DEBUG(events, EVENTS))
+		zlog_debug("Processing route_map %s update on "
+			   "peer %s (import, route-refresh)",
+			   rmap_name, peer->host);
+	      bgp_route_refresh_send (peer, afi, safi, 0, 0, 0);
+	    }
+	  /* DD: Else, what else do we do ? Reset peer ? */
 	}
     }
 
-  /* For network route-map updates. */
-  for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
+  if (filter->map[RMAP_OUT].name &&
+	  (strcmp(rmap_name, filter->map[RMAP_OUT].name) == 0))
+	{
+	  filter->map[RMAP_OUT].map =
+	    route_map_lookup_by_name (filter->map[RMAP_OUT].name);
+
+	  if (BGP_DEBUG(events, EVENTS))
+	    zlog_debug("Processing route_map %s update on peer %s (outbound)",
+		       rmap_name, peer->host);
+
+	  if (route_update)
+	    bgp_announce_route_all(peer);
+	}
+
+  if (filter->usmap.name &&
+      (strcmp(rmap_name, filter->usmap.name) == 0))
     {
+      filter->usmap.map = route_map_lookup_by_name (filter->usmap.name);
+      if (route_update)
+	bgp_announce_route_all(peer);
+    }
+}
+
+static void
+bgp_route_map_update_peer_group(const char *rmap_name, struct bgp *bgp)
+{
+  struct peer_group *group;
+  struct listnode *node, *nnode;
+  struct bgp_filter *filter;
+  int afi, safi;
+  int direct;
+
+  if (!bgp)
+    return;
+
+  /* All the peers have been updated correctly already. This is
+   * just updating the placeholder data. No real update required.
+   */
+  for (ALL_LIST_ELEMENTS (bgp->group, node, nnode, group))
+    for (afi = AFI_IP; afi < AFI_MAX; afi++)
+      for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
+	{
+	  filter = &group->conf->filter[afi][safi];
+
+	  for (direct = RMAP_IN; direct < RMAP_MAX; direct++)
+	    {
+	      if ((filter->map[direct].name) &&
+		  (strcmp(rmap_name, filter->map[direct].name) == 0))
+		filter->map[direct].map =
+		  route_map_lookup_by_name (filter->map[direct].name);
+	    }
+
+	  if (filter->usmap.name &&
+	      (strcmp(rmap_name, filter->usmap.name) == 0))
+	    filter->usmap.map = route_map_lookup_by_name (filter->usmap.name);
+	}
+}
+
+static int
+bgp_route_map_process_update (void *arg, const char *rmap_name, int route_update)
+{
+  int i;
+  afi_t afi;
+  safi_t safi;
+  struct peer *peer;
+  struct bgp_node *bn;
+  struct bgp_static *bgp_static;
+  struct bgp *bgp = (struct bgp *)arg;
+  struct listnode *node, *nnode;
+  char buf[INET6_ADDRSTRLEN];
+
+  if (!bgp)
+    return -1;
+
+  for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
+    {
+
+      /* Ignore dummy peer-group structure */
+      if (CHECK_FLAG(peer->sflags, PEER_STATUS_GROUP))
+	continue;
+
       for (afi = AFI_IP; afi < AFI_MAX; afi++)
 	for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
-	  for (bn = bgp_table_top (bgp->route[afi][safi]); bn;
-	       bn = bgp_route_next (bn))
-	    if ((bgp_static = bn->info) != NULL)
+	  {
+	    /* Ignore inactive AFI/SAFI */
+	    if (! peer->afc[afi][safi])
+	      continue;
+
+	    /* process in/out/import/export route-maps */
+	    bgp_route_map_process_peer(rmap_name, peer, afi, safi, route_update);
+
+	    /* process default-originate route-map */
+	    if (peer->default_rmap[afi][safi].name &&
+		(strcmp (rmap_name, peer->default_rmap[afi][safi].name) == 0))
 	      {
-		if (bgp_static->rmap.name)
-		  bgp_static->rmap.map =
-			 route_map_lookup_by_name (bgp_static->rmap.name);
-		else
-		  bgp_static->rmap.map = NULL;
+		peer->default_rmap[afi][safi].map =
+		  route_map_lookup_by_name (peer->default_rmap[afi][safi].name);
+
+		if (BGP_DEBUG(events, EVENTS))
+		  zlog_debug("Processing route_map %s update on "
+			     "default-originate", rmap_name);
+
+		if (route_update)
+		  bgp_default_originate (peer, afi, safi, 0);
 	      }
+	  }
     }
 
+  bgp_route_map_update_peer_group(rmap_name, bgp);
+
+  /* For network route-map updates. */
+  for (afi = AFI_IP; afi < AFI_MAX; afi++)
+    for (safi = SAFI_UNICAST; safi < SAFI_MAX; safi++)
+      for (bn = bgp_table_top (bgp->route[afi][safi]); bn;
+	   bn = bgp_route_next (bn))
+	if ((bgp_static = bn->info) != NULL)
+	  {
+	    if (bgp_static->rmap.name &&
+		(strcmp(rmap_name, bgp_static->rmap.name) == 0))
+	      {
+		bgp_static->rmap.map =
+		  route_map_lookup_by_name (bgp_static->rmap.name);
+		if (route_update)
+		  if (!bgp_static->backdoor)
+		    {
+		      if (BGP_DEBUG(events, EVENTS))
+			zlog_debug("Processing route_map %s update on "
+				   "static route %s", rmap_name,
+				   inet_ntop (bn->p.family, &bn->p.u.prefix,
+					      buf, INET6_ADDRSTRLEN));
+		      bgp_static_update (bgp, &bn->p, bgp_static, afi, safi);
+		    }
+	      }
+	  }
+
   /* For redistribute route-map updates. */
-  for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
+  for (afi = AFI_IP; afi < AFI_MAX; afi++)
+    for (i = 0; i < ZEBRA_ROUTE_MAX; i++)
+      {
+	if (bgp->rmap[afi][i].name &&
+	    (strcmp(rmap_name, bgp->rmap[afi][i].name) == 0))
+	  {
+	    bgp->rmap[afi][i].map =
+	      route_map_lookup_by_name (bgp->rmap[afi][i].name);
+
+	    if (bgp->redist[afi][i] && route_update)
+	      {
+		if (BGP_DEBUG(events, EVENTS))
+		  zlog_debug("Processing route_map %s update on "
+			     "redistributed routes", rmap_name);
+
+		bgp_redistribute_resend (bgp, afi, i);
+	      }
+	  }
+      }
+
+  return 0;
+}
+
+static int
+bgp_route_map_process_update_cb (void *arg, char *rmap_name)
+{
+  return bgp_route_map_process_update (arg, rmap_name, 1);
+}
+
+int
+bgp_route_map_update_timer(struct thread *thread)
+{
+  struct bgp *bgp = THREAD_ARG(thread);
+
+  bgp->t_rmap_update = NULL;
+
+  if (BGP_DEBUG(events, EVENTS))
+    zlog_debug("Started processing route map update");
+
+  route_map_walk_update_list((void *)bgp, bgp_route_map_process_update_cb);
+
+  if (BGP_DEBUG(events, EVENTS))
+    zlog_debug("Finished processing route map update");
+
+  return (0);
+}
+
+static void
+bgp_route_map_mark_update (const char *rmap_name)
+{
+  struct listnode *node, *nnode;
+  struct bgp *bgp;
+
+  for (ALL_LIST_ELEMENTS (bm->bgp, node, nnode, bgp))
     {
-      for (i = 0; i < ZEBRA_ROUTE_MAX; i++)
+      if (bgp->t_rmap_update == NULL)
 	{
-	  if (bgp->rmap[AFI_IP][i].name)
-	    bgp->rmap[AFI_IP][i].map =
-	      route_map_lookup_by_name (bgp->rmap[AFI_IP][i].name);
-	  if (bgp->rmap[AFI_IP6][i].name)
-	    bgp->rmap[AFI_IP6][i].map =
-	      route_map_lookup_by_name (bgp->rmap[AFI_IP6][i].name);
+	  if (BGP_DEBUG(events, EVENTS))
+	    zlog_debug("Starting route map update timer (in %d secs)",
+		       bgp->rmap_update_timer);
+	  /* rmap_update_timer of 0 means don't do route updates */
+	  if (bgp->rmap_update_timer)
+	    bgp->t_rmap_update =
+	      thread_add_timer(bm->master, bgp_route_map_update_timer, bgp,
+			       bgp->rmap_update_timer);
+	  else
+	    bgp_route_map_process_update((void *)bgp, rmap_name, 0);
 	}
     }
 }
+
+static void
+bgp_route_map_add (const char *rmap_name)
+{
+  if (BGP_DEBUG (events, EVENTS))
+    zlog_debug ("received route-map add of %s", rmap_name);
+
+  if (route_map_mark_updated (rmap_name, 0) == 0)
+    bgp_route_map_mark_update (rmap_name);
+
+  route_map_notify_dependencies (rmap_name, RMAP_EVENT_MATCH_ADDED);
+}
+
+static void
+bgp_route_map_delete (const char *rmap_name)
+{
+  if (BGP_DEBUG (events, EVENTS))
+    zlog_debug ("received route-map delete of %s", rmap_name);
+
+  if (route_map_mark_updated (rmap_name, 1) == 0)
+    bgp_route_map_mark_update (rmap_name);
+
+  route_map_notify_dependencies (rmap_name, RMAP_EVENT_MATCH_DELETED);
+}
+
+static void
+bgp_route_map_event (route_map_event_t event, const char *rmap_name)
+{
+  if (BGP_DEBUG (events, EVENTS))
+    zlog_debug ("received route-map event for %s", rmap_name);
+
+  if (route_map_mark_updated(rmap_name, 0) == 0)
+    bgp_route_map_mark_update(rmap_name);
+
+  route_map_notify_dependencies(rmap_name, RMAP_EVENT_MATCH_ADDED);
+}
+
 
 DEFUN (match_peer,
        match_peer_cmd,
@@ -2602,7 +2871,8 @@ DEFUN (match_peer,
        "IP address of peer\n"
        "IPv6 address of peer\n")
 {
-  return bgp_route_match_add (vty, vty->index, "peer", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "peer", argv[0],
+			      RMAP_EVENT_MATCH_ADDED);
 }
 
 DEFUN (match_peer_local,
@@ -2612,7 +2882,8 @@ DEFUN (match_peer_local,
         "Match peer address\n"
         "Static or Redistributed routes\n")
 {
-  return bgp_route_match_add (vty, vty->index, "peer", "local");
+  return bgp_route_match_add (vty, vty->index, "peer", "local",
+			      RMAP_EVENT_MATCH_DELETED);
 }
 
 DEFUN (no_match_peer,
@@ -2623,9 +2894,11 @@ DEFUN (no_match_peer,
        "Match peer address\n")
 {
  if (argc == 0)
-   return bgp_route_match_delete (vty, vty->index, "peer", NULL);
+   return bgp_route_match_delete (vty, vty->index, "peer", NULL,
+				  RMAP_EVENT_MATCH_DELETED);
 
-  return bgp_route_match_delete (vty, vty->index, "peer", argv[0]);
+ return bgp_route_match_delete (vty, vty->index, "peer", argv[0],
+				RMAP_EVENT_MATCH_DELETED);
 }
 
 ALIAS (no_match_peer,
@@ -2655,7 +2928,8 @@ DEFUN (match_ip_address,
        "IP access-list number (expanded range)\n"
        "IP Access-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "ip address", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "ip address", argv[0],
+			      RMAP_EVENT_FILTER_ADDED);
 }
 
 DEFUN (no_match_ip_address, 
@@ -2667,9 +2941,11 @@ DEFUN (no_match_ip_address,
        "Match address of route\n")
 {
   if (argc == 0)
-    return bgp_route_match_delete (vty, vty->index, "ip address", NULL);
+    return bgp_route_match_delete (vty, vty->index, "ip address", NULL,
+				   RMAP_EVENT_FILTER_DELETED);
 
-  return bgp_route_match_delete (vty, vty->index, "ip address", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "ip address", argv[0],
+				 RMAP_EVENT_FILTER_DELETED);
 }
 
 ALIAS (no_match_ip_address, 
@@ -2693,7 +2969,8 @@ DEFUN (match_ip_next_hop,
        "IP access-list number (expanded range)\n"
        "IP Access-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "ip next-hop", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "ip next-hop", argv[0],
+			      RMAP_EVENT_FILTER_ADDED);
 }
 
 DEFUN (no_match_ip_next_hop,
@@ -2705,9 +2982,11 @@ DEFUN (no_match_ip_next_hop,
        "Match next-hop address of route\n")
 {
   if (argc == 0)
-    return bgp_route_match_delete (vty, vty->index, "ip next-hop", NULL);
+    return bgp_route_match_delete (vty, vty->index, "ip next-hop", NULL,
+				   RMAP_EVENT_FILTER_DELETED);
 
-  return bgp_route_match_delete (vty, vty->index, "ip next-hop", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "ip next-hop", argv[0],
+				 RMAP_EVENT_FILTER_DELETED);
 }
 
 ALIAS (no_match_ip_next_hop,
@@ -2730,7 +3009,8 @@ DEFUN (match_probability,
        "Match portion of routes defined by percentage value\n"
        "Percentage of routes\n")
 {
-  return bgp_route_match_add (vty, vty->index, "probability", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "probability", argv[0],
+			      RMAP_EVENT_MATCH_ADDED);
 }
 
 DEFUN (no_match_probability,
@@ -2740,7 +3020,8 @@ DEFUN (no_match_probability,
        MATCH_STR
        "Match portion of routes defined by percentage value\n")
 {
-  return bgp_route_match_delete (vty, vty->index, "probability", argc ? argv[0] : NULL);
+  return bgp_route_match_delete (vty, vty->index, "probability", argc ? argv[0] : NULL,
+				 RMAP_EVENT_MATCH_DELETED);
 }
 
 ALIAS (no_match_probability,
@@ -2763,7 +3044,8 @@ DEFUN (match_ip_route_source,
        "IP access-list number (expanded range)\n"
        "IP standard access-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "ip route-source", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "ip route-source", argv[0],
+			      RMAP_EVENT_FILTER_ADDED);
 }
 
 DEFUN (no_match_ip_route_source,
@@ -2775,9 +3057,11 @@ DEFUN (no_match_ip_route_source,
        "Match advertising source address of route\n")
 {
   if (argc == 0)
-    return bgp_route_match_delete (vty, vty->index, "ip route-source", NULL);
+    return bgp_route_match_delete (vty, vty->index, "ip route-source", NULL,
+				   RMAP_EVENT_FILTER_DELETED);
 
-  return bgp_route_match_delete (vty, vty->index, "ip route-source", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "ip route-source",
+				 argv[0], RMAP_EVENT_FILTER_DELETED);
 }
 
 ALIAS (no_match_ip_route_source,
@@ -2800,7 +3084,8 @@ DEFUN (match_ip_address_prefix_list,
        "Match entries of prefix-lists\n"
        "IP prefix-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "ip address prefix-list", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "ip address prefix-list",
+			      argv[0], RMAP_EVENT_PLIST_ADDED);
 }
 
 DEFUN (no_match_ip_address_prefix_list,
@@ -2812,10 +3097,9 @@ DEFUN (no_match_ip_address_prefix_list,
        "Match address of route\n"
        "Match entries of prefix-lists\n")
 {
-  if (argc == 0)
-    return bgp_route_match_delete (vty, vty->index, "ip address prefix-list", NULL);
-
-  return bgp_route_match_delete (vty, vty->index, "ip address prefix-list", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "ip address prefix-list",
+				 argc == 0 ? NULL : argv[0],
+				 RMAP_EVENT_PLIST_DELETED);
 }
 
 ALIAS (no_match_ip_address_prefix_list,
@@ -2837,7 +3121,8 @@ DEFUN (match_ip_next_hop_prefix_list,
        "Match entries of prefix-lists\n"
        "IP prefix-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "ip next-hop prefix-list", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "ip next-hop prefix-list",
+			      argv[0], RMAP_EVENT_PLIST_ADDED);
 }
 
 DEFUN (no_match_ip_next_hop_prefix_list,
@@ -2849,10 +3134,9 @@ DEFUN (no_match_ip_next_hop_prefix_list,
        "Match next-hop address of route\n"
        "Match entries of prefix-lists\n")
 {
-  if (argc == 0)
-    return bgp_route_match_delete (vty, vty->index, "ip next-hop prefix-list", NULL);
-
-  return bgp_route_match_delete (vty, vty->index, "ip next-hop prefix-list", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "ip next-hop prefix-list",
+				 argc == 0 ? NULL : argv[0],
+				 RMAP_EVENT_PLIST_DELETED);
 }
 
 ALIAS (no_match_ip_next_hop_prefix_list,
@@ -2874,7 +3158,8 @@ DEFUN (match_ip_route_source_prefix_list,
        "Match entries of prefix-lists\n"
        "IP prefix-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "ip route-source prefix-list", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "ip route-source prefix-list",
+			      argv[0], RMAP_EVENT_PLIST_ADDED);
 }
 
 DEFUN (no_match_ip_route_source_prefix_list,
@@ -2886,10 +3171,9 @@ DEFUN (no_match_ip_route_source_prefix_list,
        "Match advertising source address of route\n"
        "Match entries of prefix-lists\n")
 {
-  if (argc == 0)
-    return bgp_route_match_delete (vty, vty->index, "ip route-source prefix-list", NULL);
-
-  return bgp_route_match_delete (vty, vty->index, "ip route-source prefix-list", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "ip route-source prefix-list",
+				 argc == 0 ? NULL : argv[0],
+				 RMAP_EVENT_PLIST_DELETED);
 }
 
 ALIAS (no_match_ip_route_source_prefix_list,
@@ -2909,7 +3193,8 @@ DEFUN (match_metric,
        "Match metric of route\n"
        "Metric value\n")
 {
-  return bgp_route_match_add (vty, vty->index, "metric", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "metric", argv[0],
+			      RMAP_EVENT_MATCH_ADDED);
 }
 
 DEFUN (no_match_metric,
@@ -2919,10 +3204,9 @@ DEFUN (no_match_metric,
        MATCH_STR
        "Match metric of route\n")
 {
-  if (argc == 0)
-    return bgp_route_match_delete (vty, vty->index, "metric", NULL);
-
-  return bgp_route_match_delete (vty, vty->index, "metric", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "metric",
+				 argc == 0 ? NULL : argv[0],
+				 RMAP_EVENT_MATCH_DELETED);
 }
 
 ALIAS (no_match_metric,
@@ -2940,7 +3224,8 @@ DEFUN (match_local_pref,
        "Match local-preference of route\n"
        "Metric value\n")
 {
-  return bgp_route_match_add (vty, vty->index, "local-preference", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "local-preference", argv[0],
+			      RMAP_EVENT_MATCH_ADDED);
 }
 
 DEFUN (no_match_local_pref,
@@ -2950,10 +3235,12 @@ DEFUN (no_match_local_pref,
        MATCH_STR
        "Match local preference of route\n")
 {
-  if (argc == 0)
-    return bgp_route_match_delete (vty, vty->index, "local-preference", NULL);
+  return bgp_route_match_delete (vty, vty->index, "local-preference",
+				 argc == 0 ? NULL : argv[0],
+				 RMAP_EVENT_MATCH_DELETED);
 
-  return bgp_route_match_delete (vty, vty->index, "local-preference", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "local-preference", argv[0],
+				 RMAP_EVENT_MATCH_DELETED);
 }
 
 ALIAS (no_match_local_pref,
@@ -2973,7 +3260,8 @@ DEFUN (match_community,
        "Community-list number (expanded)\n"
        "Community-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "community", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "community", argv[0],
+			      RMAP_EVENT_CLIST_ADDED);
 }
 
 DEFUN (match_community_exact, 
@@ -2994,7 +3282,8 @@ DEFUN (match_community_exact,
 
   sprintf (argstr, "%s exact-match", argv[0]);
 
-  ret = bgp_route_match_add (vty, vty->index, "community", argstr);
+  ret = bgp_route_match_add (vty, vty->index, "community", argstr,
+			     RMAP_EVENT_CLIST_ADDED);
 
   XFREE (MTYPE_ROUTE_MAP_COMPILED, argstr);
 
@@ -3008,7 +3297,8 @@ DEFUN (no_match_community,
        MATCH_STR
        "Match BGP community list\n")
 {
-  return bgp_route_match_delete (vty, vty->index, "community", NULL);
+  return bgp_route_match_delete (vty, vty->index, "community", NULL,
+				 RMAP_EVENT_CLIST_DELETED);
 }
 
 ALIAS (no_match_community,
@@ -3041,7 +3331,8 @@ DEFUN (match_ecommunity,
        "Extended community-list number (expanded)\n"
        "Extended community-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "extcommunity", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "extcommunity", argv[0],
+			      RMAP_EVENT_ECLIST_ADDED);
 }
 
 DEFUN (no_match_ecommunity,
@@ -3051,7 +3342,8 @@ DEFUN (no_match_ecommunity,
        MATCH_STR
        "Match BGP/VPN extended community list\n")
 {
-  return bgp_route_match_delete (vty, vty->index, "extcommunity", NULL);
+  return bgp_route_match_delete (vty, vty->index, "extcommunity", NULL,
+				 RMAP_EVENT_ECLIST_DELETED);
 }
 
 ALIAS (no_match_ecommunity,
@@ -3071,7 +3363,8 @@ DEFUN (match_aspath,
        "Match BGP AS path list\n"
        "AS path access-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "as-path", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "as-path", argv[0],
+			      RMAP_EVENT_ASLIST_ADDED);
 }
 
 DEFUN (no_match_aspath,
@@ -3081,7 +3374,8 @@ DEFUN (no_match_aspath,
        MATCH_STR
        "Match BGP AS path list\n")
 {
-  return bgp_route_match_delete (vty, vty->index, "as-path", NULL);
+  return bgp_route_match_delete (vty, vty->index, "as-path", NULL,
+				 RMAP_EVENT_ASLIST_DELETED);
 }
 
 ALIAS (no_match_aspath,
@@ -3102,11 +3396,14 @@ DEFUN (match_origin,
        "unknown heritage\n")
 {
   if (strncmp (argv[0], "igp", 2) == 0)
-    return bgp_route_match_add (vty, vty->index, "origin", "igp");
+    return bgp_route_match_add (vty, vty->index, "origin", "igp",
+				RMAP_EVENT_MATCH_ADDED);
   if (strncmp (argv[0], "egp", 1) == 0)
-    return bgp_route_match_add (vty, vty->index, "origin", "egp");
+    return bgp_route_match_add (vty, vty->index, "origin", "egp",
+				RMAP_EVENT_MATCH_ADDED);
   if (strncmp (argv[0], "incomplete", 2) == 0)
-    return bgp_route_match_add (vty, vty->index, "origin", "incomplete");
+    return bgp_route_match_add (vty, vty->index, "origin", "incomplete",
+				RMAP_EVENT_MATCH_ADDED);
 
   return CMD_WARNING;
 }
@@ -3118,7 +3415,8 @@ DEFUN (no_match_origin,
        MATCH_STR
        "BGP origin code\n")
 {
-  return bgp_route_match_delete (vty, vty->index, "origin", NULL);
+  return bgp_route_match_delete (vty, vty->index, "origin", NULL,
+				 RMAP_EVENT_MATCH_DELETED);
 }
 
 ALIAS (no_match_origin,
@@ -3138,7 +3436,8 @@ DEFUN (match_tag,
        "Match tag of route\n"
        "Tag value\n")
 {
-  return bgp_route_match_add (vty, vty->index, "tag", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "tag", argv[0],
+                              RMAP_EVENT_MATCH_ADDED);
 }
 
 DEFUN (no_match_tag,
@@ -3149,9 +3448,11 @@ DEFUN (no_match_tag,
        "Match tag of route\n")
 {
   if (argc == 0)
-    return bgp_route_match_delete (vty, vty->index, "tag", NULL);
+    return bgp_route_match_delete (vty, vty->index, "tag", NULL,
+                                   RMAP_EVENT_MATCH_DELETED);
 
-  return bgp_route_match_delete (vty, vty->index, "tag", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "tag", argv[0],
+                                 RMAP_EVENT_MATCH_DELETED);
 }
 
 ALIAS (no_match_tag,
@@ -3867,7 +4168,8 @@ DEFUN (match_ipv6_address,
        "Match IPv6 address of route\n"
        "IPv6 access-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "ipv6 address", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "ipv6 address", argv[0],
+			      RMAP_EVENT_FILTER_ADDED);
 }
 
 DEFUN (no_match_ipv6_address, 
@@ -3879,7 +4181,8 @@ DEFUN (no_match_ipv6_address,
        "Match IPv6 address of route\n"
        "IPv6 access-list name\n")
 {
-  return bgp_route_match_delete (vty, vty->index, "ipv6 address", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "ipv6 address", argv[0],
+				 RMAP_EVENT_FILTER_DELETED);
 }
 
 DEFUN (match_ipv6_next_hop, 
@@ -3890,7 +4193,8 @@ DEFUN (match_ipv6_next_hop,
        "Match IPv6 next-hop address of route\n"
        "IPv6 address of next hop\n")
 {
-  return bgp_route_match_add (vty, vty->index, "ipv6 next-hop", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "ipv6 next-hop", argv[0],
+			      RMAP_EVENT_MATCH_ADDED);
 }
 
 DEFUN (no_match_ipv6_next_hop,
@@ -3902,7 +4206,8 @@ DEFUN (no_match_ipv6_next_hop,
        "Match IPv6 next-hop address of route\n"
        "IPv6 address of next hop\n")
 {
-  return bgp_route_match_delete (vty, vty->index, "ipv6 next-hop", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "ipv6 next-hop", argv[0],
+				 RMAP_EVENT_MATCH_DELETED);
 }
 
 DEFUN (match_ipv6_address_prefix_list, 
@@ -3914,7 +4219,8 @@ DEFUN (match_ipv6_address_prefix_list,
        "Match entries of prefix-lists\n"
        "IP prefix-list name\n")
 {
-  return bgp_route_match_add (vty, vty->index, "ipv6 address prefix-list", argv[0]);
+  return bgp_route_match_add (vty, vty->index, "ipv6 address prefix-list",
+			      argv[0], RMAP_EVENT_PLIST_ADDED);
 }
 
 DEFUN (no_match_ipv6_address_prefix_list,
@@ -3927,7 +4233,8 @@ DEFUN (no_match_ipv6_address_prefix_list,
        "Match entries of prefix-lists\n"
        "IP prefix-list name\n")
 {
-  return bgp_route_match_delete (vty, vty->index, "ipv6 address prefix-list", argv[0]);
+  return bgp_route_match_delete (vty, vty->index, "ipv6 address prefix-list",
+				 argv[0], RMAP_EVENT_PLIST_DELETED);
 }
 
 DEFUN (set_ipv6_nexthop_peer,
@@ -4157,8 +4464,9 @@ bgp_route_map_init (void)
 {
   route_map_init ();
   route_map_init_vty ();
-  route_map_add_hook (bgp_route_map_update);
-  route_map_delete_hook (bgp_route_map_update);
+  route_map_add_hook (bgp_route_map_add);
+  route_map_delete_hook (bgp_route_map_delete);
+  route_map_event_hook (bgp_route_map_event);
 
   route_map_install_match (&route_match_peer_cmd);
   route_map_install_match (&route_match_local_pref_cmd);
@@ -4330,4 +4638,16 @@ bgp_route_map_init (void)
   install_element (RMAP_NODE, &match_pathlimit_as_cmd);
   install_element (RMAP_NODE, &no_match_pathlimit_as_cmd);
   install_element (RMAP_NODE, &no_match_pathlimit_as_val_cmd);
+}
+
+void
+bgp_route_map_terminate (void)
+{
+  /* ToDo: Cleanup all the used memory */
+
+  route_map_add_hook (NULL);
+  route_map_delete_hook (NULL);
+  route_map_event_hook (NULL);
+  route_map_finish();
+
 }

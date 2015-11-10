@@ -44,6 +44,7 @@
 #include "zebra/debug.h"
 #include "zebra/zebra_fpm.h"
 #include "zebra/zebra_rnh.h"
+#include "zebra_routemap.h"
 
 /* Default rtm_table for all clients */
 extern struct zebra_t zebrad;
@@ -892,9 +893,8 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
   rib_table_info_t *info = rn->table->info;
   struct interface *ifp;
   route_map_result_t ret = RMAP_MATCH;
-  extern char *proto_rm[AFI_MAX][ZEBRA_ROUTE_MAX+1];
-  struct route_map *rmap;
   int family;
+  char buf[INET6_ADDRSTRLEN+1];
 
   family = 0;
   switch (nexthop->type)
@@ -981,19 +981,17 @@ nexthop_active_check (struct route_node *rn, struct rib *rib,
   if (!family)
     family = info->afi;
 
-  rmap = 0;
-  if (rib->type >= 0 && rib->type < ZEBRA_ROUTE_MAX &&
-        	proto_rm[family][rib->type])
-    rmap = route_map_lookup_by_name (proto_rm[family][rib->type]);
-  if (!rmap && proto_rm[family][ZEBRA_ROUTE_MAX])
-    rmap = route_map_lookup_by_name (proto_rm[family][ZEBRA_ROUTE_MAX]);
-  if (rmap) {
-      struct nexthop_vrfid nh_vrf = {nexthop, rib->vrf_id};
-      ret = route_map_apply(rmap, &rn->p, RMAP_ZEBRA, &nh_vrf);
-  }
-
+  ret = zebra_route_map_check(family, rib->type, &rn->p, nexthop);
   if (ret == RMAP_DENYMATCH)
-    UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
+    {
+      if (IS_ZEBRA_DEBUG_RIB)
+	{
+	  inet_ntop (rn->p.family, &rn->p.u.prefix, buf, sizeof (buf));
+	  zlog_debug("%s: Filtering out %s with NH out %s due to route map",
+		     __FUNCTION__, buf, nexthop->ifname);
+	}
+      UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
+    }
   return CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE);
 }
 

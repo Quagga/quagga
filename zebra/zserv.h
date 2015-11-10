@@ -26,6 +26,7 @@
 #include "if.h"
 #include "workqueue.h"
 #include "vrf.h"
+#include "vty.h"
 
 /* Default port information. */
 #define ZEBRA_VTY_PORT                2601

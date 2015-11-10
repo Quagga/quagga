@@ -288,8 +288,8 @@ bgp_exit (int status)
   /* reverse bgp_route_init */
   bgp_route_finish ();
 
-  /* reverse bgp_route_map_init/route_map_init */
-  route_map_finish ();
+  /* cleanup route maps */
+  bgp_route_map_terminate();
 
   /* reverse access_list_init */
   access_list_add_hook (NULL);
