@@ -1226,6 +1226,9 @@ zclient_read (struct thread *thread)
     case ZEBRA_INTERFACE_LINK_PARAMS:
       if (zclient->interface_link_params)
         (*zclient->interface_link_params) (command, zclient, length);
+    case ZEBRA_NEXTHOP_UPDATE:
+      if (zclient->nexthop_update)
+	(*zclient->nexthop_update) (command, zclient, length, vrf_id);
       break;
     case ZEBRA_VRF_ID_UPDATE:
       if (zclient->vrf_id_update)
