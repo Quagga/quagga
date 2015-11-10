@@ -7352,14 +7352,16 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
 
 	  vty_out (vty, "4 ");
 
-	  vty_out (vty, "%5u %7d %7d %8d %4d %4lu ",
+	  vty_out (vty, "%5u %7d %7d %8d %4d %4d ",
 		   peer->as,
 		   peer->open_in + peer->update_in + peer->keepalive_in
 		   + peer->notify_in + peer->refresh_in + peer->dynamic_cap_in,
 		   peer->open_out + peer->update_out + peer->keepalive_out
 		   + peer->notify_out + peer->refresh_out
 		   + peer->dynamic_cap_out,
-		   0, 0, (unsigned long) peer->obuf->count);
+		   0, 0,
+		   peer->sync[afi][safi]->update.count +
+		   peer->sync[afi][safi]->withdraw.count);
 
 	  vty_out (vty, "%8s", 
 		   peer_uptime (peer->uptime, timebuf, BGP_UPTIME_LEN));
