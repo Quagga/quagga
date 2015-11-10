@@ -582,6 +582,9 @@ bgp_address_add (struct prefix *p)
   tmp.addr = p->u.prefix4;
 
   addr = hash_get (bgp_address_hash, &tmp, bgp_address_hash_alloc);
+  if (!addr)
+    return;
+
   addr->refcnt++;
 }
 
