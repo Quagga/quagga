@@ -26,6 +26,7 @@
 #include "privs.h"
 #include "memory.h"
 #include "filter.h"
+#include "linklist.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_open.h"

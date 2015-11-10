@@ -35,6 +35,7 @@
 #include "vtysh/vtysh.h"
 #include "log.h"
 #include "filter.h"
+#include "linklist.h"
 #include "bgpd/bgp_vty.h"
 #include "vrf.h"
 

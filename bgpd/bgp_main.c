@@ -38,6 +38,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "stream.h"
 #include "vrf.h"
 #include "workqueue.h"
+#include "linklist.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_attr.h"
@@ -51,6 +52,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_filter.h"
 #include "bgpd/bgp_zebra.h"
+#include "bgpd/bgp_network.h"
 
 /* bgpd options, we use GNU getopt library. */
 static const struct option longopts[] = 
@@ -225,12 +227,13 @@ bgp_exit (int status)
 {
   struct bgp *bgp;
   struct listnode *node, *nnode;
-  int *socket;
   struct interface *ifp;
   extern struct zclient *zlookup;
 
   /* it only makes sense for this to be called on a clean exit */
   assert (status == 0);
+
+  bgp_close();
 
   /* reverse bgp_master_init */
   for (ALL_LIST_ELEMENTS (bm->bgp, node, nnode, bgp))
@@ -256,14 +259,6 @@ bgp_exit (int status)
       work_queue_free (bm->process_rsclient_queue);
       bm->process_rsclient_queue = NULL;
     }
-  
-  /* reverse bgp_master_init */
-  for (ALL_LIST_ELEMENTS_RO(bm->listen_sockets, node, socket))
-    {
-      if (close ((int)(long)socket) == -1)
-        zlog_err ("close (%d): %s", (int)(long)socket, safe_strerror (errno));
-    }
-  list_delete (bm->listen_sockets);
 
   /* reverse bgp_zebra_init/if_init */
   if (retain_mode)
