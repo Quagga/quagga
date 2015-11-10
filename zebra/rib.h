@@ -450,7 +450,7 @@ extern int rib_lookup_ipv4_route (struct prefix_ipv4 *, union sockunion *,
 
 extern struct nexthop *nexthop_ipv6_add (struct rib *, struct in6_addr *);
 extern struct nexthop *nexthop_ipv6_ifindex_add (struct rib *rib,
-		        struct in6_addr *ipv6, unsigned int ifindex);
+		        struct in6_addr *ipv6, ifindex_t ifindex);
 
 extern struct zebra_vrf *zebra_vrf_alloc (vrf_id_t);
 extern struct route_table *zebra_vrf_table (afi_t, safi_t, vrf_id_t);
