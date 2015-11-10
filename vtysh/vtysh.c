@@ -2564,6 +2564,7 @@ vtysh_init_vty (void)
 #ifdef HAVE_IPV6
   install_element (BGP_NODE, &address_family_ipv6_cmd);
   install_element (BGP_NODE, &address_family_ipv6_unicast_cmd);
+  install_element (BGP_NODE, &address_family_ipv6_multicast_cmd);
 #endif
   install_element (BGP_VPNV4_NODE, &exit_address_family_cmd);
   install_element (BGP_VPNV6_NODE, &exit_address_family_cmd);
