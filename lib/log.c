@@ -151,6 +151,7 @@ time_print(FILE *fp, struct timestamp_control *ctl)
 static void
 vzlog (struct zlog *zl, int priority, const char *format, va_list args)
 {
+  int original_errno = errno;
   struct timestamp_control tsctl;
   tsctl.already_rendered = 0;
 
@@ -169,6 +170,7 @@ vzlog (struct zlog *zl, int priority, const char *format, va_list args)
       fflush (stderr);
 
       /* In this case we return at here. */
+      errno = original_errno;
       return;
     }
   tsctl.precision = zl->timestamp_precision;
@@ -216,6 +218,8 @@ vzlog (struct zlog *zl, int priority, const char *format, va_list args)
   if (priority <= zl->maxlvl[ZLOG_DEST_MONITOR])
     vty_log ((zl->record_priority ? zlog_priority[priority] : NULL),
 	     zlog_proto_names[zl->protocol], format, &tsctl, args);
+
+  errno = original_errno;
 }
 
 static char *
