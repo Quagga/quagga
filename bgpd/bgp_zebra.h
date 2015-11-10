@@ -22,9 +22,11 @@ Boston, MA 02111-1307, USA.  */
 #define _QUAGGA_BGP_ZEBRA_H
 
 #define BGP_NEXTHOP_BUF_SIZE (8 * sizeof (struct in_addr *))
+#define BGP_IFINDICES_BUF_SIZE (8 * sizeof (unsigned int))
 
 extern struct stream *bgp_nexthop_buf;
 extern struct in_addr router_id_zebra;
+extern struct stream *bgp_ifindices_buf;
 
 extern void bgp_zebra_init (struct thread_master *master);
 extern void bgp_zebra_destroy (void);
