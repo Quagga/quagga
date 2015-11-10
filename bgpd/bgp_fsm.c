@@ -64,13 +64,6 @@ static int bgp_keepalive_timer (struct thread *);
 /* BGP FSM functions. */
 static int bgp_start (struct peer *);
 
-/* BGP start timer jitter. */
-static int
-bgp_start_jitter (int time)
-{
-  return ((random () % (time + 1)) - (time / 2));
-}
-
 /* Check if suppress start/restart of sessions to peer. */
 #define BGP_PEER_START_SUPPRESSED(P) \
   (CHECK_FLAG ((P)->flags, PEER_FLAG_SHUTDOWN) \
@@ -82,8 +75,6 @@ bgp_start_jitter (int time)
 void
 bgp_timer_set (struct peer *peer)
 {
-  int jitter = 0;
-
   switch (peer->status)
     {
     case Idle:
@@ -96,9 +87,8 @@ bgp_timer_set (struct peer *peer)
 	}
       else
 	{
-	  jitter = bgp_start_jitter (peer->v_start);
 	  BGP_TIMER_ON (peer->t_start, bgp_start_timer,
-			peer->v_start + jitter);
+			peer->v_start);
 	}
       BGP_TIMER_OFF (peer->t_connect);
       BGP_TIMER_OFF (peer->t_holdtime);
