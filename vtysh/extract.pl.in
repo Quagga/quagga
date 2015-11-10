@@ -181,7 +181,7 @@ foreach (@ARGV) {
     }
 }
 
-my $bad_cli_stomps = 89;
+my $bad_cli_stomps = 90;
 # Currently we have $bad_cli_stomps.  This was determined by
 # running this script and counting up the collisions from what
 # was returned.
@@ -221,7 +221,7 @@ foreach (keys %live) {
 # Output install_element
 print <<EOF;
 void
-vtysh_init_cmd ()
+vtysh_init_cmd (void)
 {
 EOF
 
