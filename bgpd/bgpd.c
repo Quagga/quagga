@@ -2058,6 +2058,8 @@ bgp_create (as_t *as, const char *name)
   if (name)
     bgp->name = strdup (name);
 
+  bgp->wpkt_quanta = BGP_WRITE_PACKET_MAX;
+
   THREAD_TIMER_ON (bm->master, bgp->t_startup, bgp_startup_timer_expire,
                    bgp, bgp->restart_time);
 
@@ -5482,6 +5484,9 @@ bgp_config_write (struct vty *vty)
 
       /* BGP update-delay. */
       bgp_config_write_update_delay (vty, bgp);
+
+      /* write quanta */
+      bgp_config_write_wpkt_quanta (vty, bgp);
 
       /* BGP graceful-restart. */
       if (bgp->stalepath_time != BGP_DEFAULT_STALEPATH_TIME)
