@@ -1,4 +1,6 @@
 #include <zebra.h>
+#include <vty.h>
+
 #include "zebra/rib.h"
 #include "zebra/zserv.h"
 #include "zebra/zebra_rnh.h"

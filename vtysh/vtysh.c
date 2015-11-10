@@ -36,6 +36,7 @@
 #include "log.h"
 #include "filter.h"
 #include "linklist.h"
+#include "prefix.h"
 #include "bgpd/bgp_vty.h"
 #include "vrf.h"
 

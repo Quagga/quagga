@@ -26,6 +26,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "buffer.h"
 #include "filter.h"
 #include "linklist.h"
+#include "prefix.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_aspath.h"
@@ -49,10 +50,10 @@ struct as_list_master
   struct as_list_list str;
 
   /* Hook function which is executed when new access_list is added. */
-  void (*add_hook) (void);
+  void (*add_hook) (char *);
 
   /* Hook function which is executed when access_list is deleted. */
-  void (*delete_hook) (void);
+  void (*delete_hook) (const char *);
 };
 
 /* Element of AS path filter. */
@@ -146,6 +147,11 @@ as_list_filter_add (struct as_list *aslist, struct as_filter *asfilter)
   else
     aslist->head = asfilter;
   aslist->tail = asfilter;
+
+  /* Run hook function. */
+  if (as_list_master.add_hook)
+    (*as_list_master.add_hook) (aslist->name);
+
 }
 
 /* Lookup as_list from list of as_list by name. */
@@ -279,13 +285,7 @@ as_list_get (const char *name)
 
   aslist = as_list_lookup (name);
   if (aslist == NULL)
-    {
-      aslist = as_list_insert (name);
-
-      /* Run hook function. */
-      if (as_list_master.add_hook)
-	(*as_list_master.add_hook) ();
-    }
+    aslist = as_list_insert (name);
 
   return aslist;
 }
@@ -346,6 +346,8 @@ as_list_empty (struct as_list *aslist)
 static void
 as_list_filter_delete (struct as_list *aslist, struct as_filter *asfilter)
 {
+  char *name = strdup (aslist->name);
+
   if (asfilter->next)
     asfilter->next->prev = asfilter->prev;
   else
@@ -364,7 +366,9 @@ as_list_filter_delete (struct as_list *aslist, struct as_filter *asfilter)
 
   /* Run hook function. */
   if (as_list_master.delete_hook)
-    (*as_list_master.delete_hook) ();
+    (*as_list_master.delete_hook) (name);
+  if (name)
+    free(name);
 }
 
 static int
@@ -397,14 +401,14 @@ as_list_apply (struct as_list *aslist, void *object)
 
 /* Add hook function. */
 void
-as_list_add_hook (void (*func) (void))
+as_list_add_hook (void (*func) (char *))
 {
   as_list_master.add_hook = func;
 }
 
 /* Delete hook function. */
 void
-as_list_delete_hook (void (*func) (void))
+as_list_delete_hook (void (*func) (const char *))
 {
   as_list_master.delete_hook = func;
 }
@@ -568,7 +572,7 @@ DEFUN (no_ip_as_path_all,
 
   /* Run hook function. */
   if (as_list_master.delete_hook)
-    (*as_list_master.delete_hook) ();
+    (*as_list_master.delete_hook) (argv[0]);
 
   return CMD_SUCCESS;
 }

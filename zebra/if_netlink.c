@@ -21,6 +21,7 @@
  */
 
 #include <zebra.h>
+#include <vty.h>
 
 #include "zebra/zserv.h"
 #include "rt_netlink.h"

@@ -30,6 +30,7 @@
 #include "table.h"
 #include "log.h"
 #include "memory.h"
+#include "vty.h"
 
 #include "zebra/zserv.h"
 #include "zebra/redistribute.h"

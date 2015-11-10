@@ -26,12 +26,15 @@
 #include "if.h"
 #include "workqueue.h"
 #include "vrf.h"
+#include "routemap.h"
 
 /* Default port information. */
 #define ZEBRA_VTY_PORT                2601
 
 /* Default configuration filename. */
 #define DEFAULT_CONFIG_FILE "zebra.conf"
+
+#define ZEBRA_RMAP_DEFAULT_UPDATE_TIMER 5 /* disabled by default */
 
 /* Client structure. */
 struct zserv
@@ -121,5 +124,10 @@ extern pid_t pid;
 
 extern void zserv_create_header(struct stream *s, uint16_t cmd, vrf_id_t);
 extern int zebra_server_send_message(struct zserv *client);
+
+extern void zebra_route_map_write_delay_timer(struct vty *);
+extern route_map_result_t zebra_route_map_check (int family, int rib_type,
+						 struct prefix *p,
+						 struct nexthop *nexthop);
 
 #endif /* _ZEBRA_ZEBRA_H */
