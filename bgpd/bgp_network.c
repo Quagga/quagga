@@ -247,7 +247,7 @@ bgp_accept (struct thread *thread)
   /* Make dummy peer until read Open packet. */
   if (BGP_DEBUG (events, EVENTS))
     zlog_debug ("[Event] Make dummy peer structure until read Open packet");
-
+  
   {
     char buf[SU_ADDRSTRLEN];
 
@@ -278,11 +278,14 @@ bgp_bind (struct peer *peer)
   int ret;
   struct ifreq ifreq;
   int myerrno;
+  char *name;
 
-  if (! peer->ifname)
+  if (! peer->ifname && !peer->conf_if)
     return 0;
 
-  strncpy ((char *)&ifreq.ifr_name, peer->ifname, sizeof (ifreq.ifr_name));
+  name = (peer->conf_if ? peer->conf_if : peer->ifname);
+
+  strncpy ((char *)&ifreq.ifr_name, name, sizeof (ifreq.ifr_name));
 
   if ( bgpd_privs.change (ZPRIVS_RAISE) )
   	zlog_err ("bgp_bind: could not raise privs");
@@ -297,7 +300,8 @@ bgp_bind (struct peer *peer)
   if (ret < 0)
     {
       zlog (peer->log, LOG_INFO, "bind to interface %s failed, errno=%d",
-            peer->ifname, myerrno);
+            name, myerrno);
+
       return ret;
     }
 #endif /* SO_BINDTODEVICE */
@@ -367,6 +371,11 @@ bgp_connect (struct peer *peer)
 {
   ifindex_t ifindex = 0;
 
+  if (peer->conf_if && BGP_PEER_SU_UNSPEC(peer))
+    {
+      zlog_debug("Peer address not learnt: Returning from connect");
+      return 0;
+    }
   /* Make socket for the peer. */
   peer->fd = sockunion_socket (&peer->su);
   if (peer->fd < 0)
@@ -402,8 +411,8 @@ bgp_connect (struct peer *peer)
   /* Update source bind. */
   bgp_update_source (peer);
 
-  if (peer->ifname)
-    ifindex = ifname2ifindex (peer->ifname);
+  if (peer->conf_if || peer->ifname)
+    ifindex = ifname2ifindex (peer->conf_if ? peer->conf_if : peer->ifname);
 
   if (BGP_DEBUG (events, EVENTS))
     plog_debug (peer->log, "%s [Event] Connect start to %s fd %d",

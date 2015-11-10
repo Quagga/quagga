@@ -58,8 +58,8 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_nht.h"
 
 /* BGP show neighbour command specifier and help string */
-#define BGP_NEIGHBOUR_CMD "(A.B.C.D|X:X::X:X)"
-#define BGP_NEIGHBOUR_STR NEIGHBOR_ADDR_STR
+#define BGP_NEIGHBOUR_CMD "(A.B.C.D|X:X::X:X|WORD)"
+#define BGP_NEIGHBOUR_STR NEIGHBOR_ADDR_STR2
 
 /* Extern from bgp_dump.c */
 extern const char *bgp_origin_str[];
@@ -12058,8 +12058,13 @@ peer_lookup_in_view (struct vty *vty, const char *view_name,
   ret = str2sockunion (ip_str, &su);
   if (ret < 0)
     {
-      vty_out (vty, "Malformed address: %s%s", ip_str, VTY_NEWLINE);
-      return NULL;
+      peer = peer_lookup_by_conf_if (bgp, ip_str);
+      if (!peer)
+        {
+          vty_out (vty, "%% Malformed address or name: %s%s", ip_str, VTY_NEWLINE);
+          return NULL;
+        }
+      return peer;
     }
 
   /* Peer structure lookup. */
@@ -13771,13 +13776,19 @@ DEFUN (show_ip_bgp_neighbor_received_prefix_filter,
   ret = str2sockunion (argv[0], &su);
   if (ret < 0)
     {
-      vty_out (vty, "Malformed address: %s%s", argv[0], VTY_NEWLINE);
-      return CMD_WARNING;
+      peer = peer_lookup_by_conf_if (NULL, argv[0]);
+      if (!peer)
+        {
+          vty_out (vty, "Malformed address or name: %s%s", argv[0], VTY_NEWLINE);
+          return CMD_WARNING;
+        }
     }
-
-  peer = peer_lookup (NULL, &su);
-  if (! peer)
-    return CMD_WARNING;
+  else
+    {
+      peer = peer_lookup (NULL, &su);
+      if (! peer)
+        return CMD_WARNING;
+    }
 
   sprintf (name, "%s.%d.%d", peer->host, AFI_IP, SAFI_UNICAST);
   count =  prefix_bgp_show_prefix_list (NULL, AFI_IP, name);
@@ -13812,13 +13823,19 @@ DEFUN (show_ip_bgp_ipv4_neighbor_received_prefix_filter,
   ret = str2sockunion (argv[1], &su);
   if (ret < 0)
     {
-      vty_out (vty, "Malformed address: %s%s", argv[1], VTY_NEWLINE);
-      return CMD_WARNING;
+      peer = peer_lookup_by_conf_if (NULL, argv[1]);
+      if (!peer)
+        {
+          vty_out (vty, "Malformed address or name: %s%s", argv[1], VTY_NEWLINE);
+          return CMD_WARNING;
+        }
     }
-
-  peer = peer_lookup (NULL, &su);
-  if (! peer)
-    return CMD_WARNING;
+  else
+    {
+      peer = peer_lookup (NULL, &su);
+      if (! peer)
+        return CMD_WARNING;
+    }
 
   if (strncmp (argv[0], "m", 1) == 0)
     {
@@ -13969,13 +13986,19 @@ DEFUN (show_bgp_ipv6_neighbor_received_prefix_filter,
   ret = str2sockunion (argv[0], &su);
   if (ret < 0)
     {
-      vty_out (vty, "Malformed address: %s%s", argv[0], VTY_NEWLINE);
-      return CMD_WARNING;
+      peer = peer_lookup_by_conf_if (NULL, argv[0]);
+      if (!peer)
+        {
+          vty_out (vty, "Malformed address or name: %s%s", argv[0], VTY_NEWLINE);
+          return CMD_WARNING;
+        }
     }
-
-  peer = peer_lookup (NULL, &su);
-  if (! peer)
-    return CMD_WARNING;
+  else
+    {
+      peer = peer_lookup (NULL, &su);
+      if (! peer)
+        return CMD_WARNING;
+    }
 
   sprintf (name, "%s.%d.%d", peer->host, AFI_IP6, SAFI_UNICAST);
   count =  prefix_bgp_show_prefix_list (NULL, AFI_IP6, name);
@@ -14018,13 +14041,19 @@ DEFUN (show_bgp_view_ipv6_neighbor_received_prefix_filter,
   ret = str2sockunion (argv[1], &su);
   if (ret < 0)
     {
-      vty_out (vty, "Malformed address: %s%s", argv[1], VTY_NEWLINE);
-      return CMD_WARNING;
+      peer = peer_lookup_by_conf_if (bgp, argv[1]);
+      if (!peer)
+        {
+          vty_out (vty, "%% Malformed address or name: %s%s", argv[1], VTY_NEWLINE);
+          return CMD_WARNING;
+        }
     }
-
-  peer = peer_lookup (bgp, &su);
-  if (! peer)
-    return CMD_WARNING;
+  else
+    {
+      peer = peer_lookup (bgp, &su);
+      if (! peer)
+        return CMD_WARNING;
+    }
 
   sprintf (name, "%s.%d.%d", peer->host, AFI_IP6, SAFI_UNICAST);
   count =  prefix_bgp_show_prefix_list (NULL, AFI_IP6, name);
@@ -14068,6 +14097,7 @@ DEFUN (show_ip_bgp_neighbor_routes,
   return bgp_show_neighbor_route (vty, peer, AFI_IP, SAFI_UNICAST,
 				  bgp_show_type_neighbor);
 }
+
 
 DEFUN (show_ip_bgp_neighbor_flap,
        show_ip_bgp_neighbor_flap_cmd,

@@ -574,6 +574,8 @@ bgp_stop (struct peer *peer)
   peer->pcount[AFI_IP6][SAFI_MULTICAST] = 0;
 #endif /* 0 */
 
+  bgp_peer_conf_if_to_su_update (peer);
+  
   return 0;
 }
 
@@ -667,6 +669,8 @@ bgp_start (struct peer *peer)
 {
   int status;
   int connected = 0;
+
+  bgp_peer_conf_if_to_su_update (peer);
 
   if (BGP_PEER_START_SUPPRESSED (peer))
     {

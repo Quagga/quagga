@@ -781,6 +781,10 @@ peer_free (struct peer *peer)
     XFREE(MTYPE_TMP, peer->notify.data);
   
   bgp_sync_delete (peer);
+
+  if (peer->conf_if)
+    XFREE (MTYPE_PEER_CONF_IF, peer->conf_if);
+
   memset (peer, 0, sizeof (struct peer));
   
   XFREE (MTYPE_BGP_PEER, peer);
@@ -893,17 +897,62 @@ peer_new (struct bgp *bgp)
   return peer;
 }
 
+/*
+ * Set or reset the peer address socketunion structure based on the
+ * learnt peer address. Currently via the source address of the
+ * ipv6 ND router-advertisement.
+ */
+void
+bgp_peer_conf_if_to_su_update (struct peer *peer)
+{
+  struct interface *ifp;
+  struct nbr_connected *ifc;
+
+  if (!peer->conf_if)
+    return;
+
+  if ((ifp = if_lookup_by_name(peer->conf_if)) &&
+       ifp->nbr_connected &&
+      (ifc = listnode_head(ifp->nbr_connected)))
+    {
+      peer->su.sa.sa_family = AF_INET6;
+      memcpy(&peer->su.sin6.sin6_addr, &ifc->address->u.prefix,
+             sizeof (struct in6_addr));
+#ifdef SIN6_LEN
+      peer->su.sin6.sin6_len = sizeof (struct sockaddr_in6);
+#endif
+    }
+  else
+    {
+      /* This works as an indication of unresolved peer address
+         on a BGP interface*/
+      peer->su.sa.sa_family = AF_UNSPEC;
+      memset(&peer->su.sin6.sin6_addr, 0, sizeof (struct in6_addr));
+    }
+}
+
 /* Create new BGP peer.  */
-static struct peer *
-peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
-	     as_t remote_as, afi_t afi, safi_t safi)
+struct peer *
+peer_create (union sockunion *su, const char *conf_if, struct bgp *bgp,
+             as_t local_as, as_t remote_as, afi_t afi, safi_t safi)
 {
   int active;
   struct peer *peer;
   char buf[SU_ADDRSTRLEN];
 
   peer = peer_new (bgp);
-  peer->su = *su;
+  if (conf_if)
+    {
+      peer->conf_if = XSTRDUP (MTYPE_PEER_CONF_IF, conf_if);
+      bgp_peer_conf_if_to_su_update(peer);
+      peer->host = XSTRDUP (MTYPE_BGP_PEER_HOST, conf_if);
+    }
+  else if (su)
+    {
+      peer->su = *su;
+      sockunion2str (su, buf, SU_ADDRSTRLEN);
+      peer->host = XSTRDUP (MTYPE_BGP_PEER_HOST, buf);
+    }
   peer->local_as = local_as;
   peer->as = remote_as;
   peer->local_id = bgp->router_id;
@@ -928,13 +977,29 @@ peer_create (union sockunion *su, struct bgp *bgp, as_t local_as,
   /* Default TTL set. */
   peer->ttl = (peer->sort == BGP_PEER_IBGP) ? 255 : 1;
 
-  /* Make peer's address string. */
-  sockunion2str (su, buf, SU_ADDRSTRLEN);
-  peer->host = XSTRDUP (MTYPE_BGP_PEER_HOST, buf);
-
   /* Set up peer's events and timers. */
   if (! active && peer_active (peer))
     bgp_timer_set (peer);
+
+  return peer;
+}
+
+struct peer *
+peer_conf_interface_get(struct bgp *bgp, const char *conf_if, afi_t afi,
+                        safi_t safi)
+{
+  struct peer *peer;
+
+  peer = peer_lookup_by_conf_if (bgp, conf_if);
+  if (!peer)
+    {
+      if (bgp_flag_check (bgp, BGP_FLAG_NO_DEFAULT_IPV4)
+          && afi == AFI_IP && safi == SAFI_UNICAST)
+        peer = peer_create (NULL, conf_if, bgp, bgp->as, 0, 0, 0);
+      else
+        peer = peer_create (NULL, conf_if, bgp, bgp->as, 0, afi, safi);
+
+    }
 
   return peer;
 }
@@ -954,7 +1019,7 @@ peer_create_accept (struct bgp *bgp)
 }
 
 /* Change peer's AS number.  */
-static void
+void
 peer_as_change (struct peer *peer, as_t as)
 {
   bgp_peer_sort_t type;
@@ -1034,13 +1099,16 @@ peer_as_change (struct peer *peer, as_t as)
 /* If peer does not exist, create new one.  If peer already exists,
    set AS number to the peer.  */
 int
-peer_remote_as (struct bgp *bgp, union sockunion *su, as_t *as,
-		afi_t afi, safi_t safi)
+peer_remote_as (struct bgp *bgp, union sockunion *su, const char *conf_if,
+                as_t *as, afi_t afi, safi_t safi)
 {
   struct peer *peer;
   as_t local_as;
 
-  peer = peer_lookup (bgp, su);
+  if (conf_if)
+    peer = peer_lookup_by_conf_if (bgp, conf_if);
+  else
+    peer = peer_lookup (bgp, su);
 
   if (peer)
     {
@@ -1077,6 +1145,8 @@ peer_remote_as (struct bgp *bgp, union sockunion *su, as_t *as,
     }
   else
     {
+      if (conf_if)
+        return BGP_ERR_NO_INTERFACE_CONFIG;
 
       /* If the peer is not part of our confederation, and its not an
 	 iBGP peer then spoof the source AS */
@@ -1092,9 +1162,9 @@ peer_remote_as (struct bgp *bgp, union sockunion *su, as_t *as,
 
       if (bgp_flag_check (bgp, BGP_FLAG_NO_DEFAULT_IPV4)
 	  && afi == AFI_IP && safi == SAFI_UNICAST)
-	peer_create (su, bgp, local_as, *as, 0, 0); 
+	peer_create (su, conf_if, bgp, local_as, *as, 0, 0);
       else
-	peer_create (su, bgp, local_as, *as, afi, safi); 
+	peer_create (su, conf_if, bgp, local_as, *as, afi, safi);
     }
 
   return 0;
@@ -1854,10 +1924,9 @@ peer_group_remote_as_delete (struct peer_group *group)
 
 /* Bind specified peer to peer group.  */
 int
-peer_group_bind (struct bgp *bgp, union sockunion *su,
+peer_group_bind (struct bgp *bgp, union sockunion *su, struct peer *peer,
 		 struct peer_group *group, afi_t afi, safi_t safi, as_t *as)
 {
-  struct peer *peer;
   int first_member = 0;
 
   /* Check peer group's address family.  */
@@ -1865,7 +1934,8 @@ peer_group_bind (struct bgp *bgp, union sockunion *su,
     return BGP_ERR_PEER_GROUP_AF_UNCONFIGURED;
 
   /* Lookup the peer.  */
-  peer = peer_lookup (bgp, su);
+  if (!peer)
+    peer = peer_lookup (bgp, su);
 
   /* Create a new peer. */
   if (! peer)
@@ -1873,7 +1943,7 @@ peer_group_bind (struct bgp *bgp, union sockunion *su,
       if (! group->conf->as)
 	return BGP_ERR_PEER_GROUP_NO_REMOTE_AS;
 
-      peer = peer_create (su, bgp, bgp->as, group->conf->as, afi, safi);
+      peer = peer_create (su, NULL, bgp, bgp->as, group->conf->as, afi, safi);
       peer->group = group;
       peer->af_group[afi][safi] = 1;
 
@@ -2344,6 +2414,35 @@ bgp_free (struct bgp *bgp)
 }
 
 struct peer *
+peer_lookup_by_conf_if (struct bgp *bgp, const char *conf_if)
+{
+  struct peer *peer;
+  struct listnode *node, *nnode;
+
+  if (!conf_if)
+    return NULL;
+
+  if (bgp != NULL)
+    {
+      for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
+        if (peer->conf_if && !strcmp(peer->conf_if, conf_if)
+            && ! CHECK_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER))
+          return peer;
+    }
+  else if (bm->bgp != NULL)
+    {
+      struct listnode *bgpnode, *nbgpnode;
+
+      for (ALL_LIST_ELEMENTS (bm->bgp, bgpnode, nbgpnode, bgp))
+        for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
+          if (peer->conf_if && !strcmp(peer->conf_if, conf_if)
+              && ! CHECK_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER))
+            return peer;
+    }
+  return NULL;
+}
+
+struct peer *
 peer_lookup (struct bgp *bgp, union sockunion *su)
 {
   struct peer *peer;
@@ -2416,6 +2515,8 @@ peer_lookup_with_open (union sockunion *su, as_t remote_as,
 int
 peer_active (struct peer *peer)
 {
+  if (BGP_PEER_SU_UNSPEC(peer))
+    return 0;
   if (peer->afc[AFI_IP][SAFI_UNICAST]
       || peer->afc[AFI_IP][SAFI_MULTICAST]
       || peer->afc[AFI_IP][SAFI_MPLS_VPN]
@@ -2878,7 +2979,7 @@ peer_ebgp_multihop_set (struct peer *peer, int ttl)
   struct listnode *node, *nnode;
   struct peer *peer1;
 
-  if (peer->sort == BGP_PEER_IBGP)
+  if (peer->sort == BGP_PEER_IBGP || peer->conf_if)
     return 0;
 
   /* see comment in peer_ttl_security_hops_set() */
@@ -5079,7 +5180,11 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
   char buf[SU_ADDRSTRLEN];
   char *addr;
 
-  addr = peer->host;
+  if (peer->conf_if)
+    addr = peer->conf_if;
+  else
+    addr = peer->host;
+
   if (peer_group_active (peer))
     g_peer = peer->group->conf;
 
@@ -5088,6 +5193,9 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
    ************************************/
   if (afi == AFI_IP && safi == SAFI_UNICAST)
     {
+      if (peer->conf_if)
+        vty_out (vty, " neighbor %s interface%s", addr, VTY_NEWLINE);
+
       /* remote-as. */
       if (! peer_group_active (peer))
 	{
