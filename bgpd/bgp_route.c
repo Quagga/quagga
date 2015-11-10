@@ -1078,9 +1078,9 @@ bgp_announce_check (struct bgp_info *ri, struct peer *peer, struct prefix *p,
       info.attr = attr;
 
       /* The route reflector is not allowed to modify the attributes
-	 of the reflected IBGP routes. */
-      if (from->sort == BGP_PEER_IBGP
-	  && peer->sort == BGP_PEER_IBGP)
+	 of the reflected IBGP routes, unless configured to allow it */
+      if ((from->sort == BGP_PEER_IBGP && peer->sort == BGP_PEER_IBGP) &&
+	  !bgp_flag_check(bgp, BGP_FLAG_RR_ALLOW_OUTBOUND_POLICY))
 	{
 	  bgp_attr_dup (&dummy_attr, attr);
 	  info.attr = &dummy_attr;
