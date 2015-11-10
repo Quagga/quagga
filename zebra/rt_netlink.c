@@ -908,6 +908,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
   int len;
   struct rtmsg *rtm;
   struct rtattr *tb[RTA_MAX + 1];
+  u_char zebra_flags = 0;
 
   char anyaddr[16] = { 0 };
 
@@ -965,6 +966,8 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
 
   if (rtm->rtm_protocol == RTPROT_ZEBRA && h->nlmsg_type == RTM_NEWROUTE)
     return 0;
+  if (rtm->rtm_protocol == RTPROT_ZEBRA)
+    SET_FLAG(zebra_flags, ZEBRA_FLAG_SELFROUTE);
 
   if (rtm->rtm_src_len != 0)
     {
@@ -1084,8 +1087,8 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
             }
         }
       else
-        rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id,
-                         SAFI_UNICAST);
+        rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, gate,
+			 index, vrf_id, SAFI_UNICAST);
     }
 
 #ifdef HAVE_IPV6
@@ -1109,7 +1112,7 @@ netlink_route_change (struct sockaddr_nl *snl, struct nlmsghdr *h,
         rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id, table,
                       0, mtu, 0, SAFI_UNICAST);
       else
-        rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, 0, &p, gate, index, vrf_id,
+        rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, gate, index, vrf_id,
                          SAFI_UNICAST);
     }
 #endif /* HAVE_IPV6 */
