@@ -62,6 +62,13 @@ struct bgp_master
 #define BGP_OPT_NO_LISTEN                (1 << 3)
 };
 
+/* BGP route-map structure.  */
+struct bgp_rmap
+{
+  char *name;
+  struct route_map *map;
+};
+
 /* BGP instance structure.  */
 struct bgp 
 {
@@ -154,6 +161,9 @@ struct bgp
   /* BGP routing information base.  */
   struct bgp_table *rib[AFI_MAX][SAFI_MAX];
 
+  /* BGP table route-map.  */
+  struct bgp_rmap table_map[AFI_MAX][SAFI_MAX];
+
   /* BGP redistribute configuration. */
   u_char redist[AFI_MAX][ZEBRA_ROUTE_MAX];
 
@@ -162,11 +172,7 @@ struct bgp
   u_int32_t redist_metric[AFI_MAX][ZEBRA_ROUTE_MAX];
 
   /* BGP redistribute route-map.  */
-  struct
-  {
-    char *name;
-    struct route_map *map;
-  } rmap[AFI_MAX][ZEBRA_ROUTE_MAX];
+  struct bgp_rmap rmap[AFI_MAX][ZEBRA_ROUTE_MAX];
 
   /* BGP distance configuration.  */
   u_char distance_ebgp;
