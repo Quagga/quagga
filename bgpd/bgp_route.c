@@ -477,6 +477,27 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
   if (newm > existm)
     return 1;
 
+  /* 8.1. Same IGP metric. Compare the cluster list length as
+     representative of IGP hops metric. Rewrite the metric value
+     pair (newm, existm) with the cluster list length. Prefer the
+     path with smaller cluster list length.                       */
+  if (newm == existm)
+    {
+      struct bgp_maxpaths_cfg *mpath_cfg = &bgp->maxpaths[afi][safi];
+      if (peer_sort (new->peer) == BGP_PEER_IBGP
+	  && peer_sort (exist->peer) == BGP_PEER_IBGP
+	  && CHECK_FLAG (mpath_cfg->ibgp_flags,
+			 BGP_FLAG_IBGP_MULTIPATH_SAME_CLUSTERLEN))
+	{
+	  newm = BGP_CLUSTER_LIST_LENGTH(new->attr);
+	  existm = BGP_CLUSTER_LIST_LENGTH(exist->attr);
+	  if (newm < existm)
+	    ret = 1;
+	  if (newm > existm)
+	    ret = 0;
+	}
+    }
+
   /* 9. Maximum path check. */
   if (bgp_mpath_is_configured (bgp, afi, safi))
     {
@@ -535,12 +556,8 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
     return 1;
 
   /* 12. Cluster length comparision. */
-  new_cluster = exist_cluster = 0;
-
-  if (newattr->flag & ATTR_FLAG_BIT(BGP_ATTR_CLUSTER_LIST))
-    new_cluster = newattre->cluster->length;
-  if (existattr->flag & ATTR_FLAG_BIT(BGP_ATTR_CLUSTER_LIST))
-    exist_cluster = existattre->cluster->length;
+  new_cluster = BGP_CLUSTER_LIST_LENGTH(new->attr);
+  exist_cluster = BGP_CLUSTER_LIST_LENGTH(exist->attr);
 
   if (new_cluster < exist_cluster)
     return -1;
