@@ -170,6 +170,7 @@ union prefix46constptr
 #endif /*s6_addr32*/
 
 /* Prototypes. */
+extern int str2family(const char *);
 extern int afi2family (afi_t);
 extern afi_t family2afi (int);
 
