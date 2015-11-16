@@ -37,6 +37,7 @@
 #include "vrf.h"
 #include "nexthop.h"
 
+#include "zebra/connected.h"
 #include "zebra/rib.h"
 #include "zebra/rt.h"
 #include "zebra/zserv.h"
@@ -251,11 +252,17 @@ rib_nexthop_ipv6_ifindex_add (struct rib *rib, struct in6_addr *ipv6,
 			      ifindex_t ifindex)
 {
   struct nexthop *nexthop;
+  struct interface *ifp;
 
   nexthop = nexthop_new ();
   nexthop->type = NEXTHOP_TYPE_IPV6_IFINDEX;
   nexthop->gate.ipv6 = *ipv6;
   nexthop->ifindex = ifindex;
+  ifp = if_lookup_by_index (nexthop->ifindex);
+  if (connected_is_unnumbered(ifp))
+    {
+      SET_FLAG(nexthop->flags, NEXTHOP_FLAG_ONLINK);
+    }
 
   rib_nexthop_add (rib, nexthop);
 
@@ -502,6 +509,7 @@ nexthop_active_ipv6 (struct rib *rib, struct nexthop *nexthop, int set,
   struct nexthop *newhop, *tnewhop;
   int recursing = 0;
   struct nexthop *resolved_hop;
+  struct interface *ifp;
 
   if (nexthop->type == NEXTHOP_TYPE_IPV6)
     nexthop->ifindex = 0;
@@ -519,6 +527,25 @@ nexthop_active_ipv6 (struct rib *rib, struct nexthop *nexthop, int set,
   /* nexthop for a different route may not have this flag set */
   if (CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_FILTERED))
     return 0;
+
+  /*
+   * Check to see if we should trust the passed in information
+   * for UNNUMBERED interfaces as that we won't find the GW
+   * address in the routing table.
+   */
+  if (CHECK_FLAG(nexthop->flags, NEXTHOP_FLAG_ONLINK))
+    {
+      ifp = if_lookup_by_index (nexthop->ifindex);
+      if (ifp && connected_is_unnumbered(ifp))
+	{
+	  if (if_is_operative(ifp))
+	    return 1;
+	  else
+	    return 0;
+	}
+      else
+	return 0;
+    }
 
   /* Make lookup prefix. */
   memset (&p, 0, sizeof (struct prefix_ipv6));
