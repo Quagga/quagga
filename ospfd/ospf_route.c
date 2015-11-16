@@ -783,7 +783,7 @@ ospf_route_copy_nexthops_from_vertex (struct ospf_route *to,
 	      path = ospf_path_new ();
 	      path->nexthop = nexthop->router;
 	      path->ifindex = nexthop->oi->ifp->ifindex;
-	      listnode_add (to->paths, path);
+ 	      listnode_add (to->paths, path);
 	    }
 	}
     }

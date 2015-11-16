@@ -422,12 +422,13 @@ ospf_zebra_add (struct prefix_ipv4 *p, struct ospf_route *or)
           if (IS_DEBUG_OSPF (zebra, ZEBRA_REDISTRIBUTE))
             {
 	      char buf[2][INET_ADDRSTRLEN];
-	      zlog_debug("Zebra: Route add %s/%d nexthop %s",
+	      zlog_debug("Zebra: Route add %s/%d nexthop %s, ifindex=%d",
 			 inet_ntop(AF_INET, &p->prefix,
 				   buf[0], sizeof(buf[0])),
 			 p->prefixlen,
 			 inet_ntop(AF_INET, &path->nexthop,
-				   buf[1], sizeof(buf[1])));
+				   buf[1], sizeof(buf[1])),
+			 path->ifindex);
             }
         }
 
