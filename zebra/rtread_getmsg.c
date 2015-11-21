@@ -92,7 +92,7 @@ handle_route_entry (mib2_ipRouteEntry_t *routeEntry)
 
 	rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &prefix,
 		      &gateway, NULL, 0, VRF_DEFAULT, RT_TABLE_MAIN,
-		      0, 0, SAFI_UNICAST);
+		      0, 0, 0, SAFI_UNICAST);
 }
 
 void
