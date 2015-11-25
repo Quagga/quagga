@@ -442,6 +442,23 @@ static const size_t cap_minsizes[] =
   [CAPABILITY_CODE_ORF_OLD]	= sizeof (struct capability_orf_entry),
 };
 
+/* value the capability must be a multiple of.
+ * 0-data capabilities won't be checked against this.
+ * Other capabilities whose data doesn't fall on convenient boundaries for this
+ * table should be set to 1.
+ */
+static const size_t cap_modsizes[] =
+{
+  [CAPABILITY_CODE_MP]          = 4,
+  [CAPABILITY_CODE_REFRESH]     = 1,
+  [CAPABILITY_CODE_ORF]         = 1,
+  [CAPABILITY_CODE_RESTART]     = 1,
+  [CAPABILITY_CODE_AS4]         = 4,
+  [CAPABILITY_CODE_DYNAMIC]     = 1,
+  [CAPABILITY_CODE_REFRESH_OLD] = 1,
+  [CAPABILITY_CODE_ORF_OLD]     = 1,
+};
+
 /**
  * Parse given capability.
  * XXX: This is reading into a stream, but not using stream API
@@ -513,6 +530,19 @@ bgp_capability_parse (struct peer *peer, size_t length, int *mp_capability,
 			     (unsigned) cap_minsizes[caphdr.code]);
                   bgp_notify_send (peer, BGP_NOTIFY_OPEN_ERR,
                                   BGP_NOTIFY_OPEN_UNSPECIFIC);
+                  return -1;
+                }
+              if (caphdr.length
+                  && caphdr.length % cap_modsizes[caphdr.code] != 0)
+                {
+                  zlog_info ("%s %s Capability length error: got %u,"
+                             " expected a multiple of %u",
+                             peer->host,
+                             LOOKUP (capcode_str, caphdr.code),
+                             caphdr.length,
+			     (unsigned) cap_modsizes[caphdr.code]);
+                  bgp_notify_send (peer, BGP_NOTIFY_OPEN_ERR,
+                                         BGP_NOTIFY_OPEN_UNSPECIFIC);
                   return -1;
                 }
           /* we deliberately ignore unknown codes, see below */
