@@ -235,7 +235,7 @@ bgp_capability_orf_entry (struct peer *peer, struct capability_header *hdr)
       zlog_info ("%s ORF Capability entry length error,"
                  " Cap length %u, num %u",
                  peer->host, hdr->length, entry.num);
-      bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+      bgp_notify_send (peer, BGP_NOTIFY_OPEN_ERR, BGP_NOTIFY_OPEN_UNSPECIFIC);
       return -1;
     }
 
@@ -469,7 +469,7 @@ bgp_capability_parse (struct peer *peer, size_t length, int *mp_capability,
       if (stream_get_getp(s) + 2 > end)
 	{
 	  zlog_info ("%s Capability length error (< header)", peer->host);
-	  bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+	  bgp_notify_send (peer, BGP_NOTIFY_OPEN_ERR, BGP_NOTIFY_OPEN_UNSPECIFIC);
 	  return -1;
 	}
       
@@ -481,7 +481,7 @@ bgp_capability_parse (struct peer *peer, size_t length, int *mp_capability,
       if (start + caphdr.length > end)
 	{
 	  zlog_info ("%s Capability length error (< length)", peer->host);
-	  bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+	  bgp_notify_send (peer, BGP_NOTIFY_OPEN_ERR, BGP_NOTIFY_OPEN_UNSPECIFIC);
 	  return -1;
 	}
       
@@ -511,7 +511,8 @@ bgp_capability_parse (struct peer *peer, size_t length, int *mp_capability,
                              LOOKUP (capcode_str, caphdr.code),
                              caphdr.length, 
 			     (unsigned) cap_minsizes[caphdr.code]);
-                  bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+                  bgp_notify_send (peer, BGP_NOTIFY_OPEN_ERR,
+                                  BGP_NOTIFY_OPEN_UNSPECIFIC);
                   return -1;
                 }
           /* we deliberately ignore unknown codes, see below */
@@ -727,7 +728,8 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *mp_capability)
       if (STREAM_READABLE(s) < 2)
 	{
 	  zlog_info ("%s Option length error", peer->host);
-	  bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+	  bgp_notify_send (peer, BGP_NOTIFY_OPEN_ERR,
+	                         BGP_NOTIFY_OPEN_UNSPECIFIC);
 	  return -1;
 	}
 
@@ -739,7 +741,8 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *mp_capability)
       if (STREAM_READABLE (s) < opt_length)
 	{
 	  zlog_info ("%s Option length error", peer->host);
-	  bgp_notify_send (peer, BGP_NOTIFY_CEASE, 0);
+	  bgp_notify_send (peer, BGP_NOTIFY_OPEN_ERR,
+	                         BGP_NOTIFY_OPEN_UNSPECIFIC);
 	  return -1;
 	}
 

@@ -1545,7 +1545,7 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
         {
           bgp_notify_send (peer,
                  BGP_NOTIFY_OPEN_ERR,
-                 BGP_NOTIFY_OPEN_UNACEP_HOLDTIME);
+                 BGP_NOTIFY_OPEN_UNSPECIFIC);
 	  return ret;
         }
     }
