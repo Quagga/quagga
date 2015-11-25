@@ -39,6 +39,33 @@
 #include "bgpd/bgp_ecommunity.h"
 #include "bgpd/bgp_mpath.h"
 
+bool
+bgp_mpath_is_configured_sort (struct bgp *bgp, bgp_peer_sort_t sort,
+                              afi_t afi, safi_t safi)
+{
+  struct bgp_maxpaths_cfg *cfg = &bgp->maxpaths[afi][safi];
+
+  /* XXX: BGP_DEFAULT_MAXPATHS is 1, and this test only seems to make sense
+   * if if it stays 1, so not sure the DEFAULT define is that useful.
+   */
+  switch (sort)
+    {
+      case BGP_PEER_IBGP:
+        return cfg->maxpaths_ibgp != BGP_DEFAULT_MAXPATHS;
+      case BGP_PEER_EBGP:
+        return cfg->maxpaths_ebgp != BGP_DEFAULT_MAXPATHS;
+      default:
+        return false;
+    }
+}
+
+bool
+bgp_mpath_is_configured (struct bgp *bgp, afi_t afi, safi_t safi)
+{
+  return bgp_mpath_is_configured_sort (bgp, BGP_PEER_IBGP, afi, safi)
+         || bgp_mpath_is_configured_sort (bgp, BGP_PEER_EBGP, afi, safi);
+}
+
 /*
  * bgp_maximum_paths_set
  *
@@ -395,7 +422,7 @@ bgp_info_mpath_attr_set (struct bgp_info *binfo, struct attr *attr)
 void
 bgp_info_mpath_update (struct bgp_node *rn, struct bgp_info *new_best,
                        struct bgp_info *old_best, struct list *mp_list,
-                       struct bgp_maxpaths_cfg *mpath_cfg)
+                        afi_t afi, safi_t safi)
 {
   u_int16_t maxpaths, mpath_count, old_mpath_count;
   struct listnode *mp_node, *mp_next_node;
@@ -410,7 +437,10 @@ bgp_info_mpath_update (struct bgp_node *rn, struct bgp_info *new_best,
   old_mpath_count = 0;
   prev_mpath = new_best;
   mp_node = listhead (mp_list);
+  struct bgp_maxpaths_cfg *mpath_cfg;
   debug = BGP_DEBUG (events, EVENTS);
+
+  mpath_cfg  = &new_best->peer->bgp->maxpaths[afi][safi];
 
   if (debug)
     prefix2str (&rn->p, pfx_buf, sizeof (pfx_buf));

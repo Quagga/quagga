@@ -321,10 +321,12 @@ bgp_med_value (struct attr *attr, struct bgp *bgp)
     }
 }
 
-/* Compare two bgp route entity.  br is preferable then return 1. */
+/* Compare two bgp route entity.  Return -1 if new is preferred, 1 if exist
+ * is preferred, or 0 if they are the same (usually will only occur if
+ * multipath is enabled */
 static int
 bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
-	      int *paths_eq)
+              afi_t afi, safi_t safi)
 {
   struct attr *newattr, *existattr;
   struct attr_extra *newattre, *existattre;
@@ -345,13 +347,11 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
   int confed_as_route;
   int ret;
 
-  *paths_eq = 0;
-
   /* 0. Null check. */
   if (new == NULL)
-    return 0;
-  if (exist == NULL)
     return 1;
+  if (exist == NULL)
+    return -1;
 
   newattr = new->attr;
   existattr = exist->attr;
@@ -367,9 +367,9 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
     exist_weight = existattre->weight;
 
   if (new_weight > exist_weight)
-    return 1;
+    return -1;
   if (new_weight < exist_weight)
-    return 0;
+    return 1;
 
   /* 2. Local preference check. */
   new_pref = exist_pref = bgp->default_local_pref;
@@ -380,9 +380,9 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
     exist_pref = existattr->local_pref;
 
   if (new_pref > exist_pref)
-    return 1;
+    return -1;
   if (new_pref < exist_pref)
-    return 0;
+    return 1;
 
   /* 3. Local route check. We prefer:
    *  - BGP_ROUTE_STATIC
@@ -390,9 +390,9 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
    *  - BGP_ROUTE_REDISTRIBUTE
    */
   if (! (new->sub_type == BGP_ROUTE_NORMAL))
-     return 1;
+     return -1;
   if (! (exist->sub_type == BGP_ROUTE_NORMAL))
-     return 0;
+     return 1;
 
   /* 4. AS path length check. */
   if (! bgp_flag_check (bgp, BGP_FLAG_ASPATH_IGNORE))
@@ -408,26 +408,26 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
           aspath_hops += aspath_count_confeds (newattr->aspath);
           
 	  if ( aspath_hops < (exist_hops + exist_confeds))
-	    return 1;
+	    return -1;
 	  if ( aspath_hops > (exist_hops + exist_confeds))
-	    return 0;
+	    return 1;
 	}
       else
 	{
 	  int newhops = aspath_count_hops (newattr->aspath);
 	  
 	  if (newhops < exist_hops)
-	    return 1;
+	    return -1;
           if (newhops > exist_hops)
-	    return 0;
+	    return 1;
 	}
     }
 
   /* 5. Origin check. */
   if (newattr->origin < existattr->origin)
-    return 1;
+    return -1;
   if (newattr->origin > existattr->origin)
-    return 0;
+    return 1;
 
   /* 6. MED check. */
   internal_as_route = (aspath_count_hops (newattr->aspath) == 0
@@ -448,9 +448,9 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
       exist_med = bgp_med_value (exist->attr, bgp);
 
       if (new_med < exist_med)
-	return 1;
+	return -1;
       if (new_med > exist_med)
-	return 0;
+	return 1;
     }
 
   /* 7. Peer type check. */
@@ -459,10 +459,10 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
 
   if (new_sort == BGP_PEER_EBGP
       && (exist_sort == BGP_PEER_IBGP || exist_sort == BGP_PEER_CONFED))
-    return 1;
+    return -1;
   if (exist_sort == BGP_PEER_EBGP
       && (new_sort == BGP_PEER_IBGP || new_sort == BGP_PEER_CONFED))
-    return 0;
+    return 1;
 
   /* 8. IGP metric check. */
   newm = existm = 0;
@@ -473,41 +473,32 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
     existm = exist->extra->igpmetric;
 
   if (newm < existm)
-    ret = 1;
+    return -1;
   if (newm > existm)
-    ret = 0;
+    return 1;
 
   /* 9. Maximum path check. */
-  if (newm == existm)
+  if (bgp_mpath_is_configured (bgp, afi, safi))
     {
       if (bgp_flag_check(bgp, BGP_FLAG_ASPATH_MULTIPATH_RELAX))
         {
-
-	  /*
-	   * For the two paths, all comparison steps till IGP metric
-	   * have succeeded - including AS_PATH hop count. Since 'bgp
-	   * bestpath as-path multipath-relax' knob is on, we don't need
-	   * an exact match of AS_PATH. Thus, mark the paths are equal.
-	   * That will trigger both these paths to get into the multipath
-	   * array.
-	   */
-	  *paths_eq = 1;
+          /*
+           * For the two paths, all comparison steps till IGP metric
+           * have succeeded - including AS_PATH hop count. Since 'bgp
+           * bestpath as-path multipath-relax' knob is on, we don't need
+           * an exact match of AS_PATH. Thus, mark the paths are equal.
+           * That will trigger both these paths to get into the multipath
+           * array.
+           */
+          return 0;
         }
       else if (new->peer->sort == BGP_PEER_IBGP)
-	{
-	  if (aspath_cmp (new->attr->aspath, exist->attr->aspath))
-	    *paths_eq = 1;
-	}
+        {
+          if (aspath_cmp (new->attr->aspath, exist->attr->aspath))
+            return 0;
+        }
       else if (new->peer->as == exist->peer->as)
-	*paths_eq = 1;
-    }
-  else
-    {
-      /*
-       * TODO: If unequal cost ibgp multipath is enabled we can
-       * mark the paths as equal here instead of returning
-       */
-      return ret;
+        return 0;
     }
 
   /* 10. If both paths are external, prefer the path that was received
@@ -519,9 +510,9 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
       && exist_sort == BGP_PEER_EBGP)
     {
       if (CHECK_FLAG (new->flags, BGP_INFO_SELECTED))
-	return 1;
+	return -1;
       if (CHECK_FLAG (exist->flags, BGP_INFO_SELECTED))
-	return 0;
+	return 1;
     }
 
   /* 11. Router-ID comparision. */
@@ -539,9 +530,9 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
     exist_id.s_addr = exist->peer->remote_id.s_addr;
 
   if (ntohl (new_id.s_addr) < ntohl (exist_id.s_addr))
-    return 1;
+    return -1;
   if (ntohl (new_id.s_addr) > ntohl (exist_id.s_addr))
-    return 0;
+    return 1;
 
   /* 12. Cluster length comparision. */
   new_cluster = exist_cluster = 0;
@@ -552,32 +543,32 @@ bgp_info_cmp (struct bgp *bgp, struct bgp_info *new, struct bgp_info *exist,
     exist_cluster = existattre->cluster->length;
 
   if (new_cluster < exist_cluster)
-    return 1;
+    return -1;
   if (new_cluster > exist_cluster)
-    return 0;
+    return 1;
 
   /* 13. Neighbor address comparision. */
   /* Do this only if neither path is "stale" as stale paths do not have
    * valid peer information (as the connection may or may not be up).
    */
   if (CHECK_FLAG (exist->flags, BGP_INFO_STALE))
-    return 1;
+    return -1;
   if (CHECK_FLAG (new->flags, BGP_INFO_STALE))
-    return 0;
+    return 1;
   /* locally configured routes to advertise do not have su_remote */
   if (new->peer->su_remote == NULL)
-    return 0;
-  if (exist->peer->su_remote == NULL)
     return 1;
+  if (exist->peer->su_remote == NULL)
+    return -1;
   
   ret = sockunion_cmp (new->peer->su_remote, exist->peer->su_remote);
 
   if (ret == 1)
-    return 0;
-  if (ret == -1)
     return 1;
+  if (ret == -1)
+    return -1;
 
-  return 1;
+  return -1;
 }
 
 static enum filter_type
@@ -1325,8 +1316,8 @@ struct bgp_info_pair
 
 static void
 bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
-		    struct bgp_maxpaths_cfg *mpath_cfg,
-		    struct bgp_info_pair *result)
+		    struct bgp_info_pair *result,
+		    afi_t afi, safi_t safi)
 {
   struct bgp_info *new_select;
   struct bgp_info *old_select;
@@ -1334,7 +1325,7 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
   struct bgp_info *ri1;
   struct bgp_info *ri2;
   struct bgp_info *nextri = NULL;
-  int paths_eq, do_mpath;
+  int cmpret, do_mpath;
   struct list mp_list;
     
   result->old = result->new = NULL;
@@ -1349,8 +1340,7 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
     }
   
   bgp_mp_list_init (&mp_list);
-  do_mpath = (mpath_cfg->maxpaths_ebgp != BGP_DEFAULT_MAXPATHS ||
-	      mpath_cfg->maxpaths_ibgp != BGP_DEFAULT_MAXPATHS);
+  do_mpath = bgp_mpath_is_configured (bgp, afi, safi);
 
   /* bgp deterministic-med */
   new_select = NULL;
@@ -1388,19 +1378,21 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
 		{
 		  if (CHECK_FLAG (ri2->flags, BGP_INFO_SELECTED))
 		    old_select = ri2;
-		  if (bgp_info_cmp (bgp, ri2, new_select, &paths_eq))
+		  if ((cmpret = bgp_info_cmp (bgp, ri2, new_select, afi, safi))
+		       == -1)
 		    {
 		      bgp_info_unset_flag (rn, new_select, BGP_INFO_DMED_SELECTED);
 		      new_select = ri2;
-		      if (do_mpath && !paths_eq)
-			{
-			  bgp_mp_list_clear (&mp_list);
-			  bgp_mp_list_add (&mp_list, ri2);
-			}
 		    }
 
-		  if (do_mpath && paths_eq)
-		    bgp_mp_list_add (&mp_list, ri2);
+		  if (do_mpath)
+		    {
+                      if (cmpret != 0)
+                        bgp_mp_list_clear (&mp_list);
+
+                      if (cmpret == 0 || cmpret == -1)
+                        bgp_mp_list_add (&mp_list, ri2);
+                    }
 
 		  bgp_info_set_flag (rn, ri2, BGP_INFO_DMED_CHECK);
 		}
@@ -1408,7 +1400,7 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
 	bgp_info_set_flag (rn, new_select, BGP_INFO_DMED_CHECK);
 	bgp_info_set_flag (rn, new_select, BGP_INFO_DMED_SELECTED);
 
-	bgp_info_mpath_update (rn, new_select, old_select, &mp_list, mpath_cfg);
+	bgp_info_mpath_update (rn, new_select, old_select, &mp_list, afi, safi);
 	bgp_mp_list_clear (&mp_list);
       }
 
@@ -1447,28 +1439,29 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
       bgp_info_unset_flag (rn, ri, BGP_INFO_DMED_CHECK);
       bgp_info_unset_flag (rn, ri, BGP_INFO_DMED_SELECTED);
 
-      if (bgp_info_cmp (bgp, ri, new_select, &paths_eq))
+      if ((cmpret = bgp_info_cmp (bgp, ri, new_select, afi, safi)) == -1)
 	{
 	  if (do_mpath && bgp_flag_check (bgp, BGP_FLAG_DETERMINISTIC_MED))
 	    bgp_mp_dmed_deselect (new_select);
 
 	  new_select = ri;
-
-	  if (do_mpath && !paths_eq)
-	    {
-	      bgp_mp_list_clear (&mp_list);
-	      bgp_mp_list_add (&mp_list, ri);
-	    }
 	}
-      else if (do_mpath && bgp_flag_check (bgp, BGP_FLAG_DETERMINISTIC_MED))
+      else if (cmpret == 1 && do_mpath
+               && bgp_flag_check (bgp, BGP_FLAG_DETERMINISTIC_MED))
 	bgp_mp_dmed_deselect (ri);
 
-      if (do_mpath && paths_eq)
-	bgp_mp_list_add (&mp_list, ri);
+      if (do_mpath)
+        {
+          if (cmpret != 0)
+            bgp_mp_list_clear (&mp_list);
+
+          if (cmpret == 0 || cmpret == -1)
+            bgp_mp_list_add (&mp_list, ri);
+        }
     }
 
   if (!bgp_flag_check (bgp, BGP_FLAG_DETERMINISTIC_MED))
-    bgp_info_mpath_update (rn, new_select, old_select, &mp_list, mpath_cfg);
+    bgp_info_mpath_update (rn, new_select, old_select, &mp_list, afi, safi);
 
   bgp_info_mpath_aggregate_update (new_select, old_select);
   bgp_mp_list_clear (&mp_list);
@@ -1552,7 +1545,7 @@ bgp_process_rsclient (struct work_queue *wq, void *data)
   struct peer *rsclient = bgp_node_table (rn)->owner;
   
   /* Best path selection. */
-  bgp_best_selection (bgp, rn, &bgp->maxpaths[afi][safi], &old_and_new);
+  bgp_best_selection (bgp, rn, &old_and_new, afi, safi);
   new_select = old_and_new.new;
   old_select = old_and_new.old;
 
@@ -1615,7 +1608,7 @@ bgp_process_main (struct work_queue *wq, void *data)
   struct peer *peer;
   
   /* Best path selection. */
-  bgp_best_selection (bgp, rn, &bgp->maxpaths[afi][safi], &old_and_new);
+  bgp_best_selection (bgp, rn, &old_and_new, afi, safi);
   old_select = old_and_new.old;
   new_select = old_and_new.new;
 
