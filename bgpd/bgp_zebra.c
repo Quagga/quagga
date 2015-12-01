@@ -446,7 +446,7 @@ zebra_read_ipv4 (int command, struct zclient *zclient, zebra_size_t length,
 		     api.tag);
 	}
       bgp_redistribute_add((struct prefix *)&p, &nexthop, NULL, ifindex,
-			   api.metric, api.type);
+			   api.metric, api.type, api.tag);
     }
   else
     {
@@ -542,7 +542,7 @@ zebra_read_ipv6 (int command, struct zclient *zclient, zebra_size_t length,
 		     api.tag);
 	}
       bgp_redistribute_add ((struct prefix *)&p, NULL, &nexthop, ifindex,
-			    api.metric, api.type);
+			    api.metric, api.type, api.tag);
     }
   else
     {
@@ -919,6 +919,9 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp,
   flags = 0;
   peer = info->peer;
 
+  if ((info->attr->extra) && (info->attr->extra->tag != 0))
+    tag = info->attr->extra->tag;
+
   if (peer->sort == BGP_PEER_IBGP || peer->sort == BGP_PEER_CONFED)
     {
       SET_FLAG (flags, ZEBRA_FLAG_IBGP);
@@ -967,6 +970,9 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp,
             {
               metric = info_cp->attr->med;
               nexthop = &info_cp->attr->nexthop;
+
+              if (info_cp->attr->extra)
+                tag = info_cp->attr->extra->tag;
             }
           BGP_INFO_ATTR_BUF_FREE(info_cp);
         }
@@ -1024,10 +1030,10 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp,
       api.metric = metric;
 
       if (tag)
-	{
-	  SET_FLAG (api.message, ZAPI_MESSAGE_TAG);
-	  api.tag = tag;
-	}
+        {
+          SET_FLAG (api.message, ZAPI_MESSAGE_TAG);
+          api.tag = tag;
+        }
 
       distance = bgp_distance_apply (p, info, bgp);
 
@@ -1109,6 +1115,9 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp,
             {
               metric = info_cp->attr->med;
               nexthop = bgp_info_to_ipv6_nexthop(info_cp);
+
+              if (info_cp->attr->extra)
+                tag = info_cp->attr->extra->tag;
             }
           BGP_INFO_ATTR_BUF_FREE(info_cp);
         }
@@ -1280,13 +1289,20 @@ bgp_zebra_withdraw (struct prefix *p, struct bgp_info *info, safi_t safi)
       SET_FLAG (api.message, ZAPI_MESSAGE_METRIC);
       api.metric = info->attr->med;
 
+      if ((info->attr->extra) && (info->attr->extra->tag != 0))
+        {
+          SET_FLAG(api.message, ZAPI_MESSAGE_TAG);
+          api.tag = info->attr->extra->tag;
+        }
+
       if (BGP_DEBUG(zebra, ZEBRA))
 	{
 	  char buf[2][INET_ADDRSTRLEN];
-	  zlog_debug("Zebra send: IPv4 route delete %s/%d metric %u",
+	  zlog_debug("Zebra send: IPv4 route delete %s/%d metric %u tag %d",
 		     inet_ntop(AF_INET, &p->u.prefix4, buf[0], sizeof(buf[0])),
 		     p->prefixlen,
-		     api.metric);
+		     api.metric,
+		     api.tag);
 	}
 
       zapi_ipv4_route (ZEBRA_IPV4_ROUTE_DELETE, zclient, 
@@ -1307,13 +1323,20 @@ bgp_zebra_withdraw (struct prefix *p, struct bgp_info *info, safi_t safi)
       SET_FLAG (api.message, ZAPI_MESSAGE_METRIC);
       api.metric = info->attr->med;
 
+      if ((info->attr->extra) && (info->attr->extra->tag != 0))
+        {
+          SET_FLAG(api.message, ZAPI_MESSAGE_TAG);
+          api.tag = info->attr->extra->tag;
+        }
+
       if (BGP_DEBUG(zebra, ZEBRA))
 	{
 	  char buf[2][INET6_ADDRSTRLEN];
-	  zlog_debug("Zebra send: IPv6 route delete %s/%d metric %u",
+	  zlog_debug("Zebra send: IPv6 route delete %s/%d metric %u tag %d",
 		     inet_ntop(AF_INET6, &p->u.prefix6, buf[0], sizeof(buf[0])),
 		     p->prefixlen,
-		     api.metric);
+		     api.metric,
+		     api.tag);
 	}
 
       zapi_ipv6_route (ZEBRA_IPV6_ROUTE_DELETE, zclient, 

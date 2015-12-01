@@ -5826,7 +5826,7 @@ ALIAS (no_ipv6_aggregate_address_summary_only,
 void
 bgp_redistribute_add (struct prefix *p, const struct in_addr *nexthop,
 		      const struct in6_addr *nexthop6, unsigned int ifindex,
-		      u_int32_t metric, u_char type)
+		      u_int32_t metric, u_char type, u_short tag)
 {
   struct bgp *bgp;
   struct listnode *node, *nnode;
@@ -5854,6 +5854,7 @@ bgp_redistribute_add (struct prefix *p, const struct in_addr *nexthop,
 
   attr.med = metric;
   attr.flag |= ATTR_FLAG_BIT (BGP_ATTR_MULTI_EXIT_DISC);
+  attr.extra->tag = tag;
 
   for (ALL_LIST_ELEMENTS (bm->bgp, node, nnode, bgp))
     {
@@ -6514,7 +6515,7 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 		   VTY_NEWLINE);
 	}
 
-      /* Line 3 display Origin, Med, Locpref, Weight, valid, Int/Ext/Local, Atomic, best */
+      /* Line 3 display Origin, Med, Locpref, Weight, Tag, valid, Int/Ext/Local, Atomic, best */
       vty_out (vty, "      Origin %s", bgp_origin_long_str[attr->origin]);
 	  
       if (attr->flag & ATTR_FLAG_BIT(BGP_ATTR_MULTI_EXIT_DISC))
@@ -6527,6 +6528,9 @@ route_vty_out_detail (struct vty *vty, struct bgp *bgp, struct prefix *p,
 
       if (attr->extra && attr->extra->weight != 0)
 	vty_out (vty, ", weight %u", attr->extra->weight);
+
+      if (attr->extra && attr->extra->tag != 0)
+        vty_out (vty, ", tag %d", attr->extra->tag);
 	
       if (! CHECK_FLAG (binfo->flags, BGP_INFO_VALID))
 	vty_out (vty, ", invalid");
