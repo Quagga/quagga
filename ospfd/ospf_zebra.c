@@ -370,6 +370,12 @@ ospf_zebra_add (struct prefix_ipv4 *p, struct ospf_route *or)
       if (distance)
         SET_FLAG (message, ZAPI_MESSAGE_DISTANCE);
 
+      /* Check if path type is ASE and use only 16bit tags */
+      if (((or->path_type == OSPF_PATH_TYPE1_EXTERNAL) ||
+          (or->path_type == OSPF_PATH_TYPE2_EXTERNAL)) &&
+           (or->u.ext.tag > 0) && (or->u.ext.tag < UINT16_MAX))
+        SET_FLAG (message, ZAPI_MESSAGE_TAG);
+
       /* Make packet. */
       s = zclient->obuf;
       stream_reset (s);
@@ -436,6 +442,9 @@ ospf_zebra_add (struct prefix_ipv4 *p, struct ospf_route *or)
           else
             stream_putl (s, or->cost);
         }
+
+      if (CHECK_FLAG (message, ZAPI_MESSAGE_TAG))
+         stream_putw (s, (u_short)or->u.ext.tag);
 
       stream_putw_at (s, 0, stream_get_endp (s));
 
@@ -911,8 +920,12 @@ ospf_zebra_read_ipv4 (int command, struct zclient *zclient,
        *     || CHECK_FLAG (api.flags, ZEBRA_FLAG_REJECT))
        * return 0;
        */
-        
-      ei = ospf_external_info_add (api.type, p, ifindex, nexthop);
+
+      /* Protocol tag overwrites all other tag value send by zebra */
+      if (ospf->dtag[api.type] > 0)
+       api.tag = ospf->dtag[api.type];
+
+      ei = ospf_external_info_add (api.type, p, ifindex, nexthop, api.tag);
 
       if (ospf->router_id.s_addr == 0)
         /* Set flags to generate AS-external-LSA originate event
