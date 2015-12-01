@@ -2,7 +2,7 @@
 
 # Public domain, not copyrighted..
 
-NUM=5
+NUM=8
 VTYBASE=2610
 ASBASE=64560
 BGPD=/path/to/bgpd
@@ -21,10 +21,16 @@ for H in `seq 1 ${NUM}` ; do
 		# This sets up a ring of bgpd peerings
 		NEXT=$(( ($H % ${NUM}) + 1 ))
 		PREV=$(( (($H + $NUM - 2) % ${NUM}) + 1 ))
+		NEXT2=$(( (($H+1) % ${NUM}) + 1 ))
+		PREV2=$(( (($H + $NUM - 3) % ${NUM}) + 1 ))
 		NEXTADDR="${PREFIX}${NEXT}"
 		NEXTAS=$((${ASBASE} + $NEXT))
 		PREVADDR="${PREFIX}${PREV}"
 		PREVAS=$((${ASBASE} + $PREV))
+		NEXT2ADDR="${PREFIX}${NEXT2}"
+		NEXT2AS=$((${ASBASE} + $NEXT2))
+		PREV2ADDR="${PREFIX}${PREV2}"
+		PREV2AS=$((${ASBASE} + $PREV2))
 		ASN=$((64560+${H}))
 		
 		# Edit config to suit.
@@ -34,9 +40,12 @@ for H in `seq 1 ${NUM}` ; do
 			!
 			router bgp ${ASN}
 			 bgp router-id ${ADDR}
+			 maximum-paths 32
+			 bgp bestpath as-path multipath-relax
 			 network 10.${H}.1.0/24 pathlimit 1
 			 network 10.${H}.2.0/24 pathlimit 2
 			 network 10.${H}.3.0/24 pathlimit 3
+			 network 10.${H}.0.0/24
 			 neighbor default peer-group
 			 neighbor default update-source ${ADDR}
 			 neighbor default capability orf prefix-list both
@@ -46,6 +55,10 @@ for H in `seq 1 ${NUM}` ; do
 			 neighbor ${NEXTADDR} peer-group default
 			 neighbor ${PREVADDR} remote-as ${PREVAS}
 			 neighbor ${PREVADDR} peer-group default
+			 neighbor ${NEXT2ADDR} remote-as ${NEXT2AS}
+			 neighbor ${NEXT2ADDR} peer-group default
+			 neighbor ${PREV2ADDR} remote-as ${PREV2AS}
+			 neighbor ${PREV2ADDR} peer-group default
 			!
 			 address-family ipv6
 			 network 3ffe:${H}::/48
@@ -58,6 +71,8 @@ for H in `seq 1 ${NUM}` ; do
 			 neighbor default route-map test out
 			 neighbor ${NEXTADDR} peer-group default
 			 neighbor ${PREVADDR} peer-group default
+			 neighbor ${NEXT2ADDR} peer-group default
+			 neighbor ${PREV2ADDR} peer-group default
 			 exit-address-family
 			!
 			! bgpd still has problems with extcommunity rt/soo
@@ -65,7 +80,9 @@ for H in `seq 1 ${NUM}` ; do
 			 set extcommunity rt ${ASN}:1
 			 set extcommunity soo ${ASN}:2
 			 set community ${ASN}:1
+			!
 			line vty
+			 exec-timeout 0 0
 			!
 			end
 		EOF
