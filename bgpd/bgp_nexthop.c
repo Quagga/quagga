@@ -496,7 +496,8 @@ bgp_scan (afi_t afi, safi_t safi)
 					   afi, SAFI_UNICAST);
 	    }
 	}
-      bgp_process (bgp, rn, afi, SAFI_UNICAST);
+      if (rn->info)
+        bgp_process (bgp, rn, afi, SAFI_UNICAST);
     }
 
   /* Flash old cache. */

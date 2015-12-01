@@ -1336,7 +1336,18 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
   struct bgp_info *nextri = NULL;
   int paths_eq, do_mpath;
   struct list mp_list;
-
+    
+  result->old = result->new = NULL;
+  
+  if (rn->info == NULL)
+    {
+      char buf[PREFIX_STRLEN];
+      zlog_warn ("%s: Called for route_node %s with no routing entries!",
+                 __func__,
+                 prefix2str (&(bgp_node_to_rnode (rn)->p), buf, sizeof(buf)));
+      return;
+    }
+  
   bgp_mp_list_init (&mp_list);
   do_mpath = (mpath_cfg->maxpaths_ebgp != BGP_DEFAULT_MAXPATHS ||
 	      mpath_cfg->maxpaths_ibgp != BGP_DEFAULT_MAXPATHS);
@@ -1455,7 +1466,6 @@ bgp_best_selection (struct bgp *bgp, struct bgp_node *rn,
       if (do_mpath && paths_eq)
 	bgp_mp_list_add (&mp_list, ri);
     }
-    
 
   if (!bgp_flag_check (bgp, BGP_FLAG_DETERMINISTIC_MED))
     bgp_info_mpath_update (rn, new_select, old_select, &mp_list, mpath_cfg);
@@ -1711,6 +1721,19 @@ bgp_process (struct bgp *bgp, struct bgp_node *rn, afi_t afi, safi_t safi)
   /* already scheduled for processing? */
   if (CHECK_FLAG (rn->flags, BGP_NODE_PROCESS_SCHEDULED))
     return;
+  
+  if (rn->info == NULL)
+    {
+      /* XXX: Perhaps remove before next release, after we've flushed out
+       * any obvious cases
+       */
+      assert (rn->info != NULL);
+      char buf[PREFIX_STRLEN];
+      zlog_warn ("%s: Called for route_node %s with no routing entries!",
+                 __func__,
+                 prefix2str (&(bgp_node_to_rnode (rn)->p), buf, sizeof(buf)));
+      return;
+    }
   
   if ( (bm->process_main_queue == NULL) ||
        (bm->process_rsclient_queue == NULL) )
