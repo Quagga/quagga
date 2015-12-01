@@ -545,6 +545,7 @@ ospf_zebra_add_discard (struct prefix_ipv4 *p)
       SET_FLAG (api.message, ZAPI_MESSAGE_NEXTHOP);
       api.nexthop_num = 0;
       api.ifindex_num = 0;
+      api.tag = 0;
 
       zapi_ipv4_route (ZEBRA_IPV4_ROUTE_ADD, zclient, p, &api);
 
@@ -569,6 +570,7 @@ ospf_zebra_delete_discard (struct prefix_ipv4 *p)
       SET_FLAG (api.message, ZAPI_MESSAGE_NEXTHOP);
       api.nexthop_num = 0;
       api.ifindex_num = 0;
+      api.tag = 0;
 
       zapi_ipv4_route (ZEBRA_IPV4_ROUTE_DELETE, zclient, p, &api);
 
@@ -888,6 +890,10 @@ ospf_zebra_read_ipv4 (int command, struct zclient *zclient,
     api.distance = stream_getc (s);
   if (CHECK_FLAG (api.message, ZAPI_MESSAGE_METRIC))
     api.metric = stream_getl (s);
+  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
+    api.tag = stream_getw (s);
+  else
+    api.tag = 0;
 
   ospf = ospf_lookup ();
   if (ospf == NULL)
