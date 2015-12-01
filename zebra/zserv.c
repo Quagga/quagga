@@ -494,6 +494,12 @@ zsend_route_multipath (int cmd, struct zserv *client, struct prefix *p,
       stream_putl (s, rib->metric);
       SET_FLAG (zapi_flags, ZAPI_MESSAGE_MTU);
       stream_putl (s, rib->mtu);
+      /* tag */
+      if (rib->tag)
+        {
+          SET_FLAG(zapi_flags, ZAPI_MESSAGE_TAG);
+          stream_putw(s, rib->tag);
+        }
     }
   
   /* write real message flags value */
@@ -1003,6 +1009,9 @@ zread_ipv4_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
     
   if (CHECK_FLAG (message, ZAPI_MESSAGE_MTU))
     rib->mtu = stream_getl (s);
+  /* Tag */
+  if (CHECK_FLAG (message, ZAPI_MESSAGE_TAG))
+    rib->tag = stream_getw (s);
 
   /* Table */
   rib->table=zebrad.rtm_table_default;
@@ -1087,6 +1096,12 @@ zread_ipv4_delete (struct zserv *client, u_short length, vrf_id_t vrf_id)
   else
     api.metric = 0;
     
+  /* tag */
+  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
+    api.tag = stream_getw (s);
+  else
+    api.tag = 0;
+
   rib_delete_ipv4 (api.type, api.flags, &p, nexthop_p, ifindex,
                    vrf_id, api.safi);
   return 0;
@@ -1234,6 +1249,10 @@ zread_ipv6_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
   if (CHECK_FLAG (message, ZAPI_MESSAGE_MTU))
     rib->mtu = stream_getl (s);
 
+  /* Tag */
+  if (CHECK_FLAG (message, ZAPI_MESSAGE_TAG))
+    rib->tag = stream_getw (s);
+
   /* Table */
   rib->table=zebrad.rtm_table_default;
   rib_add_ipv6_multipath (&p, rib, safi);
@@ -1289,15 +1308,24 @@ zread_ipv6_delete (struct zserv *client, u_short length, vrf_id_t vrf_id)
 	}
     }
 
+  /* Distance. */
   if (CHECK_FLAG (api.message, ZAPI_MESSAGE_DISTANCE))
     api.distance = stream_getc (s);
   else
     api.distance = 0;
+
+  /* Metric. */
   if (CHECK_FLAG (api.message, ZAPI_MESSAGE_METRIC))
     api.metric = stream_getl (s);
   else
     api.metric = 0;
     
+  /* tag */
+  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
+    api.tag = stream_getw (s);
+  else
+    api.tag = 0;
+
   if (IN6_IS_ADDR_UNSPECIFIED (&nexthop))
     rib_delete_ipv6 (api.type, api.flags, &p, NULL, ifindex, vrf_id,
                      api.safi);
