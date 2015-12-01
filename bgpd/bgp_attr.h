@@ -92,6 +92,9 @@ struct attr_extra
 
   uint16_t			encap_tunneltype;	/* grr */
   struct bgp_attr_encap_subtlv *encap_subtlvs;		/* rfc5512 */
+
+  /* route tag */
+  u_short tag;
 };
 
 /* BGP core attribute structure. */
