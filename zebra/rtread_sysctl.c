@@ -25,6 +25,7 @@
 #include "memory.h"
 #include "log.h"
 #include "vrf.h"
+#include "vty.h"
 
 #include "zebra/zserv.h"
 #include "zebra/rt.h"

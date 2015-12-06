@@ -34,6 +34,7 @@
 #include "rib.h"
 #include "privs.h"
 #include "vrf.h"
+#include "vty.h"
 
 #include "zebra/interface.h"
 #include "zebra/zserv.h"

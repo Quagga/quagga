@@ -29,6 +29,7 @@
 #include "memory.h"
 #include "ioctl.h"
 #include "log.h"
+#include "vty.h"
 #include "interface.h"
 #include "vrf.h"
 
