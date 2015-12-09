@@ -379,11 +379,14 @@ AC_DEFINE_UNQUOTED(CONFIGFILE_MASK, ${enable_configfile_mask}, Mask for config f
 enable_logfile_mask=${enable_logfile_mask:-0600}
 AC_DEFINE_UNQUOTED(LOGFILE_MASK, ${enable_logfile_mask}, Mask for log files)
 
-MULTIPATH_NUM=1
+MPATH_NUM=1
 
 case "${enable_multipath}" in
-  [[0-9]|[1-9][0-9]])
-    MULTIPATH_NUM="${enable_multipath}"
+  0)
+    MPATH_NUM=64
+    ;;
+  [[1-9]|[1-9][0-9]|[1-9][0-9][0-9]])
+    MPATH_NUM="${enable_multipath}"
     ;;
   "")
     ;;
@@ -392,7 +395,7 @@ case "${enable_multipath}" in
     ;;
 esac
 
-AC_SUBST(MULTIPATH_NUM)
+AC_DEFINE_UNQUOTED(MULTIPATH_NUM, $MPATH_NUM, Maximum number of paths for a route)
 
 dnl -----------------------------------
 dnl Add extra version string to package
