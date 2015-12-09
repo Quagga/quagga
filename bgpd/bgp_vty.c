@@ -737,7 +737,7 @@ DEFUN (bgp_maxpaths,
       return CMD_WARNING;
     }
 
-  if ((MULTIPATH_NUM != 0) && (maxpaths > MULTIPATH_NUM))
+  if (maxpaths > MULTIPATH_NUM)
     vty_out (vty,
 	     "%% Warning: maximum-paths set to %d is greater than %d that zebra is compiled to support%s",
 	     maxpaths, MULTIPATH_NUM, VTY_NEWLINE);
@@ -770,7 +770,7 @@ DEFUN (bgp_maxpaths_ibgp,
       return CMD_WARNING;
     }
 
-  if ((MULTIPATH_NUM != 0) && (maxpaths > MULTIPATH_NUM))
+  if (maxpaths > MULTIPATH_NUM)
     vty_out (vty,
 	     "%% Warning: maximum-paths set to %d is greater than %d that zebra is compiled to support%s",
 	     maxpaths, MULTIPATH_NUM, VTY_NEWLINE);
