@@ -715,7 +715,7 @@ DEFUN (no_bgp_confederation_peers,
 /* Maximum-paths configuration */
 DEFUN (bgp_maxpaths,
        bgp_maxpaths_cmd,
-       "maximum-paths <1-255>",
+       "maximum-paths " CMD_RANGE_STR(1, MULTIPATH_NUM),
        "Forward packets over multiple paths\n"
        "Number of paths\n")
 {
@@ -737,17 +737,12 @@ DEFUN (bgp_maxpaths,
       return CMD_WARNING;
     }
 
-  if (maxpaths > MULTIPATH_NUM)
-    vty_out (vty,
-	     "%% Warning: maximum-paths set to %d is greater than %d that zebra is compiled to support%s",
-	     maxpaths, MULTIPATH_NUM, VTY_NEWLINE);
-
   return CMD_SUCCESS;
 }
 
 DEFUN (bgp_maxpaths_ibgp,
        bgp_maxpaths_ibgp_cmd,
-       "maximum-paths ibgp <1-255>",
+       "maximum-paths ibgp " CMD_RANGE_STR(1, MULTIPATH_NUM),
        "Forward packets over multiple paths\n"
        "iBGP-multipath\n"
        "Number of paths\n")
@@ -769,11 +764,6 @@ DEFUN (bgp_maxpaths_ibgp,
 	       maxpaths, bgp_node_afi (vty), bgp_node_safi(vty), VTY_NEWLINE);
       return CMD_WARNING;
     }
-
-  if (maxpaths > MULTIPATH_NUM)
-    vty_out (vty,
-	     "%% Warning: maximum-paths set to %d is greater than %d that zebra is compiled to support%s",
-	     maxpaths, MULTIPATH_NUM, VTY_NEWLINE);
 
   return CMD_SUCCESS;
 }
@@ -805,7 +795,7 @@ DEFUN (no_bgp_maxpaths,
 
 ALIAS (no_bgp_maxpaths,
        no_bgp_maxpaths_arg_cmd,
-       "no maximum-paths <1-255>",
+       "no maximum-paths " CMD_RANGE_STR(1, MULTIPATH_NUM),
        NO_STR
        "Forward packets over multiple paths\n"
        "Number of paths\n")
@@ -838,7 +828,7 @@ DEFUN (no_bgp_maxpaths_ibgp,
 
 ALIAS (no_bgp_maxpaths_ibgp,
        no_bgp_maxpaths_ibgp_arg_cmd,
-       "no maximum-paths ibgp <1-255>",
+       "no maximum-paths ibgp " CMD_RANGE_STR(1, MULTIPATH_NUM),
        NO_STR
        "Forward packets over multiple paths\n"
        "iBGP-multipath\n"
