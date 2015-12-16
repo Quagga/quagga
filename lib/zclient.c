@@ -112,6 +112,8 @@ zclient_init (struct zclient *zclient, int redist_default)
 void
 zclient_stop (struct zclient *zclient)
 {
+  int i;
+
   if (zclient_debug)
     zlog_debug ("zclient stopped");
 
@@ -134,6 +136,14 @@ zclient_stop (struct zclient *zclient)
       zclient->sock = -1;
     }
   zclient->fail = 0;
+
+  for (i = 0; i < ZEBRA_ROUTE_MAX; i++)
+    {
+      vrf_bitmap_free(zclient->redist[i]);
+      zclient->redist[i] = VRF_BITMAP_NULL;
+    }
+  vrf_bitmap_free(zclient->default_information);
+  zclient->default_information = VRF_BITMAP_NULL;
 }
 
 void
