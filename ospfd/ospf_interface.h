@@ -193,9 +193,7 @@ struct ospf_interface
 
   /* self-originated LSAs. */
   struct ospf_lsa *network_lsa_self;	/* network-LSA. */
-#ifdef HAVE_OPAQUE_LSA
   struct list *opaque_lsa_self;			/* Type-9 Opaque-LSAs */
-#endif /* HAVE_OPAQUE_LSA */
 
   struct route_table *ls_upd_queue;
 
@@ -216,9 +214,7 @@ struct ospf_interface
   struct thread *t_ls_ack;              /* timer */
   struct thread *t_ls_ack_direct;       /* event */
   struct thread *t_ls_upd_event;        /* event */
-#ifdef HAVE_OPAQUE_LSA
   struct thread *t_opaque_lsa_self;     /* Type-9 Opaque-LSAs */
-#endif /* HAVE_OPAQUE_LSA */
 
   int on_write_q;
   

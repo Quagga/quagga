@@ -308,9 +308,7 @@ main (int argc, char **argv)
 #ifdef HAVE_SNMP
   ospf_snmp_init ();
 #endif /* HAVE_SNMP */
-#ifdef HAVE_OPAQUE_LSA
   ospf_opaque_init ();
-#endif /* HAVE_OPAQUE_LSA */
   
   /* Get configuration file. */
   vty_read_config (config_file, config_default);

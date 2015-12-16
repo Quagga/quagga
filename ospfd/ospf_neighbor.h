@@ -102,9 +102,7 @@ extern int ospf_nbr_bidirectional (struct in_addr *, struct in_addr *, int);
 extern void ospf_nbr_self_reset (struct ospf_interface *);
 extern void ospf_nbr_add_self (struct ospf_interface *);
 extern int ospf_nbr_count (struct ospf_interface *, int);
-#ifdef HAVE_OPAQUE_LSA
 extern int ospf_nbr_count_opaque_capable (struct ospf_interface *);
-#endif /* HAVE_OPAQUE_LSA */
 extern struct ospf_neighbor *ospf_nbr_get (struct ospf_interface *,
 					   struct ospf_header *,
 					   struct ip *, struct prefix *);

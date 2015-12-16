@@ -27,7 +27,6 @@
 #define MTYPE_OPAQUE_INFO_PER_ID	0
 
 #include <zebra.h>
-#ifdef HAVE_OPAQUE_LSA
 
 #include "linklist.h"
 #include "prefix.h"
@@ -2179,4 +2178,3 @@ oi_to_top (struct ospf_interface *oi)
   return top;
 }
 
-#endif /* HAVE_OPAQUE_LSA */

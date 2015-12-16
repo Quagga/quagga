@@ -894,7 +894,6 @@ ospf_hello (struct ip *iph, struct ospf_header *ospfh,
     }
 #endif /* REJECT_IF_TBIT_ON */
 
-#ifdef HAVE_OPAQUE_LSA
   if (CHECK_FLAG (oi->ospf->config, OSPF_OPAQUE_CAPABLE)
       && CHECK_FLAG (hello->options, OSPF_OPTION_O))
     {
@@ -910,7 +909,6 @@ ospf_hello (struct ip *iph, struct ospf_header *ospfh,
       UNSET_FLAG (hello->options, OSPF_OPTION_O); /* Ignore O-bit. */
 #endif /* STRICT_OBIT_USAGE_CHECK */
     }
-#endif /* HAVE_OPAQUE_LSA */
 
   /* new for NSSA is to ensure that NP is on and E is off */
 
@@ -1062,7 +1060,6 @@ ospf_db_desc_proc (struct stream *s, struct ospf_interface *oi,
 	  return;
 	}
 
-#ifdef HAVE_OPAQUE_LSA
       if (IS_OPAQUE_LSA (lsah->type)
       &&  ! CHECK_FLAG (nbr->options, OSPF_OPTION_O))
         {
@@ -1070,14 +1067,11 @@ ospf_db_desc_proc (struct stream *s, struct ospf_interface *oi,
           OSPF_NSM_EVENT_SCHEDULE (nbr, NSM_SeqNumberMismatch);
           return;
         }
-#endif /* HAVE_OPAQUE_LSA */
 
       switch (lsah->type)
         {
         case OSPF_AS_EXTERNAL_LSA:
-#ifdef HAVE_OPAQUE_LSA
 	case OSPF_OPAQUE_AS_LSA:
-#endif /* HAVE_OPAQUE_LSA */
           /* Check for stub area.  Reject if AS-External from stub but
              allow if from NSSA. */
           if (oi->area->external_routing == OSPF_AREA_STUB)
@@ -1248,7 +1242,6 @@ ospf_db_desc (struct ip *iph, struct ospf_header *ospfh,
     }
 #endif /* REJECT_IF_TBIT_ON */
 
-#ifdef HAVE_OPAQUE_LSA
   if (CHECK_FLAG (dd->options, OSPF_OPTION_O)
       && !CHECK_FLAG (oi->ospf->config, OSPF_OPAQUE_CAPABLE))
     {
@@ -1258,7 +1251,6 @@ ospf_db_desc (struct ip *iph, struct ospf_header *ospfh,
        */
       UNSET_FLAG (dd->options, OSPF_OPTION_O);
     }
-#endif /* HAVE_OPAQUE_LSA */
 
   /* Add event to thread. */
   OSPF_NSM_EVENT_SCHEDULE (nbr, NSM_PacketReceived);
@@ -1323,7 +1315,6 @@ ospf_db_desc (struct ip *iph, struct ospf_header *ospfh,
       /* This is where the real Options are saved */
       nbr->options = dd->options;
 
-#ifdef HAVE_OPAQUE_LSA
       if (CHECK_FLAG (oi->ospf->config, OSPF_OPAQUE_CAPABLE))
         {
           if (IS_DEBUG_OSPF_EVENT)
@@ -1341,7 +1332,6 @@ ospf_db_desc (struct ip *iph, struct ospf_header *ospfh,
               /* This situation is undesirable, but not a real error. */
             }
         }
-#endif /* HAVE_OPAQUE_LSA */
 
       OSPF_NSM_EVENT_EXECUTE (nbr, NSM_NegotiationDone);
 
@@ -1619,7 +1609,6 @@ ospf_ls_upd_list_lsa (struct ospf_neighbor *nbr, struct stream *s,
       if (ntohs (lsah->ls_age) > OSPF_LSA_MAXAGE)
         lsah->ls_age = htons (OSPF_LSA_MAXAGE);
 
-#ifdef HAVE_OPAQUE_LSA
       if (CHECK_FLAG (nbr->options, OSPF_OPTION_O))
         {
 #ifdef STRICT_OBIT_USAGE_CHECK
@@ -1651,7 +1640,6 @@ ospf_ls_upd_list_lsa (struct ospf_neighbor *nbr, struct stream *s,
           zlog_warn ("LSA[Type%d:%s]: Opaque capability mismatch?", lsah->type, inet_ntoa (lsah->id));
           continue;
         }
-#endif /* HAVE_OPAQUE_LSA */
 
       /* Create OSPF LSA instance. */
       lsa = ospf_lsa_new ();
@@ -1661,16 +1649,12 @@ ospf_ls_upd_list_lsa (struct ospf_neighbor *nbr, struct stream *s,
       switch (lsah->type)
         {
         case OSPF_AS_EXTERNAL_LSA:
-#ifdef HAVE_OPAQUE_LSA
         case OSPF_OPAQUE_AS_LSA:
-#endif /* HAVE_OPAQUE_LSA */
           lsa->area = NULL;
           break;
-#ifdef HAVE_OPAQUE_LSA
         case OSPF_OPAQUE_LINK_LSA:
           lsa->oi = oi; /* Remember incoming interface for flooding control. */
           /* Fallthrough */
-#endif /* HAVE_OPAQUE_LSA */
         default:
           lsa->area = oi->area;
           break;
@@ -1857,7 +1841,6 @@ ospf_ls_upd (struct ospf *ospf, struct ip *iph, struct ospf_header *ospfh,
           DISCARD_LSA (lsa, 3);
 	}
 
-#ifdef HAVE_OPAQUE_LSA
       if (IS_OPAQUE_LSA (lsa->data->type)
       &&  IPV4_ADDR_SAME (&lsa->data->adv_router, &oi->ospf->router_id))
         {
@@ -1905,7 +1888,6 @@ ospf_ls_upd (struct ospf *ospf, struct ip *iph, struct ospf_header *ospfh,
               continue;
             }
         }
-#endif /* HAVE_OPAQUE_LSA */
 
       /* It might be happen that received LSA is self-originated network LSA, but
        * router ID is changed. So, we should check if LSA is a network-LSA whose
@@ -2481,7 +2463,6 @@ ospf_lsa_examin (struct lsa_header * lsah, const u_int16_t lsalen, const u_char 
   case OSPF_SUMMARY_LSA:
   case OSPF_ASBR_SUMMARY_LSA:
     /* RFC2328 A.4.4, LSA header + 4 bytes followed by N>=1 4-bytes TOS blocks */
-#ifdef HAVE_OPAQUE_LSA
   case OSPF_OPAQUE_LINK_LSA:
   case OSPF_OPAQUE_AREA_LSA:
   case OSPF_OPAQUE_AS_LSA:
@@ -2489,7 +2470,6 @@ ospf_lsa_examin (struct lsa_header * lsah, const u_int16_t lsalen, const u_char 
      * data) padded to 32-bit alignment." This is considered equivalent
      * to 4-byte alignment of all other LSA types, see OSPF-ALIGNMENT.txt
      * file for the detailed analysis of this passage. */
-#endif
     ret = lsalen % 4 ? MSG_NG : MSG_OK;
     break;
   default:
@@ -3120,10 +3100,8 @@ ospf_make_db_desc (struct ospf_interface *oi, struct ospf_neighbor *nbr,
 
   /* Set Options. */
   options = OPTIONS (oi);
-#ifdef HAVE_OPAQUE_LSA
   if (CHECK_FLAG (oi->ospf->config, OSPF_OPAQUE_CAPABLE))
     SET_FLAG (options, OSPF_OPTION_O);
-#endif /* HAVE_OPAQUE_LSA */
   stream_putc (s, options);
 
   /* DD flags */
@@ -3148,7 +3126,6 @@ ospf_make_db_desc (struct ospf_interface *oi, struct ospf_neighbor *nbr,
       for (rn = route_top (table); rn; rn = route_next (rn))
 	if ((lsa = rn->info) != NULL)
 	  {
-#ifdef HAVE_OPAQUE_LSA
             if (IS_OPAQUE_LSA (lsa->data->type)
             && (! CHECK_FLAG (options, OSPF_OPTION_O)))
               {
@@ -3157,7 +3134,6 @@ ospf_make_db_desc (struct ospf_interface *oi, struct ospf_neighbor *nbr,
                 ospf_lsdb_delete (lsdb, lsa);
                 continue;
               }
-#endif /* HAVE_OPAQUE_LSA */
 
 	    if (!CHECK_FLAG (lsa->flags, OSPF_LSA_DISCARD))
 	      {
