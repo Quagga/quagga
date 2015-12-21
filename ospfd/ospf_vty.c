@@ -5418,7 +5418,6 @@ DEFUN (ip_ospf_network,
 {
   struct interface *ifp = vty->index;
   int old_type = IF_DEF_PARAMS (ifp)->type;
-  struct route_node *rn;
 
   if (old_type == OSPF_IFTYPE_LOOPBACK)
     {
@@ -5439,23 +5438,7 @@ DEFUN (ip_ospf_network,
     return CMD_SUCCESS;
 
   SET_IF_PARAM (IF_DEF_PARAMS (ifp), type);
-
-  for (rn = route_top (IF_OIFS (ifp)); rn; rn = route_next (rn))
-    {
-      struct ospf_interface *oi = rn->info;
-
-      if (!oi)
-	continue;
-      
-      oi->type = IF_DEF_PARAMS (ifp)->type;
-      
-      if (oi->state > ISM_Down)
-	{
-	  OSPF_ISM_EVENT_EXECUTE (oi, ISM_InterfaceDown);
-	  OSPF_ISM_EVENT_EXECUTE (oi, ISM_InterfaceUp);
-	}
-    }
-
+  ospf_if_reset_type (ifp, IF_DEF_PARAMS (ifp)->type);
   return CMD_SUCCESS;
 }
 
@@ -5479,29 +5462,14 @@ DEFUN (no_ip_ospf_network,
 {
   struct interface *ifp = vty->index;
   int old_type = IF_DEF_PARAMS (ifp)->type;
-  struct route_node *rn;
 
   IF_DEF_PARAMS (ifp)->type = ospf_default_iftype(ifp);
 
   if (IF_DEF_PARAMS (ifp)->type == old_type)
     return CMD_SUCCESS;
-
-  for (rn = route_top (IF_OIFS (ifp)); rn; rn = route_next (rn))
-    {
-      struct ospf_interface *oi = rn->info;
-
-      if (!oi)
-	continue;
-      
-      oi->type = IF_DEF_PARAMS (ifp)->type;
-      
-      if (oi->state > ISM_Down)
-	{
-	  OSPF_ISM_EVENT_EXECUTE (oi, ISM_InterfaceDown);
-	  OSPF_ISM_EVENT_EXECUTE (oi, ISM_InterfaceUp);
-	}
-    }
-
+  
+  ospf_if_reset_type (ifp, IF_DEF_PARAMS (ifp)->type);
+  
   return CMD_SUCCESS;
 }
 
