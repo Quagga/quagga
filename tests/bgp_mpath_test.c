@@ -29,6 +29,7 @@
 #include "linklist.h"
 #include "memory.h"
 #include "zclient.h"
+#include "filter.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_table.h"

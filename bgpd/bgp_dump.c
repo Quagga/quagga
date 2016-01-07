@@ -27,8 +27,9 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "prefix.h"
 #include "thread.h"
 #include "linklist.h"
-#include "bgpd/bgp_table.h"
+#include "filter.h"
 
+#include "bgpd/bgp_table.h"
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_attr.h"
