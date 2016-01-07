@@ -2383,14 +2383,12 @@ bgp_route_map_update (const char *unused)
     {
       for (i = 0; i < ZEBRA_ROUTE_MAX; i++)
 	{
-	  if (bgp->rmap[ZEBRA_FAMILY_IPV4][i].name)
-	    bgp->rmap[ZEBRA_FAMILY_IPV4][i].map = 
-	      route_map_lookup_by_name (bgp->rmap[ZEBRA_FAMILY_IPV4][i].name);
-#ifdef HAVE_IPV6
-	  if (bgp->rmap[ZEBRA_FAMILY_IPV6][i].name)
-	    bgp->rmap[ZEBRA_FAMILY_IPV6][i].map =
-	      route_map_lookup_by_name (bgp->rmap[ZEBRA_FAMILY_IPV6][i].name);
-#endif /* HAVE_IPV6 */
+	  if (bgp->rmap[AFI_IP][i].name)
+	    bgp->rmap[AFI_IP][i].map =
+	      route_map_lookup_by_name (bgp->rmap[AFI_IP][i].name);
+	  if (bgp->rmap[AFI_IP6][i].name)
+	    bgp->rmap[AFI_IP6][i].map =
+	      route_map_lookup_by_name (bgp->rmap[AFI_IP][i].name);
 	}
     }
 }

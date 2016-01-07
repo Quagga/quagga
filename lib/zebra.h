@@ -445,11 +445,6 @@ extern int proto_redistnum(int afi, const char *s);
 
 extern const char *zserv_command_string (unsigned int command);
 
-/* Zebra's family types. */
-#define ZEBRA_FAMILY_IPV4                1
-#define ZEBRA_FAMILY_IPV6                2
-#define ZEBRA_FAMILY_MAX                 3
-
 /* Error codes of zebra. */
 #define ZEBRA_ERR_NOERROR                0
 #define ZEBRA_ERR_RTEXIST               -1
@@ -483,9 +478,11 @@ extern const char *zserv_command_string (unsigned int command);
 #endif
 
 /* Address family numbers from RFC1700. */
-#define AFI_IP                    1
-#define AFI_IP6                   2
-#define AFI_MAX                   3
+typedef enum {
+  AFI_IP  = 1,
+  AFI_IP6 = 2,
+#define AFI_MAX 3
+} afi_t;
 
 /* Subsequent Address Family Identifier. */
 #define SAFI_UNICAST              1
@@ -516,8 +513,6 @@ extern const char *zserv_command_string (unsigned int command);
 #define SET_FLAG(V,F)        (V) |= (F)
 #define UNSET_FLAG(V,F)      (V) &= ~(F)
 
-/* AFI and SAFI type. */
-typedef u_int16_t afi_t;
 typedef u_int8_t safi_t;
 
 /* Zebra types. Used in Zserv message header. */
