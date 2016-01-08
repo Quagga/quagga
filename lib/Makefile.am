@@ -28,7 +28,7 @@ pkginclude_HEADERS = \
 	str.h stream.h table.h thread.h vector.h version.h vty.h zebra.h \
 	plist.h zclient.h sockopt.h smux.h md5.h if_rmap.h keychain.h \
 	privs.h sigevent.h pqueue.h jhash.h zassert.h memtypes.h \
-	workqueue.h route_types.h libospf.h vrf.h
+	workqueue.h route_types.h libospf.h vrf.h fifo.h
 
 noinst_HEADERS = \
 	plist_int.h
