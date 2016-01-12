@@ -36,6 +36,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "plist.h"
 #include "linklist.h"
 #include "workqueue.h"
+#include "table.h"
 
 #include "bgpd/bgpd.h"
 #include "bgpd/bgp_table.h"
@@ -55,6 +56,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_nexthop.h"
 #include "bgpd/bgp_damp.h"
 #include "bgpd/bgp_mplsvpn.h"
+#include "bgpd/bgp_encap.h"
 #include "bgpd/bgp_advertise.h"
 #include "bgpd/bgp_network.h"
 #include "bgpd/bgp_vty.h"
@@ -974,11 +976,15 @@ peer_as_change (struct peer *peer, as_t as)
 		  PEER_FLAG_REFLECTOR_CLIENT);
       UNSET_FLAG (peer->af_flags[AFI_IP][SAFI_MPLS_VPN],
 		  PEER_FLAG_REFLECTOR_CLIENT);
+      UNSET_FLAG (peer->af_flags[AFI_IP][SAFI_ENCAP],
+		  PEER_FLAG_REFLECTOR_CLIENT);
       UNSET_FLAG (peer->af_flags[AFI_IP6][SAFI_UNICAST],
 		  PEER_FLAG_REFLECTOR_CLIENT);
       UNSET_FLAG (peer->af_flags[AFI_IP6][SAFI_MULTICAST],
 		  PEER_FLAG_REFLECTOR_CLIENT);
       UNSET_FLAG (peer->af_flags[AFI_IP6][SAFI_MPLS_VPN],
+		  PEER_FLAG_REFLECTOR_CLIENT);
+      UNSET_FLAG (peer->af_flags[AFI_IP6][SAFI_ENCAP],
 		  PEER_FLAG_REFLECTOR_CLIENT);
     }
 
@@ -1398,9 +1404,11 @@ peer_group_active (struct peer *peer)
   if (peer->af_group[AFI_IP][SAFI_UNICAST]
       || peer->af_group[AFI_IP][SAFI_MULTICAST]
       || peer->af_group[AFI_IP][SAFI_MPLS_VPN]
+      || peer->af_group[AFI_IP][SAFI_ENCAP]
       || peer->af_group[AFI_IP6][SAFI_UNICAST]
       || peer->af_group[AFI_IP6][SAFI_MULTICAST]
-      || peer->af_group[AFI_IP6][SAFI_MPLS_VPN])
+      || peer->af_group[AFI_IP6][SAFI_MPLS_VPN]
+      || peer->af_group[AFI_IP6][SAFI_ENCAP])
     return 1;
   return 0;
 }
@@ -2356,9 +2364,11 @@ peer_active (struct peer *peer)
   if (peer->afc[AFI_IP][SAFI_UNICAST]
       || peer->afc[AFI_IP][SAFI_MULTICAST]
       || peer->afc[AFI_IP][SAFI_MPLS_VPN]
+      || peer->afc[AFI_IP][SAFI_ENCAP]
       || peer->afc[AFI_IP6][SAFI_UNICAST]
       || peer->afc[AFI_IP6][SAFI_MULTICAST]
-      || peer->afc[AFI_IP6][SAFI_MPLS_VPN])
+      || peer->afc[AFI_IP6][SAFI_MPLS_VPN]
+      || peer->afc[AFI_IP6][SAFI_ENCAP])
     return 1;
   return 0;
 }
@@ -2370,9 +2380,11 @@ peer_active_nego (struct peer *peer)
   if (peer->afc_nego[AFI_IP][SAFI_UNICAST]
       || peer->afc_nego[AFI_IP][SAFI_MULTICAST]
       || peer->afc_nego[AFI_IP][SAFI_MPLS_VPN]
+      || peer->afc_nego[AFI_IP][SAFI_ENCAP]
       || peer->afc_nego[AFI_IP6][SAFI_UNICAST]
       || peer->afc_nego[AFI_IP6][SAFI_MULTICAST]
-      || peer->afc_nego[AFI_IP6][SAFI_MPLS_VPN])
+      || peer->afc_nego[AFI_IP6][SAFI_MPLS_VPN]
+      || peer->afc_nego[AFI_IP6][SAFI_ENCAP])
     return 1;
   return 0;
 }
@@ -5594,6 +5606,7 @@ bgp_init (void)
   bgp_address_init ();
   bgp_scan_init ();
   bgp_mplsvpn_init ();
+  bgp_encap_init ();
 
   /* Access list initialize. */
   access_list_init ();

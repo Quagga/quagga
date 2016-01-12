@@ -97,6 +97,9 @@ bgp_capability_vty_out (struct vty *vty, struct peer *peer)
 	    case SAFI_MPLS_LABELED_VPN:
 	      vty_out (vty, "SAFI MPLS-labeled VPN");
 	      break;
+	    case SAFI_ENCAP:
+	      vty_out (vty, "SAFI ENCAP");
+	      break;
 	    default:
 	      vty_out (vty, "SAFI Unknown %d ", mpc.safi);
 	      break;
@@ -137,6 +140,7 @@ bgp_afi_safi_valid_indices (afi_t afi, safi_t *safi)
 	case SAFI_UNICAST:
 	case SAFI_MULTICAST:
 	case SAFI_MPLS_VPN:
+	case SAFI_ENCAP:
 	  return 1;
 	}
       break;
@@ -841,9 +845,11 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *mp_capability)
       if (! peer->afc_nego[AFI_IP][SAFI_UNICAST] 
 	  && ! peer->afc_nego[AFI_IP][SAFI_MULTICAST]
 	  && ! peer->afc_nego[AFI_IP][SAFI_MPLS_VPN]
+	  && ! peer->afc_nego[AFI_IP][SAFI_ENCAP]
 	  && ! peer->afc_nego[AFI_IP6][SAFI_UNICAST]
 	  && ! peer->afc_nego[AFI_IP6][SAFI_MULTICAST]
-	  && ! peer->afc_nego[AFI_IP6][SAFI_MPLS_VPN])
+	  && ! peer->afc_nego[AFI_IP6][SAFI_MPLS_VPN]
+	  && ! peer->afc_nego[AFI_IP6][SAFI_ENCAP])
 	{
 	  plog_err (peer->log, "%s [Error] Configured AFI/SAFIs do not "
 		    "overlap with received MP capabilities",
@@ -988,6 +994,18 @@ bgp_open_capability (struct stream *s, struct peer *peer)
       stream_putc (s, 0);
       stream_putc (s, SAFI_MPLS_LABELED_VPN);
     }
+  /* ENCAP */
+  if (peer->afc[AFI_IP][SAFI_ENCAP])
+    {
+      peer->afc_adv[AFI_IP][SAFI_ENCAP] = 1;
+      stream_putc (s, BGP_OPEN_OPT_CAP);
+      stream_putc (s, CAPABILITY_CODE_MP_LEN + 2);
+      stream_putc (s, CAPABILITY_CODE_MP);
+      stream_putc (s, CAPABILITY_CODE_MP_LEN);
+      stream_putw (s, AFI_IP);
+      stream_putc (s, 0);
+      stream_putc (s, SAFI_ENCAP);
+    }
 #ifdef HAVE_IPV6
   /* IPv6 unicast. */
   if (peer->afc[AFI_IP6][SAFI_UNICAST])
@@ -1024,6 +1042,18 @@ bgp_open_capability (struct stream *s, struct peer *peer)
       stream_putw (s, AFI_IP6);
       stream_putc (s, 0);
       stream_putc (s, SAFI_MPLS_LABELED_VPN);
+    }
+  /* IPv6 ENCAP. */
+  if (peer->afc[AFI_IP6][SAFI_ENCAP])
+    {
+      peer->afc_adv[AFI_IP6][SAFI_ENCAP] = 1;
+      stream_putc (s, BGP_OPEN_OPT_CAP);
+      stream_putc (s, CAPABILITY_CODE_MP_LEN + 2);
+      stream_putc (s, CAPABILITY_CODE_MP);
+      stream_putc (s, CAPABILITY_CODE_MP_LEN);
+      stream_putw (s, AFI_IP6);
+      stream_putc (s, 0);
+      stream_putc (s, SAFI_ENCAP);
     }
 #endif /* HAVE_IPV6 */
 
