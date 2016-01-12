@@ -591,6 +591,14 @@ bgp_address_init (void)
                                   bgp_address_hash_cmp);
 }
 
+void
+bgp_address_destroy (void)
+{
+  hash_clean(bgp_address_hash, NULL);
+  hash_free(bgp_address_hash);
+  bgp_address_hash = NULL;
+}
+
 static void
 bgp_address_add (struct prefix *p)
 {
@@ -1466,4 +1474,17 @@ bgp_scan_finish (void)
     bgp_table_unlock (bgp_connected_table[AFI_IP6]);
   bgp_connected_table[AFI_IP6] = NULL;
 #endif /* HAVE_IPV6 */
+}
+
+void
+bgp_scan_destroy (void)
+{
+  if (zlookup == NULL)
+    return;
+  THREAD_OFF(bgp_import_thread);
+  THREAD_OFF(bgp_scan_thread);
+  THREAD_OFF(zlookup->t_connect);
+  bgp_scan_finish();
+  zclient_free (zlookup);
+  zlookup = NULL;
 }

@@ -2295,6 +2295,9 @@ bgp_route_map_update (const char *unused)
   struct bgp_node *bn;
   struct bgp_static *bgp_static;
 
+  if (bm->bgp == NULL)          /* may be called during cleanup */
+    return;
+
   /* For neighbor route-map updates. */
   for (ALL_LIST_ELEMENTS (bm->bgp, mnode, mnnode, bgp))
     {

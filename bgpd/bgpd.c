@@ -1377,6 +1377,9 @@ peer_delete (struct peer *peer)
           }
       }
   
+  if (CHECK_FLAG(bgp->flags, BGP_FLAG_DELETING))
+    bgp_peer_clear_node_queue_drain_immediate(peer);
+
   peer_unlock (peer); /* initial reference */
 
   return 0;
@@ -2165,6 +2168,8 @@ bgp_delete (struct bgp *bgp)
   afi_t afi;
   int i;
 
+  SET_FLAG(bgp->flags, BGP_FLAG_DELETING);
+
   THREAD_OFF (bgp->t_startup);
 
   /* Delete static route. */
@@ -2206,7 +2211,21 @@ bgp_delete (struct bgp *bgp)
     peer_delete(bgp->peer_self);
     bgp->peer_self = NULL;
   }
+
+  /*
+   * Free pending deleted routes. Unfortunately, it also has to process
+   * all the pending activity for other instances of struct bgp.
+   *
+   * This call was added to achieve clean memory allocation at exit,
+   * for the sake of valgrind.
+   */
+  bgp_process_queues_drain_immediate();
+
+  bgp_zebra_destroy();
+  bgp_scan_destroy();
+  bgp_address_destroy();
   
+
   /* Remove visibility via the master list - there may however still be
    * routes to be processed still referencing the struct bgp.
    */

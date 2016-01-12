@@ -1081,3 +1081,13 @@ bgp_zebra_init (struct thread_master *master)
 
   bgp_nexthop_buf = stream_new(BGP_NEXTHOP_BUF_SIZE);
 }
+
+void
+bgp_zebra_destroy(void)
+{
+  if (zclient == NULL)
+    return;
+  zclient_stop(zclient);
+  zclient_free(zclient);
+  zclient = NULL;
+}

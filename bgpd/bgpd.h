@@ -123,6 +123,7 @@ struct bgp
 #define BGP_FLAG_GRACEFUL_RESTART         (1 << 12)
 #define BGP_FLAG_ASPATH_CONFED            (1 << 13)
 #define BGP_FLAG_ASPATH_MULTIPATH_RELAX   (1 << 14)
+#define BGP_FLAG_DELETING                 (1 << 15)
 
   /* BGP Per AF flags */
   u_int16_t af_flags[AFI_MAX][SAFI_MAX];
