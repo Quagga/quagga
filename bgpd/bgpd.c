@@ -2229,11 +2229,6 @@ bgp_delete (struct bgp *bgp)
    */
   bgp_process_queues_drain_immediate();
 
-  bgp_zebra_destroy();
-  bgp_scan_destroy();
-  bgp_address_destroy();
-  
-
   /* Remove visibility via the master list - there may however still be
    * routes to be processed still referencing the struct bgp.
    */
