@@ -387,10 +387,8 @@ bgp_connect (struct peer *peer)
     zlog_err ("%s: could not raise privs", __func__);
   if (sockunion_family (&peer->su) == AF_INET)
     setsockopt_ipv4_tos (peer->fd, IPTOS_PREC_INTERNETCONTROL);
-# ifdef HAVE_IPV6
   else if (sockunion_family (&peer->su) == AF_INET6)
     setsockopt_ipv6_tclass (peer->fd, IPTOS_PREC_INTERNETCONTROL);
-# endif
   if (bgpd_privs.change (ZPRIVS_LOWER))
     zlog_err ("%s: could not lower privs", __func__);
 #endif
@@ -404,10 +402,8 @@ bgp_connect (struct peer *peer)
   /* Update source bind. */
   bgp_update_source (peer);
 
-#ifdef HAVE_IPV6
   if (peer->ifname)
     ifindex = ifname2ifindex (peer->ifname);
-#endif /* HAVE_IPV6 */
 
   if (BGP_DEBUG (events, EVENTS))
     plog_debug (peer->log, "%s [Event] Connect start to %s fd %d",
@@ -455,10 +451,8 @@ bgp_listener (int sock, struct sockaddr *sa, socklen_t salen)
 #ifdef IPTOS_PREC_INTERNETCONTROL
   if (sa->sa_family == AF_INET)
     setsockopt_ipv4_tos (sock, IPTOS_PREC_INTERNETCONTROL);
-#  ifdef HAVE_IPV6
   else if (sa->sa_family == AF_INET6)
     setsockopt_ipv6_tclass (sock, IPTOS_PREC_INTERNETCONTROL);
-#  endif
 #endif
 
   sockopt_v6only (sa->sa_family, sock);
@@ -491,7 +485,6 @@ bgp_listener (int sock, struct sockaddr *sa, socklen_t salen)
 }
 
 /* IPv6 supported version of BGP server socket setup.  */
-#ifdef HAVE_IPV6
 int
 bgp_socket (unsigned short port, const char *address)
 {
@@ -548,50 +541,6 @@ bgp_socket (unsigned short port, const char *address)
 
   return 0;
 }
-#else
-/* Traditional IPv4 only version.  */
-int
-bgp_socket (unsigned short port, const char *address)
-{
-  int sock;
-  int socklen;
-  struct sockaddr_in sin;
-  int ret;
-
-  sock = socket (AF_INET, SOCK_STREAM, 0);
-  if (sock < 0)
-    {
-      zlog_err ("socket: %s", safe_strerror (errno));
-      return sock;
-    }
-
-  /* if we intend to implement ttl-security, this socket needs ttl=255 */
-  sockopt_ttl (AF_INET, sock, MAXTTL);
-
-  memset (&sin, 0, sizeof (struct sockaddr_in));
-  sin.sin_family = AF_INET;
-  sin.sin_port = htons (port);
-  socklen = sizeof (struct sockaddr_in);
-
-  if (address && ((ret = inet_aton(address, &sin.sin_addr)) < 1))
-    {
-      zlog_err("bgp_socket: could not parse ip address %s: %s",
-                address, safe_strerror (errno));
-      return ret;
-    }
-#ifdef HAVE_STRUCT_SOCKADDR_IN_SIN_LEN
-  sin.sin_len = socklen;
-#endif /* HAVE_STRUCT_SOCKADDR_IN_SIN_LEN */
-
-  ret = bgp_listener (sock, (struct sockaddr *) &sin, socklen);
-  if (ret < 0) 
-    {
-      close (sock);
-      return ret;
-    }
-  return sock;
-}
-#endif /* HAVE_IPV6 */
 
 void
 bgp_close (void)

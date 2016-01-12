@@ -265,8 +265,6 @@ bgp_node_match_ipv4 (const struct bgp_table *table, struct in_addr *addr)
 						     addr));
 }
 
-#ifdef HAVE_IPV6
-
 /*
  * bgp_node_match_ipv6
  */
@@ -276,8 +274,6 @@ bgp_node_match_ipv6 (const struct bgp_table *table, struct in6_addr *addr)
   return bgp_node_from_rnode (route_node_match_ipv6 (table->route_table,
 						     addr));
 }
-
-#endif /* HAVE_IPV6 */
 
 static inline unsigned long
 bgp_table_count (const struct bgp_table *const table)

@@ -511,7 +511,7 @@ DEFUN (show_bgp_ipv4_encap,
 {
   return bgp_show_encap (vty, AFI_IP, NULL, bgp_show_type_normal, NULL, 0);
 }
-#ifdef HAVE_IPV6
+
 DEFUN (show_bgp_ipv6_encap,
        show_bgp_ipv6_encap_cmd,
        "show bgp ipv6 encap",
@@ -522,7 +522,6 @@ DEFUN (show_bgp_ipv6_encap,
 {
   return bgp_show_encap (vty, AFI_IP6, NULL, bgp_show_type_normal, NULL, 0);
 }
-#endif
 
 DEFUN (show_bgp_ipv4_encap_rd,
        show_bgp_ipv4_encap_rd_cmd,
@@ -545,7 +544,7 @@ DEFUN (show_bgp_ipv4_encap_rd,
     }
   return bgp_show_encap (vty, AFI_IP, &prd, bgp_show_type_normal, NULL, 0);
 }
-#ifdef HAVE_IPV6
+
 DEFUN (show_bgp_ipv6_encap_rd,
        show_bgp_ipv6_encap_rd_cmd,
        "show bgp ipv6 encap rd ASN:nn_or_IP-address:nn",
@@ -568,7 +567,6 @@ DEFUN (show_bgp_ipv6_encap_rd,
     }
   return bgp_show_encap (vty, AFI_IP6, &prd, bgp_show_type_normal, NULL, 0);
 }
-#endif
 
 DEFUN (show_bgp_ipv4_encap_tags,
        show_bgp_ipv4_encap_tags_cmd,
@@ -581,7 +579,7 @@ DEFUN (show_bgp_ipv4_encap_tags,
 {
   return bgp_show_encap (vty, AFI_IP, NULL, bgp_show_type_normal, NULL,  1);
 }
-#ifdef HAVE_IPV6
+
 DEFUN (show_bgp_ipv6_encap_tags,
        show_bgp_ipv6_encap_tags_cmd,
        "show bgp ipv6 encap tags",
@@ -593,7 +591,7 @@ DEFUN (show_bgp_ipv6_encap_tags,
 {
   return bgp_show_encap (vty, AFI_IP6, NULL, bgp_show_type_normal, NULL,  1);
 }
-#endif
+
 
 DEFUN (show_bgp_ipv4_encap_rd_tags,
        show_bgp_ipv4_encap_rd_tags_cmd,
@@ -617,7 +615,7 @@ DEFUN (show_bgp_ipv4_encap_rd_tags,
     }
   return bgp_show_encap (vty, AFI_IP, &prd, bgp_show_type_normal, NULL, 1);
 }
-#ifdef HAVE_IPV6
+
 DEFUN (show_bgp_ipv6_encap_rd_tags,
        show_bgp_ipv6_encap_rd_tags_cmd,
        "show bgp ipv6 encap rd ASN:nn_or_IP-address:nn tags",
@@ -640,7 +638,6 @@ DEFUN (show_bgp_ipv6_encap_rd_tags,
     }
   return bgp_show_encap (vty, AFI_IP6, &prd, bgp_show_type_normal, NULL, 1);
 }
-#endif
 
 DEFUN (show_bgp_ipv4_encap_neighbor_routes,
        show_bgp_ipv4_encap_neighbor_routes_cmd,
@@ -672,7 +669,7 @@ DEFUN (show_bgp_ipv4_encap_neighbor_routes,
 
   return bgp_show_encap (vty, AFI_IP, NULL, bgp_show_type_neighbor, su, 0);
 }
-#ifdef HAVE_IPV6
+
 DEFUN (show_bgp_ipv6_encap_neighbor_routes,
        show_bgp_ipv6_encap_neighbor_routes_cmd,
        "show bgp ipv6 encap neighbors A.B.C.D routes",
@@ -703,7 +700,6 @@ DEFUN (show_bgp_ipv6_encap_neighbor_routes,
 
   return bgp_show_encap (vty, AFI_IP6, NULL, bgp_show_type_neighbor, su, 0);
 }
-#endif
 
 DEFUN (show_bgp_ipv4_encap_rd_neighbor_routes,
        show_bgp_ipv4_encap_rd_neighbor_routes_cmd,
@@ -747,7 +743,7 @@ DEFUN (show_bgp_ipv4_encap_rd_neighbor_routes,
 
   return bgp_show_encap (vty, AFI_IP, &prd, bgp_show_type_neighbor, su, 0);
 }
-#ifdef HAVE_IPV6
+
 DEFUN (show_bgp_ipv6_encap_rd_neighbor_routes,
        show_bgp_ipv6_encap_rd_neighbor_routes_cmd,
        "show bgp ipv6 encap rd ASN:nn_or_IP-address:nn neighbors (A.B.C.D|X:X::X:X) routes",
@@ -790,7 +786,6 @@ DEFUN (show_bgp_ipv6_encap_rd_neighbor_routes,
 
   return bgp_show_encap (vty, AFI_IP6, &prd, bgp_show_type_neighbor, su, 0);
 }
-#endif
 
 DEFUN (show_bgp_ipv4_encap_neighbor_advertised_routes,
        show_bgp_ipv4_encap_neighbor_advertised_routes_cmd,
@@ -822,7 +817,7 @@ DEFUN (show_bgp_ipv4_encap_neighbor_advertised_routes,
 
   return show_adj_route_encap (vty, peer, NULL);
 }
-#ifdef HAVE_IPV6
+
 DEFUN (show_bgp_ipv6_encap_neighbor_advertised_routes,
        show_bgp_ipv6_encap_neighbor_advertised_routes_cmd,
        "show bgp ipv6 encap neighbors A.B.C.D advertised-routes",
@@ -853,7 +848,6 @@ DEFUN (show_bgp_ipv6_encap_neighbor_advertised_routes,
 
   return show_adj_route_encap (vty, peer, NULL);
 }
-#endif
 
 DEFUN (show_bgp_ipv4_encap_rd_neighbor_advertised_routes,
        show_bgp_ipv4_encap_rd_neighbor_advertised_routes_cmd,
@@ -896,7 +890,7 @@ DEFUN (show_bgp_ipv4_encap_rd_neighbor_advertised_routes,
 
   return show_adj_route_encap (vty, peer, &prd);
 }
-#ifdef HAVE_IPV6
+
 DEFUN (show_bgp_ipv6_encap_rd_neighbor_advertised_routes,
        show_bgp_ipv6_encap_rd_neighbor_advertised_routes_cmd,
        "show bgp ipv6 encap rd ASN:nn_or_IP-address:nn neighbors (A.B.C.D|X:X::X:X) advertised-routes",
@@ -938,7 +932,6 @@ DEFUN (show_bgp_ipv6_encap_rd_neighbor_advertised_routes,
 
   return show_adj_route_encap (vty, peer, &prd);
 }
-#endif
 
 void
 bgp_encap_init (void)
@@ -955,7 +948,6 @@ bgp_encap_init (void)
   install_element (VIEW_NODE, &show_bgp_ipv4_encap_neighbor_advertised_routes_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv4_encap_rd_neighbor_advertised_routes_cmd);
 
-#ifdef HAVE_IPV6
   install_element (VIEW_NODE, &show_bgp_ipv6_encap_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_encap_rd_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_encap_tags_cmd);
@@ -964,8 +956,6 @@ bgp_encap_init (void)
   install_element (VIEW_NODE, &show_bgp_ipv6_encap_rd_neighbor_routes_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_encap_neighbor_advertised_routes_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_encap_rd_neighbor_advertised_routes_cmd);
-#endif
-
 
   install_element (ENABLE_NODE, &show_bgp_ipv4_encap_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv4_encap_rd_cmd);
@@ -976,7 +966,6 @@ bgp_encap_init (void)
   install_element (ENABLE_NODE, &show_bgp_ipv4_encap_neighbor_advertised_routes_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv4_encap_rd_neighbor_advertised_routes_cmd);
 
-#ifdef HAVE_IPV6
   install_element (ENABLE_NODE, &show_bgp_ipv6_encap_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv6_encap_rd_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv6_encap_tags_cmd);
@@ -985,7 +974,5 @@ bgp_encap_init (void)
   install_element (ENABLE_NODE, &show_bgp_ipv6_encap_rd_neighbor_routes_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv6_encap_neighbor_advertised_routes_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv6_encap_rd_neighbor_advertised_routes_cmd);
-#endif
-
 
 }

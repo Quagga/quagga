@@ -61,10 +61,8 @@ struct bgp_attr_encap_subtlv {
 struct attr_extra
 {
   /* Multi-Protocol Nexthop, AFI IPv6 */
-#ifdef HAVE_IPV6
   struct in6_addr mp_nexthop_global;
   struct in6_addr mp_nexthop_local;
-#endif /* HAVE_IPV6 */
 
   /* Extended Communities attribute. */
   struct ecommunity *ecommunity;
