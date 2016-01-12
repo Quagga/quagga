@@ -172,6 +172,12 @@ vtysh_config_parse_line (const char *line)
 	  else if (strncmp (line, " address-family vpn6",
 	      strlen (" address-family vpn6")) == 0)
 	    config = config_get (BGP_VPNV6_NODE, line);
+	  else if (strncmp (line, " address-family encapv6",
+	      strlen (" address-family encapv6")) == 0)
+	    config = config_get (BGP_ENCAPV6_NODE, line);
+	  else if (strncmp (line, " address-family encap",
+	      strlen (" address-family encap")) == 0)
+	    config = config_get (BGP_ENCAP_NODE, line);
 	  else if (strncmp (line, " address-family ipv4 multicast",
 		   strlen (" address-family ipv4 multicast")) == 0)
 	    config = config_get (BGP_IPV4M_NODE, line);
