@@ -842,7 +842,8 @@ bgp_open_option_parse (struct peer *peer, u_char length, int *mp_capability)
 	  && ! peer->afc_nego[AFI_IP][SAFI_MULTICAST]
 	  && ! peer->afc_nego[AFI_IP][SAFI_MPLS_VPN]
 	  && ! peer->afc_nego[AFI_IP6][SAFI_UNICAST]
-	  && ! peer->afc_nego[AFI_IP6][SAFI_MULTICAST])
+	  && ! peer->afc_nego[AFI_IP6][SAFI_MULTICAST]
+	  && ! peer->afc_nego[AFI_IP6][SAFI_MPLS_VPN])
 	{
 	  plog_err (peer->log, "%s [Error] Configured AFI/SAFIs do not "
 		    "overlap with received MP capabilities",
@@ -1011,6 +1012,18 @@ bgp_open_capability (struct stream *s, struct peer *peer)
       stream_putw (s, AFI_IP6);
       stream_putc (s, 0);
       stream_putc (s, SAFI_MULTICAST);
+    }
+  /* IPv6 VPN. */
+  if (peer->afc[AFI_IP6][SAFI_MPLS_VPN])
+    {
+      peer->afc_adv[AFI_IP6][SAFI_MPLS_VPN] = 1;
+      stream_putc (s, BGP_OPEN_OPT_CAP);
+      stream_putc (s, CAPABILITY_CODE_MP_LEN + 2);
+      stream_putc (s, CAPABILITY_CODE_MP);
+      stream_putc (s, CAPABILITY_CODE_MP_LEN);
+      stream_putw (s, AFI_IP6);
+      stream_putc (s, 0);
+      stream_putc (s, SAFI_MPLS_LABELED_VPN);
     }
 #endif /* HAVE_IPV6 */
 

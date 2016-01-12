@@ -978,6 +978,8 @@ peer_as_change (struct peer *peer, as_t as)
 		  PEER_FLAG_REFLECTOR_CLIENT);
       UNSET_FLAG (peer->af_flags[AFI_IP6][SAFI_MULTICAST],
 		  PEER_FLAG_REFLECTOR_CLIENT);
+      UNSET_FLAG (peer->af_flags[AFI_IP6][SAFI_MPLS_VPN],
+		  PEER_FLAG_REFLECTOR_CLIENT);
     }
 
   /* local-as reset */
@@ -1394,7 +1396,8 @@ peer_group_active (struct peer *peer)
       || peer->af_group[AFI_IP][SAFI_MULTICAST]
       || peer->af_group[AFI_IP][SAFI_MPLS_VPN]
       || peer->af_group[AFI_IP6][SAFI_UNICAST]
-      || peer->af_group[AFI_IP6][SAFI_MULTICAST])
+      || peer->af_group[AFI_IP6][SAFI_MULTICAST]
+      || peer->af_group[AFI_IP6][SAFI_MPLS_VPN])
     return 1;
   return 0;
 }
@@ -2335,7 +2338,8 @@ peer_active (struct peer *peer)
       || peer->afc[AFI_IP][SAFI_MULTICAST]
       || peer->afc[AFI_IP][SAFI_MPLS_VPN]
       || peer->afc[AFI_IP6][SAFI_UNICAST]
-      || peer->afc[AFI_IP6][SAFI_MULTICAST])
+      || peer->afc[AFI_IP6][SAFI_MULTICAST]
+      || peer->afc[AFI_IP6][SAFI_MPLS_VPN])
     return 1;
   return 0;
 }
@@ -2348,7 +2352,8 @@ peer_active_nego (struct peer *peer)
       || peer->afc_nego[AFI_IP][SAFI_MULTICAST]
       || peer->afc_nego[AFI_IP][SAFI_MPLS_VPN]
       || peer->afc_nego[AFI_IP6][SAFI_UNICAST]
-      || peer->afc_nego[AFI_IP6][SAFI_MULTICAST])
+      || peer->afc_nego[AFI_IP6][SAFI_MULTICAST]
+      || peer->afc_nego[AFI_IP6][SAFI_MPLS_VPN])
     return 1;
   return 0;
 }
