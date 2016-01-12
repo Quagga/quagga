@@ -484,6 +484,9 @@ bgp_show_mpls_vpn(
   char v4_header[] = "   Network          Next Hop            Metric LocPrf Weight Path%s";
   char v4_header_tag[] = "   Network          Next Hop      In tag/Out tag%s";
 
+  unsigned long output_count = 0;
+  unsigned long total_count  = 0;
+
   bgp = bgp_get_default ();
   if (bgp == NULL)
     {
@@ -509,6 +512,7 @@ bgp_show_mpls_vpn(
 	  for (rm = bgp_table_top (table); rm; rm = bgp_route_next (rm))
 	    for (ri = rm->info; ri; ri = ri->next)
 	      {
+                total_count++;
 		if (type == bgp_show_type_neighbor)
 		  {
 		    union sockunion *su = output_arg;
@@ -568,9 +572,19 @@ bgp_show_mpls_vpn(
 		  route_vty_out_tag (vty, &rm->p, ri, 0, SAFI_MPLS_VPN);
 	        else
 		  route_vty_out (vty, &rm->p, ri, 0, SAFI_MPLS_VPN);
+                output_count++;
 	      }
         }
     }
+
+  if (output_count == 0)
+    {
+      vty_out (vty, "No prefixes displayed, %ld exist%s", total_count, VTY_NEWLINE);
+    }
+  else
+    vty_out (vty, "%sDisplayed %ld out of %ld total prefixes%s",
+	     VTY_NEWLINE, output_count, total_count, VTY_NEWLINE);
+
   return CMD_SUCCESS;
 }
 
