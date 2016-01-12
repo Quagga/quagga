@@ -594,6 +594,9 @@ bgp_address_init (void)
 void
 bgp_address_destroy (void)
 {
+  if (bgp_address_hash == NULL)
+    return;
+
   hash_clean(bgp_address_hash, NULL);
   hash_free(bgp_address_hash);
   bgp_address_hash = NULL;
