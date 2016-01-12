@@ -172,16 +172,24 @@ bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
 
       /* When remaining space can't include NLRI and it's length.  */
       if (STREAM_CONCAT_REMAIN (s, snlri, STREAM_SIZE(s)) <=
-	  (BGP_NLRI_LENGTH + PSIZE (rn->p.prefixlen)))
+	  (BGP_NLRI_LENGTH + bgp_packet_mpattr_prefix_size(afi,safi,&rn->p)))
 	break;
 
       /* If packet is empty, set attribute. */
       if (stream_empty (s))
 	{
+	  struct prefix_rd *prd = NULL;
+	  u_char *tag = NULL;
 	  struct peer *from = NULL;
 
+	  if (rn->prn)
+	    prd = (struct prefix_rd *) &rn->prn->p;
           if (binfo)
-	    from = binfo->peer;
+            {
+              from = binfo->peer;
+              if (binfo->extra)
+                tag = binfo->extra->tag;
+            }
 
 	  /* 1: Write the BGP message header - 16 bytes marker, 2 bytes length,
 	   * one byte message type.
@@ -204,8 +212,8 @@ bgp_update_packet (struct peer *peer, afi_t afi, safi_t safi)
 	  /* 5: Encode all the attributes, except MP_REACH_NLRI attr. */
 	  total_attr_len = bgp_packet_attribute (NULL, peer, s,
 	                                         adv->baa->attr,
-	                                         NULL, afi, safi,
-	                                         from, NULL, NULL);
+	                                         &rn->p, afi, safi,
+	                                         from, prd, tag);
 	}
 
       if (afi == AFI_IP && safi == SAFI_UNICAST)
@@ -1653,7 +1661,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   /* Unfeasible Route packet format check. */
   if (withdraw_len > 0)
     {
-      ret = bgp_nlri_sanity_check (peer, AFI_IP, stream_pnt (s), withdraw_len);
+      ret = bgp_nlri_sanity_check (peer, AFI_IP, SAFI_UNICAST, stream_pnt (s), withdraw_len);
       if (ret < 0)
 	return -1;
 
@@ -1713,6 +1721,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
       if (attr_parse_ret == BGP_ATTR_PARSE_ERROR)
 	{
 	  bgp_attr_unintern_sub (&attr);
+          bgp_attr_flush (&attr);
 	  return -1;
 	}
     }
@@ -1744,10 +1753,11 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   if (update_len)
     {
       /* Check NLRI packet format and prefix length. */
-      ret = bgp_nlri_sanity_check (peer, AFI_IP, stream_pnt (s), update_len);
+      ret = bgp_nlri_sanity_check (peer, AFI_IP, SAFI_UNICAST, stream_pnt (s), update_len);
       if (ret < 0)
         {
           bgp_attr_unintern_sub (&attr);
+          bgp_attr_flush (&attr);
 	  return -1;
 	}
 
@@ -1933,6 +1943,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   /* Everything is done.  We unintern temporary structures which
      interned in bgp_attr_parse(). */
   bgp_attr_unintern_sub (&attr);
+  bgp_attr_flush (&attr);
 
   /* If peering is stopped due to some reason, do not generate BGP
      event.  */

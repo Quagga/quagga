@@ -2090,6 +2090,7 @@ route_set_vpnv4_nexthop (void *rule, struct prefix *prefix,
     
       /* Set next hop value. */ 
       (bgp_attr_extra_get (bgp_info->attr))->mp_nexthop_global_in = *address;
+      (bgp_attr_extra_get (bgp_info->attr))->mp_nexthop_len = 4;
     }
 
   return RMAP_OKAY;

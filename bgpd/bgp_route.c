@@ -1480,6 +1480,9 @@ bgp_process_announce_selected (struct peer *peer, struct bgp_info *selected,
   struct attr attr;
   struct attr_extra extra;
 
+  memset (&attr, 0, sizeof(struct attr));
+  memset (&extra, 0, sizeof(struct attr_extra));
+
   p = &rn->p;
 
   /* Announce route to Established peer. */
@@ -1519,6 +1522,7 @@ bgp_process_announce_selected (struct peer *peer, struct bgp_info *selected,
         break;
     }
 
+  bgp_attr_flush (&attr);
   return 0;
 }
 
@@ -1661,7 +1665,7 @@ bgp_process_main (struct work_queue *wq, void *data)
 	}
     }
     
-  /* Reap old select bgp_info, it it has been removed */
+  /* Reap old select bgp_info, if it has been removed */
   if (old_select && CHECK_FLAG (old_select->flags, BGP_INFO_REMOVED))
     bgp_info_reap (rn, old_select);
   
@@ -1869,7 +1873,7 @@ bgp_rib_remove (struct bgp_node *rn, struct bgp_info *ri, struct peer *peer,
 
 static void
 bgp_rib_withdraw (struct bgp_node *rn, struct bgp_info *ri, struct peer *peer,
-		  afi_t afi, safi_t safi)
+		  afi_t afi, safi_t safi, struct prefix_rd *prd)
 {
   int status = BGP_DAMP_NONE;
 
@@ -1991,7 +1995,7 @@ bgp_update_rsclient (struct peer *rsclient, afi_t afi, safi_t safi,
 
           bgp_unlock_node (rn);
           bgp_attr_unintern (&attr_new);
-
+          bgp_attr_flush(&new_attr);
           return;
         }
 
@@ -2099,7 +2103,7 @@ bgp_withdraw_rsclient (struct peer *rsclient, afi_t afi, safi_t safi,
 
   /* Withdraw specified route from routing table. */
   if (ri && ! CHECK_FLAG (ri->flags, BGP_INFO_HISTORY))
-    bgp_rib_withdraw (rn, ri, peer, afi, safi);
+    bgp_rib_withdraw (rn, ri, peer, afi, safi, prd);
   else if (BGP_DEBUG (update, UPDATE_IN))
     zlog (peer->log, LOG_DEBUG,
           "%s Can't find the route %s/%d", peer->host,
@@ -2274,6 +2278,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 
 	  bgp_unlock_node (rn);
 	  bgp_attr_unintern (&attr_new);
+          bgp_attr_flush (&new_attr);
 
 	  return 0;
 	}
@@ -2326,6 +2331,8 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
       if (safi == SAFI_MPLS_VPN)
         memcpy ((bgp_info_extra_get (ri))->tag, tag, 3);
 
+      bgp_attr_flush (&new_attr);
+
       /* Update bgp route dampening information.  */
       if (CHECK_FLAG (bgp->af_flags[afi][safi], BGP_CONFIG_DAMPENING)
 	  && peer->sort == BGP_PEER_EBGP)
@@ -2354,6 +2361,8 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
 	}
       else
         bgp_info_set_flag (rn, ri, BGP_INFO_VALID);
+
+      bgp_attr_flush (&new_attr);
 
       /* Process change. */
       bgp_aggregate_increment (bgp, p, ri, afi, safi);
@@ -2410,6 +2419,8 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
   /* route_node_get lock */
   bgp_unlock_node (rn);
 
+  bgp_attr_flush (&new_attr);
+
   /* If maximum prefix count is configured and current prefix
      count exeed it. */
   if (bgp_maximum_prefix_overflow (peer, afi, safi, 0))
@@ -2434,6 +2445,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
     bgp_rib_remove (rn, ri, peer, afi, safi);
 
   bgp_unlock_node (rn);
+  bgp_attr_flush (&new_attr);
 
   return 0;
 }
@@ -2520,7 +2532,7 @@ bgp_withdraw (struct peer *peer, struct prefix *p, struct attr *attr,
 
   /* Withdraw specified route from routing table. */
   if (ri && ! CHECK_FLAG (ri->flags, BGP_INFO_HISTORY))
-    bgp_rib_withdraw (rn, ri, peer, afi, safi);
+    bgp_rib_withdraw (rn, ri, peer, afi, safi, prd);
   else if (BGP_DEBUG (update, UPDATE_IN))
     zlog (peer->log, LOG_DEBUG, 
 	  "%s Can't find the route %s/%d", peer->host,
@@ -3006,8 +3018,7 @@ bgp_clear_route (struct peer *peer, afi_t afi, safi_t safi,
    * unlock happens at the end of this function.
    */
   if (!peer->clear_node_queue->thread)
-    peer_lock (peer);
-
+    peer_lock (peer); /* bgp_clear_node_complete */
   switch (purpose)
     {
     case BGP_CLEAR_ROUTE_NORMAL:
@@ -3026,6 +3037,11 @@ bgp_clear_route (struct peer *peer, afi_t afi, safi_t safi,
       break;
 
     case BGP_CLEAR_ROUTE_MY_RSCLIENT:
+      /*
+       * gpz 091009: TBD why don't we have special handling for
+       * SAFI_MPLS_VPN here in the original quagga code?
+       * (and, by extension, for SAFI_ENCAP)
+       */
       bgp_clear_route_table (peer, afi, safi, NULL, peer, purpose);
       break;
 
@@ -3304,8 +3320,8 @@ bgp_nlri_parse (struct peer *peer, struct attr *attr, struct bgp_nlri *packet)
 
 /* NLRI encode syntax check routine. */
 int
-bgp_nlri_sanity_check (struct peer *peer, int afi, u_char *pnt,
-		       bgp_size_t length)
+bgp_nlri_sanity_check (struct peer *peer, int afi, safi_t safi,
+                       u_char *pnt, bgp_size_t length)
 {
   u_char *end;
   u_char prefixlen;
@@ -6739,6 +6755,7 @@ bgp_show_route_in_table (struct vty *vty, struct bgp *bgp,
   struct bgp_info *ri;
   struct bgp_table *table;
 
+  memset (&match, 0, sizeof (struct prefix)); /* keep valgrind happy */
   /* Check IP address argument. */
   ret = str2prefix (ip_str, &match);
   if (! ret)

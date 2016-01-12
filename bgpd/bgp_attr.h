@@ -205,6 +205,8 @@ extern size_t bgp_packet_mpattr_start(struct stream *s, afi_t afi, safi_t safi,
 extern void bgp_packet_mpattr_prefix(struct stream *s, afi_t afi, safi_t safi,
 				     struct prefix *p, struct prefix_rd *prd,
 				     u_char *tag);
+extern size_t bgp_packet_mpattr_prefix_size(afi_t afi, safi_t safi,
+                                            struct prefix *p);
 extern void bgp_packet_mpattr_end(struct stream *s, size_t sizep);
 
 extern size_t bgp_packet_mpunreach_start (struct stream *s, afi_t afi,
