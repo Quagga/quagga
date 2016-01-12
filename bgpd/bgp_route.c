@@ -6950,21 +6950,10 @@ bgp_show_route (struct vty *vty, const char *view_name, const char *ip_str,
 }
 
 /* BGP route print out function. */
-DEFUN (show_ip_bgp,
-       show_ip_bgp_cmd,
-       "show ip bgp",
+DEFUN (show_bgp_ipv4_safi,
+       show_bgp_ipv4_safi_cmd,
+       "show bgp ipv4 (unicast|multicast)",
        SHOW_STR
-       IP_STR
-       BGP_STR)
-{
-  return bgp_show (vty, NULL, AFI_IP, SAFI_UNICAST, bgp_show_type_normal, NULL);
-}
-
-DEFUN (show_ip_bgp_ipv4,
-       show_ip_bgp_ipv4_cmd,
-       "show ip bgp ipv4 (unicast|multicast)",
-       SHOW_STR
-       IP_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
@@ -6977,31 +6966,10 @@ DEFUN (show_ip_bgp_ipv4,
   return bgp_show (vty, NULL, AFI_IP, SAFI_UNICAST, bgp_show_type_normal, NULL);
 }
 
-ALIAS (show_ip_bgp_ipv4,
-       show_bgp_ipv4_safi_cmd,
-       "show bgp ipv4 (unicast|multicast)",
+DEFUN (show_bgp_ipv4_safi_route,
+       show_bgp_ipv4_safi_route_cmd,
+       "show bgp ipv4 (unicast|multicast) A.B.C.D",
        SHOW_STR
-       BGP_STR
-       "Address family\n"
-       "Address Family modifier\n"
-       "Address Family modifier\n")
-
-DEFUN (show_ip_bgp_route,
-       show_ip_bgp_route_cmd,
-       "show ip bgp A.B.C.D",
-       SHOW_STR
-       IP_STR
-       BGP_STR
-       "Network in the BGP routing table to display\n")
-{
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 0);
-}
-
-DEFUN (show_ip_bgp_ipv4_route,
-       show_ip_bgp_ipv4_route_cmd,
-       "show ip bgp ipv4 (unicast|multicast) A.B.C.D",
-       SHOW_STR
-       IP_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
@@ -7014,36 +6982,39 @@ DEFUN (show_ip_bgp_ipv4_route,
   return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 0);
 }
 
-ALIAS (show_ip_bgp_ipv4_route,
-       show_bgp_ipv4_safi_route_cmd,
-       "show bgp ipv4 (unicast|multicast) A.B.C.D",
+DEFUN (show_bgp_ipv4_vpn_route,
+       show_bgp_ipv4_vpn_route_cmd,
+       "show bgp ipv4 vpn A.B.C.D",
        SHOW_STR
        BGP_STR
-       "Address family\n"
-       "Address Family modifier\n"
-       "Address Family modifier\n"
-       "Network in the BGP routing table to display\n")
-
-DEFUN (show_ip_bgp_vpnv4_all_route,
-       show_ip_bgp_vpnv4_all_route_cmd,
-       "show ip bgp vpnv4 all A.B.C.D",
-       SHOW_STR
-       IP_STR
-       BGP_STR
-       "Display VPNv4 NLRI specific information\n"
-       "Display information about all VPNv4 NLRIs\n"
+       "Address Family\n"
+       "Display VPN NLRI specific information\n"
        "Network in the BGP routing table to display\n")
 {
   return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_MPLS_VPN, NULL, 0);
 }
 
-DEFUN (show_ip_bgp_vpnv4_rd_route,
-       show_ip_bgp_vpnv4_rd_route_cmd,
-       "show ip bgp vpnv4 rd ASN:nn_or_IP-address:nn A.B.C.D",
+#ifdef HAVE_IPV6
+DEFUN (show_bgp_ipv6_vpn_route,
+       show_bgp_ipv6_vpn_route_cmd,
+       "show bgp ipv6 vpn X:X::X:X",
        SHOW_STR
-       IP_STR
        BGP_STR
-       "Display VPNv4 NLRI specific information\n"
+       "Address Family\n"
+       "Display VPN NLRI specific information\n"
+       "Network in the BGP routing table to display\n")
+{
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MPLS_VPN, NULL, 0);
+}
+#endif
+
+DEFUN (show_bgp_ipv4_vpn_rd_route,
+       show_bgp_ipv4_vpn_rd_route_cmd,
+       "show bgp ipv4 vpn rd ASN:nn_or_IP-address:nn A.B.C.D",
+       SHOW_STR
+       BGP_STR
+       IP_STR
+       "Display VPN NLRI specific information\n"
        "Display information for a route distinguisher\n"
        "VPN Route Distinguisher\n"
        "Network in the BGP routing table to display\n")
@@ -7060,15 +7031,27 @@ DEFUN (show_ip_bgp_vpnv4_rd_route,
   return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MPLS_VPN, &prd, 0);
 }
 
-DEFUN (show_ip_bgp_prefix,
-       show_ip_bgp_prefix_cmd,
-       "show ip bgp A.B.C.D/M",
+DEFUN (show_bgp_ipv6_vpn_rd_route,
+       show_bgp_ipv6_vpn_rd_route_cmd,
+       "show bgp ipv6 vpn rd ASN:nn_or_IP-address:nn X:X::X:X",
        SHOW_STR
-       IP_STR
        BGP_STR
-       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
+       "Address Family\n"
+       "Display VPN NLRI specific information\n"
+       "Display information for a route distinguisher\n"
+       "VPN Route Distinguisher\n"
+       "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 1);
+  int ret;
+  struct prefix_rd prd;
+
+  ret = str2prefix_rd (argv[0], &prd);
+  if (! ret)
+    {
+      vty_out (vty, "%% Malformed Route Distinguisher%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MPLS_VPN, &prd, 0);
 }
 
 DEFUN (show_ip_bgp_ipv4_prefix,
@@ -7156,87 +7139,58 @@ DEFUN (show_ip_bgp_view,
   return bgp_show (vty, bgp, AFI_IP, SAFI_UNICAST, bgp_show_type_normal, NULL);
 }
 
-DEFUN (show_ip_bgp_view_route,
-       show_ip_bgp_view_route_cmd,
-       "show ip bgp view WORD A.B.C.D",
+DEFUN (show_bgp_ipv4_prefix,
+       show_bgp_ipv4_prefix_cmd,
+       "show bgp ipv4 A.B.C.D/M",
        SHOW_STR
-       IP_STR
        BGP_STR
-       "BGP view\n"
-       "View name\n"
-       "Network in the BGP routing table to display\n")
-{
-  return bgp_show_route (vty, argv[0], argv[1], AFI_IP, SAFI_UNICAST, NULL, 0);
-}
-
-DEFUN (show_ip_bgp_view_prefix,
-       show_ip_bgp_view_prefix_cmd,
-       "show ip bgp view WORD A.B.C.D/M",
-       SHOW_STR
        IP_STR
-       BGP_STR
-       "BGP view\n"
-       "View name\n"
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
-  return bgp_show_route (vty, argv[0], argv[1], AFI_IP, SAFI_UNICAST, NULL, 1);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, NULL, 1);
 }
 
-#ifdef HAVE_IPV6
-DEFUN (show_bgp,
-       show_bgp_cmd,
-       "show bgp",
-       SHOW_STR
-       BGP_STR)
-{
-  return bgp_show (vty, NULL, AFI_IP6, SAFI_UNICAST, bgp_show_type_normal,
-                   NULL);
-}
-
-ALIAS (show_bgp,
-       show_bgp_ipv6_cmd,
-       "show bgp ipv6",
-       SHOW_STR
-       BGP_STR
-       "Address family\n")
-
-DEFUN (show_bgp_ipv6_safi,
-       show_bgp_ipv6_safi_cmd,
-       "show bgp ipv6 (unicast|multicast)",
+DEFUN (show_bgp_ipv4_safi_prefix,
+       show_bgp_ipv4_safi_prefix_cmd,
+       "show bgp ipv4 (unicast|multicast) A.B.C.D/M",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
-       "Address Family modifier\n")
+       "Address Family modifier\n"
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
   if (strncmp (argv[0], "m", 1) == 0)
-    return bgp_show (vty, NULL, AFI_IP6, SAFI_MULTICAST, bgp_show_type_normal,
-                     NULL);
+    return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_MULTICAST, NULL, 1);
 
-  return bgp_show (vty, NULL, AFI_IP6, SAFI_UNICAST, bgp_show_type_normal, NULL);
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP, SAFI_UNICAST, NULL, 1);
 }
 
-/* old command */
-DEFUN (show_ipv6_bgp,
-       show_ipv6_bgp_cmd,
-       "show ipv6 bgp",
-       SHOW_STR
-       IP_STR
-       BGP_STR)
-{
-  return bgp_show (vty, NULL, AFI_IP6, SAFI_UNICAST, bgp_show_type_normal,
-                   NULL);
-}
-
-DEFUN (show_bgp_route,
-       show_bgp_route_cmd,
-       "show bgp X:X::X:X",
+DEFUN (show_bgp_ipv4_vpn_prefix,
+       show_bgp_ipv4_vpn_prefix_cmd,
+       "show bgp ipv4 vpn A.B.C.D/M",
        SHOW_STR
        BGP_STR
-       "Network in the BGP routing table to display\n")
+       IP_STR
+       "Display VPN NLRI specific information\n"
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 0);
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP, SAFI_MPLS_VPN, NULL, 1);
 }
+
+#ifdef HAVE_IPV6
+DEFUN (show_bgp_ipv6_vpn_prefix,
+       show_bgp_ipv6_vpn_prefix_cmd,
+       "show bgp ipv6 vpn X:X::X:X/M",
+       SHOW_STR
+       BGP_STR
+       "Address Family\n"
+       "Display VPN NLRI specific information\n"
+       "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
+{
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MPLS_VPN, NULL, 1);
+}
+#endif
 
 ALIAS (show_bgp_route,
        show_bgp_ipv6_route_cmd,
@@ -7262,36 +7216,44 @@ DEFUN (show_bgp_ipv6_safi_route,
   return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0);
 }
 
-/* old command */
-DEFUN (show_ipv6_bgp_route,
-       show_ipv6_bgp_route_cmd,
-       "show ipv6 bgp X:X::X:X",
+DEFUN (show_bgp_ipv6_route,
+       show_bgp_ipv6_route_cmd,
+       "show bgp ipv6 X:X::X:X",
        SHOW_STR
-       IP_STR
        BGP_STR
+       "Address family\n"
        "Network in the BGP routing table to display\n")
 {
   return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 0);
 }
 
-DEFUN (show_bgp_prefix,
-       show_bgp_prefix_cmd,
-       "show bgp X:X::X:X/M",
+DEFUN (show_bgp_ipv6_safi_route,
+       show_bgp_ipv6_safi_route_cmd,
+       "show bgp ipv6 (unicast|multicast) X:X::X:X",
        SHOW_STR
        BGP_STR
-       "IPv6 prefix <network>/<length>\n")
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Network in the BGP routing table to display\n")
 {
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1);
+  if (strncmp (argv[0], "m", 1) == 0)
+    return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_MULTICAST, NULL, 0);
+
+  return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0);
 }
 
-ALIAS (show_bgp_prefix,
+/* new002 */
+DEFUN (show_bgp_ipv6_prefix,
        show_bgp_ipv6_prefix_cmd,
        "show bgp ipv6 X:X::X:X/M",
        SHOW_STR
        BGP_STR
        "Address family\n"
-       "IPv6 prefix <network>/<length>\n")
-
+       "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
+{
+  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1);
+}
 DEFUN (show_bgp_ipv6_safi_prefix,
        show_bgp_ipv6_safi_prefix_cmd,
        "show bgp ipv6 (unicast|multicast) X:X::X:X/M",
@@ -7308,25 +7270,14 @@ DEFUN (show_bgp_ipv6_safi_prefix,
   return bgp_show_route (vty, NULL, argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1);
 }
 
-/* old command */
-DEFUN (show_ipv6_bgp_prefix,
-       show_ipv6_bgp_prefix_cmd,
-       "show ipv6 bgp X:X::X:X/M",
-       SHOW_STR
-       IP_STR
-       BGP_STR
-       "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
-{
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, NULL, 1);
-}
-
 DEFUN (show_bgp_view,
-       show_bgp_view_cmd,
-       "show bgp view WORD",
+       show_bgp_view_ipv6_cmd,
+       "show bgp view WORD ipv6",
        SHOW_STR
-       BGP_STR
+       BGP_STR             
        "BGP view\n"
-       "View name\n")
+       "View name\n"
+       "Address family\n")
 {
   struct bgp *bgp;
 
@@ -7340,29 +7291,8 @@ DEFUN (show_bgp_view,
   
   return bgp_show (vty, bgp, AFI_IP6, SAFI_UNICAST, bgp_show_type_normal, NULL);
 }
-
-ALIAS (show_bgp_view,
-       show_bgp_view_ipv6_cmd,
-       "show bgp view WORD ipv6",
-       SHOW_STR
-       BGP_STR             
-       "BGP view\n"
-       "View name\n"
-       "Address family\n")
   
 DEFUN (show_bgp_view_route,
-       show_bgp_view_route_cmd,
-       "show bgp view WORD X:X::X:X",
-       SHOW_STR
-       BGP_STR
-       "BGP view\n"
-       "View name\n"
-       "Network in the BGP routing table to display\n")
-{
-  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0);
-}
-
-ALIAS (show_bgp_view_route,
        show_bgp_view_ipv6_route_cmd,
        "show bgp view WORD ipv6 X:X::X:X",
        SHOW_STR
@@ -7371,20 +7301,11 @@ ALIAS (show_bgp_view_route,
        "View name\n"
        "Address family\n"
        "Network in the BGP routing table to display\n")
-
-DEFUN (show_bgp_view_prefix,
-       show_bgp_view_prefix_cmd,
-       "show bgp view WORD X:X::X:X/M",
-       SHOW_STR
-       BGP_STR
-       "BGP view\n"
-       "View name\n"       
-       "IPv6 prefix <network>/<length>\n")
 {
-  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1); 
+  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 0);
 }
 
-ALIAS (show_bgp_view_prefix,
+DEFUN (show_bgp_view_prefix,
        show_bgp_view_ipv6_prefix_cmd,
        "show bgp view WORD ipv6 X:X::X:X/M",
        SHOW_STR
@@ -7393,42 +7314,10 @@ ALIAS (show_bgp_view_prefix,
        "View name\n"
        "Address family\n"
        "IPv6 prefix <network>/<length>\n")  
-
-/* old command */
-DEFUN (show_ipv6_mbgp,
-       show_ipv6_mbgp_cmd,
-       "show ipv6 mbgp",
-       SHOW_STR
-       IP_STR
-       MBGP_STR)
 {
-  return bgp_show (vty, NULL, AFI_IP6, SAFI_MULTICAST, bgp_show_type_normal,
-                   NULL);
+  return bgp_show_route (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, NULL, 1); 
 }
 
-/* old command */
-DEFUN (show_ipv6_mbgp_route,
-       show_ipv6_mbgp_route_cmd,
-       "show ipv6 mbgp X:X::X:X",
-       SHOW_STR
-       IP_STR
-       MBGP_STR
-       "Network in the MBGP routing table to display\n")
-{
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MULTICAST, NULL, 0);
-}
-
-/* old command */
-DEFUN (show_ipv6_mbgp_prefix,
-       show_ipv6_mbgp_prefix_cmd,
-       "show ipv6 mbgp X:X::X:X/M",
-       SHOW_STR
-       IP_STR
-       MBGP_STR
-       "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
-{
-  return bgp_show_route (vty, NULL, argv[0], AFI_IP6, SAFI_MULTICAST, NULL, 1);
-}
 #endif
 
 
@@ -7603,12 +7492,12 @@ bgp_show_prefix_list (struct vty *vty, const char *prefix_list_str, afi_t afi,
   return bgp_show (vty, NULL, afi, safi, type, plist);
 }
 
-DEFUN (show_ip_bgp_prefix_list, 
-       show_ip_bgp_prefix_list_cmd,
-       "show ip bgp prefix-list WORD",
+DEFUN (show_bgp_ipv4_prefix_list, 
+       show_bgp_ipv4_prefix_list_cmd,
+       "show bgp ipv4 prefix-list WORD",
        SHOW_STR
-       IP_STR
        BGP_STR
+       IP_STR
        "Display routes conforming to the prefix-list\n"
        "IP prefix-list name\n")
 {
