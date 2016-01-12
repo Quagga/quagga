@@ -7394,6 +7394,103 @@ bgp_show_summary_vty (struct vty *vty, const char *name,
 }
 
 /* `show ip bgp summary' commands. */
+DEFUN (show_ip_bgp_summary, 
+       show_ip_bgp_summary_cmd,
+       "show ip bgp summary",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Summary of BGP neighbor status\n")
+{
+  return bgp_show_summary_vty (vty, NULL, AFI_IP, SAFI_UNICAST);
+}
+
+DEFUN (show_ip_bgp_instance_summary,
+       show_ip_bgp_instance_summary_cmd,
+       "show ip bgp view WORD summary",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "BGP view\n"
+       "View name\n"
+       "Summary of BGP neighbor status\n")
+{
+  return bgp_show_summary_vty (vty, argv[0], AFI_IP, SAFI_UNICAST);  
+}
+
+DEFUN (show_ip_bgp_ipv4_summary, 
+       show_ip_bgp_ipv4_summary_cmd,
+       "show ip bgp ipv4 (unicast|multicast) summary",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Summary of BGP neighbor status\n")
+{
+  if (strncmp (argv[0], "m", 1) == 0)
+    return bgp_show_summary_vty (vty, NULL, AFI_IP, SAFI_MULTICAST);
+
+  return bgp_show_summary_vty (vty, NULL, AFI_IP, SAFI_UNICAST);
+}
+
+DEFUN (show_ip_bgp_instance_ipv4_summary,
+       show_ip_bgp_instance_ipv4_summary_cmd,
+       "show ip bgp view WORD ipv4 (unicast|multicast) summary",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "BGP view\n"
+       "View name\n"
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Summary of BGP neighbor status\n")
+{
+  if (strncmp (argv[1], "m", 1) == 0)
+    return bgp_show_summary_vty (vty, argv[0], AFI_IP, SAFI_MULTICAST);
+  else
+    return bgp_show_summary_vty (vty, argv[0], AFI_IP, SAFI_UNICAST);
+}
+
+DEFUN (show_ip_bgp_vpnv4_all_summary,
+       show_ip_bgp_vpnv4_all_summary_cmd,
+       "show ip bgp vpnv4 all summary",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Display VPNv4 NLRI specific information\n"
+       "Display information about all VPNv4 NLRIs\n"
+       "Summary of BGP neighbor status\n")
+{
+  return bgp_show_summary_vty (vty, NULL, AFI_IP, SAFI_MPLS_VPN);
+}
+
+DEFUN (show_ip_bgp_vpnv4_rd_summary,
+       show_ip_bgp_vpnv4_rd_summary_cmd,
+       "show ip bgp vpnv4 rd ASN:nn_or_IP-address:nn summary",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Display VPNv4 NLRI specific information\n"
+       "Display information for a route distinguisher\n"
+       "VPN Route Distinguisher\n"
+       "Summary of BGP neighbor status\n")
+{
+  int ret;
+  struct prefix_rd prd;
+
+  ret = str2prefix_rd (argv[0], &prd);
+  if (! ret)
+    {
+      vty_out (vty, "%% Malformed Route Distinguisher%s", VTY_NEWLINE);
+      return CMD_WARNING;
+    }
+
+  return bgp_show_summary_vty (vty, NULL, AFI_IP, SAFI_MPLS_VPN);
+}
+
 DEFUN (show_bgp_ipv4_safi_summary,
        show_bgp_ipv4_safi_summary_cmd,
        "show bgp ipv4 (unicast|multicast) summary",
@@ -7617,6 +7714,29 @@ DEFUN (show_bgp_instance_ipv6_safi_summary,
   return bgp_show_summary_vty (vty, argv[0], AFI_IP6, SAFI_UNICAST);
 }
 
+/* old command */
+DEFUN (show_ipv6_bgp_summary, 
+       show_ipv6_bgp_summary_cmd,
+       "show ipv6 bgp summary",
+       SHOW_STR
+       IPV6_STR
+       BGP_STR
+       "Summary of BGP neighbor status\n")
+{
+  return bgp_show_summary_vty (vty, NULL, AFI_IP6, SAFI_UNICAST);
+}
+
+/* old command */
+DEFUN (show_ipv6_mbgp_summary, 
+       show_ipv6_mbgp_summary_cmd,
+       "show ipv6 mbgp summary",
+       SHOW_STR
+       IPV6_STR
+       MBGP_STR
+       "Summary of BGP neighbor status\n")
+{
+  return bgp_show_summary_vty (vty, NULL, AFI_IP6, SAFI_MULTICAST);
+}
 #endif /* HAVE_IPV6 */
 
 /* variations of show bgp [...] summary */
@@ -7658,6 +7778,14 @@ DEFUN (show_bgp_summary,
 #endif
     return CMD_SUCCESS;
 }
+
+ALIAS (show_bgp_summary, 
+       show_bgp_ipv6_summary_cmd,
+       "show bgp ipv6 summary",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Summary of BGP neighbor status\n")
 
 DEFUN (show_bgp_summary_1w,
        show_bgp_summary_1w_cmd,
@@ -8495,7 +8623,186 @@ bgp_show_neighbor_vty (struct vty *vty, const char *name,
   return CMD_SUCCESS;
 }
 
-/* "show ip bgp neighbors" commands.  */
+/* "show ip bgp neighbors" commands.  */DEFUN (show_ip_bgp_neighbors,
+       show_ip_bgp_neighbors_cmd,
+       "show ip bgp neighbors",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Detailed information on TCP and BGP neighbor connections\n")
+{
+  return bgp_show_neighbor_vty (vty, NULL, show_all, NULL);
+}
+
+ALIAS (show_ip_bgp_neighbors,
+       show_ip_bgp_ipv4_neighbors_cmd,
+       "show ip bgp ipv4 (unicast|multicast) neighbors",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Detailed information on TCP and BGP neighbor connections\n")
+
+ALIAS (show_ip_bgp_neighbors,
+       show_ip_bgp_vpnv4_all_neighbors_cmd,
+       "show ip bgp vpnv4 all neighbors",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Display VPNv4 NLRI specific information\n"
+       "Display information about all VPNv4 NLRIs\n"
+       "Detailed information on TCP and BGP neighbor connections\n")
+
+ALIAS (show_ip_bgp_neighbors,
+       show_ip_bgp_vpnv4_rd_neighbors_cmd,
+       "show ip bgp vpnv4 rd ASN:nn_or_IP-address:nn neighbors",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Display VPNv4 NLRI specific information\n"
+       "Display information for a route distinguisher\n"
+       "VPN Route Distinguisher\n"
+       "Detailed information on TCP and BGP neighbor connections\n")
+
+ALIAS (show_ip_bgp_neighbors,
+       show_bgp_ipv6_neighbors_cmd,
+       "show bgp ipv6 neighbors",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Detailed information on TCP and BGP neighbor connections\n")
+
+DEFUN (show_ip_bgp_neighbors_peer,
+       show_ip_bgp_neighbors_peer_cmd,
+       "show ip bgp neighbors (A.B.C.D|X:X::X:X)",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Detailed information on TCP and BGP neighbor connections\n"
+       "Neighbor to display information about\n"
+       "Neighbor to display information about\n")
+{
+  return bgp_show_neighbor_vty (vty, NULL, show_peer, argv[argc - 1]);
+}
+
+ALIAS (show_ip_bgp_neighbors_peer,
+       show_ip_bgp_ipv4_neighbors_peer_cmd,
+       "show ip bgp ipv4 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X)",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Detailed information on TCP and BGP neighbor connections\n"
+       "Neighbor to display information about\n"
+       "Neighbor to display information about\n")
+
+ALIAS (show_ip_bgp_neighbors_peer,
+       show_ip_bgp_vpnv4_all_neighbors_peer_cmd,
+       "show ip bgp vpnv4 all neighbors A.B.C.D",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Display VPNv4 NLRI specific information\n"
+       "Display information about all VPNv4 NLRIs\n"
+       "Detailed information on TCP and BGP neighbor connections\n"
+       "Neighbor to display information about\n")
+
+ALIAS (show_ip_bgp_neighbors_peer,
+       show_ip_bgp_vpnv4_rd_neighbors_peer_cmd,
+       "show ip bgp vpnv4 rd ASN:nn_or_IP-address:nn neighbors A.B.C.D",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Display VPNv4 NLRI specific information\n"
+       "Display information about all VPNv4 NLRIs\n"
+       "Detailed information on TCP and BGP neighbor connections\n"
+       "Neighbor to display information about\n")
+
+ALIAS (show_ip_bgp_neighbors_peer,
+       show_bgp_ipv6_neighbors_peer_cmd,
+       "show bgp ipv6 neighbors (A.B.C.D|X:X::X:X)",
+       SHOW_STR
+       BGP_STR
+       "Address family\n"
+       "Detailed information on TCP and BGP neighbor connections\n"
+       "Neighbor to display information about\n"
+       "Neighbor to display information about\n")
+
+DEFUN (show_ip_bgp_instance_neighbors,
+       show_ip_bgp_instance_neighbors_cmd,
+       "show ip bgp view WORD neighbors",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "BGP view\n"
+       "View name\n"
+       "Detailed information on TCP and BGP neighbor connections\n")
+{
+  return bgp_show_neighbor_vty (vty, argv[0], show_all, NULL);
+}
+
+ALIAS (show_ip_bgp_instance_neighbors,
+       show_bgp_instance_ipv6_neighbors_cmd,
+       "show bgp view WORD ipv6 neighbors",
+       SHOW_STR
+       BGP_STR
+       "BGP view\n"
+       "View name\n"
+       "Address family\n"
+       "Detailed information on TCP and BGP neighbor connections\n")
+
+DEFUN (show_ip_bgp_instance_neighbors_peer,
+       show_ip_bgp_instance_neighbors_peer_cmd,
+       "show ip bgp view WORD neighbors (A.B.C.D|X:X::X:X)",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "BGP view\n"
+       "View name\n"
+       "Detailed information on TCP and BGP neighbor connections\n"
+       "Neighbor to display information about\n"
+       "Neighbor to display information about\n")
+{
+  return bgp_show_neighbor_vty (vty, argv[0], show_peer, argv[1]);
+}
+
+/* Show BGP's AS paths internal data.  There are both `show ip bgp
+   paths' and `show ip mbgp paths'.  Those functions results are the
+   same.*/
+DEFUN (show_ip_bgp_paths, 
+       show_ip_bgp_paths_cmd,
+       "show ip bgp paths",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Path information\n")
+{
+  vty_out (vty, "Address Refcnt Path%s", VTY_NEWLINE);
+  aspath_print_all_vty (vty);
+  return CMD_SUCCESS;
+}
+
+DEFUN (show_ip_bgp_ipv4_paths, 
+       show_ip_bgp_ipv4_paths_cmd,
+       "show ip bgp ipv4 (unicast|multicast) paths",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Path information\n")
+{
+  vty_out (vty, "Address Refcnt Path\r\n");
+  aspath_print_all_vty (vty);
+
+  return CMD_SUCCESS;
+}
+
 DEFUN (show_bgp_neighbors,
        show_bgp_neighbors_cmd,
        "show bgp neighbors",
@@ -8533,16 +8840,6 @@ DEFUN (show_bgp_instance_neighbors,
 {
   return bgp_show_neighbor_vty (vty, argv[0], show_all, NULL);
 }
-
-ALIAS (show_bgp_instance_neighbors,
-       show_bgp_instance_ipv6_neighbors_cmd,
-       "show bgp view WORD ipv6 neighbors",
-       SHOW_STR
-       BGP_STR
-       "BGP view\n"
-       "View name\n"
-       "Address family\n"
-       "Detailed information on TCP and BGP neighbor connections\n")
 
 DEFUN (show_bgp_instance_neighbors_peer,
        show_bgp_instance_neighbors_peer_cmd,
@@ -8772,6 +9069,69 @@ bgp_show_rsclient_summary_vty (struct vty *vty, const char *name,
 }
 
 /* 'show bgp rsclient' commands. */
+DEFUN (show_ip_bgp_rsclient_summary,
+       show_ip_bgp_rsclient_summary_cmd,
+       "show ip bgp rsclient summary",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Information about Route Server Clients\n"
+       "Summary of all Route Server Clients\n")
+{
+  return bgp_show_rsclient_summary_vty (vty, NULL, AFI_IP, SAFI_UNICAST);
+}
+
+DEFUN (show_ip_bgp_instance_rsclient_summary,
+       show_ip_bgp_instance_rsclient_summary_cmd,
+       "show ip bgp view WORD rsclient summary",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "BGP view\n"
+       "View name\n"
+       "Information about Route Server Clients\n"
+       "Summary of all Route Server Clients\n")
+{
+  return bgp_show_rsclient_summary_vty (vty, argv[0], AFI_IP, SAFI_UNICAST);
+}
+
+DEFUN (show_ip_bgp_ipv4_rsclient_summary,
+      show_ip_bgp_ipv4_rsclient_summary_cmd,
+      "show ip bgp ipv4 (unicast|multicast) rsclient summary",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Clients\n"
+       "Summary of all Route Server Clients\n")
+{
+  if (strncmp (argv[0], "m", 1) == 0)
+    return bgp_show_rsclient_summary_vty (vty, NULL, AFI_IP, SAFI_MULTICAST);
+
+  return bgp_show_rsclient_summary_vty (vty, NULL, AFI_IP, SAFI_UNICAST);
+}
+
+DEFUN (show_ip_bgp_instance_ipv4_rsclient_summary,
+      show_ip_bgp_instance_ipv4_rsclient_summary_cmd,
+      "show ip bgp view WORD ipv4 (unicast|multicast) rsclient summary",
+       SHOW_STR
+       IP_STR
+       BGP_STR
+       "BGP view\n"
+       "View name\n"
+       "Address family\n"
+       "Address Family modifier\n"
+       "Address Family modifier\n"
+       "Information about Route Server Clients\n"
+       "Summary of all Route Server Clients\n")
+{
+  if (strncmp (argv[1], "m", 1) == 0)
+    return bgp_show_rsclient_summary_vty (vty, argv[0], AFI_IP, SAFI_MULTICAST);
+
+  return bgp_show_rsclient_summary_vty (vty, argv[0], AFI_IP, SAFI_UNICAST);
+}
 
 DEFUN (show_bgp_instance_ipv4_safi_rsclient_summary,
        show_bgp_instance_ipv4_safi_rsclient_summary_cmd,
@@ -10712,7 +11072,6 @@ bgp_vty_init (void)
 #ifdef HAVE_IPV6
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_vpn_summary_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_encap_summary_cmd);
-  install_element (RESTRICTED_NODE, &show_bgp_ipv6_encap_summary_cmd);
 #endif
 
   install_element (RESTRICTED_NODE, &show_bgp_instance_summary_cmd);
@@ -10779,12 +11138,10 @@ bgp_vty_init (void)
   install_element (VIEW_NODE, &show_bgp_instance_ipv6_rsclient_summary_cmd);
   install_element (VIEW_NODE, &show_bgp_instance_ipv6_safi_rsclient_summary_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_safi_rsclient_summary_cmd);
-  install_element (RESTRICTED_NODE, &show_bgp_rsclient_summary_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_rsclient_summary_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_instance_ipv6_rsclient_summary_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_instance_ipv6_safi_rsclient_summary_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_safi_rsclient_summary_cmd);
-  install_element (ENABLE_NODE, &show_bgp_rsclient_summary_cmd);
   install_element (ENABLE_NODE, &show_bgp_ipv6_rsclient_summary_cmd);
   install_element (ENABLE_NODE, &show_bgp_instance_ipv6_rsclient_summary_cmd);
   install_element (ENABLE_NODE, &show_bgp_instance_ipv6_safi_rsclient_summary_cmd);
@@ -10840,7 +11197,79 @@ bgp_vty_init (void)
   install_element (VIEW_NODE, &show_bgp_views_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_views_cmd);
   install_element (ENABLE_NODE, &show_bgp_views_cmd);
-  
+
+  /* non afi/safi forms of commands */
+  install_element (VIEW_NODE, &show_ip_bgp_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_instance_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_ipv4_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_instance_ipv4_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_summary_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_instance_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_ipv4_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_instance_ipv4_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_vpnv4_all_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_vpnv4_rd_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_summary_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_summary_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_instance_summary_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_ipv4_summary_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_instance_ipv4_summary_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_summary_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_summary_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_neighbors_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_ipv4_neighbors_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_neighbors_peer_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_ipv4_neighbors_peer_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_neighbors_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_neighbors_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_all_neighbors_peer_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_vpnv4_rd_neighbors_peer_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_instance_neighbors_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_instance_neighbors_peer_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_neighbors_peer_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_ipv4_neighbors_peer_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_vpnv4_all_neighbors_peer_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_vpnv4_rd_neighbors_peer_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_instance_neighbors_peer_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_neighbors_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_ipv4_neighbors_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_neighbors_peer_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_ipv4_neighbors_peer_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_neighbors_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_neighbors_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_all_neighbors_peer_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_vpnv4_rd_neighbors_peer_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_instance_neighbors_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_instance_neighbors_peer_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_neighbors_cmd);
+  install_element (VIEW_NODE, &show_bgp_ipv6_neighbors_peer_cmd);
+  install_element (RESTRICTED_NODE, &show_bgp_ipv6_neighbors_peer_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_neighbors_cmd);
+  install_element (ENABLE_NODE, &show_bgp_ipv6_neighbors_peer_cmd);
+  install_element (VIEW_NODE, &show_ipv6_bgp_summary_cmd);
+  install_element (VIEW_NODE, &show_ipv6_mbgp_summary_cmd);
+  install_element (ENABLE_NODE, &show_ipv6_bgp_summary_cmd);
+  install_element (ENABLE_NODE, &show_ipv6_mbgp_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_rsclient_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_instance_rsclient_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_ipv4_rsclient_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_instance_ipv4_rsclient_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_rsclient_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_instance_rsclient_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_ipv4_rsclient_summary_cmd);
+  install_element (RESTRICTED_NODE, &show_ip_bgp_instance_ipv4_rsclient_summary_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_rsclient_summary_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_instance_rsclient_summary_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_ipv4_rsclient_summary_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_instance_ipv4_rsclient_summary_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_paths_cmd);
+  install_element (VIEW_NODE, &show_ip_bgp_ipv4_paths_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_paths_cmd);
+  install_element (ENABLE_NODE, &show_ip_bgp_ipv4_paths_cmd);
   /* Community-list. */
   community_list_vty ();
 }
