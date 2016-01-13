@@ -191,6 +191,16 @@ vtysh_auth (void)
   return 0;
 }
 
+char *
+vtysh_get_home (void)
+{
+  struct passwd *passwd;
+
+  passwd = getpwuid (getuid ());
+
+  return passwd ? passwd->pw_dir : NULL;
+}
+
 void
 vtysh_user_init (void)
 {

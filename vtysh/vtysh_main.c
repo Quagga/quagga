@@ -223,6 +223,7 @@ main (int argc, char **argv, char **env)
   struct cmd_rec *tail = NULL;
   int echo_command = 0;
   int no_error = 0;
+  char *homedir = NULL;
 
   /* Preserve name of myself. */
   progname = ((p = strrchr (argv[0], '/')) ? ++p : argv[0]);
@@ -317,6 +318,27 @@ main (int argc, char **argv, char **env)
       exit(1);
     }
 
+  /*
+   * Setup history file for use by both -c and regular input
+   * If we can't find the home directory, then don't store
+   * the history information
+   */
+  homedir = vtysh_get_home ();
+  if (homedir)
+    {
+      snprintf(history_file, sizeof(history_file), "%s/.history_quagga", homedir);
+      if (read_history (history_file) != 0)
+	{
+	  int fp;
+
+	  fp = open (history_file, O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+	  if (fp)
+	    close (fp);
+
+	  read_history (history_file);
+	}
+    }
+
   /* If eval mode. */
   if (cmd)
     {
@@ -331,6 +353,9 @@ main (int argc, char **argv, char **env)
 	  while ((eol = strchr(cmd->line, '\n')) != NULL)
 	    {
 	      *eol = '\0';
+
+	      add_history (cmd->line);
+	      append_history (1, history_file);
 
 	      if (echo_command)
 		printf("%s%s\n", vtysh_prompt(), cmd->line);
@@ -347,6 +372,9 @@ main (int argc, char **argv, char **env)
 
 	      cmd->line = eol+1;
 	    }
+
+	  add_history (cmd->line);
+	  append_history (1, history_file);
 
 	  if (echo_command)
 	    printf("%s%s\n", vtysh_prompt(), cmd->line);
@@ -368,6 +396,8 @@ main (int argc, char **argv, char **env)
 	    XFREE(0, cr);
 	  }
         }
+
+      history_truncate_file(history_file,1000);
       exit (0);
     }
   
@@ -397,8 +427,6 @@ main (int argc, char **argv, char **env)
   sigsetjmp (jmpbuf, 1);
   jmpflag = 1;
 
-  snprintf(history_file, sizeof(history_file), "%s/.history_quagga", getenv("HOME"));
-  read_history(history_file);
   /* Main command loop. */
   while (vtysh_rl_gets ())
     vtysh_execute (line_read);
