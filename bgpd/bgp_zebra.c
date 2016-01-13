@@ -1013,12 +1013,12 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp,
 
       if (nexthop)
         {
-          if (info->attr->extra->mp_nexthop_len == 32)
-            if (info->peer->nexthop.ifp)
-              ifindex = info->peer->nexthop.ifp->ifindex;
-
-          if (!ifindex)
+	  if (IN6_IS_ADDR_LINKLOCAL (nexthop))
 	    {
+	      if (info->attr->extra->mp_nexthop_len == 32)
+		if (info->peer->nexthop.ifp)
+		  ifindex = info->peer->nexthop.ifp->ifindex;
+              
 	      if (info->peer->ifname)
 	        ifindex = ifname2ifindex (info->peer->ifname);
 	      else if (info->peer->nexthop.ifp)
@@ -1111,8 +1111,9 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp,
                      inet_ntop(AF_INET6, &p->u.prefix6, buf[0], sizeof(buf[0])),
                      p->prefixlen, api.metric, api.tag);
           for (i = 0; i < api.nexthop_num; i++)
-            zlog_debug("  IPv6 [nexthop %d] %s", i+1,
-                       inet_ntop(AF_INET6, api.nexthop[i], buf[1], sizeof(buf[1])));
+            zlog_debug("  IPv6 [nexthop %d] %s (%d)", i+1,
+                       inet_ntop(AF_INET6, api.nexthop[i], buf[1], sizeof(buf[1])),
+		       api.ifindex[i]);
         }
 
       zapi_ipv6_route (valid_nh_count ? ZEBRA_IPV6_ROUTE_ADD : ZEBRA_IPV6_ROUTE_DELETE,
