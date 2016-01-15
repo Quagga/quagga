@@ -1295,6 +1295,10 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
       vty_out (vty, ", vrf %u", rib->vrf_id);
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
         vty_out (vty, ", best");
+      if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_FIB_OVERRIDE))
+        vty_out (vty, ", fib-override");
+      if (CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB))
+        vty_out (vty, ", fib");
       if (rib->refcnt)
         vty_out (vty, ", refcnt %ld", rib->refcnt);
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_BLACKHOLE))

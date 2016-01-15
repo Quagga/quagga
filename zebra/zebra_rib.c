@@ -387,7 +387,7 @@ nexthop_active_ipv4 (struct rib *rib, struct nexthop *nexthop, int set,
 	{
 	  if (CHECK_FLAG (match->status, RIB_ENTRY_REMOVED))
 	    continue;
-	  if (CHECK_FLAG (match->flags, ZEBRA_FLAG_SELECTED))
+	  if (CHECK_FLAG (match->status, RIB_ENTRY_SELECTED_FIB))
 	    break;
 	}
 
@@ -521,7 +521,7 @@ nexthop_active_ipv6 (struct rib *rib, struct nexthop *nexthop, int set,
 	{
 	  if (CHECK_FLAG (match->status, RIB_ENTRY_REMOVED))
 	    continue;
-	  if (CHECK_FLAG (match->flags, ZEBRA_FLAG_SELECTED))
+	  if (CHECK_FLAG (match->status, RIB_ENTRY_SELECTED_FIB))
 	    break;
 	}
 
@@ -633,7 +633,7 @@ rib_match_ipv4_safi (struct in_addr addr, safi_t safi, int skip_bgp,
 	{
 	  if (CHECK_FLAG (match->status, RIB_ENTRY_REMOVED))
 	    continue;
-	  if (CHECK_FLAG (match->flags, ZEBRA_FLAG_SELECTED))
+	  if (CHECK_FLAG (match->status, RIB_ENTRY_SELECTED_FIB))
 	    break;
 	}
 
@@ -778,7 +778,7 @@ rib_lookup_ipv4 (struct prefix_ipv4 *p, vrf_id_t vrf_id)
     {
       if (CHECK_FLAG (match->status, RIB_ENTRY_REMOVED))
 	continue;
-      if (CHECK_FLAG (match->flags, ZEBRA_FLAG_SELECTED))
+      if (CHECK_FLAG (match->status, RIB_ENTRY_SELECTED_FIB))
 	break;
     }
 
@@ -838,7 +838,7 @@ rib_lookup_ipv4_route (struct prefix_ipv4 *p, union sockunion * qgate,
     {
       if (CHECK_FLAG (match->status, RIB_ENTRY_REMOVED))
 	continue;
-      if (CHECK_FLAG (match->flags, ZEBRA_FLAG_SELECTED))
+      if (CHECK_FLAG (match->status, RIB_ENTRY_SELECTED_FIB))
 	break;
     }
 
@@ -904,7 +904,7 @@ rib_match_ipv6 (struct in6_addr *addr, vrf_id_t vrf_id)
 	{
 	  if (CHECK_FLAG (match->status, RIB_ENTRY_REMOVED))
 	    continue;
-	  if (CHECK_FLAG (match->flags, ZEBRA_FLAG_SELECTED))
+	  if (CHECK_FLAG (match->status, RIB_ENTRY_SELECTED_FIB))
 	    break;
 	}
 
@@ -1139,7 +1139,7 @@ rib_uninstall (struct route_node *rn, struct rib *rib)
 {
   rib_table_info_t *info = rn->table->info;
 
-  if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
+  if (CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB))
     {
       if (info->safi == SAFI_UNICAST)
         zfpm_trigger_update (rn, "rib_uninstall");
@@ -1259,6 +1259,8 @@ rib_process (struct route_node *rn)
 {
   struct rib *rib;
   struct rib *next;
+  struct rib *old_selected = NULL;
+  struct rib *new_selected = NULL;
   struct rib *old_fib = NULL;
   struct rib *new_fib = NULL;
   int installed = 0;
@@ -1274,6 +1276,11 @@ rib_process (struct route_node *rn)
     {
       /* Currently installed rib. */
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
+        {
+          assert (old_selected == NULL);
+          old_selected = rib;
+        }
+      if (CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB))
         {
           assert (old_fib == NULL);
           old_fib = rib;
@@ -1291,17 +1298,31 @@ rib_process (struct route_node *rn)
       if (rib->distance == DISTANCE_INFINITY)
         continue;
 
-      new_fib = rib_choose_best(new_fib, rib);
+      if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_FIB_OVERRIDE))
+        new_fib = rib_choose_best(new_fib, rib);
+      else
+        new_selected = rib_choose_best(new_selected, rib);
     } /* RNODE_FOREACH_RIB_SAFE */
 
+  /* If no FIB override route, use the selected route also for FIB */
+  if (new_fib == NULL)
+    new_fib = new_selected;
+
   /* After the cycle is finished, the following pointers will be set:
-   * old_fib --- RIB entry currently having SELECTED
-   * new_fib --- RIB entry that is newly SELECTED
+   * old_selected --- RIB entry currently having SELECTED
+   * new_selected --- RIB entry that is newly SELECTED
+   * old_fib      --- RIB entry currently in kernel FIB
+   * new_fib      --- RIB entry that is newly to be in kernel FIB
+   *
+   * new_selected will get SELECTED flag, and is going to be redistributed
+   * the zclients. new_fib (which can be new_selected) will be installed in kernel.
    */
 
   /* Set real nexthops. */
   if (new_fib)
     nexthop_active_update (rn, new_fib, 1);
+  if (new_selected && new_selected != new_fib)
+     nexthop_active_update (rn, new_selected, 1);
 
   /* Update kernel if FIB entry has changed */
   if (old_fib != new_fib
@@ -1309,20 +1330,15 @@ rib_process (struct route_node *rn)
     {
         if (old_fib && old_fib != new_fib)
           {
-            if (! new_fib)
-              redistribute_delete (&rn->p, old_fib);
-
             if (! RIB_SYSTEM_ROUTE (old_fib) && (! new_fib || RIB_SYSTEM_ROUTE (new_fib)))
               rib_update_kernel (rn, old_fib, NULL);
-            UNSET_FLAG (old_fib->flags, ZEBRA_FLAG_SELECTED);
+            UNSET_FLAG (old_fib->status, RIB_ENTRY_SELECTED_FIB);
           }
 
         if (new_fib)
           {
             /* Install new or replace existing FIB entry */
-            SET_FLAG (new_fib->flags, ZEBRA_FLAG_SELECTED);
-            redistribute_add (&rn->p, new_fib);
-
+            SET_FLAG (new_fib->status, RIB_ENTRY_SELECTED_FIB);
             if (! RIB_SYSTEM_ROUTE (new_fib))
               rib_update_kernel (rn, old_fib, new_fib);
           }
@@ -1345,6 +1361,26 @@ rib_process (struct route_node *rn)
       if (! installed)
         rib_update_kernel (rn, NULL, new_fib);
     }
+
+  /* Redistribute SELECTED entry */
+  if (old_selected != new_selected
+      || (new_selected && CHECK_FLAG (new_selected->status, RIB_ENTRY_CHANGED)))
+    {
+      if (old_selected)
+        {
+          if (! new_selected)
+            redistribute_delete (&rn->p, old_selected);
+          if (old_selected != new_selected)
+            UNSET_FLAG (old_selected->flags, ZEBRA_FLAG_SELECTED);
+        }
+
+      if (new_selected)
+        {
+          /* Install new or replace existing redistributed entry */
+          SET_FLAG (new_selected->flags, ZEBRA_FLAG_SELECTED);
+          redistribute_add (&rn->p, new_selected);
+        }
+     }
 
   /* Remove all RIB entries queued for removal */
   RNODE_FOREACH_RIB_SAFE (rn, rib, next)
@@ -1947,7 +1983,7 @@ void rib_lookup_and_pushup (struct prefix_ipv4 * p)
    */
   RNODE_FOREACH_RIB (rn, rib)
   {
-    if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED) &&
+    if (CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB) &&
       ! RIB_SYSTEM_ROUTE (rib))
     {
       changed = 1;
@@ -2098,7 +2134,7 @@ rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
       if (CHECK_FLAG (rib->status, RIB_ENTRY_REMOVED))
         continue;
 
-      if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
+      if (CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB))
 	fib = rib;
 
       if (rib->type != type)
@@ -2146,7 +2182,7 @@ rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
 	  for (nexthop = fib->nexthop; nexthop; nexthop = nexthop->next)
 	    UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
 
-	  UNSET_FLAG (fib->flags, ZEBRA_FLAG_SELECTED);
+	  UNSET_FLAG (fib->status, RIB_ENTRY_SELECTED_FIB);
 	}
       else
 	{
@@ -2675,7 +2711,7 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
       if (CHECK_FLAG(rib->status, RIB_ENTRY_REMOVED))
         continue;
 
-      if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
+      if (CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB))
 	fib = rib;
 
       if (rib->type != type)
@@ -2724,7 +2760,7 @@ rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
 	  for (nexthop = fib->nexthop; nexthop; nexthop = nexthop->next)
 	    UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
 
-	  UNSET_FLAG (fib->flags, ZEBRA_FLAG_SELECTED);
+	  UNSET_FLAG (fib->status, RIB_ENTRY_SELECTED_FIB);
 	}
       else
 	{
@@ -3058,7 +3094,7 @@ rib_close_table (struct route_table *table)
     for (rn = route_top (table); rn; rn = route_next (rn))
       RNODE_FOREACH_RIB (rn, rib)
         {
-          if (!CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
+          if (!CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB))
 	    continue;
 
           if (info->safi == SAFI_UNICAST)
