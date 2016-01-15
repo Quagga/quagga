@@ -1607,8 +1607,7 @@ _netlink_route_debug(
 
 /* Routing table change via netlink interface. */
 static int
-netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
-                         int family)
+netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib)
 {
   int bytelen;
   struct sockaddr_nl snl;
@@ -1616,6 +1615,7 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
   int recursing;
   int nexthop_num;
   int discard;
+  int family = PREFIX_FAMILY(p);
   const char *routedesc;
 
   struct
@@ -1632,7 +1632,7 @@ netlink_route_multipath (int cmd, struct prefix *p, struct rib *rib,
   bytelen = (family == AF_INET ? 4 : 16);
 
   req.n.nlmsg_len = NLMSG_LENGTH (sizeof (struct rtmsg));
-  req.n.nlmsg_flags = NLM_F_CREATE | NLM_F_REQUEST;
+  req.n.nlmsg_flags = NLM_F_CREATE | NLM_F_REPLACE | NLM_F_REQUEST;
   req.n.nlmsg_type = cmd;
   req.r.rtm_family = family;
   req.r.rtm_table = rib->table;
@@ -1803,30 +1803,26 @@ skip:
 }
 
 int
-kernel_add_ipv4 (struct prefix *p, struct rib *rib)
+kernel_route_rib (struct prefix *p, struct rib *old, struct rib *new)
 {
-  return netlink_route_multipath (RTM_NEWROUTE, p, rib, AF_INET);
-}
+  int ret;
 
-int
-kernel_delete_ipv4 (struct prefix *p, struct rib *rib)
-{
-  return netlink_route_multipath (RTM_DELROUTE, p, rib, AF_INET);
-}
+  if (!old && new)
+    return netlink_route_multipath (RTM_NEWROUTE, p, new);
+  if (old && !new)
+    return netlink_route_multipath (RTM_DELROUTE, p, old);
 
-#ifdef HAVE_IPV6
-int
-kernel_add_ipv6 (struct prefix *p, struct rib *rib)
-{
-  return netlink_route_multipath (RTM_NEWROUTE, p, rib, AF_INET6);
-}
+  /* Replace, can be done atomically if metric does not change;
+   * netlink uses [prefix, tos, priority] to identify prefix */
+  if (old->metric == new->metric)
+    return netlink_route_multipath (RTM_NEWROUTE, p, new);
 
-int
-kernel_delete_ipv6 (struct prefix *p, struct rib *rib)
-{
-  return netlink_route_multipath (RTM_DELROUTE, p, rib, AF_INET6);
+  /* Add + delete so the prefix does not disappear temporarily */
+  ret = netlink_route_multipath (RTM_NEWROUTE, p, new);
+  if (netlink_route_multipath (RTM_DELROUTE, p, old) < 0)
+    ret = -1;
+  return ret;
 }
-#endif /* HAVE_IPV6 */
 
 /* Interface address modification. */
 static int

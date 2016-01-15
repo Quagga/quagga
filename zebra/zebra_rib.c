@@ -1103,8 +1103,8 @@ nexthop_active_update (struct route_node *rn, struct rib *rib, int set)
 
 
 
-static void
-rib_install_kernel (struct route_node *rn, struct rib *rib)
+static int
+rib_update_kernel (struct route_node *rn, struct rib *old, struct rib *new)
 {
   int ret = 0;
   struct nexthop *nexthop, *tnexthop;
@@ -1113,72 +1113,31 @@ rib_install_kernel (struct route_node *rn, struct rib *rib)
 
   if (info->safi != SAFI_UNICAST)
     {
-      for (ALL_NEXTHOPS_RO(rib->nexthop, nexthop, tnexthop, recursing))
-        SET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
-      return;
+      if (new)
+        for (ALL_NEXTHOPS_RO(new->nexthop, nexthop, tnexthop, recursing))
+          SET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
+      if (old)
+        for (ALL_NEXTHOPS_RO(old->nexthop, nexthop, tnexthop, recursing))
+          UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
+      return 0;
     }
 
   /*
    * Make sure we update the FPM any time we send new information to
    * the kernel.
    */
-  zfpm_trigger_update (rn, "installing in kernel");
-  switch (PREFIX_FAMILY (&rn->p))
-    {
-    case AF_INET:
-      ret = kernel_add_ipv4 (&rn->p, rib);
-      break;
-#ifdef HAVE_IPV6
-    case AF_INET6:
-      ret = kernel_add_ipv6 (&rn->p, rib);
-      break;
-#endif /* HAVE_IPV6 */
-    }
+  zfpm_trigger_update (rn, "updating in kernel");
+
+  ret = kernel_route_rib (&rn->p, old, new);
 
   /* This condition is never met, if we are using rt_socket.c */
-  if (ret < 0)
-    {
-      for (ALL_NEXTHOPS_RO(rib->nexthop, nexthop, tnexthop, recursing))
-	UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
-    }
-}
+  if (ret < 0 && new)
+      for (ALL_NEXTHOPS_RO(new->nexthop, nexthop, tnexthop, recursing))
+        UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
 
-/* Uninstall the route from kernel. */
-static int
-rib_uninstall_kernel (struct route_node *rn, struct rib *rib)
-{
-  int ret = 0;
-  struct nexthop *nexthop, *tnexthop;
-  rib_table_info_t *info = rn->table->info;
-  int recursing;
-
-  if (info->safi != SAFI_UNICAST)
-    {
-      for (ALL_NEXTHOPS_RO(rib->nexthop, nexthop, tnexthop, recursing))
-        SET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
-      return ret;
-    }
-
-  /*
-   * Make sure we update the FPM any time we send new information to
-   * the kernel.
-   */
-  zfpm_trigger_update (rn, "uninstalling from kernel");
-
-  switch (PREFIX_FAMILY (&rn->p))
-    {
-    case AF_INET:
-      ret = kernel_delete_ipv4 (&rn->p, rib);
-      break;
-#ifdef HAVE_IPV6
-    case AF_INET6:
-      ret = kernel_delete_ipv6 (&rn->p, rib);
-      break;
-#endif /* HAVE_IPV6 */
-    }
-
-  for (ALL_NEXTHOPS_RO(rib->nexthop, nexthop, tnexthop, recursing))
-    UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
+  if (old)
+    for (ALL_NEXTHOPS_RO(old->nexthop, nexthop, tnexthop, recursing))
+      UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
 
   return ret;
 }
@@ -1196,7 +1155,7 @@ rib_uninstall (struct route_node *rn, struct rib *rib)
 
       redistribute_delete (&rn->p, rib);
       if (! RIB_SYSTEM_ROUTE (rib))
-	rib_uninstall_kernel (rn, rib);
+	rib_update_kernel (rn, rib, NULL);
       UNSET_FLAG (rib->flags, ZEBRA_FLAG_SELECTED);
     }
 }
@@ -1261,15 +1220,56 @@ rib_gc_dest (struct route_node *rn)
   return 1;
 }
 
+/* Check if 'alternate' RIB entry is better than 'current'. */
+static struct rib *
+rib_choose_best (struct rib *current, struct rib *alternate)
+{
+  if (current == NULL)
+    return alternate;
+
+  /* filter route selection in following order:
+   * - connected beats other types
+   * - lower distance beats higher
+   * - lower metric beats higher for equal distance
+   * - last, hence oldest, route wins tie break.
+   */
+
+  /* Connected routes. Pick the last connected
+   * route of the set of lowest metric connected routes.
+   */
+  if (alternate->type == ZEBRA_ROUTE_CONNECT)
+    {
+      if (current->type != ZEBRA_ROUTE_CONNECT
+          || alternate->metric <= current->metric)
+        return alternate;
+
+      return current;
+    }
+
+  if (current->type == ZEBRA_ROUTE_CONNECT)
+    return current;
+
+  /* higher distance loses */
+  if (alternate->distance < current->distance)
+    return alternate;
+  if (current->distance < alternate->distance)
+    return current;
+
+  /* metric tie-breaks equal distance */
+  if (alternate->metric <= current->metric)
+    return alternate;
+
+  return current;
+}
+
 /* Core function for processing routing information base. */
 static void
 rib_process (struct route_node *rn)
 {
   struct rib *rib;
   struct rib *next;
-  struct rib *fib = NULL;
-  struct rib *select = NULL;
-  struct rib *del = NULL;
+  struct rib *old_fib = NULL;
+  struct rib *new_fib = NULL;
   int installed = 0;
   struct nexthop *nexthop = NULL, *tnexthop;
   int recursing;
@@ -1279,32 +1279,18 @@ rib_process (struct route_node *rn)
 
   info = rn->table->info;
 
-  RNODE_FOREACH_RIB_SAFE (rn, rib, next)
+  RNODE_FOREACH_RIB (rn, rib)
     {
       /* Currently installed rib. */
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
         {
-          assert (fib == NULL);
-          fib = rib;
+          assert (old_fib == NULL);
+          old_fib = rib;
         }
-      
-      /* Unlock removed routes, so they'll be freed, bar the FIB entry,
-       * which we need to do do further work with below.
-       */
+
+      /* Skip deleted entries from selection */
       if (CHECK_FLAG (rib->status, RIB_ENTRY_REMOVED))
-        {
-          if (rib != fib)
-            {
-              if (IS_ZEBRA_DEBUG_RIB)
-                rnode_debug (rn, "rn %p, removing rib %p",
-                            (void *)rn, (void *)rib);
-              rib_unlink (rn, rib);
-            }
-          else
-            del = rib;
-          
-          continue;
-        }
+        continue;
       
       /* Skip unreachable nexthop. */
       if (! nexthop_active_update (rn, rib, 0))
@@ -1314,150 +1300,73 @@ rib_process (struct route_node *rn)
       if (rib->distance == DISTANCE_INFINITY)
         continue;
 
-      /* Newly selected rib, the common case. */
-      if (!select)
-        {
-          select = rib;
-          continue;
-        }
-      
-      /* filter route selection in following order:
-       * - connected beats other types
-       * - lower distance beats higher
-       * - lower metric beats higher for equal distance
-       * - last, hence oldest, route wins tie break.
-       */
-      
-      /* Connected routes. Pick the last connected
-       * route of the set of lowest metric connected routes.
-       */
-      if (rib->type == ZEBRA_ROUTE_CONNECT)
-        {
-          if (select->type != ZEBRA_ROUTE_CONNECT
-              || rib->metric <= select->metric)
-            select = rib;
-          continue;
-        }
-      else if (select->type == ZEBRA_ROUTE_CONNECT)
-        continue;
-      
-      /* higher distance loses */
-      if (rib->distance > select->distance)
-        continue;
-      
-      /* lower wins */
-      if (rib->distance < select->distance)
-        {
-          select = rib;
-          continue;
-        }
-      
-      /* metric tie-breaks equal distance */
-      if (rib->metric <= select->metric)
-        select = rib;
+      new_fib = rib_choose_best(new_fib, rib);
     } /* RNODE_FOREACH_RIB_SAFE */
 
   /* After the cycle is finished, the following pointers will be set:
-   * select --- the winner RIB entry, if any was found, otherwise NULL
-   * fib    --- the SELECTED RIB entry, if any, otherwise NULL
-   * del    --- equal to fib, if fib is queued for deletion, NULL otherwise
-   * rib    --- NULL
+   * old_fib --- RIB entry currently having SELECTED
+   * new_fib --- RIB entry that is newly SELECTED
    */
 
-  /* Same RIB entry is selected. Update FIB and finish. */
-  if (select && select == fib)
+  /* Set real nexthops. */
+  if (new_fib)
+    nexthop_active_update (rn, new_fib, 1);
+
+  /* Update kernel if FIB entry has changed */
+  if (old_fib != new_fib
+      || (new_fib && CHECK_FLAG (new_fib->status, RIB_ENTRY_CHANGED)))
     {
-      if (IS_ZEBRA_DEBUG_RIB)
-	rnode_debug (rn, "Updating existing route, select %p, fib %p",
-                     (void *)select, (void *)fib);
-      if (CHECK_FLAG (select->status, RIB_ENTRY_CHANGED))
+        if (old_fib && old_fib != new_fib)
+          {
+            if (! new_fib)
+              redistribute_delete (&rn->p, old_fib);
+
+            if (! RIB_SYSTEM_ROUTE (old_fib) && (! new_fib || RIB_SYSTEM_ROUTE (new_fib)))
+              rib_update_kernel (rn, old_fib, NULL);
+            UNSET_FLAG (old_fib->flags, ZEBRA_FLAG_SELECTED);
+          }
+
+        if (new_fib)
+          {
+            /* Install new or replace existing FIB entry */
+            SET_FLAG (new_fib->flags, ZEBRA_FLAG_SELECTED);
+            redistribute_add (&rn->p, new_fib);
+
+            if (! RIB_SYSTEM_ROUTE (new_fib))
+              rib_update_kernel (rn, old_fib, new_fib);
+          }
+
+        if (info->safi == SAFI_UNICAST)
+          zfpm_trigger_update (rn, "updating existing route");
+    }
+  else if (old_fib == new_fib && new_fib && ! RIB_SYSTEM_ROUTE (new_fib))
+    {
+      /* Housekeeping code to deal with race conditions in kernel with
+       * linux netlink reporting interface up before IPv4 or IPv6 protocol
+       * is ready to add routes. This makes sure routes are IN the kernel.
+       */
+      for (ALL_NEXTHOPS_RO(new_fib->nexthop, nexthop, tnexthop, recursing))
+        if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB))
+          {
+            installed = 1;
+            break;
+          }
+      if (! installed)
+        rib_update_kernel (rn, NULL, new_fib);
+    }
+
+  /* Remove all RIB entries queued for removal */
+  RNODE_FOREACH_RIB_SAFE (rn, rib, next)
+    {
+      if (CHECK_FLAG (rib->status, RIB_ENTRY_REMOVED))
         {
-          if (info->safi == SAFI_UNICAST)
-	    zfpm_trigger_update (rn, "updating existing route");
-
-          redistribute_delete (&rn->p, select);
-          if (! RIB_SYSTEM_ROUTE (select))
-            rib_uninstall_kernel (rn, select);
-
-          /* Set real nexthop. */
-          nexthop_active_update (rn, select, 1);
-  
-          if (! RIB_SYSTEM_ROUTE (select))
-            rib_install_kernel (rn, select);
-          redistribute_add (&rn->p, select);
+          if (IS_ZEBRA_DEBUG_RIB)
+            rnode_debug (rn, "rn %p, removing rib %p",
+                        (void *)rn, (void *)rib);
+          rib_unlink (rn, rib);
         }
-      else if (! RIB_SYSTEM_ROUTE (select))
-        {
-          /* Housekeeping code to deal with 
-             race conditions in kernel with linux
-             netlink reporting interface up before IPv4 or IPv6 protocol
-             is ready to add routes.
-             This makes sure the routes are IN the kernel.
-           */
-
-          for (ALL_NEXTHOPS_RO(select->nexthop, nexthop, tnexthop, recursing))
-            if (CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB))
-            {
-              installed = 1;
-              break;
-            }
-          if (! installed) 
-            rib_install_kernel (rn, select);
-        }
-      goto end;
     }
 
-  /* At this point we either haven't found the best RIB entry or it is
-   * different from what we currently intend to flag with SELECTED. In both
-   * cases, if a RIB block is present in FIB, it should be withdrawn.
-   */
-  if (fib)
-    {
-      if (IS_ZEBRA_DEBUG_RIB)
-        rnode_debug (rn, "Removing existing route, fib %p", (void *)fib);
-
-      if (info->safi == SAFI_UNICAST)
-        zfpm_trigger_update (rn, "removing existing route");
-
-      redistribute_delete (&rn->p, fib);
-      if (! RIB_SYSTEM_ROUTE (fib))
-	rib_uninstall_kernel (rn, fib);
-      UNSET_FLAG (fib->flags, ZEBRA_FLAG_SELECTED);
-
-      /* Set real nexthop. */
-      nexthop_active_update (rn, fib, 1);
-    }
-
-  /* Regardless of some RIB entry being SELECTED or not before, now we can
-   * tell, that if a new winner exists, FIB is still not updated with this
-   * data, but ready to be.
-   */
-  if (select)
-    {
-      if (IS_ZEBRA_DEBUG_RIB)
-        rnode_debug (rn, "Adding route, select %p", (void *)select);
-
-      if (info->safi == SAFI_UNICAST)
-        zfpm_trigger_update (rn, "new route selected");
-
-      /* Set real nexthop. */
-      nexthop_active_update (rn, select, 1);
-
-      if (! RIB_SYSTEM_ROUTE (select))
-        rib_install_kernel (rn, select);
-      SET_FLAG (select->flags, ZEBRA_FLAG_SELECTED);
-      redistribute_add (&rn->p, select);
-    }
-
-  /* FIB route was removed, should be deleted */
-  if (del)
-    {
-      if (IS_ZEBRA_DEBUG_RIB)
-        rnode_debug (rn, "Deleting fib %p, rn %p", (void *)del, (void *)rn);
-      rib_unlink (rn, del);
-    }
-
-end:
   if (IS_ZEBRA_DEBUG_RIB_Q)
     rnode_debug (rn, "rn %p dequeued", (void *)rn);
 
@@ -3082,7 +2991,7 @@ rib_sweep_table (struct route_table *table)
 	  if (rib->type == ZEBRA_ROUTE_KERNEL && 
 	      CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELFROUTE))
 	    {
-	      ret = rib_uninstall_kernel (rn, rib);
+	      ret = rib_update_kernel (rn, rib, NULL);
 	      if (! ret)
                 rib_delnode (rn, rib);
 	    }
@@ -3165,7 +3074,7 @@ rib_close_table (struct route_table *table)
             zfpm_trigger_update (rn, NULL);
 
 	  if (! RIB_SYSTEM_ROUTE (rib))
-	    rib_uninstall_kernel (rn, rib);
+	    rib_update_kernel (rn, rib, NULL);
         }
 }
 
