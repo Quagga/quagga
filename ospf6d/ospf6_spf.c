@@ -225,7 +225,8 @@ static void
 ospf6_nexthop_calc (struct ospf6_vertex *w, struct ospf6_vertex *v,
                     caddr_t lsdesc)
 {
-  int i, ifindex;
+  int i;
+  ifindex_t ifindex;
   struct ospf6_interface *oi;
   u_int16_t type;
   u_int32_t adv_router;
@@ -235,7 +236,10 @@ ospf6_nexthop_calc (struct ospf6_vertex *w, struct ospf6_vertex *v,
 
   assert (VERTEX_IS_TYPE (ROUTER, w));
   ifindex = (VERTEX_IS_TYPE (NETWORK, v) ? v->nexthop[0].ifindex :
-             ROUTER_LSDESC_GET_IFID (lsdesc));
+             /* v is the local router & the interface_id is a local ifindex */
+             (ifindex_t) ROUTER_LSDESC_GET_IFID (lsdesc));
+  assert (ifindex >= 0);
+  
   oi = ospf6_interface_lookup_by_ifindex (ifindex);
   if (oi == NULL)
     {

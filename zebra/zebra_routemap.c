@@ -134,7 +134,7 @@ route_match_interface (void *rule, struct prefix *prefix,
   struct nexthop_vrfid *nh_vrf;
   struct nexthop *nexthop;
   char *ifname = rule;
-  unsigned int ifindex;
+  ifindex_t ifindex;
 
   if (type == RMAP_ZEBRA)
     {

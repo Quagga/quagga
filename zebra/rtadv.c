@@ -70,7 +70,7 @@ static int if_leave_all_router (int, struct interface *);
 
 static int
 rtadv_recv_packet (int sock, u_char *buf, int buflen,
-		   struct sockaddr_in6 *from, unsigned int *ifindex,
+		   struct sockaddr_in6 *from, ifindex_t *ifindex,
 		   int *hoplimit)
 {
   int ret;
@@ -408,7 +408,7 @@ rtadv_process_advert (void)
 }
 
 static void
-rtadv_process_packet (u_char *buf, unsigned int len, unsigned int ifindex,
+rtadv_process_packet (u_char *buf, unsigned int len, ifindex_t ifindex,
     int hoplimit, vrf_id_t vrf_id)
 {
   struct icmp6_hdr *icmph;
@@ -472,7 +472,7 @@ rtadv_read (struct thread *thread)
   int len;
   u_char buf[RTADV_MSG_SIZE];
   struct sockaddr_in6 from;
-  unsigned int ifindex = 0;
+  ifindex_t ifindex = 0;
   int hoplimit = -1;
   struct zebra_vrf *zvrf = THREAD_ARG (thread);
 

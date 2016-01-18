@@ -827,7 +827,7 @@ zread_ipv4_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
   u_char nexthop_num;
   u_char nexthop_type;
   struct stream *s;
-  unsigned int ifindex;
+  ifindex_t ifindex;
   u_char ifname_len;
   safi_t safi;	
 

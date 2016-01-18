@@ -1515,7 +1515,7 @@ ospf6_receive (struct thread *thread)
   unsigned int len;
   char srcname[64], dstname[64];
   struct in6_addr src, dst;
-  unsigned int ifindex;
+  ifindex_t ifindex;
   struct iovec iovector[2];
   struct ospf6_interface *oi;
   struct ospf6_header *oh;

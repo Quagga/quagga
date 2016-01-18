@@ -41,7 +41,7 @@ extern unsigned char conf_debug_ospf6_route;
 struct ospf6_nexthop
 {
   /* Interface index */
-  unsigned int ifindex;
+  ifindex_t ifindex;
 
   /* IP address, if any */
   struct in6_addr address;

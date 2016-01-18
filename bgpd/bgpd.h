@@ -340,7 +340,7 @@ struct peer
   time_t readtime;		/* Last read time */
   time_t resettime;		/* Last reset time */
   
-  unsigned int ifindex;		/* ifindex of the BGP connection. */
+  ifindex_t ifindex;		/* ifindex of the BGP connection. */
   char *ifname;			/* bind interface name. */
   char *update_if;
   union sockunion *update_source;

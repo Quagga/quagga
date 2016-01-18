@@ -23,6 +23,8 @@
 #ifndef _ZEBRA_SOCKUNION_H
 #define _ZEBRA_SOCKUNION_H
 
+#include "if.h"
+
 #if 0
 union sockunion {
   struct sockinet {
@@ -109,7 +111,7 @@ extern int sockunion_socket (const union sockunion *su);
 extern const char *inet_sutop (const union sockunion *su, char *str);
 extern enum connect_result sockunion_connect (int fd, const union sockunion *su,
                                               unsigned short port,
-                                              unsigned int);
+                                              ifindex_t);
 extern union sockunion *sockunion_getsockname (int);
 extern union sockunion *sockunion_getpeername (int);
 extern union sockunion *sockunion_dup (const union sockunion *);

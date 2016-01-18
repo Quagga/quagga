@@ -759,7 +759,7 @@ struct interface *pim_if_find_by_vif_index(int vif_index)
 /*
   pim_if_add_vif() uses ifindex as vif_index
  */
-int pim_if_find_vifindex_by_ifindex(int ifindex)
+int pim_if_find_vifindex_by_ifindex(ifindex_t ifindex)
 {
   return ifindex;
 }
@@ -910,7 +910,7 @@ static struct igmp_join *igmp_join_find(struct list *join_list,
 }
 
 static int igmp_join_sock(const char *ifname,
-			  int ifindex,
+			  ifindex_t ifindex,
 			  struct in_addr group_addr,
 			  struct in_addr source_addr)
 {

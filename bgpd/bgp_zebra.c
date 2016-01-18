@@ -757,7 +757,7 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp, sa
   /* We have to think about a IPv6 link-local address curse. */
   if (p->family == AF_INET6)
     {
-      unsigned int ifindex;
+      ifindex_t ifindex;
       struct in6_addr *nexthop;
       struct zapi_ipv6 api;
 

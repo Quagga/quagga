@@ -21,6 +21,7 @@ Boston, MA 02111-1307, USA.  */
 #ifndef _ZEBRA_IF_H
 #define _ZEBRA_IF_H
 
+#include "zebra.h"
 #include "linklist.h"
 
 /* Interface link-layer type, if known. Derived from:
@@ -96,6 +97,8 @@ enum zebra_link_type {
 #define INTERFACE_NAMSIZ      20
 #define INTERFACE_HWADDR_MAX  20
 
+typedef signed int ifindex_t;
+
 #ifdef HAVE_PROC_NET_DEV
 struct if_stats
 {
@@ -142,7 +145,7 @@ struct interface
 
   /* Interface index (should be IFINDEX_INTERNAL for non-kernel or
      deleted interfaces). */
-  unsigned int ifindex;
+  ifindex_t ifindex;
 #define IFINDEX_INTERNAL	0
 
   /* Zebra internal interface status */
@@ -294,15 +297,14 @@ struct connected
 /* Prototypes. */
 extern int if_cmp_func (struct interface *, struct interface *);
 extern struct interface *if_create (const char *name, int namelen);
-extern struct interface *if_lookup_by_index (unsigned int);
+extern struct interface *if_lookup_by_index (ifindex_t);
 extern struct interface *if_lookup_exact_address (struct in_addr);
 extern struct interface *if_lookup_address (struct in_addr);
 extern struct interface *if_lookup_prefix (struct prefix *prefix);
 
 extern struct interface *if_create_vrf (const char *name, int namelen,
                                 vrf_id_t vrf_id);
-extern struct interface *if_lookup_by_index_vrf (unsigned int,
-                                vrf_id_t vrf_id);
+extern struct interface *if_lookup_by_index_vrf (ifindex_t, vrf_id_t vrf_id);
 extern struct interface *if_lookup_exact_address_vrf (struct in_addr,
                                 vrf_id_t vrf_id);
 extern struct interface *if_lookup_address_vrf (struct in_addr,
@@ -359,14 +361,14 @@ extern const char *if_link_type_str (enum zebra_link_type);
 /* Please use ifindex2ifname instead of if_indextoname where possible;
    ifindex2ifname uses internal interface info, whereas if_indextoname must
    make a system call. */
-extern const char *ifindex2ifname (unsigned int);
-extern const char *ifindex2ifname_vrf (unsigned int, vrf_id_t vrf_id);
+extern const char *ifindex2ifname (ifindex_t);
+extern const char *ifindex2ifname_vrf (ifindex_t, vrf_id_t vrf_id);
 
 /* Please use ifname2ifindex instead of if_nametoindex where possible;
    ifname2ifindex uses internal interface info, whereas if_nametoindex must
    make a system call. */
-extern unsigned int ifname2ifindex(const char *ifname);
-extern unsigned int ifname2ifindex_vrf(const char *ifname, vrf_id_t vrf_id);
+extern ifindex_t ifname2ifindex(const char *ifname);
+extern ifindex_t ifname2ifindex_vrf(const char *ifname, vrf_id_t vrf_id);
 
 /* Connected address functions. */
 extern struct connected *connected_new (void);
@@ -381,10 +383,10 @@ extern struct connected  *connected_lookup_address (struct interface *,
                                              struct in_addr);
 
 #ifndef HAVE_IF_NAMETOINDEX
-extern unsigned int if_nametoindex (const char *);
+extern ifindex_t if_nametoindex (const char *);
 #endif
 #ifndef HAVE_IF_INDEXTONAME
-extern char *if_indextoname (unsigned int, char *);
+extern char *if_indextoname (ifindex_t, char *);
 #endif
 
 /* Exported variables. */

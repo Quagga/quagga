@@ -228,7 +228,7 @@ struct nexthop
 
   /* Interface index. */
   char *ifname;
-  unsigned int ifindex;
+  ifindex_t ifindex;
   
   enum nexthop_types_t type;
 
@@ -425,7 +425,7 @@ extern void multicast_mode_ipv4_set (enum multicast_mode mode);
 extern enum multicast_mode multicast_mode_ipv4_get (void);
 
 extern const char *nexthop_type_to_str (enum nexthop_types_t nh_type);
-extern struct nexthop *nexthop_ifindex_add (struct rib *, unsigned int);
+extern struct nexthop *nexthop_ifindex_add (struct rib *, ifindex_t);
 extern struct nexthop *nexthop_ifname_add (struct rib *, char *);
 extern struct nexthop *nexthop_blackhole_add (struct rib *);
 extern struct nexthop *nexthop_ipv4_add (struct rib *, struct in_addr *,
@@ -433,7 +433,7 @@ extern struct nexthop *nexthop_ipv4_add (struct rib *, struct in_addr *,
 extern struct nexthop *nexthop_ipv4_ifindex_add (struct rib *,
                                                  struct in_addr *,
                                                  struct in_addr *,
-                                                 unsigned int);
+                                                 ifindex_t);
 extern int nexthop_has_fib_child(struct nexthop *);
 extern void rib_lookup_and_dump (struct prefix_ipv4 *);
 extern void rib_lookup_and_pushup (struct prefix_ipv4 *);
@@ -459,13 +459,13 @@ extern struct route_table *zebra_vrf_static_table (afi_t, safi_t, vrf_id_t);
  * also implicitly withdraw equal prefix of same type. */
 extern int rib_add_ipv4 (int type, int flags, struct prefix_ipv4 *p, 
 			 struct in_addr *gate, struct in_addr *src,
-			 unsigned int ifindex, vrf_id_t vrf_id, int table_id,
+			 ifindex_t ifindex, vrf_id_t vrf_id, int table_id,
 			 u_int32_t, u_int32_t, u_char, safi_t);
 
 extern int rib_add_ipv4_multipath (struct prefix_ipv4 *, struct rib *, safi_t);
 
 extern int rib_delete_ipv4 (int type, int flags, struct prefix_ipv4 *p,
-		            struct in_addr *gate, unsigned int ifindex, 
+		            struct in_addr *gate, ifindex_t ifindex, 
 		            vrf_id_t, safi_t safi);
 
 extern struct rib *rib_match_ipv4_safi (struct in_addr addr, safi_t safi,
@@ -495,13 +495,13 @@ static_delete_ipv4_safi (safi_t safi, struct prefix *p, struct in_addr *gate,
 
 extern int
 rib_add_ipv6 (int type, int flags, struct prefix_ipv6 *p,
-	      struct in6_addr *gate, unsigned int ifindex, vrf_id_t vrf_id,
+	      struct in6_addr *gate, ifindex_t ifindex, vrf_id_t vrf_id,
 	      int table_id, u_int32_t metric, u_int32_t mtu,
 	      u_char distance, safi_t safi);
 
 extern int
 rib_delete_ipv6 (int type, int flags, struct prefix_ipv6 *p,
-		 struct in6_addr *gate, unsigned int ifindex, vrf_id_t vrf_id, safi_t safi);
+		 struct in6_addr *gate, ifindex_t ifindex, vrf_id_t vrf_id, safi_t safi);
 
 extern struct rib *rib_lookup_ipv6 (struct in6_addr *, vrf_id_t);
 

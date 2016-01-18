@@ -623,7 +623,7 @@ ospfv3WwLsdbEntry (struct variable *v, oid *name, size_t *length,
                      int exact, size_t *var_len, WriteMethod **write_method)
 {
   struct ospf6_lsa *lsa = NULL;
-  u_int32_t ifindex, area_id, id, instid, adv_router;
+  ifindex_t ifindex, area_id, id, instid, adv_router;
   u_int16_t type;
   int len;
   oid *offset;
@@ -835,7 +835,8 @@ static u_char *
 ospfv3IfEntry (struct variable *v, oid *name, size_t *length,
 		int exact, size_t *var_len, WriteMethod **write_method)
 {
-  unsigned int ifindex, instid;
+  ifindex_t ifindex = 0;
+  unsigned int instid = 0;
   struct ospf6_interface *oi = NULL;
   struct ospf6_lsa *lsa = NULL;
   struct interface      *iif;
@@ -848,8 +849,6 @@ ospfv3IfEntry (struct variable *v, oid *name, size_t *length,
   if (smux_header_table (v, name, length, exact, var_len, write_method)
       == MATCH_FAILED)
     return NULL;
-
-  ifindex = instid = 0;
 
   /* Check OSPFv3 instance. */
   if (ospf6 == NULL)
@@ -988,7 +987,8 @@ static u_char *
 ospfv3NbrEntry (struct variable *v, oid *name, size_t *length,
 		int exact, size_t *var_len, WriteMethod **write_method)
 {
-  unsigned int ifindex, instid, rtrid;
+  ifindex_t ifindex = 0;
+  unsigned int instid, rtrid;
   struct ospf6_interface *oi = NULL;
   struct ospf6_neighbor  *on = NULL;
   struct interface      *iif;
@@ -1001,7 +1001,7 @@ ospfv3NbrEntry (struct variable *v, oid *name, size_t *length,
       == MATCH_FAILED)
     return NULL;
 
-  ifindex = instid = rtrid = 0;
+  instid = rtrid = 0;
 
   /* Check OSPFv3 instance. */
   if (ospf6 == NULL)

@@ -368,7 +368,7 @@ ospf6_zebra_route_update (int type, struct ospf6_route *request)
   char buf[64];
   int nhcount;
   struct in6_addr **nexthops;
-  unsigned int *ifindexes;
+  ifindex_t *ifindexes;
   int i, ret = 0;
   struct prefix_ipv6 *dest;
 

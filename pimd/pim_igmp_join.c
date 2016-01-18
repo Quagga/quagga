@@ -26,6 +26,7 @@
 #include <sys/socket.h>
 #include <string.h>
 
+#include "zebra.h"
 #include "pim_igmp_join.h"
 
 #ifndef SOL_IP
@@ -42,7 +43,7 @@ struct group_source_req
 };
 #endif
 
-int pim_igmp_join_source(int fd, int ifindex,
+int pim_igmp_join_source(int fd, ifindex_t ifindex,
 			 struct in_addr group_addr,
 			 struct in_addr source_addr)
 {
