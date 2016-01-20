@@ -428,6 +428,7 @@ bgp_info_mpath_update (struct bgp_node *rn, struct bgp_info *new_best,
   struct bgp_info *cur_mpath, *new_mpath, *next_mpath, *prev_mpath;
   int mpath_changed, debug;
   char pfx_buf[INET_ADDRSTRLEN], nh_buf[2][INET_ADDRSTRLEN];
+  struct bgp_maxpaths_cfg *mpath_cfg = NULL;
 
   mpath_changed = 0;
   maxpaths = BGP_DEFAULT_MAXPATHS;
@@ -436,16 +437,15 @@ bgp_info_mpath_update (struct bgp_node *rn, struct bgp_info *new_best,
   old_mpath_count = 0;
   prev_mpath = new_best;
   mp_node = listhead (mp_list);
-  struct bgp_maxpaths_cfg *mpath_cfg;
-  debug = BGP_DEBUG (events, EVENTS);
 
-  mpath_cfg  = &new_best->peer->bgp->maxpaths[afi][safi];
+  debug = BGP_DEBUG (events, EVENTS);
 
   if (debug)
     prefix2str (&rn->p, pfx_buf, sizeof (pfx_buf));
 
   if (new_best)
     {
+      mpath_cfg = &new_best->peer->bgp->maxpaths[afi][safi];
       mpath_count++;
       if (new_best != old_best)
         bgp_info_mpath_dequeue (new_best);
