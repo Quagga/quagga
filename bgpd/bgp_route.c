@@ -16533,6 +16533,14 @@ bgp_route_init (void)
   install_element (BGP_IPV4_NODE, &bgp_damp_set3_cmd);
   install_element (BGP_IPV4_NODE, &bgp_damp_unset_cmd);
   install_element (BGP_IPV4_NODE, &bgp_damp_unset2_cmd);
+
+  /* IPv4 Multicast Mode */
+  install_element (BGP_IPV4M_NODE, &bgp_damp_set_cmd);
+  install_element (BGP_IPV4M_NODE, &bgp_damp_set2_cmd);
+  install_element (BGP_IPV4M_NODE, &bgp_damp_set3_cmd);
+  install_element (BGP_IPV4M_NODE, &bgp_damp_unset_cmd);
+  install_element (BGP_IPV4M_NODE, &bgp_damp_unset2_cmd);
+
   
   /* Deprecated AS-Pathlimit commands */
   install_element (BGP_NODE, &bgp_network_ttl_cmd);
