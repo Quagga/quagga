@@ -11794,7 +11794,8 @@ bgp_table_stats (struct vty *vty, struct bgp *bgp, afi_t afi, safi_t safi)
   
   if (!bgp->rib[afi][safi])
     {
-      vty_out (vty, "%% No RIB exists for the AFI/SAFI%s", VTY_NEWLINE);
+      vty_out (vty, "%% No RIB exists for the specified AFI(%d)/SAFI(%d) %s",
+               afi, safi, VTY_NEWLINE);
       return CMD_WARNING;
     }
   
@@ -11908,7 +11909,7 @@ bgp_table_stats_vty (struct vty *vty, const char *name,
 	    safi = SAFI_UNICAST;
 	    break;
 	case 'v':
-	    safi =  SAFI_MPLS_LABELED_VPN;
+	    safi =  SAFI_MPLS_VPN;
 	    break;
 	case 'e':
 	    safi = SAFI_ENCAP;
