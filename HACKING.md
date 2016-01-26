@@ -498,3 +498,10 @@ from ‘master’:
 
 presuming ‘quagga’ corresponds to a file in your .git/remotes with
 configuration for the appropriate Quagga.net repository.
+
+USEFUL URLs
+===========
+
+* David Lamparter <equinox@diac24.net> runs a patchwork instance at
+  <http://patchwork.quagga.net/project/quagga/list/>
+
