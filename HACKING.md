@@ -6,12 +6,44 @@ fontsize: 11pt
 toc: true
 date: \today
 include-before: 
-  \large This is a living document. Suggestions for updates, via the
+  \large This is a living document. 
+
+  \large This is a living document describing the processes and guidelines
+   for working on Quagga. You *must* read Section
+   ["REQUIRED READING"](#sec:required), before contributing to Quagga.
+
+   Suggestions for updates, via the
   [quagga-dev list](http://lists.quagga.net/mailman/listinfo/quagga-dev),
   are welcome. \newpage
 ...
 
 \newpage
+
+REQUIRED READING {#sec:required}
+================
+
+Note well: By proposing a change to Quagga, by whatever means, you are
+implicitly agreeing:
+                                                                              
+-   To licence your contribution according to the licence of any files in
+    Quagga being modified, _and_ according to the COPYING file in the
+    top-level directory of Quagga, other than where the contribution
+    explicitly and clearly indicates otherwise.
+
+-   That it is your responsibility to ensure you hold whatever rights are
+    required to be able to contribute your changes under the licenses of the
+    files in Quagga being modified, and the top-level COPYING file.
+                                                                              
+-   That it is your responsibility to give with the contribution a full
+    account of all interests held and claims in the contribution; such as
+    through copyright, trademark and patent laws or otherwise; that are known
+    to you or your associates (e.g.  your employer).
+
+Before contributing to Quagga, you *must*  also read 
+[Section COMMIT MESSAGES](#sec:commit-messages).  You _should_ ideally read the entire
+document, as it contains useful information on the community norms and how
+to implement them.
+
 
 GUIDELINES FOR HACKING ON QUAGGA {#sec:guidelines}
 ================================
@@ -166,8 +198,8 @@ rather than:
 Note that the former approach requires ensuring that SOME\_SYMBOL will
 be defined (watch your AC\_DEFINEs).
 
-COMMIT MESSAGES
-===============
+COMMIT MESSAGES {#sec:commit-messages}
+======================================
 
 The commit message requirements are:
 
@@ -197,6 +229,18 @@ The commit message requirements are:
     -   Information to allow reviewers to be able to tell which specific
         changes to the code are intended (and hence be able to spot any accidental
         unintended changes).
+
+-   The commit message *must* give details of all the authors of the change,
+    beyond the person listed in the Author field.  Any and all affiliations
+    which may have a bearing on copyright in any way should be clearly
+    stated, unless those affiliations are already obvious from other
+    details, e.g.  from the email address.  This would cover employment and
+    contracting obligations (give details).
+                                                             
+-   If the change introduces a new dependency on any code or other
+    copyrighted material, please explicitly note this.  Give details of what
+    that external material is, the copyright licence the material may be
+    used under, and the nature of the dependency.
 
 The one-line summary must be limited to 54 characters, and all other
 lines to 72 characters.
