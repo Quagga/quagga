@@ -84,8 +84,7 @@ upgrade may cause daemons to fail to start because of unrecognised commands.
 Deprecated commands should be excised in the next unstable cycle.  A list of
 deprecated commands should be collated for each release.
 
-See also section [sec:dll-versioning] below regarding SHARED LIBRARY
-VERSIONING.
+See also [Section SHARED LIBRARY VERSIONING](#sec:dll-versioning) below.
 
 YOUR FIRST CONTRIBUTIONS
 ========================
@@ -363,8 +362,8 @@ merge them together to one branch (potentially local and/or “throw-away”)
 for testing or use, while retaining smaller, independent branches that are
 easier to merge.
 
-All content guidelines in section [sec:patch-submission], PATCH
-SUBMISSION apply.
+All content guidelines in [Section PATCH SUBMISSION](#sec:patch-submission)
+apply.
 
 PATCH SUBMISSION {#sec:patch-submission}
 ================
@@ -381,8 +380,8 @@ PATCH SUBMISSION {#sec:patch-submission}
     git diff -up mybranch..remotes/quagga.net/master
 
     It is preferable to use git format-patch, and even more preferred to
-    publish a git repository (see GIT COMMIT SUBMISSION, section
-    [sec:git-submission]).
+    publish a git repository (see 
+    [Section GIT COMMIT SUBMISSION](#sec:git-submission)).
 
     If not using git format-patch, Include the commit message in the
     email.
