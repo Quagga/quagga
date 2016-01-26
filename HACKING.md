@@ -40,10 +40,15 @@ implicitly agreeing:
     to you or your associates (e.g.  your employer).
 
 Before contributing to Quagga, you *must*  also read 
-[Section COMMIT MESSAGES](#sec:commit-messages).  You _should_ ideally read the entire
-document, as it contains useful information on the community norms and how
-to implement them.
+[Section COMMIT MESSAGES](#sec:commit-messages).  
 
+You _should_ ideally read the entire document, as it contains useful
+information on the community norms and how to implement them.
+
+Please note that authorship and any relevant other rights information should
+be _explicitly_ stated with the contribution.  A "Signed-off-by" line is
+_not_ sufficient.  The "Signed-off-by" line is not used by the Quagga
+project.
 
 GUIDELINES FOR HACKING ON QUAGGA {#sec:guidelines}
 ================================
@@ -236,7 +241,9 @@ The commit message requirements are:
     stated, unless those affiliations are already obvious from other
     details, e.g.  from the email address.  This would cover employment and
     contracting obligations (give details).
-                                                             
+
+    Note: Do not rely on "Signed-off-by" for this, be explicit.
+    
 -   If the change introduces a new dependency on any code or other
     copyrighted material, please explicitly note this.  Give details of what
     that external material is, the copyright licence the material may be
