@@ -3322,16 +3322,16 @@ bgp_nlri_parse (struct peer *peer, struct attr *attr, struct bgp_nlri *packet)
   return 0;
 }
 
-/* NLRI encode syntax check routine. */
-int
-bgp_nlri_sanity_check (struct peer *peer, int afi, safi_t safi,
-                       u_char *pnt, bgp_size_t length)
+static int
+bgp_nlri_sanity_check_ip (struct peer *peer, struct bgp_nlri *nlri)
 {
   u_char *end;
   u_char prefixlen;
   int psize;
-
-  end = pnt + length;
+  u_char *pnt = nlri->nlri;
+  afi_t afi = nlri->afi;
+  safi_t safi = nlri->safi;
+  end = pnt + nlri->length;
 
   /* RFC1771 6.3 The NLRI field in the UPDATE message is checked for
      syntactic validity.  If the field is syntactically incorrect,
@@ -3393,6 +3393,20 @@ bgp_nlri_sanity_check (struct peer *peer, int afi, safi_t safi,
       return -1;
     }
   return 0;
+}
+
+int
+bgp_nlri_sanity_check (struct peer *peer, struct bgp_nlri *nlri)
+{
+   switch (nlri->safi)
+     {
+       case SAFI_MPLS_LABELED_VPN:
+         return bgp_nlri_sanity_check_vpn (peer, nlri);
+       case SAFI_UNICAST:
+       case SAFI_MULTICAST:
+         return bgp_nlri_sanity_check_ip (peer, nlri);
+       default: return -1;
+     }
 }
 
 static struct bgp_static *

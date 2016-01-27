@@ -32,6 +32,7 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_route.h"
 #include "bgpd/bgp_attr.h"
 #include "bgpd/bgp_mplsvpn.h"
+#include "bgpd/bgp_packet.h"
 
 static u_int16_t
 decode_rd_type (u_char *pnt)
@@ -91,9 +92,9 @@ decode_rd_ip (u_char *pnt, struct rd_ip *rd_ip)
   rd_ip->val |= (u_int16_t) *pnt;
 }
 
-int
-bgp_nlri_parse_vpn (struct peer *peer, struct attr *attr,
-                    struct bgp_nlri *packet)
+static int
+bgp_nlri_parse_vpn_body (struct peer *peer, struct attr *attr, 
+                         struct bgp_nlri *packet, bool update)
 {
   u_char *pnt;
   u_char *lim;
@@ -129,30 +130,53 @@ bgp_nlri_parse_vpn (struct peer *peer, struct attr *attr,
       psize = PSIZE (prefixlen);
       
       /* sanity check against packet data */
-      if (prefixlen < VPN_PREFIXLEN_MIN_BYTES*8 || (pnt + psize) > lim)
+      if (prefixlen < VPN_PREFIXLEN_MIN_BYTES*8)
         {
-          zlog_err ("prefix length (%d) is less than 88"
-                    " or larger than received (%u)",
+          plog_err (peer->log, 
+                    "%s [Error] Update packet error / VPNv4"
+                     " (prefix length %d less than VPNv4 min length)",
+                    peer->host, prefixlen);
+          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
+                           BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
+          return -1;
+        }
+      if ((pnt + psize) > lim)
+        {
+          plog_err (peer->log,
+                    "%s [Error] Update packet error / VPNv4"
+                    " (psize %u exceeds packet size (%u)",
+                    peer->host, 
                     prefixlen, (uint)(lim-pnt));
+          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
+                           BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
           return -1;
         }
       
       /* sanity check against storage for the IP address portion */
       if ((psize - VPN_PREFIXLEN_MIN_BYTES) > (ssize_t) sizeof(p.u))
         {
-          zlog_err ("prefix length (%d) exceeds prefix storage (%zu)",
+          plog_err (peer->log,
+                    "%s [Error] Update packet error / VPNv4"
+                    " (psize %u exceeds storage size (%zu)",
+                    peer->host,
                     prefixlen - VPN_PREFIXLEN_MIN_BYTES*8, sizeof(p.u));
+          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
+                           BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
           return -1;
         }
       
       /* Sanity check against max bitlen of the address family */
       if ((psize - VPN_PREFIXLEN_MIN_BYTES) > prefix_blen (&p))
         {
-          zlog_err ("prefix length (%d) exceeds family (%u) max byte length (%u)",
+          plog_err (peer->log,
+                    "%s [Error] Update packet error / VPNv4"
+                    " (psize %u exceeds family (%u) max byte len %u)",
+                    peer->host,
                     prefixlen - VPN_PREFIXLEN_MIN_BYTES*8, 
                     p.family, prefix_blen (&p));
+          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
+                           BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
           return -1;
-                  
         }
       
       /* Copyr label to prefix. */
@@ -187,19 +211,43 @@ bgp_nlri_parse_vpn (struct peer *peer, struct attr *attr,
       memcpy (&p.u.prefix, pnt + VPN_PREFIXLEN_MIN_BYTES, 
               psize - VPN_PREFIXLEN_MIN_BYTES);
 
-      if (attr)
-        bgp_update (peer, &p, attr, packet->afi, SAFI_MPLS_VPN,
-                    ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, &prd, tagpnt, 0);
-      else
-        bgp_withdraw (peer, &p, attr, packet->afi, SAFI_MPLS_VPN,
-                      ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, &prd, tagpnt);
+      if (update)
+        {
+          if (attr)
+            bgp_update (peer, &p, attr, packet->afi, SAFI_MPLS_VPN,
+                        ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, &prd, tagpnt, 0);
+          else
+            bgp_withdraw (peer, &p, attr, packet->afi, SAFI_MPLS_VPN,
+                          ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, &prd, tagpnt);
+        }
     }
   /* Packet length consistency check. */
   if (pnt != lim)
-    return -1;
+    {
+      plog_err (peer->log,
+                "%s [Error] Update packet error / VPNv4"
+                " (%zu data remaining after parsing)",
+                peer->host, lim - pnt);
+      bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
+                       BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
+      return -1;
+    }
   
   return 0;
 #undef VPN_PREFIXLEN_MIN_BYTES
+}
+
+int
+bgp_nlri_sanity_check_vpn (struct peer *peer, struct bgp_nlri *nlri)
+{
+  return bgp_nlri_parse_vpn_body (peer, NULL, nlri, false);
+}
+
+int
+bgp_nlri_parse_vpn (struct peer *peer, struct attr *attr, 
+                    struct bgp_nlri *packet)
+{
+  return bgp_nlri_parse_vpn_body (peer, attr, packet, true);
 }
 
 int
