@@ -54,6 +54,7 @@ struct route_table
 {
   struct route_node *top;
 
+  int table_id;
   /*
    * Delegate that performs certain functions for this table.
    */

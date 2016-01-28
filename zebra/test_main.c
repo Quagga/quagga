@@ -233,11 +233,12 @@ zebra_vrf_disable (vrf_id_t vrf_id, void **info)
   struct zebra_vrf *zvrf = (struct zebra_vrf *) (*info);
   struct listnode *list_node;
   struct interface *ifp;
+  struct route_table_info *rt_info = get_route_table_info(zvrf, RT_TABLE_MAIN);
 
   assert (zvrf);
 
-  rib_close_table (zvrf->table[AFI_IP][SAFI_UNICAST]);
-  rib_close_table (zvrf->table[AFI_IP6][SAFI_UNICAST]);
+  rib_close_table (rt_info->table[AFI_IP][SAFI_UNICAST]);
+  rib_close_table (rt_info->table[AFI_IP6][SAFI_UNICAST]);
 
   for (ALL_LIST_ELEMENTS_RO (vrf_iflist (vrf_id), list_node, ifp))
     {

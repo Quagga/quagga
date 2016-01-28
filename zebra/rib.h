@@ -27,6 +27,7 @@
 #include "prefix.h"
 #include "table.h"
 #include "queue.h"
+#include "vector.h"
 
 #define DISTANCE_INFINITY  255
 
@@ -331,26 +332,35 @@ struct nlsock
 };
 #endif
 
-/* Routing table instance.  */
-struct zebra_vrf
+struct route_table_info
 {
-  /* Identifier. */
-  vrf_id_t vrf_id;
+  /* Routing table id */
+  int table_id;
 
   /* Routing table name.  */
   char *name;
-
-  /* Description.  */
-  char *desc;
-
-  /* FIB identifier.  */
-  u_char fib_id;
 
   /* Routing table.  */
   struct route_table *table[AFI_MAX][SAFI_MAX];
 
   /* Static route configuration.  */
   struct route_table *stable[AFI_MAX][SAFI_MAX];
+
+};
+/* Routing table instance.  */
+struct zebra_vrf
+{
+  /* Identifier. */
+  vrf_id_t vrf_id;
+
+  /* Contain all the route tables */
+  vector route_tables_info;
+
+  /* Description.  */
+  char *desc;
+
+  /* FIB identifier.  */
+  u_char fib_id;
 
 #ifdef HAVE_NETLINK
   struct nlsock netlink;     /* kernel messages */
@@ -521,6 +531,11 @@ static_delete_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
 extern int rib_gc_dest (struct route_node *rn);
 extern struct route_table *rib_tables_iter_next (rib_tables_iter_t *iter);
 
+extern struct route_table_info *get_route_table_info(
+        struct zebra_vrf *zvrf, int table_id);
+
+extern struct route_table *zebra_vrf_table_id (
+        afi_t afi, safi_t safi, vrf_id_t vrf_id, int table_id);
 /*
  * Inline functions.
  */
@@ -631,4 +646,34 @@ rib_tables_iter_cleanup (rib_tables_iter_t *iter)
   iter->state = RIB_TABLES_ITER_S_DONE;
 }
 
+void
+zebra_route_tables_create(struct zebra_vrf *zvrf, int table_id);
+
+void
+init_zebra_route_tables_info(struct zebra_vrf *zvrf);
+
+void
+init_zebra_route_table(struct zebra_vrf *zvrf, struct route_table_info *rt_info);
+
+#define VRF_FOREACH_TABLE(vrf_id, table, afi, safi)\
+  int i;\
+  struct zebra_vrf *zvrf = vrf_info_lookup (vrf_id);\
+  (table) = ((struct route_table_info*)vector_lookup((zvrf)->route_tables_info, 0))->table[afi][safi];\
+  for(i = 0; i < vector_count((zvrf)->route_tables_info);\
+     (table) = ((struct route_table_info*)vector_lookup((zvrf)->route_tables_info, i))->table[afi][safi], \
+     i++)
+
+#define ZVRF_FOREACH_TABLE(zvrf, table, afi, safi)\
+  int i;\
+  (table) = ((struct route_table_info*)vector_lookup((zvrf)->route_tables_info, 0))->table[afi][safi];\
+  for(i = 0; i < vector_count((zvrf)->route_tables_info);\
+     (table) = ((struct route_table_info*)vector_lookup((zvrf)->route_tables_info, i))->table[afi][safi], \
+     i++)
+
+#define ZVRF_FOREACH_RTINFO(zvrf)\
+  int i;\
+  struct route_table_info *rt_info = vector_lookup((zvrf)->route_tables_info, 0);\
+  for(i = 0; i < vector_count((zvrf)->route_tables_info);\
+     (rt_info) = vector_lookup((zvrf)->route_tables_info, i), \
+     i++)
 #endif /*_ZEBRA_RIB_H */

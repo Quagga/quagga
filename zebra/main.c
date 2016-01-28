@@ -251,8 +251,11 @@ zebra_vrf_disable (vrf_id_t vrf_id, void **info)
 
   assert (zvrf);
 
-  rib_close_table (zvrf->table[AFI_IP][SAFI_UNICAST]);
-  rib_close_table (zvrf->table[AFI_IP6][SAFI_UNICAST]);
+  ZVRF_FOREACH_RTINFO(zvrf)
+  {
+  rib_close_table (rt_info->table[AFI_IP][SAFI_UNICAST]);
+  rib_close_table (rt_info->table[AFI_IP6][SAFI_UNICAST]);
+  }
 
   for (ALL_LIST_ELEMENTS_RO (vrf_iflist (vrf_id), list_node, ifp))
     {
