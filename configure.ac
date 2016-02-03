@@ -785,14 +785,6 @@ AC_CHECK_FUNCS([dup2 ftruncate getcwd gethostbyname getpagesize gettimeofday \
 	if_nametoindex if_indextoname getifaddrs \
 	uname fcntl getgrouplist])
 
-AC_CHECK_FUNCS(setproctitle, ,
-  [AC_CHECK_LIB(util, setproctitle, 
-     [LIBS="$LIBS -lutil"
-      AC_DEFINE(HAVE_SETPROCTITLE,, Have setproctitle)
-     ]
-   )
-  ]
-)
 
 AC_CHECK_HEADER([asm-generic/unistd.h],
                 [AC_CHECK_DECL(__NR_setns,
