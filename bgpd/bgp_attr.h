@@ -74,7 +74,6 @@ struct attr_extra
   struct transit *transit;
 
   struct in_addr mp_nexthop_global_in;
-  struct in_addr mp_nexthop_local_in;
   
   /* Aggregator Router ID attribute */
   struct in_addr aggregator_addr;
