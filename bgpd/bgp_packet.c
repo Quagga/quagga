@@ -1686,13 +1686,6 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
       nlris[NLRI_WITHDRAW].nlri = stream_pnt (s);
       nlris[NLRI_WITHDRAW].length = withdraw_len;
       
-      if (bgp_nlri_sanity_check (peer, &nlris[NLRI_WITHDRAW]) < 0)
-        {
-          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
-                                 BGP_NOTIFY_UPDATE_INVAL_NETWORK);
-          return -1;
-        }
-      
       if (BGP_DEBUG (packet, PACKET_RECV))
 	zlog_debug ("%s [Update:RECV] Unfeasible NLRI received", peer->host);
 
@@ -1782,17 +1775,6 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
       nlris[NLRI_UPDATE].nlri = stream_pnt (s);
       nlris[NLRI_UPDATE].length = update_len;
       
-      /* Check NLRI packet format and prefix length. */
-      ret = bgp_nlri_sanity_check (peer, &nlris[NLRI_UPDATE]);
-      if (ret < 0)
-        {
-          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
-                           BGP_NOTIFY_UPDATE_INVAL_NETWORK);
-          bgp_attr_unintern_sub (&attr);
-          bgp_attr_flush (&attr);
-	  return -1;
-	}
-
       stream_forward_getp (s, update_len);
     }
   

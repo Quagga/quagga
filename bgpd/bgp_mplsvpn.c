@@ -93,9 +93,9 @@ decode_rd_ip (u_char *pnt, struct rd_ip *rd_ip)
   rd_ip->val |= (u_int16_t) *pnt;
 }
 
-static int
-bgp_nlri_parse_vpn_body (struct peer *peer, struct attr *attr, 
-                         struct bgp_nlri *packet, bool update)
+int
+bgp_nlri_parse_vpn (struct peer *peer, struct attr *attr, 
+                    struct bgp_nlri *packet)
 {
   u_char *pnt;
   u_char *lim;
@@ -137,8 +137,6 @@ bgp_nlri_parse_vpn_body (struct peer *peer, struct attr *attr,
                     "%s [Error] Update packet error / VPNv4"
                      " (prefix length %d less than VPNv4 min length)",
                     peer->host, prefixlen);
-          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
-                           BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
           return -1;
         }
       if ((pnt + psize) > lim)
@@ -148,8 +146,6 @@ bgp_nlri_parse_vpn_body (struct peer *peer, struct attr *attr,
                     " (psize %u exceeds packet size (%u)",
                     peer->host, 
                     prefixlen, (uint)(lim-pnt));
-          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
-                           BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
           return -1;
         }
       
@@ -161,8 +157,6 @@ bgp_nlri_parse_vpn_body (struct peer *peer, struct attr *attr,
                     " (psize %u exceeds storage size (%zu)",
                     peer->host,
                     prefixlen - VPN_PREFIXLEN_MIN_BYTES*8, sizeof(p.u));
-          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
-                           BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
           return -1;
         }
       
@@ -175,8 +169,6 @@ bgp_nlri_parse_vpn_body (struct peer *peer, struct attr *attr,
                     peer->host,
                     prefixlen - VPN_PREFIXLEN_MIN_BYTES*8, 
                     p.family, prefix_blen (&p));
-          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
-                           BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
           return -1;
         }
       
@@ -212,15 +204,12 @@ bgp_nlri_parse_vpn_body (struct peer *peer, struct attr *attr,
       memcpy (&p.u.prefix, pnt + VPN_PREFIXLEN_MIN_BYTES, 
               psize - VPN_PREFIXLEN_MIN_BYTES);
 
-      if (update)
-        {
-          if (attr)
-            bgp_update (peer, &p, attr, packet->afi, SAFI_MPLS_VPN,
-                        ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, &prd, tagpnt, 0);
-          else
-            bgp_withdraw (peer, &p, attr, packet->afi, SAFI_MPLS_VPN,
-                          ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, &prd, tagpnt);
-        }
+      if (attr)
+        bgp_update (peer, &p, attr, packet->afi, SAFI_MPLS_VPN,
+                    ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, &prd, tagpnt, 0);
+      else
+        bgp_withdraw (peer, &p, attr, packet->afi, SAFI_MPLS_VPN,
+                      ZEBRA_ROUTE_BGP, BGP_ROUTE_NORMAL, &prd, tagpnt);
     }
   /* Packet length consistency check. */
   if (pnt != lim)
@@ -229,26 +218,11 @@ bgp_nlri_parse_vpn_body (struct peer *peer, struct attr *attr,
                 "%s [Error] Update packet error / VPNv4"
                 " (%zu data remaining after parsing)",
                 peer->host, lim - pnt);
-      bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
-                       BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
       return -1;
     }
   
   return 0;
 #undef VPN_PREFIXLEN_MIN_BYTES
-}
-
-int
-bgp_nlri_sanity_check_vpn (struct peer *peer, struct bgp_nlri *nlri)
-{
-  return bgp_nlri_parse_vpn_body (peer, NULL, nlri, false);
-}
-
-int
-bgp_nlri_parse_vpn (struct peer *peer, struct attr *attr, 
-                    struct bgp_nlri *packet)
-{
-  return bgp_nlri_parse_vpn_body (peer, attr, packet, true);
 }
 
 int

@@ -3242,6 +3242,9 @@ bgp_nlri_parse_ip (struct peer *peer, struct attr *attr,
   pnt = packet->nlri;
   lim = pnt + packet->length;
 
+  /* RFC4771 6.3 The NLRI field in the UPDATE message is checked for
+     syntactic validity.  If the field is syntactically incorrect,
+     then the Error Subcode is set to Invalid Network Field. */
   for (; pnt < lim; pnt += psize)
     {
       /* Clear prefix structure. */
@@ -3249,20 +3252,41 @@ bgp_nlri_parse_ip (struct peer *peer, struct attr *attr,
 
       /* Fetch prefix length. */
       p.prefixlen = *pnt++;
+      /* afi/safi validity already verified by caller, bgp_update_receive */
       p.family = afi2family (packet->afi);
       
-      /* Already checked in nlri_sanity_check().  We do double check
-         here. */
-      if ((packet->afi == AFI_IP && p.prefixlen > 32)
-	  || (packet->afi == AFI_IP6 && p.prefixlen > 128))
-	return -1;
-
+      /* Prefix length check. */
+      if (p.prefixlen > prefix_blen (&p) * 8)
+        {
+          plog_err (peer->log,
+                    "%s [Error] Update packet error"
+                    " (wrong prefix length %u for afi %u)",
+                    peer->host, p.prefixlen, packet->afi);
+          return -1;
+        }
+      
       /* Packet size overflow check. */
       psize = PSIZE (p.prefixlen);
 
       /* When packet overflow occur return immediately. */
       if (pnt + psize > lim)
-	return -1;
+        {
+          plog_err (peer->log,
+                    "%s [Error] Update packet error"
+                    " (prefix length %u overflows packet)",
+                    peer->host, p.prefixlen);
+          return -1;
+        }
+      
+      /* Defensive coding, double-check the psize fits in a struct prefix */  
+      if (psize > (ssize_t) sizeof(p.u))
+        {
+          plog_err (peer->log,
+                    "%s [Error] Update packet error"
+                    " (prefix length %u too large for prefix storage %zu!?!!",
+                    peer->host, p.prefixlen, sizeof(p.u));
+          return -1;
+        }
 
       /* Fetch prefix from NLRI packet. */
       memcpy (&p.u.prefix, pnt, psize);
@@ -3273,17 +3297,16 @@ bgp_nlri_parse_ip (struct peer *peer, struct attr *attr,
 	  if (IN_CLASSD (ntohl (p.u.prefix4.s_addr)))
 	    {
 	     /* 
- 	      * From draft-ietf-idr-bgp4-22, Section 6.3: 
-	      * If a BGP router receives an UPDATE message with a
-	      * semantically incorrect NLRI field, in which a prefix is
-	      * semantically incorrect (eg. an unexpected multicast IP
-	      * address), it should ignore the prefix.
+ 	      * From RFC4271 Section 6.3: 
+	      * 
+	      * If a prefix in the NLRI field is semantically incorrect
+	      * (e.g., an unexpected multicast IP address), an error SHOULD
+	      * be logged locally, and the prefix SHOULD be ignored.
 	      */
 	      zlog (peer->log, LOG_ERR, 
-		    "IPv4 unicast NLRI is multicast address %s",
-		    inet_ntoa (p.u.prefix4));
-
-	      return -1;
+		    "%s: IPv4 unicast NLRI is multicast address %s, ignoring",
+		    peer->host, inet_ntoa (p.u.prefix4));
+	      continue;
 	    }
 	}
 
@@ -3294,13 +3317,23 @@ bgp_nlri_parse_ip (struct peer *peer, struct attr *attr,
 	    {
 	      char buf[BUFSIZ];
 
-	      zlog (peer->log, LOG_WARNING, 
-		    "IPv6 link-local NLRI received %s ignore this NLRI",
+	      zlog (peer->log, LOG_ERR, 
+		    "%s: IPv6 unicast NLRI is link-local address %s, ignoring",
+		    peer->host,
 		    inet_ntop (AF_INET6, &p.u.prefix6, buf, BUFSIZ));
-
 	      continue;
 	    }
-	}
+	  if (IN6_IS_ADDR_MULTICAST (&p.u.prefix6))
+	    {
+	      char buf[BUFSIZ];
+
+	      zlog (peer->log, LOG_ERR, 
+		    "%s: IPv6 unicast NLRI is multicast address %s, ignoring",
+		    peer->host,
+		    inet_ntop (AF_INET6, &p.u.prefix6, buf, BUFSIZ));
+	      continue;
+	    }
+        }
 
       /* Normal process. */
       if (attr)
@@ -3318,97 +3351,15 @@ bgp_nlri_parse_ip (struct peer *peer, struct attr *attr,
 
   /* Packet length consistency check. */
   if (pnt != lim)
-    return -1;
-
-  return 0;
-}
-
-static int
-bgp_nlri_sanity_check_ip (struct peer *peer, struct bgp_nlri *nlri)
-{
-  u_char *end;
-  u_char prefixlen;
-  int psize;
-  u_char *pnt = nlri->nlri;
-  afi_t afi = nlri->afi;
-  safi_t safi = nlri->safi;
-  end = pnt + nlri->length;
-
-  /* RFC1771 6.3 The NLRI field in the UPDATE message is checked for
-     syntactic validity.  If the field is syntactically incorrect,
-     then the Error Subcode is set to Invalid Network Field. */
-
-  while (pnt < end)
-    {
-      int	badlength;
-      prefixlen = *pnt++;
-      
-      /* Prefix length check. */
-      badlength = 0;
-      if (safi == SAFI_ENCAP) {
-	if (prefixlen > 128)
-	  badlength = 1;
-      } else {
-        if ((afi == AFI_IP && prefixlen > 32) ||
-	    (afi == AFI_IP6 && prefixlen > 128)) {
-
-	    badlength = 1;
-	}
-      }
-      if (badlength)
-	{
-	  plog_err (peer->log, 
-		    "%s [Error] Update packet error (wrong prefix length %d)",
-		    peer->host, prefixlen);
-	  bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
-			   BGP_NOTIFY_UPDATE_INVAL_NETWORK);
-	  return -1;
-	}
-
-      /* Packet size overflow check. */
-      psize = PSIZE (prefixlen);
-
-      if (pnt + psize > end)
-	{
-	  plog_err (peer->log, 
-		    "%s [Error] Update packet error"
-		    " (prefix data overflow prefix size is %d)",
-		    peer->host, psize);
-	  bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
-			   BGP_NOTIFY_UPDATE_INVAL_NETWORK);
-	  return -1;
-	}
-
-      pnt += psize;
-    }
-
-  /* Packet length consistency check. */
-  if (pnt != end)
     {
       plog_err (peer->log,
-		"%s [Error] Update packet error"
-		" (prefix length mismatch with total length)",
-		peer->host);
-      bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR, 
-		       BGP_NOTIFY_UPDATE_INVAL_NETWORK);
+                "%s [Error] Update packet error"
+                " (prefix length mismatch with total length)",
+                peer->host);
       return -1;
     }
+  
   return 0;
-}
-
-int
-bgp_nlri_sanity_check (struct peer *peer, struct bgp_nlri *nlri)
-{
-   switch (nlri->safi)
-     {
-       case SAFI_MPLS_LABELED_VPN:
-       case SAFI_MPLS_VPN:
-         return bgp_nlri_sanity_check_vpn (peer, nlri);
-       case SAFI_UNICAST:
-       case SAFI_MULTICAST:
-         return bgp_nlri_sanity_check_ip (peer, nlri);
-       default: return -1;
-     }
 }
 
 static struct bgp_static *
