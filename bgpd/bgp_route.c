@@ -3226,7 +3226,8 @@ bgp_reset (void)
 /* Parse NLRI stream.  Withdraw NLRI is recognized by NULL attr
    value. */
 int
-bgp_nlri_parse (struct peer *peer, struct attr *attr, struct bgp_nlri *packet)
+bgp_nlri_parse_ip (struct peer *peer, struct attr *attr,
+                   struct bgp_nlri *packet)
 {
   u_char *pnt;
   u_char *lim;
@@ -3401,6 +3402,7 @@ bgp_nlri_sanity_check (struct peer *peer, struct bgp_nlri *nlri)
    switch (nlri->safi)
      {
        case SAFI_MPLS_LABELED_VPN:
+       case SAFI_MPLS_VPN:
          return bgp_nlri_sanity_check_vpn (peer, nlri);
        case SAFI_UNICAST:
        case SAFI_MULTICAST:

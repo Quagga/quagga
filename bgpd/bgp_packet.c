@@ -1591,11 +1591,29 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
   return 0;
 }
 
+/* Frontend for NLRI parsing, to fan-out to AFI/SAFI specific parsers */
+int
+bgp_nlri_parse (struct peer *peer, struct attr *attr, struct bgp_nlri *packet)
+{
+  switch (packet->safi)
+    {
+      case SAFI_UNICAST:
+      case SAFI_MULTICAST:
+        return bgp_nlri_parse_ip (peer, attr, packet);
+      case SAFI_MPLS_VPN:
+      case SAFI_MPLS_LABELED_VPN:
+        return bgp_nlri_parse_vpn (peer, attr, packet);
+      case SAFI_ENCAP:
+        return bgp_nlri_parse_encap (peer, attr, packet);
+    }
+  return -1;
+}
+
 /* Parse BGP Update packet and make attribute object. */
 static int
 bgp_update_receive (struct peer *peer, bgp_size_t size)
 {
-  int ret;
+  int ret, nlri_ret;
   u_char *end;
   struct stream *s;
   struct attr attr;
@@ -1603,10 +1621,16 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   bgp_size_t attribute_len;
   bgp_size_t update_len;
   bgp_size_t withdraw_len;
-  struct bgp_nlri update;
-  struct bgp_nlri withdraw;
-  struct bgp_nlri mp_update;
-  struct bgp_nlri mp_withdraw;
+  int i;
+  
+  enum NLRI_TYPES {
+    NLRI_UPDATE,
+    NLRI_WITHDRAW,
+    NLRI_MP_UPDATE,
+    NLRI_MP_WITHDRAW,
+    NLRI_TYPE_MAX,
+  };
+  struct bgp_nlri nlris[NLRI_TYPE_MAX];
 
   /* Status must be Established. */
   if (peer->status != Established) 
@@ -1620,10 +1644,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   /* Set initial values. */
   memset (&attr, 0, sizeof (struct attr));
   memset (&extra, 0, sizeof (struct attr_extra));
-  memset (&update, 0, sizeof (struct bgp_nlri));
-  memset (&withdraw, 0, sizeof (struct bgp_nlri));
-  memset (&mp_update, 0, sizeof (struct bgp_nlri));
-  memset (&mp_withdraw, 0, sizeof (struct bgp_nlri));
+  memset (&nlris, 0, sizeof nlris);
   attr.extra = &extra;
 
   s = peer->ibuf;
@@ -1660,14 +1681,18 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   /* Unfeasible Route packet format check. */
   if (withdraw_len > 0)
     {
-      withdraw.afi = AFI_IP;
-      withdraw.safi = SAFI_UNICAST;
-      withdraw.nlri = stream_pnt (s);
-      withdraw.length = withdraw_len;
-      ret = bgp_nlri_sanity_check (peer, &withdraw);
-      if (ret < 0)
-	return -1;
-
+      nlris[NLRI_WITHDRAW].afi = AFI_IP;
+      nlris[NLRI_WITHDRAW].safi = SAFI_UNICAST;
+      nlris[NLRI_WITHDRAW].nlri = stream_pnt (s);
+      nlris[NLRI_WITHDRAW].length = withdraw_len;
+      
+      if (bgp_nlri_sanity_check (peer, &nlris[NLRI_WITHDRAW]) < 0)
+        {
+          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
+                                 BGP_NOTIFY_UPDATE_INVAL_NETWORK);
+          return -1;
+        }
+      
       if (BGP_DEBUG (packet, PACKET_RECV))
 	zlog_debug ("%s [Update:RECV] Unfeasible NLRI received", peer->host);
 
@@ -1716,7 +1741,7 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   if (attribute_len)
     {
       attr_parse_ret = bgp_attr_parse (peer, &attr, attribute_len, 
-			    &mp_update, &mp_withdraw);
+			    &nlris[NLRI_MP_UPDATE], &nlris[NLRI_MP_WITHDRAW]);
       if (attr_parse_ret == BGP_ATTR_PARSE_ERROR)
 	{
 	  bgp_attr_unintern_sub (&attr);
@@ -1752,15 +1777,17 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
   if (update_len)
     {
       /* Set NLRI portion to structure. */
-      update.afi = AFI_IP;
-      update.safi = SAFI_UNICAST;
-      update.nlri = stream_pnt (s);
-      update.length = update_len;
+      nlris[NLRI_UPDATE].afi = AFI_IP;
+      nlris[NLRI_UPDATE].safi = SAFI_UNICAST;
+      nlris[NLRI_UPDATE].nlri = stream_pnt (s);
+      nlris[NLRI_UPDATE].length = update_len;
       
       /* Check NLRI packet format and prefix length. */
-      ret = bgp_nlri_sanity_check (peer, &update);
+      ret = bgp_nlri_sanity_check (peer, &nlris[NLRI_UPDATE]);
       if (ret < 0)
         {
+          bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
+                           BGP_NOTIFY_UPDATE_INVAL_NETWORK);
           bgp_attr_unintern_sub (&attr);
           bgp_attr_flush (&attr);
 	  return -1;
@@ -1768,226 +1795,117 @@ bgp_update_receive (struct peer *peer, bgp_size_t size)
 
       stream_forward_getp (s, update_len);
     }
-
-  /* NLRI is processed only when the peer is configured specific
-     Address Family and Subsequent Address Family. */
-  if (peer->afc[AFI_IP][SAFI_UNICAST])
+  
+  /* Parse any given NLRIs */
+  for (i = NLRI_UPDATE; i < NLRI_TYPE_MAX; i++)
     {
-      if (withdraw.length)
-	bgp_nlri_parse (peer, NULL, &withdraw);
-
-      if (update.length)
-	  bgp_nlri_parse (peer, NLRI_ATTR_ARG, &update);
-
-      if (mp_update.length
-	  && mp_update.afi == AFI_IP 
-	  && mp_update.safi == SAFI_UNICAST)
-	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &mp_update);
-
-      if (mp_withdraw.length
-	  && mp_withdraw.afi == AFI_IP 
-	  && mp_withdraw.safi == SAFI_UNICAST)
-	bgp_nlri_parse (peer, NULL, &mp_withdraw);
-
-      if (! attribute_len && ! withdraw_len)
-	{
+      /* We use afi and safi as indices into tables and what not.  It would
+       * be impossible, at this time, to support unknown afi/safis.  And
+       * anyway, the peer needs to be configured to enable the afi/safi
+       * explicitly which requires UI support.
+       *
+       * Ignore unknown afi/safi NLRIs.
+       *
+       * Note: this means nlri[x].afi/safi still can not be trusted for
+       * indexing later in this function!
+       *
+       * Note2: This will also remap the wire code-point for VPN safi to the
+       * internal safi_t point, as needs be.
+       */
+      if (!bgp_afi_safi_valid_indices (nlris[i].afi, &nlris[i].safi))
+        {
+          plog_info (peer->log,
+                     "%s [Info] UPDATE with unsupported AFI/SAFI %u/%u",
+                     peer->host, nlris[i].afi, nlris[i].safi);
+          continue;
+        }
+      
+      /* NLRI is processed only when the peer is configured specific
+         Address Family and Subsequent Address Family. */
+      if (!peer->afc[nlris[i].afi][nlris[i].safi])
+        {
+          plog_info (peer->log,
+                     "%s [Info] UPDATE for non-enabled AFI/SAFI %u/%u",
+                     peer->host, nlris[i].afi, nlris[i].safi);
+          continue;
+        }
+      
+      /* EoR handled later */
+      if (nlris[i].length == 0)
+        continue;
+      
+      switch (i)
+        {
+          case NLRI_UPDATE:
+          case NLRI_MP_UPDATE:
+            nlri_ret = bgp_nlri_parse (peer, NLRI_ATTR_ARG, &nlris[i]);
+            break;
+          case NLRI_WITHDRAW:
+          case NLRI_MP_WITHDRAW:
+            nlri_ret = bgp_nlri_parse (peer, NULL, &nlris[i]);
+        }
+      
+      if (nlri_ret < 0)
+        {
+          plog_err (peer->log, 
+                    "%s [Error] Error parsing NLRI", peer->host);
+          if (peer->status == Established)
+            bgp_notify_send (peer, BGP_NOTIFY_UPDATE_ERR,
+                             i <= NLRI_WITHDRAW 
+                               ? BGP_NOTIFY_UPDATE_INVAL_NETWORK
+                               : BGP_NOTIFY_UPDATE_OPT_ATTR_ERR);
+          bgp_attr_unintern_sub (&attr);
+          return -1;
+        }
+    }
+  
+  /* EoR checks.
+   *
+   * Non-MP IPv4/Unicast EoR is a completely empty UPDATE
+   * and MP EoR should have only an empty MP_UNREACH
+   */
+  if (!update_len && !withdraw_len
+      && nlris[NLRI_MP_UPDATE].length == 0)
+    {
+      afi_t afi = 0;
+      safi_t safi;
+      
+      /* Non-MP IPv4/Unicast is a completely empty UPDATE - already
+       * checked update and withdraw NLRI lengths are 0.
+       */ 
+      if (!attribute_len)
+        {
+          afi = AFI_IP;
+          safi = SAFI_UNICAST;
+        }
+      /* otherwise MP AFI/SAFI is an empty update, other than an empty
+       * MP_UNREACH_NLRI attr (with an AFI/SAFI we recognise).
+       */
+      else if (attr.flag == BGP_ATTR_MP_UNREACH_NLRI
+               && nlris[NLRI_MP_WITHDRAW].length == 0
+               && bgp_afi_safi_valid_indices (nlris[NLRI_MP_WITHDRAW].afi,
+                                              &nlris[NLRI_MP_WITHDRAW].safi))
+        {
+          afi = nlris[NLRI_MP_WITHDRAW].afi;
+          safi = nlris[NLRI_MP_WITHDRAW].safi;
+        }
+      
+      if (afi && peer->afc[afi][safi])
+        {
 	  /* End-of-RIB received */
-	  SET_FLAG (peer->af_sflags[AFI_IP][SAFI_UNICAST],
+	  SET_FLAG (peer->af_sflags[afi][safi],
 		    PEER_STATUS_EOR_RECEIVED);
 
 	  /* NSF delete stale route */
-	  if (peer->nsf[AFI_IP][SAFI_UNICAST])
-	    bgp_clear_stale_route (peer, AFI_IP, SAFI_UNICAST);
+	  if (peer->nsf[afi][safi])
+	    bgp_clear_stale_route (peer, afi, safi);
 
 	  if (BGP_DEBUG (normal, NORMAL))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for IPv4 Unicast from %s",
-		  peer->host);
-	}
+	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for %s from %s",
+		  peer->host, afi_safi_print (afi, safi));
+        }
     }
-  if (peer->afc[AFI_IP][SAFI_MULTICAST])
-    {
-      if (mp_update.length
-	  && mp_update.afi == AFI_IP
-	  && mp_update.safi == SAFI_MULTICAST)
-	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &mp_update);
-
-      if (mp_withdraw.length
-	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_MULTICAST)
-	bgp_nlri_parse (peer, NULL, &mp_withdraw);
-
-      if (! withdraw_len
-	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_MULTICAST
-	  && mp_withdraw.length == 0)
-	{
-	  /* End-of-RIB received */
-	  SET_FLAG (peer->af_sflags[AFI_IP][SAFI_MULTICAST],
-		    PEER_STATUS_EOR_RECEIVED);
-
-	  /* NSF delete stale route */
-	  if (peer->nsf[AFI_IP][SAFI_MULTICAST])
-	    bgp_clear_stale_route (peer, AFI_IP, SAFI_MULTICAST);
-
-	  if (BGP_DEBUG (normal, NORMAL))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for IPv4 Multicast from %s",
-		  peer->host);
-	}
-    }
-  if (peer->afc[AFI_IP6][SAFI_UNICAST])
-    {
-      if (mp_update.length 
-	  && mp_update.afi == AFI_IP6 
-	  && mp_update.safi == SAFI_UNICAST)
-	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &mp_update);
-
-      if (mp_withdraw.length 
-	  && mp_withdraw.afi == AFI_IP6 
-	  && mp_withdraw.safi == SAFI_UNICAST)
-	bgp_nlri_parse (peer, NULL, &mp_withdraw);
-
-      if (! withdraw_len
-	  && mp_withdraw.afi == AFI_IP6
-	  && mp_withdraw.safi == SAFI_UNICAST
-	  && mp_withdraw.length == 0)
-	{
-	  /* End-of-RIB received */
-	  SET_FLAG (peer->af_sflags[AFI_IP6][SAFI_UNICAST], PEER_STATUS_EOR_RECEIVED);
-
-	  /* NSF delete stale route */
-	  if (peer->nsf[AFI_IP6][SAFI_UNICAST])
-	    bgp_clear_stale_route (peer, AFI_IP6, SAFI_UNICAST);
-
-	  if (BGP_DEBUG (normal, NORMAL))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for IPv6 Unicast from %s",
-		  peer->host);
-	}
-    }
-  if (peer->afc[AFI_IP6][SAFI_MULTICAST])
-    {
-      if (mp_update.length 
-	  && mp_update.afi == AFI_IP6 
-	  && mp_update.safi == SAFI_MULTICAST)
-	bgp_nlri_parse (peer, NLRI_ATTR_ARG, &mp_update);
-
-      if (mp_withdraw.length 
-	  && mp_withdraw.afi == AFI_IP6 
-	  && mp_withdraw.safi == SAFI_MULTICAST)
-	bgp_nlri_parse (peer, NULL, &mp_withdraw);
-
-      if (! withdraw_len
-	  && mp_withdraw.afi == AFI_IP6
-	  && mp_withdraw.safi == SAFI_MULTICAST
-	  && mp_withdraw.length == 0)
-	{
-	  /* End-of-RIB received */
-
-	  /* NSF delete stale route */
-	  if (peer->nsf[AFI_IP6][SAFI_MULTICAST])
-	    bgp_clear_stale_route (peer, AFI_IP6, SAFI_MULTICAST);
-
-	  if (BGP_DEBUG (update, UPDATE_IN))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for IPv6 Multicast from %s",
-		  peer->host);
-	}
-    }
-  if (peer->afc[AFI_IP][SAFI_MPLS_VPN])
-    {
-      if (mp_update.length 
-	  && mp_update.afi == AFI_IP 
-	  && mp_update.safi == SAFI_MPLS_LABELED_VPN)
-	bgp_nlri_parse_vpn (peer, NLRI_ATTR_ARG, &mp_update);
-
-      if (mp_withdraw.length 
-	  && mp_withdraw.afi == AFI_IP 
-	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN)
-	bgp_nlri_parse_vpn (peer, NULL, &mp_withdraw);
-
-      if (! withdraw_len
-	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN
-	  && mp_withdraw.length == 0)
-	{
-	  /* End-of-RIB received */
-
-	  if (BGP_DEBUG (update, UPDATE_IN))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for VPNv4 Unicast from %s",
-		  peer->host);
-	}
-    }
-  if (peer->afc[AFI_IP6][SAFI_MPLS_VPN])
-    {
-      if (mp_update.length
-	  && mp_update.afi == AFI_IP6
-	  && mp_update.safi == SAFI_MPLS_LABELED_VPN)
-	bgp_nlri_parse_vpn (peer, NLRI_ATTR_ARG, &mp_update);
-
-      if (mp_withdraw.length
-	  && mp_withdraw.afi == AFI_IP6
-	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN)
-	bgp_nlri_parse_vpn (peer, NULL, &mp_withdraw);
-
-      if (! withdraw_len
-	  && mp_withdraw.afi == AFI_IP6
-	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN
-	  && mp_withdraw.length == 0)
-	{
-	  /* End-of-RIB received */
-
-	  if (BGP_DEBUG (update, UPDATE_IN))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for VPNv4 Unicast from %s",
-		  peer->host);
-	}
-    }
-  if (peer->afc[AFI_IP][SAFI_ENCAP])
-    {
-      if (mp_update.length
-	  && mp_update.afi == AFI_IP
-	  && mp_update.safi == SAFI_ENCAP)
-	bgp_nlri_parse_encap (peer, NLRI_ATTR_ARG, &mp_update);
-
-      if (mp_withdraw.length
-	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_ENCAP)
-	bgp_nlri_parse_encap (peer, NULL, &mp_withdraw);
-
-      if (! withdraw_len
-	  && mp_withdraw.afi == AFI_IP
-	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN
-	  && mp_withdraw.length == 0)
-	{
-	  /* End-of-RIB received */
-
-	  if (BGP_DEBUG (update, UPDATE_IN))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for Encap Unicast from %s",
-		  peer->host);
-	}
-    }
-  if (peer->afc[AFI_IP6][SAFI_ENCAP])
-    {
-      if (mp_update.length 
-	  && mp_update.afi == AFI_IP6 
-	  && mp_update.safi == SAFI_ENCAP)
-	bgp_nlri_parse_encap (peer, NLRI_ATTR_ARG, &mp_update);
-
-      if (mp_withdraw.length 
-	  && mp_withdraw.afi == AFI_IP6
-	  && mp_withdraw.safi == SAFI_ENCAP)
-	bgp_nlri_parse_encap (peer, NULL, &mp_withdraw);
-
-      if (! withdraw_len
-	  && mp_withdraw.afi == AFI_IP6
-	  && mp_withdraw.safi == SAFI_MPLS_LABELED_VPN
-	  && mp_withdraw.length == 0)
-	{
-	  /* End-of-RIB received */
-
-	  if (BGP_DEBUG (update, UPDATE_IN))
-	    zlog (peer->log, LOG_DEBUG, "rcvd End-of-RIB for Encap Unicast from %s",
-		  peer->host);
-	}
-    }
-
+  
   /* Everything is done.  We unintern temporary structures which
      interned in bgp_attr_parse(). */
   bgp_attr_unintern_sub (&attr);
