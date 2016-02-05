@@ -64,6 +64,13 @@ due to whitespace issues, to minimise merging conflicts.
 Be particularly careful not to break platforms/protocols that you
 cannot test.
 
+Parsers or packet-writers of data from untrusted parties, particularly
+remote ones, *MUST* use the lib/stream bounded-buffer abstraction, and use
+its checked getters and putters.  Twiddling of pointers based on contents of
+untrusted data is _strongly_ discouraged - any such code is not acceptable,
+unless there are very good reasons (e.g.  compatibility with external or old
+code that is not easily rewritten).
+
 New code should have good comments, which explain why the code is correct.
 Changes to existing code should in many cases upgrade the comments when
 necessary for a reviewer to conclude that the change has no unintended
