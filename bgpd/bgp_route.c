@@ -2121,6 +2121,9 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
   const char *reason;
   char buf[SU_ADDRSTRLEN];
 
+  memset (&new_attr, 0, sizeof(struct attr));
+  memset (&new_extra, 0, sizeof(struct attr_extra));
+
   bgp = peer->bgp;
   rn = bgp_afi_node_get (bgp->rib[afi][safi], afi, safi, p, prd);
   
