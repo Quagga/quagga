@@ -5,7 +5,7 @@
 ##  Copyright (c) 1996, 97, 98, 99, 2000 Kunihiro Ishiguro <kunihiro@zebra.org>
 ##  Portions Copyright (c) 2003 Paul Jakma <paul@dishone.st>
 ##
-AC_PREREQ(2.53)
+AC_PREREQ(2.60)
 
 AC_INIT(Quagga, 0.99.25, [https://bugzilla.quagga.net])
 CONFIG_ARGS="$*"
@@ -70,6 +70,7 @@ AC_LANG([C])
 AC_PROG_CC
 AC_PROG_CPP
 AM_PROG_CC_C_O
+AC_PROG_RANLIB
 AC_PROG_EGREP
 
 dnl autoconf 2.59 appears not to support AC_PROG_SED
