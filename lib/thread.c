@@ -1264,8 +1264,8 @@ int
 thread_should_yield (struct thread *thread)
 {
   quagga_get_relative (NULL);
-  return (timeval_elapsed(relative_time, thread->real) >
-  	  THREAD_YIELD_TIME_SLOT);
+  unsigned long t = timeval_elapsed(relative_time, thread->real);
+  return ((t > THREAD_YIELD_TIME_SLOT) ? t : 0);
 }
 
 void
