@@ -50,6 +50,22 @@ be _explicitly_ stated with the contribution.  A "Signed-off-by" line is
 _not_ sufficient.  The "Signed-off-by" line is not used by the Quagga
 project.
 
+You may document applicable copyright claims to files being modified or
+added by your contribution.  For new files, the standard way is to add a
+string in the following format near the beginning of the file:
+
+    Copyright (C) <Year> <name of person/entity>[, optional contact details]
+
+When adding copyright claims for modifications to an existing file, please
+preface the claim with "Portions: " on a line before it and indent the
+"Copyright ..." string. If such a case already exists, add your indented
+claim immediately after. E.g.:
+
+    Portions:
+      Copyright (C) <Year> <Entity A> ....
+      Copyright (C) <Year> <Your details> [optional brief change description]
+
+
 GUIDELINES FOR HACKING ON QUAGGA {#sec:guidelines}
 ================================
 
