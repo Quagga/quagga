@@ -46,7 +46,6 @@ extern int agentx_enabled;
 #include <mach/mach_time.h>
 #endif
 
-
 /* Recent absolute time of day */
 struct timeval recent_time;
 static struct timeval last_recent_time;
@@ -769,17 +768,6 @@ fd_is_set (int fd, thread_fd_set *fdset)
 }
 
 static int
-fd_set_read_write (int fd, thread_fd_set *fdset)
-{
-  if (FD_ISSET (fd, fdset))
-    return 0;
-
-  FD_SET (fd, fdset);
-
-  return 1;
-}
-
-static int
 fd_clear_read_write (int fd, thread_fd_set *fdset)
 {
   if (!FD_ISSET (fd, fdset))
@@ -789,27 +777,46 @@ fd_clear_read_write (int fd, thread_fd_set *fdset)
   return 1;
 }
 
+static struct thread *
+funcname_thread_add_read_write (int dir, struct thread_master *m, 
+		 int (*func) (struct thread *), void *arg, int fd,
+		 debugargdef)
+{
+  struct thread *thread = NULL;
+  thread_fd_set *fdset = NULL;
+
+  if (dir == THREAD_READ)
+    fdset = &m->readfd;
+  else
+    fdset = &m->writefd;
+
+  if (FD_ISSET (fd, &m->readfd))
+    {
+      zlog (NULL, LOG_WARNING, "There is already %s fd [%d]",
+	    (dir = THREAD_READ) ? "read" : "write", fd);
+      return NULL;
+    }
+
+  FD_SET (fd, fdset);
+
+  thread = thread_get (m, dir, func, arg, debugargpass);
+  thread->u.fd = fd;
+  if (dir == THREAD_READ)
+    thread_add_fd (m->read, thread);
+  else
+    thread_add_fd (m->write, thread);
+
+  return thread;
+}
+
 /* Add new read thread. */
 struct thread *
 funcname_thread_add_read (struct thread_master *m, 
 		 int (*func) (struct thread *), void *arg, int fd,
 		 debugargdef)
 {
-  struct thread *thread;
-
-  assert (m != NULL);
-
-  if (!fd_set_read_write (fd, &m->readfd))
-    {
-      zlog (NULL, LOG_WARNING, "There is already read fd [%d]", fd);
-      return NULL;
-    }
-
-  thread = thread_get (m, THREAD_READ, func, arg, debugargpass);
-  thread->u.fd = fd;
-  thread_add_fd (m->read, thread);
-
-  return thread;
+  return funcname_thread_add_read_write (THREAD_READ, m, func,
+                                         arg, fd, debugargpass);
 }
 
 /* Add new write thread. */
@@ -818,21 +825,8 @@ funcname_thread_add_write (struct thread_master *m,
 		 int (*func) (struct thread *), void *arg, int fd,
 		 debugargdef)
 {
-  struct thread *thread;
-
-  assert (m != NULL);
-
-  if (!fd_set_read_write (fd, &m->writefd))
-    {
-      zlog (NULL, LOG_WARNING, "There is already write fd [%d]", fd);
-      return NULL;
-    }
-
-  thread = thread_get (m, THREAD_WRITE, func, arg, debugargpass);
-  thread->u.fd = fd;
-  thread_add_fd (m->write, thread);
-
-  return thread;
+  return funcname_thread_add_read_write (THREAD_WRITE, m, func, 
+                                         arg, fd, debugargpass);
 }
 
 static struct thread *
