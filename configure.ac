@@ -308,6 +308,8 @@ AC_ARG_ENABLE([protobuf],
 
 AC_ARG_ENABLE([dev_build],
     AS_HELP_STRING([--enable-dev-build], [build for development]))
+AC_ARG_ENABLE(poll,
+  AS_HELP_STRING([--enable-poll], [Use poll semantics instead of select]))
 
 if test x"${enable_gcc_rdynamic}" != x"no" ; then
   if test x"${enable_gcc_rdynamic}" = x"yes" -o x"$COMPILER" = x"GCC"; then
@@ -321,6 +323,10 @@ if test x"${enable_time_check}" != x"no" ; then
   else
     AC_DEFINE_UNQUOTED(CONSUMED_TIME_CHECK,$enable_time_check,Consumed Time Check)
   fi
+fi
+
+if test "${enable_poll}" = "yes" ; then
+   AC_DEFINE(HAVE_POLL,,Compile poll support in)
 fi
 
 if test "${enable_fpm}" = "yes"; then
