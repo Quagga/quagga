@@ -425,7 +425,7 @@ vty_command (struct vty *vty, char *buf)
       snprintf(vty_str, sizeof(vty_str), "vty[??]@%s", vty->address);
       if (vty)
         for (i = 0; i < vector_active (vtyvec); i++)
-          if ((vty == vector_slot (vtyvec, i)))
+          if (vty == vector_slot (vtyvec, i))
             {
               snprintf(vty_str, sizeof(vty_str), "vty[%d]@%s",
                                                  i, vty->address);
