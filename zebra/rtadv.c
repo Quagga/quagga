@@ -132,9 +132,6 @@ rtadv_send_packet (int sock, struct interface *ifp)
   struct cmsghdr  *cmsgptr;
   struct in6_pktinfo *pkt;
   struct sockaddr_in6 addr;
-#ifdef HAVE_STRUCT_SOCKADDR_DL
-  struct sockaddr_dl *sdl;
-#endif /* HAVE_STRUCT_SOCKADDR_DL */
   static void *adata = NULL;
   unsigned char buf[RTADV_MSG_SIZE];
   struct nd_router_advert *rtadv;
