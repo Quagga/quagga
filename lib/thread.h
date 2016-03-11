@@ -236,6 +236,9 @@ extern time_t quagga_time (time_t *);
 extern unsigned long thread_consumed_time(RUSAGE_T *after, RUSAGE_T *before,
 					  unsigned long *cpu_time_elapsed);
 
+/* Returns elapsed time in microseconds */
+extern unsigned long timeval_elapsed (struct timeval a, struct timeval b);
+
 /* Global variable containing a recent result from gettimeofday.  This can
    be used instead of calling gettimeofday if a recent value is sufficient.
    This is guaranteed to be refreshed before a thread is called. */
