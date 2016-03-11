@@ -308,6 +308,9 @@ AC_ARG_ENABLE(poll,
 AC_ARG_ENABLE([protobuf],
   AS_HELP_STRING([--disable-protobuf], [Ignore presence of protobuf and disable it]))
 
+AC_ARG_ENABLE([dev_build],
+    AS_HELP_STRING([--enable-dev-build], [build for development]))
+
 if test x"${enable_gcc_rdynamic}" != x"no" ; then
   if test x"${enable_gcc_rdynamic}" = x"yes" -o x"$COMPILER" = x"GCC"; then
     LDFLAGS="${LDFLAGS} -rdynamic"
@@ -329,6 +332,11 @@ fi
 if test "${enable_fpm}" = "yes"; then
    AC_DEFINE(HAVE_FPM,,Forwarding Plane Manager support)
 fi
+
+if test "x${enable_dev_build}" = "xyes"; then
+   AC_DEFINE(DEV_BUILD,,Build for development)
+fi
+AM_CONDITIONAL([DEV_BUILD], [test "x$enable_dev_build" = "xyes"])
 
 #
 # Logic for protobuf support.
