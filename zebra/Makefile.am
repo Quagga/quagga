@@ -26,6 +26,10 @@ if HAVE_PROTOBUF
 protobuf_srcs = zebra_fpm_protobuf.c
 endif
 
+if DEV_BUILD
+dev_srcs = zebra_fpm_dt.c
+endif
+
 AM_CFLAGS = $(WERROR)
 
 sbin_PROGRAMS = zebra
@@ -36,7 +40,7 @@ zebra_SOURCES = \
 	zserv.c main.c interface.c connected.c zebra_rib.c zebra_routemap.c \
 	redistribute.c debug.c rtadv.c zebra_snmp.c zebra_vty.c \
 	irdp_main.c irdp_interface.c irdp_packet.c router-id.c zebra_fpm.c \
-	$(othersrc) $(protobuf_srcs)
+	$(othersrc) $(protobuf_srcs) $(dev_srcs)
 
 testzebra_SOURCES = test_main.c zebra_rib.c interface.c connected.c debug.c \
 	zebra_vty.c \
