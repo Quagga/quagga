@@ -40,6 +40,8 @@
 #include <arpa/telnet.h>
 #include <termios.h>
 
+#include "vty_invoke.h"
+
 /* Vty events */
 enum event 
 {
@@ -3127,6 +3129,8 @@ vty_init (struct thread_master *master_thread)
   install_element (VTY_NODE, &vty_ipv6_access_class_cmd);
   install_element (VTY_NODE, &no_vty_ipv6_access_class_cmd);
 #endif /* HAVE_IPV6 */
+  
+  vty_invoke_init ();
 }
 
 void

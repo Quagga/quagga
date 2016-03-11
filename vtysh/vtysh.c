@@ -2268,6 +2268,80 @@ DEFUN (vtysh_start_zsh,
   return CMD_SUCCESS;
 }
 
+#ifdef DEV_BUILD
+
+/*
+ * 'invoke' command
+ *
+ * Command that allows user to invoke functions from the cli shell in
+ * development build.
+ */
+DEFUN (invoke_function,
+       invoke_function_cmd,
+       "invoke COMPONENT function NAME [ARG1] [ARG2] [ARG3] [ARG4] [ARG5] [ARG6]",
+       "Invoke\n"
+       "Component name in which to invoke function\n"
+       "Invoke a function\n"
+       "Name of function to invoke\n"
+       "First argument\n"
+       "Second argument\n"
+       "Third argument\n"
+       "Fourth argument\n"
+       "Fifth argument\n"
+       "Sixth argument\n")
+{
+  unsigned int u;
+  char line[1000];
+  char *cur, *end;
+  int ret, i;
+  const char *component_name;
+  struct vtysh_client *client;
+
+  cur = line;
+  end = cur + sizeof (line);
+
+  cur += snprintf (cur, end - cur, "invoke function ");
+
+  /*
+   * Build command string, skipping over the component name.
+   */
+  for (i = 1; i < argc; i++)
+    {
+      ret = snprintf (cur, end - cur, "%s ", argv[i]);
+      if (ret < 0 || ret == (end - cur))
+	{
+	  vty_out (vty, "Command string is too long");
+	  return CMD_WARNING;
+	}
+      cur += ret;
+    }
+
+  component_name = argv[0];
+
+  for (u = 0; u < array_size (vtysh_client); u++)
+    {
+      client = &vtysh_client[u];
+      if (strcmp (client->name, component_name))
+	{
+	  continue;
+	}
+      if (client->fd < 0)
+	{
+	  fprintf (stdout, "Not connected to component %s\n", component_name);
+	  return CMD_WARNING;
+	}
+
+      ret = vtysh_client_execute (client, line, stdout);
+      fprintf (stdout, "\n");
+      return ret;
+    }
+
+  fprintf (stdout, "Could not find component %s\n", component_name);
+  return CMD_WARNING;
+}
+
+#endif	/* DEV_BUILD */
+
 static void
 vtysh_install_default (enum node_type node)
 {
@@ -2677,5 +2751,9 @@ vtysh_init_vty (void)
   install_element (CONFIG_NODE, &vtysh_enable_password_cmd);
   install_element (CONFIG_NODE, &vtysh_enable_password_text_cmd);
   install_element (CONFIG_NODE, &no_vtysh_enable_password_cmd);
+
+#ifdef DEV_BUILD
+  install_element (ENABLE_NODE, &invoke_function_cmd);
+#endif
 
 }

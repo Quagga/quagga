@@ -335,6 +335,10 @@ fi
 
 if test "x${enable_dev_build}" = "xyes"; then
    AC_DEFINE(DEV_BUILD,,Build for development)
+
+   # Link with -ldl so that the developer build can use dlsym and
+   # company.
+   LDFLAGS="${LDFLAGS} -rdynamic -ldl"
 fi
 AM_CONDITIONAL([DEV_BUILD], [test "x$enable_dev_build" = "xyes"])
 

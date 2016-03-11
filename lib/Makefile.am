@@ -13,7 +13,8 @@ libzebra_la_SOURCES = \
 	sockunion.c prefix.c thread.c if.c memory.c buffer.c table.c hash.c \
 	filter.c routemap.c distribute.c stream.c str.c log.c plist.c \
 	zclient.c sockopt.c smux.c agentx.c snmp.c md5.c if_rmap.c keychain.c privs.c \
-	sigevent.c pqueue.c jhash.c memtypes.c workqueue.c vrf.c event_counter.c
+	sigevent.c pqueue.c jhash.c memtypes.c workqueue.c vrf.c event_counter.c \
+	vty_invoke.c
 
 BUILT_SOURCES = memtypes.h route_types.h gitversion.h
 
