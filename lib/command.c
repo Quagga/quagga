@@ -622,6 +622,8 @@ install_element (enum node_type ntype, struct cmd_element *cmd)
   vector_set (cnode->cmd_vector, cmd);
   if (cmd->tokens == NULL)
     cmd->tokens = cmd_parse_format(cmd->string, cmd->doc);
+  else
+    assert(0);
 
   if (ntype == VIEW_NODE)
     install_element (ENABLE_NODE, cmd);
@@ -4246,12 +4248,10 @@ cmd_init (int terminal)
       install_element (CONFIG_NODE, &no_service_terminal_length_cmd);
 
       install_element (VIEW_NODE, &show_thread_cpu_cmd);
-      install_element (ENABLE_NODE, &show_thread_cpu_cmd);
       install_element (RESTRICTED_NODE, &show_thread_cpu_cmd);
       
       install_element (ENABLE_NODE, &clear_thread_cpu_cmd);
       install_element (VIEW_NODE, &show_work_queues_cmd);
-      install_element (ENABLE_NODE, &show_work_queues_cmd);
     }
   install_element (CONFIG_NODE, &show_commandtree_cmd);
   srandom(time(NULL));
