@@ -135,7 +135,8 @@ rip_zebra_read_ipv4 (int command, struct zclient *zclient, zebra_size_t length,
   unsigned long ifindex;
   struct in_addr nexthop;
   struct prefix_ipv4 p;
-  
+  unsigned char plength = 0;
+
   s = zclient->ibuf;
   ifindex = 0;
   nexthop.s_addr = 0;
@@ -148,7 +149,8 @@ rip_zebra_read_ipv4 (int command, struct zclient *zclient, zebra_size_t length,
   /* IPv4 prefix. */
   memset (&p, 0, sizeof (struct prefix_ipv4));
   p.family = AF_INET;
-  p.prefixlen = MIN(IPV4_MAX_PREFIXLEN, stream_getc (s));
+  plength = stream_getc (s);
+  p.prefixlen = MIN(IPV4_MAX_PREFIXLEN, plength);
   stream_get (&p.prefix, s, PSIZE (p.prefixlen));
 
   /* Nexthop, ifindex, distance, metric. */

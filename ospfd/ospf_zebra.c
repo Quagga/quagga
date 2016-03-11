@@ -832,6 +832,7 @@ ospf_zebra_read_ipv4 (int command, struct zclient *zclient,
   struct prefix_ipv4 p;
   struct external_info *ei;
   struct ospf *ospf;
+  unsigned char plength = 0;
 
   s = zclient->ibuf;
   ifindex = 0;
@@ -845,7 +846,8 @@ ospf_zebra_read_ipv4 (int command, struct zclient *zclient,
   /* IPv4 prefix. */
   memset (&p, 0, sizeof (struct prefix_ipv4));
   p.family = AF_INET;
-  p.prefixlen = MIN(IPV4_MAX_PREFIXLEN, stream_getc (s));
+  plength = stream_getc (s);
+  p.prefixlen = MIN(IPV4_MAX_PREFIXLEN, plength);
   stream_get (&p.prefix, s, PSIZE (p.prefixlen));
 
   if (IPV4_NET127(ntohl(p.prefix.s_addr)))
