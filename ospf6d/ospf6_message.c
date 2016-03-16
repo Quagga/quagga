@@ -290,7 +290,7 @@ ospf6_hello_recv (struct in6_addr *src, struct in6_addr *dst,
   memcpy (&on->linklocal_addr, src, sizeof (struct in6_addr));
 
   /* Neighbor ifindex check */
-  if (on->ifindex != ntohl (hello->interface_id))
+  if (on->ifindex != (ifindex_t)ntohl (hello->interface_id))
     {
       on->ifindex = ntohl (hello->interface_id);
       neighbor_ifindex_change++;
