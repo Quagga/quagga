@@ -38,3 +38,6 @@ build
 m4/*.m4
 !m4/ax_sys_weak_alias.m4
 cscope.*
+*.pb.h
+*.pb-c.h
+*.pb-c.c
