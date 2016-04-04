@@ -303,6 +303,8 @@ AC_ARG_ENABLE(werror,
   AS_HELP_STRING([--enable-werror], [enable -Werror (recommended for developers only)]))
 AC_ARG_ENABLE(poll,
   AS_HELP_STRING([--enable-poll], [Use poll semantics instead of select]))
+AC_ARG_ENABLE([protobuf],
+  AS_HELP_STRING([--disable-protobuf], [Ignore presence of protobuf and disable it]))
 
 if test x"${enable_gcc_rdynamic}" != x"no" ; then
   if test x"${enable_gcc_rdynamic}" = x"yes" -o x"$COMPILER" = x"GCC"; then
@@ -325,6 +327,49 @@ fi
 if test "${enable_fpm}" = "yes"; then
    AC_DEFINE(HAVE_FPM,,Forwarding Plane Manager support)
 fi
+
+#
+# Logic for protobuf support.
+#
+have_protobuf=no
+if test "x$enable_protobuf" != "xno"; then
+   have_protobuf=yes
+
+   # Check for protoc-c
+   AC_CHECK_PROG([PROTOC_C], [protoc-c], [protoc-c], [/bin/false])
+   if test "x$PROTOC_C" = "x/bin/false"; then
+      have_protobuf=no
+   else
+      found_protobuf_c=no
+      PKG_CHECK_MODULES([PROTOBUF_C], libprotobuf-c >= 0.14,
+                     [found_protobuf_c=yes],
+                     [AC_MSG_RESULT([pkg-config did not find libprotobuf-c])])
+
+      if test "x$found_protobuf_c" = "xyes"; then
+         LDFLAGS="$LDFLAGS $PROTOBUF_C_LIBS"
+         CFLAGS="$CFLAGS $PROTOBUF_C_CFLAGS"
+      else
+        AC_CHECK_HEADER([google/protobuf-c/protobuf-c.h], [],
+                        [have_protobuf=no; AC_MSG_RESULT([Couldn't find google/protobuf-c.h])])
+      fi
+   fi
+fi
+
+# Fail if the user explicity enabled protobuf support and we couldn't
+# find the compiler or libraries.
+if test "x$have_protobuf" = "xno" && test "x$enable_protobuf" = "xyes"; then
+   AC_MSG_ERROR([Protobuf enabled explicitly but can't find libraries/tools])
+fi
+
+if test "x$have_protobuf" = "xyes"; then
+   AC_DEFINE(HAVE_PROTOBUF,, protobuf)
+fi
+
+AM_CONDITIONAL([HAVE_PROTOBUF], [test "x$have_protobuf" = "xyes"])
+
+#
+# End of logic for protobuf support.
+#
 
 if test "${enable_tcp_zebra}" = "yes"; then
   AC_DEFINE(HAVE_TCP_ZEBRA,,Use TCP for zebra communication)
@@ -1536,7 +1581,7 @@ AC_CACHE_VAL(ac_cv_htonl_works,
 )
 AC_MSG_RESULT($ac_cv_htonl_works)
 
-AC_CONFIG_FILES([Makefile lib/Makefile zebra/Makefile ripd/Makefile 
+AC_CONFIG_FILES([Makefile lib/Makefile qpb/Makefile zebra/Makefile ripd/Makefile 
 	  ripngd/Makefile bgpd/Makefile ospfd/Makefile watchquagga/Makefile
 	  ospf6d/Makefile isisd/Makefile vtysh/Makefile
 	  doc/Makefile ospfclient/Makefile tests/Makefile m4/Makefile
