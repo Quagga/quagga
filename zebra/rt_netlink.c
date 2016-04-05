@@ -1328,7 +1328,7 @@ netlink_route_read (struct zebra_vrf *zvrf)
 /* Utility function  comes from iproute2. 
    Authors:	Alexey Kuznetsov, <kuznet@ms2.inr.ac.ru> */
 int
-addattr_l (struct nlmsghdr *n, size_t maxlen, int type, void *data, int alen)
+addattr_l (struct nlmsghdr *n, size_t maxlen, int type, void *data, size_t alen)
 {
   size_t len;
   struct rtattr *rta;
@@ -1348,9 +1348,10 @@ addattr_l (struct nlmsghdr *n, size_t maxlen, int type, void *data, int alen)
 }
 
 int
-rta_addattr_l (struct rtattr *rta, int maxlen, int type, void *data, int alen)
+rta_addattr_l (struct rtattr *rta, size_t maxlen, int type, void *data, 
+               size_t alen)
 {
-  int len;
+  size_t len;
   struct rtattr *subrta;
 
   len = RTA_LENGTH (alen);
