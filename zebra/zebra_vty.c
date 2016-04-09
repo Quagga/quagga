@@ -1341,7 +1341,8 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
 
       for (ALL_NEXTHOPS_RO(rib->nexthop, nexthop, tnexthop, recursing))
         {
-          vty_out (vty, "  %c%s",
+          vty_out (vty, "  %c%c%s",
+                   CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_ACTIVE) ? '>' : ' ',
                    CHECK_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB) ? '*' : ' ',
                    recursing ? "  " : "");
 

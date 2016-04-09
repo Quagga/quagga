@@ -1078,7 +1078,6 @@ nexthop_active_update (struct route_node *rn, struct rib *rib, int set)
   ifindex_t prev_index;
   
   rib->nexthop_active_num = 0;
-  UNSET_FLAG (rib->status, RIB_ENTRY_CHANGED);
 
   for (nexthop = rib->nexthop; nexthop; nexthop = nexthop->next)
   {
@@ -1124,12 +1123,15 @@ rib_update_kernel (struct route_node *rn, struct rib *old, struct rib *new)
 
   /* This condition is never met, if we are using rt_socket.c */
   if (ret < 0 && new)
+    {
       for (ALL_NEXTHOPS_RO(new->nexthop, nexthop, tnexthop, recursing))
         UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
-
-  if (old)
-    for (ALL_NEXTHOPS_RO(old->nexthop, nexthop, tnexthop, recursing))
-      UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
+    }
+  else if (old && old != new)
+    {
+      for (ALL_NEXTHOPS_RO(old->nexthop, nexthop, tnexthop, recursing))
+        UNSET_FLAG (nexthop->flags, NEXTHOP_FLAG_FIB);
+    }
 
   return ret;
 }
@@ -1275,6 +1277,8 @@ rib_process (struct route_node *rn)
 
   RNODE_FOREACH_RIB (rn, rib)
     {
+      UNSET_FLAG (rib->status, RIB_ENTRY_CHANGED);
+
       /* Currently installed rib. */
       if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
         {
@@ -1323,7 +1327,7 @@ rib_process (struct route_node *rn)
   if (new_fib)
     nexthop_active_update (rn, new_fib, 1);
   if (new_selected && new_selected != new_fib)
-     nexthop_active_update (rn, new_selected, 1);
+    nexthop_active_update (rn, new_selected, 1);
 
   /* Update kernel if FIB entry has changed */
   if (old_fib != new_fib
