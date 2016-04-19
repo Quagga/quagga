@@ -2605,8 +2605,12 @@ node_parent ( enum node_type node )
     case KEYCHAIN_KEY_NODE:
       ret = KEYCHAIN_NODE;
       break;
+    case LINK_PARAMS_NODE:
+      ret = INTERFACE_NODE;
+      break;
     default:
       ret = CONFIG_NODE;
+      break;
     }
 
   return ret;
@@ -2976,6 +2980,9 @@ DEFUN (config_exit,
     case KEYCHAIN_KEY_NODE:
       vty->node = KEYCHAIN_NODE;
       break;
+    case LINK_PARAMS_NODE:
+      vty->node = INTERFACE_NODE;
+      break;
     default:
       break;
     }
@@ -3025,6 +3032,7 @@ DEFUN (config_end,
     case MASC_NODE:
     case PIM_NODE:
     case VTY_NODE:
+    case LINK_PARAMS_NODE:
       vty_config_unlock (vty);
       vty->node = ENABLE_NODE;
       break;

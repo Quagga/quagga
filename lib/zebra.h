@@ -421,7 +421,8 @@ struct in_pktinfo
 #define ZEBRA_HELLO                       23
 #define ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB    24
 #define ZEBRA_VRF_UNREGISTER              25
-#define ZEBRA_MESSAGE_MAX                 26
+#define ZEBRA_INTERFACE_LINK_PARAMS       26
+#define ZEBRA_MESSAGE_MAX                 27
 
 /* Marker value used in new Zserv, in the byte location corresponding
  * the command value in the old zserv header. To allow old and new
