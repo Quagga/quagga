@@ -1423,6 +1423,9 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
  	   *   Connect                       Connect
  	   *
            *
+           * Note that Active->OpenSent historically in Quagga did not send
+           * OPEN on the accept-peer connection.
+           *
  	   * If both sides are Quagga, they're almost certain to wait for
  	   * the same amount of time of course (which doesn't preclude other
  	   * implementations also waiting for same time). The race is
@@ -1466,6 +1469,11 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
       realpeer->ibuf = peer->ibuf;
       realpeer->packet_size = peer->packet_size;
       peer->ibuf = NULL;
+    
+      /* Transfer output buffer, there may be an OPEN queued to send */
+      stream_fifo_free (realpeer->obuf);
+      realpeer->obuf = peer->obuf;
+      peer->obuf = NULL;
 
       /* Transfer status. */
       realpeer->status = peer->status;
@@ -1473,7 +1481,6 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
       
       /* peer pointer change. Open packet send to neighbor. */
       peer = realpeer;
-      bgp_open_send (peer);
       if (peer->fd < 0)
 	{
 	  zlog_err ("bgp_open_receive peer's fd is negative value %d",
@@ -1481,6 +1488,8 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
 	  return -1;
 	}
       BGP_READ_ON (peer->t_read, bgp_read, peer->fd);
+      if (stream_fifo_head (peer->obuf))
+        BGP_WRITE_ON (peer->t_write, bgp_write, peer->fd);
     }
 
   /* remote router-id check. */
