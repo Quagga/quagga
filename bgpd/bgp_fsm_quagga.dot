@@ -1,0 +1,59 @@
+digraph {
+  rankdir=LR
+  //concentrate=true
+  nojustify="true"
+
+  Idle
+  Connect
+  Active
+  OpenSent
+  OpenConfirm
+  Established
+  Clearing
+  Idle -> Deleted
+  Configured -> Idle
+  
+  Idle -> Connect [ label="BGP_Start\l/bgp_start\l" ]
+  Idle -> Idle [ label="BGP_Stop\l|TCP_connection_open\l|TCP_connection_closed\l|TCP_fatal_error\l/bgp_stop\l"]
+
+  Connect -> Connect [ label="ConnectRetry_timer_expired\l/bgp_reconnect\l" ]
+  Connect -> Idle [ label="BGP_Stop\l|TCP_connection_open\l|Receive_NOTIFICATION_message\l/bgp_stop\l" ]
+  Connect -> Idle [ label="TCP_fatal_error\l/bgp_connect_fail\l" ]
+  Connect -> Idle [ label="Hold_Timer_expired\l|KeepAlive_timer_expired\l|Receive_OPEN_message\l|Receive_KEEPALIVE_message\l|Receive_UPDATE_message\l|Clearing_Completed\l/bgp_ignore"]
+  Connect -> OpenSent [ label="TCP_connection_open\l/bgp_connect_success\l" ]
+  Connect -> Active [ label="TCP_connection_open_failed\l/bgp_connect_fail\l" ]
+
+  Active -> Idle [ label="BGP_Stop\l|TCP_connection_closed\l/bgp_stop\l" ]
+  Active -> Idle [ label="Receive_NOTIFICATION_message\l/bgp_stop_with_error\l" ]
+  Active -> Idle [ label="TCP_fatal_error\l|Hold_Timer_expired\l|KeepAlive_timer_expired\l|Receive_OPEN_message\l|Receive_KEEPALIVE_message\l|Receive_UPDATE_message\l|Clearing_Completed\l/bgp_ignore\l" ]
+  Active -> OpenSent [ label="TCP_connection_open\l/bgp_connect_success\l" ]
+  Active -> Connect [ label="ConnectRetry_timer_expiredl/bgp_start\l" ]
+
+  Accept -> Active [ label="Raise TCP_connection_open on Active" ]
+
+  OpenSent -> Idle [ label="BGP_Stop\l/bgp_stop\l" ]
+  OpenSent -> Idle [ label="ConnectRetry_timer_expired\l|Clearing_Completed\l|KeepAlive_timer_expired\l/bgp_ignore\l" ]
+  OpenSent -> Idle [ label="Hold_Timer_expired\l/bgp_fsm_holdtime_expire\l"]
+  OpenSent -> Idle [ label="Receive_KEEPALIVE_message\l|Receive_UPDATE_message\l/bgp_fsm_event_error" ]
+  OpenSent -> Idle [ label="Receive_NOTIFICATION_message\l/bgp_stop_with_error" ]
+  OpenSent -> Active [ label="TCP_connection_open\l|TCP_connection_closed\l|TCP_connection_open_failed\l|TCP_fatal_error\l/bgp_stop\l"]
+  OpenSent -> OpenConfirm [ label="Receive_OPEN_message\l/bgp_fsm_open" ]
+  
+  OpenConfirm -> Idle [ label="BGP_Stop\l|TCP_connection_open\l|TCP_connection_closed\l|TCP_connection_open_failed\l|TCP_fatal_error\l/bgp_stop\l"]
+  OpenConfirm -> Idle [ label="Hold_Timer_expired\l/bgp_fsm_holdtime_expire" ]
+  OpenConfirm -> Idle [ label="ConnectRetry_timer_expired\l|Receive_OPEN_message\l|Receive_UPDATE_message\l|Clearing_Completed\l/bgp_ignore"]
+  OpenConfirm -> Idle [ label="Receive_NOTIFICATION_message\l/bgp_stop_with_error\l" ]
+  OpenConfirm -> Established [ label="Receive_KEEPALIVE_message\l/bgp_establish\l" ]
+
+  Established -> Clearing [ label="BGP_Stop\l|TCP_connection_open\l|TCP_connection_closed\l|TCP_connection_open_failed\l|TCP_fatal_error\l|ConnectRetry_timer_expired\l|Hold_Timer_expired\l|Receive_OPEN_message\l/bgp_stop\l"]
+  Established -> Idle [ label="Clearing_Completed\l/bgp_ignore" ]
+  Established -> Clearing [ label="Receive_NOTIFICATION_message\l/bgp_stop_with_error"] 
+  
+  Clearing -> Idle [ label="Clearing_Completed\l/bgp_clearing_completed" ]
+  subgraph cluster_pre_collision_detect {
+    label="Prior to collision detection"
+    bgcolor=lightgray
+    Connect Accept Active OpenSent OpenConfirm
+  }
+
+}

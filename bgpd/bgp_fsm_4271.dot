@@ -1,0 +1,34 @@
+digraph {
+  rankdir=LR
+  //concentrate=true
+  nojustify="true"
+
+  Idle -> Connect [ label="ManualStart\l|AutomaticStart" ]
+  Idle -> Active [ label="ManualStart_with_PassiveTcpEstablishment\l|AutomaticStart_with_PassiveTcpEstablishment" ]
+  
+  Connect -> Idle [ label="ManualStop"]
+  Connect -> Connect [ label="ConnectRetryTimer_Expires\l|TcpConnection_Valid\l|Tcp_CR_Invalid\l|Tcp_CR_Acked && DelayOpen == True\l|TcpConnectionConfirmed && DelayOpen == True\l" ]
+  Connect -> OpenSent [ label="DelayOpenTimer_Expires\l|Tcp_CR_Acked && DelayOpen == False\l|TcpConnectionConfirmed && DelayOpen == False\l" ]
+  Connect -> Active [ label="TcpConnectionFails && DelayOpenTimer == \"running\"\l" ]
+  Connect -> Idle [ label="TcpConnectionFails && DelayOpenTimer == \"not running\"\l" ]
+  Connect -> OpenConfirm [ label="BGPOpen && DelayOpenTimer == \"running\"" ]
+  Connect -> Idle [ label="NotifMsg|*\l" ]
+  
+  Active -> Idle [ label="ManualStop\l|TcpConnectionFails\l|NotifMsg|*" ]
+  Active -> Connect [ label="ConnectRetryTimer_Expires" ]
+  Active -> OpenSent [ label="DelayOpenTimer_Expires" ] 
+  Active -> Active [ label="(Tcp_CR_Acked\l|TcpConnectionConfirmed)\l&& DelayOpen = True" ]
+  Active -> OpenSent [ label="(Tcp_CR_Acked|TcpConnectionConfirmed)\l&& DelayOpen = False" ]
+  Active -> OpenConfirm [ label="BGPOpen && DelayOpenTimer == \"running\"" ]
+
+  OpenSent -> Idle [ label="ManualStop\l|AutomaticStop\l|HoldTimer_Expires\l|NotifMsg\l|OpenCollisionDump\l" ]
+  OpenSent -> Active [ label="TcpConnectionFails" ]
+  OpenSent -> OpenConfirm [ label="BGPOpen" ]
+  
+  OpenConfirm -> Idle [ label="ManualStop\l|AutomaticStop\l|HoldTimer_Expires\l|TcpConnectionFails\l|NotifMsg\l|BGPOpen|*\l"] 
+  OpenConfirm -> Established [ label="KeepAliveMsg|"]
+  OpenConfirm -> OpenConfirm [ label="KeepaliveTimer_Expires" ]  
+
+  Established -> Idle [ label="OpenCollisionDump|*"]
+  Established -> Established [ label="Tcp_CR_Invalid|KeepAliveMsg|UpdateMsg"]
+}
