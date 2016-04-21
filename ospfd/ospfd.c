@@ -754,9 +754,6 @@ add_ospf_interface (struct connected *co, struct ospf_area *area)
   oi->params = ospf_lookup_if_params (co->ifp, oi->address->u.prefix4);
   oi->output_cost = ospf_if_get_output_cost (oi);
 
-  /* Add pseudo neighbor. */
-  ospf_nbr_add_self (oi);
-
   /* Relate ospf interface to ospf instance. */
   oi->ospf = area->ospf;
 
@@ -764,6 +761,9 @@ add_ospf_interface (struct connected *co, struct ospf_area *area)
   /* If network type is specified previously,
      skip network type setting. */
   oi->type = IF_DEF_PARAMS (co->ifp)->type;
+
+  /* Add pseudo neighbor. */
+  ospf_nbr_self_reset (oi);
 
   ospf_area_add_if (oi->area, oi);
 
