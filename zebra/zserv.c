@@ -626,7 +626,8 @@ zsend_ipv4_nexthop_lookup_mrib (struct zserv *client, struct in_addr addr,
   stream_reset (s);
 
   /* Fill in result. */
-  zserv_create_header (s, ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB, rib->vrf_id);
+  zserv_create_header (s, ZEBRA_IPV4_NEXTHOP_LOOKUP_MRIB, 
+		       rib ? rib->vrf_id : VRF_DEFAULT);
   stream_put_in_addr (s, &addr);
 
   if (rib)
