@@ -3876,6 +3876,7 @@ zebra_vty_init (void)
   install_element (CONFIG_NODE, &no_ip_route_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_distance2_cmd);
+  install_element (CONFIG_NODE, &no_ip_route_mask_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance2_cmd);
 
@@ -3929,6 +3930,7 @@ zebra_vty_init (void)
   install_element (CONFIG_NODE, &no_ip_route_distance_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_distance_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_distance2_vrf_cmd);
+  install_element (CONFIG_NODE, &no_ip_route_mask_distance_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_mask_flags_distance2_vrf_cmd);
 
