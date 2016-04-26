@@ -424,11 +424,13 @@ route_match_ip_next_hop (void *rule, struct prefix *prefix,
 {
   struct access_list *alist;
   struct nexthop *nexthop;
+  struct nexthop_vrfid *nh_vrf;
   struct prefix_ipv4 p;
 
   if (type == RMAP_ZEBRA)
     {
-      nexthop = object;
+      nh_vrf = object;
+      nexthop = nh_vrf->nexthop;
       switch (nexthop->type) {
       case NEXTHOP_TYPE_IFINDEX:
       case NEXTHOP_TYPE_IFNAME:
@@ -486,11 +488,13 @@ route_match_ip_next_hop_prefix_list (void *rule, struct prefix *prefix,
 {
   struct prefix_list *plist;
   struct nexthop *nexthop;
+  struct nexthop_vrfid *nh_vrf;
   struct prefix_ipv4 p;
 
   if (type == RMAP_ZEBRA)
     {
-      nexthop = object;
+      nh_vrf = object;
+      nexthop = nh_vrf->nexthop;
       switch (nexthop->type) {
       case NEXTHOP_TYPE_IFINDEX:
       case NEXTHOP_TYPE_IFNAME:
@@ -632,10 +636,10 @@ route_set_src (void *rule, struct prefix *prefix,
 {
   if (type == RMAP_ZEBRA)
     {
-      struct nexthop *nexthop;
+      struct nexthop_vrfid *nh_vrf;
 
-      nexthop = object;
-      nexthop->src = *(union g_addr *)rule;
+      nh_vrf = object;
+      nh_vrf->nexthop->src = *(union g_addr *)rule;
     }
   return RMAP_OKAY;
 }
