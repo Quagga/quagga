@@ -1201,12 +1201,54 @@ bgp_collision_detect (struct peer *new, struct in_addr remote_id)
 
   for (ALL_LIST_ELEMENTS (bgp->peer, node, nnode, peer))
     {
-      /* Under OpenConfirm status, local peer structure already hold
-         remote router ID. */
-
-      if (peer != new
-	  && (peer->status == OpenConfirm || peer->status == OpenSent)
-	  && sockunion_same (&peer->su, &new->su))
+      if (peer == new)
+        continue;
+      if (!sockunion_same (&peer->su, &new->su))
+        continue;
+      
+      /* Unless allowed via configuration, a connection collision with an
+         existing BGP connection that is in the Established state causes
+         closing of the newly created connection. */
+      if (peer->status == Established)
+        {
+          /* GR may do things slightly differently to classic RFC .  Punt to
+           * open_receive, see below 
+           */
+          if (CHECK_FLAG (peer->sflags, PEER_STATUS_NSF_MODE))
+            continue;
+          
+          if (new->fd >= 0)
+              bgp_notify_send (new, BGP_NOTIFY_CEASE, 
+                               BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
+	      return -1;
+        }
+      
+      /* The assumption from here is that the existing peer structure is
+       * locally initiated, and the 'new' argument from which we've just
+       * received the Open is newly created inbound.  I.e., the assumption
+       * is that the connection on which the Open was already processed must
+       * be the outbound one.
+       *
+       * That seems slightly unsafe.  The older connection could easily have
+       * been an accepted peer - but we remove that flag before going into
+       * OpenConfirm.  The 'new' connection could be us reading an Open on a
+       * connection we initiated.
+       *
+       * This might even be an confusion RFC4271 somewhat encourages, e.g.:
+       *
+       * "the local system closes the BGP connection that already exists
+       *  (the one that is already in the OpenConfirm state), and accepts
+       *  the BGP connection initiated by the remote system."
+       *
+       * Quagga historically orders explicitly only on the processing of the
+       * Opens, as below.  Not clear to what extent this ensures it closes
+       * the inbound and outbound connections as required.
+       */
+       
+      /* The local_id is always set, so we can match the given remote-ID
+       * from the OPEN against both OpenConfirm and OpenSent peers.
+       */
+      if (peer->status == OpenConfirm || peer->status == OpenSent)
 	{
 	  /* 1. The BGP Identifier of the local system is compared to
 	     the BGP Identifier of the remote system (as specified in
@@ -1221,7 +1263,8 @@ bgp_collision_detect (struct peer *new, struct in_addr remote_id)
 		 connection initiated by the remote system. */
 
 	      if (peer->fd >= 0)
-		bgp_notify_send (peer, BGP_NOTIFY_CEASE, BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
+		bgp_notify_send (peer, BGP_NOTIFY_CEASE, 
+		                 BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
 	      return 1;
 	    }
 	  else
@@ -1273,9 +1316,11 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
   /* Receive OPEN message log  */
   if (BGP_DEBUG (normal, NORMAL))
     zlog_debug ("%s rcv OPEN, version %d, remote-as (in open) %u,"
-                " holdtime %d, id %s",
+                " holdtime %d, id %s, %sbound connection",
 	        peer->host, version, remote_as, holdtime,
-	        inet_ntoa (remote_id));
+	        inet_ntoa (remote_id),
+	        CHECK_FLAG(peer->sflags, PEER_STATUS_ACCEPT_PEER)
+	          ? "in" : "out");
   
   /* BEGIN to read the capability here, but dont do it yet */
   mp_capability = 0;
@@ -1381,81 +1426,89 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
   if (ret < 0)
     return ret;
 
-  /* Hack part. */
+  /* Bit hacky */
   if (CHECK_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER))
-    {
-	if (realpeer->status == Established
+    { 
+      /* Connection FSM state is intertwined with our peer configuration
+       * (the RFC encourages this a bit).  At _this_ point we have a
+       * 'realpeer' which represents the configuration and any earlier FSM
+       * (outbound, unless the remote side has opened two connections to
+       * us), and a 'peer' which here represents an inbound connection that
+       * has not yet been reconciled with a 'realpeer'.  
+       * 
+       * As 'peer' has just sent an OPEN that reconciliation must now
+       * happen, as only the 'realpeer' can ever proceed to Established.
+       *
+       * bgp_collision_detect should have resolved any collisions with
+       * realpeers that are in states OpenSent, OpenConfirm or Established,
+       * and may have sent a notify on the 'realpeer' connection. 
+       * bgp_accept will have rejected any connections where the 'realpeer'
+       * is in Idle or >Established (though, that status may have changed
+       * since).
+       *
+       * Need to finish off any reconciliation here, and ensure that
+       * 'realpeer' is left holding any needed state from the appropriate
+       * connection (fd, buffers, etc.), and any state from the other
+       * connection is cleaned up.
+       */
+
+      /* Is realpeer in some globally-down state, that precludes any and all
+       * connections (Idle, Clearing, Deleted, etc.)?
+       */
+      if (realpeer->status == Idle || realpeer->status > Established)
+        {
+          if (BGP_DEBUG (events, EVENTS))
+            zlog_debug ("%s peer status is %s, closing the new connection",
+                        realpeer->host, 
+                        LOOKUP (bgp_status_msg, realpeer->status));
+          return -1;
+        }
+      
+      /* GR does things differently, and prefers any new connection attempts
+       * over an Established one (why not just rely on KEEPALIVE and avoid
+       * having to special case this?) */
+      if (realpeer->status == Established
 	    && CHECK_FLAG (realpeer->sflags, PEER_STATUS_NSF_MODE))
 	{
 	  realpeer->last_reset = PEER_DOWN_NSF_CLOSE_SESSION;
 	  SET_FLAG (realpeer->sflags, PEER_STATUS_NSF_WAIT);
 	}
-	else if (ret == 0 && realpeer->status != Active
-	         && realpeer->status != OpenSent
-		 && realpeer->status != OpenConfirm
-		 && realpeer->status != Connect)
+      else if (ret == 0) 
  	{
- 	  /* XXX: This is an awful problem.. 
+ 	  /* If we're here, RFC collision-detect did not reconcile the
+ 	   * connections, and the 'realpeer' is still available.  So
+ 	   * 'realpeer' must be 'Active' or 'Connect'.
  	   *
  	   * According to the RFC we should just let this connection (of the
  	   * accepted 'peer') continue on to Established if the other
- 	   * connection (the 'realpeer' one) is in state Connect, and deal
- 	   * with the more larval FSM as/when it gets far enough to receive
- 	   * an Open. We don't do that though, we instead close the (more
- 	   * developed) accepted connection.
+ 	   * onnection (the 'realpeer') is in a more larval state, and
+ 	   * reconcile them when OPEN is sent on the 'realpeer'.
  	   *
- 	   * This means there's a race, which if hit, can loop:
+ 	   * However, the accepted 'peer' must be reconciled with 'peer' at
+ 	   * this point, due to the implementation, if 'peer' is to be able
+ 	   * to proceed.  So it should be allowed to go to Established, as
+ 	   * long as the 'realpeer' was in Active or Connect state - which
+ 	   * /should/ be the case if we're here.
  	   *
- 	   *       FSM for A                        FSM for B
- 	   *  realpeer     accept-peer       realpeer     accept-peer
- 	   *
- 	   *  Connect                        Connect
- 	   *               Active
- 	   *               OpenSent          OpenSent
- 	   *               <arrive here,
- 	   *               Notify, delete>   
- 	   *                                 Idle         Active
- 	   *   OpenSent                                   OpenSent
- 	   *                                              <arrive here,
- 	   *                                              Notify, delete>
- 	   *   Idle
- 	   *   <wait>                        <wait>
- 	   *   Connect                       Connect
- 	   *
-           *
-           * Note that Active->OpenSent historically in Quagga did not send
-           * OPEN on the accept-peer connection.
-           *
- 	   * If both sides are Quagga, they're almost certain to wait for
- 	   * the same amount of time of course (which doesn't preclude other
- 	   * implementations also waiting for same time). The race is
- 	   * exacerbated by high-latency (in bgpd and/or the network).
- 	   *
- 	   * The reason we do this is because our FSM is tied to our peer
- 	   * structure, which carries our configuration information, etc. 
- 	   * I.e. we can't let the accepted-peer FSM continue on as it is,
- 	   * cause it's not associated with any actual peer configuration -
- 	   * it's just a dummy.
- 	   *
- 	   * It's possible we could hack-fix this by just bgp_stop'ing the
- 	   * realpeer and continueing on with the 'transfer FSM' below. 
- 	   * Ideally, we need to seperate FSMs from struct peer.
- 	   *
- 	   * Setting one side to passive avoids the race, as a workaround.
+ 	   * So we should only need to sanity check that that is the case
+ 	   * here, and allow the code to get on with transferring the 'peer'
+ 	   * connection state over.
  	   */
- 	  if (BGP_DEBUG (events, EVENTS))
-	    zlog_debug ("%s peer status is %s close connection",
-			realpeer->host, LOOKUP (bgp_status_msg,
-			realpeer->status));
-	  bgp_notify_send (peer, BGP_NOTIFY_CEASE,
-			   BGP_NOTIFY_CEASE_CONNECT_REJECT);
-
- 	  return -1;
+          if (realpeer->status != Active && realpeer->status != Connect)
+            {
+              if (BGP_DEBUG (events, EVENTS))
+                zlog_warn ("%s real peer status should be Active or Connect,"
+                            " but is %s",
+                            realpeer->host, 
+                            LOOKUP (bgp_status_msg, realpeer->status));
+	      bgp_notify_send (realpeer, BGP_NOTIFY_CEASE,
+			       BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
+            }
  	}
 
       if (BGP_DEBUG (events, EVENTS))
-	zlog_debug ("%s [Event] Transfer accept BGP peer to real (state %s)",
-		   peer->host, 
+	zlog_debug ("%s:%u [Event] Transfer accept BGP peer to real (state %s)",
+		   peer->host, sockunion_get_port (&peer->su), 
 		   LOOKUP (bgp_status_msg, realpeer->status));
 
       bgp_stop (realpeer);
@@ -1469,17 +1522,17 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
       realpeer->ibuf = peer->ibuf;
       realpeer->packet_size = peer->packet_size;
       peer->ibuf = NULL;
-    
+      
       /* Transfer output buffer, there may be an OPEN queued to send */
       stream_fifo_free (realpeer->obuf);
       realpeer->obuf = peer->obuf;
       peer->obuf = NULL;
-
+      
       /* Transfer status. */
       realpeer->status = peer->status;
       bgp_stop (peer);
       
-      /* peer pointer change. Open packet send to neighbor. */
+      /* peer pointer change */
       peer = realpeer;
       if (peer->fd < 0)
 	{

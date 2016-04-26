@@ -215,11 +215,15 @@ bgp_accept (struct thread *thread)
   bgp_update_sock_send_buffer_size(bgp_sock);
 
   if (BGP_DEBUG (events, EVENTS))
-    zlog_debug ("[Event] BGP connection from host %s", inet_sutop (&su, buf));
+    zlog_debug ("[Event] BGP connection from host %s:%d", 
+                inet_sutop (&su, buf), sockunion_get_port (&su));
   
   /* Check remote IP address */
   peer1 = peer_lookup (NULL, &su);
-  if (! peer1 || peer1->status == Idle)
+  /* We could perhaps just drop new connections from already Established
+   * peers here.
+   */
+  if (! peer1 || peer1->status == Idle || peer1->status > Established)
     {
       if (BGP_DEBUG (events, EVENTS))
 	{
@@ -227,8 +231,9 @@ bgp_accept (struct thread *thread)
 	    zlog_debug ("[Event] BGP connection IP address %s is not configured",
 		       inet_sutop (&su, buf));
 	  else
-	    zlog_debug ("[Event] BGP connection IP address %s is Idle state",
-		       inet_sutop (&su, buf));
+	    zlog_debug ("[Event] BGP connection IP address %s is %s state",
+		       inet_sutop (&su, buf),
+		       LOOKUP (bgp_status_msg, peer1->status));
 	}
       close (bgp_sock);
       return -1;
