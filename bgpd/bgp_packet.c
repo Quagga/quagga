@@ -1223,26 +1223,9 @@ bgp_collision_detect (struct peer *new, struct in_addr remote_id)
 	      return -1;
         }
       
-      /* The assumption from here is that the existing peer structure is
-       * locally initiated, and the 'new' argument from which we've just
-       * received the Open is newly created inbound.  I.e., the assumption
-       * is that the connection on which the Open was already processed must
-       * be the outbound one.
-       *
-       * That seems slightly unsafe.  The older connection could easily have
-       * been an accepted peer - but we remove that flag before going into
-       * OpenConfirm.  The 'new' connection could be us reading an Open on a
-       * connection we initiated.
-       *
-       * This might even be an confusion RFC4271 somewhat encourages, e.g.:
-       *
-       * "the local system closes the BGP connection that already exists
-       *  (the one that is already in the OpenConfirm state), and accepts
-       *  the BGP connection initiated by the remote system."
-       *
-       * Quagga historically orders explicitly only on the processing of the
-       * Opens, as below.  Not clear to what extent this ensures it closes
-       * the inbound and outbound connections as required.
+      /* Note: Quagga historically orders explicitly only on the processing
+       * of the Opens, treating 'new' as the passive, inbound and connection
+       * and 'peer' as the active outbound connection.
        */
        
       /* The local_id is always set, so we can match the given remote-ID
@@ -1250,6 +1233,18 @@ bgp_collision_detect (struct peer *new, struct in_addr remote_id)
        */
       if (peer->status == OpenConfirm || peer->status == OpenSent)
 	{
+	  struct peer *out = peer;
+	  struct peer *in = new;
+	  int ret_close_out = 1, ret_close_in = -1;
+	  
+	  if (!CHECK_FLAG (new->sflags, PEER_STATUS_ACCEPT_PEER))
+	    {
+	      out = new;
+	      ret_close_out = -1;
+	      in = peer;
+	      ret_close_in = 1;
+	    }
+          
 	  /* 1. The BGP Identifier of the local system is compared to
 	     the BGP Identifier of the remote system (as specified in
 	     the OPEN message). */
@@ -1262,10 +1257,10 @@ bgp_collision_detect (struct peer *new, struct in_addr remote_id)
 		 already in the OpenConfirm state), and accepts BGP
 		 connection initiated by the remote system. */
 
-	      if (peer->fd >= 0)
-		bgp_notify_send (peer, BGP_NOTIFY_CEASE, 
+	      if (out->fd >= 0)
+		bgp_notify_send (out, BGP_NOTIFY_CEASE, 
 		                 BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
-	      return 1;
+	      return ret_close_out;
 	    }
 	  else
 	    {
@@ -1275,10 +1270,10 @@ bgp_collision_detect (struct peer *new, struct in_addr remote_id)
 		 existing one (the one that is already in the
 		 OpenConfirm state). */
 
-	      if (new->fd >= 0)
-		bgp_notify_send (new, BGP_NOTIFY_CEASE, 
+	      if (in->fd >= 0)
+		bgp_notify_send (in, BGP_NOTIFY_CEASE, 
 			         BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
-	      return -1;
+	      return ret_close_in;
 	    }
 	}
     }
