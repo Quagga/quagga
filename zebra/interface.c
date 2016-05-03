@@ -33,6 +33,7 @@
 #include "log.h"
 #include "zclient.h"
 #include "vrf.h"
+#include "command.h"
 
 #include "zebra/interface.h"
 #include "zebra/rtadv.h"
@@ -361,6 +362,35 @@ if_addr_wakeup (struct interface *ifp)
     }
 }
 
+static void if_count_up(struct zebra_if *zif)
+{
+  event_counter_inc(&zif->up_events);
+}
+
+static void if_count_down(struct zebra_if *zif)
+{
+  event_counter_inc(&zif->down_events);
+}
+
+void
+if_startup_count_up (void)
+{
+  vrf_iter_t iter;
+  struct interface *ifp;
+  struct zebra_if *zif;
+  struct listnode *node;
+
+  for (iter = vrf_first(); iter != VRF_ITER_INVALID; iter = vrf_next(iter))
+    {
+      for (ALL_LIST_ELEMENTS_RO (vrf_iter2iflist(iter), node, ifp))
+        {
+          zif = ifp->info;
+          if (!zif->up_events.count && if_is_operative(ifp))
+            if_count_up(zif);
+        }
+    }
+}
+
 /* Handle interface addition */
 void
 if_add_update (struct interface *ifp)
@@ -401,6 +431,17 @@ if_add_update (struct interface *ifp)
       if (IS_ZEBRA_DEBUG_KERNEL)
 	zlog_debug ("interface %s vrf %u index %d is added.",
 		    ifp->name, ifp->vrf_id, ifp->ifindex);
+    }
+
+  if (host_config_get())
+    {
+      /* If configuration and therefore link-detect have already been
+       * loaded, count an initial up event when new interfaces are added
+       * in up state.
+       * If configuration has not been loaded yet, this is handled by
+       * if_startup_count_up which is called after reading the config. */
+      if (!if_data->up_events.count && if_is_operative(ifp))
+        if_count_up(if_data);
     }
 }
 
@@ -537,6 +578,8 @@ if_up (struct interface *ifp)
   struct connected *ifc;
   struct prefix *p;
 
+  if_count_up(ifp->info);
+
   /* Notify the protocol daemons. */
   zebra_interface_up_update (ifp);
 
@@ -569,6 +612,11 @@ if_down (struct interface *ifp)
   struct listnode *next;
   struct connected *ifc;
   struct prefix *p;
+  struct zebra_if *zif;
+
+  zif = ifp->info;
+  if (zif->up_events.count)
+    if_count_down(zif);
 
   /* Notify to the protocol daemons. */
   zebra_interface_down_update (ifp);
@@ -727,6 +775,11 @@ if_dump_vty (struct vty *vty, struct interface *ifp)
   } else {
     vty_out (vty, "down%s", VTY_NEWLINE);
   }
+
+  vty_out (vty, "  Link ups:   %s%s",
+           event_counter_format(&zebra_if->up_events), VTY_NEWLINE);
+  vty_out (vty, "  Link downs: %s%s",
+           event_counter_format(&zebra_if->down_events), VTY_NEWLINE);
 
   vty_out (vty, "  vrf: %u%s", ifp->vrf_id, VTY_NEWLINE);
 
