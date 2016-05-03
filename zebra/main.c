@@ -440,7 +440,10 @@ main (int argc, char **argv)
   /* Don't start execution if we are in dry-run mode */
   if (dryrun)
     return(0);
-  
+
+  /* Count up events for interfaces */
+  if_startup_count_up ();
+
   /* Clean up rib. */
   rib_weed_tables ();
 
