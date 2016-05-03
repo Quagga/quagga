@@ -4110,6 +4110,12 @@ host_config_set (char *filename)
   host.config = XSTRDUP (MTYPE_HOST, filename);
 }
 
+const char *
+host_config_get (void)
+{
+  return host.config;
+}
+
 void
 install_default (enum node_type node)
 {
