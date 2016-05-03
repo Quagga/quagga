@@ -23,6 +23,7 @@
 #define _ZEBRA_INTERFACE_H
 
 #include "redistribute.h"
+#include "event_counter.h"
 
 #ifdef HAVE_IRDP
 #include "zebra/irdp.h"
@@ -188,6 +189,10 @@ struct zebra_if
   /* Installed addresses chains tree. */
   struct route_table *ipv4_subnets;
 
+  /* Information about up/down changes */
+  struct event_counter up_events;
+  struct event_counter down_events;
+
 #if defined(HAVE_RTADV)
   struct rtadvconf rtadv;
 #endif /* RTADV */
@@ -222,6 +227,7 @@ extern void if_up (struct interface *);
 extern void if_down (struct interface *);
 extern void if_refresh (struct interface *);
 extern void if_flags_update (struct interface *, uint64_t);
+extern void if_startup_count_up (void);
 extern int if_subnet_add (struct interface *, struct connected *);
 extern int if_subnet_delete (struct interface *, struct connected *);
 
