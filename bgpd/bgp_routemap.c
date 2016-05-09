@@ -2389,7 +2389,7 @@ bgp_route_map_update (const char *unused)
 	      route_map_lookup_by_name (bgp->rmap[AFI_IP][i].name);
 	  if (bgp->rmap[AFI_IP6][i].name)
 	    bgp->rmap[AFI_IP6][i].map =
-	      route_map_lookup_by_name (bgp->rmap[AFI_IP][i].name);
+	      route_map_lookup_by_name (bgp->rmap[AFI_IP6][i].name);
 	}
     }
 }
