@@ -7480,6 +7480,8 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
   struct peer *peer;
   struct listnode *node, *nnode;
   unsigned int count = 0;
+  unsigned int totrcount = 0;
+  unsigned int totecount = 0;
   char timebuf[BGP_UPTIME_LEN];
   int len;
 
@@ -7561,6 +7563,8 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
 	  if (peer->status == Established)
 	    {
 	      vty_out (vty, " %8ld", peer->pcount[afi][safi]);
+	      totrcount += peer->pcount[afi][safi];
+	      totecount++;
 	    }
 	  else
 	    {
@@ -7577,8 +7581,14 @@ bgp_show_summary (struct vty *vty, struct bgp *bgp, int afi, int safi)
     }
 
   if (count)
-    vty_out (vty, "%sTotal number of neighbors %d%s", VTY_NEWLINE,
-	     count, VTY_NEWLINE);
+    {
+      vty_out (vty, "%sTotal number of neighbors %d%s", VTY_NEWLINE,
+	       count, VTY_NEWLINE);
+      vty_out (vty, "%sTotal num. Established sessions %d%s", VTY_NEWLINE,
+	       totecount, VTY_NEWLINE);
+      vty_out (vty, "Total num. of routes received     %d%s",
+               totrcount, VTY_NEWLINE);
+    }
   else
     vty_out (vty, "No %s neighbor is configured%s",
 	     afi == AFI_IP ? "IPv4" : "IPv6", VTY_NEWLINE);
