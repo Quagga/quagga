@@ -51,8 +51,6 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_vty.h"
 #include "bgpd/bgp_mpath.h"
 
-extern struct in_addr router_id_zebra;
-
 /* Utility function to get address family from current node.  */
 afi_t
 bgp_node_afi (struct vty *vty)
@@ -489,8 +487,7 @@ DEFUN (bgp_router_id,
       return CMD_WARNING;
     }
 
-  bgp->router_id_static = id;
-  bgp_router_id_set (bgp, &id);
+  bgp_router_id_static_set (bgp, id);
 
   return CMD_SUCCESS;
 }
@@ -524,8 +521,8 @@ DEFUN (no_bgp_router_id,
 	}
     }
 
-  bgp->router_id_static.s_addr = 0;
-  bgp_router_id_set (bgp, &router_id_zebra);
+  id.s_addr = 0;
+  bgp_router_id_static_set (bgp, id);
 
   return CMD_SUCCESS;
 }
