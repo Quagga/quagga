@@ -53,8 +53,6 @@ bgp_router_id_update (int command, struct zclient *zclient, zebra_size_t length,
     vrf_id_t vrf_id)
 {
   struct prefix router_id;
-  struct listnode *node, *nnode;
-  struct bgp *bgp;
 
   zebra_router_id_update_read(zclient->ibuf,&router_id);
 
@@ -67,12 +65,7 @@ bgp_router_id_update (int command, struct zclient *zclient, zebra_size_t length,
 
   router_id_zebra = router_id.u.prefix4;
 
-  for (ALL_LIST_ELEMENTS (bm->bgp, node, nnode, bgp))
-    {
-      if (!bgp->router_id_static.s_addr)
-        bgp_router_id_set (bgp, &router_id.u.prefix4);
-    }
-
+  bgp_router_id_zebra_bump ();
   return 0;
 }
 

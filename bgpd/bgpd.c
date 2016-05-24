@@ -160,7 +160,7 @@ bgp_config_check (struct bgp *bgp, int config)
 }
 
 /* Set BGP router identifier. */
-int
+static int
 bgp_router_id_set (struct bgp *bgp, struct in_addr *id)
 {
   struct peer *peer;
@@ -185,6 +185,27 @@ bgp_router_id_set (struct bgp *bgp, struct in_addr *id)
                           BGP_NOTIFY_CEASE_CONFIG_CHANGE);
        }
     }
+  return 0;
+}
+
+void
+bgp_router_id_zebra_bump (void)
+{
+  struct listnode *node, *nnode;
+  struct bgp *bgp;
+
+  for (ALL_LIST_ELEMENTS (bm->bgp, node, nnode, bgp))
+    {
+      if (!bgp->router_id_static.s_addr)
+        bgp_router_id_set (bgp, &router_id_zebra);
+    }
+}
+
+int
+bgp_router_id_static_set (struct bgp *bgp, struct in_addr id)
+{
+  bgp->router_id_static = id;
+  bgp_router_id_set (bgp, id.s_addr ? &id : &router_id_zebra);
   return 0;
 }
 
