@@ -4025,7 +4025,7 @@ rip_clean (void)
   rip_clean_network ();
   rip_passive_nondefault_clean ();
   rip_offset_clean ();
-  rip_interface_clean ();
+  rip_interfaces_clean ();
   rip_distance_reset ();
   rip_redistribute_clean ();
 }
@@ -4049,7 +4049,7 @@ rip_reset (void)
 
   distribute_list_reset ();
 
-  rip_interface_reset ();
+  rip_interfaces_reset ();
   rip_distance_reset ();
 
   rip_zclient_reset ();
