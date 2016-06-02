@@ -26,6 +26,8 @@
 #include <sys/wait.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <grp.h>
 
 #include <readline/readline.h>
 #include <readline/history.h>
@@ -1874,6 +1876,11 @@ write_config_integrated(void)
   FILE *fp;
   char *integrate_sav = NULL;
 
+#ifdef VTY_GROUP
+  /* Setting file permissions */
+  struct group *quagga_vty_group;
+#endif
+
   integrate_sav = malloc (strlen (integrate_default) +
 			  strlen (CONF_BACKUP_EXT) + 1);
   strcpy (integrate_sav, integrate_default);
@@ -1900,6 +1907,23 @@ write_config_integrated(void)
   vtysh_config_dump (fp);
 
   fclose (fp);
+	
+#ifdef VTY_GROUP
+  errno = 0;
+  if ((quagga_vty_group = getgrnam(VTY_GROUP)) == NULL) 
+    {
+      fprintf (stdout, "%% Can't get group %s: %s (%d)\n",
+        VTY_GROUP, strerror(errno), errno);
+      return CMD_WARNING;
+    }    
+
+  if ((chown(integrate_default, -1, quagga_vty_group->gr_gid)) != 0)
+    {
+      fprintf (stdout,"%% Can't chown configuration file %s: %s (%d)\n", 
+	integrate_default, strerror(errno), errno);
+      return CMD_WARNING;
+    }
+#endif
 
   if (chmod (integrate_default, CONFIGFILE_MASK) != 0)
     {
