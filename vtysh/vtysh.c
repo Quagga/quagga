@@ -1876,8 +1876,10 @@ write_config_integrated(void)
   FILE *fp;
   char *integrate_sav = NULL;
 
+#ifdef VTY_GROUP
   /* Setting file permissions */
   struct group *quagga_vty_group;
+#endif
 
   integrate_sav = malloc (strlen (integrate_default) +
 			  strlen (CONF_BACKUP_EXT) + 1);
@@ -1906,6 +1908,7 @@ write_config_integrated(void)
 
   fclose (fp);
 	
+#ifdef VTY_GROUP
   errno = 0;
   if ((quagga_vty_group = getgrnam(VTY_GROUP)) == NULL) 
     {
@@ -1920,6 +1923,7 @@ write_config_integrated(void)
 	integrate_default, strerror(errno), errno);
       return CMD_WARNING;
     }
+#endif
 
   if (chmod (integrate_default, CONFIGFILE_MASK) != 0)
     {
