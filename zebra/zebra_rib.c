@@ -2845,7 +2845,7 @@ static_add_ipv6 (struct prefix *p, u_char type, struct in6_addr *gate,
     }
 
   if (update)
-    static_delete_ipv6(p, type, gate, ifname, tag, si->distance, vrf_id);
+    static_delete_ipv6(p, type, gate, ifname, tag, update->distance, vrf_id);
 
   /* Make new static route structure. */
   si = XCALLOC (MTYPE_STATIC_ROUTE, sizeof (struct static_route));
