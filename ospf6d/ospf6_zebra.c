@@ -120,13 +120,6 @@ ospf6_zebra_if_del (int command, struct zclient *zclient, zebra_size_t length,
     zlog_debug ("Zebra Interface delete: %s index %d mtu %d",
 		ifp->name, ifp->ifindex, ifp->mtu6);
 
-#if 0
-  /* XXX: ospf6_interface_if_del is not the right way to handle this,
-   * because among other thinkable issues, it will also clear all
-   * settings as they are contained in the struct ospf6_interface. */
-  ospf6_interface_if_del (ifp);
-#endif /*0*/
-
   ifp->ifindex = IFINDEX_INTERNAL;
   return 0;
 }
