@@ -644,7 +644,10 @@ community_list_dup_check (struct community_list *list,
           break;
         case COMMUNITY_LIST_EXPANDED:
         case EXTCOMMUNITY_LIST_EXPANDED:
-          if (strcmp (entry->config, new->config) == 0)
+          if (entry->config && new->config
+              && strcmp (entry->config, new->config) == 0)
+            return 1;
+          if (!entry->config && !new->config)
             return 1;
           break;
         default:
