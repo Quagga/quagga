@@ -1336,8 +1336,7 @@ ALIAS_SH (VTYSH_ZEBRA,
 	 "Interface's name\n"
 	 VRF_CMD_HELP_STR)
 
-/* TODO Implement "no interface command in isisd. */
-DEFSH (VTYSH_ZEBRA|VTYSH_RIPD|VTYSH_RIPNGD|VTYSH_OSPFD|VTYSH_OSPF6D,
+DEFSH (VTYSH_INTERFACE,
        vtysh_no_interface_cmd,
        "no interface IFNAME",
        NO_STR
