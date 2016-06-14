@@ -9428,7 +9428,7 @@ bgp_show_community (struct vty *vty, const char *view_name, int argc,
   struct community *com;
   struct buffer *b;
   struct bgp *bgp;
-  int i;
+  int i, rv;
   char *str;
   int first = 0;
 
@@ -9479,9 +9479,11 @@ bgp_show_community (struct vty *vty, const char *view_name, int argc,
       return CMD_WARNING;
     }
 
-  return bgp_show (vty, bgp, afi, safi,
-                   (exact ? bgp_show_type_community_exact :
-		            bgp_show_type_community), com);
+  rv = bgp_show (vty, bgp, afi, safi,
+                 (exact ? bgp_show_type_community_exact :
+		          bgp_show_type_community), com);
+  community_free(com);
+  return rv;
 }
 
 DEFUN (show_ip_bgp_community,
