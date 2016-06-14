@@ -137,6 +137,7 @@ vtysh_client_execute (struct vtysh_client *vclient, const char *line, FILE *fp)
 	{
 	  fprintf (stderr, ERR_WHERE_STRING \
 		   "warning - pbuf beyond buffer end.\n");
+	  XFREE(MTYPE_TMP, buf);
 	  return CMD_WARNING;
 	}
 
