@@ -1314,8 +1314,8 @@ ospf6_intra_prefix_lsa_add (struct ospf6_lsa *lsa)
         }
       else
         {
-          for (i = 0; ospf6_nexthop_is_set (&ls_entry->nexthop[i]) &&
-               i < OSPF6_MULTI_PATH_LIMIT; i++)
+          for (i = 0; i < OSPF6_MULTI_PATH_LIMIT &&
+               ospf6_nexthop_is_set (&ls_entry->nexthop[i]); i++)
             ospf6_nexthop_copy (&route->nexthop[i], &ls_entry->nexthop[i]);
         }
 

@@ -307,8 +307,8 @@ ospf6_spf_install (struct ospf6_vertex *v,
       if (IS_OSPF6_DEBUG_SPF (PROCESS))
         zlog_debug ("  another path found, merge");
 
-      for (i = 0; ospf6_nexthop_is_set (&v->nexthop[i]) &&
-           i < OSPF6_MULTI_PATH_LIMIT; i++)
+      for (i = 0; i < OSPF6_MULTI_PATH_LIMIT &&
+           ospf6_nexthop_is_set (&v->nexthop[i]); i++)
         {
           for (j = 0; j < OSPF6_MULTI_PATH_LIMIT; j++)
             {
@@ -356,8 +356,8 @@ ospf6_spf_install (struct ospf6_vertex *v,
   route->path.options[1] = v->options[1];
   route->path.options[2] = v->options[2];
 
-  for (i = 0; ospf6_nexthop_is_set (&v->nexthop[i]) &&
-       i < OSPF6_MULTI_PATH_LIMIT; i++)
+  for (i = 0; i < OSPF6_MULTI_PATH_LIMIT &&
+       ospf6_nexthop_is_set (&v->nexthop[i]); i++)
     ospf6_nexthop_copy (&route->nexthop[i], &v->nexthop[i]);
 
   if (v->parent)
@@ -499,8 +499,8 @@ ospf6_spf_calculation (u_int32_t router_id,
             ospf6_nexthop_calc (w, v, lsdesc);
           else
             {
-              for (i = 0; ospf6_nexthop_is_set (&v->nexthop[i]) &&
-                   i < OSPF6_MULTI_PATH_LIMIT; i++)
+              for (i = 0; i < OSPF6_MULTI_PATH_LIMIT &&
+                   ospf6_nexthop_is_set (&v->nexthop[i]); i++)
                 ospf6_nexthop_copy (&w->nexthop[i], &v->nexthop[i]);
             }
 
