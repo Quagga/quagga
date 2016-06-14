@@ -2190,7 +2190,6 @@ route_set_ipv6_nexthop_peer (void *rule, struct prefix *prefix,
   struct in6_addr peer_address;
   struct bgp_info *bgp_info;
   struct peer *peer;
-  char peer_addr_buf[INET6_ADDRSTRLEN];
 
   if (type == RMAP_BGP)
     {
@@ -2203,19 +2202,13 @@ route_set_ipv6_nexthop_peer (void *rule, struct prefix *prefix,
 	  && peer->su_remote
 	  && sockunion_family (peer->su_remote) == AF_INET6)
 	{
-	  inet_pton (AF_INET6, sockunion2str (peer->su_remote,
-					      peer_addr_buf,
-					      INET6_ADDRSTRLEN),
-		     &peer_address);
+	  peer_address = peer->su_remote->sin6.sin6_addr;
 	}
       else if (CHECK_FLAG (peer->rmap_type, PEER_RMAP_TYPE_OUT)
 	       && peer->su_local
 	       && sockunion_family (peer->su_local) == AF_INET6)
 	{
-	  inet_pton (AF_INET, sockunion2str (peer->su_local,
-					     peer_addr_buf,
-					     INET6_ADDRSTRLEN),
-		     &peer_address);
+	  peer_address = peer->su_local->sin6.sin6_addr;
 	}
 
       if (IN6_IS_ADDR_LINKLOCAL(&peer_address))
