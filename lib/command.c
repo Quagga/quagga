@@ -212,6 +212,18 @@ argv_concat (const char **argv, int argc, int shift)
   return str;
 }
 
+static unsigned int
+cmd_hash_key (void *p)
+{
+  return (uintptr_t) p;
+}
+
+static int
+cmd_hash_cmp (const void *a, const void *b)
+{
+  return a == b;
+}
+
 /* Install top node of command vector. */
 void
 install_node (struct cmd_node *node, 
@@ -220,6 +232,7 @@ install_node (struct cmd_node *node,
   vector_set_index (cmdvec, node->node, node);
   node->func = func;
   node->cmd_vector = vector_init (VECTOR_MIN_SIZE);
+  node->cmd_hash = hash_create (cmd_hash_key, cmd_hash_cmp);
 }
 
 /* Breaking up string into each command piece. I assume given
@@ -608,7 +621,11 @@ install_element (enum node_type ntype, struct cmd_element *cmd)
   
   /* cmd_init hasn't been called */
   if (!cmdvec)
-    return;
+    {
+      fprintf (stderr, "%s called before cmd_init, breakage likely\n",
+               __func__);
+      return;
+    }
   
   cnode = vector_slot (cmdvec, ntype);
 
@@ -618,7 +635,17 @@ install_element (enum node_type ntype, struct cmd_element *cmd)
 	       ntype);
       exit (1);
     }
-
+  
+  if (hash_lookup (cnode->cmd_hash, cmd) != NULL)
+    {
+      fprintf (stderr, 
+               "Multiple command installs to node %d of command:\n%s\n",
+               ntype, cmd->string);
+      return;
+    }
+  
+  assert (hash_get (cnode->cmd_hash, cmd, hash_alloc_intern));
+  
   vector_set (cnode->cmd_vector, cmd);
   if (cmd->tokens == NULL)
     cmd->tokens = cmd_parse_format(cmd->string, cmd->doc);
@@ -4122,15 +4149,30 @@ host_config_get (void)
   return host.config;
 }
 
-void
-install_default (enum node_type node)
+static void
+install_default_basic (enum node_type node)
 {
   install_element (node, &config_exit_cmd);
   install_element (node, &config_quit_cmd);
-  install_element (node, &config_end_cmd);
   install_element (node, &config_help_cmd);
   install_element (node, &config_list_cmd);
+}
 
+/* Install common/default commands for a privileged node */
+void
+install_default (enum node_type node)
+{
+  /* VIEW_NODE is inited below, via install_default_basic, and
+     install_element's of commands to VIEW_NODE automatically are
+     also installed to ENABLE_NODE.
+    
+     For all other nodes, we must ensure install_default_basic is
+     also called/
+   */
+  if (node != VIEW_NODE && node != ENABLE_NODE)
+    install_default_basic (node);
+  
+  install_element (node, &config_end_cmd);
   install_element (node, &config_write_terminal_cmd);
   install_element (node, &config_write_file_cmd);
   install_element (node, &config_write_memory_cmd);
@@ -4150,7 +4192,7 @@ cmd_init (int terminal)
 
   /* Allocate initial top vector of commands. */
   cmdvec = vector_init (VECTOR_MIN_SIZE);
-
+  
   /* Default host value settings. */
   host.name = NULL;
   host.password = NULL;
@@ -4173,10 +4215,8 @@ cmd_init (int terminal)
   install_element (VIEW_NODE, &show_version_cmd);
   if (terminal)
     {
-      install_element (VIEW_NODE, &config_list_cmd);
-      install_element (VIEW_NODE, &config_exit_cmd);
-      install_element (VIEW_NODE, &config_quit_cmd);
-      install_element (VIEW_NODE, &config_help_cmd);
+      install_default_basic (VIEW_NODE);
+      
       install_element (VIEW_NODE, &config_enable_cmd);
       install_element (VIEW_NODE, &config_terminal_length_cmd);
       install_element (VIEW_NODE, &config_terminal_no_length_cmd);
@@ -4184,10 +4224,6 @@ cmd_init (int terminal)
       install_element (VIEW_NODE, &show_commandtree_cmd);
       install_element (VIEW_NODE, &echo_cmd);
 
-      install_element (RESTRICTED_NODE, &config_list_cmd);
-      install_element (RESTRICTED_NODE, &config_exit_cmd);
-      install_element (RESTRICTED_NODE, &config_quit_cmd);
-      install_element (RESTRICTED_NODE, &config_help_cmd);
       install_element (RESTRICTED_NODE, &config_enable_cmd);
       install_element (RESTRICTED_NODE, &config_terminal_length_cmd);
       install_element (RESTRICTED_NODE, &config_terminal_no_length_cmd);
@@ -4203,15 +4239,9 @@ cmd_init (int terminal)
       install_element (ENABLE_NODE, &copy_runningconfig_startupconfig_cmd);
     }
   install_element (ENABLE_NODE, &show_startup_config_cmd);
-  install_element (ENABLE_NODE, &show_version_cmd);
-  install_element (ENABLE_NODE, &show_commandtree_cmd);
 
   if (terminal)
     {
-      install_element (ENABLE_NODE, &config_terminal_length_cmd);
-      install_element (ENABLE_NODE, &config_terminal_no_length_cmd);
-      install_element (ENABLE_NODE, &show_logging_cmd);
-      install_element (ENABLE_NODE, &echo_cmd);
       install_element (ENABLE_NODE, &config_logmsg_cmd);
 
       install_default (CONFIG_NODE);
@@ -4337,6 +4367,9 @@ cmd_terminate ()
                 cmd_terminate_element(cmd_element);
 
             vector_free (cmd_node_v);
+            hash_clean (cmd_node->cmd_hash, NULL);
+            hash_free (cmd_node->cmd_hash);
+            cmd_node->cmd_hash = NULL;
           }
 
       vector_free (cmdvec);

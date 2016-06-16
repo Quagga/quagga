@@ -26,6 +26,7 @@
 #include "vector.h"
 #include "vty.h"
 #include "lib/route_types.h"
+#include "hash.h"
 
 /* Host configuration variable */
 struct host
@@ -129,7 +130,10 @@ struct cmd_node
   int (*func) (struct vty *);
 
   /* Vector of this node's command list. */
-  vector cmd_vector;	
+  vector cmd_vector;
+  
+  /* Hashed index of command node list, for de-dupping primarily */
+  struct hash *cmd_hash;
 };
 
 enum
