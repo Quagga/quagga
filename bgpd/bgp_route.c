@@ -16639,7 +16639,6 @@ bgp_route_init (void)
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_community2_exact_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_community3_exact_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_ipv6_community4_exact_cmd);
-  install_element (ENABLE_NODE, &show_bgp_ipv6_community_list_exact_cmd);
 
   install_element (VIEW_NODE, &show_bgp_ipv6_community_list_cmd);
   install_element (VIEW_NODE, &show_bgp_ipv6_community_list_exact_cmd);
@@ -16653,9 +16652,6 @@ bgp_route_init (void)
   install_element (VIEW_NODE, &show_bgp_view_rsclient_prefix_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_view_rsclient_route_cmd);
   install_element (RESTRICTED_NODE, &show_bgp_view_rsclient_prefix_cmd);
-
-  install_element (VIEW_NODE, &show_bgp_view_rsclient_route_cmd);
-  install_element (VIEW_NODE, &show_bgp_view_rsclient_prefix_cmd);
 }
 
 void

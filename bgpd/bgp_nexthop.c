@@ -1506,10 +1506,6 @@ bgp_scan_init (void)
   install_element (VIEW_NODE, &show_ip_bgp_nexthop_cmd);
   install_element (VIEW_NODE, &show_ip_bgp_nexthop_detail_cmd);
   install_element (RESTRICTED_NODE, &show_ip_bgp_scan_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_scan_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_nexthop_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_nexthop_detail_cmd);
-  install_element (ENABLE_NODE, &show_ip_bgp_scan_detail_cmd);
 }
 
 void
