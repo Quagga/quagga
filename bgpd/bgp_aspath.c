@@ -475,9 +475,8 @@ aspath_highest (struct aspath *aspath)
   while (seg)
     {
       for (i = 0; i < seg->length; i++)
-        if (seg->as[i] > highest
-            && (seg->as[i] < BGP_PRIVATE_AS_MIN
-                || seg->as[i] > BGP_PRIVATE_AS_MAX))
+        if (seg->as[i] > highest 
+            && !BGP_AS_IS_PRIVATE(seg->as[i]))
 	  highest = seg->as[i];
       seg = seg->next;
     }
@@ -1280,10 +1279,7 @@ aspath_private_as_check (struct aspath *aspath)
       
       for (i = 0; i < seg->length; i++)
 	{
-	  if ( (seg->as[i] < BGP_PRIVATE_AS_MIN)
-	      || (seg->as[i] > BGP_PRIVATE_AS_MAX &&
-                  seg->as[i] < BGP_PRIVATE_AS4_MIN)
-               || (seg->as[i] > BGP_PRIVATE_AS4_MAX))
+	  if (!BGP_AS_IS_PRIVATE(seg->as[i]))
 	    return 0;
 	}
       seg = seg->next;

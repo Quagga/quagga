@@ -41,6 +41,10 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 /* Transition 16Bit AS as defined by IANA */
 #define BGP_AS_TRANS		 23456U
 
+#define BGP_AS_IS_PRIVATE(ASN) \
+    (((ASN) >= BGP_PRIVATE_AS_MIN && (ASN) <= BGP_PRIVATE_AS_MAX) || \
+     ((ASN) >= BGP_PRIVATE_AS4_MIN && (ASN) <= BGP_PRIVATE_AS4_MAX))
+
 /* AS_PATH segment data in abstracted form, no limit is placed on length */
 struct assegment
 {
