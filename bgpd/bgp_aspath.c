@@ -1380,7 +1380,18 @@ aspath_prepend (struct aspath *as1, struct aspath *as2)
   /* Delete any AS_CONFED_SEQUENCE segment from as2. */
   if (seg1->type == AS_SEQUENCE && seg2->type == AS_CONFED_SEQUENCE)
     as2 = aspath_delete_confed_seq (as2);
-
+  
+  /* as2 may have been updated */
+  seg2 = as2->segments;
+  
+  /* as2 may be empty now due to aspath_delete_confed_seq, recheck */
+  if (seg2 == NULL)
+    {
+      as2->segments = assegment_dup_all (as1->segments);
+      aspath_str_update (as2);
+      return as2;
+    }
+  
   /* Compare last segment type of as1 and first segment type of as2. */
   if (seg1->type != seg2->type)
     return aspath_merge (as1, as2);
