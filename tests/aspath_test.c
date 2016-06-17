@@ -57,6 +57,7 @@ struct test_spec
   const as_t doesnt_loop; /* one which should not */
   const as_t first; /* the first ASN, if there is one */
 #define NULL_ASN 0
+  const char *shouldbe_remove_private; /* ditto, once private ASNs are removed */
 };
 
 
@@ -76,7 +77,8 @@ static struct test_segment {
     10,
     { "8466 3 52737 4096",
       "8466 3 52737 4096",
-      4, 0, NOT_ALL_PRIVATE, 4096, 4, 8466 },
+      4, 0, NOT_ALL_PRIVATE, 4096, 4, 8466,
+      "8466 3 52737 4096", },
   },
   { /* 1 */
     "seq2",
@@ -106,7 +108,8 @@ static struct test_segment {
     10,
     { "8482 51457 {5204}",
       "8482 51457 {5204}",
-      3, 0, NOT_ALL_PRIVATE, 5204, 51456, 8482},
+      3, 0, NOT_ALL_PRIVATE, 5204, 51456, 8482,
+      "8482 51457 {5204}" },
   },
   { /* 4 */
     "seqset2",
@@ -117,7 +120,8 @@ static struct test_segment {
     18,
     { "8467 59649 {4196,48658} {17322,30745}",
       "8467 59649 {4196,48658} {17322,30745}",
-      4, 0, NOT_ALL_PRIVATE, 48658, 1, 8467},
+      4, 0, NOT_ALL_PRIVATE, 48658, 1, 8467,
+      "8467 59649 {4196,48658} {17322,30745}" },
   },
   { /* 5 */
     "multi",
@@ -128,7 +132,8 @@ static struct test_segment {
     24,
     { "6435 59408 21665 {2457,4369,61697} 1842 41590 51793",
       "6435 59408 21665 {2457,4369,61697} 1842 41590 51793",
-      7, 0, NOT_ALL_PRIVATE, 51793, 1, 6435 },
+      7, 0, NOT_ALL_PRIVATE, 51793, 1, 6435,
+      "6435 59408 21665 {2457,4369,61697} 1842 41590 51793" },
   },
   { /* 6 */
     "confed",
@@ -137,7 +142,9 @@ static struct test_segment {
     8,
     { "(123 456 789)",
       "",
-      0, 3, NOT_ALL_PRIVATE, 789, 1, NULL_ASN },
+      0, 3, NOT_ALL_PRIVATE, 789, 1, NULL_ASN,
+      "(123 456 789)",
+    },
   },
   { /* 7 */
     "confed2",
@@ -156,7 +163,9 @@ static struct test_segment {
     8,
     { "[123,456,789]",
       "[123,456,789]",
-      0, 1, NOT_ALL_PRIVATE, 123, 1, NULL_ASN },
+      0, 1, NOT_ALL_PRIVATE, 123, 1, NULL_ASN,
+      "[123,456,789]",
+    },
   },
   { /* 9 */
     "confmulti",
@@ -198,7 +207,8 @@ static struct test_segment {
     10,
     { "8466 64512 52737 65535",
       "8466 64512 52737 65535",
-      4, 0, NOT_ALL_PRIVATE, 65535, 4, 8466 },
+      4, 0, NOT_ALL_PRIVATE, 65535, 4, 8466,
+      "8466 52737" },
   },
   { /* 13 */ 
     "allprivate",
@@ -207,7 +217,9 @@ static struct test_segment {
     10,
     { "65534 64512 64513 65535",
       "65534 64512 64513 65535",
-      4, 0, ALL_PRIVATE, 65534, 4, 65534 },
+      4, 0, ALL_PRIVATE, 65534, 4, 65534,
+      "",
+    },
   },
   { /* 14 */ 
     "long",
@@ -330,7 +342,7 @@ static struct test_segment {
     "<empty>",
     {},
     0,
-    { "", "", 0, 0, 0, 0, 0, 0 },
+    { "", "", 0, 0, 0, 0, 0, 0, "", },
   },
   { /* 17 */ 
     "redundantset",
@@ -344,7 +356,9 @@ static struct test_segment {
       */
      "8466 3 52737 4096 3456 {7099,8153}",
       "8466 3 52737 4096 3456 {7099,8153}",
-      6, 0, NOT_ALL_PRIVATE, 4096, 4, 8466 },
+      6, 0, NOT_ALL_PRIVATE, 4096, 4, 8466,
+     "8466 3 52737 4096 3456 {7099,8153}",
+    },
   },
   { /* 18 */
     "reconcile_lead_asp",
@@ -423,7 +437,9 @@ static struct test_segment {
      /* We should weed out duplicate set members. */
      "8466 3 52737 4096 3456 {7099,8153}",
       "8466 3 52737 4096 3456 {7099,8153}",
-      6, 0, NOT_ALL_PRIVATE, 4096, 4, 8466 },
+      6, 0, NOT_ALL_PRIVATE, 4096, 4, 8466,
+      "8466 3 52737 4096 3456 {7099,8153}"
+    },
   },
   { /* 25 */ 
     "zero-size overflow",
@@ -927,7 +943,7 @@ validate (struct aspath *as, const struct test_spec *sp)
   int fails = 0;
   const u_char *out;
   static struct stream *s;
-  struct aspath *asinout, *asconfeddel, *asstr, *as4;
+  struct aspath *asinout, *asconfeddel, *asstr, *as4, *assansprive;
   
   if (as == NULL && sp->shouldbe == NULL)
     {
@@ -947,6 +963,8 @@ validate (struct aspath *as, const struct test_spec *sp)
   asstr = aspath_str2aspath (sp->shouldbe);
   
   asconfeddel = aspath_delete_confed_seq (aspath_dup (asinout));
+  
+  assansprive = aspath_remove_private_asns (aspath_dup (asinout));
   
   printf ("got: %s\n", aspath_print(as));
   
@@ -1031,7 +1049,9 @@ validate (struct aspath *as, const struct test_spec *sp)
       || (sp->doesnt_loop && aspath_loop_check (as, sp->doesnt_loop) != 0)
       || (aspath_private_as_check (as) != sp->private_as)
       || (aspath_firstas_check (as,sp->first)
-          && sp->first == 0))
+          && sp->first == 0)
+      || (sp->shouldbe_remove_private != NULL
+          && strcmp(aspath_print (assansprive), sp->shouldbe_remove_private)))
     {
       failed++;
       fails++;
@@ -1042,7 +1062,10 @@ validate (struct aspath *as, const struct test_spec *sp)
               sp->doesnt_loop, aspath_loop_check (as, sp->doesnt_loop));
       printf ("private check: %d %d\n", sp->private_as,
               aspath_private_as_check (as));
+      printf ("remove private got:       %s\n", aspath_print (assansprive));
+      printf ("remove private should be: %s\n", sp->shouldbe_remove_private);      
     }
+  
   aspath_unintern (&asinout);
   aspath_unintern (&as4);
   
