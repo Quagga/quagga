@@ -279,7 +279,7 @@ zebra_read_ipv4 (int command, struct zclient *zclient, zebra_size_t length,
     api.metric = 0;
 
   if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
-    api.tag = stream_getw (s);
+    api.tag = stream_getl (s);
   else
     api.tag = 0;
 
@@ -366,7 +366,7 @@ zebra_read_ipv6 (int command, struct zclient *zclient, zebra_size_t length,
     api.metric = 0;
 
   if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
-    api.tag = stream_getw (s);
+    api.tag = stream_getl (s);
   else
     api.tag = 0;
 
@@ -694,7 +694,7 @@ bgp_zebra_announce (struct prefix *p, struct bgp_info *info, struct bgp *bgp, sa
   struct bgp_info *mpinfo;
   size_t oldsize, newsize;
   u_int32_t nhcount;
-  u_short tag = 0;
+  route_tag_t tag = 0;
 
   if (zclient->sock < 0)
     return;

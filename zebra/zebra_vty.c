@@ -54,7 +54,7 @@ zebra_static_ipv4_safi (struct vty *vty, safi_t safi, int add_cmd,
   struct in_addr mask;
   const char *ifname;
   u_char flag = 0;
-  u_short tag = 0;
+  route_tag_t tag = 0;
   vrf_id_t vrf_id = VRF_DEFAULT;
   
   ret = str2prefix (dest_str, &p);
@@ -2451,7 +2451,7 @@ DEFUN (show_ip_route_tag,
   struct route_node *rn;
   struct rib *rib;
   int first = 1;
-  u_short tag = 0;
+  route_tag_t tag = 0;
   vrf_id_t vrf_id = VRF_DEFAULT;
 
   if (argv[0])
@@ -3386,7 +3386,7 @@ static_ipv6_func (struct vty *vty, int add_cmd, const char *dest_str,
   u_char type = 0;
   vrf_id_t vrf_id = VRF_DEFAULT;
   u_char flag = 0;
-  u_short tag = 0;
+  route_tag_t tag = 0;
   
   ret = str2prefix (dest_str, &p);
   if (ret <= 0)
@@ -4496,7 +4496,7 @@ DEFUN (show_ipv6_route_tag,
   struct route_node *rn;
   struct rib *rib;
   int first = 1;
-  u_short tag = 0;
+  route_tag_t tag = 0;
   vrf_id_t vrf_id = VRF_DEFAULT;
 
   if (argv[0])

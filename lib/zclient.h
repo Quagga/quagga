@@ -133,7 +133,7 @@ struct zapi_ipv4
 
   u_char distance;
 
-  u_short tag;
+  route_tag_t tag;
 
   u_int32_t metric;
 
@@ -213,7 +213,7 @@ struct zapi_ipv6
 
   u_char distance;
 
-  u_short tag;
+  route_tag_t tag;
 
   u_int32_t metric;
 

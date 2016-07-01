@@ -498,7 +498,7 @@ zsend_route_multipath (int cmd, struct zserv *client, struct prefix *p,
       if (rib->tag)
         {
           SET_FLAG(zapi_flags, ZAPI_MESSAGE_TAG);
-          stream_putw(s, rib->tag);
+          stream_putl (s, rib->tag);
         }
     }
   
@@ -1011,7 +1011,7 @@ zread_ipv4_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
     rib->mtu = stream_getl (s);
   /* Tag */
   if (CHECK_FLAG (message, ZAPI_MESSAGE_TAG))
-    rib->tag = stream_getw (s);
+    rib->tag = stream_getl (s);
 
   /* Table */
   rib->table=zebrad.rtm_table_default;
@@ -1098,7 +1098,7 @@ zread_ipv4_delete (struct zserv *client, u_short length, vrf_id_t vrf_id)
     
   /* tag */
   if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
-    api.tag = stream_getw (s);
+    api.tag = stream_getl (s);
   else
     api.tag = 0;
 
@@ -1251,7 +1251,7 @@ zread_ipv6_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
 
   /* Tag */
   if (CHECK_FLAG (message, ZAPI_MESSAGE_TAG))
-    rib->tag = stream_getw (s);
+    rib->tag = stream_getl (s);
 
   /* Table */
   rib->table=zebrad.rtm_table_default;
@@ -1322,7 +1322,7 @@ zread_ipv6_delete (struct zserv *client, u_short length, vrf_id_t vrf_id)
     
   /* tag */
   if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
-    api.tag = stream_getw (s);
+    api.tag = stream_getl (s);
   else
     api.tag = 0;
 

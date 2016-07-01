@@ -422,7 +422,7 @@ static route_map_result_t
 route_match_tag (void *rule, struct prefix *prefix,
                  route_map_object_t type, void *object)
 {
-  u_short *tag;
+  route_tag_t *tag;
   struct external_info *ei;
 
   if (type == RMAP_OSPF)
@@ -440,8 +440,8 @@ route_match_tag (void *rule, struct prefix *prefix,
 static void *
 route_match_tag_compile (const char *arg)
 {
-  u_short *tag;
-  u_short tmp;
+  route_tag_t *tag;
+  route_tag_t tmp;
 
   /* tag value shoud be integer. */
   if (! all_digit (arg))
@@ -596,7 +596,7 @@ static route_map_result_t
 route_set_tag (void *rule, struct prefix *prefix,
                route_map_object_t type, void *object)
 {
-  u_short *tag;
+  route_tag_t *tag;
   struct external_info *ei;
 
   if (type == RMAP_OSPF)
@@ -615,8 +615,8 @@ route_set_tag (void *rule, struct prefix *prefix,
 static void *
 route_set_tag_compile (const char *arg)
 {
-  u_short *tag;
-  u_short tmp;
+  route_tag_t *tag;
+  route_tag_t tmp;
 
   /* tag value shoud be integer. */
   if (! all_digit (arg))

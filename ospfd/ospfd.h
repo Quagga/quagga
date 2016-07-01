@@ -239,7 +239,7 @@ struct ospf
   } dmetric [ZEBRA_ROUTE_MAX + 1];
 
   /* Redistribute tag info. */
-  u_short dtag [ZEBRA_ROUTE_MAX + 1];
+  route_tag_t dtag [ZEBRA_ROUTE_MAX + 1];
 
   /* For redistribute route map. */
   struct
