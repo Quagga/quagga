@@ -5605,7 +5605,7 @@ ALIAS (no_ipv6_aggregate_address_summary_only,
 void
 bgp_redistribute_add (struct prefix *p, const struct in_addr *nexthop,
 		      const struct in6_addr *nexthop6,
-		      u_int32_t metric, u_char type, u_short tag)
+		      u_int32_t metric, u_char type, route_tag_t tag)
 {
   struct bgp *bgp;
   struct listnode *node, *nnode;

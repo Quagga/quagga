@@ -221,7 +221,7 @@ extern int bgp_maximum_prefix_overflow (struct peer *, afi_t, safi_t, int);
 
 extern void bgp_redistribute_add (struct prefix *, const struct in_addr *,
 				  const struct in6_addr *,
-				  u_int32_t, u_char, u_short);
+				  u_int32_t, u_char, route_tag_t);
 extern void bgp_redistribute_delete (struct prefix *, u_char);
 extern void bgp_redistribute_withdraw (struct bgp *, afi_t, int);
 

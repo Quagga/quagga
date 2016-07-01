@@ -94,7 +94,7 @@ struct attr_extra
   struct bgp_attr_encap_subtlv *encap_subtlvs;		/* rfc5512 */
 
   /* route tag */
-  u_short tag;
+  route_tag_t tag;
 };
 
 /* BGP core attribute structure. */
