@@ -57,6 +57,10 @@ Software Foundation, Inc., 59 Temple Place - Suite 330, Boston, MA
 #include "bgpd/bgp_mpath.h"
 #include "bgpd/bgp_nht.h"
 
+/* BGP show neighbour command specifier and help string */
+#define BGP_NEIGHBOUR_CMD "(A.B.C.D|X:X::X:X)"
+#define BGP_NEIGHBOUR_STR NEIGHBOR_ADDR_STR
+
 /* Extern from bgp_dump.c */
 extern const char *bgp_origin_str[];
 extern const char *bgp_origin_long_str[];
@@ -12575,13 +12579,12 @@ bgp_peer_counts (struct vty *vty, struct peer *peer, afi_t afi, safi_t safi)
 
 DEFUN (show_ip_bgp_neighbor_prefix_counts,
        show_ip_bgp_neighbor_prefix_counts_cmd,
-       "show ip bgp neighbors (A.B.C.D|X:X::X:X) prefix-counts",
+       "show ip bgp neighbors " BGP_NEIGHBOUR_CMD " prefix-counts",
        SHOW_STR
        IP_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display detailed prefix count information\n")
 {
   struct peer *peer;
@@ -12595,13 +12598,12 @@ DEFUN (show_ip_bgp_neighbor_prefix_counts,
 
 DEFUN (show_bgp_ipv6_neighbor_prefix_counts,
        show_bgp_ipv6_neighbor_prefix_counts_cmd,
-       "show bgp ipv6 neighbors (A.B.C.D|X:X::X:X) prefix-counts",
+       "show bgp ipv6 neighbors " BGP_NEIGHBOUR_CMD " prefix-counts",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display detailed prefix count information\n")
 {
   struct peer *peer;
@@ -12615,7 +12617,7 @@ DEFUN (show_bgp_ipv6_neighbor_prefix_counts,
 
 DEFUN (show_ip_bgp_ipv4_neighbor_prefix_counts,
        show_ip_bgp_ipv4_neighbor_prefix_counts_cmd,
-       "show ip bgp ipv4 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) prefix-counts",
+       "show ip bgp ipv4 (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " prefix-counts",
        SHOW_STR
        IP_STR
        BGP_STR
@@ -12623,8 +12625,7 @@ DEFUN (show_ip_bgp_ipv4_neighbor_prefix_counts,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display detailed prefix count information\n")
 {
   struct peer *peer;
@@ -12641,7 +12642,7 @@ DEFUN (show_ip_bgp_ipv4_neighbor_prefix_counts,
 
 DEFUN (show_ip_bgp_vpnv4_neighbor_prefix_counts,
        show_ip_bgp_vpnv4_neighbor_prefix_counts_cmd,
-       "show ip bgp vpnv4 all neighbors (A.B.C.D|X:X::X:X) prefix-counts",
+       "show ip bgp vpnv4 all neighbors " BGP_NEIGHBOUR_CMD " prefix-counts",
        SHOW_STR
        IP_STR
        BGP_STR
@@ -12649,8 +12650,7 @@ DEFUN (show_ip_bgp_vpnv4_neighbor_prefix_counts,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display detailed prefix count information\n")
 {
   struct peer *peer;
@@ -12664,7 +12664,7 @@ DEFUN (show_ip_bgp_vpnv4_neighbor_prefix_counts,
 
 DEFUN (show_bgp_ipv4_safi_neighbor_prefix_counts,
        show_bgp_ipv4_safi_neighbor_prefix_counts_cmd,
-       "show bgp ipv4 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) prefix-counts",
+       "show bgp ipv4 (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " prefix-counts",
        SHOW_STR
        BGP_STR
        "Address family\n"
@@ -12673,8 +12673,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_prefix_counts,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display detailed prefix count information\n")
 {
   struct peer *peer;
@@ -12694,7 +12693,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_prefix_counts,
 
 DEFUN (show_bgp_ipv6_safi_neighbor_prefix_counts,
        show_bgp_ipv6_safi_neighbor_prefix_counts_cmd,
-       "show bgp ipv6 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) prefix-counts",
+       "show bgp ipv6 (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " prefix-counts",
        SHOW_STR
        BGP_STR
        "Address family\n"
@@ -12703,8 +12702,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_prefix_counts,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display detailed prefix count information\n")
 {
   struct peer *peer;
@@ -12724,7 +12722,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_prefix_counts,
 
 DEFUN (show_ip_bgp_encap_neighbor_prefix_counts,
        show_ip_bgp_encap_neighbor_prefix_counts_cmd,
-       "show ip bgp encap all neighbors (A.B.C.D|X:X::X:X) prefix-counts",
+       "show ip bgp encap all neighbors " BGP_NEIGHBOUR_CMD " prefix-counts",
        SHOW_STR
        IP_STR
        BGP_STR
@@ -12732,8 +12730,7 @@ DEFUN (show_ip_bgp_encap_neighbor_prefix_counts,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display detailed prefix count information\n")
 {
   struct peer *peer;
@@ -12909,15 +12906,14 @@ peer_adj_routes_decode (struct vty *vty, const char *view, const char *ip_str, a
 
 DEFUN (show_ip_bgp_view_neighbor_advertised_route,
        show_ip_bgp_view_neighbor_advertised_route_cmd,
-       "show ip bgp view WORD neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show ip bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        IP_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 {
   return peer_adj_routes_decode (vty, argv[0], argv[1], AFI_IP, SAFI_UNICAST, 0, NULL);
@@ -12925,15 +12921,14 @@ DEFUN (show_ip_bgp_view_neighbor_advertised_route,
 
 DEFUN (show_ip_bgp_view_neighbor_advertised_route_rmap,
        show_ip_bgp_view_neighbor_advertised_route_rmap_cmd,
-       "show ip bgp view WORD neighbors (A.B.C.D|X:X::X:X) advertised-routes route-map WORD",
+       "show ip bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " advertised-routes route-map WORD",
        SHOW_STR
        IP_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -12943,13 +12938,12 @@ DEFUN (show_ip_bgp_view_neighbor_advertised_route_rmap,
 
 DEFUN (show_ip_bgp_neighbor_advertised_route,
        show_ip_bgp_neighbor_advertised_route_cmd,
-       "show ip bgp neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show ip bgp neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        IP_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 {
   return peer_adj_routes_decode (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, 0, NULL);
@@ -12957,13 +12951,12 @@ DEFUN (show_ip_bgp_neighbor_advertised_route,
 
 DEFUN (show_ip_bgp_neighbor_advertised_route_rmap,
        show_ip_bgp_neighbor_advertised_route_rmap_cmd,
-       "show ip bgp neighbors (A.B.C.D|X:X::X:X) advertised-routes route-map WORD",
+       "show ip bgp neighbors " BGP_NEIGHBOUR_CMD " advertised-routes route-map WORD",
        SHOW_STR
        IP_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -12973,7 +12966,7 @@ DEFUN (show_ip_bgp_neighbor_advertised_route_rmap,
 
 DEFUN (show_ip_bgp_ipv4_safi_neighbor_advertised_route,
        show_ip_bgp_ipv4_safi_neighbor_advertised_route_cmd,
-       "show ip bgp ipv4 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show ip bgp ipv4 (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        IP_STR
        BGP_STR
@@ -12981,8 +12974,7 @@ DEFUN (show_ip_bgp_ipv4_safi_neighbor_advertised_route,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 {
   safi_t safi = SAFI_UNICAST;
@@ -12995,7 +12987,7 @@ DEFUN (show_ip_bgp_ipv4_safi_neighbor_advertised_route,
 
 DEFUN (show_ip_bgp_ipv4_safi_neighbor_advertised_route_rmap,
        show_ip_bgp_ipv4_safi_neighbor_advertised_route_rmap_cmd,
-       "show ip bgp ipv4 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) advertised-routes route-map WORD",
+       "show ip bgp ipv4 (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " advertised-routes route-map WORD",
        SHOW_STR
        IP_STR
        BGP_STR
@@ -13003,8 +12995,7 @@ DEFUN (show_ip_bgp_ipv4_safi_neighbor_advertised_route_rmap,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13019,14 +13010,13 @@ DEFUN (show_ip_bgp_ipv4_safi_neighbor_advertised_route_rmap,
 
 DEFUN (show_bgp_view_neighbor_advertised_route,
        show_bgp_view_neighbor_advertised_route_cmd,
-       "show bgp view WORD neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 {
   return peer_adj_routes_decode (vty, argv[0], argv[1], AFI_IP, SAFI_UNICAST, 0, NULL);
@@ -13034,14 +13024,13 @@ DEFUN (show_bgp_view_neighbor_advertised_route,
 
 DEFUN (show_bgp_view_neighbor_advertised_route_rmap,
        show_bgp_view_neighbor_advertised_route_rmap_cmd,
-       "show bgp view WORD neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13051,12 +13040,11 @@ DEFUN (show_bgp_view_neighbor_advertised_route_rmap,
 
 DEFUN (show_bgp_neighbor_advertised_route,
        show_bgp_neighbor_advertised_route_cmd,
-       "show bgp neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show bgp neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 {
   return peer_adj_routes_decode (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, 0, NULL);
@@ -13064,12 +13052,11 @@ DEFUN (show_bgp_neighbor_advertised_route,
 
 DEFUN (show_bgp_neighbor_advertised_route_rmap,
        show_bgp_neighbor_advertised_route_rmap_cmd,
-       "show bgp neighbors (A.B.C.D|X:X::X:X) advertised-routes route-map WORD",
+       "show bgp neighbors " BGP_NEIGHBOUR_CMD " advertised-routes route-map WORD",
        SHOW_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13079,13 +13066,12 @@ DEFUN (show_bgp_neighbor_advertised_route_rmap,
 
 DEFUN (show_bgp_ipv6_neighbor_advertised_route,
        show_bgp_ipv6_neighbor_advertised_route_cmd,
-       "show bgp ipv6 neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show bgp ipv6 neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 {
   return peer_adj_routes_decode (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, 0, NULL);
@@ -13094,24 +13080,22 @@ DEFUN (show_bgp_ipv6_neighbor_advertised_route,
 /*old command */
 ALIAS (show_bgp_ipv6_neighbor_advertised_route,
        show_ipv6_bgp_neighbor_advertised_route_cmd,
-        "show ipv6 bgp neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+        "show ipv6 bgp neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        IPV6_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 
 DEFUN (show_bgp_ipv6_neighbor_advertised_route_rmap,
        show_bgp_ipv6_neighbor_advertised_route_rmap_cmd,
-       "show bgp ipv6 neighbors (A.B.C.D|X:X::X:X) advertised-routes route-map WORD",
+       "show bgp ipv6 neighbors " BGP_NEIGHBOUR_CMD " advertised-routes route-map WORD",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13122,13 +13106,12 @@ DEFUN (show_bgp_ipv6_neighbor_advertised_route_rmap,
 /* old command */
 ALIAS (show_bgp_ipv6_neighbor_advertised_route_rmap,
        show_ipv6_bgp_neighbor_advertised_route_rmap_cmd,
-       "show ipv6 bgp neighbors (A.B.C.D|X:X::X:X) advertised-routes route-map WORD",
+       "show ipv6 bgp neighbors " BGP_NEIGHBOUR_CMD " advertised-routes route-map WORD",
        SHOW_STR
        IPV6_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13136,13 +13119,12 @@ ALIAS (show_bgp_ipv6_neighbor_advertised_route_rmap,
 /* old command */
 DEFUN (ipv6_mbgp_neighbor_advertised_route,
        ipv6_mbgp_neighbor_advertised_route_cmd,
-       "show ipv6 mbgp neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show ipv6 mbgp neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        IPV6_STR
        MBGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 {
   return peer_adj_routes_decode (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, 0, NULL);
@@ -13150,13 +13132,12 @@ DEFUN (ipv6_mbgp_neighbor_advertised_route,
 
 DEFUN (ipv6_mbgp_neighbor_advertised_route_rmap,
        ipv6_mbgp_neighbor_advertised_route_rmap_cmd,
-       "show ipv6 mbgp neighbors (A.B.C.D|X:X::X:X) advertised-routes route-map WORD",
+       "show ipv6 mbgp neighbors " BGP_NEIGHBOUR_CMD " advertised-routes route-map WORD",
        SHOW_STR
        IPV6_STR
        MBGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13166,14 +13147,13 @@ DEFUN (ipv6_mbgp_neighbor_advertised_route_rmap,
 
 DEFUN (show_bgp_view_neighbor_received_routes,
        show_bgp_view_neighbor_received_routes_cmd,
-       "show bgp view WORD neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   return peer_adj_routes_decode (vty, argv[0], argv[1], AFI_IP, SAFI_UNICAST, 1, NULL);
@@ -13181,14 +13161,13 @@ DEFUN (show_bgp_view_neighbor_received_routes,
 
 DEFUN (show_bgp_view_neighbor_received_routes_rmap,
        show_bgp_view_neighbor_received_routes_rmap_cmd,
-       "show bgp view WORD neighbors (A.B.C.D|X:X::X:X) received-routes route-map WORD",
+       "show bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " received-routes route-map WORD",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13198,15 +13177,14 @@ DEFUN (show_bgp_view_neighbor_received_routes_rmap,
 
 DEFUN (show_ip_bgp_view_neighbor_received_routes,
        show_ip_bgp_view_neighbor_received_routes_cmd,
-       "show ip bgp view WORD neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show ip bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        IP_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   return peer_adj_routes_decode (vty, argv[0], argv[1], AFI_IP, SAFI_UNICAST, 1, NULL);
@@ -13214,15 +13192,14 @@ DEFUN (show_ip_bgp_view_neighbor_received_routes,
 
 DEFUN (show_ip_bgp_view_neighbor_received_routes_rmap,
        show_ip_bgp_view_neighbor_received_routes_rmap_cmd,
-       "show ip bgp view WORD neighbors (A.B.C.D|X:X::X:X) received-routes route-map WORD",
+       "show ip bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " received-routes route-map WORD",
        SHOW_STR
        IP_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13232,15 +13209,14 @@ DEFUN (show_ip_bgp_view_neighbor_received_routes_rmap,
 
 DEFUN (show_bgp_view_ipv6_neighbor_received_routes,
        show_bgp_view_ipv6_neighbor_received_routes_cmd,
-       "show bgp view WORD ipv6 neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show bgp view WORD ipv6 neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   return peer_adj_routes_decode (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, 1, NULL);
@@ -13248,15 +13224,14 @@ DEFUN (show_bgp_view_ipv6_neighbor_received_routes,
 
 DEFUN (show_bgp_view_ipv6_neighbor_received_routes_rmap,
        show_bgp_view_ipv6_neighbor_received_routes_rmap_cmd,
-       "show bgp view WORD ipv6 neighbors (A.B.C.D|X:X::X:X) received-routes route-map WORD",
+       "show bgp view WORD ipv6 neighbors " BGP_NEIGHBOUR_CMD " received-routes route-map WORD",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13266,13 +13241,12 @@ DEFUN (show_bgp_view_ipv6_neighbor_received_routes_rmap,
 
 DEFUN (show_ip_bgp_neighbor_received_routes,
        show_ip_bgp_neighbor_received_routes_cmd,
-       "show ip bgp neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show ip bgp neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        IP_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   return peer_adj_routes_decode (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, 1, NULL);
@@ -13280,13 +13254,12 @@ DEFUN (show_ip_bgp_neighbor_received_routes,
 
 DEFUN (show_ip_bgp_neighbor_received_routes_rmap,
        show_ip_bgp_neighbor_received_routes_rmap_cmd,
-       "show ip bgp neighbors (A.B.C.D|X:X::X:X) received-routes route-map WORD",
+       "show ip bgp neighbors " BGP_NEIGHBOUR_CMD " received-routes route-map WORD",
        SHOW_STR
        IP_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13296,13 +13269,12 @@ DEFUN (show_ip_bgp_neighbor_received_routes_rmap,
 
 DEFUN (show_bgp_ipv6_neighbor_received_routes,
        show_bgp_ipv6_neighbor_received_routes_cmd,
-       "show bgp ipv6 neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show bgp ipv6 neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   return peer_adj_routes_decode (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, 1, NULL);
@@ -13310,13 +13282,12 @@ DEFUN (show_bgp_ipv6_neighbor_received_routes,
 
 DEFUN (show_bgp_ipv6_neighbor_received_routes_rmap,
        show_bgp_ipv6_neighbor_received_routes_rmap_cmd,
-       "show bgp ipv6 neighbors (A.B.C.D|X:X::X:X) received-routes route-map WORD",
+       "show bgp ipv6 neighbors " BGP_NEIGHBOUR_CMD " received-routes route-map WORD",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13327,13 +13298,12 @@ DEFUN (show_bgp_ipv6_neighbor_received_routes_rmap,
 /* old command */
 DEFUN (show_ipv6_bgp_neighbor_received_routes,
        show_ipv6_bgp_neighbor_received_routes_cmd,
-       "show ipv6 bgp neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show ipv6 bgp neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        IPV6_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   return peer_adj_routes_decode (vty, NULL, argv[0], AFI_IP6, SAFI_UNICAST, 1, NULL);
@@ -13342,13 +13312,12 @@ DEFUN (show_ipv6_bgp_neighbor_received_routes,
 /* old command */
 DEFUN (ipv6_mbgp_neighbor_received_routes,
        ipv6_mbgp_neighbor_received_routes_cmd,
-       "show ipv6 mbgp neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show ipv6 mbgp neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        IPV6_STR
        MBGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   return peer_adj_routes_decode (vty, NULL, argv[0], AFI_IP6, SAFI_MULTICAST, 1, NULL);
@@ -13356,13 +13325,12 @@ DEFUN (ipv6_mbgp_neighbor_received_routes,
 
 DEFUN (ipv6_mbgp_neighbor_received_routes_rmap,
        ipv6_mbgp_neighbor_received_routes_rmap_cmd,
-       "show ipv6 mbgp neighbors (A.B.C.D|X:X::X:X) received-routes route-map WORD",
+       "show ipv6 mbgp neighbors " BGP_NEIGHBOUR_CMD " received-routes route-map WORD",
        SHOW_STR
        IPV6_STR
        MBGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13372,12 +13340,11 @@ DEFUN (ipv6_mbgp_neighbor_received_routes_rmap,
 
 DEFUN (show_bgp_neighbor_received_prefix_filter,
        show_bgp_neighbor_received_prefix_filter_cmd,
-       "show bgp neighbors (A.B.C.D|X:X::X:X) received prefix-filter",
+       "show bgp neighbors " BGP_NEIGHBOUR_CMD " received prefix-filter",
        SHOW_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display information received from a BGP neighbor\n"
        "Display the prefixlist filter\n")
 {
@@ -13412,14 +13379,13 @@ DEFUN (show_bgp_neighbor_received_prefix_filter,
 
 DEFUN (show_bgp_view_neighbor_received_prefix_filter,
        show_bgp_view_neighbor_received_prefix_filter_cmd,
-       "show bgp view WORD neighbors (A.B.C.D|X:X::X:X) received prefix-filter",
+       "show bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " received prefix-filter",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display information received from a BGP neighbor\n"
        "Display the prefixlist filter\n")
 {
@@ -13461,7 +13427,7 @@ DEFUN (show_bgp_view_neighbor_received_prefix_filter,
 
 DEFUN (show_ip_bgp_ipv4_safi_neighbor_received_routes,
        show_ip_bgp_ipv4_safi_neighbor_received_routes_cmd,
-       "show ip bgp ipv4 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show ip bgp ipv4 (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        IP_STR
        BGP_STR
@@ -13469,8 +13435,7 @@ DEFUN (show_ip_bgp_ipv4_safi_neighbor_received_routes,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   safi_t safi;
@@ -13485,7 +13450,7 @@ DEFUN (show_ip_bgp_ipv4_safi_neighbor_received_routes,
 
 DEFUN (show_ip_bgp_ipv4_safi_neighbor_received_routes_rmap,
        show_ip_bgp_ipv4_safi_neighbor_received_routes_rmap_cmd,
-       "show ip bgp ipv4 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) received-routes route-map WORD",
+       "show ip bgp ipv4 (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " received-routes route-map WORD",
        SHOW_STR
        IP_STR
        BGP_STR
@@ -13493,8 +13458,7 @@ DEFUN (show_ip_bgp_ipv4_safi_neighbor_received_routes_rmap,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n"
        "Display routes matching the route-map\n"
        "A route-map to match on\n")
@@ -13511,14 +13475,13 @@ DEFUN (show_ip_bgp_ipv4_safi_neighbor_received_routes_rmap,
 
 DEFUN (show_bgp_ipv4_safi_neighbor_advertised_route,
        show_bgp_ipv4_safi_neighbor_advertised_route_cmd,
-       "show bgp ipv4 (multicast|unicast) neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show bgp ipv4 (multicast|unicast) neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        BGP_STR
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 {
   safi_t	safi;
@@ -13533,14 +13496,13 @@ DEFUN (show_bgp_ipv4_safi_neighbor_advertised_route,
 
 DEFUN (show_bgp_ipv4_safi_neighbor_advertised_route_rmap,
        show_bgp_ipv4_safi_neighbor_advertised_route_rmap_cmd,
-       "show bgp ipv4 (multicast|unicast) neighbors (A.B.C.D|X:X::X:X) advertised-routes route-map WORD",
+       "show bgp ipv4 (multicast|unicast) neighbors " BGP_NEIGHBOUR_CMD " advertised-routes route-map WORD",
        SHOW_STR
        BGP_STR
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13557,15 +13519,14 @@ DEFUN (show_bgp_ipv4_safi_neighbor_advertised_route_rmap,
 
 DEFUN (show_bgp_ipv6_safi_neighbor_advertised_route,
        show_bgp_ipv6_safi_neighbor_advertised_route_cmd,
-       "show bgp ipv6 (multicast|unicast) neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show bgp ipv6 (multicast|unicast) neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        BGP_STR
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 {
   safi_t	safi;
@@ -13580,15 +13541,14 @@ DEFUN (show_bgp_ipv6_safi_neighbor_advertised_route,
 
 DEFUN (show_bgp_ipv6_safi_neighbor_advertised_route_rmap,
        show_bgp_ipv6_safi_neighbor_advertised_route_rmap_cmd,
-       "show bgp ipv6 (multicast|unicast) neighbors (A.B.C.D|X:X::X:X) advertised-routes route-map WORD",
+       "show bgp ipv6 (multicast|unicast) neighbors " BGP_NEIGHBOUR_CMD " advertised-routes route-map WORD",
        SHOW_STR
        BGP_STR
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13605,15 +13565,14 @@ DEFUN (show_bgp_ipv6_safi_neighbor_advertised_route_rmap,
 
 DEFUN (show_bgp_view_ipv6_neighbor_advertised_route,
        show_bgp_view_ipv6_neighbor_advertised_route_cmd,
-       "show bgp view WORD ipv6 neighbors (A.B.C.D|X:X::X:X) advertised-routes",
+       "show bgp view WORD ipv6 neighbors " BGP_NEIGHBOUR_CMD " advertised-routes",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n")
 {
   return peer_adj_routes_decode (vty, argv[0], argv[1], AFI_IP6, SAFI_UNICAST, 0, NULL);
@@ -13621,15 +13580,14 @@ DEFUN (show_bgp_view_ipv6_neighbor_advertised_route,
 
 DEFUN (show_bgp_view_ipv6_neighbor_advertised_route_rmap,
        show_bgp_view_ipv6_neighbor_advertised_route_rmap_cmd,
-       "show bgp view WORD ipv6 neighbors (A.B.C.D|X:X::X:X) advertised-routes route-map WORD",
+       "show bgp view WORD ipv6 neighbors " BGP_NEIGHBOUR_CMD " advertised-routes route-map WORD",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the routes advertised to a BGP neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13639,7 +13597,7 @@ DEFUN (show_bgp_view_ipv6_neighbor_advertised_route_rmap,
 
 DEFUN (show_bgp_ipv4_safi_neighbor_received_routes,
        show_bgp_ipv4_safi_neighbor_received_routes_cmd,
-       "show bgp ipv4 (encap|multicast|unicast|vpn) neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show bgp ipv4 (encap|multicast|unicast|vpn) neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        BGP_STR
        "Address family\n"
@@ -13648,8 +13606,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_received_routes,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   safi_t	safi;
@@ -13664,7 +13621,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_received_routes,
 
 DEFUN (show_bgp_ipv4_safi_neighbor_received_routes_rmap,
        show_bgp_ipv4_safi_neighbor_received_routes_rmap_cmd,
-       "show bgp ipv4 (encap|multicast|unicast|vpn) neighbors (A.B.C.D|X:X::X:X) received-routes route-map WORD",
+       "show bgp ipv4 (encap|multicast|unicast|vpn) neighbors " BGP_NEIGHBOUR_CMD " received-routes route-map WORD",
        SHOW_STR
        BGP_STR
        "Address family\n"
@@ -13673,8 +13630,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_received_routes_rmap,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13691,7 +13647,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_received_routes_rmap,
 
 DEFUN (show_bgp_ipv6_safi_neighbor_received_routes,
        show_bgp_ipv6_safi_neighbor_received_routes_cmd,
-       "show bgp ipv6 (encap|multicast|unicast|vpn) neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show bgp ipv6 (encap|multicast|unicast|vpn) neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        BGP_STR
        "Address family\n"
@@ -13700,8 +13656,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_received_routes,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   safi_t	safi;
@@ -13716,7 +13671,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_received_routes,
 
 DEFUN (show_bgp_ipv6_safi_neighbor_received_routes_rmap,
        show_bgp_ipv6_safi_neighbor_received_routes_rmap_cmd,
-       "show bgp ipv6 (encap|multicast|unicast|vpn) neighbors (A.B.C.D|X:X::X:X) received-routes route-map WORD",
+       "show bgp ipv6 (encap|multicast|unicast|vpn) neighbors " BGP_NEIGHBOUR_CMD " received-routes route-map WORD",
        SHOW_STR
        BGP_STR
        "Address family\n"
@@ -13725,8 +13680,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_received_routes_rmap,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n"
        "Route-map to control what is displayed\n"
        "Route-map name\n")
@@ -13743,7 +13697,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_received_routes_rmap,
 
 DEFUN (show_bgp_view_afi_safi_neighbor_adv_recd_routes,
        show_bgp_view_afi_safi_neighbor_adv_recd_routes_cmd,
-       "show bgp view WORD (ipv4|ipv6) (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) (advertised-routes|received-routes)",
+       "show bgp view WORD (ipv4|ipv6) (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " (advertised-routes|received-routes)",
        SHOW_STR
        BGP_STR
        "BGP view\n"
@@ -13753,8 +13707,7 @@ DEFUN (show_bgp_view_afi_safi_neighbor_adv_recd_routes,
        "Address family modifier\n"
        "Address family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the advertised routes to neighbor\n"
        "Display the received routes from neighbor\n")
 {
@@ -13771,7 +13724,7 @@ DEFUN (show_bgp_view_afi_safi_neighbor_adv_recd_routes,
 
 DEFUN (show_bgp_view_afi_safi_neighbor_adv_recd_routes_rmap,
        show_bgp_view_afi_safi_neighbor_adv_recd_routes_rmap_cmd,
-       "show bgp view WORD (ipv4|ipv6) (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) (advertised-routes|received-routes) route-map WORD",
+       "show bgp view WORD (ipv4|ipv6) (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " (advertised-routes|received-routes) route-map WORD",
        SHOW_STR
        BGP_STR
        "BGP view\n"
@@ -13781,8 +13734,7 @@ DEFUN (show_bgp_view_afi_safi_neighbor_adv_recd_routes_rmap,
        "Address family modifier\n"
        "Address family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the advertised routes to neighbor\n"
        "Display the received routes from neighbor\n"
        "Route-map to control what is displayed\n"
@@ -13802,13 +13754,12 @@ DEFUN (show_bgp_view_afi_safi_neighbor_adv_recd_routes_rmap,
 
 DEFUN (show_ip_bgp_neighbor_received_prefix_filter,
        show_ip_bgp_neighbor_received_prefix_filter_cmd,
-       "show ip bgp neighbors (A.B.C.D|X:X::X:X) received prefix-filter",
+       "show ip bgp neighbors " BGP_NEIGHBOUR_CMD " received prefix-filter",
        SHOW_STR
        IP_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display information received from a BGP neighbor\n"
        "Display the prefixlist filter\n")
 {
@@ -13841,7 +13792,7 @@ DEFUN (show_ip_bgp_neighbor_received_prefix_filter,
 
 DEFUN (show_ip_bgp_ipv4_neighbor_received_prefix_filter,
        show_ip_bgp_ipv4_neighbor_received_prefix_filter_cmd,
-       "show ip bgp ipv4 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) received prefix-filter",
+       "show ip bgp ipv4 (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " received prefix-filter",
        SHOW_STR
        IP_STR
        BGP_STR
@@ -13849,8 +13800,7 @@ DEFUN (show_ip_bgp_ipv4_neighbor_received_prefix_filter,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display information received from a BGP neighbor\n"
        "Display the prefixlist filter\n")
 {
@@ -13896,12 +13846,11 @@ DEFUN (show_ip_bgp_ipv4_neighbor_received_prefix_filter,
 
 DEFUN (show_bgp_neighbor_received_routes,
        show_bgp_neighbor_received_routes_cmd,
-       "show bgp neighbors (A.B.C.D|X:X::X:X) received-routes",
+       "show bgp neighbors " BGP_NEIGHBOUR_CMD " received-routes",
        SHOW_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the received routes from neighbor\n")
 {
   return peer_adj_routes_decode (vty, NULL, argv[0], AFI_IP, SAFI_UNICAST, 1, NULL);
@@ -13909,7 +13858,7 @@ DEFUN (show_bgp_neighbor_received_routes,
 
 DEFUN (show_bgp_ipv4_safi_neighbor_received_prefix_filter,
        show_bgp_ipv4_safi_neighbor_received_prefix_filter_cmd,
-       "show bgp ipv4 (encap|multicast|unicast|vpn) neighbors (A.B.C.D|X:X::X:X) received prefix-filter",
+       "show bgp ipv4 (encap|multicast|unicast|vpn) neighbors " BGP_NEIGHBOUR_CMD " received prefix-filter",
        SHOW_STR
        BGP_STR
        IP_STR
@@ -13918,8 +13867,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_received_prefix_filter,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display information received from a BGP neighbor\n"
        "Display the prefixlist filter\n")
 {
@@ -13957,7 +13905,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_received_prefix_filter,
 
 DEFUN (show_bgp_ipv6_safi_neighbor_received_prefix_filter,
        show_bgp_ipv6_safi_neighbor_received_prefix_filter_cmd,
-       "show bgp ipv6 (encap|multicast|unicast|vpn) neighbors (A.B.C.D|X:X::X:X) received prefix-filter",
+       "show bgp ipv6 (encap|multicast|unicast|vpn) neighbors " BGP_NEIGHBOUR_CMD " received prefix-filter",
        SHOW_STR
        BGP_STR
        IP_STR
@@ -13966,8 +13914,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_received_prefix_filter,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display information received from a BGP neighbor\n"
        "Display the prefixlist filter\n")
 {
@@ -14005,13 +13952,12 @@ DEFUN (show_bgp_ipv6_safi_neighbor_received_prefix_filter,
 
 DEFUN (show_bgp_ipv6_neighbor_received_prefix_filter,
        show_bgp_ipv6_neighbor_received_prefix_filter_cmd,
-       "show bgp ipv6 neighbors (A.B.C.D|X:X::X:X) received prefix-filter",
+       "show bgp ipv6 neighbors " BGP_NEIGHBOUR_CMD " received prefix-filter",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display information received from a BGP neighbor\n"
        "Display the prefixlist filter\n")
 {
@@ -14044,15 +13990,14 @@ DEFUN (show_bgp_ipv6_neighbor_received_prefix_filter,
 
 DEFUN (show_bgp_view_ipv6_neighbor_received_prefix_filter,
        show_bgp_view_ipv6_neighbor_received_prefix_filter_cmd,
-       "show bgp view WORD ipv6 neighbors (A.B.C.D|X:X::X:X) received prefix-filter",
+       "show bgp view WORD ipv6 neighbors " BGP_NEIGHBOUR_CMD " received prefix-filter",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display information received from a BGP neighbor\n"
        "Display the prefixlist filter\n")
 {
@@ -14106,13 +14051,12 @@ bgp_show_neighbor_route (struct vty *vty, struct peer *peer, afi_t afi,
 }
 DEFUN (show_ip_bgp_neighbor_routes,
        show_ip_bgp_neighbor_routes_cmd,
-       "show ip bgp neighbors (A.B.C.D|X:X::X:X) routes",
+       "show ip bgp neighbors " BGP_NEIGHBOUR_CMD " routes",
        SHOW_STR
        IP_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -14127,13 +14071,12 @@ DEFUN (show_ip_bgp_neighbor_routes,
 
 DEFUN (show_ip_bgp_neighbor_flap,
        show_ip_bgp_neighbor_flap_cmd,
-       "show ip bgp neighbors (A.B.C.D|X:X::X:X) flap-statistics",
+       "show ip bgp neighbors " BGP_NEIGHBOUR_CMD " flap-statistics",
        SHOW_STR
        IP_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display flap statistics of the routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -14148,13 +14091,12 @@ DEFUN (show_ip_bgp_neighbor_flap,
 
 DEFUN (show_ip_bgp_neighbor_damp,
        show_ip_bgp_neighbor_damp_cmd,
-       "show ip bgp neighbors (A.B.C.D|X:X::X:X) dampened-routes",
+       "show ip bgp neighbors " BGP_NEIGHBOUR_CMD " dampened-routes",
        SHOW_STR
        IP_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the dampened routes received from neighbor\n")
 {
   struct peer *peer;
@@ -14169,7 +14111,7 @@ DEFUN (show_ip_bgp_neighbor_damp,
 
 DEFUN (show_ip_bgp_ipv4_neighbor_routes,
        show_ip_bgp_ipv4_neighbor_routes_cmd,
-       "show ip bgp ipv4 (unicast|multicast) neighbors (A.B.C.D|X:X::X:X) routes",
+       "show ip bgp ipv4 (unicast|multicast) neighbors " BGP_NEIGHBOUR_CMD " routes",
        SHOW_STR
        IP_STR
        BGP_STR
@@ -14177,8 +14119,7 @@ DEFUN (show_ip_bgp_ipv4_neighbor_routes,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -14197,14 +14138,14 @@ DEFUN (show_ip_bgp_ipv4_neighbor_routes,
 
 DEFUN (show_ip_bgp_view_rsclient,
        show_ip_bgp_view_rsclient_cmd,
-       "show ip bgp view WORD rsclient (A.B.C.D|X:X::X:X)",
+       "show ip bgp view WORD rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        IP_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR)
+       BGP_NEIGHBOUR_STR)
 {
   struct bgp_table *table;
   struct peer *peer;
@@ -14239,16 +14180,16 @@ DEFUN (show_ip_bgp_view_rsclient,
 
 ALIAS (show_ip_bgp_view_rsclient,
        show_ip_bgp_rsclient_cmd,
-       "show ip bgp rsclient (A.B.C.D|X:X::X:X)",
+       "show ip bgp rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        IP_STR
        BGP_STR
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR)
+       BGP_NEIGHBOUR_STR)
 
 DEFUN (show_bgp_view_ipv4_safi_rsclient,
        show_bgp_view_ipv4_safi_rsclient_cmd,
-       "show bgp view WORD ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X)",
+       "show bgp view WORD ipv4 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        BGP_STR
        "BGP view\n"
@@ -14257,7 +14198,7 @@ DEFUN (show_bgp_view_ipv4_safi_rsclient,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR)
+       BGP_NEIGHBOUR_STR)
 {
   struct bgp_table *table;
   struct peer *peer;
@@ -14296,25 +14237,25 @@ DEFUN (show_bgp_view_ipv4_safi_rsclient,
 
 ALIAS (show_bgp_view_ipv4_safi_rsclient,
        show_bgp_ipv4_safi_rsclient_cmd,
-       "show bgp ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X)",
+       "show bgp ipv4 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR)
+       BGP_NEIGHBOUR_STR)
 
 DEFUN (show_ip_bgp_view_rsclient_route,
        show_ip_bgp_view_rsclient_route_cmd,
-       "show ip bgp view WORD rsclient (A.B.C.D|X:X::X:X) A.B.C.D",
+       "show ip bgp view WORD rsclient " BGP_NEIGHBOUR_CMD " A.B.C.D",
        SHOW_STR
        IP_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Network in the BGP routing table to display\n")
 {
   struct bgp *bgp;
@@ -14370,17 +14311,17 @@ DEFUN (show_ip_bgp_view_rsclient_route,
 
 ALIAS (show_ip_bgp_view_rsclient_route,
        show_ip_bgp_rsclient_route_cmd,
-       "show ip bgp rsclient (A.B.C.D|X:X::X:X) A.B.C.D",
+       "show ip bgp rsclient " BGP_NEIGHBOUR_CMD " A.B.C.D",
        SHOW_STR
        IP_STR
        BGP_STR
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Network in the BGP routing table to display\n")
 
 DEFUN (show_bgp_ipv4_safi_neighbor_flap,
        show_bgp_ipv4_safi_neighbor_flap_cmd,
-       "show bgp ipv4 (encap|multicast|unicast|vpn) neighbors (A.B.C.D|X:X::X:X) flap-statistics",
+       "show bgp ipv4 (encap|multicast|unicast|vpn) neighbors " BGP_NEIGHBOUR_CMD " flap-statistics",
        SHOW_STR
        BGP_STR
        "Address Family Modifier\n"
@@ -14388,8 +14329,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_flap,
        "Address Family Modifier\n"
        "Address Family Modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display flap statistics of the routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -14410,7 +14350,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_flap,
 
 DEFUN (show_bgp_ipv6_safi_neighbor_flap,
        show_bgp_ipv6_safi_neighbor_flap_cmd,
-       "show bgp ipv6 (encap|multicast|unicast|vpn) neighbors (A.B.C.D|X:X::X:X) flap-statistics",
+       "show bgp ipv6 (encap|multicast|unicast|vpn) neighbors " BGP_NEIGHBOUR_CMD " flap-statistics",
        SHOW_STR
        BGP_STR
        "Address Family Modifier\n"
@@ -14418,8 +14358,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_flap,
        "Address Family Modifier\n"
        "Address Family Modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display flap statistics of the routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -14440,7 +14379,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_flap,
 
 DEFUN (show_bgp_ipv4_safi_neighbor_damp,
        show_bgp_ipv4_safi_neighbor_damp_cmd,
-       "show bgp ipv4 (encap|multicast|unicast|vpn) neighbors (A.B.C.D|X:X::X:X) dampened-routes",
+       "show bgp ipv4 (encap|multicast|unicast|vpn) neighbors " BGP_NEIGHBOUR_CMD " dampened-routes",
        SHOW_STR
        BGP_STR
        "Address Family Modifier\n"
@@ -14448,8 +14387,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_damp,
        "Address Family Modifier\n"
        "Address Family Modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the dampened routes received from neighbor\n")
 {
   struct peer *peer;
@@ -14470,7 +14408,7 @@ DEFUN (show_bgp_ipv4_safi_neighbor_damp,
 
 DEFUN (show_bgp_ipv6_safi_neighbor_damp,
        show_bgp_ipv6_safi_neighbor_damp_cmd,
-       "show bgp ipv6 (encap|multicast|unicast|vpn) neighbors (A.B.C.D|X:X::X:X) dampened-routes",
+       "show bgp ipv6 (encap|multicast|unicast|vpn) neighbors " BGP_NEIGHBOUR_CMD " dampened-routes",
        SHOW_STR
        BGP_STR
        "Address Family Modifier\n"
@@ -14478,8 +14416,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_damp,
        "Address Family Modifier\n"
        "Address Family Modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the dampened routes received from neighbor\n")
 {
   struct peer *peer;
@@ -14500,15 +14437,14 @@ DEFUN (show_bgp_ipv6_safi_neighbor_damp,
 
 DEFUN (show_bgp_ipv4_safi_neighbor_routes,
        show_bgp_ipv4_safi_neighbor_routes_cmd,
-       "show bgp ipv4 (multicast|unicast) neighbors (A.B.C.D|X:X::X:X) routes",
+       "show bgp ipv4 (multicast|unicast) neighbors " BGP_NEIGHBOUR_CMD " routes",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -14529,15 +14465,14 @@ DEFUN (show_bgp_ipv4_safi_neighbor_routes,
 
 DEFUN (show_bgp_ipv6_safi_neighbor_routes,
        show_bgp_ipv6_safi_neighbor_routes_cmd,
-       "show bgp ipv6 (multicast|unicast) neighbors (A.B.C.D|X:X::X:X) routes",
+       "show bgp ipv6 (multicast|unicast) neighbors " BGP_NEIGHBOUR_CMD " routes",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       NEIGHBOR_ADDR_STR
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Display routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -14558,7 +14493,7 @@ DEFUN (show_bgp_ipv6_safi_neighbor_routes,
 
 DEFUN (show_bgp_view_ipv4_safi_rsclient_route,
        show_bgp_view_ipv4_safi_rsclient_route_cmd,
-       "show bgp view WORD ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) A.B.C.D",
+       "show bgp view WORD ipv4 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD " A.B.C.D",
        SHOW_STR
        BGP_STR
        "BGP view\n"
@@ -14567,7 +14502,7 @@ DEFUN (show_bgp_view_ipv4_safi_rsclient_route,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Network in the BGP routing table to display\n")
 {
   struct bgp *bgp;
@@ -14627,20 +14562,20 @@ DEFUN (show_bgp_view_ipv4_safi_rsclient_route,
 
 ALIAS (show_bgp_view_ipv4_safi_rsclient_route,
        show_bgp_ipv4_safi_rsclient_route_cmd,
-       "show bgp ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) A.B.C.D",
+       "show bgp ipv4 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD " A.B.C.D",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Network in the BGP routing table to display\n")
 
 
 DEFUN (show_bgp_view_ipv4_safi_rsclient_prefix,
        show_bgp_view_ipv4_safi_rsclient_prefix_cmd,
-       "show bgp view WORD ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) A.B.C.D/M",
+       "show bgp view WORD ipv4 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD " A.B.C.D/M",
        SHOW_STR
        BGP_STR
        "BGP view\n"
@@ -14649,7 +14584,7 @@ DEFUN (show_bgp_view_ipv4_safi_rsclient_prefix,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
   struct bgp *bgp;
@@ -14709,14 +14644,14 @@ DEFUN (show_bgp_view_ipv4_safi_rsclient_prefix,
 
 DEFUN (show_ip_bgp_view_rsclient_prefix,
        show_ip_bgp_view_rsclient_prefix_cmd,
-       "show ip bgp view WORD rsclient (A.B.C.D|X:X::X:X) A.B.C.D/M",
+       "show ip bgp view WORD rsclient " BGP_NEIGHBOUR_CMD " A.B.C.D/M",
        SHOW_STR
        IP_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 {
   struct bgp *bgp;
@@ -14772,37 +14707,36 @@ DEFUN (show_ip_bgp_view_rsclient_prefix,
 
 ALIAS (show_ip_bgp_view_rsclient_prefix,
        show_ip_bgp_rsclient_prefix_cmd,
-       "show ip bgp rsclient (A.B.C.D|X:X::X:X) A.B.C.D/M",
+       "show ip bgp rsclient " BGP_NEIGHBOUR_CMD " A.B.C.D/M",
        SHOW_STR
        IP_STR
        BGP_STR
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 
 ALIAS (show_bgp_view_ipv4_safi_rsclient_prefix,
        show_bgp_ipv4_safi_rsclient_prefix_cmd,
-       "show bgp ipv4 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) A.B.C.D/M",
+       "show bgp ipv4 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD " A.B.C.D/M",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "IP prefix <network>/<length>, e.g., 35.0.0.0/8\n")
 
 DEFUN (show_bgp_view_ipv6_neighbor_routes,
        show_bgp_view_ipv6_neighbor_routes_cmd,
-       "show bgp view WORD ipv6 neighbors (A.B.C.D|X:X::X:X) routes",
+       "show bgp view WORD ipv6 neighbors " BGP_NEIGHBOUR_CMD " routes",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -14821,14 +14755,13 @@ DEFUN (show_bgp_view_ipv6_neighbor_routes,
 
 DEFUN (show_bgp_view_neighbor_damp,
        show_bgp_view_neighbor_damp_cmd,
-       "show bgp view WORD neighbors (A.B.C.D|X:X::X:X) dampened-routes",
+       "show bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " dampened-routes",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the dampened routes received from neighbor\n")
 {
   struct peer *peer;
@@ -14847,15 +14780,14 @@ DEFUN (show_bgp_view_neighbor_damp,
 
 DEFUN (show_bgp_view_ipv6_neighbor_damp,
        show_bgp_view_ipv6_neighbor_damp_cmd,
-       "show bgp view WORD ipv6 neighbors (A.B.C.D|X:X::X:X) dampened-routes",
+       "show bgp view WORD ipv6 neighbors " BGP_NEIGHBOUR_CMD " dampened-routes",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the dampened routes received from neighbor\n")
 {
   struct peer *peer;
@@ -14874,15 +14806,14 @@ DEFUN (show_bgp_view_ipv6_neighbor_damp,
 
 DEFUN (show_bgp_view_ipv6_neighbor_flap,
        show_bgp_view_ipv6_neighbor_flap_cmd,
-       "show bgp view WORD ipv6 neighbors (A.B.C.D|X:X::X:X) flap-statistics",
+       "show bgp view WORD ipv6 neighbors " BGP_NEIGHBOUR_CMD " flap-statistics",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the dampened routes received from neighbor\n")
 {
   struct peer *peer;
@@ -14901,14 +14832,13 @@ DEFUN (show_bgp_view_ipv6_neighbor_flap,
 
 DEFUN (show_bgp_view_neighbor_flap,
        show_bgp_view_neighbor_flap_cmd,
-       "show bgp view WORD neighbors (A.B.C.D|X:X::X:X) flap-statistics",
+       "show bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " flap-statistics",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display flap statistics of the routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -14927,34 +14857,31 @@ DEFUN (show_bgp_view_neighbor_flap,
 
 ALIAS (show_bgp_view_neighbor_flap,
        show_bgp_neighbor_flap_cmd,
-       "show bgp neighbors (A.B.C.D|X:X::X:X) flap-statistics",
+       "show bgp neighbors " BGP_NEIGHBOUR_CMD " flap-statistics",
        SHOW_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display flap statistics of the routes learned from neighbor\n")
 
 ALIAS (show_bgp_view_neighbor_damp,
        show_bgp_neighbor_damp_cmd,
-       "show bgp neighbors (A.B.C.D|X:X::X:X) dampened-routes",
+       "show bgp neighbors " BGP_NEIGHBOUR_CMD " dampened-routes",
        SHOW_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the dampened routes received from neighbor\n")
 
 DEFUN (show_bgp_view_neighbor_routes,
        show_bgp_view_neighbor_routes_cmd,
-       "show bgp view WORD neighbors (A.B.C.D|X:X::X:X) routes",
+       "show bgp view WORD neighbors " BGP_NEIGHBOUR_CMD " routes",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -14973,47 +14900,43 @@ DEFUN (show_bgp_view_neighbor_routes,
 
 ALIAS (show_bgp_view_neighbor_routes,
        show_bgp_neighbor_routes_cmd,
-       "show bgp neighbors (A.B.C.D|X:X::X:X) routes",
+       "show bgp neighbors " BGP_NEIGHBOUR_CMD " routes",
        SHOW_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display routes learned from neighbor\n")
 
 ALIAS (show_bgp_view_neighbor_routes,
        show_bgp_ipv6_neighbor_routes_cmd,
-       "show bgp ipv6 neighbors (A.B.C.D|X:X::X:X) routes",
+       "show bgp ipv6 neighbors " BGP_NEIGHBOUR_CMD " routes",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display routes learned from neighbor\n")
 
 /* old command */
 ALIAS (show_bgp_view_neighbor_routes,
        ipv6_bgp_neighbor_routes_cmd,
-       "show ipv6 bgp neighbors (A.B.C.D|X:X::X:X) routes",
+       "show ipv6 bgp neighbors " BGP_NEIGHBOUR_CMD " routes",
        SHOW_STR
        IPV6_STR
        BGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display routes learned from neighbor\n")
 
 /* old command */
 DEFUN (ipv6_mbgp_neighbor_routes,
        ipv6_mbgp_neighbor_routes_cmd,
-       "show ipv6 mbgp neighbors (A.B.C.D|X:X::X:X) routes",
+       "show ipv6 mbgp neighbors " BGP_NEIGHBOUR_CMD " routes",
        SHOW_STR
        IPV6_STR
        MBGP_STR
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display routes learned from neighbor\n")
 {
   struct peer *peer;
@@ -15028,35 +14951,33 @@ DEFUN (ipv6_mbgp_neighbor_routes,
 
 ALIAS (show_bgp_view_neighbor_flap,
        show_bgp_ipv6_neighbor_flap_cmd,
-       "show bgp ipv6 neighbors (A.B.C.D|X:X::X:X) flap-statistics",
+       "show bgp ipv6 neighbors " BGP_NEIGHBOUR_CMD " flap-statistics",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display flap statistics of the routes learned from neighbor\n")
 
 ALIAS (show_bgp_view_neighbor_damp,
        show_bgp_ipv6_neighbor_damp_cmd,
-       "show bgp ipv6 neighbors (A.B.C.D|X:X::X:X) dampened-routes",
+       "show bgp ipv6 neighbors " BGP_NEIGHBOUR_CMD " dampened-routes",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Detailed information on TCP and BGP neighbor connections\n"
-       "Neighbor to display information about\n"
-       "Neighbor to display information about\n"
+       BGP_NEIGHBOUR_STR
        "Display the dampened routes received from neighbor\n")
 
 DEFUN (show_bgp_view_rsclient,
        show_bgp_view_rsclient_cmd,
-       "show bgp view WORD rsclient (A.B.C.D|X:X::X:X)",
+       "show bgp view WORD rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR)
+       BGP_NEIGHBOUR_STR)
 {
   struct bgp_table *table;
   struct peer *peer;
@@ -15091,22 +15012,22 @@ DEFUN (show_bgp_view_rsclient,
 
 ALIAS (show_bgp_view_rsclient,
        show_bgp_rsclient_cmd,
-       "show bgp rsclient (A.B.C.D|X:X::X:X)",
+       "show bgp rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        BGP_STR
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR)
+       BGP_NEIGHBOUR_STR)
 
 DEFUN (show_bgp_view_ipv4_rsclient,
        show_bgp_view_ipv4_rsclient_cmd,
-       "show bgp view WORD ipv4 rsclient (A.B.C.D|X:X::X:X)",
+       "show bgp view WORD ipv4 rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Address Family\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR2)
+       BGP_NEIGHBOUR_STR)
 {
   struct bgp_table	*table;
   struct peer		*peer;
@@ -15140,14 +15061,14 @@ DEFUN (show_bgp_view_ipv4_rsclient,
 }
 DEFUN (show_bgp_view_ipv6_rsclient,
        show_bgp_view_ipv6_rsclient_cmd,
-       "show bgp view WORD ipv6 rsclient (A.B.C.D|X:X::X:X)",
+       "show bgp view WORD ipv6 rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "BGP view name\n"
        "Address Family\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR2)
+       BGP_NEIGHBOUR_STR)
 {
   struct bgp_table	*table;
   struct peer		*peer;
@@ -15182,25 +15103,25 @@ DEFUN (show_bgp_view_ipv6_rsclient,
 
 ALIAS (show_bgp_view_ipv4_rsclient,
        show_bgp_ipv4_rsclient_cmd,
-       "show bgp ipv4 rsclient (A.B.C.D|X:X::X:X)",
+       "show bgp ipv4 rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        BGP_STR
        "Address Family\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR2)
+       BGP_NEIGHBOUR_STR)
 
 ALIAS (show_bgp_view_ipv6_rsclient,
        show_bgp_ipv6_rsclient_cmd,
-       "show bgp ipv6 rsclient (A.B.C.D|X:X::X:X)",
+       "show bgp ipv6 rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        BGP_STR
        "Address Family\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR2)
+       BGP_NEIGHBOUR_STR)
 
 DEFUN (show_bgp_view_ipv6_safi_rsclient,
        show_bgp_view_ipv6_safi_rsclient_cmd,
-       "show bgp view WORD ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X)",
+       "show bgp view WORD ipv6 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        BGP_STR
        "BGP view\n"
@@ -15209,7 +15130,7 @@ DEFUN (show_bgp_view_ipv6_safi_rsclient,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR)
+       BGP_NEIGHBOUR_STR)
 {
   struct bgp_table *table;
   struct peer *peer;
@@ -15248,24 +15169,24 @@ DEFUN (show_bgp_view_ipv6_safi_rsclient,
 
 ALIAS (show_bgp_view_ipv6_safi_rsclient,
        show_bgp_ipv6_safi_rsclient_cmd,
-       "show bgp ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X)",
+       "show bgp ipv6 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD "",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR)
+       BGP_NEIGHBOUR_STR)
 
 DEFUN (show_bgp_view_rsclient_route,
        show_bgp_view_rsclient_route_cmd,
-       "show bgp view WORD rsclient (A.B.C.D|X:X::X:X) X:X::X:X",
+       "show bgp view WORD rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Network in the BGP routing table to display\n")
 {
   struct bgp *bgp;
@@ -15321,14 +15242,14 @@ DEFUN (show_bgp_view_rsclient_route,
 
 DEFUN (show_bgp_view_ipv6_rsclient_route,
        show_bgp_view_ipv6_rsclient_route_cmd,
-       "show bgp view WORD ipv6 rsclient (A.B.C.D|X:X::X:X) X:X::X:X",
+       "show bgp view WORD ipv6 rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "BGP view name\n"
        "IP6_STR"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Network in the BGP routing table to display\n")
 {
   struct bgp *bgp;
@@ -15384,26 +15305,26 @@ DEFUN (show_bgp_view_ipv6_rsclient_route,
 
 ALIAS (show_bgp_view_ipv6_rsclient_route,
        show_bgp_rsclient_route_cmd,
-       "show bgp rsclient (A.B.C.D|X:X::X:X) X:X::X:X",
+       "show bgp rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X",
        SHOW_STR
        BGP_STR
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Network in the BGP routing table to display\n")
 
 ALIAS (show_bgp_view_ipv6_rsclient_route,
        show_bgp_ipv6_rsclient_route_cmd,
-       "show bgp ipv6 rsclient (A.B.C.D|X:X::X:X) X:X::X:X",
+       "show bgp ipv6 rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X",
        SHOW_STR
        BGP_STR
        IP6_STR
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Network in the BGP routing table to display\n")
 
 DEFUN (show_bgp_view_ipv6_safi_rsclient_route,
        show_bgp_view_ipv6_safi_rsclient_route_cmd,
-       "show bgp view WORD ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) X:X::X:X",
+       "show bgp view WORD ipv6 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X",
        SHOW_STR
        BGP_STR
        "BGP view\n"
@@ -15412,7 +15333,7 @@ DEFUN (show_bgp_view_ipv6_safi_rsclient_route,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Network in the BGP routing table to display\n")
 {
   struct bgp *bgp;
@@ -15472,26 +15393,26 @@ DEFUN (show_bgp_view_ipv6_safi_rsclient_route,
 
 ALIAS (show_bgp_view_ipv6_safi_rsclient_route,
        show_bgp_ipv6_safi_rsclient_route_cmd,
-       "show bgp ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) X:X::X:X",
+       "show bgp ipv6 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "Network in the BGP routing table to display\n")
 
 
 DEFUN (show_bgp_view_rsclient_prefix,
        show_bgp_view_rsclient_prefix_cmd,
-       "show bgp view WORD rsclient (A.B.C.D|X:X::X:X) X:X::X:X/M",
+       "show bgp view WORD rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X/M",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
 {
   struct bgp *bgp;
@@ -15547,14 +15468,14 @@ DEFUN (show_bgp_view_rsclient_prefix,
 
 DEFUN (show_bgp_view_ipv6_rsclient_prefix,
        show_bgp_view_ipv6_rsclient_prefix_cmd,
-       "show bgp view WORD ipv6 rsclient (A.B.C.D|X:X::X:X) X:X::X:X/M",
+       "show bgp view WORD ipv6 rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X/M",
        SHOW_STR
        BGP_STR
        "BGP view\n"
        "View name\n"
        IP6_STR
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
 {
   struct bgp *bgp;
@@ -15610,25 +15531,25 @@ DEFUN (show_bgp_view_ipv6_rsclient_prefix,
 
 ALIAS (show_bgp_view_ipv6_rsclient_prefix,
        show_bgp_rsclient_prefix_cmd,
-       "show bgp rsclient (A.B.C.D|X:X::X:X) X:X::X:X/M",
+       "show bgp rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X/M",
        SHOW_STR
        BGP_STR
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
 
 ALIAS (show_bgp_view_ipv6_rsclient_prefix,
        show_bgp_ipv6_rsclient_prefix_cmd,
-       "show bgp ipv6 rsclient (A.B.C.D|X:X::X:X) X:X::X:X/M",
+       "show bgp ipv6 rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X/M",
        SHOW_STR
        BGP_STR
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "IPv6 prefix <network>/<length>, e.g., 3ffe::/16\n")
 
 DEFUN (show_bgp_view_ipv6_safi_rsclient_prefix,
        show_bgp_view_ipv6_safi_rsclient_prefix_cmd,
-       "show bgp view WORD ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) X:X::X:X/M",
+       "show bgp view WORD ipv6 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X/M",
        SHOW_STR
        BGP_STR
        "BGP view\n"
@@ -15637,7 +15558,7 @@ DEFUN (show_bgp_view_ipv6_safi_rsclient_prefix,
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "IP prefix <network>/<length>, e.g., 3ffe::/16\n")
 {
   struct bgp *bgp;
@@ -15697,14 +15618,14 @@ DEFUN (show_bgp_view_ipv6_safi_rsclient_prefix,
 
 ALIAS (show_bgp_view_ipv6_safi_rsclient_prefix,
        show_bgp_ipv6_safi_rsclient_prefix_cmd,
-       "show bgp ipv6 (unicast|multicast) rsclient (A.B.C.D|X:X::X:X) X:X::X:X/M",
+       "show bgp ipv6 (unicast|multicast) rsclient " BGP_NEIGHBOUR_CMD " X:X::X:X/M",
        SHOW_STR
        BGP_STR
        "Address family\n"
        "Address Family modifier\n"
        "Address Family modifier\n"
        "Information about Route Server Client\n"
-       NEIGHBOR_ADDR_STR
+       BGP_NEIGHBOUR_STR
        "IP prefix <network>/<length>, e.g., 3ffe::/16\n")
 
 struct bgp_table *bgp_distance_table;
