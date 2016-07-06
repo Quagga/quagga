@@ -17172,7 +17172,6 @@ bgp_route_init (void)
   install_element (BGP_IPV4M_NODE, &bgp_network_backdoor_ttl_cmd);
   install_element (BGP_IPV4M_NODE, &bgp_network_mask_backdoor_ttl_cmd);
   install_element (BGP_IPV4M_NODE, &bgp_network_mask_natural_backdoor_ttl_cmd);
-  install_element (BGP_IPV4M_NODE, &bgp_table_map_cmd);
   
   install_element (BGP_IPV4M_NODE, &no_bgp_network_ttl_cmd);
   install_element (BGP_IPV4M_NODE, &no_bgp_network_mask_ttl_cmd);
