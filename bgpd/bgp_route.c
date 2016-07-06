@@ -17432,7 +17432,6 @@ bgp_route_init (void)
   install_element (VIEW_NODE, &show_ipv6_mbgp_community_list_exact_cmd);
   install_element (VIEW_NODE, &show_ipv6_mbgp_prefix_longer_cmd);
   install_element (VIEW_NODE, &ipv6_mbgp_neighbor_advertised_route_cmd);
-  install_element (VIEW_NODE, &ipv6_mbgp_neighbor_received_routes_cmd);
 
   install_element (VIEW_NODE, &show_ipv6_bgp_neighbor_advertised_route_cmd);
   install_element (VIEW_NODE, &show_ipv6_bgp_neighbor_advertised_route_rmap_cmd);
