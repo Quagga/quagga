@@ -3916,19 +3916,19 @@ peer_distribute_unset (struct peer *peer, afi_t afi, safi_t safi, int direct)
   if (! CHECK_FLAG (peer->sflags, PEER_STATUS_GROUP))
     return 0;
 
-    group = peer->group;
-    for (ALL_LIST_ELEMENTS (group->peer, node, nnode, peer))
-      {
-	filter = &peer->filter[afi][safi];
+  group = peer->group;
+  for (ALL_LIST_ELEMENTS (group->peer, node, nnode, peer))
+    {
+      filter = &peer->filter[afi][safi];
 
-	if (! peer->af_group[afi][safi])
-	  continue;
+      if (! peer->af_group[afi][safi])
+        continue;
 
-	if (filter->dlist[direct].name)
-	  free (filter->dlist[direct].name);
-	filter->dlist[direct].name = NULL;
-	filter->dlist[direct].alist = NULL;
-      }
+      if (filter->dlist[direct].name)
+        free (filter->dlist[direct].name);
+      filter->dlist[direct].name = NULL;
+      filter->dlist[direct].alist = NULL;
+    }
 
   return 0;
 }

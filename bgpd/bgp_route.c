@@ -16221,14 +16221,14 @@ bgp_config_write_distance (struct vty *vty, struct bgp *bgp,
                  bgp->ipv6_distance_ebgp, bgp->ipv6_distance_ibgp, bgp->ipv6_distance_local,
                  VTY_NEWLINE);
 
-        for (rn = bgp_table_top (bgp_distance_table); rn; rn = bgp_route_next (rn))
-          if ((bdistance = rn->info) != NULL)
-            {
-              vty_out (vty, " distance %d %s/%d %s%s", bdistance->distance,
-                       inet6_ntoa (rn->p.u.prefix6), rn->p.prefixlen,
-                       bdistance->access_list ? bdistance->access_list : "",
-                       VTY_NEWLINE);
-            }
+      for (rn = bgp_table_top (bgp_distance_table); rn; rn = bgp_route_next (rn))
+        if ((bdistance = rn->info) != NULL)
+          {
+            vty_out (vty, " distance %d %s/%d %s%s", bdistance->distance,
+                     inet6_ntoa (rn->p.u.prefix6), rn->p.prefixlen,
+                     bdistance->access_list ? bdistance->access_list : "",
+                     VTY_NEWLINE);
+          }
     }
 #endif /* HAVE_IPV6 */
 
