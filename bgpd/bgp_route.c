@@ -3778,14 +3778,9 @@ bgp_static_withdraw (struct bgp *bgp, struct prefix *p, afi_t afi,
 {
   struct bgp_node *rn;
   struct bgp_info *ri;
-  struct bgp_info *new;
 
   /* Make new BGP info. */
   rn = bgp_node_get (bgp->rib[afi][safi], p);
-  new = info_make(ZEBRA_ROUTE_BGP, BGP_ROUTE_STATIC, bgp->peer_self,
-		  bgp_attr_default_intern(BGP_ORIGIN_IGP), rn);
-
-  SET_FLAG (new->flags, BGP_INFO_VALID);
 
   /* Check selected route and self inserted route. */
   for (ri = rn->info; ri; ri = ri->next)
