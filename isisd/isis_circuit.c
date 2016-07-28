@@ -93,10 +93,7 @@ isis_circuit_new ()
       circuit->csnp_interval[i] = DEFAULT_CSNP_INTERVAL;
       circuit->psnp_interval[i] = DEFAULT_PSNP_INTERVAL;
       circuit->priority[i] = DEFAULT_PRIORITY;
-      circuit->metrics[i].metric_default = DEFAULT_CIRCUIT_METRIC;
-      circuit->metrics[i].metric_expense = METRICS_UNSUPPORTED;
-      circuit->metrics[i].metric_error = METRICS_UNSUPPORTED;
-      circuit->metrics[i].metric_delay = METRICS_UNSUPPORTED;
+      circuit->metric[i] = DEFAULT_CIRCUIT_METRIC;
       circuit->te_metric[i] = DEFAULT_CIRCUIT_METRIC;
     }
 
@@ -901,7 +898,7 @@ isis_circuit_print_vty (struct isis_circuit *circuit, struct vty *vty,
             vty_out (vty, "      Metric: %d", circuit->te_metric[0]);
           else
             vty_out (vty, "      Metric: %d",
-                     circuit->metrics[0].metric_default);
+                     circuit->metric[0]);
           if (!circuit->is_passive)
             {
               vty_out (vty, ", Active neighbors: %u%s",
@@ -934,7 +931,7 @@ isis_circuit_print_vty (struct isis_circuit *circuit, struct vty *vty,
             vty_out (vty, "      Metric: %d", circuit->te_metric[1]);
           else
             vty_out (vty, "      Metric: %d",
-                     circuit->metrics[1].metric_default);
+                     circuit->metric[1]);
           if (!circuit->is_passive)
             {
               vty_out (vty, ", Active neighbors: %u%s",
@@ -1302,7 +1299,7 @@ isis_circuit_metric_set (struct isis_circuit *circuit, int level, int metric)
     return -1;
 
   circuit->te_metric[level - 1] = metric;
-  circuit->metrics[level - 1].metric_default = metric;
+  circuit->metric[level - 1] = metric;
 
   if (circuit->area)
     lsp_regenerate_schedule (circuit->area, level, 0);
