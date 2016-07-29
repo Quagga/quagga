@@ -1131,6 +1131,8 @@ if_link_type_str (enum zebra_link_type llt)
 struct if_link_params *
 if_link_params_get (struct interface *ifp)
 {
+  int i;
+  
   if (ifp->link_params != NULL)
     return ifp->link_params;
   
@@ -1148,7 +1150,7 @@ if_link_params_get (struct interface *ifp)
   /* Set Max, Reservable and Unreserved Bandwidth */
   iflp->max_bw = bw;
   iflp->max_rsv_bw = bw;
-  for (int i = 0; i < MAX_CLASS_TYPE; i++)
+  for (i = 0; i < MAX_CLASS_TYPE; i++)
     iflp->unrsv_bw[i] = bw;
   
   /* Update Link parameters status */

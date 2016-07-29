@@ -886,6 +886,7 @@ zebra_interface_link_params_write (struct stream *s, struct interface *ifp)
 {
   size_t w;
   struct if_link_params *iflp;
+  int i;
   
   if (s == NULL || ifp == NULL || ifp->link_params == NULL)
     return 0;
@@ -900,7 +901,7 @@ zebra_interface_link_params_write (struct stream *s, struct interface *ifp)
   w += stream_putf (s, iflp->max_rsv_bw);
   
   w += stream_putl (s, MAX_CLASS_TYPE);
-  for (int i = 0; i < MAX_CLASS_TYPE; i++)
+  for (i = 0; i < MAX_CLASS_TYPE; i++)
     w += stream_putf (s, iflp->unrsv_bw[i]);
   
   w += stream_putl (s, iflp->admin_grp);

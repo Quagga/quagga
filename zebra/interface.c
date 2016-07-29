@@ -2487,6 +2487,8 @@ DEFUN (no_ipv6_address,
 static int
 link_params_config_write (struct vty *vty, struct interface *ifp)
 {
+  int i;
+  
   if ((ifp == NULL) || !HAS_LINK_PARAMS(ifp))
     return -1;
   
@@ -2502,7 +2504,7 @@ link_params_config_write (struct vty *vty, struct interface *ifp)
     vty_out(vty, "  max-rsv-bw %g%s", iflp->max_rsv_bw, VTY_NEWLINE);
   if (IS_PARAM_SET(iflp, LP_UNRSV_BW))
     {
-      for (int i = 0; i < 8; i++)
+      for (i = 0; i < 8; i++)
         vty_out(vty, "  unrsv-bw %d %g%s",
             i, iflp->unrsv_bw[i], VTY_NEWLINE);
     }
