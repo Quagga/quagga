@@ -97,7 +97,9 @@ set_nonblocking(int fd)
 float
 htonf (float host)
 {
-#ifdef __STDC_IEC_559__
+#if !defined(__STDC_IEC_559__) && __GCC_IEC_559 < 0
+#warning "Unknown floating-point format on platform, htonf may break"
+#endif
   u_int32_t lu1, lu2;
   float convert;
   
@@ -105,9 +107,6 @@ htonf (float host)
   lu2 = htonl (lu1);
   memcpy (&convert, &lu2, sizeof (u_int32_t));
   return convert;
-#else
-#error "Please supply htonf implementation for this platform"
-#endif 
 }
 
 float
