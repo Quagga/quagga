@@ -94,6 +94,10 @@ typedef int socklen_t;
 #ifdef HAVE_STDBOOL_H
 #include <stdbool.h>
 #endif
+/* primarily for __STDC_IEC_559__ with clang */
+#ifdef HAVE_FEATURES_H
+#include <features.h>
+#endif
 
 /* machine dependent includes */
 #ifdef SUNOS_5

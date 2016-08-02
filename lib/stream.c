@@ -22,8 +22,6 @@
 
 #include <zebra.h>
 #include <stddef.h>
-/* primarily for __STDC_IEC_559__ with clang */
-#include <features.h>
 
 #include "stream.h"
 #include "memory.h"
