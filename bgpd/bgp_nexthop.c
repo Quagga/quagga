@@ -518,7 +518,10 @@ bgp_scan_init (void)
   cache1_table[AFI_IP6] = bgp_table_init (AFI_IP6, SAFI_UNICAST);
   bgp_nexthop_cache_table[AFI_IP6] = cache1_table[AFI_IP6];
   bgp_connected_table[AFI_IP6] = bgp_table_init (AFI_IP6, SAFI_UNICAST);
-
+  
+  cache1_table[AFI_ETHER] = bgp_table_init (AFI_ETHER, SAFI_UNICAST);
+  bgp_nexthop_cache_table[AFI_ETHER] = cache1_table[AFI_ETHER];
+  bgp_connected_table[AFI_ETHER] = bgp_table_init (AFI_ETHER, SAFI_UNICAST);
 }
 
 void
@@ -546,6 +549,15 @@ bgp_scan_finish (void)
   if (bgp_connected_table[AFI_IP6])
     bgp_table_unlock (bgp_connected_table[AFI_IP6]);
   bgp_connected_table[AFI_IP6] = NULL;
+
+  if (cache1_table[AFI_ETHER])
+    bgp_table_unlock (cache1_table[AFI_ETHER]);
+  cache1_table[AFI_ETHER] = NULL;
+  
+  if (bgp_connected_table[AFI_ETHER])
+    bgp_table_unlock (bgp_connected_table[AFI_ETHER]);
+  bgp_connected_table[AFI_ETHER] = NULL;
+
 }
 
 void
