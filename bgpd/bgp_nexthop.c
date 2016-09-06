@@ -421,6 +421,9 @@ show_ip_bgp_nexthop_table (struct vty *vty, int detail)
   vty_out (vty, "Current BGP nexthop cache:%s", VTY_NEWLINE);
   for (afi = AFI_IP ; afi < AFI_MAX ; afi++)
     {
+      if (!bgp_nexthop_cache_table[afi])
+        continue;
+      
       for (rn = bgp_table_top (bgp_nexthop_cache_table[afi]); rn; rn = bgp_route_next (rn))
 	{
 	  if ((bnc = rn->info) != NULL)
