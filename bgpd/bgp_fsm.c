@@ -507,7 +507,7 @@ bgp_stop (struct peer *peer)
       /* Reset peer synctime */
       peer->synctime = 0;
     }
-
+  
   /* Stop read and write threads when exists. */
   BGP_READ_OFF (peer->t_read);
   BGP_WRITE_OFF (peer->t_write);
@@ -720,8 +720,7 @@ bgp_start (struct peer *peer)
       ! CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
     connected = 1;
 
-  bgp_find_or_add_nexthop(family2afi(peer->su.sa.sa_family), NULL, peer,
-			  connected);
+  bgp_ensure_nexthop (NULL, peer, connected);
   status = bgp_connect (peer);
 
   switch (status)
