@@ -54,5 +54,6 @@ extern int bgp_find_or_add_nexthop(afi_t a, struct bgp_info *p,
  *   p - path structure.
  */
 extern void bgp_unlink_nexthop(struct bgp_info *p);
+void bgp_unlink_nexthop_by_peer (struct peer *);
 
 #endif /* _BGP_NHT_H */

@@ -1297,7 +1297,10 @@ peer_delete (struct peer *peer)
   peer->last_reset = PEER_DOWN_NEIGHBOR_DELETE;
   bgp_stop (peer);
   bgp_fsm_change_status (peer, Deleted);
-
+  
+  /* Remove from NHT */
+  bgp_unlink_nexthop_by_peer (peer);
+  
   /* Password configuration */
   if (peer->password)
     {
