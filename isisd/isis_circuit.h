@@ -144,7 +144,6 @@ void isis_circuit_del (struct isis_circuit *circuit);
 struct isis_circuit *circuit_lookup_by_ifp (struct interface *ifp,
 					    struct list *list);
 struct isis_circuit *circuit_scan_by_ifp (struct interface *ifp);
-struct isis_circuit * isis_circuit_lookup (struct vty *vty);
 void isis_circuit_configure (struct isis_circuit *circuit,
 			     struct isis_area *area);
 void isis_circuit_deconfigure (struct isis_circuit *circuit,
