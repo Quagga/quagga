@@ -249,19 +249,29 @@ bgp_accept (struct thread *thread)
     char buf[SU_ADDRSTRLEN];
 
     peer = peer_create_accept (peer1->bgp);
-    SET_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER);
     peer->su = su;
     peer->fd = bgp_sock;
     peer->status = Active;
+
+    /* Config state that should affect OPEN packet must be copied over */
     peer->local_id = peer1->local_id;
     peer->v_holdtime = peer1->v_holdtime;
     peer->v_keepalive = peer1->v_keepalive;
     peer->local_as = peer1->local_as;
     peer->change_local_as = peer1->change_local_as;
-
+    peer->flags = peer1->flags;
+    peer->sflags = peer1->sflags;
+  #define PEER_ARRAY_COPY(D,S,A) \
+    memcpy ((D)->A, (S)->A, sizeof (((D)->A)[0][0])*AFI_MAX*SAFI_MAX);
+    PEER_ARRAY_COPY(peer, peer1, afc);
+    PEER_ARRAY_COPY(peer, peer1, af_flags);
+  #undef PEER_ARRAY_COPY
+  
     /* Make peer's address string. */
     sockunion2str (&su, buf, SU_ADDRSTRLEN);
     peer->host = XSTRDUP (MTYPE_BGP_PEER_HOST, buf);
+    
+    SET_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER);
   }
 
   BGP_EVENT_ADD (peer, TCP_connection_open);
