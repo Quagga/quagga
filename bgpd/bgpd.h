@@ -442,7 +442,7 @@ struct peer
 #define PEER_STATUS_ACCEPT_PEER	      (1 << 0) /* accept peer */
 #define PEER_STATUS_PREFIX_OVERFLOW   (1 << 1) /* prefix-overflow */
 #define PEER_STATUS_CAPABILITY_OPEN   (1 << 2) /* capability open send */
-#define PEER_STATUS_HAVE_ACCEPT       (1 << 3) /* accept peer's parent */
+#define PEER_STATUS_OPEN_DEFERRED     (1 << 3) /* deferred to open_receive */
 #define PEER_STATUS_GROUP             (1 << 4) /* peer-group conf */
 #define PEER_STATUS_NSF_MODE          (1 << 5) /* NSF aware peer */
 #define PEER_STATUS_NSF_WAIT          (1 << 6) /* wait comeback peer */

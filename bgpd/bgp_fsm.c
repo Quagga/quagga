@@ -656,6 +656,8 @@ bgp_stop_with_notify (struct peer *peer, u_char code, u_char sub_code)
 static int
 bgp_connect_success (struct peer *peer)
 {
+  struct peer *realpeer;
+  
   if (peer->fd < 0)
     {
       zlog_err ("bgp_connect_success peer's fd is negative value %d",
@@ -677,7 +679,28 @@ bgp_connect_success (struct peer *peer)
       else
 	zlog_debug ("%s passive open", peer->host);
     }
-
+  
+  /* Generally we want to send OPEN ASAP. Except, some partial BGP
+   * implementations out there (e.g., conformance test tools / BGP
+   * traffic generators) seem to be a bit funny about connection collisions,
+   * and OPENs before they have sent.
+   *
+   * As a hack, delay sending OPEN on an inbound accept-peer session
+   * _IF_ we locally have an outbound connection in progress, i.e. 
+   * we're in middle of a connection collision. If we delay, we delay until
+   * an Open is received - as per old Quagga behaviour.
+   */
+  if (CHECK_FLAG (peer->sflags, PEER_STATUS_ACCEPT_PEER))
+    {
+      realpeer = peer_lookup (peer->bgp, &peer->su);
+      
+      if (realpeer->status > Idle && realpeer->status <= Established)
+        {
+          SET_FLAG (peer->sflags, PEER_STATUS_OPEN_DEFERRED);
+          return 0;
+        }
+   }
+  
   bgp_open_send (peer);
 
   return 0;

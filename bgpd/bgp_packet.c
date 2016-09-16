@@ -1542,12 +1542,16 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
       realpeer->obuf = peer->obuf;
       peer->obuf = NULL;
       
+      bool open_deferred
+        = CHECK_FLAG (peer->sflags, PEER_STATUS_OPEN_DEFERRED);
+      
       /* Transfer status. */
       realpeer->status = peer->status;
       bgp_stop (peer);
       
       /* peer pointer change */
       peer = realpeer;
+      
       if (peer->fd < 0)
 	{
 	  zlog_err ("bgp_open_receive peer's fd is negative value %d",
@@ -1557,6 +1561,16 @@ bgp_open_receive (struct peer *peer, bgp_size_t size)
       BGP_READ_ON (peer->t_read, bgp_read, peer->fd);
       if (stream_fifo_head (peer->obuf))
         BGP_WRITE_ON (peer->t_write, bgp_write, peer->fd);
+      
+      /* hack: we may defer OPEN on accept peers, when there seems to be a
+       * realpeer in progress, when an accept peer connection is opened. This
+       * is to avoid interoperability issues, with test/conformance tools
+       * particularly. See bgp_fsm.c::bgp_connect_success
+       *
+       * If OPEN was deferred there, then we must send it now.
+       */
+      if (open_deferred)
+        bgp_open_send (peer);
     }
 
   /* remote router-id check. */
