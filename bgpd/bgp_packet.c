@@ -766,15 +766,9 @@ bgp_write (struct thread *thread)
 	  break;
 	case BGP_MSG_NOTIFY:
 	  peer->notify_out++;
-	  /* Double start timer. */
-	  peer->v_start *= 2;
-
-	  /* Overflow check. */
-	  if (peer->v_start >= (60 * 2))
-	    peer->v_start = (60 * 2);
 
 	  /* Flush any existing events */
-	  BGP_EVENT_ADD (peer, BGP_Stop);
+	  BGP_EVENT_ADD (peer, BGP_Stop_with_error);
 	  goto done;
 
 	case BGP_MSG_KEEPALIVE:
@@ -846,14 +840,7 @@ bgp_write_notify (struct peer *peer)
   /* Type should be notify. */
   peer->notify_out++;
 
-  /* Double start timer. */
-  peer->v_start *= 2;
-
-  /* Overflow check. */
-  if (peer->v_start >= (60 * 2))
-    peer->v_start = (60 * 2);
-
-  BGP_EVENT_ADD (peer, BGP_Stop);
+  BGP_EVENT_ADD (peer, BGP_Stop_with_error);
 
   return 0;
 }

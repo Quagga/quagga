@@ -971,6 +971,7 @@ static const struct {
     {bgp_ignore, Idle},		/* Receive_UPDATE_message       */
     {bgp_ignore, Idle},		/* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
+    {bgp_ignore, Idle},         /* BGP_Stop_with_error          */
   },
   {
     /* Connect */
@@ -988,6 +989,7 @@ static const struct {
     {bgp_ignore,  Idle},	/* Receive_UPDATE_message       */
     {bgp_stop,    Idle},	/* Receive_NOTIFICATION_message */
     {bgp_ignore,  Idle},         /* Clearing_Completed           */
+    {bgp_stop_with_error, Idle},/* BGP_Stop_with_error          */
   },
   {
     /* Active, */
@@ -1005,6 +1007,7 @@ static const struct {
     {bgp_ignore,  Idle},	/* Receive_UPDATE_message       */
     {bgp_stop_with_error, Idle}, /* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
+    {bgp_stop_with_error, Idle},/* BGP_Stop_with_error          */
   },
   {
     /* OpenSent, */
@@ -1022,6 +1025,7 @@ static const struct {
     {bgp_fsm_event_error, Idle}, /* Receive_UPDATE_message       */
     {bgp_stop_with_error, Idle}, /* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
+    {bgp_stop_with_error, Idle},/* BGP_Stop_with_error          */
   },
   {
     /* OpenConfirm, */
@@ -1039,6 +1043,7 @@ static const struct {
     {bgp_ignore,  Idle},	/* Receive_UPDATE_message       */
     {bgp_stop_with_error, Idle}, /* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
+    {bgp_stop_with_error, Idle},/* BGP_Stop_with_error          */
   },
   {
     /* Established, */
@@ -1056,6 +1061,7 @@ static const struct {
     {bgp_fsm_update,           Established}, /* Receive_UPDATE_message       */
     {bgp_stop_with_error,         Clearing}, /* Receive_NOTIFICATION_message */
     {bgp_ignore,                      Idle}, /* Clearing_Completed           */
+    {bgp_stop_with_error,         Clearing}, /* BGP_Stop_with_error          */
   },
   {
     /* Clearing, */
@@ -1073,6 +1079,7 @@ static const struct {
     {bgp_stop,			Clearing},	/* Receive_UPDATE_message       */
     {bgp_stop,			Clearing},	/* Receive_NOTIFICATION_message */
     {bgp_clearing_completed,    Idle},		/* Clearing_Completed           */
+    {bgp_stop_with_error,       Clearing},      /* BGP_Stop_with_error          */
   },
   {
     /* Deleted, */
@@ -1090,6 +1097,7 @@ static const struct {
     {bgp_ignore,  Deleted},	/* Receive_UPDATE_message       */
     {bgp_ignore,  Deleted},	/* Receive_NOTIFICATION_message */
     {bgp_ignore,  Deleted},	/* Clearing_Completed           */
+    {bgp_ignore,  Deleted},     /* BGP_Stop_with_error          */
   },
 };
 
@@ -1110,6 +1118,7 @@ static const char *bgp_event_str[] =
   "Receive_UPDATE_message",
   "Receive_NOTIFICATION_message",
   "Clearing_Completed",
+  "BGP_Stop_with_error",
 };
 
 /* Execute event process. */
