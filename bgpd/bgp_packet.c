@@ -1008,23 +1008,26 @@ bgp_notify_send_with_data (struct peer *peer, u_char code, u_char sub_code,
       if (sub_code == BGP_NOTIFY_CEASE_ADMIN_RESET)
       {
         peer->last_reset = PEER_DOWN_USER_RESET;
-        zlog_info ("Notification sent to neighbor %s: User reset", peer->host);
+        zlog_info ("Notification sent to neighbor %s:%u: User reset",
+                   peer->host, sockunion_get_port (&peer->su));
       }
       else if (sub_code == BGP_NOTIFY_CEASE_ADMIN_SHUTDOWN)
       {
         peer->last_reset = PEER_DOWN_USER_SHUTDOWN;
-        zlog_info ("Notification sent to neighbor %s: shutdown", peer->host);
+        zlog_info ("Notification sent to neighbor %s:%u shutdown",
+                    peer->host, sockunion_get_port (&peer->su));
       }
       else
       {
         peer->last_reset = PEER_DOWN_NOTIFY_SEND;
-        zlog_info ("Notification sent to neighbor %s: type %u/%u",
-                   peer->host, code, sub_code);
+        zlog_info ("Notification sent to neighbor %s:%u: type %u/%u",
+                   peer->host, sockunion_get_port (&peer->su),
+                   code, sub_code);
       }
     }
   else
-     zlog_info ("Notification sent to neighbor %s: configuration change",
-                peer->host);
+     zlog_info ("Notification sent to neighbor %s:%u: configuration change",
+                peer->host, sockunion_get_port (&peer->su));
 
   /* Call immediately. */
   BGP_WRITE_OFF (peer->t_write);
@@ -1218,9 +1221,14 @@ bgp_collision_detect (struct peer *new, struct in_addr remote_id)
             continue;
           
           if (new->fd >= 0)
+            {
+              if (BGP_DEBUG (events, EVENTS))
+                 zlog_debug ("%s:%u Existing Established peer, sending NOTIFY",
+                             new->host, sockunion_get_port (&new->su));
               bgp_notify_send (new, BGP_NOTIFY_CEASE, 
                                BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
-	      return -1;
+            }
+          return -1;
         }
       
       /* Note: Quagga historically orders explicitly only on the processing
@@ -1258,8 +1266,13 @@ bgp_collision_detect (struct peer *new, struct in_addr remote_id)
 		 connection initiated by the remote system. */
 
 	      if (out->fd >= 0)
-		bgp_notify_send (out, BGP_NOTIFY_CEASE, 
-		                 BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
+	        {
+	          if (BGP_DEBUG (events, EVENTS))
+	             zlog_debug ("%s Collision resolution, remote ID higher,"
+	                         " closing outbound", peer->host);
+		  bgp_notify_send (out, BGP_NOTIFY_CEASE, 
+		                   BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
+                }
 	      return ret_close_out;
 	    }
 	  else
@@ -1271,8 +1284,14 @@ bgp_collision_detect (struct peer *new, struct in_addr remote_id)
 		 OpenConfirm state). */
 
 	      if (in->fd >= 0)
-		bgp_notify_send (in, BGP_NOTIFY_CEASE, 
-			         BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
+	        {
+	          if (BGP_DEBUG (events, EVENTS))
+	             zlog_debug ("%s Collision resolution, local ID higher,"
+	                         " closing inbound", peer->host);
+
+                  bgp_notify_send (in, BGP_NOTIFY_CEASE, 
+			           BGP_NOTIFY_CEASE_COLLISION_RESOLUTION);
+                }
 	      return ret_close_in;
 	    }
 	}
