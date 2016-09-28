@@ -587,19 +587,41 @@ bgp_stop (struct peer *peer)
   return 0;
 }
 
+/* first-val * 2**x back-off, where x is the number of sucessive calls 
+ * originally used for peer v_start back-off 
+ */
+__attribute__((unused))
+static int
+back_off_exp2 (const int first, int val, const int max) 
+{
+  val <<= 1;
+  return (val < max ? val : max);
+}
+
+/* exponential back off, but biased downward by the initial value. 
+ * this bias is significant at lower values, and tends to
+ * insignificance fairly quickly, so it is equal to the previous at
+ * scale.  Is below first-val * 1.7**x at x == 6, and below first-val
+ * * 1.75**x at x=10.
+ *
+ * I.e., this function is useful to get slower growth for the initial
+ * points of x.
+ */
+__attribute__((unused))
+static int
+back_off_exp2_bias (const int first, int val, const int max)
+{
+  val = (val << 1) - (val > first ? first : 0);
+  return (val < max ? val : max);
+}
+
 /* BGP peer is stoped by the error. */
 static int
 bgp_stop_with_error (struct peer *peer)
 {
-  /* Double start timer. */
-  peer->v_start *= 2;
-
-  /* Overflow check. */
-  if (peer->v_start >= (60 * 2))
-    peer->v_start = (60 * 2);
-
+  peer->v_start
+   = back_off_exp2_bias (BGP_INIT_START_TIMER, peer->v_start, 60);
   bgp_stop (peer);
-
   return 0;
 }
 
