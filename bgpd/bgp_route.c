@@ -896,7 +896,6 @@ bgp_announce_check (struct bgp_info *ri, struct peer *peer, struct prefix *p,
 	      peer->host, peer->as);
       return 0;
     }
-#endif /* BGP_SEND_ASPATH_CHECK */
 
   /* If we're a CONFED we need to loop check the CONFED ID too */
   if (CHECK_FLAG(bgp->config, BGP_CONFIG_CONFEDERATION))
@@ -911,6 +910,7 @@ bgp_announce_check (struct bgp_info *ri, struct peer *peer, struct prefix *p,
 	  return 0;
 	}      
     }
+#endif /* BGP_SEND_ASPATH_CHECK */
 
   /* Route-Reflect check. */
   if (from->sort == BGP_PEER_IBGP && peer->sort == BGP_PEER_IBGP)
