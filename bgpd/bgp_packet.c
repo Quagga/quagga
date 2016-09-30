@@ -103,8 +103,8 @@ bgp_packet_delete (struct peer *peer)
 }
 
 /* Check file descriptor whether connect is established. */
-int
-bgp_connect_check (struct peer *peer, int change_state)
+static void
+bgp_connect_check (struct peer *peer)
 {
   int status;
   socklen_t slen;
@@ -123,23 +123,20 @@ bgp_connect_check (struct peer *peer, int change_state)
     {
       zlog (peer->log, LOG_INFO, "can't get sockopt for nonblocking connect");
       BGP_EVENT_ADD (peer, TCP_fatal_error);
-      return -1;
+      return;
     }      
 
   /* When status is 0 then TCP connection is established. */
   if (status == 0)
     {
       BGP_EVENT_ADD (peer, TCP_connection_open);
-      return 1;
     }
   else
     {
       if (BGP_DEBUG (events, EVENTS))
 	  plog_debug (peer->log, "%s [Event] Connect failed (%s)",
 		     peer->host, safe_strerror (errno));
-      if (change_state)
-	BGP_EVENT_ADD (peer, TCP_connection_open_failed);
-      return 0;
+      BGP_EVENT_ADD (peer, TCP_connection_open_failed);
     }
 }
 
@@ -718,7 +715,7 @@ bgp_write (struct thread *thread)
   /* For non-blocking IO check. */
   if (peer->status == Connect)
     {
-      bgp_connect_check (peer, 1);
+      bgp_connect_check (peer);
       return 0;
     }
 
@@ -2495,7 +2492,7 @@ bgp_read (struct thread *thread)
   /* For non-blocking IO check. */
   if (peer->status == Connect)
     {
-      bgp_connect_check (peer, 1);
+      bgp_connect_check (peer);
       goto done;
     }
   else
