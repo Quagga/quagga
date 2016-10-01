@@ -986,7 +986,9 @@ zread_ipv4_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
   /* Tag */
   if (CHECK_FLAG (message, ZAPI_MESSAGE_TAG))
     rib->tag = stream_getl (s);
-
+  else
+    rib->tag = 0;
+  
   /* Table */
   rib->table=zebrad.rtm_table_default;
   ret = rib_add_ipv4_multipath (&p, rib, safi);
@@ -1222,7 +1224,9 @@ zread_ipv6_add (struct zserv *client, u_short length, vrf_id_t vrf_id)
   /* Tag */
   if (CHECK_FLAG (message, ZAPI_MESSAGE_TAG))
     rib->tag = stream_getl (s);
-
+  else
+    rib->tag = 0;
+  
   /* Table */
   rib->table=zebrad.rtm_table_default;
   ret = rib_add_ipv6_multipath (&p, rib, safi);

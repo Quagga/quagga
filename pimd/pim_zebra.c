@@ -582,6 +582,11 @@ static int redist_read_ipv4_route(int command, struct zclient *zclient,
     stream_getl(s) :
     0;
 
+  if (CHECK_FLAG (api.message, ZAPI_MESSAGE_TAG))
+    api.tag = stream_getl (s);
+  else
+    api.tag = 0;
+
   switch (command) {
   case ZEBRA_IPV4_ROUTE_ADD:
     if (PIM_DEBUG_ZEBRA) {

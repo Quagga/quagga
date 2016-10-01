@@ -196,4 +196,7 @@ extern void route_map_add_hook (void (*func) (const char *));
 extern void route_map_delete_hook (void (*func) (const char *));
 extern void route_map_event_hook (void (*func) (route_map_event_t, const char *));
 
+extern void *route_map_rule_tag_compile (const char *arg);
+extern void route_map_rule_tag_free (void *rule);
+
 #endif /* _ZEBRA_ROUTEMAP_H */

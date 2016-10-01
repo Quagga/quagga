@@ -3872,8 +3872,8 @@ show_as_external_lsa_stdvty (struct ospf_lsa *lsa)
   zlog_debug( "        Forward Address: %s%s",
 	     inet_ntoa (al->e[0].fwd_addr), "\n");
 
-  zlog_debug( "        External Route Tag: %u%s%s",
-	     ntohl (al->e[0].route_tag), "\n", "\n");
+  zlog_debug( "        External Route Tag: %lu%s%s",
+	     (u_long)ntohl (al->e[0].route_tag), "\n", "\n");
 
   return 0;
 }
@@ -3900,8 +3900,8 @@ show_as_nssa_lsa_detail (struct vty *vty, struct ospf_lsa *lsa)
       vty_out (vty, "        NSSA: Forward Address: %s%s",
 	       inet_ntoa (al->e[0].fwd_addr), VTY_NEWLINE);
 
-      vty_out (vty, "        External Route Tag: %u%s%s",
-	       ntohl (al->e[0].route_tag), VTY_NEWLINE, VTY_NEWLINE);
+      vty_out (vty, "        External Route Tag: %lu%s%s",
+	       (u_long)ntohl (al->e[0].route_tag), VTY_NEWLINE, VTY_NEWLINE);
     }
 
   return 0;
