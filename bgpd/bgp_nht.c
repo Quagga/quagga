@@ -580,7 +580,6 @@ evaluate_paths (struct bgp_nexthop_cache *bnc)
     {
       if (BGP_DEBUG(nht, NHT))
 	zlog_debug("%s: Updating peer (%s) status with NHT", __FUNCTION__, peer->host);
-      BGP_EVENT_ADD (peer, NHT_Update);
       SET_FLAG(bnc->flags, BGP_NEXTHOP_PEER_NOTIFIED);
     }
 

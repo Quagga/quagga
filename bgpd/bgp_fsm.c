@@ -971,7 +971,6 @@ static const struct {
     {bgp_ignore, Idle},		/* Receive_UPDATE_message       */
     {bgp_ignore, Idle},		/* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
-    {bgp_start,  Connect},      /* NHT_Update                   */
   },
   {
     /* Connect */
@@ -989,7 +988,6 @@ static const struct {
     {bgp_ignore,  Idle},	/* Receive_UPDATE_message       */
     {bgp_stop,    Idle},	/* Receive_NOTIFICATION_message */
     {bgp_ignore,  Idle},         /* Clearing_Completed           */
-    {bgp_reconnect,    Connect},/* NHT_Update                   */
   },
   {
     /* Active, */
@@ -1007,7 +1005,6 @@ static const struct {
     {bgp_ignore,  Idle},	/* Receive_UPDATE_message       */
     {bgp_stop_with_error, Idle}, /* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
-    {bgp_start,   Connect},     /* NHT_Update                   */
   },
   {
     /* OpenSent, */
@@ -1025,7 +1022,6 @@ static const struct {
     {bgp_fsm_event_error, Idle}, /* Receive_UPDATE_message       */
     {bgp_stop_with_error, Idle}, /* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
-    {bgp_ignore, OpenSent},     /* NHT_Update                   */
   },
   {
     /* OpenConfirm, */
@@ -1043,7 +1039,6 @@ static const struct {
     {bgp_ignore,  Idle},	/* Receive_UPDATE_message       */
     {bgp_stop_with_error, Idle}, /* Receive_NOTIFICATION_message */
     {bgp_ignore, Idle},         /* Clearing_Completed           */
-    {bgp_ignore, OpenConfirm},  /* NHT_Update                   */
   },
   {
     /* Established, */
@@ -1061,7 +1056,6 @@ static const struct {
     {bgp_fsm_update,           Established}, /* Receive_UPDATE_message       */
     {bgp_stop_with_error,         Clearing}, /* Receive_NOTIFICATION_message */
     {bgp_ignore,                      Idle}, /* Clearing_Completed           */
-    {bgp_ignore,               Established}, /* NHT_Update                   */
   },
   {
     /* Clearing, */
@@ -1079,7 +1073,6 @@ static const struct {
     {bgp_stop,			Clearing},	/* Receive_UPDATE_message       */
     {bgp_stop,			Clearing},	/* Receive_NOTIFICATION_message */
     {bgp_clearing_completed,    Idle},		/* Clearing_Completed           */
-    {bgp_ignore,                Clearing},      /* NHT_Update                   */
   },
   {
     /* Deleted, */
@@ -1097,7 +1090,6 @@ static const struct {
     {bgp_ignore,  Deleted},	/* Receive_UPDATE_message       */
     {bgp_ignore,  Deleted},	/* Receive_NOTIFICATION_message */
     {bgp_ignore,  Deleted},	/* Clearing_Completed           */
-    {bgp_ignore,  Deleted},     /* NHT_Update                   */
   },
 };
 
@@ -1118,7 +1110,6 @@ static const char *bgp_event_str[] =
   "Receive_UPDATE_message",
   "Receive_NOTIFICATION_message",
   "Clearing_Completed",
-  "NHT_Update",
 };
 
 /* Execute event process. */
