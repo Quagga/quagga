@@ -62,7 +62,8 @@ bgp_find_nexthop (struct bgp_info *path, int connected)
   if (connected && !(CHECK_FLAG(bnc->flags, BGP_NEXTHOP_CONNECTED)))
     return 0;
 
-  return (CHECK_FLAG(bnc->flags, BGP_NEXTHOP_VALID));
+  return (bgp_zebra_num_connects() == 0 ||
+          CHECK_FLAG(bnc->flags, BGP_NEXTHOP_VALID));
 }
 
 static void

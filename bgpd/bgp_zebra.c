@@ -50,6 +50,8 @@ struct in_addr router_id_zebra;
 struct stream *bgp_nexthop_buf = NULL;
 struct stream *bgp_ifindices_buf = NULL;
 
+int zclient_num_connects;
+
 /* Router-id update message from zebra. */
 static int
 bgp_router_id_update (int command, struct zclient *zclient, zebra_size_t length,
@@ -1171,12 +1173,15 @@ bgp_zclient_reset (void)
 static void
 bgp_zebra_connected (struct zclient *zclient)
 {
+  zclient_num_connects++;
   zclient_send_requests (zclient, VRF_DEFAULT);
 }
 
 void
 bgp_zebra_init (struct thread_master *master)
 {
+  zclient_num_connects = 0;
+
   /* Set default values. */
   zclient = zclient_new (master);
   zclient_init (zclient, ZEBRA_ROUTE_BGP);
@@ -1206,4 +1211,10 @@ bgp_zebra_destroy(void)
   zclient_stop(zclient);
   zclient_free(zclient);
   zclient = NULL;
+}
+
+int
+bgp_zebra_num_connects(void)
+{
+  return zclient_num_connects;
 }

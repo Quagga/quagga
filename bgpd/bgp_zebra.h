@@ -48,4 +48,6 @@ extern struct interface *if_lookup_by_ipv4_exact (struct in_addr *);
 extern struct interface *if_lookup_by_ipv6 (struct in6_addr *);
 extern struct interface *if_lookup_by_ipv6_exact (struct in6_addr *);
 
+extern int bgp_zebra_num_connects(void);
+
 #endif /* _QUAGGA_BGP_ZEBRA_H */
