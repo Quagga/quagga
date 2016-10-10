@@ -40,6 +40,7 @@
 #include "bgpd/bgp_debug.h"
 #include "bgpd/bgp_nht.h"
 #include "bgpd/bgp_fsm.h"
+#include "bgpd/bgp_zebra.h"
 
 extern struct zclient *zclient;
 extern struct bgp_table *bgp_nexthop_cache_table[AFI_MAX];
