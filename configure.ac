@@ -150,6 +150,7 @@ if test "x${cflags_specified}" = "x" ; then
         AC_C_FLAG([-Os], [
           AC_C_FLAG([-O2])
         ])
+        AC_C_FLAG([-fstack-protector-strong])
         AC_C_FLAG([-fpie])
         AC_C_FLAG([-fno-omit-frame-pointer])
         AC_C_FLAG([-Wall])
