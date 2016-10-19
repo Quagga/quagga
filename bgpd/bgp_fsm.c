@@ -716,7 +716,8 @@ bgp_start (struct peer *peer)
     }
 
   /* Register to be notified on peer up */
-  if ((peer->ttl == 1) || (peer->gtsm_hops == 1))
+  if ((peer->ttl == 1 || peer->gtsm_hops == 1) &&
+      ! CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
     connected = 1;
 
   bgp_find_or_add_nexthop(family2afi(peer->su.sa.sa_family), NULL, peer,
