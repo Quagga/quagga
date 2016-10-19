@@ -146,47 +146,39 @@ bgp_update_sock_send_buffer_size (int fd)
     }
 }
 
-static void
+void
 bgp_set_socket_ttl (struct peer *peer, int bgp_sock)
 {
   char buf[INET_ADDRSTRLEN];
-  int ret;
+  int ret, ttl, minttl;
 
-  /* In case of peer is EBGP, we should set TTL for this connection.  */
-  if (!peer->gtsm_hops && (peer_sort (peer) == BGP_PEER_EBGP))
+  if (bgp_sock < 0)
+    return;
+
+  if (peer->gtsm_hops)
     {
-      ret = sockopt_ttl (peer->su.sa.sa_family, bgp_sock, peer->ttl);
-      if (ret)
-	{
-	  zlog_err ("%s: Can't set TxTTL on peer (rtrid %s) socket, err = %d",
-		    __func__,
-		    inet_ntop (AF_INET, &peer->remote_id, buf, sizeof(buf)),
-		    errno);
-	}
+      ttl = 255;
+      minttl = 256 - peer->gtsm_hops;
     }
-  else if (peer->gtsm_hops)
+  else
     {
-      /* On Linux, setting minttl without setting ttl seems to mess with the
-	 outgoing ttl. Therefore setting both.
-      */
-      ret = sockopt_ttl (peer->su.sa.sa_family, bgp_sock, MAXTTL);
-      if (ret)
-	{
-	  zlog_err ("%s: Can't set TxTTL on peer (rtrid %s) socket, err = %d",
-		    __func__,
-		    inet_ntop (AF_INET, &peer->remote_id, buf, sizeof(buf)),
-		    errno);
-	}
-      ret = sockopt_minttl (peer->su.sa.sa_family, bgp_sock,
-			    MAXTTL + 1 - peer->gtsm_hops);
-      if (ret)
-	{
-	  zlog_err ("%s: Can't set MinTTL on peer (rtrid %s) socket, err = %d",
-		    __func__,
-		    inet_ntop (AF_INET, &peer->remote_id, buf, sizeof(buf)),
-		    errno);
-	}
+      ttl = peer_ttl (peer);
+      minttl = 0;
     }
+
+  ret = sockopt_ttl (peer->su.sa.sa_family, bgp_sock, ttl);
+  if (ret)
+    zlog_err ("%s: Can't set TxTTL on peer (rtrid %s) socket, err = %d",
+              __func__,
+              inet_ntop (AF_INET, &peer->remote_id, buf, sizeof(buf)),
+              errno);
+
+  ret = sockopt_minttl (peer->su.sa.sa_family, bgp_sock, minttl);
+  if (ret && (errno != ENOTSUP || minttl))
+    zlog_err ("%s: Can't set MinTTL on peer (rtrid %s) socket, err = %d",
+              __func__,
+              inet_ntop (AF_INET, &peer->remote_id, buf, sizeof(buf)),
+              errno);
 }
 
 /* Accept bgp connection. */

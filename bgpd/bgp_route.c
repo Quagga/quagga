@@ -2339,7 +2339,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
       /* Nexthop reachability check. */
       if ((afi == AFI_IP || afi == AFI_IP6) && safi == SAFI_UNICAST)
 	{
-	  if (peer->sort == BGP_PEER_EBGP && peer->ttl == 1 &&
+	  if (peer->sort == BGP_PEER_EBGP && peer_ttl (peer) == 1 &&
 	      ! CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
 	    connected = 1;
 	  else
@@ -2391,7 +2391,7 @@ bgp_update_main (struct peer *peer, struct prefix *p, struct attr *attr,
   /* Nexthop reachability check. */
   if ((afi == AFI_IP || afi == AFI_IP6) && safi == SAFI_UNICAST)
     {
-      if (peer->sort == BGP_PEER_EBGP && peer->ttl == 1 &&
+      if (peer->sort == BGP_PEER_EBGP && peer_ttl (peer) == 1 &&
 	  ! CHECK_FLAG (peer->flags, PEER_FLAG_DISABLE_CONNECTED_CHECK))
 	connected = 1;
       else
