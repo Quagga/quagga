@@ -223,7 +223,7 @@ zebra_evaluate_rnh_table (vrf_id_t vrfid, int family)
 	    {
 	      if (CHECK_FLAG (rib->status, RIB_ENTRY_REMOVED))
 		continue;
-	      if (CHECK_FLAG (rib->flags, ZEBRA_FLAG_SELECTED))
+	      if (CHECK_FLAG (rib->status, RIB_ENTRY_SELECTED_FIB))
 		{
 		  if (CHECK_FLAG(rnh->flags, ZEBRA_NHT_CONNECTED))
 		    {
