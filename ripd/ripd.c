@@ -2538,14 +2538,14 @@ rip_update_process (int route_type)
 	ifp = if_lookup_address (p->prefix);
 	if (! ifp)
 	  {
-	    zlog_warn ("Neighbor %s doesnt have connected interface!",
+	    zlog_warn ("Neighbor %s doesn't have connected interface!",
 		       inet_ntoa (p->prefix));
 	    continue;
 	  }
         
         if ( (connected = connected_lookup_address (ifp, p->prefix)) == NULL)
           {
-            zlog_warn ("Neighbor %s doesnt have connected network",
+            zlog_warn ("Neighbor %s doesn't have connected network",
                        inet_ntoa (p->prefix));
             continue;
           }

@@ -1700,7 +1700,7 @@ cmd_element_match(struct cmd_element *cmd_element,
  *                That vector will contain all struct command_token* of the
  *                cmd_element which matched against the given vline at the given
  *                index.
- * @return A code specifying if an error occured. If all went right, it's
+ * @return A code specifying if an error occurred. If all went right, it's
  *         CMD_SUCCESS.
  */
 static int

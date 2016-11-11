@@ -2320,7 +2320,7 @@ bgp_attr_parse (struct peer *peer, struct attr *attr, bgp_size_t size,
 	  ret = BGP_ATTR_PARSE_ERROR;
 	}
 
-      /* If hard error occured immediately return to the caller. */
+      /* If hard error occurred immediately return to the caller. */
       if (ret == BGP_ATTR_PARSE_ERROR)
         {
           zlog (peer->log, LOG_WARNING,

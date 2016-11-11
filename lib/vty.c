@@ -2436,7 +2436,7 @@ vty_read_file (FILE *confp)
            fprintf (stderr, "*** Error reading config: There is no such command.\n");
            break;
        }
-      fprintf (stderr, "*** Error occured processing line %u, below:\n%s\n",
+      fprintf (stderr, "*** Error occurred processing line %u, below:\n%s\n",
 		       line_num, vty->buf);
       vty_close (vty);
       exit (1);

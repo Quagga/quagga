@@ -2476,7 +2476,7 @@ bgp_read_packet (struct peer *peer)
   /* Read packet from fd. */
   nbytes = stream_read_try (peer->ibuf, peer->fd, readsize);
 
-  /* If read byte is smaller than zero then error occured. */
+  /* If read byte is smaller than zero then error occurred. */
   if (nbytes < 0) 
     {
       /* Transient error should retry */
