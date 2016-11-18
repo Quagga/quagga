@@ -1386,8 +1386,9 @@ vty_execute (struct vty *vty)
 
 #define CONTROL(X)  ((X) - '@')
 #define VTY_NORMAL     0
-#define VTY_PRE_ESCAPE 1
-#define VTY_ESCAPE     2
+#define VTY_PRE_ESCAPE 1  /* Esc seen */
+#define VTY_ESCAPE     2  /* ANSI terminal escape (Esc-[) seen */
+#define VTY_LITERAL    3  /* Next char taken as literal */
 
 /* Escape character command map. */
 static void
@@ -1515,7 +1516,14 @@ vty_read (struct thread *thread)
 	  vty_escape_map (buf[i], vty);
 	  continue;
 	}
-
+      
+      if (vty->escape == VTY_LITERAL)
+        {
+          vty_self_insert (vty, buf[i]);
+          vty->escape = VTY_NORMAL;
+          continue;
+        }
+      
       /* Pre-escape status. */
       if (vty->escape == VTY_PRE_ESCAPE)
 	{
@@ -1587,6 +1595,9 @@ vty_read (struct thread *thread)
 	case CONTROL('U'):
 	  vty_kill_line_from_beginning (vty);
 	  break;
+        case CONTROL('V'):
+          vty->escape = VTY_LITERAL;
+          break;
 	case CONTROL('W'):
 	  vty_backward_kill_word (vty);
 	  break;
