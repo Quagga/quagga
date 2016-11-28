@@ -736,8 +736,6 @@ peer_free (struct peer *peer)
 {
   assert (peer->status == Deleted);
 
-  bgp_unlock(peer->bgp);
-
   /* this /ought/ to have been done already through bgp_stop earlier,
    * but just to be sure.. 
    */
@@ -782,6 +780,9 @@ peer_free (struct peer *peer)
     XFREE(MTYPE_TMP, peer->notify.data);
   
   bgp_sync_delete (peer);
+
+  bgp_unlock(peer->bgp);
+
   memset (peer, 0, sizeof (struct peer));
   
   XFREE (MTYPE_BGP_PEER, peer);
