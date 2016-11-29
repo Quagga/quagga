@@ -6033,12 +6033,12 @@ route_vty_out(
 
 
       if (attr->flag & ATTR_FLAG_BIT (BGP_ATTR_MULTI_EXIT_DISC))
-	vty_out (vty, "%10u ", attr->med);
+	vty_out (vty, "%10u", attr->med);
       else
 	  vty_out (vty, "          ");
 
       if (attr->flag & ATTR_FLAG_BIT (BGP_ATTR_LOCAL_PREF))
-	vty_out (vty, "%7u ", attr->local_pref);
+	vty_out (vty, "%7u", attr->local_pref);
       else
 	  vty_out (vty, "       ");
 
