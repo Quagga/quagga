@@ -638,9 +638,11 @@ install_element (enum node_type ntype, struct cmd_element *cmd)
   
   if (hash_lookup (cnode->cmd_hash, cmd) != NULL)
     {
+#ifdef DEV_BUILD
       fprintf (stderr, 
                "Multiple command installs to node %d of command:\n%s\n",
                ntype, cmd->string);
+#endif
       return;
     }
   
