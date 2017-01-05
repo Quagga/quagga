@@ -1,13 +1,11 @@
 ---
 title: Conventions for working on Quagga 
 papersize: a4paper
-geometry: scale=0.82
+geometry: a4paper,scale=0.82
 fontsize: 11pt
 toc: true
 date: \today
 include-before: 
-  \large This is a living document. 
-
   \large This is a living document describing the processes and guidelines
    for working on Quagga. You *must* read Section
    ["REQUIRED READING"](#sec:required), before contributing to Quagga.
