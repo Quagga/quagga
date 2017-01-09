@@ -17,6 +17,116 @@ include-before:
 
 \newpage
 
+OBJECTIVES {#sec:goals}
+==========
+
+The objectives of the Quagga project are to develop and implement high
+quality routing protocols and related software, maximising:
+
+* Free software:
+    * Quagga is and will remain a copyleft, free software project
+    * Some non-core parts may be available under compatible, permissive
+      licenses to facilitate code sharing, where contributors agree.
+    * The test and integration orchestration infrastructure shall be free
+      software, developed similarly to the rest of Quagga. Proprietary
+      conformance suites may be among the test tools orchestrated.
+* Openness and transparency
+    * The business of the project shall be conducted on its public email
+      lists, to the greatest extent possible.
+    * The design of the software will be governed by open discussion on
+      the public email lists.
+    * Participants shall endeavour to be transparent about their interests
+      in the project, and any associations likely to be relevant.
+* Ethical behaviour:
+    * The licenses of all copyright holders will be respected, and the
+      project will err in their favour where there is reasonable doubt or
+      legal advice to that effect.
+    * Participants will behave with respect for others, and in a manner that
+      builds and maintains the trust needed for productive collaboration.
+
+See also the Section on [CODE OF CONDUCT](#sec:codeconduct).
+
+Governance {#sec:governance}
+==========
+
+The governance of Quagga is currently in flux.
+
+Quagga was forked from GNU Zebra by Paul Jakma, who holds the domain name. 
+Governance was soon devolved to a collective group, the maintainers. 
+
+Governance at this moment is again fully in the hands of Paul Jakma, to be
+recast.
+
+Holding of project assets
+-------------------------
+
+One or more mature, independent trustees, with technical and free software
+experience, will be appointed as the executor(s) for key assets of the
+project to ensure continuity, such as the domain name.
+
+Should a corporate vehicle ever be created to hold such assets it __must__:
+
+* Publish up to date accounts on a regular business.
+* Generally operate openly and transparently.
+* Have control distributed, with a significant degree of control held
+  independent of any contributors with business interests in the software.
+* Carry out no other business itself that may be seen to conflict or compete
+  with the business of others in the community.
+* Have all officers disclose all interests that could be
+  seen to have a bearing on the project, as far as is reasonable.
+
+It not clear at this time that the overheads and potential liabilities of
+such a vehicle would be appropriate for this project.  These principles
+should though still be applied, where possible, to any non-corporate body
+formed around the project.
+
+CODE OF CONDUCT {#sec:codeconduct}
+===============
+
+Participants will treat each other with respect and integrity.  Participants
+will build and treasure the trust that is required for parties to
+successfully collaborate together on free software.  Particularly when those
+parties may have competing interests.  The following principles and
+guidelines should be followed to foster that trust:
+
+* Participants should be open about their goals, and their interests.
+    - Business associations with other participants should be disclosed,
+      so far as is reasonable and where applicable. E.g., if there is voting
+      on matters, or in endorsements or objections to contributions.
+    - Other associations and interests that may be relevant should be
+      disclosed, to the degree necessary to avoid any perception
+      by others of conflicts of interests or of deception.
+    - Be open about your goals, so as to maximise the common understanding
+      and minimise any misunderstandings and disputes.
+* Design should be done in the open
+    -  Do your design on list, ahead of significant implementation.  Avoid
+      "Surprise!" development where possible.
+    - Where significant implementation work must be done behind closed
+      doors, accept that you may be asked to rework it, potentially from
+      scratch once you take it public.
+    - Get "buy in" from others ahead of time, to avoid disappointment.
+* Interaction 
+    - Feedback on design should be constructive, thoughtful and 
+      understanding.
+    - Avoid personalising matters. Discuss the idea, the code, the abstract
+      subject and avoid unnecessary personal pronouns.
+    - Avoid language that paints either party into a corner. Leave some room
+      for doubt. Ask questions, rather than make assertions, where possible.
+* Disputes should be resolved through calm, analytic discussion
+    - Separate out as much of the matter under dispute into principles that
+      can be agreed on, and into the objective domain (by measurement or
+      logic). 
+    - Seek ways to resolve any remaining subjective differences by alternate
+      paths that can accommodate both sides, e.g., through abstraction or
+      modularisation.
+    - Aim for Win-Win.
+* Respect others
+    - Avoid passive-aggressive behaviours. E.g., tit-for-tat
+      non-constructive behaviour. Be explicit.
+    - It is acceptable for management to allocate resources on development
+      according to their need.  It is not acceptable to try use external,
+      management intervention to over-turn positions held by participants.
+
 REQUIRED READING {#sec:required}
 ================
 
