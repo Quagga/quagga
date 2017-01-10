@@ -2901,7 +2901,7 @@ config_from_file (struct vty *vty, FILE *fp, unsigned int *line_num)
   int ret;
   *line_num = 0;
 
-  while (fgets (vty->buf, VTY_BUFSIZ, fp))
+  while (fgets (vty->buf, vty->max, fp))
     {
       ++(*line_num);
 

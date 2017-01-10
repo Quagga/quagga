@@ -40,6 +40,8 @@
 #include <arpa/telnet.h>
 #include <termios.h>
 
+#define VTY_BUFSIZ 4096
+
 /* Vty events */
 enum event 
 {
@@ -507,17 +509,6 @@ vty_write (struct vty *vty, const char *buf, size_t nbytes)
   buffer_put (vty->obuf, buf, nbytes);
 }
 
-/* Ensure length of input buffer.  Is buffer is short, double it. */
-static void
-vty_ensure (struct vty *vty, int length)
-{
-  if (vty->max <= length)
-    {
-      vty->max *= 2;
-      vty->buf = XREALLOC (MTYPE_VTY, vty->buf, vty->max);
-    }
-}
-
 /* Basic function to insert character into vty. */
 static void
 vty_self_insert (struct vty *vty, char c)
@@ -525,7 +516,9 @@ vty_self_insert (struct vty *vty, char c)
   int i;
   int length;
 
-  vty_ensure (vty, vty->length + 1);
+  if (vty->length + 1 > VTY_BUFSIZ)
+    return;
+
   length = vty->length - vty->cp;
   memmove (&vty->buf[vty->cp + 1], &vty->buf[vty->cp], length);
   vty->buf[vty->cp] = c;
@@ -542,26 +535,29 @@ vty_self_insert (struct vty *vty, char c)
 static void
 vty_self_insert_overwrite (struct vty *vty, char c)
 {
-  vty_ensure (vty, vty->length + 1);
+  if (vty->cp == vty->length)
+    {
+      vty_self_insert (vty, c);
+      return;
+    }
+
   vty->buf[vty->cp++] = c;
-
-  if (vty->cp > vty->length)
-    vty->length++;
-
-  if ((vty->node == AUTH_NODE) || (vty->node == AUTH_ENABLE_NODE))
-    return;
-
   vty_write (vty, &c, 1);
 }
 
-/* Insert a word into vty interface with overwrite mode. */
+/**
+ * Insert a string into vty->buf at the current cursor position.
+ *
+ * If the resultant string would be larger than VTY_BUFSIZ it is
+ * truncated to fit.
+ */
 static void
 vty_insert_word_overwrite (struct vty *vty, char *str)
 {
-  int len = strlen (str);
-  vty_write (vty, str, len);
-  strcpy (&vty->buf[vty->cp], str);
-  vty->cp += len;
+  size_t nwrite = MIN ((int) strlen (str), VTY_BUFSIZ - vty->cp);
+  vty_write (vty, str, nwrite);
+  strncpy (&vty->buf[vty->cp], str, nwrite);
+  vty->cp += nwrite;
   vty->length = vty->cp;
 }
 
@@ -2198,12 +2194,21 @@ vtysh_read (struct thread *thread)
   printf ("line: %.*s\n", nbytes, buf);
 #endif /* VTYSH_DEBUG */
 
+  if (vty->length + nbytes > VTY_BUFSIZ)
+    {
+      /* Clear command line buffer. */
+      vty->cp = vty->length = 0;
+      vty_clear_buf (vty);
+      vty_out (vty, "%% Command is too long.%s", VTY_NEWLINE);
+      goto out;
+    }
+  
   for (p = buf; p < buf+nbytes; p++)
     {
-      vty_ensure(vty, vty->length+1);
       vty->buf[vty->length++] = *p;
       if (*p == '\0')
 	{
+	  
 	  /* Pass this line to parser. */
 	  ret = vty_execute (vty);
 	  /* Note that vty_execute clears the command buffer and resets
@@ -2224,6 +2229,7 @@ vtysh_read (struct thread *thread)
 	}
     }
 
+out:
   vty_event (VTYSH_READ, sock, vty);
 
   return 0;
