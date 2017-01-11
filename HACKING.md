@@ -683,6 +683,14 @@ configuration for the appropriate Quagga.net repository.
 USEFUL URLs
 ===========
 
-* David Lamparter <equinox@diac24.net> runs a patchwork instance at
+* The project homepage is at:
+
+  <https://www.quagga.net>
+
+* Patchwork tracks patches emailed to the quagga-dev list at:
+
   <http://patchwork.quagga.net/project/quagga/list/>
 
+* Bugs can be reported via Bugzilla at:
+
+  <http://bugzilla.quagga.net>
