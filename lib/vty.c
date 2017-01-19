@@ -94,6 +94,23 @@ char integrate_default[] = SYSCONFDIR INTEGRATE_DEFAULT_CONFIG;
 
 static int do_log_commands = 0;
 
+static void
+vty_buf_assert (struct vty *vty)
+{
+  assert (vty->cp <= vty->length);
+  assert (vty->length < vty->max); 
+  assert (vty->buf[vty->length] == '\0');
+}
+
+/* Sanity/safety wrappers around access to vty->buf */
+static void
+vty_buf_put (struct vty *vty, char c)
+{
+  vty_buf_assert (vty);
+  vty->buf[vty->cp] = c;
+  vty->buf[vty->max - 1] = '\0';
+}
+
 /* VTY standard output function. */
 int
 vty_out (struct vty *vty, const char *format, ...)
@@ -515,33 +532,46 @@ vty_self_insert (struct vty *vty, char c)
 {
   int i;
   int length;
-
-  if (vty->length + 1 > VTY_BUFSIZ)
+  
+  vty_buf_assert (vty);
+  
+  /* length is sans nul, max is with */
+  if (vty->length + 1 >= vty->max)
     return;
 
   length = vty->length - vty->cp;
   memmove (&vty->buf[vty->cp + 1], &vty->buf[vty->cp], length);
-  vty->buf[vty->cp] = c;
+  vty->length++;
+  vty->buf[vty->length] = '\0';
+
+  vty_buf_put (vty, c);
 
   vty_write (vty, &vty->buf[vty->cp], length + 1);
   for (i = 0; i < length; i++)
     vty_write (vty, &telnet_backward_char, 1);
 
   vty->cp++;
-  vty->length++;
+  
+  vty_buf_assert (vty);
 }
 
 /* Self insert character 'c' in overwrite mode. */
 static void
 vty_self_insert_overwrite (struct vty *vty, char c)
 {
+  vty_buf_assert (vty);
+  
   if (vty->cp == vty->length)
     {
       vty_self_insert (vty, c);
       return;
     }
 
-  vty->buf[vty->cp++] = c;
+  vty_buf_put (vty, c);
+  vty->cp++;
+  
+  vty_buf_assert (vty);
+  
   vty_write (vty, &c, 1);
 }
 
@@ -554,33 +584,46 @@ vty_self_insert_overwrite (struct vty *vty, char c)
 static void
 vty_insert_word_overwrite (struct vty *vty, char *str)
 {
-  size_t nwrite = MIN ((int) strlen (str), VTY_BUFSIZ - vty->cp);
-  vty_write (vty, str, nwrite);
-  strncpy (&vty->buf[vty->cp], str, nwrite);
+  vty_buf_assert (vty);
+  
+  size_t nwrite = MIN ((int) strlen (str), vty->max - vty->cp - 1);
+  memcpy (&vty->buf[vty->cp], str, nwrite);
   vty->cp += nwrite;
   vty->length = vty->cp;
+  vty->buf[vty->length] = '\0';
+  vty_buf_assert (vty);
+  
+  vty_write (vty, str, nwrite);
 }
 
 /* Forward character. */
 static void
 vty_forward_char (struct vty *vty)
 {
+  vty_buf_assert (vty);
+  
   if (vty->cp < vty->length)
     {
       vty_write (vty, &vty->buf[vty->cp], 1);
       vty->cp++;
     }
+  
+  vty_buf_assert (vty);
 }
 
 /* Backward character. */
 static void
 vty_backward_char (struct vty *vty)
 {
+  vty_buf_assert (vty);
+  
   if (vty->cp > 0)
     {
       vty->cp--;
       vty_write (vty, &telnet_backward_char, 1);
     }
+  
+  vty_buf_assert (vty);
 }
 
 /* Move to the beginning of the line. */
@@ -615,7 +658,9 @@ vty_history_print (struct vty *vty)
   length = strlen (vty->hist[vty->hp]);
   memcpy (vty->buf, vty->hist[vty->hp], length);
   vty->cp = vty->length = length;
-
+  vty->buf[vty->length] = '\0';
+  vty_buf_assert (vty);
+  
   /* Redraw current line */
   vty_redraw_line (vty);
 }
@@ -671,6 +716,8 @@ vty_redraw_line (struct vty *vty)
 {
   vty_write (vty, vty->buf, vty->length);
   vty->cp = vty->length;
+  
+  vty_buf_assert (vty);
 }
 
 /* Forward word. */
@@ -775,10 +822,12 @@ vty_delete_char (struct vty *vty)
       vty_down_level (vty);
       return;
     }
-
+  
   if (vty->cp == vty->length)
     return;			/* completion need here? */
 
+  vty_buf_assert (vty);
+  
   size = vty->length - vty->cp;
 
   vty->length--;
@@ -825,6 +874,7 @@ vty_kill_line (struct vty *vty)
 
   memset (&vty->buf[vty->cp], 0, size);
   vty->length = vty->cp;
+  vty_buf_assert (vty);
 }
 
 /* Kill line from the beginning. */
@@ -2194,7 +2244,7 @@ vtysh_read (struct thread *thread)
   printf ("line: %.*s\n", nbytes, buf);
 #endif /* VTYSH_DEBUG */
 
-  if (vty->length + nbytes > VTY_BUFSIZ)
+  if (vty->length + nbytes >= vty->max)
     {
       /* Clear command line buffer. */
       vty->cp = vty->length = 0;
