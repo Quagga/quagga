@@ -2121,6 +2121,7 @@ vty_show_ip_route_detail (struct vty *vty, struct route_node *rn, int mcast)
           || rib->type == ZEBRA_ROUTE_OSPF6
           || rib->type == ZEBRA_ROUTE_BABEL
           || rib->type == ZEBRA_ROUTE_ISIS
+          || rib->type == ZEBRA_ROUTE_NHRP
           || rib->type == ZEBRA_ROUTE_BGP)
 	{
 	  time_t uptime;
@@ -2341,6 +2342,7 @@ vty_show_ip_route (struct vty *vty, struct route_node *rn, struct rib *rib)
           || rib->type == ZEBRA_ROUTE_OSPF6
           || rib->type == ZEBRA_ROUTE_BABEL
           || rib->type == ZEBRA_ROUTE_ISIS
+          || rib->type == ZEBRA_ROUTE_NHRP
           || rib->type == ZEBRA_ROUTE_BGP)
 	{
 	  time_t uptime;

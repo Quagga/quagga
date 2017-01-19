@@ -76,6 +76,7 @@ AC_PROG_CPP
 AM_PROG_CC_C_O
 AC_PROG_RANLIB
 AC_PROG_EGREP
+PKG_PROG_PKG_CONFIG
 
 dnl autoconf 2.59 appears not to support AC_PROG_SED
 dnl AC_PROG_SED
@@ -245,6 +246,8 @@ AC_ARG_ENABLE(ospfd,
   AS_HELP_STRING([--disable-ospfd], [do not build ospfd]))
 AC_ARG_ENABLE(ospf6d,
   AS_HELP_STRING([--disable-ospf6d], [do not build ospf6d]))
+AC_ARG_ENABLE(nhrpd,
+  AS_HELP_STRING([--disable-nhrpd], [do not build nhrpd]))
 AC_ARG_ENABLE(watchquagga,
   AS_HELP_STRING([--disable-watchquagga], [do not build watchquagga]))
 AC_ARG_ENABLE(isisd,
@@ -1190,6 +1193,17 @@ else
 fi
 AM_CONDITIONAL(OSPFD, test "x$OSPFD" = "xospfd")
 
+if test x"$opsys" != x"gnu-linux"; then
+	dnl NHRPd works currently with Linux only.
+	enable_nhrpd="no"
+fi
+if test "${enable_nhrpd}" = "no";then
+  NHRPD=""
+else
+  NHRPD="nhrpd"
+fi
+AM_CONDITIONAL(NHRPD, test "x$NHRPD" = "xnhrpd")
+
 if test "${enable_watchquagga}" = "no";then
   WATCHQUAGGA=""
 else
@@ -1245,6 +1259,7 @@ AC_SUBST(RIPD)
 AC_SUBST(RIPNGD)
 AC_SUBST(OSPFD)
 AC_SUBST(OSPF6D)
+AC_SUBST(NHRPD)
 AC_SUBST(WATCHQUAGGA)
 AC_SUBST(ISISD)
 AC_SUBST(PIMD)
@@ -1278,6 +1293,14 @@ AC_CHECK_LIB(c, regexec,
 fi
 AC_SUBST(HAVE_LIBPCREPOSIX)
 AC_SUBST(LIB_REGEX)
+
+dnl ------------------
+dnl check C-Ares library
+dnl ------------------
+if test "${enable_nhrpd}" != "no";then
+   PKG_CHECK_MODULES([CARES], [libcares])
+fi
+
 
 dnl ------------------
 dnl check Net-SNMP library
@@ -1555,6 +1578,7 @@ AC_DEFINE_UNQUOTED(PATH_RIPNGD_PID, "$quagga_statedir/ripngd.pid",ripngd PID)
 AC_DEFINE_UNQUOTED(PATH_BGPD_PID, "$quagga_statedir/bgpd.pid",bgpd PID)
 AC_DEFINE_UNQUOTED(PATH_OSPFD_PID, "$quagga_statedir/ospfd.pid",ospfd PID)
 AC_DEFINE_UNQUOTED(PATH_OSPF6D_PID, "$quagga_statedir/ospf6d.pid",ospf6d PID)
+AC_DEFINE_UNQUOTED(PATH_NHRPD_PID, "$quagga_statedir/nhrpd.pid",nhrpd PID)
 AC_DEFINE_UNQUOTED(PATH_ISISD_PID, "$quagga_statedir/isisd.pid",isisd PID)
 AC_DEFINE_UNQUOTED(PATH_PIMD_PID, "$quagga_statedir/pimd.pid",pimd PID)
 AC_DEFINE_UNQUOTED(PATH_WATCHQUAGGA_PID, "$quagga_statedir/watchquagga.pid",watchquagga PID)
@@ -1565,6 +1589,7 @@ AC_DEFINE_UNQUOTED(RIPNG_VTYSH_PATH, "$quagga_statedir/ripngd.vty",ripng vty soc
 AC_DEFINE_UNQUOTED(BGP_VTYSH_PATH, "$quagga_statedir/bgpd.vty",bgpd vty socket)
 AC_DEFINE_UNQUOTED(OSPF_VTYSH_PATH, "$quagga_statedir/ospfd.vty",ospfd vty socket)
 AC_DEFINE_UNQUOTED(OSPF6_VTYSH_PATH, "$quagga_statedir/ospf6d.vty",ospf6d vty socket)
+AC_DEFINE_UNQUOTED(NHRP_VTYSH_PATH, "$quagga_statedir/nhrpd.vty",nhrpd vty socket)
 AC_DEFINE_UNQUOTED(ISIS_VTYSH_PATH, "$quagga_statedir/isisd.vty",isisd vty socket)
 AC_DEFINE_UNQUOTED(PIM_VTYSH_PATH, "$quagga_statedir/pimd.vty",pimd vty socket)
 AC_DEFINE_UNQUOTED(DAEMON_VTY_DIR, "$quagga_statedir",daemon vty directory)
@@ -1592,7 +1617,7 @@ AC_CONFIG_FILES([Makefile lib/Makefile qpb/Makefile zebra/Makefile ripd/Makefile
 	  ripngd/Makefile bgpd/Makefile ospfd/Makefile watchquagga/Makefile
 	  ospf6d/Makefile isisd/Makefile vtysh/Makefile
 	  doc/Makefile ospfclient/Makefile tests/Makefile m4/Makefile
-	  pimd/Makefile
+	  pimd/Makefile nhrpd/Makefile
 	  tests/bgpd.tests/Makefile
 	  tests/libzebra.tests/Makefile
 	  redhat/Makefile

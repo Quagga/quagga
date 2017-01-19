@@ -60,6 +60,7 @@ struct vtysh_client
   { .fd = -1, .name = "bgpd", .flag = VTYSH_BGPD, .path = BGP_VTYSH_PATH},
   { .fd = -1, .name = "isisd", .flag = VTYSH_ISISD, .path = ISIS_VTYSH_PATH},
   { .fd = -1, .name = "pimd", .flag = VTYSH_PIMD, .path = PIM_VTYSH_PATH},
+  { .fd = -1, .name = "nhrpd", .flag = VTYSH_NHRPD, .path = NHRP_VTYSH_PATH},
 };
 
 

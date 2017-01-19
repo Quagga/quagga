@@ -53,6 +53,7 @@ const char *zlog_proto_names[] =
   "ISIS",
   "PIM",
   "MASC",
+  "NHRP",
   NULL,
 };
 
@@ -986,6 +987,8 @@ proto_redistnum(int afi, const char *s)
 	return ZEBRA_ROUTE_BGP;
       else if (strncmp (s, "ba", 2) == 0)
 	return ZEBRA_ROUTE_BABEL;
+      else if (strncmp (s, "n", 1) == 0)
+	return ZEBRA_ROUTE_NHRP;
     }
   if (afi == AFI_IP6)
     {
@@ -1005,6 +1008,8 @@ proto_redistnum(int afi, const char *s)
 	return ZEBRA_ROUTE_BGP;
       else if (strncmp (s, "ba", 2) == 0)
 	return ZEBRA_ROUTE_BABEL;
+      else if (strncmp (s, "n", 1) == 0)
+	return ZEBRA_ROUTE_NHRP;
     }
   return -1;
 }
