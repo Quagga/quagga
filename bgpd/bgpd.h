@@ -425,6 +425,7 @@ struct peer
 #define PEER_FLAG_MAX_PREFIX_WARNING        (1 << 15) /* maximum prefix warning-only */
 #define PEER_FLAG_NEXTHOP_LOCAL_UNCHANGED   (1 << 16) /* leave link-local nexthop unchanged */
 #define PEER_FLAG_NEXTHOP_SELF_ALL          (1 << 17) /* next-hop-self all */
+#define PEER_FLAG_SEND_LARGE_COMMUNITY      (1 << 18) /* Send large Communities */
 
   /* MD5 password */
   char *password;
@@ -655,6 +656,7 @@ struct bgp_nlri
 #define BGP_ATTR_AS4_AGGREGATOR                 18
 #define BGP_ATTR_AS_PATHLIMIT                   21
 #define BGP_ATTR_ENCAP                          23
+#define BGP_ATTR_LARGE_COMMUNITIES              32
 
 /* BGP update origin.  */
 #define BGP_ORIGIN_IGP                           0

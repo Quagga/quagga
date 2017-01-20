@@ -627,6 +627,7 @@ peer_af_flag_reset (struct peer *peer, afi_t afi, safi_t safi)
     {
       SET_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_COMMUNITY);
       SET_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_EXT_COMMUNITY);
+      SET_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_LARGE_COMMUNITY);
     }
 
   /* Clear neighbor default_originate_rmap */
@@ -863,6 +864,7 @@ peer_new (struct bgp *bgp)
 	  {
 	    SET_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_COMMUNITY);
 	    SET_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_EXT_COMMUNITY);
+	    SET_FLAG (peer->af_flags[afi][safi], PEER_FLAG_SEND_LARGE_COMMUNITY);
 	  }
 	peer->orf_plist[afi][safi] = NULL;
       }
@@ -2505,6 +2507,7 @@ static const struct peer_flag_action peer_af_flag_action_list[] =
     { PEER_FLAG_NEXTHOP_SELF,             1, peer_change_reset_out },
     { PEER_FLAG_SEND_COMMUNITY,           1, peer_change_reset_out },
     { PEER_FLAG_SEND_EXT_COMMUNITY,       1, peer_change_reset_out },
+    { PEER_FLAG_SEND_LARGE_COMMUNITY,     1, peer_change_reset_out },
     { PEER_FLAG_SOFT_RECONFIG,            0, peer_change_reset_in },
     { PEER_FLAG_REFLECTOR_CLIENT,         1, peer_change_reset },
     { PEER_FLAG_RSERVER_CLIENT,           1, peer_change_reset },
@@ -5111,10 +5114,14 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
       if (bgp_option_check (BGP_OPT_CONFIG_CISCO))
 	{
 	  if (peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_COMMUNITY)
-	      && peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_EXT_COMMUNITY))
-	    vty_out (vty, " neighbor %s send-community both%s", addr, VTY_NEWLINE);
+	      && peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_EXT_COMMUNITY)
+	      && peer_af_flag_check(peer, afi, safi, PEER_FLAG_SEND_LARGE_COMMUNITY))
+	    vty_out (vty, " neighbor %s send-community all%s", addr, VTY_NEWLINE);
 	  else if (peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_EXT_COMMUNITY))	
 	    vty_out (vty, " neighbor %s send-community extended%s",
+		     addr, VTY_NEWLINE);
+	  else if (peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_LARGE_COMMUNITY))
+	    vty_out (vty, " neighbor %s send-community large%s",
 		     addr, VTY_NEWLINE);
 	  else if (peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_COMMUNITY))
 	    vty_out (vty, " neighbor %s send-community%s", addr, VTY_NEWLINE);
@@ -5122,11 +5129,15 @@ bgp_config_write_peer (struct vty *vty, struct bgp *bgp,
       else
 	{
 	  if (! peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_COMMUNITY)
-	      && ! peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_EXT_COMMUNITY))
-	    vty_out (vty, " no neighbor %s send-community both%s",
+	      && ! peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_EXT_COMMUNITY)
+	      && ! peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_LARGE_COMMUNITY))
+	    vty_out (vty, " no neighbor %s send-community all%s",
 		     addr, VTY_NEWLINE);
 	  else if (! peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_EXT_COMMUNITY))
 	    vty_out (vty, " no neighbor %s send-community extended%s",
+		     addr, VTY_NEWLINE);
+	  else if (! peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_LARGE_COMMUNITY))
+	    vty_out (vty, " no neighbor %s send-community large%s",
 		     addr, VTY_NEWLINE);
 	  else if (! peer_af_flag_check (peer, afi, safi, PEER_FLAG_SEND_COMMUNITY))
 	    vty_out (vty, " no neighbor %s send-community%s",

@@ -157,6 +157,9 @@ struct memory_list memory_list_bgp[] =
   { MTYPE_BGP_AGGREGATE,	"BGP aggregate"			},
   { MTYPE_BGP_ADDR,		"BGP own address"		},
   { MTYPE_ENCAP_TLV,		"ENCAP TLV",			},
+  { MTYPE_LCOMMUNITY,           "Large Community",              },
+  { MTYPE_LCOMMUNITY_STR,       "Large Community str",          },
+  { MTYPE_LCOMMUNITY_VAL,       "Large Community val",          },
   { -1, NULL }
 };
 
