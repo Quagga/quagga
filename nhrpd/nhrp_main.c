@@ -8,6 +8,7 @@
  */
 
 #include <unistd.h>
+#include <libgen.h>
 
 #include "zebra.h"
 #include "privs.h"
