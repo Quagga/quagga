@@ -440,57 +440,58 @@ using the srcdir variable.
 RELEASE PROCEDURE
 =================
 
--   Tag the appropriate commit with a release tag (follow existing
-    conventions).
+To make a release:
 
-    [This enables recreating the release, and is just good CM practice.]
+-   Edit configure.ac, bump the version and commit the change with
+    a "release: <version" subject.
+
+The 'release.sh' script should then be used. It should be run with 2
+arguments, the release tag for the release to be carried, and the tag of the
+previous release, e.g.:
+
+	release.sh quagga-1.1.1 quagga-1.1.0
+
+The 'release.sh' will carry out these steps for you:
+
+-   Tag the appropriate commit with a release tag (follow existing
+    conventions), with:
+
+	git tag -u <release signing key id> <quagga-release-tag>
 
 -   Create a fresh tar archive of the quagga.net repository, and do a
-    test build:
+    test build.  Use git archive to ensure it consists of files in the
+    repository, and to carry out the keyword expansions.  Do NOT do this in
+    a subdirectory of the Quagga sources, autoconf will think it’s a
+    sub-package and fail to include neccessary files.
 
-            vim configure.ac
-            git commit -m "release: 0.99.99.99"
-            git tag -u 54CD2E60 quagga-0.99.99.99
-            git push savannah tag quagga-0.99.99.99
+            git archive ... <quagga-release-tag> | tar xC ..
 
-            git archive --prefix=quagga-release/ quagga-0.99.99.99 | tar xC /tmp
-            git log quagga-0.99.99.98..quagga-0.99.99.99 > \
-               /tmp/quagga-release/quagga-0.99.99.99.changelog.txt
-            cd /tmp/quagga-release
+            autoreconf -i && ./configure && make && make dist-gzip
 
-            autoreconf -i
-            ./configure
-            make
-            make dist-gzip
+-   Similarly test the dist tarball produced. This is the tarball to be
+    released. This is important.
 
-            gunzip < quagga-0.99.99.99.tar.gz > quagga-0.99.99.99.tar
-            xz -6e < quagga-0.99.99.99.tar > quagga-0.99.99.99.tar.xz
-            gpg -u 54CD2E60 -a --detach-sign quagga-0.99.99.99.tar
+-   Sign the dist tarball to be released
+            
+	    gpg -u 54CD2E60 -a --detach-sign quagga-0.99.99.99.tar
 
-            scp quagga-0.99.99.99.* username@dl.sv.nongnu.org:/releases/quagga
-          
+The 'release.sh' script, if finishes successfully,  will print out
+instructions on the files it has created and the details on remaining steps
+to be carried out to complete the release. Which roughly are:
 
-    Do NOT do this in a subdirectory of the Quagga sources, autoconf
-    will think it’s a sub-package and fail to include neccessary files.
+-   Upload the release tarball, its PGP signature, and the full changelog
+    to the public release area on Savannah
 
 -   Add the version number on https://bugzilla.quagga.net/, under
     Administration, Products, “Quagga”, Edit versions, Add a version.
-
--   Edit the wiki on
-    https://wiki.quagga.net/wiki/index.php/Release\_status
 
 -   Post a news entry on Savannah
 
 -   Send a mail to quagga-dev and quagga-users
 
-The tarball which ‘make dist’ creates is the tarball to be released! The
-git-archive step ensures you’re working with code corresponding to that in
-the official repository, and also carries out keyword expansion. If any
-errors occur, move tags as needed and start over from the fresh checkouts.
-Do not append to tarballs, as this has produced non-standards-conforming
-tarballs in the past.
-
-See also: <http://wiki.quagga.net/index.php/Main/Processes>
+If any errors occur, move tags as needed and start over again with the
+release.sh script.  Do not try to append stuff to tarballs, as this has
+produced non-standards-conforming tarballs in the past.
 
 [TODO: collation of a list of deprecated commands. Possibly can be
 scripted to extract from vtysh/vtysh\_cmd.c]
