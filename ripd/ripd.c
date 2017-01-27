@@ -1312,17 +1312,19 @@ rip_response_process (struct rip_packet *packet, int size,
 	  rip_peer_bad_route (from);
 	  continue;
 	}
-
-      /* Default route's netmask is ignored. */
+      
+      /* Default route sanity check */
       if (packet->version == RIPv2
-	  && (rte->prefix.s_addr == 0)
-	  && (rte->mask.s_addr != 0))
-	{
-	  if (IS_RIP_DEBUG_EVENT)
-	    zlog_debug ("Default route with non-zero netmask.  Set zero to netmask");
-	  rte->mask.s_addr = 0;
-	}
-	  
+          && (rte->mask.s_addr == 0)
+          && (rte->prefix.s_addr != 0))
+        {
+          if (IS_RIP_DEBUG_EVENT)
+            zlog_warn ("Malformed route, zero netmask "
+                       "with non-zero addr - dropping route!");
+          rip_peer_bad_route (from);
+          continue;
+        }
+      
       /* Routing table updates. */
       rip_rte_process (rte, from, ifc->ifp);
     }
