@@ -32,4 +32,7 @@ nhrpd_SOURCES = \
 
 nhrpd_LDADD = ../lib/libzebra.la @LIBCAP@ @CARES_LIBS@
 
+noinst_HEADERS = debug.h netlink.h nhrpd.h vici.h znl.h list.h \
+	nhrp_protocol.h os.h zbuf.h
+
 #dist_examples_DATA = nhrpd.conf.sample
