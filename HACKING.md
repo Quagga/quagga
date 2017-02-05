@@ -49,13 +49,20 @@ See also the Section on [CODE OF CONDUCT](#sec:codeconduct).
 Governance {#sec:governance}
 ==========
 
-The governance of Quagga is currently in flux.
+Quagga is a Sociocracy, as it has been since its earliest days.
 
 Quagga was forked from GNU Zebra by Paul Jakma, who holds the domain name. 
-Governance was soon devolved to a collective group, the maintainers. 
+Governance was soon devolved to a collective group, the maintainers,
+consisting of those who regularly contributed and reviewed code.  The
+details can easily be changed.
 
-Governance at this moment is again fully in the hands of Paul Jakma, to be
-recast.
+You are free to use reason to _persuade_ others to adopt some alternative. 
+If, after that, you truly can not abide by what is mutually agreeable, you
+are asked to do the honourable thing: take your copy of the code, make your
+apologies, and be on your way with good grace.
+
+Those who repeatedly violate the [Code of Conduct](#sec:codeconduct) will be
+asked to leave.
 
 Holding of project assets
 -------------------------
