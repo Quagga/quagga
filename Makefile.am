@@ -13,10 +13,10 @@ EXTRA_DIST = aclocal.m4 SERVICES TODO REPORTING-BUGS INSTALL.quagga.txt \
 	vtysh/Makefile.in vtysh/Makefile.am \
 	tools/zebra.el tools/multiple-bgpd.sh
 
-if HAVE_LATEX
+if HAVE_PANDOC
 
-HACKING.pdf: HACKING.tex
-	$(LATEXMK) -pdf $<
+HACKING.pdf: HACKING.md
+	pandoc -o $@ $<
 
 clean-local:
 	-$(LATEXMK) -C HACKING.tex
