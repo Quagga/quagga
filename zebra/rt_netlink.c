@@ -67,6 +67,11 @@ extern struct zebra_privs_t zserv_privs;
 
 extern u_int32_t nl_rcvbufsize;
 
+static struct {
+  char *p;
+  size_t size;
+} nl_rcvbuf;
+
 /* Note: on netlink systems, there should be a 1-to-1 mapping between interface
    names and ifindex values. */
 static void
@@ -275,10 +280,9 @@ netlink_parse_info (int (*filter) (struct sockaddr_nl *, struct nlmsghdr *,
 
   while (1)
     {
-      char buf[NL_PKT_BUF_SIZE];
       struct iovec iov = {
-        .iov_base = buf,
-        .iov_len = sizeof buf
+        .iov_base = nl_rcvbuf.p,
+        .iov_len = nl_rcvbuf.size,
       };
       struct sockaddr_nl snl;
       struct msghdr msg = {
@@ -314,7 +318,8 @@ netlink_parse_info (int (*filter) (struct sockaddr_nl *, struct nlmsghdr *,
           return -1;
         }
       
-      for (h = (struct nlmsghdr *) buf; NLMSG_OK (h, (unsigned int) status);
+      for (h = (struct nlmsghdr *) nl_rcvbuf.p; 
+           NLMSG_OK (h, (unsigned int) status);
            h = NLMSG_NEXT (h, status))
         {
           /* Finish of reading. */
@@ -407,7 +412,9 @@ netlink_parse_info (int (*filter) (struct sockaddr_nl *, struct nlmsghdr *,
       /* After error care. */
       if (msg.msg_flags & MSG_TRUNC)
         {
-          zlog (NULL, LOG_ERR, "%s error: message truncated", nl->name);
+          zlog (NULL, LOG_ERR, "%s error: message truncated!", nl->name);
+          zlog (NULL, LOG_ERR, 
+                "Must restart with larger --nl-bufsize value!");
           continue;
         }
       if (status)
@@ -2005,6 +2012,8 @@ kernel_init (struct zebra_vrf *zvrf)
   /* Register kernel socket. */
   if (zvrf->netlink.sock > 0)
     {
+      size_t bufsize = MAX(nl_rcvbufsize, 2 * sysconf(_SC_PAGESIZE));
+      
       /* Only want non-blocking on the netlink event socket */
       if (fcntl (zvrf->netlink.sock, F_SETFL, O_NONBLOCK) < 0)
         zlog_err ("Can't set %s socket flags: %s", zvrf->netlink.name,
@@ -2013,7 +2022,10 @@ kernel_init (struct zebra_vrf *zvrf)
       /* Set receive buffer size if it's set from command line */
       if (nl_rcvbufsize)
         netlink_recvbuf (&zvrf->netlink, nl_rcvbufsize);
-
+      
+      nl_rcvbuf.p = XMALLOC (MTYPE_NETLINK_RCVBUF, bufsize);
+      nl_rcvbuf.size = bufsize;
+      
       netlink_install_filter (zvrf->netlink.sock, zvrf->netlink_cmd.snl.nl_pid);
       zvrf->t_netlink = thread_add_read (zebrad.master, kernel_read, zvrf,
                                          zvrf->netlink.sock);

@@ -87,6 +87,7 @@ struct memory_list memory_list_zebra[] =
   { MTYPE_RIB_DEST,		"RIB destination"		},
   { MTYPE_RIB_TABLE_INFO,	"RIB table info"		},
   { MTYPE_NETLINK_NAME,	"Netlink name"			},
+  { MTYPE_NETLINK_RCVBUF,	"Netlink receive buffer"	},
   { MTYPE_RNH,		        "Nexthop tracking object"	},
   { -1, NULL },
 };
