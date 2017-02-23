@@ -310,7 +310,7 @@ if getent group %quagga_user >/dev/null; then : ; else \
  /usr/sbin/groupadd -g %quagga_gid %quagga_user > /dev/null || : ; \
 fi
 if getent passwd %quagga_user >/dev/null ; then : ; else \
- /usr/sbin/useradd  -u %quagga_uid -g %quagga_gid \
+ /usr/sbin/useradd  -u %quagga_uid -g %quagga_gid -G %vty_group \
   -M -r -s /sbin/nologin -c "Quagga routing suite" \
   -d %_localstatedir %quagga_user 2> /dev/null || : ; \
 fi
