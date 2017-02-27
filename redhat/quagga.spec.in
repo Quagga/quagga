@@ -114,13 +114,14 @@ Version:		%{rpmversion}
 Release:		@CONFDATE@%{release_rev}%{?dist}
 License:		GPLv2+
 Group:			System Environment/Daemons
-Source0:		http://download.savannah.gnu.org/releases/quagga/%{name}-%{quaggaversion}.tar.gz
-URL:			http://www.quagga.net
+Source0:		https://download.savannah.gnu.org/releases/quagga/%{name}-%{quaggaversion}.tar.gz
+URL:			https://www.quagga.net
 Requires:		ncurses
 Requires(pre):	/sbin/install-info
 Requires(preun): /sbin/install-info
 Requires(post):	/sbin/install-info
 BuildRequires:	texi2html texinfo autoconf patch libcap-devel groff
+BuildRequires:  perl-generators
 %if %{with_snmp}
 BuildRequires:	net-snmp-devel
 Requires:		net-snmp
@@ -144,20 +145,14 @@ Requires(pre):		initscripts >= 5.60
 %endif
 Provides:			routingdaemon = %{version}-%{release}
 BuildRoot:			%{_tmppath}/%{name}-%{version}-root
-Obsoletes:			bird gated mrt zebra quagga-sysvinit
+Obsoletes:			mrt zebra quagga-sysvinit
+
+%define __perl_requires %{zeb_rh_src}/quagga-filter-perl-requires.sh
 
 %description
-Quagga is a free software that manages TCP/IP based routing
-protocol. It takes multi-server and multi-thread approach to resolve
-the current complexity of the Internet.
+Quagga is a free software routing protocol suite. 
 
-Quagga supports BGP4, OSPFv2, OSPFv3, ISIS, RIP, RIPng, PIM and NHRP.
-
-Quagga is intended to be used as a Route Server and a Route Reflector. It is
-not a toolkit, it provides full routing power under a new architecture.
-Quagga by design has a process for each protocol.
-
-Quagga is a fork of GNU Zebra.
+Quagga supports BGP, OSPFv2, OSPFv3, ISIS, RIP, RIPng, PIM-SSM and NHRP.
 
 %package contrib
 Summary: contrib tools for quagga
@@ -192,7 +187,7 @@ developing OSPF-API and quagga applications.
 
 %configure \
     --sysconfdir=%{_sysconfdir} \
-    --libdir=%{_libdir} \
+    --libdir=%{_libdir}/quagga \
     --libexecdir=%{_libexecdir} \
     --localstatedir=%{_localstatedir} \
 	--disable-werror \
@@ -308,6 +303,13 @@ install -m644 %{zeb_rh_src}/quagga.sysconfig \
 	%{buildroot}/etc/sysconfig/quagga
 install -d -m750  %{buildroot}/var/run/quagga
 
+
+%if 0%{?_tmpfilesdir:1}
+	install -d -m 755 %{buildroot}/%{_tmpfilesdir}
+	install -p -m 644 %{zeb_rh_src}/quagga-tmpfs.conf \
+		 %{buildroot}/%{_tmpfilesdir}/quagga.conf
+%endif
+
 %pre
 # add vty_group
 %if 0%{?vty_group:1}
@@ -371,7 +373,9 @@ for daemon in %all_daemons ; do
 done
 %endif
 
-/sbin/install-info %{_infodir}/quagga.info.gz %{_infodir}/dir
+if [ -f %{_infodir}/%{name}.inf* ]; then
+	/sbin/install-info %{_infodir}/quagga.info %{_infodir}/dir
+fi
 
 # Create dummy files if they don't exist so basic functions can be used.
 if [ ! -e %{_sysconfdir}/zebra.conf ]; then
@@ -430,7 +434,7 @@ if [ "$1" -ge 1 ]; then
 		for daemon in %all_daemons ; do
 			eval restart=\$restart_${daemon}
 			[ "$restart" = yes ] && \
-				%systemd_postun ${daemon}.service
+				%systemd_postun_with_restart ${daemon}.service
 		done
 		# Restart zebra.
 		[ "$running_zebra" = yes ] && \
@@ -474,6 +478,10 @@ if [ "$1" -ge 1 ]; then
 	%endif
 fi
 
+if [ -f %{_infodir}/%{name}.inf* ]; then
+	/sbin/install-info --delete %{_infodir}/quagga.info %{_infodir}/dir
+fi
+
 %preun
 %if "%{initsystem}" == "systemd"
 	##
@@ -495,7 +503,6 @@ fi
 		done
 	fi
 %endif
-/sbin/install-info --delete %{_infodir}/quagga.info.gz %{_infodir}/dir
 
 %clean
 %if !0%{?keep_build:1}
@@ -522,6 +529,9 @@ rm -rf %{buildroot}
 %endif
 %{_infodir}/quagga.info.gz
 %{_mandir}/man*/*
+%if %{with_watchquagga}
+	%{_mandir}/man*/watchquagga.*
+%endif
 %{_sbindir}/zebra
 %{_sbindir}/ospfd
 %{_sbindir}/ripd
@@ -541,15 +551,16 @@ rm -rf %{buildroot}
 %{_sbindir}/nhrpd
 %endif
 %if %{with_shared}
-%attr(755,root,root) %{_libdir}/lib*.so
-%attr(755,root,root) %{_libdir}/lib*.so.*
+%{_libdir}/quagga/lib*.so
+%{_libdir}/quagga/lib*.so.?
+%attr(755,root,root) %{_libdir}/quagga/lib*.so.?.?.?
 %endif
 %if %{with_vtysh}
 %{_bindir}/*
 %endif
 %config /etc/quagga/[!v]*
 %if "%{initsystem}" == "systemd"
-	%config %{_unitdir}/*.service
+	%{_unitdir}/*.service
 %else
 	%config /etc/rc.d/init.d/zebra
 	%if %{with_watchquagga}
@@ -573,18 +584,21 @@ rm -rf %{buildroot}
 %config(noreplace) /etc/sysconfig/quagga
 %config(noreplace) /etc/pam.d/quagga
 %config(noreplace) %attr(640,root,root) /etc/logrotate.d/*
+%{_tmpfilesdir}/quagga.conf
 
 %files contrib
 %defattr(-,root,root)
-%doc tools
+%doc AUTHORS COPYING %attr(0644,root,root) tools
 
 %files devel
 %defattr(-,root,root)
+%doc AUTHORS COPYING
 %if %{with_ospfclient}
 %{_sbindir}/ospfclient
 %endif
-%{_libdir}/*.a
-%{_libdir}/*.la
+%dir %{_libdir}/quagga/
+%{_libdir}/quagga/*.a
+%{_libdir}/quagga/*.la
 %dir %attr(755,root,root) %{_includedir}/%{name}
 %{_includedir}/%name/*.h
 %dir %attr(755,root,root) %{_includedir}/%{name}/ospfd
@@ -595,6 +609,14 @@ rm -rf %{buildroot}
 %endif
 
 %changelog
+* Mon Feb 27 2017 Paul Jakma <paul@jakma.org> - %{version}
+- Apply 0001-systemd-various-service-file-improvements.patch from Fedora
+- Review Fedora spec file and sync up with any useful differences, inc:
+- Add tmpfiles.d config for Quagga from Fedora
+- Add quagga-filter-perl-requires.sh from Fedora.
+- Move libs to %{_libdir}/quagga as per Fedora
+- use systemd_postun_with_restart for postun
+
 * Tue Feb 14 2017 Timo Teräs <timo.teras@iki.fi> - %{version}
 - add nhrpd
 
