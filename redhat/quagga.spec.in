@@ -46,7 +46,7 @@
 
 #### Check version of texi2html 
 # Old versions don't support "--number-footnotes" option.
-%{expand: %%global texi2htmlversion %(rpm -q --qf '%%{VERSION}' texi2html | cut -d. -f1 )}
+%{expand: %%global texi2htmlversion %(type texi2html >/dev/null 2>&1 && (rpm -q --qf '%%{VERSION}' texi2html | cut -d. -f1) || echo 0 )}
 
 #### Check for systemd or init.d (upstart)
 # Check for init.d (upstart) as used in CentOS 6 or systemd (ie CentOS 7)
