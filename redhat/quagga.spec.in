@@ -121,7 +121,7 @@ Requires(pre):	/sbin/install-info
 Requires(preun): /sbin/install-info
 Requires(post):	/sbin/install-info
 BuildRequires:	texi2html texinfo autoconf patch libcap-devel groff
-BuildRequires:  perl-generators
+BuildRequires:  perl-generators pkgconfig
 %if %{with_snmp}
 BuildRequires:	net-snmp-devel
 Requires:		net-snmp
@@ -133,6 +133,10 @@ Requires:		ncurses
 %if %{with_pam}
 BuildRequires:	pam-devel
 Requires:		pam
+%endif
+%if %{with_nhrpd}
+BuildRequires:	c-ares-devel
+Requires:	c-ares
 %endif
 %if "%{initsystem}" == "systemd"
 BuildRequires:		systemd
