@@ -119,3 +119,9 @@ EXTRA_DIST = BGP-TypeCode draft-zebra-00.ms draft-zebra-00.txt \
 
 draft-zebra-00.txt: draft-zebra-00.ms
 	groff -T ascii -ms $< > $@
+
+DISTCLEANFILES = quagga.info*
+
+# do nothing for DVI, so we don't have to generate or distribute EPS
+# figures
+dvi: # nothing
