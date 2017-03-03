@@ -695,10 +695,18 @@ USEFUL URLs
 
   <https://www.quagga.net>
 
-* Patchwork tracks patches emailed to the quagga-dev list at:
-
-  <http://patchwork.quagga.net/project/quagga/list/>
 
 * Bugs can be reported via Bugzilla at:
 
-  <http://bugzilla.quagga.net>
+  <https://bugzilla.quagga.net>
+
+* Buildbot runs CI tests, and is at:
+
+  <https://buildbot.quagga.net>
+
+  It tests commits and  jobs submitted on local changes via
+  'buildbot try ...' for developers.
+
+* Patchwork tracks any patches emailed to the quagga-dev list, and is at:
+
+  <https://patchwork.quagga.net/project/quagga/list/>
