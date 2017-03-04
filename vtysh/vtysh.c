@@ -1367,6 +1367,158 @@ DEFSH (VTYSH_ZEBRA|VTYSH_RIPD|VTYSH_OSPFD,
        NO_STR
        "Interface specific description\n")
 
+DEFSH (VTYSH_RIPD|VTYSH_RIPNGD,
+       distribute_list_all_cmd,
+       "distribute-list WORD (in|out)",
+       "Filter networks in routing updates\n"
+       "Access-list name\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n")
+
+DEFSH (VTYSH_RIPD|VTYSH_RIPNGD,
+       no_distribute_list_all_cmd,
+       "no distribute-list WORD (in|out)",
+       NO_STR
+       "Filter networks in routing updates\n"
+       "Access-list name\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n")
+
+DEFSH (VTYSH_RIPD|VTYSH_RIPNGD,
+       distribute_list_cmd,
+       "distribute-list WORD (in|out) WORD",
+       "Filter networks in routing updates\n"
+       "Access-list name\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n"
+       "Interface name\n")
+
+DEFSH (VTYSH_RIPD|VTYSH_RIPNGD,
+       no_distribute_list_cmd,
+       "no distribute-list WORD (in|out) WORD",
+       NO_STR
+       "Filter networks in routing updates\n"
+       "Access-list name\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n"
+       "Interface name\n")
+
+DEFSH (VTYSH_RIPD|VTYSH_RIPNGD,
+       distribute_list_prefix_all_cmd,
+       "distribute-list prefix WORD (in|out)",
+       "Filter networks in routing updates\n"
+       "Filter prefixes in routing updates\n"
+       "Name of an IP prefix-list\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n")
+
+DEFSH (VTYSH_RIPD|VTYSH_RIPNGD,
+       no_distribute_list_prefix_all_cmd,
+       "no distribute-list prefix WORD (in|out)",
+       NO_STR
+       "Filter networks in routing updates\n"
+       "Filter prefixes in routing updates\n"
+       "Name of an IP prefix-list\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n")
+
+DEFSH (VTYSH_RIPD|VTYSH_RIPNGD,
+       distribute_list_prefix_cmd,
+       "distribute-list prefix WORD (in|out) WORD",
+       "Filter networks in routing updates\n"
+       "Filter prefixes in routing updates\n"
+       "Name of an IP prefix-list\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n"
+       "Interface name\n")
+
+DEFSH (VTYSH_RIPD|VTYSH_RIPNGD,
+       no_distribute_list_prefix_cmd,
+       "no distribute-list prefix WORD (in|out) WORD",
+       NO_STR
+       "Filter networks in routing updates\n"
+       "Filter prefixes in routing updates\n"
+       "Name of an IP prefix-list\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n"
+       "Interface name\n")
+
+DEFSH (VTYSH_RIPNGD,
+       ipv6_distribute_list_all_cmd,
+       "ipv6 distribute-list WORD (in|out)",
+       "Filter networks in routing updates\n"
+       "Access-list name\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n")
+
+DEFSH (VTYSH_RIPNGD,
+       no_ipv6_distribute_list_all_cmd,
+       "no ipv6 distribute-list WORD (in|out)",
+       NO_STR
+       "Filter networks in routing updates\n"
+       "Access-list name\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n")
+
+DEFSH (VTYSH_RIPNGD,
+       ipv6_distribute_list_cmd,
+       "ipv6 distribute-list WORD (in|out) WORD",
+       "Filter networks in routing updates\n"
+       "Access-list name\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n"
+       "Interface name\n")
+
+DEFSH (VTYSH_RIPNGD,
+       no_ipv6_distribute_list_cmd,
+       "no ipv6 distribute-list WORD (in|out) WORD",
+       NO_STR
+       "Filter networks in routing updates\n"
+       "Access-list name\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n"
+       "Interface name\n")
+
+DEFSH (VTYSH_RIPNGD,
+       ipv6_distribute_list_prefix_all_cmd,
+       "ipv6 distribute-list prefix WORD (in|out)",
+       "Filter networks in routing updates\n"
+       "Filter prefixes in routing updates\n"
+       "Name of an IP prefix-list\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n")
+
+DEFSH (VTYSH_RIPNGD,
+       no_ipv6_distribute_list_prefix_all_cmd,
+       "no ipv6 distribute-list prefix WORD (in|out)",
+       NO_STR
+       "Filter networks in routing updates\n"
+       "Filter prefixes in routing updates\n"
+       "Name of an IP prefix-list\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n")
+
+DEFSH (VTYSH_RIPNGD,
+       ipv6_distribute_list_prefix_cmd,
+       "ipv6 distribute-list prefix WORD (in|out) WORD",
+       "Filter networks in routing updates\n"
+       "Filter prefixes in routing updates\n"
+       "Name of an IP prefix-list\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n"
+       "Interface name\n")
+
+DEFSH (VTYSH_RIPNGD,
+       no_ipv6_distribute_list_prefix_cmd,
+       "no ipv6 distribute-list prefix WORD (in|out) WORD",
+       NO_STR
+       "Filter networks in routing updates\n"
+       "Filter prefixes in routing updates\n"
+       "Name of an IP prefix-list\n"
+       "Filter incoming routing updates\n"
+       "Filter outgoing routing updates\n"
+       "Interface name\n")
+
 DEFUNSH (VTYSH_INTERFACE,
 	 vtysh_exit_interface,
 	 vtysh_exit_interface_cmd,
@@ -2607,6 +2759,31 @@ vtysh_init_vty (void)
   install_element (ENABLE_NODE, &vtysh_copy_runningconfig_startupconfig_cmd);
   install_element (ENABLE_NODE, &vtysh_write_file_cmd);
   install_element (ENABLE_NODE, &vtysh_write_cmd);
+  /* distribute-list commands. (based on lib/distribute.c distribute_list_init()) */
+  install_element (RIP_NODE, &distribute_list_all_cmd);
+  install_element (RIP_NODE, &no_distribute_list_all_cmd);
+  install_element (RIP_NODE, &distribute_list_cmd);
+  install_element (RIP_NODE, &no_distribute_list_cmd);
+  install_element (RIP_NODE, &distribute_list_prefix_all_cmd);
+  install_element (RIP_NODE, &no_distribute_list_prefix_all_cmd);
+  install_element (RIP_NODE, &distribute_list_prefix_cmd);
+  install_element (RIP_NODE, &no_distribute_list_prefix_cmd);
+  install_element (RIPNG_NODE, &ipv6_distribute_list_all_cmd);
+  install_element (RIPNG_NODE, &no_ipv6_distribute_list_all_cmd);
+  install_element (RIPNG_NODE, &ipv6_distribute_list_cmd);
+  install_element (RIPNG_NODE, &no_ipv6_distribute_list_cmd);
+  install_element (RIPNG_NODE, &ipv6_distribute_list_prefix_all_cmd);
+  install_element (RIPNG_NODE, &no_ipv6_distribute_list_prefix_all_cmd);
+  install_element (RIPNG_NODE, &ipv6_distribute_list_prefix_cmd);
+  install_element (RIPNG_NODE, &no_ipv6_distribute_list_prefix_cmd);
+  install_element (RIPNG_NODE, &distribute_list_all_cmd);
+  install_element (RIPNG_NODE, &no_distribute_list_all_cmd);
+  install_element (RIPNG_NODE, &distribute_list_cmd);
+  install_element (RIPNG_NODE, &no_distribute_list_cmd);
+  install_element (RIPNG_NODE, &distribute_list_prefix_all_cmd);
+  install_element (RIPNG_NODE, &no_distribute_list_prefix_all_cmd);
+  install_element (RIPNG_NODE, &distribute_list_prefix_cmd);
+  install_element (RIPNG_NODE, &no_distribute_list_prefix_cmd);
 
   /* "write terminal" command. */
   install_element (ENABLE_NODE, &vtysh_write_terminal_cmd);
