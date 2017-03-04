@@ -1,0 +1,13 @@
+[Unit]
+Description=Buildbot slave Daemon
+
+[Service]
+WorkingDirectory=/home/buildbot
+User=buildbot
+Group=buildbot
+ExecStart=/usr/bin/buildslave start --nodaemon
+ExecStop=/usr/bin/buildslave stop
+ExecReload=/usr/bin/buildslave reconfig
+
+[Install]
+WantedBy=multi-user.target
