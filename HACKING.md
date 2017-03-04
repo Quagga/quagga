@@ -431,13 +431,15 @@ HACKING THE BUILD SYSTEM
 ========================
 
 If you change or add to the build system (configure.ac, any Makefile.am,
-etc.), try to check that the following things still work:
+etc.), please heck that the following things still work:
 
 -   make dist
 
 -   resulting dist tarball builds
 
 -   out-of-tree builds
+
+This can be achieved by running 'make distcheck'
 
 The quagga.net site relies on make dist to work to generate snapshots. It
 must work. Common problems are to forget to have some additional file
@@ -710,3 +712,43 @@ USEFUL URLs
 * Patchwork tracks any patches emailed to the quagga-dev list, and is at:
 
   <https://patchwork.quagga.net/project/quagga/list/>
+
+
+BUILDBOT
+========
+
+The buildbot client can be used to test changes before committing, with
+"buildbot try".
+
+-   Ask for a buildbot account
+
+-   Install the buildbot client
+
+-   Configure it, e.g.:
+
+    ~~~~~
+    $ cat ~/.buildbot/options
+    try_master = 'radia.quagga.net:8031'
+    try_username = 'paul'
+    try_password = 'password123'
+    try_vc = 'git'
+    try_branch = 'master'
+    try_wait = True
+    $ buildbot try -c pb --get-builder-names
+    using 'pb' connect method
+    The following builders are available for the try scheduler: 
+    build-fedora-24
+    ...
+    ~~~~~
+
+-   You can then submit your local changes to try build:
+
+    ~~~~
+    $ buildbot try -c pb
+    ~~~~
+
+    or use the -b argument to limit to a specific builder (recommended).
+
+    ~~~~~
+    $ buildbot try -c pb -b build-distcheck
+    ~~~~~
