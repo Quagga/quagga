@@ -670,48 +670,28 @@ Daemons which are in a testing phase are
 
 -   watchquagga
 
-IMPORT OR UPDATE VENDOR SPECIFIC ROUTING PROTOCOLS
-==================================================
-
-The source code of Quagga is based on two vendors:
-
-`zebra_org` (<http://www.zebra.org/>) `isisd_sf`
-(<http://isisd.sf.net/>)
-
-To import code from further sources, e.g. for archival purposes without
-necessarily having to review and/or fix some changeset, create a branch
-from ‘master’:
-
-        git checkout -b archive/foo master
-        <apply changes>
-        git commit -a "Joe Bar <joe@example.com>"
-        git push quagga archive/foo
-
-presuming ‘quagga’ corresponds to a file in your .git/remotes with
-configuration for the appropriate Quagga.net repository.
-
 USEFUL URLs
 ===========
 
-* The project homepage is at:
+*   The project homepage is at:
 
-  <https://www.quagga.net>
+    <https://www.quagga.net>
 
 
-* Bugs can be reported via Bugzilla at:
+*   Bugs can be reported via Bugzilla at:
 
-  <https://bugzilla.quagga.net>
+    <https://bugzilla.quagga.net>
 
-* Buildbot runs CI tests, and is at:
+*   Buildbot runs CI tests, and is at:
 
-  <https://buildbot.quagga.net>
+    <https://buildbot.quagga.net>
 
-  It tests commits and  jobs submitted on local changes via
-  'buildbot try ...' for developers.
+    It tests commits and  jobs submitted on local changes via
+    'buildbot try ...' for developers.
 
-* Patchwork tracks any patches emailed to the quagga-dev list, and is at:
+*   Patchwork tracks any patches emailed to the quagga-dev list, and is at:
 
-  <https://patchwork.quagga.net/project/quagga/list/>
+    <https://patchwork.quagga.net/project/quagga/list/>
 
 
 BUILDBOT
