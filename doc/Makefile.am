@@ -34,9 +34,6 @@ figures_txt = $(figures_names_parts:%=fig%.txt)
 # provided by automake. If you are an automake wizard, please feel free to
 # compact it somehow.
 
-# Built from defines.texi.in
-BUILT_SOURCES = defines.texi
-
 info_TEXINFOS = quagga.texi
 
 # Have to manually specify the quagga.pdf rule in order to allow

@@ -1635,7 +1635,6 @@ AC_CONFIG_FILES([Makefile lib/Makefile qpb/Makefile zebra/Makefile ripd/Makefile
 	  fpm/Makefile
 	  redhat/quagga.spec 
 	  lib/version.h
-	  doc/defines.texi
 	  isisd/topology/Makefile
 	  pkgsrc/bgpd.sh pkgsrc/ospf6d.sh pkgsrc/ospfd.sh
 	  pkgsrc/ripd.sh pkgsrc/ripngd.sh pkgsrc/zebra.sh])
