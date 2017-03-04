@@ -1,0 +1,12 @@
+[Unit]
+Description=Patchwork Daemon
+
+[Service]
+WorkingDirectory=/home/patchwork/patchwork
+User=patchwork
+Group=patchwork
+EnvironmentFile=/home/patchwork/patchwork.env 
+ExecStart=/usr/bin/python3 manage.py runserver 0.0.0.0:8000
+
+[Install]
+WantedBy=multi-user.target

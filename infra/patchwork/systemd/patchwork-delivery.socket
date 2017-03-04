@@ -1,0 +1,15 @@
+[Unit]
+Description=Patchwork unix pipe to accept list mail delivery on
+
+[Socket]
+#ListenStream=/tmp/patchwork.sock
+ListenStream=127.0.0.1:8001
+SocketUser=patchwork
+SocketGroup=patchwork
+Accept=yes
+
+#ListenFIFO=/tmp/patchwork-fifo.sock
+
+
+[Install]
+WantedBy=sockets.target

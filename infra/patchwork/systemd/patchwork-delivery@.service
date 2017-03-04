@@ -1,0 +1,15 @@
+[Unit]
+Description=Patchwork list mail socket processing script
+
+[Service]
+EnvironmentFile=/home/patchwork/patchwork.env 
+ExecStart=-/home/patchwork/patchwork/patchwork/bin/parsemail.sh
+StandardInput=socket
+StandardOutput=inherit
+StandardError=journal
+User=patchwork
+Group=patchwork
+
+[Install]
+WantedBy=multi-user.target
+Also=patchwork-delivery.socket
