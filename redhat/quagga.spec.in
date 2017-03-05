@@ -259,7 +259,7 @@ developing OSPF-API and quagga applications.
 %endif
 	--enable-gcc-rdynamic
 
-make %{?_smp_mflags} MAKEINFO="makeinfo --no-split"
+make %{?_smp_mflags}
 
 %if %{with_texi2html}
 	pushd doc
@@ -532,7 +532,7 @@ rm -rf %{buildroot}
 %if 0%{?vty_group:1}
 %attr(750,%quagga_user,%vty_group) %{_sysconfdir}/vtysh.conf.sample
 %endif
-%{_infodir}/quagga.info.gz
+%{_infodir}/quagga.info*.gz
 %{_mandir}/man*/*
 %if %{with_watchquagga}
 	%{_mandir}/man*/watchquagga.*
