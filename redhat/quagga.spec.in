@@ -28,6 +28,8 @@
 %{!?vty_group:			%global	vty_group		quaggavt }
 %{!?with_fpm:			%global	with_fpm		0 }
 %{!?with_watchquagga:		%global	with_watchquagga	1 }
+# whether to build doc/quagga.html - requires a lot of TeX packages
+%{!?with_texi2html:		%global with_texi2html		0 }
 
 # path defines
 %define		_sysconfdir	/etc/quagga
@@ -46,7 +48,9 @@
 
 #### Check version of texi2html 
 # Old versions don't support "--number-footnotes" option.
-%{expand: %%global texi2htmlversion %(type texi2html >/dev/null 2>&1 && (rpm -q --qf '%%{VERSION}' texi2html | cut -d. -f1) || echo 0 )}
+%if %{with_texi2html}
+	%{expand: %%global texi2htmlversion %(type texi2html >/dev/null 2>&1 && (rpm -q --qf '%%{VERSION}' texi2html | cut -d. -f1) || echo 0 )}
+%endif
 
 #### Check for systemd or init.d (upstart)
 # Check for init.d (upstart) as used in CentOS 6 or systemd (ie CentOS 7)
@@ -120,8 +124,11 @@ Requires:		ncurses
 Requires(pre):	/sbin/install-info
 Requires(preun): /sbin/install-info
 Requires(post):	/sbin/install-info
-BuildRequires:	texi2html texinfo autoconf patch libcap-devel groff
+BuildRequires:	autoconf patch libcap-devel groff
 BuildRequires:	perl-generators pkgconfig
+%if %{with_texi2html}
+BuildRequires:	texi2html
+%endif
 %if %{with_snmp}
 BuildRequires:	net-snmp-devel
 Requires:	net-snmp
@@ -254,13 +261,15 @@ developing OSPF-API and quagga applications.
 
 make %{?_smp_mflags} MAKEINFO="makeinfo --no-split"
 
-pushd doc
-%if %{texi2htmlversion} < 5
-texi2html --number-sections quagga.texi
-%else
-texi2html --number-footnotes  --number-sections quagga.texi
+%if %{with_texi2html}
+	pushd doc
+	%if %{texi2htmlversion} < 5
+		texi2html --number-sections quagga.texi
+	%else
+		texi2html --number-footnotes  --number-sections quagga.texi
+	%endif
+	popd
 %endif
-popd
 
 %install
 mkdir -p %{buildroot}/etc/{quagga,sysconfig,logrotate.d,pam.d} \
@@ -506,7 +515,9 @@ rm -rf %{buildroot}
 %files
 %defattr(-,root,root)
 %doc */*.sample* AUTHORS COPYING
-%doc doc/quagga.html
+%if %{with_texi2html}
+	%doc doc/quagga.html
+%endif
 %doc doc/mpls
 %doc ChangeLog INSTALL NEWS README REPORTING-BUGS SERVICES TODO
 %if 0%{?quagga_user:1}
@@ -603,6 +614,11 @@ rm -rf %{buildroot}
 %endif
 
 %changelog
+* Sun Mar 5 2017 Paul Jakma <paul@jakma.org>
+- Fix lint errors
+- Make texi2html conditional, disable by default to avoid needing TeX
+  by default
+
 * Mon Feb 27 2017 Paul Jakma <paul@jakma.org>
 - Apply 0001-systemd-various-service-file-improvements.patch from Fedora
 - Review Fedora spec file and sync up with any useful differences, inc:
