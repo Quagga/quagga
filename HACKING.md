@@ -732,3 +732,10 @@ The buildbot client can be used to test changes before committing, with
     ~~~~~
     $ buildbot try -c pb -b build-distcheck
     ~~~~~
+
+-  To test a series of locally committed change use git diff:
+
+    ~~~~
+    git diff <base rev>.. | buildbot try -c pb --vc git \
+	 -b build-centos-7  --branch=volatile/next --diff=- -p 1
+    ~~~~
