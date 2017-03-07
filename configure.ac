@@ -155,12 +155,20 @@ AC_DEFUN([AC_C_FLAG], [{
 	AC_LANG_POP(C)
 	}])
 
-AC_MSG_CHECKING([whether to set a default CFLAGS])
+AC_MSG_CHECKING([which default CFLAGS to set])
 if test "x${cflags_specified}" = "x" ; then
   case ${COMPILER} in
     "SUNPRO")
-        CFLAGS="-xO4 -v -g -xspace -xcode=pic32 -xstrconst -xc99"
-        AC_MSG_RESULT([SunPro default])
+        AC_MSG_RESULT([Sun Studio])
+        AC_C_FLAG([-g])
+        AC_C_FLAG([-xO4])
+        AC_C_FLAG([-xspace])
+        AC_C_FLAG([-xstrconst])
+        AC_C_FLAG([-xc99])
+        AC_C_FLAG([-errfmt])
+        AC_C_FLAG([-xipo])
+	dnl AC_C_FLAG([-xlinkopt=2]) SPARC only dnl
+	dnl AC_C_FLAG([-xcode=pic32])dnl	
         ;;
     *)
         AC_MSG_RESULT([autodetecting])
