@@ -1,0 +1,86 @@
+<?xml version="1.0"?>
+<!DOCTYPE service_bundle SYSTEM "/usr/share/lib/xml/dtd/service_bundle.dtd.1">
+<!--
+        This file is part of Quagga.
+        The contents of this file are released to the public domain.
+-->
+
+<!--
+	Solaris/Illumos SMF manifest file for buildbot slave/worker.
+	
+	Usage:
+	
+	- edit occurances of 'slave' to 'worker', if needed. 
+	- install buildbot-slave or buildbot-worker:
+	
+		pip install buildbot-slave
+	
+	- create buildbot user and homedir, then:
+	
+		cd ~buildbot && buildslave . <buildbot-master> <name> <passw>
+	
+	- enable: svcadm enable buildbot-slave	
+-->
+<service_bundle type='manifest' name='buildbot-slave'>
+
+<service
+        name='application/buildbot-slave'
+        type='service'
+        version='1'>
+        
+        <create_default_instance enabled='true' />
+        
+        <single_instance />
+        
+        <dependency name='fslocal'
+        	type='service'
+        	grouping='require_all'
+        	restart_on='none'>
+        	<service_fmri value='svc:/system/filesystem/local:default' />
+        </dependency>
+        <dependency name='home'
+        	type='service'
+        	grouping='require_all'
+        	restart_on='none'>
+        	<service_fmri value='svc:/system/filesystem/autofs:default' />
+        </dependency>
+        
+        <dependency name='net'
+        	grouping='require_all'
+        	restart_on='none'
+        	type='service'>
+        	<service_fmri value='svc:/milestone/network:default' />
+       </dependency>
+       
+       <exec_method
+       		type='method'
+       		name='start'
+       		exec='/usr/bin/buildslave start'
+       		timeout_seconds='30'>
+       		<method_context>
+       			<method_credential user='buildbot' group='staff' />
+       		</method_context>
+       	</exec_method>
+       	
+       	<exec_method
+       		type='method'
+       		name='stop'
+       		exec='/usr/bin/buildslave stop'
+       		timeout_seconds='60'>
+       		<method_context>
+       			<method_credential user='buildbot' group='staff' />
+       		</method_context>
+       	</exec_method>
+
+       	<exec_method
+       		type='method'
+       		name='refresh'
+       		exec='/usr/bin/buildslave restart'
+       		timeout_seconds='60'>
+       		<method_context>
+       			<method_credential user='buildbot' group='buildbot' />
+       		</method_context>
+       	</exec_method>
+	<stability value='Unstable' />	 
+</service>
+</service_bundle>
