@@ -109,13 +109,15 @@ if ZEBRA
 man_MANS += zebra.8
 endif
 
+AM_MAKEINFOHTMLFLAGS = --css-include=$(srcdir)/texinfo.css
+
 EXTRA_DIST = BGP-TypeCode draft-zebra-00.ms draft-zebra-00.txt \
 	bgpd.8 isisd.8 ospf6d.8 ospfclient.8 ospfd.8 ripd.8 \
 	ripngd.8 nhrpd.8 pimd.8 vtysh.1 watchquagga.8 zebra.8 \
 	mpls/ChangeLog.opaque.txt mpls/cli_summary.txt \
 	mpls/opaque_lsa.txt mpls/ospfd.conf \
 	$(figures_sources) $(figures_png) $(figures_txt) \
-	texinfo.tex
+	texinfo.tex texinfo.css
 
 draft-zebra-00.txt: draft-zebra-00.ms
 	groff -T ascii -ms $< > $@
