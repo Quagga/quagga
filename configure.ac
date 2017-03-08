@@ -193,10 +193,14 @@ if test "x${cflags_specified}" = "x" ; then
         		}')" = "x1" ; then
         	AC_MSG_RESULT([yes])
         	AC_C_FLAG([-fstack-protector-strong])
+        	AC_C_FLAG([--param=ssp-buffer-size=4])
         else
         	AC_MSG_RESULT([no])
         	AC_MSG_WARN([upgrade to libtool >= 2.4.6!])
         fi
+        AC_C_FLAG([-D_FORTIFY_SOURCE=2])
+        AC_C_FLAG([-Wformat])
+        AC_C_FLAG([-Wformat-security])
         AC_C_FLAG([-fpie])
         AC_C_FLAG([-fno-omit-frame-pointer])
         AC_C_FLAG([-Wall])
