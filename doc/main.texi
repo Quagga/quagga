@@ -355,11 +355,11 @@ Within a route-map, set the preferred source address for matching routes
 when installing in the kernel.
 @end deffn
 
-@example
 The following creates a prefix-list that matches all addresses, a route-map
 that sets the preferred source address, and applies the route-map to all
 @command{rip} routes.
 
+@example
 @group
 ip prefix-list ANY permit 0.0.0.0/0 le 32
 route-map RM1 permit 10

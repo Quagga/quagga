@@ -91,8 +91,9 @@ This can be achieved with the following iptables rule.
 @group
 iptables -A FORWARD -i gre1 -o gre1 \
 	-m hashlimit --hashlimit-upto 4/minute --hashlimit-burst 1 \
-	--hashlimit-mode srcip,dstip --hashlimit-srcmask 24 --hashlimit-dstmask 24 \
-	--hashlimit-name loglimit-0 -j NFLOG --nflog-group 1 --nflog-range 128
+	--hashlimit-mode srcip,dstip --hashlimit-srcmask 24 \
+	--hashlimit-dstmask 24 --hashlimit-name loglimit-0 \
+	-j NFLOG --nflog-group 1 --nflog-range 128
 @end group
 @end example
 
