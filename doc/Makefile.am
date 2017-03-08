@@ -20,8 +20,7 @@ PNGTOPDF = $(PNGTOEPS)
 EPSTOPDF = epstopdf
 
 # The figure sources
-figures_names_parts = -normal-processing -rs-processing \
-	_topologies_full _topologies_rs
+figures_names_parts = -normal-processing -rs-processing
 figures_sources = $(figures_names_parts:%=fig%.dia)
 figures_png = $(figures_names_parts:%=fig%.png)
 figures_pdf = $(figures_names_parts:%=fig%.pdf)

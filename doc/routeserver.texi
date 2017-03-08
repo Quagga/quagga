@@ -60,18 +60,8 @@ of a peer are announced to that peer.
 @end itemize
 
 @float Figure,fig:normal-processing
-@image{fig-normal-processing,400pt,,Normal announcement processing}
+@center @image{fig-normal-processing,400pt,,Normal announcement processing}
 @caption{Announcement processing inside a ``normal'' BGP speaker}
-@end float
-
-@float Figure,fig:full-mesh
-@image{fig_topologies_full,120pt,,Full Mesh BGP Topology}
-@caption{Full Mesh}
-@end float
-
-@float Figure,fig:route-server
-@image{fig_topologies_rs,120pt,,Route Server BGP Topology}
-@caption{Route Server and clients} 
 @end float
 
 Of course we want that the routing tables obtained in each of the routers
@@ -173,7 +163,7 @@ they do not hurt anybody (they can always be left empty).
 @end itemize
 
 @float Figure,fig:rs-processing
-@image{fig-rs-processing,450pt,,Route Server Processing Model}
+@center @image{fig-rs-processing,430pt,,Route Server Processing Model}
 @caption{Announcement processing model implemented by the Route Server}
 @end float
 
