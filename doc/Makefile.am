@@ -33,14 +33,10 @@ figures_txt = $(figures_names_parts:%=fig%.txt)
 # provided by automake. If you are an automake wizard, please feel free to
 # compact it somehow.
 
-info_TEXINFOS = quagga.texi
+#quagga.pdf: $(info_TEXINFOS) $(quagga_TEXINFOS)
+#	$(TEXI2PDF) -o "$@" $< || true
 
-# Have to manually specify the quagga.pdf rule in order to allow
-# us to have a generic automatic .pdf rule to build the figure sources
-# because it cant just work from the png's directly it seems - contrary
-# to the documentation...
-quagga.pdf: $(info_TEXINFOS) $(quagga_TEXINFOS)
-	$(TEXI2PDF) -o "$@" $< || true
+info_TEXINFOS = quagga.texi
 
 quagga_TEXINFOS = appendix.texi basic.texi bgpd.texi filter.texi \
 	install.texi ipv6.texi kernel.texi main.texi ospf6d.texi ospfd.texi \
