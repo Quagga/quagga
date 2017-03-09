@@ -5,6 +5,9 @@
 @c Set variables - sourced from defines.texi
 @include defines.texi
 @settitle @uref{http://www.quagga.net,,@value{PACKAGE_NAME}}
+@iftex
+@afourpaper
+@end iftex
 @c %**end of header
 
 @c automake will automatically generate version.texi
