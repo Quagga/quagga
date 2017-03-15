@@ -183,12 +183,14 @@ if test "x${cflags_specified}" = "x" ; then
         dnl from ld. Disable. An issue with libtool < 2.4.6 dropping the
         dnl -fstack-protector-strong argument from the shared link.
         AC_MSG_CHECKING([whether libtool can support fstack-protector])
-        if test x"$(./libtool --version \
-         	    | awk -F '[[ \t.]]' \
-        		'NR == 1 { \
-   				if ($(NF-2) <= 2 && $(NF-1) <= 4 && $NF < 6) \
-        				print 0; \
-        			else print 1 \
+        if test x"$(./libtool --version | awk 'NR == 1 { print $NF }' \
+         	    | awk -F. '{ \
+         	    	if ($(NF-2) < 2) print 0; \
+         	    	else if ($(NF-2) > 2) print 1; \
+         	    	else if ($(NF-1) < 4) print 0; \
+         	    	else if ($(NF-1) > 4) print 1; \
+         	    	else if ($NF < 6) print 0; \
+         	    	else print 1;  \
         		}')" = "x1" ; then
         	AC_MSG_RESULT([yes])
         	AC_C_FLAG([-fstack-protector-strong])
