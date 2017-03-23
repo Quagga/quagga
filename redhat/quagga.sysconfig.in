@@ -13,9 +13,9 @@ PIMD_OPTS="-A 127.0.0.1"
 
 # Default: The compiled in default user and group(s), useful to
 # system startup to chmod config files.
-QUAGGA_USER=quagga
-QUAGGA_GROUP=quagga
-VTY_GROUP=
+QUAGGA_USER=@enable_user@
+QUAGGA_GROUP=@enable_group@
+VTY_GROUP=@enable_vty_group@
 
 # Watchquagga configuration for LSB initscripts
 #

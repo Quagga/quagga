@@ -1657,7 +1657,7 @@ AC_CONFIG_FILES([Makefile lib/Makefile qpb/Makefile zebra/Makefile ripd/Makefile
 	  redhat/Makefile
 	  pkgsrc/Makefile
 	  fpm/Makefile
-	  redhat/quagga.spec 
+	  redhat/quagga.spec redhat/quagga.sysconfig
 	  lib/version.h
 	  isisd/topology/Makefile
 	  pkgsrc/bgpd.sh pkgsrc/ospf6d.sh pkgsrc/ospfd.sh
