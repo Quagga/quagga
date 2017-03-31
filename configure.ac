@@ -116,9 +116,9 @@ AM_CONDITIONAL([HAVE_PANDOC], [test "x$HAVE_PANDOC" = "xtrue"])
 if test "x${GCC}" != "xyes" ; then
   AC_MSG_CHECKING([whether we are using SunPro compiler])
   AC_EGREP_CPP([^__SUNPRO_C.*0x5(7|8|9)], ["__SUNPRO_C" __SUNPRO_C],
-      [AC_MSG_RESULT([no])],
       [COMPILER="SUNPRO"
-       AC_MSG_RESULT([yes])]
+       AC_MSG_RESULT([yes])],
+      [AC_MSG_RESULT([no])]
   )
 fi
 
