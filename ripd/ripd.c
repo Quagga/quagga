@@ -3872,7 +3872,7 @@ rip_distribute_update_all (struct prefix_list *notused)
 }
 /* ARGSUSED */
 static void
-rip_distribute_update_all_wrapper(struct access_list *notused)
+rip_distribute_update_all_wrapper(const char *unused)
 {
         rip_distribute_update_all(NULL);
 }
