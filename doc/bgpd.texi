@@ -1165,7 +1165,7 @@ route-map RMAP permit 10
 
 Following configuration is an example of BGP route filtering using
 communities attribute.  This configuration only permit BGP routes
-which has BGP communities value 0:80 or 0:90.  Network operator can
+which has BGP communities value 0:80 and 0:90.  Network operator can
 put special internal communities value at BGP border router, then
 limit the BGP routes announcement into the internal network.
 
