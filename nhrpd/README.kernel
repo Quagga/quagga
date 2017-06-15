@@ -1,13 +1,15 @@
-KERNEL REQUIREMENTS
-===================
+LINUX KERNEL REQUIREMENTS
+=========================
 
 The linux kernel has had various major regressions, performance
 issues and subtle bugs (especially in pmtu). Here is a short list
-of some -stable kernels and the first point release that is supposedly
-working well with opennhrp/dmvpn:
+of some -stable kernels that have been tested (at least briefly)
+and seem to be working well with Quagga/NHRP:
   3.12.8 or later
   3.14.54 or later
   3.18.22 or later[1]
+  4.4.52 or later
+  4.9.30 or later
 
 [1] But you need to apply the following two backported commits:
     3cdaa5be9e ipv4: Don't increase PMTU with Datagram Too Big message

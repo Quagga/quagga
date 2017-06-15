@@ -9,17 +9,18 @@ Cisco DMVPN (and potentially with FlexVPN in the future).
 Current Status
 --------------
 
+Implemented:
 - IPsec integration with strongSwan (requires patched strongSwan)
 - IPv4 over IPv4 NBMA GRE
 - IPv6 over IPv4 NBMA GRE -- majority of code exist; but is not tested
-- Spoke (NHC) functionality complete
-- Hub (NHS) functionality complete
-- Multicast support is not done yet
-  (so OSPF will not work, use BGP for now)
+- Spoke (NHC) functionality
+- Hub (NHS) functionality
 
-The code is not (yet) compatible with Cisco FlexVPN style DMVPN. It
-would require relaying IKEv2 routing messages from strongSwan to nhrpd
-and parsing that. It is doable, but not implemented for the time being.
+Not yet implemented:
+- NHRP Authentication
+- NHRP Groups
+- Multicast support (OSPF will not work)
+- Full Cisco FlexVPN compatibility (IKEv2 routing)
 
 
 Routing Design
@@ -32,6 +33,7 @@ To create NBMA GRE tunnel you might use following:
 	ip tunnel add gre1 mode gre key 42 ttl 64 dev eth0
 	ip addr add 10.255.255.2/32 dev gre1
 	ip link set gre1 up
+	sysctl net.ipv4.ip_forward_use_pmtu=1 #for kernels>=3.14
 
 This has two important differences compared to opennhrp setup:
  1. The 'tunnel add' now specifies physical device binding. Quagga/NHRP
@@ -114,6 +116,7 @@ Getting information via vtysh
 
 Some commands of interest:
  - show dmvpn
+ - show ip nhrp nhs
  - show ip nhrp cache
  - show ip nhrp shortcut
  - show ip route nhrp
