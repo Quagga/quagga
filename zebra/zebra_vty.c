@@ -5293,7 +5293,6 @@ zebra_vty_init (void)
   install_element (VIEW_NODE, &show_ip_protocol_cmd);
   install_element (CONFIG_NODE, &ip_route_cmd);
   install_element (CONFIG_NODE, &ip_route_tag_cmd);
-  install_element (CONFIG_NODE, &ip_route_tag_vrf_cmd);
   install_element (CONFIG_NODE, &ip_route_flags_cmd);
   install_element (CONFIG_NODE, &ip_route_flags_tag_cmd);
   install_element (CONFIG_NODE, &ip_route_flags_tag_vrf_cmd);
@@ -5311,7 +5310,6 @@ zebra_vty_init (void)
   install_element (CONFIG_NODE, &ip_route_mask_flags2_tag_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_cmd);
   install_element (CONFIG_NODE, &no_ip_route_tag_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_tag_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_tag_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags2_cmd);
@@ -5326,7 +5324,6 @@ zebra_vty_init (void)
   install_element (CONFIG_NODE, &no_ip_route_mask_flags2_tag_vrf_cmd);
   install_element (CONFIG_NODE, &ip_route_distance_cmd);
   install_element (CONFIG_NODE, &ip_route_tag_distance_cmd);
-  install_element (CONFIG_NODE, &ip_route_tag_distance_vrf_cmd);
   install_element (CONFIG_NODE, &ip_route_flags_distance_cmd);
   install_element (CONFIG_NODE, &ip_route_flags_tag_distance_cmd);
   install_element (CONFIG_NODE, &ip_route_flags_tag_distance_vrf_cmd);
@@ -5344,7 +5341,6 @@ zebra_vty_init (void)
   install_element (CONFIG_NODE, &ip_route_mask_flags_tag_distance2_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_tag_distance_cmd);
-  install_element (CONFIG_NODE, &no_ip_route_tag_distance_vrf_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_tag_distance_cmd);
   install_element (CONFIG_NODE, &no_ip_route_flags_tag_distance_vrf_cmd);
