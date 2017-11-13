@@ -2812,7 +2812,7 @@ command_config_read_one_line (struct vty *vty, struct cmd_element **cmd, int use
 	 ret != CMD_SUCCESS && ret != CMD_WARNING &&
 	 ret != CMD_ERR_NOTHING_TODO && vty->node != CONFIG_NODE) {
     vty->node = node_parent(vty->node);
-    ret = cmd_execute_command_strict (vline, vty, NULL);
+    ret = cmd_execute_command_strict (vline, vty, cmd);
   }
 
   // If climbing the tree did not work then ignore the command and
