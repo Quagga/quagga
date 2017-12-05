@@ -3071,7 +3071,7 @@ DEFUN (config_write_file,
        "Write to configuration file\n")
 {
   unsigned int i;
-  int fd;
+  int fd, dupfd = -1;
   struct cmd_node *node;
   char *config_file;
   char *config_file_tmp = NULL;
@@ -3124,7 +3124,20 @@ DEFUN (config_write_file,
 	if ((*node->func) (file_vty))
 	  vty_out (file_vty, "!\n");
       }
+  
+  if ((dupfd = dup (file_vty->wfd)) < 0)
+    {
+      vty_out (vty, "Couldn't dup fd (for fdatasync) for %s, %s (%d).%s", 
+               config_file, safe_strerror(errno), errno, VTY_NEWLINE);
+    }
+
   vty_close (file_vty);
+  
+  if (fdatasync (dupfd) < 0)
+    {
+      vty_out (vty, "Couldn't fdatasync %s, %s (%d)!%s",
+               config_file, safe_strerror(errno), errno, VTY_NEWLINE);
+    }
 
   if (unlink (config_file_sav) != 0)
     if (errno != ENOENT)
@@ -3139,21 +3152,12 @@ DEFUN (config_write_file,
 	        VTY_NEWLINE);
       goto finished;
     }
-  sync ();
-  if (unlink (config_file) != 0)
+  if (rename (config_file_tmp, config_file) != 0)
     {
-      vty_out (vty, "Can't unlink configuration file %s.%s", config_file,
-	        VTY_NEWLINE);
+      vty_out (vty, "Can't move configuration file %s into place.%s",
+               config_file, VTY_NEWLINE);
       goto finished;
     }
-  if (link (config_file_tmp, config_file) != 0)
-    {
-      vty_out (vty, "Can't save configuration file %s.%s", config_file,
-	       VTY_NEWLINE);
-      goto finished;
-    }
-  sync ();
-  
   if (chmod (config_file, CONFIGFILE_MASK) != 0)
     {
       vty_out (vty, "Can't chmod configuration file %s: %s (%d).%s", 
@@ -3166,6 +3170,8 @@ DEFUN (config_write_file,
   ret = CMD_SUCCESS;
 
 finished:
+  if (dupfd >= 0)
+    close (dupfd);
   unlink (config_file_tmp);
   XFREE (MTYPE_TMP, config_file_tmp);
   XFREE (MTYPE_TMP, config_file_sav);
