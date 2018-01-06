@@ -2328,7 +2328,8 @@ bgp_capability_msg_parse (struct peer *peer, u_char *pnt, bgp_size_t length)
 
   end = pnt + length;
 
-  while (pnt < end)
+  /* XXX: Streamify this */
+  for (; pnt < end; pnt += hdr->length + 3)
     {      
       /* We need at least action, capability code and capability length. */
       if (pnt + 3 > end)
@@ -2416,7 +2417,6 @@ bgp_capability_msg_parse (struct peer *peer, u_char *pnt, bgp_size_t length)
           zlog_warn ("%s unrecognized capability code: %d - ignored",
                      peer->host, hdr->code);
         }
-      pnt += hdr->length + 3;
     }
   return 0;
 }
