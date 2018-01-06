@@ -199,15 +199,17 @@ cluster_intern (struct cluster_list *cluster)
 }
 
 void
-cluster_unintern (struct cluster_list *cluster)
+cluster_unintern (struct cluster_list **cluster)
 {
-  if (cluster->refcnt)
-    cluster->refcnt--;
+  struct cluster_list *c = *cluster;
+  if (c->refcnt)
+    c->refcnt--;
 
-  if (cluster->refcnt == 0)
+  if (c->refcnt == 0)
     {
-      hash_release (cluster_hash, cluster);
-      cluster_free (cluster);
+      hash_release (cluster_hash, c);
+      cluster_free (c);
+      *cluster = NULL;
     }
 }
 
@@ -357,15 +359,18 @@ transit_intern (struct transit *transit)
 }
 
 void
-transit_unintern (struct transit *transit)
+transit_unintern (struct transit **transit)
 {
-  if (transit->refcnt)
-    transit->refcnt--;
+  struct transit *t = *transit;
+  
+  if (t->refcnt)
+    t->refcnt--;
 
-  if (transit->refcnt == 0)
+  if (t->refcnt == 0)
     {
-      hash_release (transit_hash, transit);
-      transit_free (transit);
+      hash_release (transit_hash, t);
+      transit_free (t);
+      *transit = NULL;
     }
 }
 
@@ -820,11 +825,11 @@ bgp_attr_unintern_sub (struct attr *attr)
       UNSET_FLAG(attr->flag, ATTR_FLAG_BIT (BGP_ATTR_LARGE_COMMUNITIES));
       
       if (attr->extra->cluster)
-        cluster_unintern (attr->extra->cluster);
+        cluster_unintern (&attr->extra->cluster);
       UNSET_FLAG(attr->flag, ATTR_FLAG_BIT (BGP_ATTR_CLUSTER_LIST));
       
       if (attr->extra->transit)
-        transit_unintern (attr->extra->transit);
+        transit_unintern (&attr->extra->transit);
     }
 }
 
