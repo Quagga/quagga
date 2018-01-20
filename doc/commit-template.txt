@@ -1,0 +1,55 @@
+# topic[/subtopic]: Short description which should finish before char 72
+#
+# [Optional general description of the changeset goes here. See below for
+#  further guidance.  A short description of each specific change
+#  made:]
+#
+# * <file>: (function/typemacro) type of change
+# * <file>: (func_{a,b,c}) Frobnicated to match the foo.
+# * <file>: (foo_{bar,war}) Ditto.
+# * <file>: (fnar_*) Ditto, and also twiddled for the thing.
+
+# Guidelines:
+#
+# - Set your editor to 72 char line width (so 'git log' fits in 80
+#   chars).
+#
+# The 'topic' is used to collate the commit logs, to create summaries
+# for release announcements, so please provide one. 
+#
+# Often the topic is the name of the daemon affected (e.g.  'bgpd' or
+# 'ospfd'), or 'lib', or 'build'.  The subtopic isn't often used, but
+# 'security' is a good one to provide on security fixes.
+#
+# The body should provide:
+#
+#     -  The motivation for the change (does it fix a bug, if so which? 
+#        add a feature?)
+#
+#    -   The general approach taken, and trade-offs versus any other
+#        approaches.
+#
+#    -   Any testing undertaken or other information affecting the
+#        confidence that can be had in the change.
+#
+#    -   Information to allow reviewers to be able to tell which
+#        specific changes to the code are intended (and hence be able
+#        to spot any accidental unintended changes).
+#
+# -   The commit message *must* give details of all the authors of the change,
+#     beyond the person listed in the Author field.  Any and all
+#     affiliations which may have a bearing on copyright in any way
+#     should be clearly stated, unless those affiliations are already
+#     obvious from other details, e.g.  from the email address.  This
+#     would cover employment and contracting obligations (give
+#     details).
+#
+#     Note: Do not rely on "Signed-off-by" for this, be explicit.
+#    
+# -   If the change introduces a new dependency on any code or other
+#     copyrighted material, please explicitly note this.  Give details
+#     of what that external material is, the copyright licence the
+#     material may be used under, and the nature of the dependency.
+#
+# Please have a look at the git commit logs to get a feel for what the
+# norms are.
