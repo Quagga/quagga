@@ -1,0 +1,39 @@
+Quagga Security Note 201x-YYYY
+==============================
+
+Summary
+-------
+
+[v short, one or two lines, keep line lengths to 72 chars max
+ and 2 returns before next sub-header]
+
+Affects:
+--------
+
+[details of versions known to be affected and, if known, when issue
+ was introduced.]
+
+Impact
+------
+
+[succinct description of the security outcomes]
+
+
+Solution
+--------
+
+[Workaround by .... Apply patch. Upgrade to. Git commit
+ is .... with subject:
+
+ "foo: bar should be frobnicated"
+
+Description
+------------
+
+[long and detailed description, reiterating the above] 
+
+
+[Acknowledgements
+ ----------------
+
+ Reported by ...]
