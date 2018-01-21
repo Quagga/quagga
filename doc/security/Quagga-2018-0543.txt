@@ -1,0 +1,72 @@
+Quagga Security Note 2018-0543
+==============================
+
+https://www.quagga.net/security/Quagga-2018-0543.txt
+
+
+Affects:
+--------
+
+Quagga versions: 
+- 1.1.0
+- 1.1.1
+- 1.2.0
+- 1.2.1
+- 1.2.2
+
+Summary
+-------
+
+The Quagga BGP daemon, bgpd, does not properly bounds check the data
+sent with a NOTIFY to a peer, if an attribute length is invalid. 
+Arbitrary data from the bgpd process may be sent over the network to a
+peer and/or it may crash.
+
+
+Impact
+------
+
+Sensitive data from the bgpd process may be sent over the network to a
+configured peer.  The bgpd process may or may not crash.
+
+
+Solution
+--------
+
+Upgrade Quagga to a version containing the fix.  E.g., Quagga version
+1.2.3.
+
+Description
+------------
+
+When bgpd receives an UPDATE with invalid attribute length, the invalid
+length is correctly checked, and detected as such, and a NOTIFY
+prepared to terminate the session.  According to the BGP protocol, the
+NOTIFY message may include the incorrect received data with the NOTIFY,
+for debug purposes.  Commit c69698704806a9ac5 modified the bgpd code to
+do that just, and also send the malformed attr with the NOTIFY. 
+However, the invalid attribute length was used as the length of the
+data to send back.
+
+The result is a read past the end of data, which is then written to the
+NOTIFY message and sent to the peer.
+
+A configured BGP peer can use this bug to read up to 64 KiB of memory from
+the bgpd process, or crash the process if the invalid read is caught by
+some means (unmapped page and SEGV, or other mechanism) resulting in a
+DoS.
+
+This bug _ought_ /not/ be exploitable by anything other than the connected
+BGP peer.  For no BGP peer should send on an UPDATE with this attribute. 
+Quagga will not, as Quagga always validates the attr header length,
+regardless of type.
+
+However, it is possible that there are BGP implementations that do not
+check lengths on some attributes (e.g.  optional/transitive ones of a type
+they do not recognise), and might pass such malformed attrs on.  If such
+implementations exists and are common, then this bug might be triggerable
+by BGP speakers further hops away.  Those peers will not receive the
+NOTIFY (unless they sit on a shared medium), however they might then be
+able to trigger a DoS.
+
+The code fix is to use the valid bound to calculate the length.

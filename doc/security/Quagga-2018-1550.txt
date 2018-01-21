@@ -1,0 +1,50 @@
+Quagga Security Note 2018-1550
+==============================
+
+https://www.quagga.net/security/Quagga-2018-1550.txt
+
+
+Affects:
+--------
+
+All versions of Quagga.
+
+
+Summary
+-------
+
+The Quagga BGP daemon, bgpd, can overrun internal BGP code-to-string
+conversion tables used for debug by 1 pointer value, based on input.
+
+
+Impact
+------
+
+The impact is thought to be very low. The bgpd daemon likely will continue
+running. Warning and debug messages in the logs may contain arbitrary bytes.
+
+The issue can only be triggered by a configured peer, if there is sufficient
+transport security.
+
+
+Solution
+--------
+
+Upgrade to Quagga version 1.2.3, or any version with the fix applied. The
+fix is git commit:
+
+  "bgpd/security: debug print of received NOTIFY data can over-read msg array"
+
+
+Description
+------------
+
+The bgpd daemon contains a number of tables to convert BGP code-points to
+string representations. These tables are used for logging debug and warning
+messages if a NOTIFY is sent.
+
+The lookup into the conversion table used a bound on the size that was 1
+greater than the actual size of the table. This allowed the lookup to read 1
+pointer past the end of the array, if a lookup was made with an unknown
+code-point from a BGP message.
+

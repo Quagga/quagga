@@ -1,0 +1,68 @@
+Quagga Security Note 2018-1975
+==============================
+
+https://www.quagga.net/security/Quagga-2018-1975.txt
+
+
+Affects:
+--------
+
+- Quagga version 0.99.9, and all later versions
+- All versions, if the "override-capability" neighbour option is set (not
+  the default).
+
+
+Summary
+-------
+
+The Quagga BGP daemon, bgpd, can enter an infinite loop if sent an invalid
+OPEN message by a configured peer.
+
+
+Impact
+------
+
+This problem is triggerable by packets from a configured peer.  
+
+When triggered, the bgpd daemon enters an infinite loop and cease to respond
+to any other events.  BGP sessions will drop and not be reestablished.  The
+CLI interface will be unresponsive.  The bgpd daemon will stay in this state
+until it is restarted.
+
+
+Solution
+--------
+
+Upgrade to Quagga version 1.2.3 or later, or apply the fix from commit:
+
+  "bgpd/security: fix infinite loop on certain invalid OPEN messages"
+
+Until then, the problem can be mitigated by enabling watchquagga and
+ensuring that it monitors bgpd and restarts it if it ceases to be
+responsive.
+
+Disabling capability negotiation will also prevent the problem from
+occurring, but may cause problems. It is not recommended to disable
+capability negotiation in normal operation.
+
+
+Description
+------------
+
+The Quagga BGP daemon, bgpd, had a bug in its parsing of "Capabilities" in
+BGP OPEN messages, in the bgp_packet.c:bgp_capability_msg_parse function. 
+The parser can enter an infinite loop on invalid capabilities if a
+Multi-Protocol capability does not have a recognised AFI/SAFI.
+
+The issue was introduced in commit 6d58272b4c, by copying an incorrect
+pattern of code from an existing check on a configuration flag (which also
+has the issue) and applying it to protocol data.
+
+This issue can be triggered by a configured peer, accidentally or
+deliberately.  It could also be configured by others, if transport security
+and/or network topology allowed an attacker to spoof a full TCP connection.
+
+The consequence of this bug is that bgpd enters an infinite loop. The bgpd
+daemon will not be able to do any other work as a consequence, including
+servicing BGP and CLI sessions. BGP sessions will time out and drop and not
+be re-established. This state will persist until the bgpd is restarted.

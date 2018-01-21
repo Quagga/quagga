@@ -1,0 +1,65 @@
+Quagga Security Note 2018-1114
+==============================
+
+https://www.quagga.net/security/Quagga-2018-1114.txt
+
+
+Affects:
+--------
+
+- Likely to affect all versions of Quagga
+
+Summary
+-------
+
+The Quagga BGP daemon, bgpd, can double-free memory when processing
+certain forms of UPDATE message, containing cluster-list and/or unknown
+attributes.
+
+Impact
+------
+
+Potentially severe.
+
+This issue can be triggered by an optional/transitive UPDATE attribute, that
+all conforming eBGP speakers should pass along.  This means this may
+triggerable in many affected Quagga bgpd processes across a wide area of a
+network, because of just one UPDATE message.
+
+This issue could result in a crash of bgpd, or even allow a remote
+attacker to gain control of an affected bgpd process.
+
+Solution
+--------
+
+Upgrade to Quagga 1.2.3, or any other version with the appropriate
+patch applied, entitled:
+
+  "bgpd/security: Fix double free of unknown attribute"
+
+Description
+------------
+
+The issue is a double-free in bgp_attr_flush called from
+bgp_packet.c:bgp_update_receive. This can be triggered by a variety of
+BGP UPDATE messages, containing either a "CLUSTER_LIST" attribute (used
+in iBGP route-reflection) or an unknown attribute.
+
+An unrecognised optional/transitive UPDATE attribute should be passed along
+by conforming BGP speakers, if the attribute is otherwise well-formed. 
+Therefore this issue potentially can be triggered across a number of Quagga
+bgpd speakers, over a wide area of a network, by one BGP speaker sending an
+UPDATE.
+
+Once this issue has been triggered the behaviour of bgpd is undefined.  The
+internal state of the memory allocator may become corrupted, unless it has
+been designed to be robust to the double-free.  The memory allocator may
+catch the issue and crash the bgpd process in a controlled manner, otherwise
+bgpd process could continue to run with invalid memory allocation state.
+
+It is possible an attacker could exploit the corrupted allocator state to
+gain control of the bgpd process.  E.g., if the allocator stores the
+incorrectly double-freed memory twice on its internal free-list, then the
+allocator could return the same memory twice in further calls of malloc, and
+the attacker might be able to control the operation of one part of bgpd with
+data they supply that is stored in another.

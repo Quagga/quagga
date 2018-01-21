@@ -1,6 +1,8 @@
 Quagga Security Note 201x-YYYY
 ==============================
 
+https://www.quagga.net/security/Quagga-YYYY-XXXX.txt
+
 Summary
 -------
 
