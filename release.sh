@@ -64,6 +64,10 @@ Release files are in ${TMPDIR}/a:
 	${TMPDIR}/a/${REL}.tar.gz.asc
 	${TMPDIR}/a/${REL}.changelog.txt
 
+Changelog summary (subjects) is at:
+
+	${TMPDIR}/a/${REL}.subjects.txt
+
 If you need to redo the release, you must delete the tag first:
 
 	git tag -d ${REL}
