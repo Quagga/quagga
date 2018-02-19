@@ -1276,7 +1276,12 @@ struct thread *thread_current = NULL;
 
 /* We check thread consumed time. If the system has getrusage, we'll
    use that to get in-depth stats on the performance of the thread in addition
-   to wall clock time stats from gettimeofday. */
+   to wall clock time stats from gettimeofday. 
+ 
+   'Dummy' threads (e.g.  see funcname_thread_execute) must have
+   thread->master == NULL.
+ */
+   
 static void
 thread_call (struct thread *thread)
 {
@@ -1336,8 +1341,10 @@ thread_call (struct thread *thread)
 		 realtime/1000, cputime/1000);
     }
 #endif /* CONSUMED_TIME_CHECK */
+
   
-  thread_add_unuse (thread);
+  if (thread->master)
+    thread_add_unuse (thread);
 }
 
 /* Execute thread */
