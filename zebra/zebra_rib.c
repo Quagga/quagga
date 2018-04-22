@@ -1093,6 +1093,34 @@ rib_uninstall (struct route_node *rn, struct rib *rib)
 
 static void rib_unlink (struct route_node *, struct rib *);
 
+static int
+check_is_disabled_static(rib_dest_t *dest)
+{
+    struct rib* route = dest->routes;
+
+    while (route) {
+     if (route->type == ZEBRA_ROUTE_KERNEL) {
+       if (route->nexthop->type == NEXTHOP_TYPE_IPV4_IFINDEX) {
+         zlog_debug("check_is_disabled_static: kernel route with refcnt=%ld", route->refcnt);
+         zlog_debug("check_is_disabled_static: kernel route with ifname=%s", route->nexthop->ifname);
+         struct interface * iface = if_lookup_by_index(route->nexthop->ifindex);
+         zlog_debug("check_is_disabled_static: kernel route with index=%d, if pointer=%ld", route->nexthop->ifindex, (long int)iface);
+         if (!iface) {
+              //this is route thought died interface
+              zlog_debug("check_is_disabled_static: allow to remove Kernel route thourght removed interface");
+              return 1;
+         }
+       }
+     } else {
+       zlog_debug(">>!!!: non-kernel route");
+     }
+     route = route->next;
+   }
+
+   return 0;
+}
+
+
 /*
  * rib_can_delete_dest
  *
@@ -1101,6 +1129,13 @@ static void rib_unlink (struct route_node *, struct rib *);
 static int
 rib_can_delete_dest (rib_dest_t *dest)
 {
+  if (check_is_disabled_static(dest)) {
+    if (CHECK_FLAG (dest->flags, RIB_DEST_UPDATE_FPM) ||
+        CHECK_FLAG (dest->flags, RIB_DEST_SENT_TO_FPM))
+      return 0;
+    return 1;
+  }
+
   if (dest->routes)
     {
       return 0;
