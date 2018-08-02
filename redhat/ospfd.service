@@ -11,7 +11,7 @@ Documentation=man:ospfd
 Type=forking
 EnvironmentFile=/etc/sysconfig/quagga
 ExecStartPre=-/bin/chmod -f 640 /etc/quagga/ospfd.conf
-ExecStartPre=-/bin/chown -f $QUAGGA_USER:$QUAGGA_GROUP /etc/quagga/ospfd.conf
+ExecStartPre=-/bin/chown -f ${QUAGGA_USER}:${QUAGGA_GROUP} /etc/quagga/ospfd.conf
 ExecStart=/usr/sbin/ospfd -d $OSPFD_OPTS -f /etc/quagga/ospfd.conf
 Restart=on-abort
 
