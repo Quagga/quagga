@@ -3049,7 +3049,10 @@ bgp_packet_attribute (struct bgp *bgp, struct peer *peer,
     }
 
   if ((afi == AFI_IP || afi == AFI_IP6) &&
-      (safi == SAFI_ENCAP || safi == SAFI_MPLS_VPN))
+      (safi == SAFI_UNICAST
+       || safi == SAFI_ENCAP
+       || safi == SAFI_MPLS_VPN
+       || safi == SAFI_MPLS_LABELED_VPN))
     {
 	/* Tunnel Encap attribute */
 	bgp_packet_mpattr_tea(bgp, peer, s, attr, BGP_ATTR_ENCAP);
