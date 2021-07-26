@@ -847,7 +847,15 @@ rtm_read_mesg (struct rt_msghdr *rtm,
 
   /* We fetch each socket variable into sockunion. */
   RTA_ADDR_GET (dest, RTA_DST, rtm->rtm_addrs, pnt);
+
+  caddr_t opnt = pnt;
   RTA_ADDR_GET (gate, RTA_GATEWAY, rtm->rtm_addrs, pnt);
+  if (!gate->sa.sa_len) {
+    // No gateway address - interface name instead
+    pnt = opnt;
+    RTA_NAME_GET(ifname, RTA_GATEWAY, rtm->rtm_addrs, pnt, *ifnlen);
+  }
+
   RTA_ATTR_GET (mask, RTA_NETMASK, rtm->rtm_addrs, pnt);
   RTA_ADDR_GET (NULL, RTA_GENMASK, rtm->rtm_addrs, pnt);
   RTA_NAME_GET (ifname, RTA_IFP, rtm->rtm_addrs, pnt, *ifnlen);
@@ -873,8 +881,10 @@ rtm_read (struct rt_msghdr *rtm)
   int flags;
   u_char zebra_flags;
   union sockunion dest, mask, gate;
+  union sockunion *pgate = NULL;
   char ifname[INTERFACE_NAMSIZ + 1];
   short ifnlen = 0;
+  short ifindex = 0;
 
   zebra_flags = 0;
 
@@ -899,9 +909,14 @@ rtm_read (struct rt_msghdr *rtm)
   if ((rtm->rtm_type == RTM_ADD || rtm->rtm_type == RTM_CHANGE) && ! (flags & RTF_UP))
     return;
 
-  /* This is connected route. */
-  if (! (flags & RTF_GATEWAY))
-      return;
+  pgate = (flags & RTF_GATEWAY) ? &gate : NULL;
+  if (*ifname)
+    ifindex = ifname2ifindex_vrf(ifname, VRF_DEFAULT);
+
+  if (!pgate && !ifindex) {
+    zlog_debug ("%s: unknown route destination - no gateway, unknown iface: %s", __func__, ifname);
+    return;
+  }
 
   if (flags & RTF_PROTO1)
     SET_FLAG (zebra_flags, ZEBRA_FLAG_SELFROUTE);
@@ -926,75 +941,140 @@ rtm_read (struct rt_msghdr *rtm)
 	p.prefixlen = IPV4_MAX_PREFIXLEN;
       else
 	p.prefixlen = ip_masklen (mask.sin.sin_addr);
-      
-      /* Catch self originated messages and match them against our current RIB.
-       * At the same time, ignore unconfirmed messages, they should be tracked
-       * by rtm_write() and kernel_rtm_ipv4().
-       */
-      if (rtm->rtm_type != RTM_GET && rtm->rtm_pid == pid)
-      {
-        char buf[PREFIX_STRLEN], gate_buf[INET_ADDRSTRLEN];
-        int ret;
-        if (! IS_ZEBRA_DEBUG_RIB)
-          return;
-        ret = rib_lookup_ipv4_route (&p, &gate, VRF_DEFAULT);
-        prefix2str (&p, buf, sizeof(buf));
-        switch (rtm->rtm_type)
+
+      if (rtm->rtm_type != RTM_GET) {
+
+        /* Catch self originated messages and match them against our current RIB.
+         * At the same time, ignore unconfirmed messages, they should be tracked
+         * by rtm_write() and kernel_rtm_ipv4().
+         */
+        if (rtm->rtm_pid == pid)
         {
-          case RTM_ADD:
-          case RTM_GET:
-          case RTM_CHANGE:
-            /* The kernel notifies us about a new route in FIB created by us.
-               Do we have a correspondent entry in our RIB? */
-            switch (ret)
-            {
-              case ZEBRA_RIB_NOTFOUND:
-                zlog_debug ("%s: %s %s: desync: RR isn't yet in RIB, while already in FIB",
-                  __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
-                break;
-              case ZEBRA_RIB_FOUND_CONNECTED:
-              case ZEBRA_RIB_FOUND_NOGATE:
-                inet_ntop (AF_INET, &gate.sin.sin_addr, gate_buf, INET_ADDRSTRLEN);
-                zlog_debug ("%s: %s %s: desync: RR is in RIB, but gate differs (ours is %s)",
-                  __func__, lookup (rtm_type_str, rtm->rtm_type), buf, gate_buf);
-                break;
-              case ZEBRA_RIB_FOUND_EXACT: /* RIB RR == FIB RR */
-                zlog_debug ("%s: %s %s: done Ok",
-                  __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
-                rib_lookup_and_dump (&p);
-                return;
-                break;
-            }
-            break;
-          case RTM_DELETE:
-            /* The kernel notifies us about a route deleted by us. Do we still
-               have it in the RIB? Do we have anything instead? */
-            switch (ret)
-            {
-              case ZEBRA_RIB_FOUND_EXACT:
-                zlog_debug ("%s: %s %s: desync: RR is still in RIB, while already not in FIB",
-                  __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
-                rib_lookup_and_dump (&p);
-                break;
-              case ZEBRA_RIB_FOUND_CONNECTED:
-              case ZEBRA_RIB_FOUND_NOGATE:
-                zlog_debug ("%s: %s %s: desync: RR is still in RIB, plus gate differs",
-                  __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
-                rib_lookup_and_dump (&p);
-                break;
-              case ZEBRA_RIB_NOTFOUND: /* RIB RR == FIB RR */
-                zlog_debug ("%s: %s %s: done Ok",
-                  __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
-                rib_lookup_and_dump (&p);
-                return;
-                break;
-            }
-            break;
-          default:
-            zlog_debug ("%s: %s: warning: loopback RTM of type %s received",
-              __func__, buf, lookup (rtm_type_str, rtm->rtm_type));
+          char buf[PREFIX_STRLEN], gate_buf[INET_ADDRSTRLEN];
+          int ret;
+          if (! IS_ZEBRA_DEBUG_RIB)
+            return;
+          ret = rib_lookup_ipv4_route (&p, &gate, VRF_DEFAULT);
+          prefix2str (&p, buf, sizeof(buf));
+          switch (rtm->rtm_type)
+          {
+            case RTM_ADD:
+            case RTM_GET:
+            case RTM_CHANGE:
+              /* The kernel notifies us about a new route in FIB created by us.
+                 Do we have a correspondent entry in our RIB? */
+              switch (ret)
+              {
+                case ZEBRA_RIB_NOTFOUND:
+                  zlog_debug ("%s: %s %s: desync: RR isn't yet in RIB, while already in FIB",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
+                  break;
+                case ZEBRA_RIB_FOUND_CONNECTED:
+                case ZEBRA_RIB_FOUND_NOGATE:
+                  inet_ntop (AF_INET, &gate.sin.sin_addr, gate_buf, INET_ADDRSTRLEN);
+                  zlog_debug ("%s: %s %s: desync: RR is in RIB, but gate differs (ours is %s)",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf, gate_buf);
+                  break;
+                case ZEBRA_RIB_FOUND_EXACT: /* RIB RR == FIB RR */
+                  zlog_debug ("%s: %s %s: done Ok",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
+                  rib_lookup_and_dump (&p);
+                  return;
+                  break;
+              }
+              break;
+            case RTM_DELETE:
+              /* The kernel notifies us about a route deleted by us. Do we still
+                 have it in the RIB? Do we have anything instead? */
+              switch (ret)
+              {
+                case ZEBRA_RIB_FOUND_EXACT:
+                  zlog_debug ("%s: %s %s: desync: RR is still in RIB, while already not in FIB",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
+                  rib_lookup_and_dump (&p);
+                  break;
+                case ZEBRA_RIB_FOUND_CONNECTED:
+                case ZEBRA_RIB_FOUND_NOGATE:
+                  zlog_debug ("%s: %s %s: desync: RR is still in RIB, plus gate differs",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
+                  rib_lookup_and_dump (&p);
+                  break;
+                case ZEBRA_RIB_NOTFOUND: /* RIB RR == FIB RR */
+                  zlog_debug ("%s: %s %s: done Ok",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
+                  rib_lookup_and_dump (&p);
+                  return;
+                  break;
+              }
+              break;
+            default:
+              zlog_debug ("%s: %s: warning: loopback RTM of type %s received",
+                __func__, buf, lookup (rtm_type_str, rtm->rtm_type));
+          }
+          return;
         }
-        return;
+        else
+        {
+          char buf[PREFIX_STRLEN], gate_buf[INET_ADDRSTRLEN];
+          int ret;
+          ret = rib_lookup_ipv4_route (&p, &gate, VRF_DEFAULT);
+          prefix2str (&p, buf, sizeof(buf));
+
+          switch (rtm->rtm_type)
+          {
+            case RTM_ADD:
+            case RTM_GET:
+            case RTM_CHANGE:
+              /* The kernel notifies us about a new route in FIB created by us.
+                 Do we have a correspondent entry in our RIB? */
+              switch (ret)
+              {
+                case ZEBRA_RIB_NOTFOUND:
+                  break;
+                case ZEBRA_RIB_FOUND_CONNECTED:
+                case ZEBRA_RIB_FOUND_NOGATE:
+                  inet_ntop (AF_INET, &gate.sin.sin_addr, gate_buf, INET_ADDRSTRLEN);
+                  zlog_debug ("%s: %s %s: desync: RR is in RIB, but gate differs (ours is %s)",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf, gate_buf);
+                  return;
+                  break;
+                case ZEBRA_RIB_FOUND_EXACT: /* RIB RR == FIB RR */
+                  zlog_debug ("%s: %s %s: done Ok",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
+                  rib_lookup_and_dump (&p);
+                  return;
+                  break;
+              }
+              break;
+            case RTM_DELETE:
+              /* The kernel notifies us about a route deleted by us. Do we still
+                 have it in the RIB? Do we have anything instead? */
+              switch (ret)
+              {
+                case ZEBRA_RIB_FOUND_EXACT:
+                  zlog_debug ("%s: %s %s: desync: RR is still in RIB, while already not in FIB",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
+                  rib_lookup_and_dump (&p);
+                  break;
+                case ZEBRA_RIB_FOUND_CONNECTED:
+                case ZEBRA_RIB_FOUND_NOGATE:
+                  zlog_debug ("%s: %s %s: desync: RR is still in RIB, plus gate differs",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
+                  rib_lookup_and_dump (&p);
+                  break;
+                case ZEBRA_RIB_NOTFOUND: /* RIB RR == FIB RR */
+                  zlog_debug ("%s: %s %s: done Ok",
+                    __func__, lookup (rtm_type_str, rtm->rtm_type), buf);
+                  rib_lookup_and_dump (&p);
+                  return;
+                  break;
+              }
+              break;
+            default:
+              zlog_debug ("%s: %s: warning: loopback RTM of type %s received",
+                __func__, buf, lookup (rtm_type_str, rtm->rtm_type));
+          }
+        }
       }
 
       /* Change, delete the old prefix, we have no further information
@@ -1003,15 +1083,26 @@ rtm_read (struct rt_msghdr *rtm)
       if (rtm->rtm_type == RTM_CHANGE)
         rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
                          NULL, 0, VRF_DEFAULT, SAFI_UNICAST);
-      
-      if (rtm->rtm_type == RTM_GET 
-          || rtm->rtm_type == RTM_ADD
-          || rtm->rtm_type == RTM_CHANGE)
-        rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, &gate.sin.sin_addr,
-                      NULL, 0, VRF_DEFAULT, 0, 0, 0, 0, SAFI_UNICAST);
-      else
-        rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
-                         &gate.sin.sin_addr, 0, VRF_DEFAULT, SAFI_UNICAST);
+
+      if (pgate) {
+        if (rtm->rtm_type == RTM_GET
+            || rtm->rtm_type == RTM_ADD
+            || rtm->rtm_type == RTM_CHANGE)
+          rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, &gate.sin.sin_addr,
+                        NULL, ifindex, VRF_DEFAULT, 0, 0, 0, 0, SAFI_UNICAST);
+        else
+          rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
+                           &gate.sin.sin_addr, 0, VRF_DEFAULT, SAFI_UNICAST);
+      } else {
+        if (rtm->rtm_type == RTM_GET
+            || rtm->rtm_type == RTM_ADD
+            || rtm->rtm_type == RTM_CHANGE)
+          rib_add_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, NULL,
+                        NULL, ifindex, VRF_DEFAULT, 0, 0, 0, 0, SAFI_UNICAST);
+        else
+          rib_delete_ipv4 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
+                           NULL, VRF_DEFAULT, VRF_DEFAULT, SAFI_UNICAST);
+      }
     }
 #ifdef HAVE_IPV6
   if (dest.sa.sa_family == AF_INET6)
@@ -1045,8 +1136,8 @@ rtm_read (struct rt_msghdr *rtm)
       if (rtm->rtm_type == RTM_CHANGE)
         rib_delete_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p,
                          NULL, 0, VRF_DEFAULT, SAFI_UNICAST);
-      
-      if (rtm->rtm_type == RTM_GET 
+
+      if (rtm->rtm_type == RTM_GET
           || rtm->rtm_type == RTM_ADD
           || rtm->rtm_type == RTM_CHANGE)
         rib_add_ipv6 (ZEBRA_ROUTE_KERNEL, zebra_flags, &p, &gate.sin6.sin6_addr,
