@@ -511,6 +511,9 @@ access_list_filter_delete (struct access_list *access, struct filter *filter)
   /* If access_list becomes empty delete it from access_master. */
   if (access_list_empty (access))
     access_list_delete (access);
+  /* Otherwise restore the name so remaining filters stay reachable. */
+  else
+    access->name = XSTRDUP (MTYPE_ACCESS_LIST_STR, name);
   
   /* Run hook function. */
   if (master->delete_hook)
