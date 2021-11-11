@@ -82,7 +82,7 @@ Should a corporate vehicle ever be created to hold such assets it __must__:
 * Have all officers disclose all interests that could be
   seen to have a bearing on the project, as far as is reasonable.
 
-It not clear at this time that the overheads and potential liabilities of
+It is not clear at this time that the overheads and potential liabilities of
 such a vehicle would be appropriate for this project.  These principles
 should though still be applied, where possible, to any non-corporate body
 formed around the project.
@@ -185,7 +185,7 @@ GUIDELINES FOR HACKING ON QUAGGA {#sec:guidelines}
 ================================
 
 GNU coding standards apply.  Indentation follows the result of
-invoking GNU indent (as of 2.2.8a) with the -–nut argument.
+invoking GNU indent (as of 2.2.8a) with the `--nut` argument.
 
 Originally, tabs were used instead of spaces, with tabs are every 8 columns. 
 However, tab’s interoperability issues mean space characters are now preferred for
@@ -214,7 +214,7 @@ with \$) is:
 
 `$QuaggaId: <dollar>Format:%an, %ai, %h<dollar> $`
 
-See line 2 of HACKING.tex, the source for this document, for an example.
+See line 2 of `HACKING.tex`, the source for this document, for an example.
 
 This placeholder string will be expanded out by the ‘git archive’ commands,
 which is used to generate the tar archives for snapshots and releases.
@@ -224,9 +224,8 @@ in which it is declared.  And please consult existing headers for
 documentation on how to use existing functions.  In particular, please consult
 these header files:
 
-<span>lib/log.h</span> logging levels and usage guidance
-
-<span>[more to be added]</span>
+- `lib/log.h` logging levels and usage guidance
+- [more to be added]
 
 If changing an exported interface, please try to deprecate the interface in
 an orderly manner. If at all possible, try to retain the old deprecated
@@ -246,11 +245,11 @@ applicable), while allowing external sources to continue to build.
 Deprecated interfaces should be excised in the next unstable cycle.
 
 Note: If you wish, you can test for GCC and use a function
-marked with the ’deprecated’ attribute.  However, you must provide the
+marked with the `deprecated` attribute.  However, you must provide the
 warning for other compilers.
 
 If changing or removing a command definition, *ensure* that you
-properly deprecate it - use the \_DEPRECATED form of the appropriate DEFUN
+properly deprecate it - use the `_DEPRECATED` form of the appropriate `DEFUN`
 macro. This is *critical*.  Even if the command can no longer
 function, you *MUST* still implement it as a do-nothing stub.
 
@@ -321,7 +320,7 @@ COMPILE-TIME CONDITIONAL CODE
 
 Please think very carefully before making code conditional at compile time,
 as it increases maintenance burdens and user confusion. In particular,
-please avoid gratuitous -–enable-… switches to the configure script -
+please avoid gratuitous `--enable-...` switches to the configure script—
 typically code should be good enough to be in Quagga, or it shouldn’t be
 there at all.
 
@@ -406,7 +405,7 @@ Contributors are strongly encouraged to follow this form.
 This itemised commit messages allows reviewers to have confidence that the
 author has self-reviewed every line of the patch, as well as providing
 reviewers a clear index of which changes are intended, and descriptions for
-them (C-to-english descriptions are not desirable - some discretion is
+them (C-to-english descriptions are not desirable—some discretion is
 useful).  For short patches, a per-function/file break-down may be
 redundant.  For longer patches, such a break-down may be essential.  A
 contrived example (where the general discussion is obviously somewhat
@@ -424,22 +423,22 @@ redundant, given the one-line summary):
 Please have a look at the git commit logs to get a feel for what the norms
 are.
 
-Note that the commit message format follows git norms, so that “git log
-–oneline” will have useful output.
+Note that the commit message format follows git norms, so that
+`git log --oneline` will have useful output.
 
 HACKING THE BUILD SYSTEM
 ========================
 
-If you change or add to the build system (configure.ac, any Makefile.am,
-etc.), please heck that the following things still work:
+If you change or add to the build system (`configure.ac`, any `Makefile.am`,
+etc.), please check that the following things still work:
 
--   make dist
+-   `make dist`
 
 -   resulting dist tarball builds
 
 -   out-of-tree builds
 
-This can be achieved by running 'make distcheck'
+This can be achieved by running `make distcheck`
 
 The quagga.net site relies on make dist to work to generate snapshots. It
 must work. Common problems are to forget to have some additional file
@@ -451,21 +450,21 @@ RELEASE PROCEDURE
 
 To make a release:
 
--   Edit configure.ac, bump the version and commit the change with
-    a "release: <version" subject.
+-   Edit `configure.ac`, bump the version and commit the change with
+    a "release: \<version\>" subject.
 
-The 'release.sh' script should then be used. It should be run with 2
+The `release.sh` script should then be used. It should be run with 2
 arguments, the release tag for the release to be carried, and the tag of the
 previous release, e.g.:
 
 	release.sh quagga-1.1.1 quagga-1.1.0
 
-The 'release.sh' will carry out these steps for you:
+The `release.sh` will carry out these steps for you:
 
 -   Tag the appropriate commit with a release tag (follow existing
     conventions), with:
 
-	git tag -u <release signing key id> <quagga-release-tag>
+        git tag -u <release signing key id> <quagga-release-tag>
 
 -   Create a fresh tar archive of the quagga.net repository, and do a
     test build.  Use git archive to ensure it consists of files in the
@@ -484,31 +483,31 @@ The 'release.sh' will carry out these steps for you:
             
 	    gpg -u 54CD2E60 -a --detach-sign quagga-0.99.99.99.tar
 
-The 'release.sh' script, if finishes successfully,  will print out
+The `release.sh` script, if finishes successfully,  will print out
 instructions on the files it has created and the details on remaining steps
 to be carried out to complete the release. Which roughly are:
 
 -   Upload the release tarball, its PGP signature, and the full changelog
-    to the public release area on Savannah
+    to the public release area on Savannah.
 
 -   Add the version number on https://bugzilla.quagga.net/, under
     Administration, Products, “Quagga”, Edit versions, Add a version.
 
--   Post a news entry on Savannah
+-   Post a news entry on Savannah.
 
--   Send a mail to quagga-dev and quagga-users
+-   Send a mail to quagga-dev and quagga-users.
 
 If any errors occur, move tags as needed and start over again with the
 release.sh script.  Do not try to append stuff to tarballs, as this has
 produced non-standards-conforming tarballs in the past.
 
 [TODO: collation of a list of deprecated commands. Possibly can be
-scripted to extract from vtysh/vtysh\_cmd.c]
+scripted to extract from `vtysh/vtysh_cmd.c`]
 
 TOOL VERSIONS
 =============
 
-Require versions of support tools are listed in INSTALL.quagga.txt.
+Required versions of support tools are listed in `INSTALL.quagga.txt`.
 Required versions should only be done with due deliberation, as it can
 cause environments to no longer be able to compile quagga.
 
@@ -517,8 +516,8 @@ SHARED LIBRARY VERSIONING {#sec:dll-versioning}
 
 [this section is at the moment just gdt’s opinion]
 
-Quagga builds several shared libaries (lib/libzebra, ospfd/libospf,
-ospfclient/libsopfapiclient).  These may be used by external programs,
+Quagga builds several shared libaries (`lib/libzebra`, `ospfd/libospf`,
+`ospfclient/libsopfapiclient`).  These may be used by external programs,
 e.g. a new routing protocol that works with the zebra daemon, or
 ospfapi clients.  The libtool info pages (node Versioning) explain
 when major and minor version numbers should be changed.  These values
@@ -565,11 +564,11 @@ PATCH SUBMISSION {#sec:patch-submission}
     any coding.
 
 -   Send a clean diff against the ’master’ branch of the quagga.git
-    repository, in unified diff format, preferably with the ’-p’
-    argument to show C function affected by any chunk, and with the -w
-    and -b arguments to minimise changes. E.g:
+    repository, in unified diff format, preferably with the `-p`
+    argument to show C function affected by any chunk, and with the `-w`
+    and `-b` arguments to minimise changes. E.g:
 
-    git diff -up mybranch..remotes/quagga.net/master
+    `git diff -up mybranch..remotes/quagga.net/master`
 
     It is preferable to use git format-patch, and even more preferred to
     publish a git repository (see 
@@ -586,8 +585,8 @@ PATCH SUBMISSION {#sec:patch-submission}
 
 -   Include only one semantic change or group of changes per patch.
 
--   Do not make gratuitous changes to whitespace. See the w and b
-    arguments to diff.
+-   Do not make gratuitous changes to whitespace. See the `-w` and `-b`
+    arguments to `diff`.
 
 -   Changes should be arranged so that the least controversial and most
     trivial are first, and the most complex or more controversial are
@@ -598,7 +597,7 @@ PATCH SUBMISSION {#sec:patch-submission}
     much easier for maintainers to have confidence that they will be
     able to support your change.
 
--   New code should be arranged so that it easy to verify and test. E.g.
+-   New code should be arranged so that it is easy to verify and test. E.g.
     stateful logic should be separated out from functional logic as much
     as possible: wherever possible, move complex logic out to smaller
     helper functions which access no state other than their arguments.
@@ -621,22 +620,22 @@ PATCH APPLICATION
 -   If the patch might break something, issue a call for testing on the
     mailing-list.
 
--   Give an appropriate commit message (see above), and use the –author
+-   Give an appropriate commit message (see above), and use the `--author`
     argument to git-commit, if required, to ensure proper attribution
-    (you should still be listed as committer)
+    (you should still be listed as the committer)
 
 -   Immediately after commiting, double-check (with git-log and/or
-    gitk). If there’s a small mistake you can easily fix it with ‘git
-    commit –amend ..’
+    gitk). If there’s a small mistake you can easily fix it with
+    `git commit --amend ..`
 
 -   When merging a branch, always use an explicit merge commit. Giving
-    –no-ff ensures a merge commit is created which documents “this human
+    `--no-ff` ensures a merge commit is created which documents “this human
     decided to merge this branch at this time”.
 
 STABLE PLATFORMS AND DAEMONS
 ============================
 
-The list of platforms that should be tested follow.  This is a list
+The list of platforms that should be tested follows.  This is a list
 derived from what quagga is thought to run on and for which
 maintainers can test or there are people on quagga-dev who are able
 and willing to verify that -current does or does not work correctly.
@@ -687,7 +686,7 @@ USEFUL URLs
     <https://buildbot.quagga.net>
 
     It tests commits and  jobs submitted on local changes via
-    'buildbot try ...' for developers.
+    `buildbot try ...` for developers.
 
 *   Patchwork tracks any patches emailed to the quagga-dev list, and is at:
 
@@ -698,7 +697,7 @@ BUILDBOT
 ========
 
 The buildbot client can be used to test changes before committing, with
-"buildbot try".
+`buildbot try`.
 
 -   Ask for a buildbot account
 
@@ -733,7 +732,7 @@ The buildbot client can be used to test changes before committing, with
     $ buildbot try -c pb -b build-distcheck
     ~~~~~
 
--  To test a series of locally committed change use git diff:
+-  To test a series of locally committed changes use `git diff`:
 
     ~~~~
     git diff <base rev>.. | buildbot try -c pb --vc git \
