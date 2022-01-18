@@ -1151,7 +1151,7 @@ AC_CHECK_FUNCS(getaddrinfo, [have_getaddrinfo=yes], [have_getaddrinfo=no])
 dnl ----------
 dnl IPv6 check
 dnl ----------
-AC_MSG_CHECKING(whether does this OS have IPv6 stack)
+AC_MSG_CHECKING(whether this OS has an IPv6 stack)
 dnl ---------
 dnl KAME IPv6
 dnl ---------
@@ -1174,7 +1174,7 @@ dnl ----------
     AC_MSG_ERROR([Failed to detect IPv6 stack])
   fi
 
-dnl this is unconditial, for compatibility
+dnl this is unconditional, for compatibility
 AC_DEFINE(HAVE_IPV6,1,IPv6)
 
 dnl ------------------
