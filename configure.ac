@@ -754,7 +754,7 @@ dnl	 [TODO] on Linux, and in [TODO] on Solaris.
 	      )]
 	    )]
 	  )
-         AC_CHECK_LIB(readline, main, LIBREADLINE="-lreadline $LIBREADLINE",,
+         AC_CHECK_LIB(readline, readline, LIBREADLINE="-lreadline $LIBREADLINE",,
                       "$LIBREADLINE")
          if test $ac_cv_lib_readline_main = no; then
            AC_MSG_ERROR([vtysh needs libreadline but was not found and usable on your system.])
